@@ -369,17 +369,24 @@ Two different things, both stated here so the record is unambiguous:
   `demo/icons/*`, `demo/manifest.webmanifest`, `demo/sw.js`, whose branding strings still read
   "WebWallGL") are redistributed **unchanged**, together with this project's run-time patch
   `demo/bench-patch.js` (our code, GPL-3.0-or-later; it does not modify the minified artifacts).
-  The MIT notice required by the licence above **ships inside the directory as
-  `demo/LICENSE-webwallgl-MIT.txt`** (verbatim MIT text + attribution + a statement of what is
-  upstream and what is ours), and `demo/` contains no wallpaper package, preview image, audio,
+  The MIT notice required by the licence above **ships inside the directory, in two equivalent
+  copies**: `demo/LICENSE-webwallgl-MIT.txt` (written by the repository line: verbatim MIT text +
+  attribution + a statement of what is upstream and what is ours) and `demo/LICENSE-webwallgl`
+  (the same licence under this repository's `<LICENSE>-<upstream>` naming habit; P-93 added it,
+  and neither file may be deleted). `demo/` contains no wallpaper package, preview image, audio,
   video or Workshop content — its default scene is this repository's own synthetic sample
-  (`samples/sample-synthetic/`).
+  (`samples/sample-synthetic/`), and the page states that on screen.
+  The redistributed build is also reachable online as the Pages demo: `/demo/` is the canonical
+  entry, and the build additionally stages the same files under `/wallpaper-engine-webgl/`
+  because the minified bundle hard-codes that prefix (`build-pages.mjs`, `docs/ONLINE-DEMO.md` §2.1).
 * **Also reproduced in our own code.** The shader shown in §6.1 (`FXAA_FS`) is a verbatim port into
   `we-scene-bundle.js`.
 
 MIT → GPL-3.0-or-later is a permitted one-way flow (`docs/COPYING-RULES.md` §2.1), so
 redistributing the MIT build inside this GPL repository is fine **provided the MIT notice keeps
-travelling with it** — which is what `demo/LICENSE-webwallgl-MIT.txt` does.
+travelling with it** — which is what the two `demo/LICENSE-webwallgl*` files do.
+`publish-check.mjs` check ④ enforces this automatically: any file path matching `webwallgl` must
+come with a `LICENSE`/`COPYING` file containing the word "MIT".
 
 ---
 

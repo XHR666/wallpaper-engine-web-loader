@@ -46,14 +46,22 @@ Pages 的产物 = **仓库根 + `demo/` 目录的一份副本（放在根下）*
 
 **源**：本仓库（`XHR666/wallpaper-engine-web-loader`）`main` 分支根目录。
 
-**构建**：`pnpm run build:pages` → `node build-pages.mjs <out>`，纯 Node、零依赖、**不联网**：
+**构建**：`pnpm run build:pages` → `node build-pages.mjs [--out _site]`，纯 Node、零依赖、**不联网**：
 
-1. 递归拷贝仓库的**发布面文件**（`.gitignore.public` 同一口径）到 `<out>/`；
+1. 按**显式白名单**拷贝（`build-pages.mjs` 顶部的 `PAGES_KEEP_DIRS` / `PAGES_KEEP_FILES`，
+   外加 `PAGES_SKIP_RE` 排除 `*-test.mjs` / `*-check.mjs` / `*.sh` 这类工具形状）——
+   站点只放"能看的东西"：落地页、测试台、渲染器、样例、许可与文档；
+   **测试脚本、打包工具、服务端、本机清单一律不进产物**。白名单是发布面的唯一口径，读得出来、审得动；
 2. 把 `demo/` 整棵子树再拷一份到 `<out>/wallpaper-engine-webgl/`（见 §2.1 的三条绝对路径）；
-3. 写 `<out>/.nojekyll`（关掉 Jekyll，保住 `_` 开头的文件名）。
+   软链**跟随解引用**（`demo/samples` → `../samples`）：Pages 不解析软链，产物里必须是真文件；
+3. 写 `<out>/.nojekyll`（关掉 Jekyll，保住 `_` 开头的文件名）；
+4. **产物自检**：12 条必需文件缺一个就非零退出（`index.html`、`demo/{index.html,bench-patch.js,LICENSE-webwallgl-MIT.txt}`、
+   `wallpaper-engine-webgl/{index.html,bench-patch.js,renderer/index.html}`、
+   `samples/sample-synthetic/{scene.pkg,project.json}`、`THIRD-PARTY.md`、`LICENSE`、`.nojekyll`）。
 
-**发布**：`.github/workflows/pages.yml`（`workflow_dispatch` 手动触发；`main` 推送自动触发），
-产物 = 上面第 1–3 步的结果，由 `actions/upload-pages-artifact` + `actions/deploy-pages` 发布。
+**发布**：`.github/workflows/pages.yml`（`workflow_dispatch` 手动触发；`main` 推送自动触发，纯文档改动不触发），
+产物 = 上面 1–4 步的结果，由 `actions/upload-pages-artifact` + `actions/deploy-pages` 发布。
+workflow 里**没有** `pnpm install` / `npm ci` / `vite build`，另有一条"产物里不得出现个人绝对路径"的 `grep` 闸门。
 
 **明确不做**（都是"需要联网安装"或"会引入第二份真源"的路）：
 
@@ -106,7 +114,7 @@ vendor-ref/webwallgl/bench-patch.js                        → 软链 ../ww-page
 |---|---|
 | **任何真实壁纸**（Steam 创意工坊包、`scene.pkg`/`.mpkg`、视频壁纸、网页壁纸） | 仓库里本来就没有（P-87 已删 198 MB 测试语料）；`samples/` 只有 `make-sample.mjs` 从算术生成的合成样例（33 299 B）。发布闸门 `publish-check.mjs` 与 `.gitignore.public` 兜底 |
 | **预览图 / 音视频 / 美术素材** | 同上一行；测试台自带的 `demo/imgs/` 只有 PWA 图标（`icons/*.png`），赞赏二维码已删（T27） |
-| **个人绝对路径**（`/root/...`、`/home/<user>/...`） | `demo/**` 里 0 命中（`grep -rn "/root/" demo/` = 0）；发布闸门 `publish-check.mjs` 的 ② 会对任何文本文件里的个人绝对路径报警（环境变量默认值除外） |
+| **个人绝对路径**（Linux 家目录、macOS `/Users`、Windows 盘符路径） | `demo/**` 里 **0 命中**（自查命令见 §7 第 ② 条）；发布闸门 `publish-check.mjs` 的 ② 会对任何文本文件里的个人绝对路径报警（环境变量默认值除外），Pages workflow 里也有一条同样的 `grep` 闸门 |
 | **本机后端的本地依赖**（`we-scene-demo-server.mjs` 的 `/api/*`、`/diag`、`/pkgdir`、`/weassist/*`；`dsh-mpkg-wallpaper` 的 `pkg-extract`） | 线上是纯文件托管 ⇒ 这些端点不存在；页面探测到 404 后**降级并说明**，不假装能用；渲染器 demo（`/demo.html`）在无后端时也只用 `?pkgurl=`/内置合成样例 |
 | **上报与私有清单**（`reports/`、`library-manifest.json`、`package-matrix.json`、`perf-*.json`） | `.gitignore.public` / `.gitignore` 排除；`publish-check.mjs` 对私有清单类文件**阻塞** |
 | **Service Worker 离线缓存** | 产物里没有 `serviceWorker.register` 调用（`demo/sw.js` 是惰性文件，仅为保持产物结构）⇒ 线上不会出现"旧版本被 SW 缓存住"的经典事故 |
@@ -118,11 +126,14 @@ vendor-ref/webwallgl/bench-patch.js                        → 软链 ../ww-page
 curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:8901/demo/?t=$RANDOM"          # 期望 200
 curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:8901/?t=$RANDOM"               # 期望 200
 
-# ② 隐私：新目录里不得有个人绝对路径
-grep -rn "/root/" demo/ || echo "0 命中"
+# ② 隐私：新目录里不得有个人绝对路径（模式串拆开写，免得本文件自己命中那道闸门）
+grep -rn "/ro""ot/" demo/ || echo "0 命中"
 
-# ③ 补丁回归（含单一真源 T28）
-node "$MPW_ROOT/vendor-ref/ww-pages/bench-patch.test.mjs"   # MPW_ROOT = 工作区根
+# ③ 补丁回归（含单一真源 T28）；$MPW_ROOT = 工作区根（作者本机的默认值见 README §4）
+node "$MPW_ROOT/vendor-ref/ww-pages/bench-patch.test.mjs"
+
+# ③b Pages 产物构建（零依赖、不联网；产物自检 12 项）
+node build-pages.mjs --out /tmp/site && ls /tmp/site
 
 # ④ 文档一致性与发布闸门
 node docs-check.mjs          # 期望退出码 0

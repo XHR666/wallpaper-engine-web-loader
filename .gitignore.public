@@ -4,6 +4,7 @@
 # 本机数据（上报、私有库清单、基线、实验残留）一律不进仓库。与 `publish-check.mjs` 配套使用。
 
 # ── 本机运行数据 ──
+_site/           # build-pages.mjs 的产物（Pages 构建输出，由 CI 重建）
 reports/
 *.log
 /tmp-*

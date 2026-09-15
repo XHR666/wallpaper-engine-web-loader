@@ -21,6 +21,17 @@
 // ⚠ 重建纪律：本文件里 ③④（i18n 全量切换、诊断离线态）已在源码 bench/i18n.ts + bench/bench.ts
 //   里用正规写法实现，**重建后可删对应 init 段**；②（自绘紧凑下拉）与 ⑨（鼠标尾迹）尚未回写
 //   源码（产物版无 TS 编译校验，直接改 TS 有不可验证风险），搬迁清单见 PATCH-NOTES.md §2/§4。
+//
+// 第六批（**P-96 在线 demo**，见 we-scene-demo/PATCHES.md P-96 与 docs/ONLINE-DEMO.md）：
+//   本文件现在是**唯一真源**（物理文件在 we-scene-demo/demo/，两条软链指过来）：
+//     vendor-ref/ww-pages/wallpaper-engine-webgl/bench-patch.js  → 真源
+//     vendor-ref 下的 webwallgl 检出里的 bench-patch.js            → 上一条（链式）
+//   ① 线上形态判定 onlineDemoEnv()：GitHub Pages 这类"设计上就没有本机后端"的部署换一套文案；
+//   ② 产物里写死的 /wallpaper-engine-webgl/ 前缀在运行期改写成相对本页（iframe src / SW 脚本）；
+//   ③ 默认壁纸 = 本仓库自造的合成样例 samples/sample-synthetic/scene.pkg（`?sample=0` 关、`?sample=<url>` 换）；
+//   ④ 页面上把"在线版没有本机后端"写清楚（静态横幅 + 运行期同源同义文案）。
+//   开关：?online=0 强制本机口径；?sample=0 不自动载入合成样例。
+//   ⚠ 将来产物能重建时，①②③④ 都应回写源码 bench/ 再删掉本文件对应段。
 
 /* ============================ 词典（由 bench/i18n.ts 机械生成，勿手改） ============================ */
 // 生成方式：node -e "…解析 bench/i18n.ts 的 DICT…"（见 PATCH-NOTES.md §3）；bench-patch.test.mjs

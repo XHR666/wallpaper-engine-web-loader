@@ -4707,7 +4707,7 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 2. **`AnisPaper` 的 only/or-later 表述冲突**未核实（`docs/LICENSE-COMPAT-REVIEW.md` 已列为未定项）；本轮未借其代码。
 3. **`tools/` 删除后若有用户依赖**这些 Python 工具，需要另行通知并给替代（本轮未通知任何用户；
    研究结论仍在 `dsh-mpkg-wallpaper/tools/MDL-格式分析笔记.md` 与 `dsh-mpkg-wallpaper/docs/`）。
-4. **profile 里在跑的旧副本未同步**：`/root/.dsh/profiles/web/node_modules/dsh-mpkg-wallpaper/lib/pkg-extract.js`
+4. **profile 里在跑的旧副本未同步**：`$MPW_ROOT/.dsh/profiles/web/node_modules/dsh-mpkg-wallpaper/lib/pkg-extract.js`
    仍是含同源段的旧版本；且 `update-plugin.sh` **只同步 client.js/index.js/package.json/cordis.patch.yml，
    不含 pkg-extract.js** ⇒ 需要手工 `cp` 该文件到 profile 才会让重写生效（本轮按"不发布/不动运行环境"处理，未同步）。
 5. **`webwallgl` 的 MIT 声明文件**：上游仓库里确有 LICENSE，但本仓库未 vendored ⇒ 只登记"未分发"；
@@ -5186,3 +5186,118 @@ vendored 代码的 MIT 声明 —— 而本补丁的 vendored 目录叫 `vendor/
 
 **验证**：`bash run-all-tests.sh` 全绿（含新增 `clean-room-alpha`）；`node docs-check.mjs` rc=0；
 `node diag-flag-check.mjs` → 0 差异（117 个开关，数字未变）。
+
+---
+
+## P-96（2026-09-16 在线 demo）测试台并入仓库 + 落地页 + GitHub Pages 发布形态 —— **单一真源靠软链 + inode 断言锁死**
+
+> 任务书：把「打过我们补丁的测试台」作为**在线 demo** 写进渲染器仓库并用 GitHub Pages 发布；
+> **不 push 到 npm**（npm 未登录）。本批**没有** commit / push / 发布 —— 只把文件放好并自证。
+> 形态口径先落文档：**`docs/ONLINE-DEMO.md`**（页面结构 / Pages 源与构建 / "哪些东西不会出现在线上"）。
+
+### P-96.1 目录形态：真源进仓库，历史读取路径改软链
+
+| 位置 | 角色 | 说明 |
+|---|---|---|
+| `we-scene-demo/demo/**` | **唯一真源**（随仓库分发） | 上游 WebWallGL 静态产物（原样）+ 我们的运行期补丁 `demo/bench-patch.js` |
+| `we-scene-demo/demo/samples` | 软链 → `../samples` | 合成样例**不复制第二份**（`samples/sample-synthetic/scene.pkg` 33 299 B 只有一份） |
+| `vendor-ref/ww-pages/wallpaper-engine-webgl` | 软链 → `../../we-scene-demo/demo` | `:8901` 静态台的读取路径（历史路径保持不变 ⇒ `curl /wallpaper-engine-webgl/` 仍 200） |
+| `vendor-ref/webwallgl/bench-patch.js` | 软链 → `vendor-ref/ww-pages/wallpaper-engine-webgl/bench-patch.js`（软链目标，仓库外） | vite 宿主（`:1430`）原有那条链**没动**，仍然指到同一个 inode |
+| `vendor-ref/ww-pages/index.html` | 软链 → `vendor-ref/ww-pages/wallpaper-engine-webgl/index.html`（软链目标，仓库外） | 旧根入口的浅兼容（相对资源按 URL 解析，规范入口是 `/wallpaper-engine-webgl/`） |
+
+**为什么把物理文件搬进仓库、把 `vendor-ref/` 留成软链**（而不是反过来）：
+`vendor-ref/**` 在仓库外、不进发布面（`.gitignore.public` 口径），而在线 demo **必须**有实体文件才发得出去；
+反过来放（真源留在 `vendor-ref/`）则线上没有文件可发。软链方向变了，但"**只有一个物理文件**"没变：
+
+* `vendor-ref/ww-pages/bench-patch.test.mjs` 的 `import './wallpaper-engine-webgl/bench-patch.js'` 经软链解析到真源；
+* 新钉 **T28**：两侧 `realpath` + `fs.statSync().ino` **同一 inode**（不是"内容相同"，是同一个文件）；
+* T24 追加：`realpath` 必须落在 `we-scene-demo/demo/bench-patch.js`，且页面相对引入的 ./bench-patch.js 解析到同一文件。
+* 运行期零影响：bench-patch.js 的 `import.meta`/相对解析一律按**真源目录**（`demo/`）解析 ⇒ `demo/samples` 软链照旧可用。
+
+### P-96.2 产物里那三条写死的绝对路径（**这是本批最大的技术约束**）
+
+上游静态产物是 minified 且**不可重建**（本机离线装不上依赖，见 `vendor-ref/ww-pages/PATCH-NOTES.md` §0（仓库外）），它写死了：
+
+1. `/wallpaper-engine-webgl/renderer/index.html`（测试台 iframe 的渲染器页，3 处 `frame.src=`）；
+2. `/wallpaper-engine-webgl/sw.js`（`serviceWorker.register`，产物自带 `.catch(()=>{})`）；
+3. `/wallpaper-engine-webgl/default-wallpaper/index.html`（渲染器页兜底壁纸）。
+
+处理方式：**HTML 里的引用一律改相对本页**（`<base href="./">` + `./assets/…` + `demo/bench-patch.js`，
+两个挂载点 `:8901` 的 `/wallpaper-engine-webgl/` 与 Pages 的 `/demo/` 都成立），
+产物内部那三条由 bench-patch.js **运行期前缀改写**（`demoAssetUrl` / 对 `HTMLIFrameElement.prototype.src`
+做一次只认该前缀的包装）；同时 `build-pages.mjs` 把 `demo/` 在产物里再放一份到 `/wallpaper-engine-webgl/`
+（**产物**里两份、**仓库**里一份）。真机验证见 P-96.6。
+
+### P-96.3 静态托管下的优雅降级（不假装能用）
+
+* 新增 `onlineDemoEnv()`（纯函数）：Pages 域名 ⇒ 在线形态；`127.0.0.1/localhost/::1/0.0.0.0/*.local/局域网/`file://``
+  一律**不**算在线；`?online=0` 可强制按本机口径。
+* `backendMode/backendNotice/diagReasonText` 增加 `online` 分支：在线时**不再**说"去跑 `pnpm dev`"（对访客无意义），
+  改说"在线版就是没有本机后端，这是设计如此"；也**不**再打"本机依赖不全"那行（那是作者本机的状态）。
+* 页面上写死一条 **静态横幅** `#bench-online-notice`（中英双语，不依赖 JS 与后端）+ 运行期同源同义注入
+  （`onlineDemoNotice()`，随语言切换刷新）；页脚 `#bench-credit` 保留上游外链与两份许可文件的链接。
+* 真机实测：静态托管下控制台只剩 `/api/library`、`/api/diag-stream` 的 404（刻意探测），**没有**其它报错。
+
+### P-96.4 默认壁纸 = 我们的合成样例（不得内置任何真实壁纸）
+
+* `defaultSamplePlan()`（纯函数）：默认 `./samples/sample-synthetic/scene.pkg`；`?sample=0` 关掉、`?sample=<url>` 换来源。
+* `loadDefaultSample()`：`fetch` 该包 + 同名 `project.json` → `__wp.loadSceneFile(<Blob>, project)`。
+  **坑（真机踩到）**：渲染器的 source 契约是 `scenePkg: () => t.arrayBuffer()`，喂**裸 ArrayBuffer** 会
+  `t.arrayBuffer is not a function` ⇒ 必须给 `Blob`；又不能用 `new File(...)`（T17 的"定义↔调用"审计把裸全局构造器
+  判成未定义标识符）。
+* 本机静态台与线上都自动载一次（"打开就有画面"两边一致）；`:1430` vite 宿主有真 Node 后端 ⇒ 不抢它的默认壁纸。
+* 合成样例是 `make-sample.mjs` 生成的 33 299 B、sha256 `cceb7b94…`，无第三方内容 ⇒ 无需署名（见 `samples/README.md`）。
+
+### P-96.5 落地页与 Pages 构建
+
+* 新增根 `index.html`（落地页）：一句话定位 + **中英免责声明逐字** + 三个入口（`/demo/`、`/demo.html`、`/samples/README.md`）
+  + 一张"在线有什么/没有什么"表 + 许可与致谢（README / THIRD-PARTY / COPYING-RULES / `LICENSE` / 两份 webwallgl 许可）。
+* 新增 `build-pages.mjs`：**零依赖、不联网、不改源文件**；按**显式白名单**（`PAGES_KEEP_*` + `PAGES_SKIP_RE`）
+  出产物，`demo/` 再放一份到 `/wallpaper-engine-webgl/`，写 `.nojekyll`，最后 12 项必需文件自检（缺一即非零退出）。
+* 新增 `.github/workflows/pages.yml`：`actions/upload-pages-artifact` + `actions/deploy-pages`，
+  构建步骤**没有** `pnpm install`/`npm ci`/`vite build`，另有一条"产物里不得出现个人绝对路径"的 grep 闸门。
+* `package.json` 增 `build:pages` 脚本。
+
+### P-96.6 测试与自证（本轮实跑）
+
+| 项目 | 结果 |
+|---|---|
+| `node vendor-ref/ww-pages/bench-patch.test.mjs` | **241 通过 / 0 失败**（改前 239；本批 +2：T24 物理唯一 + T28） |
+| `node docs-check.mjs` | 退出码 **0** |
+| `node build-pages.mjs --out /tmp/site-test` | 产物 180 个文件，12 项必需文件自检通过 |
+| `curl "http://127.0.0.1:8901/wallpaper-engine-webgl/?t=$RANDOM"` | **200**（13 条关键资源逐一 200，见 P-96.7） |
+| `grep -rn "/ro""ot/" demo/` | **0 命中** |
+| 真机（Chromium/SwiftShader，Playwright） | 默认样例真的挂载：日志 已载入合成样例：`samples/sample-synthetic/scene.pkg`，`getDefaultSample()` = `{ok:true,bytes:33299,hasProject:true}`；`?sample=0` 时 `{ok:false,reason:'sample-flag-off'}`（不空载） |
+| 真机（Pages 布局：反向代理把 `/demo/` 映射到仓库根） | 入口资源全 200（产物内 ./assets/*、./bench-patch.js）；`remapDemoUrl('/wallpaper-engine-webgl/renderer/index.html?_t=1')` ⇒ `./renderer/index.html?_t=1`；横幅/后端降级文案就位 |
+
+**关键资源 200 清单**（全部带 cache-buster，`:8901` 不发 Cache-Control）：
+`/wallpaper-engine-webgl/`、`demo/renderer/index.html`、bench-patch.js、`assets/{bench-DSKWIqmS.js,bench-HtRiuWm6.css,renderer-BOSoB05I.js,modulepreload-polyfill-B5Qt9EMX.js}`、
+`samples/sample-synthetic/{scene.pkg,project.json}`、`demo/icons/pwa-192.png`、`manifest.webmanifest`、`LICENSE-webwallgl-MIT.txt`。
+
+### P-96.7 明确**未做 / 没验**的
+
+1. **线上没验过**：仓库未 push、Pages 未开 ⇒ `pages.yml` 首次运行、CI 产物、线上真机观感都**没有**证据。
+   本批只保证"本机构建产物 + 真机 Pages 布局（代理复现）"两条。
+2. **测试台默认壁纸的像素级画面没验**：真机挂载成功、日志与 `getDefaultSample()` 都绿，
+   但 WebGL 渲染那一步在换 `Blob` 之后**没有再跑一轮像素探针**（首轮探针在渲染期把标签页做崩了 —— 本机内存紧，
+   SwiftShader 软件渲染 810 KB 渲染器 + 场景，`free` 只剩 ~3 GB）。**"画面真的画出来了"缺一条像素证据。**
+3. **`sw.js` 的注册**：产物在 `/demo/` 挂载下注册失败（`A bad HTTP response code (404)`），
+   已按上游原本的 `.catch(()=>{})` 语义吞掉、不影响页面；**没有**去查 Chromium 为何不发出 `sw.js` 请求
+   （推测与注册 scope/路径有关）。我们**有意**不主动注册 SW（避免"旧版本被缓存住"）。
+4. **移动端未适配**：测试台是桌面三栏工作台；窄屏只是可用性下降。
+5. **`demo/assets/*.js` 仍是上游 minified 产物**：本轮**没有**重建（离线装不上依赖），
+   所以补丁全部是运行期行为；将来能重建时应把那三段运行期改写（iframe src/SW 前缀、在线横幅、默认样例）
+   回写到源码 `bench/`，然后删掉 bench-patch.js 的对应段。
+6. **`publish-check.mjs` 未改**：它对 `webwallgl` 文件名要求随附 MIT 声明的第 ④ 条本来就能覆盖
+   `demo/LICENSE-webwallgl*`；本轮**没有**把 `demo/` 加进它的发布面白名单（该脚本按 `.gitignore.public` 走，
+   与新白名单是两套口径 —— 这是 P-96.8 的口径债）。
+7. **口径债**：`build-pages.mjs` 的白名单与 `.gitignore.public` 是**两处**，不同步时会出现
+   "本地产物多/少文件"（当前靠 `publish-check.mjs` 交叉核对，未做机器一致性断言）。
+
+### P-96.8 许可
+
+上游 WebWallGL 是 **MIT © 2026 oneincase**（`vendor-ref/webwallgl/LICENSE`）；测试台是其静态构建产物的
+**补丁版再分发**，故 `demo/` 内随附两份等价许可：`demo/LICENSE-webwallgl-MIT.txt`（建仓线撰写）与
+`demo/LICENSE-webwallgl`（本批撰写，同一许可的简短登记）；两份**都在、都不许删**。
+MIT → GPL-3.0-or-later 合法（`docs/COPYING-RULES.md` §2.1），登记在 `THIRD-PARTY.md` §6.4。
+**没有**任何真实壁纸、预览图、音视频进仓库（P-87 的结论继续保持）。

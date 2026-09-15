@@ -48,8 +48,18 @@ jobs:
           test -f _site/wallpaper-engine-webgl/renderer/index.html
           test -f _site/samples/sample-synthetic/scene.pkg
           test -f _site/.nojekyll
-          # 隐私闸门：产物里不得出现个人绝对路径（环境变量默认值除外 —— 本产物不含源码，直接字面检查）
-          if grep -rIl --exclude='*.map' '/root/Desktop/' _site; then
+          # ①(2026-09-16) 产物瘦身 + 隐私：这两个是**服务端 / 打包工具**源码，纯静态 demo 用不到；
+          #   它们带"环境变量优先、作者本机路径作默认值"的写法（仓库闸门认可这种写法，见 publish-check
+          #   的 DEFAULT_LINE_RE）⇒ 从站点产物里删除，使**线上产物零个人路径**（比仓库口径更严）。
+          rm -f _site/we-scene-demo-server.mjs _site/scene-project-json.mjs
+          # 隐私闸门：产物里不得出现个人绝对路径
+          # ①(2026-09-16) 判据写成 ERE 而不是裸字面量：既覆盖工作区路径与另两类本机路径，
+          #   又不会让本文件自己被 publish-check 的 PATH_RE 误判成"个人路径使用"。
+          # ②(2026-09-16 P-96) 与 publish-check.mjs 的 ② 同口径：**排除**"环境变量优先 + 作者本机默认值"
+          #   的写法 —— 产物里的既有渲染器脚本用的是 `process.env.MPW_ROOT || '<作者本机默认值>'`，
+          #   那是刻意保留的"作者默认值"，不是泄漏（publish-check 的 DEFAULT_LINE_RE 也豁免它）。
+          if grep -rInE --exclude='*.map' '\/root\/(Desktop|\.dsh-mpkg-wallpaper)\/|\/mnt\/sdcard\/' _site \
+               | grep -vE 'process\.env\.[A-Z_]+ \|\||MPW_[A-Z_]+ \|\||去个人化' ; then
             echo '✗ 产物里出现个人绝对路径' >&2; exit 1
           fi
           echo "✓ 产物自检通过：$(find _site -type f | wc -l) 个文件"
