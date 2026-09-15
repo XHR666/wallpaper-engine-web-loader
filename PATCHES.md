@@ -5301,3 +5301,91 @@ vendored 代码的 MIT 声明 —— 而本补丁的 vendored 目录叫 `vendor/
 `demo/LICENSE-webwallgl`（本批撰写，同一许可的简短登记）；两份**都在、都不许删**。
 MIT → GPL-3.0-or-later 合法（`docs/COPYING-RULES.md` §2.1），登记在 `THIRD-PARTY.md` §6.4。
 **没有**任何真实壁纸、预览图、音视频进仓库（P-87 的结论继续保持）。
+
+---
+
+## P-97（2026-09-16 发布）**首次公开发布**：GitHub 仓库 + npm 包 `wallpaper-engine-web-loader@0.1.0`
+
+### P-97.1 事实（可复跑）
+
+| 项 | 值 |
+|---|---|
+| GitHub 仓库 | <https://github.com/XHR666/wallpaper-engine-web-loader> —— **public**，默认分支 `main` |
+| 首次提交 | `987d9b3` 渲染器仓库成形：GPL-3.0-or-later + 参考致谢 + 发布面清单 |
+| 同批提交 | `c01704a` Pages 构建入口 + 忽略产物；`a7d8615` Pages 改走 `build-pages.mjs` 产物 |
+| 入库文件数 | **281**（`git ls-files | wc -l`）；`.git` **6.8 MB** |
+| npm 包 | `wallpaper-engine-web-loader@0.1.0`，`license: GPL-3.0-or-later` |
+| npm 发布时刻 | `2026-09-15T19:47:02Z`（`npm view … time`） |
+| tarball | <https://registry.npmjs.org/wallpaper-engine-web-loader/-/wallpaper-engine-web-loader-0.1.0.tgz> |
+| tarball 规格 | **132 文件 / 2.0 MB（tgz）/ 5 122 788 B（解包）**；shasum `a2af04274bbd0b61c7622ffae72ef20013a54a4d` |
+| 在线 demo | <https://xhr666.github.io/wallpaper-engine-web-loader/>（GitHub Pages，`build_type: workflow`） |
+
+执行命令（原文）：
+
+```bash
+gh repo create XHR666/wallpaper-engine-web-loader --public --source=. --remote=origin --push
+npm publish --registry=https://registry.npmjs.org --access public
+# → + wallpaper-engine-web-loader@0.1.0
+```
+
+### P-97.2 发布前闸门（以最新工作树重跑）
+
+- `node docs-check.mjs` → **rc=0**
+- `node publish-check.mjs` → **0 阻塞、0 隐私告警**（唯一提示是"未提供 WE 资产根 ⇒ 跳过专有文件比对"，属 informational）
+- `node demo-syntax-check.mjs` → **8/8**
+- `node clean-room-alpha-align-test.mjs` → **1008 pass / 0 fail**
+- 真打包扫描：tarball **132 文件**；`/root/` 个人路径 **0**；真实壁纸包 **0**（唯一 scene.pkg 是 `samples/sample-synthetic/scene.pkg` 33 KB）；`node_modules` **0**
+- 体积：仓库内 **>5 MB 文件 0 个**，最大 1.4 MB（OFL 字体）
+
+### P-97.3 隐私处置（本轮）
+
+- `publish-check.mjs` 的 `PATH_RE` **覆盖面补齐**：新增两类本机路径 —— 插件下载缓存目录（root 家目录下的同名点目录）
+  与设备/SD 语料根（此前各漏 15+ 处，含 `known.json` / `known-issues.json`）；对应环境变量为 `MPW_PLUGIN_CACHE` / `MPW_SD_ROOT`，
+  并用探针自测确认新判据能命中这两类路径。
+- 去个人化：**41 个 .mjs 文件** + 文档改为既有约定"环境变量优先 + 作者本机默认值"；
+  `demo.html` 调试字符串、`pwa-test.mjs` 占位路径（改 `USER`）、`docs/ONLINE-DEMO.md` 命令、
+  `PATCHES.md` 一行 DSH profile 路径同步清理。
+- **Pages 产物零个人路径**：工作流剔除 `we-scene-demo-server.mjs` / `scene-project-json.mjs`
+  （服务端/工具源码，静态 demo 用不到）后，`_site` 内任意 `/root/` 为 **0**；
+  线上 `/we-scene-demo-server.mjs` 实测 **404**。
+
+### P-97.4 Pages 形态：为什么不是"直接从仓库根发布"
+
+- **实测反例**：`build_type: legacy` + `main` 根发布时，`/wallpaper-engine-webgl/renderer/index.html`
+  = **404** —— 上游 minified 产物把该路径写死在 iframe / `sw.js` 里，而仓库根下没有这个目录
+  ⇒ 测试台在线是**坏的**（`/` 与 `/demo/` 却是 200，容易误判为"已好"）。
+- **现形态**：`build_type: workflow`，由 `.github/workflows/pages.yml` 执行
+  `node build-pages.mjs --out _site` → `upload-pages-artifact` → `deploy-pages`；
+  产物里 `demo/` 挂两次（`/demo/` 规范入口 + `/wallpaper-engine-webgl/` 喂那两条写死路径）。
+- **线上实测**：`/` 200、`/demo/` 200、`/demo/bench-patch.js` 200、
+  `/wallpaper-engine-webgl/renderer/index.html` **200**、`/wallpaper-engine-webgl/bench-patch.js` 200、
+  `/samples/sample-synthetic/scene.pkg` 200、`/THIRD-PARTY.md` 200、
+  `/demo/LICENSE-webwallgl-MIT.txt` 200、`/we-scene-demo-server.mjs` **404**（按预期剔除）。
+- 工作流首次自动运行曾 **failure**（Pages 还是 legacy 模式时 `deploy-pages` 无可用目标），
+  切到 `workflow` 后重跑 **success**（32 s）—— 这条留痕是为了说明"失败原因已定位且不复发"。
+
+### P-97.5 本轮新增/修正的许可登记
+
+- `README.md`（主 README）新增「免责声明」（中英逐字）与「参考与致谢 / References & Credits」：
+  **逐个列出 11 个上游项目**（URL / 许可 / 到文件与功能级的"参考了什么" / 是否复制过代码），
+  不确定项一律标"未定/待核"。
+- `THIRD-PARTY.md` 同步：修掉 3 处已过期的"MIT 许可"自述（本仓库早已是 GPL-3.0-or-later）；
+  新增 **§8** 参考/行为对照登记表（含 GPL-2.0-only 点状同源的完整披露）；
+  **§9** HLSL→GLSL 转译器逐字节 vendoring（P-93）说明；§6.4 改为"源码未 vendored，
+  但静态构建产物 `demo/**` 再分发"的准确表述。
+- **合规缺口修补**：`demo/**` 是 `oneincase/webwallgl`（MIT）静态构建产物的补丁版再分发，
+  但目录内原本**没有任何许可声明** ⇒ 补 `demo/LICENSE-webwallgl-MIT.txt`（MIT 全文 + 署名 +
+  上游/自研分界 + "不含任何壁纸内容"声明）。
+- `docs/COPYING-RULES.md` 并入仓库（公开读者可见），全仓 27 处 `../docs/...` 引用改为仓内路径。
+
+### P-97.6 未定 / 待核（**不随发布关闭**）
+
+1. **法律定性**：审计 §7 **U-1 / U-5**（洁净室重写前的 2 处点状同源是否曾构成 GPL-2.0-only 衍生）
+   仍需**律师意见**；代码层处置与留痕不替代法律意见。
+2. **`notscuffed/repkg` 许可**在既有文档中自相矛盾（MIT vs GPL）⇒ **未定/待核**，需向上游复核。
+3. `docs/PENDING-DECISIONS.md` 第 3、4、5、7、9、10 条仍待用户拍板；本轮**未推**插件仓库、
+   **未打 tag / 未发 Release**。
+4. `publish-check.mjs --assets` 的 **11 条字体二进制阻塞**按用户口径接受为 informational
+   （字体取自上游作者，与 WE 副本逐字节相同属"同一份上游构建"，法律基础是 OFL/Apache/作者 freeware），
+   **未改判据**——不为凑绿掩盖发现。
+5. Pages 的 `_site` 白名单（`build-pages.mjs`）与 `.gitignore.public` 仍是**两套口径**（P-96.8 的口径债）。

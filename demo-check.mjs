@@ -165,7 +165,11 @@ const landing = path.join(ROOT, 'index.html')
   if (ok) {
     const must = ['index.html', 'demo/index.html', 'demo/bench-patch.js', 'demo/LICENSE-webwallgl-MIT.txt',
       'wallpaper-engine-webgl/index.html', 'wallpaper-engine-webgl/bench-patch.js',
-      'wallpaper-engine-webgl/renderer/index.html', 'samples/sample-synthetic/scene.pkg', '.nojekyll']
+      'wallpaper-engine-webgl/renderer/index.html', 'samples/sample-synthetic/scene.pkg', '.nojekyll',
+      // 真机踩到过：`demo/samples` 是**软链目录**，只判 `Dirent.isDirectory()` 会把它整个漏掉
+      // ⇒ 产物里没有 demo/samples/ ⇒ 线上默认壁纸 fetch 404。这条断言就是那个坑的钉子。
+      'demo/samples/sample-synthetic/scene.pkg', 'demo/samples/sample-synthetic/project.json',
+      'wallpaper-engine-webgl/samples/sample-synthetic/scene.pkg']
     check('D6 产物里必需文件齐（含额外挂载点 wallpaper-engine-webgl/ 与 .nojekyll）',
       must.every((f) => fs.existsSync(path.join(ROOT, '_site', f))))
     check('D6 产物是真实文件而非软链（Pages 不解析软链）',

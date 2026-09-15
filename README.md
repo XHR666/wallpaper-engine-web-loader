@@ -1,5 +1,11 @@
 # WE-Scene Web Renderer（浏览器端 Wallpaper Engine 场景渲染器）
 
+> **已发布 `wallpaper-engine-web-loader@0.1.0`** —— npm：<https://www.npmjs.com/package/wallpaper-engine-web-loader>
+> （tarball <https://registry.npmjs.org/wallpaper-engine-web-loader/-/wallpaper-engine-web-loader-0.1.0.tgz>）
+> · GitHub：<https://github.com/XHR666/wallpaper-engine-web-loader>（public）
+> · 在线 demo：<https://xhr666.github.io/wallpaper-engine-web-loader/>
+> · 发布记录（版本 / 文件数 / 体积 / 时间 / 闸门）见 `PATCHES.md` **P-97**。
+
 > **参照来源许可声明**：本文档引用的 `wer-ref/` 是**第三方参考实现**
 > （`Aromatic05/wallpaper-engine-renderer`，为 `catsout/wallpaper-scene-renderer` 的 fork，
 > **GPL-2.0-only**），**不是 Wallpaper Engine 官方代码，也不是"真值源"**。

@@ -65,14 +65,13 @@ function copyTree(srcDir, dstDir, relBase) {
     const rel = relBase ? relBase + '/' + e.name : e.name
     if (skipByShape(e.name)) { skipped.push(rel); continue }
     const src = path.join(srcDir, e.name)
-    if (e.isDirectory()) {
-      if (e.name === '.git' || e.name === 'node_modules' || e.name === 'reports' || e.name === '__pycache__') { skipped.push(rel + '/'); continue }
-      copyTree(src, path.join(dstDir, e.name), rel)
-      continue
-    }
-    // 软链跟随（statSync 跟随软链；断链会 throw ⇒ 跳过并记账）
+    if (e.name === '.git' || e.name === 'node_modules' || e.name === 'reports' || e.name === '__pycache__') { skipped.push(rel + '/'); continue }
+    // ⚠ 软链**目录**必须跟随（真机踩到：`demo/samples → ../samples` 是软链目录，
+    //   只看 `e.isDirectory()` 会把它整个漏掉 ⇒ 产物里没有 `demo/samples/` ⇒ 默认壁纸 404）。
+    //   这里的判据一律用 statSync（跟随软链），不用 Dirent。
     let st = null
     try { st = fs.statSync(src) } catch { skipped.push(rel + ' (断链)'); continue }
+    if (st.isDirectory()) { copyTree(src, path.join(dstDir, e.name), rel); continue }
     if (!st.isFile()) { skipped.push(rel + ' (非普通文件)'); continue }
     copyFile(src, path.join(dstDir, e.name), rel)
   }
@@ -113,7 +112,16 @@ if (missing.length) {
   console.error('✗ 产物缺少必需文件：' + missing.join('、'))
   process.exit(1)
 }
-const countFiles = (d) => fs.readdirSync(d, { recursive: true }).filter((f) => { try { return fs.statSync(path.join(d, f)).isFile() } catch { return false } }).length
+// 显式递归（不用 readdirSync({recursive:true})：那是 Node 20.1+ 才有，而 engines 只保证 >=20）
+const countFiles = (d) => {
+  let n = 0
+  for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const p2 = path.join(d, e.name)
+    if (e.isDirectory()) n += countFiles(p2)
+    else if (e.isFile()) n++
+  }
+  return n
+}
 const summary = { out: OUT, files: countFiles(OUT), demoStagedTwice: true, nojekyll: true, must: MUST.length, skipped: skipped.length }
 if (JSON_OUT) console.log(JSON.stringify(summary, null, 1))
 else {
