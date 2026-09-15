@@ -35,8 +35,8 @@ const PAGES_KEEP_FILES = new Set([
   'probe.html',
   'manifest.webmanifest',
   'sw.js',
-  'we-scene-bundle.js', 'we-scene.mjs', 'we-scene-demo-server.mjs',
-  'attach-transform.mjs', 'puppet-skin.js', 'scene-project-json.mjs',
+  'we-scene-bundle.js', 'we-scene.mjs',
+  'attach-transform.mjs', 'puppet-skin.js',
   'make-sample.mjs', 'pack-dir.mjs',
   'LICENSE', 'THIRD-PARTY.md', 'PACKAGING.md',
   'README.md', 'README-PUBLIC.md', 'README-DIAGNOSTICS.md',
@@ -52,6 +52,25 @@ const PAGES_SKIP_RE = [
 ]
 const skipByShape = (name) => PAGES_SKIP_RE.some((r) => r.test(name))
 
+// ── 显式**排除**表：即使被上面两份白名单收进来也绝不进产物 ──
+// ①(2026-09-16 CI 回归修复) 这两个是**服务端 / 打包工具**，纯静态站点用不到，而它们都带
+//   "环境变量优先、作者本机路径作默认值"的写法（`opts.root || process.env.MPW_ROOT || '/root/Desktop/…'`）⇒
+//   一旦进产物，**隐私闸门必然命中**。
+//   事故经过（证据留痕，勿删）：`.github/workflows/pages.yml` 曾用 `rm -f _site/<这两个>` **事后补救**，
+//   但白名单仍把它们拷进 `_site` ⇒ 本地 `node build-pages.mjs` 得到的产物与 CI 发出去的不是同一份，
+//   而且任何人删掉那行 `rm` 就会让 Pages 构建在第 5 步自检上红（run 35015130033 就是这么红的）。
+//   修法 = 把"不发"写回**唯一口径**（白名单）本身 + 构建末尾内建隐私闸门（见下），
+//   于是"本地构建通过" ⟺ "CI 的自检通过"，不再靠 workflow 里的命令兜底。
+const PAGES_DENY_FILES = new Set(['scene-project-json.mjs', 'we-scene-demo-server.mjs'])
+
+// ── 产物隐私闸门：口径与仓库级 `publish-check.mjs` 的 ② 逐字同源 ──
+//   PATH_RE        = 个人绝对路径形状（本机工作区 / 私有包目录 / SD 卡 / 常见家目录 / Windows 用户目录）；
+//   DEFAULT_LINE_RE = 豁免"环境变量优先 + 作者本机默认值"的**刻意**写法（`process.env.X || '<默认值>'`）。
+//   为什么闸门要放**构建里**而不只在 workflow 里：本脚本的输出就是要发出去的那一份 ——
+//   只有构建自己拒绝产出带个人路径的产物，"本地绿"才等于"线上绿"（事故见上面的 ①）。
+const PATH_RE = /(\/root\/Desktop\/|\/root\/\.dsh-mpkg-wallpaper|\/mnt\/sdcard\/|\/home\/[a-z]+\/|C:\\Users\\[A-Za-z]+)/
+const DEFAULT_LINE_RE = /process\.env\.[A-Z_]+ \|\||MPW_[A-Z_]+ \|\||\$\{MPW_ROOT:-|\|\| '\/root\/Desktop\/DSHarea'|\/\/ ①\(去个人化\)/
+
 const copied = []
 const skipped = []
 function copyFile(src, dst, rel) {
@@ -64,6 +83,7 @@ function copyTree(srcDir, dstDir, relBase) {
   for (const e of fs.readdirSync(srcDir, { withFileTypes: true })) {
     const rel = relBase ? relBase + '/' + e.name : e.name
     if (skipByShape(e.name)) { skipped.push(rel); continue }
+    if (PAGES_DENY_FILES.has(e.name)) { skipped.push(rel + ' (显式排除：含作者本机默认路径)'); continue }
     const src = path.join(srcDir, e.name)
     if (e.name === '.git' || e.name === 'node_modules' || e.name === 'reports' || e.name === '__pycache__') { skipped.push(rel + '/'); continue }
     // ⚠ 软链**目录**必须跟随（真机踩到：`demo/samples → ../samples` 是软链目录，
@@ -87,6 +107,7 @@ for (const d of PAGES_KEEP_DIRS) {
 for (const f of PAGES_KEEP_FILES) {
   const src = path.join(ROOT, f)
   if (!fs.existsSync(src)) { skipped.push(f + ' (不存在)'); continue }
+  if (PAGES_DENY_FILES.has(f)) { skipped.push(f + ' (显式排除：服务端/打包工具，含作者本机默认路径)'); continue }
   copyFile(src, path.join(OUT, f), f)
 }
 
@@ -122,11 +143,40 @@ const countFiles = (d) => {
   }
   return n
 }
-const summary = { out: OUT, files: countFiles(OUT), demoStagedTwice: true, nojekyll: true, must: MUST.length, skipped: skipped.length }
+
+// ── 产物隐私闸门（与 publish-check.mjs 的 ② 同口径）──
+//   不变量："构建通过" ⇒ "产物里除刻意保留的作者默认值外，零个人绝对路径"。
+//   放在这里而不是只在 workflow：本函数产出的**就是**发上去的那一份，本地绿必须等于线上绿。
+const walkFiles = (d, base = d, out = []) => {
+  for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const p2 = path.join(d, e.name)
+    if (e.isDirectory()) walkFiles(p2, base, out)
+    else if (e.isFile()) out.push(path.relative(base, p2))
+  }
+  return out
+}
+const privacyHits = []
+for (const rel of walkFiles(OUT)) {
+  if (/\.(png|jpg|jpeg|gif|webp|ttf|otf|woff2?|pkg|mpkg|mp4|ico|map)$/i.test(rel)) continue // 二进制，不做文本扫描（与 publish-check 同）
+  let text = ''
+  try { if (fs.statSync(path.join(OUT, rel)).size > 4 * 1048576) continue; text = fs.readFileSync(path.join(OUT, rel), 'utf8') } catch { continue }
+  text.split('\n').forEach((line, i) => {
+    if (PATH_RE.test(line) && !DEFAULT_LINE_RE.test(line)) privacyHits.push(rel + ':' + (i + 1) + '  ' + line.trim().slice(0, 100))
+  })
+}
+if (privacyHits.length) {
+  console.error('✗ 产物里出现个人绝对路径（' + privacyHits.length + ' 处；若是"环境变量优先 + 作者默认值"的刻意写法，请确认命中行含 process.env.X || / MPW_X || 形态）：')
+  for (const h of privacyHits.slice(0, 10)) console.error('  ✗ ' + h)
+  if (privacyHits.length > 10) console.error('  …还有 ' + (privacyHits.length - 10) + ' 处')
+  process.exit(1)
+}
+
+const summary = { out: OUT, files: countFiles(OUT), demoStagedTwice: true, nojekyll: true, must: MUST.length, denied: PAGES_DENY_FILES.size, privacyOk: true, skipped: skipped.length }
 if (JSON_OUT) console.log(JSON.stringify(summary, null, 1))
 else {
   console.log(`✓ Pages 产物：${OUT}`)
   console.log(`  · 文件 ${summary.files} 个（白名单口径：PAGES_KEEP_DIRS / PAGES_KEEP_FILES）`)
   console.log('  · demo/ 与 wallpaper-engine-webgl/ 两份（后者是产物里写死的绝对路径所需）')
   console.log('  · .nojekyll 已写；必需文件自检 ' + MUST.length + ' 项全过')
+  console.log(`  · 隐私闸门通过：产物零个人绝对路径（显式排除 ${PAGES_DENY_FILES.size} 个含本机默认路径的服务端文件）`)
 }
