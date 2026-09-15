@@ -1,0 +1,68 @@
+{
+  "name": "wallpaper-engine-web-loader",
+  "version": "0.1.0",
+  "description": "浏览器端 Wallpaper Engine 场景渲染器（WE-Scene Web Renderer）：不装 WE、不装 Windows 依赖，一个静态服务器 + WebGL2 就能实时渲染 scene.pkg / .mpkg 场景壁纸（含离线 PWA、逐层调试与对账门禁）。本仓库不分发任何真实壁纸。",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/XHR666/wallpaper-engine-web-loader.git"
+  },
+  "homepage": "https://xhr666.github.io/wallpaper-engine-web-loader/",
+  "bugs": {
+    "url": "https://github.com/XHR666/wallpaper-engine-web-loader/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./we-scene.mjs",
+  "exports": {
+    ".": "./we-scene.mjs",
+    "./bundle": "./we-scene-bundle.js",
+    "./server": "./we-scene-demo-server.mjs",
+    "./hlsl2glsl": "./vendor/hlsl2glsl/hlsl2glsl.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "LICENSE",
+    "THIRD-PARTY.md",
+    "PACKAGING.md",
+    "README-PUBLIC.md",
+    "RENDERER-ARCHITECTURE.md",
+    "we-scene.mjs",
+    "we-scene-bundle.js",
+    "we-scene-demo-server.mjs",
+    "demo.html",
+    "diag.html",
+    "attach-transform.mjs",
+    "puppet-skin.js",
+    "manifest.webmanifest",
+    "sw.js",
+    "sw-policy.mjs",
+    "icons/",
+    "start-demo.sh",
+    "elysia/",
+    "vendor/hlsl2glsl/",
+    "assets/fonts/",
+    "samples/",
+    "docs/UNTOUCHED-AREAS.md"
+  ],
+  "scripts": {
+    "start": "bash start-demo.sh",
+    "test": "bash run-all-tests.sh",
+    "test:fast": "bash run-all-tests.sh --fast",
+    "check": "bash check.sh",
+    "check:fast": "bash check.sh --fast",
+    "check:docs": "node docs-check.mjs",
+    "check:publish": "node publish-check.mjs",
+    "check:diag": "node diag-flag-check.mjs",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "keywords": [
+    "wallpaper-engine",
+    "webgl2",
+    "scene-renderer",
+    "scene-pkg",
+    "we-scene"
+  ]
+}

@@ -1,0 +1,69 @@
+# GitHub Pages —— 发布在线 demo（P-93；形态口径见 docs/ONLINE-DEMO.md）
+#
+# 为什么是"构建产物"而不是"直接从仓库根发布"：上游静态产物里写死了
+# `/wallpaper-engine-webgl/renderer/index.html`（iframe src）与 `/wallpaper-engine-webgl/sw.js`，
+# 而 Pages 只能从仓库根发布 ⇒ 产物里必须同时存在 `/demo/`（规范入口）与
+# `/wallpaper-engine-webgl/`（喂给那两条写死路径）。见 build-pages.mjs 与 docs/ONLINE-DEMO.md §2.1。
+#
+# 关键约束：**不联网安装依赖**。构建只用 Node 内置模块（node build-pages.mjs），
+# 不跑 pnpm install / npm ci / vite build —— 本机与 CI 都不需要它们。
+name: pages
+
+on:
+  workflow_dispatch:            # 手动触发（首次发布用这个）
+  push:
+    branches: [main]            # 推送 main 自动重发；只想手动发就删掉这 3 行
+    paths-ignore:               # 纯文档/测试改动不重发（要重发就手动 dispatch）
+      - '**/*.md'
+      - 'reports/**'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # 纯静态产物：零依赖、不联网（不要在这里加 pnpm install）
+      - name: Build static site (no network installs)
+        run: node build-pages.mjs --out _site --json
+      - name: Sanity check the artifact
+        run: |
+          set -eu
+          test -f _site/index.html
+          test -f _site/demo/index.html
+          test -f _site/demo/bench-patch.js
+          test -f _site/wallpaper-engine-webgl/index.html
+          test -f _site/wallpaper-engine-webgl/bench-patch.js
+          test -f _site/wallpaper-engine-webgl/renderer/index.html
+          test -f _site/samples/sample-synthetic/scene.pkg
+          test -f _site/.nojekyll
+          # 隐私闸门：产物里不得出现个人绝对路径（环境变量默认值除外 —— 本产物不含源码，直接字面检查）
+          if grep -rIl --exclude='*.map' '/root/Desktop/' _site; then
+            echo '✗ 产物里出现个人绝对路径' >&2; exit 1
+          fi
+          echo "✓ 产物自检通过：$(find _site -type f | wc -l) 个文件"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
