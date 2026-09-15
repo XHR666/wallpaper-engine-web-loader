@@ -13,8 +13,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import crypto from 'node:crypto'
+// ①(2026-09-16 目录整理) 本脚本留在**仓库根**（它按自身目录读写根级 icons/ 与 manifest.webmanifest；
+//   pwa-test / packaging-test 也都按仓库根拉起它）。根口径仍取自单一事实源 tests/_root.mjs。
+import { ROOT } from './tests/_root.mjs'
 
-const OUT = path.join(import.meta.dirname, 'icons')
+const OUT = path.join(ROOT, 'icons')
 const BG = [0x0b, 0x0e, 0x14, 0xff]
 const FRAME = [0x5c, 0xc8, 0xff, 0xff]
 const HORIZON = [0x2a, 0x6b, 0x8f, 0xff]

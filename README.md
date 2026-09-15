@@ -23,19 +23,6 @@
 
 ---
 
-## 免责声明
-
-> **免责声明**
-> 本项目与 Wallpaper Engine 官方**无任何关联**，不包含 Wallpaper Engine 本体、Steam 创意工坊内容或任何受版权保护的壁纸资源。本项目**不分发**任何壁纸包（scene 场景包、视频壁纸、网页壁纸）、预览图、音视频或美术素材；仓库内随附的字体仅为各自许可允许再分发的开源字体，逐条见 THIRD-PARTY。用户需自行提供**合法获得**的壁纸，并自行承担因读取、转换或播放相关内容而产生的合规责任。"Wallpaper Engine" 及其相关名称与标识为其各自权利人的商标，本项目仅出于说明兼容性之目的进行指称。本项目渲染器以 GPL-3.0-or-later 发布、插件以 MIT 发布；第三方组件与参考资料（**仅行为对照、未复制代码**）的许可与归属见 THIRD-PARTY.md 与 docs/COPYING-RULES.md。
->
-> *（上段按项目所有者指定原文采用。为使声明与仓库自身的审计记录一致，须并列阅读 §7 的两条例外：`oneincase/webwallgl`（MIT）的 FXAA 片元着色器为**逐字复制**、其 HLSL→GLSL 转译器为**逐字节 vendored**（MIT 声明均已保留，§7.1(2)）；`Aromatic05/wallpaper-engine-renderer`（GPL-2.0-only）曾被本仓库审计判定有 **2 处点状同源**，**已于 2026-09-16 按书面规格洁净室重写**（`PATCHES.md` **P-95**；旧实现已删除、行为逐位一致，§7.4(2)），剩余未定项为**法律定性**（审计 U-1/U-5）与**编号/表述不一致**。RePKG 的许可在既有文档中自相矛盾（MIT vs GPL），**未定/待核**。）*
-
-> **Disclaimer**
-> This project is **not affiliated with Wallpaper Engine** in any way. It does not include the Wallpaper Engine application, any Steam Workshop content, or any copyrighted wallpaper assets. It **does not redistribute** wallpaper packages (scene, video, or web), preview images, audio/video, or artwork; the fonts bundled in this repository are only those open-licensed fonts whose licences permit redistribution (see THIRD-PARTY). **Users must supply their own lawfully obtained wallpapers** and are solely responsible for compliance when reading, converting, or playing such content. "Wallpaper Engine" and related names and marks belong to their respective owners and are referenced here only to describe compatibility. The renderer is released under GPL-3.0-or-later and the plugin under MIT; see THIRD-PARTY.md and docs/COPYING-RULES.md for third-party components and reference material (used for **behavioural comparison only — no code was copied**).
->
-> *The paragraph above is reproduced verbatim at the project owner's request. To keep it consistent with this repository's own audit record, read it together with the two exceptions in §7: the FXAA fragment shader in `oneincase/webwallgl` (MIT) is a **verbatim copy**, and its HLSL→GLSL translator is **vendored byte-for-byte** (MIT notices retained, §7.1(2)); and `Aromatic05/wallpaper-engine-renderer` (GPL-2.0-only), where our audit once found **two point-like same-origin fragments**, was **clean-room rewritten from a written specification on 2026-09-16** (`PATCHES.md` **P-95** — old implementation deleted, behaviour bit-identical, §7.4(2)), with the remaining open items being the **legal characterisation** (audit U-1/U-5) and **numbering/wording inconsistencies**. RePKG's licence is **contradictory** across our own records (MIT vs GPL) and is **unresolved**.*
-
----
 
 ## 1. 快速开始（两条路，任选）
 
@@ -58,6 +45,87 @@ python3 -m http.server 8899            # 或 npx serve -l 8899
 # 浏览器打开 http://127.0.0.1:8899/demo.html?id=<包id>   （需要自带包文件时用方案 A）
 ```
 静态模式下渲染器仍可打开，但依赖服务器端点的功能（包代理、`/report`、WE 资产兜底）不可用。
+
+---
+
+## 安装方式（三种，按场景选）
+
+> **位置口径（2026-09-16 目录整理）**：本章**故意不占章节编号** —— 本 README 的章节号被脚注引用
+> （§7 及其 §7.1(2) / §7.4(2)），给本章编号会让后续章节整体位移、把那些引用全部指向错处。
+> 故编号章节从 §1 直接跳到 §2；结构自查：`grep -n '^## ' README.md`。
+
+### A. npm 安装（把渲染器作为依赖嵌进你自己的站点/app）
+```bash
+npm i wallpaper-engine-web-loader@0.1.0     # 锁定已发布版本
+npm i wallpaper-engine-web-loader           # 或跟随 latest
+```
+最小用法（**只用真实存在的导出**；下面这段已实测跑通：`parsePkg` 8 个入口、`parseScene` 5 层）：
+```js
+import fs from 'node:fs'
+import { mount, parseScene } from 'wallpaper-engine-web-loader'         // 库入口 = we-scene.mjs
+import { parsePkg, getEntry } from 'wallpaper-engine-web-loader/bundle' // 低层解析 = we-scene-bundle.js
+
+const pkg       = parsePkg(new Uint8Array(fs.readFileSync('scene.pkg')))
+const sceneJson = JSON.parse(new TextDecoder().decode(getEntry(pkg, 'scene.json')))
+const project   = JSON.parse(fs.readFileSync('project.json', 'utf8'))   // 没有属性表就传 null
+const scene     = parseScene(sceneJson, project, {})
+
+// 浏览器里挂载（mount 要 requestAnimationFrame；Node 端由宿主注入 opts.raf）
+const h = mount('#stage', { scene, textures /* Map<名字, {glTex}>，与 demo.html 同形状 */ })
+h.setQuality({ q: 'high', aa: 'fxaa', pp: 'high' })   // 热更新，不用重新挂载
+h.dispose()
+```
+- **适用**：自己已有页面/框架，只想要"画布 + 帧循环 + 帧末后处理链"这一层。
+  `mount` 的职责边界**只有**这些；**取包 / 解包 / 贴图上传 / 字体 / 音频 / 上报 / UI 面板**都属宿主侧
+  （完整参考实现是 `demo.html` 的 `bootInstance()`，帧序与 `mount` 逐条一致）。
+- 其它子路径导出：`wallpaper-engine-web-loader/server`（自带服务器）、`/hlsl2glsl`（vendored MIT 转译器）。
+
+### B. 直接从源码跑（本地/开发推荐）
+```bash
+git clone https://github.com/XHR666/wallpaper-engine-web-loader.git
+cd wallpaper-engine-web-loader
+bash start-demo.sh                    # 预检 + 起服务器（默认端口 8899）
+bash start-demo.sh --port 9000        # 换端口（等价 PORT=9000；端口被占预检会直接报）
+```
+浏览器打开 **<http://127.0.0.1:8899/>** —— 自带合成样例直达 `/?id=sample-synthetic`；
+逐层调试 `/?ln=1`；诊断页 `/diag.html`。只想预检不起服务：`bash start-demo.sh --check`。
+- **适用**：本地开发；要跑门禁（`bash check.sh`）；要"打开即玩"而不配任何东西。
+- 这条路**功能最全**：包代理、`/report` 上报落盘、WE 资产兜底、离线 PWA 只有自带服务器提供。
+- 自带服务器需要一个包解析器（MIT 插件 `dsh-mpkg-wallpaper` 的 `lib/pkg-extract.js`）：把它与渲染器
+  放在同一父目录即可，否则用 `MPW_PKG_EXTRACT=/绝对路径/pkg-extract.js` 指定（`start-demo.sh`
+  的预检会把三条修法直接打出来）。
+- 真实壁纸请放仓库**外**，用 `MPW_SCENE_ROOT` / `?pkgpath=` / `?pkgurl=` 指过去（见 §2/§3）。
+
+### C. 纯静态 / 离线（只读模式，任意静态服务器）
+```bash
+git clone --depth 1 https://github.com/XHR666/wallpaper-engine-web-loader.git
+cd wallpaper-engine-web-loader
+python3 -m http.server 8899           # 或 npx serve -l 8899；任何静态服务器都行
+```
+也可以只用 `npm pack` 的产物（解开即是可静态托管的目录）：
+```bash
+npm pack wallpaper-engine-web-loader@0.1.0     # 得到 wallpaper-engine-web-loader-0.1.0.tgz
+tar -xzf wallpaper-engine-web-loader-0.1.0.tgz && cd package
+python3 -m http.server 8899
+```
+浏览器打开 **<http://127.0.0.1:8899/demo.html?id=sample-synthetic>**。
+- **适用**：没有 Node 环境 / 要丢到 GitHub Pages、对象存储、内网静态站。
+- **限制（只读模式的代价）**：没有服务器端点 ⇒ 包代理、`/report` 落盘、WE 资产兜底、目录打包（`/pkgdir`）
+  都不可用；只能用**浏览器直接取得到**的包（自带样例，或与页面同源的 `scene.pkg`）。
+- 在线版就是这个形态：<https://xhr666.github.io/wallpaper-engine-web-loader/>（构建脚本 `build-pages.mjs`）。
+- **PWA 是可选的**：默认关；只有**自带服务器**加 `MPW_PWA=1` 才注入
+  （`MPW_PWA=1 bash start-demo.sh`，或单次请求 `?pwa=1`）。静态托管不会自动获得离线能力。
+
+### 环境要求与"装好了没有"的自检
+- **Node ≥ 20**（`package.json` 的 `engines.node` = `>=20`；脚本用到 `??`、可选链、顶层 await、`node:` 前缀
+  内置模块；**ESM only**，无 CJS 出口）。浏览器侧需要 **WebGL2**（无 GPU 会退回 CPU 路径，明显更慢）。
+- 验证安装（在仓库根，均不需要联网）：
+```bash
+bash check.sh --json        # 期望 {"pass":4,...,"fail":0} —— 4 阶段（docs/publish/diag/全量门禁）全 PASS
+bash check.sh --no-gate     # 只跑三项静态闸门（秒级）
+node tests/demo-check.mjs   # 在线发布形态自证（落地页 / demo/ / 构建产物）
+npm run test:fast           # 全量回归（跳最慢项）
+```
 
 ---
 
@@ -110,6 +178,23 @@ python3 -m http.server 8899            # 或 npx serve -l 8899
 - 需要 WebGL2；无 GPU 时会退回 CPU 路径（功能受限、明显更慢）。
 - 复杂的蒙皮/粒子/效果链仍在持续完善，问题清单与进展见 `known-issues.json` 与 `PATCHES.md`。
 - 音频不会随仓库分发：载入含音频的包时，由页面**在你本地现场解析**播放/导出（详见渲染器顶栏音频面板）。
+
+> **位置口径（2026-09-16 目录整理，随 README 结构调整）**：本声明块按项目所有者要求**逐字不变**搬迁 ——
+> 原文位置在标题下方，现挪到「已知限制」之后、「许可」之前（所有者原话："放到已知限制下面、许可上面"）。
+> 它**故意不占章节编号**：脚注要引用 §7 的两条例外（`§7.1(2)` / `§7.4(2)`），一旦给本块编号就会把
+> 「参考与致谢」挤到 §8 ⇒ 脚注里的 §7 全部失效。故此处保持 §5 → 本块 → §6 的顺序、编号不动。
+
+## 免责声明
+
+> **免责声明**
+> 本项目与 Wallpaper Engine 官方**无任何关联**，不包含 Wallpaper Engine 本体、Steam 创意工坊内容或任何受版权保护的壁纸资源。本项目**不分发**任何壁纸包（scene 场景包、视频壁纸、网页壁纸）、预览图、音视频或美术素材；仓库内随附的字体仅为各自许可允许再分发的开源字体，逐条见 THIRD-PARTY。用户需自行提供**合法获得**的壁纸，并自行承担因读取、转换或播放相关内容而产生的合规责任。"Wallpaper Engine" 及其相关名称与标识为其各自权利人的商标，本项目仅出于说明兼容性之目的进行指称。本项目渲染器以 GPL-3.0-or-later 发布、插件以 MIT 发布；第三方组件与参考资料（**仅行为对照、未复制代码**）的许可与归属见 THIRD-PARTY.md 与 docs/COPYING-RULES.md。
+>
+> *（上段按项目所有者指定原文采用。为使声明与仓库自身的审计记录一致，须并列阅读 §7 的两条例外：`oneincase/webwallgl`（MIT）的 FXAA 片元着色器为**逐字复制**、其 HLSL→GLSL 转译器为**逐字节 vendored**（MIT 声明均已保留，§7.1(2)）；`Aromatic05/wallpaper-engine-renderer`（GPL-2.0-only）曾被本仓库审计判定有 **2 处点状同源**，**已于 2026-09-16 按书面规格洁净室重写**（`PATCHES.md` **P-95**；旧实现已删除、行为逐位一致，§7.4(2)），剩余未定项为**法律定性**（审计 U-1/U-5）与**编号/表述不一致**。RePKG 的许可在既有文档中自相矛盾（MIT vs GPL），**未定/待核**。）*
+
+> **Disclaimer**
+> This project is **not affiliated with Wallpaper Engine** in any way. It does not include the Wallpaper Engine application, any Steam Workshop content, or any copyrighted wallpaper assets. It **does not redistribute** wallpaper packages (scene, video, or web), preview images, audio/video, or artwork; the fonts bundled in this repository are only those open-licensed fonts whose licences permit redistribution (see THIRD-PARTY). **Users must supply their own lawfully obtained wallpapers** and are solely responsible for compliance when reading, converting, or playing such content. "Wallpaper Engine" and related names and marks belong to their respective owners and are referenced here only to describe compatibility. The renderer is released under GPL-3.0-or-later and the plugin under MIT; see THIRD-PARTY.md and docs/COPYING-RULES.md for third-party components and reference material (used for **behavioural comparison only — no code was copied**).
+>
+> *The paragraph above is reproduced verbatim at the project owner's request. To keep it consistent with this repository's own audit record, read it together with the two exceptions in §7: the FXAA fragment shader in `oneincase/webwallgl` (MIT) is a **verbatim copy**, and its HLSL→GLSL translator is **vendored byte-for-byte** (MIT notices retained, §7.1(2)); and `Aromatic05/wallpaper-engine-renderer` (GPL-2.0-only), where our audit once found **two point-like same-origin fragments**, was **clean-room rewritten from a written specification on 2026-09-16** (`PATCHES.md` **P-95** — old implementation deleted, behaviour bit-identical, §7.4(2)), with the remaining open items being the **legal characterisation** (audit U-1/U-5) and **numbering/wording inconsistencies**. RePKG's licence is **contradictory** across our own records (MIT vs GPL) and is **unresolved**.*
 
 ---
 

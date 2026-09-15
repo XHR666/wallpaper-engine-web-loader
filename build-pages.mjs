@@ -27,7 +27,11 @@ const JSON_OUT = argv.includes('--json')
 const OUT = path.resolve(ROOT, val('--out', '_site'))
 
 // ── 发布面白名单（根级）──
-const PAGES_KEEP_DIRS = ['demo', 'samples', 'assets', 'icons', 'vendor', 'elysia', 'extensions', 'docs']
+// ①(2026-09-16 目录整理) **不发 `docs/`**：站点是给访客看的 demo，`docs/` 是开发者文档。收拢前站点只发
+//   11 份**具名** md（白名单逐文件列），收拢后文档全在 `docs/` —— 若把目录整体收进白名单，等于把开发者
+//   文档（含描述闸门自身的字面路径字样，会让 demo-check D6 / workflow 的 grep 判红）一并发布。
+//   故统一为**不发文档树**，口径更严也更简单；文档随 git 仓库与 npm 包分发（`docs/PACKAGING.md` 在 files 白名单里）。
+const PAGES_KEEP_DIRS = ['demo', 'samples', 'assets', 'icons', 'vendor', 'elysia', 'extensions']
 const PAGES_KEEP_FILES = new Set([
   'index.html',        // 落地页（P-93 新增）
   'demo.html',         // 渲染器 demo
@@ -38,11 +42,10 @@ const PAGES_KEEP_FILES = new Set([
   'we-scene-bundle.js', 'we-scene.mjs',
   'attach-transform.mjs', 'puppet-skin.js',
   'make-sample.mjs', 'pack-dir.mjs',
-  'LICENSE', 'THIRD-PARTY.md', 'PACKAGING.md',
-  'README.md', 'README-PUBLIC.md', 'README-DIAGNOSTICS.md',
-  'RENDERER-ARCHITECTURE.md', 'RENDERER-SANDBOX-CONTRACT.md',
-  'TESTING.md', 'TESTING-PUBLIC.md', 'SELFCHECK.md', 'VISUAL-TESTING.md',
-  'PATCHES.md', 'AUDIT.md', 'CLEANUP.md', 'KNOWN-ISSUES.md', 'EXTENSION-HOOKS.md',
+  // ①(2026-09-16 目录整理) 站点只发**能看的东西**：说明性 markdown 一律不发（`docs/` 整目录不进站点，
+  //   见上面 PAGES_KEEP_DIRS 的注释）。根上只留**法律文本**：`LICENSE`（GPL 全文）与 `THIRD-PARTY.md`
+  //   （第三方归属与许可全文，按根发布，README/落地页都按根链接它）。
+  'LICENSE', 'THIRD-PARTY.md',
 ])
 // 白名单目录里也不发的形状（测试/闸门/上报产物）
 const PAGES_SKIP_RE = [
@@ -54,7 +57,7 @@ const skipByShape = (name) => PAGES_SKIP_RE.some((r) => r.test(name))
 
 // ── 显式**排除**表：即使被上面两份白名单收进来也绝不进产物 ──
 // ①(2026-09-16 CI 回归修复) 这两个是**服务端 / 打包工具**，纯静态站点用不到，而它们都带
-//   "环境变量优先、作者本机路径作默认值"的写法（`opts.root || process.env.MPW_ROOT || '/root/Desktop/…'`）⇒
+//   "环境变量优先、作者本机路径作默认值"的写法（`opts.root || process.env.MPW_ROOT || '<作者本机工作区>/…'`）⇒
 //   一旦进产物，**隐私闸门必然命中**。
 //   事故经过（证据留痕，勿删）：`.github/workflows/pages.yml` 曾用 `rm -f _site/<这两个>` **事后补救**，
 //   但白名单仍把它们拷进 `_site` ⇒ 本地 `node build-pages.mjs` 得到的产物与 CI 发出去的不是同一份，

@@ -3,6 +3,7 @@
 #
 # 用法:
 #   bash check.sh              # 全量：docs-check → publish-check → diag-flag-check → run-all-tests.sh
+# ①(2026-09-16 目录整理) 三个闸门脚本与回归器都在 tests/，本文件留在根 = 唯一入口（`bash check.sh` 不变）。
 #   bash check.sh --fast       # 门禁跳最慢项（等价 run-all-tests.sh --fast）
 #   bash check.sh --no-gate    # 只跑三项静态自检（秒级；提交前用）
 #   bash check.sh --json       # 末尾追加机读汇总
@@ -11,7 +12,7 @@
 #   这四项此前散在四份文档/四段习惯里，**没有单一命令能回答"现在能不能发"**：
 #     · `docs-check.mjs`      —— 15+ 文档里反引号引用的文件是否都存在 + P-编号健康 + 开关双向一致
 #     · `publish-check.mjs`   —— 隐私/体积/专有文件（**发布前唯一必须 0 阻塞**的一项）
-#     · `diag-flag-check.mjs` —— 代码开关 ↔ README-DIAGNOSTICS 主表双向 0 差异
+#     · `diag-flag-check.mjs` —— 代码开关 ↔ docs/README-DIAGNOSTICS.md 主表双向 0 差异
 #     · `run-all-tests.sh`    —— 全量回归（项数会变，当前见 `bash run-all-tests.sh --list` 首行）
 #   本脚本**不改变**任何一项的语义与退出码，只做"依次跑 + 汇总 + 一条退出码"，便于本地与 CI 同源。
 #
@@ -38,7 +39,7 @@ stage() { # stage <name> <必须先存在的文件，空=不检查> <cmd...>
   t0=$(date +%s.%N)
   echo "── $name"
   if [ -n "$guard" ] && [ ! -f "$guard" ]; then
-    echo "SKIP $name（缺少 $guard，该文件只随 git 仓库分发；见 PACKAGING.md §5）"
+    echo "SKIP $name（缺少 $guard，该文件只随 git 仓库分发；见 docs/PACKAGING.md §5）"
     SNAMES+=("$name"); SSTATUS+=("SKIP"); SMS+=("0"); SKIP=$((SKIP+1)); return
   fi
   "$@" || rc=$?
@@ -48,12 +49,12 @@ stage() { # stage <name> <必须先存在的文件，空=不检查> <cmd...>
   SNAMES+=("$name"); SMS+=("$ms")
 }
 
-stage "docs-check"      docs-check.mjs      node docs-check.mjs
-stage "publish-check"   publish-check.mjs   node publish-check.mjs
-stage "diag-flag-check" diag-flag-check.mjs node diag-flag-check.mjs
+stage "docs-check"      tests/docs-check.mjs      node tests/docs-check.mjs
+stage "publish-check"   tests/publish-check.mjs   node tests/publish-check.mjs
+stage "diag-flag-check" tests/diag-flag-check.mjs node tests/diag-flag-check.mjs
 if [ "$GATE" = 1 ]; then
-  if [ "$FAST" = 1 ]; then stage "run-all-tests" run-all-tests.sh bash run-all-tests.sh --fast
-  else stage "run-all-tests" run-all-tests.sh bash run-all-tests.sh; fi
+  if [ "$FAST" = 1 ]; then stage "run-all-tests" tests/run-all-tests.sh bash tests/run-all-tests.sh --fast
+  else stage "run-all-tests" tests/run-all-tests.sh bash tests/run-all-tests.sh; fi
 else
   echo "SKIP run-all-tests（--no-gate）"; SNAMES+=("run-all-tests"); SSTATUS+=("SKIP"); SMS+=("0"); SKIP=$((SKIP+1))
 fi

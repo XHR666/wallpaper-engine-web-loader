@@ -49,13 +49,13 @@
   ],
   "scripts": {
     "start": "bash start-demo.sh",
-    "test": "bash run-all-tests.sh",
-    "test:fast": "bash run-all-tests.sh --fast",
+    "test": "bash tests/run-all-tests.sh",
+    "test:fast": "bash tests/run-all-tests.sh --fast",
     "check": "bash check.sh",
     "check:fast": "bash check.sh --fast",
-    "check:docs": "node docs-check.mjs",
-    "check:publish": "node publish-check.mjs",
-    "check:diag": "node diag-flag-check.mjs",
+    "check:docs": "node tests/docs-check.mjs",
+    "check:publish": "node tests/publish-check.mjs",
+    "check:diag": "node tests/diag-flag-check.mjs",
     "pack:dry": "npm pack --dry-run",
     "build:pages": "node build-pages.mjs"
   },
