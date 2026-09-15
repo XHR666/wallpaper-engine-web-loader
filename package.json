@@ -56,7 +56,8 @@
     "check:docs": "node docs-check.mjs",
     "check:publish": "node publish-check.mjs",
     "check:diag": "node diag-flag-check.mjs",
-    "pack:dry": "npm pack --dry-run"
+    "pack:dry": "npm pack --dry-run",
+    "build:pages": "node build-pages.mjs"
   },
   "keywords": [
     "wallpaper-engine",

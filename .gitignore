@@ -65,3 +65,6 @@ wallpaper_engine/
 # common_composite / common_fragment / common_perspective），这 6 个已换成自研实现；
 # `common_vertex.h` **零引用** → 直接不随仓库分发（用户 WE 目录里有真品）。
 common_vertex.h
+
+# ── GitHub Pages 构建产物（build-pages.mjs 的输出，绝不入库）──
+_site/
