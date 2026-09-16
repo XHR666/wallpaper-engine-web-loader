@@ -5919,77 +5919,13 @@ SKIN=0 CHARFIT=auto   node /tmp/probe-p100.mjs 3554161528 0 1 8   # 修后：t=8
 4. 本机**无真机像素对照**（真机 GL 的混合/浮点差异测不到）；`preview.mjs` CPU 预览不改（它本来就没有相机姿态与适配分支）。
 
 ---
-
-## P-102（2026-09-16 插件视觉轮 · 用户真机三连反馈）顶栏磨砂「层在但看不见」的真根因（`z-index:-1` 被父底整片盖住）+ 我们**两条规则**把顶栏下描边抹成 transparent 的回归 + 右侧时间线条的对比度定案
-
-> 归属：**插件侧**（`dsh-mpkg-wallpaper`），本文档收口是因为三个现象里有两条要跨仓库取证
-> （宿主 CSS 产物 + 渲染器/插件共用的门禁）。不改渲染器任何行为、不改任何开关默认值，
-> `diag-flag-check` 仍是 **代码 126 == 主表 126**（本轮**没有新增 URL 开关**）。
-> 插件侧详述见 `dsh-mpkg-wallpaper/docs/HEADER-FROST.md` §0/§0b/§6 与 `dsh-mpkg-wallpaper/docs/TIMELINE-RAIL-TOKEN.md` §3b。
-
-### 一、三个现象与归因（都有实测判据，不是推断）
-
-| # | 用户原话/现象 | 归因（**哪条规则**） | 修法 |
-| --- | --- | --- | --- |
-| ① | 「顶栏磨砂仍然没有」（前一轮已修掉 `normalizeSection` 的 `ReferenceError`，真机 diag 已显示 `injected=true/px=30/bdf=blur(30px)`） | **不是**磨砂链没跑：注入层用了 `z-index:-1`，而宿主顶栏 `position:relative` + `z-index:auto` + `isolation:auto` + `transform:none` **不是层叠上下文** ⇒ 负 z 子层画在顶栏 `background-color`（`rgba(255,255,255,.38)`）**之下**，模糊一点都透不出来 | ① 内联样式 `z-index:-1` → **`0`**；② `.mpw-hdrFrost { z-index:0 }` 等三条层叠规则改为**无条件输出**（原来落在 `if (headerBg)` 分支里）；③ 宿主顶栏直接子节点抬到 `z-index:1`（只改绘制序、不改布局）⇒ 层不盖标题/按钮 |
-| ② | 「顶栏下面一部分的描边你给它去掉了」 | **我们两条规则**各带一条 `border-bottom: 1px solid transparent !important;`：`.wSkVaW_header` 基础块 + `if (headerBg && !headerBlur)` 分支（**用户真机命中的就是后者**）。带 `!important` 权重压过宿主，下描边整条变透明 | 两条**全部删除**：插件只改 `background-color`，描边一律交还宿主（亮 `rgba(19,45,83,.26)` / 暗 `rgba(148,180,220,.32)`） |
-| ③ | 「右侧时间线条仍不可见」 | **不是我们把条删了**：无头 Firefox + 真 DSH 页面实测 `.eGxaPq_mark::before` computed `background = rgba(0,0,0,0.42)`（我们的 `--mpw-rail-ink` 生效）、`12px×2px`、`opacity=1`、无裁切祖先；宿主 token `--dsw-alias-border-l4` 在 body 上正常解析（`#00000029`）。看不见的是**对比度**：2px 高、16%~42% alpha 的细条压在任意深浅壁纸上会同色系糊掉 | **保留**覆盖（删掉只会更看不见）并按"一定能实现"加强：新增反色描边晕 `--mpw-rail-halo`（`box-shadow: 0 0 0 1px`，亮 `rgba(255,255,255,.55)` / 暗 `rgba(0,0,0,.55)`），几何仍由宿主决定；另修 `hasWall` 判据与磨砂链对齐（原来只看持久化字段 ⇒ 同页面"顶栏有磨砂、rail 判无壁纸"） |
-
-### 二、判据（可复算，两个新探针）
-
-| 探针 | 做什么 | 证据落盘 |
-| --- | --- | --- |
-| `dsh-mpkg-wallpaper/tools/header-rail-collect.mjs` | 无头 Firefox 打开**真 DSH 页面**（`127.0.0.1:3080` + 会话 cookie），采顶栏/磨砂层/rail 的 computed + 几何 + 祖先裁切 + token 解析值 | `tools/probe-out/<label>.collect.{json,txt}` |
-| `dsh-mpkg-wallpaper/tools/header-rail-replica.mjs --both` | **真宿主 CSS + 真插件 `buildCss()` 产物**的最小复刻页；`before` 变体把本轮修复逐条还原 ⇒ 同一 DOM 下的"改前/改后"对照表，且 before↔after **双向断言**（防"探针假绿"） | `tools/probe-out/replica-ab.txt`、`replica-{before,after}/` |
-
-改前/改后（复刻实测，节选）：
-
-| 指标 | 改前 | 改后 |
-| --- | --- | --- |
-| 顶栏 `border-bottom` | `1px solid rgba(0, 0, 0, 0)`（alpha 0） | `1px solid rgba(19, 45, 83, 0.26)`（alpha 0.26） |
-| 磨砂层 `z-index` | `-1`（顶栏底色 alpha 0.38 ⇒ 被整片盖住） | `0` + 宿主内容层 `z-index:1` |
-| 磨砂层 `covers header` | true（但被盖） | true（可见） |
-| rail `::before` background | `rgba(0,0,0,0.42)`、`box-shadow: none` | 同前 + `rgba(255,255,255,0.55) 0 0 0 1px` |
-
-**像素判据的边界（重要）**：本机是**无 GPU 容器**，无头 Firefox 里 `CSS.supports('backdrop-filter')` 为真但
-**不合成** backdrop-filter —— 5 个相同面板分别 `none/blur(10px)/blur(30px)/+isolation/+will-change` 的截图
-**逐像素完全相同**（`dsh-mpkg-wallpaper/docs/HEADER-FROST.md` §6 有数据）。
-所以本轮把"模糊可见性"的判据从像素差改成**结构性事实**（层叠位置/覆盖/描边 alpha/晕），
-观感强度仍留给真机确认（`?hdrfrost=off`、`?railink=off` 都是一秒对照开关）。
-
-### 三、开销（用户要求"开销不要太大"）
-
-只在**状态变化**时同步（设置提交/壁纸切换/主题翻转各一次）+ **3s 一次**低频保险（单例
-`setInterval`）。**不装**全树 `MutationObserver`、不监听 `scroll/resize/pointermove`、不做 rAF 轮询、
-不在高频路径里反复 `getComputedStyle`。理由与逐项清单写在 `dsh-mpkg-wallpaper/docs/HEADER-FROST.md` §2b。
-
-### 四、门禁（两侧）
-
-- 插件侧 `bash tools/check.sh` —— **9 步全绿**（新增第 9 步 = 真机复刻 A/B）；
-  `node tools/frost-rail-test.mjs` 断言**只增不减**（新增 PART 1b：每个设置组合都查
-  "下描边未被我们抹透明 / rail 覆盖带晕且无 `!important` 且不碰宿主 token / 磨砂层 `z-index:0` +
-  宿主内容抬到 `z-index:1`"，PART 3 追加源码级防复发）。
-- 渲染器侧 `node tests/docs-check.mjs`、`node tests/diag-flag-check.mjs`（126==126，0 差异）、
-  `bash tests/run-all-tests.sh`（本文件追加**不动 runner**）。
-
-### 五、未定项 / 本机不可验
-
-1. **磨砂观感强度**：本机不合成 backdrop-filter ⇒ "30px 在你的壁纸上够不够/会不会过糊"只能真机看。
-2. **rail 条的观感**：反色晕保证"有一圈对比边"，但"这一圈在你的壁纸上够不够显眼"同样只能真机定；
-   `?railink=off` 可一秒回到宿主原样对照。
-3. **`z-index:0` 的层叠上下文副作用面**：顶栏成为层叠上下文只影响内部谁盖谁（不改 containing block），
-   已用 `tools/css-matrix.mjs` 全组合 + 复刻 A/B 覆盖；但**顶栏内第三方插件浮层**（非本仓库）
-   若依赖"负 z 子层在顶栏背景之下"这一罕见行为，本轮未真机验证。
-4. 真机需要确认的点：刷新后 `?diag` 里 `headerFrost.computed.frostElZ` 应为 `0`、
-   `computed.headerBg` 的 alpha < 1、host `border-bottom` 非透明；`rail.markBoxShadow` 非 `none`。
-
----
-
 ## P-105（2026-09-17 发布收口）仓库按职责分层落地 + README 重写（用户点名 4 处）+ GitHub About + npm `wallpaper-engine-web-loader@0.1.1`
 
-> **编号说明**：本轮编号取"**当前最大 `## P-` 标题号顺延**"= P-102 + 1 → 但 P-102 已被本节之前的
+> **编号说明**：本轮编号取"**当前最大 `## P-` 标题号顺延**"= P-102 + 1 → 但写入时 P-102 已被
 > 插件视觉轮占用、P-103/P-104 已被在途模块引用（见 P-105.6 第 1 条），故取**首个未被占用的号 P-105**，
 > 以保证 `tests/docs-check.mjs` 的"P-编号唯一 + 按文件顺序非降"两条判据同时成立。
+> （复测：插件视觉轮随后自行改号为 **P-106** 并移到本节之后 ⇒ 标题序 P-100-R1 / P-100 / P-105 / P-106 仍非降，
+> P-102 回归帧几何契约，见 P-105.6 第 2 条。）
 
 ### P-105.1 仓库分层整理（代码按职责分档；站点根 = 仓库根，线上 URL 逐字不变）
 
@@ -6093,13 +6029,14 @@ gh repo edit XHR666/wallpaper-engine-web-loader \
    `core/*.mjs`、`server/*.mjs`、`tools/*.mjs` 的注释把**本轮目录整理**称作 **P-101**；
    `core/audio-band-array.mjs` + `docs/AUDIO-BAND-SPEC.md` + `tests/audio-band-array-test.mjs` 自称 **P-103**；
    `docs/DATA-LIMITS.md` + `tests/data-limits-test.mjs` 自称 **P-104**。这些小节需由各自那条线补写，
-   且**必须紧接 P-105 之前/之后按号递增插入**（例如 P-103 要插在 P-102 与 P-105 之间），
+   且**必须按号递增插入**（例如 P-103 要插在 P-100 与 P-105 之间），
    否则会触发 `tests/docs-check.mjs` 的"P-编号按文件顺序非降"判据。
-2. **P-102 一号两用（冲突，需人工裁）**：`PATCHES.md` 的新标题 P-102 = **插件视觉轮**（顶栏磨砂/下描边/时间线条），
-   而 **P-102 = 帧几何契约**已被 5 个文件引用（`core/web-frame-geometry.mjs:1`、`THIRD-PARTY.md` §11、
-   `docs/COPYING-RULES.md` §4 #9、`tests/web-frame-geometry-test.mjs:1`、`docs/WEB-FRAME-GEOMETRY-SPEC.md`）。
-   两条线**并发**写入、互不知情。当前 `docs-check` 仍绿（标题本身唯一），但**语义上冲突** ⇒ 需其中一条改号
-   （改号要连带改上述 5 处引用）。截至本节写入时未动任何一侧，留给两条线/用户裁定。
+2. **P-102 一号两用 —— 已由插件视觉轮一侧改号解决**：本节写入时 `PATCHES.md` 曾出现 P-102 = **插件视觉轮**
+   （顶栏磨砂/下描边/时间线条），而 **P-102 = 帧几何契约**已被 5 个文件引用（`core/web-frame-geometry.mjs:1`、
+   `THIRD-PARTY.md` §11、`docs/COPYING-RULES.md` §4 #9、`tests/web-frame-geometry-test.mjs:1`、
+   `docs/WEB-FRAME-GEOMETRY-SPEC.md`）；两条线**并发**写入、互不知情。**01:24 复测**：插件视觉轮已自行改号为
+   **P-106**（并移到 P-105 之后），标题序为 P-100-R1 / P-100 / P-105 / P-106 ⇒ **P-102 现在唯一归帧几何，冲突消除**
+   （那 5 处引用一字未改）。
 3. **两套隐私判据覆盖面不一致**（见 P-105.4）：`publish-check` 的 `PATH_RE` 认不出"家目录下的点目录"
    （`/root/.dsh/…`）一类路径，而 `packaging-test` 认家目录前缀 ⇒ 建议把 `PATH_RE` 放宽为家目录前缀一条判据。
    **本轮未改判据**（不为凑绿掩盖发现），仅把被抓到的那一处改成 `~`。
@@ -6108,3 +6045,70 @@ gh repo edit XHR666/wallpaper-engine-web-loader \
 5. `docs/PATCHES.md` 三处历史记录里的个人绝对路径（`publish-check` 告警行 5405 / 5864 / 5883）**有意保留**：
    那是历史留痕的原文，改动等于篡改记录；若用户要求"个人路径清零"覆盖历史记录，需另开一条明确授权。
 6. P-97.6 的**法律定性**（审计 §7 U-1 / U-5）与 **RePKG 许可**两项仍未结案，不随本次发布关闭。
+
+---
+
+## P-106（2026-09-16 插件视觉轮 · 用户真机三连反馈）顶栏磨砂「层在但看不见」的真根因（`z-index:-1` 被父底整片盖住）+ 我们**两条规则**把顶栏下描边抹成 transparent 的回归 + 右侧时间线条的对比度定案
+
+> 归属：**插件侧**（`dsh-mpkg-wallpaper`），本文档收口是因为三个现象里有两条要跨仓库取证
+> （宿主 CSS 产物 + 渲染器/插件共用的门禁）。不改渲染器任何行为、不改任何开关默认值，
+> `diag-flag-check` 仍是 **代码 126 == 主表 126**（本轮**没有新增 URL 开关**）。
+> 插件侧详述见 `dsh-mpkg-wallpaper/docs/HEADER-FROST.md` §0/§0b/§6 与 `dsh-mpkg-wallpaper/docs/TIMELINE-RAIL-TOKEN.md` §3b。
+
+### 一、三个现象与归因（都有实测判据，不是推断）
+
+| # | 用户原话/现象 | 归因（**哪条规则**） | 修法 |
+| --- | --- | --- | --- |
+| ① | 「顶栏磨砂仍然没有」（前一轮已修掉 `normalizeSection` 的 `ReferenceError`，真机 diag 已显示 `injected=true/px=30/bdf=blur(30px)`） | **不是**磨砂链没跑：注入层用了 `z-index:-1`，而宿主顶栏 `position:relative` + `z-index:auto` + `isolation:auto` + `transform:none` **不是层叠上下文** ⇒ 负 z 子层画在顶栏 `background-color`（`rgba(255,255,255,.38)`）**之下**，模糊一点都透不出来 | ① 内联样式 `z-index:-1` → **`0`**；② `.mpw-hdrFrost { z-index:0 }` 等三条层叠规则改为**无条件输出**（原来落在 `if (headerBg)` 分支里）；③ 宿主顶栏直接子节点抬到 `z-index:1`（只改绘制序、不改布局）⇒ 层不盖标题/按钮 |
+| ② | 「顶栏下面一部分的描边你给它去掉了」 | **我们两条规则**各带一条 `border-bottom: 1px solid transparent !important;`：`.wSkVaW_header` 基础块 + `if (headerBg && !headerBlur)` 分支（**用户真机命中的就是后者**）。带 `!important` 权重压过宿主，下描边整条变透明 | 两条**全部删除**：插件只改 `background-color`，描边一律交还宿主（亮 `rgba(19,45,83,.26)` / 暗 `rgba(148,180,220,.32)`） |
+| ③ | 「右侧时间线条仍不可见」 | **不是我们把条删了**：无头 Firefox + 真 DSH 页面实测 `.eGxaPq_mark::before` computed `background = rgba(0,0,0,0.42)`（我们的 `--mpw-rail-ink` 生效）、`12px×2px`、`opacity=1`、无裁切祖先；宿主 token `--dsw-alias-border-l4` 在 body 上正常解析（`#00000029`）。看不见的是**对比度**：2px 高、16%~42% alpha 的细条压在任意深浅壁纸上会同色系糊掉 | **保留**覆盖（删掉只会更看不见）并按"一定能实现"加强：新增反色描边晕 `--mpw-rail-halo`（`box-shadow: 0 0 0 1px`，亮 `rgba(255,255,255,.55)` / 暗 `rgba(0,0,0,.55)`），几何仍由宿主决定；另修 `hasWall` 判据与磨砂链对齐（原来只看持久化字段 ⇒ 同页面"顶栏有磨砂、rail 判无壁纸"） |
+
+### 二、判据（可复算，两个新探针）
+
+| 探针 | 做什么 | 证据落盘 |
+| --- | --- | --- |
+| `dsh-mpkg-wallpaper/tools/header-rail-collect.mjs` | 无头 Firefox 打开**真 DSH 页面**（`127.0.0.1:3080` + 会话 cookie），采顶栏/磨砂层/rail 的 computed + 几何 + 祖先裁切 + token 解析值 | `tools/probe-out/<label>.collect.{json,txt}` |
+| `dsh-mpkg-wallpaper/tools/header-rail-replica.mjs --both` | **真宿主 CSS + 真插件 `buildCss()` 产物**的最小复刻页；`before` 变体把本轮修复逐条还原 ⇒ 同一 DOM 下的"改前/改后"对照表，且 before↔after **双向断言**（防"探针假绿"） | `tools/probe-out/replica-ab.txt`、`replica-{before,after}/` |
+
+改前/改后（复刻实测，节选）：
+
+| 指标 | 改前 | 改后 |
+| --- | --- | --- |
+| 顶栏 `border-bottom` | `1px solid rgba(0, 0, 0, 0)`（alpha 0） | `1px solid rgba(19, 45, 83, 0.26)`（alpha 0.26） |
+| 磨砂层 `z-index` | `-1`（顶栏底色 alpha 0.38 ⇒ 被整片盖住） | `0` + 宿主内容层 `z-index:1` |
+| 磨砂层 `covers header` | true（但被盖） | true（可见） |
+| rail `::before` background | `rgba(0,0,0,0.42)`、`box-shadow: none` | 同前 + `rgba(255,255,255,0.55) 0 0 0 1px` |
+
+**像素判据的边界（重要）**：本机是**无 GPU 容器**，无头 Firefox 里 `CSS.supports('backdrop-filter')` 为真但
+**不合成** backdrop-filter —— 5 个相同面板分别 `none/blur(10px)/blur(30px)/+isolation/+will-change` 的截图
+**逐像素完全相同**（`dsh-mpkg-wallpaper/docs/HEADER-FROST.md` §6 有数据）。
+所以本轮把"模糊可见性"的判据从像素差改成**结构性事实**（层叠位置/覆盖/描边 alpha/晕），
+观感强度仍留给真机确认（`?hdrfrost=off`、`?railink=off` 都是一秒对照开关）。
+
+### 三、开销（用户要求"开销不要太大"）
+
+只在**状态变化**时同步（设置提交/壁纸切换/主题翻转各一次）+ **3s 一次**低频保险（单例
+`setInterval`）。**不装**全树 `MutationObserver`、不监听 `scroll/resize/pointermove`、不做 rAF 轮询、
+不在高频路径里反复 `getComputedStyle`。理由与逐项清单写在 `dsh-mpkg-wallpaper/docs/HEADER-FROST.md` §2b。
+
+### 四、门禁（两侧）
+
+- 插件侧 `bash tools/check.sh` —— **9 步全绿**（新增第 9 步 = 真机复刻 A/B）；
+  `node tools/frost-rail-test.mjs` 断言**只增不减**（新增 PART 1b：每个设置组合都查
+  "下描边未被我们抹透明 / rail 覆盖带晕且无 `!important` 且不碰宿主 token / 磨砂层 `z-index:0` +
+  宿主内容抬到 `z-index:1`"，PART 3 追加源码级防复发）。
+- 渲染器侧 `node tests/docs-check.mjs`、`node tests/diag-flag-check.mjs`（126==126，0 差异）、
+  `bash tests/run-all-tests.sh`（本文件追加**不动 runner**）。
+
+### 五、未定项 / 本机不可验
+
+1. **磨砂观感强度**：本机不合成 backdrop-filter ⇒ "30px 在你的壁纸上够不够/会不会过糊"只能真机看。
+2. **rail 条的观感**：反色晕保证"有一圈对比边"，但"这一圈在你的壁纸上够不够显眼"同样只能真机定；
+   `?railink=off` 可一秒回到宿主原样对照。
+3. **`z-index:0` 的层叠上下文副作用面**：顶栏成为层叠上下文只影响内部谁盖谁（不改 containing block），
+   已用 `tools/css-matrix.mjs` 全组合 + 复刻 A/B 覆盖；但**顶栏内第三方插件浮层**（非本仓库）
+   若依赖"负 z 子层在顶栏背景之下"这一罕见行为，本轮未真机验证。
+4. 真机需要确认的点：刷新后 `?diag` 里 `headerFrost.computed.frostElZ` 应为 `0`、
+   `computed.headerBg` 的 alpha < 1、host `border-bottom` 非透明；`rail.markBoxShadow` 非 `none`。
+
+---
