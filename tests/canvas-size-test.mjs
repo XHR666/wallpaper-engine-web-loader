@@ -19,7 +19,7 @@
 // 用法：node canvas-size-test.mjs        （缺真包时输出 SKIP canvas-size 并退出 0 → 门禁条件项）
 import fs from 'node:fs'
 import path from 'node:path'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import { applySceneScripts, createScriptCache } from '../elysia/scene-scripts.js'
 import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 

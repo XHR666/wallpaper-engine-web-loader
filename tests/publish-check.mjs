@@ -167,7 +167,7 @@ if (WE_ASSETS && fs.existsSync(WE_ASSETS)) {
 }
 
 // ── ④ 发布必需文件 ──
-const REQUIRED = ['LICENSE', 'THIRD-PARTY.md', 'README-PUBLIC.md', 'elysia/LICENSE', 'elysia/vendor/@shaderfrog/glsl-parser/LICENSE', 'samples/sample-synthetic/scene.pkg']
+const REQUIRED = ['LICENSE', 'THIRD-PARTY.md', 'docs/README-PUBLIC.md', 'elysia/LICENSE', 'elysia/vendor/@shaderfrog/glsl-parser/LICENSE', 'samples/sample-synthetic/scene.pkg']
 for (const f of REQUIRED) {
   if (!fs.existsSync(path.join(ROOT, f))) findings.blocking.push({ kind: 'missing', file: f, msg: '发布必需文件缺失' })
 }

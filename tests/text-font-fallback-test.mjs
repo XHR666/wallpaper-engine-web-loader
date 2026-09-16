@@ -3,7 +3,7 @@
 //
 // 契约（P-81 冻结，P-86 扩一级）：
 //   ① 包内 `lib.getEntry(pkg, fp)` **优先且逐位不变**（包内有就必须用包内的，**绝不触碰网络级**）；
-//   ② 包内没有（或长度为 0）→ **仓库自带** `/assets/fonts/<文件>`（P-86 新增：we-scene-demo-server.mjs
+//   ② 包内没有（或长度为 0）→ **仓库自带** `/assets/fonts/<文件>`（P-86 新增：server/we-scene-demo-server.mjs
 //      的 `/assets/fonts/(.+)` → 本仓库 `assets/fonts/**`，只放**我们有权分发**的字体）；
 //      `?repofonts=off` ⇒ 整级跳过，逐位回到 P-81 的三级链；
 //   ③ 仓库没有 → `/weassist/fonts/<basename>`（basename 要 encodeURIComponent），即**用户本机 WE 安装
@@ -48,12 +48,12 @@ import path from 'node:path'
 import net from 'node:net'
 import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 
 const HERE = ROOT
 const HTML = fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8')
-const SERVER = path.join(ROOT, 'we-scene-demo-server.mjs')
+const SERVER = path.join(ROOT, 'server/we-scene-demo-server.mjs')
 const FONT_DIR = path.join(HERE, 'assets', 'fonts')
 const LIC_DIR = path.join(FONT_DIR, 'licenses')
 const THIRD_PARTY = path.join(ROOT, 'THIRD-PARTY.md')
@@ -380,7 +380,7 @@ console.log('[T2s] 源码级守卫：textFontLoaded 语义 + 四级链完整 + �
     /while \(tier !== 'pkg' && \(!bytes \|\| !bytes\.length\)\) \{[\s\S]{0,600}?tier = textFontNextTier\(tier\)/.test(SRC_ENSURE))
   check('T2s8 服务端有 `/assets/fonts/(.+)` 路由，且带 `startsWith(base)` 穿越防护与 font/ttf·font/otf content-type',
     /p\.match\(\/\^\\\/assets\\\/fonts\\\/\(\.\+\)\$\/\)/.test(fs.readFileSync(SERVER, 'utf8')) &&
-    /const base = path\.join\(__dirname, 'assets', 'fonts'\)/.test(fs.readFileSync(SERVER, 'utf8')) &&
+    /const base = path\.join\(REPO_ROOT, 'assets', 'fonts'\)/.test(fs.readFileSync(SERVER, 'utf8')) &&
     /full\.startsWith\(base\)/.test(fs.readFileSync(SERVER, 'utf8')) &&
     /'font\/ttf'/.test(fs.readFileSync(SERVER, 'utf8')) && /'font\/otf'/.test(fs.readFileSync(SERVER, 'utf8')))
 }

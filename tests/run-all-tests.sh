@@ -41,7 +41,7 @@ declare -a NAMES CMDS SLOWPAT SKIPPAT
 add() { NAMES+=("$1"); CMDS+=("$2"); SLOWPAT+=("${3:-}"); SKIPPAT+=("${4:-}"); }
 
 # —— 语法/静态 ——
-add "bundle-syntax"      "node --check we-scene-bundle.js"
+add "bundle-syntax"      "node --check core/we-scene-bundle.js"
 add "demo-syntax"        "node tests/demo-syntax-check.mjs"
 # ①(P-70b 2026-09-15) **把它排到重项之前**：单独跑 4.9s，但排在 `tex-fmt5`(45s)/`package-matrix`(38–52s)
 #   之后时会因内存压力（本机 15G、free 0）换页抖动到 >600s 被超时中止 —— 实测 120× 慢、
@@ -76,6 +76,17 @@ add "alignment"          "node tests/alignment-test.mjs"
 #   + 源码守卫（旧标识符与 `/= 100` 已消失）/ 6 个真包全部原始输入与 parseScene 接线。
 #   **1008 断言**；~2.4s；缺真包语料时整体 SKIP 不红。
 add "clean-room-alpha"   "node tests/clean-room-alpha-align-test.mjs" "" "^SKIP clean-room-alpha"
+# ①(P-100-R1 2026-09-16) 洁净室重写验收：**R1** = `src/render/effects.js` 节（CPU 效果链：混合模式/HSL/
+#   像素颜色效果/位移/waterflow）。改前自述「逐行翻译自 WE shader 原文」（另有 3 处自认 + 12 处上游
+#   `文件:行号` 引注；原件是 **WE 专有**资产，与 P-95 的 wer-ref 轴无关），已按行为规格
+#   `docs/EFFECTS-COMPUTE-SPEC.md` 重写（命名/控制流/常量表达/注释全改，行为**逐位不变**）。
+#   六层断言：冻结真值 digest（5 个函数的改前实测输出，FNV-1a 64 over IEEE-754 位模式）/
+#   207 条冻结抽样值 Object.is 逐值对拍（含"调用后入参状态"，锁住原地改写契约）/ 规格性质（同义 id、
+#   交换操作数、opacity 无关族、区间界、HSL 往返恒等）/ 契约（返回数组身份、未知 type 跳过、
+#   非可迭代输入抛 TypeError）/ 源码守卫（旧名·上游同名回响·引注·自认措辞归零）/ 血缘复测阈值。
+#   **312 断言**；实测 ~3.6s（门禁内 ~5.9s，含血缘指标的全量 LCS；缺 WE 资产时该层 SKIP）。
+#   语料见 `tests/effects-corpus.mjs`（全自造合成贴图，无真机壁纸数据）。
+add "clean-room-effects-blend" "node tests/clean-room-effects-blend-test.mjs" "" "^SKIP clean-room-effects-blend"
 add "attach-transform"   "node tests/attach-transform-test.mjs"
 add "multi-sprite"       "node tests/multi-sprite-test.mjs"
 add "audio-semantics"    "node tests/audio-semantics-test.mjs"
@@ -98,6 +109,7 @@ add "p74-particles"      "node tests/p74-instanceoverride-test.mjs"  # P-74：in
 add "log-panel"          "node tests/log-panel-collapse-test.mjs"  # P-56 Q8：8899 底部日志区收纳（假 DOM 驱动真实内联脚本；~0.2s）
 add "p76-parallax-eye"   "node tests/p76-parallax-eye-test.mjs"  # P-76：①对象级视差位移被 mat4Scale 后乘放大（0.386px→1639.4px ⇒ 真机台账 rd x0=1430 应 −209、每帧【帧N】左缘=页面灰、背景整层被推下屏）+ parallaxOff 不门控对象级项；②?eyehack 在蒙皮路径覆写 layer.scale（0.693→1 ⇒ 眼睛网格 1.4431 倍、右移 260.6px）；追加A ③?bones= 逐骨探针补 det/镜像通道（角度分不出镜像）；追加B ④volume 无落点不接 + zoom 绑定接通（?props=newproperty30=1.6 ⇒ 投影 ×1.6000，默认逐位不变）；P-80 ⑤?bones= 会话累计极值 ext/dty/dang + 眨眼事件 blinks(±5 帧片段)/summary + ?blinkty= 阈值。mock-GL 走真实 renderScene/compositeLayer 六态对拍 + 官方标定 refrender 对账；111 断言；~5s
 add "camera-pose"        "node tests/camera-pose-test.mjs"  # P-81：相机层姿态完整接（`camPose` 过去从未交给 `buildCamera` ⇒ origin/zoom 关键帧动画在真实路径从未生效）。三档真值表（full 缺省 / legacy = P-76 行为 / off = 逐位回到 P-76 前，非法值→full）；hina 3554161528 是语料里唯一有相机层动画的包：t=0 人物 w=4215（×3.00 镜头）、t=1 w=3705（×2.64）；legacy/off 逐位相同且复现改动前取景；凯尔希（无相机对象）三档逐位相同；砂狼白子脚本 origin 的快照默认不施加（`?cam=node` 才是那个 A/B，实测 −2434px）；fov 在正交渲染器无落点（逐位回归）。26 断言；~2s
+add "charfit-camera"    "node tests/charfit-camera-test.mjs"  # P-100：用户真机实测「入场动画把人物固定在屏幕中间、去移动背景」 —— 根因 = ①真机默认路径的**蒙皮层不接相机**（旧 `MESH_VS` 只按设计画布 1:1 映射 ⇒ 相机层 origin/zoom 关键帧带不动 puppet，背景/钢琴/花朵却跟着镜头走）+ ②`?skin0`/无蒙皮路径的「角色层自动适配」把超屏角色 origin 改写成画布中心。修：`MESH_VS` 新增 `u_View/u_Framed`（**以画布中心为缩放基准**，与四边形层 `viewProj` 同式，配准实测 ≤6.4e-4px）+ 适配收窄为「有相机层 ⇒ 不适配，无相机层且超屏才兜底」；回退 `?charfit=auto|off|legacy`（legacy = 逐位回到改动前）。真包 hina 5 时间点矩形 × 三档 + 凯尔希兜底保留 + uniform 级 + 源码守卫；46 断言；~1.5s
 add "quality-tiers"      "node tests/quality-tiers-test.mjs"  # P-90：质量档位 `?q`（内部渲染 0.5/0.75/1×，off=关闭离屏路径）+ `?aa`（off/fxaa/msaa2/msaa4；MSAA 不可用或 q!=off 时**回落 FXAA 并记日志**）+ `?pp`（off/low/medium/high，照上游 POST_FBO_CAP；off 门控图层效果链+Bloom），FXAA 片元着色器借自 oneincase/webwallgl（MIT，已署名）。六组断言：真值表（非法/空值/大小写/共存/pp=0 旧义）/ 默认档逐位相同（GL 调用序列与显式默认逐项相等、零额外 FBO·纹理·draw、逐层 rect·mvp 一致）/ 各档确有差异（q=low 内部 1280×720→640×360、pp=off 51→25 draw）/ FXAA 真在链里（帧末 1 次全屏 draw、懒编译、帧内幂等）/ 热更（setQuality 不重挂载、下一帧生效、msaa 档如实报"需刷新"）/ 与 `?res`·`?nofx`·`?perf` 组合不冲突。90 断言；~4s；缺夹具整体 SKIP 不红
 add "fullscreen-recenter" "node tests/fullscreen-recenter-test.mjs"  # P-57 N1+N2：近整屏层兜底按 alignment 判据/放锚点（3660962877 真实值；~0.1s）
 add "animation-badframe" "node tests/animation-badframe-test.mjs" "" "^SKIP animation-badframe"  # P-57 N3：多 additive 层按动画好帧表+跨坏帧插值（真包 3544152633 复刻合成+蒙皮，位移 ≤50；~0.3s；缺包 SKIP）
@@ -116,12 +128,22 @@ add "layer-rect-kal"     "node tests/layer-rect-check.mjs 3719111841 --refrender
 add "package-matrix"     "node tests/package-matrix.mjs --check" "slow"
 add "panel-smoke"        "node \"$MPW_ROOT/dsh-mpkg-wallpaper/tools/panel-smoke.mjs\""
 add "props-panel"        "node tests/props-panel-test.mjs" "" "^SKIP props-panel"  # P-61：官方属性面板（真包 hina 3554161528 的 35 条 general.properties 通用渲染：计数+order/condition 门控与"不生效"/绑定生效/combo 脚本属性/持久化/URL ?props= 优先/N5 不打架/装载块真源码切片；106 断言；~0.25s）。①(P-87) 真包只从本机语料取（仓库内 samples/wallpapers 已因版权整体移除）⇒ 缺语料时**整体 SKIP**，门禁不红
-add "project-json"       "node tests/project-json-test.mjs"        # P-85：官方 project.json 查找链（scene-project-json.mjs）+ 服务端契约：5 档顺序/逐档降级/坏 JSON 不致命（10）+ 6 真包非空与 we-workshop 隔离可达（18）+ 白子 4 个 Clock 变体默认属性下恰 1 个可见（id639）与"秒"可见、缺失全可见对照（6）+ hina 绑定引用完整性（2）+ 优雅降级（2）+ 子进程起服务验 /project 200+x-project-source+404（5）；43 断言；~0.7s
+add "project-json"       "node tests/project-json-test.mjs"        # P-85：官方 project.json 查找链（core/scene-project-json.mjs）+ 服务端契约：5 档顺序/逐档降级/坏 JSON 不致命（10）+ 6 真包非空与 we-workshop 隔离可达（18）+ 白子 4 个 Clock 变体默认属性下恰 1 个可见（id639）与"秒"可见、缺失全可见对照（6）+ hina 绑定引用完整性（2）+ 优雅降级（2）+ 子进程起服务验 /project 200+x-project-source+404（5）；43 断言；~0.7s
 add "perf-profile-smoke" "node tests/perf-profile.mjs --pkg \"$MPW_PERF_PKG\"" "slow"
 add "projection-y"       "node tests/projection-y-test.mjs"       # P-69：相机投影 y 轴口径（真值表 世界y0→NDC+1 / fix↔legacy 互镜 / 真包 3554161528 花朵落点 1640.55 vs legacy 519.45 + 钢琴对照 54px）+ 粒子 incr 缓存不变量（首帧与 replay 逐位同、第二帧粒子更新次数 ≥20× 下降）；34 断言；~2s
 add "multi-instance"     "node tests/multi-instance-test.mjs"    # P-77 用户第 4 项「一页多实例」：无 ?ids= 时单实例逐位不变（红线）/ ids 解析(非法·去重·顺序) / maxinst 超出不建上下文+占位原因 / 同一时刻仅一个 active 且未选中 0 帧(桩 rAF) / dispose→loseContext+摘除(桩上下文计数回落) / 一帧至多 1 active / 报告 instances 键（单实例无·多实例全）/ 预算降档 / 布局与 instlog + **真接线动态跑**（切 demo.html 的多实例接线块 + 桩 bootInstance）；87 断言；~0.3s（纯 Node：桩 DOM+rAF+boot）
 add "canvas-size"        "node tests/canvas-size-test.mjs" "" "^SKIP canvas-size"  # P-78 追加任务：engine.canvasSize 口径（默认仍=渲染分辨率⇒逐位不变；?csz=ortho 为 A/B）。真包 3327063360+真机 userProps 复现：**两种口径都在画布内** ⇒ 证伪"口径导致 12 层不上屏"；11 断言；~0.9s；缺真包 SKIP
 add "text-font-fallback" "node tests/text-font-fallback-test.mjs" "" "^SKIP text-font-fallback"  # P-81 用户第 1 项最后缺口：文本字体**三级来源链**（①包内 → ②本机 WE 安装目录 /weassist/fonts/<basename> → ③sans-serif）。纯函数节选 + 桩 fetch/Blob/FontFace：包内有⇒fetch 0 次（绝不走第二级）/ 空格·CJK basename 编码 / 404·reject·空体都不抛异常且落第三级 / missing 去重 + **调用点也认 missing**（否则缺字体的层永不渲染）；真包 3554161528 时钟层 id398（包内无 Monofur）复现 + 千图马克层走第一级；45 断言；~0.2s；缺真包 SKIP
+# ①(P-102 2026-09-16 第 10 条·移植项) 帧几何：宿主 iframe 形态下的"窗口坐标 → 帧内 client 像素"与
+#   "内容比例 ≠ 舞台比例时的覆盖式视口"。**规格先行**（docs/WEB-FRAME-GEOMETRY-SPEC.md，只写公开契约）
+#   → 按规格新写 core/web-frame-geometry.mjs（参照 oneincase/webwallgl MIT 的 renderer/src/web.ts 的
+#   **行为契约**，未复制代码；差异清单见规格 §6，台账 docs/COPYING-RULES.md §4 #9）。50 断言；~0.05s
+add "web-frame-geometry" "node tests/web-frame-geometry-test.mjs"
+# ①(P-103 2026-09-16 第 10 条·移植项) 音频频段契约：128 元数组（左 0..63 + 右 64..127）/ 0..1 钳位 /
+#   γ 对比扩展曲线（"频谱要尖"）/ 确定性纯函数模拟源 / bandStats 诊断。规格先行（docs/AUDIO-BAND-SPEC.md）
+#   → 按规格新写 core/audio-band-array.mjs（参照 oneincase/webwallgl MIT 的 renderer/src/web.ts 的
+#   **行为契约**，未复制代码；差异见规格 §5，台账 docs/COPYING-RULES.md §4 #10）。35 断言；~0.05s
+add "audio-band-array"   "node tests/audio-band-array-test.mjs"
 add "diag-flags"         "node tests/diag-flag-check.mjs"
 # —— C 会话新增：文档一致性 + 平价基线（条件项）——
 add "docs-check"         "node tests/docs-check.mjs"
@@ -132,6 +154,16 @@ add "mount"              "node tests/mount-test.mjs"     # P-91：库入口 `mou
 add "pwa"                "node tests/pwa-test.mjs"       # P-92：离线 PWA —— 缓存判据**绝不缓存用户壁纸**（正面 16/反面 21/响应 10 条）+ manifest 与图标尺寸自洽 + sw.js 预缓存清单无用户端点 + 注入开关默认关/幂等/缺 </head> 不吞页面 + 真子进程服务验 6 条静态路由与首页注入是纯增量；107 断言；~1s
 add "packaging"          "node tests/packaging-test.mjs" # P-91：可分发形态自证 —— package.json 契约（license 与 LICENSE 一致、exports 每条存在）+ files 白名单（运行所需全覆盖/本机数据全排除）+ `npm pack --dry-run` 体积 + **真打包解包后 grep 个人绝对路径 0 命中** + start-demo.sh 真起服务 200 + check.sh 汇总口径；122 断言；~9s（两次 npm pack）
 add "hlsl2glsl-coverage" "node tests/hlsl2glsl-coverage-test.mjs" "" "^SKIP hlsl2glsl-coverage"  # P-93：把 `docs/HLSL2GLSL-COVERAGE.md` §0 的 98.2% 变成**会变红的断言**（vendored 上游 MIT 转译器逐文件过语料：0 抛错 + 覆盖率下限 + 每个"可疑"都带原因；本机实测 45/46=97.8%，语料被裁剪时按子集下限并在输出里标明；`MPW_H2G_MIN_RATIO=0.999` 可自证会红）；~3s；无语料/无包解析器时 SKIP，门禁不红
+
+# ——— ①(P-104 2026-09-17 发布纪律①②：**自动上报默认关** + 一切"自动落盘"都要有上限） ———
+# 用户原话："像你这种测试用的自动上报的功能，这种你在上传仓库的时候要把它默认给关掉。"
+#          "这种自动上报、自动把什么存储到本地的类型的东西，这种需要设置上限的，这上限别忘记了。"
+# 38 断言 / 4 段：默认关真值表 + 真源码守卫（两条定时器只在 `if (autoReport)` 里）+ 手动按钮不被连坐
+#   + 真服务空跑 3s reports/ 零新增；服务端上限（reports 60 份/64MB、selfcheck 40 份、shots 每 id 400 帧
+#   /200MB + 全局 500MB，超限最旧先删 + 清理日志 + 启动清理一次 + 别人的产物不误删）；
+#   渲染器 localStorage（键数/单值/总量 + LRU + 日志）；插件 diag-*.json（50 个/32MB + 客户端默认关）。
+# ~6s（起 4 个真服务子进程；上限用 env 压到很小才能秒级验完清理路径）。上限唯一来源：docs/DATA-LIMITS.md
+add "data-limits"        "node tests/data-limits-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

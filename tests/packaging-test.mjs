@@ -59,7 +59,7 @@ console.log('\n[B] files 白名单：运行所需全覆盖 + 本机数据全排�
 {
   const files = (pkg && pkg.files) || []
   for (const f of files) check('files 条目存在：' + f, fs.existsSync(path.join(HERE, f.replace(/\/$/, ''))))
-  const need = ['we-scene.mjs', 'we-scene-bundle.js', 'we-scene-demo-server.mjs', 'demo.html', 'elysia/', 'samples/', 'assets/fonts/', 'manifest.webmanifest', 'sw.js', 'sw-policy.mjs', 'icons/', 'vendor/hlsl2glsl/', 'LICENSE', 'THIRD-PARTY.md', 'PACKAGING.md', 'start-demo.sh']
+  const need = ['core/we-scene.mjs', 'core/we-scene-bundle.js', 'server/we-scene-demo-server.mjs', 'demo.html', 'elysia/', 'samples/', 'assets/fonts/', 'web/manifest.webmanifest', 'web/sw.js', 'web/sw-policy.mjs', 'web/icons/', 'vendor/hlsl2glsl/', 'LICENSE', 'THIRD-PARTY.md', 'docs/PACKAGING.md', 'start-demo.sh']
   for (const n of need) check('files 覆盖运行所需：' + n, files.includes(n))
   const banned = ['reports/', 'archive/', 'Testphoto/', 'node_modules/', 'shots/']
   for (const b of banned) check('files **不**含本机数据：' + b, !files.includes(b))
@@ -79,7 +79,7 @@ console.log('\n[C] npm pack --dry-run：清单与体积')
     check('文件数在预算内（≤300）', paths.length <= 300, String(paths.length))
     check('解包体积在预算内（≤12MB）', j.unpackedSize <= 12 * 1048576, (j.unpackedSize / 1048576).toFixed(1) + 'MB')
     check('tarball 体积在预算内（≤5MB）', j.size <= 5 * 1048576, (j.size / 1048576).toFixed(2) + 'MB')
-    for (const n of ['we-scene.mjs', 'manifest.webmanifest', 'sw.js', 'sw-policy.mjs', 'icons/icon-512.png', 'vendor/hlsl2glsl/hlsl2glsl.js', 'samples/sample-synthetic/scene.pkg', 'LICENSE', 'THIRD-PARTY.md']) {
+    for (const n of ['core/we-scene.mjs', 'web/manifest.webmanifest', 'web/sw.js', 'web/sw-policy.mjs', 'web/icons/icon-512.png', 'vendor/hlsl2glsl/hlsl2glsl.js', 'samples/sample-synthetic/scene.pkg', 'LICENSE', 'THIRD-PARTY.md']) {
       check('打包清单含：' + n, paths.includes(n))
     }
     check('打包清单不含 reports/**', !paths.some((p) => p.startsWith('reports/')))
@@ -172,14 +172,16 @@ console.log('\n[F] check.sh：单一自检入口')
 console.log('\n[G] 新增文件卫生：无个人路径 / 不误纳本机数据')
 {
   const PERSONAL2 = ['/' + 'root' + '/', '/' + 'home' + '/[a-z]']
-  const mine = ['we-scene.mjs', 'start-demo.sh', 'check.sh', 'sw.js', 'sw-policy.mjs', 'pwa-inject.mjs', 'make-icons.mjs', 'manifest.webmanifest', 'tests/mount-test.mjs', 'tests/pwa-test.mjs', 'tests/packaging-test.mjs', 'tests/hlsl2glsl-coverage-test.mjs']
+  const mine = ['core/we-scene.mjs', 'start-demo.sh', 'check.sh', 'web/sw.js', 'web/sw-policy.mjs', 'web/pwa-inject.mjs', 'tools/make-icons.mjs', 'web/manifest.webmanifest', 'tests/mount-test.mjs', 'tests/pwa-test.mjs', 'tests/packaging-test.mjs', 'tests/hlsl2glsl-coverage-test.mjs']
   for (const f of mine) {
     const s = RD(f)
     check(f + ' 无个人绝对路径', !new RegExp(PERSONAL2.join('|')).test(s))
   }
   const pkgFilesJoins = ((pkg && pkg.files) || []).join(' ')
   for (const b of ['Testphoto', 'reports', 'archive', '__pycache__', '.bak']) check('打包白名单不涉及 ' + b, !pkgFilesJoins.includes(b))
-  check('新增文档 PACKAGING.md 存在且被 files 收录', fs.existsSync(path.join(ROOT, 'PACKAGING.md')) && ((pkg && pkg.files) || []).includes('PACKAGING.md'))
+  // ①(P-101) 运行期真依赖必须随包（0.1.0 的 ./server 入口因漏掉 pack-dir/pwa-inject/scene-project-json 而必崩）
+  for (const f of ['server/pack-dir.mjs', 'web/pwa-inject.mjs', 'core/scene-project-json.mjs', 'shaders/common.h']) check('files 覆盖运行期依赖：' + f, ((pkg && pkg.files) || []).some((x) => x === f || (x.endsWith('/') && f.startsWith(x))))
+  check('新增文档 docs/PACKAGING.md 存在且被 files 收录', fs.existsSync(path.join(ROOT, 'docs/PACKAGING.md')) && ((pkg && pkg.files) || []).includes('docs/PACKAGING.md'))
 }
 
 // =====================================================================================

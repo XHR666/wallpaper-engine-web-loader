@@ -1,7 +1,7 @@
 // bloom-verify.mjs — RE-33 验证：bloom 4 pass 结构、尺寸（LDR /4 → /8）、
 // 13-tap 间距 8×texel、阈值/强度/tint uniform、禁用以写黑为中性、compose 直写（无混合）、
 // 以及"未声明 bloom 不产生任何 pass"。
-import { createRenderer } from '../we-scene-bundle.js'
+import { createRenderer } from '../core/we-scene-bundle.js'
 
 const CONST = { LINK_STATUS: 0x8B82, COMPILE_STATUS: 0x8B81, ACTIVE_UNIFORMS: 0x8B86, ACTIVE_ATTRIBUTES: 0x8B85,
   FRAMEBUFFER_COMPLETE: 0x8CD5, MAX_TEXTURE_SIZE: 0x0D33, NO_ERROR: 0, TEXTURE0: 0, TEXTURE1: 1,

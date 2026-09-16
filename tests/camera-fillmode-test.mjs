@@ -4,7 +4,7 @@
 //   CENTER=窗口=输出像素（1 场景单位=1 像素，wer-ref :1564-1570 framed=width/height=输出尺寸）；
 //   正交窗口 = framed/zoom；投影区间 = [场景中心 ± framed/2]（居中）。
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 
 let pass = 0, fail = 0
 const fails = []

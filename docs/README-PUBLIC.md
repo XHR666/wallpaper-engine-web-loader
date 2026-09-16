@@ -6,7 +6,7 @@
 > ⚠ **主 README 是 `README.md`**（GitHub 首页展示），其中含**免责声明**（中英）与完整的
 > **「参考与致谢 / References & Credits」**章节。本文件是**给下载者看的入口文档**（保留为发布面必需文件锚点，
 > `publish-check.mjs` 要求其在位），**§1–§6 与主 README 同源 —— 改一处请同步另一处**。
-> 项目内部的开发/诊断文档见 `RENDERER-ARCHITECTURE.md`、
+> 项目内部的开发/诊断文档见 `docs/RENDERER-ARCHITECTURE.md`、
 > `README-DIAGNOSTICS.md`、`TESTING.md`、`PATCHES.md`；第三方代码与许可的法律文本见 `THIRD-PARTY.md`。
 
 ---
@@ -15,11 +15,11 @@
 
 ### A. 用自带服务器（推荐，功能最全）
 ```bash
-node we-scene-demo-server.mjs          # 默认监听 0.0.0.0:8899
+node server/we-scene-demo-server.mjs          # 默认监听 0.0.0.0:8899
 # 浏览器打开 http://127.0.0.1:8899/
 ```
 自带服务器提供：包/目录读取、`/report` 上报落盘、`/weassist` WE 资产兜底、CORS（供 iframe 嵌入）等。
-端口可用环境变量覆盖：`PORT=9000 node we-scene-demo-server.mjs`。
+端口可用环境变量覆盖：`PORT=9000 node server/we-scene-demo-server.mjs`。
 首屏：本机有语料就渲染默认包；**没有语料**（本仓库不分发真实壁纸）时页面会明确提示并自动渲染自带的合成样例
 （也可直接打开 `http://127.0.0.1:8899/?id=sample-synthetic`）。
 
@@ -53,7 +53,7 @@ python3 -m http.server 8899            # 或 npx serve -l 8899
 |---|---|
 | `samples/sample-synthetic/` | 合成样例包：`scene.pkg`（≈33KB）+ `project.json`。5 层：渐变背景、组合容器、动画纯色条、随动+缩放循环的圆点、绑定属性的文字标签 |
 | `samples/sample-synthetic-src/` | 同一场景的**松散源文件**（`scene.json`、`models/`、`materials/`）。把它打包出来的结果与上面的 `scene.pkg` **逐字节相同** ⇒ 同时是"目录源"夹具 |
-| `make-sample.mjs` | 生成器：`node make-sample.mjs`（确定性，同参数同 sha256）；`--prod-verify` 会用生产解析器逐条校验 |
+| `tools/make-sample.mjs` | 生成器：`node tools/make-sample.mjs`（确定性，同参数同 sha256）；`--prod-verify` 会用生产解析器逐条校验 |
 
 样例**不含任何第三方素材或音频**（纹理全部由脚本程序化生成）。
 `samples/wallpapers/` 曾随仓库分发 4 个真实 Steam 工坊壁纸（198MB）——**因版权已整体删除**（记录见 `PATCHES.md` P-87）；
@@ -87,10 +87,10 @@ python3 -m http.server 8899            # 或 npx serve -l 8899
   不得被本仓库的 GPL 覆盖或删除（规则见 `docs/COPYING-RULES.md`）。
 - `webwallgl`（**MIT © oneincase**）：本仓库**不 vendored 它的任何文件**（仓库外的 `vendor-ref/webwallgl`
   只是上游研读副本）；但 **P-90 把它的 FXAA 片元着色器（`FXAA_FRAG`，上游 452–489 行）逐字移植了进来**
-  —— 落在 `we-scene-bundle.js` 的 `FXAA_FS` 常量，归一化后 38/38 行 GLSL 一致；**MIT 声明已保留**
+  —— 落在 `core/we-scene-bundle.js` 的 `FXAA_FS` 常量，归一化后 38/38 行 GLSL 一致；**MIT 声明已保留**
   （源码内来源注释 + `THIRD-PARTY.md` §6 全文 + `docs/COPYING-RULES.md` §4 台账 #6）。
   质量档位 `?q`/`?aa`/`?pp` 与 `setQuality` 为自研（上游 `quality.ts` **未复制**，仅对齐档位含义）。
-- **移植自 [elysia395/dsh-wallpaper-engine](https://github.com/elysia395/dsh-wallpaper-engine)（MIT © 2026 elysia395，渲染器作者 YV3507）** 的部分：`elysia/**` 与 `attach-transform.mjs` —— 完整署名与 MIT 全文见 `THIRD-PARTY.md` 与 `elysia/LICENSE`。
+- **移植自 [elysia395/dsh-wallpaper-engine](https://github.com/elysia395/dsh-wallpaper-engine)（MIT © 2026 elysia395，渲染器作者 YV3507）** 的部分：`elysia/**` 与 `core/attach-transform.mjs` —— 完整署名与 MIT 全文见 `THIRD-PARTY.md` 与 `elysia/LICENSE`。
 - 内置的 `@shaderfrog/glsl-parser`（ISC, Andrew Ray）：上游未附许可文件，本项目在 `elysia/vendor/@shaderfrog/glsl-parser/LICENSE` 中补齐。
 - **字体**（OFL-1.1 / Apache-2.0 / CC-BY-4.0，位于 `assets/fonts/`）：逐文件的来源、版权行、
   上游 URL、下载日期、字节数与 sha256、以及随附的许可全文清单，见 `THIRD-PARTY.md` §4
@@ -122,11 +122,11 @@ python3 -m http.server 8899            # 或 npx serve -l 8899
   登记留痕：`PATCHES.md` **P-95**；`docs/WER-REF-LICENSE-AUDIT.md` §3.4 已加"✅ 事后追加"。
   **仍未结案**：法律定性（审计 §7 **U-1 / U-5**，需律师意见）。
   编号已统一为 **P-95**（源码注释/测试/架构文档/THIRD-PARTY 全改；`PATCHES.md` 的 P-91 是"分发形态"另一件事），
-  `we-scene-bundle.js` 里最后一处上游表达式括注也已删除。
+  `core/we-scene-bundle.js` 里最后一处上游表达式括注也已删除。
 - `notscuffed/repkg`：许可在既有文档中**自相矛盾（MIT vs GPL）**，**未定/待核**；
-  `we-scene-bundle.js` 里"逐行对齐 RePKG 的 LibSquish 移植实现"这一表述强于"格式参考"，**待核**。
+  `core/we-scene-bundle.js` 里"逐行对齐 RePKG 的 LibSquish 移植实现"这一表述强于"格式参考"，**待核**。
 - `oneincase/webwallgl`（**MIT**）：**逐字复制**了 FXAA 片元着色器（`FXAA_FS`），并**逐字节 vendored**
   了 HLSL→GLSL 转译器（`vendor/hlsl2glsl/`，P-93）；另外 `demo/**` 是它的**静态构建产物补丁版再分发**，
-  MIT 声明分别保留在 `we-scene-bundle.js` 注释 / `vendor/hlsl2glsl/LICENSE` / `demo/LICENSE-webwallgl-MIT.txt`。
+  MIT 声明分别保留在 `core/we-scene-bundle.js` 注释 / `vendor/hlsl2glsl/LICENSE` / `demo/LICENSE-webwallgl-MIT.txt`。
 
 另：`NixaXI/AnisPaper` 仅在许可兼容性研究中被评估，**未参考其代码**，故不作为致谢项列出。

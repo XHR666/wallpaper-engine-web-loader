@@ -11,8 +11,8 @@
 // 用法: node p74-instanceoverride-test.mjs [--verbose]
 import fs from 'node:fs'
 import zlib from 'node:zlib'
-import { createRenderer } from '../we-scene-bundle.js'
-import * as lib from '../we-scene-bundle.js'
+import { createRenderer } from '../core/we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 
@@ -457,7 +457,7 @@ if (has(PKG_CAT)) {
 
 // ───────────────────────── 回退开关齐备性 ─────────────────────────
 {
-  const src = fs.readFileSync(new URL('../we-scene-bundle.js', import.meta.url), 'utf8')
+  const src = fs.readFileSync(new URL('../core/we-scene-bundle.js', import.meta.url), 'utf8')
   for (const [flag, val] of [['psize', 'legacy'], ['io', 'off'], ['vy', 'legacy'], ['maxtex', '0']]) {
     push(`开关 ?${flag}=${val} 在 bundle 内可解析`, src.indexOf(`'${flag}'`) >= 0 && src.indexOf(`${flag}`) >= 0)
   }

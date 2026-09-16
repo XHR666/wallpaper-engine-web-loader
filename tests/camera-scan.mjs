@@ -5,7 +5,7 @@
 // 用法: node camera-scan.mjs
 import fs from 'node:fs'
 import path from 'node:path'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 // ①(去个人化 2026-09-16) 插件下载缓存 / 备用语料根：环境变量优先；默认值只是作者本机路径。

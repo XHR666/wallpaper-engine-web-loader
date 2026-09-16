@@ -21,7 +21,7 @@ import path from 'node:path'
 //   location 钉成 `?mcc=1`：这样 F 段能同时验"`?mcc=1` 仍照旧补偿"与"旗标开时 noCenterComp 抑制
 //   双重校正"。其余旗标（vflip/qflip/nofx/perf…）取值与浏览器默认一致。
 globalThis.location = globalThis.location || { search: '?mcc=1', href: 'http://localhost/?mcc=1' }
-const lib = await import('../we-scene-bundle.js')
+const lib = await import('../core/we-scene-bundle.js')
 
 let pass = 0, fail = 0
 function check(name, ok, detail) {
@@ -176,9 +176,9 @@ if (!real) {
     check('D6 台账矩形用本次实绘 originXY/scaleXY + 缓存 bbox（旗标关时与旧式逐位相同）',
       /originXY\[0\] \+ scaleXY\[0\] \* px2/.test(HTML) && /if \(!sk\.mesh\.__bbox\) lib\.meshBBox\(sk\.mesh\)/.test(HTML))
     check('D7 ?mcc=0/1 语义未动（bundle 仍只认 mcc=1 为强制开，且 noCenterComp 是第三条与门）',
-      /const __useC = MCC_ENABLED && !!__c && !\(opts2 && opts2\.noCenterComp\)/.test(fs.readFileSync(new URL('../we-scene-bundle.js', import.meta.url), 'utf8')))
+      /const __useC = MCC_ENABLED && !!__c && !\(opts2 && opts2\.noCenterComp\)/.test(fs.readFileSync(new URL('../core/we-scene-bundle.js', import.meta.url), 'utf8')))
     check('D8 旗标关时 bundle 侧 bbox 留存不改变绘制（uploadMeshLayer 只在算 __center 时填 __bbox）',
-      /mc = mesh\.__center = \[\(mnx \+ mxx\) \/ 2, \(mny \+ mxy\) \/ 2\][\s\S]{0,600}if \(!mesh\.__bbox\) mesh\.__bbox = \[mnx, mny, mxx, mxy\]/.test(fs.readFileSync(new URL('../we-scene-bundle.js', import.meta.url), 'utf8')))
+      /mc = mesh\.__center = \[\(mnx \+ mxx\) \/ 2, \(mny \+ mxy\) \/ 2\][\s\S]{0,600}if \(!mesh\.__bbox\) mesh\.__bbox = \[mnx, mny, mxx, mxy\]/.test(fs.readFileSync(new URL('../core/we-scene-bundle.js', import.meta.url), 'utf8')))
   }
 }
 

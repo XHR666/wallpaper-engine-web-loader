@@ -13,7 +13,7 @@
 //   T6 持久化与恢复默认 / T7 URL `?props=` 最高优先 / T8 condition 表达式求值器（语料真实表达式）/
 //   T9 N5 四类开关与包自带开关不打架。
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 
 let pass = 0, fail = 0, skipped = 0
 function check(name, ok, detail) {
@@ -1402,7 +1402,7 @@ console.log('[T19] P-64-MEDIA 轮顺带：`layerHealth` 归因（visible/visible
   check('T19c 归因镜像逐字等于 bundle 里那两个谓词（bundle 一改，本断言立刻红）',
     (() => {
       const ui = /const uiRe = (\/[^\n]*?\/i)/.exec(HTML) || /const MPW_HEALTH_UI_RE = (\/[^\n]*?\/i)/.exec(HTML)
-      const b = (() => { try { return fs.readFileSync(new URL('../we-scene-bundle.js', import.meta.url), 'utf8') } catch (e) { return '' } })()
+      const b = (() => { try { return fs.readFileSync(new URL('../core/we-scene-bundle.js', import.meta.url), 'utf8') } catch (e) { return '' } })()
       const m = /const uiRe = (\/[^\n]*?\/i)/.exec(b)
       const d = /const MPW_HEALTH_UI_RE = (\/[^\n]*?\/i)/.exec(HTML)
       return !!m && !!d && m[1] === d[1]

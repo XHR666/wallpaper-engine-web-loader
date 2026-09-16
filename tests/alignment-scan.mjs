@@ -3,7 +3,7 @@
 // 输出: 各取值的全局计数 + 出现该取值的壁纸清单（basename 去重）
 import fs from 'node:fs'
 import path from 'node:path'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 const MPW_PLUGIN_CACHE = process.env.MPW_PLUGIN_CACHE || '/root/.dsh-mpkg-wallpaper'

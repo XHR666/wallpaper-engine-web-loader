@@ -20,7 +20,7 @@
 //     layer.textureName / layer.particleTexName；model.solidlayer → layer.solid。
 import fs from 'node:fs'
 import path from 'node:path'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
 import { Buffer as MpwBuffer } from '../elysia/buffer.js'
 import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
@@ -460,7 +460,7 @@ async function auditPkg(pkg, scene, texRecs, row) {
   }
   let renderErr = null
   // ①(P-69 2026-09-15) 渲染前注入指针：`controlpoint[].flags:1`（lockToPointer）的发射器**需要指针才发射**
-  //   （官方预览/无鼠标时本就不发射，见 we-scene-bundle.js 的 BONES/CURSOR 段与 PATCHES P-69）。
+  //   （官方预览/无鼠标时本就不发射，见 core/we-scene-bundle.js 的 BONES/CURSOR 段与 PATCHES P-69）。
   //   本审计原先没有指针信息 ⇒ hina `cherry blossoms on cursor`、3660962877/红鸾樱落的"鼠标"层
   //   从"有粒子"变成"0 粒"，会让 drawnLayers 16→15 并误触 PARTICLE_EMPTY 规则。
   //   注入一个画布正中的指针 = 真机"鼠标在画面里"的常态（也顺带覆盖"有指针时会发射"这条新路径）；

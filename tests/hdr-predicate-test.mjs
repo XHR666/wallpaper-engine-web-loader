@@ -8,10 +8,10 @@
 //   熔断器（hdrForceLdrSession）只看层绘制期间的 gl.getError()，层画在默认 FB 上不报错 → 拦不住。
 //   hina 是全语料唯一 general.hdr=true 且 general.bloom=false 的包（bloom 是 HDR 唯一消费者）。
 //
-// 本测试断言的是**生产判据**（we-scene-bundle.js 的 resolveHdrWant，renderScene 用的同一份逻辑）
+// 本测试断言的是**生产判据**（core/we-scene-bundle.js 的 resolveHdrWant，renderScene 用的同一份逻辑）
 // 在 hdr × bloom × ?hdr=0/1 × 会话熔断 四维上的真值表；并断言 hina/3778592720 两个真实包的
 // general 取值各自落在预期分支（真实值取自包内 scene.json）。
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import fs from 'node:fs'
 import path from 'node:path'
 

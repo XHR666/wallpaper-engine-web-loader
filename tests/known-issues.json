@@ -104,7 +104,7 @@
    "evidence": [
     "we-scene-demo/PATCHES.md P-38（W3 白名单定案）",
     "we-scene-demo/CALIBRATION-3719111841.md（标定过程）",
-    "we-scene-bundle.js applyRenderConfig EYE_HACK_SCENES（实测 post-config size=[405,120] scale=[1,1]）"
+    "core/we-scene-bundle.js applyRenderConfig EYE_HACK_SCENES（实测 post-config size=[405,120] scale=[1,1]）"
    ],
    "owner": "A",
    "since": "2026-09-13"

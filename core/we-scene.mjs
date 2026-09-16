@@ -1,4 +1,4 @@
-// we-scene.mjs —— 渲染器的**库入口**（P-91）：把「画布 + 上下文 + 帧循环 + 帧末后处理链」
+// core/we-scene.mjs —— 渲染器的**库入口**（P-91）：把「画布 + 上下文 + 帧循环 + 帧末后处理链」
 // 收敛成一个 `mount(container, opts)`，让分发形态从"克隆仓库 + 起服务器"降到 **一行 import**。
 //
 // 设计边界（**故意做窄**，避免与 demo.html 的装载层重复实现）：
@@ -14,7 +14,7 @@
 import { createRenderer as defaultCreateRenderer, parseScene, applyUserProperties, applyRenderConfig } from './we-scene-bundle.js'
 
 /** 包版本（与 package.json 的 `version` 必须一致；packaging-test 会断言）。 */
-export const VERSION = '0.1.0'
+export const VERSION = '0.1.1'
 
 const DEFAULT_LOG = () => {}
 const isFn = (v) => typeof v === 'function'

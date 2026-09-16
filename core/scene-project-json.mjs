@@ -1,4 +1,4 @@
-// scene-project-json.mjs — 官方 `project.json` 的**查找顺序**（服务端与 Node 工具共用同一份）
+// core/scene-project-json.mjs — 官方 `project.json` 的**查找顺序**（服务端与 Node 工具共用同一份）
 //
 // ── 为什么需要这个文件（P-85 的真因）────────────────────────────────────────────
 // WE 工坊布局 = **一个壁纸一个目录**，目录里有三样东西：
@@ -26,12 +26,18 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const HOME = process.env.HOME || ''
+// ①(P-101 2026-09-16 目录再整理) 这里原来把作者机的**绝对路径**写成 MPW_ROOT 的兜底默认值。
+//   该模块 P-101 起随包分发（`files` 加了 `core/scene-project-json.mjs`）⇒ 兜底值改成
+//   **本模块的仓库父目录**（与本仓库其它脚本的 MPW_ROOT 口径逐字一致）：作者机上解析结果
+//   与旧字面量**是同一个目录**（行为不变），公开副本也不再带个人路径（packaging-test D 组闸门）。
+const MPW_ROOT_DEFAULT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /** Steam 工坊 431960（Wallpaper Engine）的候选目录，按"最可能是本机真实安装"排序 */
 export function workshopDirCandidates(opts = {}) {
-  const root = opts.root || process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+  const root = opts.root || process.env.MPW_ROOT || MPW_ROOT_DEFAULT
   return [
     opts.workshopDir,
     process.env.MPW_WE_WORKSHOP,
@@ -57,7 +63,7 @@ export function findWorkshopDir(opts = {}) {
  * @returns {{path:string, source:string}[]}
  */
 export function projectJsonCandidates(id, opts = {}) {
-  const root = opts.root || process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+  const root = opts.root || process.env.MPW_ROOT || MPW_ROOT_DEFAULT
   const sceneRoot = opts.sceneRoot || process.env.MPW_SCENE_ROOT || root + '/allwallpaper/dd'
   const out = []
   const push = (p, source) => { if (p) out.push({ path: p, source }) }

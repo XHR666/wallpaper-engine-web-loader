@@ -7,7 +7,7 @@
 //   `?showui`（hideUI=false）仍是"整组全显示"。
 //   `embed=1`（插件 iframe 恒带）→ 日志区首次加载即完全收起 + 隐藏手柄（wallpaper iframe pointer-events:none）。
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 
 let pass = 0, fail = 0
 function check(name, ok, detail) {

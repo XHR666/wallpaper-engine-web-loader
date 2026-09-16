@@ -3,10 +3,10 @@
 > **性质**：**行为规格**（behavior spec）。本文件只描述"这两个模块对外必须做什么"，
 > 供**洁净室重写**使用：实现者只读本文件，不读任何第三方源码。
 > 背景与判定见 `docs/WER-REF-LICENSE-AUDIT.md`（DSHarea 根）§3.4 片段 1/片段 2 与 §6 建议 2。
-> **日期**：2026-09-16。**落点**：`we-scene-bundle.js` 的 `coerceImageAlphaMode` / `alignmentOffsetForToken`。
+> **日期**：2026-09-16。**落点**：`core/we-scene-bundle.js` 的 `coerceImageAlphaMode` / `alignmentOffsetForToken`。
 >
 > **规格来源（允许的四类，逐条标注）**
-> 1. **调用方需求** —— 渲染器自己在这两处要解决的问题（`we-scene-bundle.js` 的 `parseScene` /
+> 1. **调用方需求** —— 渲染器自己在这两处要解决的问题（`core/we-scene-bundle.js` 的 `parseScene` /
 >    属性绑定写入 / `compositeLayer` 三处调用点）。
 > 2. **既有测试断言** —— `alignment-test.mjs` ①/②/③ 三层、`layer-rect-check.mjs`、
 >    `preview.mjs`、`parity-check.mjs`、`p76-parallax-eye-test.mjs`、`p74-instanceoverride-test.mjs`

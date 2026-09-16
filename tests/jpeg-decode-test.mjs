@@ -262,8 +262,8 @@ const CORPUS = [
   const real = CORPUS.filter((c) => pkgPath(c.id))
   if (real.length === 0) console.log(' · 跳过：语料包不在本机（用 MPW_ROOT 指定根目录）')
   else {
-    try { lib = await import('../we-scene-bundle.js') } catch (e) { firstErr = e }
-    if (firstErr) console.log(' · 跳过：we-scene-bundle.js 不可用（' + firstErr.message + '）')
+    try { lib = await import('../core/we-scene-bundle.js') } catch (e) { firstErr = e }
+    if (firstErr) console.log(' · 跳过：core/we-scene-bundle.js 不可用（' + firstErr.message + '）')
   }
   if (lib) for (const c of real) {
     const pkg = lib.parsePkg(fs.readFileSync(pkgPath(c.id)))

@@ -1,8 +1,8 @@
 // video-quality-test.mjs — P-68（用户第 20 项「MP4 视频画质」）验收
 //
 // 被测对象（全部是**真实代码**，不是复刻）：
-//   · we-scene-bundle.js 的 parseResTier / videoUploadPlan / parseVideoThrottle / perfLadderFboCap
-//   · we-scene-bundle.js 的 createRenderer().render()（mock-GL + 假 <video>，端到端走上传分支）
+//   · core/we-scene-bundle.js 的 parseResTier / videoUploadPlan / parseVideoThrottle / perfLadderFboCap
+//   · core/we-scene-bundle.js 的 createRenderer().render()（mock-GL + 假 <video>，端到端走上传分支）
 //   · demo.html 的画布尺寸段（源码切片断言，Node 里跑不了 DOM）
 //
 // 分段：
@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url'
 import {
   createRenderer, parseResTier, videoUploadPlan, parseVideoThrottle, perfLadderFboCap,
   RES_TIER_SIZES, DEFAULT_RES_TIER, PERF_FBO_LADDER,
-} from '../we-scene-bundle.js'
+} from '../core/we-scene-bundle.js'
 import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 根文件（demo.html / bundle / icons）在仓库根
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -212,7 +212,7 @@ console.log('== [B] videoUploadPlan：四档上限 / 节流可配 / legacy 逐�
   check('1080p + ?vthrottle=off：gap 0 也上传（不节流）', g(0, '1080p', 0) === true)
   check('720p(legacy)：gap 32ms 跳过 / 33ms 上传（= 改动前 `(now-last)<33`）', g(32, '720p') === false && g(33, '720p') === true)
 
-  // —— 冻结的"改动前算法"（逐字照抄 P-67 及以前 we-scene-bundle.js 的原始表达式）——
+  // —— 冻结的"改动前算法"（逐字照抄 P-67 及以前 core/we-scene-bundle.js 的原始表达式）——
   //   const now = performance.now()
   //   if ((now - (texObj.lastUploadAt || 0)) < 33) { /* skip */ }
   //   else { if ((v.videoWidth > 1280 || v.videoHeight > 720)) { tw = Math.min(1280, v.videoWidth || 1280)
@@ -510,7 +510,7 @@ console.log('== [H] demo.html 画布段接线（源码切片） ==')
       'block=' + diagSrc.length + ' 字符')
   }
   // 渲染器侧不再有 1280 硬编码（除 legacy 档说明/注释）
-  const bundle = fs.readFileSync(path.join(ROOT, 'we-scene-bundle.js'), 'utf8')
+  const bundle = fs.readFileSync(path.join(ROOT, 'core/we-scene-bundle.js'), 'utf8')
   check('bundle 里 `Math.min(1280, v.videoWidth` 硬编码已移除', bundle.indexOf('Math.min(1280, v.videoWidth') < 0)
   check('bundle 里 `(now - (texObj.lastUploadAt || 0)) < 33` 硬编码已移除', bundle.indexOf('(now - (texObj.lastUploadAt || 0)) < 33') < 0)
   check('bundle 里有档位化上限（Math.min(tier.capW, vw)）', bundle.indexOf('Math.min(tier.capW, vw)') > 0)
@@ -527,7 +527,7 @@ console.log('== [I] 真包（TEX 声明尺寸 → 各档实际上传尺寸） ==
     if (!fs.existsSync(pkg)) { console.log('  · SKIP ' + id + '（缺 ' + pkg + '）'); continue }
     try {
       const { parsePkg, readPkgEntry } = await import('../dsh-mpkg-wallpaper/lib/pkg-extract.js')
-      const { parseTex } = await import('../we-scene-bundle.js')
+      const { parseTex } = await import('../core/we-scene-bundle.js')
       const b = fs.readFileSync(pkg)
       const d = new Uint8Array(b.buffer, b.byteOffset, b.byteLength)
       const es = parsePkg(d)

@@ -1,7 +1,7 @@
 // WE 渲染引擎 — 资源读取与纹理加载 (browser 版)
 // pkg 访问与纹理解码改为浏览器实现:
-//   - pkg.read/readJson 由 demo 注入 (来自 we-scene-bundle.js parsePkg/getEntry)
-//   - .tex 解码复用 we-scene-bundle.js 的 parseTex/decodeMip0
+//   - pkg.read/readJson 由 demo 注入 (来自 core/we-scene-bundle.js parsePkg/getEntry)
+//   - .tex 解码复用 core/we-scene-bundle.js 的 parseTex/decodeMip0
 //   - JPEG 用引擎自带纯 JS jpeg.js; PNG 用本包的纯 JS inflate 解码
 import { parseTex, decodeMip0, FIF } from '../../we-scene-bundle.js';
 import { decodePngBuffer } from './canvas.js';

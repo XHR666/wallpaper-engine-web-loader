@@ -13,7 +13,7 @@
 //   (e) 无 Range 的 GET /bundle.js   → 200（范围支持不改变普通客户端行为）
 //
 // 用法: node sandbox-cors-test.mjs
-//   自选一个空闲端口（net.listen(0) 探测）并以 PORT=<port> 启动 we-scene-demo-server.mjs，
+//   自选一个空闲端口（net.listen(0) 探测）并以 PORT=<port> 启动 server/we-scene-demo-server.mjs，
 //   结束时无论成败都 SIGTERM/SIGKILL 回收子进程。退出码 0=全绿 / 1=有断言失败。
 import http from 'node:http'
 import net from 'node:net'
@@ -72,7 +72,7 @@ async function waitReady(port, ms = 15000) {
 }
 
 const port = await freePort()
-const child = spawn(process.execPath, [path.join(ROOT, 'we-scene-demo-server.mjs')], {
+const child = spawn(process.execPath, [path.join(ROOT, 'server/we-scene-demo-server.mjs')], {
   cwd: here,
   env: { ...process.env, PORT: String(port) },
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -89,7 +89,7 @@ killer.unref?.()
 
 try {
   await waitReady(port)
-  console.log('we-scene-demo-server.mjs @ ' + port + '（PORT 环境变量）')
+  console.log('server/we-scene-demo-server.mjs @ ' + port + '（PORT 环境变量）')
 
   // (a) 200 静态路由
   const r1 = await request(port, { path: '/' })
@@ -109,7 +109,7 @@ try {
 
   // (d) 206 范围响应（服务端 parseSingleRange/sendBuffer）
   const r4 = await request(port, { path: '/bundle.js', headers: { Range: 'bytes=0-10' } })
-  const bundle = fs.readFileSync(path.join(ROOT, 'we-scene-bundle.js'))
+  const bundle = fs.readFileSync(path.join(ROOT, 'core/we-scene-bundle.js'))
   const cr = String(r4.headers['content-range'] || '')
   check('GET /bundle.js + Range: bytes=0-10 → 206 + content-range: bytes 0-10/<size> + 11 字节切片 + CORS 三头',
     r4.status === 206 && /^bytes 0-10\/\d+$/.test(cr) && r4.body.length === 11 && r4.body.equals(bundle.subarray(0, 11)) && !corsProblem(r4.headers),

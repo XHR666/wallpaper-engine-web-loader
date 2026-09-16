@@ -1,6 +1,6 @@
 // ?mode=elysia browser entry — 在浏览器里跑 elysia 的 WE CPU 渲染器，
 // 用 putImageData 把 r.canvas.data (RGBA) 显示到 demo 页面 canvas。
-// 与 WebGL 路径分离: 复用了 we-scene-bundle.js 的 parsePkg/getEntry (pkg 读取)
+// 与 WebGL 路径分离: 复用了 core/we-scene-bundle.js 的 parsePkg/getEntry (pkg 读取)
 // 与 parseTex/decodeMip0 (纹理解码), elysia 渲染器只做 CPU 光栅化。
 import * as lib from '../we-scene-bundle.js';
 import { SceneRenderer } from './we-renderer/core.js';

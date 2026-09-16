@@ -89,7 +89,10 @@ for (const doc of uniqDocs) {
     {
       //   `archive/local/` 是 2026-09-16 目录整理时本机开发残留的归档落点（probe 脚本 / 私有基线 /
       //   标定 json；仍被 .gitignore 忽略、不入库），文档引用它们属当时的证据出处 ⇒ 一并纳入候选。
-      const MOVED_DIRS = ['tests', 'docs', 'shaders', 'archive/local']
+      //   ①(P-101 2026-09-16 目录再整理) 又把**代码按职责**分进 `core/`（内核）/ `server/`（服务端）/
+      //   `web/`（站点外壳与 PWA）/ `tools/`（生成器）—— 新增的四档同样补进候选：
+      //   仓外任务书与历史记录（PATCHES.md 的旧条目）按整理前的路径引用它们，属当时的落点。
+      const MOVED_DIRS = ['tests', 'docs', 'shaders', 'archive/local', 'core', 'server', 'web', 'tools']
       const relTok = tok.replace(/^\.\//, '')
       const m2 = relTok.match(/^we-scene-demo\/(.+)$/)
       for (const d of MOVED_DIRS) {

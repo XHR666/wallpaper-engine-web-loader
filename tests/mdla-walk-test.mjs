@@ -8,7 +8,7 @@
 //   本测试同时锁死"帧数据本身不变"（新旧游走的 segs 必须逐位相同）——避免修 id 时踩坏采样。
 import fs from 'node:fs'
 import path from 'node:path'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
 import { Buffer as MpwBuffer } from '../elysia/buffer.js'
 

@@ -27,7 +27,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 globalThis.location = globalThis.location || { search: '', href: 'http://localhost/' }
-const lib = await import('../we-scene-bundle.js')
+const lib = await import('../core/we-scene-bundle.js')
 
 let pass = 0, fail = 0
 const fails = []
@@ -496,7 +496,7 @@ if (!HAVE(MAIN)) {
   const noFrame = L2.calls.filter((c) => c === 'copyTexSubImage2D').length === 0
   check('未渲染过帧时 runAA 不做回读（帧令牌初始态 ⇒ 不会拿空帧缓冲做 FXAA）', noFrame)
 
-  const src = fs.readFileSync(path.join(ROOT, 'we-scene-bundle.js'), 'utf8')
+  const src = fs.readFileSync(path.join(ROOT, 'core/we-scene-bundle.js'), 'utf8')
   check('FXAA 片元着色器在 bundle 里，且**保留 MIT 署名**（oneincase/webwallgl）',
     src.includes('const FXAA_FS') && /FXAA[\s\S]{0,400}oneincase\/webwallgl/.test(src)
     && /renderer-glsl\.js:452-489/.test(src))
@@ -562,7 +562,7 @@ if (!HAVE(MAIN)) {
     sizes.every((s) => s === '640x360'), sizes.join(','))
   check('源码不变量：HDR 熔断重试传**原始输出尺寸**（`__qOutW/__qOutH`）而不是被遮蔽的 `width/height`',
     /return renderScene\(scene, textures, __qOutW, __qOutH, time, true\)/.test(
-      fs.readFileSync(path.join(ROOT, 'we-scene-bundle.js'), 'utf8')))
+      fs.readFileSync(path.join(ROOT, 'core/we-scene-bundle.js'), 'utf8')))
   r.setQuality({ pp: 'off' })
   check('setQuality({pp:off}) → fboCapFactor 回 0 且档位记账为 off',
     r.getQuality().pp === 'off' && r.getQuality().fboCapFactor === 0)

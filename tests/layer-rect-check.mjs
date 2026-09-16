@@ -15,8 +15,8 @@
 //   - 自带 puppet 网格的层按**实绘矩形**计（官方：drawn = origin + scale·meshBBox，elysia
 //     renderPuppet 同式；此前用对象 size 的框对网格层不是实绘框，眼睛组合会虚差 568px）。
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
-import { parseMdl } from '../attach-transform.mjs'
+import * as lib from '../core/we-scene-bundle.js'
+import { parseMdl } from '../core/attach-transform.mjs'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 const MPW_PLUGIN_CACHE = process.env.MPW_PLUGIN_CACHE || '/root/.dsh-mpkg-wallpaper'

@@ -17,7 +17,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import { applySceneScripts, createScriptCache, makeSceneRef, videoTexRefShared } from '../elysia/scene-scripts.js'
-import { applyRenderConfig, applyTimeVariation, timeVariantGroups, timeVariantIds, slotOfTimeLayer } from '../we-scene-bundle.js'
+import { applyRenderConfig, applyTimeVariation, timeVariantGroups, timeVariantIds, slotOfTimeLayer } from '../core/we-scene-bundle.js'
 import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 根文件（demo.html / bundle / icons）在仓库根
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))

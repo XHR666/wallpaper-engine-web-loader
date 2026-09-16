@@ -34,7 +34,7 @@ node attach-transform-test.mjs                    # 全绿（含 6 包移植保�
 
 | # | 子系统 | 我们（位置=P-21-ATTACH 后） | elysia（位置） | 官方依据 | 判定 | 影响面 | 修复 |
 |---|---|---|---|---|---|---|---|
-| 1 | **父链/附件变换** | `we-scene-bundle.js` parseScene 静态合并 + `opts.attachCtx`（= `attach-transform.mjs` 移植 elysia 四函数） | `core.js` `_mdlAnchors`(L280)/`_puppetBoneFinal`(L314)/`_attachmentOffset`(L364)/`resolveTransform`(L421) | refrender 标定裁判；`wallpaper64.exe` MDAT0001 解析（RE-04） | **elysia 对、我们曾错 → 已移植，两者等价（六包 408 层 A/B maxΔ=0.005px）** | 19 个附件层（全部头发/衣袖/飘带/眼睛）整体偏移数百 px | ✅ P-21-ATTACH；`?att=legacy` 回退 |
+| 1 | **父链/附件变换** | `core/we-scene-bundle.js` parseScene 静态合并 + `opts.attachCtx`（= `core/attach-transform.mjs` 移植 elysia 四函数） | `core.js` `_mdlAnchors`(L280)/`_puppetBoneFinal`(L314)/`_attachmentOffset`(L364)/`resolveTransform`(L421) | refrender 标定裁判；`wallpaper64.exe` MDAT0001 解析（RE-04） | **elysia 对、我们曾错 → 已移植，两者等价（六包 408 层 A/B maxΔ=0.005px）** | 19 个附件层（全部头发/衣袖/飘带/眼睛）整体偏移数百 px | ✅ P-21-ATTACH；`?att=legacy` 回退 |
 | 2 | 网格（puppet）绘制 | `renderMeshLayer`(bundle:3536+)：`wpos=origin+u_Scale·v`，`MCC_ENABLED` 默认 **关**（=官方直算） | `puppet.js` `renderPuppet`(L8)：`leftX=origin+scale·minX`（顶点即模型空间，无中心补偿） | lwe CImage.cpp:536；elysia 实测=官方 | **一致**（我们曾自造 `u_Origin−scale⊙__center` 补偿，会按每网格 bbox 平移） | 网格层各自偏移；眼睛组合曾虚差 568px | ✅ MCC 默认关，`?mcc=1` 回旧 |
 | 3 | y 轴/翻转约定 | parseScene 末尾**所有层统一** `PROJ_H−y` 翻转一次（bundle:886-892） | 世界保持 y-up，绘制端 `H−y`（`renderPuppet` L81、`image.js` dy） | 同一几何约定，等价 | **一致**（我们曾有"animL 层不翻转"例外：3554161528 人物层 y=1565 vs 官方 595 → 已删） | 无附件但带 animationlayers 的立绘包人物上下颠倒 | ✅ `legacyAnimY` 仅 legacy |
 | 4 | 旋转角手性/单位 | 合并用**弧度**直收（bundle:853-858）；四边形绘制 `mat4RotateZ(m,−θ)`(bundle:4095)；粒子发射器内部 `cos(−angle)`(bundle:1546) | `resolveTransform` 直收弧度（math.js parseVec3 无转换）；`blitRotated` 内部 `cos(−angle)`（canvas.js:90） | lwe CImage.cpp:1097 注释原文 "**already in radians from scene.json**"；wer-ref SceneNode.cpp Eigen AngleAxis（弧度）；语料实测 3.14159=π、1.57080=π/2（63 处非零） | **一致**（我们曾 ×π/180：π/2 被当 90°→90rad；旋转父级下子层位置错 5730 倍） | 带旋转父级/旋转粒子层的场景 | ✅ 弧度修复（parseScene+粒子层角度） |
@@ -43,7 +43,7 @@ node attach-transform-test.mjs                    # 全绿（含 6 包移植保�
 | 7 | 视差 | 官方公式 `((node_pos−cam_pos)+mouse)∘depth×amount`（RE-24，`?parallax=official` 切换，默认旧公式 GREEN） | `image.js:181-186` `(pd+amount)×disp×W`（lwe 近似，无相消项） | wer-ref WPNodeTransformResolver.cpp:147-162 逐字 | **我们更准**（公式已移植）。算例：满幅居中层 depth=−0.17、amount=0.35、鼠标 0.6 → 官方=我们 −0.0051·ortho；elysia=(−0.17+0.35)×disp 与位置无关；非居中层 (node_pos−cam_pos)=(800,−400)、depth=1、amount=1、mouse 中心 → 官方=(800,−400)，elysia=0（缺整项） | 鼠标视差观感（16 层 parallaxDepth 包） | 公式在位，默认开启需与官方预览逐层对照（P1，保持开关） |
 | 8 | 纹理/格式 | `parseTex`/`decodeMip0`（RE-40 format 5=半分辨率 BC3，163/163 解码） | **直接 import 我们的** `parseTex/decodeMip0`（`textures.js:6`）——同一份代码 | RE-40（456 .tex 全量解析；上游 elysia 仓库缺 fmt5，本仓副本已复用我们解码器） | **完全一致**（by construction） | — | 无需修 |
 | 9 | 效果链/FBO | GLSL 真编译链，C1-C17 对齐 wer-ref（P-15…P-18：previous=链输入、每效果乒乓、每效果 FBO 命名空间、copy/compose、bypass copy、fit、COPYBG） | `effects/*.js` 24 个手写 CPU 近似（低频降采样、"效果 UV 数学不变"的等比近似） | WER-ALIGN C 模块（逐条 wer-ref 行号） | **我们更准**（elysia 是观感近似且 CPU 4K 每帧秒级）；我们仍缺：C10 fullscreen 效果层 FBO=主动相机（语料 0 命中）、E4 alpha 写策略 colorMask（P1） | 全屏后处理类效果 | 保持；C10/E4 语料 0 命中暂缓 |
-| 10 | 混合模式 | CPU `applyBlending`(bundle:2816+) + GPU `COPY_FRAG_SCREENBLEND`(bundle:3069+)，0-32+HSL | `math.js applyBlending`(L140) 0-32 | 官方 `common_blending.h`（本仓副本逐字） | **一致**：0-30 逐模式数值比对（每模式 200 组随机 A/B/op）Δ<0.02；**31/32 差异=末端 clamp**（elysia clamp 到 [0,1]，我们不 clamp——写入 UNORM8 时等价） | 无（实测分布 26-30 零使用） | 无需修（可选：CPU 侧加 clamp 对齐） |
+| 10 | 混合模式 | CPU `blendRgbByMode`（`src/render/effects.js` 节，洁净室重写）+ GPU `COPY_FRAG_SCREENBLEND`(bundle:3069+)，0-32+HSL | `math.js applyBlending`(L140) 0-32 | 公开混合定义（W3C Compositing and Blending Level 1 / PDF 1.7 §11.3；两侧各自独立实现） | **一致**：0-30 逐模式数值比对（每模式 200 组随机 A/B/op）Δ<0.02；**31/32 差异=末端 clamp**（elysia clamp 到 [0,1]，我们不 clamp——写入 UNORM8 时等价） | 无（实测分布 26-30 零使用） | 无需修（可选：CPU 侧加 clamp 对齐） |
 | 11 | 文本 | canvas+FontFace 光栅，RE-32 官方度量（行高=字体度量、verticalalign 三落点、size 回填、CSS 序 padding、宽度驱动省略号），21/21 | `text.js` 自写 CFF 光栅（font-render.js）；**跳过动态文本**（时钟 `_isLiveText`）与**作者水印**（`_isWatermarkText`）；CJK 叠字缺陷（RE-39） | wer-ref WPTextLayer.cpp（DirectWrite/Pango 同源度量模型） | **我们更准**（官方度量+真实 shaping；RE-39 定案弃用纯 JS font-render） | 时钟/中文文本层 | 保持 |
 | 12 | 粒子 | GPU 批渲染：RE-31 精灵表（帧 UV+blend+randomframe 关混合）、RE-37 透视相机（flags&4）、RE-20 算子（oscillate/attract/turbulence/vortex/colorchange）、RE-42 maxcount≤20000 | `particles.js` CPU 逐粒子模拟 + 确定性 RNG（替换 Math.random）；多图精灵按 imageId 换纹理 | RE-31/RE-37/RE-20（官方 shader 逐字+资产实测） | **互有长短**：我们有 GPU 性能+精灵表+透视（elysia 缺透视）；elysia 的多图精灵（imageId 换图）我们正在补（并行任务 RE-REMAINING-4 P0-2，进行中） | 多图精灵包（每帧一图） | 并行任务处理中 |
 | 13 | 脚本运行时 | 复用 elysia `scene-scripts.js` + RE-35 官方容错矩阵（init 失败永久禁用、update 失败跳帧保值、安全 shim、4Hz 节流），10/10 | 同一份代码（我们直接复用） | RE-35（wer-ref 11 类调用点逐点） | **一致**（同一实现+我们的容错外壳） | — | demo 用法经 RE-28/RE-35 核对，无遗留偏差 |
@@ -94,14 +94,14 @@ node attach-transform-test.mjs                    # 全绿（含 6 包移植保�
 
 | 修复 | 位置 | 回退开关 |
 |---|---|---|
-| elysia 四函数移植（`_mdlAnchors`/`_puppetBoneFinal`/`_attachmentOffset`/`resolveTransform` + `_parseMdl`/`_sampleAnimRT`） | 新文件 `attach-transform.mjs`（零依赖，浏览器+Node 共用；bundle import + 服务器 `/attach-transform.mjs` 路由） | demo `?att=legacy` |
-| parseScene 接入 `opts.attachCtx`（默认计算 19 个附件锚点） | `we-scene-bundle.js` parseScene 开头 | 不传 attachCtx 即关 |
-| 弧度修复（父链合并 + 粒子层角度） | `we-scene-bundle.js`（合并 L853-858、粒子 L4869） | —（官方语义，无回退理由；旧行为可 `?att=legacy` 不可复现，见注释） |
-| y 翻转统一（删 animL 例外） | `we-scene-bundle.js` L886-892 | `opts.legacyAnimY`（demo legacy 路径自动带） |
+| elysia 四函数移植（`_mdlAnchors`/`_puppetBoneFinal`/`_attachmentOffset`/`resolveTransform` + `_parseMdl`/`_sampleAnimRT`） | 新文件 `core/attach-transform.mjs`（零依赖，浏览器+Node 共用；bundle import + 服务器 `/attach-transform.mjs` 路由） | demo `?att=legacy` |
+| parseScene 接入 `opts.attachCtx`（默认计算 19 个附件锚点） | `core/we-scene-bundle.js` parseScene 开头 | 不传 attachCtx 即关 |
+| 弧度修复（父链合并 + 粒子层角度） | `core/we-scene-bundle.js`（合并 L853-858、粒子 L4869） | —（官方语义，无回退理由；旧行为可 `?att=legacy` 不可复现，见注释） |
+| y 翻转统一（删 animL 例外） | `core/we-scene-bundle.js` L886-892 | `opts.legacyAnimY`（demo legacy 路径自动带） |
 | hier 预合并删除（双重变换） | `demo.html`（仅 legacy 分支保留） | `?att=legacy` |
-| 网格中心补偿默认关 | `we-scene-bundle.js` `MCC_ENABLED` | `?mcc=1` 开旧补偿 |
+| 网格中心补偿默认关 | `core/we-scene-bundle.js` `MCC_ENABLED` | `?mcc=1` 开旧补偿 |
 | 逐帧附件动画（把骨骼位移当层位移，语义错误）仅 legacy | `demo.html` attachAnimActive 门控 | `?att=legacy` |
-| 服务器路由 `/attach-transform.mjs` | `we-scene-demo-server.mjs` | — |
+| 服务器路由 `/attach-transform.mjs` | `server/we-scene-demo-server.mjs` | — |
 
 **验收数字**（`node attach-transform-test.mjs`，全绿）：
 T1 移植保真 408 层 maxΔ=0.005px；T2a 标定 21/22 Δ<5px；T2b 中位 0.0px（修复前 782px）；T2c 最大 79px；

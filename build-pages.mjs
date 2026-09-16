@@ -26,27 +26,35 @@ const val = (f, d) => { const i = argv.indexOf(f); return i >= 0 && argv[i + 1] 
 const JSON_OUT = argv.includes('--json')
 const OUT = path.resolve(ROOT, val('--out', '_site'))
 
-// ── 发布面白名单（根级）──
-// ①(2026-09-16 目录整理) **不发 `docs/`**：站点是给访客看的 demo，`docs/` 是开发者文档。收拢前站点只发
-//   11 份**具名** md（白名单逐文件列），收拢后文档全在 `docs/` —— 若把目录整体收进白名单，等于把开发者
-//   文档（含描述闸门自身的字面路径字样，会让 demo-check D6 / workflow 的 grep 判红）一并发布。
-//   故统一为**不发文档树**，口径更严也更简单；文档随 git 仓库与 npm 包分发（`docs/PACKAGING.md` 在 files 白名单里）。
-const PAGES_KEEP_DIRS = ['demo', 'samples', 'assets', 'icons', 'vendor', 'elysia', 'extensions']
-const PAGES_KEEP_FILES = new Set([
-  'index.html',        // 落地页（P-93 新增）
-  'demo.html',         // 渲染器 demo
-  'diag.html',
-  'probe.html',
-  'manifest.webmanifest',
-  'sw.js',
-  'we-scene-bundle.js', 'we-scene.mjs',
-  'attach-transform.mjs', 'puppet-skin.js',
-  'make-sample.mjs', 'pack-dir.mjs',
-  // ①(2026-09-16 目录整理) 站点只发**能看的东西**：说明性 markdown 一律不发（`docs/` 整目录不进站点，
-  //   见上面 PAGES_KEEP_DIRS 的注释）。根上只留**法律文本**：`LICENSE`（GPL 全文）与 `THIRD-PARTY.md`
-  //   （第三方归属与许可全文，按根发布，README/落地页都按根链接它）。
-  'LICENSE', 'THIRD-PARTY.md',
-])
+// ── 发布面白名单（目录 + 具名文件）──
+// ①(2026-09-16 目录整理) **不发 `docs/` 开发文档树**：站点是给访客看的 demo。白名单是发布面的**唯一**口径。
+// ①(P-101 2026-09-16 目录再整理) 仓库按职责分层（`core/` 内核、`server/` 服务端、`web/` 站点外壳、`tools/` 生成器）
+//   ⇒ 具名文件从"根级文件名集合"改为**显式 `[仓库内落点, 产物内落点]` 映射**：
+//   仓库里怎么放 ≠ 线上什么 URL，**线上路径与收拢前逐字一致**（/demo.html、/sw.js、/manifest.webmanifest…）。
+const PAGES_KEEP_DIRS = ['demo', 'samples', 'assets', 'vendor', 'elysia', 'extensions']
+const PAGES_KEEP_FILES = [
+  ['index.html', 'index.html'],                       // 落地页（Pages 的 /）
+  ['demo.html', 'demo.html'],                         // 渲染器 demo
+  ['README.md', 'README.md'],                         // 落地页 ./README.md + ONLINE-DEMO §2 的口径
+  ['docs/COPYING-RULES.md', 'docs/COPYING-RULES.md'], // 落地页 ./docs/COPYING-RULES.md（只发这一份开发文档）
+  ['web/diag.html', 'diag.html'],
+  ['web/probe.html', 'probe.html'],
+  ['web/manifest.webmanifest', 'manifest.webmanifest'],
+  ['web/sw.js', 'sw.js'],
+  ['web/sw-policy.mjs', 'sw-policy.mjs'],
+  ['web/icons', 'icons'],                             // 目录（PWA 图标）
+  // 内核：`elysia/demo-elysia.js` 以相对路径 `../we-scene-bundle.js` 取它 ⇒ 产物根必须有同名文件；
+  // demo.html 用相对说明符 `./bundle.js` ⇒ 产物根同时要有 `bundle.js`（自带服务器的 /bundle.js 路由读同一份）。
+  ['core/we-scene-bundle.js', 'we-scene-bundle.js'],
+  ['core/we-scene-bundle.js', 'bundle.js'],
+  ['core/we-scene.mjs', 'we-scene.mjs'],
+  ['core/attach-transform.mjs', 'attach-transform.mjs'],
+  ['core/puppet-skin.js', 'puppet-skin.js'],
+  ['tools/make-sample.mjs', 'make-sample.mjs'],
+  ['server/pack-dir.mjs', 'pack-dir.mjs'],
+  // 法律文本按根发布（README/落地页都按根链接）
+  ['LICENSE', 'LICENSE'], ['THIRD-PARTY.md', 'THIRD-PARTY.md'],
+]
 // 白名单目录里也不发的形状（测试/闸门/上报产物）
 const PAGES_SKIP_RE = [
   /-test\.mjs$/, /-check\.mjs$/, /-audit\.mjs$/, /-scan\.mjs$/, /-verify\.mjs$/, /-probe\.mjs$/,
@@ -64,7 +72,10 @@ const skipByShape = (name) => PAGES_SKIP_RE.some((r) => r.test(name))
 //   而且任何人删掉那行 `rm` 就会让 Pages 构建在第 5 步自检上红（run 35015130033 就是这么红的）。
 //   修法 = 把"不发"写回**唯一口径**（白名单）本身 + 构建末尾内建隐私闸门（见下），
 //   于是"本地构建通过" ⟺ "CI 的自检通过"，不再靠 workflow 里的命令兜底。
-const PAGES_DENY_FILES = new Set(['scene-project-json.mjs', 'we-scene-demo-server.mjs'])
+const PAGES_DENY_FILES = new Set(['core/scene-project-json.mjs', 'server/we-scene-demo-server.mjs'])
+// ①(P-101) 显式映射下这些文件**根本不在清单里**；本集合保留为纵深防御：
+//   万一将来有人把 `core/` `server/` 整目录加进 PAGES_KEEP_DIRS，拷贝循环也会在这里拦住它们。
+const PAGES_DENY_BASENAMES = new Set([...PAGES_DENY_FILES].map((p) => p.split('/').pop()))
 
 // ── 产物隐私闸门：口径与仓库级 `publish-check.mjs` 的 ② 逐字同源 ──
 //   PATH_RE        = 个人绝对路径形状（本机工作区 / 私有包目录 / SD 卡 / 常见家目录 / Windows 用户目录）；
@@ -107,11 +118,13 @@ for (const d of PAGES_KEEP_DIRS) {
   if (!fs.existsSync(src)) { skipped.push(d + '/ (不存在)'); continue }
   copyTree(src, path.join(OUT, d), d)
 }
-for (const f of PAGES_KEEP_FILES) {
-  const src = path.join(ROOT, f)
-  if (!fs.existsSync(src)) { skipped.push(f + ' (不存在)'); continue }
-  if (PAGES_DENY_FILES.has(f)) { skipped.push(f + ' (显式排除：服务端/打包工具，含作者本机默认路径)'); continue }
-  copyFile(src, path.join(OUT, f), f)
+for (const [from, to] of PAGES_KEEP_FILES) {
+  const src = path.join(ROOT, from)
+  if (!fs.existsSync(src)) { skipped.push(from + ' (不存在)'); continue }
+  if (PAGES_DENY_FILES.has(from) || PAGES_DENY_BASENAMES.has(path.basename(from))) { skipped.push(from + ' (显式排除：服务端/打包工具，含作者本机默认路径)'); continue }
+  const st = fs.statSync(src)
+  if (st.isDirectory()) { copyTree(src, path.join(OUT, to), to); continue }
+  copyFile(src, path.join(OUT, to), to)
 }
 
 // ④ 第二份测试台：demo/ → wallpaper-engine-webgl/（只为产物里那两条写死的绝对路径）
@@ -127,7 +140,8 @@ copyTree(DEMO_SRC, ALIAS, 'wallpaper-engine-webgl')
 fs.writeFileSync(path.join(OUT, '.nojekyll'), '')
 
 // 完整性自检：产物必须能直接当站点用（这几条缺一个就是"发上去才发现"）
-const MUST = ['index.html', 'demo/index.html', 'demo/bench-patch.js', 'demo/LICENSE-webwallgl-MIT.txt',
+const MUST = ['index.html', 'demo.html', 'bundle.js', 'we-scene-bundle.js', 'sw.js', 'manifest.webmanifest',
+  'demo/index.html', 'demo/bench-patch.js', 'demo/LICENSE-webwallgl-MIT.txt',
   'wallpaper-engine-webgl/index.html', 'wallpaper-engine-webgl/bench-patch.js',
   'wallpaper-engine-webgl/renderer/index.html', 'samples/sample-synthetic/scene.pkg',
   'samples/sample-synthetic/project.json', 'THIRD-PARTY.md', 'LICENSE', '.nojekyll']

@@ -9,9 +9,9 @@
 > 血缘自查结论见 `docs/WER-REF-LICENSE-AUDIT.md`。
 
 > 依据：`$MPW_ROOT/WER-ALIGN.md`（wer-ref **第三方参考实现**语义对照表，38 项；wer-ref = `Aromatic05/wallpaper-engine-renderer`，**GPL-2.0-only**，本机副本仅行为对照、不得复制代码）。
-> 备份：`we-scene-bundle.js.bak-weralign`、`demo.html.bak-weralign`（修改前原件，行为基线）。
+> 备份：`core/we-scene-bundle.js.bak-weralign`、`demo.html.bak-weralign`（修改前原件，行为基线）。
 > 验证协议（每项均执行）：
-> ① `node --check we-scene-bundle.js` → 语法 OK
+> ① `node --check core/we-scene-bundle.js` → 语法 OK
 > ② `node glsl-validate.mjs` → **128/128 通过**（基线保持）
 > ③ `node preview.mjs 3719111841 /tmp/p*.png` → CPU 预览 pixel-hash `17428c44738d…` 与基线逐位一致
 > ④ 收尾：`mock-gl-test.mjs` 12/12；11 个 scene 型壁纸预览与备份 bundle **A/B 像素级全一致**（hash 列表见下）。
@@ -20,23 +20,23 @@
 
 | # | 文件:行（改后） | 内容 | wer-ref 依据 | 风险面 | 验证 |
 |---|---|---|---|---|---|
-| A | we-scene-bundle.js:3021-3033（setBlend） | translucent alpha 通道 (ONE,1−SRC_ALPHA)→(SRC_ALPHA,1−SRC_ALPHA)；补 Normal=(ONE,ZERO) 语义注释 | PassCommon.hpp:11-36 | 仅离屏 FBO alpha 累积；画布 alpha:false RGB 不变 | ①②③ |
-| B | we-scene-bundle.js:648-649,687-693（normalizeImageAlpha） | layer.alpha 归一化：>1 且 ≤100 → /100，clamp[0,1]，NaN→0 | WPImageObject.cpp:59-63 | 目标场景唯一非 1 值为 0 → no-op | ①②③ |
-| C | we-scene-bundle.js:3442-3462,3490-3506,3571-3578（效果乒乓重构） | "previous"/空槽0 输入 = 本效果链输入（效果内恒定）；效果内所有无 target pass 写同一输出；乒乓交换以效果为单位 | WPSceneParser.cpp:5075/5083/5163；SceneImageEffectLayer.cpp:349 | 单 pass 效果（绝大多数）逐位等价；多 pass 效果链修正 | ①②③④ |
-| D | we-scene-bundle.js:3450-3456（getFBO tag） | 命名 FBO tag=「效果序号\|名字」→ 每效果独立命名空间，不再跨效果共享 GL FBO | WPSceneParser.cpp:5086（name+"_"+effaddr） | 同层多效果同名 FBO 不再踩踏 | ①②③ |
-| E | we-scene-bundle.js:856-905（resolveEffectChain 重构） | effect.json 的 command pass 不再作为伪 material pass（此前 getEffectProgram(null) 编译失败会中断整链）；compose:true 自动追加 _rt_FullCompoBuffer1 FBO + pass0/1 bind/target | WPEffect.cpp:200-208,222-236 | 目标场景 0 条 command/compose → no-op；有此类效果的场景从"断链"变"可执行" | ①②③ |
-| F | we-scene-bundle.js:3477-3507（copy 命令执行） | copy 命令在第 afterpos 个 material pass 前 blit source→target（替换写入），GL 错误进 fxFail 回退 | WESceneRenderPlanBuilder.cpp:216-233 | 同 E；错误路径复用既有方案B回退 | ①②③ |
-| G | we-scene-bundle.js:994-1001（buildCamera） | 相机取景：默认 ASPECTCROP（cover：画布更宽保设计宽/更窄保设计高，窗口居中）+ zoom 除法（≤0 回退 1） | VulkanRender.cpp:1531-1576；WESceneRuntimeDriver.cpp:681；Scene.cpp:202-209；WPSceneParser.cpp:3326-3329（相机节点=设计中心→居中窗等价） | 16:9 设计+16:9 画布逐位不变；非 16:9 画布从拉伸变官方裁边 | ①②③（16:9 数值恒等）+ 手工验证 4:3 窗口公式 |
-| H | we-scene-bundle.js:3080-3093（uvRect/眼窗例外）+3096-3099 | alignment 网格偏移：S(w,h) 后乘 T(0.5−ax, 0.5−ay)（受层缩放/旋转，枢轴=origin） | WPImageAlignment.hpp:24-37；SceneNode.cpp:17-20 | 目标场景全 center → 偏移 0；uvRect 眼窗层强制走居中分支保 GREEN | ①②③ |
-| I | we-scene-bundle.js:2867-2892,3605（g_Screen） | 新增 g_Screen=(输出宽,输出高,宽/高比) uniform | WPShaderValueUpdater.cpp:684-687 | 声明了该 uniform 的 pass 从 0 变正确值；目标场景效果链停用 → no-op | ①②③ |
-| J | we-scene-bundle.js:3344,3377-3382,3470-3505（bypass copy） | 隐藏效果/?nofx 过滤不再断链：标记 __bypass，链内以"输入→输出拷贝+推进乒乓"占位（全隐藏时直接合成避免多余 blit） | SceneImageEffectLayer.cpp:309；WESceneRenderPlanBuilder.cpp:234-240 | 目标场景效果全可见 → no-op；部分隐藏时后续效果输入不再缺失 | ①②③ |
+| A | core/we-scene-bundle.js:3021-3033（setBlend） | translucent alpha 通道 (ONE,1−SRC_ALPHA)→(SRC_ALPHA,1−SRC_ALPHA)；补 Normal=(ONE,ZERO) 语义注释 | PassCommon.hpp:11-36 | 仅离屏 FBO alpha 累积；画布 alpha:false RGB 不变 | ①②③ |
+| B | core/we-scene-bundle.js:648-649,687-693（normalizeImageAlpha） | layer.alpha 归一化：>1 且 ≤100 → /100，clamp[0,1]，NaN→0 | WPImageObject.cpp:59-63 | 目标场景唯一非 1 值为 0 → no-op | ①②③ |
+| C | core/we-scene-bundle.js:3442-3462,3490-3506,3571-3578（效果乒乓重构） | "previous"/空槽0 输入 = 本效果链输入（效果内恒定）；效果内所有无 target pass 写同一输出；乒乓交换以效果为单位 | WPSceneParser.cpp:5075/5083/5163；SceneImageEffectLayer.cpp:349 | 单 pass 效果（绝大多数）逐位等价；多 pass 效果链修正 | ①②③④ |
+| D | core/we-scene-bundle.js:3450-3456（getFBO tag） | 命名 FBO tag=「效果序号\|名字」→ 每效果独立命名空间，不再跨效果共享 GL FBO | WPSceneParser.cpp:5086（name+"_"+effaddr） | 同层多效果同名 FBO 不再踩踏 | ①②③ |
+| E | core/we-scene-bundle.js:856-905（resolveEffectChain 重构） | effect.json 的 command pass 不再作为伪 material pass（此前 getEffectProgram(null) 编译失败会中断整链）；compose:true 自动追加 _rt_FullCompoBuffer1 FBO + pass0/1 bind/target | WPEffect.cpp:200-208,222-236 | 目标场景 0 条 command/compose → no-op；有此类效果的场景从"断链"变"可执行" | ①②③ |
+| F | core/we-scene-bundle.js:3477-3507（copy 命令执行） | copy 命令在第 afterpos 个 material pass 前 blit source→target（替换写入），GL 错误进 fxFail 回退 | WESceneRenderPlanBuilder.cpp:216-233 | 同 E；错误路径复用既有方案B回退 | ①②③ |
+| G | core/we-scene-bundle.js:994-1001（buildCamera） | 相机取景：默认 ASPECTCROP（cover：画布更宽保设计宽/更窄保设计高，窗口居中）+ zoom 除法（≤0 回退 1） | VulkanRender.cpp:1531-1576；WESceneRuntimeDriver.cpp:681；Scene.cpp:202-209；WPSceneParser.cpp:3326-3329（相机节点=设计中心→居中窗等价） | 16:9 设计+16:9 画布逐位不变；非 16:9 画布从拉伸变官方裁边 | ①②③（16:9 数值恒等）+ 手工验证 4:3 窗口公式 |
+| H | core/we-scene-bundle.js:3080-3093（uvRect/眼窗例外）+3096-3099 | alignment 网格偏移：S(w,h) 后乘 T(0.5−ax, 0.5−ay)（受层缩放/旋转，枢轴=origin） | WPImageAlignment.hpp:24-37；SceneNode.cpp:17-20 | 目标场景全 center → 偏移 0；uvRect 眼窗层强制走居中分支保 GREEN | ①②③ |
+| I | core/we-scene-bundle.js:2867-2892,3605（g_Screen） | 新增 g_Screen=(输出宽,输出高,宽/高比) uniform | WPShaderValueUpdater.cpp:684-687 | 声明了该 uniform 的 pass 从 0 变正确值；目标场景效果链停用 → no-op | ①②③ |
+| J | core/we-scene-bundle.js:3344,3377-3382,3470-3505（bypass copy） | 隐藏效果/?nofx 过滤不再断链：标记 __bypass，链内以"输入→输出拷贝+推进乒乓"占位（全隐藏时直接合成避免多余 blit） | SceneImageEffectLayer.cpp:309；WESceneRenderPlanBuilder.cpp:234-240 | 目标场景效果全可见 → no-op；部分隐藏时后续效果输入不再缺失 | ①②③ |
 
 ## GREEN 证明（未破坏现有）
 
 - **CPU 预览 A/B**：备份 bundle vs 新 bundle，11 个 scene 型壁纸（3326873240/3327063360/3470764447/3544152633/3554161528/3660962877/3669681034/3715743282/3719111841/3721991999/3778592720）预览 PNG 像素 hash **逐一相同**。其余 11 个目录为视频/Web 壁纸（无 scene.pkg），不适用。
 - **目标场景逐属性核对**（3719111841 scene.json 实测）：ortho 3840×2160（16:9）、zoom=1、全 center 对齐、command/compose/fit/unique/copybackground/colorBlendMode 均 0、alpha 唯一非 1 值为 0、parallaxDepth 16 层。→ 10 项补丁中 A/B/D/E/F/H/I/J 为纯 no-op 或仅离屏 alpha；C/G 在 16:9+单 pass 主导下数值恒等。
 - **mock-GL 全链路**：12/12（bind 覆盖、previous→链输入、fxVao 隔离、反馈守卫、粒子 stride24）全部保持。
-- **不重启 dsh**：we-scene-demo-server.mjs 每请求读盘下发 we-scene-bundle.js，改动对真机即时生效，无需重启。
+- **不重启 dsh**：server/we-scene-demo-server.mjs 每请求读盘下发 core/we-scene-bundle.js，改动对真机即时生效，无需重启。
 
 ## 明确不做（记录）
 
@@ -70,7 +70,7 @@ offset    = (node_pos − cam_pos + mouse_vec) ⊙ parallaxDepth · amount
 ### P2-g_PointerPosition / g_PointerPositionLast
 此前恒传 (0,0) → 鼠标驱动类效果与 NSL 脚本中的指针 API 失效。现按官方 `updateOp(G_POINTERPOSITION, m_mousePos)` 传**归一化 0..1** 鼠标坐标（无事件时=中心 0.5,0.5），并记录上一帧用于 Last。
 
-**验证**：`node --check` ✓、`glsl-validate 128/128` ✓、`mock-gl-test 12/12` ✓、`preview.mjs` 出图 ✓。备份：`we-scene-bundle.js.bak-parallax`。
+**验证**：`node --check` ✓、`glsl-validate 128/128` ✓、`mock-gl-test 12/12` ✓、`preview.mjs` 出图 ✓。备份：`core/we-scene-bundle.js.bak-parallax`。
 
 ## P2-copybackground（2026-09-11 深夜，自主完成，`?copybg=1`）
 **依据**：wer-ref `WPSceneParser.cpp:1884-1900 ShouldUseCopyBackgroundSourceHelper` + `LoadCopyBackgroundSourceHelperMaterial`。
@@ -86,7 +86,7 @@ offset    = (node_pos − cam_pos + mouse_vec) ⊙ parallaxDepth · amount
 **已执行的保守回退**（保证明早可用）：bundle 回退到 `*.bak-parallax`（=ZCode P0 之后、我的视差/Pointer/copybackground 三项之前）
 - 回退后：`node --check` ✓ / `glsl-validate 128/128` ✓ / `mock-gl-test 12/12` ✓ / preview md5 与回退前一致（因三项默认关，CPU 无差异）
 - 保留：`demo.html` 的「MDLA 动画默认关闭」（回到静态校准 = 用户此前认可画面）
-- 备份链：`we-scene-bundle.js.bak-weralign`（ZCode 前）→ `.bak-parallax`（ZCode 后/我三项前，**当前生效**）→ `.bak-parallax2`（含我三项）→ `.bak-mdla`（demo）
+- 备份链：`core/we-scene-bundle.js.bak-weralign`（ZCode 前）→ `.bak-parallax`（ZCode 后/我三项前，**当前生效**）→ `.bak-parallax2`（含我三项）→ `.bak-mdla`（demo）
 
 **明早二分定位清单（每项=单独 URL 参数，逐项排除）**
 | 变量 | 开关 | 说明 |
@@ -138,7 +138,7 @@ offset    = (node_pos − cam_pos + mouse_vec) ⊙ parallaxDepth · amount
 
 ## ★ GPU 顶点蒙皮实现完成（2026-09-12）
 ### 实现（官方语义，非 elysia 渲染器）
-- `we-scene-bundle.js`：新增 **MESH_VS/MESH_FS**（`pos' = Σ w_i·(pos×u_Bones[i])`，官方 `model_vertex_v1.h::ApplySkinningPosition`）+ `renderMeshLayer()`（VAO: pos3/uv2/idx4/w4 + drawElements）+ g_Bones 上传（**每骨 mat4=4×vec4=64B**，官方 `ToDxcRowVectorSkinningUniform` 规格）
+- `core/we-scene-bundle.js`：新增 **MESH_VS/MESH_FS**（`pos' = Σ w_i·(pos×u_Bones[i])`，官方 `model_vertex_v1.h::ApplySkinningPosition`）+ `renderMeshLayer()`（VAO: pos3/uv2/idx4/w4 + drawElements）+ g_Bones 上传（**每骨 mat4=4×vec4=64B**，官方 `ToDxcRowVectorSkinningUniform` 规格）
 - `demo.html`：启动时对"自带 puppet 的层"用 **elysia 的 MDL 解析/动画采样（复用算法，非其渲染器）** 解析 mesh + 预计算 bindInv；每帧 `_sampleAnimRT` → `gBones[b]=Rz(final[b])×bindInv[b]` → `renderMeshLayer` 绘制；`?skin0=1` 关闭
 - **关键修复**：`_parseMdl` 需 `buf.toString('ascii')` → 用 `elysia/buffer.js` 的 Buffer shim 包装 `getEntry` 的 Uint8Array（此前 animations 全空=蒙皮层全部识别失败的根因）
 
@@ -346,12 +346,12 @@ if (lag > 0.1) skinAnimTime += Math.min(lag*0.02, 1/60)  // 受限缓慢追赶�
 | 改动 | 文件 | 说明 |
 |---|---|---|
 | 附件 pivot 改为**白名单** | `demo.html` | 原本 `__usePiv = true` 对所有带 puppet 的附件生效（同文件注释已指出这会让"头发甩出屏外"）；现默认只对 `眼睛组合`，`?piv=1` 全开 / `?piv=0` 全关 |
-| 网格中心补偿开关 | `we-scene-bundle.js` | `MCC_ENABLED`：`?mcc=0` 关闭（=官方"顶点即模型空间"直算）、`?mcc=1` 强制开启（旧行为） |
+| 网格中心补偿开关 | `core/we-scene-bundle.js` | `MCC_ENABLED`：`?mcc=0` 关闭（=官方"顶点即模型空间"直算）、`?mcc=1` 强制开启（旧行为） |
 | 插件设置 `sceneExtUrl` | `dsh-mpkg-wallpaper/lib/client.js` | 可选设置 → iframe 的 `extbase`（外部扩展钩子入口） |
 
 ### 3. 预留的可插拔接口（"现在没用上、将来可能用得上"）
 
-- **渲染器钩子注册表**：`we-scene-bundle.js` 导出 `registerMpwHook(slot, fn)` / `runMpwHook(slot, args)` /
+- **渲染器钩子注册表**：`core/we-scene-bundle.js` 导出 `registerMpwHook(slot, fn)` / `runMpwHook(slot, args)` /
   `MPW_HOOK_SLOTS`，槽位 `resolveTexture`（缺失纹理接管，已接线）/ `layerRect` / `shaderSource` / `postFrame`（已接线）/
   `stats`（已接线）。任何钩子抛错或返回 null = 不接管，画面不受影响。
 - **页面侧加载**：`demo.html` 支持 `?exthooks=<url[,url]>` 与 `?extbase=<base>`（自动取 `<base>/` 索引）。
@@ -389,9 +389,9 @@ if (lag > 0.1) skinAnimTime += Math.min(lag*0.02, 1/60)  // 受限缓慢追赶�
 
 | 改动 | 文件 | 说明 |
 |---|---|---|
-| **A3 偏移公式**（第三方参考实现 `wer-ref WPImageAlignment.hpp:12-38`，GPL-2.0-only，仅行为对照、未取代码） | `we-scene-bundle.js` | 导出 `alignmentOffsetForToken(alignment, w, h)`：left→+w/2、right→−w/2、top→−h/2、bottom→+h/2（**y-up 编辑器空间**，token 子串叠加，`bottomleft`=两项之和）；size 传有符号 `size×scale` 时负 scale 自动翻转（= 局部矩阵 T(align) 内乘 S）。compositeLayer 已有的 quad 空间式 `(0.5−a)·(w,h)` 与该 helper 经 y 取反后逐项相等（测试互证）；偏移在 `S(w,h)` 之后后乘 → 受本层缩放/旋转影响（第三方参考实现 wer-ref `SceneNode.cpp:20` 的局部偏移语义，仅行为对照）。**空间约定**：parseScene 的 `PROJ_H−y` 翻转在解析期，compositeLayer 在翻转后的 y-down 空间同步换算（y-up top→−h/2 ≡ y-down +h/2） |
-| **A3 开关** | `we-scene-bundle.js` + `demo.html` | `?align=0`（`opts.align===false`）→ 视作 center，复现旧行为；默认开启。`preview.mjs` 同式接线（`ALIGN=0` 环境变量复现旧行为） |
-| **A4 父链剔除** | `we-scene-bundle.js` | 第三方参考实现 wer-ref（`WPNodeTransformResolver.cpp:103` `RemoveImageAlignmentOffsetFromModel`，GPL-2.0-only，仅行为对照）子层继承父的 **authored pivot**（父的 alignment 网格偏移被后乘 T(−align) 剔除）。我们 alignment 偏移只在绘制期作用于本层网格、从不并入 origin → `parseScene` 父链合并用的 `pc.origin` 天然就是 authored pivot，**结构上等价于官方剔除后继承**；注释固化防止后续叠加父 alignment |
+| **A3 偏移公式**（第三方参考实现 `wer-ref WPImageAlignment.hpp:12-38`，GPL-2.0-only，仅行为对照、未取代码） | `core/we-scene-bundle.js` | 导出 `alignmentOffsetForToken(alignment, w, h)`：left→+w/2、right→−w/2、top→−h/2、bottom→+h/2（**y-up 编辑器空间**，token 子串叠加，`bottomleft`=两项之和）；size 传有符号 `size×scale` 时负 scale 自动翻转（= 局部矩阵 T(align) 内乘 S）。compositeLayer 已有的 quad 空间式 `(0.5−a)·(w,h)` 与该 helper 经 y 取反后逐项相等（测试互证）；偏移在 `S(w,h)` 之后后乘 → 受本层缩放/旋转影响（第三方参考实现 wer-ref `SceneNode.cpp:20` 的局部偏移语义，仅行为对照）。**空间约定**：parseScene 的 `PROJ_H−y` 翻转在解析期，compositeLayer 在翻转后的 y-down 空间同步换算（y-up top→−h/2 ≡ y-down +h/2） |
+| **A3 开关** | `core/we-scene-bundle.js` + `demo.html` | `?align=0`（`opts.align===false`）→ 视作 center，复现旧行为；默认开启。`preview.mjs` 同式接线（`ALIGN=0` 环境变量复现旧行为） |
+| **A4 父链剔除** | `core/we-scene-bundle.js` | 第三方参考实现 wer-ref（`WPNodeTransformResolver.cpp:103` `RemoveImageAlignmentOffsetFromModel`，GPL-2.0-only，仅行为对照）子层继承父的 **authored pivot**（父的 alignment 网格偏移被后乘 T(−align) 剔除）。我们 alignment 偏移只在绘制期作用于本层网格、从不并入 origin → `parseScene` 父链合并用的 `pc.origin` 天然就是 authored pivot，**结构上等价于官方剔除后继承**；注释固化防止后续叠加父 alignment |
 | **layer-rect-check 增强** | `layer-rect-check.mjs` | 实绘矩形纳入 alignment 偏移（含 y 取反、有符号 size）；新增 `--align=0`（旧行为）与 `--json`（机读，末行 `##JSON##`，供测试消费） |
 | **取证工具** | `alignment-scan.mjs`（新增） | 全语料 alignment 分布统计（复用 feature-scan.mjs 的遍历方式） |
 
@@ -431,7 +431,7 @@ if (lag > 0.1) skinAnimTime += Math.min(lag*0.02, 1/60)  // 受限缓慢追赶�
 
 | # | 错误 | 证据（修复前） | 修复 | 回退 |
 |---|---|---|---|---|
-| 1 | 附件锚点骨骼位姿口径（自算 `_bindRT/_animRT0`+piv/ayFlip 补丁） | 19 附件层按锚点名恒定偏移（头部 −509,+593…），中位 782px | 新文件 `attach-transform.mjs`：elysia 四函数逐字移植（`_mdlAnchors`/`_puppetBoneFinal`/`_attachmentOffset`/`resolveTransform`+`_parseMdl`/`_sampleAnimRT`），parseScene 经 `opts.attachCtx` 调用 | `?att=legacy` |
+| 1 | 附件锚点骨骼位姿口径（自算 `_bindRT/_animRT0`+piv/ayFlip 补丁） | 19 附件层按锚点名恒定偏移（头部 −509,+593…），中位 782px | 新文件 `core/attach-transform.mjs`：elysia 四函数逐字移植（`_mdlAnchors`/`_puppetBoneFinal`/`_attachmentOffset`/`resolveTransform`+`_parseMdl`/`_sampleAnimRT`），parseScene 经 `opts.attachCtx` 调用 | `?att=legacy` |
 | 2 | scene.json angles 当度（×π/180），实为**弧度** | 语料 63 处非零角=π/π/2 值；lwe CImage.cpp:1097 注释"already in radians"；wer-ref AngleAxis 直收 | 合并与粒子层角度直收弧度 | —（第三方参考实现所实现的语义） |
 | 3 | demo hier 预合并 + parseScene 再合并 = 双重变换 | 探针：299 底发 (2284,342)→(3454,230) | 默认路径删除预合并（parseScene 单一合并） | `?att=legacy` |
 | 4 | "animL 层不翻转"例外 | 3554161528 人物层：elysia(官方)=y595，例外=y1565 | 所有层统一 `PROJ_H−y` 翻转一次 | `opts.legacyAnimY`（legacy 自动带） |
@@ -458,7 +458,7 @@ T5 主体 MDL 骨骼6/动画1、MDAT 锚点3（头发附件锚点在长发3 的 
 
 - `layer-rect-check.mjs`：`--noattach` 开关；网格层实绘矩形（origin+scale·meshBBox，官方/elysia 同式）。
 - `preview.mjs`：parseScene 传入 attachCtx（REFR=0 父链模式需要锚点）。
-- `we-scene-demo-server.mjs`：新增 `/attach-transform.mjs` 静态路由（bundle 的浏览器端 import）。
+- `server/we-scene-demo-server.mjs`：新增 `/attach-transform.mjs` 静态路由（bundle 的浏览器端 import）。
 - `demo.html`：默认附件路径接 attachCtx；anchorsOf/mkOff/piv/hier 预合并/逐帧附件动画全部仅 `?att=legacy`。
 - `alignment-test.mjs`：② 用例父角度 `'0 0 30'`→`π/6`（弧度定案后数值不变，手推注释已注明证据）。
 
@@ -546,7 +546,7 @@ CPU 预览 4 包（3719111841/3544152633/3660962877/3326873240）出图正常，
 
 ## P-23（2026-09-14 第五轮）MERGED-3：插件侧场景体验 + 诊断开关文档收口（ZCODE-MERGED-3-PLUGIN-DOCS.md 全部两项）
 
-> 只碰插件 `dsh-mpkg-wallpaper/lib/*.js`、文档、一个校验脚本 + `demo.html` 少量追加；**不改渲染语义、不改 we-scene-bundle.js**。
+> 只碰插件 `dsh-mpkg-wallpaper/lib/*.js`、文档、一个校验脚本 + `demo.html` 少量追加；**不改渲染语义、不改 core/we-scene-bundle.js**。
 
 ### 第 1 项 H：插件侧场景体验
 
@@ -569,7 +569,7 @@ CPU 预览 4 包（3719111841/3544152633/3660962877/3326873240）出图正常，
 
 ### 第 2 项 J：诊断开关文档收口
 
-1. **diag-flag-check.mjs**（新校验脚本）：从 `we-scene-bundle.js` / `demo.html` / `elysia/**/*.js` /
+1. **diag-flag-check.mjs**（新校验脚本）：从 `core/we-scene-bundle.js` / `demo.html` / `elysia/**/*.js` /
    `dsh-mpkg-wallpaper/lib/client.js` 抓取真实解析点（绑定 location.* 的 URLSearchParams get/has/getAll、
    `new URL(...).searchParams`、正则 `[?&]name=`、白名单 localStorage 键），与 README 主表双向比对
    （文档有代码无=陈旧；代码有文档无=漏写），`--fix-hint` 打建议行、`--list` 只列抓取结果；产出 `diag-flags.json`。
@@ -607,7 +607,7 @@ bash "$MPW_ROOT/update-plugin.sh"   # 同步（不重启 dsh）
 
 ## P-24（2026-09-12）MERGED-1 第 1 项：眨眼/骨骼相位对齐 + fps 口径定案（ZCODE-MERGED-1-RENDER-CORE.md ①G）
 
-> 交付：`blink-phase-test.mjs`（新，15/15）；`attach-transform.mjs` fps 直读 + 采样寻址官方化；
+> 交付：`blink-phase-test.mjs`（新，15/15）；`core/attach-transform.mjs` fps 直读 + 采样寻址官方化；
 > `layer-rect-check.mjs --t=<秒>`。全量回归全绿，默认输出逐位不变（layer-rect-check 仍中位 0px/最大 79px）。
 
 ### 1. fps 口径定案 = 每动画自带 framerate（官方语义）
@@ -962,7 +962,7 @@ A/B 判别力需 headless/真机可用（局限已写进 VISUAL-TESTING.md §三
 
 **根因**：`demo.html` 的 RE-28 同步把 `raw.origin` **直接赋值**给 `l.origin`
 （`if (typeof ro === 'string' && !l.__skin && !attachAnimActive.has(l.id))`），
-而默认路径下 `l.origin` 已被 `parseScene` 加上**父链合并 + 附件锚点偏移**（attach-transform.mjs）；
+而默认路径下 `l.origin` 已被 `parseScene` 加上**父链合并 + 附件锚点偏移**（core/attach-transform.mjs）；
 `attachAnimActive` 在默认路径下**恒为空**（附件动画预计算只在 `?att=legacy` 分支里跑）→ 无条件抹掉锚点。
 CPU 预览（preview.mjs **不跑脚本**）因此一直是对的 —— 这正是"两端分歧"的落点，也解释了为什么
 P-21-ATTACH 的 19/22 层 Δ<5px 与真机观感矛盾。
@@ -1156,7 +1156,7 @@ WE 的 `localStorage` 是脚本 API（`get/set/remove/has/clear`），与浏览�
    位图路径 `createImageBitmap→texImage2D` **无降采样、无 getError 检查** → 超限/失败静默黑。
    shot 里光斑可见（lens_flare_sun 链跑通输出=scene+flare）⇒ 是 **T0 底图黑**，不是效果链黑。
 
-**修法**（demo.html loadTex + we-scene-bundle.js）：
+**修法**（demo.html loadTex + core/we-scene-bundle.js）：
 - ①`texDownsampleCap(w,h,devMax)`：触发=超 **min(4096, 设备 MAX_TEXTURE_SIZE)**（旧 >4096 只覆盖
   4096 机型）；cap 策略不变（>2048 源→2048）。rgba 路径与位图路径共用。
 - ②位图路径：超限先 canvas 缩图；上传后 getError；失败按 **2048→1024 阶梯重试**并逐级记日志
@@ -1241,7 +1241,7 @@ particle-sprite、multi-sprite 全 PASS。真机复验：3326873240 两 toggle �
    本地无法复现 → 上报层表新增 **rawOrigin** 字段（脚本跑完后的原始对象 origin）让下一份上报定案。
 
 **修法**：
-- ①`we-scene-bundle.js` renderScene：HDR 帧逐层 getError 前后对照（先排空残留旗标；mesh 回调趟
+- ①`core/we-scene-bundle.js` renderScene：HDR 帧逐层 getError 前后对照（先排空残留旗标；mesh 回调趟
   补上此前 continue 跳过的错误检测）→ 命中"绘制后新出现"的错误即**本会话熔断自动 HDR 并当场按
   LDR 重渲本帧**（首帧/缩略图即正确）。`?hdr=1` 显式强制不熔断；`renderer.hdrFallback` 状态进上报
   （demo 层表同帧采集）。自动路径默认行为=扩展可用即 HDR（不变），只有设备被证实坏才退 LDR。
@@ -1346,7 +1346,7 @@ spriteFrames 3 种已识别，帧推进待带 A5 字段的上报确认；④`?te
 - parity 的 CPU 侧矩阵约定**踩坑一次即修**：preview.mjs 的正交矩阵是 y-flip 式（m[5]=−2/ch）+
   NDC 换算 (1−ndy)/2，与 demo 台账（行向量+transpose=false → NDC y 与设计同向，(ndy+1)/2）**数学等价
   但换算式不可混用**；首版混用导致全部层 y 镜像，已改用台账同式（x/y 同式换算），5 场景 41/45 层
-  中心误差 ≤2px。→ 已写进 `RENDERER-ARCHITECTURE.md` 不变量 #2（防下一个写工具的人再踩）。
+  中心误差 ≤2px。→ 已写进 `docs/RENDERER-ARCHITECTURE.md` 不变量 #2（防下一个写工具的人再踩）。
 - 两个 rect 分叉定性为**文本/脚本驱动层**（非几何错误）：GirlCat `playerdurationexception`（Δ8679px，
   parent=Cube 音乐组件文本，其它脚本 enumerateLayers 移动它）、hina `398`（Δ1638px，origin 字段
   本身就是"拖拽存储位置"脚本对象 `value:"1195.38 1337.07"`）。→ parity 记 soft(text)/soft(scripted)，
@@ -1357,7 +1357,7 @@ spriteFrames 3 种已识别，帧推进待带 A5 字段的上报确认；④`?te
 |---|---|---|
 | `parity-check.mjs`（C1/W11） | 真机 layerLedger vs CPU 期望逐层对账：rect（中心≤2px/wh≤6px 越界 FAIL）+ px 三档（soft 口径受限 / FAIL 铁证=clear-miss 或色差>0.6 / diff advisory）+ ownSizes/附件锚点**自动标注** + `known-issues.json` 白名单 | 5 场景全过（41/45 ok、其余 soft/size0/known 各有定性）；`--strict` 退出 1、无上报 SKIP 退出 0；产出 `reports/parity-<id>.json` |
 | `known-issues.json`（C2） | 9 条已知差异，kind=official-semantics/fallback/hack/measurement，每条带证据出处（上报文件名/代码注释/PATCHES 编号） | `docs-check` 引用健康；parity 白名单消费 |
-| `RENDERER-ARCHITECTURE.md`（C3） | ①模块地图（函数名级，按 bundle 内部分节）②官方语义不变量 14 条（坐标/矩阵转置约定/弧度/锚点公式/回退开关现状）③连带影响地图 12 行（改哪坏哪+对应门禁） | 文件本体；与新会话问答式验收（"某语义在哪"可直接查表） |
+| `docs/RENDERER-ARCHITECTURE.md`（C3） | ①模块地图（函数名级，按 bundle 内部分节）②官方语义不变量 14 条（坐标/矩阵转置约定/弧度/锚点公式/回退开关现状）③连带影响地图 12 行（改哪坏哪+对应门禁） | 文件本体；与新会话问答式验收（"某语义在哪"可直接查表） |
 | `library-manifest.mjs` + `LIBRARY-MANIFEST.md` + `library-manifest.json`（C4） | 88 容器清单：**scene 21 / scene+video 22 / video 45**；结论=67 个含视频容器勿按场景渲染；scene+video 的 scene 侧全是"脚本文本层"（最大 砂狼白子11_03 119 段）；给回归集选样依据 | 一条命令产出；dd 11 个纯 scene 无预览图（视觉对照用 Testphoto） |
 | `run-all-tests.sh` 重构（C5.1） | `--list`（36 项）、`--only <name>`、**条件项机制**（工具输出 SKIP+退出 0 → 门禁计 SKIP 不红）；注册 `mesh-badframe`（A 的新测试，22/22）+ `docs-check` + `parity-check`（条件项，--fast 跳） | `--list` 输出 36 项；`--only docs-check mesh-badframe parity-check` 单跑验证 |
 | `docs-check.mjs` 扩展（C5.2） | ①PATCHES P-编号唯一+顺序非降（发现并容忍既有 P-22-ATTACH/P-22 后缀共存）②任务书/TASKS-INDEX 引用文件存在（elysia 裸文件名、容器内条目、~/.dsh mpkg 三类解析规则）③diag-flag-check 归并 | 15 文档/241 引用/3 类检查全过（exit 0） |
@@ -1492,7 +1492,7 @@ pkg `3326873240`「夜莺Night Day Night Gradient」的 5 个时段层不再是"
 **改了什么**
 - `elysia/scene-scripts.js`：S1 `applyUserProperties(noUserProps() ? {} : (userProps||{}))`；S2 新增 `videoTexRefShared()`
   + 4 个层引用工厂（`makeSceneRef→layer` / `emptyLayerRef` / `layerRefFor` / `layerRef`）各补 `getVideoTexture`。
-- `we-scene-bundle.js`：R1 新增 `slotOfTimeLayer/timeVariantGroups/timeVariantIds/applyTimeVariation`（变体组 = 同一 `visible.user.name`、
+- `core/we-scene-bundle.js`：R1 新增 `slotOfTimeLayer/timeVariantGroups/timeVariantIds/applyTimeVariation`（变体组 = 同一 `visible.user.name`、
   condition 互异、≥2 层；`?time` 可钉层、`pin/reassert/clearPin`）；R1b `hideUI` 循环里 `if (__tvIds.has(l.id)) continue`（只豁免变体层）。
 - `demo.html`：S3 `window.__mpwUserProps = propsMap`；`noUserProps` 回退口；R2 建场后 `applyTimeVariation` + `?time/?hour`；
   R3 每帧脚本同步后 `reassert()`；R4a `[加载此层]/[恢复时钟]` 按钮、R4b `Home` 共用开关、R4c 入站 `message`
@@ -1528,7 +1528,7 @@ pkg `3326873240`「夜莺Night Day Night Gradient」的 5 个时段层不再是"
 
 **门禁（本轮实测）**：`bash run-all-tests.sh` → **PASS=36 / FAIL=2 / SKIP=0，总 38 项**（新增 `time-variation` 项 PASS 0.62s）。
 两个 FAIL **都不是本补丁引入**，且随后都已消解，各有实证：
-- `package-matrix --check`：当时唯一剩余差异 = "`3715743282` 基线中不存在（新包）"，指向并行会话 01:38 用 `pack-dir.mjs` 临时产出的
+- `package-matrix --check`：当时唯一剩余差异 = "`3715743282` 基线中不存在（新包）"，指向并行会话 01:38 用 `server/pack-dir.mjs` 临时产出的
   allwallpaper/packed/3715743282.mpkg（基线冻结于 09-13 02:44）——**该目录随后已由产出方删除，本项 02:0x 复跑 PASS（61.3s）**。
   另：本补丁**曾**造成的一项真退化（`3544152633` `drawnLayers` 24→25 + 该项 `auditMs` 报 SLOW）已由"偏差 4"的收紧修掉：现为 `drawn: 24 → 24`，timing 回落到工具自带噪音带内（1.59x < 1.8x）。
 - `parity-check`：当时崩在 `parity-check.mjs:281` 的 `ReferenceError: gl is not defined`（该文件从未定义 `gl`；文件 mtime 09-13 06:23，触发数据是 09-13 01:11 的真机上报）→ **并行会话已于 01:59 修掉该行**；
@@ -1563,7 +1563,7 @@ pkg `3326873240`「夜莺Night Day Night Gradient」的 5 个时段层不再是"
 - **回退**：`?pts=raw`（单参数，无副作用）。
 
 ### Q5 粒子默认被关 + 官方预设无兜底（用户第 17 项）
-- **根因①**：`demo.html:2191` 旧 `hideParticles: !has('np')` → 不带参数时 bundle（`we-scene-bundle.js:1356`）
+- **根因①**：`demo.html:2191` 旧 `hideParticles: !has('np')` → 不带参数时 bundle（`core/we-scene-bundle.js:1356`）
   把所有粒子层 `visible=false`；`?np` 从未写进用户文档。**改为** `has('noparticles') || has('np')`（默认开、显式关、
   `?np` 保留为别名）；`demo.html:2642` 那个 `createRenderer` 死键同口径并注明"createRenderer 不读该键"。
 - **根因②**：`readParticleDef` 只查包内 → 25 个 ref / 32 层必不出。新增三级链（都在 `demo.html`）：
@@ -1593,8 +1593,8 @@ pkg `3326873240`「夜莺Night Day Night Gradient」的 5 个时段层不再是"
 - **锚点（缺陷两处）**：① 单块状态只有 setter：`demo.html` 旧 :2225 `else cur.__lnNoSubMesh = true`，无任何清零点；
   ② 入站监听（`mpw-ln-key`）**没有 Control 分支** → 落到 `else return`，而插件侧确实会吞掉并转发 `Control`
   （`dsh-mpkg-wallpaper/lib/client.js:2966` keys 数组含 `"Control"`、`:2975` postMessage）。
-  单块是当前语料的常态：`we-scene-bundle.js:3910` 只在 `mesh.submeshes.length > 1` 时建子块表，
-  且 `window.__mpwSubMeshCount` 至今无人写 → n 恒 0；唯一消费点 `we-scene-bundle.js:3954`（`__subMeshOnly`）。
+  单块是当前语料的常态：`core/we-scene-bundle.js:3910` 只在 `mesh.submeshes.length > 1` 时建子块表，
+  且 `window.__mpwSubMeshCount` 至今无人写 → n 恒 0；唯一消费点 `core/we-scene-bundle.js:3954`（`__subMeshOnly`）。
 - **改动**：新增共享 `ctrlAction()`（组内退级 / 多块 0→1→…→整块 / **单块进↔出** / 普通层 enterGroup），
   键盘路径（`demo.html:2244`）与入站路径（`demo.html:2296` 区）共用；角标文案补"：Ctrl 退出"；
   `Alt`=退出、`Home`=时段层钉层/退出 语义**逐字未动**。
@@ -1617,7 +1617,7 @@ pkg `3326873240`「夜莺Night Day Night Gradient」的 5 个时段层不再是"
   头部计数 73 → **75**；`FLAG-TABLE-END` 之后新增"页面内 UI（非 URL 开关）"小节登记日志手柄与 `mpw-log-h`。
 - `run-all-tests.sh`：新增 `particle-presets`、`log-panel` 两项（38 → **40**）。
 - **本轮实测**：`bash run-all-tests.sh` → **PASS=40 FAIL=0 SKIP=0**（含 `package-matrix` 60.8s、`parity-check` 21.0s、
-  `layer-rect-kal`、`visual-diff-kal` PASS）；`node demo-syntax-check.mjs` 7/7；`node --check we-scene-bundle.js` ✓；
+  `layer-rect-kal`、`visual-diff-kal` PASS）；`node demo-syntax-check.mjs` 7/7；`node --check core/we-scene-bundle.js` ✓；
   `node diag-flag-check.mjs` 75==75 0 差异；`node docs-check.mjs` ✓。
 - **本机不可验（需真机/浏览器）**：① 4.17× 字号在**真实字体**下的观感（回退字体的墨高 ±15%）；
   ② 粒子在真机 GL 上的混合/HDR 表现与帧率（`preview.mjs` 不画粒子，本机无 headless 浏览器）；
@@ -1741,7 +1741,7 @@ pkg `3326873240`「夜莺Night Day Night Gradient」的 5 个时段层不再是"
   （`scene.layers.find(name===n)`）→ 同名"文本层 `Clock`"与"底板层 `Clock`"互相遮蔽，把文本层的透明回退误计成异常
   （N5 让时钟文本默认可见后 9 个包各 +2 的假红）。改为**按层号**判定 `__text`（文本层恒排除，与文件内既有注释口径一致）。
 - **本轮实测**：`bash run-all-tests.sh` → **PASS=47 FAIL=0 SKIP=0**；`node demo-syntax-check.mjs` 7/7；
-  `node --check we-scene-bundle.js` ✓；`node diag-flag-check.mjs` 81==81；`node docs-check.mjs` ✓；
+  `node --check core/we-scene-bundle.js` ✓；`node diag-flag-check.mjs` 81==81；`node docs-check.mjs` ✓；
   `node publish-check.mjs --assets …` 仅剩 `LICENSE` 1 条阻塞（他人工作流，未新增）；
   `node package-matrix.mjs --check` 无退化；`node parity-check.mjs` 6 场景 PASS。
 - **本机不可验（需用户真机/浏览器）**：① `?align=0` 与修后 3660962877 的**满屏观感**（本机无浏览器）；
@@ -1759,12 +1759,12 @@ pkg `3326873240`「夜莺Night Day Night Gradient」的 5 个时段层不再是"
 
 ### H0 第1项 hina（`3554161528`）白屏：HDR 呈现趟把没写过的纹理全屏合成
 
-- **锚点**：`we-scene-bundle.js` 自动 HDR 判据（P-58 前 `~4814-4816` 内联三元式）、`presentHdrScene` 的 `!progs` 兜底 blit（P-58 前 `~4084`）。
+- **锚点**：`core/we-scene-bundle.js` 自动 HDR 判据（P-58 前 `~4814-4816` 内联三元式）、`presentHdrScene` 的 `!progs` 兜底 blit（P-58 前 `~4084`）。
 - **根因**：层实际画在**默认帧缓冲**（`compositeLayer` 内无条件 `bindFramebuffer(gl.FRAMEBUFFER, null)`），
   而帧末 `presentHdrScene` 把**从未被写入**的 RGBA16F 场景纹理全屏合成 ⇒ 正确画面被整屏替换成白/空；
   熔断器只看"层绘制期间 `gl.getError()`"（层画在默认 FB 上不报错）⇒ 12/12 上报 `hdrFallback: None`。
   hina 是全语料唯一 `general.hdr=true` 且 `general.bloom=false` 的包，而 HDR 链的唯一消费者是 bloom。
-- **改动 1**：判据抽成导出的纯函数 `resolveHdrWant(opts, general, hdrForceLdrSession)`（`we-scene-bundle.js`），
+- **改动 1**：判据抽成导出的纯函数 `resolveHdrWant(opts, general, hdrForceLdrSession)`（`core/we-scene-bundle.js`），
   自动分支追加 `&& bloom 为真`；`?hdr=0`/`?hdr=1` 两路语义与 `hdrForceLdrSession` 熔断语义**逐位不变**。
 - **改动 2**：`presentHdrScene` 的兜底 blit 改成 WebGL2 的 **10 参**签名（`READ/DRAW_FRAMEBUFFER` 显式绑定 +
   `blitFramebuffer(0,0,w,h, 0,0,w,h, COLOR_BUFFER_BIT, NEAREST)`）——旧代码把 FBO 当第 1 参传了 11 个参 ⇒ 参数错位。
@@ -1782,7 +1782,7 @@ pkg `3326873240`「夜莺Night Day Night Gradient」的 5 个时段层不再是"
 
 ### H1 第4项 凯尔希（`3719111841`）：网格路径消费 `layer.size`/`cropoffset` —— **研究稿方向被官方标定反证**，改为默认关的实验开关
 
-- **锚点**：`we-scene-bundle.js` `uploadMeshLayer`（`__center` 计算处）、`renderMeshLayer`（第 9 参 `opts2.noCenterComp`）、
+- **锚点**：`core/we-scene-bundle.js` `uploadMeshLayer`（`__center` 计算处）、`renderMeshLayer`（第 9 参 `opts2.noCenterComp`）、
   新导出 `meshBBox`/`meshLayerFit`；`demo.html` `loadScene`（挂 `layer.__cropoffset`）、`?meshsize` 解析（OWN_SIZE 之后）、
   `onMeshLayer` 调用点（`renderMeshLayer(...)` + 台账矩形）。
 - **研究稿主张**：`renderMeshLayer` 画"网格原始范围"，不读 `layer.size`/`model.cropoffset`，
@@ -1847,7 +1847,7 @@ halo 类贴图实测采样 alpha **1.000 → 0.161**（hina `particle/halo`）�
 本机 mock-GL 单帧渲染（t=25s）**238ms → 140ms**（Girl and cat）、127 → 114ms（hina）。
 
 ### 根因（都有 file:line + 字节级/顶点流证据）
-1. **形状取错通道（`we-scene-bundle.js` PARTICLE_FS，`we-scene-bundle.js:3879-3899`（fragColor 在 :3898））**：旧实现
+1. **形状取错通道（`core/we-scene-bundle.js` PARTICLE_FS，`core/we-scene-bundle.js:3879-3899`（fragColor 在 :3898））**：旧实现
    `float texR = mix(texture(u_Tex, v_TexCoord).r, texture(u_Tex, v_TexCoordB).r, v_Blend); fragColor = vec4(u_Color, u_Alpha*v_Alpha*texR)`，
    而官方 `wallpaper_engine/assets/shaders/genericparticle.frag:39-46` 是 `color = v_Color * ConvertTexture0Format(texSample2D(...))`——**乘完整 RGBA**。
    语料实测（`node` 探针直接解 `.tex`）粒子贴图分两类，**互相矛盾**：
@@ -1857,22 +1857,22 @@ halo 类贴图实测采样 alpha **1.000 → 0.161**（hina `particle/halo`）�
      `{"n":"particle/downl","d":"68x68","f":4,"rgb":[255,255,255],"a":9,"a0":86}` 那条白色纹理）。
    - 反向的 `materials/particle/fog/fog1`（rgb 13、alpha 恒 255）、`beam_1`、`light_shafts_0` 形状在 **RGB**，
      用 `.r` 又会让它们几乎全透明（hina「雾 2」old≈0.002 → new≈0.814）。**只有官方口径同时正确**。
-2. **第二三角形退化（`we-scene-bundle.js:6009-6012` 六顶点表）**：旧表
+2. **第二三角形退化（`core/we-scene-bundle.js:6009-6012` 六顶点表）**：旧表
    `cys=[-1,1,-1,1,-1,1]` → `k3=(1,1)` 与 `k5=(1,1)` **重合** ⇒ 三角形 B 面积恒 0，
    一个粒子的 6 顶点**只画出半个 quad（一个三角形）**——用户看到的"三角形"就是这个。
    同表 `us/vs` 还与 `cxs/cys` 错位，k0/k1/k2 的 UV=(0,1)/(1,0)/(0,1) ⇒ 三角形内采样 UV 退化成
    `((1+y)/2,(1-y)/2)`，**只沿纹理反对角线取样**。真机同构的 mock-GL 顶点流实测：`triB_degenerate` **464/464、1206/1206、696/696、182/182、19/19**。
-3. **默认开 + 无预算（`demo.html:2225`/`2713` 默认开；`we-scene-bundle.js:5867-5870` 只有 `def.maxcount`）**：
+3. **默认开 + 无预算（`demo.html:2225`/`2713` 默认开；`core/we-scene-bundle.js:5867-5870` 只有 `def.maxcount`）**：
    语料模拟（t=25s，`buildParticleSystem`+`simulateParticleSystem`）峰值存活：Girl and cat **10,903 粒**
    （单层 `Rain2` `maxcount:10000` → 9,609 粒 / **65,418 顶点每帧**）、hina 448、凯尔希 714；
    再加每帧**从 0 重放历史**（旧 `simulateParticleSystem` 固定 0.05s 步长 + `guard<2000`，
    guard 用尽后仍把 `_simulatedTo` 记成 target = 100s 后状态静默冻结）⇒ 真机 2 FPS。
 
 ### 改动（三个文件，最小面）
-- `we-scene-bundle.js:3879-3899`（fragColor 在 :3898）：粒子 FS 改官方口径 `vec4 tex = mix(tex(uv),tex(uvB),blend); fragColor = vec4(u_Color*tex.rgb, u_Alpha*v_Alpha*tex.a)`。
-- `we-scene-bundle.js:5919-5926`：六顶点表改 `cys=[-1,1,-1,-1,1,1]`、`us=[0,0,1,1,0,1]`、`vs=[1,0,1,1,0,0]`
+- `core/we-scene-bundle.js:3879-3899`（fragColor 在 :3898）：粒子 FS 改官方口径 `vec4 tex = mix(tex(uv),tex(uvB),blend); fragColor = vec4(u_Color*tex.rgb, u_Alpha*v_Alpha*tex.a)`。
+- `core/we-scene-bundle.js:5919-5926`：六顶点表改 `cys=[-1,1,-1,-1,1,1]`、`us=[0,0,1,1,0,1]`、`vs=[1,0,1,1,0,0]`
   （k0..k5 = BL,TL,BR,BR,TL,TR；UV=((cx+1)/2,(1−cy)/2)，保留旧 k0/k1 的 v 翻转方向）→ 两个三角形都非退化、UV 覆盖整图四角。
-- `we-scene-bundle.js:4019-4042` + `5858-5879` + 帧首重置（`renderScene` 内）：新增 **`PARTICLE_BUDGET`**（不改默认观感之外的开关语义）：
+- `core/we-scene-bundle.js:4019-4042` + `5858-5879` + 帧首重置（`renderScene` 内）：新增 **`PARTICLE_BUDGET`**（不改默认观感之外的开关语义）：
   | 档位 | 单层/帧 | 整帧合计 | 粒子层数 | 历史重放步数 |
   |---|---|---|---|---|
   | 默认 | **240** | **1200** | **16** | **400**（≈20s 内与旧 0.05s 步长逐位一致） |
@@ -1880,7 +1880,7 @@ halo 类贴图实测采样 alpha **1.000 → 0.161**（hina `particle/halo`）�
   | `?pmax=<n>` | n | 同上 | 同上 | 同上 |
   份额按"剩余份额 ÷ 剩余粒子层数"均分（用不完顺延给后面的层，避免前几层吃光预算、后面整层消失）；
   超出部分**不停发、只封顶本帧模拟/绘制数**；`?perf=auto` 的 `partMul` 仍叠加生效（取 min）。
-- `we-scene-bundle.js` `simulateParticleSystem(sys,t,maxSteps)`：新增可选步数上限，**不传 = 旧行为逐位一致**；
+- `core/we-scene-bundle.js` `simulateParticleSystem(sys,t,maxSteps)`：新增可选步数上限，**不传 = 旧行为逐位一致**；
   传了则超出部分**放粗步长**（总时长不变、状态继续推进，不再静默冻结）。`renderParticleLayer` 传档位值。
 - **无贴图粒子层显式跳过 + 记账**：`renderParticleLayer` 在 `!texObj.glTex` 时 `partStat.skippedTex++` 并 log-once
   （旧代码同样 return，但没有可观测计数）；`demo.html` 上报 payload 增 `particleBudget`（档位/上限/本帧实画层数/粒数/两类跳过数），
@@ -1929,7 +1929,7 @@ halo 类贴图实测采样 alpha **1.000 → 0.161**（hina `particle/halo`）�
   (g) rate 1000/s 的层 2s 内被限流到 ≲480 粒 + `rateCapped=1` + 一次性 log）。
 
 **A2（记录，未动）**：复制花层 `花朵`/`花朵 拷贝` 的"内容没上屏"本轮**未碰**——`clearBgFx` 的既有行为
-（`we-scene-bundle.js:1406-1408` 那个"背景超大层摘效果链"的判据）一字未改；纹理上传路径也未改
+（`core/we-scene-bundle.js:1406-1408` 那个"背景超大层摘效果链"的判据）一字未改；纹理上传路径也未改
 （P-59 只改粒子 FS 的采样通道、粒子 quad 顶点表、粒子预算/诊断）。可另派 readPixels 探针。
 
 ---
@@ -2012,9 +2012,9 @@ T4 多帧 cache-hit 路径 / T5 真包 `3554161528` 跑完脚本 id398 origin �
 3. 带脚本：`"origin": { "script": "...", "scriptproperties": {...}, "value": "..." }`；对象上的
    `scriptproperties` 在 `scene.json` 里**常是 JSON 字符串**（口径照抄 `elysia/scene-scripts.js` 的既有解析）。
 
-### 实现（`we-scene-bundle.js` 新节 + `demo.html` 面板）
+### 实现（`core/we-scene-bundle.js` 新节 + `demo.html` 面板）
 
-- **`we-scene-bundle.js`**：新增导出 `propToBool` / `colorPropToHex` / `hexToColorProp` / `normalizePropValue` /
+- **`core/we-scene-bundle.js`**：新增导出 `propToBool` / `colorPropToHex` / `hexToColorProp` / `normalizePropValue` /
   `propsDefaults` / `mergeUserProps` / `parsePropsQuery` / `evalPropCondition` / `propConditionNames` /
   `gatedOffNames` / `resolveUserBinding` / `evalVisibleWithProps` / `propLabel` / `propsPanelModel` /
   `applyUserProperties` / `resolveScriptProperties` / `applyScriptProps`（+ `PROP_RENDER_TYPES` /
@@ -2117,7 +2117,7 @@ mediaStatusChanged` 回调要真的被调用，`engine.registerAudioBuffers(n)` 
 **文件边界（本次只碰这些）**：新增 `elysia/media-host.js`、`elysia/media-lyrics.js`、`media-host-test.mjs`；
 `elysia/scene-scripts.js` 加**两个导出** `dispatchScriptEvent` / `invalidateUserProps` + 两个记账字段；
 `run-all-tests.sh` 加 1 行；`README-DIAGNOSTICS.md` 加 1 行（`lyrics`）；本文件。
-**未动** `demo.html` / `we-scene-bundle.js`（并行会话独占）——宿主接线留给父 agent（见 §4 的接线示例与三个必读陷阱）。
+**未动** `demo.html` / `core/we-scene-bundle.js`（并行会话独占）——宿主接线留给父 agent（见 §4 的接线示例与三个必读陷阱）。
 
 ### 1. 官方 API：三条独立证据源（不猜）
 
@@ -2306,7 +2306,7 @@ T6 歌词解析+二分+边界+探测+`?lyrics=`（32）/ T7 `dispatchScriptEvent
    所以 `colors` 必须由宿主显式注入（默认黑/白中性值）。`coverBytes` 只作为 `$mediaThumbnail` 纹理的来源，
    **不给脚本**（官方脚本也拿不到图片本体）。
 2. **`$mediaThumbnail` / `$mediaPreviousThumbnail` 材质纹理的实际绑定**未做：本模块只给
-   `getCoverForTexture()` 出口；在 `we-scene-bundle.js` 里把它接到材质纹理槽属于渲染端改动（该文件本轮被并行会话独占）。
+   `getCoverForTexture()` 出口；在 `core/we-scene-bundle.js` 里把它接到材质纹理槽属于渲染端改动（该文件本轮被并行会话独占）。
 3. **`mediaStatusChanged` 无真实触发源**：只在 `clearMedia()` 里发 `{enabled:false}`；
    "系统媒体会话开关"这件事本机没有（Windows media overlay / GSMTC 不可得）。
 4. **歌词滚动动画/卡拉OK 高亮**未做：只给"当前行文本 + 下标"，动画是作者脚本的事。
@@ -2321,14 +2321,14 @@ T6 歌词解析+二分+边界+探测+`?lyrics=`（32）/ T7 `dispatchScriptEvent
 ## P-64（2026-09-15，渲染器侧子任务）官方属性面板批次 2：真机 8 条问题（第 11/14/15/16/17/18/6/5/22 项）
 
 **范围（文件边界）**：只改 `demo.html` + `props-panel-test.mjs` + `README-DIAGNOSTICS.md` + 本文件。
-`we-scene-bundle.js`（另一子任务独占）与 `elysia/**` **一个字都没改** —— 凡是根因在 bundle/宿主的，
+`core/we-scene-bundle.js`（另一子任务独占）与 `elysia/**` **一个字都没改** —— 凡是根因在 bundle/宿主的，
 列在文末「交回主会话的 bundle 侧清单」。
 
 ### 逐条：真机现象 → 根因（行号）→ 改法
 
 **① 第 11 项「名称里带 `&nbsp`」** —— 根因在**识别层旁边的显示层**：作者 `text` 写的是
 `"&nbsp&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;星期位置X  Week position X"`（**首个实体没有分号**，HTML 合法
-legacy 写法）。`we-scene-bundle.js:1599` 的 `propLabel` 只替换 `/&nbsp;/gi`（带分号）→ 剩下的 `&nbsp`
+legacy 写法）。`core/we-scene-bundle.js:1599` 的 `propLabel` 只替换 `/&nbsp;/gi`（带分号）→ 剩下的 `&nbsp`
 原样进标签。全语料扫描：**31 条**（日月循环 3326873240 / 砂狼白子 3327063360 / 3470764447 / 3660962877 的
 `x/x1/x2/x3/y/y1/y2/y3` 等）。
 改法（**照用户口径：只看显示层，识别层不动**）：`demo.html` 面板块新增 `API.decodeEntities`（453）→
@@ -2441,7 +2441,7 @@ Esc/点外部/重复开关不泄漏）；T15a-T15q 即时生效（文本同步�
    `zoom` 走 `cameraNode.zoomRaw`）—— 真机证据：日月循环 `newproperty45`（音量滑块）改了场景状态完全不变。
 2. `instanceoverride.colorn`（日月循环 `newproperty16`）这类**嵌套字段上的 `{user:...}`** 不在
    `USER_BIND_KEYS` 里 → 不生效；`writeBindField` 的 `unhandled` 记账可以更响。
-3. `propLabel`（`we-scene-bundle.js:1599`）建议补 legacy 无分号实体 + 数字实体（本轮在面板侧兜住了，
+3. `propLabel`（`core/we-scene-bundle.js:1599`）建议补 legacy 无分号实体 + 数字实体（本轮在面板侧兜住了，
    但 `preview`/`package-matrix`/插件面板等其他消费方仍会看到 `&nbsp`）。
 4. 媒体集成在 demo.html 未接线（`mediaintegrationsize` 等媒体组件属性改了没反应）—— 属 P-62 宿主侧后续。
 5. `?scriptcache=1` 的**默认值**建议由主会话裁定：打开可省掉逐帧重编译（真机 CPU 明显），
@@ -2535,7 +2535,7 @@ T16w-T16x `__mpwProps.media` 诊断字段（有媒体/无媒体两态）。
 ### 未定项 / 交回主会话
 
 1. **封面进画面**（用户第 9④ 项的"封面"）仍差渲染端一步：官方封面走材质纹理槽 `$mediaThumbnail`
-   （`effects[].passes[].usertextures[].name` + `type:"system"`，语料 4 包命中），`we-scene-bundle.js`
+   （`effects[].passes[].usertextures[].name` + `type:"system"`，语料 4 包命中），`core/we-scene-bundle.js`
    目前**完全不解析 `usertextures`** → 本批只把封面数据备好（`getCoverForTexture()`），绑定属 bundle 侧（P-62 §8.2 同结论）。
 2. **`mediaStatusChanged` 无真实触发源**：只在 `clearMedia()` 里发 `{enabled:false}`（本机没有 Windows
    media overlay / GSMTC）；注入路径可手工试。
@@ -2566,7 +2566,7 @@ T16w-T16x `__mpwProps.media` 诊断字段（有媒体/无媒体两态）。
    2160p (1920,1080)；设计 (960,540) → 720p (320,180) / 1080p (480,270) / 2160p (960,540) ——
    三档 `x/cvW` 与 `y/cvH` 比例逐一相等（1e-9）。采样块内**已无 1279/1280/`/3` 字面量**（T17b 回归守卫）。
    README 的 `nodiag` 行同步补了口径说明。
-   ⚠ **口径修正（同日第二轮，跟投影 bug 修复对齐）**：**不做 y 翻转**。依据 `we-scene-bundle.js:5941`
+   ⚠ **口径修正（同日第二轮，跟投影 bug 修复对齐）**：**不做 y 翻转**。依据 `core/we-scene-bundle.js:5941`
    自己的注释"世界坐标 = 设计像素（y 向下，投影 `mat4Ortho(0,cw,ch,0)` 已 y-down 映射），origin 即图层中心"
    —— `l.origin` 已是 y-down（parseScene 的 `projH − y` 发生在解析期），所以旧代码的 `720 − y/3` 是
    **多翻了一次**（旧的 DIAG 行 y 坐标本来就是镜像的，用过的结论请按新口径复核）。现在
@@ -2665,7 +2665,7 @@ payload 里 `...(typeof window.__mpwBones !== 'undefined' ? { bones: window.__mp
 可见层为 `null`）；新增汇总 `layerHealthSummary = {total, drawn, invisible, skipped, missing}` 与
 `missingLayers[] = [{i, name}]`（**可见、非容器、有纹理/尺寸、却从未进台账** = "该画却没画"，≤30 条）。
 归因逻辑抽成纯函数 `mpwLayerHealth(...)`（demo.html `MPW-HEALTH-BEGIN/END`），页内汇总条也区分
-"不可见 / 该画没画"。`uiRe`、`N5:<类别>` 两桶是 bundle `we-scene-bundle.js:2004`/`:2006-2011` 谓词的
+"不可见 / 该画没画"。`uiRe`、`N5:<类别>` 两桶是 bundle `core/we-scene-bundle.js:2004`/`:2006-2011` 谓词的
 **逐字镜像**（T19c 会比对两处字面量，bundle 改了测试就红）。断言 T19a-T19j（桩场景：可见有纹理没台账 →
 `missing`；`uiRe` 命中 → `invisible`+`visibleBy='uiRe'`；容器/userProp/timeVariant/N5/script/author 分桶；
 `missingLayers` 30 条上限）。README 新增 `layerHealth` / `layerHealthSummary` / `missingLayers` 字段表。
@@ -2683,7 +2683,7 @@ payload 里 `...(typeof window.__mpwBones !== 'undefined' ? { bones: window.__mp
 1. **形状通道按内容二选一是错的方向，官方口径是"按 .tex format"**（P-59 的遗留缺口）。
    官方 `wallpaper_engine/assets/shaders/common_fragment.h:92-113` `ConvertTexture0Format`（GLSL 分支）：
    `TEX0FORMAT==RG88` → `_sample.rrrg`；`==R8` → `vec4(1,1,1,_sample.r)`；**其余格式原样透传**。
-   而我们的解码器按 RePKG 约定展开：`fromRG88` → `(rgb=G, a=R)`（`we-scene-bundle.js:846`）、
+   而我们的解码器按 RePKG 约定展开：`fromRG88` → `(rgb=G, a=R)`（`core/we-scene-bundle.js:846`）、
    `fromR8` → `(rgb=R, a=255)`（`:855`）。**只有 R8/RG88 需要转换**，不转换就是 `alpha=1` 的实心矩形。
    实测（真包 + mock-GL + 顶点流 UV 采样 GPU 侧贴图字节，`particle-shape-audit.mjs`）：
 
@@ -2733,7 +2733,7 @@ payload 里 `...(typeof window.__mpwBones !== 'undefined' ? { bones: window.__mp
    | 流星（3554161528）ropetrail length .2 | 0 批 | **6 段**（角度 30°） |
    | Vapor (double)（3544152633）rope | 25 quad，竖直 100%，7.11 | **24 段**，角度散布 165°（沿绳向） |
 
-### 改动（只碰 `we-scene-bundle.js`；demo.html / elysia 一字未动）
+### 改动（只碰 `core/we-scene-bundle.js`；demo.html / elysia 一字未动）
 
 - **TEX0FORMAT 落地**：`PARTICLE_FS` 新增 `uniform float u_TexFmt` + `weTexFmt()`（官方两分支逐字，
   其余透传）；`partUni.fmt`；`renderParticleLayer` 按 `texFormatOf(texObj)` 上传。
@@ -2769,7 +2769,7 @@ payload 里 `...(typeof window.__mpwBones !== 'undefined' ? { bones: window.__mp
   (o) ropetrail 历史 ribbon（>1 段、顶点数=6×段数、segments 缺省 8）。
 - **回退开关**：`?trail=quad`（P-59 旧几何，A/B 对照）、`?trail=off`（trail 层整层跳过）、
   默认 `on`=官方几何。三者已登记 `README-DIAGNOSTICS.md`（该行由并行子任务预先占位，本补丁把
-  归属与行号订正为 P-65：`we-scene-bundle.js:4731`、`:6620`），头部计数 86 → **88**。
+  归属与行号订正为 P-65：`core/we-scene-bundle.js:4731`、`:6620`），头部计数 86 → **88**。
   `node diag-flag-check.mjs` → 代码 88 == README 88、0 差异。
 - **本机实测**：`bash run-all-tests.sh` → 52 项全绿（见提交时输出）。
   `node particle-shape-audit.mjs [包]` 为本轮新增的**人工取证工具**（不进 run-all-tests，
@@ -2807,7 +2807,7 @@ payload 里 `...(typeof window.__mpwBones !== 'undefined' ? { bones: window.__mp
 用 `elysia/we-renderer/jpeg.js` 的 `decodeJpeg` 解出来只有顶部约 22% 有内容、其余近黑；**同一份字节流 `ffmpeg` 解出完整正确画面** ⇒ 解码器错，不是截图坏。
 
 **文件边界（只碰这些）**：`elysia/we-renderer/jpeg.js`（458 → 561 行）、新增 `jpeg-decode-test.mjs`、`run-all-tests.sh` 加 1 行、本文件。
-**未动** `demo.html` / `we-scene-bundle.js`（并行会话独占）、`elysia/we-renderer/textures.js` / `core.js`（§4 实证：**不需要**改）。
+**未动** `demo.html` / `core/we-scene-bundle.js`（并行会话独占）、`elysia/we-renderer/textures.js` / `core.js`（§4 实证：**不需要**改）。
 未 push、未发布、未上传。
 
 ### 1. 根因（原文件行号 → 是哪个 JPEG 特性）
@@ -2873,7 +2873,7 @@ payload 里 `...(typeof window.__mpwBones !== 'undefined' ? { bones: window.__mp
 两者都是各自场景的**主图**（`scene.json` 里 `3715743282` 是 1920×1080 整屏底图、`3721991999` 是 3897×2400 主体立绘，各自 material `genericimage4` 的 `textures[0]`）。
 ⇒ **修复前 `?mode=elysia` 看这两个壁纸，主图整层不可见（透出背景）；修复后正常**。这是本轮唯一的真实渲染影响面。
 
-**默认 WebGL 路径不受影响（行号证据）**：`we-scene-bundle.js` 全文 **0 处** 引用 `elysia/we-renderer/jpeg.js`（`grep -n "jpeg\|JPEG" we-scene-bundle.js` 只命中 `FIF` 枚举 `L107` 与注释 `L455`）；
+**默认 WebGL 路径不受影响（行号证据）**：`core/we-scene-bundle.js` 全文 **0 处** 引用 `elysia/we-renderer/jpeg.js`（`grep -n "jpeg\|JPEG" core/we-scene-bundle.js` 只命中 `FIF` 枚举 `L107` 与注释 `L455`）；
 默认路径在 `demo.html:788-790` 走 `new Blob([m.png || m.image], {type:'image/jpeg'})` → `createImageBitmap(blob2)`，**用浏览器原生解码器**（`L671` 只调 `lib.decodeMip0`，`L720` 仅统计 `kind:'jpeg'`）。
 本解码器只有 `?mode=elysia`（`demo.html:542 → elysia/demo-elysia.js:6 → elysia/we-renderer/core.js:18/174 → textures.js:21`）会走到。
 
@@ -2915,15 +2915,15 @@ payload 里 `...(typeof window.__mpwBones !== 'undefined' ? { bones: window.__mp
 | # | 自伤点 | 改动前位置 | 后果（真机实锤） |
 |---|---|---|---|
 | 1 | 画布硬编码 1280×720 | `demo.html`（改动前 `cv.width = 1280; cv.height = 720;`） | 整场景（不只视频）按 1/3 分辨率渲染再被 CSS 拉大 |
-| 2 | 视频纹理上传硬编码 ≤1280×720 | `we-scene-bundle.js` `if ((v.videoWidth > 1280 \|\| v.videoHeight > 720))` / `Math.min(1280, v.videoWidth \|\| 1280)` | 4K 源 → 11% 像素；真机日志 `视频首帧已上传 1280x720` / `1280x736` |
-| 3 | 2D canvas 中转 + `imageSmoothingQuality` 未设（= `low`） | `we-scene-bundle.js` `ctx.drawImage(v, 0, 0, tw, th)` | 3× 降采样只有廉价滤波 |
-| 4 | 33ms 上传节流 | `we-scene-bundle.js` `if ((now - (texObj.lastUploadAt \|\| 0)) < 33)` | 60fps 源 ≤30fps 上屏，且与帧节拍不同步（拍频抖动） |
+| 2 | 视频纹理上传硬编码 ≤1280×720 | `core/we-scene-bundle.js` `if ((v.videoWidth > 1280 \|\| v.videoHeight > 720))` / `Math.min(1280, v.videoWidth \|\| 1280)` | 4K 源 → 11% 像素；真机日志 `视频首帧已上传 1280x720` / `1280x736` |
+| 3 | 2D canvas 中转 + `imageSmoothingQuality` 未设（= `low`） | `core/we-scene-bundle.js` `ctx.drawImage(v, 0, 0, tw, th)` | 3× 降采样只有廉价滤波 |
+| 4 | 33ms 上传节流 | `core/we-scene-bundle.js` `if ((now - (texObj.lastUploadAt \|\| 0)) < 33)` | 60fps 源 ≤30fps 上屏，且与帧节拍不同步（拍频抖动） |
 | 5 | 视频纹理无 mip 链 | `makeTexture`（`MIN_FILTER=LINEAR`，视频不走 `makeTextureMip`） | 本轮**明确不开 mip**：上传上限 ≤ 画布 ⇒ 纹理永不被缩到比画布更小（最大 1:1），4-tap LINEAR 足够；且 3840×2160 / 4000×2300 都是 NPOT，仓库已有 Adreno 大 NPOT `generateMipmap` 静默失败实锤（见 `makeTextureMip` 旁注释）⇒ `videoStats.mip` 恒 0 可对账 |
 | 6 | `getVideoTexture()` 空操作（同属用户抱怨面） | `elysia/scene-scripts.js` `videoTexRefShared()` 只写 `obj.__videoPlay`；**全仓无读取点**（实测 22 个包里 `3326873240` / `3470764447` 真的调用 `video.getVideoTexture().play()/pause()`） | 场景里的播放/暂停按钮点了没反应 |
 
 ### 2. 改法（两个文件 + 一个测试 + 两份文档）
 
-**`we-scene-bundle.js`（新增段，全部导出可测）**
+**`core/we-scene-bundle.js`（新增段，全部导出可测）**
 - `parseResTier(raw, env)`（`:4667`）：`RES_TIER_SIZES = {720p:[1280,720], 1080p:[1920,1080], 1440p:[2560,1440], 2160p:[3840,2160]}`；
   `4k` 归一成 `2160p`；显式 `WxH` 与命名档同尺寸时归一成该档（`?res=1280x720` ≡ `?res=720p`）、否则 `custom` 档（宽高偶数对齐）；
   `auto` = 按 `innerWidth × min(dpr,2)` 选"≥ 物理宽的最小档"（夹在 720p–2160p）；**非法值 → 回退 1080p 且 `invalid` 字段显式标记**（不静默）。
@@ -3023,9 +3023,9 @@ payload 里 `...(typeof window.__mpwBones !== 'undefined' ? { bones: window.__mp
 3. 用户第 4 项「人物没坐到钢琴上」与第 1 项**同源**：钢琴是四边形层（被镜像 54px），人物是蒙皮层
    （没被镜像）⇒ 视觉上错位；本补丁同一处修正即可。
 
-**改动 3 处 + 1 处开关耦合（只碰 `we-scene-bundle.js`；`demo.html`/`elysia/` 一字未动）**
+**改动 3 处 + 1 处开关耦合（只碰 `core/we-scene-bundle.js`；`demo.html`/`elysia/` 一字未动）**
 
-### ① 相机投影 y 轴（根因，`we-scene-bundle.js:2340`）
+### ① 相机投影 y 轴（根因，`core/we-scene-bundle.js:2340`）
 
 `mat4Ortho(left, right, top, bottom, …)` 的**形参名**是 `(…,top,bottom)`，内部公式却是 glMatrix 的
 `out[5]=2/(bottom−top)`、`out[13]=−(bottom+top)/(bottom−top)`（即第 3/4 个**实参**是 bottom/top）。
@@ -3035,20 +3035,20 @@ payload 里 `...(typeof window.__mpwBones !== 'undefined' ? { bones: window.__mp
 
 | 口径 | 出处 | y=0 → |
 |---|---|---|
-| `parseScene` 产出 | `we-scene-bundle.js:1044` `wy = PROJ_H − origin.y` | 顶（y-down） |
-| `MESH_VERT`（蒙皮） | `we-scene-bundle.js:4529` `1.0 − wpos.y*2.0/u_Proj.y` | 顶 ✅ 一直是对的 |
+| `parseScene` 产出 | `core/we-scene-bundle.js:1044` `wy = PROJ_H − origin.y` | 顶（y-down） |
+| `MESH_VERT`（蒙皮） | `core/we-scene-bundle.js:4529` `1.0 − wpos.y*2.0/u_Proj.y` | 顶 ✅ 一直是对的 |
 | `preview.mjs`（CPU 预览） | `orthoYDown()`：`m[5]=−2/ch, m[13]=+1` | 顶 ✅ |
-| **相机 `cam.projection`（改前）** | `we-scene-bundle.js:2340`（旧） | **底 ❌ 镜像** |
+| **相机 `cam.projection`（改前）** | `core/we-scene-bundle.js:2340`（旧） | **底 ❌ 镜像** |
 
 修法：与 `MESH_VERT` 同式（`clip_y = 1 − 2y/fh`），`?projy=legacy`（别名 `?parenty=legacy`）回到旧口径。
-新导出 `projectionYFix()` / `setProjectionYFix(on)`（测试可强制），`we-scene-bundle.js:2250-2268`。
+新导出 `projectionYFix()` / `setProjectionYFix(on)`（测试可强制），`core/we-scene-bundle.js:2250-2268`。
 
-**开关耦合（必须一起改，否则改完更错）**：`QFLIP`（`we-scene-bundle.js:5166`）默认值改为**跟随 projy**
+**开关耦合（必须一起改，否则改完更错）**：`QFLIP`（`core/we-scene-bundle.js:5166`）默认值改为**跟随 projy**
 （fix→关、legacy→开）。理由（写进了注释与 README）：2026-09-12 "四边形路径 v 轴与官方相反"的**定案是误诊**
 —— v 翻转对**中心恰在 y=1080 的层**等价于那次镜像（背景/满幅飘带因此"同时变正"），对中心不在 1080 的层
 （花朵 1640.55、时钟 8、钢琴 1053）只能翻内容、翻不动位置 ⇒ 位置误差一直留着。`?qflip=1|0` 仍可显式覆盖。
 
-### ② 粒子：按输入签名缓存 + 每帧只推进 dt（`we-scene-bundle.js:7067-7130`）
+### ② 粒子：按输入签名缓存 + 每帧只推进 dt（`core/we-scene-bundle.js:7067-7130`）
 
 旧路径每帧 `buildParticleSystem` 后 `simulateParticleSystem(sys, time, 400)` **从 0 重放**：t≥20s 吃满
 400 步。而输入是**静态的**（层 origin 固定；lockToPointer 我们没实现，控制点 offset 恒 0）⇒ 白烧 CPU。
@@ -3056,7 +3056,7 @@ payload 里 `...(typeof window.__mpwBones !== 'undefined' ? { bones: window.__mp
 稳态每帧 1 步；时间倒退 / 签名变化 / 换场景 → 重建重放（**首帧与旧行为逐位一致**）。
 新记账：`particleStats.simMode/simSteps/simUpdates`。回退 `?psim=replay`。
 
-### ③ `lockToPointer`（`we-scene-bundle.js:2537-2552、2704-2725、2898-2910、5185-5225、7070-7080`）
+### ③ `lockToPointer`（`core/we-scene-bundle.js:2537-2552、2704-2725、2898-2910、5185-5225、7070-7080`）
 
 `controlpoint[i].flags & 1` → 该控制点锁指针；发射器"挂指针"判据 = 显式 `controlpoint==pointerCp`，
 或未显式指定（缺省 0）且本层有 `mapsequencearoundcontrolpoint`（该 initializer 缺省控制点也是 0）。
@@ -3119,9 +3119,9 @@ CPU 与真机 RMSE 11.8），且画面逐处吻合（顶部花瓣 + y≈1095 硬
   。x 方向镜像不产生位移（Δx=0），残余横向偏差在测量噪声（~10px）以内。
 - **第 3 项（眉毛眨眼时左右翻转 180°）**：**数据侧排除**。真包 `models/人物_puppet.mdl` 3 个动画 ×
   32 骨 × 全部帧 = 12960 个样本：`sampleAnimRT` 的合理性 guard 触发 **0 次**、帧间 rotZ 跳变 >90°
-  **0 次**；`sampleCompositeAdditivePose`（`we-scene-bundle.js:7900+`）对**帧间插值**与**additive 增量**
+  **0 次**；`sampleCompositeAdditivePose`（`core/we-scene-bundle.js:7900+`）对**帧间插值**与**additive 增量**
   都做了最短弧展开（`while (da>π) da−=2π`）⇒ "角度插值走长边"假设**证伪**。剩下两个可疑点：
-  ① `attach-transform.mjs:305` 的 guard 失败会**回落到 bind 姿势**（`atan2` ∈ [−π,π]）而邻帧是累计角
+  ① `core/attach-transform.mjs:305` 的 guard 失败会**回落到 bind 姿势**（`atan2` ∈ [−π,π]）而邻帧是累计角
   ⇒ 一旦某帧数据被判非法就会出现一次 ≈180° 摆动（本包 0 次，别的包可能有）；
   ② 眉毛在 MDL 里是**骨骼/蒙皮权重**而不是独立层（hina 的 scene.json 37 个对象里**没有**眼睛/眉毛层），
   权重表（`blendIndices/blendWeights`）分错骨也会产生同样签名。**未定**：需要用户提供一个
@@ -3389,14 +3389,14 @@ P-69 修了 `mat4Ortho` 的 y 口径后，另一个会话把 `parity-check.mjs` 
 - 有会话推断 `visual-diff-kal` 超时是"P-70 把 `--out` 换成每次唯一目录 ⇒ `--skip-render` 找不到 current 图"。
   我没采信，**用全新空目录实测 4.9s PASS**（文件不存在时走 `renderCurrent` 的 CPU 直通，不碰 Chromium）⇒ 证伪，
   真因是**排队位置造成的资源压力**（P-70b）。
-- 有会话（我自己）差点把 `?mcc` 当凯尔希眼睛错位的根因，因为 `we-scene-bundle.js:5442-5446` 的注释写着"默认沿用开启"，
+- 有会话（我自己）差点把 `?mcc` 当凯尔希眼睛错位的根因，因为 `core/we-scene-bundle.js:5442-5446` 的注释写着"默认沿用开启"，
   而真正的默认在 `:3854-3861`（**默认关**）。⇒ **注释会过期，判默认值只认代码/README 表**。
 
 ### ③ 待办（P-61/P-64 明确留下的、尚未实现的属性面板能力）
 - `scenetexture`(27) / `usershortcut`(24) / `file`(1) 三类属性**只解析不渲染**（面板尾部清单里列了原因，不假装可用）
 - `volume`(8) / `zoom`(3) 的**对象绑定**未接（`USER_BIND_KEYS` 不含它们；真机实测改了完全不变）
 - `instanceoverride.colorn` 这类**嵌套字段**的 `{user:…}` 绑定不在 `USER_BIND_KEYS` 的解析范围内
-- `we-scene-bundle.js` 的 `propLabel`（bundle:1599）建议补**无分号 legacy 实体 + 数字实体**解码
+- `core/we-scene-bundle.js` 的 `propLabel`（bundle:1599）建议补**无分号 legacy 实体 + 数字实体**解码
   （面板侧已在 `demo.html` 修好，但 preview/package-matrix/插件面板仍会显示 `&nbsp`）
 
 ### ④ 本期完成的用户可见项（便于对账）
@@ -3419,7 +3419,7 @@ P-69 修了 `mat4Ortho` 的 y 口径后，另一个会话把 `parity-check.mjs` 
 > （P-74 只在 `run-all-tests.sh` 与测试文件里被引用），故 `## P-` 编号序列 P-70 → P-75 → P-76 非降，
 > `docs-check` 通过。
 
-只改 `we-scene-bundle.js`（+ 新增测试 `p76-parallax-eye-test.mjs`、`run-all-tests.sh` 一行注册、
+只改 `core/we-scene-bundle.js`（+ 新增测试 `p76-parallax-eye-test.mjs`、`run-all-tests.sh` 一行注册、
 README-DIAGNOSTICS 三行开关、本段）。`demo.html` / `elysia/` / `vendor-ref/` / `dsh-mpkg-wallpaper/` 零改动
 （需要 demo 侧配合的清单见文末「交接」）。
 
@@ -3463,7 +3463,7 @@ README-DIAGNOSTICS 三行开关、本段）。`demo.html` / `elysia/` / `vendor-
 #### 根因（两处口径错，都在 `compositeLayer`）
 - **(A) 位移被画在了错误的矩阵空间**（这是 1639px 的来源）
   官方 `offset = ((node_pos − cam_pos) + mouse) ∘ depth × amount` 的量纲是**世界像素**（同式里 `node_pos`/`cam_pos`/`mouse` 都是设计像素），
-  但旧实现在 `we-scene-bundle.js:6197` 的 `mat4Scale(m, w, h, 1)` **之后**才 `mat4Translate(m, offx, offy, 0)`（旧 `:6169`）
+  但旧实现在 `core/we-scene-bundle.js:6197` 的 `mat4Scale(m, w, h, 1)` **之后**才 `mat4Translate(m, offx, offy, 0)`（旧 `:6169`）
   ⇒ 位移又被本层 `(w, h)` 乘了一次。真数：
   - `offx = ((1913.5083 − 1920) + 0) × (−0.17) × 0.35 = +0.386258` 世界像素 → **× w(4244.28) = +1639.43px**
   - `offy = ((1064.5498 − 1080) + 0) × (−0.17) × 0.35 = +0.919286` 世界像素 → **× h(2546.57) = +2341.03px**
@@ -3487,7 +3487,7 @@ README-DIAGNOSTICS 三行开关、本段）。`demo.html` / `elysia/` / `vendor-
   `depth = "0 0"` ⇒ `off = 0`；`光束 2 (旧)` `depth=(−0.01,−0.01)` 但 `vis=0` 且 `size=0×0`。
 - 其它 26 个无 `parallaxDepth` 的层完全不进这个分支 ⇒ 对照表里 Δ 全在 ±2px。
 
-#### 改法（`we-scene-bundle.js`）
+#### 改法（`core/we-scene-bundle.js`）
 1. 把视差位移**算在 `mat4Identity()` 之前**，与 `ox/oy` **合并成同一次平移**
    （`m = mat4Translate(m, ox + parOffX, oy + parOffY, layer.origin[2])`，新 `:6194`）
    —— 数学上等价于官方 `T(offset)·T(origin)·R·S(w,h)·T(align)`，位移不再被 `(w,h)` 放大。
@@ -3574,7 +3574,7 @@ l.size = [es[0], es[1]]; l.scale = [1, 1, l.scale[2] || 1]   // es 缺省 [405,1
   （该工具标注 `⚠标定不可达(网格对角线 275px < 标定 278px)`）⇒ 是既有的 **mesh-bbox vs author-size 框口径分叉**
   （P-58 KI-10 同类），**不是位移 bug**，不在本次范围。
 
-#### 改法（`we-scene-bundle.js:1930-1945`）
+#### 改法（`core/we-scene-bundle.js:1930-1945`）
 不改四边形路径的任何观感：把 `es` **反向折进 `size`**（`l.size = [es[0]/sx, es[1]/sy]` ⇒ `size × scale ≡ es`），
 **不再碰 `l.scale`**。这样：
 - 蒙皮路径：`layer.scale` 保持 authored 0.69297 ⇒ 眼珠回到正确比例/位置（Δt 见上表）。
@@ -3588,7 +3588,7 @@ l.size = [es[0], es[1]]; l.scale = [1, 1, l.scale[2] || 1]   // es 缺省 [405,1
 - `opts.eyeHackLegacy` —— 程序化入口（测试用）。
 
 #### 顺带（同文件注释修正，不改代码）
-`we-scene-bundle.js:5473-5477` 那段"默认沿用开启以便逐壁纸对照"是**过期注释**：真正的默认在 `:3879`
+`core/we-scene-bundle.js:5473-5477` 那段"默认沿用开启以便逐壁纸对照"是**过期注释**：真正的默认在 `:3879`
 `MCC_ENABLED`（**默认 false**，仅 `?mcc=1` 才开；README 第 24 行也写"关"）。已把注释改写为
 "补偿默认关闭（见 `:3879`），`?mcc=1` 才开；下方 `(−509,+593)` 是**旧默认时期**的测量，不代表当前默认"。
 **`mcc` 不是本次两条 bug 的原因**（默认关；`?meshsize` 的 `noCenterComp` 只是二次抑制）。
@@ -3616,7 +3616,7 @@ l.size = [es[0], es[1]]; l.scale = [1, 1, l.scale[2] || 1]   // es 缺省 [405,1
 ⇒ "180 帧 0 次 angle flip、跨帧最大 Δ角 0.036 rad"这条**只能排除"角度反号/长边插值"，排除不了"眉毛翻转是镜像"**。
 补上 det 通道才能一次定案。
 
-**改法**（`we-scene-bundle.js` 的 `__dumpBones`）：
+**改法**（`core/we-scene-bundle.js` 的 `__dumpBones`）：
 - 每根骨在 `[ang,tx,ty]` **之后追加** `detS, sxS, syS, |sx|, |sy|`（索引 3..7），**既有前缀顺序逐位不变**
   ⇒ `demo.html` 的 payload 与 `projection-y-test` 的 `f0[b][0..2]` 断言不受影响（实测 49/0 未变）。
   2×2 线性部分（**行主序** `pose[0..2]`=第 0 行）`[[m00,m01],[m10,m11]] = R(θ)·diag(sx,sy)`
@@ -3660,7 +3660,7 @@ l.size = [es[0], es[1]]; l.scale = [1, 1, l.scale[2] || 1]   // es 缺省 [405,1
 - `volume`：逐 sound 层音量（`WPSoundParser.cpp` / `ApplySoundPropertyValue → SetStreamVolume`）。
 
 **结论与改法**：
-1. **`volume` —— 本文件无落点，明确不接**。`we-scene-bundle.js` 的**非注释代码**里
+1. **`volume` —— 本文件无落点，明确不接**。`core/we-scene-bundle.js` 的**非注释代码**里
    `volume`/`gain`/`setVolume` **零命中**（断言 D5 用去注释后统计证明），音频播放整条链在宿主：
    `demo.html:2051-2091` 的 `soundLayerVolumeBinding` / `currentAudioVolume` + `:2176-2181` 的 4Hz
    `updateSceneAudioVolume`，读的是 demo 自己的 `sceneObj.objects[].volume` 与 `window.__mpwUserProps`，
@@ -3936,7 +3936,7 @@ for i in $(seq 1 6); do timeout -k 2 12 bash -c 'node visual-diff.mjs --id 37191
 **根因是探针的记账窗口，不是渲染**：`st.frames` 是 180 帧环形缓冲、`[bones]` 摘要行也只扫这个窗口
 ⇒ 极值一被后续帧冲掉就永久丢失，"这 3 秒没眨眼"会被误读成"眨眼不走骨骼"。
 
-**改法**（`we-scene-bundle.js` 的 `__dumpBones`）：
+**改法**（`core/we-scene-bundle.js` 的 `__dumpBones`）：
 1. **会话累计极值**（与 180 帧窗口解耦）：每骨维护 `ext[b] = [angMin,angMax,txMin,txMax,tyMin,tyMax]`
    （**32×6 个数**）+ `extT[b]`（对应极值出现的时刻），
    以及每骨 `dty[b] = max|Δty|`、`dang[b] = max|Δang|`（会话累计，眨眼主判据）。
@@ -3986,7 +3986,7 @@ id1592 用它）。旧 `ensureTextFont` 只有一级：`lib.getEntry(pkg, fp)` �
 **WE 自己带这批字体**，就在它的安装目录里（本机
 `$MPW_ROOT/Steam/steamapps/common/wallpaper_engine/assets/fonts/`）：`fonts/Monofur-PK7og.ttf` 169452 B、
 `Blackout 2 AM.ttf` 28308 B、`monof_tt-be11.txt` 940 B（作者 freeware 说明）等 18 个文件。
-服务端**已有现成路由**：`we-scene-demo-server.mjs:489` 的 `/weassist/(.+)` 直接吐 `MPW_WE_ASSETS/<rel>`；
+服务端**已有现成路由**：`server/we-scene-demo-server.mjs:489` 的 `/weassist/(.+)` 直接吐 `MPW_WE_ASSETS/<rel>`；
 实测 `curl …/weassist/fonts/Monofur-PK7og.ttf` → `200 169452`（带空格的名字 `/weassist/fonts/Blackout%202%20AM.ttf` → `200 28308`）。
 
 ### 改法（只动 `demo.html` 四处 + 一份 docs 追加 + 一个新测试）
@@ -3999,7 +3999,7 @@ id1592 用它）。旧 `ensureTextFont` 只有一级：`lib.getEntry(pkg, fp)` �
 | `demo.html:2768` | **调用点必须跟着改**：`ensureTextTexture` 的挂起判据加 `!textFontMissing.has(t.font)`。否则"缺失 ≠ loaded"会让缺字体的层每帧 `return false`、**永远不渲染**（比旧行为更糟） |
 
 保留不动：包内分支的取字节/Blob/FontFace 流程、异常日志 `⚠ 文本字体加载失败 …`、`systemfont_*` 旁路、
-`textFontFamily` 的 `sans-serif` 字面回退；`elysia/**`、`we-scene-bundle.js`、`we-scene-demo-server.mjs`、
+`textFontFamily` 的 `sans-serif` 字面回退；`elysia/**`、`core/we-scene-bundle.js`、`server/we-scene-demo-server.mjs`、
 `dsh-mpkg-wallpaper/` **一行未动**（`/weassist` 路由本来就够用）。
 
 ### 日志样例（三级的实际输出，`<name>` = basename）
@@ -4244,8 +4244,8 @@ t=1 的 zoom ×2.6370 与独立用 `evalPropAnimation` 算出的 **2.6374** 吻�
 
 | 文件 | 位置 | 内容 |
 | --- | --- | --- |
-| `we-scene-bundle.js` | `:3960` | 新增导出纯函数 **`resolveCamposeMode(optsVal, liveVal, fallbackVal)`**：三档优先级的**唯一真值表** |
-| `we-scene-bundle.js` | `:6650-6656` | 渲染路径每帧改走它：`resolveCamposeMode(opts.campose, window.__mpwCampose, CAMPOSE_MODE)` |
+| `core/we-scene-bundle.js` | `:3960` | 新增导出纯函数 **`resolveCamposeMode(optsVal, liveVal, fallbackVal)`**：三档优先级的**唯一真值表** |
+| `core/we-scene-bundle.js` | `:6650-6656` | 渲染路径每帧改走它：`resolveCamposeMode(opts.campose, window.__mpwCampose, CAMPOSE_MODE)` |
 | `demo.html` | `MPW-CAMPOSE-BTN-BEGIN/END`（约 `:4377-4433`） | 顶部工具栏 `#bar` 新增 `🎥 相机` 按钮（`#mpw-campose-btn`），点一下 完整→旧档→关→完整 |
 | `camera-pose-test.mjs` | 新增 ⑥ 段 | **20 条断言**（7 条纯函数 + 5 条真包真渲染 + 8 条源码守卫）⇒ 该测试 26 → **46 断言** |
 | `README-DIAGNOSTICS.md` | `campose` 行 | 补按钮与优先级说明（`diag-flags` 仍 **112 == 112**，本次不新增 URL 开关） |
@@ -4306,7 +4306,7 @@ WE 工坊布局 = **一个壁纸一个目录**，目录里三件套：scene.pkg 
 3. 用户属性绑定全部回落作者默认值。
 
 而**用户本机 Steam 工坊目录**（`$MPW_ROOT/Steam/steamapps/workshop/content/431960/<id>/`）
-里三样俱全（实测 6/6）。新增 **`scene-project-json.mjs`**：统一查找链（先私有、后官方；先显式、后猜测）
+里三样俱全（实测 6/6）。新增 **`core/scene-project-json.mjs`**：统一查找链（先私有、后官方；先显式、后猜测）
 —— explicit-dir → env-MPW_PROJECT_JSON_DIR → scene-root(`<MPW_SCENE_ROOT>/<id>`) →
 we-workshop(`<Steam 工坊 431960 目录>/<id>`) → allwallpaper-flat；命中即返回 `{path, source, json}`，
 `source` 供日志/响应头标出"这份属性表从哪来"。只读用户本机已存在的文件，**不复制、不缓存、不分发**；
@@ -4316,9 +4316,9 @@ we-workshop(`<Steam 工坊 431960 目录>/<id>`) → allwallpaper-flat；命中�
 
 | 文件 | 位置 | 内容 |
 | --- | --- | --- |
-| `we-scene-demo-server.mjs` | 顶部 import（约 `:11-19`） | 引入 `readProjectJson` + 一次性日志去重表 `PROJECT_SOURCE_LOGGED` |
-| `we-scene-demo-server.mjs` | `/project/<id>`（约 `:381-401`） | 改走查找链；行为保持"返回该 json 的**原始体** + application/json"（命中同文件时逐字节一致）；命中额外加响应头 `x-project-source: <source>`，同一 id 只打一行 `[project] <id> ← <source> (<path>)` 日志；找不到仍 404 'no project.json'。传给 resolver 的是服务端**生效**的 MPW_SCENE_ROOT（其 samples/wallpapers 兜底语义不动）。※ P-87 起该兜底档已换成 `<repo>/samples`（自带合成样例），id 正则同时放宽到 slug |
-| `we-scene-demo-server.mjs` | `/type/<id>`（约 `:436-448`） | 同样改走查找链；读不到时**逐字保留**既有兜底（`ok:true, type:'unknown'`） |
+| `server/we-scene-demo-server.mjs` | 顶部 import（约 `:11-19`） | 引入 `readProjectJson` + 一次性日志去重表 `PROJECT_SOURCE_LOGGED` |
+| `server/we-scene-demo-server.mjs` | `/project/<id>`（约 `:381-401`） | 改走查找链；行为保持"返回该 json 的**原始体** + application/json"（命中同文件时逐字节一致）；命中额外加响应头 `x-project-source: <source>`，同一 id 只打一行 `[project] <id> ← <source> (<path>)` 日志；找不到仍 404 'no project.json'。传给 resolver 的是服务端**生效**的 MPW_SCENE_ROOT（其 samples/wallpapers 兜底语义不动）。※ P-87 起该兜底档已换成 `<repo>/samples`（自带合成样例），id 正则同时放宽到 slug |
+| `server/we-scene-demo-server.mjs` | `/type/<id>`（约 `:436-448`） | 同样改走查找链；读不到时**逐字保留**既有兜底（`ok:true, type:'unknown'`） |
 | `demo.html` | 用户属性表块（约 `:2926-2933`、`:2966-2968`） | 回退开关 **`?proj=off`**：跳过 `fetch('/project/'+id)`（等价"无属性表"旧行为，用户点名"要保留可以回退的按钮"）；写法与既有开关同形（`new URLSearchParams(location.search).get(...)`）；日志 `⚠ ?proj=off：跳过官方 project.json（回到"无属性表"旧行为）`；P-61 那条日志在 off 时改说"被回退开关关闭"，不误导 |
 | `README-DIAGNOSTICS.md` | ③ 数据源与模式表 `proj` 行 | 新增回退开关登记（**diag-flags 112 → 113**，双向比对 0 差异） |
 | `project-json-test.mjs` | 新增 | 本条测试（43 断言，见下） |
@@ -4334,7 +4334,7 @@ we-workshop(`<Steam 工坊 431960 目录>/<id>`) → allwallpaper-flat；命中�
    当前状态不成立。因此测试把语料档**场景隔离**（sceneRoot 指向空目录）后单独钉死：6/6 命中
    **we-workshop** —— 工坊档的可达性不依赖那个前提。
 2. **四个 Clock 变体的解析结果**（`propsDefaults` + `gatedOffNames` + `evalVisibleWithProps`，
-   均为 we-scene-bundle.js 既有导出）：
+   均为 core/we-scene-bundle.js 既有导出）：
    | 变体 | user.condition | 默认属性下 | 属性表缺失时（旧 404 / `?proj=off`） |
    | --- | --- | --- | --- |
    | 394 | "1" | 隐藏 | 可见 |
@@ -4347,7 +4347,7 @@ we-workshop(`<Steam 工坊 431960 目录>/<id>`) → allwallpaper-flat；命中�
    `/project/0000000000` → 404 'no project.json'。`/type/3327063360` 行为与改动前一致。
 4. **测试**：`project-json-test.mjs` **43 断言 / 0 失败 / ~0.7s**（A 查找顺序 10 + B 真包 18 +
    C 门控真值 6 + D hina 引用完整性 2 + E 优雅降级 2 + F 服务端契约 5 —— F 用子进程起
-   we-scene-demo-server.mjs 于随机空闲端口，try/finally 必杀，不留孤儿）。
+   server/we-scene-demo-server.mjs 于随机空闲端口，try/finally 必杀，不留孤儿）。
 5. **门禁**：`diag-flag-check` 113 == 113（0 差异）、`demo-syntax-check` 8/8、
    `time-variation`（切该属性块的切片单测）70/0、`props-panel` 260/0 均未受影响。
 
@@ -4420,7 +4420,7 @@ we-workshop(`<Steam 工坊 431960 目录>/<id>`) → allwallpaper-flat；命中�
 | `demo.html` | 字体链（约 `:2575-2650`） | 三级 → **四级**：①包内 → ②**仓库自带** `/assets/fonts/<文件>` → ③本机 WE `/weassist/fonts/<basename>` → ④`sans-serif`。新增纯函数 `REPO_FONT_ALIASES`（WE 引用名 → 仓库文件名，两个别名）、`repoFontNameOf` / `repoFontUrl` / `textFontNextTier` / `textFontTierLabel`；`textFontSourceOf(pkgLen, repoOff)` 改签名（返回下一级 `'pkg'|'repo'|'we'`）；降级改成**逐级** while 循环，任一级拿到非空字节即停；日志按级写 `🔤 文本字体 <名>：包内 / 仓库自带 / WE 内置`，全缺时写 `缺失→回退 sans-serif（试过：<URL1> → <URL2>）` |
 | `demo.html` | 回退开关（约 `:2592-2594`） | 新增 **`?repofonts=off`**（写法与既有开关同形 `new URLSearchParams(location.search).get('repofonts')`），关掉第②级 → **逐位回到 P-81 三级链**；开启时日志写明"被回退开关关闭"，不误导成"拿不到" |
 | `demo.html` | `REPO_FONT_ALIASES` 上方注释 | **bvfonts.com 回链/署名**（作者条款要求的第三处，写死在注释里防丢） |
-| `we-scene-demo-server.mjs` | `/assets/fonts/(.+)` 路由（`/weassist/(.+)` 之前） | 把**本仓库** `assets/fonts/**` 暴露给页面：`decodeURIComponent` → 剥前导 `./` → `path.join` → `full.startsWith(base)` 防穿越 → 只放行 `.ttf/.otf/.json/.md/.txt`；content-type 按扩展名给 `font/ttf` / `font/otf` / `text/plain` 等；走既有 `sendFileStream`（支持 Range）。未知文件 404 `no repo font` |
+| `server/we-scene-demo-server.mjs` | `/assets/fonts/(.+)` 路由（`/weassist/(.+)` 之前） | 把**本仓库** `assets/fonts/**` 暴露给页面：`decodeURIComponent` → 剥前导 `./` → `path.join` → `full.startsWith(base)` 防穿越 → 只放行 `.ttf/.otf/.json/.md/.txt`；content-type 按扩展名给 `font/ttf` / `font/otf` / `text/plain` 等；走既有 `sendFileStream`（支持 Range）。未知文件 404 `no repo font` |
 | `assets/fonts/`（新目录） | 7 个字体 + `assets/fonts/README.md` | 只放**有权分发**的字体（取件清单见上）；该说明文件写目录纪律、映射表、bvfonts 回链与未收录说明 |
 | `assets/fonts/licenses/`（新目录） | 12 个文件 | 每份 OFL 全文（逐字体）、Apache-2.0 全文、CC-BY-4.0 归属声明、作者 TOU/README 快照、Debian 版权与作者邮件、上游 freeware 声明 |
 | `THIRD-PARTY.md` | 新增 **§4 Fonts bundled with this project** | 逐字体：文件名 / 许可 / 版权行 / 上游 URL / 取件日期 / 字节 / sha256；映射表；与 WE 副本的对照（标明"仅供参考，非来源"）；未收录清单；**spincycle 六条条件逐条对照**；8bitOperator 未定项与试过的 URL；复核 recipe |
@@ -4467,13 +4467,13 @@ we-workshop(`<Steam 工坊 431960 目录>/<id>`) → allwallpaper-flat；命中�
 每个包含 scene.pkg + project.json + preview.gif）+ 该目录的 MANIFEST.md，共 13 个文件 / 207 202 279 B。
 删前确认过没有"我们自己写的、需要保留的非壁纸文件"：整个目录只有第三方包与那份清单。
 MANIFEST.md 里**有价值的两块**（①怎么把服务器指向自己的语料；②版权口径"这些是别人作品、仅本机测试、不随 npm/仓库分发"）
-已先迁进 `samples/README.md` 再删。保留：`samples/sample-synthetic/`、`samples/sample-synthetic-src/`（`make-sample.mjs` 程序化生成）。
+已先迁进 `samples/README.md` 再删。保留：`samples/sample-synthetic/`、`samples/sample-synthetic-src/`（`tools/make-sample.mjs` 程序化生成）。
 
 ### 代码改动（逐文件）
 | 文件 | 改动 |
 |---|---|
-| `we-scene-demo-server.mjs` | ①**场景根兜底链重写**：显式 `MPW_SCENE_ROOT` > `$MPW_ROOT/allwallpaper/dd` > `<repo>/samples`；三档都不存在时返回**明确不存在**的占位路径（`<repo>/samples/NO-BUNDLED-CORPUS`），**绝不留"指向空目录却报成功"的假象**。② 启动日志新增 `[scene] 场景根 …`（路径不存在时明确标注 `?id=` 一律 404）+ "本仓库不打包任何真实壁纸，真实语料请用 MPW_SCENE_ROOT / ?pkgpath=" 一行指引。③ `findScene` 改**两档查找**（语料根 → `<repo>/samples`），语义仍是 `<root>/<id>/scene.pkg`，找不到返回 null（**不用别的包顶替**）⇒ `?id=sample-synthetic` 在任何机器上都能打开自带样例。④ `/pkg`、`/project`、`/type`、`/ddlist` 的 id 形态由 `(\d+)` 放宽为统一常量 `ID_PAT`（数字或 slug，**首字符不许是点** ⇒ `?id=..` 进不来），否则 slug 形态的自带样例走不了 `?id=`。⑤ `/project`、`/type`、`/ddlist` 改用 `findScene` 真正命中的那一档根（自带样例的 `project.json` 也能读到）。⑥ 默认 `MPW_ALLOW_DIRS` 加 `<repo>/samples`：`?pkgpath=<repo>/samples/sample-synthetic/scene.pkg` 与 `/pkgdir?d=…/sample-synthetic-src` 开箱可用（这两条一直是文档承诺、此前却没进白名单）。 |
-| `we-scene-demo-server.mjs`（**附带修复**：同一处的公开副本致命路径） | `common*.h` 头表那段原来**无条件** `fs.readdirSync(MPW_WE_ASSETS + '/shaders')`：没装 WE 的机器（= 公开副本的正常情况）**每个请求**都在这里 ENOENT → 全站 500（实测 `/pkg/sample-synthetic`、`/project/…`、`/ddlist/…` 全 500，验证服务器形同报废）。改成 try/catch 只跳过"官方同名头兜底"，仓库自研的 6 个头照常从 `__dirname` 加载；装了 WE 的机器 `HEADER_FILES` 与改前**逐位相同**。 |
+| `server/we-scene-demo-server.mjs` | ①**场景根兜底链重写**：显式 `MPW_SCENE_ROOT` > `$MPW_ROOT/allwallpaper/dd` > `<repo>/samples`；三档都不存在时返回**明确不存在**的占位路径（`<repo>/samples/NO-BUNDLED-CORPUS`），**绝不留"指向空目录却报成功"的假象**。② 启动日志新增 `[scene] 场景根 …`（路径不存在时明确标注 `?id=` 一律 404）+ "本仓库不打包任何真实壁纸，真实语料请用 MPW_SCENE_ROOT / ?pkgpath=" 一行指引。③ `findScene` 改**两档查找**（语料根 → `<repo>/samples`），语义仍是 `<root>/<id>/scene.pkg`，找不到返回 null（**不用别的包顶替**）⇒ `?id=sample-synthetic` 在任何机器上都能打开自带样例。④ `/pkg`、`/project`、`/type`、`/ddlist` 的 id 形态由 `(\d+)` 放宽为统一常量 `ID_PAT`（数字或 slug，**首字符不许是点** ⇒ `?id=..` 进不来），否则 slug 形态的自带样例走不了 `?id=`。⑤ `/project`、`/type`、`/ddlist` 改用 `findScene` 真正命中的那一档根（自带样例的 `project.json` 也能读到）。⑥ 默认 `MPW_ALLOW_DIRS` 加 `<repo>/samples`：`?pkgpath=<repo>/samples/sample-synthetic/scene.pkg` 与 `/pkgdir?d=…/sample-synthetic-src` 开箱可用（这两条一直是文档承诺、此前却没进白名单）。 |
+| `server/we-scene-demo-server.mjs`（**附带修复**：同一处的公开副本致命路径） | `common*.h` 头表那段原来**无条件** `fs.readdirSync(MPW_WE_ASSETS + '/shaders')`：没装 WE 的机器（= 公开副本的正常情况）**每个请求**都在这里 ENOENT → 全站 500（实测 `/pkg/sample-synthetic`、`/project/…`、`/ddlist/…` 全 500，验证服务器形同报废）。改成 try/catch 只跳过"官方同名头兜底"，仓库自研的 6 个头照常从 `__dirname` 加载；装了 WE 的机器 `HEADER_FILES` 与改前**逐位相同**。 |
 | `demo.html` | `bootInstance` 内 `id` 由 const 改 **let**；`/pkg/<id>` 装载处新增降级：**未显式指定包来源时**（无 `?id=` 且非多实例 `?ids=`）默认包 404 → 打一行明确日志并改用自带合成样例 `sample-synthetic`，**同时改写 `id`**（让 `/project`、`/type`、`/ddlist` 与上报 payload 都指向真正渲染的包，不出现"上报 A、渲染 B"）。显式 `?id=` / `?pkgpath=` 拿不到包时**不替换**、如实报错（旧代码是拿 404 的 `no scene` 字节去 `parsePkg`，报一个看不懂的错）。本机有语料 ⇒ 第一发就 200，这条路一行不走。 |
 | `props-panel-test.mjs` | 去掉 `samples/wallpapers/<id>` 第二候选（真包只从本机语料取），保留原有优雅 SKIP 分支。 |
 | `media-host-test.mjs` | 同样去掉该候选；并**新增**整体 SKIP：3 个真包（3554161528 / 3544152633 / 3660962877）缺任一即打印 `SKIP media-host（…）` 退出 0（此前缺包会在 `loadScene` 里抛异常 ⇒ 门禁红）。 |
@@ -4483,7 +4483,7 @@ MANIFEST.md 里**有价值的两块**（①怎么把服务器指向自己的语�
 | 文件 | 改动 |
 |---|---|
 | `samples/README.md` | 顶部加"**本仓库不分发任何真实壁纸**"声明 + 删除记录与体积前后；新增 "What ships here"、"Bring your own corpus（怎么用自己的语料 + 版权口径，迁自被删的清单）"、"Without a real corpus —— 什么还能跑、什么降级" 三节；修正 `?pkgpath=` / `?id=sample-synthetic` 的可达性说明（`samples/` 已进默认白名单）。 |
-| `README-PUBLIC.md` | 加载表：内置样例改为 `?id=sample-synthetic`；新增"首页无 `?id=` 时的降级"一行；包 id 行写明两档查找 + 真实壁纸需自备。第 3 节加"不分发真实壁纸 + 删除记录"。环境变量表更新 `MPW_SCENE_ROOT` 兜底链、`MPW_WE_ASSETS` 自动探测、`MPW_ALLOW_DIRS` 含 `samples/`。快速开始补首屏降级说明。 |
+| `docs/README-PUBLIC.md` | 加载表：内置样例改为 `?id=sample-synthetic`；新增"首页无 `?id=` 时的降级"一行；包 id 行写明两档查找 + 真实壁纸需自备。第 3 节加"不分发真实壁纸 + 删除记录"。环境变量表更新 `MPW_SCENE_ROOT` 兜底链、`MPW_WE_ASSETS` 自动探测、`MPW_ALLOW_DIRS` 含 `samples/`。快速开始补首屏降级说明。 |
 | `.gitignore.public` | 说明区更新：该目录已整体删除；**故意不写忽略规则**，让误加回来的大包继续被 `publish-check.mjs` 的体积闸门（>100MB 阻塞）当场拦下，而不是被静默忽略。 |
 | `TASK-RENDERER-QUEUE.md` | 验收命令里的 hina 路径改为 `allwallpaper/dd/3554161528`，并注明该包不再随仓库分发。 |
 | `docs/QODER-REVIEW-BRIEF.md`（DSHarea 根） | 工作树指纹命令去掉 `-not -path './samples/wallpapers/*'`（目录已不存在）并注明原因。 |
@@ -4510,11 +4510,11 @@ MANIFEST.md 里**有价值的两块**（①怎么把服务器指向自己的语�
 ### 验证（改后）
 - `bash run-all-tests.sh`：`══ 汇总：PASS=61 FAIL=0 SKIP=1 / 总 62 项`（贴如上）。
 - `node docs-check.mjs`：`✓ 文档一致性全部通过`，**退出码 0**（`P-编号健康 ✓`、`diag-flags ✓`：114 个开关 == README 主表 114 行、0 差异 —— 本轮只动 demo.html 的装载分支，没有新增/删除任何调试开关）。引用计数随文档增删会变，故不在此写死数字。
-- `du -sh samples` 198M → 130K；全仓库 `grep -rn samples/wallpapers` 只剩**明确写着"已删除/曾随仓库分发"的历史标注**（`samples/README.md`、`README-PUBLIC.md`、`we-scene-demo-server.mjs` 注释、两个测试的去候选注释、`run-all-tests.sh` 条件项注释、`.gitignore.public`、`TASK-RENDERER-QUEUE.md`、本文件三处、以及 DSHarea 根 5 个文档），**没有一处仍把它当现存路径使用**。
+- `du -sh samples` 198M → 130K；全仓库 `grep -rn samples/wallpapers` 只剩**明确写着"已删除/曾随仓库分发"的历史标注**（`samples/README.md`、`docs/README-PUBLIC.md`、`server/we-scene-demo-server.mjs` 注释、两个测试的去候选注释、`run-all-tests.sh` 条件项注释、`.gitignore.public`、`TASK-RENDERER-QUEUE.md`、本文件三处、以及 DSHarea 根 5 个文档），**没有一处仍把它当现存路径使用**。
 
 ### 回退
 - 目录层面：要恢复测试壁纸，把包放回 `samples/wallpapers/<id>/`（或任意目录后设 `MPW_SCENE_ROOT`）即可，**代码不需要改**——`findScene` 的第一档就是语料根、第二档是 `<repo>/samples`。
-- 代码层面：`we-scene-demo-server.mjs` 的兜底链与 id 正则、`demo.html` 的降级分支、两个测试的 SKIP 分支都可独立撤销；撤销后公开副本会回到"默认包 404 后 parsePkg 报错 + 缺 WE 时全站 500"的旧行为。
+- 代码层面：`server/we-scene-demo-server.mjs` 的兜底链与 id 正则、`demo.html` 的降级分支、两个测试的 SKIP 分支都可独立撤销；撤销后公开副本会回到"默认包 404 后 parsePkg 报错 + 缺 WE 时全站 500"的旧行为。
 
 ### 未定项
 1. **跨仓库残留（本仓库之外，未改）**：姊妹插件仓库 `dsh-mpkg-wallpaper/tools/` 有 5 个文件把 `samples/wallpapers` 当语料候选
@@ -4525,7 +4525,7 @@ MANIFEST.md 里**有价值的两块**（①怎么把服务器指向自己的语�
 2. `demo.html` 的 `?mode=elysia`（CPU 渲染调试档）默认 id 仍写死 `3719111841`（也是一张真实壁纸）：无语料时会失败。未改（该档是调试路径，显式传 `?id=sample-synthetic&mode=elysia` 即可走通新的两档查找）。
 3. 若日后要把"自带样例"做成首屏**明确**的默认（而不是失败后再降级），需要动 `demo.html` 的默认 id —— 本轮刻意保留"作者机默认包不变"（本仓一贯的"本机行为逐位不变"口径）。
 4. **编号说明（并行轮次协调，已解决）**：本节落地时 PATCHES 里最大是 P-85，但同一时间**并行的"仓库自带字体"轮次**已在其代码/文档注释里预占 `P-86`
-   （`demo.html` 字体链、`we-scene-demo-server.mjs` 的 `/assets/fonts/**` 路由、`THIRD-PARTY.md` §4、`README-DIAGNOSTICS.md` 的 `repofonts`、
+   （`demo.html` 字体链、`server/we-scene-demo-server.mjs` 的 `/assets/fonts/**` 路由、`THIRD-PARTY.md` §4、`README-DIAGNOSTICS.md` 的 `repofonts`、
    `assets/fonts/README.md`）。为避免撞号，**本轮顺延为 P-87**；该轮随后也确实以 **P-86 落在本节之前** ——
    当前文件顺序 P-85 → P-86（字体）→ P-87（本轮），`docs-check.mjs` 的"P 编号非降"检查通过。编号规则备忘：
    并行时**后落地者**取更大的号（或插到更早的位置），否则非降检查会红。
@@ -4543,7 +4543,7 @@ MANIFEST.md 里**有价值的两块**（①怎么把服务器指向自己的语�
 ### 改了什么（逐文件:行）
 | 文件 | 改动 |
 |---|---|
-| `we-scene-demo-server.mjs`（:329-422，新路由） | **新增 `POST /shot`**：body 就是**原始图片字节**（不是 base64 JSON —— base64 会白吃 33% 体积，而这条需求恰恰是"原分辨率的眉毛"）。查询参数 `id`（壁纸 id/slug，走与 `/pkg/<id>` 同一个 `ID_PAT` 且**显式拒 `..`**）、`tag`（`burst-07`/`single`，白名单化成文件名片段）、可选 `t`（场景秒）、`note`，外加可选的 `w/h/ow/oh/frame`（画面尺寸/原始尺寸/帧号，只进台账）。落盘 `MPW_REPORTS_DIR/shots/<id>/<ts>-<tag>.<jpg\|png>`（目录 `mkdir` 递归建），元数据追加进同目录 `index.jsonl`（一行一条 JSON：id/tag/t/note/file/rel/bytes/ts/at/w/h/ow/oh/frame/UA 摘要）；返回 `{"ok":true,"file":"shots/<id>/<name>","bytes":N}`（`file` 相对 `MPW_REPORTS_DIR`），绝对路径同时打到服务端 stdout（`[shot] …`）。限制：单帧 >4MB → **413**（超限后继续把 socket 读干净再回，客户端拿到的是明确 JSON 而不是半路断连）、content-type 非 `image/jpeg`/`image/png` → **415**、`id` 带 `..`/斜杠/空 → **400**。滚动：**该 id 最多 400 帧，超出删最旧**（只数图片文件，`index.jsonl` 是台账不删）。 |
+| `server/we-scene-demo-server.mjs`（:329-422，新路由） | **新增 `POST /shot`**：body 就是**原始图片字节**（不是 base64 JSON —— base64 会白吃 33% 体积，而这条需求恰恰是"原分辨率的眉毛"）。查询参数 `id`（壁纸 id/slug，走与 `/pkg/<id>` 同一个 `ID_PAT` 且**显式拒 `..`**）、`tag`（`burst-07`/`single`，白名单化成文件名片段）、可选 `t`（场景秒）、`note`，外加可选的 `w/h/ow/oh/frame`（画面尺寸/原始尺寸/帧号，只进台账）。落盘 `MPW_REPORTS_DIR/shots/<id>/<ts>-<tag>.<jpg\|png>`（目录 `mkdir` 递归建），元数据追加进同目录 `index.jsonl`（一行一条 JSON：id/tag/t/note/file/rel/bytes/ts/at/w/h/ow/oh/frame/UA 摘要）；返回 `{"ok":true,"file":"shots/<id>/<name>","bytes":N}`（`file` 相对 `MPW_REPORTS_DIR`），绝对路径同时打到服务端 stdout（`[shot] …`）。限制：单帧 >4MB → **413**（超限后继续把 socket 读干净再回，客户端拿到的是明确 JSON 而不是半路断连）、content-type 非 `image/jpeg`/`image/png` → **415**、`id` 带 `..`/斜杠/空 → **400**。滚动：**该 id 最多 400 帧，超出删最旧**（只数图片文件，`index.jsonl` 是台账不删）。 |
 | `demo.html`（:4493-4720，新 `MPW-SHOT-BTN` 区块） | **📸 连拍按钮**：`#mpw-shot-btn` 挂 `#bar`（与 `🎥 相机`、`🛰 立即上报` 并排），骨架照抄 P-84 —— 四种指针事件（pointerdown/pointerup/mousedown/touchstart）全 `stop`，点击回调 + 写日志。**单击 = 连拍 60 帧 × ≥100ms（≈6 秒）**，按钮实时显示 `📸 3/60`、完成后 `✅ 60/60` 再 1.5s 复原；**期间再点 = 停止**（`burstEnd('用户第二次点击 = 停止')`，已拍的报完再收尾）。**原分辨率**：读 `cv.width/height`，只有宽度 >1920 才由 `shotScale` 等比缩到 1920（高按比例四舍五入）并把原始尺寸写进 `ow/oh`。读回**必须**走 `__mpwSafeDataURL`（返回 null → 记一条日志跳过该帧，不抛）。上传 = `fetch('/shot?...', {method:'POST', headers:{'content-type':'image/jpeg'}, body: new Blob([bytes])})`，并发 3（串行跟不上 100ms 节奏），**每帧完成/失败各一条日志**（失败带 `HTTP <status>` 或异常文本）。键盘：**`j` = 单帧立即上报**、**`J`（Shift+j）= 连拍/停止**（按钮 title 里写明；输入框/属性面板里打字不抢键）。**没有新增任何 URL 开关**。 |
 | `demo.html`（:5098，帧末取样点一行） | 渲染帧循环的 `.then()`（render 已 resolve、画布内容就是刚画完这帧）里新增 `window.__mpwShotFrameTick(tSec, window.__mpwFrameNo \|\| 0, cv)` —— 只报"场景时间/帧号/哪张画布"，是否真读回由 shot 模块判。传 `cv` 是给一页多实例（P-77）用的：别的格子的帧也会调这个页级钩子，**只有 primary 的那张画布算数**（`if (canvas !== cv) return`）。 |
 | `demo.html`（:4511-4532，`MPW-SHOT-PURE` 区块） | 两个**纯函数**（`shot-upload-test.mjs` 从 demo.html 里**真源码切出来**单测）：`shotScale(w,h,maxW)`（≤maxW 一个像素不动；超了等比缩；零/半零尺寸 → `{w:0,h:0}` 不抛）与 `shotDue(lastMs,nowMs,intervalMs)`（差值 **≥** 阈值算到期；`lastMs` 为 null/NaN = 首次立刻到期；`intervalMs ≤ 0` = 不节流）。 |
@@ -4561,10 +4561,10 @@ MANIFEST.md 里**有价值的两块**（①怎么把服务器指向自己的语�
 **测试** `node shot-upload-test.mjs` → `===== shot-upload-test: 51 通过 / 0 失败 =====`（~0.5s，退出码 0）。分四组：
 - **[A] 纯函数（5+6 条）**：`A0` 测试向量本身先用仓库自带解码器解出 16×16（证"最小合法 JPEG"不是垃圾字节）；`A1` 3840×2160→1920×1080 且 `srcW/srcH` 带上原始尺寸；`A2` **等于阈值 1920 一个像素不动**；`A3` 小于阈值原样直传；`A4` 1921 宽 → 1920×1079（等比四舍五入，不硬截 1080）；`A5`/`A6` 零尺寸与半零尺寸 → `{w:0,h:0}` 不抛；`A7` 首次立刻到期；`A8` **差值等于阈值算到期**；`A9` 差 99ms 不到期；`A10` `intervalMs ≤ 0` 不节流；`A11` `NaN`/`undefined` 当首次。
 - **[B] 前端源码守卫（19 条）**：`B2` 按钮 id、`B3` 挂 `#bar`、`B4` 四指针全 stop、`B5` 走 `__mpwSafeDataURL`、`B6` 原分辨率 + `MAXW = 1920` + `ow/oh`、`B7` 进度文案 `📸 n/total`、`B8` `✅` 与 1.5s 复原、`B9` 第二次点击 = 停止、`B10` 60 帧 × 100ms、`B11` `j`/`J` 绑定且输入框不抢键、`B12` 快捷键写进按钮 title、`B13` 帧末钩子 + `shotDue` 且**无 `setInterval(`**、`B14` 帧循环里真的接了取样点、`B15` 多实例认画布、`B16` 每帧完成/失败都有日志（失败带状态/异常）、`B17` **无新增 `?flag` 开关**、`B18` POST 的是原始字节（Blob + `image/jpeg`，非 base64 JSON）、`B19` 单帧 `j` 与连拍**各自计数**（连拍途中按 `j` 不会把连拍顶到 60 提前收尾）。
-- **[C] 服务端契约（16 条，真子进程 + 真字节）**：空闲端口起 `we-scene-demo-server.mjs`、`MPW_REPORTS_DIR` 指向临时目录、`try/finally` 必杀（不留孤儿）。`C2` 200；`C3` 返回体形状；`C4` 文件**真的存在**；`C5` 落盘字节与发送**逐字节相同**（`Buffer.compare === 0`）；`C6`/`C7`/`C8`/`C9` `index.jsonl` 恰好 +1 行、JSON 可解析、字段齐全且与请求一致、带 `ts`/ISO 时间/UA 摘要；`C10` `image/png` 也收且落成 png 扩展名；`C11` 非图片 → 415；`C12` 4MB+1 → 413；`C13` `id=..` 与 `id=../../evil` → 400；`C14` 逃逸尝试没在目录外留下文件；`C15` `tag` 里的 `../` 被白名单化（仍落在该 id 目录）；`C16` 服务端 stdout 打出绝对落盘路径。
+- **[C] 服务端契约（16 条，真子进程 + 真字节）**：空闲端口起 `server/we-scene-demo-server.mjs`、`MPW_REPORTS_DIR` 指向临时目录、`try/finally` 必杀（不留孤儿）。`C2` 200；`C3` 返回体形状；`C4` 文件**真的存在**；`C5` 落盘字节与发送**逐字节相同**（`Buffer.compare === 0`）；`C6`/`C7`/`C8`/`C9` `index.jsonl` 恰好 +1 行、JSON 可解析、字段齐全且与请求一致、带 `ts`/ISO 时间/UA 摘要；`C10` `image/png` 也收且落成 png 扩展名；`C11` 非图片 → 415；`C12` 4MB+1 → 413；`C13` `id=..` 与 `id=../../evil` → 400；`C14` 逃逸尝试没在目录外留下文件；`C15` `tag` 里的 `../` 被白名单化（仍落在该 id 目录）；`C16` 服务端 stdout 打出绝对落盘路径。
 - **[D] 服务端源码守卫（4 条）**：`D2` shots 自己的 400 帧滚动存在；**`D3` `/report` 的 60 份滚动一字未动**（两套策略互不影响）；`D4` 4MB 上限与 413/415/400 三条拒绝路径都在源码里。
 
-**真机路由实测（:8899 真服务，重启后）**：先按 `pgrep -f we-scene-demo-server.mjs` 精确定位、只 kill 看门狗的**子进程**（不碰别的 node），看门狗 10s 内自动拉起，页面仍 200：
+**真机路由实测（:8899 真服务，重启后）**：先按 `pgrep -f server/we-scene-demo-server.mjs` 精确定位、只 kill 看门狗的**子进程**（不碰别的 node），看门狗 10s 内自动拉起，页面仍 200：
 ```
 $ curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8899/?id=3554161528"
 200
@@ -4580,7 +4580,7 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 
 ### 回退
 - **功能层（推荐，零改动）**：连拍中**再点一次按钮**（或按 `J`）即停止；不想要按钮就当它不存在，`?cursor=`/`?ln=`/`?t=` 等既有开关全部照旧共存。
-- **代码层**：三处独立可撤 —— ① `we-scene-demo-server.mjs` 的 `POST /shot` 整段（:329-422）；② `demo.html` 的 `MPW-SHOT-BTN` 区块（:4493-4720，含纯函数/按钮/快捷键/钩子）；③ `demo.html` :5098 那一行取样点。撤掉 ②③ 后渲染与上报路径**逐位回到改动前**（本功能只在帧末多加了一次 `try{}catch{}` 里的一次函数调用，默认无监听时是 `undefined` 短路）。
+- **代码层**：三处独立可撤 —— ① `server/we-scene-demo-server.mjs` 的 `POST /shot` 整段（:329-422）；② `demo.html` 的 `MPW-SHOT-BTN` 区块（:4493-4720，含纯函数/按钮/快捷键/钩子）；③ `demo.html` :5098 那一行取样点。撤掉 ②③ 后渲染与上报路径**逐位回到改动前**（本功能只在帧末多加了一次 `try{}catch{}` 里的一次函数调用，默认无监听时是 `undefined` 短路）。
 - **没有需要回退的 URL 开关**：本功能**一个新开关都没加**（按钮 + 快捷键即可），所以不存在"地址栏/文档双向一致"的连带改动，`diag-flag-check.mjs` 的数字不变就是这条的证据。
 - **数据层**：`reports/shots/` 是纯产物目录，删掉即可；它不参与 `/report` 的 60 份滚动，删它不影响任何既有台账。
 
@@ -4602,7 +4602,7 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 |---|---|
 | `LICENSE` | 21 行 MIT → **697 行 / 36,452 字节**。前 **35,147 字节 = GNU GPL v3 条款原文**（与系统 canonical 副本 `cmp` **逐字节相同**，条款文字零改动）；其后追加分隔线 + 版权声明（`Copyright (C) 2026 XHR666`）+ 标准 `either version 3 of the License, or (at your option) any later version` 措辞 + `SPDX-License-Identifier: GPL-3.0-or-later` |
 | `archive/LICENSE.MIT.bak-20260916` | 旧 MIT 全文另存（21 行，供回退；`archive/` 本来就在 `publish-check.mjs` 的 SKIP_DIRS 里，不进发布物） |
-| `README-PUBLIC.md` §5（原 75–81 行） | 整段重写：**GPL-3.0-or-later** + **本仓库不含任何 WE 素材** + vendored `webwallgl`（**MIT © oneincase**，当前**未 vendored**，只在仓库外研读）+ 字体（OFL/Apache/CC-BY，指向 `THIRD-PARTY.md` §4 与 `assets/fonts/licenses/`）+ **渲染器 import 了 MIT 插件 `dsh-mpkg-wallpaper`，其 MIT 声明随之保留** + 指向 `docs/COPYING-RULES.md` + "本文件不是法律意见" |
+| `docs/README-PUBLIC.md` §5（原 75–81 行） | 整段重写：**GPL-3.0-or-later** + **本仓库不含任何 WE 素材** + vendored `webwallgl`（**MIT © oneincase**，当前**未 vendored**，只在仓库外研读）+ 字体（OFL/Apache/CC-BY，指向 `THIRD-PARTY.md` §4 与 `assets/fonts/licenses/`）+ **渲染器 import 了 MIT 插件 `dsh-mpkg-wallpaper`，其 MIT 声明随之保留** + 指向 `docs/COPYING-RULES.md` + "本文件不是法律意见" |
 | `THIRD-PARTY.md` 末尾 | 追加 §5（本仓库自有许可 = GPL-3.0-or-later，**§1–§4 的 MIT/ISC/OFL/Apache/CC-BY 声明不因换 GPL 而失效**，MIT 声明必须随再分发继续传递）、§6（webwallgl：上游地址 / MIT / **未 vendored 未分发** / 将来引入必须升级为正式条目）、§7（插件 MIT、import 关系、单向流动与反向禁止） |
 | 第三方归属 | **一个都没删**：`elysia/LICENSE`、`elysia/vendor/@shaderfrog/glsl-parser/LICENSE`、`assets/fonts/licenses/`（12 个文件）原样保留 |
 
@@ -4691,7 +4691,7 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 ### 7. 回退（回到"不改许可"的状态）
 
 - **许可层（不涉及任何代码）**：`cp archive/LICENSE.MIT.bak-20260916 LICENSE`（可 `cmp` 验证逐字节回到 P-88 的
-  21 行 MIT 全文）；再删掉 `README-PUBLIC.md` §5 的新增条目与 `THIRD-PARTY.md` §5–§7 三段，即回到旧的许可表述。
+  21 行 MIT 全文）；再删掉 `docs/README-PUBLIC.md` §5 的新增条目与 `THIRD-PARTY.md` §5–§7 三段，即回到旧的许可表述。
   渲染器**没有任何代码逻辑**与许可相关（只改了文档 + LICENSE + 闸门脚本）。
 - **洁净室层**：旧音轨段**从未提交**（`git show HEAD:lib/pkg-extract.js` 对 5 个旧标识符命中 0），所以不存在
   "回到旧段"的仓库状态可回退；要回退只能 `git checkout -- lib/pkg-extract.js`（回到 HEAD 的**没有音轨段**的版本）。
@@ -4850,7 +4850,7 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 
 | 文件 | 改动 |
 |---|---|
-| `we-scene-bundle.js` | ① 新增纯函数区 `QUALITY_TIER_VALUES` / `DEFAULT_QUALITY_TIERS` / `Q_RENDER_SCALE` / `PP_FBO_CAP` / `AA_MSAA_SAMPLES` / `normalizeQualityTier` / `parseQualityTiers` / `qRenderScale` / `qInternalSize` / `ppFboCap` / `resolveAaMode` / `describeQualityTiers`；② 新增 `FXAA_FS`（**借上游 MIT**，见 P-90.7）与 `Q_PRESENT_FS` 两个着色器常量；③ `createRenderer` 里解析三档（`new URLSearchParams(location.search).get('q'/'aa'/'pp')` **同形写法**，`diag-flag-check` 能抓到）、context 创建按 `aa` 取 `antialias`、实测 `gl.SAMPLES`、启动日志自报；④ `runAAPass` / `presentInternalScene` / `ensureAaProgs` / `ensureAaSceneTex` + 帧令牌幂等；⑤ `frameTarget`/`sceneTargetFbo()` 间接层，把 6 处"屏幕"出口（HDR 呈现、screenblend、copybackground、效果链兜底、层循环入口、q 上采样）统一走它；⑥ `renderScene` 开头按 `q` 建内部 FBO 并遮蔽 `width/height`、帧末上采样；⑦ `pp` 门控接进 `fxAllowed()` 与 `runBloom()`；⑧ 导出 `runAA` / `setQuality` / `getQuality` / `qualityStats`；⑨ `fboCapFactor` 初值改由 `pp` 档给 |
+| `core/we-scene-bundle.js` | ① 新增纯函数区 `QUALITY_TIER_VALUES` / `DEFAULT_QUALITY_TIERS` / `Q_RENDER_SCALE` / `PP_FBO_CAP` / `AA_MSAA_SAMPLES` / `normalizeQualityTier` / `parseQualityTiers` / `qRenderScale` / `qInternalSize` / `ppFboCap` / `resolveAaMode` / `describeQualityTiers`；② 新增 `FXAA_FS`（**借上游 MIT**，见 P-90.7）与 `Q_PRESENT_FS` 两个着色器常量；③ `createRenderer` 里解析三档（`new URLSearchParams(location.search).get('q'/'aa'/'pp')` **同形写法**，`diag-flag-check` 能抓到）、context 创建按 `aa` 取 `antialias`、实测 `gl.SAMPLES`、启动日志自报；④ `runAAPass` / `presentInternalScene` / `ensureAaProgs` / `ensureAaSceneTex` + 帧令牌幂等；⑤ `frameTarget`/`sceneTargetFbo()` 间接层，把 6 处"屏幕"出口（HDR 呈现、screenblend、copybackground、效果链兜底、层循环入口、q 上采样）统一走它；⑥ `renderScene` 开头按 `q` 建内部 FBO 并遮蔽 `width/height`、帧末上采样；⑦ `pp` 门控接进 `fxAllowed()` 与 `runBloom()`；⑧ 导出 `runAA` / `setQuality` / `getQuality` / `qualityStats`；⑨ `fboCapFactor` 初值改由 `pp` 档给 |
 | `demo.html` | 帧循环里在 `runBloom` **之后**加一处 `renderer.runAA(cv.width, cv.height)`（`aa=off` 时空操作） |
 | `quality-tiers-test.mjs` | **新增**：90 条断言 / 6 组（真值表 / 默认逐位相同 / 各档确有差异 / FXAA 真在链里 / 热更 / 与既有开关组合） |
 | `run-all-tests.sh` | **加一行** `add "quality-tiers" "node quality-tiers-test.mjs"` |
@@ -4884,12 +4884,12 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 ### P-90.7 借用的 MIT 代码（署名 + 台账）
 
 - **借了什么**：**一个 shader** —— 上游 `renderer/vendor/we-scene/render/renderer-glsl.js:452-489` 的 `FXAA_FRAG`
-  （即上游 452–489 行）→ 我们的 `we-scene-bundle.js` 常量 `FXAA_FS`。
+  （即上游 452–489 行）→ 我们的 `core/we-scene-bundle.js` 常量 `FXAA_FS`。
 - **commit**：`fdfc578a577d0e680a9cfe2cf2e3e825d3cd2372`（1.3.23，2026-09-15），SPDX **MIT**，
   版权行 `Copyright (c) 2026 oneincase <462534624@qq.com>`。
 - **核对**：规范化（去注释/空行/缩进）后与上游 **38/38 行 GLSL 完全一致**，一个 token 都不差；
   算法常量原样保留（`SPAN_MAX 8.0` / `REDUCE_MUL 1/8` / `REDUCE_MIN 1/128` / `LUMA .299 .587 .114`）。
-- **署名位置**：`we-scene-bundle.js` 里 `FXAA_FS` 上方的注释块（含上游路径 + 行号 + 移植差异清单）、
+- **署名位置**：`core/we-scene-bundle.js` 里 `FXAA_FS` 上方的注释块（含上游路径 + 行号 + 移植差异清单）、
   `THIRD-PARTY.md` **§6**（MIT 全文 + 逐文件表）、`docs/COPYING-RULES.md` §4 台账 **#6**。
 - **没借什么**（避免夸大或漏认）：顶点着色器复用本仓库既有的 `BLOOM_VS`；`?aa/?q/?pp` 的档位解析、
   pass 编排、回读、帧令牌、MSAA 回落策略、`setQuality` 全是自写；**`renderer/src/quality.ts` 没有复制**
@@ -4936,7 +4936,7 @@ CDN 一行引入，我们只有"克隆 + node 服务器"）。
 
 | §6.1 说的缺口 | 本补丁的落点 |
 |---|---|
-| ①缺 `mount(container, opts)` 入口 | `we-scene.mjs`：**库入口**。画布 → `createRenderer` → 帧循环 → 帧末链（`render` → `runBloom` → `runAA` → `runPostFrameHooks`，**顺序与 `demo.html` 的 `frame()` 逐条一致**）→ `start/stop/pause/resume/resize/setScene/setTextures/setQuality/getQuality/dispose`。素材装载**故意不做**（那属宿主装载层，参考实现是 `demo.html` 的 `bootInstance()`）；注入点 `opts.createRenderer/raf/cancelRaf/now/document` 让它在 Node 里可被桩渲染器完整测试 |
+| ①缺 `mount(container, opts)` 入口 | `core/we-scene.mjs`：**库入口**。画布 → `createRenderer` → 帧循环 → 帧末链（`render` → `runBloom` → `runAA` → `runPostFrameHooks`，**顺序与 `demo.html` 的 `frame()` 逐条一致**）→ `start/stop/pause/resume/resize/setScene/setTextures/setQuality/getQuality/dispose`。素材装载**故意不做**（那属宿主装载层，参考实现是 `demo.html` 的 `bootInstance()`）；注入点 `opts.createRenderer/raf/cancelRaf/now/document` 让它在 Node 里可被桩渲染器完整测试 |
 | ②缺打包配置 | `package.json`：`type: module`、`exports`（`.`/`./bundle`/`./server`/`./hlsl2glsl`/`./package.json`）、`files` 白名单 23 条、`scripts`（start/test/check/pack:dry）、`engines.node>=20`、`license: GPL-3.0-or-later`（与 `LICENSE` 一致 ⇒ `docs/COPYING-RULES.md` §8 ① 的机器闸门）。**`private: true` 是发布锁**：本机 npm 未登录，发布由建仓线在登录后删除该行 |
 | ③"打开即玩" | `start-demo.sh`：预检（node 版本 / 包解析器三条落点 / 语料 / 自带样例 / 端口）→ 起服务 → 打印可解析的 `URL: …` 行；`--check` 只预检（CI 用，退出码 3 表示预检失败）；`--open`/`--quiet`/`--port` |
 
@@ -4991,7 +4991,7 @@ tarball **1.89MB** · 解包 **4.9MB**；`tar -xzf` 后逐文件 grep 个人绝�
 `process.env.PORT`，`--port 9000` 会静默起在 8899。`packaging-test.mjs` 的 E 组（真起服务 + 真 fetch）第一次跑就
 红了，已改成 `export PORT`。
 
-**隐私收尾（同一补丁内）**：`we-scene-demo-server.mjs` 里两处写死的作者机绝对路径改为
+**隐私收尾（同一补丁内）**：`server/we-scene-demo-server.mjs` 里两处写死的作者机绝对路径改为
 `path.resolve(__dirname, '..')`（**解析结果与旧默认值逐字节相同**，已核）与"无 HOME 时退到系统临时目录"。
 `files` 白名单里的 **`docs/` 整目录改成逐文件 `docs/UNTOUCHED-AREAS.md`** —— 目录级白名单会让任何后来加进
 `docs/` 的文件（可能含作者个人路径）静默进 tarball；这条正是 `packaging-test.mjs` D 组抓到的（`docs/ONLINE-DEMO.md`
@@ -5007,12 +5007,12 @@ tarball **1.89MB** · 解包 **4.9MB**；`tar -xzf` 后逐文件 grep 个人绝�
 **做了什么**：`manifest.webmanifest`（`start_url=/?id=sample-synthetic`，**离线打开就有画面**；`display: standalone`；
 3 个图标含 maskable）、`sw.js`（**module** worker，网络优先 + 缓存兜底，`activate` 清旧版本）、`sw-policy.mjs`
 （**缓存判据，纯函数、单一事实源**）、`pwa-inject.mjs`（服务器侧注入，幂等，缺 `</head>` 原样返回）、
-`icons/`+`make-icons.mjs`（**程序化生成**，确定性，`icons/icons.json` 记 sha256 —— 与 `make-sample.mjs` 同一处置，
-不引入任何第三方图标素材），`we-scene-demo-server.mjs` 加 6 条静态路由 + 注入点。
+`icons/`+`tools/make-icons.mjs`（**程序化生成**，确定性，`icons/icons.json` 记 sha256 —— 与 `tools/make-sample.mjs` 同一处置，
+不引入任何第三方图标素材），`server/we-scene-demo-server.mjs` 加 6 条静态路由 + 注入点。
 
 **为什么默认关**：它会写 Cache Storage。部署时 `MPW_PWA=1` 全局开，或单请求 `?pwa=1`/`?pwa=0` 覆盖。
-（这是**服务器侧**开关：`diag-flag-check.mjs` 的抓取源不含 `we-scene-demo-server.mjs` ⇒ README-DIAGNOSTICS 的
-"代码 ↔ 文档双向 0 差异"口径不受影响；登记处是 `PACKAGING.md` §4.1。）
+（这是**服务器侧**开关：`diag-flag-check.mjs` 的抓取源不含 `server/we-scene-demo-server.mjs` ⇒ README-DIAGNOSTICS 的
+"代码 ↔ 文档双向 0 差异"口径不受影响；登记处是 `docs/PACKAGING.md` §4.1。）
 
 **"绝不缓存用户壁纸"是断言而不是注释**：判据是**白名单**（黑名单漏一条就是把用户素材写进磁盘）。
 ✅ 只缓存 `/`、`/demo.html`、bundle、`/elysia/**`、`/vendor/hlsl2glsl/**`、`/assets/fonts/**`、`/icons/**`、
@@ -5027,7 +5027,7 @@ $ node pwa-test.mjs
 pwa-test：107 通过 / 0 失败（共 107 条断言）
   · 判据正面 16 条 / 反面 21 条 / 响应判据 10 条
   · manifest 字段 + 图标尺寸与 manifest 一致（PNG 头实读）
-  · 图标与生成器逐字节一致（make-icons.mjs --check）
+  · 图标与生成器逐字节一致（tools/make-icons.mjs --check）
   · 真子进程服务：默认首页**不含**注入、?pwa=1 含、**去掉注入片段后与默认首页逐字节相同**（纯增量）
   · F6 六条静态路由 200 + content-type；F9/F10 线上 sw.js / sw-policy.mjs 与磁盘逐字节相同
 ```
@@ -5077,7 +5077,7 @@ vendored 代码的 MIT 声明 —— 而本补丁的 vendored 目录叫 `vendor/
 **台账与署名**：`docs/COPYING-RULES.md` §4 台账 **#8**；`THIRD-PARTY.md` **§9**（MIT 全文 + 逐文件表 +
 "哪些**没有** vendored"的边界表）。方向是 MIT → GPL（允许），且**原 MIT 声明随分发保留**。
 
-**未做（如实列）**：§6.3 P1 的**前半句"作为可选效果路径接入"未做** —— 它要改 `we-scene-bundle.js`，与本轮
+**未做（如实列）**：§6.3 P1 的**前半句"作为可选效果路径接入"未做** —— 它要改 `core/we-scene-bundle.js`，与本轮
 并发线（洁净室重写）冲突，按"绝不并发改同一文件"的纪律让出。所以本补丁交付的是"转译器可用（可 import）+
 覆盖率回归门禁"，**不是**"渲染器已经会用 HLSL 效果"。
 
@@ -5107,8 +5107,8 @@ vendored 代码的 MIT 声明 —— 而本补丁的 vendored 目录叫 `vendor/
 
 | # | 审计判定 | 改前位置（内容锚点） | 上游对应 |
 |---|---|---|---|
-| 🔴 1 | **逐行翻译**（同名仅大小写、同 3 分支顺序、同魔数 `1`/`100`、同返回；注释自认"逐分支同构"） | `we-scene-bundle.js` 的 `normalizeImageAlpha` | `WPImageObject.cpp:59-63` `NormalizeImageAlpha` |
-| 🟠 2 | **同源改写**（同一张 token→轴→方向表 + 同一种子串分派 + 同 `center` 短路；注释自认"逐分支同构"） | `we-scene-bundle.js` 的 alignment 偏移旧标识符（逐字引文见 `docs/WER-REF-LICENSE-AUDIT.md` §3.4 片段 2） | `WPImageAlignment.hpp:24-36` |
+| 🔴 1 | **逐行翻译**（同名仅大小写、同 3 分支顺序、同魔数 `1`/`100`、同返回；注释自认"逐分支同构"） | `core/we-scene-bundle.js` 的 `normalizeImageAlpha` | `WPImageObject.cpp:59-63` `NormalizeImageAlpha` |
+| 🟠 2 | **同源改写**（同一张 token→轴→方向表 + 同一种子串分派 + 同 `center` 短路；注释自认"逐分支同构"） | `core/we-scene-bundle.js` 的 alignment 偏移旧标识符（逐字引文见 `docs/WER-REF-LICENSE-AUDIT.md` §3.4 片段 2） | `WPImageAlignment.hpp:24-36` |
 
 **改法（严格按 `docs/COPYING-RULES.md` §5 五步）**
 
@@ -5123,7 +5123,7 @@ vendored 代码的 MIT 声明 —— 而本补丁的 vendored 目录叫 `vendor/
 | **② 结构与分支组织** | 顺序短路的三段 `if`（非有限→百分数→clamp）；嵌套三元 + `String.includes` 逐 token 分派 | **分类与换算分离 + `switch` 分派**（`classifyAlphaDomain` → `'nonfinite'/'percent'/'beyond'/'unit'`）；**先解析出轴符号二元组、再查表**（`readAlignmentAxisSigns` → `ALIGNMENT_HALF_SHIFTS['x,y']`，token 字形与偏移量彻底解耦） |
 | **③ 常量表达** | 裸魔数 `1` / `100`；token→(轴,方向) 常量表 | 具名常量 `ALPHA_UNIT_MAX` / `ALPHA_PERCENT_MAX`；**半身位符号表** `ALIGNMENT_HALF_SHIFTS`（`Object.freeze`，9 个符号元组 → `[±1/0, ±1/0]`），偏移由 `符号 × (w/2)` 组装 |
 | **④ 返回风格** | 单一 `return Math.max(0, Math.min(1, …))` 出口；嵌套三元内联在 `const ox/oy` 里 | **显式 `switch` + `default`**；`saturateUnitInterval` 用 `n <= 0 ? 0 : n > 1 ? 1 : n`（`<= 0` 分支同时把 `-0` 归成 `+0`）；两轴分别短路，未命中轴返回**字面量 `0`**（不是 `0*w`） |
-| ⑤ 注释 | 逐字引用上游行号 + 自认"逐分支同构" | 指向行为规格 + 我们的推导；**"逐分支同构"在 `we-scene-bundle.js` 里 0 处** |
+| ⑤ 注释 | 逐字引用上游行号 + 自认"逐分支同构" | 指向行为规格 + 我们的推导；**"逐分支同构"在 `core/we-scene-bundle.js` 里 0 处** |
 
 3. **加验收测试**：新增 `clean-room-alpha-align-test.mjs`（已注册进 `run-all-tests.sh` 的
    `clean-room-alpha` 项，条件项：缺真包语料时整体 SKIP 不红）。四层：**冻结真值表**（期望值 = **改前实现
@@ -5133,7 +5133,7 @@ vendored 代码的 MIT 声明 —— 而本补丁的 vendored 目录叫 `vendor/
    接线）⇒ **1008 断言 / 0 失败**。
 
 4. **附带清掉审计 §6 的 2 处弱形态**（P2）：
-   - `we-scene-bundle.js` 视差注释：删掉上游表达式 `Scaling(1,−1)·(0.5−mouse)∘ortho` 与
+   - `core/we-scene-bundle.js` 视差注释：删掉上游表达式 `Scaling(1,−1)·(0.5−mouse)∘ortho` 与
      `WPNodeTransformResolver.cpp:154-156` 行号引用，改成**我们自己的 y-down 坐标系推导**；
    - `elysia/scene-scripts.js`：删掉第三方实现的**私有**中间变量名 `__makeNoopVideoTexture`（它曾被注释
      称为"官方"），改写成「WE 脚本 API `getVideoTexture` 的 noop 回退」；**实现未动**（方法集由 API 契约
@@ -5148,8 +5148,8 @@ vendored 代码的 MIT 声明 —— 而本补丁的 vendored 目录叫 `vendor/
 | 真语料样本 | alpha 实测 = `1×386, 0×5, 0.69999999×7, 0.93000001, 0.88, 0.79000002, 0.5×2, 0.13, 0.11, 0.090000004, 0.19, 0.47999999`；alignment 实测 = `center×369, bottom×25, right×7, left×4, bottomleft×2, top×1` |
 | **最长公共子串复测** | `python3 tools/wer-ref-lineage-retest.py`（复刻审计 §3.1 维度 4：K=40 k-gram 倒排索引 + 极大扩展）。**靶点 1（alpha）：改前 K=12 → 40 字符，改后 K=12 → 0、K=40 → 0**；**靶点 2（alignment）：改后 K=40 → 0**，K=12 仅剩 `  if (alignment`（15 字符：参数名+关键字+空白）与 `AlignmentAxis`（13 字符：通用技术词）——无判定顺序/无魔数/无表形态/无注释文字重合；**靶点 3（视差）：K=12 → 0**；**靶点 4（noop 桩）：83 字符，全部落在 WE 公开脚本 API 的 5 个方法名 + `{}` 空体上**（接口唯一表达；已在 `THIRD-PARTY.md` §1 登记为 `elysia395/dsh-wallpaper-engine`（MIT）移植 ⇒ MIT→GPL 合法） |
 | 标识符复测（维度 3b，大小写不敏感） | 本次消除目标 `NormalizeImageAlpha` / `ResolveImageAlignmentOffset` 在我们的**代码**里 **0 命中**（`NormalizeImageAlpha` 仅在 `clean-room-alpha-align-test.mjs` 的**否定式源码守卫** `!/normalizeImageAlpha/` 里出现一次） |
-| 自认语句复测（维度 6） | `逐分支同构` 在 `we-scene-bundle.js` = **0**（审计的验收判据）。全仓"肯定式自认"共 **14** 行，**逐条复核无一与 wer-ref 血缘有关**：① 9 行是处置前的既有行（`PATCHES.md:2350` 照搬**我们自己的 MIT 插件** `lib/client.js`＝允许方向；`:2833` 是 JPEG `FF 00` 位型"一一对应"；`elysia/we-renderer/model.js:115,520` 是"照搬 shader **数学**"＝公式；`visual-diff-kal.mjs:68` 是比喻；`we-scene-bundle.js:3875` 指 **WE 专有 shader**（非 wer-ref，见下方未定项 2））；② 5 行是本 P-95/README 自己的**登记文字**（在描述被修正的历史措辞 —— 扫描器的自指命中）。判据与全文见 `tools/wer-ref-lineage-retest.py` 的 C 段 |
-| 全树复测 | `--full`：wer-ref 471 文件 / 3,103,186 个不同 40-gram；**全局最长公共子串 = 83 字符**（即上面那个 noop 桩，位置 `elysia/scene-scripts.js` ↔ `WPScriptRuntime.cpp`）；≥35 字符的实质性命中 = **88 组文件对 / 139 条**，全部落在 `elysia/**`（MIT 移植 + WE 公开脚本 API 契约）、几个测试与 wer-ref 自身**测试文件**的同名 API 断言串、以及 Vite 打包产物 `demo/assets/**`（minified；单独复测过，命中全是 BT.601 灰阶权重 / `gl_Position` 样板 / `g_EffectTextureProjectionMatrixInverse` 这类公开公式与 WE uniform 名）；**两个处置靶点在 `we-scene-bundle.js` 里已无任何 ≥35 字符命中** |
+| 自认语句复测（维度 6） | `逐分支同构` 在 `core/we-scene-bundle.js` = **0**（审计的验收判据）。全仓"肯定式自认"共 **14** 行，**逐条复核无一与 wer-ref 血缘有关**：① 9 行是处置前的既有行（`PATCHES.md:2350` 照搬**我们自己的 MIT 插件** `lib/client.js`＝允许方向；`:2833` 是 JPEG `FF 00` 位型"一一对应"；`elysia/we-renderer/model.js:115,520` 是"照搬 shader **数学**"＝公式；`visual-diff-kal.mjs:68` 是比喻；`core/we-scene-bundle.js:3875` 指 **WE 专有 shader**（非 wer-ref，见下方未定项 2））；② 5 行是本 P-95/README 自己的**登记文字**（在描述被修正的历史措辞 —— 扫描器的自指命中）。判据与全文见 `tools/wer-ref-lineage-retest.py` 的 C 段 |
+| 全树复测 | `--full`：wer-ref 471 文件 / 3,103,186 个不同 40-gram；**全局最长公共子串 = 83 字符**（即上面那个 noop 桩，位置 `elysia/scene-scripts.js` ↔ `WPScriptRuntime.cpp`）；≥35 字符的实质性命中 = **88 组文件对 / 139 条**，全部落在 `elysia/**`（MIT 移植 + WE 公开脚本 API 契约）、几个测试与 wer-ref 自身**测试文件**的同名 API 断言串、以及 Vite 打包产物 `demo/assets/**`（minified；单独复测过，命中全是 BT.601 灰阶权重 / `gl_Position` 样板 / `g_EffectTextureProjectionMatrixInverse` 这类公开公式与 WE uniform 名）；**两个处置靶点在 `core/we-scene-bundle.js` 里已无任何 ≥35 字符命中** |
 
 **口径修正（审计 §5，90+ 处）**：把 `wer-ref` 被称作「官方 / 官方真值源」的表述全仓改成中性准确说法，并给每个
 引用它的文件补一次统一免责段（`参照来源许可声明`）。可复跑脚本：`../tools/neutralize-wer-ref-wording.py`（幂等，
@@ -5177,7 +5177,7 @@ vendored 代码的 MIT 声明 —— 而本补丁的 vendored 目录叫 `vendor/
 **未定项（如实列）**
 
 1. **法律定性**：洁净室重写是否**在法律上**彻底消除衍生性，仍需律师意见（审计 §7 U-1 未变）。本补丁只做工程处置与留痕。
-2. **`we-scene-bundle.js:3875`「逐行翻译自 WE shader 原文」** —— 复测维度 6 扫出的一处**肯定式自认**，
+2. **`core/we-scene-bundle.js:3875`「逐行翻译自 WE shader 原文」** —— 复测维度 6 扫出的一处**肯定式自认**，
    但它指的是 **WE 专有 shader 原文**（`assets/shaders/`，**不是 wer-ref**）。该轴已由审计 §4 单独核过
    （`common*.h` 洁净室：对 wer-ref 成立；对 WE 原件"部分存疑但风险低"），**不在本次 2 点范围内**，
    此处如实登记为未定项，不擅自扩大改动。
@@ -5246,7 +5246,7 @@ vendored 代码的 MIT 声明 —— 而本补丁的 vendored 目录叫 `vendor/
   `t.arrayBuffer is not a function` ⇒ 必须给 `Blob`；又不能用 `new File(...)`（T17 的"定义↔调用"审计把裸全局构造器
   判成未定义标识符）。
 * 本机静态台与线上都自动载一次（"打开就有画面"两边一致）；`:1430` vite 宿主有真 Node 后端 ⇒ 不抢它的默认壁纸。
-* 合成样例是 `make-sample.mjs` 生成的 33 299 B、sha256 `cceb7b94…`，无第三方内容 ⇒ 无需署名（见 `samples/README.md`）。
+* 合成样例是 `tools/make-sample.mjs` 生成的 33 299 B、sha256 `cceb7b94…`，无第三方内容 ⇒ 无需署名（见 `samples/README.md`）。
 
 ### P-96.5 落地页与 Pages 构建
 
@@ -5345,7 +5345,7 @@ npm publish --registry=https://registry.npmjs.org --access public
 - 去个人化：**41 个 .mjs 文件** + 文档改为既有约定"环境变量优先 + 作者本机默认值"；
   `demo.html` 调试字符串、`pwa-test.mjs` 占位路径（改 `USER`）、`docs/ONLINE-DEMO.md` 命令、
   `PATCHES.md` 一行 DSH profile 路径同步清理。
-- **Pages 产物零个人路径**：工作流剔除 `we-scene-demo-server.mjs` / `scene-project-json.mjs`
+- **Pages 产物零个人路径**：工作流剔除 `server/we-scene-demo-server.mjs` / `core/scene-project-json.mjs`
   （服务端/工具源码，静态 demo 用不到）后，`_site` 内任意 `/root/` 为 **0**；
   线上 `/we-scene-demo-server.mjs` 实测 **404**。
 
@@ -5406,7 +5406,7 @@ grep -rIl --exclude='*.map' '/root/Desktop/' _site
 → _site/scene-project-json.mjs          # exit 1 ⇒ 本步骤红 ⇒ configure-pages/upload/deploy 全 skipped
 ```
 
-`scene-project-json.mjs` 与 `we-scene-demo-server.mjs` 是**服务端 / 打包工具**，两者都带
+`core/scene-project-json.mjs` 与 `server/we-scene-demo-server.mjs` 是**服务端 / 打包工具**，两者都带
 "环境变量优先 + 作者本机路径作默认值"的写法（`opts.root || process.env.MPW_ROOT || '/root/Desktop/DSHarea'`），
 而 `build-pages.mjs` 的 `PAGES_KEEP_FILES` **把这两个名字收进了白名单** ⇒ 它们必然进 `_site`。
 
@@ -5439,13 +5439,13 @@ grep -rIl --exclude='*.map' '/root/Desktop/' _site
 | `tests/` | `*-test/-check/-scan/-verify/-audit/`工具、生成器、诊断脚本（含 `run-all-tests.sh`、`docs-check.mjs`、`diag-flag-check.mjs`、`publish-check.mjs`） | 95 |
 | `shaders/` | 6 个**自研** WE-API 兼容 shader 头（**不叫 `vendor/`**：vendor 在本仓库的语义是"第三方 vendored 代码，必须带许可全文"，publish-check ④b 会按此判红 —— 放 `shaders/` 才与既有闸门口径自洽） | 6 |
 | `archive/` | `py-newblock.txt`（零引用残留）+ 本机忽略文件（`*.bak-*`、`*probe.mjs`、私有基线、标定 json）21 个 → `archive/local/`（仍被 .gitignore 忽略、不入库） | 1 + 21 |
-| **根（留）** | `README.md` `LICENSE` `package.json` `index.html` `.gitignore`(+`.public`) `THIRD-PARTY.md` `PACKAGING.md` `README-PUBLIC.md` `RENDERER-ARCHITECTURE.md` + npm 白名单运行面 + `check.sh` `build-pages.mjs` `demo-check`? → `tests/` | 27 |
+| **根（留）** | `README.md` `LICENSE` `package.json` `index.html` `.gitignore`(+`.public`) `THIRD-PARTY.md` `docs/PACKAGING.md` `docs/README-PUBLIC.md` `docs/RENDERER-ARCHITECTURE.md` + npm 白名单运行面 + `check.sh` `build-pages.mjs` `demo-check`? → `tests/` | 27 |
 
 **根上必须留的硬理由（逐条可复核）**：
 - npm `files` 白名单根级 18 条：动它们 = 改变**已发布包**的结构与 tarball 清单（用户约束②"不得变差"）。
 - `build-pages.mjs`（workflow 直接 `node build-pages.mjs`）、`check.sh`（用户硬约束"`bash check.sh` 仍可用"）。
 - `pwa-inject.mjs`：`PWA_ROUTES` 的 `file` 字段按**根**解析（含 `sw.js` / `sw-policy.mjs` 本体）。
-- `diag-flags.json`：`we-scene-demo-server.mjs` 的 `/diag-flags.json` 路由从**它自己的 `__dirname`（= 仓库根）**读。
+- `diag-flags.json`：`server/we-scene-demo-server.mjs` 的 `/diag-flags.json` 路由从**它自己的 `__dirname`（= 仓库根）**读。
 
 **引用的同步（硬约束①"所有引用必须同步更新"）**：
 - 97 个脚本进 `tests/` 后 `./根文件` → `../根文件`（`import` / 动态 `import()` / `new URL()` 三种形态，共 100+ 处）；
@@ -5478,8 +5478,8 @@ grep -rIl --exclude='*.map' '/root/Desktop/' _site
    这些引用全部指向错处。故保持 `§5 → 声明块 → §6` 的顺序，编号不动（并在此块上方加 4 行「位置口径」说明）。
 2. **新增「安装方式（三种，按场景选）」**（用户第 4 项），同样**不占编号**插在 §1 与 §2 之间，理由同上。
    - **A. npm 安装**：`npm i wallpaper-engine-web-loader@0.1.0` + 最小用法。
-     **API 按真实导出写**（不编）：`mount` / `parseScene` 来自库入口 `we-scene.mjs`；`parsePkg` / `getEntry` 来自
-     `wallpaper-engine-web-loader/bundle`（= `we-scene-bundle.js`，见 `package.json` 的 `exports`）。
+     **API 按真实导出写**（不编）：`mount` / `parseScene` 来自库入口 `core/we-scene.mjs`；`parsePkg` / `getEntry` 来自
+     `wallpaper-engine-web-loader/bundle`（= `core/we-scene-bundle.js`，见 `package.json` 的 `exports`）。
      该示例**实测跑通**：装进临时工程后 `parsePkg` 得 8 个入口、`parseScene` 得 5 层。
    - **B. 直接从源码跑**：`git clone` → `bash start-demo.sh`（默认 **8899**；`--port 9000` 等价 `PORT=9000`）
      → 浏览器 `http://127.0.0.1:8899/`；附包解析器三条修法（`MPW_PKG_EXTRACT` 等，与 `start-demo.sh` 预检同口径）。
@@ -5512,11 +5512,11 @@ grep -rIl --exclude='*.map' '/root/Desktop/' _site
 | 2 | `docs-check` 崩溃 / `diag-flags` 8 个开关消失 | 两者原住在仓库根，把 `import.meta.dirname` / `ROOT` 当仓库根；移入 `tests/` 后指向错处。`diag-flag-check` 另有一处**陈旧写法**：按 `ROOT/dsh-mpkg-wallpaper/...` 找插件（插件是**兄弟目录**，永不可能命中） | 根改为 `path.resolve(import.meta.dirname,'..')`（或统一用 `tests/_root.mjs` 的 `ROOT`）；插件按 `MPW_ROOT` 口径解析到真实落点 ⇒ **顺手修好了基线本身就红的 8 个开关缺失** |
 | 3 | `layer-rect-kal` rc=2（打印用法） | `layer-rect-check.mjs` 读**当前目录**的 `./refrender-<id>.json`；而 runner 的 cwd 现为仓库根，标定 json 被归入 `archive/local/` | 三落点候选（cwd → 仓库根 → archive/local）；标定 json 同时放回仓库根（真机标定，可再生性为零） |
 | 4 | `visual-diff-kal` 报"无该包基线" | `visual-diff.mjs` 的 `BASELINE` 曾指向仓库根；基线 json 随脚本收进 `tests/` | `BASELINE = path.join(import.meta.dirname, 'visual-baseline.json')` |
-| 5 | `quality-tiers` / `camera-pose` ENOENT | 这两个文件的 `ROOT` 原先被 `MPW_ROOT` **覆盖**（= 工作区根），却又读**根级** `we-scene-bundle.js` / `demo.html` ⇒ 两个语义撞名 | 拆开：工作区根 `MPW_WS`、仓库根 `ROOT`（来自 `tests/_root.mjs`）；`ROOT` 不再受 `MPW_ROOT` 覆盖 |
-| 6 | `packaging` / `pwa` ENOENT `make-icons.mjs` | `make-icons.mjs` 按**自身目录**读写根级 `icons/` 与 `manifest.webmanifest`，被误移进 `tests/` | 移回仓库根（它从来不是测试；`pwa-test` / `packaging-test` 都按根拉起它） |
-| 7 | 服务端类用例（`sandbox-cors` / `shot-upload` / `text-font-fallback`）超时 | `we-scene-demo-server.mjs` import 的 `pack-dir.mjs` / `scene-project-json.mjs` 被误移进 `tests/`（服务器起不来） | 两者移回仓库根（**服务端运行时依赖**；`build-pages.mjs` 仍按需排除 `scene-project-json.mjs` 不发布） |
+| 5 | `quality-tiers` / `camera-pose` ENOENT | 这两个文件的 `ROOT` 原先被 `MPW_ROOT` **覆盖**（= 工作区根），却又读**根级** `core/we-scene-bundle.js` / `demo.html` ⇒ 两个语义撞名 | 拆开：工作区根 `MPW_WS`、仓库根 `ROOT`（来自 `tests/_root.mjs`）；`ROOT` 不再受 `MPW_ROOT` 覆盖 |
+| 6 | `packaging` / `pwa` ENOENT `tools/make-icons.mjs` | `tools/make-icons.mjs` 按**自身目录**读写根级 `icons/` 与 `manifest.webmanifest`，被误移进 `tests/` | 移回仓库根（它从来不是测试；`pwa-test` / `packaging-test` 都按根拉起它） |
+| 7 | 服务端类用例（`sandbox-cors` / `shot-upload` / `text-font-fallback`）超时 | `server/we-scene-demo-server.mjs` import 的 `server/pack-dir.mjs` / `core/scene-project-json.mjs` 被误移进 `tests/`（服务器起不来） | 两者移回仓库根（**服务端运行时依赖**；`build-pages.mjs` 仍按需排除 `core/scene-project-json.mjs` 不发布） |
 | 8 | `hlsl2glsl-coverage` 覆盖率崩到 69.6% | include 解析器只扫"脚本目录"找 `common*.h`；6 个头已移入 `shaders/` | 扫描面 `shaders/` + 旧落点兼容 |
-| 9 | `p74-*` / `audio-panel` / `props-panel` / `visual-diff` / `project-json` 读文档失败 | `new URL('./README-DIAGNOSTICS.md', import.meta.url)` 等指向根文档（已移入 `docs/`）；`project-json-test` 指向已回根的 `scene-project-json.mjs` | 逐处改成 `../docs/...` / `../scene-project-json.mjs` |
+| 9 | `p74-*` / `audio-panel` / `props-panel` / `visual-diff` / `project-json` 读文档失败 | `new URL('./README-DIAGNOSTICS.md', import.meta.url)` 等指向根文档（已移入 `docs/`）；`project-json-test` 指向已回根的 `core/scene-project-json.mjs` | 逐处改成 `../docs/...`；`project-json-test` 的模块引用改指该模块的当时落点（①P-101 起为 `core/scene-project-json.mjs`） |
 | 10 | `demo-check` 29→28 | ①我自己的注释里写了**字面** `/root/...`（D3 按任意 `/root/` 判红）；②`demo-check` 自身路径随移动要同步 | 注释改为不写字面路径；新增面扫描清单里的自身路径改 `tests/demo-check.mjs` |
 
 **基线对照（证明"不是所有红都是我的，也不是所有绿都是天生"）**：
@@ -5531,9 +5531,9 @@ cd /tmp/we-head && node visual-diff-kal.mjs ; echo rc=$?   → rc=0（基线此�
 1. **`docs/` 是否该进站点产物**：本轮改为**不发**（收拢前也只是 11 份具名 md）。若希望线上提供文档，
    应在 `PAGES_KEEP_DIRS` 里按**具名白名单**加回，而不是整目录（`docs/PATCHES.md` 含描述闸门自身的 `/root/` 字样，
    会让 demo-check D6 与 workflow 的 grep 判红）。
-2. **`make-sample.mjs` 留在根**（`samples/README.md` 与 pages 白名单都按根引用它）—— 若希望它也进 `tests/`，
+2. **`tools/make-sample.mjs` 留在根**（`samples/README.md` 与 pages 白名单都按根引用它）—— 若希望它也进 `tests/`，
    需同步 `samples/README.md` 的 5 处命令与 `build-pages.mjs` 的白名单。
-3. **`README-PUBLIC.md` / `RENDERER-ARCHITECTURE.md` / `PACKAGING.md` 留在根**：它们是 npm `files` 白名单条目，
+3. **`docs/README-PUBLIC.md` / `docs/RENDERER-ARCHITECTURE.md` / `docs/PACKAGING.md` 留在根**：它们是 npm `files` 白名单条目，
    移动会改变已发布包结构（用户约束②）。若接受"包内路径变为 `docs/*.md`"（文件数/体积不变），可再动一次。
 4. **P-97.6 的五条未定项**（法律定性 U-1/U-5、RePKG 许可、工作区根 `../docs/PENDING-DECISIONS.md` 第 3/4/5/7/9/10 条、
    字体二进制 11 条 informational、`_site` 与 `.gitignore.public` 两套口径债）**本轮未结**。
@@ -5578,11 +5578,11 @@ cd /tmp/we-head && node visual-diff-kal.mjs ; echo rc=$?   → rc=0（基线此�
 
 ### 3. 脚本看不见的同类：`官方 <第三方源码文件/符号>` —— 29 行
 
-- **22 行**（`官方` → `第三方参考实现 wer-ref`）：`we-scene-bundle.js` 5（`CustomShaderPass.cpp` ×2、`WPTexHeaderParser.cpp`、`WPParticleRawGener.cpp`、`WPSceneParser.cpp`）·
+- **22 行**（`官方` → `第三方参考实现 wer-ref`）：`core/we-scene-bundle.js` 5（`CustomShaderPass.cpp` ×2、`WPTexHeaderParser.cpp`、`WPParticleRawGener.cpp`、`WPSceneParser.cpp`）·
   `docs/PATCHES.md` 5（`WPNodeTransformResolver.cpp`、`WPSoundParser.cpp`、`WPScriptRuntime.cpp`、`WPPuppet.cpp`、`SceneCamera.cpp`）·
   `tests/p74-instanceoverride-test.mjs` 4 · `tests/multi-sprite-test.mjs` 2 · `elysia/scene-scripts.js` 1（`WPSceneScriptHost.cpp`）·
-  `attach-transform.mjs` 1（`WPPuppet.cpp`）· `docs/README-DIAGNOSTICS.md` 1 · `tests/audio-semantics-test.mjs` 1 · `tests/mock-gl-test.mjs` 1 · `../NIGHTLY-REPORT-20260915.md` 1。
-- **7 行**同型（`官方` 直接修饰第三方符号，逐个核过"只在 `wer-ref/**`、不在官方资产"）：`we-scene-bundle.js` 2
+  `core/attach-transform.mjs` 1（`WPPuppet.cpp`）· `docs/README-DIAGNOSTICS.md` 1 · `tests/audio-semantics-test.mjs` 1 · `tests/mock-gl-test.mjs` 1 · `../NIGHTLY-REPORT-20260915.md` 1。
+- **7 行**同型（`官方` 直接修饰第三方符号，逐个核过"只在 `wer-ref/**`、不在官方资产"）：`core/we-scene-bundle.js` 2
   （`UpdateActiveCameraLayer`、`SetCamera("global_perspective")`）· `docs/PATCHES.md:684` · `tests/camera-node-test.mjs` 2
   （`UpdateActiveCameraLayer:99`、`SceneCamera:88`，均为断言标签文本）· `tests/p74-instanceoverride-test.mjs:82`（`InitColor`，断言标签文本）·
   `elysia/scene-scripts.js:672`（`WPSceneScriptHost`）。
@@ -5626,3 +5626,485 @@ cd /tmp/we-head && node visual-diff-kal.mjs ; echo rc=$?   → rc=0（基线此�
    本节的判定与其改动只留在工作区；公开仓库内可核的部分是上面 §1–§4 的仓内文件。
 
 ---
+
+## P-100-R1（2026-09-16 许可收口 · **R1 洁净室重写**）CPU 效果链（混合模式/HSL/像素颜色效果/位移/waterflow）4 处自认 + 12 处上游引注 → 按规格重写（行为逐位不变）+ 新增规格/确定性语料/验收测试
+
+> **编号说明**：`P-100` 已被并行线的 `?charfit`（相机/入场动画）占用（`core/we-scene-bundle.js` 的 `①(P-100 用户真机实测…)`），
+> 故本节用后缀形式 **P-100-R1**（`docs-check.mjs` 的 P 编号规则允许后缀，且数字部分 100 ≥ 上一条 99，不回退）。
+
+### 1. R1 的真实身份
+
+| 项 | 内容 |
+|---|---|
+| 锚点（改前） | `core/we-scene-bundle.js:3875` 的注释 `// 逐行翻译自 WE shader 原文，约定见 docs/WE_RENDER_CONVENTIONS.md。` —— 它压在 `// ===== src/render/effects.js =====` 节的**模块头**上（内容锚点稳定；并发改动会漂行号，本轮实测已由 3875 → 3883）。 |
+| 该节是什么 | 「场景效果链的 CPU 侧求值」：混合模式表（blending 1..32 + HSL 26–29）、像素级颜色效果（tint / pulse / colorkey）、位移类（scroll / shake / waves / sway）、waterflow 四相叠加、采样与标量工具。 |
+| 节内**另外 3 处**肯定式自认（审计维度 6 未扫出） | `:4245`「WE 混合模式（common_blending.h），**逐字实现**」· `:4312`「HSL 转换（common_blending.h 的 RGBToHSL/HSLToRGB **逐字**）」· `:4196`「waterflow（waterflow.frag:16-45，**全量字面翻译**）」 |
+| 上游 `文件:行号` 引注 | **12 处**：`scroll.vert:18-20`、`scroll.frag:10`、`shake.frag:28-79`、`shake.frag:81-85`、`waterwaves.frag:15-23`、`foliagesway.vert:44-50`（+ `frag:24-46`）、`waterflow.frag:16-45`、`tint.frag:14-28`、`pulse.frag:35-63`、`pulse.frag:58-61`、`pulse.frag:63`、`colorkey.frag:14-30` |
+| **原件是哪一轴** | **WE 专有资产**，不是 `wer-ref`：`wallpaper_engine/assets/shaders/common_blending.h`（md5 `15e39930cc3fdd95a028e01f576f9ddf`，与 `Delete/we-official-shaders/common_blending.h` 同 md5）+ `wallpaper_engine/assets/effects/{tint,pulse,colorkey,scroll,shake,waterwaves,foliagesway,waterflow}/shaders/effects/*.{frag,vert}`。反证：`grep -rl common_blending wer-ref/` = **0 命中**，`wer-ref` 内也没有任何 `*.frag` 效果着色器 ⇒ **与 P-95（wer-ref / GPL-2.0-only 轴）是两条独立的轴**，P-95 的"事后追加"也明确写了 R1 未动。 |
+| 被谁用到 | 该节是**CPU 侧参考实现**：仓库内**当前 0 个调用点**（GPU 路径走 `src/render/renderer.js` 的 GLSL pass 管线）；它是包 `exports["./bundle"]` 的公开面；`docs/RENDERER-ARCHITECTURE.md` 把它登记为「CPU 侧效果参数求值（供 mock-GL 测试与 elysia 对照）」；vendored 构建产物 `demo/assets/renderer-BOSoB05I.js:417` 在注释里把它当"CPU 参考"。 |
+| 改前测试覆盖 | **0**：全仓（`tests/**`、`demo.html`、根 `*.mjs`）grep 这些导出名 **0 命中** —— 所以本轮**新增**了语料 + 验收测试（见 §4/§5）。 |
+
+### 2. 判定：**仍为逐行翻译**（"洁净室重写"在 R1 上从未发生）
+
+判据（改前实测，命令与数字见 §6）：
+
+1. **命名回响**：`applyBlending` / `rgbToHsl` / `hslToRgb` / `hueToRgb` 与上游 `ApplyBlending` / `RGBToHSL` / `HSLToRGB` / `HueToRGB` **去大小写后完全同名**（4/4）；另有 `hueBlend/satBlend/colorBlend/lumBlend` 逐词对应上游 `BlendHue/BlendSaturation/BlendColor/BlendLuminosity`。
+2. **自认措辞**：4 处（§1 表）。
+3. **上游引注**：12 处 `文件名:行号`。
+4. **结构同构**：32 个分支与上游 `#if BLENDMODE == n` 表**逐 id 一一对应**，连上游独有的形状都保留（id 5/10 不走 `mix`、id 20 与 4 完全重复、id 22 = `Reflect(B,A)`、id 30 = `max(A)*B`、id 31 = `A + B*opacity`、id 32 = `A + A*B`）；HSL 三分支取最大通道的顺序与 `deltaR/deltaG/deltaB` 公式逐字同形；`pulse`/`colorkey`/`waterflow`/`shake` 的每个中间量都与上游 frag 同名同序。
+
+> 结论：这不是"独立重写"，也不是"部分同源"级别的改写 —— **是逐行翻译**（含 3 处额外自认，审计 §3.5 维度 6 的扫描把它们漏了，见 §7 未定项 ①）。
+
+### 3. 改法（严格按 `docs/COPYING-RULES.md` §5 五步）
+
+1. **先写规格**：新增 `docs/EFFECTS-COMPUTE-SPEC.md` —— 只写**行为需求**（输入/输出/边界/默认/接口契约/等价判据），
+   来源限定为"调用方需求与既有对外契约 + **公开标准**（W3C Compositing and Blending Level 1、PDF 1.7 §11.3、
+   GLSL 规范的 `smoothstep`/`fract`/线性采样定义）+ 包格式事实 + 本项目自己的历史口径"；
+   **不写**任何上游函数名/行号/宏表/分支写法，并显式禁止实现者照外部结构写。
+2. **只依据规格重写**（同一工作树内删旧实现，不留注释掉的老代码）。**新旧差异（≥4 点，逐项可 grep）**：
+
+| 维度 | 改前 | 改后 |
+|---|---|---|
+| **① 命名** | `applyBlending` / `applyColorChain` / `applyDisplacements` / `applyShakeMasks` / `applyFlowMix`；私有 `mix3/overlay3/softLight3/vivid/rgbToHsl/hslToRgb/hueToRgb` | `blendRgbByMode` / `composeColorEffectStack` / `resolveDisplacedUv` / `applyShakeMaskMix` / `applyWaterFlowOverlay`；私有 `lerpRgb/perChannel/hslFromRgb/rgbFromHsl/hueToChannel/darkenChannel/…`。**上游同名回响 4 → 0**（大小写不敏感） |
+| **② 控制流结构** | 32 段 `switch/case`（每 case 一个内联三通道数组字面量）+ 长度 3 的 `if/else if` 类型链 + 两处重复的 shake 位移公式 | **表驱动**：`BLEND_TABLE`（`Map`：id → `{ op, weighted }`）+ 三条加权类别；像素效果走 `PIXEL_EFFECTS`（`Map`）、位移走 `UV_OFFSETS`（`Map`）；**shake 的位移量抽成 `shakeOffset` 单一实现**，`resolveDisplacedUv` 与 `applyShakeMaskMix` 共用（改前是两份同式公式，注释还写着"与 applyDisplacements 中同式"） |
+| **③ 常量表达** | 常量散在字面量里：`0.498`（流量中性值，两处语义不同却同值）、`0.001/0.002`（colorkey 软边）、`0.2/0.8`（waterflow 斜坡）、`0.005`（sway 幅度）、`0.1`（flow 强度）、`#define` 式宏表 | 具名常量：`FLOW_NEUTRAL` / `SHAKE_WAVE_CENTER`（同值不同义，**拆成两个名字**）/ `KEY_EDGE_MIN` / `KEY_EDGE_BASE` / `FLOW_RAMP_LOW` / `FLOW_RAMP_HIGH` / `SWAY_AMPLITUDE_SCALE` / `FLOW_STRENGTH_SCALE`；混合模式按**公开标准名**组织成算子常量（`colorBurnChannel` / `softLightChannel` / `hardLightChannel` / `glowChannel` …），不再复刻上游宏表 |
+| **④ 注释与出处** | 「逐行翻译自 WE shader 原文」「逐字实现」「逐字」「全量字面翻译」+ 12 处 `文件:行号` | **全部归零**；改为「公开标准公式（W3C/PDF/GLSL 规范）」+ 本项目坐标系口径 + 指向 `docs/EFFECTS-COMPUTE-SPEC.md`；数值口径写明"逐位等价"的**理由**（CPU 结果是基准）。悬空引用 WE_RENDER_CONVENTIONS.md（该文件本仓不存在）也从该节删掉 |
+| ⑤ 边界/异常与身份契约 | —— | **刻意保持不变并写进规格**：非可迭代输入仍抛 `TypeError`（不"顺手加固"）；`tint` 新建数组、`key`/`pulse` 特定分支**原地改写**入参、`waterflow` 不原地改写 —— 这三条是可观测行为，测试按身份相等逐条断言 |
+
+3. **加验收测试**：新增 `tests/clean-room-effects-blend-test.mjs` + **确定性语料** `tests/effects-corpus.mjs`
+   （自造合成贴图，含 RGBA/RG88/mip 链/缺贴图路径，无任何真机壁纸数据），注册进 `run-all-tests.sh` 的
+   `clean-room-effects-blend` 项（条件项：缺 WE 资产时血缘层 SKIP 不红）。
+
+### 4. 行为等价证据（**逐位**，比较一律 `Object.is`）
+
+* **冻结真值** = 重写**前**实现在 960 次调用（918 混合 + 92 颜色栈 + 27 位移 + 13 shake 蒙版 + 13 waterflow，含
+  `NaN`/`±Infinity`/次正规/`-0`/越界量纲）上的实测输出；重写后必须逐位相同：
+
+| 语料 | 冻结 digest（改前 = 改后） |
+|---|---|
+| blend（918 次） | `d2b90d19eae6d11a` |
+| color-stack（92 次） | `96b707f083a6fdcc` |
+| displace（27 次） | `2a7cbeae9ed8e7b2` |
+| shake-mask（13 次） | `35f8d8364aeeb101` |
+| waterflow（13 次） | `d8c5ea3a5e53399d` |
+
+* 另有 **207 条冻结抽样值**逐条 `Object.is` 对拍（含"调用后入参状态"，专门锁 §3.4 的原地改写契约）。
+* **312 断言 / 0 失败**（含：同义 id、op=1 的交换操作数恒等、opacity 无关族、区间界、HSL 往返恒等、蒙版/alpha 恒等、身份与异常语义、源码守卫、血缘阈值）。
+* **行为差异 = 无**（逐位）。这也是"视觉等价"的下界：CPU 侧结果是 mock-GL/对拍的数值基准，1 ulp 漂移都会改结论。
+
+### 5. 相似度复测（改前 / 改后，命令与口径见 §6）
+
+| 区域（内容锚点切段） | LCS-token | 其中"去数字" | LCS-char | 标识符重合率 |
+|---|---|---|---|---|
+| 混合+HSL（125 → 168 行） | 9 → **4** | 10 → **4** | 22 → **13** | 52.9% → **22.7%** |
+| 像素颜色效果（60 → 88 行） | 8 → **6** | 6 → **4** | 36 → **20** | 30.3% → **18.4%** |
+| 位移+waterflow 整段（167 → 209 行） | 9 → 9 | 5 → 5 | 48 → 48 | 18.0% → **15.2%** |
+| waterflow 单列（39 → 42 行） | 8 → **4** | 6 → **3** | 34 → **13** | 14.5% → **5.0%** |
+| 模块头/自认措辞 | 4 处自认 + 12 处引注 → **0 / 0** | — | — | 上游同名回响 4 → **0** |
+
+> **第三行的原始字符指标不下降，是预期结果、不是残留**：该段的最长公共子串就是 **sin/cos 级数的公开系数串**
+> （`-0.5, 0.041666666, -0.0013888889, 0.000024801587`）——数学常量，值不可改（规格 §7.3/§7.5）。
+> 判据因此取五项：① 自认措辞归零 ② 上游引注归零 ③ 上游同名回响归零 ④ 结构去重（同式不再两处各写一份）
+> ⑤ "剔除数字 token"后的 LCS 与标识符重合率。五项都在测试里卡阈值（阈值按"改前会被卡红"设定）。
+
+### 6. 自证（本轮实测）
+
+| 自证项 | 命令 | 结果 |
+|---|---|---|
+| 全量门禁 | `bash tests/run-all-tests.sh` | **`══ 汇总：PASS=70 FAIL=0 SKIP=1 / 总 71 项`（rc=0）**；本项 `PASS clean-room-effects-blend (3389ms)`；唯一 SKIP = `jpeg-decode`（条件项，无真机截图）|
+| 文档一致性 | `node tests/docs-check.mjs` | `检查 14 个文档 · 431 个文件引用 · P-编号健康 ✓ · diag-flags ✓` → `✓ 文档一致性全部通过`（rc=0） |
+| 诊断开关 | `node tests/diag-flag-check.mjs` | `✓ diag-flag-check：代码 120 个开关 == README 主表 120 行，0 差异`（rc=0） |
+| 本项验收 | `node tests/clean-room-effects-blend-test.mjs` | `===== clean-room-effects-blend: 312 通过 / 0 失败 =====`（rc=0；~3.6s） |
+| 血缘复测 | 同上（⑥ 层，需 `$MPW_ROOT/wallpaper_engine/assets`） | 见 §5 表 |
+| 语法 | `node --check core/we-scene-bundle.js` | 通过 |
+
+复现命令（血缘指标；`before-bundle` 用 `git show HEAD:we-scene-demo/core/we-scene-bundle.js` 复原）：
+
+```bash
+cd we-scene-demo                                               # 相对工作区根调用；本文件在 we-scene-demo/docs/
+node tests/clean-room-effects-blend-test.mjs                  # ①–⑥ 全层（含血缘指标与阈值）
+bash tests/run-all-tests.sh --only clean-room-effects-blend    # 只跑本项
+```
+
+### 6.1 与并行线的交叠与排队（合并复核用）
+
+* 本轮的 bundle 改动与并行线（P-99 wer-ref 措辞、P-100 `?charfit`）**同文件、不同 hunk、无交叠**：
+  P-100 的 `?charfit` 块插在 `src/render/effects.js` 节的开头（现行 `:3990-4025` 附近，位于 `resolveCamposeMode` 之后），
+  本轮的模块头在 `:3882-3889`、下一个改动点从 `:4067`（原 `WHITE_FALLBACK` 注释）起 —— 两者之间隔约 40 行。
+  R1 的等价性证据是在**本轮自己的冻结快照**上取得的（改前 digest 与抽样表见 §4），
+  并行线引入的差异**没有**计入本轮"行为不变"的结论。
+* 本轮踩到并行线的一处**源码守卫**并已修正：`p76-parallax-eye-test.mjs` 的 D5 断言"bundle 非注释代码里
+  `volume`/`gain`/`setVolume` 零命中"（音频链整条在宿主）。我最初把 id 30 的局部量命名为 `gain`（增益语义），
+  被该守卫如实判红 ⇒ 改名 `peak`（数值不变，digest 复测仍逐位相同）。这是守卫**按设计生效**的一例。
+* 门禁排队事实（供复核时序）：并行线的两轮 `run-all-tests.sh` 分别在 22:30–22:54（僵尸锁等待超时）与
+  23:01–23:06 运行；本轮在**其结束后**（23:06:20–23:12:57）才注册新项并运行全量门禁，遵守"改 `run-all-tests.sh`
+  前确认无门禁在跑"的约定。期间 `docs/README-DIAGNOSTICS.md` 被另一条线补齐了 `railink`/`sbfill` 两行
+  （他们那轮因此一度红 `diag-flags`/`docs-check`/`packaging`），本轮 `diag-flag-check` 实测 **0 差异**。
+
+### 7. 回退方式
+
+R1 的改动与并行线（P-99 措辞、P-100 `?charfit`）**同文件但不同 hunk**，所以**不能**用整文件 `git checkout`
+（会连带丢掉别人的改动）。精确回退 = 用 HEAD 里的旧块替换现行块（旧块在 HEAD 里与"改前"**逐字节相同**：
+
+```bash
+cd we-scene-demo                                               # 相对工作区根
+git show HEAD:we-scene-demo/core/we-scene-bundle.js > /tmp/old-bundle.js
+python3 - <<'PY'
+import io
+old = io.open('/tmp/old-bundle.js', encoding='utf-8').read()
+cur = io.open('core/we-scene-bundle.js', encoding='utf-8').read()
+A, B = '// ---------- 位移类效果（采样坐标） ----------', '// ===== src/render/renderer.js ====='
+i, j = old.index(A), old.index(B)                      # 旧块 350 行，md5 d8e4dadcbf3c3bed62f5be8ddf2e0a08
+oi, oj = cur.index('// ---------- 通用标量与向量工具'), cur.index(B)
+hdr_new = cur[cur.index('// 场景效果链的 CPU 侧求值'):cur.index('export const M_2PI')]
+hdr_old = ('// WE 效果链的纯计算实现（CPU 光栅器与数值验证共用）。\n'
+           '// 逐行翻译自 WE shader 原文，约定见 docs/WE_RENDER_CONVENTIONS.md。\n'
+           '// 空间：显示空间 v-down（v=0 = 图层画面顶部）；效果输入一律采样原始 uv (u0, v0)；\n'
+           '// 位移只累加到采样坐标；waterflow/颜色类在采样后处理。\n\n')
+cur = cur.replace(hdr_new, hdr_old).replace(cur[oi:oj], old[i:j])
+io.open('core/we-scene-bundle.js', 'w', encoding='utf-8').write(cur)
+PY
+git checkout -- core/we-scene-bundle.js   # 仅当确认没有并发线改动时，才用这条整文件回退
+```
+
+回退后 `node tests/clean-room-effects-blend-test.mjs` 会**立刻变红**（⑤ 层：旧名回位、自认措辞复现），
+这正是该门禁存在的意义；`docs/EFFECTS-COMPUTE-SPEC.md`、`tests/effects-corpus.mjs`、
+`tests/clean-room-effects-blend-test.mjs` 与 `run-all-tests.sh` 的注册项可直接保留（对旧实现同样可跑）。
+
+### 8. 未定项（**不随本轮关闭**）
+
+1. **审计维度 6 的判据缺口（方法论）**：`docs/WER-REF-LICENSE-AUDIT.md` §3.5 写「自认语句扫描（维度 6）的产出：
+   全仓只有 **2 处**「逐分支同构」」—— 该结论**不完整**：仅 R1 这一节就另有 **4 处**肯定式自认
+   （「逐行翻译自 WE shader 原文」「逐字实现」「逐字」「全量字面翻译」），扫描只认了"逐分支同构"这一种措辞。
+   建议把判据放宽为 `逐行|逐字|字面翻译|翻译自|照抄|同构` 的**肯定式**匹配（否定式免责段需排除）。
+   该审计文件在工作区根（本轮写入范围被限定为 `we-scene-demo/`）⇒ 未改其既有结论，待追加的"事后追加"文本如下（可直接粘贴）：
+
+   > #### ✅ 事后追加（2026-09-16，**R1 已处置**；本节上述判定一律保留不改）
+   > §3.5 末段记的"**不属于 wer-ref 轴**的肯定式自认 —— `core/we-scene-bundle.js` 的「逐行翻译自 WE shader 原文」…
+   > 归 §4 那条轴（部分存疑但风险低），**本次未动**" —— **已处置**：
+   > 该自认压在 `src/render/effects.js` 节模块头上，节内另有 **3 处**同类自认（「逐字实现」「逐字」「全量字面翻译」）
+   > 与 **12 处**上游 `文件:行号` 引注；原件是 **WE 专有**资产（`wallpaper_engine/assets/shaders/common_blending.h`
+   > md5 `15e39930…` + 8 个 `assets/effects/*/shaders/effects/*`），**与 wer-ref 无关**（`wer-ref/` 内 `common_blending` 0 命中、无 `*.frag`）。
+   > 已按 `we-scene-demo/docs/EFFECTS-COMPUTE-SPEC.md` 洁净室重写（命名/控制流/常量表达/注释全改，**数值逐位不变**），
+   > 留痕 `we-scene-demo/docs/PATCHES.md` **P-100-R1**，验收 `we-scene-demo/tests/clean-room-effects-blend-test.mjs`（312 断言）。
+   > **同时修正方法论**：维度 6 的判据当时只扫「逐分支同构」，漏掉「逐行翻译/逐字/字面翻译」这类肯定式自认 —— 本节即为其漏网样本。
+2. **该节是否需要保留**：它是 CPU 参考实现，仓内 **0 调用点**（GPU 路径另有 GLSL 实现）。本轮按任务书要求"重写"而非"删除"；
+   若产品上决定不再维护 CPU 参考链，删除整节是比维护更彻底的血缘处置 —— 属功能/产品决策，另立编号。
+3. **`demo/assets/renderer-BOSoB05I.js:417`（vendored webwallgl 构建产物）的注释口径**：该注释称
+   "5/10/30/31/32 直接返回不经 opacity 权重"，与我们 id 30（**加权**）不一致。这份产物属另一项目（MIT，构建产物），
+   本轮未动；若它真按该注释实现 GLSL，则存在 CPU/GPU 口径差，需在其上游核对。
+4. **`src/render/renderer.js` 节头仍写着 docs/WE_RENDER_CONVENTIONS.md**（该文件本仓不存在）：不在 R1 范围内，本轮未动。
+5. **法律定性未变**：是否有衍生作品风险仍需律师（审计 §7 U-1）；本轮只改表达与留痕，不改任何对外行为。
+
+## P-100（2026-09-16 渲染正确性 · 用户真机实测）hina 入场动画「把人物固定在屏幕中间、然后去移动背景」—— 根因 = **蒙皮层不接相机**（真机默认路径）+ **角色层兜底适配把 origin 改写成画布中心**（`?skin0`/无蒙皮路径）；新增 `?charfit=auto|off|legacy`
+
+**用户原话**（8899 页 `?id=3554161528`）：
+> 第 1 个壁纸（hina）它有一个入场动画。oneincase 做的应该是对的，但是你的动画却把人物固定在屏幕中间，
+> 然后去移动背景。你看一下这是因为什么原因，它应该是只移动摄像头，而不是把人物固定在屏幕中间。
+
+### 一、根因（判据式，两条独立机制、同一观感）
+
+**① 真机默认路径（蒙皮开着）= `MESH_VS` 完全不读相机**（用户看到的就是这条）
+
+| 事实 | 证据 |
+| --- | --- |
+| 相机层（对象 id 3727）**是动的**：`zoom` 关键帧 3→1（`zoomRaw.animation.c0` frame 0=3 / frame 90=1，`fps:18,length:90,mode:single`）、`origin` 关键帧 (−1319.3776,−709.49872)→(0,188.248)→(0,0)，`camNode.active=true` | `core/we-scene-bundle.js:7365` 起 `evalPropAnimation(camNode.originRaw/zoomRaw, time)` → `buildCamera` |
+| 四边形层（背景/钢琴/花朵）确实吃相机：`viewProj = cam.projection·cam.view`（含 zoom 窗口 + 平移） | `core/we-scene-bundle.js:7404`（`mat4Multiply(cam.projection, cam.view)`）→ `compositeLayer` |
+| **蒙皮层不吃相机**：旧 `MESH_VS` 只按 `u_Proj`（= `general.orthogonalprojection` 3840×2160，设计画布）做 1:1 映射 —— 没有 view 平移、没有 zoom 窗口 | 旧式子 `gl_Position = vec4(wpos.x*2/u_Proj.x−1, 1−wpos.y*2/u_Proj.y, 0, 1)`；`u_Proj` 由 `demo.html:3713` 传设计画布、`demo.html:3736` 进 `renderMeshLayer` |
+| hina 的「人物」正是蒙皮层（puppet）：`demo.html:4987` 每帧 `skinLayers.forEach(l => l.__skinReady = true)` ⇒ 渲染循环走 `opts.onMeshLayer(layer)` 并 `continue`，**绕过** `compositeLayer` | `core/we-scene-bundle.js:7500`（`if (opts.onMeshLayer && layer.__skinReady)`） |
+
+命令（真包真渲染，mock-GL，逐帧抓"人物"层的屏幕矩形）：
+
+```
+node /tmp/probe-p100.mjs 3554161528 0 1 2 4 8          # CHARFIT=legacy / auto 各跑一次
+```
+
+| t | 修前 人物（蒙皮）矩形 | 修后 人物（蒙皮）矩形 | 修前/修后 背景（满幅层）w | 相机 zoom（实测） |
+| --- | --- | --- | --- | --- |
+| 0s | x[1694,2652] y[372,1578] **c=(2173,975)** | x[5201,8073] y[−3174,447] c=(6637,−1363) | 11750 | 3.0000 |
+| 1s | x[1694,2652] y[372,1578] **c=(2173,975)** | x[3397,5922] y[−1697,1486] c=(4660,−105) | 10330 | 2.6374 |
+| 2s | x[1694,2652] y[372,1578] **c=(2173,975)** | x[1866,4034] y[−404,2328] c=(2950,962) | 8866 | 2.2638 |
+| 4s | x[1694,2652] y[372,1578] **c=(2173,975)** | x[1518,2938] y[168,1958] c=(2228,1063) | 5808 | 1.4830 |
+| 8s | x[1694,2652] y[372,1578] c=(2173,975) | x[1694,2652] y[372,1578] c=(2173,975)（= 静止态，逐位相同） | 3916 | 1.0000 |
+
+**判据**：修前 `c` 恒为 (2173,975)、`w` 恒为 958（0/1/2/4s 逐位不动）——画面上"人物钉死"；同期背景 `w` 11750→3916（×3→×1）、钢琴中心 x 从 8335 → 6152 → 2739（跟着镜头走）。
+⇒ **是"相机变换没生效"（在蒙皮路径上），不是"相机求值错"**；四边形层的相机求值一直是对的（同表背景/钢琴三档逐位相同）。
+
+**② `?skin0` / 无蒙皮立绘路径 = 兜底适配把 origin 改写成画布中心**
+
+`compositeLayer` 里旧代码：`if (layer.animLayers && layer.parent === undefined)` + 超屏 ⇒
+`k = min(1, projW*0.96/w, projH*0.96/h)`、`ox = projW/2`、`oy = projH/2`（`core/we-scene-bundle.js:6919` 起）。
+hina 人物 1405×2013 @ origin (2200.54,595.23) ⇒ `oy−h/2 = −411 < 0` 命中、`k = min(1, 2.62, 1.03) = 1`
+（**只居中、不缩放**）⇒ 作者摆的位置被换成画布正中。命令与数据：
+
+```
+SKIN=0 CHARFIT=legacy node /tmp/probe-p100.mjs 3554161528 0 1 8   # 修前：人物 quad 中心 t=8 = (1921,1080) = 画布正中
+SKIN=0 CHARFIT=auto   node /tmp/probe-p100.mjs 3554161528 0 1 8   # 修后：t=8 = (2201,596) = 作者 origin
+```
+
+### 二、改了什么
+
+| 文件 | 位置 | 内容 |
+| --- | --- | --- |
+| `core/we-scene-bundle.js` | `:5076-5107`（`MESH_VS`） | 新增 `u_View`（view 平移）/`u_Framed`（取景窗口），顶点式改为 **`(wpos+cam−c)·2/framed`、`c = u_Proj·0.5`**（与 `mat4Ortho` 同基准=画布中心）。⚠ 缩放基准必须是**中心**：绕 0 缩放会把角色再推出去（实测世界点 (2200.5,595.2) t=0 应为 x=6719.8，绕 0 会算成 10559.8 ⇒ 与四边形层不配准） |
+| `core/we-scene-bundle.js` | `:6121-6125`（`renderMeshLayer`） | 上传 `u_View`/`u_Framed`：`opts2.camera = {view,framed}` 存在且合法时用之，否则回落 `(0,0)`/`projWH`（**= 改动前逐位不变**） |
+| `core/we-scene-bundle.js` | `:2439`（`buildCamera` 返回） | 回传 `viewX/viewY/framedW/framedH/hasCameraNode` —— 相机参数只算一份，蒙皮层与宿主台账共用（避免两边各算一次必然漂移） |
+| `core/we-scene-bundle.js` | `:7412-7415`、`:7501` | `renderScene` 组 `meshCamInfo` 并通过 **`opts.onMeshLayer(layer, camInfo)`** 交宿主；`?charfit=legacy` 时不交（= 旧行为） |
+| `core/we-scene-bundle.js` | `:3995-4024` | 新增纯函数 `charfitModeFrom(search)` / `resolveCharfitMode(opts, fallback)`（唯一真值表）+ 模块加载期 `CHARFIT_MODE` |
+| `core/we-scene-bundle.js` | `:6919-6931`（`compositeLayer`） | 兜底适配收窄为 `charfitMode !== 'off' && (charfitMode === 'legacy' \|\| !cam.hasCameraNode)`：**有相机层 ⇒ 不适配** |
+| `core/we-scene-bundle.js` | `:5970-5976`、`:8979` | 启动日志自报档位（进 #log → 进设备上报）+ `renderer.charfitMode` 只读暴露 |
+| `demo.html` | `:3705-3712`、`:3742-3756` | `onMeshLayer(layer, camInfo)`：把 `{view,framed}` 并进 `?meshsize` 的 `opts2`（两旗标正交，不互相覆盖）；台账 `rd` 走**同一相机换算**（旧台账继续报世界坐标 ⇒ 画面上角色已被镜头带走而台账撒谎） |
+| `tests/charfit-camera-test.mjs` | 新增 | **44 断言**：真值表 / 蒙皮-四边形**配准**（6 时间点 × 6 世界点，最大偏差 6.4e-4px）/ 三档 × 5 时间点矩形 / camInfo 传递 / 无相机零回归 / 凯尔希兜底保留 / uniform 级 / 源码守卫 |
+| `tests/camera-pose-test.mjs` | `:152-166` | ② 段"钉住改动前"的数字改由 `?charfit=legacy` 提供（新增 2 条断言：旧口径逐位保留 + 默认档不再居中）；**46 → 48 断言** |
+| `docs/README-DIAGNOSTICS.md` | ① 表 `campose` 行后 | 新增 `charfit` 行（`node tests/diag-flag-check.mjs` = 代码 120 个开关 == 主表 120 行、0 差异） |
+
+### 三、默认值 `auto` 的理由（不是随手选）
+
+1. **作者数据就是世界坐标**：官方 `scene.json` 里「人物」层 `origin = "2200.53784 595.23083"`，把它改写成 `(1920,1080)` 没有任何官方/上游依据（第三方参考实现与上游 web 渲染器都没有"把超屏立绘抠出来居中"这一步）；这条兜底是本仓库早期为"立绘被裁"自造的。
+2. **官方预览动图（`/root/Desktop/DSHarea/Steam/steamapps/workshop/content/431960/3554161528/preview.gif`，入场后帧）与"不居中"的构图更吻合**：整高方裁窗口搜索（同一窗口 `ox=496` ⇒ 设计 x 992..3152、灰度、Lanczos 到 192²）下，修后 NCC **0.657** > 修前 **0.619**；官方帧里人物 x 目测 ≈0.30..0.73（占帧宽），与修后 t=8 蒙皮矩形换算到该裁窗的 0.325..0.769 基本重合，而"钉画布中心"的 quad 是 0.105..0.755（整体左移约 0.22 帧宽）。
+3. **有相机层时兜底必然与相机打架**：兜底改的是**世界坐标**，相机又要在世界坐标上取景 ⇒ 两者语义冲突。全语料 10 包里同时命中"有相机层 + 角色超屏"的**只有 hina 这一层**；无相机层的包（凯尔希「长发3」等）`auto` 与 `legacy` **逐位相同**（兜底照旧生效，P-76 的验收值不变）。
+4. **保留兜底而不是"永远关"**：`?charfit=off` 提供"任何包都不适配"的极端档；默认 `auto` 只对"有相机层"的包关掉它，把回归面压到最小。
+
+### 四、量化验收（本机可复跑）
+
+**配准判据**（蒙皮层与四边形层必须落在同一像素）：对 hina 的 6 个时间点 × 6 个世界点，用着色器同式算出的屏幕坐标与 `projection·view` 的结果**最大偏差 6.4e-4 px**（`tests/charfit-camera-test.mjs` ② 段）。
+**位移判据**（非满幅层）：`screen_x(t) = (world_x + view_x(t) − 1920)·zoom(t) + 1920`，`view_x = −origin_x`、`zoom = 3840/framedW`：
+
+| t | `origin` 关键帧 x | `view_x` 实测 | `zoom` 实测 | 钢琴中心 x 预期→实测 | 人物（蒙皮）中心 x 预期→实测 |
+| --- | --- | --- | --- | --- | --- |
+| 0s | −1319.3776 | 1319.38 | 3.0000 | (2738.5+1319.38−1920)·3+1920 = **8333.6** → 8335 | (2172.9+1319.38−1920)·3+1920 = **6636.8** → 6637 |
+| 1s | （frame 18） | 785.76 | 2.6374 | **6155.3** → 6152 | **4660.3** → 4660 |
+| 2s | （frame 36） | 201.99 | 2.2638 | **2949.6** → 2950 | **2949.6** → 2950 |
+| 4s | （frame 72） | −45.29 | 1.4830 | … | **2228.4** → 2228 |
+| 8s | frame 90 之后恒 0 | 0 | 1.0000 | 2738.5 → 2739 | 2172.9 → 2173 |
+
+（满幅层「背景」豁免平移：中心恒 (1920,1080)，只有 `w = 3916.8·zoom` = 11750/10330/8866/5808/3916 —— 与 P-76/elysia 的 `viewBg` 口径一致，本轮未动。）
+
+**官方预览动图的量化事实**（`/root/Desktop/DSHarea/Steam/steamapps/workshop/content/431960/3554161528/preview.gif`，192²、50 帧、40ms）：
+
+| 量 | 值 | 含义 |
+| --- | --- | --- |
+| 帧间整幅位移（相位相关，49 组） | **dx=dy=0** | 官方这段预览里**没有任何镜头运动** |
+| 人物区（暗色团）质心漂移 | ≤ **0.43px**（192 帧内 ≈4.8 设计像素） | 人物在这 2s 里也没有位移/缩放 |
+| 变化像素（std>8）占比 | 8.0% | 只有发丝/光效级别的呼吸动画 |
+| 与修前/修后构图的 NCC | **0.657（修后）** vs 0.619（修前） | 同一裁窗下修后更接近官方 |
+
+⇒ 官方素材（那张 192² 的 preview 动图）**答不了"入场时人物是否移动"**（它是入场**之后**的 2s 循环，与 `docs/VISUAL-TESTING.md:49` 的既有结论一致），只能给"静止态构图"这一个真值；"入场镜头该怎么走"仍以用户真机为准（见未定项）。
+
+### 五、回退开关（写法与既有开关同形）
+
+| 开关 | 取值 | 默认 | 一句话 |
+| --- | --- | --- | --- |
+| `charfit` | `auto` / `off` / `legacy` | `auto` | 角色层适配档：`auto` = 有相机层则不适配、无相机层且超屏才兜底；`off` = 任何包都不适配（相机语义照旧）；`legacy` = **逐位回到改动前**（蒙皮层不接相机 + 角色恒钉画布中心）。非法/未知/空串 → `auto` |
+
+与既有相机档**正交**：`?campose=off`（或页面上的 🎥 相机 按钮）是"整条相机链不接"⇒ 回到上游那种**静止取景**（背景/人物都不动）；`?charfit=legacy` 只回到"角色不吃相机 + 被居中"。两个一起用可得"改动前的画面"。
+
+### 六、影响面（全语料 10 包扫描，`core/we-scene-bundle.js` 的角色层判据）
+
+命中"无父级 + `animationlayers`"的层共 4 个：hina 人物（超屏 ✓、有相机 ✓ ⇒ **行为改变**）、凯尔希「长发3」（超屏 ✓、无相机 ⇒ `auto`==`legacy` 不变）、白子「伊蕾娜」/GirlCat「girl」（不超屏 ⇒ 分支本来就不触发）。
+⇒ 默认档的可见变化**只有用户报的那一个包**；蒙皮层相机接线只在 `camPose != null` 时生效 ⇒ 其余 9 包（含 5 个"相机层是逐属性脚本、默认不施加"的包）不受影响。
+
+### 七、门禁
+
+- 新增 `tests/charfit-camera-test.mjs`（44 断言，~1.5s）已注册进 `tests/run-all-tests.sh`（名字 `charfit-camera`）。
+- `tests/camera-pose-test.mjs` 48/48（含"旧口径只由 charfit=legacy 提供"与"默认不再居中"两条新断言）。
+- `tests/meshsize-test.mjs` 48/48（demo 的 `renderMeshLayer` 调用行未改，`opts2` 合并与 `?meshsize` 正交）。
+- P-76/P-84/P-85 回归：凯尔希三档逐位相同 + 背景正常 x0=−208/w=4244 不变；白子三档逐位相同不变（`charfit` 不影响 campose 档位）。
+
+### 八、未定项 / 本机不可验
+
+1. **入场镜头在官方运行时里的真实走向**：本机无 headless WebGL（chromium GPU 进程被沙箱杀掉）、无 WE 运行时；官方预览动图是入场后帧。判据只能到"角色与其它层吃同一个相机"这一层 —— **"入场时人物该不该在画面外（t≈0–2s 相机 3× 对着左下花海）"由用户真机确认**。若用户认为入场不该有运镜，`?campose=off`（或 🎥 按钮切到"关"）就是上游那种静止取景。
+2. **相机 `origin` 的 y 符号**（`view = T(−x, +y)`，P-83/P-84 定下的口径）：换符号会让入场起点从"左下花海"变成"左上星空"，本机无官方帧可判；本轮未动（改了会推翻 P-84 的验收）。
+3. **非 16:9 画布**：本轮蒙皮层只在"有相机姿态"时接相机，`framed` 窗口随之变化；`?res=WxH`/`auto` 这类非 16:9 画布下蒙皮层与四边形层的窗口一致性**未被真机验证**（16:9 各档逐位不变）。
+4. 本机**无真机像素对照**（真机 GL 的混合/浮点差异测不到）；`preview.mjs` CPU 预览不改（它本来就没有相机姿态与适配分支）。
+
+---
+
+## P-102（2026-09-16 插件视觉轮 · 用户真机三连反馈）顶栏磨砂「层在但看不见」的真根因（`z-index:-1` 被父底整片盖住）+ 我们**两条规则**把顶栏下描边抹成 transparent 的回归 + 右侧时间线条的对比度定案
+
+> 归属：**插件侧**（`dsh-mpkg-wallpaper`），本文档收口是因为三个现象里有两条要跨仓库取证
+> （宿主 CSS 产物 + 渲染器/插件共用的门禁）。不改渲染器任何行为、不改任何开关默认值，
+> `diag-flag-check` 仍是 **代码 126 == 主表 126**（本轮**没有新增 URL 开关**）。
+> 插件侧详述见 `dsh-mpkg-wallpaper/docs/HEADER-FROST.md` §0/§0b/§6 与 `dsh-mpkg-wallpaper/docs/TIMELINE-RAIL-TOKEN.md` §3b。
+
+### 一、三个现象与归因（都有实测判据，不是推断）
+
+| # | 用户原话/现象 | 归因（**哪条规则**） | 修法 |
+| --- | --- | --- | --- |
+| ① | 「顶栏磨砂仍然没有」（前一轮已修掉 `normalizeSection` 的 `ReferenceError`，真机 diag 已显示 `injected=true/px=30/bdf=blur(30px)`） | **不是**磨砂链没跑：注入层用了 `z-index:-1`，而宿主顶栏 `position:relative` + `z-index:auto` + `isolation:auto` + `transform:none` **不是层叠上下文** ⇒ 负 z 子层画在顶栏 `background-color`（`rgba(255,255,255,.38)`）**之下**，模糊一点都透不出来 | ① 内联样式 `z-index:-1` → **`0`**；② `.mpw-hdrFrost { z-index:0 }` 等三条层叠规则改为**无条件输出**（原来落在 `if (headerBg)` 分支里）；③ 宿主顶栏直接子节点抬到 `z-index:1`（只改绘制序、不改布局）⇒ 层不盖标题/按钮 |
+| ② | 「顶栏下面一部分的描边你给它去掉了」 | **我们两条规则**各带一条 `border-bottom: 1px solid transparent !important;`：`.wSkVaW_header` 基础块 + `if (headerBg && !headerBlur)` 分支（**用户真机命中的就是后者**）。带 `!important` 权重压过宿主，下描边整条变透明 | 两条**全部删除**：插件只改 `background-color`，描边一律交还宿主（亮 `rgba(19,45,83,.26)` / 暗 `rgba(148,180,220,.32)`） |
+| ③ | 「右侧时间线条仍不可见」 | **不是我们把条删了**：无头 Firefox + 真 DSH 页面实测 `.eGxaPq_mark::before` computed `background = rgba(0,0,0,0.42)`（我们的 `--mpw-rail-ink` 生效）、`12px×2px`、`opacity=1`、无裁切祖先；宿主 token `--dsw-alias-border-l4` 在 body 上正常解析（`#00000029`）。看不见的是**对比度**：2px 高、16%~42% alpha 的细条压在任意深浅壁纸上会同色系糊掉 | **保留**覆盖（删掉只会更看不见）并按"一定能实现"加强：新增反色描边晕 `--mpw-rail-halo`（`box-shadow: 0 0 0 1px`，亮 `rgba(255,255,255,.55)` / 暗 `rgba(0,0,0,.55)`），几何仍由宿主决定；另修 `hasWall` 判据与磨砂链对齐（原来只看持久化字段 ⇒ 同页面"顶栏有磨砂、rail 判无壁纸"） |
+
+### 二、判据（可复算，两个新探针）
+
+| 探针 | 做什么 | 证据落盘 |
+| --- | --- | --- |
+| `dsh-mpkg-wallpaper/tools/header-rail-collect.mjs` | 无头 Firefox 打开**真 DSH 页面**（`127.0.0.1:3080` + 会话 cookie），采顶栏/磨砂层/rail 的 computed + 几何 + 祖先裁切 + token 解析值 | `tools/probe-out/<label>.collect.{json,txt}` |
+| `dsh-mpkg-wallpaper/tools/header-rail-replica.mjs --both` | **真宿主 CSS + 真插件 `buildCss()` 产物**的最小复刻页；`before` 变体把本轮修复逐条还原 ⇒ 同一 DOM 下的"改前/改后"对照表，且 before↔after **双向断言**（防"探针假绿"） | `tools/probe-out/replica-ab.txt`、`replica-{before,after}/` |
+
+改前/改后（复刻实测，节选）：
+
+| 指标 | 改前 | 改后 |
+| --- | --- | --- |
+| 顶栏 `border-bottom` | `1px solid rgba(0, 0, 0, 0)`（alpha 0） | `1px solid rgba(19, 45, 83, 0.26)`（alpha 0.26） |
+| 磨砂层 `z-index` | `-1`（顶栏底色 alpha 0.38 ⇒ 被整片盖住） | `0` + 宿主内容层 `z-index:1` |
+| 磨砂层 `covers header` | true（但被盖） | true（可见） |
+| rail `::before` background | `rgba(0,0,0,0.42)`、`box-shadow: none` | 同前 + `rgba(255,255,255,0.55) 0 0 0 1px` |
+
+**像素判据的边界（重要）**：本机是**无 GPU 容器**，无头 Firefox 里 `CSS.supports('backdrop-filter')` 为真但
+**不合成** backdrop-filter —— 5 个相同面板分别 `none/blur(10px)/blur(30px)/+isolation/+will-change` 的截图
+**逐像素完全相同**（`dsh-mpkg-wallpaper/docs/HEADER-FROST.md` §6 有数据）。
+所以本轮把"模糊可见性"的判据从像素差改成**结构性事实**（层叠位置/覆盖/描边 alpha/晕），
+观感强度仍留给真机确认（`?hdrfrost=off`、`?railink=off` 都是一秒对照开关）。
+
+### 三、开销（用户要求"开销不要太大"）
+
+只在**状态变化**时同步（设置提交/壁纸切换/主题翻转各一次）+ **3s 一次**低频保险（单例
+`setInterval`）。**不装**全树 `MutationObserver`、不监听 `scroll/resize/pointermove`、不做 rAF 轮询、
+不在高频路径里反复 `getComputedStyle`。理由与逐项清单写在 `dsh-mpkg-wallpaper/docs/HEADER-FROST.md` §2b。
+
+### 四、门禁（两侧）
+
+- 插件侧 `bash tools/check.sh` —— **9 步全绿**（新增第 9 步 = 真机复刻 A/B）；
+  `node tools/frost-rail-test.mjs` 断言**只增不减**（新增 PART 1b：每个设置组合都查
+  "下描边未被我们抹透明 / rail 覆盖带晕且无 `!important` 且不碰宿主 token / 磨砂层 `z-index:0` +
+  宿主内容抬到 `z-index:1`"，PART 3 追加源码级防复发）。
+- 渲染器侧 `node tests/docs-check.mjs`、`node tests/diag-flag-check.mjs`（126==126，0 差异）、
+  `bash tests/run-all-tests.sh`（本文件追加**不动 runner**）。
+
+### 五、未定项 / 本机不可验
+
+1. **磨砂观感强度**：本机不合成 backdrop-filter ⇒ "30px 在你的壁纸上够不够/会不会过糊"只能真机看。
+2. **rail 条的观感**：反色晕保证"有一圈对比边"，但"这一圈在你的壁纸上够不够显眼"同样只能真机定；
+   `?railink=off` 可一秒回到宿主原样对照。
+3. **`z-index:0` 的层叠上下文副作用面**：顶栏成为层叠上下文只影响内部谁盖谁（不改 containing block），
+   已用 `tools/css-matrix.mjs` 全组合 + 复刻 A/B 覆盖；但**顶栏内第三方插件浮层**（非本仓库）
+   若依赖"负 z 子层在顶栏背景之下"这一罕见行为，本轮未真机验证。
+4. 真机需要确认的点：刷新后 `?diag` 里 `headerFrost.computed.frostElZ` 应为 `0`、
+   `computed.headerBg` 的 alpha < 1、host `border-bottom` 非透明；`rail.markBoxShadow` 非 `none`。
+
+---
+
+## P-105（2026-09-17 发布收口）仓库按职责分层落地 + README 重写（用户点名 4 处）+ GitHub About + npm `wallpaper-engine-web-loader@0.1.1`
+
+> **编号说明**：本轮编号取"**当前最大 `## P-` 标题号顺延**"= P-102 + 1 → 但 P-102 已被本节之前的
+> 插件视觉轮占用、P-103/P-104 已被在途模块引用（见 P-105.6 第 1 条），故取**首个未被占用的号 P-105**，
+> 以保证 `tests/docs-check.mjs` 的"P-编号唯一 + 按文件顺序非降"两条判据同时成立。
+
+### P-105.1 仓库分层整理（代码按职责分档；站点根 = 仓库根，线上 URL 逐字不变）
+
+| 档位 | 内容 |
+|---|---|
+| `core/` | 解析与渲染内核：`we-scene.mjs`（库入口 `mount()`）、`we-scene-bundle.js`（PKG/TEX/MDL + WebGL2）、`scene-project-json.mjs`、`attach-transform.mjs`、`puppet-skin.js` |
+| `server/` | `we-scene-demo-server.mjs`（静态服务 + `/report` `/weassist` `/pkgdir`…）、`pack-dir.mjs`（源目录 → `.mpkg`） |
+| `web/` | 站点外壳与 PWA：`sw.js` + `sw-policy.mjs`、`pwa-inject.mjs`、`manifest.webmanifest`、`icons/`、`diag.html` / `probe.html`、`diag-flags.json` |
+| `tools/` | 生成器：`make-sample.mjs`（确定性合成样例）、`make-icons.mjs` |
+| `docs/` | 说明与审计文档（原根级 md 全部移入）；`tests/` 不变 |
+
+- 根目录 tracked **29 → 11**（`git ls-files | grep -v /`：入口脚本、`README.md`、`LICENSE`、`THIRD-PARTY.md`、`package.json`、`index.html`、`demo.html`、`build-pages.mjs`、`check.sh`、`start-demo.sh`、`.gitignore*`）。
+- **线上路径与整理前逐字一致**：`build-pages.mjs` 的白名单从"根级文件名集合"改为显式 `[仓库内落点, 产物内落点]`
+  映射（`core/we-scene-bundle.js` → 产物根 `we-scene-bundle.js` 与另一别名 `/bundle.js`、`web/sw.js` → `sw.js`、
+  `web/icons` → `icons/`…）；自带服务器同步加同名别名路由（`/we-scene-bundle.js`、`/bundle.js`、
+  `/attach-transform.mjs`、`/puppet-skin.js`…）。**服务端不暴露 `/core/**`**（实测 404），发布面仍由白名单唯一决定。
+- 浏览器侧说明符一律**相对路径**（`demo.html` 指向产物根那份扁平别名、`elysia/demo-elysia.js` 的 `../we-scene-bundle.js`）：
+  自带服务器路由与 Pages 项目站点（`/<repo>/…`）两边都命中。
+- **新增根软链 `we-scene-bundle.js → core/we-scene-bundle.js`**：`elysia/we-renderer/textures.js` 与
+  `elysia/demo-elysia.js` 必须用站点根的**扁平**说明符（浏览器侧只能这么写），而 Node 只按真实相对路径解析 ⇒
+  软链补上 Node 一侧。**修前** `attach-transform` / `camera-node` 两项门禁红
+  （`ERR_MODULE_NOT_FOUND: …/we-scene-demo/we-scene-bundle.js`，测试经 `elysia/we-renderer/core.js → textures.js` 传递导入），
+  **修后两项全绿**。（与 `demo/samples` 同一手法；`tests/publish-check.mjs` 与 `demo-check` 都按 `lstat` 跳过/断言软链。）
+
+### P-105.2 README 重写（用户点名的 4 处）
+
+1. **定位语移位**：`在浏览器里实时渲染 Wallpaper Engine 的场景壁纸（scene.pkg / .mpkg / workshop 源目录），不需要 Wallpaper Engine、不需要 Windows、不需要 GPU 专用驱动 —— 一个本地 Node 静态服务器 + 支持 WebGL2 的浏览器即可。` 移到第 1 个大标题正下方。
+2. **发布信息只留两个文本超链接**：`已发布 [wallpaper-engine-web-loader@0.1.1](https://www.npmjs.com/package/wallpaper-engine-web-loader) · [在线 demo](https://xhr666.github.io/wallpaper-engine-web-loader/)`；删掉 GitHub 链接与 PATCHES 描述。
+3. **删啰嗦与重复（已处置过的事只写结果）**：
+   - 安装章节里**重复出现三次**的自检命令块合成一行（命令已在 A / B 两处给过，只留 Node/WebGL2 两条硬要求）；
+   - §7.4(2) 的"曾判为…/旧实现…"审计叙述（含两行删除线）改为**只写处置结果**，原始判定指向
+     `docs/WER-REF-LICENSE-AUDIT.md` §3.4（审计原文一字未改，仍在审计文档里）。
+4. **保留并归位**：安装方式（三种）、已知限制（§5）、**数据上限（新增，指向 `docs/DATA-LIMITS.md`）**、
+   免责声明（位置 = 已知限制之后、许可 §6 之前）、参考致谢（§7，11 个上游项目**到文件级**）。
+   - 新增「数据上限与自动上报（默认关）」一节：自动上报默认关 + 5 类落盘物的数量/字节上限表 + 指向
+     `docs/DATA-LIMITS.md`（门禁 `data-limits`）。
+   - 该节与「安装方式」「免责声明」一样**不占章节编号**：本 README 的章节号被脚注引用
+     （§7 及其 §7.1(2) / §7.4(2)），给它们编号会让后续章节整体位移、把引用指错。
+   - 结果：README **348 行**；`grep -n '^## ' README.md` 自查通过。
+
+### P-105.3 GitHub About
+
+```bash
+gh repo edit XHR666/wallpaper-engine-web-loader \
+  --description "…（见下表）…" \
+  --homepage "https://xhr666.github.io/wallpaper-engine-web-loader/" \
+  --add-topic wallpaper-engine --add-topic webgl2 --add-topic renderer --add-topic scene-pkg \
+  --add-topic wallpaper --add-topic nodejs --add-topic mpkg --add-topic pwa \
+  --add-topic glsl --add-topic wallpaper-engine-web-loader
+```
+
+| 字段 | 值（`gh repo view --json description,homepageUrl,repositoryTopics` 实测） |
+|---|---|
+| `description` | 浏览器端 Wallpaper Engine 场景渲染器：不装 WE、不用 Windows、不需要专用 GPU 驱动 —— 一个本地 Node 静态服务器 + 支持 WebGL2 的浏览器就能实时渲染 scene.pkg / .mpkg / workshop 源目录（含离线 PWA 与逐层调试门禁）。本仓库不分发任何真实壁纸。 |
+| `homepageUrl` | <https://xhr666.github.io/wallpaper-engine-web-loader/> |
+| `repositoryTopics` | `glsl`, `mpkg`, `nodejs`, `pwa`, `renderer`, `scene-pkg`, `wallpaper`, `wallpaper-engine`, `webgl2`, `wallpaper-engine-web-loader`（10 个） |
+
+### P-105.4 npm `0.1.1` 补发（发布记录）
+
+| 项 | 值 |
+|---|---|
+| 版本 | **`0.1.1`**（`package.json`；此前线上只有 `0.1.0`） |
+| 命令 | `npm publish --registry=https://registry.npmjs.org --access public` |
+| 发布时刻 | `2026-09-16T17:15:54.376Z`（= 2026-09-17 01:15:54 +08:00；本地 `PUBLISH_START=01:15:34` → `PUBLISH_END=01:15:55` +08:00） |
+| 文件数 | **143** |
+| 体积 | **2.0 MB（tgz）** / **5 247 574 B（解包）** |
+| shasum | `3e434d719361c5a2e59bfcdd56347ffd1dd2b3c6` |
+| integrity | `sha512-TPnyoNc3+EMYf…J88drG3+GuMBQ==` |
+| tarball | <https://registry.npmjs.org/wallpaper-engine-web-loader/-/wallpaper-engine-web-loader-0.1.1.tgz> |
+| `dist-tags` | `{ latest: '0.1.1' }`（`npm view … version dist-tags` 复核；首查曾命中本机 npm 缓存仍显示 0.1.0，加 `--prefer-online` 后一致） |
+
+- 随包新增 **`docs/DATA-LIMITS.md`**（补进 `package.json` `files`）：README 的"数据上限"一节按仓内相对路径指向它，
+  npm 包内也必须能找到（README 永远随包分发，指针不能悬空）。
+- **隐私修一处**：该文件第 39 行的插件 diag 目录原写作作者机**家目录绝对路径**（`/root/.dsh/…`）⇒ 改为 `~/.dsh/…`
+  （`~` = 插件宿主端 home）。**这条是 `tests/packaging-test.mjs` 的 D 段（真打包 → 解包 → grep 家目录前缀）抓到的**：
+  `tests/publish-check.mjs` 的 `PATH_RE` 只认 `/root/Desktop/` / `/home/<user>/` / `C:\Users\`，认不出 `/root/.dsh/`
+  ⇒ **两套隐私判据覆盖面不一致**（口径债，见 P-105.6 第 3 条）。修后 `packaging-test` **133 通过 / 0 失败**。
+
+### P-105.5 发布前闸门（以最终工作树重跑，逐条实测）
+
+| 闸门 | 结果 |
+|---|---|
+| `bash tests/run-all-tests.sh` | **PASS=73 FAIL=0 SKIP=1 / 总 74 项**（唯一 SKIP = `jpeg-decode`，条件项：本机无该形状数据） |
+| `bash check.sh --json` | 见 P-105.5 补充（4 阶段 docs/publish/diag/全量门禁） |
+| `node tests/docs-check.mjs` | **rc=0** —— 16 个文档 · **478** 个文件引用 · P-编号健康 ✓ · diag-flags ✓ |
+| `node tests/publish-check.mjs` | **0 阻塞**；4 条告警 = `docs/PATCHES.md` 三处**历史记录**里的个人绝对路径（历史留痕，未改）+「未提供 WE 资产根 ⇒ 跳过专有文件比对」（informational） |
+| `node tests/packaging-test.mjs` | **133 通过 / 0 失败** |
+| `node tests/demo-check.mjs` | **29 通过 / 0 失败**（含 D6 产物零个人路径 + 必需文件齐） |
+| `npm pack --dry-run` | **143 文件 / 2.0 MB（tgz）/ 5 247 546 B（解包）**；`docs/DATA-LIMITS.md` 与 `README.md` 均在清单内 |
+| `gh repo view --json …` | description / homepageUrl / 10 topics 与 P-105.3 一致 |
+| `npm view … version dist-tags` | `0.1.1` / `{ latest: '0.1.1' }` |
+
+**本次修红记录**（上一轮被中断留下的半成品）：`attach-transform`、`camera-node` 两项红 ⇒ 根因与修法见 P-105.1 末条；
+`docs-check` / `packaging` / `panel-smoke` / `diag-flags` 四项在接手时即已绿（前一轮报告的
+"`docs/README-DIAGNOSTICS.md` 引用不存在的 `docs/DATA-LIMITS.md`"与"`core/scene-project-json.mjs` 含个人绝对路径"
+两条，实测**均已清零**：`docs/DATA-LIMITS.md` 已在位且被 4 处按 `:NN` 引用，`core/scene-project-json.mjs` 家目录路径 0 命中）。
+
+### P-105.6 未完成 / 未定（**不随本次发布关闭**）
+
+1. **P-101 / P-103 / P-104 三个号已被"在途"模块占用，但 `PATCHES.md` 尚无对应小节**：
+   `core/*.mjs`、`server/*.mjs`、`tools/*.mjs` 的注释把**本轮目录整理**称作 **P-101**；
+   `core/audio-band-array.mjs` + `docs/AUDIO-BAND-SPEC.md` + `tests/audio-band-array-test.mjs` 自称 **P-103**；
+   `docs/DATA-LIMITS.md` + `tests/data-limits-test.mjs` 自称 **P-104**。这些小节需由各自那条线补写，
+   且**必须紧接 P-105 之前/之后按号递增插入**（例如 P-103 要插在 P-102 与 P-105 之间），
+   否则会触发 `tests/docs-check.mjs` 的"P-编号按文件顺序非降"判据。
+2. **P-102 一号两用（冲突，需人工裁）**：`PATCHES.md` 的新标题 P-102 = **插件视觉轮**（顶栏磨砂/下描边/时间线条），
+   而 **P-102 = 帧几何契约**已被 5 个文件引用（`core/web-frame-geometry.mjs:1`、`THIRD-PARTY.md` §11、
+   `docs/COPYING-RULES.md` §4 #9、`tests/web-frame-geometry-test.mjs:1`、`docs/WEB-FRAME-GEOMETRY-SPEC.md`）。
+   两条线**并发**写入、互不知情。当前 `docs-check` 仍绿（标题本身唯一），但**语义上冲突** ⇒ 需其中一条改号
+   （改号要连带改上述 5 处引用）。截至本节写入时未动任何一侧，留给两条线/用户裁定。
+3. **两套隐私判据覆盖面不一致**（见 P-105.4）：`publish-check` 的 `PATH_RE` 认不出"家目录下的点目录"
+   （`/root/.dsh/…`）一类路径，而 `packaging-test` 认家目录前缀 ⇒ 建议把 `PATH_RE` 放宽为家目录前缀一条判据。
+   **本轮未改判据**（不为凑绿掩盖发现），仅把被抓到的那一处改成 `~`。
+4. **`tests/particle-render-correctness-test.mjs` 未注册进门禁**（自述 P-103 粒子渲染正确性，38+ 断言），
+   且无任何文件引用它 ⇒ 属**粒子线的在途夹具**，本次**未纳入提交**（保持 untracked）。
+5. `docs/PATCHES.md` 三处历史记录里的个人绝对路径（`publish-check` 告警行 5405 / 5864 / 5883）**有意保留**：
+   那是历史留痕的原文，改动等于篡改记录；若用户要求"个人路径清零"覆盖历史记录，需另开一条明确授权。
+6. P-97.6 的**法律定性**（审计 §7 U-1 / U-5）与 **RePKG 许可**两项仍未结案，不随本次发布关闭。

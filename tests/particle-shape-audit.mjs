@@ -1,6 +1,6 @@
 // particle-shape-audit.mjs — P-65 取证工具（用户第 8/9/10/12/13 项：粒子/半透明层）
 //
-// 对**真实包**驱动**真实 renderScene**（we-scene-bundle.js），逐层隔离，产出三组可量化证据：
+// 对**真实包**驱动**真实 renderScene**（core/we-scene-bundle.js），逐层隔离，产出三组可量化证据：
 //   ① 贴图 .tex 的 format/flags（官方 TEX0FORMAT 判据）+ 解码后形状通道统计
 //   ② 实际送进 GL 的**顶点流几何**：quad 长轴角度分布（"竖线"判据）、长宽比、顶点/段数
 //   ③ 用**真实顶点流里的 UV** 采样 **GPU 侧贴图字节**，按两版 PARTICLE_FS 语义算像素指标：
@@ -13,8 +13,8 @@
 //   默认 3554161528（hina）/ 3544152633（Girl and cat）/ 3326873240（第 1 个，rope）
 //   环境变量 TRAIL_MODE=on|quad|off 对应 ?trail=…（默认 on；quad 复现 P-59 旧几何）
 import fs from 'node:fs'
-import { createRenderer } from '../we-scene-bundle.js'
-import * as lib from '../we-scene-bundle.js'
+import { createRenderer } from '../core/we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 

@@ -14,7 +14,7 @@
 // 重包评分 cost = fxPasses×8 + maxcount/1000 + decodeMB×2 + mesh×4 + layers/20（启发式，用于 Top-10 排序）。
 import fs from 'node:fs'
 import path from 'node:path'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
 import { Buffer as MpwBuffer } from '../elysia/buffer.js'
 import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）

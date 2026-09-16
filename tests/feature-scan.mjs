@@ -2,7 +2,7 @@
 // 用法: node feature-scan.mjs [目录或 .mpkg ...]   默认扫描 allwallpaper/**.pkg + ~/.dsh-mpkg-wallpaper/*.mpkg
 import fs from 'node:fs'
 import path from 'node:path'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
 import { Buffer as MpwBuffer } from '../elysia/buffer.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。

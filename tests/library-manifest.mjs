@@ -20,7 +20,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const ROOT = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
-const lib = await import(path.join(ROOT, 'we-scene-demo', 'we-scene-bundle.js'))
+const lib = await import(path.join(ROOT, 'we-scene-demo', 'core/we-scene-bundle.js'))
 const DEC = new TextDecoder()
 
 // ---- 容器发现（与 script-corpus-audit 同源）----

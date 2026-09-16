@@ -49,7 +49,7 @@ node publish-check.mjs --assets <WE资产根>   # 发布闸门（体积/隐私/�
 
 ```bash
 # 改一行渲染代码后：先快检，再定向，最后全量
-node --check we-scene-bundle.js && node demo-syntax-check.mjs
+node --check core/we-scene-bundle.js && node demo-syntax-check.mjs
 bash run-all-tests.sh --only bundle-syntax mock-gl text-layout bloom
 bash run-all-tests.sh                      # 收尾全量
 node docs-check.mjs                        # 文档/开关一致性（新增开关必须同步文档）

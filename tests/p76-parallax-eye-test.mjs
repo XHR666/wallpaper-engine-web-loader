@@ -4,7 +4,7 @@
 // 【问题 1】凯尔希「身后的背景没有」/ 屏幕左侧盖不到
 //   真机证据：每一帧 `【帧N】左缘=178,178,178`（= 页面灰，没被覆盖）；台账 rd=[1430,-2518,4246,2546]
 //   而官方标定 refrender[31]=[-208.63,-208.73,4244.28,2546.57]（应当满幅）⇒ Δx0=+1639。
-//   根因（两处口径错，都在 `we-scene-bundle.js` compositeLayer）：
+//   根因（两处口径错，都在 `core/we-scene-bundle.js` compositeLayer）：
 //     (A) 空间：官方对象级视差 offset=((node_pos−cam_pos)+mouse)∘depth×amount 是**世界像素**，
 //         旧实现把它 mat4Translate 在 mat4Scale(m,w,h,1) **之后** ⇒ 又被 (w,h) 放大一次。
 //         背景正常 w=4244.28 ⇒ offx 0.3863px → 1639.4px；offy 0.9193px → 2341.0px。
@@ -28,7 +28,7 @@ import { installPuppet } from '../elysia/we-renderer/puppet.js'
 // ① 模块级旗标（PARALLAX_SPACE_LEGACY 等）在 **import 时**按 location.search 求值；这里钉成空查询，
 //   保证默认态 = 修复后；回退态一律走 opts.* 显式传入（同进程内可切两态，见 A3-A5）。
 globalThis.location = globalThis.location || { search: '', href: 'http://localhost/' }
-const lib = await import('../we-scene-bundle.js')
+const lib = await import('../core/we-scene-bundle.js')
 
 let pass = 0, fail = 0
 const fails = []
@@ -376,7 +376,7 @@ check('B4 回退开关 ?eyehack=0 保持 authored scale（A/B 可用）',
 
 // B5 代码级：蒙皮路径不消费 size/uvRect（⇒ hack 的"长条眼窗"在蒙皮层上本来就没生效）
 {
-  const src = fs.readFileSync('./we-scene-bundle.js', 'utf8')
+  const src = fs.readFileSync('./core/we-scene-bundle.js', 'utf8')
   const a = src.indexOf('function renderMeshLayer(')
   const b = src.indexOf('// ①(RE-33) bloom 链程序', a)
   const body = (a >= 0 && b > a) ? src.slice(a, b) : ''
@@ -478,7 +478,7 @@ console.log('\n── C. ?bones= 逐骨探针：det（镜像）与两轴 scale �
   check('C3 __mpwBones.mirror 反映**本帧**（第二帧 b0 已镜像）', !!onFlip && onFlip.mirror.length === 1 && onFlip.mirror[0] === 0)
   check('C4 [bones] 摘要行包含"镜像骨(det<0)"与"det跨帧翻转"两节',
     (() => {
-      const src = fs.readFileSync('./we-scene-bundle.js', 'utf8')
+      const src = fs.readFileSync('./core/we-scene-bundle.js', 'utf8')
       return src.includes("' | 镜像骨(det<0): ' + mirTxt + ' | det跨帧翻转: ' + detFlipsTxt")
     })())
 }
@@ -519,7 +519,7 @@ console.log('\n── D. user-property bindings: volume / zoom ──')
   // D5 `volume` 在本文件**无落点** ⇒ 明确"不接"（并证明不是漏看）
   {
     // 只统计**非注释**代码行（本补丁的注释里就写着 "volume/gain/setVolume 零命中"，不剔除会自证其反）
-    const src = fs.readFileSync('./we-scene-bundle.js', 'utf8')
+    const src = fs.readFileSync('./core/we-scene-bundle.js', 'utf8')
     const code = src.split('\n')
       .map((l) => l.replace(/\/\/.*$/, ''))                 // 去行尾注释
       .filter((l) => !/^\s*(\/\*|\*)/.test(l))              // 去块注释行
@@ -616,7 +616,7 @@ console.log('\n── D. user-property bindings: volume / zoom ──')
       check('D4 hina 相机层 active=true（origin 是关键帧）但**完整相机通路仍未接**（P-76 只接 zoom-only，见未定项）',
         s3.cameraNode.active === true)
       // 源码级：camPose 只在 zoomOnly 分支进 buildCamera —— 防止有人顺手把动画路径也接上而不更新本断言/PATCHES
-      const src = fs.readFileSync('./we-scene-bundle.js', 'utf8')
+      const src = fs.readFileSync('./core/we-scene-bundle.js', 'utf8')
       check('D4 源码级：`buildCamera` 的 cameraPose 只来自 `camPose.__zoomOnly` 分支（动画/fov 通路仍未接）',
         /camPose && camPose\.__zoomOnly[\s\S]{0,220}cameraPose: \{ x: 0, y: 0, zoom: camPose\.zoom \}/.test(src))
     } else { console.log('  SKIP D4（缺 hina 包）') }
@@ -726,7 +726,7 @@ console.log('\n── E. ?bones= 会话累计极值 + 眨眼捕获 ──')
     onM.blinks.length === 20 && onM.summary.blinkSamples === 20,
     onM ? 'count=' + onM.summary.blinkCount + ' samples=' + onM.blinks.length : 'missing')
   check('E5 源码级：`[bones]` 摘要行含「会话累计」+ maxΔty + 眨眼事件三节',
-    (() => { const src = fs.readFileSync('./we-scene-bundle.js', 'utf8'); return src.includes("' | 【会话累计】帧='") && src.includes("' 眨眼事件=' + summary.blinkCount") && src.includes("maxΔty=b' + summary.maxDtyBone") })())
+    (() => { const src = fs.readFileSync('./core/we-scene-bundle.js', 'utf8'); return src.includes("' | 【会话累计】帧='") && src.includes("' 眨眼事件=' + summary.blinkCount") && src.includes("maxΔty=b' + summary.maxDtyBone") })())
 }
 
 // ═══════════════════════ 汇总 ═══════════════════════

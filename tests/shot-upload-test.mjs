@@ -11,7 +11,7 @@
 //      跑边界（等于阈值 / 小于阈值 / 超大图 / 零尺寸）；并断言连拍路径**不存在 setInterval**、取样点在帧末。
 //   ② **原分辨率**：要抓的是人物面部/眉毛，缩略图（480×270）看不清 ⇒ 断言读回用的是 `cv.width/height`
 //      且只有宽度 >1920 才等比缩（1920 这一档是"肉眼可辨 + 单帧落在 4MB 上限内"的折中）。
-// 服务端侧的证据必须是**真进程 + 真字节**：子进程起 `we-scene-demo-server.mjs`（空闲端口、临时
+// 服务端侧的证据必须是**真进程 + 真字节**：子进程起 `server/we-scene-demo-server.mjs`（空闲端口、临时
 //   MPW_REPORTS_DIR、try/finally 必杀），POST 一段**能真解码的最小合法 JPEG**（本文件的 16×16 向量先用
 //   仓库自带解码器 `elysia/we-renderer/jpeg.js` 验过），再逐条钉死 200 / ok:true / 文件真的存在 /
 //   字节与发送**逐字节相同** / `index.jsonl` 多一行且字段齐全；反面：非图片 content-type 415、
@@ -39,7 +39,7 @@ const check = (name, ok, detail) => {
 }
 
 const HTML = fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8')
-const SERVER_SRC = fs.readFileSync(path.join(ROOT, 'we-scene-demo-server.mjs'), 'utf8')
+const SERVER_SRC = fs.readFileSync(path.join(ROOT, 'server/we-scene-demo-server.mjs'), 'utf8')
 function slice(src, a, b) {
   const i = src.indexOf(a), j = src.indexOf(b)
   if (i < 0 || j < 0 || j < i) throw new Error('demo.html 里找不到区块标记：' + a)
@@ -140,7 +140,7 @@ console.log('[C] 服务端契约：子进程真服务（空闲端口 + 临时 MP
       s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)) })
       s.on('error', rej)
     })
-    child = spawn(process.execPath, ['we-scene-demo-server.mjs'], {
+    child = spawn(process.execPath, ['server/we-scene-demo-server.mjs'], {
       cwd: HERE,
       env: { ...process.env, PORT: String(port), MPW_REPORTS_DIR: REP },
       stdio: ['ignore', logFd, logFd],
@@ -232,14 +232,25 @@ console.log('[C] 服务端契约：子进程真服务（空闲端口 + 临时 MP
   }
 }
 
-console.log('[D] 服务端源码守卫（滚动策略各自独立：shots 400 帧 / report 60 份）')
+console.log('[D] 服务端源码守卫（两套滚动策略各自独立，上限都从 MPW_LIMITS 取：shots 每 id 400 帧/200MB + 全局 500MB，report 60 份/64MB）')
 {
   check('D1 POST /shot 路由存在，且读的是原始 body（不是 JSON 解析）',
     /m = p\.match\(\/\^\\\/shot\$\/\);/.test(SERVER_SRC) && !/JSON\.parse\(body\)[\s\S]{0,200}shots/.test(SERVER_SRC))
-  check('D2 shots 目录**自己**按"每 id 最多 400 帧，超出删最旧"滚动',
-    /while \(pics\.length > 400\)/.test(SERVER_SRC) && /readdirSync\(dir\)\.filter\(\(f\) => \/\\\.\(jpg\|png\)\$\/i\.test\(f\)\)/.test(SERVER_SRC))
-  check('D3 /report 的既有 60 份滚动**一字未动**（两套策略互不影响）',
-    /while \(all\.length > 60\)/.test(SERVER_SRC) && /readdirSync\(dir\)\.filter\(\(f\) => f\.endsWith\('\.json'\)\)/.test(SERVER_SRC))
+  // ①(P-104 2026-09-17 用户发布纪律②) 滚动逻辑从"写死 400 的内联 while"升级成
+  //   `pruneShotsId(sid)` + `MPW_LIMITS.shotPerIdMaxFiles/MaxBytes`（数量 + 字节双上限）。
+  //   守卫口径随之更新：**行为只增不减**（仍然每 id 滚动、只数图片、index.jsonl 台账不删）。
+  check('D2 shots 目录**自己**按"每 id ≤N 帧 + ≤N 字节，超出删最旧"滚动（上限来自 MPW_LIMITS，不再写死 400）',
+    /pruneShotsId\(sid\);/.test(SERVER_SRC)
+    && /maxFiles: MPW_LIMITS\.shotPerIdMaxFiles/.test(SERVER_SRC)
+    && /maxBytes: MPW_LIMITS\.shotPerIdMaxBytes/.test(SERVER_SRC)
+    && /filter: \(n\) => \/\\\.\(jpg\|png\)\$\/i\.test\(n\)/.test(SERVER_SRC))
+  check('D3 /report 的滚动仍在（60 份 + 合计 64MB），且与 shots 是**两套独立**策略（各自的函数 + 各自的目录）',
+    /pruneReports\(dir\)/.test(SERVER_SRC)
+    && /maxFiles: MPW_LIMITS\.reportsMaxFiles/.test(SERVER_SRC)
+    && /maxBytes: MPW_LIMITS\.reportsMaxBytes/.test(SERVER_SRC)
+    && /reportsMaxFiles: numEnv\('MPW_LIMIT_REPORTS_MAX', 60\)/.test(SERVER_SRC)
+    && /shotPerIdMaxFiles: numEnv\('MPW_LIMIT_SHOT_FILES', 400\)/.test(SERVER_SRC)
+    && /filter: \(n\) => \/\^r\\d\+\\\.json\$\/\.test\(n\)/.test(SERVER_SRC))
   check('D4 4MB 上限与 415/400 三种拒绝路径都在源码里（413/415/400 各一处 res.writeHead）',
     /MAX_SHOT = 4 \* 1024 \* 1024/.test(SERVER_SRC) && /res\.writeHead\(413/.test(SERVER_SRC)
     && /res\.writeHead\(415/.test(SERVER_SRC) && /sid\.includes\('\.\.'\)/.test(SERVER_SRC))

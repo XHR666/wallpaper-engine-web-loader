@@ -1,7 +1,7 @@
 # assets/fonts — 随仓库分发的字体（P-86）
 
 本目录是渲染器的**第二级字体来源**（四级链：包内 → **仓库自带** → 本机 WE → `sans-serif`）。
-`we-scene-demo-server.mjs` 把本目录挂在 `/assets/fonts/<文件名>` 下（含 `licenses/` 子目录）。
+`server/we-scene-demo-server.mjs` 把本目录挂在 `/assets/fonts/<文件名>` 下（含 `licenses/` 子目录）。
 
 > **一句话纪律**：本目录里**没有**任何一个文件是从 Wallpaper Engine 安装目录
 > （`<WE>/assets/fonts/`）复制来的。每个文件都能追溯到作者/上游的下载 URL，

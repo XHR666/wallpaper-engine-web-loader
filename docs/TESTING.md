@@ -10,7 +10,7 @@
 
 | 测试/工具 | 作用 | 期望输出 | 依赖 | 门禁内 |
 |---|---|---|---|---|
-| `node --check we-scene-bundle.js` | bundle 语法 | 退出 0 | 无 | ✅ |
+| `node --check core/we-scene-bundle.js` | bundle 语法 | 退出 0 | 无 | ✅ |
 | `internal-shader-validate.mjs` | 内置 shader 转译+编译冒烟 | 13/13 通过 | 无 | ✅ |
 | `glsl-validate.mjs` | GLSL 语义/常见雷区校验 | 128/128 通过 | 无 | ✅ |
 | `mock-gl-test.mjs` | mock-GL 驱动渲染器全路径断言 | 12 通过 / 0 失败 | 无 | ✅ |
@@ -83,8 +83,8 @@ node report-audit.mjs --trend [N]   # 每场景最近 N 份跨报告趋势：稳
 | `tex-format-verify.mjs` | 纹理格式抽验 | 无 |
 | `text-render.mjs` | 文本光栅库（被 text-layout-test 复用，非入口） | 无 |
 | `diag-flag-check.mjs` | 诊断开关：代码抓取 == README-DIAGNOSTICS.md，0 差异 | 无 |
-| `puppet-skin.js` | 蒙皮支持库（非入口） | 无 |
-| `we-scene-demo-server.mjs` + `keep-demo-server.sh` | :8899 演示服务器 + 看门狗 | **不要手动重启**；`POST /diag` 在文件更新后下次重启生效 |
+| `core/puppet-skin.js` | 蒙皮支持库（非入口） | 无 |
+| `server/we-scene-demo-server.mjs` + `keep-demo-server.sh` | :8899 演示服务器 + 看门狗 | **不要手动重启**；`POST /diag` 在文件更新后下次重启生效 |
 
 ## 基线文件（门禁判据，勿手改）
 
@@ -92,7 +92,7 @@ node report-audit.mjs --trend [N]   # 每场景最近 N 份跨报告趋势：稳
 - `perf-baseline.json` — 静态成本+粒子 CPU 基准（`node perf-profile.mjs --write-baseline`）
 - `visual-baseline.json` — 视觉分数基线（`node visual-diff.mjs --id <id> --write-baseline`）
 - `known.json` — 门禁白名单（每条豁免必须带 reason+date）
-- `diag-flags.json` — diag-flag-check.mjs 生成（勿手改）
+- `web/diag-flags.json` — diag-flag-check.mjs 生成（勿手改；服务器按 URL `/diag-flags.json` 提供）
 
 ## 插件侧（dsh-mpkg-wallpaper）
 

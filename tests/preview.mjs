@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 
-const BUNDLE = process.env.MPW_BUNDLE || '/root/Desktop/DSHarea/we-scene-demo/we-scene-bundle.js'; // ①(去个人化) 可覆盖
+const BUNDLE = process.env.MPW_BUNDLE || '/root/Desktop/DSHarea/we-scene-demo/core/we-scene-bundle.js'; // ①(去个人化) 可覆盖
 const SCENE_ROOT = process.env.MPW_SCENE_ROOT || '/root/Desktop/DSHarea/allwallpaper/dd'; // ①(去个人化) 可覆盖
 const lib = await import(pathToFileURL(BUNDLE).href)
 const { parsePkg, getEntry, parseScene, resolveBuiltin, applyRenderConfig } = lib

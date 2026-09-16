@@ -17,7 +17,7 @@ projects. Their licenses are reproduced in full below, as required.
 
 Portions of `elysia/**` (CPU scene renderer, MDL/puppet parsing, skinned-mesh rasterisation,
 effect implementations, GLSL interpreter, scene-script runtime, CFF text rasteriser) and the
-whole of `attach-transform.mjs` are ported from, or are derivative works of, the
+whole of `core/attach-transform.mjs` are ported from, or are derivative works of, the
 `lib/we-renderer/**` and `lib/*.js` sources of this project.
 
   Upstream:  https://github.com/elysia395/dsh-wallpaper-engine
@@ -34,7 +34,7 @@ Files in this repository that contain ported material:
   - elysia/font-render.js            (ported)
   - elysia/scene-scripts.js          (ported and extended)
   - elysia/scene-script-apis.js      (ported and extended)
-  - attach-transform.mjs             (verbatim port of four upstream functions)
+  - core/attach-transform.mjs             (verbatim port of four upstream functions)
 
 ### MIT License
 
@@ -302,7 +302,7 @@ travelling with any redistribution of this repository.
 
 | Upstream path | Commit | What we took | Where it landed here |
 |---|---|---|---|
-| `renderer/vendor/we-scene/render/renderer-glsl.js` — `FXAA_FRAG` (lines 452–489 upstream) | `fdfc578` | the **FXAA fragment shader GLSL**, verbatim | `we-scene-bundle.js`, constant **`FXAA_FS`** |
+| `renderer/vendor/we-scene/render/renderer-glsl.js` — `FXAA_FRAG` (lines 452–489 upstream) | `fdfc578` | the **FXAA fragment shader GLSL**, verbatim | `core/we-scene-bundle.js`, constant **`FXAA_FS`** |
 
 **Byte-level verification** (`FXAA_FS` vs upstream `FXAA_FRAG`, ignoring comments, blank lines and
 indentation): **identical — 38/38 GLSL lines, no token differs.** The algorithm constants are the
@@ -380,7 +380,7 @@ Two different things, both stated here so the record is unambiguous:
   entry, and the build additionally stages the same files under `/wallpaper-engine-webgl/`
   because the minified bundle hard-codes that prefix (`build-pages.mjs`, `docs/ONLINE-DEMO.md` §2.1).
 * **Also reproduced in our own code.** The shader shown in §6.1 (`FXAA_FS`) is a verbatim port into
-  `we-scene-bundle.js`.
+  `core/we-scene-bundle.js`.
 
 MIT → GPL-3.0-or-later is a permitted one-way flow (`docs/COPYING-RULES.md` §2.1), so
 redistributing the MIT build inside this GPL repository is fine **provided the MIT notice keeps
@@ -397,7 +397,7 @@ come with a `LICENSE`/`COPYING` file containing the word "MIT".
              `publish-check.mjs` check ②)
   Copyright: Copyright (c) 2026 dsh-mpkg-wallpaper contributors
 
-The renderer **imports** the plugin's package parser (e.g. `we-scene-demo-server.mjs` imports
+The renderer **imports** the plugin's package parser (e.g. `server/we-scene-demo-server.mjs` imports
 `parsePkg` / `readPkgEntry` from `dsh-mpkg-wallpaper/lib/pkg-extract.js`). The plugin stays
 MIT-licensed; MIT → GPL is a permitted one-way flow, and this repository's GPL does **not**
 propagate back into the plugin. When redistributing this renderer you must carry the plugin's
@@ -417,12 +417,12 @@ the repository (`../lwe-ref/`, `../wer-ref/`, `../we-layerd-ref/`, `../vendor-re
 | Upstream | Licence | What was referenced | Code copied? |
 |---|---|---|---|
 | [Almamu/linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine) | **GPL-3.0-only** | `.tex` container format basis (`TEXV0005`+`TEXI0001`+`TEXB0001~0004`), V3-layout fallback, `ObjectParser.cpp:770` default length, `CParticle.cpp:767-778` velocity-random initializer, control-point flags | **No** (no ledger entry in `docs/COPYING-RULES.md` §4 ⇒ never borrowed) |
-| [Aromatic05/wallpaper-engine-renderer](https://github.com/Aromatic05/wallpaper-engine-renderer) | **GPL-2.0-only** | ⚠ **Two point-like same-origin fragments were found by our own audit** (`../docs/WER-REF-LICENSE-AUDIT.md` §3.4): (a) `normalizeImageAlpha` (then `we-scene-bundle.js:951-956`) ↔ upstream `WPImageObject.cpp:59-63` — judged a **line-for-line translation** (same branch order, same magic numbers `1`/`100`, same clamp); (b) the alignment offset (then `we-scene-bundle.js:4430-4441`) ↔ upstream `WPImageAlignment.hpp:24-36` — judged a **same-origin rewrite, not a clean-room product** (identical token→axis→direction table, same substring dispatch, same `center` short-circuit). Two weaker forms were also found and **have since been fixed (P-95)**: the parallax `mouse_vec` formula that used to be written out as an upstream expression in a comment is now derived in **our own coordinate system** (the upstream file/line citation is gone), and the `__makeNoopVideoTexture` name in `elysia/scene-scripts.js` — which was `wer-ref`'s **private** name, misleadingly described there as "official" — has been removed (the comment now describes it as the WE script API `getVideoTexture` no-op fallback, and the implementation, being the API-contract-only minimum, is unchanged) | **Not verbatim** (no comment / error-string / constant-table copies; ~2 functions, ~11 lines, point-like — not a paragraph- or file-level port; 0 `import`/`require`/`readFile` of that tree). **✅ Both same-origin fragments have since been clean-room rewritten (P-95, 2026-09-16)** through the five-step process required by `docs/COPYING-RULES.md` §5: a written behaviour spec (`docs/IMAGE-ALPHA-ALIGN-SPEC.md`) → an implementation based only on that spec (`coerceImageAlphaMode` + `classifyAlphaDomain`/`saturateUnitInterval` with named bounds; `alignmentOffsetForToken` + `readAlignmentAxisSigns` + `ALIGNMENT_HALF_SHIFTS`, where token glyphs and offsets are fully decoupled into a sign-pair lookup) → provably different naming/branching/constants/structures/comments → a spec-only test (`clean-room-alpha-align-test.mjs`, **1008 pass / 0 fail**, including "bit-identical to the pre-rewrite implementation" and six real-package corpus regressions). The old `normalizeImageAlpha` and the pre-rewrite alignment-offset identifier (quoted verbatim in the audit, §3.4 fragment 2) no longer exist. **Bookkeeping (now closed):** the rewrite is registered as `PATCHES.md` **P-95**, and the source comments were corrected to cite **P-95** as well (P-91 in the changelog is the separate *distribution-shape* entry) — and `../docs/WER-REF-LICENSE-AUDIT.md` §3.4 now carries a **"✅ post-hoc addendum"** documenting the remediation while leaving the original findings standing. **Still open:** the **legal characterisation** (audit §7 **U-1**, whether this ever amounted to a GPL-2.0-only derivative, needs a lawyer; **U-5**, whether the list is exhaustive), the residual upstream-expression citation at `we-scene-bundle.js:7233` has also been removed. GPL-2.0-only remains **bidirectionally incompatible** with this repository's GPL-3.0-or-later, which is why the rewrite was required. |
+| [Aromatic05/wallpaper-engine-renderer](https://github.com/Aromatic05/wallpaper-engine-renderer) | **GPL-2.0-only** | ⚠ **Two point-like same-origin fragments were found by our own audit** (`../docs/WER-REF-LICENSE-AUDIT.md` §3.4): (a) `normalizeImageAlpha` (then `core/we-scene-bundle.js:951-956`) ↔ upstream `WPImageObject.cpp:59-63` — judged a **line-for-line translation** (same branch order, same magic numbers `1`/`100`, same clamp); (b) the alignment offset (then `core/we-scene-bundle.js:4430-4441`) ↔ upstream `WPImageAlignment.hpp:24-36` — judged a **same-origin rewrite, not a clean-room product** (identical token→axis→direction table, same substring dispatch, same `center` short-circuit). Two weaker forms were also found and **have since been fixed (P-95)**: the parallax `mouse_vec` formula that used to be written out as an upstream expression in a comment is now derived in **our own coordinate system** (the upstream file/line citation is gone), and the `__makeNoopVideoTexture` name in `elysia/scene-scripts.js` — which was `wer-ref`'s **private** name, misleadingly described there as "official" — has been removed (the comment now describes it as the WE script API `getVideoTexture` no-op fallback, and the implementation, being the API-contract-only minimum, is unchanged) | **Not verbatim** (no comment / error-string / constant-table copies; ~2 functions, ~11 lines, point-like — not a paragraph- or file-level port; 0 `import`/`require`/`readFile` of that tree). **✅ Both same-origin fragments have since been clean-room rewritten (P-95, 2026-09-16)** through the five-step process required by `docs/COPYING-RULES.md` §5: a written behaviour spec (`docs/IMAGE-ALPHA-ALIGN-SPEC.md`) → an implementation based only on that spec (`coerceImageAlphaMode` + `classifyAlphaDomain`/`saturateUnitInterval` with named bounds; `alignmentOffsetForToken` + `readAlignmentAxisSigns` + `ALIGNMENT_HALF_SHIFTS`, where token glyphs and offsets are fully decoupled into a sign-pair lookup) → provably different naming/branching/constants/structures/comments → a spec-only test (`clean-room-alpha-align-test.mjs`, **1008 pass / 0 fail**, including "bit-identical to the pre-rewrite implementation" and six real-package corpus regressions). The old `normalizeImageAlpha` and the pre-rewrite alignment-offset identifier (quoted verbatim in the audit, §3.4 fragment 2) no longer exist. **Bookkeeping (now closed):** the rewrite is registered as `PATCHES.md` **P-95**, and the source comments were corrected to cite **P-95** as well (P-91 in the changelog is the separate *distribution-shape* entry) — and `../docs/WER-REF-LICENSE-AUDIT.md` §3.4 now carries a **"✅ post-hoc addendum"** documenting the remediation while leaving the original findings standing. **Still open:** the **legal characterisation** (audit §7 **U-1**, whether this ever amounted to a GPL-2.0-only derivative, needs a lawyer; **U-5**, whether the list is exhaustive), the residual upstream-expression citation at `core/we-scene-bundle.js:7233` has also been removed. GPL-2.0-only remains **bidirectionally incompatible** with this repository's GPL-3.0-or-later, which is why the rewrite was required. |
 | [catsout/wallpaper-scene-renderer](https://github.com/catsout/wallpaper-scene-renderer) | **GPL-2.0-only** (archived) | Archived fork parent of `wer-ref` (same LICENSE blob); read only as a third-party cross-check on "is the official behaviour what we think it is" — only its **behavioural conclusions** are cited | **No** (no local checkout) |
 | [waywallen/waywallen](https://github.com/waywallen/waywallen) | **MIT** | Architecture precedent only: "permissive host + copyleft renderer spawned as a separate process" (upstream `plugin.toml.in`, `[renderers.wescene-renderer]`) | **No** — the recorded MIT permission to borrow was never exercised |
 | [waywallen/open-wallpaper-engine](https://github.com/waywallen/open-wallpaper-engine) | **GPL-2.0-only** | Zero contact: appears only in licence-compatibility analysis and in `wer-ref`'s own migration note (upstream-to-upstream lineage) | **No** |
 | [aqnya/unmpkg](https://github.com/aqnya/unmpkg) | **GPL-3.0** | `.mpkg` binary **format** only | **No** — the 38-line script that named it as its format source was **deleted 2026-09-16** (lineage could not be excluded). Whether "format only" is provable **cannot be confirmed on this machine** |
-| [notscuffed/repkg](https://github.com/notscuffed/repkg) | ⚠ **UNRESOLVED — our own records contradict each other** (MIT in `../docs/SIMILAR-PROJECTS-RESEARCH.md`; GPL in `PATCHES.md`, `docs/COPYING-RULES.md`, `../docs/PLUGIN-POLLUTION-AUDIT.md`, plugin README) | `.tex` decoding conventions (RG88 as `(rgb=G, a=R)`, ImageSharp `Rgba32` channel agreement, greyscale = 2nd channel, alpha = 1st) | **No (verbatim)** — but `we-scene-bundle.js` states that BC1/BC2/BC3 are "**line-by-line aligned with RePKG's LibSquish port**", which is stronger than "format reference" ⇒ **must be re-verified upstream before distribution**. The 267-line script that named it as a source was deleted 2026-09-16 |
+| [notscuffed/repkg](https://github.com/notscuffed/repkg) | ⚠ **UNRESOLVED — our own records contradict each other** (MIT in `../docs/SIMILAR-PROJECTS-RESEARCH.md`; GPL in `PATCHES.md`, `docs/COPYING-RULES.md`, `../docs/PLUGIN-POLLUTION-AUDIT.md`, plugin README) | `.tex` decoding conventions (RG88 as `(rgb=G, a=R)`, ImageSharp `Rgba32` channel agreement, greyscale = 2nd channel, alpha = 1st) | **No (verbatim)** — but `core/we-scene-bundle.js` states that BC1/BC2/BC3 are "**line-by-line aligned with RePKG's LibSquish port**", which is stronger than "format reference" ⇒ **must be re-verified upstream before distribution**. The 267-line script that named it as a source was deleted 2026-09-16 |
 | [Aromatic05/we-layerd](https://github.com/Aromatic05/we-layerd) | **NONE — no LICENSE file ⇒ all rights reserved** | One behavioural cross-check ("this feature has zero implementation there") | **No** |
 
 **Not referenced at all** (present only in licence-compatibility studies — do not read them as
@@ -490,7 +490,7 @@ translator is distributed here under this repository's GPL-3.0-or-later while th
 It is used by exactly one consumer today: the coverage gate `hlsl2glsl-coverage-test.mjs`, which turns the
 number in `docs/HLSL2GLSL-COVERAGE.md` §0 (112/114 = 98.2%) into an assertion that can go red
 (self-proof: `MPW_H2G_MIN_RATIO=0.999 node hlsl2glsl-coverage-test.mjs` ⇒ rc=1). **The renderer's own
-shader path does not call it yet** — wiring it into `we-scene-bundle.js` is an open item (PATCHES.md P-93,
+shader path does not call it yet** — wiring it into `core/we-scene-bundle.js` is an open item (PATCHES.md P-93,
 "未做"). No webwallgl code beyond these two files (and the §6 FXAA shader) is present in this repository.
 
 ---
@@ -510,3 +510,98 @@ shader path does not call it yet** — wiring it into `we-scene-bundle.js` is an
 `we-layerd-ref` = 无许可 ❌ 不可借），两行都写明"**仅行为对照 / 洁净室；严禁复制代码；不得进入任何发布产物**"。
 任何文档/注释提到这两个来源时，**同一句**必须带中性标注（第三方参考实现 + GPL-2.0-only/无许可 + 仅行为对照 +
 未取代码），不得再称其为"官方"或"真值源"。
+---
+
+## 11. webwallgl  (MIT © oneincase) — **P-102: 帧几何契约按规格重写进 `core/web-frame-geometry.mjs`**
+
+  Upstream:  https://github.com/oneincase/webwallgl
+  Licence:   MIT
+  Copyright: Copyright (c) 2026 oneincase <462534624@qq.com>
+  Commit:    `b61e8910ae0a176288aed99ce9a93a13ea07df57` (2026-09-15, version **1.3.16**)
+  SPDX:      MIT
+  Ledger:    `docs/COPYING-RULES.md` §4, entry **#9** (2026-09-16)
+  Spec:      `docs/WEB-FRAME-GEOMETRY-SPEC.md`（先写规格、再按规格实现）
+
+### 11.1 What was referenced (behaviour contract only — no code copied)
+
+| Upstream path | What we aligned on | Lands at |
+|---|---|---|
+| `renderer/src/web.ts` — `webPointerToClient` (lines 366–383) | 窗口坐标 → **帧内 client 像素**的换算口径：只认 client 空间、除以"显示盒/内部视口"的缩放系数、非有限值与零尺寸一律丢弃 | `core/web-frame-geometry.mjs` → `frameClientPoint()` |
+| `renderer/src/web.ts` — `webCoverViewport` (lines 577–593) | 覆盖式视口：视口取**内容比例**、溢出的一边**居中裁掉**、比例差在容差内则不处理 | `core/web-frame-geometry.mjs` → `coverViewport()` |
+| `renderer/src/web.ts` — `measureWebLetterbox` / `WEB_ASPECT_*` (lines 561–635) | 内容比例**只认内在尺寸**（元数据未到不拿占位盒当设计比例）、比例限幅（越界视为量错） | `core/web-frame-geometry.mjs` → `contentAspectOf()` |
+
+### 11.2 Clean-room evidence (implementation is not a translation)
+
+Differences from the upstream implementation (naming / parameter shape / mode set / constant organisation /
+boundary handling / fallback switch) are enumerated as the clean-room criteria in
+`docs/WEB-FRAME-GEOMETRY-SPEC.md` §6 and machine-asserted by `tests/web-frame-geometry-test.mjs` T4d/T4e:
+
+- **Naming**: `webPointerToClient` / `webCoverViewport` / `measureWebLetterbox` → `frameClientPoint` /
+  `coverViewport` / `contentAspectOf` (+ `frameVisibleRect`, `normalizeFrameFit`, `frameGeomModeFromQuery`
+  — these three have no upstream counterpart at all).
+- **Parameter shape**: upstream takes three positional tuples; ours takes an event object plus two plain
+  box objects (a `DOMRect` and a literal work equally).
+- **Mode set**: upstream handles only `cover`; ours has an explicit three-state `normalizeFrameFit`
+  (`cover`/`contain`/`stretch`) with unknown values falling back to `cover`.
+- **Constant organisation**: upstream keeps aspect eps/min/max inline in `web.ts`; ours exports them as a
+  named table (`FRAME_ASPECT_EPS` / `FRAME_ASPECT_MIN` / `FRAME_ASPECT_MAX`) documented in spec §2.2/§3.
+- **Hit-testing**: upstream keeps `elementFromPoint` dispatch inside its frame shim; **this module does not
+  dispatch events at all** (the renderer does not own DOM events) — that machinery lives in the MIT plugin
+  (`dsh-mpkg-wallpaper/lib/web-wallpaper.js`) and is documented separately.
+- **Fallback switch**: `?frame=legacy` (parsed by `frameGeomModeFromQuery`) — upstream has none.
+
+Also, note what was **not** ported: the upstream letterbox *measurement* walk over `video,img` candidates
+(its "is the page showing black bars" heuristic) stays upstream — it needs a live frame document, which is
+the host's business, not the renderer's. Only the pure ratio/limit rules were taken.
+
+### 11.3 Licence text
+
+The MIT licence text of the upstream project is reproduced in §9.3 above (same upstream repository and
+same copyright holder); no additional licence file is required for this entry because **no upstream file
+was copied** — `git ls-files vendor/` lists only the P-93 vendored pair.
+
+---
+
+## 12. webwallgl  (MIT © oneincase) — **P-103: 128 元频段数组契约按规格重写进 `core/audio-band-array.mjs`**
+
+  Upstream:  https://github.com/oneincase/webwallgl
+  Licence:   MIT
+  Copyright: Copyright (c) 2026 oneincase <462534624@qq.com>
+  Commit:    `b61e8910ae0a176288aed99ce9a93a13ea07df57` (2026-09-15, version **1.3.16**)
+  SPDX:      MIT
+  Ledger:    `docs/COPYING-RULES.md` §4, entry **#10** (2026-09-16)
+  Spec:      `docs/AUDIO-BAND-SPEC.md`（先写规格、再按规格实现）
+
+### 12.1 What was referenced (behaviour contract only — no code copied)
+
+| Upstream path | What we aligned on | Lands at |
+|---|---|---|
+| `renderer/src/web.ts` — `packWebAudioArray` / `packWebAudioArrayInto` (lines 63–87) | 频段数组的**槽位契约**：左 0..63 + 右 64..127、长度不足补 0、长度固定 128 | `core/audio-band-array.mjs` → `packBands()` |
+| `renderer/src/web.ts` — `shapeWebAudioBand` / `WEB_SIM_AUDIO_GAIN` / `WEB_SIM_AUDIO_GAMMA` (lines 106–134) | "频谱要尖"的观感与实现路线：`min(1, pow(x, γ) × gain)`，γ=1.8 / gain=1.8 | `core/audio-band-array.mjs` → `shapeBand()` + `AUDIO_BAND_GAMMA` / `AUDIO_BAND_GAIN` |
+| `renderer/src/web.ts` — 注入源 driver 分支 (lines 168–228) | 真实（已归一化）频谱**不套 γ**、只钳位这一口径 | `packBands(..., { clampOnly: true })` |
+
+### 12.2 Clean-room evidence (implementation is not a translation)
+
+Differences are enumerated in `docs/AUDIO-BAND-SPEC.md` §5 and machine-asserted by
+`tests/audio-band-array-test.mjs` T4b:
+
+- **Naming**: `packWebAudioArray` / `packWebAudioArrayInto` / `shapeWebAudioBand` / `WEB_SIM_AUDIO_*`
+  → `packBands` / `shapeBand` / `simulatedBands` / `simulatedBandArray` / `bandStats` / `AUDIO_BAND_*`.
+- **Packing shape**: upstream ships two functions plus a module-level singleton pump buffer; ours is a
+  single function with an optional `out` argument — **no hidden module state at all**.
+- **Curve constants**: upstream exports them and reads them directly inside the shaper; ours additionally
+  accepts `opts.gamma` / `opts.gain` overrides (identity curve for golden tests), defaults fixed in spec §2.3.
+- **Real-source convention**: upstream expresses "don't apply γ to a real spectrum" via a separate driver
+  branch; ours expresses it as one explicit `clampOnly` flag on the same entry point.
+- **Simulated source**: upstream reuses a stateful, dt-driven scene-side simulator; ours is a **pure
+  function of `(t, seed)`** — no internal state, no dt, replayable and directly assertable.
+- **Diagnostics**: `bandStats()` (silent / peak / peakAt / mean / nonzero) has no upstream counterpart.
+
+What was **not** ported: the upstream pump scheduling (`WEB_AUDIO_PUMP_HZ` rAF loop) and its bridge/live
+driver selection policy — those belong to the host that owns the audio source, not to the renderer.
+
+### 12.3 Licence text
+
+The MIT licence text of the upstream project is reproduced in §9.3 above (same upstream repository and
+same copyright holder); no additional licence file is required for this entry because **no upstream file
+was copied** — `git ls-files vendor/` lists only the P-93 vendored pair.

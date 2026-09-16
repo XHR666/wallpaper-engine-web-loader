@@ -6,7 +6,7 @@
 //   ③ 跨 image 的帧边界关闭 SPRITESHEETBLEND（官方帧混合只在同纹理内可行）。
 //   ④ 单图精灵路径（computeSpriteFrameUV）不受影响（回归门）。
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 

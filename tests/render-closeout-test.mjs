@@ -6,7 +6,7 @@
 //   RE-06 可见性边角：父隐藏→子隐藏级联、combo 条件二态、动画驱动 visible（P1-9）
 //   P1-7 HDR 门控：half_float 扩展纳入
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 
 let pass = 0, fail = 0
 const fails = []
@@ -14,7 +14,7 @@ function chk(cond, label, detail) {
   if (cond) { pass++; console.log('PASS  ' + label) }
   else { fail++; fails.push(label + (detail !== undefined ? '  [' + detail + ']' : '')); console.log('FAIL  ' + label + (detail !== undefined ? '  [' + detail + ']' : '')) }
 }
-const bundleSrc = fs.readFileSync(new URL('../we-scene-bundle.js', import.meta.url), 'utf8')
+const bundleSrc = fs.readFileSync(new URL('../core/we-scene-bundle.js', import.meta.url), 'utf8')
 
 // ── ① C12：链内 pass 强制 Normal ──
 chk(bundleSrc.includes('(WER-ALIGN C12'), '① C12 注释标记存在')

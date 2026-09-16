@@ -4,7 +4,7 @@
 > 除"左侧中间的文字层"与"左下角水印"外都要对齐）。
 > 本文只记**可复现的数字证据**与**结论**，不含猜测。
 >
-> **【2026-09-13 更新】§5 的三处问题已全部修复**（P-22-ATTACH，`attach-transform.mjs` 移植 elysia 四函数 +
+> **【2026-09-13 更新】§5 的三处问题已全部修复**（P-22-ATTACH，`core/attach-transform.mjs` 移植 elysia 四函数 +
 > 弧度定案 + 双重合并/翻转例外删除 + MCC 默认关）。修复后：**中位中心误差 782px → 0px**，
 > 21/22 层 Δ<5px（elysia 基线 19/22），最大 79px（眨眼相位，非变换错误）。
 > 逐子系统审计见 `ELYSIA-DIFF-AUDIT.md`；验收测试 `attach-transform-test.mjs`（9/9）。

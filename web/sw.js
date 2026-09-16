@@ -1,6 +1,6 @@
 // sw.js —— P-92：离线可用的 Service Worker（**只缓存 app shell**）
 //
-// 注册方式（由 we-scene-demo-server.mjs 在 `?pwa=1` / `MPW_PWA=1` 时注入）：
+// 注册方式（由 server/we-scene-demo-server.mjs 在 `?pwa=1` / `MPW_PWA=1` 时注入）：
 //   navigator.serviceWorker.register('/sw.js', { type: 'module', scope: '/' })
 //
 // 三条设计决定（都是"更保守的那条"）：

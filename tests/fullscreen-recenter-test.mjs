@@ -9,7 +9,7 @@
 //   id=1003 / size="4000.00000 2300.00000" / scale=(1,1,1) / alignment="bottomleft"
 //   / origin.value="-63.45398 -89.85278 0.00000"（y-up authored） / projection=3840×2160
 //   / scriptProperties brbigbx=0, brbigby=0。
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 
 let pass = 0, fail = 0
 function check(name, ok, detail) {

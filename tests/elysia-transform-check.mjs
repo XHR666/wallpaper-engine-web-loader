@@ -1,7 +1,7 @@
 // 用 elysia 的 SceneRenderer（CPU 路径）解析同一场景，逐层对比 refrender 标定矩形。
 // 目的：判定 elysia 的父链/附件变换是否比我们的更接近官方（若是 → 移植它的数学）。
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import { SceneRenderer } from '../elysia/we-renderer/core.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'

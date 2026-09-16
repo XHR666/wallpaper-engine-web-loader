@@ -18,7 +18,7 @@
 | `dsh-mpkg-wallpaper`（插件，DSH 宿主侧） | **MIT**（保持不变） | `dsh-mpkg-wallpaper/LICENSE` 首行 `MIT License`；`package.json` `"license": "MIT"` |
 | `we-scene-demo`（渲染器） | **GPL-3.0-or-later** | `we-scene-demo/LICENSE` = GNU GPL v3 条款原文（35,147 字节，逐字节未改）+ 末尾版权声明与 "either version 3 … or (at your option) any later version" |
 
-**依赖方向是既成事实**：渲染器 import 插件的包解析器（`we-scene-demo-server.mjs` 等 12 个 `.mjs`、34 处引用
+**依赖方向是既成事实**：渲染器 import 插件的包解析器（`server/we-scene-demo-server.mjs` 等 12 个 `.mjs`、34 处引用
 `parsePkg`/`readPkgEntry`）。因此渲染器分发时**必须携带插件的 MIT 声明**（`THIRD-PARTY.md` §7）。
 
 ---
@@ -51,7 +51,7 @@
 | `waywallen/open-wallpaper-engine` | GPL-2.0-only | ❌ 不可借 |
 | `waywallen/waywallen` | MIT | ✅ 可借（按 MIT 署名；若进渲染器同样登记） |
 | `oneincase/webwallgl` | MIT | ✅ 可借（**P-90 已借**：`FXAA_FRAG` 一个 shader，见 §4 台账 #6 与 `THIRD-PARTY.md` §6；**P-93 已借**：转译器两个文件**逐字节 vendored** 到 `we-scene-demo/vendor/hlsl2glsl/`，见 §4 台账 #8 与 `THIRD-PARTY.md` §9；其余仍只作研读对照） |
-| `elysia395/dsh-wallpaper-engine` | MIT | ✅ 已借（`elysia/**`、`attach-transform.mjs`，见 `THIRD-PARTY.md` §1） |
+| `elysia395/dsh-wallpaper-engine` | MIT | ✅ 已借（`elysia/**`、`core/attach-transform.mjs`，见 `THIRD-PARTY.md` §1） |
 
 2.4 **工作流（用户拍板）**：以后**先改 MIT 的插件，GPL 的渲染器再借用**。反向（先在渲染器写完再
 "搬回"插件）一律禁止——这正是 2026-09-16 洁净室重写要修掉的历史问题。
@@ -86,8 +86,10 @@
 | 3 | 字体 7 个文件（Blackout/monofur/Noto/RobotoMono/Segment7/Twemoji） | `assets/fonts/**` | 见 `THIRD-PARTY.md` §4.1 逐文件 URL+sha256 | OFL-1.1 / Apache-2.0 / CC-BY-4.0 | 2026-09-15 | 渲染器侧（P-86） | we-scene-demo | 已逐文件署名 + 许可全文随仓 |
 | 4 | 渲染器 `demo.html` `MPW-AUDIO-PANEL` 区块（P-57，2026-09-14，当时渲染器为 MIT） | 音轨判定/收集（约 210 行同源改写） | 未提交工作区（插件侧从未提交） | MIT（当时） | 2026-09-15 | 插件侧 | **曾被改写进插件（违反 §2.4 方向）** | **2026-09-16 洁净室重写替换**（`docs/AUDIO-TRACK-SPEC.md`；见 `dsh-mpkg-wallpaper/THIRD-PARTY.md` §1） |
 | 5 | `oneincase/webwallgl` | 仅研读对照（`vendor-ref/webwallgl` 在仓库外） | — | MIT | 2026-09 | — | 未分发 | 未 vendored；若引入需升级为正式条目 |
-| 6 | `oneincase/webwallgl` | `renderer/vendor/we-scene/render/renderer-glsl.js` 的 `FXAA_FRAG`（上游 452–489 行） | `fdfc578a577d0e680a9cfe2cf2e3e825d3cd2372`（1.3.23，2026-09-15） | MIT | 2026-09-16 | 渲染器侧（P-90） | we-scene-demo | **已署名**：`THIRD-PARTY.md` §6 升级为完整条目（含 MIT 全文 + 逐文件表 + 字节级核对结论「38/38 行 GLSL 无差异」）→ 落点是 `we-scene-bundle.js` 的 `FXAA_FS` 常量。**仅此一个 shader**；`quality.ts` **未**复制（只对齐档位语义，实现自写） |
+| 6 | `oneincase/webwallgl` | `renderer/vendor/we-scene/render/renderer-glsl.js` 的 `FXAA_FRAG`（上游 452–489 行） | `fdfc578a577d0e680a9cfe2cf2e3e825d3cd2372`（1.3.23，2026-09-15） | MIT | 2026-09-16 | 渲染器侧（P-90） | we-scene-demo | **已署名**：`THIRD-PARTY.md` §6 升级为完整条目（含 MIT 全文 + 逐文件表 + 字节级核对结论「38/38 行 GLSL 无差异」）→ 落点是 `core/we-scene-bundle.js` 的 `FXAA_FS` 常量。**仅此一个 shader**；`quality.ts` **未**复制（只对齐档位语义，实现自写） |
 | 7 | `oneincase/webwallgl` | `renderer/src/web-shim.js`、`renderer/src/web.ts`、`renderer/src/web-rewrite.ts`（**仅研读 API 名单与语义**） | `b61e8910ae0a176288aed99ce9a93a13ea07df57` | MIT | 2026-09-16 | 插件侧（缺口 I 项：web 类壁纸） | **dsh-mpkg-wallpaper（MIT）** | **仅参考、未复制代码**（无 vendored 文件、无逐行翻译）：`lib/web-wallpaper.js` 的 WE API 名单与语义按该项目对照，实现（属性时序、URL 改写、postMessage 控制协议、错误边界）为本仓库自写；差异清单 `dsh-mpkg-wallpaper/docs/WEB-WALLPAPER.md` §10，机器断言 `tools/web-wallpaper-test.mjs` D4/D5（含"参考未 vendored"与 API 名单一致性） |
+| 10 | `oneincase/webwallgl` | `renderer/src/web.ts` 的 `packWebAudioArray` / `shapeWebAudioBand` / `WEB_SIM_AUDIO_*`（**仅对齐行为契约**：128 元频段数组=左 0..63+右 64..127、0..1 钳位、γ 对比扩展曲线、"频谱要尖"的观感） | `b61e8910ae0a176288aed99ce9a93a13ea07df57`（1.3.16，2026-09-15） | MIT | 2026-09-16 | 渲染器侧（P-103） | we-scene-demo | **规格先行**：`docs/AUDIO-BAND-SPEC.md`（只写公开契约）→ 按规格新写 `core/audio-band-array.mjs`（命名/打包形态/常量覆盖方式/真实源口径/模拟源状态模型/新增诊断均不同，差异清单见规格 §5）与 `tests/audio-band-array-test.mjs`（35 断言）。**未复制代码**；纯函数模拟源（无内部状态、无 dt）与 `bandStats` 诊断为本实现独有；**尚未接线**（渲染器目前没有实时频谱源，见规格 §6） |
+| 9 | `oneincase/webwallgl` | `renderer/src/web.ts` 的 `webPointerToClient` / `webCoverViewport` / `measureWebLetterbox`（**仅对齐行为契约**：u/v → 帧内 client 像素、覆盖式视口取内容比例并居中裁切） | `b61e8910ae0a176288aed99ce9a93a13ea07df57`（1.3.16，2026-09-15） | MIT | 2026-09-16 | 渲染器侧（P-102） | we-scene-demo | **规格先行**：`docs/WEB-FRAME-GEOMETRY-SPEC.md`（只写公开契约与算法事实）→ 按规格新写 `core/web-frame-geometry.mjs`（命名/参数形态/三态适配/常量组织/回退开关均不同，差异清单见规格 §6）与 `tests/web-frame-geometry-test.mjs`（43 断言）。**未复制代码**（无 vendored、无逐行翻译）；回退开关 `?frame=legacy`（登记在 `docs/README-DIAGNOSTICS.md` 主表） |
 | 8 | `oneincase/webwallgl` | `renderer/vendor/we-scene/render/hlsl2glsl.js`（blob `f5725e92…`）、`renderer/vendor/we-scene/render/hlsl-preprocessor.js`（blob `dd9dba1d…`） | `fdfc578a577d0e680a9cfe2cf2e3e825d3cd2372`（1.3.23，2026-09-15） | MIT | 2026-09-16 | 渲染器侧（P-93） | we-scene-demo | **已署名**：`THIRD-PARTY.md` §9（含 MIT 全文 + 逐文件 blob/sha256 表 + "哪些**没有** vendored"边界表）；落点 `vendor/hlsl2glsl/`（**逐字节**副本，`git diff origin/main -- <两路径>` 为空，含上游 `LICENSE`）。用途 = 覆盖率门禁 `hlsl2glsl-coverage-test.mjs`（把 98.2% 变成会变红的断言）；**渲染器着色器路径尚未接线** |
 
 新增条目要求：**commit/tag 必填**（拿不到就写"未提交/工作区"并说明）、**SPDX 必填**、

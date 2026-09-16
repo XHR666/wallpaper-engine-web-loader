@@ -3,7 +3,7 @@
 //
 // 做什么：
 //   1. 从真实代码抓"诊断/控制开关"（URL query 参数），来源四类（--source 可单独跑）：
-//        we-scene-bundle.js / demo.html / elysia/**/*.js / dsh-mpkg-wallpaper/lib/client.js
+//        core/we-scene-bundle.js / demo.html / elysia/**/*.js / dsh-mpkg-wallpaper/lib/client.js
 //      判定"开关存在"的口径（代码里真实解析，注释/字符串链接不算）：
 //        a) URLSearchParams（绑定 location.* 的标识符或链式调用）上的 .get/.has/.getAll
 //        b) new URL(location.*).searchParams 上的 .get/.has/.getAll
@@ -27,9 +27,9 @@ import { fileURLToPath } from 'node:url'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.dirname(here)
 const README = path.join(path.resolve(here, '..'), 'docs', 'README-DIAGNOSTICS.md')   // ①(2026-09-16) 说明 md 已收进 docs/（本脚本在 tests/）
-// ①(2026-09-16 目录整理) 产物落**仓库根**：we-scene-demo-server.mjs 的 /diag-flags.json 路由从它自己的
-//   __dirname（= 仓库根）读这个文件；这是**单一事实源**，不能随脚本搬进 tests/。
-const JSON_OUT = path.join(path.resolve(here, '..'), 'diag-flags.json')
+// ①(P-101 2026-09-16 目录再整理) 产物落 **web/**：server/we-scene-demo-server.mjs 的 /diag-flags.json
+//   路由从 `web/diag-flags.json` 读（URL 仍是 `/diag-flags.json`）；它是面板在线数据源，随站点外壳发布。
+const JSON_OUT = path.join(path.resolve(here, '..'), 'web', 'diag-flags.json')
 // ①(2026-09-16 目录整理) 插件是**兄弟目录**（`<父>/dsh-mpkg-wallpaper`），不是本仓库的子目录：
 //   收拢前这里写 `path.join(ROOT,'dsh-mpkg-wallpaper',...)` —— 那要 BC 其实是**永不命中**的陈旧写法
 //   （实测：本机路径是 `<工作区>/dsh-mpkg-wallpaper/lib/client.js`）⇒ 白丢 8 个插件侧开关。
@@ -104,7 +104,7 @@ function collect() {
       merged.get(name).push(...sites)
     }
   }
-  absorb('we-scene-bundle.js', fs.readFileSync(path.join(ROOT, 'we-scene-bundle.js'), 'utf8'))   // ①(2026-09-16) 产物在仓库根
+  absorb('core/we-scene-bundle.js', fs.readFileSync(path.join(ROOT, 'core', 'we-scene-bundle.js'), 'utf8'))   // ①(P-101) 内核在 core/
   absorb('demo.html', fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8'))
   const elysiaDir = path.join(ROOT, 'elysia')
   const walk = (dir) => {

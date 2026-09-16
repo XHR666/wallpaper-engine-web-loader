@@ -3,7 +3,7 @@
 //   错误: g_Bones[b] = W_anim[b] × bindInv[b]  → 不保持"到骨骼动点距离=到绑定点距离"
 // 判据: 对 weight≈1 的顶点，|v' − 骨骼动点| 应等于 |v − 骨骼绑定点|（允许 1e-3 相对误差）
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
 import { Buffer as MpwBuffer } from '../elysia/buffer.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。

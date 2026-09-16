@@ -45,7 +45,7 @@
 
 ## 服务器端
 
-`POST /diag`（`we-scene-demo-server.mjs`）把 body 存为 `reports/selfcheck-<ts>.json`（≤16KB 保护）。
+`POST /diag`（`server/we-scene-demo-server.mjs`）把 body 存为 `reports/selfcheck-<ts>.json`（≤16KB 保护）。
 :8899 实例在该文件更新后的**下一次重启**生效；生效前页面自动回退 `POST /report`，报告同样落盘。
 
 ## 与 package-matrix 的关系

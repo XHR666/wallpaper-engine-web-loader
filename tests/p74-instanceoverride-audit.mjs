@@ -13,8 +13,8 @@
 // 用法：node p74-instanceoverride-audit.mjs [pkgid ...]
 import fs from 'node:fs'
 import zlib from 'node:zlib'
-import { createRenderer } from '../we-scene-bundle.js'
-import * as lib from '../we-scene-bundle.js'
+import { createRenderer } from '../core/we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 

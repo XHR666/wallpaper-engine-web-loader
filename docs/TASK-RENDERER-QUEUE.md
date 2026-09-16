@@ -1,7 +1,7 @@
 # TASK-RENDERER-QUEUE —— 渲染器待执行修复队列（2026-09-14，主会话维护）
 
 > 用途：把"已查明根因、但还没落地"的渲染器修复按依赖与风险排好，谁拿到都能直接干。
-> 规则：**同一时间只允许一个代理改 `demo.html` / `we-scene-bundle.js` / `elysia/**`**（历史教训：并行互踩覆盖）。
+> 规则：**同一时间只允许一个代理改 `demo.html` / `core/we-scene-bundle.js` / `elysia/**`**（历史教训：并行互踩覆盖）。
 > 每条都给了根因证据来源、确切锚点、验收方法；改完按 `PATCHES.md` 追加条目（编号唯一递增）。
 
 ## 依赖图
@@ -12,7 +12,7 @@ Q1 日月循环 S+R（进行中：elysia/scene-scripts.js 用户属性转发 + �
  ├─ Q9 逐层 UI（[加载此层] 按钮 / 被跳过层括号提示 / mpw-ln-key 入站）——R 已含骨架
  └─ Q7 Ctrl 退出网格块（同一个入站按键处理里加）
 Q2 文字 4.17× 字号（demo.html:1543/1547，一行）
-Q3 hideUI 正则口径（we-scene-bundle.js:1259）——**等用户拍板**
+Q3 hideUI 正则口径（core/we-scene-bundle.js:1259）——**等用户拍板**
 Q5 粒子默认开 + 官方预设兜底（demo.html:1870 一行 + readParticleDef）
 Q6 脚本宿主能力（canvasSize 数组→Vec2、frametime、≥30Hz 文本/时钟 tick）
 Q8 8899 日志区可收纳
@@ -20,7 +20,7 @@ Q10 第22项 混合加载服务器路由 /pkgdir + 前端混排
 ```
 
 ## Q1（进行中）日月循环 morning 固定 —— 证据 `docs/TIME-VARIATION-RESEARCH.md` / 补丁 `docs/TIME-VARIATION-PATCH.md`
-- 根因：作者脚本 `new Date().getHours()` → `playVideo(0..3)` 切 morning/day/dusk/night；四处断点：RC1 `elysia/scene-scripts.js:552` `applyUserProperties({})`；RC2 层引用缺 `getVideoTexture`；RC3 `we-scene-bundle.js:1259` hideUI 正则 `|Day|` 误杀 `day` 层；RC4 `demo.html:1284` 的 `window.__mpwUserProps` 无人写；RC5 `demo.html` 无入站 message 监听。
+- 根因：作者脚本 `new Date().getHours()` → `playVideo(0..3)` 切 morning/day/dusk/night；四处断点：RC1 `elysia/scene-scripts.js:552` `applyUserProperties({})`；RC2 层引用缺 `getVideoTexture`；RC3 `core/we-scene-bundle.js:1259` hideUI 正则 `|Day|` 误杀 `day` 层；RC4 `demo.html:1284` 的 `window.__mpwUserProps` 无人写；RC5 `demo.html` 无入站 message 监听。
 - 交付：脚本兼容 S（≈19 行）+ 渲染器 R（≈170 行，含 `?time=`/`?hour=`、`[加载此层]/[恢复时钟]`、`mpw-time-set` 预留）+ 回退开关 `?nouserprops=1`。
 - 验收：V1–V5（报告内），hour 3/6/12/18/22 → night/morning/day/dusk/night。
 
@@ -30,7 +30,7 @@ Q10 第22项 混合加载服务器路由 /pkgdir + 前端混排
 - 验收：砂狼白子 11_03「文本1」pointsize 34.798 → 画布 1280×720 下 11.6px → **48.3px**；`text-layout-test` 需同步冻结新口径（否则它仍按旧 px 自洽）。
 
 ## Q3 hideUI 正则把 73% 文本层强制隐藏（第 11/12 项）—— **等用户选口径**
-- 现状：`we-scene-bundle.js:1259` 正则含 `Clock|Date|D a y|Day|时间|日期|星期` → 319/439 文本层被隐藏；6 个容器文本 100% 丢失。
+- 现状：`core/we-scene-bundle.js:1259` 正则含 `Clock|Date|D a y|Day|时间|日期|星期` → 319/439 文本层被隐藏；6 个容器文本 100% 丢失。
 - 选项：(A) 默认全显示（用户正要看时钟/日期/帧率）；(B) 只显示时钟/日期、继续隐藏帧率类调试文本；(C) 维持现状。
 - 落地方式：无论选哪个，都要把 `|Day|` 这类**会误伤图层名**的裸词先改成带边界/前缀匹配，避免再次误杀（时间层 `day` 就是这么被杀的）。
 
@@ -41,7 +41,7 @@ Q10 第22项 混合加载服务器路由 /pkgdir + 前端混排
 - 反证纪律：**不要用 `layerHealth` 判空**（该包 0 异常但 `layerLedger` 多为 0 次绘制）；用逐层像素覆盖/真实 draw 计数。
 
 ## Q5 粒子默认被关（第 17 项）—— 证据 `docs/PARTICLE-RESEARCH.md`
-- 根因①：`demo.html:1870` `hideParticles: !has('np')` → 默认关，`we-scene-bundle.js:1249` 把每个粒子层 `visible=false`；`?np` 从未写进文档。
+- 根因①：`demo.html:1870` `hideParticles: !has('np')` → 默认关，`core/we-scene-bundle.js:1249` 把每个粒子层 `visible=false`；`?np` 从未写进文档。
 - 根因②：`readParticleDef`（`demo.html:1038-1043`）只查包内、无官方预设兜底 → 32 层被跳过（16/25 个引用在 `assets/presets/<主题>/particles/presets/*.json`）。
 - 补丁：默认开 + 显式 `?noparticles` 关；`readParticleDef` 加 `/weassist` 与预设索引 → 约 102/111 层可出。注意 `render-audit.mjs` 自己硬编码 `hideParticles:true`（不受影响），`preview.mjs:323` 目前跳过粒子（CPU 预览看不到）。
 
@@ -56,8 +56,8 @@ Q10 第22项 混合加载服务器路由 /pkgdir + 前端混排
 - UI 在 `demo.html` 底部绿色日志区：拖拽/点击箭头部分露出、剩余区域可滚动，完全收起后箭头反向可再拉出。纯前端，风险低。
 
 ## Q10 第 22 项 混合加载（mpkg + workshop 目录）——**服务器侧已完成**
-- 工具：`we-scene-demo/pack-dir.mjs`（打包 + 生产解析器逐条 sha256 自证）。
-- **已完成**：`we-scene-demo-server.mjs` 新增 `GET /pkgdir?d=<目录>`（即时打包 + 目录 mtime 缓存，最多 4 份）
+- 工具：`we-scene-demo/server/pack-dir.mjs`（打包 + 生产解析器逐条 sha256 自证）。
+- **已完成**：`server/we-scene-demo-server.mjs` 新增 `GET /pkgdir?d=<目录>`（即时打包 + 目录 mtime 缓存，最多 4 份）
   与 `GET /pkgdir?scan=1[&root=…]`（列出可打包目录）。实测：scan 列出 22 个目录；
   `?d=…/dd/3715743282` → HTTP 200 / 4,535,627 B / 0.03s；`parsePkg` 读到 `preview.jpg, project.json, scene.pkg`。
 - **剩余**：前端列表把"目录源"与 mpkg 源混排（`?pkgurl=http://127.0.0.1:8899/pkgdir?d=…` 即可直接喂渲染器）；
@@ -74,7 +74,7 @@ Q10 第22项 混合加载服务器路由 /pkgdir + 前端混排
 SwiftShader 起不来）。此前一个代理为此耗了 2.5 小时——**不要再用 Playwright/puppeteer 探针**。
 
 本机可用的验证手段（按性价比排序）：
-1. **bundle 级 node 探针**：直接 `import` `we-scene-bundle.js`/`elysia/scene-scripts.js`，解析真实包，
+1. **bundle 级 node 探针**：直接 `import` `core/we-scene-bundle.js`/`elysia/scene-scripts.js`，解析真实包，
    数"可见层/活粒子层/文本层 px"等**逻辑量**（无需 GL）——本次文本与粒子研究都靠这个方法拿到硬数据。
 2. `node --check` / `demo-syntax-check.mjs` / `diag-flag-check.mjs` / 定向 `run-all-tests.sh --only <项>`。
 3. `preview.mjs`（CPU 参考）——但注意它**跳过粒子层**、且大包 >60s（本机换页），只适合小包/低分辨率。
@@ -106,7 +106,7 @@ SwiftShader 起不来）。此前一个代理为此耗了 2.5 小时——**不�
 | **N2** | 兜底判据改成"按 `alignment` 算出的实绘矩形是否覆盖投影"，需要兜底时**尊重 alignment** | `demo.html:2359-2370` | ~6 行 | 第6项主因（`bottomleft` 整屏视频层被居中 → 只剩右下 1/4） |
 | **N3** | additive 多层分支接好帧表 + **跨坏帧插值** | `demo.html:1590`（建表）+ `1941-1943`（采样） | 15–25 行 | 第2项抽动（每 6.0s / 7.89s 一次）；同类多动画层包一起受益 |
 | **N4** | MDLA 记录游走修 id/name（+fps） | `elysia/we-renderer/puppet.js:367-398` | ~10 行 | 第2项成因3（正确性/其它包） |
-| **N5** | 文本可见性**四类开关** | `we-scene-bundle.js:1361` hideUI 正则 + 新 URL 开关 | 中 | 用户 A 口径。**契约名已定死**（插件白名单已放行，见 `client.js` `MPW_SCENE_DEBUG_KEYS`）：`showclock` / `showdate` / `showweekday` / `showfps`，取值 `0`/`1`；实现时把 hideUI 正则里这四类词**改为受开关控制**（`|=1` 显示、`=0` 隐藏），默认值待用户 F3 回答；**`README-DIAGNOSTICS.md` 的四行必须由 N5 一并补**（`diag-flags` 门禁是"代码↔文档"双向比对，先写文档会红） |
+| **N5** | 文本可见性**四类开关** | `core/we-scene-bundle.js:1361` hideUI 正则 + 新 URL 开关 | 中 | 用户 A 口径。**契约名已定死**（插件白名单已放行，见 `client.js` `MPW_SCENE_DEBUG_KEYS`）：`showclock` / `showdate` / `showweekday` / `showfps`，取值 `0`/`1`；实现时把 hideUI 正则里这四类词**改为受开关控制**（`|=1` 显示、`=0` 隐藏），默认值待用户 F3 回答；**`README-DIAGNOSTICS.md` 的四行必须由 N5 一并补**（`diag-flags` 门禁是"代码↔文档"双向比对，先写文档会红） |
 | **N6** | :8899 顶栏 **🔊 音频按钮**：现场从当前加载的包里解析音轨、列出、逐条播放/导出（`/media` 音频 MIME 与 magic 嗅探**已就绪**） | `demo.html` 顶栏 + 现有 `/media`、`/raw`、`/pkgdir` | 中 | 用户 C 口径；**不在仓库预置他人机器上的音频**；反应效果只留 `__mpwAudioFrame` 之类接口位 |
 | **N7** | 脚本宿主补完：`frametime` 真实值、文本/时钟脚本 tick ≥30Hz | `demo.html:1274` 附近 + `elysia/scene-scripts.js` | 中 | 第12项（帧率显示会写 "fps: 4"） |
 
@@ -138,7 +138,7 @@ SwiftShader 起不来）。此前一个代理为此耗了 2.5 小时——**不�
 ## 批次 3（批次 2 收尾后）——真因来自 `docs/MODEL-INDIRECTION-RESEARCH.md`（545 行，已证伪三个旧假设）
 
 ### H0 第1项 hina 灰屏/整屏白 —— **HDR 路径把没写过的纹理全屏合成**（P0，一行级）
-- 证据：图层绘制实际落在**默认帧缓冲**（`we-scene-bundle.js:4661` 在 compositeLayer 内 `bindFramebuffer(gl.FRAMEBUFFER, null)`），
+- 证据：图层绘制实际落在**默认帧缓冲**（`core/we-scene-bundle.js:4661` 在 compositeLayer 内 `bindFramebuffer(gl.FRAMEBUFFER, null)`），
   而 `:4737` 绑 HDR FBO、`:4748` 是全 bundle **唯一** `gl.clear` 且在 HDR FBO 绑定时执行 ⇒ HDR 路径下默认 FB 从未清屏；
   最后 `presentHdrScene`（`:4918` → `:3986-4008`）把**从未被写入**的 HDR 纹理全屏画出来 → 白/空。
 - mock-GL 实证：默认路径 `draws INTO the HDR FBO: 0` / `sampling the HDR scene texture: 1`；`hdr:0` → 默认 FB 清屏 + 15 次默认 FB 绘制 + 0 次采样。
@@ -162,7 +162,7 @@ H1 用户属性默认值**确实被种下**（`demo.html:2163-2177` 展开 `proj
 
 ### 批次 3 的**可直接套用**补丁细节（2026-09-14 03:xx 核对真实代码后补）
 
-**H0（一行级，锚点已核对）**：`we-scene-bundle.js` 约 4805 行的自动 HDR 判据现在是
+**H0（一行级，锚点已核对）**：`core/we-scene-bundle.js` 约 4805 行的自动 HDR 判据现在是
 ```js
 : (!hdrForceLdrSession && (general.hdr === true || (general.hdr && general.hdr.value === true)))
 ```
@@ -198,7 +198,7 @@ renderer.renderMeshLayer(layer, sk.mesh, sk.gBones, sk.nb, [ox, oy], [sx, ySign 
 
 | 事实 | 位置 | 含义 |
 |---|---|---|
-| `cropoffset` 是**模型级**字段 | `we-scene-bundle.js:1468` `cropoffset: modelJson.cropoffset ? parseVec2(...) : null` | 挂在 model 上，不在 layer 上 |
+| `cropoffset` 是**模型级**字段 | `core/we-scene-bundle.js:1468` `cropoffset: modelJson.cropoffset ? parseVec2(...) : null` | 挂在 model 上，不在 layer 上 |
 | `cropoffset` 语义**已实现但只用于 quad** | `:4522` 注释"裁剪窗 quad（cropoffset 语义）：几何=窗大小、窗心对齐层中心+偏移，UV=0..1" | 网格路径（`renderMeshLayer`）不消费它 |
 | `mesh.__bbox` **当前没有保存** | `:3942-3949` 只算了 `mesh.__center = [(mnx+mxx)/2,(mny+mxy)/2]` | 需要**顺手把 `__bbox=[mxx-mnx, mxy-mny]` 一并存下**（一行） |
 | `layer.size` 可用且是 authored 场景单位 | `:1356` `l.size=[es[0],es[1]]; l.scale=[1,1,…]`；quad 几何用 `layer.size × scale` | 网格路径目前的 `scaleXY` 来自 `layer.scale`，与网格原始范围脱钩 |

@@ -1,4 +1,4 @@
-/* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 */ // attach-transform.mjs — elysia 附件/父链变换的逐字移植（2026-09-13，POSITION-FINDINGS §4 修法落地）
+/* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 */ // core/attach-transform.mjs — elysia 附件/父链变换的逐字移植（2026-09-13，POSITION-FINDINGS §4 修法落地）
 //
 // 证据源（移植前已实测证明与官方逐层吻合：elysia-transform-check 3719111841 → 19/22 层 Δ<5px）：
 //   - elysia/we-renderer/core.js   _mdlAnchors(L280) / _puppetBoneFinal(L314) / _attachmentOffset(L364) / resolveTransform(L421)
@@ -16,7 +16,7 @@
 //      （我们 = parseScene 末尾 PROJ_H−y；elysia = 绘制时 H−y）。本模块不做任何 y 取反。
 //
 // 本模块零依赖（纯 Uint8Array/DataView），浏览器与 Node 共用：
-//   - we-scene-bundle.js parseScene（opts.attachCtx 注入时自动计算全部附件偏移）
+//   - core/we-scene-bundle.js parseScene（opts.attachCtx 注入时自动计算全部附件偏移）
 //   - demo.html（默认路径；?att=legacy 回退旧 anchorsOf/mkOff）
 //   - layer-rect-check.mjs / attach-transform-test.mjs（验收）
 

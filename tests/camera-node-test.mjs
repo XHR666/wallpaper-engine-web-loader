@@ -8,7 +8,7 @@
 //   T5 语料计数（camera-scan 复算 6 回归包）：3554161528 是唯一动画相机节点包。
 // 运行：node camera-node-test.mjs   （全过输出 ALL PASS，退出码 0）
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import { SceneRenderer } from '../elysia/we-renderer/core.js'
 import { parseVec3, getVal } from '../elysia/we-renderer/math.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。

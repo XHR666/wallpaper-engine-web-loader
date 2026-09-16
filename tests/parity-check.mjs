@@ -68,7 +68,7 @@ for (let i = 0; i < args.length; i++) {
   wantScenes.push(args[i])
 }
 
-const lib = await import(path.join(DEMO, 'we-scene-bundle.js'))
+const lib = await import(path.join(DEMO, 'core/we-scene-bundle.js'))
 const DEC = new TextDecoder()
 const rd = (b) => DEC.decode(b).replace(/^\uFEFF/, '')
 

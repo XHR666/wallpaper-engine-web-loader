@@ -8,7 +8,7 @@
 // 本测试用**语料真实 FPS 脚本**（3326873240 等 16 个容器共用同一份）+ 真实脚本宿主，
 // 按两种节拍实际跑一遍，读回文本；另测 nodeFilter（节拍分层）与 fireUpdate（回调不重复触发）。
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import { applySceneScripts, createScriptCache } from '../elysia/scene-scripts.js'
 
 let pass = 0, fail = 0

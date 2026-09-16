@@ -22,7 +22,7 @@
 与父主体局部像素 1:1）——WE 把皮肤按网格中心绘制，我们按对象原点中心绘制，
 使眼睛对象原点被整体推到脸右缘外（screen x 971 vs 官方 783，差 −188px/设计 −564px）。
 
-### 修复 1（we-scene-bundle.js，parseScene）
+### 修复 1（core/we-scene-bundle.js，parseScene）
 新增 `opts.uniformFlipY`：为 true 时忽略 animationlayers 分支，一律 `wy = PROJ_H − merged.y`。
 demo 在存在 attachmentOffsets（即 puppet 附件场景）时置 true；其它场景/调用方不变。
 
@@ -60,7 +60,7 @@ left ear1 (666,629)→(667,92)、right ear (828,667)→(828,53)、左刘海 (786
 现象：'背景正常'(waterwaves 等)、GirlCat houseback 等效果链在部分设备抛 GL 0x501/0x502
 （日志 tag `use-blend-fbo` / `pass-draw`），画面黑屏 + 大白块。
 
-实现（we-scene-bundle.js，renderLayer 效果分支）：
+实现（core/we-scene-bundle.js，renderLayer 效果分支）：
 - 效果链入口把 `fxChainGpuErr` 清零；copy 直绘、每个 passTagErr、pass draw 后读 `gl.getError()`，
   一旦非 NO_ERROR → 停止该链；
 - 结束处若失败且未 `?nofxfb=1` → 改调 `compositeLayer(copyProg, srcTex, …)`
@@ -69,13 +69,13 @@ left ear1 (666,629)→(667,92)、right ear (828,667)→(828,53)、左刘海 (786
 GirlCat houseback/凯尔希 背景正常共用同一回退路径（自动生效）。
 
 ## C. 校验结果
-- `node --check we-scene-bundle.js` ✅；demo.html 内 module 脚本抽取 `node --check` ✅
+- `node --check core/we-scene-bundle.js` ✅；demo.html 内 module 脚本抽取 `node --check` ✅
 - `node glsl-validate.mjs` → 128/128 通过 ✅
 - `node preview.mjs 3719111841 /tmp/k.png`（CPU 基础层，无附件/效果）正常出图 ✅
-- 服务器 `curl -s http://127.0.0.1:8899/bundle.js | cmp - we-scene-bundle.js` ✅（BUNDLE_CURRENT=文件）
+- 服务器 `curl -s http://127.0.0.1:8899/bundle.js | cmp - core/we-scene-bundle.js` ✅（BUNDLE_CURRENT=文件）
 
 ## 改动文件清单
-1. we-scene-bundle.js
+1. core/we-scene-bundle.js
    - parseScene：新增 `opts.uniformFlipY`（animL 附件场景统一 y 翻转）
    - renderLayer：效果链 GL 错误检测 + 失败回退直绘 base（方案B）；`?nofxfb=1` 关回退
 2. demo.html

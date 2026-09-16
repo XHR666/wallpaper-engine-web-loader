@@ -1,4 +1,4 @@
-/* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 */ // puppet-skin.js —— WE puppet 骨骼蒙皮（独立实现，供 WebGL GPU 蒙皮使用）
+/* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 */ // core/puppet-skin.js —— WE puppet 骨骼蒙皮（独立实现，供 WebGL GPU 蒙皮使用）
 // 语义来源：wer-ref assets/shaders/base/model_vertex_v1.h::ApplySkinningPosition
 //   position' = mul(vec4(position,1), Σ w_i · g_Bones[blendIndices_i])
 //   g_Bones[b] = Rz(finalWorld[b]) × bindInv[b]（行主序），蒙皮后再乘 g_ModelMatrix

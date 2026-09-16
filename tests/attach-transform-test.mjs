@@ -1,6 +1,6 @@
 // attach-transform-test.mjs — P-21-ATTACH 附件/父链变换移植的验收测试
 // 断言四件事：
-//   T1 移植保真度：attach-transform.mjs 的 resolveTransform 与 elysia SceneRenderer.resolveTransform
+//   T1 移植保真度：core/attach-transform.mjs 的 resolveTransform 与 elysia SceneRenderer.resolveTransform
 //      在 6 个测试包的**每一层**上中心误差 < 0.01px（移植 = 逐字，不引入新语义）。
 //   T2 官方标定对齐：3719111841 用 parseScene+attachCtx 复算 22 个标定层，Δ<5px ≥ 19 层
 //      且中位中心误差 < 50px（修复前：中位 782px、19 层带锚点全部错位数百像素）。
@@ -8,8 +8,8 @@
 //   T4 角度单位：scene.json 的 angles 按弧度处理（父 z=π/2、子 origin=(100,0) → 子世界 (0,100)）。
 // 运行：node attach-transform-test.mjs   （全过输出 ALL PASS，退出码 0）
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
-import { resolveTransform, parseMdatAnchors, parseMdl, buildAttachOffsets } from '../attach-transform.mjs'
+import * as lib from '../core/we-scene-bundle.js'
+import { resolveTransform, parseMdatAnchors, parseMdl, buildAttachOffsets } from '../core/attach-transform.mjs'
 import { SceneRenderer } from '../elysia/we-renderer/core.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'

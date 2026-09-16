@@ -1,7 +1,7 @@
 // clean-room-alpha-align-test.mjs — P-95 洁净室重写（alpha 归一化 / alignment 偏移）验收测试
 // 用法: node clean-room-alpha-align-test.mjs
 //
-// 背景：`we-scene-bundle.js` 里这两个 helper 在 `docs/WER-REF-LICENSE-AUDIT.md`（DSHarea 根）§3.4
+// 背景：`core/we-scene-bundle.js` 里这两个 helper 在 `docs/WER-REF-LICENSE-AUDIT.md`（DSHarea 根）§3.4
 //   被判定为「逐行翻译」/「同源改写」，P-95 依据**行为规格** `docs/IMAGE-ALPHA-ALIGN-SPEC.md`
 //   做了洁净室重写（命名/结构/常量表达/返回风格四个维度全部改掉，行为逐位不变）。
 //
@@ -18,7 +18,7 @@
 // 逐位比较一律用 Object.is（能抓出 -0 与 NaN 的差异）。
 import fs from 'node:fs'
 import path from 'node:path'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 
 let pass = 0, fail = 0
@@ -228,7 +228,7 @@ chk(fuzzAlignBad === 0, `③ fuzz align ${fuzzAlign} 组逐位相同（Object.is
 
 // ---- 源码守卫：旧标识符/旧表达式已彻底消失，新名字在位 ----
 console.log('== ③ 源码守卫（旧实现已删、新实现已在位） ==')
-const BUNDLE = path.join(ROOT, 'we-scene-bundle.js')
+const BUNDLE = path.join(ROOT, 'core/we-scene-bundle.js')
 const src = fs.readFileSync(BUNDLE, 'utf8')
 chk(!/normalizeImageAlpha/.test(src), '③ bundle 里已无旧标识符 normalizeImageAlpha')
 chk(!/imageAlignmentOffset/.test(src), '③ bundle 里已无旧标识符 imageAlignmentOffset')

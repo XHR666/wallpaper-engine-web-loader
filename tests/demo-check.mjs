@@ -164,7 +164,8 @@ const landing = path.join(ROOT, 'index.html')
   } catch (e) { out = String(e.stdout || e.message) }
   check('D6 build-pages.mjs 退出码 0（产物自检 12 项全过）', ok, out.slice(0, 200))
   if (ok) {
-    const must = ['index.html', 'demo/index.html', 'demo/bench-patch.js', 'demo/LICENSE-webwallgl-MIT.txt',
+    const must = ['index.html', 'demo.html', 'bundle.js', 'we-scene-bundle.js', 'sw.js', 'manifest.webmanifest',
+      'demo/index.html', 'demo/bench-patch.js', 'demo/LICENSE-webwallgl-MIT.txt',
       'wallpaper-engine-webgl/index.html', 'wallpaper-engine-webgl/bench-patch.js',
       'wallpaper-engine-webgl/renderer/index.html', 'samples/sample-synthetic/scene.pkg', '.nojekyll',
       // 真机踩到过：`demo/samples` 是**软链目录**，只判 `Dirent.isDirectory()` 会把它整个漏掉

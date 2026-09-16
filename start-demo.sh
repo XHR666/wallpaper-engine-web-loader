@@ -8,7 +8,7 @@
 #   bash start-demo.sh --quiet         # 少打印（只留 URL 行；供脚本/测试解析）
 #   bash start-demo.sh --open          # 起来后用 xdg-open/open 打开浏览器
 #
-# 为什么要有它（而不是让下载者读 README 抄 `node we-scene-demo-server.mjs`）：
+# 为什么要有它（而不是让下载者读 README 抄 `node server/we-scene-demo-server.mjs`）：
 #   ① 默认端口被占是最常见的第一次失败 —— 这里**先探测**再回退，且把最终 URL 明确打出来；
 #   ② 渲染器的包解析器在 MIT 插件 `dsh-mpkg-wallpaper` 里（`lib/pkg-extract.js`），
 #      只克隆渲染器的人**必然**会撞上"找不到 pkg-extract"——预检直接给出三条可选修法；
@@ -46,7 +46,7 @@ NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 
 if [ "${NODE_MAJOR:-0}" -ge 20 ] 2>/dev/null; then ok "node $(node -v)（要求 >=20）"
 else bad "node 版本过低或未安装（当前 ${NODE_MAJOR:-无}，要求 >=20）"; PREFLIGHT_FAIL=1; fi
 
-# ── ② 包解析器落点（与 we-scene-demo-server.mjs 的解析链**逐条同序**，避免"预检绿、起服务红"） ──
+# ── ② 包解析器落点（与 server/we-scene-demo-server.mjs 的解析链**逐条同序**，避免"预检绿、起服务红"） ──
 PE_LOCAL="$PWD/pkg-extract.mjs"
 PE_PLUGIN="${MPW_ROOT:-$(cd .. && pwd)}/dsh-mpkg-wallpaper/lib/pkg-extract.js"
 PE_RESOLVED=""
@@ -109,4 +109,4 @@ if [ "$OPEN" = 1 ]; then
   say "ℹ 未找到 xdg-open/open，请手动打开上面的 URL"
 fi
 
-exec node we-scene-demo-server.mjs
+exec node server/we-scene-demo-server.mjs

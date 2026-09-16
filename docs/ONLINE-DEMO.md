@@ -112,10 +112,10 @@ vendor-ref/webwallgl/bench-patch.js                        → 软链 ../ww-page
 
 | 不会出现 | 为什么 / 怎么保证 |
 |---|---|
-| **任何真实壁纸**（Steam 创意工坊包、`scene.pkg`/`.mpkg`、视频壁纸、网页壁纸） | 仓库里本来就没有（P-87 已删 198 MB 测试语料）；`samples/` 只有 `make-sample.mjs` 从算术生成的合成样例（33 299 B）。发布闸门 `publish-check.mjs` 与 `.gitignore.public` 兜底 |
+| **任何真实壁纸**（Steam 创意工坊包、`scene.pkg`/`.mpkg`、视频壁纸、网页壁纸） | 仓库里本来就没有（P-87 已删 198 MB 测试语料）；`samples/` 只有 `tools/make-sample.mjs` 从算术生成的合成样例（33 299 B）。发布闸门 `publish-check.mjs` 与 `.gitignore.public` 兜底 |
 | **预览图 / 音视频 / 美术素材** | 同上一行；测试台自带的 `demo/imgs/` 只有 PWA 图标（`icons/*.png`），赞赏二维码已删（T27） |
 | **个人绝对路径**（Linux 家目录、macOS `/Users`、Windows 盘符路径） | `demo/**` 里 **0 命中**（自查命令见 §7 第 ② 条）；发布闸门 `publish-check.mjs` 的 ② 会对任何文本文件里的个人绝对路径报警（环境变量默认值除外），Pages workflow 里也有一条同样的 `grep` 闸门 |
-| **本机后端的本地依赖**（`we-scene-demo-server.mjs` 的 `/api/*`、`/diag`、`/pkgdir`、`/weassist/*`；`dsh-mpkg-wallpaper` 的 `pkg-extract`） | 线上是纯文件托管 ⇒ 这些端点不存在；页面探测到 404 后**降级并说明**，不假装能用；渲染器 demo（`/demo.html`）在无后端时也只用 `?pkgurl=`/内置合成样例 |
+| **本机后端的本地依赖**（`server/we-scene-demo-server.mjs` 的 `/api/*`、`/diag`、`/pkgdir`、`/weassist/*`；`dsh-mpkg-wallpaper` 的 `pkg-extract`） | 线上是纯文件托管 ⇒ 这些端点不存在；页面探测到 404 后**降级并说明**，不假装能用；渲染器 demo（`/demo.html`）在无后端时也只用 `?pkgurl=`/内置合成样例 |
 | **上报与私有清单**（`reports/`、`library-manifest.json`、`package-matrix.json`、`perf-*.json`） | `.gitignore.public` / `.gitignore` 排除；`publish-check.mjs` 对私有清单类文件**阻塞** |
 | **Service Worker 离线缓存** | 产物里没有 `serviceWorker.register` 调用（`demo/sw.js` 是惰性文件，仅为保持产物结构）⇒ 线上不会出现"旧版本被 SW 缓存住"的经典事故 |
 

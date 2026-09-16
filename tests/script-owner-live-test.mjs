@@ -123,7 +123,7 @@ const PKG = `${MPW_WS}/allwallpaper/dd/3554161528/scene.pkg`
 if (!fs.existsSync(PKG)) {
   console.log('  ~ T5 SKIP script-owner-live（缺真包 ' + PKG + '）')
 } else {
-  const lib = await import('../we-scene-bundle.js')
+  const lib = await import('../core/we-scene-bundle.js')
   const pkg = lib.parsePkg(new Uint8Array(fs.readFileSync(PKG)))
   const sceneJson = JSON.parse(new TextDecoder().decode(lib.getEntry(pkg, 'scene.json')).replace(/^\uFEFF/, ''))
   const projectJson = JSON.parse(fs.readFileSync(`${MPW_WS}/allwallpaper/dd/3554161528/project.json`, 'utf8'))

@@ -106,7 +106,7 @@ push('padding 4 值 → 上右下左', JSON.stringify(textPad('1 2 3 4')) === JS
   if (!fs.existsSync(PKG)) console.log('SKIP Q2f 语料包不在（' + PKG + '）——跳过真实 pointsize 核对')
   else {
     try {
-      const lib = await import('../we-scene-bundle.js')
+      const lib = await import('../core/we-scene-bundle.js')
       const pkg = lib.parsePkg(new Uint8Array(fs.readFileSync(PKG)))
       const scene = JSON.parse(new TextDecoder().decode(lib.getEntry(pkg, 'scene.json')).replace(/^\uFEFF/, ''))
       const o = (scene.objects || []).find((x) => x.name === '文本1')

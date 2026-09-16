@@ -1,9 +1,9 @@
-// mount-test.mjs —— P-91：库入口 `we-scene.mjs` 的 `mount(container, opts)` 契约回归
+// mount-test.mjs —— P-91：库入口 `core/we-scene.mjs` 的 `mount(container, opts)` 契约回归
 // 复现：node mount-test.mjs
 //
 // 为什么用**桩渲染器**而不是真 GL：`mount` 的职责边界是"画布/上下文/帧循环/帧末链/生命周期"，
 // 真 GL 只会把断言埋进 506KB bundle 的实现细节里。所以 `mount` 留了 `opts.createRenderer` /
-// `opts.raf` / `opts.now` 三个注入点（见 we-scene.mjs 文件头"依赖注入"一节），
+// `opts.raf` / `opts.now` 三个注入点（见 core/we-scene.mjs 文件头"依赖注入"一节），
 // 本测试**只**断言它对宿主的对外契约：
 //   ① 容器解析（选择器 / Element / 无效 → 可读错误）
 //   ② 画布口径（自建并挂载 / `opts.canvas` 接管 / 尺寸与 dpr / 容器 clientWidth 兜底）
@@ -13,7 +13,7 @@
 //   ⑤ 健壮性：render 抛错不中断循环且最多 5 条日志；无 rAF / 无 document 时报可读错误
 import fs from 'node:fs'
 import path from 'node:path'
-import { mount, VERSION } from '../we-scene.mjs'
+import { mount, VERSION } from '../core/we-scene.mjs'
 import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 
 let pass = 0, fail = 0

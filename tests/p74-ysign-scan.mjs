@@ -5,7 +5,7 @@
 //     定号 ⇒ 翻/不翻在**分布**上不可互换（如 velocityrandom 0 -10 0 .. 0 -100 0）；
 //     对称/零 ⇒ 翻不翻对分布等价（如湍流的随机相位、rotationrandom）。
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 const DIR = `${MPW_WS}/allwallpaper/dd`

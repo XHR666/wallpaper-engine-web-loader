@@ -1,11 +1,11 @@
-// make-icons.mjs —— P-92：PWA 图标的**程序化生成器**（确定性、无第三方素材）
+// tools/make-icons.mjs —— P-92：PWA 图标的**程序化生成器**（确定性、无第三方素材）
 //
-// 复现：node make-icons.mjs            # 重新生成 icons/*.png（同参数同 sha256）
-//       node make-icons.mjs --check    # 只校验"产物与生成器一致"（门禁用；不一致退出 1）
+// 复现：node tools/make-icons.mjs            # 重新生成 icons/*.png（同参数同 sha256）
+//       node tools/make-icons.mjs --check    # 只校验"产物与生成器一致"（门禁用；不一致退出 1）
 //
 // 为什么不用现成图标文件：本仓库有**同一条已验证过的纪律**（P-86/P-87）——随仓库分发的资源
 // 必须能自证来源。图标要么来自第三方（要署名、要许可、要 sha256 台账），要么**自己生成**。
-// 这里选后者：`samples/sample-synthetic` 也是同一处置（程序化生成，`make-sample.mjs`）。
+// 这里选后者：`samples/sample-synthetic` 也是同一处置（程序化生成，`tools/make-sample.mjs`）。
 //
 // 图形（无字体、无外部素材）：深底 + 同心"场景框" + 一条地平线 + 一枚发光圆点。
 // 只用整数/浮点算术，跨机器逐字节可复现（zlib 压缩级别固定）。
@@ -13,11 +13,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import crypto from 'node:crypto'
-// ①(2026-09-16 目录整理) 本脚本留在**仓库根**（它按自身目录读写根级 icons/ 与 manifest.webmanifest；
-//   pwa-test / packaging-test 也都按仓库根拉起它）。根口径仍取自单一事实源 tests/_root.mjs。
-import { ROOT } from './tests/_root.mjs'
+// ①(P-101 2026-09-16 目录再整理) 本脚本在 `tools/`，但**根口径仍取自单一事实源** `tests/_root.mjs`
+//   （`ROOT` = 仓库根）；图标产物落在 `web/icons/`（站点外壳资源，随 PWA 一起发布）。
+import { ROOT } from '../tests/_root.mjs'
 
-const OUT = path.join(ROOT, 'icons')
+const OUT = path.join(ROOT, 'web', 'icons')
 const BG = [0x0b, 0x0e, 0x14, 0xff]
 const FRAME = [0x5c, 0xc8, 0xff, 0xff]
 const HORIZON = [0x2a, 0x6b, 0x8f, 0xff]
@@ -129,9 +129,9 @@ for (const t of TARGETS) {
   }
 }
 fs.writeFileSync(path.join(OUT, 'icons.json'), JSON.stringify({
-  generator: 'node make-icons.mjs（确定性；勿手改 PNG）',
+  generator: 'node tools/make-icons.mjs（确定性；勿手改 PNG）',
   note: '程序化生成，无第三方素材；sha256 用于门禁核对',
   icons: rows,
 }, null, 1) + '\n')
-if (CHECK && bad) { console.error(`✗ ${bad} 个图标与生成器不一致（重跑 node make-icons.mjs）`); process.exit(1) }
+if (CHECK && bad) { console.error(`✗ ${bad} 个图标与生成器不一致（重跑 node tools/make-icons.mjs）`); process.exit(1) }
 console.log(CHECK ? '✓ 图标与生成器逐字节一致' : '✓ 图标已生成')

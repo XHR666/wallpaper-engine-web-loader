@@ -7,7 +7,7 @@
 // 依据：`docs/SIMILAR-PROJECTS-RESEARCH.md` §6.3 的 P1 完成判据原文 ——
 //   「`hlsl2glsl` 作为**可选**效果路径接入 + 覆盖率回归门禁（用 `docs/HLSL2GLSL-COVERAGE.md` 的语料口径）
 //     ⇒ **新增门禁项，把 98.2% 这个数字变成会变红的断言**（而不是文档里的数字）」
-// 本文件只做**后半句**（覆盖率回归门禁）。前半句"接入可选效果路径"要动 `we-scene-bundle.js`，
+// 本文件只做**后半句**（覆盖率回归门禁）。前半句"接入可选效果路径"要动 `core/we-scene-bundle.js`，
 // 与并发线冲突，**未做**（如实记在 PATCHES.md P-93 的"未做"一节）。
 //
 // 口径（与 `docs/HLSL2GLSL-COVERAGE.md` §2.1 的三态定义**逐条对齐**）：
@@ -41,7 +41,7 @@ const MPW_ROOT = process.env.MPW_ROOT || path.resolve(HERE, '..')
 const PKG_EXTRACT = process.env.MPW_PKG_EXTRACT
   || (fs.existsSync(path.join(HERE, 'pkg-extract.mjs')) ? path.join(HERE, 'pkg-extract.mjs') : path.join(MPW_ROOT, 'dsh-mpkg-wallpaper', 'lib', 'pkg-extract.js'))
 if (!fs.existsSync(PKG_EXTRACT)) {
-  console.log('SKIP hlsl2glsl-coverage（找不到包解析器 ' + PKG_EXTRACT + '；装法见 PACKAGING.md §2）')
+  console.log('SKIP hlsl2glsl-coverage（找不到包解析器 ' + PKG_EXTRACT + '；装法见 docs/PACKAGING.md §2）')
   process.exit(0)
 }
 // 语料根：显式 MPW_SCENE_ROOT > MPW_ROOT/allwallpaper/dd > <repo>/samples

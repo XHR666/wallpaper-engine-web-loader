@@ -76,7 +76,7 @@ const SANDBOX_KEYS = new Set([
 ])
 
 /* ---------- 语料枚举 ---------- */
-globalThis.__lib = await import('../we-scene-bundle.js')
+globalThis.__lib = await import('../core/we-scene-bundle.js')
 const packs = []
 for (const d of fs.readdirSync(path.join(ROOT, 'allwallpaper/dd'))) {
   const p = path.join(ROOT, 'allwallpaper/dd', d, 'scene.pkg')

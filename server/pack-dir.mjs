@@ -1,4 +1,4 @@
-// pack-dir.mjs — 把 WE workshop **源目录**打包成渲染器可直接吃的 PKG 容器（.mpkg）。
+// server/pack-dir.mjs — 把 WE workshop **源目录**打包成渲染器可直接吃的 PKG 容器（.mpkg）。
 //
 // 为什么需要它（用户第 22 项："MPKG 和 workshop 源目录，你要可以去混合加载"）：
 //   渲染器只接受**一个包文件**（`?pkgurl=`/`?pkgpath=` → 一个 PKG 容器 buffer），读不了目录树。
@@ -12,9 +12,9 @@
 //   <data 区>                        // 本工具一律**原样存储**（不压缩）：probeCompressedEntry 不会误判
 //
 // 用法：
-//   node pack-dir.mjs <源目录> [输出.mpkg]        # 省略输出则写 <源目录>.mpkg
-//   node pack-dir.mjs <源目录> --verify           # 打包后逐条回读并与源文件比对 sha256（默认开）
-//   node pack-dir.mjs --scan <根目录>             # 列出根目录下所有可直接打包的 workshop 目录
+//   node server/pack-dir.mjs <源目录> [输出.mpkg]        # 省略输出则写 <源目录>.mpkg
+//   node server/pack-dir.mjs <源目录> --verify           # 打包后逐条回读并与源文件比对 sha256（默认开）
+//   node server/pack-dir.mjs --scan <根目录>             # 列出根目录下所有可直接打包的 workshop 目录
 //
 // 兼容：本工具只读源目录，不改任何文件；输出可被 parsePkg/readPkgEntry 正确解析（--verify 自证）。
 import fs from 'node:fs'
@@ -23,6 +23,9 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
+// ①(P-101 2026-09-16 目录再整理) 本脚本移入 `server/`：插件的兄弟目录与 `--scan` 默认根
+//   都相对**仓库根**（= HERE/..）解析，保持收拢前的语义。
+const REPO_ROOT = path.resolve(HERE, '..')
 const PKG_MAGIC = 'PKGV0022'                 // 与语料实测一致（0022/0023 都出现过，解析器只校验 PKGV\d{4}）
 const MAX_FILES = 200000                     // 防御：异常目录（符号链接环/超大树）
 const MAX_BYTES = 4 * 1024 * 1024 * 1024     // 防御：单包上限 4GB
@@ -71,7 +74,7 @@ const u32 = (n) => { const b = Buffer.allocUnsafe(4); b.writeUInt32LE(n >>> 0, 0
 
 /** 用**生产解析器**回读校验（同一份 parsePkg，避免"自己解析自己"的假验证）。 */
 async function verify(root, buf, files) {
-  const mod = await import(path.join(HERE, '..', 'dsh-mpkg-wallpaper', 'lib', 'pkg-extract.js'))
+  const mod = await import(path.join(REPO_ROOT, '..', 'dsh-mpkg-wallpaper', 'lib', 'pkg-extract.js'))
   const index = mod.parsePkg(buf)
   const byPath = new Map(index.map((e) => [e.path, e]))
   if (index.length !== files.length) throw new Error(`条目数不一致：packed=${files.length} parsed=${index.length}`)
@@ -94,11 +97,11 @@ async function verify(root, buf, files) {
 async function main() {
   const argv = process.argv.slice(2)
   if (!argv.length || argv[0] === '--help') {
-    console.log('用法: node pack-dir.mjs <源目录> [输出.mpkg] | --scan <根目录>')
+    console.log('用法: node server/pack-dir.mjs <源目录> [输出.mpkg] | --scan <根目录>')
     return
   }
   if (argv[0] === '--scan') {
-    const root = argv[1] || HERE
+    const root = argv[1] || REPO_ROOT
     const hits = []
     const walk = (dir, depth) => {
       if (depth > 6) return

@@ -16,8 +16,8 @@
 //     2.2ms/帧，存活粒子数与顶点流逐位不变。
 import fs from 'node:fs'
 import path from 'node:path'
-import { createRenderer } from '../we-scene-bundle.js'
-import * as lib from '../we-scene-bundle.js'
+import { createRenderer } from '../core/we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 
@@ -362,7 +362,7 @@ console.log('\n[5] ?bones= 逐骨探针：默认零副作用 / 点名层才写 /
       return sc
     }
     // 人物 puppet：解析 mdl 取骨骼数（nb），构造一份 bind 姿态 gBones = bindInv × bind = I（姿态=bind）
-    const at = (await import('../attach-transform.mjs'))
+    const at = (await import('../core/attach-transform.mjs'))
     const mj = JSON.parse(dec.decode(lib.getEntry(pkg, 'models/人物.json')))
     const mdl = at.parseMdl(lib.getEntry(pkg, mj.puppet))
     const nb = mdl.bones.length

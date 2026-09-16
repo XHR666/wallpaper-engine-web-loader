@@ -14,7 +14,7 @@ import path from 'node:path'
 import { ROOT } from './_root.mjs'   // ①(2026-09-16) 仓库根（根级 demo.html / bundle）
 
 globalThis.location = globalThis.location || { search: '', href: 'http://localhost/' }
-const lib = await import('../we-scene-bundle.js')
+const lib = await import('../core/we-scene-bundle.js')
 
 let pass = 0, fail = 0
 const fails = []
@@ -24,7 +24,7 @@ function check(name, ok, detail) {
 }
 
 // ①(2026-09-16 目录整理) 本文件原先把 MPW_WS 定义成**工作区根**（MPW_ROOT 语义），却又拿它读**根级**
-//   demo.html / we-scene-bundle.js ⇒ 移入 tests/ 后暴雷。现按仓库口径拆分：
+//   demo.html / core/we-scene-bundle.js ⇒ 移入 tests/ 后暴雷。现按仓库口径拆分：
 //   工作区根 = MPW_WS（语料/WE 资产），仓库根 = ROOT（来自 tests/_root.mjs）。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 const DD = process.env.MPW_SCENE_ROOT || path.join(MPW_WS, 'allwallpaper', 'dd')
@@ -64,7 +64,7 @@ const VERT = 'attribute vec3 a_Position; attribute vec2 a_TexCoord; uniform mat4
 const FRAG = 'uniform sampler2D g_Texture0; varying vec2 v_TexCoord; void main(){ gl_FragColor=texture(g_Texture0,v_TexCoord);}'
 
 /** 用真实 renderScene 画一包，返回 { 层名: {x0,w,m0,m12} }（口径 = demo.html:3588-3626 的 x 部分） */
-async function gpuRects(id, { campose, cam, t = 0 } = {}) {
+async function gpuRects(id, { campose, cam, charfit, t = 0 } = {}) {
   const p = path.join(DD, id, 'scene.pkg')
   if (!fs.existsSync(p)) return null
   const pkg = lib.parsePkg(new Uint8Array(fs.readFileSync(p)))
@@ -87,7 +87,7 @@ async function gpuRects(id, { campose, cam, t = 0 } = {}) {
   const out = {}
   const r = lib.createRenderer({ getContext: () => makeMockGL(), width: W, height: H }, {
     onLog: () => {}, shaderResolver: async (rel) => (rel.endsWith('.vert') ? VERT : FRAG), onMeshLayer: () => {},
-    trace: false, auditFrames: 1, hideParticles: true, clearBgFx: true, campose, cam,
+    trace: false, auditFrames: 1, hideParticles: true, clearBgFx: true, campose, cam, charfit,
     onLayerDraw: (layer, info) => {
       if (info.width !== W) return
       const nm = String(layer.name || layer.id).slice(0, 18)
@@ -133,6 +133,10 @@ if (!haveHina) { console.log('  SKIP ②③（缺 hina 包）') } else {
   const f1 = await gpuRects(HINA, { campose: 'full', t: 1 })
   const l1 = await gpuRects(HINA, { campose: 'legacy', t: 1 })
   const o1 = await gpuRects(HINA, { campose: 'off', t: 1 })
+  // ①(P-100) 默认档（charfit=auto）已改为"角色只吃世界变换 + 相机取景"：hina 有相机层 ⇒ **不再强制居中**。
+  //   "改动前的取景"要用 `?charfit=legacy` 显式钉（下面两条断言），默认档另有断言（x0=1498 = 作者 origin 2200.5 − 702.5）。
+  const o1legacy = await gpuRects(HINA, { campose: 'off', charfit: 'legacy', t: 1 })
+  const f1legacy = await gpuRects(HINA, { campose: 'full', charfit: 'legacy', t: 1 })
   check('② 相机层 active=true（origin 是关键帧动画）', !!(f1.cam && f1.cam.active))
   check('② full 档 t=0 与 t=1 的实绘矩形**不同** ⇒ 关键帧动画真的在逐帧求值（不是只取静态首帧）',
     !!f0.out['人物'] && !!f1.out['人物'] && f0.out['人物'].x0 !== f1.out['人物'].x0,
@@ -145,12 +149,21 @@ if (!haveHina) { console.log('  SKIP ②③（缺 hina 包）') } else {
     f0.out['背景'].w !== f1.out['背景'].w && f0.out['背景'].w > 3917)
   check('② `legacy` 与 `off` 在 t=1 **逐位相同**（legacy 只接用户绑定 zoom；hina 的 zoom 是动画 ⇒ 两者一致）',
     sameRects(l1.out, o1.out))
-  check('② `legacy`/`off` 复现 P-81 之前的取景：人物 x0=' + o1.out['人物'].x0 + ' w=' + o1.out['人物'].w + '（钉住"改动前"）',
-    o1.out['人物'].x0 === 1218 && o1.out['人物'].w === 1405 && Math.abs(o1.out['背景'].w - 3916) <= 1,
-    JSON.stringify({ '人物': o1.out['人物'], '背景': o1.out['背景'] }))
+  check('② `?charfit=legacy` + `campose=legacy/off` 逐位复现 P-81 之前的取景（含"人物钉画布中心"）：人物 x0=' +
+    o1legacy.out['人物'].x0 + ' w=' + o1legacy.out['人物'].w + '（P-100 起这条旧口径只由 charfit=legacy 提供）',
+    o1legacy.out['人物'].x0 === 1218 && o1legacy.out['人物'].w === 1405 && Math.abs(o1legacy.out['背景'].w - 3916) <= 1,
+    JSON.stringify({ '人物': o1legacy.out['人物'], '背景': o1legacy.out['背景'] }))
+  check('② ①(P-100) 默认档不再把角色钉在画布中心：人物 x0=' + o1.out['人物'].x0 + ' w=' + o1.out['人物'].w +
+    '（= 作者 origin 2200.5 − 1405/2 = 1498）',
+    o1.out['人物'].x0 === 1498 && o1.out['人物'].w === 1405
+    && Math.abs((o1.out['人物'].x0 + o1.out['人物'].w / 2) - 2200.5) <= 1,
+    '中心 x=' + (o1.out['人物'].x0 + o1.out['人物'].w / 2))
   check('② full 与 off 的**最大位移**：人物 Δx=' + (f1.out['人物'].x0 - o1.out['人物'].x0) +
     'px、背景 Δx=' + (f1.out['背景'].x0 - o1.out['背景'].x0) + 'px（t=1）',
-    Math.abs(f1.out['人物'].x0 - o1.out['人物'].x0) === 922 && Math.abs(f1.out['背景'].x0 - o1.out['背景'].x0) === 3207)
+    Math.abs(f1.out['人物'].x0 - o1.out['人物'].x0) === 1381 && Math.abs(f1.out['背景'].x0 - o1.out['背景'].x0) === 3207)
+  check('② `?charfit=legacy` 下 full 档的人物位移仍是改动前的 922px（旧口径完整保留）',
+    Math.abs(f1legacy.out['人物'].x0 - o1legacy.out['人物'].x0) === 922,
+    'Δx=' + (f1legacy.out['人物'].x0 - o1legacy.out['人物'].x0))
 
   // ── ③ 正交包回归：fov 无落点 + 无相机对象的包三档逐位相同 ──
   console.log('\n── ③ 正交回归：fov 无落点 / 无相机层的包三档逐位相同 ──')
@@ -244,7 +257,7 @@ if (!haveSun) { console.log('  SKIP ⑤（缺 3327063360 包）') } else {
   }
 
   // 源码守卫：按钮必须真的存在、三档齐全、写 live 全局 + 同步 URL、且不会被容器吃掉指针事件
-  const HERE = MPW_WS   // ①(2026-09-16 目录整理) 根级 demo.html / we-scene-bundle.js 的基准 = 仓库根
+  const HERE = MPW_WS   // ①(2026-09-16 目录整理) 根级 demo.html / core/we-scene-bundle.js 的基准 = 仓库根
   const demo = fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8')
   const seg = (() => { const a = demo.indexOf('MPW-CAMPOSE-BTN-BEGIN'); const b = demo.indexOf('MPW-CAMPOSE-BTN-END'); return (a >= 0 && b > a) ? demo.slice(a, b) : '' })()
   check('⑥ demo.html 有 🎥 相机 按钮块（MPW-CAMPOSE-BTN-BEGIN/END）', seg.length > 400, seg.length + ' 字符')
@@ -257,7 +270,7 @@ if (!haveSun) { console.log('  SKIP ⑤（缺 3327063360 包）') } else {
     ['pointerdown', 'pointerup', 'mousedown', 'touchstart'].every((e) => seg.includes("'" + e + "'")))
   check('⑥ 加载时就种上 live 档（带 ?campose=legacy 打开与点按钮走同一条 live 路径）',
     /window\.__mpwCampose = MODES\[mi\]\.v/.test(seg))
-  const bundle = fs.readFileSync(path.join(ROOT, 'we-scene-bundle.js'), 'utf8')
+  const bundle = fs.readFileSync(path.join(ROOT, 'core/we-scene-bundle.js'), 'utf8')
   check('⑥ bundle 渲染路径确实每帧读 live 档并走同一真值表',
     /resolveCamposeMode\(opts\.campose, live, fb\)/.test(bundle) && /window\.__mpwCampose/.test(bundle))
 }

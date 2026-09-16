@@ -93,6 +93,10 @@
         <div class="sidebar-section-head">
           <span id="lib-count" data-i18n="sidebar.libCount">壁纸库</span>
           <button type="button" id="pick-lib" data-i18n-title="sidebar.pickLib" title="选择壁纸库文件夹（也可继续用 WE_LIBRARY）" data-i18n="btn.pickLib">选择文件夹</button>
+          <!-- 第七批（用户第 17/18 条）：插件同款「选择文件」入口（由 bench-patch.js 接管；capture 阶段抢在 bundle 之前） -->
+          <button type="button" id="pick-file" data-i18n-title="pick.fileTitle" title="浏览并选择单个文件（scene.pkg / project.json 可直接预览）" data-i18n="btn.pickFile">选择文件</button>
+          <!-- 第七批（用户第 17/18 条）：插件同款「选择文件」入口（由 bench-patch.js 接管；capture 阶段抢在 bundle 之前） -->
+          <button type="button" id="pick-file" data-i18n-title="pick.fileTitle" title="浏览并选择单个文件（scene.pkg / project.json 可直接预览）" data-i18n="btn.pickFile">选择文件</button>
           <button type="button" id="clear-local" data-i18n="local.clear" data-i18n-title="local.clearTitle" title="清空本地库与当前选择">清空</button>
         </div>
         <p id="libpath" class="muted" title=""></p>
@@ -289,7 +293,7 @@
     <section id="bench-online-notice" class="bench-online-notice">
       <strong>在线演示版</strong>
       <div>本页是<strong>在线静态演示</strong>：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（<code>/api/*</code> 与 <code>/diag</code>）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的<strong>合成样例</strong>（不含任何真实壁纸）。</div>
-      <div class="bench-online-sample">默认壁纸：合成样例 <code>scene.pkg</code>（由 <code>make-sample.mjs</code> 生成，33 299 B，无第三方内容）—— 本仓库<strong>不分发</strong>任何真实壁纸包。</div>
+      <div class="bench-online-sample">默认壁纸：合成样例 <code>scene.pkg</code>（由 <code>tools/make-sample.mjs</code> 生成，33 299 B，无第三方内容）—— 本仓库<strong>不分发</strong>任何真实壁纸包。</div>
       <div lang="en"><strong>Online demo</strong> — this page is an <strong>online static demo</strong>: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (<code>/api/*</code>, <code>/diag</code>) are unavailable online (by design, not a failure). “Choose folder” still works, and the default wallpaper is this repository's own <strong>synthetic sample</strong> — no real wallpaper is bundled or redistributed.</div>
     </section>
 

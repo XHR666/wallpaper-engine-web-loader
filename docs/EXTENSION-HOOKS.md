@@ -11,11 +11,11 @@
 │ /raw 暴露容器字节         │──────────────▶│ demo.html?pkgurl=…&extbase=/ext       │
 │ settings.sceneExtUrl ────┼── extbase ───▶│  import(<extbase>/<hook>.js)          │
 └──────────────────────────┘               │        ↓ registerMpwHook(slot, fn)    │
-                                           │  we-scene-bundle.js  runMpwHook(slot) │
+                                           │  core/we-scene-bundle.js  runMpwHook(slot) │
                                            └───────────────────────────────────────┘
 ```
 
-- **渲染器侧**：`we-scene-bundle.js` 导出 `registerMpwHook(slot, fn)` / `runMpwHook(slot, args)` / `MPW_HOOK_SLOTS`。
+- **渲染器侧**：`core/we-scene-bundle.js` 导出 `registerMpwHook(slot, fn)` / `runMpwHook(slot, args)` / `MPW_HOOK_SLOTS`。
 - **页面侧**：`demo.html` 支持 `?exthooks=<url[,url]>`（直接列模块）与 `?extbase=<base>`（先取 `<base>/` 索引再加载）。
 - **服务器侧（已预留）**：`GET /ext`（索引 JSON）、`GET /ext/<name>`（模块，CORS `*`）；文件放 `we-scene-demo/extensions/`。
 - **插件侧**：设置项 `sceneExtUrl`（可选）会自动作为 `extbase` 拼进 iframe URL，无需改代码。

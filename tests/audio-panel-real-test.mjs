@@ -6,7 +6,7 @@
 //   包条目枚举 → scene.json sound 层合并/去重 → lib.getEntry 现场切片 → magic MIME → Blob URL。
 import fs from 'node:fs'
 import path from 'node:path'
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 
 let pass = 0, fail = 0
 function check(name, ok, detail) {

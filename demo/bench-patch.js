@@ -36,7 +36,7 @@
 /* ============================ 词典（由 bench/i18n.ts 机械生成，勿手改） ============================ */
 // 生成方式：node -e "…解析 bench/i18n.ts 的 DICT…"（见 PATCH-NOTES.md §3）；bench-patch.test.mjs
 // 的 T1 会把本块与源码 DICT 逐键比对，任何漂移都会红。
-export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 webwallgl 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory"}}
+export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 webwallgl 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory"}}
 
 /* ============================ 纯函数层 ============================ */
 export const LANGS = ['zh', 'en']
@@ -704,6 +704,251 @@ export function mediaBrandPlan(brand, stats) {
   return { take: true, reason: 'simulated-media' }
 }
 
+/* ============================ 第七批纯函数层（插件同款目录/文件选择器 + 滚动位置稳定 + 文档视图轨道） ============================
+   用户原话两条：
+     ①「去引用我的上游的 DSH 插件那样同款的选择文件夹的功能，包括选择文件也是的」
+       「选择文件夹时，鼠标上下滑动，画面有时候会自动弹跳到最顶上，有时候会自动锁定到最顶上」
+     ②「README 界面下方约 1/5 区域无法显示内容（像被切掉）」
+   这一层只有纯函数（Node 可直接 import 断言，无 DOM）；DOM 壳子在 init() 的「第七批」段落里。
+   参考实现（**只借鉴"锚点 + 偏移"这一条滚动稳定技巧与选择器交互契约**，未复制任何代码；
+   Lucide 图标见 docs/ICONS-NEEDED.md，台账见 docs/COPYING-RULES.md §4）：
+     · TanStack Virtual（MIT）—— measureElement/scrollToOffset：滚动位置由"锚定条目 + 偏移"表达，
+       条目高度变化时按锚点回推 scrollTop，而不是按比例（本层的 pickerRestoreScroll 就是这条）；
+     · Firefox/Blink 的 CSS Scroll Anchoring（overflow-anchor）—— 浏览器自己也会"调 scrollTop"，
+       这正是"有时候自动弹跳"的来源 ⇒ 列表容器必须 overflow-anchor:none（CSS 侧，见产物 CSS 追加段）；
+     · DSH 插件 dsh-mpkg-wallpaper/lib/client.js:7014-7022/7464-7511 的目录选择器
+       —— 交互契约（当前目录 + 上级 + 子目录列表 + "选择此文件夹"）与我们这层一一对应；
+       它那里的两道补丁（按比例恢复 / 600ms 内让位）是被同一个根因逼出来的绕路，
+       本层换成"锚点 + 偏移 + 写回期间不认自己的 scroll 事件"，见 pickerScrollGuard。 */
+
+/** 归一化浏览器给的选择器路径：统一 '/'、去掉空段与 './'、保留大小写（纯函数） */
+export function pickerPath(raw) {
+  return String(raw == null ? '' : raw).replace(/\\/g, '/').split('/').filter((s) => s && s !== '.').join('/')
+}
+
+/** 索引的根名：取"带层级的第一条路径"的第一段（webkitdirectory 的 webkitRelativePath 必带根目录名）。
+ *  只有散文件（单文件选择）⇒ 返回 ''（调用方按"这不是文件夹选择"处理）。 */
+export function pickerRootOf(dirs, files) {
+  const cand = []
+  for (const d of (dirs || [])) if (String(d.path).indexOf('/') >= 0) { cand.push(String(d.path)); break }
+  for (const f of (files || [])) if (String(f.path).indexOf('/') >= 0) { cand.push(String(f.path)); break }
+  return cand.length ? cand[0].split('/')[0] : ''
+}
+
+/**
+ * 把一次「授权选择」拿到的东西折成**可浏览的索引**（纯函数）：
+ *   entries: [{ path, file?, getFile? }]（webkitdirectory 的 File / showDirectoryPicker 的 handle 包装）
+ * 返回 { root, dirs:[{path,name,depth}], files:[{path,name,dir,ext,file,getFile}], truncated }
+ * 说明：浏览器里**没有**"列任意目录"的能力，唯一合法来源就是用户授权过的那棵树
+ *   —— 这正是本选择器与插件（Node 侧 /list-dirs）的差别：插件的宿主能直接读盘，网页不能。
+ */
+export function buildPickerIndex(entries, opt) {
+  const o = Object.assign({ maxFiles: 6000, maxDepth: 8 }, opt || {})
+  const dirMap = new Map()
+  const files = []
+  let truncated = false
+  for (const e of (entries || [])) {
+    const p = pickerPath(e && (e.path || e.name))
+    if (!p) continue
+    const parts = p.split('/')
+    if (parts.length > o.maxDepth) { truncated = true; continue }
+    if (files.length >= o.maxFiles) { truncated = true; break }
+    for (let i = 1; i < parts.length; i++) {
+      const dp = parts.slice(0, i).join('/')
+      if (!dirMap.has(dp)) dirMap.set(dp, { path: dp, name: parts[i - 1], depth: i - 1 })
+    }
+    const name = parts[parts.length - 1]
+    files.push({
+      path: p, name, dir: parts.slice(0, -1).join('/'),
+      ext: (name.indexOf('.') > 0 ? name.split('.').pop() : '').toLowerCase(),
+      file: (e && e.file) || null, getFile: (e && e.getFile) || null,
+    })
+  }
+  const dirs = [...dirMap.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  return { root: pickerRootOf(dirs, files), dirs, files, truncated: truncated || files.length >= o.maxFiles }
+}
+
+/** 当前目录名归一化：'' / 根名 / 已存在目录名 都接受；非法值一律折回根（纯函数） */
+export function pickerResolveDir(index, cwd) {
+  if (!index) return ''
+  const root = String(index.root || '')
+  const want = pickerPath(cwd)
+  if (!want || want === '.' || want === root) return root
+  const rel = want.indexOf(root + '/') === 0 ? want.slice(root.length + 1) : want
+  const full = root ? root + '/' + rel : rel
+  for (const d of index.dirs) if (d.path === full) return full
+  return root
+}
+
+/** 上级目录（根 ⇒ 根自己；纯函数） */
+export function pickerParentOf(cwd, root) {
+  const cur = pickerPath(cwd)
+  const r = String(root || '')
+  if (!cur || cur === r) return r
+  const parts = cur.split('/')
+  parts.pop()
+  const up = parts.join('/')
+  return (r && (up === r || up.indexOf(r + '/') === 0)) ? up : r
+}
+
+/** 目录视图（纯函数）：子目录 + 当前目录下的文件 + 上级。
+ *  列表行的形状统一成 {name, path, kind:'dir'|'file', ext}，方便过滤/锚点/增量渲染共用。 */
+export function pickerView(index, cwd) {
+  if (!index) return null
+  const cur = pickerResolveDir(index, cwd)
+  const prefix = cur ? cur + '/' : ''
+  const dirs = []
+  for (const d of index.dirs) {
+    if (d.path.indexOf(prefix) !== 0) continue
+    if (d.path.slice(prefix.length).indexOf('/') >= 0) continue
+    dirs.push({ name: d.name, path: d.path, kind: 'dir', ext: '' })
+  }
+  const files = []
+  for (const f of index.files) {
+    if (f.dir !== cur) continue
+    files.push({ name: f.name, path: f.path, kind: 'file', ext: f.ext, file: f.file, getFile: f.getFile })
+  }
+  return { cwd: cur, root: String(index.root || ''), parent: pickerParentOf(cur, index.root), isRoot: cur === String(index.root || ''), dirs, files }
+}
+
+/** 导航（纯函数）：target = '..' 上级 / '/' 最上层 / 子目录名或路径。
+ *  返回 { cwd, moved, reason }——非法目标不动（reason 说明原因），调用方据此决定是否重绘。 */
+export function pickerNavigate(index, cwd, target) {
+  if (!index) return { cwd: '', moved: false, reason: 'no-index' }
+  const cur = pickerResolveDir(index, cwd)
+  const t = pickerPath(target)
+  if (t === '..') {
+    const up = pickerParentOf(cur, index.root)
+    return { cwd: up, moved: up !== cur, reason: up !== cur ? 'up' : 'at-root' }
+  }
+  if (t === '/' || t === '' || t === '.') {
+    return { cwd: String(index.root || ''), moved: cur !== String(index.root || ''), reason: 'home' }
+  }
+  const base = cur ? cur + '/' : ''
+  const full = t.indexOf(String(index.root || '') + '/') === 0 ? t : base + t
+  for (const d of index.dirs) if (d.path === full) return { cwd: full, moved: full !== cur, reason: 'enter' }
+  return { cwd: cur, moved: false, reason: 'not-a-dir' }
+}
+
+/** 名称过滤（纯函数；大小写不敏感的子串）。空查询 ⇒ 原样返回（不重排、不新建数组语义）。
+ *  ⚠ 过滤只改"行集合"，**不碰滚动位置**——滚动由锚点逻辑负责（这正是"过滤后不跳顶"的断言点）。 */
+export function filterPickerRows(rows, query) {
+  const list = rows || []
+  const q = String(query == null ? '' : query).trim().toLowerCase()
+  if (!q) return list.slice()
+  return list.filter((r) => String(r && r.name ? r.name : '').toLowerCase().indexOf(q) >= 0)
+}
+
+/**
+ * 滚动锚点：找出"第一个可见行"及其相对滚动容器顶边的偏移（纯函数，只吃矩形）。
+ *   rects: [{top,bottom}] 行矩形（视口坐标）；containerRect: {top,bottom}
+ * 为什么用锚点而不是比例：行高不一致（名字 + 类型两行）时比例恢复会漂；锚点 + 偏移是精确解。
+ */
+export function pickerAnchor(rects, containerRect) {
+  const list = rects || []
+  const ct = Number(containerRect && containerRect.top)
+  if (!isFinite(ct)) return null
+  for (let i = 0; i < list.length; i++) {
+    const r = list[i]
+    if (!r) continue
+    if (Number(r.bottom) > ct + 1) return { index: i, offset: Number(r.top) - ct }
+  }
+  return null
+}
+
+/**
+ * 重绘后的 scrollTop（纯函数）：锚点行回到原偏移；锚点行没了 ⇒ **夹住原 scrollTop**，
+ * 绝不回 0。返回 { scrollTop, reason }：
+ *   'anchor'  锚点行还在 → 精确回位（内容整体上移/下移都不跳）
+ *   'clamp'   锚点行被过滤掉/删了 → 保留原有位置（夹到 [0, max]）——这是"跳顶/锁顶"的正面防线
+ *   'noop'    非有限输入 ⇒ 不动
+ */
+export function pickerRestoreScroll(plan) {
+  const p = plan || {}
+  const max = Math.max(0, Number(p.scrollHeight || 0) - Number(p.clientHeight || 0))
+  const prev = Number(p.prevScrollTop)
+  const keep = isFinite(prev) ? Math.min(Math.max(0, prev), max) : 0
+  const top = Number(p.anchorContentTop)
+  const off = Number(p.anchorOffset)
+  if (!isFinite(top) || !isFinite(off)) return { scrollTop: keep, reason: isFinite(prev) ? 'clamp' : 'noop' }
+  return { scrollTop: Math.min(Math.max(0, top - off), max), reason: 'anchor' }
+}
+
+/** 程序化恢复要不要让位给用户（纯函数）。用户刚滚过（默认 700ms 内）⇒ 一个字都不许写 scrollTop。
+ *  插件侧的绕路是"按比例恢复 + 600ms 内让位"（client.js:7019-7022）；让位这条是对的，比例那条不要。 */
+export function pickerScrollGuard(env) {
+  const e = env || {}
+  const win = e.windowMs == null ? 700 : Number(e.windowMs)
+  const last = Number(e.lastUserScrollAt)
+  const now = Number(e.now)
+  if (!isFinite(last) || last <= 0) return { skip: false, reason: 'no-user-scroll' }
+  if (!isFinite(now)) return { skip: false, reason: 'no-clock' }
+  return (now - last) < win ? { skip: true, reason: 'user-scrolling' } : { skip: false, reason: 'idle' }
+}
+
+/** 增量渲染的键差（纯函数）：只为证明"重绘不等于清空容器"。
+ *  返回 { add, remove, keep, order }——DOM 侧按 add 建新节点、remove 删旧节点、keep 复用并原地移动。 */
+export function pickerRowDiff(prevKeys, nextKeys) {
+  const prev = (prevKeys || []).map(String)
+  const next = (nextKeys || []).map(String)
+  const pset = new Set(prev), nset = new Set(next)
+  return {
+    add: next.filter((k) => !pset.has(k)),
+    remove: prev.filter((k) => !nset.has(k)),
+    keep: next.filter((k) => pset.has(k)),
+    order: next.slice(),
+  }
+}
+
+/** input.accept → 扩展名集合（纯函数）。'image/*,.png' ⇒ {any:['image/'], ext:['png']} */
+export function pickerAcceptKinds(accept) {
+  const out = { any: [], ext: [] }
+  for (const raw of String(accept == null ? '' : accept).split(',')) {
+    const s = raw.trim().toLowerCase()
+    if (!s) continue
+    if (s.indexOf('/') >= 0) out.any.push(s)
+    else if (s.indexOf('.') === 0) out.ext.push(s.slice(1))
+  }
+  return out
+}
+
+/** 文件名是否符合 accept（纯函数）。kinds 为空 ⇒ 全通过（"选择文件"的默认口径）。 */
+export function pickerAcceptMatch(name, kinds) {
+  const n = String(name == null ? '' : name).toLowerCase()
+  const k = kinds || { any: [], ext: [] }
+  if (!k.any.length && !k.ext.length) return true
+  const ext = n.indexOf('.') > 0 ? n.split('.').pop() : ''
+  if (k.ext.indexOf(ext) >= 0) return true
+  for (const a of k.any) {
+    const head = a.split('/')[0]
+    if (head === '*') return true
+    if (head === 'image' && ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif', 'svg'].indexOf(ext) >= 0) return true
+    if (head === 'audio' && ['mp3', 'ogg', 'wav', 'flac', 'm4a', 'aac', 'opus'].indexOf(ext) >= 0) return true
+    if (head === 'video' && ['mp4', 'webm', 'mov', 'm4v', 'mkv'].indexOf(ext) >= 0) return true
+  }
+  return false
+}
+
+/**
+ * ②「README 面板下方约 1/5 被切」的**布局决策**（纯函数）。
+ * 根因：`#main{display:grid;grid-template-rows:auto minmax(0,1fr) 200px}` 是三条**显式轨道**。
+ *   文档视图下 bundle 把 `#editor-chrome` 与 `#logs` 都设成 `hidden`（display:none）⇒
+ *   ① `#workspace` 被自动放置顶到第 1 条（`auto`）轨道，第 2 条 `minmax(0,1fr)` 空着；
+ *   ② 第 3 条 `200px` 是固定轨道：**没有条目也照样占 200px**。
+ *   ⇒ 面板高度 = main − 200px，底部整整 200px 死区（800px 视口 = 25%，常见窗口高 ≈1/5）。
+ * 修法：CSS 把三个子元素**钉死**在 1/2/3 轨道（`grid-row`），并给"只剩文档视图"的 #main 挂一个类，
+ *   把两条空轨道收成 0；轨道值本身仍由 CSS 决定（JS 不写内联 grid-template-rows，免得
+ *   把 bundle 自己的 `#main.logs-collapsed{…35px}` 压掉）。
+ */
+export function mainViewPlan(env) {
+  const e = env || {}
+  const chrome = e.chromeVisible !== false
+  const logs = e.logsVisible !== false
+  const docsOnly = !chrome && !logs
+  return { docsOnly, cls: docsOnly ? 'bench-view-docs' : '', reason: docsOnly ? 'docs-only' : (chrome ? 'stage' : 'chrome-hidden') }
+}
+
 /* ============================ 浏览器初始化 ============================ */
 // 对外钩子：源码侧 bench/bench.ts 在语言切换 / 分辨率变更 / 指针注入开关变化时调用
 // （window.__benchPatch?.xxx）。三个钩子都是幂等的，重复调用无害。
@@ -1060,45 +1305,71 @@ export function init() {
   const canShowDirPicker = () => {
     try { return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function' } catch { return false }
   }
-  function pickLocalFolder() {
-    if (canPickViaInput()) {
-      if (!localInput) {
-        localInput = doc.createElement('input')
-        localInput.type = 'file'; localInput.multiple = true
-        localInput.setAttribute('webkitdirectory', ''); localInput.setAttribute('directory', '')
-        localInput.style.display = 'none'
-        localInput.addEventListener('change', () => {
-          const fs2 = Array.from(localInput.files || [])
-          localInput.value = ''                                    // 允许重复选择同一目录
-          if (!fs2.length) return                                  // 用户取消：不打印、不清空
-          loadLocalEntries(fs2.map((f) => ({ path: f.webkitRelativePath || f.name, file: f })))
-        })
-        doc.body.appendChild(localInput)
-      }
-      localInput.click()
-      return
-    }
-    if (canShowDirPicker()) { pickLocalFolderViaHandle(); return }
-    logLine(t(curLang, 'local.unsupported'), true)
+  // 第七批：把「拿到一棵授权树」抽成独立步骤（onEntries 回调），因为选择器需要**整棵树**
+  //   （目录 + 文件）才能浏览；旧入口（bundle enterStaticMode / 探针 / 测试）走 loadLocalEntries 不变。
+  let localInputCb = null
+  function ensureLocalInput() {
+    if (localInput) return localInput
+    localInput = doc.createElement('input')
+    localInput.type = 'file'; localInput.multiple = true
+    localInput.setAttribute('webkitdirectory', ''); localInput.setAttribute('directory', '')
+    localInput.style.display = 'none'
+    localInput.addEventListener('change', () => {
+      const fs2 = Array.from(localInput.files || [])
+      localInput.value = ''                                      // 允许重复选择同一目录
+      const cb = localInputCb; localInputCb = null
+      if (!fs2.length) { if (cb) cb(null); return }               // 用户取消：不打印、不清空
+      const entries = fs2.map((f) => ({ path: f.webkitRelativePath || f.name, file: f }))
+      if (cb) cb(entries)
+      else loadLocalEntries(entries)
+    })
+    doc.body.appendChild(localInput)
+    return localInput
   }
-  /** showDirectoryPicker 兜底（Chromium）：递归取回 {path,file}，与 webkitdirectory 走同一条扫描链 */
-  async function pickLocalFolderViaHandle() {
-    try {
-      const root = await window.showDirectoryPicker()
-      const out = []
-      const walk = async (dir, prefix, depth) => {
-        if (depth > 6 || out.length > 4000) return
-        for await (const handle of dir.values()) {
-          const path = prefix ? prefix + '/' + handle.name : handle.name
-          if (handle.kind === 'directory') await walk(handle, path, depth + 1)
-          else if (handle.kind === 'file' && /^(scene\.pkg|project\.json)$/i.test(handle.name)) out.push({ path: root.name + '/' + path, file: await handle.getFile() })
+  /**
+   * 「选择文件夹」（系统对话框）——`onEntries(entries|null)`：entries = [{path,file}]（取消 ⇒ null）。
+   * 不传 onEntries 时保持历史行为（直接扫描进本地库）。
+   */
+  function pickLocalFolder(opt) {
+    const cb = (opt && typeof opt.onEntries === 'function') ? opt.onEntries : null
+    if (canPickViaInput()) { localInputCb = cb; ensureLocalInput().click(); return true }
+    if (canShowDirPicker()) { pickLocalFolderViaHandle(cb); return true }
+    logLine(t(curLang, 'local.unsupported'), true)
+    if (cb) cb(null)
+    return false
+  }
+  /** showDirectoryPicker（Chromium）：递归取回 {path,getFile}（惰性，不读内容），与 webkitdirectory 同一条链。
+   *  onlyWallpaper=true 时只收 scene.pkg/project.json（旧行为：直接扫描）。 */
+  async function walkHandle(root, opt) {
+    const o = Object.assign({ maxDepth: 6, maxFiles: 4000, onlyWallpaper: false }, opt || {})
+    const out = []
+    const walk = async (dir, prefix, depth) => {
+      if (depth > o.maxDepth || out.length > o.maxFiles) return
+      for await (const handle of dir.values()) {
+        const path = prefix ? prefix + '/' + handle.name : handle.name
+        if (handle.kind === 'directory') await walk(handle, path, depth + 1)
+        else if (handle.kind === 'file') {
+          const hit = !o.onlyWallpaper || /^(scene\.pkg|project\.json)$/i.test(handle.name)
+          if (hit) out.push({ path: root.name + '/' + path, getFile: () => handle.getFile() })
         }
       }
-      await walk(root, '', 0)
-      loadLocalEntries(out)
+    }
+    await walk(root, '', 0)
+    return out
+  }
+  /** showDirectoryPicker 兜底（Chromium）：递归取回 {path,file}，与 webkitdirectory 走同一条扫描链 */
+  async function pickLocalFolderViaHandle(cb) {
+    try {
+      const root = await window.showDirectoryPicker()
+      const entries = await walkHandle(root, { onlyWallpaper: true })
+      // 旧链路要 File（loadLocalEntries 直接读 project.json 文本）⇒ 这里当场取回
+      for (const e of entries) { try { e.file = await e.getFile() } catch { e.file = null } }
+      if (cb) cb(entries)
+      else loadLocalEntries(entries)
     } catch (e) {
-      if (e && (e.name === 'AbortError')) return                     // 用户取消
+      if (e && (e.name === 'AbortError')) { if (cb) cb(null); return }   // 用户取消
       logLine(t(curLang, 'local.unsupported') + ' — ' + String(e && e.message), true)
+      if (cb) cb(null)
     }
   }
   /**
@@ -1147,11 +1418,567 @@ export function init() {
     }
     reenable(); setTimeout(reenable, 800); setTimeout(reenable, 2500)
     pickLibBtn.addEventListener('click', (e) => {
-      if (!pickLibBtn.disabled) { e.preventDefault(); e.stopImmediatePropagation(); pickLocalFolder() }
+      if (!pickLibBtn.disabled) { e.preventDefault(); e.stopImmediatePropagation(); openLibraryPicker() }
     }, true)   // 捕获阶段：抢在 bundle 的 /api/library-dir 之前走纯前端路径
   }
   const clearLocalBtn = $('#clear-local')
   if (clearLocalBtn) clearLocalBtn.addEventListener('click', () => clearLocalLibrary(false))
+
+  /* ==================== 第七批：插件同款选择器（文件夹 / 文件）+ 滚动位置稳定 ====================
+     同款交互（对照 dsh-mpkg-wallpaper/lib/client.js:9856-9906 的目录选择弹窗）：
+       标题 + 当前目录 + 「回到最上层 / 上一级」+ 子目录列表 + 底部「就选这个文件夹 / 取消」；
+       列表限高可滚动；单击目录进入；过滤框筛名字。
+     数据来源的**唯一**差别：插件跑在 DSH 宿主里，宿主能直接读盘（/list-dirs?path=…）；
+       网页没有这个能力 —— 只能浏览**用户自己授权过的那棵树**
+       （webkitdirectory 全选 或 showDirectoryPicker；两者都没有 ⇒ 按老规矩明说不可用）。
+     滚动为什么以前会跳顶/锁顶（三条根因，逐条都有对应修法）：
+       ① 旧代码 `localBox.innerHTML = ''` 整块重建列表 ⇒ 容器内容瞬间变空，浏览器把 scrollTop
+          夹到 0（异步扫描返回后再重建一次 ⇒ 用户滑到一半就被"弹回顶上"）；
+          ⇒ 现在**只做按键增量更新**（pickerRowDiff：复用节点、只增删差集，appendChild 原地排序），
+            并保证"列表里内容高度突变"这件事本身不再发生。
+       ② 重绘后没有任何"回位"逻辑；而浏览器自带的 CSS 滚动锚定（overflow-anchor）会按**它自己的**
+          启发式改 scrollTop —— 它挑的锚点与用户的视线不一致时就表现为"有时候自动弹跳"；
+          ⇒ 容器 `overflow-anchor:none` 让浏览器退场，改成我们自己的"锚点行 + 偏移"精确回位
+            （pickerRestoreScroll；锚点行没了就夹住原位置，**绝不回 0**）。
+       ③ 插件那条老路（按比例恢复 + 恢复逻辑与用户滚轮打架）会把"用户正在滚"当成"该恢复"，
+          表现为"锁在最顶上"；⇒ 用户刚滚过 700ms 内一个字都不写 scrollTop（pickerScrollGuard），
+          并且程序化写入期间的 scroll 事件不计入"用户在滚"（否则自己把自己锁住）。
+       另外两条小纪律：行**不**调用 focus()（打字机式的 focus 会把滚动容器滚到顶）、
+       弹窗自身 focus({preventScroll:true})；点行用 pointerdown 锁定目标、click 时用锁定值
+       （列表重排时不会点错行 —— 插件 client.js:9883-9891 的同款教训）。 */
+  const BENCH_PICK_CSS = [
+    '/* 第七批：选择器（单源在 bench-patch.js，运行期注入 —— :8902 宿主的产物 CSS 实际取不到，',
+    '   只往产物 CSS 里追加的话那边就没样式） */',
+    '.bench-dirbox{position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;',
+    'background:rgba(0,0,0,.45);font-family:var(--ui-font,-apple-system,"Segoe UI","Noto Sans CJK SC",sans-serif);color:var(--fg,#ccc)}',
+    '.bench-dirbox-win{width:min(580px,92vw);max-height:min(80vh,660px);display:flex;flex-direction:column;overflow:hidden;',
+    'border:1px solid var(--widget-border,#3c3c3c);border-radius:6px;background:var(--panel,#1b1b1b);box-shadow:0 18px 48px rgba(0,0,0,.55)}',
+    '.bench-dirbox-head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--hairline,#2b2b2b)}',
+    '.bench-dirbox-title{flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.bench-dirbox-x{width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;',
+    'border:1px solid var(--widget-border,#3c3c3c);border-radius:3px;background:var(--input,#313131);color:inherit}',
+    '.bench-dirbox-path{padding:6px 12px 0;font-family:var(--mono,monospace);font-size:11px;color:var(--fg-dim,#9d9d9d);word-break:break-all}',
+    '.bench-dirbox-tools{display:flex;align-items:center;gap:6px;padding:7px 12px}',
+    '.bench-dirbox-tools button{height:24px;padding:0 8px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;',
+    'border:1px solid var(--widget-border,#3c3c3c);border-radius:3px;background:var(--input,#313131);color:inherit;font-size:11px}',
+    '.bench-dirbox-tools button:disabled{opacity:.45;cursor:default}',
+    '.bench-dirbox-filter{flex:1;min-width:0;height:24px;padding:0 8px;border:1px solid var(--widget-border,#3c3c3c);border-radius:3px;',
+    'background:var(--input,#313131);color:inherit;font-size:11.5px}',
+    '.bench-dirbox-filter:focus{border-color:var(--fg,#ccc);outline:none}',
+    '/* overflow-anchor:none = 让浏览器自带的滚动锚定退场（"有时候自动弹跳"的另一半根因） */',
+    '.bench-dirbox-list{flex:1 1 auto;min-height:132px;max-height:46vh;overflow-y:auto;overflow-anchor:none;padding:4px 6px;',
+    'border-top:1px solid var(--hairline,#2b2b2b);border-bottom:1px solid var(--hairline,#2b2b2b)}',
+    '.bench-dirbox-row{display:flex;align-items:center;gap:6px;padding:4px 7px;border-radius:3px;font-size:12px;cursor:pointer;',
+    'user-select:none;-webkit-user-select:none}',
+    '.bench-dirbox-row:hover{background:var(--hover,rgba(255,255,255,.07))}',
+    '.bench-dirbox-row.on{background:var(--accent,#0078d4);color:#fff}',
+    '.bench-dirbox-row svg{flex:none;opacity:.85}',
+    '.bench-dirbox-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.bench-dirbox-sub{flex:none;font-size:10px;opacity:.6}',
+    '.bench-dirbox-empty{padding:10px 8px;font-size:11.5px;line-height:1.6;opacity:.7}',
+    '.bench-dirbox-note{padding:6px 12px 0;font-size:10.5px;line-height:1.6;color:var(--fg-mute,#6e6e6e)}',
+    '.bench-dirbox-foot{display:flex;align-items:center;gap:8px;padding:8px 12px}',
+    '.bench-dirbox-count{flex:1;font-size:11px;color:var(--fg-dim,#9d9d9d)}',
+    '.bench-dirbox-go{height:26px;padding:0 12px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;',
+    'border:1px solid var(--widget-border,#3c3c3c);border-radius:3px;background:var(--accent,#0078d4);color:#fff;font-size:11.5px}',
+    '.bench-dirbox-go:disabled{opacity:.45;cursor:default}',
+    '.bench-dirbox-go2{background:var(--input,#313131);color:inherit}',
+    '/* ② README 面板被切：三条显式轨道与三个子元素钉死（顺序不再随 display:none 漂移）；',
+    '   只剩文档视图时把两条空轨道收成 0px（改动前的 200px 死区就是这么来的） */',
+    '#main > #editor-chrome{grid-row:1}',
+    '#main > #workspace{grid-row:2}',
+    '#main > #logs{grid-row:3}',
+    '#main.bench-view-docs{grid-template-rows:0px minmax(0,1fr) 0px}',
+  ].join('')
+  function injectBenchPickerStyle() {
+    try {
+      if (!doc.head || $('#bench-pick-style')) return false
+      const st = doc.createElement('style')
+      st.id = 'bench-pick-style'
+      st.textContent = BENCH_PICK_CSS
+      doc.head.appendChild(st)
+      return true
+    } catch { return false }
+  }
+  const BENCH_STYLE_INJECTED = injectBenchPickerStyle()
+
+  // 图标：Lucide v0.545.0（ISC，© Lucide Contributors / Feather 部分 MIT）——
+  //   用户给的 docs/SVG-ICONS.md 里已有 arrow-up / search，其余按同风格取 Lucide 同名条目；
+  //   许可与出处逐条记在 we-scene-demo/docs/ICONS-NEEDED.md 与 docs/COPYING-RULES.md §4。
+  const DIR_ICONS = {
+    folder: ['M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'],
+    file: ['M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z', 'M14 2v4a2 2 0 0 0 2 2h4'],
+    house: ['M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8', 'M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
+    up: ['m5 12 7-7 7 7', 'M12 19V5'],
+    search: ['m21 21-4.34-4.34', 'c:11:11:8'],
+    check: ['M20 6 9 17l-5-5'],
+    x: ['M18 6 6 18', 'm6 6 12 12'],
+  }
+  const DIR_SVG_NS = 'http://www.w3.org/2000/svg'
+  const dirIcon = (name, size) => {
+    const spec = DIR_ICONS[name]
+    if (!spec) return null
+    let svg = null
+    try { svg = doc.createElementNS(DIR_SVG_NS, 'svg') } catch { svg = null }
+    if (!svg) { try { svg = doc.createElement('svg') } catch { return null } }
+    if (!svg.setAttribute) return null
+    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('width', String(size || 13)); svg.setAttribute('height', String(size || 13))
+    svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '2')
+    svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round'); svg.setAttribute('aria-hidden', 'true')
+    for (const d of spec) {
+      let node = null
+      if (d.indexOf('c:') === 0) {
+        const p = d.split(':')
+        try { node = doc.createElementNS(DIR_SVG_NS, 'circle') } catch { node = doc.createElement('circle') }
+        if (node && node.setAttribute) { node.setAttribute('cx', p[1]); node.setAttribute('cy', p[2]); node.setAttribute('r', p[3]) }
+      } else {
+        try { node = doc.createElementNS(DIR_SVG_NS, 'path') } catch { node = doc.createElement('path') }
+        if (node && node.setAttribute) node.setAttribute('d', d)
+      }
+      if (node && svg.appendChild) svg.appendChild(node)
+    }
+    return svg
+  }
+  const dirMk = (tag, cls, text) => {
+    const el = doc.createElement(tag)
+    if (cls) el.className = cls
+    if (text != null) el.textContent = String(text)
+    return el
+  }
+  const dirBtn = (cls, label, title, iconName) => {
+    const b = dirMk('button', cls)
+    b.type = 'button'
+    const ic = iconName ? dirIcon(iconName, 12) : null
+    if (ic) b.appendChild(ic)
+    if (label != null && label !== '') b.appendChild(dirMk('span', '', label))
+    if (title) b.setAttribute('title', title)
+    return b
+  }
+
+  // ── ② README 面板：#main 的轨道决策（纯函数 mainViewPlan）+ 观察者（视图切回来也能收回死区）──
+  const mainEl = $('#main')
+  const dirShown = (el) => {
+    if (!el) return false
+    if (el.hidden === true) return false
+    try { if (el.style && el.style.display === 'none') return false } catch { /* 无 style（极简假 DOM） */ }
+    try {
+      if (typeof getComputedStyle === 'function') {
+        const cs = getComputedStyle(el)
+        if (cs && cs.display === 'none') return false
+      }
+    } catch { /* 假 DOM 没有 getComputedStyle ⇒ 只看 hidden */ }
+    return true
+  }
+  function paintMainView() {
+    if (!mainEl) return null
+    const plan = mainViewPlan({ chromeVisible: dirShown($('#editor-chrome')), logsVisible: dirShown($('#logs')) })
+    try { plan.docsOnly ? mainEl.classList.add(plan.cls) : mainEl.classList.remove('bench-view-docs') } catch { /* 无 classList */ }
+    return plan
+  }
+  let mainViewPlanNow = paintMainView()
+  if (mainEl && typeof MutationObserver === 'function') {
+    try {
+      const mo = new MutationObserver(() => { mainViewPlanNow = paintMainView() })
+      for (const sel of ['#editor-chrome', '#workspace', '#logs', '#main']) {
+        const el = $(sel)
+        if (el) mo.observe(el, { attributes: true, attributeFilter: ['hidden', 'class', 'style'] })
+      }
+    } catch { /* 观察者挂了也不影响功能（下次语言同步还会重算） */ }
+  }
+
+  // ── ① 授权树（选择器的数据源）──
+  let pickIndex = null
+  let pickGrantFrom = ''
+  function grantPickerIndex(entries, opt) {
+    const o = opt || {}
+    const index = buildPickerIndex(entries || [], o)
+    if (!index.root) { logLine(t(curLang, 'local.notDir'), true); return null }
+    pickIndex = index
+    pickGrantFrom = String(o.from || 'system-picker')
+    logLine(t(curLang, 'pick.granted', { n: index.files.length, d: index.dirs.length, name: index.root }))
+    return index
+  }
+  const dirFileOf = async (entry) => {
+    if (!entry) return null
+    if (entry.file) return entry.file
+    if (typeof entry.getFile === 'function') { try { return await entry.getFile() } catch { return null } }
+    return null
+  }
+  /** 授权树里 cwd 子树下的全部文件（惰性 getFile 的也要取回：扫描要读 project.json 文本） */
+  async function dirEntriesUnder(cwd) {
+    if (!pickIndex) return []
+    const out = []
+    for (const f of pickIndex.files) {
+      if (f.dir !== cwd && f.dir.indexOf(cwd + '/') !== 0) continue
+      const file = await dirFileOf(f)
+      if (file) out.push({ path: f.path, file })
+    }
+    return out
+  }
+
+  // ── ② 弹窗本体 ──
+  let dirBoxEl = null
+  let dirState = null
+  let dirKeyHandler = null
+  const dirRowNodes = new Map()
+  let dirLastUserScrollAt = 0
+  let dirSelfScroll = 0
+  let dirClickLock = null
+  const dirMarkUserScroll = () => {
+    if (dirSelfScroll > 0) return                       // 程序化写入造成的事件不算"用户在滚"
+    dirLastUserScrollAt = Date.now()
+  }
+  function dirSetScrollTop(list, v) {
+    if (!list) return
+    dirSelfScroll++
+    try { list.scrollTop = Number(v) || 0 } finally { setTimeout(() => { dirSelfScroll-- }, 0) }
+  }
+  function closeDirPicker() {
+    if (dirKeyHandler) { try { doc.removeEventListener('keydown', dirKeyHandler) } catch { /* 假 DOM */ } }
+    dirKeyHandler = null
+    if (dirBoxEl && dirBoxEl.parentNode) { try { dirBoxEl.parentNode.removeChild(dirBoxEl) } catch { /* 已移除 */ } }
+    dirBoxEl = null; dirState = null
+    dirRowNodes.clear()
+  }
+  function dirRowsFor(st) {
+    const view = pickerView(pickIndex, st.cwd)
+    if (!view) return { rows: [], view: null }
+    const q = st.query
+    const dirs = filterPickerRows(view.dirs, q)
+    const files = st.mode === 'file' ? filterPickerRows(view.files.filter((f) => pickerAcceptMatch(f.name, st.kinds)), q) : []
+    return { rows: dirs.concat(files), view }
+  }
+  function dirAnchorOf(list, nodes) {
+    if (!list || !nodes || !nodes.length) return null
+    const rects = []
+    for (const n of nodes) { const r = n.getBoundingClientRect ? n.getBoundingClientRect() : null; rects.push(r ? { top: r.top, bottom: r.bottom } : null) }
+    return pickerAnchor(rects, list.getBoundingClientRect ? list.getBoundingClientRect() : null)
+  }
+  function dirAnchorContentTop(key, list) {
+    const n = dirRowNodes.get(key)
+    if (!n || !n.getBoundingClientRect || !list.getBoundingClientRect) return null
+    const r = n.getBoundingClientRect(), lr = list.getBoundingClientRect()
+    return (Number(r.top) - Number(lr.top)) + (Number(list.scrollTop) || 0)
+  }
+  /** 重绘前后：锚点行 + 偏移 → 精确回位（锚点没了 ⇒ 夹住原位置；用户刚滚过 ⇒ 让位） */
+  function dirRestoreScroll(anchor, prevTop) {
+    const list = dirState && dirState.listEl
+    if (!list) return null
+    const guard = pickerScrollGuard({ lastUserScrollAt: dirLastUserScrollAt, now: Date.now(), windowMs: 700 })
+    if (guard.skip) { dirState.lastRestore = { reason: 'user-scrolling', to: Number(list.scrollTop) || 0 }; return dirState.lastRestore }
+    const plan = pickerRestoreScroll({
+      anchorContentTop: anchor ? dirAnchorContentTop(anchor.key, list) : null,
+      anchorOffset: anchor ? anchor.offset : null,
+      prevScrollTop: prevTop,
+      scrollHeight: list.scrollHeight, clientHeight: list.clientHeight,
+    })
+    if (Math.abs((Number(list.scrollTop) || 0) - plan.scrollTop) >= 1) dirSetScrollTop(list, plan.scrollTop)
+    dirState.lastRestore = { reason: plan.reason, from: Math.round(Number(prevTop) || 0), to: Math.round(plan.scrollTop) }
+    return dirState.lastRestore
+  }
+  function dirPaintRows() {
+    const st = dirState
+    const list = st && st.listEl
+    if (!list) return
+    const anchorPlan = dirAnchorOf(list, st.rowNodes)
+    const anchorKey = (anchorPlan && st.rowNodes[anchorPlan.index]) ? st.rowNodes[anchorPlan.index].__rowKey : null
+    const anchor = (anchorPlan && anchorKey) ? { key: anchorKey, offset: anchorPlan.offset } : null
+    const prevTop = Number(list.scrollTop) || 0
+    const plan = dirRowsFor(st)
+    st.rows = plan.rows
+    const keys = plan.rows.map((r) => r.kind + ':' + r.path)
+    const diff = pickerRowDiff(st.rowNodes.map((n) => n.__rowKey), keys)
+    for (const k of diff.remove) {
+      const n = dirRowNodes.get(k)
+      if (n && n.parentNode) n.parentNode.removeChild(n)
+      dirRowNodes.delete(k)
+    }
+    st.rowNodes = []
+    for (const r of plan.rows) {
+      const key = r.kind + ':' + r.path
+      let n = dirRowNodes.get(key)
+      if (!n) { n = dirMakeRow(r); dirRowNodes.set(key, n) }
+      n.__row = r
+      n.className = 'bench-dirbox-row' + (r.kind === 'file' ? ' is-file' : ' is-dir') + (st.sel === r.path ? ' on' : '')
+      list.appendChild(n)                              // 复用节点 ⇒ 只是原地移动，容器内容从不清空
+      st.rowNodes.push(n)
+    }
+    st.diff = diff
+    if (!plan.rows.length) {
+      let empty = dirRowNodes.get('__empty')
+      if (!empty) { empty = dirMk('div', 'bench-dirbox-empty'); empty.__rowKey = '__empty'; dirRowNodes.set('__empty', empty) }
+      empty.textContent = st.mode === 'file' ? t(curLang, 'pick.noFile') : t(curLang, 'pick.empty')
+      list.appendChild(empty)
+    } else {
+      const empty = dirRowNodes.get('__empty')
+      if (empty && empty.parentNode) empty.parentNode.removeChild(empty)
+      if (empty) dirRowNodes.delete('__empty')
+    }
+    if (st.pendingReset) { st.pendingReset = false; dirState.lastRestore = { reason: 'enter', to: 0 }; dirSetScrollTop(list, 0) }
+    else dirRestoreScroll(anchor, prevTop)
+  }
+  function dirPaintChrome() {
+    const st = dirState
+    if (!st) return
+    const view = st.view
+    if (st.pathEl) st.pathEl.textContent = t(curLang, 'pick.curDir') + '：' + (st.cwd || '')
+    if (st.listEl) st.listEl.setAttribute('aria-label', st.cwd || '')
+    if (st.countEl) st.countEl.textContent = t(curLang, 'pick.count', { n: st.rows.length })
+    if (st.upBtn) st.upBtn.disabled = !!(view && view.isRoot)
+    if (st.homeBtn) st.homeBtn.disabled = !!(view && view.isRoot)
+    if (st.confirmBtn) {
+      const ready = st.mode === 'dir' ? !!st.cwd : !!st.sel
+      st.confirmBtn.disabled = !ready
+      st.confirmLabel.textContent = t(curLang, st.mode === 'file' ? 'pick.thisFile' : 'pick.here')
+    }
+    if (st.noteEl) st.noteEl.textContent = t(curLang, 'pick.readNote')
+  }
+  function dirPaint(opt) {
+    const st = dirState
+    if (!st) return
+    const o = opt || {}
+    if (o.reset) st.pendingReset = true
+    const plan = dirRowsFor(st)
+    st.view = plan.view
+    dirPaintRows()
+    dirPaintChrome()
+    return { rows: st.rows.length, diff: st.diff, restore: st.lastRestore }
+  }
+  function dirMakeRow(r) {
+    const n = dirMk('div', 'bench-dirbox-row ' + (r.kind === 'file' ? 'is-file' : 'is-dir'))
+    n.setAttribute('role', 'button')
+    n.setAttribute('tabindex', '-1')                 // 行不进 Tab 序：避免浏览器/辅助技术把焦点带进来顺带滚顶
+    const ic = dirIcon(r.kind === 'file' ? 'file' : 'folder', 13)
+    if (ic) n.appendChild(ic)
+    n.appendChild(dirMk('span', 'bench-dirbox-name', r.name))
+    n.appendChild(dirMk('span', 'bench-dirbox-sub', r.kind === 'file' ? (r.ext ? '.' + r.ext : '') : '›'))
+    n.__rowKey = r.kind + ':' + r.path
+    n.__row = r
+    n.addEventListener('mousedown', (ev) => {
+      // 不 focus()（focus 会把滚动容器滚到顶）；挡掉默认的聚焦/选区，并按 pointerdown 锁定目标行
+      try { if (ev && ev.preventDefault) ev.preventDefault() } catch { /* 合成事件 */ }
+      dirClickLock = { key: n.__rowKey, at: Date.now() }
+    })
+    n.addEventListener('click', () => dirActivateRow(n.__rowKey))
+    return n
+  }
+  function dirFindRow(key) {
+    const st = dirState
+    if (!st) return null
+    for (const r of st.rows) if ((r.kind + ':' + r.path) === key) return r
+    return null
+  }
+  function dirActivateRow(key) {
+    const st = dirState
+    if (!st) return
+    const lock = dirClickLock
+    dirClickLock = null
+    // 重排/重绘后 click 落在别的行上：用 pointerdown 时锁定的那一行（插件 client.js:9885-9889 的同款修法）
+    const use = (lock && lock.key === key && (Date.now() - lock.at) < 2000) ? lock.key : key
+    const row = dirFindRow(use)
+    if (!row) return
+    if (row.kind === 'dir') {
+      const nav = pickerNavigate(pickIndex, st.cwd, row.path)
+      if (!nav.moved) return
+      st.cwd = nav.cwd
+      st.sel = null
+      dirPaint({ reset: true })
+      return
+    }
+    st.sel = st.sel === row.path ? null : row.path
+    dirPaint()
+  }
+  function dirSetFilter(q) {
+    const st = dirState
+    if (!st) return null
+    st.query = String(q == null ? '' : q)
+    return dirPaint()                                  // 过滤 = 行集合变化 + 锚点回位（断言点：scrollTop 不许跳 0）
+  }
+  function dirConfirm() {
+    const st = dirState
+    if (!st) return
+    const cb = st.onPick
+    if (st.mode === 'dir') {
+      const cwd = st.cwd
+      closeDirPicker()
+      const entriesPromise = Promise.resolve().then(() => dirEntriesUnder(cwd))
+      if (cb) entriesPromise.then((entries) => cb({ kind: 'dir', path: cwd, entries: entries }))
+      return
+    }
+    const row = st.rows.filter((r) => r.kind === 'file' && r.path === st.sel)[0]
+    if (!row) return
+    closeDirPicker()
+    if (cb) cb({ kind: 'file', path: row.path, name: row.name, ext: row.ext, dir: row.path.split('/').slice(0, -1).join('/'), file: row.file, getFile: row.getFile })
+  }
+  /** 打开选择器（mode='dir'|'file'）。onPick({kind, path, name?, entries?})；无授权树时给"先授权"空态。 */
+  function openDirPicker(opt) {
+    const o = opt || {}
+    const mode = o.mode === 'file' ? 'file' : 'dir'
+    closeDirPicker()
+    const st = dirState = {
+      mode, kinds: o.kinds || pickerAcceptKinds(''), onPick: o.onPick || null,
+      cwd: pickerResolveDir(pickIndex, o.cwd || (pickIndex ? pickIndex.root : '')),
+      query: '', sel: null, rows: [], rowNodes: [], view: null, diff: null,
+      listEl: null, pathEl: null, countEl: null, confirmBtn: null, confirmLabel: null, noteEl: null,
+      upBtn: null, homeBtn: null, lastRestore: null, pendingReset: true,
+    }
+    const box = dirBoxEl = dirMk('div', 'bench-dirbox')
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true')
+    const win = dirMk('div', 'bench-dirbox-win')
+    const head = dirMk('div', 'bench-dirbox-head')
+    const title = dirMk('strong', 'bench-dirbox-title', t(curLang, mode === 'file' ? 'pick.fileTitle' : 'pick.dirTitle'))
+    const xBtn = dirBtn('bench-dirbox-x', '', t(curLang, 'picker.cancel'), 'x')
+    xBtn.addEventListener('click', () => closeDirPicker())
+    head.appendChild(title); head.appendChild(xBtn)
+    const pathEl = dirMk('div', 'bench-dirbox-path')
+    const tools = dirMk('div', 'bench-dirbox-tools')
+    const homeBtn = dirBtn('', t(curLang, 'pick.home'), t(curLang, 'pick.home'), 'house')
+    const upBtn = dirBtn('', t(curLang, 'pick.up'), t(curLang, 'pick.up'), 'up')
+    const grantBtn = dirBtn('', t(curLang, 'pick.grant'), t(curLang, 'pick.grant'), 'folder')
+    const filter = dirMk('input', 'bench-dirbox-filter')
+    filter.setAttribute('type', 'search'); filter.setAttribute('placeholder', t(curLang, 'pick.filterPh'))
+    homeBtn.addEventListener('click', () => { const nav = pickerNavigate(pickIndex, st.cwd, '/'); if (nav.moved) { st.cwd = nav.cwd; st.sel = null; st.query = ''; filter.value = ''; dirPaint({ reset: true }) } })
+    upBtn.addEventListener('click', () => { const nav = pickerNavigate(pickIndex, st.cwd, '..'); if (nav.moved) { st.cwd = nav.cwd; st.sel = null; st.query = ''; filter.value = ''; dirPaint({ reset: true }) } })
+    grantBtn.addEventListener('click', () => pickLocalFolder({ onEntries: (entries) => { if (entries) { grantPickerIndex(entries); const root = pickIndex ? pickIndex.root : ''; st.cwd = pickerResolveDir(pickIndex, root); st.sel = null; dirPaint({ reset: true }) } else if (st.needGrantNote) st.needGrantNote.textContent = t(curLang, 'pick.needGrant') } }))
+    filter.addEventListener('input', () => dirSetFilter(filter.value))
+    tools.appendChild(homeBtn); tools.appendChild(upBtn); tools.appendChild(grantBtn); tools.appendChild(filter)
+    const noteEl = dirMk('div', 'bench-dirbox-note')
+    const list = dirMk('div', 'bench-dirbox-list')
+    list.setAttribute('tabindex', '0')
+    list.addEventListener('wheel', dirMarkUserScroll, { passive: true })
+    list.addEventListener('touchmove', dirMarkUserScroll, { passive: true })
+    list.addEventListener('scroll', dirMarkUserScroll, { passive: true })
+    const foot = dirMk('div', 'bench-dirbox-foot')
+    const countEl = dirMk('span', 'bench-dirbox-count')
+    const confirmBtn = dirBtn('bench-dirbox-go', '', '', 'check')
+    const confirmLabel = dirMk('span', '', t(curLang, mode === 'file' ? 'pick.thisFile' : 'pick.here'))
+    confirmBtn.appendChild(confirmLabel)
+    const cancelBtn = dirBtn('bench-dirbox-go bench-dirbox-go2', t(curLang, 'picker.cancel'))
+    confirmBtn.addEventListener('click', () => dirConfirm())
+    cancelBtn.addEventListener('click', () => closeDirPicker())
+    foot.appendChild(countEl); foot.appendChild(cancelBtn); foot.appendChild(confirmBtn)
+    win.appendChild(head); win.appendChild(pathEl)
+    if (!pickIndex) {
+      const need = dirMk('div', 'bench-dirbox-note', t(curLang, 'pick.needGrant'))
+      st.needGrantNote = need
+      win.appendChild(need)
+    }
+    win.appendChild(tools); win.appendChild(list); win.appendChild(noteEl); win.appendChild(foot)
+    box.appendChild(win)
+    box.addEventListener('mousedown', (ev) => { if (ev && ev.target === box) closeDirPicker() })
+    doc.body.appendChild(box)
+    st.listEl = list; st.pathEl = pathEl; st.countEl = countEl; st.confirmBtn = confirmBtn
+    st.confirmLabel = confirmLabel; st.noteEl = noteEl; st.upBtn = upBtn; st.homeBtn = homeBtn
+    dirKeyHandler = (ev) => { if (ev && (ev.key === 'Escape' || ev.keyCode === 27)) closeDirPicker() }
+    try { doc.addEventListener('keydown', dirKeyHandler) } catch { /* 假 DOM */ }
+    try { if (box.focus) box.focus({ preventScroll: true }) } catch { /* 老浏览器：不带参数也不影响滚动 */ }
+    dirPaint({ reset: true })
+    return { mode: mode, cwd: st.cwd, rows: st.rows.length, granted: !!pickIndex }
+  }
+
+  // ── ③ 三个入口：壁纸库「选择文件夹」/ 侧栏「选择文件」/ 属性面板的行内「选择文件…」──
+  async function useSubtreeAsLibrary(res) {
+    if (!res) return
+    logLine(t(curLang, 'local.grantScan', { name: res.path }))
+    const entries = (res.entries || []).filter((e) => e && e.file)
+    if (!entries.length) { logLine(t(curLang, 'local.none'), true); return }
+    await loadLocalEntries(entries)
+  }
+  function openLibraryPicker() {
+    if (pickIndex) { openDirPicker({ mode: 'dir', onPick: useSubtreeAsLibrary }); return true }
+    if (!canPickViaInput() && !canShowDirPicker()) { logLine(t(curLang, 'local.unsupported'), true); return false }
+    return pickLocalFolder({ onEntries: (entries) => {
+      if (!entries) { logLine(t(curLang, 'pick.cancelled')); return }
+      grantPickerIndex(entries)
+      openDirPicker({ mode: 'dir', onPick: useSubtreeAsLibrary })
+    } })
+  }
+  async function previewPickedFile(res) {
+    const dir = res.dir || ''
+    const find = (rx) => (pickIndex ? pickIndex.files.filter((f) => f.dir === dir && rx.test(f.name))[0] : null)
+    const pkgEntry = /^scene\.pkg$/i.test(res.name) ? res : find(/^scene\.pkg$/i)
+    const projEntry = /^project\.json$/i.test(res.name) ? res : find(/^project\.json$/i)
+    const pkg = await dirFileOf(pkgEntry)
+    if (!pkg) { logLine(t(curLang, 'local.sceneOnly'), true); return false }
+    let meta = {}
+    const proj = await dirFileOf(projEntry)
+    if (proj && typeof proj.text === 'function') { try { meta = JSON.parse(await proj.text()) || {} } catch { /* 坏 project.json 忽略 */ } }
+    const dirName = dir ? dir.split('/').pop() : res.name
+    previewLocal({
+      dir: dir || res.path, id: dir || res.path, title: String(meta.title || dirName),
+      kind: detectWallpaperKind(meta, [pkg.name || res.name]) || 'unknown',
+      pkg: pkg, proj: proj, preview: null,
+      properties: (meta.general && meta.general.properties) || null,
+    })
+    return true
+  }
+  async function onSidebarFilePicked(res) {
+    if (!res) return
+    logLine(t(curLang, 'local.filePicked', { name: res.path }))
+    const ok = await previewPickedFile(res)
+    if (!ok) logLine(t(curLang, 'local.sceneOnly'), true)
+  }
+  function openFilePickerFlow() {
+    const kinds = pickerAcceptKinds('')
+    if (pickIndex) { openDirPicker({ mode: 'file', kinds: kinds, onPick: onSidebarFilePicked }); return true }
+    if (!canPickViaInput() && !canShowDirPicker()) { logLine(t(curLang, 'local.unsupported'), true); return false }
+    return pickLocalFolder({ onEntries: (entries) => {
+      if (!entries) { logLine(t(curLang, 'pick.cancelled')); return }
+      grantPickerIndex(entries)
+      openDirPicker({ mode: 'file', kinds: kinds, onPick: onSidebarFilePicked })
+    } })
+  }
+  const pickFileBtn = $('#pick-file')
+  if (pickFileBtn) {
+    pickFileBtn.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopImmediatePropagation(); openFilePickerFlow()
+    }, true)
+  }
+  async function handFileToInput(res) {
+    const f = await dirFileOf(res)
+    return f
+  }
+  function openPropsFilePicker(input) {
+    const kinds = pickerAcceptKinds(input && input.getAttribute ? input.getAttribute('accept') : '')
+    const onPick = async (res) => {
+      const file = await handFileToInput(res)
+      if (!file) { logLine(t(curLang, 'err.pickFile', { msg: 'no-file-handle' }), true); return }
+      try {
+        // 沿用 bundle 自己的上传链：它给隐藏 input 挂了 onchange（bench.ts:1288 uploadPropFile）
+        const DT = (typeof window !== 'undefined') ? window.DataTransfer : null
+        if (!DT) throw new Error('DataTransfer unavailable')
+        const dt = new DT()
+        dt.items.add(file)
+        input.files = dt.files
+        input.dispatchEvent(new Event('change'))
+      } catch (e) {
+        logLine(t(curLang, 'err.pickFile', { msg: String((e && e.message) || e) }), true)
+      }
+    }
+    if (pickIndex) { openDirPicker({ mode: 'file', kinds: kinds, onPick: onPick }); return true }
+    if (!canPickViaInput() && !canShowDirPicker()) return false
+    return pickLocalFolder({ onEntries: (entries) => {
+      if (!entries) return
+      grantPickerIndex(entries)
+      openDirPicker({ mode: 'file', kinds: kinds, onPick: onPick })
+    } })
+  }
+  const propsBodyEl = $('#props-body')
+  if (propsBodyEl) {
+    // 捕获阶段：抢在 bundle 的 `pick.onclick = () => file.click()` 之前把手写选择器换上。
+    // 目录型属性（.prop-file 里没有 input.prop-file-input）不拦：它的值必须是绝对路径，
+    // 只有宿主侧流程（/api/props-dir）能给，网页里的相对路径写进去反而更坏。
+    propsBodyEl.addEventListener('click', (ev) => {
+      const target = ev && ev.target
+      const btn = (target && typeof target.closest === 'function') ? target.closest('.prop-pick') : null
+      if (!btn) return
+      const row = (typeof btn.closest === 'function') ? btn.closest('.prop-file') : null
+      const input = row ? row.querySelector('input.prop-file-input') : null
+      if (!input) return
+      try { ev.preventDefault(); ev.stopImmediatePropagation() } catch { /* 合成事件 */ }
+      openPropsFilePicker(input)
+    }, true)
+  }
 
   // ── C 组 1/4：自绘 HSV 取色盘（移植 client.js:6654-6760 的结构与数学）──
   //   挂载点：① 工具条 `#trail-color`（静态托管下**当场可见可验**）② 属性面板的颜色项
@@ -1699,6 +2526,7 @@ export function init() {
     ['#clear-local', 'text', 'local.clear'],
     ['#clear-local', 'title', 'local.clearTitle'],
     ['#pick-lib', 'title', 'local.pickTitle'],
+    ['#pick-file', 'title', 'pick.fileTitle'],        // 第七批：插件同款「选择文件」入口（弹窗里的文案由 dirPaintChrome 随语言重画）
     ['#copy-logs', 'title', 'copy.logs'],
     ['#trail-len', 'title', 'trail.len'],
     ['#trail-w', 'title', 'trail.width'],
@@ -1941,6 +2769,25 @@ export function init() {
     getDefaultSample: () => defaultSample,
     loadDefaultSample: (u) => loadDefaultSample(u),
     shell: { indexHtml: 'demo/index.html', singleSource: 'demo/bench-patch.js' },
+    // ── 第七批：插件同款选择器（探针与测试同一入口；假授权树 + 滚动位置读数都在这里）──
+    grantPickerEntries: (entries, opt) => grantPickerIndex(entries, opt),
+    getPickerIndex: () => (pickIndex ? { root: pickIndex.root, dirs: pickIndex.dirs.length, files: pickIndex.files.length, truncated: pickIndex.truncated, from: pickGrantFrom } : null),
+    openPicker: (opt) => openDirPicker(opt || {}),
+    closePicker: () => closeDirPicker(),
+    getPickerState: () => (dirState ? {
+      mode: dirState.mode, cwd: dirState.cwd, query: dirState.query,
+      rows: dirState.rows.map((r) => r.kind + ':' + r.path),
+      sel: dirState.sel, diff: dirState.diff, restore: dirState.lastRestore,
+      scrollTop: dirState.listEl ? Math.round(Number(dirState.listEl.scrollTop) || 0) : null,
+      scrollHeight: dirState.listEl ? dirState.listEl.scrollHeight : null,
+      clientHeight: dirState.listEl ? dirState.listEl.clientHeight : null,
+    } : null),
+    setPickerFilter: (q) => dirSetFilter(q),
+    setPickerScroll: (v) => { if (dirState && dirState.listEl) { dirSetScrollTop(dirState.listEl, v); return true } return false },
+    pickerGo: (target) => { if (!dirState) return null; const nav = pickerNavigate(pickIndex, dirState.cwd, target); if (nav.moved) { dirState.cwd = nav.cwd; dirState.sel = null; dirPaint({ reset: true }) } return nav },
+    confirmPicker: () => { dirConfirm(); return true },
+    getMainViewPlan: () => paintMainView(),
+    pickerStyleInjected: () => BENCH_STYLE_INJECTED,
     // 清单里可能不存在的 id：① 由 bindDropdown 动态创建 ② 可选控件（如复制链接按钮将来才加）
     dynamicIds: ['#bench-rd-btn', '#copy-url', '#bench-local'],   // 由补丁动态创建（#bench-local = 本地库容器）
   }

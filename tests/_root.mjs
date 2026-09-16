@@ -7,7 +7,7 @@
 //   import { ROOT } from './_root.mjs'        // 读 demo/index.html、docs/、包产物…
 //   const HERE = import.meta.dirname          // 只在真要"本脚本目录"（tests/ 内的产物/夹具）时用
 //
-// 口径与 `publish-check.mjs` 的 ROOT、`we-scene-demo-server.mjs` 的 __dirname 一致：
+// 口径与 `publish-check.mjs` 的 ROOT、`server/we-scene-demo-server.mjs` 的 __dirname 一致：
 // 都是**仓库根**，所以文档里形如 `demo/index.html` 的相对引用无需改写。
 import fs from 'node:fs'
 import path from 'node:path'

@@ -52,7 +52,7 @@ else if (!all) files = files.slice(-1)
 else files = files.slice(-5)
 
 // 期望值按"上报里的 id"动态构建（同一份脚本可按 id 逐个场景对账）
-const lib = await import(process.env.MPW_BUNDLE || (DIR + '/we-scene-demo/we-scene-bundle.js'))
+const lib = await import(process.env.MPW_BUNDLE || (DIR + '/we-scene-demo/core/we-scene-bundle.js'))
 const DEC = new TextDecoder()
 const expCache = new Map()
 function expectedFor(sceneId) {

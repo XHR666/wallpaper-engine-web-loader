@@ -19,8 +19,8 @@
 //
 // 运行：node blink-phase-test.mjs [sceneId=3719111841]
 import fs from 'node:fs'
-import * as lib from '../we-scene-bundle.js'
-import { parseMdl, sampleAnimRT, puppetBoneFinal, resolveTransform, selectAnimLayers, matMulRow, meshBounds } from '../attach-transform.mjs'
+import * as lib from '../core/we-scene-bundle.js'
+import { parseMdl, sampleAnimRT, puppetBoneFinal, resolveTransform, selectAnimLayers, matMulRow, meshBounds } from '../core/attach-transform.mjs'
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 

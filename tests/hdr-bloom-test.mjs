@@ -8,7 +8,7 @@
 //   T4 hdr=false → 与现有 LDR uniform 逐位一致（bloom-verify 口径回归）。
 //   T5 bloom 关 → 零额外 pass（仅呈现）。
 // 运行：node hdr-bloom-test.mjs   （全过输出 ALL PASS，退出码 0）
-import { createRenderer } from '../we-scene-bundle.js'
+import { createRenderer } from '../core/we-scene-bundle.js'
 
 const CONST = { LINK_STATUS: 0x8B82, COMPILE_STATUS: 0x8B81, ACTIVE_UNIFORMS: 0x8B86, ACTIVE_ATTRIBUTES: 0x8B85,
   FRAMEBUFFER_COMPLETE: 0x8CD5, MAX_TEXTURE_SIZE: 0x0D33, NO_ERROR: 0, TEXTURE0: 0, TEXTURE1: 1,

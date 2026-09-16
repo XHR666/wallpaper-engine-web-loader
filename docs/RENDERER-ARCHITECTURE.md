@@ -1,4 +1,4 @@
-# RENDERER-ARCHITECTURE.md — we-scene 渲染器架构地图（任务书 C3，2026-09-13）
+# docs/RENDERER-ARCHITECTURE.md — we-scene 渲染器架构地图（任务书 C3，2026-09-13）
 
 > **参照来源许可声明**：本文档引用的 `wer-ref/` 是**第三方参考实现**
 > （`Aromatic05/wallpaper-engine-renderer`，为 `catsout/wallpaper-scene-renderer` 的 fork，
@@ -20,15 +20,15 @@
 
 | 文件 | 归属 | 内容 |
 |---|---|---|
-| `we-scene-bundle.js`（293KB） | A | 全部渲染语义：容器/纹理解析、parseScene 几何、GL 渲染器、效果链、粒子、混合 |
+| `core/we-scene-bundle.js`（293KB） | A | 全部渲染语义：容器/纹理解析、parseScene 几何、GL 渲染器、效果链、粒子、混合 |
 | `demo.html` | A | 浏览器宿主：加载链路、脚本同步循环、蒙皮回调、上报 payload、诊断开关 |
 | `elysia/**` | A | CPU 对照渲染器（`?mode=elysia`）+ 脚本宿主（nsl.js/scene-scripts.js 被两端共用） |
-| `attach-transform.mjs` | 共享 | elysia 四函数移植（`_mdlAnchors`/`_puppetBoneFinal`/`_attachmentOffset`/`resolveTransform`），浏览器+Node 零依赖共用 |
-| `we-scene-demo-server.mjs` | A | :8899 演示服务器 + `/report` 上报接收 |
+| `core/attach-transform.mjs` | 共享 | elysia 四函数移植（`_mdlAnchors`/`_puppetBoneFinal`/`_attachmentOffset`/`resolveTransform`），浏览器+Node 零依赖共用 |
+| `server/we-scene-demo-server.mjs` | A | :8899 演示服务器 + `/report` 上报接收 |
 | `dsh-mpkg-wallpaper/**` | B | 插件/宿主 |
 | `run-all-tests.sh`、`parity-check.mjs`、`preview.mjs`、`report-audit.mjs` 等工具 | C | 机器验收（本会话） |
 
-## ① 模块地图（we-scene-bundle.js，按内部分节）
+## ① 模块地图（core/we-scene-bundle.js，按内部分节）
 
 ### 解析（PKG / TEX / MDL / MDAT）
 | 函数（bundle 内位置） | 语义 |
@@ -43,8 +43,8 @@
 ### 几何（矩阵 / 附件锚点 / 父链 / 对齐）
 | 位置 | 语义 |
 |---|---|
-| `parseScene`（`src/scene/parse.js` 节，L954+） | **核心**：对象树→层数组；父链合并（origin += R(ang)·(child.origin×scale)，弧度直收）；`opts.attachCtx` 提供时经 `attach-transform.mjs` 计算附件锚点；末尾统一 y 翻转一次 |
-| `attach-transform.mjs` | elysia 移植四函数：`_mdlAnchors`（MDL 的 MDAT0001 锚点表 name→{boneIdx,4×4}）、`_puppetBoneFinal`（bind 世界位姿 ⊕ animationlayers 增量×blend——与蒙皮同一份代码）、`_attachmentOffset`、`resolveTransform` |
+| `parseScene`（`src/scene/parse.js` 节，L954+） | **核心**：对象树→层数组；父链合并（origin += R(ang)·(child.origin×scale)，弧度直收）；`opts.attachCtx` 提供时经 `core/attach-transform.mjs` 计算附件锚点；末尾统一 y 翻转一次 |
+| `core/attach-transform.mjs` | elysia 移植四函数：`_mdlAnchors`（MDL 的 MDAT0001 锚点表 name→{boneIdx,4×4}）、`_puppetBoneFinal`（bind 世界位姿 ⊕ animationlayers 增量×blend——与蒙皮同一份代码）、`_attachmentOffset`、`resolveTransform` |
 | `mat4Identity/Multiply/Ortho/Translate/Scale/RotateZ/LookAt/TransformPoint`（`src/render/math.js` 节） | 列主序矩阵；`mat4RotateZ(m,−θ)`（负角） |
 | `buildCamera`（L1456+） | ASPECTCROP cover 四分支 + `zoom` 除法（wer-ref VulkanRender.cpp:1531-1576 同式） |
 | `alignmentOffsetForToken`（P-95 前名 `alignmentOffsetForToken`） | 行为规格 `docs/IMAGE-ALPHA-ALIGN-SPEC.md` §2：left→+w/2、top→−h/2（y-up），消费端 y 取反；原判定依据为第三方参考实现 wer-ref（`Aromatic05/wallpaper-engine-renderer`，GPL-2.0-only，仅行为对照），**已洁净室重写** |
@@ -67,7 +67,7 @@
 | `hlsl2glsl` / `preprocess`（`src/render/hlsl2glsl.js` 节） | 官方 HLSL→GLSL 转译（内置 shader 13 个全过 `internal-shader-validate`） |
 | `resolveEffectChain`（L1287+） | effect.json→passes/fbos/commands；C1-C17 对齐 wer-ref（P-15…P-18） |
 | `getFBO(w,h,tag)`（L3999+） | FBO 池，**每效果命名空间**（tag）隔离，乒乓复用 |
-| `applyDisplacements/ShakeMasks/FlowMix/ColorChain`（`src/render/effects.js` 节） | CPU 侧效果参数求值（供 mock-GL 测试与 elysia 对照） |
+| `resolveDisplacedUv/applyShakeMaskMix/applyWaterFlowOverlay/composeColorEffectStack`（`src/render/effects.js` 节） | CPU 侧效果参数求值（供 mock-GL 测试与 elysia 对照；洁净室重写见 `docs/EFFECTS-COMPUTE-SPEC.md`） |
 | COPYBG（`copybackground`） | 层效果需要读"当前屏幕背景"时先拷贝再绘制（P-18 官方语义） |
 | 反馈环断言 | 效果 pass 采样目标=自身颜色附件 → 跳过该 pass 绘制（P-36 升级为硬拦截） |
 
@@ -121,7 +121,8 @@
 8. **相机**：ASPECTCROP（cover 四分支）+ zoom 除法（=wer-ref）；节点相机贝塞尔/满幅层豁免（P-25）。
 9. **视差**：官方公式 `((node_pos−cam_pos)+mouse)∘depth×amount`（RE-24，已实现），**默认关**
    （`?parallax=1` 开、`?parallax=legacy` 旧式）——16 层 parallaxDepth 包按旧公式校准过（P-34⑦）。
-10. **混合**：`applyBlending` 0-32+HSL 与官方 common_blending.h 逐模式 Δ<0.02；
+10. **混合**：`blendRgbByMode` 覆盖 0-32 + HSL 四模式，公式取自公开标准
+    （W3C Compositing and Blending Level 1 / PDF 1.7 §11.3），逐个 id 的行为与 GPU 侧 Δ<0.02；
     `colorBlendMode≠0` = screenblend 路径（A=屏幕背景、B=本层，RE-18）。
 11. **可见性（RE-06）**：可见性=条件匹配结果本身，authored `value` 仅属性缺失时兜底；
     父链级联（祖先不可见→不可见）。拿不到 project.json 属性时 user 条件层按**可见**（隐藏主体是灾难）。
@@ -139,7 +140,7 @@
 |---|---|---|
 | `parseScene` 的数值解析（角度/vec/color） | **所有场景**的几何（P-22 弧度教训：一处换算错=带旋转父级错 5730 倍） | alignment-test 184 checks、attach-transform-test 408 层 A/B、parity-check 全场景 |
 | `compositeLayer` | 精灵帧 UV 优先级、uvRect 眼窗、screenblend、台账回调（mvp 反算）——四处语义共用这一个函数 | sprite-sheet 17、tex-upload-guard 39、mock-gl 12、parity-check rect 档 |
-| 附件锚点（attach-transform.mjs / attachCtx 接线） | 19 个附件层（全部头发/衣袖/飘带/眼睛）整体偏移数百 px | attach-transform-test T1-T5、layer-rect-kal（标定 21/22 Δ<5px） |
+| 附件锚点（core/attach-transform.mjs / attachCtx 接线） | 19 个附件层（全部头发/衣袖/飘带/眼睛）整体偏移数百 px | attach-transform-test T1-T5、layer-rect-kal（标定 21/22 Δ<5px） |
 | demo 脚本同步循环（raw→scene） | 把 `raw.origin` 直写 `l.origin` = 抹掉锚点（P-31 Bug B 设备铁证：设备值与 raw authored 逐位相同） | script-origin-sync-test T1-T4 |
 | `ownSizes` / `piv` / MCC | 人物比例（拉伸 1/1.9、长发甩出屏外） | W7 验收 + parity rect 档 + ownSizes 嫌疑自动标注 |
 | `makeTexture`/`makeTextureMip`/`generateMipmap` | 真机 0x502 三症状一根因（旗标残留→假报+纹理不完整→黑层，P-36） | tex-upload-guard-test 39 断言 |

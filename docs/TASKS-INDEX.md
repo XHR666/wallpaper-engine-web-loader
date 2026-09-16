@@ -7,7 +7,7 @@
 ## 0. 文件所有权（写冲突的唯一根源）
 | 归属 | 文件 |
 |---|---|
-| 会话 A（渲染器） | `we-scene-demo/demo.html`、`we-scene-bundle.js`、`elysia/**`、`we-scene-demo-server.mjs` |
+| 会话 A（渲染器） | `we-scene-demo/demo.html`、`core/we-scene-bundle.js`、`elysia/**`、`server/we-scene-demo-server.mjs` |
 | 会话 B（插件） | `dsh-mpkg-wallpaper/**`（`lib/**`、`tools/**`、`package.json`、`icon.svg`） |
 | 会话 C（工具链/文档） | `run-all-tests.sh`、`parity-check.mjs`、`report-audit.mjs`、`library-manifest.mjs`、`docs-check.mjs`、新增 `*-test.mjs`、`*.md`（追加式） |
 | 主会话（整合） | 跨会话整合、编号/文档一致性修订、`PATCHES.md` 编号仲裁 |
@@ -17,7 +17,7 @@
 |---|---|---|---|---|
 | `TASK-A-RENDERER.md`（W6–W12） | A | 已完成 | A1 hina（HDR 熔断 + 坏帧 v3）、A2 GirlCat 拉伸、A4 日月循环白屏、A3/A5 子网格+台账+`layerHealth` | `PATCHES.md` P-41…P-44；`mesh-badframe-test.mjs`（22 断言，门禁项 `mesh-badframe`） |
 | `TASK-B-PLUGIN.md`（B1–B5） | B | 已完成 | 首帧看门狗+兜底、故障信号、调试参数白名单、低内存档、**`__mpwSceneUiBridge` 作用域修复（P0）** | `PATCHES.md` P-52；`tools/scene-watchdog-test.mjs`（39 断言） |
-| `TASK-C-TOOLCHAIN.md`（C1–C6） | C | 已完成 | 平价基线、`known-issues.json`、`RENDERER-ARCHITECTURE.md`、语料清单、门禁条件项、报告六段 | `PATCHES.md` P-51；门禁 **36/36** |
+| `TASK-C-TOOLCHAIN.md`（C1–C6） | C | 已完成 | 平价基线、`known-issues.json`、`docs/RENDERER-ARCHITECTURE.md`、语料清单、门禁条件项、报告六段 | `PATCHES.md` P-51；门禁 **36/36** |
 | `ZCODE-MERGED-5-RENDERER-DEEP.md` | 参考 | 参考 | W6–W12 细节 + R 系列（重写）硬门槛 | — |
 | `ZCODE-MERGED-6-PARALLEL-TRACKS.md` | 参考 | 参考 | 并行调度与所有权规则 | — |
 | `PROMPT-B.md` | B | 未发（B 已自行完成） | 现成 Prompt（含 B6 沙箱+场景 token 安全项） | — |

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// project-json-test.mjs — P-85 官方 project.json 查找链（scene-project-json.mjs）+ 服务端路由契约
+// project-json-test.mjs — P-85 官方 project.json 查找链（core/scene-project-json.mjs）+ 服务端路由契约
 // 复现：node project-json-test.mjs
 //
 // ── 为什么需要这个测试 / 证据是什么 ──────────────────────────────────────────
@@ -25,10 +25,10 @@
 //     属性表缺失时 4 个全可见（= 修复前 bug 形态，作对照钉进断言）
 //   D hina 3554161528：官方 schema 非空，且 scene.json 全部 {user:…} 绑定引用的属性名都在 schema 里
 //   E 优雅降级：不存在的 id → null 且不抛异常
-//   F 服务端路由契约（子进程起 we-scene-demo-server.mjs，随机空闲端口，try/finally 必杀）：
+//   F 服务端路由契约（子进程起 server/we-scene-demo-server.mjs，随机空闲端口，try/finally 必杀）：
 //     /project/<真包> 200 + general.properties + 响应头 x-project-source；不存在的 id 404
 //
-// bundle 侧消费的导出（we-scene-bundle.js 实际导出名，均已核对）：
+// bundle 侧消费的导出（core/we-scene-bundle.js 实际导出名，均已核对）：
 //   propsDefaults(schema) / resolveUserBinding(bind, props) / evalVisibleWithProps(raw, props, gated)
 //   / gatedOffNames(schema, props)（:1415/:1569/:1591/:1547）
 import fs from 'node:fs'
@@ -36,8 +36,8 @@ import os from 'node:os'
 import path from 'node:path'
 import net from 'node:net'
 import { spawn } from 'node:child_process'
-import * as lib from '../we-scene-bundle.js'
-import { projectJsonCandidates, readProjectJson, readProjectProperties, findWorkshopDir } from '../scene-project-json.mjs'   // ①(2026-09-16) 服务端依赖留仓库根
+import * as lib from '../core/we-scene-bundle.js'
+import { projectJsonCandidates, readProjectJson, readProjectProperties, findWorkshopDir } from '../core/scene-project-json.mjs'   // ①(2026-09-16) 服务端依赖留仓库根
 import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 
 const HERE = ROOT
@@ -206,7 +206,7 @@ console.log('[E] 优雅降级：不存在的 id → null 且不抛')
   check('E2 readProjectProperties("99999999999999") = null 且不抛异常', !threw2 && r2 === null, threw2 ? 'threw=' + threw2 : 'null')
 }
 
-console.log('[F] 服务端路由契约：子进程起 we-scene-demo-server.mjs（随机空闲端口；try/finally 必杀）')
+console.log('[F] 服务端路由契约：子进程起 server/we-scene-demo-server.mjs（随机空闲端口；try/finally 必杀）')
 {
   let child = null
   try {
@@ -215,7 +215,7 @@ console.log('[F] 服务端路由契约：子进程起 we-scene-demo-server.mjs�
       s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)) })
       s.on('error', rej)
     })
-    child = spawn(process.execPath, ['we-scene-demo-server.mjs'], {
+    child = spawn(process.execPath, ['server/we-scene-demo-server.mjs'], {
       cwd: HERE,
       env: { ...process.env, PORT: String(port) },
       stdio: 'ignore',

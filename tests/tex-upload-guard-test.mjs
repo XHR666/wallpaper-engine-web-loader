@@ -12,7 +12,7 @@
 //   （投影修正后默认关；`?projy=legacy` 才默认开），默认路径不再翻 v。这里显式钉住 `?qflip=1`，
 //   让本用例继续断言它原本要断言的那套值（qflip 默认值本身由 projection-y-test 覆盖）。
 if (typeof globalThis.location === 'undefined') globalThis.location = { search: '?qflip=1' }
-import * as lib from '../we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'
 
 let pass = 0, fail = 0
 const check = (name, cond, detail) => { if (cond) { pass++; console.log('  ✓ ' + name) } else { fail++; console.log('  ✗ ' + name + (detail ? ' — ' + detail : '')) } }

@@ -9,8 +9,8 @@
 //   · 服务端环境变量 `MPW_PWA=1`  ⇒ 该服务器上所有首页都注入（部署一次即可，推荐）
 //   · 单次请求 `?pwa=1` / `?pwa=0` ⇒ 覆盖环境变量（临时试用 / 明确关闭）
 //   注意：这是**服务器侧**开关，不在 `diag-flag-check.mjs` 的抓取源里
-//   （它只扫 `we-scene-bundle.js` / `demo.html` / `elysia/**/*.js` / 插件 `lib/client.js`），
-//   因此 README-DIAGNOSTICS 的"代码 ↔ 文档双向 0 差异"口径不受影响；登记处见 PACKAGING.md §4。
+//   （它只扫 `core/we-scene-bundle.js` / `demo.html` / `elysia/**/*.js` / 插件 `lib/client.js`），
+//   因此 README-DIAGNOSTICS 的"代码 ↔ 文档双向 0 差异"口径不受影响；登记处见 docs/PACKAGING.md §4。
 import fs from 'node:fs'
 import path from 'node:path'
 

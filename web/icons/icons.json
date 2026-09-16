@@ -1,5 +1,5 @@
 {
- "generator": "node make-icons.mjs（确定性；勿手改 PNG）",
+ "generator": "node tools/make-icons.mjs（确定性；勿手改 PNG）",
  "note": "程序化生成，无第三方素材；sha256 用于门禁核对",
  "icons": [
   {

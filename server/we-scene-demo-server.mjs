@@ -2,27 +2,34 @@ function mkdirSyncSafe(p) { try { fs.mkdirSync(p, { recursive: true }) } catch {
 function statSyncSafe(p) { try { return fs.statSync(p) } catch { return null } }
 
 // we-scene 验证服务器 v2：完整 loadScene 链路（model→material→texture）
-// 用法: node we-scene-demo-server.mjs 8899
+// 用法: node server/we-scene-demo-server.mjs 8899
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { packDir, collectFiles } from './pack-dir.mjs'; // ①(第22项) 目录源 → PKG 容器（混合加载）
-// ①(P-85 2026-09-15) 官方 project.json 的**统一查找链**（与 demo/测试共用 scene-project-json.mjs）：
+// ①(P-85 2026-09-15) 官方 project.json 的**统一查找链**（与 demo/测试共用 core/scene-project-json.mjs）：
 //   WE 工坊布局是"一个壁纸一个目录"，project.json 是 scene.pkg 的**同级文件**而不是包内条目
 //   （getEntry(pkg,'project.json') 恒 null，语料 6/6 实测）。查找顺序：explicit-dir → env-MPW_PROJECT_JSON_DIR
 //   → scene-root(<MPW_SCENE_ROOT>/<id>) → we-workshop(<Steam 工坊 431960 目录>/<id>) → allwallpaper-flat；
 //   命中回传 source（这份属性表从哪来），全找不到返回 null → 调用方按"无属性表"既有路径优雅降级。
-import { readProjectJson } from './scene-project-json.mjs';
+import { readProjectJson } from '../core/scene-project-json.mjs';
 // ①(P-92 2026-09-16) PWA 外壳（manifest + Service Worker 注册）**服务器侧注入**：
 //   为什么不写死在 demo.html 里 —— 那个文件同一时刻只允许一条线改（并发编辑互相覆盖），
 //   而 PWA 与渲染逻辑零耦合 ⇒ 做成**可关的注入**：环境变量 `MPW_PWA=1` 或请求 `?pwa=1` 才开（默认关）。
 //   缓存判据（**绝不缓存用户壁纸**）在 `sw-policy.mjs`；逐条反面断言见 `pwa-test.mjs`。
-import { pwaEnabledFrom, injectPwa, readPwaAsset } from './pwa-inject.mjs';
+import { pwaEnabledFrom, injectPwa, readPwaAsset } from '../web/pwa-inject.mjs';
 // ①(P-85) /project 命中来源的一次性日志去重：同一 id 只打一行"从哪来"，不刷屏
 const PROJECT_SOURCE_LOGGED = new Set();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// ①(P-101 2026-09-16 目录再整理) 本文件移入 `server/` ⇒ 落点常量集中在这里，别再散写相对路径：
+//   REPO_ROOT = 仓库根（= 本文件的上一级）；站点外壳资源在 web/、渲染与解析内核在 core/、
+//   自研 shader 头在 shaders/。URL 路径（/bundle.js、/sw.js、/manifest.webmanifest…）**不变**。
+const REPO_ROOT = path.resolve(__dirname, '..');
+const WEB_DIR = path.join(REPO_ROOT, 'web');
+const CORE_DIR = path.join(REPO_ROOT, 'core');
+const SHADERS_DIR = path.join(REPO_ROOT, 'shaders');
 // ①(B6 2026-09-14) 端口来源：PORT 环境变量（测试用）> CLI 第 1 个参数（旧用法不变）> 8899
 const port = Number(process.env.PORT || process.argv[2] || 8899);
 // ═══ ①(第16项 发布去个人化 2026-09-14；P-91 2026-09-16 收尾) 所有个人绝对路径改为**环境变量可覆盖** ═══
@@ -30,8 +37,8 @@ const port = Number(process.env.PORT || process.argv[2] || 8899);
 //   这个已经写进 README-PUBLIC §4 的约定布局）。作者机上 `__dirname/..` 与旧默认值**是同一个目录**
 //   ⇒ 本机行为一字不变；公开副本也不会把作者的个人目录带进分发产物（`npm pack` 后逐条 grep 个人
 //   绝对前缀的自查见 packaging-test.mjs）。覆盖方式示例：
-//     MPW_ROOT=/path/to/workspace MPW_REPORTS_DIR=/tmp/reports node we-scene-demo-server.mjs
-const MPW_ROOT = process.env.MPW_ROOT || path.resolve(__dirname, '..');
+//     MPW_ROOT=/path/to/workspace MPW_REPORTS_DIR=/tmp/reports node server/we-scene-demo-server.mjs
+const MPW_ROOT = process.env.MPW_ROOT || path.resolve(REPO_ROOT, '..');
 // ①(P-87 2026-09-15 版权) 场景根：显式环境变量 > <MPW_ROOT>/allwallpaper/dd（作者机 / 使用者自己的语料）
 //   > **<repo>/samples**（本仓库自带样例的父目录 ⇒ `?id=sample-synthetic` 正好命中
 //   `<root>/<id>/scene.pkg` = samples/sample-synthetic/scene.pkg，project.json 也在同级）。
@@ -40,11 +47,157 @@ const MPW_ROOT = process.env.MPW_ROOT || path.resolve(__dirname, '..');
 //   却当成成功"的假象）：此时 `?id=` 一律 404，启动日志会打印生效值 + "请用 ?pkgpath= 或自己放语料"。
 const MPW_SCENE_ROOT = (() => {
   if (process.env.MPW_SCENE_ROOT) return process.env.MPW_SCENE_ROOT
-  const cands = [MPW_ROOT + '/allwallpaper/dd', __dirname + '/samples']
+  const cands = [MPW_ROOT + '/allwallpaper/dd', REPO_ROOT + '/samples']
   for (const c of cands) { try { if (fs.existsSync(c) && fs.statSync(c).isDirectory()) return c } catch {} }
-  return __dirname + '/samples/NO-BUNDLED-CORPUS'   // 占位：明确不存在（见上行口径）
+  return REPO_ROOT + '/samples/NO-BUNDLED-CORPUS'   // 占位：明确不存在（见上行口径）
 })();
 const MPW_REPORTS_DIR = process.env.MPW_REPORTS_DIR || (MPW_ROOT + '/reports');
+// ═══ ①(P-104 2026-09-17 发布纪律①②：自动上报默认关 + 一切"自动落盘"都要有上限) ═══
+//   用户原话：①"像你这种测试用的自动上报的功能，这种你在上传仓库的时候要把它默认给关掉。"
+//            ②"这种自动上报、自动把什么存储到本地的类型的东西，这种需要设置上限的，这上限别忘记了。"
+//   **本块是服务端所有落盘上限的唯一来源**（要调上限只改这里；对照表见 docs/DATA-LIMITS.md）。
+//   两条口径同时生效：**数量上限**（最旧先删）+ **总字节上限**（最旧先删到限内）。
+//   环境变量只用于**测试/现场调参**（把上限压到很小才能在几秒内验完清理路径）；
+//   非法/缺省值一律回落默认 —— 绝不出现"配错上限 = 把上限关掉"。
+const numEnv = (name, def) => {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : def;
+};
+const MPW_LIMITS = {
+  reportsMaxFiles: numEnv('MPW_LIMIT_REPORTS_MAX', 60),                      // reports/r<ts>.json ≤60 份
+  selfcheckMaxFiles: numEnv('MPW_LIMIT_SELFCHECK_MAX', 40),                  // reports/selfcheck-<ts>.json ≤40 份
+  reportsMaxBytes: numEnv('MPW_LIMIT_REPORTS_BYTES', 64 * 1024 * 1024),      // 上面两类**合计** ≤64MB
+  shotPerIdMaxFiles: numEnv('MPW_LIMIT_SHOT_FILES', 400),                    // 每 id ≤400 帧
+  shotPerIdMaxBytes: numEnv('MPW_LIMIT_SHOT_ID_BYTES', 200 * 1024 * 1024),   // 每 id ≤200MB
+  shotTotalMaxBytes: numEnv('MPW_LIMIT_SHOT_TOTAL_BYTES', 500 * 1024 * 1024),// 所有 id 合计 ≤500MB
+};
+// 清理动作必须打日志（用户点名："已删除 N 个最旧文件，释放 X MB"）——0 个时不打，免得刷屏。
+function logPrune(scope, removed, freedBytes, extra) {
+  if (!removed) return;
+  console.log('[prune] ' + scope + '：已删除 ' + removed + ' 个最旧文件，释放 ' + (freedBytes / 1048576).toFixed(2) + ' MB'
+    + (extra ? '（' + extra + '）' : ''));
+}
+// 通用：把一个目录收进 maxFiles/maxBytes 之内，**最旧先删**。
+//   filter：只统计/删除哪些文件（reports/ 只数 r*.json；shots/<id>/ 只数图片，index.jsonl 台账永不删）。
+//   排序口径 = **文件名里的 epoch 优先**（r<ts>.json / <ts>-<tag>.jpg 都是"名字即时间"；同一毫秒灌
+//   几十份时排序仍确定），拿不到数字时间戳才退回 mtime。
+//   返回 {removed, freedBytes}。任何一步失败都吞掉：**清理绝不能让写入路径 500**。
+function pruneDirToLimits(dir, opts) {
+  const o = opts || {};
+  const maxFiles = (o.maxFiles === undefined) ? Infinity : o.maxFiles;
+  const maxBytes = (o.maxBytes === undefined) ? Infinity : o.maxBytes;
+  let removed = 0, freedBytes = 0;
+  try {
+    let names;
+    try { names = fs.readdirSync(dir) } catch { return { removed: 0, freedBytes: 0 } }
+    const keep = o.filter || (() => true);
+    const tsOf = (n) => { const m = /(\d{10,})/.exec(n); return m ? Number(m[1]) : null };
+    const rows = [];
+    for (const n of names) {
+      if (!keep(n)) continue;
+      const st = statSyncSafe(path.join(dir, n));
+      if (!st || !st.isFile()) continue;
+      rows.push({ n, size: st.size, mtime: st.mtimeMs });
+    }
+    rows.sort((a, b) => {
+      const ta = tsOf(a.n), tb = tsOf(b.n);
+      if (ta !== null && tb !== null && ta !== tb) return ta - tb;
+      return (a.mtime - b.mtime) || a.n.localeCompare(b.n);
+    });
+    let total = rows.reduce((s, r) => s + r.size, 0);
+    let count = rows.length;
+    for (const r of rows) {
+      if (count <= maxFiles && total <= maxBytes) break;
+      try {
+        fs.unlinkSync(path.join(dir, r.n));
+        removed++; freedBytes += r.size; count--; total -= r.size;
+      } catch { /* 单个删不掉不阻断其余 */ }
+    }
+  } catch { /* ignore */ }
+  return { removed, freedBytes };
+}
+// reports/ 顶层：`r<ts>.json`（/report）与 `selfcheck-<ts>.json`（/diag）两类**各自数量封顶**，
+//   再共享一份 **64MB 字节预算**。
+//   ⚠ 过滤器只认这两类自造文件名：`MPW_REPORTS_DIR` 默认是**工作区根的 reports/**，那里还躺着
+//   `parity-*.json` 等别条线的产物（parity-check 门禁要读）——**一个都不许删**。
+function pruneReports(dir) {
+  const d = dir || MPW_REPORTS_DIR;
+  const a = pruneDirToLimits(d, { maxFiles: MPW_LIMITS.reportsMaxFiles, filter: (n) => /^r\d+\.json$/.test(n) });
+  const b = pruneDirToLimits(d, { maxFiles: MPW_LIMITS.selfcheckMaxFiles, filter: (n) => /^selfcheck-\d+\.json$/.test(n) });
+  const c = pruneDirToLimits(d, { maxBytes: MPW_LIMITS.reportsMaxBytes, filter: (n) => /^(r\d+|selfcheck-\d+)\.json$/.test(n) });
+  const r = { removed: a.removed + b.removed + c.removed, freedBytes: a.freedBytes + b.freedBytes + c.freedBytes };
+  logPrune('reports/', r.removed, r.freedBytes, '上限 r* ' + MPW_LIMITS.reportsMaxFiles + ' 份 / selfcheck* '
+    + MPW_LIMITS.selfcheckMaxFiles + ' 份 / 合计 ' + Math.round(MPW_LIMITS.reportsMaxBytes / 1048576) + 'MB');
+  return r;
+}
+// shots/<id>/：每 id ≤400 帧 + ≤200MB（只数图片；index.jsonl 是台账，永不删）
+function pruneShotsId(id) {
+  const dir = path.join(MPW_REPORTS_DIR, 'shots', id);
+  const r = pruneDirToLimits(dir, {
+    maxFiles: MPW_LIMITS.shotPerIdMaxFiles,
+    maxBytes: MPW_LIMITS.shotPerIdMaxBytes,
+    filter: (n) => /\.(jpg|png)$/i.test(n),
+  });
+  logPrune('shots/' + id + '/', r.removed, r.freedBytes, '每 id 上限 ' + MPW_LIMITS.shotPerIdMaxFiles + ' 帧 / ' + Math.round(MPW_LIMITS.shotPerIdMaxBytes / 1048576) + 'MB');
+  return r;
+}
+function shotsDirIds() {
+  const root = path.join(MPW_REPORTS_DIR, 'shots');
+  try {
+    return fs.readdirSync(root).filter((n) => { const st = statSyncSafe(path.join(root, n)); return !!st && st.isDirectory() });
+  } catch { return [] }
+}
+// shots/** 全局字节上限：跨 id 合计超限时**每次删"所有 id 里最旧的那一帧"**（公平，
+//   不会一次掏空某个 id）。上限 500MB —— 一台设备整个上报目录的硬顶。
+function pruneShotsAll() {
+  const root = path.join(MPW_REPORTS_DIR, 'shots');
+  let removed = 0, freedBytes = 0;
+  try {
+    const ids = shotsDirIds();
+    const scan = () => {
+      let total = 0; const oldest = [];
+      for (const id of ids) {
+        const dir = path.join(root, id);
+        let names = []; try { names = fs.readdirSync(dir) } catch { continue }
+        const rows = [];
+        for (const n of names) {
+          if (!/\.(jpg|png)$/i.test(n)) continue;
+          const st = statSyncSafe(path.join(dir, n));
+          if (!st || !st.isFile()) continue;
+          rows.push({ n, size: st.size, mtime: st.mtimeMs });
+          total += st.size;
+        }
+        rows.sort((a, b) => (a.mtime - b.mtime) || a.n.localeCompare(b.n));
+        if (rows.length) oldest.push({ id, dir, row: rows[0] });
+      }
+      return { total, oldest };
+    };
+    let guard = 0;
+    while (guard++ < 200000) {
+      const s = scan();
+      if (s.total <= MPW_LIMITS.shotTotalMaxBytes || !s.oldest.length) break;
+      s.oldest.sort((a, b) => (a.row.mtime - b.row.mtime) || a.id.localeCompare(b.id));
+      const pick = s.oldest[0];
+      try { fs.unlinkSync(path.join(pick.dir, pick.row.n)); removed++; freedBytes += pick.row.size } catch { break }
+    }
+  } catch { /* ignore */ }
+  logPrune('shots/**', removed, freedBytes, '全局上限 ' + Math.round(MPW_LIMITS.shotTotalMaxBytes / 1048576) + 'MB');
+  return { removed, freedBytes };
+}
+// 启动清理一次（用户要求"启动时清理一次"）：进程一起来就把上次遗留的超限目录收进限内。
+function pruneAllOnStartup() {
+  const r = pruneReports(MPW_REPORTS_DIR);
+  let n = 0, b = 0;
+  for (const id of shotsDirIds()) { const x = pruneShotsId(id); n += x.removed; b += x.freedBytes }
+  const g = pruneShotsAll();
+  console.log('[limits] 启动清理完成：reports 删 ' + r.removed + ' 份/' + (r.freedBytes / 1048576).toFixed(2) + 'MB'
+    + '；shots 每 id 删 ' + n + ' 帧/' + (b / 1048576).toFixed(2) + 'MB'
+    + '；shots 全局删 ' + g.removed + ' 帧/' + (g.freedBytes / 1048576).toFixed(2) + 'MB'
+    + '（上限：reports ' + MPW_LIMITS.reportsMaxFiles + ' 份/' + Math.round(MPW_LIMITS.reportsMaxBytes / 1048576)
+    + 'MB；每 id ' + MPW_LIMITS.shotPerIdMaxFiles + ' 帧/' + Math.round(MPW_LIMITS.shotPerIdMaxBytes / 1048576)
+    + 'MB；shots 合计 ' + Math.round(MPW_LIMITS.shotTotalMaxBytes / 1048576) + 'MB）');
+  return { reports: r, shotsPerId: { removed: n, freedBytes: b }, shotsGlobal: g };
+}
 // ①(2026-09-14 公开仓库可用性) WE 资产目录：显式环境变量 > 本仓库旁 > **常见 Steam 安装路径自动探测**。
 //   为什么需要：公开副本的使用者不会把 WE 装在 `$MPW_ROOT/wallpaper_engine`；而 `/weassist` 兜底
 //   （粒子预设/材质/着色器）只在能读到 WE 自己的 assets 时才有内容。**我们不随仓库分发任何 WE 资产**，
@@ -70,17 +223,17 @@ const MPW_ALLOW_DIRS = (process.env.MPW_ALLOW_DIRS || [
   // ①(P-87 2026-09-15 版权) 本仓库自带的**合成**样例目录也进白名单：`?pkgpath=<repo>/samples/sample-synthetic/scene.pkg`
   //   与 `/pkgdir?d=<repo>/samples/sample-synthetic-src` 是自带样例的官方打开方式，不该要求用户先改环境变量。
   //   （只放我们自己程序化生成的文件，无第三方内容，见 samples/README.md。）
-  __dirname + '/samples',
+  REPO_ROOT + '/samples',
 ].join(':')).split(':').filter(Boolean);
 // 包解析器：优先本目录 vendor 副本（公开仓库自带），其次插件仓库
 const MPW_PKG_EXTRACT = process.env.MPW_PKG_EXTRACT
-  || (fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'pkg-extract.mjs'))
-      ? path.join(path.dirname(fileURLToPath(import.meta.url)), 'pkg-extract.mjs')
+  || (fs.existsSync(path.join(REPO_ROOT, 'pkg-extract.mjs'))
+      ? path.join(REPO_ROOT, 'pkg-extract.mjs')
       : MPW_ROOT + '/dsh-mpkg-wallpaper/lib/pkg-extract.js');
 const SCENE_ROOT = MPW_SCENE_ROOT;
 // ①(P-87 2026-09-15 版权) 自带**合成**样例的父目录：`<repo>/samples/<id>/scene.pkg` 形式（id=sample-synthetic）。
 //   真实壁纸不再随仓库分发，所以这是唯一"仓库内自带"的 id 来源。
-const SAMPLE_ROOT = __dirname + '/samples';
+const SAMPLE_ROOT = REPO_ROOT + '/samples';
 // ①(P-87) id 形态统一：真实语料目录名是数字，自带样例是 slug（sample-synthetic）。统一常量避免各路由手写漂移；
 //   **必须**排除以点开头的名字（`?id=..` 经 path.join 会逃出场景根）。
 const ID_PAT = '[A-Za-z0-9_][A-Za-z0-9_.-]*';
@@ -186,7 +339,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/' || p === '/index.html') {
       // ①(2026-09-14 修) **先读后写**：原顺序是 writeHead(200) 再 readFileSync → 缺 demo.html 时
       //   头已发出、异常只能变成 500/崩溃（公开副本实测复现）。现在缺文件是干净 404。
-      const fp = path.join(__dirname, 'demo.html');
+      const fp = path.join(REPO_ROOT, 'demo.html');
       let buf = null;
       try { buf = fs.readFileSync(fp) } catch { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); res.end('demo.html not found'); return }
       // ①(P-92) PWA 注入（默认关；`MPW_PWA=1` 或 `?pwa=1`）。注入是**纯增量**（`</head>` 前插
@@ -199,31 +352,31 @@ const server = http.createServer(async (req, res) => {
     }
     // ①(P-92) PWA 静态资源：manifest / Service Worker / 缓存判据 / 图标。
     //   `sw.js` 与 `sw-policy.mjs` 必须与首页同源同目录（SW 的 scope 就是它自己的路径）。
-    if (readPwaAsset(__dirname, p)) {
-      const a = readPwaAsset(__dirname, p);
+    if (readPwaAsset(WEB_DIR, p)) {
+      const a = readPwaAsset(WEB_DIR, p);
       res.writeHead(200, { 'content-type': a.type, 'cache-control': 'no-cache' });
       res.end(a.buf);
       return;
     }
     if (p === '/bundle.js') {
-      sendBuffer(req, res, fs.readFileSync(path.join(__dirname, 'we-scene-bundle.js')), 'text/javascript');
+      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'we-scene-bundle.js')), 'text/javascript');
       return;
     }
     // ①(新) ?mode=elysia: elysia CPU 渲染器源码静态服务 + we-scene-bundle 别名
     // elysia/demo-elysia.js 用相对路径 import '../we-scene-bundle.js' → /we-scene-bundle.js
     if (p === '/we-scene-bundle.js') {
-      sendBuffer(req, res, fs.readFileSync(path.join(__dirname, 'we-scene-bundle.js')), 'text/javascript');
+      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'we-scene-bundle.js')), 'text/javascript');
       return;
     }
     // ①(P-21-ATTACH 2026-09-13) bundle 的 import './attach-transform.mjs'（浏览器解析为 /attach-transform.mjs）
     if (p === '/attach-transform.mjs') {
-      sendBuffer(req, res, fs.readFileSync(path.join(__dirname, 'attach-transform.mjs')), 'text/javascript');
+      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'attach-transform.mjs')), 'text/javascript');
       return;
     }
     // ①(MERGED-3 1.3 2026-09-14) 诊断开关速查 JSON（diag-flag-check.mjs 脚本生成）：
     //  插件面板在线数据源（离线用 client.js 内置副本）；文件不存在时按生成脚本提示返回
     if (p === '/diag-flags.json') {
-      const fp = path.join(__dirname, 'diag-flags.json');
+      const fp = path.join(WEB_DIR, 'diag-flags.json');
       if (fs.existsSync(fp)) {
         res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-cache' });
         res.end(fs.readFileSync(fp));
@@ -235,7 +388,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (p.startsWith('/elysia/')) {
       const rel = p.slice('/elysia/'.length);
-      const base = path.join(__dirname, 'elysia');
+      const base = path.join(REPO_ROOT, 'elysia');
       const full = path.join(base, rel);
       if (full.startsWith(base) && fs.existsSync(full) && fs.statSync(full).isFile()) {
         const ct = rel.endsWith('.js') ? 'text/javascript' : rel.endsWith('.json') ? 'application/json' : 'application/octet-stream';
@@ -255,7 +408,9 @@ const server = http.createServer(async (req, res) => {
           try {
             const dir = MPW_REPORTS_DIR
             mkdirSyncSafe(dir)
+            pruneReports(dir)   // ①(P-104) 写入前检查：先把上一次遗留的超限收回去
             fs.writeFileSync(path.join(dir, 'selfcheck-' + Date.now() + '.json'), body)
+            pruneReports(dir)   // ①(P-104) 写入后检查：本次这份也计入数量/字节上限（历史：这条路**完全没有滚动**）
             res.writeHead(200); res.end('ok')
           } catch { res.writeHead(500); res.end('err') }
         })
@@ -264,14 +419,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/diag') {
       // ①同上：先读后写，缺文件 404（原来缺 diag.html 会先发 200 再抛）
-      const fp = path.join(__dirname, 'diag.html');
+      const fp = path.join(WEB_DIR, 'diag.html');
       let buf = null;
       try { buf = fs.readFileSync(fp) } catch { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); res.end('diag.html not found'); return }
       sendBuffer(req, res, buf, 'text/html; charset=utf-8');
     } else if (p === '/probe') {
       // ①(P-41 A6) 与其它路由对齐的错误语义：文件缺失 → 404 + JSON 说明；读失败 → 500（不再把
       //   ENOENT 直接抛成未捕获异常炸掉整个请求管线）
-      const fp = path.join(__dirname, 'probe.html');
+      const fp = path.join(WEB_DIR, 'probe.html');
       if (fs.existsSync(fp)) {
         try {
           res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -301,13 +456,13 @@ const server = http.createServer(async (req, res) => {
     try {
       for (const f of fs.readdirSync(WE_SHADERS)) {
         if (/^common.*\.h$/.test(f)) {
-          const own = path.join(__dirname, f);
+          const own = path.join(SHADERS_DIR, f);
           HEADER_FILES[f] = fs.existsSync(own) ? own : path.join(WE_SHADERS, f);
         }
       }
     } catch { /* 未安装 WE / 无 assets：只用仓库自研头（下个循环），不致命 */ }
-    for (const f of fs.readdirSync(__dirname)) {
-      if (/^common.*\.h$/.test(f)) HEADER_FILES[f] = path.join(__dirname, f);
+    for (const f of fs.readdirSync(SHADERS_DIR)) {
+      if (/^common.*\.h$/.test(f)) HEADER_FILES[f] = path.join(SHADERS_DIR, f);
     }
     let m = null;
     const pm = (re) => (m = p.match(re));
@@ -334,15 +489,11 @@ const server = http.createServer(async (req, res) => {
           try {
             const dir = MPW_REPORTS_DIR
             mkdirSyncSafe(dir)
+            pruneReports(dir)   // ①(P-104) 写入前检查（上限常量集中在 MPW_LIMITS）
             fs.writeFileSync(path.join(dir, 'r' + Date.now() + '.json'), body)
-            // ①(修复) 服务端上限：只保留最新 60 份（旧的删除）
-            try {
-              const all = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort()
-              while (all.length > 60) {
-                const old = all.shift()
-                try { fs.unlinkSync(path.join(dir, old)) } catch {}
-              }
-            } catch {}
+            // ①(P-104 2026-09-17) 上限从"只有数量 60 份"升级成 **数量 + 合计 64MB**。
+            //   写**后**再收一次：本次这份也算进账（写前那次管的是上一次遗留）。
+            pruneReports(dir)
             res.writeHead(200); res.end('ok')
           } catch { res.writeHead(500); res.end('err') }
         })
@@ -408,6 +559,7 @@ const server = http.createServer(async (req, res) => {
           let name = ts + '-' + tag + ext, n = 1;
           while (fs.existsSync(path.join(dir, name))) name = ts + '-' + tag + '-' + (++n) + ext;
           const buf = Buffer.concat(chunks, size);
+          pruneShotsId(sid);   // ①(P-104) 写入前检查：本 id 目录已超限就先把最旧的收掉
           fs.writeFileSync(path.join(dir, name), buf);
           const rel = 'shots/' + sid + '/' + name;   // 统一正斜杠（file 字段是给文档/日志看的相对路径）
           // 元数据：一行一条 JSON（追加）。写失败**不影响**这一帧已落盘的事实，只记一行警告。
@@ -424,15 +576,12 @@ const server = http.createServer(async (req, res) => {
               ua: String(req.headers['user-agent'] || '').replace(/\s+/g, ' ').slice(0, 120),
             }) + '\n');
           } catch (e) { console.warn('[shot] index.jsonl 追加失败：' + (e && e.message)); }
-          // 滚动：**每个 id 最多 400 帧**（只数图片文件；index.jsonl 是台账，不删）。
-          //   与 /report 的 60 份策略各自独立 —— 这里一行都不碰它。
-          try {
-            const pics = fs.readdirSync(dir).filter((f) => /\.(jpg|png)$/i.test(f)).sort();
-            while (pics.length > 400) {
-              const old = pics.shift();
-              try { fs.unlinkSync(path.join(dir, old)); } catch {}
-            }
-          } catch {}
+          // 滚动（①P-104 2026-09-17 用户发布纪律②"自动落盘的东西要设上限"）：
+          //   **每 id ≤400 帧 + ≤200MB**，再叠一层 **shots/ 全局 ≤500MB**（跨 id 合计，公平地删"所有 id 里
+          //   最旧的那一帧"）。三条上限都从 MPW_LIMITS 取（唯一来源）；index.jsonl 是台账，永不删。
+          //   与 /report 的"60 份 + 64MB"策略各自独立 —— 两边互不碰对方的目录。
+          pruneShotsId(sid);
+          pruneShotsAll();
           console.log('[shot] ' + path.join(dir, name) + ' ' + buf.length + 'B tag=' + tag + (tq ? ' t=' + tq : ''));
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ ok: true, file: rel, bytes: buf.length }));
@@ -638,7 +787,7 @@ const server = http.createServer(async (req, res) => {
     //   页面侧用法：?extbase=http://127.0.0.1:8899/ext 或 ?exthooks=<绝对 URL>
     //   钩子槽位见 EXTENSION-HOOKS.md（resolveTexture / layerRect / shaderSource / postFrame / stats）
     if (p === '/ext' || p === '/ext/') {
-      const dir = path.join(__dirname, 'extensions')
+      const dir = path.join(REPO_ROOT, 'extensions')
       let hooks = []
       try {
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -650,7 +799,7 @@ const server = http.createServer(async (req, res) => {
     }
     m = p.match(/^\/ext\/([\w.-]+)$/);
     if (m) {
-      const base = path.join(__dirname, 'extensions')
+      const base = path.join(REPO_ROOT, 'extensions')
       const full = path.join(base, m[1])
       if (full.startsWith(base) && fs.existsSync(full)) {
         res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' })
@@ -672,7 +821,7 @@ const server = http.createServer(async (req, res) => {
     m = p.match(/^\/assets\/fonts\/(.+)$/);
     if (m) {
       const rel = decodeURIComponent(m[1]).replace(/^\.+\//, '')
-      const base = path.join(__dirname, 'assets', 'fonts')
+      const base = path.join(REPO_ROOT, 'assets', 'fonts')
       const full = path.join(base, rel)
       const st = statSyncSafe(full)
       const ct = /\.ttf$/i.test(rel) ? 'font/ttf'
@@ -772,7 +921,7 @@ const server = http.createServer(async (req, res) => {
 let trm = p.match(/^\/transpiled\/(\d+)\/(.+)$/);
     if (trm) {
       try {
-        const { hlsl2glsl, parsePkg, getEntry } = await import('./we-scene-bundle.js')
+        const { hlsl2glsl, parsePkg, getEntry } = await import('../core/we-scene-bundle.js')
         const pkg = parsePkg(new Uint8Array(fs.readFileSync(path.join(MPW_SCENE_ROOT, trm[1], 'scene.pkg'))))
         const rel = decodeURIComponent(trm[2])
         const e = pkg.entries.find((x) => x.name === rel)
@@ -825,6 +974,9 @@ let trm = p.match(/^\/transpiled\/(\d+)\/(.+)$/);
 const osInfo = await import('node:os')
 
 server.listen(port, '0.0.0.0', () => {
+  // ①(P-104 2026-09-17 用户发布纪律②) **启动清理一次**：把上次遗留的超限上报目录收回限内，
+  //   并在 stdout 打出"删了几个 / 释放多少 MB / 当前上限"（清理动作必须留痕）。
+  try { pruneAllOnStartup() } catch (e) { console.warn('[limits] 启动清理失败（不影响服务）：' + (e && e.message)) }
   console.log('[weassist] WE 资产目录: ' + (fs.existsSync(MPW_WE_ASSETS) ? MPW_WE_ASSETS : '未找到（粒子预设/材质兜底将被跳过；可用 MPW_WE_ASSETS 指定）'));
   // ①(P-87 2026-09-15 版权) 场景根必须**如实播报**：真实壁纸已从仓库移除，别让人以为"自带包但打不开"。
   console.log('[scene] 场景根 MPW_SCENE_ROOT=' + MPW_SCENE_ROOT

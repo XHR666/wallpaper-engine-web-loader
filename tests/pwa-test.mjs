@@ -7,7 +7,7 @@
 //      **反面 17 条**（`/raw`、`pkgpath`、`pkgurl`、`pkgdir`、`/weassist`、`/report`、`/shot`、
 //      非样例 `?id=`、`/pkg/<其它 id>`、POST、跨源、音视频/图片响应、超大响应、畸形编码）
 //   B. manifest：JSON 合法 + 安装必需字段 + 图标文件**真实存在且尺寸正确** + `start_url` 指向自带样例
-//   C. 图标与生成器**逐字节一致**（`make-icons.mjs --check`，防"手改 PNG 但没台账"）
+//   C. 图标与生成器**逐字节一致**（`tools/make-icons.mjs --check`，防"手改 PNG 但没台账"）
 //   D. sw.js：语法可解析 + 预缓存清单里**没有**任何用户素材端点 + 明确网络优先
 //   E. 服务器注入：默认关（逐字节 = 改动前）/ `?pwa=1` 开 / 幂等 / 缺 `</head>` 不吞页面
 //   F. 真子进程服务：6 条 PWA 静态路由 200 + content-type + 首页注入与不注入的实际字节对比
@@ -15,11 +15,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import net from 'node:net'
 import { spawn, execFileSync } from 'node:child_process'
-import { shouldCache, shouldStoreResponse, SAMPLE_ID, SHELL_EXACT, SHELL_PREFIX, USER_SOURCE_KEYS } from '../sw-policy.mjs'
-import { pwaEnabledFrom, injectPwa, readPwaAsset, PWA_ROUTES } from '../pwa-inject.mjs'
+import { shouldCache, shouldStoreResponse, SAMPLE_ID, SHELL_EXACT, SHELL_PREFIX, USER_SOURCE_KEYS } from '../web/sw-policy.mjs'
+import { pwaEnabledFrom, injectPwa, readPwaAsset, PWA_ROUTES } from '../web/pwa-inject.mjs'
 import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 
 const HERE = ROOT   // ①(2026-09-16) 根文件（demo.html / bundle）在仓库根
+const WEB = path.join(ROOT, 'web')   // ①(P-101) 站点外壳资源（sw.js / sw-policy.mjs / manifest / icons）在 web/（URL 不变）
 let pass = 0, fail = 0
 const fails = []
 const check = (name, ok, detail) => {
@@ -88,7 +89,7 @@ console.log('\n[A3] 响应判据：错误/媒体/超大响应不写缓存')
 
 console.log('\n[B] manifest.webmanifest：安装必需字段 + 图标在位')
 {
-  const raw = fs.readFileSync(path.join(ROOT, 'manifest.webmanifest'), 'utf8')
+  const raw = fs.readFileSync(path.join(WEB, 'manifest.webmanifest'), 'utf8')
   let m = null
   try { m = JSON.parse(raw) } catch (e) { /* 下面断言会报 */ }
   check('合法 JSON', !!m)
@@ -100,7 +101,7 @@ console.log('\n[B] manifest.webmanifest：安装必需字段 + 图标在位')
   check('含 512×512 maskable 图标', !!(m && m.icons && m.icons.some((i) => /512/.test(i.sizes) && i.purpose === 'maskable')))
   // 图标路径必须真实存在，且 PNG 头声明的尺寸与 manifest 一致（手工改尺寸会在这里红）
   for (const ic of (m && m.icons) || []) {
-    const fp = path.join(HERE, ic.src.replace(/^\//, ''))
+    const fp = path.join(WEB, ic.src.replace(/^\//, ''))   // ①(P-101) 图标在 web/icons/（URL 仍是 /icons/…）
     let ok = false, dim = ''
     try {
       const b = fs.readFileSync(fp)
@@ -116,21 +117,21 @@ console.log('\n[B] manifest.webmanifest：安装必需字段 + 图标在位')
 console.log('\n[C] 图标与生成器逐字节一致（防手改 PNG）')
 {
   try {
-    const out = execFileSync(process.execPath, [path.join(ROOT, 'make-icons.mjs'), '--check'], { cwd: ROOT, encoding: 'utf8', timeout: 60000 })   // ①(2026-09-16) make-icons 在仓库根
-    check('make-icons.mjs --check 通过', true, out.trim().split('\n').pop())
+    const out = execFileSync(process.execPath, [path.join(ROOT, 'tools/make-icons.mjs'), '--check'], { cwd: ROOT, encoding: 'utf8', timeout: 60000 })   // ①(2026-09-16) make-icons 在仓库根
+    check('tools/make-icons.mjs --check 通过', true, out.trim().split('\n').pop())
   } catch (e) {
-    check('make-icons.mjs --check 通过', false, String(e.stdout || e.message).trim().split('\n').slice(-2).join(' ⏎ '))
+    check('tools/make-icons.mjs --check 通过', false, String(e.stdout || e.message).trim().split('\n').slice(-2).join(' ⏎ '))
   }
-  const j = JSON.parse(fs.readFileSync(path.join(HERE, 'icons', 'icons.json'), 'utf8'))
+  const j = JSON.parse(fs.readFileSync(path.join(WEB, 'icons', 'icons.json'), 'utf8'))
   check('icons.json 登记了 3 个图标与 sha256', Array.isArray(j.icons) && j.icons.length === 3 && j.icons.every((i) => /^[0-9a-f]{64}$/.test(i.sha256)))
 }
 
 console.log('\n[D] sw.js：语法 + 预缓存清单不含用户素材 + 网络优先')
 {
   let syn = true, err = ''
-  try { execFileSync(process.execPath, ['--check', path.join(ROOT, 'sw.js')], { encoding: 'utf8' }) } catch (e) { syn = false; err = String(e.stderr || e.message).split('\n')[0] }
+  try { execFileSync(process.execPath, ['--check', path.join(WEB, 'sw.js')], { encoding: 'utf8' }) } catch (e) { syn = false; err = String(e.stderr || e.message).split('\n')[0] }
   check('node --check sw.js 语法通过', syn, err)
-  const src = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8')
+  const src = fs.readFileSync(path.join(WEB, 'sw.js'), 'utf8')
   check('sw.js 从 sw-policy.mjs import 判据（单一事实源）', /from '\.\/sw-policy\.mjs'/.test(src) && /shouldCache/.test(src))
   const precache = (src.match(/const PRECACHE = \[([\s\S]*?)\]/) || [, ''])[1]
   const bads = ['/raw', '/weassist', '/report', '/shot', '/pkgpath', '/pkgurl', '/pkgdir']
@@ -157,7 +158,7 @@ console.log('\n[E] 注入开关：默认关 / ?pwa=1 开 / 幂等 / 不吞页面
   check('Buffer 入参也能处理', typeof injectPwa(Buffer.from(html)) === 'string' && /rel="manifest"/.test(injectPwa(Buffer.from(html))))
   check('注册失败只写日志、不抛（无 SW 的浏览器不影响渲染）', /\.catch\(/.test(inj) && /无离线能力/.test(inj))
   for (const [p, r] of Object.entries(PWA_ROUTES)) check('静态路由有 content-type：' + p, !!r.type && !!r.file)
-  check('readPwaAsset 对未知路径返回 null', readPwaAsset(HERE, '/nope') === null)
+  check('readPwaAsset 对未知路径返回 null', readPwaAsset(WEB, '/nope') === null)
 }
 
 console.log('\n[F] 真子进程服务：PWA 资源与首页注入的实际字节')
@@ -169,7 +170,7 @@ console.log('\n[F] 真子进程服务：PWA 资源与首页注入的实际字节
       s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)) })
       s.on('error', rej)
     })
-    child = spawn(process.execPath, ['we-scene-demo-server.mjs'], { cwd: HERE, env: { ...process.env, PORT: String(port) }, stdio: 'ignore' })
+    child = spawn(process.execPath, ['server/we-scene-demo-server.mjs'], { cwd: HERE, env: { ...process.env, PORT: String(port) }, stdio: 'ignore' })
     const base = 'http://127.0.0.1:' + port
     let ready = false
     for (let i = 0; i < 100 && !ready; i++) {
@@ -189,7 +190,7 @@ console.log('\n[F] 真子进程服务：PWA 资源与首页注入的实际字节
       check('F5 环境变量开（不带 ?pwa=1 也注入）', await (async () => {
         // 另一个子进程，环境变量开
         const port2 = await new Promise((res) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)) }) })
-        const c2 = spawn(process.execPath, ['we-scene-demo-server.mjs'], { cwd: HERE, env: { ...process.env, PORT: String(port2), MPW_PWA: '1' }, stdio: 'ignore' })
+        const c2 = spawn(process.execPath, ['server/we-scene-demo-server.mjs'], { cwd: HERE, env: { ...process.env, PORT: String(port2), MPW_PWA: '1' }, stdio: 'ignore' })
         try {
           for (let i = 0; i < 100; i++) { try { await fetch('http://127.0.0.1:' + port2 + '/diag-flags.json', { signal: AbortSignal.timeout(800) }); break } catch { await new Promise((r) => setTimeout(r, 200)) } }
           const b = await (await fetch('http://127.0.0.1:' + port2 + '/')).text()
@@ -208,9 +209,9 @@ console.log('\n[F] 真子进程服务：PWA 资源与首页注入的实际字节
       check('F8 线上 manifest 可解析且 start_url 正确', !!mf && mf.start_url === '/?id=' + SAMPLE_ID)
       const swRes = await fetch(base + '/sw.js')
       const swSrc = await swRes.text()
-      check('F9 线上 sw.js 与磁盘逐字节相同', swSrc === fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'))
+      check('F9 线上 sw.js 与磁盘逐字节相同', swSrc === fs.readFileSync(path.join(WEB, 'sw.js'), 'utf8'))
       const pol = await (await fetch(base + '/sw-policy.mjs')).text()
-      check('F10 线上 sw-policy.mjs 与磁盘逐字节相同（SW import 的就是它）', pol === fs.readFileSync(path.join(ROOT, 'sw-policy.mjs'), 'utf8'))
+      check('F10 线上 sw-policy.mjs 与磁盘逐字节相同（SW import 的就是它）', pol === fs.readFileSync(path.join(WEB, 'sw-policy.mjs'), 'utf8'))
     }
   } catch (e) {
     check('F 真服务测试未抛异常', false, e && e.message)
