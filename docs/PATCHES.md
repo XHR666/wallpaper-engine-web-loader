@@ -389,9 +389,9 @@ if (lag > 0.1) skinAnimTime += Math.min(lag*0.02, 1/60)  // 受限缓慢追赶�
 
 | 改动 | 文件 | 说明 |
 |---|---|---|
-| **A3 偏移公式**（第三方参考实现 `wer-ref WPImageAlignment.hpp:12-38`，GPL-2.0-only，仅行为对照、未取代码） | `we-scene-bundle.js` | 导出 `alignmentOffsetForToken(alignment, w, h)`：left→+w/2、right→−w/2、top→−h/2、bottom→+h/2（**y-up 编辑器空间**，token 子串叠加，`bottomleft`=两项之和）；size 传有符号 `size×scale` 时负 scale 自动翻转（= 局部矩阵 T(align) 内乘 S）。compositeLayer 已有的 quad 空间式 `(0.5−a)·(w,h)` 与该 helper 经 y 取反后逐项相等（测试互证）；偏移在 `S(w,h)` 之后后乘 → 受本层缩放/旋转影响（官方 `SceneNode.cpp:20` 局部偏移语义）。**空间约定**：parseScene 的 `PROJ_H−y` 翻转在解析期，compositeLayer 在翻转后的 y-down 空间同步换算（y-up top→−h/2 ≡ y-down +h/2） |
+| **A3 偏移公式**（第三方参考实现 `wer-ref WPImageAlignment.hpp:12-38`，GPL-2.0-only，仅行为对照、未取代码） | `we-scene-bundle.js` | 导出 `alignmentOffsetForToken(alignment, w, h)`：left→+w/2、right→−w/2、top→−h/2、bottom→+h/2（**y-up 编辑器空间**，token 子串叠加，`bottomleft`=两项之和）；size 传有符号 `size×scale` 时负 scale 自动翻转（= 局部矩阵 T(align) 内乘 S）。compositeLayer 已有的 quad 空间式 `(0.5−a)·(w,h)` 与该 helper 经 y 取反后逐项相等（测试互证）；偏移在 `S(w,h)` 之后后乘 → 受本层缩放/旋转影响（第三方参考实现 wer-ref `SceneNode.cpp:20` 的局部偏移语义，仅行为对照）。**空间约定**：parseScene 的 `PROJ_H−y` 翻转在解析期，compositeLayer 在翻转后的 y-down 空间同步换算（y-up top→−h/2 ≡ y-down +h/2） |
 | **A3 开关** | `we-scene-bundle.js` + `demo.html` | `?align=0`（`opts.align===false`）→ 视作 center，复现旧行为；默认开启。`preview.mjs` 同式接线（`ALIGN=0` 环境变量复现旧行为） |
-| **A4 父链剔除** | `we-scene-bundle.js` | 官方（`WPNodeTransformResolver.cpp:103` `RemoveImageAlignmentOffsetFromModel`）子层继承父的 **authored pivot**（父的 alignment 网格偏移被后乘 T(−align) 剔除）。我们 alignment 偏移只在绘制期作用于本层网格、从不并入 origin → `parseScene` 父链合并用的 `pc.origin` 天然就是 authored pivot，**结构上等价于官方剔除后继承**；注释固化防止后续叠加父 alignment |
+| **A4 父链剔除** | `we-scene-bundle.js` | 第三方参考实现 wer-ref（`WPNodeTransformResolver.cpp:103` `RemoveImageAlignmentOffsetFromModel`，GPL-2.0-only，仅行为对照）子层继承父的 **authored pivot**（父的 alignment 网格偏移被后乘 T(−align) 剔除）。我们 alignment 偏移只在绘制期作用于本层网格、从不并入 origin → `parseScene` 父链合并用的 `pc.origin` 天然就是 authored pivot，**结构上等价于官方剔除后继承**；注释固化防止后续叠加父 alignment |
 | **layer-rect-check 增强** | `layer-rect-check.mjs` | 实绘矩形纳入 alignment 偏移（含 y 取反、有符号 size）；新增 `--align=0`（旧行为）与 `--json`（机读，末行 `##JSON##`，供测试消费） |
 | **取证工具** | `alignment-scan.mjs`（新增） | 全语料 alignment 分布统计（复用 feature-scan.mjs 的遍历方式） |
 
@@ -490,12 +490,12 @@ render-audit mesh **5/5**、alignment **184/184**、attach-transform **9/9**。
 
 ### 2. P0-3 音频语义收尾 + getVideoTexture（`audio-semantics-test.mjs` 20/20）
 
-- **sound 层**（官方 WPSoundParser.cpp）：重写 demo.html 音频块——**每层一条流**（不再只播第一条）；
+- **sound 层**（第三方参考实现 wer-ref WPSoundParser.cpp，仅行为对照）：重写 demo.html 音频块——**每层一条流**（不再只播第一条）；
   `autoplay = visible && !startsilent`（门控封装进 makeSoundElement）；`playbackmode`
   loop（缺省，`audio.loop`）/ single（`loop=false`+ended 即停）/ random（ended →
   `randint([min(mintime,maxtime),max(...)])×1000ms` 后换曲、**避免同曲连播**，单文件不调度）；
   volume = 层值 × **声明式绑定**（`volume:{user,value}` 实测语料即此形态），挂在 4Hz 脚本节拍实时生效。
-- **getVideoTexture**（官方 WPScriptRuntime.cpp:615-656）：scene-scripts.js 引擎新增
+- **getVideoTexture**（第三方参考实现 wer-ref WPScriptRuntime.cpp:615-656，仅行为对照）：scene-scripts.js 引擎新增
   `getVideoTexture(name)` —— 宿主句柄透传、无视频纹理返回 **noop 对象**（play/pause/stop/
   setCurrentTime/isPlaying()=false，官方 __makeNoopVideoTexture 同款）；opts 透传链补齐
   （applySceneScripts→runScriptValueCached→compileScript 两处）。补平台探测 shim
@@ -633,7 +633,7 @@ bash "$MPW_ROOT/update-plugin.sh"   # 同步（不重启 dsh）
   ②旧式把 shift 折进帧号取模 `(frame+shift)%N`，周期末尾帧回绕读到轨头/邻轨字节——
   **RE-03 记录的"眼睛 [237,238,239]、主体 [178,179]、耳朵 [0,298,299] 坏帧"是寻址回绕伪影，数据本身没坏**。
 - 落地：`sampleAnimRT` 寻址官方化 `pos = segs[b]+帧·36+8b`、`rot = +20`（无行移位、无回绕、不读填充行；
-  官方 `WPPuppet.cpp:218-222` 同语义）。attach-transform-test T1（对 elysia 六包 408 层 maxΔ<0.01px）不回退
+  第三方参考实现 wer-ref `WPPuppet.cpp:218-222` 同语义）。attach-transform-test T1（对 elysia 六包 408 层 maxΔ<0.01px）不回退
   ——帧0 附近各行角度恒定，两口径数值一致。
 
 ### 3. 核心判定：79px 残差**不是**眨眼相位差（旧结论基于坏管线数据）
@@ -678,10 +678,10 @@ closeout **22/22**、render-audit mesh **5/5**、skin-order **0.0000**、layer-r
   c0/c1/c2 逐通道、back/front 贝塞尔切线牛顿迭代、relative 基准偏移。测试 T1d：91 帧 (eyeX,eyeY,zoom) 与 elysia **maxΔ=0.0**。
 - **parseScene**：`scene.cameraNode = { id, camera, fov, originRaw, zoomRaw, active }`（首个 camera 对象；
   active = origin 有 animation 关键帧）。inert 节点保留诊断信息但不产生姿态。
-- **buildCamera**：`opts.cameraPose={x,y,zoom}` → `view=平移(−x,+y)`（官方 SceneCamera.cpp:103-105
+- **buildCamera**：`opts.cameraPose={x,y,zoom}` → `view=平移(−x,+y)`（第三方参考实现 wer-ref SceneCamera.cpp:103-105
   `Ortho(±framed/2z)·inverse(节点帧)`，节点=ortho/2+origin（Scene.cpp:542-552）在我们 y-down 顶点空间的展开式，
   与 elysia `_viewShift` 的 (−eye.x,+eye.y)·ps 一致）；`viewBg=恒等`；zoom 替换 general.zoom（无效回退，
-  官方 UpdateActiveCameraLayer / elysia camera.js:186-189 同式）。无 pose → 逐位旧行为。
+  第三方参考实现 wer-ref UpdateActiveCameraLayer / elysia camera.js:186-189 同式）。无 pose → 逐位旧行为。
 - **背景例外**：满幅层（size·scale ≥ ortho−1，elysia `_viewShift isBg`，sf32/sf33 与官方预览核对）
   用 `viewProjBg`（渲染循环按层选择，粒子/图像同路）；zoom 窗口对全部层生效（与 elysia 一致）。
   注意：wer-ref（**第三方参考实现**）的代码对**所有**层统一用活动相机 VP（无背景例外）——该例外是 elysia 经用户逐帧比对
@@ -5108,7 +5108,7 @@ vendored 代码的 MIT 声明 —— 而本补丁的 vendored 目录叫 `vendor/
 | # | 审计判定 | 改前位置（内容锚点） | 上游对应 |
 |---|---|---|---|
 | 🔴 1 | **逐行翻译**（同名仅大小写、同 3 分支顺序、同魔数 `1`/`100`、同返回；注释自认"逐分支同构"） | `we-scene-bundle.js` 的 `normalizeImageAlpha` | `WPImageObject.cpp:59-63` `NormalizeImageAlpha` |
-| 🟠 2 | **同源改写**（同一张 token→轴→方向表 + 同一种子串分派 + 同 `center` 短路；注释自认"逐分支同构"） | `we-scene-bundle.js` 的 `imageAlignmentOffset` | `WPImageAlignment.hpp:24-36` |
+| 🟠 2 | **同源改写**（同一张 token→轴→方向表 + 同一种子串分派 + 同 `center` 短路；注释自认"逐分支同构"） | `we-scene-bundle.js` 的 alignment 偏移旧标识符（逐字引文见 `docs/WER-REF-LICENSE-AUDIT.md` §3.4 片段 2） | `WPImageAlignment.hpp:24-36` |
 
 **改法（严格按 `docs/COPYING-RULES.md` §5 五步）**
 
@@ -5119,7 +5119,7 @@ vendored 代码的 MIT 声明 —— 而本补丁的 vendored 目录叫 `vendor/
 
 | 维度 | 改前 | 改后 |
 |---|---|---|
-| **① 命名** | `normalizeImageAlpha` / `imageAlignmentOffset` | `coerceImageAlphaMode` / `alignmentOffsetForToken`（+ 辅助 `classifyAlphaDomain` / `saturateUnitInterval` / `readAlignmentAxisSigns`）。旧名在全仓（代码+测试+文档）**0 命中**，仅"否定式源码守卫"里出现一次 |
+| **① 命名** | `normalizeImageAlpha` / alignment 偏移旧标识符 | `coerceImageAlphaMode` / `alignmentOffsetForToken`（+ 辅助 `classifyAlphaDomain` / `saturateUnitInterval` / `readAlignmentAxisSigns`）。旧标识符在全仓（代码+测试+文档）**0 处使用**，字面量仅存于审计逐字引文、"否定式源码守卫"与规格文档的改名对照表 |
 | **② 结构与分支组织** | 顺序短路的三段 `if`（非有限→百分数→clamp）；嵌套三元 + `String.includes` 逐 token 分派 | **分类与换算分离 + `switch` 分派**（`classifyAlphaDomain` → `'nonfinite'/'percent'/'beyond'/'unit'`）；**先解析出轴符号二元组、再查表**（`readAlignmentAxisSigns` → `ALIGNMENT_HALF_SHIFTS['x,y']`，token 字形与偏移量彻底解耦） |
 | **③ 常量表达** | 裸魔数 `1` / `100`；token→(轴,方向) 常量表 | 具名常量 `ALPHA_UNIT_MAX` / `ALPHA_PERCENT_MAX`；**半身位符号表** `ALIGNMENT_HALF_SHIFTS`（`Object.freeze`，9 个符号元组 → `[±1/0, ±1/0]`），偏移由 `符号 × (w/2)` 组装 |
 | **④ 返回风格** | 单一 `return Math.max(0, Math.min(1, …))` 出口；嵌套三元内联在 `const ox/oy` 里 | **显式 `switch` + `default`**；`saturateUnitInterval` 用 `n <= 0 ? 0 : n > 1 ? 1 : n`（`<= 0` 分支同时把 `-0` 归成 `+0`）；两轴分别短路，未命中轴返回**字面量 `0`**（不是 `0*w`） |
@@ -5538,3 +5538,91 @@ cd /tmp/we-head && node visual-diff-kal.mjs ; echo rc=$?   → rc=0（基线此�
 4. **P-97.6 的五条未定项**（法律定性 U-1/U-5、RePKG 许可、工作区根 `../docs/PENDING-DECISIONS.md` 第 3/4/5/7/9/10 条、
    字体二进制 11 条 informational、`_site` 与 `.gitignore.public` 两套口径债）**本轮未结**。
    本轮把 `_site` 口径进一步收敛为"白名单 + 显式排除表 + 构建内建闸门"，口径债的**方向**是按用户约束②不动包结构。
+
+## P-99（2026-09-16 口径归零收尾）`wer-ref` 口径残留清零：11 处符号改名（连带修 11 处假陈述）+ 8 个文件补免责段 + 74 行逐条判定（改 3）+ 脚本看不见的同类 26 行
+
+**背景**：P-91/P-95 的口径修正只覆盖了"**同一行**同时出现 `wer-ref` 与 `官方/真值源`"这一形态，且只在 `we-scene-demo/` 内。
+本轮复跑防回潮脚本 `tools/neutralize-wer-ref-wording.py --check` 做归零收尾，发现三件事：
+
+1. 脚本自报的"待处理"三项并非全零：**符号改名 11 处**（6 个文件）、**缺统一免责段 3 个文件**（`docs/COPYING-RULES.md`、
+   `tools/wer-ref-lineage-retest.py`、`we-scene-demo/docs/COPYING-RULES.md`）、**同行残留 74 行**"请人工判断"（逐处替换已是 0）；
+2. `SYMBOL_SUBS` 是**盲替换**，11 处命中**全部**是"旧标识符"语境（改名说明、审计台账的"改前"列），盲替换把句子改**假**了；
+3. 脚本的残留判据看不见 `官方 <第三方参考实现的源码文件/符号>`（同行没有 `wer-ref` 字样）——官方发行包 `wallpaper_engine/` 只有 assets、
+   不含任何 `.cpp/.hpp`，所以这类写法性质相同。
+
+### 1. 符号改名（脚本建议执行，11 处）
+
+在役名统一为 `alignmentOffsetForToken`（旧标识符在全仓**0 处使用**）。11 处盲替换逐处重写为**不含旧字面量且为真**的表述
+（"alignment 偏移旧标识符（逐字引文见 `docs/WER-REF-LICENSE-AUDIT.md` §3.4）"）：`NIGHTLY-REPORT-20260916.md` ×2、
+`docs/RENDERER-OPTIMIZATION-REPORT.md` ×4、`we-scene-demo/README.md`、`we-scene-demo/THIRD-PARTY.md`、`docs/PATCHES.md` ×2。
+
+**其中一处是功能性的**：`tools/wer-ref-lineage-retest.py` 用 `audit_old_block('export function <旧标识符>')` 从审计文档
+（取证证据，豁免改名）取回"改前"代码块；盲替换后锚点失配、该靶点被**静默跳过**（血缘复测悄悄失去改前对照）。
+已改用同块内 P-21 注释行作锚点（n=14）：实测两锚点同值 —— **改前 K12=15、实质命中 0**，旧代码逐行完整保留。
+
+### 2. 74 行"需人工判断"逐行判定：**改 3 行 / 不改 71 行**
+
+判定规则只看**被"官方"修饰的对象**：修饰 WE 官方产物/行为（官方二进制、官方资产、官方预览、官方行为）⇒ 不改；
+直接修饰**只在第三方参考实现里存在的源码文件/符号** ⇒ 改；引用旧措辞**作被修正对象**的修正记录 ⇒ 不改；统一免责段自身的否定式表述 ⇒ 不改。
+
+| 判定 | 行数 | 说明 |
+|---|---|---|
+| **改** | **3** | `REVERSE-FINDINGS-5.md:298`（把第三方参考实现的常量称作"官方 FFT 尺寸"）· `docs/PATCHES.md:392`（`官方 SceneNode.cpp:20`，该文件全仓只在 wer-ref）· `docs/RENDER-MISSING-LAYERS-RECON.md:44`（把 `wer-ref/.../WPParticleRawGener.cpp:85` 直接标成「官方」） |
+| 不改-B | 40 | `官方` = WE 官方产物/行为，wer-ref 另列证据（如"官方样例互证""官方 Windows 用 DirectWrite""官方资产"） |
+| 不改-A | 12 | 统一免责段自身的否定式引用（"非 WE 官方代码、非「真值源」"）——改了会与既有 37 个文件的措辞不一致 |
+| 不改-C | 9 | 引用旧措辞**作被修正对象**的修正记录（如"把 `wer-ref` 被称作「官方真值源」……改成……"）——改了会产出"官方第三方参考实现"这种胡说 |
+| 不改-D | 10 | 已是中性口径（"第三方参考实现 `Aromatic05/wallpaper-engine-renderer`，GPL-2.0-only，仅行为对照、未取代码"） |
+
+逐行判定表（74 行：位置 / 原文 / 判定 / 理由）落地在工作区根 `docs/WER-REF-WORDING-VERDICTS-P99.txt`
+（以 `.txt` 落盘：整篇是旧措辞的引文，与审计文档同性质，`.txt` 不入脚本扫描面，避免污染 `--check` 的同行残留启发式）。
+
+### 3. 脚本看不见的同类：`官方 <第三方源码文件/符号>` —— 29 行
+
+- **22 行**（`官方` → `第三方参考实现 wer-ref`）：`we-scene-bundle.js` 5（`CustomShaderPass.cpp` ×2、`WPTexHeaderParser.cpp`、`WPParticleRawGener.cpp`、`WPSceneParser.cpp`）·
+  `docs/PATCHES.md` 5（`WPNodeTransformResolver.cpp`、`WPSoundParser.cpp`、`WPScriptRuntime.cpp`、`WPPuppet.cpp`、`SceneCamera.cpp`）·
+  `tests/p74-instanceoverride-test.mjs` 4 · `tests/multi-sprite-test.mjs` 2 · `elysia/scene-scripts.js` 1（`WPSceneScriptHost.cpp`）·
+  `attach-transform.mjs` 1（`WPPuppet.cpp`）· `docs/README-DIAGNOSTICS.md` 1 · `tests/audio-semantics-test.mjs` 1 · `tests/mock-gl-test.mjs` 1 · `../NIGHTLY-REPORT-20260915.md` 1。
+- **7 行**同型（`官方` 直接修饰第三方符号，逐个核过"只在 `wer-ref/**`、不在官方资产"）：`we-scene-bundle.js` 2
+  （`UpdateActiveCameraLayer`、`SetCamera("global_perspective")`）· `docs/PATCHES.md:684` · `tests/camera-node-test.mjs` 2
+  （`UpdateActiveCameraLayer:99`、`SceneCamera:88`，均为断言标签文本）· `tests/p74-instanceoverride-test.mjs:82`（`InitColor`，断言标签文本）·
+  `elysia/scene-scripts.js:672`（`WPSceneScriptHost`）。
+- **9 行不改**（逐个核过"确实在 WE 官方资产里"）：`common_fragment.h` / `common_particles.h` / `common_blending.h`（含 `ApplyBlending`）·
+  `ComputeSpriteFrame` · `ConvertTexture0Format` · `DecompressNormal*` · `g_RenderVar*`（均命中 `wallpaper_engine/assets/**`）⇒ `官方` 用法本来就对。
+
+### 4. 统一免责段：本次新增 8 个文件（全仓实测 **49** 个文件带该段）
+
+- 脚本按契约注入 3 个：`docs/COPYING-RULES.md`、`tools/wer-ref-lineage-retest.py`、`we-scene-demo/docs/COPYING-RULES.md`；
+- 同类改动连带 5 个（改后文件提到 `wer-ref`）：`tests/mock-gl-test.mjs`、`tests/multi-sprite-test.mjs`、`tests/p74-instanceoverride-test.mjs`、
+  `tests/camera-node-test.mjs`（mjs 首行同排，**0 行位移**）、`../NIGHTLY-REPORT-20260915.md`、`docs/README-DIAGNOSTICS.md`；
+- **措辞逐字取自脚本 `MD_NOTE` / `PLAIN_NOTE` 常量，不自创第二种说法**；**位置对 4 个 markdown 文件做了例外**：
+  `docs/COPYING-RULES.md`、`we-scene-demo/docs/COPYING-RULES.md`、`docs/README-DIAGNOSTICS.md`、`../NIGHTLY-REPORT-20260915.md`
+  改为**文件末尾追加**（措辞不变）——它们在别处被按行号引用（审计 `docs/COPYING-RULES.md:33-34/39-47`、报告 `:42`/`:8`/`:26-60` 等），
+  H1 后插 8 行会造成**行号漂移**并让豁免改名的取证文档指向错行；这与脚本对 js/mjs 文件用"单行块注释 0 位移"的理由一致。
+
+### 5. 自证（全部实跑）
+
+| 自证项 | 命令 | 结果 |
+|---|---|---|
+| 防回潮脚本 | `python3 tools/neutralize-wer-ref-wording.py --check` | **真归零**：逐处替换 **0** 处 / 符号改名 **0** 处 / 补免责段 **0** 个文件（旧标识符 in-scope 计数亦为 0）。残留启发式剩 **90 行**＝**17 行免责段自指**（"非「真值源」"是否定式）+ **9 行本节自身引文**（本节整篇是"被修正对象"的引证）+ **64 行内容**（= 上面 74 行判定表去掉已改净的 1 行、加上同类改动新提及 `wer-ref` 的 3 行），**已逐条判定、无"真错"未改** |
+| 文档一致性 | `node tests/docs-check.mjs` | `检查 14 个文档 · 408 个文件引用 · P-编号健康 ✓ · diag-flags ✓` → `✓ 文档一致性全部通过`（rc=0） |
+| 全量门禁 | `bash tests/run-all-tests.sh` | `══ 汇总：PASS=68 FAIL=0 SKIP=1 / 总 69 项`（rc=0） |
+| 发布闸门 | `node tests/publish-check.mjs` | `✓ 无阻塞项`（告警 2 条：`docs/PATCHES.md:5405` 的个人绝对路径为**既有**、以及未传 `--assets` 跳过专有文件比对） |
+| 在线 demo | `node tests/demo-check.mjs` | `===== demo-check: 29 通过 / 0 失败 =====`（rc=0） |
+
+工作区卫生：`diag-flags.json` 被 `docs-check`/`diag-flag-check` 按其自身行为重写（仅 `generatedAt`/格式差异）⇒
+各门禁跑完后 `git checkout -- diag-flags.json` 还原，提交前 `git status` 不再含它。
+
+### 6. 未定项
+
+1. **脚本 `--check` 的退出码恒为 0**（`main()` 无条件 `return 0`），不能当闸门信号——真判据是它自报的三个计数；本轮已把三者打到 0。
+2. **残留启发式不可能归零**：16 行来自统一免责段自身的否定式表述（"非 WE 官方代码、非「真值源」"）。除非改免责段措辞（会让 49 个文件与既有基线不一致），
+   否则这 16 行会一直在；**这是启发式的固有假阳性，不是残留**。
+3. **脚本的残留判据本身是过窄的**：它只认"同行共现"。本轮已人工补齐"`官方 <第三方源码文件/符号>`"这一类（29 行：
+   22 行文件名 + 7 行符号；另有 9 行经核为官方资产内符号、**不改**），
+   但同类更隐蔽的形态（如 `官方 <第三方常量名>`、跨行分列的"官方 ……（见 wer-ref）"）**尚无机器判据**，建议后续把判据扩成
+   "`官方` 与 wer-ref 独有标识符表（`wer-ref/**` 文件名 + 导出符号）同行共现"。
+4. **法律定性未变**：审计 §7 **U-1 / U-5**（是否构成 GPL-2.0-only 衍生作品、清单是否穷尽）仍需律师；本轮只动文档/注释措辞，未改任何代码逻辑。
+5. **工作区根/仓外文档不入库**：`REVERSE-FINDINGS-*`、`../docs/RENDERER-OPTIMIZATION-REPORT.md`、工作区根 `../docs/**` 等不在公开仓库内，
+   本节的判定与其改动只留在工作区；公开仓库内可核的部分是上面 §1–§4 的仓内文件。
+
+---

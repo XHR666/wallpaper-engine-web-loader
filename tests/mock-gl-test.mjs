@@ -1,4 +1,4 @@
-// mock-GL 端到端验证 P0-1/2/5/6（v3：TEXTUREn 常量正确映射、参数索引修正、onLog 捕获）
+/* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 */ // mock-GL 端到端验证 P0-1/2/5/6（v3：TEXTUREn 常量正确映射、参数索引修正、onLog 捕获）
 // ①(P-59) 追加场景 4/5：粒子贴图解析/quad 几何/形状通道（tex.a）+ 粒子预算（默认档 / ?lowmem / ?pmax）。
 import fs from 'node:fs'
 import { createRenderer } from '../we-scene-bundle.js'
@@ -330,7 +330,7 @@ const isFBO = (s) => typeof s === 'string' && /^tex#\d+$/.test(s)
       let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
       for (let k = 0; k < ds[0].count; k++) { const X = v[k * 9], Y = v[k * 9 + 1]; if (X < x0) x0 = X; if (X > x1) x1 = X; if (Y < y0) y0 = Y; if (Y > y1) y1 = Y }
       const wPx = (x1 - x0) / 2 * PW, hPx = (y1 - y0) / 2 * PH
-      // ①(P-74 ②) quad 边长口径 = p.size/2（官方 `WPParticleRawGener.cpp:85 float size = p.size/2.0f`
+      // ①(P-74 ②) quad 边长口径 = p.size/2（第三方参考实现 wer-ref `WPParticleRawGener.cpp:85 float size = p.size/2.0f`
       //   写进 a_TexCoordVec4.w，`common_particles.h:52-57` 以 (uv-0.5) 跨度 1 展开）。
       //   P-65 及之前把 p.size 当跨度 ⇒ 这里是官方的 2×（`?psize=legacy` 可复现旧值）。
       const expW = SZ / 2 * Math.min(S * L, ML), expH = SZ / 2

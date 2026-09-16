@@ -1,9 +1,9 @@
-// p74-instanceoverride-test.mjs — P-74 四项修复的回归门禁（无浏览器；真包 + mock-GL 驱动真实 renderScene）
+/* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 */ // p74-instanceoverride-test.mjs — P-74 四项修复的回归门禁（无浏览器；真包 + mock-GL 驱动真实 renderScene）
 //
 // 覆盖（每项都有"改前 vs 改后"双向断言，避免"只测新行为"）：
 //   ① instanceoverride：字段全集解析（含语料 0 例的 `color` 字节色）/ `{user:...}` 绑定 / 9 个字段逐个生效
 //      （size 倍率、count→发射率、rate→仿真时钟、alpha、lifetime、speed、colorn、color、colorrandom 跳过）
-//   ② 粒子 quad 边长 = p.size/2（官方 WPParticleRawGener.cpp:85 + common_particles.h:52-57）；
+//   ② 粒子 quad 边长 = p.size/2（第三方参考实现 wer-ref WPParticleRawGener.cpp:85；官方资产 common_particles.h:52-57）；
 //      rope/ropetrail 保持官方 ribbon 口径（总宽 = p.size，不走 /2）
 //   ③ velocityrandom 的 y 与 gravity 同口径（lwe-ref CParticle.cpp:775）→ 下落层平均 y 位移方向
 //   ④ 效果链输入判定：真包 cat 层 FBO 必须是真实尺寸（P-73 的 MAX_TEX_SIZE_CACHE=0 哨兵会打成 0×0）
@@ -44,7 +44,7 @@ push('① applyInstanceOverride 导出', typeof lib.applyInstanceOverride === 'f
     && io.overColorn === true && io.overColor === false && io.replacesColor === true
     && io.controlpoints && eq(io.controlpoints[1], [4556.71484, 174.28101, 0]),
     JSON.stringify(io && { size: io.size, colorn: io.colorn, cp: !!io.controlpoints }))
-  // 缺省 = 1.0（官方 WPParticleObject.h:145-150）
+  // 缺省 = 1.0（第三方参考实现 wer-ref WPParticleObject.h:145-150，仅行为对照）
   const empty = lib.resolveParticleOverride({ id: 1 })
   push('① 缺省全 1.0（不覆写）', empty && empty.size === 1 && empty.count === 1 && empty.alpha === 1 && empty.rate === 1
     && empty.speed === 1 && empty.lifetime === 1 && empty.replacesColor === false)
@@ -58,7 +58,7 @@ push('① applyInstanceOverride 导出', typeof lib.applyInstanceOverride === 'f
   // 门控关闭 → 不覆写（回落资产原值）
   const d2 = lib.resolveParticleOverride(raw, { newproperty17: 0.4 }, new Set(['newproperty17']))
   push('① 门控关闭 → size 回落 1.0', d2.size === 1)
-  // 语料 0 例的 `color`（字节色 0..255，官方 WPParticleObject.cpp:121-124 + WPParticleParser.cpp:308-310）
+  // 语料 0 例的 `color`（字节色 0..255，第三方参考实现 wer-ref WPParticleObject.cpp:121-124 + WPParticleParser.cpp:308-310，仅行为对照）
   const dc = lib.resolveParticleOverride({ color: '255 128 0' })
   push('① `color`（语料 0 例，按官方头文件实现）字节色标记', dc.overColor === true && eq(dc.color, [255, 128, 0]) && dc.overColorn === false)
   // 布尔/垃圾值不写坏
@@ -79,7 +79,7 @@ push('① applyInstanceOverride 导出', typeof lib.applyInstanceOverride === 'f
   push('① colorn 覆盖（替换而非乘）', eq(p.color, [0, 1, 0.5]))
   const pc = mk()
   lib.applyInstanceOverride(pc, lib.resolveParticleOverride({ color: '255 0 128' }))
-  push('① color 字节色 → /255（官方 InitColor(color/255)）', eq(pc.color.map((v) => +v.toFixed(5)), [1, 0, 0.50196]))
+  push('① color 字节色 → /255（第三方参考实现 wer-ref InitColor(color/255)）', eq(pc.color.map((v) => +v.toFixed(5)), [1, 0, 0.50196]))
   const pn = mk(); pn.size = 7; pn.alpha = 0.3
   lib.applyInstanceOverride(pn, null)
   push('① 无 override 时零副作用', pn.size === 7 && pn.alpha === 0.3)
@@ -282,7 +282,7 @@ if (has(PKG_KAL)) {
     push('① 尘埃 count 0.76：存活数下降但非 0', on.particles.length > 0 && on.particles.length < off.particles.length,
       on.particles.length + ' < ' + off.particles.length)
   }
-  // rate 档（官方 ParticleSystem.cpp:329 `simulationTime = frameTime * m_rate`）：
+  // rate 档（第三方参考实现 wer-ref ParticleSystem.cpp:329 `simulationTime = frameTime * m_rate`，仅行为对照）：
   //   合成 def 精测 —— 时钟 ×2 ⇒ 同 wall time 内发射数 ×2、年龄推进 ×2
   {
     const def = { maxcount: 5000, emitter: [{ name: 'boxrandom', rate: 10, distancemax: '0 0 0', distancemin: '0 0 0' }],

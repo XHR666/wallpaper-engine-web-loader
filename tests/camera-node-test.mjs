@@ -1,4 +1,4 @@
-// camera-node-test.mjs — ①D 相机节点动画验收（ZCODE-MERGED-1 第 2 项，WER-ALIGN B4/B9）
+/* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 */ // camera-node-test.mjs — ①D 相机节点动画验收（ZCODE-MERGED-1 第 2 项，WER-ALIGN B4/B9）
 // 断言：
 //   T1 (eyeX,eyeY,zoom) 逐帧（0..3s，1/30s）与 elysia 相机对象烘培值 Δ<1e-6（3554161528，语料唯一
 //      origin+zoom 关键帧动画包；camera-scan.mjs 全语料 107 包：23 个相机对象、仅此包动画驱动）。
@@ -85,7 +85,7 @@ console.log('\n[T2] buildCamera：pose→view 平移(−x,+y)/viewBg 恒等/窗�
   const pose = { x: -1319.3776, y: -709.5, zoom: 3 }
   const cam = lib.buildCamera(scene, 1920, 1080, { cameraPose: pose })
   ok(Math.abs(cam.view[12] + pose.x) < 1e-3 && Math.abs(cam.view[13] - pose.y) < 1e-3 && cam.view[0] === 1 && cam.view[5] === 1,
-    'T2a view=平移(−x,+y)（y-down 顶点空间，官方 SceneCamera 展开式；Float32 容差 1e-3）')
+    'T2a view=平移(−x,+y)（y-down 顶点空间，第三方参考实现 wer-ref SceneCamera 展开式；Float32 容差 1e-3）')
   ok(cam.viewBg && cam.viewBg[12] === 0 && cam.viewBg[13] === 0 && cam.viewBg[0] === 1,
     'T2b viewBg=恒等（满幅背景层豁免平移）')
   // 窗口：zoom=3 → 窗口边长 = 无相机(general.zoom=1) 的 1/3
@@ -96,7 +96,7 @@ console.log('\n[T2] buildCamera：pose→view 平移(−x,+y)/viewBg 恒等/窗�
   // 无 pose → 与旧式逐位一致
   ok(cam0.view[12] === 0 && cam0.view[13] === 0 && cam0.viewBg === cam0.view && cam0.cameraPose === null,
     'T2d 无 pose → view 恒等/viewBg===view（旧行为逐位）')
-  // zoom 无效值回退 general.zoom（官方 UpdateActiveCameraLayer / elysia camera.js :186-189）
+  // zoom 无效值回退 general.zoom（第三方参考实现 wer-ref UpdateActiveCameraLayer / elysia camera.js :186-189）
   const camBad = lib.buildCamera(scene, 1920, 1080, { cameraPose: { x: 0, y: 0, zoom: -2 } })
   ok(Math.abs(camBad.projection[0] - cam0.projection[0]) < 1e-12, 'T2e zoom≤0 → 回退 general.zoom=1')
 }

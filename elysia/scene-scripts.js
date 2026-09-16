@@ -423,7 +423,7 @@ function compileScript(source, opts = {}) {
         }
         return { play() {}, pause() {}, stop() {}, setCurrentTime() {}, isPlaying() { return false } }
       },
-      // ①(RE-35) 平台探测常量 shim（官方 WPSceneScriptHost.cpp:895-905 同款语义）
+      // ①(RE-35) 平台探测常量 shim（第三方参考实现 wer-ref WPSceneScriptHost.cpp:895-905 同款语义）
       isDesktopDevice: () => true, isMobileDevice: () => false,
       isWallpaper: () => true, isScreensaver: () => false,
       // setTimeout 必须异步延迟 — 旧实现立即同步执行回调, NSL 库的调度递归
@@ -669,7 +669,7 @@ export function applySceneScripts(scene, time, opts = {}) {
   // ①(2026-09-12 官方语义) **先跑完所有 init，再跑 update**：旧实现是"每个对象 init+update 交替"，
   //   于是"生产者脚本 init 里写 shared.miPrimaryColor、消费者脚本 update 里读它"的壁纸
   //   在首帧会读到 undefined（上报：`update:Cannot read properties of undefined (reading 'x')`）。
-  //   官方 WPSceneScriptHost 是先初始化全部脚本实例，再逐帧 update。
+  //   第三方参考实现 wer-ref 的 WPSceneScriptHost 是先初始化全部脚本实例，再逐帧 update。
   // ①(N7 2026-09-14) 脚本节拍分层：`opts.nodeFilter(obj, owner)` 选中要跑的脚本节点子集
   //   （demo 用它把"文本/时钟/帧率类"脚本提到 ≥30Hz，其余保持 4Hz 控 CPU）。
   //   未提供 = 全跑（旧行为）。`opts.fireUpdate === false` 时不触发 scene.on('update') 回调

@@ -236,7 +236,7 @@ export function parseMdl(buf) {
 //   rot 同式 +20（旧式 (floor(2b/9)+floor((2b+5)/9))·36+4·((2b+5)%9) 对骨≥5 晚 1~2 行，
 //   且旧式把 shift 折进帧号取模，末尾帧回绕读到轨头/邻轨垃圾——即 RE-03 记录的
 //   "眼睛 [237,238,239]、主体 [178,179]、耳朵 [0,298,299] 坏帧"的真身：数据没坏，寻址回绕了）。
-//   官方 WPPuppet.cpp:218-222 直接采 row∈[0,length)，无行移位。
+//   第三方参考实现 wer-ref WPPuppet.cpp:218-222 直接采 row∈[0,length)，无行移位。
 export function sampleAnimRT(mesh, anim, frame, nb, bones) {
   const out = new Array(nb)
   const dv = new DataView(mesh.raw.buffer, mesh.raw.byteOffset, mesh.raw.byteLength)

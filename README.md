@@ -311,7 +311,7 @@ npm run test:fast           # 全量回归（跳最慢项）
   1. ~~`normalizeImageAlpha`（曾位于 `we-scene-bundle.js:951-956`）↔ 上游 `WPImageObject.cpp:59-63`~~ —— 曾判为"**逐行翻译**"（同名仅大小写、同 3 分支顺序、同魔数 `1`/`100`、同返回钳位）。
   2. ~~alignment 偏移（曾位于 `we-scene-bundle.js:4430-4441`）↔ 上游 `WPImageAlignment.hpp:24-36`~~ —— 曾判为"**同源改写，不是洁净室产物**"（同一张 token→轴→方向表 + 同种子串分派 + 同 `center` 短路）。
   - 另有 2 处较弱形态：视差 `mouse_vec` 公式（注释里照写了上游表达式）、`elysia/scene-scripts.js` 里的 `__makeNoopVideoTexture` 命名被称为"官方"实为 `wer-ref` 私有名。
-- **✅ 处置结果（2026-09-16 洁净室重写）**：上述 **2 处已按 `docs/COPYING-RULES.md` §5"五步洁净室"流程重写，旧实现已从 `we-scene-bundle.js` 删除**（`grep` 已无 `normalizeImageAlpha` / `imageAlignmentOffset`）：
+- **✅ 处置结果（2026-09-16 洁净室重写）**：上述 **2 处已按 `docs/COPYING-RULES.md` §5"五步洁净室"流程重写，旧实现已从 `we-scene-bundle.js` 删除**（`grep` 已无 `normalizeImageAlpha`；alignment 偏移的旧标识符亦已从代码/测试/交付文档里清除，字面量仅存于审计引文与"否定式源码守卫"）：
   - ①**先写行为规格**：`docs/IMAGE-ALPHA-ALIGN-SPEC.md`（§1 alpha 归一化真值表与"不得做什么"、§2 alignment token 文法与优先级、§4 验收判据）；
   - ②**只依据规格实现**：新实现为 `coerceImageAlphaMode` + `classifyAlphaDomain`/`saturateUnitInterval`（分类与换算分离 + 具名常量 `ALPHA_UNIT_MAX`/`ALPHA_PERCENT_MAX`），以及 `alignmentOffsetForToken` + `readAlignmentAxisSigns` + `ALIGNMENT_HALF_SHIFTS`（**token 字形与偏移量彻底解耦成查表**，键为符号二元组）；
   - ③**五维可证明不同**：命名、分支结构、常量组织、数据结构形态、注释文字均与上游不同（"逐分支同构"在 `we-scene-bundle.js` 已 0 处）；

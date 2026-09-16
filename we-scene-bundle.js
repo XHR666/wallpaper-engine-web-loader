@@ -293,7 +293,7 @@ export function spriteInfo(tex) {
   }
 }
 
-// ①(RE-31 多图精灵) imageId 不恒为 0 → 帧=**换纹理**（官方 CustomShaderPass.cpp:1296-1299
+// ①(RE-31 多图精灵) imageId 不恒为 0 → 帧=**换纹理**（第三方参考实现 wer-ref CustomShaderPass.cpp:1296-1299
 //   ImageSlotsRef.active=imageId）。实测回归资产（TEXS0003 图集序列）：
 //   夜莺·alone「合成1_00000.tex」= 151帧/7图（6×3752² + 1×752²，每图 5×5 帧网格）；
 //   夜莺·firefly「背景合成1_00000.tex」= 53帧/3图。
@@ -339,7 +339,7 @@ export function spriteMultiImages(tex) {
   return { scale, imgs }
 }
 
-// 帧 → 其所属 image 内的 UV 矩形（官方 WPTexHeaderParser.cpp:292-315：按 slotDimensions[imageId] 归一）。
+// 帧 → 其所属 image 内的 UV 矩形（第三方参考实现 wer-ref WPTexHeaderParser.cpp:292-315：按 slotDimensions[imageId] 归一）。
 // 返回 {cur, nxt, blend}；cur/nxt 跨 image 时 blend=0（官方帧混合只在同纹理内进行）。
 export function spriteFrameImageRects(tex, frameValue, noBlend) {
   const sp = tex && tex.sprite
@@ -2368,7 +2368,7 @@ export function buildCamera(scene, width, height, opts = null) {
   //   第三方参考实现的 SceneCamera（wer-ref SceneCamera.cpp:103-105）= Ortho(±framed/2z) · inverse(节点帧)，
   //   节点平移=(ortho/2+origin)（Scene.cpp:542-552）→ 展开到我们 y-down 0..W 顶点空间：
   //   **view = 平移(−origin.x, +origin.y)**（窗口仍居中画布中心）——与 elysia _viewShift 的
-  //   (−eye.x, +eye.y)·ps 一致。zoom 替换 general.zoom（官方 UpdateActiveCameraLayer：活动相机层
+  //   (−eye.x, +eye.y)·ps 一致。zoom 替换 general.zoom（第三方参考实现 wer-ref UpdateActiveCameraLayer：活动相机层
   //   zoom 覆盖 defaultGlobalCameraZoom；无效值回退 general.zoom，elysia camera.js :186-189 同式）。
   //   满幅背景层豁免平移（elysia _viewShift isBg=size≥ortho−1，sf32/sf33 与官方预览逐帧核对），
   //   经 viewBg（恒等）在渲染循环按层选择；zoom 窗口对所有层生效（与 elysia 一致）。
@@ -5598,7 +5598,7 @@ export function createRenderer(canvas, opts = {}) {
     return v
   })()
   // ①(P-74 ②) 粒子 quad 尺寸口径：
-  //   official（默认）= 边长 p.size/2 —— 官方 `WPParticleRawGener.cpp:85 float size = p.size / 2.0f`
+  //   official（默认）= 边长 p.size/2 —— 第三方参考实现 wer-ref `WPParticleRawGener.cpp:85 float size = p.size / 2.0f`
   //     写进 `a_TexCoordVec4.w`（= `genericparticle.vert:55 #define in_ParticleSize`），
   //     `common_particles.h:52-57 ComputeParticlePosition` 用 `positionAndSize.w * right * (uvs.x-0.5)`，
   //     顶点 uvs ∈ {0,1}（WPParticleRawGener.cpp:91-96）⇒ 跨度 = w = p.size/2（spritetrail 同式）。
@@ -8355,7 +8355,7 @@ export function createRenderer(canvas, opts = {}) {
     // ①(RE-31) 精灵表：帧尺寸来自 .tex TEXS（texObj.sprite），quad 纵横比取帧纵横比 rate=帧高/帧宽
     const sprite = texObj.sprite || null
     // ①(RE-31 多图精灵) imageId 不恒为 0 → 帧**换纹理**：按 cur 帧 imageId 分组、各组绑定各自纹理
-    //   （官方 CustomShaderPass.cpp:1296-1299 ImageSlotsRef.active=imageId；单图路径仍走 UV 偏移）
+    //   （第三方参考实现 wer-ref CustomShaderPass.cpp:1296-1299 ImageSlotsRef.active=imageId；单图路径仍走 UV 偏移）
     const multiSprite = !!(sprite && sprite.multiImage && texObj.images && texObj.images.length > 1)
     let spriteImgs = null
     let spriteTexMap = null
@@ -8378,12 +8378,12 @@ export function createRenderer(canvas, opts = {}) {
       } catch { spriteImgs = null; spriteTexMap = null }
     }
     const ratio = sprite ? sprite.rate : ((texObj.width > 0) ? (texObj.height || texObj.width) / texObj.width : 1)
-    // 帧混合开关：randomframe 必须关（官方 WPSceneParser.cpp:5928-5936 注释：避免"两片花瓣"）。
+    // 帧混合开关：randomframe 必须关（第三方参考实现 wer-ref WPSceneParser.cpp:5928-5936 注释：避免"两片花瓣"）。
     // ①(修正 2026-09-13) flags 值 4 **不是** noframeblending 而是透视相机（实测命中该值的层
     //   材质为 presets/rainperspective、presets/snowperspective）；按位读 bit2=2 才是 spritenoframeblending。
     const pflags = (def && def.flags) || 0
     const spriteNoBlend = sys.animMode === 'randomframe' || (pflags & 2) !== 0
-    // ①(RE-37) flags 值 4 → 官方 SetCamera("global_perspective")：fov=atan(h/1000/2)×2、相机 z=1000
+    // ①(RE-37) flags 值 4 → 第三方参考实现 wer-ref SetCamera("global_perspective")：fov=atan(h/1000/2)×2、相机 z=1000
     const perspCam = (pflags & 4) !== 0 && !PP_DISABLED
     const color1 = [1, 1, 1], color2 = [1, 1, 1]
     gl.useProgram(particleProg)

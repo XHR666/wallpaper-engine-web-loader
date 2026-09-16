@@ -2,7 +2,7 @@
 //   ① sound 层语义（第三方参考 wer-ref WPSoundParser.cpp）：autoplay=visible&&!startsilent；
 //      loop(缺省)/single(播完即停)/random(播完等 randint([mintime,maxtime]) 秒换下一曲、避免同曲连播)；
 //      volume = 层值 × 用户绑定（声明式 volume:{user,value}，实时生效）。
-//   ② getVideoTexture 脚本包装（官方 WPScriptRuntime.cpp:615-656）：宿主句柄透传、未知键 noop 对象。
+//   ② getVideoTexture 脚本包装（第三方参考实现 wer-ref WPScriptRuntime.cpp:615-656，仅行为对照）：宿主句柄透传、未知键 noop 对象。
 // 测试法：从 demo.html 提取真函数（text-layout-test.mjs 同款 extractFn），vm 沙箱 + stub 执行。
 import fs from 'node:fs'
 import vm from 'node:vm'

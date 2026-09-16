@@ -1,8 +1,8 @@
-// multi-sprite-test.mjs — P0-2（RE-31 多图精灵）验收：TEXS imageId>0 → 帧=换纹理
-// 证据链（REVERSE-FINDINGS-6 RE-31 + 官方 CustomShaderPass.cpp:1296-1299 ImageSlotsRef.active=imageId）：
+/* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 */ // multi-sprite-test.mjs — P0-2（RE-31 多图精灵）验收：TEXS imageId>0 → 帧=换纹理
+// 证据链（REVERSE-FINDINGS-6 RE-31 + 第三方参考实现 wer-ref CustomShaderPass.cpp:1296-1299 ImageSlotsRef.active=imageId）：
 //   ① 回归资产（真实用户包）：夜莺·alone「materials/合成 1_00000.tex」= 151 帧 / 7 图（6×3752²+1×752²，
 //      每图 5×5 帧网格，TEXS0003）；夜莺·firefly「materials/背景 合成 1_00000.tex」= 53 帧 / 3 图。
-//   ② 帧矩形归一域 = 帧所属 image 的尺寸（官方 WPTexHeaderParser.cpp:292-315 slotDimensions[imageId]）。
+//   ② 帧矩形归一域 = 帧所属 image 的尺寸（第三方参考实现 wer-ref WPTexHeaderParser.cpp:292-315 slotDimensions[imageId]）。
 //   ③ 跨 image 的帧边界关闭 SPRITESHEETBLEND（官方帧混合只在同纹理内可行）。
 //   ④ 单图精灵路径（computeSpriteFrameUV）不受影响（回归门）。
 import fs from 'node:fs'

@@ -152,3 +152,11 @@
   ④ vendored `webwallgl` 的 MIT 声明与字体许可文件在位（未 vendored 时按"不适用"记录）。
 - 插件：`cd dsh-mpkg-wallpaper && bash tools/check.sh` 必须 8 步全绿；`LICENSE` 仍为 MIT。
 - 任何"借来的"代码：先在本文件 §4 台账登记，再合入。
+
+> **参照来源许可声明**：本文档引用的 `wer-ref/` 是**第三方参考实现**
+> （`Aromatic05/wallpaper-engine-renderer`，为 `catsout/wallpaper-scene-renderer` 的 fork，
+> **GPL-2.0-only**），**不是 Wallpaper Engine 官方代码，也不是"真值源"**。
+> 与本项目渲染器（GPL-3.0-or-later）**许可不兼容**：仅用于**行为对照**，
+> **不得复制、改写、逐行翻译其代码、注释、常量组织或错误文案**。
+> `we-layerd-ref/`（`Aromatic05/we-layerd`）**无任何许可**（保留所有权利），同样只可读行为结论。
+> 血缘自查结论见 `docs/WER-REF-LICENSE-AUDIT.md`。
