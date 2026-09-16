@@ -5402,7 +5402,7 @@ npm publish --registry=https://registry.npmjs.org --access public
 **不是缺文件**（8 条 `test -f` 全过）。真因是本步骤里的**产物隐私闸门**命中：
 
 ```
-grep -rIl --exclude='*.map' '/root/Desktop/' _site
+grep -rIl --exclude='*.map' "$MPW_ROOT/" _site
 → _site/scene-project-json.mjs          # exit 1 ⇒ 本步骤红 ⇒ configure-pages/upload/deploy 全 skipped
 ```
 
@@ -5861,7 +5861,7 @@ SKIN=0 CHARFIT=auto   node /tmp/probe-p100.mjs 3554161528 0 1 8   # 修后：t=8
 ### 三、默认值 `auto` 的理由（不是随手选）
 
 1. **作者数据就是世界坐标**：官方 `scene.json` 里「人物」层 `origin = "2200.53784 595.23083"`，把它改写成 `(1920,1080)` 没有任何官方/上游依据（第三方参考实现与上游 web 渲染器都没有"把超屏立绘抠出来居中"这一步）；这条兜底是本仓库早期为"立绘被裁"自造的。
-2. **官方预览动图（`/root/Desktop/DSHarea/Steam/steamapps/workshop/content/431960/3554161528/preview.gif`，入场后帧）与"不居中"的构图更吻合**：整高方裁窗口搜索（同一窗口 `ox=496` ⇒ 设计 x 992..3152、灰度、Lanczos 到 192²）下，修后 NCC **0.657** > 修前 **0.619**；官方帧里人物 x 目测 ≈0.30..0.73（占帧宽），与修后 t=8 蒙皮矩形换算到该裁窗的 0.325..0.769 基本重合，而"钉画布中心"的 quad 是 0.105..0.755（整体左移约 0.22 帧宽）。
+2. **官方预览动图（`$MPW_ROOT/Steam/steamapps/workshop/content/431960/3554161528/preview.gif`，入场后帧）与"不居中"的构图更吻合**：整高方裁窗口搜索（同一窗口 `ox=496` ⇒ 设计 x 992..3152、灰度、Lanczos 到 192²）下，修后 NCC **0.657** > 修前 **0.619**；官方帧里人物 x 目测 ≈0.30..0.73（占帧宽），与修后 t=8 蒙皮矩形换算到该裁窗的 0.325..0.769 基本重合，而"钉画布中心"的 quad 是 0.105..0.755（整体左移约 0.22 帧宽）。
 3. **有相机层时兜底必然与相机打架**：兜底改的是**世界坐标**，相机又要在世界坐标上取景 ⇒ 两者语义冲突。全语料 10 包里同时命中"有相机层 + 角色超屏"的**只有 hina 这一层**；无相机层的包（凯尔希「长发3」等）`auto` 与 `legacy` **逐位相同**（兜底照旧生效，P-76 的验收值不变）。
 4. **保留兜底而不是"永远关"**：`?charfit=off` 提供"任何包都不适配"的极端档；默认 `auto` 只对"有相机层"的包关掉它，把回归面压到最小。
 
@@ -5880,7 +5880,7 @@ SKIN=0 CHARFIT=auto   node /tmp/probe-p100.mjs 3554161528 0 1 8   # 修后：t=8
 
 （满幅层「背景」豁免平移：中心恒 (1920,1080)，只有 `w = 3916.8·zoom` = 11750/10330/8866/5808/3916 —— 与 P-76/elysia 的 `viewBg` 口径一致，本轮未动。）
 
-**官方预览动图的量化事实**（`/root/Desktop/DSHarea/Steam/steamapps/workshop/content/431960/3554161528/preview.gif`，192²、50 帧、40ms）：
+**官方预览动图的量化事实**（`$MPW_ROOT/Steam/steamapps/workshop/content/431960/3554161528/preview.gif`，192²、50 帧、40ms）：
 
 | 量 | 值 | 含义 |
 | --- | --- | --- |
@@ -6001,7 +6001,7 @@ gh repo edit XHR666/wallpaper-engine-web-loader \
   npm 包内也必须能找到（README 永远随包分发，指针不能悬空）。
 - **隐私修一处**：该文件第 39 行的插件 diag 目录原写作作者机**家目录绝对路径**（`/root/.dsh/…`）⇒ 改为 `~/.dsh/…`
   （`~` = 插件宿主端 home）。**这条是 `tests/packaging-test.mjs` 的 D 段（真打包 → 解包 → grep 家目录前缀）抓到的**：
-  `tests/publish-check.mjs` 的 `PATH_RE` 只认 `/root/Desktop/` / `/home/<user>/` / `C:\Users\`，认不出 `/root/.dsh/`
+  `tests/publish-check.mjs` 的 `PATH_RE` 只认三种形态（作者工作区前缀 / `home` 家目录 / Windows 用户目录），认不出 `/root/.dsh/`
   ⇒ **两套隐私判据覆盖面不一致**（口径债，见 P-105.6 第 3 条）。修后 `packaging-test` **133 通过 / 0 失败**。
 
 ### P-105.5 发布前闸门（以最终工作树重跑，逐条实测）
@@ -6042,8 +6042,12 @@ gh repo edit XHR666/wallpaper-engine-web-loader \
    **本轮未改判据**（不为凑绿掩盖发现），仅把被抓到的那一处改成 `~`。
 4. **`tests/particle-render-correctness-test.mjs` 未注册进门禁**（自述 P-103 粒子渲染正确性，38+ 断言），
    且无任何文件引用它 ⇒ 属**粒子线的在途夹具**，本次**未纳入提交**（保持 untracked）。
-5. `docs/PATCHES.md` 三处历史记录里的个人绝对路径（`publish-check` 告警行 5405 / 5864 / 5883）**有意保留**：
-   那是历史留痕的原文，改动等于篡改记录；若用户要求"个人路径清零"覆盖历史记录，需另开一条明确授权。
+5. **历史记录里的个人绝对路径已就地去个人化（4 行，仅改路径、不动事实）**：`publish-check` 原先告警
+   `docs/PATCHES.md` 三处（P-98.1 的 CI 复现命令行、P-100 的两处官方预览动图证据路径）＋ 本节自己的一处
+   （引用了那个前缀）⇒ 统一改成项目既有约定形态：工作区路径写 **`$MPW_ROOT/`**（= 本仓库的父目录，README §4 的定义）、
+   判据描述改成"作者工作区前缀 / `home` 家目录 / Windows 用户目录"文字，**语义与证据链不变**
+   （包号 `431960/3554161528`、`192²/50 帧/40ms`、`exit 1 ⇒ 本步骤红` 等事实一字未动）。
+   改后 `publish-check` **0 隐私告警**（恢复 P-97.2 记录过的 0 告警口径）。
 6. P-97.6 的**法律定性**（审计 §7 U-1 / U-5）与 **RePKG 许可**两项仍未结案，不随本次发布关闭。
 
 ---
