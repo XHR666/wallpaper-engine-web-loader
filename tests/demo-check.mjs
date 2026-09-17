@@ -7,6 +7,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(import.meta.dirname, '..')            // ①(2026-09-16) 本脚本在 tests/，根 = 上一级
 const JSON_OUT = process.argv.includes('--json')
@@ -422,6 +423,47 @@ const landing = path.join(ROOT, 'index.html')
   check('D10 新名 ' + NEW + ' 在产品面真的出现（' + FILES.length + ' 个文件全覆盖）', missingNew.length === 0, missingNew.join(', '))
   check('D10 渲染器页 <title> 已是新名', title(texts['demo/renderer/index.html']) === NEW + ' Renderer', title(texts['demo/renderer/index.html']))
   check('D10 测试台 SW 的自述已改名（demo/sw.js 首行注释）', /WEwebLoader/.test(read('demo/sw.js').split('\n')[0]))
+
+  // ⑤ ⑧(2026-09-19 裁定 1) 测试台**运行期呈现**的品牌名 = WEwebLoader —— 头部品牌位与 document.title 由补丁在
+  //   呈现层覆盖（静态 <title> / DICT app.title / minified 产物被门禁 T1/T5/T8 与许可口径钉住，一律不动）。
+  //   这一节只做纯函数 + 源码级断言（不跑浏览器）；同一条链路的冷启动真跑断言在仓外 bench-patch.test.mjs 的 T5b。
+  {
+    const patchSrc = read('demo/bench-patch.js')
+    const artifact = read('demo/assets/bench-DSKWIqmS.js')
+    const P = await import(pathToFileURL(path.join(ROOT, DEMO, 'bench-patch.js')).href)
+    // (a) 决策纯函数
+    check('D10 运行期品牌：默认 = WEwebLoader / 回退 = 上游名',
+      P.appBrandPlan({}).name === NEW && P.appBrandPlan({}).overridden === true &&
+      P.appBrandPlan({ override: false, upstreamTitle: 'wallpaper-engine-webgl' }).name === 'wallpaper-engine-webgl' &&
+      P.appBrandPlan({ override: false, upstreamTitle: 'wallpaper-engine-webgl' }).overridden === false,
+      JSON.stringify([P.appBrandPlan({}), P.appBrandPlan({ override: false, upstreamTitle: 'x' })]))
+    // (b) 写 DOM：品牌名 + <title>，**不碰**版本号元素
+    check('D10 运行期品牌：只写品牌名与 <title>，版本号元素不动',
+      (() => {
+        const brandEl = { textContent: 'wallpaper-engine-webgl' }, versionEl = { textContent: 'v1.3.16' }, doc = { title: 'wallpaper-engine-webgl' }
+        const plan = P.applySiteBrand({ override: true, upstreamTitle: 'wallpaper-engine-webgl', brandEl, doc })
+        return plan.name === NEW && brandEl.textContent === NEW && doc.title === NEW && versionEl.textContent === 'v1.3.16'
+      })())
+    // (c) 回退开关：?brand=upstream / ?appname=upstream|0|off；且 ?brand=0 只关媒体品牌、不关站点品牌
+    check('D10 运行期品牌回退开关（?brand=upstream 与 ?appname=upstream 都能还原上游名）',
+      P.readPatchFlags('').appname === true &&
+      P.readPatchFlags('?brand=upstream').appname === false && P.readPatchFlags('?brand=upstream').brand === true &&
+      P.readPatchFlags('?appname=upstream').appname === false && P.readPatchFlags('?appname=0').appname === false &&
+      P.readPatchFlags('?brand=0').appname === true && P.readPatchFlags('?brand=0').brand === false)
+    // (d) 静态钉子**仍在**（改了它们会撞 T5/T8/T1 与许可口径）：静态 <title>、DICT app.title、minified 产物 2 处
+    check('D10 静态钉子未被动（<title> 与 DICT app.title 仍是上游名，产物 app.title 仍是 2 处）',
+      title(texts['demo/index.html']) === 'wallpaper-engine-webgl' && P.DICT.zh['app.title'] === 'wallpaper-engine-webgl' &&
+      P.DICT.en['app.title'] === 'wallpaper-engine-webgl' &&
+      (artifact.match(/"app\.title":"wallpaper-engine-webgl"/g) || []).length === 2)
+    // (e) 源码级：覆盖必须在 applyStaticI18n **之后**重放（否则语言一切换就变回上游名）+ 选择器指向真实节点
+    const langBlock = patchSrc.slice(patchSrc.indexOf('function applyLang('), patchSrc.indexOf('function applyLang(') + 1600)
+    check('D10 运行期品牌覆盖挂在语言切换链上、且在 applyStaticI18n 之后',
+      langBlock.indexOf('applyStaticI18n(doc, curLang)') >= 0 && langBlock.indexOf('applySiteBrandNow()') > langBlock.indexOf('applyStaticI18n(doc, curLang)'),
+      'applyStaticI18n@' + langBlock.indexOf('applyStaticI18n(doc, curLang)') + ' applySiteBrandNow@' + langBlock.indexOf('applySiteBrandNow()'))
+    check('D10 运行期品牌覆盖的选择器指向真实存在的品牌位（#site-brand 的 data-i18n="app.title"）',
+      /doc\.querySelector\('\[data-i18n="app\.title"\]'\)/.test(patchSrc) &&
+      /<span class="brand-name" data-i18n="app\.title">/.test(texts['demo/index.html']))
+  }
 }
 
 if (JSON_OUT) console.log(JSON.stringify({ pass, fail }, null, 1))

@@ -10,6 +10,7 @@
 //   hasResidualLang / applyTitle / applyStaticI18n / diagOfflineState / trailPointAt
 //   第五批：readPatchFlags / pointerParkAction / ownTextOf / timeLayerPlan /
 //           brandingFromProject / sniffItemId / dragPropsToDisable / mediaBrandPlan
+//   第八批：appBrandPlan / applySiteBrand（站点品牌运行期覆盖，见文末「第八批」段）
 // 浏览器初始化只在 `typeof document !== 'undefined'` 时执行。
 //
 // 第五批开关（写 0/false/off/no 即回退到上游原行为；默认全开）：
@@ -32,6 +33,15 @@
 //   ④ 页面上把"在线版没有本机后端"写清楚（静态横幅 + 运行期同源同义文案）。
 //   开关：?online=0 强制本机口径；?sample=0 不自动载入合成样例。
 //   ⚠ 将来产物能重建时，①②③④ 都应回写源码 bench/ 再删掉本文件对应段。
+//
+// 第八批（**2026-09-19 用户改名**：产品名 WebWallGL → **WEwebLoader**，大小写严格）：
+//   用户看得见的品牌位改在**运行期呈现层**：测试台头部品牌名（`#site-brand` 里那个 `data-i18n="app.title"`）
+//   与 `document.title` 显示 `WEwebLoader`；版本号 `#app-version`（产物写的 `v1.3.16`）照旧跟在后面。
+//   回退口：`?appname=upstream`（或 `?brand=upstream`）⇒ 还原上游名 `wallpaper-engine-webgl`。
+//   **刻意不碰**三处被钉住的静态值：`index.html` 的 `<title>` 与 `data-i18n="app.title"` 兜底文本
+//   （门禁 T8）、DICT 的 `app.title`（T1：词典必须逐条等于上游 bench/i18n.ts）、`assets/*.js`
+//   （许可口径：minified 产物一个字节都不改）。上游归属位（设置弹层 credit、两份 LICENSE-webwallgl、
+//   许可区说明）一律原样保留。
 
 /* ============================ 词典（由 bench/i18n.ts 机械生成，勿手改） ============================ */
 // 生成方式：node -e "…解析 bench/i18n.ts 的 DICT…"（见 PATCH-NOTES.md §3）；bench-patch.test.mjs
@@ -171,11 +181,36 @@ export function sweepRendered(root, fromLang, toLang, doc) {
   return { changed, scanned: slots.length, missed }
 }
 
-/** <title> 与标题栏都要用同一个名字（用户拍板 wallpaper-engine-webgl）。 */
+/** <title> 与标题栏都要用同一个名字（用户拍板 wallpaper-engine-webgl）。
+ *  ⚠ ⑧(2026-09-19 品牌改名)：这里的**静态值不动** —— 它是门禁 T5/T8 的钉子（产物 JS 的两处 app.title 同理，
+ *  且 DICT 还必须逐条等于上游 bench/i18n.ts 的 T1）；页面上要让用户看到的产品名走 applySiteBrand。 */
 export function applyTitle(doc, lang) {
   const name = t(lang, 'app.title')
   try { doc.title = name } catch { /* 无 document（测试） */ }
   return name
+}
+
+/** ⑧(2026-09-19 品牌改名) 站点品牌决策（纯函数，便于 Node 断言）。
+ *  产品现名 **WEwebLoader**（用户 2026-09-19 亲自给的名字，大小写严格照抄）；
+ *  回退时（`?appname=upstream` / `?brand=upstream`）用**上游名**（= DICT 的 `app.title`）。
+ *  为什么不直接改静态 HTML 的 `<title>`/DICT/minified 产物：那三处分别被门禁 T5/T8、T1（词典零漂移）与
+ *  许可口径（`demo/LICENSE-webwallgl`：minified 产物一个字节不改）钉住 ⇒ 产品名只做**运行期呈现层**覆盖。 */
+export function appBrandPlan(env) {
+  const e = env || {}
+  const upstream = String(e.upstreamTitle == null ? '' : e.upstreamTitle)
+  if (e.override === false) return { name: upstream, overridden: false, reason: 'flag-off' }
+  const name = String(e.productName == null || e.productName === '' ? 'WEwebLoader' : e.productName)
+  return { name, overridden: true, reason: 'product-name' }
+}
+
+/** 把站点品牌写进 DOM：只写**品牌名元素**与 `document.title`。
+ *  `#app-version`（`v1.3.16`，产物启动时写一次）刻意**不碰** ⇒ 头部仍是「WEwebLoader v1.3.16」。 */
+export function applySiteBrand(env) {
+  const e = env || {}
+  const plan = appBrandPlan(e)
+  try { if (e.brandEl) e.brandEl.textContent = plan.name } catch { /* 桩 DOM */ }
+  try { if (e.doc) e.doc.title = plan.name } catch { /* 无 document（测试） */ }
+  return plan
 }
 
 /** data-i18n / data-i18n-ph / data-i18n-title 三类的静态刷新（与源码 applyStatic 等价）。 */
@@ -600,11 +635,14 @@ export function bindDropdown(doc, sel, registry) {
 
 /**
  * 补丁层的 URL 开关（与渲染器侧 `?res=`/`?cursor=` 同形，一律 `new URLSearchParams(location.search)`）。
- * 四个开关默认**全开**（= 新行为）；写成 0/false/off/no 表示回退到上游原行为。
+ * 各开关默认**全开**（= 新行为）；写成 0/false/off/no 表示回退到上游原行为。
  *   ppark     鼠标离开舞台/视口 → 指针回到中性位置（中心）
  *   clocklock 注入到页面里的 DOM 时间层 → pointer-events:none / 不可选中 / 不可拖拽
  *   clockdrag 壁纸自带「可拖动」用户属性 → 关掉（时钟/日期组件拖不走）
  *   brand     媒体组件的名称/图标 → 用壁纸自己的 project.json title / preview
+ *   appname   ⑧站点品牌（测试台头部品牌名 + document.title）→ 显示产品现名 **WEwebLoader**；
+ *             `?appname=upstream`（或 `=0/false/off/no`，或 `?brand=upstream`）⇒ **还原上游名**
+ *             `wallpaper-engine-webgl`（版本号 `#app-version` 两种情况都不动）。
  */
 export function readPatchFlags(search) {
   const q = new URLSearchParams(String(search == null ? '' : search))
@@ -613,7 +651,12 @@ export function readPatchFlags(search) {
     if (v == null || v === '') return def
     return !/^(0|false|off|no)$/i.test(String(v))
   }
-  return { ppark: on('ppark', true), clocklock: on('clocklock', true), clockdrag: on('clockdrag', true), brand: on('brand', true) }
+  // ⑧(2026-09-19 品牌改名) 站点品牌覆盖 = 默认开（显示 WEwebLoader）；`?appname=upstream|0|off|false|no`
+  //   或 `?brand=upstream` ⇒ 关（还原上游名）。注意 `?brand=0` 只关**媒体组件**品牌，不影响站点品牌。
+  const rawApp = String(q.get('appname') == null ? '' : q.get('appname'))
+  const rawBrand = String(q.get('brand') == null ? '' : q.get('brand'))
+  const appname = !(/^(upstream|0|false|off|no)$/i.test(rawApp) || /^upstream$/i.test(rawBrand))
+  return { ppark: on('ppark', true), clocklock: on('clocklock', true), clockdrag: on('clockdrag', true), brand: on('brand', true), appname }
 }
 
 /** 鼠标离开后的「归中」决策（纯函数，便于 Node 断言）。
@@ -3175,6 +3218,20 @@ export function init() {
     setTimeout(() => { lockTimeLayersEverywhere() }, 800)
   })
 
+  // ── ⑧(2026-09-19 品牌改名) 站点品牌运行期覆盖 ──
+  //   目标：用户**看得见的地方**（头部品牌名 + document.title）显示产品现名 `WEwebLoader`，版本号 `v1.3.16`
+  //   照旧跟在后面（`#app-version` 由产物启动时写一次，本函数不碰）。
+  //   为什么是运行期覆盖：静态 HTML 的 `<title>` 与 DICT 的 `app.title` 分别是门禁 T8（产物接线）与
+  //   T1（词典必须逐条等于上游 bench/i18n.ts）的钉子，`demo/assets/*.js` 又是"不改一个字节"的许可口径
+  //   ⇒ 产品名只能在呈现层覆盖。回退口：`?appname=upstream`（或 `?brand=upstream`）还原上游名。
+  //   必须在 `applyStaticI18n` **之后**跑：它会把带 `data-i18n="app.title"` 的品牌名写回上游名。
+  function applySiteBrandNow() {
+    const brandEl = (doc.querySelector && (doc.querySelector('[data-i18n="app.title"]') || doc.querySelector('#site-brand .brand-name'))) || null
+    const plan = applySiteBrand({ override: FLAGS.appname, upstreamTitle: t(curLang, 'app.title'), brandEl, doc })
+    try { if (typeof window !== 'undefined') window.__benchBrandPlan = plan } catch { /* 桩 DOM */ }
+    return plan
+  }
+
   // ── ③ 语言切换：把所有**已渲染文本**（含 bundle 覆盖不到的动态面板）并入切换链 ──
   //   ⚠ 顺序硬要求（父任务）：**先 sweep 已渲染文本，再 repaint**。反过来的话，刚被 repaint
   //     写好的新语言标签会被 sweep 当成"已渲染文本"再翻一次（T4 的零残留断言就是防这个）。
@@ -3188,6 +3245,7 @@ export function init() {
     }
     applyStaticI18n(doc, curLang)                              // 幂等：补上 bundle 尚未重渲染的 data-i18n 节点
     applyTitle(doc, curLang)                                   // 窗口/标签页标题
+    applySiteBrandNow()                                        // ⑧品牌名覆盖（必须在 applyStaticI18n 之后）
     paintDpr(); paintLogsIcon(); paintDiag(); paintFs(); trailGate()   // 2) 再 repaint（参数化/双态/离线态/门控）
     paintFps(); paintUppercaseLabels(); paintBackendNote()      // ⑷⑸⑺ 无上限状态、大小写、后端说明
     syncAllLabels()                                            // 3) 最后统一重写补丁注入控件的标签
@@ -3466,6 +3524,8 @@ export function init() {
     getDragDisabled: () => dragDisabled.slice(),
     wrapRendererApi: () => wrapRendererApi(),
     labelIds: LABEL_SPEC.map((s2) => s2[0]),
+    // ⑧(2026-09-19 品牌改名)：站点品牌覆盖的重放入口（探针/测试用；语言切换链里也会自动跑）
+    siteBrandNow: () => applySiteBrandNow(),
     // P-93 在线 demo（线上形态 / 路径改写 / 合成样例 / 横幅）：探针与测试同一入口
     getDemoEnv: () => Object.assign({}, demoEnv),
     getOnlineNotice: () => paintOnlineNotice(),
