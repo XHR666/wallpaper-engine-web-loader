@@ -1417,6 +1417,10 @@ export function initSiteShell(ctx = {}) {
      （都在模块作用域写入，已验证生效）。这里再把它挂进 api，便于测试与用户核对；不再往状态栏插节点
      ——那一版在真机上静默失败（原因未查明，属非必要装饰，按"宁缺勿假"去掉）。 */
 
+  /* ①(2026-09-18 修正) 这里曾用 JS 算舞台尺寸并写内联；真机实测被后续写入/元素替换吃掉（内联只剩后两条，
+     舞台塌成 16px）⇒ 改为**纯 CSS 定高不变量**（见 index.html `.bench-narrow` 块的 `#stage-scale{height:46vh}`），
+     少一处失败面。窗口尺寸变化由 CSS 自动跟随，无需 JS。 */
+
   /* 首次上电 */
   setPage(getPage(), false)
   setLogsHeight(logsHeight(), false)
