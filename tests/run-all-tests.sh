@@ -281,6 +281,14 @@ add "display-options"    "node tests/display-options-test.mjs"
 #     ⇒ 判定必须翻转）。13 断言；~0.6s；缺语料/缺 glslangValidator 时内部 SKIP 视作 PASS，不红。
 add "hlsl2glsl-wiring"   "node tests/hlsl2glsl-wiring-test.mjs"
 
+# ①(P-117 2026-09-18) `submesh-mirror`：把"眉毛整组翻转 180°"变成**组级方向判据**（bind→蒙皮最小二乘仿射的
+#   2×2 行列式 det<0 = 该组被镜像），并把 `?submesh=` 台账里"三角形有向面积变号"的**基线**从"探针看到的
+#   第一个采样帧"改成"bind 姿态"（旧口径在会话起点落在翻转窗口内时会**整个漏报**：实测 `?bindorder=legacy`
+#   下只取 f8..f11 四帧，b17 明明 8/8 全翻，旧口径报 0/8）。38 断言；~0.9s；全部读数走 mock-GL 真渲染路径 +
+#   真包真动画。自带 RED-IF-REVERTED（legacy 链序 ⇒ 判据必须变红）与判据灵敏度反证（合成镜像必须被抓到）；
+#   缺语料时真包段 SKIP 视作 PASS，不红。回退开关 `?subbase=legacy`（只改台账口径，GL 调用逐条不变）。
+add "submesh-mirror"     "node tests/submesh-mirror-test.mjs"
+
 # —— --list ——
 if [ "$LIST" = 1 ]; then
   echo "共 ${#NAMES[@]} 项（slow=--fast 跳过；条件项=无数据自动 SKIP）："

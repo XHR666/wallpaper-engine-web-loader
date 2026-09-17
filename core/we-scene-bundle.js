@@ -6770,6 +6770,17 @@ export function createRenderer(canvas, opts = {}) {
       return (s === 'all' || s === 'major' || s === 'any') ? s : 'all'
     } catch (e) { return 'all' }
   })()
+  // ①(P-117 2026-09-18) `?subbase=legacy`：`?submesh=` 台账里"三角形有向面积**变号**"的**基线口径**回退。
+  //   缺省（修正口径）= 基线取 **bind 姿态**（= 顶点原始绕序，直接由 `mesh.positions` 算出）⇒ 台账回答的是
+  //     "这一帧有没有三角形相对**绑定姿态**翻了"，与"探针从哪一帧开始记账"无关。
+  //   `legacy` = P-109 的旧口径：基线取**探针看到的第一个采样帧**。旧口径的真实缺陷（P-117 取证）：
+  //     ① 会话若恰从"已经折叠/已经镜像"的那一帧开始（`?time=`、刷新时机、中途打开 `?submesh=`），基线就把
+  //        **翻转态当成正常态** ⇒ 持续存在的镜像会**整个漏报**（`invert.max` 报 0，正是"越查越没事"的陷阱）；
+  //     ② 同一个包的读数随开始时刻漂移（同一段动画换个起点得到不同的"翻转条数"）。
+  //   判定式与既有 `?parspace=legacy`/`?bindorder=legacy` 同形（正则字面量，`diag-flag-check` 规则 c 抓取）。
+  const SUB_BASE_LEGACY = (() => {
+    try { return /[?&]subbase=legacy/.test(String((typeof location !== 'undefined' && location.search) || '')) } catch (e) { return false }
+  })()
   const __subLayers = new Map()      // layerId -> 分组表 / 筛选索引缓存（只在 SUB_WANT 非空时建立）
   let __bonesNowT = 0    // ①(P-69) 当前帧时间（只给 ?bones 探针记账用；不影响渲染）
   let __renderSeq = 0   // 首帧审计用（每次 render 调用递增，见 opts.auditFrames）
@@ -7818,7 +7829,50 @@ export function createRenderer(canvas, opts = {}) {
         tris.any.get(g).push(ti)
       }
     }
-    return { nv, nb, dom, groups, tris, nTri }
+    // ①(P-117) 逐三角形 bind 绕序符号（`invert` 计数的**基线**；口径见 SUB_BASE_LEGACY 与 __subBindTriSign）
+    const triSign = __subBindTriSign(mesh.positions, idx, nTri)
+    return { nv, nb, dom, groups, tris, nTri, triSign }
+  }
+  /** ①(P-117) 一组顶点在 **bind** 姿态下的逐三角形**有向面积符号**（= 顶点原始绕序）。
+   *  为什么必须单独算：①(P-117) 起 `invert` 的基线改为"相对 bind 翻没翻"，而 bind 姿态的蒙皮矩阵是
+   *  单位阵 ⇒ 直接用 `mesh.positions` 算出的符号与"gBones=I 时蒙皮后算出的符号"逐位一致（测试有断言）。
+   *  死区 1e-9 与蒙皮侧同式（两边都不把"面积恰为 0"计成任何一种符号）。 */
+  function __subBindTriSign(pos, idx, nTri) {
+    const out = new Int8Array(nTri)
+    for (let ti = 0; ti < nTri; ti++) {
+      const p0 = pos[idx[ti * 3]], p1 = pos[idx[ti * 3 + 1]], p2 = pos[idx[ti * 3 + 2]]
+      const ar = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1])
+      out[ti] = ar > 1e-9 ? 1 : (ar < -1e-9 ? -1 : 0)
+    }
+    return out
+  }
+  /** ①(P-117) 一组顶点的"bind 位置"法方程 3×3 的逆（bind 是常量 ⇒ 每组只算一次）。
+   *  拟合模型 `X ≈ a·x + b·y + c`、`Y ≈ d·x + e·y + f`（x,y = bind 位置，X,Y = 蒙皮后位置）；
+   *  奇异组（三点共线/退化）返回 null ⇒ 该组不参与方向判据（如实置 null，绝不猜一个 det 出来）。 */
+  function __subFitMat(verts, pos) {
+    let Sxx = 0, Sxy = 0, Syy = 0, Sx = 0, Sy = 0
+    for (const i of verts) { const x = pos[i][0], y = pos[i][1]; Sxx += x * x; Sxy += x * y; Syy += y * y; Sx += x; Sy += y }
+    const n = verts.length
+    const a = Sxx, b = Sxy, c = Sx, d = Sxy, e = Syy, f = Sy, g = Sx, h = Sy, k = n
+    const det = a * (e * k - f * h) - b * (d * k - f * g) + c * (d * h - e * g)
+    if (!(Math.abs(det) > 1e-9)) return null
+    return [
+      (e * k - f * h) / det, (c * h - b * k) / det, (b * f - c * e) / det,
+      (f * g - d * k) / det, (a * k - c * g) / det, (c * d - a * f) / det,
+      (d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det,
+    ]
+  }
+  /** ①(P-117) **组级方向判据**：把"bind→蒙皮"最小二乘仿射的 2×2 线性部分行列式算出来。
+   *  为什么必须与"三角形变号"分开报：用户报的"眉毛整组翻 180°"是**整组方向反转**（det<0、|det|≈1）。
+   *  单个三角形有向面积过零只说明那个三角形**塌成一条线**（局部折面/多骨权重剪切），此时该组 det 仍是正的。
+   *  两者混在一个 `invert` 计数里 ⇒ "那个 bug 到底还在不在"无法判定（P-117 的取证结论）。
+   *  口径自证：bind 姿态下拟合结果就是恒等映射 ⇒ 每组 det 恰为 1（测试断言 ≤1e-9）。 */
+  function __subFit(m, r0, r1, r2, r3, r4, r5) {
+    const a = m[0] * r0 + m[1] * r2 + m[2] * r4
+    const b = m[0] * r1 + m[1] * r3 + m[2] * r5
+    const d = m[3] * r0 + m[4] * r2 + m[5] * r4
+    const e = m[3] * r1 + m[4] * r3 + m[5] * r5
+    return a * e - b * d
   }
   /** 解析 `?submesh=` 规格 → { all, sel:Set<骨号>, missing:[] }（`*` 展开父链后代）
    *  ⚠ `missing` 必须记账：**越界骨号/非法 token 一律进 missing**，绝不静默变成"空选中"——
@@ -7937,6 +7991,14 @@ export function createRenderer(canvas, opts = {}) {
     }
     const skin = st.skin || (st.skin = new Float32Array(nv * 2))
     const pos = mesh.positions, wts = mesh.blendWeights, idxs = mesh.blendIndices
+    // ①(P-117) 每组一次：bind 位置的法方程逆（bind 是常量；用于组级**方向/镜像**判据，见 __subFit）
+    if (!st.fit) {
+      st.fit = new Map()
+      for (const g of table.groups.values()) {
+        if (g.verts.length < 3) continue
+        st.fit.set(g.b, __subFitMat(g.verts, pos))
+      }
+    }
     for (let i = 0; i < nv; i++) {
       const p = pos[i], w = wts[i] || [1, 0, 0, 0], bi = idxs[i] || [0, 0, 0, 0]
       let x = 0, y = 0
@@ -7959,18 +8021,37 @@ export function createRenderer(canvas, opts = {}) {
       let rs = st.st2.get(g.b)
       if (!rs) {
         rs = { hist: [], base: null, baseSign: null, maxMag: 0, maxAt: 0, maxD: [0, 0], last: null,
-          invert: 0, invertAt: 0, zero: 0, triList: (table.tris.all.get(g.b) || []) }
+          invert: 0, invertAt: 0, zero: 0, triList: (table.tris.all.get(g.b) || []),
+          // ①(P-117) 组级方向（镜像）判据的会话累计：minDet = 该组 det 的最小值（<0 ⇒ 这一组被镜像过）
+          detMin: null, detMinAt: 0, detMirror: false }
         st.st2.set(g.b, rs)
       }
       let cx = 0, cy = 0
-      for (const i of g.verts) { cx += skin[i * 2]; cy += skin[i * 2 + 1] }
+      // ①(P-117) 顺带累计"bind→蒙皮"最小二乘拟合的 6 个右端项（同一趟循环，零额外遍历）：
+      //   r0=Σx·X r1=Σx·Y r2=Σy·X r3=Σy·Y r4=ΣX r5=ΣY（x,y=bind 位置；X,Y=蒙皮后位置）
+      let r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0
+      const fitM = st.fit ? st.fit.get(g.b) : null
+      for (const i of g.verts) {
+        const X = skin[i * 2], Y = skin[i * 2 + 1]
+        cx += X; cy += Y
+        if (fitM) { const x = pos[i][0], y = pos[i][1]; r0 += x * X; r1 += x * Y; r2 += y * X; r3 += y * Y; r4 += X; r5 += Y }
+      }
       cx /= g.verts.length; cy /= g.verts.length
       if (!rs.base) { rs.base = [cx, cy]; rs.baseSign = [] }
+      // ①(P-117) 组级方向判据：det<0 = 该组被**镜像**（用户报的"眉毛整组翻 180°"的机器形式）；
+      //   单三角形面积过零（下面的 invert）只是**局部塌陷/折面**，两者必须分开报。
+      const detNow = fitM ? __subFit(fitM, r0, r1, r2, r3, r4, r5) : null
+      if (detNow !== null) {
+        if (rs.detMin === null || detNow < rs.detMin) { rs.detMin = detNow; rs.detMinAt = nowT }
+        if (detNow < 0) rs.detMirror = true
+      }
       rs.last = { t: +nowT.toFixed(3), skin: [+cx.toFixed(4), +cy.toFixed(4)] }
       const dx = cx - rs.base[0], dy = cy - rs.base[1]
       const mag = Math.hypot(dx, dy)
       if (mag > rs.maxMag) { rs.maxMag = mag; rs.maxAt = nowT; rs.maxD = [dx, dy] }
       // 组内三角形有向面积变号（"翻转"的机器可判形式；只看严格归属本组的三角形）
+      // ①(P-117) 基线口径：缺省 = **bind 姿态**（table.triSign）⇒ 与"会话从哪一帧开始"无关；
+      //   `?subbase=legacy` = P-109 旧口径（本组第一个被记账的采样帧的符号，见 SUB_BASE_LEGACY 注释）。
       let invNow = 0
       for (let k = 0; k < rs.triList.length; k++) {
         const ti = rs.triList[k]
@@ -7979,7 +8060,8 @@ export function createRenderer(canvas, opts = {}) {
         const ar = (bx - ax) * (cy2 - ay) - (cx2 - ax) * (by - ay)
         const sg = ar > 1e-9 ? 1 : (ar < -1e-9 ? -1 : 0)
         if (rs.baseSign.length <= k) rs.baseSign.push(sg)
-        if (sg !== 0 && rs.baseSign[k] !== 0 && sg !== rs.baseSign[k]) invNow++
+        const baseSg = SUB_BASE_LEGACY ? rs.baseSign[k] : table.triSign[ti]
+        if (sg !== 0 && baseSg !== 0 && sg !== baseSg) invNow++
       }
       if (invNow > rs.invert) { rs.invert = invNow; rs.invertAt = nowT }
       if (sample) {
@@ -7995,11 +8077,25 @@ export function createRenderer(canvas, opts = {}) {
         last: { t: rs.last.t, skin: rs.last.skin, world: [+(ox + sx * cx + (view[0] || 0)).toFixed(3), +(oy + sy * cy + (view[1] || 0)).toFixed(3)] },
         disp: { dx: +rs.maxD[0].toFixed(3), dy: +rs.maxD[1].toFixed(3), mag: +rs.maxMag.toFixed(3), at: +rs.maxAt.toFixed(3) },
         invert: { now: invNow, max: rs.invert, at: +rs.invertAt.toFixed(3), nTri: rs.triList.length },
+        // ①(P-117) 组级方向判据（det<0 ⇒ 该组被镜像；null = 该组顶点退化、不参与判据）
+        orient: { det: detNow === null ? null : +detNow.toFixed(8),
+          minDet: rs.detMin === null ? null : +rs.detMin.toFixed(8), minDetAt: +rs.detMinAt.toFixed(3),
+          mirror: rs.detMirror, nv: g.verts.length },
         hist: rs.hist,
       })
     }
     if (sample) st.lastSampleT = nowT
     let sel = 0, selV = 0, maxG = -1, maxM = 0, maxAt = 0, invG = -1, invM = 0, invAt = 0
+    // ①(P-117) 会话级镜像汇总：mirrorGroups = 曾经 det<0 的组数（0 = "没有任何子网格被镜像过"），
+    //   minDet* = 全体组里 det 最小值（判据的另一半：不仅不能为负，还应贴近 1 = 无镜像无塌陷）
+    let mirGroups = 0, mirBones = [], minDet = null, minDetGroup = -1, minDetAt = 0
+    for (const o of groupsOut) {
+      const od = o.orient || {}
+      if (od.mirror) { mirGroups++; mirBones.push(o.b) }
+      if (od.minDet !== null && od.minDet !== undefined && (minDet === null || od.minDet < minDet)) {
+        minDet = od.minDet; minDetGroup = o.b; minDetAt = od.minDetAt
+      }
+    }
     for (const o of groupsOut) {
       if (o.sel) { sel++; selV += o.nv }
       if (o.disp.mag > maxM) { maxM = o.disp.mag; maxG = o.b; maxAt = o.disp.at }
@@ -8008,6 +8104,8 @@ export function createRenderer(canvas, opts = {}) {
     const ledger = {
       layer: String(layer.name || layer.id), id: layer.id, nb: table.nb, nv, nTri: table.nTri,
       spec: SUB_WANT, triMode: SUB_TRI, all: !!st.parsed.all,
+      // ①(P-117) 变号计数用的基线口径（自描述；`?subbase=legacy` 时为 'legacy'）
+      base: SUB_BASE_LEGACY ? 'legacy' : 'bind',
       sel: st.parsed.all ? [...table.groups.keys()].sort((a, b) => a - b) : [...(st.parsed.sel || [])].sort((a, b) => a - b),
       missing: st.parsed.missing.concat(st.bad), origin: [ox, oy], scale: [sx, sy], view: [view[0] || 0, view[1] || 0],
       drawn: draw ? { tris: draw.tris, indices: draw.count } : { tris: table.nTri, indices: mesh.indices.length, unchanged: true },
@@ -8015,7 +8113,9 @@ export function createRenderer(canvas, opts = {}) {
       groups: groupsOut,
       summary: { nGroups: table.groups.size, nSelected: sel, vertsSelected: selV, trisSelected: draw ? draw.tris : table.nTri,
         maxDispGroup: maxG, maxDisp: +maxM.toFixed(3), maxDispAt: +maxAt.toFixed(3),
-        maxInvertGroup: invG, maxInvert: invM, maxInvertAt: +invAt.toFixed(3), missing: st.parsed.missing.length + st.bad.length },
+        maxInvertGroup: invG, maxInvert: invM, maxInvertAt: +invAt.toFixed(3), missing: st.parsed.missing.length + st.bad.length,
+        mirrorGroups: mirGroups, mirrorBones: mirBones,
+        minDetGroup: minDetGroup, minDet, minDetAt: +minDetAt.toFixed(3) },
     }
     try { globalThis.__mpwSubMesh = ledger } catch (e) { /* ignore */ }
     // 每 ~2s 一行结构化摘要（进 #log → 进设备上报）：选中组/全体组里位移与翻转最大的三组

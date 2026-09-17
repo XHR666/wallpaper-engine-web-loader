@@ -7833,12 +7833,41 @@ $ node /tmp/…（本轮临时脚本，逻辑已固化进 tests/submesh-mirror-t
 - 新测试 T9：`?submesh=all` vs `?submesh=all&subbase=legacy` 的 **GL 调用序列（42 条）与 `drawElements` 实参逐条相同**；
 - 默认（不开 `?submesh=`）⇒ `globalThis.__mpwSubMesh` 仍**不写**（`off.ledger === undefined` 有断言）。
 
-### P-117.9 门禁（本补丁收口运行）
+### P-117.9 门禁（本补丁的实测记录）
+
+> ⚠ **本会话没有跑全量门禁**（如实登记，不是省略）：本轮宿主机**两次因并发无头浏览器把 15GB 内存压死而整机重启**，
+> 恢复后的资源硬约束是"**禁止本会话跑 >60s 的重活**（`run-all-tests.sh` / `package-matrix` / `glsl-validate`），
+> 重活由主对话全局排队"。**主对话的那次全量门禁已包含本项**（本会话从 `/tmp/run-all-tests-last.log` 读到）：
 
 ```
-$ bash tests/run-all-tests.sh          # 脚本自持 flock；调用方**不要**再套外层锁
-（见本轮汇报的汇总行：PASS=? FAIL=0 SKIP=? / 总 87 项）
+== PASS submesh-mirror
+  ✓ 不开 `?submesh=` ⇒ `globalThis.__mpwSubMesh` 仍不写（新增判据也走同一开关，零副作用）
+  ALL PASS（38 通过 / 0 失败）
 ```
+
+**本会话实际跑过的单项**（全部 **rc=0**，每项秒级；命令逐字如下，可复现）：
+
+| 命令 | 退出码 | 读数 |
+|---|---|---|
+| `node --check core/we-scene-bundle.js` | 0 | 语法 OK |
+| `node tests/submesh-mirror-test.mjs` | 0 | **38 通过 / 0 失败**（本补丁新增） |
+| `node tests/submesh-probe-test.mjs` | 0 | **56 通过 / 0 失败**（既有，未改一字） |
+| `node tests/bind-order-test.mjs` | 0 | **76 通过 / 0 失败**（既有，P-110 口径） |
+| `node tests/mock-gl-test.mjs` | 0 | 60 通过 / 0 失败 |
+| `node tests/docs-check.mjs` | 0 | 16 文档 / 568 文件引用 / P-编号健康 ✓ / diag-flags ✓ |
+| `node tests/diag-flag-check.mjs` | 0 | **代码 148 == README 148，0 差异**（P-114 时 147） |
+| `node tests/projection-y-test.mjs` | 0 | 49 通过 / 0 失败 |
+| `node tests/p76-parallax-eye-test.mjs` | 0 | 111 断言通过 / 0 失败 |
+| `node tests/skin-order-verify.mjs 3719111841 主体` | 0 | `bindInv×W` 到枢轴最大误差正常 |
+| `node tests/render-audit.mjs 3719111841` | 0 | mesh 回调命中 5/5 层 ✓ |
+| `node tests/layer-rect-check.mjs 3719111841 --refrender` | 0 | 与官方标定对账通过 |
+| `node tests/parity-check.mjs` | 0 | 2 场景对账完成，无越界差异 |
+| `node tests/attach-transform-test.mjs` | 0 | ALL PASS |
+| `node tests/render-closeout-test.mjs` | 0 | 22/22 通过 |
+
+**未在本会话跑的项及理由**（由主对话排队）：`package-matrix --check`（58s，重活）、`glsl-validate`（真编译 128 作业，重活）、
+`hlsl2glsl-coverage`/`hlsl2glsl-wiring`（与本补丁无关，上一轮 P-114 已绿）、其余非蒙皮项（零影响面）。
+**本补丁对渲染路径零改动**（P-117.8 有三条结构性断言），故这些项的结论不受影响；但按纪律**不把它们算作本轮的验收证据**。
 
 ### P-117.10 未证实 / 未做（不猜）
 
