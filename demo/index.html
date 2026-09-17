@@ -8,6 +8,11 @@
          相对路径两边都对，且 <base href="./"> 让 favicon/manifest/图标继续按本目录解析。
          产物 assets 内部写死的绝对路径由 bench-patch.js 在运行期改写（见该文件 P-93 段）。 -->
     <base href="./" />
+    <!-- ①(修正 2026-09-18 真机：安卓浏览器专属 bug 的真因) 本页原来**没有 viewport meta**：
+         手机浏览器因此用 980px 的"布局视口"排版再整体缩放/平移 ⇒ 桌面看着正常、手机上"放大/内容缩到角落"，
+         而且 `@media (max-width:860px)` 这类窄屏规则在手机上**永远不匹配**（实测 clientWidth=980、matchMedia=false）。
+         与渲染器页 demo.html 保持一致。 -->
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>wallpaper-engine-webgl</title>
     <meta name="theme-color" content="#0d111a" />
     <link rel="manifest" href="./manifest.webmanifest" />
@@ -99,7 +104,45 @@ html.bench-shell #stage-slot[hidden]{display:flex!important}
 html[lang="en"] .lang-zh{display:none}
 html.bench-shell html:not([lang="en"]) .lang-en{display:none}
 @media (prefers-reduced-motion: reduce){html.bench-shell #pages-track,#site-tab-ink{transition:none!important}}
-    </style>
+    
+/* ── 窄屏/手机自适应（2026-09-18 真机：安卓浏览器 412px 宽）────────────────────────────
+   桌面宽窗口正常、手机完全错乱的真因：三列是固定 300+320+其余 ⇒ 980px 内容塞进 412px 视口，
+   横向溢出 + 舞台那条 `minmax(140px,1fr)` 与产物 `#stage-scale` 的容器查询单位形成循环依赖
+   ⇒ 舞台高度爆到 1600px+（实测 412×915 时 #stage-slot=1619px、#main 行=270/1618/6/220）。
+   这里在窄屏改成**单列堆叠 + 舞台给确定高度 + 关掉容器查询**，并把头部 tab 允许换行/横滚。
+   仅静态表里有这些 @media（补丁的 SITE_LAYOUT_CSS 是重复备份，D8 比对会跳过 @media 条目）。 */
+html.bench-shell body{overflow-x:hidden}
+@media (max-width: 1100px){
+  html.bench-shell{--mpw-lib-w:240px;--mpw-props-w:260px}
+}
+@media (max-width: 860px){
+  /* ①(2026-09-18) 窄屏改成"**文档流 + 页面内滚动**"，而不是桌面那种"一屏三列"：
+     手机上一屏放不下三列，强行放会横向溢出/舞台爆高。这里让 .page 自身可纵向滚动，
+     左两栏与右列按自然高度堆叠；舞台关掉容器查询并给 max-height；控制台保持可拖动/可收起。 */
+  html.bench-shell #site-header{flex-wrap:wrap;height:auto;min-height:44px;padding:6px 10px;row-gap:6px}
+  html.bench-shell #site-tabs{overflow-x:auto;max-width:100%}
+  html.bench-shell #pages-track{height:auto;min-height:0;align-items:stretch}
+  html.bench-shell .page{overflow-y:auto;overflow-x:hidden}
+  html.bench-shell #page-console{display:block}
+  html.bench-shell #workbench{display:block!important;height:auto!important}
+  html.bench-shell #sidebar,
+  html.bench-shell #props{width:auto!important;max-height:34vh;overflow:auto;border-right:0;border-bottom:1px solid var(--border)}
+  html.bench-shell #main{display:flex!important;flex-direction:column;height:auto!important;overflow:visible}
+  html.bench-shell #editor-chrome{flex:none}
+  html.bench-shell #workspace{flex:none;min-height:0}
+  /* 舞台：关掉容器查询（断掉与 minmax(1fr) 的循环依赖）+ 确定高度上限 */
+  html.bench-shell #stage-frame{container-type:normal!important;padding:8px;min-height:0}
+  html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-height:52vh;aspect-ratio:16/9}
+  html.bench-shell #logs{flex:none;max-height:70vh;overflow:auto}
+  html.bench-shell #logs-splitter{display:none}      /* 窄屏不做拖动调高，交给自然高度 + 滚动 */
+}
+@media (max-width: 520px){
+  html.bench-shell #toolbar{gap:4px}
+  html.bench-shell #toolbar label,html.bench-shell #toolbar .mini{font-size:11px}
+  html.bench-shell .site-tab{padding:0 9px;font-size:12.5px}
+  html.bench-shell #settings-pop{width:min(92vw,330px);right:0}
+}
+</style>
     <script>
       // 首屏前加类（在 <head> 里同步执行 ⇒ 第一帧就按新布局渲染）；?shell=off = 新样式总回退
       (function () {

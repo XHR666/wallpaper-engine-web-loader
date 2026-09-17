@@ -1263,6 +1263,8 @@ export function initSiteShell(ctx = {}) {
   function stageFloorPx() { return 140 }   // 舞台保底高度（窄视口下不许被工具栏/控制台吃光）
   function maxLogsForLayout() {
     if (!mainEl) return 220
+    // ①(2026-09-18) 窄屏（≤860px）是"文档流堆叠 + 页面内滚动"，舞台不再和 1fr 争高度 ⇒ 不钳制
+    try { if (typeof innerWidth === 'number' && innerWidth <= 860) return 100000 } catch {}
     try {
       const mainH = mainEl.getBoundingClientRect().height
       const chromeH = (q('#editor-chrome') || { getBoundingClientRect: () => ({ height: 0 }) }).getBoundingClientRect().height
@@ -1984,6 +1986,8 @@ export function init() {
      顶部 site header（tab：控制台/说明/壁纸设置 + 设置弹层 + 深色浅色切换）
      中部三列：选择壁纸 │ 壁纸参数 │ 右侧（切换栏+设置1 / 壁纸 / 控制台）
      底部状态栏。切页 = 整条 track 平移（只 transform，不改宽度 ⇒ iframe 不重排）。 */
+  // ①(2026-09-18) 窄屏/手机自适应的 @media 规则**只放在 index.html 的静态表里**（`#bench-shell-static`）：
+  //   静态表是首屏权威、且 D8 比对会跳过 @media 条目；这里不再重复，避免两处漂移。
   const SITE_LAYOUT_CSS = [
     /* 外壳 */
     'body{display:flex!important;flex-direction:column;grid-template-rows:none!important}',
@@ -2081,7 +2085,11 @@ export function init() {
       if (!doc.head || $('#bench-site-style')) return false
       const st = doc.createElement('style')
       st.id = 'bench-site-style'
-      st.textContent = SITE_LAYOUT_CSS
+      // ①(修正 2026-09-18) **不再在这里注入布局规则**：运行期注入的表在 `<style id="bench-shell-static">`（index.html）
+      //   **之后**，同为 `!important` 时后者胜 ⇒ 会把静态表里的窄屏 @media 覆盖掉（真机：手机视口下舞台仍爆到 1683px）。
+      //   现在静态表是唯一权威（首屏即生效、含窄屏自适应）；这里只留一个标记元素 + 说明，便于测试与排障。
+      //   上面那份 SITE_LAYOUT_CSS 数组保留，作为"静态表必须覆盖这些规则"的对照（tests/demo-check.mjs 的 D8 逐条比对）。
+      st.textContent = '/* bench-site-style: layout rules live in <style id="bench-shell-static"> (index.html) */'
       doc.head.appendChild(st)
       return true
     } catch { return false }
