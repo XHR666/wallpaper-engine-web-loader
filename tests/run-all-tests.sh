@@ -299,6 +299,13 @@ add "pointer-leave"      "node tests/pointer-leave-test.mjs"
 #   origin"，与渲染器今天读到的静态快照对拍。实测 **14 个包命中**（同一段 781 字符脚本）。语料里一个都没有 ⇒
 #   SKIP。~1.3s、RSS ~110MB、只读表头 64KB（不整包读入）。
 add "camera-script-origin" "node tests/camera-script-origin-probe.mjs" "" "^SKIP camera-script-origin"
+# ①(P-120 2026-09-18 任务书 P1-1) 相机 `origin.script` **接线**：那 14 个包的相机取景不再用静态快照
+#   （静态 `2434.38 725.25 500` vs 脚本求值 `0 0 500`，Δx −2434.38），改为**每帧按输入签名**（脚本源 /
+#   scriptproperties 解析值 / userProps 指纹 / canvasSize / origin 原文）决定是否重算，走**既有脚本宿主**
+#   `elysia/scene-scripts.js`；失败回退冻结静态快照且不外抛。78 断言 / 1.6s / 峰值 ~300MB。
+#   判据含：14 包求值==独立参考求值≠静态；无脚本包**逐位不变**；userProps/canvasSize 变 ⇒ 取景跟着变；
+#   坏脚本/坏宿主不抛。带红-if-reverted（把接线分支置 false ⇒ a 组 42/42 红）。
+add "camera-origin-script" "node tests/camera-origin-script-test.mjs" "" "^SKIP camera-origin-script"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then
