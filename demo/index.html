@@ -25,53 +25,23 @@
       <span id="bench-error-note" data-i18n="error.logged">详情已写入输出区</span>
       <button type="button" id="bench-error-close" data-i18n="error.dismiss">关闭</button>
     </div>
-    <header id="titlebar">
-      <div class="traffic" aria-hidden="true">
-        <span class="dot close"></span>
-        <span class="dot min"></span>
-        <span class="dot max"></span>
+    <header id="site-header">
+      <div id="site-brand">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <span class="brand-name" data-i18n="app.title">wallpaper-engine-webgl</span>
+        <span id="app-version"></span>
+        <span id="offline-tag" class="offline-tag" hidden data-i18n="offline.tag" data-i18n-title="offline.diagTitle">离线</span>
       </div>
-      <div class="titlebar-title"><span data-i18n="app.title">wallpaper-engine-webgl</span><span id="app-version"></span>
-      <span id="offline-tag" class="offline-tag" hidden data-i18n="offline.tag" data-i18n-title="offline.diagTitle">离线</span></div>
-      <!--
-        ⚠ 兼容锚点（**不是控件**，第四批新增）：本页脚本是**旧的 minified bundle**，它在模块顶层对
-        下面这些 id 做 `X.onclick = …`；X 为 null 会抛 TypeError ⇒ **整个 bundle 求值失败** ⇒ 主题切换/
-        壁纸库/工具条全部失效（实测：删掉这些 id 后 app-version 仍在但列表与静态提示全没了）。
-        对应功能已删除（「打开本地 .pkg」、scene/web/video 分类、赞赏爱心），这里只留同 id 的
-        **空元素**：不带按钮语义、hidden、disabled、无 data-i18n、没有任何可见内容。
-        将来用源码重建（源码侧已真正删除）后，整个 #bench-legacy-anchors 块可以直接删掉。
-      -->
-      <div id="bench-legacy-anchors" hidden aria-hidden="true">
-        <span id="open-pkg"></span>
-        <input id="pkg-file" type="file" hidden disabled />
-        <span id="type-filter"></span>
-        <span id="sponsor-btn"></span>
-      </div>
-      <label class="lang-box" data-i18n-title="lang.title">
-        <select id="lang" aria-label="Language">
-          <option value="zh">简体中文</option>
-          <option value="en">English</option>
-        </select>
-      </label>
-    </header>
 
-    <div id="workbench">
-      <nav id="activitybar" aria-label="活动栏">
-        <button type="button" class="act" id="act-docs" title="使用说明" data-i18n-title="act.docs">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 5v16"/>
-            <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z"/>
-          </svg>
-        </button>
-        <button type="button" class="act active" id="act-explorer" title="资源管理器" data-i18n-title="act.explorer" aria-current="page">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M15 2h-4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8"/>
-            <path d="M16.706 2.706A2.4 2.4 0 0 0 15 2v5a1 1 0 0 0 1 1h5a2.4 2.4 0 0 0-.706-1.706z"/>
-            <path d="M5 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 1.732-1"/>
-          </svg>
-        </button>
-        
-        <div class="act-bottom">
+      <nav id="site-tabs" role="tablist" aria-label="页面 / Pages">
+        <button type="button" class="site-tab active" id="tab-console" role="tab" aria-selected="true" aria-controls="page-console" data-i18n="nav.console">控制台</button>
+        <button type="button" class="site-tab" id="tab-docs" role="tab" aria-selected="false" aria-controls="page-docs" data-i18n="nav.docs">说明</button>
+        <button type="button" class="site-tab" id="tab-wpset" role="tab" aria-selected="false" aria-controls="page-wpset" data-i18n="nav.wpset">壁纸设置</button>
+        <span id="site-tab-ink" aria-hidden="true"></span>
+      </nav>
+
+      <div id="site-actions">
+        <button type="button" id="settings-btn" aria-haspopup="dialog" aria-expanded="false" data-i18n="nav.settings" data-i18n-title="nav.settingsTip" title="语言 / 主题 / 归属与许可">设置</button>
           <button type="button" class="act theme-btn" id="theme-toggle" title="主题：跟随系统" data-i18n-title="theme.auto">
             <svg class="ic ic-auto" viewBox="0 0 16 16" width="17" height="17" aria-hidden="true">
               <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.2" />
@@ -85,16 +55,43 @@
               <path fill="currentColor" d="M7.25.5h1.5v2.4h-1.5V.5zm0 12.6h1.5v2.4h-1.5v-2.4zM15.5 7.25v1.5h-2.4v-1.5h2.4zM2.9 8.75H.5v-1.5h2.4v1.5zm10.1-4.7l-1.06 1.06-1.06-1.06 1.06-1.06 1.06 1.06zM5.12 10.88L4.06 11.94 3 10.88l1.06-1.06 1.06 1.06zm0-5.76L4.06 5.18 3 4.12l1.06-1.06 1.06 1.06zm5.76 7.42l1.06 1.06-1.06 1.06-1.06-1.06 1.06-1.06z" />
             </svg>
           </button>
-</div>
-      </nav>
+        <div id="settings-pop" role="dialog" aria-label="设置" hidden>
+          <label class="lang-box" data-i18n-title="lang.title">
+            <span class="pop-k" data-i18n="nav.lang">语言</span>
+            <select id="lang" aria-label="Language">
+              <option value="zh">简体中文</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+          <div class="pop-row"><span class="pop-k" data-i18n="nav.theme">主题</span><span id="theme-state" class="pop-val">跟随系统</span></div>
+          <div class="pop-row"><span class="pop-k" data-i18n="nav.backend">后台</span><span id="backend-state" class="pop-val"></span></div>
+          <p class="pop-note" data-i18n="nav.backendNote">静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。</p>
+          <div class="pop-credit">
+            <span id="credit-title-footer">渲染核心原作者</span>
+            <a id="credit-link-footer" href="https://github.com/oneincase/webwallgl" target="_blank" rel="noopener noreferrer">WebWallGL · oneincase（MIT 许可）</a>
+            <span class="bench-credit-license">上游许可全文：<a href="./LICENSE-webwallgl-MIT.txt">demo/LICENSE-webwallgl-MIT.txt</a> · <a href="./LICENSE-webwallgl">demo/LICENSE-webwallgl</a></span>
+          </div>
+        </div>
+      </div>
 
+      <div id="bench-legacy-anchors" hidden aria-hidden="true">
+        <span id="open-pkg"></span>
+        <input id="pkg-file" type="file" hidden disabled />
+        <span id="type-filter"></span>
+        <span id="sponsor-btn"></span>
+        <button type="button" id="act-docs"></button>
+        <button type="button" id="act-explorer"></button>
+      </div>
+    </header>
+
+    <div id="pages-track">
+      <section class="page" id="page-console" role="tabpanel" aria-labelledby="tab-console">
+    <div id="workbench">
       <aside id="sidebar">
         <div class="sidebar-title" data-i18n="sidebar.title">资源管理器</div>
         <div class="sidebar-section-head">
           <span id="lib-count" data-i18n="sidebar.libCount">壁纸库</span>
           <button type="button" id="pick-lib" data-i18n-title="sidebar.pickLib" title="选择壁纸库文件夹（也可继续用 WE_LIBRARY）" data-i18n="btn.pickLib">选择文件夹</button>
-          <!-- 第七批（用户第 17/18 条）：插件同款「选择文件」入口（由 bench-patch.js 接管；capture 阶段抢在 bundle 之前） -->
-          <button type="button" id="pick-file" data-i18n-title="pick.fileTitle" title="浏览并选择单个文件（scene.pkg / project.json 可直接预览）" data-i18n="btn.pickFile">选择文件</button>
           <!-- 第七批（用户第 17/18 条）：插件同款「选择文件」入口（由 bench-patch.js 接管；capture 阶段抢在 bundle 之前） -->
           <button type="button" id="pick-file" data-i18n-title="pick.fileTitle" title="浏览并选择单个文件（scene.pkg / project.json 可直接预览）" data-i18n="btn.pickFile">选择文件</button>
           <button type="button" id="clear-local" data-i18n="local.clear" data-i18n-title="local.clearTitle" title="清空本地库与当前选择">清空</button>
@@ -107,10 +104,31 @@
         <ul id="list"></ul>
       </aside>
 
+          <aside id="props" hidden>
+            <div class="props-head">
+              <div class="props-head-main">
+                <strong data-i18n="props.title">壁纸配置</strong>
+                <span id="props-state"></span>
+              </div>
+              <div class="props-head-actions">
+                <button type="button" id="props-reset" data-i18n="props.reset">恢复默认</button>
+                <button type="button" id="props-close" data-i18n="props.collapse">收起</button>
+              </div>
+            </div>
+            <div class="props-row">
+              <input id="props-filter" type="search" placeholder="过滤属性名 / 文案" data-i18n-ph="ph.propsFilter" />
+              <label class="check"><input id="props-all" type="checkbox" /> <span data-i18n="props.showHidden">显示条件隐藏项</span></label>
+            </div>
+            <div id="props-body"></div>
+          </aside>
+
       <div id="main">
         <div id="editor-chrome">
+          <div id="wp-switch">
           <div id="editor-tabs">
             <div class="tab active" id="current" role="tab" aria-selected="true" data-i18n="tab.wallpaper">未选择壁纸</div>
+          </div>
+            <button type="button" id="wp-add" data-i18n="wp.add" data-i18n-title="wp.addTitle" title="添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸">＋</button>
           </div>
           <div id="toolbar">
             <label data-i18n-title="toolbar.resolutionTip" title="舞台逻辑分辨率（iframe 视口）"><span data-i18n="toolbar.resolution">分辨率</span>
@@ -224,38 +242,12 @@
               <div id="stage-badge" hidden></div>
             </div>
           </div>
-          <aside id="props" hidden>
-            <div class="props-head">
-              <div class="props-head-main">
-                <strong data-i18n="props.title">壁纸配置</strong>
-                <span id="props-state"></span>
-              </div>
-              <div class="props-head-actions">
-                <button type="button" id="props-reset" data-i18n="props.reset">恢复默认</button>
-                <button type="button" id="props-close" data-i18n="props.collapse">收起</button>
-              </div>
-            </div>
-            <div class="props-row">
-              <input id="props-filter" type="search" placeholder="过滤属性名 / 文案" data-i18n-ph="ph.propsFilter" />
-              <label class="check"><input id="props-all" type="checkbox" /> <span data-i18n="props.showHidden">显示条件隐藏项</span></label>
-            </div>
-            <div id="props-body"></div>
-          </aside>
           <section id="docs-view" hidden>
             <div id="docs-body"></div>
-            <!-- 第五批④：赞赏卡片本体（两个收款二维码 + 赞赏文案）已删除，只保留对原作者的归属外链。
-                 id 沿用 #sponsor-card 是为了继续吃到产物 CSS 里已有的面板样式（max-width/border/padding）；
-                 旧 bundle 的「爱心」按钮用 document.querySelector("#sponsor-card")?.scrollIntoView，`?.` 对缺失安全。
-                 文案由补丁的 LABEL_SPEC（#credit-title / #credit-link）按语言写；**不挂 data-i18n**：
-                 旧 bundle 的词典里没有这些新键，挂了会被它写成键名原文。
-                 MIT LICENSE 与各文件头归属一律保留（用户要求「保留归属」）。 -->
-            <div id="sponsor-card" class="credit-card">
-              <strong id="credit-title" style="color:inherit">渲染核心原作者</strong>
-              <p><a id="credit-link" href="https://github.com/oneincase/webwallgl" target="_blank" rel="noopener noreferrer">WebWallGL · oneincase（MIT 许可）</a></p>
-            </div>
           </section>
         </div>
 
+        <div id="logs-splitter" role="separator" aria-orientation="horizontal" aria-label="控制台高度" title="拖动调整控制台高度（双击复位）"></div>
         <section id="logs">
           <div class="logs-head">
             <button type="button" id="toggle-logs" aria-expanded="true" data-i18n-title="logs.collapse" title="折叠输出">
@@ -273,6 +265,231 @@
         </section>
       </div>
     </div>
+      </section>
+
+      <!-- ② 说明（自写 README，替换原作者文档）：内容见本页静态 HTML，便于微调 -->
+      <section class="page" id="page-docs" role="tabpanel" aria-labelledby="tab-docs">
+        <div class="doc-wrap lang-zh" lang="zh-CN">
+          <h1>使用说明（本页自写）</h1>
+          <p class="doc-lede">这是 <strong>wallpaper-engine-web-loader</strong> 的浏览器端测试台：一个静态页面 + WebGL2，
+            不装 Wallpaper Engine、不装任何 Windows 依赖，就能实时渲染 <code>scene.pkg</code> / <code>.mpkg</code> 场景壁纸。
+            本仓库<strong>不分发任何真实壁纸</strong>，默认载入的是我们自己用算术生成的合成样例。</p>
+
+          <h2>界面怎么读</h2>
+          <table>
+            <thead><tr><th>区域</th><th>是什么</th></tr></thead>
+            <tbody>
+              <tr><td>顶部 tab（控制台 / 说明 / 壁纸设置）</td><td>三个页面：控制台＝渲染与调试；说明＝本页；壁纸设置＝<em>壁纸自带选项</em>与对应 API 的对照表</td></tr>
+              <tr><td>左侧「选择壁纸」</td><td>壁纸库列表（本机后端提供，或点「选择文件夹」在浏览器里扫描本地目录）</td></tr>
+              <tr><td>左侧「壁纸参数」</td><td>当前壁纸 <code>project.json</code> 里声明的可自定义项（滑条 / 勾选 / 取色 / 下拉 / 文本、条件隐藏项）</td></tr>
+              <tr><td>右侧「设置1」</td><td>分辨率 / 适应方式 / DPR / FPS 上限 / 音量 / 系统实况 / 指针注入 / 鼠标尾迹 / 暂停·重挂载·释放·新窗口·滤镜</td></tr>
+              <tr><td>右侧「壁纸」</td><td>渲染舞台（iframe 内跑渲染器）；右上角有全屏按钮</td></tr>
+              <tr><td>右侧「控制台」</td><td>渲染器日志与 <code>/diag</code> 诊断流；顶栏按钮可收起，拖动上沿可调高度</td></tr>
+              <tr><td>底部状态栏</td><td>库数量 / 当前壁纸 / 分辨率 / DPR / 帧率上限 / 实测 FPS</td></tr>
+            </tbody>
+          </table>
+
+          <h2>三步开始</h2>
+          <ol>
+            <li>点顶部 <strong>设置 → 语言</strong> 选中文/英文；点旁边的<strong>太阳/月亮/圆环</strong>按钮切换深色 / 浅色 / 跟随系统。</li>
+            <li>壁纸：默认已载入合成样例；要换自己的，点「选择文件夹」（纯前端扫描，文件不离开浏览器）或把壁纸放进本机后端配置的库目录。</li>
+            <li>调参：选中壁纸后在左侧「壁纸参数」里改；右侧「设置1」调分辨率 / FPS / 音量等运行参数。</li>
+          </ol>
+
+          <h2>顶部壁纸切换栏（设置1 上方）</h2>
+          <p>那一行就是「切换栏」：当前壁纸是第一个 tab（标题即壁纸名），后面是本页补丁按壁纸库生成的其它壁纸 tab，
+            最右边的 <strong>＋</strong> 会切到「选择未选中的壁纸」——它把左侧列表切到「选择壁纸」并过滤掉当前项，
+            你在左边点一个就完成切换。</p>
+
+          <h2>壁纸设置（第 3 个 tab）</h2>
+          <p>那张表把 Wallpaper Engine 自带的壁纸选项（翻转 / 播放速度 / 显示颜色选项：亮度·对比度·饱和度·色调偏移 …）
+            与<strong>本页能改它的方式</strong>一一对上：能改的给出 API / JSON 键 / 查询参数，WE 自带不需要写的明确标「自带，无需实现」。</p>
+
+          <h2>在线版（GitHub Pages）会少什么</h2>
+          <p>线上是纯静态托管，没有本机 Node 后端：<strong>壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流</strong>
+            （<code>/api/*</code> 与 <code>/diag</code>）全部不可用 —— 这是设计如此，不是故障，页面会把这些控件置灰并写明原因。
+            「选择文件夹」纯前端扫描照常可用，默认壁纸仍是合成样例。完整功能请在本仓库源码目录跑
+            <code>node server/we-scene-demo-server.mjs 8899</code>（或 <code>bash start-demo.sh</code>）。</p>
+
+          <h2>许可与归属</h2>
+          <ul>
+            <li>本仓库渲染器：<strong>GPL-3.0-or-later</strong>；第三方与参考资料逐条登记在 <a href="../THIRD-PARTY.md">THIRD-PARTY.md</a>。</li>
+            <li>本页是 <strong>WebWallGL</strong> 静态构建产物的补丁版再分发，上游
+              <a href="https://github.com/oneincase/webwallgl" target="_blank" rel="noopener noreferrer">oneincase/webwallgl</a>
+              （<strong>MIT © 2026 oneincase</strong>），许可全文随页分发：
+              <a href="./LICENSE-webwallgl-MIT.txt">LICENSE-webwallgl-MIT.txt</a>、<a href="./LICENSE-webwallgl">LICENSE-webwallgl</a>。</li>
+            <li>图标 Lucide（ISC）；合成样例由 <code>tools/make-sample.mjs</code> 生成，无第三方内容。</li>
+          </ul>
+        </div>
+
+        <div class="doc-wrap lang-en" lang="en">
+          <h1>User guide (written for this page)</h1>
+          <p class="doc-lede">This is the browser-side test bench of <strong>wallpaper-engine-web-loader</strong>: one static page plus
+            WebGL2 renders Wallpaper Engine <code>scene.pkg</code> / <code>.mpkg</code> wallpapers live — no Wallpaper Engine install,
+            no Windows dependencies. This repository <strong>redistributes no real wallpaper</strong>; the default is a synthetic sample we generate ourselves.</p>
+
+          <h2>Reading the layout</h2>
+          <table>
+            <thead><tr><th>Area</th><th>What it is</th></tr></thead>
+            <tbody>
+              <tr><td>Top tabs (Console / Guide / Wallpaper settings)</td><td>Three pages: console (render + debug), this guide, and the table mapping Wallpaper Engine's own wallpaper options to the API that changes them</td></tr>
+              <tr><td>Left “Choose wallpaper”</td><td>The library list (from the local Node backend, or scanned in-browser via “Choose folder”)</td></tr>
+              <tr><td>Left “Wallpaper parameters”</td><td>The customizable items declared in the wallpaper's <code>project.json</code></td></tr>
+              <tr><td>Right “Settings 1”</td><td>Resolution / fit / DPR / FPS cap / volume / live system / pointer injection / mouse trail / pause · remount · release · new window · filter</td></tr>
+              <tr><td>Right “Wallpaper”</td><td>The render stage (the renderer runs inside an iframe); fullscreen button top-right</td></tr>
+              <tr><td>Right “Console”</td><td>Renderer log and the <code>/diag</code> stream; collapse with the button, drag the top edge to resize</td></tr>
+              <tr><td>Status bar</td><td>Library counts / current wallpaper / resolution / DPR / FPS cap / measured FPS</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Three steps to start</h2>
+          <ol>
+            <li>Top <strong>Settings → Language</strong>; the sun/moon/ring button cycles dark / light / follow system.</li>
+            <li>Wallpaper: the synthetic sample is already loaded; use “Choose folder” for your own (read in-browser, files never leave it).</li>
+            <li>Tune: wallpaper-specific knobs on the left, runtime knobs (resolution / FPS / volume) in “Settings 1”.</li>
+          </ol>
+
+          <h2>Wallpaper switcher (above “Settings 1”)</h2>
+          <p>The current wallpaper is the first tab (its title is the wallpaper name); further tabs are generated from the library by this
+            page's patch, and the <strong>＋</strong> at the right jumps to “choose another wallpaper” — it switches the left list to
+            “Choose wallpaper”, filters out the current item, and one click there performs the switch.</p>
+
+          <h2>Wallpaper settings (third tab)</h2>
+          <p>The table pairs Wallpaper Engine's own wallpaper options (flip / playback rate / colour options: brightness, contrast,
+            saturation, hue shift …) with <strong>how this page changes them</strong>: an API, a JSON key or a query parameter where one
+            exists; “built-in, nothing to implement” where Wallpaper Engine already owns it.</p>
+
+          <h2>What the online (GitHub Pages) build lacks</h2>
+          <p>Online is plain static hosting with no local Node backend, so the library listing, property saving, deleting,
+            reveal-in-folder and the diagnostics stream (<code>/api/*</code>, <code>/diag</code>) are unavailable — by design, not a
+            failure; those controls are greyed out with the reason shown. “Choose folder” still works and the default wallpaper remains
+            the synthetic sample. For the full bench run <code>node server/we-scene-demo-server.mjs 8899</code> in the source tree.</p>
+
+          <h2>Licence &amp; attribution</h2>
+          <ul>
+            <li>This repository's renderer: <strong>GPL-3.0-or-later</strong>; third-party components are itemised in <a href="../THIRD-PARTY.md">THIRD-PARTY.md</a>.</li>
+            <li>This page is a patched redistribution of the <strong>WebWallGL</strong> static build by
+              <a href="https://github.com/oneincase/webwallgl" target="_blank" rel="noopener noreferrer">oneincase/webwallgl</a>
+              (<strong>MIT © 2026 oneincase</strong>); both licence copies ship with the page:
+              <a href="./LICENSE-webwallgl-MIT.txt">LICENSE-webwallgl-MIT.txt</a>, <a href="./LICENSE-webwallgl">LICENSE-webwallgl</a>.</li>
+            <li>Icons: Lucide (ISC). The synthetic sample is generated by <code>tools/make-sample.mjs</code> and carries no third-party content.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ③ 壁纸设置：WE 自带选项 ↔ 本页 API 对照（用户点名要的第 3 个页面） -->
+      <section class="page" id="page-wpset" role="tabpanel" aria-labelledby="tab-wpset">
+        <div class="doc-wrap lang-zh" lang="zh-CN">
+          <h1>壁纸设置 ↔ 对应 API</h1>
+          <p class="doc-lede">三类来源分清楚：<span class="tag tag-we">WE 自带</span> 无需我们实现；
+            <span class="tag tag-ok">本页已实现</span> 给出可直接用的 API；<span class="tag tag-todo">需实现</span> 给出计划中的键名与挂点。
+            右侧「设置1」里出现的开关就是本页的实现面；「壁纸参数」里的项来自壁纸自己的 <code>project.json</code>。</p>
+
+          <h2>1. Wallpaper Engine 自带的壁纸选项</h2>
+          <table>
+            <thead><tr><th>WE 里的名字</th><th>WE 内部键（本机 ui_zh-chs.json 实测）</th><th>本页怎么改（API / 键 / 参数）</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td>翻转（水平翻转）</td><td><code>ui_browse_properties_alignment_flip_horizontally</code></td><td>渲染输出整体 <code>transform: scaleX(-1)</code>：<code>__wp.setDisplay({flipH:true})</code> / <code>?fliph=1</code>（对应 CSS 变量 <code>--mpw-flip-h</code>）</td><td><span class="tag tag-todo">需实现</span></td></tr>
+              <tr><td>对齐方式 / 缩放</td><td><code>ui_browse_properties_alignment</code> · <code>…_alignment_zoom</code></td><td>已实现：工具条「分辨率 / 适应方式」（<code>#fit</code>）＋ <code>?fit=cover|contain|stretch</code>；缩放走壁纸 <code>project.json → general.zoom</code> 与相机层 zoom</td><td><span class="tag tag-ok">已实现</span></td></tr>
+              <tr><td>播放速度 0.5–2×</td><td><code>ui_browse_properties_playback_rate</code></td><td>全局动画/视频时间倍率：<code>__wp.setPlaybackRate(1.5)</code> / <code>?rate=1.5</code>（乘到动画 dt 与 <code>video.playbackRate</code>）</td><td><span class="tag tag-todo">需实现</span></td></tr>
+              <tr><td>显示颜色选项（总开关）</td><td><code>ui_browse_properties_show_color_options</code></td><td>打开后才显示下面四项；关闭时四项不参与滤镜：<code>__wp.setDisplay({colorOptions:false})</code></td><td><span class="tag tag-todo">需实现</span></td></tr>
+              <tr><td>亮度 / 对比度 / 饱和度 / 色调偏移</td><td><code>ui_browse_properties_brightness</code> · <code>_contrast</code> · <code>_saturation</code> · <code>_hue_shift</code></td><td>合成一条 CSS filter 挂在渲染输出上：<code>brightness(b) contrast(c) saturate(s) hue-rotate(h deg)</code>；API <code>__wp.setDisplay({brightness:1.1, contrast:1.05, saturation:1.2, hue:15})</code>，查询参数 <code>?bright=1.1&amp;contrast=1.05&amp;satur=1.2&amp;hue=15</code>。做法与 DSH 插件一致（插件就是 CSS filter，见 <code>dsh-mpkg-wallpaper/lib/client.js</code> 的「画面亮度」段）</td><td><span class="tag tag-todo">需实现</span></td></tr>
+              <tr><td>音量 / 静音</td><td><code>ui_browse_monitors_mute</code> · WE 全局音量</td><td>已实现：工具条「音量」滑条 <code>#volume</code>；页面内 <code>__wp.setVolume(0.5)</code></td><td><span class="tag tag-ok">已实现</span></td></tr>
+              <tr><td>对动作做出反应（视差/陀螺仪）</td><td><code>ui_browse_properties_parallax</code></td><td><strong>不做</strong>（用户口径：无陀螺仪 / 不做这项）；若将来做，走指针注入通道 <code>__wp.pushPointer(x,y)</code> 已有</td><td><span class="tag tag-we">不做</span></td></tr>
+              <tr><td>录音（WE 自带录屏 / 录音音量）</td><td><code>ui_settings_hotkeys_action_recording</code> · <code>ui_settings_recording_volume</code></td><td>WE 客户端自带功能，不在页面内实现；要录屏用系统/浏览器自带录制（<code>MediaRecorder</code> 可后续按需加）</td><td><span class="tag tag-we">自带</span></td></tr>
+            </tbody>
+          </table>
+
+          <h2>2. 壁纸自己的可调项（<code>project.json → general.properties</code>）</h2>
+          <table>
+            <thead><tr><th>项</th><th>本页怎么改</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td>滑条 / 勾选 / 取色 / 下拉 / 文本 / 分组标题 / 条件隐藏</td><td>左侧「壁纸参数」面板直接改；等价的 URL 形式 <code>?props=name:value,…</code>（本机后端会落盘保存）</td><td><span class="tag tag-ok">已实现</span></td></tr>
+              <tr><td>粒子层 / 动画层 / 文本层覆盖</td><td>属性面板里同名项（<code>visible/alpha/color/brightness/origin/scale/size/parallaxDepth/text</code>）</td><td><span class="tag tag-ok">已实现</span></td></tr>
+            </tbody>
+          </table>
+
+          <h2>3. 运行参数（不属于 WE，但调试常用）</h2>
+          <table>
+            <thead><tr><th>参数</th><th>API / 控件</th></tr></thead>
+            <tbody>
+              <tr><td>逻辑分辨率 / 适应方式 / DPR</td><td><code>#resolution</code> · <code>#fit</code> · <code>#dpr</code>；查询参数 <code>?res=1920x1080&amp;fit=cover&amp;dpr=1</code></td></tr>
+              <tr><td>FPS 上限</td><td><code>#fps</code>（无上限 = 跟随显示器）</td></tr>
+              <tr><td>系统实况（歌名 / 频谱）</td><td><code>#live-system</code>；本机后端读 media-control，频谱走麦克风</td></tr>
+              <tr><td>指针注入 / 鼠标尾迹</td><td><code>#pointer-push</code> · <code>#trail-on</code>；坐标通道 <code>__wp.pushPointer(x,y)</code></td></tr>
+              <tr><td>质量档位 / AA / 滤镜</td><td><code>?q=low|mid|high</code> · <code>?aa=fxaa|msaa4</code> · <code>#fx</code></td></tr>
+            </tbody>
+          </table>
+
+          <h2>4. 怎么自己试</h2>
+          <pre><code>// 浏览器控制台（先选中一张壁纸，等 __wp 就绪）
+const wp = document.querySelector('#frame').contentWindow.__wp
+wp.setDisplay({ brightness: 1.15, contrast: 1.05, saturation: 1.2, hue: 12 })  // 颜色选项
+wp.setDisplay({ flipH: true })                                                // 翻转
+wp.setPlaybackRate(1.5)                                                       // 播放速度
+wp.setVolume(0.4)                                                             // 音量
+wp.pushPointer(0.5, 0.5)                                                      // 指针（归一化坐标）</code></pre>
+          <p class="doc-note">说明：上表中标 <span class="tag tag-todo">需实现</span> 的 API 是本页下一步要接的键名（写成文档先定契约，
+            实现后本页会把状态改成「已实现」并补一条门禁）。WE 自带项不需要我们写任何代码。</p>
+        </div>
+
+        <div class="doc-wrap lang-en" lang="en">
+          <h1>Wallpaper settings ↔ the API that changes them</h1>
+          <p class="doc-lede">Three sources, kept apart: <span class="tag tag-we">WE built-in</span> (nothing for us to implement),
+            <span class="tag tag-ok">implemented here</span> (the API you can call today), <span class="tag tag-todo">to implement</span>
+            (agreed key names and the hook point). The toggles in “Settings 1” are this page's implementation surface; the items in
+            “Wallpaper parameters” come from the wallpaper's own <code>project.json</code>.</p>
+
+          <h2>1. Wallpaper Engine's own wallpaper options</h2>
+          <table>
+            <thead><tr><th>Name in WE</th><th>WE's internal key (measured from this machine's ui_zh-chs.json)</th><th>How this page changes it</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>Flip (horizontal)</td><td><code>ui_browse_properties_alignment_flip_horizontally</code></td><td>Whole output <code>transform: scaleX(-1)</code>: <code>__wp.setDisplay({flipH:true})</code> / <code>?fliph=1</code></td><td><span class="tag tag-todo">to implement</span></td></tr>
+              <tr><td>Alignment / zoom</td><td><code>ui_browse_properties_alignment</code> · <code>…_alignment_zoom</code></td><td>Implemented: toolbar “Resolution / fit” (<code>#fit</code>) and <code>?fit=cover|contain|stretch</code>; zoom follows <code>project.json → general.zoom</code> and camera-layer zoom</td><td><span class="tag tag-ok">implemented</span></td></tr>
+              <tr><td>Playback rate 0.5–2×</td><td><code>ui_browse_properties_playback_rate</code></td><td>Global time multiplier: <code>__wp.setPlaybackRate(1.5)</code> / <code>?rate=1.5</code> (multiplies animation dt and <code>video.playbackRate</code>)</td><td><span class="tag tag-todo">to implement</span></td></tr>
+              <tr><td>Show colour options (master)</td><td><code>ui_browse_properties_show_color_options</code></td><td>When off, the four below are excluded from the filter chain: <code>__wp.setDisplay({colorOptions:false})</code></td><td><span class="tag tag-todo">to implement</span></td></tr>
+              <tr><td>Brightness / contrast / saturation / hue shift</td><td><code>…_brightness</code> · <code>…_contrast</code> · <code>…_saturation</code> · <code>…_hue_shift</code></td><td>One CSS filter on the render output: <code>brightness() contrast() saturate() hue-rotate()</code>; <code>__wp.setDisplay({brightness:1.1,contrast:1.05,saturation:1.2,hue:15})</code>, query <code>?bright=…&amp;contrast=…&amp;satur=…&amp;hue=…</code>. Same approach the DSH plugin already uses (CSS filter — see its “screen brightness” section)</td><td><span class="tag tag-todo">to implement</span></td></tr>
+              <tr><td>Volume / mute</td><td><code>ui_browse_monitors_mute</code> · WE global volume</td><td>Implemented: toolbar “Volume” slider <code>#volume</code>; in-page <code>__wp.setVolume(0.5)</code></td><td><span class="tag tag-ok">implemented</span></td></tr>
+              <tr><td>React to motion (parallax / gyroscope)</td><td><code>ui_browse_properties_parallax</code></td><td><strong>Not doing</strong> (no gyroscope); the pointer channel <code>__wp.pushPointer(x,y)</code> already exists if wanted later</td><td><span class="tag tag-we">N/A</span></td></tr>
+              <tr><td>Recording (WE recorder / recording volume)</td><td><code>ui_settings_hotkeys_action_recording</code> · <code>ui_settings_recording_volume</code></td><td>Owned by the WE client; not implemented in-page (system/browser recording is the alternative)</td><td><span class="tag tag-we">built-in</span></td></tr>
+            </tbody>
+          </table>
+
+          <h2>2. The wallpaper's own properties (<code>project.json → general.properties</code>)</h2>
+          <table>
+            <thead><tr><th>Item</th><th>How to change it</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>Slider / checkbox / colour / combo / text / group / condition-hidden</td><td>The left “Wallpaper parameters” panel; URL form <code>?props=name:value,…</code> (the local backend persists it)</td><td><span class="tag tag-ok">implemented</span></td></tr>
+              <tr><td>Particle / animation / text layer overrides</td><td>Same-name items in the properties panel</td><td><span class="tag tag-ok">implemented</span></td></tr>
+            </tbody>
+          </table>
+
+          <h2>3. Runtime parameters (not WE's, but the usual debugging knobs)</h2>
+          <table>
+            <thead><tr><th>Parameter</th><th>API / control</th></tr></thead>
+            <tbody>
+              <tr><td>Logical resolution / fit / DPR</td><td><code>#resolution</code> · <code>#fit</code> · <code>#dpr</code>; query <code>?res=1920x1080&amp;fit=cover&amp;dpr=1</code></td></tr>
+              <tr><td>FPS cap</td><td><code>#fps</code> (uncapped = follow the display)</td></tr>
+              <tr><td>Live system (title / spectrum)</td><td><code>#live-system</code>; the local backend reads media-control, the spectrum comes from the microphone</td></tr>
+              <tr><td>Pointer injection / mouse trail</td><td><code>#pointer-push</code> · <code>#trail-on</code>; coordinate channel <code>__wp.pushPointer(x,y)</code></td></tr>
+              <tr><td>Quality tiers / AA / filter</td><td><code>?q=low|mid|high</code> · <code>?aa=fxaa|msaa4</code> · <code>#fx</code></td></tr>
+            </tbody>
+          </table>
+
+          <h2>4. Try it yourself</h2>
+          <pre><code>// Browser console (pick a wallpaper first and wait for __wp)
+const wp = document.querySelector('#frame').contentWindow.__wp
+wp.setDisplay({ brightness: 1.15, contrast: 1.05, saturation: 1.2, hue: 12 })
+wp.setDisplay({ flipH: true })
+wp.setPlaybackRate(1.5)
+wp.setVolume(0.4)
+wp.pushPointer(0.5, 0.5)</code></pre>
+          <p class="doc-note">Rows marked <span class="tag tag-todo">to implement</span> are the key names this page will wire next
+            (documented first as a contract; when implemented the status flips to “implemented” and a gate covers it). Wallpaper Engine's
+            own options need no code from us.</p>
+        </div>
+      </section>
+    </div>
 
     <footer id="statusbar">
       <span id="status-lib" title=""></span>
@@ -284,26 +501,6 @@
       <span id="status-dpr" data-i18n="status.dpr" data-i18n-title="status.dprTitle" title="窗口 devicePixelRatio —— 影响渲染分辨率与性能">DPR（设备像素比） 1</span>
       <span id="status-fps" data-i18n-title="status.capTitle" title="帧率上限（工具条 fps）">上限 60</span>
       <span id="status-live-fps" class="idle" data-i18n-title="status.liveTitle" title="壁纸实测帧率（渲染循环最近 500ms）">— FPS</span>
-    </footer>
-
-    <!-- P-93（在线 demo）：两个常驻区块，**静态**写死在 HTML 里（不依赖 JS、不依赖后端）——
-         ① #bench-online-notice：在线版没有本机后端 —— 这是设计如此，不是故障；
-         ② #bench-credit：上游归属外链（MIT © oneincase）+ 上游许可文件位置。
-         运行期 bench-patch.js 会按语言重写①（同源同义），并把②的文案并入语言切换链。 -->
-    <section id="bench-online-notice" class="bench-online-notice">
-      <strong>在线演示版</strong>
-      <div>本页是<strong>在线静态演示</strong>：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（<code>/api/*</code> 与 <code>/diag</code>）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的<strong>合成样例</strong>（不含任何真实壁纸）。</div>
-      <div class="bench-online-sample">默认壁纸：合成样例 <code>scene.pkg</code>（由 <code>tools/make-sample.mjs</code> 生成，33 299 B，无第三方内容）—— 本仓库<strong>不分发</strong>任何真实壁纸包。</div>
-      <div lang="en"><strong>Online demo</strong> — this page is an <strong>online static demo</strong>: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (<code>/api/*</code>, <code>/diag</code>) are unavailable online (by design, not a failure). “Choose folder” still works, and the default wallpaper is this repository's own <strong>synthetic sample</strong> — no real wallpaper is bundled or redistributed.</div>
-    </section>
-
-    <footer id="bench-credit" class="bench-credit">
-      <!-- 故意**不挂** data-i18n：旧 bundle 的烘死词典里没有 credit.* 键，挂了会被它写成键名原文（T27 盯着这条）。
-           文案由 bench-patch.js 的 syncAllLabels / LABEL_SPEC 直接写 textContent。 -->
-      <span id="credit-title">渲染核心原作者</span>
-      <a id="credit-link" href="https://github.com/oneincase/webwallgl" target="_blank" rel="noopener noreferrer">WebWallGL · oneincase（MIT 许可）</a>
-      <span class="bench-credit-license">上游许可全文见 <a href="./LICENSE-webwallgl-MIT.txt">demo/LICENSE-webwallgl-MIT.txt</a> 与 <a href="./LICENSE-webwallgl">demo/LICENSE-webwallgl</a>（MIT © 2026 oneincase）</span>
-      <a class="bench-credit-up" href="../">← 返回项目落地页</a>
     </footer>
 
     <script type="module" src="./bench-patch.js"></script>

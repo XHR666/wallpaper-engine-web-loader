@@ -134,10 +134,13 @@ const landing = path.join(ROOT, 'index.html')
   check('D5 测试台入口相对本页（base + assets + 补丁），两个挂载点都成立',
     /<base href="\.\/" \/>/.test(h) && /src="\.\/assets\/bench-DSKWIqmS\.js"/.test(h) && /src="\.\/bench-patch\.js"/.test(h) &&
     !/src="\/wallpaper-engine-webgl\//.test(h))
-  check('D5 页面上写清"在线版没有本机后端"（静态横幅，中英双语）',
-    /id="bench-online-notice"/.test(h) && /在线演示版/.test(h) && /Online demo/.test(h) && /api\/\*/.test(h))
-  check('D5 页脚上游归属外链 + 两份 MIT 许可文件链接',
-    /id="credit-link" href="https:\/\/github\.com\/oneincase\/webwallgl"/.test(h) &&
+  // ①(2026-09-17 新样式，用户第 5 条) 静态横幅搬进「说明」页（#page-docs）的"在线版会少什么"一节 +
+  //   头部「设置」弹层的一句说明；归属外链收进设置弹层，id 用 *-footer 专名（文档视图那张卡片已整块删除）。
+  check('D5 页面上写清"在线版没有本机后端"（说明页 + 设置弹层，中英双语、纯静态不依赖 JS/后端）',
+    /id="page-docs"/.test(h) && /没有本机 Node 后端/.test(h) && /no local Node backend/i.test(h) &&
+    /api\/\*/.test(h) && /选择文件夹/.test(h))
+  check('D5 上游归属外链（设置弹层）+ 两份 MIT 许可文件链接',
+    /id="credit-link-footer" href="https:\/\/github\.com\/oneincase\/webwallgl"/.test(h) &&
     /href="\.\/LICENSE-webwallgl-MIT\.txt"/.test(h) && /href="\.\/LICENSE-webwallgl"/.test(h))
   check('D5 上游 MIT 声明两份都在（不许只有一份）',
     fs.existsSync(path.join(ROOT, DEMO, 'LICENSE-webwallgl-MIT.txt')) && fs.existsSync(path.join(ROOT, DEMO, 'LICENSE-webwallgl')))
@@ -201,6 +204,47 @@ const landing = path.join(ROOT, 'index.html')
       fs.readFileSync(siteDemo).equals(fs.readFileSync(siteAlias)))
     fs.rmSync(path.join(ROOT, '_site'), { recursive: true, force: true })
   }
+}
+
+// ---- D7 HTML 的 id 唯一性（通用闸门，第七批新增）----
+// 为什么是通用闸门：同页两个同 id ⇒ querySelector / querySelectorAll('#x')[0] 只认第一个，
+// 第二份永远接不到标签同步或事件。第七批实测撞过两次（产物 #pick-file 被插两份；
+// 页脚 #credit-title/#credit-link 与文档视图 #sponsor-card 里那两个撞 id）。
+// 先去注释与 script/style 正文再数：注释里提一嘴 id="x"、JS 字符串里写 id="x" 都不是"同页两个同 id"
+// （实测假阳性：demo.html 的 <script id="mpw-log-panel"> 正文注释里又提了一次同名 id）。
+{
+  const SKIP_DIRS = new Set(['.git', '_site', 'node_modules', 'archive', 'vendor', 'elysia', 'samples', '.github'])
+  const files = []
+  const walk = (d) => {
+    let ents = []
+    try { ents = fs.readdirSync(d, { withFileTypes: true }) } catch { return }
+    for (const e of ents) {
+      if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) walk(path.join(d, e.name)) }
+      else if (/\.html$/i.test(e.name)) files.push(path.join(d, e.name))
+    }
+  }
+  walk(ROOT)
+  const strip = (h) => String(h)
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+  const bad = []
+  for (const f of files) {
+    let html = ''
+    try { html = strip(fs.readFileSync(f, 'utf8')) } catch { continue }
+    const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1])
+    const dup = [...new Set(ids.filter((v, i) => ids.indexOf(v) !== i))]
+    if (dup.length) bad.push(path.relative(ROOT, f) + ' → ' + dup.join(','))
+  }
+  check('D7 全仓 HTML 的 id 唯一性（去注释/script 正文后扫 ' + files.length + ' 个文件；重复即红）', bad.length === 0, bad.join(' | '))
+  const demoHtml = strip(read(path.join(DEMO, 'index.html')))
+  const cnt = (id) => (demoHtml.match(new RegExp('id="' + id + '"', 'g')) || []).length
+  check('D7 测试台两个选择器入口各一份（#pick-lib / #pick-file）', cnt('pick-lib') === 1 && cnt('pick-file') === 1, '#pick-lib=' + cnt('pick-lib') + ' #pick-file=' + cnt('pick-file'))
+  // ①(2026-09-17 新样式) 原文档视图那张"渲染核心原作者"卡片整块删除 ⇒ 旧 id 计数必须为 0；
+  //   归属只保留设置弹层里的 *-footer 一份（各 1）。
+  check('D7 归属外链只剩设置弹层一份（*-footer 各 1；旧的 #credit-title/#credit-link 已 0）',
+    cnt('credit-title') === 0 && cnt('credit-link') === 0 && cnt('credit-title-footer') === 1 && cnt('credit-link-footer') === 1,
+    JSON.stringify({ t: cnt('credit-title'), l: cnt('credit-link'), tf: cnt('credit-title-footer'), lf: cnt('credit-link-footer') }))
 }
 
 if (JSON_OUT) console.log(JSON.stringify({ pass, fail }, null, 1))

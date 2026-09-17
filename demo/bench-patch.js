@@ -36,7 +36,7 @@
 /* ============================ 词典（由 bench/i18n.ts 机械生成，勿手改） ============================ */
 // 生成方式：node -e "…解析 bench/i18n.ts 的 DICT…"（见 PATCH-NOTES.md §3）；bench-patch.test.mjs
 // 的 T1 会把本块与源码 DICT 逐键比对，任何漂移都会红。
-export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 webwallgl 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory"}}
+export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","pick.count":"{n} 项","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 webwallgl 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录","nav.console":"控制台","nav.docs":"说明","nav.wpset":"壁纸设置","nav.settings":"设置","nav.settingsTip":"语言 / 主题 / 归属与许可","nav.lang":"语言","nav.theme":"主题","nav.backend":"后台","nav.backendUnknown":"未知","nav.backendNote":"静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。","wp.add":"＋","wp.addTitle":"添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸","logs.expandTip":"展开输出（控制台）","logs.collapseTip":"收起输出（控制台）","props.emptyState":"还没有选择壁纸","props.emptyHint":"从左侧「选择壁纸」里点一张，这里就会显示它 project.json 声明的可调项。"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory","nav.console":"Console","nav.docs":"Guide","nav.wpset":"Wallpaper settings","nav.settings":"Settings","nav.settingsTip":"Language / theme / attribution & licences","nav.lang":"Language","nav.theme":"Theme","nav.backend":"Backend","nav.backendUnknown":"unknown","nav.backendNote":"Static hosting (GitHub Pages) has no local Node backend: library listing / property saving / deleting / the diagnostics stream are unavailable online — by design, not a failure. “Choose folder” (in-browser scan) still works.","wp.add":"＋","wp.addTitle":"Add / switch wallpaper: open the left list filtered to hide the current one","logs.expandTip":"Expand the output (console)","logs.collapseTip":"Collapse the output (console)","props.emptyState":"No wallpaper picked yet","props.emptyHint":"Pick one in “Choose wallpaper” on the left; the options declared in its project.json show up here."}}
 
 /* ============================ 纯函数层 ============================ */
 export const LANGS = ['zh', 'en']
@@ -869,8 +869,13 @@ export function pickerRestoreScroll(plan) {
   const max = Math.max(0, Number(p.scrollHeight || 0) - Number(p.clientHeight || 0))
   const prev = Number(p.prevScrollTop)
   const keep = isFinite(prev) ? Math.min(Math.max(0, prev), max) : 0
-  const top = Number(p.anchorContentTop)
-  const off = Number(p.anchorOffset)
+  // ①(第七批 修，2026-09-17 无头 Firefox 探针实测)「锚点行已被过滤/删除」时调用方传的是 **null**，
+  //   必须当成"没有锚点"。原写法 `Number(null)` = 0 且 isFinite(0) = true ⇒ 被当成有效锚点算 top−off，
+  //   结果为负再夹到 0，表现正是用户报的「鼠标上下滑动时画面自动弹跳到最顶上」（探针：真弹窗
+  //   setPickerFilter 后 scrollTop 300 → 0，reason 还被记成 'anchor'）；"锁在最顶上"则是同一个 0 被
+  //   后面的恢复逻辑反复写回。⇒ 这一条同时挡住两种症状。
+  const top = (p.anchorContentTop == null || p.anchorContentTop === '') ? NaN : Number(p.anchorContentTop)
+  const off = (p.anchorOffset == null || p.anchorOffset === '') ? NaN : Number(p.anchorOffset)
   if (!isFinite(top) || !isFinite(off)) return { scrollTop: keep, reason: isFinite(prev) ? 'clamp' : 'noop' }
   return { scrollTop: Math.min(Math.max(0, top - off), max), reason: 'anchor' }
 }
@@ -885,6 +890,29 @@ export function pickerScrollGuard(env) {
   if (!isFinite(last) || last <= 0) return { skip: false, reason: 'no-user-scroll' }
   if (!isFinite(now)) return { skip: false, reason: 'no-clock' }
   return (now - last) < win ? { skip: true, reason: 'user-scrolling' } : { skip: false, reason: 'idle' }
+}
+
+/**
+ * 键盘导航决策（纯函数）—— 与插件侧同一行为契约（Esc 关 / ↑↓ 移动 / Enter 激活或确认）。
+ * env: { key, rows, index }（index = 当前游标，-1 = 还没选任何行）
+ * 返回 { action, index }：
+ *   'close'    Esc —— 关弹窗（不写任何状态）
+ *   'next'/'prev'  ↑↓ —— 在行集合内移动，到头就停（不绕圈；行集合为空 ⇒ 'none'）
+ *   'activate' Enter 且游标在某行 ⇒ 激活那一行（目录=进入 / 文件=选中）
+ *   'confirm'  Enter 但没游标 ⇒ 等同底部按钮（目录模式=就选这个文件夹）
+ *   'none'     其它键一律不接管（过滤框照常输入）
+ */
+export function pickerKeyAction(env) {
+  const e = env || {}
+  const key = String(e.key || '')
+  const rows = Math.max(0, Number(e.rows) || 0)
+  const cur = Number(e.index)
+  const idx = isFinite(cur) ? cur : -1
+  if (key === 'Escape' || key === 'Esc') return { action: 'close', index: idx }
+  if (key === 'ArrowDown') return rows ? { action: 'next', index: Math.min(rows - 1, idx + 1) } : { action: 'none', index: idx }
+  if (key === 'ArrowUp') return rows ? { action: 'prev', index: Math.max(0, idx - 1) } : { action: 'none', index: idx }
+  if (key === 'Enter') return (idx >= 0 && idx < rows) ? { action: 'activate', index: idx } : { action: 'confirm', index: idx }
+  return { action: 'none', index: idx }
 }
 
 /** 增量渲染的键差（纯函数）：只为证明"重绘不等于清空容器"。
@@ -952,6 +980,383 @@ export function mainViewPlan(env) {
 /* ============================ 浏览器初始化 ============================ */
 // 对外钩子：源码侧 bench/bench.ts 在语言切换 / 分辨率变更 / 指针注入开关变化时调用
 // （window.__benchPatch?.xxx）。三个钩子都是幂等的，重复调用无害。
+/* ═══════════════════ ⑩ 站点外壳（site header tab / 设置弹层 / 壁纸切换栏 / 控制台拖动） ═══════════════════
+   用户 2026-09-17 新样式（docs/newstyle.md 的 ASCII 稿）：
+     顶部 tab：控制台 / 说明 / 壁纸设置                       设置 ▾   ☀/🌙
+     左：选择壁纸 │ 壁纸参数      右：切换栏+设置1（上） / 壁纸（中） / 控制台（下）
+   原则：外壳只碰 DOM 与 class —— 壁纸切换走 bundle 自己的 `li.onclick`，语言走 `#lang`，
+   主题走 `#theme-toggle`，属性面板走 bundle 的 `#props` 链路；本层不重实现任何渲染逻辑。
+   切页只平移整条 track（不动宽度 ⇒ iframe 不重排、WebGL 不重挂）。 */
+
+/** 纯函数：页面索引 ↔ 平移百分比（越界钳位；count 缺省 3）。 */
+export function sitePagePlan(active, count = 3) {
+  const c = Math.max(1, Number(count) || 3)
+  let i = Number(active)
+  if (!Number.isFinite(i)) i = 0
+  i = Math.max(0, Math.min(c - 1, Math.round(i)))
+  // ①(修正 2026-09-17) 轨道宽度 = count × 视口（CSS `width:300%`），每页 = 100/count %
+  //   ⇒ 每页平移 = -(100/count)% 的**轨道宽** = 正好一个视口。
+  //   早先写成 -100*i（把一页宽当成整个轨道宽）：轨道只有一页宽 ⇒ overflow/contain 的**裁剪窗口**
+  //   跟着轨道一起被移出屏幕 ⇒ 第 2/3 页整页被裁掉（真机：切到「说明/壁纸设置」只看到空白）。
+  return { index: i, offsetPercent: -(100 / c) * i, pagePercent: 100 / c }
+}
+
+/** 纯函数：从当前列表项算出切换栏计划（当前项置前、其余按库序、上限 limit、过滤掉重复 id）。 */
+export function switcherPlan(items, currentId, limit = 12) {
+  const list = Array.isArray(items) ? items : []
+  const seen = new Set()
+  const out = []
+  const push = (it) => {
+    if (!it || !it.id || seen.has(it.id)) return
+    seen.add(it.id); out.push({ ...it, active: it.id === currentId })
+  }
+  for (const it of list) if (it && it.id === currentId) push(it)
+  for (const it of list) push(it)
+  return { tabs: out.slice(0, Math.max(1, Number(limit) || 12)), total: out.length, currentId: currentId || null }
+}
+
+/** 纯函数：控制台高度钳位（px；<24 视为收起 ⇒ 0）。 */
+export function clampLogsHeight(px, viewportH, min = 80, maxFrac = 0.72) {
+  const vh = Number(viewportH) > 0 ? Number(viewportH) : 800
+  const hi = Math.max(min, Math.round(vh * maxFrac))
+  let v = Math.round(Number(px))
+  if (!Number.isFinite(v)) v = 220
+  if (v < 24) return 0
+  return Math.max(min, Math.min(hi, v))
+}
+
+/** 站点外壳初始化。ctx = { t, lang, log }（都是可选；缺省安全降级）。 */
+export function initSiteShell(ctx = {}) {
+  const tr = typeof ctx.t === 'function' ? ctx.t : ((l, k) => k)
+  const curLang = typeof ctx.lang === 'function' ? ctx.lang : (() => 'zh')
+  const D = typeof document !== 'undefined' ? document : null
+  if (!D) return null
+  const q = (sel) => D.querySelector(sel)
+  const PAGE_KEY = 'bench-site-page'
+  const LOGS_KEY = 'bench-logs-h'
+  const PAGES = ['console', 'docs', 'wpset']
+  const track = q('#pages-track')
+  const tabs = PAGES.map((n) => q('#tab-' + n))
+  const ink = q('#site-tab-ink')
+
+  function pageFromName(name) {
+    const i = PAGES.indexOf(String(name))
+    return sitePagePlan(i < 0 ? 0 : i, PAGES.length)
+  }
+  function getPage() { return PAGES[pageFromName(readKey(PAGE_KEY) || 'console').index] }
+  function readKey(k) { try { return localStorage.getItem(k) } catch { return null } }
+  function writeKey(k, v) { try { localStorage.setItem(k, v) } catch { /* 沙箱/隐私模式：忽略 */ } }
+
+  function paintInk(index) {
+    if (!ink || !tabs[index]) return
+    const el = tabs[index]
+    try {
+      ink.style.width = el.offsetWidth + 'px'
+      ink.style.transform = 'translateX(' + el.offsetLeft + 'px)'
+    } catch { /* 桩 DOM 无布局：忽略 */ }
+  }
+  let pageHideTimer = null
+  function pagesEls() { return PAGES.map((n) => q('#page-' + n)) }
+  function hideInactive(activeIdx) {
+    pagesEls().forEach((el, i) => { if (el) { try { el.style.visibility = i === activeIdx ? 'visible' : 'hidden' } catch {} } })
+  }
+  function setPage(name, persist = true) {
+    const plan = pageFromName(name)
+    const active = PAGES[plan.index]
+    // ①(修正 2026-09-17) 切页时先让所有页可见（动画要看得见），动画结束再把非当前页 visibility:hidden：
+    //   否则控制台页里那个 iframe（壁纸）会**盖在**「说明 / 壁纸设置」页上面 —— 真机实测那两页整个空白。
+    pagesEls().forEach((el) => { if (el) { try { el.style.visibility = 'visible' } catch {} } })
+    if (pageHideTimer) { clearTimeout(pageHideTimer); pageHideTimer = null }
+    pageHideTimer = setTimeout(() => { pageHideTimer = null; hideInactive(plan.index) }, 340)
+    if (track) track.style.transform = 'translateX(' + plan.offsetPercent + '%)'
+    tabs.forEach((el, i) => {
+      if (!el) return
+      const on = i === plan.index
+      el.classList.toggle('active', on)
+      try { el.setAttribute('aria-selected', on ? 'true' : 'false') } catch {}
+    })
+    paintInk(plan.index)
+    if (persist) writeKey(PAGE_KEY, active)
+    return active
+  }
+
+  /* ── 顶部 tab：点击 / 左右方向键（ARIA tablist 惯例） ── */
+  tabs.forEach((el, i) => {
+    if (!el) return
+    el.addEventListener('click', () => setPage(PAGES[i]))
+    el.addEventListener('keydown', (e) => {
+      const k = e && e.key
+      if (k !== 'ArrowRight' && k !== 'ArrowLeft') return
+      const next = (i + (k === 'ArrowRight' ? 1 : PAGES.length - 1)) % PAGES.length
+      setPage(PAGES[next])
+      try { tabs[next].focus() } catch {}
+      try { e.preventDefault() } catch {}
+    })
+  })
+
+  /* ── 设置弹层（语言 / 主题状态 / 后端状态 / 归属与许可） ── */
+  const popBtn = q('#settings-btn'), pop = q('#settings-pop')
+  function popOpen(open) {
+    if (!pop || !popBtn) return false
+    const on = open === undefined ? pop.hasAttribute('hidden') : !!open
+    if (on) pop.removeAttribute('hidden'); else pop.setAttribute('hidden', '')
+    try { popBtn.setAttribute('aria-expanded', on ? 'true' : 'false') } catch {}
+    return on
+  }
+  if (popBtn) popBtn.addEventListener('click', (e) => { try { e.stopPropagation() } catch {}; popOpen() })
+  if (pop) pop.addEventListener('click', (e) => { try { e.stopPropagation() } catch {} })
+  D.addEventListener('click', () => popOpen(false))
+  D.addEventListener('keydown', (e) => { if (e && e.key === 'Escape') popOpen(false) })
+
+  /* 主题 / 后端状态文字：主题看 #theme-toggle 的 data-mode（bundle 写），后端看 #bench-backend-note（bundle 写） */
+  const themeBtn = q('#theme-toggle'), themeState = q('#theme-state'), backendState = q('#backend-state'), backendNote = q('#bench-backend-note')
+  function paintStatus() {
+    const mode = (themeBtn && themeBtn.dataset && themeBtn.dataset.mode) || 'auto'
+    if (themeState) themeState.textContent = tr(curLang(), 'theme.' + mode)
+    if (backendState) {
+      const note = backendNote ? String(backendNote.textContent || '').trim() : ''
+      backendState.textContent = note ? note.split('\n')[0] : tr(curLang(), 'nav.backendUnknown')
+    }
+  }
+  try {
+    if (themeBtn && typeof MutationObserver === 'function') {
+      new MutationObserver(paintStatus).observe(themeBtn, { attributes: true, attributeFilter: ['data-mode'] })
+    }
+    if (backendNote && typeof MutationObserver === 'function') {
+      new MutationObserver(paintStatus).observe(backendNote, { childList: true, characterData: true, subtree: true, attributes: true })
+    }
+  } catch {}
+
+  /* ── ④ 壁纸切换栏：从 bundle 渲染出的 #list 读取（dataset.id + .title + .active），点击转交 li.onclick ── */
+  const listEl = q('#list'), tabsBox = q('#editor-tabs'), addBtn = q('#wp-add')
+  let curId = null
+  function listItems() {
+    if (!listEl) return []
+    return [...listEl.querySelectorAll('li[data-id]')].map((li) => ({
+      id: String(li.dataset.id || ''),
+      title: (li.querySelector('.title')?.textContent || li.textContent || '').trim(),
+      active: li.classList.contains('active'),
+      el: li,
+    }))
+  }
+  let switcherSig = null
+  function refreshSwitcher(force = false) {
+    if (!tabsBox || !listEl) return { tabs: 0 }
+    const items = listItems()
+    const activeItem = items.find((it) => it.active)
+    if (activeItem) curId = activeItem.id
+    const plan = switcherPlan(items, curId, 12)
+    // ①(修正 2026-09-17) **签名守卫**：内容没变就一个 DOM 写都不做。
+    //   真机事故：补丁往 #editor-tabs 插 tab → #editor-chrome 变高 → 产物的 stage ResizeObserver 重算 →
+    //   又触发 #list 变更事件 → 再插一遍 …… 两个观察者互激成忙循环，页面 load 卡死（探针超时）。
+    const sig = JSON.stringify(plan.tabs.map((t) => [t.id, t.title, t.active])) + '|' + String(curId)
+    if (!force && sig === switcherSig) return { tabs: plan.tabs.length, total: plan.total, unchanged: true }
+    switcherSig = sig
+    for (const el of [...tabsBox.querySelectorAll('.wp-tab')]) el.remove()
+    for (const it of plan.tabs) {
+      const b = D.createElement('button')
+      b.type = 'button'; b.className = 'wp-tab' + (it.active ? ' active' : '')
+      b.dataset.id = it.id
+      b.textContent = it.title || it.id
+      b.title = it.title ? it.title + '（' + it.id + '）' : it.id
+      b.addEventListener('click', () => { try { it.el.click() } catch {} })
+      tabsBox.appendChild(b)
+    }
+    const cur = q('#current')
+    if (cur && activeItem) cur.classList.toggle('active', true)
+    // ④ 加号跟随当前壁纸那一项：把它插到"当前 tab"右边（没有 .wp-tab 时跟在 #current 之后）
+    try {
+      if (addBtn && tabsBox) {
+        const activeTab = tabsBox.querySelector('.wp-tab.active')
+        const anchor = activeTab || cur
+        if (anchor && anchor.nextSibling !== addBtn) tabsBox.insertBefore(addBtn, anchor.nextSibling)
+      }
+    } catch {}
+    return { tabs: plan.tabs.length, total: plan.total }
+  }
+  try {
+    if (listEl && typeof MutationObserver === 'function') {
+      let timer = null
+      new MutationObserver(() => { if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; refreshSwitcher() }, 60) })
+        .observe(listEl, { childList: true })
+    }
+  } catch {}
+  /* ＋：切回控制台页 + 清过滤 + 把列表滚到顶部（"去左边挑另一张"） */
+  if (addBtn) addBtn.addEventListener('click', () => {
+    setPage('console')
+    const f = q('#filter'); if (f) { f.value = ''; try { f.dispatchEvent(new Event('input', { bubbles: true })) } catch {} }
+    if (listEl) { try { listEl.scrollTop = 0 } catch {} }
+    for (const li of listEl ? [...listEl.querySelectorAll('li[data-id]')] : []) li.classList.toggle('wp-cur', String(li.dataset.id || '') === curId)
+    const firstOther = listEl ? [...listEl.querySelectorAll('li[data-id]')].find((li) => String(li.dataset.id || '') !== curId) : null
+    if (firstOther && firstOther.scrollIntoView) { try { firstOther.scrollIntoView({ block: 'center' }) } catch {} }
+  })
+
+  /* ── 壁纸参数栏常驻 + 空态（bundle 会按需 hidden 它；新样式里它是一列） ── */
+  const propsEl = q('#props'), propsBody = q('#props-body')
+  function paintPropsEmpty() {
+    if (!propsEl || !propsBody) return
+    // ①(修正 2026-09-17) **必须先排除我们自己插的空态节点**再判断"有没有内容"：
+    //   否则 空态 = 子节点 → 判成"有内容" → 删掉空态 → 又变空 → 再插…… MutationObserver 自激成死循环
+    //   （真机表现：页面 load 卡死、探针超时）。空态节点不算内容，判据里直接滤掉。
+    const kids = [...propsBody.children].filter((el) => el.id !== 'props-empty')
+    const has = kids.length > 0
+    if (propsEl.hasAttribute('hidden')) { try { propsEl.removeAttribute('hidden') } catch {} }
+    let empty = propsBody.querySelector('#props-empty')
+    // ①(修正 2026-09-17) 状态一致就不写 DOM（同样的观察者互激问题：写 → 观察者 → 再写）
+    if (!has && empty && empty.dataset.state === curLang()) return
+    if (has && !empty) return
+    if (!has) {
+      if (!empty) {
+        empty = D.createElement('div'); empty.id = 'props-empty'; empty.className = 'props-empty'
+        empty.innerHTML = ''
+        const a = D.createElement('strong'); a.textContent = tr(curLang(), 'props.emptyState')
+        const b = D.createElement('span'); b.textContent = tr(curLang(), 'props.emptyHint')
+        empty.appendChild(a); empty.appendChild(b); propsBody.appendChild(empty)
+      } else {
+        empty.firstChild.textContent = tr(curLang(), 'props.emptyState')
+        empty.lastChild.textContent = tr(curLang(), 'props.emptyHint')
+      }
+      try { empty.dataset.state = curLang() } catch {}
+    } else if (empty) empty.remove()
+  }
+  try {
+    if (propsEl && typeof MutationObserver === 'function') {
+      let t2 = null
+      new MutationObserver(() => { if (t2) clearTimeout(t2); t2 = setTimeout(() => { t2 = null; paintPropsEmpty() }, 80) })
+        .observe(propsBody || propsEl, { childList: true })
+    }
+  } catch {}
+
+  /* ── 控制台：拖动上沿调高度（⑥ 与 8899 demo.html 的日志条同一套手感）+ 双击复位 ── */
+  const mainEl = q('#main'), splitter = q('#logs-splitter'), logsEl = q('#logs')
+  function logsHeight() {
+    const raw = readKey(LOGS_KEY)
+    if (raw === 'collapsed') return 0
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? n : 220
+  }
+  function setLogsHeight(px, persist = true) {
+    if (!mainEl) return 0
+    const v = clampLogsHeight(px, (typeof innerHeight === 'number' ? innerHeight : 800))
+    mainEl.style.setProperty('--mpw-logs-h', v + 'px')
+    const collapsed = v === 0
+    try { mainEl.classList.toggle('logs-collapsed', collapsed) } catch {}
+    if (logsEl) { try { logsEl.classList.toggle('bench-logs-collapsed-tag', collapsed) } catch {} }
+    if (persist) writeKey(LOGS_KEY, collapsed ? 'collapsed' : String(v))
+    paintLogsArrow(collapsed)
+    return v
+  }
+  /* ⑦ 箭头语义（用户口径）：**收起后**按钮表示"展开" ⇒ 箭头朝上；展开态表示"收起" ⇒ 箭头朝下。
+     这里同时给按钮加文字标签（收起时显示"展开"），避免只有一个箭头时的歧义。 */
+  // ⑦ 真机根因（子代理定位，产物 minified `pt()`）：折叠开关被写成
+  //   `#toggle-logs.textContent = collapsed ? '▸' : '▾'` —— 写 textContent 会**删掉我们的两个 svg**，
+  //   `▸` 是个朝右的三角（用户看到的"向右的箭头"）。用户口径：收起后该按钮表示"展开"，箭头应朝上。
+  //   修法：按状态把按钮内容统一成文本字形 —— 收起 = `▴`（点它展开）、展开 = `▾`（点它收起），
+  //   与同仓 `demo.html` 的日志条一致（tests/log-panel-collapse-test.mjs:79 同口径）；只在需要时才写，避免观察者自激。
+  function paintLogsGlyph(collapsed) {
+    const btn = q('#toggle-logs')
+    if (!btn) return
+    const want = collapsed ? '▴' : '▾'
+    try {
+      const svg = btn.querySelector && btn.querySelector('svg')
+      const cur = (btn.textContent || '').trim()
+      if (svg) { btn.textContent = want }            // 产物替换过/还在：统一成文字字形
+      else if (cur !== want) btn.textContent = want
+    } catch { /* 桩 DOM */ }
+  }
+  let logsArrowState = null
+  function paintLogsArrow(collapsed) {
+    const key = (collapsed ? 'c' : 'e') + '|' + curLang() + '|' + (typeof document !== 'undefined' && document.querySelector('#toggle-logs') ? (document.querySelector('#toggle-logs').textContent || '').trim() : '')
+    if (key === logsArrowState) return
+    logsArrowState = key
+    const up = q('#ico-logs-up'), down = q('#ico-logs-down'), btn = q('#toggle-logs')
+    if (up && down) {
+      if (collapsed) { up.removeAttribute('hidden'); down.setAttribute('hidden', '') }
+      else { down.removeAttribute('hidden'); up.setAttribute('hidden', '') }
+    }
+    if (btn) {
+      try { btn.dataset.tag = tr(curLang(), collapsed ? 'logs.expand' : 'logs.collapse') } catch {}
+      try { btn.setAttribute('title', tr(curLang(), collapsed ? 'logs.expandTip' : 'logs.collapseTip')) } catch {}
+    }
+    try { paintLogsGlyph(collapsed) } catch {}
+  }
+  if (splitter && mainEl) {
+    let dragging = false
+    const onMove = (e) => {
+      if (!dragging) return
+      const rect = mainEl.getBoundingClientRect()
+      setLogsHeight(rect.bottom - e.clientY)
+      try { e.preventDefault() } catch {}
+    }
+    const stop = () => {
+      if (!dragging) return
+      dragging = false
+      try { splitter.classList.remove('dragging') } catch {}
+      D.removeEventListener('pointermove', onMove)
+      D.removeEventListener('pointerup', stop)
+    }
+    splitter.addEventListener('pointerdown', (e) => {
+      dragging = true
+      try { splitter.classList.add('dragging') } catch {}
+      D.addEventListener('pointermove', onMove)
+      D.addEventListener('pointerup', stop)
+      try { e.preventDefault() } catch {}
+    })
+    splitter.addEventListener('dblclick', () => setLogsHeight(220))
+  }
+  /* 收起按钮：bundle 负责切 class，这里在 class 变化后重画箭头（两种路径都覆盖）；
+     另外盯按钮自身的内容改写（产物会写 textContent ⇒ 我们的 svg 被删、变成朝右的 ▸）。 */
+  try {
+    if (mainEl && typeof MutationObserver === 'function') {
+      new MutationObserver(() => paintLogsArrow(mainEl.classList.contains('logs-collapsed')))
+        .observe(mainEl, { attributes: true, attributeFilter: ['class'] })
+      const btnEl = q('#toggle-logs')
+      if (btnEl) {
+        let gt = null
+        new MutationObserver(() => {
+          if (gt) clearTimeout(gt)
+          gt = setTimeout(() => { gt = null; paintLogsGlyph(mainEl.classList.contains('logs-collapsed')) }, 40)
+        }).observe(btnEl, { childList: true, characterData: true, subtree: true })
+      }
+    }
+  } catch {}
+
+  /* ⑪ 新布局里"设置1"（#editor-chrome）与"控制台"（#logs）是常驻区：产物在未选壁纸/文档视图时
+     会给它们加 `hidden`（display:none）——外壳模式下统一摘掉，并在产物再次加上时立刻摘掉。 */
+  const FORCE_SHOWN = ['#editor-chrome', '#logs', '#sidebar', '#stage-slot', '#stage']
+  const FORCE_HIDDEN = ['#docs-view']   // 产物自带的文档视图（原作者 README）：新布局里由「说明」页取代
+  function forceChromeVisible() {
+    for (const sel of FORCE_SHOWN) {
+      const el = q(sel)
+      if (el && el.hasAttribute('hidden')) { try { el.removeAttribute('hidden') } catch {} }
+    }
+    for (const sel of FORCE_HIDDEN) {
+      const el = q(sel)
+      if (el && !el.hasAttribute('hidden')) { try { el.setAttribute('hidden', '') } catch {} }
+    }
+  }
+  forceChromeVisible()
+  try {
+    if (typeof MutationObserver === 'function') {
+      const mo2 = new MutationObserver(() => forceChromeVisible())
+      for (const sel of FORCE_SHOWN.concat(FORCE_HIDDEN)) { const el = q(sel); if (el) mo2.observe(el, { attributes: true, attributeFilter: ['hidden'] }) }
+    }
+  } catch {}
+
+  /* 首次上电 */
+  setPage(getPage(), false)
+  setLogsHeight(logsHeight(), false)
+  paintStatus()
+  paintPropsEmpty()
+  refreshSwitcher()
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => paintInk(pageFromName(getPage()).index))
+
+  return {
+    setPage, getPage, popOpen, refreshSwitcher, listItems,
+    logsHeight, setLogsHeight, paintLogsArrow, paintPropsEmpty, paintStatus,
+  }
+}
+
 export function init() {
   const doc = (typeof document !== 'undefined') ? document : null
   if (!doc) return { ok: false, reason: 'no document' }
@@ -1502,6 +1907,104 @@ export function init() {
   }
   const BENCH_STYLE_INJECTED = injectBenchPickerStyle()
 
+  /* ═══════════ ⑩ 站点外壳（2026-09-17 新样式 docs/newstyle.md） ═══════════
+     顶部 site header（tab：控制台/说明/壁纸设置 + 设置弹层 + 深色浅色切换）
+     中部三列：选择壁纸 │ 壁纸参数 │ 右侧（切换栏+设置1 / 壁纸 / 控制台）
+     底部状态栏。切页 = 整条 track 平移（只 transform，不改宽度 ⇒ iframe 不重排）。 */
+  const SITE_LAYOUT_CSS = [
+    /* 外壳 */
+    'body{display:flex!important;flex-direction:column;grid-template-rows:none!important}',
+    '#site-header{flex:none;height:44px;display:flex;align-items:center;gap:14px;padding:0 12px;background:var(--titlebar);border-bottom:1px solid var(--border);position:relative;z-index:30}',
+    '#site-brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;color:var(--fg);white-space:nowrap}',
+    '.brand-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--accent,#0078d4),#7dd3fc)}',
+    '#app-version{font-size:11px;color:var(--fg-mute);font-weight:400}',
+    '#site-tabs{position:relative;display:flex;align-items:stretch;height:100%}',
+    '.site-tab{appearance:none;border:0;background:transparent;color:var(--fg-dim);font:inherit;font-size:13px;padding:0 14px;cursor:pointer;border-bottom:2px solid transparent}',
+    '.site-tab:hover{color:var(--fg)}',
+    '.site-tab.active{color:var(--fg);border-bottom-color:transparent}',
+    '#site-tab-ink{position:absolute;bottom:0;left:0;height:2px;width:0;background:var(--accent,#0078d4);transition:transform .26s cubic-bezier(.4,0,.2,1),width .26s cubic-bezier(.4,0,.2,1);pointer-events:none}',
+    '#site-actions{margin-left:auto;display:flex;align-items:center;gap:8px;position:relative}',
+    '#settings-btn{appearance:none;font:inherit;font-size:12.5px;color:var(--fg);background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer}',
+    '#settings-btn:hover,#settings-btn[aria-expanded="true"]{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}',
+    '#site-actions .theme-btn{width:30px;height:26px;border-radius:6px}',
+    '#settings-pop{position:absolute;right:0;top:calc(100% + 6px);width:330px;background:var(--panel);border:1px solid var(--border);border-radius:8px;box-shadow:0 14px 40px rgba(0,0,0,.38);padding:10px 12px;z-index:40;display:flex;flex-direction:column;gap:8px;font-size:12.5px}',
+    '#settings-pop[hidden]{display:none!important}',
+    '.pop-row,.lang-box{display:flex;align-items:center;gap:8px}',
+    '.pop-k{color:var(--fg-mute);min-width:44px}',
+    '.pop-val{color:var(--fg)}',
+    '.pop-note{margin:2px 0 0;color:var(--fg-mute);font-size:11.5px;line-height:1.6}',
+    '.pop-credit{margin-top:2px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--fg-mute)}',
+    '.pop-credit a{color:var(--link,var(--accent,#58a6ff))}',
+    /* 三页滑动轨道 */
+    '#pages-track{flex:1 1 auto;width:300%;display:flex;min-height:0;min-width:0;overflow:hidden;contain:paint;transition:transform .28s cubic-bezier(.4,0,.2,1)}',
+    '.page{flex:0 0 calc(100% / 3);min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}',
+    '#page-docs,#page-wpset{overflow-y:auto;background:var(--editor)}',
+    /* 工作台三列 */
+    '#workbench{flex:1;grid-template-columns:var(--mpw-lib-w,300px) auto minmax(0,1fr)!important;min-height:0;overflow:hidden}',
+    '#activitybar{display:none!important}',
+    '#sidebar{grid-column:1;width:auto!important;max-width:none!important;min-width:0!important;resize:none!important}',
+    '#props{grid-column:2;width:var(--mpw-props-w,320px);min-width:0;border-left:1px solid var(--border);border-right:1px solid var(--border)}',
+    '#props[hidden]{display:flex!important}',
+    '.props-empty{padding:14px 12px;color:var(--fg-mute);font-size:12.5px;line-height:1.75}',
+    '.props-empty strong{display:block;color:var(--fg-dim);margin-bottom:4px}',
+    '#main{grid-column:3;grid-template-rows:auto minmax(0,1fr) 6px var(--mpw-logs-h,220px)!important}',
+    '#main.logs-collapsed{grid-template-rows:auto minmax(0,1fr) 6px 34px!important}',
+    '#editor-chrome{grid-row:1}',
+    '#workspace{grid-row:2}',
+    '#main > #logs-splitter{grid-row:3;cursor:row-resize;background:var(--border);opacity:.55}',
+    '#logs-splitter:hover,#logs-splitter.dragging{background:var(--accent,#0078d4);opacity:1}',
+    '#main > #logs{grid-row:4}',
+    /* ④ 壁纸切换栏（设置1 上方） */
+    '#wp-switch{display:flex;align-items:stretch;background:var(--sidebar);border-bottom:1px solid var(--border)}',
+    '#editor-tabs{flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;height:32px;border-bottom:0;scrollbar-width:thin}',
+    '#editor-tabs .tab{height:32px;font-size:12.5px}',
+    '.wp-tab{max-width:200px;display:flex;align-items:center;gap:6px;padding:0 10px;font:inherit;font-size:12.5px;color:var(--fg-dim);background:transparent;border:0;border-right:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}',
+    '.wp-tab:hover{background:var(--hover,rgba(255,255,255,.07));color:var(--fg)}',
+    '.wp-tab.active{background:var(--editor);color:var(--fg);box-shadow:inset 0 -2px 0 var(--accent,#0078d4)}',
+    '.wp-tab.wp-cur{opacity:.45}',
+    '#wp-add{flex:none;width:34px;border:0;border-left:1px solid var(--border);background:transparent;color:var(--fg-dim);font-size:16px;line-height:1;cursor:pointer}',
+    '#wp-add:hover{background:var(--accent,#0078d4);color:#fff}',
+    /* ⑦ 输出按钮：折叠态给文字标签，箭头朝上（展开）/朝下（收起） */
+    '#toggle-logs{gap:4px;width:auto!important;padding:0 6px!important}',
+    '#logs.bench-logs-collapsed-tag #toggle-logs::after{content:attr(data-tag);font-size:11px;color:var(--fg-dim)}',
+    /* ⑧ 全屏按钮在浅色主题下也必须看得见（原先只定义了 :hover，浅色下是黑底黑字） */
+    '.stage-tools button{color:var(--fg)!important;background:color-mix(in srgb,var(--panel) 86%,transparent);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}',
+    '.stage-tools button:hover{background:var(--accent,#0078d4)!important;border-color:var(--accent,#0078d4);color:#fff!important}',
+    /* 文档页排版（说明 / 壁纸设置） */
+    '.doc-wrap{max-width:1020px;margin:0 auto;padding:22px 28px 64px;font-size:13.5px;line-height:1.75;color:var(--fg)}',
+    '.doc-wrap h1{font-size:20px;margin:6px 0 10px}',
+    '.doc-wrap h2{font-size:14.5px;margin:22px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)}',
+    '.doc-lede{color:var(--fg-dim);font-size:13px}',
+    '.doc-wrap table{width:100%;border-collapse:collapse;font-size:12.5px;margin:8px 0 4px}',
+    '.doc-wrap th,.doc-wrap td{text-align:left;vertical-align:top;padding:6px 9px;border-bottom:1px solid var(--border)}',
+    '.doc-wrap th{color:var(--fg-mute);font-weight:500}',
+    '.doc-wrap code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:color-mix(in srgb,var(--fg) 10%,transparent);border-radius:4px;padding:1px 5px}',
+    '.doc-wrap pre{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 12px;overflow:auto}',
+    '.doc-wrap pre code{background:none;padding:0}',
+    '.doc-wrap ul,.doc-wrap ol{padding-left:22px}',
+    '.doc-note{color:var(--fg-mute);font-size:12.5px}',
+    '.tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid var(--border);white-space:nowrap}',
+    '.tag-ok{color:#3fb950;border-color:rgba(63,185,80,.45);background:rgba(63,185,80,.12)}',
+    '.tag-todo{color:#d29922;border-color:rgba(210,153,34,.45);background:rgba(210,153,34,.12)}',
+    '.tag-we{color:var(--fg-dim)}',
+    'html[lang="en"] .lang-zh{display:none}',
+    'html:not([lang="en"]) .lang-en{display:none}',
+    '@media (prefers-reduced-motion: reduce){#pages-track,#site-tab-ink{transition:none!important}}',
+  ].join('')
+  function injectSiteLayoutStyle() {
+    try {
+      if (!doc.head || $('#bench-site-style')) return false
+      const st = doc.createElement('style')
+      st.id = 'bench-site-style'
+      st.textContent = SITE_LAYOUT_CSS
+      doc.head.appendChild(st)
+      return true
+    } catch { return false }
+  }
+  // `?shell=off` = 新样式总回退：既不注入站点外壳 CSS、也不初始化外壳（旧行为，一行 URL 复原）
+  const SHELL_OFF = (() => { try { return /[?&]shell=(off|0|false|no)\b/.test(String((typeof location !== 'undefined' && location.search) || '')) } catch { return false } })()
+  const SITE_STYLE_INJECTED = SHELL_OFF ? false : injectSiteLayoutStyle()
+
   // 图标：Lucide v0.545.0（ISC，© Lucide Contributors / Feather 部分 MIT）——
   //   用户给的 docs/SVG-ICONS.md 里已有 arrow-up / search，其余按同风格取 Lucide 同名条目；
   //   许可与出处逐条记在 we-scene-demo/docs/ICONS-NEEDED.md 与 docs/COPYING-RULES.md §4。
@@ -1569,17 +2072,28 @@ export function init() {
     } catch { /* 假 DOM 没有 getComputedStyle ⇒ 只看 hidden */ }
     return true
   }
+  // ①(修正 2026-09-17，真机事故) 这里曾经**自激成死循环**：观察者同时盯 `#main`（写入目标）
+  //   与它的输入节点，`paintMainView()` 又去 add/remove `#main` 的 class ⇒ 每次写入都重新触发自己；
+  //   当 docsOnly 判定在两次调用间来回翻转时（新布局里 `#main` 有 4 个子元素、0px 轨道映射不同），
+  //   循环以微任务速度跑满主线程 ⇒ **页面 load 永不完成**（无头探针 45s 超时、真机浏览器卡死）。
+  //   instrument 证据：MutationObserver on DIV#main.bench-view-docs attr=class 被调用 10000+ 次/6s。
+  //   修法两条：①写入幂等（状态没变就不碰 DOM）②**不观察写入目标本身**，只看输入节点。
+  const MAIN_VIEW_ON = !SHELL_OFF   // 新样式（站点外壳）下 #main 的轨道由 SITE_LAYOUT_CSS 钉死，本机制整体让位
   function paintMainView() {
     if (!mainEl) return null
     const plan = mainViewPlan({ chromeVisible: dirShown($('#editor-chrome')), logsVisible: dirShown($('#logs')) })
-    try { plan.docsOnly ? mainEl.classList.add(plan.cls) : mainEl.classList.remove('bench-view-docs') } catch { /* 无 classList */ }
+    if (MAIN_VIEW_ON) return plan   // 外壳模式下不改 class（避免与外壳布局互相触发）
+    try {
+      const on = mainEl.classList.contains('bench-view-docs')
+      if (plan.docsOnly !== on) mainEl.classList.toggle('bench-view-docs', plan.docsOnly)
+    } catch { /* 无 classList */ }
     return plan
   }
   let mainViewPlanNow = paintMainView()
-  if (mainEl && typeof MutationObserver === 'function') {
+  if (!MAIN_VIEW_ON && mainEl && typeof MutationObserver === 'function') {
     try {
       const mo = new MutationObserver(() => { mainViewPlanNow = paintMainView() })
-      for (const sel of ['#editor-chrome', '#workspace', '#logs', '#main']) {
+      for (const sel of ['#editor-chrome', '#workspace', '#logs']) {   // ← 不含 #main（写入目标，自激源）
         const el = $(sel)
         if (el) mo.observe(el, { attributes: true, attributeFilter: ['hidden', 'class', 'style'] })
       }
@@ -1704,6 +2218,8 @@ export function init() {
       st.rowNodes.push(n)
     }
     st.diff = diff
+    // 行集合变了（过滤词改了 / 换目录了）⇒ 键盘游标失效：绝不让它指向"另一行"
+    if (diff.add.length || diff.remove.length) st.cursor = -1
     if (!plan.rows.length) {
       let empty = dirRowNodes.get('__empty')
       if (!empty) { empty = dirMk('div', 'bench-dirbox-empty'); empty.__rowKey = '__empty'; dirRowNodes.set('__empty', empty) }
@@ -1762,6 +2278,30 @@ export function init() {
     n.addEventListener('click', () => dirActivateRow(n.__rowKey))
     return n
   }
+  /** 键盘游标移动（↑↓）：只改高亮 + 必要时把那一行滚进可视区。
+   *  两条纪律：① 不 focus()（focus 会把滚动容器滚到顶，用户实测过）；② 行已在可视区里就一个字都不写 scrollTop。 */
+  function dirMoveCursor(i) {
+    const st = dirState
+    if (!st || !st.rows.length) return null
+    const idx = Math.max(0, Math.min(st.rows.length - 1, Number(i) || 0))
+    st.cursor = idx
+    st.sel = st.rows[idx].path
+    dirPaint()
+    dirEnsureVisible(idx)
+    return st.rows[idx]
+  }
+  function dirEnsureVisible(i) {
+    const st = dirState
+    const list = st && st.listEl
+    const n = st && st.rowNodes[i]
+    if (!list || !n || !n.getBoundingClientRect || !list.getBoundingClientRect) return
+    const r = n.getBoundingClientRect(), lr = list.getBoundingClientRect()
+    const top = Number(list.scrollTop) || 0
+    if (r.bottom > lr.bottom) dirSetScrollTop(list, top + (r.bottom - lr.bottom))
+    else if (r.top < lr.top) dirSetScrollTop(list, Math.max(0, top - (lr.top - r.top)))
+    else return
+    st.lastRestore = { reason: 'keyboard', to: Math.round(Number(list.scrollTop) || 0) }
+  }
   function dirFindRow(key) {
     const st = dirState
     if (!st) return null
@@ -1818,7 +2358,7 @@ export function init() {
     const st = dirState = {
       mode, kinds: o.kinds || pickerAcceptKinds(''), onPick: o.onPick || null,
       cwd: pickerResolveDir(pickIndex, o.cwd || (pickIndex ? pickIndex.root : '')),
-      query: '', sel: null, rows: [], rowNodes: [], view: null, diff: null,
+      query: '', sel: null, cursor: -1, rows: [], rowNodes: [], view: null, diff: null,
       listEl: null, pathEl: null, countEl: null, confirmBtn: null, confirmLabel: null, noteEl: null,
       upBtn: null, homeBtn: null, lastRestore: null, pendingReset: true,
     }
@@ -1868,8 +2408,22 @@ export function init() {
     box.addEventListener('mousedown', (ev) => { if (ev && ev.target === box) closeDirPicker() })
     doc.body.appendChild(box)
     st.listEl = list; st.pathEl = pathEl; st.countEl = countEl; st.confirmBtn = confirmBtn
+    st.filterEl = filter                                  // 第七批②：换目录时连带清空过滤框（与「上一级/回到最上层」一致）
     st.confirmLabel = confirmLabel; st.noteEl = noteEl; st.upBtn = upBtn; st.homeBtn = homeBtn
-    dirKeyHandler = (ev) => { if (ev && (ev.key === 'Escape' || ev.keyCode === 27)) closeDirPicker() }
+    // 第七批②：键盘导航走纯函数决策（Esc 关 / ↑↓ 移动 / Enter 激活或确认）——
+    // 与插件侧同一行为契约；方向键与 Enter 一律 preventDefault（不冒泡去滚宿主页面）。
+    dirKeyHandler = (ev) => {
+      const st = dirState
+      if (!ev || !st) return
+      const key = ev.key || (ev.keyCode === 27 ? 'Escape' : '')
+      const k = pickerKeyAction({ key: key, rows: st.rows.length, index: st.cursor == null ? -1 : st.cursor })
+      if (k.action === 'none') return
+      try { if (ev.preventDefault) ev.preventDefault() } catch { /* 合成事件 */ }
+      if (k.action === 'close') { closeDirPicker(); return }
+      if (k.action === 'next' || k.action === 'prev') { dirMoveCursor(k.index); return }
+      if (k.action === 'activate') { const r = st.rows[k.index]; if (r) dirActivateRow(r.kind + ':' + r.path); return }
+      dirConfirm()
+    }
     try { doc.addEventListener('keydown', dirKeyHandler) } catch { /* 假 DOM */ }
     try { if (box.focus) box.focus({ preventScroll: true }) } catch { /* 老浏览器：不带参数也不影响滚动 */ }
     dirPaint({ reset: true })
@@ -1885,13 +2439,12 @@ export function init() {
     await loadLocalEntries(entries)
   }
   function openLibraryPicker() {
-    if (pickIndex) { openDirPicker({ mode: 'dir', onPick: useSubtreeAsLibrary }); return true }
+    // 第七批②：入口**一律先开插件同款弹窗**（与 dsh-mpkg-wallpaper/lib/client.js 的目录选择弹窗同款交互）。
+    // 还没授权过也开：弹窗里给「浏览器安全限制」说明 + 「打开系统选择器」按钮，授权完**原地**继续浏览。
+    // 老写法是没授权就直接弹系统对话框 —— 用户看不到"两个入口用的是同一个选择器"，也没有说明。
     if (!canPickViaInput() && !canShowDirPicker()) { logLine(t(curLang, 'local.unsupported'), true); return false }
-    return pickLocalFolder({ onEntries: (entries) => {
-      if (!entries) { logLine(t(curLang, 'pick.cancelled')); return }
-      grantPickerIndex(entries)
-      openDirPicker({ mode: 'dir', onPick: useSubtreeAsLibrary })
-    } })
+    openDirPicker({ mode: 'dir', onPick: useSubtreeAsLibrary })
+    return true
   }
   async function previewPickedFile(res) {
     const dir = res.dir || ''
@@ -1920,13 +2473,11 @@ export function init() {
   }
   function openFilePickerFlow() {
     const kinds = pickerAcceptKinds('')
-    if (pickIndex) { openDirPicker({ mode: 'file', kinds: kinds, onPick: onSidebarFilePicked }); return true }
+    // 第七批②：与「选择文件夹」同一个选择器（同款弹窗、文件模式），入口一律先开弹窗；
+    // 未授权时同样给说明 + 「打开系统选择器」。
     if (!canPickViaInput() && !canShowDirPicker()) { logLine(t(curLang, 'local.unsupported'), true); return false }
-    return pickLocalFolder({ onEntries: (entries) => {
-      if (!entries) { logLine(t(curLang, 'pick.cancelled')); return }
-      grantPickerIndex(entries)
-      openDirPicker({ mode: 'file', kinds: kinds, onPick: onSidebarFilePicked })
-    } })
+    openDirPicker({ mode: 'file', kinds: kinds, onPick: onSidebarFilePicked })
+    return true
   }
   const pickFileBtn = $('#pick-file')
   if (pickFileBtn) {
@@ -2536,8 +3087,10 @@ export function init() {
     ['#bench-rd-btn', 'skip', null],
     // 第五批④：文档页底部的**原作者归属外链**（赞赏卡片已删；这两个节点故意不挂 data-i18n ——
     // 旧 bundle 的词典里没有 credit.* 键，挂了会被它的 applyStatic 写成键名原文）
-    ['#credit-title', 'text', 'credit.title'],
-    ['#credit-link', 'text', 'credit.link'],
+    // ①(第七批修，2026-09-17) 页脚 #bench-credit 里那对**曾经复用同样的 id**（同页两处同 id ⇒ querySelector
+    // 只认文档视图那份，页脚永远不随语言切换）⇒ 页脚改成 *-footer 专名，两条一起同步（T31 通用唯一 id 断言盯着）。
+    ['#credit-title-footer', 'text', 'credit.title'],
+    ['#credit-link-footer', 'text', 'credit.link'],
   ]
   function syncAllLabels() {
     for (const [sel, kind, key, skip] of LABEL_SPEC) {
@@ -2551,6 +3104,7 @@ export function init() {
     const themeBtn = $('#theme-toggle')                         // 主题按钮 title 随模式+语言
     if (themeBtn && themeBtn.dataset && themeBtn.dataset.mode) themeBtn.title = t(curLang, 'theme.' + themeBtn.dataset.mode)
     paintDpr(); paintLogsIcon(); paintFps(); paintUppercaseLabels()   // 状态栏两格：bundle 会写旧文案，必须最后覆盖
+    try { if (typeof window !== 'undefined' && typeof window.__benchShellRefresh === 'function') window.__benchShellRefresh() } catch { /* 外壳未初始化（测试桩）：忽略 */ }
   }
   // #pick-lib 的 title 在静态托管下要显示"选择本地文件夹"的原因（gate 时显示 needInjection 同款逻辑）
   function trailOrPickTitle(sel, key) {
@@ -2728,6 +3282,20 @@ export function init() {
 
   syncAllLabels()
 
+  // ── ⑩ 站点外壳（2026-09-17 新样式）：在 syncAllLabels 之后初始化 —— 它要读已本地化的按钮文案。
+  //   句柄挂 window（供 syncAllLabels 在语言切换时刷新，不走 TDZ 风险的闭包变量）。 ──
+  if (!SHELL_OFF) try {
+    window.__benchShell = initSiteShell({ t, lang: () => curLang, log: (m) => logLine(String(m)) })
+    window.__benchShellRefresh = () => {
+      try {
+        const sh = window.__benchShell
+        if (!sh) return
+        sh.paintStatus(); sh.paintPropsEmpty(); sh.refreshSwitcher()
+        sh.paintLogsArrow(window.__benchMainCollapsed ? window.__benchMainCollapsed() : false)
+      } catch { /* 外壳刷新失败不影响页面 */ }
+    }
+  } catch (e) { logLine('站点外壳初始化失败：' + ((e && e.message) || e), true) }
+
   // 源码侧钩子（bench/bench.ts 调用；重建后若源码自足可删）
   const api = {
     langChanged: (l) => applyLang(l),
@@ -2777,16 +3345,39 @@ export function init() {
     getPickerState: () => (dirState ? {
       mode: dirState.mode, cwd: dirState.cwd, query: dirState.query,
       rows: dirState.rows.map((r) => r.kind + ':' + r.path),
-      sel: dirState.sel, diff: dirState.diff, restore: dirState.lastRestore,
+      sel: dirState.sel, cursor: dirState.cursor, diff: dirState.diff, restore: dirState.lastRestore,
       scrollTop: dirState.listEl ? Math.round(Number(dirState.listEl.scrollTop) || 0) : null,
       scrollHeight: dirState.listEl ? dirState.listEl.scrollHeight : null,
       clientHeight: dirState.listEl ? dirState.listEl.clientHeight : null,
     } : null),
     setPickerFilter: (q) => dirSetFilter(q),
     setPickerScroll: (v) => { if (dirState && dirState.listEl) { dirSetScrollTop(dirState.listEl, v); return true } return false },
-    pickerGo: (target) => { if (!dirState) return null; const nav = pickerNavigate(pickIndex, dirState.cwd, target); if (nav.moved) { dirState.cwd = nav.cwd; dirState.sel = null; dirPaint({ reset: true }) } return nav },
+    // 第七批②：导航（探针/脚本入口）与「上一级 / 回到最上层」按钮同款——换目录时清过滤词 + 关键盘游标
+    pickerGo: (target) => {
+      if (!dirState) return null
+      const nav = pickerNavigate(pickIndex, dirState.cwd, target)
+      if (nav.moved) {
+        dirState.cwd = nav.cwd; dirState.sel = null; dirState.cursor = -1; dirState.query = ''
+        if (dirState.filterEl) dirState.filterEl.value = ''
+        dirPaint({ reset: true })
+      }
+      return nav
+    },
     confirmPicker: () => { dirConfirm(); return true },
+    // 键盘导航走**真处理器**（dirKeyHandler）而不是复制一份逻辑：探针按的就是用户按键那条路
+    pickerKey: (key) => {
+      if (!dirState || !dirKeyHandler) return null
+      dirKeyHandler({ key: String(key), preventDefault: function () { /* 合成事件：不需要真的阻止默认行为 */ } })
+      return dirState ? { cursor: dirState.cursor, sel: dirState.sel, rows: dirState.rows.length, cwd: dirState.cwd, open: !!dirBoxEl } : { open: false }
+    },
     getMainViewPlan: () => paintMainView(),
+    // ⑩ 站点外壳（2026-09-17 新样式）：切页 / 切换栏 / 控制台高度 / 参数栏空态
+    getPage: () => (window.__benchShell ? window.__benchShell.getPage() : null),
+    setPage: (n) => (window.__benchShell ? window.__benchShell.setPage(n) : null),
+    switcher: () => (window.__benchShell ? { plan: window.__benchShell.refreshSwitcher(), items: window.__benchShell.listItems() } : null),
+    logsHeight: () => (window.__benchShell ? window.__benchShell.logsHeight() : null),
+    setLogsHeight: (v) => (window.__benchShell ? window.__benchShell.setLogsHeight(v) : null),
+    siteStyleInjected: () => SITE_STYLE_INJECTED,
     pickerStyleInjected: () => BENCH_STYLE_INJECTED,
     // 清单里可能不存在的 id：① 由 bindDropdown 动态创建 ② 可选控件（如复制链接按钮将来才加）
     dynamicIds: ['#bench-rd-btn', '#copy-url', '#bench-local'],   // 由补丁动态创建（#bench-local = 本地库容器）
