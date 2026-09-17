@@ -114,6 +114,61 @@ for (const p of files) {
   }
 }
 
+// ── 公共小工具：U-4 两条发布面断言共用（**故意放在哨兵块之外**，见 tests/publish-check-selftest.mjs 的"断言回退"证明） ──
+const segsOf = (p) => String(p).split(/[\\/]+/).filter(Boolean)
+const fmtList = (arr, n = 20) => arr.slice(0, n).join('、') + (arr.length > n ? `…（共 ${arr.length} 个）` : '')
+
+// ── ②B 参考资料隔离：发布物清单里 **0 个**参考/私有树条目（U-4，2026-09-17 由并发线交接落地） ──
+//   不变量：第三方参考副本（`references/**`）与取证归档（`Delete/**`）**永远不得进入发布物**；旧工作区根上的
+//   6 个 0 字节兼容符号链接（`wer-ref`…`reference`）同样不得被发布 —— 链接本体不是发布物，**跟随它也不能把
+//   参考副本的字节夹带进来**（walk() 本就不跟随符号链接；本段再把"解析后的真实路径"独立查一遍）。
+//   形状（U-4 建议的等价写法）：files.filter((p) => /(^|\/)(references|Delete|…)(\/|$)/.test(rel(p))).length === 0。
+//   与 `tests/reference-isolation-check.mjs`（源码 import 面 / npm pack 面 / .gitignore 面 / 旧路径链接面）互补：
+//   那边查"代码有没有引用参考副本"，这边查"**发布物清单里有没有参考副本本身**"（发布前最后一道）。
+const REF_TREES = ['references', 'Delete', 'vendor-ref', 'we-layerd-ref', 'wer-ref', 'lwe-ref', 'dsbw-ref', 'reference', 'tmp', 'probe-out']
+const REF_TREE_SET = new Set(REF_TREES)
+// 仓库内相对路径判据：**任一片段**命中即算落在参考/私有树里（含 `vendor/wer-ref/x` 这种嵌套形态）
+const inRefTree = (p) => segsOf(p).some((s) => REF_TREE_SET.has(s))
+// 绝对/真实路径判据：只认"仓库内 / 工作区根"这两处的同名目录。**不能**拿绝对路径的任一片段去比 ——
+// 那样任何位于 `…/tmp/…` 下的合法检出（CI、临时夹具）都会被 `tmp` 整棵树误伤（实测：夹具里 12~15 个正常文件全被误报）。
+const REF_ROOTS = REF_TREES.flatMap((n) => [path.join(ROOT, n), path.join(ROOT, '..', n)])
+const underRefRoot = (abs) => !!abs && REF_ROOTS.some((r) => abs === r || abs.startsWith(r + path.sep))
+// ── [assert:reference-leak] BEGIN ──
+// ②B-1 发布物清单（已按 .gitignore.public 过滤）里 0 个参考/私有树条目
+const refLeakEntries = files.filter((p) => inRefTree(rel(p)))
+// ②B-2 符号链接：名字命中 / 字面目标命中 / **解析后真实路径**命中 → 都算夹带渠道（悬空链接也照报）
+const linkScan = []
+const walkLinks = (dir) => {
+  let ents = []
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+  for (const e of ents) {
+    const p = path.join(dir, e.name)
+    let st = null
+    try { st = fs.lstatSync(p) } catch { continue }
+    if (st.isSymbolicLink()) {
+      const target = (() => { try { return fs.readlinkSync(p) } catch { return '' } })()
+      const resolved = (() => { try { return fs.realpathSync(p) } catch { return '' } })()
+      linkScan.push({ p, target, resolved, size: st.size })
+    } else if (st.isDirectory() && !SKIP_DIRS.has(e.name) && !REF_TREE_SET.has(e.name)) walkLinks(p)
+  }
+}
+walkLinks(ROOT)
+// 字面目标按**链接所在目录**解析（悬空链接也能判定），再与真实路径一起做"是否落在参考根内"的包含判据
+const linkTargetAbs = (l) => (path.isAbsolute(l.target) ? l.target : path.resolve(path.dirname(l.p), l.target))
+const refLeakLinks = linkScan.filter((l) => REF_TREE_SET.has(path.basename(l.p)) || underRefRoot(linkTargetAbs(l)) || underRefRoot(l.resolved))
+// ②B-3 "跟随链接"复核：发布物清单里每个文件的**真实路径**都不得落在参考/私有树内
+const followedInto = []
+for (const p of files) {
+  const rp = (() => { try { return fs.realpathSync(p) } catch { return '' } })()
+  if (underRefRoot(rp)) followedInto.push(rel(p) + ' → ' + rp)
+}
+if (refLeakEntries.length) findings.blocking.push({ kind: 'reference-leak', file: rel(refLeakEntries[0]), msg: `发布物清单里出现参考/私有树条目 ${refLeakEntries.length} 个 → 参考副本与取证归档**永不得发布**（` + fmtList(refLeakEntries.map(rel)) + `）` })
+if (refLeakLinks.length) findings.blocking.push({ kind: 'reference-leak', file: rel(refLeakLinks[0].p) + ' -> ' + refLeakLinks[0].target, msg: `仓库里出现指向参考/私有树的符号链接 ${refLeakLinks.length} 个 → 链接本体不得发布，跟随它会夹带参考副本字节（` + fmtList(refLeakLinks.map((l) => rel(l.p) + ' -> ' + l.target + (l.resolved ? '（解析到 ' + l.resolved + '）' : '（悬空）'))) + `）` })
+if (followedInto.length) findings.blocking.push({ kind: 'reference-leak', file: followedInto[0], msg: `发布物里有文件解析后落在参考/私有树内 ${followedInto.length} 个 → 符号链接夹带（` + fmtList(followedInto) + `）` })
+// 断言可被看见：无论是否命中都打印扫描口径（U-4 要求"能看出断言确实跑过"）
+findings.info.push({ kind: 'reference-leak', msg: `reference-leak 断言已执行：扫描 ${files.length} 个发布物路径 + ${linkScan.length} 个符号链接（仓库根 ${linkScan.filter((l) => path.dirname(l.p) === ROOT).length} 个）+ ${files.length} 个真实路径复核 → 命中 ${refLeakEntries.length + refLeakLinks.length + followedInto.length} 条（隔离对象：${REF_TREES.join('/、')}/）` })
+// ── [assert:reference-leak] END ──
+
 // ── ③ 专有文件混入：与 WE 官方资产逐字节相同（common*.h 就是这么抓到的） ──
 if (WE_ASSETS && fs.existsSync(WE_ASSETS)) {
   const official = new Map() // sha256 → 官方相对路径
@@ -228,6 +283,118 @@ if (fs.existsSync(PLUGIN_DIR)) {
 // ②-b 本仓库不得 vendored 插件的任何文件（借用应改为 import 外部包并在 THIRD-PARTY.md 声明）
 const vendoredPlugin = files.filter((p) => /(^|\/)dsh-mpkg-wallpaper(\/|$)/.test(rel(p)) || /(^|\/)pkg-extract\.(mjs|js)$/.test(rel(p)))
 if (vendoredPlugin.length) findings.blocking.push({ kind: 'license', file: rel(vendoredPlugin[0]), msg: `本仓库出现插件的 vendored 副本（${vendoredPlugin.length} 个文件）→ 改为 import 外部包，并在 THIRD-PARTY.md 声明其 MIT` })
+
+// ── ⑤②-c 反向流动断言（`docs/COPYING-RULES.md` §2.2）：MIT 插件的**发布物**里不得出现渲染器（GPL）指纹 ──
+//   规则：MIT → GPL **允许**单向流动（§2.1：进入后该副本按 GPL 分发，原 MIT 声明保留）；GPL → MIT **禁止**
+//   （§2.2：不得复制、改写、逐行翻译、粘贴注释/常量顺序）。本仓库 GPL-3.0-or-later，插件 MIT ⇒ 渲染器代码不得进插件。
+//   反方向是**合法**的：**渲染器 import 插件的 `lib/pkg-extract.js` 解析契约**（MIT → GPL）——
+//   见 `server/pack-dir.mjs:77`（`await import(… 'dsh-mpkg-wallpaper/lib/pkg-extract.js')`）与
+//   `docs/COMPLIANCE-REVIEW.md` 第 11 行（"方向 = MIT → GPL-3.0-or-later 允许单向流动"）。
+//   因此 `parsePkg` / `readPkgEntry` / `parseTex` / `getEntry` 这类**插件自有**的契约名（插件 `lib/pkg-extract.js:2240`
+//   导出、渲染器 import），以及 `--mpw-*` / `data-mpw-*` **插件自有**标记，**一律不是渲染器指纹**：
+//   import 与署名都合法，**把渲染器代码抄进 MIT 插件才非法**。本断言只认下面这张显式清单。
+//   入选标准（每条都要"能独立判别"）：① 在渲染器里唯一或稀缺；② 命名是项目特有概念，不是通用 API/算法名；
+//   ③ 实测插件发布物 0 命中。通用名（`lz4Decompress`、`parseTex`、`parseVec3`…）**故意不收**：它们可能是
+//   各自独立实现的同名函数，收了就是假阳性。
+const RENDERER_FINGERPRINTS = [
+  { id: 'gpl-title', re: /GNU GENERAL PUBLIC LICENSE/, src: 'LICENSE 首行', why: 'GPL 条款标题；MIT 产物出现它 = GPL 文本整体流入' },
+  { id: 'gpl-spdx', re: /SPDX-License-Identifier:\s*GPL-3\.0/, src: 'LICENSE:697', why: '渲染器 SPDX 标识；插件若带此标识 = 自认 GPL 代码' },
+  { id: 'renderer-copyright', re: /Copyright \(C\) 2026 XHR666/, src: 'LICENSE', why: '渲染器版权行（大小写敏感）；插件 LICENSE 是 `Copyright (c) 2026 dsh-mpkg-wallpaper contributors`，两者不同' },
+  { id: 'renderer-pkg-name', re: /wallpaper-engine-web-loader/, src: 'package.json:2', why: '渲染器 npm 包名；出现在插件产物里即意味着渲染器包内文本被搬入。若将来只作**署名引注**（如 README 写"配套渲染器"），必须登记进下面的例外清单并写明理由，不得静默放宽' },
+  { id: 'ident-spriteFrameImageRects', re: /\bspriteFrameImageRects\b/, src: 'core/we-scene-bundle.js:348', why: '渲染器内部导出：WE 精灵表 frameValue → 图块矩形（项目特有概念，不是任何公开 API 名）' },
+  { id: 'ident-spriteMultiImages', re: /\bspriteMultiImages\b/, src: 'core/we-scene-bundle.js:307', why: '渲染器内部导出：多图精灵预算（`SPRITE_SET_BUDGET`），项目特有' },
+  { id: 'ident-coerceImageAlphaMode', re: /\bcoerceImageAlphaMode\b/, src: 'core/we-scene-bundle.js:968', why: '渲染器内部导出：WE `alpha mode` 语义归一（0..1 / 0..100 值域），项目特有' },
+  { id: 'ident-evalPropAnimation', re: /\bevalPropAnimation\b/, src: 'core/we-scene-bundle.js:812', why: '渲染器内部导出：属性关键帧求值入口（五条标识符里判别力最弱的一条，仍保留 —— 独立实现不会撞出同名**导出**）' },
+  { id: 'ident-slotOfTimeLayer', re: /\bslotOfTimeLayer\b/, src: 'core/we-scene-bundle.js:1236', why: '渲染器内部导出：WE 时间层时段解析，项目特有命名' },
+]
+// 例外清单：只允许**具名、有理由**的共享契约/署名字符串（空数组 = 无例外）。**当前实测为空**：
+//   插件发布物里确有渲染器**路径/文档**引注（如 `we-scene-demo/RENDERER-SANDBOX-CONTRACT.md`、`we-scene-demo/docs/DATA-LIMITS.md`）
+//   与裸 `GPL-3.0` 的具名引注（`lib/web-wallpaper.js:19` 写明"只走 HTTP 协议，不 import/内嵌其任何代码"、
+//   `README.md:391` 的 unmpkg 上游许可），但它们**不在**上面的指纹集里 —— 它们是署名/事实引注，不是渲染器代码指纹。
+//   若将来确有**共享契约**字符串被镜像（`docs/COPYING-RULES.md` 或 `core/web-frame-geometry.mjs` 里登记的协议 token），
+//   在此逐条登记 `{ id, files: ['*'], reason: '…' }`；`reason` 为空的条目会被忽略并告警（禁止"静默放宽"）。
+const REVERSE_FLOW_EXCEPTIONS = []
+// npm `files` 用 minimatch 语义：`**/` 可匹配 0 层目录（`lib/**/*.bak*` 必须能命中 `lib/client.js.bak-*`）
+const pluginGlobRe = (g) => {
+  let re = ''
+  for (let i = 0; i < g.length; i++) {
+    const c = g[i]
+    if (c === '*') {
+      if (g[i + 1] === '*') { i++; if (g[i + 1] === '/') { i++; re += '(?:.*/)?' } else re += '.*' }
+      else re += '[^/]*'
+    } else if (c === '?') re += '[^/]'
+    else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp('^' + re + '$')
+}
+// ── [assert:reverse-flow] BEGIN ──
+if (fs.existsSync(PLUGIN_DIR)) {   // 独立发布本仓库时插件目录不存在 → ⑤② 已有的告警已覆盖，这里不重复报
+  const reverseFlow = (() => {
+    let pkg = null
+    try { pkg = JSON.parse(fs.readFileSync(path.join(PLUGIN_DIR, 'package.json'), 'utf8')) } catch { return { skip: 'package.json 读取/解析失败（无法确定发布面）' } }
+    const entries = Array.isArray(pkg.files) ? pkg.files.map(String) : []
+    if (!entries.length) return { skip: 'package.json.files 为空（无法确定发布面）' }
+    // (a) 读**发布文件清单**：package.json.files（含 `!` 负向规则），纯 fs 展开 —— 不跑 npm、不碰插件工作树
+    const excRes = entries.filter((e) => e.startsWith('!')).map((e) => pluginGlobRe(e.slice(1)))
+    const listed = new Set()
+    const add = (p) => { const r = path.relative(PLUGIN_DIR, p).split(path.sep).join('/'); if (!excRes.some((re) => re.test(r))) listed.add(p) }
+    for (const e of entries.filter((x) => !x.startsWith('!'))) {
+      const abs = path.join(PLUGIN_DIR, e)
+      let st = null
+      try { st = fs.lstatSync(abs) } catch { continue }
+      if (st.isDirectory()) {
+        const stack = [abs]
+        while (stack.length) {
+          const d = stack.pop()
+          let ents = []
+          try { ents = fs.readdirSync(d, { withFileTypes: true }) } catch { continue }
+          for (const x of ents) {
+            const p = path.join(d, x.name)
+            let s2 = null
+            try { s2 = fs.lstatSync(p) } catch { continue }
+            if (s2.isDirectory()) stack.push(p)
+            else if (s2.isFile()) add(p)
+          }
+        }
+      } else if (st.isFile()) add(abs)
+    }
+    const publishFiles = [...listed].sort()
+    // (b) 逐文件扫渲染器指纹（只扫文本；二进制跳过但计入口径）
+    const hits = []
+    let textScanned = 0
+    for (const p of publishFiles) {
+      let s = ''
+      try { if (fs.statSync(p).size > 2 * 1048576) continue; s = fs.readFileSync(p, 'utf8') } catch { continue }
+      if (s.includes('\u0000')) continue
+      textScanned++
+      const lines = s.split('\n')
+      const rp = path.relative(PLUGIN_DIR, p).split(path.sep).join('/')
+      for (let i = 0; i < lines.length; i++) {
+        for (const fp of RENDERER_FINGERPRINTS) {
+          if (!fp.re.test(lines[i])) continue
+          const ex = REVERSE_FLOW_EXCEPTIONS.find((x) => x.id === fp.id && String(x.reason || '').trim() && (x.files || ['*']).some((g) => pluginGlobRe(g).test(rp)))
+          if (ex) continue
+          hits.push({ fp, file: rp, line: i + 1 })
+        }
+      }
+    }
+    const emptyReason = REVERSE_FLOW_EXCEPTIONS.filter((x) => !String(x.reason || '').trim()).map((x) => x.id)
+    // 敏感度自检：每条指纹至少要命中一个**渲染器**样本文件，否则正则写错时断言会静默变哑
+    const SENS = ['LICENSE', 'package.json', 'core/we-scene-bundle.js', 'core/web-frame-geometry.mjs']
+    const sensTexts = SENS.map((f) => { try { return fs.readFileSync(path.join(ROOT, f), 'utf8') } catch { return '' } })
+    const weak = RENDERER_FINGERPRINTS.filter((fp) => !sensTexts.some((t) => fp.re.test(t))).map((fp) => fp.id)
+    return { publishFiles, textScanned, hits, emptyReason, weak, sensTotal: RENDERER_FINGERPRINTS.length - weak.length }
+  })()
+  if (reverseFlow.skip) {
+    findings.warnings.push({ kind: 'reverse-flow', file: '../dsh-mpkg-wallpaper/package.json', msg: `反向流动断言跳过：${reverseFlow.skip}` })
+  } else {
+    if (reverseFlow.hits.length) findings.blocking.push({ kind: 'reverse-flow', file: '../dsh-mpkg-wallpaper/' + reverseFlow.hits[0].file + ':' + reverseFlow.hits[0].line, msg: `MIT 插件发布物里出现渲染器（GPL）指纹 ${reverseFlow.hits.length} 处 → 违反 COPYING-RULES §2.2"GPL 不得流入 MIT 插件"（` + fmtList(reverseFlow.hits.map((h) => `${h.fp.id}@${h.file}:${h.line}`)) + `）` })
+    if (reverseFlow.emptyReason.length) findings.warnings.push({ kind: 'reverse-flow', file: 'tests/publish-check.mjs', msg: `例外清单条目缺 reason（已忽略，禁止静默放宽）：${reverseFlow.emptyReason.join('、')}` })
+    if (reverseFlow.weak.length) findings.warnings.push({ kind: 'reverse-flow-selftest', file: 'tests/publish-check.mjs', msg: `指纹敏感度自检：${reverseFlow.weak.join('、')} 在渲染器样本（LICENSE、package.json、core/we-scene-bundle.js、core/web-frame-geometry.mjs）里 0 命中 → 正则可能失效（断言变哑）` })
+    findings.info.push({ kind: 'reverse-flow', msg: `反向流动断言已执行：插件 package.json.files 展开 ${reverseFlow.publishFiles.length} 个发布文件（文本 ${reverseFlow.textScanned} 个被扫；指纹 ${RENDERER_FINGERPRINTS.length} 条，敏感度自检 ${reverseFlow.sensTotal}/${RENDERER_FINGERPRINTS.length}；例外 ${REVERSE_FLOW_EXCEPTIONS.length} 条）→ 命中 ${reverseFlow.hits.length} 条` })
+  }
+}
+// ── [assert:reverse-flow] END ──
 
 // ③ 复制/许可规则文档与第三方声明必须随仓库
 const COPYING_CANDIDATES = [path.join(ROOT, 'docs', 'COPYING-RULES.md'), path.join(ROOT, '..', 'docs', 'COPYING-RULES.md')]
