@@ -247,6 +247,36 @@ const landing = path.join(ROOT, 'index.html')
     JSON.stringify({ t: cnt('credit-title'), l: cnt('credit-link'), tf: cnt('credit-title-footer'), lf: cnt('credit-link-footer') }))
 }
 
+
+// ---- D8 首屏静态布局 CSS 与补丁里的 SITE_LAYOUT_CSS 必须逐条等价（2026-09-18"一帧全屏放大"修复的防漂移断言）
+{
+  const html = read(path.join(DEMO, 'index.html'))
+  const patchSrc = read(path.join(DEMO, 'bench-patch.js'))
+  const mStatic = html.match(/<style id="bench-shell-static">([\s\S]*?)<\/style>/)
+  const mArr = patchSrc.match(/const SITE_LAYOUT_CSS = \[([\s\S]*?)\]\.join\(''\)/)
+  check('D8 首屏静态外壳 CSS 在位（<style id="bench-shell-static">）', !!mStatic && mStatic[1].length > 4000, mStatic ? String(mStatic[1].length) + 'B' : '缺失')
+  check('D8 head 里同步加 html.bench-shell 类（首帧即生效），且 ?shell=off 时跳过',
+    /classList\.add\('bench-shell'\)/.test(html) && /shell=\(off\|0\|false\|no\)/.test(html))
+  if (mStatic && mArr) {
+    const items = [...mArr[1].matchAll(/'((?:[^'\\]|\\.)*)'/g)].map((x) => x[1].replace(/\\'/g, "'"))
+    const norm = (t) => t.replace(/\s+/g, ' ').trim()
+    // 注意顺序：先把 CSS 按行切开再逐行归一化（先 norm 会把整份 CSS 折成一行 ⇒ 集合里只剩一个大串，永远比不中）
+    const staticSet = new Set(mStatic[1].split('\n').map(norm).filter((l) => l && l.includes('{')))
+    const missing = []
+    for (const it of items) {
+      if (!it.includes('{')) continue                                  // 纯注释条目跳过
+      if (it.startsWith('@media')) continue
+      const i = it.indexOf('{')
+      const sels = it.slice(0, i).split(',').map((x) => x.trim())
+      const rest = norm(it.slice(i))
+      const want = norm(sels.map((x) => (x.startsWith('html[') ? x : 'html.bench-shell ' + x)).join(', ') + rest)
+      if (!staticSet.has(want)) missing.push(want.slice(0, 70))
+    }
+    check('D8 静态 CSS 覆盖补丁 SITE_LAYOUT_CSS 的每条布局规则（逐条比对，漂移即红）', missing.length === 0,
+      missing.length ? missing.slice(0, 3).join(' | ') + ' …共' + missing.length : '逐条一致')
+  }
+}
+
 if (JSON_OUT) console.log(JSON.stringify({ pass, fail }, null, 1))
 else console.log(`\n===== demo-check: ${pass} 通过 / ${fail} 失败 =====`)
 process.exit(fail ? 1 : 0)

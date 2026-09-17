@@ -16,6 +16,97 @@
     <script type="module" crossorigin src="./assets/bench-DSKWIqmS.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/modulepreload-polyfill-B5Qt9EMX.js">
     <link rel="stylesheet" crossorigin href="./assets/bench-HtRiuWm6.css">
+    <!-- ⚠ ①(2026-09-18)**站点外壳的首屏布局 CSS 必须静态存在**，不能靠补丁运行期注入：
+         真机现象"刷新时先一帧全屏放大、随后控制台缩到左上角"就是"产物样式先生效、我们的样式后注入"之间的窗口。
+         下面这份是按 html.bench-shell 作用域静态声明（内容与 demo/bench-patch.js 的 SITE_LAYOUT_CSS 逐条等价，
+         由 tests/demo-check.mjs 的 D8 断言防止漂移）。`?shell=off` 时 head 里那段脚本不加类 ⇒ 整块 CSS 不生效（旧行为）。 -->
+    <style id="bench-shell-static">
+html.bench-shell body{display:flex!important;flex-direction:column;grid-template-rows:none!important}
+html.bench-shell #site-header{flex:none;height:44px;display:flex;align-items:center;gap:14px;padding:0 12px;background:var(--titlebar);border-bottom:1px solid var(--border);position:relative;z-index:30}
+html.bench-shell #site-brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;color:var(--fg);white-space:nowrap}
+html.bench-shell .brand-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--accent,#0078d4),#7dd3fc)}
+html.bench-shell #app-version{font-size:11px;color:var(--fg-mute);font-weight:400}
+html.bench-shell #site-tabs{position:relative;display:flex;align-items:stretch;height:100%}
+html.bench-shell .site-tab{appearance:none;border:0;background:transparent;color:var(--fg-dim);font:inherit;font-size:13px;padding:0 14px;cursor:pointer;border-bottom:2px solid transparent}
+html.bench-shell .site-tab:hover{color:var(--fg)}
+html.bench-shell .site-tab.active{color:var(--fg);border-bottom-color:transparent}
+html.bench-shell #site-tab-ink{position:absolute;bottom:0;left:0;height:2px;width:0;background:var(--accent,#0078d4);transition:transform .26s cubic-bezier(.4,0,.2,1),width .26s cubic-bezier(.4,0,.2,1);pointer-events:none}
+html.bench-shell #site-actions{margin-left:auto;display:flex;align-items:center;gap:8px;position:relative}
+html.bench-shell #settings-btn{appearance:none;font:inherit;font-size:12.5px;color:var(--fg);background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer}
+html.bench-shell #settings-btn:hover, html.bench-shell #settings-btn[aria-expanded="true"]{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}
+html.bench-shell #site-actions .theme-btn{width:30px;height:26px;border-radius:6px}
+html.bench-shell #settings-pop{position:absolute;right:0;top:calc(100% + 6px);width:330px;background:var(--panel);border:1px solid var(--border);border-radius:8px;box-shadow:0 14px 40px rgba(0,0,0,.38);padding:10px 12px;z-index:40;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+html.bench-shell #settings-pop[hidden]{display:none!important}
+html.bench-shell .pop-row, html.bench-shell .lang-box{display:flex;align-items:center;gap:8px}
+html.bench-shell .pop-k{color:var(--fg-mute);min-width:44px}
+html.bench-shell .pop-val{color:var(--fg)}
+html.bench-shell .pop-note{margin:2px 0 0;color:var(--fg-mute);font-size:11.5px;line-height:1.6}
+html.bench-shell .pop-credit{margin-top:2px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--fg-mute)}
+html.bench-shell .pop-credit a{color:var(--link,var(--accent,#58a6ff))}
+html.bench-shell #pages-track{flex:1 1 auto;width:300%;display:flex;min-height:0;min-width:0;overflow:hidden;contain:paint;transition:transform .28s cubic-bezier(.4,0,.2,1)}
+html.bench-shell .page{flex:0 0 calc(100% / 3);min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+html.bench-shell #page-docs, html.bench-shell #page-wpset{overflow-y:auto;background:var(--editor)}
+html.bench-shell #workbench{flex:1;grid-template-columns:var(--mpw-lib-w,300px) auto minmax(0,1fr)!important;min-height:0;overflow:hidden}
+html.bench-shell #activitybar{display:none!important}
+html.bench-shell #sidebar{grid-column:1;width:auto!important;max-width:none!important;min-width:0!important;resize:none!important}
+html.bench-shell #props{grid-column:2;width:var(--mpw-props-w,320px);min-width:0;border-left:1px solid var(--border);border-right:1px solid var(--border)}
+html.bench-shell #props[hidden]{display:flex!important}
+html.bench-shell .props-empty{padding:14px 12px;color:var(--fg-mute);font-size:12.5px;line-height:1.75}
+html.bench-shell .props-empty strong{display:block;color:var(--fg-dim);margin-bottom:4px}
+html.bench-shell #main{grid-column:3;grid-template-rows:auto minmax(0,1fr) 6px var(--mpw-logs-h,220px)!important}
+html.bench-shell #main.logs-collapsed{grid-template-rows:auto minmax(0,1fr) 6px 34px!important}
+html.bench-shell #editor-chrome{grid-row:1}
+html.bench-shell #workspace{grid-row:2}
+html.bench-shell #main > #logs-splitter{grid-row:3;cursor:row-resize;background:var(--border);opacity:.55}
+html.bench-shell #logs-splitter:hover, html.bench-shell #logs-splitter.dragging{background:var(--accent,#0078d4);opacity:1}
+html.bench-shell #main > #logs{grid-row:4}
+html.bench-shell #wp-switch{display:flex;align-items:stretch;background:var(--sidebar);border-bottom:1px solid var(--border)}
+html.bench-shell #editor-tabs{flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;height:32px;border-bottom:0;scrollbar-width:thin}
+html.bench-shell #editor-tabs .tab{height:32px;font-size:12.5px}
+html.bench-shell .wp-tab{max-width:200px;display:flex;align-items:center;gap:6px;padding:0 10px;font:inherit;font-size:12.5px;color:var(--fg-dim);background:transparent;border:0;border-right:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+html.bench-shell .wp-tab:hover{background:var(--hover,rgba(255,255,255,.07));color:var(--fg)}
+html.bench-shell .wp-tab.active{background:var(--editor);color:var(--fg);box-shadow:inset 0 -2px 0 var(--accent,#0078d4)}
+html.bench-shell .wp-tab.wp-cur{opacity:.45}
+html.bench-shell #wp-add{flex:none;width:34px;border:0;border-left:1px solid var(--border);background:transparent;color:var(--fg-dim);font-size:16px;line-height:1;cursor:pointer}
+html.bench-shell #wp-add:hover{background:var(--accent,#0078d4);color:#fff}
+html.bench-shell #toggle-logs{gap:4px;width:auto!important;padding:0 6px!important}
+html.bench-shell #logs.bench-logs-collapsed-tag #toggle-logs::after{content:attr(data-tag);font-size:11px;color:var(--fg-dim)}
+html.bench-shell .stage-tools button{color:var(--fg)!important;background:color-mix(in srgb,var(--panel) 86%,transparent);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
+html.bench-shell .stage-tools button:hover{background:var(--accent,#0078d4)!important;border-color:var(--accent,#0078d4);color:#fff!important}
+html.bench-shell .doc-wrap{max-width:1020px;margin:0 auto;padding:22px 28px 64px;font-size:13.5px;line-height:1.75;color:var(--fg)}
+html.bench-shell .doc-wrap h1{font-size:20px;margin:6px 0 10px}
+html.bench-shell .doc-wrap h2{font-size:14.5px;margin:22px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+html.bench-shell .doc-lede{color:var(--fg-dim);font-size:13px}
+html.bench-shell .doc-wrap table{width:100%;border-collapse:collapse;font-size:12.5px;margin:8px 0 4px}
+html.bench-shell .doc-wrap th, html.bench-shell .doc-wrap td{text-align:left;vertical-align:top;padding:6px 9px;border-bottom:1px solid var(--border)}
+html.bench-shell .doc-wrap th{color:var(--fg-mute);font-weight:500}
+html.bench-shell .doc-wrap code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:color-mix(in srgb,var(--fg) 10%,transparent);border-radius:4px;padding:1px 5px}
+html.bench-shell .doc-wrap pre{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 12px;overflow:auto}
+html.bench-shell .doc-wrap pre code{background:none;padding:0}
+html.bench-shell .doc-wrap ul, html.bench-shell .doc-wrap ol{padding-left:22px}
+html.bench-shell .doc-note{color:var(--fg-mute);font-size:12.5px}
+html.bench-shell .tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid var(--border);white-space:nowrap}
+html.bench-shell .tag-ok{color:#3fb950;border-color:rgba(63,185,80,.45);background:rgba(63,185,80,.12)}
+html.bench-shell .tag-todo{color:#d29922;border-color:rgba(210,153,34,.45);background:rgba(210,153,34,.12)}
+html.bench-shell .tag-we{color:var(--fg-dim)}
+html.bench-shell #docs-view{display:none!important}
+html.bench-shell #sidebar[hidden]{display:flex!important}
+html.bench-shell #logs[hidden]{display:flex!important}
+html.bench-shell #editor-chrome[hidden]{display:block!important}
+html.bench-shell #stage-slot[hidden]{display:flex!important}
+html[lang="en"] .lang-zh{display:none}
+html.bench-shell html:not([lang="en"]) .lang-en{display:none}
+@media (prefers-reduced-motion: reduce){html.bench-shell #pages-track,#site-tab-ink{transition:none!important}}
+    </style>
+    <script>
+      // 首屏前加类（在 <head> 里同步执行 ⇒ 第一帧就按新布局渲染）；?shell=off = 新样式总回退
+      (function () {
+        try {
+          if (/[?&]shell=(off|0|false|no)\b/.test(location.search)) return
+          document.documentElement.classList.add('bench-shell')
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <!-- C 组：全局错误兜底（error/unhandledrejection → 可见条 + 写入输出区；不是插件依赖，纯自写最小实现） -->
@@ -515,7 +606,9 @@ wp.pushPointer(0.5, 0.5)</code></pre>
           addEventListener('load', function () {
             setTimeout(function () {
               try {
-                var ok = !!document.querySelector('#bench-site-style')
+                // 两个条件都满足才算"新补丁已就位"：外壳 CSS 已注入 + 外壳对象已建立。
+                // 旧补丁（缓存里的）两条都不满足 ⇒ 触发一次自动重载，把新补丁拉进来。
+                var ok = !!document.querySelector('#bench-site-style') && typeof window.__benchShell === 'object' && window.__benchShell !== null
                 if (ok) { try { sessionStorage.removeItem('bench-stale-reload') } catch (e) {} return }
                 if (!document.querySelector('#pages-track')) return           // 不是新版 HTML：不管
                 if (sessionStorage.getItem('bench-stale-reload')) return      // 已经重载过一次
