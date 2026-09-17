@@ -363,7 +363,7 @@ const landing = path.join(ROOT, 'index.html')
 {
   const OLD = /webwallgl/i
   const NEW = 'WEwebLoader'
-  const FILES = ['index.html', 'demo/index.html', 'demo/renderer/index.html', 'demo/manifest.webmanifest']
+  const FILES = ['index.html', 'demo/index.html', 'demo/renderer/index.html', 'demo/default-wallpaper/index.html', 'demo/manifest.webmanifest']
   const texts = Object.fromEntries(FILES.map((f) => [f, read(f)]))
   const title = (h) => ((h.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || '').trim()
   const countOld = (s) => [...s.matchAll(/webwallgl/gi)].length
@@ -385,6 +385,11 @@ const landing = path.join(ROOT, 'index.html')
     JSON.stringify({ name: mf.name, short_name: mf.short_name }))
   check('D10 渲染器页（无归属内容）全文零旧名',
     !OLD.test(texts['demo/renderer/index.html']), 'demo/renderer/index.html')
+  // ①(2026-09-19) 兜底壁纸页是**上游产物原样再分发**的一个普通 HTML（改名前与上游 public/default-wallpaper/index.html
+  //   逐字节相同），页面上那行大标题就是产品名 ⇒ 同属 (A) 品牌位；它没有归属内容，所以判"全文零旧名 + 新名在位"。
+  check('D10 兜底壁纸页（无归属内容）全文零旧名且已是新名',
+    !OLD.test(texts['demo/default-wallpaper/index.html']) && texts['demo/default-wallpaper/index.html'].includes(NEW),
+    'demo/default-wallpaper/index.html')
 
   // ② 旧名的每一处出现都必须在归属/出处语境里
   //   "归属/出处语境"的判据词：上游项目名（oneincase/upstream/上游）、许可（MIT）、许可文件名、
