@@ -3,7 +3,7 @@
 > **本表由代码确认，非手抄**：开关全集由 `node diag-flag-check.mjs`（MERGED-3 2.2）从
 > `core/we-scene-bundle.js` / `demo.html` / `elysia/**/*.js` / `dsh-mpkg-wallpaper/lib/client.js`
 > 的 `URLSearchParams` / `new URL(...).searchParams` / 正则 `[?&]name=` / 白名单 localStorage
-> 解析点抓取（当前 **139** 个：含 P-112-BANDGEOM 的 `bandfeed`/`framegeom`）。本表主表与其双向比对，任何一侧多出/缺失都会非零退出。
+> 解析点抓取（当前 **149** 个：含 P-112-BANDGEOM 的 `bandfeed`/`framegeom` 与插件侧 `lgcss`）。本表主表与其双向比对，任何一侧多出/缺失都会非零退出。
 > **插件侧开关也在本表**：扫描面含 `dsh-mpkg-wallpaper/lib/client.js`，所以插件新增的开关（如 `hdrfrostwatch`）同样必须登记 —— 缺一条 `diag-flag-check` 就会报红。
 >
 > - 用法：把开关拼到渲染器页 URL，如 `http://127.0.0.1:8899/?id=3719111841&audit=3&showui`。

@@ -2,7 +2,7 @@
 
 > 本文是**发布形态的唯一口径**：页面结构、Pages 的源与构建方式、以及"哪些东西**不**会出现在线上"。
 > 代码先落到这个形态上，再谈部署。**不引入任何需要联网安装的构建步骤**（纯静态优先）。
-> 相关：`../PATCHES.md` P-93（本批改动）、`../THIRD-PARTY.md` §6（webwallgl MIT）、`COPYING-RULES.md`。
+> 相关：`PATCHES.md` P-93（本批改动）、`../THIRD-PARTY.md` §6（webwallgl MIT）、`COPYING-RULES.md`。
 
 ## 1. 一句话形态
 
