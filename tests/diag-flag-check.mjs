@@ -178,7 +178,23 @@ const payload = {
   common: COMMON_FLAGS.filter((n) => merged.has(n)).map((n) => ({ name: n, usage: COMMON_USAGE[n] || (n + '=1') })),
   flags: codeNames.map((n) => ({ name: n, common: COMMON_FLAGS.includes(n), sites: merged.get(n) })),
 }
-fs.writeFileSync(JSON_OUT, JSON.stringify(payload, null, 2) + '\n')
+// ①(2026-09-19) **幂等写出**：只把 `generatedAt` 当"内容变了才更新的时间戳"，内容（除它以外）逐字相同时
+//   **不重写文件**。为什么：以前每跑一次门禁（`run-all-tests.sh` 含本项）都会把这份生成物重写一遍 ⇒
+//   跑完门禁工作树**必然**多出 ` M web/diag-flags.json`（只差一个时间戳），"跑完就脏"会污染每个人的
+//   `git status`、也让"提交前后逐字一致"这类证明没法做（本仓库已两次把它的重生成单独提交过）。
+//   判据：同一次内容连跑两次，第二次 mtime/字节都不变。
+{
+  const next = JSON.stringify(payload, null, 2) + '\n'
+  let prev = null
+  try { prev = fs.readFileSync(JSON_OUT, 'utf8') } catch { /* 首次生成 */ }
+  const strip = (t) => (t || '').replace(/"generatedAt": "[^"]*",\n/, '')
+  if (prev !== null && strip(prev) === strip(next)) {
+    // 内容没变 ⇒ 保持旧时间戳、不落盘（避免"跑一次门禁就脏一个文件"）
+  } else {
+    fs.writeFileSync(JSON_OUT, next)
+    globalThis.__diagFlagsWrote = true
+  }
+}
 
 let fail = 0
 if (missingInDoc.length) {
@@ -196,7 +212,7 @@ if (staleInDoc.length) {
 }
 if (!fail) {
   console.log('✓ diag-flag-check：代码 ' + codeNames.length + ' 个开关 == README 主表 ' + docNames.length + ' 行，0 差异')
-  console.log('  diag-flags.json 已写出（common=' + payload.common.length + ' 个常用）')
+  console.log('  diag-flags.json ' + (globalThis.__diagFlagsWrote ? '已写出' : '未变（保持旧时间戳，不落盘）') + '（common=' + payload.common.length + ' 个常用）')
 } else {
   console.error('  diag-flags.json 仍已写出（当前抓取结果），但文档比对有差异 → 退出码 1')
 }
