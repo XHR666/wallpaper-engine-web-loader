@@ -1,14 +1,27 @@
-// hlsl2glsl-coverage-test.mjs —— P-93：把 `docs/HLSL2GLSL-COVERAGE.md` 的覆盖率**变成会变红的断言**
+// hlsl2glsl-coverage-test.mjs —— P-93 覆盖率门禁 + **P-114 对准在跑的实现（wired）**
 //
 // 复现：node hlsl2glsl-coverage-test.mjs          # 人读
 //       node hlsl2glsl-coverage-test.mjs --json   # 机读
 //       MPW_H2G_MAX_PKGS=8 node hlsl2glsl-coverage-test.mjs   # 多取几个包（更接近文档的 15 包口径）
+//       MPW_H2G_IMPL=vendor node hlsl2glsl-coverage-test.mjs  # 只测 vendored 那份（**非默认**，用于复核 P-114 的取舍）
 //
 // 依据：`docs/SIMILAR-PROJECTS-RESEARCH.md` §6.3 的 P1 完成判据原文 ——
 //   「`hlsl2glsl` 作为**可选**效果路径接入 + 覆盖率回归门禁（用 `docs/HLSL2GLSL-COVERAGE.md` 的语料口径）
 //     ⇒ **新增门禁项，把 98.2% 这个数字变成会变红的断言**（而不是文档里的数字）」
-// 本文件只做**后半句**（覆盖率回归门禁）。前半句"接入可选效果路径"要动 `core/we-scene-bundle.js`，
-// 与并发线冲突，**未做**（如实记在 PATCHES.md P-93 的"未做"一节）。
+// P-93 当时只做了**后半句**（覆盖率回归门禁），且门禁 import 的是 `vendor/hlsl2glsl/` —— 而渲染路径
+// 用的是 `core/we-scene-bundle.js` 里自研的那份（`:4106` 定义、`:7268-7269` 调用，全文件 0 处引用 vendor）
+// ⇒ 门禁当时守的是**没在跑的实现**（audit 2026-09-18 指出，本文件据此改）。
+//
+// ①(P-114 2026-09-18) **本门禁现在守"在跑的那份"**：默认 import `core/we-scene-bundle.js` 的
+//   `hlsl2glsl`（= 渲染路径调用的同一个模块内绑定），并新增"接线身份"断言（vendored 那份跑赢才算红）。
+//   取舍证据（为什么**不**把 vendored 接进去）：真实渲染路径口径下（11 包 128 个 effect-chain 作业、
+//   真 combos）自研 128/128 真编译通过、vendored 120/128 —— vendored 有 8 个作业编不过而自研全过，
+//   反方向 0 个。见 PATCHES.md P-114 与 docs/HLSL2GLSL-COVERAGE.md 的 P-114 附注。
+//
+// ②(P-114) **括号平衡检查改成"剥注释/字符串后再数"**：旧口径直接数全文，而自研实现**保留注释**
+//   （vendored 那份 stripComments），我们自己 `shaders/common*.h` 的注释正文里就有不成对的 `(`
+//   ⇒ 旧口径把**注释散文**算成了"括号不平衡"，14 个 shader 被误判为"可疑"（glslangValidator 真编译
+//   全部通过）。改后仍打印**原文计数**作对照，判定用剥注释后的计数（更严格地对应真实 GLSL 语法）。
 //
 // 口径（与 `docs/HLSL2GLSL-COVERAGE.md` §2.1 的三态定义**逐条对齐**）：
 //   · 候选 = `<语料根>/<id>/scene.pkg`，取包内 `shaders/**` 下 `.frag/.vert`，按 **sha256 内容去重**
@@ -24,8 +37,17 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { hlsl2glsl } from '../vendor/hlsl2glsl/hlsl2glsl.js'
+// ①(P-114) **被测实现 = 渲染路径真正在用的那份**：`core/we-scene-bundle.js` 的 `hlsl2glsl`
+//   （`:4106` 定义、`:7268-7269` 被渲染路径调用；同一模块内绑定 ⇒ 这里 import 到的就是它）。
+import * as WIRED_LIB from '../core/we-scene-bundle.js'
+// ①(P-114) vendored 那份**不再是**被测对象，只用于"为什么没接它"的可复核对照（见文件末尾 A/B 段）。
+import { hlsl2glsl as VENDORED } from '../vendor/hlsl2glsl/hlsl2glsl.js'
 import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
+
+const IMPL_NAME = process.env.MPW_H2G_IMPL === 'vendor' ? 'vendor' : 'wired'
+const hlsl2glsl = IMPL_NAME === 'vendor' ? VENDORED : WIRED_LIB.hlsl2glsl
+// 自研那份不收第 5 参 siblingSrc（跨 stage 合并 [COMBO] 默认值是 vendored 的能力）；多传的实参被忽略。
+const WIRED_TAKES_SIBLING = hlsl2glsl.length >= 5
 
 const HERE = ROOT
 const JSON_OUT = process.argv.includes('--json')
@@ -132,33 +154,61 @@ if (!files.length) { console.log('SKIP hlsl2glsl-coverage（' + picked.length + 
 
 // ── 逐文件过转译器 ──
 const RESIDUAL = /\b(float[234]x?[234]?|tex2D|cbuffer|SamplerState|SV_Target|SV_Position|TEXCOORD\d|\[unroll\]|static const|half[234]?)\b/
+// ①(P-114) 剥注释与字符串字面量：括号平衡必须数**真的 GLSL 语法**，不能数注释散文。
+//   实证（2026-09-18）：自研实现保留注释（vendored stripComments），而 `shaders/common*.h` 的注释正文里
+//   就有不成对的 `(`（如 "(and the wallpaper packages they come from)" 跨行）⇒ 旧口径把 14 个
+//   **glslangValidator 真编译通过**的 shader 判成"括号不平衡 ⇒ 可疑"。这里剥掉再数（原文计数仍打印）。
+function stripCommentsAndStrings(s) {
+  let out = '', i = 0
+  while (i < s.length) {
+    if (s[i] === '/' && s[i + 1] === '/') { while (i < s.length && s[i] !== '\n') i++; continue }
+    if (s[i] === '/' && s[i + 1] === '*') { i += 2; while (i < s.length && !(s[i] === '*' && s[i + 1] === '/')) i++; i += 2; continue }
+    if (s[i] === '"' || s[i] === "'") { const q = s[i++]; while (i < s.length && s[i] !== q) { if (s[i] === '\\') i++; i++ } i++; out += ' '; continue }
+    out += s[i++]
+  }
+  return out
+}
+function count(s, ch) { let n = 0; for (const c of s) if (c === ch) n++; return n }
+// 三态判定（与文档 §2.1 逐条对齐）；`raw` 只作诊断，不参与判定
+function runOne(impl, f, sibling) {
+  let out = null, err = ''
+  try { out = impl(f.src, f.stage, {}, (n) => includeResolver(n), sibling ? sibling.src : '') } catch (e) { err = String(e && e.message).slice(0, 120) }
+  if (!out) return { out, err, verdict: 'throw', reason: err }
+  const code = stripCommentsAndStrings(out)
+  const balanced = count(code, '{') === count(code, '}') && count(code, '(') === count(code, ')')
+  const rawBalanced = count(out, '{') === count(out, '}') && count(out, '(') === count(out, ')')
+  const residual = RESIDUAL.test(code)
+  const cok = balanced && !residual ? compiles(out, f.stage) : false
+  const verdict = (balanced && !residual && cok !== false) ? 'pass' : 'suspect'
+  return { out, err, verdict, balanced, rawBalanced, residual, cok, reason: residual ? 'HLSL 残留 token' : (!balanced ? '括号不平衡' : (cok === false ? 'GLSL ES 300 编不过' : '')) }
+}
+const COMPARE = process.env.MPW_H2G_COMPARE !== '0'   // 默认做 A/B 对照（复核 P-114 的取舍）；=0 只跑被测实现
 const rows = []
 for (const f of files) {
   const sibling = files.find((o) => o.stage !== f.stage && o.path.replace(/\.(vert|frag)$/i, '') === f.path.replace(/\.(vert|frag)$/i, ''))
-  let out = null, err = ''
-  try { out = hlsl2glsl(f.src, f.stage, {}, (n) => includeResolver(n), sibling ? sibling.src : '') } catch (e) { err = String(e && e.message).slice(0, 120) }
-  const balanced = out ? (count(out, '{') === count(out, '}') && count(out, '(') === count(out, ')')) : false
-  const residual = out ? RESIDUAL.test(out) : false
-  const cok = out && balanced && !residual ? compiles(out, f.stage) : false
-  const verdict = err ? 'throw' : (out && balanced && !residual && cok !== false) ? 'pass' : 'suspect'
-  rows.push({ name: f.name, stage: f.stage, pkgs: [...new Set(f.pkgs)].length, verdict, reason: err || (residual ? 'HLSL 残留 token' : (!balanced ? '括号不平衡' : (cok === false ? 'GLSL ES 300 编不过' : ''))) })
+  const r = runOne(hlsl2glsl, f, sibling)
+  const v = COMPARE ? runOne(VENDORED, f, sibling) : null
+  rows.push({ name: f.name, stage: f.stage, pkgs: [...new Set(f.pkgs)].length, sha: f.sha, ...r, v })
 }
-function count(s, ch) { let n = 0; for (const c of s) if (c === ch) n++; return n }
 
 const passN = rows.filter((r) => r.verdict === 'pass').length
 const suspect = rows.filter((r) => r.verdict === 'suspect')
 const thrown = rows.filter((r) => r.verdict === 'throw')
 const ratio = passN / rows.length
 const isDocCorpus = files.length >= DOC_TOTAL
-// 门槛可被环境变量**抬高**（只允许抬高不允许压低）：用于自证"这条断言真的会变红"——
-//   `MPW_H2G_MIN_RATIO=0.999 node hlsl2glsl-coverage-test.mjs; echo rc=$?` ⇒ 1（见 PATCHES.md P-93 自证）。
+// 门槛可被环境变量**抬高**（只允许抬高不允许压低）：用于自证"这条断言真的会变红"。
+//   ⚠ ①(P-114) 口径变了：被测实现改成在跑的自研那份后本机是 **46/46 = 100%** ⇒ 旧的
+//   `MPW_H2G_MIN_RATIO=0.999` **不再会红**（1.0 ≥ 0.999）。现在可复现的自证是把被测实现指回 vendored：
+//     `MPW_H2G_IMPL=vendor MPW_H2G_MIN_RATIO=0.99 node hlsl2glsl-coverage-test.mjs; echo rc=$?` ⇒ rc=1
+//   另外 `MPW_H2G_IMPL=vendor` 单跑复现 P-93 记录的 45/46 = 97.8%（口径未被我改坏）。
 const floor = Math.max(isDocCorpus ? DOC_RATIO : SUBSET_RATIO, Number(process.env.MPW_H2G_MIN_RATIO || 0))
 
 let failN = 0
 const fails = []
 const check = (name, ok, detail) => { if (!ok) { failN++; fails.push(name + (detail ? ' — ' + detail : '')) } console.log((ok ? '  ✓ ' : '  ✗ ') + name + (detail ? '  [' + detail + ']' : '')) }
 
-console.log('hlsl2glsl 覆盖率门禁（P-93）')
+console.log('hlsl2glsl 覆盖率门禁（P-93 覆盖率 + P-114 对准在跑的实现）')
+console.log('  被测实现 : ' + (IMPL_NAME === 'wired' ? '自研 core/we-scene-bundle.js:4106（= 渲染路径 :7268-7269 调用同一个绑定）' : '⚠ vendored vendor/hlsl2glsl/（MPW_H2G_IMPL=vendor：只为复核 P-114 取舍，不是渲染路径在跑的）'))
 console.log('  语料根   : ' + SCENE_ROOT)
 console.log('  取样包   : ' + picked.length + '/' + cands.length + '（' + pkgReport.map((r) => r.id + '@' + r.mb + 'MB').join(', ') + '）')
 console.log('  去重文件 : ' + files.length + '（frag ' + rows.filter((r) => r.stage === 'frag').length + ' / vert ' + rows.filter((r) => r.stage === 'vert').length + '）' + (isDocCorpus ? '' : '  ⚠ 子集（文档口径 ' + DOC_TOTAL + '）'))
@@ -173,7 +223,44 @@ check('覆盖率 ≥ ' + (floor * 100).toFixed(1) + '%' + (isDocCorpus ? '（文
 check('include 解析器非空（仓库自研 common*.h 在位）', HEADERS.size > 0, [...HEADERS.keys()].join(' '))
 check('每个"可疑"都带得出原因（不是静默降级）', suspect.every((s) => !!s.reason))
 
-if (JSON_OUT) console.log(JSON.stringify({ sceneRoot: SCENE_ROOT, pkgs: pkgReport, files: files.length, docTotal: DOC_TOTAL, strict: !!GLSLANG, pass: passN, suspect: suspect.length, throw: thrown.length, ratio, floor, ok: failN === 0 }))
+// ── ①(P-114) 接线身份：本门禁守的必须是**渲染路径在跑的那份实现** ──
+// 三条断言合起来的效果：谁把渲染路径换成 vendored 那份（= 反转 P-114 的决定）⇒ 这里变红。
+console.log('\n①(P-114) 接线身份（门禁守的是哪份实现）')
+const BUNDLE = path.join(ROOT, 'core', 'we-scene-bundle.js')
+const bundleSrc = fs.readFileSync(BUNDLE, 'utf8')
+const renderCallFrag = "hlsl2glsl(src.frag, 'frag', effectiveCombos, resolver)"
+const renderCallVert = "hlsl2glsl(src.vert, 'vert', effectiveCombos, resolver)"
+check('被测实现 = bundle 导出的 `hlsl2glsl`（同一模块内绑定；IMPL=' + IMPL_NAME + '）',
+  IMPL_NAME !== 'wired' || WIRED_LIB.hlsl2glsl === hlsl2glsl,
+  IMPL_NAME !== 'wired' ? 'MPW_H2G_IMPL=vendor ⇒ 本条按设计跳过' : (typeof hlsl2glsl === 'function' ? 'arity=' + hlsl2glsl.length : 'not a function'))
+check('bundle 源码 0 处引用 vendor/hlsl2glsl（渲染路径没接 vendored 那份）',
+  !/vendor\/hlsl2glsl/.test(bundleSrc), String((bundleSrc.match(/vendor\/hlsl2glsl/g) || []).length) + ' 处')
+check('渲染路径调用点在位（core/we-scene-bundle.js 的 getEffectProgram）',
+  bundleSrc.includes(renderCallFrag) && bundleSrc.includes(renderCallVert),
+  renderCallFrag + ' / ' + renderCallVert)
+console.log('  · vendored 那份收第 5 参 siblingSrc：' + (VENDORED.length >= 5) + '；被测实现收：' + WIRED_TAKES_SIBLING +
+  (WIRED_TAKES_SIBLING ? '' : '（自研实现不合并跨 stage 的 [COMBO] 默认值，靠 `:4334/:4358` 的自有修复过语料）'))
+
+// ── ①(P-114) A/B 对照：**为什么没把 vendored 接进去**（可复核的取舍证据）──
+let cmp = null
+if (COMPARE) {
+  const wiredOnly = rows.filter((r) => r.verdict === 'pass' && r.v.verdict !== 'pass')
+  const vendoredOnly = rows.filter((r) => r.verdict !== 'pass' && r.v.verdict === 'pass')
+  cmp = { wiredPass: passN, vendoredPass: rows.filter((r) => r.v.verdict === 'pass').length, files: rows.length,
+    wiredOnly: wiredOnly.map((r) => r.stage + ' ' + r.name), vendoredOnly: vendoredOnly.map((r) => r.stage + ' ' + r.name) }
+  console.log('\n①(P-114) A/B 对照（同语料同口径，' + (GLSLANG ? '严格：glslangValidator 真编译' : '非严格：无 glslang') + '）')
+  console.log('  · 被测实现(在跑) : ' + cmp.wiredPass + '/' + rows.length + ' = ' + (cmp.wiredPass / rows.length * 100).toFixed(1) + '%')
+  console.log('  · vendored(未接) : ' + cmp.vendoredPass + '/' + rows.length + ' = ' + (cmp.vendoredPass / rows.length * 100).toFixed(1) + '%')
+  console.log('  · 只有被测实现过 : ' + (wiredOnly.length ? wiredOnly.map((r) => r.stage + ' ' + r.name).join(', ') : '（无）'))
+  console.log('  · 只有 vendored 过: ' + (vendoredOnly.length ? vendoredOnly.map((r) => r.stage + ' ' + r.name).join(', ') : '（无）'))
+  check('vendored 不存在"被测实现编不过而它编得过"的文件（⇒ 换成 vendored 不会提升本语料覆盖率）',
+    vendoredOnly.length === 0, vendoredOnly.map((r) => r.stage + ' ' + r.name).join(','))
+  check('被测实现覆盖率 ≥ vendored（P-114：门禁守的必须是至少不更差的那份）',
+    cmp.wiredPass >= cmp.vendoredPass, cmp.wiredPass + ' vs ' + cmp.vendoredPass)
+  console.log('  · 取舍证据（只有被测实现过）: ' + wiredOnly.length + ' 个' + (wiredOnly.length ? '' : '（本机语料上两份持平 —— **不是**红，只说明证据随语料变）'))
+}
+
+if (JSON_OUT) console.log(JSON.stringify({ impl: IMPL_NAME, sceneRoot: SCENE_ROOT, pkgs: pkgReport, files: files.length, docTotal: DOC_TOTAL, strict: !!GLSLANG, pass: passN, suspect: suspect.length, throw: thrown.length, ratio, floor, wiring: { bundleRefsVendor: (bundleSrc.match(/vendor\/hlsl2glsl/g) || []).length, wiredTakesSibling: WIRED_TAKES_SIBLING }, compare: cmp, ok: failN === 0 }))
 console.log('\n' + '─'.repeat(72))
 if (failN) { console.log('✗ hlsl2glsl 覆盖率回归：' + failN + ' 条断言失败\n  - ' + fails.join('\n  - ')); process.exit(1) }
 console.log('✓ hlsl2glsl 覆盖率回归通过（' + passN + '/' + rows.length + ' = ' + (ratio * 100).toFixed(1) + '%；文档基线 ' + (DOC_RATIO * 100).toFixed(1) + '%）')

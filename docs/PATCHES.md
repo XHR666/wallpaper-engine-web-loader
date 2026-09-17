@@ -7371,3 +7371,155 @@ rate=2 时为 100 = 时间翻倍处独立求值（rate=1 时为 75）；屏幕�
   `docs/README-DIAGNOSTICS.md` §⑦（`diag-flag-check` 实测 **147 == 147**，0 差异）。
 - 文档：新增 `docs/DISPLAY-OPTIONS.md`（契约 / 机制与落点（含与 `?fx=` 的合成与优先级）/ 区间与取值语义 /
   指针行为 / 倍率语义 / 持久化 / API / 判据 / 未定 / 复现）。
+
+## P-114（2026-09-18 任务书 P0-5）hlsl2glsl「只 vendored 未接线」的**诚实收口**：实测证明接进去**更差** ⇒ 保持自研、把门禁从"守没在跑的 vendored"改为"守在跑的自研"（+ 仪器化接线证明 + 反向变异必红）
+
+**依据（P0-5 原文）**：*"把 `vendor/hlsl2glsl/` 接进 bundle 的转译路径，覆盖率 97.8% 作为会变红的门槛（已具备）；
+验收：覆盖率不降 + 6 真包渲染对账不劣化 + 新增断言"*。**审计（同日）先修正了事实前提**：`core/we-scene-bundle.js`
+用的是**自研**那份（`:4106` 定义、`:7268-7269` 调用，全文件 **0** 处引用 vendor），而 P-93 的
+`tests/hlsl2glsl-coverage-test.mjs` import 的是 `vendor/hlsl2glsl/` ⇒ **门禁当时守着一份没在跑的实现**。
+
+**结论（先说人话）**：**不接 vendored**。理由不是"怕动渲染路径"，而是**实测接进去更差**：
+真实渲染路径口径下自研 **128/128** 真编译通过、vendored **120/128**（vendored 编不过 8 个作业，自研全过；
+反方向 **0** 个）。根因清楚且可复核：我们**自己重写的** `shaders/common*.h` 头表依赖自研实现里若干自有修复
+（尤其 **uniform 声明提前** `:4358`），而 vendored 那份是按上游 `headers.ts` 头表写的（那份头表 P-93 明确
+**没有** vendored）。所以 P0-5 那句"未接线"的技术前提（接上会更好）**是陈旧的**；按"绝不为了满足一条陈旧
+to-do 而接线"的纪律，本补丁交付的是 **门禁对准在跑的实现 + 接线证明**，不是"把渲染器换成 vendored"。
+
+### P-114.1 取证：三个口径的实测数字（本机，`glslangValidator` 在场 ⇒ 严格口径）
+
+| 口径 | 语料 | 自研（**在跑**） | vendored（未接） | 判别力 |
+|---|---|---|---|---|
+| **真渲染路径**：真 effect 链 + 真 combos（复刻 `tests/glsl-validate.mjs` 的走法，`combos = mp.combos ∪ ov.combos`） | `$MPW_ROOT/allwallpaper/dd` **11 包**（22 个数字目录里含 scene.pkg 的 11 个）**/ 128 个 (shader,combos,stage) 作业** | **128/128 = 100.0%** | 120/128 = 93.8% | vendored **8 个作业编不过**而自研全过；**自研编不过而 vendored 过 = 0 个** |
+| **P-93 门禁口径**：4 包（按体积升序：`3715743282@3.7MB, 3721991999@8.3MB, 3554161528@22.5MB, 3778592720@41.3MB`）/ 46 去重文件 / `combos={}` | 同上 | **46/46 = 100.0%** | 45/46 = 97.8% | 唯一分歧：`blur_precise_gaussian.frag`（自研过 / vendored 不过） |
+| 同上门禁口径，但**按 P-93 当时的括号检查**（数全文，注释也算） | 同上 | 32/46 = 69.6% | 45/46 = 97.8% | **假阴性**（见 P-114.2） |
+
+`MPW_H2G_IMPL=vendor node tests/hlsl2glsl-coverage-test.mjs` 可原样复现 P-93 记录的 **45/46 = 97.8%**
+（⇒ 旧口径没有被改坏，只是默认被测对象换了）。
+
+### P-114.2 顺手修掉的一个**假阴性**：括号检查数了注释散文
+
+P-93 的"括号/花括号平衡"是直接数 **全文**。但自研实现**保留注释**（vendored 那份调 `stripComments`），
+而我们自己的 `shaders/common*.h` 注释正文里就有不成对的 `(`（例：`common.h` 的
+`// Only the entry points that the shipped shaders (and the wallpaper packages they` / `// come from) actually call …`
+跨行一开一合，全文计数就多一个 `)`）⇒ 旧口径把这 14 个**glslangValidator 真编译通过**的 shader 判成
+"括号不平衡 ⇒ 可疑"，把自研的 69.6% 打了出来。现在：**剥掉注释与字符串字面量后再数**（原文计数仍打印作对照），
+剥后 52/52 平衡、真编译 46/46 全过。**这不是放宽门槛**：残留 token 检查同样改成剥后文本；`MPW_H2G_MIN_RATIO`
+自证仍在（把被测实现指回 vendored 并抬高门槛 ⇒ 红，见 P-114.5）。
+
+### P-114.3 vendored 输在哪（三个根因，逐条可复现）
+
+| shader（语料里的真包内路径） | vendored 的 glslang 报错 | 根因（自研有、vendored 没有） |
+|---|---|---|
+| `workshop/2981960200/effects/blur_precise_gaussian.frag`（3 个包共用同一份内容） | `0:37: 'g_Texture0' : undeclared identifier` | **uniform 声明提前**（`core/we-scene-bundle.js:4358`）：`shaders/common_blur.h:31` 在 `blur13a()` 函数体里引用 `g_Texture0`，而 shader 的 `uniform sampler2D g_Texture0;` 写在 `#include "common_blur.h"` **之后**（源文件 L4 是 include、L8 才是 uniform）⇒ 自研把 uniform 行提到最前（输出 L4–L6），vendored 不提前（函数在 L35、uniform 在 L112）⇒ 先使用后声明 |
+| `workshop/3573886911/effects/frame_builder_by_gariam.frag`（`REF_RES=1`） | `0:389: '' : boolean expression expected` | **`float/int` 当 `if`/三元条件**（非零即真，`:4334`）：`vec4 final = vec4(outside ? inSmooth : outSmooth);` 里 `outside` 是数值类型，GLSL ES 只接受 `bool` |
+| `workshop/3578699527/effects/audioline.frag` | `0:32: '-' : wrong operand types: no operation '-' exists that takes a left-hand operand of type 'const mediump int'` | **int→float 字面量归一化**：vendored 留下 `clamp(index, 0.0, BANDS - 1.0)`（`BANDS` 展开成整型常量）⇒ `int - float`；自研把该处补成浮点 |
+
+### P-114.4 切换成本（实测；供将来复议，本补丁**未**付出这些成本）
+
+| 维度 | 数字 |
+|---|---|
+| 体积 | vendored 两文件 **92,924 字节**（`vendor/hlsl2glsl/hlsl2glsl.js` 77,953 + `vendor/hlsl2glsl/hlsl-preprocessor.js` 14,971）；自研那一节（`core/we-scene-bundle.js:3721-4381`）**26,408 字节**；bundle 共 592,560 字节 ⇒ 内联约 **+15.7%** |
+| 启动/解析 | `import` 实测 **15–17ms**（vendored 两文件）vs **32–33ms**（整个 bundle，已付）；46 文件转译 **235ms**（vendored）vs **187–243ms**（自研，两次取样） |
+| 确定性 | 两份**都是确定性纯函数**：同一批 46 文件两次运行输出 sha256 相同（自研 `9ea12140b5dec6d8` / vendored `3e2334533f00d8d2`） |
+
+### P-114.5 改了什么（4 处，渲染路径**零改动**）
+
+1. `tests/hlsl2glsl-coverage-test.mjs`：默认被测实现从 `vendor/hlsl2glsl/` 改为 **`core/we-scene-bundle.js`
+   导出的 `hlsl2glsl`**（= 渲染路径调用的同一个模块内绑定）；括号/残留检查改为**剥注释后**（P-114.2）；
+   新增**接线身份** 3 条断言（被测实现 ≡ bundle 导出 / **bundle 源码 0 处引用 `vendor/hlsl2glsl`** /
+   渲染路径调用点 `hlsl2glsl(src.frag|vert, 'frag'|'vert', effectiveCombos, resolver)` 在位）；
+   新增 **A/B 对照** 2 条断言（vendored 不存在"自研编不过而它编得过"的文件；自研覆盖率 ≥ vendored）。
+   `MPW_H2G_IMPL=vendor|wired`（默认 wired）、`MPW_H2G_COMPARE=0` 可关对照。
+2. `tests/hlsl2glsl-wiring-test.mjs`（**新**，13 断言，~0.6s）：**仪器化真渲染路径** —— 把 bundle 的
+   **真源码**复制到临时模块、只在转译调用点插 2 行探针（记录 `shaderName/stage/effectiveCombos`），
+   用 mock-GL 捕获 `gl.shaderSource()` 真正收到的 GLSL，再与两份实现**逐字节**对拍。真实性边界如实写明：
+   shader 字节 / effect 链 / combos / include 解析器**全部取自真包**（`3715743282` 的
+   `blur_precise_gaussian.frag`，sha `7d613ded`）；只有**承载该效果链的那一层是合成的** —— 因为本机无 GPU/
+   文字渲染器/蒙皮数据，语料里这些 shader 只挂在**文字层/蒙皮 mesh 层**上（实测：直接渲染真包一帧，
+   `shaderResolver` **0 次**调用、效果链根本没执行）。合成载体层是 `tests/mock-gl-test.mjs` 已在用的写法。
+3. `tests/run-all-tests.sh`：**末尾**追加 `add "hlsl2glsl-wiring"`（既有 85 行 add 一字未动 ⇒ 现 **86 项**）。
+   同一提交里带入**并发的另一条线**对锁块的改动（`mkdir` → `flock` 统一锁协议，见该文件 `:307-315` 注释）——
+   如实在此登记，不是本补丁的成果。
+4. `docs/PATCHES.md` 本节；工作区根 `docs/HLSL2GLSL-COVERAGE.md` 新增 **§9**（把 98.2% 的适用对象写清楚：
+   那是 vendored 的数字，并附上面三口径复测表）；`docs/MASTER-TODO.md` P0-5 行改为已收口（只改那一行）。
+
+**回退开关**（本形状 (b) **不需要**回退渲染路径 —— 渲染路径一行未动；下面两个只为"将来复议时能复现旧口径"）：
+`MPW_H2G_IMPL=vendor`（门禁改测 vendored）、`MPW_H2G_COMPARE=0`（关 A/B 对照）、
+`MPW_H2G_WIRE_MAX_MB=<n>`（接线测试的语料包体积上限，默认 32MB）。
+
+### P-114.6 自证："这条断言真的会变红"
+
+```
+$ MPW_H2G_IMPL=vendor MPW_H2G_MIN_RATIO=0.99 node tests/hlsl2glsl-coverage-test.mjs; echo rc=$?
+✗ hlsl2glsl 覆盖率回归：2 条断言失败
+  - 覆盖率 ≥ 99.0%（子集回归下限） — 97.8% = 45/46
+rc=1
+```
+> ⚠ 口径变了之后的诚实说明：默认（自研）在本机是 **46/46 = 100%**，所以 P-93 记录的
+> `MPW_H2G_MIN_RATIO=0.999` **不再会红**（1.0 ≥ 0.999）。上面这条是现在可复现的自证。
+
+接线测试自带 **RED-IF-REVERTED**（绿色运行也打印 RED 行）——把真源码变异成"接 vendored"
+（注入 vendored import + 重命名自研声明 ⇒ 渲染路径调用点落到 vendored）后，同一帧重跑：
+
+```
+   RED 变异后捕获到的是 **vendored** 的输出、不再是自研的 ⇒ W2e 会变红
+   RED 变异后捕获的 GLSL 真编译**不过**（ERROR: 0:37: 'g_Texture0' : undeclared identifier）⇒ W2g 会变红
+  ✓ W3b RED-IF-REVERTED：变异成"接 vendored"后 W2 的判定确实翻转  [2 条]
+```
+
+### P-114.7 6 真包渲染对账（**不劣化**；数字取自既有口径，未新造 harness）
+
+**结构性前提**：本补丁**没有改渲染路径的任何一行** —— `core/we-scene-bundle.js` 的 sha256 与改动前**逐字节相同**
+（`9c6b0cf80ac805862ebdb77fbf0b8ade13a5615b96d97f27e3a2452109d4ad4c`）；`git status` 里 `core/` 下的改动全部来自
+**并发其它线**（`attach-transform.mjs` / `puppet-skin.js`），本补丁对 `core/` 的 diff 为空 ⇒ "逐位不变"是结构性的。
+仍按验收逐项跑既有对账口径并记录实测数字（2026-09-18，本机）：
+
+| 既有对账项（命令） | 实测数字 | 结论 |
+|---|---|---|
+| `node tests/glsl-validate.mjs`（**真渲染路径**：全 dd 包真 effect 链 + 真 combos + glslang 真编译） | `共 128 个 (shader, combos, stage) 待真编译` → **`结果: 128/128 通过`** | 无回归（与 P-114.1 独立复刻的双跑一致：自研 128/128、vendored 120/128） |
+| `node tests/package-matrix.mjs --check`（6 真包矩阵 vs 冻结基线） | `✓ --check：与基线逐包比对无退化` | 无退化 |
+| `node tests/layer-rect-check.mjs 3719111841 --refrender`（层矩形 vs 官方标定） | 与标定矩形中心距离 **中位 0px / 最大 79px**；非 center 对齐 **0 层**；有父级 22 层；attachment 19 层；puppet 网格 5 层；标定不可达 1 层（`115:眼睛组合`，判据 P-30） | 与 P-30/P-76 记录一致，无回归 |
+| `node tests/projection-y-test.mjs`（相机投影 y 口径 + 粒子增量缓存不变量） | **49 通过 / 0 失败**（`?bones=人物` 逐骨 32 根；姿态=bind 反解 `maxErr=0.0e+0`） | 无回归 |
+| `node tests/mock-gl-test.mjs`（mock-GL 调用序列） | **60 通过 / 0 失败** | 无回归 |
+| `node tests/parity-check.mjs`（场景级对账） | `✓ 2 场景对账完成，无越界差异` | 无回归 |
+| `node tests/skin-order-verify.mjs 3719111841 主体`（蒙皮链序） | 骨骼=6 顶点=412 采样144；正确序 `bindInv×W` 到枢轴最大误差 **0.0000**；旧序 `W×bindInv` **53.0** | 无回归（P-110 口径保持） |
+| `node tests/render-audit.mjs 3719111841`（首帧逐层台账） | 首帧逐层 `vis/tex/skin/fx` 台账正常输出（`右侧发` 等 `fx=1` 层照常进效果链） | 无回归 |
+| `bind-order`（TN4 全语料回归）/ `render-audit-kal` / `skin-order-kal` | 全量门禁内 **PASS** | 无回归 |
+
+> 口径说明：这里**只跑仓内既有对账**（层矩形 / 投影 / mock-GL 调用序列 / 真编译覆盖率 / 逐包基线矩阵），
+> **没有**新造 harness；`glsl-validate` 的 128 作业正是"真渲染路径转译 + 真编译"那一项，也是本补丁决策的主证据。
+
+### P-114.8 未做 / 未证实（不猜）
+
+- **本机无 GPU/WebGL2** ⇒ 上面全部是 `glslangValidator`（GLSL ES 300 参考前端）+ mock-GL + 逐字节文本级
+  证据，**不是**真机 ANGLE/像素结果；"vendored 接进去在真机上会不会也差"未证实（差在编译期，与 GPU 无关，
+  但按纪律不越界断言）。
+- vendored 在**上游 `headers.ts` 头表**下的表现未在本仓复现（那份头表 P-93 决定不 vendored）⇒ "vendored 在它
+  自己的配套头表下是否 100%"**未证实**，本补丁只断言"在我们这套自研头表 + 真语料下它 120/128"。
+- 未删除 `vendor/hlsl2glsl/`：它仍是 P-93 登记的台账 #8/#9v（MIT 全文 + sha256 在 `THIRD-PARTY.md` §9、
+  `docs/COPYING-RULES.md` §4），删它要动发布面与合规台账，且本次门禁仍用它做 A/B 对照 ⇒ 保留并说明用途。
+- 未把 `?` 开关加进 `docs/README-DIAGNOSTICS.md`：本补丁**没有新增任何 URL 开关**（只有测试侧环境变量
+  `MPW_H2G_*`），故该表无需新行（`diag-flag-check` 实测 **147 == 147** 仍绿）。
+
+### P-114.9 全量门禁（本补丁的收口运行）
+
+```
+$ bash tests/run-all-tests.sh          # 脚本自持 flock；调用方**不要**再套外层锁
+PASS hlsl2glsl-coverage (5947ms)       # 改后：守"在跑的实现"，46/46 = 100%（+ 接线身份 / A-B 对照断言）
+PASS hlsl2glsl-wiring (559ms)          # 新增：13 断言（仪器化真渲染路径 + RED-IF-REVERTED）
+PASS glsl-validate (9902ms)  PASS package-matrix (57856ms)  PASS layer-rect-kal (292ms)
+PASS projection-y (2229ms)   PASS mock-gl (257ms)           PASS parity-check (585ms)
+PASS bind-order (2035ms)     PASS docs-check (955ms)        PASS diag-flags (434ms)
+══ 汇总：PASS=85 FAIL=0 SKIP=1 / 总 86 项        # SKIP = jpeg-decode（条件项：本机无真机截图，按设计不红）
+```
+
+**过程中修掉的一个环境产物**（不是本补丁的代码问题，如实登记）：第一次全量运行在第 3 次系统重启时被打断，
+`reports/real-machine/` 里留下一个**被截断的 5 字节快照**（内容字面量 `null`，01:07 写入）；`baseline-trend`
+于是 `JSON.parse` 出 `null` → 在 `tests/baseline-trend.mjs:74` 抛 `TypeError` ⇒ 那一轮 `FAIL baseline-trend`。
+该文件属 `reports/`（`.gitignore:13` 忽略的本机滚动产物）且内容为空 ⇒ 删除后复跑 `baseline-trend` 得
+`✓ 没有超阈值的退化`（`startup.totalMs 527 → 489 = −7.2%`、`switch.swapTo.ms 1099 → 839 = −23.7%`），
+全量门禁随即 **85/0/1 全绿**。**未**顺手改 `tests/baseline-trend.mjs`（那是另一条线的文件；它的既有设计是
+"不合 schema 的快照算红"，只是"截断成 null"会以 TypeError 的形式炸而不是走它的 `invalid` 分支——
+建议那条线补一行 `if (!o || typeof o !== 'object')` 的空值守卫，按"绝不并发改同一文件"的纪律留给他们）。
+
