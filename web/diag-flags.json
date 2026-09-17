@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-17T16:23:23.263Z",
+  "generatedAt": "2026-09-17T22:38:47.493Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -355,12 +355,12 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6722,
+          "line": 6763,
           "pattern": "searchParams.get('bindorder')"
         },
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6727,
+          "line": 6768,
           "pattern": "searchParams.get('bindorder')"
         },
         {
@@ -376,7 +376,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6686,
+          "line": 6727,
           "pattern": "searchParams.get('blinkty')"
         }
       ]
@@ -387,7 +387,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6711,
+          "line": 6752,
           "pattern": "searchParams.get('bones')"
         }
       ]
@@ -502,7 +502,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6600,
+          "line": 6605,
           "pattern": "searchParams.get('cursor')"
         }
       ]
@@ -680,7 +680,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8711,
+          "line": 8852,
           "pattern": "searchParams.get('fx')"
         }
       ]
@@ -847,7 +847,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4633,
+          "line": 4891,
           "pattern": "regex [?&]inlinefrost="
         }
       ]
@@ -904,6 +904,17 @@
           "file": "demo.html",
           "line": 947,
           "pattern": "regex [?&]layout="
+        }
+      ]
+    },
+    {
+      "name": "lgcss",
+      "common": false,
+      "sites": [
+        {
+          "file": "dsh-mpkg-wallpaper/lib/client.js",
+          "line": 6375,
+          "pattern": "searchParams.get('lgcss')"
         }
       ]
     },
@@ -1027,12 +1038,12 @@
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4556,
+          "line": 4814,
           "pattern": "localStorage('mpwdiag')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4577,
+          "line": 4835,
           "pattern": "localStorage('mpwdiag')"
         }
       ]
@@ -1103,7 +1114,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 12956,
+          "line": 13341,
           "pattern": "searchParams.get('navicon')"
         }
       ]
@@ -1147,7 +1158,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8710,
+          "line": 8851,
           "pattern": "searchParams.has('nofx')"
         }
       ]
@@ -1158,7 +1169,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8725,
+          "line": 8866,
           "pattern": "searchParams.has('nofxfb')"
         }
       ]
@@ -1520,7 +1531,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 9474,
+          "line": 9618,
           "pattern": "searchParams.get('psim')"
         }
       ]
@@ -1591,7 +1602,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 5093,
+          "line": 5351,
           "pattern": "searchParams.get('railink')"
         }
       ]
@@ -1683,7 +1694,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 5675,
+          "line": 5948,
           "pattern": "searchParams.get('sbfill')"
         }
       ]
@@ -1835,12 +1846,23 @@
       ]
     },
     {
+      "name": "subbase",
+      "common": false,
+      "sites": [
+        {
+          "file": "core/we-scene-bundle.js",
+          "line": 6823,
+          "pattern": "regex [?&]subbase="
+        }
+      ]
+    },
+    {
       "name": "submesh",
       "common": false,
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6759,
+          "line": 6800,
           "pattern": "searchParams.get('submesh')"
         }
       ]
@@ -1851,7 +1873,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6767,
+          "line": 6808,
           "pattern": "searchParams.get('subtri')"
         }
       ]
@@ -1900,7 +1922,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8696,
+          "line": 8837,
           "pattern": "searchParams.has('trace')"
         },
         {
