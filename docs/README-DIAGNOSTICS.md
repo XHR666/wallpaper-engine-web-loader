@@ -3,8 +3,8 @@
 > **本表由代码确认，非手抄**：开关全集由 `node diag-flag-check.mjs`（MERGED-3 2.2）从
 > `core/we-scene-bundle.js` / `demo.html` / `elysia/**/*.js` / `dsh-mpkg-wallpaper/lib/client.js`
 > 的 `URLSearchParams` / `new URL(...).searchParams` / 正则 `[?&]name=` / 白名单 localStorage
-> 解析点抓取（当前 **138** 个：含 P-112-BANDGEOM 的 `bandfeed`/`framegeom`）。本表主表与其双向比对，任何一侧多出/缺失都会非零退出。
-> **已知待补 1 条**：插件线新增的 `hdrfrostwatch`（`dsh-mpkg-wallpaper/lib/client.js` 的顶栏磨砂重挂观察器回退开关）尚未登记本表 ⇒ `diag-flag-check` 会如实报红，**由插件线自行登记**（渲染器侧不代写）。
+> 解析点抓取（当前 **139** 个：含 P-112-BANDGEOM 的 `bandfeed`/`framegeom`）。本表主表与其双向比对，任何一侧多出/缺失都会非零退出。
+> **插件侧开关也在本表**：扫描面含 `dsh-mpkg-wallpaper/lib/client.js`，所以插件新增的开关（如 `hdrfrostwatch`）同样必须登记 —— 缺一条 `diag-flag-check` 就会报红。
 >
 > - 用法：把开关拼到渲染器页 URL，如 `http://127.0.0.1:8899/?id=3719111841&audit=3&showui`。
 >   插件场景 iframe 由 `applySceneViaRenderer` 自动携带 `embed=1&noreport=1&thumbpost=…`
@@ -184,6 +184,7 @@
 | `h` | 像素 | 360 | CPU 渲染画布高 | 同上 | 同上 | elysia/demo-elysia.js:67 |
 | `fps` | 帧率 | 2 | CPU 渲染目标帧率（最小间隔） | 降载 | 动画变卡顿 | elysia/demo-elysia.js:68 |
 | `t` | 秒 | 0 | CPU 渲染初始时间 | 定格某时刻 | 无 | elysia/demo-elysia.js:69 |
+| `hdrfrostwatch` | `off` / 其它值 | **开**（有观察器） | **顶栏磨砂重挂观察器**的回退开关（**插件侧** `dsh-mpkg-wallpaper/lib/client.js`）：顶栏被宿主整块重建时靠 childList 观察器在 ~60ms 内把磨砂层补回新顶栏 | 顶栏磨砂在切会话后短暂消失（旧行为要等 3s 低频保险）时做单变量 A/B | `off` = 退回旧行为（只在设置/主题变化 + 3s 保险时同步）⇒ 相位对齐最坏 ≈3000ms；默认开时实测 ≈66ms。只在浏览器侧生效，宿主重启不涉及 | dsh-mpkg-wallpaper/lib/client.js:3413 |
 
 <!-- FLAG-TABLE-END -->
 
