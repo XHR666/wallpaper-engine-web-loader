@@ -7899,6 +7899,129 @@ docs/README-DIAGNOSTICS.md     （新增 subbase 行）
 <工作区根>/docs/MASTER-TODO.md  （只改 P1-4 一行）
 ```
 
+## P-118（2026-09-18 任务书 §7-H 指针跟随线）`lockToPointer`（指针跟随粒子/鼠标拖尾）在**出货页面里一次都不发射**的根因 = 自举死锁；外加两条同源缺陷（注入通道盖过画布 `pointerleave` / `inside:false` 回落到旧坐标）
+
+**一句话**：渲染器把"装指针钩子"这件事**挂在了"本帧已经有指针"上**，而"有指针"又只能来自"钩子已装"或"宿主注入"；
+全仓库 `window.__mpwPointer` **零生产者** ⇒ 出货页面（`demo.html` → 服务器路由 ./bundle.js = `core/we-scene-bundle.js`）里
+`controlpoint[].flags:1`（lockToPointer）发射器**从来没发射过** —— "鼠标拖尾"这个壁纸特性整条是死的（不是"偶尔不动"）。
+
+### P-118.1 现象与复现（修复前，逐字实测输出）
+
+复现载体 = `tests/pointer-leave-test.mjs`（假 DOM + mock-GL + 真 `createRenderer`，无浏览器/无 GPU；本机 Node 24）：
+
+```
+$ node tests/pointer-leave-test.mjs --only G4 --no-mutation      # 出货页面的加载路径（不注入）
+  ! XFAIL（已知缺口·不计票） G4 未注入时画布 pointermove 也能让 lockToPointer 层发射（DOM 路径应能自举）
+      — 实测 alive=0、画布监听器=[]（派发命中 0 个监听器）…
+$ node tests/pointer-leave-test.mjs --only G1 --no-mutation      # 宿主注入 + 画布 pointerleave
+  ! XFAIL（已知缺口·不计票） G1 … — 离开后累计 39→54（仍在发射；基准点=[800,400]）…
+  ✓ G1b 同一发 pointerleave 在注入撤掉后**立刻生效**（事件确实到达…）
+$ node tests/pointer-leave-test.mjs --only G5 --no-mutation      # 宿主注入 inside:false + 画布有旧坐标
+  ! XFAIL（已知缺口·不计票） G5 … — inside:false 后累计 189→276、基准点=[1439.9999749660506,810.0000047776848]…
+```
+
+三条与任务书描述**逐字一致**（G4：0 监听器 0 粒；G1：39→54 且仍 (800,400)；G5：189→276 且仍 (1440,810)）。
+关键区别：G1 的那发 `pointerleave` 在**注入撤掉后立刻生效**（G1b ✓）⇒ 事件确实到达了，是**优先级**把它盖住的，不是事件没到。
+
+### P-118.2 三条根因（file:line 均为修复前）
+
+| # | 位置（修复前） | 根因 |
+|---|---|---|
+| G4 | `core/we-scene-bundle.js:9560` `if (!CURSOR_OFF && __ptrNow) __hookPointer()` | **自举死锁**：`__ptrNow = __pointerDesign(cam)` 只能来自 ① 宿主注入 `window.__mpwPointer` 或 ② 画布钩子已装后记下的归一坐标；而钩子只能由这一行装上 ⇒ 不注入就永远装不上。全仓库 grep `__mpwPointer` 的**生产者为零**（`demo.html` 里那个 window `pointermove` 是日志面板拖动）⇒ 出货页面走的就是这条死路。 |
+| G1 | `core/we-scene-bundle.js:6651`（旧）`if (inj && inj.inside !== false && …) return [inj.x, inj.y]` 先于 `__pointerN` | **注入无条件优先**：画布 `pointerleave` 只清 `__pointerN`，注入值原封不动 ⇒ 宿主按"每次 pointermove 就写注入值"这种自然写法喂坐标时，人把鼠标移出画布后**发射器继续在旧坐标发射**。 |
+| G5 | `core/we-scene-bundle.js:6665`（旧）`if (__pointerN && cam) return __pointerDesignFromNorm(…)` | `inside:false` 只被读成"**别信注入值**"，随后**回落到上一次画布内 `pointermove`** 的归一坐标 ⇒ 宿主用 `inside` 声明"指针不在画布内"时，发射器继续在旧画布坐标发射（只有"画布从没记过坐标"时才真的停）。 |
+
+（门控落点未动：`core/we-scene-bundle.js:3346-3347` `em.__ptrLocked && !__P ⇒ sys.__ptrSkipped++ / 不发射`。`?cursor=off` 语义未动。）
+
+### P-118.3 改法（**两条输入源分开判**，不是把 `__ptrNow` 恒为真）
+
+| 位置（修复后） | 改动（一句话） |
+|---|---|
+| `core/we-scene-bundle.js:6666` | **G4**：`if (!CURSOR_OFF) __hookPointer()` —— **建渲染器即装 DOM 钩子**，与"本帧有没有指针"解耦（`?cursor=off` 下不装、也不发射，逃生口语义一字未改）。 |
+| `core/we-scene-bundle.js:9600/9604` | **G4**：每层那处从 `if (!CURSOR_OFF && __ptrNow) __hookPointer()` 改成 `if (!CURSOR_OFF) __hookPointer()`（幂等兜底：函数首行 `if (__pointerHooked) return`）。 |
+| `core/we-scene-bundle.js:6631/6638` | 新增 `__injectedPointer()`（`window.__mpwPointer` → `globalThis.__mpwPointer`，与旧内联式同序）与 `__injKey(inj)`（`x\|y\|inside` 指纹），供两个通道各自判定；**注入通道的读取口只有这一处**。 |
+| `core/we-scene-bundle.js:6652` | `pointermove`/`pointerdown` 记录归一坐标时顺带清 `__pointerGone`（画布又收到新坐标 ⇒ "已离开"作废）。 |
+| `core/we-scene-bundle.js:6657` | `pointerleave` 除清 `__pointerN` 外，记下"**已离开** + 那一刻注入值的对象引用与指纹"（`__pointerGone/__pointerGoneInj/__pointerGoneKey`）。 |
+| `core/we-scene-bundle.js:6644-6646` | `__hookPointer()` 挂不上元素时**不再置位** `__pointerHooked`（旧写法先进门就置位 ⇒ 之后即使元素可用也永不再试）。 |
+| `core/we-scene-bundle.js:6686` | **G5**：`if (inj && inj.inside === false) return null` —— 显式"不在画布内"直接停发，**不回落到任何缓存坐标**。 |
+| `core/we-scene-bundle.js:6691` | **G1**：注入值与 `pointerleave` 那一刻**同一份**（同对象 + 同指纹）⇒ `return null`（DOM 的"已离开"优先于注入旧值）；注入变了 ⇒ `__pointerGone = false` 当新证据接受（纯注入的台子不会被一发 stray `pointerleave` 永久锁死）。 |
+
+优先规则（`core/we-scene-bundle.js:6600-6605` 注释里写全，README-DIAGNOSTICS `cursor` 行同步）：
+**宿主显式 `inside:false` ⇒ 无指针** > **画布已宣告离开且注入没变 ⇒ 无指针** > **注入（变了/在场）** > **画布归一坐标** > null。
+
+### P-118.4 判据（断言 + 实际读数）
+
+原三条 XFAIL **改成真断言**（`ok()`，不再是缺口），并各补一条方向性断言：
+
+| 断言 | 内容 | 实测（修复后） |
+|---|---|---|
+| `G4a ★` | **第一帧之前**画布钩子就已装上（不注入任何指针） | 监听集合 `["pointermove","pointerdown","pointerleave"]`（修复前 `[]`） |
+| `G4b ★` | 未注入 + 画布 `pointermove(960,540)` ⇒ 真发射且基准点 = (960,540) ±1px | alive=8、命中 1 个监听器、ptr=[960,540] |
+| `G1 ★` | 注入在场 + 画布 `pointerleave` ⇒ 累计冻结、指针 null、alive=0 | 累计 39→39、ptr=null（修复前 39→54、(800,400)） |
+| `G1b` | 同一发 leave 在注入撤掉后立刻生效（G1 是优先级问题） | ptr=null alive=0（未改） |
+| `G1c` | 注入**变了** ⇒ 恢复认注入（不会永久锁死纯注入台子） | ptr=[320,240] alive>0 |
+| `G5 ★` | `inside:false`（画布有旧坐标）⇒ 累计冻结、指针 null、alive=0 | 189→189、ptr=null（修复前 189→276、(1440,810)） |
+| `D4b` | `?cursor=off` 下**连钩子都不装**（一个监听器都不加） | `listeners.size === 0` |
+| `A0/A1/A2/A3/P3/P4/D1/D2/D4/E1–E5` | 既有 35 项（无指针不发射 / 画布内发射与坐标 / 离开后冻结 / 重新进入恢复 / `?cursor=off` / 真包 id389） | 全部未改，全绿 |
+
+```
+$ node tests/pointer-leave-test.mjs
+(计票：pass=45 fail=0 skip=0 xfail=2 xpass=0)
+已知缺口 XFAIL 2 条（不计票；P-118 已闭合 G1/G4/G5 三条…）：等价路径未监听（pointerout）/ 页面级离开未监听（blur·visibilitychange）
+ALL PASS （45 项，另记录缺口 2）        # rc=0，0.85s；其中 8 项 = 内置红-if-reverted（4 变异 × 2）
+```
+
+**缺口表仍在工作**：`G2`（`pointerout`+`relatedTarget=null` 等价路径未监听）与 `G3`（`blur`/`visibilitychange`
+页面级离开未监听）**仍是 XFAIL**（本轮未修，两条的 XFAIL 输出照旧打印）⇒ 断言/缺口两个方向都出声，没有静默。
+
+### P-118.5 red-if-reverted（真跑到；每处修复各一条"改回旧写法"）
+
+隔离副本：`mkdtemp` + **逐文件真副本**（`readFileSync`/`writeFileSync`；用 `statSync` 判类型 —— 本机 `fs.cpSync` 抛 EINVAL、
+`Dirent.isFile()` 有误报），子进程用 `MPW_POINTER_BUNDLE=<副本>` 跑同一测试文件。两个独立入口都跑过：
+① 测试文件内置 M 阶段（`node tests/pointer-leave-test.mjs`，8 项自检全绿）；② `/tmp/p118-red-if-reverted.mjs`（独立脚本，再跑一遍并额外核对真树未动）。
+
+| 变异 | 改回旧写法 | 子进程 | 变红的断言 |
+|---|---|---|---|
+| M1-G4 | 拆掉"建渲染器即装钩子" + 帧内恢复 `if (!CURSOR_OFF && __ptrNow) __hookPointer()` | rc=1 | `✗ G4a`（监听集合回到 `[]`） |
+| M2-G1 | 注入分支去掉"与 `pointerleave` 那一刻同一份"判定 | rc=1 | `✗ G1 ★`（39→54） |
+| M3-G5 | 去掉 `inside === false ⇒ null`，并把 `inside !== false` 加回注入条件 | rc=1 | `✗ G5 ★`（189→276）；`D1b` 仍 ✓ ⇒ 只打破被点名那条 |
+| M4 | `pointerleave` 处理器改成空操作 | rc=1 | `✗ P3a`（离开后 63,71,79 一直在发射） |
+
+四个变异里 `A3a`/`P4a`（绿前提：画布内发射 + 重新进入恢复）**仍为 ✓** ⇒ 变异只打破被点名的那条语义，不是把整条路弄挂。
+独立脚本 `node /tmp/p118-red-if-reverted.mjs` ⇒ **rc=0，4/4 全红**，且 **真树未被改动**：
+跑前/跑后 `git status --porcelain` 全等（28 行，含 20+ 条别人的未提交改动）+ `core/*.{js,mjs}` 8 个文件 sha256 全等 +
+`core/we-scene-bundle.js` sha256 = `cd0c510916d0e7f88664422d4270fb8a5342b57c6810a571462bb975e662b3ca`。
+
+**无回归**（全部 rc=0，逐个秒级）：`node tests/pointer-leave-test.mjs`（45 项 + 2 缺口）、`node tests/mock-gl-test.mjs`
+（60 通过 / 0 失败）、`node tests/display-options-test.mjs`（71 断言）、`node tests/web-frame-geometry-wiring-test.mjs`、
+`node tests/diag-flag-check.mjs`（**代码 148 == README 主表 148，0 差异**）、`node --check core/we-scene-bundle.js`。
+
+### P-118.6 未证实 / 未做（不猜）
+
+1. **真机鼠标时序未测**（本轮硬约束：禁浏览器 ⇒ 无 X11、无 GPU/WebGL2）：`pointerleave` 与"最后一发 `pointermove`"的
+   真实先后、触摸（`pointerup` 后紧接 `pointerleave`）时的观感、以及**宿主是否在指针离开画布后仍持续写 `__mpwPointer`**
+   —— 都只有**合成事件**证据（假 DOM）。真机行为需主对话排队（浏览器/真机项不在本会话权限内）。
+2. **宿主持续写"新对象但同坐标"时 G1 的判定未定**：本轮把"注入变了（换对象或换数值）"当新证据 ⇒ 若某宿主每帧都
+   `window.__mpwPointer = {x,y,inside:true}` 新建对象、且坐标与离开前相同，本实现会**重新认注入**（继续发射）。
+   仓库内**没有**这样的生产者（`demo.html` 零注入；`package-matrix`/`projection-y-test` 是 Node 侧一次性注入、不发 pointerleave），
+   真机宿主是否有这种写法**未证实** ⇒ 若真机复现"移出画布仍在发射"，第一刀就砍这条（把判据收紧成"只认数值变化"或"只认画布 `pointermove`"）。
+3. `pointerout`（`relatedTarget=null`）与 `blur`/`visibilitychange` 两条等价"离开"路径**本轮未修**（仍是 XFAIL G2/G3）。
+4. 出货页面 `demo.html` 的真实浏览器里"鼠标拖尾**看得见**"未验证（无 GPU/浏览器）——本轮只把"发射器会发射"这一层
+   用 mock-GL 钉住（粒子出生点在指针附近、`?cursor=off` 仍能杀）；像素/观感属真机项。
+
+### P-118.7 本轮改动的文件清单（提交只含这些）
+
+```
+core/we-scene-bundle.js        （+51/-7：指针源判定 + 自举；其余路径零改动）
+tests/pointer-leave-test.mjs   （G1/G4/G5 三条 XFAIL → 真断言 + G1c/D4b/G4a 新断言 + M 阶段改成 4 变异）
+docs/PATCHES.md                （本节 P-118）
+docs/README-DIAGNOSTICS.md     （只改 `cursor` 行的口径与代码位置；**未新增 URL 开关**）
+```
+
+未登记项：`tests/run-all-tests.sh` 里**仍没有** `pointer-leave` 这一项（该文件本轮被另一条线占用/dirty，按纪律不改它）⇒
+待办照旧：`add "pointer-leave" "node tests/pointer-leave-test.mjs"`（等它释放）。重活（`package-matrix --check`、
+`glsl-validate`、`run-all-tests.sh`）本会话**未跑**（>60s 硬约束）⇒ 由主对话排队。
+
 ## P-119（2026-09-19 用户要求）测试台页签改成**互斥的独立页面**（去掉左右滑动与 340ms 过渡）+ 窄屏面板降高让"壁纸首屏可见"
 
 **用户原话**：「左右切换的效果去掉 变成一个个页面(不要加载过程)」；另补充「我平板使用浏览器是给它横过来的」（横屏优先）。

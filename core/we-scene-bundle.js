@@ -6597,6 +6597,11 @@ export function createRenderer(canvas, opts = {}) {
   //     宿主/测试台注入用，优先级最高；
   //   · 否则用画布上的 `pointermove`（passive，不抢事件）：按"画布归一化 0..1"存，
   //     渲染时按相机 framed 窗口换算成设计坐标（分辨率/取景无关）。
+  //   ①(P-118) 上面两条通道**都有生产者**，优先规则说全（每一条都被 `tests/pointer-leave-test.mjs` 钉住）：
+  //     · DOM 通道**自举**：建渲染器就把画布钩子装上（不依赖"已经有指针"，见 `__hookPointer` 调用点）；
+  //     · 宿主**显式** `inside:false` ⇒ 无指针（不是"回落到上一次画布坐标"）；
+  //     · 画布 `pointerleave` 后、注入值**没变** ⇒ 无指针（旧坐标不许继续喂）；注入值变了 ⇒ 认注入；
+  //     · 其余情况注入优先；注入缺席才回落画布归一坐标。
   const CURSOR_OFF = (() => { try { return new URLSearchParams(location.search).get('cursor') === 'off' } catch (e) { return false } })()
   // ①(P-112-BANDGEOM) 帧几何档（`?framegeom=cover`；缺省 legacy ⇒ 下面的换算与改动前逐位相同）。
   //   解析点在 `frameGeomMode`（本文件顶部导出，测试与宿主共用；`?frame=legacy|off` 仍是最高优先回退）。
@@ -6613,24 +6618,52 @@ export function createRenderer(canvas, opts = {}) {
   const __pointerFlip = () => displayFlipH(opts.displayFlipH, (typeof window !== 'undefined' && window) ? window.__mpwDisplay : undefined, FLIPH_QUERY)
   let __pointerN = null      // { nx, ny } ∈[0,1]（画布归一化）
   let __pointerHooked = false
+  // ①(P-118 G1/G5) 两条输入源的**状态分开记**（注入通道 vs 画布 DOM 通道），判定才不会互相盖：
+  //   · `__pointerGone` = 画布 `pointerleave` 已宣告"指针不在画布内"；
+  //   · `__pointerGoneInj` / `__pointerGoneKey` = 宣告那一刻注入通道的值（**对象引用 + 指纹**）：
+  //     注入没变 ⇒ 宿主喂的还是"离开前那份旧值"，不许它盖过"人已经把鼠标移出画布"（G1）；
+  //     注入变了（宿主写了新对象/新坐标/新 inside）⇒ 当作新证据接受并清掉"已离开"（纯注入的台子
+  //     不会因为一发 stray `pointerleave` 被永久锁死）。
+  let __pointerGone = false
+  let __pointerGoneInj = null
+  let __pointerGoneKey = 'none'
+  /** 注入通道当前值（`window.__mpwPointer` 优先，Node 侧取证工具用 `globalThis.__mpwPointer`，同一口）。 */
+  const __injectedPointer = () => {
+    try {
+      if (typeof window !== 'undefined' && window && window.__mpwPointer) return window.__mpwPointer
+      return (typeof globalThis !== 'undefined' && globalThis.__mpwPointer) ? globalThis.__mpwPointer : null
+    } catch (e) { return null }
+  }
+  /** 注入值指纹（用**数值**而不是对象身份之外的东西：宿主原地改字段也能被认出来）。 */
+  const __injKey = (inj) => (inj && Number.isFinite(inj.x) && Number.isFinite(inj.y))
+    ? (inj.x + '|' + inj.y + '|' + (inj.inside === false ? '0' : '1')) : 'none'
   function __hookPointer() {
     if (__pointerHooked) return
-    __pointerHooked = true
     try {
       const el = (gl && gl.canvas && gl.canvas.addEventListener) ? gl.canvas : null
+      // ①(P-118 G4) 挂不上元素就**不置位**（旧写法先进门就置位 ⇒ 之后即使元素可用也永不再试）。
       if (!el) return
+      __pointerHooked = true
       const set = (ev) => {
         try {
           const p = framePointerMap(ev, el, FRAME_GEOM, __pointerFlip())
           if (!p) return
           __pointerN = { nx: p.nx, ny: p.ny }
+          __pointerGone = false      // ①(P-118 G1) 画布又收到新坐标 ⇒ "已离开"作废
         } catch (e) { /* ignore */ }
       }
       el.addEventListener('pointermove', set, { passive: true })
       el.addEventListener('pointerdown', set, { passive: true })
-      el.addEventListener('pointerleave', () => { __pointerN = null }, { passive: true })
+      el.addEventListener('pointerleave', () => { __pointerN = null; __pointerGone = true; __pointerGoneInj = __injectedPointer(); __pointerGoneKey = __injKey(__pointerGoneInj) }, { passive: true })
     } catch (e) { /* 无 DOM → 只认 window.__mpwPointer */ }
   }
+  // ①(P-118 G4 **自举死锁**）建渲染器即装 DOM 钩子 —— **不依赖"本帧已经有指针"**。
+  //   旧写法只在 `__ptrNow` 为真时调 `__hookPointer()`（下面每层那处）：`__ptrNow` 只能来自"钩子已装"
+  //   或"宿主注入"⇒ 页面不注入就永远装不上钩子。全仓库 `__mpwPointer` **零生产者**（demo.html 里那个
+  //   window pointermove 是日志面板拖动）⇒ 出货页面（demo.html → ./bundle.js）的 lockToPointer 发射器
+  //   一次都不发射（"鼠标拖尾"整个是死的）。"本帧没有指针" ≠ "不需要监听 DOM"。
+  //   `?cursor=off` 语义**不变**：这条逃生口下不装钩子、也不发射。
+  if (!CURSOR_OFF) __hookPointer()
   // 当前指针（设计坐标）；null = 无指针信息 ⇒ lockToPointer 发射器不发射
   // ①(P-112-BANDGEOM) 画布归一化 → 设计坐标的换算（原 `__pointerDesign` 内联式**逐字搬来**，一处实现）：
   //   framed 窗口宽度按 `?projmode=` 分档（P-107），与改动前逐位相同。
@@ -6645,10 +6678,18 @@ export function createRenderer(canvas, opts = {}) {
     try {
       // Node 侧取证工具（package-matrix / render-audit / particle-shape-audit…）没有 window：
       // 认 globalThis.__mpwPointer 作为同一注入口（让它们既能测"无指针=不发射"，也能注入指针测发射路径）。
-      const inj = (typeof window !== 'undefined' && window && window.__mpwPointer)
-        ? window.__mpwPointer
-        : ((typeof globalThis !== 'undefined' && globalThis.__mpwPointer) ? globalThis.__mpwPointer : null)
-      if (inj && inj.inside !== false && Number.isFinite(inj.x) && Number.isFinite(inj.y)) {
+      const inj = __injectedPointer()
+      // ①(P-118 G5) 宿主**显式**声明 `inside:false` = "指针不在画布内" ⇒ 无指针。
+      //   旧写法把它读成"别信注入值"、接着**回落到 `__pointerN`**（上一次画布内 pointermove 留下的旧
+      //   归一坐标）⇒ 宿主说"离开了"、发射器却继续在旧坐标发射（实测 inside:false 后累计 189→276、
+      //   基准点仍是 (1440,810)）。这里直接 null：**不**回落到任何缓存坐标。
+      if (inj && inj.inside === false) return null
+      if (inj && Number.isFinite(inj.x) && Number.isFinite(inj.y)) {
+        // ①(P-118 G1) 画布已宣告"指针离开"、且注入值与那一刻**同一份**（同一对象 + 同一指纹）
+        //   ⇒ 注入通道不许盖过这个事实（旧写法先看注入 ⇒ 人移出画布后继续在旧坐标发射：实测
+        //   离开后累计 39→54、基准点仍 (800,400)；同一发 leave 在注入撤掉后立刻生效 ⇒ 是优先级问题）。
+        if (__pointerGone && inj === __pointerGoneInj && __injKey(inj) === __pointerGoneKey) return null
+        __pointerGone = false      // 注入变了 = 新证据（宿主重新给了坐标/inside）⇒ "已离开"作废
         // `space:'css'`：注入方给的是 **CSS 像素**（窗口/视口坐标，即 clientX/clientY 同空间），
         //   需换算成"帧内 client 像素"再归一。口径与实测见 docs/AUDIO-BAND-WIRING.md §4：
         //   本仓库**没有任何** `space:'css'` 的生产者（grep 0 命中），且"css"是窗口空间还是
@@ -9557,7 +9598,10 @@ export function createRenderer(canvas, opts = {}) {
     const blending = layer.particleBlending || 'translucent'
     // ①(P-69 第 6 项) lockToPointer：本帧指针（设计坐标）；无指针/`?cursor=off` → null → 该发射器不发射。
     const __ptrNow = CURSOR_OFF ? null : __pointerDesign(cam)
-    if (!CURSOR_OFF && __ptrNow) __hookPointer()
+    // ①(P-118 G4) 钩子安装与"本帧有没有指针"**解耦**（旧写法 `if (!CURSOR_OFF && __ptrNow) __hookPointer()`
+    //   = 自举死锁：没注入就永远装不上 ⇒ 出货页面一次都不发射）。建渲染器时已装过，这里只是幂等兜底
+    //   （`__hookPointer` 首行即返回）；`?cursor=off` 下不装、也不发射，逃生口语义不变。
+    if (!CURSOR_OFF) __hookPointer()
     // 确定性：seed = 层 id/name|origin（参考实现 pkgPath|id|origin）
     // ①(P-69 2026-09-15 用户第 2 项"很多粒子一直在一起渲染，导致画面变得非常卡") 逐帧**重建 + 从 0 重放**
     //   是卡顿主因：hina 的 `cherry blossoms on cursor`(id389, origin=画布正中 1920,1080, rate=100/s,

@@ -13,14 +13,16 @@
 //   ③ 反假绿：再派发一次 `pointermove` ⇒ **恢复发射**（防止有人把功能整个关掉来"通过"）；
 //   ④ 不误伤：同帧里**非锁定**粒子层照常发射（离开门只作用在 lockToPointer 发射器上）。
 //
-// ── 依据（只读，未改渲染路径）──────────────────────────────────────────────────────────────
-//   · `core/we-scene-bundle.js:6616 __hookPointer()`：在 `gl.canvas` 上装三个监听
-//     ——`pointermove`/`pointerdown`（记录归一坐标）+ `pointerleave`（`__pointerN = null`）；
-//   · `core/we-scene-bundle.js:6644 __pointerDesign(cam)`：指针来源优先级 = `window.__mpwPointer`
-//     注入（`inside !== false` 才认）> 画布归一坐标 `__pointerN`；两者都没有 ⇒ null；
-//   · `core/we-scene-bundle.js:9559-9560`：每帧 `__ptrNow = CURSOR_OFF ? null : __pointerDesign(cam)`，
-//     且**只有 `__ptrNow` 为真时**才 `__hookPointer()`；
-//   · `core/we-scene-bundle.js:3352 spawnParticle`：`em.__ptrLocked && !sys.pointer` ⇒ **不发射**
+// ── 依据（本测试只读渲染器；P-118 的三处修改已由本文件钉死 + 内置变异复核）──────────────────
+//   · `core/we-scene-bundle.js:6640 __hookPointer()`：在 `gl.canvas` 上装三个监听
+//     ——`pointermove`/`pointerdown`（记录归一坐标、清"已离开"）+ `pointerleave`
+//     （`__pointerN = null; __pointerGone = true` + 记下那一刻注入值的指纹）；
+//   · `core/we-scene-bundle.js:6666`（建渲染器即调，**自举**）/ `:9604`（每层帧内幂等兜底）：
+//     `if (!CURSOR_OFF) __hookPointer()` —— 钩子安装**不再**挂在"本帧已经有指针"上（P-118 G4）；
+//   · `core/we-scene-bundle.js:6677 __pointerDesign(cam)`：指针来源优先级 = `window.__mpwPointer`
+//     注入（`inside === false` ⇒ 直接 null，P-118 G5）> 画布归一坐标 `__pointerN`；
+//     注入值与 pointerleave 那一刻**同一份**（同对象 + 同指纹）⇒ 也 null（P-118 G1）；两者都没有 ⇒ null；
+//   · `core/we-scene-bundle.js:3346-3347 spawnParticle`：`em.__ptrLocked && !sys.pointer` ⇒ **不发射**
 //     （`sys.__ptrSkipped++`）。这就是"离开后停发"的落点。
 //
 // ── 用法 ─────────────────────────────────────────────────────────────────────────────────
@@ -42,46 +44,54 @@
 //   · **XFAIL 不计入 pass**（单独计数、结尾单独打印）：用于"记录当前真实行为"的已知缺口（见下）。
 //     缺口被修好时它会打 `★ XPASS`，提示把该条改成正断言 —— 两个方向都出声，不会静默。
 //
-// ── 本次实测的已知缺口（XFAIL，最小复现都在断言 detail 里）──────────────────────────────
-//   G1 注入通道优先于画布事件：`window.__mpwPointer` 有值时，画布 `pointerleave` **被忽略**
-//      （`__pointerDesign` 先看注入）⇒ 宿主若按"每次 pointermove 就写注入值"这种自然写法喂坐标
-//      （仓库自己的取证脚本就是这么注入的），指针离开画布后发射器**继续在旧坐标发射**
-//      （实测：离开后累计 39→54，基准点仍是 (800,400)）。
-//      ⚠ 同一发 `pointerleave` 在注入撤掉后**立刻生效** ⇒ 事件确实到达了、是"优先级"把它盖住的。
-//   G5 `inside:false` **不是"指针不在"**，只是"别信注入值"：注入被丢弃后会**回落到上一次画布内
-//      pointermove 的归一坐标**（`core/we-scene-bundle.js:6664 if (__pointerN && cam) …`）⇒ 宿主按
-//      `inside` 的语义声明"离开"时，发射器**继续在旧画布坐标发射**（实测：inside:false 后累计
-//      189→276，基准点仍是 (1440,810)）。只有"画布从没记过坐标"时它才真的停（D1b 钉住了这一半）。
-//   G2 只监听 `pointerleave`，**不监听** `pointerout`（+relatedTarget=null）等价路径。
-//   G3 完全不碰 `blur`/`visibilitychange`，也没有 window/document 级监听（本 harness 里没有
-//      `document` 全局，全程无异常 ⇒ 渲染器确实一行都没引用）。
-//   G4 **自举死锁（本项最重）**：`__hookPointer()` 只在 `__ptrNow` 为真时被调用，而 `__ptrNow` 只能
+// ── 已知缺口台账（XFAIL 单独计票；修好会打 XPASS 提示改成正断言）────────────────────────────
+//   ★ 本轮（P-118）**已闭合的三条**（原为 XFAIL，现为真断言，见 G1/G4/G5 断言与 M 阶段变异）：
+//   G1 注入通道曾**盖过**画布 `pointerleave`：`__pointerDesign` 先看注入 ⇒ 宿主按"每次 pointermove
+//      就写注入值"这种自然写法喂坐标时，指针离开画布后发射器**继续在旧坐标发射**（修复前实测：
+//      离开后累计 39→54、基准点仍是 (800,400)）。修法见 `core/we-scene-bundle.js:6691`（注入值与
+//      离开那一刻同一份 ⇒ 无指针）。⚠ 同一发 `pointerleave` 在注入撤掉后立刻生效（G1b）⇒ 事件确实到达。
+//   G5 `inside:false` 曾**不是"指针不在"**，只是"别信注入值"：注入被丢弃后回落到上一次画布内
+//      pointermove 的归一坐标 ⇒ 宿主声明"离开"后继续在旧坐标发射（修复前实测：189→276、仍 (1440,810)）。
+//      修法见 `core/we-scene-bundle.js:6686`（显式 inside:false ⇒ 直接 null，不回落）。
+//   G4 **自举死锁（原最重）**：`__hookPointer()` 曾经只在 `__ptrNow` 为真时被调用，而 `__ptrNow` 只能
 //      来自"注入"或"钩子已经装好"⇒ 页面不注入就永远装不上钩子。全仓库 grep：`__mpwPointer` 的
 //      生产者**只有 bundle 自身**（`demo.html` 的 window pointermove 是日志面板拖动，不是它）
 //      ⇒ 出货页面（`demo.html` → `./bundle.js` = core/we-scene-bundle.js）里 lockToPointer 发射器
-//      **一次都不发射**，"鼠标拖尾"是死的。这一条不改代码就没法转绿（G4 因此是 XFAIL 而不是 FAIL）。
+//      **一次都不发射**（"鼠标拖尾"整条特性是死的）。修法见 `core/we-scene-bundle.js:6666`（建渲染器
+//      即装钩子）+ `:9604`（帧内幂等兜底）；`?cursor=off` 逃生口语义不变（不装、也不发射，D4 钉住）。
+//   ── 仍然开着的缺口（缺口表还在工作的证据）──
+//   G2 只监听 `pointerleave`，**不监听** `pointerout`（+relatedTarget=null）等价路径。
+//   G3 完全不碰 `blur`/`visibilitychange`，也没有 window/document 级监听（本 harness 里没有
+//      `document` 全局，全程无异常 ⇒ 渲染器确实一行都没引用）。
 //
-// ── 内置红-if-reverted（真跑到，数字见回报与下方 `M1/M2` 断言）──────────────────────────
+// ── 内置红-if-reverted（真跑到；4 个变异，见下方 `M-…` 断言）──────────────────────────────
 //   把 `core/` 整目录复制进 `mkdtemp` 临时目录（**绝不改真树**；副本里是**真文件不是软链**，
-//   否则 ESM 会把软链解析回真树、变异白做），对副本做两种最小变异后用 `MPW_POINTER_BUNDLE=<副本>`
-//   起一个子进程跑本文件，要求：子进程 rc=1 且输出含 `✗ P3a`。
-//     M1：删掉 `el.addEventListener('pointerleave', () => { __pointerN = null }, …)` 整行
-//     M2：把该行处理器改成空操作（监听还在、行为回到旧写法）
-//   两种变异实测都：子进程 rc=1，失败断言 = `P3a`（离开前累计=55；离开后=63,71,79 = 一直在发射），
-//   且 `A3a`/`P4a`（绿前提与恢复发射）在变异体里仍为 ✓ ⇒ 变异只打破"离开"语义，不是把整条路弄挂。
+//   否则 ESM 会把软链解析回真树、变异白做），对副本做**每处修复各一条**的最小"改回旧写法"变异后，
+//   用 `MPW_POINTER_BUNDLE=<副本>` 起一个子进程跑本文件，要求：子进程 rc=1 且**对应的那条断言变红**。
+//     M1（G4 旧写法）：删掉建渲染器时的自举调用 + 帧内改回 `if (!CURSOR_OFF && __ptrNow) …` ⇒ `G4b` 红
+//     M2（G1 旧写法）：注入分支去掉"与离开那一刻同一份"判定 ⇒ `G1` 红
+//     M3（G5 旧写法）：去掉 `inside === false ⇒ null` 并把 `inside !== false` 加回条件 ⇒ `G5` 红（`D1b` 仍 ✓）
+//     M4（本轮核心语义，原 M1/M2 合并）：`pointerleave` 处理器改成空操作 ⇒ `P3a` 红
+//   四个变异都实测：子进程 rc=1、失败断言就是上面点名的那个，且 `A3a`/`P4a`（绿前提与恢复发射）
+//   在变异体里仍为 ✓ ⇒ 变异只打破被点名的那条语义，不是把整条路弄挂。
+//   锚点未命中 ⇒ 打 `SKIP pointer-leave mutation-selfcheck`（不计票），绝不把"没法变异"伪装成"变异通过"。
 //   退出时 `rmSync` 清理临时目录。
 //
 // ── 本轮实测证据（本机：Node 24 + mock-GL + 假 DOM，无 GPU/WebGL2）──────────────────────
-//   · `node tests/pointer-leave-test.mjs` ⇒ rc=0，`ALL PASS （35 项，另记录缺口 5）`（真树那一刻的
-//     `core/we-scene-bundle.js` sha256 = 316151160629303ebf48e119afaa982e806e…）。
+//   · `node tests/pointer-leave-test.mjs` ⇒ rc=0，`ALL PASS （45 项，另记录缺口 2）`（真树
+//     `core/we-scene-bundle.js` sha256 = cd0c510916d0e7f88664422d4270fb8a5342b57c6810a571462bb975e662b3ca）；
+//     其中 8 项是内置红-if-reverted 自检（4 个变异 × 「必红 + 绿前提仍成立」）。
+//   · 修复前 → 后三条（同一命令 `--only`）：
+//     G4：`派发命中 0 个监听器 / alive=0` → `监听在首帧前已装、alive=8、基准点 (960,540)`；
+//     G1：`离开后累计 39→54、基准点 (800,400)` → `39→39、基准点 null`；
+//     G5：`inside:false 后累计 189→276、基准点 (1440,810)` → `189→189、基准点 null`。
 //   · 关键数字：画布内 move(480,270) ⇒ 基准点 (480.0000,270.0000)、层累计 24→55；
 //     pointerleave 后 3 帧累计 55,55,55（冻结）、alive=0,0,0、`__ptrSkipped`=6（被"无指针"门拦下）；
 //     重新 move(1440,810) ⇒ 累计 55→118（恢复）。
 //   · 真包（3554161528）id389 `cherry blossoms on cursor`：pointerCp=0、全部发射器挂指针；
 //     无指针 0 粒（`__ptrSkipped`=60）、指针 (800,400) ⇒ 19 粒、max|Δx|=3.0 max|Δy|=2.7。
-//   · ⚠ `core/we-scene-bundle.js` 在本轮进行中被**并行的 core 线**改过（我进来时 sha256=e30c64c6…，
-//     收尾时 =31615116…，同一时间 HEAD 也 58e4535→343b6a3）—— 那不是我改的：本轮我只新增了本文件，
-//     `core/**` 一个字节没写（下面 M 阶段的变异全在 mkdtemp 副本里做）。
+//   · ⚠ 真机鼠标时序**未测**（无浏览器/X11，硬约束）：`pointerleave` 与最后一发 `pointermove` 的
+//     真实先后、以及"鼠标离开画布后宿主是否仍在写 `__mpwPointer`"都只有合成事件证据。
 //
 // ── 注册待办 ─────────────────────────────────────────────────────────────────────────────
 //   注册待办：`add "pointer-leave" "node tests/pointer-leave-test.mjs"`（等 run-all-tests.sh 释放后加）
@@ -380,9 +390,9 @@ let emittedAtLeave = 0
 
 // ═══════════════════════════ 7. D 阶段：等价/相关通道 ═══════════════════════════
 {
-  // D1：注入通道的 `inside:false` —— **它不是"离开"信号，只是"别信注入值"**：注入被丢弃后会**回落到
-  //     画布归一坐标**。所以"fresh 台子（画布还没记过坐标）"下它会停发，而"画布记过坐标"下它会继续
-  //     在**旧画布坐标**上发射（G5）。两条都实测，别把语义说过头。
+  // D1：注入通道的 `inside:false` —— P-118 后它是**宿主显式声明"指针不在画布内"** ⇒ 直接停发
+  //     （不回落到任何缓存坐标）。这里测"fresh 台子（画布还没记过坐标）"那一半；"画布记过坐标"
+  //     那一半在 D3/G5（那才是修复前会继续在旧坐标发射的情形）。
   const savedLoc0 = globalThis.location
   const rigInj = makeRig('inject-inside')
   try {
@@ -393,7 +403,7 @@ let emittedAtLeave = 0
     globalThis.window.__mpwPointer = { x: 1440, y: 810, inside: false }
     await rigInj.frame(); await rigInj.frame()
     const b = rigInj.snapshot(); dump(rigInj, 'D1b 注入 inside:false（画布无回落值）')
-    ok('D1b 注入 inside:false 且画布**没有**记录过坐标 ⇒ 停发（回落到空 ⇒ 指针为空）',
+    ok('D1b 注入 inside:false ⇒ 停发、指针为空（fresh 台子；P-118 后这条由 `inside:false ⇒ null` 保证）',
       b.locked.alive === 0 && b.locked.emitted === a.locked.emitted && b.locked.pointer === null,
       `累计 ${a.locked.emitted}→${b.locked.emitted} ptr=${JSON.stringify(b.locked.pointer)}`)
   } finally {
@@ -401,7 +411,7 @@ let emittedAtLeave = 0
     if (savedLoc0 === undefined) delete globalThis.location; else globalThis.location = savedLoc0
   }
 
-  // D2：注入优先级 —— 有注入时画布事件被完全旁路（这是 G1/G5 的根因，先把它钉成事实）
+  // D2：注入优先级（**没有** DOM "已离开"事实时）—— 注入仍是最高优先，画布旧坐标被覆盖
   globalThis.window = { __mpwPointer: { x: 300, y: 200, inside: true } }
   await rig.frame()
   const s2 = rig.snapshot(); dump(rig, 'D2 注入(300,200) 覆盖画布坐标')
@@ -409,18 +419,18 @@ let emittedAtLeave = 0
     !!s2.locked.pointer && Math.abs(s2.locked.pointer[0] - 300) <= 0.5 && Math.abs(s2.locked.pointer[1] - 200) <= 0.5,
     'ptr=' + JSON.stringify(s2.locked.pointer))
 
-  // D3 / G5：注入 inside:false **在有画布回落值时仍继续发射**（本次实测的真实行为，见文件头 G5）
+  // D3 / G5（修复前是 XFAIL）：注入 inside:false **在有画布回落值时**也必须停发（不许回落到旧坐标）
   const em5 = rig.trk(LOCKED_ID).sample().emitted
   globalThis.window.__mpwPointer = { x: 300, y: 200, inside: false }
   await rig.frame(); await rig.frame()
-  const s5 = rig.snapshot(); dump(rig, 'D3/G5 inside:false 回落到画布坐标')
+  const s5 = rig.snapshot(); dump(rig, 'D3/G5 inside:false（画布有旧坐标）')
   delete globalThis.window
-  xfailItem('G5 宿主用 inside:false 声明"指针不在" ⇒ 停发（当前会回落到旧画布坐标继续发射）',
-    s5.locked.emitted === em5 && s5.locked.pointer === null,
+  ok('G5 ★ 宿主用 inside:false 声明"指针不在" ⇒ 停发、不回落到旧画布坐标（修复前：189→276 且仍 (1440,810)）',
+    s5.locked.emitted === em5 && s5.locked.pointer === null && s5.locked.alive === 0,
     `inside:false 后累计 ${em5}→${s5.locked.emitted}、基准点=${JSON.stringify(s5.locked.pointer)}`
-    + '（= 上一次画布内 pointermove 留下的归一坐标，core/we-scene-bundle.js:6664 `if (__pointerN && cam) …`）。'
+    + '（修复前 = 上一次画布内 pointermove 留下的归一坐标）。'
     + '最小复现：① 注入 {x:300,y:200,inside:true} 渲染一帧 ② 画布 pointermove(1440,810) ③ 注入改 {inside:false} '
-    + '⇒ 期望不发射，实测仍在 (1440,810) 发射')
+    + '⇒ 期望不发射（修法 core/we-scene-bundle.js:6686 `if (inj && inj.inside === false) return null`）')
 
   // D4：?cursor=off（逃生口）—— 整个 lockToPointer 类都不发射，即使注入指针且画布有事件
   const savedLoc = globalThis.location
@@ -433,6 +443,10 @@ let emittedAtLeave = 0
     ok('D4 ?cursor=off ⇒ 即使有指针也不发射（lockToPointer 层的总开关；对照层照常）',
       off1.locked.alive === 0 && off1.locked.emitted === 0 && off1.free.alive > 0,
       `locked alive=${off1.locked.alive} free alive=${off1.free.alive}`)
+    // ①(P-118 G4) 逃生口的**强语义**：`?cursor=off` 下连 DOM 钩子都不装（一个监听器都不加）——
+    //   P-118 的自举只在 `!CURSOR_OFF` 时发生 ⇒ 逃生口语义与改动前**逐条**相同。
+    ok('D4b ?cursor=off ⇒ 画布上一个指针监听器都不装（逃生口不接管画布事件；P-118 未改这条语义）',
+      rigOff.listeners.size === 0, '监听集合=' + JSON.stringify([...rigOff.listeners.keys()]))
   } finally {
     delete globalThis.window
     if (savedLoc === undefined) delete globalThis.location; else globalThis.location = savedLoc
@@ -443,16 +457,20 @@ let emittedAtLeave = 0
 {
   const rig2 = makeRig('gaps')
 
-  // G4：自举死锁 —— 不注入就永远装不上钩子
+  // G4（修复前 XFAIL，P-118 已闭合）：DOM 通道**自举** —— 从头到尾**不注入**任何指针，只靠画布事件。
+  //   两条一起钉：① 建渲染器（第一帧之前）钩子就已装上；② 派发 pointermove 后真发射、坐标对得上。
+  ok('G4a ★ 未注入任何指针时，建渲染器那一刻画布钩子就已装上（自举不再依赖"已经有指针"）',
+    rig2.listeners.has('pointermove') && rig2.listeners.has('pointerdown') && rig2.listeners.has('pointerleave'),
+    '第一帧之前监听集合=' + JSON.stringify([...rig2.listeners.keys()])
+    + '（修复前 = []：钩子只在 `__ptrNow` 为真时才装 ⇒ 页面不注入就永远装不上）')
   const n0 = rig2.fire('pointermove', { clientX: 960, clientY: 540, pointerId: 1, pointerType: 'mouse' })
   await rig2.frame()
   const g4 = rig2.snapshot(); dump(rig2, 'G4 未注入 + 画布 pointermove')
-  xfailItem('G4 未注入时画布 pointermove 也能让 lockToPointer 层发射（DOM 路径应能自举）',
-    g4.locked.alive > 0,
-    `实测 alive=${g4.locked.alive}、画布监听器=${JSON.stringify(g4.listeners)}（派发命中 ${n0} 个监听器）`
-    + '；根因 = core/we-scene-bundle.js:9560 `if (!CURSOR_OFF && __ptrNow) __hookPointer()`：'
-    + '__ptrNow 只能来自"钩子已装"或"宿主注入"⇒ 页面不注入则钩子永不安装；'
-    + '全仓库 grep __mpwPointer 的生产者只有 bundle 自身（demo.html 的 window pointermove 是日志面板拖动）')
+  ok('G4b ★ 未注入时画布 pointermove 也能让 lockToPointer 层发射，且基准点 = (960,540) ±1px',
+    n0 >= 1 && g4.locked.alive > 0 && !!g4.locked.pointer
+    && Math.abs(g4.locked.pointer[0] - 960) <= 1 && Math.abs(g4.locked.pointer[1] - 540) <= 1,
+    `实测 alive=${g4.locked.alive}、派发命中 ${n0} 个监听器、基准点=${JSON.stringify(g4.locked.pointer)}`
+    + '；出货页面（demo.html → ./bundle.js）走的正是这条路（全仓库 `__mpwPointer` 零生产者 = 修复前"鼠标拖尾"整条死的）')
 
   // 补一个"注入 + 装钩子"的台子，用来量 G1/G2/G3
   const rig3 = makeRig('inject-gaps')
@@ -462,27 +480,36 @@ let emittedAtLeave = 0
   rig3.fire('pointermove', { clientX: 700, clientY: 500, pointerId: 1, pointerType: 'mouse' })
   await rig3.frame()
   const base = rig3.snapshot(); dump(rig3, 'G 基线（DOM 指针 700,500）')
-  ok('G0 缺口用例的前置：DOM 指针已在 (700,500) 且正在发射（下面三条 XFAIL 才有意义）',
+  ok('G0 缺口用例的前置：DOM 指针已在 (700,500) 且正在发射（下面 G1/G2/G3 才有意义）',
     !!base.locked.pointer && base.locked.alive > 0, `ptr=${JSON.stringify(base.locked.pointer)} alive=${base.locked.alive}`)
 
-  // G1：注入通道激活时，画布 pointerleave 被旁路 —— §7-H 的"离开后仍在发射"在这条路上可复现
+  // G1（修复前 XFAIL，P-118 已闭合）：注入通道激活时，画布 pointerleave 也**必须**停发
   globalThis.window = { __mpwPointer: { x: 800, y: 400, inside: true } }
   await rig3.frame()
   const g1Before = rig3.trk(LOCKED_ID).sample().emitted
   rig3.fire('pointerleave', { pointerId: 1, clientX: 701, clientY: 501 })
   await rig3.frame(); await rig3.frame()
   const g1 = rig3.snapshot(); dump(rig3, 'G1 注入激活 + 画布 pointerleave')
-  xfailItem('G1 注入通道激活时，画布 pointerleave 也能停发（当前被注入优先级旁路）',
-    g1.locked.emitted === g1Before,
-    `离开后累计 ${g1Before}→${g1.locked.emitted}（仍在发射；基准点=${JSON.stringify(g1.locked.pointer)}）。`
+  ok('G1 ★ 注入通道激活时，画布 pointerleave 也能停发（注入值没变 ⇒ 不许盖过"已离开"；修复前 39→54 且仍 (800,400)）',
+    g1.locked.emitted === g1Before && g1.locked.pointer === null && g1.locked.alive === 0,
+    `离开后累计 ${g1Before}→${g1.locked.emitted}（基准点=${JSON.stringify(g1.locked.pointer)}）。`
     + '最小复现 = 本测试 D2/G1 两步：① window.__mpwPointer={x:800,y:400,inside:true} ② 画布派发 pointerleave '
-    + '⇒ 指针仍为 (800,400)、累计发射继续增长')
+    + '⇒ 修复前指针仍为 (800,400)、累计发射继续增长（修法 core/we-scene-bundle.js:6691）')
   // 同一发 pointerleave 在注入撤掉后立刻生效 ⇒ 证明"事件到了、是优先级盖住的"
   delete globalThis.window
   await rig3.frame()
   const g1b = rig3.snapshot(); dump(rig3, 'G1b 撤注入后同一发 leave 生效')
   ok('G1b 同一发 pointerleave 在注入撤掉后**立刻生效**（事件确实到达并清了 DOM 指针 ⇒ G1 是优先级问题，不是事件没到）',
     g1b.locked.pointer === null && g1b.locked.alive === 0, `ptr=${JSON.stringify(g1b.locked.pointer)} alive=${g1b.locked.alive}`)
+  // G1c：注入**变了**（宿主重新给了坐标）⇒ 认注入（纯注入的台子不会被一发 stray leave 永久锁死）
+  globalThis.window = { __mpwPointer: { x: 320, y: 240, inside: true } }
+  await rig3.frame()
+  const g1c = rig3.snapshot(); dump(rig3, 'G1c 注入给了新坐标 ⇒ 恢复认注入')
+  delete globalThis.window
+  ok('G1c 注入**变了**（宿主给出新坐标） ⇒ 当作新证据恢复认注入、重新发射（不会永久锁死纯注入台子）',
+    !!g1c.locked.pointer && Math.abs(g1c.locked.pointer[0] - 320) <= 0.5 && Math.abs(g1c.locked.pointer[1] - 240) <= 0.5
+    && g1c.locked.alive > 0,
+    `ptr=${JSON.stringify(g1c.locked.pointer)} alive=${g1c.locked.alive}`)
 
   // G2：pointerout + relatedTarget=null（等价"离开"路径）没被监听
   rig3.fire('pointermove', { clientX: 700, clientY: 500, pointerId: 1, pointerType: 'mouse' })
@@ -566,46 +593,79 @@ if (IS_MUTANT_RUN) {
 } else {
   const CORE = path.join(ROOT, 'core')
   const SRC = fs.readFileSync(BUNDLE, 'utf8')
-  const ANCHOR = "el.addEventListener('pointerleave', () => { __pointerN = null }, { passive: true })"
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-leave-mut-'))
   const cleanup = () => { try { fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* ignore */ } }
   process.on('exit', cleanup)
   try {
-    if (!SRC.includes(ANCHOR)) {
-      skipItem('mutation-selfcheck 红-if-reverted', '变异锚点未命中（核心那行已被改写 ⇒ 需重新标定；不做变异＝不算证据）')
-    } else {
-      // 逐文件复制（fs.cpSync 在本机 /tmp 上抛 EINVAL）；**用 statSync 判类型**（本机 fs 的
-      // Dirent.isFile() 对部分普通文件报 false/isSymbolicLink()=true，靠它会漏掉依赖模块）
-      const tmpCore = path.join(tmp, 'core')
-      fs.mkdirSync(tmpCore, { recursive: true })
-      for (const name of fs.readdirSync(CORE)) {
-        const src = path.join(CORE, name)
-        let st = null
-        try { st = fs.statSync(src) } catch { st = null }
-        if (!st || !st.isFile()) continue
-        fs.writeFileSync(path.join(tmpCore, name), fs.readFileSync(src))
+    // 逐文件复制（fs.cpSync 在本机 /tmp 上抛 EINVAL）；**用 statSync 判类型**（本机 fs 的
+    // Dirent.isFile() 对部分普通文件报 false/isSymbolicLink()=true，靠它会漏掉依赖模块）
+    const tmpCore = path.join(tmp, 'core')
+    fs.mkdirSync(tmpCore, { recursive: true })
+    for (const name of fs.readdirSync(CORE)) {
+      const src = path.join(CORE, name)
+      let st = null
+      try { st = fs.statSync(src) } catch { st = null }
+      if (!st || !st.isFile()) continue
+      fs.writeFileSync(path.join(tmpCore, name), fs.readFileSync(src))
+    }
+    // P-118：**每处修复各一条**"改回旧写法"的最小变异；锚点 = 修复那几行的真源码，
+    // 命中数必须**恰好 1**（否则 SKIP，不把"没法变异"伪装成"变异通过"）。expect = 该变异必须打红的断言。
+    const MUTANTS = [
+      {
+        id: 'M1', fix: 'G4', expectName: 'G4a/G4b（DOM 路径自举）', expect: /✗ G4[ab]/,
+        desc: 'G4 改回旧写法：拆掉"建渲染器即装钩子" + 帧内改回 `if (!CURSOR_OFF && __ptrNow) __hookPointer()`',
+        edits: [
+          ['\n  if (!CURSOR_OFF) __hookPointer()\n', '\n  /* 变异 M1：自举拆掉 —— 旧写法"没有指针就不装钩子" */\n'],
+          ['    if (!CURSOR_OFF) __hookPointer()', '    if (!CURSOR_OFF && __ptrNow) __hookPointer()'],
+        ],
+      },
+      {
+        id: 'M2', fix: 'G1', expectName: 'G1（注入不许盖过"已离开"）', expect: /✗ G1 ★/,
+        desc: 'G1 改回旧写法：注入分支去掉"与 pointerleave 那一刻同一份"的判定（注入无条件优先）',
+        edits: [
+          ['        if (__pointerGone && inj === __pointerGoneInj && __injKey(inj) === __pointerGoneKey) return null',
+            '        /* 变异 M2：注入盖过 canvas pointerleave（旧写法） */'],
+        ],
+      },
+      {
+        id: 'M3', fix: 'G5', expectName: 'G5（inside:false ⇒ 停发）', expect: /✗ G5 ★/,
+        desc: 'G5 改回旧写法：去掉 `inside === false ⇒ null`，并把 `inside !== false` 加回注入条件（回落到旧画布坐标）',
+        edits: [
+          ['      if (inj && inj.inside === false) return null\n', '      /* 变异 M3：inside:false 不再表示"不在画布内" */\n'],
+          ['      if (inj && Number.isFinite(inj.x) && Number.isFinite(inj.y)) {',
+            '      if (inj && inj.inside !== false && Number.isFinite(inj.x) && Number.isFinite(inj.y)) {'],
+        ],
+      },
+      {
+        id: 'M4', fix: '本轮核心语义', expectName: 'P3a（离开后不再新增发射）', expect: /✗ P3a/,
+        desc: 'pointerleave 处理器改成空操作（监听还在、行为回到"离开不清指针"的旧写法）',
+        edits: [
+          ['{ __pointerN = null; __pointerGone = true; __pointerGoneInj = __injectedPointer(); __pointerGoneKey = __injKey(__pointerGoneInj) }',
+            '{ /* 变异 M4：离开不清指针 */ }'],
+        ],
+      },
+    ]
+    for (const m of MUTANTS) {
+      let src = SRC, bad = null
+      for (const [from, to] of m.edits) {
+        const n = src.split(from).length - 1
+        if (n !== 1) { bad = '锚点命中 ' + n + ' 次：' + JSON.stringify(from.slice(0, 70)); break }
+        src = src.split(from).join(to)
       }
-      const mutants = [
-        { id: 'M1', desc: '删掉 pointerleave 监听整行', src: SRC.replace(ANCHOR + '\n', '').replace(ANCHOR, '') },
-        { id: 'M2', desc: 'pointerleave 处理器改成空操作（监听在、行为回旧写法）', src: SRC.replace('() => { __pointerN = null }', '() => { /* 变异：离开不清指针 */ }') },
-      ]
-      for (const m of mutants) {
-        if (m.src === SRC) { skipItem('mutation-selfcheck ' + m.id, '变异未生效（锚点替换 0 次）'); continue }
-        const f = path.join(tmp, 'core', 'we-scene-bundle.js')
-        fs.writeFileSync(f, m.src)
-        const r = spawnSync(process.execPath, [process.argv[1], '--no-mutation'], {
-          encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024,
-          env: Object.assign({}, process.env, { MPW_POINTER_BUNDLE: f }),
-        })
-        const out = String(r.stdout || '') + String(r.stderr || '')
-        const redLine = (out.match(/✗ P3[ab][^\n]*/) || [])[0] || (out.match(/✗ [^\n]*/) || [])[0] || ''
-        ok('M-' + m.id + ' 变异「' + m.desc + '」⇒ 子进程 rc=1 且 P3（离开后不再新增发射）变红',
-          r.status === 1 && /✗ P3[ab]/.test(out),
-          `rc=${r.status} 首个失败断言=${JSON.stringify(redLine.slice(0, 160))}`
-          + ' 子进程输出尾部=' + JSON.stringify(out.slice(-240)))
-        ok('M-' + m.id + 'b 变异体只打破"离开"语义，绿前提仍成立（证明不是把整条路径弄挂了）',
-          /✓ A3a/.test(out) && /✓ P4a/.test(out), 'A3a/P4a 在变异体里仍为 ✓')
-      }
+      if (bad) { skipItem('mutation-selfcheck ' + m.id, bad + '（核心那几行已被改写 ⇒ 需重新标定；不做变异＝不算证据）'); continue }
+      const f = path.join(tmp, 'core', 'we-scene-bundle.js')
+      fs.writeFileSync(f, src)
+      const r = spawnSync(process.execPath, [process.argv[1], '--no-mutation'], {
+        encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024,
+        env: Object.assign({}, process.env, { MPW_POINTER_BUNDLE: f }),
+      })
+      const out = String(r.stdout || '') + String(r.stderr || '')
+      const redLine = (out.match(m.expect) || [])[0] || (out.match(/✗ [^\n]*/) || [])[0] || ''
+      ok('M-' + m.id + '（' + m.fix + '）变异「' + m.desc + '」⇒ 子进程 rc=1 且 ' + m.expectName + ' 变红',
+        r.status === 1 && m.expect.test(out),
+        `rc=${r.status} 失败断言=${JSON.stringify(redLine.slice(0, 180))}`)
+      ok('M-' + m.id + 'b 变异体只打破被点名的那条语义，绿前提仍成立（A3a/P4a 在变异体里仍为 ✓）',
+        /✓ A3a/.test(out) && /✓ P4a/.test(out), 'A3a/P4a 在变异体里仍为 ✓')
     }
   } finally { cleanup() }
 }
@@ -617,7 +677,7 @@ if (fail) {
   for (const n of failNames) console.log('  - ' + n)
 }
 console.log(`\n(计票：pass=${pass} fail=${fail} skip=${skip} xfail=${xfail} xpass=${xpass})`)
-if (xfail) console.log(`已知缺口 XFAIL ${xfail} 条（不计票，见文件头 G1–G5；修好会打 XPASS）：注入通道下离开信号不生效 / inside:false 回落旧坐标 / 等价路径未监听 / DOM 路径自举死锁`)
+if (xfail) console.log(`已知缺口 XFAIL ${xfail} 条（不计票；P-118 已闭合 G1/G4/G5 三条，剩下的见文件头"仍然开着的缺口"）：等价路径未监听（pointerout）/ 页面级离开未监听（blur·visibilitychange）`)
 if (fail === 0) console.log(`\nALL PASS （${pass} 项${skip ? '，另 SKIP ' + skip : ''}${xfail ? '，另记录缺口 ' + xfail : ''}）`)
 else console.log(`\n${fail} 项失败`)
 process.exit(fail ? 1 : 0)
