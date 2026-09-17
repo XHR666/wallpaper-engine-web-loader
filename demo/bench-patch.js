@@ -1101,17 +1101,37 @@ export function initSiteShell(ctx = {}) {
 
   /* ── 设置弹层（语言 / 主题状态 / 后端状态 / 归属与许可） ── */
   const popBtn = q('#settings-btn'), pop = q('#settings-pop')
+  let catcher = null
   function popOpen(open) {
     if (!pop || !popBtn) return false
     const on = open === undefined ? pop.hasAttribute('hidden') : !!open
     if (on) pop.removeAttribute('hidden'); else pop.setAttribute('hidden', '')
     try { popBtn.setAttribute('aria-expanded', on ? 'true' : 'false') } catch {}
+    // ①(修正 2026-09-18) 弹层打开时铺一层透明"点击捕手"（z-index 低于弹层、高于页面其余部分，**包括同源 iframe**）：
+    //   点页面任何地方（含壁纸舞台 iframe 区域）都先命中它 ⇒ 关闭弹层。不依赖焦点/blur（合成事件下 blur 不可靠，
+    //   真机上点 iframe 也不一定触发主窗 blur）。
+    try {
+      if (on) {
+        if (!catcher) {
+          catcher = D.createElement('div')
+          catcher.id = 'settings-catcher'
+          catcher.addEventListener('pointerdown', () => popOpen(false))
+          catcher.addEventListener('click', () => popOpen(false))
+        }
+        if (catcher.parentNode !== D.body) D.body.appendChild(catcher)
+      } else if (catcher && catcher.parentNode) catcher.parentNode.removeChild(catcher)
+    } catch { /* 桩 DOM */ }
     return on
   }
   if (popBtn) popBtn.addEventListener('click', (e) => { try { e.stopPropagation() } catch {}; popOpen() })
   if (pop) pop.addEventListener('click', (e) => { try { e.stopPropagation() } catch {} })
   D.addEventListener('click', () => popOpen(false))
   D.addEventListener('keydown', (e) => { if (e && e.key === 'Escape') popOpen(false) })
+  // ①(修正 2026-09-18 独立验证员发现) 点**壁纸舞台**（同源 iframe 内）不会冒泡到主文档 ⇒ 弹层不关。
+  //   同源 iframe 获得焦点时主窗口会 blur ⇒ 用它兜底关闭（切到别的窗口/标签也同样关，符合"点外面就关"的直觉）。
+  try {
+    if (typeof addEventListener === 'function') addEventListener('blur', () => { if (pop && !pop.hasAttribute('hidden')) popOpen(false) })
+  } catch {}
 
   /* 主题 / 后端状态文字：主题看 #theme-toggle 的 data-mode（bundle 写），后端看 #bench-backend-note（bundle 写） */
   const themeBtn = q('#theme-toggle'), themeState = q('#theme-state'), backendState = q('#backend-state'), backendNote = q('#bench-backend-note')
@@ -1981,7 +2001,8 @@ export function init() {
     '#settings-btn:hover,#settings-btn[aria-expanded="true"]{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}',
     '#site-actions .theme-btn{width:30px;height:26px;border-radius:6px}',
     '#settings-pop{position:absolute;right:0;top:calc(100% + 6px);width:330px;background:var(--panel);border:1px solid var(--border);border-radius:8px;box-shadow:0 14px 40px rgba(0,0,0,.38);padding:10px 12px;z-index:40;display:flex;flex-direction:column;gap:8px;font-size:12.5px}',
-    '#settings-pop[hidden]{display:none!important}',
+        '#settings-catcher{position:fixed;inset:0;z-index:35;background:transparent}',
+'#settings-pop[hidden]{display:none!important}',
     '.pop-row,.lang-box{display:flex;align-items:center;gap:8px}',
     '.pop-k{color:var(--fg-mute);min-width:44px}',
     '.pop-val{color:var(--fg)}',
