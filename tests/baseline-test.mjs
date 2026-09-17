@@ -339,6 +339,52 @@ const writeJson = (name, obj) => { const p = path.join(tmp, name); fs.writeFileS
   check('T5c 快照文件是合法 JSON 且能被 diff 工具读回（同一份 schema）', (() => { try { return mpwValidateSnapshot(JSON.parse(fs.readFileSync(pA, 'utf8'))).ok } catch (e) { return false } })())
 }
 
+/* ══════════════ T5g 趋势脚本遇到"半截快照"不许当场炸掉 ══════════════
+ * 现场（2026-09-18）：一次被中断的采集在 `reports/real-machine/` 留下 5 字节文件，内容字面量 `null`。
+ * `JSON.parse('null')` **不抛**，于是 `tests/baseline-trend.mjs` 在 `o.file = rel(file)` 那行以
+ * `TypeError: Cannot set properties of null` 崩掉 —— 症状是"趋势门禁红"，真因是"有份数据没写完"，
+ * 两者都该报红但报法完全不同（要能一眼看出是哪份文件、坏在哪）。本组用**真子进程**钉死这条行为：
+ * 坏输入 ⇒ 退出码 1 + 指名文件；同一目录里的好报告仍照常入表；删掉坏文件 ⇒ 回到 0。
+ * 变异检验：把 `tests/baseline-trend.mjs` 里那段 `顶层不是 JSON 对象` 的守卫删掉 ⇒ 本组必红（见 PATCHES P-115）。 */
+console.log('\n== T5g 趋势脚本对半截快照的容错（坏输入报红，不崩在赋值行） ==')
+{
+  const runTrend = (dir) => {
+    try { const out = execFileSync('node', ['tests/baseline-trend.mjs', '--dir=' + dir], { cwd: ROOT, encoding: 'utf8' }); return { rc: 0, out } }
+    catch (e) { return { rc: e.status, out: String(e.stdout || '') + String(e.stderr || '') } }
+  }
+  const good = { kind: 'real-machine', schema: 1, at: '2026-09-18T01:00:00.000Z', id: 'synthetic-trend', startup: { totalMs: 1200 } }
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mpw-trend-'))
+  const rm = path.join(d, 'real-machine'); fs.mkdirSync(rm, { recursive: true })
+  fs.writeFileSync(path.join(rm, '1000.json'), JSON.stringify(good))
+  // ① 半截文件（内容字面量 null）——就是现场那 5 字节
+  fs.writeFileSync(path.join(rm, '2000.json'), 'null')
+  const r = runTrend(d)
+  check('T5g 目录里有 `null` 半截快照 → 退出码 1（坏输入=红），且**不**以 TypeError 崩掉',
+    r.rc === 1 && !/TypeError/.test(r.out), 'rc=' + r.rc + (r.rc !== 1 ? ' / ' + r.out.slice(0, 120) : ''))
+  check('T5g 报错**指名文件** + 说清"顶层不是 JSON 对象" + 带上原文片段（能直接定位是半截文件）',
+    /2000\.json/.test(r.out) && /顶层不是 JSON 对象/.test(r.out) && /"null"/.test(r.out))
+  check('T5g 同一目录里的好报告仍照常入表（不是"一份坏就全丢"）', /synthetic-trend/.test(r.out) && /趋势表/.test(r.out))
+  // ② 其它非对象顶层：数字 / 字符串 / 数组（同样过得了 JSON.parse）
+  for (const [n, body] of [['num', '5'], ['str', '"x"'], ['arr', '[1,2]']]) {
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'mpw-trend-' + n + '-'))
+    fs.mkdirSync(path.join(d2, 'real-machine'), { recursive: true })
+    fs.writeFileSync(path.join(d2, 'real-machine', '3000.json'), body)
+    const rr = runTrend(d2)
+    check('T5g 顶层是 ' + n + '（' + body + '）→ 退出码 1 且不崩', rr.rc === 1 && !/TypeError/.test(rr.out), 'rc=' + rr.rc)
+    fs.rmSync(d2, { recursive: true, force: true })
+  }
+  // ③ 手工处置的等价动作：删掉坏文件 → 回到 0（该脚本的既有语义不变）
+  fs.rmSync(path.join(rm, '2000.json'))
+  const r2 = runTrend(d)
+  check('T5g 删掉半截文件后 → 退出码 0（2026-09-18 的手工处置，现在脚本自己会报红）', r2.rc === 0, 'rc=' + r2.rc)
+  // ④ "没数据" ≠ "数据坏了"：空目录仍然 SKIP + rc 0
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'mpw-trend-empty-'))
+  const r3 = runTrend(empty)
+  check('T5g 一份都快照都没有 → `SKIP baseline-trend` + 退出码 0（条件项，门禁不红）',
+    r3.rc === 0 && /^SKIP baseline-trend/m.test(r3.out), 'rc=' + r3.rc)
+  fs.rmSync(d, { recursive: true, force: true }); fs.rmSync(empty, { recursive: true, force: true })
+}
+
 console.log('\n== T5d 默认关时零行为变化（demo.html 真源码切片 + 桩 DOM/桩 gl 跑） ==')
 {
   const block = sliceMarks(HTML, '// ═══ MPW-BASELINE-BEGIN', '// ═══ MPW-BASELINE-END ═══')

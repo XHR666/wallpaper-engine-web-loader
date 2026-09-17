@@ -105,17 +105,33 @@ html[lang="en"] .lang-zh{display:none}
 html.bench-shell html:not([lang="en"]) .lang-en{display:none}
 @media (prefers-reduced-motion: reduce){html.bench-shell #pages-track,#site-tab-ink{transition:none!important}}
     
-/* ── 窄屏/手机自适应（2026-09-18 真机：安卓浏览器 412px 宽）────────────────────────────
-   桌面宽窗口正常、手机完全错乱的真因：三列是固定 300+320+其余 ⇒ 980px 内容塞进 412px 视口，
+/* ── 窄屏/堆叠布局（2026-09-18 真机：安卓手机 412px + 平板"桌面版网站" 980px）──────────
+   桌面宽窗口正常、窄视口错乱的真因：三列是固定 300+320+其余 ⇒ 980px 内容塞进 412px 视口，
    横向溢出 + 舞台那条 `minmax(140px,1fr)` 与产物 `#stage-scale` 的容器查询单位形成循环依赖
    ⇒ 舞台高度爆到 1600px+（实测 412×915 时 #stage-slot=1619px、#main 行=270/1618/6/220）。
-   这里在窄屏改成**单列堆叠 + 舞台给确定高度 + 关掉容器查询**，并把头部 tab 允许换行/横滚。
-   仅静态表里有这些 @media（补丁的 SITE_LAYOUT_CSS 是重复备份，D8 比对会跳过 @media 条目）。 */
-html.bench-shell body{overflow-x:hidden}
-html.bench-shell.bench-mid{--mpw-lib-w:240px;--mpw-props-w:260px}
-/* 窄屏（含"桌面模式手机"：布局视口 980px 但不该按桌面排）——由 head 脚本在首屏前加 .bench-narrow，
-   不依赖媒体查询：桌面版 UA 的手机浏览器会让 @media(max-width:860px) 永不匹配（真机实测 clientWidth=980）。 */
+   这里在窄视口改成**单列堆叠 + 舞台给确定高度 + 关掉容器查询**，并把头部 tab 允许换行/横滚。
 
+   判定**只有一处**：`<head>` 里的同步脚本在首屏前给 `<html>` 加 `.bench-narrow`（第一帧就对，
+   不需要等产物启动）；下面的规则一律以 `html.bench-shell.bench-narrow` 起头。
+   为什么闸门不是 @media：手机/平板开"桌面版网站"时**布局视口恒为 980px**，
+   `@media (max-width:860px)` 永不匹配（真机实测 clientWidth=980、matchMedia=false），
+   而 980 这个宽度**任何小于 980 的阈值都拦不住** ⇒ 阈值取 1180（必须 > 980）。
+   平板实测（OPPO Pad 4 Pro 3392×2400 / 桌面模式 / screen.width=1696）：改前 `narrow=false`
+   ⇒ 桌面三列塞进 980px、舞台只有 448×252、文档 scrollWidth 2940（3 倍溢出）。 */
+html.bench-shell body{overflow-x:hidden}
+/* 横向溢出**必须也在根元素上裁一刀**：`#pages-track` 是 300% 宽（三页并排、靠 translate 切换），
+   只靠 body 的 `overflow-x:hidden` 在部分引擎里**不传播到视口** —— 2026-09-18 实测（无头 Firefox 121，
+   980px 视口）`window.scrollTo(9999,0)` 之后 `window.scrollX=1960`，即**真的能横向拖走两屏**
+   （`document.scrollingElement.scrollWidth=2940`；body 计算值 hidden、html 计算值 visible）。
+   桌面宽度同样存在（1440 → 2880），只是没人往右拖。根元素上补一刀即可，与 body 那条并存不冲突。 */
+html.bench-shell{overflow-x:hidden}
+html.bench-shell.bench-mid{--mpw-lib-w:240px;--mpw-props-w:260px}
+/* ⚠ 这一整块**没有 @media 包裹**（2026-09-18 修）：原来那次"去掉媒体查询依赖"的编辑把 `@media(…){`
+   这一行删掉了，却留下了块内的规则和末尾那个 `}` ⇒ ①多出一个孤立的大括号；②末尾 4 条本该"只在窄屏生效"
+   的规则（工具栏字号 / site-tab / 设置弹层宽度）**泄漏到所有桌面宽度**；③其中一条选择器写成了
+   `html.bench-shell.bench-narrow  html.bench-shell #toolbar`（元素不可能是自己的后代 ⇒ 死规则）。
+   现在：多余 `}` 删除、4 条规则收回 `.bench-narrow` 里、死选择器改正。
+   静态把守：`tests/demo-check.mjs` 的 D9（大括号平衡 + 判定阈值唯一 + 安全网与类规则零冲突）。 */
   /* ①(2026-09-18) 窄屏改成"**文档流 + 页面内滚动**"，而不是桌面那种"一屏三列"：
      手机上一屏放不下三列，强行放会横向溢出/舞台爆高。这里让 .page 自身可纵向滚动，
      左两栏与右列按自然高度堆叠；舞台关掉容器查询并给 max-height；控制台保持可拖动/可收起。 */
@@ -135,22 +151,35 @@ html.bench-shell.bench-mid{--mpw-lib-w:240px;--mpw-props-w:260px}
      在"桌面模式"的旧引擎里还可能整条声明失效 ⇒ 这里用**纯 CSS 定值**兜死，任何级联/引擎都塌不了。 */
   html.bench-shell.bench-narrow #stage-slot{min-height:48vh}
   html.bench-shell.bench-narrow #stage-frame{container-type:normal!important;padding:8px;min-height:48vh}
-  html.bench-shell.bench-narrow #stage-scale{height:46vh!important;width:auto!important;max-width:100%!important;aspect-ratio:16/9;margin:0 auto}
+  html.bench-shell.bench-narrow #stage-scale{width:min(100%,calc(46vh * 16 / 9))!important;height:auto!important;aspect-ratio:16/9;margin:0 auto}
   html.bench-shell.bench-narrow #stage,
   html.bench-shell.bench-narrow #frame{height:100%!important;width:100%!important}
   html.bench-shell.bench-narrow #logs{flex:none;max-height:70vh;overflow:auto}
   html.bench-shell.bench-narrow #logs-splitter{display:none}      /* 窄屏不做拖动调高，交给自然高度 + 滚动 */
 
-html.bench-shell.bench-narrow   html.bench-shell #toolbar{gap:4px}
-  html.bench-shell #toolbar label,html.bench-shell #toolbar .mini{font-size:11px}
-  html.bench-shell .site-tab{padding:0 9px;font-size:12.5px}
-  html.bench-shell #settings-pop{width:min(92vw,330px);right:0}
-}
+  html.bench-shell.bench-narrow #toolbar{gap:4px}
+  html.bench-shell.bench-narrow #toolbar label,html.bench-shell.bench-narrow #toolbar .mini{font-size:11px}
+  html.bench-shell.bench-narrow .site-tab{padding:0 9px;font-size:12.5px}
+  html.bench-shell.bench-narrow #settings-pop{width:min(92vw,330px);right:0}
 /* 舞台尺寸：**不再依赖容器查询**（产物那条 `#stage-scale{width:min(100cqi, calc(100cqb*16/9))}` 在
    "桌面模式手机"（布局视口 980px、无/旧容器查询支持）与窄列下会与 minmax(1fr) 互相喂高度 ⇒ 舞台爆到 1600px+。
    这里统一：容器类型关掉，舞台按"宽度铺满 + 16:9 + 高度上限"排（宽屏时与产物原效果等价）。 */
 html.bench-shell #stage-frame{container-type:normal!important;padding:12px}
 html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-height:56vh;aspect-ratio:16/9}
+/* ── 纯 CSS 安全网（≤1180px）────────────────────────────────────────────────────────────
+   闸门是 `<head>` 同步脚本加的 `.bench-narrow`；这一段是**它没跑成时**的兜底（脚本抛异常、被拦，
+   或将来有人把判定改坏）：光靠"宽度"就能让舞台不塌、三列改堆叠。声明**逐字取自** `.bench-narrow` 块，
+   `tests/demo-check.mjs` D9 会断言这里每一条都能在类块里找到逐字同款（⇒ 两处不可能漂移）。
+   本块声明在类块**之后**：两处同时命中时按同值收尾，不存在互相打架。 */
+@media (max-width:1180px){
+  html.bench-shell #workbench{display:block!important;height:auto!important}
+  html.bench-shell #main{display:flex!important;flex-direction:column;height:auto!important;overflow:visible}
+  html.bench-shell #stage-slot{min-height:48vh}
+  html.bench-shell #stage-frame{container-type:normal!important;padding:8px;min-height:48vh}
+  html.bench-shell #stage-scale{width:min(100%,calc(46vh * 16 / 9))!important;height:auto!important;aspect-ratio:16/9;margin:0 auto}
+  html.bench-shell #stage,
+  html.bench-shell #frame{height:100%!important;width:100%!important}
+}
 </style>
     <script>
       // 首屏前加类（在 <head> 里同步执行 ⇒ 第一帧就按新布局渲染）；?shell=off = 新样式总回退
@@ -164,12 +193,11 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
           try {
             var vw = de.clientWidth || window.innerWidth || 0
             var sw = (window.screen && window.screen.width) || 0
-            var coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
-            // 只认两条可靠信号：①视口≤860；②视口明显大于真实屏幕宽（真机"桌面版网站"：布局视口 980 / 屏幕 412 ⇒ 命中）。
+            // 只认两条可靠信号：①视口≤1180；②视口明显大于真实屏幕宽（真机"桌面版网站"：布局视口 980 / 屏幕 412 ⇒ 命中）。
             //   不用"触摸设备"当判据：带触摸屏的笔电与部分环境会误判（本机 emulation 就复现了误判）。
-            var narrow = vw <= 860 || (sw >= 200 && vw > sw * 1.5)
-            // 兜底：视口在 861–1100 且是粗指针小屏（screen.width ≤ 900）也算窄屏
-            if (!narrow && vw <= 1100 && coarse && sw > 0 && sw <= 900) narrow = true
+            // ⚠ 阈值必须 > 980：桌面版网站的手机/平板布局视口恒为 980px（写 860 时永不命中，平板真机实测过）。
+            //   1180 = "三列放不下"的实测分界（详解见本文件静态样式块顶部那段注释）。
+            var narrow = vw <= 1180 || (sw >= 200 && vw > sw * 1.5)
             if (narrow) de.classList.add('bench-narrow')
             if (vw <= 1100) de.classList.add('bench-mid')
           } catch (e) {}

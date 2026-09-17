@@ -71,6 +71,15 @@ function ingest(dir, kind) {
     const file = path.join(dir, f)
     let o = null
     try { o = JSON.parse(fs.readFileSync(file, 'utf8')) } catch (e) { invalid.push({ file: rel(file), why: 'JSON 解析失败：' + e.message }); continue }
+    // 顶层**必须是 JSON 对象**：`null`/数字/字符串/数组都过得了 `JSON.parse`，但下面 `o.file = …` 会当场
+    // TypeError 把整个脚本炸掉（2026-09-18 真发生过：一次被中断的采集留下 5 字节的半截文件，内容恰好是
+    // `null`，趋势脚本于是以 `Cannot set properties of null` 红掉，掩盖了真正的数据问题）。
+    // 这类文件是**坏输入**，该报成"不合 schema"（退出码 1）并指名文件，而不是崩在赋值行上。
+    if (o === null || typeof o !== 'object' || Array.isArray(o)) {
+      const peek = fs.readFileSync(file, 'utf8').slice(0, 40).replace(/\s+/g, ' ')
+      invalid.push({ file: rel(file), why: '顶层不是 JSON 对象（' + (o === null ? 'null' : Array.isArray(o) ? 'array' : typeof o) + '，多半是采集被中断留下的半截文件）—— 原文前 40 字符：' + JSON.stringify(peek) })
+      continue
+    }
     o.file = rel(file)
     if (kind === 'baseline') {
       const v = mpwValidateSnapshot(o)

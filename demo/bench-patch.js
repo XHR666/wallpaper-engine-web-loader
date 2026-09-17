@@ -1263,8 +1263,10 @@ export function initSiteShell(ctx = {}) {
   function stageFloorPx() { return 140 }   // 舞台保底高度（窄视口下不许被工具栏/控制台吃光）
   function maxLogsForLayout() {
     if (!mainEl) return 220
-    // ①(2026-09-18) 窄屏（≤860px）是"文档流堆叠 + 页面内滚动"，舞台不再和 1fr 争高度 ⇒ 不钳制
-    try { if (typeof innerWidth === 'number' && innerWidth <= 860) return 100000 } catch {}
+    // ①(2026-09-18) 窄屏布局是"文档流堆叠 + 页面内滚动"，舞台不再和 1fr 争高度 ⇒ 不钳制。
+    //   判据用**同一个闸门**（`html.bench-narrow`，由 index.html 的 head 同步脚本按视口宽度加），
+    //   这里不再重复写一遍宽度阈值：2026-09-18 平板修复把阈值从 860 提到 1180，两处各写一份必然漂移。
+    try { if (document && document.documentElement && document.documentElement.classList.contains('bench-narrow')) return 100000 } catch {}
     try {
       const mainH = mainEl.getBoundingClientRect().height
       const chromeH = (q('#editor-chrome') || { getBoundingClientRect: () => ({ height: 0 }) }).getBoundingClientRect().height
@@ -2121,7 +2123,7 @@ export function init() {
   const SITE_STYLE_INJECTED = (SHELL_OFF || !DOM_IS_NEW) ? false : injectSiteLayoutStyle()
   // ①(2026-09-18) 版本标记：把"当前页面到底是哪一版"变成可核对的事实（控制台/属性/状态栏都能看）——
   //   用户报"还是不行"时，第一件事就是核对它（旧缓存会让 `window.__benchShellVersion` 整个不存在）。
-  const BENCH_SHELL_VERSION = 'bench-shell 2026-09-18a (static first-paint CSS; dom=' + (DOM_IS_NEW ? 'new' : 'old') + (SHELL_OFF ? '; shell=off' : '') + ')'
+  const BENCH_SHELL_VERSION = 'bench-shell 2026-09-18b (static first-paint CSS; dom=' + (DOM_IS_NEW ? 'new' : 'old') + (SHELL_OFF ? '; shell=off' : '') + ')'
   try {
     if (typeof window !== 'undefined') {
       window.__benchShellVersion = BENCH_SHELL_VERSION

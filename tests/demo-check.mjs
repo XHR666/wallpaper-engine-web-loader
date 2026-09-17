@@ -277,6 +277,81 @@ const landing = path.join(ROOT, 'index.html')
   }
 }
 
+// ---- D9 窄屏判定的静态把守（2026-09-18 平板"桌面版网站"修复的防回归断言）
+// 为什么要有这一组：窄屏那条路**在无头环境里最容易"看起来修好了"**——CSS 大括号少一个、
+// `.bench-narrow` 规则被 @media 包住/漏在外面、判定阈值改回 860，页面在桌面宽度下全都不报错，
+// 只有真机（手机/平板）才看得出来。这里把它钉成**纯静态**断言，任何一条被改坏都会红。
+{
+  const html = read(path.join(DEMO, 'index.html'))
+  const mStatic = html.match(/<style id="bench-shell-static">([\s\S]*?)<\/style>/)
+  const cssRaw = mStatic ? mStatic[1] : ''
+  // ⚠ 先剥注释再数大括号：2026-09-18 自测时，注释里写了一个 `}` 就让"平衡检查"误报（与 P-114.2 的
+  //   "括号检查数了注释散文"是同一类假阳性）⇒ 所有结构判定都在剥注释后的文本上做。
+  const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, ' ')
+  check('D9 首屏静态样式块在位且 >4KB', cssRaw.length > 4000, cssRaw.length + 'B')
+
+  // ① 大括号平衡（剥注释）
+  let depth = 0, firstNeg = -1
+  for (let i = 0; i < css.length; i++) {
+    if (css[i] === '{') depth++
+    else if (css[i] === '}') { depth--; if (depth < 0 && firstNeg < 0) firstNeg = i }
+  }
+  check('D9 静态样式块大括号平衡（剥注释；depth 归零且不出现多余的 }）', depth === 0 && firstNeg < 0,
+    'depth=' + depth + (firstNeg >= 0 ? '；首个多余 } 在偏移 ' + firstNeg + '（' + JSON.stringify(css.slice(Math.max(0, firstNeg - 40), firstNeg + 2)) + '）' : ''))
+
+  // ② 判定阈值唯一、> 980（桌面版网站的布局视口**恒为 980px** ⇒ 阈值 ≤980 等于永不命中）
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])
+  const head = scripts.find((s) => s.includes('bench-narrow')) || ''
+  // 只看 `var narrow = …` 这一条**判定表达式**里的比较（`vw <= 1100` 是 bench-mid 的另一件事，不算）
+  const narrowExpr = (head.match(/var\s+narrow\s*=([^\n]*)/) || [])[1] || ''
+  const ths = [...narrowExpr.matchAll(/\bvw\s*<=\s*(\d+)/g)].map((m) => Number(m[1]))
+  check('D9 窄屏判定表达式里阈值恰好一处、且 =1180（> 980）', ths.length === 1 && ths[0] === 1180,
+    'narrow 表达式=' + JSON.stringify(narrowExpr.trim()) + ' ⇒ 阈值 ' + JSON.stringify(ths))
+  check('D9 阈值不是 860（历史值：980 > 860 ⇒ 桌面模式手机/平板永不命中）', !ths.includes(860) && !/\bvw\s*<=\s*860\b/.test(head))
+  check('D9 判定仍在**首屏同步**路径上（加类之前不许出现 addEventListener/DOMContentLoaded 等待）',
+    /classList\.add\('bench-narrow'\)/.test(head) && (head.indexOf('addEventListener') < 0 || head.indexOf("classList.add('bench-narrow')") < head.indexOf('addEventListener')))
+
+  // ③ 类块**不许**被 @media 包住（历史 bug：@media 开头那一行被删掉 ⇒ 孤立规则 + 多余 `}` + 末尾规则泄漏到桌面）
+  const firstNarrow = css.indexOf('html.bench-shell.bench-narrow')
+  const safetyAt = css.indexOf('@media (max-width:1180px)')
+  check('D9 `.bench-narrow` 类块在 @media 之外（从第一条类规则到安全网之间不许出现 @media）',
+    firstNarrow >= 0 && safetyAt > firstNarrow && css.slice(firstNarrow, safetyAt).indexOf('@media') < 0,
+    'firstNarrow=' + firstNarrow + ' safetyAt=' + safetyAt)
+  check('D9 无"自己是自己后代"的死选择器（`.bench-narrow  html.bench-shell …`）', !/bench-narrow\s+html\.bench-shell/.test(css))
+
+  // ④⑤ 规则级判定：统一成"元素集合 + 声明"的规范键（选择器列表逐个剥前缀，逗号列表不许被当成一个整体）
+  const canon = (sel) => sel.split(',').map((s) => s.trim().replace(/^html\.bench-shell(\.bench-narrow)?\s+/, '')).filter(Boolean).sort().join(' | ')
+  const leaf = (t) => [...t.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => {
+    const sel = m[1].trim().replace(/\s+/g, ' ')
+    return { narrow: sel.includes('bench-narrow'), key: canon(sel), decl: m[2].trim().replace(/\s+/g, ' ') }
+  })
+  const classRules = new Set(leaf(css.slice(firstNarrow, safetyAt)).filter((r) => r.narrow).map((r) => r.key + '{' + r.decl + '}'))
+  const safetyRules = leaf(safetyAt >= 0 ? css.slice(safetyAt) : '')
+  const drift = safetyRules.filter((r) => !classRules.has(r.key + '{' + r.decl + '}'))
+  check('D9 安全网（@media ≤1180）的每条规则都在 `.bench-narrow` 类块里有逐字同款（零漂移）',
+    safetyRules.length >= 5 && drift.length === 0,
+    '安全网规则 ' + safetyRules.length + ' 条' + (drift.length ? '，漂移 ' + drift.length + '：' + drift.slice(0, 2).map((r) => r.key + '{' + r.decl + '}').join(' | ') : ''))
+
+  // ⑤ 本该"只在窄屏生效"的三条规则不许有**非窄屏**版本（历史 bug：末尾 4 条裸在顶层 ⇒ 桌面工具栏/标签/弹层被一起缩小）
+  const NARROW_ONLY = [
+    ['#toolbar label, #toolbar .mini', 'font-size:11px'],
+    ['.site-tab', 'padding:0 9px;font-size:12.5px'],
+    ['#settings-pop', 'width:min(92vw,330px);right:0'],
+  ]
+  const leaked = []
+  for (const [sel, decl] of NARROW_ONLY) {
+    const key = canon(sel)                                        // 期望键也走同一套规范化（排序/去前缀），免得手写顺序对不上
+    const hits = leaf(css).filter((r) => r.key === key)
+    if (!hits.some((r) => r.narrow && r.decl === decl)) leaked.push('缺窄屏版本：' + key)
+    for (const r of hits.filter((x) => !x.narrow && x.decl === decl)) leaked.push(r.key + '{' + r.decl + '}')
+  }
+  check('D9 窄屏专属的三条规则：既有 `.bench-narrow` 版本、又没有裸在桌面宽度上的版本', leaked.length === 0, leaked.join(' | '))
+
+  // ⑥ 横向溢出必须在**根元素**上裁（body 那条在部分引擎不传播到视口；实测 Firefox 能横拖 1960px）
+  check('D9 根元素裁横向溢出（html.bench-shell{overflow-x:hidden}）与 body 那条并存',
+    /html\.bench-shell\{overflow-x:hidden\}/.test(css) && /html\.bench-shell body\{overflow-x:hidden\}/.test(css))
+}
+
 if (JSON_OUT) console.log(JSON.stringify({ pass, fail }, null, 1))
 else console.log(`\n===== demo-check: ${pass} 通过 / ${fail} 失败 =====`)
 process.exit(fail ? 1 : 0)
