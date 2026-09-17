@@ -73,6 +73,16 @@ canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;backgrou
 .mpw_pickerWrap .mpw_pickerHex{flex:1;min-width:0;height:28px;border:1px solid #666;border-radius:6px;padding:0 8px;background:#141414;color:#eee;outline:none;font:12px monospace}
 .mpw_pickerWrap .mpw_pickerHex:focus{border-color:#eee;outline:none;box-shadow:none}
 .mpw_pickerWrap .mpw_pickerOk{height:28px;padding:0 12px;border:none;border-radius:6px;background:#3964fe;color:#fff;font:12px monospace;cursor:pointer}
+/* ①(P-113 2026-09-17 显示选项) 顶栏显示选项组：水平翻转 / 播放速度 / 颜色选项（亮度·对比度·饱和度·色调偏移）。
+   机制与 `?fx=` 同一套（CSS filter/transform 写在**拥有渲染输出的元素**上）——本组只改那两个属性，不重挂载。 */
+#mpw-display-box{display:inline-flex;align-items:center;gap:6px;font:12px monospace;background:rgba(0,0,0,.35);border:1px solid #345;border-radius:6px;padding:2px 6px}
+#mpw-display-box .mpw-dl{display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+#mpw-display-box .mpw-dl.col{transition:opacity .15s}
+#mpw-display-box.off .mpw-dl.col{opacity:.35}
+#mpw-display-box input[type=range]{width:70px;margin:0}
+#mpw-display-box .mpw-dv{min-width:32px;text-align:right;color:#8cf}
+#mpw-display-box select{font:12px monospace;background:#141414;color:#eee;border:1px solid #666;border-radius:4px;padding:0 2px}
+#mpw-display-box button{font:12px monospace;background:#1b1b1b;color:#eee;border:1px solid #666;border-radius:6px;padding:1px 6px;cursor:pointer}
 </style></head><body>
 <div id=bar>
   <a href="/?mode=elysia&id=3719111841" style="font-weight:600;color:#7fd">▶ 动画版（elysia CPU 渲染，含呼吸动画）</a> <button id="mpw-skin-toggle" type="button" style="margin-left:8px;padding:2px 8px;font:12px monospace;cursor:pointer">蒙皮 y 方向切换</button> <span id="mpw-skin-state" style="opacity:.75;font:12px monospace"></span>
@@ -93,6 +103,23 @@ canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;backgrou
 })();
 </script> <span style="opacity:.6">|</span> <span style="opacity:.75">静态版（WebGL，当前页）</span>
   <a href="/?id=3554161528">Hina 空崎日奈[4K]</a>
+  <!-- ①(P-113 2026-09-17 显示选项) 契约与区间/优先级见 docs/DISPLAY-OPTIONS.md；`?display=legacy` 一键回退。
+       五项 = 插件壁纸设置的显示项：翻转（scaleX(-1)）/ 播放速度 0.5–2× / 颜色（总开关 + 亮·对比·饱和·色相）。
+       接线在下面的 MPW-DISPLAY 块（纯逻辑在 core/we-scene-bundle.js 的「显示选项」节）。 -->
+  <span id="mpw-display-box" title="显示选项（P-113）：CSS filter/transform 作用在渲染输出上，不重挂载">
+    <label class="mpw-dl" title="水平翻转：渲染输出 transform: scaleX(-1)（指针坐标同步镜像一次）"><input type="checkbox" id="mpw-flip-h"> 翻转</label>
+    <label class="mpw-dl" title="播放速度：全局场景时间倍率 + video.playbackRate"><span>速</span>
+      <select id="mpw-rate">
+        <option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option>
+        <option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option>
+      </select></label>
+    <label class="mpw-dl" title="颜色选项总开关：关掉时下面四项完全不进 filter 串"><input type="checkbox" id="mpw-coloropts" checked> 颜色</label>
+    <label class="mpw-dl col" title="亮度 0–2（1 = 不变，CSS brightness）">亮 <input type="range" id="mpw-bright" min="0" max="2" step="0.05" value="1"><span class="mpw-dv" id="mpw-bright-v">1</span></label>
+    <label class="mpw-dl col" title="对比度 0–2（1 = 不变，CSS contrast）">对比 <input type="range" id="mpw-contrast" min="0" max="2" step="0.05" value="1"><span class="mpw-dv" id="mpw-contrast-v">1</span></label>
+    <label class="mpw-dl col" title="饱和度 0–2（1 = 不变，CSS saturate）">饱和 <input type="range" id="mpw-satur" min="0" max="2" step="0.05" value="1"><span class="mpw-dv" id="mpw-satur-v">1</span></label>
+    <label class="mpw-dl col" title="色调偏移 −180…180 度（0 = 不变，CSS hue-rotate）">色相 <input type="range" id="mpw-hue" min="-180" max="180" step="1" value="0"><span class="mpw-dv" id="mpw-hue-v">0</span></label>
+    <button id="mpw-display-reset" type="button" title="全部回到中性（= 不加任何 filter/transform）">重置</button>
+  </span>
   <a href="/?id=3544152633">Girl and Cat 4k</a>
   <a href="/?id=3327063360">砂狼白子</a>
   <a href="/?id=3719111841">凯尔希(音频)</a>
@@ -928,6 +955,166 @@ try {
     logf('⚠ 检测到多实例开关但 ?ids= 缺失/全部非法 → 仍走单实例路径（?ids=a,b,c 逗号分隔）');
   }
 } catch (e) { /* 提示失败不影响启动 */ }
+// ═══ MPW-DISPLAY-BEGIN ①(P-113 2026-09-17 壁纸显示选项 · 任务书能力对齐线) ═══
+// 契约（测试台「壁纸设置」页的表 + 插件 dsh-mpkg-wallpaper，MIT）：水平翻转 `?fliph=1`、
+//   播放速度 0.5–2× `?rate=1.5`、颜色选项总开关 `?coloropts=0`、四项
+//   `?bright=1.1&contrast=1.05&satur=1.2&hue=15`；API `__wp.setDisplay(patch)` /
+//   `__wp.setPlaybackRate(r)` / `__wp.displayState()`（幂等，返回生效后的状态）。
+// 机制（与上游 oneincase/webwallgl MIT 的 `?fx=`/`setFilter` **同一机制**，非同一份代码）：
+//   CSS `filter`/`transform` 作用在**拥有渲染输出的元素**（`#sc`；多实例时各自的画布）上 ——
+//   不重挂载、不进 GL 管线、不改一帧像素。纯逻辑（解析/钳位/filter 串/时钟/视频倍率）在
+//   `core/we-scene-bundle.js` 的「显示选项」节（唯一实现处，Node 侧可直测）；本块只做接线：
+//   解析 → 持久化 → 应用 CSS → 工具条 UI → `window.__wp`。口径/区间/优先级见 docs/DISPLAY-OPTIONS.md。
+// 三条红线（tests/display-options-test.mjs 逐条断言）：
+//   ① 参数全缺省 ⇒ **不写** filter/transform，指针换算与场景时钟**逐位等于改动前**；
+//   ② `?display=legacy` = 总回退：忽略下面全部开关（连 `__wp.setDisplay` 也变只读）；
+//   ③ 与既有 filter 写入者（`?fx=` 白名单滤镜 / 宿主写在画布上的 filter）**合成而非覆盖**：
+//      颜色串追加在既有串**之后**（CSS 从左到右依次作用 ⇒ 颜色项看到的是既有滤镜的输出），
+//      关掉时**逐字还原**原串；`transform` 的既有写入者在 demo.html 里是 0 处（grep 实测）。
+// 优先级（逐键）：`?display=legacy` > URL 里**真正出现**的开关 > `localStorage['mpw-display']` > 中性默认。
+// 本块是 tests/display-options-test.mjs 的切片单元（BEGIN…END）：只允许引用
+//   lib / location / document / window / localStorage / logf / cv 七个外部名。
+const MPW_DISPLAY_FLAGS = [/[?&]fliph=/, /[?&]rate=/, /[?&]coloropts=/, /[?&]bright=/, /[?&]contrast=/, /[?&]satur=/, /[?&]hue=/, /[?&]display=/]   // 开关名登记给 diag-flag-check.mjs（真解析在纯函数里，与 MPW_MULTI_FLAGS / MPW_BASELINE_FLAGS 同款）
+const MPW_DISPLAY_LS_KEY = 'mpw-display'
+const MPW_DISPLAY_LS_MAX = 512     // ①(P-104 纪律) 单键单值上限：超限**拒写并记日志**（不截断、不静默）
+const MPW_DISPLAY_URL = lib.parseDisplayOptions(location.search)
+function mpwDisplayPersist(st) {
+  return { flipH: !!st.flipH, colorOptions: st.colorOptions !== false, brightness: st.brightness, contrast: st.contrast, saturation: st.saturation, hue: st.hue, playbackRate: st.playbackRate }
+}
+function mpwDisplayLoadStored() {
+  try {
+    const s = localStorage.getItem(MPW_DISPLAY_LS_KEY)
+    if (!s) return null
+    const o = JSON.parse(s)
+    return (o && typeof o === 'object') ? lib.applyDisplayPatch(lib.defaultDisplayState(), o) : null
+  } catch (e) { return null }        // 不透明源 / 隐私模式 / 坏 JSON ⇒ 降级为"无持久化"
+}
+function mpwDisplaySave(st) {
+  try {
+    const s = JSON.stringify(mpwDisplayPersist(st))
+    if (s.length > MPW_DISPLAY_LS_MAX) { logf('⚠ 显示选项未持久化：单值 ' + s.length + ' B > 上限 ' + MPW_DISPLAY_LS_MAX + ' B'); return false }
+    localStorage.setItem(MPW_DISPLAY_LS_KEY, s)
+    return true
+  } catch (e) { return false }
+}
+// 生效状态（**就地更新**，对象身份不变 ⇒ `window.__mpwDisplay` 一直是同一个实时对象）
+const MPW_DISPLAY = lib.defaultDisplayState()
+{
+  const stored = MPW_DISPLAY_URL.legacy ? null : mpwDisplayLoadStored()
+  if (stored) Object.assign(MPW_DISPLAY, stored)
+  if (MPW_DISPLAY_URL.legacy) MPW_DISPLAY.legacy = true
+  else for (const p of MPW_DISPLAY_URL.present) {
+    const k = lib.DISPLAY_URL_KEYS[p]
+    if (k !== undefined) Object.assign(MPW_DISPLAY, lib.applyDisplayPatch(MPW_DISPLAY, { [k]: MPW_DISPLAY_URL[k] }))
+  }
+}
+// 引擎的指针路径读这个实时对象（`displayFlipH(undefined, window.__mpwDisplay, ?fliph=)`）
+try { window.__mpwDisplay = MPW_DISPLAY } catch (e) { /* 无 window */ }
+const MPW_DISPLAY_CANVASES = new Map()   // 画布 → 注册时的**原始**内联值快照（反复开关不套娃叠加）
+let MPW_DISPLAY_APPLIED = { filter: '', transform: '', canvases: 0 }
+function mpwDisplayApplyTo(el) {
+  const r = lib.applyDisplayOptions(el, MPW_DISPLAY, MPW_DISPLAY_CANVASES.get(el))
+  MPW_DISPLAY_APPLIED = { filter: r.filter, transform: r.transform, canvases: MPW_DISPLAY_CANVASES.size }
+  return r
+}
+function mpwDisplayRegisterCanvas(el) {
+  if (!el || !el.style) return null
+  if (!MPW_DISPLAY_CANVASES.has(el)) MPW_DISPLAY_CANVASES.set(el, { filter: el.style.filter || '', transform: el.style.transform || '' })
+  return mpwDisplayApplyTo(el)
+}
+function mpwDisplayApplyAll() {
+  let wrote = 0
+  MPW_DISPLAY_CANVASES.forEach((_snap, el) => { try { if (mpwDisplayApplyTo(el).wrote) wrote++ } catch (e) { /* 单个画布失败不影响别的 */ } })
+  return wrote
+}
+// 场景时钟（播放速度的唯一实现处）：缺省路径原样返回调用方给的**改动前算式**（逐位不变）
+const MPW_SCENE_CLOCK = lib.createSceneClock({ rate: MPW_DISPLAY.playbackRate })
+function mpwSceneClockAt(now, legacyTime) { return MPW_SCENE_CLOCK.at(now, legacyTime) }
+function mpwSceneDt(dt) { return lib.scaleSceneDt(dt, MPW_SCENE_CLOCK.rate) }
+let MPW_RATE_APPLIED = 1
+function mpwSyncVideoRates() {
+  const r = MPW_SCENE_CLOCK.rate
+  const force = (r !== 1) || (MPW_RATE_APPLIED !== 1)     // 从非 1 倍切回 1 也要写回去
+  const n = lib.syncVideoPlaybackRate(document, r, force)
+  MPW_RATE_APPLIED = r
+  return n
+}
+function mpwDisplayState() {
+  return {
+    legacy: !!MPW_DISPLAY.legacy, flipH: !!MPW_DISPLAY.flipH, colorOptions: MPW_DISPLAY.colorOptions !== false,
+    brightness: MPW_DISPLAY.brightness, contrast: MPW_DISPLAY.contrast, saturation: MPW_DISPLAY.saturation, hue: MPW_DISPLAY.hue,
+    playbackRate: MPW_SCENE_CLOCK.rate,
+    filter: MPW_DISPLAY_APPLIED.filter, transform: MPW_DISPLAY_APPLIED.transform,     // 真的写进输出元素的那两个串
+    filterPending: lib.buildDisplayFilter(MPW_DISPLAY), transformPending: lib.buildDisplayTransform(MPW_DISPLAY),
+    canvases: MPW_DISPLAY_APPLIED.canvases, clockTouched: MPW_SCENE_CLOCK.touched,
+  }
+}
+function mpwDisplayLog() {
+  const st = mpwDisplayState()
+  logf('① 显示选项（P-113）：翻转=' + (st.flipH ? 'on' : 'off') + ' 速度=' + st.playbackRate + '× 颜色=' + (st.colorOptions ? 'on' : 'off')
+    + ' 亮/对比/饱和/色相=' + [st.brightness, st.contrast, st.saturation, st.hue].join('/')
+    + '；输出 filter="' + st.filter + '" transform="' + st.transform + '" 画布=' + st.canvases
+    + (st.legacy ? '（?display=legacy 总回退：忽略全部显示开关，API 只读）' : ''))
+}
+function mpwDisplaySyncUI() {
+  try {
+    const $ = (id) => (document.getElementById ? document.getElementById(id) : null)
+    const box = $('mpw-display-box'); if (!box) return
+    const st = MPW_DISPLAY
+    const chk = (id, v) => { const el = $(id); if (el) el.checked = !!v }
+    const val = (id, v) => { const el = $(id); if (el && String(el.value) !== String(v)) el.value = String(v); const t = $(id + '-v'); if (t) t.textContent = String(v) }
+    chk('mpw-flip-h', st.flipH); chk('mpw-coloropts', st.colorOptions !== false)
+    val('mpw-bright', st.brightness); val('mpw-contrast', st.contrast); val('mpw-satur', st.saturation); val('mpw-hue', st.hue)
+    const r = $('mpw-rate'); if (r && String(r.value) !== String(MPW_SCENE_CLOCK.rate)) r.value = String(MPW_SCENE_CLOCK.rate)
+    if (box.classList) { if (st.colorOptions === false) box.classList.add('off'); else box.classList.remove('off') }
+    if (st.legacy) for (const id of ['mpw-flip-h', 'mpw-coloropts', 'mpw-bright', 'mpw-contrast', 'mpw-satur', 'mpw-hue', 'mpw-rate', 'mpw-display-reset']) { const el = $(id); if (el) el.disabled = true }
+  } catch (e) { /* UI 失败不影响显示状态本身 */ }
+}
+function mpwDisplaySet(patch) {
+  if (MPW_DISPLAY.legacy) return mpwDisplayState()          // ② 总回退：连 API 也只读
+  const next = lib.applyDisplayPatch(MPW_DISPLAY, patch)
+  const changed = !lib.displayStateEquals(MPW_DISPLAY, next)
+  const rateChanged = next.playbackRate !== MPW_DISPLAY.playbackRate
+  Object.assign(MPW_DISPLAY, next)
+  if (rateChanged) MPW_SCENE_CLOCK.setRate(next.playbackRate)
+  if (changed) {                                             // 幂等：同值重复调用 ⇒ 不写 DOM / 存储 / 日志
+    mpwDisplayApplyAll()
+    mpwSyncVideoRates()
+    mpwDisplaySyncUI()
+    mpwDisplaySave(MPW_DISPLAY)
+    mpwDisplayLog()
+  }
+  return mpwDisplayState()
+}
+function mpwDisplayUiInit() {
+  try {
+    const $ = (id) => (document.getElementById ? document.getElementById(id) : null)
+    if (!$('mpw-display-box')) return false
+    const on = (id, ev, fn) => { const el = $(id); if (el && el.addEventListener) el.addEventListener(ev, fn) }
+    const num = (id, dflt) => { const el = $(id); const n = el ? Number(el.value) : NaN; return Number.isFinite(n) ? n : dflt }
+    on('mpw-flip-h', 'change', () => mpwDisplaySet({ flipH: !!($('mpw-flip-h') || {}).checked }))
+    on('mpw-coloropts', 'change', () => mpwDisplaySet({ colorOptions: !!($('mpw-coloropts') || {}).checked }))
+    on('mpw-rate', 'change', () => mpwDisplaySet({ playbackRate: lib.parsePlaybackRate(($('mpw-rate') || {}).value) }))
+    on('mpw-bright', 'input', () => mpwDisplaySet({ brightness: num('mpw-bright', 1) }))
+    on('mpw-contrast', 'input', () => mpwDisplaySet({ contrast: num('mpw-contrast', 1) }))
+    on('mpw-satur', 'input', () => mpwDisplaySet({ saturation: num('mpw-satur', 1) }))
+    on('mpw-hue', 'input', () => mpwDisplaySet({ hue: num('mpw-hue', 0) }))
+    on('mpw-display-reset', 'click', () => { mpwDisplaySet({ flipH: false, colorOptions: true, brightness: 1, contrast: 1, saturation: 1, hue: 0, playbackRate: 1 }); mpwSyncVideoRates() })
+    return true
+  } catch (e) { return false }
+}
+// 发布 API（`window.__wp` 上**已存在**的字段不覆盖：宿主/测试台可能先放了别的键）
+try {
+  const WP = (window.__wp = window.__wp || {})
+  WP.setDisplay = (patch) => mpwDisplaySet(patch)
+  WP.setPlaybackRate = (rate) => mpwDisplaySet({ playbackRate: rate })
+  WP.displayState = () => mpwDisplayState()
+} catch (e) { /* 无 window */ }
+mpwDisplayRegisterCanvas(cv)
+mpwDisplayUiInit()
+mpwDisplaySyncUI()
+if (MPW_DISPLAY_URL.present.length || !lib.displayStateEquals(MPW_DISPLAY, lib.defaultDisplayState())) mpwDisplayLog()
+// ═══ MPW-DISPLAY-END ═══
 if (MODE === 'elysia') {
   const _id = new URL(location.href).searchParams.get('id') || '3719111841';
   import('./elysia/demo-elysia.js')
@@ -1055,6 +1242,8 @@ async function bootInstance(inst) {
   //   多实例（?ids=）时每格子一份 inst：各自 canvas/gl/logf；页面级 UI（面板/顶栏/上报）只在
   //   primary 实例上跑（PAGE 门），其余实例只跑装载 + 帧。
   const cv = inst.canvas, gl = inst.gl
+  // ①(P-113) 把本实例的画布登记进显示选项（filter/transform 的唯一写入点；缺省全中性 ⇒ 一个属性都不写）
+  try { mpwDisplayRegisterCanvas(cv) } catch (e) { /* 显示选项失败不影响装载 */ }
   // ①(P-87 2026-09-15 版权) `id` 由 const 改 let：见下方 `/pkg/<id>` 装载处的"无语料降级"——
   //   只在**未显式指定 ?id=** 且默认包 404 时改写为自带合成样例；/project、/type、/ddlist
   //   与上报 payload 都用同一个 id ⇒ 不会出现"上报的是 A、渲染的是 B"。
@@ -1622,7 +1811,7 @@ function loadScene() {
         v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true
         document.body.appendChild(v)
         v.addEventListener('error', () => logf('视频加载失败: ' + mp4))
-        v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, 'type=video') })
+        v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, 'type=video'); try { mpwSyncVideoRates() } catch (e) {} })
         return
       }
     }
@@ -1638,7 +1827,7 @@ function loadScene() {
     v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true
     document.body.appendChild(v)
     v.addEventListener('error', () => logf('视频加载失败: ' + videoRel))
-    v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, '?video=1') })
+    v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, '?video=1'); try { mpwSyncVideoRates() } catch (e) {} })
     return
   }
   logf('加载场景 ' + id + '…');
@@ -5391,10 +5580,13 @@ function loadScene() {
       frames = 0; ft = 0
     }
     if (vidTexs.length && frames % 90 === 0) reportVideo();
+    if (frames % 90 === 0) { try { mpwSyncVideoRates() } catch (e) {} }   // ①(P-113) 倍率跟随（rate=1 ⇒ 零写入）
     if (vidTexs.length && frames === 240) kickVideo();
     // ①(新) 逐帧 MDLA 附件动画：时间 → 帧 → 每附件层增量 origin 覆盖（y 翻转一次保持）。
     // 增量式：origin = parse帧0结果(基准) − 帧0偏移 + 当前帧偏移，与 parseScene 的 merged 坐标同源。
-    const tSec = (now - last0) / 1000;
+    // ①(P-113 显示选项) 播放速度：缺省（没被 setPlaybackRate 碰过）时 mpwSceneClockAt **原样返回**
+    //   改动前的 `(now - last0) / 1000` ⇒ 逐位不变；被碰过后按"墙上时间 × rate"推进（动画 dt 同步倍率）。
+    const tSec = mpwSceneClockAt(now, (now - last0) / 1000);
     if (attachAnimActive.size) {
       // ①(P1-MDLA 采样口径, 第三方参考 wer-ref WPPuppet.cpp:210-260)：
       //   rate = (t*fps)；loop: a=floor(rate)%len, b=(a+1)%len, tt=frac(rate)
@@ -5458,7 +5650,7 @@ function loadScene() {
 		if (skinEnabled) { updateSkinBones(tSec); skinLayers.forEach((l) => { l.__skinReady = true }) }
 		// ①(RE-28) 场景脚本（时间/属性驱动）：文本/时钟/帧率类 ≥30Hz、其余 4Hz（N7 节拍分层）
 		//   第二参数 = 上一帧真实秒数（engine.frametime；官方语义"可能为 0"）
-		{ try { runSceneScripts(tSec, frameDt) } catch (e) {} }
+		{ try { runSceneScripts(tSec, mpwSceneDt(frameDt)) } catch (e) {} }   // ①(P-113) frametime 同样吃倍率（rate=1 ⇒ 逐位原值）
 		// ①(N6) 音频反应预留位：只有外部挂了 window.__mpwAudioFrame 才取样（默认零成本）
 		{ try { audioFrameTick(tSec) } catch (e) {} }
 		// ③(P-64-MEDIA 用户第 9④ 项) 媒体集成：真实源（🔊 音频面板音轨）→ 官方五回调 + 音频响应频谱；

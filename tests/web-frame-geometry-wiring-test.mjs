@@ -184,8 +184,11 @@ console.log('\n== T4 渲染器指针口径（core/we-scene-bundle.js 的真导�
 console.log('\n== T5 接线落点 + 反向变异 ==')
 {
   ok(/from '\.\/web-frame-geometry\.mjs'/.test(BUNDLE), 'T5a 内核真源码 import 模块（唯一实现处；落点 1/3）')
-  ok(/const FRAME_GEOM = frameGeomMode\(/.test(BUNDLE) && /framePointerMap\(ev, el, FRAME_GEOM\)/.test(BUNDLE),
-    'T5a `__hookPointer` 的 DOM 路径真的走 `framePointerMap`（不是旁边留了个没用的 helper）')
+  ok(/const FRAME_GEOM = frameGeomMode\(/.test(BUNDLE) && /framePointerMap\(ev, el, FRAME_GEOM(?:, [^)]*)?\)/.test(BUNDLE),
+    'T5a `__hookPointer` 的 DOM 路径真的走 `framePointerMap`（不是旁边留了个没用的 helper；'
+    // ①(P-113) 断言放宽成"前三个实参固定、第四个可选"：第四个是水平翻转（`__pointerFlip()`），
+    //   缺省 false ⇒ 与改动前逐位同值；原正则写死了三参形态，加参数就假红。
+    + '第四实参 = P-113 的翻转口径，可选）')
   ok(/inj\.space === 'css' && cam && FRAME_GEOM === 'cover'/.test(BUNDLE) && /framePointerMap\(\{ clientX: inj\.x, clientY: inj\.y \}/.test(BUNDLE),
     'T5b `__mpwPointer.space=\'css\'` 注入路径接了（口径见 docs/AUDIO-BAND-WIRING.md §4）')
   ok(/from '\.\/web-frame-geometry\.mjs'/.test(HTML) && /applyVideoFrameBox\(v, 'type=video'\)/.test(HTML) && /applyVideoFrameBox\(v, '\?video=1'\)/.test(HTML),

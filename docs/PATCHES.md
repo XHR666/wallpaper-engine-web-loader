@@ -7297,3 +7297,77 @@ FAIL data-limits (5322ms) — 退出码 1
 - 文档：新增 `docs/AUDIO-BAND-WIRING.md`（接线/开关/实测数字/未定清单/复现命令）；
   两份规格的"未接线"段已更新（`AUDIO-BAND-SPEC.md` §6、`WEB-FRAME-GEOMETRY-SPEC.md` §5），
   模块头部与差异清单（洁净室判据）**一字未动**。
+
+## P-113（2026-09-17 任务书"能力对齐线"）壁纸显示选项落地：水平翻转 / 播放速度 0.5–2× / 颜色选项（亮度·对比度·饱和度·色调偏移）+ `__wp` 三个 API
+
+> 契约已在**测试台「壁纸设置」页**（`demo/index.html` 的对照表）与插件 `dsh-mpkg-wallpaper`（MIT）侧写好
+> ⇒ 本条只做"渲染器侧按同一套机制补齐"，不改契约、不改测试台（`we-scene-demo/demo/` 与
+> `references/vendor-ref/ww-pages/**` 属另一条工作流的禁改区）。
+
+### P-113.0 机制定案（为什么是 CSS 而不是重写渲染器）
+
+- 与上游 `oneincase/webwallgl`（MIT，见 `THIRD-PARTY.md`）的 `?fx=`/`setFilter` **同一套机制**：
+  **CSS `filter` / `transform` 作用在"拥有渲染输出的元素"上**（上游是 wrap 容器，本仓库是 canvas `#sc`；
+  多实例 `?ids=` 时是每格自己的画布）——不重挂载、不进 GL 管线、不改 `renderer.render()` 的入参。
+- **一处修正**：任务书写"复用 `demo.html` 的 `?fx=` CSS 滤镜机制"，但本仓库 `demo.html` 里**没有**该功能
+  （实测 `grep -c filter demo.html` 的 28 处全是 `Array.prototype.filter`；`#fx`/`toolbar.filterTip` 属测试台
+  页面 `demo/index.html:205` + `demo/bench-patch.js` 的 i18n 字典，禁改区）⇒ 本条的落点是**同一机制的一个
+  单写入点**：颜色串**追加**在"既有 filter 串"之后、关掉时逐字还原（`composeFilterCss`），
+  宿主/测试台/未来任何 `?fx=` 实现都能与它合成而不打架。
+
+### P-113.1 改了什么（全部缺省关，逐位可回退）
+
+1. **纯逻辑**（`core/we-scene-bundle.js` 的「显示选项」节，唯一实现处，Node 侧可直测）：
+   `parseDisplayOptions` / `parsePlaybackRate` / `clampDisplayNumber` / `applyDisplayPatch` /
+   `buildDisplayFilter`（**四项全中性 ⇒ 空串**，不留空合成层）/ `buildDisplayTransform` /
+   `composeFilterCss` / `composeTransformCss` / `applyDisplayOptions` / `displayFlipH` /
+   `createSceneClock`（**没被 `setRate` 碰过 ⇒ 原样返回调用方的改动前算式**）/ `scaleSceneDt` /
+   `syncVideoPlaybackRate`。区间：亮/对比/饱和 `[0,2]`、色相 `[-180,180]`、倍率 `[0.5,2]`；
+   越界**钳位**、非法/空 ⇒ 默认（理由：`brightness(-1)` 会让**整条** filter 声明失效，钳位才保证串合法）。
+2. **接线**（`demo.html` 的 `MPW-DISPLAY` 块 + 帧循环三处 + 两条纯视频路径）：
+   解析（`?fliph=`/`?rate=`/`?coloropts=`/`?bright=`/`?contrast=`/`?satur=`/`?hue=`/`?display=legacy`）→
+   持久化（单键 `mpw-display`，512 B 上限、超限拒写并记日志，P-104 纪律）→ 应用 CSS → 顶栏工具条
+   （8 个控件，区间与 `DISPLAY_LIMITS` **同源**）→ `window.__wp`；帧循环的 `tSec` 与 `engine.frametime`
+   走倍率、`<video>.playbackRate` 双向同步；`window.__mpwDisplay` 是引擎指针路径读的**实时**对象。
+3. **指针**（`core/we-scene-bundle.js`）：`framePointerMap(ev, el, mode, flipX)` 新增第四参数
+   （**缺省 false ⇒ 与改动前逐位同值**）；flipH 时归一坐标镜像**恰好一次**（`nx' = 1 − nx`；
+   `?framegeom=cover` 档镜像帧内 client 像素），因为 `scaleX(-1)` 让屏幕 `x` 处看到的是内容的 `1 − x`。
+   **注入通道不镜像**：`window.__mpwPointer` 是**设计坐标**（宿主算好的场景空间），
+   `__pointerDesign` 对它原样透传 `[inj.x, inj.y]` ⇒ 不是镜像两次。指针优先级链与 `resolveProjMode` 同形：
+   `opts.displayFlipH` → `window.__mpwDisplay.flipH` → `?fliph=`。
+4. **公共 API**（`window.__wp`，已存在的键不覆盖）：`setDisplay(patch)` / `setPlaybackRate(r)`（幂等，
+   返回生效后的完整状态：含**真的写进输出元素**的 `filter`/`transform` 串）、`displayState()`（只读快照）。
+   `?display=legacy` 是总回退：忽略全部开关（含持久化状态），**连 API 也只读**。
+5. **优先级**（逐键）：`?display=legacy` > URL 里真正出现的开关 > `localStorage['mpw-display']` > 中性默认。
+   ⇒ **参数全缺省 + 空存储 = 与改动前完全一致**（画布 style 一个字符不写、时钟/frametime 逐位不变、
+   视频零写入、零日志）。
+
+### P-113.2 反向证据（RED-IF-REVERTED：把真源码改回旧写法 ⇒ 对应断言必红；绿色运行也打印 RED 行）
+
+| 变异 | 实测后果 | 变红的断言 |
+|---|---|---|
+| ① 删掉 `framePointerMap` 的镜像支（= 翻转被忽略） | flipH 下 `nx=0.2`（与不翻转同值） | T5c / T5e（指针映射） |
+| ② 把显示块里的 `createSceneClock({rate: MPW_DISPLAY.playbackRate})` 写死成 `rate: 1` | 16 帧推进 `0.234375` ≠ `2 × 0.234375` | T6b / T6c / T6e（倍率与**被求值的动画值**） |
+| ③ `buildDisplayFilter` 的中性早退改成"永远返回空串" | 颜色选项不再产生任何 CSS | T2c / T2e（filter 串逐字） |
+
+另有正向数值证据（非"看着像"）：`brightness(1.1) contrast(1.05) saturate(1.2) hue-rotate(15deg)` 逐字命中；
+16 帧 × 15.625ms（二进制精确）下 rate=2 的推进 `===` 2 × rate=1；`evalPropAnimation` 求出的层属性值
+rate=2 时为 100 = 时间翻倍处独立求值（rate=1 时为 75）；屏幕左半边 300px 在翻转下映射到设计 x=3072（不翻转 768）。
+
+### P-113.3 未定/缺证据（不猜；细节与复现见 `docs/DISPLAY-OPTIONS.md` §8/§9）
+
+- **本机无 GPU/WebGL2 ⇒ 只做 DOM/数值级断言**（`style` 属性、纯函数、被求值的动画值），
+  "翻转/滤镜在屏幕上看起来对不对"**未证实**，需真机复看。
+- `?mode=elysia`（CPU 对照路径）：CSS 层照样生效（同一张 `#sc`），但该路径没有本仓库的帧循环时钟
+  ⇒ **播放速度对 elysia 的 CPU 动画不生效**（未接线；无人提出需求，故不猜做法）。
+- 网页壁纸（sandbox iframe 内的三方渲染器）的输出元素在**另一个文档**里，本仓库无注入点（同 `AUDIO-BAND-WIRING.md` §4）。
+- 上游 `?fx=` 的**预设滤镜白名单**（blur/grayscale/sepia…）未移植（本组只提供"与任意既有 filter 串合成"的机制）。
+
+### P-113.4 验收
+
+- 新增门禁项 `display-options`（`tests/run-all-tests.sh` **末尾**追加，既有 add 行一字未动）：
+  71 断言 / 12 组，纯 Node、~0.3s、无 GPU/网络依赖，含 3 条 RED-IF-REVERTED 与"缺省零行为变化"整组。
+- 开关主表：8 个新开关（`fliph`/`rate`/`coloropts`/`bright`/`contrast`/`satur`/`hue`/`display`）已登记
+  `docs/README-DIAGNOSTICS.md` §⑦（`diag-flag-check` 实测 **147 == 147**，0 差异）。
+- 文档：新增 `docs/DISPLAY-OPTIONS.md`（契约 / 机制与落点（含与 `?fx=` 的合成与优先级）/ 区间与取值语义 /
+  指针行为 / 倍率语义 / 持久化 / API / 判据 / 未定 / 复现）。

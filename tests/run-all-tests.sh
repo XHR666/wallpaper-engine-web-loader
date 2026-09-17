@@ -235,6 +235,22 @@ add "bind-order"         "node tests/bind-order-test.mjs"
 add "audio-band-wiring"  "node tests/audio-band-wiring-test.mjs"
 add "frame-geometry-wiring" "node tests/web-frame-geometry-wiring-test.mjs"
 
+# ——— ①(P-113 2026-09-17 壁纸显示选项 · 能力对齐线：水平翻转 / 播放速度 0.5–2× / 颜色选项四项）———
+# 注册位置：**追加在 `add` 列表末尾**（既有 add 行一字未动，只在其后顺延 2 行）。
+# 契约与口径：`docs/DISPLAY-OPTIONS.md`（机制 = CSS filter/transform 写在**拥有渲染输出的元素**上，
+#   与 `?fx=` 同一套机制；纯逻辑在 `core/we-scene-bundle.js` 的「显示选项」节，接线在 demo.html 的
+#   `MPW-DISPLAY` 块）。71 断言 / 12 组：
+#   ① 纯函数真值表（倍率 / 四项钳位 / filter 串逐字 / 与既有 filter 串的合成与还原）；
+#   ② **缺省零行为变化**（参数全缺省 ⇒ 画布 style 一个字符不写、时钟与 frametime 逐位不变）；
+#   ③ flipH 下的 client→帧内换算（legacy 与 `?framegeom=cover` 两档都镜像**恰好一次**，并端到端
+#      映射到设计坐标；注入通道 `__mpwPointer` 是设计坐标 ⇒ 不镜像）；
+#   ④ 播放速度：16 帧同一批时间戳 ⇒ rate=2 的推进 `===` 2×rate=1，且**被求值的动画值**
+#      （`evalPropAnimation`）等于时间翻倍处的独立求值；video.playbackRate 双向同步；
+#   ⑤ `__wp.setDisplay/setPlaybackRate/displayState` 幂等 / 钳位 / `?display=legacy` 连 API 只读；
+#   ⑥ 持久化（`mpw-display` 单键 + 512B 上限 + URL 逐键覆盖）；⑦ RED-IF-REVERTED 三条（指针镜像 /
+#      时钟倍率 / 颜色串：把真源码改回旧写法 ⇒ 对应断言必须变红）。~0.3s，纯 Node（不依赖 DOM/GPU）。
+add "display-options"    "node tests/display-options-test.mjs"
+
 # —— --list ——
 if [ "$LIST" = 1 ]; then
   echo "共 ${#NAMES[@]} 项（slow=--fast 跳过；条件项=无数据自动 SKIP）："

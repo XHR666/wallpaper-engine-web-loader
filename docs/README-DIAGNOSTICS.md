@@ -186,6 +186,20 @@
 | `t` | 秒 | 0 | CPU 渲染初始时间 | 定格某时刻 | 无 | elysia/demo-elysia.js:69 |
 | `hdrfrostwatch` | `off` / 其它值 | **开**（有观察器） | **顶栏磨砂重挂观察器**的回退开关（**插件侧** `dsh-mpkg-wallpaper/lib/client.js`）：顶栏被宿主整块重建时靠 childList 观察器在 ~60ms 内把磨砂层补回新顶栏 | 顶栏磨砂在切会话后短暂消失（旧行为要等 3s 低频保险）时做单变量 A/B | `off` = 退回旧行为（只在设置/主题变化 + 3s 保险时同步）⇒ 相位对齐最坏 ≈3000ms；默认开时实测 ≈66ms。只在浏览器侧生效，宿主重启不涉及 | dsh-mpkg-wallpaper/lib/client.js:3413 |
 
+## ⑦ 显示选项（P-113：水平翻转 / 播放速度 / 颜色选项四项）
+
+机制（与上游 `oneincase/webwallgl` MIT 的 `?fx=`/`setFilter` 同一套，非同一份代码）：**CSS `filter`/`transform` 作用在"拥有渲染输出的元素"上**（本仓库 = canvas `#sc`；多实例时各自的画布）——不重挂载、不进 GL 管线、不改一帧像素。完整口径/区间/优先级/指针行为见 `docs/DISPLAY-OPTIONS.md`；断言在 `tests/display-options-test.mjs`（门禁项 `display-options`）。
+
+| 开关 | 取值 | 默认 | 作用（一句话） | 什么时候用 | 回退/风险 | 解析位置 |
+|---|---|---|---|---|---|---|
+| `fliph` | `1`（`on`/`yes`/只写名字也算） / `0`（`off`/`no`/`false`） | 关 | **水平翻转**：渲染输出 `transform: scaleX(-1)`（CSS 层，画面左右镜像）。**指针同口径镜像一次**：DOM `pointermove` 的归一坐标按 `1 − nx` 换算，指针仍指着"光标底下那点内容"（`framePointerMap` 第四参数）；注入通道 `window.__mpwPointer` 给的是**设计坐标** ⇒ 不镜像（不是镜像两次） | 想验证"画面左右反了/镜像贴图"或与 WE 原生"水平翻转"选项对齐时 | 关（缺省）= 一个属性都不写、指针逐位不变；开着时 `transform` 由本开关**独占**（demo.html 里 0 处别的 transform 写入者）；与 `?fx=`/宿主 filter 无冲突（filter/transform 是两个属性） | core/we-scene-bundle.js:46、core/we-scene-bundle.js:271 / demo.html:977 |
+| `rate` | 数（0.5–2） | `1` | **播放速度（全局时间倍率）**：场景时钟按"墙上时间 × rate"推进（`tSec` → 动画/脚本/精灵播放全跟着走，`engine.frametime` 同步乘倍率），并把所有 `<video>` 的 `playbackRate` 设成同一值 | 慢放看细节（0.5×）、快进看循环（2×）；与 WE 原生"播放速度"滑块对齐 | 越界**钳位**（不是非法⇒1）、非法/空 ⇒ `1`；`rate=1` 时时钟走**改动前的原式**且视频零写入（逐位不变）；从非 1 倍切回 1 会把视频写回 1（双向） | core/we-scene-bundle.js:156、core/we-scene-bundle.js:284 / demo.html:1031 |
+| `coloropts` | `0`（`off`/`no`/`false`）/ 其它 = 开 | **开** | **颜色选项总开关**：关掉时下面四项**完全不进 filter 串**（即使写了 `?bright=` 也不产生任何 CSS filter） | 用户只想用翻转/倍率、不想让颜色项参与时；或 A/B"颜色项到底有没有生效" | `coloropts=0` 只影响 CSS filter，不动渲染管线；四项本身的值仍被记住（面板/持久化），再打开就恢复 | core/we-scene-bundle.js:141、core/we-scene-bundle.js:213 / demo.html:977 |
+| `bright` | 数（0–2） | `1` | 颜色项之一：`brightness(b)`（0 = 全黑、1 = 不变、2 = 提亮一倍） | 壁纸偏暗/偏亮时微调（与 WE 原生"亮度"对齐） | 越界钳位到 [0,2]；非有限 ⇒ 1。**四项全中性时不产生 filter 串**（缺省零行为变化），所以 `?bright=1` 与不写等价 | core/we-scene-bundle.js:80、core/we-scene-bundle.js:213 / demo.html:109 |
+| `contrast` | 数（0–2） | `1` | 颜色项之一：`contrast(c)` | 同上 | 同 `bright` | core/we-scene-bundle.js:80、core/we-scene-bundle.js:213 / demo.html:109 |
+| `satur` | 数（0–2） | `1` | 颜色项之一：`saturate(s)`（0 = 灰度、1 = 不变） | 同上 | 同 `bright` | core/we-scene-bundle.js:80、core/we-scene-bundle.js:213 / demo.html:109 |
+| `hue` | 数（−180…180，度） | `0` | 颜色项之一：`hue-rotate(hdeg)`（色相环偏移） | 同上（注意：它同时会改变整幅画面的色调） | 越界钳位到 [−180,180]；CSS `hue-rotate` 对灰阶像素无效（不是 bug） | core/we-scene-bundle.js:80、core/we-scene-bundle.js:213 / demo.html:109 |
+| `display` | `legacy`（`off`/`0`/`no`/`false`） | 无（正常生效） | **总回退开关**：忽略本组**全部**开关（含 `localStorage['mpw-display']` 里的持久化 UI 状态），并且 `__wp.setDisplay` / `__wp.setPlaybackRate` 变成**只读**（返回中性状态、不写任何属性） | 怀疑"画面/指针/速度不对是这组选项引起的"时一键排除；插件侧也用它做"渲染器内部不加任何滤镜"的逃生口 | 回退档 = 画布 style 一字不写、场景时钟与 frametime 逐位回到改动前、控件在工具条里被置灰 | core/we-scene-bundle.js:132 / demo.html:980 |
 <!-- FLAG-TABLE-END -->
 
 ### 上游有、我们**没有**的档位：`pq`（只记语义结论，不是开关）

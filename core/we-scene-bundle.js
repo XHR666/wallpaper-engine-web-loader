@@ -38,18 +38,299 @@ export function frameGeomMode(search) {
  * - `mode='cover'`：走 `frameClientPoint`（换算含祖先 transform 补偿，规格 §1.3）；
  * - `mode='legacy'`：**逐位等于改动前的内联算式** `(clientX − rect.left) / rect.width`
  *   （只做显示盒归一，不碰 `clientWidth`；NaN 输入照旧透传，不新增丢弃行为）。
+ * - `flipX`（P-113，缺省 false = **逐位不变**）：输出元素被 `transform: scaleX(-1)` 水平翻转时，
+ *   屏幕 x 处**看到的是**未翻转内容的 `1 − x`（镜像关于元素中心）⇒ 归一坐标必须镜像一次，
+ *   指针才仍然指着"光标底下那点内容"。**只在这里镜像一次**：注入通道 `window.__mpwPointer`
+ *   给的是**设计坐标**（宿主算好的场景空间），CSS transform 不改变它 ⇒ 那条路径不翻转。
  */
-export function framePointerMap(ev, el, mode) {
+export function framePointerMap(ev, el, mode, flipX) {
   const r = (el && typeof el.getBoundingClientRect === 'function') ? el.getBoundingClientRect() : null
   if (!r || !(r.width > 0) || !(r.height > 0)) return null
   if (mode === 'cover') {
     const vw = Number(el.clientWidth) || 0, vh = Number(el.clientHeight) || 0
     const p = frameClientPoint(ev, r, { width: vw, height: vh })
     if (!p) return null
-    return { x: p.x, y: p.y, nx: vw > 0 ? p.x / vw : 0, ny: vh > 0 ? p.y / vh : 0, scaleX: p.scaleX, scaleY: p.scaleY, inside: p.inside }
+    const x = flipX ? (vw - p.x) : p.x          // 帧内 client 像素的镜像（宽度对称 ⇒ inside 不变）
+    return { x, y: p.y, nx: vw > 0 ? x / vw : 0, ny: vh > 0 ? p.y / vh : 0, scaleX: p.scaleX, scaleY: p.scaleY, inside: p.inside, flipX: !!flipX }
   }
-  const x = (ev ? ev.clientX : NaN) - r.left, y = (ev ? ev.clientY : NaN) - r.top
-  return { x, y, nx: x / r.width, ny: y / r.height, scaleX: 1, scaleY: 1, inside: true }
+  const x0 = (ev ? ev.clientX : NaN) - r.left, y = (ev ? ev.clientY : NaN) - r.top
+  const x = flipX ? (r.width - x0) : x0
+  return { x, y, nx: x / r.width, ny: y / r.height, scaleX: 1, scaleY: 1, inside: true, flipX: !!flipX }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// 显示选项（P-113）—— 水平翻转 / 播放速度 0.5–2× / 颜色选项（亮度·对比度·饱和度·色调偏移）
+//
+// 契约来源：测试台「壁纸设置」页的表（插件 dsh-mpkg-wallpaper 的壁纸显示选项，MIT）——
+//   `__wp.setDisplay({flipH:true})` / `?fliph=1`、`__wp.setPlaybackRate(1.5)` / `?rate=1.5`、
+//   `__wp.setDisplay({colorOptions:false})` / `?coloropts=0`、
+//   `?bright=1.1&contrast=1.05&satur=1.2&hue=15`。完整口径见 `docs/DISPLAY-OPTIONS.md`。
+// 机制（与上游 oneincase/webwallgl MIT 的 `?fx=`/`setFilter` **同一机制**，非同一份代码）：
+//   **CSS `filter` / `transform` 作用在"拥有渲染输出的那个元素"上**（上游是 wrap 容器，
+//   本仓库是 canvas `#sc`）：不重挂载、不进 GL 管线、不改一帧像素。
+// 三条硬口径（都能被 `tests/display-options-test.mjs` 断言）：
+//   ① **参数全缺省 ⇒ 一个字节都不改**：`buildDisplayFilter` 全中性时返回 `''`，
+//      `buildDisplayTransform` 关时返回 `''` ⇒ 页面**不写** `style.filter` / `style.transform`；
+//   ② **和既有滤镜写入者（`?fx=`/宿主）不打架**：颜色选项**追加在既有 filter 串之后**
+//      （CSS 从左到右依次作用 ⇒ 颜色项看到的是既有滤镜的输出），关掉时**逐字还原**原串；
+//   ③ 回退 `?display=legacy` ⇒ 解析结果全中性，且 API 也不再生效（`setDisplay` 变成只读）。
+// ⚠ 未证实/边界：`transform` 的既有写入者在 demo.html 里**不存在**（grep 0 命中），
+//   `composeTransformCss` 的"镜像在前"顺序只对"以后有人往输出元素上写 transform"生效。
+/** 合法区间（超范围**钳位**、非有限值/空值 ⇒ 默认；文档 `docs/DISPLAY-OPTIONS.md` §2 表） */
+export const DISPLAY_LIMITS = {
+  brightness: [0, 2], contrast: [0, 2], saturation: [0, 2], hue: [-180, 180], playbackRate: [0.5, 2],
+}
+/** 中性值（= 不产生任何视觉变化的那一组） */
+export const DISPLAY_NEUTRAL = { brightness: 1, contrast: 1, saturation: 1, hue: 0 }
+export const PLAYBACK_RATE_MIN = 0.5
+export const PLAYBACK_RATE_MAX = 2
+export const PLAYBACK_RATE_DEFAULT = 1
+/** 显示状态里"可由 URL/API 设置"的键（顺序 = 文档与 UI 的顺序） */
+export const DISPLAY_KEYS = ['flipH', 'colorOptions', 'brightness', 'contrast', 'saturation', 'hue']
+/** 全默认状态（`--` 前缀的字段是**派生**字段，只读） */
+export function defaultDisplayState() {
+  return {
+    legacy: false, flipH: false, colorOptions: true,
+    brightness: 1, contrast: 1, saturation: 1, hue: 0,
+    playbackRate: PLAYBACK_RATE_DEFAULT, present: [],
+  }
+}
+/** 播放速度：非有限/空/非法 ⇒ 1；超范围 ⇒ 钳到 [0.5, 2]（不是"非法⇒1"，两者都测） */
+export function parsePlaybackRate(raw) {
+  if (raw === null || raw === undefined) return PLAYBACK_RATE_DEFAULT
+  const s = String(raw).trim()
+  if (s === '') return PLAYBACK_RATE_DEFAULT
+  const n = Number(s)
+  if (!Number.isFinite(n)) return PLAYBACK_RATE_DEFAULT
+  return Math.min(PLAYBACK_RATE_MAX, Math.max(PLAYBACK_RATE_MIN, n))
+}
+/** 数值型显示项：非有限/空/非法 ⇒ 默认；超范围 ⇒ 钳位 */
+export function clampDisplayNumber(key, raw) {
+  const lim = DISPLAY_LIMITS[key]
+  const dflt = DISPLAY_NEUTRAL[key]
+  if (!lim || dflt === undefined) return undefined      // 未知键
+  if (raw === null || raw === undefined) return dflt
+  const s = String(raw).trim()
+  if (s === '') return dflt
+  const n = Number(s)
+  if (!Number.isFinite(n)) return dflt
+  return Math.min(lim[1], Math.max(lim[0], n))
+}
+/** 布尔开关：缺省 false；`0/off/no/false` = 关；其余（含空值 = 只写了名字） = 开 */
+export function displayFlagOn(raw) {
+  if (raw === null || raw === undefined) return false
+  const s = String(raw).trim().toLowerCase()
+  if (s === '' ) return true
+  return !(s === '0' || s === 'off' || s === 'no' || s === 'false')
+}
+/**
+ * `?display=legacy|off|0|no|false` = **总回退**：解析结果全中性（`legacy:true`）。
+ * 语义：忽略下面全部显示开关（含 localStorage 里的持久化 UI 状态与 `__wp.setDisplay`）。
+ */
+export function displayLegacyFrom(search) {
+  try {
+    const q = new URLSearchParams(search == null ? '' : String(search))
+    const v = String(q.get('display') || '').trim().toLowerCase()
+    return v === 'legacy' || v === 'off' || v === '0' || v === 'no' || v === 'false'
+  } catch (e) { return false }
+}
+/**
+ * URL → 显示状态（纯函数，浏览器/Node 共用）。
+ * `present` = 真正出现在 query 里的开关名（页面靠它决定"URL 覆盖 localStorage"的**逐键**粒度）。
+ */
+export function parseDisplayOptions(search) {
+  const out = defaultDisplayState()
+  let q = null
+  try { q = new URLSearchParams(search == null ? '' : String(search)) } catch (e) { return out }
+  const g = (k) => { try { return q.get(k) } catch (e) { return null } }
+  if (displayLegacyFrom(search)) { out.legacy = true; out.present = ['display']; return out }
+  if (g('display') !== null) out.present.push('display')
+  const flag = (param, key) => {
+    const v = g(param)
+    if (v === null) return
+    out.present.push(param)
+    out[key] = displayFlagOn(v)
+  }
+  const num = (param, key) => {
+    const v = g(param)
+    if (v === null) return
+    out.present.push(param)
+    const n = clampDisplayNumber(key, v)
+    if (n !== undefined) out[key] = n
+  }
+  flag('fliph', 'flipH')
+  flag('coloropts', 'colorOptions')
+  num('bright', 'brightness')
+  num('contrast', 'contrast')
+  num('satur', 'saturation')
+  num('hue', 'hue')
+  const r = g('rate')
+  if (r !== null) { out.present.push('rate'); out.playbackRate = parsePlaybackRate(r) }
+  return out
+}
+/** URL 开关名 → 显示状态键（页面做"逐键覆盖 localStorage"用） */
+export const DISPLAY_URL_KEYS = {
+  fliph: 'flipH', coloropts: 'colorOptions', bright: 'brightness', contrast: 'contrast',
+  satur: 'saturation', hue: 'hue', rate: 'playbackRate',
+}
+/**
+ * 打补丁（`__wp.setDisplay` 与"URL 覆盖持久化状态"共用）：只认已知键，逐键钳位；
+ * 未出现在 patch 里的键**保持 base**（幂等的前提：同一个 patch 反复打结果不变）。
+ */
+export function applyDisplayPatch(base, patch) {
+  const out = Object.assign(defaultDisplayState(), base || {})
+  out.present = Array.isArray(base && base.present) ? base.present.slice() : []
+  if (!patch || typeof patch !== 'object') return out
+  for (const k of DISPLAY_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(patch, k) || patch[k] === undefined) continue
+    if (k === 'flipH' || k === 'colorOptions') out[k] = !!patch[k]
+    else out[k] = clampDisplayNumber(k, patch[k])
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'playbackRate') && patch.playbackRate !== undefined) {
+    out.playbackRate = parsePlaybackRate(patch.playbackRate)
+  }
+  return out
+}
+/** 状态比较（幂等/去重用；只比可设置的键，不比 `present`） */
+export function displayStateEquals(a, b) {
+  if (!a || !b) return false
+  if (a.legacy !== b.legacy) return false
+  for (const k of DISPLAY_KEYS) if (a[k] !== b[k]) return false
+  return a.playbackRate === b.playbackRate
+}
+/** 数值格式化：最多 3 位小数、去掉多余的 0（`1.10 → 1.1`、`0 → 0`） */
+function fmtNum(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '0'
+  return String(Number(n.toFixed(3)))
+}
+/**
+ * 颜色选项 → CSS filter 串（**唯一实现处**）。
+ * 返回 `''` 的三种情形：`colorOptions === false`（总开关关）/ 四项全中性 / 状态缺失。
+ * ⚠ 为什么全中性也返回 `''` 而不是 `brightness(1) contrast(1) saturate(1) hue-rotate(0deg)`：
+ *   后者虽然视觉等价，但会让浏览器**凭空多一个合成层**，与"缺省零行为变化"的红线冲突。
+ */
+export function buildDisplayFilter(state) {
+  if (!state || state.legacy) return ''
+  if (state.colorOptions === false) return ''
+  const b = clampDisplayNumber('brightness', state.brightness)
+  const c = clampDisplayNumber('contrast', state.contrast)
+  const s = clampDisplayNumber('saturation', state.saturation)
+  const h = clampDisplayNumber('hue', state.hue)
+  if (b === 1 && c === 1 && s === 1 && h === 0) return ''
+  return 'brightness(' + fmtNum(b) + ') contrast(' + fmtNum(c) + ') saturate(' + fmtNum(s) + ') hue-rotate(' + fmtNum(h) + 'deg)'
+}
+/** 水平翻转 → CSS transform 串（关 ⇒ `''`） */
+export function buildDisplayTransform(state) {
+  if (!state || state.legacy) return ''
+  return state.flipH ? 'scaleX(-1)' : ''
+}
+/**
+ * 与**既有** filter 串合成（`?fx=` 白名单滤镜 / 宿主自己写的 filter）：
+ * - 本次为空 ⇒ 逐字返回既有串（关掉显示选项 = 还原，不覆盖别人的写入）；
+ * - 既有为空 ⇒ 返回本次串（最常见的缺省情形）；
+ * - 两者都有 ⇒ `既有 本次`（CSS 从左到右依次作用 ⇒ 颜色项作用在既有滤镜的**输出**上）。
+ */
+export function composeFilterCss(prev, own) {
+  const p = (prev == null ? '' : String(prev)).trim()
+  const o = (own == null ? '' : String(own)).trim()
+  if (!o) return p
+  if (!p) return o
+  return p + ' ' + o
+}
+/** 与既有 transform 串合成：镜像**在最外层**（先做既有变换、再整体镜像），关 ⇒ 逐字还原 */
+export function composeTransformCss(prev, own) {
+  const p = (prev == null ? '' : String(prev)).trim()
+  const o = (own == null ? '' : String(own)).trim()
+  if (!o) return p
+  if (!p) return o
+  return o + ' ' + p
+}
+/**
+ * 把状态写进"拥有渲染输出的元素"（幂等：值没变就不写）。
+ * `prev` = 该元素**原始**内联值快照 `{filter, transform}`（页面在注册画布时记一次），
+ * 这样反复开关不会把上一次的颜色串套娃叠进去。
+ */
+export function applyDisplayOptions(el, state, prev) {
+  const empty = { filter: '', transform: '', wrote: false }
+  if (!el || !el.style) return empty
+  const pf = prev && prev.filter != null ? prev.filter : (el.style.filter || '')
+  const pt = prev && prev.transform != null ? prev.transform : (el.style.transform || '')
+  const f = composeFilterCss(pf, buildDisplayFilter(state))
+  const t = composeTransformCss(pt, buildDisplayTransform(state))
+  let wrote = false
+  if ((el.style.filter || '') !== f) { el.style.filter = f; wrote = true }
+  if ((el.style.transform || '') !== t) { el.style.transform = t; wrote = true }
+  return { filter: f, transform: t, wrote }
+}
+/**
+ * 指针路径的翻转判据（优先级与 `resolveProjMode` 同形，唯一实现处）：
+ *   `optsVal`（测试/宿主显式传，最高）→ `liveVal`（`window.__mpwDisplay.flipH`，页面实时写）→
+ *   `fallbackVal`（`?fliph=1`，加载时读一次）。
+ */
+export function displayFlipH(optsVal, liveVal, fallbackVal) {
+  if (typeof optsVal === 'boolean') return optsVal
+  if (typeof liveVal === 'boolean') return liveVal
+  if (liveVal && typeof liveVal === 'object' && typeof liveVal.flipH === 'boolean') return liveVal.flipH
+  return !!fallbackVal
+}
+/**
+ * 场景时钟（播放速度的唯一实现处）：把"墙上时间"换算成"场景时间"。
+ * - **没被 `setRate` 碰过** ⇒ `at(now, legacyTime)` 原样返回 `legacyTime`
+ *   （页面传的就是改动前的 `(now − last0) / 1000` ⇒ 缺省逐位不变）；
+ * - 被碰过 ⇒ 以"切换那一刻的场景时间 + 墙上时间差 × rate"推进（切回 1 也不跳变）。
+ * 幂等：`setRate(当前值)` 直接返回（**不**把时钟标成 touched ⇒ `?rate=1` 仍是逐位缺省）。
+ */
+export function createSceneClock(opts = {}) {
+  let rate = PLAYBACK_RATE_DEFAULT
+  let touched = false
+  let anchorWall = null
+  let anchorScene = 0
+  const api = {
+    get rate() { return rate },
+    get touched() { return touched },
+    setRate(r) {
+      const v = parsePlaybackRate(r)
+      if (v === rate) return rate
+      rate = v
+      touched = true
+      anchorWall = null            // 下一帧用 legacyTime 重新锚定（不跳变）
+      return rate
+    },
+    at(now, legacyTime) {
+      const lt = Number(legacyTime)
+      const base = Number.isFinite(lt) ? lt : 0
+      if (!touched) return base
+      const n = Number(now)
+      if (!Number.isFinite(n)) return anchorWall === null ? base : anchorScene
+      if (anchorWall === null) { anchorScene = base; anchorWall = n; return anchorScene }
+      anchorScene += (n - anchorWall) / 1000 * rate
+      anchorWall = n
+      return anchorScene
+    },
+  }
+  if (opts && opts.rate !== undefined) api.setRate(opts.rate)
+  return api
+}
+/** 动画 dt 的倍率（`engine.frametime` 口径）：rate=1 ⇒ **逐位返回原值**（含 NaN 透传） */
+export function scaleSceneDt(dt, rate) {
+  const r = parsePlaybackRate(rate)
+  return r === 1 ? dt : dt * r
+}
+/**
+ * 把所有 `<video>` 的 `playbackRate` 同步到全局倍率（画面/音频一起变；不重挂载）。
+ * `rate === 1 && !force` ⇒ **一个属性都不写**（缺省零行为变化）；`force` 用于"从非 1 倍切回 1"。
+ * 返回被改动的元素数（诊断用）。
+ */
+export function syncVideoPlaybackRate(doc, rate, force) {
+  const r = parsePlaybackRate(rate)
+  if (r === PLAYBACK_RATE_DEFAULT && !force) return 0
+  let n = 0
+  try {
+    const list = doc && typeof doc.querySelectorAll === 'function' ? doc.querySelectorAll('video') : null
+    if (list) for (const v of list) { try { if (v && v.playbackRate !== r) { v.playbackRate = r; n++ } } catch (e) { /* 只读元素 */ } }
+  } catch (e) { /* 无 DOM */ }
+  return n
 }
 // ===== src/pkg/container.js =====
 // scene.pkg 容器解析器
@@ -6320,6 +6601,16 @@ export function createRenderer(canvas, opts = {}) {
   // ①(P-112-BANDGEOM) 帧几何档（`?framegeom=cover`；缺省 legacy ⇒ 下面的换算与改动前逐位相同）。
   //   解析点在 `frameGeomMode`（本文件顶部导出，测试与宿主共用；`?frame=legacy|off` 仍是最高优先回退）。
   const FRAME_GEOM = frameGeomMode((typeof location !== 'undefined' && location) ? location.search : '')
+  // ①(P-113 显示选项) 水平翻转（`?fliph=1` / `__wp.setDisplay({flipH:true})`）：页面把
+  //   `transform: scaleX(-1)` 写在**画布**上 ⇒ 屏幕 x 处看到的是未翻转内容的 `1 − x`。
+  //   指针归一坐标因此必须**镜像一次**（`framePointerMap` 的第四个参数），否则鼠标与画面反着走。
+  //   注入通道 `window.__mpwPointer`（设计坐标）**不镜像** —— CSS transform 不改变宿主给的设计坐标。
+  //   优先级：`opts.displayFlipH`（测试/宿主显式传）→ `window.__mpwDisplay.flipH`（页面实时写）→
+  //   `?fliph=`（加载时读一次）；缺省 false ⇒ 指针路径逐位不变。
+  const FLIPH_QUERY = (() => {
+    try { return parseDisplayOptions((typeof location !== 'undefined' && location) ? location.search : '').flipH } catch (e) { return false }
+  })()
+  const __pointerFlip = () => displayFlipH(opts.displayFlipH, (typeof window !== 'undefined' && window) ? window.__mpwDisplay : undefined, FLIPH_QUERY)
   let __pointerN = null      // { nx, ny } ∈[0,1]（画布归一化）
   let __pointerHooked = false
   function __hookPointer() {
@@ -6330,7 +6621,7 @@ export function createRenderer(canvas, opts = {}) {
       if (!el) return
       const set = (ev) => {
         try {
-          const p = framePointerMap(ev, el, FRAME_GEOM)
+          const p = framePointerMap(ev, el, FRAME_GEOM, __pointerFlip())
           if (!p) return
           __pointerN = { nx: p.nx, ny: p.ny }
         } catch (e) { /* ignore */ }
@@ -6364,7 +6655,8 @@ export function createRenderer(canvas, opts = {}) {
         //   帧内空间**未定** ⇒ 只在 `?framegeom=cover` 下按"窗口空间"换算，缺省照旧当设计坐标。
         if (inj.space === 'css' && cam && FRAME_GEOM === 'cover') {
           const el = (gl && gl.canvas) ? gl.canvas : null
-          const p = el ? framePointerMap({ clientX: inj.x, clientY: inj.y }, el, 'cover') : null
+          // ①(P-113) 这条路的输入也是**窗口坐标** ⇒ 与 DOM 路径同口径镜像（`__pointerFlip()`）
+          const p = el ? framePointerMap({ clientX: inj.x, clientY: inj.y }, el, 'cover', __pointerFlip()) : null
           if (!p) return null      // 量不到 ⇒ 没有指针信息（不退回一个猜出来的坐标）
           return __pointerDesignFromNorm(p.nx, p.ny, cam)
         }

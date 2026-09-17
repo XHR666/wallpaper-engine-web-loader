@@ -1323,6 +1323,9 @@ export function initSiteShell(ctx = {}) {
 
   /* ⑪ 新布局里"设置1"（#editor-chrome）与"控制台"（#logs）是常驻区：产物在未选壁纸/文档视图时
      会给它们加 `hidden`（display:none）——外壳模式下统一摘掉，并在产物再次加上时立刻摘掉。 */
+  // ①(2026-09-18) 把产物的"活动视图"置成它自己认的 explorer：它的启动恢复读 localStorage['we-bench-view']，
+  //   只有**恰好等于 'explorer'** 才走非 docs 分支（见 assets/bench-*.js 的 `O(e)`），否则一律切到 docs（README）。
+  try { localStorage.setItem('we-bench-view', 'explorer') } catch {}
   const FORCE_SHOWN = ['#editor-chrome', '#logs', '#sidebar', '#stage-slot', '#stage']
   const FORCE_HIDDEN = ['#docs-view']   // 产物自带的文档视图（原作者 README）：新布局里由「说明」页取代
   function forceChromeVisible() {
@@ -1332,10 +1335,18 @@ export function initSiteShell(ctx = {}) {
     }
     for (const sel of FORCE_HIDDEN) {
       const el = q(sel)
-      if (el && !el.hasAttribute('hidden')) { try { el.setAttribute('hidden', '') } catch {} }
+      if (el && !el.hasAttribute('hidden')) {
+        try { el.setAttribute('hidden', '') } catch {}
+        // 产物刚把视图切到 docs ⇒ 把它的持久化值改回 explorer，避免下一次启动又落 docs
+        try { localStorage.setItem('we-bench-view', 'explorer') } catch {}
+      }
     }
   }
   forceChromeVisible()
+  // 产物的异步恢复可能在补丁初始化之后才跑（真机"一帧后跳 README"就是它）⇒ 稍后再归一化一次视图键，
+  // 让它的内部状态（act-docs/act-explorer 高亮、下次启动分支）也回到 explorer。CSS 锁是主修复，这里只是收尾。
+  try { setTimeout(() => { try { localStorage.setItem('we-bench-view', 'explorer') } catch {} }, 0) } catch {}
+  try { setTimeout(() => { try { localStorage.setItem('we-bench-view', 'explorer') } catch {} }, 800) } catch {}
   try {
     if (typeof MutationObserver === 'function') {
       const mo2 = new MutationObserver(() => forceChromeVisible())
@@ -1987,6 +1998,16 @@ export function init() {
     '.tag-ok{color:#3fb950;border-color:rgba(63,185,80,.45);background:rgba(63,185,80,.12)}',
     '.tag-todo{color:#d29922;border-color:rgba(210,153,34,.45);background:rgba(210,153,34,.12)}',
     '.tag-we{color:var(--fg-dim)}',
+    /* ①(修正 2026-09-18 真机"一帧正确然后跳 README") 产物把"活动视图"持久化在 localStorage['we-bench-view']，
+       启动时 `O(存的值 === 'explorer' ? 'explorer' : 'docs')` —— **任何非 'explorer' 的值都落到 docs**，
+       而它切换视图时会 `#sidebar/#logs/#editor-chrome/#stage-slot.hidden = true; #docs-view.hidden = false`。
+       补丁的外壳初始化早于它那条异步恢复 ⇒ 用户看到"一帧控制台、随后跳 README"。这里用 CSS 把状态钉死：
+       docs 视图永不显示，那 5 个常驻区即使被加 hidden 也照旧显示（不依赖任何竞态）。 */
+    '#docs-view{display:none!important}',
+    '#sidebar[hidden]{display:flex!important}',
+    '#logs[hidden]{display:flex!important}',
+    '#editor-chrome[hidden]{display:block!important}',
+    '#stage-slot[hidden]{display:flex!important}',
     'html[lang="en"] .lang-zh{display:none}',
     'html:not([lang="en"]) .lang-en{display:none}',
     '@media (prefers-reduced-motion: reduce){#pages-track,#site-tab-ink{transition:none!important}}',
