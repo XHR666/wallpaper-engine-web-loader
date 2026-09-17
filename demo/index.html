@@ -35,7 +35,7 @@ html.bench-shell #site-tabs{position:relative;display:flex;align-items:stretch;h
 html.bench-shell .site-tab{appearance:none;border:0;background:transparent;color:var(--fg-dim);font:inherit;font-size:13px;padding:0 14px;cursor:pointer;border-bottom:2px solid transparent}
 html.bench-shell .site-tab:hover{color:var(--fg)}
 html.bench-shell .site-tab.active{color:var(--fg);border-bottom-color:transparent}
-html.bench-shell #site-tab-ink{position:absolute;bottom:0;left:0;height:2px;width:0;background:var(--accent,#0078d4);transition:transform .26s cubic-bezier(.4,0,.2,1),width .26s cubic-bezier(.4,0,.2,1);pointer-events:none}
+html.bench-shell #site-tab-ink{position:absolute;bottom:0;left:0;height:2px;width:0;background:var(--accent,#0078d4);transition:none;pointer-events:none}
 html.bench-shell #site-actions{margin-left:auto;display:flex;align-items:center;gap:8px;position:relative}
 html.bench-shell #settings-btn{appearance:none;font:inherit;font-size:12.5px;color:var(--fg);background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer}
 html.bench-shell #settings-btn:hover, html.bench-shell #settings-btn[aria-expanded="true"]{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}
@@ -49,8 +49,8 @@ html.bench-shell .pop-val{color:var(--fg)}
 html.bench-shell .pop-note{margin:2px 0 0;color:var(--fg-mute);font-size:11.5px;line-height:1.6}
 html.bench-shell .pop-credit{margin-top:2px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--fg-mute)}
 html.bench-shell .pop-credit a{color:var(--link,var(--accent,#58a6ff))}
-html.bench-shell #pages-track{flex:1 1 auto;width:300%;display:flex;min-height:0;min-width:0;overflow:hidden;contain:paint;transition:transform .28s cubic-bezier(.4,0,.2,1)}
-html.bench-shell .page{flex:0 0 calc(100% / 3);min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+html.bench-shell #pages-track{flex:1 1 auto;width:auto;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;contain:paint;transform:none!important;transition:none!important}
+html.bench-shell .page{flex:1 1 auto;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 html.bench-shell #page-docs, html.bench-shell #page-wpset{overflow-y:auto;background:var(--editor)}
 html.bench-shell #workbench{flex:1;grid-template-columns:var(--mpw-lib-w,300px) auto minmax(0,1fr)!important;min-height:0;overflow:hidden}
 html.bench-shell #activitybar{display:none!important}
@@ -119,11 +119,11 @@ html.bench-shell html:not([lang="en"]) .lang-en{display:none}
    平板实测（OPPO Pad 4 Pro 3392×2400 / 桌面模式 / screen.width=1696）：改前 `narrow=false`
    ⇒ 桌面三列塞进 980px、舞台只有 448×252、文档 scrollWidth 2940（3 倍溢出）。 */
 html.bench-shell body{overflow-x:hidden}
-/* 横向溢出**必须也在根元素上裁一刀**：`#pages-track` 是 300% 宽（三页并排、靠 translate 切换），
-   只靠 body 的 `overflow-x:hidden` 在部分引擎里**不传播到视口** —— 2026-09-18 实测（无头 Firefox 121，
-   980px 视口）`window.scrollTo(9999,0)` 之后 `window.scrollX=1960`，即**真的能横向拖走两屏**
-   （`document.scrollingElement.scrollWidth=2940`；body 计算值 hidden、html 计算值 visible）。
-   桌面宽度同样存在（1440 → 2880），只是没人往右拖。根元素上补一刀即可，与 body 那条并存不冲突。 */
+/* 横向溢出**必须也在根元素上裁一刀**。①(2026-09-19) 之后 `#pages-track` 已不再是 300% 宽的横排轨道
+   （页签改成互斥的独立页面 ⇒ 轨道本身不再横向溢出），但这条保留作兜底：历史实测在部分引擎里
+   `body{overflow-x:hidden}` **不传播到视口** —— 2026-09-18 无头 Firefox 121 / 980px 视口下
+   `window.scrollTo(9999,0)` 之后 `window.scrollX=1960`（真的能横向拖走两屏）。将来任何一处
+   子元素超宽都会再触发同一个问题，根元素裁一刀与 body 那条并存、不冲突。 */
 html.bench-shell{overflow-x:hidden}
 html.bench-shell.bench-mid{--mpw-lib-w:240px;--mpw-props-w:260px}
 /* ⚠ 这一整块**没有 @media 包裹**（2026-09-18 修）：原来那次"去掉媒体查询依赖"的编辑把 `@media(…){`
@@ -142,7 +142,7 @@ html.bench-shell.bench-mid{--mpw-lib-w:240px;--mpw-props-w:260px}
   html.bench-shell.bench-narrow #page-console{display:block}
   html.bench-shell.bench-narrow #workbench{display:block!important;height:auto!important}
   html.bench-shell.bench-narrow #sidebar,
-  html.bench-shell.bench-narrow #props{width:auto!important;max-height:34vh;overflow:auto;border-right:0;border-bottom:1px solid var(--border)}
+  html.bench-shell.bench-narrow #props{width:auto!important;max-height:clamp(140px,22vh,320px);overflow:auto;border-right:0;border-bottom:1px solid var(--border)}
   html.bench-shell.bench-narrow #main{display:flex!important;flex-direction:column;height:auto!important;overflow:visible}
   html.bench-shell.bench-narrow #editor-chrome{flex:none}
   html.bench-shell.bench-narrow #workspace{flex:none;min-height:0}

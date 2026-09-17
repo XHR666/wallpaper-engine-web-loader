@@ -1060,20 +1060,27 @@ export function initSiteShell(ctx = {}) {
       ink.style.transform = 'translateX(' + el.offsetLeft + 'px)'
     } catch { /* 桩 DOM 无布局：忽略 */ }
   }
-  let pageHideTimer = null
   function pagesEls() { return PAGES.map((n) => q('#page-' + n)) }
   function hideInactive(activeIdx) {
-    pagesEls().forEach((el, i) => { if (el) { try { el.style.visibility = i === activeIdx ? 'visible' : 'hidden' } catch {} } })
+    pagesEls().forEach((el, i) => { if (el) { try { el.style.display = i === activeIdx ? '' : 'none' } catch {} } })
   }
   function setPage(name, persist = true) {
     const plan = pageFromName(name)
     const active = PAGES[plan.index]
-    // ①(修正 2026-09-17) 切页时先让所有页可见（动画要看得见），动画结束再把非当前页 visibility:hidden：
-    //   否则控制台页里那个 iframe（壁纸）会**盖在**「说明 / 壁纸设置」页上面 —— 真机实测那两页整个空白。
-    pagesEls().forEach((el) => { if (el) { try { el.style.visibility = 'visible' } catch {} } })
-    if (pageHideTimer) { clearTimeout(pageHideTimer); pageHideTimer = null }
-    pageHideTimer = setTimeout(() => { pageHideTimer = null; hideInactive(plan.index) }, 340)
-    if (track) track.style.transform = 'translateX(' + plan.offsetPercent + '%)'
+    // ①(2026-09-19 用户要求：「左右切换的效果去掉 变成一个个页面(不要加载过程)」)
+    //   页签改成**互斥的独立页面**：不再有 300% 宽的轨道、不再有 translateX 动画、也**不再有 340ms 的
+    //   "先全部可见、动画结束再隐藏"的定时器**（那 340ms 就是用户说的"加载过程"：切页时另外两页会短暂
+    //   跟着动、iframe 还可能盖在上面）。现在切页 = 立刻只显示目标页、其余页 display:none。
+    //   为什么用 display 而不是 visibility：用户要的就是"一个个页面"（不在布局里占位）；
+    //   画布/iframe 不重建 ⇒ 没有加载过程，切回来时浏览器会给 iframe 发 resize，渲染器自行按新尺寸重算。
+    hideInactive(plan.index)
+    pagesEls().forEach((el, i) => { if (el) { try { el.setAttribute('aria-hidden', i === plan.index ? 'false' : 'true') } catch {} } })
+    if (track) {
+      try {
+        track.style.transform = ''                    // 清掉历史内联量（旧版补丁可能写过）
+        track.setAttribute('data-active', active)
+      } catch {}
+    }
     tabs.forEach((el, i) => {
       if (!el) return
       const on = i === plan.index
@@ -1081,6 +1088,9 @@ export function initSiteShell(ctx = {}) {
       try { el.setAttribute('aria-selected', on ? 'true' : 'false') } catch {}
     })
     paintInk(plan.index)
+    // 切页后给一次布局"唤醒"：目标页里若含 iframe/画布，其视口尺寸从 0 变回真实值，
+    // 主动 dispatch 一次 resize 让宿主侧监听器（舞台自适应等）立刻重算，而不是等下一次用户操作。
+    try { if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('resize')) } catch {}
     if (persist) writeKey(PAGE_KEY, active)
     return active
   }
@@ -2005,7 +2015,7 @@ export function init() {
     '.site-tab{appearance:none;border:0;background:transparent;color:var(--fg-dim);font:inherit;font-size:13px;padding:0 14px;cursor:pointer;border-bottom:2px solid transparent}',
     '.site-tab:hover{color:var(--fg)}',
     '.site-tab.active{color:var(--fg);border-bottom-color:transparent}',
-    '#site-tab-ink{position:absolute;bottom:0;left:0;height:2px;width:0;background:var(--accent,#0078d4);transition:transform .26s cubic-bezier(.4,0,.2,1),width .26s cubic-bezier(.4,0,.2,1);pointer-events:none}',
+    '#site-tab-ink{position:absolute;bottom:0;left:0;height:2px;width:0;background:var(--accent,#0078d4);transition:none;pointer-events:none}',
     '#site-actions{margin-left:auto;display:flex;align-items:center;gap:8px;position:relative}',
     '#settings-btn{appearance:none;font:inherit;font-size:12.5px;color:var(--fg);background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer}',
     '#settings-btn:hover,#settings-btn[aria-expanded="true"]{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}',
@@ -2020,8 +2030,8 @@ export function init() {
     '.pop-credit{margin-top:2px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--fg-mute)}',
     '.pop-credit a{color:var(--link,var(--accent,#58a6ff))}',
     /* 三页滑动轨道 */
-    '#pages-track{flex:1 1 auto;width:300%;display:flex;min-height:0;min-width:0;overflow:hidden;contain:paint;transition:transform .28s cubic-bezier(.4,0,.2,1)}',
-    '.page{flex:0 0 calc(100% / 3);min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}',
+    '#pages-track{flex:1 1 auto;width:auto;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;contain:paint;transform:none!important;transition:none!important}',
+    '.page{flex:1 1 auto;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}',
     '#page-docs,#page-wpset{overflow-y:auto;background:var(--editor)}',
     /* 工作台三列 */
     '#workbench{flex:1;grid-template-columns:var(--mpw-lib-w,300px) auto minmax(0,1fr)!important;min-height:0;overflow:hidden}',
@@ -2084,7 +2094,7 @@ export function init() {
     '#stage-slot[hidden]{display:flex!important}',
     'html[lang="en"] .lang-zh{display:none}',
     'html:not([lang="en"]) .lang-en{display:none}',
-    '@media (prefers-reduced-motion: reduce){#pages-track,#site-tab-ink{transition:none!important}}',
+    '@media (prefers-reduced-motion: reduce){#pages-track,#site-tab-ink{transition:none!important}}',   // 现在本来就无动画；保留只为兼容旧文档/旧断言
   ].join('')
   function injectSiteLayoutStyle() {
     try {
@@ -2123,7 +2133,7 @@ export function init() {
   const SITE_STYLE_INJECTED = (SHELL_OFF || !DOM_IS_NEW) ? false : injectSiteLayoutStyle()
   // ①(2026-09-18) 版本标记：把"当前页面到底是哪一版"变成可核对的事实（控制台/属性/状态栏都能看）——
   //   用户报"还是不行"时，第一件事就是核对它（旧缓存会让 `window.__benchShellVersion` 整个不存在）。
-  const BENCH_SHELL_VERSION = 'bench-shell 2026-09-18b (static first-paint CSS; dom=' + (DOM_IS_NEW ? 'new' : 'old') + (SHELL_OFF ? '; shell=off' : '') + ')'
+  const BENCH_SHELL_VERSION = 'bench-shell 2026-09-19a (static first-paint CSS; dom=' + (DOM_IS_NEW ? 'new' : 'old') + (SHELL_OFF ? '; shell=off' : '') + ')'
   try {
     if (typeof window !== 'undefined') {
       window.__benchShellVersion = BENCH_SHELL_VERSION

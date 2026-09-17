@@ -7898,3 +7898,59 @@ docs/PATCHES.md                （本节）
 docs/README-DIAGNOSTICS.md     （新增 subbase 行）
 <工作区根>/docs/MASTER-TODO.md  （只改 P1-4 一行）
 ```
+
+## P-119（2026-09-19 用户要求）测试台页签改成**互斥的独立页面**（去掉左右滑动与 340ms 过渡）+ 窄屏面板降高让"壁纸首屏可见"
+
+**用户原话**：「左右切换的效果去掉 变成一个个页面(不要加载过程)」；另补充「我平板使用浏览器是给它横过来的」（横屏优先）。
+
+### P-119.1 原来是什么样、为什么真机上会"整页空白"
+
+三个页签（控制台 / 说明 / 壁纸设置）原本是**一条 300% 宽的横排轨道** `#pages-track`，靠
+`transform: translateX(-(100/3)·i%)` 切换，`transition: transform .28s`；切页后还要等 **340ms 定时器**
+才把非当前页 `visibility:hidden`（补丁里那句注释自己写着："否则控制台页里那个 iframe（壁纸）会**盖在**
+「说明 / 壁纸设置」页上面 —— 真机实测那两页整个空白"）。⇒ 那 340ms 就是用户说的"**加载过程**"。
+
+### P-119.2 改法（页签）
+
+| 位置 | 改前 → 改后 |
+|---|---|
+| `demo/index.html:52`（静态首屏表） | `#pages-track{…width:300%;display:flex;transition:transform .28s…}` → `width:auto;display:flex;flex-direction:column;transform:none!important;transition:none!important` |
+| `demo/index.html:53` | `.page{flex:0 0 calc(100%/3)}` → `.page{flex:1 1 auto;width:100%}`（一页 = 整屏一页） |
+| `demo/index.html:54` | `#site-tab-ink{transition:transform .26s,width .26s}` → `transition:none`（下划线不再滑动） |
+| `demo/bench-patch.js` `setPage()` | 删掉 `track.style.transform = translateX(...)` 与 340ms `setTimeout` 定时器；改成对三页逐个 `display:''`（当前页，交回样式表：窄屏控制台页是 `block`、其余是 `flex`）/`display:'none'`（其余页）+ `aria-hidden`；轨道只写 `data-active` |
+| `demo/bench-patch.js` | `pageHideTimer` 变量与"先全部 visible"那段一并删除（不再有任何定时器）；切页后主动 `dispatchEvent(new Event('resize'))` 一次，让目标页里的 iframe/画布立刻按真实尺寸重算 |
+| `demo/bench-patch.js` SITE_LAYOUT_CSS | 三条 CSS 与静态表**同步改**（D8 逐条比对要求两处一致） |
+| 版本标记 | `bench-shell 2026-09-18b` → **`2026-09-19a`**（真机核对"我现在到底是哪一版"） |
+
+**为什么用 `display` 而不是继续 `visibility`**：`display:none` 的页**不占布局也不参与合成**，iframe 不可能
+再盖住别的页（P-119.1 那个真机 bug 的根因消失）；而且 iframe/画布**不重建** ⇒ 没有加载过程，
+切回来时浏览器给 iframe 发一次 resize，渲染器按新尺寸自行重算（下面有实测）。
+
+### P-119.3 顺带：窄屏面板降高（横屏"壁纸首屏可见"）
+
+窄屏堆叠时侧栏与属性栏原来各占 `max-height:34vh` ⇒ 横屏 980×690 下两栏 + 工具栏把舞台挤到折叠线以下
+（实测舞台可见高度只有 **133px / 317px = 42%**）。改成 `max-height:clamp(140px,22vh,320px)`（仍可滚动）。
+
+### P-119.4 验收（单浏览器实例、5 视口 + 页签行为，跑完即关；无 GPU ⇒ 只有几何/computed-style，无像素结论）
+
+```
+── A. 页签（980×690 横屏桌面模式）
+   版本=bench-shell 2026-09-19a | 轨道 display=flex flexDirection=column 宽=980 scrollW=980 transition=0s transform=none
+   下划线 transition=0s | 初始三页：#page-console=block #page-docs=none #page-wpset=none
+   点「说明」后**同 tick**：docs=flex console=none wpset=none transform=none      ← 无中间态、无定时器
+   切到「壁纸设置」→ 回「控制台」：iframe=564.3×317.4 舞台=564×317               ← iframe 往返正常
+── B. 视口矩阵（窄屏标志 / 舞台可见覆盖 / 缩放框不超宽 / 可见溢出 / 横向不滚）
+   平板横屏(真实) 980x690   窄=true 舞台=980x333(可见244) 缩放框=564x317 覆盖=77% 溢出=0  ✓
+   平板横屏(矮) 980x600     窄=true 舞台=980x292(可见178) 缩放框=491x276 覆盖=64% 溢出=0  ✓
+   平板竖屏 980x1387        窄=true 舞台=980x666(可见666) 缩放框=964x542 覆盖=123% 溢出=0 ✓
+   正常手机 412x915         窄=true 舞台=412x439(可见265) 缩放框=396x223 覆盖=119% 溢出=0 ✓
+   桌面 1440x900            窄=false 舞台=820x474        缩放框=796x448 覆盖=106% 溢出=0 ✓
+```
+
+（改前同一脚本：980×690 覆盖 **42%**、980×600 覆盖 **35%**；桌面 1440 各值与改前逐值相同 ⇒ 宽屏零回归。）
+
+### P-119.5 未证实
+
+- 无 GPU ⇒ 「壁纸在真机上是否**继续渲染**（切页时被浏览器节流/暂停）」未测；只证明了 iframe 尺寸与生命周期正常。
+- 真机（Via/Chromium）像素与观感未测；本机只有无头 **Firefox** 的几何/computed-style。
+- 键盘 `←/→` 在页签上的快捷键保留（ARIA tablist 惯例），但它现在是"瞬时切页"，不再有滑动动画。
