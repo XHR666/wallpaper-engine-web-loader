@@ -50,6 +50,6 @@
 
 ## 与 package-matrix 的关系
 
-- `node package-matrix.mjs` = 离线全量矩阵（107 包，mock-GL，含基线 `--check` 门禁）。
+- `node package-matrix.mjs` = 离线全量矩阵（117 包，mock-GL，含基线 `--check` 门禁）。
 - `?selfcheck=1` = 真机/浏览器侧单包快照。两者字段同义；把自检 JSON 的
   `whiteFallbackLayers/anomalies` 与矩阵该包 `issues[]` 对照即可定位差异来源（环境 vs 数据）。

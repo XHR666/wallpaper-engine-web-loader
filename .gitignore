@@ -68,3 +68,19 @@ common_vertex.h
 
 # ── GitHub Pages 构建产物（build-pages.mjs 的输出，绝不入库）──
 _site/
+
+# ── 参考资料隔离区（2026-09-17 目录归一；**双保险规则**）──
+# 事实：第三方参考副本唯一内容落点 = 工作区根的 `references/**`（`../references/` 相对本仓库），
+# 取证归档 = `../Delete/**`（如 `Delete/we-official-shaders/`）。**两者都在本仓库之外**，
+# 所以严格说这里不需要规则 —— 但**万一有人把副本拷进本仓库**（打包/复制粘贴/子模块化），
+# 下面这几条 git 侧立即忽略，`tests/reference-isolation-check.mjs` 断言 ①②③ 另有独立拦截。
+references/
+Delete/
+# 旧路径名（归一前的六个根目录名）。工作区根的同名条目现在只是**符号链接**（零内容重定向）；
+# 若它们以**真实目录**形态出现在仓库内 = 内容回流，必须拦下。
+wer-ref/
+we-layerd-ref/
+lwe-ref/
+dsbw-ref/
+vendor-ref/
+reference/

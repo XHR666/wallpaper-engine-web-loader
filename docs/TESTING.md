@@ -37,7 +37,7 @@
 | `render-audit.mjs 3719111841` | 真实 renderScene 逐层审计 | mesh 5/5、正常返回 | 无 | ✅ |
 | `skin-order-verify.mjs 3719111841 主体` | 蒙皮层序 | 误差 0.0000 | 无 | ✅ |
 | `layer-rect-check.mjs 3719111841 --refrender` | 实绘矩形 vs 官方标定 | 中位 0px | refrender JSON | ✅ |
-| `package-matrix.mjs --check` | 107 包逐包门禁+基线比对 | 退出 0、无退化 | 大内存（400MB/包上限） | ✅ |
+| `package-matrix.mjs --check` | 117 包逐包门禁+基线比对 | 退出 0、无退化 | 大内存（400MB/包上限） | ✅ |
 | `perf-profile.mjs`（冒烟 `--pkg` 单包） | 静态成本+粒子 CPU 基准 | 产出 perf-matrix.json | 大内存 | --fast 跳过 |
 | `docs-check.mjs` | 文档一致性：引用文件存在 + PATCHES P-编号健康 + diag 开关归并 | 退出 0 | 无 | ✅ |
 | `dsh-mpkg-wallpaper/tools/panel-smoke.mjs` | 插件面板冒烟 | ALL PASS | 无 | ✅ |
@@ -69,7 +69,7 @@ node report-audit.mjs --trend [N]   # 每场景最近 N 份跨报告趋势：稳
 
 | 工具 | 作用 | 依赖/备注 |
 |---|---|---|
-| `package-matrix.mjs`（全量） | 107 包矩阵+门禁汇总，写 package-matrix.json | 内存大；`--json`/`--pkg`/`--max-mb` |
+| `package-matrix.mjs`（全量） | 117 包矩阵+门禁汇总，写 package-matrix.json | 内存大；`--json`/`--pkg`/`--max-mb` |
 | `library-manifest.mjs` | 全语料清单（88 容器类型/规模/脚本段），识别视频壁纸；结论见 `LIBRARY-MANIFEST.md` | `--json` 落 `library-manifest.json`；`--only video` |
 | `perf-profile.mjs --texreport <id>` | 单场景纹理总量/大纹理清单/预计显存 → `reports/perf-tex-<id>.json` | C6；给 A/B"该不该降采样"判断用 |
 | `perf-profile.mjs`（全量） | 逐包静态成本+Top-10 重包+粒子 CPU ms/帧 | 内存大；防 OOM 见 `--max-mb` |
@@ -88,7 +88,10 @@ node report-audit.mjs --trend [N]   # 每场景最近 N 份跨报告趋势：稳
 
 ## 基线文件（门禁判据，勿手改）
 
-- `package-baseline.json` — package-matrix --check 判据（重置：`node package-matrix.mjs --write-baseline`）
+- `package-baseline.json` — package-matrix --check 判据（重置：`node package-matrix.mjs --write-baseline`）。
+  **语料新增（新下包）时不要用 `--write-baseline` 一把梭**（会把既有行连同本机负载下测得的 timing 一起重写，
+  掩盖真退化）：用 `node tests/package-matrix.mjs --absorb-new --reason "<理由>"` —— 只**追加**新包、
+  既有行原样保留，任一既有包退化或既有 path 消失即拒绝写入（rc=2），理由落进基线的 `absorbed[]`（P-108）。
 - `perf-baseline.json` — 静态成本+粒子 CPU 基准（`node perf-profile.mjs --write-baseline`）
 - `visual-baseline.json` — 视觉分数基线（`node visual-diff.mjs --id <id> --write-baseline`）
 - `known.json` — 门禁白名单（每条豁免必须带 reason+date）

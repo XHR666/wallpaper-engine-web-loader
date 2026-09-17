@@ -39,6 +39,7 @@
 | 6 | `~/.dsh/.dsh-mpkg-wallpaper/diag-<epochms>.json`（`~` = 插件宿主端 home） | 插件宿主端 `/api/mpkg-wallpaper/diag`，每次 POST 写一份 | **完全没有**（实测 **3483 个 / 63MB**） | **50 个 / 32MB** | **启动清理一次** + 写入前/后各一次；**最旧先删**（按文件名里的 epoch） | `dsh-mpkg-wallpaper/lib/index.js` `DIAG_KEEP` / `DIAG_MAX_BYTES` |
 | 7 | `localStorage['mpw-props:<壁纸id>']`（渲染器属性面板改动表） | 属性面板每次改动（250ms 防抖） | **完全没有**（键随壁纸数无限增长） | **24 键 / 单值 64KB / 合计 512KB** | 写入时 touch 一个 `mpw-ls-lru` 时间戳表；超限**按 LRU 淘汰最旧**；单值超限**拒写** | `demo.html` `MPW_LS_LIMITS`（`// ═══ MPW-LS-LIMIT-BEGIN ═══` 块） |
 | 8 | `localStorage['dsh.mpkg-wallpaper.v2']` 等插件键 | 插件设置写入（250ms 防抖） | 无（只有 try/catch 静默失败） | **单值 256KB**（键数天然有界：插件只用 4 个固定键） | 超限**不写**（大图走 IndexedDB）+ 一行 `console.warn` | `dsh-mpkg-wallpaper/lib/client.js` `MPW_LS_MAX_BYTES` |
+| 9 | `<工作区>/reports/baselines/<epochms>.json`（①§5-⑨ 真机基线快照；**子目录**） | 渲染器 `/baseline`：`?baseline=1`（**默认关**，用户显式打开；不属于"自动上报"） | **端点新增**（此前没有） | **200 份 / 32MB** | **启动清理一次** + 写入前/后各一次；**最旧先删**（按文件名里的 epoch） | `MPW_LIMITS.baselineMaxFiles` / `.baselineMaxBytes` |
 
 ### 1.1 不受本上限影响的"别人的产物"（**明令不删**）
 
@@ -46,6 +47,8 @@
 两处过滤器都只认**自己造的文件名**：
 
 - `pruneDirToLimits` 的 `filter`：`/^r\d+\.json$/`、`/^selfcheck-\d+\.json$/`、`/\.(jpg|png)$/i`
+  （`reports/baselines/` 是**子目录**、由 `pruneBaselines()` 单独管，过滤器只认 `/^\d+\.json$/` ⇒
+  两边的滚动互不干扰：顶层那份 60 份滚动**永远不会删掉基线快照**，反之亦然）
 - 插件 `pruneDiagDir`：`/^diag-(\d+)\.json$/` —— 同目录的 `custom-dir.json`、`ffmpeg/` 一个都不碰
 
 `tests/data-limits-test.mjs` 的 **B9 / D4** 就是这两条的反面断言（放一份 `parity-keepme.json` / `custom-dir.json` 进去，清理后必须还在）。
@@ -56,7 +59,7 @@
 
 | 作用域 | 文件 | 常量块 | env 覆盖（**仅供测试/现场调参**） |
 |---|---|---|---|
-| 服务端落盘（#1–#4） | `server/we-scene-demo-server.mjs` | `const MPW_LIMITS = { … }`（紧跟 `MPW_REPORTS_DIR` 之后） | `MPW_LIMIT_REPORTS_MAX` / `MPW_LIMIT_SELFCHECK_MAX` / `MPW_LIMIT_REPORTS_BYTES` / `MPW_LIMIT_SHOT_FILES` / `MPW_LIMIT_SHOT_ID_BYTES` / `MPW_LIMIT_SHOT_TOTAL_BYTES` |
+| 服务端落盘（#1–#4、#9） | `server/we-scene-demo-server.mjs` | `const MPW_LIMITS = { … }`（紧跟 `MPW_REPORTS_DIR` 之后） | `MPW_LIMIT_REPORTS_MAX` / `MPW_LIMIT_SELFCHECK_MAX` / `MPW_LIMIT_REPORTS_BYTES` / `MPW_LIMIT_SHOT_FILES` / `MPW_LIMIT_SHOT_ID_BYTES` / `MPW_LIMIT_SHOT_TOTAL_BYTES` / `MPW_LIMIT_BASELINE_MAX` / `MPW_LIMIT_BASELINE_BYTES` |
 | 渲染器 localStorage（#7） | `demo.html` | `const MPW_LS_LIMITS = { maxKeys, maxValueBytes, maxTotalBytes }` | 无（页面没有 env 注入点） |
 | 插件 diag（#6） | `../dsh-mpkg-wallpaper/lib/index.js:1216` 起 | `const DIAG_KEEP` / `const DIAG_MAX_BYTES` | `DSH_WE_DIAG_KEEP` / `DSH_WE_DIAG_MAX_BYTES` / `DSH_WE_DIAG_DIR`（换目录） |
 | 插件 localStorage（#8） | `../dsh-mpkg-wallpaper/lib/client.js:41` 起 | `const MPW_LS_MAX_BYTES` | 无 |
@@ -70,7 +73,9 @@
 | 位置 | 日志格式 | 时机 |
 |---|---|---|
 | 服务端 | `[prune] reports/：已删除 N 个最旧文件，释放 X.XX MB（上限 r* 60 份 / selfcheck* 40 份 / 合计 64MB）` | 每次删除后（**0 个时不打**，免得刷屏） |
-| 服务端 | `[limits] 启动清理完成：reports 删 A 份/…MB；shots 每 id 删 B 帧/…MB；shots 全局删 C 帧/…MB（上限：…）` | 进程启动时（`server.listen` 回调第一件事） |
+| 服务端 | `[limits] 启动清理完成：reports 删 A 份/…MB；shots 每 id 删 B 帧/…MB；shots 全局删 C 帧/…MB（上限：…；baselines 200 份/32MB（启动清理删 N 份））` | 进程启动时（`server.listen` 回调第一件事） |
+| 服务端 | `[prune] reports/baselines/：已删除 N 个最旧文件，释放 X.XX MB（上限 200 份 / 32MB）` | 每次删除后（0 个时不打） |
+| 服务端 | `[baseline] <绝对路径> <bytes>B id=<壁纸id> fps中位=<N> 启动=<N>ms` | 每次 `/baseline` 落盘成功 |
 | 渲染器 | `🧹 localStorage 上限清理（写入 mpw-props:<id>）：已删除 N 个最旧键，释放 X.X KB（上限 24 键 / 512 KB）` | 每次淘汰后 |
 | 渲染器 | `⚠ localStorage 拒绝写入 <键>：单值 X.X KB > 上限 64 KB（不截断、不静默）` | 单值超限 |
 | 插件 | `[dsh-mpkg-wallpaper][prune] diag/（启动｜写入前｜写入后）：已删除 N 个最旧文件，释放 X.XX MB（上限 50 个 / 32 MB）` | 启动 + 每次写入前后 |
@@ -90,6 +95,10 @@
 
 自证"会红"：把上限调小或把默认改回开，对应用例立刻失败，例如
 `MPW_LIMIT_REPORTS_MAX=0 node tests/data-limits-test.mjs` 会在 B3 红；把 `demo.html` 的 `=== 'auto'` 改回 `!has('noreport')` 会在 A2 红。
+
+①(§5-⑨) `reports/baselines/` 的上限（#9）由**另一项门禁**覆盖：`node tests/baseline-test.mjs`（门禁名 `baseline`）
+验"灌超限 → 只留最新 N 份"、"启动日志播报 baselines 上限"、"残缺快照 400 不落盘"、"GET 405"、
+以及"采集器默认关时零行为变化"。
 
 ---
 
