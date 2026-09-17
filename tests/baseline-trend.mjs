@@ -52,6 +52,12 @@ const fmtFps = (v) => (v === null || v === undefined || !Number.isFinite(Number(
 const fmtMB = (v) => (v === null || v === undefined || !Number.isFinite(Number(v))) ? '—' : (Number(v) / 1048576).toFixed(2) + 'MB'
 const fmtPct = (p) => (p === null || p === undefined) ? '' : (p === Infinity ? '+∞' : p === -Infinity ? '−∞' : (p > 0 ? '+' : '') + p.toFixed(1) + '%')
 const stamp = (o) => { const t = Date.parse(o.at); return Number.isFinite(t) ? t : Number(String(o.file).replace(/\.json$/, '')) || 0 }
+/** 指标路径 → 表里用的短名（判定列窄，别把 `switch.swapTo.ms` 挤成 "ms"）。 */
+const SHORT = {
+  'startup.totalMs': '启动', 'startup.navToFirstFrameMs': '首帧', 'fps.median': 'FPS',
+  'switch.swapTo.ms': '切换', 'vramProxy.textureBytesEst': 'VRAM',
+}
+const short = (r) => SHORT[r.path] || r.label || r.path
 const pad = (s, n) => { let w = 0; for (const ch of String(s)) w += (ch.charCodeAt(0) > 255 ? 2 : 1); return String(s) + ' '.repeat(Math.max(0, n - w)) }
 
 // ── 读盘：两份来源各自校验（**不合 schema 的是红**，不是静默跳过）────────────────
@@ -160,7 +166,7 @@ if (JSON_OUT) {
     console.log('  ' + '─'.repeat(W.reduce((a, b) => a + b + 1, 0)))
     for (const r of rows) {
       const d = r.deltas['startup.totalMs']
-      const tag = !r.verdict ? '（首份=基线）' : (r.regressions.length ? '⚠ 退化 ' + r.regressions.map((x) => x.path.split('.').pop() + ' ' + fmtPct(x.pct)).join(' / ') : '· 阈值内')
+      const tag = !r.verdict ? '（首份=基线）' : (r.regressions.length ? '⚠ 退化 ' + r.regressions.map((x) => short(x) + ' ' + fmtPct(x.pct)).join(' / ') : '· 阈值内')
       console.log(line([
         String(r.at || '?').replace('T', ' ').slice(0, 19), fmtMs(r.startupMs), fmtMs(r.firstFrameMs), fmtFps(r.fpsMedian),
         fmtMs(r.switchMs), fmtMB(r.vramBytes), d ? fmtPct(d.pct) : '', tag,
@@ -176,7 +182,7 @@ if (JSON_OUT) {
   for (const b of invalid) console.log('✗ 不合 schema：' + b.file + ' — ' + b.why)
   console.log('')
   if (newestPairRegressions.length) {
-    console.error('⚠ 最新一对存在退化（共 ' + newestPairRegressions.length + ' 组）：' + newestPairRegressions.map((x) => x.group + ' → ' + x.regressions.map((r) => r.path + ' ' + fmtPct(r.pct)).join('/')).join('；'))
+    console.error('⚠ 最新一对存在退化（共 ' + newestPairRegressions.length + ' 组）：' + newestPairRegressions.map((x) => x.group + ' → ' + x.regressions.map((r) => short(r) + '(' + r.path + ') ' + fmtPct(r.pct)).join('/')).join('；'))
     console.error('  说明：本脚本**默认只告警**（历史趋势里的旧退化不该让门禁永远红）；要当硬闸门用 `--strict`。')
   } else if (!invalid.length) {
     console.log('✓ 没有超阈值的退化（含"只有一份、无从比较"的情况）')
