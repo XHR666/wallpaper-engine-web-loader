@@ -125,8 +125,20 @@ python3 -m http.server 8899            # 或 npx serve -l 8899
   **仍未结案**：法律定性（审计 §7 **U-1 / U-5**，需律师意见）。
   编号已统一为 **P-95**（源码注释/测试/架构文档/THIRD-PARTY 全改；`PATCHES.md` 的 P-91 是"分发形态"另一件事），
   `core/we-scene-bundle.js` 里最后一处上游表达式括注也已删除。
-- `notscuffed/repkg`：许可在既有文档中**自相矛盾（MIT vs GPL）**，**未定/待核**；
-  `core/we-scene-bundle.js` 里"逐行对齐 RePKG 的 LibSquish 移植实现"这一表述强于"格式参考"，**待核**。
+- `notscuffed/repkg`：许可**已定案 = MIT**（`Copyright (c) 2019 notscuffed`）——依据 = 上游 `LICENSE` 原文
+  （<https://raw.githubusercontent.com/notscuffed/repkg/master/LICENSE>，2026-09-17 复核 = MIT 全文）+ **项目所有者确认**。
+  既有文档里记成 GPL 的那一侧**系本仓库早期误记，已全部作废更正**（逐处清单见 `docs/LICENSE-COMPAT-REVIEW.md` §10，
+  规则修订见 `docs/COPYING-RULES.md` §6 + §9.10）。`core/we-scene-bundle.js` 里"逐行对齐 RePKG 的 LibSquish 移植实现"
+  这一表述**即使成立也属 MIT → GPL-3.0-or-later 的允许方向**，只需按 `docs/COPYING-RULES.md` §4 登记并保留 MIT 声明；
+  **本仓库当前未 vendored 任何 RePKG 代码**（工作区无检出副本），故无需新增声明。
+- **无许可 / 许可不兼容的上游**（例：`Aromatic05/we-layerd` —— 无 LICENSE = 保留所有权利；`Aromatic05/wallpaper-engine-renderer`、
+  `catsout/…`、`waywallen/open-wallpaper-engine` —— GPL-2.0-only，与本仓库双向不兼容）：处置**不是**"看着办"，而是
+  `docs/COPYING-RULES.md` **§9 的 L1–L5 阶梯** —— L1 洁净室重写 → L2 查上游元数据（`Cargo.toml`/`package.json`/`go.mod`
+  + **上游自己的打包元数据**）→ L3 自写等价实现（含**增量重写**）→ L4 换**许可兼容**的类似项目 → L5 **隔离块**
+  （单独文件/目录 + 界面或配置一键禁用 + 可整体删除且不影响其余功能 + README 公开写明"此块因上游许可不明，
+  作者要求即删"）。**L5 是最后手段，且"不偷偷删除"**：任何删除都在 `PATCHES.md`/`CHANGELOG` 公开留痕。
+  **本仓库当前没有任何 L5 块**；`we-layerd` 的 L2 查证与判定见 `docs/COPYING-RULES.md` §9.8，GPL-2.0-only 的已合规处置
+  （P-95 洁净室）见 §9.9。
 - `oneincase/webwallgl`（**MIT**）：**逐字复制**了 FXAA 片元着色器（`FXAA_FS`），并**逐字节 vendored**
   了 HLSL→GLSL 转译器（`vendor/hlsl2glsl/`，P-93）；另外 `demo/**` 是它的**静态构建产物补丁版再分发**，
   MIT 声明分别保留在 `core/we-scene-bundle.js` 注释 / `vendor/hlsl2glsl/LICENSE` / `demo/LICENSE-webwallgl-MIT.txt`。

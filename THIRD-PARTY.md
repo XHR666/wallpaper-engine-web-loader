@@ -127,17 +127,68 @@ release**, with the download URL, fetch date and sha256 recorded below so anyone
 > "informational only — not the source of the file"; it is there to show *whether* our upstream
 > copy happens to equal the build WE ships (sometimes it does, sometimes it deliberately does not).
 
+**SPDX for this directory (as a whole).** The seven bundled files are under three different
+licences, so the bundled font set is expressed as a conjunction, plus one locally-defined
+`LicenseRef-` for the font whose terms are the author's own freeware terms:
+
+```
+OFL-1.1 AND CC-BY-4.0 AND LicenseRef-BVFonts-Freeware-2006
+```
+
+- `OFL-1.1` — `Blackout 2 AM.ttf`, `monof55.ttf`, `NotoSans-Regular.ttf`,
+  `RobotoMono-Regular.ttf`, `Segment7Standard.otf` (five files).
+- `CC-BY-4.0` — `Twemoji.Mozilla.ttf` **artwork** (the emoji drawings); the build **code** in that
+  same upstream repository is `Apache-2.0`, but no code is redistributed by shipping the font. Both
+  texts travel in `licenses/` anyway, and `MIT` (the npm packaging terms of that upstream) is
+  **not** asserted here — it covers code, not the font file. Per-file expressions are in §4.1.
+- `LicenseRef-BVFonts-Freeware-2006` — `spincycle_3d_ot.otf`. This is a **locally-defined**
+  `LicenseRef-` (SPDX allows `LicenseRef-` for terms not on the SPDX list); it is *not* a registered
+  SPDX identifier, and the identifier string itself is **pending confirmation** (see §4.6.1, where
+  every condition is mapped to how this repository satisfies it).
+
+**Provenance declaration（照律师建议的原话口径 / verbatim-ish, per counsel）.**
+
+> 本仓库随仓分发的 7 个字体文件，**全部取自上游作者/项目的官方发布渠道，非从 Wallpaper Engine 安装目录
+> （`<WE>/assets/fonts/`）复制**；每个文件的来源 URL、取件日期、sha256、许可、版权方与"是否修改"逐文件见下表。
+
+> All seven bundled font files were **taken from the upstream author's / project's own official release
+> channel, and are not copies made from a Wallpaper Engine installation directory**. Per file: source URL,
+> fetch date, sha256, licence, copyright holder and "modified by us?" are in the table below.
+
+**Enforcement**: `tests/publish-check.mjs` check ③ compares our files against a WE asset root whenever one is
+given; every hit (including the two files that *do* equal the WE build) is printed with an evidence
+reference to this section, and `assets/fonts/README.md` states the same rule next to the files.
+
 ### 4.1 At a glance
 
-| File in `assets/fonts/` | Licence | Copyright line | Upstream URL used | Fetched (UTC) | Bytes | SHA-256 |
-|---|---|---|---|---|---|---|
-| `Blackout 2 AM.ttf` | **OFL-1.1** (RFN `Blackout`) | `Copyright (c) 2012, Tyler Finck <hello@sursly.com>, with Reserved Font Name: "Blackout".` (upstream `Open Font License.markdown`; the copy's own `name` table still carries stale 2014 "All rights reserved." text — see §4.8) | `https://github.com/theleagueof/blackout` → `raw.githubusercontent.com/theleagueof/blackout/master/Blackout%202%20AM.ttf` | 2026-09-15 | 28,308 | `48e96e2a3e9be781e1884b670a69434612c319fe21b6595813f1193f69cea2d0` |
-| `monof55.ttf` | **OFL-1.1** (`debian/copyright: License: SIL-OFL-1.1`, plus the author's own 2018 e-mail granting OFL-1.1) | `Copyright: 2000 tobias b köhler (unci@tigerden.com)` | Debian `fonts-monofur` 1.0 **upstream tarball** `https://deb.debian.org/debian/pool/main/f/fonts-monofur/fonts-monofur_1.0.orig.tar.xz` (in-package path `monofur/monof55.ttf`); reviewed metadata `https://sources.debian.org/src/fonts-monofur/1.0-1/` | 2026-09-15 | 169,452 | `025676779b4ea99781930b6916ce3c575f9bfda77e1d726e8d70032c007b2b44` |
-| `NotoSans-Regular.ttf` | **OFL-1.1** | `Copyright 2015-2021 Google LLC. All Rights Reserved.` (in-file `name` ID0) | `https://github.com/notofonts/noto-fonts` → `raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf` | 2026-09-15 | 569,208 | `b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5` |
-| `RobotoMono-Regular.ttf` | **OFL-1.1** (upstream's *current* licence — **not** Apache-2.0; the 2015 build inside WE is the Apache-2.0 one) | `Copyright 2015 The Roboto Mono Project Authors (https://github.com/googlefonts/robotomono)` | `https://github.com/googlefonts/RobotoMono` → `raw.githubusercontent.com/googlefonts/RobotoMono/main/fonts/ttf/RobotoMono-Regular.ttf` (licence `…/main/OFL.txt`) | 2026-09-15 | 125,748 | `af0bff7599c3df3831755c16e39b3c496df74b8c8d8a1161b14dc8461be17cb4` |
-| `Segment7Standard.otf` | **OFL-1.1** (RFN `Segment7`) | `(c) Cedric Knight 2014. Licensed under SIL Open Font Licence v1.1. Reserved name: Segment7.` (in-file `name` ID0) | `https://fontlibrary.org/en/font/segment7` → download zip `https://fontlibrary.org/assets/downloads/segment7/4cc82137fc130708919bf201c0dc9aae/segment7.zip` (contains `Segment7Standard.otf` + `OFL.txt`) | 2026-09-15 | 10,464 | `f35b8ce74c9aedbd51e790b178c5dfbfe62068772db6e924a455247781cc7356` |
-| `Twemoji.Mozilla.ttf` | **artwork CC-BY-4.0 / code Apache-2.0** | `Copyright 2016-2018, Mozilla Foundation` (code); emoji art © Twitter, Inc. and other contributors (Twemoji) | `https://github.com/mozilla/twemoji-colr` → release asset `https://github.com/mozilla/twemoji-colr/releases/download/v0.7.0/Twemoji.Mozilla.ttf` (v0.7.0) | 2026-09-15 | 1,474,284 | `6d90152ee0d29e82fe2a87793af5aa4b7ad13e6538360889e141e81ed299ee8e` |
-| `spincycle_3d_ot.otf` | **author freeware terms** (use + redistribution allowed, commercial use allowed; see §4.6 for the condition-by-condition mapping) | `Jess Latham (c) 2006 All Rights Reserved — bvfonts.com` (in-package `README.TXT`) | **Author's own site**: `https://www.bvfonts.com/fonts/details.php?id=44` → `https://www.bvfonts.com/fonts/files/spin_cycle_threed.zip` (in-zip path `Open Type/spincycle_3d_ot.otf`) | 2026-09-15 | 44,228 | `cc4a580ac0d112ef0eb5199fe08d497a5875fd24c2361038dc6c847a3962da4d` |
+| File in `assets/fonts/` | SPDX | Licence | Copyright line | Upstream URL used | Fetched (UTC) | Bytes | SHA-256 | Modified by us? | Direct from the author's/upstream's own release channel (never copied from a WE install)? |
+|---|---|---|---|---|---|---|---|---|---|
+| `Blackout 2 AM.ttf` | `OFL-1.1` | **OFL-1.1** (RFN `Blackout`) | `Copyright (c) 2012, Tyler Finck <hello@sursly.com>, with Reserved Font Name: "Blackout".` (upstream `Open Font License.markdown`; the copy's own `name` table still carries stale 2014 "All rights reserved." text — see §4.8) | `https://github.com/theleagueof/blackout` → `raw.githubusercontent.com/theleagueof/blackout/master/Blackout%202%20AM.ttf` | 2026-09-15 | 28,308 | `48e96e2a3e9be781e1884b670a69434612c319fe21b6595813f1193f69cea2d0` | **否**（逐字节 = 上游原件） | **是** — 作者/上游官方发布渠道 |
+| `monof55.ttf` | `OFL-1.1` | **OFL-1.1** (`debian/copyright: License: SIL-OFL-1.1`, plus the author's own 2018 e-mail granting OFL-1.1) | `Copyright: 2000 tobias b köhler (unci@tigerden.com)` | Debian `fonts-monofur` 1.0 **upstream tarball** `https://deb.debian.org/debian/pool/main/f/fonts-monofur/fonts-monofur_1.0.orig.tar.xz` (in-package path `monofur/monof55.ttf`); reviewed metadata `https://sources.debian.org/src/fonts-monofur/1.0-1/` | 2026-09-15 | 169,452 | `025676779b4ea99781930b6916ce3c575f9bfda77e1d726e8d70032c007b2b44` | **否**（逐字节 = 上游原件） | **是** — 作者/上游官方发布渠道 |
+| `NotoSans-Regular.ttf` | `OFL-1.1` | **OFL-1.1** | `Copyright 2015-2021 Google LLC. All Rights Reserved.` (in-file `name` ID0) | `https://github.com/notofonts/noto-fonts` → `raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf` | 2026-09-15 | 569,208 | `b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5` | **否**（逐字节 = 上游原件） | **是** — 作者/上游官方发布渠道 |
+| `RobotoMono-Regular.ttf` | `OFL-1.1` | **OFL-1.1** (upstream's *current* licence — **not** Apache-2.0; the 2015 build inside WE is the Apache-2.0 one) | `Copyright 2015 The Roboto Mono Project Authors (https://github.com/googlefonts/robotomono)` | `https://github.com/googlefonts/RobotoMono` → `raw.githubusercontent.com/googlefonts/RobotoMono/main/fonts/ttf/RobotoMono-Regular.ttf` (licence `…/main/OFL.txt`) | 2026-09-15 | 125,748 | `af0bff7599c3df3831755c16e39b3c496df74b8c8d8a1161b14dc8461be17cb4` | **否**（逐字节 = 上游原件） | **是** — 作者/上游官方发布渠道 |
+| `Segment7Standard.otf` | `OFL-1.1` | **OFL-1.1** (RFN `Segment7`) | `(c) Cedric Knight 2014. Licensed under SIL Open Font Licence v1.1. Reserved name: Segment7.` (in-file `name` ID0) | `https://fontlibrary.org/en/font/segment7` → download zip `https://fontlibrary.org/assets/downloads/segment7/4cc82137fc130708919bf201c0dc9aae/segment7.zip` (contains `Segment7Standard.otf` + `OFL.txt`) | 2026-09-15 | 10,464 | `f35b8ce74c9aedbd51e790b178c5dfbfe62068772db6e924a455247781cc7356` | **否**（逐字节 = 上游原件） | **是** — 作者/上游官方发布渠道 |
+| `Twemoji.Mozilla.ttf` | `CC-BY-4.0`（美术；见下） | **artwork CC-BY-4.0 / code Apache-2.0** | `Copyright 2016-2018, Mozilla Foundation` (code); emoji art © Twitter, Inc. and other contributors (Twemoji) | `https://github.com/mozilla/twemoji-colr` → release asset `https://github.com/mozilla/twemoji-colr/releases/download/v0.7.0/Twemoji.Mozilla.ttf` (v0.7.0) | 2026-09-15 | 1,474,284 | `6d90152ee0d29e82fe2a87793af5aa4b7ad13e6538360889e141e81ed299ee8e` | **否**（逐字节 = 上游原件） | **是** — 作者/上游官方发布渠道 |
+| `spincycle_3d_ot.otf` | `LicenseRef-BVFonts-Freeware-2006`（本地定义，见下） | **author freeware terms** (use + redistribution allowed, commercial use allowed; see §4.6 for the condition-by-condition mapping) | `Jess Latham (c) 2006 All Rights Reserved — bvfonts.com` (in-package `README.TXT`) | **Author's own site**: `https://www.bvfonts.com/fonts/details.php?id=44` → `https://www.bvfonts.com/fonts/files/spin_cycle_threed.zip` (in-zip path `Open Type/spincycle_3d_ot.otf`) | 2026-09-15 | 44,228 | `cc4a580ac0d112ef0eb5199fe08d497a5875fd24c2361038dc6c847a3962da4d` | **否**（逐字节 = 上游原件） | **是** — 作者/上游官方发布渠道 |
+
+**Reading the last two columns.**
+
+- **Modified by us? = No, for all seven.** Every file is redistributed **byte-for-byte** as fetched:
+  nothing renamed, converted, subset, recompiled or edited. The SHA-256 column is the proof (re-run
+  `sha256sum` on the file and compare); for the OFL fonts this is also what keeps the
+  reserved-font-name clause untriggered (we create no derivative).
+- **Provenance = the author's / upstream's own release channel, never a Wallpaper Engine install.**
+  Concretely: GitHub raw or GitHub release asset (Blackout, Noto Sans, Roboto Mono, Twemoji Mozilla),
+  Debian's **upstream tarball** (monofur), FontLibrary's own download zip (Segment7), and the
+  **author's own site** bvfonts.com (Spin Cycle 3D). §4.4 gives the byte-comparison against the WE
+  copy as **information only** — that copy is never the source of a file. Two of the seven *do* equal
+  the WE build (`Blackout 2 AM.ttf`, `monof55.ttf`), which is exactly why this rule is stated
+  explicitly: **equality is not provenance** — the SHA-256 and the fetch record are.
+- **SPDX column** is per file; the whole-directory expression is
+  `OFL-1.1 AND CC-BY-4.0 AND LicenseRef-BVFonts-Freeware-2006` (note above §4.1). For
+  `Twemoji.Mozilla.ttf` the file shipped is the **artwork** (the emoji drawings) ⇒ `CC-BY-4.0`; the
+  `Apache-2.0` code licence of that upstream repository is **not** asserted for a font binary (no
+  code is redistributed here), although both texts still travel in `licenses/`.
 
 Licence texts and notices travel with the fonts in `assets/fonts/licenses/`:
 
@@ -169,6 +220,13 @@ Licence texts and notices travel with the fonts in `assets/fonts/licenses/`:
   statement, file unmodified); the build code under Apache-2.0 → full licence text shipped.
 * **Spin Cycle 3D**: author's own freeware terms → §4.6 below maps every condition to how this
   repository satisfies it, with the evidence.
+* **SPDX, per font (machine-readable).** From §4.1's SPDX column:
+  `Blackout 2 AM.ttf` = `OFL-1.1` · `monof55.ttf` = `OFL-1.1` · `NotoSans-Regular.ttf` = `OFL-1.1` ·
+  `RobotoMono-Regular.ttf` = `OFL-1.1` · `Segment7Standard.otf` = `OFL-1.1` ·
+  `Twemoji.Mozilla.ttf` = `CC-BY-4.0` (artwork; its upstream `Apache-2.0` build code is not
+  redistributed by shipping the font) · `spincycle_3d_ot.otf` = `LicenseRef-BVFonts-Freeware-2006`
+  (locally defined). Bundle expression: `OFL-1.1 AND CC-BY-4.0 AND LicenseRef-BVFonts-Freeware-2006`.
+  **None of these replaces the full licence texts** shipped in `assets/fonts/licenses/`.
 * **monofur**: ships under OFL-1.1 (author's e-mail + Debian's reviewed `debian/copyright`), and
   additionally carries the upstream freeware notice file, because that notice asks to be
   distributed together with the font. The author also asks to be notified when the font is
@@ -223,14 +281,29 @@ Font page: <https://www.bvfonts.com/fonts/details.php?id=44> (Release Date Septe
 Price: Free) · Terms of Use: <https://www.bvfonts.com/tou.php> ·
 FAQ: <https://www.bvfonts.com/faq.php> · download: <https://www.bvfonts.com/fonts/files/spin_cycle_threed.zip>
 
-| # | Condition (author's words) | How this repository satisfies it | Evidence |
+| # | 逐条义务（作者条款原话 / the author's words） | 我们如何满足（how we satisfy it） | 待律师确认项（pending counsel） |
 |---|---|---|---|
-| 1 | **Use/redistribution allowed, commercial included** — "*All free fonts at bvfonts.com are freeware. You may use them in personal or commercial work.*" / "*This font is free to use in any private and commercial manner.*" / FAQ: "*A license is no longer required to use the freeware for commercial use*" | This is a free, **GPL-3.0-or-later**, non-commercial-by-nature open-source renderer; the font is used for rendering text layers. No fee is charged for the font | `licenses/spincycle-bvfonts-TOU.txt`, `licenses/spincycle-bvfonts-README.txt` (verbatim, dated) |
-| 2 | **Do not put it on a CD-ROM / compilation disc** — "*Please do not include this font on any CD-ROM compilations.*" / "*Please do not include these fonts on any CD-Roms.*" / FAQ: "*DO NOT! put them on a compilation disk or cdrom.*" | The font ships inside a single source repository as **one of seven** files that the renderer actually resolves, together with their licences. It is not a font archive/collection, not a font-download product, not on any physical or sold medium, and the repository also does not offer the font as a standalone download page | `assets/fonts/` contents (7 font files + `README.md` + `licenses/`), repo licence **GPL-3.0-or-later** (see §5), `assets/fonts/README.md` states the rule |
-| 3 | **Do not resell / remarket / recompile** — "*This font is not to be resold or remarketed.*" / "*These fonts are not to be recompiled and sold.*" | Nothing is sold. The file is redistributed **byte-for-byte** as it came out of the author's zip: not renamed, not converted, not subset, not recompiled | sha256 `cc4a580ac0d112ef0eb5199fe08d497a5875fd24c2361038dc6c847a3962da4d` equals the `Open Type/spincycle_3d_ot.otf` inside the author's zip (`spin_cycle_threed.zip`, sha256 `5236d90d…ba91c56`) |
-| 4 | **Link back** — FAQ: "*Please link me if you do!*" | Backlinks live in three places: this file (§4.1, §4.6), the note file next to the font (`assets/fonts/README.md`) and the renderer source comment/log line (`demo.html`, near `REPO_FONT_ALIASES`/`repoFontUrl`) | `grep -n bvfonts` over those three files |
-| 5 | **Take it from the author, not from archives** — "*If you've downloaded a Jess Latham … free font from an archive site and that font is not available here or dafont.com, please ask permission before using it.*" / "*It's always a good idea to download the latest version from bvfonts.com*" | The file came from `bvfonts.com` only; **it was not copied from the Wallpaper Engine installation** (and demonstrably is not that build: 44,228 B vs WE's 44,640 B, different sha256) | §4.1 URL column + §4.4 |
-| 6 | **The author may change the terms** — "*Jess Latham reserves the right to make changes to this license at any time.*" | The terms were snapshotted with the fetch date and the sha256 of the fetched page, so the conditions we relied on stay auditable | `licenses/spincycle-bvfonts-TOU.txt` (fetched 2026-09-15, page sha256 `46b8adfc…434fc9`) |
+| 1 | **Use / redistribution allowed, commercial included**（原文：*"All free fonts at bvfonts.com are freeware. You may use them in personal or commercial work."*；FAQ：*"A license is no longer required to use the freeware for commercial use"*） | 本项目是**免费、GPL-3.0-or-later**的开源渲染器，字体只用于渲染文本层，**不收取任何费用**、不单独售卖字体 | OK — 可核（证据见左列） |
+| 2 | **Do not put it on a CD-ROM / compilation disc**（原文：*"Please do not include these fonts on any CD-Roms."*；FAQ：*"DO NOT! put them on a compilation disk or cdrom."*） | 字体作为**本仓库 7 个可解析字体之一**随源码仓库分发，与许可全文同处一目录；**不是**字体合集/字体站/下载站，不在任何实体或售卖介质上，也不提供单独下载页 | OK — 可核（证据见左列）；**边界情形见「未定项 2」** |
+| 3 | **Do not resell / remarket / recompile**（原文：*"These fonts are not to be recompiled and sold."*） | 不售卖。文件**逐字节**来自作者 zip 里的 `Open Type/spincycle_3d_ot.otf`：未改名、未转格式、未子集化、未重编译 | OK — 可核（证据见左列） |
+| 4 | **Link back**（FAQ：*"Please link me if you do!"*） | 三处回链作者站点：本文件（§4.1、§4.6）、字体旁说明 `assets/fonts/README.md`、渲染器源码注释/日志（`demo.html` 的 `REPO_FONT_ALIASES`/`repoFontUrl` 一带） | OK — 可核（**是否构成可执行义务见「未定项 4」**） |
+| 5 | **Take it from the author, not from archives**（原文：*"If you've downloaded a Jess Latham (fka Blue Vinyl Fonts) free font from an archive site and that font is not available here or dafont.com, please ask permission before using it."*；另见 *"It's always a good idea to download the latest version from bvfonts.com"*） | 取件口**只有**作者站点 `bvfonts.com`；**未**从 WE 安装目录取（且**可证不是** WE 那份构建：44,228 B vs WE 44,640 B，sha256 不同） | OK — 可核（证据见左列） |
+| 6 | **The author may change the terms**（原文：*"Jess Latham reserves the right to make changes to this license at any time."*） | 条款以**带抓取日期与页面 sha256 的快照**留证，使我们所依据的条件保持可审计（活页面为权威版本） | OK — 可核；**条款可变风险与应对见「未定项 3」** |
+**未定项（逐条义务之外、需要律师回答；不并入上表，以免把"已满足"与"待确认"混为一谈）：**
+
+1. **SPDX 标识符本身**：`LicenseRef-BVFonts-Freeware-2006` 是**本地定义**的 `LicenseRef-`（SPDX 允许这种形态，
+   但它**不是**注册标识符）。是否改用别的写法 —— **待律师/合规确认**。它出现在 §4.1 的 SPDX 列与本节，
+   **只表示"这是作者自定条款"**，不表示已获 SPDX 认可。
+2. **"不得放进 CD-ROM / 合集"在"整仓打包分发"下的边界**：我们主张"本仓库不是字体合集"（7 个文件 = 渲染器
+   会真正解析的那几个，逐文件许可与来源都在案）。**"一个包含字体的源码仓库"是否落在作者原意里** ——
+   **待律师确认**。若律师认为有风险，最小改动是**把该字体从随仓分发里移除**、改为运行期从用户本机 WE 安装
+   读取（四级字体链的 tier 3），**代码零改动**（渲染器已实现该链）。
+3. **"作者保留随时改条款"的应对**：我们的做法是**快照留证**（抓取日期 + 页面 sha256 + 逐条映射），
+   而不是主张"条款已冻结"。若作者日后收紧条款，按 `docs/TAKEDOWN-RESPONSE.md` 的"**先删后议**"执行
+   （默认 72 小时内移除）—— 该流程是否足够，**待律师确认**。
+4. **回链义务的形态**：作者 FAQ 只有一句 "*Please link me if you do!*"（未写违约后果）。我们做了三处回链
+   （本文件 §4.1/§4.6、`assets/fonts/README.md`、`demo.html` 注释/日志）。**"回链"是否构成可执行义务** ——
+   **待律师确认**（我们按"即使不是义务也照做"处理，以缩小争议面）。
 
 **monofur** (`monof55.ttf`) carries one author *request* in both of its licensing paths
 ("*…contact me at unci@tigerden.com if you put them on a server*" / "*…notify me at unci@unci.de
@@ -272,6 +345,111 @@ node ../we-scene-demo-server.mjs 8899 &                 # then: curl -sI localho
 If the WE reference name differs from the upstream file name, add the mapping to
 `REPO_FONT_ALIASES` in `demo.html` **and** to the table in §4.3 and in `assets/fonts/README.md`
 (the test checks that all three agree and that the mapped file exists).
+
+---
+
+## 4A. `common*.h` — public-standard declaration, and the honest two-edged fact (2026-09-17)
+
+These are the six shader include files that this project ships in `shaders/`:
+`common.h`, `common_blending.h`, `common_blur.h`, `common_composite.h`,
+`common_fragment.h`, `common_perspective.h`. They are **our own files** (each carries
+`// Original implementation for this project; API-compatible with the shader includes used here.
+No third-party code.`), and they are **not** copies of any Wallpaper Engine file — but they were
+written **after reading** the WE originals, so they are an **independent implementation**, not a
+"clean-room" product (`docs/REIMPLEMENTATION-STATEMENTS.md` §5).
+
+**Declaration (at legal advice; wording may be refined by counsel).**
+
+> 本项目中 `common_*.h` 相关文件所包含的 BT.601 色度权重矩阵、标准色彩变换矩阵等，均为
+> ITU-R BT.601 等**公开标准**所定义的公式，属**公有领域的事实性内容**，不构成对任何专有实现的复制。
+
+> The BT.601 chroma-weight matrices, the standard colour-transform matrices and similar material in
+> this project's `common_*.h` files are formulas defined by **public standards** (ITU-R BT.601 and
+> the like) and are **factual content in the public domain**; they do not constitute copying of any
+> proprietary implementation.
+
+### 4A.1 What that declaration is based on (verified locally, reproducible)
+
+- the retained residue against the WE originals was enumerated file by file in
+  `../docs/WER-REF-LICENSE-AUDIT.md` §4.3, and falls into four classes: ① function signatures and
+  include names (interfaces), ② texture-format ids and material-metadata JSON (format/interface
+  data), ③ **public mathematical formulas and constant values**, ④ behavioural constants the
+  replacement record had **declared deliberately kept** (`docs/COMMON-HEADERS-REPLACEMENT.md`);
+- our replacement files each carry the "No third-party code" line as their first line;
+- the WE originals are quarantined **outside** the repository in `../Delete/we-official-shaders/`
+  (7 files, `common_vertex.h` included), and **none of them is redistributed**.
+
+### 4A.2 ⚠ The two-edged fact — stated as it is, not softened
+
+**After the re-implementation, the effective lines of our files still coincide with the WE originals
+to a high degree.** Measured by `tests/publish-check.mjs` check ③ ("same-name effective-line
+overlap", comments/blank lines stripped) whenever the WE asset root is supplied:
+
+| Our file | Effective-line overlap with the same-named WE file | Consequence |
+|---|---|---|
+| `shaders/common_vertex.h` (**deliberately not shipped**) | **100 %** (187/187) | why it is withheld: after rewriting it was still not an independent product |
+| the six shipped `common_*.h` | reported by the same rule; **not 0 %** | still printed on every `--assets` run — as a **REVIEWED** note carrying this section as its evidence reference |
+
+- **One reading**: the residue is exactly the non-copyrightable layer (public formulas, signatures,
+  format ids), so high overlap is expected and harmless.
+- **The opposite reading**: high overlap is the classic signature of "copied, then re-formatted",
+  and no amount of labelling changes that appearance.
+- **Both readings are arguable, so we do not decide it here.** The `common.h` weights
+  (`vec3(0.11,0.59,0.30)`) and the Gaussian blur coefficients are the sharpest instances: they were
+  **deliberately kept** because the pipeline was built against them — a *functional* reason, not a
+  copyright conclusion. `common_vertex.h` was withheld precisely because it had no such
+  justification (zero references; `BuildTangentSpace` has zero call sites).
+- **Status: 待律师确认 / pending counsel** (audit **U-1**, plus `docs/REIMPLEMENTATION-STATEMENTS.md`
+  §7 Q3/Q4). Engineering dispositions and records **do not substitute** for that opinion.
+
+### 4A.3 Enforcement
+
+`tests/publish-check.mjs` prints one line per hit together with the evidence reference
+(`THIRD-PARTY.md §4A`). This is deliberate: **nothing here is silenced** — see the note-level legend
+the script prints with its summary.
+
+---
+
+## 4B. Boundary architecture: MIT plugin ↔ GPL-3.0-or-later renderer (2026-09-17)
+
+The licence pairing of this project works because the two sides are **separated at runtime**, not
+merely separated by paperwork. The same fact is the boundary that must not be broken.
+
+| Property | How it holds today | Evidence (reproducible) |
+|---|---|---|
+| **Different processes / frames** | The renderer is its own HTTP origin (default `http://127.0.0.1:8899/`, overridable in settings); the MIT plugin hosts it inside an `iframe` (`sandbox="allow-scripts allow-pointer-lock"` in strict mode, `… allow-same-origin …` in the legacy/compat mode) | `dsh-mpkg-wallpaper/lib/client.js` — `MPW_SANDBOX_STRICT_ATTR` / `MPW_SANDBOX_LEGACY_ATTR` |
+| **Standard Web protocols only** | The wallpaper package is handed over as **one opaque URL** — `?pkgurl=<encoded url>` (also `?pkgpath=`, `?pkgdir=`) — and control/status messages travel by **`postMessage`** (`mpw-cap`, `mpw-ln-key`, the web-shim message family). No shared object graph, no shared module namespace | `server/we-scene-demo-server.mjs` (`/pkgurl` route); `dsh-mpkg-wallpaper/lib/client.js` (`contentWindow.postMessage`, `pkgurl=` URL construction) |
+| **Messages are source-checked** | Plugin-side handlers accept a message only when `ev.source === frame.contentWindow` (origin is the secondary test — in strict mode the renderer has the opaque origin `"null"`, so `contentWindow` identity is the primary check) | `dsh-mpkg-wallpaper/lib/client.js` → the `mpwIsSceneFrameMsg` / web-shim source checks |
+| **Each side runs alone** | The renderer starts and renders with **no plugin present** (`start-demo.sh` / `server/we-scene-demo-server.mjs`, pages `index.html`, `demo.html`); the plugin loads `.mpkg` wallpapers of all three kinds and degrades to "no scene renderer" when `:8899` is unreachable | `README.md` ("无 WE 安装时的降级行为"); plugin smoke tests |
+| **No cross-import of each other's code** | **The plugin never imports or reads renderer code**: `grep -rnE "we-scene-demo" dsh-mpkg-wallpaper/lib/*.js` filtered to import/require ⇒ **0 hits** (only comments and doc strings mention it). **The renderer imports no GPL code from the plugin** | the grep above; the plugin is MIT and stays MIT |
+| **What is *not* a boundary violation** | The renderer's **server** imports the plugin's **MIT** package parser (`parsePkg` / `readPkgEntry` from `dsh-mpkg-wallpaper/lib/pkg-extract.js`, §7). That is a **MIT → GPL-3.0-or-later** use of a **separate, MIT-licensed package** — a permitted one-way flow, **not** "importing the other side's code" in the GPL sense. The forbidden direction (GPL code entering the MIT side) has **zero** instances | `server/pack-dir.mjs`, `server/we-scene-demo-server.mjs`; `tests/publish-check.mjs` check ⑤② forbids vendoring the plugin here |
+
+**Contract in one line** (frozen on the plugin side): the plugin decides the sandbox mode and injects
+a scene-scoped token; the renderer only reads URL parameters and reports capability back —
+`docs/RENDERER-SANDBOX-CONTRACT.md` §1–§2.
+
+### 4B.1 ⚠ Boundary-failure condition (named by counsel)
+
+> **若未来以 Tauri 等打包分发，渲染器必须作为独立 sidecar 进程，不得编译进同一二进制。**
+>
+> **If this project is ever distributed as a packaged desktop app (Tauri or similar), the renderer
+> MUST remain a separate sidecar process. It must NOT be compiled into the same binary as the MIT
+> plugin.**
+
+Why: a single binary statically links the GPL-3.0-or-later renderer into the MIT-licensed host, and
+the "different processes, standard protocols, no shared code" separation above disappears — and that
+separation is the *only* reason the MIT/GPL pairing is defensible here.
+
+**Practical rule for any future packaging work:**
+
+1. ship the renderer as its own executable/process (sidecar), driven over the same HTTP +
+   `postMessage` contract as today (today's wiring already is a local HTTP origin, so this is a
+   packaging constraint, not a redesign);
+2. a "sidecar" whose code is compiled into the host binary, or a "single-file app" that inlines the
+   renderer's `.mjs`/bundle, **breaks the boundary** and must be treated as a licence change (the
+   whole packaged work becomes GPL-3.0-or-later, and the MIT side can no longer stay MIT);
+3. any packaging decision therefore needs a licence review **before** implementation, with the
+   outcome recorded in `docs/COPYING-RULES.md` §3 (protocol boundary) and in this section.
 
 ---
 
@@ -410,20 +588,28 @@ forbidden — see `docs/COPYING-RULES.md`.
 
 `README.md` §7 lists, one project at a time, everything this project referenced. This section is
 the same register kept next to the licence notices, because two of the entries are
-**licence-incompatible** with this repository's GPL-3.0-or-later and one has an **unresolved**
-licence. Nothing in this section is redistributed here: all upstream checkouts live **outside**
+**licence-incompatible** with this repository's GPL-3.0-or-later and one is **unlicensed**
+(all rights reserved). Nothing in this section is redistributed here: all upstream checkouts live **outside**
 the repository (`../lwe-ref/`, `../wer-ref/`, `../we-layerd-ref/`, `../vendor-ref/`).
+The handling ladder for unlicensed / licence-incompatible upstreams (L1 spec-first independent
+re-implementation → L2 read the metadata → L3 own equivalent implementation → L4 licence-compatible
+look-alike → L5 isolated, deletable block) is `docs/COPYING-RULES.md` **§9**.
+**Terminology (2026-09-17, per legal advice):** what this project does is an **independent
+implementation** — **not** a "clean-room rewrite". A clean-room claim requires that the implementer
+never saw the original; in every case recorded here **the implementer had seen it**, so the
+clean-room label is withdrawn. Full disclosure, case by case, in
+`docs/REIMPLEMENTATION-STATEMENTS.md`; the operating rule is `docs/COPYING-RULES.md` **§5.1**.
 
 | Upstream | Licence | What was referenced | Code copied? |
 |---|---|---|---|
 | [Almamu/linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine) | **GPL-3.0-only** | `.tex` container format basis (`TEXV0005`+`TEXI0001`+`TEXB0001~0004`), V3-layout fallback, `ObjectParser.cpp:770` default length, `CParticle.cpp:767-778` velocity-random initializer, control-point flags | **No** (no ledger entry in `docs/COPYING-RULES.md` §4 ⇒ never borrowed) |
-| [Aromatic05/wallpaper-engine-renderer](https://github.com/Aromatic05/wallpaper-engine-renderer) | **GPL-2.0-only** | ⚠ **Two point-like same-origin fragments were found by our own audit** (`../docs/WER-REF-LICENSE-AUDIT.md` §3.4): (a) `normalizeImageAlpha` (then `core/we-scene-bundle.js:951-956`) ↔ upstream `WPImageObject.cpp:59-63` — judged a **line-for-line translation** (same branch order, same magic numbers `1`/`100`, same clamp); (b) the alignment offset (then `core/we-scene-bundle.js:4430-4441`) ↔ upstream `WPImageAlignment.hpp:24-36` — judged a **same-origin rewrite, not a clean-room product** (identical token→axis→direction table, same substring dispatch, same `center` short-circuit). Two weaker forms were also found and **have since been fixed (P-95)**: the parallax `mouse_vec` formula that used to be written out as an upstream expression in a comment is now derived in **our own coordinate system** (the upstream file/line citation is gone), and the `__makeNoopVideoTexture` name in `elysia/scene-scripts.js` — which was `wer-ref`'s **private** name, misleadingly described there as "official" — has been removed (the comment now describes it as the WE script API `getVideoTexture` no-op fallback, and the implementation, being the API-contract-only minimum, is unchanged) | **Not verbatim** (no comment / error-string / constant-table copies; ~2 functions, ~11 lines, point-like — not a paragraph- or file-level port; 0 `import`/`require`/`readFile` of that tree). **✅ Both same-origin fragments have since been clean-room rewritten (P-95, 2026-09-16)** through the five-step process required by `docs/COPYING-RULES.md` §5: a written behaviour spec (`docs/IMAGE-ALPHA-ALIGN-SPEC.md`) → an implementation based only on that spec (`coerceImageAlphaMode` + `classifyAlphaDomain`/`saturateUnitInterval` with named bounds; `alignmentOffsetForToken` + `readAlignmentAxisSigns` + `ALIGNMENT_HALF_SHIFTS`, where token glyphs and offsets are fully decoupled into a sign-pair lookup) → provably different naming/branching/constants/structures/comments → a spec-only test (`clean-room-alpha-align-test.mjs`, **1008 pass / 0 fail**, including "bit-identical to the pre-rewrite implementation" and six real-package corpus regressions). The old `normalizeImageAlpha` and the pre-rewrite alignment-offset identifier (quoted verbatim in the audit, §3.4 fragment 2) no longer exist. **Bookkeeping (now closed):** the rewrite is registered as `PATCHES.md` **P-95**, and the source comments were corrected to cite **P-95** as well (P-91 in the changelog is the separate *distribution-shape* entry) — and `../docs/WER-REF-LICENSE-AUDIT.md` §3.4 now carries a **"✅ post-hoc addendum"** documenting the remediation while leaving the original findings standing. **Still open:** the **legal characterisation** (audit §7 **U-1**, whether this ever amounted to a GPL-2.0-only derivative, needs a lawyer; **U-5**, whether the list is exhaustive), the residual upstream-expression citation at `core/we-scene-bundle.js:7233` has also been removed. GPL-2.0-only remains **bidirectionally incompatible** with this repository's GPL-3.0-or-later, which is why the rewrite was required. |
+| [Aromatic05/wallpaper-engine-renderer](https://github.com/Aromatic05/wallpaper-engine-renderer) | **GPL-2.0-only** | ⚠ **Two point-like same-origin fragments were found by our own audit** (`../docs/WER-REF-LICENSE-AUDIT.md` §3.4): (a) `normalizeImageAlpha` (then `core/we-scene-bundle.js:951-956`) ↔ upstream `WPImageObject.cpp:59-63` — judged a **line-for-line translation** (same branch order, same magic numbers `1`/`100`, same clamp); (b) the alignment offset (then `core/we-scene-bundle.js:4430-4441`) ↔ upstream `WPImageAlignment.hpp:24-36` — judged a **same-origin rewrite, not a clean-room product** (identical token→axis→direction table, same substring dispatch, same `center` short-circuit). Two weaker forms were also found and **have since been fixed (P-95)**: the parallax `mouse_vec` formula that used to be written out as an upstream expression in a comment is now derived in **our own coordinate system** (the upstream file/line citation is gone), and the `__makeNoopVideoTexture` name in `elysia/scene-scripts.js` — which was `wer-ref`'s **private** name, misleadingly described there as "official" — has been removed (the comment now describes it as the WE script API `getVideoTexture` no-op fallback, and the implementation, being the API-contract-only minimum, is unchanged) | **Not verbatim** (no comment / error-string / constant-table copies; ~2 functions, ~11 lines, point-like — not a paragraph- or file-level port; 0 `import`/`require`/`readFile` of that tree). **✅ Both same-origin fragments have since been re-implemented from a written specification (P-95, 2026-09-16) — an independent implementation, **not** a clean-room rewrite** (the implementer had read the original; see `docs/REIMPLEMENTATION-STATEMENTS.md` §3/§4), following the five-step process of `docs/COPYING-RULES.md` §5.1: a written behaviour spec (`docs/IMAGE-ALPHA-ALIGN-SPEC.md`) → an implementation based only on that spec (`coerceImageAlphaMode` + `classifyAlphaDomain`/`saturateUnitInterval` with named bounds; `alignmentOffsetForToken` + `readAlignmentAxisSigns` + `ALIGNMENT_HALF_SHIFTS`, where token glyphs and offsets are fully decoupled into a sign-pair lookup) → provably different naming/branching/constants/structures/comments → a spec-only test (`clean-room-alpha-align-test.mjs`, **1008 pass / 0 fail**, including "bit-identical to the pre-rewrite implementation" and six real-package corpus regressions). The old `normalizeImageAlpha` and the pre-rewrite alignment-offset identifier (quoted verbatim in the audit, §3.4 fragment 2) no longer exist. **Bookkeeping (now closed):** the rewrite is registered as `PATCHES.md` **P-95**, and the source comments were corrected to cite **P-95** as well (P-91 in the changelog is the separate *distribution-shape* entry) — and `../docs/WER-REF-LICENSE-AUDIT.md` §3.4 now carries a **"✅ post-hoc addendum"** documenting the remediation while leaving the original findings standing. **Still open:** the **legal characterisation** (audit §7 **U-1**, whether this ever amounted to a GPL-2.0-only derivative, needs a lawyer; **U-5**, whether the list is exhaustive), the residual upstream-expression citation at `core/we-scene-bundle.js:7233` has also been removed. GPL-2.0-only remains **bidirectionally incompatible** with this repository's GPL-3.0-or-later, which is why the rewrite was required. |
 | [catsout/wallpaper-scene-renderer](https://github.com/catsout/wallpaper-scene-renderer) | **GPL-2.0-only** (archived) | Archived fork parent of `wer-ref` (same LICENSE blob); read only as a third-party cross-check on "is the official behaviour what we think it is" — only its **behavioural conclusions** are cited | **No** (no local checkout) |
 | [waywallen/waywallen](https://github.com/waywallen/waywallen) | **MIT** | Architecture precedent only: "permissive host + copyleft renderer spawned as a separate process" (upstream `plugin.toml.in`, `[renderers.wescene-renderer]`) | **No** — the recorded MIT permission to borrow was never exercised |
 | [waywallen/open-wallpaper-engine](https://github.com/waywallen/open-wallpaper-engine) | **GPL-2.0-only** | Zero contact: appears only in licence-compatibility analysis and in `wer-ref`'s own migration note (upstream-to-upstream lineage) | **No** |
 | [aqnya/unmpkg](https://github.com/aqnya/unmpkg) | **GPL-3.0** | `.mpkg` binary **format** only | **No** — the 38-line script that named it as its format source was **deleted 2026-09-16** (lineage could not be excluded). Whether "format only" is provable **cannot be confirmed on this machine** |
-| [notscuffed/repkg](https://github.com/notscuffed/repkg) | ⚠ **UNRESOLVED — our own records contradict each other** (MIT in `../docs/SIMILAR-PROJECTS-RESEARCH.md`; GPL in `PATCHES.md`, `docs/COPYING-RULES.md`, `../docs/PLUGIN-POLLUTION-AUDIT.md`, plugin README) | `.tex` decoding conventions (RG88 as `(rgb=G, a=R)`, ImageSharp `Rgba32` channel agreement, greyscale = 2nd channel, alpha = 1st) | **No (verbatim)** — but `core/we-scene-bundle.js` states that BC1/BC2/BC3 are "**line-by-line aligned with RePKG's LibSquish port**", which is stronger than "format reference" ⇒ **must be re-verified upstream before distribution**. The 267-line script that named it as a source was deleted 2026-09-16 |
-| [Aromatic05/we-layerd](https://github.com/Aromatic05/we-layerd) | **NONE — no LICENSE file ⇒ all rights reserved** | One behavioural cross-check ("this feature has zero implementation there") | **No** |
+| [notscuffed/repkg](https://github.com/notscuffed/repkg) | **MIT** — `Copyright (c) 2019 notscuffed` (**settled 2026-09-17**; earlier records in this repo said "GPL", which was a mis-entry — see `docs/COPYING-RULES.md` §6 + §9.10) | `.tex` decoding conventions (RG88 as `(rgb=G, a=R)`, ImageSharp `Rgba32` channel agreement, greyscale = 2nd channel, alpha = 1st) | **No (verbatim)** — but `core/we-scene-bundle.js` states that BC1/BC2/BC3 are "**line-by-line aligned with RePKG's LibSquish port**", which is stronger than "format reference". With the licence now settled as **MIT**, even a true line-by-line port would be a **permitted MIT → GPL-3.0-or-later flow** (§2.1) and would only require an entry in `docs/COPYING-RULES.md` §4 plus the MIT notice; **no such copy is vendored today** (no local checkout). The 267-line script that named it as a source was deleted 2026-09-16 |
+| [Aromatic05/we-layerd](https://github.com/Aromatic05/we-layerd) | **NONE — no LICENSE file ⇒ all rights reserved.** Verified 2026-09-17: GitHub API `"license": null`; upstream root tree has **no `LICENSE`/`COPYING`/`NOTICE`**; `Cargo.toml` (root **and** all four member crates) has **no `license` / `license-file` / `repository`** field; the project's **own packing metadata says so itself** — `package/archlinux/PKGBUILD:9` = `license=('custom:unlicensed')`, `package/fedora/we-layerd.spec:8` = `License: LicenseRef-Unlicensed` | One behavioural cross-check ("this feature has zero implementation there"). **Note (2026-09-17)**: its `.gitmodules` pins `third_party/wallpaper-engine-renderer` → `Aromatic05/wallpaper-engine-renderer` @ `89dfcd86de2dc0ae537bc136046c5ed05733e7b7` — **exactly this workspace's `wer-ref/` checkout, i.e. GPL-2.0-only**; so even "write it yourself after reading their implementation" must avoid that submodule | **No** — full evidence table in `docs/COPYING-RULES.md` §9.8 |
 
 **Not referenced at all** (present only in licence-compatibility studies — do not read them as
 credits): [NixaXI/AnisPaper](https://github.com/NixaXI/AnisPaper) — GPL-3.0 (its `LICENSE` says bare
@@ -499,17 +685,21 @@ shader path does not call it yet** — wiring it into `core/we-scene-bundle.js` 
 
 下面两个目录是**只读的行为对照副本**，位于仓库**之外**（工作区根 = 本仓库的**父目录**，
 `.gitignore.public` 不涉及、任何发布产物都不包含），本仓库**从未** import / `require` / `readFile`
-它们（`grep -rn -E "(import|require|readFile|readFileSync|createReadStream)[^\n]{0,80}(wer-ref|we-layerd-ref)"` ⇒ 0 命中）。
+它们（`grep -rn -E "(import|require|readFile|readFileSync|createReadStream)[^\n]{0,80}(wer-ref|we-layerd-ref)"` ⇒ 0 命中；2026-09-17 复核 `we-layerd` 全仓共 **26 个文件 / 37 行**命中，**全部是注释与文档文字**，无一处代码读取）。
 
 | 本机副本 | 上游 | 许可 | 用途（**仅此一项**） | 边界 |
 |---|---|---|---|---|
-| `wer-ref/` | [Aromatic05/wallpaper-engine-renderer](https://github.com/Aromatic05/wallpaper-engine-renderer)（`catsout/wallpaper-scene-renderer` 的 fork） | **GPL-2.0-only**（逐字节同一份 v2 文本，blob `d159169d…`） | **行为对照**：读它的**行为结论**（语义、默认值、边界、字段含义），与本实现逐项对照 | **严禁复制代码/注释/错误文案/常量组织**；**不得进入任何发布产物**；与本仓库 GPL-3.0-or-later **双向不兼容**。血缘自查：`../docs/WER-REF-LICENSE-AUDIT.md`（逐字复制 0 处、段落级 0 处；2 处点状同源已洁净室重写，登记于 `PATCHES.md` **P-95**，源码注释已同步为 P-95） |
-| `we-layerd-ref/` | [Aromatic05/we-layerd](https://github.com/Aromatic05/we-layerd) | ⚠ **无任何许可**（上游 `/license` = HTTP 404；本机 `LICENSE*`/`COPYING*` = 0 个）⇒ **保留所有权利**，**比 GPL 更严** | **行为对照**：只用来核对"某特性在那里是零实现"这类**行为事实** | **严禁复制代码**；**不得进入任何发布产物**。上游依赖树许可**未展开**（`../docs/WER-REF-LICENSE-AUDIT.md` §7 U-3），若将来要借任何东西须先补核 |
+| `wer-ref/` | [Aromatic05/wallpaper-engine-renderer](https://github.com/Aromatic05/wallpaper-engine-renderer)（`catsout/wallpaper-scene-renderer` 的 fork） | **GPL-2.0-only**（逐字节同一份 v2 文本，blob `d159169d…`） | **行为对照**：读它的**行为结论**（语义、默认值、边界、字段含义），与本实现逐项对照 | **严禁复制代码/注释/错误文案/常量组织**；**不得进入任何发布产物**；与本仓库 GPL-3.0-or-later **双向不兼容**。血缘自查：`../docs/WER-REF-LICENSE-AUDIT.md`（逐字复制 0 处、段落级 0 处；2 处点状同源已**按规格独立实现**（P-95；"独立实现"而非"洁净室"，因实现者接触过原件，见 `docs/REIMPLEMENTATION-STATEMENTS.md`），登记于 `PATCHES.md` **P-95**，源码注释已同步为 P-95） |
+| `we-layerd-ref/` | [Aromatic05/we-layerd](https://github.com/Aromatic05/we-layerd) | ⚠ **无任何许可**（上游 `/license` = HTTP 404；本机 `LICENSE*`/`COPYING*` = 0 个；**上游自己的打包元数据自认 `custom:unlicensed` / `LicenseRef-Unlicensed`**，证据表见 `docs/COPYING-RULES.md` §9.8）⇒ **保留所有权利**，**比 GPL 更严** | **行为对照**：只用来核对"某特性在那里是零实现"这类**行为事实** | **严禁复制代码**；**不得进入任何发布产物**。上游依赖树许可**已展开、U-3 已结案（2026-09-17）**：其渲染核心是 `.gitmodules` 捆进来的 **GPL-2.0-only** 子模块（`Aromatic05/wallpaper-engine-renderer` @ `89dfcd86…`，= 本工作区 `wer-ref/`）⇒ 连"照它的实现自写"都要避开该子模块；处置判定 = **L2 完成、保持零引入**（`docs/COPYING-RULES.md` §9.8） |
 
 **登记口径**：可借表两行已补进 `docs/COPYING-RULES.md` §2.3（`wer-ref` = GPL-2.0-only ❌ 不可借；
-`we-layerd-ref` = 无许可 ❌ 不可借），两行都写明"**仅行为对照 / 洁净室；严禁复制代码；不得进入任何发布产物**"。
+`we-layerd-ref` = 无许可 ❌ 不可借），两行都写明"**仅行为对照 / 独立实现（按规格，不主张洁净室）；严禁复制代码；不得进入任何发布产物**"。
 任何文档/注释提到这两个来源时，**同一句**必须带中性标注（第三方参考实现 + GPL-2.0-only/无许可 + 仅行为对照 +
 未取代码），不得再称其为"官方"或"真值源"。
+**处置阶梯**：这两类上游（GPL-2.0-only / 无许可）按照 `docs/COPYING-RULES.md` **§9** 的 L1–L5 阶梯处理 ——
+L1 按规格独立实现（`wer-ref` 的 2 处点状同源 = 已落地的 L1 样本；**称"独立实现"而非"洁净室"**，见 §5.1）→ L2 查上游元数据（**任何"无许可"判定之前必须先查**）
+→ L3 自写等价实现（含增量重写）→ L4 换许可兼容的类似项目 → L5 隔离块（单独成块 + 一键禁用 + 可整体删除 + 公开说明
+"作者要求即删"，见 §9.6/§9.11）。**当前本仓库没有任何 L5 块。**
 ---
 
 ## 11. webwallgl  (MIT © oneincase) — **P-102: 帧几何契约按规格重写进 `core/web-frame-geometry.mjs`**
@@ -530,10 +720,10 @@ shader path does not call it yet** — wiring it into `core/we-scene-bundle.js` 
 | `renderer/src/web.ts` — `webCoverViewport` (lines 577–593) | 覆盖式视口：视口取**内容比例**、溢出的一边**居中裁掉**、比例差在容差内则不处理 | `core/web-frame-geometry.mjs` → `coverViewport()` |
 | `renderer/src/web.ts` — `measureWebLetterbox` / `WEB_ASPECT_*` (lines 561–635) | 内容比例**只认内在尺寸**（元数据未到不拿占位盒当设计比例）、比例限幅（越界视为量错） | `core/web-frame-geometry.mjs` → `contentAspectOf()` |
 
-### 11.2 Clean-room evidence (implementation is not a translation)
+### 11.2 Independent-implementation evidence (implementation is not a translation)
 
 Differences from the upstream implementation (naming / parameter shape / mode set / constant organisation /
-boundary handling / fallback switch) are enumerated as the clean-room criteria in
+boundary handling / fallback switch) are enumerated as the independence criteria in
 `docs/WEB-FRAME-GEOMETRY-SPEC.md` §6 and machine-asserted by `tests/web-frame-geometry-test.mjs` T4d/T4e:
 
 - **Naming**: `webPointerToClient` / `webCoverViewport` / `measureWebLetterbox` → `frameClientPoint` /
@@ -580,7 +770,7 @@ was copied** — `git ls-files vendor/` lists only the P-93 vendored pair.
 | `renderer/src/web.ts` — `shapeWebAudioBand` / `WEB_SIM_AUDIO_GAIN` / `WEB_SIM_AUDIO_GAMMA` (lines 106–134) | "频谱要尖"的观感与实现路线：`min(1, pow(x, γ) × gain)`，γ=1.8 / gain=1.8 | `core/audio-band-array.mjs` → `shapeBand()` + `AUDIO_BAND_GAMMA` / `AUDIO_BAND_GAIN` |
 | `renderer/src/web.ts` — 注入源 driver 分支 (lines 168–228) | 真实（已归一化）频谱**不套 γ**、只钳位这一口径 | `packBands(..., { clampOnly: true })` |
 
-### 12.2 Clean-room evidence (implementation is not a translation)
+### 12.2 Independent-implementation evidence (implementation is not a translation)
 
 Differences are enumerated in `docs/AUDIO-BAND-SPEC.md` §5 and machine-asserted by
 `tests/audio-band-array-test.mjs` T4b:
@@ -605,3 +795,40 @@ driver selection policy — those belong to the host that owns the audio source,
 The MIT licence text of the upstream project is reproduced in §9.3 above (same upstream repository and
 same copyright holder); no additional licence file is required for this entry because **no upstream file
 was copied** — `git ls-files vendor/` lists only the P-93 vendored pair.
+
+---
+
+## 13. Lucide icons (ISC © Lucide Contributors; Feather portions MIT) — **inline geometry in the demo bench picker**
+
+  Upstream:  https://github.com/lucide-icons/lucide
+  Package:   `lucide-static@0.545.0` (npm) — files `icons/<name>.svg`
+  Licence:   **ISC** (portions derived from Feather are MIT)
+  Copyright: portions of Lucide are held by Cole Bemis 2013-2023 as part of Feather (MIT);
+             all other copyright (c) for Lucide is held by Lucide Contributors 2025
+  SPDX:      ISC (and MIT for the Feather-derived portions)
+  Ledger:    `docs/COPYING-RULES.md` §4, entry **#11** (2026-09-17)
+  Scope:     **7 icons registered, geometry only, inlined** — 6 of them rendered by the picker,
+             1 (`search`) kept as a spare; no vendored files, no dependency, no icon font
+
+### 13.1 What is used, and where
+
+`demo/bench-patch.js` (the single physical source of the patched bench, shared by the `:8901` static
+bench and the vite host) inlines the geometry of the icons used by the folder/file picker:
+
+| Icon | Lands at | Upstream file | Verified |
+|---|---|---|---|
+| `folder`, `file`, `house`, `check`, `x` | `DIR_ICONS` in `demo/bench-patch.js` | `lucide-static@0.545.0/icons/<name>.svg` | 2026-09-17 — every `d` / `cx,cy,r` compared **byte-for-byte** against that version's published file |
+| `arrow-up` (rendered: “up one level”), `search` (registered spare, **not** rendered — the filter box is a plain `input[type=search]`) | same table | this project's own `docs/SVG-ICONS.md` (user-provided; same Lucide/Feather geometry) | copied as given by the user; not counted as a separate upstream entry |
+
+Only the child elements of each upstream `<svg>` are used (`path` / `circle`), built through
+`document.createElementNS`. The class names (`lucide lucide-*`) are dropped; `viewBox="0 0 24 24"`,
+`fill="none"`, `stroke="currentColor"`, `stroke-width="2"` and round caps/joins are kept, so the icons
+inherit the text colour and work in both themes.
+
+### 13.2 Licence text
+
+The full upstream licence — ISC **and** the MIT text for the Feather-derived portions — is redistributed
+verbatim in `demo/LICENSE-lucide-ISC.txt` (ISC requires the copyright notice and the permission notice to
+appear in all copies). Per-icon provenance table: `docs/ICONS-NEEDED.md`.
+**Nothing else from Lucide is used**: no import, no dependency entry, no external stylesheet and no icon
+font — the inline geometry is the only surface.

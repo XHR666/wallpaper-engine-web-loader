@@ -12,7 +12,7 @@
 > `we-layerd-ref/`（`Aromatic05/we-layerd`，**无许可**）都是**仓库外的第三方参考实现**，不是 WE 官方代码、不是"真值源"，
 > 仅用于**行为对照**：**不得复制、改写、逐行翻译其代码、注释、常量组织或错误文案**。血缘自查见 `docs/WER-REF-LICENSE-AUDIT.md`。
 
-本文件是主 README（GitHub 首页展示）。面向下载者的说明见 `docs/README-PUBLIC.md`；开发/诊断文档见 `docs/`（架构 `docs/RENDERER-ARCHITECTURE.md`、开关 `docs/README-DIAGNOSTICS.md`、测试 `docs/TESTING.md`、逐轮记录 `docs/PATCHES.md`）；
+本文件是主 README（GitHub 首页展示）。面向下载者的说明见 `docs/README-PUBLIC.md`；开发/诊断文档见 `docs/`（架构 `docs/RENDERER-ARCHITECTURE.md`、开关 `docs/README-DIAGNOSTICS.md`、测试 `docs/TESTING.md`、**真机基线快照（FPS/启动/切换耗时趋势，`?baseline=1` + `tools/baseline-diff.mjs` 回归闸门）见 `docs/BASELINE.md`**、逐轮记录 `docs/PATCHES.md`）；
 **第三方代码与许可的法律文本以 `THIRD-PARTY.md` 为准**，复制/借鉴台账见 `docs/COPYING-RULES.md`。
 
 ---
@@ -316,13 +316,20 @@ tar -xzf wallpaper-engine-web-loader-0.1.1.tgz   # 解开得到 package/（含 d
 
 #### (7) notscuffed/repkg — **MIT**（2026-09-16 核实结案）
 - 仓库：<https://github.com/notscuffed/repkg> ｜ 许可：**MIT**（`Copyright (c) 2019 notscuffed`）
-- **依据**：上游 `LICENSE` 原文（MIT 全文，2026-09-16 复核 <https://raw.githubusercontent.com/notscuffed/repkg/master/LICENSE>）+ 项目所有者确认。既有文档里记成 GPL 的一侧（`docs/COPYING-RULES.md`、`docs/PLUGIN-POLLUTION-AUDIT.md`、插件 README 等）**系本仓库早期误记，已作废更正**。
+- **依据**：上游 `LICENSE` 原文（MIT 全文，2026-09-16 首次复核、**2026-09-17 复验** <https://raw.githubusercontent.com/notscuffed/repkg/master/LICENSE>）+ 项目所有者确认。既有文档里记成 GPL 的一侧（`docs/COPYING-RULES.md`、`docs/PLUGIN-POLLUTION-AUDIT.md`、插件 README ×2 等）**系本仓库早期误记，已作废更正**——**逐处更正已在 2026-09-17 全部落地**，清单见工作区根 `docs/LICENSE-COMPAT-REVIEW.md` §10.1；规则修订见 `docs/COPYING-RULES.md` §6 + **§9.10**。
 - **参考了什么**：作为 `.tex` 解码的**格式/取值权威**被引用（RG88 约定 `(rgb=G, a=R)`、与 ImageSharp `Rgba32` 一致、灰度=第二通道 G / alpha=第一通道 R 等）。
 - **是否直接复制过代码**：**否（逐字）**。`core/we-scene-bundle.js` 里"BC1/BC2/BC3 **逐行对齐 RePKG 的 LibSquish 移植实现**"这一句若有事实基础，也属 MIT → GPL 的**允许方向**，署名与条款见 `THIRD-PARTY.md`；自述参考它的 267 行脚本已于 2026-09-16 删除。本机**无检出副本**（工作区未 vendor）。
 
 #### (8) Aromatic05/we-layerd — **无许可（保留所有权利）**
 - 仓库：<https://github.com/Aromatic05/we-layerd> ｜ 许可：**无 LICENSE 文件 = 保留所有权利**（比 GPL 更严）
-- **参考了什么**：仅作一次行为对照（"该功能为零实现"的旁证）。**是否直接复制过代码**：**否**。本机检出副本在仓库外的 `we-layerd-ref/`，**不入库**。
+- **许可查证（2026-09-17，L2）**：GitHub API `"license": null`；上游根目录无 `LICENSE`/`COPYING`/`NOTICE`；
+  `Cargo.toml`（根 + 4 个成员 crate）**无 `license`/`license-file`/`repository`**；上游**自己的打包元数据自认无许可**
+  （`package/archlinux/PKGBUILD:9` = `license=('custom:unlicensed')`，`package/fedora/we-layerd.spec:8` = `License: LicenseRef-Unlicensed`）。
+  **另**：其 `.gitmodules` 把 **GPL-2.0-only** 的 `Aromatic05/wallpaper-engine-renderer`（pin `89dfcd86…`，= 本工作区 `wer-ref/`）
+  作为渲染核心子模块捆入 ⇒ 连"照它的实现自写"都要避开该子模块。
+- **参考了什么**：仅作一次行为对照（"该功能为零实现"的旁证）。**是否直接复制过代码**：**否**（全仓引用 = 26 文件 / 37 行**纯文字**，
+  `import`/`readFile` **0** 命中）。本机检出副本在仓库外的 `we-layerd-ref/`，**不入库**、**不进任何产物**。
+- **处置判定**：`docs/COPYING-RULES.md` **§9.8**（L2 完成 ⇒ 保持零引入）；无许可 / 不兼容上游的通用阶梯见同文件 **§9（L1–L5）**。
 
 ### 7.5 仅在许可兼容性研究中评估 —— **未参考其代码**
 
