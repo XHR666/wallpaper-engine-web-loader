@@ -313,6 +313,12 @@ add "camera-origin-script" "node tests/camera-origin-script-test.mjs" "" "^SKIP 
 #   31 断言：①跑过静音脚本后宿主 5 个 console 方法逐个 `===` 同一引用且仍真的输出；②正常脚本日志仍可见；
 #   ③globalThis/进程句柄/localStorage/engine.setTimeout 的隔离面钉死。带两个变异自证。
 add "script-sandbox-globals" "node tests/script-sandbox-globals-test.mjs" "" "^SKIP script-sandbox-globals"
+# ①(P2-1 2026-09-18 任务书 C1) `we-core`（MIT 独立实现包，`packages/we-core/`）与 `core/**` 的**黑盒对拍**：
+#   真语料 2 个真包（3.9MB / 7.1MB）⇒ PKG 头部字段 + 42 个条目载荷 sha256 **全等**；6 个 .tex 头部 + 32 个 mip
+#   的 {宽,高,压缩} 与 **LZ4 解压后字节**逐字节相同；矩阵 576 组 multiply + 16 轮参数 + 96 组 TransformPoint
+#   `Object.is` 零差异。缺语料 ⇒ SKIP。带 3 处单字节变异自证（格式表 / lz4 匹配长度 / mat4Ortho ⇒ 必红）。
+#   包内自带"零外部 import"红线断言（不许 import core/**、不许 node_modules、连 node: 内置都不用）。
+add "we-core-parity" "node tests/we-core-parity-test.mjs" "" "^SKIP we-core-parity"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then
