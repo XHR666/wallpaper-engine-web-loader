@@ -289,6 +289,17 @@ add "hlsl2glsl-wiring"   "node tests/hlsl2glsl-wiring-test.mjs"
 #   缺语料时真包段 SKIP 视作 PASS，不红。回退开关 `?subbase=legacy`（只改台账口径，GL 调用逐条不变）。
 add "submesh-mirror"     "node tests/submesh-mirror-test.mjs"
 
+# ①(P-118 2026-09-19 §7-H)《指针离开画布后不再发射》回归：假 DOM（真 addEventListener 记录）+ mock-GL +
+#   真 createRenderer + 真包（3554161528 id389）⇒ 45 断言 + 2 条**仍存缺口**（pointerout / blur·visibilitychange）
+#   以 XFAIL 记账。同时修掉的根因：`__hookPointer()` 只在"已有指针"时才装 ⇒ 出货页面里 lockToPointer 发射器
+#   **一次都不发射**（自举死锁）。带 4 条内置变异自证（改回旧写法必红）；~1.5s；无浏览器、无 GPU。
+add "pointer-leave"      "node tests/pointer-leave-test.mjs"
+# ①(P1-1 2026-09-19) 相机 `origin.script` **离线取证**（只读渲染器、不接渲染路径）：扫全语料（98 个包容器 +
+#   171 个散装 scene.json）列出每个带 origin.script 的相机对象，用 `elysia/scene-scripts.js` 求值出"应有的
+#   origin"，与渲染器今天读到的静态快照对拍。实测 **14 个包命中**（同一段 781 字符脚本）。语料里一个都没有 ⇒
+#   SKIP。~1.3s、RSS ~110MB、只读表头 64KB（不整包读入）。
+add "camera-script-origin" "node tests/camera-script-origin-probe.mjs" "" "^SKIP camera-script-origin"
+
 # —— --list ——
 if [ "$LIST" = 1 ]; then
   echo "共 ${#NAMES[@]} 项（slow=--fast 跳过；条件项=无数据自动 SKIP）："
