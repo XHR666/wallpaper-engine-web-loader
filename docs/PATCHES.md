@@ -4757,8 +4757,12 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 
 附带：`fboCapFactor = 0`（`quality.ts:37-42` + `renderer.js:211-227`）在 `off` 档**没有消费者** ——
 `off` 走的是 `setEffectsEnabled(false)`（门控 1–3），不是"把分辨率压到 0"。
-**我们只落了 2 处**（门控 1 与 3）：门控 2 在本渲染器**无落点** —— 全树 `grep isPostProcess|postProcess`
-**0 命中**，我们从来不解析、也不产出"整屏后期层"这种层。这是**已知的移植缺口**，写进 P-90.6 未定项。
+**我们只落了 2 处**（门控 1 与 3）：门控 2 在本渲染器**无落点** —— **源树 0 命中实代码（仅 2 处注释：
+`core/we-scene-bundle.js:6028`、`core/we-scene-bundle.js:10544`）**，我们从来不解析、也不产出"整屏后期层"这种层。
+⚠ **原文的"全树 `isPostProcess` 0 命中"不成立**（2026-09-18 更正）：tracked 的**预构建参考产物**
+`demo/assets/renderer-BOSoB05I.js` 有 **8 处实代码命中**（`:265` ×2、`:606` ×1、`:607` ×4、`:717` ×1）——
+那是 **vendored 的上游 minified 产物**（本仓库不重建、不修改其字节），**不是本仓库源码**。
+该产物的死活定性与三类计数见 P-90.10。这是**已知的移植缺口**，写进 P-90.6 未定项。
 
 **③ `setQuality` 是热更还是重建 —— 已确认：热更，不重挂载。** 证据链：
 `renderer/src/api/types.ts:391-398` 注释原文「渲染质量设置热更……**就地生效，不重挂载**（与 `setRenderDpr` 不同）」；
@@ -4914,8 +4918,11 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
    验的是 **GL 调用序列 / FBO 与纹理对象 / 内部尺寸 / 门控 / 档位记账**。
    「FXAA 真的让边缘更平滑」「MSAA 只治几何边」「`q=low` 上采样后的观感」**都需要真机像素对照**，
    本轮**没有**这个证据。
-2. **门控 2（整屏后期层）无落点**：我们从来**不解析** `isPostProcess` ⇒ `pp=off` 只落了上游 3 处里的 2 处。
+2. **门控 2（整屏后期层）无落点**：我们从来**不解析** `isPostProcess`（**源树 0 命中实代码，仅 2 处注释**，
+   见 P-90.10）⇒ `pp=off` 只落了上游 3 处里的 2 处。
    若将来接入整屏后期层，这一处必须补上，否则 `pp=off` 会与上游语义分叉。
+   ⚠ **"无落点"指"本渲染器不解析"，不等于"全树 grep 0 命中"**：预构建参考产物
+   `demo/assets/renderer-BOSoB05I.js` 有 **8 处实代码命中**（vendored 上游产物，非本仓库源码），见 P-90.10。
 3. **`?aa=msaa2/msaa4` 在真机上的实际采样数未知**：`gl.SAMPLES` 的实测值要真机才拿得到；
    启动日志已把 `context antialias=… ，实测 SAMPLES=…` 打进去，供真机一轮回报。
 4. **`msaa` 档与 `q != off` 不能并用**（q 的离屏 FBO 是单采样 ⇒ 回落 FXAA）。这是当前实现的**硬限制**，
@@ -4923,6 +4930,46 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 5. **`localStorage['webwallgl-quality']` 持久化没做**（上游那属测试台 UI 层，本轮任务书只要求 URL 开关 + 热更 API）。
 6. **本机语料只有 11 个包带 `allwallpaper/dd/<id>/scene.pkg`**（`allwallpaper/dd` 下 22 个目录）⇒ 效果链/Bloom 门控只在
    上述 3 个夹具上实测过，未穷举全部语料。
+
+### P-90.10 `isPostProcess` 口径更正（2026-09-18）：原文"全树 0 命中"**不成立**，预构建产物例外 8 处
+
+**触发**：审计点 N10（`docs/REMAINING-WORK-20260918-B.md` / `docs/TODO-AUDIT-20260918.md`）指出
+P-90.1 那句"全树 `grep isPostProcess|postProcess` **0 命中**"与实测不符。
+
+**复核命令**（在本仓库根跑；按**出现次数**计数，不能按行数 —— minified 产物一行里可以有 4 处）：
+
+```bash
+grep -ro "isPostProcess" --include='*' . | grep -v node_modules | cut -d: -f1 | sort | uniq -c
+```
+
+**复核结果 · 三类计数（2026-09-18，基线 `31643beb`）**
+
+| 类别 | 落点 | 出现次数 | 形态 |
+|---|---|---|---|
+| **源树 · 实代码** | —— | **0** | 本渲染器源码确实**不解析** `isPostProcess` |
+| **源树 · 注释** | `core/we-scene-bundle.js:6028`、`core/we-scene-bundle.js:10544` | **2** | 两行**行首即 `//`**，纯叙述（复述上游三处门控 / 标 P-90 未定项） |
+| **预构建产物** | `demo/assets/renderer-BOSoB05I.js:265`（×2）、`:606`（×1）、`:607`（×4）、`:717`（×1） | **8** | **全是实代码**：层次对象字段初始化（`:265`、`:717`）+ 6 处过滤/跳过判据 |
+| **仓库文档** | `docs/PATCHES.md`（3 处）、`docs/README-DIAGNOSTICS.md`（1 处） | 4 | 叙述与表格文字 |
+
+**统一口径**（对外一律用这一句）：
+
+> **源树 0 命中实代码（仅 2 处注释）；预构建参考产物 `demo/assets/renderer-BOSoB05I.js` 例外（8 处）。**
+
+⚠ 顺带纠正审计原文的一个数字：审计写产物 **7 处**，逐**出现次数**复核是 **8 处**
+（按"含该串的行数"数是 4 —— `:607` 一行里就有 4 处；两种数法都不是 7）。
+
+**产物定性：`demo/assets/renderer-BOSoB05I.js` 是"活引用的 vendored 预构建物"，不是死文件**
+
+| 问题 | 结论 | 证据（file:line / 命令） |
+|---|---|---|
+| 谁加载它 | `demo/renderer/index.html` 以 `<script type="module" crossorigin src="../assets/renderer-BOSoB05I.js">` 加载 | `demo/renderer/index.html:36`（该页共 41 行、`body` 为空 —— 渲染器就是这一条 script） |
+| 是不是 `demo.html` 的旧路径 | **不是**。根 `demo.html` 对本产物**零引用** | `grep -c renderer-BOSoB05I demo.html` → `0`；`demo.html` 是仓库自研"静态版（WebGL，当前页）"（438 KB，本日仍在改：`b962483`） |
+| 什么时候加载 | 该页**同时**是本地 `:8901/wallpaper-engine-webgl/renderer/` 与 Pages `/demo/renderer/`（`../assets/` 相对路径就是为这两种布局写的） | `demo/renderer/index.html:34-35` 注释原文 |
+| 会不会上线 | **会**。Pages 白名单整目录收 `demo/`，再把 `demo/` 拷成第二份 `/wallpaper-engine-webgl/`，产物自检**强制**要求该页存在 | `build-pages.mjs:34`（`PAGES_KEEP_DIRS` 含 `demo`）、`build-pages.mjs:145`（第二份拷贝）、`build-pages.mjs:154`（`MUST` 含该页）、`.github/workflows/pages.yml:48` |
+| 谁在维护它 | **没有人**：单提交引入、此后未动 —— 上游 `oneincase/webwallgl` 1.3.23 的 minified 产物，仓库内**不可重建** | `git log --diff-filter=A -- demo/assets/renderer-BOSoB05I.js` → `987d9b3`（2026-09-16）；此刻 blob `d8c19e01`、`sha256 0b424f43…`、mtime 2026-09-15 06:17 |
+
+**处置**：**不改产物字节**（vendored 预构建物：改了既不可重建，也破坏与上游的对拍口径）——
+只在本节与 `docs/README-DIAGNOSTICS.md` 的 `pp` 行把口径写准。
 
 ---
 

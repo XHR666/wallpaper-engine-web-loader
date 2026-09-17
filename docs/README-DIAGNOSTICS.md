@@ -45,7 +45,7 @@
 | `hier` | `0` | 父链合成 | `?hier=0` 回退 refrender 绝对定位兜底 | 父链合成回归 | 绝对定位仅对已标定场景有效 | demo.html:1523、demo.html:758 |
 | `copybg` | 存在即开 | 关 | 开启 copyBackground（渲染器背景拷贝路径） | 背景拷贝路径调试 | 实验开关，可能引入额外开销 | demo.html:1720 |
 | `fit` | 存在即开 | 关 | 官方预览同款"适应取景"（union 包围盒 + 居中，缩放 0.75–1.0） | 立绘超屏被裁时 | 改变取景，非官方默认链路 | demo.html:1635 |
-| `pp` | `off` / `low` / `medium` / `high`（**`0` 保留旧义**，见左栏末） | `high` | **后处理档位**（P-90，照上游 `oneincase/webwallgl` 1.3.23 的 `?pp=`）：`off` = 图层效果链整体直通 + 关闭内置 Bloom（**上游三处门控我们落两处**，第三处"整屏后期层"本渲染器不解析 `isPostProcess` ⇒ 无落点，见 PATCHES P-90 未定项）；`low` / `medium` / `high` = 效果链**保持开启**，只改效果链 FBO 的分辨率预算 `fboCapFactor` = **0.5 / 1 / 0**（**逐值照抄上游 `POST_FBO_CAP`**，0 = 全质量即"不设上限"）。非法值 → `high` 并**在启动日志里点名**。**①`pp=0` 是既有开关、语义不变**：`?pp=0` 走 RE-37 的"粒子退回正交相机"（`/[?&]pp=0/` 正则，`PP_DISABLED`），**不进**后处理档（档位保持 `high`），日志里写一行 `pp=0 走既有粒子正交相机旧义(RE-37)` | 想让"水面/波纹/光晕"这类效果链整体停下做 A/B 时用 `?pp=off`（实测凯尔希 3719111841 draw 51 → 25）；怀疑效果链 FBO 分辨率预算影响画质/带宽时用 `?pp=low`（= 0.5× 上限） | ⚠ `low` 比 `medium` **更糊**（上限更低），顺序是 `low < medium < high`；`off` 不是"最低画质档"而是"效果链整个不跑"（画质取决于壁纸本身）。与 `?nofx` **同向叠加**（两者任一为真即关效果链） | core/we-scene-bundle.js:3991、core/we-scene-bundle.js:5169、core/we-scene-bundle.js:5306 |
+| `pp` | `off` / `low` / `medium` / `high`（**`0` 保留旧义**，见左栏末） | `high` | **后处理档位**（P-90，照上游 `oneincase/webwallgl` 1.3.23 的 `?pp=`）：`off` = 图层效果链整体直通 + 关闭内置 Bloom（**上游三处门控我们落两处**，第三处"整屏后期层"本渲染器**源树不解析** `isPostProcess`（**源树 0 命中实代码，仅 2 处注释**；预构建参考产物 `demo/assets/renderer-BOSoB05I.js` 例外 **8 处**，见 PATCHES P-90.10）⇒ 无落点，见 PATCHES P-90 未定项）；`low` / `medium` / `high` = 效果链**保持开启**，只改效果链 FBO 的分辨率预算 `fboCapFactor` = **0.5 / 1 / 0**（**逐值照抄上游 `POST_FBO_CAP`**，0 = 全质量即"不设上限"）。非法值 → `high` 并**在启动日志里点名**。**①`pp=0` 是既有开关、语义不变**：`?pp=0` 走 RE-37 的"粒子退回正交相机"（`/[?&]pp=0/` 正则，`PP_DISABLED`），**不进**后处理档（档位保持 `high`），日志里写一行 `pp=0 走既有粒子正交相机旧义(RE-37)` | 想让"水面/波纹/光晕"这类效果链整体停下做 A/B 时用 `?pp=off`（实测凯尔希 3719111841 draw 51 → 25）；怀疑效果链 FBO 分辨率预算影响画质/带宽时用 `?pp=low`（= 0.5× 上限） | ⚠ `low` 比 `medium` **更糊**（上限更低），顺序是 `low < medium < high`；`off` 不是"最低画质档"而是"效果链整个不跑"（画质取决于壁纸本身）。与 `?nofx` **同向叠加**（两者任一为真即关效果链） | core/we-scene-bundle.js:3991、core/we-scene-bundle.js:5169、core/we-scene-bundle.js:5306 |
 | `q` | `off` / `low` / `medium` / `high` | **`off`** | **内部渲染档位（内部渲染分辨率比例）**（P-90，**我们自研**：上游 1.3.23 没有这一档，它的画布尺寸由 `shell.ts` 的 `renderDpr` 管）：`off` = **不启用**离屏内部渲染路径（不建 FBO、不加帧末上采样 ⇒ 与改动前**逐位相同**）；`low` / `medium` / `high` = 把整场景画进 **0.5× / 0.75× / 1.0×**（偶数对齐）的离屏 FBO，帧末**双线性上采样**回画布（1 次全屏 draw）。与 `?res=` **正交**：`res` 定画布尺寸、`q` 定"画布不变、内部怎么渲"（`?res=720p&q=low` ⇒ 1280×720 画布 / 640×360 内部）。非法值 → `off` 并在启动日志点名。启动日志写 `[P-90] q=…(内部×0.5)` | 移动 GPU 上"画面要留、像素要省"时用 `?q=low`（内部像素降到 1/4）；`?q=high` 用来验证"走离屏路径本身"是否改变观感（内部尺寸 = 画布，但多一次上采样） | ⚠ `q != off` 时场景在**单采样**离屏 FBO 里 ⇒ `?aa=msaa2`/`msaa4` **无法生效**，会自动**回落 FXAA** 并记日志（不静默）；要与原生 MSAA 同时用就别开 `q`。`off` 之外每档固定多 1 次全屏 draw | core/we-scene-bundle.js:5304 |
 | `aa` | `off` / `fxaa` / `msaa2` / `msaa4` | **`off`** | **抗锯齿档**（P-90，枚举与语义照抄上游 `oneincase/webwallgl` 1.3.23 `antiAliasing`）：`off` = 关（**与改动前逐位相同**：`getContext` 实参仍是 `antialias:false`、不建 FXAA 程序、不加上采样 pass）；`fxaa` = **帧末全屏 FXAA pass**（`runAA` 在 demo 帧循环里排在 `runBloom` **之后**，1 次全屏 draw；平滑**所有**边缘含纹理 alpha 边）；`msaa2` / `msaa4` = WebGL2 **原生多重采样**（context 创建时 `antialias:true`，浏览器在 present 时自动 resolve；只平滑**几何**边缘）。**两条回落路径都写日志、不静默**：① 实测 `gl.getParameter(gl.SAMPLES) < 请求档`（`antialias:true` 只是请求不是保证）⇒ 回落 `fxaa`（reason `ctx-samples-N`）；② `q != off`（场景在单采样离屏 FBO）⇒ 回落 `fxaa`（reason `internal-render`）。上游此处是"回退 **off**"，**我们改回退 FXAA**（用户显式要抗锯齿，回退 off 等于静默丢掉该诉求）。非法值 → `off` | 边缘锯齿明显、壁纸多为**贴图 alpha 边**（发丝/花瓣/光晕）时优先 `?aa=fxaa`；`msaa2/msaa4` 只治几何边（本渲染器语料以四边形贴图层为主，几何边少）。真机排查"是不是 MSAA 没拿到"看启动日志的 `实测 SAMPLES=` | ⚠ **`msaa2`/`msaa4` 档改档需刷新页面**：`antialias` 是 **context 创建属性**，WebGL 规范无运行期改采样数的 API（`gl.getContextAttributes()` 只读）。运行期 `setQuality({aa:'msaa4'})` 会**显式记一行"需刷新页面"**并把档位如实回退（不谎报已生效）—— 上游把 MSAA 做在离屏多重采样 FBO/RBO 上所以能热切，我们走默认帧缓冲原生 antialias ⇒ 换来零额外 FBO/零 resolve blit（避开上游注释里记的 WebKit `INVALID_OPERATION` 坑），代价就是这一档要刷新。`off ↔ fxaa` 是**热更**的 | core/we-scene-bundle.js:5305 |
 | `whitefallback` | `0` | 白块回退 | 缺失纹理回退改透明（官方一致为白块） | 缺纹理排查（想看清"哪层没纹理"） | 关闭后缺纹理层透明不可见 | core/we-scene-bundle.js:2641 |
@@ -334,3 +334,26 @@ bundle 一改测试立刻红，不会悄悄漂移。
 > **不得复制、改写、逐行翻译其代码、注释、常量组织或错误文案**。
 > `we-layerd-ref/`（`Aromatic05/we-layerd`）**无任何许可**（保留所有权利），同样只可读行为结论。
 > 血缘自查结论见 `docs/WER-REF-LICENSE-AUDIT.md`。
+
+## `isPostProcess` 口径更正（2026-09-18，P-90.10）
+
+本表 `pp` 行过去写"第三处「整屏后期层」本渲染器不解析 `isPostProcess` ⇒ 无落点"，
+而 `docs/PATCHES.md` 的 P-90.1 把同一件事写成了**"全树 `grep isPostProcess|postProcess` 0 命中"** ——
+后半句**不成立**（审计点 N10）。逐**出现次数**复核（在本仓库根，`grep -v node_modules`）：
+
+| 类别 | 落点 | 出现次数 | 形态 |
+|---|---|---|---|
+| **源树 · 实代码** | —— | **0** | 本渲染器源码确实**不解析** `isPostProcess` |
+| **源树 · 注释** | `core/we-scene-bundle.js:6028`、`core/we-scene-bundle.js:10544` | **2** | 行首即 `//`，纯叙述 |
+| **预构建产物** | `demo/assets/renderer-BOSoB05I.js:265`（×2）、`:606`（×1）、`:607`（×4）、`:717`（×1） | **8** | **全是实代码**（vendored 上游 1.3.23 minified 产物） |
+
+**准确口径**：**源树 0 命中实代码（仅 2 处注释）；预构建参考产物 `demo/assets/renderer-BOSoB05I.js` 例外（8 处）。**
+
+**该产物是"活的 vendored 预构建物"、不是死文件**：它由 `demo/renderer/index.html:36` 的
+`<script type="module" src="../assets/renderer-BOSoB05I.js">` 加载；该页同时是本地
+`:8901/wallpaper-engine-webgl/renderer/` 与 Pages `/demo/renderer/`（见该文件 `:34-35` 注释），
+并进了 Pages 产物（`build-pages.mjs:34` 整目录收 `demo/`、`:145` 再拷一份、
+`:154` 的 `MUST` 强制要求该页存在）。**根 `demo.html` 对它零引用**（`grep -c` → 0），
+所以它**不是** `demo.html` 的旧路径，而是**上游参考渲染器页面**的入口。
+它自 `987d9b3`（2026-09-16 建仓）引入后**再未改动**、仓库内**不可重建** ⇒
+**不修改其字节**。完整证据（file:line / 哈希 / 提交）见 `docs/PATCHES.md` 的 P-90.10。
