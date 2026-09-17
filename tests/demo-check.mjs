@@ -353,7 +353,7 @@ const landing = path.join(ROOT, 'index.html')
     /html\.bench-shell\{overflow-x:hidden\}/.test(css) && /html\.bench-shell body\{overflow-x:hidden\}/.test(css))
 }
 
-// ---- D10 品牌位（2026-09-19 用户改名：旧名 WebWallGL → 新名 WEwebLoader）
+// ---- D10 品牌位（2026-09-18 用户改名：旧名 WebWallGL → 新名 WEwebLoader）
 // 为什么要判"语境"而不是"全文零命中"：(B) **上游归属位必须保留原样** —— 指向上游 `oneincase/webwallgl`
 // （MIT）的归属行、外链、许可文件名（`demo/LICENSE-webwallgl*`）里对上游项目的称呼是**许可要求**，
 // 删了就是合规问题。所以这一组钉住四条，任何一条被改坏都会红：
@@ -386,7 +386,7 @@ const landing = path.join(ROOT, 'index.html')
     JSON.stringify({ name: mf.name, short_name: mf.short_name }))
   check('D10 渲染器页（无归属内容）全文零旧名',
     !OLD.test(texts['demo/renderer/index.html']), 'demo/renderer/index.html')
-  // ①(2026-09-19) 兜底壁纸页是**上游产物原样再分发**的一个普通 HTML（改名前与上游 public/default-wallpaper/index.html
+  // ①(2026-09-18) 兜底壁纸页是**上游产物原样再分发**的一个普通 HTML（改名前与上游 public/default-wallpaper/index.html
   //   逐字节相同），页面上那行大标题就是产品名 ⇒ 同属 (A) 品牌位；它没有归属内容，所以判"全文零旧名 + 新名在位"。
   check('D10 兜底壁纸页（无归属内容）全文零旧名且已是新名',
     !OLD.test(texts['demo/default-wallpaper/index.html']) && texts['demo/default-wallpaper/index.html'].includes(NEW),
@@ -424,7 +424,7 @@ const landing = path.join(ROOT, 'index.html')
   check('D10 渲染器页 <title> 已是新名', title(texts['demo/renderer/index.html']) === NEW + ' Renderer', title(texts['demo/renderer/index.html']))
   check('D10 测试台 SW 的自述已改名（demo/sw.js 首行注释）', /WEwebLoader/.test(read('demo/sw.js').split('\n')[0]))
 
-  // ⑤ ⑧(2026-09-19 裁定 1) 测试台**运行期呈现**的品牌名 = WEwebLoader —— 头部品牌位与 document.title 由补丁在
+  // ⑤ ⑧(2026-09-18 裁定 1) 测试台**运行期呈现**的品牌名 = WEwebLoader —— 头部品牌位与 document.title 由补丁在
   //   呈现层覆盖（静态 <title> / DICT app.title / minified 产物被门禁 T1/T5/T8 与许可口径钉住，一律不动）。
   //   这一节只做纯函数 + 源码级断言（不跑浏览器）；同一条链路的冷启动真跑断言在仓外 bench-patch.test.mjs 的 T5b。
   {

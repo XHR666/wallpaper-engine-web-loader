@@ -34,7 +34,7 @@
 //   开关：?online=0 强制本机口径；?sample=0 不自动载入合成样例。
 //   ⚠ 将来产物能重建时，①②③④ 都应回写源码 bench/ 再删掉本文件对应段。
 //
-// 第八批（**2026-09-19 用户改名**：产品名 WebWallGL → **WEwebLoader**，大小写严格）：
+// 第八批（**2026-09-18 用户改名**：产品名 WebWallGL → **WEwebLoader**，大小写严格）：
 //   用户看得见的品牌位改在**运行期呈现层**：测试台头部品牌名（`#site-brand` 里那个 `data-i18n="app.title"`）
 //   与 `document.title` 显示 `WEwebLoader`；版本号 `#app-version`（产物写的 `v1.3.16`）照旧跟在后面。
 //   回退口：`?appname=upstream`（或 `?brand=upstream`）⇒ 还原上游名 `wallpaper-engine-webgl`。
@@ -182,7 +182,7 @@ export function sweepRendered(root, fromLang, toLang, doc) {
 }
 
 /** <title> 与标题栏都要用同一个名字（用户拍板 wallpaper-engine-webgl）。
- *  ⚠ ⑧(2026-09-19 品牌改名)：这里的**静态值不动** —— 它是门禁 T5/T8 的钉子（产物 JS 的两处 app.title 同理，
+ *  ⚠ ⑧(2026-09-18 品牌改名)：这里的**静态值不动** —— 它是门禁 T5/T8 的钉子（产物 JS 的两处 app.title 同理，
  *  且 DICT 还必须逐条等于上游 bench/i18n.ts 的 T1）；页面上要让用户看到的产品名走 applySiteBrand。 */
 export function applyTitle(doc, lang) {
   const name = t(lang, 'app.title')
@@ -190,8 +190,8 @@ export function applyTitle(doc, lang) {
   return name
 }
 
-/** ⑧(2026-09-19 品牌改名) 站点品牌决策（纯函数，便于 Node 断言）。
- *  产品现名 **WEwebLoader**（用户 2026-09-19 亲自给的名字，大小写严格照抄）；
+/** ⑧(2026-09-18 品牌改名) 站点品牌决策（纯函数，便于 Node 断言）。
+ *  产品现名 **WEwebLoader**（用户 2026-09-18 亲自给的名字，大小写严格照抄）；
  *  回退时（`?appname=upstream` / `?brand=upstream`）用**上游名**（= DICT 的 `app.title`）。
  *  为什么不直接改静态 HTML 的 `<title>`/DICT/minified 产物：那三处分别被门禁 T5/T8、T1（词典零漂移）与
  *  许可口径（`demo/LICENSE-webwallgl`：minified 产物一个字节不改）钉住 ⇒ 产品名只做**运行期呈现层**覆盖。 */
@@ -651,7 +651,7 @@ export function readPatchFlags(search) {
     if (v == null || v === '') return def
     return !/^(0|false|off|no)$/i.test(String(v))
   }
-  // ⑧(2026-09-19 品牌改名) 站点品牌覆盖 = 默认开（显示 WEwebLoader）；`?appname=upstream|0|off|false|no`
+  // ⑧(2026-09-18 品牌改名) 站点品牌覆盖 = 默认开（显示 WEwebLoader）；`?appname=upstream|0|off|false|no`
   //   或 `?brand=upstream` ⇒ 关（还原上游名）。注意 `?brand=0` 只关**媒体组件**品牌，不影响站点品牌。
   const rawApp = String(q.get('appname') == null ? '' : q.get('appname'))
   const rawBrand = String(q.get('brand') == null ? '' : q.get('brand'))
@@ -1110,7 +1110,7 @@ export function initSiteShell(ctx = {}) {
   function setPage(name, persist = true) {
     const plan = pageFromName(name)
     const active = PAGES[plan.index]
-    // ①(2026-09-19 用户要求：「左右切换的效果去掉 变成一个个页面(不要加载过程)」)
+    // ①(2026-09-18 用户要求：「左右切换的效果去掉 变成一个个页面(不要加载过程)」)
     //   页签改成**互斥的独立页面**：不再有 300% 宽的轨道、不再有 translateX 动画、也**不再有 340ms 的
     //   "先全部可见、动画结束再隐藏"的定时器**（那 340ms 就是用户说的"加载过程"：切页时另外两页会短暂
     //   跟着动、iframe 还可能盖在上面）。现在切页 = 立刻只显示目标页、其余页 display:none。
@@ -2176,7 +2176,7 @@ export function init() {
   const SITE_STYLE_INJECTED = (SHELL_OFF || !DOM_IS_NEW) ? false : injectSiteLayoutStyle()
   // ①(2026-09-18) 版本标记：把"当前页面到底是哪一版"变成可核对的事实（控制台/属性/状态栏都能看）——
   //   用户报"还是不行"时，第一件事就是核对它（旧缓存会让 `window.__benchShellVersion` 整个不存在）。
-  const BENCH_SHELL_VERSION = 'bench-shell 2026-09-19a (static first-paint CSS; dom=' + (DOM_IS_NEW ? 'new' : 'old') + (SHELL_OFF ? '; shell=off' : '') + ')'
+  const BENCH_SHELL_VERSION = 'bench-shell 2026-09-18a (static first-paint CSS; dom=' + (DOM_IS_NEW ? 'new' : 'old') + (SHELL_OFF ? '; shell=off' : '') + ')'
   try {
     if (typeof window !== 'undefined') {
       window.__benchShellVersion = BENCH_SHELL_VERSION
@@ -3218,7 +3218,7 @@ export function init() {
     setTimeout(() => { lockTimeLayersEverywhere() }, 800)
   })
 
-  // ── ⑧(2026-09-19 品牌改名) 站点品牌运行期覆盖 ──
+  // ── ⑧(2026-09-18 品牌改名) 站点品牌运行期覆盖 ──
   //   目标：用户**看得见的地方**（头部品牌名 + document.title）显示产品现名 `WEwebLoader`，版本号 `v1.3.16`
   //   照旧跟在后面（`#app-version` 由产物启动时写一次，本函数不碰）。
   //   为什么是运行期覆盖：静态 HTML 的 `<title>` 与 DICT 的 `app.title` 分别是门禁 T8（产物接线）与
@@ -3524,7 +3524,7 @@ export function init() {
     getDragDisabled: () => dragDisabled.slice(),
     wrapRendererApi: () => wrapRendererApi(),
     labelIds: LABEL_SPEC.map((s2) => s2[0]),
-    // ⑧(2026-09-19 品牌改名)：站点品牌覆盖的重放入口（探针/测试用；语言切换链里也会自动跑）
+    // ⑧(2026-09-18 品牌改名)：站点品牌覆盖的重放入口（探针/测试用；语言切换链里也会自动跑）
     siteBrandNow: () => applySiteBrandNow(),
     // P-93 在线 demo（线上形态 / 路径改写 / 合成样例 / 横幅）：探针与测试同一入口
     getDemoEnv: () => Object.assign({}, demoEnv),

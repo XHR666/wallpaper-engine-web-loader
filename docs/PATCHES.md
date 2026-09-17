@@ -8022,7 +8022,7 @@ docs/README-DIAGNOSTICS.md     （只改 `cursor` 行的口径与代码位置；
 待办照旧：`add "pointer-leave" "node tests/pointer-leave-test.mjs"`（等它释放）。重活（`package-matrix --check`、
 `glsl-validate`、`run-all-tests.sh`）本会话**未跑**（>60s 硬约束）⇒ 由主对话排队。
 
-## P-119（2026-09-19 用户要求）测试台页签改成**互斥的独立页面**（去掉左右滑动与 340ms 过渡）+ 窄屏面板降高让"壁纸首屏可见"
+## P-119（2026-09-18 用户要求）测试台页签改成**互斥的独立页面**（去掉左右滑动与 340ms 过渡）+ 窄屏面板降高让"壁纸首屏可见"
 
 **用户原话**：「左右切换的效果去掉 变成一个个页面(不要加载过程)」；另补充「我平板使用浏览器是给它横过来的」（横屏优先）。
 
@@ -8043,7 +8043,7 @@ docs/README-DIAGNOSTICS.md     （只改 `cursor` 行的口径与代码位置；
 | `demo/bench-patch.js` `setPage()` | 删掉 `track.style.transform = translateX(...)` 与 340ms `setTimeout` 定时器；改成对三页逐个 `display:''`（当前页，交回样式表：窄屏控制台页是 `block`、其余是 `flex`）/`display:'none'`（其余页）+ `aria-hidden`；轨道只写 `data-active` |
 | `demo/bench-patch.js` | `pageHideTimer` 变量与"先全部 visible"那段一并删除（不再有任何定时器）；切页后主动 `dispatchEvent(new Event('resize'))` 一次，让目标页里的 iframe/画布立刻按真实尺寸重算 |
 | `demo/bench-patch.js` SITE_LAYOUT_CSS | 三条 CSS 与静态表**同步改**（D8 逐条比对要求两处一致） |
-| 版本标记 | `bench-shell 2026-09-18b` → **`2026-09-19a`**（真机核对"我现在到底是哪一版"） |
+| 版本标记 | `bench-shell 2026-09-18b` → **`2026-09-18a`**（真机核对"我现在到底是哪一版"） |
 
 **为什么用 `display` 而不是继续 `visibility`**：`display:none` 的页**不占布局也不参与合成**，iframe 不可能
 再盖住别的页（P-119.1 那个真机 bug 的根因消失）；而且 iframe/画布**不重建** ⇒ 没有加载过程，
@@ -8058,7 +8058,7 @@ docs/README-DIAGNOSTICS.md     （只改 `cursor` 行的口径与代码位置；
 
 ```
 ── A. 页签（980×690 横屏桌面模式）
-   版本=bench-shell 2026-09-19a | 轨道 display=flex flexDirection=column 宽=980 scrollW=980 transition=0s transform=none
+   版本=bench-shell 2026-09-18a | 轨道 display=flex flexDirection=column 宽=980 scrollW=980 transition=0s transform=none
    下划线 transition=0s | 初始三页：#page-console=block #page-docs=none #page-wpset=none
    点「说明」后**同 tick**：docs=flex console=none wpset=none transform=none      ← 无中间态、无定时器
    切到「壁纸设置」→ 回「控制台」：iframe=564.3×317.4 舞台=564×317               ← iframe 往返正常

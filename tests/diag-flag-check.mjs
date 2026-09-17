@@ -178,7 +178,7 @@ const payload = {
   common: COMMON_FLAGS.filter((n) => merged.has(n)).map((n) => ({ name: n, usage: COMMON_USAGE[n] || (n + '=1') })),
   flags: codeNames.map((n) => ({ name: n, common: COMMON_FLAGS.includes(n), sites: merged.get(n) })),
 }
-// ①(2026-09-19) **幂等写出**：只把 `generatedAt` 当"内容变了才更新的时间戳"，内容（除它以外）逐字相同时
+// ①(2026-09-18) **幂等写出**：只把 `generatedAt` 当"内容变了才更新的时间戳"，内容（除它以外）逐字相同时
 //   **不重写文件**。为什么：以前每跑一次门禁（`run-all-tests.sh` 含本项）都会把这份生成物重写一遍 ⇒
 //   跑完门禁工作树**必然**多出 ` M web/diag-flags.json`（只差一个时间戳），"跑完就脏"会污染每个人的
 //   `git status`、也让"提交前后逐字一致"这类证明没法做（本仓库已两次把它的重生成单独提交过）。

@@ -119,7 +119,7 @@ html.bench-shell html:not([lang="en"]) .lang-en{display:none}
    平板实测（OPPO Pad 4 Pro 3392×2400 / 桌面模式 / screen.width=1696）：改前 `narrow=false`
    ⇒ 桌面三列塞进 980px、舞台只有 448×252、文档 scrollWidth 2940（3 倍溢出）。 */
 html.bench-shell body{overflow-x:hidden}
-/* 横向溢出**必须也在根元素上裁一刀**。①(2026-09-19) 之后 `#pages-track` 已不再是 300% 宽的横排轨道
+/* 横向溢出**必须也在根元素上裁一刀**。①(2026-09-18) 之后 `#pages-track` 已不再是 300% 宽的横排轨道
    （页签改成互斥的独立页面 ⇒ 轨道本身不再横向溢出），但这条保留作兜底：历史实测在部分引擎里
    `body{overflow-x:hidden}` **不传播到视口** —— 2026-09-18 无头 Firefox 121 / 980px 视口下
    `window.scrollTo(9999,0)` 之后 `window.scrollX=1960`（真的能横向拖走两屏）。将来任何一处

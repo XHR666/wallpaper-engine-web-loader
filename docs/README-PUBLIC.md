@@ -85,7 +85,7 @@ python3 -m http.server 8899            # 或 npx serve -l 8899
 - **本渲染器 import 了 MIT 许可的插件 `dsh-mpkg-wallpaper`**（包解析器 `lib/pkg-extract.js`）。
   该插件**保持 MIT**；借用在 MIT → GPL 的允许方向上，**插件的 MIT 声明随之保留**，
   不得被本仓库的 GPL 覆盖或删除（规则见 `docs/COPYING-RULES.md`）。
-- **命名说明（2026-09-19）**：本产品现名 **WEwebLoader**（npm 包名与仓库名仍是 `wallpaper-engine-web-loader`）；
+- **命名说明（2026-09-18）**：本产品现名 **WEwebLoader**（npm 包名与仓库名仍是 `wallpaper-engine-web-loader`）；
   上游项目名仍是 **WebWallGL**（`oneincase/webwallgl`，MIT），**归属与许可不因此改变**（下一条即上游登记）。
 - `webwallgl`（**MIT © oneincase**）：本仓库**不 vendored 它的任何文件**（仓库外的 `vendor-ref/webwallgl`
   只是上游研读副本）；但 **P-90 把它的 FXAA 片元着色器（`FXAA_FRAG`，上游 452–489 行）逐字移植了进来**

@@ -289,12 +289,12 @@ add "hlsl2glsl-wiring"   "node tests/hlsl2glsl-wiring-test.mjs"
 #   缺语料时真包段 SKIP 视作 PASS，不红。回退开关 `?subbase=legacy`（只改台账口径，GL 调用逐条不变）。
 add "submesh-mirror"     "node tests/submesh-mirror-test.mjs"
 
-# ①(P-118 2026-09-19 §7-H)《指针离开画布后不再发射》回归：假 DOM（真 addEventListener 记录）+ mock-GL +
+# ①(P-118 2026-09-18 §7-H)《指针离开画布后不再发射》回归：假 DOM（真 addEventListener 记录）+ mock-GL +
 #   真 createRenderer + 真包（3554161528 id389）⇒ 45 断言 + 2 条**仍存缺口**（pointerout / blur·visibilitychange）
 #   以 XFAIL 记账。同时修掉的根因：`__hookPointer()` 只在"已有指针"时才装 ⇒ 出货页面里 lockToPointer 发射器
 #   **一次都不发射**（自举死锁）。带 4 条内置变异自证（改回旧写法必红）；~1.5s；无浏览器、无 GPU。
 add "pointer-leave"      "node tests/pointer-leave-test.mjs"
-# ①(P1-1 2026-09-19) 相机 `origin.script` **离线取证**（只读渲染器、不接渲染路径）：扫全语料（98 个包容器 +
+# ①(P1-1 2026-09-18) 相机 `origin.script` **离线取证**（只读渲染器、不接渲染路径）：扫全语料（98 个包容器 +
 #   171 个散装 scene.json）列出每个带 origin.script 的相机对象，用 `elysia/scene-scripts.js` 求值出"应有的
 #   origin"，与渲染器今天读到的静态快照对拍。实测 **14 个包命中**（同一段 781 字符脚本）。语料里一个都没有 ⇒
 #   SKIP。~1.3s、RSS ~110MB、只读表头 64KB（不整包读入）。
@@ -306,7 +306,7 @@ add "camera-script-origin" "node tests/camera-script-origin-probe.mjs" "" "^SKIP
 #   判据含：14 包求值==独立参考求值≠静态；无脚本包**逐位不变**；userProps/canvasSize 变 ⇒ 取景跟着变；
 #   坏脚本/坏宿主不抛。带红-if-reverted（把接线分支置 false ⇒ a 组 42/42 红）。
 add "camera-origin-script" "node tests/camera-origin-script-test.mjs" "" "^SKIP camera-origin-script"
-# ①(P-121 2026-09-19 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
+# ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /
 #   页面 #log 桥）+ 把 process/require/module/exports/Buffer/global 显式 shadow 成 undefined。
