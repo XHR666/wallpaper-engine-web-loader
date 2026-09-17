@@ -306,6 +306,13 @@ add "camera-script-origin" "node tests/camera-script-origin-probe.mjs" "" "^SKIP
 #   判据含：14 包求值==独立参考求值≠静态；无脚本包**逐位不变**；userProps/canvasSize 变 ⇒ 取景跟着变；
 #   坏脚本/坏宿主不抛。带红-if-reverted（把接线分支置 false ⇒ a 组 42/42 红）。
 add "camera-origin-script" "node tests/camera-origin-script-test.mjs" "" "^SKIP camera-origin-script"
+# ①(P-121 2026-09-19 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
+#   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
+#   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /
+#   页面 #log 桥）+ 把 process/require/module/exports/Buffer/global 显式 shadow 成 undefined。
+#   31 断言：①跑过静音脚本后宿主 5 个 console 方法逐个 `===` 同一引用且仍真的输出；②正常脚本日志仍可见；
+#   ③globalThis/进程句柄/localStorage/engine.setTimeout 的隔离面钉死。带两个变异自证。
+add "script-sandbox-globals" "node tests/script-sandbox-globals-test.mjs" "" "^SKIP script-sandbox-globals"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then
