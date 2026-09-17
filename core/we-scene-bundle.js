@@ -1509,10 +1509,19 @@ export function parseScene(sceneJson, project, opts = {}) {
     //   视图=节点世界帧逆，窗口=framed/zoom）。仅当 origin 为**动画关键帧**时生效
     //   （originStatic/script 的 21 包是用户属性滑块驱动，脚本引擎不写相机对象 → 保持 inert 零回归；
     //   其静态基值=编辑器残留，非运行时值）。elysia 对应：core.js _resolveAnimations + camera.js _setupCamera/_viewShift。
+    //   ①(P-120 2026-09-18) **`origin: {script:…}` 不再是 inert**：作者原意就是脚本按用户属性算镜头位置
+    //   （全语料 14 个包/14 个相机对象，同一段 781 字符脚本，`value.x = scriptProperties.x * engine.canvasSize.x`）。
+    //   下面多存 5 个字段供 `renderScene` 的相机分支**用求值结果代替静态 `.value`**（求值走既有宿主
+    //   `elysia/scene-scripts.js`，由宿主注册口 `setCameraScriptHost` 注入 —— core/ 不能 import ../elysia/，
+    //   发布产物把 core/we-scene-bundle.js 放在站点根，`../elysia/…` 会越过站点根 404）。
+    //   `originStatic` 是**解析那一刻**的冻结快照：宿主求值会**就地改写** `.value`（宿主语义就是"更新到原对象树"），
+    //   冻结它才能让 `?cam=node` 的"施加快照"语义与求值失败回退都有确定的落点。
     cameraNode: (() => {
       const o = (sceneJson.objects || []).find((x) => x && typeof x.camera === 'string')
       if (!o) return null
       const animated = !!(o.origin && typeof o.origin === 'object' && o.origin.animation)
+      const originObj = (o.origin && typeof o.origin === 'object' && !Array.isArray(o.origin)) ? o.origin : null
+      const originScriptSrc = (originObj && typeof originObj.script === 'string' && originObj.script) ? originObj.script : null
       return {
         id: o.id,
         camera: o.camera,
@@ -1537,6 +1546,19 @@ export function parseScene(sceneJson, project, opts = {}) {
         zoomFromUser: null,
         fovFromUser: null,
         active: animated,
+        // ①(P-120) 相机 origin 逐属性脚本（无脚本 = 全 null，本组字段一个都不消费 ⇒ 逐值不变）
+        originObj: o,                                  // 原始相机对象（宿主 thisLayer/thisScene 的 owner + 写回点）
+        originStatic: parseVec3(o.origin),              // **冻结**的静态快照（编辑器残留值）
+        originScriptSrc,                                // 脚本源（null = 无脚本）
+        originScriptAnchor: originScriptSrc ? originObj : null,
+        // 对象级脚本属性：语料实测**挂在 origin 节点自己身上**（`origin.scriptproperties`，见
+        // `tests/camera-script-origin-probe.mjs` 的"脚本自定义属性"行）；相机对象级同名键兜底。
+        originScriptProps: (originObj && originObj.scriptproperties !== undefined) ? originObj.scriptproperties
+          : ((o.scriptproperties !== undefined) ? o.scriptproperties : null),
+        originEval: null,                               // 最近一次**求值结果**（Vec3；null = 还没求过/不适用）
+        originEvalState: originScriptSrc ? 'pending' : 'none',
+        originEvalWhy: '',
+        originEvalStats: { evals: 0, fallbacks: 0, lastAt: -1 },
       }
     })(),
   }
@@ -2199,8 +2221,11 @@ export function applyUserProperties(scene, props, opts = {}) {
   //   只对相机层扫描、走 camera target kind 路由"（wer-ref `WPSceneParser.cpp:7345-7355` 给 `zoom`
   //   注册 Property/Animation/Script 三种绑定）⇒ 这里按**相机节点**单独解析，不混进上面那张"可绘层字段"表。
   //   幂等：每次调用都从 `zoomBinding` 原文重算（属性缺失/门控 → 视为无用户值 ⇒ zoomFromUser=null）。
-  //   **只接 zoom、不接 origin**：语料 6/7 个包的 `origin` 是**逐属性脚本**（`{script:…, value:"2434.38 725.25 500"}`），
+  //   **只接 zoom、不接 origin 的 `{user:…}` 绑定**：语料 14 个相机包的 `origin` 是**逐属性脚本**
+  //   （`{script:…, value:"2434.38 725.25 500"}`），
   //   其静态基值是编辑器残留 —— 实测若按它平移，取景会整体偏 **2434px**（P-69 因此明确保持 inert）。
+  //   ①(P-120) origin 现在走**脚本求值**（不是 `{user:…}` 绑定、也不是静态快照），落点在 renderScene
+  //   的 `originScriptSrc` 分支 → 这条"不接用户绑定"的口径不变。
   //   而 zoom 是面板上一个真实滑块（`newproperty30` = "🔘镜头大小 / Lens size"，0.1~2，默认 1）——
   //   默认值 1 时 `framed/1` 与今天**逐位相同**，只有用户真的拖了滑块画面才变 ⇒ 零回归。
   if (scene && scene.cameraNode && scene.cameraNode.zoomBinding) {
@@ -4555,6 +4580,112 @@ export function resolveProjMode(optsVal, liveVal, fallbackVal) {
   if (optsVal !== undefined && optsVal !== null && String(optsVal) !== '') return pick(String(optsVal))
   if (liveVal !== undefined && liveVal !== null && String(liveVal) !== '') return pick(String(liveVal))
   return pick(fallbackVal === undefined || fallbackVal === null ? 'auto' : String(fallbackVal))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ①(P-120 2026-09-18) 相机 origin 逐属性脚本（`origin: {script:…, value:…}`）—— 接线层
+//
+// 现象（量化见 `tests/camera-script-origin-probe.mjs`，全语料 98 包容器 + 171 散装 scene.json）：
+//   16 个相机对象里 **14 个**的 `origin` 是 `{script:…}`（同一段 781 字符脚本，sha256 151da988…），
+//   静态 `.value` = `2434.38477 725.25134 500`（编辑器保存时刻的快照），而脚本真跑起来
+//   （userProps = project.json `general.properties` 默认值）算出来是 `0 0 500` ⇒ Δx −2434.38 / Δy −725.25。
+//   渲染器此前把它当"无落点"（`cameraNode.active` 只看 `{animation}`）⇒ 相机取景**根本没用作者写的脚本**。
+//
+// 接线口径（**唯一求值器仍然是既有宿主** `elysia/scene-scripts.js`，本文件不自造 evaluator）：
+//   · 宿主注入：`setCameraScriptHost({applySceneScripts, createScriptCache})`（demo.html 传它已经 import 的
+//     那个模块；`createRenderer(canvas, {cameraScriptHost})` 可逐实例覆盖）。**为什么不是 import**：
+//     `core/we-scene-bundle.js` 会被原样拷到发布产物**站点根**（`build-pages.mjs` 的 PAGES_KEEP_FILES），
+//     写给它的 `../elysia/scene-scripts.js` 在线上会越过站点根 404；隔离副本型测试（`bind-order-test` TN6 /
+//     `pointer-leave-test` 只拷 core/ 的 bundle）也会 ERR_MODULE_NOT_FOUND ⇒ core/ 保持零跨目录 import。
+//   · 求值作用域 = **相机对象自己**（`applySceneScripts(camObj, t, {renderObjects:[camObj]})`）：宿主把
+//     `{script,value}` 的 `update()` 返回值**就地写回** `camObj.origin.value`（既有宿主语义），本函数读回。
+//   · 重算触发（渲染器自己的节奏 = **每个渲染帧检查一次输入签名**，签名不变 ⇒ 复用上次结果、不发生宿主调用）：
+//       ① 脚本源长度 ② 对象 `scriptproperties` 经 `resolveScriptProperties` 解析出的字面量（用户属性绑定的落点）
+//       ③ `userProps` 全表指纹（对象没写 scriptproperties 时用户属性仍影响脚本内声明的属性默认值）
+//       ④ `canvasSize`（脚本里的 `engine.canvasSize`）⑤ 相机 origin 原文串（宿主按自己的节拍写回会改它 ⇒
+//          与 demo 既有的 4Hz/30Hz 脚本趟天然对齐，时间型相机脚本不会被"缓存冻住"）
+//   · 失败/缺失 ⇒ **回退到冻结的静态快照**（`cameraNode.originStatic`）并留痕（`camNode.originEvalStats`
+//     + 渲染器 `cameraOriginScript` 台账 + `window.__mpwCameraOriginScript`），**绝不向上抛**。
+//     ⚠ 唯一例外：**没有注册宿主**（`nohost`）或**没有用户属性表**（`nouserprops`）时保持**不施加**（= 改动前
+//     行为），不套用静态快照 —— 那种环境下"施加快照"就是 P-69 量到的 −2434px 编辑器残留，属于回归。
+//   · 开关：`opts.cameraScript='off'` / `window.__mpwCameraScript='off'`（**不新增 `?` 开关**，
+//     所以 `docs/README-DIAGNOSTICS.md` 无需登记）。
+// ═══════════════════════════════════════════════════════════════════════════════
+let CAMERA_SCRIPT_HOST = null
+/** 注册相机 origin 脚本宿主（幂等；返回是否被接受）。`h` 需含 `applySceneScripts` + `createScriptCache`。 */
+export function setCameraScriptHost(h) {
+  const ok = !!(h && typeof h.applySceneScripts === 'function' && typeof h.createScriptCache === 'function')
+  CAMERA_SCRIPT_HOST = ok ? h : null
+  return ok
+}
+export function getCameraScriptHost() { return CAMERA_SCRIPT_HOST }
+/** 三档真值表：`opts.cameraScript`（测试/宿主显式传，最高）→ `window.__mpwCameraScript`（宿主实时写）→ 缺省 'on'。 */
+export function cameraScriptModeFrom(optsVal, liveVal, fallbackVal) {
+  const pick = (v) => (String(v) === 'off' ? 'off' : 'on')
+  if (optsVal !== undefined && optsVal !== null && String(optsVal) !== '') return pick(optsVal)
+  if (liveVal !== undefined && liveVal !== null && String(liveVal) !== '') return pick(liveVal)
+  return pick(fallbackVal === undefined || fallbackVal === null ? 'on' : String(fallbackVal))
+}
+/** 用户属性表指纹（滚动数字哈希，零大字符串分配；只用于"要不要重算"的签名，不参与求值）。 */
+export function userPropsStamp(props) {
+  if (!props || typeof props !== 'object') return 'none'
+  let h = 0, n = 0
+  for (const k of Object.keys(props)) {
+    const v = props[k]
+    const s = (v && typeof v === 'object') ? JSON.stringify(v) : String(v)
+    for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) | 0
+    for (let i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) | 0
+    n++
+  }
+  return n + ':' + h
+}
+/** origin 节点的"人读原文"（`{…,value}` 取 value；Vec3/字符串原样）。 */
+export function cameraOriginText(node) {
+  if (node && typeof node === 'object' && !Array.isArray(node)) {
+    if ('value' in node) return String(node.value)
+    if ('x' in node && 'y' in node) return node.x + ' ' + node.y + ' ' + (node.z || 0)
+    return JSON.stringify(node).slice(0, 80)
+  }
+  return String(node)
+}
+/** origin 节点 → [x,y,z]（**任一非有限即 null**，与 parseVec3 的"静默补 0"区分开）。 */
+export function finiteVec3Of(node) {
+  const t = cameraOriginText(node)
+  const p = t.trim().split(/\s+/).map(Number)
+  if (!p.length || !p.every((x) => Number.isFinite(x))) return null
+  return [p[0], p[1], p[2] || 0]
+}
+/**
+ * 在**相机对象局部**跑一次 `origin.script`（复用宿主）。返回
+ * `{ok, value:[x,y,z]|null, why, errs}`；**任何失败都不抛**，由调用方决定回退。
+ * `cache` 用 `host.createScriptCache()` 的返回值（同一个 cache 内脚本只编译一次、init 只跑一次）。
+ */
+export function evalCameraOriginScriptOnce(camNode, host, cache, time, userProps, canvasSize, frametime) {
+  const obj = camNode && camNode.originObj
+  if (!obj || !(camNode && camNode.originScriptSrc)) return { ok: false, why: 'no-script', value: null, errs: [] }
+  if (!host || typeof host.applySceneScripts !== 'function') return { ok: false, why: 'no-host', value: null, errs: [] }
+  const errs = []
+  try {
+    host.applySceneScripts(obj, time, {
+      renderObjects: [obj],
+      userProps: (userProps && typeof userProps === 'object') ? userProps : {},
+      canvasSize: canvasSize || null,
+      frametime: (typeof frametime === 'number' && isFinite(frametime) && frametime >= 0) ? frametime : (1 / 60),
+      ...(cache ? { scriptCache: cache } : {}),
+      onError: (stage, e) => { try { errs.push(stage + ': ' + ((e && e.message) || e)) } catch { errs.push(String(stage)) } },
+    })
+  } catch (e) {
+    return { ok: false, why: 'host-throw: ' + ((e && e.message) || e), value: null, errs }
+  }
+  const entry = (cache && cache.map && typeof cache.map.get === 'function') ? cache.map.get(String(camNode.originScriptSrc)) : null
+  if (!entry) return { ok: false, why: 'host-no-entry', value: null, errs }
+  if (entry.error) return { ok: false, why: 'compile: ' + String(entry.error).slice(0, 120), value: null, errs }
+  if (entry.disabled) return { ok: false, why: 'init-disabled: ' + String(entry.initError || '').slice(0, 120), value: null, errs }
+  if (entry.updateErrors) return { ok: false, why: 'update-errors:' + entry.updateErrors + (errs.length ? ' (' + errs[0] + ')' : ''), value: null, errs }
+  if (errs.length) return { ok: false, why: 'host-error: ' + errs[0], value: null, errs }
+  const v = finiteVec3Of(obj.origin)
+  if (!v) return { ok: false, why: 'non-finite: ' + cameraOriginText(obj.origin).slice(0, 60), value: null, errs }
+  return { ok: true, value: v, why: '', errs }
 }
 
 // ①(P-76) 对象级视差位移的**空间**口径回退开关：`?parspace=legacy` → 回到"位移在 S(w,h) 之后后乘"
@@ -8367,6 +8498,117 @@ export function createRenderer(canvas, opts = {}) {
     }
   }
 
+  // ---------- ①(P-120) 相机 origin 逐属性脚本：宿主接线 + 重算签名 + 台账 ----------
+  // 每一条口径的理由都写在模块头 P-120 那段注释里（这里只放实现）。要点：
+  //   · 宿主 = `opts.cameraScriptHost`（逐实例）> `setCameraScriptHost()`（模块注册口，demo.html 用）；
+  //     **没有宿主 ⇒ 不施加**（不是套静态快照，那会复现 P-69 量到的 −2434px 编辑器残留）。
+  //   · 专属脚本缓存（每个渲染器一个）：相机脚本与图层趟互不干扰；
+  //   · 签名不变 ⇒ 复用上次结果（不调宿主）；签名见 `cameraScriptSignature`；
+  //   · 求值失败 ⇒ 静态快照回退 + 计数 + 每个原因只打一次日志（`camNode.originEvalStats` / `cameraOriginScript` 台账）。
+  const camScript = { mode: null, host: null, cache: null, node: null, sig: null, result: null, ledger: null, logged: {} }
+  function cameraScriptMode() {
+    if (camScript.mode === null) {
+      const live = (typeof window !== 'undefined' && window) ? window.__mpwCameraScript : undefined
+      camScript.mode = cameraScriptModeFrom(opts.cameraScript, live, 'on')
+    }
+    return camScript.mode
+  }
+  function cameraScriptHostOf() {
+    if (camScript.host) return camScript.host
+    const o = opts.cameraScriptHost
+    if (o && typeof o.applySceneScripts === 'function' && typeof o.createScriptCache === 'function') { camScript.host = o; return o }
+    return CAMERA_SCRIPT_HOST
+  }
+  /** 用户属性表：`opts.cameraScript.userProps`（对象或取值函数）> `window.__mpwUserProps` > null（= 不施加）。 */
+  function cameraScriptUserProps() {
+    const cs = opts.cameraScript
+    let up = (cs && cs.userProps !== undefined) ? cs.userProps : undefined
+    if (typeof up === 'function') { try { up = up() } catch (e) { up = undefined } }
+    if (up === undefined || up === null) {
+      up = (typeof window !== 'undefined' && window && typeof window.__mpwUserProps === 'object') ? window.__mpwUserProps : null
+    }
+    return (up && typeof up === 'object') ? up : null
+  }
+  /** 脚本 `engine.canvasSize`：`opts.cameraScript.canvasSize` > **渲染输出尺寸**（= demo 的 mpwEngineCanvasSize 缺省口径）。 */
+  function cameraScriptCanvasSize(outW, outH) {
+    const cs = opts.cameraScript
+    const s = cs && cs.canvasSize
+    if (s && isFinite(s.x) && isFinite(s.y) && s.x > 0 && s.y > 0) return { x: s.x, y: s.y }
+    return { x: outW, y: outH }
+  }
+  function cameraScriptSignature(camNode, up, canvasSize) {
+    const sp = resolveScriptProperties(camNode.originScriptProps, up, null)
+    return [
+      String(camNode.originScriptSrc).length,
+      sp ? JSON.stringify(sp.props) : 'no-sp',
+      userPropsStamp(up),
+      canvasSize.x + 'x' + canvasSize.y,
+      cameraOriginText(camNode.originObj ? camNode.originObj.origin : null),
+    ].join('|')
+  }
+  function camScriptLogOnce(key, msg) {
+    if (camScript.logged[key]) return
+    camScript.logged[key] = 1
+    try { onLog('⚠ P-120 相机 origin 脚本 ' + msg) } catch (e) { /* 日志失败不影响渲染 */ }
+  }
+  /**
+   * 本帧的相机 origin 脚本结果。返回
+   * `{state:'ok'|'static'|'off'|'nohost'|'nouserprops'|'error', value:[x,y,z]|null, static, why, …}`。
+   * **任何异常都在内部吞掉**（回退静态快照）——调用方拿到的永远是确定值。
+   */
+  function cameraOriginFromScript(camNode, outW, outH, time) {
+    const st = {
+      state: 'none', value: null,
+      static: Array.isArray(camNode.originStatic) ? camNode.originStatic.slice() : [0, 0, 0],
+      why: '', cached: false, srcLen: String(camNode.originScriptSrc || '').length,
+      t: time, evals: 0, fallbacks: 0,
+    }
+    const stats = camNode.originEvalStats || (camNode.originEvalStats = { evals: 0, fallbacks: 0, lastAt: -1 })
+    // 每条出口都记台账（含 'off'/'nohost'/'nouserprops'）：浏览器里 `window.__mpwCameraOriginScript`
+    // 是"这一帧相机 origin 为什么是这个值"的唯一出口，缺一条就会出现"看起来没接线"的假象。
+    const finish = (r) => {
+      stats.lastAt = time
+      r.evals = stats.evals; r.fallbacks = stats.fallbacks
+      camScript.ledger = r
+      if (typeof window !== 'undefined') { try { window.__mpwCameraOriginScript = r } catch (e) { /* ignore */ } }
+      return r
+    }
+    try {
+      if (cameraScriptMode() === 'off') { st.state = 'off'; return finish(st) }
+      const up = cameraScriptUserProps()
+      if (!up) { st.state = 'nouserprops'; camScriptLogOnce('nouserprops', '无用户属性表 ⇒ 保持不施加（与改动前一致；传 opts.cameraScript.userProps 或等面板就绪）'); return finish(st) }
+      const host = cameraScriptHostOf()
+      if (!host) { st.state = 'nohost'; camScriptLogOnce('nohost', '没有注册脚本宿主 ⇒ 保持不施加（setCameraScriptHost / opts.cameraScriptHost）'); return finish(st) }
+      if (!camScript.cache) camScript.cache = host.createScriptCache()
+      const canvasSize = cameraScriptCanvasSize(outW, outH)
+      const sig = cameraScriptSignature(camNode, up, canvasSize)
+      if (camScript.node === camNode && camScript.sig === sig && camScript.result) {
+        st.cached = true
+      } else {
+        camScript.node = camNode
+        camScript.result = evalCameraOriginScriptOnce(camNode, host, camScript.cache, time, up, canvasSize, opts.frametime)
+        camScript.sig = cameraScriptSignature(camNode, up, canvasSize)   // 求值后重算（宿主就地改写了 origin 原文）
+        stats.evals++
+      }
+      const r = camScript.result || { ok: false, why: 'no-result', value: null }
+      if (r.ok && Array.isArray(r.value)) {
+        st.state = 'ok'; st.value = r.value.slice()
+        camNode.originEval = r.value.slice(); camNode.originEvalState = 'ok'; camNode.originEvalWhy = ''
+      } else {
+        st.state = 'static'; st.why = r.why || 'unknown'; st.value = st.static.slice()
+        camNode.originEval = st.value.slice(); camNode.originEvalState = 'static'; camNode.originEvalWhy = st.why
+        stats.fallbacks++
+        camScriptLogOnce('fail:' + st.why.slice(0, 40), '求值失败（' + st.why + '）⇒ 回退静态快照 ' + st.value.join(' '))
+      }
+    } catch (e) {
+      st.state = 'error'; st.why = 'throw: ' + ((e && e.message) || e); st.value = st.static.slice()
+      camNode.originEval = st.value.slice(); camNode.originEvalState = 'error'; camNode.originEvalWhy = st.why
+      stats.fallbacks++
+      camScriptLogOnce('throw', '接线层异常（' + st.why + '）⇒ 回退静态快照')
+    }
+    return finish(st)
+  }
+
   // ---------- 渲染入口 ----------
   async function renderScene(scene, textures, width, height, time, __hdrRetry) {
     // ①(P-90) `?q=` **内部渲染档位**：把整场景画进 `内部尺寸` 的离屏 FBO，帧末上采样到画布。
@@ -8465,11 +8707,13 @@ export function createRenderer(canvas, opts = {}) {
     //   `full`（缺省）= 相机层激活 ⇒ pose = origin（**关键帧动画**优先）+ zoom（动画→用户属性绑定→静态值）；
     //   `legacy` = **P-76 的行为**（只接"用户属性绑定的 zoom"，origin 平移恒等）；
     //   `off`  = 完全不接相机层（**逐位**回到 P-76 之前）。
-    //   为什么 full 默认**不**施加脚本 origin 的快照：语料 6/7 个相机包的 `origin` 是逐属性脚本
+    //   为什么 full 默认**不**施加脚本 origin 的**静态快照**：语料 14 个相机包的 `origin` 是逐属性脚本
     //   （`{script:…, value:"2434.38477 725.25134 500"}`），静态基值是**编辑器保存时刻的快照**；
-    //   我们**不求解逐属性脚本**（`origin.script`）⇒ 施加快照会把整幅取景平移 **−2434px**（实测：
-    //   砂狼白子 3327063360 的 `纯色/文本1/文本2` 在 `?cam=node` 下 x0 各 −2434），
-    //   那既不是官方运行时值、也不是今天的画面。想做这个 A/B 就加 `?cam=node`（既有开关，语义不变）。
+    //   施加快照会把整幅取景平移 **−2434px**（实测：砂狼白子 3327063360 的 `纯色/文本1/文本2`
+    //   在 `?cam=node` 下 x0 各 −2434），那既不是官方运行时值、也不是今天的画面。
+    //   ⇒ ①(P-120 2026-09-18) 这 14 个包的 origin 改走**宿主求值结果**（`origin.script` 真的跑，
+    //     见下面的 `originScriptSrc` 分支与文件头 P-120 注释）；`?cam=node`（既有开关，语义不变）
+    //     仍然是"强制施加快照"的 A/B 口。
     //   `fov`：①(P-107 更正) **已有落点** —— 透视档（`?projmode=persp`，或缺省 auto + 无
     //   `general.orthogonalprojection`）由 `buildCamera` 的透视档消费，取值链见那里的 fovPick
     //   （pose 关键帧 → 用户属性绑定 fovFromUser → 绑定静态值 → 节点值 → `general.fov` → 50）。
@@ -8518,12 +8762,45 @@ export function createRenderer(canvas, opts = {}) {
         // ①(P-107) pose 带上 **z**（相机位置的第 3 个分量）：透视档的"节点锚定"要用它当相机 z；
         //   正交档只读 x/y/zoom/fov ⇒ 多一个字段对既有画面零影响。
         if (ov) { camPose = { x: ov[0], y: ov[1], z: ov[2], zoom: zv, fov: fv }; camPoseFull = true }
+      } else if (__camposeMode === 'full' && !force && camNode.originScriptSrc) {
+        // ①(P-120) **相机 origin 逐属性脚本**：用宿主求值结果代替静态 `.value`（失败回退静态快照；
+        //   无宿主/无用户属性表 ⇒ 保持不施加 = 改动前行为）。求值/重算/留痕全在
+        //   `cameraOriginFromScript` 里（宿主 = 既有 `elysia/scene-scripts.js`，见文件头 P-120 注释）。
+        const st = cameraOriginFromScript(camNode, __qOutW, __qOutH, time)
+        const ovEval = st.value
+        if (ovEval) {
+          // zoom/fov 取值链与上面的关键帧档**同形**，只有一处刻意的顺序差别：zoom 用户绑定优先
+          //   —— 这 14 个包的 zoom 是 `{user:"newproperty30"}`，改动前它们走的是 P-76 的
+          //   `__zoomOnly` 兜底（= 施加用户滑块的 zoom、origin 平移取 0）⇒ 这里保持"用户绑定优先"
+          //   才能让 zoom 滑块的**可观测行为逐值不变**（默认 1 时 framed/1 两档相同）。
+          let zv = null
+          if (typeof camNode.zoomFromUser === 'number' && isFinite(camNode.zoomFromUser) && camNode.zoomFromUser > 0.0001) zv = camNode.zoomFromUser
+          else if (camNode.zoomRaw) {
+            const z = evalPropAnimation(camNode.zoomRaw, time)
+            if (z && z[0] > 0.0001 && isFinite(z[0])) zv = z[0]
+            else if (camNode.zoomRaw.value !== undefined) {
+              const b = Number(camNode.zoomRaw.value)
+              if (isFinite(b) && b > 0.0001) zv = b
+            }
+          }
+          let fv = null
+          const fa = evalPropAnimation(camNode.fovRaw, time)
+          if (fa && isFinite(fa[0]) && fa[0] > 0) fv = fa[0]
+          else if (typeof camNode.fovFromUser === 'number' && isFinite(camNode.fovFromUser) && camNode.fovFromUser > 0) fv = camNode.fovFromUser
+          else if (camNode.fovRaw && typeof camNode.fovRaw === 'object' && camNode.fovRaw.value !== undefined
+            && isFinite(Number(camNode.fovRaw.value)) && Number(camNode.fovRaw.value) > 0) fv = Number(camNode.fovRaw.value)
+          else if (typeof camNode.fov === 'number' && camNode.fov > 0) fv = camNode.fov
+          camPose = { x: ovEval[0], y: ovEval[1], z: ovEval[2], zoom: zv, fov: fv }
+          camPoseFull = true
+        }
       }
     }
     // ①(P-76) 相机层**不是**"origin 关键帧"激活，但 `zoom` 来自**用户属性绑定**（面板"🔘镜头大小"滑块）：
     //   只应用 **zoom 窗口**、**origin 平移取 0**（x=y=0 ⇒ view 恒等，与今天逐位相同；zoom=1 时
-    //   framed/1 也不变 ⇒ 默认值零回归）。为什么不连 origin 一起用：语料 6/7 个包的 origin 是逐属性
+    //   framed/1 也不变 ⇒ 默认值零回归）。为什么不连 origin 一起用：语料 14 个包的 origin 是逐属性
     //   脚本，静态基值 `2434.38 725.25 500` 是编辑器残留，实测按它平移取景会偏 **2434px**（P-69 保持 inert）。
+    //   ①(P-120) 这 14 个包走上面的 `originScriptSrc` 分支（脚本求值），到不了这一路；本路仍是
+    //   "无脚本相机 + 用户拖了 zoom 滑块"的兜底，`legacy` 档行为不变。
     //   ⚠ 这一路在 `full` 下是**兜底**（相机未激活时才走），在 `legacy` 下就是全部行为。
     if (!camPose && camNode && opts.cam !== 0 && opts.cam !== '0' && __camposeMode !== 'off'
         && typeof camNode.zoomFromUser === 'number' && camNode.zoomFromUser > 0.0001 && camNode.zoomFromUser !== 1) {
@@ -10155,6 +10432,10 @@ export function createRenderer(canvas, opts = {}) {
     renderMeshLayer,
     // ①(P-100) 当前帧生效的角色层适配档（`?charfit=` / `opts.charfit`）：demo 启动日志与上报取证用
     get charfitMode() { return charfitMode },
+    // ①(P-120) 当前帧相机 origin 脚本台账（只读）：{state,value,static,why,cached,evals,fallbacks}
+    //   state: 'none'（无脚本）/ 'ok'（用求值结果）/ 'static'（求值失败 → 回退静态快照）/
+    //          'off'（开关关）/ 'nohost'（没注册宿主）/ 'nouserprops'（无用户属性表）/ 'error'（接线层异常）
+    get cameraOriginScript() { return camScript.ledger },
     ensureMeshProg,
     getFBO,
     getEffectProgram,

@@ -8077,3 +8077,188 @@ docs/README-DIAGNOSTICS.md     （只改 `cursor` 行的口径与代码位置；
 - 无 GPU ⇒ 「壁纸在真机上是否**继续渲染**（切页时被浏览器节流/暂停）」未测；只证明了 iframe 尺寸与生命周期正常。
 - 真机（Via/Chromium）像素与观感未测；本机只有无头 **Firefox** 的几何/computed-style。
 - 键盘 `←/→` 在页签上的快捷键保留（ARIA tablist 惯例），但它现在是"瞬时切页"，不再有滑动动画。
+
+## P-120（2026-09-18 任务书 P1-1）带 `origin.script` 的相机对象**真的跑脚本** —— 相机取景不再用静态快照
+
+**一句话**：语料 14 个相机对象的 `origin` 是 `{script:…, value:…}`（作者原意 = 按用户属性滑块算镜头位置），
+渲染器此前只认 `{animation}` ⇒ 这 14 个包的相机脚本**一次都没跑**；现在相机解析路径用**既有脚本宿主**
+（`elysia/scene-scripts.js`）的求值结果代替静态 `.value`，并按输入签名重算、失败回退快照且留痕。
+
+### P-120.1 现象与复现（先证差异真实存在；命令 + 数字）
+
+```
+$ node tests/camera-script-origin-probe.mjs          # rc=0，14/14 命中，~1.1s，峰值 RSS 111MB
+── 速览：包 id → 对象 id → 静态/求值 origin → Δ ──（节选；14 行全表见该工具输出/JSON）
+   0917/3448877775                    id=1297271  static[2434.38477 725.25134 500.00000]  eval[0.000000 0.000000 500.000000]  Δ x −2434.38477  y −725.25134
+   0917/3462491575                    id=1297271  static[2434.38477 725.25110 500.00003]  eval[0.000000 0.000000 500.000030]  Δ x −2434.38477  y −725.25110
+   dd/3326873240                      id=1297271  static[2434.38477 725.25134 500.00000]  eval[0.000000 0.000000 500.000000]  Δ x −2434.38477  y −725.25134
+   dd/3327063360                      id=1297271  static[2434.38477 725.25116 500.00000]  eval[0.000000 0.000000 500.000000]  Δ x −2434.38477  y −725.25116
+   dd/3470764447                      id=1297271  static[2434.38477 725.25134 500.00000]  eval[0.000000 0.000000 500.000000]  Δ x −2434.38477  y −725.25134
+   wallpaperE/other/…【time_variation_时间变化】…    id=1297271  static[2434.38477 725.25134 500.00000]  eval[0.000000 0.000000 500.000000]  Δ x −2434.38477  y −725.25134
+   wallpaperE/伊蕾娜/…day_night                     id=1297271  static[2434.38477 725.25134 500.00000]  eval[0.000000 0.000000 500.000000]  Δ x −2434.38477  y −725.25134
+   wallpaperE/流萤/…【customize自定义】…            id=1297271  static[2434.38477 725.25110 500.00003]  eval[0.000000 0.000000 500.000030]  Δ x −2434.38477  y −725.25110
+   wallpaperE/砂狼白子/砂狼白子11_03                 id=1297271  static[2434.38477 725.25116 500.00000]  eval[0.000000 0.000000 500.000000]  Δ x −2434.38477  y −725.25116
+   wallpaperE/遐蝶/…The Etern                       id=1297271  static[2434.38477 725.25110 500.00003]  eval[0.000000 0.000000 500.000030]  Δ x −2434.38477  y −725.25110
+   wallpapertest1/夜莺Night/夜莺night/…（4 个 .mpkg）  id=1297271  static[2434.38477 725.2511x 500.0000x]  eval[0.000000 0.000000 500.0000xx]  Δ x −2434.38477  y ≈ −725.2511
+   ⇒ 14/14 同一段 781 字符脚本（sha256 151da98895ccdaed…），脚本自定义属性 {"x":{"user":"x3","value":0.5},"y":{"user":"y1","value":0.5}}
+     脚本正文：value.x = scriptProperties.x * engine.canvasSize.x（y 同理）
+```
+
+**"今天渲染器实际用的 origin"是什么**（这句话必须说准）：这 14 个包的 `origin` 是 `{script,value}` 而不是
+`{animation}` ⇒ `cameraNode.active === false` ⇒ `renderScene` 的相机姿态分支**根本不进** ⇒ **施加的平移是 0**
+（既不是静态快照、也不是脚本值）。静态 `.value` 只在两处被读到：`?cam=node` 的强制 A/B（`camera-pose-test` ⑤
+实测非满幅层 Δx −2434）与透视档的节点锚定（`buildCamera` 的 `cStat`，这 14 个正交包用不到）。
+因此本次改动**不是**"把静态快照换成脚本值"，而是"**把这个从未接线的相机 origin 按脚本接通**"：
+
+| 档 | 改动前施加的相机 origin | 改动后 |
+|---|---|---|
+| 14 个脚本相机包（默认档 `full`） | 无姿态（平移 0；静态快照只被 `?cam=node` 用） | 宿主求值结果（默认 userProps 下 = `0 0 500` ⇒ 平移仍为 0；滑块一动镜头就动） |
+| `?cam=node`（既有 A/B 开关） | 施加快照 `2434.38477 725.25116 500`（−2434px） | **不变**（`camera-pose-test` ⑤ 逐字同输出） |
+| `3554161528`（唯一关键帧相机） | `{animation}` 关键帧 | **不变** |
+| `3509243656`（唯一静态字符串 origin / 透视） | 作者静态 `0 0 6` 节点锚定 | **不变** |
+
+### P-120.2 根因（file:line 为改动前）
+
+1. `core/we-scene-bundle.js:1515`（改前）`const animated = !!(o.origin && typeof o.origin === 'object' && o.origin.animation)`
+   —— 相机节点"激活"的唯一判据是**关键帧**；`{script,value}` 既不是 `animation` 也没有任何其它落点。
+2. `core/we-scene-bundle.js:8490`（改前）`if ((__camposeMode === 'full') && (camNode.active || force))`
+   —— 姿态分支把脚本相机挡在外面；`:8496` 的 `?cam=node` 静态回退还写着"实测 −2434px，默认不碰"。
+3. `elysia/scene-scripts.js` 的 `applySceneScripts` **本来就会**跑相机对象上的 `{script,value}`（`collect()` 扫全树，
+   `scriptVal.value` 就地写回）—— 缺的只是**渲染路径去读它、并且知道它跑成功了没有**。
+
+### P-120.3 改法（**只改最小面**；每处一句话）
+
+| 位置 | 改动 |
+|---|---|
+| `core/we-scene-bundle.js:1512-1558`（`parseScene` 的 `cameraNode`） | 多存 5 个只读字段：`originObj`（原始相机对象=宿主 owner+写回点）、`originStatic`（**解析那一刻冻结**的静态快照）、`originScriptSrc`、`originScriptAnchor`、`originScriptProps`（语料实测挂在 `origin.scriptproperties` 上），外加 `originEval/originEvalState/originEvalWhy/originEvalStats` 台账；**`active` 语义一字未改**（仍是"有关键帧"） |
+| `core/we-scene-bundle.js:4586-4705`（模块级接线层） | `setCameraScriptHost()/getCameraScriptHost()` 宿主注册口（**不 import `../elysia/…`**：发布产物把本文件放在站点根，跨目录相对路径线上会 404；隔离副本型测试也只拷 `core/`）；`cameraScriptModeFrom()`（`opts` > `window.__mpwCameraScript` > 缺省 `on`，**不新增 `?` 开关**）；`userPropsStamp()` 指纹；`evalCameraOriginScriptOnce()` = 在**相机对象局部**调既有宿主并读回宿主写进原对象树的值，宿主 entry 的 `error/disabled/updateErrors` 与 `onError` 一起作为"跑成了没有"的判据 |
+| `core/we-scene-bundle.js:8501-8610`（`createRenderer` 闭包） | 每渲染器一个专属 `createScriptCache()` + 输入签名备忘 + 台账；`cameraOriginFromScript()` 是唯一出口，**每条出口都记台账**（`ok/static/off/nohost/nouserprops/error`） |
+| `core/we-scene-bundle.js:8765-8793`（`renderScene` 相机分支） | 新增 `else if (__camposeMode === 'full' && !force && camNode.originScriptSrc)`：用**求值结果**当 pose 的 x/y/z，zoom/fov 取值链与关键帧档同形（zoom 一处刻意差异：**用户绑定优先**，因为改动前这 14 个包走的是 P-76 的 `__zoomOnly` 兜底，用户体验必须逐值不变） |
+| `core/we-scene-bundle.js:10438`（渲染器 API） | 只读台账 `get cameraOriginScript()`；浏览器里同一份写到 `window.__mpwCameraOriginScript` |
+| `demo.html:4505-4512`（真实路径接线） | `lib.createRenderer(cv, { …, cameraScriptHost: { applySceneScripts, createScriptCache } })` —— 把**本页已经在用的**那个宿主实例交给相机分支，不自造求值器 |
+
+**多久重算一次 / 什么触发（渲染器既有节奏 = 每个渲染帧检查一次签名，签名不变就不调宿主）**：
+签名 = ① 脚本源长度 ② 对象 `scriptproperties` 经 `resolveScriptProperties` 解析出的字面量（用户属性绑定的落点）
+③ `userProps` 全表指纹（对象没写 `scriptproperties` 时用户属性仍会影响脚本内属性默认值）④ `canvasSize`
+⑤ 相机 origin **原文串**（宿主按自己的 4Hz/30Hz 脚本趟写回时会改它 ⇒ 与 demo 既有节拍天然对齐，时间型相机脚本
+不会被备忘冻住）。**失败/缺失** ⇒ 回退 `originStatic` + `camNode.originEvalStats.fallbacks++` + 一条
+`⚠ P-120 …` 日志（每个失败原因只打一次）。**唯二不套快照的例外**：没有注册宿主（`nohost`）或没有用户属性表
+（`nouserprops`）时**保持不施加**（= 改动前行为）—— 那种环境下"施加快照"就是 P-69 量到的 −2434px 编辑器残留，
+属于回归。**任何异常都在接线层内吞掉**，相机解析不外抛。
+
+### P-120.4 判据 (a)-(d)：`node tests/camera-origin-script-test.mjs`（rc=0，**78 pass / 0 fail / 0 skip**，1.6s，峰值 RSS 293MB）
+
+```
+══ (a) 14 个 `origin.script` 相机包：渲染路径的相机 origin == 宿主求值结果 ══
+  ✓ a1 0917/3448877775 渲染路径有相机 origin 脚本台账且 state=ok  [state=ok]
+  ✓ a2 0917/3448877775 相机 origin 逐分量 == 独立参考求值 [0,0,500]  [not台=[0,0,500] 参考=[0,0,500]]
+  ✓ a3 0917/3448877775 相机 origin ≠ 冻结静态快照 [2434.38477,725.25134,500]  [Δx=-2434.38477]
+  …（a1/a2/a3 逐包 14×3 = 42 条，全绿；"独立参考求值"= 真宿主 + 全场景 + 全新缓存，**不复用**渲染路径那趟）
+  ✓ a4 (a) 覆盖 14 个包且逐包求值成功  [包=14 求值对齐=14 跳过=0]
+  ✓ a5 (a) 14 个包用的是**同一段**脚本（sha256 前缀 151da98895ccdaed）
+  ✓ a6 (a) 14/14 的求值结果都与静态快照不同（证明确实不是抄 `.value`）  [14/14]
+══ (c) 用户属性 → 相机 origin：project.json 默认值 vs x3=0.25 ══
+  · 默认 userProps：求值 [0,0,500] / 参考 [0,0,500] / 静态 [2434.38477,725.25116,500]
+  · x3=0.25    ：求值 [960,0,500] / 参考 [960,0,500]
+  ✓ c1 默认用户属性 ⇒ 求值结果 == 参考求值 [0,0,500]
+  ✓ c2 默认用户属性 ⇒ **取景逐位不变**（与"接线关"的实绘矩形逐值相同）  [10 层]      ← 硬判据 (b) 的脚本侧
+  ✓ c3 改一个用户属性（x3 0→0.25）⇒ 相机 origin 跟着变：[0,0,500] → [960,0,500]  [Δ=960]
+  ✓ c4 改属性后**取景真的跟着动**：非满幅层 Δx == −960（9 层位移）  [纯色 Δx=-960 | 文本1 Δx=-960 | 文本2 Δx=-960]
+  ✓ c5 同签名连渲两帧只求值一次（第二次 cached=true）⇒ 重算是"按输入签名"不是每帧无脑跑  [evals=1 cached=true]
+  ✓ c6 canvasSize 变化 ⇒ 相机 origin 跟着重算（x3=0.5：3840→1920 / 1920→960，与参考求值同值）  [3840 画布=[1920,0,500] 1920 画布=[960,0,500]]
+══ (b) 反向：无脚本相机包（关键帧 / 静态字符串）逐值不变 ══
+  ✓ b1 dd/3554161528（关键帧 origin）接线开/关的实绘矩形**逐位相同**  [11 层]
+  ✓ b2 dd/3554161528 相机节点仍是"关键帧驱动"（active=true）且**没有** origin 脚本字段  [active=true src=null]
+  ✓ b3 dd/3554161528 两档都没有相机 origin 脚本台账（P-120 分支不进）
+  ✓ b4 0917/3509243656（静态字符串 origin）没有 origin 脚本字段、无台账
+  ✓ b5 0917/3509243656 冻结静态快照仍等于作者原文 "0 0 6"（逐值不变）
+  ✓ b6 0917/3509243656 透视档仍按**作者静态 origin** 节点锚定（projKind=persp / anchor=node / dist=6）
+  ✓ b7 无相机节点的包（dd/3544152633）：cameraNode===null 且不产生任何相机 origin 台账
+══ (d) 坏脚本 / 坏宿主：不抛 + 只可能"回退静态快照"或"不施加" ══
+  ✓ d1 坏脚本：renderScene **不抛**且落点 ∈ {回退静态快照, 不施加}  [应用=[2434.38477,725.25116,500] 静态=同值]
+  ✓ d2 坏脚本：落点绝无第三种可能（半成品/NaN 都会红）
+  ✓ d3 坏宿主（applySceneScripts 抛）：renderScene **不抛**且落点 ∈ {回退静态快照, 不施加}
+  ✓ x1 坏脚本：台账 state=static 且回退计数 ≥1  [why=compile: vm shim parse error: Unexpected identifier 'is']
+  ✓ x2 坏脚本：日志里有一条 P-120 的失败痕迹（不是静默回退）
+  ✓ x3 坏宿主：台账 state=static 且 value == 静态快照  [why=host-throw: P-120 坏宿主（测试夹具）]
+  ✓ x4 开关 opts.cameraScript='off' ⇒ 不施加（落点 = null）且台账 state='off'
+  ✓ x5 没有用户属性表 ⇒ 不施加（state=nouserprops；绝不套用静态残留）
+```
+> `d*` 故意写成**变异安全**形式（"落点 ∈ {静态快照, 不施加}"、"绝无第三种可能"）：接线被撤时落点 = 不施加，
+> 同样为真 ⇒ 反转后 (d) 仍绿。`x*` 是**接线期才有**的痕迹证据，不参与"反转后 (b)(d) 仍绿"的判据。
+
+### P-120.5 red-if-reverted（隔离副本 + 真树未改动证明；同一次 `node tests/camera-origin-script-test.mjs` 内完成）
+
+```
+══ (m) 红-if-reverted：隔离副本改回"不跑脚本" ⇒ (a)(c) 必红、(b)(d) 仍绿 ══
+  · 隔离副本 = /tmp/p120-mutant-XXXXXX（真文件副本 85 个文件；不含 node_modules/reports/语料）
+  ✓ m1 隔离副本的入口脚本是真文件副本（inode 不同且内容 sha256 相同）  [ino 1618042 vs 2005750]
+  ✓ m2 变异点存在且唯一（`originScriptSrc` 相机分支守卫）  [命中 1 次]
+  ✓ m3 子进程真的在隔离副本里跑（ROOT == /tmp/p120-mutant-XXXXXX）  [rc=1]
+  · 变异体计票：a=45(红44) b=7(红0) c=5(红4) d=3(红0) x=2(红2) rc=1
+  ✓ m4 变异体里 (a) 逐包判据（a1/a2/a3 共 42 条 + a4/a6）全部变红
+  ✓ m5 变异体里 (c) 的求值/位移判据（c1/c3/c4）全部变红，而 c2（默认属性取景不变）留绿
+  ✓ m6 变异体里 (b) **仍全绿**（无脚本包逐值不变）  [b 共 7 条，红 0]
+  ✓ m7 变异体里 (d) **仍全绿**（坏脚本/坏宿主不抛、落点两态之一）  [d 共 3 条，红 0]
+  ✓ m8 变异体整体 rc=1（有判据红 ⇒ 不冒充通过）
+  ✓ m9 接线期才有的痕迹判据 (x) 在变异体里变红（证明 (a)(c) 的红不是"整轮跑不起来"）
+  ✓ m10 真树 core/we-scene-bundle.js sha256 跑前跑后一致  [9b7467e17ad10bdd…]
+  ✓ m11 真树 core/* 全部文件 sha256 跑前跑后一致  [8 个文件]
+  ✓ m12 真树 `git status --porcelain` 跑前跑后逐字一致（未新增/未改动）  [3 行未提交改动（跑前=跑后）]
+```
+- **变异点**：隔离副本 `core/we-scene-bundle.js` 的 `} else if (__camposeMode === 'full' && !force && camNode.originScriptSrc) {`
+  → `} else if (false && …) {`（一行，= 接线改回"不跑脚本"）。**失败断言名**：变异体里 `a1/a2/a3`（逐包 42 条）、
+  `a4`、`a6`、`c1`、`c3`、`c4`、`x1`、`x2` 全红；子进程 **rc=1**。
+- **入口脚本是真文件副本**：`readFileSync/writeFileSync` 逐文件复制 + `statSync` 判类型（不用 `fs.cpSync`——本机抛
+  EINVAL；不用 `Dirent.isFile()`——有误报），并用 inode 不同 + 内容 sha256 相同双向证明（m1）。
+
+### P-120.6 不回归（逐个贴退出码）
+
+```
+$ node tests/camera-script-origin-probe.mjs   rc=0  1.0s   ← 与改动前**逐字相同**（只差报告文件名的时间戳）
+$ node tests/camera-node-test.mjs             rc=0  1.5s   ← 输出与改动前逐字相同（T3 仍"相机节点 inert（null 或非动画）且 view 恒等"）
+$ node tests/camera-pose-test.mjs             rc=0  1.1s   ← 输出逐字相同：⑤ full/legacy/off 三档实绘矩形**逐位相同**、`?cam=node` 仍 Δx −2434
+$ node tests/camera-persp-test.mjs            rc=0  0.5s   ← 输出逐字相同（3509243656 透视档不受影响）
+$ node tests/projection-y-test.mjs            rc=0  1.8s   ← 输出逐字相同
+$ node tests/charfit-camera-test.mjs          rc=0  1.0s   ← 输出逐字相同
+$ node tests/mock-gl-test.mjs                 rc=0  0.2s   ← 输出逐字相同
+$ node --check core/we-scene-bundle.js        rc=0
+（追加自查，均 rc=0：camera-fillmode-test 0.09s / bind-order-test 1.7s（隔离副本 import 未受影响：本改动**没有**给
+ bundle 加任何跨目录 import）/ pointer-leave-test 1.1s / diag-flag-check 0.3s（**本次 rc=0**；文档里记的 rc=1-lgcss
+ 已由插件线修掉，本改动未碰 README 与 web/diag-flags.json）/ demo-syntax-check 0.7s / docs-check 0.7s /
+ canvas-size-test 0.2s / p76-parallax-eye-test 3.6s / fullscreen-recenter-test 0.1s）
+重活（`tests/run-all-tests.sh`、`package-matrix.mjs`、`glsl-validate.mjs`、`build-pages.mjs`）**本会话未跑**（>60s 硬约束）⇒ 由主对话排队。
+```
+
+### P-120.7 未证实 / 未做（不猜）
+
+- **真机画面与官方是否一致：未证实**（本机无 GPU/无 WebGL2、禁止启动浏览器 ⇒ 只有 mock-GL 的矩阵/矩形/数值）。
+  尤其"默认 userProps 下这 14 个包的取景与官方逐像素一致"**没有像素级证据**，只有"求值 = 0 0 500 ⇒ 平移 0 ⇒
+  与改动前的矩形逐位相同"这条数值证据。
+- `canvasSize` 口径沿用 demo 既有脚本趟（`mpwEngineCanvasSize()` 缺省 = **渲染输出尺寸**，本测试用 3840×2160）。
+  真机上画布可能是别的尺寸 ⇒ 滑块非默认时相机位移量 = `滑块 × 画布尺寸`，**与官方 engine.canvasSize 的确切口径
+  仍未与真机对拍**（P-78 已记录两种口径都在画布内）。
+- **时间型相机脚本**（用 `engine.time/frametime` 而非用户属性）在"没有任何输入变化、也没有别的宿主趟写回 origin"
+  的环境下会被签名备忘冻住（浏览器里 demo 的 4Hz/30Hz 脚本趟会写回 ⇒ 每趟重算；见 P-120.3 触发条件）。
+- `?campose=legacy` 档**不接**脚本 origin（= P-76 行为，只有用户绑定的 zoom 生效）；这是刻意的档位语义，未改。
+- 相机对象上**除 origin 以外**的 `{script}` 节点（语料 0 例）会跟 origin 一起被局部趟跑到（作用域 = 相机对象），
+  其 thisLayer/thisScene 只看得见相机对象本身（`renderObjects:[camObj]`）—— 语料无此形状，未测。
+- `elysia/we-renderer/core.js`（elysia 参考渲染器）的 `_setupCamera` **本来就不读相机层 origin**（`cameraNode`
+  零命中）⇒ 本次不涉及；`tests/preview.mjs:10` 走的是 bundle，已被本测试覆盖。
+- 旁注（**改动前就存在**的宿主隔离缺陷，本次只记录不修）：`allwallpaper/0917/3462491575` 包里的作者脚本执行
+  `console.log = () => {}`，而脚本沙箱共享**真的** `console` 对象 ⇒ 该包一开始跑，宿主进程的 `console.log`
+  就被全局静音（本测试因此改用 `fs.writeSync`；`camera-script-origin-probe.mjs` 的 `muteConsole` 是同一原因的
+  另一处规避）。修它要动 `elysia/scene-scripts.js` 的沙箱，超出 P1-1 最小面。
+
+### P-120.8 本轮改动的文件清单（提交只含这些）
+
+| 文件 | 说明 |
+|---|---|
+| `core/we-scene-bundle.js` | 接线本体（parseScene 字段 / 宿主注册口 + 局部求值 / renderScene 分支 / 台账 API）+ 4 处过时注释更正 |
+| `demo.html` | 真实路径接线：`createRenderer(..., { cameraScriptHost: { applySceneScripts, createScriptCache } })`（一行 + 注释） |
+| `tests/camera-origin-script-test.mjs` | **新增**：判据 (a)-(d) + 痕迹 (x) + 红-if-reverted (m)，78 断言，1.6s，峰值 RSS 293MB（`camera-pose-test` 同口径实测 330MB，两者都在本机既有真包类用例的同一量级） |
+| `docs/PATCHES.md` | 本节 P-120 |
+| **未改**：`tests/run-all-tests.sh`（门禁登记待办，见下）、`docs/README-DIAGNOSTICS.md`（没新增 `?` 开关）、`web/diag-flags.json`、`elysia/scene-scripts.js`（求值器一行未动） | |
+
+登记待办：`add "camera-origin-script" "node tests/camera-origin-script-test.mjs" "" "^SKIP camera-origin-script"`。
+`tests/run-all-tests.sh` 本轮**未改**（工作树里它是干净的，但登记属于门禁线的动作；本会话按纪律只提交自己的路径）。

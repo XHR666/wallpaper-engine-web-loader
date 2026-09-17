@@ -4500,6 +4500,15 @@ function loadScene() {
     },
     // 首帧逐层审计（[首帧] 日志）——定位"卡在哪一层"
     auditFrames: Number(new URLSearchParams(location.search).get('audit') || 1),
+    // ①(P-120 2026-09-18) **相机 origin 逐属性脚本的宿主**：语料 14 个相机对象的 `origin` 是
+    //   `{script:…, value:…}`（作者原意 = 按用户属性滑块算镜头位置），渲染器不再当它是"无落点"。
+    //   这里把**本页已经在用的**那个脚本宿主（`elysia/scene-scripts.js`，见本文件顶部 import）交给
+    //   bundle 的相机分支复用 —— 不自造求值器、不新增 `?` 开关。
+    //   输入口径（与 demo 既有脚本趟一致）：`userProps` 默认读 `window.__mpwUserProps`（面板就绪后才有；
+    //   没有它时 bundle **保持不施加**，不会套用编辑器残留快照）、`canvasSize` 默认 = 渲染输出尺寸
+    //   （= 本文件的 `mpwEngineCanvasSize()` 缺省口径）；`opts.cameraScript='off'` 或
+    //   `window.__mpwCameraScript='off'` 可实时回退到"不跑脚本"。
+    cameraScriptHost: { applySceneScripts, createScriptCache },
   });
   textures.set('util/white', { glTex: lib.makeTexture(gl, new Uint8Array([255,255,255,255]), 1, 1), width: 1, height: 1, rg88: false });
   textures.set('util/noflow', { glTex: lib.makeTexture(gl, new Uint8Array([127,127,127,255]), 1, 1), width: 1, height: 1, rg88: false });
