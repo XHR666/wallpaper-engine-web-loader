@@ -352,6 +352,73 @@ const landing = path.join(ROOT, 'index.html')
     /html\.bench-shell\{overflow-x:hidden\}/.test(css) && /html\.bench-shell body\{overflow-x:hidden\}/.test(css))
 }
 
+// ---- D10 品牌位（2026-09-19 用户改名：旧名 WebWallGL → 新名 WEwebLoader）
+// 为什么要判"语境"而不是"全文零命中"：(B) **上游归属位必须保留原样** —— 指向上游 `oneincase/webwallgl`
+// （MIT）的归属行、外链、许可文件名（`demo/LICENSE-webwallgl*`）里对上游项目的称呼是**许可要求**，
+// 删了就是合规问题。所以这一组钉住四条，任何一条被改坏都会红：
+//   ① 品牌位（`<title>` / `<h1>` / `#site-brand` / manifest 的 name+short_name）里**零旧名**；
+//   ② 旧名在整页里的**每一处出现**都必须落在归属语境（上下文窗口内有 oneincase / LICENSE-webwallgl / MIT / 上游 / upstream）；
+//   ③ 归属本身仍在（上游外链 + 两份 MIT 许可文件名 + 归属行里的旧名计数）—— 否则"零命中"会是假绿；
+//   ④ 新名 `WEwebLoader` 在产品面**真的出现**（防"删掉旧名却没换上新名"这种假绿）。
+{
+  const OLD = /webwallgl/i
+  const NEW = 'WEwebLoader'
+  const FILES = ['index.html', 'demo/index.html', 'demo/renderer/index.html', 'demo/manifest.webmanifest']
+  const texts = Object.fromEntries(FILES.map((f) => [f, read(f)]))
+  const title = (h) => ((h.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || '').trim()
+  const countOld = (s) => [...s.matchAll(/webwallgl/gi)].length
+
+  // ① 品牌位零旧名
+  const slots = []
+  for (const f of FILES) {
+    if (f.endsWith('.webmanifest')) continue
+    slots.push([f + ' <title>', title(texts[f])])
+    if (f === 'index.html') slots.push([f + ' <h1>', (texts[f].match(/<h1>([\s\S]*?)<\/h1>/) || [])[1] || ''])
+    if (f === 'demo/index.html') slots.push([f + ' #site-brand', (texts[f].match(/<div id="site-brand">([\s\S]*?)<\/div>/) || [])[1] || ''])
+  }
+  const dirty = slots.filter(([, t]) => OLD.test(t)).map(([n]) => n)
+  check('D10 品牌位零旧名（' + slots.map(([n]) => n).join(' / ') + '）', dirty.length === 0, dirty.join(', '))
+  const mfRaw = texts['demo/manifest.webmanifest']
+  const mf = JSON.parse(mfRaw)
+  check('D10 PWA 名已是新名、manifest 全文零旧名',
+    mf.short_name === NEW && String(mf.name).startsWith(NEW) && !OLD.test(mfRaw),
+    JSON.stringify({ name: mf.name, short_name: mf.short_name }))
+  check('D10 渲染器页（无归属内容）全文零旧名',
+    !OLD.test(texts['demo/renderer/index.html']), 'demo/renderer/index.html')
+
+  // ② 旧名的每一处出现都必须在归属/出处语境里
+  //   "归属/出处语境"的判据词：上游项目名（oneincase/upstream/上游）、许可（MIT）、许可文件名、
+  //   以及"上游产物"这类**出处说明**（落地页卡片 "在线测试台（打过补丁的 WebWallGL 产物）" 就是这一类：
+  //   它指称的是上游产物、不是本产品的自称 ⇒ 属 (B) 保留位）。真正要拦的是"我们以旧名自称"。
+  const CTX = /oneincase|LICENSE-webwallgl|MIT|上游|upstream|产物|artifact|redistribution|再分发/i
+  for (const f of ['index.html', 'demo/index.html']) {
+    const lines = texts[f].split('\n')
+    const bad = []
+    lines.forEach((l, i) => {
+      if (!OLD.test(l)) return
+      const win = lines.slice(Math.max(0, i - 3), i + 4).join(' ')
+      if (!CTX.test(win)) bad.push((i + 1) + ':' + l.trim().slice(0, 64))
+    })
+    check('D10 ' + f + '：旧名只出现在归属/出处语境（oneincase / MIT / LICENSE-webwallgl / 上游 / 产物）',
+      bad.length === 0, bad.slice(0, 3).join(' | '))
+  }
+
+  // ③ 归属仍在（不许为了让上面几条变绿而删归属；也防"零命中"假绿）
+  check('D10 归属未被改名的顺手删除（上游外链 + 两份 MIT 许可文件名在测试台与落地页都在）',
+    /github\.com\/oneincase\/webwallgl/.test(texts['demo/index.html']) && /github\.com\/oneincase\/webwallgl/.test(texts['index.html']) &&
+    /LICENSE-webwallgl-MIT\.txt/.test(texts['demo/index.html']) && /LICENSE-webwallgl"/.test(texts['demo/index.html']) &&
+    /LICENSE-webwallgl-MIT\.txt/.test(texts['index.html']) && /LICENSE-webwallgl"/.test(texts['index.html']))
+  check('D10 归属行里的旧名计数未归零（上游署名不许被"改名"顺手清掉）',
+    countOld(texts['demo/index.html']) >= 4 && countOld(texts['index.html']) >= 4,
+    'demo/index.html=' + countOld(texts['demo/index.html']) + ' index.html=' + countOld(texts['index.html']))
+
+  // ④ 新名真的出现
+  const missingNew = FILES.filter((f) => !texts[f].includes(NEW))
+  check('D10 新名 ' + NEW + ' 在产品面真的出现（' + FILES.length + ' 个文件全覆盖）', missingNew.length === 0, missingNew.join(', '))
+  check('D10 渲染器页 <title> 已是新名', title(texts['demo/renderer/index.html']) === NEW + ' Renderer', title(texts['demo/renderer/index.html']))
+  check('D10 测试台 SW 的自述已改名（demo/sw.js 首行注释）', /WEwebLoader/.test(read('demo/sw.js').split('\n')[0]))
+}
+
 if (JSON_OUT) console.log(JSON.stringify({ pass, fail }, null, 1))
 else console.log(`\n===== demo-check: ${pass} 通过 / ${fail} 失败 =====`)
 process.exit(fail ? 1 : 0)

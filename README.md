@@ -5,6 +5,9 @@
 
 已发布 [wallpaper-engine-web-loader@0.1.1](https://www.npmjs.com/package/wallpaper-engine-web-loader) · [在线 demo](https://xhr666.github.io/wallpaper-engine-web-loader/)
 
+> **命名说明（2026-09-19）**：本产品现名 **WEwebLoader**（npm 包名与仓库名仍是 `wallpaper-engine-web-loader`）；
+> 上游项目名仍是 **WebWallGL**（`oneincase/webwallgl`，MIT），归属与许可不因此改变。
+
 > **参照来源许可声明**：`wer-ref/`（`Aromatic05/wallpaper-engine-renderer`，`catsout/wallpaper-scene-renderer` 的 fork，**GPL-2.0-only**）与
 > `we-layerd-ref/`（`Aromatic05/we-layerd`，**无许可**）都是**仓库外的第三方参考实现**，不是 WE 官方代码、不是"真值源"，
 > 仅用于**行为对照**：**不得复制、改写、逐行翻译其代码、注释、常量组织或错误文案**。血缘自查见 `docs/WER-REF-LICENSE-AUDIT.md`。

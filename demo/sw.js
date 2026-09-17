@@ -1,4 +1,4 @@
-/* WebWallGL 测试台 Service Worker（纯静态托管用，本地 dev 不注册）。
+/* WEwebLoader 测试台 Service Worker（纯静态托管用，本地 dev 不注册）。
  *
  * 策略：
  *   - HTML 导航 network-first：在线永远拿最新版，离线回落缓存（部署后老客户端

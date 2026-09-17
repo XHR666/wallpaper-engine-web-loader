@@ -1,6 +1,6 @@
 {
-  "name": "WebWallGL Bench",
-  "short_name": "WebWallGL",
+  "name": "WEwebLoader Bench",
+  "short_name": "WEwebLoader",
   "description": "Wallpaper Engine scene wallpaper renderer for the browser — user guide & preview bench",
   "start_url": "./",
   "scope": "./",
