@@ -503,6 +503,30 @@ wp.pushPointer(0.5, 0.5)</code></pre>
       <span id="status-live-fps" class="idle" data-i18n-title="status.liveTitle" title="壁纸实测帧率（渲染循环最近 500ms）">— FPS</span>
     </footer>
 
+    <!-- ①(2026-09-17 真机事故自愈) **过期补丁自检**：本站入口文件 `bench-patch.js` 没有内容哈希，
+         一旦被 HTTP 启发式缓存或旧 Service Worker 钉住，就会出现"新 HTML + 旧补丁"的混合体
+         （真机表现：整页布局错乱、左上角出现未翻译的 nav.console 文本、控制台不渲染）。
+         这里在加载后自检"外壳 CSS 是否真的注入了"，没注入就**自动重载一次**（sessionStorage 守卫只重载一次，
+         不会打转；`?shell=off` 是刻意的旧行为，不触发）。旧补丁里没有这段代码也无所谓 —— 它在新 HTML 里。 -->
+    <script>
+      (function () {
+        try {
+          if (/[?&]shell=(off|0|false|no)\b/.test(location.search)) return
+          addEventListener('load', function () {
+            setTimeout(function () {
+              try {
+                var ok = !!document.querySelector('#bench-site-style')
+                if (ok) { try { sessionStorage.removeItem('bench-stale-reload') } catch (e) {} return }
+                if (!document.querySelector('#pages-track')) return           // 不是新版 HTML：不管
+                if (sessionStorage.getItem('bench-stale-reload')) return      // 已经重载过一次
+                sessionStorage.setItem('bench-stale-reload', '1')
+                location.reload()
+              } catch (e) {}
+            }, 1500)
+          })
+        } catch (e) {}
+      })()
+    </script>
     <script type="module" src="./bench-patch.js"></script>
   </body>
 </html>
