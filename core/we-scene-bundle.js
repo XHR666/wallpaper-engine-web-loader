@@ -6768,6 +6768,62 @@ export function createRenderer(canvas, opts = {}) {
   /** 注入值指纹（用**数值**而不是对象身份之外的东西：宿主原地改字段也能被认出来）。 */
   const __injKey = (inj) => (inj && Number.isFinite(inj.x) && Number.isFinite(inj.y))
     ? (inj.x + '|' + inj.y + '|' + (inj.inside === false ? '0' : '1')) : 'none'
+  // ①(P-121 B-G2/G3) "离开"信号的**统一处置**（`pointerleave` / `pointerout` / 页面级 blur·visibilitychange
+  //   走同一条路）：清掉画布归一坐标 + 记"已离开"，并记下**那一刻**注入通道的值（对象 + 指纹）——
+  //   语义与 P-118 的 `pointerleave` 逐字相同（注入值没变不许盖过"已离开"，变了=新证据）。
+  //   `why` 只进台账（`__pointerLeaveWhy`，离线取证/真机复现时能一眼看出是哪条信号关的门）。
+  let __pointerLeaveWhy = ''
+  const __pointerLeave = (why) => {
+    try {
+      __pointerLeaveWhy = why
+      __pointerN = null
+      __pointerGone = true
+      __pointerGoneInj = __injectedPointer()
+      __pointerGoneKey = __injKey(__pointerGoneInj)
+    } catch (e) { /* ignore */ }
+  }
+  // ①(P-121 B-G3) **页面级**"离开"（切窗口 / 切标签 / 系统弹窗）：`blur` 与 `visibilitychange:hidden`
+  //   走"挂起"而不是"清坐标" —— 指针可能还停在画布上（浏览器在失焦窗口上照样发 pointermove、
+  //   只是 `pointerleave` 不一定发），所以两条通道一起让路（`__pointerDesign` 首行判 `__pointerSuspended`），
+  //   但 `__pointerN` **保留**：焦点/可见性回来时若指针仍在画布内 ⇒ 立刻继续发射（G3c 钉住这条，
+  //   不许把"临时失焦"误判成"永久停发"）；若失焦期间指针真的离开了画布，`pointerleave/pointerout`
+  //   会把 `__pointerN` 清掉 ⇒ 回来也不会无中生有（G3e 钉住另一面）。
+  let __pointerSuspended = false
+  let __pointerSuspendWhy = ''
+  let __pointerReturnWhy = ''
+  let __pageHookedOn = null      // { win, doc }：已挂钩的页面目标（只在**换了对象**时重挂，幂等）
+  const __pointerSuspend = (why) => { try { __pointerSuspended = true; __pointerSuspendWhy = why } catch (e) { /* ignore */ } }
+  const __pointerResume = (why) => {
+    try {
+      if (!__pointerSuspended) return
+      __pointerSuspended = false
+      __pointerReturnWhy = why
+    } catch (e) { /* ignore */ }
+  }
+  // ①(P-121 B-G3) 页面级钩子：挂在 `window`（blur/focus）与 `document`（visibilitychange）上。
+  //   **幂等 + 目标可变**：ctx.window/document 只在换了个对象时重挂（同一目标二次调用直接返回）——
+  //   与 `__hookPointer` 的"挂不上就不置位"同一条纪律：Node 侧（离线工具/本仓库的假 DOM harness）
+  //   一开始可能压根没有 window/document，等它们出现时必须还能装上。`?cursor=off` 下**不调用**
+  //   （逃生口语义：一个监听器都不装，D4b 把画布侧与页面侧一起钉住）。
+  function __hookPageLeave() {
+    try {
+      const win = (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') ? window : null
+      const doc = (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') ? document : null
+      if (!win && !doc) return
+      if (__pageHookedOn && __pageHookedOn.win === win && __pageHookedOn.doc === doc) return
+      __pageHookedOn = { win, doc }
+      if (win) {
+        win.addEventListener('blur', () => __pointerSuspend('blur'), { passive: true })
+        win.addEventListener('focus', () => __pointerResume('focus'), { passive: true })
+      }
+      if (doc) {
+        doc.addEventListener('visibilitychange', () => {
+          const hidden = (doc.hidden === true) || (doc.visibilityState === 'hidden')
+          if (hidden) __pointerSuspend('visibilitychange:hidden'); else __pointerResume('visibilitychange:visible')
+        }, { passive: true })
+      }
+    } catch (e) { /* 无 DOM → 只认 window.__mpwPointer */ }
+  }
   function __hookPointer() {
     if (__pointerHooked) return
     try {
@@ -6785,7 +6841,19 @@ export function createRenderer(canvas, opts = {}) {
       }
       el.addEventListener('pointermove', set, { passive: true })
       el.addEventListener('pointerdown', set, { passive: true })
-      el.addEventListener('pointerleave', () => { __pointerN = null; __pointerGone = true; __pointerGoneInj = __injectedPointer(); __pointerGoneKey = __injKey(__pointerGoneInj) }, { passive: true })
+      el.addEventListener('pointerleave', () => __pointerLeave('pointerleave'), { passive: true })
+      // ①(P-121 B-G2) `pointerout` + `relatedTarget === null` 是"离开文档/窗口"的**等价路径**
+      //   （切窗口/系统弹窗时有的实现只发 pointerout 不发 pointerleave）⇒ 与 pointerleave 同一处置。
+      //   `relatedTarget` 指向画布**内部**元素时**不算**离开（pointerout 会从子元素冒泡上来：
+      //   指针从子元素移回画布本体时 relatedTarget === 画布本身）；`contains` 不存在（最小假 DOM）
+      //   时只认 `relatedTarget == null` 这一条，绝不因为"量不出来"就把指针判成离开。
+      el.addEventListener('pointerout', (ev) => {
+        try {
+          const rt = ev ? ev.relatedTarget : null
+          if (!rt) { __pointerLeave('pointerout(null)'); return }
+          if (typeof el.contains === 'function' && !el.contains(rt)) __pointerLeave('pointerout(outside)')
+        } catch (e) { /* ignore */ }
+      }, { passive: true })
     } catch (e) { /* 无 DOM → 只认 window.__mpwPointer */ }
   }
   // ①(P-118 G4 **自举死锁**）建渲染器即装 DOM 钩子 —— **不依赖"本帧已经有指针"**。
@@ -6795,6 +6863,9 @@ export function createRenderer(canvas, opts = {}) {
   //   一次都不发射（"鼠标拖尾"整个是死的）。"本帧没有指针" ≠ "不需要监听 DOM"。
   //   `?cursor=off` 语义**不变**：这条逃生口下不装钩子、也不发射。
   if (!CURSOR_OFF) __hookPointer()
+  // ①(P-121 B-G3) 页面级"离开"钩子（window blur/focus + document visibilitychange）与画布钩子一起、
+  //   同一条件下安装；同样是幂等兜底（建渲染器时窗口/文档可能还不可用 ⇒ 每帧再试一次）。
+  if (!CURSOR_OFF) __hookPageLeave()
   // 当前指针（设计坐标）；null = 无指针信息 ⇒ lockToPointer 发射器不发射
   // ①(P-112-BANDGEOM) 画布归一化 → 设计坐标的换算（原 `__pointerDesign` 内联式**逐字搬来**，一处实现）：
   //   framed 窗口宽度按 `?projmode=` 分档（P-107），与改动前逐位相同。
@@ -6807,6 +6878,10 @@ export function createRenderer(canvas, opts = {}) {
   }
   function __pointerDesign(cam) {
     try {
+      // ①(P-121 B-G3) 页面级"离开"（窗口失焦 / 标签隐藏）⇒ 无指针：**注入通道与 DOM 通道一起让路**
+      //   （放在最前 = 与"宿主还在按 pointermove 写注入值"这种自然写法无关；焦点/可见性恢复即解除，
+      //   `__pointerN` 没被清 ⇒ 若指针仍在画布内，下一帧就继续发射）。
+      if (__pointerSuspended) return null
       // Node 侧取证工具（package-matrix / render-audit / particle-shape-audit…）没有 window：
       // 认 globalThis.__mpwPointer 作为同一注入口（让它们既能测"无指针=不发射"，也能注入指针测发射路径）。
       const inj = __injectedPointer()
@@ -9879,6 +9954,8 @@ export function createRenderer(canvas, opts = {}) {
     //   = 自举死锁：没注入就永远装不上 ⇒ 出货页面一次都不发射）。建渲染器时已装过，这里只是幂等兜底
     //   （`__hookPointer` 首行即返回）；`?cursor=off` 下不装、也不发射，逃生口语义不变。
     if (!CURSOR_OFF) __hookPointer()
+    // ①(P-121 B-G3) 页面级离开钩子（blur/focus/visibilitychange）同一处幂等兜底 —— 见 `__hookPageLeave`。
+    if (!CURSOR_OFF) __hookPageLeave()
     // 确定性：seed = 层 id/name|origin（参考实现 pkgPath|id|origin）
     // ①(P-69 2026-09-15 用户第 2 项"很多粒子一直在一起渲染，导致画面变得非常卡") 逐帧**重建 + 从 0 重放**
     //   是卡顿主因：hina 的 `cherry blossoms on cursor`(id389, origin=画布正中 1920,1080, rate=100/s,

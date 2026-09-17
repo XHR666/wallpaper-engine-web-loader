@@ -10,20 +10,30 @@
 //      "画布归一化 × 相机取景窗口"换算出的**设计坐标**（用"画布正中 ⇒ 投影中心"这个与取景无关的
 //      不变量钉死 x/y，而不是把 `__pointerDesignFromNorm` 的公式抄一遍）；
 //   ② 核心：`pointerleave` ⇒ 之后**不再新增发射**（累计发射计数冻结；连续 3 帧、每帧推进时间）；
+//      ①(P-121) **等价"离开"路径**同一条语义：画布 `pointerout`（relatedTarget=null / 画布外）、
+//      页面级 `blur`（窗口失焦）与 `visibilitychange`（切标签）⇒ 同样冻结；且 `focus`/`visible`
+//      回来时若指针仍在画布内 ⇒ **继续发射**（不许把"临时失焦"误判成"永久停发"）；
 //   ③ 反假绿：再派发一次 `pointermove` ⇒ **恢复发射**（防止有人把功能整个关掉来"通过"）；
-//   ④ 不误伤：同帧里**非锁定**粒子层照常发射（离开门只作用在 lockToPointer 发射器上）。
+//   ④ 不误伤：同帧里**非锁定**粒子层照常发射（离开门只作用在 lockToPointer 发射器上）；
+//      `pointerout` 的 relatedTarget 落在画布**内部**子元素时也不许停发（G2a）。
 //
-// ── 依据（本测试只读渲染器；P-118 的三处修改已由本文件钉死 + 内置变异复核）──────────────────
-//   · `core/we-scene-bundle.js:6640 __hookPointer()`：在 `gl.canvas` 上装三个监听
-//     ——`pointermove`/`pointerdown`（记录归一坐标、清"已离开"）+ `pointerleave`
-//     （`__pointerN = null; __pointerGone = true` + 记下那一刻注入值的指纹）；
-//   · `core/we-scene-bundle.js:6666`（建渲染器即调，**自举**）/ `:9604`（每层帧内幂等兜底）：
-//     `if (!CURSOR_OFF) __hookPointer()` —— 钩子安装**不再**挂在"本帧已经有指针"上（P-118 G4）；
-//   · `core/we-scene-bundle.js:6677 __pointerDesign(cam)`：指针来源优先级 = `window.__mpwPointer`
-//     注入（`inside === false` ⇒ 直接 null，P-118 G5）> 画布归一坐标 `__pointerN`；
-//     注入值与 pointerleave 那一刻**同一份**（同对象 + 同指纹）⇒ 也 null（P-118 G1）；两者都没有 ⇒ null；
-//   · `core/we-scene-bundle.js:3346-3347 spawnParticle`：`em.__ptrLocked && !sys.pointer` ⇒ **不发射**
-//     （`sys.__ptrSkipped++`）。这就是"离开后停发"的落点。
+// ── 依据（本测试只读渲染器；P-118 的三处修改与 P-121 的两条"等价离开"都已由本文件钉死 + 内置变异复核）──
+//   （行号为 **P-121 后**的当前值；括号里是 P-118 落地时的行号，便于对照 git 历史）
+//   · `core/we-scene-bundle.js:6827 __hookPointer()`（P-118 时 :6640）：在 `gl.canvas` 上装四个监听
+//     ——`pointermove`/`pointerdown`（记录归一坐标、清"已离开"）、`pointerleave`（:6844）与
+//     **`pointerout`（:6850，P-121 新增）**：`relatedTarget == null` 或落在画布外 ⇒ 同一个
+//     `__pointerLeave(why)`（:6776）＝ `__pointerN = null; __pointerGone = true` + 记下那一刻注入值的指纹；
+//   · `core/we-scene-bundle.js:6808 __hookPageLeave()`（P-121 新增）：挂在 `window`（blur/focus）与
+//     `document`（visibilitychange）上，**幂等 + 目标可变**（一开始没有 window/document 也能后补装上）；
+//     `blur`/`hidden` ⇒ `__pointerSuspend`（保留 `__pointerN`），`focus`/`visible` ⇒ `__pointerResume`
+//     （焦点回来时若指针仍在画布内 ⇒ 立刻继续发射）；`__pointerDesign` 首行 :6884 判挂起 ⇒ 两条通道一起让路；
+//   · `core/we-scene-bundle.js:6865`（建渲染器即调，**自举**）/ `:9956`（每层帧内幂等兜底）：
+//     `if (!CURSOR_OFF) __hookPointer()`，紧随其后 `:6868` / `:9958` 是 `__hookPageLeave()`；
+//     钩子安装**不再**挂在"本帧已经有指针"上（P-118 G4）；
+//   · `core/we-scene-bundle.js:6892 __pointerDesign(cam)`（P-118 时 :6677）：指针来源优先级 =
+//     P-121 页面级挂起 ⇒ null > `window.__mpwPointer` 注入（`inside === false` ⇒ 直接 null，P-118 G5）>
+//     画布归一坐标 `__pointerN`；注入值与 pointerleave 那一刻**同一份**（同对象 + 同指纹）⇒ 也 null（P-118 G1）；
+//   · `spawnParticle`：`em.__ptrLocked && !sys.pointer` ⇒ **不发射**（`sys.__ptrSkipped++`）。这就是"离开后停发"的落点。
 //
 // ── 用法 ─────────────────────────────────────────────────────────────────────────────────
 //   node tests/pointer-leave-test.mjs [--only <名字子串>]... [--no-mutation] [--verbose]
@@ -45,53 +55,71 @@
 //     缺口被修好时它会打 `★ XPASS`，提示把该条改成正断言 —— 两个方向都出声，不会静默。
 //
 // ── 已知缺口台账（XFAIL 单独计票；修好会打 XPASS 提示改成正断言）────────────────────────────
-//   ★ 本轮（P-118）**已闭合的三条**（原为 XFAIL，现为真断言，见 G1/G4/G5 断言与 M 阶段变异）：
+//   ★ P-118 已闭合的三条（原为 XFAIL，现为真断言，见 G1/G4/G5 断言与 M 阶段变异）：
 //   G1 注入通道曾**盖过**画布 `pointerleave`：`__pointerDesign` 先看注入 ⇒ 宿主按"每次 pointermove
 //      就写注入值"这种自然写法喂坐标时，指针离开画布后发射器**继续在旧坐标发射**（修复前实测：
-//      离开后累计 39→54、基准点仍是 (800,400)）。修法见 `core/we-scene-bundle.js:6691`（注入值与
+//      离开后累计 39→54、基准点仍是 (800,400)）。修法见 `core/we-scene-bundle.js:6897`（注入值与
 //      离开那一刻同一份 ⇒ 无指针）。⚠ 同一发 `pointerleave` 在注入撤掉后立刻生效（G1b）⇒ 事件确实到达。
 //   G5 `inside:false` 曾**不是"指针不在"**，只是"别信注入值"：注入被丢弃后回落到上一次画布内
 //      pointermove 的归一坐标 ⇒ 宿主声明"离开"后继续在旧坐标发射（修复前实测：189→276、仍 (1440,810)）。
-//      修法见 `core/we-scene-bundle.js:6686`（显式 inside:false ⇒ 直接 null，不回落）。
+//      修法见 `core/we-scene-bundle.js:6892`（显式 inside:false ⇒ 直接 null，不回落）。
 //   G4 **自举死锁（原最重）**：`__hookPointer()` 曾经只在 `__ptrNow` 为真时被调用，而 `__ptrNow` 只能
 //      来自"注入"或"钩子已经装好"⇒ 页面不注入就永远装不上钩子。全仓库 grep：`__mpwPointer` 的
 //      生产者**只有 bundle 自身**（`demo.html` 的 window pointermove 是日志面板拖动，不是它）
 //      ⇒ 出货页面（`demo.html` → `./bundle.js` = core/we-scene-bundle.js）里 lockToPointer 发射器
-//      **一次都不发射**（"鼠标拖尾"整条特性是死的）。修法见 `core/we-scene-bundle.js:6666`（建渲染器
-//      即装钩子）+ `:9604`（帧内幂等兜底）；`?cursor=off` 逃生口语义不变（不装、也不发射，D4 钉住）。
-//   ── 仍然开着的缺口（缺口表还在工作的证据）──
-//   G2 只监听 `pointerleave`，**不监听** `pointerout`（+relatedTarget=null）等价路径。
-//   G3 完全不碰 `blur`/`visibilitychange`，也没有 window/document 级监听（本 harness 里没有
-//      `document` 全局，全程无异常 ⇒ 渲染器确实一行都没引用）。
+//      **一次都不发射**（"鼠标拖尾"整条特性是死的）。修法见 `core/we-scene-bundle.js:6865`（建渲染器
+//      即装钩子）+ `:9956`（帧内幂等兜底）；`?cursor=off` 逃生口语义不变（不装、也不发射，D4 钉住）。
+//   ★ **P-121 已闭合的两条**（原为 XFAIL，现为真断言，见 G2/G3 断言与 M5～M8 变异）：
+//   G2 只监听 `pointerleave`、**不监听** `pointerout`（+relatedTarget=null）等价路径 ⇒
+//      "切窗口/系统弹窗时只发 pointerout"的实现下发射器继续在旧坐标发射（修复前实测：
+//      `pointerout` 派发命中 **0** 个监听器、离开后累计 157→173）。修法见 `core/we-scene-bundle.js:6850`
+//      （`__pointerLeave('pointerout(null)')`）；同时用 `contains` 排除"relatedTarget 在画布内"
+//      （pointerout 会从子元素冒泡）⇒ G2a 钉住"不误伤"。
+//   G3 完全不碰 `blur`/`visibilitychange`，也没有 window/document 级监听 ⇒ 切窗口/切标签后仍发射
+//      （修复前实测：blur 命中 0 个、累计 173→189）。修法见 `core/we-scene-bundle.js:6808 __hookPageLeave()`
+//      + `:6884`（挂起时 `__pointerDesign` 直接 null）。**恢复面**一并钉住：focus / visible 回来后
+//      指针仍在画布内 ⇒ 继续发射（G3b/G3d，M8 是"失焦后永久停发"的变异）；失焦期间指针真离开画布
+//      ⇒ 回来也不许凭空喂旧坐标（G3e）。
+//   ── 当前**没有**开着的缺口（xfail 计数 = 0）；这个记账机制保留：将来发现等效路径就照 G2/G3 的样子登记。
 //
-// ── 内置红-if-reverted（真跑到；4 个变异，见下方 `M-…` 断言）──────────────────────────────
+// ── 内置红-if-reverted（真跑到；8 个变异，见下方 `M-…` 断言）────────────────────────────────
 //   把 `core/` 整目录复制进 `mkdtemp` 临时目录（**绝不改真树**；副本里是**真文件不是软链**，
 //   否则 ESM 会把软链解析回真树、变异白做），对副本做**每处修复各一条**的最小"改回旧写法"变异后，
 //   用 `MPW_POINTER_BUNDLE=<副本>` 起一个子进程跑本文件，要求：子进程 rc=1 且**对应的那条断言变红**。
 //     M1（G4 旧写法）：删掉建渲染器时的自举调用 + 帧内改回 `if (!CURSOR_OFF && __ptrNow) …` ⇒ `G4b` 红
 //     M2（G1 旧写法）：注入分支去掉"与离开那一刻同一份"判定 ⇒ `G1` 红
 //     M3（G5 旧写法）：去掉 `inside === false ⇒ null` 并把 `inside !== false` 加回条件 ⇒ `G5` 红（`D1b` 仍 ✓）
-//     M4（本轮核心语义，原 M1/M2 合并）：`pointerleave` 处理器改成空操作 ⇒ `P3a` 红
-//   四个变异都实测：子进程 rc=1、失败断言就是上面点名的那个，且 `A3a`/`P4a`（绿前提与恢复发射）
+//     M4（P-118 核心语义）：`pointerleave` 处理器改成空操作 ⇒ `P3a` 红
+//     M5（P-121 G2）：删掉画布 `pointerout` 监听 ⇒ `G2c` 红
+//     M6（P-121 G3）：删掉 window `blur` 监听 ⇒ `G3a` 红
+//     M7（P-121 G3）：删掉 document `visibilitychange` 监听 ⇒ `G3c` 红
+//     M8（P-121 G3 恢复面）：删掉 window `focus` 监听 ⇒ `G3b` 红（"修好一个 bug 造出另一个"的反例）
+//   八个变异都实测：子进程 rc=1、失败断言就是上面点名的那个，且 `A3a`/`P4a`（绿前提与恢复发射）
 //   在变异体里仍为 ✓ ⇒ 变异只打破被点名的那条语义，不是把整条路弄挂。
 //   锚点未命中 ⇒ 打 `SKIP pointer-leave mutation-selfcheck`（不计票），绝不把"没法变异"伪装成"变异通过"。
 //   退出时 `rmSync` 清理临时目录。
 //
 // ── 本轮实测证据（本机：Node 24 + mock-GL + 假 DOM，无 GPU/WebGL2）──────────────────────
-//   · `node tests/pointer-leave-test.mjs` ⇒ rc=0，`ALL PASS （45 项，另记录缺口 2）`（真树
-//     `core/we-scene-bundle.js` sha256 = cd0c510916d0e7f88664422d4270fb8a5342b57c6810a571462bb975e662b3ca）；
-//     其中 8 项是内置红-if-reverted 自检（4 个变异 × 「必红 + 绿前提仍成立」）。
-//   · 修复前 → 后三条（同一命令 `--only`）：
+//   · `node tests/pointer-leave-test.mjs` ⇒ rc=0，`ALL PASS （64 项，缺口 0）`（真树
+//     `core/we-scene-bundle.js` sha256 = c7d6d5a4b0732bc9ee1d30c43a7a624de997a090228ab2541ad8af0533c9fbc1）；
+//     其中 16 项是内置红-if-reverted 自检（8 个变异 × 「必红 + 绿前提仍成立」）。
+//   · P-118 修复前 → 后三条（同一命令 `--only`）：
 //     G4：`派发命中 0 个监听器 / alive=0` → `监听在首帧前已装、alive=8、基准点 (960,540)`；
 //     G1：`离开后累计 39→54、基准点 (800,400)` → `39→39、基准点 null`；
 //     G5：`inside:false 后累计 189→276、基准点 (1440,810)` → `189→189、基准点 null`。
+//   · P-121 修复前 → 后两条（XFAIL → 真断言；G2 157→173、G3 173→189 都在旧计数上）：
+//     G2：`pointerout 命中 0 个监听器` → `命中 1 个、离开后累计 347→347、ptr=null`（G2a/G2b 另钉两个方向）；
+//     G3：`win/doc 零监听` → `{"win":["blur","focus"],"doc":["visibilitychange"]}`；blur 475→475、
+//         focus 恢复 475→626 且基准点仍 (640,480)、hidden 785→785、visible 785→968、
+//         失焦期间离开画布后 focus 回来 968→968（G3e）。
 //   · 关键数字：画布内 move(480,270) ⇒ 基准点 (480.0000,270.0000)、层累计 24→55；
 //     pointerleave 后 3 帧累计 55,55,55（冻结）、alive=0,0,0、`__ptrSkipped`=6（被"无指针"门拦下）；
 //     重新 move(1440,810) ⇒ 累计 55→118（恢复）。
 //   · 真包（3554161528）id389 `cherry blossoms on cursor`：pointerCp=0、全部发射器挂指针；
 //     无指针 0 粒（`__ptrSkipped`=60）、指针 (800,400) ⇒ 19 粒、max|Δx|=3.0 max|Δy|=2.7。
-//   · ⚠ 真机鼠标时序**未测**（无浏览器/X11，硬约束）：`pointerleave` 与最后一发 `pointermove` 的
-//     真实先后、以及"鼠标离开画布后宿主是否仍在写 `__mpwPointer`"都只有合成事件证据。
+//   · ⚠ 真机鼠标时序**未测**（无浏览器/X11，硬约束）：`pointerleave`/`pointerout` 与最后一发
+//     `pointermove` 的真实先后、真机 `blur`/`visibilitychange` 的触发时机、以及"鼠标离开画布后
+//     宿主是否仍在写 `__mpwPointer`"都只有合成事件证据。
 //
 // ── 注册待办 ─────────────────────────────────────────────────────────────────────────────
 //   注册待办：`add "pointer-leave" "node tests/pointer-leave-test.mjs"`（等 run-all-tests.sh 释放后加）
@@ -162,20 +190,39 @@ const CONST = {
 }
 for (let i = 0; i < 8; i++) CONST['TEXTURE' + i] = i
 
+/** ①(P-121 B-G3) 造一个"假**页面**目标"（window/document 的最小事件目标）：只记监听器，可按类型派发。
+ *  与画布分开记 —— 页面级事件（blur/focus/visibilitychange）本来就不该派发到画布上。 */
+function makePageTarget(extra) {
+  const listeners = new Map()
+  return Object.assign({
+    __listeners: listeners,
+    addEventListener: (t, fn) => { if (!listeners.has(t)) listeners.set(t, []); listeners.get(t).push(fn) },
+    removeEventListener: (t, fn) => { const a = listeners.get(t) || []; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1) },
+  }, extra || {})
+}
+
 /** 造一台"假事件目标画布 + mock-GL + 真 createRenderer"的台子。每个台子一个独立 renderer/粒子缓存。 */
 function makeRig(tag) {
   const logs = []
   const fired = []
+  const pageFired = []
   const listeners = new Map()
   const draws = []
   const rect = { left: 0, top: 0, width: RW, height: RH, right: RW, bottom: RH, x: 0, y: 0 }
+  // ①(P-121) 页面级假目标：window（blur/focus）+ document（visibilitychange；带 hidden/visibilityState）
+  const win = makePageTarget({})
+  const doc = makePageTarget({ hidden: false, visibilityState: 'visible' })
   let ids = 0, curUnit = 0, curProg = null
   const mk = (k) => ({ id: k + '#' + (++ids) })
+  const innerEl = { id: 'inner-child' }       // 画布**内部**元素（pointerout 冒泡时 relatedTarget 可能是它）
+  const outsideEl = { id: 'outside-el' }      // 画布**外部**元素
   const canvas = {
     width: RW, height: RH, clientWidth: RW, clientHeight: RH, style: {},
     getContext: () => gl,
     getBoundingClientRect: () => rect,
     setAttribute: () => {},
+    // 真 canvas 元素有 contains（pointerout 的"relatedTarget 在不在画布内"判定要用它）
+    contains: (n) => n === canvas || n === innerEl,
     addEventListener: (t, fn) => { if (!listeners.has(t)) listeners.set(t, []); listeners.get(t).push(fn) },
     removeEventListener: (t, fn) => { const a = listeners.get(t) || []; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1) },
   }
@@ -256,7 +303,8 @@ function makeRig(tag) {
   }
   let t = 0, frameNo = 0
   return {
-    tag, canvas, gl, cache, scene, textures, renderer, logs, draws, listeners, fired, trk,
+    tag, canvas, gl, cache, scene, textures, renderer, logs, draws, listeners, fired, pageFired, trk,
+    win, doc, innerEl, outsideEl,
     get time() { return t },
     get frameNo() { return frameNo },
     /** 推进一帧（时间严格递增 1/30s） */
@@ -268,6 +316,19 @@ function makeRig(tag) {
       for (const fn of arr) fn(ev)
       return arr.length
     },
+    /** ①(P-121) 派发一个**页面级**事件（window + document；blur/focus/visibilitychange）→ 命中监听器数 */
+    firePage(type, ev) {
+      let n = 0
+      for (const el of [win, doc]) {
+        const arr = el.__listeners.get(type) || []
+        n += arr.length
+        for (const fn of arr) fn(ev || {})
+      }
+      pageFired.push({ type, n, ev })
+      return n
+    },
+    /** 页面级监听集合（`?cursor=off` 的"一个都不装"要用它钉） */
+    pageListenerNames() { return { win: [...win.__listeners.keys()], doc: [...doc.__listeners.keys()] } },
     snapshot() {
       const l = trk(LOCKED_ID).sample(), f = trk(FREE_ID).sample()
       return { t: +t.toFixed(4), listeners: [...listeners.keys()], locked: l, free: f, stats: renderer.particleStats }
@@ -434,10 +495,13 @@ let emittedAtLeave = 0
 
   // D4：?cursor=off（逃生口）—— 整个 lockToPointer 类都不发射，即使注入指针且画布有事件
   const savedLoc = globalThis.location
+  const savedDoc4 = globalThis.document
   globalThis.location = { search: '?cursor=off' }
   const rigOff = makeRig('cursor-off')
   try {
-    globalThis.window = { __mpwPointer: { x: 960, y: 540, inside: true } }
+    // ①(P-121 B-G3) 页面级假目标也装上 ⇒ D4c 才能证明"逃生口下页面钩子也不装"（不是"没装是因为没有 window"）
+    globalThis.window = rigOff.win; globalThis.document = rigOff.doc
+    rigOff.win.__mpwPointer = { x: 960, y: 540, inside: true }
     await rigOff.frame()
     const off1 = rigOff.snapshot(); dump(rigOff, 'D4 ?cursor=off + 注入指针')
     ok('D4 ?cursor=off ⇒ 即使有指针也不发射（lockToPointer 层的总开关；对照层照常）',
@@ -447,13 +511,20 @@ let emittedAtLeave = 0
     //   P-118 的自举只在 `!CURSOR_OFF` 时发生 ⇒ 逃生口语义与改动前**逐条**相同。
     ok('D4b ?cursor=off ⇒ 画布上一个指针监听器都不装（逃生口不接管画布事件；P-118 未改这条语义）',
       rigOff.listeners.size === 0, '监听集合=' + JSON.stringify([...rigOff.listeners.keys()]))
+    // ①(P-121 B-G3) 同一语义覆盖**页面级**钩子（window blur/focus、document visibilitychange）：
+    //   逃生口下这两类监听同样一个都不许装（假 window/document 在场 ⇒ 这条不是平凡真）。
+    const namesOff = rigOff.pageListenerNames()
+    ok('D4c ?cursor=off ⇒ 页面级（win blur/focus、doc visibilitychange）也一个监听器都不装（P-121 未改逃生口语义）',
+      namesOff.win.length === 0 && namesOff.doc.length === 0,
+      '实测=' + JSON.stringify(namesOff) + '（win/document 都是可挂钩的假目标 ⇒ 不是"没目标可挂"）')
   } finally {
     delete globalThis.window
+    if (savedDoc4 === undefined) delete globalThis.document; else globalThis.document = savedDoc4
     if (savedLoc === undefined) delete globalThis.location; else globalThis.location = savedLoc
   }
 }
 
-// ═══════════════════════════ 8. G 阶段：已知缺口（XFAIL，不计票；修好会打 XPASS）═══════════
+// ═══════════════════════════ 8. G 阶段：等价"离开"路径（P-121 起全部是真断言，无 XFAIL）═══════════
 {
   const rig2 = makeRig('gaps')
 
@@ -511,28 +582,115 @@ let emittedAtLeave = 0
     && g1c.locked.alive > 0,
     `ptr=${JSON.stringify(g1c.locked.pointer)} alive=${g1c.locked.alive}`)
 
-  // G2：pointerout + relatedTarget=null（等价"离开"路径）没被监听
-  rig3.fire('pointermove', { clientX: 700, clientY: 500, pointerId: 1, pointerType: 'mouse' })
-  await rig3.frame()
-  const g2Before = rig3.trk(LOCKED_ID).sample().emitted
-  const nOut = rig3.fire('pointerout', { pointerId: 1, relatedTarget: null, clientX: 701, clientY: 501 })
-  await rig3.frame(); await rig3.frame()
-  const g2 = rig3.snapshot(); dump(rig3, 'G2 pointerout(relatedTarget=null)')
-  xfailItem('G2 pointerout(+relatedTarget=null) 也能停发（等价"离开"路径应等价）',
-    g2.locked.emitted === g2Before,
-    `pointerout 派发命中 ${nOut} 个监听器；离开后累计 ${g2Before}→${g2.locked.emitted}（仍在发射）；`
-    + '实测画布监听集合=' + JSON.stringify(g2.listeners) + '（没有 pointerout）')
+  // ═══════════ G2：`pointerout` 等价"离开"路径（P-118 时是 XFAIL；P-121 转真断言）═══════════
+  // 每一条子用例都先**重新进入画布**（pointermove）把发射器叫醒再派发 —— 否则"冻结"会是因为
+  // 上一条用例已经停了（假绿：P-121 第一版就撞见过这个坑，G3 的前置被 G2 的冻结吃掉）。
+  const reenter = async (cx, cy, label) => {
+    const n = rig3.fire('pointermove', { clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse' })
+    await rig3.frame()
+    const s = rig3.snapshot(); dump(rig3, label)
+    return { n, s, emitted: s.locked.emitted }
+  }
 
-  // G3：blur / visibilitychange（页面级"离开"）也没人管
-  const g3Before = rig3.trk(LOCKED_ID).sample().emitted
-  const nBlur = rig3.fire('blur', {})
-  const nVis = rig3.fire('visibilitychange', {})
-  await rig3.frame(); await rig3.frame()
-  const g3 = rig3.snapshot(); dump(rig3, 'G3 blur/visibilitychange')
-  xfailItem('G3 blur / visibilitychange（页面级离开）也能停发（当前零监听）',
-    g3.locked.emitted === g3Before,
-    `blur 命中 ${nBlur} 个、visibilitychange 命中 ${nVis} 个；离开后累计 ${g3Before}→${g3.locked.emitted}（仍在发射）；`
-    + '本 harness 里**没有 document 全局**且全程无异常 ⇒ 渲染器确实一行都没引用 window/document 级事件')
+  {
+    const e0 = await reenter(700, 500, 'G2 前置 重新进入 (700,500)')
+    ok('G2-pre 前置：指针回到画布内、发射器正在发射（下面三条的"冻结"才不是"本来就停了"）',
+      e0.n >= 1 && e0.s.locked.alive > 0 && !!e0.s.locked.pointer, `alive=${e0.s.locked.alive} 累计=${e0.emitted}`)
+    // ① relatedTarget 在画布**内部**：pointerout 会从子元素冒泡上来，这**不是**离开 ⇒ 不许误伤
+    const nIn = rig3.fire('pointerout', { pointerId: 1, relatedTarget: rig3.innerEl, clientX: 701, clientY: 501 })
+    await rig3.frame()
+    const sIn = rig3.snapshot(); dump(rig3, 'G2a pointerout(relatedTarget=画布内部元素)')
+    ok('G2a pointerout + relatedTarget 在画布**内部** ⇒ **不停发**（防误伤：鼠标还在画布内不该被静音）',
+      nIn >= 1 && sIn.locked.emitted > e0.emitted && sIn.locked.pointer !== null,
+      `派发命中 ${nIn} 个监听器；累计 ${e0.emitted}→${sIn.locked.emitted} ptr=${JSON.stringify(sIn.locked.pointer)}`)
+
+    // ② relatedTarget 在画布**外部**：等价"移到别的元素上" ⇒ 停发
+    const e2 = await reenter(720, 520, 'G2b 前 重新进入 (720,520)')
+    const nOutside = rig3.fire('pointerout', { pointerId: 1, relatedTarget: rig3.outsideEl, clientX: 721, clientY: 521 })
+    await rig3.frame(); await rig3.frame()
+    const sOut = rig3.snapshot(); dump(rig3, 'G2b pointerout(relatedTarget=画布外元素)')
+    ok('G2b ★★ pointerout + relatedTarget 在画布**外** ⇒ 停发（`contains` 判定生效）',
+      nOutside >= 1 && sOut.locked.emitted === e2.emitted && sOut.locked.pointer === null && sOut.locked.alive === 0,
+      `派发命中 ${nOutside} 个监听器；离开后累计 ${e2.emitted}→${sOut.locked.emitted} ptr=${JSON.stringify(sOut.locked.pointer)}`)
+
+    // ③ relatedTarget = null：离开文档/窗口（切窗口/系统弹窗）—— 有的实现这条路径**不发 pointerleave**
+    const e3 = await reenter(700, 500, 'G2c 前 重新进入 (700,500)')
+    const nOut = rig3.fire('pointerout', { pointerId: 1, relatedTarget: null, clientX: 701, clientY: 501 })
+    await rig3.frame(); await rig3.frame()
+    const g2 = rig3.snapshot(); dump(rig3, 'G2c pointerout(relatedTarget=null)')
+    ok('G2c ★★ pointerout(+relatedTarget=null) 停发（等价"离开"路径：**真断言**，P-118 时这条挂在 XFAIL）',
+      nOut >= 1 && g2.locked.emitted === e3.emitted && g2.locked.pointer === null && g2.locked.alive === 0,
+      `pointerout 派发命中 ${nOut} 个监听器（修复前 = 0）；离开后累计 ${e3.emitted}→${g2.locked.emitted}`
+      + '（修复前 157→173，仍在发射）；实测画布监听集合=' + JSON.stringify(g2.listeners))
+  }
+
+  // ═══════════ G3：页面级"离开"（blur / visibilitychange）＋**恢复面**（P-121 转真断言）═══════
+  {
+    const savedWin = globalThis.window, savedDoc = globalThis.document
+    try {
+      // 页面级钩子挂在**假 window / 假 document** 上（真浏览器里就是真的那两个全局）；
+      // installed 之后靠帧内幂等兜底装上 —— 这也顺带钉住"钩子与'本帧有没有指针'解耦"。
+      globalThis.window = rig3.win
+      globalThis.document = rig3.doc
+      const e1 = await reenter(640, 480, 'G3 前置 重新进入 (640,480) + 装页面钩子')
+      const names = rig3.pageListenerNames()
+      ok('G3-pre 页面级监听真的装上了（win=blur/focus、doc=visibilitychange；"发了没人听"不算通过）',
+        names.win.includes('blur') && names.win.includes('focus') && names.doc.includes('visibilitychange'),
+        '实测=' + JSON.stringify(names) + '（修复前 = {"win":[],"doc":[]}：渲染器一行都没引用 window/document 级事件）')
+
+      // ── blur：窗口失去焦点（切窗口/系统弹窗）⇒ 停发 ──
+      const nBlur = rig3.firePage('blur', {})
+      await rig3.frame(); await rig3.frame()
+      const sBlur = rig3.snapshot(); dump(rig3, 'G3a blur')
+      ok('G3a ★★ blur（窗口失焦）⇒ 停发：累计冻结 + 无存活粒子 + 指针为空',
+        nBlur >= 1 && sBlur.locked.emitted === e1.emitted && sBlur.locked.pointer === null && sBlur.locked.alive === 0,
+        `blur 命中 ${nBlur} 个监听器；累计 ${e1.emitted}→${sBlur.locked.emitted} ptr=${JSON.stringify(sBlur.locked.pointer)}`
+        + '（修复前：blur 命中 0 个、累计 173→189 仍在发射）')
+
+      // ── G3b ★ 恢复面：焦点回来后**指针仍在画布内** ⇒ 必须继续发射（不许把临时失焦当永久停发）──
+      const nFocus = rig3.firePage('focus', {})
+      await rig3.frame()
+      const sFocus = rig3.snapshot(); dump(rig3, 'G3b focus 恢复')
+      ok('G3b ★★ focus 恢复 ⇒ 继续发射，且基准点仍是离开前那个画布内坐标 (640,480)±1px（"修好一个 bug 造出另一个"的反例钉）',
+        nFocus >= 1 && sFocus.locked.alive > 0 && sFocus.locked.emitted > e1.emitted && !!sFocus.locked.pointer
+        && Math.abs(sFocus.locked.pointer[0] - 640) <= 1 && Math.abs(sFocus.locked.pointer[1] - 480) <= 1,
+        `focus 命中 ${nFocus} 个；累计 ${e1.emitted}→${sFocus.locked.emitted} ptr=${JSON.stringify(sFocus.locked.pointer && sFocus.locked.pointer.map((v) => +v.toFixed(3)))}`)
+
+      // ── visibilitychange:hidden / visible 同理 ──
+      const e4 = await reenter(660, 500, 'G3c 前 重新进入 (660,500)')
+      rig3.doc.hidden = true; rig3.doc.visibilityState = 'hidden'
+      const nHidden = rig3.firePage('visibilitychange', {})
+      await rig3.frame(); await rig3.frame()
+      const sHidden = rig3.snapshot(); dump(rig3, 'G3c visibilitychange:hidden')
+      ok('G3c ★★ visibilitychange + document.hidden=true（切标签）⇒ 停发',
+        nHidden >= 1 && sHidden.locked.emitted === e4.emitted && sHidden.locked.pointer === null && sHidden.locked.alive === 0,
+        `命中 ${nHidden} 个监听器；累计 ${e4.emitted}→${sHidden.locked.emitted} ptr=${JSON.stringify(sHidden.locked.pointer)}`)
+      rig3.doc.hidden = false; rig3.doc.visibilityState = 'visible'
+      const nVisible = rig3.firePage('visibilitychange', {})
+      await rig3.frame()
+      const sVisible = rig3.snapshot(); dump(rig3, 'G3d visibilitychange:visible 恢复')
+      ok('G3d ★★ visibilitychange + visible 恢复 ⇒ 继续发射（与 G3b 同一条恢复语义的另一条触发路径）',
+        nVisible >= 1 && sVisible.locked.alive > 0 && sVisible.locked.emitted > e4.emitted,
+        `命中 ${nVisible} 个；累计 ${e4.emitted}→${sVisible.locked.emitted} alive=${sVisible.locked.alive}`)
+
+      // ── G3e ★ 另一面：失焦期间指针**真的离开了画布**（pointerleave 清掉画布坐标）⇒ 回来后不许无中生有 ──
+      rig3.fire('pointerleave', { pointerId: 1, clientX: 661, clientY: 501 })
+      await rig3.frame()
+      const e5 = rig3.snapshot()
+      const nBlur2 = rig3.firePage('blur', {})
+      await rig3.frame()
+      const nFocus2 = rig3.firePage('focus', {})
+      await rig3.frame(); await rig3.frame()
+      const sBack = rig3.snapshot(); dump(rig3, 'G3e 失焦期间指针已离开画布 ⇒ 焦点回来后仍无指针')
+      ok('G3e ★★ 失焦期间指针真离开画布（pointerleave 已清坐标）⇒ 恢复焦点后**仍不发射**（不是"恢复了就凭空喂旧坐标"）',
+        nBlur2 >= 1 && nFocus2 >= 1 && e5.locked.pointer === null
+        && sBack.locked.pointer === null && sBack.locked.emitted === e5.locked.emitted && sBack.locked.alive === 0,
+        `blur ${nBlur2} 个 / focus ${nFocus2} 个监听器；累计 ${e5.locked.emitted}→${sBack.locked.emitted} ptr=${JSON.stringify(sBack.locked.pointer)}`)
+    } finally {
+      if (savedWin === undefined) delete globalThis.window; else globalThis.window = savedWin
+      if (savedDoc === undefined) delete globalThis.document; else globalThis.document = savedDoc
+    }
+  }
 }
 
 // ═══════════════════════════ 9. E 阶段（条件项）：真包 3554161528 的 lockToPointer 层 ═══════════
@@ -608,7 +766,7 @@ if (IS_MUTANT_RUN) {
       if (!st || !st.isFile()) continue
       fs.writeFileSync(path.join(tmpCore, name), fs.readFileSync(src))
     }
-    // P-118：**每处修复各一条**"改回旧写法"的最小变异；锚点 = 修复那几行的真源码，
+    // P-118/P-121：**每处修复各一条**"改回旧写法"的最小变异；锚点 = 修复那几行的真源码，
     // 命中数必须**恰好 1**（否则 SKIP，不把"没法变异"伪装成"变异通过"）。expect = 该变异必须打红的断言。
     const MUTANTS = [
       {
@@ -637,11 +795,42 @@ if (IS_MUTANT_RUN) {
         ],
       },
       {
-        id: 'M4', fix: '本轮核心语义', expectName: 'P3a（离开后不再新增发射）', expect: /✗ P3a/,
+        id: 'M4', fix: 'P-118 核心语义（离开清指针）', expectName: 'P3a/P3b（pointerleave 后不再新增发射）', expect: /✗ P3a/,
         desc: 'pointerleave 处理器改成空操作（监听还在、行为回到"离开不清指针"的旧写法）',
         edits: [
-          ['{ __pointerN = null; __pointerGone = true; __pointerGoneInj = __injectedPointer(); __pointerGoneKey = __injKey(__pointerGoneInj) }',
-            '{ /* 变异 M4：离开不清指针 */ }'],
+          // ①(P-121) 锚点跟着改法走：pointerleave 现在调统一处置函数 `__pointerLeave('pointerleave')`
+          ["el.addEventListener('pointerleave', () => __pointerLeave('pointerleave'), { passive: true })",
+            "el.addEventListener('pointerleave', () => { /* 变异 M4：离开不清指针 */ }, { passive: true })"],
+        ],
+      },
+      {
+        id: 'M5', fix: 'P-121 G2（pointerout 等价路径）', expectName: 'G2c（pointerout+relatedTarget=null 停发）', expect: /✗ G2c/,
+        desc: '删掉画布 `pointerout` 监听（回到"只认 pointerleave"的旧写法）',
+        edits: [
+          ["      el.addEventListener('pointerout', (ev) => {", "      if (false) el.addEventListener('pointerout', (ev) => { /* 变异 M5：不监听 pointerout */"],
+        ],
+      },
+      {
+        id: 'M6', fix: 'P-121 G3（window blur）', expectName: 'G3a（blur ⇒ 停发）', expect: /✗ G3a/,
+        desc: '删掉 window `blur` 监听（回到"页面失焦不管"的旧写法；focus 仍在）',
+        edits: [
+          ["        win.addEventListener('blur', () => __pointerSuspend('blur'), { passive: true })",
+            "        /* 变异 M6：不监听 window blur */"],
+        ],
+      },
+      {
+        id: 'M7', fix: 'P-121 G3（document visibilitychange）', expectName: 'G3c（hidden ⇒ 停发）', expect: /✗ G3c/,
+        desc: '删掉 document `visibilitychange` 监听（回到"切标签不管"的旧写法）',
+        edits: [
+          ["        doc.addEventListener('visibilitychange', () => {", "        if (false) doc.addEventListener('visibilitychange', () => { /* 变异 M7：不监听 visibilitychange */"],
+        ],
+      },
+      {
+        id: 'M8', fix: 'P-121 G3b/G3d（恢复面）', expectName: 'G3b（focus 恢复后仍能发射）', expect: /✗ G3b/,
+        desc: '删掉 window `focus` 监听（"修好一个 bug 造出另一个"：失焦后永久停发）',
+        edits: [
+          ["        win.addEventListener('focus', () => __pointerResume('focus'), { passive: true })",
+            "        /* 变异 M8：失焦后永远不解除挂起 */"],
         ],
       },
     ]
@@ -677,7 +866,8 @@ if (fail) {
   for (const n of failNames) console.log('  - ' + n)
 }
 console.log(`\n(计票：pass=${pass} fail=${fail} skip=${skip} xfail=${xfail} xpass=${xpass})`)
-if (xfail) console.log(`已知缺口 XFAIL ${xfail} 条（不计票；P-118 已闭合 G1/G4/G5 三条，剩下的见文件头"仍然开着的缺口"）：等价路径未监听（pointerout）/ 页面级离开未监听（blur·visibilitychange）`)
-if (fail === 0) console.log(`\nALL PASS （${pass} 项${skip ? '，另 SKIP ' + skip : ''}${xfail ? '，另记录缺口 ' + xfail : ''}）`)
+if (xfail) console.log(`已知缺口 XFAIL ${xfail} 条（不计票；见文件头"已知缺口台账"）`)
+else console.log('已知缺口 0 条（P-118 闭合 G1/G4/G5 三条；P-121 闭合 G2/G3 两条 —— 等效"离开"路径已全部转真断言）')
+if (fail === 0) console.log(`\nALL PASS （${pass} 项${skip ? '，另 SKIP ' + skip : ''}${xfail ? '，另记录缺口 ' + xfail : '，缺口 0'}）`)
 else console.log(`\n${fail} 项失败`)
 process.exit(fail ? 1 : 0)

@@ -8245,7 +8245,7 @@ $ node --check core/we-scene-bundle.js        rc=0
   其 thisLayer/thisScene 只看得见相机对象本身（`renderObjects:[camObj]`）—— 语料无此形状，未测。
 - `elysia/we-renderer/core.js`（elysia 参考渲染器）的 `_setupCamera` **本来就不读相机层 origin**（`cameraNode`
   零命中）⇒ 本次不涉及；`tests/preview.mjs:10` 走的是 bundle，已被本测试覆盖。
-- 旁注（**改动前就存在**的宿主隔离缺陷，本次只记录不修）：`allwallpaper/0917/3462491575` 包里的作者脚本执行
+- 旁注（**改动前就存在**的宿主隔离缺陷，P-120 当时只记录不修；**①(P-121) 已修**，见 P-121 A 节）：`allwallpaper/0917/3462491575` 包里的作者脚本执行
   `console.log = () => {}`，而脚本沙箱共享**真的** `console` 对象 ⇒ 该包一开始跑，宿主进程的 `console.log`
   就被全局静音（本测试因此改用 `fs.writeSync`；`camera-script-origin-probe.mjs` 的 `muteConsole` 是同一原因的
   另一处规避）。修它要动 `elysia/scene-scripts.js` 的沙箱，超出 P1-1 最小面。
@@ -8262,3 +8262,191 @@ $ node --check core/we-scene-bundle.js        rc=0
 
 登记待办：`add "camera-origin-script" "node tests/camera-origin-script-test.mjs" "" "^SKIP camera-origin-script"`。
 `tests/run-all-tests.sh` 本轮**未改**（工作树里它是干净的，但登记属于门禁线的动作；本会话按纪律只提交自己的路径）。
+
+## P-121（2026-09-18/19）两处"已知缺口"收口：① 脚本沙箱不再能静音**宿主** `console`（P-120.7 旁注那条）；② 指针"离开"的两条等价路径（`pointerout` / `blur`·`visibilitychange`）真正停发（P-118 G2/G3 XFAIL → 真断言）
+
+**一句话**：两处都是"改法很小、但必须有判据"的收口 —— ① 沙箱此前把**宿主真 `console` 对象**塞进脚本作用域，
+语料 `0917/3462491575` 的作者脚本 `console.log = () => {}` 跑过之后**宿主进程的 `console.log` 被全局改写**
+（本次实测复现 → 修 → 逐属性 `===` 钉住）；② 渲染器的指针钩子只认画布 `pointerleave`，"切窗口/切标签/系统弹窗"
+（`pointerout`+`relatedTarget=null`、`blur`、`visibilitychange`）三条等价路径一条都不停发（本次补齐 + 恢复面一起钉）。
+
+### P-121.1 现象与复现（先证差异真实存在；命令 + 数字）
+
+```
+$ node /tmp/probe-gapA.mjs                      # 改动前：合成脚本 + 真语料，两路都复现
+① 合成脚本跑一趟后：宿主 console.log 与跑之前 === 同一引用 ? false
+   宿主 console.log.name =  / 宿主 console.log === 静音函数 ? true      # ← 被换成空箭头函数
+② 真包 0917/3462491575：含 `console.log =` 的脚本节点数 = 1
+   现场原文片段："logInterrupts, tips, globalReplayable;\n\nif (!isRunningInEditor) {\n\tconsole.log = () => { }"
+   真包跑完（t=0 init+update、t=0.5 update）后：宿主 console.log === 跑之前 ? false
+   脚本条目数 = 9；其中 error 条目 = 0
+③ 宿主 console.log 现在还能输出吗？→ 这一行本身就是证据（若上面 === false，本行由 SAVED 写出，仍可读）
+peak RSS (VmHWM) = 120MB
+```
+
+```
+$ node tests/pointer-leave-test.mjs --no-mutation      # 改动前（P-118 那版）
+  ! XFAIL（已知缺口·不计票） G2 pointerout(+relatedTarget=null) 也能停发（等价"离开"路径应等价）
+      — pointerout 派发命中 0 个监听器；离开后累计 157→173（仍在发射）；实测画布监听集合=["pointermove","pointerdown","pointerleave"]
+  ! XFAIL（已知缺口·不计票） G3 blur / visibilitychange（页面级离开）也能停发（当前零监听）
+      — blur 命中 0 个、visibilitychange 命中 0 个；离开后累计 173→189（仍在发射）
+```
+
+旁证（P-120 交付里记的原始观察）：上一位代理的测试被迫改用 `fs.writeSync` 输出、
+`tests/camera-script-origin-probe.mjs` 里专门有 `muteConsole` 规避 ⇒ 这条**在真实运行路径上会污染宿主**，不只是测试不便。
+
+### P-121.2 根因（file:line 为改动前）
+
+1. **沙箱没有独立 realm**：`elysia/nsl.js:19-43` 的"vm 替身"是 `new Function('__nslCtx', 'with (__nslCtx) { … }')`
+   —— `with` 只**遮蔽** ctx 上已有的键，兜底作用域是**宿主全局**（Node 侧连 `process`/`Buffer`/`global` 都直达）。
+   所以"塞进 ctx 的对象"仍与宿主**共享**：写它 = 写宿主。
+2. `elysia/scene-scripts.js:321`（改前）：`Date, Math, console, JSON, …` —— `console` 的值就是**宿主真 console 对象**。
+   语料 `0917/3462491575` 的作者脚本在顶层执行 `console.log = () => {}` ⇒ 改写的是宿主的那个对象。
+3. 指针侧（`core/we-scene-bundle.js:6640`/`:6677`，改前）：钩子只装 `pointermove`/`pointerdown`/`pointerleave`
+   三个，`__pointerDesign` 也只认"注入"与"画布归一坐标"两条来源 ⇒ `pointerout`（relatedTarget=null）、
+   `blur`、`visibilitychange` 三条等价"离开"路径**没有任何落点**（渲染器一行都没引用 window/document 级事件）。
+
+### P-121.3 改法（每处一句话；行号为**改动后**）
+
+| 位置 | 改动 |
+|---|---|
+| `elysia/scene-scripts.js:259-306`（新增 `makeSandboxConsole()`） | **每个沙箱一个** `console` 门面（Proxy）：`set` 只落门面自己的键（作者"静音"的意图在**它自己的沙箱内**照常生效），`get` 未写过时**按名字转发**到*当前*宿主 `console` 的同名方法（调用时重取 ⇒ 宿主后替换 `console.warn/error` 也跟得上）；门面**不冻结**（`'use strict'` 下 `console.log = …` 必须赋值成功，否则作者脚本会加载失败 = 更重的行为改变） |
+| `elysia/scene-scripts.js:321-325` | `console: makeSandboxConsole()` 替掉 `console`；`...SANDBOX_HOST_ONLY_GLOBALS`（`:309-317`）把**宿主进程句柄**显式 shadow 成 `undefined`：`process/require/module/exports/Buffer/global`（WE 运行时不提供、浏览器里本来就不存在 ⇒ Node 侧从此与浏览器/WE 同形；语料 11 个 dd 包 `typeof process` **零命中**） |
+| `core/we-scene-bundle.js:6776-6796`（新增 `__pointerLeave(why)` / `__pointerSuspend` / `__pointerResume`） | 把"离开"的处置**收成一处**：`pointerleave` / `pointerout` 走 `__pointerLeave`（清归一坐标 + 记"已离开" + 记下那一刻注入值指纹，语义与 P-118 逐字相同）；页面级失焦/隐藏走 `__pointerSuspend`（**保留** `__pointerN` ⇒ 焦点回来时若指针仍在画布内就能立刻续发） |
+| `core/we-scene-bundle.js:6808-6825`（新增 `__hookPageLeave()`） | 页面级钩子：`window` 上 `blur`/`focus`、`document` 上 `visibilitychange`（按 `document.hidden`/`visibilityState` 分隐藏/可见）。**幂等 + 目标可变**：只在"换了个 window/document 对象"时重挂（一开始没有 window/document 也能后补装上，与 `__hookPointer` 的"挂不上就不置位"同一纪律） |
+| `core/we-scene-bundle.js:6850-6857`（`__hookPointer` 内新增） | 画布 `pointerout`：`relatedTarget == null`（离开文档/窗口）或 `relatedTarget` **不在画布内**（`el.contains` 判定）⇒ `__pointerLeave('pointerout(…)')`；`relatedTarget` 在画布**内部**（pointerout 会从子元素冒泡）⇒ **不停发**（不误伤） |
+| `core/we-scene-bundle.js:6884`（`__pointerDesign` 首行） | `if (__pointerSuspended) return null` —— 页面级"离开"时**注入通道与 DOM 通道一起让路**（放在最前 ⇒ 与"宿主还在写注入值"这种自然写法无关） |
+| `core/we-scene-bundle.js:6865/6868`、`:9956/9958` | 两个安装点（建渲染器自举 + 每层帧内幂等兜底）都补 `__hookPageLeave()`；两处都在 `if (!CURSOR_OFF)` 之下 ⇒ **`?cursor=off` 语义一字未改**（D4b/D4c 钉住：画布侧 + 页面侧一个监听器都不装） |
+
+### P-121.4 判据（实测；逐条可复现）
+
+```
+$ node tests/script-sandbox-globals-test.mjs            # 新增，31 断言，rc=0，0.87s，PeakRSS=126MB
+  ✓ S1a ★ 跑过 `console.log = () => {}` 的脚本后，宿主 console 的 5 个写方法**逐个 === 同一引用**
+        [log:=== warn:=== error:=== info:=== debug:===]
+  ✓ S1d 门面 ≠ 宿主 console（沙箱拿到的是每沙箱一个的独立对象）  [ctx.console===console ? false]
+  ✓ S1e 作者的"静音"意图在**它自己的沙箱内**仍然生效（只是不再污染宿主）  [ctx.console.log=() => {}]
+  ✓ S2b ★★ 真包跑两趟后，宿主 console 的 5 个写方法仍逐个 === 同一引用
+        [log:=== warn:=== error:=== info:=== debug:===；脚本条目=9 编译失败=0]
+  ✓ S3a ★ 正常脚本的 console.log **逐字**出现在宿主 stdout（沙箱没把日志吞掉）    # 子进程 stdout 字节证据
+  ✓ S3b ★★ 宿主自己的 console.log 在脚本静音之后**仍然真的会输出**  [identity=true HostMarker=true]
+  ✓ S3d 静音**之后**那条日志不再出现（门面是每沙箱一个，不是全局开关）
+  ✓ S4b A 静音不影响 B：B 的门面 log 仍转发到**当前**宿主方法（换掉宿主 console.log 后调用被记到）
+  ✓ S4c 同一机制的出货用法：宿主把 console.warn 桥到页面 #log 之后，沙箱 warn 照样进那条桥（demo.html:929-931）
+  ✓ S5a ★ 沙箱里 `globalThis` = 沙箱 ctx：脚本写 `globalThis.__p121CtxMark` **没有**落到宿主 global
+  ✓ S5b 那它落到哪了：沙箱条目自己的 context 上（可观测落点 = entry.context）
+  ✓ S6  ★ 宿主进程句柄 6 个全被 shadow 成 undefined  [Process=undefined Require=undefined Module=undefined Exports=undefined Buffer=undefined Global=undefined]
+  ✓ S7a localStorage = 沙箱自己的内存实现（不是宿主页面的 Storage）
+  ✓ S7b `engine.setTimeout` 是宿主 API（≠ 宿主全局 setTimeout）
+```
+
+```
+$ node tests/pointer-leave-test.mjs                     # 64 断言（原 45 + 2 XFAIL），rc=0，1.87s，xfail 0
+  ✓ G2a pointerout + relatedTarget 在画布**内部** ⇒ **不停发**（防误伤）
+  ✓ G2b ★★ pointerout + relatedTarget 在画布**外** ⇒ 停发（`contains` 判定生效）  [命中 1 个监听器；离开后累计 244→244]
+  ✓ G2c ★★ pointerout(+relatedTarget=null) 停发（真断言；修复前 157→173）
+        [命中 1 个监听器（修复前 = 0）；累计 347→347；实测画布监听集合=["pointermove","pointerdown","pointerleave","pointerout"]]
+  ✓ G3-pre 页面级监听真的装上了  [实测={"win":["blur","focus"],"doc":["visibilitychange"]}（修复前 = {"win":[],"doc":[]}）]
+  ✓ G3a ★★ blur（窗口失焦）⇒ 停发：累计冻结 + 无存活粒子 + 指针为空  [blur 命中 1 个；累计 475→475 ptr=null]
+  ✓ G3b ★★ focus 恢复 ⇒ 继续发射，且基准点仍是离开前的画布内坐标 (640,480)±1px  [累计 475→626 ptr=[640,480]]
+  ✓ G3c ★★ visibilitychange + document.hidden=true（切标签）⇒ 停发  [累计 785→785 ptr=null]
+  ✓ G3d ★★ visibilitychange + visible 恢复 ⇒ 继续发射  [累计 785→968]
+  ✓ G3e ★★ 失焦期间指针真离开画布 ⇒ 恢复焦点后**仍不发射**  [累计 968→968 ptr=null]
+  ✓ D4c ?cursor=off ⇒ 页面级（win blur/focus、doc visibilitychange）也一个监听器都不装  [实测={"win":[],"doc":[]}]
+  ...
+  已知缺口 0 条（P-118 闭合 G1/G4/G5 三条；P-121 闭合 G2/G3 两条 —— 等效"离开"路径已全部转真断言）
+  ALL PASS （64 项，缺口 0）
+```
+
+**闭环条件（缺口表数字如实下降）**：`xfail` 从 **2 → 0**、`xpass` 0、`fail` 0；G2/G3 用的是 `ok()` 真断言
+（不是删断言、不是标 SKIP）。反假绿的**非平凡前置**：G2/G3 每条子用例都先 `pointermove` 重新进入画布、
+断言"正在发射"，再派发离开信号 —— 第一版就撞见过"G2 已经把发射冻住 ⇒ G3 的冻结是平凡真"的假绿，已修。
+
+### P-121.5 红-if-reverted（真跑到；**真文件副本**在 `/tmp`，真树 sha256 前后不变）
+
+```
+$ MUT=/tmp/p121-manual-b; cp core/*.js $MUT/core/     # 逐文件复制（fs.cpSync 本机抛 EINVAL；用 statSync 判类型 + readFileSync/writeFileSync）
+# M5：删掉画布 pointerout 监听  →  MPW_POINTER_BUNDLE=$MUT/core/we-scene-bundle.js node tests/pointer-leave-test.mjs --no-mutation --only G2   （rc=1）
+  ✗ G2a pointerout + relatedTarget 在画布**内部** ⇒ **不停发**  — 派发命中 0 个监听器；累计 157→165
+  ✗ G2b ★★ pointerout + relatedTarget 在画布**外** ⇒ 停发  — 派发命中 0 个监听器；离开后累计 244→260
+  ✗ G2c ★★ pointerout(+relatedTarget=null) 停发  — pointerout 派发命中 0 个监听器（修复前 = 0）；离开后累计 363→379；实测画布监听集合=["pointermove","pointerdown","pointerleave"]
+# M6+M7：删掉 window blur 与 document visibilitychange 监听  →  … --only G3   （rc=1）
+  ✗ G3-pre 页面级监听真的装上了  — 实测={"win":["focus"],"doc":[]}
+  ✗ G3a ★★ blur（窗口失焦）⇒ 停发  — blur 命中 0 个监听器；累计 475→491 ptr=[640.0000,479.9999]
+  ✗ G3c ★★ visibilitychange + hidden ⇒ 停发  — 命中 0 个监听器；累计 658→674
+# M8：删掉 window focus 监听（"修好一个 bug 造出另一个"）  →  … --only G3   （rc=1）
+  ✗ G3b ★★ focus 恢复 ⇒ 继续发射  — focus 命中 0 个；累计 475→475 ptr=null
+$ sha256sum core/we-scene-bundle.js    # 变异跑完前后逐字节相同
+c7d6d5a4b0732bc9ee1d30c43a7a624de997a090228ab2541ad8af0533c9fbc1
+```
+
+缺口 A 的变异（同款"真副本"手法，锚点各命中 1 次）：
+```
+# M1：`console: makeSandboxConsole(),` → `console,`（回到共享宿主 console）
+$ MPW_SCENE_SCRIPTS=$MUT/elysia/scene-scripts.js node tests/script-sandbox-globals-test.mjs --no-mutation   （rc=1）
+  ✗ S1a ★ 跑过 `console.log = () => {}` 的脚本后，宿主 console 的 5 个写方法逐个 === 同一引用  — log:≠ warn:≠ error:≠ info:≠ debug:≠
+  ✗ S1b 宿主 console 的对象身份也没被换  — name=（被换成空箭头函数）
+  ✗ S2b ★★ 真包跑两趟后…  — log:≠ warn:=== error:=== info:=== debug:===
+  ✗ S3a ★ 正常脚本的 console.log 逐字出现在宿主 stdout  — 捕获 63 字节（原本 128）
+  ✗ S3b ★★ 宿主自己的 console.log 仍然真的会输出  — identity=false HostMarker=false
+  （计票：pass=18 fail=9）→ 9 项失败
+# M2：删掉 `...SANDBOX_HOST_ONLY_GLOBALS,`（进程句柄可直达）
+  ✗ S6 ★ 宿主进程句柄 6 个全被 shadow  — Process=object Require=undefined … Buffer=function Global=object
+  ✗ S6a ★★ 沙箱内 typeof process === "undefined"  — sandbox=object host=object
+  （计票：pass=25 fail=2）→ 2 项失败
+```
+两个变异体里基线断言（`S0a`/`S5`）仍为 ✓ ⇒ 红是"变异打破被点名的那条语义"，不是"副本加载不起来"。
+测试文件内置的 8 个变异（M1~M8）各配一条"绿前提仍成立"复核，`pass=64` 里含 16 项自检。
+**变异全部只写 `/tmp` 副本**：真树 `core/we-scene-bundle.js` sha256 跑变异前后同为 `c7d6d5a4…`（上面已贴）。
+
+### P-121.6 验收（逐个贴退出码；全部只读真树、全部秒级）
+
+```
+$ node tests/pointer-leave-test.mjs                 # rc=0  ALL PASS（64 项，缺口 0）       1.87s
+$ node tests/script-sandbox-globals-test.mjs        # rc=0  ALL PASS（31 项）PeakRSS=126MB  0.87s
+$ node tests/mock-gl-test.mjs                       # rc=0  60 通过 / 0 失败
+$ node tests/script-origin-sync-test.mjs            # rc=0  9 pass / 0 fail
+$ node tests/camera-origin-script-test.mjs          # rc=0  ALL PASS（78 项）
+$ node tests/display-options-test.mjs               # rc=0  ALL PASS（71 断言）
+$ node tests/bind-order-test.mjs                    # rc=0  ALL PASS（76 通过 / 0 失败）
+$ node tests/data-limits-test.mjs                   # rc=0  40 通过 / 0 失败
+$ node --check core/we-scene-bundle.js && node --check elysia/scene-scripts.js && \
+  node --check tests/pointer-leave-test.mjs && node --check tests/script-sandbox-globals-test.mjs   # rc=0
+```
+**没有跑**（硬约束）：全量 `tests/run-all-tests.sh`、`tests/package-matrix.mjs`、`tests/glsl-validate.mjs`、
+`build-pages.mjs`；也没有启动任何浏览器（本机无 X11/GPU，证据只有 Node + 假 DOM + mock-GL + 数值 + 逐字节）。
+
+### P-121.7 未证实项（**不许当已解决**）
+
+- **浏览器分支未执行**：沙箱是同一份 `elysia/nsl.js`（`new Function` + `with`），本机没有浏览器 ⇒
+  "出货页面里沙箱日志进 `#log` 面板（demo.html:929-931 的 console.warn/error 桥）"只有**源码 + Node 侧
+  等价转发**证据（S4c 用"换掉宿主 console.warn"模拟了那条桥），**没有**真机 DOM 证据。
+- **真机事件时序未测**：`pointerout`/`blur`/`visibilitychange` 与最后一发 `pointermove` 的真实先后、
+  以及真机壁纸引擎（Qt）是否**发** `blur`/`visibilitychange`，都只有合成事件证据。若真机不发这两类事件，
+  本补丁在该环境下等价于"没接"，不会更差（唯一新增的 DOM 依赖是 `pointerout`，它是 DOM 标准事件）。
+- **三条剩余隔离面（本轮只记录、不修；`tests/script-sandbox-globals-test.mjs` 的 S8 段用 NOTE 打印实测值）**：
+  ① bare `setTimeout`/`fetch` 未遮蔽 ⇒ 直达宿主全局（本机 Node 实测 `typeof fetch`/`typeof setTimeout` 都是 `function`）；
+  ② 未声明标识符的松散赋值落**宿主** global（实测 `__p121Loose = 'leak'` ⇒ 宿主 `globalThis.__p121Loose === 'leak'`）；
+  ③ 内建对象（`Object`/`Array`/…）与宿主**同 realm** ⇒ `Object.prototype.__p121Proto = 'proto'` 写穿宿主原型链（实测成立）。
+  要真隔离得给沙箱独立 realm，而**浏览器侧没有 `node:vm`**（这正是 `elysia/nsl.js` 存在的理由）⇒
+  这不是"补一行"的事，本轮**不假装已隔离**。
+- `Buffer` 的语料命中都是 `MpwBuffer`/`vertexBuffer` 一类**名字**（不是 Node 全局），据此把 `Buffer` 一起 shadow；
+  `typeof process` 在 11 个 dd 包正文里零命中 —— 但**没有**扫描全部 13GB 语料（全量审计 `script-corpus-audit.mjs`
+  属重活，本轮按纪律不跑）⇒ "shadow 不影响其它语料"只在这些包的范围内成立。
+- 页面级"挂起"期间的语义选择：`blur`/`hidden` 时**保留** `__pointerN`（焦点回来若指针仍在画布内 ⇒ 立刻续发）。
+  若真机上"失焦期间用户其实把鼠标移到了别的窗口、画布内坐标已过期"，则恢复瞬间会用一次**旧坐标**发一帧；
+  下一发 `pointermove`/`pointerout` 立即纠正。这条取舍**未在真机验证**（G3b 钉的是"能续发"，不是"续发坐标一定新鲜"）。
+
+### P-121.8 本轮改动的文件清单（提交只含这些）
+
+| 文件 | 说明 |
+|---|---|
+| `elysia/scene-scripts.js` | **缺口 A 本体**：`makeSandboxConsole()`（每沙箱一个 console 门面）+ `SANDBOX_HOST_ONLY_GLOBALS`（进程句柄 shadow）+ context 两行接线 |
+| `core/we-scene-bundle.js` | **缺口 B 本体**：`__pointerLeave`/`__pointerSuspend`/`__pointerResume`/`__hookPageLeave` + 画布 `pointerout` + `__pointerDesign` 挂起判定 + 两个安装点 |
+| `tests/pointer-leave-test.mjs` | G2/G3 由 XFAIL 改**真断言**（含 G2a 误伤面、G3b/G3d 恢复面、G3e 反"无中生有"面、D4c 逃生口面）+ 假 window/document 目标 + 变异扩到 8 个（M5~M8 是本轮两条缺口的红-if-reverted） |
+| `tests/script-sandbox-globals-test.mjs` | **新增**：缺口 A 的 31 条判据（① 逐属性 `===` + stdout 字节证据；② 日志去向；③ globalThis/进程句柄/localStorage 钉住；S8 如实记录三条剩余面）+ M1/M2 变异自检；0.87s / 126MB |
+| `docs/PATCHES.md` | 本节 P-121（+ 回填 P-120.7 那条旁注的"已修"指针） |
+| `docs/README-DIAGNOSTICS.md` | `cursor` 行的"不开时"语义补两条等价"离开"信号（P-121） |
+| **未改**：`tests/run-all-tests.sh` | 新测试的登记待办见下；`pointer-leave` 那行**已在**门禁里（且没有写死断言条数的注释 ⇒ 不需要跟着改） |
+
+登记待办：`add "script-sandbox-globals" "node tests/script-sandbox-globals-test.mjs"`。

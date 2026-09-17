@@ -256,6 +256,66 @@ function makeOwnerRef() {
   };
 }
 
+// ①(P-121 A) 沙箱 `console` 门面：**每个沙箱一个独立对象**，脚本里 `console.log = () => {}`
+//   只改这个门面，宿主进程/宿主页面的真 `console` 一个属性都不动。
+//
+// 现场（P-120 交付里记录的原始观察 + 本次逐字节复核）：
+//   `allwallpaper/0917/3462491575/scene.pkg` 的作者脚本正文含
+//     `if (!isRunningInEditor) {\n\tconsole.log = () => { }`（脚本节点 1 个，实测命中）
+//   而沙箱（`elysia/nsl.js` 的 `new Function` + `with (ctx)`，浏览器/Node 同一份实现）此前把
+//   `context.console` 直接指向**宿主真 console 对象** ⇒ 跑过这个包之后宿主进程的 `console.log`
+//   被全局改写成空函数（复现：本文件改动前 `applySceneScripts()` 一趟后 `console.log === before`
+//   为 false、且宿主再 log 什么都不输出），旁证是 `tests/camera-script-origin-probe.mjs` 里
+//   专门为它写的 `muteConsole` 规避。
+//
+// 语义（三条都钉在 `tests/script-sandbox-globals-test.mjs`）：
+//   · 写：只落到门面自己（作者"把 console 静音"的意图在**它自己的沙箱内**照常生效）；
+//   · 读：转发到**当前**宿主 `console` 的同名方法 —— 调用时按名字重取，所以
+//     `demo.html:929-931` 把 `console.warn/error` 桥到页面 `#log` 面板之后，沙箱日志照样进 #log；
+//     Node 侧则照常进 stdout（**日志不被沙箱吞掉**）。
+//   · 门面绝不能被冻结：作者脚本 `'use strict'` 下 `console.log = …` 若抛 TypeError，
+//     整个脚本会加载失败（那是比"静音"更重的行为改变）。
+function makeSandboxConsole() {
+  const own = Object.create(null);   // 脚本自己写过的键（含"作者把 console.log 静音"）
+  const fwd = new Map();             // 复用转发函数：`console.log === console.log` 保持稳定
+  const hostConsole = () => { try { return (typeof console !== 'undefined' && console) ? console : null; } catch (e) { return null; } };
+  return new Proxy(own, {
+    get(t, p) {
+      if (p in t) return t[p];                       // 脚本写过的（例如静音函数）优先
+      const h = hostConsole();
+      if (!h) return undefined;
+      const v = h[p];
+      if (typeof v !== 'function') return v;
+      let f = fwd.get(p);
+      if (!f) {
+        f = (...args) => {                            // 调用时再取一次 ⇒ 宿主替换 console.* 也跟得上
+          try {
+            const hh = hostConsole();
+            const fn = hh ? hh[p] : null;
+            if (typeof fn === 'function') return fn.apply(hh, args);
+          } catch (e) { /* 日志失败不影响脚本/宿主 */ }
+          return undefined;
+        };
+        fwd.set(p, f);
+      }
+      return f;
+    },
+    set(t, p, v) { try { t[p] = v } catch (e) { /* 冻结/只读 ⇒ 静默（宿主 console 不受影响） */ } return true; },
+    has(t, p) { const h = hostConsole(); return (p in t) || !!(h && (p in h)); },
+  });
+}
+
+// ①(P-121 A③) 宿主**进程句柄**这一类全局：WE 运行时不提供、浏览器里本来就不存在 ——
+//   而 `elysia/nsl.js` 的 `with (ctx)` 只遮蔽 ctx 上**有**的键，`new Function` 的兜底作用域是
+//   Node 的**进程全局** ⇒ 不显式 shadow 的话脚本能直接摸到 `process`/`Buffer`/`global`
+//   （脚本写 `process.exitCode = 1` 之类就是宿主级副作用）。显式 shadow 成 `undefined` =
+//   「浏览器里本来就没有这些标识符」这一事实，Node 侧从此与浏览器/WE 运行时同形。
+//   语料实测：11 个 dd 包正文里 `typeof process` = 0 命中（`Buffer` 命中都是 `MpwBuffer`/
+//   `vertexBuffer` 一类名字，不是 Node 全局），所以这条 shadow 不改变任何语料行为。
+const SANDBOX_HOST_ONLY_GLOBALS = {
+  process: undefined, require: undefined, module: undefined, exports: undefined, Buffer: undefined, global: undefined,
+};
+
 // 编译脚本: 返回 { update, applyUserProperties, init, ... } 函数 (vm 沙箱)
 // opts: { canvasSize, userProps, shared, thisScene, ownerRef, runtime }
 // NSL 模块映射: import * as X from 'WEColor'/'WEMath' → 对应全局对象
@@ -318,7 +378,12 @@ function compileScript(source, opts = {}) {
     __exports: {},
     __scriptProps: null, // export var scriptProperties = ... 写入
     __scriptProperties: null, // 脚本内 scriptProperties 引用
-    Date, Math, console, JSON, Number, String, Boolean, Object, Array, Set, Map, Promise,
+    Date, Math, JSON, Number, String, Boolean, Object, Array, Set, Map, Promise,
+    // ①(P-121 A) `console` 换成**每沙箱一个**的门面（见 makeSandboxConsole）：脚本对 console 的
+    //   写（含 `console.log = () => {}`）不再落到宿主的真 console 对象上；正常日志照旧转发到宿主。
+    console: makeSandboxConsole(),
+    // ①(P-121 A③) 宿主进程句柄显式 shadow（同一处真相：SANDBOX_HOST_ONLY_GLOBALS 的注释）
+    ...SANDBOX_HOST_ONLY_GLOBALS,
     parseFloat, parseInt, isNaN, isFinite, Infinity, NaN, undefined,
     Vec3,
     Vec2,   // ①(2026-09-12) 上报错误 "Vec2 is not defined" → 补进沙箱
