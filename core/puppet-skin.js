@@ -1,7 +1,17 @@
 /* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 */ // core/puppet-skin.js —— WE puppet 骨骼蒙皮（独立实现，供 WebGL GPU 蒙皮使用）
 // 语义来源：wer-ref assets/shaders/base/model_vertex_v1.h::ApplySkinningPosition
 //   position' = mul(vec4(position,1), Σ w_i · g_Bones[blendIndices_i])
-//   g_Bones[b] = Rz(finalWorld[b]) × bindInv[b]（行主序），蒙皮后再乘 g_ModelMatrix
+//   g_Bones[b] = bindInv[b] × Rz(finalWorld[b])（行主序），蒙皮后再乘 g_ModelMatrix
+//   ⚠ ①(P-110 2026-09-17) **本行的顺序是判据定的，不是抄来的**：`bindInv × m` 与 `m × bindInv` 在
+//   "静止帧（姿态=bind）"下**都给单位阵**（互为逆阵 ⇒ 两个顺序都满足"静止帧必须等于 bind 姿态"这条恒等式），
+//   所以**静止帧恒等式不能判序**。能判序的是"绕骨骼枢轴的刚性旋转"恒等式（row-vector 语义）：
+//     顶点 v 的绑定位姿在骨 b 的 bind 世界位姿 W_bind[b] 下的局部坐标 = v × bindInv[b]；再乘当前世界位姿
+//     W_anim[b] 回到模型空间 ⇒ 对"该骨主导（w≈1）"的顶点必有 |v − P_bind| == |v' − P_anim|
+//     （P = 各自的世界平移）。实测（tests/bind-order-test.mjs TN3 + tests/skin-order-verify.mjs）：
+//     `bindInv × m` 误差 ≤1e-3（刚性）✓，`m × bindInv` 把顶点甩到离枢轴几十~几百 px 处 ✗。
+//     官方着色器 `position' = position × Σw·g_Bones` 也只有在 `g_Bones = bindInv × finalWorld` 时
+//     才是标准 LBS（v_bind × W_bind⁻¹ × W_anim）。elysia 移植的 `elysia/we-renderer/puppet.js:174`
+//     写的是 `m × bindInv`（上游 main 的同类缺陷；本仓库 demo.html 已于 P-42 修为 `bindInv × m`）。
 // 骨骼/动画还原算法对齐 /tmp/elysia-run/lib/we-renderer/puppet.js（_parseMdl/_sampleAnimRT/_skinPuppet）
 export function indexOfBytes(buf, str, from = 0) {
   const n = str.length
@@ -60,6 +70,50 @@ export function parseMdlStatic(buf) {
   }
   return { positions, uvs, indices, blendIndices, blendWeights, vertexCount, stride, mdlsOffset: mdls, raw: buf }
 }
+// ── bind 世界链（①P-110 2026-09-17：**唯一实现处**，三处调用点共用）──
+// 为什么需要"唯一实现处"：bind 世界链原先在 4 个地方各写了一遍（`core/attach-transform.mjs`
+//   `puppetBoneFinal`、`core/we-scene-bundle.js` 的 `?bones=` 探针、`demo.html` 的 `updateSkinBones`
+//   预计算、以及镜像它的若干测试），**四处都必须与 `sampleAnimRT` 的动画链同空间**，一旦有一处不同步
+//   就会重现 P-109.3 的"错序基准 + 正确序增量"错配。故收敛到本函数。
+// 语义（行主序 = DirectX/HLSL 行向量约定，`matMulRow(A,B)` 在数学上就是 A·B）：
+//   局部量 `bones[b].bind` 是"在**父骨坐标系**里的位姿"（`sampleAnimRT` 明确按此解释：
+//   子骨平移被父骨角度旋转后加到父骨世界上）⇒ 世界位姿必须**子先乘**：
+//        W[b] = L_b × W[parent] = matMulRow(L_b, W[parent])
+//   直觉：顶点 v（行向量）先 × L_b 进父空间，再 × W[parent] 进模型空间；等价于层级链 W = L_b·W_parent。
+// legacy（①P-110 之前的写法，**只作 A/B 回退**，见 `?bindorder=legacy`）：
+//        W[b] = W[parent] × L_b = matMulRow(W[parent], L_b)
+//   —— 这不是"另一种画风"而是**错序**：它把局部量当"在世界坐标里绕原点后置"解释，与动画链
+//   （`sampleAnimRT` 子先乘）不在同一空间。实测 hina 3554161528：与"动画帧 0"（该帧逐骨局部量
+//   == `bind` 局部量 ⇒ 两个链必须给出同一世界姿势）最大差 **340.76px**、平均 122.1px；换成子先乘
+//   后 32 骨 **maxΔ=0.0000px**。静止帧看不出来（`gBones = bindInv × bindRT = I` 两种序都成立），
+//   一走动就把"错序基准"与"正确序增量"相加 ⇒ 眉毛整组翻转（P-109.2/P-110.2）。
+// bones：`[{parent, bind:[16]}]`（`core/attach-transform.mjs` 与 `elysia/we-renderer/puppet.js`
+//   两种解析器的骨对象都兼容）；假定骨数组已按父先子后排列（两个解析器都成立）。
+const IDENT4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+export function bindWorldChain(bones, opts = {}) {
+  const nb = (bones && bones.length) || 0
+  const legacy = !!(opts && (opts.legacy === true || opts.bindOrder === 'legacy'))
+  const out = new Array(nb)
+  for (let b = 0; b < nb; b++) {
+    const bone = bones[b]
+    const parent = bone ? bone.parent : -1
+    const local = Array.from((bone && bone.bind) || IDENT4)
+    const pw = (parent >= 0 && parent < nb && out[parent]) ? out[parent] : null
+    out[b] = pw ? (legacy ? matMulRow(pw, local) : matMulRow(local, pw)) : local
+  }
+  return out
+}
+// bind 世界位姿 → 逐骨 {angle, tx, ty}（additive 合成的基准；与 `sampleAnimRT` 的输出同空间）
+export function bindWorldPolar(worlds) {
+  return (worlds || []).map((m) => ({ angle: Math.atan2(m[1], m[0]), tx: m[12], ty: m[13] }))
+}
+// ①(P-110) `?bindorder=legacy` 的**唯一判定式**（与既有 `?parspace=legacy` 同形：正则字面量，
+//   由 `tests/diag-flag-check.mjs` 的规则 c 抓取）。缺省/任何其它值 = 修正后的"子先乘"。
+export function bindOrderLegacy(search) {
+  const s = (search === undefined || search === null) ? '' : String(search)
+  return /[?&]bindorder=legacy/.test(s)
+}
+
 // 行主序 4x4
 export function matMulRow(a, b) {
   const o = new Array(16)

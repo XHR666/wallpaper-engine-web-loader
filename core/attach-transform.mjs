@@ -15,10 +15,12 @@
 //   3) 单位/坐标：全部在**编辑器 y-up 空间**计算；y-down 翻转由渲染端统一做一次
 //      （我们 = parseScene 末尾 PROJ_H−y；elysia = 绘制时 H−y）。本模块不做任何 y 取反。
 //
-// 本模块零依赖（纯 Uint8Array/DataView），浏览器与 Node 共用：
+// 本模块零外部依赖（纯 Uint8Array/DataView），浏览器与 Node 共用；①(P-110) 只依赖仓库内
+//   `core/puppet-skin.js::bindWorldChain`（bind 世界链的唯一实现处，无第三方依赖）：
 //   - core/we-scene-bundle.js parseScene（opts.attachCtx 注入时自动计算全部附件偏移）
 //   - demo.html（默认路径；?att=legacy 回退旧 anchorsOf/mkOff）
 //   - layer-rect-check.mjs / attach-transform-test.mjs（验收）
+import { bindWorldChain, bindWorldPolar } from './puppet-skin.js'
 
 // ── 值解包：静态字符串 / {value} / {animation}（t=0 取首帧，与 elysia 烘焙语义一致）──
 function unwrapVal(v, def) {
@@ -79,6 +81,7 @@ export function parseMdatAnchors(buf) {
   } catch { /* 解析失败 → 无锚点 */ }
   return out
 }
+
 
 // ── 行主序 4×4（elysia _matMulRow / _matInvertRow 逐字）──
 export function matMulRow(a, b) {
@@ -286,13 +289,13 @@ export function puppetBoneFinal(mesh, t, layers = null, opts = null) {
   const bones = mesh.bones
   if (!bones || !bones.length) return null
   const nb = bones.length
-  const bindWorld = new Array(nb)
-  for (let b = 0; b < nb; b++) {
-    const parent = bones[b].parent
-    const local = bones[b].bind
-    bindWorld[b] = parent >= 0 && parent < nb && bindWorld[parent] ? matMulRow(bindWorld[parent], local) : local
-  }
-  const bindRT = bindWorld.map((m) => ({ angle: Math.atan2(m[1], m[0]), tx: m[12], ty: m[13] }))
+  // ①(P-110 2026-09-17) bind 世界链改走唯一实现处 `core/puppet-skin.js::bindWorldChain`
+  //   （**子先乘** `W[b] = L_b × W[parent]`，与 `sampleAnimRT` 同空间；见该函数头注释的判据）。
+  //   旧写法 `matMulRow(bindWorld[parent], local)`（父先乘）只由 `opts.bindOrder === 'legacy'`
+  //   （URL 侧 `?bindorder=legacy`）启用，作 A/B 回退与 bug 复现。
+  const legacyBind = !!(opts && (opts.bindOrder === 'legacy' || opts.bindOrderLegacy === true))
+  const bindWorld = bindWorldChain(bones, { legacy: legacyBind })
+  const bindRT = bindWorldPolar(bindWorld)
   const final = bindRT.map((r) => ({ angle: r.angle, tx: r.tx, ty: r.ty }))
   if (!mesh.animations || !mesh.animations.length) return final
   if (!layers || !layers.length) layers = [{ animIdx: 0, blend: 1, rate: 1, additive: false }]
@@ -385,7 +388,11 @@ export function attachmentOffset(child, parent, ctx) {
   }
   if (mesh && mesh.bones && anch.boneIdx < mesh.bones.length) {
     const layers = selectAnimLayers(parent, mesh)
-    const final = puppetBoneFinal(mesh, ctx.time || 0, layers, ctx.fps ? { fps: ctx.fps } : null)
+    // ①(P-110 2026-09-17) bind 链序随 ctx 下传（`?bindorder=legacy` 的 A/B 回退；缺省 = 子先乘修正序）
+    const popts = {}
+    if (ctx.fps) popts.fps = ctx.fps
+    if (ctx.bindOrder) popts.bindOrder = ctx.bindOrder
+    const final = puppetBoneFinal(mesh, ctx.time || 0, layers, (popts.fps || popts.bindOrder) ? popts : null)
     if (final) {
       bx = final[anch.boneIdx].tx; by = final[anch.boneIdx].ty; ba = final[anch.boneIdx].angle
     }
@@ -434,12 +441,14 @@ export function resolveTransform(o, byId, ctx = {}) {
 // ── 便捷封装：为整场景预计算"附件偏移表"（id → [x,y]，y-up，供 parseScene 合并使用）──
 // readEntry(name)->Uint8Array：pkg 原始条目；readJson(path)->obj|null：BOM 容错 JSON。
 // opts.fps：骨骼动画采样 fps 口径覆盖（缺省=每动画自带 fps，见 puppetBoneFinal 注释）
+// opts.bindOrder：①(P-110) bind 世界链序覆盖（`'legacy'` = 父先乘旧写法，作 A/B；缺省=子先乘修正序）
 export function buildAttachOffsets(sceneObjects, readEntry, readJson, time = 0, opts = null) {
   const ctx = {
     readModelJson: (p) => { try { const e = readEntry(p); return e ? JSON.parse(new TextDecoder().decode(e).replace(/^\uFEFF/, '')) : null } catch { return null } },
     readMdl: (p) => readEntry(p),
     time,
     fps: opts && typeof opts.fps === 'number' ? opts.fps : undefined,
+    bindOrder: opts && typeof opts.bindOrder === 'string' ? opts.bindOrder : undefined,
     _anchorCache: new Map(),
     _mdlCache: new Map(),
   }

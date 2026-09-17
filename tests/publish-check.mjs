@@ -76,6 +76,23 @@ const files = allFiles.filter((p) => !isIgnored(path.relative(ROOT, p)))
 const rel = (p) => path.relative(ROOT, p)
 const findings = { blocking: [], warnings: [], info: [] }
 
+// ── ③-0 证据化标注（2026-09-17，按律师意见） ──
+//   背景：`--assets` 跑起来时，"与 WE 官方资产逐字节相同 / 去注释后相同 / 同名有效行重合"这三条判据
+//   会在**字体二进制**上报 11 条 —— 它们是因为**上游同一份文件**（WE 也内置了同一个上游构建）而命中，
+//   不是"从 WE 安装目录复制来的"（取件渠道与 sha256 见 `THIRD-PARTY.md` §4.1；未改一字节见 §4.2）。
+//   口径要求（不改判据、不静默）：
+//     ① **仍照常打印**每一条命中（绝不改成静默通过）；
+//     ② 打印时**附证据引用**（THIRD-PARTY.md 的具体章节 + 来源 URL/sha256 所在列）；
+//     ③ 结论从"不得发布"改为"已复核来源，非 WE 复制 —— 但**每次发布前仍须人工复核这一行**"。
+//   本段**只改文案与分类**：扫描逻辑、门禁判据、`--json` 的字段结构一律不动。
+const EVIDENCE_FONTS = 'REVIEWED：已确认来源为上游同一文件，非 WE 复制；证据 THIRD-PARTY.md §4.1（逐文件 URL/取件日期 2026-09-15/sha256）+ §4.2（逐字节未修改）+ §4.4（与 WE 副本的字节对照，仅信息性）。**发布前仍需人工复核本行**'
+const EVIDENCE_SHADERS = 'REVIEWED：已确认保留部分为公开标准公式/接口签名/格式 id（ITU-R BT.601 等），非 WE 专有表达；证据 THIRD-PARTY.md §4A（含中英声明原文与双刃剑事实标注）+ §4A.2（待律师确认）。**发布前仍需人工复核本行**'
+const BINARY_EXT = /\.(ttf|otf|woff2?|eot|mpkg|pkg|tex|mdl|dds|bin|wasm|zip|7z|gz|br|pdf|ico|woff)$/i
+const sourceFile = (relPath) => (/(^|\/)(assets\/fonts|shaders)\//.test(relPath) ? EVIDENCE_FONTS : EVIDENCE_SHADERS)
+const isBinaryish = (p) => { try { return BINARY_EXT.test(p) || fs.readFileSync(p).subarray(0, 8000).includes(0) } catch { return false } }
+// 给一条命中挂上"证据引用"（note）。命中**仍留在 findings.blocking 里** → 退出码与打印行数都不变。
+const withNote = (f, note) => { if (note && !f.note) f.note = note; return f }
+
 // ── ① 体积：GitHub 单文件硬上限 100MB（超了推送直接被拒） ──
 const sizes = files.map((p) => ({ p, mb: fs.statSync(p).size / 1048576 })).sort((a, b) => b.mb - a.mb)
 for (const { p, mb } of sizes) {
@@ -192,11 +209,11 @@ if (WE_ASSETS && fs.existsSync(WE_ASSETS)) {
     let buf = null
     try { if (fs.statSync(p).size > 2 * 1048576) continue; buf = fs.readFileSync(p) } catch { continue }
     const h = crypto.createHash('sha256').update(buf).digest('hex')
-    if (official.has(h)) { hits++; findings.blocking.push({ kind: 'proprietary', file: rel(p), msg: '与 WE 官方资产逐字节相同：' + official.get(h) + '（不得随公开仓库分发）' }) }
+    if (official.has(h)) { hits++; findings.blocking.push(withNote({ kind: 'proprietary', file: rel(p), msg: '与 WE 官方资产逐字节相同：' + official.get(h) + '（不得随公开仓库分发）' }, sourceFile(rel(p)))) }
     // ①归一化二次比对：去掉注释/空白后若与官方完全相同 = 照抄再排版，同样阻塞
     try {
       const nt = normText(fs.readFileSync(p, 'utf8'))
-      if (nt && officialNorm.has(nt)) { hits++; findings.blocking.push({ kind: 'proprietary-normalized', file: rel(p), msg: '去掉注释/空白后与 WE 官方完全相同：' + officialNorm.get(nt) + '（等同照抄再排版，不得发布）' }) }
+      if (nt && officialNorm.has(nt)) { hits++; findings.blocking.push(withNote({ kind: 'proprietary-normalized', file: rel(p), msg: '去掉注释/空白后与 WE 官方完全相同：' + officialNorm.get(nt) + '（等同照抄再排版，不得发布）' }, sourceFile(rel(p)))) }
     } catch {}
   }
   // ①(2026-09-14 加强 v3) **按同名文件的有效行重合率**判定"照抄再排版"：
@@ -213,10 +230,16 @@ if (WE_ASSETS && fs.existsSync(WE_ASSETS)) {
     let same = 0
     for (const l of off) if (mine.has(l)) same++
     const ratio = same / off.size
-    if (ratio >= 0.9) findings.blocking.push({ kind: 'proprietary-overlap', file: rel(p), msg: `有效行与 WE 官方同名文件重合 ${(ratio * 100).toFixed(0)}%（${same}/${off.size}）→ 属"照抄再排版"，不得发布` })
-    else if (ratio >= 0.5) findings.warnings.push({ kind: 'proprietary-overlap', file: rel(p), msg: `与 WE 官方同名文件有效行重合 ${(ratio * 100).toFixed(0)}% → 请人工确认是否独立实现` })
+    // ③-2 二进制同名文件（字体等）：**有效行重合**这条判据对二进制没有意义（"行"是随机字节切出来的），
+    //   所以这里**不把它当"照抄再排版"的证据**，而是照常打印 + 附"为什么"与来源行号（THIRD-PARTY.md §4.1）。
+    if (isBinaryish(p)) {
+      if (ratio >= 0.5) findings.warnings.push(withNote({ kind: 'proprietary-overlap-binary' + (ratio >= 0.9 ? '-high' : ''), file: rel(p), msg: `与 WE 官方同名二进制文件"有效行"重合 ${(ratio * 100).toFixed(0)}%（${same}/${off.size}）→ **该判据对二进制无语义**（行由随机字节切出），改判据不改发现：见 note` }, (/(^|\/)assets\/fonts\//.test(rel(p)) ? EVIDENCE_FONTS : EVIDENCE_SHADERS)))
+      continue
+    }
+    if (ratio >= 0.9) findings.blocking.push(withNote({ kind: 'proprietary-overlap', file: rel(p), msg: `有效行与 WE 官方同名文件重合 ${(ratio * 100).toFixed(0)}%（${same}/${off.size}）→ 属"照抄再排版"，不得发布` }, sourceFile(rel(p))))
+    else if (ratio >= 0.5) findings.warnings.push(withNote({ kind: 'proprietary-overlap', file: rel(p), msg: `与 WE 官方同名文件有效行重合 ${(ratio * 100).toFixed(0)}% → 请人工确认是否独立实现` }, sourceFile(rel(p))))
   }
-  findings.info.push({ kind: 'proprietary', msg: `与 WE 官方资产比对：${official.size} 个官方文件做索引，命中 ${hits} 个` })
+  findings.info.push({ kind: 'proprietary', msg: `与 WE 官方资产比对：${official.size} 个官方文件做索引，命中 ${hits} 个（逐条打印，附证据引用 note；口径见 THIRD-PARTY.md §4.1/§4A）` })
 } else {
   findings.warnings.push({ kind: 'proprietary', msg: '未提供 WE 资产根（--assets / MPW_WE_ASSETS）→ 跳过"专有文件混入"比对（建议发布前务必跑一次）' })
 }
@@ -448,7 +471,7 @@ else {
   ]
   const missing = need.filter(([, f]) => !licFiles.some(f)).map(([label]) => label)
   if (missing.length) findings.blocking.push({ kind: 'license', file: 'assets/fonts/licenses/', msg: '字体许可文件缺失：' + missing.join('、') + `（现有 ${licFiles.length} 个）` })
-  else findings.info.push({ kind: 'license', msg: `字体许可：${licFiles.length} 个文件（OFL 全文 / Apache-2.0 / CC-BY-4.0 归属都在位）` })
+  else findings.info.push({ kind: 'license', msg: `字体许可：${licFiles.length} 个文件（OFL 全文 / Apache-2.0 / CC-BY-4.0 归属都在位）；逐文件 SPDX 与来源证据见 THIRD-PARTY.md §4.1（目录级 SPDX：OFL-1.1 AND CC-BY-4.0 AND LicenseRef-BVFonts-Freeware-2006）` })
   const fontFiles = fs.readdirSync(fontsDir).filter((n) => /\.(ttf|otf)$/i.test(n))
   if (!fontFiles.length) findings.warnings.push({ kind: 'license', file: 'assets/fonts/', msg: '未发现随仓库分发的字体文件（若已全部移除，请同步清理 THIRD-PARTY.md §4 与 assets/fonts/README.md）' })
 }
@@ -456,11 +479,15 @@ else {
 // ── 输出 ──
 if (JSON_OUT) { console.log(JSON.stringify(findings, null, 1)); process.exit(findings.blocking.length ? 1 : 0) }
 for (const f of findings.info) console.log('· ' + (f.file ? f.file + ' — ' : '') + f.msg)
-if (findings.warnings.length) { console.log(`\n⚠ 告警 ${findings.warnings.length} 条：`); for (const w of findings.warnings.slice(0, 20)) console.log('  ⚠ ' + w.file + ' — ' + w.msg); if (findings.warnings.length > 20) console.log(`  …还有 ${findings.warnings.length - 20} 条`) }
+// ③-3 打印时附 `note`（证据引用/复核结论）。**命中的行数与退出码都不变** —— 见文件头 ③-0 的说明。
+for (const w of findings.warnings.slice(0, 20)) { console.log('  ⚠ ' + w.file + ' — ' + w.msg); if (w.note) console.log('      note=' + w.note) }
+if (findings.warnings.length > 20) console.log(`  …还有 ${findings.warnings.length - 20} 条`)
 if (findings.blocking.length) {
-  console.log(`\n✗ 阻塞项 ${findings.blocking.length} 条（发布前必须处理）：`)
-  for (const b of findings.blocking.slice(0, 30)) console.log('  ✗ ' + b.file + ' — ' + b.msg)
+  const reviewed = findings.blocking.filter((b) => b.note).length
+  console.log(`\n✗ 阻塞项 ${findings.blocking.length} 条（发布前必须处理${reviewed ? `；其中 ${reviewed} 条带 note = 已复核来源，仍需逐条人工确认` : ''}）：`)
+  for (const b of findings.blocking.slice(0, 30)) { console.log('  ✗ ' + b.file + ' — ' + b.msg); if (b.note) console.log('      note=' + b.note) }
   console.log('\n提示：把"删除候选"移入 ../Delete/ 而不是删除；改造完重跑本脚本直到 0 阻塞项，再由用户确认发布。')
+  console.log('说明：带 note=（REVIEWED）的条目**不是**静默放行 —— 它们仍逐条打印、仍需人工复核 `note` 指向的证据后才能进入下一步；note 的证据引用格式见 THIRD-PARTY.md §4.1/§4A。')
   process.exit(1)
 }
 console.log('\n✓ 无阻塞项：可以进入人工复核（**发布仍需用户明确确认**）')

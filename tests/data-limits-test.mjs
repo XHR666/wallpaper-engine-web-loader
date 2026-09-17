@@ -396,11 +396,37 @@ console.log('[D] 插件 diag-*.json 上限（数量 + 字节 + 启动清理 + �
   check('D8 插件客户端 **DOM 诊断自动上报默认关**：`mpwdiag === \'1\'` 才开（旧实现 `!== \'0\'` 默认开）',
     /localStorage\.getItem\('mpwdiag'\) === '1'\) \{/.test(PLUGIN_CLIENT)
     && !/localStorage\.getItem\('mpwdiag'\) !== '0'\) \{/.test(PLUGIN_CLIENT))
-  check('D9 插件客户端 localStorage **单值上限**：超 256KB 不写 + 打警告（大图走 IndexedDB），两处写入都走 `mpwLsSafeSet`',
-    /const MPW_LS_MAX_BYTES = 256 \* 1024;/.test(PLUGIN_CLIENT)
-    && /拒绝写入/.test(PLUGIN_CLIENT)
-    && countOf(PLUGIN_CLIENT, 'mpwLsSafeSet(STORE_KEY, JSON.stringify(') === 2
-    && countOf(PLUGIN_CLIENT, 'localStorage.setItem(STORE_KEY, JSON.stringify(') === 0)
+  // ①(P-111 2026-09-17 修回归) D9 旧断言写死了**旧写入形态**：`countOf('mpwLsSafeSet(STORE_KEY, JSON.stringify(') === 2`
+  //   ——**已过时**。持久化轮把落盘收敛成**唯一入口** `mpwPersistSection(sec)`（先 `JSON.stringify` 一次再写，
+  //   所以受控调用是 `mpwLsSafeSet(STORE_KEY, <变量>)`，共 6 处：整串/抽掉 image/哨兵/整串落 IDB + 两处失败留痕），
+  //   并新增"抽 image 落 IndexedDB + **回读校验** + 失败显式告警"。旧断言的两条数法随之全错（2→6、0→2）。
+  //   **新口径断言按同一件事判，且更严**：阈值仍集中且值不变（各只定义一次 = 262144 / 2097152）、
+  //   超限仍拒写并打警告、**0 处**裸 `localStorage.setItem(STORE_KEY…)`（每一处写入都走受控入口 ——
+  //   两处失败留痕以前是裸写，已在本轮改回受控入口）、大图必须回读校验且失败显式留痕/告警（不静默）。
+  const defsMax = PLUGIN_CLIENT.match(/const\s+MPW_LS_MAX_BYTES\s*=/g) || []
+  const defsSpill = PLUGIN_CLIENT.match(/const\s+MPW_LS_SPILL_BYTES\s*=/g) || []
+  const thresholdVal = (name) => {
+    const m = new RegExp('const\\s+' + name + '\\s*=\\s*([^;]+);').exec(PLUGIN_CLIENT)
+    if (!m) return NaN
+    try { return new Function('return (' + m[1] + ')')() } catch { return NaN }
+  }
+  check('D9 插件客户端 localStorage **单值上限**：阈值仍集中（各只定义一次）+ 值仍 256KB / 大图线 2MB + 超限拒写打警告',
+    defsMax.length === 1 && defsSpill.length === 1
+    && thresholdVal('MPW_LS_MAX_BYTES') === 256 * 1024 && thresholdVal('MPW_LS_SPILL_BYTES') === 2 * 1024 * 1024
+    && /if \(s\.length > MPW_LS_MAX_BYTES\) \{[\s\S]{0,400}?拒绝写入[\s\S]{0,200}?return false;/.test(PLUGIN_CLIENT),
+    'defs=' + defsMax.length + '/' + defsSpill.length + ' max=' + thresholdVal('MPW_LS_MAX_BYTES') + ' spill=' + thresholdVal('MPW_LS_SPILL_BYTES'))
+  check('D9b **0 处**裸 `localStorage.setItem(STORE_KEY…)`：每一处 STORE_KEY 写入都走受控入口 `mpwLsSafeSet`',
+    countOf(PLUGIN_CLIENT, 'localStorage.setItem(STORE_KEY') === 0
+    && countOf(PLUGIN_CLIENT, 'mpwLsSafeSet(STORE_KEY') >= 6,
+    'raw=' + countOf(PLUGIN_CLIENT, 'localStorage.setItem(STORE_KEY') + ' guarded=' + countOf(PLUGIN_CLIENT, 'mpwLsSafeSet(STORE_KEY'))
+  check('D9c 大图落 IndexedDB：抽 image（`idb:img` 哨兵）+ **写完回读校验** + 失败显式留痕/告警（不静默丢选择）+ 回退开关仍在',
+    /function mpwSpillImage\(dataUrl\) \{/.test(PLUGIN_CLIENT)
+    && /function mpwIdbBgKind\(\) \{/.test(PLUGIN_CLIENT)
+    && /回读校验失败\(/.test(PLUGIN_CLIENT)
+    && /"idb:img"/.test(PLUGIN_CLIENT)
+    && /MPW_PERSIST_FAIL_KEY/.test(PLUGIN_CLIENT)
+    && /function mpwPersistOnMsg\(fn\) \{/.test(PLUGIN_CLIENT)   // 面板可见告警通道（失败不只写 console）
+    && /mpwpersist=legacy/.test(PLUGIN_CLIENT))
 }
 
 console.log('\n===== data-limits-test: ' + pass + ' 通过 / ' + fail + ' 失败 =====')

@@ -141,6 +141,18 @@ console.log('[T5] demo.html 蒙皮准备块真跑（P-59 A1：裸 frameCount →
   const i1 = HTML.indexOf("if (skinLayers.length) logf('① 蒙皮层:")
   check('T5a 从 demo.html 提取到蒙皮准备块', i0 > 0 && i1 > i0, 'offset=' + i0 + ' len=' + (i1 - i0))
   const code = HTML.slice(i0, i1) + '\n}'   // 补 if (skinEnabled) { 的收尾大括号
+  // ①(P-111 2026-09-17 修回归) 蒙皮块引用的**外层符号**必须与 demo.html 同源注入。
+  //   P-110 起块内多了一行 `lib.bindWorldChain(mesh.bones, { legacy: BIND_ORDER_LEGACY })`，
+  //   而 `BIND_ORDER_LEGACY` 是 demo.html 顶层 const（`?bindorder=legacy` 的解析点，与 `?att=legacy` 同形）。
+  //   旧 harness 的 `new Function(...)` 只传 lib/pkg/rd/puppetHelper/MpwBuffer/scene/logf/location/window 九个参数
+  //   ⇒ 块内裸引用 `BIND_ORDER_LEGACY` 立刻 ReferenceError，被块自己的 catch 吞成"蒙皮准备失败"日志
+  //   ⇒ skinLayers 恒空、T5c/T5e/T5g/T5h 集体变红（**真机不红**：同一顶层作用域里 const 就在上方）。
+  //   修法：**从 demo.html 原文里抽出那行声明**（不复制表达式、不写死布尔），注入到被 eval 的块前面 ——
+  //   与浏览器里的作用域形状一致；声明被改名/删除时 T5a2 直接变红（分辨力），不会静默退化成"参数缺失"。
+  const declLine = (HTML.match(/^[ \t]*const BIND_ORDER_LEGACY = .*$/m) || [''])[0].trim()
+  check('T5a2 demo.html 顶层声明了蒙皮块引用的 `BIND_ORDER_LEGACY`，且本 harness 抽到同一行原文',
+    /^const BIND_ORDER_LEGACY = .*URLSearchParams\(location\.search\)\.get\('bindorder'\) === 'legacy'$/.test(declLine),
+    declLine || '(未抽到)')
   check('T5b 蒙皮块用的是 anim.frameCount 兜底（不再是裸 frameCount）',
     code.includes('frameCount: (anim && anim.frameCount) || rawLen') && !/\bframeCount\s*,/.test(code),
     (code.match(/frameCount[^,;]{0,40}/g) || []).slice(0, 3).join(' | '))
@@ -150,7 +162,7 @@ console.log('[T5] demo.html 蒙皮准备块真跑（P-59 A1：裸 frameCount →
     const scene2 = lib.parseScene(JSON.parse(rd(entry2('scene.json'))), null, { attachCtx: { readEntry: entry2, time: 0 } })
     const logs = [], win = {}
     const fn = new Function('lib', 'pkg', 'rd', 'puppetHelper', 'MpwBuffer', 'scene', 'logf', 'location', 'window',
-      '"use strict";\n' + src + '\n; return { n: skinLayers.length, fc: skinLayers.map((l) => l.__skin && l.__skin.frameCount), errs: window.__mpwSkinErrs || [] }')
+      '"use strict";\n' + declLine + '\n' + src + '\n; return { n: skinLayers.length, fc: skinLayers.map((l) => l.__skin && l.__skin.frameCount), errs: window.__mpwSkinErrs || [] }')
     return Object.assign(fn(lib, p2, rd, H, MpwBuffer, scene2, (m) => logs.push(String(m)), { search: '' }, win), { logs })
   }
   const fixed = runSkin(code, SCENE_ID)

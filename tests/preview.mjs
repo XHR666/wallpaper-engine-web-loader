@@ -36,6 +36,20 @@ if (fs.existsSync(REFR) && process.env.REFR !== '0') {
 const g = scene.general || {}
 const cw = g.orthogonalprojection ? g.orthogonalprojection.width : W
 const ch = g.orthogonalprojection ? g.orthogonalprojection.height : H
+// ①(P-107) `PROJ=persp|ortho|auto`：CPU 预览也走渲染器同一份相机（`buildCamera`）。
+//   不设该环境变量 = 老式子 `orthoYDown(cw,ch)`（**逐位不变**，parity-check/projection-y 等既有用法不受影响）。
+//   为什么要有：语料唯一 3D 包 3509243656 在正交下所有层都挤到左缘（世界坐标 ±50 vs 设计画布 1920），
+//   只有透视档才把它投影成官方预览那种"星空 + HUD"画面 ⇒ 出图对照必须有这条通路。
+const PROJ_ENV = String(process.env.PROJ || '').toLowerCase()
+const PROJ_CAM = (PROJ_ENV === 'persp' || PROJ_ENV === 'auto')
+  ? lib.buildCamera(scene, W, H, { proj: PROJ_ENV === 'auto' ? 'auto' : 'persp' })
+  : null
+if (PROJ_CAM) {
+  console.log('camera[P-107]: projmode=' + PROJ_CAM.projMode + ' kind=' + PROJ_CAM.projKind
+    + ' anchor=' + PROJ_CAM.projAnchor + ' fov=' + PROJ_CAM.fovY + ' dist=' + (PROJ_CAM.perspDist || 0).toFixed(3)
+    + ' framed=' + PROJ_CAM.framedW.toFixed(1) + 'x' + PROJ_CAM.framedH.toFixed(1))
+}
+const CAM_VP = PROJ_CAM ? mul(PROJ_CAM.projection, PROJ_CAM.view) : null
 
 // 简易 PNG 解码（8bit RGB/RGBA/灰度，支持 5 种 filter）——仅供本地预览
 function decodePNG(buf) {
@@ -186,9 +200,35 @@ function layerMVP(layer, lw, lh) {
     const off = lib.alignmentOffsetForToken(layer.alignment, lw, lh)
     m = translate(m, off[0], -off[1], 0)
   }
-  return mul(orthoYDown(cw, ch), m)
+  return mul(CAM_VP || orthoYDown(cw, ch), m)
 }
 
+// ①(P-107) 齐次（透视）逆：H = [[m0,m4,m12],[m1,m5,m13],[m3,m7,m15]] 把 local(3) 映到 NDC(2)。
+//   透视档没有仿射逆可用（同一层的上下边缘缩放不同）⇒ 逐像素解 3x3 线性方程再除第三分量。
+function projInv(m) {
+  const a = m[0], b = m[4], c = m[12], d = m[1], e = m[5], f = m[13], gg = m[3], h = m[7], i = m[15]
+  const A = e * i - f * h, B = -(d * i - f * gg), C = d * h - e * gg
+  const det = a * A + b * B + c * C
+  if (!isFinite(det) || Math.abs(det) < 1e-12) return null
+  const ia = A / det, ib = -(b * i - c * h) / det, ic = (b * f - c * e) / det
+  const id = B / det, ie = (a * i - c * gg) / det, if2 = -(a * f - c * d) / det
+  const ig = C / det, ih = -(a * h - b * gg) / det, ii = (a * e - b * d) / det
+  return { p: true, ia, ib, ic, id, ie, if: if2, ig, ih, ii }
+}
+// 四角 → 屏幕 bbox（含 w 除；透视档 quad 的包围盒不能只靠仿射项）
+function quadBBox(mvp) {
+  let minX = W, maxX = -1, minY = H, maxY = -1, behind = 0
+  for (const [lx, ly] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) {
+    const wq = mvp[3] * lx + mvp[7] * ly + mvp[15]
+    const ndx = (mvp[0] * lx + mvp[4] * ly + mvp[12]) / wq
+    const ndy = (mvp[1] * lx + mvp[5] * ly + mvp[13]) / wq
+    if (!(wq > 0)) behind++
+    if (!isFinite(ndx) || !isFinite(ndy)) continue
+    const sx = Math.floor((ndx + 1) / 2 * W), sy = Math.floor((1 - ndy) / 2 * H)
+    minX = Math.min(minX, sx); maxX = Math.max(maxX, sx); minY = Math.min(minY, sy); maxY = Math.max(maxY, sy)
+  }
+  return { minX, maxX, minY, maxY, behind }
+}
 // 仿射 2x3 逆（MVP 只含正交+缩放+旋转+平移，无透视）
 function affineInv(m) {
   const a = m[0], b = m[4], c = m[1], d = m[5], tx = m[12], ty = m[13]
@@ -230,24 +270,29 @@ function sample(rgba, tw, th, u, v) {
 
 // 画一个带 alpha 的四边形纹理层（屏幕像素循环 + 逆仿射）
 function drawQuad(mvp, tex, tw, th, alphaMul, colorMul, uvRect) {
-  const inv = affineInv(mvp)
+  const projective = mvp[3] !== 0 || mvp[7] !== 0 || mvp[11] !== 0 || mvp[15] !== 1
+  const inv = projective ? projInv(mvp) : affineInv(mvp)
   if (!inv) return
-  // 屏幕包围盒
-  let minX = W, maxX = -1, minY = H, maxY = -1
-  for (const [lx, ly] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) {
-    const ndx = mvp[0] * lx + mvp[4] * ly + mvp[12]
-    const ndy = mvp[1] * lx + mvp[5] * ly + mvp[13]
-    const sx = Math.floor((ndx + 1) / 2 * W), sy = Math.floor((1 - ndy) / 2 * H)
-    minX = Math.min(minX, sx); maxX = Math.max(maxX, sx); minY = Math.min(minY, sy); maxY = Math.max(maxY, sy)
-  }
+  // 屏幕包围盒（透视档同样有效：四角含 w 除）
+  const bb = quadBBox(mvp)
+  let minX = bb.minX, maxX = bb.maxX, minY = bb.minY, maxY = bb.maxY
+  if (bb.behind) { console.log('    [persp 裁剪] 该层有 ' + bb.behind + '/4 角在相机后（预览不做视锥裁剪，按可见部分画）') }
   minX = Math.max(0, minX); maxX = Math.min(W - 1, maxX); minY = Math.max(0, minY); maxY = Math.min(H - 1, maxY)
   for (let sy = minY; sy <= maxY; sy++) {
     const ndy = 1 - (2 * sy + 1) / H
     for (let sx = minX; sx <= maxX; sx++) {
       const ndx = (2 * sx + 1) / W - 1
-      // 逆仿射到 local
-      const lx = inv.ia * ndx + inv.ib * ndy + inv.itx
-      const ly = inv.ic * ndx + inv.id * ndy + inv.ity
+      // 逆变换到 local（透视档先解齐次方程再除 w）
+      let lx, ly
+      if (inv.p) {
+        const w3 = inv.ig * ndx + inv.ih * ndy + inv.ii
+        if (!(Math.abs(w3) > 1e-12)) continue
+        lx = (inv.ia * ndx + inv.ib * ndy + inv.ic) / w3
+        ly = (inv.id * ndx + inv.ie * ndy + inv.if) / w3
+      } else {
+        lx = inv.ia * ndx + inv.ib * ndy + inv.itx
+        ly = inv.ic * ndx + inv.id * ndy + inv.ity
+      }
       if (lx < -0.5 || lx > 0.5 || ly < -0.5 || ly > 0.5) continue
       // local quad uv（顶点 -0.5→uv0，与 LOCAL_QUAD 一致）；uvRect 时映射纹理子窗铺满 quad
       const u = (uvRect ? uvRect[0] : 0) + (lx + 0.5) * ((uvRect ? uvRect[2] : 1) - (uvRect ? uvRect[0] : 0))
@@ -267,16 +312,11 @@ function drawQuad(mvp, tex, tw, th, alphaMul, colorMul, uvRect) {
 
 let solidPix = 0
 function drawSolid(mvp, color, alpha) {
-  const inv = affineInv(mvp)
+  const inv = (mvp[3] !== 0 || mvp[7] !== 0 || mvp[11] !== 0 || mvp[15] !== 1) ? projInv(mvp) : affineInv(mvp)
   if (!inv) return
   solidPix = 0
-  let minX = W, maxX = -1, minY = H, maxY = -1
-  for (const [lx, ly] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) {
-    const ndx = mvp[0] * lx + mvp[4] * ly + mvp[12]
-    const ndy = mvp[1] * lx + mvp[5] * ly + mvp[13]
-    const sx = Math.floor((ndx + 1) / 2 * W), sy = Math.floor((1 - ndy) / 2 * H)
-    minX = Math.min(minX, sx); maxX = Math.max(maxX, sx); minY = Math.min(minY, sy); maxY = Math.max(maxY, sy)
-  }
+  const bbS = quadBBox(mvp)
+  let minX = bbS.minX, maxX = bbS.maxX, minY = bbS.minY, maxY = bbS.maxY
   minX = Math.max(0, minX); maxX = Math.min(W - 1, maxX); minY = Math.max(0, minY); maxY = Math.min(H - 1, maxY)
   if (color[0] === 0 && alpha === 1) console.log('    [solid bbox]', minX, maxX, minY, maxY)
   let outside = 0
@@ -284,8 +324,16 @@ function drawSolid(mvp, color, alpha) {
     const ndy = 1 - (2 * sy + 1) / H
     for (let sx = minX; sx <= maxX; sx++) {
       const ndx = (2 * sx + 1) / W - 1
-      const lx = inv.ia * ndx + inv.ib * ndy + inv.itx
-      const ly = inv.ic * ndx + inv.id * ndy + inv.ity
+      let lx, ly
+      if (inv.p) {
+        const w3 = inv.ig * ndx + inv.ih * ndy + inv.ii
+        if (!(Math.abs(w3) > 1e-12)) { outside++; continue }
+        lx = (inv.ia * ndx + inv.ib * ndy + inv.ic) / w3
+        ly = (inv.id * ndx + inv.ie * ndy + inv.if) / w3
+      } else {
+        lx = inv.ia * ndx + inv.ib * ndy + inv.itx
+        ly = inv.ic * ndx + inv.id * ndy + inv.ity
+      }
       if (lx < -0.5 || lx > 0.5 || ly < -0.5 || ly > 0.5) { outside++; continue }
       const i = (sy * W + sx) * 4
       const a = alpha

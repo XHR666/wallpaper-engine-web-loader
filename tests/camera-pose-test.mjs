@@ -173,11 +173,12 @@ if (!haveHina) { console.log('  SKIP ②③（缺 hina 包）') } else {
   const cam2 = lib.buildCamera(
     lib.parseScene(JSON.parse(dec.decode(lib.getEntry(lib.parsePkg(new Uint8Array(fs.readFileSync(path.join(DD, HINA, 'scene.pkg')))), 'scene.json')).replace(/^\uFEFF/, '')), null, {}),
     W, H, { cameraPose: { x: 0, y: 0, zoom: 1, fov: 120 } })
-  check('③ `buildCamera` 是**正交专用**（只构造 mat4Ortho）⇒ pose.fov 10 vs 120 投影**逐位相同**（fov 在本渲染器无落点）',
+  check('③ 正交档：`buildCamera` 对**有正交矩形**的包仍只构造 mat4Ortho ⇒ pose.fov 10 vs 120 投影**逐位相同**（fov 在正交档无落点）',
     Array.from(cam.projection).every((v, i) => v === cam2.projection[i]) && cam.projection[0] === Math.fround(2 / W),
     'm0=' + cam.projection[0] + ' m5=' + cam.projection[5] + ' (Float32 存储 ⇒ 用 Math.fround 比)')
-  check('③ 语料 15 个相机对象**全部**带 general.orthogonalprojection（`camera-node-test` 的 T5 已记）× 本渲染器无透视分支 ⇒ fov 断言不是"没测"而是"无目标"',
-    true, '见 PATCHES P-81 的 fov 一节')
+  check('③ ①(P-107 口径更新) 透视档则**必须不同**：语料 20/21 个包有正交矩形（auto 恒正交、逐位不变），'
+    + '唯一无矩形的 3509243656 走透视（fov 真的改投影、且正交路径冻结对拍 0 差）⇒ 由 camera-persp-test ⑤⑥ 断言',
+    true, '见 PATCHES P-107；旧断言"本渲染器无透视分支"已过期')
 
   if (haveKal) {
     console.log('\n── ④ 凯尔希 3719111841：无相机对象 ⇒ 三档逐位相同（保护 P-76 的两条修复）──')

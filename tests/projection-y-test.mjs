@@ -366,11 +366,10 @@ console.log('\n[5] ?bones= 逐骨探针：默认零副作用 / 点名层才写 /
     const mj = JSON.parse(dec.decode(lib.getEntry(pkg, 'models/人物.json')))
     const mdl = at.parseMdl(lib.getEntry(pkg, mj.puppet))
     const nb = mdl.bones.length
-    const bindWorld = new Array(nb)
-    for (let b = 0; b < nb; b++) {
-      const par = mdl.bones[b].parent
-      bindWorld[b] = (par >= 0 && bindWorld[par]) ? at.matMulRow(bindWorld[par], Array.from(mdl.bones[b].bind)) : Array.from(mdl.bones[b].bind)
-    }
+    // ①(P-110 2026-09-17) bind 世界链改走渲染器**同一实现处**（`core/puppet-skin.js::bindWorldChain`，
+    //   子先乘修正序；旧写法只由 `?bindorder=legacy` 启用）—— 本行原先是自己写一遍父先乘，
+    //   改渲染器后会与 `?bones=` 探针不同空间（P-110 整组翻转的根因），故同源。
+    const bindWorld = lib.bindWorldChain(mdl.bones)
     const gBones = new Float32Array(nb * 16)
     for (let b = 0; b < nb; b++) {
       const inv = at.matMulRow.bind(null)

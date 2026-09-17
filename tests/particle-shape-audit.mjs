@@ -12,6 +12,10 @@
 // 用法：node particle-shape-audit.mjs [pkgid ...]
 //   默认 3554161528（hina）/ 3544152633（Girl and cat）/ 3326873240（第 1 个，rope）
 //   环境变量 TRAIL_MODE=on|quad|off 对应 ?trail=…（默认 on；quad 复现 P-59 旧几何）
+//   ①(P-103 2026-09-17) 新增四个粒子档位环境变量（与 particle-cost-probe.mjs **同一套名字与同一套 `?…=legacy` 写法**）：
+//   PQUAD_MODE / PROT_MODE / PEXP_MODE / PSPEED_MODE = legacy ⇒ 出"改前"几何；
+//   全不设 = official（与真机默认逐位同路）。用途：quad 长宽比 / 长轴角散布 / 竖直占比 /
+//   alpha 覆盖率的**前后 A/B 数字**（几何改动的可见判据），产物 JSON 名带上档位标签防覆盖。
 import fs from 'node:fs'
 import { createRenderer } from '../core/we-scene-bundle.js'
 import * as lib from '../core/we-scene-bundle.js'
@@ -25,7 +29,14 @@ const PKGS = ids.length ? ids : ['3554161528', '3544152633', '3326873240']
 const dec = new TextDecoder()
 const W = 3840, H = 2160
 const TRAIL = process.env.TRAIL_MODE || 'on'
-if (TRAIL !== 'on') { globalThis.location = { search: '?trail=' + TRAIL } }
+// ①(P-103) 四个粒子档位 → 同一个 location.search（多个档位可叠加，与 cost-probe 的拼接顺序一致）
+const MODE_Q = []
+for (const [env, flag] of [['PQUAD_MODE', 'pquad'], ['PROT_MODE', 'prot'], ['PEXP_MODE', 'pexp'], ['PSPEED_MODE', 'pspeed']]) {
+  if (process.env[env]) MODE_Q.push(flag + '=' + process.env[env])
+}
+const SEARCH_Q = (TRAIL !== 'on' ? ['trail=' + TRAIL] : []).concat(MODE_Q)
+const MODE_TAG = SEARCH_Q.length ? SEARCH_Q.join('&') : 'official'
+if (SEARCH_Q.length) { globalThis.location = { search: '?' + SEARCH_Q.join('&') } }
 
 // ───────────────────────── mock GL ─────────────────────────
 const CONST = { LINK_STATUS: 0x8B82, COMPILE_STATUS: 0x8B81, ACTIVE_UNIFORMS: 0x8B86, ACTIVE_ATTRIBUTES: 0x8B85,
@@ -226,8 +237,8 @@ function geomMetrics(verts) {
 // ───────────────────────── 主流程 ─────────────────────────
 let pass = 0, fail = 0
 const check = (n, c, d) => { if (c) { pass++; console.log('  PASS ' + n) } else { fail++; console.log('  FAIL ' + n + (d ? ' — ' + d : '')) } }
-const report = { trailMode: TRAIL, pkgs: {} }
-console.log(`# TRAIL_MODE=${TRAIL}`)
+const report = { trailMode: TRAIL, mode: MODE_TAG, pkgs: {} }
+console.log(`# TRAIL_MODE=${TRAIL}  档位=${MODE_TAG}`)
 for (const id of PKGS) {
   const { pkg, scene } = loadPkg(id)
   const parts = scene.layers.filter((l) => l.particleDef)
@@ -260,12 +271,12 @@ for (const id of PKGS) {
     console.log(head)
     console.log(`    几何: 批=${batches.length} quad/段=${g.quads} 长轴角中位=${g.angleMed}° 角度散布=${g.angleSpread}° 竖直占比=${g.verticalPct}% 长/短边 中位=${g.ratioMed} 最大=${g.ratioMax}`)
     console.log(`    像素(v1→v2): 四角alpha ${q.v1.cornerA}→${q.v2.cornerA} | 覆盖均值alpha ${q.v1.meanA}→${q.v2.meanA} | 不透明占比 ${q.v1.opaquePct}%→${q.v2.opaquePct}%`)
-    console.log(`    stats: shapeFrom=${JSON.stringify(r.particleStats.shapeFrom)} trail={seg:${r.particleStats.trailSegments},deg:${r.particleStats.trailDegenerate},drawn:${r.particleStats.trailDrawn}} ${ms}ms`)
+    console.log(`    stats: shapeFrom=${JSON.stringify(r.particleStats.shapeFrom)} trail={seg:${r.particleStats.trailSegments},deg:${r.particleStats.trailDegenerate},drawn:${r.particleStats.trailDrawn}} 存活=${r.particleStats.alive} ${ms}ms`)
     report.pkgs[id][target.id] = { name: target.name, renderer: cfg.name, tex: texName, fmt, geom: g, px: q, ms,
-      stats: { shapeFrom: r.particleStats.shapeFrom, seg: r.particleStats.trailSegments, deg: r.particleStats.trailDegenerate, drawn: r.particleStats.trailDrawn } }
+      stats: { shapeFrom: r.particleStats.shapeFrom, seg: r.particleStats.trailSegments, deg: r.particleStats.trailDegenerate, drawn: r.particleStats.trailDrawn, alive: r.particleStats.alive } }
   }
 }
 function canvasOf() { return { getContext: () => gl } }
 console.log('\n===== particle-shape-audit: ' + pass + ' 通过 / ' + fail + ' 失败 =====')
-fs.writeFileSync('/tmp/particle-shape-audit-' + TRAIL + '.json', JSON.stringify(report, null, 1))
+fs.writeFileSync('/tmp/particle-shape-audit-' + TRAIL + '-' + MODE_TAG.replace(/[^a-z0-9=]+/gi, '_') + '.json', JSON.stringify(report, null, 1))
 process.exit(fail ? 1 : 0)

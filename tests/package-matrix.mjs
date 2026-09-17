@@ -8,7 +8,11 @@
 //   node package-matrix.mjs --pkg <绝对路径>    # 只分析一个包（不写基线）
 //   node package-matrix.mjs --json              # 只输出 JSON（供脚本消费）
 //   node package-matrix.mjs --max-mb 400        # 跳过超过 N MB 的包（默认 400，防 OOM）
-//   node package-matrix.mjs --write-baseline    # 强制用本次结果覆盖基线
+//   node package-matrix.mjs --write-baseline    # 强制用本次结果覆盖基线（**整表重写**，慎用；见 --absorb-new）
+//   node package-matrix.mjs --absorb-new --reason "<理由>"
+//                                               # ①(P-108) **只登记新包**：语料新增（如 allwallpaper/0917/）时用它，
+//                                               #   既有行原样保留（含 timing），任一既有包退化/消失即拒绝写入（rc=2）。
+//                                               #   理由必填并落进基线的 absorbed[]，禁止静默改基线。
 //
 // 审计部分 = render-audit.mjs 的 mock-GL + 真实 renderScene 路径，扩展了：
 //   - 层归属：bundle 的 [首帧] #N 日志在每层绘制**前**同步打出 → mock GL 的每次 draw
@@ -23,7 +27,7 @@ import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
 import { Buffer as MpwBuffer } from '../elysia/buffer.js'
-import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
+import { ROOT, TESTS } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
 const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
 // ①(去个人化 2026-09-16) 插件下载缓存 / 备用语料根：环境变量优先；默认值只是作者本机路径。
@@ -39,7 +43,22 @@ const ROOTS = [`${MPW_WS}/allwallpaper`, MPW_PLUGIN_CACHE, MPW_SD_ROOT]
 const WE_ASSETS = `${MPW_WS}/wallpaper_engine/assets`
 const OUT_JSON = path.join(ROOT, 'package-matrix.json')
 const BASELINE = path.join(ROOT, 'package-baseline.json')
-const KNOWN = path.join(ROOT, 'known.json')
+// ①(P-108 2026-09-17) **白名单落点修复**：`known.json` 在 2026-09-16 目录收拢（`0d29bdd`）里被 `git mv`
+//   到 `tests/`（`known.json => tests/known.json`），而这里仍按**仓库根**找 ⇒ 该文件根本不存在，
+//   `loadKnown()` 静默返回空表 ⇒ 25 个包的异常全部按"未豁免"打印（白名单机制事实上死了，且没人发现）。
+//   口径：**脚本目录（tests/）优先，仓库根兜底**（发布副本可能把 known.json 放根）。缺文件时下面会显式告警。
+const KNOWN = [path.join(TESTS, 'known.json'), path.join(ROOT, 'known.json')].find((p) => fs.existsSync(p))
+  || path.join(TESTS, 'known.json')
+// ①(P-108) `--absorb-new` 的**前置校验放在扫描之前**：参数不合法就不该白烧一次 ~57s 的全量重渲染。
+if (HAS('--absorb-new') && (HAS('--json') || HAS('--pkg'))) {
+  console.error('✗ --absorb-new 不能与 --json/--pkg 同用（必须全量扫描，否则"没扫到"会被当成"消失了"）')
+  process.exit(2)
+}
+const ABSORB_REASON = String(argVal('--reason') || '').trim()
+if (HAS('--absorb-new') && !ABSORB_REASON) {
+  console.error('✗ --absorb-new 必须带 --reason "<理由>"：基线变化必须可解释，不许静默（用法见文件头）')
+  process.exit(2)
+}
 
 // ── 门禁键（与 SELFCK/known.json 字段对齐）──────────────────────────────
 const GATES = {
@@ -503,7 +522,11 @@ async function auditPkg(pkg, scene, texRecs, row) {
 
 // ── 汇总/门禁/基线 ──────────────────────────────────────────────────────
 function loadKnown() {
-  try { return JSON.parse(fs.readFileSync(KNOWN, 'utf8')) } catch { return { updated: null, entries: {} } }
+  try { return JSON.parse(fs.readFileSync(KNOWN, 'utf8')) } catch {
+    // ①(P-108) 缺文件**不再静默**：白名单没加载 = 所有异常按未豁免打印，必须让人一眼看见（本次 0d29bdd 回归就是这么藏住的）。
+    console.error(`⚠ 门禁白名单未找到/不可读：${KNOWN} ⇒ 本次所有 issues 按「未豁免」打印（不静默，但也不计入 --check 退化）`)
+    return { updated: null, entries: {} }
+  }
 }
 
 function printTable(rows) {
@@ -590,6 +613,66 @@ for (const row of rows) for (const iss of row.issues) {
 
 if (HAS('--json')) { console.log(JSON.stringify(rows, null, 1)); process.exit(0) }
 printTable(rows)
+
+// ①(P-108 2026-09-17) `--absorb-new`：**只登记新包**的基线刷新（刻意**不是** `--write-baseline` 一把梭）。
+//   为什么需要它：语料会增长（本次 `allwallpaper/0917/` 一次 +10 包，其中 `3509243656` 是 P-107 要的
+//   非正交 3D 样本），而 `--check` 把「基线中不存在」判成退化 ⇒ 加包即红；能收口的原手段只有全表
+//   `--write-baseline`，那会把**既有 107 行连同在本机负载下测出的 timing** 一起重写 = P-75f 明确反对
+//   的「掩盖其它真退化」。本档位把纪律固化成机制：
+//     ① 全量扫描（拒绝与 --json/--pkg 同用，否则"没扫到"会被当成"消失了"）；
+//     ② **既有 path 一律原样保留**（不更新、不重写、timing 一字不动）；
+//     ③ 任一既有包的 5 项门禁字段退化、或任一既有 path 在语料里消失 ⇒ **拒绝写入**（rc=2，列出明细）；
+//     ④ 新 path 逐条打印（id + 关键指标 + 门禁 issues）后追加到基线末尾；⑤ 理由必填、落进 `absorbed[]`。
+//   判据依据：`compareToBaseline` 对 NEW 走的是 `diffs.push({kind:'NEW'})`（在 EXPLAINED_BASE_DROPS 查表
+//   **之前**就 continue）⇒ NEW **没有**豁免通路，注册进基线是唯一正确的收口方式。
+function absorbNew(rows, reason) {
+  let base
+  try { base = JSON.parse(fs.readFileSync(BASELINE, 'utf8')) } catch { console.error(`✗ ${path.basename(BASELINE)} 不存在或不可读：先跑一次 node tests/package-matrix.mjs 生成基线`); process.exit(2) }
+  const baseRows = base.rows || []
+  const baseByPath = new Map(baseRows.map((r) => [r.path, r]))
+  const nowPaths = new Set(rows.map((r) => r.path))
+  console.log(`\n══ --absorb-new：只登记新包（既有行原样保留）· 理由：${reason}`)
+  const gone = baseRows.filter((b) => !nowPaths.has(b.path))
+  const regressed = []
+  for (const r of rows) {
+    const b = baseByPath.get(r.path); if (!b) continue
+    const a = r.audit || {}, ab = b.audit || {}
+    const cmp = [
+      ['drawnLayers', (a.drawnLayers ?? 0), (ab.drawnLayers ?? 0), 'lt'],
+      ['whiteFallback', (a.whiteFallback || []).length, (ab.whiteFallback || []).length, 'gt'],
+      ['transparentFallback', (a.transparentFallback || []).length, (ab.transparentFallback || []).length, 'gt'],
+      ['decodeFail', (r.textures && r.textures.decodeFail) || 0, (b.textures && b.textures.decodeFail) || 0, 'gt'],
+      ['layerErrors', (a.layerErrors || []).length, (ab.layerErrors || []).length, 'gt'],
+    ]
+    for (const [k, v, bv, dir] of cmp) if (dir === 'lt' ? v < bv : v > bv) regressed.push(`${r.id} ${k}: 基线 ${bv} → 现在 ${v}`)
+  }
+  const shared = rows.filter((r) => baseByPath.has(r.path)).length
+  console.log(`  既有 path 复核：${shared} 行 · 5 项门禁字段退化 ${regressed.length} 项 · 语料中消失 ${gone.length} 项`)
+  if (regressed.length || gone.length) {
+    console.error('✗ 拒绝登记：本次扫描里既有包出现退化/消失 —— 先按 --check 查明，别用本档位掩盖')
+    for (const g of gone) console.error(`  ✗ 消失 ${g.id} ${g.path}`)
+    for (const r of regressed) console.error(`  ✗ 退化 ${r}`)
+    process.exit(2)
+  }
+  const fresh = rows.filter((r) => !baseByPath.has(r.path))
+  if (!fresh.length) { console.log('✓ 无新包：基线未改动'); process.exit(0) }
+  console.log(`  ✚ 新包 ${fresh.length} 个（逐条打印，不静默）：`)
+  for (const r of fresh) {
+    const a = r.audit || {}, p = r.particles || {}, t = r.textures || {}
+    console.log(`    + ${r.id}  ${r.path}`)
+    console.log(`        层=${(r.scene && r.scene.layers) || 0} 可见=${(r.scene && r.scene.visible) || 0} 绘制=${a.drawnLayers ?? '-'} 跳过=${a.skippedLayers ?? '-'} `
+      + `白块=${(a.whiteFallback || []).length} 透明=${(a.transparentFallback || []).length} 解码败=${t.decodeFail || 0} 层错=${(a.layerErrors || []).length} `
+      + `粒子=${p.layers || 0}(${p.maxcount || 0}) 文件=${r.fileMB}MB 门禁=${r.issues.map((i) => i.key).join(',') || '✓'}`)
+    if ((a.transparentFallback || []).length) console.log(`        透明回退层：${a.transparentFallback.join(' | ')}`)
+  }
+  const out = { generatedAt: base.generatedAt, rows: [...baseRows, ...fresh],
+    absorbed: [...(base.absorbed || []), { at: new Date().toISOString(), reason, ids: fresh.map((r) => r.id) }] }
+  fs.writeFileSync(BASELINE, JSON.stringify(out, null, 1))
+  console.log(`\n✓ 已登记 ${fresh.length} 个新包：基线 ${baseRows.length} → ${out.rows.length} 行（既有 ${baseRows.length} 行逐字节保留；理由与 id 落进 absorbed[]）`)
+  console.log('  留痕：请把「语料变化 + 判据 + 证据 + 回退」写进 docs/PATCHES.md 的对应小节')
+  process.exit(0)
+}
+if (HAS('--absorb-new')) absorbNew(rows, ABSORB_REASON)
 
 const bad = rows.filter((r) => r.issues.some((i) => !i.known))
 console.log(`\n══ 门禁汇总：${rows.length} 包 · ${bad.length} 包有未豁免异常`)

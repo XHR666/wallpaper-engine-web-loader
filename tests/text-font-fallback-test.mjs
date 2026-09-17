@@ -428,8 +428,23 @@ console.log('[T4] 仓库自带字体：文件 / sha256 / 映射表 / 许可文�
     /THIRD-PARTY\.md/.test(fs.readFileSync(FONTS_README, 'utf8')))
   check('T4g demo.html（渲染器源码）里也有 bvfonts.com 回链/署名（条件③"显著处回链"的第三处）',
     /bvfonts\.com/.test(HTML))
-  check('T4h THIRD-PARTY.md 的 Spin Cycle 节有逐条件对照表（条件 / 怎么满足 / 证据）',
-    /condition by condition/.test(doc) && /How this repository satisfies it/.test(doc) && /bvfonts\.com\/fonts\/details\.php\?id=44/.test(doc))
+  // ①(P-111 2026-09-17 修回归) 旧断言写死了英文列名 `How this repository satisfies it` —— **已过时**：
+  //   本轮文档整理把 §4.6.1 的表改成**双语三列**「逐条义务（作者条款原话 / the author's words）｜
+  //   我们如何满足（how we satisfy it）｜待律师确认项（pending counsel）」，并把旧表第三列 `Evidence`
+  //   逐条并进"如何满足"列、另起「未定项」段（正是不许把"已满足"与"待确认"混为一谈的那条要求）。
+  //   断言改成**按新口径判同一件事**：逐条件对照表在 + 作者原话列在 + 我们如何满足列在 + 证据
+  //   （官方字节数与 WE 副本之差）留在本节内 + 待确认项如实分列；不再钉某一句英文措辞。
+  const spinSec = (doc.match(/#### 4\.6\.1[\s\S]*?(?=\n### 4\.7)/) || [''])[0]
+  const spinRows = (spinSec.match(/^\|\s*[1-9]\s*\|/gm) || []).length
+  check('T4h THIRD-PARTY.md 的 Spin Cycle 节有逐条件对照表（作者原话 / 我们如何满足 / 证据 + 待确认项分列）',
+    /condition by condition/.test(doc)
+    && /逐条义务（作者条款原话 \/ the author's words）/.test(spinSec)
+    && /我们如何满足（how we satisfy it）/.test(spinSec)
+    && /待律师确认项（pending counsel）/.test(spinSec)
+    && spinRows >= 6
+    && /bvfonts\.com\/fonts\/details\.php\?id=44/.test(spinSec)
+    && /44,228/.test(spinSec) && /44,640/.test(spinSec) && /sha256/.test(spinSec)
+    && /未定项/.test(spinSec), 'rows=' + spinRows + ' len=' + spinSec.length)
   check('T4h2 spincycle TOU 快照文件带**抓取日期**与页面 sha256（作者保留改条款的权利 ⇒ 必须留快照）',
     /Fetched:\s+2026-09-15/.test(fs.readFileSync(path.join(LIC_DIR, 'spincycle-bvfonts-TOU.txt'), 'utf8')) &&
     /46b8adfc72583bc6d003f272fd377ff14c76fd07dd5e4f96be56506f80434fc9/.test(fs.readFileSync(path.join(LIC_DIR, 'spincycle-bvfonts-TOU.txt'), 'utf8')))

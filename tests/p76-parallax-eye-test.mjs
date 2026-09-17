@@ -404,8 +404,8 @@ console.log('\n── C. ?bones= 逐骨探针：det（镜像）与两轴 scale �
   const layerStub = { id: 990976, name: 'P76镜像桩', size: [100, 100], scale: [1, 1, 1], origin: [1920, 1080, 0], angles: [0, 0, 0], alpha: 1 }
   // bindWorld（行主序），用于核对 bonds[b][0..2] 与 det 期望
   const mulRow = (a, b) => { const o = new Array(16).fill(0); for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) { let s = 0; for (let k = 0; k < 4; k++) s += a[r * 4 + k] * b[k * 4 + c]; o[r * 4 + c] = s } return o }
-  const bw = new Array(nb)
-  for (let b = 0; b < nb; b++) { const par = bmesh.bones[b].parent; bw[b] = (par >= 0 && bw[par]) ? mulRow(bw[par], Array.from(bmesh.bones[b].bind)) : Array.from(bmesh.bones[b].bind) }
+  // ①(P-110 2026-09-17) 与渲染器同源（子先乘修正序；旧序见 `?bindorder=legacy`）
+  const bw = lib.bindWorldChain(bmesh.bones)
   const gOf = (perBone) => { const g = new Float32Array(nb * 16); for (let b = 0; b < nb; b++) g.set(perBone(b), b * 16); return g }
   // 跑一次探针：search 决定 BONES_WANT（它是 createRenderer 期读 location 的，非 import 期）
   const probe = (search, seq) => {

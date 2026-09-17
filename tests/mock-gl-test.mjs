@@ -330,8 +330,9 @@ const isFBO = (s) => typeof s === 'string' && /^tex#\d+$/.test(s)
       let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
       for (let k = 0; k < ds[0].count; k++) { const X = v[k * 9], Y = v[k * 9 + 1]; if (X < x0) x0 = X; if (X > x1) x1 = X; if (Y < y0) y0 = Y; if (Y > y1) y1 = Y }
       const wPx = (x1 - x0) / 2 * PW, hPx = (y1 - y0) / 2 * PH
-      // ①(P-74 ②) quad 边长口径 = p.size/2（第三方参考实现 wer-ref `WPParticleRawGener.cpp:85 float size = p.size/2.0f`
-      //   写进 a_TexCoordVec4.w，`common_particles.h:52-57` 以 (uv-0.5) 跨度 1 展开）。
+      // ①(P-74 ②) quad 边长口径 = p.size/2（行为对照：第三方参考实现 wer-ref WPParticleRawGener.cpp:85
+      //   在写顶点属性前先把 size 减半，减半值即 `common_particles.h:52-56` 展开式里的 `positionAndSize.w`；
+      //   以 (uv−0.5) 跨度 1 展开 ⇒ 边长 = w）。
       //   P-65 及之前把 p.size 当跨度 ⇒ 这里是官方的 2×（`?psize=legacy` 可复现旧值）。
       const expW = SZ / 2 * Math.min(S * L, ML), expH = SZ / 2
       check('(l) spritetrail 沿速度拉伸：quad 宽 = size/2·min(|V|·length,maxlength)（官方口径）', Math.abs(wPx - expW) <= 2, `实测宽=${wPx.toFixed(1)} 期望=${expW}`)
