@@ -92,3 +92,30 @@
    若希望"语言"直接露在头部，改动点在 `demo/index.html` 的 `#site-actions`。
 4. **在线 Pages 未同步**：按用户"先静态页微调、最后再同步"的要求，本轮**没有**跑 `build-pages.mjs`、没有动线上产物。
 5. 本机无 GPU：以上都是 DOM/computed 判据；**壁纸实际观感**（颜色/缩放/拖动手感）需用户在有 GPU 的机器上看。
+
+## 7. 真机事故记录：**新 HTML + 旧补丁** 的缓存混合体（2026-09-17 用户报"整个布局完全有问题"）
+
+**现象**（用户原话）：打开 8901 直接是 README、左上角出现"nav 点什么"的按钮、控制台没加载、整页布局错乱。
+
+**根因（两层缓存，都不是布局 bug）**：
+1. `python3 -m http.server` **只发 `Last-Modified`、不发 `Cache-Control`** ⇒ 浏览器按启发式新鲜度直接复用 HTTP 缓存里的
+   `bench-patch.js`（无内容哈希，218KB 的老版本），**不回来校验**；
+2. 产物自带 Service Worker（`demo/sw.js`）对 `*.js` 一律 **cache-first**（把不带哈希的 `bench-patch.js` 也钉住了）。
+
+⇒ 结果：HTML 是新的（导航 network-first，拿到最新），补丁是旧的 —— 旧补丁里没有外壳代码、也没有 `nav.*` 词典键，
+于是 ①没有站点 CSS/切页逻辑，布局按产物旧 CSS 渲染成错乱；②`data-i18n="nav.console"` 被产物写成**键名原文**
+（用户看到的"nav 点什么"）；③默认落在产物的 docs 视图（README）；④控制台因为 `#main` 轨道规则缺失被挤没。
+
+**修法（已落地）**：
+* `demo/sw.js` → `VERSION = webwallgl-bench-v2`；**不带哈希的文件（`bench-patch.js`/`sw.js`/`manifest`/HTML）改 network-first**
+  （离线回落缓存），带哈希的 `assets/*.<hash>.js|css` 与 `icons/` 仍 cache-first。浏览器每次导航都会字节校验 `sw.js`，
+  所以老客户端**一次硬刷新**之后就会拿到 v2 并从此自愈。
+* 本地 :8901 换成 **显式 `Cache-Control: no-store`** 的静态服务器：`references/vendor-ref/ww-pages/serve-8901.mjs`
+  （`node serve-8901.mjs 8901`；比 python 版还顺带修了 `.pkg` 的 MIME）。**不再用 `python3 -m http.server` 开这个页面**。
+
+**验证**（持久化 profile，让 SW 与 HTTP 缓存都生效）：
+`load#1/load#2 shell=object, page=console, tabs=[Console,Guide,Wallpaper settings], styleTag=true, sw=true`；
+改一次 `bench-patch.js` 后 reload：页面**看到了新内容**（`cache-probe marker=true`）—— 修前这正是会失败的那一步。
+
+**教训（写进纪律）**：以后验证页面**不能只用全新 profile 的无头浏览器**（那等于缓存全空），必须至少跑一次
+"带持久 profile + SW 已激活"的复查；页面这类"无哈希入口文件"的任何改动，都要先确认 SW/HTTP 缓存策略不会把它钉住。

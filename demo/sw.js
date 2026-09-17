@@ -8,7 +8,7 @@
  *
  * 内部路径全部相对 SW 自身位置，GitHub Pages 的 /wallpaper-engine-webgl/ 子路径与根路径部署通吃。
  */
-const VERSION = "webwallgl-bench-v1";
+const VERSION = "webwallgl-bench-v2";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -52,6 +52,24 @@ self.addEventListener("fetch", (event) => {
 
   const ext = path.split(".").pop().toLowerCase();
   if (!["js", "css", "png", "svg", "webmanifest", "json", "woff2"].includes(ext)) return;
+
+  // ①(修正 2026-09-17 真机事故) **没有内容哈希的文件必须 network-first**，
+  //   否则"缓存优先"会把旧版补丁钉住：补丁（bench-patch.js）不带 hash，而 HTML 是 network-first ⇒
+  //   浏览器拿到**新 HTML + 旧补丁**的混合体 —— 真机表现：整页布局错乱、左上角出现 nav.console/nav.docs
+  //   这种未翻译的键名（旧补丁的词典里没有这些键）、README 视图被当成首页、控制台不渲染。
+  //   带哈希的 assets 仍然 cache-first（文件名变=URL 变，天然免失效）；离线时全部回落缓存。
+  const IMMUTABLE = /\.[0-9a-zA-Z_-]{8,}\.(js|css)$/.test(path) || /\/icons\//.test(path);
+  if (!IMMUTABLE) {
+    event.respondWith(
+      fetch(event.request)
+        .then((res) => {
+          if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(event.request, copy)) }
+          return res;
+        })
+        .catch(() => caches.match(event.request)),
+    );
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then(
       (hit) =>
