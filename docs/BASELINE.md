@@ -20,6 +20,7 @@
 | 采集器（浏览器侧） | `demo.html` 的 `MPW-BASELINE-BEGIN/END` 段 + `core/baseline-metrics.mjs` | 在**用户真机**上跑，按固定口径记账 |
 | 落盘端点 | `server/we-scene-demo-server.mjs` 的 `POST /baseline` | 把快照写进 `reports/baselines/<时间戳>.json` |
 | 对照闸门 | `tools/baseline-diff.mjs` | 两份快照逐指标对比；退化超阈值 → 非零退出码 |
+| 趋势视图（多份） | `tests/baseline-trend.mjs` | ①(§5-⑧ 2026-09-17) 把 `reports/baselines/*.json` **与** `reports/real-machine/*.json` 按 (kind,id) 分组打趋势表（启动/首帧/FPS/切换/VRAM 代理 + Δ）；判定**直接调** `tools/baseline-diff.mjs` 的 `compareSnapshots()`（阈值不复制）；默认只告警，`--strict` 才退出码 1。说明书 `docs/REAL-MACHINE-AUTOMATION.md` |
 | 验收 | `tests/baseline-test.mjs` | 口径/字段/代理计数/开关/退出码/默认关零行为变化 |
 
 ---
@@ -208,8 +209,10 @@ MPW_BASELINE_TH_FRAME_PCT=5 MPW_BASELINE_TH_STARTUP_PCT=30 node tools/baseline-d
 
 1. **真实 VRAM 仍然拿不到**：只能靠代理（§2.1）。若将来要更准，只有两条路：`WEBGL_debug_renderer_info`
    之外的厂商扩展（不可移植）或换平台（如 Electron + 厂商工具）——**不在本仓库范围内**。
-2. **趋势图/汇总脚本未做**：现在是"两份快照对比"；要画多份趋势线需要再写一个小脚本（`reports/baselines/*.json`
-   已经是稳定 schema，随时可加）。
+2. **趋势图/汇总脚本**：①(§5-⑧ 2026-09-17) **汇总已做** = `tests/baseline-trend.mjs`（多份快照按
+   (kind,id) 分组打趋势表 + 相邻两份 Δ/阈值判定，门禁项名 `baseline-trend`；口径与用法见
+   `docs/REAL-MACHINE-AUTOMATION.md` §3）。**仍然没做的是"画图"**（现在是文本表；`reports/baselines/*.json`
+   是稳定 schema，要画折线随时可加）。
 3. **多实例（`?ids=`）只测 primary 实例**：其余格子的帧不进快照（避免把 N 个实例的数字混在一起）。
 4. **切换测量是整页导航口径**：不是"热切换"（本渲染器没有 `?id=` 热切换路径）；
    如果将来加了热切换，需要另定一个口径字段（不能和现在的数字混在一列比）。

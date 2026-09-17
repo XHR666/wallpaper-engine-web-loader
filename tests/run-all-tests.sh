@@ -235,6 +235,22 @@ add "bind-order"         "node tests/bind-order-test.mjs"
 add "audio-band-wiring"  "node tests/audio-band-wiring-test.mjs"
 add "frame-geometry-wiring" "node tests/web-frame-geometry-wiring-test.mjs"
 
+# ——— ①(§5-⑧ 2026-09-17 回归自动化：真机验证里"能自动化的部分"全自动化）———
+# 注册位置：**追加在 `add` 列表末尾**（既有 add 行一字未动，只在其后顺延 2 行；计数/汇总逻辑未动）。
+# 为什么要有这一项：在这之前**门禁里没有任何一项真的用浏览器加载过 8899 的页面** ——
+#   实证：P-110 给 `core/we-scene-bundle.js:6` 加了 `import './puppet-skin.js'`，产物根映射
+#   （build-pages.mjs:60）与 PWA 预缓存（web/sw.js:24）都登记了，**唯独 8899 缺路由** ⇒ 浏览器把 404
+#   当"模块 MIME 非法"拒绝加载，整页停在 `loading…`、`__mpwModuleStarted` 永远 false，
+#   而当时 80 项门禁**全绿**。本项就是那条缺掉的"真的打开一次页面"的断言（53 断言 / ~15s）。
+#   ⚠ 任务书里的 `http://127.0.0.1:8899/demo.html` 实测 404（server:366-371 只登记 `/` 与 `/index.html`，
+#   两者都读 demo.html 字节流）⇒ 本项打 `/`；无浏览器/无服务时按条件项 SKIP（jpeg-decode 同口径）。
+add "real-machine-check" "node tests/real-machine-check.mjs" "" "^SKIP real-machine-check"
+# ①(§5-⑨ 真机基线快照 · 趋势视图) `reports/baselines/*.json` + `reports/real-machine/*.json` ⇒
+#   按 (kind,id) 分组打趋势表（启动/首帧/FPS/切换/VRAM 代理），相邻两份的判定直接调
+#   `tools/baseline-diff.mjs` 的 `compareSnapshots()`（**阈值不复制**）。两份来源都没有 ⇒ SKIP。
+#   默认只告警不红（历史退化不该把门禁钉死）；要硬闸门用 `--strict`。~0.2s。
+add "baseline-trend"     "node tests/baseline-trend.mjs" "" "^SKIP baseline-trend"
+
 # ——— ①(P-113 2026-09-17 壁纸显示选项 · 能力对齐线：水平翻转 / 播放速度 0.5–2× / 颜色选项四项）———
 # 注册位置：**追加在 `add` 列表末尾**（既有 add 行一字未动，只在其后顺延 2 行）。
 # 契约与口径：`docs/DISPLAY-OPTIONS.md`（机制 = CSS filter/transform 写在**拥有渲染输出的元素**上，
