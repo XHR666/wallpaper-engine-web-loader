@@ -1,6 +1,56 @@
 /* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 本文件中所有 `wer-ref …` 形式的引用都是**行为对照**引注（只引用行为结论，未复制其代码/注释/常量组织）。 */ // we-scene 浏览器渲染器打包（保留 export，剥离 import）
 // ①(P-21-ATTACH 2026-09-13) 附件/父链变换（移植自 elysia，浏览器/Node 共用；服务器有 /attach-transform.mjs 路由）
 import { buildAttachOffsets, matMulRow as __matMulRow16 } from './attach-transform.mjs'
+// ①(P-110 2026-09-17) bind 世界链的**唯一实现处**（子先乘修正序 + `?bindorder=legacy` 回退）。
+//   转发导出：宿主（demo.html）与测试共用同一份链序，避免"四处各写一遍、一处不同步就复发"。
+import { bindWorldChain, bindWorldPolar, bindOrderLegacy } from './puppet-skin.js'
+export { bindWorldChain, bindWorldPolar, bindOrderLegacy }
+// ①(P-112-BANDGEOM 2026-09-17 帧几何接线) 帧内坐标契约（纯函数，规格 docs/WEB-FRAME-GEOMETRY-SPEC.md）：
+//   "窗口坐标 → 帧内 client 像素"的换算在**唯一实现处** `core/web-frame-geometry.mjs`，
+//   本文件只做接线（`?framegeom=cover`，缺省 legacy = 逐位等于改动前的内联算式）。
+//   为什么必须借它：画布/iframe 的 `getBoundingClientRect()` 含祖先 CSS transform 的缩放，
+//   而帧内部视口（`clientWidth/clientHeight`）不含 —— 内联算式在"被缩放的宿主"下会把
+//   pointer 坐标算错（不报错、只是位置整体偏），这正是 P-102 立规格的动机。
+//   ⚠ 本仓库**没有** web 壁纸 iframe 宿主（三方 minified 渲染器内部自算 + 插件侧在别的树），
+//   ⇒ 只接"指针口径"这一半；帧宽高比那一半（coverViewport/contentAspectOf）的消费点见
+//   `demo.html`（video 壁纸帧盒）与 `docs/AUDIO-BAND-WIRING.md` §4 的未定清单。
+import { frameClientPoint, frameGeomModeFromQuery } from './web-frame-geometry.mjs'
+
+/** `?framegeom=` 的合法档位（缺省 legacy ⇒ 一行行为都不变） */
+export const FRAME_GEOM_MODES = ['legacy', 'cover']
+
+/**
+ * 帧几何挡位解析：`?framegeom=cover`（或 `=frame`）启用模块换算；其余/缺省 ⇒ `'legacy'`。
+ * 模块自带的回退开关 `?frame=legacy|off|0`（规格 §5）**优先级最高** —— 即使写了 `?framegeom=cover`
+ * 也强制回 legacy，保证模块规格里的逃生口在任何调用方都成立。
+ */
+export function frameGeomMode(search) {
+  try {
+    const q = new URLSearchParams(search == null ? '' : String(search))
+    const v = String(q.get('framegeom') || '').trim().toLowerCase()
+    if (v !== 'cover' && v !== 'frame') return 'legacy'
+    return frameGeomModeFromQuery(search) === 'legacy' ? 'legacy' : 'cover'
+  } catch (e) { return 'legacy' }
+}
+
+/**
+ * 指针事件 → 帧内坐标（`{x, y, nx, ny, scaleX, scaleY, inside}`；量不到 ⇒ null）。
+ * - `mode='cover'`：走 `frameClientPoint`（换算含祖先 transform 补偿，规格 §1.3）；
+ * - `mode='legacy'`：**逐位等于改动前的内联算式** `(clientX − rect.left) / rect.width`
+ *   （只做显示盒归一，不碰 `clientWidth`；NaN 输入照旧透传，不新增丢弃行为）。
+ */
+export function framePointerMap(ev, el, mode) {
+  const r = (el && typeof el.getBoundingClientRect === 'function') ? el.getBoundingClientRect() : null
+  if (!r || !(r.width > 0) || !(r.height > 0)) return null
+  if (mode === 'cover') {
+    const vw = Number(el.clientWidth) || 0, vh = Number(el.clientHeight) || 0
+    const p = frameClientPoint(ev, r, { width: vw, height: vh })
+    if (!p) return null
+    return { x: p.x, y: p.y, nx: vw > 0 ? p.x / vw : 0, ny: vh > 0 ? p.y / vh : 0, scaleX: p.scaleX, scaleY: p.scaleY, inside: p.inside }
+  }
+  const x = (ev ? ev.clientX : NaN) - r.left, y = (ev ? ev.clientY : NaN) - r.top
+  return { x, y, nx: x / r.width, ny: y / r.height, scaleX: 1, scaleY: 1, inside: true }
+}
 // ===== src/pkg/container.js =====
 // scene.pkg 容器解析器
 // 格式（实测 PKGV0012 ~ PKGV0023）：
@@ -977,14 +1027,19 @@ export function parseScene(sceneJson, project, opts = {}) {
   const objects = sceneJson.objects || []
 
   // ①(P-21-ATTACH 2026-09-13) 附件锚点偏移：默认走移植自 elysia 的实现（core/attach-transform.mjs）。
-  //   opts.attachCtx = { readEntry(name)->Uint8Array, time? } → 对所有带 attachment 的子层计算
-  //   "MDAT0001 锚点 × 锚点骨骼动画帧0 世界位姿"偏移（y-up 空间，翻转前）。
+  //   opts.attachCtx = { readEntry(name)->Uint8Array, time?, fps?, bindOrder? } → 对所有带 attachment 的子层
+  //   计算 "MDAT0001 锚点 × 锚点骨骼动画帧0 世界位姿"偏移（y-up 空间，翻转前）。
   //   证据：elysia-transform-check 3719111841 = 19/22 层 Δ<5px；移植 A/B 六包 Δ=0。
   //   ?att=legacy（demo）或 opts.attachmentOffsets（外部表）仍可覆盖/回退。
+  //   ①(P-110 2026-09-17) attachCtx.bindOrder 下传（`'legacy'` = 父先乘旧链序，只作 A/B）
   let attachOffsets = null
   if (opts && opts.attachCtx && typeof opts.attachCtx.readEntry === 'function') {
     try {
-      attachOffsets = buildAttachOffsets(objects, opts.attachCtx.readEntry, null, opts.attachCtx.time || 0)
+      const actx = opts.attachCtx
+      const aopts = {}
+      if (actx.fps) aopts.fps = actx.fps
+      if (actx.bindOrder) aopts.bindOrder = actx.bindOrder
+      attachOffsets = buildAttachOffsets(objects, actx.readEntry, null, actx.time || 0, (aopts.fps || aopts.bindOrder) ? aopts : null)
     } catch { /* 锚点计算失败 → 无锚点（与 elysia 行为一致） */ }
   }
 
@@ -1187,12 +1242,19 @@ export function parseScene(sceneJson, project, opts = {}) {
         //   wer-ref WPSceneParser.cpp:7349）——applyUserProperties 末尾据此算 zoomFromUser。
         zoomBinding: (o.zoom && typeof o.zoom === 'object' && !o.zoom.animation && o.zoom.user !== undefined)
           ? { user: o.zoom.user, value: o.zoom.value } : null,
-        // ①(P-81) fov 的关键帧原文（`fov` 在本渲染器**无落点**：buildCamera 只有正交分支；
-        //   语料 15 个相机对象全部带 orthogonalprojection ⇒ isOrtho 恒真）。仍解析出来写进 pose，
-        //   供将来加透视路径时直接消费，对当前语料零影响。
+        // ①(P-81) fov 的关键帧原文。①(P-107 更正) **fov 不再是"无落点"**：`?projmode=persp`（或缺省
+        //   auto + 无 `general.orthogonalprojection`，语料唯一例 = 3509243656）时由 `buildCamera`
+        //   的透视档消费；正交档仍逐位不变。原文里既可能是关键帧（`{animation}`，走 pose.fov）、
+        //   也可能是**用户属性绑定**（`{user:"newproperty71", value:50}`，3509243656 的"视场"滑块 ∈[40,65]，
+        //   走下面的 fovBinding → fovFromUser）或静态数。
         fovRaw: o.fov !== undefined ? o.fov : null,
+        // ①(P-107) 与 P-76 的 `zoomBinding` 同形：相机层 fov 的 `{user:…}` 绑定原文（applyUserProperties
+        //   末尾据此算 fovFromUser；正交档不消费 ⇒ 对既有语料零影响）。
+        fovBinding: (o.fov && typeof o.fov === 'object' && !o.fov.animation && o.fov.user !== undefined)
+          ? { user: o.fov.user, value: o.fov.value } : null,
         // 用户属性绑定的解析结果（由 applyUserProperties 写；未绑定/未给值 = null ⇒ 行为与今天逐位相同）
         zoomFromUser: null,
+        fovFromUser: null,
         active: animated,
       }
     })(),
@@ -1872,6 +1934,23 @@ export function applyUserProperties(scene, props, opts = {}) {
     cn.zoomFromUser = val
     stats.fields['zoom:cameraNode'] = val === null ? 0 : 1
   }
+  // ①(P-107) **相机层 `fov` 的 `{user:…}` 绑定**（与上面 zoom 完全同形；官方对 `fov` 注册的也是
+  //   PropertyBinding，见 P-81 的引注）。语料实证：3509243656 的相机层 `fov = {"user":"newproperty71",
+  //   value:50}`，project.json 里 `newproperty71` = {text:"视场", type:slider, min:40, max:65, step:0.1,
+  //   precision:2, value:50} ⇒ 这是面板上真实的"视场"滑块，默认 50 时与今天**逐位相同**。
+  //   与 zoom 一样只解析**绑定值本身**（不求解 `{script:…}`：那是编辑器快照，P-81 已量化过 −2434px 教训）。
+  if (scene && scene.cameraNode && scene.cameraNode.fovBinding) {
+    const cn = scene.cameraNode
+    const name = typeof cn.fovBinding.user === 'string' ? cn.fovBinding.user : (cn.fovBinding.user && cn.fovBinding.user.name)
+    let val = null
+    if (name && !gated.has(name) && props && Object.prototype.hasOwnProperty.call(props, name)) {
+      const r = resolveUserBinding(cn.fovBinding, props)
+      const n = r ? numOf(r.value) : null
+      if (n !== null && n > 0) val = n
+    }
+    cn.fovFromUser = val
+    stats.fields['fov:cameraNode'] = val === null ? 0 : 1
+  }
   if (typeof window !== 'undefined') { try { window.__mpwPropsApply = stats } catch (e) { /* ignore */ } }
   if (opts.log && (stats.applied || stats.gated)) {
     opts.log('P-61 用户属性绑定：' + stats.applied + ' 处写入 / ' + stats.bound + ' 个绑定层'
@@ -2298,6 +2377,24 @@ export function mat4Ortho(left, right, top, bottom, near, far) {
   return out
 }
 
+// ①(P-107) 透视投影（与 glMatrix `perspective` 逐式同构：右手系、相机看 −z ⇒ `clip.w = −z_view`，
+//   所以**可见点的 z_view 必须为负**）。必须与 `mat4LookAt` 同约定（同一套列主序行=基向量的布局），
+//   否则把 view 与 proj 乘起来会得到一个"斜"的相机。`?projmode=persp` / 非正交包（无
+//   `general.orthogonalprojection`）时由 `buildCamera` 消费，见那里的"透视档"一节。
+//   参数：fovy=垂直视场角（弧度）、aspect=宽/高、near/far=视空间 z 的裁剪距离（正数、near<far）。
+export function mat4Perspective(fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy / 2)
+  const nf = 1 / (near - far)
+  const out = mat4Identity()
+  out[0] = f / aspect
+  out[5] = f
+  out[10] = (far + near) * nf
+  out[11] = -1
+  out[14] = 2 * far * near * nf
+  out[15] = 0
+  return out
+}
+
 export function mat4Translate(m, x, y, z) {
   return mat4Multiply(m, new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1]))
 }
@@ -2373,6 +2470,15 @@ export function buildCamera(scene, width, height, opts = null) {
   //   满幅背景层豁免平移（elysia _viewShift isBg=size≥ortho−1，sf32/sf33 与官方预览逐帧核对），
   //   经 viewBg（恒等）在渲染循环按层选择；zoom 窗口对所有层生效（与 elysia 一致）。
   const pose = opts && opts.cameraPose && typeof opts.cameraPose === 'object' ? opts.cameraPose : null
+  // ①(P-107) 投影档（`?projmode=`，见 projModeFrom 的注释）：`auto` 缺省 ⇒ 有正交矩形走正交（逐位不变），
+  //   **没有矩形且声明了 `general.fov`**（= 旧 `isOrtho` 谓词取反，正是"3D 场景"的判据）才走下面的透视档。
+  //   `ortho` 恒逐位回退、`persp` 强制透视（A/B：z=0 平面与正交档只差 Float32 舍入）。
+  const projMode = resolveProjMode(opts && opts.proj,
+    (typeof window !== 'undefined' && window) ? window.__mpwProjMode : undefined, PROJMODE)
+  const orthoRect = (general && general.orthogonalprojection && Number(general.orthogonalprojection.width) > 0)
+    ? general.orthogonalprojection : null
+  const wantPersp = (projMode === 'persp')
+    || (projMode === 'auto' && !orthoRect && !!(general && general.fov))
   let view = isOrtho ? mat4Identity() : mat4LookAt(eyeV, centerV, upV)
   let viewBg = view
   let nodeZoom = null
@@ -2426,17 +2532,89 @@ export function buildCamera(scene, width, height, opts = null) {
   const projW = sw
   const projH = sh
   const cx = projW / 2, cy = projH / 2
-  const projection = projectionYFix()
+  let projection = projectionYFix()
     ? mat4Ortho(cx - framedW / 2, cx + framedW / 2, cy + framedH / 2, cy - framedH / 2, -10000, 10000)
     : mat4Ortho(cx - framedW / 2, cx + framedW / 2, cy - framedH / 2, cy + framedH / 2, -10000, 10000)
+  // ── ①(P-107) 透视档（`?projmode=persp`，或缺省 auto 且**无正交矩形**；只在这里替换 view/projection）──
+  //   为什么要有：`general.fov` 此前**没有落点**（buildCamera 只构造 mat4Ortho）；`fov` 是 WE 相机层
+  //   的运行时属性（与 `zoom`/`origin` 同级，官方按 camera target kind 路由 —— 见 P-81 的引注），
+  //   只有"没有勾正交投影"的 3D 场景才真的用它。语料实证：`3509243656`（142 对象 / 8 模型 /
+  //   4 粒子 / 59 图 / 53 文本）的 `general.orthogonalprojection = null` + 相机层 `fov =
+  //   {"user":"newproperty71"}`（project.json 里该属性 text="视场"、min 40 max 65 step 0.1、默认 50）
+  //   + 相机层 origin `0 0 6`（作者把相机放在 z=6，场景 z 跨 −50..+6）⇒ **它必须走透视**，否则
+  //   96 个 z=0 层与 46 个 z≠0 层会被压成一个平面。
+  //   两条锚定（这一处是唯一真值表；正交档不会执行到这里面任何一行）：
+  //   ① **节点锚定**（3D 包）：`orthogonalprojection` 缺省/空 **且** 有相机节点、其原点 z 可用
+  //      ⇒ 相机 = 节点 origin（x,y,z 就是世界坐标里的相机位置），朝 **−z** 看。
+  //      ⚠ parseScene 把世界 y 翻成 `PROJ_H − 作者y`（2D 口径）⇒ 相机的 y 必须按**同一式子**搬
+  //      （`ey = PROJ_H − origin.y`）才与图层同空间；屏幕仍是 y-down（`view_y = −(world_y − ey)`，
+  //      即相机 up = 作者 +y），这样屏幕方向与正交档**同号**（不会上下镜像，贴图 v 也不会翻）。
+  //      深度：`view_z = world_z − ez` ⇒ 可见 = z < ez（相机前方），w = ez − z = 距离。
+  //   ② **帧平面锚定**（其余一切透视档，含把正交包强制成 persp 的 A/B）：相机钉在 (窗口中心, −d)、
+  //      `d = (framedH/2)/tan(fovy/2)` ⇒ **z=0 平面逐位等于正交档**（近处 z<0 放大、远处 z>0 缩小）；
+  //      zoom 已经进了 framedH ⇒ 帧平面锚定档**不再**乘 zoom（否则双重施加）。
+  //   行为对照（非代码引用）：第三方参考实现对 2D 场景的 global_perspective 就是"相机 z=1000 +
+  //      fov=atan(h/1000/2)×2"（h=设计画布高）——即"帧平面锚定 + 由画布高反推 fov"；我们保留作者写的
+  //      fov、反过来求 d，是同一族口径（1080p/fov50 ⇒ d≈1158，与 1000 同量级，`dsOf` 粒子通路同源）。
+  //   未定：`angles`（相机朝向）没接（语料唯一 3D 包 3509243656 相机无 angles）；蒙皮层（MESH_VS 走
+  //      u_Proj/u_Framed）与粒子 CPU NDC 仍是各自旧通路 ⇒ 透视只作用于走 viewProj 的四边形层/粒子层。
+  let projKind = 'ortho', projAnchor = null, fovYDeg = null, perspDist = 0
+  if (wantPersp) {
+    const cn = (scene && scene.cameraNode) ? scene.cameraNode : null
+    const cStat = cn && cn.originRaw ? parseVec3(cn.originRaw) : null   // {script:{value}} → 静态快照（与图层同口径）
+    const pz = (pose && typeof pose.z === 'number' && isFinite(pose.z)) ? pose.z : null
+    const oz = pz !== null ? pz : (cStat ? cStat[2] : 0)
+    const nodeAnchor = !!(!orthoRect && cn && cStat && isFinite(oz) && Math.abs(oz) > 1e-6)
+    // fov 取值链：pose（关键帧动画）→ 用户属性绑定（面板"视场"滑块）→ 绑定原文静态值 → 相机节点值 → general.fov → 50
+    const fovPick = [
+      (pose && typeof pose.fov === 'number' && isFinite(pose.fov) && pose.fov > 0) ? pose.fov : null,
+      (cn && typeof cn.fovFromUser === 'number' && isFinite(cn.fovFromUser) && cn.fovFromUser > 0) ? cn.fovFromUser : null,
+      (cn && cn.fovRaw && typeof cn.fovRaw === 'object' && cn.fovRaw.value !== undefined
+        && isFinite(Number(cn.fovRaw.value)) && Number(cn.fovRaw.value) > 0) ? Number(cn.fovRaw.value) : null,
+      (cn && typeof cn.fov === 'number' && isFinite(cn.fov) && cn.fov > 0) ? cn.fov : null,
+      (typeof general.fov === 'number' && isFinite(general.fov) && general.fov > 0) ? general.fov : null,
+    ].find((v) => v !== null)
+    fovYDeg = Math.min(179, Math.max(1, fovPick === undefined ? 50 : fovPick))
+    const fovy = fovYDeg * Math.PI / 180
+    const aspect = framedW / framedH   // 默认 ASPECTCROP 下 framed 窗口 = 画布本身 ⇒ 就是画布宽高比
+    const near = (typeof general.nearz === 'number' && general.nearz > 0) ? general.nearz : 0.01
+    const far = (typeof general.farz === 'number' && general.farz > near) ? general.farz : (near + 10000)
+    if (nodeAnchor) {
+      projAnchor = 'node'
+      const ex = (pose && isFinite(pose.x)) ? pose.x : cStat[0]
+      const ey0 = (pose && isFinite(pose.y)) ? pose.y : cStat[1]
+      const C = (scene && typeof scene.projH === 'number') ? scene.projH : ((orthoRect && orthoRect.height) || 1080)
+      const ey = C - ey0
+      view = mat4Scale(mat4Translate(mat4Identity(), -ex, ey, -oz), 1, -1, 1)
+      perspDist = oz
+      projection = mat4Perspective(fovy, aspect, near, far)
+      // zoom 在节点锚定档只能进投影（相机位置是作者定的）：与 elysia 透视分支同式 proj[0]/proj[5] × zoom
+      const zoomN = nodeZoom || ((typeof general.zoom === 'number' && general.zoom > 0.0001) ? general.zoom : 1)
+      if (zoomN !== 1) { projection[0] *= zoomN; projection[5] *= zoomN }
+    } else {
+      projAnchor = 'canvas'
+      const d = (framedH / 2) / Math.tan(fovy / 2)
+      const px = pose && isFinite(pose.x) ? pose.x : 0
+      const py = pose && isFinite(pose.y) ? pose.y : 0
+      view = mat4Scale(mat4Translate(mat4Identity(), -(cx + px), (cy - py), -d), 1, -1, -1)
+      perspDist = d
+      projection = mat4Perspective(fovy, aspect, near, far)   // zoom 已进 framedH/d ⇒ 不重复乘
+    }
+    viewBg = view      // 透视档不做"满幅背景层豁免平移"（那是 2D 场景的概念：世界即画布）
+    projKind = 'persp'
+  }
   // ①(P-100) 把"view 平移"与"取景窗口"显式回传：蒙皮层（MESH_VS 走 u_View/u_Framed）与宿主台账
   //   都要用与四边形层（viewProj）**同一份**相机参数，否则两条路各算一次必然漂移。
   //   viewX/viewY = T 的平移量（世界像素；无姿态时 0/0）；framedW/framedH = 取景窗口（= 设计画布 / zoom）。
   //   hasCameraNode = 场景里**有相机节点**（不看档位）：P-100 的"角色层兜底适配"只在无相机层时才允许。
+  //   ①(P-107) 追加只读台账：projMode（解析后的档）/ projKind（正交|透视）/ projAnchor（canvas|node）/
+  //   fovY（度）/ perspDist（帧平面锚定的 d 或节点锚定的相机 z；世界单位）—— 宿主、`?audit` 与测试
+  //   都靠这几个字段回答"这一帧到底走没走透视、fov 是多少"。
   return {
     view, viewBg, projection, eye: eyeV, projW, projH, cameraPose: pose,
     viewX: pose ? -pose.x : 0, viewY: pose ? pose.y : 0,
     framedW, framedH, hasCameraNode: !!(scene && scene.cameraNode),
+    projMode, projKind, projAnchor, fovY: fovYDeg, perspDist,
   }
 }
 
@@ -2588,22 +2766,22 @@ export function parseParticleInitializers(list) {
 //       {enabled, alpha, count, lifetime, rate, speed, size, color, colorn, controlpointOffsets}，
 //       全部**缺省 1.0**（= 不覆写）；解析 `WPParticleObject.cpp:116-141`（color→overColor、colorn→overColorn）。
 //     · 作用点（wer-ref）：`ParticleInstanceoverride` 作为**追加 initializer** 在全部作者 initializer
-//       之后执行 —— `WPSceneParser.cpp:1417-1428 LoadInitializer()`（先跳过作者 colorrandom，
+//       之后执行 —— `WPSceneParser.cpp:1417-1428`（作者的 initializer 装载函数）（先跳过作者 colorrandom，
 //       再 `AddInitializer(genOverrideInitOp(over))`），实现 `WPParticleParser.cpp:297-312`：
 //         MutiplyInitLifeTime(p, over.lifetime) / MutiplyInitAlpha(p, over.alpha) /
 //         MutiplyInitSize(p, over.size)     / MutiplyVelocity(p, over.speed) /
 //         overColor → InitColor(p, color/255) ; overColorn → InitColor(p, colorn)
-//       倍率定义 `ParticleModify.h:127 MutiplyVelocity = velocity*=m`、`:165 MutiplyInitLifeTime
-//       = lifetime*=m & init.lifetime=lifetime`、`:169 MutiplyInitAlpha`、`:173 MutiplyInitSize`。
+//       倍率定义（行为对照，仅记语义不引代码文本）：`ParticleModify.h:127` 速度倍率、`:165` 初速生命
+//       倍率（同时改写 current 与 init）、`:169` 初速 alpha 倍率、`:173` 初速尺寸倍率。
 //     · `size` 是**倍率**（不是绝对像素）：`ParticleSystem.h:148-151` 注释
 //       "instanceoverride.size is a multiplier baked into each particle's initializer state"；
 //       `ParticleSystem.cpp:168` `ApplyRuntimeSizeOverrideToNewParticle`（运行期改 size 用比例）。
-//     · `count` → **发射率倍率**（解析期）：`WPSceneParser.cpp:1435-1440 LoadEmitter(…, override.count, …)`
+//     · `count` → **发射率倍率**（解析期）：`WPSceneParser.cpp:1435-1440`（装载发射器时把 count 一并带入）
 //       → `newEm.rate *= count`；REVERSE-FINDINGS-5.md:104 亦记"count 解析期乘 rate"。
 //     · `rate` → **子系统仿真时钟倍率**（不只发射数）：`ParticleSystem.h:124-127` 注释 +
-//       `ParticleSystem.cpp:329 simulationTime = frameTime * m_rate`。
+//       `ParticleSystem.cpp:329` 的帧步进口径（行为对照：每帧推进量 = 帧时长 × 该倍率）。
 //     · `controlpointN` → 该层独立覆写控制点槽偏移：`WPParticleObject.cpp:130-140` +
-//       `WPSceneParser.cpp:1375-1398 ApplyLayerControlPointOverrides`。
+//       `WPSceneParser.cpp:1375-1398`（该层的控制点覆写装载函数）。
 //   语料实测（allwallpaper/dd 11 包 / 467 对象 / 49 粒子层 / 41 带 instanceoverride）：
 //     size 27、count 19、colorn 15、alpha 15、rate 15、speed 12、lifetime 8、controlpoint1/2 各 1；
 //     **color 0 例**（按官方头文件实现，见 PATCHES P-74 表）。
@@ -2924,7 +3102,8 @@ export function spawnParticle(sys, em) {
   // ①(P-103③) 记账：本粒子至少有一个 initializer 真的吃了 exponent≠1（legacy 档恒不置位）
   if (p.__expApplied) { sys.__spawnExps = (sys.__spawnExps || 0) + 1; delete p.__expApplied }
   // ①(P-74 ①) instanceoverride：官方把它作为**追加 initializer** 排在全部作者 initializer 之后
-  //   （wer-ref WPSceneParser.cpp:1427 `pSys.AddInitializer(genOverrideInitOp(over))`），
+  //   （行为对照：wer-ref WPSceneParser.cpp:1427 在作者 initializer 全部登记完之后、且仅当 override 启用时，
+  //   再追加一条覆盖 initializer），
   //   倍率定义见 WPParticleParser.cpp:297-312 + ParticleModify.h:127/165/169/173。
   if (sys.io) applyInstanceOverride(p, sys.io)
   p.initLife = p.life || 1        // ①(官方生命周期插值用 1 − lifetime/init)
@@ -4061,6 +4240,39 @@ const CHARFIT_MODE = (() => {
 export function resolveCharfitMode(optsVal, fallbackVal) {
   const pick = (v) => (v === 'off' || v === 'legacy') ? v : 'auto'
   if (optsVal !== undefined && optsVal !== null && String(optsVal) !== '') return pick(String(optsVal))
+  return pick(fallbackVal === undefined || fallbackVal === null ? 'auto' : String(fallbackVal))
+}
+
+// ①(P-107 用户第 13 项 P1-3) **投影档（`?projmode=persp|ortho|auto`）**—— `general.fov` 透视相机的落地开关。
+//   `auto`（缺省）= 按场景自己的声明走：`general.orthogonalprojection` 有矩形 ⇒ 正交（正交路径**逐位**等于
+//     改动前，全语料 20 个正交包零回归）；矩形缺省/`null`/宽 0 ⇒ 透视（此时 `buildCamera` 才构造
+//     `mat4Perspective`）—— 这与 WE 的"2D 场景作者勾了正交投影 / 3D 场景没有"一一对应。
+//   `persp` = 强制透视（正交包也照透视画）：**z=0 平面与正交档逐位相同**（帧平面锚定，见 buildCamera），
+//     只有 z≠0 的层被近大远小缩放过 ⇒ 安全的 A/B 探针。
+//   `ortho` = 强制正交 ⇒ **全语料逐位回到改动前**（连 scene.camera 的 lookAt 视图都照旧）——一键回退口。
+//   非法/未知/空串 → `auto`。真值表 = 纯函数 `projModeFrom()` / `resolveProjMode()`（测试与 bundle 共用一份）。
+//   ⚠ **不能叫 `?proj=`**：那个名字已被 P-85 占用（`?proj=off` = 跳过官方 project.json 读取，demo.html:3039），
+//     语义完全不同，共用一个名字会"改属性表 + 改投影"同时发生（README 主表的 `proj` 行）。
+export function projModeFrom(search) {
+  try {
+    const v = new URLSearchParams(String(search === undefined || search === null ? '' : search)).get('projmode')
+    return (v === 'persp' || v === 'ortho') ? v : 'auto'
+  } catch (e) { return 'auto' }
+}
+const PROJMODE = (() => {
+  try {
+    if (typeof location === 'undefined' || !location.search) return 'auto'
+    // ① 与 `?campose`/`?charfit` 同形：diag-flag-check.mjs 只认"URLSearchParams 绑在 location.* 上"
+    //   的写法，纯函数 `projModeFrom(String(search))` 那种形态抓不到 ⇒ 开关会从 README 主表漏掉。
+    const v = new URLSearchParams(location.search).get('projmode')
+    return (v === 'persp' || v === 'ortho') ? v : 'auto'
+  } catch (e) { return 'auto' }
+})()
+// 优先级：`opts.proj`（测试/宿主显式传，最高）→ `window.__mpwProjMode`（宿主/按钮实时写）→ `?projmode=`（加载时读一次）。
+export function resolveProjMode(optsVal, liveVal, fallbackVal) {
+  const pick = (v) => (v === 'persp' || v === 'ortho') ? v : 'auto'
+  if (optsVal !== undefined && optsVal !== null && String(optsVal) !== '') return pick(String(optsVal))
+  if (liveVal !== undefined && liveVal !== null && String(liveVal) !== '') return pick(String(liveVal))
   return pick(fallbackVal === undefined || fallbackVal === null ? 'auto' : String(fallbackVal))
 }
 
@@ -5807,10 +6019,11 @@ export function createRenderer(canvas, opts = {}) {
     return v
   })()
   // ①(P-74 ②) 粒子 quad 尺寸口径：
-  //   official（默认）= 边长 p.size/2 —— 第三方参考实现 wer-ref `WPParticleRawGener.cpp:85 float size = p.size / 2.0f`
-  //     写进 `a_TexCoordVec4.w`（= `genericparticle.vert:55 #define in_ParticleSize`），
-  //     `common_particles.h:52-57 ComputeParticlePosition` 用 `positionAndSize.w * right * (uvs.x-0.5)`，
-  //     顶点 uvs ∈ {0,1}（WPParticleRawGener.cpp:91-96）⇒ 跨度 = w = p.size/2（spritetrail 同式）。
+  //   official（默认）= 边长 p.size/2 —— 行为对照：第三方参考实现 wer-ref WPParticleRawGener.cpp:85
+  //     在**写顶点属性之前**先把 size 减半，减半后的值即 `genericparticle.vert:55` 的 `in_ParticleSize`
+  //     （= `common_particles.h:52-56 ComputeParticlePosition` 的 `positionAndSize.w`）；
+  //     `common_particles.h:52-56` 以 `w·right·(uvs.x−0.5)` 展开，而顶点 uvs ∈ {0,1}
+  //     （WPParticleRawGener.cpp:91-96 的四角表）⇒ **quad 边长 = w = p.size/2**（spritetrail 同式）。
   //   legacy = P-65 旧口径（跨度 = p.size，即官方的 2×，`?psize=legacy` 回退 A/B）。
   const PSIZE_MODE = (() => {
     let v = 'official'
@@ -5857,7 +6070,7 @@ export function createRenderer(canvas, opts = {}) {
   // ①(P-103② 用户第 12 项) 粒子**自转**档位：
   //   official（默认）= 把 `rotationrandom` / `angularvelocityrandom` + `angularmovement` 逐帧算出来的
   //     `p.rot` 真正施加到 quad 的两条局部轴上（z 轴 roll）。官方依据：
-  //     `common_particles.h:20-39 ComputeParticleTangents(rotation, mRotation, right, up)` 取
+  //     `common_particles.h:20-38 ComputeParticleTangents（切线基）` 取
   //     `right = mul(vec3(1,0,0), mRotation)`、`up = mul(vec3(0,1,0), mRotation)`，而
   //     `genericparticle.vert:83`（非 GS 分支、非 TRAILRENDERER）就是 `ComputeParticleTangents(in_ParticleRotation, …)`
   //     —— 即**普通 sprite renderer 的 quad 也吃旋转**。开源对照：MIT 的 webwallgl
@@ -5875,7 +6088,7 @@ export function createRenderer(canvas, opts = {}) {
   })()
   // ①(P-103① 用户第 12 项) 粒子 quad 的**图层变换**档位（局部偏移 → 世界偏移）：
   //   official（默认）= 局部偏移先按图层 `scale` 逐轴缩放、再按图层 z 角旋转 —— 官方
-  //     `genericparticle.vert:56` 的 `mul(vec4(position,1.0), g_ModelViewProjectionMatrix)` 里
+  //     `genericparticle.vert:86-87`（`ComputeParticlePosition` 之后即乘 `g_ModelViewProjectionMatrix`）里
   //     模型矩阵 = 图层 T·R·S，`ComputeParticlePosition` 算出的 size 偏移同样被它缩放；
   //     开源对照（MIT）webwallgl `particles.js:1298-1330 toWorld()`：`px = lx*sx; py = ly*sy` 再按 angleZ 旋转，
   //     且 `data[k++] = Math.abs(p.size) * sysScale`（尺寸同样吃图层 scale）。
@@ -6086,6 +6299,14 @@ export function createRenderer(canvas, opts = {}) {
         : cm === 'off' ? '（适配关闭：角色只吃世界变换 + 相机取景）'
           : '（缺省：有相机层则不适配，无相机层且超屏才兜底）（?charfit=legacy|off 回退）'))
   } catch (e) { /* 日志失败不影响渲染 */ }
+  // ①(P-107) 投影档自报（进 #log → 进上报 log 字段：真机/测试一眼看出这一帧走的是正交还是透视）
+  try {
+    const pm = resolveProjMode(undefined, (typeof window !== 'undefined' && window) ? window.__mpwProjMode : undefined, PROJMODE)
+    onLog('P-107 投影档 projmode=' + pm
+      + (pm === 'ortho' ? '（强制正交 = 逐位回到改动前）'
+        : pm === 'persp' ? '（强制透视：正交包也按 fov 画，z=0 平面与正交档逐位相同）（?projmode=auto|ortho 回退）'
+          : '（缺省 auto：有 general.orthogonalprojection ⇒ 正交；无矩形（3D 包）⇒ 透视 fov）（?projmode=persp|ortho）'))
+  } catch (e) { /* 日志失败不影响渲染 */ }
   // ①(P-90) 质量档位自报（**进既有启动日志** ⇒ 进 demo 的 #log ⇒ 进设备上报的 log 字段，
   //   真机复测时能直接看出跑在哪一档、AA 落到哪条路径、有没有非法值被回落）。
   logTiers()
@@ -6096,6 +6317,9 @@ export function createRenderer(canvas, opts = {}) {
   //   · 否则用画布上的 `pointermove`（passive，不抢事件）：按"画布归一化 0..1"存，
   //     渲染时按相机 framed 窗口换算成设计坐标（分辨率/取景无关）。
   const CURSOR_OFF = (() => { try { return new URLSearchParams(location.search).get('cursor') === 'off' } catch (e) { return false } })()
+  // ①(P-112-BANDGEOM) 帧几何档（`?framegeom=cover`；缺省 legacy ⇒ 下面的换算与改动前逐位相同）。
+  //   解析点在 `frameGeomMode`（本文件顶部导出，测试与宿主共用；`?frame=legacy|off` 仍是最高优先回退）。
+  const FRAME_GEOM = frameGeomMode((typeof location !== 'undefined' && location) ? location.search : '')
   let __pointerN = null      // { nx, ny } ∈[0,1]（画布归一化）
   let __pointerHooked = false
   function __hookPointer() {
@@ -6106,9 +6330,9 @@ export function createRenderer(canvas, opts = {}) {
       if (!el) return
       const set = (ev) => {
         try {
-          const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null
-          if (!r || !(r.width > 0) || !(r.height > 0)) return
-          __pointerN = { nx: (ev.clientX - r.left) / r.width, ny: (ev.clientY - r.top) / r.height }
+          const p = framePointerMap(ev, el, FRAME_GEOM)
+          if (!p) return
+          __pointerN = { nx: p.nx, ny: p.ny }
         } catch (e) { /* ignore */ }
       }
       el.addEventListener('pointermove', set, { passive: true })
@@ -6117,6 +6341,15 @@ export function createRenderer(canvas, opts = {}) {
     } catch (e) { /* 无 DOM → 只认 window.__mpwPointer */ }
   }
   // 当前指针（设计坐标）；null = 无指针信息 ⇒ lockToPointer 发射器不发射
+  // ①(P-112-BANDGEOM) 画布归一化 → 设计坐标的换算（原 `__pointerDesign` 内联式**逐字搬来**，一处实现）：
+  //   framed 窗口宽度按 `?projmode=` 分档（P-107），与改动前逐位相同。
+  function __pointerDesignFromNorm(nx, ny, cam) {
+    // ①(P-107) 透视档不能用 `2/proj[0]` 反推窗口宽度（persp[0]=f/aspect，反推出来没有长度含义）
+    //   ⇒ 直接用台账里的 framedW/framedH（正交档下两者逐位相同：persp[0]=2/framedW）。
+    const fw = (cam.projKind === 'persp') ? cam.framedW : (cam.projection[0] ? 2 / cam.projection[0] : cam.projW)
+    const fh = (cam.projKind === 'persp') ? cam.framedH : (cam.projection[5] ? 2 / Math.abs(cam.projection[5]) : cam.projH)
+    return [cam.projW / 2 + (nx - 0.5) * fw, cam.projH / 2 + (ny - 0.5) * fh]
+  }
   function __pointerDesign(cam) {
     try {
       // Node 侧取证工具（package-matrix / render-audit / particle-shape-audit…）没有 window：
@@ -6125,15 +6358,19 @@ export function createRenderer(canvas, opts = {}) {
         ? window.__mpwPointer
         : ((typeof globalThis !== 'undefined' && globalThis.__mpwPointer) ? globalThis.__mpwPointer : null)
       if (inj && inj.inside !== false && Number.isFinite(inj.x) && Number.isFinite(inj.y)) {
-        return (inj.space === 'css' && cam)
-          ? [inj.x, inj.y]     // 调用方自行换算（见 renderParticleLayer 的 css 分支）
-          : [inj.x, inj.y]
+        // `space:'css'`：注入方给的是 **CSS 像素**（窗口/视口坐标，即 clientX/clientY 同空间），
+        //   需换算成"帧内 client 像素"再归一。口径与实测见 docs/AUDIO-BAND-WIRING.md §4：
+        //   本仓库**没有任何** `space:'css'` 的生产者（grep 0 命中），且"css"是窗口空间还是
+        //   帧内空间**未定** ⇒ 只在 `?framegeom=cover` 下按"窗口空间"换算，缺省照旧当设计坐标。
+        if (inj.space === 'css' && cam && FRAME_GEOM === 'cover') {
+          const el = (gl && gl.canvas) ? gl.canvas : null
+          const p = el ? framePointerMap({ clientX: inj.x, clientY: inj.y }, el, 'cover') : null
+          if (!p) return null      // 量不到 ⇒ 没有指针信息（不退回一个猜出来的坐标）
+          return __pointerDesignFromNorm(p.nx, p.ny, cam)
+        }
+        return [inj.x, inj.y]
       }
-      if (__pointerN && cam) {
-        const fw = cam.projection[0] ? 2 / cam.projection[0] : cam.projW
-        const fh = cam.projection[5] ? 2 / Math.abs(cam.projection[5]) : cam.projH
-        return [cam.projW / 2 + (__pointerN.nx - 0.5) * fw, cam.projH / 2 + (__pointerN.ny - 0.5) * fh]
-      }
+      if (__pointerN && cam) return __pointerDesignFromNorm(__pointerN.nx, __pointerN.ny, cam)
     } catch (e) { /* ignore */ }
     return null
   }
@@ -6183,6 +6420,21 @@ export function createRenderer(canvas, opts = {}) {
       return (v === null || v === '') ? null : String(v)
     } catch (e) { return null }
   })()
+  // ①(P-110 2026-09-17) `?bindorder=legacy`：bind 世界链序回退开关（与既有 `?parspace=legacy`/`?paroff=legacy`
+  //   同形）。缺省 = **子先乘**（`W[b] = L_b × W[parent]`，与 `sampleAnimRT` 同空间，见
+  //   `core/puppet-skin.js::bindWorldChain` 的判据）；`legacy` = P-110 之前的"父先乘"
+  //   （`W[b] = W[parent] × L_b`）—— 那是"眉毛整组翻转 / 睫毛位移 102px"的数值根因，只作 A/B 复现。
+  //   影响面：`?bones=` 探针的反解基准（本文件）、demo.html 的 `bindInv`/`bindRT`、附件锚点
+  //   （`parseScene` opts.attachCtx 缺省不带 ⇒ 走修正序；`?bindorder=legacy` 由 demo.html 下传）。
+  //   ⚠ 判定式在 `core/puppet-skin.js::bindOrderLegacy`（唯一实现处，防四处写法漂移）；
+  //   这里用 `new URLSearchParams(location.search).get('bindorder')` 的**同形写法**，便于
+  //   `tests/diag-flag-check.mjs` 抓到本文件的解析点（diag-flag-check.mjs 规则 a）。
+  const BIND_ORDER_LEGACY = (() => {
+    try {
+      const q = new URLSearchParams(location.search)
+      return q.get('bindorder') === 'legacy'
+    } catch (e) { return false }
+  })()
   const __bonesLayers = new Map()   // layerId -> { bindWorld, buf, last, logAt }
   function __bonesWanted(layer) {
     if (!BONES_WANT) return false
@@ -6190,6 +6442,43 @@ export function createRenderer(canvas, opts = {}) {
     const nm = String((layer && layer.name) || '')
     return BONES_WANT === id || (nm && (BONES_WANT === nm || nm.indexOf(BONES_WANT) >= 0))
   }
+  // ①(P-109 任务书 P1-4 · UNTOUCHED-AREAS D 项) `?submesh=<骨筛选>`：**只读**子网格隔离探针。
+  //   动机：hina 3554161528 的 37 个对象里**没有**独立眼/眉层（脸是一张 `materials/人物.tex`），
+  //   用户报的"眉毛翻转/眼睛乱动"只可能是**骨/蒙皮权重**的产物；而 `?ln` 只到**层**粒度，
+  //   `layer.__subMeshOnly`（P-44）是 MDL **多材质子块**维度、hina 单块 ⇒ 用不上。
+  //   本探针按 `blendIndices` 把顶点按**主影响骨**分组（主影响骨 = 4 个 `blendWeights` 里最大的那根，
+  //   并列取下标小的；全零权重时退回 `blendIndices[0]`），**只画"选中骨组"的顶点/三角形**（其余跳过）。
+  //   筛选语法（`?submesh=` 整体，逗号分隔）：
+  //     `24`（单骨）/ `24-27`（闭区间）/ `24*` / `24-27*`（`*` = 该骨 + 其在 `mesh.bones[].parent`
+  //     父链下的**所有后代**，即任务书里的"只画骨 24–27 及其子骨影响的顶点"）；
+  //     `all` = **只出台账、绘制逐位不变**（给"分组表/权重表对不对"做对照）；
+  //     `off`/`0`/`none`/空/缺省 = **关**（默认）。
+  //   三角形归属规则 `?subtri=all|major|any`（默认 `all`）：`all` = 三个顶点主骨同组（严格＝
+  //     "只画本组顶点"）、`major` = ≥2 个顶点同组、`any` = ≥1 个（含边界三角形；同一三角形可被多组计入）。
+  //   台账（只读，写 `globalThis.__mpwSubMesh`；与 `?bones=` 的 `__mpwBones` **互不干扰、可叠加**）：
+  //     每组的顶点数/bbox/质心（bind 网格空间）+ 影响该组的骨表（含权重和）+ 主骨父链 +
+  //     三种规则下的三角形数 + **蒙皮后**的位移时程（相对首帧的 (dx,dy)，skin 空间；世界设计像素
+  //     = `origin + scale⊙skin`，见台账 `origin`/`scale`）+ 翻转计数（本组三角形**有向面积变号**的
+  //     条数 —— "眉毛翻转"的机器可判形式，比 `?bones=` 的角度/det 判据更贴近"看得见的画变形"）
+  //     + 采样时程 `hist`。
+  //   默认关 ⇒ **一个字段都不写、不建分组表、不改 `drawElements` 实参**（逐位不变）。
+  const SUB_WANT = (() => {
+    try {
+      const v = new URLSearchParams(location.search).get('submesh')
+      if (v === null || v === '') return null
+      const s = String(v).trim()
+      return (!s || s === 'off' || s === '0' || s === 'none') ? null : s
+    } catch (e) { return null }
+  })()
+  const SUB_TRI = (() => {
+    try {
+      const v = new URLSearchParams(location.search).get('subtri')
+      if (v === null || v === '') return 'all'
+      const s = String(v).trim().toLowerCase()
+      return (s === 'all' || s === 'major' || s === 'any') ? s : 'all'
+    } catch (e) { return 'all' }
+  })()
+  const __subLayers = new Map()      // layerId -> 分组表 / 筛选索引缓存（只在 SUB_WANT 非空时建立）
   let __bonesNowT = 0    // ①(P-69) 当前帧时间（只给 ?bones 探针记账用；不影响渲染）
   let __renderSeq = 0   // 首帧审计用（每次 render 调用递增，见 opts.auditFrames）
   // ①(P-69) 粒子系统缓存（按层 id；换场景清空）+ 上一帧的场景引用
@@ -6245,7 +6534,19 @@ export function createRenderer(canvas, opts = {}) {
       //   当前语料全部 MDL 为单材质块（单顶点块）→ submeshes 为空，请求时记一次日志（?ln 的 Ctrl
       //   子块维度会显示"不可拆"）——与任务书备注"眼睛组合 MDL 只有一个网格块"一致。
       const __sm = (layer.__subMeshOnly != null && rec.submeshes && rec.submeshes.length > 1) ? rec.submeshes[layer.__subMeshOnly | 0] : null
-      if (__sm) gl.drawElements(gl.TRIANGLES, __sm.count, gl.UNSIGNED_SHORT, __sm.start * 2)
+      // ①(P-109) 子网格隔离探针：**只在 `?submesh=` 打开时介入**（`SUB_WANT` 为 null 时这一行
+      //   连一次函数调用都不发生 ⇒ 默认路径与改动前逐字相同；`?submesh=all` 也返回 null ⇒ 原实参）。
+      let __subDraw = null
+      if (SUB_WANT) { try { __subDraw = __subMeshTick(layer, mesh, rec, __sm, gBonesArr, boneCount, originXY, scaleXY, __mc) } catch (e) { __subDraw = null } }
+      if (__subDraw) {
+        // 筛选生效：只画命中的索引区间（`count === 0` = 该筛选下没有三角形 ⇒ **一个 draw 都不发**，
+        //   ⚠ 绝不退回全量——否则"按不存在的骨号筛选"会画出整个网格，是最危险的误判）。
+        if (__subDraw.count > 0) {
+          gl.bindVertexArray(__subDraw.vao)
+          gl.drawElements(gl.TRIANGLES, __subDraw.count, gl.UNSIGNED_SHORT, 0)
+          gl.bindVertexArray(null)
+        }
+      } else if (__sm) gl.drawElements(gl.TRIANGLES, __sm.count, gl.UNSIGNED_SHORT, __sm.start * 2)
       else gl.drawElements(gl.TRIANGLES, rec.count, gl.UNSIGNED_SHORT, 0)
       gl.bindVertexArray(null)
     } catch (e) { try { onLog('[mesh] 绘制失败: ' + (e && e.message || e)) } catch {} }
@@ -7162,6 +7463,288 @@ export function createRenderer(canvas, opts = {}) {
     } catch (e) { /* 台账失败不影响渲染 */ }
   }
 
+  // ①(P-109) 子网格隔离探针的实现（只在 `?submesh=` 非空时被调用；语义见 SUB_WANT 注释）。
+  //   分组表按 **mesh 对象身份**缓存（layerId → table），筛选后的 EBO/VAO 按"规格+规则"缓存。
+  function __subTable(mesh) {
+    const nv = mesh.positions.length
+    const nb = (mesh.bones && mesh.bones.length) || 0
+    const dom = new Int32Array(nv)
+    const groups = new Map()
+    const idxs = mesh.blendIndices, wts = mesh.blendWeights
+    for (let i = 0; i < nv; i++) {
+      const w = wts[i] || [1, 0, 0, 0], bi = idxs[i] || [0, 0, 0, 0]
+      let k = 0
+      for (let j = 1; j < 4; j++) if ((w[j] || 0) > (w[k] || 0)) k = j
+      // 权重全零/缺失 ⇒ 退回 blendIndices[0]（与 MESH_VS 里 w==0 跳过的口径一致：此时不蒙皮）
+      let b = bi[k] | 0
+      let wsz = 0
+      for (let j = 0; j < 4; j++) wsz += Math.abs(w[j] || 0)
+      if (!(wsz > 0)) b = (bi[0] | 0)
+      dom[i] = b
+      let g = groups.get(b)
+      if (!g) { g = { b, verts: [], bbox: [Infinity, Infinity, -Infinity, -Infinity], c: [0, 0], bones: new Map(), chain: [] }; groups.set(b, g) }
+      g.verts.push(i)
+      const p = mesh.positions[i]
+      if (p[0] < g.bbox[0]) g.bbox[0] = p[0]
+      if (p[1] < g.bbox[1]) g.bbox[1] = p[1]
+      if (p[0] > g.bbox[2]) g.bbox[2] = p[0]
+      if (p[1] > g.bbox[3]) g.bbox[3] = p[1]
+      g.c[0] += p[0]; g.c[1] += p[1]
+      for (let j = 0; j < 4; j++) {
+        const ww = w[j] || 0
+        if (ww === 0) continue
+        const bb = bi[j] | 0
+        const cur = g.bones.get(bb) || { b: bb, w: 0, n: 0 }
+        cur.w += ww; cur.n++
+        g.bones.set(bb, cur)
+      }
+    }
+    // 主骨父链（根在前？——统一为"由近及远"：[parent, grandparent, …, root]）
+    for (const g of groups.values()) {
+      g.c[0] /= g.verts.length; g.c[1] /= g.verts.length
+      g.bonesArr = [...g.bones.values()].sort((a, b2) => b2.w - a.w || a.b - b2.b)
+      let p = (mesh.bones[g.b] && mesh.bones[g.b].parent)
+      let guard = 0
+      while (p >= 0 && p < nb && guard++ < 64) { g.chain.push(p); p = (mesh.bones[p] && mesh.bones[p].parent) }
+      g.bbox = g.bbox.map((v) => +v.toFixed(4))
+      g.c = g.c.map((v) => +v.toFixed(4))
+    }
+    // 三角形归属：三种规则各一张 group → 三角形序号表
+    const tris = { all: new Map(), major: new Map(), any: new Map() }
+    const idx = mesh.indices
+    const nTri = Math.floor(idx.length / 3)
+    for (let ti = 0; ti < nTri; ti++) {
+      const a = dom[idx[ti * 3]] | 0, b2 = dom[idx[ti * 3 + 1]] | 0, c2 = dom[idx[ti * 3 + 2]] | 0
+      if (a === b2 && b2 === c2) { if (!tris.all.has(a)) tris.all.set(a, []); tris.all.get(a).push(ti) }
+      let gMaj = a
+      if (b2 === c2) gMaj = b2
+      else if (a === c2) gMaj = a
+      if (!tris.major.has(gMaj)) tris.major.set(gMaj, [])
+      tris.major.get(gMaj).push(ti)
+      for (const g of (a === b2 ? [a, c2] : (b2 === c2 ? [b2, a] : (a === c2 ? [a, b2] : [a, b2, c2])))) {
+        if (!tris.any.has(g)) tris.any.set(g, [])
+        tris.any.get(g).push(ti)
+      }
+    }
+    return { nv, nb, dom, groups, tris, nTri }
+  }
+  /** 解析 `?submesh=` 规格 → { all, sel:Set<骨号>, missing:[] }（`*` 展开父链后代）
+   *  ⚠ `missing` 必须记账：**越界骨号/非法 token 一律进 missing**，绝不静默变成"空选中"——
+   *  空选中在本探针里的正确语义是"一个三角形都不画"，若静默退回全量就等于把整块网格画出来。 */
+  function __subParse(spec, table) {
+    const raw = String(spec || '')
+    if (raw.trim().toLowerCase() === 'all') return { all: true, sel: null, missing: [] }
+    const sel = new Set()
+    const missing = []
+    for (const tok0 of raw.split(',')) {
+      const tok = tok0.trim()
+      if (!tok) continue
+      const desc = tok.endsWith('*')
+      const body = desc ? tok.slice(0, -1).trim() : tok
+      let lo, hi
+      const m = body.match(/^(\d+)\s*-\s*(\d+)$/)
+      if (m) { lo = parseInt(m[1], 10); hi = parseInt(m[2], 10) }
+      else if (/^\d+$/.test(body)) { lo = hi = parseInt(body, 10) }
+      else { missing.push(tok); continue }        // 非法 token：记账（不改语义）
+      if (hi < lo) { const t = lo; lo = hi; hi = t }
+      for (let b = lo; b <= hi; b++) {
+        if (b >= 0 && b < table.nb) sel.add(b)
+        else if (!missing.includes(b)) missing.push(b)
+      }
+      if (desc) {
+        let added = true
+        while (added) {
+          added = false
+          for (let b = 0; b < table.nb; b++) {
+            const p = (table.parentOf) ? table.parentOf[b] : -1
+            if (p >= 0 && sel.has(p) && !sel.has(b)) { sel.add(b); added = true }
+          }
+        }
+      }
+    }
+    return { all: false, sel, missing }
+  }
+  /** 建/取"选中组 × 规则"的过滤 VAO（复用同一 VBO；count = 索引个数） */
+  function __subFilterVao(layer, mesh, rec, table, parsed, mode) {
+    const key = (SUB_WANT.replace(/\s+/g, '')) + '|' + mode + '|' + (layer.__subMeshOnly != null ? layer.__subMeshOnly : 'x')
+    if (!rec.subFilters) rec.subFilters = new Map()
+    const hit = rec.subFilters.get(key)
+    if (hit) return hit
+    const triSet = new Set()
+    if (parsed.all) { for (let ti = 0; ti < table.nTri; ti++) triSet.add(ti) }
+    else {
+      const src = table.tris[mode]
+      for (const b of parsed.sel) { const arr = src.get(b); if (arr) for (const ti of arr) triSet.add(ti) }
+    }
+    let minTi = 0, maxTi = table.nTri
+    if (layer.__subMeshOnly != null && rec.submeshes && rec.submeshes.length > 1) {
+      const sm = rec.submeshes[layer.__subMeshOnly | 0]
+      if (sm) { minTi = Math.floor(sm.start / 3); maxTi = Math.floor((sm.start + sm.count) / 3) }
+    }
+    const list = [...triSet].filter((ti) => ti >= minTi && ti < maxTi).sort((a, b) => a - b)
+    const out = new Uint16Array(list.length * 3)
+    for (let k = 0; k < list.length; k++) {
+      out[k * 3] = mesh.indices[list[k] * 3]
+      out[k * 3 + 1] = mesh.indices[list[k] * 3 + 1]
+      out[k * 3 + 2] = mesh.indices[list[k] * 3 + 2]
+    }
+    const ebo = gl.createBuffer()
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, out, gl.STATIC_DRAW)
+    const vao = gl.createVertexArray()
+    gl.bindVertexArray(vao)
+    const S = 13 * 4
+    const prog = ensureMeshProg()
+    gl.bindBuffer(gl.ARRAY_BUFFER, rec.vbo)
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
+    const attr = (name, size, off) => {
+      const loc = gl.getAttribLocation(prog, name)
+      if (loc < 0) return
+      gl.enableVertexAttribArray(loc)
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, S, off)
+    }
+    attr('a_Position', 3, 0); attr('a_TexCoord', 2, 12); attr('a_BlendIdx', 4, 20); attr('a_BlendWeight', 4, 36)
+    gl.bindVertexArray(null)
+    const outRec = { vao, count: out.length, tris: list.length, triList: list }
+    rec.subFilters.set(key, outRec)
+    return outRec
+  }
+  /** 每帧：出台账 + 返回过滤绘制信息（`null` = 用原路径/原实参逐位不变） */
+  function __subMeshTick(layer, mesh, rec, smRange, gBonesArr, boneCount, originXY, scaleXY, camInfo) {
+    let st = __subLayers.get(layer.id)
+    if (!st || st.mesh !== mesh) {
+      const table = __subTable(mesh)
+      table.parentOf = new Int32Array(table.nb)
+      for (let b = 0; b < table.nb; b++) table.parentOf[b] = (mesh.bones[b] && mesh.bones[b].parent != null) ? (mesh.bones[b].parent | 0) : -1
+      st = { mesh, table, parsed: __subParse(SUB_WANT, table), st2: new Map(), logs: 0, samples: 0, t0: null, t1: null, lastSampleT: null, bad: [] }
+      // `missing` = 越界骨号 / 非法 token（解析器记账）；`bad` 再补一层"骨号合法但组里没有顶点"
+      for (const b of (st.parsed.sel || [])) if (!table.groups.has(b)) st.bad.push(b)
+      __subLayers.set(layer.id, st)
+      try {
+        onLog('[submesh] 层"' + String(layer.name || layer.id) + '" id=' + layer.id + ' 顶点=' + table.nv + ' 骨=' + table.nb
+          + ' 组=' + table.groups.size + ' 规则=' + SUB_TRI + ' 筛选=' + SUB_WANT
+          + (st.parsed.all ? '（all = 只出台账、绘制不变）' : '（选中骨 ' + [...st.parsed.sel].sort((a, b) => a - b).join(',') + '）')
+          + ((st.parsed.missing.length || st.bad.length) ? ' ⚠ 无效/无顶点的骨号 ' + st.parsed.missing.concat(st.bad).join(',') : ''))
+      } catch (e) { /* ignore */ }
+    }
+    const table = st.table
+    const nb = Math.min(boneCount | 0, table.nb)
+    const nv = table.nv
+    // 过滤绘制信息（只有 `all` ⇒ null ⇒ 原 drawElements 实参逐位不变）；
+    //   **筛选规格一律走过滤路径**（哪怕选中集为空 ⇒ 0 个三角形 ⇒ 一个 draw 都不发）
+    let draw = null
+    if (!st.parsed.all) draw = __subFilterVao(layer, mesh, rec, table, st.parsed, SUB_TRI)
+    // ── 台账：蒙皮后的组质心/位移 + 组内三角形有向面积变号统计 ──
+    //   ⚠ 口径：这里用的是**上传给着色器的那一份** `u_Bones`（= 宿主算好的 gBones = bindInv×RT），
+    //   与 `MESH_VS` 的 `sk += (p * u_Bones[bi]) * w` **逐字同式** ⇒ 台账里的 skin/world 就是
+    //   "这一帧画到屏幕上的那个形状"，而不是骨骼姿势（骨骼姿势归 `?bones=` 探针）。
+    const nowT = __bonesNowT || 0
+    const gm = st.gm || (st.gm = new Float32Array(nb * 16))
+    for (let b = 0; b < nb; b++) {
+      for (let k = 0; k < 16; k++) gm[b * 16 + k] = gBonesArr[b * 16 + k] || 0
+    }
+    const skin = st.skin || (st.skin = new Float32Array(nv * 2))
+    const pos = mesh.positions, wts = mesh.blendWeights, idxs = mesh.blendIndices
+    for (let i = 0; i < nv; i++) {
+      const p = pos[i], w = wts[i] || [1, 0, 0, 0], bi = idxs[i] || [0, 0, 0, 0]
+      let x = 0, y = 0
+      for (let k = 0; k < 4; k++) {
+        const ww = w[k] || 0
+        if (ww === 0) continue
+        const o = ((bi[k] | 0) < nb ? (bi[k] | 0) : 0) * 16
+        x += (p[0] * gm[o] + p[1] * gm[o + 4] + p[2] * gm[o + 8] + gm[o + 12]) * ww
+        y += (p[0] * gm[o + 1] + p[1] * gm[o + 5] + p[2] * gm[o + 9] + gm[o + 13]) * ww
+      }
+      skin[i * 2] = x; skin[i * 2 + 1] = y
+    }
+    const sample = (st.lastSampleT === null) || (nowT - st.lastSampleT >= 0.1) || (nowT < st.lastSampleT)
+    st.samples++; if (st.t0 === null) st.t0 = nowT; st.t1 = nowT
+    const view = (camInfo && Array.isArray(camInfo.view)) ? camInfo.view : [0, 0]
+    const sx = scaleXY ? scaleXY[0] : 1, sy = scaleXY ? scaleXY[1] : 1
+    const ox = originXY ? originXY[0] : 0, oy = originXY ? originXY[1] : 0
+    const groupsOut = []
+    for (const g of [...table.groups.values()].sort((a, b) => a.b - b.b)) {
+      let rs = st.st2.get(g.b)
+      if (!rs) {
+        rs = { hist: [], base: null, baseSign: null, maxMag: 0, maxAt: 0, maxD: [0, 0], last: null,
+          invert: 0, invertAt: 0, zero: 0, triList: (table.tris.all.get(g.b) || []) }
+        st.st2.set(g.b, rs)
+      }
+      let cx = 0, cy = 0
+      for (const i of g.verts) { cx += skin[i * 2]; cy += skin[i * 2 + 1] }
+      cx /= g.verts.length; cy /= g.verts.length
+      if (!rs.base) { rs.base = [cx, cy]; rs.baseSign = [] }
+      rs.last = { t: +nowT.toFixed(3), skin: [+cx.toFixed(4), +cy.toFixed(4)] }
+      const dx = cx - rs.base[0], dy = cy - rs.base[1]
+      const mag = Math.hypot(dx, dy)
+      if (mag > rs.maxMag) { rs.maxMag = mag; rs.maxAt = nowT; rs.maxD = [dx, dy] }
+      // 组内三角形有向面积变号（"翻转"的机器可判形式；只看严格归属本组的三角形）
+      let invNow = 0
+      for (let k = 0; k < rs.triList.length; k++) {
+        const ti = rs.triList[k]
+        const i0 = mesh.indices[ti * 3], i1 = mesh.indices[ti * 3 + 1], i2 = mesh.indices[ti * 3 + 2]
+        const ax = skin[i0 * 2], ay = skin[i0 * 2 + 1], bx = skin[i1 * 2], by = skin[i1 * 2 + 1], cx2 = skin[i2 * 2], cy2 = skin[i2 * 2 + 1]
+        const ar = (bx - ax) * (cy2 - ay) - (cx2 - ax) * (by - ay)
+        const sg = ar > 1e-9 ? 1 : (ar < -1e-9 ? -1 : 0)
+        if (rs.baseSign.length <= k) rs.baseSign.push(sg)
+        if (sg !== 0 && rs.baseSign[k] !== 0 && sg !== rs.baseSign[k]) invNow++
+      }
+      if (invNow > rs.invert) { rs.invert = invNow; rs.invertAt = nowT }
+      if (sample) {
+        rs.hist.push([+nowT.toFixed(3), +dx.toFixed(3), +dy.toFixed(3)])
+        if (rs.hist.length > 120) rs.hist.shift()
+      }
+      groupsOut.push({
+        b: g.b, nv: g.verts.length, bbox: g.bbox, c: g.c, chain: g.chain,
+        bones: g.bonesArr.map((o) => ({ b: o.b, w: +o.w.toFixed(4), n: o.n })),
+        tri: { all: (table.tris.all.get(g.b) || []).length, major: (table.tris.major.get(g.b) || []).length, any: (table.tris.any.get(g.b) || []).length },
+        sel: !!(st.parsed.all || (st.parsed.sel && st.parsed.sel.has(g.b))),
+        verts: g.verts.length <= 32 ? g.verts.slice() : g.verts.slice(0, 32),
+        last: { t: rs.last.t, skin: rs.last.skin, world: [+(ox + sx * cx + (view[0] || 0)).toFixed(3), +(oy + sy * cy + (view[1] || 0)).toFixed(3)] },
+        disp: { dx: +rs.maxD[0].toFixed(3), dy: +rs.maxD[1].toFixed(3), mag: +rs.maxMag.toFixed(3), at: +rs.maxAt.toFixed(3) },
+        invert: { now: invNow, max: rs.invert, at: +rs.invertAt.toFixed(3), nTri: rs.triList.length },
+        hist: rs.hist,
+      })
+    }
+    if (sample) st.lastSampleT = nowT
+    let sel = 0, selV = 0, maxG = -1, maxM = 0, maxAt = 0, invG = -1, invM = 0, invAt = 0
+    for (const o of groupsOut) {
+      if (o.sel) { sel++; selV += o.nv }
+      if (o.disp.mag > maxM) { maxM = o.disp.mag; maxG = o.b; maxAt = o.disp.at }
+      if (o.invert.max > invM) { invM = o.invert.max; invG = o.b; invAt = o.invert.at }
+    }
+    const ledger = {
+      layer: String(layer.name || layer.id), id: layer.id, nb: table.nb, nv, nTri: table.nTri,
+      spec: SUB_WANT, triMode: SUB_TRI, all: !!st.parsed.all,
+      sel: st.parsed.all ? [...table.groups.keys()].sort((a, b) => a - b) : [...(st.parsed.sel || [])].sort((a, b) => a - b),
+      missing: st.parsed.missing.concat(st.bad), origin: [ox, oy], scale: [sx, sy], view: [view[0] || 0, view[1] || 0],
+      drawn: draw ? { tris: draw.tris, indices: draw.count } : { tris: table.nTri, indices: mesh.indices.length, unchanged: true },
+      samples: { n: st.samples, kept: groupsOut.length ? groupsOut[0].hist.length : 0, t0: +(st.t0 || 0).toFixed(3), t1: +(st.t1 || 0).toFixed(3) },
+      groups: groupsOut,
+      summary: { nGroups: table.groups.size, nSelected: sel, vertsSelected: selV, trisSelected: draw ? draw.tris : table.nTri,
+        maxDispGroup: maxG, maxDisp: +maxM.toFixed(3), maxDispAt: +maxAt.toFixed(3),
+        maxInvertGroup: invG, maxInvert: invM, maxInvertAt: +invAt.toFixed(3), missing: st.parsed.missing.length + st.bad.length },
+    }
+    try { globalThis.__mpwSubMesh = ledger } catch (e) { /* ignore */ }
+    // 每 ~2s 一行结构化摘要（进 #log → 进设备上报）：选中组/全体组里位移与翻转最大的三组
+    if (st.logs < 8 && (st.nextLogAt === undefined || nowT >= st.nextLogAt)) {
+      st.logs++
+      st.nextLogAt = nowT + 2
+      const byDisp = groupsOut.slice().sort((a, b) => b.disp.mag - a.disp.mag).slice(0, 3)
+      const byInv = groupsOut.slice().sort((a, b) => b.invert.max - a.invert.max).slice(0, 3)
+      const fmt = (o) => 'b' + o.b + '(n=' + o.nv + ',c=' + o.c[0].toFixed(1) + ',' + o.c[1].toFixed(1)
+        + ',d=' + o.disp.dx.toFixed(1) + ',' + o.disp.dy.toFixed(1) + '@' + o.disp.at.toFixed(1) + 's'
+        + ',inv=' + o.invert.max + '/' + o.invert.nTri + ')'
+      try {
+        onLog('[submesh] 层"' + String(layer.name || layer.id) + '" id=' + layer.id + ' 组=' + table.groups.size
+          + ' 选中组=' + sel + '(' + selV + '顶点/' + (draw ? draw.tris : table.nTri) + '三角形)'
+          + ' | 位移top3: ' + byDisp.map(fmt).join(' ')
+          + ' | 翻转top3: ' + byInv.map(fmt).join(' '))
+      } catch (e) { /* ignore */ }
+    }
+    return draw
+  }
+
   // ①(P-69 第 4 项) 逐骨位姿探针的实现（只在 ?bones= 点名层时被调用；见 BONES_WANT 注释）
   function __dumpBones(layer, mesh, gBonesArr, boneCount) {
     let st = __bonesLayers.get(layer.id)
@@ -7191,14 +7774,12 @@ export function createRenderer(canvas, opts = {}) {
       st.lastT = null
     }
     if (!st.bindWorld || st.bindWorld.length !== nb) {
-      // bindWorld[b] = bindWorld[parent] × bind[b]（行主序；与 attach-transform.puppetBoneFinal 同式）
-      const bw = new Array(nb)
-      for (let b = 0; b < nb; b++) {
-        const parent = mesh.bones[b] ? mesh.bones[b].parent : -1
-        const local = (mesh.bones[b] && mesh.bones[b].bind) || [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
-        bw[b] = (parent >= 0 && parent < nb && bw[parent]) ? __matMulRow16(bw[parent], Array.from(local)) : Array.from(local)
-      }
-      st.bindWorld = bw
+      // ①(P-110 2026-09-17) bindWorld 改走唯一实现处 `core/puppet-skin.js::bindWorldChain`：
+      //   缺省 **子先乘** `W[b] = L_b × W[parent]`（与 `sampleAnimRT` 的动画链同空间；
+      //   旧写法 `bw[parent] × local` = 父先乘，只由 `?bindorder=legacy` 启用，见 BIND_ORDER_LEGACY）。
+      //   静止帧两种序都看不出（`pose = bindWorld × gBones = bindWorld × bindInv × RT = RT`，逐位正确），
+      //   一走动就把"错序基准 + 正确序增量"相加 ⇒ 这里反解出的 pose 会偏几百 px（P-109.2 面部翻转）。
+      st.bindWorld = bindWorldChain(mesh && mesh.bones, { legacy: BIND_ORDER_LEGACY })
     }
     const bones = new Array(nb)
     const flips = []
@@ -7456,9 +8037,10 @@ export function createRenderer(canvas, opts = {}) {
     //   我们**不求解逐属性脚本**（`origin.script`）⇒ 施加快照会把整幅取景平移 **−2434px**（实测：
     //   砂狼白子 3327063360 的 `纯色/文本1/文本2` 在 `?cam=node` 下 x0 各 −2434），
     //   那既不是官方运行时值、也不是今天的画面。想做这个 A/B 就加 `?cam=node`（既有开关，语义不变）。
-    //   `fov`：**本渲染器无落点** —— `buildCamera` 只构造 `mat4Ortho`（没有透视分支），
-    //   且语料 15 个相机对象**全部**带 `general.orthogonalprojection`（`isOrtho` 恒真）⇒ fov 写进 pose
-    //   供将来透视路径消费，对当前语料零影响（测试有正交包逐位回归断言）。
+    //   `fov`：①(P-107 更正) **已有落点** —— 透视档（`?projmode=persp`，或缺省 auto + 无
+    //   `general.orthogonalprojection`）由 `buildCamera` 的透视档消费，取值链见那里的 fovPick
+    //   （pose 关键帧 → 用户属性绑定 fovFromUser → 绑定静态值 → 节点值 → `general.fov` → 50）。
+    //   正交包（语料 20/21）投影仍是 `mat4Ortho` ⇒ fov 写进 pose 对它们**零影响**（`camera-pose-test` 有逐位回归）。
     const __camposeMode = (() => {
       // ①(P-84) 唯一真值表：opts（测试）> window.__mpwCampose（demo 的 🎥 相机 按钮，实时）
       //   > ?campose=（模块加载时读一次）。见 resolveCamposeMode 的注释。
@@ -7475,7 +8057,10 @@ export function createRenderer(canvas, opts = {}) {
       if ((__camposeMode === 'full') && (camNode.active || force)) {
         // 动画优先；`{script:…}` 的静态快照只在 `?cam=node` 强制时才用（见上：实测 −2434px，默认不碰）
         const ovAnim = evalPropAnimation(camNode.originRaw, time)
-        const ovStatic = force ? parseVec3Local(camNode.originRaw && camNode.originRaw.value) : null
+        // ①(P-107) `?cam=node` 的静态回退改用 parseVec3（同时吃 `{…,value}` 与**静态字符串**两种原文）：
+        //   旧写法只读 `originRaw.value`，对静态字符串（3509243656 `origin:"0 0 6"`）会得到 [0,0,0]
+        //   ⇒ 那个包的相机位置永远施加不上。语料 10 个相机对象里只有它用字符串 ⇒ 其余包逐位不变。
+        const ovStatic = force ? parseVec3(camNode.originRaw) : null
         const ov = ovAnim || ovStatic
         let zv = null
         if (camNode.zoomRaw) {
@@ -7491,8 +8076,15 @@ export function createRenderer(canvas, opts = {}) {
         let fv = null
         const fa = evalPropAnimation(camNode.fovRaw, time)
         if (fa && isFinite(fa[0]) && fa[0] > 0) fv = fa[0]
+        // ①(P-107) fov 的三级回退与 zoom 同形：关键帧（fa）→ **用户属性绑定**（面板"视场"滑块）
+        //   → 绑定原文静态值 / 节点值。透视档消费；正交档写进 pose 也无落点。
+        else if (typeof camNode.fovFromUser === 'number' && isFinite(camNode.fovFromUser) && camNode.fovFromUser > 0) fv = camNode.fovFromUser
+        else if (camNode.fovRaw && typeof camNode.fovRaw === 'object' && camNode.fovRaw.value !== undefined
+          && isFinite(Number(camNode.fovRaw.value)) && Number(camNode.fovRaw.value) > 0) fv = Number(camNode.fovRaw.value)
         else if (typeof camNode.fov === 'number' && camNode.fov > 0) fv = camNode.fov
-        if (ov) { camPose = { x: ov[0], y: ov[1], zoom: zv, fov: fv }; camPoseFull = true }
+        // ①(P-107) pose 带上 **z**（相机位置的第 3 个分量）：透视档的"节点锚定"要用它当相机 z；
+        //   正交档只读 x/y/zoom/fov ⇒ 多一个字段对既有画面零影响。
+        if (ov) { camPose = { x: ov[0], y: ov[1], z: ov[2], zoom: zv, fov: fv }; camPoseFull = true }
       }
     }
     // ①(P-76) 相机层**不是**"origin 关键帧"激活，但 `zoom` 来自**用户属性绑定**（面板"🔘镜头大小"滑块）：
@@ -7509,7 +8101,7 @@ export function createRenderer(canvas, opts = {}) {
     //   origin/zoom 关键帧动画在真实渲染路径里**从未生效**。P-81 起 `full` 档把它交过去
     //   （`legacy` 档仍只交"用户绑定的 zoom"，`off` 档两条都不交）。
     const cam = camPoseFull
-      ? buildCamera(scene, width, height, Object.assign({}, opts, { cameraPose: { x: camPose.x, y: camPose.y, zoom: camPose.zoom, fov: camPose.fov } }))
+      ? buildCamera(scene, width, height, Object.assign({}, opts, { cameraPose: { x: camPose.x, y: camPose.y, z: camPose.z, zoom: camPose.zoom, fov: camPose.fov } }))
       : ((camPose && camPose.__zoomOnly)
         ? buildCamera(scene, width, height, Object.assign({}, opts, { cameraPose: { x: 0, y: 0, zoom: camPose.zoom } }))
         : buildCamera(scene, width, height, opts))
@@ -8366,7 +8958,7 @@ export function createRenderer(canvas, opts = {}) {
       // ①(修) 按程序属性尺寸重建 VAO（vec3/vec2 与默认 vao 指针匹配；bindVAOFor 此前零调用）
       try { bindVAOFor(prog, PASS_QUAD) } catch {}
       // ①(WER-ALIGN C12 官方 2026-09-14) 效果链**全部中间 pass 强制 Normal（替换写）**：
-      //   wer-ref SceneImageEffectLayer.cpp:331 `material.blenmode = BlendMode::Normal`——
+      //   wer-ref SceneImageEffectLayer.cpp:331（行为对照：链内 pass 的 blendmode 被就地覆盖成 Normal）——
       //   链内 pass 写的是私有 pingpong FBO，材质声明的 translucent/additive 只属于
       //   "层→屏幕"合成；照抄会导致半透明层在链内叠出鬼影/alpha 累积错误。
       setBlend('normal')
@@ -8684,7 +9276,7 @@ export function createRenderer(canvas, opts = {}) {
     // ①(RE-31) 精灵表：帧尺寸来自 .tex TEXS（texObj.sprite），quad 纵横比取帧纵横比 rate=帧高/帧宽
     const sprite = texObj.sprite || null
     // ①(RE-31 多图精灵) imageId 不恒为 0 → 帧**换纹理**：按 cur 帧 imageId 分组、各组绑定各自纹理
-    //   （第三方参考实现 wer-ref CustomShaderPass.cpp:1296-1299 ImageSlotsRef.active=imageId；单图路径仍走 UV 偏移）
+    //   （行为对照：wer-ref CustomShaderPass.cpp:1296-1299 把当前帧的 imageId 直接写成活动贴图槽号；单图路径仍走 UV 偏移）
     const multiSprite = !!(sprite && sprite.multiImage && texObj.images && texObj.images.length > 1)
     let spriteImgs = null
     let spriteTexMap = null
@@ -8780,7 +9372,7 @@ export function createRenderer(canvas, opts = {}) {
       const nX = (x, ds) => ((cx0 + (x - cx0) * ds) / W) * 2 - 1
       const nY = (y, ds) => ((cy0 + (y - cy0) * ds) / H) * 2 - 1
       // ①(P-103① 用户第 12 项) **粒子 quad 的图层变换**（局部偏移 → 世界偏移）。
-      //   官方：`genericparticle.vert:56` 把 `ComputeParticlePosition` 的结果乘 `g_ModelViewProjectionMatrix`
+      //   官方：`genericparticle.vert:86-87` 把 `ComputeParticlePosition`（同文件 :86）的结果乘 `g_ModelViewProjectionMatrix`（:87）
       //   —— 模型矩阵 = 图层 T·R·S ⇒ **size 偏移也吃图层 scale/角度**（不是只缩放位置）。
       //   本实现的次序与 `spawnParticle` 的发射器偏移**逐字同序**（先按 z 角旋转、再逐轴乘 scale，
       //   见那里 `rpx/rpy → *em.scale[i]`），否则同一层里"位置"与"贴片形状"会用两套空间。
@@ -8839,7 +9431,7 @@ export function createRenderer(canvas, opts = {}) {
           }
           if (kind === 'rope' || kind === 'ropetrail') continue   // 这两类在下面按段/按历史整体构建
           if (kind === 'spritetrail') {
-            // ── 官方 spritetrail（common_particles.h:41-57 逐字）──
+            // ── 官方 spritetrail（切轴 `common_particles.h:41-49` + 展开 `:52-56` 同式）──
             //   right = normalize(cross(V, eye))；up = V̂ · min(|V|·length, maxlength)
             //   corner(u,v) = P + size·right·(u−0.5) − size·up·(v−0.5)·textureRatio
             //   ⇒ 贴图 u 横跨（⊥速度）、v 沿速度，v=0 在前进端。
@@ -8861,7 +9453,7 @@ export function createRenderer(canvas, opts = {}) {
           }
           // ── sprite（含 ?trail=quad 回退）：P-59 六顶点表的**同一张 UV 表**，位移按官方两条公式重建 ──
           //   k0..k5 = BL,TL,BR,BR,TL,TR（UV 与 P-59/P-65 逐个相同 ⇒ 贴图朝向零回归）
-          //   ①(P-103②) 局部轴由**粒子自转**给出（官方 `common_particles.h:20-39 ComputeParticleTangents`
+          //   ①(P-103②) 局部轴由**粒子自转**给出（官方 `common_particles.h:20-38 ComputeParticleTangents`
           //     的 z 轴 roll：right=(cosθ, sinθ)、up=(−sinθ, cosθ)；θ=0 时逐位退化成旧表的 (±hw,±hh)）。
           //     注：官方那个 3×3 还含 rotation.x/rotation.y（把 quad 掰出屏幕平面），2D 场景语料不用，未接。
           //   ②(P-103①) 局部偏移再过图层变换 `toWorldOff`（scale + z 角）。
@@ -8883,7 +9475,7 @@ export function createRenderer(canvas, opts = {}) {
         // ── rope：官方把**存活粒子按出生序连成折线**（REVERSE-FINDINGS-5.md:106；粒子数组即控制点）
         //    ── ropetrail：每粒子一条位置历史（buildParticleSystem/stepParticles 采样，length 秒 × segments 点）
         //    两者共用同一段 ribbon 代码：每段 2 三角形，半宽 = 两端 size/2 的线性插值，
-        //    贴图 u 横跨绳宽、v 沿整条轨迹推进（官方 genericropeparticle.vert:105-135 同构）。
+        //    贴图 u 横跨绳宽、v 沿整条轨迹推进（官方 genericropeparticle.vert:148-167 同式（两端 size 混合展开 ribbon））。
         if (kind === 'rope' || kind === 'ropetrail') {
           const N = gvis.length
           for (let gi = 0; gi < N; gi++) {
@@ -8931,9 +9523,9 @@ export function createRenderer(canvas, opts = {}) {
               if (!(len > 1e-3)) { partStat.trailDegenerate++; continue }
               // right = normalize(cross(eye, trailDelta)) * 半宽（两边各 ±半宽 ⇒ 总宽 = 平均 size）
               const nx2 = -dy / len, ny2 = dx / len
-              // ①(P-74 ②) **rope/ropetrail 不走 sprite 的 /2**：官方 ribbon 的顶点尺寸来自
-              //   `WPParticleRawGener.cpp:194 spline_sizes[idx] = LerpFloat(p1.size/2, p2.size/2, t)`
-              //   → `genericropeparticle.vert` 的 `sizeStart`，再以 `right*(uvs.x*2-1)` 展开
+              // ①(P-74 ②) **rope/ropetrail 不走 sprite 的 /2 口径**：官方 ribbon 的顶点尺寸来自
+              //   wer-ref WPParticleRawGener.cpp:194 的样条（行为对照：两端各按"该端 size 的一半"做线性插值）
+              //   → `genericropeparticle.vert:133/138` 的 `sizeStart/sizeEnd`，再以 `right*(uvs.x*2-1)` 展开
               //   ⇒ **总宽 = 2×spline_size = p.size**（是 sprite 的 2 倍口径，官方两条生成器本就不同）。
               //   所以 official 档要把上面已经 /2 的 sz 还原回 p.size 再算半宽。
               const szRib = (v) => (PSIZE_MODE === 'legacy' ? v : v * 2)

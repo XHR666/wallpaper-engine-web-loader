@@ -75,13 +75,18 @@ function mkEnv(opts = {}) {
   const lib = opts.lib || { getEntry: () => null }
   const wrappedLib = { getEntry: (p, path) => { reads.push(path); return lib.getEntry(p, path) } }
   const sceneAudio = opts.sceneAudio || { ctx: null, analyser: null, els: [], freq: null, started: false, vols: [] }
-  const fn = new Function('document', 'window', 'localStorage', 'lib', 'pkg', 'sceneObj', 'sceneAudio', 'logf', 'Audio', 'Blob', 'URL', 'Uint8Array',
+  // ①(P-112-BANDGEOM 2026-09-17) `audioFrameTick` 现在顺带调 `bandFrameTick(tSec)`（128 元频段数组接线，
+  //   那个函数在**另一个切片块**里 ⇒ 本 harness 必须注入，否则引用不到外层符号、被 try/catch 吞掉，
+  //   本项的 T5b 会以 "len=null" 假红）。口径与 PATCHES P-111.5 第 2 条一致：切片 harness 要跟着注入新符号。
+  //   顺带把它记下来 —— "每帧真的调到了频段接线"本身就是一条接线断言（默认关时真函数自己直接返回）。
+  const bandTicks = []
+  const fn = new Function('document', 'window', 'localStorage', 'lib', 'pkg', 'sceneObj', 'sceneAudio', 'logf', 'Audio', 'Blob', 'URL', 'Uint8Array', 'bandFrameTick',
     BLOCK + '\nreturn { audioMagicMime, audioExtMime, audioHeadBytes, collectPackageAudioTracks, installAudioPanel, audioFrameTick, ensureAudioCtx, audioPanel, AUDIO_EXT_RE }')
   const api = fn(doc, win, ls, wrappedLib, opts.pkg || { entries: [] }, opts.sceneObj || { objects: [] }, sceneAudio, (m) => logs.push(String(m)),
     FakeAudio, class FakeBlob { constructor(parts, o) { blobs.push({ parts, type: o && o.type }); this.size = (parts && parts[0] && parts[0].length) || 0 } },
     { createObjectURL: (b) => { const u = 'blob:fake/' + (++urlN); urls.push({ u, b }); return u } },
-    Uint8Array)
-  return { api, doc, win, ls, store, els, body, analyser, audios, blobs, urls, logs, reads, sceneAudio, ctxCount: () => ctxCount }
+    Uint8Array, (t) => { bandTicks.push(t) })
+  return { api, doc, win, ls, store, els, body, analyser, audios, blobs, urls, logs, reads, sceneAudio, bandTicks, ctxCount: () => ctxCount }
 }
 
 const u8 = (arr) => new Uint8Array(arr)
@@ -222,6 +227,9 @@ console.log('[T5] 每帧钩子位 __mpwAudioFrame（只留位，不实现效果�
   let threw = null
   try { env.api.audioFrameTick() } catch (e) { threw = e.message }
   check('T5c 钩子抛错不影响渲染（被吞）', threw === null)
+  // ①(P-112-BANDGEOM) 接线断言：每帧钩子位里**真的**调了频段接线（`?bandfeed=` 默认关 ⇒ 真函数第一行直接返回）
+  check('T5d 每帧顺带喂 128 元频段接线（bandFrameTick 被调用；`?bandfeed=` 关时零成本）',
+    env.bandTicks.length === 3, 'calls=' + env.bandTicks.length)
 }
 
 console.log('[T6] 复用既有 AudioContext（?audio=1 的场景 sound 层先建过）')

@@ -19,6 +19,9 @@ import { readProjectJson } from '../core/scene-project-json.mjs';
 //   而 PWA 与渲染逻辑零耦合 ⇒ 做成**可关的注入**：环境变量 `MPW_PWA=1` 或请求 `?pwa=1` 才开（默认关）。
 //   缓存判据（**绝不缓存用户壁纸**）在 `sw-policy.mjs`；逐条反面断言见 `pwa-test.mjs`。
 import { pwaEnabledFrom, injectPwa, readPwaAsset } from '../web/pwa-inject.mjs';
+// ①(§5-⑨ 真机基线快照 2026-09-17) `/baseline` 的**校验判据复用同一个纯模块**（core/baseline-metrics.mjs）：
+//   服务端与采集器/对照脚本读同一份 schema 定义 ⇒ 不接受残缺快照污染趋势目录（缺字段 = 400，不是静默落盘）。
+import { mpwValidateSnapshot, BASELINE_SCHEMA } from '../core/baseline-metrics.mjs';
 // ①(P-85) /project 命中来源的一次性日志去重：同一 id 只打一行"从哪来"，不刷屏
 const PROJECT_SOURCE_LOGGED = new Set();
 
@@ -70,6 +73,11 @@ const MPW_LIMITS = {
   shotPerIdMaxFiles: numEnv('MPW_LIMIT_SHOT_FILES', 400),                    // 每 id ≤400 帧
   shotPerIdMaxBytes: numEnv('MPW_LIMIT_SHOT_ID_BYTES', 200 * 1024 * 1024),   // 每 id ≤200MB
   shotTotalMaxBytes: numEnv('MPW_LIMIT_SHOT_TOTAL_BYTES', 500 * 1024 * 1024),// 所有 id 合计 ≤500MB
+  // ①(§5-⑨ 真机基线快照 2026-09-17) `reports/baselines/<ts>.json`：**趋势数据**，与上面三条滚动策略
+  //   各自独立（`/report` 的 60 份滚动会删旧文件，趋势基线恰恰要留得住 ⇒ 必须分开目录、分开上限）。
+  //   200 份 ≈ 每天一份可留 6 个多月；32MB 是整目录硬顶（单份实测 ~3–6KB）。
+  baselineMaxFiles: numEnv('MPW_LIMIT_BASELINE_MAX', 200),
+  baselineMaxBytes: numEnv('MPW_LIMIT_BASELINE_BYTES', 32 * 1024 * 1024),
 };
 // 清理动作必须打日志（用户点名："已删除 N 个最旧文件，释放 X MB"）——0 个时不打，免得刷屏。
 function logPrune(scope, removed, freedBytes, extra) {
@@ -130,6 +138,20 @@ function pruneReports(dir) {
     + MPW_LIMITS.selfcheckMaxFiles + ' 份 / 合计 ' + Math.round(MPW_LIMITS.reportsMaxBytes / 1048576) + 'MB');
   return r;
 }
+// ①(§5-⑨ 2026-09-17) `reports/baselines/<ts>.json`：真机基线快照（趋势数据）。
+//   与 `pruneReports` **各管各的**：`reports/` 顶层那份 60 份滚动绝不碰子目录，这里也只数 baselines/。
+//   超限一律"最旧先删"（文件名是 epoch ms，`pruneDirToLimits` 的取数规则直接命中）。
+function pruneBaselines(dir) {
+  const d = path.join(dir || MPW_REPORTS_DIR, 'baselines');
+  const r = pruneDirToLimits(d, {
+    maxFiles: MPW_LIMITS.baselineMaxFiles,
+    maxBytes: MPW_LIMITS.baselineMaxBytes,
+    filter: (n) => /^\d+\.json$/.test(n),
+  });
+  logPrune('reports/baselines/', r.removed, r.freedBytes, '上限 ' + MPW_LIMITS.baselineMaxFiles + ' 份 / '
+    + Math.round(MPW_LIMITS.baselineMaxBytes / 1048576) + 'MB');
+  return r;
+}
 // shots/<id>/：每 id ≤400 帧 + ≤200MB（只数图片；index.jsonl 是台账，永不删）
 function pruneShotsId(id) {
   const dir = path.join(MPW_REPORTS_DIR, 'shots', id);
@@ -187,6 +209,7 @@ function pruneShotsAll() {
 // 启动清理一次（用户要求"启动时清理一次"）：进程一起来就把上次遗留的超限目录收进限内。
 function pruneAllOnStartup() {
   const r = pruneReports(MPW_REPORTS_DIR);
+  const bl = pruneBaselines(MPW_REPORTS_DIR);   // ①(§5-⑨) 基线快照目录也纳入启动清理
   let n = 0, b = 0;
   for (const id of shotsDirIds()) { const x = pruneShotsId(id); n += x.removed; b += x.freedBytes }
   const g = pruneShotsAll();
@@ -195,8 +218,12 @@ function pruneAllOnStartup() {
     + '；shots 全局删 ' + g.removed + ' 帧/' + (g.freedBytes / 1048576).toFixed(2) + 'MB'
     + '（上限：reports ' + MPW_LIMITS.reportsMaxFiles + ' 份/' + Math.round(MPW_LIMITS.reportsMaxBytes / 1048576)
     + 'MB；每 id ' + MPW_LIMITS.shotPerIdMaxFiles + ' 帧/' + Math.round(MPW_LIMITS.shotPerIdMaxBytes / 1048576)
-    + 'MB；shots 合计 ' + Math.round(MPW_LIMITS.shotTotalMaxBytes / 1048576) + 'MB）');
-  return { reports: r, shotsPerId: { removed: n, freedBytes: b }, shotsGlobal: g };
+    + 'MB；shots 合计 ' + Math.round(MPW_LIMITS.shotTotalMaxBytes / 1048576) + 'MB'
+    // ①(§5-⑨) 基线目录的上限也在这里如实播报（data-limits-test B11 的既有判据是**前缀**匹配，
+    //   追加在末尾不会改动它断言的那一段）。
+    + '；baselines ' + MPW_LIMITS.baselineMaxFiles + ' 份/' + Math.round(MPW_LIMITS.baselineMaxBytes / 1048576)
+    + 'MB（启动清理删 ' + bl.removed + ' 份））');
+  return { reports: r, baselines: bl, shotsPerId: { removed: n, freedBytes: b }, shotsGlobal: g };
 }
 // ①(2026-09-14 公开仓库可用性) WE 资产目录：显式环境变量 > 本仓库旁 > **常见 Steam 安装路径自动探测**。
 //   为什么需要：公开副本的使用者不会把 WE 装在 `$MPW_ROOT/wallpaper_engine`；而 `/weassist` 兜底
@@ -368,9 +395,40 @@ const server = http.createServer(async (req, res) => {
       sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'we-scene-bundle.js')), 'text/javascript');
       return;
     }
+    // ①(§5-⑨ 2026-09-17) 基线采集器的纯计算模块（demo.html 以相对说明符 `./baseline-metrics.mjs` import）。
+    //   与 `/attach-transform.mjs` 同一个形态：产物根文件名 = 仓库内 core/ 下的文件。
+    if (p === '/baseline-metrics.mjs') {
+      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'baseline-metrics.mjs')), 'text/javascript');
+      return;
+    }
     // ①(P-21-ATTACH 2026-09-13) bundle 的 import './attach-transform.mjs'（浏览器解析为 /attach-transform.mjs）
     if (p === '/attach-transform.mjs') {
       sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'attach-transform.mjs')), 'text/javascript');
+      return;
+    }
+    // ①(P-111 2026-09-17 帧几何/音频频段接线) 两个 core/ 纯模块的**同名产物根路由**：
+    //   `core/we-scene-bundle.js` 以 `./web-frame-geometry.mjs` import（浏览器解析为 /web-frame-geometry.mjs）、
+    //   `demo.html` 以 `./audio-band-array.mjs` import（同形，与 /baseline-metrics.mjs 一模一样）。
+    //   为什么必须在这里：两个文件同时被 **Node（测试/宿主）与浏览器（相对说明符）** import ⇒
+    //   产物根要有同名文件，否则 8899 下 404、Pages 下 404（两者都是"静默没有频谱/坐标偏移"，不报错）。
+    //   `tests/audio-band-wiring-test.mjs` / `tests/web-frame-geometry-wiring-test.mjs` 断言这三处（服务端路由 /
+    //   build-pages 映射 / 源码 import）同时在位。
+    if (p === '/web-frame-geometry.mjs') {
+      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'web-frame-geometry.mjs')), 'text/javascript');
+      return;
+    }
+    if (p === '/audio-band-array.mjs') {
+      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'audio-band-array.mjs')), 'text/javascript');
+      return;
+    }
+    // ①(P-110 补漏 2026-09-17 回归自动化发现) `core/we-scene-bundle.js:6` 以 `./puppet-skin.js` import
+    //   （P-110 bind 世界链的唯一实现处）。产物根映射（build-pages.mjs:60）与 PWA 预缓存（web/sw.js:24）
+    //   都已登记该文件名，**唯独 8899 缺这条路由** ⇒ 浏览器把 404 当"模块 MIME 类型不合法"拒绝加载，
+    //   整条 module 图断在这里（`window.__mpwModuleStarted` 永远 false、日志停在 `loading…`），
+    //   而门禁里没有任何一项真的用浏览器加载过这个页面 ⇒ 一直是绿的。
+    //   与上面四条同形：产物根文件名 = 仓库内 core/ 下的文件。
+    if (p === '/puppet-skin.js') {
+      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'puppet-skin.js')), 'text/javascript');
       return;
     }
     // ①(MERGED-3 1.3 2026-09-14) 诊断开关速查 JSON（diag-flag-check.mjs 脚本生成）：
@@ -498,6 +556,55 @@ const server = http.createServer(async (req, res) => {
           } catch { res.writeHead(500); res.end('err') }
         })
       } catch { res.writeHead(500); res.end('err') }
+      return
+    }
+    // ═══ ①(§5-⑨ 真机基线快照 2026-09-17) POST /baseline ═══
+    //   为什么**另开一条**而不是复用 `/report`（二选一，这里说明理由）：
+    //     ① `/report` 落 `reports/r<ts>.json`，受"60 份 + 64MB 最旧先删"滚动 —— 而基线是**趋势数据**，
+    //        恰恰要留得住（今天的快照不能被明天的报告挤掉）；
+    //     ② 基线要按时间序列落**独立目录** `reports/baselines/<ts>.json`，`baseline-diff` 直接读它；
+    //     ③ 载荷语义不同（`kind:'baseline'`，字段是 FPS/分位/启动/代理显存），混进 r*.json 会让
+    //        `report-audit`/`parity-check` 那套"逐层对账"消费端看到不认识的结构。
+    //   相同的地方（**不另造一套**）：同一条 POST + JSON body 通路、同一套 `mkdirSyncSafe` +
+    //   `pruneDirToLimits` 上限机制、同一个 `MPW_REPORTS_DIR` 根、同一个 CORS/预检处理。
+    //   校验：body ≤1MB，必须是完整快照（schema 由 core/baseline-metrics.mjs 判）→ 否则 400，
+    //        **不落盘**（趋势目录里只有干净数据；缺字段当 0 比会得出假结论）。
+    //   返回：{"ok":true,"schema":N,"file":"baselines/<ts>.json","bytes":N}
+    if (p === '/baseline') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: '只接受 POST（body = 基线快照 JSON）' }));
+        return;
+      }
+      try {
+        let body = ''
+        req.on('data', (c) => { body += c; if (body.length > 1024 * 1024) req.destroy() })
+        req.on('end', () => {
+          try {
+            let snap = null
+            try { snap = JSON.parse(body) } catch { res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'body 不是合法 JSON' })); return }
+            const v = mpwValidateSnapshot(snap)
+            if (!v.ok) {
+              res.writeHead(400, { 'content-type': 'application/json' })
+              res.end(JSON.stringify({ ok: false, error: '快照不完整（' + v.errors.slice(0, 6).join('；') + '）', errors: v.errors.slice(0, 20) }))
+              return
+            }
+            const dir = path.join(MPW_REPORTS_DIR, 'baselines')
+            mkdirSyncSafe(dir)
+            pruneBaselines(MPW_REPORTS_DIR)   // 写入前：先把上一次遗留的超限收回去
+            const ts = Date.now()
+            let name = ts + '.json', n = 1
+            while (fs.existsSync(path.join(dir, name))) name = ts + '-' + (++n) + '.json'
+            fs.writeFileSync(path.join(dir, name), body)
+            pruneBaselines(MPW_REPORTS_DIR)   // 写入后：本次这份也计入数量/字节上限
+            const rel = 'baselines/' + name
+            console.log('[baseline] ' + path.join(dir, name) + ' ' + body.length + 'B id=' + snap.id
+              + ' fps中位=' + (snap.fps && snap.fps.median) + ' 启动=' + (snap.startup && snap.startup.totalMs) + 'ms')
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ ok: true, schema: BASELINE_SCHEMA, file: rel, bytes: body.length }))
+          } catch (e) { res.writeHead(500, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: '落盘失败: ' + (e && e.message) })) }
+        })
+      } catch { res.writeHead(500, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: '请求处理失败' })) }
       return
     }
     // ═══ ①(P-88 2026-09-15 用户点名："加一个一键连拍上报截图的功能 —— 这样我就不用下载下来，

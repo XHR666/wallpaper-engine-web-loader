@@ -4643,7 +4643,7 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 | 文件 | 行数 | 血缘疑问 |
 |---|---|---|
 | `tools/unmpkg.py` | 38 | 自述 "format from aqnya/unmpkg"（GPL-3.0） |
-| `tools/tex2png.py` | 267 | 自述参考 notscuffed/repkg（GPL） |
+| `tools/tex2png.py` | 267 | 自述参考 notscuffed/repkg（**2026-09-17 更正：RePKG = MIT，非 GPL**；删除理由随之改为"与 `unmpkg.py` 同批研究脚本、同一标准处理"） |
 | `tools/mdl_explorer.py` | 75 | 同批研究脚本，同一标准 |
 | `tools/xref.py` | 94 | capstone 反汇编 wallpaper64.exe，同一标准 |
 
@@ -5382,7 +5382,9 @@ npm publish --registry=https://registry.npmjs.org --access public
 
 1. **法律定性**：审计 §7 **U-1 / U-5**（洁净室重写前的 2 处点状同源是否曾构成 GPL-2.0-only 衍生）
    仍需**律师意见**；代码层处置与留痕不替代法律意见。
-2. **`notscuffed/repkg` 许可**在既有文档中自相矛盾（MIT vs GPL）⇒ **未定/待核**，需向上游复核。
+2. ~~**`notscuffed/repkg` 许可**在既有文档中自相矛盾（MIT vs GPL）⇒ **未定/待核**，需向上游复核。~~
+   ✅ **已结案（2026-09-17）= MIT**：依据 = 上游 `LICENSE` 原文（MIT 全文，2026-09-17 复核）+ 项目所有者确认；
+   本文档 P-89 表里的"（GPL）"与本节原措辞均已更正。详见 `docs/COPYING-RULES.md` **§9.10**（规则 §6 同步修订）。
 3. `../docs/PENDING-DECISIONS.md`（工作区根；见下）第 3、4、5、7、9、10 条仍待用户拍板；本轮**未推**插件仓库、
    **未打 tag / 未发 Release**。
 4. `publish-check.mjs --assets` 的 **11 条字体二进制阻塞**按用户口径接受为 informational
@@ -5535,8 +5537,9 @@ cd /tmp/we-head && node visual-diff-kal.mjs ; echo rc=$?   → rc=0（基线此�
    需同步 `samples/README.md` 的 5 处命令与 `build-pages.mjs` 的白名单。
 3. **`docs/README-PUBLIC.md` / `docs/RENDERER-ARCHITECTURE.md` / `docs/PACKAGING.md` 留在根**：它们是 npm `files` 白名单条目，
    移动会改变已发布包结构（用户约束②）。若接受"包内路径变为 `docs/*.md`"（文件数/体积不变），可再动一次。
-4. **P-97.6 的五条未定项**（法律定性 U-1/U-5、RePKG 许可、工作区根 `../docs/PENDING-DECISIONS.md` 第 3/4/5/7/9/10 条、
+4. **P-97.6 的五条未定项**（法律定性 U-1/U-5、~~RePKG 许可~~、工作区根 `../docs/PENDING-DECISIONS.md` 第 3/4/5/7/9/10 条、
    字体二进制 11 条 informational、`_site` 与 `.gitignore.public` 两套口径债）**本轮未结**。
+   （**`RePKG` 许可一项已于 2026-09-17 结案 = MIT**，见 `docs/COPYING-RULES.md` **§9.10**；余项仍未结。）
    本轮把 `_site` 口径进一步收敛为"白名单 + 显式排除表 + 构建内建闸门"，口径债的**方向**是按用户约束②不动包结构。
 
 ## P-99（2026-09-16 口径归零收尾）`wer-ref` 口径残留清零：11 处符号改名（连带修 11 处假陈述）+ 8 个文件补免责段 + 74 行逐条判定（改 3）+ 脚本看不见的同类 26 行
@@ -5919,6 +5922,317 @@ SKIN=0 CHARFIT=auto   node /tmp/probe-p100.mjs 3554161528 0 1 8   # 修后：t=8
 4. 本机**无真机像素对照**（真机 GL 的混合/浮点差异测不到）；`preview.mjs` CPU 预览不改（它本来就没有相机姿态与适配分支）。
 
 ---
+## P-101（2026-09-16 目录再整理）仓库按**职责**分四档（`core/` 内核 / `server/` 服务端 / `web/` 站点外壳 / `tools/` 生成器）+ 运行期依赖随包 + 线上 URL 逐字不变
+
+> **本节的来历（为什么这个号此前"有引用无小节"）**：`core/*.mjs`、`server/*.mjs`、`web/*.mjs`、`tools/*.mjs`、
+> `build-pages.mjs`、`tests/*.mjs` 共 15 处注释把 2026-09-16 那一轮**代码按职责分层**自述为 `P-101`；
+> 但当时它**没有**在本文档留下小节（欠账记录见 §P-105.6 第 1 条、以及 §P-103 开头的编号说明）。
+> 本节按号递增插在 **P-100 之后、P-103 之前**补写，只记那一轮整理本身；**同一工作轮**里另立的
+> "站点根 = 仓库根 + README 重写 + npm `0.1.1` 发布"已记在 **P-105.1**（含根软链 `we-scene-bundle.js`），
+> 两节是同一轮的两面，**互不替代**。
+
+### P-101.1 背景（为什么"移文件"值得单独立号）
+
+1. **脚本位置一改就红**。P-98 的**第一轮**目录收拢（根 `146 → 27`/`29`，见 P-98.5）动的是脚本落点，
+   第一轮全量门禁 **PASS=27 FAIL=36**；36 项红的根因**全是"路径语义"**、没有一项是逻辑错
+   （逐条根因表在 §P-98.5）。⇒ 结论：这个仓库真正脆的是"**谁按什么口径解析根**"，不是代码。
+2. **两个"根"长期同名撞车**：`MPW_ROOT` 在本仓库的既有语义是**工作区根**（`$MPW_ROOT/allwallpaper`、
+   `$MPW_ROOT/wallpaper_engine/assets` 都从它解析），而脚本自己的"仓库根"是另一回事；脚本一旦误移，
+   两者会互相覆盖（§P-98.5 第 5 条 `quality-tiers` / `camera-pose` ENOENT）。
+3. **发布面有硬依赖**：`package.json` 的 `files` 白名单漏了运行期真依赖 ⇒ `0.1.0` 的 `./server` 入口
+   在别人机器上**必崩**（`server/pack-dir.mjs` / `web/pwa-inject.mjs` / `core/scene-project-json.mjs`
+   三件当时都不在包里）。**这是发出去就会中的 bug**，不能只当"整理"。
+4. **站点面有硬约束**：线上 URL 必须逐字不变（`/demo.html`、`/bundle.js`、`/sw.js`、`/icons/…`）；
+   而浏览器侧只能写**相对**说明符 —— Pages 项目站点在 `/<repo>/` 下，写 `/bundle.js` 会解析到域名根 ⇒
+   在线 demo **一直 404**（`demo.html:872` 的注释）。
+
+### P-101.2 改了什么（文件 : 行 / 路径）
+
+| # | 改动 | 落点 |
+|---|---|---|
+| 1 | 代码按职责分四档（**只动落点，不动 URL**）：`core/` 7 文件（`we-scene.mjs` 库入口、`we-scene-bundle.js` 渲染内核、`scene-project-json.mjs`、`attach-transform.mjs`、`puppet-skin.js`、`audio-band-array.mjs`…）／`server/` 2 文件（`we-scene-demo-server.mjs`、`pack-dir.mjs`）／`web/` 8 项（`sw.js`、`sw-policy.mjs`、`pwa-inject.mjs`、`manifest.webmanifest`、`icons/`、`diag.html`、`probe.html`、`diag-flags.json`）／`tools/` 2 文件（`make-sample.mjs`、`make-icons.mjs`） | `core/`、`server/`、`web/`、`tools/` |
+| 2 | `scene-project-json.mjs` 的 `MPW_ROOT` 兜底：作者机**绝对路径**字面量 → `path.resolve(…'..','..')`（= 本模块的仓库父目录，与其它脚本口径逐字一致；作者机上**解析结果同一个目录**） | `core/scene-project-json.mjs:32-36` |
+| 3 | 服务器落点常量集中一处，不再散写相对路径：`REPO_ROOT` / `WEB_DIR` / `CORE_DIR` / `SHADERS_DIR` | `server/we-scene-demo-server.mjs:26-31` |
+| 4 | `pack-dir.mjs`、`make-sample.mjs`、`make-icons.mjs` 的 `HERE`/`REPO_ROOT` 随落点重算，**根口径仍取自单一事实源** | `server/pack-dir.mjs:26-28`、`tools/make-sample.mjs:44`、`tools/make-icons.mjs:16` |
+| 5 | Pages 发布面白名单从"根级文件名集合"改成**显式 `[仓库内落点, 产物内落点]` 映射**（`core/we-scene-bundle.js` → 产物根 `we-scene-bundle.js` **与另一个产物别名**），线上路径逐字不变 | `build-pages.mjs:31`、`build-pages.mjs:76` |
+| 6 | 自带服务器加同名**别名路由**；**不暴露** `/core/**`（发布面仍由白名单唯一决定） | `server/we-scene-demo-server.mjs`（站点路由段） |
+| 7 | 浏览器侧说明符一律**相对路径**：`demo.html` 里写的是相对形态的 bundle 说明符（**产物别名**，仓库里没有这个真文件），`elysia/demo-elysia.js` 写 `../we-scene-bundle.js` ⇒ 自带服务器与 `/<repo>/` 两边都命中 | `demo.html:872` |
+| 8 | `files` 白名单补运行期真依赖（`core/scene-project-json.mjs`、`server/pack-dir.mjs`、`web/pwa-inject.mjs`、`shaders/`、`docs/DATA-LIMITS.md`…）；`packaging-test` 新增"files 覆盖运行期依赖"判据 | `package.json` 的 `files`、`tests/packaging-test.mjs:182` |
+| 9 | 测试侧同步：`tests/_root.mjs` / `tests/diag-flag-check.mjs` / `tests/pwa-test.mjs` 按新落点取根；`tests/docs-check.mjs` 把四档补进"被引用文件候选落点" | `tests/`（4 处） |
+| 10 | 根目录 tracked **29 → 12**（`README.md`、`THIRD-PARTY.md`、`LICENSE`、`package.json`、`index.html`、`demo.html`、`build-pages.mjs`、`check.sh`、`start-demo.sh`、`we-scene-bundle.js` 软链 + 2 份 `ref*` 基线） | 仓库根 |
+
+### P-101.3 证据（命令 + 输出摘要，本机实测）
+
+```
+# 分档落点数
+$ for d in core server web tools; do printf "%-9s %s files\n" "$d/" "$(ls $d | wc -l)"; done
+core/     7 files      server/   2 files      web/      8 files      tools/    2 files
+
+# 根目录 tracked 收敛
+$ git ls-files | grep -v / | wc -l
+12
+
+# package.json 的运行期依赖（曾经漏掉的三件现在都在）
+$ node -e "const p=require('./package.json');console.log(p.version+' | '+p.files.length+' 条 files')"
+0.1.1 | 28 条 files      # 含 core/scene-project-json.mjs、server/pack-dir.mjs、web/pwa-inject.mjs、shaders/
+
+# 文档一致性（引用完整性 + P-编号非降 + diag-flags 双向）
+$ node tests/docs-check.mjs
+检查 16 个文档 · 507 个文件引用 · P-编号健康 ✓ · diag-flags ✓
+✓ 文档一致性全部通过            # rc=0
+
+# 分发形态（含"files 覆盖运行期依赖"与"打包后零个人绝对路径"两组判据）
+$ node tests/packaging-test.mjs
+packaging-test：133 通过 / 0 失败（共 133 条断言）
+
+# 服务端上限（同轮 P-104 线）
+$ node tests/data-limits-test.mjs
+===== data-limits-test: 38 通过 / 0 失败 =====
+```
+
+> **未跑项（如实记）**：本轮补写**没有**重跑全量门禁（资源纪律：不跑重活）。`node tests/packaging-test.mjs`
+> 在当前工作树上若**带内层 `check.sh` 闸门**运行，会出现 2 条红，**根因是并发线的"旗标登记时差"**：
+> `docs-check` 的 `✗ 代码有·文档无（漏写 N 个）: …`（N 个旗标是**其它在飞线**刚加进代码、还没写进
+> `docs/README-DIAGNOSTICS.md`），第二条红是内层 `--no-gate` 阶段被它连坐（rc=1）。实测序列：06:22 全量时是
+> `submesh, subtri`（子网格探针线，06:29 已自行补登记，并取了 **P-109**）；06:30 复查同类换成
+> `baseline, baselinedur, baselineswap, bgwrapfix`（基线快照 / bgWrap 时序两条线，**仍在飞**）。
+> 早先那版 `known.json` **悬空引用**（P-108 线首次写入时用了仓库根相对写法）**已修**：改成正确落点
+> `tests/known.json` + 行为描述；修完当时（06:27）实测 `docs-check` 的**文件引用**判据 ✓、`P-编号健康` ✓
+> ⇒ 本节自身无红（06:32 起 `docs-check` 的引用红全部来自**其它在飞线**新写的 `vendor-ref/…` 与
+> `dsh-mpkg-wallpaper/docs/…`，逐行 grep 证明不在 P-108 节内）。
+> ⚠ `docs/README-DIAGNOSTICS.md` 属那几条在飞线，**不在本节代改**（对方还在改代码，代写会互相踩）。
+
+### P-101.4 回退（怎么退、退到哪）
+
+| 目标 | 做法 | 代价 |
+|---|---|---|
+| 退回"根级平铺"（P-98 之后的形态，commit `339f5aa`） | 把四档目录里的文件 `git mv` 回仓库根；`files` 白名单、`build-pages.mjs` 的 `PAGES_KEEP_FILES` 映射、服务器的别名路由、`tests/*` 的取根、`docs-check` 的 `MOVED_DIRS` 五处同步改回 | **约 1 人日**；且会**重新引入**"两个 `MPW_ROOT` 撞名 + 运行期依赖不随包"两类已修 bug ⇒ 不建议整退 |
+| 只退"随包分发"那一半（最可能的诉求） | 从 `package.json` 的 `files` 删掉四档条目；**不改**目录布局 | 分钟级；但 `0.1.0` 的 `./server` 入口崩会**立刻复现** |
+| 只退某个别名 | `build-pages.mjs` 的映射数组里删对应行 + 服务器删同名路由 | 分钟级；**会改线上 URL**（用户约束②：不动包结构/URL） |
+
+### P-101.5 未定项 / 不随本节关闭
+
+1. **`tools/make-sample.mjs` 的包内路径是否与仓库同形**：它留在 `tools/`，`files` 里按根级产物名
+   `make-sample.mjs` 发布（`samples/**` 等按**相对说明符**引用它）—— 若将来要让包内路径与仓库路径同形
+   （`tools/…`），要同步 `samples/` 的引用与 `build-pages.mjs` 的映射，属**会改包结构**的改动（用户约束②下先不动）。
+2. **`docs/` 是否进站点产物**：本轮口径仍是"**不发**"（只发具名白名单 `docs/COPYING-RULES.md` 一份）。
+   要发须按**具名白名单**加回，整目录会让 `demo-check` 的 D6 判红（`docs/PATCHES.md` 含描述闸门自身的 `/root/` 字样）。
+   同一未定项在 §P-98.6 第 1 条、§P-105.6 亦有记录，**本节不重复关闭**。
+3. **`we-scene-bundle.js` 根软链**：P-105.1 立的（`elysia/we-renderer/textures.js` 必须用站点根的**扁平**说明符，
+   而 Node 只按真实相对路径解析）。软链在 `npm pack` / `Pages` 产物里的**打包器支持面**未被逐个验证过
+   （`publish-check` 与 `demo-check` 目前按 `lstat` 跳过/断言软链）—— 缺一条"解包后软链仍可解析"的断言。
+
+---
+## P-103（2026-09-16/17 粒子渲染正确性 · 用户第 12 条）四项官方口径修复（quad 图层变换 / 粒子自转 / exponent 非线性分布 / 发射器初速）+ 128 元频段数组契约收口
+
+> **编号说明**（补 P-105.6 第 1 条的待办）：本节把**两个在途自述 P-103 的模块**一次收口 ——
+> ① `core/we-scene-bundle.js` 的粒子渲染四项修复（源码注释、`tests/particle-render-correctness-test.mjs`、
+> `tests/particle-cost-probe.mjs` 三处均自述 P-103）；② `core/audio-band-array.mjs` + `docs/AUDIO-BAND-SPEC.md`
+> + `tests/audio-band-array-test.mjs`（自述 P-103，MIT 口径对照，见 §P-103.4 末）。
+> 按 `tests/docs-check.mjs` 的"**P 编号按文件顺序非降**"要求，本节插在 **P-100 之后、P-105 之前**；
+> `P-101`（目录再整理）与 `P-104`（发布纪律）两号仍归各自那条线，本节不动。
+>
+> 用户原话（第 12 条）：**"你有一些粒子效果的渲染是有问题的，开源仓库里有方案，去参考一下。"**
+> 完整判据式取证（现象 / 两侧数字 / 依据 / 差距表 / 量化）见 **`docs/PARTICLE-RESEARCH.md`**；本节只记"改了什么、凭什么、多少"。
+
+### P-103.1 问题清单（判据式，要点）
+
+本机语料 = **11 个 scene 型真包 / 49 个粒子层**（`$MPW_ROOT/allwallpaper/dd`）。四条判据的命中：
+
+| 判据 | 命中 | 现象（可见） | 改前数字 | 官方应有 |
+|---|---|---|---|---|
+| R：`rotationrandom`/`angularvelocityrandom` 或 `angular*`/`rotation*` 算子 | **14/49 层** | 花瓣/玻璃碎片/hex 光斑**全部轴对齐**（"僵死的贴片"） | 长轴角散布 **0°**、竖直占比 **100%** | 散布 44–166°、竖直 27–55% |
+| Q：图层 `scale≠1` 或 z 角 ≠0 | **35/49 层** | quad 形状不吃图层变换 ⇒ 长宽比恒等于贴图比例 | 长/短边中位恒 **1.78**；3327063360「萤火虫」小 **7.06×** | 长/短边 1.05–1.70；边长 = `size/2 × scale` |
+| E：`initializer.exponent` ≠1 | **2/49 层** | 花瓣尺寸"都一样大"、缺小花瓣 | 均值 **60.0**（均匀分布） | 均值 **53.33**（`pow(u,2)`），P(<50) 0.25→**0.50** |
+| S：`emitter.speedmin/speedmax` ≠0 | **2/49 层** | 光标处花簇**原地不动** | 出生速度 **恒 0** | `\|v\| ≤ speedmax(20)`，方向 = 基准点→出生点 |
+
+> 口径更正：`docs/README-DIAGNOSTICS.md` 原先写"14/40 个测试包""30/40 层受影响"——分母是本机**粒子层数 49**（分子复算 14 / 35）；
+> 该 4 行同时把编号从误标的 `P-101①..④` 更正为 **`P-103①..④`**（代码/测试/探针三处一直自称 P-103）。
+
+### P-103.2 修了什么（四项，各带回退开关）
+
+| # | 修复 | 依据（官方资产 / 开源实现的那段逻辑） | 回退开关 | 登记 |
+|---|---|---|---|---|
+| ① | quad 的**图层变换**（局部偏移先按 z 角 R(−θ)、再逐轴 ×`scale`，与 `spawnParticle` 发射器偏移**同序**） | 官方 `genericparticle.vert:86-87`（quad 位置整体乘 MVP ⇒ size 偏移也吃图层 T·R·S） | `?pquad=legacy` | `docs/README-DIAGNOSTICS.md` |
+| ② | 粒子**自转**（z 轴 roll 的两条局部轴 right/up） | 官方 `common_particles.h:20-38 ComputeParticleTangents` | `?prot=legacy` | 同上 |
+| ③ | 随机 initializer 的 **exponent 非线性分布**（`值 = min + pow(u,exp)·(max−min)`，**复用同一次 `rng()` 抽样**） | 官方资产给字段语义 + GPL-3.0-only 参考的**行为**（出生期 `pow(t,exp)` 后再 /2，洁净室自写，差异见 §P-103.3） | `?pexp=legacy` | 同上 |
+| ④ | 发射器 **`speedmin/speedmax` 初速**（沿"基准点→出生点"，仅字段非 0 时抽一次随机数） | MIT `webwallgl particles.js:804-806`（口径对照，未复制代码）+ 真包语料 | `?pspeed=legacy` | 同上 |
+
+四项一律 **official ↔ legacy 双向**断言，并额外断言**无该字段/无该初值时两档逐位相同**（防"顺手多抽一次随机数"这类隐性回归）。
+`diag-flag-check`：**代码 126 个开关 == README 主表 126 行，0 差异**（本轮未新增开关，只改登记文字与行号指针）。
+
+### P-103.3 洁净室规格与**新旧差异（≥4 点）**
+
+③④ 两项的行为对照源是 **GPL-3.0-only**（`lwe-ref` = linux-wallpaperengine）—— 规矩是"**看行为、写规格、自己实现**"。
+规格（只写公开契约与算法事实）：*若 initializer 声明了 `exponent`，标准均匀随机数 `u` 先做幂变换再线性映射到 `[min,max]`；
+`exponent` 缺省 = 1（退化为均匀）；`size` 类 initializer 的映射结果在**写出前减半**。发射器若声明了 `speedmin/max`，
+出生时给一个沿"发射方向"的初速，大小在该区间内取随机（缺省 0 ⇒ 无初速）。*
+
+新旧差异（**我们 vs 参考实现的行为写法**，逐条可查）：
+
+1. **/2 的落点不同**：参考实现在**出生期**把减半折进粒子自身的尺寸值里存下来；我们保持粒子尺寸为原始值，
+   在**几何装配期**统一减半（`PSIZE_MODE`，P-74② 已立档）⇒ 同一份数据在 rope（总宽 = `size`）与 sprite（边长 = `size/2`）
+   两条生成器之间只需切换一次口径，且 `?psize=legacy` 的 A/B 只影响一处。
+2. **随机源不同**：参考实现用标准库 MT19937 + 逐 initializer 的闭包捕获；我们用**自有种子化整数 PRNG**（`rng()`），
+   且 exponent 档位**复用同一次抽样调用**、speed 档位**仅字段非 0 时才抽** ⇒ legacy 档可逐位复现（门禁断言 `Object.is` 级）。
+3. **结构与诊断不同**：参考实现把 exponent 展开写在 initializer 工厂返回的闭包里；我们写成显式分支，
+   并把"本粒子是否真的吃了 exponent≠1"记进 `particleStats.expApplied`（参考实现无任何等价记账），
+   `particle-cost-probe` 与真机面板可直接读。
+4. **定义域处理不同**：我们对 `u ∈ [0,1)` 直接做幂变换、不额外 clamp（`min/max` 本身来自解析期数值），
+   并在 `exponent` 缺省/为 1 时**走与 legacy 完全相同的算式**（不引入新的分支副作用）。
+5. **档位与台账不同**：参考实现没有"档位"概念；我们四项各有 `?x=legacy` 回退口、四条都登记进 `docs/README-DIAGNOSTICS.md`，
+   并用**真包语料 + 探针数字**做 A/B（这是本轮新增的能力，不在参考实现的形态里）。
+
+> 音频侧（同属 P-103 编号）：`core/audio-band-array.mjs` 按 `docs/AUDIO-BAND-SPEC.md` 的**行为规格**新写，
+> 直接使用方是 **MIT** 的 `oneincase/webwallgl`（`renderer/src/web.ts` 的 128 元数组契约），
+> 署名与台账已登记：`THIRD-PARTY.md` §12 + `docs/COPYING-RULES.md` §4 #10（差异清单见规格 §5，未复制代码）。
+> **该模块尚未接线**（渲染器目前没有实时频谱源，见规格 §6），验收在 `tests/audio-band-array-test.mjs`。
+
+### P-103.4 量化（几何 / 像素 / 代价）
+
+25 个"有粒子批"的层，official vs legacy（命令与逐层表见 `docs/PARTICLE-RESEARCH.md` §1/§2）：
+
+| 维度 | 改前（legacy） | 改后（official） | 判据 |
+|---|---|---|---|
+| 长轴角散布 | 25/25 层恒 **0°** | **11/25 层**变为 **44–166°**（其余层语料本就没有自转/图层角 ⇒ 保持轴对齐是正确行为） | `particle-shape-audit` |
+| 竖直占比 | 100% | 27% / 40% / 55% / 0%（按层） | 同上 |
+| 长/短边中位 | 恒 = 贴图比例（1.78） | 1.05–1.70 | 同上 |
+| quad 数 / 存活粒子数 | — | **25/25 层两档逐值相同** | 同上 |
+| 四角 alpha / 覆盖均值 alpha / 不透明占比 | — | **25/25 层两档逐值相同**（只动几何、不动像素语义） | 同上 |
+| 每帧耗时（hina 13 层 / 凯尔希 8 层，30 帧中位） | 1.69 / 1.91 ms | **1.77 / 1.53 ms**（同量级） | `particle-cost-probe --frames 30` |
+| `simSteps`/`simUpdates` 每帧中位 | 6 / 245、7 / 224 | **6 / 245、7 / 224**（逐值相等） | 同上 |
+
+历史基线对照：P-69 曾把 hina 粒子从 **62.8 ms / 96000 次更新** 降到 **1.7 ms / 245**；本轮四项修复**没有回退**该数字。
+
+### P-103.5 本轮顺手修掉的两类"引注真错"（都可 grep 复验）
+
+1. **GPL-2.0-only 的逐字代码引注清零（7 处：`core/we-scene-bundle.js` 6 处 + `tests/mock-gl-test.mjs` 1 处）**：
+   这些引注把 `wer-ref/`（GPL-2.0-only）的**代码文本**照抄进了注释（例：尺寸减半、样条尺寸插值、blendmode 覆盖、
+   initializer 追加、速度倍率、仿真时钟倍率），与文件头自述的"只引用行为结论，未复制其代码/注释/常量组织"**自相矛盾**
+   ⇒ 全部改写成**行为描述**（保留 `文件:行` 指针，不含代码文本），并逐条回读参考实现的行为确认描述属实。
+   复验判据：`grep -rnoE '`(WPParticle|WPScene|CustomShaderPass|ParticleSystem|ParticleModify)[A-Za-z]*\.(cpp|h):[0-9]+[^`]*=[^`]*`' core/ tests/` → **0 命中**。
+2. **官方着色器引注行号纠错（4 处）**：`genericparticle.vert:56` → **`:86-87`**（56 行是 `in_ParticleVelocity` 宏，
+   真正的 MVP 乘法在 87、其输入在 86）；`common_particles.h:41-57` → **`:41-49`（trail 切轴）+ `:52-56`（quad 展开）**；
+   `genericropeparticle.vert:105-135` → **`:148-167`**（ribbon 的 right/size 混合与展开）；
+   `common_particles.h:20-39` → **`:20-38`**。行号按本机官方资产
+   （`$MPW_ROOT/wallpaper_engine/assets/shaders/`）逐一实测。
+
+### P-103.6 门禁接线与自证
+
+| 项 | 结果 |
+|---|---|
+| `tests/particle-render-correctness-test.mjs` | **33 通过 / 0 失败**（5 组：①quad 图层变换 ②自转 ③exponent ④发射器初速 ⑤真包语料 + 代价不回归）；`--only particle-render-correctness` → **PASS（2046 ms）**；引注清理后**复跑仍 33/0** |
+| 受引注改动波及的既有门禁项（定向复跑） | `mock-gl-test` **60/0**；`p74-instanceoverride-test` 打印 **60/60 通过**后进程未自行退出被 `timeout` 计 rc=124（**既有 flake**：成功标记已打印、无残留进程、与本次注释改动无关） |
+| 门禁注册 | `tests/run-all-tests.sh` **在 `add` 列表末尾追加** `particle-render-correctness`（既有 74 项 `add` 行号一字未动；`--list` 可见，共 75 项） |
+| `node tests/diag-flag-check.mjs`（01:49 实测） | **代码 126 == 主表 126，0 差异** |
+| `node tests/docs-check.mjs`（01:49 实测） | **rc=0**（`检查 16 个文档 · 502 个文件引用 · P-编号健康 ✓ · diag-flags ✓`） |
+| `bash tests/run-all-tests.sh`（**全量**） | **本轮未跑**：父线因本机 OOM（15.4 GB，另一条线在跑转码）下达资源纪律 —— 重渲染审计一次只跑一个、**禁止并行**、**不跑全量**，全量由父线统一安排。按基线（73/0/1/74）+ 本项 1 ⇒ **预计 74/0/1/75**，待复跑确认 |
+
+**外部红（非本轮改动，已定位到别的线，未越界修改）**：`docs-check` 在 **02:13 之后**转红，唯一差异是
+`✗ 代码有·文档无（漏写 1 个）: mpwtranscode` —— 该开关是**插件侧**（`dsh-mpkg-wallpaper/lib/client.js:1093`
+的 `?mpwtranscode=legacy|aggressive`）在 **02:13:22** 新增的（同目录 `tools/transcode-limit-test.mjs` 当时 mtime
+= 02:13:22），而 `docs/README-DIAGNOSTICS.md` 主表**尚无对应行**。按分工该行由插件线登记（本线不改它仓文件、
+也不代登记在途开关，避免与并发写入撞车）；登记后 `docs-check` 即回绿。本轮改动清单里**没有**这个开关。
+
+**本轮修红记录**：接手时 `particle-render-correctness-test.mjs` 为 **32/33**，唯一红项是
+"① legacy 档顶点 == 独立复算的 P-100 公式"——根因是**断言容差写错**（顶点流是 `Float32Array`，
+NDC 分量 ulp=2⁻²⁴，换算回 3840 宽的设计像素上界 ≈5.7e-5 px，实测最大 3.81e-5 px，而断言用了 `1e-6`）
+⇒ 按量化上界改成 **1e-3 px**（实测值的 26 倍余量，仍能抓 ≥0.001 px 的真实几何错位）。几何本身**正确**，不是实现错。
+
+### P-103.7 未定（**不随本轮关闭**）
+
+1. 本机**无 headless WebGL**（chromium GPU 进程被沙箱杀）⇒ 判据止于**顶点流级**，没有真机逐像素对照；
+   官方预览动图分辨率/色深不足以做角度与尺寸的统计判据（只作方向性佐证，见研究文档 §2.3）。
+2. 帧动画 blend、rope 段数、`spritetrail` 采样数三项本轮**只看未改**（行为已对照，见研究文档 §3），若继续对齐需另开取证。
+3. `core/audio-band-array.mjs` **尚未接线**（无实时频谱源），因此"真机频段条形状"仍无现场证据。
+4. ~~`P-101`（目录再整理）/`P-104`（发布纪律）两号的小节仍待各自那条线补写（P-105.6 第 1 条的剩余部分）。~~
+   **✅ 追记（2026-09-17，纯文档收尾轮）：两号小节均已补写** —— `P-101` 见上面 `## P-101` 节、
+   `P-104` 见下面 `## P-104` 节，两侧都按号递增插入（P-100 之后 / P-103 与 P-105 之间）。
+
+---
+## P-104（2026-09-17 发布纪律）用户两条原话落地：**自动上报默认关** + **一切"自动落盘"都要有上限**（8 类落盘点逐项封顶 + 启动清理 + 手动入口不被连坐）
+
+> **本节的来历（为什么这个号此前"有引用无小节"）**：`demo.html` 的 `MPW-LS-LIMIT` 块、
+> `server/we-scene-demo-server.mjs` 的 `MPW_LIMITS` 块、`tests/data-limits-test.mjs` 三处自述 `P-104`；
+> 欠账记录见 §P-105.6 第 1 条、§P-103.7 第 4 条。本节按号递增插在 **P-103 之后、P-105 之前**补写。
+> **台账在 `docs/DATA-LIMITS.md`**（逐项：触发者 / 改前上限 / 现上限 / 清理策略 / 常量落点），
+> 本节只记"为什么改、改了什么、凭什么、怎么退"。
+
+### P-104.1 背景（用户原话两条，逐字）
+
+> ①「像你这种**测试用的自动上报**的功能，这种你在**上传仓库的时候要把它默认给关掉**。」
+> ②「这种自动上报、自动把什么**存储到本地**的类型的东西，这种需要**设置上限**的，这上限别忘记了。」
+
+**为什么两条都成立（当时的实测缺陷，不是假想）**：
+
+1. **默认是开的**：自动上报原先只要"没写 `?noreport`"就启动 ⇒ 任何人克隆仓库跑起来，都会**悄悄把当前画面与诊断
+   POST 到本地服务器**。这是"测试用功能"，不该是公开副本的默认。
+2. **连坐**：`?noreport` 当时把**整块上报子系统**摘掉 ⇒ 连**手动** `🛰 立即上报` 按钮一起消失 ——
+   "想手动发一次现场"反而没有入口（用户显式动作被自动路径的开关连坐）。
+3. **有几处落盘**完全没有滚动：`reports/selfcheck-<ts>.json`（`/diag` 路径）**零上限**；
+   `reports/shots/**` **无全局上限**（换个壁纸就换一个 id 目录，id 越多磁盘越满）；
+   插件宿主端 `~/.dsh/.dsh-mpkg-wallpaper/diag-<epochms>.json` 实测 **3483 个 / 63MB**（无上限）；
+   渲染器 `localStorage['mpw-props:<id>']` 键数随壁纸数**无限增长**。
+
+### P-104.2 改了什么（文件 : 行 / 路径）
+
+| # | 改动 | 落点 |
+|---|---|---|
+| 1 | **纪律①**：自动路径**唯一**开法 = `?report=auto`；**不写 = 一个定时器都不建**（默认值本身就是"关"）；除 `auto` 外的值（含 `1`/空）都按关处理；`?noreport` 仍被尊重且优先级更高 | `demo.html:4134`、`demo.html:4141`、`demo.html:4480` |
+| 2 | **解连坐**：上报子系统（`doReport` + `🛰 立即上报` 按钮）**恒装载**，手动入口不再受 `?noreport` 影响；自动路径另有 **4 次**上限（旧实现把上限记在总次数上） | `demo.html:4143`、`demo.html:4265`、`demo.html:4295-4299` |
+| 3 | **上限唯一来源**集中成一块（要调只改这里）：`reportsMaxFiles 60` / `selfcheckMaxFiles 40` / `reportsMaxBytes 64MB`（前两类**共享**字节预算）/ `shotPerIdMaxFiles 400` / `shotPerIdMaxBytes 200MB` / `shotTotalMaxBytes 500MB`；env 仅测试/现场调参，**非法值一律回落默认**（绝不出现"配错上限 = 把上限关掉"） | `server/we-scene-demo-server.mjs:55-71` |
+| 4 | 通用清理器 `pruneDirToLimits`：**数量 + 总字节**双限，**最旧先删**，排序口径 = 文件名里的 epoch 优先（拿不到才退回 mtime）；**任何失败都吞掉**（清理绝不能让写入路径 500）；每次清理**必打一行日志**（用户点名"已删除 N 个最旧文件，释放 X MB"） | `server/we-scene-demo-server.mjs:73-114` |
+| 5 | 写入路径**前+后各收一次**（后一次是把**本次这份**也计入上限）：`/diag`（selfcheck）与 `/report` 各两处、`/shot` 三处（每 id 400 帧/200MB + 全局 500MB，全局超限时**删"所有 id 里最旧的那一帧"**，公平、不会一次掏空某个 id） | `server/we-scene-demo-server.mjs:411`、`:413`、`:492`、`:494`、`:562`、`:579` |
+| 6 | **启动清理一次**：服务起来先把上次遗留的超限目录收回限内并留痕 | `server/we-scene-demo-server.mjs:977`、`pruneAllOnStartup()` |
+| 7 | **不误删别人的产物**：过滤器只认自己造的文件名（`r*.json` / `selfcheck-*.json` / 图片 / `diag-*.json`）⇒ 同目录的 `parity-*.json`（parity 门禁要读）、插件自造的 `custom-dir` 配置、`ffmpeg/` 目录一个都不碰；`shots/<id>/index.jsonl` 是**台账，按设计永不删** | 同 #4；反面断言 `tests/data-limits-test.mjs` 的 B9/D4 |
+| 8 | 渲染器 `localStorage['mpw-props:<id>']`：**24 键 / 单值 64KB / 合计 512KB**；写入时 touch `mpw-ls-lru` 时间戳表，超限**按 LRU 淘汰最旧**；单值超限**拒写 + 明说**（不截断、不静默）；**绝不碰**宿主/壁纸自己的键 | `demo.html:2980-3021`（`MPW-LS-LIMIT-BEGIN` 块，`MPW_LS_LIMITS` 在 `:2989`） |
+| 9 | 插件 localStorage 单值上限 **256KB**（超限不写 + 一行警告，大图走 IndexedDB）；插件 `diag-*.json` **50 个 / 32MB** + 启动清理一次、最旧先删 | `lib/client.js:88`（`MPW_LS_MAX_BYTES`）、`lib/index.js:1504-1532`（`DIAG_KEEP` / `DIAG_MAX_BYTES`） |
+| 10 | 台账与登记：`docs/DATA-LIMITS.md` 全量清单（8 类落盘点 + 3 处常量唯一来源 + 不受影响的"别人的产物"）+ `docs/README-DIAGNOSTICS.md:148` 的 `report` 行改成"默认关"并写明两个手动入口不受影响 | `docs/DATA-LIMITS.md`、`docs/README-DIAGNOSTICS.md:148` |
+| 11 | 门禁注册：`run-all-tests.sh` 新增 `data-limits` 项（38 断言 / 4 段：默认关真值表 + 真源码守卫"两条定时器只在 `if (autoReport)` 里" + 手动按钮不被连坐 + **真服务空跑 3s 零新增**；上限用 env 压到很小才能秒级验完清理路径） | `tests/run-all-tests.sh:166`、`tests/data-limits-test.mjs` |
+
+### P-104.3 证据（命令 + 输出摘要，本机实测）
+
+```
+# 纪律① 的机器判据（38 断言 / 4 段）
+$ node tests/data-limits-test.mjs
+  ✓ D7 插件客户端 **自动 trace 上报默认关**：`mpwTrace` 里先判 localStorage['mpwdiag'] !== '1' 就 return
+  ✓ D8 插件客户端 **DOM 诊断自动上报默认关**：`mpwdiag === '1'` 才开（旧实现 !== '0' 默认开）
+  ✓ D9 插件客户端 localStorage **单值上限**：超 256KB 不写 + 打警告，两处写入都走 mpwLsSafeSet
+===== data-limits-test: 38 通过 / 0 失败 =====        # rc=0
+
+# 开关登记双向一致（README-DIAGNOSTICS ↔ 代码），含本轮的 report 行
+$ node tests/diag-flag-check.mjs
+diag-flags.json 已写出（common=10 个常用）           # 并入 docs-check 后为 ✓
+
+# 文档一致性（§P-104 与 DATA-LIMITS 的交叉引用都真实存在）
+$ node tests/docs-check.mjs
+检查 16 个文档 · 507 个文件引用 · P-编号健康 ✓ · diag-flags ✓
+✓ 文档一致性全部通过                                  # rc=0
+
+# 拍摄链回归（滚动从"写死 400 的内联 while"升级成上限常量后不劣化）
+$ node tests/shot-upload-test.mjs                    # 见该文件 :239 的 P-104 注释
+```
+
+### P-104.4 回退
+
+| 目标 | 做法 | 代价 |
+|---|---|---|
+| 只想做 A/B 观察清理行为 | **不改代码**：用 env 把上限压到很小（`MPW_LIMIT_REPORTS_MAX=3` / `MPW_LIMIT_SHOT_FILES=5` / `DSH_WE_DIAG_KEEP=2`）⇒ 几秒内就能看到"删了几个 / 释放多少 MB"的日志与"别人的产物没动" | 秒级；**非法值会被回落默认**（不会把上限关掉） |
+| 退回"写死 400 的内联 while" | 把 `pruneShotsId` / `pruneShotsAll` 换回内联循环，删 `MPW_LIMITS` 块 | **不建议**：会重新丢掉 selfcheck 与 shots 全局两条上限（历史实测那条路**完全没有滚动**） |
+| 退回"自动上报默认开" | `demo.html:4141` 的 `autoReport` 判据改回"没写 `?noreport` 即开" | 分钟级；但**正是用户点名要关掉的东西** |
+
+### P-104.5 未定项 / 不随本节关闭
+
+1. **插件宿主端 `diag-*.json` 的 50 个 / 32MB** 是 DSHarea 侧改的（`lib/index.js` 落点）；插件仓库那一份
+   **是否要同口径登记**未定 —— 缺"两仓文件同源/各自维护"的判据与比对。
+2. **错误自上报（`window.error` / `unhandledrejection`）仍默认开**（每会话 ≤8 次、只在真抛错时发、为保留崩溃现场
+   **有意不禁用**）。→ **缺真机长会话数据**（"每会话 ≤8 次"在长时间挂机下是否够）才能决定要不要也设上限。
+3. **自动路径 4 次上限 vs 服务端 60 份上限**是多对多的关系（多个客户端 × 多轮会话）—— 两者的**联合最坏情形**
+   没有量化推演（只有各自单侧上限）。
+4. **本机不可验**：真机 `localStorage` 配额耗尽、移动端 Safari 的 LRU 淘汰实测、`📸 连拍` 与清理并发时的
+   帧丢失面 —— 都要真机/真浏览器现场证据。
+
+---
 ## P-105（2026-09-17 发布收口）仓库按职责分层落地 + README 重写（用户点名 4 处）+ GitHub About + npm `wallpaper-engine-web-loader@0.1.1`
 
 > **编号说明**：本轮编号取"**当前最大 `## P-` 标题号顺延**"= P-102 + 1 → 但写入时 P-102 已被
@@ -6031,6 +6345,12 @@ gh repo edit XHR666/wallpaper-engine-web-loader \
    `docs/DATA-LIMITS.md` + `tests/data-limits-test.mjs` 自称 **P-104**。这些小节需由各自那条线补写，
    且**必须按号递增插入**（例如 P-103 要插在 P-100 与 P-105 之间），
    否则会触发 `tests/docs-check.mjs` 的"P-编号按文件顺序非降"判据。
+   **✅ 追记（2026-09-17，粒子线）：P-103 小节已补写**，插在 P-100 与 P-105 之间，含粒子渲染四项修复
+   + 128 元频段数组契约收口（见上面 `## P-103` 节）。
+   **✅ 追记（2026-09-17，纯文档收尾轮）：P-101 / P-104 两号小节也已补写完毕 —— 本条欠账清零。**
+   `P-101`（目录再整理）插在 **P-100 与 P-103 之间**、`P-104`（发布纪律）插在 **P-103 与 P-105 之间**，
+   两节都含"背景 / 改了什么 / 证据（命令+输出）/ 回退 / 未定项"；插完 `node tests/docs-check.mjs` **rc=0**
+   （16 个文档 · 514 个文件引用 · P-编号健康 ✓ · diag-flags ✓）。
 2. **P-102 一号两用 —— 已由插件视觉轮一侧改号解决**：本节写入时 `PATCHES.md` 曾出现 P-102 = **插件视觉轮**
    （顶栏磨砂/下描边/时间线条），而 **P-102 = 帧几何契约**已被 5 个文件引用（`core/web-frame-geometry.mjs:1`、
    `THIRD-PARTY.md` §11、`docs/COPYING-RULES.md` §4 #9、`tests/web-frame-geometry-test.mjs:1`、
@@ -6042,13 +6362,18 @@ gh repo edit XHR666/wallpaper-engine-web-loader \
    **本轮未改判据**（不为凑绿掩盖发现），仅把被抓到的那一处改成 `~`。
 4. **`tests/particle-render-correctness-test.mjs` 未注册进门禁**（自述 P-103 粒子渲染正确性，38+ 断言），
    且无任何文件引用它 ⇒ 属**粒子线的在途夹具**，本次**未纳入提交**（保持 untracked）。
+   **✅ 追记（2026-09-17，粒子线）：已接线并纳入**——该夹具实测 **33 断言**（不是 38+），
+   注册进 `tests/run-all-tests.sh` 的 `add` 列表**末尾**（既有 74 项行号未动），并修掉它自己的一处
+   **容差错**（float32 量化 vs `1e-6`，见 `## P-103` §P-103.6）；**未提交**状态由本轮后续提交关闭（本线不 push）。
 5. **历史记录里的个人绝对路径已就地去个人化（4 行，仅改路径、不动事实）**：`publish-check` 原先告警
    `docs/PATCHES.md` 三处（P-98.1 的 CI 复现命令行、P-100 的两处官方预览动图证据路径）＋ 本节自己的一处
    （引用了那个前缀）⇒ 统一改成项目既有约定形态：工作区路径写 **`$MPW_ROOT/`**（= 本仓库的父目录，README §4 的定义）、
    判据描述改成"作者工作区前缀 / `home` 家目录 / Windows 用户目录"文字，**语义与证据链不变**
    （包号 `431960/3554161528`、`192²/50 帧/40ms`、`exit 1 ⇒ 本步骤红` 等事实一字未动）。
    改后 `publish-check` **0 隐私告警**（恢复 P-97.2 记录过的 0 告警口径）。
-6. P-97.6 的**法律定性**（审计 §7 U-1 / U-5）与 **RePKG 许可**两项仍未结案，不随本次发布关闭。
+6. P-97.6 的**法律定性**（审计 §7 U-1 / U-5）仍未结案（需律师意见），不随本次发布关闭；
+   ~~RePKG 许可~~ **`notscuffed/repkg` 许可已于 2026-09-17 结案 = MIT**（依据 = 上游 `LICENSE` 原文 + 项目所有者确认），
+   该项**从"未结"清单移除**，见 `docs/COPYING-RULES.md` **§9.10**。
 
 ---
 
@@ -6116,3 +6441,859 @@ gh repo edit XHR666/wallpaper-engine-web-loader \
    `computed.headerBg` 的 alpha < 1、host `border-bottom` 非透明；`rail.markBoxShadow` 非 `none`。
 
 ---
+
+## P-107（2026-09-17 透视相机 · 任务书 P1-3 / `UNTOUCHED-AREAS` J 项结案）`buildCamera` 新增透视档（`mat4Perspective`）+ `?projmode=persp|ortho|auto` 回退；语料首次拿到"非正交（3D）包"样本
+
+> **编号说明**：本节按 `tests/docs-check.mjs` 的"P 编号按文件顺序非降"要求**接在文件末尾**（当时最大号 = P-106）；
+> `P-101`（目录再整理）/ `P-104`（发布纪律）两号仍归各自那条线（P-105.6 第 1 条的剩余部分不动）。
+
+### P-107.0 长期未定项与本次任务
+
+`UNTOUCHED-AREAS` 的 **J 项**（透视相机 `fov`）从 2026-09-12 起一直标注"**无样本可验**"：
+`buildCamera` 只构造 `mat4Ortho`，而当时语料里**每一个**相机对象都带 `general.orthogonalprojection`
+⇒ `fov` 写进 pose 也没有落点（只剩一条"fov 10 vs 120 投影逐位相同"的回归断言）。
+
+2026-09-17 用户新下的 `allwallpaper/0917/` 批次补上了这个缺口：**`3509243656` 是语料里第一个（也是唯一一个）
+没有正交投影的包** —— 一个真正的 3D 场景。本轮据此把 J 项做成"有样本 + 有实现 + 有回退开关"。
+
+### P-107.1 语义核实：`3509243656` 的相机对象到底是什么（fov / zoom / origin）
+
+**包级读数**（`allwallpaper/0917/3509243656/scene.pkg`，158 MB）：
+
+| 项 | 值 | 判读 |
+|---|---|---|
+| `general.orthogonalprojection` | **`null`**（字段在、值为 null） | 不是"缺字段"，是作者**明确没勾**正交投影 ⇒ 3D 透视场景 |
+| `general.fov` | `50` | 场景级默认视场（度） |
+| `general.nearz` / `farz` | `0.0099999998` / `10000` | 就是透视的 near/far（**正交档根本不用它们**，正交恒 ±10000） |
+| `general.zoom` | `1` | 场景级缩放 |
+| `general.cameraparallax` / `camerashake` | `false` / `false` | 没有鼠标视差/镜头抖动 |
+| 对象总数 | 142（59 image + 53 text + 8 model + 4 particle + 1 camera + 1 sound + 16 组） | 图/文本是 HUD 与星空贴片，模型是 3 个星球 + 3 个天空盒 + 圆柱，粒子是星尘 |
+| 对象 z 分布 | `{0:96, 5.1:24, 4:10, 4.5:2, 1.68:1, 1.74:1, −0.71:1, −6.36:1, −21:2, −25:1, −30:1, −50:1, 6:1(相机)}` | 世界单位很小（对象有效尺寸 ~1–10），相机 z=6 与内容 −50…+6 **同一量纲** |
+
+**唯一的相机对象（id=443）逐字段**：
+
+| 字段 | 原文 | 判读 |
+|---|---|---|
+| `camera` | `"default"` | 相机层（官方 runtime 属性按 camera target kind 路由，见 P-81 引注） |
+| `origin` | `"0.00000 0.00000 6.00000"` | **静态字符串**（不是 `{animation}`、不是 `{script}`、不是 `{user}`）⇒ 相机位置 = 世界 (0,0,6)，即"相机在 z=6、朝 −z 看" |
+| `zoom` | `1`（静态数） | 镜头缩放；1 = 不缩放 |
+| `fov` | `{"user":"newproperty71","value":50}` | **用户属性绑定**（面板滑块）——**不是**关键帧、**不是**逐属性脚本。取值 50 |
+| `path` | `"scripts/camera_paths_443.json"` | 内容是 `{"paths":[]}` ⇒ **没有运镜关键帧**（相机不动） |
+| `angles` | **缺省** | 相机朝向 = 默认（朝 −z）；本轮不猜朝向，见 P-107.6 |
+| `queuemode` / `solid` / `disablepropagation` | `sequential` / `true` / `false` | 与投影无关 |
+
+**`project.json` 里的绑定目标**：`newproperty71 = {type:"slider", text:"视场", min:40, max:65, step:0.1,
+precision:2, value:50, order:118}` —— 中文 text 就是"**视场**"（= fov），量程 40–65 度是典型镜头视场区间。
+⇒ **这是"fov 是运行时相机属性、且是垂直视场角（度）"的直接、可判据证据**（面板上真实可拖）。
+
+**同批对照样本（说明"为什么 2D 包不受影响"）**：
+
+- `3448877775` / `3462491575`：`general.orthogonalprojection = {width:3840,height:2160}`（**有**正交矩形）
+  + 相机对象 origin 是**逐属性脚本**（`value.x = scriptProperties.x * engine.canvasSize.x` ⇒ 相机坐标单位 = **画布像素**，
+  静态快照 `2434.38477 725.25134 500.00000`）+ `zoom = {"user":"newproperty30","value":1}`
+  （**用户属性绑定，不是关键帧** —— 修正任务书里"zoom 关键帧"的说法）+ z=500。
+- ⇒ 分界线很清楚：**有正交矩形的包（2D 壁纸）即使带相机层也走正交**；只有"没有正交矩形 + 有 fov"的 3D 包才谈得上透视。
+
+**语料计数（本轮实测，38 个容器）**：`allwallpaper/`（21 个 scene.pkg）+ 插件缓存 `/root/.dsh-mpkg-wallpaper`
+（11 个 mpkg）+ `/mnt/sdcard/wallpapertest1`（6 个）⇒ **非正交包恰好 1 个 = `3509243656`**；
+带相机对象的包 10 个（dd 4 + 0917 3 + 缓存 3），其中 7 个 origin 是逐属性脚本、2 个是静态串/静态用户属性、1 个（hina）是关键帧动画。
+
+### P-107.2 证据面与许可边界（"官方语义"我们到底有多少）
+
+- **WE 官方没有任何公开文档**给出"fov 如何变成投影矩阵"；本轮**没有**去读 `linux-wallpaperengine`
+  （GPL-3.0-only ⇒ 只允许洁净室/行为对照），也**没有**引用 `wer-ref`（GPL-2.0-only）与 `we-layerd-ref`
+  （无许可）的任何代码/注释/常量组织。本节所有"上游/官方"陈述都只是**行为结论**，且都沿用本仓库既有引注（见 P-69/P-76/P-81）。
+- 我们手里真正可用的两条行为证据：
+  1. **相机层的 `zoom`/`fov` 是"camera target kind"运行时属性**（只对相机层扫描，注册 Property/Animation/Script
+     三种绑定）—— P-81 已引注。这条支持"fov 有落点是预期内的，不是我们发明的"。
+  2. **2D 场景被强制透视时，第三方参考实现用"相机 z=1000 + `fov = atan(h/1000/2)×2`"**（h = 设计画布高）——
+     P-69/RE-37 的 `dsOf` 注释已记。这条正是我们"**帧平面锚定 + 由 fov 反求 d**"的同族口径
+     （1080p / fov 50 ⇒ d = 1080/2/tan25° ≈ 1158，与 1000 同量级）。
+- 结论：**"fov 存在、单位是度、语义是垂直视场、相机在相机层 origin 处、朝 −z"= 语料级证据（可判据）**；
+  **"官方如何把 fov 落成矩阵、near/far 与 zoom 如何耦合"= 只有行为对照级证据** ⇒ 全部列入 P-107.6 未定项。
+
+### P-107.3 实现（`core/we-scene-bundle.js`）
+
+1. **新增 `mat4Perspective(fovy, aspect, near, far)`**：与 glMatrix `perspective` 逐式同构
+   （`out[0]=f/aspect`、`out[5]=f`、`out[10]=(far+near)/(near−far)`、`out[11]=−1`、`out[14]=2·far·near/(near−far)`、
+   `out[15]=0`；Float32 存储），与既有 `mat4LookAt`（同布局：行=相机基向量、平移在第 4 列）配套 ——
+   `clip.w = −z_view` ⇒ **可见点的视空间 z 必须为负**，这是本档最容易写错的一处。
+2. **`buildCamera` 新增 `wantPersp`**（唯一判据）：
+   `auto`（缺省）= `!orthoRect && !!general.fov`（= 旧 `isOrtho` 谓词取反，正是"3D 场景"的判据）；
+   `persp` = 强制；`ortho` = 强制关。**正交档一行未动**（只有 `const projection` → `let projection` 这一处形参改动，
+   表达式逐字保留）⇒ 要求里的"正交路径逐位不变"是靠"不碰它"保证的，再由测试冻结对拍兜住。
+3. **两条锚定**（透视档唯一真值表，都在 `buildCamera` 内同一段）：
+   - **节点锚定**（非正交包 **且** 相机节点原点 z 可用）：相机 = 相机层 origin（`x,y,z` 就是世界坐标里的相机位置），
+     朝 **−z**。`parseScene` 把世界 y 翻成 `PROJ_H − 作者y`（2D 口径）⇒ 相机的 y 必须按**同一式子**搬
+     （`ey = PROJ_H − origin.y`），屏幕仍保持 y-down（`view_y = −(world_y − ey)`，即相机 up = 作者 +y）——
+     这样屏幕方向与正交档**同号**，贴图 v 不会翻。深度 `view_z = world_z − ez`，`w = ez − z` = 距离。
+     矩阵形式：`view = S(1,−1,1)·T(−ex, ey, −oz)`；`zoom` 只能进投影（`proj[0]/proj[5] × zoom`，与 elysia
+     `elysia/we-renderer/camera.js` 的透视分支同式）。
+   - **帧平面锚定**（其余一切透视档，含把正交包强制成 persp 的 A/B）：相机钉在 (取景窗口中心, −d)、
+     `d = (framedH/2)/tan(fovy/2)` ⇒ **z=0 平面与正交档逐位相同（到 Float32 舍入）**，`z≠0` 的层按 `d/(d−z)` 缩放；
+     `zoom` 已经进了 `framedH` ⇒ 这一档**不再**乘 zoom（否则双重施加）。
+4. **near/far**：透视档用 `general.nearz`/`general.farz`（缺省 0.01/10000）；正交档保持历史值 ±10000。
+5. **`fov` 取值链**（与 `zoom` 的三级回退同形）：`pose.fov`（关键帧动画）→ **用户属性绑定**
+   （`cameraNode.fovFromUser`，由 `applyUserProperties` 从 `fovBinding` 解析，**与 P-76 给 zoom 做的完全同形**）
+   → 绑定原文静态值 → 相机节点值 → `general.fov` → 50；并 clamp 到 (1°,179°)。
+6. **只读台账**：`buildCamera` 回传 `projMode` / `projKind` / `projAnchor` / `fovY` / `perspDist`
+   （宿主/`?audit`/测试都靠它回答"这一帧走没走透视、fov 多少"）；启动日志加一行 `P-107 投影档 projmode=…`（进 #log → 进上报）。
+7. **周边接线两处**：①`?cam=node` 的静态回退从 `originRaw.value` 改成 `parseVec3(originRaw)`
+   （原来对**静态字符串** origin 会得到 [0,0,0]，`3509243656` 的相机位置永远施加不上；语料 10 个相机对象里只有它用字符串 ⇒ 其余逐位不变）；
+   ②`__pointerDesign` 在透视档改用台账 `framedW/framedH`（透视矩阵的 `proj[0]` 反推不出窗口宽度；正交档两者逐位相同）。
+
+### P-107.4 回退开关与登记
+
+- **`?projmode=persp|ortho|auto`**，默认 `auto`。**默认取 auto 的理由**：跟随场景自己的声明 ⇒ 正交包（语料 20/21）
+  **零变化**，而"没有正交矩形 + 有 fov"本身就是 WE 的 3D 判据。
+- ⚠ **名字不能叫 `?proj=`**：那个名字在 `demo.html` 里已被 P-85 占用（`?proj=off` = 跳过官方 project.json 读取），
+  两者语义无关，共用一个名字会"改属性表 + 改投影"同时发生（`?camera=` 也被 demo 的 auto-fit 占用）。
+- 优先级：`opts.proj`（测试/宿主显式传）> `window.__mpwProjMode`（宿主实时写）> `?projmode=`（加载时读一次）；
+  真值表 = 纯函数 `projModeFrom()` / `resolveProjMode()`，非法/未知/空串 → `auto`（不静默变成 persp/ortho）。
+- 登记：`docs/README-DIAGNOSTICS.md` 主表"① 渲染语义"组新增 `projmode` 一行；
+  `node tests/diag-flag-check.mjs` 双侧一致（本轮开始时该闸门是 **127==127 且有一个红项 `mpwtranscode`（插件侧、
+  不属本任务）**，收尾时插件那条线已补齐 ⇒ 现为 **128==128，0 差异**）。
+
+### P-107.5 验收（可判据 + 实测数字，全部由 `tests/camera-persp-test.mjs` 复跑）
+
+**① 正交路径逐位不变（硬要求）**
+- 与**冻结参考实现**（改动前的 `buildCamera` 投影/view 表达式，逐字抄在测试里）逐元素 `===`：
+  合成正交包 × 5 档（缺省 + 4 种 fillmode + cameraPose）+ 3 个真包（`3719111841`/`3554161528`/`3327063360`）
+  × 3 档（缺省 / cameraPose / `cam=node`）+ 3 个真包的 `?projmode=ortho` ⇒ **全部逐位相同**。
+- 另做一次性取证：把 `git show HEAD:core/we-scene-bundle.js` 的旧 bundle 拿出来与现状同进程对拍
+  5 个包 × 2 种姿态 = **10 组 projection/view/viewBg/framedW/framedH 全 `===`**。
+
+**② 透视包在 `persp` 与 `ortho` 下确有差异，且方向合理（1920×1080 出图口径）**
+
+| 层（世界 z） | persp 屏宽 | ortho 屏宽 | 比值 |
+|---|---|---|---|
+| Custom BG（z=−50，最远） | 55.9px | 2.63px | 21.26× |
+| Sun png（z=−30） | 173.7px | 5.25px | 33.07× |
+| BB8k3 / st2（z=−21） | 5621.7px | 127.5px | 44.09× |
+| 迟滞滑块（z=0） | 86.9px | 0.44px | 198.4× |
+
+- **近大远小**：Custom BG（世界宽 2.70）与 Sun png（世界宽 5.40）的屏宽比 **实测 3.1072 = 预测 3.1072**
+  （预测 = (5.40/2.70)×(56/36)，即 `w ∝ 世界宽/(z_cam − z)`，z_cam = 6）⇒ 误差 < 0.01%。
+- **层间距被压缩**：近层 z=5.1 与远层 z=−50 的**同一世界偏移**屏距比 = **62.2×**。
+- **fov 真的改变投影**：`Sun png` 屏宽 fov40 = 222.5px → fov65 = 127.1px（**×1.519 = tan32.5°/tan20°**）；
+  `proj[5]` 之比 = 1.7503（同值）。面板"视场"滑块：`newproperty71=65` ⇒ `fovFromUser=65` ⇒ 投影响应 65；
+  属性表清空后回落绑定静态值 50（幂等）。
+- **旧断言改口径**：正交档 fov 10 vs 120 **仍逐位相同**（保留在原 `camera-pose-test` ③）；
+  透视档 fov 10 vs 120 **必须不同**（`proj[5]` 11.4301 vs 0.5774，比 = tan60°/tan5° = 19.81）。
+
+**③ 正交包被强制透视时的 A/B 安全性**：凯尔希 `3719111841` 39 层 z **全为 0** ⇒ `?projmode=persp` 下
+投影矩阵确实换成透视（`proj[11]=−1`），但**层矩形 maxΔ = 1.74e-4px**（Float32 舍入量级）—— 这就是"帧平面锚定"的设计不变式。
+
+**④ mock-GL 真实 `renderScene`（不是只测 `buildCamera`）**：合成 3D 场景（无正交矩形 + 相机 origin `0 0 6`）
+三层 z = 3 / 0 / −3 ⇒ persp 档屏宽比 **6 : 3 : 2**（实测 2.000 : 0.667 = `d/(z_cam−z)` 透视律），
+`mvp` 的 w 行 = `[0,0,−1,3]`（w = 相机距离）；ortho 档三层屏宽**完全相同**（10.000px）、w 行 = `[0,0,0,1]`。
+
+**⑤ 与官方预览动图的对照**：`allwallpaper/0917/3509243656/preview.gif`（224×224、50 帧、2.0s、25fps）抽帧目测
+= **深色星空底 + 左中部一团星体 + HUD 文本/时间/波形条**，2 秒内基本静止（相机不动，与 `paths:[]` 一致）。
+这与我们的读数自洽（黑底、星球/星云贴图在 z=−6…−30、HUD 文本在 z=4…5.1、相机 z=6）⇒
+**只有透视才能把这 56 单位的 z 跨度压成这样一幅画面**；但**像素级对齐不可比**（我们的 3D 网格/脚本宿主未接，见 P-107.6）。
+
+### P-107.6 未定项 / 未完成（不随本节关闭）
+
+1. **相机 `angles`（朝向）未接**：透视档固定"朝 −z"。`3509243656` 的相机没有 angles（= 默认朝向）⇒ 本轮无可对照样本；
+   出现带 angles 的 3D 包时再补（要先把欧拉角的三轴顺序钉死）。
+2. **3D 网格（`MESH_VS`）与粒子的 CPU NDC 通路没有接透视相机**：蒙皮层仍按设计画布 1:1 映射（P-100 的 u_View/u_Framed），
+   粒子仍在自己的 `perspCam`（材质 flags bit2）通路上算 NDC。⇒ `3509243656` 的 8 个模型 / 4 个粒子层**不会**随本档改变，
+   整包画面因此不可能与官方 GIF 像素对齐（本轮只保证**四边形层**的投影语义正确）。
+3. **官方口径未证实**：fov 是垂直还是水平视场、near/far 的确切含义、`zoom` 与 `fov` 的耦合关系（我们是"zoom 乘进投影"），
+   只有行为对照级证据（P-107.2）。
+4. **逐属性脚本 origin 仍不求解**（P-81 既有结论）：若某 3D 包的相机位置来自 `{script:…}`，节点锚定只能用编辑器静态快照。
+5. **`scene.camera.eye/center/up` 在透视档不参与**（正交档照旧参与）：`3509243656` 的 `scene.camera` 是编辑器残留
+   （eye 与 center 只差 ≈1.0 世界单位），当 3D 相机用会明显错；若将来遇到"没有相机层但 `scene.camera` 是真运镜"的 3D 包，
+   需要单开一条锚定（届时先取证再动）。
+
+### P-107.7 自证（本轮实测）
+
+- `node tests/camera-persp-test.mjs` ⇒ **57 通过 / 0 失败**（⑦ 段走真实 `renderScene`）。
+- `bash tests/run-all-tests.sh --only …`（定向子集，未跑全量门禁）⇒ 全绿，见本轮汇报（`camera-persp` 新增项已注册在 `tests/run-all-tests.sh` **末尾**）。
+- `node tests/docs-check.mjs` ⇒ rc=0；`node tests/diag-flag-check.mjs` ⇒ 代码 128 == README 主表 128，**0 差异**。
+- 并发提示（写进这里以免后人误判）：本轮进行时另有发布/插件线在**同一工作树**上改 `docs/README-DIAGNOSTICS.md`、
+  `docs/PATCHES.md`、`core/we-scene-bundle.js` 的非相机区段；本节只新增自己的行/段，未动他线内容。
+
+## P-108（2026-09-17 权威全量唯一红项 `package-matrix`）判据式结案：10 项 `NEW` = **语料新增**（不是渲染回归）+ `known.json` 白名单落点回归修复 + `--absorb-new` 只登记新包
+
+### P-108.0 症状（复跑原文，不是转述）
+
+`node tests/package-matrix.mjs --check` ⇒ **rc=1**，全文只有一类失败断言 = `NEW`（基线中不存在），10 条：
+
+```
+✗ 与基线相比 10 项退化：
+  ✗ 3195212886 基线中不存在（新包）      ✗ 3233141951 基线中不存在（新包）
+  ✗ 3250755486 基线中不存在（新包）      ✗ 3299228616 基线中不存在（新包）
+  ✗ 3351163962 基线中不存在（新包）      ✗ 3448877775 基线中不存在（新包）
+  ✗ 3462491575 基线中不存在（新包）      ✗ 3509243656 基线中不存在（新包）
+  ✗ 3588181703 基线中不存在（新包）      ✗ 3600630828 基线中不存在（新包）
+```
+
+审计自述之外，另写脚本把**基线 107 行 vs 本次 117 行**按 path 全字段对拍（比 `--check` 自己比得更多）：
+`drawnLayers / whiteFallback / transparentFallback / decodeFail / layerErrors` **5 项逐值全同**，
+`particles.layers / particles.maxcount / skippedLayers / draws / issues 集合` 也**全同** ⇒ **107/107 零变化**；
+且基线里 **0 个 path 从语料消失**。
+
+**三选一定性 = 第三类「环境/语料变化」**（不是真回归，也不是"有意的行为变化"）：
+
+| 判据 | 实测 |
+|---|---|
+| 既有包有没有被今天的改动弄丢层/粒子/矩形 | **没有**：107 包 5 项门禁字段 + 粒子字段 + issues 集合逐值未变 ⇒ P-103（粒子四项）/P-107（透视相机）/P-100（charfit）/P-91·92·94（分发/PWA/字体）对**既有语料**零影响 |
+| 失败断言的语义 | `NEW` 只表示"这个 path 不在基线里"，**不比较任何数值** ⇒ 它不含退化信息 |
+| 新包从哪来 | 10 个 id **全部**位于 `allwallpaper/0917/`（该目录 12 个子目录 mtime 全是 `2026-09-17 02:10`），而基线冻结于 `2026-09-16 06:36`（`generatedAt 2026-09-15T22:36:34Z`、107 行）⇒ 语料在基线之后增长 |
+| 107 + 10 = 117 | 与本次扫描包数逐位吻合（无第三种来源） |
+
+> 同目录另两个子目录**不**入扫描且是对的：`3314492008` 是**未打包**视频壁纸（mp4 + preview.gif + project.json），
+> `884307090` 是**网页型**工程（index.html/js/video/webm）——两者都不是场景包容器（没有任何包文件入口），与 10 项 NEW 无关。
+> 10 个新包里含 P-107 要的**语料首个非正交 3D 包 `3509243656`**（见 P-107 节）。
+
+### P-108.1 为什么不能走 `EXPLAINED_BASE_DROPS`（代码判据）
+
+`compareToBaseline` 对 NEW 是在查表**之前**就 `continue` 的（`tests/package-matrix.mjs:555`：
+`if (!b) { diffs.push({ id, kind: 'NEW', … }); continue }`），而 `EXPLAINED_BASE_DROPS` 的四元组
+`id+field+base+now` 对 NEW **无 base/now 可匹配**。语义上也对：新包**没有基线**，谈不上"下降"。
+⇒ **NEW 没有豁免通路，把新包注册进基线是唯一正确的收口方式**（这正是本次的做法，见 P-108.4①）。
+
+### P-108.2 交叉验证（独立手段，不只看一个测试的自述）
+
+**① `particle-shape-audit`（P-103 的独立取证工具）重跑 + 与昨晚原始产物逐层对拍**（无一行不同）：
+
+```bash
+node tests/particle-shape-audit.mjs 3326873240 3327063360 3544152633 3554161528 3660962877 3719111841
+PQUAD_MODE=legacy PROT_MODE=legacy PEXP_MODE=legacy PSPEED_MODE=legacy \
+  node tests/particle-shape-audit.mjs 3326873240 3327063360 3544152633 3554161528 3660962877 3719111841
+```
+
+- **不变量成立**：25 个有粒子批的层 **25/25** quad 数两档逐值相同、**25/25** 存活粒子相同、
+  **25/25** 像素指标（四角 alpha / 覆盖均值 alpha / 不透明占比）相同 ⇒ P-103 只动几何、不动数量与像素语义。
+- **几何变化面**：长轴角散布变化 **6/25** 层（0°→11–166°，其中 5 层 ≥42°：166/51/46/44/42）；
+  长轴角中位变化 **10/25**；竖直占比变化 **8/25**；任一几何指标变化 **13/25**。
+- ⚠ **口径更正（就地改了 `docs/PARTICLE-RESEARCH.md` §4.3）**：该节原写"**11/25** 层角度散布由 0° 变为 44–166°"，
+  复算两套产物（昨晚 `-on-official` / `-on-pquad=legacy…` 与本次重跑）都**不成立**：散布变化是 **6/25**，
+  11 既不等于 6，也不等于角中位变化 10 或任一指标变化 13 ⇒ 已改为上面三个可复算的数（命令与产物路径同处给出）。
+- **与门禁红的关系 = 无因果**：`--check` 的 5 项判据里**根本没有**粒子几何字段，且 107 个既有包的
+  `particles.layers/maxcount` 与 `issues` 集合逐值未变。
+
+**② CPU 预览出图（`tests/preview.mjs`，与 mock-GL 审计不同通路）**：
+
+```bash
+MPW_SCENE_ROOT=$MPW_ROOT/allwallpaper/0917 PROJ=auto node tests/preview.mjs 3509243656 /tmp/p107-auto.png 960 540
+```
+
+⇒ 出图（`drawn layers: 101`）但**画面近空白**（auto 档白底 + 底部一条黑线；ortho 档全黑）。
+与 **P-107.6 第 2 条**自洽：该包 8 个模型 / 4 个粒子层**不走**透视四边形通路，CPU 预览可见内容以四边形/solid 层为主
+（日志里 12 次整屏 `[solid 写入像素] 518400`）。⇒ 既**不能**据此判回归，也**没能**用它证实该包观感（列入 P-108.7）。
+
+**③ 新包自身健康**：10/10 `decodeFail=0`、`layerErrors=0`、`whiteFallback=0`、`drawnLayers>0`；
+5 个带 `TRANSPARENT_FALLBACK`（纯色/bloom/model 占位层，与既有 19 个包同类，非致命）。
+
+### P-108.3 改了什么
+
+① **基线登记（只追加，不改判据）**：`node tests/package-matrix.mjs --absorb-new --reason "…"` ⇒ 107 → **117** 行。
+既有 107 行**逐字节保留**（校验：逐行 `JSON.stringify` 相等 **107/107**，`generatedAt` 也没动），
+理由 + id 落进新增顶层字段 `absorbed[]`。**刻意不用 `--write-baseline`**：那会把既有 107 行连同
+**在本机负载下测出的 timing** 一起重写（= P-75f 明确反对的"一把梭"，会掩盖其它真退化、并放宽 SLOW 阈值）。
+
+② **新机制 `--absorb-new`**（`tests/package-matrix.mjs`，新增开关，不动 `--check`/默认/`--json`/`--pkg` 行为）：
+全量扫描 → 既有 path **一律原样保留** → 任一既有包 5 项门禁退化**或**任一既有 path 从语料消失 ⇒ **拒绝写入 rc=2**（列出明细）
+→ 新 path **逐条打印**（id + 层/可见/绘制/白块/透明/解码败/粒子/门禁）后追加 → `--reason` **必填**、与 `--json/--pkg` 互斥
+（前置校验放在扫描前，不白烧 ~46s 重渲染）。
+
+③ **真回归修复：`known.json` 白名单落点**。2026-09-16 目录收拢 `0d29bdd` 把 `known.json => tests/known.json`（`git mv`），
+而脚本仍按**仓库根**找同名白名单文件 ⇒ 文件不存在、`loadKnown()` **静默**返回空表 ⇒ 白名单机制自那次收拢起**从未生效**
+（`2aeac838640589c66efc315e821c44b6|SCENE` 的豁免一直没打出来）。正确落点是 `tests/known.json`；脚本改为
+**`tests/` 优先 + 仓库根兜底**，
+并在文件缺失/不可读时**显式告警**（不再静默）。实测：门禁汇总 ❌ **25 → 24 包**，并新增打印
+`已豁免 1 项：· 2aeac838640589c66efc315e821c44b6 [SCENE] no scene.json（known: …）`。
+**未**借此往 `known.json` 塞新豁免（那是 P-75f 反对的白名单式糊过去）。
+
+④ 文档：`docs/TESTING.md`（2 处 107→117 包；基线段补 `--absorb-new` 用法与纪律）、`docs/SELFCHECK.md`（107→117 包）、
+`docs/PARTICLE-RESEARCH.md` §4.3 口径更正（见 P-108.2①）。
+
+### P-108.4 验收（复跑）
+
+- `node tests/package-matrix.mjs --check` ⇒ **rc=0**，`✓ --check：与基线逐包比对无退化`（117 包；
+  门禁汇总 24 包有未豁免异常 = `TRANSPARENT_FALLBACK` 类，按现有设计**不进退出码**，见 P-108.6）。
+- **一致性**：`--absorb-new` 的扫描与随后 `--check` 的扫描，10 个新包的控制台行**逐字相同**
+  （层/可见/绘制/白块/透明/解码败/粒子/门禁 9 列全等）。
+- `bash tests/run-all-tests.sh` ⇒ **PASS=73 / FAIL=2 / SKIP=1 / 总 76 项**（跑前 `pgrep -f run-all-tests` 无并发门禁；
+  06:22–06:26 那次）。**`package-matrix` 项 = PASS**；两条 FAIL = `docs-check` + `packaging`，失败原文是
+  `✗ 代码有·文档无（漏写 2 个）: submesh, subtri` —— **并发线**（子网格探针 P-109）新增 `?submesh=` / `?subtri=`
+  两档探针时尚未登记进 `docs/README-DIAGNOSTICS.md`，`packaging` 是它的内层 `--no-gate` 阶段连坐（同一根因，非两条独立红）。
+  该线已于 06:29 补登记；06:30 复查又出现同类 4 项（`baseline`/`baselinedur`/`baselineswap`/`bgwrapfix`，属基线快照 / bgWrap 时序两条线）
+  ⇒ 这是**并发线的登记时差**，与本节的改动**无因果**（修完当时 06:27 实测：`docs-check` 的**文件引用**判据 ✓、`P-编号健康` ✓；
+  本节 6616–6747 行内逐行 grep `vendor-ref` / `dsh-mpkg-wallpaper` = **0 处**；`package-matrix` 项在那次全量里就是 PASS）。
+  06:32 起另有**其它在飞线**引入的 7 处悬空引用（`vendor-ref/…` 6 处 + `dsh-mpkg-wallpaper/docs/…` 1 处），同样不在本节内。
+  **未跑第二次全量**：并发线仍在写代码/文档，按资源纪律不在在飞编辑期间重跑；待各线收工后由协调线复跑收口（见 P-108.6 第 5 条）。
+- 磁盘：跑前跑后 `/` 均 **81G 可用**（本次无残留增长）。
+
+### P-108.5 回退
+
+- **基线**：`cp /tmp/package-baseline.before-p108.json package-baseline.json`
+  （本次跑前备份：md5 `951c99142c45a4fab6bff3e48ee2e708`、107 行）。
+  ⚠ 基线**不在 git 里**（被 `.gitignore` 覆盖）⇒ 回退只能靠备份或 `--write-baseline` 重生成。
+- **代码**：`git checkout -- tests/package-matrix.mjs`（本节只改这一个脚本；改前它与 HEAD 逐字一致）。
+- 开关级回退：不传 `--absorb-new` 即回到原行为；`--check` 的判据、阈值（3.0×）、`EXPLAINED_BASE_DROPS` 表**一条没动**。
+
+### P-108.6 未定项（不随本节关闭）
+
+1. **`--check` 不报"基线里有、本次语料里没有"**：消失的包会**静默通过**。本次实测消失 0 项，故**没动判据**
+   （改它会改变跨机语义：小语料机器会从绿变红）。要补需单开一轮。
+2. **24 个包的 `TRANSPARENT_FALLBACK`**（缺纹理/纯色占位层的既有异常，P-34"白块→透明"的预期副作用）既不进退出码、
+   也不在 `known.json` 里。是"该收紧成红"还是"该按 reason+date 登记进白名单"，属策略决定，留给用户/后续会话。
+3. **`3509243656` 的观感对齐**仍是 P-107.6.2 的开放项（模型/粒子未接透视相机）；本次 CPU 预览近空白，
+   **没有**独立证据证明该包画面正确（只证明了门禁字段干净）。
+4. 本次**没有**重跑 `--write-baseline`，所以既有 107 行的 timing 基线仍是 2026-09-16 的值（更严：不会被本次负载放宽）。
+5. **全量的收口数不是本节能单独给的**：06:22 那次全量 `PASS=73 FAIL=2 SKIP=1`，两条 FAIL 全属**并发线未登记的 diag 旗标**
+   （先 `submesh`/`subtri`，后 `baseline`/`baselinedur`/`baselineswap`/`bgwrapfix`）。`package-matrix` 项**已 PASS**。
+   要拿到"全绿"的全量数，需在**所有并发线收工后**再跑一次（本条不代跑：在飞编辑期间跑全量会互相踩，见 P-75g①）。
+
+## P-109-BASELINE（2026-09-17 §5-⑨ 真机基线快照）采集器 + `/baseline` 落盘 + `baseline-diff` 回归闸门 —— "变慢了"以后有数据可查
+
+> 编号说明：**P-109 已被并发线的 `?submesh=`/`?subtri=` 子网格探针取走**（见上一条"编号分配"记录），
+> 本节取 **P-109-BASELINE**（与 `P-75b`/`P-100-R1` 同一套后缀写法）。`docs-check` 的编号健康检查只要求
+> "完整 id 唯一 + 数字部分非降"，所以两节谁先写进本文件都不会让它变红。
+
+### P-109-BASELINE.1 做了什么（交付物四件）
+
+① **采集器（浏览器侧，默认关）**：`demo.html` 新增 `MPW-BASELINE-BEGIN/END` 段 + 新模块
+`core/baseline-metrics.mjs`（纯函数内核：分位/滚动窗/启动/GL 代理计数/开关解析/三阶段流转/快照校验）。
+开关三个，与既有 `?flag` 同形：`?baseline=1`（或 `?baseline=<秒>`）、`?baselinedur=<秒>`、`?baselineswap=<另一 id>`。
+采：**FPS（500ms 滚动窗中位 + 1% low）**、**每帧耗时 ms 分位（p50/p95/p99/max/mean）**、
+**启动耗时（导航→首帧→"纹理齐全/第 90 帧"）**、**层数/纹理数/活 FBO 数/活纹理数/draw 数/上传字节**、
+**壁纸切换耗时（切过去 + 切回来各一次）**，并（同开 `?perf=1` 时）附**渲染主体耗时** `render.p50/p95`。
+
+② **落盘端点**：`POST /baseline`（新端点）⇒ `reports/baselines/<epochms>.json`，返回
+`{"ok":true,"schema":1,"file":"baselines/<ts>.json","bytes":N}`；残缺快照 **400 不落盘**，非 POST **405**。
+
+③ **对照闸门**：`tools/baseline-diff.mjs` —— 两份快照逐指标差异表 + 阈值集中一处（`THRESHOLDS`）+
+env 覆盖（`MPW_BASELINE_TH_*`）+ 退出码 **0/1/2**。
+
+④ **文档与登记**：新建 `docs/BASELINE.md`（指标定义/VRAM 代理局限/真机跑法/解读与设阈值）；
+`README.md` 加一行指向它；`docs/README-DIAGNOSTICS.md` 主表加 `baseline`/`baselinedur`/`baselineswap` 三行；
+`docs/DATA-LIMITS.md` 加第 9 行（`reports/baselines/` 上限 200 份 / 32MB + 三条日志格式）。
+
+### P-109-BASELINE.2 为什么这样选（三条都要能说清）
+
+**① 为什么另开 `/baseline` 而不是复用 `/report`**（任务书要求二选一 + 说明理由）：
+`/report` 落 `reports/r<ts>.json` 且受"60 份 + 64MB **最旧先删**"滚动 —— 而基线是**趋势数据**，
+恰恰要留得住（今天的快照不能被明天的报告挤掉）；且载荷语义不同（`kind:'baseline'` 的 FPS/分位/启动/代理
+vs `r*.json` 的逐层对账），混进去会让 `report-audit`/`parity-check` 那套消费端读到不认识的结构。
+**不另造一套**的部分照旧复用：同一条 POST + JSON 通路、同一套 `mkdirSyncSafe` + `pruneDirToLimits` 上限机制、
+同一个 `MPW_REPORTS_DIR` 根、同一个 CORS/预检处理、同一个"写入前后各清一次"的纪律。
+
+**② 为什么"帧间隔分位"和"渲染主体耗时"分开两个字段**：rAF 时间戳之差是**帧间隔**（受 vsync/合成节流，
+60Hz 上限下恒 ≈16.7ms），把它当"渲染开销"会得出错误结论；真正的渲染主体耗时只在 `?perf=1` 时才有
+（bundle 的 `stats` 钩子）。未开 `?perf` 时 `render.*` 一律 `null` + `available:false` + 一行口径 note，
+**不编造**。
+
+**③ VRAM 只给代理（诚实说明写进文档、也写进每份快照的 `vramProxy.note`）**：浏览器**拿不到**真实显存
+（WebGL 无此 API）⇒ 只给 `Σ(活纹理 level-0 的 w×h×bpp)`（**含 FBO 附件纹理**、漏 mip/驱动对齐，
+认不出的格式按 4 计并记 `unknownFormats`）+ `performance.memory` 的 **JS 堆**（**不是显存**，
+Firefox/Safari 为 `null`）+ 活 FBO/活纹理**个数**（真计数）。字段名一律 `*Est`/`*Proxy`，
+**永不**命名为"显存实测值"。
+
+### P-109-BASELINE.3 口径（唯一实现处 `core/baseline-metrics.mjs`，测试逐值钉死）
+
+- **最近秩分位** `idx = ceil(q×n)−1`（不插值；偶数样本 `q=0.5` 取**下中位**）——"中位"与"p50"同一函数。
+- **1% low** = `1000 / mean(最慢 max(1, ceil(n×0.01)) 帧)`。
+- **滚动窗 FPS**：只统计**完整覆盖**的 500ms 窗；总时长不足一窗时给一个 `partial:true` 的窗（超短采集也有数）。
+- **就绪判据**：纹理齐全（每 250ms 探一次）**或**第 90 帧，谁先到算谁（`readyReason` = `tex-complete`/`frame-target`/`timeout`）；
+  `frame-target` 档的 `readyFrame` 精确 = 90，`tex-complete` 档是探测时刻的近似值（时间同样是上界）。
+- **切换测量 = 整页导航口径**（本渲染器没有 `?id=` 热切换路径）：三段导航 + `sessionStorage` 交接，
+  指标取首段，`switch.swapTo/swapBack.ms` 各取那一段的 `startup.totalMs`；`sessionStorage` 不可用 ⇒
+  自动跳过并打日志；`?baselineswap=<当前包>` 识别为自我导航 ⇒ 按单段处理（**防死循环**）。
+- **实测地板 = `min(配置地板, |基线|)`**：配置地板是"这点抖动不算数"，但它绝不能大于基线本身 ——
+  否则小量纲指标（例如纹理估算只有 2KB 的场景）会被地板整段吞掉（+877% 也判"噪声内"）。
+  这条是**写测试时被自己的断言抓出来的**（T5a 一开始红）。
+
+### P-109-BASELINE.4 验收（可复跑）
+
+```bash
+bash tests/run-all-tests.sh --only baseline          # 门禁项名 baseline（新增，追加在 add 列表末尾）
+node tests/diag-flag-check.mjs                       # 代码 134 个开关 == README 主表 134 行，0 差异
+node tests/docs-check.mjs                            # rc=0
+node tests/demo-syntax-check.mjs                     # demo.html 8/8 内联脚本语法通过
+```
+
+`tests/baseline-test.mjs`（5 组）关键断言：
+
+- **T1** 分位/中位/1% low/滚动窗逐值钉死（含"不修改入参顺序""空输入 → null 不冒充 0"）；
+- **T2** 合成时间戳跑采样器 ⇒ 快照必填字段/类型/就绪三档（纹理齐全 / 第 90 帧 / 超时）逐项验，`mpwValidateSnapshot` 拒绝残缺；
+- **T3** 假 gl 上验代理计数（活 FBO/纹理、Σw×h×bpp、重传不重复计活字节、删除回落、**幂等**、无 gl 不炸）；
+- **T4** 开关解析（默认关真值表 / 非法值 → 关 + note / 时长钳制 / swap id 过滤）+ 三阶段流转四档 + 合并取首段；
+- **T5** `baseline-diff` 纯判据 + CLI 退出码 `0/1/2` + env 覆盖（含"非法 env 忽略 ≠ 关掉闸门"）
+  + **真子进程服务**：合法 200 + 落盘、残缺 400、坏 JSON 400、GET 405、灌 6 份（上限 3）只留 3 份、
+  `/baseline-metrics.mjs` 静态路由 200、启动日志播报上限；
+  + **默认关时零行为变化**：把 `demo.html` 的采集块**真源码切出来**、用桩 DOM/桩 gl 跑 ——
+    不开参数 ⇒ `MPW_BASELINE === null`、**GL 未被包装**、零日志/零请求/零徽标；
+    开了 ⇒ 真跑到点并把快照 POST 出去（快照通过校验、代理计数来自真 gl、页面出摘要徽标）；
+    回传失败 ⇒ 日志与红色徽标都指向 `window.__mpwBaselineSnapshot`（手工兜底）。
+
+本机（**无 GPU / 无 WebGL2**）跑前后 `df -h` 均 **81G 可用**（无残留增长）。
+
+### P-109-BASELINE.5 回退
+
+- 代码：`git checkout -- demo.html core/baseline-metrics.mjs tools/baseline-diff.mjs server/we-scene-demo-server.mjs`
+  （新文件直接删；`demo.html` 只有"import 一行 + 采集块 + 帧循环一行"三处增量）。
+- 行为开关级回退：**不写 `?baseline`** ⇒ 采集器完全不装载（默认关）；`?baseline=0`/非法值同样关。
+- 服务端回退：删掉 `/baseline` 路由即回到改动前（`reports/baselines/` 目录留着不参与任何既有滚动策略）。
+
+### P-109-BASELINE.6 未定项（不随本节关闭）
+
+1. **真实 VRAM 仍然拿不到**（只能代理，见 .2③）；要更准只有厂商扩展或换平台，不在本仓库范围。
+2. **趋势图/多份汇总脚本未做**：现在只有"两份对比"；`reports/baselines/*.json` 是稳定 schema，随时可加。
+3. **多实例（`?ids=`）只测 primary 实例**（其余格子的帧不进快照）。
+4. **切换测量是整页导航口径**，不是热切换；将来若加了热切换需另定字段，不能与现在的数字混在一列比。
+5. **本机不产出任何真机数字**：门禁只验工具链；真实基线必须由用户按 `docs/BASELINE.md` §3 在真机上跑。
+6. 并发线（`submesh`/`bgwrapfix`）在飞期间的**全量门禁**没有代跑：本节只跑相关项（`--only baseline
+   diag-flags docs-check demo-syntax data-limits`）。全绿的全量数需等所有并发线收工后再跑。
+
+## P-109（2026-09-17 任务书 P1-4 · `UNTOUCHED-AREAS` D 项）子网格隔离探针 `?submesh=` / `?subtri=`：把 hina 面部"眉毛/眼睛到底是哪几根骨、哪几个顶点"钉死 —— 并顺带用它的台账拿住「眉毛翻转」的**候选根因（数值）**
+
+> **编号说明**：`## P-108` 已归 `package-matrix` 线、`## P-109-BASELINE` 归基线采集线（后缀形式，见 P-100-R1 先例），
+> 本节用 **`## P-109`**（完整 id 唯一；数字部分 109 ≥ 前一条 109，不回退 ⇒ `docs-check` 的"非降"规则满足）。
+
+### P-109.0 工具语义（`core/we-scene-bundle.js`，**只读探针**）
+
+- **`?submesh=<骨筛选>`**（默认关）：按 `blendIndices` 把顶点按**主影响骨**分组（主影响骨 = 4 个 `blendWeights`
+  里最大的那根、并列取小下标；权重全零退回 `blendIndices[0]`），**只画"选中骨组"的顶点/三角形**，其余跳过。
+  筛选语法（逗号分隔）：`24`（单骨）/ `24-27`（闭区间）/ `24*`、`24-27*`（该骨 + `mesh.bones[].parent`
+  父链下的**所有后代**）；`all` = **只出台账、绘制逐位不变**；`off`/`0`/`none`/空 = 关。
+- **`?subtri=all|major|any`**（默认 `all`）：三角形的三个顶点主骨不同组时算谁的 —— `all` = 三顶点同组（严格）、
+  `major` = ≥2 个、`any` = ≥1 个（边界三角形；同一三角形可被多组计入）。**台账里三种条数始终都给**。
+- **台账** `globalThis.__mpwSubMesh`：每组 顶点数 / bbox / 质心（bind 网格空间）+ **影响该组的骨表**（骨号/权重和/
+  顶点数）+ 主骨**父链** + `tri.{all,major,any}` + **蒙皮后**的位移时程 `hist:[[t,dx,dy]…]`（相对首帧，skin 空间；
+  世界设计像素 = `origin + scale⊙skin`）+ **翻转计数**（本组三角形**有向面积变号**条数 —— "眉毛翻转"的机器可判形式）
+  + `disp`（会话累计最大位移与时刻）；每 ~2s 往 `#log` 打一行摘要（进设备上报）。与 `?bones=` **可叠加**（两个全局互不覆盖）。
+- **两条硬纪律**：① 默认关 ⇒ 不写字段、不建分组表、**不改 `drawElements` 实参**（见 P-109.5 的反向变异对拍）；
+  ② 选中集合为空（骨号不存在/越界）⇒ **一个 draw 都不发**，绝不退回全量（否则"按不存在的骨号筛选"会画出整个网格）。
+- 实现位置：`core/we-scene-bundle.js:6361`（常量/语义注释）、`:6453`（绘制接线）、`:7382`（探针实现）；
+  取证工具 `tests/submesh-evidence.mjs`（浏览器通路 + Node 探针通路）；测试 `tests/submesh-probe-test.mjs`。
+
+### P-109.1 证据一：hina 3554161528 面部 = 哪几组顶点 + 哪几根骨（`reports/submesh-3554161528/ledger-all.json`）
+
+`models/人物_puppet.mdl`：**497 顶点 / 32 骨 / 741 三角形 / 3 条动画**；按主影响骨分成 **29 组**（顶点数求和 = 497）。
+面部簇（世界设计像素 x∈[1818,1890]、y∈[780,842]，与贴图 UV 一一对应，见 `reports/submesh-3554161528/viz-face-uv-groups.png`）：
+
+| 组（主影响骨） | 顶点 | bind bbox（网格单位） | 质心 | 骨父链 | 权重来源（骨:权重和） | 严格归属三角形 | **画的是贴图上哪一块**（UV 裁剪判定） |
+|---|---|---|---|---|---|---|---|
+| **b16** | 22 | [−346.9,−228.3,−312.2,−191.6] | (−332.2,−212.5) | 15←4←3←0 | 16:18.99, 30:3.01 | 17 | **眼睛本体**（含紫色虹膜的整块眼形） |
+| **b17** | 11 | [−367.6,−208.7,−335.5,−186.1] | (−347.6,−196.4) | 15←4←3←0 | 17:7.33, 18:2.14, 19:1.52, 1:0.01 | 8 | **眉毛**（眼角上方那条细斜线） |
+| **b18** | 15 | [−364.7,−222.6,−341.6,−201.2] | (−355.1,−213.1) | 17←15←4←3←0 | 18:12.64, 17:2.24, 19:0.09, 1:0.03 | 16 | **睫毛 / 上眼睑线**（眼左侧的深色弧线） |
+| **b19** | 12 | [−331.9,−205.1,−310.7,−185.4] | (−320.0,−194.4) | 17←15←4←3←0 | 19:11.08, 17:0.91, 18:0.01 | 14 | **外眼角睫毛**（眼右侧的深色小簇） |
+| **b30** | 18 | [−335.7,−214.8,−320.4,−200.2] | (−328.6,−207.8) | 16←15←4←3←0 | 30:14.96, 16:3.04 | 23 | **瞳孔 / 虹膜高光**（b16 的子骨，压在眼中央的紫色块） |
+
+判读链条（两步互相独立）：① 面部 5 组的 **UV 包围盒**落在 `materials/人物.tex` 同一小块（u≈0.60–0.65、
+v≈0.33–0.37）上，把该块贴图放大 6 倍后逐组套框（`reports/submesh-3554161528/viz-face-uv-groups.png`）—— 眼睛/眉毛/睫毛/瞳孔四类特征
+与 5 个组的对应关系**肉眼可判**；② 这 5 组在同一坐标系下的**空间排布**（`reports/submesh-3554161528/viz-face-groups-time.png` 的 t=0 格）
+与贴图位置一致（b16 眼 + b30 瞳孔居中、b18/b19 分列左右、b17 在上）。⇒ 结论：**眉毛 = b17（11 顶点，骨 17）**，
+**眼 = b16（22 顶点，骨 16）+ b30（18 顶点，骨 30）**，**睫毛/眼睑 = b18（15 顶点，骨 18）+ b19（12 顶点，骨 19）**；
+"眼睛/眉毛没有独立层"的数据事实（D 项原判）由此**在骨/顶点粒度上补齐**。
+
+### P-109.2 证据二：这些组在时间上到底动了多少、有没有"翻转"（**当前渲染口径**，t=0→9s、1/30s 步长、271 帧）
+
+`?submesh=all` 台账（`reports/submesh-3554161528/ledger-all.json`，gBones 由 demo 同款 `updateSkinBones` 管线给出；位移是**蒙皮后组质心**位移）：
+
+| 组 | 最大位移（skin/设计像素 1:1） | 出现时刻 | 组内三角形**有向面积变号**最多 | 出现时刻 |
+|---|---|---|---|---|
+| **b18** 睫毛/上眼睑线 | **102.07 px**（dx=+90.76, dy=+46.69） | **8.50 s** | **14 / 16** | **0.40 s** |
+| **b17** 眉毛 | 27.5 px | 8.53 s | **8 / 8（整组全翻）** | **0.33 s** |
+| **b19** 外眼角睫毛 | 55.66 px | 0.47 s | 6 / 14 | 0.23 s |
+| **b16** 眼 | 13.6 px | 3.70 s | 12 / 17 | 0.87 s |
+| **b30** 瞳孔 | 16.1 px | 3.70 s | 15 / 23 | 6.13 s |
+
+- **周期性**：0.10–0.87 s 一次、**8.10–8.87 s 原样再来一次** ⇒ 周期 **8.0 s = 动画 2 的 240 帧 / 30fps**（三条
+  additive 层里只有它这么长）。逐帧可见"眼皮+眉毛整片往上飞出去再收回来"（`reports/submesh-3554161528/viz-face-groups-time.png` 的
+  t=0.233/0.4/0.6/8.5 四格，红 = 变号三角形；t=1.0/2.5/6.0 正常）。
+- **不是"退化塌陷"而是真的翻过去**：b18 组做最小二乘仿射拟合，其行列式由 bind 的 **+1.000** 变成 **−1.567**
+  （t=0.50 s）—— 面积符号翻转 = 该片被**镜像/内外翻转**；而骨 18 自己的位姿矩阵 det **恒 +1.000**（骨没镜像）
+  ⇒ 翻转来自**组内多骨权重**（18 占 12.64、17 占 2.24、19 占 0.09）在骨 18 大幅位移时的内部剪切。
+- **位移量级**：t=0.5 s 时骨 18 的蒙皮矩阵平移 = **(144.9, −69.5) px**，而 b18 那片几何自身只有 23×21 单位大
+  ⇒ "睫毛条"被搬走 **4 个眼宽**；同一时刻组质心位移 84.4 px。
+
+### P-109.3 候选根因（数值）：**bind 世界链的乘法顺序**与动画链相反 ⇒ 合成基准与增量不在同一空间
+
+用探针台账追到骨一级后，把两条"局部→世界"链放在一起对拍（`core/attach-transform.mjs` 与
+`elysia/we-renderer/puppet.js` 的 `_matMulRow` 逐字相同，故两条链都可复算）：
+
+| 口径 | 公式 | 与 `sampleAnimRT(帧0)` 的最大差 | 全 32 骨"骨位置 ↔ 自己顶点质心"距离 |
+|---|---|---|---|
+| **现渲染器/demo**（`bindWorld[b] = matMulRow(bindWorld[parent], bind[b])`） | 父先乘 | **340.76 px**（骨 b30） | 平均 **122.1 px** / 最大 341.7 px |
+| **一致序**（`bindWorld[b] = matMulRow(bind[b], bindWorld[parent])`） | 子先乘 | **0.0000 px / 0.00000 rad**（32 骨全中） | 平均 **47.3 px** / 最大 208.5 px |
+
+- **判据为什么成立**：MDLA 每条动画的**帧 0 逐骨局部量 == `bind` 局部量**（实测 b0/b1/b3/b4/b15/b16/b17/b18/b19/b30
+  逐位相同），所以"链 bind"与"链动画帧 0"**必须**给出同一个世界姿势 —— 只有"子先乘"这一序做到（32 骨 maxΔ=0），
+  父先乘差到 341 px。再叠加"骨应落在它自己顶点附近"的几何常识（122 px vs 47 px），**父先乘这一序可判为错**。
+- **为什么以前看不出来**：`bindRT`（合成基准）与 `bindInv`（`gBones` 的逆绑定）都由同一条（错序）链导出，
+  而 `t=0` 时"增量=0"⇒ `gBones = bindInv × bindRT = I` ⇒ **静止帧逐位正确**（所以标定/截图一直对得上）；
+  一旦动画走动，`final = bindRT + Σ(p_k(t) − p_k(0))` 把**错序空间的基准**与 **`sampleAnimRT`（正确序空间）的增量**
+  相加 ⇒ 骨被搬到几百像素外（表 P-109.2 的一切现象）。
+- **换成一致序会怎样**（同一份数据、同一套合成规则，只换 bind 链顺序）：
+
+| | 眉毛 b17 最大变号 | 睫毛 b18 最大位移 | b18 最大变号 | 29 组平均最大位移 |
+|---|---|---|---|---|
+| 现口径 | **8 / 8** @0.33 s | **102.1 px** @8.50 s | **14 / 16** @0.40 s | 14.48 px |
+| 一致序 | **0 / 8** | **11.1 px**（↓89%） | 4 / 16 | **8.07 px**（↓44%） |
+
+⇒ **"眉毛整组翻转 + 睫毛飞出 102px"在一致序下消失/大幅收敛**；这不是调参，是"把基准与增量放回同一空间"。
+残余变号（一致序下 b16 8/17、b30 8/23、b18 4/16）**未定**（见 P-109.6）。
+
+- ⚠ **本轮不改渲染器**：`bindWorld` 的链序属 `UNTOUCHED-AREAS` **A 项（多 additive 合成/蒙皮矩阵）**，
+  改一处影响**全部**蒙皮角色（语料 6 包里 5 个有 puppet）⇒ 本轮只交付**探针 + 数值证据**，
+  修复另开一条线并按 A 项要求做全语料回归（P-109.6 第 1 条）。
+
+### P-109.4 与官方的对照（能拿到什么、拿到多少）
+
+- **官方静态** `Testphoto/TP11/W1.jpg`（2009×1135，官方 WE 渲染）：面部裁剪（放大 4×）显示**眼形完整、眉毛在眼上方、
+  无折叠/镜像痕迹** —— 该帧相位未知，但至少说明"官方存在正常帧"，与"翻转只在特定 0.8s 窗口内发生"不冲突。
+- **官方动图**（Steam 工坊目录 `431960/3554161528/` 下的预览动图）：**192×192 / 50 帧 / 40ms**，整幅缩到 1/20 ⇒ 眼宽 ≈ **1.7 px**、
+  眉毛 **< 1 px** ⇒ **像素级判读不可能**（这正是任务书"别指望像素级"的那条）。改做**可判据的粗对照**：
+  取头部区域暗像素（lum<70）重心逐帧跟踪（灵敏度 ≈0.5 px）：我们探针标出的**事件窗口 t=0.08–0.88 s**
+  重心 x 跨度 **0.65 px** / y 跨度 **0.63 px**，对照窗口 t=0.96–1.76 s 为 **0.46 / 0.50 px** —— 若官方也有
+  我们口径下的 102 px 位移（= **5.1 GIF px**），这里应当看到同量级跳变；实测没有 ⇒ **官方动图不支持"该位移是作者本意"**，
+  与 P-109.3"这是我们的口径产物"一致（**不能**据此判官方逐帧语义，只是"没看到反证"）。
+- **本机拿不到"我们的像素"**：无头 Firefox 建不了 WebGL（`AllowWebgl2:false restricts context creation on this system`
+  / `tryNativeGL / Exhausted GL driver options (FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS)`；无 `/dev/dri`）；
+  Chromium+SwiftShader 在本机 PRoot 下 `newPage` 挂起（`tests/headless-shot.mjs` 的档位表早已记）。
+  ⇒ 本轮"我们的渲染"全部走 **mock-GL 驱动真实 `renderMeshLayer`**（同一条被 `?submesh=` 接管的路径）+ 真实
+  MDL/贴图/动画，出图用**软栅格化**（`viz-*.png`），**不冒充 GPU 截图**。
+
+### P-109.5 登记与验收（本轮实测）
+
+- `docs/README-DIAGNOSTICS.md` 主表新增 **`submesh`** / **`subtri`** 两行（表头计数 126 → **134**，与抓取一致）。
+- `tests/submesh-probe-test.mjs` ⇒ **56 通过 / 0 失败**，5 组断言：
+  ① **默认关逐位不变**：把**当前源码反向变异**成"删掉探针块 + 还原旧绘制尾巴"的临时模块，跑同一帧 ⇒
+     GL 调用序列**逐条相同**（20 条）、绘制实参 == 冻结旧写法 `[TRIANGLES, 2223, UNSIGNED_SHORT, 0]`、
+     不多建 VAO、默认路径不建过滤 EBO、不写 `__mpwSubMesh`；`?submesh=all` 的调用序列与默认档亦逐条相同；
+     （源标记缺失/绘制接线被改写 ⇒ 该测试**必红** —— 这就是"改回旧写法要能红"的机器化形式）
+  ② **分组正确性**：台账 vs **独立复算**（`attach-transform.parseMdl` 自己再算一遍）逐字段一致（组数 29、顶点和 497、
+     bbox、质心、影响骨表（骨号/权重和/顶点数/排序）、父链）；**区分力对照**：用 `blendIndices[0]` 分组只得 13 组、
+     116/497 顶点归属不同 ⇒ 断言不是恒真；
+  ③ **筛选语义**：`16` / `17-19` / `24*` / `16-19,30` × `all|major|any` 共 12 组，**实绘索引集**（mock GL 记录
+     `bufferData(ELEMENT_ARRAY_BUFFER)` 内容）与独立期望**逐位一致**；`24*` 必须选中 {25,26,27}（父链）；
+     `24`（骨 24 无顶点）与 `99`（越界）⇒ **0 次 draw**、`missing` 记账、不崩；
+  ④ **台账字段**：质心落 bbox 内、`hist` 按时间递增、`disp.mag ≥ hist` 最大、summary 计数、与 `?bones=` 叠加互不覆盖；
+  ⑤ **口径自证**：姿态=bind（gBones=I）⇒ 位移恒 0、变号恒 0、`world == origin + scale⊙skin`（逐位对拍）。
+- 取证脚本 `tests/submesh-evidence.mjs`（浏览器通路 + Node 探针通路）+ 产出 `reports/submesh-3554161528/`：
+  `reports/submesh-3554161528/ledger-all.json`（271 帧会话台账）、`reports/submesh-3554161528/ledger-<规格>.json` ×6、`reports/submesh-3554161528/render.json`（10 个时间点的蒙皮顶点/三角形/UV）、
+  `reports/submesh-3554161528/tex-人物.png`（1405×2013 真实贴图）、`reports/submesh-3554161528/viz-face-uv-groups.png` / `reports/submesh-3554161528/viz-face-groups-time.png` /
+  `reports/submesh-3554161528/viz-uv-sheet-all-groups.png` / `reports/submesh-3554161528/viz-body-t0.png`、`log.txt`。
+- `node tests/diag-flag-check.mjs`：代码侧 **134** 个开关；**本节两个开关 0 差异**（当时文档侧尚缺
+  `baseline`/`baselinedur`/`baselineswap`/`bgwrapfix` 四个 —— 属 `P-109-BASELINE` 那条线，
+  故 `docs-check` 的 rc 由那条线决定，见本轮汇报）。
+- `bash tests/run-all-tests.sh --only submesh-probe …`（定向子集，**未跑全量**）：见本轮汇报；新增项
+  `submesh-probe` 注册在 `tests/run-all-tests.sh` 的 `add` 列表**末尾**（既有行未动）。
+
+### P-109.6 未定项（不随本节关闭）
+
+1. **渲染器未改**：P-109.3 的链序候选根因只出证据；修它要按 `UNTOUCHED-AREAS` **A 项**的口径，
+   对 5 个蒙皮包（hina/凯尔希/GirlCat/白子/…）做"改前改后"逐层对照，且要同时定 `gBones` 的组装顺序
+   （demo 是 `bindInv × m`，`elysia/we-renderer/puppet.js` 是 `m × bindInv` —— 两者不可能都对）。
+2. **残余变号未定**：一致序下 b16 8/17、b30 8/23、b18 4/16 仍会变号（时刻与现口径不同），可能是强蒙皮固有形变、
+   也可能是 additive 参考姿势（`帧0` vs `bind`）口径问题 ⇒ 需要"哪一帧哪根骨的数值"继续钉（探针已具备）。
+3. **官方像素级对照仍缺**：本机两侧都拿不到 GL（P-109.4）；要定案需有 GPU 的机器或用户在真机上截同一相位的图。
+4. **B/C 项未动**：权重表本身（B）本轮只证"分组自洽 + 每组权重和/影响骨表可复算"，**没有**上游 ground truth；
+   `MDLE0002`（C）仍未参与任何计算。
+5. `?submesh=` 只对**蒙皮层**（`renderMeshLayer`）生效：四边形/粒子层没有"子网格"概念（也不该有）。
+
+## P-110（2026-09-17 任务书第 1 项 · `UNTOUCHED-AREAS` A 项）puppet 蒙皮的 **bind 世界链乘法顺序**修正：`W[b] = L_b × W[parent]`（子先乘）—— "眉毛整组翻转 180°"的数值根因结案
+
+> **编号说明**：`## P-109`（`?submesh=` 子网格探针）与 `## P-109-BASELINE`（真机基线快照）已占用，
+> 本节顺延取 **`## P-110`**（数字部分 110 ≥ 前一条 109 ⇒ 顺序非降规则满足）。
+> 上游：P-109.3 只把链序写成"候选根因（数值，未动手）"，P-109.6 第 1/2 条把"改渲染器 + 定 `gBones` 顺序 + 全语料回归"
+> 列为未定项 —— **本节就是把这两条收口**。
+
+### P-110.0 根因（一句话 + 数值）
+
+蒙皮要成立必须满足：**bind 世界链与动画世界链在同一空间**。
+- 动画链 `core/attach-transform.mjs::sampleAnimRT`（elysia 移植）= **子先乘**：子骨局部位姿 `(px,py,rotZ)` 的平移被
+  **父骨角度旋转**后加到父骨世界上（`tx = parent.tx + px·cos(pa) − py·sin(pa)`）⇒ 局部量按"**父坐标系**"解释。
+- P-110 之前的 bind 链（4 处各写一遍：`core/attach-transform.mjs::puppetBoneFinal`、
+  `core/we-scene-bundle.js` 的 `?bones=` 探针、`demo.html` 的 `updateSkinBones` 预计算、以及镜像它的若干测试）
+  = **父先乘** `W[b] = W[parent] × L_b` ⇒ 把局部量当"世界坐标里绕原点后置"，**不是同一空间**。
+
+判据（不猜）：MDLA 动画**帧 0 的逐骨局部量 == `bones[b].bind`**（hina 32 骨实测逐位相同；`elysia/we-renderer/puppet.js:92`
+的原注释也写着这条），所以"链 bind"与"链动画帧 0"**必须**给出同一世界姿势。实测（`tests/bind-order-test.mjs` TN1，全语料）：
+
+| 包（puppet 层） | 父先乘（旧）与"帧0==bind"动画的最大差 | 子先乘（修正） | 与动画链递推式独立复算的差 |
+|---|---|---|---|
+| hina 3554161528（人物 32 骨） | **340.76 px** | **0.000 px** | 旧 340.76 → 新 5.2e-6 px |
+| 凯尔希 3719111841（眼睛组合 14 骨） | **391.90 px** | **0.000 px** | 旧 391.90 → 新 3.0e-5 px |
+| 0917·3233141951（朱鹤 9 骨 / 全 6 层） | 60.73 px | **0.000 px** | 旧 60.73 → 新 2.3e-6 px |
+| 0917·3462491575（耳朵 5 骨 / 全 6 层） | 14.00 px | **0.000 px** | 旧 14.00 → 新 1.6e-6 px |
+| girl 3544152633（girl 13 骨） | 0.00 px（**该 rig 的两种序逐位等价**：bind 姿态无父级旋转） | 0.00 px | 0 → 0 |
+
+**为什么以前一直没被发现**：`bindInv`（逆绑定）与 `bindRT`（additive 合成的基准）都由**同一条错序链**导出，
+而 t=0 时"增量=0"⇒ `gBones = bindInv × bindRT = I`（**静止帧逐位正确**，标定/截图全对得上）；
+一旦动画走动，`final = bindRT + Σ(p_k(t) − p_k(0))` 就把**错序空间的基准**与**正确序空间的增量**相加
+⇒ 骨被搬到几百像素外（P-109.2 的整组翻转/位移）。**"只换一处"也不行**：半修（`bindInv` 用修正序、`bindRT` 仍旧序）
+实测 b17 仍 2/8 —— 两处必须同源（见 P-110.4）。
+
+### P-110.1 `gBones` 组装顺序的判据（任务书第 1 项"不许猜"）
+
+结论：**`g_Bones[b] = bindInv[b] × W_anim[b]`（行主序，`bindInv` 先乘）**。判据分两层，缺一不可：
+
+1. **静止帧恒等式不能判序**（所以 P-109.3 只到这里不够）：姿态 =bind 时 `bindInv × m = m × bindInv = I`
+   （互为逆阵）⇒ 两种顺序**都**满足"静止帧必须等于 bind 姿态"。实测：旧序/新序在同一 rig 上
+   `max|g − I|` 分别为 5.37e-5 / 5.29e-5（差异只是极坐标 `(angle,tx,ty)` 往返舍入），蒙皮后顶点与原始顶点差
+   **7.10e-3 px（两序完全相同）**。
+2. **能判序的是"绕骨骼枢轴的刚性旋转"**（row-vector 语义）：顶点 v 的绑定位姿在骨 b 下的局部坐标 = `v × bindInv[b]`，
+   再乘当前世界位姿回到模型空间 ⇒ 对该骨主导（w≈1）的顶点必有 `|v − P_bind| == |v′ − P_anim|`
+   （P = 各自的世界平移）。实测：`bindInv × m` 误差 **2.6e-5 px（刚性 ✓）**；`m × bindInv` 最大偏 **2.12 px**、
+   最远把顶点甩到离枢轴 **490.29 px** 处（✗）。合成算例同结论（保距误差 0 vs 实测距 179.23 vs 应 33.54）。
+   语义上也一致：官方着色器是 `position' = position × Σ w·g_Bones`，标准 LBS 是 `v_bind × bindInv × W_anim`。
+3. **两侧实现的对账**：`demo.html` 生产路径从 P-42 起就是 `bindInv × m`；**elysia 移植侧
+   `elysia/we-renderer/puppet.js:174` 是 `m × bindInv`**（上游 main 的同类缺陷；elysia 注释自述"main 错、dev 修"）
+   ⇒ 那个顺序被判为**错**，本轮**只读不改** elysia（它是 MIT 移植参考件；`?mode=elysia` A/B 通路，见 P-110.6）。
+
+### P-110.2 改了什么（4 处源码 + 3 处测试/登记）
+
+| 位置 | 改动 |
+|---|---|
+| `core/puppet-skin.js:93` | 新增 **`bindWorldChain(bones, opts)`**：bind 世界链的**唯一实现处**（缺省子先乘；`opts.legacy`/`'legacy'` ⇒ 父先乘）、`bindWorldPolar(worlds)`、`bindOrderLegacy(search)`（`?bindorder=legacy` 的唯一判定式）。文件头把 `g_Bones` 的公式改写成 `bindInv × Rz(finalWorld)` 并写上 P-110.1 的判据 |
+| `core/attach-transform.mjs:23,296-297,394,451` | `puppetBoneFinal` 改走 `bindWorldChain(bones, { legacy: opts.bindOrder === 'legacy' })`；`buildAttachOffsets` 把 `opts.bindOrder` 下传给 `attachmentOffset`（附件锚点与 gBones 必须同链序） |
+| `core/we-scene-bundle.js:6-7,995,6372,7722` | 转发导出 `bindWorldChain/bindWorldPolar/bindOrderLegacy`（宿主与测试共用一份）；`parseScene` 的 `attachCtx.bindOrder` 下传；新增 `?bindorder=legacy` 解析（`BIND_ORDER_LEGACY`，与既有 `?parspace=legacy` 同形）；`?bones=` 探针的 `bindWorld` 改走同一实现处 |
+| `demo.html:1678,2214,2621` | `BIND_ORDER_LEGACY` 一次解析、**一个开关同时作用于两处**：① 蒙皮 `bindWorld/bindInv/bindRT`（`lib.bindWorldChain`）；② `parseScene` 的附件锚点 `attachCtx.bindOrder` |
+| `tests/bind-order-test.mjs`（新，629 行） | TN1 链序恒等式（组成律 + 数据）/ TN2 静止帧逐位 / TN3 `gBones` 顺序判据 / TN4 全语料回归 + 残余变号定性 / TN5 回退开关 / TN6 反向变异必红；**76 断言** |
+| `tests/submesh-probe-test.mjs:394-399`、`tests/submesh-evidence.mjs:139` | 这两处原先各自写了一遍**父先乘**（等于让探针量"改前的口径"）⇒ 改走 `lib.bindWorldChain`，与渲染器逐位同源 |
+| `tests/projection-y-test.mjs:370`、`tests/p76-parallax-eye-test.mjs:408` | 同理（这两项**会**与 `?bones=` 探针的反解对拍 ⇒ 不换就红）：改走 `lib.bindWorldChain`；改后 projection-y **49/0**、p76-parallax-eye **111/0** |
+| `tests/run-all-tests.sh:223` | 新项 `bind-order` **追加在 `add` 列表末尾**（既有行未动） |
+
+### P-110.3 全语料回归（改前 legacy ↔ 改后 default；mock-GL 驱动真 `renderMeshLayer`）
+
+5 个**有 puppet** 的包 + 1 个对照包。⚠ 任务书把 **伊蕾娜 3660962877** 列为"蒙皮包"，但它实测
+**0 个 puppet 层**（127 个对象 / 5 个 models json，`"puppet"` 命中数 = 0）⇒ 作"无蒙皮对照"，
+其 127 层矩形/几何改前改后**逐位不变**（`tests/bind-order-test.mjs --report`）。
+
+| 包 | 层 | 骨/顶点/三角 | 组数 | 网格 bbox | 层矩形 同/异 | 最大位移 旧→新 | 组均位移 旧→新 | 变号三角 旧→新 |
+|---|---|---|---|---|---|---|---|---|
+| hina 3554161528 | 人物 | 32/497/741 | 29 | [-506.33,-983.18,451.20,223.62] | **37/0**（逐位不变） | **b18 102.07 → b12 24.59 px** | **13.64 → 7.59 px** | **25 → 1** |
+| girl 3544152633 | girl | 13/438/758 | 13 | [-510,-481,508,480] | 70/0 | b3 103.92 → 103.92（链序等价） | 39.06 → 39.06 | 1 → 1 |
+| 凯尔希 3719111841 | 主体 | 6/412/690 | 6 | [-1009,-1563,1009,1427] | 43/0 | b0 0.00 → 0.00 | 0.00 → 0.00 | 0 → 0 |
+| 0917·3233141951 | 龙 | 21/8089/15067 | 19 | [-1779,-1155,1668,1089] | 65/0 | b20 165.46 → 165.46（链序等价） | 127.75 → 127.75 | 123 → 123 |
+| 0917·3462491575 | 身体 | 10/487/794 | 8 | [-715,-917,711,861] | 75/0 | b3 75.97 → 75.97（链序等价） | 36.31 → 36.31 | 0 → 0 |
+| 伊蕾娜 3660962877 | —（无 puppet） | — | — | — | 127/0 | — | — | — |
+
+- **网格 bbox / 层矩形**：6 包**全部逐位不变**（层矩形含 19 个附件锚点层；`parseScene` 的锚点基准随开关走，
+  但本语料里锚点层所在模型的动画层是"非 additive blend=1"或"帧0==层姿势"⇒ 基准被整层替换，链序不改变最终锚点）。
+  测试仍守一条**结构性**断言：改前/改后**只可能**在带 `attachment` 的层上出现差异（非附件层必须逐位相同）。
+- **`?bones=` 台账**：探针反解 `pose = bindWorld × gBones` 与宿主喂进去的 RT **逐帧逐骨 maxΔ ≤ 6.6e-5 px**
+  （同开关时 0；开关不一致时 340.76 px —— 这条就是"探针与渲染同空间"的判据）；台账帧数=会话帧数
+  （>180 帧时长会话只留环形缓冲尾部 180 帧，判定按尾部对齐）。会话摘要例：hina `maxΔty=5.01px(b30)` / `maxΔang=0.0417rad(b18)`、
+  `mirrorEver=[]`（无骨级镜像）。
+- **`?submesh=` 分组表**（组号:顶点数）6 包**逐位相同**（分组只依赖 `blendIndices`）。
+- **链序等价的包**（girl / 龙 / 身体）两种顺序**逐位等价**：这些 rig 的 bind 姿态没有父级旋转（`cos=1,sin=0`），
+  `W[parent] × L = L × W[parent]` ⇒ 修正对它们零变化 —— 这也是"改前/改后逐位一致"的回归证据。
+
+### P-110.4 翻转消除 + 残余变号的定性
+
+hina 面部 5 组（`?submesh=all`，271 帧 × 1/30s，t=0→9s）：
+
+| 骨 | 组 | 最大位移 旧→新 | 最大变号 旧→新 |
+|---|---|---|---|
+| b16 眼 | 22 顶点/17 三角 | 13.70@3.7s → 6.26@0.467s | **1/17@0.5s → 1/17@0.5s**（不变） |
+| b17 眉毛 | 11/8 | 29.36@8.53s → 14.06@8.5s | **8/8@0.267s → 0/8** |
+| b18 睫毛 | 15/16 | **102.07@8.5s → 11.09@8.5s** | **12/16@0.367s → 0/16** |
+| b19 外眼角 | 12/14 | 55.66@0.467s → 13.02@8.5s | 3/14@0.3s → 0/14 |
+| b30 瞳孔 | 18/23 | 16.11@3.7s → 6.40@0.433s | 1/23@8.5s → 0/23 |
+
+- **b17 整组翻转消失（8/8 → 0/8）**，b18 位移降到 11.09 px（↓89%），组级变号总数 25 → 1。
+- **残余变号（b16 1/17）的定性 = 多骨权重剪切（LBS 固有），不是本 bug 的残余**，三条机器判据：
+  ① **单骨三角形永不翻**：三顶点权重全给同一根骨时，蒙皮 = **一个**正行列式仿射变换（实测所有帧所有骨
+     `det(gBone) > 0`、`mirrorBones=[]`），有向面积不可能变号。实测单骨三角 **65582** 个（帧×三角）变号 **0** 个；
+     残余 61 个变号事件（6 个不同三角形）**全部**是多骨混合（最"重"者 `maxW=0.9524 < 1`，即第二根骨仍有贡献）。
+  ② **与链序无关**：b16 的 `1/17@0.5s` 在 **全旧 / 半修 / 全修** 三种口径下**完全相同**（半修 = `bindInv` 修正序
+     + `bindRT` 旧序）⇒ 它不是链序错配的产物。
+  ③ **量级收敛**：变号事件 1369 → 61（不同三角形 43 → 6），且旧口径里那种"整个骨组 8/8 同时翻"的结构消失
+     （修正后**任何组的**组级最大变号 = 1）。残余 6 个三角形是否肉眼可见 **未定**（需 GPU 像素，见 P-110.6）。
+- ⚠ **P-109.6 第 2 条引用的残余数字（b16 8/17、b30 8/23、b18 4/16）作废**：那是"只换一处"的半修实验形态
+  （或不同时间网格）的数字；**两处同源**的正确修法下残余是 b16 1/17（且三口径不变），b30/b18/b19 全 0。
+
+### P-110.5 登记与验收（本轮实测）
+
+- **回退开关** `?bindorder=legacy`：写法与既有 `?x=legacy` 同形（`core/puppet-skin.js::bindOrderLegacy` 是唯一判定式，
+  `core/we-scene-bundle.js:6372` 与 `demo.html:1678` 各有同形解析点供 `diag-flag-check` 抓取）。
+  语义：缺省/空/`=1`/大小写不符 ⇒ **修正序**；`legacy` ⇒ 父先乘旧序（b17 复现 8/8、b18 复现 102.07 px）。
+  `docs/README-DIAGNOSTICS.md` 主表已收录（表头计数与抓取一致：**136 == 136，0 差异**）。
+- `node tests/bind-order-test.mjs` ⇒ **ALL PASS（76 通过 / 0 失败）**，覆盖 TN1–TN6（含
+  "**改回旧写法必须红**"的反向变异：临时副本里把默认序换回父先乘 ⇒ TN1a/TN1b 差 340.76 px、b17 端到端又 8/8）。
+- `node tests/submesh-probe-test.mjs` ⇒ **ALL PASS（56 通过 / 0 失败）**（§5 改走同一份链后，真动画段读数 =
+  修正后的口径：最大位移 b12 24.57/组，残余变号 b16 1/17@0.5s）。
+- `node tests/docs-check.mjs` rc=0；`bash tests/run-all-tests.sh --only bind-order submesh-probe attach-transform
+  blink-phase animation-badframe projection-y skin-order-kal meshsize bundle-syntax demo-syntax docs-check diag-flags`
+  ⇒ 见本轮汇报（**未跑全量**；本机无 GPU/WebGL2，全部经 mock-GL 驱动真实 `renderMeshLayer`，不做像素级对照）。
+
+### P-110.6 未定项（不随本节关闭）
+
+1. **elysia 移植侧的 `m × bindInv` 未改**：`elysia/we-renderer/puppet.js:174` 与它的 bind 链
+   （`elysia/we-renderer/puppet.js:120` / `core.js:322`，父先乘）仍保留上游形态 ⇒ `?mode=elysia` CPU 对照通路
+   里同一个缺陷还在。判定已给（P-110.1），但它是 MIT 移植参考件/对照通路，改动会污染 A/B 基准 ⇒ 留给
+   "elysia 对齐"专线（需要时按同一判据改两处：链序 + `gBones` 顺序）。
+2. **残余 6 个变号三角形的可见性未定**：已证"单骨不翻 + 与链序无关 + 多骨混合"，但"这 6 个三角形在
+   真机 GPU 上是否看得出"仍需像素（本机无 `/dev/dri`、无头 Firefox `AllowWebgl2:false`、Chromium+SwiftShader 挂起）。
+3. **帧 0 ≠ bind 的动画**：龙 anim0 差 1472.69 px、3462491575 anim1/2 差 8.83/55.43 px（模型自身口径，
+   P-110.3 的"数据恒等"只对"帧0==bind"子集断言 0）⇒ 这些动画的 additive 基准要不要改成 `bind` 另作一题
+   （P-109.6 第 2 条的残留疑问）。
+4. **官方像素级对照仍缺**（与 P-109.6 第 3 条同）：需要 GPU 机器或用户在真机截同一相位。
+5. **不参与链序断言的镜像副本未动**：`tests/animation-badframe-test.mjs` / `tests/blink-phase-test.mjs` /
+   `tests/package-matrix.mjs` / `tests/render-audit.mjs` / `tests/skin-order-verify.mjs` 各自仍留一份
+   **自洽**的 bind 世界链（父先乘 + 自算 `bindInv`，因此断言全绿、测的是"自己被测的那个变量"）；
+   `skin-order-verify` 只判 `gBones` 顺序（`bindInv × m`，未变）故无需改。**要不要把它们也收敛到唯一实现处**
+   属独立清理项（动 `package-matrix`/`render-audit` 会改冻结基线的数字，需另开一轮）——本轮不动。
+
+## P-111（2026-09-17 门禁回归收口）冻结全量门禁 5 个红项（`mdla-walk` / `text-font-fallback` / `web-frame-geometry` / `audio-band-array` / `data-limits`）—— 逐项定性、修根因、每项带反向证据
+
+> **触发**：`/tmp/gate-p110.log`（全量 `PASS=74 / FAIL=5 / SKIP=1 / 总 80`）。本机 `df` 运行前后均为 79G 可用。
+> 逐项**先取报错原文**（`bash tests/run-all-tests.sh --only <5 项>`），不按猜测改。归因：**5 项全部是今晚
+> 三条并行线（P-110 bind 链序 / 文档整理线 / 持久化轮）的连带回归**，没有一项是渲染管线本身的功能退化。
+
+### P-111.0 五个红项的报错原文（定性唯一依据）
+
+```
+FAIL mdla-walk (321ms) — 退出码 1
+  ✗ T5c 修复后：蒙皮层层数 > 0（Girl and cat 实测 1 层 girl）  [skins=0 frameCount=[]]
+  ✗ T5e 修复后无蒙皮错误日志  [["❌ 蒙皮准备失败 girl: BIND_ORDER_LEGACY is not defined（该层将退化为静态四边形）"]]
+  ✗ T5g 变异时不再静默：catch 报出 frameCount is not defined  [（同上 BIND_ORDER_LEGACY…）]
+  ✗ T5h 凯尔希 3719111841：蒙皮层 5 层（设备上报 25→0 的那 5 层）  [skins=0 fc=[]]
+FAIL text-font-fallback (825ms) — 退出码 1
+  ✗ T4h THIRD-PARTY.md 的 Spin Cycle 节有逐条件对照表（条件 / 怎么满足 / 证据）      （105 通过 / 1 失败）
+FAIL web-frame-geometry (140ms) — 退出码 1
+  FAIL T4e docs/COPYING-RULES.md §4 台账含本模块条目
+FAIL audio-band-array (140ms) — 退出码 1
+  FAIL T4b docs/COPYING-RULES.md §4 台账含本模块条目
+FAIL data-limits (5322ms) — 退出码 1
+  ✗ D9 插件客户端 localStorage **单值上限**：超 256KB 不写 + 打警告（大图走 IndexedDB），两处写入都走 `mpwLsSafeSet`
+    （37 通过 / 1 失败）
+```
+
+### P-111.1 逐项根因（一句一条）
+
+| 红项 | 根因（不是猜测，是报错直接给出的事实） | 归属线 |
+|---|---|---|
+| `mdla-walk` | T5 的 harness 用 `new Function(lib, pkg, …9 个参数)` 抽出 `demo.html` 的蒙皮准备块来跑；P-110 起块内新增 `lib.bindWorldChain(mesh.bones, { legacy: BIND_ORDER_LEGACY })`，而 `BIND_ORDER_LEGACY` 是 `demo.html` 顶层 const（同作用域，**真机不红**）⇒ 沙箱里裸引用 ReferenceError，被块自己的 catch 吞成"蒙皮准备失败" ⇒ `skinLayers` 恒空 | P-110（bind 链序线） |
+| `text-font-fallback` | 文档整理线把 `THIRD-PARTY.md` §4.6.1 的表改成**双语三列**并另起「未定项」段 ⇒ 旧断言写死的英文列名 `How this repository satisfies it` 消失（同节英文变 `how we satisfy it`） | 文档整理线 |
+| `web-frame-geometry` | `docs/COPYING-RULES.md` §4 台账的 **#9 整行被删**（该行就是本模块的登记行），而 `THIRD-PARTY.md` §11 仍写 `Ledger: … entry #9` ⇒ 指针悬空 | 文档整理线 |
+| `audio-band-array` | 同一条：§4 台账 **#10 整行被删**，`THIRD-PARTY.md` §12 指针悬空 | 文档整理线 |
+| `data-limits` | 持久化轮把 STORE_KEY 的落盘收敛成唯一入口 `mpwPersistSection`（受控调用形态由 2 处 `mpwLsSafeSet(STORE_KEY, JSON.stringify(…))` 变成 6 处 `mpwLsSafeSet(STORE_KEY, <变量>)`），并新增"抽 image 落 IndexedDB + 回读校验"；D9 数的还是旧形态 ⇒ 两条计数全错（2→0、0→2）。其中 2 处裸写是**真的**绕过了单值上限（`mpwMarkPersistFail` / `mpwClearPersistFail` 里的失败留痕写） | 持久化轮 |
+
+**不是**参考区搬迁（`references/`）或 `MPW_ROOT` 口径问题：这 5 个测试全部经 `tests/_root.mjs` 的 `ROOT`（= 仓库根，
+`MPW_REPO_ROOT` 可覆盖）与仓库内相对路径取文件，`bash tests/run-all-tests.sh` 也已把 `MPW_REPO_ROOT` / `MPW_ROOT`
+（工作区根）按既有语义导出；`vendor-ref/…` / `wer-ref/…` 在这 5 条里 0 处引用（`grep` 复核）。
+
+### P-111.2 修法（改根因；没有跳过、没有放宽、没有删断言）
+
+1. **`tests/mdla-walk-test.mjs`**：把 `demo.html` 里**那一行 `const BIND_ORDER_LEGACY = …` 原文抽出来**，
+   注入到被 `new Function` 执行的块前面 —— 与浏览器里的作用域形状一致（不是复制表达式、不是写死布尔）。
+   新增 **T5a2** 断言该行确实存在于 `demo.html` 顶层且被抽到 ⇒ 声明被改名/删除时立刻变红，不再退化成"参数缺失"。
+2. **`docs/COPYING-RULES.md` §4**：按 §5.1 口径（"按规格独立实现"，不再自称洁净室）**补回 #9/#10 两行**
+   （上游 = `oneincase/webwallgl`，**MIT**，不属 §9 阶梯的"无许可/不兼容"适用范围 ⇒ 本就该登记在本台账），
+   六列齐全 + 指向规格文档与 THIRD-PARTY §11/§12，并加一条脚注记录"本轮整理曾整行删掉、五处指针悬空"。
+   悬空指针因此全部复位：`THIRD-PARTY.md:712/762`、`docs/WEB-FRAME-GEOMETRY-SPEC.md:6/165`、
+   `docs/AUDIO-BAND-SPEC.md:6/102`、`docs/PATCHES.md:6088/6356`。
+3. **`tests/text-font-fallback-test.mjs` T4h**：改成按**新口径**判同一件事，且比旧断言严 ——
+   先在 `THIRD-PARTY.md` 里**切出 §4.6.1 这一段**（`#### 4.6.1` → `### 4.7`），再要求：标题含 `condition by condition`、
+   表头三列齐（`逐条义务（作者条款原话 / the author's words）` + `我们如何满足（how we satisfy it）` +
+   `待律师确认项（pending counsel）`）、**≥6 条编号条件行**、作者字体页 URL、证据（`44,228` / `44,640` / `sha256`）、
+   以及新增的「未定项」段。
+   **旧断言为何过时**：旧表第三列是 `Evidence`，本轮律师意见要求把"已满足"与"待确认"分开 ⇒ 证据逐条并进
+   "如何满足"列、第三列改为 `pending counsel` 并另起「未定项」段；旧断言钉的那句英文列名已不存在于新表，
+   继续钉它等于把**文档口径升级**判成回归。新断言同时覆盖旧断言的全部三要素（逐条件、如何满足、证据）+
+   新增的待确认项分列，不是放宽。
+4. **`dsh-mpkg-wallpaper/lib/client.js`**（本批唯一插件侧改动，两行）：`mpwMarkPersistFail` / `mpwClearPersistFail`
+   里那两处**裸** `localStorage.setItem(STORE_KEY, JSON.stringify(cur))` 改回受控入口 `mpwLsSafeSet(STORE_KEY, …)`
+   —— 上限"在每一处写入都生效"这条不变量不能有例外（写路径本就为失败标记留了 160 字节余量）。行为不变：
+   标记仍然写入、仍然 `console.warn`；插件自带 `tools/persist-test.mjs` 复跑 **49 通过 / 0 失败**。
+5. **`tests/data-limits-test.mjs` D9** 拆成三条**新口径**断言（阈值仍集中、失败仍不静默、入口仍唯一）：
+   - `D9`：`MPW_LS_MAX_BYTES` / `MPW_LS_SPILL_BYTES` **各只定义一次**，且**求值**分别 == `262144` / `2097152`
+     （不再钉 `256 * 1024` 这种写法），超限分支仍"警告 + `return false`"；
+   - `D9b`：**0 处**裸 `localStorage.setItem(STORE_KEY…`，受控调用 ≥6 处；
+   - `D9c`：`mpwSpillImage` + `mpwIdbBgKind` **回读校验** + `回读校验失败(` 分支 + `MPW_PERSIST_FAIL_KEY` 留痕 +
+     `mpwPersistOnMsg` 面板告警通道 + `?mpwpersist=legacy` 回退开关仍在。
+   **旧断言为何过时**：它把"集中"实现成"某一种调用写法的出现次数 == 2" —— 持久化轮把 stringify 提前到唯一入口后
+   这个数必然变成 0；而"0 处裸写"那一半当时恰好被两处失败留痕违反（所以旧断言当时既是**过时的**、也**抓到了真的问题**）。
+   新断言把"集中"改成"定义只有一份 + 值正确 + 入口唯一（裸写 0 处）"，比旧断言更强（多判了 spill 阈值与回读校验）。
+
+### P-111.3 反向证据（改回旧写法/旧路径必须变红）
+
+| 项 | 变异（临时，跑完立即按字节还原） | 结果 |
+|---|---|---|
+| `data-limits` | `mpwClearPersistFail` 里改回裸 `localStorage.setItem(STORE_KEY, …)` | **✗ D9b** `[raw=1 guarded=5]`（39 通过 / 1 失败） |
+| `data-limits` | `MPW_LS_MAX_BYTES` 再定义一份（`const MPW_LS_MAX_BYTES = 262144;`，破坏"阈值集中"） | **✗ D9** `[defs=2/1 …]`（39 通过 / 1 失败） |
+| `web-frame-geometry` | `docs/COPYING-RULES.md` 里把 `web-frame-geometry` 全部改名（台账行消失） | **FAIL T4e docs/COPYING-RULES.md §4 台账含本模块条目**（1 项失败） |
+| `mdla-walk` | `demo.html` 顶层 `const BIND_ORDER_LEGACY` 改名 | **✗ T5a2/T5c/T5e/T5g**（21 通过 / 5 失败：`skins=0` + `BIND_ORDER_LEGACY is not defined` 复现） |
+| `text-font-fallback` | `THIRD-PARTY.md` 三列表头里的 `我们如何满足（how we satisfy it）` 改名 | **✗ T4h**（105 通过 / 1 失败） |
+
+（`mdla-walk` 另有**内建**反向变异：T5f/T5g 把修复行改回裸 `frameCount` ⇒ 必须复现 `meshDraws=0` + 报错日志，
+见 P-59 A1；本轮同样复跑通过。）
+
+### P-111.4 验收（本轮实测）
+
+- 五条单跑：`bash tests/run-all-tests.sh --only mdla-walk text-font-fallback web-frame-geometry audio-band-array data-limits`
+  ⇒ **PASS=5 / FAIL=0 / SKIP=0**（逐条细节：`mdla-walk` 26/0、`text-font-fallback` 106/0、
+  `web-frame-geometry` ALL PASS、`audio-band-array` ALL PASS、`data-limits` 40/0）。
+- 全量：见本轮汇报的汇总行（目标 `FAIL=0`，`SKIP=1` = `jpeg-decode` 的有意条件项）。
+- 插件侧复跑：`node tools/persist-test.mjs`（`dsh-mpkg-wallpaper`）⇒ **49 通过 / 0 失败**（证明 P-111.2 第 4 条零行为变化）。
+
+### P-111.5 未定项（不随本节关闭）
+
+1. **工作区根的 `docs/COPYING-RULES.md` 副本已不同步**：它是独立副本（非硬链接），内容停在 06:32 的版本
+   （同样缺 #9/#10）。本批只被允许改 `we-scene-demo/` 与 `dsh-mpkg-wallpaper/` ⇒ 未动它；而**仓库内**所有引用
+   （含 `tests/_root.mjs` 的 `ROOT`、`run-all-tests.sh` 的 `MPW_REPO_ROOT`）都解析到仓库内这份，门禁不受影响。
+   要不要把副本改成软链或删除，属工作区根文档线的决定。
+2. **别的 harness 也可能漏注入外层作用域符号**：本轮只修了 `mdla-walk` 的蒙皮块。同类"从 `demo.html` 抽块
+   + `new Function(...)` 跑"的用例若将来引用新的顶层 const，会以同样方式变红（好在 T5e 那类"无错误日志"断言会抓到）。
+   是否抽一个共用的"作用域注入"helper 属独立清理项。
+3. **`?bindorder=legacy` 的 harness 覆盖**：`mdla-walk` 的 T5 只跑缺省（修正序）。legacy 档的端到端回归由
+   `tests/bind-order-test.mjs` 负责（P-110.5），本轮未重复接线。
+
+## P-112-BANDGEOM（2026-09-17 任务书 §5 第 4 条 / P1-5）两个"写完但没接线"的模块接线：128 元频段数组（`?bandfeed=`）+ 帧几何（`?framegeom=`）
+
+> 编号说明：`P-111` 已被门禁回归收口那条线占用 ⇒ 本号带 `-BANDGEOM` 后缀（与 `P-109-BASELINE`/`P-100-R1` 同形：
+> 唯一 + 数字非降即可）。任务书**不在本仓库**（工作区根 `docs/MASTER-TODO.md`），其 §5 第 4 条与 P1-5/P1-6 行已同步更新。
+
+### P-112-BANDGEOM.0 接线前的状态（事实）
+- `core/audio-band-array.mjs`（P-103 交付，规格 `docs/AUDIO-BAND-SPEC.md`）与 `core/web-frame-geometry.mjs`
+  （P-102 交付，规格 `docs/WEB-FRAME-GEOMETRY-SPEC.md`）**零 import**：两个规格 §6/§5 都自己写着"尚未接线"。
+- 渲染器侧的音频只有两条**不同口径**：① 脚本侧 `audioBuffers(n)`（n 元均值，`demo.html`）；
+  ② 插件/网页壁纸侧要的是 **128 元**（左 0..63 + 右 64..127）。缺这一层 ⇒ 作者侧阈值型音条无从验证（P1-5）。
+- 帧几何模块的**指针口径**在 `core/we-scene-bundle.js` 里有一份内联等价物（`(clientX−left)/rect.width`），
+  它不补偿祖先 CSS `transform` 的缩放（显示盒含缩放、`clientWidth/Height` 不含）⇒ 在被缩放的宿主 iframe 里
+  指针位置会整体偏且不报错；`space:'css'` 那条注入路径只有一行恒等返回（注释指向一个**不存在**的换算分支）。
+
+### P-112-BANDGEOM.1 改了什么（全部缺省关，逐位可回退）
+1. **音频**（`demo.html`，切片段 `MPW-BANDFEED` / `MPW-AUDIOBUFFERS`，开关 `?bandfeed=1|sim|real`）：
+   128 元数组按规格 γ=1.8/gain=1.8（模拟源）或 `clampOnly`（真实源）产生；
+   ① 场景层脚本路径 `audioBuffers(n)` 改为从 128 元数组重采样（与网页壁纸同口径）；
+   ② 宿主路径按 20Hz 节流 `postMessage {type:'mpw-audio-bands', len:128, source, t, bands}`（**契约未确认**，见接线文档 §4）；
+   诊断面 `window.__mpwAudioBands` / `__mpwAudioBandStats()` / `__mpwAudioBandSource`（`silent` = 到底接上没有）。
+2. **帧几何**（`core/we-scene-bundle.js` 指针口径 + `demo.html` video 壁纸帧盒，开关 `?framegeom=cover|contain|stretch`）：
+   指针换算改走模块 `framePointerMap`（DOM `pointermove` 与 `space:'css'` 注入两条），
+   `?frame=legacy|off|0` 仍是**最高优先**回退；帧盒用 `coverViewport`/`contentAspectOf`/`frameVisibleRect`
+   算（内在尺寸优先，量不到**不处理**）。
+3. **产物根三处落点**（否则浏览器相对说明符 404、静默失效）：`server/we-scene-demo-server.mjs` 两条同名路由、
+   `build-pages.mjs` 两条产物根映射、源码里的相对 import（与 `attach-transform.mjs`/`baseline-metrics.mjs` 同形）。
+
+### P-112-BANDGEOM.2 反向证据（改回旧行为必须变红；绿色运行也打印 RED 行）
+- 音频两条：① 真源分支去掉 `clampOnly` ⇒ 0.2 变成 0.271993（测试里"没有套 γ"的断言变红）；
+  ② 关掉脚本侧 `BANDFEED` 分支 ⇒ `audioBuffers(16)` 变回 `null`（"三件套长度 = n"变红）。
+- 几何两条：① 帧盒块强制 legacy ⇒ cover 帧盒不再计算（1280×1280 @(0,−280) 的断言变红）；
+  ② `framePointerMap` 的 cover 支退化成旧算式 ⇒ 显示盒 400/内部 800 时 x=200 而非 400（祖先 transform 补偿断言变红）。
+
+### P-112-BANDGEOM.3 未定/缺证据（不猜，写在接线文档 §4）
+- **web 壁纸 iframe 的尺寸路径不可注入**：三方 minified 渲染器私有 `nw()`/`Y1()`（公开面 `window.__wp` 无几何 setter），
+  另一宿主在插件树（本任务禁改）⇒ 只接了本仓库自己的 DOM 帧（video 壁纸）。
+- **渲染器 → 宿主的音频消息契约未确认**（in-repo 无消费者；插件侧的频谱桥是父页 → 帧内 `op:'audio'`）。
+- **无系统声卡环回**：真实源 = 包内音频（需 `?audio=1` 且真在播），不是系统音乐。
+- **`__mpwPointer.space='css'` 的口径未定**（全仓库无生产者；本次按窗口坐标解释）。
+
+### P-112-BANDGEOM.4 验收
+- 新增两项门禁（`tests/run-all-tests.sh` **末尾**）：`audio-band-wiring`（36 断言）、`frame-geometry-wiring`（43 断言），
+  两项都含 RED-IF-REVERTED，纯 Node、无 GPU/网络，~0.2s。
+- 既有模块契约两项不变（`audio-band-array` 35 / `web-frame-geometry` 50）。
+- 开关主表：`?bandfeed=`/`?framegeom=` 已登记 `docs/README-DIAGNOSTICS.md`（`diag-flag-check` 双向归零；
+  顺手代登记了插件线新增但未登记的 `hdrfrostwatch`，理由与 `mpwshim` 行相同 —— 该脚本按设计同时扫插件 `lib/client.js`）。
+- 文档：新增 `docs/AUDIO-BAND-WIRING.md`（接线/开关/实测数字/未定清单/复现命令）；
+  两份规格的"未接线"段已更新（`AUDIO-BAND-SPEC.md` §6、`WEB-FRAME-GEOMETRY-SPEC.md` §5），
+  模块头部与差异清单（洁净室判据）**一字未动**。

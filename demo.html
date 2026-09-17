@@ -881,6 +881,18 @@ import { Buffer as MpwBuffer } from './elysia/buffer.js';  // ①(新) Buffer sh
 //   用户已拍板：① 点选激活、其余**完全暂停**（默认 ?inactive=pause）；② 实例上限默认 4（?maxinst= 可调），
 //   超出上限**不创建 WebGL 上下文**。纯逻辑 + 依赖注入（假 DOM/桩 rAF/桩 boot 可整体单测）。
 import { mpwMultiParseIds, mpwMultiParseOpts, mpwMultiBudget, mpwLoseContext, createMultiInstanceHost } from './elysia/multi-instance.js';
+// ①(§5-⑨ 真机基线快照 2026-09-17) 基线采集器的**纯计算内核**（分位/滚动窗/启动/GL 代理计数/开关解析/阶段流转）：
+//   算术与判据只有一份、且不依赖 DOM ⇒ `tests/baseline-test.mjs` 用合成时间戳逐条钉住口径，
+//   本文件只负责"接线 + 上报 + 页面摘要"。服务端 `/baseline` 与 `tools/baseline-diff.mjs` 读同一份 schema。
+import { mpwBaselineParseOpts, mpwBaselineCreateSampler, mpwBaselineInstallGlCounters, mpwBaselineNextStage, mpwBaselineMergeHandoff } from './baseline-metrics.mjs';
+// ①(P-112-BANDGEOM 2026-09-17 音频频段接线) WE 生态里"频谱"只有一种对外形态 = **128 元数组**（左 0..63 + 右 64..127）；
+//   契约 / γ 对比扩展曲线 / 确定性模拟源全在 `core/audio-band-array.mjs`（规格 docs/AUDIO-BAND-SPEC.md，
+//   参照 oneincase/webwallgl MIT 的**行为契约**，未复制代码）。本文件只做接线：`?bandfeed=1`。
+import { packBands, simulatedBandArray, bandStats, AUDIO_BAND_LEN, AUDIO_BAND_HALF } from './audio-band-array.mjs';
+// ①(P-112-BANDGEOM 2026-09-17 帧几何接线) 帧内坐标契约（规格 docs/WEB-FRAME-GEOMETRY-SPEC.md）：video 壁纸的
+//   帧盒按"内容比例 ≠ 舞台比例 ⇒ 覆盖式视口（居中裁切）"算（`?framegeom=cover|contain|stretch`；
+//   缺省 legacy = 一行都不动）。渲染器侧的指针口径接线在 `core/we-scene-bundle.js`。
+import { coverViewport, contentAspectOf, frameVisibleRect, normalizeFrameFit } from './web-frame-geometry.mjs';
 const cv = document.getElementById('sc');
 const log = document.getElementById('log');
 const fpsEl = document.getElementById('fps');
@@ -1059,6 +1071,185 @@ async function bootInstance(inst) {
   let mpwFirstFrameDone = 0        // 每实例独立的首帧标记（原来是 window.__mpwFirstFrame 单例）
   if (!inst.ctx) inst.ctx = { lost: 0, restored: 0, at: null }   // 每实例上下文丢失计数（多实例诊断逐格）
   let renderer = null, scene = null, pkg = null, textures = new Map(), rafId = null, renderBusy = false
+// ═══ MPW-BASELINE-BEGIN ①(§5-⑨ 真机基线快照 2026-09-17) ═══
+// 目标（任务书 §5 极致清单第 ⑨ 项）：让"变慢了"这件事以后**有数据可查**，而不是凭感觉。
+//   采集 FPS（500ms 滚动窗，中位/1% low）、每帧耗时 ms 分位、启动耗时（导航→首帧→"纹理齐全/第 90 帧"）、
+//   纹理/层数/FBO 数、壁纸切换耗时（切到 `?baselineswap=<另一 id>` 再切回来，各记一次）。
+// **默认关**：不写参数 = 一个定时器、一次 GL 包装、一帧记账都不发生（与改动前逐位一致）。
+// 开法：`?baseline=1`（或 `?baseline=<秒>`），时长 `?baselinedur=<秒>`（2..120，默认 10s）。
+// 结果：POST 到**新端点** `/baseline` ⇒ 落盘 `reports/baselines/<时间戳>.json`，页面上给一行摘要。
+//   为什么另开端点而不是复用 `/report`：`/report` 落 `r<ts>.json` 且被"60 份滚动"清掉，而基线是**趋势数据**
+//   必须留得住；字段语义也不同（FPS/分位/启动/代理显存 vs 逐层对账）。通路与上限机制完全复用既有的。
+// ⚠ VRAM：浏览器**拿不到**真实显存（WebGL 无此 API）。本采集器只给**代理**：
+//   `Σ 活纹理 level-0 的 w×h×bpp`（含 FBO 附件纹理）+ `performance.memory.usedJSHeapSize`（**JS 堆，不是显存**，
+//   Firefox/Safari 无此 API ⇒ null）+ 活 FBO/纹理计数（真计数）。文档 docs/BASELINE.md 写明局限，**不编造精确 VRAM**。
+// 三个开关名用**正则字面量**登记给 diag-flag-check.mjs（与上面 MPW_MULTI_FLAGS 同款机制；真正的解析在纯模块里）。
+const MPW_BASELINE_FLAGS = [/[?&]baseline=/, /[?&]baselinedur=/, /[?&]baselineswap=/]
+const MPW_BASELINE_OPTS = mpwBaselineParseOpts(new URLSearchParams(location.search))
+const MPW_BASELINE_LS = 'mpw-baseline-handoff'
+let MPW_BASELINE = null
+if ((typeof PAGE === 'undefined' || PAGE) && MPW_BASELINE_OPTS.on) {
+  // 设备信息只查一次（MAX_TEXTURE_SIZE 是 GL 同步查询，别每 250ms 查一次）；画布尺寸每次现读（可能被 ?res 改）
+  let __baselineDevice = null
+  const baselineDevice = () => {
+    if (__baselineDevice) { __baselineDevice.canvas = cv.width + 'x' + cv.height; return __baselineDevice }
+    const q = (k) => { try { return gl && gl.getParameter ? gl.getParameter(gl[k]) : null } catch (e) { return null } }
+    __baselineDevice = {
+      canvas: cv.width + 'x' + cv.height,
+      dpr: (typeof devicePixelRatio === 'number') ? devicePixelRatio : null,
+      hardwareConcurrency: (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || null,
+      deviceMemoryGB: (typeof navigator !== 'undefined' && navigator.deviceMemory) || null,
+      maxTextureSize: q('MAX_TEXTURE_SIZE'),
+      glVendor: q('VENDOR'), glRenderer: q('RENDERER'), glVersion: q('VERSION'),
+      jsHeapSource: (typeof performance !== 'undefined' && performance.memory) ? 'performance.memory（JS 堆，非显存）' : null,
+    }
+    return __baselineDevice
+  }
+  const baselineState = () => {
+    const layers = (scene && scene.layers) || []
+    let vis = 0, missing = 0
+    for (const l of layers) {
+      if (!l.visible) continue
+      vis++
+      // 与 `/report` 的 texMissing / selfcheck 同判据（可见 + 非容器 + 有纹理名 + 纹理还没进来）
+      if (!l.isContainer && l.textureName && !textures.has(l.textureName)) missing++
+    }
+    const c = glCounters.snapshot()
+    const mem = (typeof performance !== 'undefined' && performance.memory) ? performance.memory : null
+    const texBytes = c.textureBytesEst
+    const heap = mem ? mem.usedJSHeapSize : null
+    return {
+      texMissing: missing,
+      device: baselineDevice(),
+      counts: {
+        layers: layers.length, layersVisible: vis, textures: textures.size, texMissing: missing,
+        glTexturesLive: c.glTexturesLive, glFbosLive: c.glFbosLive,
+        drawCalls: c.drawCalls, uploads: c.uploads, uploadBytes: c.uploadBytes,
+      },
+      vramProxy: {
+        textureBytesEst: texBytes, texBytesMaxSingle: c.texBytesMaxSingle, unknownFormats: c.unknownFormats,
+        jsHeapUsedBytes: heap, jsHeapTotalBytes: mem ? mem.totalJSHeapSize : null, jsHeapLimitBytes: mem ? mem.jsHeapSizeLimit : null,
+        jsHeapSource: baselineDevice().jsHeapSource,
+        deviceMemoryGB: baselineDevice().deviceMemoryGB,
+        hardwareConcurrency: baselineDevice().hardwareConcurrency,
+        dpr: baselineDevice().dpr, canvas: cv.width + 'x' + cv.height,
+        maxTextureSize: baselineDevice().maxTextureSize,
+      },
+    }
+  }
+  // 只读代理计数（包装 createFramebuffer/createTexture/texImage2D/draw*；同一 gl 幂等）
+  const glCounters = mpwBaselineInstallGlCounters(gl)
+  const sampler = mpwBaselineCreateSampler({ opts: MPW_BASELINE_OPTS, state: baselineState, notes: MPW_BASELINE_OPTS.notes.slice() })
+  // `?perf=1` 同开时顺带收"渲染主体耗时"（bundle stats 钩子；不开 perf ⇒ 该块 available=false）
+  try {
+    lib.registerMpwHook('stats', (st) => { if (st && st.perf === true && typeof st.frameMs === 'number') sampler.noteRenderMs(st.frameMs) })
+  } catch (e) { /* 钩子失败不影响采集 */ }
+  const readHandoff = () => { try { const t = sessionStorage.getItem(MPW_BASELINE_LS); return t ? JSON.parse(t) : null } catch (e) { return null } }
+  const writeHandoff = (h) => { try { sessionStorage.setItem(MPW_BASELINE_LS, JSON.stringify(h)); return true } catch (e) { return false } }
+  const clearHandoff = () => { try { sessionStorage.removeItem(MPW_BASELINE_LS) } catch (e) { /* ignore */ } }
+  const baselineStage = mpwBaselineNextStage(id, MPW_BASELINE_OPTS, readHandoff())
+  const navTiming = () => {
+    try {
+      const e = (performance.getEntriesByType ? performance.getEntriesByType('navigation') : [])[0]
+      if (!e) return null
+      const r2 = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v) * 100) / 100 : null)
+      return { type: e.type || null, responseEndMs: r2(e.responseEnd), domContentLoadedMs: r2(e.domContentLoadedEventEnd), loadEventEndMs: r2(e.loadEventEnd) }
+    } catch (e) { return null }
+  }
+  // 换包导航 URL：只改/加必要的参数（`?id=` + `?baseline=1` + `?baselinedur=`），并把 baselineswap 摘掉
+  // （目标页靠 sessionStorage 交接判断自己演哪一段；没交接时它只会当成"单段采集"，不会自我导航）。
+  const navUrlTo = (targetId) => {
+    try {
+      const u = new URL(location.href)
+      u.searchParams.set('id', targetId)
+      u.searchParams.set('baseline', '1')
+      u.searchParams.set('baselinedur', String(MPW_BASELINE_OPTS.durationSec))
+      u.searchParams.delete('baselineswap')
+      return u.toString()
+    } catch (e) { return null }
+  }
+  const baselineBadge = (msg, bad) => {
+    try {
+      const b = document.createElement('div')
+      b.textContent = msg
+      b.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:9999;font:12px monospace;padding:4px 8px;border-radius:4px;max-width:70vw;'
+        + (bad ? 'background:#602;color:#fbb' : 'background:#024;color:#bdf')
+      document.body && document.body.appendChild(b)
+    } catch (e) { /* ignore */ }
+  }
+  const baselineSummary = (snap) => '📊 基线快照：FPS 中位 ' + fmtOr(snap.fps && snap.fps.median) + ' / 1% low ' + fmtOr(snap.fps && snap.fps.p1Low)
+    + ' · 帧间隔 p50 ' + fmtOr(snap.frames && snap.frames.p50) + 'ms'
+    + ' · 启动 ' + fmtOr(snap.startup && snap.startup.totalMs) + 'ms（' + ((snap.startup && snap.startup.readyReason) || '?') + '）'
+    + ' · 显存代理 ' + (snap.vramProxy && snap.vramProxy.textureMBEst !== null ? snap.vramProxy.textureMBEst + 'MB' : '—')
+    + ' · FBO ' + fmtOr(snap.counts && snap.counts.glFbosLive) + ' / 纹理 ' + fmtOr(snap.counts && snap.counts.glTexturesLive)
+  const fmtOr = (v) => (v === null || v === undefined) ? '—' : String(v)
+  const baselinePost = async (snap, isFinal) => {
+    const body = JSON.stringify(snap)
+    try { window.__mpwBaselineSnapshot = snap } catch (e) {}
+    let ok = false, status = 0, file = null
+    try {
+      const r = await fetch('/baseline', { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+      ok = !!(r && r.ok); status = (r && r.status) || 0
+      if (ok) { try { file = (await r.json()).file } catch (e) { file = null } }
+    } catch (e) { status = 0 }
+    const line = baselineSummary(snap) + (file ? ' → ' + file : '') + (isFinal ? '' : '（分段）')
+    if (ok) logf('🛰 ' + line)
+    else logf('⚠ 基线快照回传失败（HTTP ' + status + '）：数据在 window.__mpwBaselineSnapshot，可手工另存后跑 tools/baseline-diff.mjs')
+    baselineBadge(ok ? line : ('⚠ 基线回传失败 HTTP ' + status + ' · ' + baselineSummary(snap)), !ok)
+    return ok
+  }
+  let baselineDone = false
+  const baselineFinalize = () => {
+    if (baselineDone) return
+    baselineDone = true
+    const st = baselineState()
+    const snap = sampler.build({
+      id, url: location.href.slice(0, 300), ua: (typeof navigator !== 'undefined' ? String(navigator.userAgent).slice(0, 200) : null),
+      source: 'browser', nav: navTiming(), device: st.device, counts: st.counts, vramProxy: st.vramProxy,
+      flags: { baseline: MPW_BASELINE_OPTS.raw.baseline, baselinedur: MPW_BASELINE_OPTS.raw.baselinedur, baselineswap: MPW_BASELINE_OPTS.raw.baselineswap, perf: new URLSearchParams(location.search).get('perf') },
+      endedBy: 'duration',
+    })
+    try { window.__mpwBaseline = { opts: MPW_BASELINE_OPTS, stage: baselineStage, snapshot: snap, sampler } } catch (e) {}
+    logf('📊 基线采集完成（' + snap.window.actualSec + 's / ' + snap.window.frames + ' 帧，' + MPW_BASELINE_OPTS.durationSec + 's 目标）——' + baselineStage.reason)
+    if (baselineStage.saveHandoff) {
+      // 首段：把本段快照存进 sessionStorage，然后导航到 `?baselineswap=` 指定的包（换包 = 整页重载，与真实切换同形）
+      const h = { v: 1, originId: id, swapId: MPW_BASELINE_OPTS.swapId, startedAt: Date.now(), phases: [{ role: 'primary', snapshot: snap }] }
+      const saved = writeHandoff(h)
+      const to = navUrlTo(MPW_BASELINE_OPTS.swapId)
+      if (!saved || !to) { logf('⚠ 切换测量跳过（sessionStorage 不可用或 URL 构造失败）→ 只上报本段'); baselinePost(snap, true); return }
+      logf('↪ 切换测量第 1/3 段完成：跳转到 ' + MPW_BASELINE_OPTS.swapId + '（切过去/切回来的耗时各记一次；总计约 ' + (MPW_BASELINE_OPTS.durationSec * 3) + 's）')
+      setTimeout(() => { try { location.href = to } catch (e) { logf('⚠ 跳转失败：' + e.message); baselinePost(snap, true) } }, 300)
+      return
+    }
+    const h = readHandoff()
+    if (baselineStage.role === 'swapTo') {
+      if (h) { h.phases = (h.phases || []).concat([{ role: 'swapTo', snapshot: snap }]); writeHandoff(h) }
+      const to = navUrlTo(baselineStage.navTo || (h && h.originId))
+      logf('↪ 切换测量第 2/3 段完成（本段启动 ' + fmtOr(snap.startup && snap.startup.totalMs) + 'ms = **切过去**耗时）：跳回 ' + (baselineStage.navTo || (h && h.originId)))
+      setTimeout(() => { if (to) { try { location.href = to; return } catch (e) {} } baselinePost(snap, true) }, 300)
+      return
+    }
+    const merged = (h && h.phases && h.phases.length) ? mpwBaselineMergeHandoff(h, snap) : snap
+    if (h) clearHandoff()
+    if (merged.switch) logf('↪ 切换测量第 3/3 段完成：切过去 ' + fmtOr(merged.switch.swapTo && merged.switch.swapTo.ms) + 'ms / 切回来 ' + fmtOr(merged.switch.swapBack && merged.switch.swapBack.ms) + 'ms')
+    baselinePost(merged, true)
+  }
+  MPW_BASELINE = {
+    // 帧循环里的唯一调用点：喂 rAF 时间戳 + 帧号；到点就收口（build + POST / 存交接 + 跳转）
+    onFrame: (now, frameNo) => { try { sampler.noteFrame(now, frameNo); if (sampler.shouldFinish()) baselineFinalize() } catch (e) { /* 采集失败不影响渲染 */ } },
+    opts: MPW_BASELINE_OPTS, stage: baselineStage, sampler,
+  }
+  logf('📊 基线采集已启用（?baseline=' + MPW_BASELINE_OPTS.raw.baseline + '）：时长 ' + MPW_BASELINE_OPTS.durationSec + 's，'
+    + 'FPS 窗 ' + MPW_BASELINE_OPTS.windowMs + 'ms，第 ' + MPW_BASELINE_OPTS.startupFrameTarget + ' 帧/纹理齐全判就绪；'
+    + '结束 POST /baseline → reports/baselines/<ts>.json'
+    + (MPW_BASELINE_OPTS.swapId ? '；切换测量目标 ' + MPW_BASELINE_OPTS.swapId + '（' + baselineStage.reason + '）' : '')
+    + '。⚠ VRAM 只有代理估算（浏览器拿不到真实显存）')
+  MPW_BASELINE_OPTS.notes.forEach((n) => logf('  ⚠ ' + n))
+} else if (MPW_BASELINE_FLAGS.some((re) => re.test(location.search))) {
+  // 写了基线开关但没打开 ⇒ 明确说一句（默认关是纪律，但"写了没生效"不能静默）
+  logf('📊 基线采集=关（?baseline 未开或非法；开法 `?baseline=1` / `?baseline=<秒>`，默认关）')
+}
+// ═══ MPW-BASELINE-END ═══
 // ①(MERGED-2 B ?perf=auto ③) 纹理字节预算：默认关（perfAutoQ=false 时只累计、不降级）
 const perfAutoQ = new URLSearchParams(location.search).get('perf') === 'auto'
 const TEX_BUDGET = 220 * 1048576
@@ -1363,6 +1554,58 @@ function loadScene() {
     })
     }
   } catch {}
+  // ═══ MPW-FRAMEGEOM-BEGIN ①(P-112-BANDGEOM 2026-09-17 任务书 §5-4 / P1-6 能力对齐线) video 壁纸帧盒 ═══
+  // 为什么：`docs/WEB-FRAME-GEOMETRY-SPEC.md` §0 —— 内容（网页/视频）有自己的宽高比，舞台是另一个
+  //   比例；`cover` 语义 = 视口取**内容比例**、溢出的一边居中裁掉（不拉伸、不露黑边）。
+  //   旧路径把这件事整个交给 CSS `object-fit:cover`（改不了、也断言不了）；本块用帧几何模块把它
+  //   变成**算得出来、测得了**的一组数：`coverViewport` 给帧盒、`frameVisibleRect` 给可见子矩形、
+  //   `contentAspectOf` 只认**内在尺寸**（`videoWidth/videoHeight`）—— 元数据没到时宁可不处理，
+  //   也不拿渲染盒当设计比例（规格 §3 记录的 15360×1200 误判就是后者）。
+  // 开关：`?framegeom=` —— 缺省/`legacy`/`off`/`0` = **关**（video 元素样式与改动前逐字相同）；
+  //   `cover` = 覆盖式视口（居中裁切，与旧 CSS 语义等价但由本模块算出）；`contain`/`fit` = 完整可见
+  //   （露出的边由页面底色承担）；`stretch`/`fill` = 拉伸铺满；未知值回落 cover（规格 §4）。
+  // ⚠ 只作用于"纯视频壁纸"两条路径（`?video=` 与按 project.json 自动识别的 type=video）：
+  //   这是本仓库**唯一**能确定"内容比例 vs 舞台比例"的 DOM 帧；web 壁纸 iframe 的同类路径在
+  //   三方 minified 渲染器内部（无注入点）⇒ 未定/缺证据，见 docs/AUDIO-BAND-WIRING.md §4。
+  const FRAME_GEOM_FIT = (() => {
+    try {
+      const v = String(new URLSearchParams(location.search).get('framegeom') || '').trim().toLowerCase()
+      if (v === '' || v === 'legacy' || v === 'off' || v === '0' || v === 'no' || v === 'false') return 'legacy'
+      if (v === 'frame') return 'cover'          // 与渲染器侧 `?framegeom=frame` 同形（= 启用模块换算）
+      return normalizeFrameFit(v)                // cover（缺省/未知）/ contain（fit）/ stretch（fill）
+    } catch (e) { return 'legacy' }
+  })()
+  /** 纯函数：算出 video 帧盒（不碰 DOM 之外的东西；`tests/web-frame-geometry-wiring-test.mjs` 切片直测） */
+  function videoFramePlan(natural, box, stageW, stageH, fit) {
+    const aspect = contentAspectOf(box, natural)
+    if (fit === 'legacy') return { fit, aspect, box: null, visible: null }
+    if (!aspect) return { fit, aspect: null, box: null, visible: null }    // 量不到 ⇒ 交给 CSS（不猜）
+    const vp = (fit === 'cover') ? coverViewport(stageW, stageH, aspect) : null
+    const frameBox = vp || { width: stageW, height: stageH, left: 0, top: 0 }
+    return { fit, aspect, box: frameBox, visible: frameVisibleRect(stageW, stageH, frameBox) }
+  }
+  function applyVideoFrameBox(el, label) {
+    if (FRAME_GEOM_FIT === 'legacy') return null
+    try {
+      const stageW = (window.innerWidth || document.documentElement.clientWidth || 0)
+      const stageH = (window.innerHeight || document.documentElement.clientHeight || 0)
+      const plan = videoFramePlan(
+        { width: el.videoWidth, height: el.videoHeight },
+        { width: el.clientWidth, height: el.clientHeight },
+        stageW, stageH, FRAME_GEOM_FIT)
+      if (!plan.box) { logf('① 帧几何(' + FRAME_GEOM_FIT + ') ' + label + '：内容比例不可用 ⇒ 保持 CSS 原样'); return plan }
+      const b = plan.box
+      const of = (FRAME_GEOM_FIT === 'cover') ? 'cover' : (FRAME_GEOM_FIT === 'contain' ? 'contain' : 'fill')
+      el.style.cssText = 'position:fixed;left:' + b.left + 'px;top:' + b.top + 'px;width:' + b.width + 'px;height:' + b.height
+        + 'px;object-fit:' + of + ';z-index:0;background:#000'
+      logf('① 帧几何(' + FRAME_GEOM_FIT + ') ' + label + '：内容 ' + (el.videoWidth || '?') + 'x' + (el.videoHeight || '?')
+        + ' 比例 ' + (plan.aspect ? plan.aspect.toFixed(4) : '?') + '；帧盒 ' + Math.round(b.width) + 'x' + Math.round(b.height)
+        + ' @(' + Math.round(b.left) + ',' + Math.round(b.top) + ')；可见区 '
+        + (plan.visible ? (Math.round(plan.visible.width) + 'x' + Math.round(plan.visible.height) + ' @(' + Math.round(plan.visible.x) + ',' + Math.round(plan.visible.y) + ')') : '—'))
+      return plan
+    } catch (e) { return null }
+  }
+  // ═══ MPW-FRAMEGEOM-END ═══
   // ①(新) 按 project.json type 自动路由：type=video → 直接播 dd 目录松散 mp4（不再被当 scene 解析）
   //   ①(P-77) 页级单例：多实例时只有 primary 实例做这层路由（其余实例照常按 ?id= 装载场景）
   if (typeof PAGE === 'undefined' || PAGE) try {
@@ -1379,7 +1622,7 @@ function loadScene() {
         v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true
         document.body.appendChild(v)
         v.addEventListener('error', () => logf('视频加载失败: ' + mp4))
-        v.addEventListener('loadeddata', () => logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')))
+        v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, 'type=video') })
         return
       }
     }
@@ -1395,7 +1638,7 @@ function loadScene() {
     v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true
     document.body.appendChild(v)
     v.addEventListener('error', () => logf('视频加载失败: ' + videoRel))
-    v.addEventListener('loadeddata', () => logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')))
+    v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, '?video=1') })
     return
   }
   logf('加载场景 ' + id + '…');
@@ -1487,6 +1730,12 @@ function loadScene() {
     }
   } catch (e) { logf('⚠ 视频底层失败: ' + e.message) }
   const ATT_LEGACY = new URLSearchParams(location.search).get('att') === 'legacy'
+  // ①(P-110 2026-09-17) `?bindorder=legacy`：bind 世界链序回退（与既有 `?att=legacy`/`?parspace=legacy` 同形）。
+  //   缺省 = 子先乘修正序（唯一实现处 `core/puppet-skin.js::bindWorldChain`）；`legacy` = P-110 之前的
+  //   父先乘旧写法，只作 A/B 与 bug 复现。**一个开关同时作用于两处**：① 蒙皮 `bindWorld/bindInv/bindRT`
+  //   （见下方 updateSkinBones 预计算段）；② `parseScene` 的附件锚点 `attachCtx.bindOrder`（锚点走
+  //   `puppetBoneFinal` 的 bind 世界基准，必须与 gBones 的 bindInv 同空间）。
+  const BIND_ORDER_LEGACY = new URLSearchParams(location.search).get('bindorder') === 'legacy'
   // ①(旧) Puppet 锚点（MDAT0001，局部空间语义）：子对象 attachment 名字匹配父模型 puppet 锚点
   // → 合并前子局部 += 锚点平移（与子 origin 同局部空间，父变换后才进世界；无 y 取反）
   const attachmentOffsets = new Map()
@@ -2018,9 +2267,11 @@ function loadScene() {
   }
   // ①(P-21-ATTACH) 默认 = 移植自 elysia 的附件/父链变换（bundle 内置，attachCtx 提供包读取器）；
   //   ?att=legacy = 旧 anchorsOf/mkOff 路径（旧行为原样：attachmentOffsets 表 + animL 翻转例外）。
+  // ①(P-110) attachCtx.bindOrder 与蒙皮链序**同一个开关**（`?bindorder=legacy`）：附件锚点走
+  //   `puppetBoneFinal` 的 bind 世界基准，必须与 gBones 的 bindInv 同空间，否则锚点与网格互相错开。
   scene = ATT_LEGACY
     ? lib.parseScene(sceneObj, null, { attachmentOffsets, uniformFlipY: attachmentOffsets.size > 0, legacyAnimY: true, readParticleDef })
-    : lib.parseScene(sceneObj, null, { attachCtx: { readEntry: (n) => lib.getEntry(pkg, n), time: 0 }, readParticleDef })
+    : lib.parseScene(sceneObj, null, { attachCtx: { readEntry: (n) => lib.getEntry(pkg, n), time: 0, bindOrder: BIND_ORDER_LEGACY ? 'legacy' : undefined }, readParticleDef })
   // ①(RE-28) 脚本运行时上下文：脚本写 raw 对象（sceneObj.objects），我们把变化同步回 scene.layers
   const scriptRawObjects = (sceneObj && sceneObj.objects) || []
   window.__mpwRawObjects = scriptRawObjects // ①(P-41 A1-c) 上报 rawOrigin 探针用
@@ -2255,9 +2506,123 @@ function loadScene() {
       try { v.el.volume = currentAudioVolume(null, v.binding) * 0.5 } catch (e) { /* ignore */ }
     }
   }
-  // 音频反应数据（RE-34）：analyser → [0,1] 归一化数组；未播放时返回 null → 脚本用静默 shim
+  // ═══ MPW-BANDFEED-BEGIN ①(P-112-BANDGEOM 2026-09-17 任务书 §5-4 / P1-5) 128 元频段数组接线 ═══
+  // 为什么：`docs/AUDIO-BAND-SPEC.md` §0 —— WE 生态里频谱**只有一种对外形态**（128 元数组，
+  //   左 0..63 + 右 64..127）。此前本仓库只有"按文件扫描的音轨索引"（P-89）与"脚本 registerAudioBuffers
+  //   的 n 元均值"两条**不同口径**，没有 128 元这一层 ⇒ 作者侧的阈值型音条无从验证。
+  // 源（诚实口径）：**没有系统声卡环回**（本机/浏览器都拿不到）⇒ 真实源 = 本仓库**自己的**
+  //   AnalyserNode（`sceneAudio`，只在 `?audio=1` 且包内有 sound 层且真的在播时存在），
+  //   否则用模块的**确定性模拟源** `simulatedBandArray`（纯函数、无随机数 ⇒ 同一 t 逐位可对拍）。
+  // 开关：`?bandfeed=` —— 缺省/`0`/`off`/`no`/`false` = **关**（一行行为都不变，逐位回到改动前）；
+  //   `1`/`on`/`yes`/`true` = 开（有真实源用真实源，没有则模拟）；
+  //   `sim`/`simulated` = 只用模拟源（真实源在场也不用 ⇒ 单变量 A/B、也便于比对真机）；
+  //   `real`/`analyser` = 只认真实源（没有数据源时给**全零** 128 元 + `silent:true`，不假装有声音）。
+  // 真实源不套 γ/增益（`clampOnly:true`）：频谱本身已是归一化值，再套一次会把音条整体顶满
+  //   （规格 §2.1/§5 的口径差异）。模拟源按默认曲线（γ=1.8 / gain=1.8）整形，所以"尖"。
+  const BANDFEED = (() => {
+    try {
+      const v = String(new URLSearchParams(location.search).get('bandfeed') || '').trim().toLowerCase()
+      if (v === '' || v === '0' || v === 'off' || v === 'no' || v === 'false') return 'off'
+      if (v === 'real' || v === 'analyser') return 'real'
+      if (v === 'sim' || v === 'simulated') return 'sim'
+      if (v === '1' || v === 'on' || v === 'yes' || v === 'true') return 'auto'
+      return 'off'
+    } catch (e) { return 'off' }
+  })()
+  const bandReuse = new Float32Array(AUDIO_BAND_LEN)     // 复用缓冲（模块契约：长度必须正好 128）
+  let bandClock = 0                                       // 最近一次帧时间（脚本路径没有 tSec，用同一只钟）
+  let bandLast = { bands: new Float32Array(AUDIO_BAND_LEN), source: 'off', stats: bandStats(null), t: 0 }
+  function bandPairFromAnalyser() {
+    // 单 analyser（mono 混音）→ 左右各 64 段：线性重采样到 64 个频点（低频在前），0..255 → 0..1
+    if (!sceneAudio.analyser || !sceneAudio.freq) return null
+    const bins = sceneAudio.freq.length
+    if (!bins) return null
+    sceneAudio.analyser.getByteFrequencyData(sceneAudio.freq)
+    const left = new Float32Array(AUDIO_BAND_HALF)
+    for (let i = 0; i < AUDIO_BAND_HALF; i++) {
+      const a = Math.floor(i * bins / AUDIO_BAND_HALF), b = Math.max(a + 1, Math.floor((i + 1) * bins / AUDIO_BAND_HALF))
+      let s = 0
+      for (let k = a; k < b; k++) s += sceneAudio.freq[k]
+      left[i] = (s / (b - a)) / 255
+    }
+    return { left, right: left.slice() }               // 通道不复制？单源下两声道本就同源（诚实：不伪造立体声）
+  }
+  /** 当前这一帧的 128 元频段数组（`?bandfeed=` 关时返回上一次/全零的同一结构，调用方无需判空） */
+  function bandArrayNow(tSec) {
+    const t = Number.isFinite(tSec) ? tSec : 0
+    if (BANDFEED === 'off') return bandLast
+    const pair = (BANDFEED === 'auto') ? bandPairFromAnalyser() : null
+    if (pair) {
+      const bands = packBands(pair.left, pair.right, bandReuse, { clampOnly: true })   // 真实源：只钳位
+      bandLast = { bands, source: 'analyser', stats: bandStats(bands), t }
+    } else if (BANDFEED === 'real') {
+      const bands = packBands(null, null, bandReuse, { clampOnly: true })              // 只认真实源 ⇒ 全零
+      bandLast = { bands, source: 'silent', stats: bandStats(bands), t }
+    } else {
+      const bands = simulatedBandArray(t)                                             // 确定性模拟源（γ/gain 曲线）
+      bandLast = { bands, source: 'simulated', stats: bandStats(bands), t }
+    }
+    try {
+      window.__mpwAudioBands = bandLast.bands
+      window.__mpwAudioBandSource = bandLast.source
+    } catch (e) { /* ignore */ }
+    return bandLast
+  }
+  let bandPublishAt = -1
+  function bandPublish(tSec) {
+    // 渲染器 → 宿主：128 元数组（节流 20Hz，只有 `?bandfeed=` 开着且确实被嵌进宿主时才发）。
+    // ⚠ **未定/缺证据**：in-repo 没有任何消费者；插件侧的网页壁纸桥是**父页 → 帧内**
+    //   `{mpw:'mpw:web', op:'audio', bands}`（dsh-mpkg-wallpaper/docs/WEB-WALLPAPER.md §5.2、
+    //   lib/web-wallpaper.js 的 `wallpaperRegisterAudioListener`），渲染器 → 宿主这一半**不存在**。
+    //   本条消息是"缺的那一半"的提案，契约未确认 ⇒ 只在显式开关下发，见 docs/AUDIO-BAND-WIRING.md §4。
+    if (BANDFEED === 'off') return null
+    try {
+      if (!window.parent || window.parent === window) return null
+      const t = Number.isFinite(tSec) ? tSec : 0
+      if (bandPublishAt >= 0 && (t - bandPublishAt) < 0.05) return null
+      bandPublishAt = t
+      const b = bandLast
+      const msg = { type: 'mpw-audio-bands', v: 1, len: AUDIO_BAND_LEN, source: b.source, t: +t.toFixed(3), bands: Array.from(b.bands) }
+      window.parent.postMessage(msg, '*')
+      return msg
+    } catch (e) { return null }
+  }
+  /** 诊断：`bandStats` 的 `silent` 就是"到底接上没有"的第一手证据（规格 §6 的要求） */
+  function bandFrameTick(tSec) {
+    if (BANDFEED === 'off') return
+    if (Number.isFinite(tSec)) bandClock = tSec
+    bandArrayNow(bandClock)
+    bandPublish(bandClock)
+  }
+  try {
+    window.__mpwAudioBandStats = () => bandLast.stats
+    window.__mpwAudioBandInfo = () => ({ feed: BANDFEED, source: bandLast.source, gamma: 1.8, gain: 1.8, len: AUDIO_BAND_LEN })
+  } catch (e) { /* ignore */ }
+  // ═══ MPW-BANDFEED-END ═══
+  // ═══ MPW-AUDIOBUFFERS-BEGIN ①(RE-34；P-112-BANDGEOM 加 `?bandfeed=` 同源分支) 脚本侧频谱入口 ═══
+  // 切片约定：`tests/audio-band-wiring-test.mjs` 把本块从 demo.html 切出来单测（与 MPW-BANDFEED 块同源拼接）。
   function audioBuffers(n) {
     try {
+      // ①(P-112-BANDGEOM) `?bandfeed=` 开时：脚本侧（`registerAudioBuffers`，elysia/scene-scripts.js）拿到的是
+      //   **128 元契约数组**重采样来的 n 元值 ⇒ "场景层的音频反应路径"与"网页壁纸桥"同源同曲线。
+      //   关时不进这个分支（原路径逐位不变）。
+      if (BANDFEED !== 'off') {
+        const b = bandArrayNow(bandClock)
+        const pick = (off) => {
+          const out = new Array(n).fill(0)
+          for (let i = 0; i < n; i++) {
+            const a = Math.floor(i * AUDIO_BAND_HALF / n), z = Math.max(a + 1, Math.floor((i + 1) * AUDIO_BAND_HALF / n))
+            let s = 0
+            for (let k = a; k < z; k++) s += b.bands[off + k]
+            out[i] = s / (z - a)
+          }
+          return out
+        }
+        const left = pick(0), right = pick(AUDIO_BAND_HALF)
+        let sum = 0
+        for (let k = 0; k < AUDIO_BAND_LEN; k++) sum += b.bands[k]
+        return { left, right, average: new Array(n).fill(sum / AUDIO_BAND_LEN) }
+      }
       if (!sceneAudio.analyser || !sceneAudio.freq) return null
       const bins = sceneAudio.freq.length
       sceneAudio.analyser.getByteFrequencyData(sceneAudio.freq)
@@ -2275,6 +2640,7 @@ function loadScene() {
       return { left: out, right: out.slice(), average: avg }
     } catch (e) { return null }
   }
+  // ═══ MPW-AUDIOBUFFERS-END ═══
 
   function runSceneScripts(tSec, frameDt) {
     if (new URLSearchParams(location.search).has('noscript')) return
@@ -2416,11 +2782,19 @@ function loadScene() {
         const mesh = puppetHelper._parseMdl(raw)
         if (!mesh || !mesh.bones || !mesh.bones.length || !mesh.animations || !mesh.animations.length) return
         const nb = mesh.bones.length
-        const bindWorld = new Array(nb), bindInv = new Array(nb)
-        for (let b = 0; b < nb; b++) {
-          const parent = mesh.bones[b].parent, local = mesh.bones[b].bind
-          bindWorld[b] = (parent >= 0 && bindWorld[parent]) ? puppetHelper._matMulRow(bindWorld[parent], local) : local.slice()
-        }
+        // ①(P-110 2026-09-17) bind 世界链序 = **子先乘** `W[b] = L_b × W[parent]`（行主序），与
+        //   `sampleAnimRT`（动画帧采样的世界链）**同空间** —— 唯一实现处 `core/puppet-skin.js::bindWorldChain`
+        //   （由 bundle 转发导出 `lib.bindWorldChain`，本文件不再自己写一遍）。
+        //   判据（为什么是这个序，不是另一个）：`bones[b].bind` 是"在**父坐标系**里的位姿"
+        //   （`sampleAnimRT` 把子骨平移用父骨角度旋转后加到父骨世界上，即同一个解释）⇒ 层级链必须
+        //   W[b] = L_b × W[parent]。旧写法 `matMulRow(bindWorld[parent], local)`（父先乘）与动画链
+        //   **不在同一空间**：实测 hina 3554161528 与"动画帧 0（逐骨局部量 == bind 局部量）"最大差
+        //   **340.76px**、平均 122.1px；改成子先乘后 32 骨 maxΔ=**0.0000px**。静止帧看不出来
+        //   （gBones = bindInv × bindRT = I 两种序都成立），动画一走动就把"错序基准 + 正确序增量"
+        //   相加 ⇒ 眉毛整组 8/8 三角形翻转、睫毛位移 102px（PATCHES P-109.2/P-110）。
+        //   `?bindorder=legacy` = 回退到旧写法（与既有 `?parspace=legacy` 同形，只作 A/B 与 bug 复现）。
+        const bindWorld = lib.bindWorldChain(mesh.bones, { legacy: BIND_ORDER_LEGACY })
+        const bindInv = new Array(nb)
         for (let b = 0; b < nb; b++) bindInv[b] = puppetHelper._matInvertRow(bindWorld[b])
         const anim = mesh.animations[0]
         // (2026-09-12) MDLA frames contain isolated bad frames (measured: body f179=918.8 vs avg 7.8;
@@ -5086,7 +5460,7 @@ function loadScene() {
 		//   第二参数 = 上一帧真实秒数（engine.frametime；官方语义"可能为 0"）
 		{ try { runSceneScripts(tSec, frameDt) } catch (e) {} }
 		// ①(N6) 音频反应预留位：只有外部挂了 window.__mpwAudioFrame 才取样（默认零成本）
-		{ try { audioFrameTick() } catch (e) {} }
+		{ try { audioFrameTick(tSec) } catch (e) {} }
 		// ③(P-64-MEDIA 用户第 9④ 项) 媒体集成：真实源（🔊 音频面板音轨）→ 官方五回调 + 音频响应频谱；
 		//   排在 runSceneScripts 之后（脚本已编译进 cache，dispatchScriptEvent 才投递得到）
 		{ try { mpwMediaTick() } catch (e) {} }
@@ -5203,6 +5577,9 @@ function loadScene() {
           try { if (window.__mpwShotFrameTick) window.__mpwShotFrameTick(tSec, window.__mpwFrameNo || 0, cv) } catch (e) {}
         });
     }
+    // ①(§5-⑨ 真机基线快照) 帧循环里的**唯一**调用点：喂 rAF 时间戳 + 帧号（算术全在纯模块里）。
+    //   默认关时 MPW_BASELINE === null ⇒ 这一行只是一次 null 判断（零计时器、零 GL 包装、零记账）。
+    if (MPW_BASELINE) MPW_BASELINE.onFrame(now, window.__mpwFrameNo || 0)
     // ①(P-77) 单实例：本帧结束后自排下一帧（与改动前逐位一致）；
     //   多实例：**不自排** —— 由外层唯一的调度器（multi-instance.js）决定这一帧给谁跑（设计文档 §2.3）。
     if (!SCHEDULED) rafId = requestAnimationFrame(frame);
@@ -5314,8 +5691,10 @@ function loadScene() {
     } catch (e) { /* ignore */ }
   }
   // 每帧钩子位（只有外部挂了 __mpwAudioFrame 才取样，零成本默认路径）
-  function audioFrameTick() {
+  function audioFrameTick(tSec) {
     try {
+      // ①(P-112-BANDGEOM) `?bandfeed=` 开时才跑（关时这一行就是一次常量比较 ⇒ 默认路径零成本不变）
+      bandFrameTick(tSec)
       if (typeof window.__mpwAudioFrame !== 'function' || !sceneAudio.analyser) return
       if (!sceneAudio.freq || sceneAudio.freq.length !== sceneAudio.analyser.frequencyBinCount) sceneAudio.freq = new Uint8Array(sceneAudio.analyser.frequencyBinCount)
       sceneAudio.analyser.getByteFrequencyData(sceneAudio.freq)

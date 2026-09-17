@@ -101,12 +101,21 @@ x = clamp(x, 0, 1)                    ← 入口就钳（脏值不进 pow）
 - 本模块按本规格重写，不是逐行翻译；`pre*` 与"未钳位"的**动机**（阈值型 vs 积分型）是公开行为事实；
 - 参照仅 MIT，可借，仍按"规格先行 + 逐条差异"落地（`docs/COPYING-RULES.md` §4 台账 #10）。
 
-## 6. 现状（未接线，写清楚）
+## 6. 现状（**已接线**：`?bandfeed=`，2026-09-17 / P-112-BANDGEOM）
 
-本模块**尚未接线**到渲染器的任何既有路径：仓库里的音频侧目前只有按文件扫描的音轨索引
-（`docs/AUDIO-TRACK-SPEC.md`），没有实时频谱源。因此：
+> 本节原写于 P-103（"未接线"）。2026-09-17 起本模块已接进渲染器，**接线说明与实测数字**见
+> `docs/AUDIO-BAND-WIRING.md`（本文只讲契约，接线细节不在这里重复）。当前状态：
 
-- **不登记** `docs/README-DIAGNOSTICS.md` 主表（该表只收"代码里真实解析的 URL 开关"；
-  本模块不解析任何 URL 参数）；
-- 接线落地时（真实频谱源或宿主注入通道）再补主表行与渲染侧消费点，届时
-  `bandStats` 的 `silent` 就是"到底接上没有"的第一手证据。
+- **开关**：`?bandfeed=1|sim|real`（缺省 **关** ⇒ 一行行为都不变）。主表已登记
+  （`docs/README-DIAGNOSTICS.md` 的 `bandfeed` 行）；解析点在 `demo.html` 的 `MPW-BANDFEED` 块。
+- **消费点两处**：① 场景层脚本路径 —— `demo.html` 的 `audioBuffers(n)`（喂给
+  `elysia/scene-scripts.js` 的官方 `registerAudioBuffers`）改为从 128 元数组重采样；
+  ② 宿主路径 —— 被 iframe 嵌入时按 20Hz 节流 `postMessage` 128 元数组（**契约未确认**，
+  只是"缺的那一半"的提案，见接线文档 §4 第 2 条）。
+- **真实源**：渲染器自己的 `AnalyserNode`（包内 sound 层，`?audio=1` 且真的在播）⇒ `clampOnly:true`
+  （不套 γ）；**没有**真实源时用本文 §3 的确定性模拟源（套 §2.3 的 γ/gain 曲线）。
+  本机**没有系统声卡环回**（`docs/AUDIO-TRACK-SPEC.md`）⇒ 默认档的"真实源"指包内音频，不是系统音乐。
+- **`bandStats.silent` 仍是"到底接上没有"的第一手证据**：`window.__mpwAudioBandStats()`（诊断读数）
+  与 `window.__mpwAudioBandSource`（`analyser` / `simulated` / `silent`）一起给。
+- **回归**：模块契约 `tests/audio-band-array-test.mjs`；接线（含反向变异必红）
+  `tests/audio-band-wiring-test.mjs`。

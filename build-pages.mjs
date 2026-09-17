@@ -49,6 +49,14 @@ const PAGES_KEEP_FILES = [
   ['core/we-scene-bundle.js', 'bundle.js'],
   ['core/we-scene.mjs', 'we-scene.mjs'],
   ['core/attach-transform.mjs', 'attach-transform.mjs'],
+  // ①(§5-⑨ 真机基线快照 2026-09-17) demo.html 以相对说明符 `./baseline-metrics.mjs` import 它
+  //   （自带服务器的 `/baseline-metrics.mjs` 路由读同一份 core/ 文件）⇒ 产物根必须有同名文件。
+  ['core/baseline-metrics.mjs', 'baseline-metrics.mjs'],
+  // ①(P-111 2026-09-17 帧几何/音频频段接线) 同形两条：`core/we-scene-bundle.js` 以 `./web-frame-geometry.mjs`
+  //   import、`demo.html` 以 `./audio-band-array.mjs` import（浏览器按**相对说明符**解析 ⇒ 与 `attach-transform.mjs`
+  //   一样，产物根必须有同名文件；自带服务器的同名路由读同一份 core/ 文件）。
+  ['core/web-frame-geometry.mjs', 'web-frame-geometry.mjs'],
+  ['core/audio-band-array.mjs', 'audio-band-array.mjs'],
   ['core/puppet-skin.js', 'puppet-skin.js'],
   ['tools/make-sample.mjs', 'make-sample.mjs'],
   ['server/pack-dir.mjs', 'pack-dir.mjs'],

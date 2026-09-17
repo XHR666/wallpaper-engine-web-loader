@@ -165,6 +165,76 @@ add "hlsl2glsl-coverage" "node tests/hlsl2glsl-coverage-test.mjs" "" "^SKIP hlsl
 # ~6s（起 4 个真服务子进程；上限用 env 压到很小才能秒级验完清理路径）。上限唯一来源：docs/DATA-LIMITS.md
 add "data-limits"        "node tests/data-limits-test.mjs"
 
+# ——— ①(P-103 2026-09-17 粒子渲染正确性 · 用户第 12 条："你有一些粒子效果的渲染是有问题的，开源仓库里有方案"）———
+# 注册位置：**追加在 `add` 列表末尾**（既有 74 项的 `add` 行号一字未动，只在其后顺延 2 行；
+#   仓内 `run-all-tests.sh:91`/`:98-99` 两处历史引用都在本行之前，不受影响）。
+# 33 断言 / 5 组：四档 official↔legacy **双向**（quad 图层变换 / 粒子自转 / exponent 非线性分布 /
+#   发射器 speedmin-speedmax 初速）+ 真包语料（凯尔希 3719111841 Glass Shards·Bokeh Hex·尘埃、
+#   hina 3554161528 落花、orb 3660962877 cherry blossoms）+ 仿真代价不回归（两档 simSteps/simUpdates 相等）。
+#   真包缺失时内部 SKIP-视作-PASS（不红），与其余真包类条件项同口径。~30s。
+add "particle-render-correctness" "node tests/particle-render-correctness-test.mjs"
+add "camera-persp"       "node tests/camera-persp-test.mjs"       # P-107：**透视相机（fov）**落地 + `?projmode=persp|ortho|auto` 回退（UNTOUCHED-AREAS J 项"无样本"结案）。语料唯一非正交包 3509243656（3D 场景，`orthogonalprojection=null`，相机 origin "0 0 6"、fov 是"视场"滑块 newproperty71∈[40,65]）：auto ⇒ 节点锚定透视（fov50/相机 z=6）；透视律实测（Custom BG z=−50 与 Sun png z=−30 屏宽比 3.1072 = 预测值）；近层/远层同世界偏移屏距比 62.2×；fov 40→65 屏宽 ×1.519；面板滑块真的驱动 fov；**正交路径逐位不变**（冻结实现对拍 3 真包 × 3 档 + 合成包 5 档，全 `===`）；正交包强制透视时 z=0 平面 maxΔ=1.74e-4px（Float32 舍入）；mock-GL 真实 renderScene 里 mvp 的 w 行 = [0,0,−1,距离] 且三层 z 屏宽 6:3:2。57 断言；~6s
+
+# ——— ①(P-109 2026-09-17 任务书 P1-4 · UNTOUCHED-AREAS D 项）———
+# 注册位置：**追加在 `add` 列表末尾**（既有 add 行一字未动，只在其后顺延 1 行）。
+# 56 断言 / 5 组：默认关逐位不变（把源码**反向变异成"去掉探针的旧写法"**再跑同一帧 ⇒ GL 调用序列逐条
+#   相同）+ 分组正确性（探针台账 vs 独立复算：主影响骨/bbox/质心/影响骨表/父链；含"blendIndices[0]
+#   分组会得到 13 组 ≠ 29 组"的区分力对照）+ 筛选语义（单骨/闭区间/`*` 后代/all 四种规格的**实绘索引集**
+#   与独立期望逐位一致；三档 `?subtri=` 条数一致；空集筛选 0 次 draw）+ 台账字段与真动画判别力
+#   （hina 三条 additive 层：位移时程/三角形变号计数非平凡）。真包缺失时内部 SKIP-视作-PASS。~40s。
+add "submesh-probe"      "node tests/submesh-probe-test.mjs"
+
+# ——— ①(P-109-BASELINE 2026-09-17 §5-⑨ 真机基线快照：FPS / 分位 / 启动 / 切换 / 显存代理）———
+# 注册位置：**追加在 `add` 列表末尾**（既有 add 行号一字未动；仓内 `run-all-tests.sh:91`/`:98-99`/`:170`
+#   三处历史引用都在本行之前，不受影响）。编号带 `-BASELINE` 后缀：并行会话的 P-109 已用在
+#   `?submesh=` 子网格探针上（`docs/PATCHES.md` 的编号健康检查只要求"唯一 + 非降"，后缀与
+#   `P-75b`/`P-100-R1` 是同一套写法 ⇒ 两节谁先写进 PATCHES 都不会让 docs-check 红）。
+# 覆盖：分位/滚动窗口径逐值钉死 + 快照字段齐全与校验 + GL 代理计数（假 gl）+ 开关解析/三阶段切换/合并
+#   + `tools/baseline-diff.mjs` 的阈值与环境变量覆盖与退出码 0/1/2 + 真子进程服务 `POST /baseline`
+#   落盘与 400/405/上限滚动 + **默认关时零行为变化**（把 demo.html 的采集块真源码切出来，用桩 DOM/桩 gl
+#   跑：不开参数 ⇒ 不包装 GL / 零日志 / 零请求；开了 ⇒ 真跑到点并把快照 POST 出去）。
+#   ~2s（含一次真服务子进程）。**本机没有 GPU/WebGL2 ⇒ 本项只验工具链，不产出任何真机数字**。
+add "baseline"           "node tests/baseline-test.mjs"
+
+# ——— ①(2026-09-17 参考资料隔离护栏，依律师意见）———
+# 断言对象：工作区根的 6 个第三方参考副本（归一后唯一内容落点 = `../references/**`）与取证归档
+#   `../Delete/**`（如 `Delete/we-official-shaders/`）。律师要的不是"我们说过没引用"，而是
+#   **可机器复核的"从未被引用 / 未进构建"**；本项把它变成 44 条断言（每条都带判别力自检）：
+#   ① ref-import-free      全仓源码/测试/脚本中 import/require/readFile/fetch 的**实参位置**
+#                          指向参考副本或归档目录 = **0 处**（注释/文档引注 **允许**，那是行为对照的写法）；
+#   ② pack-and-site-clean  `npm pack --dry-run` 清单（144 个文件）与真跑 `build-pages.mjs --out <tmp>`
+#                          的站点产物（189 个文件）中 = **0 个**来自上述目录；
+#   ③ ignore-and-whitelist `.gitignore` 显式覆盖 `references/`、`Delete/` 与 6 个旧路径名，
+#                          且 `package.json` 的 `files` 白名单一旦收录它们 → 立即变红；
+#   ④ legacy-path-shim     工作区根的同名旧路径**只允许是符号链接**（解析到 `references/**`）——
+#                          换回真实目录（内容回流）立即变红。旧路径必须保留可解析：历史取证命令
+#                          `git -C …/wer-ref remote -v` 与 `docs-check` 的引用存在性校验都按旧路径走。
+# 注册位置：**追加在 `add` 列表末尾**。~3s（含一次 npm pack 与一次站点构建，产物写 os.tmpdir()）。
+# 详细口径与"若权利人联系"的处置指向：`docs/REFERENCE-ISOLATION.md`（工作区根 `docs/`）。
+add "reference-isolation" "node tests/reference-isolation-check.mjs"
+
+# ——— ①(P-110 2026-09-17 bind 世界链乘法顺序修正：UNTOUCHED-AREAS A 项"眉毛翻转"数值根因）———
+# 注册位置：**追加在 `add` 列表末尾**（既有 add 行一字未动）。覆盖：TN1 链序恒等式（组成律 + 数据，
+#   5 个蒙皮包逐骨）+ TN2 静止帧逐位不变（gBones=I 且蒙皮后顶点=原始顶点；改前/改后逐顶点对拍）
+#   + TN3 `gBones` 组装顺序判据（`bindInv × m` 保枢轴距 / `m × bindInv` 不保；含 elysia 反例）
+#   + TN4 全语料回归（hina/girl/凯尔希/0917×2 + 伊蕾娜无 puppet 对照：几何 bbox、层矩形、`?bones=`
+#   台账、`?submesh=` 分组位移与翻转计数，改前 legacy vs 改后 default 逐包表）+ TN5 `?bindorder=legacy`
+#   回退语义 + TN6 反向变异（把默认序改回父先乘 ⇒ 本测试必红）。mock-GL 驱动真 `renderMeshLayer`。~2s。
+add "bind-order"         "node tests/bind-order-test.mjs"
+
+# ——— ①(P-112-BANDGEOM 2026-09-17 任务书 §5 第 4 条 / P1-5：两个"写完但没接线"的模块接线验收）———
+# 注册位置：**追加在 `add` 列表末尾**（既有 add 行一字未动，只在其后顺延 2 行）。
+# 模块契约另有既有两项（`web-frame-geometry` 50 断言 / `audio-band-array` 35 断言）；这两项只验**接线**：
+#   切 `demo.html` 的 MPW-BANDFEED / MPW-AUDIOBUFFERS / MPW-FRAMEGEOM 三个真源码块 + 内核的真导出，
+#   注入桩（假 analyser / 假 video 元素 / 假 window.parent）跑真实分支；不碰 DOM/GPU/网络，~0.2s。
+#   口径：`?bandfeed=`（128 元数组 → 场景层 `registerAudioBuffers` + 宿主消息）、
+#   `?framegeom=`（帧盒三态 + 指针口径的祖先 transform 补偿）；**两项都缺省关**，且
+#   "关 = 逐位不变"与"开 = 真的到达消费点"各自有独立断言（含 NaN 透传、零 postMessage 等边界）。
+#   每项自带 **RED-IF-REVERTED**：把真源码切片改回旧行为 ⇒ 对应结论必须变红（绿色运行也打印 RED 行）。
+#   接线说明/开关/实测数字/未定清单：`docs/AUDIO-BAND-WIRING.md`。
+add "audio-band-wiring"  "node tests/audio-band-wiring-test.mjs"
+add "frame-geometry-wiring" "node tests/web-frame-geometry-wiring-test.mjs"
+
 # —— --list ——
 if [ "$LIST" = 1 ]; then
   echo "共 ${#NAMES[@]} 项（slow=--fast 跳过；条件项=无数据自动 SKIP）："

@@ -134,14 +134,23 @@ stageAspect = stageW / stageH
 判据由 `frameGeomModeFromQuery(search)` 给出（`legacy`/`off` → `legacy`，其余 → `cover`），
 使回退开关本身也可被测试断言（不需要真起浏览器）。
 
-**现状（2026-09-16，P-102）**：本模块**尚未接线**到渲染器启动路径 —— 仓库里没有第二个 iframe 宿主
-调用它（`demo.html` 自己就是顶层页面，宿主形态由外部调用方决定）。因此：
+**现状（2026-09-17 / P-112-BANDGEOM 更新）**：本模块**已接线**（接线说明与实测数字见 `docs/AUDIO-BAND-WIRING.md`）：
 
-- **不需要**在 `docs/README-DIAGNOSTICS.md` 主表登记 `?frame`（`diag-flag-check.mjs` 的口径是
-  "代码里真实解析开关"的四个来源：`core/we-scene-bundle.js` / `demo.html` / `elysia/**` / 插件 `client.js`；
-  独立模块里的解析点不在其扫描范围内）。接线落地时再登记主表行，届时闸门会把它算进来。
-- `tests/web-frame-geometry-test.mjs` 断言的是**模块契约本身**（含回退开关解析），
-  不假设渲染器已经在用它。
+- **指针口径**（`frameClientPoint`）接在 `core/we-scene-bundle.js`：DOM `pointermove` 路径
+  （画布归一化）与 `window.__mpwPointer.space==='css'` 注入路径。开关 `?framegeom=cover`，缺省 legacy
+  ⇒ 逐位等于改动前的内联算式（含 NaN 透传）。**消费方**=场景粒子 `lockToPointer` 发射器的基准点。
+  ⚠ `space:'css'` 是"窗口坐标"还是"帧内 CSS 像素"在本仓库**没有生产者可证**（grep 0 命中）⇒ 本次按
+  窗口坐标解释，标为**未定**（接线文档 §4 第 4 条）。
+- **覆盖式视口**（`coverViewport`/`contentAspectOf`/`frameVisibleRect`）接在 `demo.html` 的 **video 壁纸**
+  帧盒（`?framegeom=cover|contain|stretch`，缺省 legacy = 不碰元素样式）。
+- **web 壁纸 iframe 的尺寸路径仍未接**（**缺证据**）：那个帧由三方 minified 渲染器自建自算
+  （`demo/assets/renderer-BOSoB05I.js` 的 `nw()`/`Y1()` 是模块内私有函数，公开面 `window.__wp` 无几何 setter；
+  改产物违反本仓库纪律），另一个宿主在插件树里（本任务禁改）⇒ 要接需先有一个可注入的宿主契约（未定）。
+- **主表登记**：`framegeom` 已进 `docs/README-DIAGNOSTICS.md`（代码里真实解析）。模块自带的 `?frame=legacy|off|0`
+  由 `frameGeomModeFromQuery` 在**模块内**解析（`diag-flag-check.mjs` 的四个扫描源不含独立模块 ⇒ 不登记，
+  口径见本文 §5 原文）；它仍是**优先级最高**的回退（`?framegeom=cover&frame=legacy` ⇒ legacy）。
+- 回归：模块契约 `tests/web-frame-geometry-test.mjs`；接线（含反向变异必红）
+  `tests/web-frame-geometry-wiring-test.mjs`。
 
 ---
 
