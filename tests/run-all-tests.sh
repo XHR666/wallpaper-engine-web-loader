@@ -267,6 +267,20 @@ add "baseline-trend"     "node tests/baseline-trend.mjs" "" "^SKIP baseline-tren
 #      时钟倍率 / 颜色串：把真源码改回旧写法 ⇒ 对应断言必须变红）。~0.3s，纯 Node（不依赖 DOM/GPU）。
 add "display-options"    "node tests/display-options-test.mjs"
 
+# ——— ①(P-114 2026-09-18 任务书 P0-5：hlsl2glsl「只 vendored 未接线」的**诚实收口**）———
+# 注册位置：**追加在 `add` 列表末尾**（既有 add 行一字未动，只在其后顺延 2 行）。
+# 结论（证据见 docs/PATCHES.md P-114）：**不接 vendored**，门禁改为守**在跑的那份**（自研，`core/we-scene-bundle.js:4106`）。
+#   取证：真渲染路径口径（11 包 128 个 effect-chain 作业、真 combos）自研 **128/128** 真编译通过、
+#   vendored **120/128**（8 个作业 vendored 编不过而自研全过，反方向 0 个）。根因：我们的 `common*.h`
+#   自研头表要求"uniform 声明提前"（`:4358`）等自有修复，vendored 那份是按上游 headers.ts 写的。
+# 两项回归：
+#   · `hlsl2glsl-coverage` 已改测**在跑的实现** + 新增"接线身份"断言（bundle 0 处引用 vendor / 调用点在位 /
+#     被测实现 ≡ bundle 导出）+ A/B 对照断言（vendored 不存在"自研编不过而它编得过"的文件）；
+#   · `hlsl2glsl-wiring`（本行）**仪器化真渲染路径**：mock-GL 捕获 `gl.shaderSource()` 收到的 GLSL，
+#     与两份实现逐字节对拍（探针给出渲染器真实 combos），并带 RED-IF-REVERTED（把真源码变异成"接 vendored"
+#     ⇒ 判定必须翻转）。13 断言；~0.6s；缺语料/缺 glslangValidator 时内部 SKIP 视作 PASS，不红。
+add "hlsl2glsl-wiring"   "node tests/hlsl2glsl-wiring-test.mjs"
+
 # —— --list ——
 if [ "$LIST" = 1 ]; then
   echo "共 ${#NAMES[@]} 项（slow=--fast 跳过；条件项=无数据自动 SKIP）："
@@ -296,22 +310,22 @@ declare -a RESULTS FAILNAMES
 # ①(P-70 2026-09-15) **门禁互斥锁**：两个 run-all-tests 并发跑会互相抢 CPU/swap，把
 #   `visual-diff-kal`（整条门禁里偶发挂到 600s 超时、单独跑 1.1s）、`time-variation`、
 #   `package-matrix` 拖成**假红**，并共享 /tmp 临时产物互相踩。实证：本轮 P-64/P-65/P-67/P-68
-#   四个会话各遇到一次，每次单独复跑都绿。这里用 mkdir 原子性做锁：拿不到就等待（最多 20 分钟），
-#   超过 30 分钟的锁视为陈旧自动回收。`MPW_GATE_NOLOCK=1` 可显式跳过（逃生口）。
-LOCKDIR=/tmp/.mpw-gate.lock
+#   四个会话各遇到一次，每次单独复跑都绿。
+#
+# ②(2026-09-18 **统一锁协议**) 这里原来用 `mkdir /tmp/.mpw-gate.lock`，而同一天定下的"重活互斥"
+#   协议是 `exec 9>/tmp/.mpw-gate.lock; flock 9` —— **同一路径两种语义**：路径上只要留了一个普通文件
+#   （flock 留下的），mkdir 永远失败，而陈旧回收只认目录 ⇒ 门禁白等 20 分钟然后 exit 1
+#   （真机两次：两个并行 agent 各撞一次，其中一次把本脚本的等待进程卡死）。
+#   现在统一成 **flock 同一个锁文件**：拿不到就等（最多 20 分钟），空文件/陈旧文件都不会再造成死锁；
+#   本脚本自己持锁 ⇒ 调用方**不要**再在外面套一层 flock（否则会自己等自己）。
+LOCKFILE=/tmp/.mpw-gate.lock
 if [ "${MPW_GATE_NOLOCK:-0}" != "1" ]; then
-  _waited=0
-  while ! mkdir "$LOCKDIR" 2>/dev/null; do
-    if [ -d "$LOCKDIR" ] && [ -n "$(find "$LOCKDIR" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then
-      echo "⚠ 发现超过 30 分钟的门禁锁（$LOCKDIR），按陈旧回收" >&2
-      rmdir "$LOCKDIR" 2>/dev/null; continue
-    fi
-    if [ "$_waited" = 0 ]; then echo "⏳ 另一个 run-all-tests 正在运行 —— 等待它结束（最多 20 分钟；MPW_GATE_NOLOCK=1 可跳过）"; fi
-    _waited=$((_waited+1))
-    if [ "$_waited" -gt 240 ]; then echo "✗ 等待超时（20 分钟），另一个门禁仍未结束" >&2; exit 1; fi
-    sleep 5
-  done
-  trap 'rmdir "$LOCKDIR" 2>/dev/null' EXIT INT TERM
+  exec 9>"$LOCKFILE" || { echo "✗ 无法打开锁文件 $LOCKFILE" >&2; exit 1; }
+  if ! flock -n 9; then
+    echo "⏳ 另一个重活在跑（flock $LOCKFILE）—— 等待它结束（最多 20 分钟；MPW_GATE_NOLOCK=1 可跳过）"
+    if ! flock -w 1200 9; then echo "✗ 等待超时（20 分钟），另一个重活仍未结束" >&2; exit 1; fi
+    echo "✓ 拿到锁，开始跑门禁"
+  fi
 fi
 LASTLOG=/tmp/run-all-tests-last.log
 # ①(P-70) 每次运行一个**唯一**的临时目录：`visual-diff-kal` 等的 --out 不再写死 /tmp/vd，

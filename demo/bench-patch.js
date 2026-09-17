@@ -1027,6 +1027,11 @@ export function clampLogsHeight(px, viewportH, min = 80, maxFrac = 0.72) {
 
 /** 站点外壳初始化。ctx = { t, lang, log }（都是可选；缺省安全降级）。 */
 export function initSiteShell(ctx = {}) {
+  // ①(修正 2026-09-18 门禁抓到) 版本/新 DOM 两个值由**调用方注入**（ctx），不要直接引用模块作用域常量：
+  //   它们在浏览器初始化区里声明，而本函数定义在更前面 ⇒ 直接引用会 ReferenceError，被外层 catch 吞掉后
+  //   表现为"外壳初始化失败"（静态 CSS 仍在 ⇒ 页面看着还行，但切页/切换栏/拖动全部失效 —— 典型的假绿）。
+  const VER = ctx.shellVersion || (typeof window !== 'undefined' && window.__benchShellVersion) || 'bench-shell (unknown)'
+  const DOM_NEW = ctx.domIsNew !== undefined ? !!ctx.domIsNew : !!(typeof document !== 'undefined' && document.querySelector && document.querySelector('#pages-track'))
   const tr = typeof ctx.t === 'function' ? ctx.t : ((l, k) => k)
   const curLang = typeof ctx.lang === 'function' ? ctx.lang : (() => 'zh')
   const D = typeof document !== 'undefined' ? document : null
@@ -1235,9 +1240,22 @@ export function initSiteShell(ctx = {}) {
     const n = Number(raw)
     return Number.isFinite(n) && n > 0 ? n : 220
   }
+  function stageFloorPx() { return 140 }   // 舞台保底高度（窄视口下不许被工具栏/控制台吃光）
+  function maxLogsForLayout() {
+    if (!mainEl) return 220
+    try {
+      const mainH = mainEl.getBoundingClientRect().height
+      const chromeH = (q('#editor-chrome') || { getBoundingClientRect: () => ({ height: 0 }) }).getBoundingClientRect().height
+      const rest = mainH - chromeH - 6 - stageFloorPx()
+      return Math.max(60, Math.round(rest))
+    } catch { return 220 }
+  }
   function setLogsHeight(px, persist = true) {
     if (!mainEl) return 0
-    const v = clampLogsHeight(px, (typeof innerHeight === 'number' ? innerHeight : 800))
+    // ①(修正 2026-09-18 窄视口塌陷) 上限同时受"给舞台留 140px"约束：真机在 ≤900×620 且控制台展开时
+    //   #toolbar 换行长到 337px，把 1fr 吃光 ⇒ 舞台高度 0、壁纸缩到左上角。这里按真实几何钳制。
+    const v0 = clampLogsHeight(px, (typeof innerHeight === 'number' ? innerHeight : 800))
+    const v = Math.min(v0, maxLogsForLayout())
     mainEl.style.setProperty('--mpw-logs-h', v + 'px')
     const collapsed = v === 0
     try { mainEl.classList.toggle('logs-collapsed', collapsed) } catch {}
@@ -1354,6 +1372,29 @@ export function initSiteShell(ctx = {}) {
     }
   } catch {}
 
+  /* ①(2026-09-18) 窗口尺寸变化 ⇒ 重新按几何钳制控制台高度（窄窗口下把舞台让出来）。
+     用 rAF 去抖，避免拖动窗口时抖动；只在需要变小时改，不会把用户手动调高的值顶回去。 */
+  try {
+    if (typeof addEventListener === 'function') {
+      let rt = null
+      addEventListener('resize', () => {
+        if (rt) return
+        rt = setTimeout(() => {
+          rt = null
+          try {
+            const cur = logsHeight()
+            const cap = maxLogsForLayout()
+            if (cur > cap) setLogsHeight(cap)
+          } catch { /* 忽略 */ }
+        }, 120)
+      })
+    }
+  } catch {}
+
+  /* ①(2026-09-18) 版本标记：唯一权威判据是 `<html data-bench-shell-version>` 与 `window.__benchShellVersion`
+     （都在模块作用域写入，已验证生效）。这里再把它挂进 api，便于测试与用户核对；不再往状态栏插节点
+     ——那一版在真机上静默失败（原因未查明，属非必要装饰，按"宁缺勿假"去掉）。 */
+
   /* 首次上电 */
   setPage(getPage(), false)
   setLogsHeight(logsHeight(), false)
@@ -1365,6 +1406,7 @@ export function initSiteShell(ctx = {}) {
   return {
     setPage, getPage, popOpen, refreshSwitcher, listItems,
     logsHeight, setLogsHeight, paintLogsArrow, paintPropsEmpty, paintStatus,
+    shellVersion: VER, domIsNew: DOM_NEW, maxLogsForLayout,
   }
 }
 
@@ -1958,7 +2000,8 @@ export function init() {
     '#props[hidden]{display:flex!important}',
     '.props-empty{padding:14px 12px;color:var(--fg-mute);font-size:12.5px;line-height:1.75}',
     '.props-empty strong{display:block;color:var(--fg-dim);margin-bottom:4px}',
-    '#main{grid-column:3;grid-template-rows:auto minmax(0,1fr) 6px var(--mpw-logs-h,220px)!important}',
+    '#toolbar{max-height:30vh;overflow-y:auto}',
+    '#main{grid-column:3;grid-template-rows:auto minmax(140px,1fr) 6px minmax(60px,var(--mpw-logs-h,220px))!important}',
     '#main.logs-collapsed{grid-template-rows:auto minmax(0,1fr) 6px 34px!important}',
     '#editor-chrome{grid-row:1}',
     '#workspace{grid-row:2}',
@@ -2024,7 +2067,34 @@ export function init() {
   }
   // `?shell=off` = 新样式总回退：既不注入站点外壳 CSS、也不初始化外壳（旧行为，一行 URL 复原）
   const SHELL_OFF = (() => { try { return /[?&]shell=(off|0|false|no)\b/.test(String((typeof location !== 'undefined' && location.search) || '')) } catch { return false } })()
-  const SITE_STYLE_INJECTED = SHELL_OFF ? false : injectSiteLayoutStyle()
+  // ①(修正 2026-09-18 第二起真机事故) 浏览器**缓存里的旧 HTML** + 新补丁：旧 DOM 没有 #pages-track，
+  //   而补丁的站点布局 CSS 只管新结构 ⇒ 套在旧 DOM 上就是"控制台缩到左上角、右边闪出 README"。
+  //   这里先认 DOM 版本：不是新 DOM 就**不注入**布局 CSS，并用带 cache-buster 的规范 URL 重新取一次文档
+  //   （URL 变了 ⇒ 浏览器必须走网络，绕开启发式缓存与 SW 缓存；sessionStorage 守卫只重取一次，不打转）。
+  /** 当前文档是否是「新样式外壳」的 DOM（静态 CSS + #pages-track）。 */
+  const shellDomIsNew = (doc0) => !!(doc0 && doc0.querySelector && doc0.querySelector('#pages-track'))
+  const DOM_IS_NEW = shellDomIsNew(typeof document !== 'undefined' ? document : null)
+  if (!SHELL_OFF && !DOM_IS_NEW && typeof location !== 'undefined') {
+    try {
+      const GUARD = 'bench-stale-html-renew'
+      if (!sessionStorage.getItem(GUARD)) {
+        sessionStorage.setItem(GUARD, '1')
+        const u = new URL(location.href)
+        u.searchParams.set('benchrenew', String(Date.now()))
+        location.replace(u.href)
+      }
+    } catch { /* 无 storage/无 URL：静默降级（至少不注入不匹配的布局 CSS） */ }
+  }
+  const SITE_STYLE_INJECTED = (SHELL_OFF || !DOM_IS_NEW) ? false : injectSiteLayoutStyle()
+  // ①(2026-09-18) 版本标记：把"当前页面到底是哪一版"变成可核对的事实（控制台/属性/状态栏都能看）——
+  //   用户报"还是不行"时，第一件事就是核对它（旧缓存会让 `window.__benchShellVersion` 整个不存在）。
+  const BENCH_SHELL_VERSION = 'bench-shell 2026-09-18a (static first-paint CSS; dom=' + (DOM_IS_NEW ? 'new' : 'old') + (SHELL_OFF ? '; shell=off' : '') + ')'
+  try {
+    if (typeof window !== 'undefined') {
+      window.__benchShellVersion = BENCH_SHELL_VERSION
+      if (document && document.documentElement) document.documentElement.setAttribute('data-bench-shell-version', BENCH_SHELL_VERSION)
+    }
+  } catch { /* 桩 DOM */ }
 
   // 图标：Lucide v0.545.0（ISC，© Lucide Contributors / Feather 部分 MIT）——
   //   用户给的 docs/SVG-ICONS.md 里已有 arrow-up / search，其余按同风格取 Lucide 同名条目；
@@ -3306,7 +3376,7 @@ export function init() {
   // ── ⑩ 站点外壳（2026-09-17 新样式）：在 syncAllLabels 之后初始化 —— 它要读已本地化的按钮文案。
   //   句柄挂 window（供 syncAllLabels 在语言切换时刷新，不走 TDZ 风险的闭包变量）。 ──
   if (!SHELL_OFF) try {
-    window.__benchShell = initSiteShell({ t, lang: () => curLang, log: (m) => logLine(String(m)) })
+    window.__benchShell = initSiteShell({ t, lang: () => curLang, log: (m) => logLine(String(m)), shellVersion: BENCH_SHELL_VERSION, domIsNew: DOM_IS_NEW })
     window.__benchShellRefresh = () => {
       try {
         const sh = window.__benchShell
@@ -3399,6 +3469,8 @@ export function init() {
     logsHeight: () => (window.__benchShell ? window.__benchShell.logsHeight() : null),
     setLogsHeight: (v) => (window.__benchShell ? window.__benchShell.setLogsHeight(v) : null),
     siteStyleInjected: () => SITE_STYLE_INJECTED,
+    shellVersion: () => BENCH_SHELL_VERSION,
+    domIsNew: () => DOM_IS_NEW,
     pickerStyleInjected: () => BENCH_STYLE_INJECTED,
     // 清单里可能不存在的 id：① 由 bindDropdown 动态创建 ② 可选控件（如复制链接按钮将来才加）
     dynamicIds: ['#bench-rd-btn', '#copy-url', '#bench-local'],   // 由补丁动态创建（#bench-local = 本地库容器）

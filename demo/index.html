@@ -53,7 +53,8 @@ html.bench-shell #props{grid-column:2;width:var(--mpw-props-w,320px);min-width:0
 html.bench-shell #props[hidden]{display:flex!important}
 html.bench-shell .props-empty{padding:14px 12px;color:var(--fg-mute);font-size:12.5px;line-height:1.75}
 html.bench-shell .props-empty strong{display:block;color:var(--fg-dim);margin-bottom:4px}
-html.bench-shell #main{grid-column:3;grid-template-rows:auto minmax(0,1fr) 6px var(--mpw-logs-h,220px)!important}
+html.bench-shell #toolbar{max-height:30vh;overflow-y:auto}
+html.bench-shell #main{grid-column:3;grid-template-rows:auto minmax(140px,1fr) 6px minmax(60px,var(--mpw-logs-h,220px))!important}
 html.bench-shell #main.logs-collapsed{grid-template-rows:auto minmax(0,1fr) 6px 34px!important}
 html.bench-shell #editor-chrome{grid-row:1}
 html.bench-shell #workspace{grid-row:2}
@@ -104,6 +105,10 @@ html.bench-shell html:not([lang="en"]) .lang-en{display:none}
         try {
           if (/[?&]shell=(off|0|false|no)\b/.test(location.search)) return
           document.documentElement.classList.add('bench-shell')
+          // ①(2026-09-18) 在产物启动**之前**把它的"活动视图"键写成 explorer：
+          //   产物启动时 `O(存的值 === 'explorer' ? 'explorer' : 'docs')`，任何非 explorer 都会切到 docs(README)。
+          //   这里抢先写好 ⇒ 它自己就走非 docs 分支，属性抖动与"闪 README"从源头消失（CSS 锁仍作为第二道保险）。
+          try { localStorage.setItem('we-bench-view', 'explorer') } catch (e) {}
         } catch (e) {}
       })()
     </script>
