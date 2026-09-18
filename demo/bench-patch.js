@@ -1188,6 +1188,486 @@ export function mainViewPlan(env) {
   return { docsOnly, cls: docsOnly ? 'bench-view-docs' : '', reason: docsOnly ? 'docs-only' : (chrome ? 'stage' : 'chrome-hidden') }
 }
 
+/* ═══════════════ ⑭(P-142 2026-09-19 用户第 1/2/3 项) 资源管理器收纳 + 声音控件（NowPlaying）+ video 壁纸声音接线 ═══════════════
+   用户原话：
+     ①「8901 最左边的资源管理器，也要设置一个可以将它收纳起来的按键」
+     ②「把调整它这个声音的这一项放到**壁纸配置的下面**（壁纸配置这一栏的下半部分做成声音控件），
+        声音控件可以被展开，按它当前的范围大小算它后面被挡住的选项」
+     ③「有一些 video 壁纸它也是有声音的，但是默认给他静音掉了 —— Video 壁纸的声音也要接入我这个声音的控件」
+
+   三条落点（本文件只做 JS；样式/标记在 demo/index.html 的静态表里，见那里的 ⑭ 段）：
+     ① `#sidebar-toggle`（`demo/index.html` 里 `.sidebar-title` 行右侧那个把手）两态开关：
+        状态类挂在 **`<body>`** 上（`bench-nav-collapsed`）而不是 `<html>` 上 —— 理由：
+        `tests/demo-check.mjs` 的 D8 会把 `SITE_LAYOUT_CSS` 的每条选择器自动前缀成 `html.bench-shell <选择器>`，
+        只有**后代选择器**能被那条判据表达；类挂 body ⇒ 规则仍进 SITE_LAYOUT_CSS，D8 照样逐条守。
+        首帧由 `<body>` 开头的同步脚本从 localStorage 加类（不闪一下展开态），本函数只做"对齐 aria + 兜底补类"。
+        舞台跟着重算：收起 = 网格第 1 列只剩导轨宽（`--mpw-lib-w:26px`），`#workbench` 是
+        `grid-template-columns:var(--mpw-lib-w,300px) auto minmax(0,1fr)` ⇒ `#main`/`#stage` 自动多出那 274px，
+        不留空白占位（有几何断言）。
+     ② `#np-host`（`#props` 里的浮层，见 index.html）：上半部是组件（React 独占 `#np-mount`），
+        下半部是本补丁自己的传输条（音量/静音/进度 —— **组件没有这些入口**，见 `now-playing/README.md` 与
+        `mount.tsx`：`mountNowPlaying(el, {morph,corner,stroke})` 只有三个旋钮，没有回调/受控属性）。
+        遮挡几何由 `npOcclusionPlan()` 算（纯函数）：收起态 = 那一条窄条（78px 的 `.snd-box`）+ 传输条，
+        展开态 = 189px 的卡片 + 传输条；`#props-body` 的 `padding-bottom` 把**展开态**的高度也算进去
+        ⇒ 两个状态下每一个属性项都滚得到（"不许永久遮住"是可断言的不变量）。
+     ③ video 壁纸的 `<video>` 在**同源 iframe**（`#frame` → renderer）里。播放/暂停走组件播放键的
+        `aria-pressed`（React 的离散事件在它自己的根监听器里同步 flush，我们的监听器挂在它的父节点 `#np-host`
+        并再等一个微任务 ⇒ 读到的一定是新状态），音量走 `__wp.setVolume()`（renderer 自己的契约：
+        `setVolume(t){…ue.video.volume=…;ue.video.muted=t<=0…}`，见 `demo/assets/renderer-BOSoB05I.js`）
+        **并且**直接写 `<video>` 元素（API 缺席/漂移时的落点）；进度按 `timeupdate`/`durationchange` 同步。
+        默认仍是静音（用户抱怨的是"没接进控件"，不是"必须自动出声"）。
+
+   本段全部**无浏览器可测**：纯函数 + `initNavSound({doc, win, …})` 依赖注入（假 DOM 驱动真代码），
+   见 `tests/p142-nav-sound-test.mjs`。 */
+
+/** ⑭a 资源管理器收纳：状态 → 视图计划（纯函数；门禁逐值断言）。 */
+export const NAV_COLLAPSED_STORE = 'bench-sidebar-collapsed'
+export const NAV_RAIL_W = 26
+export function sidebarCollapsePlan(collapsed) {
+  const on = !!collapsed
+  return {
+    collapsed: on,
+    bodyClass: 'bench-nav-collapsed',
+    railWidth: NAV_RAIL_W,
+    store: on ? '1' : '0',
+    ariaExpanded: on ? 'false' : 'true',
+    // 文案：**不进 DICT**（T1 把词典逐键钉在上游 bench/i18n.ts 上）⇒ 双语静态串
+    title: on ? '展开资源管理器 / Expand explorer' : '收起资源管理器 / Collapse explorer',
+    // 首帧脚本与运行期开关读的是同一个键/同一个值域：'1' = 收起，其余 = 展开
+    readCollapsed: (raw) => raw === '1',
+  }
+}
+
+/** ⑭b 声音控件的遮挡计划（纯函数）：给定几何 → 展开/收起各遮挡**哪些**属性项 + 是否有滚不到的项。
+ *  几何全部来自真实 `getBoundingClientRect()`（浏览器里就是实测；测试里由假 DOM 提供）。
+ *  · `cover` = 从 `#props-body` 底边往上、到**最高遮挡矩形上边**的距离（属性表要预留这么多底高）；
+ *  · `covered` = 与**可见遮挡矩形**（卡片 / 传输条）相交的属性项 —— 透明空隙不算遮挡；
+ *  · `unreachable` = 即便滚到底也露不出来的项（判据：项底(内容坐标) > scrollHeight − cover）。
+ *    ⚠ `body` 必须带**元素自己的**滚动口径（`scrollTop`/`scrollHeight`，它们**不是** rect 的字段）；
+ *    给不出这两个数时不猜（`scrollKnown:false` + `unreachable` 空）—— 否则会静默变成"全都够不着"
+ *    或"全都够得着"的假结论。`measure()` 就是这么传的，门禁断言 `scrollKnown === true`。 */
+export function npOcclusionPlan(input) {
+  const i = input || {}
+  const items = Array.isArray(i.items) ? i.items.filter((x) => x && x.rect) : []
+  const occluders = []
+  if (i.card) occluders.push({ name: 'card', rect: i.card })
+  if (i.strip) occluders.push({ name: 'strip', rect: i.strip })
+  const hit = (a, b) => !!a && !!b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+  const covered = items.filter((x) => occluders.some((o) => hit(x.rect, o.rect))).map((x) => x.id)
+  const body = i.body || null
+  const cover = body && occluders.length ? Math.max(0, Math.round(body.bottom - Math.min(...occluders.map((o) => o.rect.top)))) : 0
+  const sh = Number(body && body.scrollHeight), st = Number(body && body.scrollTop)
+  const scrollKnown = !!(body && isFinite(sh) && sh > 0)
+  const unreachable = scrollKnown
+    ? items.filter((x) => (x.rect.bottom - body.top) + (isFinite(st) ? st : 0) > sh - cover + 0.5).map((x) => x.id)
+    : []
+  return { cover, covered, coveredCount: covered.length, unreachable, unreachableCount: unreachable.length, scrollKnown: scrollKnown, occluders: occluders.map((o) => o.name), items: items.length }
+}
+
+/** 秒 → m:ss（传输条读数；与组件自己的 `clock()` 同形状，但**不 import 组件**以免页面多拉一个模块）。 */
+export function npClock(sec) {
+  const s = Number(sec)
+  if (!isFinite(s) || s < 0) return '0:00'
+  return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0')
+}
+
+/**
+ * ⑭c 收纳 + 声音控件 + video 声音接线的运行期实现。依赖注入 ⇒ 假 DOM 可驱动**真代码**。
+ * deps = { doc, win, loadNowPlaying?, setTimeout?/clearTimeout?/setInterval?/clearInterval? }
+ * 返回的对象是本段的全部可观察面（X11 真机读它，门禁也读它）。
+ */
+export function initNavSound(deps = {}) {
+  const D = deps.doc || (typeof document !== 'undefined' ? document : null)
+  if (!D || !D.body || typeof D.querySelector !== 'function') return null
+  const W = deps.win || (typeof window !== 'undefined' ? window : null) || {}
+  const q = (sel) => { try { return D.querySelector(sel) } catch { return null } }
+  const later = typeof deps.setTimeout === 'function' ? deps.setTimeout : (typeof setTimeout === 'function' ? setTimeout : null)
+  const every = typeof deps.setInterval === 'function' ? deps.setInterval : (typeof setInterval === 'function' ? setInterval : null)
+  const stopEvery = typeof deps.clearInterval === 'function' ? deps.clearInterval : (typeof clearInterval === 'function' ? clearInterval : null)
+  const clamp01 = (v) => { const n = Number(v); return isFinite(n) ? Math.max(0, Math.min(1, n)) : 0 }
+  const rectOf = (el) => { try { return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null } catch { return null } }
+
+  /* ── ① 资源管理器收纳（`#sidebar-toggle` 两态开关） ───────────────────────────── */
+  const sidebar = q('#sidebar'), navBtn = q('#sidebar-toggle')
+  const store = (() => {
+    const own = W && W.localStorage
+    return {
+      get(k) { try { return own ? own.getItem(k) : null } catch { return null } },
+      set(k, v) { try { if (own) own.setItem(k, v) } catch { /* 隐私模式/不透明源：忽略 */ } },
+    }
+  })()
+  const navNow = () => { try { return !!(D.body.classList && D.body.classList.contains('bench-nav-collapsed')) } catch { return false } }
+  function paintNav() {
+    const p = sidebarCollapsePlan(navNow())
+    if (navBtn) {
+      // aria-expanded 说的是**这块面板**是否展开（收起 = false），与 <button> 的"可用性"无关
+      try { navBtn.setAttribute('aria-expanded', p.ariaExpanded) } catch {}
+      try { navBtn.setAttribute('title', p.title) } catch {}
+      try { navBtn.setAttribute('aria-label', p.title) } catch {}
+    }
+    return p
+  }
+  function setNavCollapsed(v, persist = true) {
+    const p = sidebarCollapsePlan(v)
+    // 绝对写法（classList.toggle(cls, want)）而不是"翻转"：连点 N 次的结果只由 N 的奇偶决定，
+    // 不存在"按当前状态反推"的竞态（用户点名的"点几次就重复开/关"就是这类 bug）
+    try { D.body.classList.toggle(p.bodyClass, p.collapsed) } catch {}
+    paintNav()
+    if (persist) store.set(NAV_COLLAPSED_STORE, p.store)
+    measure()
+    return p.collapsed
+  }
+  // 一个按钮 = 一个监听器。重复 init（或将来有人再调一次）不许变成"一次点击翻两下"：
+  // 元素上留标记，第二次直接跳过绑定。
+  if (navBtn && !navBtn.__benchNavBound) {
+    navBtn.__benchNavBound = true
+    // 原生 <button>：Tab 可达、Enter/Space 由浏览器派发 click ⇒ **不再补 keydown**
+    //（补了就会"键盘触发一次 + click 再一次" = 双重翻转，正是上面那条 bug）
+    navBtn.addEventListener('click', (e) => {
+      try { e && e.preventDefault && e.preventDefault() } catch {}
+      setNavCollapsed(!navNow())
+    })
+  }
+  // 首帧类由 <body> 开头的同步脚本加；这里按同一个键对齐一次（storage 不可用时 = 展开）
+  try { D.body.classList.toggle('bench-nav-collapsed', sidebarCollapsePlan(false).readCollapsed(store.get(NAV_COLLAPSED_STORE))) } catch {}
+  paintNav()
+
+  /* ── 遮挡几何（`#props` 下半部的声音控件 vs 上半部的属性表） ──────────────────── */
+  const propsEl = q('#props'), hostEl = q('#np-host'), mountEl = q('#np-mount')
+  const propsBody = q('#props-body'), stripEl = q('#np-audio'), stageEl = q('#frame')
+  const propsItems = () => {
+    if (!propsBody || !propsBody.children) return []
+    // 属性项 = #props-body 的直接子元素，滤掉补丁自己插的空态（与 paintPropsEmpty 同一口径）
+    return [...propsBody.children].filter((el) => el && el.id !== 'props-empty' && el.id !== 'np-host')
+  }
+  const itemsWithRect = () => propsItems().map((el, i) => ({
+    id: String((el.dataset && el.dataset.propId) || el.id || 'prop#' + i),
+    rect: rectOf(el),
+  })).filter((x) => x.rect)
+  function measure() {
+    // `body` 除了 rect 还要带**元素自己的**滚动口径（scrollTop/scrollHeight 不在 rect 上）：
+    // 少了它们，"有没有滚不到的项"这条判据会静默失效（真机 2026-09-19 自测抓到过一次）
+    const bodyRect = rectOf(propsBody)
+    const body = bodyRect ? {
+      left: bodyRect.left, right: bodyRect.right, top: bodyRect.top, bottom: bodyRect.bottom,
+      scrollTop: propsBody ? Number(propsBody.scrollTop) || 0 : 0,
+      scrollHeight: propsBody ? Number(propsBody.scrollHeight) || 0 : 0,
+    } : null
+    const plan = npOcclusionPlan({
+      body: body,
+      card: rectOf(q('#np-mount .snd-box')),      // 组件的可视盒：收起 78 / 展开 189（由组件自己 morph）
+      strip: rectOf(stripEl),
+      items: itemsWithRect(),
+    })
+    if (hostEl) {
+      try {
+        hostEl.setAttribute('data-cover', String(plan.cover))
+        hostEl.setAttribute('data-covered', String(plan.coveredCount))
+        hostEl.setAttribute('data-unreachable', String(plan.unreachableCount))
+        hostEl.setAttribute('data-items', String(plan.items))
+        hostEl.setAttribute('data-scroll', String(propsBody ? Number(propsBody.scrollTop) || 0 : 0))
+        hostEl.setAttribute('data-covered-ids', plan.covered.join(','))   // 滚一滚换的是"哪几项"（计数可能不变）
+      } catch {}
+    }
+    return plan
+  }
+  // 属性表滚动 ⇒ 被浮层压住的是**哪几项**会变（浮层固定在下半部）⇒ 去抖 120ms 重算一次。
+  // 只读几何 + 写 4 个 data-*（不碰任何布局），与 refreshSwitcher 的 60ms 去抖同一套写法。
+  if (propsBody && !propsBody.__benchNpScrollBound) {
+    propsBody.__benchNpScrollBound = true
+    let st = null
+    propsBody.addEventListener('scroll', () => {
+      if (st) return
+      st = later(() => { st = null; measure() }, 120)
+    })
+  }
+
+  /* ── ② 声音控件：挂载（React 独占 #np-mount；本补丁不碰它的子树） ─────────────── */
+  let npApp = null, npState = 'idle'
+  const npLoad = typeof deps.loadNowPlaying === 'function'
+    ? deps.loadNowPlaying
+    // 相对本模块 ⇒ /demo/ 与 /WEwebLoader/ 两个挂载点都成立（8902 的 /demo/** 与 /WEwebLoader/** 同一份树）
+    : () => import('./now-playing/dist/now-playing.js')
+
+  /* ── ③ video 壁纸的声音接线（同源 iframe 里的 <video>） ─────────────────────── */
+  const frameDoc = () => { try { return stageEl && stageEl.contentDocument ? stageEl.contentDocument : null } catch { return null } }
+  const stageVideos = () => { const d = frameDoc(); try { return d && d.querySelectorAll ? [...d.querySelectorAll('video')] : [] } catch { return [] } }
+  const stageApi = () => {
+    try {
+      const a = stageEl && stageEl.contentWindow && stageEl.contentWindow.__wp
+      return a && typeof a.setVolume === 'function' ? a : null
+    } catch { return null }
+  }
+  /** 在播的那一个（videoPairs 双缓冲时选它）；没有在播的取第一个有元数据的。 */
+  const activeVideo = () => {
+    const vids = stageVideos()
+    return vids.find((v) => v && v.paused === false) || vids.find((v) => v && Number(v.duration) > 0) || vids[0] || null
+  }
+  const volEl = q('#np-volume'), muteBtn = q('#np-mute'), seekEl = q('#np-seek')
+  const runEl = q('#np-run'), timeEl = q('#np-time'), stageNote = q('#np-stage'), toolbarVol = q('#volume')
+  let vol = toolbarVol ? clamp01(toolbarVol.value) : 0    // 初始 = 工具条那支（挂载参数同一来源），默认 0 = 静音
+  let muted = !(vol > 0)
+  const paintMute = () => {
+    if (!muteBtn) return
+    const on = muted || !(vol > 0)
+    try { muteBtn.setAttribute('aria-pressed', on ? 'true' : 'false') } catch {}
+    try { muteBtn.setAttribute('title', on ? '取消静音 / Unmute' : '静音 / Mute') } catch {}
+    for (const [id, hide] of [['#np-mute-slash', !on], ['#np-mute-wave', on]]) {
+      const p = q(id); if (!p) continue
+      try { if (hide) p.setAttribute('hidden', ''); else p.removeAttribute('hidden') } catch {}
+      // SVG 子元素上的 `hidden` 属性在不同引擎里可靠性不一 ⇒ 同时写 style（两条都写，互为兜底）
+      try { if (p.style) p.style.display = hide ? 'none' : '' } catch {}
+    }
+  }
+  /** 唯一的音量落点：`__wp.setVolume()`（renderer 契约 → `<video>.volume/.muted` + 场景音轨）+
+   *  直接写每个 `<video>`（API 不在时也**真的**作用到元素上）。`el.volume` 始终保滑块值，muted 另算。 */
+  function applyAudio() {
+    const eff = (muted || !(vol > 0)) ? 0 : vol
+    const api = stageApi()
+    if (api) { try { api.setVolume(eff) } catch { /* 渲染器拒绝/未就绪：下面的元素直写仍然生效 */ } }
+    for (const el of stageVideos()) {
+      try { el.volume = clamp01(vol); el.muted = !(eff > 0) } catch {}
+    }
+    if (volEl) { try { if (String(volEl.value) !== String(vol)) volEl.value = String(vol) } catch {} }
+    if (toolbarVol) { try { if (String(toolbarVol.value) !== String(vol)) toolbarVol.value = String(vol) } catch {} }   // 只写值、不派发事件 ⇒ 不触发重挂载、不成环
+    paintMute()
+    return { vol, muted, effective: eff }
+  }
+  const setVideoVolume = (v) => { vol = clamp01(v); muted = !(vol > 0); applyAudio(); return vol }
+  const setVideoMuted = (m) => { muted = !!m; applyAudio(); return muted }
+  const toggleMute = () => setVideoMuted(!(muted || !(vol > 0)))
+  /** 播放/暂停：优先 `__wp.resume()/pause()`（它自己处理 videoPairs 与场景音轨，契约见文件头），
+   *  然后**核实**元素状态；API 缺席或没做到 ⇒ 直接落到在播的那一个元素上（只碰一个）。 */
+  function applyPlayPause(want) {
+    const api = stageApi()
+    if (api) {
+      try { want ? api.resume() : api.pause() } catch { /* 落到下面的直写 */ }
+      const a = activeVideo()
+      if (a && want !== !a.paused) { try { want ? a.play() : a.pause() } catch {} }
+    } else {
+      const a = activeVideo()
+      if (a) { try { want ? a.play() : a.pause() } catch {} }
+    }
+    paintProgress()
+    return want
+  }
+  function paintProgress() {
+    const a = activeVideo()
+    const dur = a && isFinite(Number(a.duration)) && Number(a.duration) > 0 ? Number(a.duration) : 0
+    const cur = a && isFinite(Number(a.currentTime)) ? Math.max(0, Number(a.currentTime)) : 0
+    const pct = dur > 0 ? Math.max(0, Math.min(100, (cur / dur) * 100)) : 0
+    if (runEl && runEl.style) runEl.style.width = pct.toFixed(2) + '%'
+    if (timeEl) timeEl.textContent = npClock(cur) + ' / ' + npClock(dur)
+    if (hostEl) { try { hostEl.setAttribute('data-state', !a ? 'no-video' : (a.paused ? 'paused' : 'playing')) } catch {} }
+    return { cur, dur, pct }
+  }
+  function seekStage(sec) {
+    const a = activeVideo()
+    if (!a) return false
+    try { a.currentTime = Math.max(0, Number(sec) || 0) } catch { return false }
+    paintProgress()
+    return true
+  }
+  /** 「下一个」：多视频（或多个 media 元素）时切到下一个；只有一个时与「重播」同义（= 回到 0）。 */
+  function nextStage() {
+    const vids = stageVideos()
+    if (vids.length < 2) return seekStage(0)
+    const a = activeVideo()
+    const i = Math.max(0, vids.indexOf(a))
+    const nxt = vids[(i + 1) % vids.length]
+    for (const v of vids) if (v !== nxt) { try { v.pause() } catch {} }
+    try { nxt.currentTime = 0; const r = nxt.play(); if (r && typeof r.catch === 'function') r.catch(() => {}) } catch {}
+    paintProgress()
+    return true
+  }
+  const VIDEO_EVENTS = ['timeupdate', 'durationchange', 'loadedmetadata', 'play', 'pause', 'ended', 'seeking', 'seeked']
+  function bindVideoEvents() {
+    for (const el of stageVideos()) {
+      if (!el || el.__benchNpBound) continue
+      el.__benchNpBound = true                       // 幂等：重挂载/重复探测不会叠加监听器
+      // 需求③：进度与 <video> 的 currentTime/duration 同步（订阅 timeupdate/durationchange…）
+      for (const ev of VIDEO_EVENTS) el.addEventListener(ev, () => paintProgress())
+    }
+  }
+  let probeTimer = null, probeTries = 0
+  function stopProbe() { if (probeTimer && stopEvery) { stopEvery(probeTimer); probeTimer = null } }
+  function probeStage() {
+    const n = stageVideos().length
+    if (n) {
+      bindVideoEvents()
+      applyAudio()
+      paintProgress()
+      stopProbe()                                                             // 找到就自停（不留常驻定时器）
+    }
+    if (stageNote) {
+      try {
+        stageNote.textContent = n
+          ? (n > 1 ? '视频壁纸 ×' + n + ' / media' : '视频壁纸已连接 / media linked')
+          : '未发现视频壁纸 / no video'
+      } catch {}
+    }
+    if (hostEl) { try { hostEl.setAttribute('data-stage', String(n)) } catch {} }
+    return n
+  }
+  /** 挂载/重挂载后短时间反复探测（自停：找到 <video> 或试完 40 次）。 */
+  function armProbe() {
+    if (probeStage()) return null
+    if (probeTimer || !every) return probeTimer
+    probeTries = 0
+    probeTimer = every(() => {
+      probeTries++
+      if (probeStage() || probeTries >= 40) stopProbe()
+    }, 500)
+    return probeTimer
+  }
+  function onFrameLoad() { stopProbe(); probeTries = 0; armProbe(); measure() }
+  if (stageEl && !stageEl.__benchNpFrameBound) {
+    stageEl.__benchNpFrameBound = true
+    stageEl.addEventListener('load', onFrameLoad)
+  }
+
+  /* ── ②′ 组件（React）与 video 之间的桥 ───────────────────────────────────────── */
+  const readComp = () => {
+    const lead = mountEl && mountEl.querySelector ? mountEl.querySelector('.snd-op[data-lead]') : null
+    const tap = mountEl && mountEl.querySelector ? mountEl.querySelector('.snd-tap') : null
+    return {
+      present: !!lead,
+      playing: !!lead && lead.getAttribute('aria-pressed') === 'true',
+      open: !!tap && tap.getAttribute('aria-expanded') === 'true',
+    }
+  }
+  let lastPlaying = null
+  /** 组件状态 → video（只在**变化**时动作 ⇒ 幂等；挂载那一刻不动作，避免一上来就 play/pause 一次）。 */
+  function syncFromComponent() {
+    const st = readComp()
+    if (st.present && lastPlaying !== null && st.playing !== lastPlaying) applyPlayPause(st.playing)
+    if (st.present) lastPlaying = st.playing
+    if (hostEl) { try { hostEl.setAttribute('data-open', st.open ? '1' : '0') } catch {} }
+    return st
+  }
+  /** 组件里点了哪个键：从 e.target 往上走到 #np-host（不依赖 Element.closest，桩 DOM 也能跑）。 */
+  function hitLabel(target) {
+    let n = target
+    while (n && n !== hostEl) {
+      const c = n.classList
+      if (c && typeof c.contains === 'function') {
+        if (c.contains('snd-op')) return String((n.getAttribute && n.getAttribute('aria-label')) || 'Op')
+        if (c.contains('snd-tap')) return 'Tap'
+      }
+      n = n.parentNode
+    }
+    return null
+  }
+  function onHostClick(e) {
+    const label = hitLabel(e && e.target)
+    if (!label || label === 'Tap') return null
+    // React 的离散事件在它自己的根监听器（挂在 #np-mount）里同步 flush，我们的监听器在它的**父节点**
+    // ⇒ 事件冒到这里时 DOM 已是新状态；再等一个微任务只是为了将来 React 改成异步 flush 时也成立。
+    const run = () => {
+      const st = syncFromComponent()
+      if (/Restart|重播|重新播放/i.test(label)) { seekStage(0); return st }
+      if (/Next|下一个/i.test(label)) { nextStage(); return st }
+      return st
+    }
+    if (typeof Promise === 'function') { Promise.resolve().then(run); return null }
+    return run()
+  }
+  if (hostEl && !hostEl.__benchNpHostBound) {
+    hostEl.__benchNpHostBound = true
+    hostEl.addEventListener('click', onHostClick)
+  }
+  // 兜底通道：万一 React 的 flush 晚于微任务（版本漂移），属性变化也能把状态推过去
+  if (mountEl && typeof W.MutationObserver === 'function' && !mountEl.__benchNpObserved) {
+    mountEl.__benchNpObserved = true
+    try { new W.MutationObserver(() => { syncFromComponent() }).observe(mountEl, { attributes: true, attributeFilter: ['aria-pressed'], subtree: true }) } catch {}
+  }
+  async function mountSound() {
+    if (!mountEl || npApp) return npState
+    if (propsEl) { try { propsEl.setAttribute('data-np', 'loading') } catch {} }
+    try {
+      const mod = await npLoad()
+      if (!mod || typeof mod.mountNowPlaying !== 'function') throw new Error('now-playing 产物没有 mountNowPlaying')
+      npApp = mod.mountNowPlaying(mountEl, { corner: 16, stroke: false })   // 只给 P-138 的三个旋钮里的两个（morph 用默认 50）
+      npState = 'mounted'
+      if (propsEl) { try { propsEl.setAttribute('data-np', 'mounted') } catch {} }
+      syncFromComponent()
+      if (hostEl) { try { hostEl.setAttribute('data-np-ready', '1') } catch {} }
+    } catch (e) {
+      npState = 'missing'
+      if (propsEl) { try { propsEl.setAttribute('data-np', 'missing') } catch {} }   // CSS 去掉底高预留 + 隐藏浮层
+      if (stageNote) { try { stageNote.textContent = '声音控件不可用 / sound control unavailable' } catch {} }
+    }
+    measure()
+    return npState
+  }
+
+  /* ── 控件事件（音量/静音/进度/跳转） ─────────────────────────────────────────── */
+  if (volEl && !volEl.__benchNpVolBound) {
+    volEl.__benchNpVolBound = true
+    volEl.addEventListener('input', () => { setVideoVolume(volEl.value) })
+  }
+  if (muteBtn && !muteBtn.__benchNpMuteBound) {
+    muteBtn.__benchNpMuteBound = true
+    muteBtn.addEventListener('click', () => { toggleMute() })
+  }
+  if (seekEl && !seekEl.__benchNpSeekBound) {
+    seekEl.__benchNpSeekBound = true
+    seekEl.addEventListener('click', (e) => {
+      const a = activeVideo()
+      const dur = a && isFinite(Number(a.duration)) ? Number(a.duration) : 0
+      if (!(dur > 0)) return
+      const r = rectOf(seekEl), x = Number(e && e.clientX)
+      const ratio = r && r.width > 0 && isFinite(x) ? Math.max(0, Math.min(1, (x - r.left) / r.width)) : 0
+      seekStage(ratio * dur)
+    })
+  }
+  // 工具条那支音量：挂载时是壁纸的挂载参数，之后用户改它 ⇒ 同步到控件与 <video>（只写值、不派发事件 ⇒ 不成环）
+  if (toolbarVol && !toolbarVol.__benchNpMirrorBound) {
+    toolbarVol.__benchNpMirrorBound = true
+    toolbarVol.addEventListener('change', () => { setVideoVolume(toolbarVol.value) })
+  }
+  paintMute()
+  paintProgress()
+
+  const api = {
+    /* ① 收纳 */
+    navCollapsed: navNow,
+    navPlan: () => sidebarCollapsePlan(navNow()),
+    setNavCollapsed,
+    navButton: () => navBtn,
+    sidebarEl: () => sidebar,
+    /* ② 声音控件 */
+    mountSound,
+    npState: () => npState,
+    npApp: () => npApp,
+    measure,
+    npOcclusion: measure,
+    npGeometry: () => ({ body: rectOf(propsBody), card: rectOf(q('#np-mount .snd-box')), strip: rectOf(stripEl) }),
+    propsItems,
+    /* ③ video 声音 */
+    stageVideos,
+    stageApi,
+    activeVideo,
+    probeStage,
+    armProbe,
+    onFrameLoad,
+    component: readComp,
+    syncFromComponent,
+    handleHostClick: onHostClick,
+    hitLabel,
+    applyPlayPause,
+    seekStage,
+    nextStage,
+    paintProgress,
+    setVideoVolume,
+    setVideoMuted,
+    toggleMute,
+    audio: () => ({ vol, muted, effective: (muted || !(vol > 0)) ? 0 : vol }),
+    applyAudio,
+  }
+  return api
+}
+
 /* ============================ 浏览器初始化 ============================ */
 // 对外钩子：源码侧 bench/bench.ts 在语言切换 / 分辨率变更 / 指针注入开关变化时调用
 // （window.__benchPatch?.xxx）。三个钩子都是幂等的，重复调用无害。
@@ -1708,6 +2188,19 @@ export function initSiteShell(ctx = {}) {
      舞台塌成 16px）⇒ 改为**纯 CSS 定高不变量**（见 index.html `.bench-narrow` 块的 `#stage-scale{height:46vh}`），
      少一处失败面。窗口尺寸变化由 CSS 自动跟随，无需 JS。 */
 
+  /* ── ⑭(P-142 2026-09-19 用户第 1/2/3 项) 资源管理器收纳 + 声音控件 + video 声音接线 ──
+     与外壳同一生命周期：`?shell=off` 时不初始化（旧行为），DOM 不是新外壳时也不做
+     （两个元素都不存在 ⇒ initNavSound 自己会安全降级，但少跑一遍更干净）。 */
+  const navSound = initNavSound({
+    doc: D,
+    win: (typeof window !== 'undefined' ? window : null),
+    // 语言切换只影响我们自己的双语静态文案与 aria，重建不必要；这里把文案刷新挂出去（语言切换时调用）
+  })
+  if (navSound) {
+    try { navSound.mountSound() } catch (e) { if (typeof ctx.log === 'function') ctx.log('声音控件挂载失败：' + ((e && e.message) || e)) }
+    try { navSound.armProbe() } catch { /* 渲染器还没挂：自停探测已排好 */ }
+  }
+
   /* 首次上电 */
   setPage(getPage(), false)
   setLogsHeight(logsHeight(), false)
@@ -1722,6 +2215,14 @@ export function initSiteShell(ctx = {}) {
     shellVersion: VER, domIsNew: DOM_NEW, maxLogsForLayout,
     // ⑫a / ⑫c（探针与测试用同一入口）
     setPropsCollapsed, propsCollapsed: propsCollapsedNow, themeMode: currentThemeMode,
+    // ⑭(P-142) 收纳 / 声音控件 / video 声音（X11 真机与门禁读同一批入口）
+    navSound: navSound,
+    setNavCollapsed: (v) => (navSound ? navSound.setNavCollapsed(v) : null),
+    navCollapsed: () => (navSound ? navSound.navCollapsed() : null),
+    npOcclusion: () => (navSound ? navSound.npOcclusion() : null),
+    npAudio: () => (navSound ? navSound.audio() : null),
+    setVideoVolume: (v) => (navSound ? navSound.setVideoVolume(v) : null),
+    videoStage: () => (navSound ? { videos: navSound.stageVideos().length, api: !!navSound.stageApi(), state: navSound.paintProgress() } : null),
   }
 }
 
@@ -2355,7 +2856,42 @@ export function init() {
     '#workbench{flex:1;grid-template-columns:var(--mpw-lib-w,300px) auto minmax(0,1fr)!important;min-height:0;overflow:hidden}',
     '#activitybar{display:none!important}',
     '#sidebar{grid-column:1;width:auto!important;max-width:none!important;min-width:0!important;resize:none!important}',
+    /* ⑭(P-142 2026-09-19 用户第 1 项)「资源管理器」收纳：状态类在 <body>（见 index.html ⑭ 段的长注释：
+       D8 只会给选择器前缀 `html.bench-shell ` ⇒ 挂 <html> 的复合选择器写不进这张表，挂 <body> 的后代选择器可以）。
+       收起 = 网格第 1 列 26px（`--mpw-lib-w`）⇒ #main/#workspace/#stage 真的跟着变宽（不是盖住、不留空占位）。 */
+    '#sidebar{position:relative}',
+    '#sidebar-toggle{position:absolute;top:0;right:0;width:26px;height:35px;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--fg-dim);cursor:pointer;z-index:3}',
+    '#sidebar-toggle:hover{background:var(--hover,rgba(255,255,255,.07));color:var(--fg)}',
+    '#sidebar-toggle svg{display:block}',
+    'body.bench-nav-collapsed{--mpw-lib-w:26px}',
+    'body.bench-nav-collapsed #sidebar{border-right:1px solid var(--border)}',
+    'body.bench-nav-collapsed #sidebar > :not(#sidebar-toggle){display:none!important}',
+    'body.bench-nav-collapsed #sidebar-toggle{position:static;flex:1 1 auto;width:100%;height:auto}',
+    'body.bench-nav-collapsed #sidebar-toggle svg{transform:rotate(180deg)}',
     '#props{grid-column:2;width:var(--mpw-props-w,320px);min-width:0;border-left:1px solid var(--border);border-right:1px solid var(--border)}',
+    /* ⑭(P-142 2026-09-19 用户第 2/3 项) 声音控件挂点：`#props` 下半部浮层（组件卡片 + 本补丁的传输条）。
+       `--mpw-np-cover` = **展开态**遮住的高度（卡片 189 + 传输条 30，189 由 P-138 的
+       `now-playing-math.mjs` 的 `OPEN` 给出，门禁逐值对账）⇒ `#props-body` 的 padding-bottom 把它算进去，
+       两个状态下每个属性项都滚得到（"永久遮住"在门禁里是不变量）。 */
+    '#props{position:relative;--mpw-np-card:189px;--mpw-np-strip:30px;--mpw-np-cover:calc(var(--mpw-np-card) + var(--mpw-np-strip))}',
+    '#np-host{position:absolute;left:0;right:0;bottom:0;height:calc(var(--mpw-np-card) + var(--mpw-np-strip));display:flex;flex-direction:column;justify-content:flex-end;pointer-events:none;z-index:5}',
+    '#np-host > *{pointer-events:auto}',
+    '#np-mount{height:var(--mpw-np-card);display:flex;justify-content:center;align-items:flex-start;pointer-events:none}',
+    '#np-mount > *{pointer-events:none}',
+    /* 卡片四周那圈透明区不吃点击（收起时上下各 55.5px），只有真控件吃 ⇒ 后面的属性项照常点得到 */
+    '#np-mount .snd button{pointer-events:auto}',
+    '#props-body{padding-bottom:calc(20px + var(--mpw-np-cover))}',
+    '#props[data-np="missing"] #props-body{padding-bottom:20px}',
+    '#props[data-np="missing"] #np-host{display:none}',
+    '#np-audio{height:var(--mpw-np-strip);display:flex;align-items:center;gap:6px;padding:0 8px;background:color-mix(in srgb,var(--panel) 86%,transparent);border-top:1px solid var(--border);font-size:11px;color:var(--fg-dim)}',
+    '#np-mute{flex:none;width:22px;height:22px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:4px;background:transparent;color:var(--fg);cursor:pointer}',
+    '#np-mute:hover{background:var(--hover,rgba(255,255,255,.07))}',
+    '#np-volume{flex:none;width:64px;height:16px;margin:0}',
+    '#np-seek{position:relative;flex:1;min-width:40px;height:14px;padding:0;border:0;background:transparent;cursor:pointer}',
+    '#np-seek::before{content:"";position:absolute;left:0;right:0;top:6px;height:3px;border-radius:2px;background:var(--input)}',
+    '#np-run{position:absolute;left:0;top:6px;height:3px;width:0;border-radius:2px;background:var(--accent,#0078d4)}',
+    '#np-time{flex:none;font-variant-numeric:tabular-nums;color:var(--fg-mute)}',
+    '#np-stage{flex:0 1 auto;min-width:0;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-mute)}',
     '#props[hidden]{display:flex!important}',
     /* ⑫a(2026-09-19 用户要求)「壁纸配置」要能收起。上面那条 `[hidden]{display:flex!important}`（为 docs 视图
        上的锁）+ `paintPropsEmpty()` 见到 hidden 就摘掉 ⇒ 产物 `#props-close.onclick = ue(!1)` 点了没效果。
@@ -3906,6 +4442,14 @@ export function init() {
     setPropsCollapsed: (v) => (window.__benchShell ? window.__benchShell.setPropsCollapsed(v) : null),
     propsCollapsed: () => (window.__benchShell ? window.__benchShell.propsCollapsed() : null),
     themeMode: () => (window.__benchShell ? window.__benchShell.themeMode() : null),
+    // ⑭(P-142 2026-09-19 用户第 1/2/3 项)：收纳 / 声音控件遮挡 / video 声音（与用户点击同一条代码路径）
+    setNavCollapsed: (v) => (window.__benchShell ? window.__benchShell.setNavCollapsed(v) : null),
+    navCollapsed: () => (window.__benchShell ? window.__benchShell.navCollapsed() : null),
+    npSound: () => (window.__benchShell ? window.__benchShell.navSound : null),
+    npOcclusion: () => (window.__benchShell ? window.__benchShell.npOcclusion() : null),
+    npAudio: () => (window.__benchShell ? window.__benchShell.npAudio() : null),
+    setVideoVolume: (v) => (window.__benchShell ? window.__benchShell.setVideoVolume(v) : null),
+    videoStage: () => (window.__benchShell ? window.__benchShell.videoStage() : null),
     setThemeMode: (m) => applyThemeMode(m),
     siteStyleInjected: () => SITE_STYLE_INJECTED,
     shellVersion: () => BENCH_SHELL_VERSION,

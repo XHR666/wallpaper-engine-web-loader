@@ -22,6 +22,12 @@
     <script type="module" crossorigin src="./assets/bench-DSKWIqmS.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/modulepreload-polyfill-B5Qt9EMX.js">
     <link rel="stylesheet" crossorigin href="./assets/bench-HtRiuWm6.css">
+    <!-- ⑭(P-142 2026-09-19 用户第 2 项) 声音控件 = P-138 交付的 NowPlaying（`demo/now-playing/dist/now-playing.js`
+         是自足 ESM，React 已内联）。样式必须**跟在组件旁边**：它不在产物里（build.mjs 只出 JS），
+         独立演示页也是这么引的。这份 CSS 的每条选择器都以 `.snd` 开头 / 落在 `.snd` 子树内、
+         14 个 Bencho token 只定义在 `.snd` 自己身上（`tests/now-playing-test.mjs` 第 ③/④ 组逐条断言）
+         ⇒ 引到本页**不会**碰到测试台自己的 UI，也不新增全局变量。 -->
+    <link rel="stylesheet" href="./now-playing/now-playing.css" />
     <!-- ⚠ ①(2026-09-18)**站点外壳的首屏布局 CSS 必须静态存在**，不能靠补丁运行期注入：
          真机现象"刷新时先一帧全屏放大、随后控制台缩到左上角"就是"产物样式先生效、我们的样式后注入"之间的窗口。
          下面这份是按 html.bench-shell 作用域静态声明（内容与 demo/bench-patch.js 的 SITE_LAYOUT_CSS 逐条等价，
@@ -148,6 +154,53 @@ html.bench-shell body{overflow-x:hidden}
    子元素超宽都会再触发同一个问题，根元素裁一刀与 body 那条并存、不冲突。 */
 html.bench-shell{overflow-x:hidden}
 html.bench-shell.bench-mid{--mpw-lib-w:240px;--mpw-props-w:260px}
+/* ── ⑭(P-142 2026-09-19 用户第 1 项)「资源管理器」要能收纳（`#sidebar-toggle` 那个把手）────────────
+   用户原话：「8901 最左边的资源管理器，也要设置一个可以将它收纳起来的按键」。
+   状态类挂在 **`<body>`** 上（`bench-nav-collapsed`，由 `<body>` 开头的同步脚本按 localStorage 加 ⇒ 首帧即生效，
+   不闪一下展开态）。为什么挂 body 而不是 <html>：`tests/demo-check.mjs` 的 D8 会把本文件里
+   `SITE_LAYOUT_CSS` 的每条选择器自动前缀成 `html.bench-shell <选择器>` —— 只有**后代选择器**能被那条
+   防漂移判据表达；类挂 body，规则就仍进得了 SITE_LAYOUT_CSS（D8 照旧逐条守）。
+   收起 = 网格第 1 列只剩 26px（`--mpw-lib-w`），`#workbench` 是
+   `grid-template-columns:var(--mpw-lib-w,300px) auto minmax(0,1fr)` ⇒ `#main`/`#workspace`/`#stage`
+   **真的**多出 300−26（mid 档 240−26）像素：不留空白占位、也不靠盖住谁。
+   `#sidebar > :not(#sidebar-toggle){display:none}` ⇒ 列表/标题/工具条全撤（连将来新增的子节点也一并撤，
+   不留空洞）；那条 26px 的窄边**就是**这个按钮本身（展开把手）。 */
+html.bench-shell #sidebar{position:relative}
+html.bench-shell #sidebar-toggle{position:absolute;top:0;right:0;width:26px;height:35px;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--fg-dim);cursor:pointer;z-index:3}
+html.bench-shell #sidebar-toggle:hover{background:var(--hover,rgba(255,255,255,.07));color:var(--fg)}
+html.bench-shell #sidebar-toggle svg{display:block}
+html.bench-shell body.bench-nav-collapsed{--mpw-lib-w:26px}
+html.bench-shell body.bench-nav-collapsed #sidebar{border-right:1px solid var(--border)}
+html.bench-shell body.bench-nav-collapsed #sidebar > :not(#sidebar-toggle){display:none!important}
+html.bench-shell body.bench-nav-collapsed #sidebar-toggle{position:static;flex:1 1 auto;width:100%;height:auto}
+html.bench-shell body.bench-nav-collapsed #sidebar-toggle svg{transform:rotate(180deg)}
+/* ── ⑭(P-142 2026-09-19 用户第 2/3 项) 声音控件挂点：右侧「壁纸配置」栏的**下半部分** ─────────────
+   组件（P-138 NowPlaying）只吃三个旋钮（morph/corner/stroke）、**没有音量/受控接口**
+   （见 `demo/now-playing/README.md` §3 与 `mount.tsx`）⇒ 下半部 = 组件卡片（收起 78 / 展开 189，
+   由组件自己 morph）+ 本补丁自己的传输条（音量/静音/真实进度，见 bench-patch.js ⑭）。
+   浮层化（absolute）而不是塞进属性表的流里：`#props-body` 的 `padding-bottom` 把**展开态**高度
+   （`--mpw-np-cover` = 卡片 189 + 传输条 30）也算进去 ⇒ 两个状态下每一个属性项都滚得到
+   （"展开后属性项被永久遮住且滚不到"是不变量上被禁掉的，门禁逐项断言）。
+   `#np-mount` 归 React 独占；`#np-mount > *{pointer-events:none}` + `.snd button{pointer-events:auto}`
+   让卡片四周那圈透明区**不吃点击**（收起时上下各 55.5px 的空隙照常点得到后面的属性项）。 */
+html.bench-shell #props{position:relative;--mpw-np-card:189px;--mpw-np-strip:30px;--mpw-np-cover:calc(var(--mpw-np-card) + var(--mpw-np-strip))}
+html.bench-shell #np-host{position:absolute;left:0;right:0;bottom:0;height:calc(var(--mpw-np-card) + var(--mpw-np-strip));display:flex;flex-direction:column;justify-content:flex-end;pointer-events:none;z-index:5}
+html.bench-shell #np-host > *{pointer-events:auto}
+html.bench-shell #np-mount{height:var(--mpw-np-card);display:flex;justify-content:center;align-items:flex-start;pointer-events:none}
+html.bench-shell #np-mount > *{pointer-events:none}
+html.bench-shell #np-mount .snd button{pointer-events:auto}
+html.bench-shell #props-body{padding-bottom:calc(20px + var(--mpw-np-cover))}
+html.bench-shell #props[data-np="missing"] #props-body{padding-bottom:20px}
+html.bench-shell #props[data-np="missing"] #np-host{display:none}
+html.bench-shell #np-audio{height:var(--mpw-np-strip);display:flex;align-items:center;gap:6px;padding:0 8px;background:color-mix(in srgb,var(--panel) 86%,transparent);border-top:1px solid var(--border);font-size:11px;color:var(--fg-dim)}
+html.bench-shell #np-mute{flex:none;width:22px;height:22px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:4px;background:transparent;color:var(--fg);cursor:pointer}
+html.bench-shell #np-mute:hover{background:var(--hover,rgba(255,255,255,.07))}
+html.bench-shell #np-volume{flex:none;width:64px;height:16px;margin:0}
+html.bench-shell #np-seek{position:relative;flex:1;min-width:40px;height:14px;padding:0;border:0;background:transparent;cursor:pointer}
+html.bench-shell #np-seek::before{content:"";position:absolute;left:0;right:0;top:6px;height:3px;border-radius:2px;background:var(--input)}
+html.bench-shell #np-run{position:absolute;left:0;top:6px;height:3px;width:0;border-radius:2px;background:var(--accent,#0078d4)}
+html.bench-shell #np-time{flex:none;font-variant-numeric:tabular-nums;color:var(--fg-mute)}
+html.bench-shell #np-stage{flex:0 1 auto;min-width:0;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-mute)}
 /* ⚠ 这一整块**没有 @media 包裹**（2026-09-18 修）：原来那次"去掉媒体查询依赖"的编辑把 `@media(…){`
    这一行删掉了，却留下了块内的规则和末尾那个 `}` ⇒ ①多出一个孤立的大括号；②末尾 4 条本该"只在窄屏生效"
    的规则（工具栏字号 / site-tab / 设置弹层宽度）**泄漏到所有桌面宽度**；③其中一条选择器写成了
@@ -173,6 +226,11 @@ html.bench-shell.bench-mid{--mpw-lib-w:240px;--mpw-props-w:260px}
   html.bench-shell.bench-narrow #main{display:flex!important;flex-direction:column;order:-1;height:auto!important;overflow:visible}
   html.bench-shell.bench-narrow #sidebar,
   html.bench-shell.bench-narrow #props{width:auto!important;max-height:clamp(140px,22vh,320px);overflow:auto;border-right:0;border-bottom:1px solid var(--border)}
+  /* ⑭(P-142 2026-09-19 用户第 1 项) 窄屏/堆叠布局下三列变一列（没有"第 1 列宽度"可收）⇒ 收起 = 侧栏塌成
+     一条 34px 高的横条（只剩把手；`#sidebar > :not(#sidebar-toggle){display:none}` 在非窄屏块里已给）。
+     这条只在 `.bench-narrow` 类块里（安全网不重复：收起态本来就靠脚本加类，脚本没跑 = 根本没收起）。 */
+  html.bench-shell.bench-narrow body.bench-nav-collapsed #sidebar{flex:none;height:34px;min-height:34px;max-height:34px}
+  html.bench-shell.bench-narrow body.bench-nav-collapsed #sidebar-toggle{flex-direction:row}
   html.bench-shell.bench-narrow #main{display:flex!important;flex-direction:column;height:auto!important;overflow:visible}
   html.bench-shell.bench-narrow #editor-chrome{flex:none}
   html.bench-shell.bench-narrow #workspace{flex:none;min-height:0}
@@ -249,6 +307,20 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
     </script>
   </head>
   <body>
+    <!-- ⑭(P-142 2026-09-19 用户第 1 项) 「资源管理器」收纳状态**首帧**生效。
+         静态表里的 ⑭ 规则一律写成 `html.bench-shell body.bench-nav-collapsed …`，这段同步脚本在
+         body 内容**之前**执行 ⇒ 解析到 #sidebar 时宽度已经是对的（不会先画一下展开态再跳）。
+         键名照本仓既有风格（`bench-*`）：`bench-sidebar-collapsed`，'1' = 收起，其余 = 展开。
+         运行期的对账/兜底/aria 在 `bench-patch.js` 的 `initNavSound()`（读同一个键、同一个值域）。 -->
+    <script>
+      (function () {
+        try {
+          if (/[?&]shell=(off|0|false|no)\b/.test(location.search)) return
+          if (localStorage.getItem('bench-sidebar-collapsed') !== '1') return
+          document.body.classList.add('bench-nav-collapsed')
+        } catch (e) {}
+      })()
+    </script>
     <!-- C 组：全局错误兜底（error/unhandledrejection → 可见条 + 写入输出区；不是插件依赖，纯自写最小实现） -->
     <div id="bench-errorbar" class="bench-errorbar glass" hidden>
       <strong id="bench-error-title" data-i18n="error.title">页面脚本出错（已兜底）</strong>
@@ -332,6 +404,15 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
       <section class="page" id="page-console" role="tabpanel" aria-labelledby="tab-console">
     <div id="workbench">
       <aside id="sidebar">
+        <!-- ⑭(P-142 2026-09-19 用户第 1 项) 收纳把手：收起后整个资源管理器只剩这一条 26px 的窄边
+             （静态表：`body.bench-nav-collapsed #sidebar > :not(#sidebar-toggle){display:none!important}`）。
+             用**原生 `<button>`**：Tab 可达、Enter/Space 由浏览器派发 click ⇒ 不再补 keydown
+             （补了就是"键盘一次 + click 再一次" = 双重翻转，正是用户点名的"点几次就重复开/关"）。
+             `aria-expanded` 由 bench-patch.js 的 `setNavCollapsed()` 维护（收起 = false）。
+             文案**不进 DICT**（T1 把词典逐键钉在上游 bench/i18n.ts 上）⇒ 双语静态串，运行期同步 title/aria-label。 -->
+        <button type="button" id="sidebar-toggle" aria-controls="sidebar" aria-expanded="true" title="收起资源管理器 / Collapse explorer" aria-label="收起资源管理器 / Collapse explorer">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M9.8 3.2 5 8l4.8 4.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </button>
         <div class="sidebar-title" data-i18n="sidebar.title">资源管理器</div>
         <div class="sidebar-section-head">
           <span id="lib-count" data-i18n="sidebar.libCount">壁纸库</span>
@@ -364,6 +445,30 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
               <label class="check"><input id="props-all" type="checkbox" /> <span data-i18n="props.showHidden">显示条件隐藏项</span></label>
             </div>
             <div id="props-body"></div>
+            <!-- ⑭(P-142 2026-09-19 用户第 2/3 项) 声音控件 = 「壁纸配置」栏的**下半部分**。
+                 · `#np-mount` 归 React 独占（P-138 的 NowPlaying，`mountNowPlaying(el, {morph,corner,stroke})`，
+                   本补丁只给 corner=16/stroke=false；**不碰它的子树**）；
+                 · `#np-audio` 是本补丁自己的传输条 —— 组件没有音量/受控入口（见 `demo/now-playing/README.md` §3），
+                   所以音量/静音/真实进度做在这里：它订阅同源 iframe 里 `<video>` 的
+                   `timeupdate`/`durationchange`，播放/暂停仍由**组件的播放键**驱动（bench-patch.js ⑭c）。
+                 浮层化（`position:absolute`）⇒ 不参与 `#props-body` 的产物渲染；它盖住的那部分由
+                 `#props-body` 的 `padding-bottom` 预留（展开态高度也算了 ⇒ 每一项都滚得到）。 -->
+            <div id="np-host" role="group" aria-label="声音控件 / Sound control">
+              <div id="np-mount"></div>
+              <div id="np-audio">
+                <button type="button" id="np-mute" aria-pressed="true" title="静音 / Mute" aria-label="静音 / Mute">
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path d="M2.6 6h2.1L7.8 3.4v9.2L4.7 10H2.6z" fill="currentColor" />
+                    <path id="np-mute-wave" d="M10.2 6.1a2.7 2.7 0 0 1 0 3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" hidden />
+                    <path id="np-mute-slash" d="M10 5.4l3.9 5.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                  </svg>
+                </button>
+                <input id="np-volume" type="range" min="0" max="1" step="0.05" value="0" aria-label="壁纸音量 / Wallpaper volume" title="壁纸音量（video 壁纸的声音） / Wallpaper volume" />
+                <button type="button" id="np-seek" title="跳转 / Seek" aria-label="进度 / Progress"><span id="np-run"></span></button>
+                <span id="np-time">0:00 / 0:00</span>
+                <span id="np-stage">未发现视频壁纸 / no video</span>
+              </div>
+            </div>
           </aside>
 
       <div id="main">
