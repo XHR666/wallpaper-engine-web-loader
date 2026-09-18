@@ -9936,6 +9936,9 @@ C 在 `audio-emit-live` 的 T4 段实跑（断言里同时核对**真树 sha256 
   因为活视图由 `scene-scripts` 自己维护）；新增 T8b2（无数据源 ⇒ 全 0 且 `hasSource=false` 可观测）。108/1 → **110/0**。
 * `docs/README-DIAGNOSTICS.md`：`bandfeed` 行按新语义重写 + 新增 `audioemit` 行；表头计数行 149 → **153**（批 D 前实测就已 152，陈旧 3）。
   `node tests/diag-flag-check.mjs` ⇒ **代码 153 个开关 == README 主表 153 行，0 差异**。
+* `tests/bind-order-test.mjs`：隔离副本的 bundle 同目录依赖名单补 **`audio-band-array.mjs`**（批 D 让 bundle 多了一个
+  同目录 import ⇒ 漏它必 `ERR_MODULE_NOT_FOUND`，本项因此假红过一次；修后 **76 通过 / 0 失败**）。该名单的注释里
+  本来就写着「以后再给 bundle 加同目录 import 时，这里要同步」——本批按这条约定处理（提交 `7e6b385`）。
 * `docs/PATCHES.md`：本节（P-132；P-131 已被 `:8902` 测试台服务线占用 ⇒ 顺延）。
 
 ### P-132.9 未证实项 / 需要真机或有头浏览器确认
