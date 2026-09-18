@@ -176,9 +176,9 @@ const NATIVE_OF = `(el) => {
 
   //  ①**点后轮询 + 重试一次**（与 bench-click 同一条教训）：场景刚装载完时主线程在忙，
   //    第一次真点击可能"事件到了、状态没变"；判据必须是"等到状态真的变了"。
-  const clickUntil = async (idx, pred, { tries = 3, waitMs = 2500 } = {}) => {
+  const clickUntil = async (idx, pred, { tries = 2, waitMs = 1200 } = {}) => {
     for (let i = 1; i <= tries; i++) {
-      const r = await clickTrigger(idx, 400)
+      const r = await clickTrigger(idx, 250)
       if (r.ok) {
         const t0 = Date.now()
         for (;;) { if (await pred()) return { ok: true, tries: i }; if (Date.now() - t0 > waitMs) break; await cua.sleep(200) }
@@ -303,19 +303,25 @@ const NATIVE_OF = `(el) => {
   //    边界值由无浏览器的 `mpw-select-test` A 段 16 条钉住）。整段包 try/catch：Firefox 在本机偶发自己关掉，
   //    那是环境问题，不该把已经拿到的 S0–S6/S8 结论一起带崩。
   const flips = []
-  const nRoots = Math.min(info.roots, 2)
+  const DO_FLIPS = argv.includes('--flips')          // ①默认跳过（整档从 ~4.5min 压到 ~2min；`--flips` 才跑）
+  const nRoots = DO_FLIPS ? Math.min(info.roots, 2) : 0
   try {
     for (let i = 0; i < nRoots; i++) {
       const d = await probeFlip(i, 'start'); if (d.c.ok && d.st.n === 1) flips.push({ i, block: 'start', flip: d.st.flip, space: d.st.space })
       const u = await probeFlip(i, 'end'); if (u.c.ok && u.st.n === 1) flips.push({ i, block: 'end', flip: u.st.flip, space: u.st.space })
     }
   } catch (e) { notes.push('S7 探测中断（' + String(e.message).slice(0, 60) + '）⇒ 已拿到的 ' + flips.length + ' 次读数仍参与断言') }
+  if (!DO_FLIPS) notes.push('S7 跳过（默认；加 `--flips` 才做真机翻转探测 —— 边界值由无浏览器的 mpw-select-test A 段 16 条钉住）')
   const sawUp = flips.filter((f) => f.flip === 'up').length
   const sawDown = flips.filter((f) => f.flip === 'down').length
   const allConsistent = flips.every((f) => !f.space || ((f.space.below >= f.space.want) ? f.flip === 'down' : (f.space.above >= f.space.want ? f.flip === 'up' : f.flip === (f.space.above > f.space.below ? 'up' : 'down'))))
   console.log('翻转实测: ' + JSON.stringify(flips.slice(0, 8)))
-  ok(allConsistent, `S7 ${flips.length} 次"开"里每一次的 data-flip 都与可用空间一致`, `up=${sawUp} down=${sawDown}`)
-  ok(sawDown >= 1, 'S7b 至少见过一次 **down**（默认方向）', `down=${sawDown}`)
+  if (DO_FLIPS) {
+    ok(allConsistent, `S7 ${flips.length} 次"开"里每一次的 data-flip 都与可用空间一致`, `up=${sawUp} down=${sawDown}`)
+    ok(sawDown >= 1, 'S7b 至少见过一次 **down**（默认方向）', `down=${sawDown}`)
+  } else {
+    notes.push('S7b 未跑（默认跳过）')
+  }
   notes.push(sawUp >= 1 ? `S7c 见过 ${sawUp} 次 **up**（贴底自动上翻）` : 'S7c 本轮没构造出"下方不够"的位置 ⇒ 上翻只由无浏览器的 mpw-select-test A 段钉住（16 个边界值）')
 
   await shot('05-final')

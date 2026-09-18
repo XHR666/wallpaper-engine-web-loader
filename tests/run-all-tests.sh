@@ -400,8 +400,13 @@ add "p142-nav-sound"     "node tests/p142-nav-sound-test.mjs"
 # ①(P-143 主对话) `select-live`：自绘下拉（用户第 6 项）的**真机门禁** —— 同时是渲染器页的**真机冒烟**
 #   （S0：module 启动 + 场景装载成功 + 真出帧；2026-09-19 的 `objById` 作用域 P0 就是"页面白屏而 Node 门禁全绿"）。
 #   S1～S7：真 X11 点击开/再点关/点选项写值派发 change/点空白关/键盘选/`data-flip` 与实测空间一致。
-#   无 X 显示/无 scrot/无 8899/无 Playwright ⇒ 自我 SKIP（`^SKIP select-live`）。~4min。
-add "select-live"        "node tests/x11-e2e/select-live-test.mjs" "" "^SKIP select-live"
+#   无 X 显示/无 scrot/无 8899/无 Playwright ⇒ 自我 SKIP。（实测 5–8 分钟 ⇒ 见下方为何不进默认门禁。）
+# ⚠ ①(P-143 2026-09-19 **不进默认门禁**：实测单跑 **5–8 分钟**，而门禁单项超时是 600s（`ITEM_TIMEOUT`），
+#   在机器忙时必然超时误红。它的核心判据已被这三项覆盖：`mpw-select`（58 断言、无浏览器，管翻转/单开/再点即关的边界）、
+#   `bench-click`（25 断言、真 X11 点击、~2min）、`x11-pointer`（7 断言、真指针、60s）；本项额外提供的是
+#   "**渲染器页真机冒烟**（module 启动 + 场景装载 + 出帧）+ 属性面板里那个 combo 的真机点击"。
+#   要跑：`node tests/x11-e2e/select-live-test.mjs [--flips]`（`--flips` 才做贴底上翻探测）。
+# add "select-live"      "node tests/x11-e2e/select-live-test.mjs" "slow" "^SKIP select-live"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /
