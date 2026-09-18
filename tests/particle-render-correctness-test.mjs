@@ -118,10 +118,16 @@ async function renderQuad(def, layerExtra = {}, modes = {}, t = 1.0, texMap = TE
   await r.render(scene, texMap, W, H, t)
   return { verts: rec.verts[rec.verts.length - 1] || null, stats: r.particleStats, draws: rec.draws, rec }
 }
+// ①(P-133 #2) NDC → 设计像素。y 的**反解必须跟着渲染器的投影口径**：
+//   修正档（缺省）`ndcY = 1 − 2y/H` ⇒ `y = (1 − ndcY)·H/2`；旧镜像档 `ndcY = 2y/H − 1` ⇒ `y = (ndcY+1)·H/2`。
+//   本测试始终跑缺省档（`projectionYFix()=true`），所以下面用修正档反解；
+//   断言"粒子路径与层路径同号"的那条会在 P-133 的 NDC 段里双向验证。
+const ndcXToPx = (nx) => (nx * 0.5 + 0.5) * W
+const ndcYToPx = (ny) => (1 - ny) * 0.5 * H
 // 顶点流 → 第 0 个 quad 的两条边（设计像素）+ 边长/角度
 function quadEdges(verts) {
   const xs = [], ys = []
-  for (let i = 0; i + 8 < verts.length; i += 9) { xs.push((verts[i] * 0.5 + 0.5) * W); ys.push((verts[i + 1] * 0.5 + 0.5) * H) }
+  for (let i = 0; i + 8 < verts.length; i += 9) { xs.push(ndcXToPx(verts[i])); ys.push(ndcYToPx(verts[i + 1])) }
   const e1 = [xs[1] - xs[0], ys[1] - ys[0]], e2 = [xs[2] - xs[0], ys[2] - ys[0]]
   const ang = (e) => Math.atan2(e[1], e[0]) * 180 / Math.PI
   return { e1, e2, l1: Math.hypot(e1[0], e1[1]), l2: Math.hypot(e2[0], e2[1]), a1: ang(e1), a2: ang(e2),
@@ -171,7 +177,7 @@ const allSame = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v
     const cxs = [-1, -1, 1, 1, -1, 1], cys = [-1, 1, -1, -1, 1, 1]
     const sz = 50, hw = sz / 2, hh = sz / 2 // size=100 ⇒ sz=size/2=50, ratio=1
     // k0 的旧公式 = 中心 + (−hw, −hh) ⇒ 中心 = k0 + (hw, hh)
-    const cx = (v[0] * 0.5 + 0.5) * W + hw, cy = (v[1] * 0.5 + 0.5) * H + hh
+    const cx = ndcXToPx(v[0]) + hw, cy = ndcYToPx(v[1]) + hh
     // 容差必须按**顶点缓冲的量化**给，不能按 double 给：顶点流是 `Float32Array`，
     // NDC 分量的 ulp = 2^-24（|x|≤1 ⇒ 舍入误差 ≤ 2^-25 ≈ 2.98e-8），换算回设计像素要乘 W/2 = 1920
     // ⇒ 单分量上界 ≈ 5.7e-5 px（本机实测最大 3.81e-5 px，出现在 x=±25 的 float32 尾数上）。
@@ -180,7 +186,7 @@ const allSame = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v
     const F32_PX = 1e-3
     let ok = true, maxDev = 0
     for (let k = 0; k < 6; k++) {
-      const x = (v[k * 9] * 0.5 + 0.5) * W, y = (v[k * 9 + 1] * 0.5 + 0.5) * H
+      const x = ndcXToPx(v[k * 9]), y = ndcYToPx(v[k * 9 + 1])
       maxDev = Math.max(maxDev, Math.abs(x - (cx + cxs[k] * hw)), Math.abs(y - (cy + cys[k] * hh)))
       if (!near(x, cx + cxs[k] * hw, F32_PX) || !near(y, cy + cys[k] * hh, F32_PX)) ok = false
     }
@@ -401,7 +407,13 @@ if (hasPkg('3660962877')) {
     //   必须在**出生那一刻**比：`spawnParticle` 之后、算子之前。另外 controlpoint[0].flags=1
     //   （lockToPointer）⇒ 必须给指针，否则发射器根本不发射。
     const sp = (speedLegacy) => {
-      const s = lib.buildParticleSystem(l.particleDef, { origin: l.origin, scale: l.scale, angle: (l.angles && l.angles[2]) || 0,
+      // ①(P-133 #3) **只测发射器 speedmin/speedmax 这一条**：`mapsequencearoundcontrolpoint`
+      //   是**另一条**初速来源（作者写的 speedmin/speedmax，不在 `?pspeed` 档位的语义范围内）
+      //   ⇒ 摘掉它，否则两侧都带上 ≤100 的作者初速，测的就不是"发射器初速"了。
+      const defNoMap = Object.assign({}, l.particleDef, {
+        initializer: (l.particleDef.initializer || []).filter((it) => it && it.name !== 'mapsequencearoundcontrolpoint'),
+      })
+      const s = lib.buildParticleSystem(defNoMap, { origin: l.origin, scale: l.scale, angle: (l.angles && l.angles[2]) || 0,
         seedStr: 'p103-cherry', maxCount: 500, speedLegacy })
       s.pointer = [960, 540]
       const out = []
@@ -475,7 +487,9 @@ if (hasPkg('3554161528')) {
       emitter: [{ name: 'boxrandom', rate: 0.0001, instantaneous: 4, distancemax: '40 40 0' }],
       initializer: [{ name: 'lifetimerandom', min: 3, max: 5 }, { name: 'sizerandom', min: 100, max: 100 }, { name: 'alpharandom', min: 1, max: 1 }],
       operator: [] }
-    // 从顶点流反查帧号（帧矩形 = 行主序 8×8）
+    // 从顶点流反查帧号（帧矩形 = 行主序 8×8）。
+    // ①(P-133 #1) 每颗粒子的 6 个顶点 uv ∈ {0,1}² **映射到该帧的矩形** [u0,u0+fw]×[v0,v0+fh]
+    //   ⇒ 帧原点 = 这 6 个顶点的 **(min u, min v)**（改动前 uv 跨度恒 1.0，直接读第一个顶点就是帧原点）。
     const frameOf = (u0, v0) => {
       for (let f = 0; f < fsp.numFrames; f++) {
         const u = (f * fsp.frameWidthUV) - Math.floor(f * fsp.frameWidthUV), v = Math.floor(f * fsp.frameWidthUV) * fsp.frameHeightUV
@@ -487,17 +501,30 @@ if (hasPkg('3554161528')) {
       const r = await renderQuad(bdef, { particleTexName: 'fog' }, modes, t, FTEX)
       const v = r.verts
       const out = new Set()
-      if (v) for (let i = 0; i + 8 < v.length; i += 9) { const f = frameOf(v[i + 3], v[i + 4]); if (f >= 0) out.add(f) }
-      return out
+      const spans = new Set()
+      if (v) {
+        for (let q = 0; q * 54 + 54 <= v.length; q++) {
+          const o = q * 54
+          let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity
+          for (let k = 0; k < 6; k++) { const uu = v[o + k * 9 + 3], vv = v[o + k * 9 + 4]; u0 = Math.min(u0, uu); u1 = Math.max(u1, uu); v0 = Math.min(v0, vv); v1 = Math.max(v1, vv) }
+          const f = frameOf(u0, v0)
+          if (f >= 0) out.add(f)
+          spans.add(`${(u1 - u0).toFixed(6)}x${(v1 - v0).toFixed(6)}`)
+        }
+      }
+      return { frames: out, spans }
     }
-    const f025 = await framesAt(0.25, {})
+    const at025 = await framesAt(0.25, {})
+    push('⑥B fog3 每颗粒子的 uv 跨度 = **一帧**（0.125×0.125 = 128/1024，不是整张图集 1.0）',
+      at025.spans.size === 1 && [...at025.spans][0] === '0.125000x0.125000', `spans={${[...at025.spans].join(',')}}`)
+    const f025 = at025.frames
     push('⑥B fog3 age=0.25s ⇒ frame 16（旧口径 (1−lifePos)·seqMul 得 59~62）',
       f025.size === 1 && f025.has(16), `frames={${[...f025].join(',')}}`)
-    const f05 = await framesAt(0.5, {})
+    const f05 = (await framesAt(0.5, {})).frames
     push('⑥B fog3 age=0.5s ⇒ frame 32（正放，不是倒放）', f05.size === 1 && f05.has(32), `frames={${[...f05].join(',')}}`)
-    const f10 = await framesAt(1.0, {})
+    const f10 = (await framesAt(1.0, {})).frames
     push('⑥B fog3 age=1.0s（= duration）⇒ frame 0（整圈折返）', f10.size === 1 && f10.has(0), `frames={${[...f10].join(',')}}`)
-    const l025 = await framesAt(0.25, { pframe: 'legacy' })
+    const l025 = (await framesAt(0.25, { pframe: 'legacy' })).frames
     push('⑥B ?pframe=legacy 复现 P-124：帧 16 不再出现，且逐粒子各自相位（>1 个不同帧）',
       !l025.has(16) && l025.size >= 2, `frames={${[...l025].join(',')}}`)
   } else push('⑥B fog3 贴图缺失（SKIP 视作 PASS）', true, 'no fog3.tex')

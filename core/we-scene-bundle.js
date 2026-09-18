@@ -717,6 +717,13 @@ export function spriteFrameImageRects(tex, frameValue, noBlend) {
 
 // ①(RE-31) 官方 ComputeSpriteFrame（common_particles.h:59-84，unpadded=1 分支）
 //   输入 lifeScalar（CPU 侧帧值，已含 sequence/random 语义），输出两组 UV 偏移与混合系数
+// ①(P-133 #1) **新增 `su`/`sv` = 单帧的 UV 尺寸** —— 官方同一个函数用 `out vec2 uvFrameSize`
+//   把它一起吐出来（`common_particles.h:81` `uvFrameSize = vec2(frameWidth, frameHeight)`），
+//   消费方必须 `uv * uvFrameSize + offset` 才落在**一帧**里。
+//   我们此前把返回的 u0/v0/u1/v1（**帧原点**）当成"加到 [0,1] 上的偏移"用 ⇒ 每颗粒子采样的
+//   u 跨度恒为 **1.0**（= 整张图集宽度）而不是 `frameWidthUV`（如落花 13 帧 = 1/13）。
+//   判据/影响面见 docs/PATCHES.md P-133。`u0/v0/u1/v1` 语义**不变**（仍是 cur/nxt 两帧的原点），
+//   既有调用方（sprite-sheet-test / multi-sprite-test）逐位不变。
 export function computeSpriteFrameUV(sprite, frameValue, noBlend) {
   if (!sprite) return null
   if (frameValue < 0) frameValue = 0
@@ -731,7 +738,33 @@ export function computeSpriteFrameUV(sprite, frameValue, noBlend) {
   const bV = Math.floor(nxt * fw) * fh
   let blend = (life * n) - Math.floor(life * n)
   if (noBlend) blend = 0
-  return { u0: aU, v0: aV, u1: bU, v1: bV, blend }
+  // `su`/`sv` 缺省 1 = "整张图 = 一帧"（手搓 sprite 对象 / 旧调用方 ⇒ 逐位等于改动前）
+  const su = (typeof fw === 'number' && isFinite(fw) && fw > 0) ? fw : 1
+  const sv = (typeof fh === 'number' && isFinite(fh) && fh > 0) ? fh : 1
+  return { u0: aU, v0: aV, u1: bU, v1: bV, su, sv, blend }
+}
+
+// ①(P-133 #1) 帧 UV 映射函数：把 quad 的 [0,1]² uv 映射到 **cur/nxt 两帧各自的矩形**。
+//   两种输入形态（都由本文件产出，不再有第二份实现）：
+//     · 单图精灵 `computeSpriteFrameUV` → `{u0,v0,su,sv}`（帧**原点 + 尺寸**）；
+//     · 多图精灵 `spriteFrameImageRects` → `{u0,v0,u1,v1}`（帧在该图内的**绝对矩形**）。
+//   两者都归约成矩形后用同一个线性插值（= 官方 `v_TexCoord = a_uv · uvFrameSize + uvs.xy`，
+//   `common_particles.h:59-84` + `genericparticle.vert:78-84`）。
+//   ⚠ 缺 `su` 也缺 `u1` 的手搓对象 ⇒ 退化成"整张图 = 一帧"（与改动前的最终像素一致，不静默错位）。
+export function frameRectUVFn(cur, nxt, blend) {
+  const rect = (f) => {
+    const u0 = (f && typeof f.u0 === 'number') ? f.u0 : 0
+    const v0 = (f && typeof f.v0 === 'number') ? f.v0 : 0
+    if (f && typeof f.su === 'number' && typeof f.sv === 'number') return [u0, v0, u0 + f.su, v0 + f.sv]
+    if (f && typeof f.u1 === 'number' && typeof f.v1 === 'number') return [u0, v0, f.u1, f.v1]
+    return [u0, v0, u0 + 1, v0 + 1]
+  }
+  const a = rect(cur), b = rect(nxt)
+  const b0 = blend || 0
+  return (u, v) => [
+    a[0] + u * (a[2] - a[0]), a[1] + v * (a[3] - a[1]),
+    b[0] + u * (b[2] - b[0]), b[1] + v * (b[3] - b[1]), b0,
+  ]
 }
 
 // ①(W4 P-36) 图片层精灵帧：第 frame 帧的 UV 矩形（TEXS 帧表 row-major，先横后竖换行，
@@ -3460,6 +3493,41 @@ export function stepParticles(sys, dt, simT) {
 }
 
 // 发射一个粒子：pos = 世界（设计像素，y 向下）；scenePos = 编辑器 y-up 局部（供 operator 用）
+// ①(P-133 #3) `mapsequencearoundcontrolpoint` 的求解上下文。
+//   语义（**行为对照**：MIT 的 oneincase/webwallgl `renderer/vendor/we-scene/render/particles.js:828-850`
+//   的 `mapAround` 段 + 同文件 :368-376 的解析；本实现按该行为规格独立书写，未复制其代码/注释）：
+//     · 位置 = **控制点当前位置** + (cos θ, sin θ)·rad，θ = bounds[0] + (bounds[1]−bounds[0])·((i mod count)/count)，
+//       rad = 发射器第一轴距离（`distancemax[0]` > 0 用它，否则 `distancemin[0]`）——**替换**发射器随机偏移，
+//       而不是叠加；轮转序号 i 每发射一颗粒子 +1（跨步骤、跨发射器共用）。
+//     · 速度 = 逐轴在 [speedmin, speedmax] 抽一次（**三个轴共用同一个随机数**，与参考实现同构）。
+//   为什么必须有它：`Cherry_Blossoms_2.json`（hina 第 28 层"cherry blossoms on cursor"）**只靠这条**
+//   initializer 给花瓣初速 `0 100 0` 与绕圈分布；不实现 ⇒ 花瓣原地堆在光标上（用户第 ③ 项"缩成一个球"）。
+//   语料 6 份 def 用到它（全部是 workshop/2093672045 的 Cherry_Blossoms_2）。
+function __mapAroundCtx(sys, em, wx, wy, wz) {
+  const cps = sys.controlPoints || []
+  let cp = cps.find((c) => Number(c && c.id) === Number(sys.pointerCp))
+  if (!cp) cp = cps[0] || null
+  let cx = wx, cy = wy, cz = wz
+  if (cp) {
+    const off = pVec3(cp.offset || cp.origin, [0, 0, 0])
+    if (em.__ptrLocked) {
+      // 锁指针的控制点：当前位置 = 指针（`sys.pointer`）、加 authored offset（层空间 ⇒ y 取反进世界）
+      const P = sys.pointer || [sys.origin[0], sys.origin[1]]
+      cx = P[0] + off[0] * em.scale[0]
+      cy = P[1] - off[1] * em.scale[1]
+      cz = wz
+    } else {
+      cx = sys.origin[0] + off[0] * em.scale[0]
+      cy = sys.origin[1] - off[1] * em.scale[1]
+      cz = sys.origin[2] + off[2] * (em.scale[2] !== undefined ? em.scale[2] : 1)
+    }
+  }
+  const rmin = em.distanceMin ? em.distanceMin[0] : 0
+  const rmax = em.distanceMax ? em.distanceMax[0] : 0
+  return { cx, cy, cz, radius: (rmax > 0 ? rmax : rmin) || 0,
+    originX0: sys.origin[0], originY0: sys.origin[1],
+    nextIndex: () => (sys.__mapAroundSeq = (sys.__mapAroundSeq || 0) + 1) - 1 }
+}
 export function spawnParticle(sys, em) {
   const rng = sys.rng
   let px, py, pz
@@ -3535,7 +3603,13 @@ export function spawnParticle(sys, em) {
     random: rng(),
     oscAlpha: null, oscSize: null, oscPos: null,
   }
-  for (const init of sys.initializers) applyInitializer(p, init, rng, sys.vyLegacy, sys.expLegacy, sys.pcolorLegacy, audioFactor(init.audio, sys))
+  for (const init of sys.initializers) {
+    applyInitializer(p, init, rng, sys.vyLegacy, sys.expLegacy, sys.pcolorLegacy, audioFactor(init.audio, sys),
+      // ①(P-133 #3) `mapsequencearoundcontrolpoint` 的上下文（只有该 initializer 会读）：
+      //   控制点世界坐标（lockToPointer 时 = 指针）+ 本发射器的分布半径 + 轮转序号。
+      //   其他 initializer 忽略第 8 实参 ⇒ 零行为变化、不额外消耗 RNG。
+      (init.name === 'mapsequencearoundcontrolpoint') ? __mapAroundCtx(sys, em, wx, wy, wz) : null)
+  }
   // ①(P-103③) 记账：本粒子至少有一个 initializer 真的吃了 exponent≠1（legacy 档恒不置位）
   if (p.__expApplied) { sys.__spawnExps = (sys.__spawnExps || 0) + 1; delete p.__expApplied }
   // ①(P-74 ①) instanceoverride：官方把它作为**追加 initializer** 排在全部作者 initializer 之后
@@ -3566,7 +3640,7 @@ export function applyInstanceOverride(p, io) {
   return p
 }
 
-export function applyInitializer(p, init, rng, vyLegacy, expLegacy, pcolorLegacy, audioEnv = null) {
+export function applyInitializer(p, init, rng, vyLegacy, expLegacy, pcolorLegacy, audioEnv = null, ctx = null) {
   const pr = init.params
   // ①(P-103③ 洁净室实现) 官方 exponent **非线性分布**：`值 = min + pow(u, exponent)·(max−min)`，u=rng()。
   //   行为规格（不照抄任何 GPL 实现的行文/命名/结构，见 docs/PATCHES.md P-103 的"新旧差异"清单）：
@@ -3647,6 +3721,40 @@ export function applyInitializer(p, init, rng, vyLegacy, expLegacy, pcolorLegacy
       p.turbSeed = p.random * 1000
       break
     }
+    // ①(P-133 #3) `mapsequencearoundcontrolpoint`（语料 6 份 def，全是 Cherry_Blossoms_2）：
+    //   绕控制点（lockToPointer 时 = 光标）按 count 等分圆**轮流投放**，并给一个作者初速。
+    //   语义/出处见 `__mapAroundCtx` 头注（行为对照：MIT oneincase/webwallgl
+    //   `renderer/vendor/we-scene/render/particles.js:828-850`）。旧实现**整条 initializer 未实现**
+    //   ⇒ 花瓣只吃到发射器 speedmax=20 且半径 1px ⇒ 全堆在光标上（用户第 ③ 项"缩成一个球 + 没有尾迹"）。
+    //   缺省（无 ctx / 没写字段）时**一个字节都不改**：不抽随机数、不动 pos/vel。
+    case 'mapsequencearoundcontrolpoint': {
+      if (!ctx) break
+      const count = Math.max(1, Math.round(pGetVal(pr, 'count', 1)))
+      const bounds = pVec3(pGetVal(pr, 'bounds'), [0, 1, 0])
+      const i = ctx.nextIndex()
+      const u = (i % count) / count
+      const tt = bounds[0] + (bounds[1] - bounds[0]) * u
+      const ang = tt * Math.PI * 2
+      const rad = ctx.radius || 0
+      // 位置 = 控制点 + 圆周点（**替换**发射器偏移；作者空间 y-up ⇒ 世界 y 取反）
+      p.pos[0] = ctx.cx + Math.cos(ang) * rad
+      p.pos[1] = ctx.cy - Math.sin(ang) * rad
+      p.pos[2] = ctx.cz
+      if (p.scenePos) {
+        p.scenePos[0] = p.pos[0] - ctx.originX0
+        p.scenePos[1] = -(p.pos[1] - ctx.originY0)
+      }
+      // 初速：逐轴 rand(speedmin, speedmax)，**三轴共用一次随机数**（与参考实现同构）；
+      //   y 分量取反（作者 y-up → 渲染 y-down，与 velocityrandom/movement.gravity 同一口径）。
+      const smin = pVec3(pGetVal(pr, 'speedmin'), [0, 0, 0])
+      const smax = pVec3(pGetVal(pr, 'speedmax'), [0, 0, 0])
+      const k = rng()
+      p.vel[0] += smin[0] + (smax[0] - smin[0]) * k
+      p.vel[1] += -(smin[1] + (smax[1] - smin[1]) * k)
+      p.vel[2] += smin[2] + (smax[2] - smin[2]) * k
+      p.__mapAround = i
+      break
+    }
     case 'colorrandom': {
       // ①(P-130 批A #2) `max` 缺省 = **{255,255,255}**（官方 `VecRandom` 的 `r.min = {0,0,0}` /
       //   `r.max = {255,255,255}`，两者都 ÷255 后使用 —— 行为对照取自第三方参考实现，未反汇编官方二进制）。
@@ -3711,6 +3819,17 @@ function fadeValueChange(life, start, end, sv, ev) {
   const pass = (life - start) / (end - start)
   return [sv[0] + (ev[0] - sv[0]) * pass, sv[1] + (ev[1] - sv[1]) * pass, sv[2] + (ev[2] - sv[2]) * pass]
 }
+// ①(P-133 #5) 标量版（sizechange / alphachange 用）：与上面同一个官方函数 `FadeValueChange`
+//   （wer-ref `WPParticleParser.cpp:311-321`：`life<=start → startvalue`；`life>end → endvalue`；
+//   其间 **线性** lerp，**不 clamp、不 smoothstep**）。
+//   旧实现对 size/alpha 用的是 smoothstep + clamp ⇒ 中段比官方**小**（如 `sizechange{starttime:0.2}`
+//   在 life=0.4 时官方 0.25、我们 0.156）—— 语料 20 处 `sizechange` 只写 `starttime`，
+//   旧曲线让花瓣/雪片提前缩没。`?pops=legacy` 回退旧曲线（A/B）。
+function fadeValueChange1(life, start, end, sv, ev) {
+  if (life <= start) return sv
+  if (life > end) return ev
+  return sv + (ev - sv) * ((life - start) / (end - start))
+}
 
 export function applyOperator(sys, op, dt, t) {
   const pr = op.params
@@ -3766,9 +3885,17 @@ export function applyOperator(sys, op, dt, t) {
         const st = pGetVal(pr, 'starttime', 0), et = pGetVal(pr, 'endtime', 1)
         const sv = pGetVal(pr, 'startvalue', 1), ev = pGetVal(pr, 'endvalue', 0)
         const lifePos = p.life > 0 ? p.age / p.life : 1
-        const t01 = et > st ? Math.max(0, Math.min(1, (lifePos - st) / (et - st))) : 1
-        const tt = t01 * t01 * (3 - 2 * t01)
-        p.size = (p._initSize ?? 20) * (sv + (ev - sv) * tt)
+        // ①(P-133 #5) 官方 = 线性 `FadeValueChange`（缺省 starttime 0/endtime 1/startvalue 1/endvalue 0，
+        //   与 wer-ref `ValueChange` 逐字一致）；`?pops=legacy` 保留旧的 smoothstep+clamp 曲线。
+        let mul
+        if (sys.popsLegacy) {
+          const t01 = et > st ? Math.max(0, Math.min(1, (lifePos - st) / (et - st))) : 1
+          const tt = t01 * t01 * (3 - 2 * t01)
+          mul = sv + (ev - sv) * tt
+        } else {
+          mul = fadeValueChange1(lifePos, st, et, sv, ev)
+        }
+        p.size = (p._initSize ?? 20) * mul
         if (p.oscSize) p.oscSize.base = p.size
         break
       }
@@ -3776,9 +3903,16 @@ export function applyOperator(sys, op, dt, t) {
         const st = pGetVal(pr, 'starttime', 0), et = pGetVal(pr, 'endtime', 1)
         const sv = pGetVal(pr, 'startvalue', 1), ev = pGetVal(pr, 'endvalue', 0)
         const lifePos = p.life > 0 ? p.age / p.life : 1
-        const t01 = et > st ? Math.max(0, Math.min(1, (lifePos - st) / (et - st))) : 1
-        const tt = t01 * t01 * (3 - 2 * t01)
-        p.alpha = (p._initAlpha ?? 1) * (sv + (ev - sv) * tt)
+        // ①(P-133 #5) 同 sizechange：官方线性 `FadeValueChange`（`?pops=legacy` 回退 smoothstep）。
+        let mul
+        if (sys.popsLegacy) {
+          const t01 = et > st ? Math.max(0, Math.min(1, (lifePos - st) / (et - st))) : 1
+          const tt = t01 * t01 * (3 - 2 * t01)
+          mul = sv + (ev - sv) * tt
+        } else {
+          mul = fadeValueChange1(lifePos, st, et, sv, ev)
+        }
+        p.alpha = (p._initAlpha ?? 1) * mul
         if (p.oscAlpha) p.oscAlpha.base = p.alpha
         break
       }
@@ -3926,20 +4060,71 @@ export function applyOperator(sys, op, dt, t) {
         p.vel[1] += n2 * amp * mask[1] * dt
         break
       }
-      // vortex（6 次）：绕 axis 的切向加速；真实资产只带 audioprocessing 参数 → 用缺省轴 (0,0,1)/强度 1
+      // vortex（全语料 7 次，6 次带 distanceinner/distanceouter/speedinner/speedouter）：
+      //   绕控制点的切向加速（`v_tangent = (pos − cp) × axis`），速度按半径从 speedinner 线性降到 speedouter。
+      // ①(P-133 #4) 两处根因（行为对照：wer-ref `WPParticleParser.cpp:695-722` 的 vortex 分支 +
+      //   MIT oneincase/webwallgl `renderer/vendor/we-scene/render/particles.js:1011-1023`）：
+      //   ① **字段名全错**：旧实现读 `innerradius`/`outerradius`/`scale`/`speed`，而作者写的是
+      //      `distanceinner`/`distanceouter`/`speedinner`/`speedouter`（语料 6/7 处）⇒ 旧代码恒取缺省
+      //      `inner=0 / outer=1e9 / 强度=1`：**半径门形同虚设、强度被压成 1px/s²**（等于没有涡流）。
+      //   ② **圆心错**：旧实现把圆心缺省成"**每颗粒子自己的出生点**"（`p._vortexCx`，首帧写死），
+      //      而官方圆心 = `controlpoints[controlpoint].offset`（缺省 cp0）—— lockToPointer 层就是**光标**。
+      //      ⇒ 花瓣不会被光标附近的涡流甩开，"尾迹"整条不成立（用户第 ③ 项）。
+      //   单位/符号：`distanceouter − distanceinner` 是**半径**区间（官方 `dis_mid = outer − inner + 0.1`，
+      //   旧实现误把外半径当成"世界坐标上界"）；切向用 `axis × radial` 的等价二维式 `(−ry, rx)/d`，
+      //   手性由 axis.z 的符号决定（`axis` 缺省 +z）。`?pops=legacy` 逐位回到旧口径（A/B）。
       case 'vortex': {
         const axis = pVec3(pGetVal(pr, 'axis'), [0, 0, 1])
         // ①(P-131 批 D) 官方 "ties the particle speed to audio playback, causing the vortex to stop
         //   spinning when no audio is being played." ⇒ 强度乘 `env`（env=1 = 旧行为逐位不变）。
-        const sp = pGetVal(pr, 'scale', pGetVal(pr, 'speed', 1)) * audioK
-        const cx = pGetVal(pr, 'origin', null) ? pVec3(pGetVal(pr, 'origin'), [0, 0, 0]) : null
-        const rx = p.pos[0] - (cx ? cx[0] : p._vortexCx || (p._vortexCx = p.pos[0]))
-        const ry = p.pos[1] - (cx ? -cx[1] : p._vortexCy || (p._vortexCy = p.pos[1]))
+        const legacy = !!sys.popsLegacy
+        const sgn = axis[2] >= 0 ? 1 : -1
+        let ccx, ccy, w
+        if (legacy) {
+          // ── 旧口径（P-131 及之前，逐位保留做 A/B）──────────────────────────────
+          const sp = pGetVal(pr, 'scale', pGetVal(pr, 'speed', 1)) * audioK
+          const o = pGetVal(pr, 'origin', null) ? pVec3(pGetVal(pr, 'origin'), [0, 0, 0]) : null
+          ccx = o ? o[0] : p._vortexCx || (p._vortexCx = p.pos[0])
+          ccy = o ? -o[1] : p._vortexCy || (p._vortexCy = p.pos[1])
+          const dOld = Math.hypot(p.pos[0] - ccx, p.pos[1] - ccy) || 1
+          const innerOld = pGetVal(pr, 'innerradius', 0), outerOld = pGetVal(pr, 'outerradius', 1e9)
+          const tx = -(p.pos[1] - ccy) / dOld, ty = (p.pos[0] - ccx) / dOld
+          w = (dOld < innerOld || dOld > outerOld) ? 0 : sp
+          p.vel[0] += tx * w * sgn * dt
+          p.vel[1] += ty * w * sgn * dt
+          break
+        }
+        // ── 官方口径 ──────────────────────────────────────────────────────────
+        const baseIn = pGetVal(pr, 'speedinner', pGetVal(pr, 'scale', pGetVal(pr, 'speed', 1)))
+        const spIn = baseIn * audioK
+        const spOut = pGetVal(pr, 'speedouter', baseIn) * audioK
+        const inner = pGetVal(pr, 'distanceinner', 0)
+        const outer = pGetVal(pr, 'distanceouter', 1e9)
+        // 该 vortex 相对控制点的偏移（`offset` / 旧名 `origin`，层空间 ⇒ y 取反）
+        const off = pVec3(pGetVal(pr, 'offset', pGetVal(pr, 'origin', null)), [0, 0, 0])
+        // 圆心（世界设计坐标，y-down）= 控制点当前位置 + cp.offset + 本算子 offset。
+        //   lockToPointer 的控制点 ⇒ **光标**（这就是"尾迹"的来源）；非指针控制点 ⇒ 层 origin。
+        const cpIdx = pGetVal(pr, 'controlpoint', 0)
+        const cp = (sys.controlPoints || [])[cpIdx]
+        const ptrCp = (typeof sys.pointerCp === 'number') ? sys.pointerCp : -1
+        const cpOff = cp ? pVec3(cp.offset || cp.origin, [0, 0, 0]) : [0, 0, 0]
+        const usePtr = (cpIdx === ptrCp && sys.pointer)
+        const baseX = usePtr ? sys.pointer[0] : sys.origin[0]
+        const baseY = usePtr ? sys.pointer[1] : sys.origin[1]
+        ccx = baseX + cpOff[0] + off[0]
+        ccy = baseY - cpOff[1] - off[1]
+        const rx = p.pos[0] - ccx
+        const ry = p.pos[1] - ccy
         const d = Math.hypot(rx, ry) || 1
         const tx = -ry / d, ty = rx / d     // 切向（axis=+z）
-        const inner = pGetVal(pr, 'innerradius', 0), outer = pGetVal(pr, 'outerradius', 1e9)
-        const w = (d < inner || d > outer) ? 0 : sp
-        const sgn = axis[2] >= 0 ? 1 : -1
+        // 半径权重：d ≤ distanceinner ⇒ speedinner；d ≥ distanceouter ⇒ speedouter；其间线性插值
+        //   （官方 `t = (d − inner)/(outer − inner + 0.1)`、`lerp(t, speedinner, speedouter)`）
+        if (d <= inner) w = spIn
+        else if (d >= outer) w = spOut
+        else {
+          const span = outer - inner + 0.1
+          w = span > 1e-6 ? (spIn + (spOut - spIn) * ((d - inner) / span)) : spIn
+        }
         p.vel[0] += tx * w * sgn * dt
         p.vel[1] += ty * w * sgn * dt
         break
@@ -10558,15 +10743,28 @@ export function createRenderer(canvas, opts = {}) {
         groups.set(0, vis)
       }
       // CPU NDC：世界→裁剪（viewProj 为设计正交投影，缩放比例 worldToNdc）
-      // ①(P-65) 世界(设计像素, y-down) → NDC 的**唯一**换算，与层路径同号：mock-GL 探针实测
-      //   buildCamera 的 viewProj 把 world(0,0)→NDC(-1,-1)、world(W,H)→(1,1)，
-      //   与 `2*y/H-1` 逐位一致（层路径与粒子路径必须共用同一约定，否则粒子整层上下镜像）。
-      // ①(RE-31) 顶点 9 float：pos3 + uv2 + uv2B + blend + alpha（stride 36）
+      // ①(P-65) 世界(设计像素, y-down) → NDC 的**唯一**换算，与层路径同号。
+      // ①(P-133 #2) **P-69 把层路径的投影 y 掰正后，这里没跟着改** —— 本处旧注释引用的
+      //   "viewProj 把 world(0,0)→NDC(-1,-1)" 是 P-69 **之前**的读数；P-69 之后
+      //   `projectionYFix()=true`（缺省）时 viewProj 把 world(0,0)→NDC **+1（屏幕顶）**
+      //   （`buildCamera` 的 `mat4Ortho` 修正；判据见 tests/projection-y-test.mjs [1]）。
+      //   而粒子 VS 的 `u_MVP` 上传的是 **IDENT_M4**（见下方 uniformMatrix4fv）⇒ CPU 算的 NDC
+      //   就是最终 NDC ⇒ 整条粒子路径相对所有四边形/蒙皮层**绕画布中线 y 镜像**。
+      //   现场（`node tests/particle-render-correctness-test.mjs --verbose` 的 NDC 断言 +
+      //   `/tmp` 探针 probe-ln.mjs）：world y=540 → 粒子 NDC −0.5、层路径 +0.5。
+      //   ⇒ 用户第 ③ 项"鼠标往中线上方走、粒子反而往下走"（该层 origin 恰是画布中线 y=1080，
+      //   镜像的不动点，所以**只有 midline 上看着是跟手的**）。
+      //   现在跟随 `projectionYFix()`：缺省 fix（y=0→屏幕顶，与层路径/MESH_VERT 同口径）；
+      //   `?projy=legacy` 逐位回到旧的镜像口径（层 + 粒子一起回退，A/B 仍可做，不新增开关）。
       const W = cam.projW, H = cam.projH
       const cx0 = W / 2, cy0 = H / 2
       const dsOf = (z) => (perspCam ? (1000 / Math.max(1, 1000 - (z || 0))) : 1)
+      const NDC_YFIX = projectionYFix()
       const nX = (x, ds) => ((cx0 + (x - cx0) * ds) / W) * 2 - 1
-      const nY = (y, ds) => ((cy0 + (y - cy0) * ds) / H) * 2 - 1
+      const nY = (y, ds) => {
+        const t = (((cy0 + (y - cy0) * ds)) / H) * 2 - 1
+        return NDC_YFIX ? -t : t          // fix: 世界 y↓ = 屏幕 y↓（y=0 在屏幕顶）
+      }
       // ①(P-103① 用户第 12 项) **粒子 quad 的图层变换**（局部偏移 → 世界偏移）。
       //   官方：`genericparticle.vert:86-87` 把 `ComputeParticlePosition`（同文件 :86）的结果乘 `g_ModelViewProjectionMatrix`（:87）
       //   —— 模型矩阵 = 图层 T·R·S ⇒ **size 偏移也吃图层 scale/角度**（不是只缩放位置）。
@@ -10626,17 +10824,16 @@ export function createRenderer(canvas, opts = {}) {
           const ds = dsOf(z)
           // ①(P-126 A) 逐粒子颜色（上提时恒 1，避免与 u_Color 二次相乘）
           const vR = uniCol ? 1 : pR, vG = uniCol ? 1 : pG, vB = uniCol ? 1 : pB
-          // 帧 UV：abs（多图精灵）用 cur/nxt 的**帧内绝对矩形**插值；单图用 base+offset 相加（官方 ComputeSpriteFrame 同构）
+          // 帧 UV：**两条路都用"帧内矩形"插值** ——
+          //   abs（多图精灵）= 该帧在自己那张图里的绝对矩形；
+          //   单图精灵 = 帧原点 + uv · 帧尺寸（①(P-133 #1)：`su/sv` = 官方 `uvFrameSize`）。
+          //   ⚠ P-133 之前单图路写的是 `u + cu.u0`（只加原点、**不乘帧尺寸**）⇒ 每颗粒子 u 跨度
+          //   恒 1.0 = 整张图集，13 帧横排图集被压成"一条条竖线"（用户第 ①/② 项）。
           const cu = frameUV ? (frameUV.abs ? frameUV.cur : frameUV) : null
           const nu = frameUV ? (frameUV.abs ? frameUV.nxt : frameUV) : null
           const okFrame = !!(cu && typeof cu.u0 === 'number' && nu && typeof nu.u0 === 'number')
           const fB = okFrame ? (frameUV.blend || 0) : 0
-          const uvf = okFrame
-            ? (frameUV.abs
-                ? (u, v) => [cu.u0 + u * (cu.u1 - cu.u0), cu.v0 + v * (cu.v1 - cu.v0),
-                             nu.u0 + u * (nu.u1 - nu.u0), nu.v0 + v * (nu.v1 - nu.v0), fB]
-                : (u, v) => [u + cu.u0, v + cu.v0, u + nu.u0, v + nu.v0, fB])
-            : (u, v) => [u, v, u, v, 0]
+          const uvf = okFrame ? frameRectUVFn(cu, nu, fB) : (u, v) => [u, v, u, v, 0]
           // 一个顶点：世界 (x,y) + 纹理 (u,v)（帧映射 + 逐粒子 alpha 写进顶点）
           const push = (x, y, u, v) => {
             const q = uvf(u, v)
@@ -10701,12 +10898,7 @@ export function createRenderer(canvas, opts = {}) {
             const nu = frameUV ? (frameUV.abs ? frameUV.nxt : frameUV) : null
             const okFrame = !!(cu && typeof cu.u0 === 'number' && nu && typeof nu.u0 === 'number')
             const fB = okFrame ? (frameUV.blend || 0) : 0
-            const uvf = okFrame
-              ? (frameUV.abs
-                  ? (u, v) => [cu.u0 + u * (cu.u1 - cu.u0), cu.v0 + v * (cu.v1 - cu.v0),
-                               nu.u0 + u * (nu.u1 - nu.u0), nu.v0 + v * (nu.v1 - nu.v0), fB]
-                  : (u, v) => [u + cu.u0, v + cu.v0, u + nu.u0, v + nu.v0, fB])
-              : (u, v) => [u, v, u, v, 0]
+            const uvf = okFrame ? frameRectUVFn(cu, nu, fB) : (u, v) => [u, v, u, v, 0]
             const pushA = (x, y, z2, u, v) => {
               const q = uvf(u, v)
               const ds2 = dsOf(z2)

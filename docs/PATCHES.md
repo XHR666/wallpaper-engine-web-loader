@@ -9972,3 +9972,325 @@ C 在 `audio-emit-live` 的 T4 段实跑（断言里同时核对**真树 sha256 
 `server/**`、`package.json`、`README.md`、`docs/ONLINE-DEMO.md` 一字未动。
 ⚠ `docs/AUDIO-BAND-WIRING.md` §1/§2 的 `bandfeed` 缺省与语义表**已因本批而过时**（该文件不在本批允许改的路径里）⇒
   需要由该文档的归属线把 `?bandfeed=` 行（缺省 off → auto、新增 mic / `audioemit`）同步过去。
+
+---
+
+## P-133（2026-09-19 用户第 ①/②/③ 项）粒子**精灵帧 UV 尺寸**缺失（落花"竖条"/雾 2 整张图集）+ 粒子 CPU NDC 的 y 没跟 P-69 的投影修正（鼠标尾迹"上下相反"）+ `mapsequencearoundcontrolpoint` / `vortex` / `FadeValueChange(size|alpha)` 三条同族口径
+
+> **性质**：只读取证 + 定点修复。全程**未开浏览器**、未跑 `run-all-tests.sh` / `package-matrix` / `glsl-validate` / `build-pages.mjs`；
+> 证据 = mock-GL 顶点流 / uniform / 数值推演 + **两个独立第三方参考实现的行为对照**（`references/wer-ref` GPL-2.0-only、
+> `references/lwe-ref` GPL-3.0-only ⇒ **只读行为结论**；`references/vendor-ref/webwallgl`（oneincase）**MIT** ⇒ 可移植，本批仍按行为规格独立书写、`file:line` 标注来源，未复制其代码/注释/常量组织）。
+> **编号**：落盘前 `grep -n '^## P-13' docs/PATCHES.md` 实测最高 = P-132 ⇒ 用 **P-133**。
+
+### P-133.0 层号核实（两种口径 → 对象 id/name/def）
+
+`?ln=NN` **0 基**（`demo.html:4156/4181` `scene.layers.forEach((l,i) => l.__lnHidden = (i !== __lnOnly))`）；
+而 `scene.layers = objects.map(...)`（`core/we-scene-bundle.js:1394`）⇒ **`?ln=i` 就是 `objects[i]`**。
+用户口语的"第 N 层"是 **1 基序数**（同一数组）⇒ 两种口径指向**同一个对象**，且**名字逐字吻合**：
+
+| 用户口述 | 1 基序数 | `?ln=`(0 基) | `objects[i]` | id | name | def（包内 entry） |
+|---|---|---|---|---|---|---|
+| 第 21 层**落花** | 21 | `ln=20` | `objects[20]` | **936** | **落花** | particles/new_part3.json（包内 entry） |
+| 第 18 层**雾 2** | 18 | `ln=17` | `objects[17]` | **835** | **雾 2** | particles/presets/fog2.json（包内 entry） |
+| （鼠标尾迹） | 28 | `ln=27` | `objects[27]` | **389** | **cherry blossoms on cursor** | particles/workshop/2093672045/Cherry_Blossoms_2.json（包内 entry） |
+
+反证（排除"只数可见层/只数粒子层"两种口径）：同名 `落花` 还有 `objects[3]`（id 320 / particles/huya.json），
+若按"粒子层 1 基"计数，雾 2 会落在第 8 位 ⇒ 与用户口述不符；按全 `objects` 序数则 18/21 **两处同时吻合**。
+复现命令（≤3 秒、只读 head 1 MiB + 单条 entry）：`node /tmp/wk/re.mjs <pkg> scene.json`（见 P-133.7 的探针清单）。
+
+### P-133.1 ①「落花」：一堆**竖状线条、一条空开另一条** = 每颗粒子采样了**整张 2600×200 图集**
+
+**贴图事实**（`materials/particle/3.tex`，包内）：
+
+```
+texture 2600x200 ARGB8888 flags=6(bit2=isSprite)  TEXS0003  frames=13
+frames[0..2] = {x:0,y:0,xAxis:[200,0],yAxis:[0,200]} {x:200,…} {x:400,…}   （13 帧横排，每帧 200×200）
+spriteInfo = {"numFrames":13,"frameWidthUV":0.076923,"frameHeightUV":1,"cols":13,"rows":1,"duration":0}
+```
+
+**现场（修复前）**：`node /tmp/wk/probe-ln.mjs 3554161528 20 25`（真包 + mock-GL 抓顶点流，逐粒子打印 UV 矩形）
+
+```
+批 0: quads=30
+  {"q":0,"u0":0.15385,"u1":1.15385,"v0":0,"v1":1,"duW":1,   "dvH":1,…}
+  {"q":1,"u0":0.61538,"u1":1.61538,"v0":0,"v1":1,"duW":1,   "dvH":1,…}
+```
+
+**根因**：`computeSpriteFrameUV`（`core/we-scene-bundle.js:720-735`）返回的是**帧原点** `{u0,v0,u1,v1}`，
+而消费方（`core/we-scene-bundle.js:10639-10649`）只做 `u + cu.u0` —— **没乘帧的 UV 尺寸**。
+官方同一个函数用 `out vec2 uvFrameSize` 把它一起吐出来（官方资产 `wallpaper_engine/assets/shaders/common_particles.h:81`
+`uvFrameSize = vec2(frameWidth, frameHeight)`），顶点着色器再 `v_TexCoord = a_uv·uvFrameSize + uvs.xy`（同目录 `genericparticle.vert:78-84`）。
+⇒ 每颗粒子的 u 跨度恒 **1.0**（整张图集宽 2600px）而不是 1/13（200px）。
+屏幕上的 quad 只有 ~55px 见方（`pxW=0.03 NDC`）⇒ 13 朵花被压成 **13 条 ≈4.2px 宽的竖条**，帧间空白就是"一条空开另一条" —— **与用户原话逐字对应**。
+
+**改法**：
+* `computeSpriteFrameUV` 增出 `su`/`sv`（= `frameWidthUV`/`frameHeightUV`，缺省 1 ⇒ 手搓对象逐位不变）；`u0/v0/u1/v1` 语义**不变**（仍是 cur/nxt **原点**）。
+* 新增 `frameRectUVFn(cur, nxt, blend)`（`core/we-scene-bundle.js:741-762`）把两种输入形态（单图 `{u0,v0,su,sv}` / 多图 `{u0,v0,u1,v1}`）统一归约成矩形插值；`renderParticleLayer` 的**两处** `uvf`（sprite 段 ~`:10649`、rope 段 ~`:10720`）都改用它 —— 顺带消掉了这两段此前各写一份的分叉。
+
+**修复后（同一条命令）**：
+
+```
+  {"q":0,"u0":0.15385,"u1":0.23077,"v0":0,"v1":1,"duW":0.07692,"dvH":1,…}   ← 恰好第 2 格（2/13）
+  {"q":1,"u0":0.61538,"u1":0.69231,…,"duW":0.07692,…}                       ← 第 8 格（8/13）
+  帧原点全部落在 k/13（k∈[0,12]）
+```
+
+### P-133.2 ②「雾 2」：**同一根因**（8×8 图集被整张塞进一颗雾粒）
+
+particles/presets/fog2.json（包内 entry） → `materials/presets/fog2.json` → 贴图 `particle/fog/fog3`
+（1024×1024 RG88 flags=4、TEXS 64 帧、`frameWidthUV=0.125`）。
+
+```
+修复前：{"q":0,"u0":0.75,"u1":1.75,"v0":0.75,"v1":1.75,"duW":1,    "dvH":1,    "blend":0.56}
+修复后：{"q":0,"u0":0.75,"u1":0.875,"v0":0.75,"v1":0.875,"duW":0.125,"dvH":0.125,"blend":0.56}
+```
+
+**旁证（`tests/particle-shape-audit.mjs 3554161528` 的像素指标，P-65 的 v1→v2 两版 FS 口径）**：
+
+| id/层 | 修前 四角alpha / 覆盖均值alpha / 不透明占比 | 修后 |
+|---|---|---|
+| 835「雾 2」 | 1 / 1 / **100%**（= 一块实心方块） | 0 / **0.014** / **0%**（= 真正的软雾） |
+
+即：修前把整张 1024² 图集（大面积不透明像素）压进一颗雾粒 ⇒ 一块实心方块；修后取单帧 128×128 软边雾 ⇒ 均值 alpha 0.014。
+（这条也解释了用户为什么先抱怨"雾 2 还是有问题"——P-126 只修了**帧时序**，没修**帧矩形**。）
+
+### P-133.3 ③ 鼠标尾迹：四件事（"上下相反 / 缩成一个球 / 没有尾迹 / 走远就没了"）
+
+#### (a) **上下相反** = 粒子 CPU NDC 的 y 没跟 P-69 的投影修正
+
+**现场**：`node /tmp/wk/proj.mjs`（`node --check` 级别的纯数值探针，无 GL）
+
+```
+projectionYFix= true
+  world y=   0  viewProj NDC.y= 1.000000   CPU粒子式 2y/H-1=-1.000000   ★ 互为镜像 ★
+  world y= 540  viewProj NDC.y= 0.500000   CPU粒子式 2y/H-1=-0.500000   ★ 互为镜像 ★
+  world y=1620  viewProj NDC.y=-0.500000   CPU粒子式 2y/H-1= 0.500000   ★ 互为镜像 ★
+```
+
+`?projy=legacy` 的**层路径**在 P-69（2026-09-15）被掰正（`core/we-scene-bundle.js:2756` `projectionYFix()`，缺省 fix），
+但**粒子路径**（`core/we-scene-bundle.js:10600-10601` 的 `nY = (y/H)*2-1`）没跟着改 —— 那里的注释引用的
+"viewProj 把 world(0,0)→NDC(−1,−1)"是 **P-69 之前的读数**（P-65 时期实测）。而粒子 VS 的 `u_MVP` 上传的是
+**`IDENT_M4`**（`core/we-scene-bundle.js:10823` `gl.uniformMatrix4fv(partUni.mvp, false, IDENT_M4)`）⇒ CPU 算的 NDC 就是最终 NDC
+⇒ **整条粒子路径绕画布中线 y 镜像**。鼠标尾迹层 `objects[27]` 的 `origin = (1920,1080,0)` **恰是画布中线**（镜像的不动点）
+⇒ 用户看到"在屏幕中线是跟着移动的，往中线上方移动粒子反而往下走"—— 现象与根因**逐字吻合**。
+
+**改法**：`nY` 跟随 `projectionYFix()`（fix ⇒ `−(2y/H−1)` = 世界 y↓ = 屏幕 y↓；`?projy=legacy` ⇒ 旧式）。
+**不新增开关**：`?projy=legacy` 本来就是"相机投影 y 轴口径"，层 + 粒子**一起回退**才是自洽的 A/B（`diag-flag-check` 仍 153 == 153）。
+
+**修复后端到端读数**（假 DOM + mock-GL 走**真出货通路**：`canvas.addEventListener('pointermove')` → `framePointerMap` → `__pointerDesign` → 顶点 NDC）：
+
+```
+  clientY= 135 (ny=0.125) → sys.pointer=(960.0,135.0)  NDC.y 均值= 0.750  [期望 1-2y/H = 0.750]
+  clientY= 540 (ny=0.500) → sys.pointer=(960.0,540.0)  NDC.y 均值= 0.000  [期望 0.000]
+  clientY= 945 (ny=0.875) → sys.pointer=(960.0,945.0)  NDC.y 均值=-0.750  [期望 -0.750]
+```
+
+（修复前同一台子：clientY=135 ⇒ NDC.y = **−0.750**，clientY=945 ⇒ **+0.750** —— 正好相反。）
+
+> 注：`?ln=` 逐层隔离在**软件 WebGL** 下看不到粒子（主对话实测整屏平灰）⇒ 这条**只有 mock-GL/数值证据**，
+> 像素级确认见 P-133.10 的真机清单。
+
+#### (b) **缩成一个球** = `mapsequencearoundcontrolpoint` 整条 initializer 未实现
+
+Cherry_Blossoms_2.json 的**唯一**初速来源是 `initializer[3] = {count:5, name:"mapsequencearoundcontrolpoint", speedmin:"0 100 0", speedmax:"0 100 0"}`
+（`emitter.speedmax` 只有 20、`distancemax` 只有 1）。旧实现只在两处把它当"这层跟随指针"的**判据**
+（`core/we-scene-bundle.js:3310/10327`），**从不执行它** ⇒ 花瓣只吃到发射器的 0..20 px/s ⇒ 全堆在光标上。
+
+**参考实现对照**：MIT `references/vendor-ref/webwallgl/renderer/vendor/we-scene/render/particles.js:828-850`
+（`mapAround`：`p.x = cp.x + cos(ang)·rad`、`rad = distancemax[0]`、`ang = bounds 插值 ×TAU`、`p.v += speedmin + (speedmax−speedmin)·k`，
+三轴共用同一个 `k`）+ 同文件 `:368-376`（解析：`count` / `bounds` / `speedmin` / `speedmax` / `controlpoint`）。
+**headless 行为对照**（`node /tmp/wk/probe-ref.mjs <def> 1920 1080 6`，直接 import 那份 MIT 模块跑它的模拟）：
+
+| 量 | 参考实现（oneincase） | 我们（修前） | 我们（修后） |
+|---|---|---|---|
+| alive | 147 | 163 | 163 |
+| **\|v\| 中位** | **82.2**（min 43.4 / max 116.8） | **34.3**（min 4.3 / max 70.3） | **98.4**（min 34.9 / max 139.4） |
+| size 中位 | 34.8 | 25.4 | 20.7 |
+
+**改法**：新增 `__mapAroundCtx()`（`core/we-scene-bundle.js:3495-3530`）+ `applyInitializer` 的 `case 'mapsequencearoundcontrolpoint'`
+与第 8 实参 `ctx`。**只有这一条 initializer 会被传 ctx**（`:3581-3586`）⇒ 其余 200+ 层的 RNG 流/顶点流**一个字节都不动**。
+y 分量按本仓库既有口径取反（作者空间 y-up ⇒ 渲染 y-down，与 `velocityrandom`（P-74③）/`movement.gravity` 同一族）。
+
+#### (c) **没有尾迹** = `vortex` 的字段名全错 + 圆心错
+
+Cherry_Blossoms_2.json 的 vortex：`{distanceinner:0, distanceouter:50, speedinner:300, speedouter:0}`（**没有** `innerradius`/`outerradius`/`scale`/`speed`）。
+旧实现读的正是后者（`core/we-scene-bundle.js:4042-4048` 修复前）⇒ **6/7 个语料 vortex 恒走缺省** `inner=0 / outer=1e9 / 强度=1`
+（半径门形同虚设、强度被压成 1px/s²）；且圆心缺省成**该粒子自己的出生点**（`p._vortexCx`），而官方圆心 = 控制点（lockToPointer ⇒ **光标**）。
+
+**参考实现对照**：GPL 参考 `references/wer-ref/src/backend/scene/internal/parser/WPParticleParser.cpp:695-722`
+（圆心 = `info.controlpoints[v.controlpoint].offset + v.offset`；`dis_mid = distanceouter − distanceinner + 0.1`；
+`t = (d − inner)/dis_mid`、`lerp(t, speedinner, speedouter)`）+ MIT `webwallgl …/particles.js:1011-1023`（同构）。
+
+**改法**：读官方字段名 + 圆心 = 控制点（指针）+ 半径线性插值（`core/we-scene-bundle.js:4037-4100`）；`?pops=legacy` 逐位保留旧分支。
+
+#### (d) **同族** `sizechange` / `alphachange` 的 `FadeValueChange` 用了 smoothstep
+
+P-130 #7 已把 `colorchange` 改成官方**线性** `FadeValueChange`（`fadeValueChange`，`:3708-3713`），
+但 `sizechange`/`alphachange` **仍用 smoothstep + clamp**（`:3765-3784` 修复前）—— 同一个官方函数、两套曲线。
+官方（GPL 参考 `wer-ref …/WPParticleParser.cpp:311-321`）是**线性且分支不 clamp**；缺省 `starttime 0 / endtime 1 / startvalue 1 / endvalue 0`
+（同文件 `:323-337` `ValueChange`，与我们此前的**数值缺省一致**，只有**曲线形状**错）。
+影响：语料 **20 处 `sizechange` 只写 `{name, starttime}`** ⇒ 中段比官方**缩得更快**（life=0.4 时官方 0.75、旧 0.84375）⇒ 花瓣/雪片提前缩没。
+**改法**：抽 `fadeValueChange1`（标量版官方线性），`sizechange`/`alphachange` 改用它，`?pops=legacy` 回退 smoothstep。
+**未动**：`endvalue` 缺省仍为 **0**（两个独立参考实现里只有 MIT 那份用 1；GPL 参考的 `ValueChange` 缺省 0，且它对本壁纸的
+第二段 `sizechange{starttime:0.2}` 还**额外**把 endtime 收紧到 0.55 —— 说明"末段缩到 0"是作者意图，不是我们的 bug）。
+
+### P-133.4 判据（能变红）+ 实测读数
+
+新增 `tests/particle-frame-uv-and-pointer-test.mjs`（**36 通过 / 0 失败，rc=0，0.53s**；header 已写 TODO(tests/run-all-tests.sh) 登记待办行）：
+
+```
+$ node tests/particle-frame-uv-and-pointer-test.mjs
+===== particle-frame-uv-and-pointer: 36 通过 / 0 失败 =====   # rc=0
+```
+
+| 断言 | 内容 | 实测（修复后） |
+|---|---|---|
+| ①-a/b/c | `computeSpriteFrameUV` 出 `su/sv`；`u0/v0/u1/v1` 语义不变；帧 k 原点 = k·su | su=0.076923 sv=1；k7=0.538462 k12=0.923077 |
+| ①-d/e/f | `frameRectUVFn`：单图跨度 = 一帧、cur/nxt 两个矩形、多图（绝对矩形）路径不变 | du=1/13、blend 原样带出 |
+| ①-g | 8×8 行主序进位（第 8 帧 = 行1列0、第 9 帧 = 行1列1） | f8=(0,0.125) f9=(0.125,0.125) |
+| ②-a/b/c/d | **真包** ln=20 落花：13 帧 / 200×200；顶点流 du=0.076923；帧原点落 13 格位；dv=1 | quads=30，du 去重 = {0.076923} |
+| ②-e/f | **真包** ln=17 雾 2：64 帧 8×8；顶点流 du=dv=0.125 | quads=18 |
+| ③-a-1..4 | 粒子 NDC.y 与 `buildCamera` 的 viewProj **同号**；`?projy=legacy` 逐位回旧镜像；两档严格互为镜像 | fix=+0.5 / legacy=−0.5 / 互镜 Δ=0 |
+| ③-a-5 | **真包** ln=27：指针 540 ⇒ NDC.y>0.2；指针 1620 ⇒ NDC.y<−0.2 | +0.479 / −0.521 |
+| ③-b-1..5 | `mapsequencearoundcontrolpoint`：半径 = distancemax[0]；count=5 五等分轮流；作者初速 0..100 且 y 取反 | 半径 = {1.000000}；相位档 {0,1,2,3,4}；vel.y ∈[−104.5,−95.2] |
+| ③-b-6 | **不传 ctx** ⇒ pos/vel 一字节不动、**一次随机数都不抽** | rngCalls=0 |
+| ③-b-7 | **真包** ln=27 出生初速 max ∈ (90,120]（旧实现 ≤20） | 118.59 |
+| ③-c-1..4 | `vortex`：半径权重 150.30 px/s²；`?pops=legacy` ⇒ 0；两档不同；`distanceouter` 外 = 0 | 150.30 / 0.0000 / 0 |
+| ③-d-1..4 | `sizechange`/`alphachange` 线性 0.75（legacy 0.84375）；端点不变 | 0.750000 / 0.843750 |
+| ⑦-a/b/c | **真包** ln=27 稳态 \|v\| 中位 >70；>90% 粒子离光标 >5px；存在大尺寸花瓣 | med\|v\|=98.4；99.4%；size max≈40 |
+
+**既有门禁同步（不是放宽，是把"测试侧的换算"跟着修正口径改过来）**：
+* `tests/particle-render-correctness-test.mjs`：NDC→设计像素的反解改为**修正档**（`ndcYToPx = (1−ny)·H/2`）；
+  ⑥B 的"从顶点流反查帧号"改成取 quad 6 顶点的 **(min u, min v)**（帧矩形的最小角 = 帧原点），并**加了一条** uv 跨度断言；
+  ⑤ 的发射器初速断言**摘掉** `mapsequencearoundcontrolpoint`（那是另一条初速来源，不属于 `?pspeed` 档位）⇒
+  **120 通过 / 0 失败**（修复前 91+ 条基线；本批不减少通过数）。
+
+```
+$ node tests/particle-render-correctness-test.mjs
+===== particle-render-correctness: 120 通过 / 0 失败 =====   # rc=0
+```
+
+### P-133.5 变异 RED（在 `/tmp` 真文件副本上做；真树跑前跑后 sha256 相同）
+
+`node /tmp/wk/p133-mutate.mjs`（手工 `readFileSync`/`writeFileSync` + `statSync` 复制 —— 本机 `fs.cpSync` 抛 EINVAL、
+`Dirent.isFile()` 有误报）。5 个变异、每个**只改一处回到旧写法**，全部 rc=1：
+
+| 变异 | 改回旧写法 | rc | 变红的断言（原文） |
+|---|---|---|---|
+| M1-UV尺寸 | `computeSpriteFrameUV` 的 `su/sv` 恒 1（= 只加原点） | 1 | `FAIL ②-b ★ 每颗粒子的 u 跨度 = 1/13（0.076923）… — quads=30 去重后的 du={1.000000}`<br>`FAIL ②-f ★ … — quads=18 du={1.0000} dv={1.0000}`<br>`FAIL ①-a … — su=1 sv=1` |
+| M2-NDCy镜像 | `nY` 去掉 `-t`（回到 `2y/H−1`） | 1 | `FAIL ③-a-2 ★ 与层路径 viewProj **同号** … — 粒子=-0.500000 viewProj(fix)=0.500000`<br>`FAIL ③-a-5 ★ … — y=540 ⇒ NDC.y=-0.521；y=1620 ⇒ NDC.y=0.479` |
+| M3-mapAround | spawnParticle 不传 ctx（= 整条 initializer 未实现） | 1 | `FAIL ③-b-7 ★ 真包 ln=27 … — max\|v\|=18.42 n=40`<br>`FAIL ③-b-5 … — max\|v\|=19.07` |
+| M4-vortex | `legacy = true`（强制旧字段名 + 旧圆心） | 1 | `FAIL ③-c-1 ★ … — \|Δv\|/dt=0.00`<br>`FAIL ⑦-a ★ 稳态 \|v\| 中位数 > 70 … — n=154 med\|v\|=59.6` |
+| M5-FadeValue | `fadeValueChange1` 内部改回 smoothstep | 1 | `FAIL ③-d-1 … — 实测=0.843750`<br>`FAIL ③-d-3 … — 官方=0.843750 legacy=0.843750` |
+
+**绿前提**（同一副本、未变异）：`===== particle-frame-uv-and-pointer: 36 通过 / 0 失败 =====` rc=0。
+**真树未改动**：`core/we-scene-bundle.js` sha256 跑前 = 跑后 = `35e4f403b68d23735cd737c459d1e3dad6a26ca4c046c223d84a50272cf12c06`；
+`tests/particle-frame-uv-and-pointer-test.mjs` sha256 前后相同。
+
+### P-133.6 同类层扫描（用户第 8 条："检测到一类 Bug 就检查有没有同类的"）
+
+`node /tmp/wk/scan-family.mjs`（只读 head 1 MiB + 单条 entry，走 demo 的三跳解析链：包内 → `/weassist/<path>` → 官方 preset 主题的 `preview*/materials/…`）。
+**扫描漏斗**：98 包 → 53 有 `scene.json` → **232** 个粒子层 → def 解析 222 → 材质 221 → 贴图 221 → **带 TEXS 帧表 35**。
+
+**① 精灵表层：35 层 / 17 包 —— 全部 35 层受益**（帧数分布 `{5:14, 64:12, 16:2, 8:2, 13:3, 41:1, 30:1}`；网格 `5x1:14, 8x8:12, 8x2:1, 8x1:2, 13x1:3, 16x8:1, 6x5:1, 4x4:1`）。
+逐层"修前/修后 UV 跨度"对照（节选；完整 35 行见 `/tmp/wk/family.txt`）：
+
+| 包 | ln | id | 层名 | 帧数 | 网格 | 修前 UV 跨度 | 修后 UV 跨度 |
+|---|---|---|---|---|---|---|---|
+| dd/3554161528 | 20 | 936 | 落花 | 13 | 13x1 | 1.000000×1.000000 | **0.076923×1.000000** |
+| dd/3554161528 | 17 | 835 | 雾 2 | 64 | 8x8 | 1.000000×1.000000 | **0.125000×0.125000** |
+| dd/3554161528 | 27 | 389 | cherry blossoms on cursor | 13 | 13x1 | 1.000000×1.000000 | **0.076923×1.000000** |
+| dd/3554161528 | 6 | 2006 | notes1_simple | 41 | 16x8 | 1.000000×1.000000 | 0.063477×0.125977 |
+| dd/3544152633 | 6 | 8189 | Fog (calm) | 64 | 8x8 | 1.000000×1.000000 | 0.125000×0.125000 |
+| dd/3544152633 | 14 | 14123 | birds | 16 | 8x2 | 1.000000×1.000000 | 0.125000×0.497925 |
+| dd/3544152633 | 18 | 221371 | Rain_secondary | 5 | 8x1 | 1.000000×1.000000 | 0.125000×1.000000 |
+| 0917/3233141951 | 51/60/61 | — | 樱花 近 / 樱花 远 / 鼠标 | 5 | 5x1 | 1.000000×1.000000 | 0.200195×1.000000 |
+| 0917/3233141951 | 62 | 203 | 底—烟 | 64 | 8x8 | 1.000000×1.000000 | 0.125000×0.125000 |
+| 0917/3351163962 | 20 | 496 | 雾 2 | 64 | 8x8 | 1.000000×1.000000 | 0.125000×0.125000 |
+| 0917/3509243656 | 29/30 | — | new_particle_syste… | 64 | 8x8 | 1.000000×1.000000 | 0.125000×0.125000 |
+| wallpaperE/other/红鸾樱落 | 51/60/61/62 | — | 樱花 近 / 樱花 远 / 鼠标 / 底—烟 | — | — | 1.000000×1.000000 | 同上 |
+| …（共 35 行） | | | | | | | |
+
+**没有"另有问题"的层**：35 层全部只是"帧矩形"这一条；`multiImage=false`（单图）35/35 ⇒ 多图（绝对矩形）分支**不在语料触发面**内。
+**按 `animationmode`**：`randomframe` 21 / 缺省 14 —— 两类都走同一条 `frameRectUVFn` ⇒ 无分叉。
+
+**③ 受影响面（同一族的其余三条）**：
+
+| 家族 | 语料层数 | 受益情况 |
+|---|---|---|
+| (a) 粒子 CPU NDC y 镜像 | **全部粒子层**（222 个可解析 def；这是"所有走 CPU NDC 的粒子"的公共路径） | 全部与层路径恢复同号；`?projy=legacy` 一起回退 |
+| (b) `mapsequencearoundcontrolpoint` | **6 层 / 6 包**（全是 `workshop/2093672045/Cherry_Blossoms_2.json` 的副本）：`dd/3554161528` ln27、`dd/3660962877` ln121、`0917/3195212886` ln58、`0917/3233141951` ln61、`wallpaperE/other/红鸾樱落` ln61、`wallpapertest1/红鸾樱落` ln61 | 6/6 受益（全部 lockToPointer=true） |
+| (c) `vortex` 字段名/圆心 | **7 层**：上面 6 层中的 4 层（ln27/ln121/ln58/ln61）+ `wallpaperE/other/红鸾樱落` ln61 + `wallpapertest1/红鸾樱落` ln61 + `dd/3544152633` ln9「reactive Stars」（只有 audioprocessing 字段） | 7/7 的旧代码**一个字段都读不到** ⇒ 恒缺省（强度 1、无半径门、圆心=自己出生点）⇒ 7/7 受益 |
+| (d) `lockToPointer` 层 | **52 层 / 31 包**（`controlpoint[].flags & 1`） | (a) 全部受益；(b) 6 层、(c) 6 层在其中 |
+
+### P-133.7 复现/取证探针（一次性，在 `/tmp`，不入仓）
+
+| 脚本 | 作用 |
+|---|---|
+| `/tmp/wk/re.mjs <pkg> <entry…>` | 只读 head 1 MiB 的入口表 + 单条 entry 直读（用于贴 def/材质/tex） |
+| `/tmp/wk/texinfo.mjs <pkg> <tex…>` | `parseTex`/`spriteInfo` 打印帧表事实（numFrames/网格/帧 UV/时长） |
+| `/tmp/wk/probe-ln.mjs <id> <ln> <t>` | 真包 + mock-GL：逐粒子打印 quad 的 `[u0,u1]×[v0,v1]`（**①②的现场数字**） |
+| `/tmp/wk/probe-trail.mjs <id> <ln> <px> <py> <t>` | 注入指针 → 逐 quad 的世界 bbox / 质心 / 像素尺寸（③的"球"） |
+| `/tmp/wk/probe-sim.mjs <id> <ln> <px> <py> <t>` | 直接驱动 `buildParticleSystem`/`simulateParticleSystem`，打印 pos/vel/size/life 分布 |
+| `/tmp/wk/probe-ref.mjs <def> <px> <py> <t>` | **headless 跑 MIT 参考实现的模拟**（行为对照数字：alive/\|v\|/size/bbox） |
+| `/tmp/wk/probe-domptr.mjs` | 假 DOM + mock-GL 走真出货通路（pointermove → 设计坐标 → 顶点 NDC） |
+| `/tmp/wk/proj.mjs` | viewProj 与 CPU 粒子式的 NDC.y 真值表（③-a 的镜像证明） |
+| `/tmp/wk/scan-family.mjs` | 全语料同类层扫描（精灵表层 / lockToPointer / mapAround / vortex） |
+| `/tmp/wk/p133-mutate.mjs` | 变异矩阵（/tmp 真副本 + 真树 sha256 前后核对） |
+
+### P-133.8 不回归（逐个 rc，全部秒级）
+
+| 命令 | rc | 读数 |
+|---|---|---|
+| `node tests/particle-frame-uv-and-pointer-test.mjs`（新） | 0 | 36 通过 / 0 失败（0.53s） |
+| `node tests/particle-render-correctness-test.mjs` | 0 | **120 通过 / 0 失败**（含 8 项内置红-if-reverted） |
+| `node tests/p74-instanceoverride-test.mjs` | 0 | 60/60 通过 |
+| `node tests/mock-gl-test.mjs` | 0 | 60 通过 / 0 失败 |
+| `node tests/particle-shape-audit.mjs 3554161528` | 0 | 逐个粒子层的几何/像素指标（0 通过 / 0 失败 = 工具无断言，按 rc） |
+| `node tests/projection-y-test.mjs` | 0 | 49 通过 / 0 失败 |
+| `node tests/render-audit.mjs 3719111841` | 0 | 逐层"画了/跳过"（`hideParticles:true` ⇒ 与本批无交集） |
+| `node tests/display-options-test.mjs` | 0 | ALL PASS（71 断言） |
+| `node tests/diag-flag-check.mjs` | 0 | **代码 153 == README 主表 153，0 差异** |
+| `node tests/sprite-sheet-test.mjs` / `multi-sprite-test.mjs` / `tex-upload-guard-test.mjs` | 0 | 帧表 API 语义未变（`u0/v0/u1/v1` 逐位不变） |
+| `node --check core/we-scene-bundle.js` | 0 | 语法 OK |
+
+### P-133.9 参考实现对照证据（`file:line`）
+
+| 结论 | 出处（**行为对照**，未复制代码） | 许可 |
+|---|---|---|
+| 帧 UV 尺寸是**函数的第二个输出**，消费方必须 `uv·uvFrameSize + offset` | 官方资产 `wallpaper_engine/assets/shaders/common_particles.h:59-84`（`out vec2 uvFrameSize`，`:81` 赋值）+ `genericparticle.vert:78-84` | WE 官方资产（本机安装目录） |
+| `g_RenderVar1 = (frameWidthUV, frameHeightUV, numFrames, rate)`（**已归一化**） | `references/wer-ref/src/backend/scene/internal/parser/WPTexHeaderParser.cpp:292-315`（`xAxis[0] /= dimensions.width`、`yAxis[1] /= dimensions.height`）+ `WPSceneParser.cpp:1721-1733`；`references/lwe-ref/src/WallpaperEngine/Render/Objects/CParticle.cpp:1915-1929`（`frameWidth = 1/cols`） | GPL-2.0 / GPL-3.0（只读） |
+| `lockToPointer` 的粒子"生在光标处、已存在的粒子不跟着 origin 挪"，控制点位置 = `pointer + cp.offset` | `references/vendor-ref/webwallgl/renderer/vendor/we-scene/render/particles.js:687-698`（`setPointer` 世界→局部）、`:1155-1163`（`_cpPos`）、`:814-827`（发射基点） | **MIT**（可移植；本批只取行为规格） |
+| `mapsequencearoundcontrolpoint` 的分布/初速语义 | 同文件 `:368-376`（解析）、`:828-850`（应用） | MIT |
+| `controlpointattract` 的 `threshold×0.5` 与"近距才施力" | `references/wer-ref/src/backend/scene/internal/parser/WPParticleParser.cpp:727-760` | GPL-2.0（只读） |
+| `vortex` 的字段名与圆心/半径线性插值 | `wer-ref …/WPParticleParser.cpp:695-722`；`webwallgl …/particles.js:1011-1023` | GPL-2.0 / MIT |
+| `FadeValueChange` 是**线性**、缺省 `starttime0/endtime1/startvalue1/endvalue0` | `wer-ref …/WPParticleParser.cpp:311-321`（函数）+ `:323-337`（`ValueChange` 缺省）；该文件 `:573-597` 对本壁纸第二段 `sizechange` 的**专门注释**证明"末段缩到 0"是作者意图 | GPL-2.0（只读） |
+| 参考实现的**可执行行为数字**（同一 def headless 跑一遍） | `webwallgl …/particles.js` 的 `ParticleSystem`（`node /tmp/wk/probe-ref.mjs`） | MIT |
+
+### P-133.10 未证实 / 需要真机（有头浏览器）确认的清单
+
+**本批未证实**：
+1. **像素级观感**：本机软件 WebGL ~1.5fps、且 `?ln=` 隔离下粒子整屏平灰 ⇒ ①②③ 的"看起来对不对"**没有像素证据**，
+   只有顶点流/数值/行为对照。用户在真机上要看的是 P-133.10 的表。
+2. **`vortex` 的手性**：本实现用 `(−ry, rx)`（`axis=+z`）。两个参考实现都从 `cross(radial, axis)` 出发，但 GPL 参考的注释
+   提到过"为让花瓣朝右转要把切向反过来"（`wer-ref …/WPParticleParser.cpp:706-712`）—— 本仓库**没有**那处翻号，真机上若看到
+   "花瓣往反方向甩"，第一刀就砍 `sgn`（改成 `−1`）。**未证实**。
+3. **`mapsequencearoundcontrolpoint` 的 y 符号**：MIT 参考不翻 y、我们按本仓库 P-74③ 的口径翻（作者 y-up ⇒ 渲染 y-down）。
+   若真机看到"花瓣朝屏幕下方喷"而不是向上，就是这一处。
+4. **`sizechange` 缺省 `endvalue`**：两个参考实现冲突（MIT 用 1、GPL 用 0）。本批**不动**（取 GPL=我们既有值）；
+   若真机觉得"花瓣提前缩没"，那是这条，不是本批引入的。
+5. **`?projy=legacy` 的完整画面**：粒子与层一起镜像 ⇒ A/B 时**两侧都应自洽**（层与粒子相对关系不变）；本批只断言了 NDC 同号，
+   没做整屏像素 A/B。
+
+**需要主对话用有头浏览器/真机确认（URL + 操作 + 期望）**：
+
+| URL | 操作 | 期望 |
+|---|---|---|
+| `http://<host>:8899/?id=3554161528` | 看第 21 层「落花」 | **13 种不同的花**逐片翻飞（每片固定一帧、片与片不同帧）；**不再是"一条条竖线、空一条"** |
+| 同上，看第 18 层「雾 2」 | — | 软的、**快速翻滚**的雾团；**不再是一块块实心方块**（像素指标：均值 alpha 1 → 0.014） |
+| 同上 | 鼠标在画面里随意移动（含中线上/下方来回） | 花瓣**始终跟着光标同向走**（往上就是往上）；光标附近有**螺旋甩出的花瓣尾迹**，不是一个静止小球 |
+| 同上 + `?projy=legacy` | 同上 | 层与粒子**一起**回到旧镜像构图（用于确认"改前画面"）；粒子与层的**相对位置不变** |
+| 同上 + `?pops=legacy` | 同上 | 尾迹退回旧口径（球 + 无涡流 + smoothstep 尺寸曲线），层画面上下一同回退 |
+| `http://<host>:8899/?id=3233141951` | 看「鼠标」层（`ln=61`，同一份 Cherry_Blossoms_2.json） | 同上的"樱花跟随光标 + 螺旋尾迹" |
+| `http://<host>:8899/?id=3660962877` | 看「cherry blossoms on cursor」（`ln=121`） | 同上 |
+| 任意包（如 `?id=3544152633`） | 看雪花/雨/鸟 | 精灵表层的**每一颗粒子应是一片完整的雪花/雨滴/鸟**，不是"整张图集的压缩条" |
