@@ -70,8 +70,22 @@ export function shot(out) {
 }
 
 // ── xdotool：指针（纯移动，不点击） ──────────────────────────────────────────
-/** 把指针**瞬间**移到桌面坐标 (x,y)。 */
-export function pointerTo(x, y) { run('xdotool', ['mousemove', '--sync', String(Math.round(x)), String(Math.round(y))]) }
+/**
+ * 把指针**瞬间**移到桌面坐标 (x,y)。
+ * ①(2026-09-19 实测) `xdotool mousemove --sync` 偶发失败（X 服务器忙/指针没法同步到位；真机跑长档时遇到过一次，
+ * 整个测试因此抛栈中断）。这里做一次**降级重试**：带 `--sync` 失败 ⇒ 退回不带 `--sync` 的普通 warp，
+ * 再读回位置确认；两次都失败才抛（抛之前把当前位置一起报出来，便于定位）。
+ */
+export function pointerTo(x, y) {
+  const X = String(Math.round(x)); const Y = String(Math.round(y))
+  try { run('xdotool', ['mousemove', '--sync', X, Y]); return } catch (e1) {
+    try { run('xdotool', ['mousemove', X, Y]) } catch (e2) {
+      let now = '(读不到)'
+      try { const p = pointerNow(); now = p.x + ',' + p.y } catch { /* ignore */ }
+      throw new Error(`指针移不到 (${X},${Y})：sync 档 ${e1.message.slice(0, 80)}；普通档 ${e2.message.slice(0, 80)}；当前位置 ${now}`)
+    }
+  }
+}
 
 /** 当前指针位置 `{x,y}`（`getmouselocation --shell`）。 */
 export function pointerNow() {

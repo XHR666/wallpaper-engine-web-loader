@@ -36,7 +36,10 @@ const OUT = path.resolve(ROOT, val('--out', '_site'))
 // ①(P-101 2026-09-16 目录再整理) 仓库按职责分层（`core/` 内核、`server/` 服务端、`web/` 站点外壳、`tools/` 生成器）
 //   ⇒ 具名文件从"根级文件名集合"改为**显式 `[仓库内落点, 产物内落点]` 映射**：
 //   仓库里怎么放 ≠ 线上什么 URL，**线上路径与收拢前逐字一致**（/demo.html、/sw.js、/manifest.webmanifest…）。
-const PAGES_KEEP_DIRS = ['demo', 'samples', 'assets', 'vendor', 'elysia', 'extensions']
+// ①(P-139 2026-09-19 补) `elysia/we-renderer/puppet.js` 以 `../../core/attach-transform.mjs` import
+//   （P-139 把采样器收敛到"唯一实现处"时改成从 core 取）⇒ 产物里**必须有 `core/` 目录**，
+//   否则 Pages 上该 import 解析到 `/<repo>/core/attach-transform.mjs` ⇒ 404 ⇒ 同一条"整图断掉"。
+const PAGES_KEEP_DIRS = ['core', 'demo', 'samples', 'assets', 'vendor', 'elysia', 'extensions']
 const PAGES_KEEP_FILES = [
   ['index.html', 'index.html'],                       // 落地页（Pages 的 /）
   ['demo.html', 'demo.html'],                         // 渲染器 demo
@@ -63,6 +66,13 @@ const PAGES_KEEP_FILES = [
   ['core/web-frame-geometry.mjs', 'web-frame-geometry.mjs'],
   ['core/audio-band-array.mjs', 'audio-band-array.mjs'],
   ['core/puppet-skin.js', 'puppet-skin.js'],
+  // ①(P-136 用户第 4 项「照抄上游鼠标尾迹」2026-09-19 补漏) `core/we-scene-bundle.js` 新增两个**同目录** import
+  //   （`./we-pointer-source.mjs` / `./we-particle-pointer.mjs`）⇒ 产物根必须有同名文件；否则浏览器把 404 当
+  //   "模块 MIME 类型不合法"拒绝加载、**整条 module 图断在这里**（页面永远停在 `loading…`，控制台只说
+  //   "脚本资源加载失败：(inline module)"）。事故现场：8899 路由 + 本表 + `web/sw.js` **三处同时**漏了这两个名字。
+  //   防复发：`tests/core-module-wiring-test.mjs`（逐条解析浏览器会加载的相对 import，断言三处在位）。
+  ['core/we-pointer-source.mjs', 'we-pointer-source.mjs'],
+  ['core/we-particle-pointer.mjs', 'we-particle-pointer.mjs'],
   ['tools/make-sample.mjs', 'make-sample.mjs'],
   ['server/pack-dir.mjs', 'pack-dir.mjs'],
   // 法律文本按根发布（README/落地页都按根链接）
@@ -167,6 +177,10 @@ fs.writeFileSync(path.join(OUT, '.nojekyll'), '')
 // 完整性自检：产物必须能直接当站点用（这几条缺一个就是"发上去才发现"）
 const MUST = ['index.html', 'demo.html', 'bundle.js', 'we-scene-bundle.js', 'sw.js', 'manifest.webmanifest',
   'demo/index.html', 'demo/bench-patch.js', 'demo/LICENSE-webwallgl-MIT.txt',
+  // ①(P-136/P-139 2026-09-19 补) 四个"浏览器按相对说明符去取"的内核文件：漏一个 = 整条 module 图断掉。
+  //   `we-pointer-source.mjs`/`we-particle-pointer.mjs` 由**产物根的** bundle 取（同目录 import）；
+  //   `core/attach-transform.mjs` 由 `elysia/we-renderer/puppet.js` 以 `../../core/...` 取。
+  'we-pointer-source.mjs', 'we-particle-pointer.mjs', 'core/attach-transform.mjs',
   `${SITE_MOUNT}/index.html`, `${SITE_MOUNT}/bench-patch.js`,
   `${SITE_MOUNT}/renderer/index.html`, 'samples/sample-synthetic/scene.pkg',
   'samples/sample-synthetic/project.json', 'THIRD-PARTY.md', 'LICENSE', '.nojekyll',

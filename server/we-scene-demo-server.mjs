@@ -442,6 +442,34 @@ const server = http.createServer(async (req, res) => {
       sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'puppet-skin.js')), 'text/javascript');
       return;
     }
+    // ①(P-136 用户第 4 项「照抄上游鼠标尾迹」2026-09-19) **P0 事故修复**：`core/we-scene-bundle.js` 新增两个
+    //   同目录 import（`./we-pointer-source.mjs` / `./we-particle-pointer.mjs`），而本服务器的路由表、
+    //   `build-pages.mjs` 的产物根映射、`web/sw.js` 的预缓存**三处同时漏了这两个名字** ⇒ `/bundle.js`
+    //   （= 本文件 `core/we-scene-bundle.js` 的字节流）在浏览器里解析 `./we-pointer-source.mjs` 得到
+    //   `/we-pointer-source.mjs` → 404 → 浏览器按"模块 MIME 类型不合法"拒绝 → **整条 module 图断掉**：
+    //   `window.__mpwModuleStarted` 永远 false、页面停在 `loading…`（看门狗只会说"脚本资源加载失败：(inline module)"）。
+    //   与上面五条同形：产物根文件名 = 仓库内 `core/` 下的文件。防复发见 `tests/core-module-wiring-test.mjs`。
+    if (p === '/we-pointer-source.mjs' || p === '/we-particle-pointer.mjs') {
+      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, p.slice(1))), 'text/javascript');
+      return;
+    }
+    // ①(P-139 2026-09-19) `elysia/we-renderer/puppet.js` 以 `../../core/attach-transform.mjs` import
+    //   （采样器收敛到唯一实现处时改成从 core 取）⇒ 浏览器解析成 `/core/attach-transform.mjs`。
+    //   这里给 `/core/<文件>` 一条**限定扩展名 + 防目录穿越**的只读路由（与 `/elysia/` 段同形），
+    //   以后 elysia 侧再从 core 取新模块也不用改服务器。
+    if (p.startsWith('/core/')) {
+      const rel = p.slice('/core/'.length);
+      const base = CORE_DIR;
+      const full = path.join(base, rel);
+      if (/\.(mjs|js|json)$/.test(rel) && !rel.includes('..') && full.startsWith(base)
+        && fs.existsSync(full) && fs.statSync(full).isFile()) {
+        const ct = rel.endsWith('.json') ? 'application/json' : 'text/javascript';
+        sendBuffer(req, res, fs.readFileSync(full), ct);
+        return;
+      }
+      res.writeHead(404); res.end('no core file');
+      return;
+    }
     // ①(MERGED-3 1.3 2026-09-14) 诊断开关速查 JSON（diag-flag-check.mjs 脚本生成）：
     //  插件面板在线数据源（离线用 client.js 内置副本）；文件不存在时按生成脚本提示返回
     if (p === '/diag-flags.json') {
@@ -453,6 +481,19 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(404, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: 'diag-flags.json 不存在，先跑 node diag-flag-check.mjs' }));
       }
+      return;
+    }
+    // ①(用户第 6 项 2026-09-19) 自绘下拉控件的**共享模块**：`demo.html`（8899）与测试台（`:8901/:8902`
+    //   直接托管 `demo/**`）都要用它 ⇒ 模块住在 `demo/`（测试台天然可取）；这里只给 8899 补一条
+    //   **限定这两个文件**的只读路由（不开 `/demo/**` 整目录 —— 没必要把测试台整站也暴露到渲染器页的源下）。
+    if (p === '/demo/mpw-select.js' || p === '/demo/mpw-select-math.mjs') {
+      const full = path.join(REPO_ROOT, p.slice(1));
+      if (fs.existsSync(full) && fs.statSync(full).isFile()) {
+        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(fs.readFileSync(full));
+        return;
+      }
+      res.writeHead(404); res.end('no select module');
       return;
     }
     if (p.startsWith('/elysia/')) {

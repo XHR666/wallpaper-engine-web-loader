@@ -13,7 +13,7 @@
 //      并有逐条反面断言的测试 `pwa-test.mjs`。
 //
 // 版本号变更 ⇒ 旧缓存整批清理（避免"旧 shell + 新 bundle"的错配）。
-const VERSION = 'v1'
+const VERSION = 'v2'   // ①(2026-09-19) 首屏 module 图新增 6 个自有模块 ⇒ 换版本让旧缓存整批清理
 const CACHE = 'we-scene-shell-' + VERSION
 const PRECACHE = [
   '/',
@@ -22,6 +22,15 @@ const PRECACHE = [
   '/we-scene-bundle.js',
   '/attach-transform.mjs',
   '/puppet-skin.js',
+  // ①(P-136 2026-09-19) bundle 新增的两个同目录 import：预缓存漏了它们 = 离线首屏整图断掉（同 8899 路由那次事故）
+  '/we-pointer-source.mjs',
+  '/we-particle-pointer.mjs',
+  '/web-frame-geometry.mjs',
+  '/audio-band-array.mjs',
+  '/baseline-metrics.mjs',
+  '/core/attach-transform.mjs',
+  '/demo/mpw-select.js',
+  '/demo/mpw-select-math.mjs',
   '/pkg/sample-synthetic',
   '/project/sample-synthetic',
   '/type/sample-synthetic',

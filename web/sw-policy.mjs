@@ -31,6 +31,16 @@ export const SHELL_EXACT = new Set([
   '/attach-transform.mjs',
   '/puppet-skin.js',
   '/diag-flags.json',
+  // ①(2026-09-19 P0 事故修复) 首屏 module 图里"浏览器按相对说明符去取"的自有模块：漏一个 ⇒ 页面停在 loading…。
+  //   与 sw.js 的 PRECACHE 清单必须同步（`tests/core-module-wiring-test.mjs` B 段逐条断言）。
+  '/we-pointer-source.mjs',
+  '/we-particle-pointer.mjs',
+  '/web-frame-geometry.mjs',
+  '/audio-band-array.mjs',
+  '/baseline-metrics.mjs',
+  '/core/attach-transform.mjs',
+  '/demo/mpw-select.js',
+  '/demo/mpw-select-math.mjs',
 ])
 
 /** 前缀匹配的 app shell 目录。**每一个都是本仓库自有的代码/字体**（不含任何 WE 或工坊素材）。 */

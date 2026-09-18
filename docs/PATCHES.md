@@ -10936,3 +10936,67 @@ p74-particles / mock-gl / effects-degenerate-fbo / script-runtime-errors / diag-
 7. `elysia/nsl.js` 为 `with (ctx)` **剥掉顶层 `'use strict'`** ⇒ 作者脚本实际是**非严格**语义（实测：给只有 getter 的访问器赋值**静默失败**而非抛错）。
    P-137 台账里"只写 getter 会让 strict 脚本抛 TypeError"这句话**对本宿主不成立**（对函数体内 `'use strict'` 的脚本成立），
    结论不变（getter + 静默 setter 在两种模式下都对），但**措辞需更正** —— 本批未改 P-137 正文。
+
+---
+
+## P-143（2026-09-19 主对话）**两个 P0：整页白屏**（首屏 module 图三处接线漏登记 + `objById` 作用域）+ 用户第 6 项落地（原生 `<select>` → 自绘下拉，含工具条与属性面板）+ 工具栏被属性面板盖住
+
+> **性质**：主对话直接修（无子代理）。**性质=回归修复 + 新门禁**。两个 P0 都是"Node 门禁全绿、浏览器白屏"这一类 —— 结论写在第 0 条：
+> **本仓库此前没有任何一项门禁真的用浏览器加载过渲染器页**，所以"接线漏一处"与"作用域写错"都测不出来。
+
+### P-143.0 事故一：首屏 module 图三处同时漏登记 ⇒ 页面停在 `loading…`
+
+- **现象**：`http://127.0.0.1:8899/` 打开后 `#log` 只有 `loading…`；控制台是
+  `Loading module from “http://127.0.0.1:8899/we-pointer-source.mjs” was blocked because of a disallowed MIME type (“”)`。
+- **根因**：`core/we-scene-bundle.js` 由 8899 以 `/bundle.js` 发出，其**相对 import** 在浏览器里解析成**产物根 URL**
+  （`./we-pointer-source.mjs` ⇒ `/we-pointer-source.mjs`）。P-136 新增了两个这样的 import
+  （`we-pointer-source.mjs` / `we-particle-pointer.mjs`），P-139 又让 `elysia/we-renderer/puppet.js` 以
+  `../../core/attach-transform.mjs` 取模块（⇒ `/core/attach-transform.mjs`）。而三处接线 **同时**没登记：
+  ①8899 服务器路由表 ②`build-pages.mjs` 产物映射 ③`web/sw.js` 预缓存 ⇒ 404 ⇒ 浏览器按 MIME 不合法拒绝 ⇒ 整图断掉。
+- **改法**：①`server/we-scene-demo-server.mjs` 加 `/we-pointer-source.mjs`、`/we-particle-pointer.mjs` 两条 + 一条
+  **限定扩展名与防穿越**的 `/core/<file>` 路由；②`build-pages.mjs` 加两条同名映射、`PAGES_KEEP_DIRS` 加 `core`、`MUST` 加三个文件名；
+  ③`web/sw.js` 预缓存补 6 个 + `VERSION v1→v2`（换版本让旧 shell 整批清理），`web/sw-policy.mjs` 的 `SHELL_EXACT` 同步补 8 条
+  （不加它 `shouldCache()` 会拒缓存 ⇒ 清单加了也白加）。
+- **防复发（本批新增门禁）**：`tests/core-module-wiring-test.mjs`（**64 断言**，~0.2s，无浏览器）——
+  列出**浏览器会加载**的入口与它们对应的 URL，解析其中所有相对 import、按 URL 规则算出目标，逐条断言
+  "文件存在 + 三处登记齐"；外加 C 段反向检查（被 import 的 core 文件必须有人登记）。
+
+### P-143.1 事故二：`objById` 作用域 ⇒ 装载即 `ReferenceError` ⇒ 白屏
+
+- **现象**：`?pkgpath=…` 打开真包，`#log`：`❌ 启动失败: objById is not defined`（`__mpwCap().errs=[\"boot: objById is not defined\"]`），画面全白。
+- **根因**：P-139 的附件锚点代码在 **`bootInstance`**（`:1446`）作用域引用 `objById`，而它当时只在**内层块**里用 `const` 声明
+  （块作用域）⇒ 出了那个块就不可见。（第一版修复把它提到 `loadScene()` 里 —— 仍然错：使用点在 `bootInstance`，
+  实测栈 `bootInstance/<@…:4761` 定位。）
+- **改法**：`let objById = null` 声明在 `bootInstance` 函数作用域（`:1451`），赋值留在原处；两处使用加 `objById ? … : null` 防御。
+- **防复发**：`tests/x11-e2e/select-live-test.mjs` 的 **S0 冒烟段**（module 启动 + `__mpwCap().ok` + 真出帧）——
+  这是本仓库**第一项会因"页面白屏"变红的门禁**。
+
+### P-143.2 事故三：工具栏第二行被属性面板盖住（真机点不到"速"）
+
+- 实测 `elementFromPoint` 在"速"下拉的位置命中的是**属性面板标题**：`#bar` 是 `flex-wrap`，窄窗/多控件时折到第二行（实测 y≈61），
+  而 `#mpw-props-panel` 是 `top:38px; z-index:12`、`#bar` 只有 `z-index:9` ⇒ 面板盖住工具栏第二行。
+- 改法：`#bar` 提到 `z-index:13`（工具栏是全局 chrome，永远该在最上面）。**这是用户第 6 项"下拉点不到"的前置条件。**
+
+### P-143.3 用户第 6 项落地：原生 `<select>` → 自绘下拉
+
+- **工具条**（`demo.html` 的 `#mpw-rate`）：`mpwDisplayUiInit()` 里 `enhanceSelect(rSel, …)`。
+- **属性面板**（`demo.html:888` 的 combo 控件）：面板 API 住在 **classic `<script>`**（`MPW-PROPS-PANEL` 块）⇒ 拿不到 ESM 导入；
+  第一版直接在块里调 `enhanceSelect` 被 try/catch 静默吞掉（实测面板 `enhanced:0`，仍是原生 select）。改法：
+  该块只把 `<select>` 放进自建 `wrap`（**先入 DOM**），由 **module 侧** `enhancePanelSelects()` 在面板 append 到 body 后统一增强
+  （`MutationObserver` 只订阅 `document.body` 的 **childList**，不订阅子树 —— 日志面板每帧都在动）+ 300ms 兜底 + `window.__mpwEnhancePanelSelects` 诊断入口。
+- **为什么"先入 DOM 再增强"**：`enhanceSelect()` 要往 select 的父节点里插控件；面板是"先造控件、后统一 append"的写法，
+  直接调用会因 `parentNode === null` 抛错 → 被 try/catch 吞 → **静默退回原生**（正是第一版的现象）。
+- **真机判据**（`tests/x11-e2e/select-live-test.mjs`，**14 断言 / 0 失败**，`?id=3554161528` ⇒ 页面上 2 个下拉）：
+  S0 冒烟（module + 装载 + 出帧）、S1 面板 1 + 工具条 1 且原生全部隐藏、S2 真点击开（1 个列表、`aria-expanded=true`）、
+  S2b `data-flip` 与实测可用空间一致、S3 再点即关、S8 连开两个只留一个、S4 点选项写值 + 派发 `change` + 收起、
+  S5 点空白关、S6 键盘 ArrowDown+Enter 选中、S7 真 DOM 里 `data-flip` 与空间一致（见过 down 与 up）。
+  截图落 `$MPW_ROOT/reports/x11-shots/*-select/`。
+- **测试自身的三条教训**（都写进代码注释）：①首次真点击会被"忙"吞掉 ⇒ 一律"点后轮询 + 重试"；
+  ②`xdotool mousemove --sync` 偶发失败 ⇒ 降级到普通 warp 并读回位置；③面板控件可能在可视区外 ⇒ 点前先 `scrollIntoView`。
+
+### P-143.4 未证实 / 待办
+
+1. P-143.0 的 `/core/**` 路由**只放行三种扩展名（mjs、js、json）** 且拒 `..`；Pages 侧靠 `PAGES_KEEP_DIRS` 保留整目录（发布面变大，已在 MUST 里点三个文件名）。
+2. `sw.js` 预缓存补的是"首屏 module 图"这几个名字；`/core/**` 暂不进预缓存（离线时 elysia 取它属可选失败面）。
+3. 属性面板的下拉**只在这个壁纸（combo 属性）上真机验过**；`?pkgpath=` 那些 mpkg 的属性面板实测 0 行（面板模型来源与 pkgpath 的关系未查清，记在此）。
+4. S7 的真机 `up` 只见过 1 次（贴底自动上翻）；边界值由无浏览器的 16 条钉住，真机只是"见过"。

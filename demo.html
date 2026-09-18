@@ -3,7 +3,7 @@
 <title>we-scene 验证</title><style>
 body{margin:0;background:#111;color:#eee;font-family:system-ui}
 canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
-#bar{position:fixed;top:0;left:0;right:0;z-index:9;display:flex;gap:8px;padding:8px;background:rgba(0,0,0,.7);flex-wrap:wrap;font-size:13px}
+#bar{position:fixed;top:0;left:0;right:0;z-index:13;/* ①(2026-09-19 用户第 6 项副产) 必须**高于**属性面板（z=12）：栏是 flex-wrap，窄窗/多控件时会折到第二行（`#mpw-display-box` 就在那里，实测 y≈61），而面板 `top:38px` ⇒ 面板会盖住工具栏第二行 ⇒ 里面那个"速"下拉鼠标点不到（真机实测 elementFromPoint 命中的是面板标题）。工具栏是全局 chrome，永远该在最上面。 */display:flex;gap:8px;padding:8px;background:rgba(0,0,0,.7);flex-wrap:wrap;font-size:13px}
 #bar a{color:#8cf;text-decoration:none;padding:4px 10px;border:1px solid #468;border-radius:6px}
 #log{position:fixed;bottom:0;left:0;right:0;z-index:9;padding:4px 8px;background:rgba(0,0,0,.75);font:11px monospace;white-space:pre-wrap;height:35vh;overflow:auto;color:#8f8}
 /* ①(Q8 2026-09-14 用户第 15 项) 日志手柄：贴在日志上沿，可拖动/点击收纳；完全收起时缩成右下角小药丸（不遮壁纸） */
@@ -893,6 +893,18 @@ fitCanvas();
         ctrl.appendChild(o)
       }
       ctrl.addEventListener('change', on)
+      // ①(用户第 6 项 2026-09-19) **原生 `<select>` 换自绘下拉**：`enhanceSelect()` 把原生 select 留在 DOM 里
+      //   当值容器（隐藏），**在它旁边**插一个自绘控件 ⇒ 上面的 `readValue()` / `change` 监听一行都不用改；
+      //   自绘控件负责"下面没空间往上开、上面没空间往下开"、单开（开之前先关上一个）、再点即关、键鼠可达。
+      //   ⚠ 必须先把这个 `<select>` **放进 DOM** 再增强：`enhanceSelect()` 要往它的父节点里插控件，
+      //   而这里是"先造控件、后由 `API.build` 统一 append"的写法 ⇒ 直接调用会因 `parentNode === null` 抛错，
+      //   被 try/catch 吞掉后**静默退回原生 select**（第一版就是这个错，实测面板里 0 个自绘控件）。
+      //   所以这里自建一个容器 `wrap` 并把 select 先塞进去；增强失败仍退回原生（面板不炸）。
+      // ①(用户第 6 项 2026-09-19) 原生 `<select>` → 自绘下拉：**本块是 classic `<script>`，拿不到 ESM 导入**，
+      //   所以这里只把 select 放进 `wrap`（先入 DOM），真正的增强由 module 侧的 `enhancePanelSelects()`
+      //   在面板被 append 到 body 之后统一做（见 `MPW-SELECT-WIRING` 段；`enhanceSelect()` 要求元素已有父节点）。
+      wrap = mk(doc, 'span', 'mpw_selwrap')
+      wrap.appendChild(ctrl)
     } else {
       ctrl = mk(doc, 'input'); ctrl.type = 'text'
       ctrl.addEventListener('input', on)
@@ -1060,6 +1072,41 @@ import { packBands, simulatedBandArray, bandStats, AUDIO_BAND_LEN, AUDIO_BAND_HA
 //   帧盒按"内容比例 ≠ 舞台比例 ⇒ 覆盖式视口（居中裁切）"算（`?framegeom=cover|contain|stretch`；
 //   缺省 legacy = 一行都不动）。渲染器侧的指针口径接线在 `core/we-scene-bundle.js`。
 import { coverViewport, contentAspectOf, frameVisibleRect, normalizeFrameFit } from './web-frame-geometry.mjs';
+// ①(用户第 6 项 2026-09-19) 自绘下拉（共享模块，测试台与渲染器页同一个实现）：
+//   模块住在 `demo/`（测试台天然托管），8899 这边由服务器补了一条**限定这两个文件**的只读路由。
+import { enhanceSelect } from './demo/mpw-select.js';
+// ═══ MPW-SELECT-WIRING-BEGIN ①(用户第 6 项 2026-09-19) ═══
+// 属性面板的控件是在**经典脚本**（`MPW-PROPS-PANEL` 块）里造的 ⇒ 那里拿不到 ESM 导入。
+// 这里用"面板进 DOM 就增强"的方式接上：只订阅 `document.body` 的 **childList**（不订阅整棵子树 ——
+// 日志面板每帧都在动，订阅子树等于每帧回调），面板被 append 时它的行/控件已经全在内部了 ⇒ 一次扫完。
+// 每次都跳过已增强的（`select:not([data-mpw-select-native])`），所以重复回调是幂等的。
+function enhancePanelSelects() {
+  const panel = document.querySelector('div#mpw-props-panel')   // ⚠ 必须写 div#…：同名的还有一个 <script id=…> 源码块
+  if (!panel) return 0
+  let n = 0
+  for (const sel of panel.querySelectorAll('select:not([data-mpw-select-native])')) {
+    try { enhanceSelect(sel, { doc: document }); n++ } catch (e) { /* 单个控件失败 ⇒ 保留原生，面板不炸 */ }
+  }
+  return n
+}
+try {
+  if (typeof MutationObserver === 'function' && document.body) {
+    const mo = new MutationObserver((muts) => {
+      for (const m of muts) {
+        for (const node of m.addedNodes) {
+          if (node && node.nodeType === 1 && (node.id === 'mpw-props-panel' || (node.querySelector && node.querySelector('div#mpw-props-panel')))) {
+            setTimeout(enhancePanelSelects, 0)
+            return
+          }
+        }
+      }
+    })
+    mo.observe(document.body, { childList: true })
+  }
+  setTimeout(enhancePanelSelects, 300)     // 首帧兜底（面板若在本次 module 执行前就已 append）
+  window.__mpwEnhancePanelSelects = enhancePanelSelects   // 诊断/测试入口（与 __mpwProps 同精神）
+} catch (e) { /* 无 DOM（Node 侧语法检查）⇒ 忽略 */ }
+// ═══ MPW-SELECT-WIRING-END ═══
 const cv = document.getElementById('sc');
 const log = document.getElementById('log');
 const fpsEl = document.getElementById('fps');
@@ -1235,6 +1282,9 @@ function mpwDisplayUiInit() {
     on('mpw-flip-h', 'change', () => mpwDisplaySet({ flipH: !!($('mpw-flip-h') || {}).checked }))
     on('mpw-coloropts', 'change', () => mpwDisplaySet({ colorOptions: !!($('mpw-coloropts') || {}).checked }))
     on('mpw-rate', 'change', () => mpwDisplaySet({ playbackRate: lib.parsePlaybackRate(($('mpw-rate') || {}).value) }))
+    // ①(用户第 6 项 2026-09-19) 顶栏"速"那个原生 `<select>` 同样换自绘下拉（与属性面板同一个实现）。
+    //   只换外观：原生 select 仍是值容器，上面的 `change` 监听与 `mpwDisplaySyncUI()` 的 `r.value = …` 都不受影响。
+    try { const rSel = $('mpw-rate'); if (rSel) enhanceSelect(rSel, { doc: document, title: '播放速度（全局场景时间倍率 + video.playbackRate）' }) } catch (e) { /* 退回原生 */ }
     on('mpw-bright', 'input', () => mpwDisplaySet({ brightness: num('mpw-bright', 1) }))
     on('mpw-contrast', 'input', () => mpwDisplaySet({ contrast: num('mpw-contrast', 1) }))
     on('mpw-satur', 'input', () => mpwDisplaySet({ saturation: num('mpw-satur', 1) }))
@@ -1433,6 +1483,11 @@ function makeTextureDownsized(gl2, canvas, w, h) {
 }
 
 async function bootInstance(inst) {
+  // ①(2026-09-19 P0 修复) `objById`（scene.json 的 `objects[]` 按 id 建表）原来只在下面**内层块**里
+  //   用 `const` 声明 ⇒ 块作用域；而 P-139 的附件锚点代码在**本函数**（`bootInstance`）的另一处用它
+  //   ⇒ 场景一装载就 `ReferenceError: objById is not defined` ⇒ 整页 `❌ 启动失败`（用户看到白屏）。
+  //   这里声明在本函数作用域，赋值仍在原处（parse 块内）。
+  let objById = null
   // ═══ ①(P-77 一页多实例·第 1 步 2026-09-15) 装载层抽成 bootInstance(inst) ═══
   //   本函数 = 「读 id → fetch 包 → parseScene → createRenderer → 帧循环 → 上报」的完整装载层。
   //   单实例调用点传入的 inst 字段**就是**原来的模块级常量（canvas=cv / gl / id / logEl=log /
@@ -2338,7 +2393,7 @@ function loadScene() {
       return out
     }
     const sceneRaw = JSON.parse(sceneJson)
-    const objById = new Map((sceneRaw.objects || []).map((o) => [o.id, o]))
+    objById = new Map((sceneRaw.objects || []).map((o) => [o.id, o]))
     for (const o of (sceneRaw.objects || [])) {
       if (o.attachment === undefined || o.attachment === null || o.parent === undefined) continue
       const po = objById.get(o.parent)
@@ -4743,14 +4798,14 @@ function loadScene() {
     const ai = scene && scene.__attachInfo
     if (ai && ai.frozenAnchor) attachFrozenAnchor = ai.frozenAnchor
     scene.layers.forEach((l) => {
-      const raw0 = objById.get(l.id)
+      const raw0 = objById ? objById.get(l.id) : null
       if (!raw0 || raw0.attachment == null || raw0.parent == null || !l.origin) return
       // 锚点 Δ → **世界** Δ 的换算：parseScene 把锚点并入**父局部**坐标，再乘父链累积 scale、
       //   吃父链累积旋转（本包父链 主体←长发3 的 angles.z = π ⇒ y 取反），最后 `y = PROJ_H − y`。
       //   三者都可由数据推出，不写死常数：
       //     · 父链累积 scale 比 = |本层世界 scale| / |作者 scale|（parseScene 逐级相乘的结果 ÷ 作者值）
       //     · y 符号 = 父链累积角度是否含 π（本包 = π ⇒ Δy 取反）
-      const pRaw = objById.get(raw0.parent)
+      const pRaw = objById ? objById.get(raw0.parent) : null
       const pRot = lib.parseVec3(pRaw ? (pRaw.angles || '0 0 0') : '0 0 0')[2]
       // y 符号：parseScene 合并末尾对**无 animationlayers** 的层做 `y = PROJ_H − y`，
       //   带 animationlayers 的层保持 y-up（docs/CALIBRATION-3719111841.md §0 的历史例外）。

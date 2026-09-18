@@ -383,6 +383,21 @@ add "kaltsit-puppet-anchor" "node tests/kaltsit-puppet-anchor-test.mjs" "" "^SKI
 #   （影响面 28 层 = rope 13 / sprite 14 / spritetrail 1，`?pturb=legacy` 逐位回退，开关已登记 154 == 154）。
 #   33 断言 + RED-IF-REVERTED（含"legacy 顶点流 sha256 == 换回旧算式的变异体"逐位证明）；~2.4s，无浏览器/无网络。
 add "particle-turbulence-field" "node tests/particle-turbulence-field-test.mjs" "" "^SKIP particle-turbulence-field"
+# ①(P-143 2026-09-19 主对话) `core-module-wiring`：**首屏 module 图的三处接线守卫**（P0 事故防复发）——
+#   浏览器按**相对说明符**取的内核文件必须同时有：①8899 服务器路由 ②Pages 产物映射（或 KEEP_DIRS 目录）③sw.js 预缓存。
+#   事故：P-136 新增 `core/we-pointer-source.mjs`/`we-particle-pointer.mjs` + P-139 让 puppet.js 以 `../../core/…` 取模块，
+#   三处**同时**漏登记 ⇒ `/we-pointer-source.mjs` 404 ⇒ 浏览器按"模块 MIME 不合法"拒绝 ⇒ **整条 module 图断掉**、
+#   页面停在 `loading…`（而所有 Node 门禁全绿 —— 它们按文件系统解析，看不见 404）。64 断言，~0.2s。
+add "core-module-wiring"  "node tests/core-module-wiring-test.mjs"
+# ①(用户第 6 项 2026-09-19 主对话) `mpw-select`：自绘下拉的**纯逻辑 + 实现纪律**门禁（58 断言，~0.1s）——
+#   自动上下翻转的边界（往下够/只够往上/两边都紧/空列表）、键盘索引、单开注册表、再点即关、
+#   监听器配对装卸（无常驻监听）、CSS 全在 `.mpw_select` 子树且零自定义属性、RED-IF-REVERTED。
+add "mpw-select"         "node tests/mpw-select-test.mjs"
+# ①(P-143 主对话) `select-live`：自绘下拉（用户第 6 项）的**真机门禁** —— 同时是渲染器页的**真机冒烟**
+#   （S0：module 启动 + 场景装载成功 + 真出帧；2026-09-19 的 `objById` 作用域 P0 就是"页面白屏而 Node 门禁全绿"）。
+#   S1～S7：真 X11 点击开/再点关/点选项写值派发 change/点空白关/键盘选/`data-flip` 与实测空间一致。
+#   无 X 显示/无 scrot/无 8899/无 Playwright ⇒ 自我 SKIP（`^SKIP select-live`）。~4min。
+add "select-live"        "node tests/x11-e2e/select-live-test.mjs" "" "^SKIP select-live"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /

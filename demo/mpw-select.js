@@ -158,8 +158,11 @@ export function enhanceSelect(selectEl, opt = {}) {
   const open = () => {
     if (list) return
     if (openRoot && openRoot !== root) {
+      //  ①上一个控件若已被宿主从 DOM 里摘掉（属性面板整块重渲染就是这样），它的 close() 没被调过
+      //    ⇒ document/window 上的监听还挂着。这里补一刀：先关它，再清空注册表（防监听泄漏、防"幽灵下拉"）。
       const prev = openRoot.__mpwSelectClose
       if (typeof prev === 'function') prev()
+      if (openRoot && openRoot !== root) openRoot = null
     }
     model = optionsOf(selectEl)
     if (!model.length) return
