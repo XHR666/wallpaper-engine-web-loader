@@ -339,6 +339,14 @@ add "particle-frame-uv-and-pointer" "node tests/particle-frame-uv-and-pointer-te
 #   无源一个都不写（`?bandfeed=off` 逐位不变），以及同一材质 vert/frag 的 `[COMBO]` 默认值**取并集**。
 #   36 断言 + 3 组变异自证；~2.7s，无浏览器/无网络（真包缺失 SKIP+exit 0）。
 add "effects-degenerate-fbo" "node tests/effects-degenerate-fbo-test.mjs"
+# ①(P-135 2026-09-19 主对话补登记) 两条：
+#   `load-timeout` —— 用户第 ④ 项（"整面板只有 loading…" = module 从未执行）：看门狗必须把失败原因**写进 `#log`**、
+#     全链路 await 收进统一超时（`NET_TIMEOUT_MS`/`DECODE_TIMEOUT_MS = 8000`，模块常量，**0 新开关**）、
+#     单资源失败不再打断整包装载。68 断言 + 4 组变异（含"摘掉写日志那行 ⇒ 9 条红"）。~6.3s，无网络/无浏览器。
+#   `pkg-entry-index` —— 服务端两处热点（`/noise` 657.9MiB/次、`/shader` 整包/请求）改成"目录表只读一次 + 只读命中条目"，
+#     响应与旧实现**逐字节相同**；27 断言 + 1 组变异（`PKG_HEAD_BYTES→1GB` ⇒ 读量断言必红）。~1.1s，缺语料 SKIP。
+add "load-timeout"      "node tests/load-timeout-test.mjs"
+add "pkg-entry-index"   "node tests/server-pkg-index-test.mjs" "" "^SKIP pkg-index"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /

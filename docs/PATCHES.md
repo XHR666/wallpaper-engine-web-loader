@@ -10380,3 +10380,53 @@ size 含 0 且带 effects 的 14 层**全部 `solid=false`**（命中"无纹理�
 官方 combo 冲突时是否"后解析者（frag）覆盖"（本实现**本方优先**，语料 0 冲突）；并集会让 371 个"仅 frag 声明"的 combo
 也改到 vert 编译分支（官方即如此，但真机观感未逐包对视）。
 **既存红项（与本批无关）**：`baseline` 门禁 7 项 T5d 失败在 HEAD 版源码的隔离副本里**同样复现**（页面 → `/baseline` POST HTTP 0 / 快照 `[null]`）。
+
+---
+
+## P-135（2026-09-19 用户第 ④ 项）「第 2/3 个壁纸打不开、`#log` 整面板只有 `loading…`」= **甲：module 从未执行 + 页面全静默**（另修独立的乙：23 处无超时 await；丙：服务端 `/noise` 657.9MB/次、`/shader` 整包/请求）
+
+> **性质**：只读取证（工作区 `docs/RENDER-BUGS-20260918.md` §1，该报告不在本仓库内）+ 定点修复。**未改** `core/`、`elysia/`。
+> **用户实测补充（定案口径）**：`#log` 面板「整面板只有 loading…、后面什么都没有」⇒ 连第一条 `❌/✅ WebGL2` 都没有 ⇒ **甲**（module 从未求值），不是"卡在某个 await"。
+> **编号**：落盘前实测最高 = P-134 ⇒ 用 **P-135**。**零新增 URL 开关**：`diag-flag-check` 仍 **153 == 153**（阈值 = 模块常量）。
+
+### P-135.1 甲：看门狗静默 ⇒ 页面必须自证（`demo.html` 标记块 `MPW-MODULE-WATCHDOG-BEGIN/END`）
+
+- 旧实现 7s 看门狗**只** `window.__mpwCapErr('module-not-started')` postMessage 给插件宿主；页面自己一个字都不写 ⇒ 用户看到的只有初始文本 `loading…`，且"脚本没到"与"到了但某个 await 没回"**无法区分**。
+- 现在 7s 时写**两条可区分的话**：甲（`__mpwModuleStarted` 未置位）`❌ 渲染器 module 未启动（…）= "脚本没到"这一类：静态 import 404 / 非 JS MIME / 解析失败 / 文件半截写入 / 顶层抛错之一` + 早期错误清单（有则列，无则写"**未捕获任何脚本/资源错误** ⇒ 疑模块图里某个请求无响应或 MIME 非 JS"）+ `诊断：document.readyState=…，页面内 module 脚本 N 个`；乙（已置位但 7s 无首帧）`⚠ 7s 内没有首帧，但 module 已启动（= "到了但某个 await 没回"）：最后一行日志 = <#log 末行>`。
+- 新增**早于 module** 的监听（填补"module 体内的错误监听此时还没注册"的窗口）：`error`（JS 异常 → `❌ 脚本错误：msg @file:line`；`SCRIPT` 资源失败 → `❌ 脚本资源加载失败：<src>`）、`unhandledrejection` → `❌ 未处理的 Promise 拒绝：msg`；`__mpwModuleStarted` 置位后闭嘴（不重复刷屏）。
+- 健康路径零行为变化（都有断言）：7s 前已出首帧 ⇒ 一行不写；纯视频/视频壁纸页（日志无 `加载场景 `）⇒ 不写；img/link 之类**非脚本**资源失败 ⇒ 不写面板。`__mpwCapErr('module-not-started')` 的语义/时机不变（只有甲分支发）。
+
+### P-135.2 乙：全链路 await 收进统一超时（独立健壮性；不把甲当唯一解释）
+
+- 修前：全文只有 1 处 `fetchWithTimeout`，其余裸 `fetch` / `arrayBuffer()` / `json()` / `text()` / `createImageBitmap` / 动态 `import` / `FontFace.load` **没有上限** ⇒ 任一挂住即永久停在上一行日志。
+- 修后：`NET_TIMEOUT_MS` / `DECODE_TIMEOUT_MS = 8000`（**模块常量**）+ `withTimeout/fetchT/bufT/jsonT/textT/bitmapT`；**23 处站点**全部走包装，超时统一写 `⚠ 超时 <实测ms>（上限 8000ms）：<标签> <URL> ⇒ 跳过该资源，装载继续`（含 URL 与耗时 ⇒ 可归因）。
+- 失败语义：单资源失败/超时只让该资源变 `null`（= 既有 `⚠ 缺纹理 / ⚠ 缺 model` 跳过口径），**不再 reject 打断 `loadScene` 的 `Promise.all`**；取包阶段（`/pkg` `/pkgpath` `/pkgurl`）是唯一不能跳过的资源 ⇒ 如实抛"取包失败或超时（上限 8000ms）"。
+
+### P-135.3 丙：服务端两处单线程热点 → 只读命中条目（行为逐位不变）
+
+| 面 | 修前 | 修后 |
+|---|---|---|
+| `/noise` 单次请求读量（命中 `dd/3544152633`） | **689,870,633 B（657.9MiB）**（235.4+59.5+320.6+42.4MB 逐个整包 `readFileSync`+`parsePkg`） | 首次 **262,144 B 目录表 + 91,939 B 命中条目**；其后 **0 B 表 + 91,939 B**（**2632×**） |
+| `/shader/<id>/…` 单次请求读量（3.7MB 包；336MB 包旧实现 = 每请求 336MB） | **3,918,462 B**（整包读 + `parsePkg`） | 首次 **65,536 B 表 + 1,089 B 条目**；第二次 **0 B 表** |
+| 响应字节/头/错误分支 | — | `/noise` 200 `application/octet-stream` 91,939 B 与旧实现**逐字节相同**；`/shader` 三形态 200 `text/plain` 逐字节相同；未知 shader 404 `no shader`；未知场景 500 `server error: …reading 'pkgPath'` 逐字相同 |
+
+- 新 `server/pkg-entry-index.mjs`：PKGV **目录表只读一次并缓存**（64KB 起步 / 不够 ×4 / 上限 8MB；按 `(size, mtimeMs)` 失效；LRU ≤8 包）+ **只读命中条目**（拼"单条目 PKGV"再交给**生产解析器** `parsePkg`+`readPkgEntry` ⇒ LZ4/`flags`/`size` 判定与整包读**逐位相同**，不是另写一套解压）；错误语义逐字复刻；老版 `pkg-extract` 无 `parsePkgIndex` ⇒ 全程回退旧路径。
+- `/transpiled/<id>/…` 仍整包读（本轮出范围，未动）。
+
+### P-135.4 门禁
+
+- `tests/load-timeout-test.mjs`：**68 断言 + 4 组变异自证**（~6.3s、无网络、无浏览器）。桩 fetch 永不返回 ⇒ 到点返回 `null` + `⚠ 超时` 进日志 + 健康路径零日志；看门狗 9 场景（甲/顶层抛错/脚本 404/`unhandledrejection`/module 后不重复记/乙/健康零输出/视频页零输出）。变异 RED：M1 去超时 **2 条红**、M2 定时器哑掉 **6 条红**、M3 `fetchT(`→`fetch(` **19 条红**、M4 看门狗写日志那行摘掉 **9 条红**。
+- `tests/server-pkg-index-test.mjs`：**27 断言 + 1 组变异**（~1.1s；缺语料 `SKIP` 退出 0）。变异 `PKG_HEAD_BYTES→1GB` ⇒ `RED A1 目录表读取 ≤ 1MB — 实测 tableBytes=336,161,480 B`（且变异后返回字节仍正确 ⇒ 抓住它的是"读量"断言）。
+
+### P-135.5 判据（可证伪）
+
+- 甲：桩"module 从不执行" ⇒ `#log` 必须出现 `❌ 渲染器 module 未启动`（而不是保持 `loading…`）；摘掉写日志那行 ⇒ 必红（实测 9 条红）。
+- 乙：桩端点永不返回 ⇒ 装载在超时后**继续**且日志有 `⚠ 超时 …<URL>`；健康桩 ⇒ 日志零新增。
+- 丙：`/noise` 解析阶段读量 ≤ 512KB（实测 262,144 B）、条目读 == 命中条目长度（91,939 B）、二次 0 字节；全部响应与旧实现逐字节相同。
+
+### P-135.6 未证实 / 待真机
+
+1. 用户那次会话是否真被半截写入 / 404 —— **不可复现**（并发改写、无服务端访问日志），但现在**有留痕**，下次从 `#log` 直接读得出。
+2. 本机无 GPU ⇒ WebGL 首帧/像素类只能真机。
+3. 「7s 无首帧」的乙行在**慢但健康**的大包冷缓存下也会出现（有意的诊断行）。
+4. **8000ms 阈值是拍的**：`/pkg/<id>` 336MB 冷缓存可能 >8s ⇒ 若真机误伤，建议给取包单发加更长的模块常量（如 `PKG_TIMEOUT_MS = 20000`），**不要加 URL 开关**（本批没加，留给集成线定）。
