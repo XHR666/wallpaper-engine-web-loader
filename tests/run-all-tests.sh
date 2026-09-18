@@ -352,6 +352,11 @@ add "pkg-entry-index"   "node tests/server-pkg-index-test.mjs" "" "^SKIP pkg-ind
 #   （上报实测 ×511 / ×72 → 0；全语料同类 **11 包 / 61 个脚本节点**清零，有脚本错的包 18 → 8）。
 #   22 断言 + 2 组变异自证（删 size 访问器 ⇒ 511 次重现）；~2.0s，无浏览器/无网络，缺语料 SKIP+exit 0。
 add "script-runtime-errors" "node tests/script-runtime-errors-test.mjs" "" "^SKIP script-runtime-errors"
+# ①(P-138 2026-09-19 主对话补登记) `now-playing`：用户第 2 项给的 Bencho「Now playing」组件（改名 `NowPlaying`）
+#   落到 `demo/now-playing/`（组件源码照抄 + 保留全部注释 / 纯函数数学 / CSS 全在 `.snd` 子树内 / 14 个 token 只本地定义 /
+#   构建产物 `dist/now-playing.js` 自足入库）。**186 断言 + 4 组变异**（boxRadius 丢一轴 off、swell 指数、
+#   删一个 token、选择器漏出 `.snd` 子树）；~1.5s，无浏览器/无网络（无 node_modules 时 SSR 探针明确 SKIP）。
+add "now-playing"       "node tests/now-playing-test.mjs"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /

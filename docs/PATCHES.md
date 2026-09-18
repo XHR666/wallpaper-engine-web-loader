@@ -10513,3 +10513,80 @@ L1242 `declare let thisLayer: ILayer` ⇒ `size` 是 `thisLayer` 的合法成员
 1. **无浏览器/无 GPU**：本批只有"脚本抛不抛错 + 写出什么值"的数值判据，**没有任何像素/成像结论** ⇒ 解锁脚本后这 11 包的画面是否与 WE 一致，需真机/人眼（重点：`3327063360` 的 "Background"、`3660962877` 的「音乐封面」）。
 2. `layerRefFor()`（`thisScene.getLayer()` 返回的同一 ILayer）的 `set size` 目前**写穿** `obj.size`，与 `thisLayer` 新增的 no-op setter **口径不一致**；本批不改（与本条 bug 无关、有回归面）。
 3. 脚本跑通后会执行作者自己的 `console.log`（例：`3660962877` 每帧 dump 一个 Vec3）。宿主只把 `console.warn/error` 桥到 `#log` ⇒ **不影响页面日志面板**，真机 devtools 会看到作者日志（作者本意）。
+
+---
+
+## P-138（2026-09-19 用户第 2 项）Bencho「Now playing」移植成 `NowPlaying`：注释逐字保留的机器对账 + 14 个 Bencho token 只落在 `.snd` 上 + `demo/now-playing/dist/now-playing.js` 自足入库（新门禁 `now-playing` 186 断言 / 4 变异红）
+
+> **性质**：移植 + 判断项（token 映射）+ 新门禁。全程**未开浏览器**（本机无 GPU）、未跑全量门禁、未起服务。证据 = 任务书逐行切片
+> （注释块 **70/70** 与保留段 **16/16** 逐字命中）+ 纯函数数值断言 + **无头 SSR 渲染探针**（react-dom/server 渲成 HTML 再与 CSS 对账）。
+> **许可**：任务书原文说明组件 MIT（bencho.dev/licence）⇒ `NowPlaying.tsx` / `now-playing.css` 及其注释随该许可；本仓库这一层
+> （移植、纯函数拆分、演示页、打包、测试）GPL-3.0-or-later；lucide-react 与离线兜底图标 ISC（`demo/LICENSE-lucide-ISC.txt`，归属见 `THIRD-PARTY.md`）。
+> **编号**：落盘前 `grep -n '^## P-13' docs/PATCHES.md` 实测最高 = P-137 ⇒ 用 **P-138**。
+
+### P-138.0 落点与交付面（不动测试台外壳）
+
+`demo/now-playing/`：`NowPlaying.tsx`（718 行，照抄）· `demo/now-playing/now-playing-math.mjs`（306 行，纯函数）· `now-playing.css`（327 行）·
+`mount.tsx`（38 行，`mountNowPlaying(el,opts) → {update,unmount}`）· `icons.tsx`（78 行，离线兜底图标）·
+`index.html`（179 行，独立页 + morph/corner 旋钮 + hairline 开关 + 实时读数）· `demo/now-playing/build.mjs`（85 行）· `package.json`（20 行）·
+`README.md`（211 行）· `demo/now-playing/dist/now-playing.js`（**234 145 B，已入库**）· 门禁 `tests/now-playing-test.mjs`（561 行）。
+页面走 8902 **已有**挂载：`/WEwebLoader/now-playing/index.html` 与 `/demo/now-playing/index.html`（两个都 200）。
+本批**只做"独立页 + 组件"**，没有往 `demo/index.html` 嵌（⇒ 对既有 UI 零影响）。
+
+### P-138.1 「保留注释」的机器判据：70/70 与 16/16 逐字命中
+
+把任务书两段（48–967 = TSX、969–1344 = CSS）每个块注释归一化空白后在交付物里做**包含匹配**：TSX 段 70 块全中
+（分布在 `NowPlaying.tsx` + `demo/now-playing/now-playing-math.mjs`，注释随数字一起搬）；CSS 段保留的 16 块全中，缺的 4 块恰好是
+**任务书要求删**的音效板/音效墙段落（测试里断言那 4 个特征字样**不许**出现）。
+**复制手法**：按行切片 + 行级剥离 TS 标注（`: number` / `as const`）的映射表，不手抄 ⇒ 注释不可能有转写误差；
+中途靠"逐块包含匹配"抓到 2 块漏搬（`inlined from ./spring` 与"one spring, for everything that settles"）并补回。
+
+### P-138.2 判断项：14 个 token 的映射与「只落在 .snd 上」
+
+原件读 14 个自定义属性却从不定义它们。落地：**全部只定义在 `.snd` 规则内部**（新增全局变量 0 个、不外泄），逐条映射本项目已有 token：
+`--card→--editor`、`--font-num→--mono`、`--font-ui→--ui-font`、`--ink→--fg`、`--ink-3→--fg-dim`、`--ink-4→--fg-mute`、
+`--ink-rgb→"204, 204, 204"`（`--fg` 的三个裸数字；本项目无 `-rgb` token）、`--on-ink→--list-active-fg`、`--on-slab→--fg`、
+`--pane→--panel`（86% `color-mix`，与 `demo/index.html` 同口径）、`--pane-edge→--border`、`--slab→--input`、
+`--surface-2→--sidebar`、`--surface-3→--input`，每条带兜底值（与 `demo/assets/bench-HtRiuWm6.css` 暗色主题同值）。
+机器判据：定义处恰好 14 条且全在 `.snd` 块内、集合恰好等于那 14 个、每条都 `var(<项目 token>)`、`-rgb` 是三个裸数字、
+`reads` 为真的 11 条确有 `var()` 读者；收口一条：**43 处 `var()` 读取全部有值**。
+
+### P-138.3 COVER：`""` → `demo/icons/pwa-512.png`
+
+本仓库**不分发任何第三方美术资源**（`demo-check` D3/D5 闸门），Bencho 的封面不随许可出行 ⇒ 指向本仓库自有 PWA 图标
+（512×512 / 15 200 B）；路径相对页面 ⇒ 两个挂载点都成立（实测 200）。它同时给 `.snd-art` 的"解码前那一帧是渐变"提供了真图场景。
+
+### P-138.4 删掉的 CSS（都属于 Bencho 的别的块）
+
+音效板段：board 的 `.snd`（`display:flex/column/gap:10px/width:460px`）+ `.snd-wake` / `.snd-grid` / `.snd-key`(+`:hover`/`:active`/`[data-pitched]`) /
+`.snd-num` / `.snd-name` 与头上 `══ Sound board ══` 注释；音效墙段：`══ Sounds (the page) ══` 注释 + `.sfx-wall`。
+理由：不是这个组件；`.snd-name` 这类泛名会打到本项目别的 UI。`[data-stroke="on"] .snd-box` **不删功能**：
+改写 `.snd[data-stroke="on"] .snd-box`，由组件新增的可选属性 `stroke` 触发。
+**作用域机器判据**：每条选择器都以 `.snd` 开头且在 `.snd` 子树内（无裸标签 / `body` / `:root` / `*`），顶层只有一条 `.snd`。
+
+### P-138.5 构建：自足产物 + 两条图标路（含抓到的 classic-JSX 坑）
+
+`npm i react react-dom lucide-react`（实装 react/react-dom **19.3.0**、lucide-react **1.47.0**）+ `-D esbuild`（**0.28.2**）
+⇒ `node build.mjs` → `demo/now-playing/dist/now-playing.js` **234 145 B**：ESM / 自足（React 内联、零裸 import）/ 文件头含生成说明与 esbuild 版本 /
+只有 3 个图标几何进产物（lucide 的 1800+ 模块被摇掉，`metafile` 实测 15 个模块）/ React MIT 与 lucide ISC 许可头留在尾部。
+两条路都能 build：默认 lucide-react；`--icons=fallback` 走本地 `icons.tsx`（几何逐字节取自 lucide-react@1.47.0）。装不上时 build.mjs 自己回落并**打印警告**。
+**实测坑（无浏览器环境的典型漏网）**：esbuild 默认 classic JSX，而照抄的组件只 import 具名 hook ⇒ 产物**能 build、一运行 `React is not defined`**；
+`demo/now-playing/build.mjs` 显式 `jsx:"automatic"`，门禁的 SSR 探针把它钉住。
+
+### P-138.6 新门禁 `tests/now-playing-test.mjs`（186 断言 / 4 变异红 / ≈1.5s）
+
+7 组：⓪文件清单 ①源码完整性+注释对账 ②纯函数数字（`QUART(0)=0/QUART(1)=1`、`SHUT=78`、`OPEN=round(OPS_Y+LEAD/2+PAD)=189` 且逐段公式都断言、
+`artR=[corner*40/64, corner]`、`off=PAD*min(1,corner/CORNER)`、corner=0/16/32 三档 `boxR−artR==off`、`boxR(16)=[20,26]`、
+`swell` 两端 0 / 峰值 `argmax=0.63`、`goo` 两端 0 中间 1、`quad` 在 t=0/1 等于端点且 t=0.5 是中点、`clock` / `rate(50)=1` / `overshoot(50)` 不变 /
+`springOf(50)={0.16,0.72}`、纯函数模块零 import/零 DOM/零随机、组件 import 的每个名字都存在）③CSS 作用域 ④token 映射 ⑤产物自足 ⑥**变异自证** ⑦SSR 渲染探针。
+变异 4 个全部变红（`os.tmpdir()` 副本，真树不动；每个都先断言"确实改到了文件"，并带"未变异副本同批判据全绿"对照）：
+boxRadius 丢一个轴的 `off`（`artR=[10,16] boxR=[20,16] off=10`）、`swell` 的 `^1.5→^1.0`（`argmax=0.5`）、删 `--pane-edge` 本地定义（定义 13 条）、
+`.snd-box → body .snd-box`（作用域红）。
+
+### P-138.7 不回归 / 未证实
+
+不回归（终态实测）：`demo-check` **130 通过 / 0 失败**、`docs-check` ✓（17 文档 / 652 引用）、`diag-flag-check` **153 == 153**（零新增 URL 开关）、
+`secret-scan` 干净（含新入库的 11 个文件）。
+**未证实（需人眼/真机）**：① 外观与动效（本机无 GPU、软件渲染 ≈1fps）；② lucide-react **1.47.0** 的 `play`/`pause` 已是圆角胶囊路径，
+而 `Mark` 的注释与八点坐标是**旧版** lucide 的直角几何 —— 按"照抄优先"没擅自改坐标，因此"播放记号与旁边跳曲图标同一个重量"这句
+**必须眼睛核**；③ `--pane` 用 `color-mix()`（过老引擎会退化成透明）；④ `--ink-rgb` 是暗色常量（浅色主题要同步改）。
