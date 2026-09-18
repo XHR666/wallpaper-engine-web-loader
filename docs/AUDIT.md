@@ -19,7 +19,7 @@
 | 3 | **P0** | 对象级视差永不生效（`const parEnabled` 遮蔽外层 `let`） | bundle:3037 vs 2752/2995 | 确定已修 |
 | 4 | **P0** | additive 混合 alpha 通道与官方 BlendState 表不符 | bundle:2937 | 确定已修 |
 | 5 | **P0** | bind 修复后同 pass 读+写同一 FBO 的反馈环风险（现仅有断言日志，无阻止） | bundle:3431 区域 | 确定已修 |
-| 6 | **P0** | 粒子 alpha/颜色被丢弃（`u_Color`/`u_Alpha` 恒 1，逐粒子计算结果不入顶点） | bundle:2507-2517/3521-3571 | 确定已修 |
+| 6 | **P0** | 粒子 alpha/颜色被丢弃（`u_Color`/`u_Alpha` 恒 1，逐粒子计算结果不入顶点） | bundle:2507-2517/3521-3571 | **alpha 半** P-59 已修；**RGB 半** P-126 才真正修（P-59 只在 `u_Color` 上留了恒 `(1,1,1)`，旧 `mix(color1,color2,·)` 的 `color1/color2` 也是硬编码白 ⇒ 逐粒子 RGB 恒 1，萤火虫 authored 紫色整条不上屏） |
 | 7 | P1 | MDLA 动画硬编码 90 帧 / pingpong 178，frameCount/framerate 应从 MDLA 块读 | demo.html:454,577-583,941-947 | 未修（?anim 默认关） |
 | 8 | P1 | 相机无官方 cover/contain 取景（设计比例≠画布比例时拉伸而非裁边） | bundle:939-952 | 未修 |
 | 9 | P1 | hideUI 正则过宽，跨场景误伤（`UI` 子串命中 guide 等） | bundle:765 | 未修 |
@@ -82,6 +82,11 @@
 - **问题**：`renderParticleLayer` 逐粒子计算 `a/colorR/G/B`（3521-3533），但顶点格式只有 pos3+uv2（5 float），shader 亦无 v_Color；绘制时 `uniform3f(u_Color,1,1,1)`、`uniform1f(u_Alpha,1)`（3568-3570）——**全部粒子以全白、全不透明绘制**。对照官方 genericparticle 语义（代码自注释 2496：`alpha = v_Color.a`），alphafade/alpharandom/oscillatealpha 等全部失效。
 - **位置**：`core/we-scene-bundle.js:2498-2517`（PARTICLE_VS/FS）、3521-3533（vis 计算）、3538-3571（顶点组装与绘制）。
 - **建议改法**：顶点扩为 6 float（pos3+uv2+alpha1），新增专用 partVao（stride 24：attr0 pos3/attr1 uv2/attr2 a_Alpha），VS 透传 `v_Alpha`，FS `alpha = u_Alpha * v_Alpha * texR`。（color1=color2=[1,1,1] 恒白，rgb 选择器暂无观感差异， AUDIT 仅记录。）
+  - **①(P-126 2026-09-19 更正)**：上面那句"rgb 暂无观感差异"**不成立**。逐粒子 RGB 来源是 `p.color`
+    （`colorrandom` / `colorchange` / `instanceoverride.colorn|color`），旧 `mix(color1,color2,·)` 的 `color1/color2`
+    被硬编码成 `[1,1,1]` ⇒ 三分量恒 1；语料里的萤火虫（hina 3554161528 id 4569/6271）本该是**紫色**，实际是白点。
+    P-126 把颜色源改成 `p.color`、新增独立顶点缓冲 `a_Color`（几何 36B 布局不动）、整批同色时上提到 `u_Color`，
+    并对"层 4569 `u_Color == instanceoverride.colorn`"加了门禁断言。
 - **风险**：低-中。粒子默认隐藏（GREEN 约束"粒子关"），默认路径不执行该函数；?np 开启路径由坏变好。partVao 与主 vao/fxVao 互不影响。
 
 ---

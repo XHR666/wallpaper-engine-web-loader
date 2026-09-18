@@ -3218,6 +3218,8 @@ export function buildParticleSystem(def, ctx = {}) {
     rateScale: (() => { const r = ctx.instanceoverride && ctx.instanceoverride.rate; return (typeof r === 'number' && isFinite(r) && r >= 0) ? r : 1 })(),
     // ①(P-74 ③) velocityrandom 的 y 口径（见 VY_MODE）
     vyLegacy: !!ctx.vyLegacy,
+    // ①(P-126 C/D/F) 粒子算子口径（oscillatealpha 乘性 / oscillateposition 增量 / attract 判据 / turbulence mask）
+    popsLegacy: !!ctx.popsLegacy,
     // ①(P-103③/④) 本轮两个"出生期"档位：exponent 非线性分布、发射器 speedmin/speedmax 初速。
     //   不传（测试/第三方调用）⇒ false = 官方默认，与渲染器默认档一致。
     expLegacy: !!ctx.expLegacy,
@@ -3591,14 +3593,30 @@ export function applyOperator(sys, op, dt, t) {
       // oscillate 家族（88 次）：官方 = cos(ωt+phase) 及其导数；频率/幅度在出生时抽一次
       //   （真实参数：frequencymin/max、scalemin/max、phasemax）。
       case 'oscillatealpha': {
+        // ①(P-126 C 用户第 8 项) **乘性**摆动（官方语义；`?pops=legacy` 回退加性）：
+        //   `multiplier = mix(scalemin, scalemax, (cos(2πf·age+φ)+1)/2)`、`alpha = base · multiplier`。
+        //   旧实现是 `clamp(base + a·cos(...), 0, 1)` 且 `scalemax` 缺省取 **smin**（⇒ 只写
+        //   `scalemin` 的层幅度恒 0），实测 base=1 时摆到 0.30（官方下限 0.70）、base=0.5 时
+        //   24.8% 的周期 α=0（**整颗消失**，真机观感=高频闪烁/闪没）。语料三处萤火虫 def 都是
+        //   `oscillatealpha{frequencymin:10..20, scalemin:0.7}`（无 scalemax）⇒ 正是这条路径。
         if (!p.oscAlpha) {
           const fmin = pGetVal(pr, 'frequencymin', 0), fmax = pGetVal(pr, 'frequencymax', 1)
-          const smin = pGetVal(pr, 'scalemin', 0), smax = pGetVal(pr, 'scalemax', smin)
+          const smin = pGetVal(pr, 'scalemin', 0)
+          const smaxRaw = pGetVal(pr, 'scalemax', null)
+          const smax = smaxRaw == null ? 1 : smaxRaw          // ①(P-126 C) 官方缺省 = 1
+          const smaxLegacy = smaxRaw == null ? smin : smaxRaw // P-124 缺省 = smin（⇒ 只写 scalemin 时幅度恒 0）
           const phaseMax = pGetVal(pr, 'phasemax', Math.PI * 2)
-          p.oscAlpha = { f: fmin + p.random * (fmax - fmin), a: (smin + ((p.random * 7919) % 1) * (smax - smin)), ph: p.random * phaseMax, base: p.alpha }
+          p.oscAlpha = { f: fmin + p.random * (fmax - fmin), smin, smax,
+            a: (smin + ((p.random * 7919) % 1) * (smaxLegacy - smin)),   // legacy 档的加性幅度（不改 RNG 流）
+            ph: p.random * phaseMax, base: p.alpha }
         }
         const o = p.oscAlpha
-        p.alpha = Math.max(0, Math.min(1, o.base + o.a * Math.cos(o.f * t * Math.PI * 2 + o.ph)))
+        if (sys.popsLegacy) {
+          p.alpha = Math.max(0, Math.min(1, o.base + o.a * Math.cos(o.f * t * Math.PI * 2 + o.ph)))
+        } else {
+          const mixv = (Math.cos(o.f * Math.PI * 2 * (p.age || 0) + o.ph) + 1) * 0.5
+          p.alpha = o.base * (o.smin + (o.smax - o.smin) * mixv)
+        }
         break
       }
       case 'oscillatesize': {
@@ -3613,16 +3631,41 @@ export function applyOperator(sys, op, dt, t) {
         break
       }
       case 'oscillateposition': {
+        // ①(P-126 D 用户第 8 项) **逐轴增量式**（官方语义；`?pops=legacy` 回退覆盖式）：
+        //   `pos[轴] += −scale[轴] · ω · sin(ω·age + φ[轴]) · dt`，三轴各自频率/幅度/相位。
+        //   旧实现是 `pos = 首次坐标锚点 + 幅度·cos(单一频率/相位)` —— **每帧覆盖位置** ⇒
+        //   movement(drag)/turbulence/controlpointattract 累积出的漂移**全部被抹掉**，萤火虫沿
+        //   一条固定对角线来回机械摆动（实测 x 跨度 = y 跨度 = 139.9px、corr(x,y) = −1.0000）。
+        //   注意：三轴的频率/幅度/相位仍**只由出生时那一个 `p.random` 派生**（不额外抽 rng()），
+        //   以免平移整条 RNG 流（那会连带改变其它算子/发射数 ⇒ 与"只改本算子"的 A/B 不可比）。
         if (!p.oscPos) {
           const fmin = pGetVal(pr, 'frequencymin', 0), fmax = pGetVal(pr, 'frequencymax', 1)
-          const smax = pGetVal(pr, 'scalemax', pGetVal(pr, 'scalemin', 0))
+          const smin = pGetVal(pr, 'scalemin', 0), smax = pGetVal(pr, 'scalemax', smin)
           const mask = pVec3(pGetVal(pr, 'mask'), [1, 1, 0])
-          p.oscPos = { f: fmin + p.random * (fmax - fmin), amp: smax, ph: p.random * Math.PI * 2, mask, ox: p.pos[0], oy: p.pos[1] }
+          const pr3 = [1, 7919, 104729].map((k) => (p.random * k) % 1)
+          p.oscPos = {
+            f: pr3.map((r) => fmin + r * (fmax - fmin)),
+            sc: pr3.map((r) => smin + ((r * 104729) % 1) * (smax - smin)),
+            ph: pr3.map((r) => r * Math.PI * 2),
+            mask, ox: p.pos[0], oy: p.pos[1],
+            // legacy 档：单一频率/相位 + 覆盖式（与 P-124 逐位一致）
+            lf: fmin + p.random * (fmax - fmin), lamp: smax, lph: p.random * Math.PI * 2,
+          }
         }
         const o = p.oscPos
-        const c = Math.cos(o.f * t * Math.PI * 2 + o.ph)
-        p.pos[0] = o.ox + o.mask[0] * o.amp * c
-        p.pos[1] = o.oy - o.mask[1] * o.amp * c   // y 翻转一次
+        if (sys.popsLegacy) {
+          const c = Math.cos(o.lf * t * Math.PI * 2 + o.lph)
+          p.pos[0] = o.ox + o.mask[0] * o.lamp * c
+          p.pos[1] = o.oy - o.mask[1] * o.lamp * c   // y 翻转一次
+        } else {
+          for (let ax = 0; ax < 3; ax++) {
+            const w = 2 * Math.PI * o.f[ax]
+            const move = -o.sc[ax] * w * Math.sin(w * (p.age || 0) + o.ph[ax]) * dt
+            p.pos[ax] += move * o.mask[ax]
+            // scenePos 是编辑器 y-up 局部量 ⇒ y 轴增量取反（与 movement 的 scenePos 口径一致）
+            if (p.scenePos) p.scenePos[ax] += (ax === 1 ? -move : move) * o.mask[ax]
+          }
+        }
         break
       }
       // controlpointattract（35 次）：朝控制点加速；scale<0 = 排斥（官方 threshold×0.5 + Accelerate(dir×scale)）
@@ -3638,7 +3681,13 @@ export function applyOperator(sys, op, dt, t) {
         const dx = __cpPtr ? (__cpPtr[0] - p.pos[0]) : (target[0] - p.pos[0])
         const dy = __cpPtr ? (__cpPtr[1] - p.pos[1]) : -(target[1] - p.pos[1])
         const d = Math.hypot(dx, dy) || 1
-        if (d > thr) {
+        // ①(P-126 D 用户第 8 项) **判据方向**：官方是 `d < threshold/2` 才施力（近距才吸引/排斥），
+        //   旧实现写成 `d > threshold/2`（**正好反了**）⇒ 无指针时全体萤火虫被一个恒定力推离
+        //   退化目标（层空间 offset 当世界坐标用 ⇒ 世界 (0,0)=画布左上角）。
+        //   ⚠ 这一条与上面的 oscillateposition 必须同批改：只改 oscillateposition 会让粒子
+        //   真的被这个反判据推走（实测 x≈9700px，画布宽 3840）。目标空间的换算仍未定（见
+        //   docs/PARTICLE-FIREFLY-INVESTIGATION.md §5.4），本批只纠正判据方向。
+        if (sys.popsLegacy ? (d > thr) : (d < thr)) {
           const k = (scaleA >= 0 ? 1 : -1) * Math.abs(scaleA) * dt
           p.vel[0] += (dx / d) * k
           p.vel[1] += (dy / d) * k
@@ -3651,7 +3700,12 @@ export function applyOperator(sys, op, dt, t) {
         const smin = pGetVal(pr, 'speedmin', 0), smax = pGetVal(pr, 'speedmax', smin)
         const amp = (smin + ((p.random * 104729) % 1) * (smax - smin)) || smax || 0
         const ph = p.random * pGetVal(pr, 'phasemax', 6.28)
-        const mask = pVec3(pGetVal(pr, 'mask'), [1, 0, 0])
+        // ①(P-126 F 用户第 8 项) `mask` 缺省 = **(1,1,0)**（`?pops=legacy` 回退 [1,0,0]）：
+        //   hina 两个萤火虫 def 都**没写 mask** ⇒ 旧实现只沿 x 推、y 恒不受力（官方 x+y）。
+        //   依据：行为对照的第三方参考实现里 emitter/operator 的 mask 缺省是 (1,1,0)（本实现按
+        //   "缺省=两轴都开"的语义独立写死，未复制其代码）。语料里显式写 `"1 1 0"` 的 def
+        //   （如 3327063360 的萤火虫）两档一致 ⇒ 只影响"没写 mask"的层。
+        const mask = pVec3(pGetVal(pr, 'mask'), sys.popsLegacy ? [1, 0, 0] : [1, 1, 0])
         const n1 = Math.sin((p.pos[0] * sc + ph + t * 0.7) * 3.1) * Math.cos((p.pos[1] * sc - ph) * 2.3)
         const n2 = Math.cos((p.pos[0] * sc - ph) * 2.7) * Math.sin((p.pos[1] * sc + ph + t * 0.5) * 3.3)
         p.vel[0] += n1 * amp * mask[0] * dt
@@ -3687,58 +3741,11 @@ export function applyOperator(sys, op, dt, t) {
         ]
         break
       }
-
-      case 'turbulence': {
-        const scale = pGetVal(pr, 'scale', 0.005)
-        const speedMin = pGetVal(pr, 'speedmin', 500), speedMax = pGetVal(pr, 'speedmax', 1000)
-        const mask = pVec3(pGetVal(pr, 'mask'), [1, 1, 0])
-        const sp = speedMin + rng() * (speedMax - speedMin)
-        const phase = rng() * Math.PI * 2
-        const nx = Math.sin(p.pos[0] * scale * 2 + phase + t * 0.1)
-        const ny = Math.sin(p.pos[1] * scale * 2 + phase + t * 0.13)
-        p.vel[0] += nx * sp * dt * mask[0]
-        p.vel[1] += ny * sp * dt * mask[1]
-        break
-      }
-      case 'oscillatealpha': {
-        const fMin = pGetVal(pr, 'frequencymin', 0), fMax = pGetVal(pr, 'frequencymax', 10)
-        const sMin = pGetVal(pr, 'scalemin', 0), sMax = pGetVal(pr, 'scalemax', 1)
-        if (!p.oscAlpha) {
-          p.oscAlpha = { f: fMin + rng() * (fMax - fMin), ph: rng() * Math.PI * 2, base: p.alpha }
-        }
-        const cosVal = (Math.cos(p.oscAlpha.f * p.age + p.oscAlpha.ph) + 1) * 0.5
-        p.alpha = p.oscAlpha.base * (sMin + (sMax - sMin) * cosVal)
-        break
-      }
-      case 'oscillatesize': {
-        const fMin = pGetVal(pr, 'frequencymin', 0), fMax = pGetVal(pr, 'frequencymax', 10)
-        const sMin = pGetVal(pr, 'scalemin', 0.8), sMax = pGetVal(pr, 'scalemax', 1.2)
-        if (!p.oscSize) {
-          p.oscSize = { f: fMin + rng() * (fMax - fMin), ph: rng() * Math.PI * 2, base: p.size }
-        }
-        const cosVal = (Math.cos(p.oscSize.f * p.age + p.oscSize.ph) + 1) * 0.5
-        p.size = p.oscSize.base * (sMin + (sMax - sMin) * cosVal)
-        break
-      }
-      case 'oscillateposition': {
-        const fMin = pGetVal(pr, 'frequencymin', 0), fMax = pGetVal(pr, 'frequencymax', 5)
-        const sMin = pGetVal(pr, 'scalemin', 0), sMax = pGetVal(pr, 'scalemax', 10)
-        const mask = pVec3(pGetVal(pr, 'mask'), [1, 1, 0])
-        if (!p.oscPos) {
-          p.oscPos = {
-            f: [0, 0, 0].map(() => fMin + rng() * (fMax - fMin)),
-            ph: [0, 0, 0].map(() => rng() * Math.PI * 2),
-            sc: [0, 0, 0].map(() => sMin + rng() * (sMax - sMin)),
-          }
-        }
-        for (let a = 0; a < 2; a++) {
-          const w = 2 * Math.PI * p.oscPos.f[a] / (2 * Math.PI)
-          const move = -p.oscPos.sc[a] * w * Math.sin(w * p.age + p.oscPos.ph[a]) * dt
-          p.pos[a] += move * mask[a]
-          if (p.scenePos) p.scenePos[a] += (a === 0 ? move : -move) * mask[a]
-        }
-        break
-      }
+      // ①(P-126 C/D/F 清理) 这里原本还有 4 个**重复的 `case` 标签**（turbulence / oscillatealpha /
+      //   oscillatesize / oscillateposition）：JS `switch` 取**第一个**匹配分支，所以它们永远执行不到，
+      //   却是同一批算子的第二套（官方口径的）实现 —— 这既是"看起来像已修其实没生效"的来源，
+      //   也是一颗雷（任何人重排 case 都会静默换语义）。本批把官方口径**合并进上面活代码**，
+      //   然后删掉这 4 段死代码；`?pops=legacy` 提供旧行为的 A/B 回退（见上面各 case 内的分支）。
     }
   }
 }
@@ -5723,17 +5730,23 @@ in vec2 a_TexCoord;
 in vec2 a_TexCoordB;   // ①(RE-31) 精灵表下一帧 UV（非精灵表时等于 a_TexCoord）
 in float a_Blend;      // ①(RE-31) 帧间混合系数（SPRITESHEETBLEND）
 in float a_Alpha;
+// ①(P-126 A) **逐粒子 RGB**：colorrandom / instanceoverride.colorn|color 算出的颜色。
+//   走**独立顶点缓冲**（partColorVBO，3 float/顶点）：几何缓冲的 36B 布局一个字节都不动，
+//   所以既有顶点流断言 / render-audit 参考产物 / 形状审计全部逐位不变。
+in vec3 a_Color;
 uniform mat4 u_MVP;
 out vec2 v_TexCoord;
 out vec2 v_TexCoordB;
 out float v_Blend;
 out float v_Alpha;
+out vec3 v_Color;
 void main() {
   gl_Position = u_MVP * vec4(a_Position, 1.0);
   v_TexCoord = a_TexCoord;
   v_TexCoordB = a_TexCoordB;
   v_Blend = a_Blend;
   v_Alpha = a_Alpha;
+  v_Color = a_Color;
 }`
 // ①(新 2026-09-12) puppet mesh 蒙皮渲染（官方语义：assets/shaders/base/model_vertex_v1.h）
 //   position' = mul(vec4(position,1), Σ w_i · g_Bones[blendIndices_i])；再乘 u_MVP（层矩阵）
@@ -5786,6 +5799,7 @@ in vec2 v_TexCoord;
 in vec2 v_TexCoordB;
 in float v_Blend;
 in float v_Alpha;
+in vec3 v_Color;          // ①(P-126 A) 逐粒子 RGB（u_Color 是"整批同色"时的上提值，两者相乘）
 uniform sampler2D u_Tex;
 uniform vec3 u_Color;
 uniform float u_Alpha;
@@ -5819,7 +5833,12 @@ void main() {
   //   （red255pct=100%，avgA 10~48，aMax 225~255）→ 用 .r 时 alpha 恒 1 = 实心白 quad；
   //   反向的 fog/beam/light_shafts 是「alpha 恒 255 + 形状在 RGB」，用 .r 又会让它几乎全透明。
   //   两种形态只有官方口径（RGBA 直乘 + SRC_ALPHA 混合）同时正确。
-  fragColor = vec4(u_Color * tex.rgb, u_Alpha * v_Alpha * tex.a);
+  // ①(P-126 A) 逐粒子颜色：官方 genericparticle.frag:39/43/46 是 v_Color * Convert(tex)
+  //   —— 颜色**逐粒子**来自 mix(color1,color2,random)（colorrandom）或 instanceoverride 的
+  //   colorn/color。旧实现把算好的 RGB 丢在 vis[3..5] 没人用、绘制时恒 u_Color=(1,1,1)
+  //   ⇒ 萤火虫 authored 的紫色永远不上屏（白点）。现在 u_Color（整批同色时上提）与
+  //   v_Color（逐粒子，独立 VBO）相乘，两者都缺省为 1 时与改前**逐位一致**。
+  fragColor = vec4(u_Color * v_Color * tex.rgb, u_Alpha * v_Alpha * tex.a);
 }`
 
 // quad 顶点（每顶点 5 float：x,y,z,u,v）
@@ -6545,6 +6564,43 @@ export function createRenderer(canvas, opts = {}) {
     } catch (e) { /* 无 location → 默认 official */ }
     return 'official'
   })()
+  // ①(P-126 B) 精灵表（spritesheet）**帧时序**档位：
+  //   official（默认）= 按 TEXS 帧表的 `duration`（= Σ frametime，fog3 实测 64 帧/1s）与**粒子年龄**
+  //     取帧：`frame = fmod(age·speed, duration) / duration · N` —— 正放、与 age 同步（同年龄同帧）。
+  //     官方依据：`genericparticle.frag`/`genericparticle.vert` 的 SEQUENCE 分支按帧表时间推进；
+  //     行为对照的第三方参考实现同样以 `fmod(age·speed, duration)` 取帧值（本实现按**本机 .tex 帧表实测**
+  //     `frametime=0.015625 / duration=1` 独立推导，不复制参考实现代码）。
+  //   `?pframe=legacy` = P-124 及之前：`fv = (1 − lifePos) · sequencemultiplier`
+  //     ⇒ 倒放、速率 = 1/life（hina 雾 2 的 life 3..5s ⇒ 仅 16 帧/s）、且**逐粒子各自相位**
+  //     （粒子间 life 不同 ⇒ 同屏粒子显示不同帧 —— 真机看到的就是"帧几乎不动/缓慢倒放"）。
+  //   只在贴图真带 `duration > 0`（TEXS 帧表有 frametime）时改变行为；无帧表的贴图两档逐位一致。
+  const PFRAME_MODE = (() => {
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        return new URLSearchParams(location.search).get('pframe') === 'legacy' ? 'legacy' : 'official'
+      }
+    } catch (e) { /* 无 location → 默认 official */ }
+    return 'official'
+  })()
+  // ①(P-126 C/D/F) **粒子算子口径**档位（oscillatealpha / oscillateposition / controlpointattract / turbulence 缺省）：
+  //   official（默认）：
+  //     · oscillatealpha  = **乘性**：`alpha = base · mix(scalemin, scalemax, (cos(2πf·age+φ)+1)/2)`，scalemax 缺省 1；
+  //     · oscillateposition = **逐轴增量**：`pos[轴] += −scale[轴]·ω·sin(ω·age+φ[轴])·dt`（三轴各自频率/幅度/相位，
+  //       不再每帧覆盖位置 ⇒ movement/turbulence/attract 累积的漂移得以保留）；
+  //     · controlpointattract = 判据 `d < threshold/2` 才施力（旧实现写成 `d > threshold/2`，**正好反了**）；
+  //     · turbulence 的 `mask` 缺省 = (1,1,0)（旧实现 [1,0,0] ⇒ 只沿 x 推）。
+  //   `?pops=legacy` = P-124 及之前：加性+clamp 的 oscillatealpha（base=0.5 时 24.8% 周期 α=0）、
+  //     覆盖式 oscillateposition（同屏粒子沿固定对角线机械摆动、漂移被抹掉）、反判据 attract、mask=[1,0,0]。
+  //   ⚠ ⑧-4 与 ⑧-5 **必须同批**：只把 oscillateposition 换成增量式、不同时纠正 attract 判据，
+  //     萤火虫会被"反判据 + 层空间退化目标(世界 0,0)"推离画布（实测漂到 x≈9700px，画布宽 3840）。
+  const POPS_MODE = (() => {
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        return new URLSearchParams(location.search).get('pops') === 'legacy' ? 'legacy' : 'official'
+      }
+    } catch (e) { /* 无 location → 默认 official */ }
+    return 'official'
+  })()
   // 逐帧预算游标 + 统计（统计经 stats 钩子 / 渲染器 particleStats 暴露，供真机上报取证）
   const partFrame = { left: 0, layerTotal: 0, layers: 0 }
   const partStat = { tier: PARTICLE_BUDGET.tier, perLayer: PARTICLE_BUDGET.perLayer, total: PARTICLE_BUDGET.total,
@@ -6562,11 +6618,17 @@ export function createRenderer(canvas, opts = {}) {
     ioMode: IO_MODE,
     // ①(P-103) 本轮四个档位（真机上报可回答"这一台到底走的哪一档"）
     protMode: PROT_MODE, pquadMode: PQUAD_MODE, pexpMode: PEXP_MODE, pspeedMode: PSPEED_MODE,
+    // ①(P-126 B) 精灵表帧时序档位（official=按 age×duration 取帧；legacy=(1−lifePos)×seqMul 倒放）
+    pframeMode: PFRAME_MODE,
+    // ①(P-126 C/D/F) 粒子算子口径档位（official / legacy）
+    popsMode: POPS_MODE,
     // ①(P-103) 生效记账（逐帧重置）：吃自转的 quad 数 / 吃图层变换的 quad 数 / 吃 exponent 的 initializer 次数 /
     //   拿到发射器初速的粒子数。默认档下这四个数应当 >0（语料有对应层），legacy 档下必须恒 0。
     protQuads: 0, pquadQuads: 0, expApplied: 0, spawnSpeeds: 0,
     // ①(P-74 ①) instanceoverride 生效记账（真机上报可回答"这一层到底吃没吃 override"）
     io: { layers: 0, applied: 0, fields: {}, lastLayer: null },
+    // ①(P-126 A) 逐粒子颜色通道记账（真机上报可回答"这一层的颜色走的是 u_Color 上提还是 a_Color 顶点属性"）
+    colorUni: 0, colorAttr: 0,
     shapeFrom: { rgba: 0, rg88: 0, r8: 0, unknown: 0 } }
   const partLogOnce = new Set()
   // ①(P-74 ④) 效果链输入台账（每帧重置；见 renderLayer 里的 fxRec 注释）
@@ -7364,10 +7426,16 @@ export function createRenderer(canvas, opts = {}) {
   // 无法入顶点——u_Alpha 恒 1，全部粒子全不透明（官方 genericparticle：alpha = v_Color.a）。
   // ①(RE-31) stride 扩到 36：pos3 + uv2 + uv2B(下一帧) + blend + alpha（精灵表帧间混合）。
   const PARTICLE_STRIDE = 36
+  // ①(P-126 A) 逐粒子颜色走**独立顶点缓冲**（3 float/顶点、连续无交错）：
+  //   几何缓冲保持 36B 交错布局不变 ⇒ 既有 mock-GL 顶点流断言、`render-audit` 参考产物、
+  //   `particle-shape-audit` 的形状解析全部逐位不变（改动只新增一个属性，不改老属性）。
+  const PARTICLE_COLOR_STRIDE = 12
+  const partColorVBO = gl.createBuffer()
   const partVao = gl.createVertexArray()
   const partAlphaLoc = gl.getAttribLocation(particleProg, 'a_Alpha')
   const partUvBLoc = gl.getAttribLocation(particleProg, 'a_TexCoordB')
   const partBlendLoc = gl.getAttribLocation(particleProg, 'a_Blend')
+  const partColorLoc = gl.getAttribLocation(particleProg, 'a_Color')
   gl.bindVertexArray(partVao)
   gl.bindBuffer(gl.ARRAY_BUFFER, quadBatchVBO)
   gl.enableVertexAttribArray(0)
@@ -7385,6 +7453,14 @@ export function createRenderer(canvas, opts = {}) {
   if (partAlphaLoc >= 0) {
     gl.enableVertexAttribArray(partAlphaLoc)
     gl.vertexAttribPointer(partAlphaLoc, 1, gl.FLOAT, false, PARTICLE_STRIDE, 32)
+  }
+  // ①(P-126 A) a_Color：独立 VBO（stride 12、offset 0）。`getAttribLocation` 返回 -1 时
+  //   （程序里没有该属性，或 mock-GL 不认识该名字）不启用 —— 此时靠 `u_Color` 上提值兜住"整批同色"。
+  if (partColorLoc >= 0) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, partColorVBO)
+    gl.enableVertexAttribArray(partColorLoc)
+    gl.vertexAttribPointer(partColorLoc, 3, gl.FLOAT, false, PARTICLE_COLOR_STRIDE, 0)
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBatchVBO)
   }
   gl.bindVertexArray(null)
   const vao = gl.createVertexArray()
@@ -8960,6 +9036,7 @@ export function createRenderer(canvas, opts = {}) {
     partStat.simSteps = 0; partStat.simUpdates = 0   // ①(P-69) 本帧粒子模拟代价（步数 / 粒子更新次数）
     // ①(P-103) 本轮四个档位的逐帧记账同样逐帧重置
     partStat.protQuads = 0; partStat.pquadQuads = 0; partStat.expApplied = 0; partStat.spawnSpeeds = 0
+    partStat.colorUni = 0; partStat.colorAttr = 0   // ①(P-126 A) 颜色通道记账（u_Color 上提 / 顶点属性批数）
     let __li = -1
     // ①(P-41 A1) HDR 帧错误探针：本帧 HDR FBO 绑定期间"绘制后新出现"的首个 GL 错误
     let __hdrFrameErr = null
@@ -10005,6 +10082,8 @@ export function createRenderer(canvas, opts = {}) {
       // ①(P-69 第 6 项) lockToPointer 层：指针位置是输入的一部分（指针移动 → 重建重放）；
       //   非指针层恒 'x' ⇒ 签名与改动前一致、缓存照常命中。
       (sys0ptrLocked() ? (__ptrNow ? (Math.round(__ptrNow[0]) + ',' + Math.round(__ptrNow[1])) : 'none') : 'x'),
+      // ①(P-126 C/D/F) 算子口径进签名：`?pops=` 切换后必须重建粒子系统（算子行为不同）
+      POPS_MODE,
     ].join('|')
     const __cached = PartSysCache.get(layer.id)
     let sys
@@ -10037,6 +10116,8 @@ export function createRenderer(canvas, opts = {}) {
         // ①(P-103③/④) 本轮两个出生期档位（`?pexp=legacy` / `?pspeed=legacy`）
         expLegacy: PEXP_MODE === 'legacy',
         speedLegacy: PSPEED_MODE === 'legacy',
+        // ①(P-126 C/D/F) 粒子算子口径档位（`?pops=legacy`）
+        popsLegacy: POPS_MODE === 'legacy',
       })
       if (PSIM === 'incr') PartSysCache.set(layer.id, { sig: __sig, sys })
     }
@@ -10089,6 +10170,20 @@ export function createRenderer(canvas, opts = {}) {
       } catch { spriteImgs = null; spriteTexMap = null }
     }
     const ratio = sprite ? sprite.rate : ((texObj.width > 0) ? (texObj.height || texObj.width) / texObj.width : 1)
+    // ①(P-126 B) 精灵表**帧值**（归一化到 [0,1)，`computeSpriteFrameUV` 再乘 N 取整帧）：
+    //   randomframe → 出生抽一次 `p.random` 终身固定（官方 RANDOMONE 语义，不变）。
+    //   sequence（缺省档）→ official：`frac(age · speed / duration)`；legacy：`(1 − lifePos) · speed`。
+    //   无帧表 duration（非精灵表 / frametime 全 0）时两档**逐位一致**（回退旧式），
+    //   所以本改动只影响"真带帧表的贴图"，其余粒子层顶点流一个字节都不变。
+    const spriteDuration = (sprite && typeof sprite.duration === 'number' && isFinite(sprite.duration) && sprite.duration > 0)
+      ? sprite.duration : 0
+    const seqSpeed = (typeof sys.seqMul === 'number' && isFinite(sys.seqMul) && sys.seqMul > 0) ? sys.seqMul : 1
+    const spriteFrameValue = (p, lifePos) => {
+      if (sys.animMode === 'randomframe') return Math.max(0, Math.min(1, p.random || 0))
+      const t2 = ((p.age || 0) * seqSpeed) % spriteDuration
+      if (PFRAME_MODE === 'official' && spriteDuration > 0) return (t2 < 0 ? t2 + spriteDuration : t2) / spriteDuration
+      return (1 - lifePos) * (sys.seqMul || 1)
+    }
     // 帧混合开关：randomframe 必须关（第三方参考实现 wer-ref WPSceneParser.cpp:5928-5936 注释：避免"两片花瓣"）。
     // ①(修正 2026-09-13) flags 值 4 **不是** noframeblending 而是透视相机（实测命中该值的层
     //   材质为 presets/rainperspective、presets/snowperspective）；按位读 bit2=2 才是 spritenoframeblending。
@@ -10096,7 +10191,6 @@ export function createRenderer(canvas, opts = {}) {
     const spriteNoBlend = sys.animMode === 'randomframe' || (pflags & 2) !== 0
     // ①(RE-37) flags 值 4 → 第三方参考实现 wer-ref SetCamera("global_perspective")：fov=atan(h/1000/2)×2、相机 z=1000
     const perspCam = (pflags & 4) !== 0 && !PP_DISABLED
-    const color1 = [1, 1, 1], color2 = [1, 1, 1]
     gl.useProgram(particleProg)
     setBlend(blending === 'additive' ? 'additive' : 'translucent')
     gl.bindVertexArray(vao)
@@ -10123,20 +10217,26 @@ export function createRenderer(canvas, opts = {}) {
       let frameUV = null
       let ratioP = ratio
       if (multiSprite && spriteImgs) {
-        const fv = sys.animMode === 'randomframe' ? Math.max(0, Math.min(1, p.random || 0)) : (1 - lifePos) * (sys.seqMul || 1)
+        const fv = spriteFrameValue(p, lifePos)
         const fr = spriteFrameImageRects(texObj, fv, spriteNoBlend)
         if (fr) {
           frameUV = { abs: true, cur: fr.cur, nxt: fr.nxt, blend: fr.blend, imageId: fr.cur.imageId }
           ratioP = fr.cur.ratio
         }
       } else if (sprite) {
-        const fv = sys.animMode === 'randomframe' ? Math.max(0, Math.min(1, p.random || 0)) : (1 - lifePos) * (sys.seqMul || 1)
+        const fv = spriteFrameValue(p, lifePos)
         frameUV = computeSpriteFrameUV(sprite, fv, spriteNoBlend)
       }
-      const cr = Math.max(0, Math.min(1, p.color[0]))
-      const colorR = color1[0] + (color2[0] - color1[0]) * cr
-      const colorG = color1[1] + (color2[1] - color1[1]) * cr
-      const colorB = color1[2] + (color2[2] - color1[2]) * cr
+      // ①(P-126 A) 逐粒子颜色 = `p.color`（`colorrandom` 插值出的 RGB / `colorchange` /
+      //   `instanceoverride.colorn|color`）。⚠ 旧实现在这里写了
+      //   `mix(color1, color2, p.color[0])`，而 `color1`/`color2` **恒被硬编码成 [1,1,1]**
+      //   ⇒ 三个分量恒等于 1：**即使把 `vis[3..5]` 接进顶点也还是白色**（真正把颜色丢掉的是这一步，
+      //   不只是解构时空位跳过）。官方 `genericparticle.frag:39/43/46` 是
+      //   `color = v_Color * Convert(tex)`，`v_Color` 是**逐粒子 vec4**（rgb=本行三个分量、
+      //   a=已有的逐粒子 alpha 通道）—— 没有 color1/color2 uniform，故直接取其值。
+      const colorR = Math.max(0, Math.min(1, p.color[0] || 0))
+      const colorG = Math.max(0, Math.min(1, p.color[1] || 0))
+      const colorB = Math.max(0, Math.min(1, p.color[2] || 0))
       vis.push([p, sz, a, colorR, colorG, colorB, frameUV, ratioP])
     }
     // ①(P-59) 预算记账：本层实际进入顶点的粒子数从总份额里扣（未用满的份额自然顺延给后面的层）
@@ -10200,9 +10300,26 @@ export function createRenderer(canvas, opts = {}) {
       for (const [gkey, gvis] of groups) {
         // 顶点数不再是固定 6×N（rope 按段数、ropetrail 按历史长度）→ 先攒成普通数组再定型
         const out = []
-        for (const [p, sz, a, , , , frameUV, ratioP = ratio] of gvis) {
+        // ①(P-126 A) 逐粒子颜色缓冲（与 out 同顶点数；每顶点 3 float，独立 VBO）。
+        const outC = []
+        // **整批同色上提**：`instanceoverride.colorn/color`（replacesColor）与"无 colorrandom /
+        //   min==max"这几类占语料粒子层的大多数，此时整批颜色相同 ⇒ 写进 `u_Color`、
+        //   顶点色恒 (1,1,1)（省 12B/顶点，且绘制时的 `u_Color` 就是该层的真实颜色，便于门禁断言）。
+        //   只有颜色逐粒子不同（连续 colorrandom）时才走逐顶点色、`u_Color=(1,1,1)`。
+        //   两种情形在 FS 里都是 `u_Color * v_Color * tex.rgb` ⇒ 等价，缺省层（全白）与改前**逐位一致**。
+        let batchUniCol = true
+        const cA = gvis.length ? gvis[0][3] : 1, cB = gvis.length ? gvis[0][4] : 1, cC = gvis.length ? gvis[0][5] : 1
+        for (let e2 = 1; e2 < gvis.length; e2++) {
+          const g2 = gvis[e2]
+          if (Math.abs(g2[3] - cA) > 1e-6 || Math.abs(g2[4] - cB) > 1e-6 || Math.abs(g2[5] - cC) > 1e-6) { batchUniCol = false; break }
+        }
+        const uniCol = batchUniCol ? [cA, cB, cC] : null
+        if (batchUniCol) partStat.colorUni++; else partStat.colorAttr++
+        for (const [p, sz, a, pR, pG, pB, frameUV, ratioP = ratio] of gvis) {
           const z = p.pos[2] || 0
           const ds = dsOf(z)
+          // ①(P-126 A) 逐粒子颜色（上提时恒 1，避免与 u_Color 二次相乘）
+          const vR = uniCol ? 1 : pR, vG = uniCol ? 1 : pG, vB = uniCol ? 1 : pB
           // 帧 UV：abs（多图精灵）用 cur/nxt 的**帧内绝对矩形**插值；单图用 base+offset 相加（官方 ComputeSpriteFrame 同构）
           const cu = frameUV ? (frameUV.abs ? frameUV.cur : frameUV) : null
           const nu = frameUV ? (frameUV.abs ? frameUV.nxt : frameUV) : null
@@ -10218,6 +10335,7 @@ export function createRenderer(canvas, opts = {}) {
           const push = (x, y, u, v) => {
             const q = uvf(u, v)
             out.push(nX(x, ds), nY(y, ds), 0, q[0], q[1], q[2], q[3], q[4], a)
+            outC.push(vR, vG, vB)
           }
           if (kind === 'rope' || kind === 'ropetrail') continue   // 这两类在下面按段/按历史整体构建
           if (kind === 'spritetrail') {
@@ -10271,6 +10389,8 @@ export function createRenderer(canvas, opts = {}) {
           for (let gi = 0; gi < N; gi++) {
             const e = gvis[gi]
             const p = e[0], sz = e[1], a = e[2], frameUV = e[6]
+            // ①(P-126 A) 逐粒子颜色（整批同色时上提进 u_Color ⇒ 顶点色恒 1）
+            const vcR = uniCol ? 1 : e[3], vcG = uniCol ? 1 : e[4], vcB = uniCol ? 1 : e[5]
             const cu = frameUV ? (frameUV.abs ? frameUV.cur : frameUV) : null
             const nu = frameUV ? (frameUV.abs ? frameUV.nxt : frameUV) : null
             const okFrame = !!(cu && typeof cu.u0 === 'number' && nu && typeof nu.u0 === 'number')
@@ -10285,6 +10405,7 @@ export function createRenderer(canvas, opts = {}) {
               const q = uvf(u, v)
               const ds2 = dsOf(z2)
               out.push(nX(x, ds2), nY(y, ds2), 0, q[0], q[1], q[2], q[3], q[4], a)
+              outC.push(vcR, vcG, vcB)
             }
             // 段端点序列：rope = [本粒子, 下一个粒子]；ropetrail = 该粒子的历史点（末尾接当前位置）
             let segs = null
@@ -10355,6 +10476,15 @@ export function createRenderer(canvas, opts = {}) {
         gl.useProgram(particleProg)
         setBlend(blending === 'additive' ? 'additive' : 'translucent')
         gl.bindVertexArray(partVao)
+        // ①(P-126 A) 逐粒子颜色缓冲**先上传**、几何缓冲后上传：本仓库既有的 mock-GL 探针
+        //   （`mock-gl-test` 的 `bufLast`、`particle-render-correctness-test` 的 `rec.verts[last]`、
+        //   `particle-shape-audit` 的 `curVerts`）都以"最后一次 bufferData = 几何顶点流"为约定，
+        //   顺序颠倒会把这些门的输入变成颜色流。a_Color 的 VBO 绑定在 partVao 里已固化，
+        //   运行期只往它写数据即可。
+        if (partColorLoc >= 0) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, partColorVBO)
+          gl.bufferData(gl.ARRAY_BUFFER, Float32Array.from(outC), gl.DYNAMIC_DRAW)
+        }
         // 直接上传粒子 batch 缓冲（vao 端点 0/1 布局同 LOCAL_QUAD：pos3+uv2）
         gl.bindBuffer(gl.ARRAY_BUFFER, quadBatchVBO)
         gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW)
@@ -10362,7 +10492,11 @@ export function createRenderer(canvas, opts = {}) {
         const __ptex = (multiSprite && spriteTexMap && spriteTexMap.get(gkey)) ? spriteTexMap.get(gkey) : texObj.glTex
         gl.bindTexture(gl.TEXTURE_2D, __ptex)
         gl.uniform1i(partUni.tex, 0)
-        gl.uniform3f(partUni.color, 1, 1, 1)
+        // ①(P-126 A) 旧实现恒 (1,1,1) ⇒ 逐粒子 RGB 整条丢弃（萤火虫 authored 紫色不上屏）。
+        //   现在：整批同色 → 该颜色（层 4569 的 instanceoverride.colorn = 0.412/0.306/0.694 就在这条路上）；
+        //   逐粒子不同色 → (1,1,1)，真实颜色由 a_Color 顶点属性带入（FS 里两者相乘）。
+        if (uniCol) gl.uniform3f(partUni.color, uniCol[0], uniCol[1], uniCol[2])
+        else gl.uniform3f(partUni.color, 1, 1, 1)
         gl.uniform1f(partUni.alpha, 1)
         // ①(P-65) TEX0FORMAT：单/双通道贴图（R8/RG88…）在 FS 里过官方 ConvertTexture0Format
         if (partUni.fmt) gl.uniform1f(partUni.fmt, texFmt)

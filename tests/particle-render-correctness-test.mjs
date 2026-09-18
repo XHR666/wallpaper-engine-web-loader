@@ -28,9 +28,13 @@ const hasPkg = (id) => fs.existsSync(`${DIR}/${id}/scene.pkg`)
 
 // ───────────────────────── mock GL（顶点流捕获） ─────────────────────────
 function makeGl() {
-  const rec = { verts: [], draws: 0 }
-  let curUnit = 0, curBuf = null
+  // ①(P-126) rec 扩展：`bufs` 按缓冲 id 存最近一次上传、`uploads` 记上传顺序、`draws2` 记逐 draw 的
+  //   uniform 快照 —— 用于断言"逐粒子颜色到底进没进 u_Color / a_Color 顶点缓冲"。
+  const rec = { verts: [], draws: 0, bufs: new Map(), uploads: [], draws2: [] }
+  let curUnit = 0, curBuf = null, curProg = null
   const bufVerts = new Map()
+  const progUni = new Map()
+  const setUni = (l, v) => { if (l && l.p && l.n) { if (!progUni.has(l.p.id)) progUni.set(l.p.id, {}); progUni.get(l.p.id)[l.n] = v } }
   const CONST = { LINK_STATUS: 0x8B82, COMPILE_STATUS: 0x8B81, ACTIVE_UNIFORMS: 0x8B86, ACTIVE_ATTRIBUTES: 0x8B85,
     FRAMEBUFFER_COMPLETE: 0x8CD5, MAX_TEXTURE_SIZE: 0x0D33, NO_ERROR: 0, TEXTURE0: 0, FRAMEBUFFER: 0x8D40 }
   for (let i = 0; i < 8; i++) CONST['TEXTURE' + i] = i
@@ -40,16 +44,19 @@ function makeGl() {
     createBuffer: () => ({ id: 'buf' + (++seq) }), createVertexArray: () => ({ id: 'vao' + (++seq) }),
     createShader: () => ({ id: 'sh' + (++seq) }), createProgram: () => ({ id: 'prog' + (++seq) }),
     bindBuffer: (t, b) => { curBuf = b && b.id },
-    bufferData: (t, data) => { if (data && data.length) { const v = Float32Array.from(data); bufVerts.set(curBuf, v); rec.verts.push(v) } },
+    bufferData: (t, data) => { if (data && data.length) { const v = Float32Array.from(data); bufVerts.set(curBuf, v); rec.bufs.set(curBuf, v); rec.uploads.push({ buf: curBuf, data: v }); rec.verts.push(v) } },
     activeTexture: (u) => { curUnit = u },
-    bindTexture: () => {}, bindFramebuffer: () => {}, bindVertexArray: () => {}, useProgram: () => {},
-    texImage2D: () => {}, uniform1i: () => {}, uniform1f: () => {}, uniform2f: () => {}, uniform3f: () => {}, uniform4f: () => {},
+    bindTexture: () => {}, bindFramebuffer: () => {}, bindVertexArray: () => {}, useProgram: (p) => { curProg = p },
+    texImage2D: () => {}, uniform1i: (l, v) => setUni(l, v), uniform1f: (l, v) => setUni(l, v), uniform2f: (l, a, b) => setUni(l, [a, b]),
+    uniform3f: (l, a, b, c) => setUni(l, [a, b, c]), uniform4f: (l, a, b, c, d) => setUni(l, [a, b, c, d]),
     uniformMatrix4fv: () => {}, uniformMatrix3fv: () => {},
-    drawArrays: () => { rec.draws++ }, drawElements: () => {},
+    drawArrays: () => { rec.draws++; rec.draws2.push({ upIdx: rec.uploads.length, buf: curBuf,
+      data: rec.bufs.get(curBuf) || null, uni: Object.assign({}, (curProg && progUni.get(curProg.id)) || {}) }) },
+    drawElements: () => {},
     getProgramParameter: (p, k) => (k === CONST.LINK_STATUS || k === CONST.COMPILE_STATUS) ? true : (k === CONST.ACTIVE_UNIFORMS ? 0 : (k === CONST.ACTIVE_ATTRIBUTES ? 0 : null)),
     getActiveUniform: () => ({ name: 'g_Texture0', type: 0x8B62 }),
     getActiveAttrib: (p, i) => ({ name: i === 0 ? 'a_Position' : 'a_TexCoord', size: 1 }),
-    getAttribLocation: (p, n) => ({ a_Position: 0, a_TexCoord: 1, a_TexCoordB: 2, a_Blend: 3, a_Alpha: 4 }[n] ?? -1),
+    getAttribLocation: (p, n) => ({ a_Position: 0, a_TexCoord: 1, a_TexCoordB: 2, a_Blend: 3, a_Alpha: 4, a_Color: 5 }[n] ?? -1),
     getUniformLocation: (p, n) => ({ p, n }), getShaderParameter: () => true, checkFramebufferStatus: () => CONST.FRAMEBUFFER_COMPLETE,
     getError: () => CONST.NO_ERROR, getParameter: (k) => k === CONST.MAX_TEXTURE_SIZE ? 4096 : 0,
     isTexture: () => true, getShaderInfoLog: () => '', getProgramInfoLog: () => '',
@@ -62,6 +69,15 @@ function makeGl() {
   } })
   return { gl, rec }
 }
+// ①(P-126) 粒子批的识别口径：粒子 FS 独有的 `u_TexFmt`（层/效果 pass 用不到这个名字）
+const isParticleDraw = (d) => !!(d && d.uni && ('u_TexFmt' in d.uni) && d.data && d.data.length / 9 > 6)
+// ①(P-126 A) 同一次 draw 的 (几何流, 颜色流)：几何是它前面最近一次上传，颜色是再前面一次（不同缓冲）
+function colorStreamOf(d, rec) {
+  if (!d || d.upIdx < 2) return null
+  const g = rec.uploads[d.upIdx - 1], c = rec.uploads[d.upIdx - 2]
+  if (!g || !c || !c.data || c.buf === g.buf) return null
+  return c.data
+}
 const VERT = 'attribute vec3 a_Position; attribute vec2 a_TexCoord; uniform mat4 g_ModelViewProjectionMatrix; varying vec2 v_TexCoord; void main(){ gl_Position = g_ModelViewProjectionMatrix * vec4(a_Position,1.0); v_TexCoord = a_TexCoord; }'
 const FRAG = 'uniform sampler2D g_Texture0; varying vec2 v_TexCoord; void main(){ gl_FragColor = texture(g_Texture0, v_TexCoord); }'
 const SHADER_RESOLVER = async (rel) => (rel.endsWith('.vert') ? VERT : FRAG)
@@ -69,7 +85,8 @@ const SHADER_RESOLVER = async (rel) => (rel.endsWith('.vert') ? VERT : FRAG)
 // 档位 → location.search（与真机同一开关写法）
 function setModes(modes = {}) {
   const q = []
-  for (const [flag, v] of [['pquad', modes.pquad], ['prot', modes.prot], ['pexp', modes.pexp], ['pspeed', modes.pspeed]]) {
+  for (const [flag, v] of [['pquad', modes.pquad], ['prot', modes.prot], ['pexp', modes.pexp], ['pspeed', modes.pspeed],
+    ['pframe', modes.pframe], ['pops', modes.pops]]) {
     if (v === 'legacy') q.push(flag + '=legacy')
   }
   globalThis.location = { search: q.length ? '?' + q.join('&') : '' }
@@ -84,13 +101,13 @@ const defQuad = (extraInit = []) => ({ maxcount: 8, material: 'm',
   operator: [{ name: 'movement' }] })
 const TEXA = new Map([['tex_a', { glTex: { id: 'g1' }, width: 64, height: 64 }]])
 // 渲染一帧，取最后一个粒子批的顶点流 + stats
-async function renderQuad(def, layerExtra = {}, modes = {}, t = 1.0) {
+async function renderQuad(def, layerExtra = {}, modes = {}, t = 1.0, texMap = TEXA) {
   setModes(modes)
   const { gl, rec } = makeGl()
   const scene = { layers: [mkLayer(Object.assign({ particleDef: def }, layerExtra))], general: {}, camera: null, size: [W, H] }
   const r = createRenderer({ getContext: () => gl }, { onLog: () => {}, shaderResolver: SHADER_RESOLVER, aggregate: true })
-  await r.render(scene, TEXA, W, H, t)
-  return { verts: rec.verts[rec.verts.length - 1] || null, stats: r.particleStats, draws: rec.draws }
+  await r.render(scene, texMap, W, H, t)
+  return { verts: rec.verts[rec.verts.length - 1] || null, stats: r.particleStats, draws: rec.draws, rec }
 }
 // 顶点流 → 第 0 个 quad 的两条边（设计像素）+ 边长/角度
 function quadEdges(verts) {
@@ -282,9 +299,10 @@ function buildTex(pkg, scene, layer) {
   return textures
 }
 // 只用目标粒子层渲染 t 秒（其余层不可见），返回顶点流 + stats
-async function renderRealLayer(id, layerName, modes = {}, t = 6.0) {
+// ①(P-126) 第 5 参 layerId：同名层（hina 有两个"萤火虫"）按 id 精确选择
+async function renderRealLayer(id, layerName, modes = {}, t = 6.0, layerId = null) {
   const { pkg, scene } = loadPkg(id)
-  const target = scene.layers.find((l) => l.particleDef && l.name === layerName)
+  const target = scene.layers.find((l) => l.particleDef && (layerId != null ? l.id === layerId : l.name === layerName))
   if (!target) return null
   for (const l of scene.layers) if (l.particleDef) l.visible = (l === target)
   for (const l of scene.layers) if (!l.particleDef) l.visible = false
@@ -388,6 +406,228 @@ if (hasPkg('3660962877')) {
       `official max=${mx(a).toFixed(2)} legacy max=${mx(b).toFixed(2)} n=${a.length}`)
   } else push('⑤ 真包 cherry blossoms 层缺失（SKIP 视作 PASS）', true)
 } else push('⑤ orb 真包缺失（SKIP 视作 PASS）', true, 'no pkg')
+
+// ═══════════════ ⑥ P-126 用户⑧（萤火虫）/⑦（第 18 层雾 2）：颜色 / 帧时序 / 算子口径 ═══════════════
+// 判据来源：docs/PARTICLE-FIREFLY-INVESTIGATION.md §4。每条都带 legacy 侧的反向断言
+// （证明断言对旧写法敏感），另有 §4 判据里点名的"并联判据"（⑧-4 修好后粒子不得飞出层 bbox）。
+const clamp01 = (v) => Math.max(0, Math.min(1, v))
+
+// ── ⑥A 逐粒子 RGB（⑧-1：萤火虫从"白点"回到 authored 紫色）──
+{
+  const white = await renderQuad(defQuad(), {}, {}, 1.0)
+  const wd = white.rec.draws2.filter(isParticleDraw).pop()
+  const wc = wd ? colorStreamOf(wd, white.rec) : null
+  push('⑥A 默认层（无 colorrandom）：u_Color 恒 (1,1,1) 且顶点色恒 1（与改前逐位一致）',
+    !!wd && wd.uni.u_Color[0] === 1 && wd.uni.u_Color[1] === 1 && wd.uni.u_Color[2] === 1 &&
+    !!wc && wc.length > 0 && [...wc].every((v) => v === 1),
+    wd ? `u_Color=${JSON.stringify(wd.uni.u_Color)} 顶点色样本=${wc ? [...wc].slice(0, 3).join(',') : 'null'}` : 'no draw')
+}
+if (hasPkg('3554161528')) {
+  // 层 4569：instanceoverride.colorn = "0.41176 0.30588 0.69412"（replacesColor:true ⇒ 整批同色 ⇒ 上提进 u_Color）
+  const a1 = await renderRealLayer('3554161528', '萤火虫', {}, 20.0, 4569)
+  const d1 = a1 && a1.rec.draws2.filter(isParticleDraw).pop()
+  push('⑥A 层4569 萤火虫：绘制 u_Color = instanceoverride.colorn [0.41176,0.30588,0.69412]（旧实现恒 (1,1,1)）',
+    !!d1 && near(d1.uni.u_Color[0], 0.41176, 1e-4) && near(d1.uni.u_Color[1], 0.30588, 1e-4) && near(d1.uni.u_Color[2], 0.69412, 1e-4),
+    d1 ? `u_Color=${JSON.stringify(d1.uni.u_Color)}` : 'no particle draw')
+  push('⑥A 层4569：整批同色走上提通道（colorUni=1 / colorAttr=0）',
+    !!a1 && a1.stats.colorUni === 1 && a1.stats.colorAttr === 0,
+    a1 ? `colorUni=${a1.stats.colorUni} colorAttr=${a1.stats.colorAttr}` : 'null')
+  // 层 6271：无 colorn ⇒ 走作者 colorrandom"102 100 188"→"66 35 148"（逐粒子不同紫）⇒ 必须走 a_Color 顶点属性
+  const a2 = await renderRealLayer('3554161528', '萤火虫', {}, 20.0, 6271)
+  const d2 = a2 && a2.rec.draws2.filter(isParticleDraw).pop()
+  const c2 = d2 ? colorStreamOf(d2, a2.rec) : null
+  let inRange = false, spread = 0
+  if (c2 && c2.length >= 3) {
+    const cols = []
+    for (let i = 0; i + 2 < c2.length; i += 3) cols.push([c2[i], c2[i + 1], c2[i + 2]])
+    inRange = cols.every(([r, g, b]) => r >= 66 / 255 - 1e-6 && r <= 102 / 255 + 1e-6 &&
+      g >= 35 / 255 - 1e-6 && g <= 100 / 255 + 1e-6 && b >= 148 / 255 - 1e-6 && b <= 188 / 255 + 1e-6)
+    spread = new Set(cols.map((c) => c.map((v) => v.toFixed(4)).join(','))).size
+  }
+  push('⑥A 层6271 萤火虫：逐粒子颜色走 a_Color 顶点属性，且落在 authored 紫区间 [66..102, 35..100, 148..188]/255',
+    !!d2 && c2 && inRange && spread > 1,
+    `spread=${spread} 样本=${c2 ? [...c2].slice(3, 6).map((v) => v.toFixed(3)).join(',') : 'null'}`)
+} else push('⑥A hina 真包缺失（SKIP 视作 PASS）', true, 'no pkg')
+
+// ── ⑥B 精灵表帧时序（⑦a：fog3 = 64 帧/1s，按 age 正放、同年龄同帧）──
+{
+  const FOG3 = `${WE}/materials/particle/fog/fog3.tex`
+  if (fs.existsSync(FOG3)) {
+    const ftex = lib.parseTex(new Uint8Array(fs.readFileSync(FOG3)))
+    const fsp = lib.spriteInfo(ftex)
+    const fm0 = lib.decodeMip0(ftex)
+    const fgt = lib.makeTextureMip(makeGl().gl, [fm0], ftex.format === 8)
+    const FTEX = new Map([['fog', { glTex: fgt, width: fm0.width, height: fm0.height, format: ftex.format, sprite: fsp }]])
+    push('⑥B fog3 帧表事实：64 帧 / frametime 0.015625 / duration 1（判据前提）',
+      !!fsp && fsp.numFrames === 64 && fsp.frametime === 0.015625 && fsp.duration === 1,
+      fsp ? `n=${fsp.numFrames} ft=${fsp.frametime} dur=${fsp.duration}` : 'null')
+    // 单批 4 颗粒子同年龄：rate≈0 + instantaneous ⇒ 同屏同帧
+    const bdef = { maxcount: 4,
+      emitter: [{ name: 'boxrandom', rate: 0.0001, instantaneous: 4, distancemax: '40 40 0' }],
+      initializer: [{ name: 'lifetimerandom', min: 3, max: 5 }, { name: 'sizerandom', min: 100, max: 100 }, { name: 'alpharandom', min: 1, max: 1 }],
+      operator: [] }
+    // 从顶点流反查帧号（帧矩形 = 行主序 8×8）
+    const frameOf = (u0, v0) => {
+      for (let f = 0; f < fsp.numFrames; f++) {
+        const u = (f * fsp.frameWidthUV) - Math.floor(f * fsp.frameWidthUV), v = Math.floor(f * fsp.frameWidthUV) * fsp.frameHeightUV
+        if (Math.abs(u - u0) < 1e-6 && Math.abs(v - v0) < 1e-6) return f
+      }
+      return -1
+    }
+    const framesAt = async (t, modes) => {
+      const r = await renderQuad(bdef, { particleTexName: 'fog' }, modes, t, FTEX)
+      const v = r.verts
+      const out = new Set()
+      if (v) for (let i = 0; i + 8 < v.length; i += 9) { const f = frameOf(v[i + 3], v[i + 4]); if (f >= 0) out.add(f) }
+      return out
+    }
+    const f025 = await framesAt(0.25, {})
+    push('⑥B fog3 age=0.25s ⇒ frame 16（旧口径 (1−lifePos)·seqMul 得 59~62）',
+      f025.size === 1 && f025.has(16), `frames={${[...f025].join(',')}}`)
+    const f05 = await framesAt(0.5, {})
+    push('⑥B fog3 age=0.5s ⇒ frame 32（正放，不是倒放）', f05.size === 1 && f05.has(32), `frames={${[...f05].join(',')}}`)
+    const f10 = await framesAt(1.0, {})
+    push('⑥B fog3 age=1.0s（= duration）⇒ frame 0（整圈折返）', f10.size === 1 && f10.has(0), `frames={${[...f10].join(',')}}`)
+    const l025 = await framesAt(0.25, { pframe: 'legacy' })
+    push('⑥B ?pframe=legacy 复现 P-124：帧 16 不再出现，且逐粒子各自相位（>1 个不同帧）',
+      !l025.has(16) && l025.size >= 2, `frames={${[...l025].join(',')}}`)
+  } else push('⑥B fog3 贴图缺失（SKIP 视作 PASS）', true, 'no fog3.tex')
+}
+
+// ── ⑥C oscillatealpha：加性 → 乘性（⑧-3）──
+{
+  const alphaStats = (base, popsLegacy) => {
+    const def = { maxcount: 4,
+      emitter: [{ rate: 0.0001, instantaneous: 1, distancemax: '0 0 0' }],
+      initializer: [{ name: 'lifetimerandom', min: 1000, max: 1000 }, { name: 'alpharandom', min: base, max: base }],
+      operator: [{ name: 'oscillatealpha', frequencymin: 10, frequencymax: 20, scalemin: 0.7 }] }
+    const s = lib.buildParticleSystem(def, { origin: [0, 0, 0], seedStr: 'p125C', maxCount: 4, popsLegacy })
+    let lo = Infinity, hi = -Infinity, zeros = 0, n = 0
+    for (let i = 0; i < 1200; i++) {           // 60s @ 0.05s
+      lib.stepParticles(s, 0.05, i * 0.05)
+      for (const p of s.particles) { lo = Math.min(lo, p.alpha); hi = Math.max(hi, p.alpha); if (p.alpha <= 1e-9) zeros++; n++ }
+    }
+    return { lo, hi, zeroFrac: zeros / Math.max(1, n) }
+  }
+  const on5 = alphaStats(0.5, false)
+  push('⑥C base=0.5：alpha ∈ [0.35, 0.5]（乘性 mix(0.7,1,·)，旧实现 24.7% 周期触 0）',
+    near(on5.lo, 0.35, 1e-6) && near(on5.hi, 0.5, 1e-6) && on5.zeroFrac === 0,
+    `[${on5.lo.toFixed(4)}, ${on5.hi.toFixed(4)}] zeroFrac=${(on5.zeroFrac * 100).toFixed(1)}%`)
+  const on1 = alphaStats(1.0, false)
+  push('⑥C base=1：alpha ∈ [0.70, 1.00]（旧实现摆到 0.30）',
+    near(on1.lo, 0.7, 1e-6) && near(on1.hi, 1.0, 1e-6), `[${on1.lo.toFixed(4)}, ${on1.hi.toFixed(4)}]`)
+  const off5 = alphaStats(0.5, true)
+  push('⑥C ?pops=legacy 复现 P-124：加性 + clamp ⇒ alpha 触 0（>10% 周期整颗消失）',
+    off5.lo === 0 && off5.zeroFrac > 0.1, `min=${off5.lo} zeroFrac=${(off5.zeroFrac * 100).toFixed(1)}%`)
+}
+
+// ── ⑥D oscillateposition 增量式 + controlpointattract 判据（⑧-4 / ⑧-5，必须同批）──
+if (hasPkg('3554161528')) {
+  const { scene: hs } = loadPkg('3554161528')
+  const fl = hs.layers.find((l) => l.id === 4569)
+  // 出生域 bbox：发射器 directions × distancemax（该 def = "3.5 1.5 0" × 512）⇒ 粒子本就铺得很开
+  const em0 = (fl.particleDef.emitter || [])[0] || {}
+  const dirs = String(em0.directions || '1 1 0').trim().split(/\s+/).map(Number)
+  const dmax = Number(em0.distancemax || 0)
+  const MARGIN = 200
+  const bbox = {
+    x0: fl.origin[0] - Math.abs(dirs[0]) * dmax - MARGIN, x1: fl.origin[0] + Math.abs(dirs[0]) * dmax + MARGIN,
+    y0: fl.origin[1] - Math.abs(dirs[1]) * dmax - MARGIN, y1: fl.origin[1] + Math.abs(dirs[1]) * dmax + MARGIN,
+  }
+  const corrOf = (xs, ys) => {
+    const n = xs.length
+    const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n
+    let sxy = 0, sxx = 0, syy = 0
+    for (let i = 0; i < n; i++) { const a = xs[i] - mx, b = ys[i] - my; sxy += a * b; sxx += a * a; syy += b * b }
+    return sxy / Math.sqrt(Math.max(1e-12, sxx * syy))
+  }
+  const traj = (popsLegacy) => {
+    const s = lib.buildParticleSystem(fl.particleDef, { origin: fl.origin, scale: fl.scale,
+      angle: (fl.angles && fl.angles[2]) || 0, seedStr: String(fl.id) + '|' + String(fl.origin),
+      maxCount: 100, instanceoverride: fl.instanceoverride, popsLegacy })
+    // 逐粒子轨迹（同一颗粒子的时间序列才是"沿固定对角线摆动"的直接证据；跨粒子汇总会把相位差平均掉）
+    const track = new Map()
+    for (let i = 0; i < 240; i++) {
+      lib.stepParticles(s, 1 / 60, i / 60)
+      if (i < 60) continue
+      for (const p of s.particles) {
+        let tr = track.get(p)
+        if (!tr) { tr = { x: [], y: [] }; track.set(p, tr) }
+        tr.x.push(p.pos[0]); tr.y.push(p.pos[1])
+      }
+    }
+    const series = [...track.values()].filter((tr) => tr.x.length > 60)
+    const corrs = series.map((tr) => corrOf(tr.x, tr.y))
+    const maxAbsCorr = corrs.length ? Math.max(...corrs.map(Math.abs)) : 1
+    const allX = series.flatMap((tr) => tr.x), allY = series.flatMap((tr) => tr.y)
+    const n = allX.length
+    const mx = allX.reduce((a, b) => a + b, 0) / n, my = allY.reduce((a, b) => a + b, 0) / n
+    const h = Math.floor(n / 2)
+    const mean1x = allX.slice(0, h).reduce((a, b) => a + b, 0) / h, mean2x = allX.slice(h).reduce((a, b) => a + b, 0) / (n - h)
+    const mean1y = allY.slice(0, h).reduce((a, b) => a + b, 0) / h, mean2y = allY.slice(h).reduce((a, b) => a + b, 0) / (n - h)
+    const dr = Math.hypot(mean2x - mean1x, mean2y - mean1y)
+    return { maxAbsCorr, dr, corrs, n, particles: series.length,
+      inBox: allX.every((x) => x >= bbox.x0 && x <= bbox.x1) && allY.every((y) => y >= bbox.y0 && y <= bbox.y1),
+      xmin: Math.min(...allX), xmax: Math.max(...allX), ymin: Math.min(...allY), ymax: Math.max(...allY) }
+  }
+  const on = traj(false), off = traj(true)
+  push('⑥D 萤火虫 240 帧：每颗粒子 |corr(x,y)| < 0.99（官方逐轴增量；旧实现每颗恰好 −1.0000 = 固定对角线）',
+    on.n > 10 && on.maxAbsCorr < 0.99, `maxAbsCorr=${on.maxAbsCorr.toFixed(4)} perParticle=[${on.corrs.map((c) => c.toFixed(3)).join(', ')}] n=${on.n} 粒子=${on.particles}`)
+  push('⑥D 萤火虫漂移 ≠ 0（movement/turbulence 累积的漂移不再被每帧覆盖抹掉）',
+    on.dr > 1, `drift=${on.dr.toFixed(2)}px`)
+  push('⑥D 并联判据：官方口径下粒子全程落在出生域 bbox 内（层 origin ± directions×distancemax ± 200px）',
+    on.inBox, `x∈[${on.xmin.toFixed(0)},${on.xmax.toFixed(0)}] y∈[${on.ymin.toFixed(0)},${on.ymax.toFixed(0)}] bbox x∈[${bbox.x0.toFixed(0)},${bbox.x1.toFixed(0)}] y∈[${bbox.y0.toFixed(0)},${bbox.y1.toFixed(0)}]`)
+  push('⑥D ?pops=legacy 复现 P-124：每颗粒子 corr(x,y) = −1.0000（证明上面的判据对旧写法敏感）',
+    off.maxAbsCorr >= 0.999, `maxAbsCorr=${off.maxAbsCorr.toFixed(4)} perParticle=[${off.corrs.map((c) => c.toFixed(3)).join(', ')}]`)
+} else push('⑥D hina 真包缺失（SKIP 视作 PASS）', true, 'no pkg')
+{
+  // ⑧-5：无指针、退化目标 = 层空间 offset 当世界坐标 ⇒ 目标 (0,0)；threshold=70 ⇒ thr=35
+  const cpDef = { maxcount: 2, emitter: [{ rate: 0.0001, instantaneous: 1, distancemax: '0 0 0' }],
+    initializer: [{ name: 'lifetimerandom', min: 100, max: 100 }],
+    operator: [{ name: 'controlpointattract', controlpoint: 1, scale: -1000, threshold: 70 }],
+    controlpoint: [{ flags: 0 }, { flags: 1, offset: '0 0 0' }] }
+  const dvAt = (dist, popsLegacy) => {
+    const s = lib.buildParticleSystem(cpDef, { origin: [0, 0, 0], seedStr: 'p125E', maxCount: 2, popsLegacy })
+    s.pointer = null
+    lib.stepParticles(s, 1 / 60, 0)
+    const p = s.particles[0]
+    p.pos = [dist, 0, 0]; p.vel = [0, 0, 0]
+    lib.stepParticles(s, 1 / 60, 1 / 60)
+    return Math.hypot(p.vel[0], p.vel[1])
+  }
+  push('⑥D ⑧-5 attract 判据：d=500px（thr=35）⇒ 不施力 |Δv| = 0（旧实现 d>thr ⇒ 施力，粒子被推飞）',
+    dvAt(500, false) === 0, `|Δv|=${dvAt(500, false).toFixed(4)}`)
+  push('⑥D ⑧-5 attract 判据：d=10px ⇒ 施力 |Δv| = |scale|·dt = 16.667', near(dvAt(10, false), 1000 / 60, 1e-6), `|Δv|=${dvAt(10, false).toFixed(4)}`)
+  push('⑥D ⑧-5 ?pops=legacy 复现 P-124：d=500px 时**施力**（判据反了）', dvAt(500, true) > 0, `|Δv|=${dvAt(500, true).toFixed(4)}`)
+}
+
+// ── ⑥F turbulence mask 缺省（⑧-6）+ starttime 语义（⑧-8，文档化断言）──
+{
+  const tdef = { maxcount: 2, emitter: [{ rate: 0.0001, instantaneous: 1, distancemax: '0 0 0' }],
+    initializer: [{ name: 'lifetimerandom', min: 100, max: 100 }],
+    operator: [{ name: 'turbulence', speedmin: 30, speedmax: 50 }] }   // 故意不写 mask（hina 两个萤火虫 def 就是这样）
+  const yVel = (popsLegacy) => {
+    const s = lib.buildParticleSystem(tdef, { origin: [0, 0, 0], seedStr: 'p125F', maxCount: 2, popsLegacy })
+    let m = 0
+    for (let i = 0; i < 120; i++) { lib.stepParticles(s, 1 / 60, i / 60); for (const p of s.particles) m = Math.max(m, Math.abs(p.vel[1])) }
+    return m
+  }
+  push('⑥F turbulence 无 mask ⇒ 缺省 (1,1,0)：y 轴真的受力（旧缺省 [1,0,0] ⇒ y 恒 0）',
+    yVel(false) > 1 && yVel(true) === 0, `official max|vy|=${yVel(false).toFixed(2)} legacy=${yVel(true).toFixed(2)}`)
+}
+if (hasPkg('3554161528')) {
+  const { scene: hs } = loadPkg('3554161528')
+  const fl = hs.layers.find((l) => l.id === 4569)
+  const aliveAt = (t) => {
+    const s = lib.buildParticleSystem(fl.particleDef, { origin: fl.origin, scale: fl.scale, angle: (fl.angles && fl.angles[2]) || 0,
+      seedStr: 'p125-st', maxCount: 100, instanceoverride: fl.instanceoverride })
+    lib.simulateParticleSystem(s, t)
+    return s.particles.length
+  }
+  push('⑥F starttime=15 语义（官方，不是 bug）：t=10s 不发射（0 颗）、t=25s 才有粒子',
+    fl.particleDef.starttime === 15 && aliveAt(10) === 0 && aliveAt(25) > 0,
+    `starttime=${fl.particleDef.starttime} alive(10)=${aliveAt(10)} alive(25)=${aliveAt(25)}`)
+}
 
 const fail = checks.filter((c) => !c.ok)
 console.log(`\n===== particle-render-correctness: ${checks.length - fail.length} 通过 / ${fail.length} 失败 =====`)

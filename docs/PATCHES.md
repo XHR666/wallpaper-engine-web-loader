@@ -8773,3 +8773,206 @@ D11（`tests/demo-check.mjs:469-633`）逐条覆盖：⑪ 下限在位 / 下限 
 | **仓外（不在 git）**：`references/vendor-ref/ww-pages/bench-patch.test.mjs` | T19 主题段按两态**重写**（4 条断言）+ 新增 T19c 9 条 ⇒ 375/0 → **384/0**。这条改动是"用户新要求覆盖旧规格"（旧规格写的就是三态循环），已在回报中显著登记 |
 | **未改**：`web/diag-flags.json` | 它是 `tests/diag-flag-check.mjs` 的生成物（本轮**没有**主动跑它；工作树里那条 ` M` 是并行线跑门禁时按 `demo.html` 行号位移重算的，`generatedAt` 也变了）。按"只提交自己路径"未进本次提交（与 P-124.8 同一处置），**留给集成线** |
 | **未改**：`tests/run-all-tests.sh` | 本轮新增 28 条 D11 断言后，脚本里若有写死的断言计数会过期；已确认没有脚本校验这个计数（不是门禁红项），登记待办 |
+
+---
+
+## P-126（2026-09-19 用户第 ⑦/⑧ 项 · 粒子/萤火虫）萤火虫 authored 紫色整条不上屏 + 雾 2 精灵表帧时序倒放/慢 4 倍 + 四个粒子算子口径（含"⑧-4/⑧-5 必须同批"）
+
+> **判据来源**：`docs/PARTICLE-FIREFLY-INVESTIGATION.md`（同工作区 `dsbw-ref` 侧的**只读**调查报告，2026-09-18）§4 的
+> "能变红"判据清单。本节的每一个数字都是**秒级单项**命令实测（**未开浏览器、未跑 `run-all-tests.sh`/`package-matrix`/
+> `glsl-validate`/`build-pages.mjs`**）。
+> **许可**：调查里引的 `lwe-ref`（linux-wallpaperengine，GPL-3.0-only）与 `wer-ref`（GPL-2.0-only）是**第三方参考实现**，
+> 本批**只读其行为结论**；实现按**官方 WE shader 资产**（`assets/shaders/genericparticle.frag`）与**本机 `.tex` 帧表实测**
+> 独立写出，**未复制/未逐行翻译**其代码、注释、常量组织或错误文案（照抄检查见本节 P-126.9）。
+> **编号**：任务书指定 P-125，但 `docs/PATCHES.md` 的 **P-125 已被并行线占用**（用户第 ⑪/⑫/⑬ 条，commit `5349b16`）；
+> 按"号段不许撞"改用 **P-126**。
+
+### P-126.1 ⑧-1 逐粒子 RGB：萤火虫从"白点"回到 authored 紫色（用户最显眼的那条）
+
+**现场**（改动前，`core/we-scene-bundle.js`）：
+* `:10153` `const color1 = [1,1,1], color2 = [1,1,1]` —— **硬编码恒白**；
+  `:10165-10168` `colorR/G/B = mix(color1, color2, clamp01(p.color[0]))` ⇒ **三个分量恒等于 1**。
+  ⚠ 真正把颜色丢掉的是**这一步**（调查 §2 ⑧-1 只点到 `:10197` 的"解构时空位跳过"）—— 即使把 `vis[3..5]` 接进顶点，
+  只要还走这个 `mix` 就仍然是白色。
+* 顶点布局 36B = pos3+uv2+uv2B+blend+alpha（`:7366`），**没有颜色属性**；FS `:5841` 旧式 `u_Color * tex.rgb`；
+  绘制时 `u_Color` 恒 `(1,1,1)`。⇒ `colorrandom`（hina 4569 = `102 100 188`→`66 35 148`）与
+  `instanceoverride.colorn=[0.41176,0.30588,0.69412]`（`replacesColor:true`）**永远不上屏**。
+
+**改法**（三处，缺一不可）：
+1. **颜色源**：`p.color`（`colorrandom` 插值 / `colorchange` / `applyInstanceOverride` 的 `colorn|color`）直接作为逐粒子 RGB
+   —— 官方 `genericparticle.frag:39/43/46` 是 `color = v_Color * Convert(tex)`，**没有 color1/color2 uniform**。
+2. **颜色通道**：新增**独立顶点缓冲** `partColorVBO` + 属性 `a_Color`（3 float/顶点、stride 12，`getAttribLocation >= 0` 才启用）。
+   **几何缓冲一个字节都不动**（仍 36B/9 float）—— 这样既有 mock-GL 顶点流断言、`particle-shape-audit` 的 9-float 解析、
+   `render-audit` 参考产物**全部逐位不变**（比"把 stride 扩到 48"少了 6 个测试文件的连带改动与参考产物失效）。
+3. **整批同色上提**：整批粒子颜色相同（`io.replacesColor` 层、无 `colorrandom` 层、`min==max` 层）时把颜色写进
+   `u_Color`、顶点色恒 1；逐粒子不同色时才走 `a_Color`。FS = `u_Color * v_Color * tex.rgb`，两者都为 1 时与改前**逐位一致**。
+
+**判据实测**（`node tests/particle-render-correctness-test.mjs`，mock-GL 记录 draw 时的 uniform 与颜色缓冲）：
+
+| 断言 | 实测 |
+|---|---|
+| ⑥A 层4569 萤火虫 `u_Color` | **`[0.41176,0.30588,0.69412]`** = `instanceoverride.colorn`（旧实现 `[1,1,1]`） |
+| ⑥A 层4569 通道记账 | `colorUni=1 / colorAttr=0`（整批同色走上提） |
+| ⑥A 层6271 萤火虫（无 colorn） | `colorAttr=1`、逐顶点色 **spread=5** 且全在 authored 紫区间 `[66..102, 35..100, 148..188]/255` |
+| ⑥A 默认层（无 colorrandom） | `u_Color=(1,1,1)`、顶点色恒 1（**与改前逐位一致**） |
+
+### P-126.2 ⑦a 精灵表帧时序：雾 2 从"16 帧/s 倒放、逐粒子各自相位"改成"64 帧/s 正放、同年龄同帧"
+
+**现场**：`:10155 / :10162`（旧）`fv = (1 − lifePos) · (sys.seqMul || 1)` ⇒ 速率 = 1/life
+（hina 雾 2 的 `lifetimerandom 3..5` ⇒ **≈16 帧/s**）、lifePos 增大 ⇒ `fv` 减小 ⇒ **倒放**、
+且每个粒子按**自己的寿命**算相位 ⇒ **同屏粒子显示不同帧**。
+**改法**：`spriteFrameValue()` = `frac(age · seqMul / duration)`，`duration` = TEXS 帧表 Σ `frametime`
+（fog3 实测 64 帧 / `frametime 0.015625` / `duration 1`）；`?pframe=legacy` 回退旧式。只在 `duration > 0` 时改变行为。
+
+**判据实测**（真 fog3 贴图 + 合成 def ⇒ 年龄精确可钉）：
+
+| 量 | official（本批） | legacy（`?pframe=legacy`） | 调查 §2.3 的官方对拍值 |
+|---|---|---|---|
+| `age=0.25s` | **frame 16** | 59~62 | 官方 16 / 我们 60 ✅ |
+| `age=0.5s` | frame 32 | 54~56 | — |
+| `age=1.0s`（= duration） | frame 0（整圈折返） | 44~48 | 官方 0 / 我们 48 ✅ |
+
+### P-126.3 ⑧-3 `oscillatealpha` 加性 → 乘性
+
+**现场** `:3595-3610`（旧）：`alpha = clamp(base + a·cos(2πft+φ), 0, 1)`，且 `scalemax` 缺省**取 `smin`**
+⇒ 只写 `scalemin` 的层（语料三处萤火虫 def 都是 `{frequencymin:10..20, scalemin:0.7}`）**幅度恒 0 / 摆动过深**。
+**改法**：官方乘性 `alpha = base · mix(smin, smax, (cos(2πf·age+φ)+1)/2)`、`scalemax` 缺省 **1**；
+同文件里那段被**重复 `case`** 挡成死代码的 `:3703-3712` 一并**删除**（连同另外 3 段重复 `case`：`turbulence`/`oscillatesize`/`oscillateposition`
+—— JS `switch` 取第一个匹配分支，留着既是"看着像已修其实没生效"的来源，也是一颗雷）。
+
+**判据实测**（60s × 0.05s 步进）：
+
+| base | official | legacy（P-124） |
+|---|---|---|
+| 0.5 | **[0.3500, 0.5000]**、`zeroFrac = 0%` | `[0, 1]`、**24.9% 周期 α=0（整颗消失）** |
+| 1.0 | **[0.7000, 1.0000]** | `[0.3000, 1.0000]` |
+
+### P-126.4 ⑧-4 + ⑧-5 **同批**：`oscillateposition` 逐轴增量 + `controlpointattract` 判据方向
+
+**现场**：`:3615-3626`（旧）`p.pos = 首次锚点 + 幅度·cos(单一频率/相位)` —— **每帧覆盖位置** ⇒
+`movement`/`turbulence`/`attract` 累积的漂移**全被抹掉**；`:3641`（旧）`if (d > thr)` 与官方 `d < threshold/2` **正好相反**。
+**改法**：`pos[ax] += −sc[ax]·ω·sin(ω·age+φ[ax])·dt`（三轴各自频率/幅度/相位）；判据翻成 `d < thr`。
+⚠ 三轴参数由出生时**同一个 `p.random`** 派生（`×1/7919/104729`），**不额外抽 `rng()`** —— 否则整条 RNG 流平移，
+发射数/其它算子全变，"只改本算子"的 A/B 就不可比（也与既有"不偷抽随机数"惯例一致）。
+
+**判据实测**（hina 4569 真 def + 真 `instanceoverride`，240 帧 × 1/60s，逐粒子轨迹）：
+
+| 量 | official | legacy（P-124） |
+|---|---|---|
+| 每颗粒子 `corr(x,y)` | `[0.188, −0.739, 0.066]` ⇒ **maxAbs 0.7387 < 0.99** | `[−1.000, −1.000, −1.000]` ⇒ **maxAbs 1.0000** |
+| 平均位置漂移（前后半段） | **493.5 px ≠ 0** | 0（被覆盖式抹掉） |
+| 出生域 bbox 内？ | ✅ `x∈[3891,4594] ⊂ [1205,5189]`、`y∈[1767,2253] ⊂ [1163,3099]` | ✅（但沿固定对角线） |
+
+**⑧-5 单点判据**（无指针、退化目标 = 层空间 offset 当世界坐标 ⇒ 目标 (0,0)、`threshold 70` ⇒ `thr 35`）：
+
+| 距离 | official | legacy |
+|---|---|---|
+| `d=500px` | **\|Δv\| = 0（不施力）** | \|Δv\| = 16.6667（施力 ⇒ 推飞） |
+| `d=10px` | \|Δv\| = 16.6667（= \|scale\|·dt） | 0 |
+
+**并联判据实测**（任务书点名的那条）：把**只** attract 判据改回反向、`oscillateposition` 保持官方（= 变异 M6），
+萤火虫 240 帧跑到 `x∈[3990,5535]`，**越过出生域 bbox 上界 5189** ⇒ 断言
+`⑥D 并联判据：官方口径下粒子全程落在出生域 bbox 内` **变红**（rc=1）。
+调查 §2 ⑧-5 预测"漂到 x≈9700px"；本批实现的实测落点是 **5535px** —— **方向一致、量级不同**
+（原因：本实现的三轴参数不抽 `rng()`、且 240 帧窗口比调查那次短），已在 P-126.8 登记。
+
+### P-126.5 F：`turbulence` mask 缺省 + `starttime` 语义文档化
+
+* **⑧-6**：`turbulence` 的 `mask` 缺省 `[1,0,0]` → **(1,1,0)**（`?pops=legacy` 回退）。
+  hina 两个萤火虫 def **都没写 mask** ⇒ 旧行为只沿 x 推。实测：无 mask 的 def 跑 120 帧，
+  `max|vy| = 12.61`（official）/ **`0.00`**（legacy）。
+* **⑧-8**：`starttime=15` 是**官方语义**（不是 bug），本轮加一条**文档化断言**钉住：
+  4569 的 `starttime === 15`、`simulateParticleSystem(t=10)` 存活 **0** 颗、`t=25` 存活 **10** 颗。
+  （真机验收必须先等到 `t>15s`，否则"看不到萤火虫"会被误判成没修。）
+
+### P-126.6 门禁与单项回归（逐个 rc，全绿）
+
+| 命令 | 结果 |
+|---|---|
+| `node tests/particle-render-correctness-test.mjs` | **54 通过 / 0 失败**（原 33 → **+21 条 P-126 断言**）rc=0 |
+| `node tests/p74-instanceoverride-test.mjs` | 60/60 rc=0 |
+| `node tests/mock-gl-test.mjs` | 60/60 rc=0（**stride=36 断言仍成立** ⇒ 几何布局确实没动） |
+| `node tests/particle-shape-audit.mjs 3554161528` | rc=0（形状/贴图像素通道逐值不变） |
+| `node tests/submesh-probe-test.mjs` | 56/0 rc=0 |
+| `node tests/render-audit.mjs 3719111841` | rc=0 |
+| `node tests/particle-sprite-verify.mjs` | 10/10 rc=0 |
+| `node tests/multi-sprite-test.mjs` | 28/28 rc=0 |
+| `node tests/sprite-sheet-test.mjs` | rc=0 |
+| `node tests/particle-preset-fallback-test.mjs` | 57/57 rc=0 |
+| `node tests/p74-instanceoverride-audit.mjs` | rc=0 |
+| `node tests/diag-flag-check.mjs` | **151 == 151，0 差异** rc=0（新开关 `pframe`/`pops` 已进主表） |
+| `node tests/docs-check.mjs` | rc=0 |
+| `node --check core/we-scene-bundle.js` | rc=0 |
+
+### P-126.7 变异矩阵（**在 `/tmp` 真文件副本上做**；真树跑前跑后 sha256 逐字节相同）
+
+`/tmp/p125-probe/mutate.mjs`：手工 `readFileSync/writeFileSync` 拷贝**整个 `core/`**（bundle 还 import 兄弟模块）
++ 测试文件到 `/tmp/p125-mut/<id>/`，逐条把修复改回旧写法后跑门禁。真树 `core/we-scene-bundle.js` 的 sha256 = `2f46137b…`、`tests/particle-render-correctness-test.mjs` 的 sha256 = `a83e52fb…`，
+**跑前 = 跑后**（`/tmp/p125-probe/mut-final.txt` 是最后一次完整矩阵输出）。
+
+| 变异 | 改回什么 | rc | 变红的断言 |
+|---|---|---|---|
+| M1 | A：`u_Color` 恢复恒 `(1,1,1)` | 1 | `⑥A 层4569 … u_Color = instanceoverride.colorn` |
+| M2 | A：颜色源恢复恒白 `mix(color1,color2,·)` | 1 | `⑥A 层4569` + `⑥A 层6271`（spread=1、样本 1,1,1） |
+| M3 | B：帧值退回 `(1−lifePos)·seqMul` | 1 | `⑥B fog3 age=0.25s ⇒ frame 16`（得 `{60,59}`）+ 0.5s + 1.0s 三条 |
+| M4 | C：`oscillatealpha` 退回加性+clamp | 1 | `⑥C base=0.5`（得 `[0,1]`、24.9% 触 0）+ `⑥C base=1` |
+| M5 | D⑧-4：`oscillateposition` 退回每帧覆盖 | 1 | `⑥D 萤火虫 240 帧：每颗粒子 \|corr\| < 0.99`（得 maxAbs 1.0000） |
+| M6 | D⑧-5：**只**把 attract 判据改回反向 | 1 | `⑥D 并联判据`（x 越界到 5535）+ 两条 `⑥D ⑧-5` |
+| M7 | F⑧-6：`turbulence` mask 缺省退回 `[1,0,0]` | 1 | `⑥F turbulence 无 mask ⇒ 缺省 (1,1,0)`（得 max\|vy\|=0.00） |
+
+### P-126.8 未做 / 未证实（下一轮开工点）
+
+1. **⑧-2 `children`（eventfollow → `firefliestrail`（.json，包内条目）本轮未做** —— 萤火虫**没有拖尾**这条仍在。
+   **开工点**（已探明，下一轮可直接照做）：
+   * `grep -c children core/we-scene-bundle.js` 仍为 **0**；缺失在三处：`buildParticleSystem`（`:3200-3280` 不读 `def.children`）、
+     `stepParticles`（`:3289-3345` 没有"父粒子事件 → 生成子系"）、`renderParticleLayer`（`:10200+` 只画一个 `sys`）。
+   * 语料真实字段（hina 4569/6271 逐字读到）：`children:[{type:"eventfollow", name:"particles/presets/firefliestrail.json",
+     maxcount:20, scale:"1.5 1.5 1", origin:"0 0 0", angles:"0 0 0", probability:1, controlpointstartindex:null, flags:null}]`
+     （上行 `name` 里的 json 后缀是 **pkg 内条目**，不是磁盘文件）
+     —— 与调查 §2.5 行 2 一致（`wer-ref` 只作行为对照：`eventfollow → EVENT_FOLLOW`）。
+   * **缺的数据是"贴图"**：子系有自己的 `material`（`firefliestrail`（.json）→ 它自己的 `.tex`），而
+     `textures` 映射是**宿主**（`demo.html:1733/1767-1772` 逐层读 `layer.particleTexName`）准备的；核心侧拿不到子系贴图
+     ⇒ 必须先在**宿主**加"把子系材质的纹理也加载进 `textures`（键名建议 `child:<name>`）"，核心再按 `sys.children[]` 分组绘制。
+     另一条更省的路（次选）：把子系当**独立的临时粒子层**渲染（复用同一 `renderParticleLayer` 的绘制块，传子系的 tex/blending）。
+   * ⚠ `demo.html` 当前**正被并行线修改**（工作树里 ` M demo.html`），下一轮开工前先 `git status` / 与集成线对齐再动它。
+2. **⑧-7 `constantshadervalues`（overbright）未做**：粒子路径仍不读材质常量 ⇒ `overbright>1` 的层（雪景远景 1.77、cherry 1.21）
+   仍比官方暗。**卡点同 1**：材质 JSON 是宿主读的（`demo.html:1733` 只把 `passes[0].textures[0]` 与 `blending` 交给渲染器），
+   核心侧没有材质对象 ⇒ 需要宿主多传一行（建议 `layer.particleConstants = passes[0].constantshadervalues`），
+   核心再 `u_Color *= clamp(overbright,0,5)`（官方 `genericparticle.frag:10/:61`）。同属"要动并行线文件"。
+3. **报告勘误（供集成线回写调查 §1 ⑦-3 / §4 ⑦c）**：`colorrandom` 只写 `min:"255 255 255"`（无 `max`）时，
+   我们的缺省 `max=[1,1,1]` + `k=1/255` ⇒ 颜色 = `(255 + rng·(1−255))/255 = 1 − rng·254/255 ∈ [0.0039, 1]`，
+   **恒为非负**；调查报告写的"∈[−1,1]、可为负"是算式笔误（`255/255` 被算成了 2）。⇒ §4 ⑦c 那条判据
+   （"今天会得到负值 ⇒ 红"）**不成立**，本轮未按它改；`colorrandom` 缺 `max` 的**官方缺省口径**仍未证实（需要官方资产/二进制证据）。
+4. **`controlpointattract` 的目标空间**仍未定：官方是"控制点位置 + origin"，我们把层空间 `controlpoint.offset`
+   当世界坐标用（无指针时退化成世界 `(0,0)`）。本批**只纠正判据方向**；正确换算（层 origin + 旋转/缩放后的 offset）
+   与"flags=1 且无鼠标时控制点到底停在哪"需要真机/官方对照（调查 §5.4）。
+5. **`oscillatesize` 的相位基准仍是全局 `t`**（不是 `age`）：调查未把它列为缺陷，本批不动（改它会平移整批粒子的尺寸相位）。
+6. **`oscillate*` 的 `phasemax + 2π`**（调查 §5.3 存疑项）：未采纳，`phasemax` 缺省仍 `2π`。
+7. **`turbulence` 的 `scale`/`speed` 缺省**仍是 `0.002`/`0..0`（官方 `0.005`/`500..1000`）：只改了 `mask` 缺省
+   （任务书点名的那条）。改 speed 缺省会让"没写 speed 的层"从空转变成长距离漂移，风险大于收益，未做。
+8. **真机像素确认清单**（需要头浏览器，本机禁开）：
+   * `?id=3554161528&ln=17`（第 18 层 = `objects[17]` = id 835「雾 2」）：雾应**快速翻滚、同屏一致**（64 帧/s 正放）；
+     对照 `&pframe=legacy` 应看到"帧几乎不动/缓慢倒放"。⚠ 该层贴图 `particle/fog/fog3` **不在包内**，
+     依赖宿主 `/weassist` 兜底（本机 `wallpaper_engine/assets/materials/particle/fog/fog3.tex` 存在）；
+     若页内出现 `[粒子] 跳过无贴图层 "雾 2"` ⇒ 该环境整层没画（与帧时序无关）。
+   * `?id=3554161528&ln=22`（第 23 层 = `objects[22]` = id 4569「萤火虫」）：**紫色**萤火虫（不再是白点）、
+     **等 `t>15s`**（`starttime=15`）才出现；对照 `&pops=legacy` 应看到"沿固定对角线来回 + 高频闪没"。
+     第 24 层 `&ln=23`（id 6271，无 `colorn`，走 `colorrandom`）应看到**逐粒子深浅不同的紫**。
+   * 拖尾（⑧-2）**本轮不会出现** —— 别把它当成"没修好"的判据。
+9. **预构建产物**：`demo/assets/renderer-BOSoB05I.js`（Pages/在线 demo 外壳用的产物）**是旧的** ——
+   本机 dev server 的 `demo.html` 走 `/bundle.js` 路由 → 服务端**实时读 `core/we-scene-bundle.js`**（`server/we-scene-demo-server.mjs:388-396`），
+   所以**本地服务器刷新即生效**；但**在线/Pages 产物要等集成线重跑 `build-pages.mjs`**（重活，本轮禁跑）。
+
+### P-126.9 本轮改动文件清单（提交只含这些）
+
+| 文件 | 说明 |
+|---|---|
+| `core/we-scene-bundle.js` | A：`a_Color`/`partColorVBO`（独立 VBO、几何 36B 不动）+ 颜色源改 `p.color` + 整批同色上提 `u_Color` + FS `u_Color*v_Color*tex.rgb`；B：`spriteFrameValue()`（age/duration）+ `PFRAME_MODE`；C/D/F：`oscillatealpha` 乘性、`oscillateposition` 逐轴增量、`controlpointattract` 判据、`turbulence` mask 缺省 + `POPS_MODE` + 删 4 段重复 `case` 死代码；`partStat.colorUni/colorAttr/pframeMode/popsMode` |
+| `tests/particle-render-correctness-test.mjs` | mock-GL 扩展（逐 draw uniform 快照 / 按缓冲 id 的顶点流 / `a_Color` 槽位）；`setModes` 增 `pframe`/`pops`；`renderQuad`/`renderRealLayer` 增可选贴图与按 id 选层；**新增 ⑥A–⑥F 共 21 条断言**（33 → 54） |
+| `docs/README-DIAGNOSTICS.md` | 主表新增 `pframe` / `pops` 两行（`diag-flag-check` 双向比对 **151 == 151**） |
+| `docs/PATCHES.md` | 本节 P-126 |
+| `docs/AUDIT.md` | 第 6 条（"粒子 alpha/颜色被丢弃"）补一句更正：alpha 半在 P-59 已修、**RGB 半由 P-126 才真正修**（原文"rgb 选择器暂无观感差异"已不成立——萤火虫本是紫色） |
+| **未改**：`tests/run-all-tests.sh` | 本轮**没有新增测试文件**（断言加在既有 `particle-render-correctness-test.mjs` 内）⇒ 无需新增注册行；该脚本一行未动 |
+| **未改**：`web/diag-flags.json` | `tests/diag-flag-check.mjs` 的生成物；本轮跑过该脚本（工作树里那条 ` M` 是生成物刷新，与并行线同一处置）⇒ **不进本次提交**，留给集成线 |
+| **未改**：`demo.html` / `demo/index.html` / `demo/bench-patch.js` / `tests/demo-check.mjs` | 并行线正在改，本轮零触碰（⑧-2/⑧-7 的宿主接线因此留给下一轮） |
+| **未改**：`/root/Desktop/DSHarea/docs/PARTICLE-FIREFLY-INVESTIGATION.md` | 调查报告（工作区级、非本仓），本轮只读；勘误写在 P-126.8-3 |
