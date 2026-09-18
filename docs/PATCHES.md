@@ -10665,3 +10665,124 @@ boxRadius 丢一个轴的 `off`（`artR=[10,16] boxR=[20,16] off=10`）、`swell
 **未证实（需人眼/真机）**：① 外观与动效（本机无 GPU、软件渲染 ≈1fps）；② lucide-react **1.47.0** 的 `play`/`pause` 已是圆角胶囊路径，
 而 `Mark` 的注释与八点坐标是**旧版** lucide 的直角几何 —— 按"照抄优先"没擅自改坐标，因此"播放记号与旁边跳曲图标同一个重量"这句
 **必须眼睛核**；③ `--pane` 用 `color-mix()`（过老引擎会退化成透明）；④ `--ink-rgb` 是暗色常量（浅色主题要同步改）。
+
+---
+
+## P-141（2026-09-19 用户第 ⑧ 项续）P-137 残余的 **8 类 SceneScript API 缺口**收口 = 全语料「有脚本错的包」**8 → 0**（18 条 → 0）；`KNOWN_GAPS` 白名单**缩空** + 新门禁 `scene-script-api-gaps`（37 断言 / 3 组变异必红 / 全语料逐包第 1 帧 0 错）
+
+> **性质**：只读取证 + 定点修复（纯 `elysia/` 侧，**未改 `demo.html`**）+ 新门禁。证据 = 真包 `scene.json` 里的脚本原文 + 真沙箱 + 全语料逐包第 1 帧扫描；无浏览器/无 GPU/无网络，新门禁 ≈2.8s / PeakRSS 171MB。
+> **许可**：官方语义取一手 `$MPW_ROOT/wallpaper_engine/ui/dist/monaco/autocomplete/lib.sceneScript.d.ts`（行号实测）；`references/wer-ref`（GPL-2.0-only）只作**行为对照**（读 `WPSceneScriptHost.cpp:911-919` 的 setInterval、`:1427-1434` 的 getAnimation、`:1510` 的 isPlaying），**未复制代码/注释/文案** ⇒ `THIRD-PARTY.md` 未改。
+> **编号**：任务书指定 **P-141**。**0 个新 URL 开关**（`elysia/scene-scripts.js` 里 `searchParams/URLSearchParams/location.search/new URL(` 命中 = 0）。
+
+### P-141.1 症状与现场（P-137 冻结的残余表，本批逐条复核）
+
+| 缺口 | 包数 | 报错形态（逐字） |
+|---|---|---|
+| `thisLayer.getAnimation` | 3 | `init:thisLayer.getAnimation is not a function` |
+| `thisLayer.getParticleSystem` | 3 | `init:thisLayer.getParticleSystem is not a function` |
+| `thisScene.getLayerIndex` | 2 | `init:thisScene.getLayerIndex is not a function` |
+| `thisLayer.isPlaying` | 1 | `update:thisLayer.isPlaying is not a function` |
+| `thisScene.createLayer` | 1 | `update:thisScene.createLayer is not a function` |
+| 文本层 `toFixed` | 1 | `update:Cannot read properties of undefined (reading 'toFixed')` |
+| `audioLayer.stop` | 1 | `init:audioLayer.stop is not a function` |
+| `engine.setInterval` | 1 | `update:engine.setInterval is not a function` |
+
+涉及包：`0917/3351163962`、`0917/3448877775`、`0917/3509243656`、`0917/3600630828`、
+`wallpaperE/other/…alone_孤独の少女`、`wallpaperE/洛茜/洛茜_07`、`wallpaperE/洛茜/洛茜_11`、`wallpapertest1/…alone_孤独の少女`。
+
+### P-141.2 根因（8 处独立缺口 + 1 条级联）
+
+| 包 · 节点 | 作者脚本原文（一字不改） | 缺的官方成员 |
+|---|---|---|
+| `3351163962` `objects[134].volume` | `if (scriptProperties.play && !thisLayer.isPlaying())` | `ISoundLayer.isPlaying()`（**方法**） |
+| `3448877775` `objects[12].alpha`（+6 节点同源） | `animation = thisLayer.getAnimation();` | `IObject.getAnimation()` |
+| `3448877775` `objects[15].instanceoverride.alpha` | `particleSystem = thisLayer.getParticleSystem();` | 官方 d.ts **无**此成员（见 P-141.3） |
+| `3509243656` `objects[8].visible` | `return thisScene.createLayer({…"models/ta.json"…});` | `IScene.createLayer()` |
+| `3600630828` `objects[8].visible` | `audioLayer.stop();`（`audioLayer = thisScene.getLayer('bloom')`） | `ISoundLayer.stop()` 在 **thisScene 的层引用**上 |
+| `洛茜_07` `objects[13].visible` / `洛茜_11` `objects[21].visible` | `thisScene.getLayerIndex(thisLayer)` | `IScene.getLayerIndex()` |
+| `洛茜_07` `objects[8].alpha` | `stop = engine.setInterval(() => {…}, 500);` | `IEngine.setInterval()` |
+
+**`toFixed` 不是独立缺口**：`3509243656` 的文本层读 `shared.xx1/yy1/zz1`，而这些只在 `objects[8]` 的脚本里被赋值；
+`objects[8]` 先抛 `createLayer is not a function` ⇒ `shared.xx*` 永远 `undefined` ⇒ 4 个文本层每帧抛 `reading 'toFixed'`。
+**createLayer 一通，这条随之清零**（实测）⇒ 属"一因两症"。
+
+### P-141.3 官方语义（一手，逐条 `d.ts:行号`）
+
+- **498** `getAnimation(name?: String): IAnimation;`（在 **494** `interface IObject {` 内）
+- **1139** `interface ILayer extends IObject, IImageLayer, ISoundLayer, IEffectLayer, ITextLayer, IParticleSystem, IModel, ICamera {`
+  ⇒ ILayer **同时**是 ISoundLayer 与 IParticleSystem（**1242** `declare let thisLayer: ILayer;`）
+- **748 / 753 / 758 / 763** `isPlaying(): Boolean;` / `play(): void;` / `stop(): void;` / `pause(): void;`（`ISoundLayer`）⇒ **`isPlaying` 是方法**
+- **959-984** `IParticleSystem.play/pause/stop/isPlaying/emitParticles/instance`；**903** `IParticleSystemInstance.rate: Number`
+  ⇒ 官方 **`rate` 在 `instance` 上**
+- **1278 / 1283 / 1288 / 1293** `IScene.createLayer(configuration: String|Object|IAssetHandle): ILayer` /
+  `sortLayer(layer: String|Number|ILayer, index: Number): Boolean` / `getLayerIndex(layer: String|ILayer): Number` /
+  `getInitialLayerConfig(layer): Object`
+- **1519 / 1523-1524** `IEngine.setInterval(callback: Function, delay?: Number): Function` +
+  （`clearTimeout` 被注释掉，逐字 "Not implemented. Use returned function to clear."）
+- **1568-1622** `IAnimation`：`readonly fps/frameCount/duration/name` + `rate/play/pause/stop/isPlaying/getFrame/setFrame`
+- **1384 / 1389 / 1394** `IInput.cursorWorldPosition/cursorScreenPosition/cursorLeftDown`；**1530** `IEngine.screenResolution`
+- **`thisLayer.getParticleSystem` 不在 d.ts、也不在官方 ILayer 文档页** —— 官方模型里"本层的粒子系统"**就是 `thisLayer` 自己**（1139）⇒ 按官方模型返回**本层的 IParticleSystem 视图**（同一份状态），并把语料写的 `.rate` 转发到官方落点 `instance.rate`，再**写穿 `obj.instanceoverride`**。
+
+### P-141.4 改法（全部落在 `elysia/scene-scripts.js`，无包补丁）
+
+1. **可观测计数表**（`SCENE_SCRIPT_API_DIAG` + `sceneScriptApiDiag()`/`resetSceneScriptApiDiag()`，16 个计数器）：
+   所有"只能记账、无法真正作用到引擎"的调用都折进它 ⇒ **不静默**（新门禁断言热键全部 > 0）。
+2. **`makeAnimationRef(obj, name)`**：官方四个 `readonly` 用 `get` + **静默丢弃的 setter**；状态放 WeakMap。
+   ⚠ 访问器必须用 `Object.defineProperty`（`Object.assign(target, { get x(){} })` 会把 getter **求值成数据属性** ⇒ 本批实测踩过）。
+3. **`makePlaybackRef(obj)` + `makeParticleSystemRef(obj)`**：官方 ISoundLayer/IParticleSystem 面；`instance` 的 15 个字段
+   **写穿 `obj.instanceoverride`** —— 渲染器的 `resolveParticleOverride` 真正解析的就是同一个对象 ⇒ `particleSystem.rate = x` **真生效**。
+4. **`thisScene.getLayerIndex`**：接受 `String | ILayer | Number`，解析不到返回 **-1**（不抛错，计入 `getLayerIndexUnresolved`）；
+   新增"层引用→场景对象"身份表（`LAYER_OBJ_OF` WeakMap）以还原 `thisLayer` 这个**惰性**引用。
+5. **`thisScene.createLayer`**：`Object | String | IAssetHandle` 三形态（`particles/*.json` → `{particle}`、其余 `models/*.json` → `{image}`；
+   `engine.registerAsset(file)` 现在带 `file` 字段，官方文档给的就是 `createLayer(registerAsset(...))` 这条链）；
+   返回**同一套** `layer()` 面（P-137 的教训：一个 ILayer 不能有两套属性面）；新层先铺 WE 默认值再套作者配置；
+   按作者注释的 2048 层上限封顶（超限返回属性齐全的脱离层引用并计数）。
+6. **`layer()` 补齐语料真正会写的 ILayer 访问器**：`set scale`、`angles`、`parallaxDepth`、`alpha`、`color` —— 全部**写穿**
+   （`nodeWrite`：属性是 `{script,value}` 节点就写它的 `value`）。原因：本机沙箱（`elysia/nsl.js`）为 `with (ctx)` 剥掉了
+   顶层 `'use strict'` ⇒ 没有 setter 时赋值**静默失败**（严格模式下则抛 TypeError），两种都不可接受。
+7. **`thisScene.sortLayer` / `getInitialLayerConfig`**：`getLayerIndex` 修好后 `洛茜_07/11` 的 init **立刻**会撞上
+   `sortLayer is not a function`（链式暴露，脚本第 103/431 行）⇒ 同批实现（真在 `objList` 里搬位置、返回 Boolean）。
+8. **`engine.setInterval/clearInterval`**：按**场景时钟（秒）逐帧推进**（按调用次数累加 `frametime` 会少算 ~15 倍）；
+   推进点在 init/update 两趟**之后**；回调前恢复**注册时的 owner**；`delay` 缺省 0 ⇒ 每帧一次（不做 `while(0)` 死循环）；
+   单帧最多补 5s；`clearInterval` 接受返回的 stop 函数（带 `__timerId`）或数字 id。
+9. **链式缺口**：`IInput.cursorScreenPosition`/`cursorLeftDown`（本机无鼠标 ⇒ 取画布中心）与 `IEngine.screenResolution`
+   （与 canvasSize 同值）—— `3509243656` 走过 `getTrailPoint()` 后立刻用到，同批收掉。
+
+### P-141.5 判据（修前 → 修后）
+
+| 面 | 修前 | 修后 |
+|---|---|---|
+| 全语料**有脚本错的包**（37 个带 scripts 的包 / 1953 节点） | **8 个包** | **0 个包** |
+| 错误条数 / 种类 | **18 / 8** | **0 / 0** |
+| `洛茜_07` 音频条 | `createLayer` 抛错 ⇒ 一根都没有 | **63 根真被建出**（对象数 16 → 79） |
+| `洛茜_11` 音频条 | 同上 | **62 根**（24 → 87） |
+| `3448877775` 粒子层 `rate` | `getParticleSystem is not a function` | 写进 `obj.instanceoverride.rate`（渲染器真读的那份） |
+| `KNOWN_GAPS` | 8 条 | **空**（并新增 S5d：白名单为空时断言包数 = 0） |
+| `script-runtime-errors-test` | 17 通过 | **18 通过** |
+
+**新门禁** `tests/scene-script-api-gaps-test.mjs`：**37 通过 / 0 失败 / ≈2.8s / PeakRSS 171MB**（无浏览器/无网络；
+真包或语料缺失 ⇒ SKIP + exit 0）。六段：①8 个 API 的存在性与官方签名面；②官方 `readonly` **赋值不抛错且值不变**；
+③`setInterval` **真按 ms 触发**（0.5s 前 0 次、之后 ≥1 次）且能停；④8 个真包整包 4 帧 0 错；⑤全语料逐包第 1 帧 0 错（0/37）；
+⑥**RED-IF-REVERTED ×3**（摘 `getAnimation`/`getParticleSystem`/`engine.setInterval` ⇒ 子进程 rc=1 且点名断言
+`✗ S1a`/`✗ S1c`/`✗ S1h` 变红，基线 `✓ S0a` 仍 ✓；先跑未变异副本要求全绿作对照）。
+
+### P-141.6 影响面 / 未回归
+
+- 影响面：8 个包的脚本从"第 1 帧就抛、属性停在 authored 值"变成"真的在跑"；`洛茜_07/11` 各多出 63/62 个动态层
+  （在渲染器烘焙对象表之外，见未证实项 2）；全语料扫描 839ms。
+- 不回归（`--only`，全 PASS）：`script-runtime-errors`(18) / `script-api-corpus` / `script-sandbox-globals` / `script-tick` /
+  `script-owner-live` / `script-origin-sync` / `text-script-props` / `camera-origin-script` / `diag-flags` / `docs-check` /
+  `secret-scan`；另加 `script-tolerance` / `time-variation` / `props-panel` / `camera-script-origin` / `canvas-size` / `multi-instance`。
+
+### P-141.7 未证实项
+
+1. **无浏览器/无 GPU**：本批只有"脚本抛不抛错 + 写出什么值 + 计数表"的数值判据，**没有任何像素/成像结论**。
+2. `createLayer` 建出来的层**不会上屏**：渲染器对象表是场景载入时**烘焙**的（`core/we-scene-bundle.js` 的 `scene.layers`），
+   本批禁改 `core/` ⇒ `洛茜_07/11` 的音频条、`3509243656` 的轨迹点**可能仍然只有原来那一层**。要真上屏需另开一批动 `core/`。
+3. `ISoundLayer.play/stop/pause` 是**脚本可见状态机 + 计数**，未接 `demo.html` 的 HTMLAudio 池 ⇒ `3600630828` 关 BGM **不会真静音**。
+4. `IAnimation.fps/frameCount/duration` 恒 **0**（拿不到时间轴动画元数据；语料无脚本读它们）；`animation.rate` 只进句柄状态，**不改画面**。
+5. `engine.setInterval` 的回调在"脚本趟末尾 + 沙箱上下文"执行，与 WE 原生定时器线程的**相位**可能不同。
+6. `layer()` 新加的 setter 是**写穿**；`thisLayer.size`（静默丢弃）与 `layerRefFor().size`（写穿）三处口径不一致 —— P-137 既有分歧，本批未改。
+7. `elysia/nsl.js` 为 `with (ctx)` **剥掉顶层 `'use strict'`** ⇒ 作者脚本实际是**非严格**语义（实测：给只有 getter 的访问器赋值**静默失败**而非抛错）。
+   P-137 台账里"只写 getter 会让 strict 脚本抛 TypeError"这句话**对本宿主不成立**（对函数体内 `'use strict'` 的脚本成立），
+   结论不变（getter + 静默 setter 在两种模式下都对），但**措辞需更正** —— 本批未改 P-137 正文。
