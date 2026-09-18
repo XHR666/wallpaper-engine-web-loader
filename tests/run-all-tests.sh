@@ -364,6 +364,12 @@ add "now-playing"       "node tests/now-playing-test.mjs"
 #     每帧仿真步数 **400 → 1**、30 帧内重建 **29 → 0**（上游同参 1112px，±25% 内）。
 #   44 断言 + RED-IF-REVERTED（指针写回签名 ⇒ 子进程 rc=1 且数字回到旧口径）；~1s，无浏览器/无网络，缺真包 SKIP。
 add "pointer-trail-copy" "node tests/pointer-trail-copy-test.mjs" "" "^SKIP pointer-trail-copy"
+# ①(P-141 2026-09-19 主对话补登记) `scene-script-api-gaps`：P-137 之后**残余 8 类** SceneScript API 缺口收口
+#   （`getAnimation` / `getParticleSystem` / `isPlaying` / `play/pause/stop` / `createLayer` / `sortLayer` /
+#   `getLayerIndex` / `getInitialLayerConfig` / `engine.setInterval` / `input.cursor*` / `engine.screenResolution`）。
+#   判据：全语料 98 容器 / 37 个带 scripts 的包 / 1953 节点逐包第 1 帧 —— **有脚本错的包 8 → 0**，
+#   `KNOWN_GAPS` 白名单**缩空**（并留 S5d"白名单为空时断言 0 包"）。37 断言 + 3 组变异自证；~2.8s，无浏览器/无网络。
+add "scene-script-api-gaps" "node tests/scene-script-api-gaps-test.mjs" "" "^SKIP scene-script-api-gaps"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /
