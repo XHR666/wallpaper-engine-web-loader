@@ -453,6 +453,20 @@ fitCanvas();
     if (typeof v === 'number' && isFinite(v)) return (precision === null || precision === undefined || precision < 0) ? String(Math.round(v * 1000) / 1000) : v.toFixed(precision)
     return String(v === undefined || v === null ? '' : v)
   }
+  // ⑤(P-124 用户第 6 项) 颜色读数**只留前 3 位小数**：作者写的是满精度 0..1 串
+  //   （真包 hina：`0.5294117647058824 0.4627450980392157 0.8313725490196079`），整串铺在行尾
+  //   既读不出来、又把 `.vl` 撑长导致"位置有点不对"。**只改显示**：emit 给渲染器的值仍走
+  //   `hexToColor`（6 位小数），`readValue()`/写入链路一个字节都没动。
+  API.fmtColorReadout = function (v) {
+    var parts = String(v === undefined || v === null ? '' : v).trim().split(/[\s,]+/)
+    var out = []
+    for (var i = 0; i < parts.length; i++) {
+      if (!parts[i]) continue
+      var n = Number(parts[i])
+      out.push(isFinite(n) ? String(Math.round(n * 1000) / 1000) : parts[i])
+    }
+    return out.join(' ')
+  }
   function mk(doc, tag, cls) {
     var e = doc.createElement(tag)
     if (cls) e.className = cls
@@ -583,7 +597,7 @@ fitCanvas();
   //   同一套交互与视觉（自绘 HSV：色相条 + 饱和/亮度面板 + hex 输入 + 预览 + 确定；
   //   点外部/Esc 关闭；上/下防溢出定位；window 监听成对增删不泄漏）。
   //   差异仅在取色（宿主面板是深色 + 12px monospace）：类名换成 .mpw_picker*，结构逐项对应。
-  var PICKER = { el: null, cleanup: null, state: null }
+  var PICKER = { el: null, cleanup: null, state: null, anchor: null }
   function hsvToHex(hh, ss, vv) {
     var c = vv * ss, x = c * (1 - Math.abs(((hh / 60) % 2) - 1)), m = vv - c
     var r = 0, g = 0, b = 0
@@ -610,9 +624,11 @@ fitCanvas();
   API.hexToHsv = hexToHsv
   API.pickerOpen = function () { return !!PICKER.el }
   API.pickerEl = function () { return PICKER.el }
+  // ④(P-124) 当前浮窗挂在哪个色块上：色块的 click 用它做 toggle（同一个色块再点一次 = 关闭）
+  API.pickerAnchor = function () { return PICKER.anchor }
   API.closePicker = function () {
     var c = PICKER.cleanup
-    PICKER.el = null; PICKER.cleanup = null; PICKER.state = null
+    PICKER.el = null; PICKER.cleanup = null; PICKER.state = null; PICKER.anchor = null
     if (typeof c === 'function') { try { c() } catch (e) { /* ignore */ } }
   }
   function st(el, obj) { for (var k in obj) { if (Object.prototype.hasOwnProperty.call(obj, k)) { try { el.style[k] = obj[k] } catch (e) { /* ignore */ } } } }
@@ -621,6 +637,16 @@ fitCanvas();
     var doc = (anchor && anchor.ownerDocument) || (typeof document !== 'undefined' ? document : null)
     if (!doc || typeof doc.createElement !== 'function') return null
     API.closePicker()
+    // ④(P-124 用户第 6 项) "任何时刻页面里最多一个浮窗"的兜底：万一上一实例的 cleanup 没跑成
+    //   （旧节点被覆盖、监听被外部摘掉、真机上 `wrap.parent` 那种非 DOM 属性写成 no-op），
+    //   这里按类名把 body 里的残留浮窗一并摘掉 —— 节点数绝不随点击次数增长。
+    var body0 = doc.body
+    if (body0 && body0.children && body0.removeChild) {
+      for (var bi = body0.children.length - 1; bi >= 0; bi--) {
+        var old = body0.children[bi]
+        if (old && old.className === 'mpw_pickerWrap') { try { body0.removeChild(old) } catch (e) { /* ignore */ } }
+      }
+    }
     var start = API.HEX_RE.test(String(currentHex || '')) ? String(currentHex) : '#808080'
     var hsv = hexToHsv(start)
     var h = hsv.h, s = hsv.s, v = hsv.v, drag = null
@@ -676,11 +702,36 @@ fitCanvas();
       API.closePicker()
     }
     var onKey = function (e) { if (e && (e.key === 'Escape' || e.keyCode === 27)) API.closePicker() }
+    // 定位/跟随：色块右侧；上下都防溢出（面板贴屏幕底时向上弹，插件同款口径）。
+    //   ⑥(a)(P-124 用户第 6 项) "属性上下滑动的时候不会跟随移动" ⇒ 位置不能再只在开的时候算一次。
+    var wrapH = 26 + 8 + 120 + 8 + 28 + 8
+    var rectOf = function () {
+      return (anchor && typeof anchor.getBoundingClientRect === 'function') ? anchor.getBoundingClientRect() : null
+    }
+    var place = function (pr) {
+      var r = pr || rectOf() || { top: 40, left: 8, right: 64, bottom: 60 }
+      var iw = (W && W.innerWidth) || 800, ih = (W && W.innerHeight) || 600
+      st(wrap, {
+        left: Math.max(8, Math.min(iw - 240, (r.right || 64) + 8)) + 'px',
+        top: ((r.top || 40) + wrapH > ih - 8 ? Math.max(8, (r.top || 40) - wrapH - 6) : (r.top || 40) - 10) + 'px',
+      })
+    }
+    var onScroll = function () {
+      var pr = rectOf()
+      // ⑥(b)(P-124) 兜底：锚点矩形 0×0 = 它已不可见（面板 display:none / 行被 condition 隐藏）
+      //   ⇒ 没有"跟着走"的位置可言，直接关掉，不留悬空的浮窗。
+      if (pr && !pr.width && !pr.height) { API.closePicker(); return }
+      place(pr)
+    }
     PICKER.cleanup = function () {
-      if (W && W.removeEventListener) { try { W.removeEventListener('mousemove', onMove); W.removeEventListener('mouseup', onUp) } catch (e) { /* ignore */ } }
+      if (W && W.removeEventListener) { try { W.removeEventListener('mousemove', onMove); W.removeEventListener('mouseup', onUp); W.removeEventListener('scroll', onScroll, true) } catch (e) { /* ignore */ } }
       try { if (doc.removeEventListener) doc.removeEventListener('mousedown', outside) } catch (e) { /* ignore */ }
       try { if (doc.removeEventListener) doc.removeEventListener('keydown', onKey) } catch (e) { /* ignore */ }
-      try { if (wrap.parent && wrap.parent.removeChild) wrap.parent.removeChild(wrap) } catch (e) { /* ignore */ }
+      // ④(P-124) 摘节点必须用**标准**属性 `parentNode`：`parent` 不是 DOM 属性（只有场景对象才有
+      //   `parent`），原来写成 `wrap.parent` ⇒ 浏览器里恒 undefined ⇒ 旧浮窗永远留在 body 里
+      //   （症状：同一个色块点几次就叠几个浮窗，侧边阴影越来越重）。假 DOM 的 `parent` 别名已改成
+      //   strictDom 下不提供，这条路径在单测里与浏览器同一套属性面。
+      try { var par = wrap.parentNode; if (par && par.removeChild) par.removeChild(wrap) } catch (e) { /* ignore */ }
     }
     okBtn.addEventListener('click', function () {
       var val = String(hexInput.value || '').trim()
@@ -688,16 +739,10 @@ fitCanvas();
       API.closePicker()
       if (typeof onPick === 'function') onPick(val)
     })
-    // 定位：色块右侧；上下都防溢出（面板贴屏幕底时向上弹，插件同款口径）
-    var pr = (anchor && typeof anchor.getBoundingClientRect === 'function') ? anchor.getBoundingClientRect() : { top: 40, left: 8, right: 64, bottom: 60 }
-    var wrapH = 26 + 8 + 120 + 8 + 28 + 8
-    var iw = (W && W.innerWidth) || 800, ih = (W && W.innerHeight) || 600
-    st(wrap, {
-      left: Math.max(8, Math.min(iw - 240, (pr.right || 64) + 8)) + 'px',
-      top: ((pr.top || 40) + wrapH > ih - 8 ? Math.max(8, (pr.top || 40) - wrapH - 6) : (pr.top || 40) - 10) + 'px',
-    })
+    place()
     refresh()
     PICKER.el = wrap
+    PICKER.anchor = anchor || null
     PICKER.state = { hex: function () { return hsvToHex(h, s, v) }, get h() { return h }, get s() { return s }, get v() { return v } }
     if (doc.addEventListener) {
       // ②(P-64 第16项) 延后注册"点外部关闭"时**校验实例仍是当前浮窗**：插件里若在 setTimeout 触发前
@@ -706,6 +751,9 @@ fitCanvas();
       if (typeof setTimeout === 'function') setTimeout(arm, 0); else arm()
       doc.addEventListener('keydown', onKey)
     }
+    // ⑥(a)(P-124) 跟随滚动：scroll 事件**不冒泡**，但捕获阶段会经过 window ⇒ 一个 window capture
+    //   监听就能收到**任意**滚动容器（`.mpw_pickerWrap` 是 position:fixed，面板内滚它自己不会动）。
+    if (W && W.addEventListener) W.addEventListener('scroll', onScroll, true)
     return wrap
   }
   // ── 控件工厂 ────────────────────────────────────────────────────────────────
@@ -739,8 +787,12 @@ fitCanvas();
       ctrl.className = 'mpw_colorSwatch'
       ctrl.setAttribute('data-mpw-picker-anchor', String(it.key))
       ctrl.value = it.hex || API.colorToHex(it.value)
-      ctrl.title = '点击打开取色器（HSV 浮窗，与插件同一套）'
+      ctrl.title = '点击打开取色器（HSV 浮窗，与插件同一套；在同一个色块上再点一次关闭）'
       ctrl.addEventListener('click', function () {
+        // ④(P-124 用户第 6 项) toggle：同一个色块再点一次 = 关闭（原来点第二下只会把浮窗重开一遍，
+        //   而旧节点又摘不掉 ⇒ 视觉上"叠几个取色盘、侧边阴影越来越重"）。
+        //   点**别的**色块时不在这里处理：openPicker 内的 closePicker 会先收掉旧实例。
+        if (typeof API.pickerAnchor === 'function' && API.pickerAnchor() === ctrl) { API.closePicker(); return }
         API.openPicker(ctrl, ctrl.value, function (hex) {
           ctrl.value = hex
           st(ctrl, { background: hex })
@@ -883,8 +935,9 @@ fitCanvas();
       if (it.type === 'bool') r.ctrl.checked = !!it.value
       else if (it.type === 'color') { r.ctrl.value = it.hex || API.colorToHex(it.value); r.ctrl.style.background = r.ctrl.value }
       else r.ctrl.value = String(it.value === undefined || it.value === null ? '' : it.value)
-      r.readout.textContent = (it.type === 'bool') ? (it.value ? '开' : '关') : API.fmtValue(it.value, it.precision)
-      r.readout.title = '作者默认: ' + API.fmtValue(it.defValue, it.precision)
+      r.readout.textContent = (it.type === 'bool') ? (it.value ? '开' : '关')
+        : (it.type === 'color' ? API.fmtColorReadout(it.value) : API.fmtValue(it.value, it.precision))   // ⑤(P-124) 颜色读数只留 3 位小数
+      r.readout.title = '作者默认: ' + (it.type === 'color' ? API.fmtColorReadout(it.defValue) : API.fmtValue(it.defValue, it.precision))
     }
     return rows
   }
@@ -3942,6 +3995,9 @@ function loadScene() {
     const setOpen = (o, persist) => {
       open = !!o
       root.className = open ? 'open' : ''
+      // ⑥(b)(P-124 用户第 6 项) 面板整体收起 = 锚点被 display:none 藏掉 ⇒ 取色浮窗必须跟着关，
+      //   否则它会悬空留在空面板上方（用户原话"属性这个选项整体关闭的情况下，你取色盘不会自动关闭"）。
+      if (!open && typeof API.closePicker === 'function') API.closePicker()
       btnEl.setAttribute('aria-expanded', open ? 'true' : 'false')
       if (persist) { try { localStorage.setItem(LS_KEY, open ? '1' : '0') } catch (e) { /* ignore */ } }
     }

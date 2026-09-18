@@ -41,14 +41,26 @@ const sceneJsonOf = () => JSON.parse(rd(lib.getEntry(PKG, 'scene.json')))
 console.log('[P-61] 官方属性面板（真包 ' + ID + '：' + DIR + '）')
 
 // ── 假 DOM（足够跑 demo.html 的 MPW-PROPS-PANEL 区块）───────────────────────
-function mkEl(tag) {
+// ④(P-124 用户第 6 项) **DOM 保真度**：真实 DOM 元素没有 `parent` 属性（只有 `parentNode`）。
+//   旧版假 DOM 给每个节点塞了非标准别名 `parent`，于是"浮窗清理代码写成 `wrap.parent` ⇒
+//   浏览器里永远摘不掉旧节点（点一次叠一层、阴影越来越重）"这个只在真机复现的 bug 被假绿了。
+//   现在节点默认仍带 `parent` 别名（历史断言用），但 `strictDom:true` 的节点**不提供**它 ——
+//   取色浮窗的清理路径必须在 strictDom 下通过（= 与浏览器同一套属性面）。
+function mkEl(tag, opts) {
+  const strict = !!(opts && opts.strictDom)
   const el = {
     tagName: String(tag || 'div').toUpperCase(), id: '', className: '', type: '', textContent: '', title: '',
     value: '', checked: false, disabled: false, hidden: false, min: '', max: '', step: '',
-    style: {}, children: [], parent: null, ownerDocument: null, _attrs: {}, _ls: {},
+    style: {}, children: [], parentNode: null, ownerDocument: null, _attrs: {}, _ls: {},
     get firstChild() { return el.children.length ? el.children[0] : null },
-    appendChild(c) { c.parent = el; el.children.push(c); return c },
-    removeChild(c) { const i = el.children.indexOf(c); if (i >= 0) el.children.splice(i, 1); return c },
+    appendChild(c) { c.parentNode = el; if (!strict) c.parent = el; el.children.push(c); return c },
+    removeChild(c) {
+      const i = el.children.indexOf(c)
+      if (i >= 0) el.children.splice(i, 1)
+      c.parentNode = null
+      if (Object.prototype.hasOwnProperty.call(c, 'parent')) c.parent = null
+      return c
+    },
     setAttribute(k, v) { el._attrs[k] = String(v) },
     getAttribute(k) { return el._attrs[k] },
     addEventListener(t, h) { (el._ls[t] = el._ls[t] || []).push(h) },
@@ -60,6 +72,7 @@ function mkEl(tag) {
     fire(t, ev) { for (const h of (el._ls[t] || [])) h(Object.assign({ target: el, preventDefault() {}, stopPropagation() {} }, ev || {})) },
     click() { el.fire('click') },
   }
+  if (!strict) el.parent = null          // 非标准别名：只为历史断言保留，strictDom 下不提供（见上）
   return el
 }
 const HTML = fs.readFileSync(new URL('../demo.html', import.meta.url), 'utf8')
@@ -70,8 +83,9 @@ function sliceBlock(src, begin, end) {
   return src.slice(src.indexOf('\n', i) + 1, src.lastIndexOf('\n', j))
 }
 const PANEL_SRC = sliceBlock(HTML, '// ═══ MPW-PROPS-PANEL-BEGIN', '// ═══ MPW-PROPS-PANEL-END')
-function runPanelBlock() {
-  const doc = { createElement: (t) => mkEl(t), body: mkEl('body'), _ls: {} }
+function runPanelBlock(opts) {
+  const strict = !!(opts && opts.strictDom)
+  const doc = { createElement: (t) => mkEl(t, { strictDom: strict }), body: mkEl('body', { strictDom: strict }), _ls: {} }
   // ②(P-64 第16项) 浮窗取色器要 document/window 级监听（点外部/Esc 关）→ 假 DOM 也提供
   doc.addEventListener = (t, h) => { (doc._ls[t] = doc._ls[t] || []).push(h) }
   doc.removeEventListener = (t, h) => { const a = doc._ls[t] || []; const i = a.indexOf(h); if (i >= 0) a.splice(i, 1) }
@@ -1689,6 +1703,151 @@ console.log('[T22] P-64-MEDIA 轮顺带：按钮位置语义（点手动上报�
       !!off && !('bones' in off) && Object.keys(off).length === 0, JSON.stringify(off))
     check('T22g 日志白名单已放行 `[bones]`（每 2s 一行不再被过滤掉）+ payload 位置在 `shot` 之前（同一对象、无额外包装）',
       /l\.indexOf\('\[bones\]'\) >= 0/.test(HTML) && PAYLOAD_SNIPPET && /\.\.\.\(__shotData \? \{ shot: __shotData \} : \{\}\),/.test(HTML))
+  }
+}
+
+console.log('[T23] P-124 用户第 6 项（④⑤⑥）：浮窗"再点一次关掉"·最多一个、颜色读数只留 3 位小数、面板滚动跟随、面板收起即关')
+{
+  // ④+⑥ 全部在 **strictDom**（没有非标准 `parent` 别名 ⇒ 与浏览器同一套属性面）下跑真源码切片：
+  //   旧代码 `wrap.parent.removeChild(wrap)` 在浏览器里恒为 undefined ⇒ 旧浮窗永远摘不掉。
+  const tick = () => new Promise((r) => setTimeout(r, 1))
+  const strict = { strictDom: true }
+  const countWraps = (body) => body.children.filter((c) => c.className === 'mpw_pickerWrap').length
+  const { API, doc, win } = runPanelBlock(strict)
+  const pickerAnchor = () => (typeof API.pickerAnchor === 'function' ? API.pickerAnchor() : undefined)
+  const host = mkEl('div', strict); host.ownerDocument = doc
+  const D7 = lib.mergeUserProps({ schema: SCHEMA })
+  const props7 = D7.props
+  const m7 = lib.propsPanelModel(SCHEMA, props7, { locked: D7.locked })
+  const calls7 = []
+  const api7 = API.build(host, m7, {
+    schema: SCHEMA,
+    onChange: (k, v) => { props7[k] = lib.normalizePropValue(SCHEMA[k] && SCHEMA[k].type, v, props7[k]); calls7.push([k, props7[k]]) },
+  })
+  const swA = api7.rows.newproperty24.ctrl
+  const swB = api7.rows.newproperty12.ctrl
+  // 计数桩：① body.removeChild 摘掉了什么；② doc/window 的 removeEventListener 次数 = 旧实例 cleanup 真跑了吗
+  const removed = []
+  const rmBody = doc.body.removeChild
+  doc.body.removeChild = (c) => { removed.push(c && c.className); return rmBody(c) }
+  const teardown = { doc: 0, win: 0 }
+  const rmDoc = doc.removeEventListener, rmWin = win.removeEventListener
+  doc.removeEventListener = (t, h) => { teardown.doc++; return rmDoc(t, h) }
+  win.removeEventListener = (t, h) => { teardown.win++; return rmWin(t, h) }
+  check('T23a 前置：同一面板里两个真包颜色项都是色块按钮（newproperty24 / newproperty12）',
+    swA.className === 'mpw_colorSwatch' && swB.className === 'mpw_colorSwatch' && swA !== swB)
+  // ── 现场 1：同一个色块连点两次 = 关（用户原话"点一下再点一下，不会给它关掉，而是叠加几个在上面"）
+  swA.fire('click')
+  const w1 = API.pickerEl()
+  check('T23b 点色块 A → 恰好 1 个浮窗 + PICKER.anchor = A（锚点参与 toggle 判定）',
+    countWraps(doc.body) === 1 && !!w1 && w1.className === 'mpw_pickerWrap' && pickerAnchor() === swA,
+    'wraps=' + countWraps(doc.body) + ' anchorIsA=' + (pickerAnchor() === swA))
+  const rm0 = removed.length, tdDoc0 = teardown.doc, tdWin0 = teardown.win
+  swA.fire('click')
+  check('T23c **同一个色块再点一次 = 关闭**：body 里 .mpw_pickerWrap 计数 = 0（strictDom：摘节点只能靠标准 parentNode）',
+    countWraps(doc.body) === 0 && API.pickerOpen() === false && API.pickerEl() === null,
+    'wraps=' + countWraps(doc.body) + ' open=' + API.pickerOpen())
+  check('T23d 关闭真的走了旧实例的 cleanup（计数桩：body 摘掉 1 个 .mpw_pickerWrap + doc 解绑 2 个监听 + window 解绑 3 个：mousemove/mouseup/scroll）',
+    removed.length === rm0 + 1 && removed[removed.length - 1] === 'mpw_pickerWrap'
+    && teardown.doc === tdDoc0 + 2 && teardown.win === tdWin0 + 3,
+    'removed=' + JSON.stringify(removed.slice(rm0)) + ' doc+=' + (teardown.doc - tdDoc0) + ' win+=' + (teardown.win - tdWin0))
+  check('T23e 关闭后监听不残留：doc.mousedown / win.mousemove / win.mouseup / win.scroll 全为 0',
+    (doc._ls.mousedown || []).length === 0 && (win._ls.mousemove || []).length === 0
+    && (win._ls.mouseup || []).length === 0 && (win._ls.scroll || []).length === 0,
+    'doc.mousedown=' + (doc._ls.mousedown || []).length + ' win='
+    + [(win._ls.mousemove || []).length, (win._ls.mouseup || []).length, (win._ls.scroll || []).length].join('/'))
+  // ── 现场 2：点 A 再点 B —— 先关旧的再开新的（任何时刻页面里最多一个浮窗）
+  let rectB = { top: 40, left: 8, right: 64, bottom: 60, width: 56, height: 20 }
+  swB.getBoundingClientRect = () => rectB
+  swA.fire('click'); await tick()
+  const wA = API.pickerEl()
+  doc.fire('mousedown', { target: swB })     // 真机事件顺序：mousedown（点外部）→ click（开新的）
+  const midCount = countWraps(doc.body)
+  swB.fire('click')
+  const wB = API.pickerEl()
+  check('T23f 点 A 再点 B：.mpw_pickerWrap 计数恒为 1、PICKER.el 换成 B 的浮窗、A 的节点已被真摘掉',
+    midCount === 0 && countWraps(doc.body) === 1 && !!wB && wB !== wA && wB.className === 'mpw_pickerWrap'
+    && pickerAnchor() === swB && !doc.body.children.includes(wA),
+    'mid=' + midCount + ' wraps=' + countWraps(doc.body) + ' sameEl=' + (wB === wA))
+  // ── 现场 3：⑥(a) 滚动跟随（window capture 收任意滚动容器的 scroll）
+  check('T23g 开浮窗时定位 = 锚点矩形同步（top = rect.top - 10、left = rect.right + 8，插件同款口径）',
+    wB.style.top === '30px' && wB.style.left === '72px', wB.style.left + ',' + wB.style.top)
+  rectB = { top: 300, left: 8, right: 64, bottom: 320, width: 56, height: 20 }
+  win.fire('scroll')
+  check('T23h **面板滚动一次 → 浮窗跟着色块走**（top/left 与新矩形同步，而不是停在开浮窗那一刻的位置）',
+    wB.style.top === '290px' && wB.style.left === '72px', wB.style.left + ',' + wB.style.top)
+  rectB = { top: 700, left: 8, right: 64, bottom: 720, width: 56, height: 20 }
+  win.fire('scroll')
+  check('T23i 跟随后仍走"上下防溢出"同一套公式（锚点贴屏幕底 ⇒ 向上弹：700-198-6=496）',
+    wB.style.top === '496px', wB.style.top)
+  // ── 现场 4：⑥(b) 兜底 —— 锚点不可见（面板 display:none / 行被 condition 隐藏）
+  rectB = { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }
+  win.fire('scroll')
+  check('T23j 锚点矩形 0×0（面板收起/行隐藏）→ 滚一次即自动关闭，不留悬空浮窗',
+    API.pickerOpen() === false && countWraps(doc.body) === 0, 'wraps=' + countWraps(doc.body))
+  // ── 现场 5：⑤ 颜色读数只留前 3 位小数（**只改显示**）
+  const r24 = api7.rows.newproperty24.readout
+  check('T23k 颜色行读数 = 3 位小数（真机症状：满精度 0.5294117647058824… 太长，行尾位置被撑歪）',
+    /^\d(\.\d{1,3})?( \d(\.\d{1,3})?){2}$/.test(r24.textContent) && !/\.\d{4,}/.test(r24.textContent)
+    && r24.textContent === '0.529 0.463 0.831', JSON.stringify(r24.textContent))
+  check('T23l 作者默认提示（title）同口径截断 + 新 API `fmtColorReadout` 边界稳（"1 1 1" 原样、空值空串）',
+    r24.title === '作者默认: 0.529 0.463 0.831'
+    && typeof API.fmtColorReadout === 'function' && API.fmtColorReadout('1 1 1') === '1 1 1'
+    && API.fmtColorReadout('') === '' && API.fmtColorReadout('0 0 0') === '0 0 0',
+    r24.title)
+  swA.fire('click')
+  const wA2 = API.pickerEl()
+  const hexIn = wA2.children[2].children[1], okBtn = wA2.children[2].children[2]
+  hexIn.value = '#ff8800'
+  hexIn.fire('change')
+  okBtn.fire('click')
+  API.refresh(host, lib.propsPanelModel(SCHEMA, props7, { locked: D7.locked }), api7.rows, {})
+  check('T23m 只截显示不改值：emit 收到的仍是满精度（hexToColor 6 位小数 "1 0.533333 0"），读数显示 3 位',
+    calls7.length === 1 && calls7[0][0] === 'newproperty24' && calls7[0][1] === '1 0.533333 0'
+    && r24.textContent === '1 0.533 0', JSON.stringify(calls7[0] || null) + ' readout=' + JSON.stringify(r24.textContent))
+  // ── 现场 7：④ "任何时刻最多一个浮窗"的兜底网（真机场景：旧实例的 cleanup 被外部摘掉/被覆盖 ⇒ body 里有残留）
+  {
+    const stray = mkEl('div', strict)
+    stray.className = 'mpw_pickerWrap'
+    doc.body.appendChild(stray)
+    swA.fire('click')
+    check('T23q 开新浮窗前先把 body 里的残留浮窗清掉（按类名兜底）⇒ .mpw_pickerWrap 计数恒为 1，PICKER.el 不是残留那个',
+      countWraps(doc.body) === 1 && !doc.body.children.includes(stray) && API.pickerEl() !== stray,
+      'wraps=' + countWraps(doc.body))
+    API.closePicker()
+    check('T23r 兜底网不改变正常关闭路径：计数 0、pickerOpen=false', countWraps(doc.body) === 0 && API.pickerOpen() === false)
+  }
+  // ── 现场 6：⑥(b) 面板整体收起（⚙ 属性 再点一次 = 同一条 setOpen 路径）⇒ 浮窗必须同步关
+  {
+    const SRC = sliceBlock(HTML, '  let propsPanel = null\n', "\n  // ①(2026-09-12) ?isolate=名称(逗号分隔)")
+    const lr = runPanelBlock()
+    const winx = { __mpwPropsPanel: lr.API }
+    const propsx = lib.mergeUserProps({ schema: SCHEMA }).props
+    winx.__mpwPropsCtx = { map: propsx, schema: SCHEMA, locked: new Set(), store: {}, save: () => {}, key: 'mpw-props:' + ID }
+    const sceneObj = sceneJsonOf()
+    const scene = lib.parseScene(sceneObj, null, { attachCtx: { readEntry: (n) => lib.getEntry(PKG, n), time: 0 } })
+    lib.applyRenderConfig(scene, { properties: propsx, propertiesSchema: SCHEMA, sceneId: ID, hideUI: true, log: () => {} })
+    const doc2 = Object.assign({}, lr.doc)
+    const bar = mkEl('div')
+    doc2.getElementById = (id) => (id === 'bar' ? bar : null)
+    doc2.body = mkEl('body')
+    const g = new Function('document', 'window', 'localStorage', 'location', 'lib', 'scene', 'sceneObj', 'logf', 'URLSearchParams',
+      SRC + '\nreturn { propsPanel, propsDiagPayload }')
+    const r = g(doc2, winx, { getItem: () => null, setItem: () => {}, removeItem: () => {} }, { search: '?id=' + ID }, lib, scene, sceneObj, () => {}, URLSearchParams)
+    const root = doc2.body.children.find((c) => c.id === 'mpw-props-panel')
+    const btn = bar.children.find((c) => c.id === 'mpw-props-btn')
+    check('T23n 前置：装载后面板打开（className="open"）+ 顶栏有 ⚙ 属性 按钮（收起走同一条 setOpen）',
+      !!root && root.className === 'open' && !!btn, 'root="' + (root && root.className) + '" btn=' + !!btn)
+    r.propsPanel.api.rows.newproperty24.ctrl.fire('click')
+    // 注意：浮窗挂在面板块自己的 document.body 上（真机上与装载块同一个 document；测试里装载块用 doc2 隔离）
+    const opened = countWraps(lr.doc.body)
+    btn.fire('click')                                  // 收起面板
+    check('T23o **面板整体收起 ⇒ 取色浮窗自动关闭**（用户原话"属性这个选项整体关闭的情况下，你取色盘不会自动关闭"）',
+      opened === 1 && countWraps(lr.doc.body) === 0 && lr.API.pickerOpen() === false && root.className === '',
+      'before=' + opened + ' after=' + countWraps(lr.doc.body) + ' root="' + root.className + '"')
+    await tick()
+    check('T23p 收起路径不泄漏：延后 arm 的 outside 监听没挂上（PICKER.el 已空 ⇒ arm 的实例校验拒绝）',
+      (lr.doc._ls.mousedown || []).length === 0, 'doc.mousedown=' + (lr.doc._ls.mousedown || []).length)
   }
 }
 

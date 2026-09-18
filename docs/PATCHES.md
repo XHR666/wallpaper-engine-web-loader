@@ -8497,3 +8497,138 @@ $ node --check core/we-scene-bundle.js && node --check elysia/scene-scripts.js &
 | **未改**：`tests/run-all-tests.sh` | 新测试的登记待办见下；`pointer-leave` 那行**已在**门禁里（且没有写死断言条数的注释 ⇒ 不需要跟着改） |
 
 登记待办：`add "script-sandbox-globals" "node tests/script-sandbox-globals-test.mjs"`。
+
+## P-124（2026-09-18 用户第 6 项 ④⑤⑥）渲染器演示页浮窗取色器三连修：同一个色块再点一次=关闭且**任何时刻最多一个浮窗**、颜色行读数只留 3 位小数（**只改显示**）、面板滚动跟随 + 面板收起即关
+
+**一句话**：三条用户反馈 = **一个真机根因 + 一条缺失能力 + 一处显示缺陷**。①浮窗关闭路径写成
+`wrap.parent.removeChild(wrap)` —— `parent` **不是 DOM 属性**（它只存在于场景对象上），浏览器里恒 `undefined`
+⇒ 旧浮窗**永远摘不掉**，而 `outside` 里 `if (t === anchor) return` 又让"点色块自己"不触发关闭 ⇒
+同一个色块点几次就叠几个浮窗（"侧边的阴影越来越重" = 多个 `box-shadow:0 12px 40px rgba(0,0,0,.5)` 叠加）。
+②位置只在开浮窗那一刻算一次，且 `.mpw_pickerWrap` 是 `position:fixed` ⇒ 面板里上下滑动时它不动、面板收起
+（`display:none`）时它也不关。③颜色行读数把作者写的**满精度 0..1 串**原样铺在行尾（`fmtValue()` 对字符串原样
+返回），行尾被撑长 = "数据太长导致位置有点不对"。
+
+### P-124.1 现象与复现（先证差异真实存在；命令 + 数字）
+
+用户原话（任务书第 6 项）：
+- ④"那些取色盘，点一下再点一下，不会给它关掉，而是叠加几个取色盘在上面，我看他侧边的阴影越来越重了"
+- ⑤"有的颜色选取的地方，后面有他的一些很长的一串小数数据，给这个小数数据取前几位就行了，你这个数据太长，导致它放的位置有点不对"
+- ⑥(a)"在属性上下滑动的时候不会跟随移动" ⑥(b)"在属性这个选项整体关闭的情况下，你取色盘不会自动关闭"
+
+改动前跑**新增**断言（`node tests/props-panel-test.mjs`，exit 1，263 通过 / 13 失败）：
+
+```
+  ✗ T23c **同一个色块再点一次 = 关闭**…  [wraps=2 open=true]
+  ✗ T23f 点 A 再点 B：.mpw_pickerWrap 计数恒为 1…  [mid=3 wraps=4 sameEl=false]
+  ✗ T23h **面板滚动一次 → 浮窗跟着色块走**…  [72px,30px]
+  ✗ T23k 颜色行读数 = 3 位小数…  ["0.5294117647058824 0.4627450980392157 0.8313725490196079"]
+  ✗ T23o **面板整体收起 ⇒ 取色浮窗自动关闭**…  [before=1 after=1 root=""]
+```
+
+`wraps=2 / 4` 就是"叠几个取色盘"的量化：**每次点击 body 里多一个 `.mpw_pickerWrap`**（假 DOM 的
+`strictDom` 模式不提供非标准 `parent` 别名 ⇒ 与浏览器同一套属性面）。
+
+### P-124.2 根因（file:line 为改动前）
+
+| # | 现场 | 根因 |
+|---|---|---|
+| ④ | `demo.html:683` `if (wrap.parent && wrap.parent.removeChild) wrap.parent.removeChild(wrap)` | **`parent` 不是 DOM 属性**（真实 DOM 只有 `parentNode`/`parentElement`）⇒ 浏览器里恒 `undefined` ⇒ cleanup 里摘节点是 no-op，旧浮窗永久留在 `body`。假 DOM 当年给节点塞了非标准别名 `parent`（改动前 `tests/props-panel-test.mjs:48`（字面量）/`:50`（`appendChild`））⇒ 这条真机 bug 被假绿 |
+| ④ | `demo.html:672-677` `outside()`：`if (t === anchor) return` + `demo.html:743-749` 色块 `click` 无条件 `openPicker` | 点色块自己**既不关闭**（outside 早退）**又重开一层**（旧节点又摘不掉）⇒ 连点两次 = 2 个浮窗；`PICKER.el` 只指向最新那个 |
+| ⑤ | `demo.html:886` `r.readout.textContent = … API.fmtValue(it.value, it.precision)` | 颜色项 `it.value` 是**字符串**（真包 hina `newproperty24`：`0.5294117647058824 0.4627450980392157 0.8313725490196079`；`precision=null`），而 `fmtValue`（`demo.html:452-455`）对非 number **原样 `String(v)`** ⇒ 满精度整串进 `.vl` |
+| ⑥(a) | `demo.html:691-698`（定位）+ `demo.html:586`（`PICKER` 无 anchor/无 scroll 监听） | 位置只在 `openPicker` 里算一次；`.mpw_pickerWrap` 是 `position:fixed`（`demo.html:66`）⇒ 面板滚动它不动 |
+| ⑥(b) | `demo.html:3942-3947` `setOpen()` 只切 `root.className` | 面板收起 = `display:none`（`demo.html:23-24`）时没有任何人通知取色器 |
+
+### P-124.3 改法（行号为**改动后**）
+
+1. `demo.html:734`：摘节点改用**标准** `wrap.parentNode`（`var par = wrap.parentNode; if (par && par.removeChild) par.removeChild(wrap)`）。
+2. `demo.html:640-646`：`openPicker` 里加"最多一个浮窗"兜底 —— 开新浮窗前按类名清掉 `body` 里的残留 `.mpw_pickerWrap`
+   （即使上一实例的 cleanup 被外部摘掉/覆盖也保证计数不增长）。
+3. `demo.html:795`：色块 `click` 变 toggle —— `if (API.pickerAnchor() === ctrl) { API.closePicker(); return }`；
+   `PICKER.anchor` 在 `openPicker` 里记录（`demo.html:744`），`API.pickerAnchor()` 见 `demo.html:628`。点**别的**色块仍走
+   `openPicker → closePicker()` 先收旧的（`outside` 的 `t === anchor` 早退保持不变，鼠标按下不再闪一下）。
+4. `demo.html:719-725` + `demo.html:752`：抽出 `place(pr)`，并加 `onScroll`：`window` 上 **capture** 注册 `scroll`
+   （scroll 不冒泡但捕获阶段经过 window ⇒ 一个监听覆盖任意滚动容器）；`cleanup` 里成对解绑（`demo.html:732`）。
+   锚点矩形 `0×0`（= 已不可见）时直接关闭（⑥(b) 兜底）。
+5. `demo.html:4000`：`setOpen(false)` 时 `API.closePicker()`（面板收起 ⇒ 浮窗跟着关）。
+6. `demo.html:460-472` 新增 `API.fmtColorReadout(v)`（按空白/逗号切分，每段四舍五入到 **3 位小数**，非数字原样保留），
+   `demo.html:939-940` 颜色行读数与"作者默认"提示都走它。**只改显示**：`readValue()`/`hexToColor()` 的写入链路一行没动
+   （emit 仍是 `1 0.533333 0` 这类 6 位小数，见 T23m）。
+7. 色块 `title` 补一句"在同一个色块上再点一次关闭"（`demo.html:790`）。
+
+### P-124.4 判据（实测；逐条可复现）
+
+`tests/props-panel-test.mjs` 新增 `[T23]` 共 **16 条**（T23a–T23r），全部跑 demo.html 的**真源码切片** + 真包 hina
+（`general.properties` 35 条 / 3 个 color 项）：
+- ④：连点两次后 body 里 `.mpw_pickerWrap` 计数 **0**；点 A 再点 B ⇒ 计数**恒 1** 且 `PICKER.el` 指向 B 的浮窗、
+  A 的节点被真摘掉（计数桩：`body.removeChild` 摘到 1 个 `mpw_pickerWrap`；`doc.removeEventListener`+2、
+  `window.removeEventListener`+3 = 旧实例 cleanup 真被调用）；`mousedown`/`keydown`/`mousemove`/`mouseup`/`scroll`
+  监听归零；残留浮窗被兜底清掉（T23q/T23r）。
+- ⑤：读数 `"0.529 0.463 0.831"`（正则 `^\d(\.\d{1,3})?( \d(\.\d{1,3})?){2}$` 且无 `\.\d{4,}`）、title 同口径；
+  **emit 不变**：`"1 0.533333 0"`。
+- ⑥(a)：滚一次 ⇒ `top` 从 `30px` → `290px`（与新 `getBoundingClientRect()` 同步），贴屏幕底仍走上弹公式（`496px`）。
+- ⑥(b)：锚点 0×0 ⇒ 滚一次自动关；面板收起（⚙ 属性再点一次）⇒ 计数 0 且不留下延后 arm 的 `outside` 监听。
+
+```
+$ node tests/props-panel-test.mjs      # exit 0   —— 全部通过：278 通过 / 0 失败（本轮前 260/0，不许降）
+$ node tests/demo-syntax-check.mjs     # exit 0   —— demo 内联脚本语法：10/10 通过
+$ node tests/docs-check.mjs            # exit 0   —— 文档一致性全部通过
+```
+
+### P-124.5 红-if-reverted（真跑到；**真文件副本**在 `/tmp/p124/mut`，真树 sha256 前后不变）
+
+变异脚本 `/tmp/p124/mutate.mjs`：`readFileSync/writeFileSync` 复制 `demo.html` + `tests/props-panel-test.mjs` +
+`core/`+`elysia/`（模块图的相对 import 必须齐）+ `docs/README-DIAGNOSTICS.md`，逐条把修复退回旧写法再跑测试。
+**6/6 全部变红**，真树 7 个文件 sha256 前后逐字节相同（末次自检：`demo.html 01b8fa6f…`、`tests/props-panel-test.mjs 885f3ef4…`，两次打印一致）：
+
+| 变异 | 退回的写法 | RED |
+|---|---|---|
+| M1 | `wrap.parentNode` → `wrap.parent` | T23c/T23d/T23f/T23j/T23r（`wraps=1`、`removed=[]`） |
+| M2 | 删掉 toggle 分支 | T23c/T23e（`wraps=1 open=true`、`win=1/1/1` 监听不归零） |
+| M3 | 关掉兜底清理 | T23q/T23r（`wraps=2`） |
+| M4 | 删掉 `window scroll` 监听 | T23h/T23i/T23j（`top` 停在 `30px`） |
+| M5 | 颜色读数退回 `fmtValue` | T23k/T23m（满精度串、读数 `1 0.533333 0`） |
+| M6 | 删掉 `setOpen` 里的 `closePicker()` | T23o/T23p（`before=1 after=1`、`doc.mousedown=1`） |
+
+### P-124.6 测试台（`:8901`，`demo/bench-patch.js`）同一份移植版的对照 —— **本轮不改，只报告**
+
+`grep -n` 实测（行号为当前工作树）：
+- **不叠加（这份做得对，可作对照）**：`demo/bench-patch.js:2717-2721` 的 `closePicker()` 用标准
+  `pickerEl.remove()` 摘节点，且 `openColorPicker` 第一行就 `closePicker()` ⇒ 不会像我们那份越点越多。
+- **④"再点一次不关"在**：`demo/bench-patch.js:2771` `onDocDown` 里 `e.target !== anchor` 早退 +
+  `:2790-2793` 色块 `click` 无条件 `openColorPicker` ⇒ 同一个色块再点只是把浮窗**原样重开**（不叠加、但也不关闭）。
+  建议照 P-124.3 第 3 条加 toggle。
+- **⑥(a) 在**：`:2746-2749` 位置只算一次；全文件 `addEventListener('scroll'` 只命中 `:2569` 的目录列表 ⇒
+  取色浮窗不跟随（`#props-body` 是 `overflow-y:auto`、`.bench-picker` 是 `position:fixed`）。
+  建议照第 4 条加 `window` capture `scroll` + 成对解绑。
+- **⑥(b) 在**：`demo/bench-patch.js` 里没有任何 `#props-close` 钩子（`grep -n "props-close"` 只命中 `:1607` 的
+  `BACKEND_ONLY_CONTROLS` 名单）；面板收起由**预构建产物** `demo/assets/bench-DSKWIqmS.js`（单行压缩，第 210 行）
+  的 `l("#props-close").onclick=()=>{ue(!1)}` → `Le.hidden=!0` 处理 ⇒ 浮窗留着。建议照第 5 条在收起路径上 close。
+- **⑤ 在产物里、视觉被 ellipsis 挡住**：测试台颜色行的读数不是 `demo/bench-patch.js` 渲染的，而是同一个预构建产物的
+  `case"color":{…const i=document.createElement("span");i.className="prop-key",i.textContent=String(h??"")…}`；
+  满精度串仍在 DOM 里，只是 `.prop-key{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}` 把它省略号截断
+  ⇒ 视觉上没我们这份严重（真机仍可 hover 到 title？不可 —— 该 span 没有 title）。**产物不属本轮路径**，只登记。
+
+### P-124.7 未证实项（**不许当已解决**）+ 需要真浏览器验证的清单
+
+1. **本机不能起浏览器**（无 X11/无 GPU）⇒ 全部判据是"假 DOM + 真源码切片 + 静态断言"。真浏览器里要人眼确认的是：
+   ① 同一个色块点两次浮窗消失、屏幕里始终只有一层阴影；② 面板里上下滚动时浮窗跟着色块走（不抖、不跳）；
+   ③ ⚙ 属性收起后浮窗消失；④ 颜色行读数显示 `0.529 0.463 0.831` 且行尾不再被撑长。
+2. `window` 上 `scroll` 的 **capture** 监听能否收到 `#mpw-props-panel`（`overflow-y:auto`）**内部**滚动：
+   依据是 DOM 规范的捕获路径（scroll 不冒泡但经过 window），**未真机验证**。兜底：即便收不到，点外部/Esc/
+   面板收起三条关闭路径仍在，浮窗不会永久悬空（只是不跟随）。
+3. `display:none` 元素的 `getBoundingClientRect()` 返回全 0（⑥(b) 兜底判据）—— 规范如此，未真机验证；主路径是
+   `setOpen` 里的显式 `closePicker()`。
+4. 锚点被**滚出可视区**时，跟随会把浮窗移到屏幕外（本实现**不做**"滚出即隐藏"）—— 有意的取舍（跟随优先），真机手感待验。
+5. 跟随频率 = 每个 `scroll` 事件一次重排（`st()` 写两个内联样式，无读-写回环）⇒ 理论上是 O(1)/事件；**没有**做
+   rAF 节流，真机上长列表快速滚动的实际帧率未测（本机禁止跑浏览器）。
+
+### P-124.8 本轮改动的文件清单（提交只含这些）
+
+| 文件 | 说明 |
+|---|---|
+| `demo.html` | **本体**：`API.fmtColorReadout` + `PICKER.anchor`/`API.pickerAnchor` + 开前兜底清理 + toggle + `place/onScroll`（window capture scroll 跟随 + 不可见即关）+ `cleanup` 改 `parentNode` 并解绑 scroll + `setOpen(false)` 关浮窗 + 颜色读数 3 位小数 |
+| `tests/props-panel-test.mjs` | 假 DOM 加 `strictDom`（不提供非标准 `parent` —— 这条真机 bug 当年就是被它假绿的）+ T23 共 16 条判据（T23a–T23r，含计数桩/监听归零/emit 不变/兜底网） |
+| `docs/PATCHES.md` | 本节 P-124（P-122/P-123 是并行线占号，故用 P-124；写入前 `grep -n '^## P-12'` 确认未占用） |
+| **未改**：`web/diag-flags.json` | 它是 `tests/diag-flag-check.mjs` 的生成物（`JSON_OUT`）；`node tests/docs-check.mjs` 会连带跑它，本轮因 `demo.html` 行号位移**自动重写**（`generatedAt` + `sites[].line`）⇒ 工作树多一条 ` M web/diag-flags.json`。按"只提交自己路径"未进本次提交（仓库既有惯例：生成物单独一次提交，见 `f9983cd`/`f86f911`），**留给集成线** |
+| **未改**：`tests/run-all-tests.sh` | 第 130 行注释里写死的"106 断言"已过期（本轮后 278）。已确认没有脚本校验这个计数（不是门禁红项）；登记待办：把该行 `106 断言` 改成 `278 断言` |
+| **未改**：`demo/bench-patch.js`、`demo/assets/bench-*` | 另有并行线在改；本节 P-124.6 只给清单与对照做法 |
