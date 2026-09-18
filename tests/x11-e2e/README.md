@@ -27,6 +27,7 @@
 
 | 脚本 | 断言 | 耗时（本机） |
 |---|---|---|
+| `bench-click-test.mjs` | **真 X11 点击**测统一测试台（`:8902`）：①目标在视口内且 `elementFromPoint` 命中它自己（**未被遮挡**）；②真点击壁纸标签 ⇒ 换壁纸（活动标签/iframe `src` 变了、日志出现 `mountScene`/`pkg body`）；③`Mouse trail` 默认**被门控**（`disabled + data-gated`，提示先开 `Pointer inject`）⇒ 勾上注入后解锁、可翻转、再点回原状；④舞台区桌面像素真的变了；⑤整轮 0 pageerror | ~2 min（**22 断言**） |
 | `pointer-live-test.mjs` | **指针链路真机对拍**：①X11 真事件到达画布；②鼠标下移 ⇒ 画布 `cy` 增大、上移 ⇒ 减小（**垂直反了就会红**）；③移到画布最远端仍收得到；④移出窗口有 leave/out 或边界如实记录 | ~1.5 min（含起浏览器 + 5 张截图） |
 | `cua.mjs` | 底座（不是测试）：`shot()` / `pointerTo()` / `pointerGlide()` / `pointerNow()` + 一个**最小 MCP 客户端**（给 `computer-use-linux` 用，本机跑不起来但代码留在位） | — |
 | `analyze.py` | 像素取证：`info` / `count`（亮度阈值计数）/ `centroid`（亮斑质心）/ `mask`（**颜色规则**计数+质心：warm/pinkish/redish/bright/notblue）/ `diff`（两图差异数、变化质心、包围盒）/ `profile`（沿轴直方图，找竖条纹/缝隙用） | 每张 ~0.3–2 s |
@@ -97,3 +98,13 @@ ldd (Ubuntu GLIBC 2.35-0ubuntu3.13) 2.35
    反相区会出现负相关），但要先确认是哪个包、时间轴怎么对齐；`analyze.py` 目前只到"亮度/差异/直方图"。
 3. **眨眼/动画细节**：1 fps 抓不到，需要真机或"逐帧喂时间"的离线渲染（`elysia` 侧可注入 `time`，那是另一条线）。
 4. 只跑过 `:8899` 的渲染器页；`demo/index.html`（测试台）与 `:8902` 统一台还没接进来。
+
+## 6. 真机点击这条线顺手挖出来的两件事（都不是测试自身的问题）
+
+1. **测试台 `:8902` 的 `Mouse trail` 不是"点不动"，是"故意门控"**：`#trail-box` 默认
+   `disabled` + `data-gated` + `title="Enable “Pointer injection” first"`；必须先勾 `Pointer inject`
+   （`#pointer-push`）它才解锁，之后才可勾选；关掉注入它立刻回到置灰。测试把这条**行为契约**钉成了断言
+   （点两次回到原状，防止"点几次能重复打开"那类 bug）。
+   —— 这也是排查"用户说鼠标尾迹没反应"时必须先问的一句：**注入开关开了没有**。
+2. **真点击会被"忙"吞掉一次**：紧跟 62 MB 包挂载之后的第一次真点击（事件到了）状态没变，重试一次即生效。
+   所以本目录的点击一律走 `clickUntil()`：**点后轮询到状态真变**为止，轮询超时才判失败——不 sleep 一下就当成功。
