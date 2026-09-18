@@ -10994,6 +10994,24 @@ p74-particles / mock-gl / effects-degenerate-fbo / script-runtime-errors / diag-
 - **测试自身的三条教训**（都写进代码注释）：①首次真点击会被"忙"吞掉 ⇒ 一律"点后轮询 + 重试"；
   ②`xdotool mousemove --sync` 偶发失败 ⇒ 降级到普通 warp 并读回位置；③面板控件可能在可视区外 ⇒ 点前先 `scrollIntoView`。
 
+### P-143.5 第 6 项收尾：**测试台那 6 个下拉也换掉**（用户「能一起换，那就全都一起换掉」）
+
+- **落点**：`demo/bench-patch.js`（测试台唯一运行期补丁层；它已经在管工具条与属性面板的 DOM）——
+  顶层 `import { enhanceSelect } from './mpw-select.js'`（**与 8899 同一个实现**），并导出三个可测入口：
+  `BENCH_SELECT_IDS = ['lang','resolution','fit','dpr','fps','fx']`、`enhanceBenchSelects(doc)`、`watchBenchPropsSelects(doc)`、
+  `scheduleBenchSelects(doc, delays)`；`init()` 里调一次 + 错开 300/1200/3000ms 补跑（工具条的 `<option>` 是**上游 bundle
+  在运行期填**的：module 执行那一刻还没有选项，自绘按钮会显示"（空）"）。
+- **`enhanceSelect()` 加幂等**（本批新增的硬保证）：同一个 `<select>` 已有"活着的"控件 ⇒ 直接返回旧句柄，
+  **不再造第二个**；句柄挂在 `selectEl.__mpwSelectHandle` 上（`destroy()` 会摘掉）。这条是"点几次重复打开/叠节点"那类 bug 的**结构性防线**。
+- **踩到的坑（已写进注释）**：第一版自愈判据用 `nextElementSibling` 是不是 `.mpw_select` ⇒ 别的节点插进来就误判 ⇒
+  越补越多（实测 15 个 `.mpw_select` / 6 个原生 select，S9b 点不开）。改成"句柄还活着 + 顺手清掉重复的同级控件"后回到 6 个。
+- **真机判据**（`tests/x11-e2e/bench-click-test.mjs` 新增 S9，实测 **25 断言 / 0 失败**）：
+  S9a 6 个原生下拉**全部**被换成自绘且原生全隐藏、样式注入；S9b 真点击工具条下拉 ⇒ 恰好 1 个列表展开（`items=3~4`、`data-flip` 有值）；
+  S9c 再点即关。顺带把 B2（真点击壁纸标签换壁纸）加固成"先等库载入 + 点后轮询 + 重试一次"——
+  它先前的假红正是"库还没进来就点"。
+- **8901 不需要同步**：`references/vendor-ref/ww-pages/` 里的 `WEwebLoader` 与 `wallpaper-engine-webgl` **都是指向
+  `<仓库>/we-scene-demo/demo` 的软链** ⇒ 本仓 `demo/` 一改，`:8901` 立刻就是新的（用户第 4 项说的那个面因此自动生效）。
+
 ### P-143.4 未证实 / 待办
 
 1. P-143.0 的 `/core/**` 路由**只放行三种扩展名（mjs、js、json）** 且拒 `..`；Pages 侧靠 `PAGES_KEEP_DIRS` 保留整目录（发布面变大，已在 MUST 里点三个文件名）。

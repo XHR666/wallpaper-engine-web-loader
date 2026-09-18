@@ -393,6 +393,10 @@ add "core-module-wiring"  "node tests/core-module-wiring-test.mjs"
 #   自动上下翻转的边界（往下够/只够往上/两边都紧/空列表）、键盘索引、单开注册表、再点即关、
 #   监听器配对装卸（无常驻监听）、CSS 全在 `.mpw_select` 子树且零自定义属性、RED-IF-REVERTED。
 add "mpw-select"         "node tests/mpw-select-test.mjs"
+# ①(P-142 2026-09-19 主对话补登记) `p142-nav-sound`：用户第 4/5/6 项（资源管理器**收纳键** + 声音控件挂进
+#   "壁纸配置"下半部 + **video 声音接入**）—— 92 断言（静态 28 / 假 DOM 44 / 读数 1 / 变异 19），
+#   9 条变异全部变红；含"收起/展开各遮挡多少属性项 + 两态都滚得到（unreachable=0）"的实测数字。~1.1s，无浏览器。
+add "p142-nav-sound"     "node tests/p142-nav-sound-test.mjs"
 # ①(P-143 主对话) `select-live`：自绘下拉（用户第 6 项）的**真机门禁** —— 同时是渲染器页的**真机冒烟**
 #   （S0：module 启动 + 场景装载成功 + 真出帧；2026-09-19 的 `objById` 作用域 P0 就是"页面白屏而 Node 门禁全绿"）。
 #   S1～S7：真 X11 点击开/再点关/点选项写值派发 change/点空白关/键盘选/`data-flip` 与实测空间一致。

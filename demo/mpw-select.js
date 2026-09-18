@@ -76,6 +76,11 @@ let openRoot = null
  * @returns {{destroy:()=>void, refresh:()=>void, open:()=>void, close:()=>void, root:Element, isOpen:()=>boolean}}
  */
 export function enhanceSelect(selectEl, opt = {}) {
+  //  ①**幂等**：同一个 `<select>` 已经有一个"活着的"自绘控件 ⇒ 直接返回它。
+  //    调用方（宿主页面可能多处调用/多次重渲染）不需要自己记账；重复调用不会造出第二个控件
+  //    —— 这正是"点几次重复打开/叠几个节点"那类 bug 的结构性防线。
+  const prev = selectEl && selectEl.__mpwSelectHandle
+  if (prev && prev.root && prev.root.isConnected) return prev
   const doc = opt.doc || selectEl.ownerDocument
   const win = opt.win || doc.defaultView || globalThis
   ensureStyle(doc)
@@ -232,7 +237,7 @@ export function enhanceSelect(selectEl, opt = {}) {
   if (mo) mo.observe(selectEl, { childList: true, subtree: true, attributes: true })
   paintButton()
 
-  return {
+  const handle = {
     root, isOpen, open, close,
     refresh: () => { if (list) { close(false); open() } else paintButton() },
     destroy: () => {
@@ -245,8 +250,12 @@ export function enhanceSelect(selectEl, opt = {}) {
       selectEl.hidden = false
       selectEl.removeAttribute('tabindex')
       selectEl.removeAttribute('aria-hidden')
+      selectEl.removeAttribute('data-mpw-select-native')
+      try { delete selectEl.__mpwSelectHandle } catch (e) { selectEl.__mpwSelectHandle = null }
     },
   }
+  selectEl.__mpwSelectHandle = handle
+  return handle
 }
 
 /**

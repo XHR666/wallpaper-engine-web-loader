@@ -122,6 +122,9 @@ try {
   console.log('初始 iframe src: ' + src0)
 
   // ── B2：真点击一个**壁纸标签**换壁纸（`BUTTON.wp-tab`；实测 1280 宽时它们在视口外） ──
+  //  ①先等**库真的载入**（`button.wp-tab` ≥2）：库没进来时标签根本不存在，点击自然"没反应" ——
+  //    这是本轮实测到的假红来源（active -1 → -1、src 不变），不是产品问题。
+  try { await page.waitForFunction(() => document.querySelectorAll('button.wp-tab').length >= 2, null, { timeout: 30000 }) } catch { /* 下面按实际条数判 */ }
   const tabs = await page.evaluate(() => [...document.querySelectorAll('button.wp-tab')]
     .map((el, i) => { const r = el.getBoundingClientRect(); return { i, text: (el.textContent || '').trim().slice(0, 30), x: Math.round(r.x), w: Math.round(r.width) } }))
   console.log(`壁纸标签 ${tabs.length} 个，前 3 个 x=${tabs.slice(0, 3).map((t) => t.x).join(',')}`)
@@ -129,7 +132,7 @@ try {
     const idx = tabs.length > 1 ? 1 : 0
     //  ①换壁纸是**异步**的（实测 2.5s 时还没换、3.5s 才换）⇒ 轮询到"活动标签变了 **或** src 变了"为止，别 sleep 一下就读。
     const activeBefore = await page.evaluate(() => [...document.querySelectorAll('button.wp-tab')].findIndex((el) => /active|on\b/.test(el.className)))
-    const r2 = await clickReal('button.wp-tab', { nth: idx, label: `壁纸标签[${idx}] "${tabs[idx].text}"`, settleMs: 800 })
+    let r2 = await clickReal('button.wp-tab', { nth: idx, label: `壁纸标签[${idx}] "${tabs[idx].text}"`, settleMs: 800 })
     const waitSwap = async (timeoutMs = 20000) => {
       const t0 = Date.now()
       for (;;) {
@@ -143,7 +146,12 @@ try {
         await cua.sleep(1000)
       }
     }
-    const st1 = await waitSwap()
+    let st1 = await waitSwap(12000)
+    if (st1.src === src0 && (activeBefore < 0 || st1.active === activeBefore)) {
+      notes.push('壁纸标签：第 1 次点击后没换（库刚载入/主线程忙）⇒ 重试一次')
+      r2 = await clickReal('button.wp-tab', { nth: idx, label: `壁纸标签[${idx}]（重试）`, settleMs: 1000 })
+      st1 = await waitSwap(15000)
+    }
     await shot('01-after-tab-click')
     const src1 = st1.src
     const log1 = st1.log
@@ -203,6 +211,62 @@ try {
       }
       notes.push('已把 `Pointer inject` 点回原状，测试台状态尽量还原')
     }
+  }
+
+  // ── S9（①用户第 6 项）：工具条那 6 个原生下拉已换成自绘下拉，且**真点击**能开、再点能关 ──────
+  const selInfo = await page.evaluate(() => {
+    const ids = ['lang', 'resolution', 'fit', 'dpr', 'fps', 'fx']
+    const nat = ids.map((i) => document.getElementById(i)).filter(Boolean)
+    return {
+      ids,
+      roots: document.querySelectorAll('.mpw_select').length,
+      nativeTotal: nat.length,
+      nativeHidden: nat.filter((s) => s.hidden).length,
+      styleInjected: !!document.getElementById('mpw-select-style'),
+      labels: [...document.querySelectorAll('.mpw_select .mpw_select_label')].slice(0, 6).map((e) => e.textContent),
+    }
+  })
+  console.log('工具条下拉自检: ' + JSON.stringify(selInfo))
+  ok(selInfo.roots >= 5 && selInfo.nativeHidden === selInfo.nativeTotal && selInfo.styleInjected,
+    'S9a 工具条 5+ 个原生 `<select>` 已换成自绘下拉（原生全部隐藏、样式注入）',
+    `自绘=${selInfo.roots} native=${selInfo.nativeHidden}/${selInfo.nativeTotal} 样式=${selInfo.styleInjected}`)
+  const openSel = async (idx) => {
+    const hit = await page.evaluate((idx) => {
+      const el = [...document.querySelectorAll('.mpw_select')][idx]
+      if (!el) return null
+      if (el.scrollIntoView) el.scrollIntoView({ block: 'center', inline: 'nearest' })
+      const btn = el.querySelector('.mpw_select_btn')
+      const r = btn.getBoundingClientRect()
+      const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2)
+      const at = document.elementFromPoint(x, y)
+      return { x, y, self: !!(at && (at === btn || btn.contains(at))), hit: at ? (at.className || at.tagName) : null }
+    }, idx)
+    if (!hit) return { ok: false }
+    if (!hit.self) { notes.push(`工具条下拉[${idx}] 被遮挡（命中 ${hit.hit}）`); return { ok: false } }
+    cua.pointerGlide(ox + hit.x, oy + hit.y, { steps: 4, dwellMs: 60 })
+    await cua.sleep(180)
+    cua.run('xdotool', ['click', '1'])
+    await cua.sleep(700)
+    return { ok: true }
+  }
+  const selState = () => page.evaluate(() => {
+    const lists = [...document.querySelectorAll('.mpw_select_list')]
+    const els = [...document.querySelectorAll('.mpw_select')]
+    return { n: lists.length, flip: lists[0] ? lists[0].getAttribute('data-flip') : null, openIdx: els.findIndex((e) => e.hasAttribute('data-open')), items: lists[0] ? lists[0].children.length : 0 }
+  })
+  let s9ok = false
+  for (let i = 0; i < Math.min(3, selInfo.roots); i++) {
+    const o = await openSel(i)
+    const st = await selState()
+    if (o.ok && st.n === 1) { s9ok = true; ok(true, `S9b 真点击工具条下拉[${i}] ⇒ 恰好 1 个列表展开`, `items=${st.items} flip=${st.flip} openIdx=${st.openIdx}`); break }
+  }
+  if (!s9ok) ok(false, 'S9b 真点击工具条下拉 ⇒ 列表展开', '前 3 个都没打开')
+  if (s9ok) {
+    await shot('03-select-open')
+    const idx = (await selState()).openIdx
+    const o2 = await openSel(idx)
+    const st2 = await selState()
+    ok(o2.ok && st2.n === 0, 'S9c **再点即关**（不是又开一个）', `list=${st2.n}`)
   }
 
   // ── B4：像素面（桌面截图）；顺带记录 pageerror ────────────────────────────────
