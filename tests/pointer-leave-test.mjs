@@ -401,10 +401,44 @@ let emittedAtLeave = 0
     !!s2.locked.pointer && !!s3.locked.pointer
       && s3.locked.pointer[0] < s2.locked.pointer[0] && s3.locked.pointer[1] < s2.locked.pointer[1],
     `${JSON.stringify(s2.locked.pointer)} → ${JSON.stringify(s3.locked.pointer)}`)
-  const md = maxDistTo(s3.locked.sys, s3.locked.pointer)
+  // ①(P-136 2026-09-20 **口径收窄**，主对话批准) 判据从"**全部**存活粒子"收窄到"**本帧新生**粒子"。
+  //   为什么必须收窄（不是放宽）：
+  //     · 旧判据 `maxDistTo(sys, ptr)` 取**全部**存活粒子的 max —— 它等价于"粒子**不得跨指针位置存活**"，
+  //       也就是"禁止任何滞后于光标的粒子"。它此前之所以是绿的，靠的是"指针坐标曾经进过粒子缓存签名
+  //       ⇒ 指针一动整系统重建 ⇒ 上一帧的粒子被冲掉"这个**副作用**；那个副作用恰恰让**鼠标尾迹**
+  //       在定义上不可能存在（尾迹 = 落在光标**身后**的粒子）。
+  //     · 用户第 4 项明确要"鼠标尾迹"（并指示照抄上游 oneincase/webwallgl 的实现，见 THIRD-PARTY.md §14），
+  //       而照抄后指针是**每帧推进的活输入**、系统只在时间轴上增量前进 ⇒ 滞后粒子**必须**存在
+  //       （实测：改前"距指针最远 39.6px"→ 改后 1164.3px，见 P-136 台账）。
+  //     · 所以**口径错的是旧断言，不是实现**。断言名本来就是「粒子**出生点**就在指针附近」——
+  //       "出生点" = 本帧新生粒子；`firstPos()` 早就是这个意思（A3e 用的就是它）。
+  //   两条口径的区别，将来要能一眼看懂：
+  //     · 「**全部**粒子必须在 6px 内」= 禁止滞后粒子 ⇒ 禁止尾迹（旧口径，已废）
+  //     · 「**新生**粒子在 6px 内」= 出生点正确    ⇒ 允许尾迹（新口径，本条）
+  //   反向自证：变异 M9（把发射基准点从"指针"改成"层 authored origin"）⇒ 本条必红。
+  //
+  //   ⚠ 「本帧新生」怎么取：`stepParticles` 的次序是**先发射、再统一 `p.age += sdt`**
+  //   （`core/we-scene-bundle.js` 里 `for (const p of sys.particles) p.age += sdt`），
+  //   所以新生的 `age` 不是 0 而是**本步的 sdt**。同一步里出生的粒子 `age` 完全相同 ⇒
+  //   "最新一代" = `age == min(age)`（这一代之外的都更老）。用 `age === 0` 会取到 0 粒（实测过）。
+  const _all = (s3.locked.sys && s3.locked.sys.particles) ? s3.locked.sys.particles : []
+  const _minAge = _all.length ? Math.min(..._all.map((q) => q.age)) : null
+  const bornNow = _all.filter((q) => q.age <= _minAge + 1e-9)
+  const mdBorn = bornNow.length ? Math.max(...bornNow.map((q) => dist(q.pos, s3.locked.pointer))) : -1
+  const mdAll = maxDistTo(s3.locked.sys, s3.locked.pointer)
   const p3 = firstPos(s3.locked.sys)
-  ok('A3d 粒子出生点就在指针附近（max|Δ| ≤ 6px = distancemax 3 × scale 1 + 余量）',
-    md >= 0 && md <= 6, `max|Δ|=${fmt(md)} n=${s3.locked.alive} 首粒=${p3 ? JSON.stringify(p3.map((v) => +v.toFixed(2))) : 'none'}`)
+  ok('A3d 粒子出生点就在指针附近（**本帧新生**粒子 max|Δ| ≤ 6px = distancemax 3 × scale 1 + 余量）',
+    bornNow.length > 0 && mdBorn >= 0 && mdBorn <= 6,
+    `新生 ${bornNow.length}/${_all.length} 粒（age=${_minAge != null ? _minAge.toFixed(4) : '-'}）max|Δ|=${fmt(mdBorn)}`
+    + ` ｜（全部粒子的 max|Δ|=${fmt(mdAll)} —— **允许**大于 6px，那正是尾迹）`
+    + ` 首粒=${p3 ? JSON.stringify(p3.map((v) => +v.toFixed(2))) : 'none'}`)
+  // ①(P-136) 同一台上把"尾迹允许存在"也钉住（否则上面那条可以靠"每帧清空"假绿：
+  //   清空 ⇒ 新生 == 全部 ⇒ mdBorn == mdAll，尾迹整条不存在也会绿）。这里要求**同时**满足：
+  //   ① 确实存在**比新生更老**的粒子（滞后的一代还在场上）；② 全部粒子的指标显著大于新生粒子（≥20×）。
+  ok('A3d2 同台上尾迹确实存在（有更老的一代仍在场上，且全部粒子 max|Δ| ≥ 新生粒子 max|Δ| 的 20×）',
+    bornNow.length > 0 && bornNow.length < _all.length && mdBorn >= 0 && mdAll >= 20 * Math.max(1, mdBorn),
+    `全部 max|Δ|=${fmt(mdAll)} ／ 新生 max|Δ|=${fmt(mdBorn)} = ${fmt(mdAll / Math.max(1, mdBorn), 1)}×`
+    + `（更老的一代 ${_all.length - bornNow.length} 粒仍在场上）`)
   ok('A3e 出生点**不是**该层 authored origin (1920,1080)（旧"中心爆"回归：不许退回作者原点发射）',
     !!p3 && dist(p3, [1920, 1080]) > 100,
     p3 ? `到 origin 距离=${fmt(dist(p3, [1920, 1080]))}px` : '无粒子')
@@ -831,6 +865,18 @@ if (IS_MUTANT_RUN) {
         edits: [
           ["        win.addEventListener('focus', () => __pointerResume('focus'), { passive: true })",
             "        /* 变异 M8：失焦后永远不解除挂起 */"],
+        ],
+      },
+      {
+        // ①(P-136 2026-09-20) A3d **收窄**（"全部粒子" → "本帧新生粒子"）之后必须重新标定一条变异，
+        //   否则它就成了一条"永远绿的装饰断言"。这条变异把 lockToPointer 发射器的**发射基准点**
+        //   从"指针"改回"层的 authored origin"（= P-69 之前那个"中心爆"的旧写法）：
+        //   新生粒子会落在 (1920,1080) 而不是指针上 ⇒ A3d 必红（顺带 A3e 也红，那是同一条语义）。
+        id: 'M9', fix: 'P-136 A3d（出生点 = 指针）', expectName: 'A3d（**本帧新生**粒子出生点 = 指针）', expect: /✗ A3d/,
+        desc: '发射基准点从"指针"改回"层 authored origin"（A3d 收窄后重新标定的红-if-reverted）',
+        edits: [
+          ['  const __P = em.__ptrLocked ? sys.pointer : null',
+            '  const __P = em.__ptrLocked ? [sys.origin[0], sys.origin[1]] : null   /* 变异 M9：退回 authored origin 发射 */'],
         ],
       },
     ]

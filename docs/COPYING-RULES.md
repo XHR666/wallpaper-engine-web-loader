@@ -94,6 +94,8 @@
 
 | 11 | `lucide-icons/lucide` v0.545.0 | `icons/*.svg` 的 path 数据（folder/file/house/arrow-up/search/check/x，**内联进 `demo/bench-patch.js` 的 SVG 工厂**，非引入图标包） | v0.545.0 | ISC（部分 path 源自 Feather，MIT） | 2026-09-16 | 测试台补丁（用户第 8 批） | we-scene-demo（`demo/` 产物随页分发） | 已署名（`THIRD-PARTY.md` Lucide 条目 + `demo/LICENSE-lucide-ISC.txt` 随页分发；零外部依赖，不走 CDN） |
 
+| 12 | `oneincase/webwallgl` | `renderer/vendor/we-scene/render/pointer.js:1-320`（**整文件逐字节**）、`renderer/vendor/we-scene/render/particles.js` 的 `:663-672`/`:686-697`/`:830-851`/`:1010-1024`/`:1154-1163`、`renderer/src/scene-mount.ts` 的 `:655-676`/`:1670-1676`（**照抄**，非按规格重写） | `b61e8910ae0a176288aed99ce9a93a13ea07df57`（`pointer.js` blob `c3ddfe91372c7006123ed6f374443625516bc322` 在 `fdfc578` 上相同；`particles.js`/`scene-mount.ts` 两版本不同 ⇒ 行号以 `b61e891` 为准） | MIT | 2026-09-20 | 渲染器侧（P-136，**用户直接指示**："你直接把 oneincase 跟鼠标尾迹有关的代码，你看看直接复制过来就算了"） | we-scene-demo | **已署名**：`THIRD-PARTY.md` §14（含"这份代码是照抄而非独立实现"的显式声明、逐 `file:line` 落点表、逐行「照抄/适配」对照表 A-1/B-1/B-2/C-1/D-1/E-1、改前/改后数字表）；落点 `core/we-pointer-source.mjs`（新，整文件逐字节）、`core/we-particle-pointer.mjs`（新）、`core/we-scene-bundle.js`（接线）。**纪律变更**：本节是继 §6（FXAA shader）/§9（HLSL→GLSL 翻译器）之后的**第三处逐字例外**，且首次由"只引行为结论"改为"允许复制" —— 变更依据与边界见 §14.1/§14.2；`packages/we-core/` **未**放入任何上游代码。门禁 `tests/pointer-trail-copy-test.mjs`（44 断言，含 RED-IF-REVERTED） |
+
 新增条目要求：**commit/tag 必填**（拿不到就写"未提交/工作区"并说明）、**SPDX 必填**、
 **日期与引入人必填**；进渲染器的 GPL-3.0 条目还要在 `THIRD-PARTY.md` 附许可全文与文件清单。
 

@@ -905,3 +905,90 @@ verbatim in `demo/LICENSE-lucide-ISC.txt` (ISC requires the copyright notice and
 appear in all copies). Per-icon provenance table: `docs/ICONS-NEEDED.md`.
 **Nothing else from Lucide is used**: no import, no dependency entry, no external stylesheet and no icon
 font — the inline geometry is the only surface.
+
+---
+
+## 14. webwallgl  (MIT © oneincase) — **P-136: 鼠标尾迹按用户指令照抄上游**
+
+  Upstream:  https://github.com/oneincase/webwallgl
+  Licence:   MIT
+  Copyright: Copyright (c) 2026 oneincase <462534624@qq.com>
+  Commit:    `b61e8910ae0a176288aed99ce9a93a13ea07df57` —— 本机 checkout 的 HEAD，**本节所有
+             `file:line` 都以它为准**（`particles.js` 5597fec4→c541f72f、
+             `scene-mount.ts` b3421a9f→af823024 在 `fdfc578`→`b61e891` 之间都改过，
+             行号**不可**跨版本引用）。
+             其中 `renderer/vendor/we-scene/render/pointer.js` 的 blob 在 `fdfc578a577d0e680a9cfe2cf2e3e825d3cd2372`
+             （1.3.23）与 `b61e891` 上**相同**（`c3ddfe91372c7006123ed6f374443625516bc322`）
+             ⇒ §14.2 第 1 行的整文件照抄对两个版本都成立。
+  SPDX:      MIT
+  Local copy: `demo/LICENSE-webwallgl-MIT.txt`（MIT 全文，随仓库；与 §6.2 逐字相同）
+  Ledger:    `docs/COPYING-RULES.md` §4, entry **#12** (2026-09-20)
+  门禁:      `tests/pointer-trail-copy-test.mjs`（44 断言 + RED-IF-REVERTED）
+
+### 14.1 这一节为什么存在（纪律变更，必须显式记账）
+
+本仓库此前对 webwallgl 的纪律是**只引行为结论、不复制代码**（见 §8 / §10）：
+实现按规格独立书写，引用处以 `file:line` 标注行为来源。§6（FXAA shader）与 §9（HLSL→GLSL 翻译器）
+是两处既有的、**逐字**的例外，且都只涉及单个不依赖运行时状态的单元。
+
+**P-136 改变了这条纪律**，依据是用户的直接指示（逐字）：
+
+> 「你直接把 oneincase 跟鼠标尾迹有关的代码，你看看直接复制过来就算了 ——
+> 你给的这几张图片看不到实质性的内容」
+
+即：用户要的是**照抄上游与鼠标尾迹相关的实现**，不是"按行为契约自己重写"。据此本节登记：
+
+> **这份代码是照抄，不是独立实现。** 下列文件里的相应代码块来自上游 oneincase/webwallgl
+> （MIT © 2026 oneincase），**保留上游原有注释**，仅按 §14.3 的对照表做了**机械改写与本地接线**；
+> 凡做了适配的行都在源码注释里逐行标出，没有一处是"照行为重写"。
+
+### 14.2 复制了哪些文件 / 函数、行号范围，落到哪里
+
+| # | 上游 `file:line` | 上游单元 | 落到我们的 | 处置 |
+|---|---|---|---|---|
+| 1 | `renderer/vendor/we-scene/render/pointer.js:1-320` | 整文件（`createPointerSource`：u/v 归一、screenX/Y、`wx/wy`、`lastU/V/…` 帧快照、`pushExternal`、`pushExternalLeave`、`beginFrame`、`syncWorld`、`normalizedDelta`、`dispose`） | **新文件** `core/we-pointer-source.mjs` | **逐字节照抄**（文件头加本仓库横幅，正文一个字节未改） |
+| 2 | `renderer/vendor/we-scene/render/particles.js:663-672` | `syncLayerTransform()` 的 originX/Y/Z、scaleX/Y、angleZ | `core/we-particle-pointer.mjs` → `syncLayerTransform()` | 除 **angleZ 的单位**（上游是度、本仓库 scene.json 是弧度，见 §14.3 A-1）外逐字 |
+| 3 | `renderer/vendor/we-scene/render/particles.js:686-697` | `setPointer(worldX, worldY)`（世界 → 局部：减 origin、反旋转、除 scale） | 同上 → `setPointer()` | 逐字（`this.` → `sys.`；落点字段 `this.pointer` → `sys.pointerLocal`，见 §14.3 B-1） |
+| 4 | `renderer/vendor/we-scene/render/particles.js:830-851` | 发射期 `mapAround` 块（绕控制点按 `count` 等分圆轮流投放 + 作者初速） | 同上 → `mapSequenceAroundControlPoint()` | 位置段（830-845）逐字（仅把 `p.x = …` 赋值形改成返回值）；初速段（846-850）**未照抄**，见 §14.3 C-1 |
+| 5 | `renderer/vendor/we-scene/render/particles.js:1010-1024` | `vortex` 块（切向加速 = `(−dy, dx)/dist · speed · dt`，圆心 = `_cpPos`） | 同上 → `vortexSwirl()` | 逐字（仅把 `p.vx += …` 改成返回值）；上游 1019-1020 的音频门控由本仓库算子层的 `audioK` 承担 |
+| 6 | `renderer/vendor/we-scene/render/particles.js:1154-1163` | `_cpPos(id)`（控制点当前位置；`lockToPointer` ⇒ `pointer + cp.offset`，否则 `cp.offset`） | 同上 → `cpPos()` / `cpWorld()` | 逐字（`this.` → `sys.`、`this.controlPoints` → `sys.localControlPoints`） |
+| 7 | `renderer/src/scene-mount.ts:655-676` | 建实例时创建**单一**指针源（`createPointerSource` + `viewport`） | `core/we-scene-bundle.js`（`__ptrSource`） | 接线照抄；`target` 传假对象关掉上游自己的 DOM 监听，理由见 §14.3 D-1 |
+| 8 | `renderer/src/scene-mount.ts:1670-1676` | **每帧**在 `advance()` 前把活指针推进粒子系统（`ps.setPointer(wx, py)`），指针**从不参与**构造 | `core/we-scene-bundle.js`（`pushPointerFrame(sys, __ptrNow)`）+ `core/we-particle-pointer.mjs` → `pushPointerFrame()` | 语义照抄（这一段是"尾迹能不能看见"的成因，见 §14.4） |
+
+**没有复制的东西**（任务纪律：不复制与鼠标尾迹无关的大段）：上游 `particles.js` 的其余约 1400 行
+（shader 装配、rope/ropetrail 几何、材质/贴图、`_step`、其余 40 余个 operator/initializer）、
+`renderer/src/**` 的其余部分（`shell.ts` / `web.ts` / `quality.ts` / `main.ts` 等）、
+`pointer.js` 之外的任何 `renderer/vendor/**` 文件。`packages/we-core/` 下**没有**放入任何上游代码
+（那个包要按 MIT 独立分发，纪律不同 —— 见 §4B）。
+
+### 14.3 逐行「照抄 / 适配」对照表（改了什么必须写在这里）
+
+| 记号 | 位置 | 上游原文 | 我们的写法 | 为什么 |
+|---|---|---|---|---|
+| A-1 | `particles.js:672` | `this.angleZ = ((la[2] \|\| 0) * Math.PI) / 180` | `sys.angleZ = -(la[2] \|\| 0)` | 上游拿到的 `layer.angles` 是**度**；本仓库 `scene.json` 的 `angles` 是**弧度**（①(P-21-ATTACH) 语料实测 π/π/2，bundle 直收、不再 ×π/180）。符号取成与 `spawnParticle` 的 `cos(-angle)` 同一手性 |
+| B-1 | `particles.js:692-695` | `this.pointer = { x: …, y: … }` | `sys.pointerLocal = { … }` | `sys.pointer` 已被 `tests/pointer-leave-test.mjs` 钉成「**世界设计坐标**（y 向下）」；改用上游的局部空间会让 A1b/A2b/A3b/A3c/P4b 五条断言变红。按任务纪律「上游行为与既有断言冲突 ⇒ 先报告、不擅自改断言」，两条语义并存（冲突台账见 P-136） |
+| B-2 | `particles.js:1156/1159` | `this.controlPoints` / `this.pointer` | `sys.localControlPoints` / `sys.pointerLocal` | 同 B-1；`localControlPoints` 是专供照抄单元的上游形状副本（本仓库的 `controlPoints` 是 raw def 数组，别处按作者空间直接读，不能就地改） |
+| C-1 | `particles.js:847` | `const k = Math.random()` | 调用方仍吃系统自己的 `rng()` | 上游这里用**非确定性**的 `Math.random()`，与本仓库"每次渲染可复现、门禁逐位比对两次运行"的要求冲突。**位置投放（830-845）不含随机数，逐字照抄不受影响**；只有"三轴共用同一个随机数"的算式被保留 |
+| D-1 | `pointer.js:199-210` | `createPointerSource` 自行挂 `mousemove/mousedown/mouseup/blur` + `document.mouseleave` | 传 `target: { __noDom: true }`，DOM 监听仍由 bundle 的 `__hookPointer()` 装 | 上游"离开"只清按键、保留位置与 `has`（`pushExternalLeave` 的文档语义）；本仓库 P-118/P-121 钉的是「离开 ⇒ 无指针 ⇒ 停发」，且断言点名要 `pointermove/pointerdown/pointerleave/pointerout` 四个画布监听。两套语义**冲突**，故只取上游源的状态容器与 `syncWorld`/`beginFrame`，不取它的监听策略（冲突台账见 P-136） |
+| E-1 | `particles.js:1010-1024` | `k = clamp((d−inner)/(outer−inner))` | 同一式子（照抄）；本仓库 `?pops=legacy` 分支仍是旧的 wer-ref 口径 `(d−inner)/(outer−inner+0.1)` | 官方档改成上游口径后，`③-c-1` 的容差 0.5 覆盖 0.299 的差（实测 150.00 vs 150.30 px/s²），既有断言不回归 |
+
+### 14.4 照抄之后**数字**变了什么（这就是"为什么现在能看见了"）
+
+上游把指针当**每帧推进的活输入**（§14.2 第 8 行），指针因此**从不进入**粒子系统的构造/缓存签名，
+系统只在时间轴上**增量**前进 —— "光标走过的路径"被留在已存活粒子的坐标里，那就是尾迹。
+
+本仓库此前（P-69 起）把指针坐标写进了粒子缓存签名 `__sig`：指针一动签名就变 ⇒ **每帧**整系统从
+`t=0` 重放，且重放全程只用**当前**这一个坐标 ⇒ 历史被抹平，花瓣永远糊在光标上。真包
+`dd/3554161528` `objects[27]` = id 389 `cherry blossoms on cursor`
+（`particles/workshop/2093672045/Cherry_Blossoms_2.json`）在指针右移 40px/帧 × 30 帧下实测：
+
+| 指标 | 改前（指针进签名） | 改后（照抄上游） | 上游同参对拍 |
+|---|---|---|---|
+| 顶点流世界包围盒 x 跨度 | **67 px** | **1175 px** | 1149 px |
+| 存活粒子距指针最远 | **39.6 px** | **1164.3 px** | 1149 px |
+| 每帧仿真步数 | **400**（全历史重放） | **1** | — |
+| 每帧粒子更新次数 | ≈ **61,000** | **0**（增量） | — |
+| 顶点流 u 跨度（帧 UV） | 1/13 | 1/13（未回归） | — |
+
+数值出处：`tests/pointer-trail-copy-test.mjs`（mock-GL 顶点流 + 上游 `ParticleSystem` 同参对拍）。
+

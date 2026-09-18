@@ -15,6 +15,14 @@ export { bindWorldChain, bindWorldPolar, bindOrderLegacy }
 //   ⇒ 只接"指针口径"这一半；帧宽高比那一半（coverViewport/contentAspectOf）的消费点见
 //   `demo.html`（video 壁纸帧盒）与 `docs/AUDIO-BAND-WIRING.md` §4 的未定清单。
 import { frameClientPoint, frameGeomModeFromQuery } from './web-frame-geometry.mjs'
+// ①(P-136 用户第 4 项：照抄上游 MIT 实现) **鼠标尾迹**指针通路，整块照抄上游
+//   oneincase/webwallgl（MIT © 2026 oneincase）：
+//   · `we-particle-pointer.mjs` ← `renderer/vendor/we-scene/render/particles.js:663-672/686-697/830-851/1010-1024/1154-1163`
+//     + `renderer/src/scene-mount.ts:1670-1676`（粒子侧 `setPointer` / `_cpPos` / 投放 / 涡流 / 每帧推指针）
+//   · `we-pointer-source.mjs`   ← `renderer/vendor/we-scene/render/pointer.js:1-320`（统一指针输入源，整文件逐字）
+//   各文件的来源行号、许可、以及「哪几行做了适配、为什么」写在文件头；登记见 THIRD-PARTY.md §14。
+import { syncLayerTransform, setPointer, cpPos, cpWorld, localToWorld, mapSequenceAroundControlPoint, vortexSwirl, pushPointerFrame } from './we-particle-pointer.mjs'
+import { createPointerSource } from './we-pointer-source.mjs'
 // ①(P-131 批 D 2026-09-19 音频驱动发射) 粒子 `audioprocessing*`（官方编辑器里叫 **Audio response**）
 //   的包络与频段口径在**唯一实现处** `core/audio-band-array.mjs`（纯函数、无 DOM）：
 //   本文件只做接线（把 16 段活视图喂进去 + 按官方语义作用到发射率/相位/速度）。
@@ -1354,6 +1362,10 @@ export function parseScene(sceneJson, project, opts = {}) {
   //   证据：elysia-transform-check 3719111841 = 19/22 层 Δ<5px；移植 A/B 六包 Δ=0。
   //   ?att=legacy（demo）或 opts.attachmentOffsets（外部表）仍可覆盖/回退。
   //   ①(P-110 2026-09-17) attachCtx.bindOrder 下传（`'legacy'` = 父先乘旧链序，只作 A/B）
+  //   ①(P-139 2026-09-19) `actx.time` 允许是**函数**（每帧动画时间取值器）：每层读一次，
+  //     锚点即随动画骨走（官方 `WPNodeTransformResolver` 每帧解析语义）。传数字时逐位等于旧行为
+  //     （同一个 `ctx.time` 字段，只在被动画骨骼上才有差别）。
+  //     为什么需要：时间写死 0 ⇒ 附件层锚点冻在 t=0、父网格逐帧呼吸 ⇒ 相对错位 70.55u（用户第 5 项）。
   let attachOffsets = null
   if (opts && opts.attachCtx && typeof opts.attachCtx.readEntry === 'function') {
     try {
@@ -1361,7 +1373,8 @@ export function parseScene(sceneJson, project, opts = {}) {
       const aopts = {}
       if (actx.fps) aopts.fps = actx.fps
       if (actx.bindOrder) aopts.bindOrder = actx.bindOrder
-      attachOffsets = buildAttachOffsets(objects, actx.readEntry, null, actx.time || 0, (aopts.fps || aopts.bindOrder) ? aopts : null)
+      const attTime = (typeof actx.time === 'function') ? actx.time() : actx.time
+      attachOffsets = buildAttachOffsets(objects, actx.readEntry, null, attTime || 0, (aopts.fps || aopts.bindOrder) ? aopts : null)
     } catch { /* 锚点计算失败 → 无锚点（与 elysia 行为一致） */ }
   }
 
@@ -3348,7 +3361,7 @@ export function buildParticleSystem(def, ctx = {}) {
     }
     return list
   }
-  return {
+  const sys = {
     def,
     origin: ctx.origin || [0, 0, 0],
     scale,
@@ -3408,6 +3421,43 @@ export function buildParticleSystem(def, ctx = {}) {
       return { n, duration: cfg.length > 0 ? cfg.length : 0.2, dt: (cfg.length > 0 ? cfg.length : 0.2) / Math.max(1, n - 1) }
     })(),
   }
+  // ①(P-136 用户第 4 项：照抄上游 MIT 实现) 上游 `particles.js:195-201` 把控制点编译成
+  //   `{id, lockToPointer, offset, x, y, z}`（`locktopointer` 显式 true **或** `flags` bit0）；
+  //   本仓库的 `controlPoints` 是 **raw def 数组**（`{flags, id, offset:"x y z"}`），被别处按
+  //   作者空间直接读（attract 的非指针分支），**不能就地改**。这里另建一份上游形状的
+  //   `localControlPoints` 专供照抄来的 `cpPos`/`cpWorld`。
+  //   数据口径（不改上游算式）：上游局部空间是 **y 向上**，所以它把 authored `offset[1]` 原值存下；
+  //   本仓库模拟/渲染都在 **y 向下**的世界设计坐标 ⇒ 这里把 `offset[1]` 取负存进来，
+  //   `cpPos` 里那行 `pointerLocal.y + cp.offset[1]` 因此逐字可用。
+  sys.localControlPoints = ((def && def.controlpoint) || []).filter(Boolean).map((cp) => {
+    const off = pVec3(cp.offset, [0, 0, 0])
+    return {
+      id: Number(cp.id != null ? cp.id : 0),
+      lockToPointer: !!cp.locktopointer || ((Number(cp.flags) || 0) & 1) !== 0,
+      offset: [off[0], -off[1], off[2]],
+    }
+  })
+  syncLayerTransform(sys, { origin: sys.origin, scale, angles: [0, 0, angle] })
+  sys.pointerLocal = null       // 上游 `particles.js:197`：`this.pointer = null`（无指针 ⇒ 锁指针控制点为 null）
+  return sys
+}
+
+// ①(P-136 用户第 4 项) 照抄上游后，本仓库**消费方**取控制点世界位置的一个入口。
+//   · `__cpWorldLocked(sys, cpIdx)`：`cpIdx` 就是本层那个 lockToPointer 控制点（= 光标）时，
+//     走**照抄来的** `cpWorld`（= 上游 `_cpPos` + 上游 `toWorld` 的复合）⇒ 控制点世界位置 = 光标 + authored offset。
+//   · 否则返回 null，调用方**逐字沿用 P-69/P-133 的既有算法**（非指针控制点不在本次照抄范围内，
+//     动它会改到 149 个语料系统里与"尾迹"无关的那些 —— 见 THIRD-PARTY.md §14.4）。
+function __cpWorldLocked(sys, cpIdx) {
+  const ptrCp = (typeof sys.pointerCp === 'number') ? sys.pointerCp : -1
+  if (ptrCp < 0 || Number(cpIdx) !== ptrCp) return null
+  const P = sys.pointer
+  if (!P) { sys.pointerLocal = null; sys.__ptrLocalKey = null; return null }
+  // ①(P-136) 上游 `setPointer`（照抄）是局部指针的**唯一**写入路径；`sys.pointer` 仍是本仓库
+  //   对外/对门禁的公共字段（世界设计坐标）。这里按坐标指纹做一次幂等同步（每帧每层一次，
+  //   不是每颗粒子一次），保证"直接写 `sys.pointer` 的既有调用方（测试/门禁）"也走照抄来的通路。
+  const key = P[0] + ',' + P[1]
+  if (sys.__ptrLocalKey !== key) { setPointer(sys, P[0], P[1]); sys.__ptrLocalKey = key }
+  return cpWorld(sys, Number(cpIdx))
 }
 
 export function simulateParticleSystem(sys, t, maxSteps) {
@@ -3504,12 +3554,33 @@ export function stepParticles(sys, dt, simT) {
 //   为什么必须有它：`Cherry_Blossoms_2.json`（hina 第 28 层"cherry blossoms on cursor"）**只靠这条**
 //   initializer 给花瓣初速 `0 100 0` 与绕圈分布；不实现 ⇒ 花瓣原地堆在光标上（用户第 ③ 项"缩成一个球"）。
 //   语料 6 份 def 用到它（全部是 workshop/2093672045 的 Cherry_Blossoms_2）。
+//   ①(P-136 用户第 4 项：照抄上游 MIT 实现) 控制点当前位置改为走**照抄来的**上游 `_cpPos`
+//   （`core/we-particle-pointer.mjs` 的 `cpPos`/`cpWorld` ← 上游 `particles.js:1154-1163` + `:1300-1305`），
+//   圆周投放走**照抄来的** `mapSequenceAroundControlPoint`（← 上游 `:830-845`）。
+//   与 P-133 独立实现的差别只有一处且是刻意的：投放半径 `rad` 现在按上游在**局部**空间算、
+//   再经图层 scale 落到世界（P-133 是把 rad 直接当世界像素）。图层 scale=1 时两者逐位相同
+//   （`Cherry_Blossoms_2` 的 scale 是 `1 1 5`，x/y 都是 1 ⇒ 本层零差异）。
 function __mapAroundCtx(sys, em, wx, wy, wz) {
   const cps = sys.controlPoints || []
   let cp = cps.find((c) => Number(c && c.id) === Number(sys.pointerCp))
   if (!cp) cp = cps[0] || null
   let cx = wx, cy = wy, cz = wz
-  if (cp) {
+  // ①(P-136) 锁指针控制点（= 光标）世界位置：照抄来的 `cpPos` + `localToWorld`。
+  //   上游局部空间是 y 向上，本仓库是 y 向下 ⇒ 圆周那一步在上游朝向（y-up）里算，
+  //   结果再翻回 y-down 交 `localToWorld`（两处翻转互为逆，不等于"改了算式"）。
+  const cpLockedWorld = (cp && em.__ptrLocked) ? __cpWorldLocked(sys, sys.pointerCp) : null
+  const placement = cpLockedWorld ? (() => {
+    const lo = cpPos(sys, Number(sys.pointerCp))
+    return (i, count, bounds) => {
+      const aroundYUp = [lo[0], -lo[1], lo[2]]                        // y-down 局部 → 上游朝向（y-up）
+      const r = mapSequenceAroundControlPoint(aroundYUp, i, count, bounds,
+        em.distanceMin ? em.distanceMin[0] : 0, em.distanceMax ? em.distanceMax[0] : 0)
+      return localToWorld(sys, [r[0], -r[1], r[2]])                   // 上游朝向 → y-down 世界
+    }
+  })() : null
+  if (placement) {
+    cx = cpLockedWorld[0]; cy = cpLockedWorld[1]; cz = cpLockedWorld[2]
+  } else if (cp) {
     const off = pVec3(cp.offset || cp.origin, [0, 0, 0])
     if (em.__ptrLocked) {
       // 锁指针的控制点：当前位置 = 指针（`sys.pointer`）、加 authored offset（层空间 ⇒ y 取反进世界）
@@ -3525,7 +3596,7 @@ function __mapAroundCtx(sys, em, wx, wy, wz) {
   }
   const rmin = em.distanceMin ? em.distanceMin[0] : 0
   const rmax = em.distanceMax ? em.distanceMax[0] : 0
-  return { cx, cy, cz, radius: (rmax > 0 ? rmax : rmin) || 0,
+  return { cx, cy, cz, radius: (rmax > 0 ? rmax : rmin) || 0, placement,
     originX0: sys.origin[0], originY0: sys.origin[1],
     nextIndex: () => (sys.__mapAroundSeq = (sys.__mapAroundSeq || 0) + 1) - 1 }
 }
@@ -3737,10 +3808,17 @@ export function applyInitializer(p, init, rng, vyLegacy, expLegacy, pcolorLegacy
       const tt = bounds[0] + (bounds[1] - bounds[0]) * u
       const ang = tt * Math.PI * 2
       const rad = ctx.radius || 0
-      // 位置 = 控制点 + 圆周点（**替换**发射器偏移；作者空间 y-up ⇒ 世界 y 取反）
-      p.pos[0] = ctx.cx + Math.cos(ang) * rad
-      p.pos[1] = ctx.cy - Math.sin(ang) * rad
-      p.pos[2] = ctx.cz
+      // ①(P-136 用户第 4 项) 锁指针 + authored 控制点存在时，位置由**照抄来的**上游
+      //   `mapSequenceAroundControlPoint` 给出（局部圆周 → 图层变换 → 世界）；否则逐字沿用 P-133。
+      if (ctx.placement) {
+        const wp = ctx.placement(i, count, bounds)
+        p.pos[0] = wp[0]; p.pos[1] = wp[1]; p.pos[2] = wp[2]
+      } else {
+        // 位置 = 控制点 + 圆周点（**替换**发射器偏移；作者空间 y-up ⇒ 世界 y 取反）
+        p.pos[0] = ctx.cx + Math.cos(ang) * rad
+        p.pos[1] = ctx.cy - Math.sin(ang) * rad
+        p.pos[2] = ctx.cz
+      }
       if (p.scenePos) {
         p.scenePos[0] = p.pos[0] - ctx.originX0
         p.scenePos[1] = -(p.pos[1] - ctx.originY0)
@@ -4013,7 +4091,7 @@ export function applyOperator(sys, op, dt, t) {
         const thr = pGetVal(pr, 'threshold', 512) * 0.5
         // ①(P-69 第 6 项) 控制点是 lockToPointer 且有指针 → 目标 = 指针（世界设计坐标，已是 y-down，
         //   不能再做下面那次 y 取反）；否则沿用层空间 target 的旧算法（本次不改其语义）。
-        const __cpPtr = (sys.pointer && cpIdx === sys.pointerCp) ? sys.pointer : null
+        const __cpPtr = __cpWorldLocked(sys, cpIdx) || ((sys.pointer && cpIdx === sys.pointerCp) ? sys.pointer : null)
         const dx = __cpPtr ? (__cpPtr[0] - p.pos[0]) : (target[0] - p.pos[0])
         const dy = __cpPtr ? (__cpPtr[1] - p.pos[1]) : -(target[1] - p.pos[1])
         const d = Math.hypot(dx, dy) || 1
@@ -4109,25 +4187,23 @@ export function applyOperator(sys, op, dt, t) {
         const cp = (sys.controlPoints || [])[cpIdx]
         const ptrCp = (typeof sys.pointerCp === 'number') ? sys.pointerCp : -1
         const cpOff = cp ? pVec3(cp.offset || cp.origin, [0, 0, 0]) : [0, 0, 0]
-        const usePtr = (cpIdx === ptrCp && sys.pointer)
-        const baseX = usePtr ? sys.pointer[0] : sys.origin[0]
-        const baseY = usePtr ? sys.pointer[1] : sys.origin[1]
+        // ①(P-136 用户第 4 项：照抄上游 MIT 实现) 锁指针控制点 ⇒ 圆心走照抄来的 `cpWorld`
+        //   （上游 `_cpPos` + `toWorld`）；非指针控制点 ⇒ 逐字沿用 P-133 的旧算式。
+        const __cpPtrW = __cpWorldLocked(sys, cpIdx)
+        const usePtr = !!__cpPtrW
+        const baseX = usePtr ? __cpPtrW[0] : sys.origin[0]
+        const baseY = usePtr ? __cpPtrW[1] : sys.origin[1]
         ccx = baseX + cpOff[0] + off[0]
         ccy = baseY - cpOff[1] - off[1]
-        const rx = p.pos[0] - ccx
-        const ry = p.pos[1] - ccy
-        const d = Math.hypot(rx, ry) || 1
-        const tx = -ry / d, ty = rx / d     // 切向（axis=+z）
-        // 半径权重：d ≤ distanceinner ⇒ speedinner；d ≥ distanceouter ⇒ speedouter；其间线性插值
-        //   （官方 `t = (d − inner)/(outer − inner + 0.1)`、`lerp(t, speedinner, speedouter)`）
-        if (d <= inner) w = spIn
-        else if (d >= outer) w = spOut
-        else {
-          const span = outer - inner + 0.1
-          w = span > 1e-6 ? (spIn + (spOut - spIn) * ((d - inner) / span)) : spIn
-        }
-        p.vel[0] += tx * w * sgn * dt
-        p.vel[1] += ty * w * sgn * dt
+        // ①(P-136 用户第 4 项：照抄上游 MIT 实现) 切向加速这一段**整块**改为调用照抄来的
+        //   `vortexSwirl`（← 上游 `renderer/vendor/we-scene/render/particles.js:1010-1024`）。
+        //   本仓库只留在外面：圆心解析、音频门控 `audioK`、`axis.z` 手性 `sgn`。
+        //   ⚠ 与 P-133 独立实现的唯一差别：半径权重上游是 `k = clamp((d−inner)/(outer−inner))`，
+        //   P-133 用的是 wer-ref 的 `(d−inner)/(outer−inner+0.1)`；`③-c-1` 的容差 0.5 覆盖这 0.299
+        //   （实测 150.00 vs 150.30 px/s²，判据见 P-136 台账「行为差」）。
+        const dv = vortexSwirl(p.pos[0], p.pos[1], [ccx, ccy, 0],
+          { offset: [0, 0, 0], distanceInner: inner, distanceOuter: outer, speedInner: spIn, speedOuter: spOut }, dt)
+        if (dv) { p.vel[0] += dv[0] * sgn; p.vel[1] += dv[1] * sgn }
         break
       }
       // colorchange（6 次）：官方是**乘**（`MutiplyColor`），不是赋值 —— 逐粒子色差被保留。
@@ -7299,6 +7375,18 @@ export function createRenderer(canvas, opts = {}) {
   const __pointerFlip = () => displayFlipH(opts.displayFlipH, (typeof window !== 'undefined' && window) ? window.__mpwDisplay : undefined, FLIPH_QUERY)
   let __pointerN = null      // { nx, ny } ∈[0,1]（画布归一化）
   let __pointerHooked = false
+  // ①(P-136 用户第 4 项：照抄上游 MIT 实现) 上游的**统一指针输入源**（整文件逐字照抄，
+  //   见 `core/we-pointer-source.mjs` ← `renderer/vendor/we-scene/render/pointer.js:1-320`）。
+  //   上游 `renderer/src/scene-mount.ts:657-676` 每帧只读同一个 state 对象、多方消费；
+  //   本仓库把它接在**画布归一坐标**这条路上（注入通道是宿主契约、由 P-118 的优先级规则钉住，
+  //   不进这里，见文件头「接线口径」）。
+  //   `target` 传一个**没有 addEventListener 的假对象**：上游 `pointer.js:199-210` 只有在
+  //   `target && target.addEventListener` 为真时才挂 mousemove/mousedown/mouseup/blur 与
+  //   document 的 mouseleave —— 那套"离开只清按键、保留位置与 has"的语义与本仓库 P-118/P-121
+  //   钉住的「离开 ⇒ 无指针 ⇒ 停发」**不同**（冲突已在 P-136 台账报告，未擅自改断言）。
+  //   `viewport` 由 `__pointerDesign` 每帧填（projW/projH），供 `syncWorld` 的屏幕像素口径用。
+  const __ptrViewport = { w: 1, h: 1 }
+  const __ptrSource = createPointerSource({ target: { __noDom: true }, viewport: () => __ptrViewport })
   // ①(P-118 G1/G5) 两条输入源的**状态分开记**（注入通道 vs 画布 DOM 通道），判定才不会互相盖：
   //   · `__pointerGone` = 画布 `pointerleave` 已宣告"指针不在画布内"；
   //   · `__pointerGoneInj` / `__pointerGoneKey` = 宣告那一刻注入通道的值（**对象引用 + 指纹**）：
@@ -7387,6 +7475,10 @@ export function createRenderer(canvas, opts = {}) {
           if (!p) return
           __pointerN = { nx: p.nx, ny: p.ny }
           __pointerGone = false      // ①(P-118 G1) 画布又收到新坐标 ⇒ "已离开"作废
+          // ①(P-136 用户第 4 项) 照抄来的指针源同时收下这一发（上游 `pushExternal` 是
+          //   "宿主/测试台注入"与 DOM 监听**共用**的写入路径，见 pointer.js:53-63/231-242）。
+          //   本仓库这里只用它的状态容器与 `syncWorld`，DOM 监听仍由本函数自己装。
+          __ptrSource.pushExternal({ u: p.nx, v: p.ny })
         } catch (e) { /* ignore */ }
       }
       el.addEventListener('pointermove', set, { passive: true })
@@ -7459,7 +7551,24 @@ export function createRenderer(canvas, opts = {}) {
         }
         return [inj.x, inj.y]
       }
-      if (__pointerN && cam) return __pointerDesignFromNorm(__pointerN.nx, __pointerN.ny, cam)
+      if (__pointerN && cam) {
+        // ①(P-136 用户第 4 项：照抄上游 MIT 实现) 归一坐标 → 世界像素这一段改由照抄来的
+        //   上游 `syncWorld`（`core/we-pointer-source.mjs` ← `pointer.js:286-299`）给出。
+        //   等价性（本文件内可逐位核对，门禁里也有断言）：
+        //     上游  wx = offX + u·viewW，本仓库 __pointerDesignFromNorm = projW/2 + (nx−0.5)·fw
+        //     取 offX = projW/2 − fw/2、viewW = fw、u = nx ⇒ 两式**同一式子**（与 ?projmode= 无关，
+        //     因为 fw/fh 就是下面那一支算出来的 framed 窗口）。
+        //   上游 `beginFrame()`（把 last 推到 current）由渲染循环在**消费之后**调用，见 render()。
+        const fw = (cam.projKind === 'persp') ? cam.framedW : (cam.projection[0] ? 2 / cam.projection[0] : cam.projW)
+        const fh = (cam.projKind === 'persp') ? cam.framedH : (cam.projection[5] ? 2 / Math.abs(cam.projection[5]) : cam.projH)
+        __ptrViewport.w = cam.projW || 1
+        __ptrViewport.h = cam.projH || 1
+        __ptrSource.syncWorld({
+          offX: cam.projW / 2 - fw / 2, offY: cam.projH / 2 - fh / 2,
+          viewW: fw, viewH: fh, projH: cam.projH,
+        }, 0, 0)
+        return [__ptrSource.state.wx, __ptrSource.state.wy]
+      }
     } catch (e) { /* ignore */ }
     return null
   }
@@ -9623,6 +9732,12 @@ export function createRenderer(canvas, opts = {}) {
         const __lt0 = perfState.enabled ? performance.now() : 0
         if (layer.particleDef) {
           renderParticleLayer(layer, textures, cam, vpL, width, height, time)
+          // ①(P-136 用户第 4 项：照抄上游 MIT 实现) 上游 `render/vendor/we-scene/render/pointer.js`
+          //   的文件头把这条顺序写成硬约束：「beginFrame 必须在**本帧所有消费方之后**调用」
+          //   —— 若在消费前把 last 推到 current，帧间位移当场归零。本仓库的消费方是粒子层
+          //   （lockToPointer 控制点 + 每帧 `setPointer`），故在每层消费完之后推进一次。
+          //   没有消费方时是无副作用的幂等记账（`last*` 只是给下一帧留快照）。
+          if (!CURSOR_OFF) __ptrSource.beginFrame()
         } else {
           await renderLayer(layer, textures, cam, vpL, width, height, time)
         }
@@ -10596,7 +10711,12 @@ export function createRenderer(canvas, opts = {}) {
       try { return (typeof location !== 'undefined' && location.search && new URLSearchParams(location.search).get('psim') === 'replay') ? 'replay' : 'incr' } catch (e) { return 'incr' }
     })()
     const PartSysCache = (opts.particleSysCache instanceof Map) ? opts.particleSysCache : __partSysCache
-    // 该层是否有 lockToPointer 发射器（决定指针是否进缓存签名 —— 非指针层签名不含指针，缓存照常命中）
+    // ①(P-136 用户第 4 项) 本层有没有"挂在指针上"的发射器。
+    //   旧 P-69 这里叫 `sys0ptrLocked()`，唯一用途是"把指针坐标写进缓存签名"；照抄上游后指针
+    //   **不再是构造输入**（上游只在每帧 `advance()` 前调 `ps.setPointer`），签名那一项恒为常量。
+    //   但"**无指针 ⇒ 该层没有存活粒子**"这条**对外可观察语义必须保住**：它此前是"指针进签名
+    //   ⇒ 指针变 null 触发重建 ⇒ 重放时空发射"的**副作用**，现在改成下面那句**显式清空**
+    //   （tests/pointer-leave-test.mjs 的 P3b/D1b/G5/G1/G1b/G2b/G2c/G3a/G3c/G3e 十条钉住它）。
     const sys0ptrLocked = () => {
       try {
         if (def && def.__ptrLockedHint === undefined) {
@@ -10626,9 +10746,15 @@ export function createRenderer(canvas, opts = {}) {
         layer.instanceoverride.lifetime, layer.instanceoverride.colorn, layer.instanceoverride.color]) : 'x'),
       // ①(P-74 ②) quad 尺寸口径进签名（改 ?psize= 不必重放，但重建更省心且只在切换时发生一次）
       PSIZE_MODE,
-      // ①(P-69 第 6 项) lockToPointer 层：指针位置是输入的一部分（指针移动 → 重建重放）；
-      //   非指针层恒 'x' ⇒ 签名与改动前一致、缓存照常命中。
-      (sys0ptrLocked() ? (__ptrNow ? (Math.round(__ptrNow[0]) + ',' + Math.round(__ptrNow[1])) : 'none') : 'x'),
+      // ①(P-136 用户第 4 项：照抄上游 MIT 实现) **指针不再进重建签名 —— 这就是尾迹的成因修复。**
+      //   上游从不让指针参与粒子系统的构造（`renderer/src/scene-mount.ts:1670-1676` 只在每帧
+      //   `advance()` 前调 `ps.setPointer`），系统因此**增量**前进、把光标路径留在粒子坐标里。
+      //   旧写法（P-69，已移除）把指针写进签名：指针一动 ⇒ 每帧从 t=0 重放 400 步、且全历史只用
+      //   **当前**坐标 ⇒ 花瓣永远糊在光标上（实测尾迹跨度 67px）。这里恒为常量，与上游同语义；
+      //   无指针（`none`）时同样不重建 —— 发射门在 `pushPointerFrame` / `spawnParticle` 上，
+      //   不靠"重建一次空系统"来实现（`tests/pointer-leave-test.mjs` P3b/P4a 钉住"离开停发、
+      //   回来继续发射"，靠的是门而不是重建）。
+      'x',
       // ①(P-126 C/D/F) 算子口径进签名：`?pops=` 切换后必须重建粒子系统（算子行为不同）
       POPS_MODE,
       // ①(P-130 批A) 颜色口径进签名：`?pcolor=` 切换后必须重建（colorrandom/colorchange 的出生与逐帧结果都变）
@@ -10686,7 +10812,30 @@ export function createRenderer(canvas, opts = {}) {
         }
       }
     }
+    const __ptrLockedLayerNow = sys0ptrLocked()
     sys.pointer = __ptrNow      // ①(P-69) null = 无指针 ⇒ lockToPointer 发射器不发射
+    // ①(P-136 用户第 4 项：照抄上游 MIT 实现) **鼠标尾迹能不能看见的那一步。**
+    //   上游 `renderer/src/scene-mount.ts:1670-1676` 在 `advance()` **之前**、**每一帧**把活指针
+    //   推进粒子系统（`ps.setPointer(wx, py)`），指针**从不参与**系统的构造/缓存签名 ⇒ 系统只在
+    //   时间轴上增量前进，"光标走过的路径"被留在已存活粒子的坐标里 —— 那就是尾迹。
+    //   本仓库此前的写法把指针坐标放进了下面的 `__sig`：指针一动签名就变 ⇒ 整系统从 t=0 重放，
+    //   且重放全程只用**当前**这一个坐标 ⇒ 历史被抹平，花瓣永远糊在光标上（实测：尾迹跨度
+    //   67px、每帧 400 步重放 ≈6.1 万次粒子更新；照抄后 1175px、每帧 1 步。数字见 P-136 台账）。
+    //   `pushPointerFrame` 即上游那一块的落点（`core/we-particle-pointer.mjs` 块 F）。
+    pushPointerFrame(sys, __ptrNow)
+    // ①(P-136 用户第 4 项) **无指针 ⇒ 本层清空**（把旧口径的副作用改成显式规则）。
+    //   旧写法：指针坐标进 `__sig` ⇒ 指针从 (x,y) 变成"无"时签名变化 ⇒ 整系统重建、以
+    //   `sys.pointer = null` 重放 ⇒ 一颗粒子都不发射 ⇒ `alive` 归零。照抄上游后不再重建
+    //   （指针本来就是活输入），若不显式清空，离开画布后会有"喂着旧坐标的粒子"继续留在场上
+    //   —— 那正是 tests/pointer-leave-test.mjs P3b/G5/G1 等十条断言要禁止的情形。
+    //   语义只在**无指针**时生效：指针在画布内移动时粒子**照常存活**（尾迹就靠这个），
+    //   所以这条不会把尾迹抹掉（对照：A3d/P4c 两条断言要求"指针一动，全部粒子就在新指针 6px 内"，
+    //   与"尾迹"在定义上互斥 —— 该冲突已在 P-136 台账报告，未擅自改断言）。
+    if (__ptrLockedLayerNow && !__ptrNow && sys.particles && sys.particles.length) {
+      sys.particles.length = 0
+      sys.count = 0
+      sys.__ptrCleared = (sys.__ptrCleared || 0) + 1
+    }
     if (def && def.maxcount > sys.maxCount) partStat.capped++
     const __sim = simulateParticleSystem(sys, time, PARTICLE_BUDGET.steps)
     if (__sim) { partStat.simSteps += __sim.steps; partStat.simUpdates += __sim.updates }
