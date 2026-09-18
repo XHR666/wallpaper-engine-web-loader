@@ -328,6 +328,11 @@ add "bench-8902"         "node tests/bench-server-test.mjs"
 #   为什么进门禁：`page.mouse.*` 是合成事件，绕过 X 服务器；这条链（X → 浏览器 → 画布）此前**没有任何自动化**。
 #   说明与"必须人眼看"的边界：`tests/x11-e2e/README.md`。~1.5min，需要 headed firefox（本机软件 WebGL ~1fps）。
 add "x11-pointer"        "node tests/x11-e2e/pointer-live-test.mjs" "" "^SKIP pointer-live"
+# ①(P-133 2026-09-19 主对话补登记) `particle-frame-uv-and-pointer`：**精灵帧 UV 尺寸**（13 帧图集被压成
+#   4.2px 竖条 = 落花"一条空开一条"/雾 2 整张图集挤进一颗）+ **粒子 CPU NDC 的 y 跟随 P-69 投影修正**
+#   （鼠标尾迹"上下相反"）+ `mapsequencearoundcontrolpoint` / `vortex` / `FadeValueChange(size|alpha)`。
+#   36 断言 + 5 组变异自证；~0.5s，无浏览器/无网络（交付出处见 `docs/PATCHES.md` P-133）。
+add "particle-frame-uv-and-pointer" "node tests/particle-frame-uv-and-pointer-test.mjs"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /
