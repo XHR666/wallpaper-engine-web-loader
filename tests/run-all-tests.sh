@@ -370,6 +370,12 @@ add "pointer-trail-copy" "node tests/pointer-trail-copy-test.mjs" "" "^SKIP poin
 #   判据：全语料 98 容器 / 37 个带 scripts 的包 / 1953 节点逐包第 1 帧 —— **有脚本错的包 8 → 0**，
 #   `KNOWN_GAPS` 白名单**缩空**（并留 S5d"白名单为空时断言 0 包"）。37 断言 + 3 组变异自证；~2.8s，无浏览器/无网络。
 add "scene-script-api-gaps" "node tests/scene-script-api-gaps-test.mjs" "" "^SKIP scene-script-api-gaps"
+# ①(P-139 2026-09-19 主对话补登记) `kaltsit-puppet-anchor`：用户第 5 项（凯尔希头不动 + 眨眼穿到下眼皮下面）——
+#   ①附件锚点**冻在 t=0** ⇒ 14 个挂头附件相对父网格漂移 **70.55u** → 0；②渲染采样器**轨尾回绕** ⇒ 头骨单帧
+#   **699.38u → 1.55u**、全周期位移 699.38u → **67.33u（= 官方）**；③睑/眼球绘制顺序错配（睑层延后到眼球之后）。
+#   同族扫描：有 puppet 8 个包里 **6 个**渲染路径会取到错帧（838.5u / 480.6u / 365.7u / 350.6u / 311.0u）
+#   ⇒ 同一修法同时生效。50 断言 + 6 组变异自证；~4.3s，无浏览器/无网络/无 GL，缺语料 SKIP+exit 0。
+add "kaltsit-puppet-anchor" "node tests/kaltsit-puppet-anchor-test.mjs" "" "^SKIP kaltsit-puppet-anchor"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /

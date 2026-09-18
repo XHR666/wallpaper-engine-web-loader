@@ -10668,6 +10668,83 @@ boxRadius 丢一个轴的 `off`（`artR=[10,16] boxR=[20,16] off=10`）、`swell
 
 ---
 
+## P-139（2026-09-19 用户第 5 项）凯尔希「头不动 / 眨眼穿到下眼皮下面」：**附件锚点冻在 t=0（漂移 70.55u）** + **渲染采样器轨尾回绕（头骨单帧 699.4u）** + 睑/眼球绘制顺序错配
+
+> **性质**：只读取证 + 定点修复（`core/attach-transform.mjs` 唯一实现处 + `elysia/we-renderer/puppet.js` 转发 + `demo.html` 两处接线）。
+> **许可**：口径来自官方 per-bone `HasAuthoredTrack` 与官方逐行同址布局（一手 `d.ts`/`common`）；`references/wer-ref`（GPL-2.0-only）只读行为结论，未复制代码。
+> **提交**：`e2b606c`（8 个路径）。**未新增任何 URL 开关**（`diag-flag-check` 154 == 154）。
+
+用户第 5 项原话（**第二次**报）：「凯尔希现在还是有问题，我说了他的头是不动的 而且他现在的眨眼也有问题，而是会穿到下眼皮下面」。
+包 = `dd/3719111841`（PKGV0024 / 147 条目 / 43 层）。根因与判据见 docs/RENDER-BUGS-20260918.md §2（⑤ 专线取证稿 R5-kaltsit）。
+
+A-1 附件锚点冻在 t=0（真缺陷，最常见可见症状）
+- 病灶：`demo.html` 的 `attachCtx: { …, time: 0 }` ⇒ 19 个附件层（14 个挂"头部"）的锚点冻在 t=0 的头部姿态，
+  而同一父网格 `主体`（6 骨「呼吸」）逐帧在动。实测 `头部` 锚点 180 帧漂移 = **70.55u**（x 20.47 / y 67.51）。
+- 改法（3 处）：① `core/we-scene-bundle.js` parseScene 接受 `attachCtx.time` 为**取值器**（数字路径逐位不变）；
+  ② `demo.html` 传 `time: () => skinAnimTime`（与 GPU 蒙皮同一时钟）；③ 新增唯一实现处
+  `core/attach-transform.mjs::attachOffsetDeltas`（返回 `{delta, base}`，**增量而非绝对锚点**）+ `demo.html`
+  逐帧 `origin = parse 结果 + W(Δ(t))`（W = 父链累积 scale+旋转+`animationlayers` 翻转例外）+ `parseScene`
+  暴露 `__attachInfo.frozenAnchor` 供宿主自证。性能：按"动画帧号"记忆化后 **4.6ms/动画帧 → 0.018ms/渲染帧**。
+
+A-2/A-3 渲染采样器轨尾回绕（结构性缺陷）
+- 病灶：`elysia/we-renderer/puppet.js::_sampleAnimRT` 把"每骨行移位"折进**帧号**取模
+  （`((frame+posShift)%totalFrames)*36 + (2b%9)*4`）⇒ **首帧就吃到轨头/邻轨字节**。
+  实测单帧最大步长：主体(6 骨) **699.38u @f0 bone5（头骨）**、眼睛组合(14 骨) **365.7u @f0 bone13**、
+  左耳朵1(4 骨) **157.4u @f298 bone3**（官方口径 67.33u / ≤7.1u / ≤31.9u）。
+- 改法：渲染路径改为**直接转发**唯一实现处 `core/attach-transform.mjs::sampleAnimRT`
+  （= `sampleBoneLocalsRT`（官方逐行同址 + 帧号规约**不回绕** + 官方 per-bone `HasAuthoredTrack` 作用域
+  ⇒ 未 authored 的骨取 `local_bind`）+ `localWorldChainRT`），`puppet.js` 里那份旧实现整段删除；
+  同文件与 `puppetBoneFinal` 也改用同一实现（同一口径的唯一实现，注释写明）。
+- 实测：头骨单帧 **699.38u → 1.55u**、全周期位移 **699.38u → 67.33u（= 官方）**；
+  头骨主导顶点整周期蒙皮位移 = **84.85u（= 官方同值，属素材本身）**。
+- 连带更正（判据级）：`mesh-badframe-test` / `animation-badframe-test` 里"真数据尾部垃圾帧"
+  （主体 177-179、眼睛 234-239、耳朵 298-299、girl 174-179）**不是导出垃圾而是回绕寻址产物** ——
+  那些帧的逐骨局部量**逐位等于帧 0**、修正后尾部步长 **0.0u**。两条门禁的真数据断言改写为
+  "修正采样器下无坏帧 + 合成注入后检测器仍命中"（安全性不因数据变干净而丢失）。
+
+B 眨眼遮挡：睑层被眼球盖住（绘制顺序）+ 睑带偏窄
+- 病灶（实测）：`objects[]` 顺序 22 `右眼上眼睑(67)` → 26 `眼睛组合(115)`，本仓库渲染器**按层序逐层画**、
+  材质 `depthtest/write:disabled`、全仓无 CULL_FACE ⇒ 遮挡 100% 由层序 + 层内 index 顺序决定 ⇒
+  同一次眨眼时睑被眼球盖住。另：67 的 uv 岛只占同贴图 **55.0% 宽**（mesh 116u vs 岛 202px ⇒ 实绘仅岛 72.9% 宽）。
+  实绘矩形 115=[2219.1,574.3,211.4,175.5]、67=[2512.4,568.1,80.4,47.1]（67 与官方标定 Δ≤1.7，
+  115 的官方标定 [2263.7,447.35,169.78,277.88] 记为**已知不可达**，见 docs/CALIBRATION §D）。
+- 改法：`demo.html` 新增 `P139_EYE_LID_DEFER`（睑层名 → 眼球 mesh 层）：见到睑层先补画眼球层再画睑
+  （名单外/无眼球层的包零行为变化；**不新增任何 URL 开关**）。本包两矩形 x 向不重叠（间隙 82u）
+  ⇒ 该重排对今天的画面**逐像素无影响**，只把"睑在眼球之后"这条语义钉正。
+- B-1 实测（真实贴图 + 层内 index 顺序 + 设计空间软光栅）：静止可见眼球 **2785px** → 眨眼峰 **1293px @f193**
+  （压下 53.6%；逐帧变化 ≤265px，无"啪一下整只眼露出来"级跳变）。剩余残留 = 月牙形睑块**中心本就是眼裂**
+  （素材本身），故 B-1 的"≤5px"目标**不成立**；已作为未证实项上报（需真机/人眼判"能不能接受"）。
+
+新门禁：`tests/kaltsit-puppet-anchor-test.mjs`（50 断言，4.3s，无浏览器/无网络/无 GL；缺语料 SKIP+exit 0）
+- 钉住 A-1a/A-1b/A-1c/A-1d/A-1e/A-1f/A-1f2、A-2、A-3（逐位一致 + 单帧步长 + 帧号规约 + 唯一实现处自洽）、
+  B-1a-d、B-2a-i、T5 同族计数、T6 轨道作用域（含"字节清零 ⇒ 判定变假 + 取 local_bind"可证伪断言）。
+- RED-IF-REVERTED（变异只在 /tmp 真文件副本上，readFileSync/writeFileSync）：
+  M1 `time:0` ⇒ 红 1；M2 采样换回旧式 ⇒ 红 3；M3 删睑层建表 ⇒ 红 1；M4 短路 authored ⇒ 红 6；
+  M5 去掉负帧规约 ⇒ 红 1；M6 delta 混入基准锚点 ⇒ 红 4。（M7 把查表换成 `undefined` **不红**：本包重排是
+  恒等变换，只能真机验证 —— 已列为未证实项。）
+- 同族扫描：全语料 21 容器 / **有 puppet 8 个** / **渲染路径会取到错帧 6 个**（前 5：3554161528 人物#bone26
+  838.5u、3462491575 身体#bone9 480.6u、3719111841 眼睛组合#bone13 365.7u、3544152633 girl#bone9 350.6u、
+  3448877775 Rella 部件#bone13 311.0u）⇒ 同一类 bug 不是孤例，本次修法对全部 6 个包同时生效。
+
+不回归（逐一实跑）：attach-transform ALL PASS、bind-order 76/0、mount 40/0、skin-order-kal PASS、
+blink-phase PASS、meshsize PASS、mesh-badframe 23/0、animation-badframe 25/0、demo-syntax 10/10、
+diag-flag-check 154==154（**未新增任何 URL 开关**）、docs-check ✓。
+- `tests/bind-order-test.mjs`：TN6 变异体的同目录 import 清单补上 `we-particle-pointer.mjs`/`we-pointer-source.mjs`
+  （bundle 新增两个同目录 import 后该清单漏更新 ⇒ 变异体 `ERR_MODULE_NOT_FOUND` 整项假红；补后 76/0）。
+- `tests/secret-scan-test.mjs` **与本改动无关地变红**：`demo/bench-patch.js:1224` 的
+  `NAV_COLLAPSED_KEY`（另一条线正在改的文件，480 行未提交）被 `assigned-credential-ext` 规则误判；
+  本文件只修 `core/`/`demo.html`/`elysia/we-renderer/puppet.js`/本行测试，不碰该文件（已上报主对话）。
+
+登记待办（**未改** tests/run-all-tests.sh，由主对话统一登记）：
+  add "kaltsit-puppet-anchor" "node tests/kaltsit-puppet-anchor-test.mjs" "" "^SKIP kaltsit-puppet-anchor"  # P-139
+
+未证实项：① B-1 的"≤5px"目标不成立（月牙中心=眼裂，残留由素材决定）⇒ 需真机/人眼判可接受度；
+② 67 与 115 的"官方摆放口径"（115 标定矩形高度 277.88 > 网格任何姿态可绘高度 253/329）仍未解，
+本包 67↔115 是否**应当**叠在一起需真机对照；③ 睑层重排（恒等变换）与"头是否真的看起来不动"
+（残差 84.85u = 素材本身）均需真机/人眼确认。
+
+---
+
 ## P-141（2026-09-19 用户第 ⑧ 项续）P-137 残余的 **8 类 SceneScript API 缺口**收口 = 全语料「有脚本错的包」**8 → 0**（18 条 → 0）；`KNOWN_GAPS` 白名单**缩空** + 新门禁 `scene-script-api-gaps`（37 断言 / 3 组变异必红 / 全语料逐包第 1 帧 0 错）
 
 > **性质**：只读取证 + 定点修复（纯 `elysia/` 侧，**未改 `demo.html`**）+ 新门禁。证据 = 真包 `scene.json` 里的脚本原文 + 真沙箱 + 全语料逐包第 1 帧扫描；无浏览器/无 GPU/无网络，新门禁 ≈2.8s / PeakRSS 171MB。
