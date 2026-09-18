@@ -390,8 +390,14 @@ console.log('\n== T12 登记与文档（门禁 / README 主表 / 规格文档 / 
   const myIdx = addLines.findIndex((l) => /^add "display-options"\s+"node tests\/display-options-test\.mjs"/.test(l))
   // 判据用"在 add 列表**末尾段**"而不是"严格最后一行"：`run-all-tests.sh` 是多条工作流共写的文件，
   // 别人随后追加新项是**预期行为**，不该把本项判红（登记要求是"追加在末尾"，不是"永远占住最后一行"）。
-  check(myIdx >= 0 && myIdx >= addLines.length - 8 && myIdx === addLines.findIndex((l) => /display-options-test/.test(l)),
-    'T12a 门禁登记在 `add` 列表末尾段（共 ' + addLines.length + ' 项，本项第 ' + (myIdx + 1) + ' 项）', addLines[myIdx] || '未找到')
+  // ①(2026-09-18 稳定性修正) 原判据要求"本项在 add 列表**最后 8 行**内" —— 那是**登记当时**的位置快照，
+  //   而 `run-all-tests.sh` 是多条工作流共写的文件，"后来者追加在末尾"是**预期行为**：本轮 `secret-scan`
+  //   登记一次就把本项挤出末尾 8 行 ⇒ 门禁会周期性假红（这不是"被挪走"，是文件在长大）。
+  //   真正该钉的两条不变量：①**恰好登记一次**（防重复/丢失）②明显是**追加**而不是被插到头部（不在前 10）。
+  //   位置本身降级为消息里的信息项。
+  const dupCount = addLines.filter((l) => /display-options-test/.test(l)).length
+  check(myIdx >= 0 && dupCount === 1 && myIdx >= 10,
+    'T12a 门禁恰好登记一次、且是追加而非插队（共 ' + addLines.length + ' 项，本项第 ' + (myIdx + 1) + ' 项，重复 ' + dupCount + ' 次）', addLines[myIdx] || '未找到')
   const README = fs.readFileSync(path.join(ROOT, 'docs', 'README-DIAGNOSTICS.md'), 'utf8')
   const tbl = README.slice(README.indexOf('<!-- FLAG-TABLE-BEGIN -->'), README.indexOf('<!-- FLAG-TABLE-END -->'))
   const flags = ['fliph', 'rate', 'coloropts', 'bright', 'contrast', 'satur', 'hue', 'display']
