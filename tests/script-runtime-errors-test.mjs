@@ -406,13 +406,13 @@ else {
     const MUTANTS = [
       {
         id: 'M1', fix: 'thisLayer.size 读取器', expectName: 'S1b / S2b（真包 update 抛错 511/72 → 0）',
-        expect: /✗ S(1|2)b/, quick: false, baseline: /✓ S0a/,
+        expect: /✗ S(1|2)b/, quick: false, baseline: /✓ S0a/, baselineName: 'S0a（副本可加载）',
         desc: '删掉 layerRef() 里的 `size` 访问器（回到"读到 undefined"的旧状态）',
         edits: [[SIZE_LAYER_ANCHOR, '']],
       },
       {
         id: 'M2', fix: 'thisObject.size 读取器', expectName: 'S4d（thisObject.size 是数字）',
-        expect: /✗ S4d/, quick: true, baseline: /✓ S4a/,
+        expect: /✗ S4d/, quick: true, baseline: /✓ S4a/, baselineName: 'S4a（thisLayer.size 那一半完好、合成探针照样出数）',
         desc: '删掉 objectRef() 里的 `size` 访问器（thisObject 那一半回到旧状态）',
         edits: [[SIZE_OBJECT_ANCHOR, '']],
       },
@@ -444,7 +444,7 @@ else {
       // 基线仍在 ⇒ 变异打破的是被点名的那条语义，不是"副本根本加载不起来"（否则红得毫无意义）。
       // 基线**按变异各取一条不受该变异影响的断言**（M1 取 S0a：副本可加载；M2 取 S4a：thisLayer.size
       // 那一半完好、合成探针照样出数）—— 拿被变异打破的那条当"基线"是把同一条错算两遍。
-      ok('S6-' + m.id + 'b 变异体里基线仍 ✓（' + m.baseline.source.replace(/[\\/✓]/g, '') + ' 仍在 ⇒ 红是被点名的那条，不是副本起不来）',
+      ok('S6-' + m.id + 'b 变异体里基线仍 ✓（' + m.baselineName + ' ⇒ 红是被点名的那条，不是副本起不来）',
         m.baseline.test(so), '')
       if (!m.quick) {
         // 反向证明：同一趟全语料扫描在变异体里**必须**重新出现 `reading 'x'` 的包 —— 这就是
@@ -453,8 +453,10 @@ else {
         const detail = xline.split('—')[1] || ''
         const listed = (detail.match(/"([^"]+)"/g) || []).length
         const before = (so.match(/有脚本错的总包数 = \d+/) || [])[0] || ''
+        const xkind = (so.match(/\d+ 个包\s+update:Cannot read properties of undefined \(reading 'x'\)/) || [])[0] || ''
         ok('S6-M1c 变异体里同族扫描回到"有包抛 reading \'x\'"（真树 0 个包 ⇒ 两边的差额全是本类 bug）',
-          /✗ S5b/.test(so), '变异体实测 ' + listed + ' 个包（明细被截断到前 5）· ' + before + ' · ' + detail.slice(0, 120))
+          /✗ S5b/.test(so), '变异体 ' + (xkind || (listed + ' 个包（明细被截断到前 5）')) + ' · ' + before
+          + ' · 前 5：' + detail.slice(0, 110))
         if (VERBOSE && detail) note('S6-M1 变异体 S5b 明细', detail.slice(0, 300))
       }
       if (r.status !== 1 && VERBOSE) note('S6-' + m.id + ' 子进程输出尾部', JSON.stringify(so.slice(-800)))
