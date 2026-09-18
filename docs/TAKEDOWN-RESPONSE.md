@@ -245,4 +245,4 @@ node tests/publish-check.mjs
 | `docs/COPYING-RULES.md` **§9.6 / §9.7** | L5 隔离块与留痕字段（若被主张对象恰好是 L5 块，删除步骤直接照 §9.6 的"可复制粘贴的删除步骤"） |
 | `docs/COMPLIANCE-REVIEW.md` | 台账：被删对象在表里**改成** `HOLD`/`已移除` 并写依据 |
 | `docs/REIMPLEMENTATION-STATEMENTS.md` | 若被主张对象是我方"独立实现"，**同一批**更新该文件的接触/重写事实 |
-| `docs/REMOVALS.md`（**待建**，本文 §4） | 移除记录的累积页面（公开） |
+| `docs/REMOVALS.md`（**已建**，2026-09-18；本文 §4 的落点） | 移除记录的累积页面（公开） |

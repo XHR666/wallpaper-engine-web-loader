@@ -24,7 +24,7 @@ const JSON_OUT = process.argv.includes('--json')
 const DOC_DIR = path.join(ROOT, 'docs')
 const PATCHES_MD = path.join(DOC_DIR, 'PATCHES.md')   // ①(2026-09-16) PATCHES.md 已移入 docs/
 const docFiles = fs.readdirSync(DOC_DIR)
-  .filter((f) => /^(TESTING|PATCHES|SELFCHECK|README-DIAGNOSTICS|EXTENSION-HOOKS|RENDERER-ARCHITECTURE|LIBRARY-MANIFEST|VISUAL-TESTING|AUDIT|ELYSIA-DIFF-AUDIT|POSITION-FINDINGS|KNOWN-ISSUES|PACKAGING)\.md$/.test(f))
+  .filter((f) => /^(TESTING|PATCHES|SELFCHECK|README-DIAGNOSTICS|EXTENSION-HOOKS|RENDERER-ARCHITECTURE|LIBRARY-MANIFEST|VISUAL-TESTING|AUDIT|ELYSIA-DIFF-AUDIT|POSITION-FINDINGS|KNOWN-ISSUES|PACKAGING|REMOVALS)\.md$/.test(f))
   .map((f) => path.join(DOC_DIR, f))
   .concat(fs.readdirSync(DOC_DIR).filter((f) => /^ZCODE-.*\.md$/.test(f)).map((f) => path.join(DOC_DIR, f)))
 // 任务书与索引（DSHarea 根）——任务书引用的文件必须存在（任务书 C5.2②）
