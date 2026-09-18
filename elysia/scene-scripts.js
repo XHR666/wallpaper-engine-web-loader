@@ -16,7 +16,7 @@
 //   - engine API 补全 (isRunningInEditor 等) — NSL 库 (如 Mutsumi 788) 缺失
 //     方法时中途抛错 → 后续 shared 赋值全部丢失 → 整个动画框架失效
 import vm from './nsl.js';
-import { WEColor, Vec2, Vec3, ScriptPropertiesBuilder } from './scene-script-apis.js';
+import { WEColor, Vec2, Vec3, ScriptPropertiesBuilder, WEVector, DEG2RAD, RAD2DEG } from './scene-script-apis.js';
 
 // NSL thisScene: getLayer(name) → 图层包装, 读写真实场景对象属性
 // origin/scale/size 字符串 "x y z" ↔ Vec3; visible/alignment 直接读写
@@ -318,17 +318,38 @@ const SANDBOX_HOST_ONLY_GLOBALS = {
 
 // 编译脚本: 返回 { update, applyUserProperties, init, ... } 函数 (vm 沙箱)
 // opts: { canvasSize, userProps, shared, thisScene, ownerRef, runtime }
-// NSL 模块映射: import * as X from 'WEColor'/'WEMath' → 对应全局对象
-// (旧转译把一切 import * as 映射到 __WEColor — WEMath 模块的函数全部丢失,
-//  726 Launcher 报 "WEMath.smoothStep is not a function" → update 失败)
+//
+// ①(P-127 A①) **逐名映射**官方 scene-script 模块 —— 旧实现是
+//   `mod === 'WEMath' ? '__WEMath' : '__WEColor'`：**除 WEMath 外的一切模块名**（含官方 `WEVector`）
+//   都被静默别名成 `__WEColor` ⇒ `WEVector.angleVector2` 是 undefined ⇒ 脚本抛
+//   "WEVector.angleVector2 is not a function"。现在：**每个模块名一条自己的映射**，
+//   官方三模块（`WEMath`/`WEVector`/`WEColor`）各自的命名空间与官方导出面同形；
+//   表外的未知模块名 → `__WEEmptyModule`（空命名空间：属性读取得到 undefined、**不再兜底到 WEColor**）。
+//   模块清单来自**全语料实测**（98 个 .pkg/.mpkg 容器内全部 scene.json，共 3 个名字：
+//   `WEMath` 60 次 / `WEVector` 57 次 / `WEColor` 3 次）——见 tests/script-wevector-module-test.mjs 的 V1。
+//   命名空间落点：`WEMath` → `__WEMath`（官方 4 名 + 既有超集别名）；`WEVector` → `__WEVector`；
+//   `WEColor` → `__WEColor`（既有对象 + 官方 normalizeColor/expandColor）。
+export const NSL_MODULE_GLOBALS = {
+  WEMath: '__WEMath',
+  WEVector: '__WEVector',
+  WEColor: '__WEColor',
+};
+// 表外模块名落点：空命名空间。**故意不是 `__WEColor`** —— 别名到 WEColor 会把
+// "模块不存在"变成"函数不存在"，且会让 `X.mix` 之类**看似可用**（静默错值比报错更难查）。
+export const NSL_UNKNOWN_MODULE_GLOBAL = '__WEEmptyModule';
+export function moduleGlobalFor(mod) {
+  return Object.prototype.hasOwnProperty.call(NSL_MODULE_GLOBALS, mod)
+    ? NSL_MODULE_GLOBALS[mod]
+    : NSL_UNKNOWN_MODULE_GLOBAL;
+}
 function compileScript(source, opts = {}) {
   // 转译 ESM 导入/导出为 CommonJS
   let code = source;
   code = code.replace(/import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g, (m, name, mod) => {
-    return `const ${name} = ${mod === 'WEMath' ? '__WEMath' : '__WEColor'};`;
+    return `const ${name} = ${moduleGlobalFor(mod)};`;
   });
   code = code.replace(/import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g, (m, names, mod) => {
-    const src = mod === 'WEMath' ? '__WEMath' : '__WEColor';
+    const src = moduleGlobalFor(mod);
     return `const { ${names} } = ${src};`;
   });
   // ①(修复 2026-09-12 "翻译错误") 旧实现把 `export function X(...)` 改成 `__exports.X = function (...)` ——
@@ -352,8 +373,21 @@ function compileScript(source, opts = {}) {
   code = code.replace(/\bscriptProperties\b/g, '__scriptProperties');
   const shared = opts.shared || {};
   const ownerRef = opts.ownerRef || makeOwnerRef();
+  // ①(P-127 A①) `scriptProperties` 的**活引用槽**：脚本顶层写法
+  //   `const props = scriptProperties;`（语料实测**只有洛茜_11 这一处**）在 `vm.runInContext`
+  //   期间求值，而属性值要等脚本自己声明完 `createScriptProperties()...finish()` 才拿得到 ——
+  //   旧实现先给 `__scriptProperties = null`、run 完才赋值 ⇒ 顶层捕获恒为 **null** ⇒
+  //   脚本首个 `props.xxx` 就抛 "Cannot read properties of null"，`init` 直接失败、实例被永久禁用
+  //   （**这一条正好把洛茜_11 的 WEVector 缺陷挡在后面**：见 PATCHES P-127 的"先抛/后抛"实测）。
+  //   官方运行时里 `scriptProperties` 是引擎提供的**活对象**，顶层捕获拿到的是同一个引用；
+  //   这里把槽预先建好，属性值算出来后**写进同一个对象**，顶层捕获因此不再是 null。
+  const scriptPropsSlot = {};
   const context = {
     __WEColor: WEColor,
+    // ①(P-127 A①) 官方 WEVector 模块命名空间（独立实现见 scene-script-apis.js）
+    __WEVector: WEVector,
+    // ①(P-127 A①) 表外模块名的落点：空命名空间（读取得到 undefined，不别名到任何真模块）
+    __WEEmptyModule: Object.freeze(Object.create(null)),
     // NSL WEMath 模块 (脚本 import * as WEMath from 'WEMath')
     __WEMath: {
       mix: (a, b, t) => a + (b - a) * t,
@@ -362,8 +396,9 @@ function compileScript(source, opts = {}) {
       smoothstep: (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a || 1))); return t * t * (3 - 2 * t); },
       smoothStep: (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a || 1))); return t * t * (3 - 2 * t); },
       // 角度换算 (733 Lens Flare 等用 WEMath.rad2deg; 缺失 → angles NaN → 组件渲染异常)
-      rad2deg: 180 / Math.PI,
-      deg2rad: Math.PI / 180,
+      // ①(P-127 A①) 与 `WEVector` 共用同一对常数（scene-script-apis.js 的 DEG2RAD/RAD2DEG）
+      rad2deg: RAD2DEG,
+      deg2rad: DEG2RAD,
       min: Math.min,
       max: Math.max,
       abs: Math.abs,
@@ -377,7 +412,10 @@ function compileScript(source, opts = {}) {
     },
     __exports: {},
     __scriptProps: null, // export var scriptProperties = ... 写入
-    __scriptProperties: null, // 脚本内 scriptProperties 引用
+    __scriptProperties: scriptPropsSlot, // 脚本内 scriptProperties 引用（①P-127 A① 活槽，见上）
+    // ①(P-127 A①) `scriptProperties` 一旦被 `const props = scriptProperties` 在**顶层**捕获，
+    //   捕获到的是上面那个活槽对象 —— 槽必须在 run 之前就存在（否则捕获 null）。
+    __scriptPropsSlot: scriptPropsSlot,
     Date, Math, JSON, Number, String, Boolean, Object, Array, Set, Map, Promise,
     // ①(P-121 A) `console` 换成**每沙箱一个**的门面（见 makeSandboxConsole）：脚本对 console 的
     //   写（含 `console.log = () => {}`）不再落到宿主的真 console 对象上；正常日志照旧转发到宿主。
@@ -393,8 +431,8 @@ function compileScript(source, opts = {}) {
       clamp: (v, a, b) => Math.max(a, Math.min(b, v)),
       smoothstep: (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a || 1))); return t * t * (3 - 2 * t); },
       smoothStep: (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a || 1))); return t * t * (3 - 2 * t); },
-      rad2deg: 180 / Math.PI,
-      deg2rad: Math.PI / 180,
+      rad2deg: RAD2DEG,
+      deg2rad: DEG2RAD,
       min: Math.min,
       max: Math.max,
       abs: Math.abs,
@@ -408,7 +446,9 @@ function compileScript(source, opts = {}) {
       mousePressed: false,
       mouseDelta: new Vec3(0, 0, 0),
     },
-    createScriptProperties: () => new ScriptPropertiesBuilder(opts.userProps),
+    // ①(P-127 A①) 把活槽交给构建器：属性值在链式声明执行时就逐个写进槽，
+    //   于是声明之后的**顶层**读取拿到真值（不再是要等 run 结束才赋值的 null）。
+    createScriptProperties: () => new ScriptPropertiesBuilder(opts.userProps, scriptPropsSlot),
     // ①(2026-09-12) 上报错误 "MediaPlaybackEvent is not defined"（3326873240 的
     //   mediaPlaybackChanged(event) 用 event.state !== MediaPlaybackEvent.PLAYBACK_STOPPED）
     //   → 提供枚举常量（无媒体集成时宿主不会回调，层保持 authored 可见性）。
@@ -517,8 +557,15 @@ function compileScript(source, opts = {}) {
   } else if (context.__scriptProps && typeof context.__scriptProps === 'object') {
     props = context.__scriptProps;
   }
-  context.__scriptProperties = props;
-  return { exports: context.__exports, scriptProps: props, context, ownerRef };
+  // ①(P-127 A①) 官方语义：`scriptProperties` 是**引擎提供的活对象**。把算出来的属性值
+  //   **写进脚本顶层已经捕获的那个槽**（`const props = scriptProperties`），再把 context 上的
+  //   标识符也指向同一个槽 ⇒ 顶层捕获与函数内读取看到**同一份**默认值。
+  //   槽里此前没有任何键（空对象），所以这是一次纯粹的"从 null 变成默认值表"，不会覆盖既有键。
+  if (props && typeof props === 'object') {
+    Object.assign(scriptPropsSlot, props);
+    context.__scriptProperties = scriptPropsSlot;
+  }
+  return { exports: context.__exports, scriptProps: props, context, ownerRef, scriptPropsSlot };
 }
 
 // value → 脚本可操作对象 (Vec3 / number / 原样)
@@ -575,6 +622,8 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
       exports: compiled.exports || {},
       error: compiled.error,
       scriptProps: compiled.scriptProps,
+      // ①(P-127 A①) 脚本顶层捕获的 `scriptProperties` 活槽（对象级覆盖要写回这里，见下方）
+      scriptPropsSlot: compiled.scriptPropsSlot || null,
       context: compiled.context || null,
       initialized: false,
       ownerRef: compiled.ownerRef,
@@ -621,7 +670,18 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
         props[k] = v;
       }
     }
-    entry.context.__scriptProperties = props;
+    // ①(P-127 A①) 覆盖结果要落进**同一个活槽**（`scriptPropsSlot`），否则脚本顶层
+    //   `const props = scriptProperties` 捕获到的那份引用永远只有脚本默认值、看不到对象级覆盖。
+    //   槽是"全等镜像"语义：先删掉不在本次 props 里的键，再整份写入 ——
+    //   这样缓存按脚本源共享时，上一个对象的覆盖键不会漏给下一个对象。
+    const slot = entry.scriptPropsSlot || entry.context.__scriptProperties;
+    if (slot && typeof slot === 'object') {
+      for (const k of Object.keys(slot)) if (!Object.prototype.hasOwnProperty.call(props, k)) delete slot[k];
+      Object.assign(slot, props);
+      entry.context.__scriptProperties = slot;
+    } else {
+      entry.context.__scriptProperties = props;
+    }
   }
   // ownerRef 是首次编译时创建的共享代理 (entry 持有); setOwner 指向当前脚本
   // 所属对象 — 缓存共享条目在多个对象间不串
@@ -702,7 +762,12 @@ export function applySceneScripts(scene, time, opts = {}) {
   const shared = (cache ? cache.shared : null) || opts.shared || {};
   // 渲染对象列表 (this.objects, 已烘焙) — 脚本写这些对象 → 渲染直接生效
   const sceneObjects = opts.renderObjects || (scene.objects || []).map((o) => o);
-  const thisScene = makeSceneRef(sceneObjects);
+  // ①(P-127 A①) 调用方可以**自带** thisScene 引用（此前这里无条件 `makeSceneRef(sceneObjects)`，
+  //   `opts.thisScene` 在本函数里被静默忽略 —— 而 compileScript 那一层是认它的）。
+  //   加这条缝是为了让"某个 `thisScene` 方法尚未实现"的缺口**可以被测试精确隔离**，而不是被
+  //   更早的错误掩盖（P-127 的 WEVector 复现就靠它：桩只补 makeSceneRef 里缺的那几个方法）。
+  //   不给 opts.thisScene 时行为**逐位不变**（走原来的 makeSceneRef）。
+  const thisScene = opts.thisScene || makeSceneRef(sceneObjects);
   const ownerRef = makeOwnerRef();
   const nodes = [];
   const collect = (obj, owner) => {

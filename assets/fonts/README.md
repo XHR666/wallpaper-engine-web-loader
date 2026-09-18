@@ -61,14 +61,45 @@ bvfonts.com, archive sites don't always update their files."*
 `licenses/spincycle-bvfonts-TOU.txt`，随字体一起分发的原始说明在
 `licenses/spincycle-bvfonts-README.txt`。
 
-## 本目录**未**包含的字体
+## 本目录**未**包含的字体（P-127 重新核过：缺哪些 / 影响面 / 能不能补）
 
-WE `assets/fonts/` 里另外那些字体（`Alcubierre.otf`、`Atami-Regular.otf`、
-`CursedTimerUlil-Aznm.ttf`、`Lazer84.ttf`、`kust.ttf`、`opensticks.ttf`、`summer85.ttf`）
-回溯作者上游后查不到任何再分发授权，**不随仓库分发**；运行时仍从用户本机 WE 安装目录读
-（`/weassist/fonts/<名>`），没装 WE 就回退 `sans-serif`。
-`8bitOperatorPlus8-Regular.ttf` 虽内嵌 OFL-1.1，但作者现行发布页本次**取不到**（见 `THIRD-PARTY.md` §4.7），
-按"宁可缺、不可用来路不明副本"的口径**未收录**。
+WE `assets/fonts/` 里一共 **15 个字体**，本目录 **7 个**。差集 **8 个**，逐个的许可判据与
+语料影响面如下（引用数 = 全语料 98 个 `.pkg`/`.mpkg` 容器里**文本层**的 `font` 属性命中数，
+逐条可复算：`node tests/font-gap-audit-test.mjs`，冻结值在同一文件的 `CENSUS`）：
+
+| 未打包的字体 | 许可判据（一句话） | 语料引用 | 结论 |
+|---|---|---|---|
+| `8bitOperatorPlus8-Regular.ttf` | **OFL-1.1（可再分发）** —— 文件内 `name` 表 ID13 原文 `This font is licensed from Creative Commons (CC-BY-SA 4.0) and SIL Open Font License 1.1.`，WE 目录里那份 `SIL Open Font License.txt` 就是它的全文（首行 RFN `8-bit Operator+`） | **61 层 / 17 个容器**（本目录缺的里面影响最大） | **不能打包**：作者现行发布页取不到（`THIRD-PARTY.md` §4.7 有 6 条尝试记录），而"从 WE 目录复制"是本项目**明令禁止**的取件口 |
+| `Alcubierre.otf` | 未定：文件内 `Copyright (c) 2015 by Ellis Design. All rights reserved.`；回溯作者上游查不到分发授权 | 34 层 / 21 容器 | 不能打包（**未定**不是"可以"） |
+| `Atami-Regular.otf` | 未定：`Copyright © 2016 by Andrew Herndon. All rights reserved.`；该作者其它免费件一律带 `Personal Use` | 23 层 / 10 容器 | 不能打包 |
+| `CursedTimerUlil-Aznm.ttf` | 未定：东方同人二创，权利链本身不明 | 6 层 / 3 容器 | 不能打包 |
+| `Lazer84.ttf` | 免费档只授予**使用**、未授予再分发（文件内 ID0 还是没填写的模板串 `Typeface © (your company)`） | 6 层 / 3 容器 | 不能打包 |
+| `opensticks.ttf` | 仅 `Free for commercial use.`（**使用**授权，不是**分发**授权） | 6 层 / 3 容器 | 不能打包 |
+| `kust.ttf` | 未定：只有版权串、无任何授权语句 | **0** | **不需要**（语料里没有任何层引用它） |
+| `summer85.ttf` | 未定：作者站点已消失 / 域名易主，一手条款取不到 | **0** | **不需要** |
+
+**运行时行为**：这 8 个都**不在**包内（实测：引用它们的层没有一个能从自己的容器里拿到字体），
+所以第①级必然落空 → 第②级（本目录）也没有 → **第③级读你本机 WE 安装目录**
+（`/weassist/fonts/<basename>`）；装了 WE 的机器上就是真字体，**没装 WE 才落第④级 `sans-serif`**，
+且**不抛异常**（日志会写"缺失→回退"；这四级链的回归在 `tests/text-font-fallback-test.mjs`）。
+`kust.ttf` / `summer85.ttf` 这两个 0 引用的即使缺也无人受影响。
+
+### 想让缺的字体也生效？把文件放进**本目录**即可
+
+第②级就是本目录：`server/we-scene-demo-server.mjs` 把 `assets/fonts/<文件名>` 直接吐出来，
+**不需要改任何代码**（`demo.html` 的 `REPO_FONT_ALIASES` 只处理"文件名与 WE 引用名不同"的两个：
+`Monofur-PK7og.ttf`→`monof55.ttf`、`TwemojiMozilla.ttf`→`Twemoji.Mozilla.ttf`）。
+自备步骤（**你自己有合法副本**时）：
+
+1. 把字体文件按 **WE 引用名**放进本目录（例：`8bitOperatorPlus8-Regular.ttf`、`Alcubierre.otf`）；
+2. 刷新页面 —— 第②级命中，日志里该字体会变成"仓库自带"；
+3. 如果你手上的文件名与 WE 引用名不同（例如从上游拿到的发布名不一样），
+   在 `demo.html` 的 `REPO_FONT_ALIASES` 里加一条 `'<WE 引用名>': '<你的文件名>'`。
+
+> **只放你有权再分发的副本**。本目录是**随公开仓库分发**的：放进来就等于再分发。
+> 上游取件的完整配方（URL 形状、sha256 校验、`THIRD-PARTY.md` 登记格式）见 `THIRD-PARTY.md` §4.8。
 
 背景调研（为什么不能从 WE 目录复制、15 个字体逐个的许可证据）见
-`docs/FONT-REDISTRIBUTION-RESEARCH.md`。
+`docs/FONT-REDISTRIBUTION-RESEARCH.md`（工作区侧记录）；
+本轮的可复算审计（缺口集合 / 影响面 / 可加载性 / 回退链 / `systemfont_*`）见
+`tests/font-gap-audit-test.mjs` 与 `docs/PATCHES.md` 的 **P-127**。

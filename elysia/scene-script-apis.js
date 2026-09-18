@@ -52,14 +52,64 @@ export const WEColor = {
     const s = mx === 0 ? 0 : d / mx;
     return colorValue(((h % 1) + 1) % 1, s, mx);
   },
+  // ①(P-127 A①) 官方 `WEColor` **模块**（`import * as WEColor from 'WEColor'`）的导出面是
+  //   rgb2hsv / hsv2rgb / normalizeColor / expandColor 四个（来源：官方随引擎发布的脚本类型声明
+  //   `ui/dist/monaco/autocomplete/lib.sceneScript.d.ts` 的 `declare module 'WEColor'` 一节，
+  //   以及 https://docs.wallpaperengine.io/scene/scenescript/reference/module/WEColor —— 只读**签名与量纲**）。
+  //   本对象此前只有 hsv2rgb（语料 3 处 WEColor 导入里唯一被调用的就是它）；补齐另外两个量纲换算，
+  //   否则脚本调 `WEColor.normalizeColor(...)` 会抛 "is not a function"（同一类静默别名缺陷）。
+  //   量纲：`normalizeColor` 0..255 → 0..1，`expandColor` 0..1 → 0..255；返回 Vec3（官方签名如此）。
+  normalizeColor(color) {
+    const c = color || { x: 0, y: 0, z: 0 };
+    return new Vec3((Number(c.x) || 0) / 255, (Number(c.y) || 0) / 255, (Number(c.z) || 0) / 255);
+  },
+  expandColor(color) {
+    const c = color || { x: 0, y: 0, z: 0 };
+    return new Vec3((Number(c.x) || 0) * 255, (Number(c.y) || 0) * 255, (Number(c.z) || 0) * 255);
+  },
+};
+
+// ①(P-127 A①) 度/弧度换算常数：**一处定义**，`WEMath` 模块与 `WEVector` 共用
+//   （官方 `WEMath.deg2rad` = π/180、`rad2deg` = 180/π；两模块必须同值，否则往返不闭合）。
+export const DEG2RAD = Math.PI / 180;
+export const RAD2DEG = 180 / Math.PI;
+
+// ①(P-127 A①) 官方 `WEVector` **模块**的独立实现（`import * as WEVector from 'WEVector'`）。
+//   行为契约（只读官方签名，不取实现）：
+//     · `angleVector2(angle: Number): Vec2` —— 角度单位是**度**；返回单位圆上的 2D 方向向量
+//       （cos/sin，x 向右、y 向上）。来源：官方 `lib.sceneScript.d.ts` 的
+//       `declare module 'WEVector'` 注释 "Create a 2D directional vector from an angle (degrees)"，
+//       以及 https://docs.wallpaperengine.io/scene/scenescript/reference/module/WEVector 。
+//     · `vectorAngle2(direction: Vec2): Number` —— 反向换算，返回**度**，范围 (-180, 180]
+//       （atan2 的口径；0° = +x，逆时针为正）。
+//   语料实况（全 98 个容器实测，P-127 回报）：`WEVector.angleVector2` 共 57 处文本命中 / 7 个包，
+//   其中**活代码只有 1 处**（`wallpaperE/洛茜/洛茜_11.mpkg` 的
+//   `new Vec3(WEVector.angleVector2(angle)).multiply(circleScale)`，在 `init()` 里给音频条排环）。
+export const WEVector = {
+  angleVector2(angle) {
+    const rad = (Number(angle) || 0) * DEG2RAD;
+    return new Vec2(Math.cos(rad), Math.sin(rad));
+  },
+  vectorAngle2(direction) {
+    const d = direction || { x: 0, y: 0 };
+    return Math.atan2(Number(d.y) || 0, Number(d.x) || 0) * RAD2DEG;
+  },
 };
 
 // createScriptProperties() 链式构建器: .addSlider({...}).addCheckbox({...})...finish()
 // 属性值: 优先 user 属性映射, 否则 name.value (脚本默认值)
+//
+// ①(P-127 A①) `slot`：宿主传进来的**活引用槽**（脚本顶层 `const props = scriptProperties`
+//   捕获到的就是它）。每 `addX()` 一次就把该属性的值**同时**写进槽 ⇒ 脚本在
+//   `export var scriptProperties = createScriptProperties()….finish();` **之后**的顶层读取
+//   （语料里确有这种写法，例：0917/3509243656 的物理脚本 `const FIXED_TIMESTEP = scriptProperties.step/1000`）
+//   拿到的是**真值**，而不是旧实现的 `null.foo` → TypeError（整脚本被判编译失败、永久禁用）。
+//   官方运行时里 `scriptProperties` 就是引擎提供的活对象，这条是向官方语义靠拢。
 export class ScriptPropertiesBuilder {
-  constructor(userProps) {
+  constructor(userProps, slot) {
     this.userProps = userProps || {};
     this.props = {};
+    this.slot = slot && typeof slot === 'object' ? slot : null;
   }
   _add(prop) {
     // prop: {name, label, value, min, max, user?, ...}
@@ -69,6 +119,7 @@ export class ScriptPropertiesBuilder {
       if (uv !== undefined && uv !== null) val = uv;
     }
     this.props[prop.name] = val;
+    if (this.slot) this.slot[prop.name] = val;
     return this;
   }
   addSlider(p) { return this._add(p); }
@@ -78,7 +129,8 @@ export class ScriptPropertiesBuilder {
   addText(p) { return this._add(p); }
   addCombo(p) { return this._add(p); }
   addDropdown(p) { return this._add(p); }
-  finish() { return this.props; }
+  // finish() 返回**活槽**（无槽时退回旧行为：返回自己的 props 表）
+  finish() { return this.slot || this.props; }
 }
 
 // Vec3 (引擎坐标类)
@@ -108,7 +160,12 @@ export class Vec2 {
 }
 export class Vec3 {
   constructor(x, y, z) {
-    if (x && typeof x === 'object' && 'x' in x) { this.x = x.x; this.y = x.y; this.z = x.z; }
+    // ①(P-127 A①) 官方构造签名是 `Vec3(x: Number|Vec2|String, y?, z?)`（据官方
+    //   `lib.sceneScript.d.ts` 的 `class Vec3`）。从 **Vec2** 构造时 z 分量必须是 **0**：
+    //   旧实现直接取 `x.z` ⇒ 对 Vec2 得到 `undefined` ⇒ 下游 `multiply()/add()` 级联 NaN
+    //   （语料实证：洛茜_11 `new Vec3(WEVector.angleVector2(a)).multiply(k)` → origin 的 z 变 NaN）。
+    //   只补 z 缺失这一条；`String` 形态与 `Vec2` 的 `x: Number|Vec3|String` 仍未实现（见 PATCHES 未证实项）。
+    if (x && typeof x === 'object' && 'x' in x) { this.x = x.x; this.y = x.y; this.z = x.z !== undefined ? x.z : 0; }
     else { this.x = x; this.y = y; this.z = z; }
   }
   add(o) { return new Vec3(this.x + o.x, this.y + o.y, this.z + o.z); }

@@ -9157,3 +9157,234 @@ CI 自检片段（从 pages.yml 抽取、在合成产物上跑）GREEN：「✓ 
 | **未改**：`elysia/scene-script-apis.js` · `elysia/scene-scripts.js` | 并行线的工作树改动（本轮**零触碰**；`git status` 可见但不在本次提交里） |
 | **未改**：`demo/assets/*.js` | minified 预构建产物（不可重建）：里面写死的旧前缀由运行期改写兼容，**一个字节都没改**（许可口径） |
 | **未改**：`docs/BENCH-REDESIGN.md` · `docs/PATCHES.md` 历史节 | 历史记录，按 (C) 不动 |
+
+## P-128（2026-09-19 两批渲染器保真度）① 官方 `WEVector` 被静默别名成 `WEColor` → **逐名模块映射**；② 「还缺哪些字体」一次性审计（缺 8 个 / 影响面 / 许可判据 / `systemfont_*`）
+
+> **判据来源**：工作区侧 `docs/ANSWER-REMAINING-AND-API-20260918.md` **§2.5 表 B 第 1 行**（`WEVector` / `angleVector2` / 静默别名 / `洛茜_11`）。
+> 官方模块导出面只读**签名与量纲**：本机 WE 安装目录的 `ui/dist/monaco/autocomplete/lib.sceneScript.d.ts`
+> 的 `declare module 'WEMath' | 'WEVector' | 'WEColor'` 三节 + 官方文档 URL（写在代码注释里）。
+> **许可**：`lwe-ref` / `wer-ref` 是本项目外的第三方参考实现，本批**只读行为结论**，实现按官方**签名**独立写出，
+> **未复制/未逐行翻译**其代码、注释、常量组织或错误文案。
+> **编号**：P-115~P-126 已占用；本批起草时 P-127 尚空，**落盘时并行线已用掉 P-127**（站点路径改名批）⇒ 本批改号为 **P-128**（`docs-check` 的"编号唯一 + 非降"按 `^## P-` 头校验）。
+> **本轮纪律**：**未开浏览器**、**未跑** `run-all-tests.sh` / `package-matrix` / `glsl-validate` / `build-pages.mjs`；
+> 全部证据来自秒级单项命令与两个新测试。
+
+### P-128.1 任务 A① 现场与改法：`import * as X from '<模块名>'` 从"二元兜底"改成**逐名映射**
+
+**现场（改动前，`elysia/scene-scripts.js:327-331`）**：
+
+```js
+code = code.replace(/import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g, (m, name, mod) => {
+  return `const ${name} = ${mod === 'WEMath' ? '__WEMath' : '__WEColor'};`;     // ← 除 WEMath 外**一律** WEColor
+});
+```
+
+⇒ 官方 `WEVector` 拿到的是 `WEColor` 对象，`WEVector.angleVector2` 是 `undefined`，脚本一调就抛
+`TypeError: WEVector.angleVector2 is not a function`；`runScriptValueCached` 的 `update` 分支 try/catch 吞掉
+（只累加 `entry.updateErrors`）⇒ **不报错、不白屏**，那一层停在 authored 值。
+
+**改法**：`NSL_MODULE_GLOBALS`（`WEMath`→`__WEMath`、`WEVector`→`__WEVector`、`WEColor`→`__WEColor`）+
+`moduleGlobalFor()`；**表外的模块名落到 `__WEEmptyModule`（冻结的空命名空间）**，**不再兜底到 `WEColor`**
+（兜底会让 `X.mix` 之类"看似可用"，静默错值比报错更难查）。`WEVector` 的独立实现在
+`elysia/scene-script-apis.js`：`angleVector2(angle)` 度→单位圆 `Vec2(cos, sin)`、`vectorAngle2(v)` 反向
+`atan2(y,x)·rad2deg`；`DEG2RAD`/`RAD2DEG` 一处定义、`WEMath` 与 `WEVector` 共用（否则往返不闭合）。
+同批补齐官方 `WEColor` 模块的另两个导出：`normalizeColor`（÷255）/`expandColor`（×255）。
+
+### P-128.2 语料**模块名清单**（全量实扫，不是抽样）：只有官方三个名字
+
+`tests/script-wevector-module-test.mjs` 的 W1 组现场复算：**98 个** PKG/PKGM 容器 → **53 份** `scene.json`
+（其余是无场景的视频/网页包）→ **37 个**容器含脚本 → **1953 个**脚本节点。
+
+| 模块名 | `import * as` 命中 | 容器数 | 成员调用点（活代码 / 注释） | 调用到的成员 |
+|---|---|---|---|---|
+| `WEMath` | 60 | 14 | 166 / 0 | `mix` 136、`smoothStep` 30 |
+| `WEVector` | 57 | 7 | **1 / 56** | `angleVector2` 57（**`vectorAngle2` 语料 0 次**） |
+| `WEColor` | 3 | 3 | 4 / 0 | `hsv2rgb` 1 |
+
+* **结论**：语料里出现的模块名**恰好**是官方那三个 —— **没有第三个被错映射的名字**（这是本轮最想确认的一条：答案是"没有"）。
+* **`WEVector` 的 57 处里有 56 处在注释里**：那是官方 snippet `wallpaper_engine/ui/dist/monaco/snippets/script_origin_reflect.js`
+  （`var direction = new Vec3(WEVector.angleVector2(45 + Math.floor(Math.random() * 4) * 90));`）
+  被作者注释掉后的残留，分布在 6 个容器。**活代码只有 1 处**（下一节）。
+  ⚠ ANSWER §2.5 表 B 写的"3 / 1 包"是**文本命中**的一个下界；精确口径是 **57 处文本 / 7 容器 / 活代码 1 处**。
+
+### P-128.3 真包实测：`allwallpaper/wallpaperE/洛茜/洛茜_11.mpkg`（改前抛 / 改后不抛 + 数值对齐手算）
+
+**那唯一一处活代码**（包内 `objects[21]`，层名 `Circle Audio Visualization`，脚本 39,951 B，在 `init()` 里排音频条圆环）：
+
+```js
+const direction = new Vec3(WEVector.angleVector2(angle)).multiply(circleScale);
+bar.origin = center.add(direction);
+```
+
+**⚠ 关键发现：这一处被一个更早的宿主缺陷挡在后面**（所以从来没暴露）。同一段 `init()` 的执行顺序是：
+
+| 行 | 语句 | 改动前的结果 |
+|---|---|---|
+| 472 | `thisLayer.parallaxDepth = props.parabool ? … ` | `props` 是 **`null`** ⇒ `TypeError: Cannot read properties of null (reading 'parabool')` ⇒ `init` 失败、`entry.disabled = true` |
+| 421 | `rebuildBars(true)` → `thisScene.getLayerIndex(thisLayer)` | **未实现**（ANSWER §2.5 表 B 第 4 项） |
+| 428 | `thisScene.createLayer('models/cav_default_texture.json')` | **未实现**（同上） |
+| **560** | `new Vec3(WEVector.angleVector2(angle))` | ← **本批要修的那条**，改动前**根本走不到** |
+
+**根因二（同批修）**：`props` 为什么是 null —— 脚本第 138 行是 `const props = scriptProperties;`（**顶层**求值），
+而旧实现把 `scriptProperties` 重命名成 `__scriptProperties` 后，**先给 `null`、等 `vm.runInContext` 跑完才赋值**
+⇒ 顶层捕获恒为 `null`。官方运行时里 `scriptProperties` 是引擎提供的**活对象**，所以顶层捕获拿到的是同一个引用。
+改法：`compileScript` 预先建一个**活引用槽**，`ScriptPropertiesBuilder._add()` 每声明一个属性就写进槽
+（`finish()` 返回槽），run 完再把对象级覆盖**镜像**进同一个槽 ⇒ ①顶层捕获不再是 null；②`.finish()` **之后**的
+顶层读取拿到真值（语料里 0917/3509243656 的物理脚本就这么写）；③同脚本多对象不串（每次先删掉不在本次 props 里的键）。
+
+**根因三（同批修）**：`new Vec3(Vec2)` 的 z 分量。官方构造签名是 `Vec3(x: Number|Vec2|String, y?, z?)`，
+旧实现直接取 `x.z` ⇒ 对 `Vec2` 得 `undefined` ⇒ `.multiply(k)` 之后 z 变 **NaN** ⇒ `origin` 写成 `… NaN`。
+改法：`x.z !== undefined ? x.z : 0`。
+
+**实测（隔离复现：给 `makeSceneRef` 里**尚未实现**的那三个方法加桩，好让 WEVector 这一条能被单独观察）**：
+
+| | 改动前（HEAD `99136cf`） | 改动后 |
+|---|---|---|
+| `onError` 次数 | **1**：`init :: Cannot read properties of null (reading 'parabool')` | **0** |
+| `createLayer` 调用次数 | **0**（永远走不到） | **63** = `totalBars − 1`（`targetAudioBuffer 64 × cloneMultiplier 1`） |
+| 把映射单独改回"一律 WEColor" | — | **1**：`init :: WEVector.angleVector2 is not a function`（见 P-128.5 的 RED 原文） |
+| bar#1 的 `origin` | — | `{"x":617.5487253344394,"y":579.5102880659122,"z":0}` |
+
+**数值算例（手算 vs 实测，逐条 <1e-9）**：`center = (418.51178, 559.90686, 0)`（该层 authored origin）、
+`circleScale = 200`、`totalBars = 64`、`θᵢ = i · 360/64 = i · 5.625°`（i = 1…63）：
+
+```
+origin_i = center + 200 · (cos θᵢ, sin θᵢ, 0)
+i = 1 : (617.5487253344394, 579.5102880659122, 0)      ← 与实测逐位相同
+angles.z = θᵢ + 90   （barAngleOffset = 0）  ⇒ i = 1 时为 95.625
+z 分量恒等于 0（不是 NaN、不是 undefined、不是 6.1e-17）
+```
+
+`tests/script-wevector-module-test.mjs` 的 W6 组把 63 根 bar **逐条**比对手算公式（W6e）、
+断言没有一个分量是 NaN（W6f）、`angles.z` 同一套角度口径（W6g）。
+
+### P-128.4 全语料回归：96 → 97 个错误，且每一条变化都能解释
+
+秒级全量对拍（`applySceneScripts` 跑全部 37 个含脚本容器 / 1953 个脚本；同一台机器、同一命令，
+一次跑**本批基线 `99136cf` 的 `elysia/` 副本**、一次跑工作树版本。⚠ 基线提交写的是 `99136cf`：
+本批作业期间并行线提交了 `f7ff741`（P-127 站点路径改名），**那份提交未触碰 `elysia/`**，故对拍口径不变）：
+
+| 指标 | HEAD | 本批 | 说明 |
+|---|---|---|---|
+| 容器 / 脚本数 | 37 / 1953 | 37 / 1953 | 完全一致 |
+| `onError` 总数 | **96** | **97** | **+1**，全部来自下面两条 |
+| `init :: Cannot read properties of null (reading 'parabool')` | 1 | **0** | 洛茜_11 —— `props` 活槽修好了 |
+| `init :: thisScene.getLayerIndex is not a function` | 1 | 2 | 洛茜_11 **前进**到 #4 那个未实现方法（另一个包本来就在这条上） |
+| `update :: thisScene.createLayer is not a function` | 0 | **1** | 0917/3509243656 的物理脚本：顶层 `scriptProperties.step` 由"null 读 ⇒ 编译期抛 ⇒ 整个脚本被静默禁用"变成"拿到真值 ⇒ 脚本真的跑起来"，于是在**真正缺的 API** 上（`createLayer`）报一次 |
+
+⇒ **唯一"新增"的那条不是回归**：它是"脚本从**静默禁用**变成**带着正确参数运行**，随后撞上一个已登记的缺口"。
+**残留阻塞**（**未在本批实现，属 ANSWER §2.5 表 B 第 4 项**）：`thisScene.getLayerIndex` / `createLayer` /
+`sortLayer` / `getInitialLayerConfig`。语料实测调用点：`getLayerIndex` 2 次/2 包、`sortLayer` 2 次/2 包、
+`createLayer` 4 次/4 包、`getInitialLayerConfig` 1 次/1 包（`洛茜_07` / `洛茜_11` / `0917/3509243656` /
+`dd/3544152633`）。**没有实现的原因**：`createLayer` 要能加载 `models/*.json` 资产并**真的进渲染列表**
+（需要 pkg 句柄 + 渲染器集成，且只有浏览器路径能验证），属于另一条工作线；本批只加了一条
+`applySceneScripts(opts.thisScene)` 的缝（此前该选项在本函数里**被静默忽略**），让缺口能被测试**精确隔离**，
+不给 `opts.thisScene` 时行为逐位不变。
+
+### P-128.5 判据与红-if-reverted（贴 RED 原文）
+
+`node tests/script-wevector-module-test.mjs` ⇒ **44 项全过 / 0 失败**（W1 语料模块名、W2 数值、W3 命名空间互不串、
+W4 官方导出面、W5 未知模块名 + 活槽、W6 真包、W7 变异自检）。内置变异自检（`--no-mutation` 可关）把三处修复
+分别改回旧写法，**各自在子进程里必红**，且变异体里基线断言（W1a/W2b）仍 ✓ —— 证明红的是被点名的那条，
+不是"副本根本加载不起来"：
+
+| 变异 | 改回什么 | 结果 |
+|---|---|---|
+| `M1` | `moduleGlobalFor()` → `mod === 'WEMath' ? '__WEMath' : '__WEColor'` | 子进程 `rc=1`，**10 项红**（W1c/W1d/W1f/W3c/W3d/W5a/W6b/W6c/W6e/W6g） |
+| `M2` | `Vec3` 的 `x.z !== undefined ? x.z : 0` → `x.z` | `rc=1`，W5d/W6f 红 |
+| `M3` | `__scriptProperties: scriptPropsSlot` → `null` | `rc=1`，W5b/W5c 红 |
+
+**RED 原文（M1 变异体，逐字）**：
+
+```
+  ✗ W1c 每个出现的模块名都有**专属**映射：互不相同、都不等于空命名空间  → ["WEMath→__WEMath","WEVector→__WEColor","WEColor→__WEColor"]
+  ✗ W3c 编译后的沙箱里：`WEVector.angleVector2`/`vectorAngle2` 是函数、…  → {"errs":["update:WEVector.angleVector2 is not a function"],"pr":{}}
+  ✗ W5a 未知模块名不抛编译错、且拿到的是**空**命名空间（…）  → {"errs":[],"pr":{"t":"object","mix":"function","av":"undefined"}}
+  ✗ W6b 跑该层脚本 **0 错误**（旧实现这里抛 `WEVector.angleVector2 is not a function`）  → ["init :: WEVector.angleVector2 is not a function"]
+  ✗ W6c 报错串里**不含** `angleVector2`（判据的字面口径）  → ["init :: WEVector.angleVector2 is not a function"]
+  ✗ W6e 每根 bar 的 `origin` == 手算 `center + circleScale·(cos θᵢ, sin θᵢ, 0)`（θᵢ = i·5.625°），1e-9 内一致  → ["1:null≠(617.5487253344394,579.5102880659122,0)","1:angles.z=null",…]
+  (计票：pass=28 fail=10 skip=0)
+  10 项失败
+```
+
+### P-128.6 任务 B：「还缺哪些字体」一次性清单（许可判据 + 影响面 + 结论）
+
+**清点**：本机 WE 安装 `wallpaper_engine/assets/fonts/` = **15 个字体** + 4 个非字体文件（许可/说明）；
+本仓库 `assets/fonts/` = **7 个**。**差集 8 个**（⚠ 不是 9 个：`fonts/Monofur-PK7og.ttf` 与 `fonts/TwemojiMozilla.ttf`
+**已经打包**了，只是按上游发布名落成 `fonts/monof55.ttf` / `fonts/Twemoji.Mozilla.ttf`，映射在 `REPO_FONT_ALIASES`）。
+
+**每个字体的许可判据（文件内哪一句）** —— 新增的一条是把 WE 目录里 4 个非字体文件与**具体字体**对上
+（另外 11 个字体**没有任何**随附许可文件）：
+
+| `<WE>/assets/fonts/` 里的非字体文件 | 属于哪个字体 | 判据原文 |
+|---|---|---|
+| `SIL Open Font License.txt` | `fonts/8bitOperatorPlus8-Regular.ttf` | 首行 `Copyright (c) 2009 - 2014 Grand Chaos Productions (…), with Reserved Font Name 8-bit Operator+.` + OFL-1.1 全文 |
+| `RobotoMono-Regular License.txt` | `fonts/RobotoMono-Regular.ttf`（WE 那份） | `Apache License / Version 2.0` ⇒ **WE 的 2015 build 是 Apache-2.0**；我们打包的是上游现行 **OFL-1.1** build |
+| `monof_tt-be11.txt` | `fonts/Monofur-PK7og.ttf` | `These fonts are freeware and can be distributed as long as they are together with this text file.` |
+| `twemojimozilla.txt` | `fonts/TwemojiMozilla.ttf` | 全文 `by Mozilla licensed under CC-BY-4.0` + 许可 URL |
+
+**一次性表**（`引用` = 全语料 98 个容器里**文本层** `font` 属性的命中数，`tests/font-gap-audit-test.mjs` 逐条复算）：
+
+| 字体 | 已打包 | 许可 | 引用（层/容器） | 影响面 | 结论 |
+|---|---|---|---|---|---|
+| `fonts/8bitOperatorPlus8-Regular.ttf` | ✗ | **OFL-1.1（可再分发）**（ID13 原文 `…Creative Commons (CC-BY-SA 4.0) and SIL Open Font License 1.1.`） | **61 / 17** | 最大 | **不能打包**：作者现行发布页取不到（§4.7 六条尝试），"从 WE 目录复制"被铁律禁止 |
+| `fonts/Alcubierre.otf` | ✗ | 未定（ID0 `All rights reserved.`） | 34 / 21 | 大 | 不能打包（**未定 ≠ 可以**） |
+| `fonts/Atami-Regular.otf` | ✗ | 未定（ID0 `All rights reserved.`） | 23 / 10 | 中 | 不能打包 |
+| `fonts/CursedTimerUlil-Aznm.ttf` | ✗ | 未定（同人二创） | 6 / 3 | 小 | 不能打包 |
+| `fonts/Lazer84.ttf` | ✗ | 只授予使用、未授予再分发（ID0 是未填写的模板串） | 6 / 3 | 小 | 不能打包 |
+| `fonts/opensticks.ttf` | ✗ | `Free for commercial use.`（**使用**授权 ≠ **分发**授权） | 6 / 3 | 小 | 不能打包 |
+| `fonts/kust.ttf` | ✗ | 未定（无授权语句） | **0 / 0** | 无 | **不需要** |
+| `fonts/summer85.ttf` | ✗ | 未定（作者站点已消失） | **0 / 0** | 无 | **不需要** |
+| `fonts/NotoSans-Regular.ttf` | ✓ | OFL-1.1 | 0（只经 `systemfont_*` 间接） | — | 已打包 |
+| `assets/fonts/Twemoji.Mozilla.ttf` | ✓ | CC-BY-4.0（美术） | 0（供 emoji） | — | 已打包 |
+| `assets/fonts/monof55.ttf`（=`fonts/Monofur-PK7og.ttf`） | ✓ | OFL-1.1 | 13 / 6 | — | 已打包 |
+| `fonts/spincycle_3d_ot.otf` | ✓ | 作者 freeware 条款 | 44 / 18 | — | 已打包 |
+| `fonts/Blackout 2 AM.ttf` | ✓ | OFL-1.1 | 22 / 18 | — | 已打包 |
+| `fonts/Segment7Standard.otf` | ✓ | OFL-1.1 | 13 / 12 | — | 已打包 |
+| `fonts/RobotoMono-Regular.ttf` | ✓ | OFL-1.1 | 1 / 1 | — | 已打包 |
+| `systemfont_arial` | 旁路 | 系统字体别名 | 48 / 4 | — | 映射 `Arial`（浏览器）/ NotoSans（Node） |
+| `systemfont_consolas` | 旁路 | 系统字体别名 | 63 / 3 | — | 映射 `Consolas`（浏览器）/ **RobotoMono**（Node，本批修正） |
+| `systemfont_comicsans` | 旁路 | 系统字体别名 | 4 / 1 | — | 映射 `Comic Sans MS` |
+
+* **回退链实况**：这 8 个**都不在**引用它们的容器内（实测）⇒ 第①级必空 → 第②级（仓库）也没有 →
+  **第③级读用户本机 WE**（8 个在 WE 目录里**都在**，所以装了 WE 的机器上是真字体）→ 没装 WE 才落第④级
+  `sans-serif`，**不抛异常**。四级链回归在 `tests/text-font-fallback-test.mjs`（**106 断言 rc=0**，本轮**不降**）。
+* **"能再分发"与"能打包"是两件事**：`8bitOperatorPlus8` 的许可清楚（OFL-1.1），卡的是**取件口**；
+  本机对它做了 6 次尝试（§4.7 表）全部取不到，而 WE 副本按铁律禁用 ⇒ 结论保持"不打包"，并**升级为最优先的待补项**。
+* **自备方法**（写进 `assets/fonts/README.md`）：把文件按 WE 引用名放进 `assets/fonts/` 即被第②级自动加载，
+  **不需要改代码**（文件名不同才需要在 `REPO_FONT_ALIASES` 加一条）。
+* **`systemfont_*` 处理**：浏览器路径本来就把别名映射到真实系统族名（语料用到的 3 个全覆盖，可接受）；
+  **Node/离线路径此前把所有 `systemfont_*` 一律折到比例字体 `NotoSans`**，对 `systemfont_consolas`
+  （63 层 / 3 容器）属**字形类别错**。本批按类别分派：`consolas`/`couriernew` → `fonts/RobotoMono-Regular.ttf`
+  （已打包的等宽，OFL-1.1），其余保持 NotoSans —— **不引入新字体**。
+
+### P-128.7 本批判据汇总 / 改动面 / 未证实项
+
+| 判据命令（秒级单项） | 结果 |
+|---|---|
+| `node tests/script-wevector-module-test.mjs` | **44 项全过 / 0 失败**（含内置 3 个变异体的红-if-reverted） |
+| `node tests/font-gap-audit-test.mjs` | **29 项全过 / 0 失败**（0.6 s） |
+| `node tests/text-font-fallback-test.mjs` | **106 断言通过 / 0 失败**（与改动前同数，**未降**） |
+| `node tests/docs-check.mjs` | `✓ 文档一致性全部通过` rc=0 |
+| `node tests/diag-flag-check.mjs` | `151 == 151`，0 差异，rc=0 |
+| 既有脚本类回归（`script-origin-sync` / `script-sandbox-globals` / `script-tick` / `script-tolerance` / `script-owner-live` / `data-limits`） | 全 rc=0，断言数与改动前一致 |
+
+**新增文件**：`tests/script-wevector-module-test.mjs`、`tests/font-gap-audit-test.mjs`、`tests/_pkg-index.mjs`（两个测试共用的**只读**容器目录表读取）。
+**改动**：`elysia/scene-scripts.js`、`elysia/scene-script-apis.js`、`elysia/we-renderer/text.js`、
+`assets/fonts/README.md`、`THIRD-PARTY.md`（§4.5.1/§4.5.2）、本节。
+**未注册门禁**：两个新测试**尚未**写进 `tests/run-all-tests.sh`（按纪律本轮**不改**那个文件；注册待办见两文件头部）。
+
+**未证实项（不写成结论）**：
+
+1. **`thisScene.createLayer` 等 4 个方法的真实语义**未实现（P-128.4 的残留阻塞）⇒ 洛茜_11 / 洛茜_07 的
+   音频条**在本仓库里仍然只跑到 `createLayer` 就停**。本批的"0 错误"是在**给那三个方法加桩**的条件下成立的，
+   **不是**端到端跑通。
+2. **8bitOperatorPlus8 的上游可达性**：本批只复测了 `www.deviantart.com/grandchaos9000`（fetch 失败，
+   与 §4.7 的 `curl exit 28` 一致）；其余 5 个候选口未复测。作者页一旦可达，按 §4.8 配方取件即可补上。
+3. **浏览器端**未复测（硬约束：本机不开浏览器）⇒ W6 的真包结论来自 Node 侧同一份 `elysia/` 源码；
+   浏览器路径 `demo.html` 直接用同一份 `elysia/scene-scripts.js`（`import('./elysia/demo-elysia.js')`），
+   但"真机像素/观感"仍需用户复核。
+4. **`Vec3(String)` / `Vec2(Number|Vec3|String)` 两种官方构造形态未实现**（本批只补了 `Vec3(Vec2)` 的 z=0）；
+   语料里未观测到依赖它们的地方，但**没有全量证明**。
+5. `WEVector.vectorAngle2` **语料 0 次调用**（只有 `angleVector2` 在跑）⇒ 它的正确性只有合成断言 +
+   与官方定义逐位对照，**没有真包回归**。

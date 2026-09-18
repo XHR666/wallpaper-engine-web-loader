@@ -71,10 +71,18 @@ export function installText(proto) {
         const ortho = this.scene.general && this.scene.general.orthogonalprojection;
         const ps = ortho && ortho.width ? [this.W / ortho.width, this.H / (ortho.height || 1080)] : [1, 1];
         // 字体: 场景 fonts/ 或全局 assets/fonts/; systemfont_* = WE 系统字体标识
-        // (引擎用系统字体; 跨平台用内置 NotoSans 替代)
+        // (引擎用系统字体; 跨平台用内置字体替代)
+        // ①(P-127 B②) 旧实现把**所有** `systemfont_*` 一律折到 `fonts/NotoSans-Regular.ttf`（比例字体）——
+        //   语料里 `systemfont_consolas` 有 **63 个文本层 / 3 个容器**，落到比例字体属于**字形类别错**
+        //   （等宽 → 比例，时钟/代码类文本的列宽会散）。按**类别**分派：等宽的 id → 仓库已打包的
+        //   等宽字体 `fonts/RobotoMono-Regular.ttf`（OFL-1.1；本机 WE 目录里也有同名文件），
+        //   其余 id 保持原样（NotoSans）。**不引入新字体**：两个目标都在既有发行面上。
+        //   浏览器路径不经这里 —— `demo.html` 的 `textFontFamily()` 把 `systemfont_*` 直接映射到真实
+        //   系统族名（Arial / Consolas / …），比"换成 NotoSans"更贴近引擎语义。
+        const SYSTEMFONT_MONO = { systemfont_consolas: 1, systemfont_couriernew: 1 };
         let fontPath = getVal(o, 'font', '');
         if (String(fontPath).startsWith('systemfont_')) {
-          fontPath = 'fonts/NotoSans-Regular.ttf';
+          fontPath = SYSTEMFONT_MONO[fontPath] ? 'fonts/RobotoMono-Regular.ttf' : 'fonts/NotoSans-Regular.ttf';
         }
         if (fontPath) {
           try {

@@ -272,6 +272,67 @@ redistributable — but the author's current publishing page could not be reache
 and the rule above forbids substituting the WE copy. It is therefore **not bundled** and is
 recorded as an open item in §4.7.
 
+#### 4.5.1 Re-verified 2026-09-19 (P-127): licence evidence per font + measured corpus impact
+
+> **What is new in this subsection** (re-derived from first-hand files on this machine, not copied
+> from the research log): the licence-file ↔ font pairing inside `<WE>/assets/fonts/`, the
+> **`name`-table quotes** re-read from each binary, and the **corpus impact** — how many text layers
+> and how many containers reference each font across all 98 `.pkg`/`.mpkg` containers. Everything
+> here is re-computable with `node tests/font-gap-audit-test.mjs` (frozen expectations live in that
+> file's `CENSUS` / `NOT_BUNDLED` / `BUNDLED` tables).
+
+**Which file in `<WE>/assets/fonts/` belongs to which font** (that directory ships 15 fonts +
+4 non-font files; the other 11 fonts have **no** accompanying licence file at all):
+
+| Non-font file in `<WE>/assets/fonts/` | Belongs to | The sentence that decides it |
+|---|---|---|
+| `SIL Open Font License.txt` | `8bitOperatorPlus8-Regular.ttf` | First line: `Copyright (c) 2009 - 2014 Grand Chaos Productions (http://grandchaos9000.deviantart.com), with Reserved Font Name 8-bit Operator+.` — the RFN names exactly this one font; the rest is the OFL-1.1 text |
+| `RobotoMono-Regular License.txt` | `RobotoMono-Regular.ttf` (WE's build) | `Apache License / Version 2.0, January 2004` — WE's 2015 build is the **Apache-2.0** one; our bundled copy is the upstream **OFL-1.1** build instead (§4.4) |
+| `monof_tt-be11.txt` | `Monofur-PK7og.ttf` | `These fonts are freeware and can be distributed as long as they are together with this text file.` (author's 2000 notice; our `monof55.ttf` travels with the same notice + the Debian OFL record) |
+| `twemojimozilla.txt` | `TwemojiMozilla.ttf` | Full text: `by Mozilla licensed under CC-BY-4.0` + the licence URL |
+
+**The 8 fonts that are not bundled** — `name`-table evidence (re-read 2026-09-19) + measured impact:
+
+| Font | `name` table (first-hand) | Redistributable? | Text layers / containers |
+|---|---|---|---|
+| `8bitOperatorPlus8-Regular.ttf` | ID13 `This font is licensed from Creative Commons (CC-BY-SA 4.0) and SIL Open Font License 1.1.` · ID14 `http://scripts.sil.org/OFL_web` · ID0 `© 2009 - 2014 Grand Chaos Productions.` | **Yes (OFL-1.1)** — but no upstream copy obtainable from this machine (§4.7) | **61 / 17** |
+| `Alcubierre.otf` | ID0 `Copyright (c) 2015 by Ellis Design. All rights reserved.` · ID7 trademark | No grant located | 34 / 21 |
+| `Atami-Regular.otf` | ID0 `Copyright © 2016 by Andrew Herndon. All rights reserved.` | No grant located | 23 / 10 |
+| `CursedTimerUlil-Aznm.ttf` | ID0 `Copyright (c) MMXVIII Por bienestar del los fans of Urban Legend in Limbo. ESTUDIoS HEAVEN CASTRo` | No grant located (doujin derivative work) | 6 / 3 |
+| `Lazer84.ttf` | ID0 `Typeface © (your company). 2015. All Rights Reserved` (**unfilled template string**) | No — the free tier grants use, not redistribution | 6 / 3 |
+| `opensticks.ttf` | ID0 `Copyright (c) 2014, Apocalypse Laboratories. Free for commercial use.` | No — a **use** grant, not a **distribution** grant | 6 / 3 |
+| `kust.ttf` | ID0/ID8/ID9/ID10 `Ieva Mezule, Krisjanis Mezulis © 2015 WildType` (no licence statement anywhere) | No grant located | **0 / 0** — nothing references it |
+| `summer85.ttf` | ID0 `Typeface © SUNRISE DIGITAL. <2019>. All Rights Reserved` | No grant located | **0 / 0** — nothing references it |
+
+What this table changes (measured, not assumed):
+
+* `kust.ttf` and `summer85.ttf` are **not a gap at all** — zero text layers reference them, so
+  "not bundled" costs nothing.
+* The **largest** real gap is `8bitOperatorPlus8-Regular.ttf` (61 layers / 17 containers) and it is
+  exactly the one font whose licence *does* permit redistribution — the only missing piece is a
+  legitimate copy (author page unreachable; the WE copy is forbidden by the provenance rule). That
+  raises the priority of §4.7 without changing its conclusion.
+* None of the 8 exists inside the container that references it (measured), so all of them really do
+  resolve through tier 3 (the user's own WE install) or tier 4 (`sans-serif`).
+* `NotoSans-Regular.ttf` and `TwemojiMozilla.ttf` are bundled yet also have **0** direct corpus
+  references: NotoSans is reached only via the `systemfont_*` alias path (see §4.5.2), Twemoji only
+  for emoji coverage.
+
+#### 4.5.2 `systemfont_*` aliases (P-127)
+
+Wallpaper `scene.json` text layers may name a **system font alias** instead of a font file
+(corpus: `systemfont_arial` 48 layers / 4 containers, `systemfont_consolas` 63 / 3,
+`systemfont_comicsans` 4 / 1). These do **not** enter the four-tier chain at all:
+
+* **Browser path** (`demo.html` → `textFontFamily()`): mapped to the real system family name
+  (`Arial`, `Consolas`, `Comic Sans MS`, …) with `sans-serif` as the fallback for unknown ids. The
+  three ids the corpus uses are all covered. No font file is requested.
+* **Offline/Node path** (`elysia/we-renderer/text.js`): before P-127 **every** `systemfont_*` was
+  collapsed to `fonts/NotoSans-Regular.ttf` — for the monospace ids that is a **category error**
+  (monospace → proportional). P-127 dispatches by category: `systemfont_consolas` /
+  `systemfont_couriernew` → `fonts/RobotoMono-Regular.ttf` (already bundled, OFL-1.1); every other
+  id keeps NotoSans. **No new font was introduced.**
+
 ### 4.6 The two conditional fonts, condition by condition
 
 #### 4.6.1 `spincycle_3d_ot.otf`
