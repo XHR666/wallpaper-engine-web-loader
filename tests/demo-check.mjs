@@ -166,17 +166,21 @@ const landing = path.join(ROOT, 'index.html')
       { cwd: ROOT, encoding: 'utf8', timeout: 180_000 })
     ok = true
   } catch (e) { out = String(e.stdout || e.message) }
-  check('D6 build-pages.mjs 退出码 0（产物自检 12 项全过）', ok, out.slice(0, 200))
+  // ①(2026-09-19 P-127) 原来这里写死"12 项"（MUST 后来已经长到十几项）⇒ 去掉数字，只判"全过"
+  check('D6 build-pages.mjs 退出码 0（产物必需文件自检 + 旧路径重定向页自检全过）', ok, out.slice(0, 200))
   if (ok) {
     const must = ['index.html', 'demo.html', 'bundle.js', 'we-scene-bundle.js', 'sw.js', 'manifest.webmanifest',
       'demo/index.html', 'demo/bench-patch.js', 'demo/LICENSE-webwallgl-MIT.txt',
-      'wallpaper-engine-webgl/index.html', 'wallpaper-engine-webgl/bench-patch.js',
-      'wallpaper-engine-webgl/renderer/index.html', 'samples/sample-synthetic/scene.pkg', '.nojekyll',
+      // ④(P-127 2026-09-19) 站点路径改名：别名挂载点 = WEwebLoader/；旧名只留重定向页（下面单独断言）
+      'WEwebLoader/index.html', 'WEwebLoader/bench-patch.js',
+      'WEwebLoader/renderer/index.html', 'samples/sample-synthetic/scene.pkg', '.nojekyll',
+      'wallpaper-engine-webgl/index.html', 'wallpaper-engine-webgl/renderer/index.html',
+      'wallpaper-engine-webgl/default-wallpaper/index.html',
       // 真机踩到过：`demo/samples` 是**软链目录**，只判 `Dirent.isDirectory()` 会把它整个漏掉
       // ⇒ 产物里没有 demo/samples/ ⇒ 线上默认壁纸 fetch 404。这条断言就是那个坑的钉子。
       'demo/samples/sample-synthetic/scene.pkg', 'demo/samples/sample-synthetic/project.json',
-      'wallpaper-engine-webgl/samples/sample-synthetic/scene.pkg']
-    check('D6 产物里必需文件齐（含额外挂载点 wallpaper-engine-webgl/ 与 .nojekyll）',
+      'WEwebLoader/samples/sample-synthetic/scene.pkg']
+    check('D6 产物里必需文件齐（含挂载点 WEwebLoader/、旧路径三张重定向页与 .nojekyll）',
       must.every((f) => fs.existsSync(path.join(ROOT, '_site', f))))
     check('D6 产物是真实文件而非软链（Pages 不解析软链）',
       !fs.lstatSync(path.join(ROOT, '_site', 'samples', 'sample-synthetic', 'scene.pkg')).isSymbolicLink() &&
@@ -200,9 +204,30 @@ const landing = path.join(ROOT, 'index.html')
     walk(path.join(ROOT, '_site'))
     check('D6 产物里零个人绝对路径（Pages workflow 的 grep 闸门同口径）', leak.length === 0, leak.slice(0, 4).join(', '))
     const siteDemo = path.join(ROOT, '_site', 'demo', 'bench-patch.js')
-    const siteAlias = path.join(ROOT, '_site', 'wallpaper-engine-webgl', 'bench-patch.js')
+    const siteAlias = path.join(ROOT, '_site', 'WEwebLoader', 'bench-patch.js')
     check('D6 产物的两份 bench-patch.js 字节相同（同一次拷贝，不可能漂移）',
       fs.readFileSync(siteDemo).equals(fs.readFileSync(siteAlias)))
+    // ④-b(P-127) 真产物里的旧路径：三张重定向页 + **零**非重定向页文件（不许第二份真源）
+    const legacyDir = path.join(ROOT, '_site', 'wallpaper-engine-webgl')
+    const legacyRels = []
+    const walkLegacy = (d) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p2 = path.join(d, e.name)
+        if (e.isDirectory()) walkLegacy(p2)
+        else legacyRels.push(path.relative(legacyDir, p2).split(path.sep).join('/'))
+      }
+    }
+    walkLegacy(legacyDir)
+    check('D6 旧路径下只有 3 张重定向页（index / renderer / default-wallpaper），没有第二份真源',
+      legacyRels.length === 3 && ['index.html', 'renderer/index.html', 'default-wallpaper/index.html'].every((r) => legacyRels.includes(r)),
+      legacyRels.join(', '))
+    const stub = fs.readFileSync(path.join(legacyDir, 'index.html'), 'utf8')
+    check('D6 真产物里的旧路径重定向页四件套齐（noindex + meta refresh + location.replace + 带 query）',
+      /name="robots" content="noindex,nofollow"/.test(stub) && /http-equiv="refresh" content="0; url=/.test(stub) &&
+      /location\.replace\(/.test(stub) && /location\.search/.test(stub) && Buffer.byteLength(stub) <= 4096,
+      Buffer.byteLength(stub) + ' B')
+    check('D6 旧路径不再有 bench-patch.js 拷贝（那条绝对路径靠重定向页兜底，不靠第二份真源）',
+      !fs.existsSync(path.join(legacyDir, 'bench-patch.js')))
     fs.rmSync(path.join(ROOT, '_site'), { recursive: true, force: true })
   }
 }
@@ -634,6 +659,134 @@ const landing = path.join(ROOT, 'index.html')
     check('D11 ⑬ 几何③：触发器贴右边界 ⇒ 左缘夹回裁剪盒内（不横溢出）',
       right.left === 980 - 132, JSON.stringify(right))
   }
+}
+
+// ---- D12（2026-09-19 ⑨ 用户裁定"旧名在 URL 路径上"）站点路径改名 /wallpaper-engine-webgl/ → /WEwebLoader/ ----
+// 为什么要这三组：
+//   ① **构建侧**：路径名的单一真源是 `tools/site-paths.mjs` —— 新名要在、旧名**只**以"极小重定向页"形态出现
+//      （旧路径再出现真源拷贝 = 第二份真源，改一处忘一处）；
+//   ② **产品面**：用户点得到的链接/引用里不许再有旧路径；而**运行期改写必须同时认旧+新两个前缀** ——
+//      产物是 minified、不可重建的，里面写死的是旧名（只认新名 ⇒ 线上 iframe 404）；
+//   ③ **反向钉子**：localStorage 键 / DOM 属性名 / 上游归属 / 静态品牌钉子**一个都不许**被"顺手改名"
+//      （改名改名，改的是 URL 路径，不是用户数据与许可口径）。
+{
+  const S = await import(pathToFileURL(path.join(ROOT, 'tools', 'site-paths.mjs')).href)
+  const P = await import(pathToFileURL(path.join(ROOT, DEMO, 'bench-patch.js')).href)
+  const buildSrc = read('build-pages.mjs')
+  const patchSrc = read('demo/bench-patch.js')
+  const yml = read('.github/workflows/pages.yml')
+
+  // ①-1 名字照抄（大小写）+ 单一真源
+  check('D12 ① 站点路径名逐字照抄用户给的大小写（WEwebLoader）+ 旧名常量在同处',
+    S.SITE_MOUNT === 'WEwebLoader' && S.SITE_MOUNT_LEGACY === 'wallpaper-engine-webgl' &&
+    JSON.stringify(S.SITE_PATH_ALIASES) === JSON.stringify(['/WEwebLoader/', '/wallpaper-engine-webgl/']),
+    JSON.stringify([S.SITE_MOUNT, S.SITE_MOUNT_LEGACY, S.SITE_PATH_ALIASES]))
+
+  // ①-2 build-pages.mjs 用真源常量挂别名：新路径在、旧路径不再被 copyTree
+  check('D12 ① build-pages.mjs 的别名落点 = SITE_MOUNT（新名），且不再把真源拷进旧路径',
+    /const ALIAS = path\.join\(OUT, SITE_MOUNT\)/.test(buildSrc) &&
+    /copyTree\(DEMO_SRC, ALIAS, SITE_MOUNT\)/.test(buildSrc) &&
+    !/path\.join\(OUT, 'wallpaper-engine-webgl'\)/.test(buildSrc) &&
+    !/copyTree\(DEMO_SRC, [^)]*SITE_MOUNT_LEGACY/.test(buildSrc) &&
+    /from '\.\/tools\/site-paths\.mjs'/.test(buildSrc),
+    'ALIAS/copyTree 口径')
+
+  // ①-3 旧路径 = "极小重定向页"形态（五件套：noindex / meta refresh / location.replace / 带 query / ≤4 KB）
+  const stubs = S.LEGACY_REDIRECTS.map((rel) => [rel, S.legacyRedirectHtml(rel)])
+  const stubBad = stubs.filter(([, html]) =>
+    !(/name="robots" content="noindex,nofollow"/.test(html) && /http-equiv="refresh" content="0; url=/.test(html) &&
+      /location\.replace\(/.test(html) && /location\.search/.test(html) && Buffer.byteLength(html) <= 4096))
+  check('D12 ① 旧路径重定向页五件套（noindex + meta refresh + location.replace + 带 query + ≤4 KB）×' + stubs.length + ' 张',
+    stubs.length >= 3 && stubBad.length === 0, stubBad.map(([r]) => r).join(', ') || 'ok')
+
+  // ①-4 跳转目标是**相对**地址、且深链回同层新路径（不是一律回首页）
+  check('D12 ① 重定向目标是相对地址（Pages 是子路径站点：绝对 /WEwebLoader/ 会指到域名根）',
+    S.LEGACY_REDIRECTS.every((rel) => {
+      const t = S.legacyRedirectTarget(rel)
+      return t.startsWith('../') && t.includes(S.SITE_MOUNT) && !t.includes(S.SITE_MOUNT_LEGACY)
+    }),
+    S.LEGACY_REDIRECTS.map((rel) => rel + '→' + S.legacyRedirectTarget(rel)).join(' '))
+  check('D12 ① 深链跳回同层新路径（renderer / default-wallpaper 不许只跳回首页）',
+    S.legacyRedirectTarget('index.html') === '../WEwebLoader/' &&
+    S.legacyRedirectTarget('renderer/index.html') === '../../WEwebLoader/renderer/index.html' &&
+    S.legacyRedirectTarget('default-wallpaper/index.html') === '../../WEwebLoader/default-wallpaper/index.html',
+    S.LEGACY_REDIRECTS.map((rel) => rel + '→' + S.legacyRedirectTarget(rel)).join(' '))
+  check('D12 ① 重定向落点覆盖产物里写死的那三条绝对路径的原目录（sw.js 有意不放：线上不该有旧 SW 域）',
+    ['index.html', 'renderer/index.html', 'default-wallpaper/index.html'].every((r) => S.LEGACY_REDIRECTS.includes(r)) &&
+    !S.LEGACY_REDIRECTS.includes('sw.js'))
+
+  // ①-5 CI 自检跟上（独立第二双眼睛；与 build-pages 的自检同口径）
+  check('D12 ① .github/workflows/pages.yml 自检改判新挂载点 + 旧路径只允许重定向页',
+    /test -f _site\/WEwebLoader\/index\.html/.test(yml) &&
+    /test -f _site\/WEwebLoader\/bench-patch\.js/.test(yml) &&
+    /test ! -f _site\/wallpaper-engine-webgl\/bench-patch\.js/.test(yml) &&
+    /default-wallpaper\/index\.html/.test(yml))
+
+  // ②-1 产品面 HTML：没有指向旧路径的可点链接/资源引用
+  const htmlFiles = ['index.html', 'demo.html', 'demo/index.html', 'demo/renderer/index.html', 'demo/default-wallpaper/index.html']
+  const badLinks = []
+  for (const f of htmlFiles) {
+    for (const m of read(f).matchAll(/(?:href|src|action)="([^"]*)"/g)) {
+      if (m[1].includes('/wallpaper-engine-webgl')) badLinks.push(f + ' → ' + m[1])
+    }
+  }
+  check('D12 ② 产品面 HTML 里没有指向旧路径的 href/src/action（' + htmlFiles.length + ' 个页面）',
+    badLinks.length === 0, badLinks.slice(0, 4).join(' | '))
+
+  // ②-2 文档里给用户点的 markdown 链接
+  const mdBad = []
+  for (const f of ['README.md', 'THIRD-PARTY.md', 'docs/ONLINE-DEMO.md']) {
+    for (const m of read(f).matchAll(/\]\(([^)\s]*wallpaper-engine-webgl[^)\s]*)\)/g)) mdBad.push(f + ' → ' + m[1])
+  }
+  check('D12 ② README / THIRD-PARTY / ONLINE-DEMO 里没有指向旧路径的 markdown 链接',
+    mdBad.length === 0, mdBad.slice(0, 4).join(' | '))
+
+  // ②-3 运行期前缀改写：旧名（产物里写死的）+ 新名（改名后写的）都认；不认识的 URL 原样放行
+  check('D12 ② 运行期前缀改写认旧+新两个前缀，且落到相对本页（产物 minified 改不了 ⇒ 必须两边都认）',
+    P.demoAssetUrl('/wallpaper-engine-webgl/renderer/index.html?_t=1', './') === './renderer/index.html?_t=1' &&
+    P.demoAssetUrl('/WEwebLoader/renderer/index.html?_t=1', './') === './renderer/index.html?_t=1' &&
+    P.demoAssetUrl('/WEwebLoader/default-wallpaper/index.html', '../') === '../default-wallpaper/index.html' &&
+    P.demoAssetUrl('/demo/other.js', './') === '/demo/other.js' &&
+    P.demoAssetUrl('https://example.com/x', './') === 'https://example.com/x',
+    [P.demoAssetUrl('/wallpaper-engine-webgl/renderer/index.html', './'), P.demoAssetUrl('/WEwebLoader/renderer/index.html', './')].join(' | '))
+  check('D12 ② sitePathAliasOf 只认这两个前缀（别的绝对路径不算站点路径）',
+    P.sitePathAliasOf('/WEwebLoader/x') === '/WEwebLoader/' &&
+    P.sitePathAliasOf('/wallpaper-engine-webgl/x') === '/wallpaper-engine-webgl/' &&
+    P.sitePathAliasOf('/other/x') === '' && P.sitePathAliasOf('') === '')
+
+  // ②-4 补丁自己的 iframe src 用新名（旧名只作为 minified 产物的遗留前缀被兼容）
+  check('D12 ② 补丁自己发起的 iframe src 用新站点路径（不再自己写旧名）',
+    /fr\.src = '\/' \+ SITE_MOUNT \+ '\/renderer\/index\.html\?_t='/.test(patchSrc) &&
+    !/fr\.src = '\/wallpaper-engine-webgl\/renderer/.test(patchSrc))
+
+  // ②-5 构建侧与补丁侧的名字口径逐字一致（两侧各改一半 = 线上 404，必须一次红）
+  check('D12 ② 构建侧与补丁侧的名字/别名表逐字一致（改一半就红）',
+    P.SITE_MOUNT === S.SITE_MOUNT && P.SITE_MOUNT_LEGACY === S.SITE_MOUNT_LEGACY &&
+    JSON.stringify(P.SITE_PATH_ALIASES) === JSON.stringify(S.SITE_PATH_ALIASES) &&
+    P.demoPrefixFor('/WEwebLoader/') === './' && P.demoPrefixFor('/wallpaper-engine-webgl/renderer/') === './' &&
+    P.demoPrefixFor('/demo/renderer/') === './')
+
+  // ③-1 反向钉子：localStorage 键没被顺手改名（改了 = 丢用户设置）
+  //   `webwallgl-theme` 是**补丁与产物共写**的键（两边各存一处）⇒ 判"两侧都还在"（一边单独改名同样丢设置）；
+  //   其余三个键只在产物（minified、不可重建）里，`bench-props-collapsed` 只在补丁里 ⇒ 各判各的落点。
+  const bundle = read('demo/assets/bench-DSKWIqmS.js')
+  const keySpec = [['webwallgl-theme', patchSrc], ['webwallgl-theme', bundle], ['webwallgl-lang', bundle],
+    ['webwallgl-fx', bundle], ['we-bench-pointer-push', bundle], ['bench-props-collapsed', patchSrc]]
+  const lostKeys = keySpec.filter(([k, src]) => !src.includes(k)).map(([k, src]) => k + '@' + (src === bundle ? '产物' : '补丁'))
+  check('D12 ③ localStorage 键一个都没改（webwallgl-theme ×2 落点 + -lang / -fx / we-bench-pointer-push / bench-props-collapsed）',
+    lostKeys.length === 0, lostKeys.join(', '))
+  check('D12 ③ DOM 属性名 data-webwallgl-gl 没被改（产物 minified 里写死的契约）',
+    read('demo/assets/renderer-BOSoB05I.js').includes('"data-webwallgl-gl"'))
+
+  // ③-2 反向钉子：上游归属 / 许可文件名 / 静态品牌钉子都没动
+  check('D12 ③ 上游归属与许可文件没被"顺手改名"（oneincase/webwallgl 外链 + 两份 LICENSE-webwallgl*）',
+    /github\.com\/oneincase\/webwallgl/.test(read('demo/index.html')) && /github\.com\/oneincase\/webwallgl/.test(read('index.html')) &&
+    fs.existsSync(path.join(ROOT, DEMO, 'LICENSE-webwallgl-MIT.txt')) && fs.existsSync(path.join(ROOT, DEMO, 'LICENSE-webwallgl')))
+  check('D12 ③ 静态品牌钉子仍是上游名（<title> / DICT app.title / ?appname=upstream 回退）',
+    /<title>wallpaper-engine-webgl<\/title>/.test(read('demo/index.html')) &&
+    P.DICT.zh['app.title'] === 'wallpaper-engine-webgl' && P.DICT.en['app.title'] === 'wallpaper-engine-webgl' &&
+    P.appBrandPlan({ override: false, upstreamTitle: 'wallpaper-engine-webgl' }).name === 'wallpaper-engine-webgl' &&
+    P.appBrandPlan({}).name === 'WEwebLoader')
 }
 
 if (JSON_OUT) console.log(JSON.stringify({ pass, fail }, null, 1))

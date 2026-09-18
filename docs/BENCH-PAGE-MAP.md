@@ -17,7 +17,8 @@
 **引用纪律**：`gate:` / `demo-check:` / `css:` / `bundle:` 的 `file:line` 是精确且稳定的；`patch:` 的行号是 3290 行快照，**重构时请按锚点（id / 选择器 / 函数名 / 断言文本）定位，不要按行号**。
 
 **前提更正（任务书里两条不成立）**：
-1. **`tests/bench-patch.test.mjs` 不存在。** 本页真正的深度门禁是 `gate:`（`vendor-ref/ww-pages/bench-patch.test.mjs`，`import * as P from './wallpaper-engine-webgl/bench-patch.js'`，gate:16；该目录是软链 → `we-scene-demo/demo`）。
+1. **`tests/bench-patch.test.mjs` 不存在。** 本页真正的深度门禁是 `gate:`（`vendor-ref/ww-pages/bench-patch.test.mjs`，`import * as P from './wallpaper-engine-webgl/bench-patch.js'`，gate:16；那两个目录名都是软链 → `we-scene-demo/demo`；
+①P-127 起规范挂载点是 `WEwebLoader/`，旧名软链**有意保留**（门禁仍按旧名读，两边同一 inode）。
 2. **`tests/` 里只有 `demo-check.mjs` 针对本页**（demo-check:133 / :237 读 `demo/index.html`）。任务书点名的其它测试全部指向**另一个页面** `we-scene-demo/demo.html`（409 KB）：`tests/log-panel-collapse-test.mjs:14`（它测的是 `#log/#logbar/#logarrow` + `mpw-log-h`，与本页 `#logs/#toggle-logs` 无关）、`props-panel-test.mjs:65`、`baseline-test.mjs:39`、`data-limits-test.mjs:31`、`diag-flag-check.mjs:108`、`mdla-walk-test.mjs:139`、`text-font-fallback-test.mjs:55`、`bind-order-test.mjs:277`。`tests/fullscreen-recenter-test.mjs` 是渲染器 fullscreen **效果层**，与本页全屏按钮无关。
 
 ### 0.1 这次改写已经撞红的门禁（**已实测，不是推测**）
@@ -229,7 +230,7 @@
 | 动作 | 实现 |
 |---|---|
 | 产物选壁纸 | `Ue(item)`（`bundle:210`，`li.onclick`）：`w=item → 状态栏 → 重建 #list → Ae() 挂载 → O('explorer') → 若参数面板开着则 yt(itemId)` |
-| **挂载到舞台** | `Ae()`（`bundle:210`）：拼查询串（`type/src/fit/renderDpr/sceneFps/filter/muted/loop/mediaBase/liveSystem`）→ 写 `#current`、`#empty`、`#frame.on`、`#frame.src=/wallpaper-engine-webgl/renderer/index.html?…`、复位暂停、记 `log.mount`。patch 包了 `HTMLIFrameElement.prototype.src` 的 setter 做前缀改写（patch 的 P-93 段） |
+| **挂载到舞台** | `Ae()`（`bundle:210`）：拼查询串（`type/src/fit/renderDpr/sceneFps/filter/muted/loop/mediaBase/liveSystem`）→ 写 `#current`、`#empty`、`#frame.on`、`#frame.src=/wallpaper-engine-webgl/renderer/index.html?…`（minified 产物里的**旧站点路径**，不可重建）、复位暂停、记 `log.mount`。patch 包了 `HTMLIFrameElement.prototype.src` 的 setter 做前缀改写（patch 的 P-93 段；①P-127 起**旧名与新名两个前缀都认**，线上改写为相对本页） |
 | 本地项 | patch `previewLocal(it)`（patch:1565 区）→ `ensureRendererFrame(#frame)` → `__wp.loadSceneFile(it.pkg)` → `onWallpaperOpened(id)` |
 | **新切换栏读数据** | `listItems()`（patch:1119-1127）：扫 `#list li[data-id]`，取 `{id, title: li.querySelector('.title').textContent, active: li.classList.contains('active'), el: li}` ⇒ **完全依赖产物渲染出的 `li[data-id]` + `.title` + `.active` 三个 DOM 契约** |
 | **新切换栏渲染** | `switcherPlan(items, currentId, 12)`（纯函数，patch:1001-1012：当前项置前、按库序、去重、上限 12）→ `refreshSwitcher()`（patch:1128-1147）重建 `.wp-tab` 按钮，插进 `#editor-tabs`；点击执行 `it.el.click()`（**转交产物 `li.onclick`**，patch:1141） |
@@ -259,7 +260,7 @@
 | `#pause` | 按钮 | 产物 `U.onclick`：按 `dataset.i18n` 判态 → `pause()/resume()` 并改写自己的 `dataset.i18n`+文案；重挂载复位 | 无 | T4 字面量 |
 | `#reload` | 按钮 | 产物 → `Ae()`（重挂载当前） | 无 | — |
 | `#release` | 按钮 | 产物 → `E()?.release()` | 无 | — |
-| `#open` | 按钮 | 产物 `window.open('/wallpaper-engine-webgl/renderer/index.html?'+wt(w))` —— **绝对路径，patch 只改写了 `#frame.src`，这个没改** ⇒ Pages 上 404（`:8901` 正常） | 无 | — |
+| `#open` | 按钮 | 产物 `window.open('/wallpaper-engine-webgl/renderer/index.html?'+wt(w))` —— **绝对路径，patch 只改写了 `#frame.src`，这个没改** ⇒ Pages 上 404（`:8901` 正常；①P-127 后线上旧路径 `…/wallpaper-engine-webgl/renderer/index.html` 有重定向页，但这条绝对路径在**子路径部署**下指到域名根，仍不因此得救） | 无 | — |
 | `#toggle-props` | 按钮 | 产物 `Qe.onclick`：无当前项 ⇒ `err.selectFirst`；否则切 `#props.hidden`/`#workspace.props-open`/自身 `.checked`（新样式让 `#props` 常驻，`props-open` 已无实际作用）；patch 写后端不可用 title | 无 | T23（gate:928） |
 | `#fx` | select 11 项 | 产物 `_.value=getItem('webwallgl-fx')??'none'`；`onchange` 写 key + `__wp.setFilter`；进串 `filter=` | **`webwallgl-fx`** | 硬 id 列表 |
 | `#wp-add` | **新** ＋按钮 | 见 §7.2 | 无 | 无 |

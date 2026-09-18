@@ -63,7 +63,7 @@
 # ① 许可文件与台账在位（Node 断言，不需要浏览器）
 node vendor-ref/ww-pages/bench-patch.test.mjs        # T29-E / T29-F 两组
 # ② 图标真的出现在弹窗里：内联 svg + stroke=currentColor + 零外部图标 css
-node vendor-ref/ww-pages/probes/ff-batch-probe.mjs http://127.0.0.1:8901/wallpaper-engine-webgl/
+node vendor-ref/ww-pages/probes/ff-batch-probe.mjs http://127.0.0.1:8901/WEwebLoader/   # ①P-127 新站点路径（旧名软链仍可用）
 # ③ 上游逐字节核对（联网时）：把 demo/bench-patch.js 的 d 值与该地址对齐
 #    https://cdn.jsdelivr.net/npm/lucide-static@0.545.0/icons/<name>.svg
 ```

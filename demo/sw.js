@@ -6,7 +6,10 @@
  *   - 带哈希的 assets / 图标等静态资源 cache-first（文件名变 = URL 变，天然免失效）；
  *   - /api/*、/diag 后端端点完全不拦（只在本地 dev 存在，缓存它们只会制造混乱）。
  *
- * 内部路径全部相对 SW 自身位置，GitHub Pages 的 /wallpaper-engine-webgl/ 子路径与根路径部署通吃。
+ * 内部路径全部相对 SW 自身位置，GitHub Pages 的 /WEwebLoader/ 子路径（P-127 前的旧名
+ * /wallpaper-engine-webgl/ 只留重定向页，不再放 SW）与根路径部署通吃。
+ * 缓存名 `webwallgl-bench-v2` **不动**：它是缓存标识、不含路径成分，改名只会让已装 SW 的旧缓存
+ * 白留一轮（activate 里按名字清理）。
  */
 const VERSION = "webwallgl-bench-v2";
 

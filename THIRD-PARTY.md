@@ -555,8 +555,10 @@ Two different things, both stated here so the record is unambiguous:
   video or Workshop content — its default scene is this repository's own synthetic sample
   (`samples/sample-synthetic/`), and the page states that on screen.
   The redistributed build is also reachable online as the Pages demo: `/demo/` is the canonical
-  entry, and the build additionally stages the same files under `/wallpaper-engine-webgl/`
-  because the minified bundle hard-codes that prefix (`build-pages.mjs`, `docs/ONLINE-DEMO.md` §2.1).
+  entry, and the build additionally stages the same files under `/WEwebLoader/` (the site path name,
+  P-127) because the minified bundle hard-codes that prefix (`build-pages.mjs`, `docs/ONLINE-DEMO.md` §2.1).
+  The previous path `/wallpaper-engine-webgl/` is kept alive by tiny `noindex` redirect pages only —
+  no second copy of the redistributed build is published there.
 * **Also reproduced in our own code.** The shader shown in §6.1 (`FXAA_FS`) is a verbatim port into
   `core/we-scene-bundle.js`.
 

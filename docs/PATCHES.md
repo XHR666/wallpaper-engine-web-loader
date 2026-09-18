@@ -8976,3 +8976,184 @@ D11（`tests/demo-check.mjs:469-633`）逐条覆盖：⑪ 下限在位 / 下限 
 | **未改**：`web/diag-flags.json` | `tests/diag-flag-check.mjs` 的生成物；本轮跑过该脚本（工作树里那条 ` M` 是生成物刷新，与并行线同一处置）⇒ **不进本次提交**，留给集成线 |
 | **未改**：`demo.html` / `demo/index.html` / `demo/bench-patch.js` / `tests/demo-check.mjs` | 并行线正在改，本轮零触碰（⑧-2/⑧-7 的宿主接线因此留给下一轮） |
 | **未改**：`/root/Desktop/DSHarea/docs/PARTICLE-FIREFLY-INVESTIGATION.md` | 调查报告（工作区级、非本仓），本轮只读；勘误写在 P-126.8-3 |
+
+---
+
+## P-127（2026-09-19 用户第 ⑨ 项**裁定**：他看到的旧名在 URL 路径上）站点路径改名 `/wallpaper-engine-webgl/` → `/WEwebLoader/`（旧路径只剩重定向页）
+
+> **判据来源**：上一轮（P-125）把"⑨ 旧名"拆成"归属行 / URL 别名 / 许可文件名"三处候选请用户裁定；
+> 用户选 **「URL 路径」** ⇒ 地址栏里那条 `/<旧名>/` 也要换成 `WEwebLoader`（大小写**照抄**）。
+> **编号**：写入前 `grep -n '^## P-12' docs/PATCHES.md` 实测 P-115~P-126 已占（P-122/P-123 是并行线占号）⇒ 用下一个空号 **P-127**。
+> **本轮硬约束（任务书）**：禁启任何浏览器；禁跑重活（`run-all-tests.sh` / `package-matrix` / `glsl-validate` /
+> **`build-pages.mjs`**）；只提交自己的路径。⇒ 本轮全部证据 = **Node 静态断言 + 纯函数 + 合成长度极小的构建沙箱 + `curl` 本机 :8901**。
+> **品牌 vs 路径的界线**：⑧（2026-09-18）已把**产品名**改成 WEwebLoader（运行期呈现层）；本轮改的是**URL 路径**。
+> 两者共用同一个字符串，但**钉子不同** ⇒ 静态 `<title>` / `DICT['app.title']` / minified 产物里的 `app.title` **一律不动**（T5/T8/T1 与许可口径的钉子，见 P-125.3）。
+
+### P-127.1 盘点：三类清单（先复核落点，再动手）
+
+任务书给的三处身份 **全部复核属实**（本机软链 / Pages 产物别名 / 运行期前缀），另补两处任务书没点名的：
+**CI 自检里的路径**与**产品面注释里的挂载路径**。全量命令：
+`grep -rn "wallpaper-engine-webgl" we-scene-demo/ .github/ references/vendor-ref/ww-pages/*.mjs`（排除 `node_modules`）。
+
+**(A) URL / 路径位 —— 要改（共 8 类 · 仓内 14 个文件 + 仓外 5 个文件）**
+
+| # | 落点 | 计数 | 改前 `file:line` → 改后 |
+|---|---|---|---|
+| A1 | Pages **别名挂载点** | 3 | `build-pages.mjs:13/140/145` → `:13/147/152`（`ALIAS = path.join(OUT, SITE_MOUNT)`） |
+| A2 | Pages **旧路径重定向页**（新写） | 3 张 | `build-pages.mjs:154-161` + 单一真源 `tools/site-paths.mjs:29-63` |
+| A3 | 产物**必需文件自检** + 旧路径"不许有非重定向页"自检（新写） | 4 + 2 | `build-pages.mjs:170-174`（MUST）、`:180-210`（两条会红的自检） |
+| A4 | 运行期**前缀改写**（iframe src / SW 注册） | 4 | `demo/bench-patch.js:506-517`（常量 + `sitePathAliasOf`）、`:572-581`（`demoAssetUrl` 认双前缀）、`:2013`（自发起 iframe src 用新名）、`:3599`（setter 守卫改判 `sitePathAliasOf`） |
+| A5 | 页面注释里的**挂载路径** | 2 | `demo/index.html:6-8`、`demo/renderer/index.html:34-36` |
+| A6 | `demo/sw.js` 注释里的 Pages 子路径 | 1 | `demo/sw.js:9-12`（**缓存名 `webwallgl-bench-v2` 不动**，见 P-127.5-③） |
+| A7 | **CI 自检**（独立第二双眼睛） | 6 | `.github/workflows/pages.yml:4-8`（头注）、`:49-66`（新挂载点 + 旧路径只允许重定向页） |
+| A8 | 文档里的 URL / 命令示例 | 6 处 5 文件 | `docs/ONLINE-DEMO.md`（§2 表 + §2.1 重写 + §3 第 2/2b/4 步 + §5 软链树 + §7 curl）、`docs/BENCH-PAGE-MAP.md:20/233/263`、`docs/README-DIAGNOSTICS.md:355-359`、`docs/ICONS-NEEDED.md:66`、`THIRD-PARTY.md:558-562` |
+| A9 | **仓外**（不在 git）：本机软链 + `references/vendor-ref/ww-pages/serve-8901.mjs` 示例 URL + 3 个 probe 默认 URL + 门禁 T32 | 5 文件 | `references/vendor-ref/ww-pages/` 下四处（行号为改后）：①新软链 `WEwebLoader`；②`references/vendor-ref/ww-pages/serve-8901.mjs`（`:14/81-82`）；③三个 probe 的默认 URL —— `references/vendor-ref/ww-pages/probes/ff-batch-probe.mjs`（`:21/34`）、`references/vendor-ref/ww-pages/probes/ff-docs-panel-probe.mjs`（`:6`）、`references/vendor-ref/ww-pages/probes/ff-picker-probe.mjs`（`:17`）；④门禁 `references/vendor-ref/ww-pages/bench-patch.test.mjs`（新增 T32 七条） |
+
+**(B) 标识符位 —— 不改（改了就是真事故）**
+
+| 落点 | 计数 | 为什么不动 |
+|---|---|---|
+| `localStorage` 键：`webwallgl-theme`（补丁 + 产物各一处）/ `webwallgl-lang` / `webwallgl-fx` / `we-bench-pointer-push` / `bench-props-collapsed` | 5 键 · 6 落点 | 改了 = **用户设置全丢**（主题/语言/滤镜/指针注入/面板收起） |
+| DOM 属性名 `data-webwallgl-gl` | 2 | 产物 minified 里写死的契约，页面/测试/面板都按它查 |
+| SW 缓存名 `webwallgl-bench-v2` | 1 | **不含路径成分**；改名只会让已装 SW 的旧缓存白留一轮（activate 按名字清理） |
+| npm 包名 `wallpaper-engine-web-loader` | 1 | 与 URL 路径无关（站点根 = 仓库名，本来就是它） |
+
+**(C) 上游归属 / 历史位 —— 不改**
+
+| 落点 | 计数 | 为什么不动 |
+|---|---|---|
+| `oneincase/webwallgl` 外链（落地页 + 设置弹层 + 说明页） | 3 + 6 | 许可要求：上游署名 + MIT |
+| `demo/LICENSE-webwallgl` / `LICENSE-webwallgl-MIT.txt` 文件名 | 2 | 许可文件名的既有约定，改名 = 合规口径变化 |
+| `DICT['app.title']` / 静态 `<title>` / minified `app.title`×2 | 4 | ⑧ 的品牌门禁 T1/T5/T8 钉子（`?appname=upstream` 要能还原上游名） |
+| `docs/PATCHES.md` 全部历史节 + `docs/BENCH-REDESIGN.md:4/14/79` | 22 + 3 | **历史记录**：当时的 URL 就是那个，改了就成伪证 |
+
+**(D) 拿不准 —— 列出来让主线/用户定（本轮**不动**）**
+
+1. **说明页正文里的产品名**：`demo/bench-patch.js:1841/1874` 的"这个页面是 wallpaper-engine-webgl（浏览器端 Wallpaper Engine 渲染核心）的测试台"—— 这是**用户可见正文**，但它是**产品名/上游核心名**，不是 URL；⑧ 的品牌覆盖只写 `.brand-name` 与 `document.title`。
+   要不要把正文也一起改，属于"品牌口径"而不属于本轮"URL 路径"裁定 ⇒ 未动。
+2. **静态 `<title>` / `DICT['app.title']`**：仍是上游名（门禁钉子）。若用户希望"连标题也永久改成 WEwebLoader"，那是**改门禁**的活（T1/T5/T8 + 许可口径），需要单独裁定。
+3. `demo/sw.js` 的缓存名（见 (B)）：技术上可改可不改，本轮按"最小改动"不动。
+
+### P-127.2 新路径 + 旧路径兼容：做法与理由
+
+- **新路径**：`/WEwebLoader/`（大小写照抄）。产物里它 = `demo/` 的**第二份真拷贝**（与 `/demo/` 逐字节相同，喂给 minified 里写死的绝对路径）；
+  本机 :8901 上它是**软链** → `we-scene-demo/demo`。
+- **旧路径**：`/wallpaper-engine-webgl/` **不 404**，但**不再是第二份真源** —— 构建期只写三张极小重定向页
+  （`demo/index.html` 与 `demo/renderer/`、`demo/default-wallpaper/` 两页在新路径下的对应落点，正好对应 minified 里那三条绝对路径）：
+  `noindex,nofollow` + `location.replace('…' + location.search + location.hash)`（解析期就跳、**query/hash 原样带走**）
+  + `<meta http-equiv="refresh">`（无 JS 兜底，放脚本**之后**免得 0 秒刷新先把 query 丢掉）+ 一句中英"已改名"。
+  实测体积 **836 B / 1038 B / 1128 B**（判据：≤4 KB）。
+- **为什么不用"①构建期重定向页 + ②整份别名拷贝"两条都做**：两条都做就等于旧路径又有一份真源（历史事故：两份手改漂移，
+  见 P-93 与 §5 的 T28 单一真源钉子）。任务书也把 ① 列为**首选** ⇒ 只做 ①。
+- **为什么跳转目标是相对地址**（`../WEwebLoader/` 而不是 `/WEwebLoader/`）：Pages 是从仓库根发布的**子路径**站点
+  （线上根 = `/wallpaper-engine-web-loader/`）⇒ 以 `/` 开头的绝对路径会指到**域名根**，只有根部署才成立。
+  这条在 D12 里是**独立断言**（变异 M4 必红）。
+- **为什么 `sw.js` 不放重定向页**：重定向一份 SW 只会把旧缓存域带回来，而线上本就不该有 SW
+  （补丁把注册改写成相对本页并吞掉失败，见 ONLINE-DEMO §6）；这条也是断言（变异 M6 必红）。
+- **单一真源**：路径名与三张落点在 `tools/site-paths.mjs`（构建脚本 import 它；`tests/demo-check.mjs` 的 D12 也 import 它）。
+  `demo/bench-patch.js` **不能** import（产物里只有 `demo/`）⇒ 那边复制同名常量，D12 断言**两侧逐字一致**（改一半必红，变异 M13）。
+
+### P-127.3 构建器自证（本轮在**合成极小根**上真跑 `build-pages.mjs`，不碰真树）
+
+任务书禁止跑真树构建 ⇒ 本轮用**合成极小根**（34 个占位文件、几 KB）跑**同一份 `build-pages.mjs`**，覆盖新逻辑：
+
+```
+GREEN: {"alias":"WEwebLoader","legacyRedirects":3,"must":20,"files":42,"privacyOk":true}   exit 0
+旧路径文件清单：wallpaper-engine-webgl/{index.html(836B), renderer/index.html(1038B), default-wallpaper/index.html(1128B)}
+MUT-A 把真源拷回旧路径 → exit 1
+  ✗ 旧路径 wallpaper-engine-webgl/ 下出现了非重定向页文件（旧路径只放重定向页，不许第二份真源）：bench-patch.js
+MUT-B 重定向页删掉 noindex → exit 1
+  ✗ 旧路径重定向页不合规 wallpaper-engine-webgl/index.html：缺 noindex
+CI 自检片段（从 pages.yml 抽取、在合成产物上跑）GREEN：「✓ 产物自检通过：42 个文件」
+  删掉 renderer 重定向页 → exit 1；放回整份 bench-patch.js → exit 1（打印同一条"非重定向页文件"）
+```
+
+### P-127.4 静态断言 D12（17 条）+ 变异 RED（每条都能变红）
+
+加在 `tests/demo-check.mjs`（D11 之后，`:664` 起），另把 **D6** 的产物清单/字节比对/新增真产物断言（`:174-230`）一起改到新形态。
+**每条断言的变异点与 RED 原文**（M1–M17；RED 原文逐字取自运行输出）：
+
+| 断言 | 变异 | RED 原文（节选） |
+|---|---|---|
+| D12①-1 名字照抄 | `SITE_MOUNT='WEWebLoader'` | `✗ D12 ① 站点路径名逐字照抄用户给的大小写（WEwebLoader）+ 旧名常量在同处 — ["WEWebLoader",…]` |
+| D12①-2 别名落点 | `ALIAS=path.join(OUT,'wallpaper-engine-webgl')` | `✗ D12 ① build-pages.mjs 的别名落点 = SITE_MOUNT（新名），且不再把真源拷进旧路径 — ALIAS/copyTree 口径` |
+| D12①-3 重定向五件套 | 删 `robots noindex` | `✗ D12 ① 旧路径重定向页五件套（noindex + meta refresh + location.replace + 带 query + ≤4 KB）×3 张 — index.html, renderer/…` |
+| D12①-4 相对目标 | 目标改 `/WEwebLoader/` | `✗ D12 ① 重定向目标是相对地址（Pages 是子路径站点…） — index.html→/WEwebLoader/ …` |
+| D12①-5 深链同层 | `tail=''`（一律回首页） | `✗ D12 ① 深链跳回同层新路径… — renderer/index.html→../../WEwebLoader/` |
+| D12①-6 sw.js 不放 | `LEGACY_REDIRECTS` 加 `sw.js` | `✗ D12 ① 重定向落点覆盖产物里写死的那三条绝对路径的原目录（sw.js 有意不放…）` |
+| D12①-7 CI 自检 | yml 改回旧挂载点 | `✗ D12 ① .github/workflows/pages.yml 自检改判新挂载点 + 旧路径只允许重定向页` |
+| D12②-1 无旧路径链接 | `demo/index.html` 加 `href="/wallpaper-engine-webgl/"` | `✗ D12 ② 产品面 HTML 里没有指向旧路径的 href/src/action（5 个页面） — demo/index.html → /wallpaper-engine-webgl/` |
+| D12②-2 md 链接 | README 加 `[旧](/wallpaper-engine-webgl/)` | `✗ D12 ② README / THIRD-PARTY / ONLINE-DEMO 里没有指向旧路径的 markdown 链接 — README.md → /wallpaper-engine-webgl/` |
+| D12②-3 双前缀 | `demoAssetUrl` 只认新名 | `✗ D12 ② 运行期前缀改写认旧+新两个前缀… — /wallpaper-engine-webgl/renderer/index.html \| ./renderer/index.html` |
+| D12②-4 前缀严格 | `sitePathAliasOf` 认任意绝对路径 | `✗ D12 ② sitePathAliasOf 只认这两个前缀（别的绝对路径不算站点路径）`（M11 同时命中 ②-3） |
+| D12②-5 补丁自己的 src | 写回旧名 | `✗ D12 ② 补丁自己发起的 iframe src 用新站点路径（不再自己写旧名）` |
+| D12②-6 两侧一致 | 只改 `site-paths.mjs` 的旧名常量 | `✗ D12 ② 构建侧与补丁侧的名字/别名表逐字一致（改一半就红）`（M13 同时命中 ①-1） |
+| D12③-1 存储键 | `THEME_KEY='webench-theme'` | `✗ D12 ③ localStorage 键一个都没改（…） — webwallgl-theme@补丁` |
+| D12③-2 DOM 属性 | `data-webwallgl-gl`→`data-webench-gl` | `✗ D12 ③ DOM 属性名 data-webwallgl-gl 没被改（产物 minified 里写死的契约）` |
+| D12③-3 归属 | 3 处 `oneincase/webwallgl` 外链替换 | `✗ D12 ③ 上游归属与许可文件没被"顺手改名"（oneincase/webwallgl 外链 + 两份 LICENSE-webwallgl*）` |
+| D12③-4 品牌钉子 | `<title>` 改新名 | `✗ D12 ③ 静态品牌钉子仍是上游名（<title> / DICT app.title / ?appname=upstream 回退）` |
+
+> 变异手法：把仓库里 D12 会读的文件拷进 `/tmp/p127-d12` 镜像，只改镜像、跑完立即还原（脚本 `/tmp/d12-red.sh`）；
+> **D12 整体不跑 `demo-check.mjs`** —— 因为它的 **D6 会调用被禁的 `build-pages.mjs`**（见 P-127.6），
+> 所以 D12 用同一份源码块抽成独立 harness 运行（`/tmp/d12-harness.mjs`，由 `sed` 式抽取生成，非手抄）。
+> 这样 RED/GREEN 都是**真代码 + 真输入**，只是不触发那条重活。
+
+### P-127.5 秒级验收（本轮实测：命令 → 退出码 / 关键输出）
+
+| 命令 | 退出码 | 关键输出 |
+|---|---|---|
+| `node tests/demo-syntax-check.mjs` | **0** | 内联脚本语法 10/10 通过（demo.html + demo/index.html） |
+| `node tests/docs-check.mjs` | **0** | 16 个文档 · 595 个文件引用 · P-编号健康 ✓ · diag-flags ✓ |
+| `node tests/diag-flag-check.mjs` | **0** | 代码 151 个开关 == README 主表 151 行，0 差异 |
+| `node $MPW_ROOT/vendor-ref/ww-pages/bench-patch.test.mjs` | **0** | **391 通过 / 0 失败**（原 384 + 本轮 T32 的 7 条；旧名软链保留 ⇒ 原有 384 条一条没动） |
+| D12 独立 harness（同一份源码块） | **0** | 17 通过 / 0 失败 |
+| 合成极小根 `node build-pages.mjs --out … --json` | **0** | 见 P-127.3 |
+| `curl http://127.0.0.1:8901/WEwebLoader/` | — | **200**（69 585 B） |
+| `curl …/WEwebLoader/{index.html,bench-patch.js,renderer/index.html,samples/sample-synthetic/scene.pkg}` | — | **200 / 200 / 200 / 200**（254 687 B / 1 814 B / 33 299 B） |
+| `curl …/wallpaper-engine-webgl/`（旧名软链） | — | **200**，且 `cmp` 两份 `demo/bench-patch.js` **逐字节相同** |
+| `curl …/`（根入口） | — | **200** |
+
+### P-127.6 ⚠ 需要主对话**排队跑的重活**（本轮按硬约束**没跑**）
+
+1. **`node build-pages.mjs --out _site`（真树）** —— 唯一能构造 Pages 产物的东西。本轮只跑了合成极小根（P-127.3）。
+   真树跑完后应有：`_site/WEwebLoader/{index.html,bench-patch.js,renderer/index.html,samples/…}` 与
+   `_site/wallpaper-engine-webgl/` 下**恰好 3 个** HTML 重定向页、`_site/demo/` 与 `_site/WEwebLoader/` 的 `demo/bench-patch.js` 字节相同。
+   跑完请顺手 `node tests/demo-check.mjs`（它的 D6 会自己再构建一次，`:161-232`）。
+2. **线上 Pages 复核**（`git push` 后 workflow 自检 + 人工点一次）：
+   `https://xhr666.github.io/wallpaper-engine-web-loader/WEwebLoader/` 进得去；
+   旧地址 `…/wallpaper-engine-web-loader/wallpaper-engine-webgl/` 跳到新地址；
+   深链 `…/wallpaper-engine-webgl/renderer/index.html?type=web&src=…` **带上 query** 跳到 `/WEwebLoader/renderer/index.html?…`；
+   旧地址响应头/页面里带 `noindex`。
+3. **真机**（本轮禁浏览器）：旧书签、旧分享链接、以及"新窗口"按钮（`#open` 走的是 minified 里写死的**绝对**旧路径 —— 见 P-127.7-2）。
+
+### P-127.7 未证实项（如实列出）
+
+1. **真树 `build-pages.mjs` 未跑**：合成极小根覆盖了"别名 + 重定向页 + 两条自检 + 隐私闸门"，但**没有**覆盖真树才有的形状
+   （`demo/samples` 软链解引用、`assets/` 体积、`PAGES_SKIP_RE` 命中）。⇒ 见 P-127.6-1。
+2. **`#open`（新窗口）在线上仍会 404**：它的 URL 来自 minified 产物的**绝对路径** `/wallpaper-engine-webgl/renderer/index.html`，
+   补丁只包了 `HTMLIFrameElement.prototype.src`，**没有**包 `window.open`（P-93 起就有的已知缺口，`docs/BENCH-PAGE-MAP.md:263`）。
+   本轮加的旧路径重定向页**救不了它** —— 子路径部署下这个绝对路径指到**域名根**，而域名根下没有本仓库的旧路径。
+   本轮**没改**它（改 minified 或包 `window.open` 都超出"URL 改名"范围，且有回归风险）⇒ 列在这里等裁定。
+3. **没有真浏览器证据**：重定向页的 `location.replace` + query 保真、`noindex` 的搜索引擎行为，都是**静态判据**（D12 + 合成产物）。
+4. **`demo/sw.js` 缓存名未改**（P-127.1-B）：若线上此前真装过 SW，旧缓存域会随旧名字留到下次 activate 清理；本轮判断"线上本就没有 SW 注册"（ONLINE-DEMO §6）⇒ 影响为零，但**未真机验证**。
+5. **`references/` 不在 git**：软链、`references/vendor-ref/ww-pages/serve-8901.mjs`、三个 probe、门禁 T32 的改动**不会**进提交（与 P-125/P-126 的处置一致），
+   换机器/换检出需按 P-127.3 的形态重建（新名软链 + 旧名软链都指向 `we-scene-demo/demo`）。
+
+### P-127.8 本轮改动文件清单（提交只含这些）
+
+| 文件 | 说明 |
+|---|---|
+| `tools/site-paths.mjs` | **新**：站点路径单一真源（`SITE_MOUNT` / `SITE_MOUNT_LEGACY` / `LEGACY_REDIRECTS` / `legacyRedirectTarget` / `legacyRedirectHtml` / `SITE_PATH_ALIASES`） |
+| `build-pages.mjs` | 别名落点 → `WEwebLoader/`；新增旧路径三张重定向页 + 两条自检（内容五件套 / 非重定向页文件 = 红）；`MUST` 与 `--json` 摘要跟上 |
+| `demo/bench-patch.js` | 新导出 `SITE_MOUNT`/`SITE_MOUNT_LEGACY`/`SITE_PATH_ALIASES`/`sitePathAliasOf`；`demoAssetUrl` 认双前缀；`demoPrefixFor` 吃三个挂载点名；iframe setter 守卫改判 `sitePathAliasOf`；自发起 iframe src 用新名；注释同步 |
+| `demo/index.html` · `demo/renderer/index.html` · `demo/sw.js` | 挂载路径注释同步（静态 `<title>`/品牌位**不动**） |
+| `.github/workflows/pages.yml` | 头注 + 自检：新挂载点三连 + 旧路径"只允许三张重定向页"（含 `noindex`/`refresh`/`location.replace`/`test ! -f …/bench-patch.js`） |
+| `tests/demo-check.mjs` | 新增 **D12（17 条）**；D6 产物清单/字节比对/真产物重定向页断言改到新形态 |
+| `docs/ONLINE-DEMO.md` | §2 表 + §2.1（重写：三条硬编码路径 / 重定向表 / 相对目标理由）+ §3 步骤 2/2b/4 + §5 软链树 + §7 curl 自证 |
+| `docs/BENCH-PAGE-MAP.md` · `docs/README-DIAGNOSTICS.md` · `docs/ICONS-NEEDED.md` · `THIRD-PARTY.md` | URL/命令示例与产物说明同步 |
+| `docs/PATCHES.md` | 本节 P-127 |
+| **仓外（不在 git）**：`references/vendor-ref/ww-pages/` | 新软链 `WEwebLoader`（旧名软链**有意保留**，同一 inode）+ 根 `index.html` 软链重指 + `references/vendor-ref/ww-pages/serve-8901.mjs` 的示例 URL/日志 + 3 个 probe 默认 URL + `references/vendor-ref/ww-pages/bench-patch.test.mjs` 新增 **T32（7 条）** ⇒ 384/0 → **391/0** |
+| **未改**：`web/diag-flags.json` | 生成物；跑 `diag-flag-check` 时它报"未变（保持旧时间戳，不落盘）" ⇒ 工作树里那条 ` M` 是并行线的，按"只提交自己路径"不进本次提交 |
+| **未改**：`elysia/scene-script-apis.js` · `elysia/scene-scripts.js` | 并行线的工作树改动（本轮**零触碰**；`git status` 可见但不在本次提交里） |
+| **未改**：`demo/assets/*.js` | minified 预构建产物（不可重建）：里面写死的旧前缀由运行期改写兼容，**一个字节都没改**（许可口径） |
+| **未改**：`docs/BENCH-REDESIGN.md` · `docs/PATCHES.md` 历史节 | 历史记录，按 (C) 不动 |

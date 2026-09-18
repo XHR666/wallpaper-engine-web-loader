@@ -3,8 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <!-- P-93（在线 demo）：资源引用一律改成**相对本页**。
-         原因：同一份 HTML 既要在本机 :8901（挂 /wallpaper-engine-webgl/，软链到本目录）、
-         又要在 GitHub Pages（挂 /demo/）下工作 —— 绝对路径只在其中一种布局下成立。
+         原因：同一份 HTML 既要在本机 :8901（P-127 起挂 /WEwebLoader/，软链到本目录；旧名
+         /wallpaper-engine-webgl/ 的软链与 Pages 上的重定向页都还在）、又要在 GitHub Pages
+         （挂 /demo/ 与 /WEwebLoader/）下工作 —— 绝对路径只在其中一种布局下成立。
          相对路径两边都对，且 <base href="./"> 让 favicon/manifest/图标继续按本目录解析。
          产物 assets 内部写死的绝对路径由 bench-patch.js 在运行期改写（见该文件 P-93 段）。 -->
     <base href="./" />

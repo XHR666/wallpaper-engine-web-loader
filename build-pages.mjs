@@ -10,15 +10,20 @@
 //   ② **不改任何源文件**：整棵树是"读 + 拷贝"，源仓库保持原样；
 //   ③ **显式白名单**（下面的 PAGES_KEEP_*）：站点只放"能看的东西"，测试脚本 / 服务端 /
 //      打包工具 / 本机清单**一律不进产物**。白名单是发布面的**唯一**口径，读得出来、审得动；
-//   ④ 产物里 `demo/` 出现两次：`/demo/` 与 `/wallpaper-engine-webgl/`。
-//      为什么必须两份：上游静态产物（minified、**不可重建**）里写死了
-//      `/wallpaper-engine-webgl/renderer/index.html`（iframe src）与 `/wallpaper-engine-webgl/sw.js`；
-//      Pages 只能从仓库根发布 ⇒ 只有把测试台也放到根下的 `wallpaper-engine-webgl/`，那两条才不 404。
+//   ④ 产物里 `demo/` 出现两次：`/demo/`（规范入口）与 `/WEwebLoader/`（**站点路径名 = 产品名**，P-127）。
+//      为什么必须两份：上游静态产物（minified、**不可重建**）里写死了站点路径的绝对形状
+//      `/wallpaper-engine-webgl/renderer/index.html`（iframe src，3 处）、
+//      `/wallpaper-engine-webgl/default-wallpaper/index.html`（渲染器页内兜底壁纸）与 `/wallpaper-engine-webgl/sw.js`；
+//      Pages 只能从仓库根发布 ⇒ 根下必须有一份真拷贝，那几条才不 404。
 //      **仓库里只有一份物理文件**（demo/ 是真源，第二份只存在于构建产物里，且是真实拷贝不是软链）。
+//   ④-b P-127：旧路径 `/wallpaper-engine-webgl/` **只放极小重定向页**（不 404，也不留第二份真源）。
+//      名字与落点是**单一真源** `tools/site-paths.mjs`（测试 D12 直接 import 它做断言）。
 //   ⑤ 写 `.nojekyll`：否则 Jekyll 会吃掉下划线开头的文件；
 //   ⑥ 软链**跟随解引用**（demo/samples → ../samples）：Pages 不解析软链，产物里必须是真文件。
 import fs from 'node:fs'
 import path from 'node:path'
+// ④-b(P-127) 站点 URL 路径的单一真源（新名 / 旧名 / 旧路径要放哪几张重定向页）
+import { SITE_MOUNT, SITE_MOUNT_LEGACY, LEGACY_REDIRECTS, legacyRedirectHtml } from './tools/site-paths.mjs'
 
 const ROOT = import.meta.dirname
 const argv = process.argv.slice(2)
@@ -135,14 +140,26 @@ for (const [from, to] of PAGES_KEEP_FILES) {
   copyFile(src, path.join(OUT, to), to)
 }
 
-// ④ 第二份测试台：demo/ → wallpaper-engine-webgl/（只为产物里那两条写死的绝对路径）
+// ④ 第二份测试台：demo/ → WEwebLoader/（只为产物里那几条写死的绝对路径）
+//    ①(P-127 2026-09-19) 挂载点名从旧名 `wallpaper-engine-webgl/` 改成**站点路径名 = 产品名** `WEwebLoader/`
+//    （用户裁定：他看到要走 URL 路径的旧名 ⇒ 地址栏也换）。旧路径不再整份拷贝，只放重定向页（见 ④-b）。
 const DEMO_SRC = path.join(ROOT, 'demo')
-const ALIAS = path.join(OUT, 'wallpaper-engine-webgl')
+const ALIAS = path.join(OUT, SITE_MOUNT)
 if (!fs.existsSync(path.join(OUT, 'demo', 'index.html'))) {
   console.error('✗ 产物里没有 demo/index.html —— 测试台真源缺失，构建中止')
   process.exit(1)
 }
-copyTree(DEMO_SRC, ALIAS, 'wallpaper-engine-webgl')
+copyTree(DEMO_SRC, ALIAS, SITE_MOUNT)
+
+// ④-b 旧路径 `/wallpaper-engine-webgl/`：**只有重定向页**（极小、noindex、带 query 的原址跳转）。
+//   为什么不整份拷贝：那是第二份真源，改一处要记得改两处（历史事故：两份手改漂移）；
+//   为什么不干脆 404：旧链接/书签/深链（`renderer/index.html` 会被 `#open` 新窗口直接打开）必须还有落点。
+const LEGACY_DIR = path.join(OUT, SITE_MOUNT_LEGACY)
+for (const rel of LEGACY_REDIRECTS) {
+  const dst = path.join(LEGACY_DIR, rel)
+  fs.mkdirSync(path.dirname(dst), { recursive: true })
+  fs.writeFileSync(dst, legacyRedirectHtml(rel))
+}
 
 // ⑤ 关掉 Jekyll
 fs.writeFileSync(path.join(OUT, '.nojekyll'), '')
@@ -150,12 +167,46 @@ fs.writeFileSync(path.join(OUT, '.nojekyll'), '')
 // 完整性自检：产物必须能直接当站点用（这几条缺一个就是"发上去才发现"）
 const MUST = ['index.html', 'demo.html', 'bundle.js', 'we-scene-bundle.js', 'sw.js', 'manifest.webmanifest',
   'demo/index.html', 'demo/bench-patch.js', 'demo/LICENSE-webwallgl-MIT.txt',
-  'wallpaper-engine-webgl/index.html', 'wallpaper-engine-webgl/bench-patch.js',
-  'wallpaper-engine-webgl/renderer/index.html', 'samples/sample-synthetic/scene.pkg',
-  'samples/sample-synthetic/project.json', 'THIRD-PARTY.md', 'LICENSE', '.nojekyll']
+  `${SITE_MOUNT}/index.html`, `${SITE_MOUNT}/bench-patch.js`,
+  `${SITE_MOUNT}/renderer/index.html`, 'samples/sample-synthetic/scene.pkg',
+  'samples/sample-synthetic/project.json', 'THIRD-PARTY.md', 'LICENSE', '.nojekyll',
+  // ④-b(P-127) 旧路径：这三张重定向页缺一个，对应的旧深链就是 404
+  ...LEGACY_REDIRECTS.map((rel) => `${SITE_MOUNT_LEGACY}/${rel}`)]
 const missing = MUST.filter((f) => !fs.existsSync(path.join(OUT, f)))
 if (missing.length) {
   console.error('✗ 产物缺少必需文件：' + missing.join('、'))
+  process.exit(1)
+}
+// ④-b(P-127) 旧路径下的自检两条（都要能变红）：
+//   ① 内容必须是"极小重定向页"（noindex + meta refresh + location.replace + 体积上限）；
+//   ② 目录里**只能**有这几张重定向页 —— 谁把整棵树拷回旧路径，产物里就又多一份真源，构建当场红。
+for (const rel of LEGACY_REDIRECTS) {
+  const p2 = path.join(LEGACY_DIR, rel)
+  const html = fs.readFileSync(p2, 'utf8')
+  const size = Buffer.byteLength(html)
+  const bad = []
+  if (!/name="robots" content="noindex,nofollow"/.test(html)) bad.push('缺 noindex')
+  if (!/http-equiv="refresh" content="0; url=/.test(html)) bad.push('缺 meta refresh')
+  if (!/location\.replace\(/.test(html)) bad.push('缺 location.replace')
+  if (!/location\.search/.test(html)) bad.push('跳转没带 query')
+  if (size > 4096) bad.push('体积 ' + size + ' B 超 4 KB')
+  if (bad.length) {
+    console.error(`✗ 旧路径重定向页不合规 ${SITE_MOUNT_LEGACY}/${rel}：${bad.join('、')}`)
+    process.exit(1)
+  }
+}
+const legacyFiles = []
+const collectLegacy = (d) => {
+  for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const p2 = path.join(d, e.name)
+    if (e.isDirectory()) { collectLegacy(p2); continue }
+    legacyFiles.push(path.relative(LEGACY_DIR, p2).split(path.sep).join('/'))
+  }
+}
+collectLegacy(LEGACY_DIR)
+const strays = legacyFiles.filter((f) => !LEGACY_REDIRECTS.includes(f))
+if (strays.length) {
+  console.error(`✗ 旧路径 ${SITE_MOUNT_LEGACY}/ 下出现了非重定向页文件（旧路径只放重定向页，不许第二份真源）：` + strays.join('、'))
   process.exit(1)
 }
 // 显式递归（不用 readdirSync({recursive:true})：那是 Node 20.1+ 才有，而 engines 只保证 >=20）
@@ -196,12 +247,13 @@ if (privacyHits.length) {
   process.exit(1)
 }
 
-const summary = { out: OUT, files: countFiles(OUT), demoStagedTwice: true, nojekyll: true, must: MUST.length, denied: PAGES_DENY_FILES.size, privacyOk: true, skipped: skipped.length }
+const summary = { out: OUT, files: countFiles(OUT), demoStagedTwice: true, alias: SITE_MOUNT, legacyRedirects: LEGACY_REDIRECTS.length, nojekyll: true, must: MUST.length, denied: PAGES_DENY_FILES.size, privacyOk: true, skipped: skipped.length }
 if (JSON_OUT) console.log(JSON.stringify(summary, null, 1))
 else {
   console.log(`✓ Pages 产物：${OUT}`)
   console.log(`  · 文件 ${summary.files} 个（白名单口径：PAGES_KEEP_DIRS / PAGES_KEEP_FILES）`)
-  console.log('  · demo/ 与 wallpaper-engine-webgl/ 两份（后者是产物里写死的绝对路径所需）')
+  console.log(`  · demo/ 与 ${SITE_MOUNT}/ 两份（后者是产物里写死的绝对路径所需）`)
+  console.log(`  · 旧路径 ${SITE_MOUNT_LEGACY}/ 只有 ${LEGACY_REDIRECTS.length} 张重定向页（noindex + 带 query 跳转；非重定向页文件 = 构建红）`)
   console.log('  · .nojekyll 已写；必需文件自检 ' + MUST.length + ' 项全过')
   console.log(`  · 隐私闸门通过：产物零个人绝对路径（显式排除 ${PAGES_DENY_FILES.size} 个含本机默认路径的服务端文件）`)
 }

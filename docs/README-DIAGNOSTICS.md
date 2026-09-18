@@ -353,9 +353,9 @@ bundle 一改测试立刻红，不会悄悄漂移。
 
 **该产物是"活的 vendored 预构建物"、不是死文件**：它由 `demo/renderer/index.html:36` 的
 `<script type="module" src="../assets/renderer-BOSoB05I.js">` 加载；该页同时是本地
-`:8901/wallpaper-engine-webgl/renderer/` 与 Pages `/demo/renderer/`（见该文件 `:34-35` 注释），
-并进了 Pages 产物（`build-pages.mjs:34` 整目录收 `demo/`、`:145` 再拷一份、
-`:154` 的 `MUST` 强制要求该页存在）。**根 `demo.html` 对它零引用**（`grep -c` → 0），
+`:8901/WEwebLoader/renderer/`（①P-127 新站点路径；旧名软链仍在）与 Pages `/demo/renderer/`、`/WEwebLoader/renderer/`（见该文件 `:34-36` 注释），
+并进了 Pages 产物（`build-pages.mjs:34` 整目录收 `demo/`、`:145` 再拷一份到 `WEwebLoader/`（①P-127 改名）、
+`MUST` 强制要求该页在新旧两个挂载点下都可解析）。**根 `demo.html` 对它零引用**（`grep -c` → 0），
 所以它**不是** `demo.html` 的旧路径，而是**上游参考渲染器页面**的入口。
 它自 `987d9b3`（2026-09-16 建仓）引入后**再未改动**、仓库内**不可重建** ⇒
 **不修改其字节**。完整证据（file:line / 哈希 / 提交）见 `docs/PATCHES.md` 的 P-90.10。

@@ -25,10 +25,12 @@
 //
 // 第六批（**P-96 在线 demo**，见 we-scene-demo/PATCHES.md P-96 与 docs/ONLINE-DEMO.md）：
 //   本文件现在是**唯一真源**（物理文件在 we-scene-demo/demo/，两条软链指过来）：
-//     vendor-ref/ww-pages/wallpaper-engine-webgl/bench-patch.js  → 真源
+//     vendor-ref/ww-pages/WEwebLoader/bench-patch.js              → 真源（P-127 站点路径改名后的新名）
+//     vendor-ref/ww-pages/wallpaper-engine-webgl/bench-patch.js   → 同上（旧名软链，**有意保留**，见 P-127.4）
 //     vendor-ref 下的 webwallgl 检出里的 bench-patch.js            → 上一条（链式）
 //   ① 线上形态判定 onlineDemoEnv()：GitHub Pages 这类"设计上就没有本机后端"的部署换一套文案；
-//   ② 产物里写死的 /wallpaper-engine-webgl/ 前缀在运行期改写成相对本页（iframe src / SW 脚本）；
+//   ② 产物里写死的绝对前缀（旧名 `/wallpaper-engine-webgl/`，P-127 起新名 `/WEwebLoader/` 同样认）
+//      在运行期改写成相对本页（iframe src / SW 脚本）；
 //   ③ 默认壁纸 = 本仓库自造的合成样例 samples/sample-synthetic/scene.pkg（`?sample=0` 关、`?sample=<url>` 换）；
 //   ④ 页面上把"在线版没有本机后端"写清楚（静态横幅 + 运行期同源同义文案）。
 //   开关：?online=0 强制本机口径；?sample=0 不自动载入合成样例。
@@ -498,9 +500,24 @@ export function diagReasonText(lang, env) {
 }
 
 /* ============================ P-93 在线 demo 纯函数层（线上形态判定 / 路径改写 / 合成样例 / 横幅） ============================ */
-/** 合成样例在仓库里的位置（相对**站点根**；demo/ 与 Pages 产物里的 /wallpaper-engine-webgl/ 都一样）。 */
+/** 站点路径名（P-127：URL 路径 `/wallpaper-engine-webgl/` → `/WEwebLoader/`，用户裁定地址栏也要换）。
+ *  ⚠ 这两个常量与 `tools/site-paths.mjs` 的 `SITE_MOUNT` / `SITE_MOUNT_LEGACY` 必须**逐字一致** ——
+ *  本文件在产物里独立存在（`tools/` 不进站点），不能 import 那边；一致性由 tests/demo-check.mjs 的 D12 钉住。 */
+export const SITE_MOUNT = 'WEwebLoader'
+export const SITE_MOUNT_LEGACY = 'wallpaper-engine-webgl'
+/** 产物里**不可重建**的 minified 包写死的绝对前缀（`/…/renderer/index.html` 3 处、
+ *  `/…/default-wallpaper/index.html`、`/…/sw.js`）：旧名与新名**两种都要认** ——
+ *  旧名是产物里实际写着的（改不了），新名是改名后手写/新产物会用的。 */
+export const SITE_PATH_ALIASES = ['/' + SITE_MOUNT + '/', '/' + SITE_MOUNT_LEGACY + '/']
+/** URL 命中的站点路径前缀（不命中 ⇒ 返回 ''）。 */
+export function sitePathAliasOf(url) {
+  const s = String(url == null ? '' : url)
+  for (const p of SITE_PATH_ALIASES) if (s.indexOf(p) === 0) return p
+  return ''
+}
+/** 合成样例在仓库里的位置（相对**站点根**；demo/ 与 Pages 产物里的 /WEwebLoader/ 都一样）。 */
 export const DEMO_SAMPLE_REL = 'samples/sample-synthetic/'
-/** 本页相对站点根的层级：demo/ 与 wallpaper-engine-webgl/ 都是 1 层。 */
+/** 本页相对站点根的层级：demo/、WEwebLoader/（以及旧名软链 wallpaper-engine-webgl/）都是 1 层。 */
 export function assetBaseOf(href) {
   const s = String(href == null ? '' : href)
   const m = s.match(/^(https?:\/\/[^/]+)?(\/[^\s?#]*)?/)
@@ -509,10 +526,12 @@ export function assetBaseOf(href) {
   return dir
 }
 
-/** demo 子路径前缀（相对当前页，带尾斜杠；Pages 与 :8901 都是 './'；根目录时退化成 './'）。 */
+/** demo 子路径前缀（相对当前页，带尾斜杠；Pages 与 :8901 都是 './'；根目录时退化成 './'）。
+ *  挂载点有三个（`demo/` 规范入口、`WEwebLoader/` 站点路径名、旧名 `wallpaper-engine-webgl/` 软链/重定向页）⇒ 三个都吃掉。 */
 export function demoPrefixFor(basePath) {
   const parts = String(basePath || '/').split('/').filter(Boolean)
-  if (parts.length && parts[parts.length - 1] === 'demo') parts.pop()
+  const last = parts.length ? parts[parts.length - 1] : ''
+  if (last === 'demo' || last === SITE_MOUNT || last === SITE_MOUNT_LEGACY) parts.pop()
   return parts.length ? './' : './'
 }
 
@@ -544,17 +563,21 @@ export function onlineDemoEnv(href, opt) {
   }
 }
 
-/** 产物里的三条硬编码绝对路径 → 相对本站的路径。
+/** 产物里的几条硬编码绝对路径 → 相对本站的路径。
  *  为什么需要：产物是 minified、**不可重建**的（离线装不上依赖），而它写死了
- *  `/wallpaper-engine-webgl/renderer/index.html`（iframe src）与 `/wallpaper-engine-webgl/sw.js`。
- *  本地静态台恰好在 `/wallpaper-engine-webgl/` 下 ⇒ 原样可用；线上落在 `/demo/` ⇒ 必须改写。
+ *  `/wallpaper-engine-webgl/renderer/index.html`（iframe src，3 处）、
+ *  `/wallpaper-engine-webgl/default-wallpaper/index.html`（渲染器页内兜底壁纸）与 `/wallpaper-engine-webgl/sw.js`。
+ *  本地静态台恰好在同名路径下（旧名软链仍在，见 docs/ONLINE-DEMO.md §5）⇒ 原样可用；
+ *  线上落在 `/demo/` 或 `/WEwebLoader/` ⇒ 必须改写。
+ *  ①(P-127 2026-09-19 站点路径改名) 认**旧名与新名两种前缀**（`SITE_PATH_ALIASES`）：产物里写着旧名，
+ *  改名后新写的代码用新名 —— 只认一个就会让另一半在线上 404。
  *  本函数只做**一次前缀替换**，其余路径一律返回原文（不认识的 URL 不动）。 */
 export function demoAssetUrl(url, prefix) {
   const s = String(url == null ? '' : url)
   const p = String(prefix == null ? './' : prefix)
-  const m = s.match(/^\/wallpaper-engine-webgl\/(.*)$/)
-  if (!m) return s
-  return p.replace(/\/+$/, '') + '/' + m[1]
+  const alias = sitePathAliasOf(s)
+  if (!alias) return s
+  return p.replace(/\/+$/, '') + '/' + s.slice(alias.length)
 }
 
 /** 默认壁纸计划：`sample` = 合成样例 URL（相对本页），`auto` = 是否自动挂载。
@@ -1985,7 +2008,9 @@ export function init() {
         else reject(new Error('renderer page loaded but __wp missing'))
       }
       fr.addEventListener('load', onLoad, { once: true })
-      fr.src = '/wallpaper-engine-webgl/renderer/index.html?_t=' + Date.now()
+      // ①(P-127) 自己发起的那次挂载用**新站点路径**（旧名只作为 minified 产物里的遗留前缀被兼容，
+      //   见 SITE_PATH_ALIASES）：本机两个挂载点都能解析，线上由下面的 src 前缀改写转成相对本页。
+      fr.src = '/' + SITE_MOUNT + '/renderer/index.html?_t=' + Date.now()
     })
   }
   function logLine(msg, isErr) {
@@ -3144,7 +3169,8 @@ export function init() {
   addEventListener('resize', () => { if (trailAttached) { sizeCanvas(); drawTrail() } })
 
   // ── 第五批 ①~④：指针归中 / 时间层锁 / 壁纸品牌 / 拖动开关（开关见 readPatchFlags）──
-  //   共同前提：渲染器是**同源 iframe**（#frame → /wallpaper-engine-webgl/renderer/index.html），
+  //   共同前提：渲染器是**同源 iframe**（#frame → /WEwebLoader/renderer/index.html；P-127 前的
+  //   minified 产物里写着旧名 /wallpaper-engine-webgl/renderer/index.html，运行期改写两个前缀都认），
   //   所以父页能拿到它的 window（跨源时下面每个 try 都会安全失败，功能静默关闭而不是抛错）。
   const FLAGS = readPatchFlags(typeof location !== 'undefined' ? location.search : '')
   const frameEl = $('#frame')
@@ -3554,7 +3580,8 @@ export function init() {
 
   // ①-a 渲染器 iframe：产物里 3 处 `frame.src = '/wallpaper-engine-webgl/renderer/index.html…'`。
   //   产物是 minified 且**不可重建**（离线装不上依赖），改产物风险大于收益 ⇒ 在 iframe 的
-  //   src 属性上做一次前缀改写（只认 /wallpaper-engine-webgl/ 这一个前缀，别的 URL 原样放行）。
+  //   src 属性上做一次前缀改写（①P-127：旧名 `/wallpaper-engine-webgl/` 与新名 `/WEwebLoader/`
+  //   两个前缀都认 —— 产物写着旧名，改名后新写的代码用新名；别的 URL 原样放行）。
   try {
     const fr = $('#frame')
     const proto = (typeof HTMLIFrameElement !== 'undefined') ? HTMLIFrameElement.prototype : null
@@ -3569,7 +3596,7 @@ export function init() {
           get() { return getter.call(this) },
           set(v) {
             const cur = typeof location !== 'undefined' ? location.href : ''
-            if (String(v).indexOf('/wallpaper-engine-webgl/') === 0 && (onlineDemoEnv(cur, { force: '1' }).online || demoPrefix !== './')) {
+            if (sitePathAliasOf(v) && (onlineDemoEnv(cur, { force: '1' }).online || demoPrefix !== './')) {
               setter.call(this, remap(v))
             } else setter.call(this, v)
           },
@@ -3580,7 +3607,8 @@ export function init() {
     }
   } catch (e) { console.warn('[bench-patch] iframe src 前缀改写跳过：', e && e.message) }
 
-  // ①-b Service Worker：产物末尾确实有 `navigator.serviceWorker.register("/wallpaper-engine-webgl/sw.js").catch(()=>{})`。
+  // ①-b Service Worker：产物末尾确实有 `navigator.serviceWorker.register("/wallpaper-engine-webgl/sw.js").catch(()=>{})`
+  //   （P-127 起新名 `/WEwebLoader/sw.js` 同样认 —— 同一份 remap）。
   //   本补丁把脚本 URL 改写成相对本页，**并吞掉失败**：产物那条注册在 /demo/ 挂载下本来就注册不上
   //   （scope 与路径都不对），上游自己也是 `.catch(()=>{})` —— 我们不改这个行为，只求控制台不冒假红。
   //   不主动注册是有意的：线上不留 SW ⇒ 不会出现"旧版本被 SW 缓存住"的经典事故（见 docs/ONLINE-DEMO.md §6）。
