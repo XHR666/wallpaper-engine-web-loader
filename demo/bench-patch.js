@@ -332,20 +332,31 @@ export function abortable(promise, signal) {
 
 /* ============================ 第四批纯函数层（主题 / 类型识别 / 无上限 FPS / 本地扫描 / 后端状态） ============================ */
 
-/** 主题三态循环：auto → dark → light → auto（与源码 bench/bench.ts 的 applyTheme 同一顺序） */
+/** ⑫c(2026-09-19 用户要求：「切换深色暗色的地方，你就留两个开关，一个是深色，一个是暗色，不要跟随系统」)
+ *  主题**两态**：dark ↔ light。`auto` 不再是可停留的模式，只作为**历史存储值的迁移输入**
+ *  （旧版本可能把 'auto' 写进 localStorage）由 normalizeThemeMode 解析成具体一态。
+ *  ⚠ `theme.auto` 这个 i18n 键**仍留在 DICT 里**（值不动）：它是上游 `bench/i18n.ts` 的逐键镜像，
+ *  `references/vendor-ref/ww-pages/bench-patch.test.mjs` 的 T1 会比对键集与取值 —— 删键即红。
+ *  也就是说：**键保留、UI 不再有第三态**（见本文件 init() 里的 applyThemeMode 与 index.html 的两个开关）。 */
 export function nextThemeMode(mode) {
-  return mode === 'auto' ? 'dark' : mode === 'dark' ? 'light' : 'auto'
+  return mode === 'dark' ? 'light' : 'dark'
 }
 
-/** auto 解析成实际生效的主题（prefers-color-scheme） */
+/** auto 解析成实际生效的主题（prefers-color-scheme）—— 现在只服务于**历史 'auto' 的一次性迁移** */
 export function resolveTheme(mode, prefersDark) {
   if (mode === 'auto') return prefersDark ? 'dark' : 'light'
   return mode === 'light' ? 'light' : 'dark'
 }
 
-/** 从 localStorage 的原始值算出 {mode, theme}：非法值一律回 auto（与 bundle 的读取逻辑等价） */
+/** 主题模式规范化：只允许 dark/light 两态；'auto'/非法值按系统偏好**一次性**落到具体一态（不锁死、不留第三态） */
+export function normalizeThemeMode(saved, prefersDark) {
+  const raw = String(saved == null ? '' : saved)
+  return (raw === 'dark' || raw === 'light') ? raw : resolveTheme('auto', prefersDark)
+}
+
+/** 从 localStorage 的原始值算出 {mode, theme} —— 两态；非法值 = 按系统偏好迁移一次 */
 export function themePlan(saved, prefersDark) {
-  const mode = (saved === 'auto' || saved === 'dark' || saved === 'light') ? saved : 'auto'
+  const mode = normalizeThemeMode(saved, prefersDark)
   return { mode, theme: resolveTheme(mode, prefersDark) }
 }
 
@@ -563,13 +574,50 @@ export function onlineDemoNotice(lang) {
 }
 
 /* ============================ A5/A6 统一下拉工厂（导出以便 Node 测试直接驱动） ============================ */
+/** ⑬(2026-09-19 用户要求) 下拉浮层定位计划（纯函数，Node 可断言；输入/输出全是**视口坐标**）。
+ *
+ *  为什么需要它：`.bench-rd-list` 原来是 `position:absolute`，包含块 = `.bench-rd`（就在 `#toolbar` 里）
+ *  ⇒ 被 `#toolbar{overflow-y:auto}`（以及 `#main{overflow:hidden}` / `#props-body{overflow-y:auto}`）
+ *  **裁成一块**：展开时菜单不是浮在壁纸上，而是把工具栏撑出一段可滚区域，还能被划到空白处
+ *  （真机原话：「不是悬浮在下面看壁纸的地方的，而是单独的一块，我可以给上面这一块划到空白的地方去」）。
+ *  改法：`position:fixed` —— `#toolbar` 上没有 transform/filter/contain ⇒ 它不是固定定位后代的包含块，
+ *  浮层因此**脱离那些裁剪盒与滚动条**；代价是坐标要自己算，就是本函数。
+ *
+ *  仍会裁剪固定定位后代的**只剩** `#pages-track{contain:paint}`（它是 header 以下整块区域的包含块），
+ *  所以 clip 传 `#pages-track` 的 rect，并把结果夹在它里面。
+ *  返回 {left, top, width, maxHeight, placement}：默认贴下方；下方放不下就翻到上方；再不够按可用高度压缩。
+ *  参数：btn=触发器 rect；clip=裁剪盒 rect（`#pages-track`，缺省退化成视口）；vp={width,height} 视口；
+ *        listH=浮层想占的高度（取 scrollHeight，量不到时用 280 兜底）。 */
+export function dropdownLayerPlan(btn, clip, vp, listH) {
+  const b = btn || {}
+  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d)
+  const bx = num(b.left, 0), by = num(b.top, 0)
+  const bw = Math.max(0, num(b.width, num(b.right, bx) - bx))
+  const bh = Math.max(0, num(b.height, num(b.bottom, by) - by))
+  const vw = num(vp && vp.width, 0), vh = num(vp && vp.height, 0)
+  const cx0 = Math.max(0, num(clip && clip.left, 0)), cy0 = Math.max(0, num(clip && clip.top, 0))
+  const cx1 = num(clip && clip.right, vw || cx0 + bw), cy1 = num(clip && clip.bottom, vh || cy0)
+  const gap = 4
+  const want = Math.max(80, Math.min(320, Math.round(num(listH, 280))))
+  const bottom = by + bh
+  const below = Math.max(0, Math.floor(Math.min(cy1, vh || cy1) - (bottom + gap)))
+  const above = Math.max(0, Math.floor((by - gap) - cy0))
+  const placement = below >= Math.min(want, above) ? 'below' : 'above'
+  // 下方/上方都不够时也要给一个**可看几行**的高度（80px ≈ 4 行）：宁可溢出裁剪盒，也不要塌成一条缝
+  const maxHeight = Math.max(80, Math.min(want, placement === 'below' ? below : above))
+  const left = Math.min(Math.max(cx0, bx), Math.max(cx0, Math.min(cx1, vw || cx1) - bw))
+  const top = placement === 'below' ? bottom + gap : Math.max(cy0, by - gap - maxHeight)
+  return { left: Math.round(left), top: Math.round(top), width: Math.round(bw), maxHeight: Math.round(maxHeight), placement }
+}
+
 /**
  * 把一个原生 <select> 换成同一个自绘紧凑组件：
  *  - 原生 select 视觉隐藏（select.bench-rd-native），**保留 value/options/onchange 契约**
- *  - 列表限高可滚动（CSS .bench-rd-list{max-height:280px;overflow:auto}）
- *  - 收起：点触发器（toggle）/ 点空白（调用方挂全局 click）/ Esc（调用方挂全局 keydown）
+ *  - 列表限高可滚动（CSS .bench-rd-list{position:fixed;max-height:min(280px,42vh);overflow-y:auto}）
+ *  - 展开时按 dropdownLayerPlan 算 left/top（浮在页面上层、不占布局、不会被工具栏滚走）
+ *  - 收起：点触发器（toggle）/ 点空白（调用方挂全局 click）/ Esc / 滚动（调用方挂全局 scroll）
  *  - 选中：写回 sel.value 并派发 change → bundle 侧逻辑一行不改
- * 返回 { sel, wrap, btn, list, label, open, close, isOpen }（isOpen 供测试断言）
+ * 返回 { sel, wrap, btn, list, label, open, close, position, isOpen }（isOpen 供测试断言）
  */
 export function bindDropdown(doc, sel, registry) {
   if (!sel || !sel.parentNode) return null
@@ -593,6 +641,22 @@ export function bindDropdown(doc, sel, registry) {
     btn.disabled = !!sel.disabled
   }
   const close = () => { wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false') }
+  /** 浮层坐标（fixed 坐标系 = 视口）—— 只在展开时算一次；滚动/改尺寸由调用方关掉重开 */
+  const position = () => {
+    try {
+      if (typeof btn.getBoundingClientRect !== 'function') return null
+      const rect = btn.getBoundingClientRect()
+      const clipEl = (typeof document !== 'undefined' && doc.querySelector) ? doc.querySelector('#pages-track') : null
+      const clip = (clipEl && typeof clipEl.getBoundingClientRect === 'function') ? clipEl.getBoundingClientRect() : null
+      const vp = { width: (typeof innerWidth === 'number' ? innerWidth : 0), height: (typeof innerHeight === 'number' ? innerHeight : 0) }
+      const plan = dropdownLayerPlan(rect, clip, vp, list.scrollHeight || 280)
+      try { list.style.left = plan.left + 'px' } catch {}
+      try { list.style.top = plan.top + 'px' } catch {}
+      try { list.style.minWidth = plan.width + 'px' } catch {}
+      try { list.style.maxHeight = plan.maxHeight + 'px' } catch {}
+      return plan
+    } catch { return null }   // 桩 DOM 无布局：CSS 里的 fixed 默认值仍然成立
+  }
   const open = () => {
     for (const d of registry || []) if (d !== api) d.close()
     list.innerHTML = ''
@@ -609,6 +673,8 @@ export function bindDropdown(doc, sel, registry) {
       list.appendChild(li)
     }
     wrap.classList.add('open'); btn.setAttribute('aria-expanded', 'true')
+    // 必须在加 .open **之后**量：display:none 时 scrollHeight=0，量出来会退化成 80px 的缺省高度
+    position()
   }
   btn.addEventListener('click', (e) => {
     if (e && e.preventDefault) e.preventDefault()
@@ -616,7 +682,7 @@ export function bindDropdown(doc, sel, registry) {
     wrap.classList.contains('open') ? close() : open()      // A6 点触发器可收回
   })
   sel.addEventListener('change', label)
-  const api = { sel, wrap, btn, list, label, open, close, isOpen: () => wrap.classList.contains('open') }
+  const api = { sel, wrap, btn, list, label, open, close, position, isOpen: () => wrap.classList.contains('open') }
   if (registry) registry.push(api)
   label()
   return api
@@ -1188,13 +1254,38 @@ export function initSiteShell(ctx = {}) {
 
   /* 主题 / 后端状态文字：主题看 #theme-toggle 的 data-mode（bundle 写），后端看 #bench-backend-note（bundle 写） */
   const themeBtn = q('#theme-toggle'), themeState = q('#theme-state'), backendState = q('#backend-state'), backendNote = q('#bench-backend-note')
+  // ⑫c(2026-09-19 用户要求) 设置弹层里的主题从"一行跟随系统文字"改成**两个明确开关**（#theme-dark / #theme-light）。
+  //   `#theme-state` 只作为**旧缓存 HTML**（新 HTML 里已删）的兜底，不再参与新 DOM。
+  const themeDarkBtn = q('#theme-dark'), themeLightBtn = q('#theme-light')
+  /** 当前主题**两态**（dark/light）—— 缺省/非法/历史 'auto' 一律按具体一态呈现，UI 不再有第三态 */
+  function currentThemeMode() {
+    const raw = (themeBtn && themeBtn.dataset && themeBtn.dataset.mode) || ''
+    return raw === 'light' ? 'light' : 'dark'
+  }
+  function paintThemeButtons(mode) {
+    const m = mode === 'light' ? 'light' : 'dark'
+    for (const [btn, mine] of [[themeDarkBtn, 'dark'], [themeLightBtn, 'light']]) {
+      if (!btn) continue
+      try { btn.setAttribute('aria-pressed', m === mine ? 'true' : 'false') } catch {}
+      try { btn.classList.toggle('active', m === mine) } catch {}
+    }
+    if (themeState) themeState.textContent = tr(curLang(), 'theme.' + m)     // 旧缓存 HTML 的兜底
+    if (themeBtn) { try { themeBtn.title = tr(curLang(), 'theme.' + m) } catch {} }
+  }
   function paintStatus() {
-    const mode = (themeBtn && themeBtn.dataset && themeBtn.dataset.mode) || 'auto'
-    if (themeState) themeState.textContent = tr(curLang(), 'theme.' + mode)
+    paintThemeButtons(currentThemeMode())
     if (backendState) {
       const note = backendNote ? String(backendNote.textContent || '').trim() : ''
       backendState.textContent = note ? note.split('\n')[0] : tr(curLang(), 'nav.backendUnknown')
     }
+  }
+  for (const btn of [themeDarkBtn, themeLightBtn]) {
+    if (!btn) continue
+    btn.addEventListener('click', () => {
+      // 两个开关 = 两条明确指令；真正的落盘/DOM 应用在 init() 的 applyThemeMode()（同一份两态逻辑）
+      try { if (typeof window !== 'undefined' && typeof window.__benchThemeSet === 'function') window.__benchThemeSet(btn.id === 'theme-light' ? 'light' : 'dark') } catch {}
+      try { paintStatus() } catch {}
+    })
   }
   try {
     if (themeBtn && typeof MutationObserver === 'function') {
@@ -1305,6 +1396,43 @@ export function initSiteShell(ctx = {}) {
     }
   } catch {}
 
+  /* ── ⑫a(2026-09-19 用户要求)「壁纸配置」要能**收起** ────────────────────────────────────────
+     真因（两条都在我们自己的代码里，产物那条 `#props-close.onclick = () => ue(!1)` 其实一直在跑）：
+       ① `#props[hidden]{display:flex!important}`（静态表 + SITE_LAYOUT_CSS 各一份）—— 2026-09-17 为
+          "产物切 docs 视图时把常驻区一起 hidden"上的锁，把 `hidden` 变成了**空操作**；
+       ② `paintPropsEmpty()` 见 `hidden` 就 `removeAttribute('hidden')` —— 同一把锁的 JS 侧。
+     修法：收起状态改用我们自己的类 `#props.bench-props-collapsed{display:none!important}`（同特异度、
+     源序在后 ⇒ 压得住 `#props[hidden]`；`!important` 同时压掉产物 CSS 的 `[hidden]{display:none!important}`）。
+     `#toggle-props` 用 `onclick = null` 摘掉产物那个"没选壁纸就弹错"的处理器（面板现在是常驻列 + 空态，
+     不需要它），再挂我们自己的**两态**开关；顺带把产物会加到 `#workspace` 上的 `props-open` 去掉 ——
+     产物 CSS 里 `#workspace.props-open{grid-template-columns:minmax(0,1fr) 360px}` 会让舞台白丢 360px 宽。 */
+  const PROPS_COLLAPSED_KEY = 'bench-props-collapsed'
+  const propsCloseBtn = q('#props-close'), propsToggleBtn = q('#toggle-props')
+  function propsCollapsedNow() { try { return !!(propsEl && propsEl.classList.contains('bench-props-collapsed')) } catch { return false } }
+  function setPropsCollapsed(collapsed, persist = true) {
+    if (!propsEl) return false
+    const want = !!collapsed
+    try { propsEl.classList.toggle('bench-props-collapsed', want) } catch {}
+    try { if (want) propsEl.setAttribute('data-bench-props', 'collapsed'); else propsEl.removeAttribute('data-bench-props') } catch {}
+    if (propsToggleBtn) {
+      try { propsToggleBtn.classList.toggle('checked', !want) } catch {}
+      try { propsToggleBtn.setAttribute('aria-pressed', want ? 'false' : 'true') } catch {}
+    }
+    try { const ws = q('#workspace'); if (ws) ws.classList.remove('props-open') } catch {}
+    if (persist) writeKey(PROPS_COLLAPSED_KEY, want ? '1' : '0')
+    return want
+  }
+  if (propsCloseBtn) propsCloseBtn.addEventListener('click', (e) => { try { e && e.preventDefault && e.preventDefault() } catch {}; setPropsCollapsed(true) })
+  if (propsToggleBtn) {
+    try { propsToggleBtn.onclick = null } catch { /* 桩 DOM 允许覆盖 */ }
+    propsToggleBtn.addEventListener('click', (e) => {
+      try { e && e.preventDefault && e.preventDefault() } catch {}
+      setPropsCollapsed(!propsCollapsedNow())
+    })
+    try { propsToggleBtn.setAttribute('aria-controls', 'props') } catch {}
+  }
+  setPropsCollapsed(readKey(PROPS_COLLAPSED_KEY) === '1', false)   // 首次上电：默认**展开**（空态），尊重用户上次的收起
+
   /* ── 控制台：拖动上沿调高度（⑥ 与 8899 demo.html 的日志条同一套手感）+ 双击复位 ── */
   const mainEl = q('#main'), splitter = q('#logs-splitter'), logsEl = q('#logs')
   function logsHeight() {
@@ -1324,7 +1452,9 @@ export function initSiteShell(ctx = {}) {
       const mainH = mainEl.getBoundingClientRect().height
       const chromeH = (q('#editor-chrome') || { getBoundingClientRect: () => ({ height: 0 }) }).getBoundingClientRect().height
       const rest = mainH - chromeH - 6 - stageFloorPx()
-      return Math.max(60, Math.round(rest))
+      // ⑪(2026-09-19 用户要求「输出区至少能看几行」) 原来这里是 `Math.max(60, …)`：窗口一矮就把控制台钳成
+      //   60px（≈2 行）。120px ≈ 5 行，且 stageFloorPx()=140 已经把舞台保底留出来了 ⇒ 不会反过来把舞台挤没。
+      return Math.max(120, Math.round(rest))
     } catch { return 220 }
   }
   function setLogsHeight(px, persist = true) {
@@ -1488,6 +1618,8 @@ export function initSiteShell(ctx = {}) {
     setPage, getPage, popOpen, refreshSwitcher, listItems,
     logsHeight, setLogsHeight, paintLogsArrow, paintPropsEmpty, paintStatus,
     shellVersion: VER, domIsNew: DOM_NEW, maxLogsForLayout,
+    // ⑫a / ⑫c（探针与测试用同一入口）
+    setPropsCollapsed, propsCollapsed: propsCollapsedNow, themeMode: currentThemeMode,
   }
 }
 
@@ -1556,28 +1688,47 @@ export function init() {
   // ── ① 主题：bundle 正常时**绝不重复接管**（否则一次点击走两格）；只在 bundle 没跑起来时兜底 ──
   //   线上事故：产物缺 assets/modulepreload-polyfill-*.js ⇒ bundle 整体不执行 ⇒ 主题按钮永远没反应。
   //   补齐文件是根治；这里再加一层"bundle 死了也能切主题"的兜底（判据 = <html> 上还没有 data-theme）。
+  //   ⑫c(2026-09-19 用户要求)：**两态**（深色 / 浅色）——产物 `#theme-toggle.onclick` 那条
+  //   `auto → dark → light → auto` 的三态循环被我们**换掉**（属性赋值 ⇒ 后者胜，见下）；
+  //   点击只走 dark ↔ light，历史 'auto'（或非法值）**一次性迁移**成具体一态。
   const THEME_KEY = 'webwallgl-theme'
   const themeBtn = $('#theme-toggle')
-  function ensureThemeFallback() {
-    if (!themeBtn) return false
-    try { if (doc.documentElement.dataset && doc.documentElement.dataset.theme) return false } catch { return false }
-    let mq = null
-    try { mq = (typeof matchMedia === 'function') ? matchMedia('(prefers-color-scheme: dark)') : null } catch { mq = null }
-    let saved = null
-    try { saved = (typeof localStorage !== 'undefined') ? localStorage.getItem(THEME_KEY) : null } catch { saved = null }
-    const apply = (mode) => {
-      const plan = themePlan(mode, !!(mq && mq.matches))
-      try { doc.documentElement.dataset.theme = plan.theme } catch { /* 无 dataset（测试） */ }
-      try { themeBtn.dataset.mode = plan.mode } catch { /* 同上 */ }
-      themeBtn.setAttribute('title', t(curLang, 'theme.' + plan.mode))
+  function prefersDarkNow() {
+    try { return !!(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches) } catch { return false }
+  }
+  /** 把两态主题真正落到 DOM/存储（与产物 ze() 同语义，但永远不落 'auto'）。返回 {mode,theme}。 */
+  function applyThemeMode(mode) {
+    if (!themeBtn) return null
+    const plan = themePlan(mode, prefersDarkNow())
+    try { doc.documentElement.dataset.theme = plan.theme } catch { /* 无 dataset（测试） */ }
+    try { themeBtn.dataset.mode = plan.mode } catch { /* 同上 */ }
+    try { themeBtn.setAttribute('title', t(curLang, 'theme.' + plan.mode)) } catch {}
+    try {
       for (const ic of themeBtn.querySelectorAll('.ic')) {
         if (ic.classList.contains('ic-' + plan.mode)) ic.removeAttribute('hidden')
         else ic.setAttribute('hidden', '')
       }
-      try { if (typeof localStorage !== 'undefined') localStorage.setItem(THEME_KEY, plan.mode) } catch { /* 隐私模式 */ }
-    }
-    apply(themePlan(saved, !!(mq && mq.matches)).mode)
-    themeBtn.addEventListener('click', () => apply(nextThemeMode((themeBtn.dataset && themeBtn.dataset.mode) || 'auto')))
+    } catch {}
+    try { if (typeof localStorage !== 'undefined') localStorage.setItem(THEME_KEY, plan.mode) } catch { /* 隐私模式 */ }
+    // 设置弹层那两个开关的按下态（外壳自己的重绘；桩 DOM/无外壳时静默）
+    try { if (typeof window !== 'undefined' && typeof window.__benchShellRefresh === 'function') window.__benchShellRefresh() } catch {}
+    return { mode: plan.mode, theme: plan.theme }
+  }
+  /** 当前**两态**模式（用于点击循环与"系统主题变化后把我们的模式钉回去"） */
+  function currentThemeMode() {
+    const raw = (themeBtn && themeBtn.dataset && themeBtn.dataset.mode) || ''
+    if (raw === 'dark' || raw === 'light') return raw
+    try { const saved = (typeof localStorage !== 'undefined') ? localStorage.getItem(THEME_KEY) : null; if (saved === 'dark' || saved === 'light') return saved } catch {}
+    return 'dark'
+  }
+  function ensureThemeFallback() {
+    if (!themeBtn) return false
+    try { if (doc.documentElement.dataset && doc.documentElement.dataset.theme) return false } catch { return false }
+    let saved = null
+    try { saved = (typeof localStorage !== 'undefined') ? localStorage.getItem(THEME_KEY) : null } catch { saved = null }
+    // 两态：老的 'auto'（或任何非法值）在这里按系统偏好**迁移**成具体一态；此后只有 dark/light
+    applyThemeMode(themePlan(saved, prefersDarkNow()).mode)
+    themeBtn.addEventListener('click', () => applyThemeMode(nextThemeMode(currentThemeMode())))
     return true
   }
 
@@ -1629,6 +1780,15 @@ export function init() {
   for (const sel of doc.querySelectorAll('select')) bindDropdown(doc, sel, dropdowns)
   doc.addEventListener('click', (e) => { for (const d of dropdowns) if (!d.wrap.contains(e.target)) d.close() })
   doc.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(null) })
+  // ⑬(2026-09-19) 浮层坐标是**展开那一刻**算的（fixed 坐标系）：一旦页面/面板滚动或窗口改尺寸，
+  //   它就跟锚点脱开了 —— 与其追着改坐标，不如直接收起（"不会被滚走"的最简可靠实现）。
+  //   捕获阶段监听：`#pages-track` 里的滚动不冒泡到 window，必须 capture 才收得到。
+  try {
+    if (typeof addEventListener === 'function') {
+      addEventListener('scroll', () => closeAll(null), true)
+      addEventListener('resize', () => closeAll(null))
+    }
+  } catch { /* 桩 DOM：忽略 */ }
   // ── A8 预览全屏 + 全屏内可见的"退出全屏"（用户键盘上没有 F12，不能依赖快捷键）──
   const stageSlot = $('#stage-slot'), fsEnter = $('#fs-enter'), fsExit = $('#fs-exit')
   const fsSupported = !!(stageSlot && stageSlot.requestFullscreen)
@@ -2062,9 +2222,20 @@ export function init() {
     '#site-actions{margin-left:auto;display:flex;align-items:center;gap:8px;position:relative}',
     '#settings-btn{appearance:none;font:inherit;font-size:12.5px;color:var(--fg);background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer}',
     '#settings-btn:hover,#settings-btn[aria-expanded="true"]{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}',
-    '#site-actions .theme-btn{width:30px;height:26px;border-radius:6px}',
+    '#site-actions .theme-btn{width:30px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1}',
+    '#theme-toggle .ic{display:block;flex:none}',   /* ⑫c 内联 SVG 走基线对齐会偏上（line-box 的降部留白）⇒ 块级化 + flex 居中 */
+    '.theme-seg{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden}',
+    '.theme-opt{appearance:none;font:inherit;font-size:12px;color:var(--fg-dim);background:transparent;border:0;padding:3px 9px;cursor:pointer}',
+    '.theme-opt + .theme-opt{border-left:1px solid var(--border)}',
+    '.theme-opt:hover{color:var(--fg)}',
+    '.theme-opt[aria-pressed="true"]{background:var(--accent,#0078d4);color:#fff}',
     '#settings-pop{position:absolute;right:0;top:calc(100% + 6px);width:330px;background:var(--panel);border:1px solid var(--border);border-radius:8px;box-shadow:0 14px 40px rgba(0,0,0,.38);padding:10px 12px;z-index:40;display:flex;flex-direction:column;gap:8px;font-size:12.5px}',
-        '#settings-catcher{position:fixed;inset:0;z-index:35;background:transparent}',
+    /* ⑫b(2026-09-19 用户要求) 捕手必须**低于** #site-header：header 是 `position:relative;z-index:30` 的
+       层叠上下文，弹层自己在里面 z-index:40 —— 但整个上下文在根级只有 30。捕手原来是 35（根级），
+       ⇒ 它盖在**整个 header 之上**（弹层也不例外）：点「语言」命中的是捕手 ⇒ pointerdown 直接关弹层，
+       语言永远切不了。改成 29（根级：高于内容层 #pages-track 的 auto、低于 header 的 30）⇒
+       弹层收得到点击，点页面其它地方仍然是"先命中捕手 ⇒ 关"。 */
+    '#settings-catcher{position:fixed;inset:0;z-index:29;background:transparent}',
 '#settings-pop[hidden]{display:none!important}',
     '.pop-row,.lang-box{display:flex;align-items:center;gap:8px}',
     '.pop-k{color:var(--fg-mute);min-width:44px}',
@@ -2082,9 +2253,19 @@ export function init() {
     '#sidebar{grid-column:1;width:auto!important;max-width:none!important;min-width:0!important;resize:none!important}',
     '#props{grid-column:2;width:var(--mpw-props-w,320px);min-width:0;border-left:1px solid var(--border);border-right:1px solid var(--border)}',
     '#props[hidden]{display:flex!important}',
+    /* ⑫a(2026-09-19 用户要求)「壁纸配置」要能收起。上面那条 `[hidden]{display:flex!important}`（为 docs 视图
+       上的锁）+ `paintPropsEmpty()` 见到 hidden 就摘掉 ⇒ 产物 `#props-close.onclick = ue(!1)` 点了没效果。
+       收起状态改用**我们自己的类**：规则排在 `#props[hidden]` 之后、与它**同特异度**（1 个 id + 2 个 class
+       + 1 个元素）⇒ 源序后者胜；`!important` 同时压掉产物 CSS 里的 `[hidden]{display:none!important}`。 */
+    '#props.bench-props-collapsed{display:none!important}',
     '.props-empty{padding:14px 12px;color:var(--fg-mute);font-size:12.5px;line-height:1.75}',
     '.props-empty strong{display:block;color:var(--fg-dim);margin-bottom:4px}',
     '#toolbar{max-height:30vh;overflow-y:auto}',
+    /* ⑬(2026-09-19 用户要求) 下拉浮层浮在页面上层：`position:fixed` 让它脱离 `#toolbar` / `#main` /
+       `#props-body` 的 overflow 裁剪（这些祖先都没有 transform/contain ⇒ 不是固定定位的包含块），
+       坐标由 `dropdownLayerPlan()` 在展开时写内联 left/top/min-width/max-height。
+       `min-width:0` 必需：产物那条 `min-width:100%` 在 fixed 下会对齐**视口宽**。 */
+    '.bench-rd-list{position:fixed;z-index:70;top:auto;left:auto;min-width:0;max-height:min(280px,42vh);overflow-y:auto}',
     '#main{grid-column:3;grid-template-rows:auto minmax(140px,1fr) 6px minmax(60px,var(--mpw-logs-h,220px))!important}',
     '#main.logs-collapsed{grid-template-rows:auto minmax(0,1fr) 6px 34px!important}',
     '#editor-chrome{grid-row:1}',
@@ -3296,7 +3477,8 @@ export function init() {
     }
     for (const d of dropdowns) d.label()                        // 自绘下拉触发器（#lang/#resolution/#fit/#dpr/#fps/#fx）
     const themeBtn = $('#theme-toggle')                         // 主题按钮 title 随模式+语言
-    if (themeBtn && themeBtn.dataset && themeBtn.dataset.mode) themeBtn.title = t(curLang, 'theme.' + themeBtn.dataset.mode)
+    // ⑫c 只认**两态**：万一旧缓存 HTML 里残着 'auto'，也不许把"主题：跟随系统"写回标题
+    if (themeBtn && themeBtn.dataset && (themeBtn.dataset.mode === 'dark' || themeBtn.dataset.mode === 'light')) themeBtn.title = t(curLang, 'theme.' + themeBtn.dataset.mode)
     paintDpr(); paintLogsIcon(); paintFps(); paintUppercaseLabels()   // 状态栏两格：bundle 会写旧文案，必须最后覆盖
     try { if (typeof window !== 'undefined' && typeof window.__benchShellRefresh === 'function') window.__benchShellRefresh() } catch { /* 外壳未初始化（测试桩）：忽略 */ }
   }
@@ -3336,6 +3518,28 @@ export function init() {
     if (el.tagName === 'INPUT') { try { el.removeAttribute('accept'); el.disabled = true } catch { /* 同上 */ } }
   }
   const themeFallback = ensureThemeFallback()      // ① bundle 已接管时返回 false（绝不重复接管）
+  /* ⑫c(2026-09-19 用户要求「不要跟随系统」) —— 两态主题的两条落地路径：
+     · 兜底路径（bundle 死了）：ensureThemeFallback 里已挂 addEventListener（两态循环），这里不再挂第二条，
+       否则真浏览器里一次点击会走两格（属性 onclick + addEventListener 都触发）。
+     · bundle 活着：产物 `#theme-toggle.onclick` 是三态循环 ⇒ 这里**用属性赋值换掉它**（属性处理器只有一个，
+       赋值即替换；不用 addEventListener 是为了不与兜底那条叠加），并在同一处把历史 'auto' 迁移成具体一态。 */
+  try { if (typeof window !== 'undefined') window.__benchThemeSet = (m) => applyThemeMode(m) } catch {}
+  if (themeBtn && !themeFallback) {
+    // 历史 'auto' 一次性迁移：产物可能刚从 localStorage 读到 'auto' 并用 ze() 写了 data-mode='auto'。
+    // ⚠ 只在**明确读到 'auto'** 时迁移：`data-mode` 缺失/异常时不动（否则会把产物已经画好的
+    //   `data-theme` 按系统偏好改掉 —— T19 的"bundle 已接管 ⇒ 点击/初始化都不改 data-theme"就是这条）。
+    try { if (themeBtn.dataset && themeBtn.dataset.mode === 'auto') applyThemeMode(themePlan('auto', prefersDarkNow()).mode) } catch {}
+    themeBtn.onclick = () => applyThemeMode(nextThemeMode(currentThemeMode()))
+    // 迁移前 bundle 内部还记着 'auto' ⇒ 系统主题一变它会 ze('auto') 把 data-theme 改回去。
+    // 这里在系统主题变化时把我们自己的两态模式**重新钉一次**（迁移过一次后 localStorage 已是 dark/light）。
+    try {
+      const mq = (typeof matchMedia === 'function') ? matchMedia('(prefers-color-scheme: dark)') : null
+      if (mq && typeof mq.addEventListener === 'function') mq.addEventListener('change', () => { applyThemeMode(currentThemeMode()) })
+    } catch { /* 无 matchMedia：忽略 */ }
+  } else if (themeBtn) {
+    // 兜底路径也要把设置弹层两个开关的按下态画对（此时 data-mode 已由 applyThemeMode 写好）
+    try { if (typeof window !== 'undefined' && typeof window.__benchShellRefresh === 'function') window.__benchShellRefresh() } catch {}
+  }
   paintBackendNote()                              // ⑺ 先按"未探测"渲染一次，探测回来再刷新
 
   const langEl = $('#lang')
@@ -3573,6 +3777,11 @@ export function init() {
     switcher: () => (window.__benchShell ? { plan: window.__benchShell.refreshSwitcher(), items: window.__benchShell.listItems() } : null),
     logsHeight: () => (window.__benchShell ? window.__benchShell.logsHeight() : null),
     setLogsHeight: (v) => (window.__benchShell ? window.__benchShell.setLogsHeight(v) : null),
+    // ⑫a / ⑫c（探针/测试入口；与用户点击走**同一条**代码路径）
+    setPropsCollapsed: (v) => (window.__benchShell ? window.__benchShell.setPropsCollapsed(v) : null),
+    propsCollapsed: () => (window.__benchShell ? window.__benchShell.propsCollapsed() : null),
+    themeMode: () => (window.__benchShell ? window.__benchShell.themeMode() : null),
+    setThemeMode: (m) => applyThemeMode(m),
     siteStyleInjected: () => SITE_STYLE_INJECTED,
     shellVersion: () => BENCH_SHELL_VERSION,
     domIsNew: () => DOM_IS_NEW,

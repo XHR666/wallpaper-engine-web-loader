@@ -466,6 +466,176 @@ const landing = path.join(ROOT, 'index.html')
   }
 }
 
+// ---- D11（2026-09-19 用户第 ⑪/⑫/⑬ 条）三条真机 bug 的静态把守 + 纯函数判据 ----
+// 为什么是静态的：这三条都发生在**真机平板**（980×690 横屏"桌面版网站"）——
+//   ⑪ 输出区整块排在折叠线以下；⑫a「收起」被自己的 CSS 锁顶掉；⑫b 设置弹层被自己的"点击捕手"盖住；
+//   ⑬ 下拉浮层被祖先的 overflow 裁成一块。它们都**不是**逻辑错，而是布局/层叠/裁剪的错
+//   ⇒ 用"源码级结构 + 纯函数几何"钉住，任何一条被改回去都会红（见 P-123）。
+{
+  const html = read(path.join(DEMO, 'index.html'))
+  const patchSrc = read(path.join(DEMO, 'bench-patch.js'))
+  const vendorCss = read(path.join(DEMO, 'assets', 'bench-HtRiuWm6.css'))
+  const mStatic = html.match(/<style id="bench-shell-static">([\s\S]*?)<\/style>/)
+  const cssRaw = mStatic ? mStatic[1] : ''
+  const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, ' ')
+  const P = await import(pathToFileURL(path.join(ROOT, DEMO, 'bench-patch.js')).href)
+  const declOf = (re) => { const m = css.match(re); return m ? m[1] : null }
+  const hasLine = (t) => cssRaw.split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).includes(t)
+
+  // ⑪ 输出区：可见高度下限 + 首屏顺序（舞台之后、面板之前）
+  const logsFloorSel = 'html.bench-shell.bench-narrow #main:not(.logs-collapsed) #logs'
+  const logsFloor = hasLine(logsFloorSel + '{min-height:clamp(180px,38vh,320px)}')
+  check('D11 ⑪ 窄屏给输出区 #logs 一个可见高度下限（clamp(180px,38vh,320px)，收起态除外）', logsFloor)
+  const floorPx = Number((declOf(/min-height:clamp\((\d+)px/) || '0'))
+  check('D11 ⑪ 下限至少 180px（≈9 行 @12px/1.55；改小即红）', floorPx >= 180, floorPx + 'px')
+  check('D11 ⑪ 下限的收起态豁免用的是 #main:not(.logs-collapsed)（收起是用户显式选择，不许被下限顶开）',
+    /#main:not\(\.logs-collapsed\) #logs\{min-height/.test(css) &&
+    /#main\.logs-collapsed/.test(read(path.join(DEMO, 'assets', 'bench-HtRiuWm6.css'))))
+  check('D11 ⑪ 窄屏把 #main 排到面板之前（#workbench 容器改 flex 列 + #main{order:-1}）',
+    /#workbench\{display:flex!important;flex-direction:column;height:auto!important\}/.test(css) &&
+    /#main\{display:flex!important;flex-direction:column;order:-1;height:auto!important;overflow:visible\}/.test(css))
+  // 安全网（@media ≤1180）里也必须有逐字同款（head 脚本没跑成时同样成立）
+  check('D11 ⑪ 安全网 @media 里两条同款齐全（下限 + 顺序）',
+    /html\.bench-shell #main:not\(\.logs-collapsed\) #logs\{min-height:clamp\(180px,38vh,320px\)\}/.test(css) &&
+    /html\.bench-shell #workbench\{display:flex!important;flex-direction:column;height:auto!important\}/.test(css) &&
+    /html\.bench-shell #main\{display:flex!important;flex-direction:column;order:-1;height:auto!important;overflow:visible\}/.test(css))
+  // 首屏可见高度的**算术复核**（常量来自 2026-09-19 真机 980×690 实测：header=62、切换栏=32、
+  //   工具条=112、舞台=48vh=331；面板的 max-height 是 clamp(140px,22vh,320px) ⇒ 152px/个）。
+  //   ⚠ 这里**读 CSS 里的顺序**决定面板算不算在输出上面 —— 把 `#main{order:-1}` 改回去这条就红。
+  {
+    const vh = 690, firstScreen = vh - 62
+    const stage = Math.round(vh * 0.48)
+    const reordered = /#main\{display:flex!important;flex-direction:column;order:-1;height:auto!important;overflow:visible\}/.test(css)
+    const panelPx = Math.min(320, Math.round(vh * 0.22))
+    const panelsAbove = reordered ? 0 : 2 * panelPx
+    const logsAbove = firstScreen - (panelsAbove + 32 + 112 + stage)
+    check('D11 ⑪ 980×690 首屏内输出区可见高度 ≥120px（顺序 + 面板高度一起算；改回旧顺序为负 ⇒ 整块在折叠线以下）',
+      reordered && logsAbove >= 120, '顺序=' + (reordered ? '舞台之后' : '面板之后') + '，可见高度 ' + logsAbove + 'px')
+  }
+
+  // ⑫a「壁纸配置」可收起：类规则必须**排在** #props[hidden] 之后（同特异度 ⇒ 靠源序取胜）+ JS 链路在位
+  const atPropsHidden = css.indexOf('#props[hidden]{display:flex!important}')
+  const atPropsCollapsed = css.indexOf('#props.bench-props-collapsed{display:none!important}')
+  const specOf = (sel) => {
+    const ids = (sel.match(/#[\w-]+/g) || []).length
+    const cls = (sel.match(/\.[\w-]+/g) || []).length + (sel.match(/\[[^\]]+\]/g) || []).length
+    const el = (sel.replace(/[#.][\w-]+|\[[^\]]+\]|:not\([^)]*\)/g, ' ').match(/[a-z]+/gi) || []).length
+    return ids * 100 + cls * 10 + el
+  }
+  check('D11 ⑫a #props.bench-props-collapsed 的 display:none!important 在 #props[hidden] 之后（源序决胜）',
+    atPropsHidden >= 0 && atPropsCollapsed > atPropsHidden, 'hidden@' + atPropsHidden + ' collapsed@' + atPropsCollapsed)
+  check('D11 ⑫a 两条规则**同特异度**（不等就说明"靠源序"的论证不成立）',
+    specOf('html.bench-shell #props[hidden]') === specOf('html.bench-shell #props.bench-props-collapsed'),
+    specOf('html.bench-shell #props[hidden]') + ' vs ' + specOf('html.bench-shell #props.bench-props-collapsed'))
+  check('D11 ⑫a SITE_LAYOUT_CSS 与静态表都带这条锁（D8 之外再点一次名，防只改一处）',
+    patchSrc.includes("'#props.bench-props-collapsed{display:none!important}'") &&
+    css.includes('html.bench-shell #props.bench-props-collapsed{display:none!important}'))
+  check('D11 ⑫a JS：收起按钮 / 工具栏按钮 / 持久化 / 产物处理器摘除 四件都在',
+    /propsCloseBtn\.addEventListener\('click'/.test(patchSrc) &&
+    /setPropsCollapsed\(!propsCollapsedNow\(\)\)/.test(patchSrc) &&
+    /propsToggleBtn\.onclick = null/.test(patchSrc) &&
+    /PROPS_COLLAPSED_KEY = 'bench-props-collapsed'/.test(patchSrc) &&
+    /setPropsCollapsed, propsCollapsed: propsCollapsedNow/.test(patchSrc))
+  check('D11 ⑫a JS：产物那条 `#workspace.props-open`（会白丢 360px 舞台宽）被主动摘掉',
+    /ws\.classList\.remove\('props-open'\)/.test(patchSrc) && /#workspace\.props-open\{grid-template-columns:minmax\(0,1fr\) 360px\}/.test(vendorCss))
+
+  // ⑫b 设置弹层不再被自己的"点击捕手"盖住：捕手 z-index 必须 < #site-header 的 30 < 弹层的 40
+  const catcherZ = Number((declOf(/#settings-catcher\{[^}]*z-index:(\d+)/) || 'NaN'))
+  const headerZ = Number((declOf(/#site-header\{[^}]*z-index:(\d+)/) || 'NaN'))
+  const popZ = Number((declOf(/#settings-pop\{[^}]*z-index:(\d+)/) || 'NaN'))
+  check('D11 ⑫b 捕手 z-index < #site-header 的 30 < 弹层的 40（header 是层叠上下文 ⇒ 弹层的 40 只在它内部有效）',
+    catcherZ < headerZ && headerZ < popZ, 'catcher=' + catcherZ + ' header=' + headerZ + ' pop=' + popZ)
+  check('D11 ⑫b 弹层确实在 #site-header 内部（这才让"捕手盖住整个 header"成立；也才是这条判据的前提）',
+    html.indexOf('<header id="site-header">') < html.indexOf('id="settings-pop"') &&
+    html.indexOf('id="settings-pop"') < html.indexOf('</header>'))
+  check("D11 ⑫b 捕手仍然挂在 body 上 + 事件仍是 pointerdown/click 两条（改挂点会改变裁剪/层叠前提）",
+    /catcher\.parentNode !== D\.body\) D\.body\.appendChild\(catcher\)/.test(patchSrc) &&
+    /catcher\.addEventListener\('pointerdown'/.test(patchSrc) && /catcher\.addEventListener\('click'/.test(patchSrc))
+
+  // ⑫c 主题两态（深色 / 浅色，去掉"跟随系统"）
+  check('D11 ⑫c 纯函数：两态循环 + 历史 auto 迁移（不再有第三态）',
+    P.nextThemeMode('dark') === 'light' && P.nextThemeMode('light') === 'dark' &&
+    P.themePlan('auto', true).mode === 'dark' && P.themePlan('bogus', false).mode === 'light' &&
+    P.normalizeThemeMode('light', true) === 'light')
+  check('D11 ⑫c DICT 仍保留 theme.auto/dark/light 三键（T1 与上游 i18n.ts 逐键比对；键在、UI 不用）',
+    !!P.DICT.zh['theme.auto'] && !!P.DICT.zh['theme.dark'] && !!P.DICT.zh['theme.light'] &&
+    !!P.DICT.en['theme.auto'] && !!P.DICT.en['theme.dark'] && !!P.DICT.en['theme.light'])
+  check('D11 ⑫c 静态 HTML：两个开关在位、旧的"跟随系统"行与它的 i18n 钩子已删',
+    /id="theme-dark"/.test(html) && /id="theme-light"/.test(html) &&
+    /data-i18n="theme\.dark"/.test(html) && /data-i18n="theme\.light"/.test(html) &&
+    !/id="theme-state"/.test(html) && !/data-i18n(-title)?="theme\.auto"/.test(html))
+  check('D11 ⑫c JS：不再用 theme.auto 渲染标题/文案（标题只在 dark/light 两态下写；theme.auto 只留在 DICT 里）',
+    !/tr\(curLang\(\), 'theme\.' \+ mode\)/.test(patchSrc) &&
+    /\(themeBtn\.dataset\.mode === 'dark' \|\| themeBtn\.dataset\.mode === 'light'\)\) themeBtn\.title = t\(curLang, 'theme\.' \+ themeBtn\.dataset\.mode\)/.test(patchSrc) &&
+    /themeBtn\.onclick = \(\) => applyThemeMode\(nextThemeMode\(currentThemeMode\(\)\)\)/.test(patchSrc) &&
+    // DICT 定义行以外，全文不许再出现 theme.auto 的**取值/按键拼接**
+    !/theme\.'\s*\+\s*\(?mode\b/.test(patchSrc) &&
+    (patchSrc.split('\n').filter((l) => !l.includes('export const DICT')).join('\n').match(/'theme\.auto'/g) || []).length === 0)
+  check('D11 ⑫c 图标居中：.theme-btn 走 inline-flex 居中 + 内联 svg 块级化（去掉基线降部留白）',
+    /#site-actions \.theme-btn\{[^}]*display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1\}/.test(css) &&
+    /#theme-toggle \.ic\{display:block;flex:none\}/.test(css))
+  check('D11 ⑫c 两条居中声明在 SITE_LAYOUT_CSS 里也有（D8 逐条比对之外再点名）',
+    patchSrc.includes("display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1}") &&
+    patchSrc.includes("'#theme-toggle .ic{display:block;flex:none}'"))
+
+  // ⑬ 下拉浮层：position:fixed + 自己算坐标 + 祖先链上没有会"抓走"固定定位的 transform/contain
+  check('D11 ⑬ .bench-rd-list 改成 position:fixed（脱离 #toolbar{overflow:auto} / #workbench{overflow:hidden} 的裁剪）',
+    /html\.bench-shell \.bench-rd-list\{position:fixed;z-index:70;top:auto;left:auto;min-width:0;max-height:min\(280px,42vh\);overflow-y:auto\}/.test(css) &&
+    /\.bench-rd-list \{[\s\S]{0,120}position: absolute;/.test(vendorCss))
+  check('D11 ⑬ 产物那条 min-width:100% 被 min-width:0 覆盖（fixed 下 100% 会等于视口宽）',
+    /\.bench-rd-list\{[^}]*min-width:0/.test(css))
+  check('D11 ⑬ 固定定位的祖先链上只有 #pages-track 会裁（contain:paint）——其余祖先不得声明 transform/filter/contain/will-change',
+    (() => {
+      // 祖先集合 = 树上从 .bench-rd 到 body 的**每个**元素（工位/属性面板/设置弹层三处下拉都覆盖）
+      const anc = ['#toolbar', '#editor-chrome', '#main', '#workspace', '#workbench', '#page-console', '.page',
+        '#props-body', '#props', '#sidebar', '.lang-box', '#settings-pop', '#site-actions', '#site-header']
+      // 逐条规则解析选择器：只要某个"复合选择器片段"恰好是祖先之一，就检查它的声明
+      const bad = []
+      for (const src of [vendorCss, css]) {
+        for (const m of src.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+          const sels = m[1].split(',').map((s) => s.trim().split(/\s+/)).flat()
+          const hit = anc.find((a) => sels.some((tok) => tok === a || tok.startsWith(a + ':') || tok.startsWith(a + '.')))
+          if (!hit) continue
+          const decl = m[2]
+          const danger = decl.match(/(^|;)\s*(transform|filter|perspective|will-change|contain)\s*:\s*([^;]+)/)
+          if (danger && !/^none$/i.test(String(danger[3]).trim())) bad.push(hit + '{' + danger[0].trim() + '}')
+        }
+      }
+      return bad.length === 0 && /#pages-track\{[^}]*contain:paint/.test(css)
+    })())
+  check('D11 ⑬ 展开时按 dropdownLayerPlan 写内联坐标，且在 addEventListener(\'scroll\',…,true) / resize 时收起',
+    /const plan = dropdownLayerPlan\(rect, clip, vp, list\.scrollHeight \|\| 280\)/.test(patchSrc) &&
+    /list\.style\.top = plan\.top \+ 'px'/.test(patchSrc) &&
+    /addEventListener\('scroll', \(\) => closeAll\(null\), true\)/.test(patchSrc) &&
+    /addEventListener\('resize', \(\) => closeAll\(null\)\)/.test(patchSrc))
+  check('D11 ⑬ position() 在 wrap.classList.add(\'open\') **之后**调用（display:none 时 scrollHeight=0 会量错）',
+    (() => {
+      const i = patchSrc.indexOf("const open = () => {")
+      const blk = patchSrc.slice(i, i + 1200)
+      const atOpen = blk.indexOf("wrap.classList.add('open')")
+      const atPos = blk.indexOf('position()', atOpen)
+      return i > 0 && atOpen > 0 && atPos > atOpen
+    })())
+  // 纯函数几何：三条判据（放得下 → 贴下方并在裁剪盒内；放不下 → 翻上方；触到右边界 → 夹回来）
+  {
+    const clip = { left: 0, top: 62, right: 980, bottom: 690 }
+    const vp = { width: 980, height: 690 }
+    // 触发器位置取**修复后**的窄屏首屏布局（切换栏 32px 之后 ⇒ 工具条第一行 ≈94px）
+    const fit = P.dropdownLayerPlan({ left: 98, top: 94, right: 230, bottom: 118, width: 132, height: 24 }, clip, vp, 280)
+    check('D11 ⑬ 几何①：980×690 下 132px 触发器 + 280px 列表 ⇒ placement=below 且整块落在裁剪盒内（真机改前 inViewport=false）',
+      fit.placement === 'below' && fit.left === 98 && fit.top === 122 &&
+      fit.top + fit.maxHeight <= clip.bottom && fit.left + fit.width <= clip.right,
+      JSON.stringify(fit))
+    const up = P.dropdownLayerPlan({ left: 300, top: 640, right: 432, bottom: 664, width: 132, height: 24 }, clip, vp, 280)
+    check('D11 ⑬ 几何②：触发器贴近底边 ⇒ 翻到上方（top < 触发器 top，且不越出裁剪盒上沿）',
+      up.placement === 'above' && up.top < 640 && up.top >= clip.top && up.top + up.maxHeight <= 640,
+      JSON.stringify(up))
+    const right = P.dropdownLayerPlan({ left: 940, top: 100, right: 1072, bottom: 124, width: 132, height: 24 }, { left: 0, top: 62, right: 980, bottom: 690 }, vp, 280)
+    check('D11 ⑬ 几何③：触发器贴右边界 ⇒ 左缘夹回裁剪盒内（不横溢出）',
+      right.left === 980 - 132, JSON.stringify(right))
+  }
+}
+
 if (JSON_OUT) console.log(JSON.stringify({ pass, fail }, null, 1))
 else console.log(`\n===== demo-check: ${pass} 通过 / ${fail} 失败 =====`)
 process.exit(fail ? 1 : 0)

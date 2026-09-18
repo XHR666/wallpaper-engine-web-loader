@@ -8632,3 +8632,144 @@ $ node tests/docs-check.mjs            # exit 0   —— 文档一致性全部�
 | **未改**：`web/diag-flags.json` | 它是 `tests/diag-flag-check.mjs` 的生成物（`JSON_OUT`）；`node tests/docs-check.mjs` 会连带跑它，本轮因 `demo.html` 行号位移**自动重写**（`generatedAt` + `sites[].line`）⇒ 工作树多一条 ` M web/diag-flags.json`。按"只提交自己路径"未进本次提交（仓库既有惯例：生成物单独一次提交，见 `f9983cd`/`f86f911`），**留给集成线** |
 | **未改**：`tests/run-all-tests.sh` | 第 130 行注释里写死的"106 断言"已过期（本轮后 278）。已确认没有脚本校验这个计数（不是门禁红项）；登记待办：把该行 `106 断言` 改成 `278 断言` |
 | **未改**：`demo/bench-patch.js`、`demo/assets/bench-*` | 另有并行线在改；本节 P-124.6 只给清单与对照做法 |
+
+## P-125（2026-09-19 用户第 ⑪/⑫/⑬ 条 · 窄屏"桌面版网站"平板真机实测）输出区整块在折叠线以下 + 「壁纸配置」收不起 + 设置弹层被自己的点击捕手盖住 + 主题收敛成两态 + 分辨率/DPR 下拉被祖先 overflow 裁成一块
+
+> **编号说明**：任务书写的是"追加 P-123"，但写入前 `grep -n '^## P-12' docs/PATCHES.md` 实测 **P-122/P-123 已被并行线占号**
+> （见 P-124 节末的"P-122/P-123 是并行线占号"），且 `tests/docs-check.mjs` 的 ② 要求 P-编号**唯一 + 按文件顺序非降**
+> ⇒ 本节取 **P-125**（在 P-124 之后追加，两条件都满足）。
+> **范围声明**：本节只改 `demo/index.html`（首屏静态 CSS + DOM + head 脚本）、`demo/bench-patch.js`（外壳逻辑/i18n/SITE_LAYOUT_CSS）、
+> `tests/demo-check.mjs`（新增 D11）与仓外参考测试 `references/vendor-ref/ww-pages/bench-patch.test.mjs`（T19/T19c，**不在 git 里**，已如实登记）。
+> **不改**：minified 产物 `demo/assets/**`（许可口径：一个字节都不动）、上游归属行、URL 别名。
+
+### P-125.0 一句话结论（四条，都是判据式）
+
+| # | 用户现象 | 根因（一句话） | 判据 |
+|---|---|---|---|
+| ⑪ | 「下面的输出的地方…可见的范围非常小，你能看到它自带的第1行文字，静态托管无diag后端」 | 窄屏是"文档流 + 页面内滚动"：**侧栏 152 + 属性栏 152** 压在 `#main` 之前，`#logs` 的 top=779 > 视口高 690 ⇒ **首屏可见高度 0**；且 `#logs{flex:none}` 的高度纯由内容决定（静态托管下 `#logbody` 只有 1~2 行）⇒ 即便滚到底也只有 ~105px | 980×690 首屏可见高度 ≥120px（算术 + 真机复测） |
+| ⑫a | 「壁纸配置」面板上的「收起」点了没效果 | 我们自己的锁 `#props[hidden]{display:flex!important}`（静态表 + SITE_LAYOUT_CSS 各一份）把 `hidden` 变成空操作，`paintPropsEmpty()` 又会摘掉 `hidden` ⇒ 产物 `#props-close.onclick = () => ue(!1)` 一直在跑、但看不见效果 | 收起后 `#props` 挂 `bench-props-collapsed`（display:none）+ 持久化 1（假 DOM 行为断言） |
+| ⑫b | 设置弹层里点「语言」把设置窗口自己关掉 | `#site-header{position:relative;z-index:30}` 是层叠上下文 ⇒ 弹层自己的 `z-index:40` **只在 header 内部有效**；捕手挂在 body 上、`z-index:35` 是**根级** ⇒ 捕手盖在整个 header（含弹层）之上，点语言命中的是捕手 ⇒ `pointerdown` 直接 `popOpen(false)` | 捕手 z-index < header 的 30 < 弹层的 40（静态层叠判据） |
+| ⑫c | 「切换深色暗色的地方…留两个开关，一个深色一个暗色，不要跟随系统」 | 主题是三态（auto→dark→light→auto）：产物 `#theme-toggle.onclick` 走三态，DICT/静态 `title` 还带 `theme.auto`；按钮 `#theme-toggle` 只有 UA 默认按钮样式 ⇒ 内联 SVG 走**基线对齐**、下方留降部空白 ⇒ 图标看着偏上 | 两态纯函数 + 两个开关在位 + `.theme-btn` inline-flex 居中 + svg 块级化 |
+| ⑬ | 「点开之后它下面的菜单不是悬浮在下面看壁纸的地方的，而是单独的一块，我可以给上面这一块划到空白的地方去」 | `.bench-rd-list{position:absolute}`，包含块 = `.bench-rd`（在 `#toolbar` 内）⇒ 被 `#toolbar{overflow-y:auto}`（以及 `#workbench{overflow:hidden}`）**裁成一块**并进入工具栏的**可滚动溢出区**（真机：`inViewport=false`） | `.bench-rd-list{position:fixed}` + 祖先链上无 transform/filter/contain（`#pages-track` 的 `contain:paint` 是唯一会裁它的盒子）+ 纯函数几何三条 |
+
+### P-125.1 现场证据（真机实测 + 静态读代码，先证据后改）
+
+**A. 真机实测（980×690 横屏 + 浏览器"桌面版网站"，有头浏览器）**
+
+```
+⑪ #logs = {w:980, h:105, top:779, bottom:884}  视口高=690 ⇒ #logs 可见高度 = 0（整块在折叠线以下）
+   --mpw-logs-h = 220px；#page-console scrollHeight=840 / clientHeight=628（页面在滚）
+⑫a 点 #props-close 之后 #props 的 computed display 仍是 flex ⇒ 收起确实无效
+⑫c 主题按钮只有 1 个 .theme-btn（title="主题：浅色"，内含 svg）⇒ 一个按钮循环三态
+⑬ #bench-rd-list：position=absolute、z-index=40、top=450、left=98、inViewport=false
+   祖先链 = span[pos=relative,ovf=visible] → label[ovf=visible] → #toolbar[ovf=auto] →
+            #editor-chrome[ovf=visible] → #main[ovf=visible] → #workbench[ovf=hidden]
+```
+
+**B. 静态读代码（"为什么只剩一行"的三个候选逐个判）**
+
+| 候选 | 判据 | 结论 |
+|---|---|---|
+| `--mpw-logs-h` 被钳到很小 | `--mpw-logs-h` 的**唯一消费者**是 `demo/index.html:74` 的桌面网格 `#main{grid-template-rows:…minmax(60px,var(--mpw-logs-h,220px))}`；窄屏 `#main{display:flex!important}`（`:172`）让 grid-template-rows **整条失效** | **不成立**（窄屏无关） |
+| `clampLogsHeight/maxLogsForLayout` 算成 60px | `maxLogsForLayout()` 在窄屏直接 `return 100000`（`demo/bench-patch.js:1450`）；`Math.max(60, …)` 那条只在**桌面网格**下生效（已顺手抬到 120：`:1457`）。但 `clampLogsHeight()` 的 `<24 ⇒ 0`（`:1127`）会让 `#main.logs-collapsed` ⇒ 产物 `#main.logs-collapsed #logbody{display:none}` ⇒ 面板只剩 head + 离线原因行 —— 这是**另一条**"只剩一行"的合法路径（用户主动收起 / 桌面上把分隔条拖到底后持久化成 `'collapsed'`） | **窄屏不成立**（但已用 `#main:not(.logs-collapsed)` 把收起态与下限解耦） |
+| 被排在折叠线以下 | 窄屏 `#workbench{display:block}`（改前 `:164`）+ DOM 顺序 = 侧栏 → 属性栏 → #main ⇒ 首屏 628px 里先塞 152+152，`#logs` top=779 | **成立（真因）** |
+| 面板本身高度纯由内容决定 | `#logs{flex:none;max-height:70vh;overflow:auto}`（`:186`）+ 产物 `#logbody{flex:1;min-height:0}` ⇒ 静态托管下 `#logbody` 内容少 ⇒ 面板 ≈ `.logs-head`(35px)+`#diag-offline`(≈40px)+几行 = 105px | **成立（叠加因素）** |
+
+### P-125.2 改法（file:line）
+
+| # | 文件:行 | 改法 |
+|---|---|---|
+| ⑪ | `demo/index.html:171-172`（类块）/ `:212-213`（安全网） | 窄屏 `#workbench` 由 `display:block` 改 **flex 列** + `#main{order:-1}` ⇒ 首屏 = 切换栏 32 + 工具条 112 + 舞台 331 + 输出；**只动 CSS order，不动 DOM**（id 结构/产物契约不变） |
+| ⑪ | `demo/index.html:194`（类块）/ `:217`（安全网） | `#main:not(.logs-collapsed) #logs{min-height:clamp(180px,38vh,320px)}`（≈9 行起，随视口长到 320px）；收起态豁免，收起仍是用户的显式选择 |
+| ⑪ | `demo/bench-patch.js:1457` | 桌面网格的地板 `Math.max(60, …)` → `Math.max(120, …)`（≈5 行；`stageFloorPx()=140` 已把舞台保底留出） |
+| ⑫a | `demo/index.html:75` + `demo/bench-patch.js:2260` | 新增 `#props.bench-props-collapsed{display:none!important}`：与 `#props[hidden]` **同特异度**（1 id+2 class+1 元素）且**源序在后** ⇒ 压得住那把锁；`!important` 同时压掉产物 CSS 的 `[hidden]{display:none!important}` |
+| ⑫a | `demo/bench-patch.js:1409-1434` | 收起状态改用类 + `localStorage['bench-props-collapsed']`；`#props-close` 点击 ⇒ 收起；`#toggle-props` 用 `onclick = null` **摘掉产物那个"没选壁纸就弹错"的处理器**再挂自己的两态开关；顺带摘掉产物会加到 `#workspace` 上的 `props-open`（产物 CSS `#workspace.props-open{grid-template-columns:minmax(0,1fr) 360px}` 会让舞台白丢 360px 宽） |
+| ⑫b | `demo/index.html:55` + `demo/bench-patch.js:2238` | 捕手 `z-index:35 → 29`（根级：高于内容层 `#pages-track` 的 auto、低于 `#site-header` 的 30）⇒ 弹层收得到点击；点页面其它地方仍然"先命中捕手 ⇒ 关"。不改挂点（仍是 body + pointerdown/click 两条） |
+| ⑫c | `demo/bench-patch.js:333-361` | `nextThemeMode()` 两态（dark↔light）；新增 `normalizeThemeMode()`；`themePlan()` 把历史 `'auto'`/非法值**按系统偏好一次性迁移**成具体一态。DICT 的 `theme.auto` **保留**（T1 与上游 `bench/i18n.ts` 逐键比对），只是 UI 不再使用 |
+| ⑫c | `demo/bench-patch.js:1700-1730` + `:3532` | 抽 `applyThemeMode()`（落 `data-theme`/`data-mode`/title/图标/存储 + 通知外壳重绘）；bundle 活着时用**属性赋值**换掉产物三态 `onclick`（不与兜底那条 `addEventListener` 叠加）；`ensureThemeFallback()` 的兜底循环也改两态；系统主题变化时**把自己的两态模式钉回去**（迁移前产物内部还记着 `auto`） |
+| ⑫c | `demo/index.html:42-48`、`:299-308` | `.theme-btn` 加 `display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1` + `#theme-toggle .ic{display:block;flex:none}`（消掉内联 SVG 的基线降部留白）；设置弹层删掉 `#theme-state`（"跟随系统"那行），换成 `.theme-seg` + `#theme-dark`/`#theme-light` 两个 `.theme-opt` 开关（`aria-pressed` 表达按下态） |
+| ⑬ | `demo/index.html:83` + `demo/bench-patch.js:2268` | `.bench-rd-list{position:fixed;z-index:70;top:auto;left:auto;min-width:0;max-height:min(280px,42vh);overflow-y:auto}`：`fixed` 让浮层脱离 `#toolbar/#main/#workbench/#props-body` 的 overflow 裁剪（这些祖先都没有 transform/contain ⇒ 不是固定定位的包含块）；`min-width:0` 压掉产物那条 `min-width:100%`（fixed 下 100% = 视口宽） |
+| ⑬ | `demo/bench-patch.js:576-612` | 新增纯函数 `dropdownLayerPlan(btn, clip, vp, listH)`：贴下方；下方放不下翻上方；左右夹回裁剪盒（`#pages-track` 的 `contain:paint` 盒）；最少给 80px（≈4 行），宁可溢出也不塌成一条缝 |
+| ⑬ | `demo/bench-patch.js:645-663`、`:688-690`、`:1788-1790` | 展开时算内联 `left/top/min-width/max-height`（在 `wrap.classList.add('open')` **之后**量 `scrollHeight`，否则 display:none 下量到 0）；`scroll`（**capture**，`#pages-track` 内的滚动不冒泡到 window）+ `resize` ⇒ 直接收起（"不会被滚走"的最简可靠实现） |
+
+### P-125.3 判据与退出码
+
+```
+$ node tests/demo-check.mjs                     → 90 通过 / 0 失败   （改前 62/0；新增 D11 共 28 条）  exit=0
+$ node tests/demo-syntax-check.mjs              → demo 内联脚本语法：10/10 通过（扫 demo.html + demo/index.html）  exit=0
+$ node references/vendor-ref/ww-pages/bench-patch.test.mjs
+                                                → 384 通过 / 0 失败  （改前 375/0；新增 T19c 9 条 + T19 主题两态重写）  exit=0
+```
+
+D11（`tests/demo-check.mjs:469-633`）逐条覆盖：⑪ 下限在位 / 下限 ≥180px / 收起态豁免 / 顺序改对（类块 + 安全网同款）/
+首屏可见高度算术 ≥120px（**读 CSS 里的 order 决定面板算不算在上面**）；⑫a 源序 + 同特异度 + 两个文件都带锁 + JS 四件齐 +
+产物 `props-open` 被摘；⑫b 三层 z-index 关系 + 弹层确实在 header 内 + 捕手挂点/事件类型；⑫c 两态纯函数 + DICT 三键仍在 +
+两个开关在位且无 `theme-state`/`theme.auto` 钩子 + 不再用 `theme.auto` 渲染 + 居中两声明；⑬ `position:fixed` + `min-width:0` +
+祖先链无 transform/filter/contain（逐条规则解析选择器，含属性面板与设置弹层两处下拉的祖先）+ `position()` 时机 +
+`scroll(capture)/resize` 收起 + 三条纯函数几何。
+
+### P-125.4 反向变异（每条都是真跑到；下面是实测 RED 原文）
+
+| 变异 | RED（摘录） |
+|---|---|
+| M1 ⑪ 删掉窄屏下限 | `✗ D9 安全网（@media ≤1180）的每条规则都在 .bench-narrow 类块里有逐字同款（零漂移） — 漂移 1：#main:not(.logs-collapsed) #logs{min-height:clamp(180px,38vh,320px)}` / `✗ D11 ⑪ 窄屏给输出区 #logs 一个可见高度下限…` |
+| M2 ⑪ 下限压到 60px | `✗ D11 ⑪ 下限至少 180px（≈9 行 @12px/1.55；改小即红） — 60px` |
+| M3 ⑪ 去掉 `order:-1` | `✗ D11 ⑪ 窄屏把 #main 排到面板之前…` / `✗ D11 ⑪ 安全网 @media 里两条同款齐全（下限 + 顺序）` / `✗ D11 ⑪ 980×690 首屏内输出区可见高度 ≥120px… — 顺序=面板之后，可见高度 -151px` |
+| M4 ⑫a 折叠规则挪到 `#props[hidden]` 之前 | `✗ D11 ⑫a #props.bench-props-collapsed 的 display:none!important 在 #props[hidden] 之后（源序决胜） — hidden@4360 collapsed@-1` |
+| M5 ⑫a 不再摘产物 `#toggle-props` 处理器 | `✗ D11 ⑫a JS：收起按钮 / 工具栏按钮 / 持久化 / 产物处理器摘除 四件都在` |
+| M6 ⑫b 捕手 z-index 改回 35 | `✗ D11 ⑫b 捕手 z-index < #site-header 的 30 < 弹层的 40… — catcher=35 header=30 pop=40` |
+| M7 ⑫c `nextThemeMode` 改回三态 | `✗ D11 ⑫c 纯函数：两态循环 + 历史 auto 迁移（不再有第三态）` / `✗ T19 主题循环两态 dark ↔ light（不再有第三态 auto）` / `✗ T19 第三次 → dark（两态循环闭合，永不停在 auto）` |
+| M8 ⑫c 去掉 flex 居中 | `✗ D11 ⑫c 图标居中：.theme-btn 走 inline-flex 居中 + 内联 svg 块级化（去掉基线降部留白）` |
+| M9 ⑬ `.bench-rd-list` 改回 `position:absolute` | `✗ D11 ⑬ .bench-rd-list 改成 position:fixed（脱离 #toolbar{overflow:auto} / #workbench{overflow:hidden} 的裁剪）` |
+| M10 ⑬ `dropdownLayerPlan` 不再夹右边界 | `✗ D11 ⑬ 几何③：触发器贴右边界 ⇒ 左缘夹回裁剪盒内（不横溢出） — {"left":940,…}` |
+| M11/M11b/M11c/M11d ⑬ 给 `#toolbar` 加 `transform`、`#workbench` 加 `will-change`、`#settings-pop` 加 `contain`、`#props-body` 加 `filter` | 四条都 `✗ D11 ⑬ 固定定位的祖先链上只有 #pages-track 会裁（contain:paint）——其余祖先不得声明 transform/filter/contain/will-change` |
+| M12 ⑫a 删掉 `#props-close` 的点击接线 | `✗ T19c 点面板上的「收起」⇒ #props 挂 bench-props-collapsed + 持久化 1… — ["",null]` / `✗ T19c 收起状态可查询（shell API = 探针/测试同一入口） — false` / `✗ T19c 收起后工具栏按钮不再"已按下"… — ["true","checked"]` |
+
+### P-125.5 ⑨ 名称残留清单（"名称没改"到底指哪一处）
+
+扫描面 = `:8901` 真正会发出的文件（`/wallpaper-engine-webgl/` → `we-scene-demo/demo/`；`:8901/` 也被软链指向同一份 `index.html`
+⇒ **仓库根那份落地页 `index.html` 在 :8901 上不可达**，它只在 GitHub Pages 的 `/`）。分四类：
+
+| 类别 | 位置（file:line） | 用户是否看得见 |
+|---|---|---|
+| **(C) URL 别名** | 地址栏 `/wallpaper-engine-webgl/`（软链名 = `references/vendor-ref/ww-pages/wallpaper-engine-webgl` → `we-scene-demo/demo`；服务器打印见 `serve-8901.mjs:81`，说明见 `:14-16`）；运行期前缀改写 `demo/bench-patch.js:549-555/3572/3583`、SW 注册 `/wallpaper-engine-webgl/sw.js`、iframe 缺省 src `demo/bench-patch.js:1988` | **看得见（最可能的那一处）** —— 链接/地址栏文字里的名字 |
+| **(B) 上游归属（有意保留）** | 设置弹层 credit 行 `demo/index.html:314`（文案来自 `demo/bench-patch.js:49` DICT `credit.link`）+ 两份许可链接 `:315`；说明页「许可与归属」`demo/index.html:560-564`（zh）/ `:615-619`（en） | **看得见**：一开「设置」就有一条「WebWallGL · oneincase（MIT 许可）」；说明页还有整段命名说明 |
+| **(A) 品牌位（运行期已覆盖成 WEwebLoader）** | 静态 `<title>` `demo/index.html:16`、`#site-brand` 静态文本 `:261`、DICT `app.title` `demo/bench-patch.js:49`（zh/en）、产物内 DICT `demo/assets/bench-DSKWIqmS.js:2`（2 处，许可口径不动） | 运行期**应为 WEwebLoader**（`applySiteBrandNow()`，`demo/bench-patch.js:3409-3429`，在 `applyStaticI18n` 之后重放）。**若用户看到旧名**：①刷新前那一帧；②`?shell=off`/`?appname=upstream`；③产物或补丁没跑起来（旧缓存） |
+| **(D) 内部/历史（页面上不可见）** | `demo/bench-patch.js` 顶部注释链（`:1/28-31/37-43`）、`THEME_KEY='webwallgl-theme'`（`:1694`）、`demo/sw.js:9/11`（缓存名 `webwallgl-bench-v2`）、产物内的上游 README/`#docs-body`（被 `#docs-view{display:none!important}` 锁住，`demo/index.html:119`）、`demo/assets/renderer-BOSoB05I.js:717` 的**模拟媒体源**品牌（曲名 `WebWallGL`/歌手 `oneincase`，运行期由补丁的 `applyMediaBranding()` 换成壁纸自己的 title/preview；`?brand=0` 才还原） | 不可见（除 `?brand=0` 时壁纸内的媒体组件） |
+
+**候选清单（按"用户最可能看到"排序，供裁定，**本轮未擅自改动归属行**）**：
+1. **地址栏 / 链接文字里的 `/wallpaper-engine-webgl/`（C 类，URL 别名）** —— 与用户原话"那个链接里的名称没改"最吻合；
+2. **设置弹层里的「WebWallGL · oneincase（MIT 许可）」+ 两份 LICENSE 链接（B 类）** —— 打开「设置」必见；
+3. **说明页「许可与归属」那一段（B 类）** —— 打开「说明」必见，且该段自己写着"本产品现名 WEwebLoader"；
+4. **浏览器标签标题**（A 类）—— 运行期应是 WEwebLoader；若仍是旧名 ⇒ 需要查"补丁是否真的跑起来"（`window.__benchShellVersion` / `<html data-bench-shell-version>`）。
+
+### P-125.6 未证实项（**不许当已解决**）+ 需要真浏览器验证的清单
+
+1. **⑪ 的首屏判据需要真机复测**：静态侧只证到"顺序 + 下限 + 算术 ≥120px"；真实像素/滚动体感要看
+   ① 980×690 下 `#logs` 的 `getBoundingClientRect()`（期望 top≈475、可见高度 ≈153px）；
+   ② 面板（资源管理器 / 壁纸配置）现在排在输出之后，用户在横屏下"换壁纸"是否还顺手（**这是本轮唯一有取舍的 UX 变更**）；
+   ③ 竖屏 412×915 / 桌面 1440×900 是否零回归（桌面**完全没动**：`order` 只在 `.bench-narrow` 与 ≤1180 安全网里）。
+2. **⑫b 的"点语言不再关窗"必须真浏览器验证**：这是纯层叠问题（假 DOM 没有命中测试）——
+   要验：打开设置 → 点语言触发器 → 弹层**仍在**且下拉浮层浮在壁纸上 → 选 English → 语言真的切了。
+3. **⑬ 的"浮层真的盖在壁纸上"必须真浏览器验证**：要验 `#bench-rd-list` 的 `getBoundingClientRect()` 在视口内、
+   `position` 计算值 = `fixed`、展开时 `#toolbar` **不出现滚动条**、页面**不被撑高**、滚一下浮层就收起；
+   另外验 `#pages-track{contain:paint}` 这个唯一裁剪盒在 980×690 下不会切掉 280px 的列表（几何上 bottom=690）。
+4. **⑫c 的外观需要真浏览器验证**：设置里两个开关的按下态（深色高亮 / 浅色高亮）、
+   太阳/月亮图标是否**居中**（本轮只做了 `inline-flex` 居中 + `svg{display:block}` 的静态判据）。
+5. **未证实**：`scroll` 的 capture 监听能否收到 `#pages-track` / `#toolbar` 这类**内部滚动容器**的滚动事件（依据是 DOM 捕获路径，
+   未真机验证）；即便收不到，`resize`/点外部/Esc 三条收起路径仍在（浮层不会永久悬空，只是滚动时不跟随）。
+6. **未证实**：用户机上 `we-bench-theme`/`webwallgl-theme` 若仍是历史 `'auto'`，本轮做法是"启动时迁移 + 系统主题变化时把两态模式钉回去"；
+   "迁移后这一次会话里系统主题变化是否 100% 不闪"没有真机数据（`matchMedia` 变更事件的时序未测）。
+7. **⑨ 未做**：没有改任何一处旧名（归属行/URL 别名/许可文件名都是有意保留）；"用户看到的到底是哪一处"只给候选清单，等裁定。
+
+### P-125.7 本轮改动文件清单（提交只含这些）
+
+| 文件 | 说明 |
+|---|---|
+| `demo/index.html` | 静态 CSS：`.theme-btn` 居中 + `.theme-opt` 两开关 + 捕手 `z-index:29` + `#props.bench-props-collapsed` + `.bench-rd-list{position:fixed}`；窄屏块/安全网：`#workbench` flex 列 + `#main{order:-1}` + `#logs` 下限；DOM：主题两个开关、`#theme-state` 删除、`#theme-toggle` 的 `data-i18n-title` 改 `theme.dark`；说明页主题文案（zh/en） |
+| `demo/bench-patch.js` | 主题两态纯函数（`nextThemeMode`/`normalizeThemeMode`/`themePlan`）+ `applyThemeMode` + 产物三态处理器替换 + 历史 auto 迁移；`dropdownLayerPlan` + `bindDropdown.position()` + scroll/resize 收起；`setPropsCollapsed` 收起链路；`maxLogsForLayout` 地板 60→120；SITE_LAYOUT_CSS 同步全部新增/修改的全局规则 |
+| `tests/demo-check.mjs` | 新增 D11（28 条）+ D8/D9 自动纳入新规则 |
+| `docs/PATCHES.md` | 本节 P-125 |
+| **仓外（不在 git）**：`references/vendor-ref/ww-pages/bench-patch.test.mjs` | T19 主题段按两态**重写**（4 条断言）+ 新增 T19c 9 条 ⇒ 375/0 → **384/0**。这条改动是"用户新要求覆盖旧规格"（旧规格写的就是三态循环），已在回报中显著登记 |
+| **未改**：`web/diag-flags.json` | 它是 `tests/diag-flag-check.mjs` 的生成物（本轮**没有**主动跑它；工作树里那条 ` M` 是并行线跑门禁时按 `demo.html` 行号位移重算的，`generatedAt` 也变了）。按"只提交自己路径"未进本次提交（与 P-124.8 同一处置），**留给集成线** |
+| **未改**：`tests/run-all-tests.sh` | 本轮新增 28 条 D11 断言后，脚本里若有写死的断言计数会过期；已确认没有脚本校验这个计数（不是门禁红项），登记待办 |

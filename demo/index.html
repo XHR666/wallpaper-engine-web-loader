@@ -39,9 +39,20 @@ html.bench-shell #site-tab-ink{position:absolute;bottom:0;left:0;height:2px;widt
 html.bench-shell #site-actions{margin-left:auto;display:flex;align-items:center;gap:8px;position:relative}
 html.bench-shell #settings-btn{appearance:none;font:inherit;font-size:12.5px;color:var(--fg);background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer}
 html.bench-shell #settings-btn:hover, html.bench-shell #settings-btn[aria-expanded="true"]{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}
-html.bench-shell #site-actions .theme-btn{width:30px;height:26px;border-radius:6px}
+html.bench-shell #site-actions .theme-btn{width:30px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1}
+html.bench-shell #theme-toggle .ic{display:block;flex:none}
+html.bench-shell .theme-seg{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+html.bench-shell .theme-opt{appearance:none;font:inherit;font-size:12px;color:var(--fg-dim);background:transparent;border:0;padding:3px 9px;cursor:pointer}
+html.bench-shell .theme-opt + .theme-opt{border-left:1px solid var(--border)}
+html.bench-shell .theme-opt:hover{color:var(--fg)}
+html.bench-shell .theme-opt[aria-pressed="true"]{background:var(--accent,#0078d4);color:#fff}
 html.bench-shell #settings-pop{position:absolute;right:0;top:calc(100% + 6px);width:330px;background:var(--panel);border:1px solid var(--border);border-radius:8px;box-shadow:0 14px 40px rgba(0,0,0,.38);padding:10px 12px;z-index:40;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
-html.bench-shell #settings-catcher{position:fixed;inset:0;z-index:35;background:transparent}
+/* ⑫b(2026-09-19 用户要求) 捕手必须**低于** #site-header：header 是 `position:relative;z-index:30` 的
+   层叠上下文，弹层自己在里面 z-index:40 —— 但整个上下文在根级只有 30。捕手原来是 35（根级），
+   ⇒ 它盖在**整个 header 之上**（弹层也不例外）：点「语言」命中的是捕手 ⇒ pointerdown 直接关弹层，
+   语言永远切不了。改成 29（根级：高于内容层 #pages-track 的 auto、低于 header 的 30）⇒
+   弹层收得到点击，点页面其它地方仍然是"先命中捕手 ⇒ 关"。 */
+html.bench-shell #settings-catcher{position:fixed;inset:0;z-index:29;background:transparent}
 html.bench-shell #settings-pop[hidden]{display:none!important}
 html.bench-shell .pop-row, html.bench-shell .lang-box{display:flex;align-items:center;gap:8px}
 html.bench-shell .pop-k{color:var(--fg-mute);min-width:44px}
@@ -57,9 +68,19 @@ html.bench-shell #activitybar{display:none!important}
 html.bench-shell #sidebar{grid-column:1;width:auto!important;max-width:none!important;min-width:0!important;resize:none!important}
 html.bench-shell #props{grid-column:2;width:var(--mpw-props-w,320px);min-width:0;border-left:1px solid var(--border);border-right:1px solid var(--border)}
 html.bench-shell #props[hidden]{display:flex!important}
+/* ⑫a(2026-09-19 用户要求)「壁纸配置」要能收起。上面那条 `[hidden]{display:flex!important}`（为 docs 视图
+   上的锁）+ `paintPropsEmpty()` 见到 hidden 就摘掉 ⇒ 产物 `#props-close.onclick = ue(!1)` 点了没效果。
+   收起状态改用**我们自己的类**：规则排在 `#props[hidden]` 之后、与它**同特异度**（1 个 id + 2 个 class
+   + 1 个元素）⇒ 源序后者胜；`!important` 同时压掉产物 CSS 里的 `[hidden]{display:none!important}`。 */
+html.bench-shell #props.bench-props-collapsed{display:none!important}
 html.bench-shell .props-empty{padding:14px 12px;color:var(--fg-mute);font-size:12.5px;line-height:1.75}
 html.bench-shell .props-empty strong{display:block;color:var(--fg-dim);margin-bottom:4px}
 html.bench-shell #toolbar{max-height:30vh;overflow-y:auto}
+/* ⑬(2026-09-19 用户要求) 下拉浮层浮在页面上层：`position:fixed` 让它脱离 `#toolbar` / `#main` /
+   `#props-body` 的 overflow 裁剪（这些祖先都没有 transform/contain ⇒ 不是固定定位的包含块），
+   坐标由 `dropdownLayerPlan()` 在展开时写内联 left/top/min-width/max-height。
+   `min-width:0` 必需：产物那条 `min-width:100%` 在 fixed 下会对齐**视口宽**。 */
+html.bench-shell .bench-rd-list{position:fixed;z-index:70;top:auto;left:auto;min-width:0;max-height:min(280px,42vh);overflow-y:auto}
 html.bench-shell #main{grid-column:3;grid-template-rows:auto minmax(140px,1fr) 6px minmax(60px,var(--mpw-logs-h,220px))!important}
 html.bench-shell #main.logs-collapsed{grid-template-rows:auto minmax(0,1fr) 6px 34px!important}
 html.bench-shell #editor-chrome{grid-row:1}
@@ -140,7 +161,15 @@ html.bench-shell.bench-mid{--mpw-lib-w:240px;--mpw-props-w:260px}
   html.bench-shell.bench-narrow #pages-track{height:auto;min-height:0;align-items:stretch}
   html.bench-shell.bench-narrow .page{overflow-y:auto;overflow-x:hidden}
   html.bench-shell.bench-narrow #page-console{display:block}
-  html.bench-shell.bench-narrow #workbench{display:block!important;height:auto!important}
+  /* ⑪(2026-09-19 真机实测 + 用户要求) 窄屏/横屏下**控制台（#main：切换栏 + 工具条 + 舞台 + 输出）排在面板之前**。
+     实测（980×690 横屏"桌面版网站"）：改前文档流顺序 = 侧栏 152 + 属性栏 152 + 切换栏 32 + 工具条 112 +
+     舞台 331 + 输出 105，`#logs` 的 top=779 > 视口高 690 ⇒ **首屏完全看不到输出**（可见高度 0），
+     用户原话「下面的输出的地方，这个地方他看不到…可见的范围非常小」。
+     这里**只改窄屏的排列顺序**（CSS `order`，不动 DOM ⇒ 不改 id 结构/产物契约，也不改桌面网格布局）：
+     首屏 = 切换栏 32 + 工具条 112 + 舞台 331 + 输出 ≥180 ⇒ 输出的可见高度 ≈153px（≥120px 判据）。
+     面板（资源管理器 / 壁纸配置）随后堆叠，页面内滚动照旧。 */
+  html.bench-shell.bench-narrow #workbench{display:flex!important;flex-direction:column;height:auto!important}
+  html.bench-shell.bench-narrow #main{display:flex!important;flex-direction:column;order:-1;height:auto!important;overflow:visible}
   html.bench-shell.bench-narrow #sidebar,
   html.bench-shell.bench-narrow #props{width:auto!important;max-height:clamp(140px,22vh,320px);overflow:auto;border-right:0;border-bottom:1px solid var(--border)}
   html.bench-shell.bench-narrow #main{display:flex!important;flex-direction:column;height:auto!important;overflow:visible}
@@ -155,6 +184,14 @@ html.bench-shell.bench-mid{--mpw-lib-w:240px;--mpw-props-w:260px}
   html.bench-shell.bench-narrow #stage,
   html.bench-shell.bench-narrow #frame{height:100%!important;width:100%!important}
   html.bench-shell.bench-narrow #logs{flex:none;max-height:70vh;overflow:auto}
+  /* ⑪(2026-09-19 用户要求「输出区至少能看几行」) 窄屏/横屏下给输出区一个**可见高度下限**。
+     现场：窄屏 `#main` 是"文档流 + 页面内滚动"（display:flex;height:auto），`#logs{flex:none}` 的高度
+     完全由内容决定 —— 而内容里真正会长的只有 `#logbody{flex:1;min-height:0}`（产物 CSS）：内容少
+     （静态托管下 `#logbody` 常常只有 1~2 行）时整个面板 = `.logs-head`(35px) + `#diag-offline`(≈40px)
+     ≈ 75px，真机观感就是"只看得见自带的第一行 / 静态托管无 diag 后端"。
+     下限 180px（≈9 行 @12px/1.55）随视口长到 320px；`#main:not(.logs-collapsed)` 排除收起态 ——
+     收起是用户的显式选择（`#main.logs-collapsed` + 产物 `#logbody{display:none}`），不许被这条顶开。 */
+  html.bench-shell.bench-narrow #main:not(.logs-collapsed) #logs{min-height:clamp(180px,38vh,320px)}
   html.bench-shell.bench-narrow #logs-splitter{display:none}      /* 窄屏不做拖动调高，交给自然高度 + 滚动 */
 
   html.bench-shell.bench-narrow #toolbar{gap:4px}
@@ -172,11 +209,12 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
    `tests/demo-check.mjs` D9 会断言这里每一条都能在类块里找到逐字同款（⇒ 两处不可能漂移）。
    本块声明在类块**之后**：两处同时命中时按同值收尾，不存在互相打架。 */
 @media (max-width:1180px){
-  html.bench-shell #workbench{display:block!important;height:auto!important}
-  html.bench-shell #main{display:flex!important;flex-direction:column;height:auto!important;overflow:visible}
+  html.bench-shell #workbench{display:flex!important;flex-direction:column;height:auto!important}
+  html.bench-shell #main{display:flex!important;flex-direction:column;order:-1;height:auto!important;overflow:visible}
   html.bench-shell #stage-slot{min-height:48vh}
   html.bench-shell #stage-frame{container-type:normal!important;padding:8px;min-height:48vh}
   html.bench-shell #stage-scale{width:min(100%,calc(46vh * 16 / 9))!important;height:auto!important;aspect-ratio:16/9;margin:0 auto}
+  html.bench-shell #main:not(.logs-collapsed) #logs{min-height:clamp(180px,38vh,320px)}
   html.bench-shell #stage,
   html.bench-shell #frame{height:100%!important;width:100%!important}
 }
@@ -234,8 +272,11 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
 
       <div id="site-actions">
         <button type="button" id="settings-btn" aria-haspopup="dialog" aria-expanded="false" data-i18n="nav.settings" data-i18n-title="nav.settingsTip" title="语言 / 主题 / 归属与许可">设置</button>
-          <button type="button" class="act theme-btn" id="theme-toggle" title="主题：跟随系统" data-i18n-title="theme.auto">
-            <svg class="ic ic-auto" viewBox="0 0 16 16" width="17" height="17" aria-hidden="true">
+          <button type="button" class="act theme-btn" id="theme-toggle" title="主题：深色" data-i18n-title="theme.dark" aria-label="主题 / Theme">
+            <!-- ⑫c(2026-09-19 用户要求「不要跟随系统」) `ic-auto` 那个"圆环+半黑"图标**不再显示**：
+                 按钮只在深色/浅色两态间切换（脚本按 data-mode 切换下面两个 svg 的 hidden）。
+                 保留它只为兼容旧缓存 HTML 的 querySelectorAll('.ic') 循环（不匹配 ic-dark/ic-light ⇒ 会被 hidden）。 -->
+            <svg class="ic ic-auto" viewBox="0 0 16 16" width="17" height="17" aria-hidden="true" hidden>
               <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.2" />
               <path fill="currentColor" d="M8 3.2a4.8 4.8 0 0 0 0 9.6V3.2z" />
             </svg>
@@ -255,7 +296,17 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
               <option value="en">English</option>
             </select>
           </label>
-          <div class="pop-row"><span class="pop-k" data-i18n="nav.theme">主题</span><span id="theme-state" class="pop-val">跟随系统</span></div>
+          <!-- ⑫c(2026-09-19 用户要求「切换深色暗色的地方，你就留两个开关，一个是深色，一个是暗色，
+               不要跟随系统」) 主题 = **两个明确开关**，不再有"跟随系统"这一态：
+               · 两个按钮各自是一条明确指令（不再循环），按下态由 `aria-pressed` + `.theme-opt[aria-pressed="true"]` 表达；
+               · 文案复用既有 i18n 键 `theme.dark`/`theme.light`（DICT 仍镜像上游 bench/i18n.ts，T1 逐键比对不许删键）；
+               · `#theme-state`（跟随系统那行）已删除 —— JS 里保留查询只为兼容旧缓存 HTML。 -->
+          <div class="pop-row" id="theme-row">
+            <span class="theme-seg" role="group" aria-label="主题 / Theme" data-i18n-title="nav.theme" title="主题">
+              <button type="button" class="theme-opt" id="theme-dark" aria-pressed="false" data-i18n="theme.dark" data-i18n-title="theme.dark" title="主题：深色">主题：深色</button>
+              <button type="button" class="theme-opt" id="theme-light" aria-pressed="false" data-i18n="theme.light" data-i18n-title="theme.light" title="主题：浅色">主题：浅色</button>
+            </span>
+          </div>
           <div class="pop-row"><span class="pop-k" data-i18n="nav.backend">后台</span><span id="backend-state" class="pop-val"></span></div>
           <p class="pop-note" data-i18n="nav.backendNote">静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。</p>
           <div class="pop-credit">
@@ -483,7 +534,7 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
 
           <h2>三步开始</h2>
           <ol>
-            <li>点顶部 <strong>设置 → 语言</strong> 选中文/英文；点旁边的<strong>太阳/月亮/圆环</strong>按钮切换深色 / 浅色 / 跟随系统。</li>
+            <li>点顶部 <strong>设置 → 语言</strong> 选中文/英文；<strong>主题</strong>一行给了<strong>两个开关</strong>（深色 / 浅色，不再有"跟随系统"），点旁边的太阳/月亮按钮则在两者之间来回切。</li>
             <li>壁纸：默认已载入合成样例；要换自己的，点「选择文件夹」（纯前端扫描，文件不离开浏览器）或把壁纸放进本机后端配置的库目录。</li>
             <li>调参：选中壁纸后在左侧「壁纸参数」里改；右侧「设置1」调分辨率 / FPS / 音量等运行参数。</li>
           </ol>
@@ -537,7 +588,7 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
 
           <h2>Three steps to start</h2>
           <ol>
-            <li>Top <strong>Settings → Language</strong>; the sun/moon/ring button cycles dark / light / follow system.</li>
+            <li>Top <strong>Settings → Language</strong>; the <strong>Theme</strong> row gives <strong>two explicit switches</strong> (dark / light — there is no “follow system” mode any more), and the sun/moon button toggles between the two.</li>
             <li>Wallpaper: the synthetic sample is already loaded; use “Choose folder” for your own (read in-browser, files never leave it).</li>
             <li>Tune: wallpaper-specific knobs on the left, runtime knobs (resolution / FPS / volume) in “Settings 1”.</li>
           </ol>
