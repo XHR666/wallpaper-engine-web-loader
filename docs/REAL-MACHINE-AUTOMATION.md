@@ -166,7 +166,7 @@ bash tests/run-all-tests.sh --only real-machine-check baseline-trend
 
 | # | 需要人的事 | 具体动作 | 看什么 | 为什么不能自动化 |
 |---|---|---|---|---|
-| 1 | **画面本身对不对**（第一眼） | 真机浏览器打开 `http://<本机IP>:8899/?id=<包id>` | 是否满屏、不是黑屏/白屏、人物不变形、没有明显错位 | 本机**没有 GPU**（`❌ 启动失败: 当前浏览器不支持 WebGL2`，本工具报告里 `webgl2:false`）⇒ 像素/帧率类断言在这里必假红；`?baseline=1` 也一个数字都产不出来（`docs/BASELINE.md` §1 已写明） |
+| 1 | **画面本身对不对**（第一眼） | 真机浏览器打开 `http://<本机IP>:8899/?id=<包id>` | 是否满屏、不是黑屏/白屏、人物不变形、没有明显错位 | 无头浏览器在本机**没有 WebGL2**（`❌ 启动失败: 当前浏览器不支持 WebGL2`，本工具报告里 `webgl2:false`）⇒ 像素/帧率类断言在无头路径上必假红；`?baseline=1` 也一个数字都产不出来（`docs/BASELINE.md` §1 已写明）。<br>①(2026-09-19) **有头 + 软件 WebGL2 这条例外已经打通**：`:0` 上的 headed Firefox（`MOZ_WEBGL_FORCE_SOFTWARE=1` + `webgl.force-enabled`）能拿到真 WebGL2 并出帧（~1 fps），已经用它做了**真指针链路**门禁 `x11-pointer`（见 `tests/x11-e2e/README.md`）⇒ **"像不像原版"仍需人眼，但"事件/方向/开关/像素计数"这类数字已经能自动判** |
 | 2 | **磨砂注入**（`backdrop-filter`） | 真机打开带磨砂面板的包，鼠标移到面板后面看壁纸 | 面板后面的壁纸**是否真的被模糊**（不是纯色/透明块） | 无 GPU 的无头浏览器**不合成 `backdrop-filter`**；且 `grep -c backdrop-filter demo.html` = **0** ⇒ 这个面**根本不在渲染器 demo 页里**（属插件/`demo/` 测试台，另一个工作流） |
 | 3 | **时间线可见性**（`?hour=` 日月循环） | 真机打开 `http://<本机IP>:8899/?id=3326873240&hour=3` 与 `&hour=15`（两次只改这一个变量） | 两次的**可见层不同**：看日志 `━━ 图层清单 ━━` 块的层数/`#i` 列表，以及画面对应变化 | 那个清单块**只在渲染循环启动后**才打印（`demo.html:5354` 的 `▶ 开始渲染…` 之后）⇒ 无 WebGL2 时根本走不到；且"哪一层该可见"是作者意图，机器判不了 |
 | 4 | **真机 FPS / 启动 / 切换 / 显存代理数字** | 真机打开 `http://<本机IP>:8899/?id=<包id>&baseline=1`（10s，等右下角摘要），把 `reports/baselines/*.json` 留档；再跑 `node tests/baseline-trend.mjs` | 趋势表里启动/首帧/FPS/切换/VRAM 代理列的**趋势与 Δ** | 采集器要 WebGL2 才跑；本机只能验**工具链**（`tests/baseline-test.mjs`）与**趋势视图**（`baseline-trend`） |
