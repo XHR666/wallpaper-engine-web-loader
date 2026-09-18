@@ -317,17 +317,16 @@ export function update(value) {
 // ═══════════════════════════ 7. S5 同族扫描（全语料第 1 帧）═══════════════════════════
 // 用户第 8 条的真正目的：不是修一个包，而是"同一类 bug 还有多少"。
 // 硬断言只有两条：① 抛 `reading 'x'` 的包 = **0**；② 残余错误种类 ⊆ KNOWN_GAPS（出现新种类即红）。
-// 残余的 8 个包是**别的** API 缺口（与本条 bug 不同根因），全列出来供后续排期。
+//
+// ①(P-141 2026-09-19) **白名单被清空**：P-137 交付时这里冻结了"残余 8 类 / 8 包"的其他 API 缺口
+//   （getAnimation / getParticleSystem / getLayerIndex / isPlaying / createLayer / toFixed 级联 /
+//   audioLayer.stop / engine.setInterval）。P-141 把这 8 类逐个实现后，**先实测**"有脚本错的包 = 0"
+//   （全语料 37 个带 scripts 的包 / 1953 个脚本节点），再把这个白名单缩到空 —— 顺序不能反：
+//   白名单是**结果**不是手段。缩空之后 S5c 的语义变成"任何残余种类都算新"，
+//   并且下面新增的 S5d 直接断言"包数 = 0"，避免"白名单为空 + 无断言"出现假绿。
 const KNOWN_GAPS = new Set([
-  // 残留（P-137 修后实测，2026-09-19）：全是"另一个 API 没实现"，不是 thisLayer.size
-  "init:thisLayer.getAnimation is not a function",
-  "init:thisLayer.getParticleSystem is not a function",
-  "init:audioLayer.stop is not a function",
-  "init:thisScene.getLayerIndex is not a function",
-  "update:thisLayer.isPlaying is not a function",
-  "update:thisScene.createLayer is not a function",
-  "update:engine.setInterval is not a function",
-  "update:Cannot read properties of undefined (reading 'toFixed')",
+  // ①(P-141) 空 = 全语料第 1 帧 0 个包抛脚本错（P-137 之后残余的 8 类已在 P-141 实现）。
+  //   本集合**保持为空**；将来出现新缺口时先查真因，不要靠往这里加条目"转绿"。
 ])
 const normMsg = (m) => String(m).replace(/×\d+/g, '').replace(/\b\d+(\.\d+)?\b/g, 'N')
 
@@ -366,10 +365,16 @@ else {
   ok('S5b 第 1 帧抛 `reading \'x\'` 的包 = 0（P-137 的同一类 bug 已在全语料清零）', xPacks.length === 0, xPacks.length ? JSON.stringify(xPacks.slice(0, 5)) : '0 个包')
   const unknown = [...kinds.keys()].filter((k) => !KNOWN_GAPS.has(k))
   ok('S5c 残余错误种类 ⊆ 已知清单（出现**新**种类即红）', unknown.length === 0,
-    unknown.length ? JSON.stringify(unknown) : kinds.size + ' 种（全部为已登记的其他 API 缺口）')
-  out('    —— 残余（前 5 个包）：')
+    unknown.length ? JSON.stringify(unknown) : kinds.size + ' 种'
+      + (KNOWN_GAPS.size ? '（全部为已登记的其他 API 缺口）' : '（白名单已缩空 ⇒ 0 种是硬判据）'))
+  // ①(P-141) **白名单为空时的负面判据**：S5c 在"白名单空 + 有错包"时会红，但一条"包数 = 0"的
+  //   直接断言更硬 —— 它不依赖"错误种类"这一层抽象（例：某个包只在 host 层抛、或错误消息被
+  //   normMsg 归一化后与白名单条目恰好同形，都不该让它变绿）。
+  ok('S5d 白名单为空 ⇒ 直接断言「有脚本错的包 = 0」', KNOWN_GAPS.size > 0 || errPacks.length === 0,
+    KNOWN_GAPS.size ? ('白名单非空（' + KNOWN_GAPS.size + ' 条）⇒ 本判据退化为由 S5c 承担') : (errPacks.length + ' 个包有错'))
+  out('    —— 残余（前 5 个包）：' + (errPacks.length ? '' : '无（0 个包有脚本错）'))
   for (const p of errPacks.slice(0, 5)) out('       ' + p)
-  out('    —— 残余错误种类（包数）：')
+  out('    —— 残余错误种类（包数）：' + (kinds.size ? '' : '无（0 种）'))
   for (const [k, v] of [...kinds].sort((a, b) => b[1] - a[1])) out('       ' + v + ' 个包  ' + k)
 }
 
