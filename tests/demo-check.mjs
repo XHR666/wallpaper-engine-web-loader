@@ -789,6 +789,17 @@ const landing = path.join(ROOT, 'index.html')
     P.appBrandPlan({}).name === 'WEwebLoader')
 }
 
+// ---- D12 ④（P-129：P-127 改名留下的小缺口 —— 线上点「新窗口」404）window.open 前缀改写 ----
+// 断言实体在 `tests/open-rewrite-check.mjs`（**秒级、零 spawn 的独立入口**，也在这里被 D12 ④ 一起跑）。
+// 为什么要独立成文件：本文件的 D6 会 spawn 重活 `build-pages.mjs`（本机被压崩过，任务书禁止随手跑整个文件），
+// 而 P-129 的判据要能"秒级单独验证 + 在 /tmp 的真文件变异副本上把**变异后的补丁模块**直接喂进同一套断言"。
+{
+  const S4 = await import(pathToFileURL(path.join(ROOT, 'tools', 'site-paths.mjs')).href)
+  const P4 = await import(pathToFileURL(path.join(ROOT, DEMO, 'bench-patch.js')).href)
+  const { runOpenRewriteChecks } = await import(pathToFileURL(path.join(ROOT, 'tests', 'open-rewrite-check.mjs')).href)
+  runOpenRewriteChecks({ check, P: P4, S: S4, ROOT, read })
+}
+
 if (JSON_OUT) console.log(JSON.stringify({ pass, fail }, null, 1))
 else console.log(`\n===== demo-check: ${pass} 通过 / ${fail} 失败 =====`)
 process.exit(fail ? 1 : 0)

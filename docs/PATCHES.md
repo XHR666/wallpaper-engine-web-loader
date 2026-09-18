@@ -9388,3 +9388,200 @@ W4 官方导出面、W5 未知模块名 + 活槽、W6 真包、W7 变异自检�
    语料里未观测到依赖它们的地方，但**没有全量证明**。
 5. `WEVector.vectorAngle2` **语料 0 次调用**（只有 `angleVector2` 在跑）⇒ 它的正确性只有合成断言 +
    与官方定义逐位对照，**没有真包回归**。
+
+## P-129（2026-09-19 线上实测 404 · P-127 改名留下的小缺口）工具栏「新窗口」的 `window.open` 写死**绝对旧路径** ⇒ 指到域名根
+
+> **判据来源**：用户/主线报"线上 Pages 点工具栏「新窗口」⇒ 404"（P-127 站点路径改名后的回归）。
+> **编号**：写入前 `grep -n '^## P-12' docs/PATCHES.md` 实测 P-115~P-127 已占、**P-128 已被并行线（WEVector/字体审计）占号并已提交**
+> ⇒ 本轮用下一个空号 **P-129**。本文件里所有注释/文档的批次号此前草稿写作 P-128，落盘前统一改成 P-129（`grep -c P-128 <本批 5 个文件>` = 0）。
+> **本轮硬约束（任务书）**：**禁止启动任何浏览器**；禁跑重活（`run-all-tests.sh` / `package-matrix` / `build-pages.mjs` /
+> `glsl-validate` / 任何 >60 s 或 >300 MB 的命令）；只提交自己的路径（**绝不** `git add -A`）。
+> ⇒ 本轮全部证据 = **Node 静态断言 + 纯函数 + 假 window 的行为断言 + `/tmp` 真文件副本上的变异 + `grep -o` 产物片段**。
+
+### P-129.1 复现（静态可证）：产物里那一行 + 补丁现有改写面
+
+**(A) 上游 minified 产物 `demo/assets/bench-DSKWIqmS.js`**（**不可重建**，本轮一个字节没改）：
+
+```
+$ grep -o -n 'window\.open([^)]\{0,120\}' demo/assets/bench-DSKWIqmS.js
+210:window.open(`/wallpaper-engine-webgl/renderer/index.html?${wt(w
+
+$ grep -o '.\{90\}wallpaper-engine-webgl/renderer/index\.html' demo/assets/bench-DSKWIqmS.js | nl
+     1  …,k.classList.add("on"),k.src=`/wallpaper-engine-webgl/renderer/index.html…      ← iframe k.src=
+     2  …k.addEventListener("load",a),k.src=`/wallpaper-engine-webgl/renderer/index.html… ← iframe k.src=
+     3  …l("#reload").onclick=()=>Ae();l("#open").onclick=()=>{w&&window.open(`/wallpaper-engine-webgl/renderer/index.html… ← **window.open（本轮修的靶子）**
+```
+
+产物里 `wallpaper-engine-webgl/` 共 **4** 处：`/wallpaper-engine-webgl/renderer/index.html` ×3（上表）+ `/wallpaper-engine-webgl/sw.js` ×1
+（`navigator.serviceWorker.register("/wallpaper-engine-webgl/sw.js")`）；另有 `demo/assets/renderer-BOSoB05I.js`
+的 `/wallpaper-engine-webgl/default-wallpaper/index.html` ×1（渲染器页内兜底壁纸）。
+
+**(B) 补丁原有的改写面**（P-127 留下的）：`demo/bench-patch.js` 的
+`SITE_MOUNT` / `SITE_MOUNT_LEGACY`（`:518-519`）、`SITE_PATH_ALIASES`（`:523`）、`sitePathAliasOf`（`:525`）、
+`demoAssetUrl`（`:587`）四个真源件 + **两条消费路径**：
+①-a `HTMLIFrameElement.prototype.src` 的 setter 包装（`:3660-3683`，改 iframe src）、
+①-b `navigator.serviceWorker.register` 包装（`:3700-3708`，改 SW 脚本 URL）。
+**`window.open` 不在其中任何一条里** —— ①-a 包的是 `HTMLIFrameElement.prototype.src`，
+产物第 3 处那个调用**根本不经过 iframe 原型**（它把 URL 交给 `window.open`）⇒ **永远拦不到**。
+
+**(C) 出处：这个缺口不是本轮才发现**。P-127.7-2 已如实登记（原文）：
+「**`#open`（新窗口）在线上仍会 404**：它的 URL 来自 minified 产物的**绝对路径** `/wallpaper-engine-webgl/renderer/index.html`，
+补丁只包了 `HTMLIFrameElement.prototype.src`，**没有**包 `window.open`（P-93 起就有的已知缺口，`docs/BENCH-PAGE-MAP.md:263`）。
+本轮加的旧路径重定向页**救不了它** …… 本轮**没改**它（改 minified 或包 `window.open` 都超出"URL 改名"范围，且有回归风险）⇒ 列在这里等裁定。」
+本轮（P-129）就是那条"等裁定"的落地：按 P-127 的口径**包 `window.open`**（不碰 minified），
+并把 `docs/BENCH-PAGE-MAP.md` 的 `#open` 行从"这个没改 ⇒ Pages 上 404"更新成"已修 + 历史"。 
+
+### P-129.2 根因
+
+线上 Pages 是**从仓库根发布的子路径站点**（站点根 = `/wallpaper-engine-web-loader/`，测试台在 `/WEwebLoader/`）。
+产物那条 `window.open("/wallpaper-engine-webgl/renderer/index.html?…","_blank")` 是**以 `/` 开头**的绝对路径
+⇒ 解析到**域名根** `/wallpaper-engine-webgl/renderer/index.html` ⇒ 该处只有 P-127 的**重定向页**（旧路径下放了
+`/wallpaper-engine-webgl/renderer/index.html` 的重定向页），但**跳转目标也是相对的**（`../../` + 新挂载点下的同名文件）
+⇒ 从域名根那一层算起就落到域名根上一级 ⇒ **404**（P-127 的 D12 与 T32 断言都只覆盖"旧路径自身是重定向页"，
+覆盖不到"别的页面用绝对旧路径指过来"这条路径）。同理 `#open` 打开的窗口本身也是**脱离站点子路径**的。
+
+### P-129.3 改法：包 `window.open`（产物零改动），与 iframe **同一套口径**
+
+| 落点 | file:line（改后） | 内容 |
+|---|---|---|
+| 纯函数：改写计划 | `demo/bench-patch.js:611` `openUrlPlan(url, opt)` | 只认 `sitePathAliasOf` 命中的本站前缀；`online:false`（本机 :8901）不改；命中 ⇒ 走**同一个** `demoAssetUrl` 得到相对本页地址；返回 `{url, rewritten, reason}` |
+| 纯函数：运行期安装 | `demo/bench-patch.js:630` `installOpenRemap(win, opt)` | 包 `win.open`（默认 `window`）：`enabled:false` 不装、`__benchDemoRemapOpen` 标记防重复装、三参**与参数个数**照传、`length` 钉回原生、赋值失败 ⇒ `{installed:false, reason:'readonly'}`（**绝不把按钮弄坏**） |
+| 开关 | `demo/bench-patch.js:827` `openrewrite: on('openrewrite', true)` | 默认开；`?openrewrite=off`（`0`/`false`/`no` 同义）= 回退口 |
+| 运行期安装点 | `demo/bench-patch.js:3689-3702`（①-a-2 段） | 与 ①-a **逐字同守卫**：`onlineDemoEnv(location.href,{force:'1'}).online \|\| demoPrefix !== './'`；装不上只 `console.warn` |
+| 文件头登记 | `demo/bench-patch.js:14`（纯函数清单）、`:49-58`（第九批说明） | 重建纪律与回退口径写在文件头 |
+
+**为什么是"包 window.open"而不是"改产物 / 加一条重定向页"**：
+① 产物 minified、**不可重建**（离线装不上依赖），且按许可口径**一个字节都不改**（P-127 已定案）；
+② 域名根下加重定向页**做不到**（Pages 只发布仓库内文件，域名根不是我们的目录）；
+③ 包法与既有的 iframe/SW 两条路**同一套真源与守卫**，不新增第二份前缀表（`SITE_PATH_ALIASES` 在补丁里仍只定义一处，
+`openUrlPlan` → `sitePathAliasOf` + `demoAssetUrl` 复用同一条改写链）；
+④ 只动**本站前缀**：外链 / `blob:` / `data:` / `about:blank` / 相对路径 / 空串一律原样透传（连字符串化都不做）。
+
+### P-129.4 判据（20 条，秒级；每条都能变红）
+
+断言实体在**新文件 `tests/open-rewrite-check.mjs`**（独立入口 `node tests/open-rewrite-check.mjs`，
+**不 spawn 任何东西**），并由 `tests/demo-check.mjs:792-801` 的 **D12 ④** 段 import 一起跑
+（⇒ 整体 `node tests/demo-check.mjs` 也覆盖；单列出来是因为那个文件的 D6 会 spawn 重活 `build-pages.mjs`，本轮禁跑）。
+
+| 判据组 | 条数 | 内容 |
+|---|---|---|
+| ① 改对 | 5 | 旧前缀绝对 URL ⇒ `./renderer/index.html?…`（**相对**、无旧名/新名残留）；深一层前缀 `../` 也对；命中面 = 旧名+新名（`/x/旧名…` 这种**非开头**的不算、无尾斜杠的 `/旧名` 也不算）；本机形态（`online:false`）**不改**；**运行期**装好的 `window.open` 真把旧绝对路径交成相对地址 |
+| ② 只动本站前缀 | 2 | 外链 / 协议相对 / `blob:` / `data:`（HTML + base64）/ `about:blank` / `about:srcdoc` / `mailto:` / `#anchor` / 相对路径 ×3 / 前缀相似但不是挂载点的两条 / 空串 / **不带前导斜杠的旧名** 共 17 条：计划层**逐字不变**；运行期交给原生的**实参**也逐字不变 |
+| ③ 幂等 | 2 | 改写结果（相对路径）再跑一次 `rewritten=false`；运行期连开两次旧 URL 得到同一条相对地址，把相对地址再喂进去一字不改 |
+| ④ 三参签名 | 3 | `(url,target,features)` 的 target/features 原样到原生 + 返回值照传；**参数个数**照传（0/1/2/3 参分别 0/1/2/3 参到原生 ⇒ `window.open()` 仍是 about:blank 语义）；包装函数 `length` 钉回原生值 |
+| ⑤ 回退口 | 3 | `?openrewrite=off` ⇒ `FLAGS.openrewrite=false`（`=0`/`=false` 同义、不写 = 开）；关掉时**不装**包装且旧绝对路径一字不改交给原生（= 上游原行为）；已装过不重复包 |
+| ⑥ 接线与靶子 | 5 | 运行期真装了它（带 `FLAGS.openrewrite` + `onlineDemoEnv` 守卫）；改写链复用 `sitePathAliasOf`+`demoAssetUrl`、别名表只定义一处；产物里那条 `#open` 调用点**逐字仍在**；产物里的三条 `/wallpaper-engine-webgl/renderer/index.html` 仍 **3 处 = 2 iframe `k.src=` + 1 `window.open`**（这条就是"iframe 包装覆盖不到第 3 处"的证据）；构建侧 `tools/site-paths.mjs` ↔ 补丁侧常量**逐字一致** |
+
+### P-129.5 变异 RED（5 条，全部按预期变红；变异在 `/tmp` 的**真文件副本**上做）
+
+纪律：本机 `fs.cpSync` 抛 EINVAL、`Dirent.isFile()` 有误报 ⇒ 手工 `readFileSync/writeFileSync` + `statSync` 核对
+（`/tmp/p128/mut/*.js`），**真树只读**（跑前跑后全树 sha256 相同，见 P-129.6 末）。变异体用 `?v=` 打散 ESM 缓存后
+把**变异模块**喂进真断言集（`read('demo/bench-patch.js')` 也指向变异副本 ⇒ 源码级断言同源）。
+
+| # | 变异 | RED 原文（逐字取自运行输出；每条只列首条 ✗） | 结果 |
+|---|---|---|---|
+| M1 | **把包装删掉**（删运行期 ①-a-2 安装段） | `✗ D12 ④ ⑥补丁运行期真装了它：installOpenRemap 调用点带 FLAGS.openrewrite + 与 iframe 同一个 onlineDemoEnv 守卫 — installOpenRemap 调用点` | 19/1 红 |
+| M2 | **把真源表写死成旧名**（`SITE_PATH_ALIASES = ['/' + SITE_MOUNT_LEGACY + '/']`） | `✗ D12 ④ ①命中面 = 本站旧名 + 新名两个前缀（同一个 SITE_PATH_ALIASES 真源表） — [{"url":"/WEwebLoader/renderer/index.html?src=1&_t=1700000000000","rewritten":false,"reason":"not-site-path"},…]`；`✗ D12 ④ ⑥两侧真源逐字一致… — [["/wallpaper-engine-webgl/"],["/WEwebLoader/","/wallpaper-engine-webgl/"]]` | 18/2 红 |
+| M3 | **假修**（`if (plan.rewritten) out = plan.url` → `if (false) …`：包装在、改了不用） | `✗ D12 ④ ①运行期：装好的 window.open 真把那条旧绝对路径交给原生成相对本页地址（包装确实在生效） — [{"installed":true,"reason":"ok"},["/wallpaper-engine-webgl/renderer/index.html?src=1&_t=1700000000000","_blank","noopener"]]` | 17/3 红 |
+| M4 | **回退开关写反**（`on('openrewrite', true)` → `false`） | `✗ D12 ④ ⑤回退口：?openrewrite=off ⇒ FLAGS.openrewrite=false（默认不加参数 = 开） — [false,false]` | 19/1 红 |
+| M5 | **三参丢参**（`nativeOpen(out, target, features)` → `nativeOpen(out)`） | `✗ D12 ④ ④三参签名：window.open(url,target,features) 的 target/features 原样落到原生（且返回值照传） — [["./renderer/index.html?src=1&_t=1700000000000"],"WIN"]` | 18/2 红 |
+
+`===== 变异验收：5 条按预期变红 / 0 条没红或变异失败 =====`（exit 0）
+
+### P-129.6 秒级验收（本轮实跑，逐条退出码）+ 文档登记与"152 不可达"的实证
+
+| 命令 | 结果 |
+|---|---|
+| `node tests/open-rewrite-check.mjs` | `20 通过 / 0 失败`，rc=0（**本批判据的独立入口**，0.1 s，无 spawn） |
+| `node --check demo/bench-patch.js` · `node --check tests/open-rewrite-check.mjs` | rc=0 |
+| `node tests/demo-syntax-check.mjs` | `demo 内联脚本语法：10/10 通过`，rc=0 |
+| `node tests/demo-check.mjs`（**整体**） | ⚠ **本轮不跑**（D6 会 spawn 重活 `build-pages.mjs`，任务书禁）⇒ 用 `/tmp` 副本把那次 spawn 换成 **SKIP 哨兵**（ROOT 指向真树、其余逐字照跑）：`===== demo-check: 123 通过 / 0 失败 =====` rc=0（含 D12 ④ 的 20 条；整体跑由主对话排队） |
+| `node tests/docs-check.mjs` · `node tests/diag-flag-check.mjs` | 见下（**并行线在飞的 `?pcolor` 会让这两条在当前工作树上红**；本批自己的中立性用 HEAD-bundle 镜像证明） |
+| 仓外门禁 `node /root/Desktop/DSHarea/references/vendor-ref/ww-pages/bench-patch.test.mjs` | **398 通过 / 0 失败**（391 基线 + 新增 **T33 七条** + T25 开关数 5→6 同步），rc=0，1.4 s |
+
+**门禁 151 == 151 的实测（含并行线干扰的如实记录）**：
+
+```
+本批落盘后、并行线尚未动 core/we-scene-bundle.js 时（真树实跑，历史记录；那时本节还没写、引用数 616）：
+  $ node tests/diag-flag-check.mjs
+  ✓ diag-flag-check：代码 151 个开关 == README 主表 151 行，0 差异        rc=0
+  $ node tests/docs-check.mjs
+  检查 16 个文档 · 616 个文件引用 · P-编号健康 ✓ · diag-flags ✓            rc=0
+
+随后并行线（P-128 之后的新一轮）在工作树里给 core/we-scene-bundle.js 加了 `?pcolor` 且**尚未登记**
+（当前真树状态，本节写完后实跑）：
+  $ node tests/diag-flag-check.mjs
+  ✗ 代码有·文档无（漏写 1 个）: pcolor                                    rc=1   ← **不是本批引入**（本批开关在 demo/bench-patch.js，不在抓取源里）
+  $ node tests/docs-check.mjs
+  ✗ 代码有·文档无（漏写 1 个）: pcolor                                    rc=1   ← 同上（docs-check ③ 归并 diag-flag-check；①② 都过）
+
+本批中立性证明（/tmp 镜像：**唯一**替换 = core/we-scene-bundle.js 取 `git show HEAD:` 版，剔除并行线在飞改动；
+docs/tests 为真副本、其余指向真树；`MPW_ROOT` 指向真工作区以带上插件侧 16 个开关）：
+  $ MPW_ROOT=/root/Desktop/DSHarea node /tmp/p128/dc/tests/diag-flag-check.mjs
+  ✓ diag-flag-check：代码 151 个开关 == README 主表 151 行，0 差异            rc=0   ← **151 == 151**
+  $ MPW_ROOT=/root/Desktop/DSHarea node /tmp/p128/dc/tests/docs-check.mjs
+  检查 16 个文档 · 618 个文件引用 · P-编号健康 ✓ · diag-flags ✓               rc=0
+  ✓ 文档一致性全部通过
+```
+
+（附带事实：`web/diag-flags.json` 是生成物、属并行线；它在本轮之前就是 ` M`，本轮跑门禁时被脚本按当前抓取**重新生成**过一次
+（内容里多了并行线的 `pcolor`）—— 本轮**不提交**它。）
+
+**文档登记（`docs/README-DIAGNOSTICS.md`）**：新增一节「补丁层开关（`demo/bench-patch.js`；**刻意放在表区之外**）」
+（`:209` 起，`openrewrite` 行在 `:224`）。**为什么不进主表（=为什么不是 `152 == 152`）**：
+`diag-flag-check` 的抓取源**只有** `core/we-scene-bundle.js` / `demo.html` / `elysia/**/*.js` /
+`dsh-mpkg-wallpaper/lib/client.js` 四类，**不含 `demo/bench-patch.js`** ⇒ 补丁层开关写进主表区会立刻变成
+"文档有·代码无（陈旧）"。**实测（/tmp 镜像副本，同一份脚本，真树零触碰）**：
+
+```
+对照（镜像 README 逐字照抄 + HEAD 版 bundle）: ✓ diag-flag-check：代码 151 个开关 == README 主表 151 行，0 差异   exit 0
+实验（把 openrewrite 行插进表区之内）        : ✗ 文档有·代码无（陈旧 1 个）: openrewrite                          exit 1
+落地（插在 FLAG-TABLE-END 之后）             : ✓ 代码 151 个开关 == README 主表 151 行，0 差异                    exit 0
+```
+
+⇒ 任务书预期的 **152 == 152 在本仓库的抓取口径下不可达**：只有把 `demo/bench-patch.js` 加进抓取源
+（会连锁把 `?ppark`/`?clocklock`/`?clockdrag`/`?brand`/`?appname` 一起拉进主表）或改动被并行线占用的
+`core/we-scene-bundle.js` 才可能，两者都超出本轮"最小、可回退"的边界 ⇒ 记在案、按"表区外登记 + 注明为什么"落地。
+（另注：`docs/README-DIAGNOSTICS.md` 头部散文里的"当前 **149** 个"本就与门禁的 151 漂移（不是本轮引入），
+本轮**不动**它——它是散文计数，门禁只认表区。）
+
+**真树未改动证明（变异与镜像实验都在 `/tmp`）**：全树逐文件 sha256 清单（`find … -type f | sort` ⇒ `sha256sum`）
+在**变异实验**前后各取一次，`diff` 结果 = **只有 `./core/we-scene-bundle.js` 一行不同**（并行线正在写它；
+它在实验开始前就已是 `git status` 里的 ` M`，与本轮无关），本批路径（`demo/bench-patch.js`、`demo/assets/*.js`、
+`tests/*`、`tools/site-paths.mjs`、`docs/PATCHES.md`、`docs/README-DIAGNOSTICS.md`）**逐条 sha256 相同**；
+`/tmp` 实验脚本里所有 `writeFileSync` 落点都在 `/tmp/p128/**`：
+
+```
+$ diff /tmp/p128/manifest-A.txt /tmp/p128/manifest-B.txt        # 变异实验前 / 后
+50c50
+< 1e6378d838103dd08d753d7d457478995832663ea1da49e111468c6ae98035f5  ./core/we-scene-bundle.js
+---
+> b2a716bebc34636e9c933c427447b5ca03daa13027e0169b89ac0d7c09c2ff18  ./core/we-scene-bundle.js
+（其余 380 行完全相同；本批改动的 8 个文件的 sha256 在本轮回报里逐条贴出，判据 = "实验前后逐条相同"。）
+```
+
+### P-129.7 未证实项（不写成结论）
+
+1. **线上真机点击未验**：本轮**不开浏览器**（硬约束）⇒ "点「新窗口」真的打开新站点路径的渲染器页"只有
+   Node 侧静态 + 纯函数 + 假 window 证据；**真机（Pages 线上）点击复核待主对话/用户执行**。
+   可复核的最小步骤：打开 `https://<user>.github.io/wallpaper-engine-web-loader/WEwebLoader/`（或 `/demo/`）→
+   点工具栏「新窗口」→ 地址栏应为 `…/wallpaper-engine-web-loader/WEwebLoader/renderer/index.html?…`（**不再** 404）。
+2. **本机 :8901 不改写**是有意的（旧路径是软链、原样可用，与 iframe ①-a 同口径）⇒ 本机点「新窗口」走的是
+   `http://127.0.0.1:8901/wallpaper-engine-webgl/renderer/index.html?…`（**能开**，但不是新名）——这**不是**回归，
+   若用户希望本机也换成新名，需要单独裁定（改守卫）⇒ 本轮不动。
+3. **只包了 `window.open`**：产物里与"打开渲染器页"有关的调用点**只有这一处**（`grep -o` 全量见 P-129.1(A)）；
+   `location.assign/href=`、`<a target=_blank>`（产物里有 `<a href="…">` 但都指文档/外链）**未逐个审计** ⇒
+   若将来产物或补丁新增"用绝对旧路径导航"的写法，本包装**不覆盖**（需按同一口径补一条）。
+4. **`window.open` 的其它语义未逐项验**：`noopener`/`noreferrer` 由 `features` 透传（不解析、不改写）；
+   `window.open(url, target)` 的 `target` 为已存在的具名窗口时的复用行为**未测**（本轮只保证参数照传）。
+5. **iframe 那条路（①-a）在同一场景下是否还有别的漏点未证**：产物里 iframe `k.src=` 的两处已被 P-127 的包装覆盖，
+   但"包装只在**线上形态**（`onlineDemoEnv().online`）生效"这条守卫本身依赖 `location.hostname`
+   （Pages 域名 / 自定义域）；**自定义域未列入 `github.io` 白名单**（只看 `isLocalHost`）⇒ 自定义域下 `online` 仍为 true（按 host 非本机算），
+   但该判定**没有线上自定义域实测**。
+
+**本批文件清单**：改 `demo/bench-patch.js`、`tests/demo-check.mjs`（D12 ④ 接线）、`docs/README-DIAGNOSTICS.md`、`docs/PATCHES.md`（本节）；
+新增 `tests/open-rewrite-check.mjs`；**仓外（不在 git）**：`references/vendor-ref/ww-pages/bench-patch.test.mjs` 新增 **T33（7 条）** +
+文件头清单一行 + **T25 由"五个开关"改为"六个开关"并补 `openrewrite: true`**（开关集从 5 长到 6 ⇒ 旧断言必然红，
+这是本轮**必须**同步的一条，非新增判据）⇒ 391/0 → **398/0**。
+**未改**：`demo/assets/*.js`（minified 产物，一个字节都没改）、`tools/site-paths.mjs`（真源本来就是双前缀）、
+`core/we-scene-bundle.js` 与 `elysia/**`（并行线的工作树改动，本轮零触碰）。

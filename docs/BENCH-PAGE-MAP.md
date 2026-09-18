@@ -260,7 +260,7 @@
 | `#pause` | 按钮 | 产物 `U.onclick`：按 `dataset.i18n` 判态 → `pause()/resume()` 并改写自己的 `dataset.i18n`+文案；重挂载复位 | 无 | T4 字面量 |
 | `#reload` | 按钮 | 产物 → `Ae()`（重挂载当前） | 无 | — |
 | `#release` | 按钮 | 产物 → `E()?.release()` | 无 | — |
-| `#open` | 按钮 | 产物 `window.open('/wallpaper-engine-webgl/renderer/index.html?'+wt(w))` —— **绝对路径，patch 只改写了 `#frame.src`，这个没改** ⇒ Pages 上 404（`:8901` 正常；①P-127 后线上旧路径 `…/wallpaper-engine-webgl/renderer/index.html` 有重定向页，但这条绝对路径在**子路径部署**下指到域名根，仍不因此得救） | 无 | — |
+| `#open` | 按钮 | 产物 `window.open('/wallpaper-engine-webgl/renderer/index.html?'+wt(w))` —— 绝对路径。**①P-129 已修**：补丁包 `window.open`（`installOpenRemap`，与 iframe 同口径 —— 同一个前缀真源表 + 只在线上形态改写）⇒ Pages 上打开的是 `…/WEwebLoader/renderer/index.html?…`（`?openrewrite=off` 回退到上游原行为）；`:8901` 仍走旧名软链（守卫只看线上形态）。历史：P-93~P-127 期间 patch **只改写 `#frame.src`**、没包 `window.open` ⇒ 子路径部署下这条绝对路径指到域名根 ⇒ Pages 404（旧路径的重定向页救不了它：重定向页的跳转目标也是相对的） | 无 | T33（gate:1846） |
 | `#toggle-props` | 按钮 | 产物 `Qe.onclick`：无当前项 ⇒ `err.selectFirst`；否则切 `#props.hidden`/`#workspace.props-open`/自身 `.checked`（新样式让 `#props` 常驻，`props-open` 已无实际作用）；patch 写后端不可用 title | 无 | T23（gate:928） |
 | `#fx` | select 11 项 | 产物 `_.value=getItem('webwallgl-fx')??'none'`；`onchange` 写 key + `__wp.setFilter`；进串 `filter=` | **`webwallgl-fx`** | 硬 id 列表 |
 | `#wp-add` | **新** ＋按钮 | 见 §7.2 | 无 | 无 |

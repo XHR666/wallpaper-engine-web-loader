@@ -11,6 +11,7 @@
 //   第五批：readPatchFlags / pointerParkAction / ownTextOf / timeLayerPlan /
 //           brandingFromProject / sniffItemId / dragPropsToDisable / mediaBrandPlan
 //   第八批：appBrandPlan / applySiteBrand（站点品牌运行期覆盖，见文末「第八批」段）
+//   第九批：openUrlPlan / installOpenRemap（「新窗口」按钮的 window.open 前缀改写，P-129）
 // 浏览器初始化只在 `typeof document !== 'undefined'` 时执行。
 //
 // 第五批开关（写 0/false/off/no 即回退到上游原行为；默认全开）：
@@ -44,6 +45,17 @@
 //   （门禁 T8）、DICT 的 `app.title`（T1：词典必须逐条等于上游 bench/i18n.ts）、`assets/*.js`
 //   （许可口径：minified 产物一个字节都不改）。上游归属位（设置弹层 credit、两份 LICENSE-webwallgl、
 //   许可区说明）一律原样保留。
+//
+// 第九批（**P-129 2026-09-19**：线上点工具栏「新窗口」⇒ 404）：
+//   产物里唯一**没被** ①-a 那条路覆盖的硬编码绝对旧路径 —— `#open` 的处理器
+//   `l("#open").onclick=()=>{w&&window.open(`/wallpaper-engine-webgl/renderer/index.html?${wt(w)}`,"_blank")}`。
+//   同一段产物里 `/…/renderer/index.html` 共 3 处，其中 **2 处**是 iframe 的 `k.src=`（①-a 的
+//   `HTMLIFrameElement.prototype.src` 包装拦得到），第 3 处就是这个 `window.open`（那条包装**永远**拦不到）。
+//   改法：**包 `window.open`**（产物一个字节不改），与 iframe 同一套口径 —— 同一个真源别名表
+//   `SITE_PATH_ALIASES` + 同一份 `demoAssetUrl` 改写 + 同一个"只在线上形态改写"守卫；
+//   只动指向本站旧/新前缀的 URL，其余（外链 / `blob:` / `data:` / `about:blank` / 相对路径 / 空串）
+//   原样透传，`target`/`features` **三参 + 参数个数**照传（装不上就静默跳过，绝不把按钮弄坏）。
+//   回退口：`?openrewrite=off` ⇒ 一个字都不改（回到上游原行为 = 打开那条绝对旧路径）。
 
 /* ============================ 词典（由 bench/i18n.ts 机械生成，勿手改） ============================ */
 // 生成方式：node -e "…解析 bench/i18n.ts 的 DICT…"（见 PATCH-NOTES.md §3）；bench-patch.test.mjs
@@ -580,6 +592,71 @@ export function demoAssetUrl(url, prefix) {
   return p.replace(/\/+$/, '') + '/' + s.slice(alias.length)
 }
 
+/** 「新窗口」按钮的 URL 改写计划（纯函数；第九批 P-129，Node 可断言，见 tests/open-rewrite-check.mjs）。
+ *
+ *  为什么需要它：产物（minified、**不可重建**）里 `#open` 的处理器是
+ *  `l("#open").onclick=()=>{w&&window.open(`/wallpaper-engine-webgl/renderer/index.html?${wt(w)}`,"_blank")}`
+ *  —— 绝对旧路径走 `window.open`。①(P-127) 的 iframe 包装只能拦 `HTMLIFrameElement.prototype.src`，
+ *  拦不到这个调用 ⇒ 线上（Pages 是从仓库根发布的**子路径**站点）点「新窗口」指到**域名根** ⇒ 404。
+ *
+ *  口径（与 iframe 那条**同一套**）：
+ *   · 只认本站前缀（`sitePathAliasOf` = 同一张 `SITE_PATH_ALIASES` 真源表，旧名 + 新名两种）
+ *     ⇒ 外链 / `blob:` / `data:` / `about:blank` / 相对路径 / 空串一律 `rewritten:false`，
+ *     调用方**原样透传**（一个字节都不碰）；
+ *   · 命中 ⇒ 走**同一个** `demoAssetUrl`（相对本页；Pages 子路径部署下也对 —— 绝对 `/WEwebLoader/`
+ *     才会指到域名根）；改完是相对路径 ⇒ 再跑一次不命中 ⇒ **幂等**；
+ *   · `online:false`（本机 :8901）⇒ 不改写：那里的旧路径是**软链**、原样可用（与 ①-a 同口径，
+ *     本机行为与上游逐位一致）。
+ *  返回 `{url, rewritten, reason}`；未命中时 `url` = 输入的字符串化形式（调用方该传原值，见 installOpenRemap）。 */
+export function openUrlPlan(url, opt) {
+  const o = opt || {}
+  const s = String(url == null ? '' : url)
+  const alias = sitePathAliasOf(s)
+  if (!alias) return { url: s, rewritten: false, reason: 'not-site-path' }
+  if (o.online === false) return { url: s, rewritten: false, reason: 'local-bench' }
+  const next = demoAssetUrl(s, String(o.prefix == null ? './' : o.prefix))
+  return next === s ? { url: s, rewritten: false, reason: 'unchanged' } : { url: next, rewritten: true, reason: 'site-path' }
+}
+
+/** 把「新窗口」那条路包起来（运行期安装；Node 里用**假 window** 直接断言，见 tests/open-rewrite-check.mjs）。
+ *
+ *  · `window.open(url, target, features)` 三参照传，**参数个数**也照传（按 `arguments.length` 分派）：
+ *    规范里三个形参都是"可选 + 有默认值"（`""` / `"_blank"` / `""`），显式传 `undefined` 虽等价，
+ *    但把 0 参调用写成 3 参调用只能靠规范推"还是 about:blank"—— 不如原样透传；`length` 属性
+ *    也钉回原生值（`window.open.length` 在 Chrome/Firefox 里是 0）。
+ *  · `enabled:false`（`?openrewrite=off`）⇒ **不装**（回退口）；已装过（`__benchDemoRemapOpen` 标记）⇒ 不重复包。
+ *  · 任何一步失败都只反映在 `{installed, reason}` 里（调用点 console.warn），绝不让"改个 URL"
+ *    把新窗口按钮弄坏。 */
+export function installOpenRemap(win, opt) {
+  const o = opt || {}
+  const w = win || (typeof window !== 'undefined' ? window : null)
+  if (o.enabled === false) return { installed: false, reason: 'flag-off' }
+  if (!w || typeof w.open !== 'function') return { installed: false, reason: 'no-window' }
+  if (w.__benchDemoRemapOpen) return { installed: false, reason: 'already' }
+  const nativeOpen = w.open.bind(w)
+  const online = o.online !== false
+  const prefix = String(o.prefix == null ? './' : o.prefix)
+  const wrapped = function open(url, target, features) {
+    let out = url                       // 未命中 ⇒ 连"字符串化"都不做，原值透传
+    try {
+      const plan = openUrlPlan(url, { online, prefix })
+      if (plan.rewritten) out = plan.url
+    } catch { /* 计划算不出来 ⇒ 原样透传（改写失败不许把按钮弄坏） */ }
+    switch (arguments.length) {
+      case 0: return nativeOpen()
+      case 1: return nativeOpen(out)
+      case 2: return nativeOpen(out, target)
+      default: return nativeOpen(out, target, features)
+    }
+  }
+  try { Object.defineProperty(wrapped, 'length', { value: Number(nativeOpen.length) || 0, configurable: true }) } catch { /* 冻结的宿主：忽略 */ }
+  try { w.open = wrapped } catch { return { installed: false, reason: 'readonly' } }
+  try { Object.defineProperty(w, '__benchDemoRemapOpen', { value: 1, configurable: true }) } catch {
+    try { w.__benchDemoRemapOpen = 1 } catch { /* Object.freeze(window) 这类极端宿主：只影响"重复 init 会不会再包一层" */ }
+  }
+  return { installed: true, reason: 'ok' }
+}
+
 /** 默认壁纸计划：`sample` = 合成样例 URL（相对本页），`auto` = 是否自动挂载。
  *  仓库**不分发任何真实壁纸** ⇒ 默认壁纸只能是自造的合成样例（samples/sample-synthetic/scene.pkg，33 299 B）。
  *  关掉：`?sample=0`（或 false/off/no）。 */
@@ -732,6 +809,8 @@ export function bindDropdown(doc, sel, registry) {
  *   appname   ⑧站点品牌（测试台头部品牌名 + document.title）→ 显示产品现名 **WEwebLoader**；
  *             `?appname=upstream`（或 `=0/false/off/no`，或 `?brand=upstream`）⇒ **还原上游名**
  *             `wallpaper-engine-webgl`（版本号 `#app-version` 两种情况都不动）。
+ *   openrewrite ⑨(P-129)「新窗口」按钮的 `window.open` 前缀改写（产物写死的旧绝对路径 → 相对本页）；
+ *             `?openrewrite=off` ⇒ 不装包装（回到上游原行为：打开那条绝对旧路径，线上会 404）。
  */
 export function readPatchFlags(search) {
   const q = new URLSearchParams(String(search == null ? '' : search))
@@ -745,7 +824,7 @@ export function readPatchFlags(search) {
   const rawApp = String(q.get('appname') == null ? '' : q.get('appname'))
   const rawBrand = String(q.get('brand') == null ? '' : q.get('brand'))
   const appname = !(/^(upstream|0|false|off|no)$/i.test(rawApp) || /^upstream$/i.test(rawBrand))
-  return { ppark: on('ppark', true), clocklock: on('clocklock', true), clockdrag: on('clockdrag', true), brand: on('brand', true), appname }
+  return { ppark: on('ppark', true), clocklock: on('clocklock', true), clockdrag: on('clockdrag', true), brand: on('brand', true), appname, openrewrite: on('openrewrite', true) }
 }
 
 /** 鼠标离开后的「归中」决策（纯函数，便于 Node 断言）。
@@ -3606,6 +3685,24 @@ export function init() {
       }
     }
   } catch (e) { console.warn('[bench-patch] iframe src 前缀改写跳过：', e && e.message) }
+
+  // ①-a-2 「新窗口」按钮（P-129）：产物里唯一的**非 iframe** 硬编码绝对旧路径 ——
+  //   `l("#open").onclick=()=>{w&&window.open(`/wallpaper-engine-webgl/renderer/index.html?${wt(w)}`,"_blank")}`。
+  //   同一段产物里 `/…/renderer/index.html` 共 3 处：**2 处**是 iframe 的 `k.src=`（上面 ①-a 拦得到），
+  //   第 3 处就是这个 `window.open`（`HTMLIFrameElement.prototype.src` 的 setter **永远**拦不到它）
+  //   ⇒ 线上（Pages 子路径站点）点「新窗口」指到域名根 ⇒ 404（P-129 的线上证据）。
+  //   守卫与 ①-a **同一套口径**（同一个 `onlineDemoEnv` 判定 + 同一个 `demoPrefix`）：
+  //   本机 :8901 的旧路径是软链、原样可用 ⇒ 不改写（与上游逐位同行为）。
+  try {
+    const openRes = installOpenRemap(typeof window !== 'undefined' ? window : null, {
+      enabled: FLAGS.openrewrite,
+      online: onlineDemoEnv(typeof location !== 'undefined' ? location.href : '', { force: '1' }).online || demoPrefix !== './',
+      prefix: demoPrefix,
+    })
+    // 只在"本该装上却装不上"时出声：`flag-off`（用户显式 `?openrewrite=off`）、`no-window`（非浏览器 /
+    // 假 DOM —— 测试里多次 `init()` 都走这条）、`already`（重复 init）都是**预期**，不打日志。
+    if (!openRes.installed && openRes.reason === 'readonly') console.warn('[bench-patch] window.open 前缀改写跳过：' + openRes.reason)
+  } catch (e) { console.warn('[bench-patch] window.open 前缀改写跳过：', e && e.message) }
 
   // ①-b Service Worker：产物末尾确实有 `navigator.serviceWorker.register("/wallpaper-engine-webgl/sw.js").catch(()=>{})`
   //   （P-127 起新名 `/WEwebLoader/sw.js` 同样认 —— 同一份 remap）。

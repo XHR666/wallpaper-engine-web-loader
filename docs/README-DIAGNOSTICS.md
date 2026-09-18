@@ -206,6 +206,23 @@
 | `display` | `legacy`（`off`/`0`/`no`/`false`） | 无（正常生效） | **总回退开关**：忽略本组**全部**开关（含 `localStorage['mpw-display']` 里的持久化 UI 状态），并且 `__wp.setDisplay` / `__wp.setPlaybackRate` 变成**只读**（返回中性状态、不写任何属性） | 怀疑"画面/指针/速度不对是这组选项引起的"时一键排除；插件侧也用它做"渲染器内部不加任何滤镜"的逃生口 | 回退档 = 画布 style 一字不写、场景时钟与 frametime 逐位回到改动前、控件在工具条里被置灰 | core/we-scene-bundle.js:132 / demo.html:980 |
 <!-- FLAG-TABLE-END -->
 
+## 补丁层开关（`demo/bench-patch.js`；**刻意放在表区之外**，不参与 `diag-flag-check` 双向比对）
+
+> **为什么不登记进上面主表**（与下一节「上游有、我们没有的档位」同一处纪律）：
+> `tests/diag-flag-check.mjs` 的抓取源**只有四类** —— `core/we-scene-bundle.js`、`demo.html`、
+> `elysia/**/*.js`、`dsh-mpkg-wallpaper/lib/client.js` —— **不含 `demo/bench-patch.js`**
+> （补丁是站点侧独立文件，`tools/` 与测试都不进产物，见该文件头注）。所以补丁层的 URL 开关
+> 一旦写进 `FLAG-TABLE-BEGIN/END` 之内，立刻变成"文档有·代码无（陈旧）"⇒ 退出码 1。
+> **实测（2026-09-19，P-129；/tmp 镜像副本 + 同一份脚本，不动真树）**：
+> 把 `openrewrite` 一行插进表区之内 ⇒ `✗ 文档有·代码无（陈旧 1 个）: openrewrite`（exit 1）；
+> 插到 `FLAG-TABLE-END` 之后 ⇒ `✓ 代码 151 个开关 == README 主表 151 行，0 差异`（exit 0）。
+> 补丁层开关的权威清单在 `demo/bench-patch.js` 文件头的「第五批/第六批/第八批/第九批开关」注释段
+> （`?ppark` / `?clocklock` / `?clockdrag` / `?brand` / `?appname` / `?online` / `?sample` / `?openrewrite`…）。
+
+| 开关 | 取值 | 默认 | 作用（一句话） | 什么时候用 | 回退/风险 | 解析位置 |
+|---|---|---|---|---|---|---|
+| `openrewrite` | `off`（`0` / `false` / `no` 同义） | 开（且**只在线上形态**生效） | **「新窗口」按钮的 `window.open` 前缀改写**（P-129）：产物（minified、不可重建）里 `#open` 的处理器写死 `window.open("/wallpaper-engine-webgl/renderer/index.html?…","_blank")` —— 绝对旧路径，线上子路径部署（Pages 根 = `/wallpaper-engine-web-loader/`）会指到**域名根** ⇒ 404。补丁包一层 `window.open`，把**本站前缀**（旧名 + 新名）改写成相对本页；外链 / `blob:` / `data:` / `about:blank` / 相对路径 / 空串一律原样透传，`target`/`features` 三参照传 | 线上点「新窗口」404 时做单变量 A/B（对照"是不是这条改写"）；或给排查者一个"关掉它"的逃生口 | 关掉 = 回到上游原行为（照旧打开那条绝对旧路径 ⇒ 线上 404）；本机 :8901 不改写（旧路径是软链、原样可用，与 iframe 那条同口径）；任何一步失败只打 `console.warn`，绝不影响按钮本身 | `demo/bench-patch.js` 的 `readPatchFlags`（`openrewrite:`）+ `installOpenRemap` 调用点 |
+
 ### 上游有、我们**没有**的档位：`pq`（只记语义结论，不是开关）
 
 > **本小节刻意放在 `FLAG-TABLE-BEGIN/END` 之外**：主表由 `diag-flag-check.mjs` 做**双向**比对
