@@ -5456,7 +5456,8 @@ grep -rIl --exclude='*.map' "$MPW_ROOT/" _site
 ```
 
 `core/scene-project-json.mjs` 与 `server/we-scene-demo-server.mjs` 是**服务端 / 打包工具**，两者都带
-"环境变量优先 + 作者本机路径作默认值"的写法（`opts.root || process.env.MPW_ROOT || '/root/Desktop/DSHarea'`），
+"环境变量优先 + 兜底默认"的写法（`opts.root || process.env.MPW_ROOT || '<工作区根>'`；
+①(敏感信息加固 2026-09-19) 兜底默认原为**作者本机绝对路径**，现改为按脚本自身位置推导 —— 优先级不变），
 而 `build-pages.mjs` 的 `PAGES_KEEP_FILES` **把这两个名字收进了白名单** ⇒ 它们必然进 `_site`。
 
 **为什么 a7d8615 之后 CI 又绿了、而根因仍在**：那一次在 workflow 里加了 `rm -f _site/<这两个>` **事后补救**。
@@ -8975,7 +8976,7 @@ D11（`tests/demo-check.mjs:469-633`）逐条覆盖：⑪ 下限在位 / 下限 
 | **未改**：`tests/run-all-tests.sh` | 本轮**没有新增测试文件**（断言加在既有 `particle-render-correctness-test.mjs` 内）⇒ 无需新增注册行；该脚本一行未动 |
 | **未改**：`web/diag-flags.json` | `tests/diag-flag-check.mjs` 的生成物；本轮跑过该脚本（工作树里那条 ` M` 是生成物刷新，与并行线同一处置）⇒ **不进本次提交**，留给集成线 |
 | **未改**：`demo.html` / `demo/index.html` / `demo/bench-patch.js` / `tests/demo-check.mjs` | 并行线正在改，本轮零触碰（⑧-2/⑧-7 的宿主接线因此留给下一轮） |
-| **未改**：`/root/Desktop/DSHarea/docs/PARTICLE-FIREFLY-INVESTIGATION.md` | 调查报告（工作区级、非本仓），本轮只读；勘误写在 P-126.8-3 |
+| **未改**：`$MPW_ROOT/docs/PARTICLE-FIREFLY-INVESTIGATION.md` | 调查报告（工作区级、非本仓），本轮只读；勘误写在 P-126.8-3 |
 
 ---
 
@@ -9497,7 +9498,7 @@ $ grep -o '.\{90\}wallpaper-engine-webgl/renderer/index\.html' demo/assets/bench
 | `node tests/demo-syntax-check.mjs` | `demo 内联脚本语法：10/10 通过`，rc=0 |
 | `node tests/demo-check.mjs`（**整体**） | ⚠ **本轮不跑**（D6 会 spawn 重活 `build-pages.mjs`，任务书禁）⇒ 用 `/tmp` 副本把那次 spawn 换成 **SKIP 哨兵**（ROOT 指向真树、其余逐字照跑）：`===== demo-check: 123 通过 / 0 失败 =====` rc=0（含 D12 ④ 的 20 条；整体跑由主对话排队） |
 | `node tests/docs-check.mjs` · `node tests/diag-flag-check.mjs` | 见下（**并行线在飞的 `?pcolor` 会让这两条在当前工作树上红**；本批自己的中立性用 HEAD-bundle 镜像证明） |
-| 仓外门禁 `node /root/Desktop/DSHarea/references/vendor-ref/ww-pages/bench-patch.test.mjs` | **398 通过 / 0 失败**（391 基线 + 新增 **T33 七条** + T25 开关数 5→6 同步），rc=0，1.4 s |
+| 仓外门禁 `node "$MPW_ROOT/references/vendor-ref/ww-pages/bench-patch.test.mjs"` | **398 通过 / 0 失败**（391 基线 + 新增 **T33 七条** + T25 开关数 5→6 同步），rc=0，1.4 s |
 
 **门禁 151 == 151 的实测（含并行线干扰的如实记录）**：
 
@@ -9517,9 +9518,9 @@ $ grep -o '.\{90\}wallpaper-engine-webgl/renderer/index\.html' demo/assets/bench
 
 本批中立性证明（/tmp 镜像：**唯一**替换 = core/we-scene-bundle.js 取 `git show HEAD:` 版，剔除并行线在飞改动；
 docs/tests 为真副本、其余指向真树；`MPW_ROOT` 指向真工作区以带上插件侧 16 个开关）：
-  $ MPW_ROOT=/root/Desktop/DSHarea node /tmp/p128/dc/tests/diag-flag-check.mjs
+  $ MPW_ROOT=<工作区根> node /tmp/p128/dc/tests/diag-flag-check.mjs
   ✓ diag-flag-check：代码 151 个开关 == README 主表 151 行，0 差异            rc=0   ← **151 == 151**
-  $ MPW_ROOT=/root/Desktop/DSHarea node /tmp/p128/dc/tests/docs-check.mjs
+  $ MPW_ROOT=<工作区根> node /tmp/p128/dc/tests/docs-check.mjs
   检查 16 个文档 · 618 个文件引用 · P-编号健康 ✓ · diag-flags ✓               rc=0
   ✓ 文档一致性全部通过
 ```
@@ -9585,3 +9586,146 @@ $ diff /tmp/p128/manifest-A.txt /tmp/p128/manifest-B.txt        # 变异实验�
 这是本轮**必须**同步的一条，非新增判据）⇒ 391/0 → **398/0**。
 **未改**：`demo/assets/*.js`（minified 产物，一个字节都没改）、`tools/site-paths.mjs`（真源本来就是双前缀）、
 `core/we-scene-bundle.js` 与 `elysia/**`（并行线的工作树改动，本轮零触碰）。
+
+## P-130（2026-09-19 用户「有没有其他粒子效果出现同样的问题」⇒ 全语料扫描后的**批A**）7 条"1 行级"粒子口径修复：`oscillate*` 频率量纲 ω≡frequency、`colorrandom` 缺 `max` 的缺省域、`emitter.rate` / `oscillatesize.frequencymax` 缺省、`phasemin`、`controlpointattract.threshold`、`colorchange` 乘性（+ 跨批必做 `?pcolor=legacy` 回退口）
+
+> **判据来源**：`docs/PARTICLE-CORPUS-SCAN.md`（1476 行**只读**全语料排查）的 §1-5b/5c、§2.4-补、§3 #1/#3/#4/#9/#10/#12/#24、§4「批 A·缺省/口径表（1 行级，零宿主改动）」、§5-4/§5-5/§5-9。
+> **许可**：`lwe-ref`（linux-wallpaperengine，GPL-3.0-only）与 `wer-ref`（wallpaper-engine-renderer，GPL-2.0-only）是**第三方参考实现**，本批**只读其行为结论**；实现按该行为规格**独立书写**，未复制/未逐行翻译其代码、注释、常量组织或错误文案（本批只读的落点：`WPParticleParser.cpp` 的 `VecRandom` / `FrequencyValue` / `ControlPointForce` / `VecChange` 四个结构体的**缺省值**与 `FadeValueChange` 的**线性分支形状**，`CParticle.cpp` 的 `w = frequency` 交叉确认）。
+> ⚠ **官方缺省数字全部取自第三方参考实现的行为对照；本仓库未反汇编官方二进制**（§5-5 原样继承 ⇒ 见 P-130.12-1）。
+> **编号**：任务书写"P-127"，但 `docs/PATCHES.md` 的 **P-127/P-128/P-129 已被其它线占用**（站点路径改名 / WEVector 别名+字体审计 / 新窗口绝对旧路径）⇒ 按"号段不许撞"改用 **P-130**。
+> **证据口径**：每个数字都是**秒级单项**命令实测（探针 `/tmp/pfixA/probe.mjs`、变异台 `/tmp/pfixA/mutate.py`、跨包抽检 `/tmp/pfixA/spot.mjs`，**都不入仓**）；**未开浏览器**、未跑 `run-all-tests.sh`/`package-matrix`/`glsl-validate`/`build-pages.mjs`；语料只读 entry table + 单条 entry。
+> **这一批为什么值得做**：7 条全部是"数值/分支形状/缺省表"级改动，**同文件、同算子族、零宿主改动**，合起来覆盖 **141 层 / 29 包**（去重后按"至少命中一条"统计，与扫描报告 §4 的预测数字**逐位一致**）。
+
+### P-130.0 七条一览（现象 → 官方口径 → 改法 → 判据数字）
+
+| # | 现象（用户会看到什么） | 官方口径（依据） | 改法 | 判据数字（改前 → 改后） | 影响面 |
+|---|---|---|---|---|---|
+| 1 | **所有 `oscillate*` 层摆动/闪烁快 6.28 倍**：萤火虫是"高频闪"、雪景/尘埃的摆动像抖动 | `ω ≡ frequency`（rad/s）。两个**独立**参考实现一致：`f = frequency/(2π); w = 2π·f` 与 `w = frequency` | `cos(2π·frequency·age)` → **`cos(frequency·age)`**（`oscillatealpha`/`oscillateposition`/`oscillatesize` 三处；`?pops=legacy` 保留旧 Hz 口径） | `oscillatealpha{frequencymin:10,scalemin:0.5}` 跑 10 s 数 alpha 极大值：**52 → 15**（显式 `frequencymax:10` 的纯量纲对照：**100 → 15**，即 10 Hz→1.59 Hz）；`oscillateposition` pos.x 极大值 **100 → 15**；`oscillatesize` size 极大值 **100 → 15** | **103 层 / 24 包** |
+| 2 | **只写 `min` 的颜色层整层颜色错**：作者本意"纯白雾/白雪"，我们画成**近黑随机色斑** | `VecRandom{min:{0,0,0}, max:{255,255,255}}`（**同域**：都是字节域，读入后各 ÷255） | `max` 缺省 `[1,1,1]`（**归一化域**）→ **`[255,255,255]`**（`?pcolor=legacy` 回退） | 合成 def 只写 `min:"255 255 255"`、200 颗逐粒子色：改前 R∈[0.0071,0.9986] G∈[0.0068,0.9922] B∈[0.0096,0.9972]（三通道**各自**随机的暗色）→ 改后**恒 (1,1,1)**；`min:"255 0 0"`：改前 G/B ≤0.0039（近黑）→ 改后 G/B∈[0,1]（红→白） | **68 层 / 13 包**（含 hina `dd/3554161528` ln=17「雾 2」） |
+| 3 | 没写 `rate` 的发射器**粒子数多一倍** | `ParticleEmitter::rate { 5.0f }`（`WPParticleObject.h:82`） | 发射缺省 `10` → **`5`**（`parseParticleEmitters` 与 `renderParticleLayer` 的预算 sumRate **两处同改**，否则记账与实际发射不一致） | `parseParticleEmitters([{name:'boxrandom'}]).rate`：**10 → 5**；1 秒发射数 **9 → 4**；12 个缺 rate 的发射器的预算读数：**120/s → 60/s**（日志实测，`particleBudget.rate=40` 触发限流） | **14 个 emitter / 8 包**（其中 4 层实测 alive 约减半：`dd/3544152633` ln=10 ✅10→5、`dd/3719111841` ln=33 ✅51→24、`dd/3554161528` ln=17、`dd/3544152633` ln=9） |
+| 4 | 星点/雪的"呼吸"频率**被压到 ≤1 rad/s**（几乎不脉动） | `FrequencyValue` 缺省 `frequencymax {10.0f}`；名称分支 `oscillatesize → scalemin 0.8 / scalemax 1.2`、`oscillateposition → frequencymax 5.0f`；`frequencymax == 0` ⇒ 取 `frequencymin` | 缺省表照官方补齐（旧：`frequencymax` 恒 1、`scalemax` 缺省 = `scalemin`、`oscillatesize` 的 `scalemin` 缺省 1） | 400 颗 per-particle 频率上界：`oscillatesize` **0.9942 → 9.9416**、`oscillatealpha` **0.9990 → 9.9903**、`oscillateposition` **0.9981 → 4.9903**、其 `scalemax` 缺省 **0.0000 → 0.9999**；`frequencymin:10` 不写 `frequencymax` 的 size 极大值/10s：**52 → 15**；显式 `frequencymax:0` → f 恒 = frequencymin（旧：恒 0） | **16 层 / 8 包**（`frequencymax` 子项；`scalemin/scalemax` 名称分支语料 **0 层**受害） |
+| 5 | 写了 `phasemin` 的层**相位基准整体错**；摆动相位分布也不均匀 | 相位 = `random(phasemin, phasemax + 2π)`（**只属 `FrequencyValue`**；两个参考实现都带 `+2π`）。⚠ turbulence 的相位两参考**都不加** `+2π` | 读 `phasemin`；`oscillate*` 相位上界 `+2π`；turbulence 按 `[phasemin, phasemax]`（`?pops=legacy` 保留旧口径） | `oscillatealpha{phasemin:5,phasemax:0}` 相位：**恒 0 → ∈[5.0025, 6.2807]**（= `[5, 2π]`）；`oscillateposition` 同理 **∈[0.0121,6.2709] → ∈[5.0025,6.2807]**；`turbulence{phasemin:5,phasemax:50}` 相位 **（旧无此字段，phasemin 被忽略）→ ∈[5.0866,49.9120]**，且同 seed 下 `phasemin=5` 与 `=0` 的 `max|vy|` 由**逐位相同**变成不同 | **16 层 / 12 包**（oscillatealpha 2 / oscillateposition 10 / turbulence 6，去重） |
+| 6 | `0917/3351163962` 的两个浮空文字层**完全没有排斥力** | `ControlPointForce{threshold {512.0f}}` | `threshold` 缺省 `0` → **`512`**（`thr = threshold×0.5` 的官方用法不变 ⇒ 生效半径 256px） | 合成 def 不写 `threshold`、`scale=-1000`、`dt=1/60`：d=100px 的 `|Δv|` **0.0000 → 16.6667**（= `|scale|·dt`）；d=300px 仍 **0.0000**（半径外不施力）；显式 `threshold:70` 行为不变 | **2 层 / 1 包** |
+| 7 | 「龙烟/眼焰」等烟雾**末段所有粒子变成同一个颜色**（逐粒子色被抹平） | `PM::MutiplyColor`（**乘**）：`change[i] = FadeValueChange(life, starttime, endtime, startvalue[i], endvalue[i])`，`p.color *= change`；`FadeValueChange` 是**线性**的（`life<=start→startvalue`、`life>end→endvalue`），`VecChange` 缺省 `starttime 0 / endtime 1 / startvalue {0,0,0} / endvalue {0,0,0}` | 赋值式 `p.color = mix(startvalue,endvalue,age/endtime)`（smoothstep）→ **乘**：`p.color = baseColor ⊙ FadeValueChange(lifePos, …)`（每帧从**出生期快照色**乘一次 —— 官方每帧先 `PM::Reset(p)`；若在上一帧结果上累乘会按帧数指数衰减到 0，实测恒 `[0,0,0]`） | 合成 def（colorrandom 60..255 + `colorchange{starttime:.5,endtime:1,endvalue:.5}`）末段（lifePos 0.9）：不同色数 **1 → 200**、`ch` **（旧全 0.5）→ 0.4**（= `baseColor×0.4`，逐粒子比保留）；真包 `dd/3544152633` ln=25「Vapor (double)」顶点色 **R∈[0.714,0.980] → [0.538,0.805]**（乘口径只能变暗 ⇒ ≤ 自身 baseColor 上界 206/255） | **13 层 / 4 包** |
+
+**合并影响面（至少命中一条、按 包+行号+层名 去重）**：**141 层 / 29 包**（与 §4 预测一致；逐条：103/24、68/13、14 emitter/8、16/8、16/12、2/1、13/4，去重前相加 232）。
+
+### P-130.1 复用与不重复的部分（避免与 P-126 抢口径）
+
+* P-126 已修的**分支形状**（`oscillatealpha` 乘性、`oscillateposition` 逐轴增量、`attract` 判据方向 `d<thr`、`turbulence` 的 `mask` 缺省 `(1,1,0)`）本批**一律不动**，只改**缺省表/量纲/相位**；三处新口径都挂在 P-126 已有的 `?pops=legacy` 档后面（legacy 分支逐字保留旧写法 ⇒ A/B 仍可做）。
+* `oscillateposition.mask`（`1 0.5 0` 那 9 层）**仍未动**：两个参考实现一个是"门"、一个是"乘"，**互相矛盾**（扫描报告 §5-2）⇒ 保持"乘"并留在未证实项。
+* 本批**新增一条**同族一致性修正：`oscillatesize` 的时间基准从**系统时间 `t`** 改成**粒子年龄 `p.age`**（官方 `GetScale(i, LifetimePassed(p))`，与本文件 `oscillatealpha` 同基准）。旧写法下"同屏所有粒子同一时刻同相"（集体呼吸），官方是各颗粒子从自己的出生时刻起相。判据：`phasemin=2π, phasemax=0`（相位退化）后同帧多颗粒子的 size 由**全部相同 → 各不相同**（实测 `size∈[105.99,105.99]` → 跨度 >1px）。
+
+### P-130.2 逐条"改前/改后"原始输出（探针，`/tmp` 不入仓）
+
+```
+$ BUNDLE=/tmp/pfixA/head/core/we-scene-bundle.js node /tmp/pfixA/probe.mjs   # 改动前（= git HEAD 的 bundle，sha256 2f46137b…）
+#1a 纯量纲对照（显式 frequencymax:10）：alpha 极大值/10s 官方=100 legacy=100
+#1  alpha  官方档 alpha 极大值/10s = 52（期望改后 15~16）
+#1  position 官方档 pos.x 极大值/10s = 52 ; #1 size = 52
+#2  200 颗粒子 color 各分量 min/max = R[0.007064,0.99856] G[0.006772,0.992182] B[0.00964,0.997186]
+#2b min:"255 0 0" ⇒ R∈[0.010166,0.998528] G=0.003918659 B=0.003911106
+#3  parseParticleEmitters([{name:boxrandom}]).rate = 10 ; 1 秒发射数 = 9
+#4  400 颗粒子的 per-particle 频率 f ∈ [0.0014,0.9942] ; #4b size 极大值/10s = 52
+#4c oscillatealpha f 上界 0.9990 ; #4d oscillateposition f 上界 0.9981 / sc 上界 0.0000
+#5a oscillatealpha{phasemin:5,phasemax:0} ⇒ 相位 ∈ [0.0000,0.0000]（旧恒 0）
+#5b oscillateposition ⇒ ph[0] ∈ [0.0121,6.2709]（旧 [0,2π]）
+#6  d=100px ⇒ |Δv| = 0.0000 ; d=300px ⇒ 0.0000（旧 thr=0 ⇒ 算子恒不生效）
+#7  末段(lifePos=0.9)：不同色数 = 1，R∈[0.5000,0.5000]（全粒子同色）
+
+$ BUNDLE=core/we-scene-bundle.js node /tmp/pfixA/probe.mjs                  # 改动后
+#1  alpha = 15 / legacy = 100 ; #1a 官方=15 legacy=100 ; #1b 官方=15 legacy=100 ; #1c = 15
+#1d position 缺 frequencymax = 11/legacy 73（官方 fmax 缺省 5 ⇒ f∈[5,10]）
+#2  R[1,1] G[1,1] B[1,1]（恒白）；#2b R=1.000000 G∈[0,1]（红→白）
+#3  rate = 5 ; 1 秒发射数 = 4
+#4  频率 ∈ [0.0140,9.9416] ; #4b = 15 ; #4c 上界 9.9903 ; #4d 上界 4.9903 / sc 上界 0.9999
+#5a 相位 ∈ [5.0025,6.2807] ; #5b ∈ [5.0025,6.2807] ; #5c turbulence ∈ [5.0866,49.9120]
+#6  d=100 ⇒ 16.6667 ; d=300 ⇒ 0.0000
+#7  不同色数 = 200，R∈[0.0992,0.3984]，样本 [0.3617,0.1152,0.236] / [0.2779,0.3137,0.3066] …
+```
+
+### P-130.3 门禁（`tests/particle-render-correctness-test.mjs`：54 通过/0 失败 → **91 通过/0 失败**）
+
+新增/校准 **37 条**断言（**不许降**，54 → 91），每条都能被"改回旧写法"打红：
+
+* **新增 34 条**：⑦A 频率量纲（6：alpha/position/size × 官方/legacy + §2.4-补 一行判据 + 判据 def 的 ω=10）、⑦B `colorrandom` 缺 `max`（5：逐粒子恒白 / legacy 灰 / 非白 min / 渲染通路恒白上提 / legacy 换档）、⑦C `emitter.rate`（3：parse 缺省 / 1 秒发射数 / **预算 sumRate=60 与发射同口径**）、⑦D 缺省表（7：size `/oscillatealpha`/`oscillateposition` 上界 + 名称分支 mid/amp + `frequencymax:0` 归一 + 时间基准）、⑦E 相位（6：alpha/position/turbulence × 官方/legacy + 效果判据 + legacy 效果）、⑦F `threshold`（2）、⑦G `colorchange`（4）、⑦H 真包 2 条（hina 雾 2 官方恒白/legacy 灰、`dd/3544152633` Vapor 乘口径上界）。
+* **校准 2 条**（判据与容差**不变**，只改采样口径；原因都是批A #1 把 ω 改小 6.28×）：
+  * ⑥C `oscillatealpha` 区间端点：采样 `dt 0.05 → 0.01`（60 s ⇒ 6000 步）。`dt=0.05` 时相位步长从 3.14~6.28 rad 降到 0.68 rad，栅格对端点极值的余量只剩 **2.4e-7**（容差 1e-6）——属"运气过线"；`dt=0.01` 把余量拉到 ~1e-8 量级（实测端点 = 0.350000000 整）。**判据（0.35/0.5/0.7/1.0）与容差 1e-6 一个都没放松。**
+  * ⑥D 萤火虫 `|corr(x,y)|<0.99`：窗口 `240 帧(4s) → 1200 帧(20s)`。该层 `oscillateposition{frequencymin:0.3,frequencymax:1}` 的周期从 1.0~2.1 s 变成 **6.3~21 s** ⇒ 4 s 窗口不足一个周期，**官方口径下**轨迹本来就近似直线（实测 `|corr|=0.9983`）——这是官方行为不是回归；20 s 窗口覆盖 ≥1 个周期后官方 `maxAbsCorr=0.9515`、legacy 仍恒 **1.0000**（判据 `<0.99` / `≥0.999` 原样保留）。
+* 断言里另外锁死：`?pcolor=legacy` 的**档位记账**（`particleStats.pcolorMode`）、`colorUni/colorAttr` 通道归属、`rateCapped` + 预算日志数字。
+
+### P-130.4 跨批必做：A 类颜色回退口 `?pcolor=legacy`
+
+* **做什么**：`core/we-scene-bundle.js` 新增 `PCOLOR_MODE`（同其它档位：`createRenderer` 内解析一次、进粒子系统**缓存签名**、`buildParticleSystem` 收 `pcolorLegacy`、`particleStats.pcolorMode` 上报），生效点两处：① `colorrandom` 缺 `max` 的缺省；② `colorchange` 的乘/赋值口径。`docs/README-DIAGNOSTICS.md` 主表登记一行 ⇒ `node tests/diag-flag-check.mjs` = **`✓ 代码 152 个开关 == README 主表 152 行，0 差异`**（旧 151 == 151）。
+* **⚠ 与扫描报告 §4 措辞的差异（如实登记）**：§4 把这条写成"回退成**恒 `(1,1,1)`**"——那是 **P-126 之前**的*绘制常量*（颜色算完却不进顶点 ⇒ 白点）。本批按本仓库既有 legacy 约定（`?pops`/`?pframe`/`?psize` 都是"**回到改动前的画面**"）实现为**颜色计算口径**档位：`legacy` = P-126 及之前的颜色算法，颜色**照常上屏**。理由：A 类回退口的用途是**真机 A/B 本批两条颜色修复**；若连绘制也退回恒白，`legacy` 与 `official` **两侧都是白点**，等于没有回退口。
+* **真机可对拍的三个数字**（Node 侧 mock-GL 实测，`?pcolor=legacy` 只改"怎么算"）：
+  * hina `3554161528&ln=17`「雾 2」：官方 `colorUni/colorAttr=1/0`、顶点色恒 **1.000**；legacy `0/1`、顶点色 ∈**[0.004,0.968]**、19 种取值。
+  * `3544152633&ln=25`「Vapor (double)」：官方顶点色 ∈[0.538,0.805]（乘口径 ⇒ 只会比自身 baseColor 暗，≤206/255）；legacy ∈[0.714,**0.980**]（与自身颜色无关的赋值色）。
+  * 渲染通路断言另有：官方恒白 ⇒ `u_Color=(1,1,1)` + 顶点色恒 1 + `colorAttr=0`。
+
+### P-130.5 不回归（逐个 rc，全绿）
+
+```
+$ node tests/particle-render-correctness-test.mjs        → rc=0  91 通过 / 0 失败（批前 54/0）
+$ node tests/p74-instanceoverride-test.mjs               → rc=0  60/60 通过（34.4s）
+$ node tests/mock-gl-test.mjs                            → rc=0  60 通过 / 0 失败（0.3s）
+$ node tests/p76-parallax-eye-test.mjs                   → rc=0  111 断言通过 / 0 失败（5.0s）
+$ node tests/particle-shape-audit.mjs 3554161528         → rc=0（证据工具，0 通过/0 失败）
+$ node tests/render-audit.mjs 3719111841                 → rc=0
+$ node --check core/we-scene-bundle.js                   → OK
+$ node tests/diag-flag-check.mjs                         → rc=0  ✓ 代码 152 个开关 == README 主表 152 行，0 差异
+$ node tests/docs-check.mjs                              → rc=0  检查 16 个文档 · 618 个文件引用 · P-编号健康 ✓ · diag-flags ✓
+```
+
+**A/B（真 HEAD bundle vs 本批，`/tmp` 镜像：`git show HEAD:core/we-scene-bundle.js`，sha256 `2f46137b…` 逐字节相同；`elysia/` 用同一份软链 ⇒ 单变量只有 bundle）**：
+
+| 工具 | 包 | 结果 |
+|---|---|---|
+| `particle-shape-audit` | 3554161528 / 3544152633 / 3351163962 / 3719111841 | **41 个粒子层**：归一化掉逐层耗时后逐行对比，**36 层 alive/段数/几何逐位相同**；变化的 5 层全部可归因（`dd/3544152633` ln=10、`dd/3719111841` ln=33、`dd/3554161528` ln=17 的发射器**没写 `rate`** ⇒ 粒子数下降；ln=9/ln=8 因振荡相位不同 ±1~2）。**无任何一层塌成 0** |
+| `render-audit` | 3719111841 + 抽检 3351163962 / 3544152633 / 3554161528 | 四包 **diff 0 行**、rc=0（层清单/`跳过`/可见性完全一致） |
+| 逐层隔离抽检（`/tmp/pfixA/spot.mjs`） | 上述 5 包（54 个粒子层） | **14 层有差异、40 层逐位相同**；差异全部落在两条口径上 —— ① 颜色：`colorrandom` 缺 `max` 的 7 层 `0/1 → 1/0`、色取值 N→1、R→`[1,1]`；`colorchange` 的 4 层（`0917/3233141951` id=398/187/593/363、`dd/3544152633` id=206100）色域按乘口径重算；② `emitter.rate` 的 3 层 alive 约减半。**NEW 侧 `alive=0` 而 HEAD 侧 >0 的层：0 个** |
+
+### P-130.6 变异矩阵（**在 `/tmp` 真文件副本上做**；真树跑前跑后 sha256 逐字节相同）
+
+`python3 /tmp/pfixA/mutate.py`（手工 `readFileSync/writeFileSync` + `os.stat` —— 本机 `fs.cpSync` 抛 `EINVAL`、`Dirent.isFile()` 有误报）⇒ **14 条变异全部 rc=1（每条至少红一条断言）**，真树 `core/we-scene-bundle.js` sha256 `6a2cb8f7…` 跑前跑后相同：
+
+```
+真树 core/we-scene-bundle.js sha256 跑前/跑后： True 6a2cb8f7827b7fae 6a2cb8f7827b7fae
+✅RED M1a-alpha-2pi        #1 oscillatealpha 官方分支改回 2π·f      → ⑦A 100≠15
+✅RED M1b-position-2pi     #1 oscillateposition 改回 2π·f           → ⑦A official=100 legacy=100
+✅RED M1c-size-2pi         #1 oscillatesize 改回 2π·f               → ⑦A + ⑦D 均 100
+✅RED M2-colorrandom-max   #2 缺 max 改回 [1,1,1]                   → ⑦B 4 条 + ⑦H 真包（colorUni/Attr=0/1）
+✅RED M3a-rate-parse       #3 parse rate 改回 10                    → ⑦C rate=10 / n=9
+✅RED M3b-rate-budget      #3 只改预算一侧改回 10（两处不同步）      → ⑦C sumRate=120（应为 60）
+✅RED M4a-size-fmax        #4 oscillatesize frequencymax 改回 1     → ⑦D f 上界 0.9973 / size 极大值 8
+✅RED M4b-size-scale       #4 名称分支改回 (1, smin)                 → ⑦D mid=1 amp=0
+✅RED M4c-size-timebase    #4 时间基准改回系统时间 t                 → ⑦D 同帧 size 跨度 0
+✅RED M5a-phasemin-osc     #5 oscillate* 相位改回旧写法             → ⑦E 相位恒 0 + ⑥D 也红
+✅RED M5b-phasemin-turb    #5 turbulence 相位改回旧写法             → ⑦E max|vy| 两档相同
+✅RED M6-attract-thr       #6 threshold 缺省改回 0                  → ⑦F d=100 ⇒ 0.0000
+✅RED M7-colorchange-assign #7 乘口径改回赋值式                     → ⑦G 不同色数=1 + ⑦H Vapor 上界 0.9802
+✅RED M8-pcolor-flag       ?pcolor 恒 official                      → ⑦B/⑦H 两条 legacy 断言
+```
+
+### P-130.7 未做 / 未证实（下一轮开工点）
+
+1. **官方缺省数字的来源仍是第三方参考实现**（§5-5 原样继承）：`emitter.rate=5`、`FrequencyValue` 的 10/5/0.8/1.2、`threshold=512`、`VecRandom` 的 255、`VecChange` 的 `{0,0,0}`、`FadeValueChange` 的线性形状，**全部取自 `wer-ref`，本机未反汇编官方二进制**。判据侧只能做到"两个独立参考实现一致"（量纲 ω≡frequency 与相位 `+2π` 是**两实现一致**的；其余是单实现）。⇒ 真机/官方编辑器截图对照仍是终审。
+2. **`colorrandom` 只写 `min` 的"官方本意"**（§5-9）：从缺省 `max=255` 反推官方 = 恒白，但**官方编辑器是否本意如此**（还是这 68 层的 json 被第三方工具改过）未证实。**这条决定批A #2 是"修 bug"还是"改行为"**：拿官方 WE 打开 `dd/3554161528` 看「雾 2」是**纯白雾**还是**灰白噪点雾**。若官方也是噪点 ⇒ 应回退本条（`?pcolor=legacy` 可直接给那一侧的画面）。
+3. **`colorchange` 缺省 `startvalue {0,0,0}` 的可见后果**：语料 13 层里 12 层没写 `startvalue` ⇒ `life <= starttime` 段色被乘成 **0**（additive 混合下 = 该段不显示）。这是**官方语义**（每帧 `PM::Reset` 后乘一次），但"官方真机上这几层前半生是否真的不显示"**未做像素对照**。
+4. **`turbulence` 的 `phasemax` 缺省我们仍是 6.28（官方 0）**：官方 `Turbulence{phasemin 0, phasemax 0}` 且相位**每算子实例抽一次**（两参考一致），我们是**每粒子**抽一次 + 缺省 2π ⇒ 38 层"没写 phasemax"的层的噪声场时间相位与官方不同。**不在本批 7 条内**，登记备查（与 §3 #8 的 `timescale`/`scale` 缺省同族）。
+5. **`oscillateposition.mask`（9 层）**：门 vs 乘，两参考冲突（§5-2）⇒ 本批未动。
+6. **`?pops=legacy` 档的频率域共用官方缺省表**：legacy 分支逐字保留旧**算式**，但频率域现在按官方缺省抽（`oscillatealpha` 2 层、`oscillateposition` 0 层会落在"缺 `frequencymax`"的情形；其中 alpha 那 2 层 `scalemin==scalemax==1` ⇒ 乘子恒 1、**无可观测差异**）。若将来要"逐位复现 P-126 的 legacy"，需再存一份 legacy 频率域。
+7. **真机对拍清单**（本机禁开浏览器；且软件 WebGL 只有 ~1.5fps，时间相关效果可能等不到完整周期）：
+   * `?id=3554161528&ln=17`：默认 = **整片纯白雾**（本批 #2）；`&pcolor=legacy` = 灰白噪点雾。判据：默认帧的雾应是**同一种白**、没有近黑斑。
+   * `?id=3554161528&ln=22`（萤火虫）：默认 = ω=10~20 rad/s 的**慢呼吸**（周期 0.31~0.63 s）+ `?pops=legacy` = **高频闪**（快 6.28×）。这是 #1 最直观的一对。
+   * `?id=3544152633&ln=25`（Vapor (double)）：默认末段**仍保留逐粒子灰度差**（只会变暗）；`&pcolor=legacy` = 与自身颜色无关的赋值色（上界 0.98）。
+   * `?id=3719111841&ln=33`（尘埃）：默认粒子数约为改前**一半**（发射器没写 `rate` ⇒ 官方 5/s）；`?id=3544152633&ln=10` 同理（10→5 颗量级）。**看到"粒子变少"是 #3 的预期结果，不是丢层。**
+   * `?id=3233141951&ln=13/17/49/50`（龙烟/烟/眼焰）：默认末段逐粒子色保留、`&pcolor=legacy` = 全粒子同色。
+
+### P-130.8 本轮改动文件清单（提交只含这些）
+
+* 改 `core/we-scene-bundle.js`（7 条口径 + `?pcolor` 档位 + `particleStats.pcolorMode`；**不碰宿主**）。
+* 改 `tests/particle-render-correctness-test.mjs`（54 → **91** 断言；含 2 条采样口径校准，判据/容差未放松）。
+* 改 `docs/README-DIAGNOSTICS.md`（主表新增 `pcolor` 行 ⇒ `diag-flag-check` 152 == 152）。
+* 改 `docs/PATCHES.md`（本节）。
+* **未改**：`demo.html`（宿主接线批 B 才动）、`elysia/**`、`tests/run-all-tests.sh`（**按其约定不改**；新断言全部进既有 `particle-render-correctness-test.mjs`，无需注册新文件）、`web/diag-flags.json`（本批 `diag-flag-check` 的**自动产物**；工作树里它同时含并行线的行号变化 ⇒ **由并行线/集成线提交**，本批不碰）。

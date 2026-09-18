@@ -12,11 +12,16 @@
 // 以及四个档位的 `particleStats` 记账断言（真机上报与面板速查用）。
 //
 // 用法: node tests/particle-render-correctness-test.mjs [--verbose]
+// ①(2026-09-19 敏感信息加固) 工作区根**不写作者本机绝对路径**：优先 `MPW_ROOT`，否则由 `_root.mjs` 推导。
+//   ①(P-130 批A) 写成 `_root.WS || ROOT/..`：并行线正在给 `_root.mjs` 补 `WS` 导出（**未提交**）⇒
+//   这样本文件在**两种 `_root.mjs` 版本下都能跑**（本批的提交不依赖别的线未提交的改动）。
+import * as _root from './_root.mjs'
+import path from 'node:path'
 import fs from 'node:fs'
 import { createRenderer } from '../core/we-scene-bundle.js'
 import * as lib from '../core/we-scene-bundle.js'
 
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_WS = process.env.MPW_ROOT || _root.WS || path.resolve(_root.ROOT, '..')
 const DIR = `${MPW_WS}/allwallpaper/dd`
 const WE = `${MPW_WS}/wallpaper_engine/assets`
 const dec = new TextDecoder()
@@ -86,7 +91,7 @@ const SHADER_RESOLVER = async (rel) => (rel.endsWith('.vert') ? VERT : FRAG)
 function setModes(modes = {}) {
   const q = []
   for (const [flag, v] of [['pquad', modes.pquad], ['prot', modes.prot], ['pexp', modes.pexp], ['pspeed', modes.pspeed],
-    ['pframe', modes.pframe], ['pops', modes.pops]]) {
+    ['pframe', modes.pframe], ['pops', modes.pops], ['pcolor', modes.pcolor]]) {
     if (v === 'legacy') q.push(flag + '=legacy')
   }
   globalThis.location = { search: q.length ? '?' + q.join('&') : '' }
@@ -496,6 +501,10 @@ if (hasPkg('3554161528')) {
 
 // ── ⑥C oscillatealpha：加性 → 乘性（⑧-3）──
 {
+  // ①(P-130 批A #1) 采样步长 0.05 → **0.01**：批A 把 ω 从 `2π·frequency` 改成 `frequency`（官方口径）后，
+  //   相位步长从 3.14~6.28 rad 降到 0.1~0.2 rad，`dt=0.05` 的栅格对端点极值的余量只剩 2.4e-7（容差 1e-6），
+  //   属"运气过线"。`dt=0.01`（60s ⇒ 6000 步）把余量拉到 ~1e-8 量级 —— 判据本身（区间端点 0.35/0.5/0.7/1.0）
+  //   与容差 1e-6 都不放松。
   const alphaStats = (base, popsLegacy) => {
     const def = { maxcount: 4,
       emitter: [{ rate: 0.0001, instantaneous: 1, distancemax: '0 0 0' }],
@@ -503,8 +512,8 @@ if (hasPkg('3554161528')) {
       operator: [{ name: 'oscillatealpha', frequencymin: 10, frequencymax: 20, scalemin: 0.7 }] }
     const s = lib.buildParticleSystem(def, { origin: [0, 0, 0], seedStr: 'p125C', maxCount: 4, popsLegacy })
     let lo = Infinity, hi = -Infinity, zeros = 0, n = 0
-    for (let i = 0; i < 1200; i++) {           // 60s @ 0.05s
-      lib.stepParticles(s, 0.05, i * 0.05)
+    for (let i = 0; i < 6000; i++) {           // 60s @ 0.01s
+      lib.stepParticles(s, 0.01, i * 0.01)
       for (const p of s.particles) { lo = Math.min(lo, p.alpha); hi = Math.max(hi, p.alpha); if (p.alpha <= 1e-9) zeros++; n++ }
     }
     return { lo, hi, zeroFrac: zeros / Math.max(1, n) }
@@ -546,8 +555,12 @@ if (hasPkg('3554161528')) {
       angle: (fl.angles && fl.angles[2]) || 0, seedStr: String(fl.id) + '|' + String(fl.origin),
       maxCount: 100, instanceoverride: fl.instanceoverride, popsLegacy })
     // 逐粒子轨迹（同一颗粒子的时间序列才是"沿固定对角线摆动"的直接证据；跨粒子汇总会把相位差平均掉）
+    // ①(P-130 批A #1) 窗口 240 帧（4s）→ **1200 帧（20s）**：批A 把 ω 从 `2π·f` 改成 `f`（官方口径）后，
+    //   该层 `oscillateposition{frequencymin:0.3, frequencymax:1}` 的周期从 1.0~2.1s 变成 **6.3~21s**
+    //   ⇒ 4s 窗口不足一个周期，官方口径下轨迹本来就近似一条直线（实测 |corr|=0.9983，是**官方行为**
+    //   而不是回归）。判据（`|corr| < 0.99`、legacy `≥ 0.999`）与容差一律不动，只把窗口拉到覆盖 ≥1 个周期。
     const track = new Map()
-    for (let i = 0; i < 240; i++) {
+    for (let i = 0; i < 1200; i++) {
       lib.stepParticles(s, 1 / 60, i / 60)
       if (i < 60) continue
       for (const p of s.particles) {
@@ -571,7 +584,7 @@ if (hasPkg('3554161528')) {
       xmin: Math.min(...allX), xmax: Math.max(...allX), ymin: Math.min(...allY), ymax: Math.max(...allY) }
   }
   const on = traj(false), off = traj(true)
-  push('⑥D 萤火虫 240 帧：每颗粒子 |corr(x,y)| < 0.99（官方逐轴增量；旧实现每颗恰好 −1.0000 = 固定对角线）',
+  push('⑥D 萤火虫 1200 帧（20s，覆盖 ≥1 个官方摆动周期）：每颗粒子 |corr(x,y)| < 0.99（官方逐轴增量；旧实现每颗恰好 −1.0000 = 固定对角线）',
     on.n > 10 && on.maxAbsCorr < 0.99, `maxAbsCorr=${on.maxAbsCorr.toFixed(4)} perParticle=[${on.corrs.map((c) => c.toFixed(3)).join(', ')}] n=${on.n} 粒子=${on.particles}`)
   push('⑥D 萤火虫漂移 ≠ 0（movement/turbulence 累积的漂移不再被每帧覆盖抹掉）',
     on.dr > 1, `drift=${on.dr.toFixed(2)}px`)
@@ -628,6 +641,274 @@ if (hasPkg('3554161528')) {
     fl.particleDef.starttime === 15 && aliveAt(10) === 0 && aliveAt(25) > 0,
     `starttime=${fl.particleDef.starttime} alive(10)=${aliveAt(10)} alive(25)=${aliveAt(25)}`)
 }
+
+// ═══════════════ ⑦ P-130 批A：7 条口径修复 + ?pcolor 回退口 ═══════════════
+// 判据来源：docs/PARTICLE-CORPUS-SCAN.md（§1-5b/5c、§2.4-补、§3 #1/#3/#4/#9/#10/#12/#24、§4 批A）。
+// ⚠ 官方缺省数字**全部取自第三方参考实现的行为对照**（wer-ref/lwe-ref，只读行为结论、未复制其代码）；
+//   本仓库**未反汇编官方二进制**。每条都带 legacy/反向断言（证明判据对旧写法敏感）。
+const RNG_LIFE = [{ name: 'lifetimerandom', min: 1000, max: 1000 }]
+const burstDef = (init, op, n) => ({ maxcount: n,
+  emitter: [{ name: 'boxrandom', rate: 0.0001, instantaneous: n, distancemax: '0 0 0' }], initializer: init, operator: op })
+const bornBurst = (def, n, seed, ctx) => {
+  const s = lib.buildParticleSystem(def, Object.assign({ origin: [0, 0, 0], seedStr: seed, maxCount: n }, ctx))
+  lib.simulateParticleSystem(s, 0.001)
+  return s
+}
+const mm = (a) => [Math.min(...a), Math.max(...a)]
+// 10 秒窗口内"信号极大值"个数 = 摆动周期数（批A #1/#4 的判据式；dt=0.002 ⇒ 周期 ≥0.63s 时每周期 ≥31 个采样点）
+const maxima10s = (def, sig, popsLegacy, ctx) => {
+  const s = lib.buildParticleSystem(def, Object.assign({ origin: [0, 0, 0], seedStr: 'p127max', maxCount: 4, popsLegacy }, ctx))
+  const v = []
+  for (let i = 0; i * 0.002 < 10; i++) { lib.stepParticles(s, 0.002, i * 0.002); const p = s.particles[0]; if (p) v.push(sig(p)) }
+  let n = 0
+  for (let i = 1; i + 1 < v.length; i++) if (v[i] > v[i - 1] && v[i] >= v[i + 1]) n++
+  return n
+}
+
+// ── ⑦A #1 `oscillate*` 频率量纲：ω ≡ frequency（rad/s）；旧实现 `2π·frequency` ⇒ 摆动快 6.28× ──
+{
+  const aDef = (o) => burstDef(RNG_LIFE.concat([{ name: 'alpharandom', min: 1, max: 1 }]), [o], 4)
+  const OSC = (n, extra) => Object.assign({ name: n, frequencymin: 10, frequencymax: 10, scalemin: 0.5, scalemax: 1 }, extra)
+  const aOn = maxima10s(aDef(OSC('oscillatealpha')), (p) => p.alpha, false)
+  const aOff = maxima10s(aDef(OSC('oscillatealpha')), (p) => p.alpha, true)
+  push('⑦A #1 oscillatealpha：10s 内 alpha 极大值 15~16（ω=10 rad/s ⇒ 1.59 Hz）',
+    aOn >= 15 && aOn <= 16, `official=${aOn}（旧 2π·f ⇒ 100）`)
+  push('⑦A #1 ?pops=legacy 复现旧的 Hz 口径：10s 内 ≈100 个极大值（快 6.28×）',
+    aOff >= 95 && aOff <= 100, `legacy=${aOff}`)
+  const pOn = maxima10s(burstDef(RNG_LIFE, [OSC('oscillateposition', { scalemin: 20, scalemax: 20 })], 4), (p) => p.pos[0], false)
+  const pOff = maxima10s(burstDef(RNG_LIFE, [OSC('oscillateposition', { scalemin: 20, scalemax: 20 })], 4), (p) => p.pos[0], true)
+  push('⑦A #1 oscillateposition：10s 内 pos.x 极大值 15~16（旧 ≈100）',
+    pOn >= 15 && pOn <= 16 && pOff >= 95, `official=${pOn} legacy=${pOff}`)
+  const sDef = (o) => burstDef(RNG_LIFE.concat([{ name: 'sizerandom', min: 100, max: 100 }]), [o], 4)
+  const sOn = maxima10s(sDef(OSC('oscillatesize')), (p) => p.size, false)
+  const sOff = maxima10s(sDef(OSC('oscillatesize')), (p) => p.size, true)
+  push('⑦A #1 oscillatesize：10s 内 size 极大值 15~16（旧 ≈100；该算子无 pops legacy 分支 ⇒ 两档同值）',
+    sOn >= 15 && sOn <= 16 && sOff === sOn, `official=${sOn} legacy=${sOff}`)
+  // §2.4-补 的一行判据原文：`oscillatealpha{frequencymin:10, scalemin:0.5}`（**不写 frequencymax**）
+  const crit = aDef({ name: 'oscillatealpha', frequencymin: 10, scalemin: 0.5 })
+  const cOn = maxima10s(crit, (p) => p.alpha, false)
+  const fCrit = bornBurst(crit, 4, 'p127crit').particles[0].oscAlpha.f
+  push('⑦A #1 §2.4-补 的一行判据：`oscillatealpha{frequencymin:10,scalemin:0.5}` 跑 10s ≈16 个 alpha 极大值',
+    cOn >= 15 && cOn <= 16, `official=${cOn}（旧 52：旧缺省 frequencymax=1 把 f 拉到 ≈5.2 ⇒ 2π·f≈32.8 rad/s）`)
+  push('⑦A #1 判据 def 的 per-particle ω = authored frequency = 10（缺省 frequencymax=10 与 frequencymin 相等）',
+    Math.abs(fCrit - 10) < 1e-9, `f=${fCrit}`)
+}
+
+// ── ⑦B #2 `colorrandom` 缺 `max` 的缺省域：官方 {255,255,255}（与 min 同域）⇒ 恒白 ──
+{
+  const colorsOf = (minStr, pcolorLegacy) => bornBurst(burstDef(
+    [{ name: 'lifetimerandom', min: 1000, max: 1000 }, { name: 'colorrandom', min: minStr }], [], 200),
+    200, 'p127col', { pcolorLegacy }).particles.map((p) => p.color)
+  const w = colorsOf('255 255 255', false)
+  push('⑦B #2 只写 min:"255 255 255" ⇒ 官方缺省 max=255 ⇒ 200 颗逐粒子色恒 (1,1,1)（旧：随机灰度 1−0.996u）',
+    w.every((c) => c.every((v) => v === 1)), `样本=${JSON.stringify(w.slice(0, 3).map((c) => c.map((v) => +v.toFixed(4))))}`)
+  const wl = colorsOf('255 255 255', true)
+  const wlR = mm(wl.map((c) => c[0]))
+  push('⑦B #2 ?pcolor=legacy 复现 P-126 的随机灰度（最暗近黑、>100 种取值）',
+    wlR[0] < 0.05 && wlR[1] > 0.95 && new Set(wl.map((c) => c[0].toFixed(6))).size > 100,
+    `R∈[${wlR.map((v) => v.toFixed(4)).join(',')}] 取值数=${new Set(wl.map((c) => c[0].toFixed(6))).size}`)
+  const r = colorsOf('255 0 0', false)
+  const rG = mm(r.map((c) => c[1]))
+  push('⑦B #2 min:"255 0 0"（无 max）⇒ R 恒 1、G/B ∈[0,1]（旧：G/B ≤0.004 近黑）',
+    r.every((c) => c[0] === 1) && rG[1] > 0.9 && rG[0] < 0.1, `R=${r[0][0]} G∈[${rG.map((v) => v.toFixed(4)).join(',')}]`)
+  // 渲染通路：官方恒白 ⇒ 整批同色上提（u_Color 白 + 顶点色恒 1）；legacy ⇒ 逐顶点灰
+  const defW = burstDef([{ name: 'lifetimerandom', min: 1000, max: 1000 }, { name: 'colorrandom', min: '255 255 255' }], [], 200)
+  const on = await renderQuad(defW, {}, {}, 3.0)
+  const onD = on.rec.draws2.filter(isParticleDraw).pop()
+  const onC = onD ? colorStreamOf(onD, on.rec) : null
+  push('⑦B #2 渲染通路 official：u_Color=(1,1,1) + 顶点色恒 1 + colorAttr=0（恒白走上提档）',
+    !!onD && onD.uni.u_Color.every((v) => v === 1) && on.stats.colorAttr === 0 && !!onC && [...onC].every((v) => v === 1),
+    onD ? `u_Color=${JSON.stringify(onD.uni.u_Color)} colorAttr=${on.stats.colorAttr}` : 'no draw')
+  const lg = await renderQuad(defW, {}, { pcolor: 'legacy' }, 3.0)
+  const lgD = lg.rec.draws2.filter(isParticleDraw).pop()
+  const lgC = lgD ? colorStreamOf(lgD, lg.rec) : null
+  const lgSp = lgC ? mm([...lgC]) : [0, 0]
+  push('⑦B #2 `?pcolor=legacy` 真的换了一档：pcolorMode=legacy + 走 a_Color 且灰度色差 >0.5（official 恒 1）',
+    lg.stats.pcolorMode === 'legacy' && lg.stats.colorAttr > 0 && (lgSp[1] - lgSp[0]) > 0.5,
+    `pcolorMode=${lg.stats.pcolorMode} colorAttr=${lg.stats.colorAttr} 顶点色∈[${lgSp.map((v) => v.toFixed(3)).join(',')}]`)
+}
+
+// ── ⑦C #3 `emitter.rate` 缺省：官方 5（旧 10）—— 发射与预算记账两处必须同口径 ──
+{
+  const em = lib.parseParticleEmitters([{ name: 'boxrandom' }], [1, 1, 1], 0)
+  push('⑦C #3 parseParticleEmitters 缺 rate ⇒ 5（官方 ParticleEmitter::rate{5.0f}；旧 10）', em[0].rate === 5, `rate=${em[0].rate}`)
+  const s = lib.buildParticleSystem({ maxcount: 1000, emitter: [{ name: 'boxrandom', distancemax: '0 0 0' }],
+    initializer: [{ name: 'lifetimerandom', min: 1000, max: 1000 }], operator: [] },
+    { origin: [0, 0, 0], seedStr: 'p127rate', maxCount: 1000 })
+  lib.simulateParticleSystem(s, 1.0)
+  push('⑦C #3 缺 rate 的层 1 秒发射数 ≈5（旧 10/s ⇒ ≈9~11）', s.particles.length >= 4 && s.particles.length <= 6, `n=${s.particles.length}`)
+  // 预算记账（renderParticleLayer 的 sumRate）：12 个"没写 rate"的发射器 ⇒ 官方口径读成 60/s（旧 120/s）。
+  //   用 `particleBudget.rate = 40` 让它必然触发限流 ⇒ 日志里的"发射率 N/s"直接暴露预算侧用的是 5 还是 10。
+  const budgetDef = { maxcount: 5000, emitter: Array.from({ length: 12 }, () => ({ name: 'boxrandom', distancemax: '0 0 0' })),
+    initializer: [{ name: 'lifetimerandom', min: 1000, max: 1000 }], operator: [] }
+  setModes({})
+  const { gl } = makeGl()
+  const logs = []
+  const r = createRenderer({ getContext: () => gl }, { onLog: (m) => logs.push(String(m)), shaderResolver: SHADER_RESOLVER, aggregate: true,
+    particleBudget: { tier: 't', perLayer: 20000, total: 20000, layers: 100, steps: 400, rate: 40 } })
+  await r.render({ layers: [mkLayer({ particleDef: budgetDef })], general: {}, camera: null, size: [W, H] }, TEXA, W, H, 1.0)
+  const line = logs.find((m) => m.includes('发射率'))
+  const sumRate = line ? Number((line.match(/发射率 ([\d.]+)\/s/) || [])[1]) : NaN
+  push('⑦C #3 预算记账与发射同口径：12 个缺 rate 的发射器被读成 60/s（旧 120/s）⇒ 触发限流',
+    sumRate === 60 && r.particleStats.rateCapped >= 1, `sumRate=${sumRate} rateCapped=${r.particleStats.rateCapped} log=${line ? line.slice(0, 60) : '—'}`)
+}
+
+// ── ⑦D #4 `FrequencyValue` 的官方缺省表（frequencymax=10 / 名称分支 oscillatesize 0.8/1.2、position 5） ──
+{
+  const fs_ = (op, key, n = 400) => bornBurst(burstDef(RNG_LIFE, [op], n), n, 'p127f').particles.map(key)
+  const sz = bornBurst(burstDef(RNG_LIFE, [{ name: 'oscillatesize', frequencymin: 0 }], 400), 400, 'p127f').particles
+  push('⑦D #4 oscillatesize：frequencymax 缺省 = 10（旧 1）⇒ per-particle f 上界 >9.5',
+    Math.max(...sz.map((p) => p.oscSize.f)) > 9.5, `f 上界=${Math.max(...sz.map((p) => p.oscSize.f)).toFixed(4)}（旧 0.9942）`)
+  push('⑦D #4 oscillatesize：scalemin/scalemax 缺省 = 0.8/1.2（官方名称分支）⇒ mid=1、amp=0.2',
+    near(sz[0].oscSize.mid, 1, 1e-12) && near(sz[0].oscSize.amp, 0.2, 1e-12),
+    `mid=${sz[0].oscSize.mid} amp=${sz[0].oscSize.amp}`)
+  const al = bornBurst(burstDef(RNG_LIFE, [{ name: 'oscillatealpha', frequencymin: 0 }], 400), 400, 'p127f').particles
+  push('⑦D #4 oscillatealpha：frequencymax 缺省 = 10（旧 1）⇒ f 上界 >9.5',
+    Math.max(...al.map((p) => p.oscAlpha.f)) > 9.5, `f 上界=${Math.max(...al.map((p) => p.oscAlpha.f)).toFixed(4)}（旧 0.9990）`)
+  const po = bornBurst(burstDef(RNG_LIFE, [{ name: 'oscillateposition', frequencymin: 0, scalemin: 0 }], 400), 400, 'p127f').particles
+  push('⑦D #4 oscillateposition：frequencymax 缺省 = 5、scalemax 缺省 = 1（旧 1 / 旧 = scalemin）',
+    Math.max(...po.map((p) => p.oscPos.f[0])) > 4.5 && Math.max(...po.map((p) => p.oscPos.f[0])) <= 5 + 1e-9 &&
+    Math.max(...po.map((p) => p.oscPos.sc[0])) > 0.95 && Math.max(...po.map((p) => p.oscPos.sc[0])) <= 1 + 1e-9,
+    `f 上界=${Math.max(...po.map((p) => p.oscPos.f[0])).toFixed(4)} sc 上界=${Math.max(...po.map((p) => p.oscPos.sc[0])).toFixed(4)}`)
+  const z = bornBurst(burstDef(RNG_LIFE, [{ name: 'oscillatealpha', frequencymin: 3, frequencymax: 0 }], 50), 50, 'p127z').particles
+  push('⑦D #4 显式 `frequencymax:0` ⇒ 取 frequencymin（官方 ReadFromJson 的归一；旧实现 ⇒ f 恒 0）',
+    z.every((p) => Math.abs(p.oscAlpha.f - 3) < 1e-12), `f 取值集=${[...new Set(z.map((p) => p.oscAlpha.f))].join(',')}`)
+  const sDef = (o) => burstDef(RNG_LIFE.concat([{ name: 'sizerandom', min: 100, max: 100 }]), [o], 4)
+  const sOn = maxima10s(sDef({ name: 'oscillatesize', frequencymin: 10, scalemin: 0.5, scalemax: 1 }), (p) => p.size, false)
+  push('⑦D #4 缺 frequencymax 的 size 10s 极大值 15~16（旧 52：旧缺省把 f 拉到 ≈5.2）',
+    sOn >= 15 && sOn <= 16, `official=${sOn}`)
+  // 时间基准：官方 `GetScale(i, LifetimePassed(p))` = **粒子年龄**（旧实现用系统时间 `t` ⇒ 同屏粒子永远同相）。
+  //   判据要"相位退化"才可判：`phasemin = 2π, phasemax = 0` ⇒ 官方相位恒 `2π`（区间退化），
+  //   于是"同屏同帧 size 是否一致"**只**取决于时间基准（age ⇒ 各颗粒子年龄不同 ⇒ size 不同；t ⇒ 完全相同）。
+  const two = { maxcount: 4, emitter: [{ name: 'boxrandom', rate: 2, instantaneous: 1, distancemax: '0 0 0' }],
+    initializer: [{ name: 'lifetimerandom', min: 1000, max: 1000 }, { name: 'sizerandom', min: 100, max: 100 }],
+    operator: [{ name: 'oscillatesize', frequencymin: 3, frequencymax: 3, scalemin: 0.8, scalemax: 1.2,
+      phasemin: Math.PI * 2, phasemax: 0 }] }
+  const st = lib.buildParticleSystem(two, { origin: [0, 0, 0], seedStr: 'p127age', maxCount: 4 })
+  const sizes = []
+  for (let i = 0; i < 200; i++) { lib.stepParticles(st, 1 / 60, i / 60); if (i === 150) sizes.push(...st.particles.map((p) => p.size)) }
+  const phSet = [...new Set(st.particles.map((p) => p.oscSize.ph))]
+  push('⑦D #4 oscillatesize 的时间基准 = 粒子年龄（官方 LifetimePassed）：相位退化后同帧多颗粒子 size **不同**（旧用系统时间 ⇒ 全部相同）',
+    st.particles.length >= 2 && sizes.length >= 2 && phSet.length === 1 && Math.max(...sizes) - Math.min(...sizes) > 1,
+    `n=${st.particles.length} 相位集=${phSet.map((v) => v.toFixed(6)).join(',')} 同帧 size∈[${Math.min(...sizes).toFixed(2)},${Math.max(...sizes).toFixed(2)}]`)
+}
+
+// ── ⑦E #5 `phasemin` 被忽略（16 层）+ 相位上界 = `phasemax + 2π`（只属 FrequencyValue）──
+{
+  const phOf = (op, key, pops, n = 400) => bornBurst(burstDef(RNG_LIFE, [op], n), n, 'p127ph', { popsLegacy: pops }).particles.map(key)
+  const aOp = { name: 'oscillatealpha', frequencymin: 1, frequencymax: 1, scalemin: 1, scalemax: 1, phasemin: 5, phasemax: 0 }
+  const aOn = phOf(aOp, (p) => p.oscAlpha.ph, false)
+  const aOff = phOf(aOp, (p) => p.oscAlpha.ph, true)
+  push('⑦E #5a oscillatealpha 读 phasemin：相位 ∈ [5, phasemax+2π=2π]（旧：恒 0，phasemin 完全不读）',
+    Math.min(...aOn) >= 5 - 1e-9 && Math.max(...aOn) <= Math.PI * 2 + 1e-9, `相位∈[${mm(aOn).map((v) => v.toFixed(4)).join(',')}]`)
+  // legacy 分支消费的是 `phL`（`?pops=legacy` 的相位字段）—— 它保留旧口径：不读 phasemin、上界 = phasemax（此处 0 ⇒ 恒 0）。
+  const aOffL = phOf(aOp, (p) => p.oscAlpha.phL, true)
+  push('⑦E #5a ?pops=legacy 的相位字段 `phL` 保留旧口径（不读 phasemin ⇒ 恒 0；official 字段 `ph` 才吃 phasemin）',
+    aOffL.every((v) => v === 0) && aOn.every((v) => v >= 5 - 1e-9), `legacy phL=${[...new Set(aOffL)].slice(0, 3).join(',')} official ph∈[${mm(aOn).map((v) => v.toFixed(4)).join(',')}]`)
+  // 效果判据：t=0 时 legacy = clamp(base + a·cos(phL=0)) = clamp(0.5+1) = 1；official = base·mix(1,1,·) = 0.5
+  const a0 = (pops) => bornBurst(burstDef(RNG_LIFE.concat([{ name: 'alpharandom', min: 0.5, max: 0.5 }]), [aOp], 50),
+    50, 'p127a0', { popsLegacy: pops }).particles.map((p) => p.alpha)
+  push('⑦E #5a 效果：t=0 时 legacy alpha = clamp(base+a·cos(0)) = clamp(0.5+1) = 1（相位 0）、official = base·mix(1,1,·) = 0.5',
+    a0(true).every((v) => v === 1) && a0(false).every((v) => v === 0.5), `legacy=${[...new Set(a0(true))].join(',')} official=${[...new Set(a0(false))].join(',')}`)
+  const pOp = { name: 'oscillateposition', phasemin: 5, phasemax: 0, mask: '1 1 0' }
+  const pOn = phOf(pOp, (p) => p.oscPos.ph[0], false)
+  const pOff = phOf(pOp, (p) => p.oscPos.ph[0], true)
+  push('⑦E #5b oscillateposition 读 phasemin：ph[0] ∈ [5, 2π]（旧：[0,2π]，phasemin 完全不读）',
+    Math.min(...pOn) >= 5 - 1e-9 && Math.max(...pOn) <= Math.PI * 2 + 1e-9, `official∈[${mm(pOn).map((v) => v.toFixed(4)).join(',')}]`)
+  const pOffL = phOf(pOp, (p) => p.oscPos.lph, true)   // legacy 分支消费的是单相位 `lph`
+  push('⑦E #5b ?pops=legacy 的单相位 `lph` 保留旧口径 r×2π（∈[0,2π]）',
+    Math.min(...pOffL) >= 0 && Math.max(...pOffL) <= Math.PI * 2 + 1e-9 && Math.min(...pOffL) < 1,
+    `legacy lph∈[${mm(pOffL).map((v) => v.toFixed(4)).join(',')}]`)
+  const tOp = { name: 'turbulence', speedmin: 30, speedmax: 50, phasemin: 5, phasemax: 50 }
+  const tOn = phOf(tOp, (p) => p.turbPh, false)
+  push('⑦E #5c turbulence 读 phasemin：相位 ∈ [5, 50] —— 官方 turbulence **不加** +2π（两参考一致；+2π 只属 FrequencyValue）',
+    Math.min(...tOn) >= 5 - 1e-9 && Math.max(...tOn) <= 50 + 1e-9, `相位∈[${mm(tOn).map((v) => v.toFixed(4)).join(',')}]`)
+  // 效果判据：同 seed、同频段下 phasemin 不同的噪声相位必须给出不同速度（旧实现两者逐位相同）
+  const vy = (phasemin, pops) => {
+    const s = lib.buildParticleSystem(burstDef(RNG_LIFE, [{ name: 'turbulence', speedmin: 30, speedmax: 50, phasemin, phasemax: 50 }], 4),
+      { origin: [0, 0, 0], seedStr: 'p127vy', maxCount: 4, popsLegacy: pops })
+    let m = 0
+    for (let i = 0; i < 120; i++) { lib.stepParticles(s, 1 / 60, i / 60); for (const p of s.particles) m = Math.max(m, Math.abs(p.vel[1])) }
+    return m
+  }
+  push('⑦E #5c turbulence 的 phasemin 真的改变噪声相位（旧实现 phasemin 被忽略 ⇒ 两档逐位相同）',
+    Math.abs(vy(5, false) - vy(0, false)) > 1e-9 && vy(5, true) === vy(0, true),
+    `official max|vy| 5→${vy(5, false).toFixed(4)} / 0→${vy(0, false).toFixed(4)}；legacy 两档=${vy(5, true).toFixed(4)}`)
+}
+
+// ── ⑦F #6 `controlpointattract.threshold` 缺省 = 512（旧 0 ⇒ 判据恒假 ⇒ 整条算子从不生效）──
+{
+  const def = (thr) => ({ maxcount: 2, emitter: [{ rate: 0.0001, instantaneous: 1, distancemax: '0 0 0' }],
+    initializer: RNG_LIFE, operator: [Object.assign({ name: 'controlpointattract', controlpoint: 1, scale: -1000 },
+      thr == null ? {} : { threshold: thr })],
+    controlpoint: [{ flags: 0 }, { flags: 1, offset: '0 0 0' }] })
+  const dv = (dist, thr) => {
+    const s = lib.buildParticleSystem(def(thr), { origin: [0, 0, 0], seedStr: 'p127att', maxCount: 2 })
+    s.pointer = null
+    lib.stepParticles(s, 1 / 60, 0)
+    const p = s.particles[0]; p.pos = [dist, 0, 0]; p.vel = [0, 0, 0]
+    lib.stepParticles(s, 1 / 60, 1 / 60)
+    return Math.hypot(p.vel[0], p.vel[1])
+  }
+  push('⑦F #6 缺 threshold ⇒ 官方缺省 512（thr=256）：d=100px 施力 |Δv| = |scale|·dt = 16.667（旧：两条都 0）',
+    near(dv(100, null), 1000 / 60, 1e-6) && dv(300, null) === 0,
+    `d=100 ⇒ ${dv(100, null).toFixed(4)}；d=300 ⇒ ${dv(300, null).toFixed(4)}（旧 0.0000 / 0.0000）`)
+  push('⑦F #6 显式 threshold 仍按 `threshold/2` 生效（d=10 施力、d=100 不施力）',
+    near(dv(10, 70), 1000 / 60, 1e-6) && dv(100, 70) === 0, `d=10 ⇒ ${dv(10, 70).toFixed(4)}；d=100 ⇒ ${dv(100, 70).toFixed(4)}`)
+}
+
+// ── ⑦G #7 `colorchange` 官方是**乘**（MutiplyColor）；旧实现是赋值 ⇒ 末段逐粒子色被抹平 ──
+{
+  const ccDef = () => burstDef([{ name: 'lifetimerandom', min: 10, max: 10 },
+    { name: 'colorrandom', min: '60 60 60', max: '255 255 255' }],
+    [{ name: 'colorchange', starttime: 0.5, endtime: 1, endvalue: '0.5 0.5 0.5' }], 200)
+  const at = (t, pcolorLegacy) => { const s = bornBurst(ccDef(), 200, 'p127cc', { pcolorLegacy }); lib.simulateParticleSystem(s, t); return s.particles }
+  const on = at(9, false)          // life=10s ⇒ lifePos 0.9（endtime 之后的分支）
+  const uniq = new Set(on.map((p) => p.color.map((v) => v.toFixed(4)).join(','))).size
+  const ratio = on.map((p) => p.color[0] / p.baseColor[0])
+  push('⑦G #7 末段：逐粒子色 = baseColor × ch(life)（ch=0.4），逐粒子色差**保留**（旧：全部 = endvalue 0.5）',
+    uniq > 100 && ratio.every((r2) => near(r2, 0.4, 1e-9)),
+    `不同色数=${uniq} ch=${ratio[0].toFixed(6)} R∈[${mm(on.map((p) => p.color[0])).map((v) => v.toFixed(4)).join(',')}]`)
+  const off = at(9, true)
+  push('⑦G #7 ?pcolor=legacy 复现旧的赋值口径：末段所有粒子同色 = endvalue 0.5',
+    new Set(off.map((p) => p.color.map((v) => v.toFixed(6)).join(','))).size === 1 && near(off[0].color[0], 0.5, 1e-12),
+    `不同色数=${new Set(off.map((p) => p.color[0].toFixed(6))).size} 色=${off[0].color.map((v) => +v.toFixed(4))}`)
+  // `startvalue` 缺省 {0,0,0}（官方 VecChange）⇒ `life <= starttime` 段被乘成 0（语料 12 层没写 startvalue）。
+  //   旧实现（赋值）该段的 u = age/endtime（**分母是 endtime 不是 starttime**）⇒ 同一时刻完全不同的值。
+  const early = at(1, false), earlyL = at(1, true)
+  push('⑦G #7 `life <= starttime` 段：官方 startvalue 缺省 {0,0,0} ⇒ 色被乘成 0（官方语义，不是 bug）',
+    early.every((p) => p.color.every((v) => v === 0)), `色样本=${early[0].color.join(',')}`)
+  push('⑦G #7 ?pcolor=legacy 该段是旧赋值式（u = age/endtime = 1 ⇒ 已等于 endvalue 0.5、且全粒子同色）',
+    earlyL.every((p) => near(p.color[0], 0.5, 1e-12) && near(p.color[1], 0.5, 1e-12)), `色样本=${earlyL[0].color.map((v) => +v.toFixed(4))}`)
+}
+
+// ── ⑦H 真包对拍（§3 #3 点名的 hina「雾 2」+ §3 #12 的 4 包之一 dd/3544152633）──
+if (hasPkg('3554161528')) {
+  const f1 = await renderRealLayer('3554161528', '雾 2', {}, 20.0, 835)
+  const f1d = f1 && f1.rec.draws2.filter(isParticleDraw).pop()
+  const f1c = f1d ? colorStreamOf(f1d, f1.rec) : null
+  push('⑦H 真包 hina「雾 2」(ln=17/id=835)：official 整批恒白（u_Color=(1,1,1) + 顶点色恒 1 + colorUni/Attr=1/0）',
+    !!f1d && f1d.uni.u_Color.every((v) => v === 1) && !!f1c && [...f1c].every((v) => v === 1) &&
+    f1.stats.colorUni === 1 && f1.stats.colorAttr === 0,
+    f1d ? `u_Color=${JSON.stringify(f1d.uni.u_Color)} colorUni/Attr=${f1.stats.colorUni}/${f1.stats.colorAttr}` : 'no draw')
+  const f2 = await renderRealLayer('3554161528', '雾 2', { pcolor: 'legacy' }, 20.0, 835)
+  const f2d = f2 && f2.rec.draws2.filter(isParticleDraw).pop()
+  const f2c = f2d ? colorStreamOf(f2d, f2.rec) : null
+  const f2r = f2c ? mm([...f2c]) : [0, 0]
+  push('⑦H 真包 hina「雾 2」`?pcolor=legacy`：逐粒子灰（colorAttr=1、色差 >0.5、最暗 <0.05）= 改动前的灰白噪点雾',
+    !!f2 && f2.stats.pcolorMode === 'legacy' && f2.stats.colorAttr === 1 && (f2r[1] - f2r[0]) > 0.5 && f2r[0] < 0.05,
+    `顶点色∈[${f2r.map((v) => v.toFixed(4)).join(',')}] colorAttr=${f2 && f2.stats.colorAttr}`)
+} else push('⑦H hina 真包缺失（SKIP 视作 PASS）', true, 'no pkg')
+if (hasPkg('3544152633')) {
+  // 层 206100「Vapor (double)」：colorrandom 206/184（字节域）+ colorchange(startvalue "1 1 1", endvalue 0.7137)
+  const v1 = await renderRealLayer('3544152633', 'Vapor (double)', {}, 20.0, 206100)
+  const v1d = v1 && v1.rec.draws2.filter(isParticleDraw).pop()
+  const v1c = v1d ? colorStreamOf(v1d, v1.rec) : null
+  const v1r = v1c ? mm([...v1c]) : [0, 0]
+  push('⑦H 真包 dd/3544152633「Vapor (double)」：官方**乘**口径 ⇒ 逐粒子色只会变暗（≤ 自身 baseColor 上界 206/255；旧赋值式实测上界 0.9802）',
+    !!v1c && v1c.length > 30 && v1r[1] <= 206 / 255 + 1e-6 && !!v1 && v1.stats.colorAttr === 1,
+    v1c ? `顶点色∈[${v1r.map((v) => v.toFixed(4)).join(',')}] colorAttr=${v1.stats.colorAttr}` : 'no draw')
+} else push('⑦H dd/3544152633 真包缺失（SKIP 视作 PASS）', true, 'no pkg')
 
 const fail = checks.filter((c) => !c.ok)
 console.log(`\n===== particle-render-correctness: ${checks.length - fail.length} 通过 / ${fail.length} 失败 =====`)

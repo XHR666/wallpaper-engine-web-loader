@@ -3044,7 +3044,10 @@ export function parseParticleEmitters(list, scale, angle) {
     const name = e.name || 'boxrandom'
     return {
       name,
-      rate: e.rate || 10,
+      // ①(P-130 批A #3) 发射率缺省 = **5**（官方 `ParticleEmitter::rate { 5.0f }`；行为对照取自第三方
+      //   参考实现，未反汇编官方二进制）。我们旧缺省 10 ⇒ 未写 `rate` 的 14 个 emitter / 8 包发射率翻倍。
+      //   ⚠ 与 `renderParticleLayer` 的预算记账（rateMul 的 sumRate）必须**同改**，否则两边不一致。
+      rate: e.rate || 5,
       instantaneous: e.instantaneous || 0,
       delay: e.delay || 0,
       duration: e.duration || 0,
@@ -3220,6 +3223,10 @@ export function buildParticleSystem(def, ctx = {}) {
     vyLegacy: !!ctx.vyLegacy,
     // ①(P-126 C/D/F) 粒子算子口径（oscillatealpha 乘性 / oscillateposition 增量 / attract 判据 / turbulence mask）
     popsLegacy: !!ctx.popsLegacy,
+    // ①(P-130 批A 跨批) **A 类颜色口径**档位（`?pcolor=legacy`）：回到 P-126 的颜色计算口径
+    //   （`colorrandom` 缺 `max` 用旧归一化缺省 `[1,1,1]`、`colorchange` 用旧的"赋值"式）。
+    //   颜色**照常上屏**（绘制通路不变）—— 否则 legacy 侧与 official 侧都是白点，真机无法对拍。
+    pcolorLegacy: !!ctx.pcolorLegacy,
     // ①(P-103③/④) 本轮两个"出生期"档位：exponent 非线性分布、发射器 speedmin/speedmax 初速。
     //   不传（测试/第三方调用）⇒ false = 官方默认，与渲染器默认档一致。
     expLegacy: !!ctx.expLegacy,
@@ -3406,7 +3413,7 @@ export function spawnParticle(sys, em) {
     random: rng(),
     oscAlpha: null, oscSize: null, oscPos: null,
   }
-  for (const init of sys.initializers) applyInitializer(p, init, rng, sys.vyLegacy, sys.expLegacy)
+  for (const init of sys.initializers) applyInitializer(p, init, rng, sys.vyLegacy, sys.expLegacy, sys.pcolorLegacy)
   // ①(P-103③) 记账：本粒子至少有一个 initializer 真的吃了 exponent≠1（legacy 档恒不置位）
   if (p.__expApplied) { sys.__spawnExps = (sys.__spawnExps || 0) + 1; delete p.__expApplied }
   // ①(P-74 ①) instanceoverride：官方把它作为**追加 initializer** 排在全部作者 initializer 之后
@@ -3437,7 +3444,7 @@ export function applyInstanceOverride(p, io) {
   return p
 }
 
-export function applyInitializer(p, init, rng, vyLegacy, expLegacy) {
+export function applyInitializer(p, init, rng, vyLegacy, expLegacy, pcolorLegacy) {
   const pr = init.params
   // ①(P-103③ 洁净室实现) 官方 exponent **非线性分布**：`值 = min + pow(u, exponent)·(max−min)`，u=rng()。
   //   行为规格（不照抄任何 GPL 实现的行文/命名/结构，见 docs/PATCHES.md P-103 的"新旧差异"清单）：
@@ -3515,13 +3522,68 @@ export function applyInitializer(p, init, rng, vyLegacy, expLegacy) {
       break
     }
     case 'colorrandom': {
+      // ①(P-130 批A #2) `max` 缺省 = **{255,255,255}**（官方 `VecRandom` 的 `r.min = {0,0,0}` /
+      //   `r.max = {255,255,255}`，两者都 ÷255 后使用 —— 行为对照取自第三方参考实现，未反汇编官方二进制）。
+      //   我们旧缺省是 `[1,1,1]`（**归一化域**）⇒ 与字节域 `min` 混算：只写 `min:"255 255 255"` 的
+      //   **68 层 / 13 包**（含 hina `dd/3554161528` ln=17「雾 2」）被算成 `1 − 0.996·u` 的随机灰度
+      //   （最暗近黑），官方应为**恒白 (1,1,1)**。
+      //   `?pcolor=legacy` = 回到旧缺省 `[1,1,1]`（P-126 口径，真机 A/B 复现灰雾用）。
       const min = pVec3(pGetVal(pr, 'min'), [0, 0, 0])
-      const max = pVec3(pGetVal(pr, 'max'), [1, 1, 1])
+      const max = pVec3(pGetVal(pr, 'max'), pcolorLegacy ? [1, 1, 1] : [255, 255, 255])
       const k = (max[0] > 1 || max[1] > 1 || max[2] > 1 || min[0] > 1 || min[1] > 1 || min[2] > 1) ? 1 / 255 : 1
       p.color = [(min[0] + rng() * (max[0] - min[0])) * k, (min[1] + rng() * (max[1] - min[1])) * k, (min[2] + rng() * (max[2] - min[2])) * k]
       break
     }
   }
+}
+
+// ①(P-130 批A #1/#4/#5) `FrequencyValue`（oscillate* 家族）的**官方缺省 + 频率量纲 + 相位抽取**。
+//   依据：**两个独立第三方参考实现的行为对照结论一致**（本实现按该行为规格独立书写，未复制其代码/
+//   注释/常量组织；**未反汇编官方二进制**，缺省数字同样取自第三方参考实现，见 docs/PATCHES.md P-130）：
+//     · **ω ≡ frequency（rad/s）**：参考实现甲 `f = frequency/(2π); w = 2π·f`（⇒ w = frequency）；
+//       参考实现乙 `w = frequency`。⇒ 作者写的 `frequencymin/max` **就是角速度**，不是 Hz。
+//       旧实现 `cos(2π·frequency·age)` 把 authored 值当 Hz ⇒ 摆动/闪烁快 **2π ≈ 6.28 倍**。
+//     · **相位 = random(phasemin, phasemax + 2π)**（两实现都带 `+2π`）；旧实现恒 `random(0, phasemax)`
+//       ⇒ 写了 `phasemin` 的层相位基准错。
+//     · 缺省：frequencymin 0 / frequencymax **10** / scalemin 0 / scalemax 1 / phasemin 0 / phasemax 2π；
+//       名称分支：`oscillatesize` → scalemin **0.8** / scalemax **1.2**；`oscillateposition` → frequencymax **5**。
+//     · `frequencymax == 0`（显式写 0）⇒ 取 `frequencymin`（官方 ReadFromJson 的归一）。
+//   ⚠ `oscillateposition.mask`：参考实现甲是**门**（`mask[d] < 0.01` 才跳过）、乙是**乘**（幅度 ×mask），
+//     两派冲突 ⇒ 本批**不动** mask（沿用"乘"，见 docs/PARTICLE-CORPUS-SCAN.md §5-2）。
+function partFreqDefaults(name) {
+  const d = { fmin: 0, fmax: 10, smin: 0, smax: 1, phmin: 0, phmax: Math.PI * 2 }
+  if (name === 'oscillatesize') { d.smin = 0.8; d.smax = 1.2 } else if (name === 'oscillateposition') { d.fmax = 5 }
+  return d
+}
+function readFreqValue(pr, name) {
+  const d = partFreqDefaults(name)
+  const fmin = pGetVal(pr, 'frequencymin', d.fmin)
+  let fmax = pGetVal(pr, 'frequencymax', d.fmax)
+  if (fmax === 0) fmax = fmin
+  const smaxRaw = pGetVal(pr, 'scalemax', null)
+  return {
+    fmin, fmax,
+    smin: pGetVal(pr, 'scalemin', d.smin),
+    smaxRaw,                                   // 缺省判定要区分"没写"与"写了 0"
+    smax: smaxRaw == null ? d.smax : smaxRaw,  // 官方缺省 1（oscillatesize 为 1.2）
+    phmin: pGetVal(pr, 'phasemin', d.phmin),
+    phmax: pGetVal(pr, 'phasemax', d.phmax),
+  }
+}
+// 相位抽取（官方口径）。`r` 必须是**出生时已抽好的** [0,1) 随机数 —— 这里**不额外消耗 RNG**，
+//   否则会平移整条 RNG 流（连带改变发射数 ⇒ 与"只改本算子"的 A/B 不可比）。
+const freqPhase = (v, r) => v.phmin + r * (v.phmax + Math.PI * 2 - v.phmin)
+// `?pops=legacy` 档的相位（P-126 口径）：不读 phasemin、上界 = phasemax（缺省同为 2π ⇒ 与改动前逐位一致）。
+const freqPhaseLegacy = (v, r) => r * v.phmax
+
+// ①(P-130 批A #7) 官方 `FadeValueChange`（colorchange 用）：**线性**、分支不 clamp、不 smoothstep。
+//   `life <= start → startvalue`；`life > end → endvalue`；其间 `lerp((life−start)/(end−start))`。
+//   （分支顺序保证 `start < life <= end` ⇒ `end > start`，除法不会为 0。）
+function fadeValueChange(life, start, end, sv, ev) {
+  if (life <= start) return sv
+  if (life > end) return ev
+  const pass = (life - start) / (end - start)
+  return [sv[0] + (ev[0] - sv[0]) * pass, sv[1] + (ev[1] - sv[1]) * pass, sv[2] + (ev[2] - sv[2]) * pass]
 }
 
 export function applyOperator(sys, op, dt, t) {
@@ -3600,34 +3662,36 @@ export function applyOperator(sys, op, dt, t) {
         //   24.8% 的周期 α=0（**整颗消失**，真机观感=高频闪烁/闪没）。语料三处萤火虫 def 都是
         //   `oscillatealpha{frequencymin:10..20, scalemin:0.7}`（无 scalemax）⇒ 正是这条路径。
         if (!p.oscAlpha) {
-          const fmin = pGetVal(pr, 'frequencymin', 0), fmax = pGetVal(pr, 'frequencymax', 1)
-          const smin = pGetVal(pr, 'scalemin', 0)
-          const smaxRaw = pGetVal(pr, 'scalemax', null)
-          const smax = smaxRaw == null ? 1 : smaxRaw          // ①(P-126 C) 官方缺省 = 1
-          const smaxLegacy = smaxRaw == null ? smin : smaxRaw // P-124 缺省 = smin（⇒ 只写 scalemin 时幅度恒 0）
-          const phaseMax = pGetVal(pr, 'phasemax', Math.PI * 2)
-          p.oscAlpha = { f: fmin + p.random * (fmax - fmin), smin, smax,
-            a: (smin + ((p.random * 7919) % 1) * (smaxLegacy - smin)),   // legacy 档的加性幅度（不改 RNG 流）
-            ph: p.random * phaseMax, base: p.alpha }
+          // ①(P-130 批A #1/#4/#5) 官方 `FrequencyValue` 缺省表（见文件内 `readFreqValue`）：
+          //   frequencymax 缺省 **10**（旧 1）⇒ 只写 `frequencymin` 的层频率域不再被截到 ≤1；
+          //   相位 = random(phasemin, phasemax+2π)；频率量纲 ω = frequency（旧 `2π·frequency`）。
+          const v = readFreqValue(pr, 'oscillatealpha')
+          const smaxLegacy = v.smaxRaw == null ? v.smin : v.smaxRaw // P-124 缺省 = smin（⇒ 只写 scalemin 时幅度恒 0）
+          p.oscAlpha = { f: v.fmin + p.random * (v.fmax - v.fmin), smin: v.smin, smax: v.smax,
+            a: (v.smin + ((p.random * 7919) % 1) * (smaxLegacy - v.smin)),   // legacy 档的加性幅度（不改 RNG 流）
+            ph: freqPhase(v, p.random), phL: freqPhaseLegacy(v, p.random), base: p.alpha }
         }
         const o = p.oscAlpha
         if (sys.popsLegacy) {
-          p.alpha = Math.max(0, Math.min(1, o.base + o.a * Math.cos(o.f * t * Math.PI * 2 + o.ph)))
+          p.alpha = Math.max(0, Math.min(1, o.base + o.a * Math.cos(o.f * t * Math.PI * 2 + o.phL)))
         } else {
-          const mixv = (Math.cos(o.f * Math.PI * 2 * (p.age || 0) + o.ph) + 1) * 0.5
+          // ①(P-130 批A #1) `ω = frequency`（rad/s）：官方两个独立参考实现一致，旧实现多乘了 2π ⇒ 快 6.28×。
+          const mixv = (Math.cos(o.f * (p.age || 0) + o.ph) + 1) * 0.5
           p.alpha = o.base * (o.smin + (o.smax - o.smin) * mixv)
         }
         break
       }
       case 'oscillatesize': {
         if (!p.oscSize) {
-          const fmin = pGetVal(pr, 'frequencymin', 0), fmax = pGetVal(pr, 'frequencymax', 1)
-          const smin = pGetVal(pr, 'scalemin', 1), smax = pGetVal(pr, 'scalemax', smin)
-          const mid = (smin + smax) / 2, amp = (smax - smin) / 2
-          p.oscSize = { f: fmin + p.random * (fmax - fmin), mid, amp, ph: p.random * Math.PI * 2, base: p.size }
+          // ①(P-130 批A #4/#5) 官方缺省（本算子专属）：scalemin/scalemax = **0.8/1.2**、
+          //   frequencymax = **10**（旧实现 1）、相位 ∈ [phasemin, phasemax+2π]（旧实现 [0,2π]）。
+          const v = readFreqValue(pr, 'oscillatesize')
+          const mid = (v.smin + v.smax) / 2, amp = (v.smax - v.smin) / 2
+          p.oscSize = { f: v.fmin + p.random * (v.fmax - v.fmin), mid, amp, ph: freqPhase(v, p.random), base: p.size }
         }
         const o = p.oscSize
-        p.size = Math.max(0.01, o.base * (o.mid + o.amp * Math.cos(o.f * t * Math.PI * 2 + o.ph)))
+        // ①(P-130 批A #1) `ω = frequency`（旧实现 `2π·frequency`）
+        p.size = Math.max(0.01, o.base * (o.mid + o.amp * Math.cos(o.f * (p.age || 0) + o.ph)))
         break
       }
       case 'oscillateposition': {
@@ -3639,17 +3703,18 @@ export function applyOperator(sys, op, dt, t) {
         //   注意：三轴的频率/幅度/相位仍**只由出生时那一个 `p.random` 派生**（不额外抽 rng()），
         //   以免平移整条 RNG 流（那会连带改变其它算子/发射数 ⇒ 与"只改本算子"的 A/B 不可比）。
         if (!p.oscPos) {
-          const fmin = pGetVal(pr, 'frequencymin', 0), fmax = pGetVal(pr, 'frequencymax', 1)
-          const smin = pGetVal(pr, 'scalemin', 0), smax = pGetVal(pr, 'scalemax', smin)
+          // ①(P-130 批A #1/#4/#5) 官方 `FrequencyValue`（名称分支：frequencymax 缺省 **5**、
+          //   scalemax 缺省 **1**；相位 ∈ [phasemin, phasemax+2π]；ω = frequency）。
+          const v = readFreqValue(pr, 'oscillateposition')
           const mask = pVec3(pGetVal(pr, 'mask'), [1, 1, 0])
           const pr3 = [1, 7919, 104729].map((k) => (p.random * k) % 1)
           p.oscPos = {
-            f: pr3.map((r) => fmin + r * (fmax - fmin)),
-            sc: pr3.map((r) => smin + ((r * 104729) % 1) * (smax - smin)),
-            ph: pr3.map((r) => r * Math.PI * 2),
+            f: pr3.map((r) => v.fmin + r * (v.fmax - v.fmin)),
+            sc: pr3.map((r) => v.smin + ((r * 104729) % 1) * (v.smax - v.smin)),
+            ph: pr3.map((r) => freqPhase(v, r)),
             mask, ox: p.pos[0], oy: p.pos[1],
             // legacy 档：单一频率/相位 + 覆盖式（与 P-124 逐位一致）
-            lf: fmin + p.random * (fmax - fmin), lamp: smax, lph: p.random * Math.PI * 2,
+            lf: v.fmin + p.random * (v.fmax - v.fmin), lamp: v.smax, lph: p.random * Math.PI * 2,
           }
         }
         const o = p.oscPos
@@ -3659,7 +3724,8 @@ export function applyOperator(sys, op, dt, t) {
           p.pos[1] = o.oy - o.mask[1] * o.lamp * c   // y 翻转一次
         } else {
           for (let ax = 0; ax < 3; ax++) {
-            const w = 2 * Math.PI * o.f[ax]
+            // ①(P-130 批A #1) `ω = frequency`（rad/s；旧实现 `2π·frequency` ⇒ 快 6.28×）
+            const w = o.f[ax]
             const move = -o.sc[ax] * w * Math.sin(w * (p.age || 0) + o.ph[ax]) * dt
             p.pos[ax] += move * o.mask[ax]
             // scenePos 是编辑器 y-up 局部量 ⇒ y 轴增量取反（与 movement 的 scenePos 口径一致）
@@ -3674,7 +3740,11 @@ export function applyOperator(sys, op, dt, t) {
         const cp = (sys.controlPoints || [])[cpIdx]
         const target = cp ? pVec3(cp.offset || cp.origin, [0, 0, 0]) : pVec3(pGetVal(pr, 'origin'), [0, 0, 0])
         const scaleA = pGetVal(pr, 'scale', 0)
-        const thr = pGetVal(pr, 'threshold', 0) * 0.5
+        // ①(P-130 批A #6) `threshold` 缺省 = **512**（官方 ControlPointForce 的 `threshold {512.0f}`，
+        //   行为对照取自第三方参考实现，未反汇编官方二进制）。我们旧缺省 0 ⇒ `thr = 0` ⇒ 判据 `d < 0`
+        //   **恒假** ⇒ 整条算子从不生效（语料 2 层：`0917/3351163962` ln=12/13，scale=-1001000 的排斥）。
+        //   官方此处 `threshold × 0.5` 的用法不变（P-126 已按官方口径改成 `d < threshold/2`）。
+        const thr = pGetVal(pr, 'threshold', 512) * 0.5
         // ①(P-69 第 6 项) 控制点是 lockToPointer 且有指针 → 目标 = 指针（世界设计坐标，已是 y-down，
         //   不能再做下面那次 y 取反）；否则沿用层空间 target 的旧算法（本次不改其语义）。
         const __cpPtr = (sys.pointer && cpIdx === sys.pointerCp) ? sys.pointer : null
@@ -3699,7 +3769,16 @@ export function applyOperator(sys, op, dt, t) {
         const sc = pGetVal(pr, 'scale', 0.002)
         const smin = pGetVal(pr, 'speedmin', 0), smax = pGetVal(pr, 'speedmax', smin)
         const amp = (smin + ((p.random * 104729) % 1) * (smax - smin)) || smax || 0
-        const ph = p.random * pGetVal(pr, 'phasemax', 6.28)
+        // ①(P-130 批A #5) `phasemin` 也要读：官方 = `random(phasemin, phasemax)`。
+        //   ⚠ 与 oscillate* **不同**：两个独立参考实现的 turbulence 相位**都不加 `+2π`**
+        //   （`+2π` 只属 `FrequencyValue`，见本文件 `freqPhase`）⇒ 这里按 `[phasemin, phasemax]` 抽。
+        //   `?pops=legacy` 保留旧口径（`r × phasemax`，不读 phasemin）。顺带把相位记到粒子上，
+        //   供 mock-GL 探针/门禁断言（不改 RNG 流、不进顶点流 ⇒ 零行为副作用）。
+        const __phRaw = p.random
+        const ph = sys.popsLegacy
+          ? __phRaw * pGetVal(pr, 'phasemax', 6.28)
+          : pGetVal(pr, 'phasemin', 0) + __phRaw * (pGetVal(pr, 'phasemax', 6.28) - pGetVal(pr, 'phasemin', 0))
+        p.turbPh = ph
         // ①(P-126 F 用户第 8 项) `mask` 缺省 = **(1,1,0)**（`?pops=legacy` 回退 [1,0,0]）：
         //   hina 两个萤火虫 def 都**没写 mask** ⇒ 旧实现只沿 x 推、y 恒不受力（官方 x+y）。
         //   依据：行为对照的第三方参考实现里 emitter/operator 的 mask 缺省是 (1,1,0)（本实现按
@@ -3728,17 +3807,40 @@ export function applyOperator(sys, op, dt, t) {
         p.vel[1] += ty * w * sgn * dt
         break
       }
-      // colorchange（6 次）：生命周期两段插值到 endvalue（真实参数：endtime/endvalue/startvalue）
+      // colorchange（6 次）：官方是**乘**（`MutiplyColor`），不是赋值 —— 逐粒子色差被保留。
+      // ①(P-130 批A #7) 行为对照（第三方参考实现，未反汇编官方二进制）：
+      //   官方对每颗粒子算 `change[i] = FadeValueChange(life, starttime, endtime, startvalue[i], endvalue[i])`
+      //   再 `p.color *= change`；`FadeValueChange` 是**线性**的（`life<=start → startvalue`、
+      //   `life>end → endvalue`、其间 `lerp((life−start)/(end−start))`，**不 clamp、不 smoothstep**）。
+      //   缺省：starttime 0 / endtime 1 / startvalue {0,0,0} / endvalue {0,0,0}（⇒ 没写 startvalue 的层
+      //   在 `life<=starttime` 段被乘成 0 = 官方语义，不是 bug）。
+      //   我们旧实现是 `p.color = mix(startvalue, endvalue, u)`（**赋值** + smoothstep）⇒ 末段**所有粒子同色**
+      //   （语料 13 层 / 4 包被抹平，如 `0917/3233141951` ln=13「龙烟」`.
+      //   `?pcolor=legacy` = 回到旧的赋值口径（真机 A/B）。
       case 'colorchange': {
+        if (sys.pcolorLegacy) {
+          const endT = pGetVal(pr, 'endtime', 1)
+          const endV = pVec3(pGetVal(pr, 'endvalue'), [1, 1, 1])
+          const startV = pVec3(pGetVal(pr, 'startvalue'), p.baseColor || [1, 1, 1])
+          const u = endT > 0 ? Math.max(0, Math.min(1, p.age / endT)) : 1
+          p.color = [
+            startV[0] + (endV[0] - startV[0]) * u,
+            startV[1] + (endV[1] - startV[1]) * u,
+            startV[2] + (endV[2] - startV[2]) * u,
+          ]
+          break
+        }
+        const startT = pGetVal(pr, 'starttime', 0)
         const endT = pGetVal(pr, 'endtime', 1)
-        const endV = pVec3(pGetVal(pr, 'endvalue'), [1, 1, 1])
-        const startV = pVec3(pGetVal(pr, 'startvalue'), p.baseColor || [1, 1, 1])
-        const u = endT > 0 ? Math.max(0, Math.min(1, p.age / endT)) : 1
-        p.color = [
-          startV[0] + (endV[0] - startV[0]) * u,
-          startV[1] + (endV[1] - startV[1]) * u,
-          startV[2] + (endV[2] - startV[2]) * u,
-        ]
+        const endV = pVec3(pGetVal(pr, 'endvalue'), [0, 0, 0])
+        const startV = pVec3(pGetVal(pr, 'startvalue'), [0, 0, 0])
+        const life = p.life > 0 ? p.age / p.life : 1
+        const ch = fadeValueChange(life, startT, endT, startV, endV)
+        // 乘的**基准**必须是"出生期快照色"（`p.baseColor` = 作者 initializer + instanceoverride 之后的值）：
+        //   官方每帧先 `PM::Reset(p)`（`p.color = p.init.color`）再跑算子 ⇒ `MutiplyColor` 每帧只乘一次；
+        //   若像加法那样在**上一帧结果**上累乘，颜色会按帧数指数衰减到 0（实测 t=0.05s 起恒 [0,0,0]）。
+        const bc = p.baseColor || p.color
+        p.color = [bc[0] * ch[0], bc[1] * ch[1], bc[2] * ch[2]]
         break
       }
       // ①(P-126 C/D/F 清理) 这里原本还有 4 个**重复的 `case` 标签**（turbulence / oscillatealpha /
@@ -6601,6 +6703,24 @@ export function createRenderer(canvas, opts = {}) {
     } catch (e) { /* 无 location → 默认 official */ }
     return 'official'
   })()
+  // ①(P-130 批A 跨批必做) **A 类颜色口径**档位（`?pcolor=legacy`）：
+  //   official（默认）= 本批修完的口径：`colorrandom` 缺 `max` 用官方缺省 `{255,255,255}`（恒白）、
+  //     `colorchange` 用官方的**乘**（`MutiplyColor`，保留逐粒子色差）。
+  //   `?pcolor=legacy` = P-126 及之前的颜色**计算**口径（改动前画面）：`colorrandom` 缺 `max` 用旧
+  //     归一化缺省 `[1,1,1]`（⇒ 与字节域 `min` 混算成随机灰度）、`colorchange` 用旧的赋值式
+  //     （⇒ 末段所有粒子同色）。绘制通路不变（颜色仍上屏）。
+  //   ⚠ 与 SCAN 报告 §4 的措辞差异：那里把这条备注成"回退成恒 (1,1,1)"——那是 **P-126 之前**的
+  //     *绘制常量*（颜色算完但不进顶点 ⇒ 白点）；本批按仓库既有 legacy 约定（`?pops`/`?pframe`/`?psize`
+  //     都是"回到改动前的画面"）实现为**颜色计算口径**档位，理由：A 类回退口的用途是真机 A/B 本批两条
+  //     颜色修复；若连绘制也退回恒白，legacy 与 official **两侧都是白点**，等于没有回退口。
+  const PCOLOR_MODE = (() => {
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        return new URLSearchParams(location.search).get('pcolor') === 'legacy' ? 'legacy' : 'official'
+      }
+    } catch (e) { /* 无 location → 默认 official */ }
+    return 'official'
+  })()
   // 逐帧预算游标 + 统计（统计经 stats 钩子 / 渲染器 particleStats 暴露，供真机上报取证）
   const partFrame = { left: 0, layerTotal: 0, layers: 0 }
   const partStat = { tier: PARTICLE_BUDGET.tier, perLayer: PARTICLE_BUDGET.perLayer, total: PARTICLE_BUDGET.total,
@@ -6622,6 +6742,8 @@ export function createRenderer(canvas, opts = {}) {
     pframeMode: PFRAME_MODE,
     // ①(P-126 C/D/F) 粒子算子口径档位（official / legacy）
     popsMode: POPS_MODE,
+    // ①(P-130 批A) A 类颜色口径档位（official=本批修完的口径 / legacy=P-126 的颜色计算口径）
+    pcolorMode: PCOLOR_MODE,
     // ①(P-103) 生效记账（逐帧重置）：吃自转的 quad 数 / 吃图层变换的 quad 数 / 吃 exponent 的 initializer 次数 /
     //   拿到发射器初速的粒子数。默认档下这四个数应当 >0（语料有对应层），legacy 档下必须恒 0。
     protQuads: 0, pquadQuads: 0, expApplied: 0, spawnSpeeds: 0,
@@ -10011,10 +10133,12 @@ export function createRenderer(canvas, opts = {}) {
           : ' → 官方几何（spritetrail=沿速度拉伸一条精灵；rope/ropetrail=按发射序/历史连成 ribbon）')
         + '；贴图=' + texName) } catch {}
     }
-    // ①(P-59) 发射率上限：多发射器 rate 求和超上限 → 按比例降（只降不升；0/缺省按官方缺省 10 计）
+    // ①(P-59) 发射率上限：多发射器 rate 求和超上限 → 按比例降（只降不升；0/缺省按官方缺省 **5** 计）
+    // ①(P-130 批A #3) 缺省 10 → **5**（官方口径，与 `parseParticleEmitters` 的 `rate` 缺省同改；
+    //   两处不同步会让"预算记账"与"实际发射"用两个速率）。
     const emitterList = Array.isArray(def && def.emitter) ? def.emitter : []
     let sumRate = 0
-    for (const e2 of emitterList) sumRate += (e2 && typeof e2.rate === 'number' && e2.rate > 0) ? e2.rate : (e2 && e2.instantaneous) ? 0 : 10
+    for (const e2 of emitterList) sumRate += (e2 && typeof e2.rate === 'number' && e2.rate > 0) ? e2.rate : (e2 && e2.instantaneous) ? 0 : 5
     const rateMul = (sumRate > PARTICLE_BUDGET.rate) ? (PARTICLE_BUDGET.rate / sumRate) : 1
     if (rateMul < 1) {
       partStat.rateCapped++
@@ -10084,6 +10208,8 @@ export function createRenderer(canvas, opts = {}) {
       (sys0ptrLocked() ? (__ptrNow ? (Math.round(__ptrNow[0]) + ',' + Math.round(__ptrNow[1])) : 'none') : 'x'),
       // ①(P-126 C/D/F) 算子口径进签名：`?pops=` 切换后必须重建粒子系统（算子行为不同）
       POPS_MODE,
+      // ①(P-130 批A) 颜色口径进签名：`?pcolor=` 切换后必须重建（colorrandom/colorchange 的出生与逐帧结果都变）
+      PCOLOR_MODE,
     ].join('|')
     const __cached = PartSysCache.get(layer.id)
     let sys
@@ -10118,6 +10244,8 @@ export function createRenderer(canvas, opts = {}) {
         speedLegacy: PSPEED_MODE === 'legacy',
         // ①(P-126 C/D/F) 粒子算子口径档位（`?pops=legacy`）
         popsLegacy: POPS_MODE === 'legacy',
+        // ①(P-130 批A) A 类颜色口径档位（`?pcolor=legacy`）
+        pcolorLegacy: PCOLOR_MODE === 'legacy',
       })
       if (PSIM === 'incr') PartSysCache.set(layer.id, { sig: __sig, sys })
     }
