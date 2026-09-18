@@ -23,10 +23,15 @@
 //
 // ⚠ 自指陷阱（本文件里所有模式与白名单特征串都按这个规矩写）：本文件自己也是 tracked 文件、也会被扫，
 //   所以**任何模式字面量都必须在源码里拆成片段**，否则本文件会成为唯一命中：
-//     · `new RegExp('_auth' + 'Token=')` 而不是整串（否则 `_authToken=` 自指）；
+//     · `new RegExp('_auth' + 'Token=')`，**不要**把这两段拼成整串写出来 —— 整串一旦出现在本文件里，
+//       扫描器就会命中本文件自己（本轮真踩过，实证见下面 ⓵）。
 //     · 白名单的 `match` 也用 `'how' + "Key: " + "'…'"` 这样的拼接 —— 因为 `howKey: '…'` 本身就是
 //       "名字含 key + 引号里 ≥20 字符"的形态，整串写在源码里会被 `assigned-credential-ext` 自指命中。
 //   与 `tests/publish-check-selftest.mjs` 的 `'refer' + 'ences'` 是同一手法（那边是躲 reference-isolation）。
+//
+// ⓵(2026-09-19 实证注记 · 必须记住的坑) 本扫描器**只扫 tracked 文件**，所以新写的扫描器在 `git add` 之前
+//   **扫不到自己** —— 上面那条自指命中就是在本文件被 commit 之后才暴露的（提交前连跑两次都报"干净"）。
+//   ⇒ 规矩：改完本文件必须 `git add`（或 commit）**之后再跑一次**，否则自指会一路漏下去。
 //
 // 用法: node tests/secret-scan-test.mjs            # 人读
 //       node tests/secret-scan-test.mjs --json     # 机读
