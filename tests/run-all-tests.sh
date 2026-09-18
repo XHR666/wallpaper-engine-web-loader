@@ -357,6 +357,13 @@ add "script-runtime-errors" "node tests/script-runtime-errors-test.mjs" "" "^SKI
 #   构建产物 `dist/now-playing.js` 自足入库）。**186 断言 + 4 组变异**（boxRadius 丢一轴 off、swell 指数、
 #   删一个 token、选择器漏出 `.snd` 子树）；~1.5s，无浏览器/无网络（无 node_modules 时 SSR 探针明确 SKIP）。
 add "now-playing"       "node tests/now-playing-test.mjs"
+# ①(P-136 2026-09-19 主对话补登记) `pointer-trail-copy`：用户第 4 项「直接照抄 oneincase 跟鼠标尾迹有关的代码」——
+#   ①`core/we-pointer-source.mjs` 与上游 pointer.js **逐字节相同**（门禁断言 `tail === up`）；
+#   ②根因修复：指针坐标原先进了粒子缓存签名 ⇒ 指针一动**每帧**从 t=0 重放 400 步 ⇒ 尾迹永远被抹平；
+#     照抄上游"指针是每帧推进的活输入、不进构造"后：顶点流 x 跨度 **67.4 → 1175.2px**、距指针最远 **39.6 → 1164.3px**、
+#     每帧仿真步数 **400 → 1**、30 帧内重建 **29 → 0**（上游同参 1112px，±25% 内）。
+#   44 断言 + RED-IF-REVERTED（指针写回签名 ⇒ 子进程 rc=1 且数字回到旧口径）；~1s，无浏览器/无网络，缺真包 SKIP。
+add "pointer-trail-copy" "node tests/pointer-trail-copy-test.mjs" "" "^SKIP pointer-trail-copy"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /
