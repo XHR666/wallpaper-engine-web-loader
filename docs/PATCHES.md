@@ -10430,3 +10430,86 @@ size 含 0 且带 effects 的 14 层**全部 `solid=false`**（命中"无纹理�
 2. 本机无 GPU ⇒ WebGL 首帧/像素类只能真机。
 3. 「7s 无首帧」的乙行在**慢但健康**的大包冷缓存下也会出现（有意的诊断行）。
 4. **8000ms 阈值是拍的**：`/pkg/<id>` 336MB 冷缓存可能 >8s ⇒ 若真机误伤，建议给取包单发加更长的模块常量（如 `PKG_TIMEOUT_MS = 20000`），**不要加 URL 开关**（本批没加，留给集成线定）。
+
+---
+
+## P-137（2026-09-19 用户第 ⑧ 项）「有些视频壁纸下面总是报一堆的错」= 沙箱 `thisLayer.size` / `thisObject.size` **从未实现** ⇒ 作者脚本 `update()` 每帧同一个 TypeError（上报 ×511 / ×72 逐字复现 → 0；全语料同类 **11 包 / 61 个脚本节点**清零）
+
+> **性质**：只读取证 + 定点修复（纯 `elysia/` 侧，**未改 `demo.html`**）。证据 = 真包 `scene.json` 里的脚本原文 + 真沙箱；无浏览器/无 GPU/无网络，新门禁 ≈2s。
+> **许可**：官方语义取一手 `lib.sceneScript.d.ts`（`$MPW_ROOT/wallpaper_engine/ui/dist/monaco/autocomplete/`）；`references/wer-ref`（GPL-2.0-only）只作**行为对照**（读 `WPSceneScriptHost.cpp:437` 的 `Float2` 结论），**未复制代码** ⇒ `THIRD-PARTY.md` 未改。
+> **编号**：落盘前代码里实测最高 = P-136（另一条线）⇒ 本批用 **P-137**（任务书指定）。**0 个新 URL 开关**（`diag-flag-check` 仍 153 == 153）。
+
+### P-137.1 症状与现场
+
+用户第 ⑧ 项：「有些视频壁纸，它下面总是报一堆的错，我点了手动上报」。三份手动上报（`$MPW_ROOT/reports/`）：
+
+| 报告 | 壁纸 id | `subsystems` 关键字段 |
+|---|---|---|
+| `$MPW_ROOT/reports/r1789751541247.json` | **3327063360** | `scriptErrs: ["update:Cannot read properties of undefined (reading 'x')×511"]` |
+| `$MPW_ROOT/reports/r1789751395466.json` | **3660962877** | 同一条错 `×72` |
+| `$MPW_ROOT/reports/r1789751340469.json` | 3719111841 | `scriptErrs: []`（对照：无此错） |
+
+⇒ **×511 / ×72 = 该脚本的 `update` 抛了那么多次（每帧一次）**；第三份说明不是"所有视频壁纸"，而是**用了 `.size` 的那些层**。
+
+出错的脚本行（真包原文，一字不改）：
+
+- `dd/3327063360` → `objects[50].scale`（层 "Background" id657 / workshop 3219510589）**第 24 行**：
+  `value.x = width / (thisLayer.size.x * initScale.x) * initScale.x;`
+- `dd/3660962877` → `objects[122].origin`（层 "音乐封面" id1080 / workshop 3449579583）**第 123-124 行**：
+  `let imageSize = thisLayer.size;` / `imageSize.x *= scale.x * 0.5;`
+
+全语料静态扫描（98 容器 / 37 个带 scripts 的包 / 1953 个脚本节点）：`thisLayer.size` 共 **73 次读取**，分布在 **11 包 / 61 个脚本节点**，修前**每一个**都在第 1 帧抛这条 TypeError。
+
+### P-137.2 根因（一处分叉，不是作者写错）
+
+`elysia/scene-scripts.js` 的 `makeOwnerRef()` 里，沙箱的 `thisLayer`（`layerRef()`）与 `thisObject`（`objectRef()`）是**对象字面量**，
+只声明了 origin / scale / alpha / name / id / visible…，**从来没有 `size` 这个键**；而同文件的 `emptyLayerRef()` 与
+`layerRefFor()`（`thisScene.getLayer()` 返回的**同一个** ILayer）**都**有 `size` ⇒ 同一个 ILayer 概念在本文件里有两套属性面，
+缺的那套读出来是 `undefined`，作者脚本紧跟的 `.x` 立刻抛 `Cannot read properties of undefined (reading 'x')`。
+
+**官方语义（一手）**：`lib.sceneScript.d.ts` L775-795 `interface IEffectLayer { … readonly size: Vec2; }`
+（注释逐字 "Resolution of the image layer in pixels. Only read this, do not write."）；L1139 `interface ILayer extends … IEffectLayer …`；
+L1242 `declare let thisLayer: ILayer` ⇒ `size` 是 `thisLayer` 的合法成员。行为对照（只读结论）：wer-ref
+`src/backend/scene/internal/scenescript/WPSceneScriptHost.cpp:437` `property_name == "size" → Float2`。
+
+### P-137.3 改法
+
+- `elysia/scene-scripts.js` 新增**单一口径** `const sizeOf = (obj) => parseV(obj ? obj.size : null, [0, 0, 0])`；
+- `layerRef()`（`thisLayer`）与 `objectRef()`（`thisObject`）各加 `get size()` + **存在但不落盘、也不抛错**的 no-op `set size()`；
+- 返回 **Vec3**（官方写 Vec2）：与本文件既有 `parseV` 口径一致（`emptyLayerRef()`/`layerRefFor()` 的 size 本来就是 Vec3），
+  Vec3 是 Vec2 的**超集**（`.x/.y` 同值、`.z = 0` 而不是 `undefined`）；缺 size 字段的层给**零向量**。
+- setter 之所以不是"干脆不写"：官方标 `readonly`，而**只写 getter** 会让 `'use strict'` 作者脚本里的 `thisLayer.size = …`
+  由"静默成功（普通对象上新建自有属性）"变成 **TypeError**（比"写入无效"更重的行为改变）。
+- 长注释（现场 / 官方出处 / 根因 / 量纲取舍 / setter 口径）在 `elysia/scene-scripts.js` 的 `sizeOf` 一带。
+
+### P-137.4 判据（修前 → 修后）
+
+| 面 | 修前 | 修后 |
+|---|---|---|
+| `3327063360` `objects[50].scale` 跑 510 帧窗口（= 上报 ×511） | **511 次** | **0 次** |
+| `3660962877` `objects[122].origin` 跑 71 帧窗口（= 上报 ×72） | **72 次** | **0 次** |
+| 两包**整包**（119 / 252 个脚本节点）跑 4 帧 `scriptErrs` | `["update:…reading 'x'"]` | `[]` |
+| 同族：抛 `reading 'x'` 的包（61 个节点） | **11 个包** | **0 个包** |
+| 同族：有脚本错的总包数 | **18 个包** | **8 个包**（差额全是本类） |
+| `3327063360` `Background` scale 3 帧后 | `1.00000 1.00000 1.00000`（抛错 ⇒ 停在 authored） | `1.000829 1.000000 1.000000`（脚本真在跑） |
+| `3660962877`「音乐封面」origin 3 帧后 | `3560.67456 263.23444 0` | 同值 |
+
+**新门禁** `tests/script-runtime-errors-test.mjs`：**22 通过 / 0 失败 / ≈2.0s**（无浏览器、无网络；真包或语料缺失 ⇒ SKIP + exit 0，实测 `pass=8 fail=0 skip=8`）。
+两个 **RED-IF-REVERTED**（`elysia/` 复制进 `mkdtemp`，只改副本）：M1 删 `layerRef()` 的 size ⇒ 子进程 rc=1 且 S1b/S2b 红
+（**变异体实测 511 次**）、同族扫描回到 11 包；M2 删 `objectRef()` 的 size ⇒ S4d 红；两个变异都断言"基线仍 ✓"（证明红是被点名那条，不是副本起不来）。
+
+### P-137.5 影响面 / 未回归
+
+- 影响面：11 包 / 61 个脚本节点的 `update()` 从"每帧抛错、属性停在 authored 值"变成"真的在跑"；真包 3 帧实测可见变化 ≈0
+  （scale +0.08%，origin 同值），但错误从**每帧 1 条**变 **0 条**。
+- 不回归：`script-api-corpus` / `script-tick` / `script-owner-live` / `script-origin-sync` / `script-tolerance` /
+  `text-script-props` / `script-sandbox-globals`(31) / `camera-origin-script` / `diag-flag-check`(153==153) / `docs-check` / `secret-scan` 全绿。
+- **残余 8 包的脚本错是别的 API 缺口**（已冻结成门禁里的 `KNOWN_GAPS` 白名单，出现**新**种类即红，本批不修）：
+  `thisLayer.getAnimation`(3 包) / `getParticleSystem`(3) / `thisScene.getLayerIndex`(2) / `thisLayer.isPlaying`(1) /
+  `thisScene.createLayer`(1) / `text` 的 `toFixed`(1) / `audioLayer.stop`(1) / `engine.setInterval`(1) ⇒ **建议另开 P 编号排期**。
+
+### P-137.6 未证实项
+
+1. **无浏览器/无 GPU**：本批只有"脚本抛不抛错 + 写出什么值"的数值判据，**没有任何像素/成像结论** ⇒ 解锁脚本后这 11 包的画面是否与 WE 一致，需真机/人眼（重点：`3327063360` 的 "Background"、`3660962877` 的「音乐封面」）。
+2. `layerRefFor()`（`thisScene.getLayer()` 返回的同一 ILayer）的 `set size` 目前**写穿** `obj.size`，与 `thisLayer` 新增的 no-op setter **口径不一致**；本批不改（与本条 bug 无关、有回归面）。
+3. 脚本跑通后会执行作者自己的 `console.log`（例：`3660962877` 每帧 dump 一个 Vec3）。宿主只把 `console.warn/error` 桥到 `#log` ⇒ **不影响页面日志面板**，真机 devtools 会看到作者日志（作者本意）。

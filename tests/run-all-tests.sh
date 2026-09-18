@@ -347,6 +347,11 @@ add "effects-degenerate-fbo" "node tests/effects-degenerate-fbo-test.mjs"
 #     响应与旧实现**逐字节相同**；27 断言 + 1 组变异（`PKG_HEAD_BYTES→1GB` ⇒ 读量断言必红）。~1.1s，缺语料 SKIP。
 add "load-timeout"      "node tests/load-timeout-test.mjs"
 add "pkg-entry-index"   "node tests/server-pkg-index-test.mjs" "" "^SKIP pkg-index"
+# ①(P-137 2026-09-19 主对话补登记) `script-runtime-errors`：用户第 ⑧ 项「视频壁纸下面总是报一堆的错」=
+#   沙箱 `thisLayer.size` / `thisObject.size` **从未实现** ⇒ 作者脚本 `update()` 每帧同一个 TypeError
+#   （上报实测 ×511 / ×72 → 0；全语料同类 **11 包 / 61 个脚本节点**清零，有脚本错的包 18 → 8）。
+#   22 断言 + 2 组变异自证（删 size 访问器 ⇒ 511 次重现）；~2.0s，无浏览器/无网络，缺语料 SKIP+exit 0。
+add "script-runtime-errors" "node tests/script-runtime-errors-test.mjs" "" "^SKIP script-runtime-errors"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /
