@@ -15,6 +15,13 @@ export { bindWorldChain, bindWorldPolar, bindOrderLegacy }
 //   ⇒ 只接"指针口径"这一半；帧宽高比那一半（coverViewport/contentAspectOf）的消费点见
 //   `demo.html`（video 壁纸帧盒）与 `docs/AUDIO-BAND-WIRING.md` §4 的未定清单。
 import { frameClientPoint, frameGeomModeFromQuery } from './web-frame-geometry.mjs'
+// ①(P-131 批 D 2026-09-19 音频驱动发射) 粒子 `audioprocessing*`（官方编辑器里叫 **Audio response**）
+//   的包络与频段口径在**唯一实现处** `core/audio-band-array.mjs`（纯函数、无 DOM）：
+//   本文件只做接线（把 16 段活视图喂进去 + 按官方语义作用到发射率/相位/速度）。
+//   为什么能同目录 import：`build-pages.mjs` 把 `core/audio-band-array.mjs` 拷到**站点根**同名文件
+//   （`['core/audio-band-array.mjs','audio-band-array.mjs']`），而 bundle 自己也在站点根 ⇒
+//   `./audio-band-array.mjs` 在"仓库 + 产物"两种布局下都命中（同 `./web-frame-geometry.mjs` 的既有形态）。
+import { parseAudioResponse, audioEnvelope } from './audio-band-array.mjs'
 
 /** `?framegeom=` 的合法档位（缺省 legacy ⇒ 一行行为都不变） */
 export const FRAME_GEOM_MODES = ['legacy', 'cover']
@@ -3039,6 +3046,111 @@ function pVec3(s, def = [0, 0, 0]) {
   return [p[0] ?? def[0], p[1] ?? def[1], p[2] ?? def[2]]
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ①(P-131 批 D 2026-09-19) **音频驱动发射**（官方粒子编辑器的 *Audio response*）
+//
+// 语料：`audioprocessing*` **52 层 / 9 包**（`docs/PARTICLE-CORPUS-SCAN.md` §3-#5 的第 5 条）；
+//   其中带 `audioprocessingmode > 0`（真正开着的）是 16 个 def / 3 个包（emitter + turbulence
+//   operator + turbulentvelocityrandom initializer 三类组件）。旧实现**一个键都不读** ⇒ 速率按
+//   常数 `rate` 发射、相位/速度完全不受音频影响（"应随音乐跳动"的 36 层星点是一条平线）。
+//
+// 官方语义（一手出处：`docs.wallpaperengine.io` 的 Particle Component - **Emitters / Initializers /
+//   Operators** 三页的 "Audio response" 段落；缺省数字的另一处对照见 `docs/PATCHES.md` P-131）：
+//     · **mode** = `None`(0) / `Left`(1) / `Right`(2) / `Center`(3)；"To enable the audio response
+//       feature, first configure the mode." ⇒ 缺省 0 = 不调制（语料里 13 处全是 3 = Center）。
+//     · **exponent** = 幂次（"By increasing this value, you will reduce how strongly low audio
+//       volume will affect the emitter."）⇒ `env = t ** exponent`。
+//     · **bounds** = 起止阈值（"the audio responsiveness will only take effect for volume levels
+//       between 0.8 and 1"）⇒ `t = clamp((raw − b0)/(b1 − b0), 0, 1)`。
+//     · **frequency min/max** = **16 段频谱下标 0..15**（"0 is bass sounds and 15 higher frequency
+//       treble sounds"）⇒ 在 16 段活视图上取 `[min,max]` 闭区间的**均值**（均值 vs 峰值官方未写，
+//       本实现取均值，列在 P-131 的未证实项）。
+//     · **emitter**（原文）："Setting this to Center means that the particle system will be audio
+//       responsive to the left and right audio channel at the same time. **The emitter will only be
+//       active when audio is playing.**" ⇒ 发射率**乘性**门控（静音 ⇒ 不发射）。
+//     · **turbulentvelocityrandom / turbulence**（原文）："The audio response feature adds a factor
+//       to the **Phase** values of the particles … as this feature has no effect on particles with a
+//       `0.00` phase." ⇒ 相位**乘性** `phase·(1+env)`（phase=0 的粒子不受影响 —— 这正是官方那句
+//       "no effect on particles with a 0.00 phase" 的判据）。
+//     · **vortex**（原文）："ties the particle speed to audio playback, causing the vortex to stop
+//       spinning when no audio is being played." ⇒ 速度乘性 `speed·env`。
+//   本文件按上述行为规格**独立实现**（包络算法在 `core/audio-band-array.mjs` 的 `audioEnvelope`）。
+//
+// 档位 `?audioemit=`：
+//   · `auto`（**缺省**）= 有采集源（活视图 `hasSource=true`）⇒ 按官方语义调制；**没有采集源**
+//     （渲染器侧没有系统声环回、插件侧 0 行采集）⇒ **保持旧行为不调制** + 记账/一次日志。
+//     为什么不做"无源 ⇒ 一律按静音门控"：那会把 52 层（含 `0917/3299228616` 的 36 层星点）在
+//     "我们本来就没有音频能力"的机器上**整片抹掉**（= 用户最初报的"壁纸少了几层"）；官方那 25 个
+//     包在 `supportsaudioprocessing` 语境下**永远有音频源**，与我们的"无源"不是同一件事。
+//   · `strict` = 没有采集源也照官方算（全 0 频段 ⇒ env=0 ⇒ 不发射）——复现官方的静音画面，
+//     也是"注入固定频段"单变量对拍的另一半。
+//   · `legacy`（或 `off`/`0`）= **完全不调制** = 批 D 之前的画面（逐位复现旧行为）。
+// 数据入口：宿主（demo.html）每帧把 16 段左右的活视图原地写好，`setAudioBands(view)` 注入一次即可
+//   （引用恒定、内容自更新）。没有注入 ⇒ 与旧行为逐位一致（这是所有既有 mock-GL/真包门禁的前提）。
+// ═══════════════════════════════════════════════════════════════════════════════
+const AUDIO_EMIT_MODE = (() => {
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      const v = String(new URLSearchParams(location.search).get('audioemit') || '').trim().toLowerCase()
+      if (v === 'legacy' || v === 'off' || v === '0') return 'legacy'
+      if (v === 'strict') return 'strict'
+    }
+  } catch (e) { /* 无 location（node 测试）→ 默认 auto */ }
+  return 'auto'
+})()
+/** 频段活视图（宿主注入；引用恒定、内容每帧原地更新）。null = 没有数据源 */
+let AUDIO_BANDS_VIEW = null
+/** "全 0 频段"的虚拟视图：`?audioemit=strict` 在没有数据源时按**静音**算包络（官方全 0 频谱 ⇒ env=0） */
+const AUDIO_SILENT_VIEW = (() => {
+  const v = { resolution: 16, left: new Float32Array(16), right: new Float32Array(16), average: new Float32Array(16), kind: 'silent', hasSource: false, revision: 0 }
+  return v
+})()
+/** 是否已经有层因为"有音频响应但无采集源"被豁免过（只记一次日志用） */
+let AUDIO_NO_SOURCE_LOGGED = false
+let AUDIO_NO_SOURCE_HITS = 0
+
+/** 注入音频频段活视图（幂等：宿主每帧只写数组内容，不必重复调用）。返回被接受的视图或 null。 */
+export function setAudioBands(view) {
+  AUDIO_BANDS_VIEW = (view && view.left && typeof view.left.length === 'number' && view.left.length) ? view : null
+  return AUDIO_BANDS_VIEW
+}
+/** 只读诊断（真机上报/测试用；不复制数组）。 */
+export function audioBandsInfo() {
+  const v = AUDIO_BANDS_VIEW
+  return {
+    mode: AUDIO_EMIT_MODE, hasView: !!v, resolution: v ? v.left.length : 0,
+    kind: v ? v.kind : null, hasSource: v ? !!v.hasSource : false, revision: v ? (v.revision | 0) : 0,
+    noSourceHits: AUDIO_NO_SOURCE_HITS,
+  }
+}
+/**
+ * 某个粒子组件的音频包络：**`null` = 不做音频调制**（mode<=0 / 没有视图 / `?audioemit=legacy` /
+ * auto 档且没有采集源 ⇒ 调用方保持旧算式），**数值 ∈ [0,1]** = 官方意义上的"当前音频响应量"
+ * （0 = 有数据源但此刻静音 ⇒ 发射器不发射、涡旋不转）。
+ * 三处作用方式（官方 docs 逐段原文见上）：emitter `rate·env`、turbulence/turbulentvelocityrandom
+ * `phase·(1+env)`、vortex `speed·env`。`sys` 可选：给了就记账（渲染层汇总进粒子台账）。
+ */
+export function audioFactor(spec, sys) {
+  if (!spec || !(spec.mode > 0) || AUDIO_EMIT_MODE === 'legacy') return null
+  const view = AUDIO_BANDS_VIEW
+  const hasSource = !!(view && view.hasSource)
+  if (!hasSource && AUDIO_EMIT_MODE !== 'strict') {
+    AUDIO_NO_SOURCE_HITS++
+    if (sys) sys.audioNoSource = (sys.audioNoSource | 0) + 1
+    return null
+  }
+  // strict 档且没有视图 ⇒ 用"全 0 频段"当输入（官方"没有声音 ⇒ 频谱全 0 ⇒ env=0 ⇒ 不发射"）
+  const env = audioEnvelope(spec, view || AUDIO_SILENT_VIEW)
+  if (env === null) return null
+  if (sys) {
+    sys.audioModulated = (sys.audioModulated | 0) + 1
+    sys.audioLastEnv = env
+  }
+  return env
+}
+/** 该组件有没有开音频响应（`audioprocessingmode > 0`）——供"无源豁免"的一次性日志判断。 */
+export function audioSpecOn(spec) { return !!(spec && spec.mode > 0) }
+
 export function parseParticleEmitters(list, scale, angle) {
   return (list || []).map((e) => {
     const name = e.name || 'boxrandom'
@@ -3061,12 +3173,15 @@ export function parseParticleEmitters(list, scale, angle) {
       cone: e.cone || 0,
       controlPoint: e.controlpoint != null ? e.controlpoint : -1,
       flags: e.flags || 0,
+      // ①(P-131 批 D) 官方音频响应（`audioprocessing*`，缺省数字按 emitter 一套）；null = 没开
+      audio: parseAudioResponse(e, 'emitter'),
       scale, angle,
     }
   })
 }
 export function parseParticleInitializers(list) {
-  return (list || []).map((i) => ({ name: i.name || '', params: i }))
+  // ①(P-131 批 D) initializer 上的音频响应（语料：`Stars_copy1.json` 的 initializer[4]，mode 3）
+  return (list || []).map((i) => ({ name: i.name || '', params: i, audio: parseAudioResponse(i, 'operator') }))
 }
 
 // ①(P-74 2026-09-15) **instanceoverride** —— 作者在**层**上对粒子资产做的实例覆写（倍率语义）。
@@ -3130,7 +3245,8 @@ export function resolveParticleOverride(raw, props, gated) {
   return out
 }
 export function parseParticleOperators(list) {
-  return (list || []).map((op) => ({ name: op.name || '', params: op }))
+  // ①(P-131 批 D) operator 上的音频响应（语料：`Star_Reactive.json` 的 operator[2] = turbulence，mode 3）
+  return (list || []).map((op) => ({ name: op.name || '', params: op, audio: parseAudioResponse(op, 'operator') }))
 }
 
 // ①(P-65 2026-09-15 用户第 8/9/10 项) 粒子 renderer 家族与 trail 几何参数。
@@ -3299,8 +3415,14 @@ export function stepParticles(sys, dt, simT) {
       toEmit = em.instantaneous
       em._emitted = true
     }
+    // ①(P-131 批 D) 音频驱动发射：官方 "The emitter will only be active when audio is playing."
+    //   ⇒ 本步的有效发射率 = `rate × env`（env=1 时逐位等于旧算式；没有频段视图/mode=0/legacy 档
+    //   时 audioFactor 返回 null ⇒ 系数 1 ⇒ 既有门禁与真包数字一字不变）。
+    const __env = audioFactor(em.audio, sys)
+    const audioK = __env === null ? 1 : __env
+    em.audioLastEnv = audioK
     // ①(P-74) instanceoverride.count 解析期乘 rate（wer-ref WPSceneParser.cpp:1435-1440）
-    sys.acc += sdt * em.rate * sys.rateMul * ((typeof sys.countMul === 'number' && isFinite(sys.countMul)) ? sys.countMul : 1)
+    sys.acc += sdt * em.rate * audioK * sys.rateMul * ((typeof sys.countMul === 'number' && isFinite(sys.countMul)) ? sys.countMul : 1)
     toEmit += Math.floor(sys.acc)
     sys.acc -= Math.floor(sys.acc)
     const cap = em.flags & 2 ? 1 : toEmit
@@ -3413,7 +3535,7 @@ export function spawnParticle(sys, em) {
     random: rng(),
     oscAlpha: null, oscSize: null, oscPos: null,
   }
-  for (const init of sys.initializers) applyInitializer(p, init, rng, sys.vyLegacy, sys.expLegacy, sys.pcolorLegacy)
+  for (const init of sys.initializers) applyInitializer(p, init, rng, sys.vyLegacy, sys.expLegacy, sys.pcolorLegacy, audioFactor(init.audio, sys))
   // ①(P-103③) 记账：本粒子至少有一个 initializer 真的吃了 exponent≠1（legacy 档恒不置位）
   if (p.__expApplied) { sys.__spawnExps = (sys.__spawnExps || 0) + 1; delete p.__expApplied }
   // ①(P-74 ①) instanceoverride：官方把它作为**追加 initializer** 排在全部作者 initializer 之后
@@ -3444,7 +3566,7 @@ export function applyInstanceOverride(p, io) {
   return p
 }
 
-export function applyInitializer(p, init, rng, vyLegacy, expLegacy, pcolorLegacy) {
+export function applyInitializer(p, init, rng, vyLegacy, expLegacy, pcolorLegacy, audioEnv = null) {
   const pr = init.params
   // ①(P-103③ 洁净室实现) 官方 exponent **非线性分布**：`值 = min + pow(u, exponent)·(max−min)`，u=rng()。
   //   行为规格（不照抄任何 GPL 实现的行文/命名/结构，见 docs/PATCHES.md P-103 的"新旧差异"清单）：
@@ -3515,7 +3637,11 @@ export function applyInitializer(p, init, rng, vyLegacy, expLegacy, pcolorLegacy
       const smin = pGetVal(pr, 'speedmin', 0), smax = pGetVal(pr, 'speedmax', 0)
       const amp = smin + rng() * (smax - smin)
       if (amp) {
-        const a = p.random * Math.PI * 2 + (p.pos[0] + p.pos[1]) * 1e-3
+        // ①(P-131 批 D) 官方音频响应（本 initializer 专属段落）："adds a factor to the **Phase**
+        //   values … this feature has no effect on particles with a `0.00` phase." ⇒ 相位乘 (1+env)。
+        //   本实现的"相位"就是 `p.random`（0..1 → 0..2π 的出生角）⇒ 乘 (1+env)；env=0 或没开音频
+        //   响应时逐位等于旧算式（`audioEnv=null ⇒ +0`）。
+        const a = p.random * Math.PI * 2 * (1 + (audioEnv || 0)) + (p.pos[0] + p.pos[1]) * 1e-3
         p.vel = [Math.cos(a) * amp, Math.sin(a) * amp, 0]
       }
       p.turbSeed = p.random * 1000
@@ -3589,6 +3715,11 @@ function fadeValueChange(life, start, end, sv, ev) {
 export function applyOperator(sys, op, dt, t) {
   const pr = op.params
   const rng = sys.rng
+  // ①(P-131 批 D) 音频系数**每个算子每帧只算一次**（不放进粒子循环：既省 pow，也让记账是"算子次数"）
+  const __env = audioFactor(op.audio, sys)
+  const audioK = __env === null ? 1 : __env          // 速度类：乘性（vortex `speed·env`）
+  const audioPhase = __env === null ? 0 : __env      // 相位类：`phase·(1+env)`（无调制 ⇒ 1×）
+  op.audioLastEnv = audioK
   for (const p of sys.particles) {
     switch (op.name) {
       case 'movement': {
@@ -3775,9 +3906,13 @@ export function applyOperator(sys, op, dt, t) {
         //   `?pops=legacy` 保留旧口径（`r × phasemax`，不读 phasemin）。顺带把相位记到粒子上，
         //   供 mock-GL 探针/门禁断言（不改 RNG 流、不进顶点流 ⇒ 零行为副作用）。
         const __phRaw = p.random
-        const ph = sys.popsLegacy
+        const ph0 = sys.popsLegacy
           ? __phRaw * pGetVal(pr, 'phasemax', 6.28)
           : pGetVal(pr, 'phasemin', 0) + __phRaw * (pGetVal(pr, 'phasemax', 6.28) - pGetVal(pr, 'phasemin', 0))
+        // ①(P-131 批 D) 官方 "Audio response … adds a factor to the **Phase** values … this feature
+        //   has no effect on particles with a `0.00` phase." ⇒ `ph = ph0 × (1 + env)`（乘性；
+        //   ph0=0 的粒子严格不受影响，这正是官方那句话的判据）。env=1（无视图/无源/legacy）时逐位不变。
+        const ph = ph0 * (1 + audioPhase)
         p.turbPh = ph
         // ①(P-126 F 用户第 8 项) `mask` 缺省 = **(1,1,0)**（`?pops=legacy` 回退 [1,0,0]）：
         //   hina 两个萤火虫 def 都**没写 mask** ⇒ 旧实现只沿 x 推、y 恒不受力（官方 x+y）。
@@ -3794,7 +3929,9 @@ export function applyOperator(sys, op, dt, t) {
       // vortex（6 次）：绕 axis 的切向加速；真实资产只带 audioprocessing 参数 → 用缺省轴 (0,0,1)/强度 1
       case 'vortex': {
         const axis = pVec3(pGetVal(pr, 'axis'), [0, 0, 1])
-        const sp = pGetVal(pr, 'scale', pGetVal(pr, 'speed', 1))
+        // ①(P-131 批 D) 官方 "ties the particle speed to audio playback, causing the vortex to stop
+        //   spinning when no audio is being played." ⇒ 强度乘 `env`（env=1 = 旧行为逐位不变）。
+        const sp = pGetVal(pr, 'scale', pGetVal(pr, 'speed', 1)) * audioK
         const cx = pGetVal(pr, 'origin', null) ? pVec3(pGetVal(pr, 'origin'), [0, 0, 0]) : null
         const rx = p.pos[0] - (cx ? cx[0] : p._vortexCx || (p._vortexCx = p.pos[0]))
         const ry = p.pos[1] - (cx ? -cx[1] : p._vortexCy || (p._vortexCy = p.pos[1]))
@@ -6721,6 +6858,10 @@ export function createRenderer(canvas, opts = {}) {
     } catch (e) { /* 无 location → 默认 official */ }
     return 'official'
   })()
+  // ①(P-131 批 D) 音频驱动发射的状态与求值在**模块级**（`AUDIO_EMIT_MODE` / `AUDIO_BANDS_VIEW` /
+  //   `setAudioBands()` / `audioFactor()`，见 `parseParticleEmitters` 上方的整段注释）：页内一个音频源，
+  //   所有渲染器实例共用同一份活视图（官方 `engine` 是引擎级单例）。这里只在签名里带上档位，
+  //   让 `?audioemit=` 切换后粒子系统必须重建（否则缓存里的 sys 还带旧档位算出的出生流）。
   // 逐帧预算游标 + 统计（统计经 stats 钩子 / 渲染器 particleStats 暴露，供真机上报取证）
   const partFrame = { left: 0, layerTotal: 0, layers: 0 }
   const partStat = { tier: PARTICLE_BUDGET.tier, perLayer: PARTICLE_BUDGET.perLayer, total: PARTICLE_BUDGET.total,
@@ -6744,6 +6885,8 @@ export function createRenderer(canvas, opts = {}) {
     popsMode: POPS_MODE,
     // ①(P-130 批A) A 类颜色口径档位（official=本批修完的口径 / legacy=P-126 的颜色计算口径）
     pcolorMode: PCOLOR_MODE,
+    // ①(P-131 批D) 音频驱动发射档位与生效记账（真机上报可回答"这一台到底有没有音频源、调没调制"）
+    audioEmitMode: AUDIO_EMIT_MODE, audioModulated: 0, audioNoSource: 0, audioLayers: {},
     // ①(P-103) 生效记账（逐帧重置）：吃自转的 quad 数 / 吃图层变换的 quad 数 / 吃 exponent 的 initializer 次数 /
     //   拿到发射器初速的粒子数。默认档下这四个数应当 >0（语料有对应层），legacy 档下必须恒 0。
     protQuads: 0, pquadQuads: 0, expApplied: 0, spawnSpeeds: 0,
@@ -9150,6 +9293,8 @@ export function createRenderer(canvas, opts = {}) {
     for (const l of scene.layers) if (l.particleDef && l.visible) partFrame.layerTotal++
     partStat.layers = 0; partStat.drawn = 0; partStat.alive = 0; partStat.skippedTex = 0; partStat.skippedBudget = 0; partStat.capped = 0
     partStat.rateCapped = 0; partStat.renderers = {}
+    // ①(P-131 批D) 音频发射记账逐帧重置（audioLayers 记"本帧哪些层真的在吃音频包络"）
+    partStat.audioModulated = 0; partStat.audioNoSource = 0; partStat.audioLayers = {}
     // ①(P-74 ④) 效果链台账每帧重置
     fxStat.layers = 0; fxStat.last = null; fxStat.perLayer = {}
     // ①(P-65) trail/形状通道记账同样逐帧重置
@@ -10210,6 +10355,8 @@ export function createRenderer(canvas, opts = {}) {
       POPS_MODE,
       // ①(P-130 批A) 颜色口径进签名：`?pcolor=` 切换后必须重建（colorrandom/colorchange 的出生与逐帧结果都变）
       PCOLOR_MODE,
+      // ①(P-131 批D) 音频口径进签名：`?audioemit=` 切换后必须重建（发射门控改变出生流与 RNG 流）
+      AUDIO_EMIT_MODE,
     ].join('|')
     const __cached = PartSysCache.get(layer.id)
     let sys
@@ -10265,6 +10412,37 @@ export function createRenderer(canvas, opts = {}) {
     if (def && def.maxcount > sys.maxCount) partStat.capped++
     const __sim = simulateParticleSystem(sys, time, PARTICLE_BUDGET.steps)
     if (__sim) { partStat.simSteps += __sim.steps; partStat.simUpdates += __sim.updates }
+    // ①(P-131 批D) **音频驱动发射**：本层开了音频响应吗、本帧包络多少、有没有采集源。
+    //   记账进 `particleStats.audioLayers`（真机上报/门禁断言用）；"开了但没源"另出一条**一次性日志**
+    //   —— 这是"没有麦克风/没有 <audio> 源时保持可观测、不静默"的落点之一。
+    {
+      const __audioEms = sys.emitters.filter((e) => audioSpecOn(e.audio))
+      if (__audioEms.length) {
+        const __ai = audioBandsInfo()
+        const __envNow = __audioEms[0].audioLastEnv
+        // `env` 只在**真的调制**时给数（`?audioemit=legacy` / 没有采集源的 auto 档 ⇒ null = "本层没吃包络"）：
+        //   否则读上报的人会把"恒发射"误读成"音量满"。
+        const __modulated = __ai.hasSource && __ai.mode !== 'legacy'
+        partStat.audioLayers[String(layer.name || layer.id)] = {
+          emitters: __audioEms.length, mode: __audioEms[0].audio.mode,
+          env: (__modulated && typeof __envNow === 'number') ? +__envNow.toFixed(6) : null,
+          modulated: __modulated,
+          source: __ai.hasSource, emit: __ai.mode, viewKind: __ai.kind,
+        }
+        if (__ai.hasSource) partStat.audioModulated++
+        else {
+          partStat.audioNoSource++
+          if (!partLogOnce.has('audionosrc:' + layer.id)) {
+            partLogOnce.add('audionosrc:' + layer.id)
+            try {
+              onLog('[音频发射] 层 "' + (layer.name || layer.id) + '" 开了音频响应（audioprocessingmode=' + __audioEms[0].audio.mode
+                + '）但**没有采集源** ⇒ 本层保持旧行为（恒发射）。要真正联动：`?audio=1&bandfeed=auto`（包内音轨）或 `?bandfeed=mic`；'
+                + '想看官方的"无音乐不发射"用 `?audioemit=strict`；回到批 D 之前用 `?audioemit=legacy`')
+            } catch (e) { /* ignore */ }
+          }
+        }
+      }
+    }
     // ①(P-103③/④) 出生期记账：本帧新吃了 exponent 的粒子数 / 新拿到发射器初速的粒子数
     const __expNow = sys.__spawnExps || 0, __spdNow = sys.__spawnSpeeds || 0
     if (__expNow > (sys.__spawnExpsSeen || 0)) { partStat.expApplied += __expNow - (sys.__spawnExpsSeen || 0); sys.__spawnExpsSeen = __expNow }

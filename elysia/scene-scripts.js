@@ -506,17 +506,11 @@ function compileScript(source, opts = {}) {
       systemInfo: { platform: 'windows', os: 'windows', isDesktop: true, isMobile: false, gpuVendor: '', gpuModel: '' },
       // ①(RE-35/RE-34) 音频反应：宿主提供真实 FFT 数据（opts.audioBuffers）时用之，
       //   否则退回全 0 数组（官方 registerAudioBuffers 的静默版；脚本主干仍可运行）
-      registerAudioBuffers: (n) => {
-        const len = Math.max(1, Number(n) || 64)
-        if (typeof opts.audioBuffers === 'function') {
-          try {
-            const b = opts.audioBuffers(len)
-            if (b && b.left && b.right && b.average) return b
-          } catch { /* 回退静默 */ }
-        }
-        const z = new Array(len).fill(0)
-        return { left: z.slice(), right: z.slice(), average: z.slice() }
-      },
+      // ①(P-131 批 D) **返回值是活视图**（同一 n 永远同一批 Float32Array，每帧原地更新，见上方
+      //   `AUDIO_LIVE_VIEWS` 注释）：官方示例在脚本顶层调一次并长期持有 ⇒ 旧实现"每次新建数组"
+      //   让顶层 `const` 拿到编译那一刻的全 0 快照（25 个包 / 386 次调用的音频响应因此是平线）。
+      //   `average` 由本函数按官方口径逐段算（(left+right)/2），不采信宿主可能给的"总均值填满"。
+      registerAudioBuffers: (n) => fillAudioView(liveAudioView(n), opts.audioBuffers),
       AUDIO_RESOLUTION_8: 8, AUDIO_RESOLUTION_16: 16, AUDIO_RESOLUTION_32: 32, AUDIO_RESOLUTION_64: 64,
       // ①(RE-34) WE 脚本 API `getVideoTexture` 的包装：宿主可提供真实控制句柄
       //   （play/pause/stop/setCurrentTime/isPlaying）；无视频纹理时返回 **noop 回退**
@@ -596,6 +590,106 @@ function formatResult(result) {
 // 创建脚本运行时: 缓存 Map + shared 对象 (每个 SceneRenderer 实例一个)
 export function createScriptCache() {
   return { map: new Map(), shared: {} };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * ①(P-131 批 D 2026-09-19) **AudioBuffers 活视图** —— `engine.registerAudioBuffers(n)`
+ *
+ * 官方语义（一手出处：官方设计文档 `docs.wallpaperengine.io/en/scene/scenescript/reference/
+ * class/AudioBuffers.html`，逐字要点）：
+ *   · `left` / `right` / `average` 是 **Float32Array**，长度 = `registerAudioBuffers(resolution)`；
+ *   · "Their contents will be **updated for every frame automatically**, so you can continuously
+ *     read the audio levels from this object."；
+ *   · 官方教程示例把返回值存进**顶层 `const`**、只在加载时调一次函数。
+ * ⇒ 返回值必须是**每帧被原地写入的同一批数组对象**，不能是"调用那一刻的快照"。
+ *
+ * 旧实现的两个坑（本批修掉；P-131 有复现命令）：
+ *   ① 每次调用 `new Array(len).fill(0)`（无宿主）/ 直接转发宿主返回的新数组 ⇒ 顶层 `const` 拿到的是
+ *      **编译那一刻的全 0 快照**，此后永不更新 ⇒ 25 个包（386 次调用）的音频响应是一条平线；
+ *   ② `average` 应当是**逐段的左右均值**（官方 "arithmetic mean of both channels"），而宿主侧
+ *      （demo.html 的 `audioBuffers(n)`）曾把整条 128 元数组的**总均值**填满 n 段 ⇒ 即使有数据，
+ *      `average[i]` 对任何 i 都是同一个数（语料 344 处读的就是 `average[frequency]`）⇒ 频谱条依然平。
+ *   本函数按官方口径**自己**从 `left/right` 算 `average[i] = (left[i]+right[i])/2`，不信任宿主的 average。
+ *
+ * 为什么视图键只按 `n`（页内一份）而不是按宿主函数：官方 `engine` 是引擎级单例，页内只有一个音频源；
+ *   宿主（demo.html）每帧传给 `applySceneScripts` 的是**新的箭头函数** ⇒ 用函数做键会每帧新建视图，
+ *   活视图又会退化成快照。`n` 作键与"同一 resolution ⇒ 同一 AudioBuffers 实例"的官方口径也一致。
+ * 为什么在本文件内自实现而不是 import `core/audio-band-array.mjs`：`core/` 与 `elysia/` 在产物里是
+ *   **两个顶层目录**（`build-pages.mjs` 把 `core/*.mjs` 拷到站点根、`elysia/` 整目录保留）⇒ 跨目录
+ *   相对说明符在线上会 404（同 `core/we-scene-bundle.js:4705` 的既定约束）。本文件的活视图逻辑是
+ *   30 行的拷贝/重采样，不含算法口径（包络算法在 `core/audio-band-array.mjs`，渲染器侧调用）。
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+const AUDIO_LIVE_VIEWS = new Map()   // resolution → 活视图（同一 n 永远同一对象）
+const numOr0 = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0 };
+
+/** 把 `src` 重采样进 `dst`（逐段均值；低频在前；越界当 0）。`dst` 是**已存在**的数组，原地写。 */
+function writeResampled(dst, src) {
+  const n = dst.length
+  const m = (src && typeof src.length === 'number') ? Math.max(0, Math.trunc(src.length)) : 0
+  for (let i = 0; i < n; i++) {
+    const a = Math.floor(i * m / n), z = Math.max(a + 1, Math.floor((i + 1) * m / n))
+    let s = 0
+    for (let k = a; k < z; k++) s += numOr0(src[k])
+    dst[i] = m ? s / (z - a) : 0
+  }
+}
+
+/** 取（必要时新建）某一分辨率的活视图。长度非法按官方常用值 64 兜底，上限防脚本传 1e9。 */
+function liveAudioView(n) {
+  const len = Math.max(1, Math.min(4096, Math.trunc(Number(n)) || 64))
+  let v = AUDIO_LIVE_VIEWS.get(len)
+  if (!v) {
+    v = {
+      resolution: len,
+      left: new Float32Array(len), right: new Float32Array(len), average: new Float32Array(len),
+      kind: 'silent', hasSource: false, revision: 0,
+    }
+    AUDIO_LIVE_VIEWS.set(len, v)
+  }
+  return v
+}
+
+/** 用宿主这一次的返回值**原地**刷新视图（宿主返回新数组/同一数组都可）。 */
+function fillAudioView(view, hostFn) {
+  let b = null
+  if (typeof hostFn === 'function') { try { b = hostFn(view.resolution) } catch { b = null } }
+  const src = (b && typeof b === 'object') ? b : null
+  let haveAvg = false
+  if (src) {
+    writeResampled(view.left, src.left || src.average)
+    writeResampled(view.right, src.right || src.left || src.average)
+    // 宿主**给了** average 就原样用（内缝契约：宿主给什么用什么；`elysia/media-host.js` 给的就是
+    // 逐段 (left+right)/2）；没给才按官方文档的 "arithmetic mean of both channels" 补齐。
+    if (src.average && typeof src.average.length === 'number' && src.average.length) {
+      writeResampled(view.average, src.average)
+      haveAvg = true
+    }
+  } else {
+    view.left.fill(0); view.right.fill(0)
+  }
+  if (!haveAvg) for (let i = 0; i < view.resolution; i++) view.average[i] = (view.left[i] + view.right[i]) / 2
+  // 数据源标注：宿主给了就用宿主的（demo.html 会标 analyser/mic/simulated/silent），
+  // 没给则"宿主确实交了对象"视为有源（media-host 等）。
+  view.kind = src && typeof src.kind === 'string' ? src.kind : (src ? 'host' : 'silent')
+  view.hasSource = src ? (src.hasSource !== undefined ? !!src.hasSource : true) : false
+  view.revision = (view.revision | 0) + 1
+  return view
+}
+
+/**
+ * 每帧刷新**所有**已注册分辨率的活视图（`applySceneScripts` 每帧开头调一次）。
+ * 这是"脚本顶层只调一次 `registerAudioBuffers` 也照样每帧更新"的关键：脚本不再调用也没关系。
+ * 返回被刷新的视图数（0 = 本帧没有脚本用过音频 ⇒ 零成本）。
+ */
+export function refreshAudioViews(hostFn) {
+  for (const view of AUDIO_LIVE_VIEWS.values()) fillAudioView(view, hostFn)
+  return AUDIO_LIVE_VIEWS.size
+}
+
+/** 诊断/测试用只读入口：某分辨率的活视图（不存在则 null，**不**创建）。 */
+export function peekAudioView(n) {
+  const len = Math.trunc(Number(n)) || 64
+  return AUDIO_LIVE_VIEWS.get(len) || null
 }
 
 // 执行脚本值 (缓存模式): 编译一次, init 一次, 每帧 update(value) → 写回 obj.value
@@ -760,6 +854,9 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
 export function applySceneScripts(scene, time, opts = {}) {
   const cache = opts.scriptCache && opts.scriptCache.map ? opts.scriptCache : null;
   const shared = (cache ? cache.shared : null) || opts.shared || {};
+  // ①(P-131 批 D) **每帧先刷新音频活视图**（脚本顶层只调一次 `registerAudioBuffers` 时，
+  //   这是"内容随帧变化"的唯一驱动点）。没有脚本用过音频 ⇒ Map 为空、零成本。
+  refreshAudioViews(opts.audioBuffers);
   // 渲染对象列表 (this.objects, 已烘焙) — 脚本写这些对象 → 渲染直接生效
   const sceneObjects = opts.renderObjects || (scene.objects || []).map((o) => o);
   // ①(P-127 A①) 调用方可以**自带** thisScene 引用（此前这里无条件 `makeSceneRef(sceneObjects)`，

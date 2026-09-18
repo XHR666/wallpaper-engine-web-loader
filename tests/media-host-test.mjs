@@ -20,7 +20,8 @@
 // 用法: node media-host-test.mjs
 import fs from 'node:fs'
 import path from 'node:path'
-import { applySceneScripts, createScriptCache, dispatchScriptEvent, invalidateUserProps } from '../elysia/scene-scripts.js'
+// ①(P-131 批 D) `peekAudioView`：活视图只读入口（T8b2 断言"无数据源 ⇒ 全 0 且可观测"）
+import { applySceneScripts, createScriptCache, dispatchScriptEvent, invalidateUserProps, peekAudioView } from '../elysia/scene-scripts.js'
 import { createMediaHost, MEDIA_PLAYBACK } from '../elysia/media-host.js'
 import { Vec3 } from '../elysia/scene-script-apis.js'
 import { parseLRC, lyricIndexAt, lyricLineAt, findLyricsEntry, resolveLyrics, lyricsOverrideFromSearch } from '../elysia/media-lyrics.js'
@@ -520,6 +521,11 @@ console.log('\n[T8] 接线陷阱：① 必须有 scriptCache ② 必须换掉旧
     const mkScene = () => ({ objects: [{ id: 485, scale: JSON.parse(JSON.stringify(node)) }] })
 
     // 旧形态：未播放时返回全 0 新数组（= demo 的 `return null` → 静默 shim），开始播时返回新数组
+    // ①(P-131 批 D) **这条断言在批 D 之后翻面**：旧实现在这里"音频在播也恒 0"（顶层 const 拿到的是
+    //   编译那一刻的数组）—— 那正是批 D 要修的 bug。现在 `engine.registerAudioBuffers` 自己维护
+    //   **活视图**（同一 n 同一批 Float32Array、每帧开头原地刷新，见 `elysia/scene-scripts.js`
+    //   的 `AUDIO_LIVE_VIEWS`）⇒ 宿主是不是每次给新数组**已经不影响**：脚本顶层长期持有的那份照样
+    //   每帧更新。所以这条改成"翻面后：新对象宿主也能推动数值"。
     let audioOn = false
     const legacy = (n) => { const v = audioOn ? 0.9 : 0; const out = new Array(n).fill(v); return { left: out, right: out.slice(), average: out.slice() } }
     const s1 = mkScene(); const c1 = createScriptCache()
@@ -528,9 +534,23 @@ console.log('\n[T8] 接线陷阱：① 必须有 scriptCache ② 必须换掉旧
     const silent = Number(s1.objects[0].scale.value)
     audioOn = true
     for (let i = 1; i <= 5; i++) run1(i / 60)
-    ok(near(Number(s1.objects[0].scale.value), silent, 1e-9),
-      'T8b ★旧 audioBuffers（每次新对象）+ 缓存 → 音频真的在播也**恒 0**（读到的是编译那一刻的全 0 数组）',
-      silent + ' → ' + s1.objects[0].scale.value + '（5 帧都不动）')
+    ok(Number(s1.objects[0].scale.value) > silent + 1e-6,
+      'T8b ★P-131：宿主每次给**新数组**也不再冻结 —— 脚本顶层持有的活视图每帧原地刷新（批 D 前此处置为"恒 0"）',
+      silent + ' → ' + s1.objects[0].scale.value + '（5 帧后已被音频推动）')
+
+    // ①(P-131) 真正的"没有数据源"回落：宿主交不出数据（null）⇒ 活视图保持全 0、`hasSource=false`
+    //   （**可观测**：脚本读到的仍是同一批零数组；`peekAudioView` 能分开"没数据源"与"数据源很安静"）
+    {
+      const s3 = mkScene(); const c3 = createScriptCache()
+      const run3 = (t) => applySceneScripts(s3, t, { scriptCache: c3, renderObjects: s3.objects, frametime: 1 / 60, audioBuffers: () => null })
+      run3(0)
+      const v0 = Number(s3.objects[0].scale.value)
+      for (let i = 1; i <= 5; i++) run3(i / 60)
+      const av = peekAudioView(16)
+      ok(near(Number(s3.objects[0].scale.value), v0, 1e-9) && !!av && av.hasSource === false && av.kind === 'silent' && av.average.every((x) => x === 0),
+        'T8b2 无数据源（宿主 null）⇒ 全 0 且**可观测**（hasSource=false / kind=silent），不静默伪装有声音',
+        v0 + ' → ' + s3.objects[0].scale.value + ' hasSource=' + (av && av.hasSource))
+    }
 
     // 新形态：同一对象原地更新
     const s2 = mkScene(); const c2 = createScriptCache()

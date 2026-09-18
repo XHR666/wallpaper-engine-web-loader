@@ -967,8 +967,11 @@ import { mpwMultiParseIds, mpwMultiParseOpts, mpwMultiBudget, mpwLoseContext, cr
 import { mpwBaselineParseOpts, mpwBaselineCreateSampler, mpwBaselineInstallGlCounters, mpwBaselineNextStage, mpwBaselineMergeHandoff } from './baseline-metrics.mjs';
 // ①(P-112-BANDGEOM 2026-09-17 音频频段接线) WE 生态里"频谱"只有一种对外形态 = **128 元数组**（左 0..63 + 右 64..127）；
 //   契约 / γ 对比扩展曲线 / 确定性模拟源全在 `core/audio-band-array.mjs`（规格 docs/AUDIO-BAND-SPEC.md，
-//   参照 oneincase/webwallgl MIT 的**行为契约**，未复制代码）。本文件只做接线：`?bandfeed=1`。
-import { packBands, simulatedBandArray, bandStats, AUDIO_BAND_LEN, AUDIO_BAND_HALF } from './audio-band-array.mjs';
+//   参照 oneincase/webwallgl MIT 的**行为契约**，未复制代码）。本文件只做接线：`?bandfeed=`（缺省 auto）。
+//   ①(P-131 批D 2026-09-19) 再加三个模块导出：`createLiveBands`/`writeLiveBands`（活视图：同一 n 同一批
+//   Float32Array、内容每帧原地刷新）+ `AUDIO_RESPONSE_BANDS`（16 段 = 官方 `audioprocessingfrequency*`
+//   的 0..15 下标所在的分辨率）。渲染器侧粒子音频响应与脚本侧 `registerAudioBuffers` 共用这一份活视图。
+import { packBands, simulatedBandArray, bandStats, AUDIO_BAND_LEN, AUDIO_BAND_HALF, createLiveBands, writeLiveBands, AUDIO_RESPONSE_BANDS } from './audio-band-array.mjs';
 // ①(P-112-BANDGEOM 2026-09-17 帧几何接线) 帧内坐标契约（规格 docs/WEB-FRAME-GEOMETRY-SPEC.md）：video 壁纸的
 //   帧盒按"内容比例 ≠ 舞台比例 ⇒ 覆盖式视口（居中裁切）"算（`?framegeom=cover|contain|stretch`；
 //   缺省 legacy = 一行都不动）。渲染器侧的指针口径接线在 `core/we-scene-bundle.js`。
@@ -2748,66 +2751,157 @@ function loadScene() {
       try { v.el.volume = currentAudioVolume(null, v.binding) * 0.5 } catch (e) { /* ignore */ }
     }
   }
-  // ═══ MPW-BANDFEED-BEGIN ①(P-112-BANDGEOM 2026-09-17 任务书 §5-4 / P1-5) 128 元频段数组接线 ═══
+  // ═══ MPW-BANDFEED-BEGIN ①(P-112-BANDGEOM 2026-09-17；P-131 批D 2026-09-19 改缺省+加麦克风源) 128 元频段数组接线 ═══
   // 为什么：`docs/AUDIO-BAND-SPEC.md` §0 —— WE 生态里频谱**只有一种对外形态**（128 元数组，
   //   左 0..63 + 右 64..127）。此前本仓库只有"按文件扫描的音轨索引"（P-89）与"脚本 registerAudioBuffers
   //   的 n 元均值"两条**不同口径**，没有 128 元这一层 ⇒ 作者侧的阈值型音条无从验证。
-  // 源（诚实口径）：**没有系统声卡环回**（本机/浏览器都拿不到）⇒ 真实源 = 本仓库**自己的**
-  //   AnalyserNode（`sceneAudio`，只在 `?audio=1` 且包内有 sound 层且真的在播时存在），
-  //   否则用模块的**确定性模拟源** `simulatedBandArray`（纯函数、无随机数 ⇒ 同一 t 逐位可对拍）。
-  // 开关：`?bandfeed=` —— 缺省/`0`/`off`/`no`/`false` = **关**（一行行为都不变，逐位回到改动前）；
-  //   `1`/`on`/`yes`/`true` = 开（有真实源用真实源，没有则模拟）；
-  //   `sim`/`simulated` = 只用模拟源（真实源在场也不用 ⇒ 单变量 A/B、也便于比对真机）；
-  //   `real`/`analyser` = 只认真实源（没有数据源时给**全零** 128 元 + `silent:true`，不假装有声音）。
+  // 源（诚实口径）：**没有系统声卡环回**（本机/浏览器都拿不到）⇒ 真实源 = ① 本仓库**自己的**
+  //   AnalyserNode（`sceneAudio`，`?audio=1` 且包内有 sound 层且真的在播）；② **麦克风**
+  //   （`?bandfeed=mic` 显式请求；缺省档只在**已经授权**时静默启用，绝不弹权限框）。
+  //   两者都没有 ⇒ **全 0**（`source='silent'`）并**明确可观测**：`window.__mpwAudioBandSource`、
+  //   `__mpwAudioBandStats().silent`、一次性日志（**不静默**假装有声音）。模拟源只在显式 `sim` 档用。
+  // 开关：`?bandfeed=` —— ①(P-131 批D) **缺省 = `auto`**（有数据源就默认开）；
+  //   `1`/`on`/`yes`/`true`/`auto` = 有真实源（包内音轨 / 已授权的麦克风）用真实源，否则全 0；
+  //   `mic`/`microphone` = 只用麦克风（会请求权限；拿不到 ⇒ 全 0 + `silent`）；
+  //   `sim`/`simulated` = 只用确定性模拟源（单变量 A/B、也让"音频响应"可自动化测试）；
+  //   `real`/`analyser` = 只认包内音轨的 AnalyserNode（没有 ⇒ 全 0 + `silent`）；
+  //   `0`/`off`/`no`/`false` = **关**（批 D 之前的旧行为：一行都不变，含脚本侧退回旧 `audioBuffers` 路径）。
   // 真实源不套 γ/增益（`clampOnly:true`）：频谱本身已是归一化值，再套一次会把音条整体顶满
   //   （规格 §2.1/§5 的口径差异）。模拟源按默认曲线（γ=1.8 / gain=1.8）整形，所以"尖"。
   const BANDFEED = (() => {
     try {
       const v = String(new URLSearchParams(location.search).get('bandfeed') || '').trim().toLowerCase()
-      if (v === '' || v === '0' || v === 'off' || v === 'no' || v === 'false') return 'off'
+      if (v === '0' || v === 'off' || v === 'no' || v === 'false') return 'off'
       if (v === 'real' || v === 'analyser') return 'real'
       if (v === 'sim' || v === 'simulated') return 'sim'
-      if (v === '1' || v === 'on' || v === 'yes' || v === 'true') return 'auto'
-      return 'off'
-    } catch (e) { return 'off' }
+      if (v === 'mic' || v === 'microphone') return 'mic'
+      // ①(P-131 批D) 空值/`1`/`on`/`yes`/`true`/`auto`/**非法值** 一律 = auto（缺省档）。
+      //   非法值不再"回落关"：缺省已经是有源就开，非法值退回关会让"打错一个字母"静默丢掉音频响应。
+      return 'auto'
+    } catch (e) { return 'auto' }
   })()
   const bandReuse = new Float32Array(AUDIO_BAND_LEN)     // 复用缓冲（模块契约：长度必须正好 128）
   let bandClock = 0                                       // 最近一次帧时间（脚本路径没有 tSec，用同一只钟）
   let bandLast = { bands: new Float32Array(AUDIO_BAND_LEN), source: 'off', stats: bandStats(null), t: 0 }
+  // ①(P-131 批D) **活视图**：① 16 段那份交给渲染器（官方 `audioprocessing*` 的 frequency 下标 0..15
+  //   就落在 16 段频谱上）；② 分分辨率缓存给脚本侧 `audioBuffers(n)`（同一 n 永远同一批数组、内容原地刷新）。
+  const bandView16 = createLiveBands(AUDIO_RESPONSE_BANDS)
+  const bandViews = new Map()
+  let bandSilentLogged = false
+  const bandMic = { status: 'idle', err: null, analyser: null, ctx: null, freq: null, stream: null, pending: false }
+  function bandViewFor(n) {
+    const len = Math.max(1, Math.min(1024, Math.trunc(Number(n)) || 64))
+    let v = bandViews.get(len)
+    if (!v) { v = createLiveBands(len); bandViews.set(len, v) }
+    return v
+  }
+  /** 当场有没有可用分析器（真实源优先级：包内音轨 > 麦克风）。 */
+  function bandActiveSource() {
+    if (sceneAudio.analyser && sceneAudio.freq) return { kind: 'analyser', analyser: sceneAudio.analyser, freq: sceneAudio.freq, owner: sceneAudio }
+    if (bandMic.analyser && bandMic.freq) return { kind: 'mic', analyser: bandMic.analyser, freq: bandMic.freq, owner: bandMic }
+    return null
+  }
+  /** 请求麦克风频谱（显式 `?bandfeed=mic` 或"已授权"的 auto）。异步：拿到前保持全 0+`silent`。 */
+  function bandMicStart(reason) {
+    if (bandMic.analyser || bandMic.pending) return false
+    try {
+      const nav = (window && window.navigator) || (typeof navigator !== 'undefined' ? navigator : null)
+      const md = nav && nav.mediaDevices
+      if (!md || typeof md.getUserMedia !== 'function') { bandMic.status = 'unsupported'; logf('⚠ 麦克风不可用（无 navigator.mediaDevices）⇒ 频段保持全 0'); return false }
+      bandMic.pending = true
+      md.getUserMedia({ audio: true }).then((stream) => {
+        try {
+          const AC = window.AudioContext || window.webkitAudioContext
+          bandMic.stream = stream
+          bandMic.ctx = new AC()
+          const an = bandMic.ctx.createAnalyser()
+          an.fftSize = 4096                    // 与官方 FFT 尺寸一致（REVERSE-FINDINGS-4 §RE-16）
+          an.smoothingTimeConstant = 0.6
+          bandMic.src = bandMic.ctx.createMediaStreamSource(stream)
+          bandMic.src.connect(an)              // 不接 destination（不回放自己的麦克风）
+          bandMic.analyser = an
+          bandMic.freq = new Uint8Array(an.frequencyBinCount)
+          bandMic.status = 'on'
+          logf('① 麦克风频谱已接入（' + reason + '）：FFT 4096 / ' + an.frequencyBinCount + ' bins')
+        } catch (e) {
+          bandMic.status = 'error'; bandMic.err = (e && e.message) || String(e)
+          logf('⚠ 麦克风初始化失败：' + bandMic.err + ' ⇒ 频段保持全 0')
+        }
+      }).catch((e) => {
+        bandMic.status = (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) ? 'denied' : 'error'
+        bandMic.err = (e && e.message) || String(e)
+        logf('⚠ 麦克风不可用（' + bandMic.status + '）：' + bandMic.err + ' ⇒ 频段保持全 0（可观测：__mpwAudioBandSource="silent"）')
+      })
+      return true
+    } catch (e) { bandMic.status = 'error'; bandMic.err = (e && e.message) || String(e); return false }
+  }
+  /** 缺省档（auto）**不弹权限框**：只在浏览器报"已授权"时才静默启用麦克风。 */
+  function bandMicMaybeAuto() {
+    try {
+      const nav = (window && window.navigator) || (typeof navigator !== 'undefined' ? navigator : null)
+      const perms = nav && nav.permissions
+      if (!perms || typeof perms.query !== 'function') return
+      perms.query({ name: 'microphone' }).then((st) => {
+        if (st && st.state === 'granted') bandMicStart('已授权，auto 档静默启用')
+      }).catch(() => { /* 不支持 microphone 查询（Firefox 等）⇒ 不启用，也不报错 */ })
+    } catch (e) { /* ignore */ }
+  }
   function bandPairFromAnalyser() {
     // 单 analyser（mono 混音）→ 左右各 64 段：线性重采样到 64 个频点（低频在前），0..255 → 0..1
-    if (!sceneAudio.analyser || !sceneAudio.freq) return null
-    const bins = sceneAudio.freq.length
+    const s = bandActiveSource()
+    if (!s) return null
+    if (!s.freq || s.freq.length !== s.analyser.frequencyBinCount) {
+      s.owner.freq = new Uint8Array(s.analyser.frequencyBinCount)
+      s.freq = s.owner.freq
+    }
+    const bins = s.freq.length
     if (!bins) return null
-    sceneAudio.analyser.getByteFrequencyData(sceneAudio.freq)
+    s.analyser.getByteFrequencyData(s.freq)
     const left = new Float32Array(AUDIO_BAND_HALF)
     for (let i = 0; i < AUDIO_BAND_HALF; i++) {
       const a = Math.floor(i * bins / AUDIO_BAND_HALF), b = Math.max(a + 1, Math.floor((i + 1) * bins / AUDIO_BAND_HALF))
-      let s = 0
-      for (let k = a; k < b; k++) s += sceneAudio.freq[k]
-      left[i] = (s / (b - a)) / 255
+      let sum = 0
+      for (let k = a; k < b; k++) sum += s.freq[k]
+      left[i] = (sum / (b - a)) / 255
     }
-    return { left, right: left.slice() }               // 通道不复制？单源下两声道本就同源（诚实：不伪造立体声）
+    return { left, right: left.slice(), kind: s.kind }   // 单源下两声道本就同源（诚实：不伪造立体声）
   }
-  /** 当前这一帧的 128 元频段数组（`?bandfeed=` 关时返回上一次/全零的同一结构，调用方无需判空） */
+  /** 当前这一帧的 128 元频段数组（`?bandfeed=off` 时返回上一次/全零的同一结构，调用方无需判空） */
   function bandArrayNow(tSec) {
     const t = Number.isFinite(tSec) ? tSec : 0
     if (BANDFEED === 'off') return bandLast
-    const pair = (BANDFEED === 'auto') ? bandPairFromAnalyser() : null
+    const pair = (BANDFEED === 'sim') ? null : bandPairFromAnalyser()
     if (pair) {
       const bands = packBands(pair.left, pair.right, bandReuse, { clampOnly: true })   // 真实源：只钳位
-      bandLast = { bands, source: 'analyser', stats: bandStats(bands), t }
-    } else if (BANDFEED === 'real') {
-      const bands = packBands(null, null, bandReuse, { clampOnly: true })              // 只认真实源 ⇒ 全零
-      bandLast = { bands, source: 'silent', stats: bandStats(bands), t }
-    } else {
+      bandLast = { bands, source: pair.kind, stats: bandStats(bands), t }
+    } else if (BANDFEED === 'real' || BANDFEED === 'mic') {
+      const bands = packBands(null, null, bandReuse, { clampOnly: true })              // 只认某一真实源 ⇒ 全零
+      bandLast = { bands, source: 'silent', stats: bandStats(bands), t,
+        reason: BANDFEED === 'mic' ? ('mic-' + bandMic.status) : 'no-analyser' }
+    } else if (BANDFEED === 'sim') {
       const bands = simulatedBandArray(t)                                             // 确定性模拟源（γ/gain 曲线）
       bandLast = { bands, source: 'simulated', stats: bandStats(bands), t }
+    } else {
+      // ①(P-131 批D) **缺省档（auto）无数据源 ⇒ 全 0**（不再自动回落模拟源：不假装有声音）。
+      //   `?bandfeed=sim` 才用模拟源。这一段同时是"没有麦克风/没有 <audio> 源时保持全 0"的落点。
+      const bands = packBands(null, null, bandReuse, { clampOnly: true })
+      bandLast = { bands, source: 'silent', stats: bandStats(bands), t,
+        reason: 'no-source（?audio=1 的包内音轨 / ?bandfeed=mic 的麦克风都没有）' }
     }
     try {
       window.__mpwAudioBands = bandLast.bands
       window.__mpwAudioBandSource = bandLast.source
+      window.__mpwAudioBandReason = bandLast.reason || null
+      if (bandLast.source === 'silent' && !bandSilentLogged) {
+        bandSilentLogged = true
+        logf('① 频段数据源：**无**（' + (bandLast.reason || '') + '）⇒ 128 元全 0（可观测：__mpwAudioBandSource="silent"、'
+          + '__mpwAudioBandStats().silent=true）。要数据源：`?audio=1`（包内音轨）或 `?bandfeed=mic`（麦克风，会请求权限）或 `?bandfeed=sim`（确定性模拟）')
+      }
     } catch (e) { /* ignore */ }
+    // ①(P-131 批D) 16 段活视图：**原地**写（引用恒定）⇒ 渲染器 `audioprocessing*` 与脚本侧同源同曲线。
+    writeLiveBands(bandView16,
+      bandLast.bands.subarray(0, AUDIO_BAND_HALF), bandLast.bands.subarray(AUDIO_BAND_HALF),
+      { kind: bandLast.source, hasSource: bandLast.source === 'analyser' || bandLast.source === 'mic' || bandLast.source === 'simulated' })
     return bandLast
   }
   let bandPublishAt = -1
@@ -2836,34 +2930,40 @@ function loadScene() {
     bandArrayNow(bandClock)
     bandPublish(bandClock)
   }
+  // ①(P-131 批D) 把 16 段活视图交给渲染器（粒子 `audioprocessing*` 的唯一数据入口）；
+  //   `?bandfeed=off` 时**不注入** ⇒ 渲染器侧与批 D 之前逐位一致。
+  if (BANDFEED !== 'off') { try { lib.setAudioBands(bandView16) } catch (e) { /* ignore */ } }
+  if (BANDFEED === 'mic') bandMicStart('?bandfeed=mic')
+  else if (BANDFEED === 'auto') bandMicMaybeAuto()
   try {
     window.__mpwAudioBandStats = () => bandLast.stats
-    window.__mpwAudioBandInfo = () => ({ feed: BANDFEED, source: bandLast.source, gamma: 1.8, gain: 1.8, len: AUDIO_BAND_LEN })
+    window.__mpwAudioBandInfo = () => {
+      let emit = null
+      try { emit = lib.audioBandsInfo() } catch (e) { emit = null }
+      return { feed: BANDFEED, source: bandLast.source, hasSource: bandLast.source === 'analyser' || bandLast.source === 'mic' || bandLast.source === 'simulated',
+        reason: bandLast.reason || null, mic: bandMic.status, gamma: 1.8, gain: 1.8, len: AUDIO_BAND_LEN,
+        resolution16: AUDIO_RESPONSE_BANDS, emit }
+    }
   } catch (e) { /* ignore */ }
   // ═══ MPW-BANDFEED-END ═══
-  // ═══ MPW-AUDIOBUFFERS-BEGIN ①(RE-34；P-112-BANDGEOM 加 `?bandfeed=` 同源分支) 脚本侧频谱入口 ═══
+  // ═══ MPW-AUDIOBUFFERS-BEGIN ①(RE-34；P-112-BANDGEOM 加 `?bandfeed=` 同源分支；P-131 批D 改活视图) 脚本侧频谱入口 ═══
   // 切片约定：`tests/audio-band-wiring-test.mjs` 把本块从 demo.html 切出来单测（与 MPW-BANDFEED 块同源拼接）。
+  // ①(P-131 批D) `?bandfeed=` 非 off 时返回的是**活视图**：同一 n **同一个对象**（同一批 Float32Array），
+  //   内容每帧原地刷新（官方文档："Their contents will be updated for every frame automatically"）。
+  //   旧实现每次 `new Array(n).fill(0)` ⇒ 脚本顶层 `const b = engine.registerAudioBuffers(16)` 拿到的是
+  //   编译那一刻的全 0 快照，此后永不更新（25 个包 / 386 次调用的音频响应是一条平线）。
+  //   `average` 是**逐段**左右均值（官方 "arithmetic mean of both channels"）—— 旧实现把整条 128 元的
+  //   总均值灌满 n 段，语料 344 处读的 `audioBuffer.average[frequency]` 因此对任何 frequency 都一样。
+  // `?bandfeed=off` ⇒ 逐位回到旧路径（下面 legacy 分支，一字未改）。
   function audioBuffers(n) {
     try {
-      // ①(P-112-BANDGEOM) `?bandfeed=` 开时：脚本侧（`registerAudioBuffers`，elysia/scene-scripts.js）拿到的是
-      //   **128 元契约数组**重采样来的 n 元值 ⇒ "场景层的音频反应路径"与"网页壁纸桥"同源同曲线。
-      //   关时不进这个分支（原路径逐位不变）。
       if (BANDFEED !== 'off') {
         const b = bandArrayNow(bandClock)
-        const pick = (off) => {
-          const out = new Array(n).fill(0)
-          for (let i = 0; i < n; i++) {
-            const a = Math.floor(i * AUDIO_BAND_HALF / n), z = Math.max(a + 1, Math.floor((i + 1) * AUDIO_BAND_HALF / n))
-            let s = 0
-            for (let k = a; k < z; k++) s += b.bands[off + k]
-            out[i] = s / (z - a)
-          }
-          return out
-        }
-        const left = pick(0), right = pick(AUDIO_BAND_HALF)
-        let sum = 0
-        for (let k = 0; k < AUDIO_BAND_LEN; k++) sum += b.bands[k]
-        return { left, right, average: new Array(n).fill(sum / AUDIO_BAND_LEN) }
+        const view = bandViewFor(n)
+        writeLiveBands(view,
+          b.bands.subarray(0, AUDIO_BAND_HALF), b.bands.subarray(AUDIO_BAND_HALF),
+          { kind: b.source, hasSource: b.source === 'analyser' || b.source === 'mic' || b.source === 'simulated' })
+        return view
       }
       if (!sceneAudio.analyser || !sceneAudio.freq) return null
       const bins = sceneAudio.freq.length

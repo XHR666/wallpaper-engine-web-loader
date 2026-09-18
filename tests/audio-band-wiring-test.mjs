@@ -8,12 +8,13 @@
 //   用 `new Function` 注入桩（假 analyser / 假 window.parent / 假 location），跑真实分支。
 //   不碰 DOM、不碰 GPU、不碰网络 ⇒ 确定性、~0.1s。
 //
-// 五组：
-//   T1 开关真值表（缺省关；sim/real/垃圾值）
+// 六组：
+//   T1 开关真值表（①(P-131 批D) **缺省 = auto**；off/sim/real/mic/垃圾值）
 //   T2 模拟源：128 元 + γ/gain 曲线**逐位**对拍 + 不是全零（"接上了"的第一手证据）
-//   T3 真实源：只钳位不套 γ（规格 §2.1/§5 的口径差异）+ 单声道不伪造立体声
-//   T4 场景层消费点：`audioBuffers(n)` 的 left/right 由 128 元数组重采样而来；关时逐位回到旧路径
+//   T3 真实源：只钳位不套 γ（规格 §2.1/§5 的口径差异）+ 单声道不伪造立体声 + **无源 ⇒ 全 0 且可观测**
+//   T4 场景层消费点：`audioBuffers(n)` 是**活视图**（同一 n 同一对象、内容随帧变化）+ `average` 逐段
 //   T5 宿主桥（提案消息）+ 诊断 + 三处落点 + **反向变异必红**
+//   T6 ①(P-131 批D) 16 段活视图交给渲染器（`lib.setAudioBands`）/ 麦克风源 / legacy 逐位回退
 //
 // 运行：node tests/audio-band-wiring-test.mjs   （全过输出 ALL PASS，退出码 0）
 import fs from 'node:fs'
@@ -21,6 +22,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   packBands, simulatedBands, simulatedBandArray, bandStats, shapeBand, AUDIO_BAND_LEN, AUDIO_BAND_HALF,
+  // ①(P-131 批D) 活视图 + 16 段口径（官方 `audioprocessingfrequency*` 的 0..15 下标就在 16 段上）
+  createLiveBands, writeLiveBands, resampleBands, AUDIO_RESPONSE_BANDS, audioEnvelope, parseAudioResponse,
 } from '../core/audio-band-array.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -46,22 +49,32 @@ const BUF_BLOCK = slice(HTML, '// ═══ MPW-AUDIOBUFFERS-BEGIN', '// ══�
 function makeEnv(opts = {}) {
   const posted = []
   const logs = []
+  const bandCalls = []
   const win = { parent: null, __mpwAudioBands: null, __mpwAudioBandSource: null }
+  if (opts.navigator) win.navigator = opts.navigator
   if (opts.embedded) win.parent = { postMessage: (m) => posted.push(m) }
   else win.parent = win                                   // 顶层页面：parent === window
   const analyser = opts.analyser || null
   const freq = opts.freq || (analyser ? new Uint8Array(analyser.frequencyBinCount) : null)
   const sceneAudio = { ctx: null, analyser, els: [], freq, started: !!analyser, vols: [] }
   const location = { search: opts.search || '' }
+  // ①(P-131 批D) 渲染器侧入口桩：`lib.setAudioBands(view)` 是 16 段活视图的**唯一**注入点
+  const lib = {
+    setAudioBands: (v) => { bandCalls.push(v); return v },
+    audioBandsInfo: () => ({ mode: 'auto', hasView: bandCalls.length > 0, resolution: bandCalls.length ? bandCalls[bandCalls.length - 1].left.length : 0,
+      kind: bandCalls.length ? bandCalls[bandCalls.length - 1].kind : null, hasSource: bandCalls.length ? !!bandCalls[bandCalls.length - 1].hasSource : false }),
+  }
   const body = BAND_BLOCK + '\n' + BUF_BLOCK + `
-return { BANDFEED, bandArrayNow, bandPublish, bandFrameTick, audioBuffers, last: () => bandLast, clock: () => bandClock }`
+return { BANDFEED, bandArrayNow, bandPublish, bandFrameTick, audioBuffers, last: () => bandLast, clock: () => bandClock,
+         band16: () => bandView16, mic: () => bandMic, viewFor: bandViewFor, silentLogged: () => bandSilentLogged }`
   const fn = new Function(
     'packBands', 'simulatedBandArray', 'bandStats', 'shapeBand', 'AUDIO_BAND_LEN', 'AUDIO_BAND_HALF',
+    'createLiveBands', 'writeLiveBands', 'AUDIO_RESPONSE_BANDS', 'lib',
     'sceneAudio', 'location', 'window', 'logf', body,
   )
   const api = fn(packBands, simulatedBandArray, bandStats, shapeBand, AUDIO_BAND_LEN, AUDIO_BAND_HALF,
-    sceneAudio, location, win, (m) => logs.push(m))
-  return { api, win, posted, logs, sceneAudio, location }
+    createLiveBands, writeLiveBands, AUDIO_RESPONSE_BANDS, lib, sceneAudio, location, win, (m) => logs.push(m))
+  return { api, win, posted, logs, bandCalls, lib, sceneAudio, location }
 }
 /** 造一个"真实源"analyser 桩：每段固定字节值（0..255），可指定返回数组长度 */
 function fakeAnalyser(values, binCount) {
@@ -77,21 +90,27 @@ function fakeAnalyser(values, binCount) {
 console.log('\n== T1 开关真值表（?bandfeed=）==')
 {
   const cases = [
-    ['', 'off'], ['?bandfeed=0', 'off'], ['?bandfeed=off', 'off'], ['?bandfeed=no', 'off'], ['?bandfeed=false', 'off'],
-    ['?bandfeed=1', 'auto'], ['?bandfeed=on', 'auto'], ['?bandfeed=true', 'auto'], ['?bandfeed=SIM', 'sim'],
-    ['?bandfeed=simulated', 'sim'], ['?bandfeed=real', 'real'], ['?bandfeed=ANALYSER', 'real'],
-    ['?bandfeed=banana', 'off'], ['?bandfeed=', 'off'],
+    // ①(P-131 批D) **缺省翻面**：空值/`?audio=1`/非法值/`auto` 一律 auto；只有 0/off/no/false 才是关
+    ['', 'auto'], ['?audio=1', 'auto'], ['?bandfeed=', 'auto'], ['?bandfeed=auto', 'auto'],
+    ['?bandfeed=banana', 'auto'],
+    ['?bandfeed=0', 'off'], ['?bandfeed=off', 'off'], ['?bandfeed=no', 'off'], ['?bandfeed=false', 'off'],
+    ['?bandfeed=1', 'auto'], ['?bandfeed=on', 'auto'], ['?bandfeed=true', 'auto'],
+    ['?bandfeed=SIM', 'sim'], ['?bandfeed=simulated', 'sim'], ['?bandfeed=real', 'real'], ['?bandfeed=ANALYSER', 'real'],
+    ['?bandfeed=mic', 'mic'], ['?bandfeed=MICROPHONE', 'mic'],
   ]
   let bad = 0
   for (const [s, want] of cases) { const e = makeEnv({ search: s }); if (e.api.BANDFEED !== want) { bad++; console.log('   ✗ ' + s + ' → ' + e.api.BANDFEED + '（期望 ' + want + '）') } }
-  ok(bad === 0, 'T1a 14 条真值表全部命中（非法/空值一律回落"关"，不静默开）', '坏 ' + bad + ' 条')
-  ok(makeEnv({}).api.BANDFEED === 'off' && makeEnv({ search: '?audio=1' }).api.BANDFEED === 'off',
-    'T1b 缺省 = 关（`?audio=1` 也不连带打开 bandfeed ⇒ 默认路径零变化）')
+  ok(bad === 0, 'T1a 18 条真值表全部命中（缺省/空值/非法值 = auto；只有 0/off/no/false 才关）', '坏 ' + bad + ' 条')
+  ok(makeEnv({}).api.BANDFEED === 'auto' && makeEnv({ search: '?audio=1' }).api.BANDFEED === 'auto',
+    'T1b 缺省 = **auto**（P-131 批D 翻面：批 D 之前缺省是 off ⇒ 25 个包的音频响应恒平）')
+  ok(makeEnv({ search: '?bandfeed=off' }).api.BANDFEED === 'off',
+    'T1c 旧行为仍可用 `?bandfeed=off` **逐位**复现（缺省翻面不改逃生口）')
 }
 
 console.log('\n== T2 模拟源：128 元 + γ/gain 曲线 + "确实有数据" ==')
 {
-  const e = makeEnv({ search: '?bandfeed=1' })
+  // ①(P-131 批D) 模拟源只在**显式** `?bandfeed=sim` 档（缺省 auto 无源是全 0，不假装有声音）
+  const e = makeEnv({ search: '?bandfeed=sim' })
   const r = e.api.bandFrameTick(1.25)
   ok(r === undefined || r === null || true, 'T2a bandFrameTick 不抛错')
   const bands = e.win.__mpwAudioBands
@@ -151,11 +170,28 @@ console.log('\n== T3 真实源：只钳位（不套 γ）+ 不伪造立体声 ==
   e4.api.bandFrameTick(0.5)
   ok(bandStats(e4.win.__mpwAudioBands).silent === true && e4.api.last().source === 'analyser',
     'T3g 真实源在场但很安静 ⇒ silent=true 且 source=analyser（"没数据源"与"数据源很安静"可区分）')
+
+  // ①(P-131 批D) **缺省档（auto）没有数据源 ⇒ 全 0**（不回落模拟源、不假装有声音），且**可观测**：
+  //   source='silent' / `__mpwAudioBandSource` / reason / 一次性日志
+  const e5 = makeEnv({})
+  e5.api.bandFrameTick(0.5); e5.api.bandFrameTick(0.6); e5.api.bandFrameTick(0.7)
+  const e5s = bandStats(e5.win.__mpwAudioBands)
+  ok(e5.api.last().source === 'silent' && e5s.silent === true && e5s.peak === 0 && e5.win.__mpwAudioBandSource === 'silent',
+    'T3h auto 无源 ⇒ 128 元全 0 + source=silent（不静默：字段可查）',
+    'source=' + e5.api.last().source + ' peak=' + e5s.peak + ' reason=' + e5.api.last().reason)
+  ok(e5.logs.filter((m) => /频段数据源/.test(m)).length === 1 && e5.api.silentLogged() === true,
+    'T3h 无源只留**一条**一次性日志（多帧不刷屏；这就是"明确可观测，不要静默"的落点）',
+    'logs=' + e5.logs.length)
+  const e6 = makeEnv({ search: '?bandfeed=mic' })
+  e6.api.bandFrameTick(0.5)
+  ok(e6.api.last().source === 'silent' && /^mic-/.test(String(e6.api.last().reason)),
+    'T3i `?bandfeed=mic` 但没拿到麦克风 ⇒ 全 0 + reason=mic-*（区分"没请求到"与"没数据源"）',
+    String(e6.api.last().reason))
 }
 
-console.log('\n== T4 场景层消费点：脚本 `registerAudioBuffers` 拿到的是同一份契约 ==')
+console.log('\n== T4 场景层消费点：脚本 `registerAudioBuffers` 拿到的是同一份**活视图** ==')
 {
-  const e = makeEnv({ search: '?bandfeed=1' })
+  const e = makeEnv({ search: '?bandfeed=sim' })
   e.api.bandFrameTick(2.0)
   const n = 16
   const bufs = e.api.audioBuffers(n)
@@ -164,32 +200,52 @@ console.log('\n== T4 场景层消费点：脚本 `registerAudioBuffers` 拿到�
   const bands = e.api.last().bands
   let bad = 0
   for (let i = 0; i < n; i++) {
-    const a = Math.floor(i * 64 / n), z = Math.max(a + 1, Math.floor((i + 1) * n / n * 64 / n) + 0)
-    // 独立复算同一口径（左通道 0..63 → n 段均值）
-    const a2 = Math.floor(i * AUDIO_BAND_HALF / n), z2 = Math.max(a2 + 1, Math.floor((i + 1) * AUDIO_BAND_HALF / n))
-    let s = 0
-    for (let k = a2; k < z2; k++) s += bands[k]
-    if (!near(bufs.left[i], s / (z2 - a2))) bad++
-    void a; void z
+    // 独立复算同一口径（左通道 0..63 → n 段均值；用模块的 resampleBands 这一份实现复算）
+    const want = resampleBands(bands.subarray(0, AUDIO_BAND_HALF), n)[i]
+    if (!near(bufs.left[i], want)) bad++
   }
   ok(bad === 0, 'T4b left 逐段等于"128 元数组左半 → n 段均值"的独立复算（接线真到了消费点）', '坏 ' + bad + ' 段')
   ok(bufs.left.some((v) => v > 0), 'T4c 非全零（脚本的音条会动，不是"静默 shim"）')
-  let sum = 0
-  for (let k = 0; k < AUDIO_BAND_LEN; k++) sum += bands[k]
-  ok(near(bufs.average[0], sum / AUDIO_BAND_LEN), 'T4d average 用**整条 128 元**归一（左右都算，不是左半）')
+  // ①(P-131 批D 口径修正) `average` 必须是**逐段**的左右均值（官方 "arithmetic mean of both
+  //   channels"；语料 344 处读的就是 `audioBuffer.average[frequency]`）。旧实现把整条 128 元的
+  //   总均值灌满 n 段 ⇒ 对任何 frequency 都是同一个数（即使有数据，音条也是平的）。
+  let badAvg = 0, spread = 0
+  for (let i = 0; i < n; i++) {
+    if (!near(bufs.average[i], (bufs.left[i] + bufs.right[i]) / 2)) badAvg++
+    spread = Math.max(spread, Math.abs(bufs.average[i] - bufs.average[0]))
+  }
+  ok(badAvg === 0, 'T4d average 逐段 = (left[i]+right[i])/2（官方口径），不是"整条总均值填满"', '坏 ' + badAvg + ' 段')
+  ok(spread > 1e-3, 'T4d average 逐段有差异（旧实现的"常量 average"会让 344 处 `average[freq]` 全等）', 'spread=' + spread.toFixed(6))
+  // ①(P-131 批D) **活视图**：同一 n 永远同一对象（脚本顶层 `const` 长期持有），内容随帧变化
+  const again = e.api.audioBuffers(n)
+  ok(again === bufs && again.left === bufs.left && again.average === bufs.average,
+    'T4e ★同一 n 返回**同一对象/同一批数组**（官方："顶层存 const、只调一次"）')
+  const snap = [bufs.average[0], bufs.average[8], bufs.average[15]]
+  e.api.bandFrameTick(2.37)
+  e.api.audioBuffers(n)
+  const moved = [bufs.average[0], bufs.average[8], bufs.average[15]]
+  ok(moved.some((v, i) => Math.abs(v - snap[i]) > 1e-6),
+    'T4e ★长期持有的那个对象**内容随帧原地变化**（不是"编译那一刻的快照"）',
+    snap.map((v) => v.toFixed(4)).join(',') + ' → ' + moved.map((v) => v.toFixed(4)).join(','))
+  // 数据源标注（渲染器粒子侧靠它判"有没有采集源"）
+  ok(bufs.hasSource === true && bufs.kind === 'simulated',
+    'T4f 活视图带数据源标注（kind/hasSource：simulated 算"有数据源"）', bufs.kind + '/' + bufs.hasSource)
 
-  const e2 = makeEnv({})                                    // 关：旧路径（无 analyser ⇒ null）
-  ok(e2.api.audioBuffers(8) === null, 'T4e 关时逐位回到旧路径（无 analyser ⇒ null，脚本走静默 shim）')
+  // ①(P-131 批D) legacy 两条必须**显式** `?bandfeed=off`（缺省已是 auto ⇒ 不再是"旧路径"）
+  const e2 = makeEnv({ search: '?bandfeed=off' })           // 关：旧路径（无 analyser ⇒ null）
+  ok(e2.api.audioBuffers(8) === null, 'T4g `?bandfeed=off` 逐位回到旧路径（无 analyser ⇒ null，脚本走静默 shim）')
   const an = fakeAnalyser(new Array(64).fill(255), 128)
-  const e3 = makeEnv({ analyser: an })                      // 关：旧路径（有 analyser ⇒ 旧口径 0..1 均值）
-  const old = e3.api.audioBuffers(4)
-  ok(old && old.left.length === 4 && near(old.left[0], 1) && old.right[0] === old.left[0] && old.left !== old.right,
-    'T4e 关时旧路径照旧（`left` 是新数组、`right` 是它的 slice ⇒ 消费方改写 left 不会串到 right）')
+  const e3 = makeEnv({ search: '?bandfeed=off', analyser: an })   // 关：旧路径（有 analyser ⇒ 旧口径 0..1 均值）
+  const oldBuf = e3.api.audioBuffers(4)
+  ok(oldBuf && oldBuf.left.length === 4 && near(oldBuf.left[0], 1) && oldBuf.right[0] === oldBuf.left[0] && oldBuf.left !== oldBuf.right,
+    'T4g `?bandfeed=off` 旧路径照旧（`left` 是新数组、`right` 是它的 slice ⇒ 消费方改写 left 不会串到 right）')
+  ok(!ArrayBuffer.isView(oldBuf.average) && near(oldBuf.average[0], 1) && near(oldBuf.average[3], 1),
+    'T4g legacy 的 `average` 仍是旧的"整条总均值填满"（活视图路径才修口径 —— 回退口逐位复现旧行为）')
 }
 
 console.log('\n== T5 宿主桥 + 诊断 + 落点 + 反向变异 ==')
 {
-  const e = makeEnv({ search: '?bandfeed=1', embedded: true })
+  const e = makeEnv({ search: '?bandfeed=sim', embedded: true })
   e.api.bandFrameTick(3.0)
   ok(e.posted.length === 1, 'T5a 嵌在宿主里 ⇒ 发出一帧（顶层页面不发：parent===window 直接返回）')
   const m = e.posted[0]
@@ -201,12 +257,18 @@ console.log('\n== T5 宿主桥 + 诊断 + 落点 + 反向变异 ==')
   const again = e.api.bandPublish(3.01)
   ok(again === null && e.posted.length === 1, 'T5c 节流：同 50ms 内不重复发（不影响渲染帧率）')
   ok(e.api.bandPublish(3.2) !== null && e.posted.length === 2, 'T5c 过窗口后恢复发送')
-  const e2 = makeEnv({ search: '?bandfeed=1', embedded: false })
+  const e2 = makeEnv({ search: '?bandfeed=sim', embedded: false })
   e2.api.bandFrameTick(3.0)
-  ok(e2.posted.length === 0, 'T5d 顶层页面零 postMessage（默认关之外的又一道"不外发"保险）')
-  const e3 = makeEnv({ embedded: true })
+  ok(e2.posted.length === 0, 'T5d 顶层页面零 postMessage（除"关"之外的又一道"不外发"保险）')
+  const e3 = makeEnv({ search: '?bandfeed=off', embedded: true })
   e3.api.bandFrameTick(3.0)
-  ok(e3.posted.length === 0, 'T5d 关时零 postMessage')
+  ok(e3.posted.length === 0, 'T5d `?bandfeed=off` 时零 postMessage')
+  // ①(P-131 批D) 缺省档（auto）没有数据源也照发一帧 —— 载荷里 `source:'silent'` 就是"我没数据"的
+  //   诚实标注（宿主据此决定要不要显示"无音频"提示），而不是静默不发。
+  const e4 = makeEnv({ embedded: true })
+  e4.api.bandFrameTick(3.0)
+  ok(e4.posted.length === 1 && e4.posted[0].source === 'silent' && e4.posted[0].bands.every((v) => v === 0),
+    'T5d auto 无源：照发一帧但 `source=silent` + 全 0（宿主能区分"没数据"与"有数据但安静"）')
 
   const stats = e.api.last().stats
   ok(stats && stats.length === 128 && typeof stats.silent === 'boolean', 'T5e `bandStats` 摘要进状态（诊断口径）')
@@ -233,8 +295,10 @@ console.log('\n== T5 宿主桥 + 诊断 + 落点 + 反向变异 ==')
     const sceneAudio = { analyser: an, freq: null, started: true, els: [], vols: [] }
     const body = mutated1 + '\nreturn { bandArrayNow, bandFrameTick, last: () => bandLast }'
     const api = new Function('packBands', 'simulatedBandArray', 'bandStats', 'shapeBand', 'AUDIO_BAND_LEN', 'AUDIO_BAND_HALF',
+      'createLiveBands', 'writeLiveBands', 'AUDIO_RESPONSE_BANDS', 'lib',
       'sceneAudio', 'location', 'window', 'logf', body)(
       packBands, simulatedBandArray, bandStats, shapeBand, AUDIO_BAND_LEN, AUDIO_BAND_HALF,
+      createLiveBands, writeLiveBands, AUDIO_RESPONSE_BANDS, { setAudioBands: (v) => v, audioBandsInfo: () => ({}) },
       sceneAudio, { search: '?bandfeed=1' }, win, () => {})
     api.bandFrameTick(0.5)
     const v = win.__mpwAudioBands[0]
@@ -249,14 +313,178 @@ console.log('\n== T5 宿主桥 + 诊断 + 落点 + 反向变异 ==')
     const sceneAudio = { analyser: null, freq: null, started: false, els: [], vols: [] }
     const body = BAND_BLOCK + '\n' + mutated2 + '\nreturn { audioBuffers, bandFrameTick }'
     const api = new Function('packBands', 'simulatedBandArray', 'bandStats', 'shapeBand', 'AUDIO_BAND_LEN', 'AUDIO_BAND_HALF',
+      'createLiveBands', 'writeLiveBands', 'AUDIO_RESPONSE_BANDS', 'lib',
       'sceneAudio', 'location', 'window', 'logf', body)(
       packBands, simulatedBandArray, bandStats, shapeBand, AUDIO_BAND_LEN, AUDIO_BAND_HALF,
+      createLiveBands, writeLiveBands, AUDIO_RESPONSE_BANDS, { setAudioBands: (v) => v, audioBandsInfo: () => ({}) },
       sceneAudio, { search: '?bandfeed=1' }, win, () => {})
     api.bandFrameTick(1.0)
     const bufs = api.audioBuffers(16)
-    if (bufs === null) red.push('变异2(关分支)：`audioBuffers(16)` 变回 null ⇒ T4a/T4c 变红')
+    if (bufs === null) red.push('变异2(关分支)：`audioBuffers(16)` 变回 null ⇒ T4a/T4c/T4e 变红')
   }
   ok(red.length === 2, 'T5h RED-IF-REVERTED：两条最关键的断言在"改回旧行为"后确实变红')
+  for (const r of red) console.log('   RED ' + r)
+}
+
+console.log('\n== T6 (P-131 批D) 16 段活视图 → 渲染器 / 麦克风源 / legacy 逐位回退 ==')
+{
+  // ①(P-131) `?bandfeed=` 非 off ⇒ 把 16 段活视图交给渲染器（粒子 `audioprocessing*` 的唯一数据入口）。
+  //   官方编辑器里 `audioprocessingfrequency*` 的取值就是 0..15 ⇒ 分辨率必须是 16 段。
+  const e = makeEnv({ search: '?bandfeed=sim' })
+  ok(e.bandCalls.length === 1 && e.bandCalls[0] === e.api.band16(),
+    'T6a 缺省档（非 off）**注入一次** 16 段活视图给渲染器（lib.setAudioBands 只调一次、引用恒定）',
+    'calls=' + e.bandCalls.length)
+  const v16 = e.api.band16()
+  ok(v16 instanceof Object && v16.left instanceof Float32Array && v16.left.length === AUDIO_RESPONSE_BANDS && v16.average.length === 16,
+    'T6a 活视图 = 16 段 Float32Array 三件套（官方 AudioBuffers 的类型与 0..15 下标口径）',
+    'len=' + (v16 && v16.left && v16.left.length))
+  e.api.bandFrameTick(1.0)
+  const snap = Array.from(v16.average)
+  e.api.bandFrameTick(1.41)
+  ok(e.bandCalls.length === 1 && e.bandCalls[0] === v16,
+    'T6b 逐帧 tick 不再重复注入（同一对象；宿主每帧只写数组内容）')
+  ok(Array.from(v16.average).some((x, i) => Math.abs(x - snap[i]) > 1e-6),
+    'T6b 16 段活视图的内容**每帧原地变化**（同一个数组对象）')
+  // 16 段 = 128 元的 4:1 折叠（左半/右半各自 64→16），average 逐段 = 左右均值 —— 与模块口径独立复算
+  {
+    const bands = e.api.last().bands
+    const wl = resampleBands(bands.subarray(0, AUDIO_BAND_HALF), 16)
+    const wr = resampleBands(bands.subarray(AUDIO_BAND_HALF), 16)
+    let bad = 0
+    for (let i = 0; i < 16; i++) if (!near(v16.left[i], wl[i]) || !near(v16.right[i], wr[i]) || !near(v16.average[i], (wl[i] + wr[i]) / 2)) bad++
+    ok(bad === 0, 'T6c 16 段的 left/right/average 与"128 元 4:1 折叠 + 逐段左右均值"独立复算一致', '坏 ' + bad + ' 段')
+    ok(v16.hasSource === true && v16.kind === 'simulated', 'T6c 活视图标注数据源（渲染器的"无源豁免"判据）', v16.kind + '/' + v16.hasSource)
+  }
+  // 无源：auto ⇒ 注入的活视图全 0、hasSource=false（渲染器据此走"保持旧行为 + 可观测"分支）
+  const e2 = makeEnv({})
+  e2.api.bandFrameTick(0.5)
+  const v2 = e2.api.band16()
+  ok(e2.bandCalls.length === 1 && v2.hasSource === false && v2.kind === 'silent' && Array.from(v2.left).every((x) => x === 0),
+    'T6d auto 无源 ⇒ 交给渲染器的活视图是全 0 + hasSource=false（**不静默**：渲染器侧会记账+打一条日志）')
+  // legacy 关档：**不注入**（渲染器侧与批 D 之前逐位一致）
+  const e3 = makeEnv({ search: '?bandfeed=off' })
+  e3.api.bandFrameTick(0.5)
+  ok(e3.bandCalls.length === 0 && e3.api.bandArrayNow(1).source === 'off',
+    'T6e `?bandfeed=off` ⇒ 一次都不注入（渲染器无活视图 ⇒ `audioprocessing*` 退回旧行为）')
+
+  // 麦克风源：显式 `?bandfeed=mic` → getUserMedia → AnalyserNode（异步；拿到前保持 silent）
+  const fakeMicAnalyser = fakeAnalyser(new Array(64).fill(128), 128)
+  const win = { parent: null, __mpwAudioBands: null, __mpwAudioBandSource: null }
+  let gumCalls = 0
+  win.navigator = {
+    mediaDevices: { getUserMedia: () => { gumCalls++; return Promise.resolve({ id: 'stream' }) } },
+    permissions: { query: () => Promise.resolve({ state: 'granted' }) },
+  }
+  // demo 的代码取 `window.AudioContext || window.webkitAudioContext` ⇒ 桩挂 window（与浏览器同形）
+  const FakeAC = function FakeAC() {
+    this.createAnalyser = () => fakeMicAnalyser
+    this.createMediaStreamSource = () => ({ connect: () => {} })
+  }
+  win.AudioContext = FakeAC
+  const sceneAudio = { ctx: null, analyser: null, els: [], freq: null, started: false, vols: [] }
+  const logs = []
+  const bandCalls = []
+  const lib = { setAudioBands: (v) => { bandCalls.push(v); return v }, audioBandsInfo: () => ({}) }
+  const body = BAND_BLOCK + '\n' + BUF_BLOCK + `
+return { BANDFEED, bandFrameTick, audioBuffers, mic: () => bandMic, last: () => bandLast }`
+  const api = new Function('packBands', 'simulatedBandArray', 'bandStats', 'shapeBand', 'AUDIO_BAND_LEN', 'AUDIO_BAND_HALF',
+    'createLiveBands', 'writeLiveBands', 'AUDIO_RESPONSE_BANDS', 'lib',
+    'sceneAudio', 'location', 'window', 'logf', 'AudioContext', body)(
+    packBands, simulatedBandArray, bandStats, shapeBand, AUDIO_BAND_LEN, AUDIO_BAND_HALF,
+    createLiveBands, writeLiveBands, AUDIO_RESPONSE_BANDS, lib,
+    sceneAudio, { search: '?bandfeed=mic' }, win, (m) => logs.push(m), FakeAC)
+  ok(api.BANDFEED === 'mic' && gumCalls === 1, 'T6f `?bandfeed=mic` ⇒ 显式请求麦克风（getUserMedia 恰好一次）', 'calls=' + gumCalls)
+  ok(api.mic().status === 'idle' && api.last().source === 'off',
+    'T6f 拿到麦克风**之前**：状态 idle、还没出帧（异步不阻塞首帧）')
+  await new Promise((r) => setTimeout(r, 0))
+  ok(api.mic().status === 'on' && !!api.mic().analyser,
+    'T6f getUserMedia resolve ⇒ 麦克风 analyser 就绪（FFT 4096 与官方 RE-16 同尺寸）', api.mic().status)
+  api.bandFrameTick(0.5)
+  ok(api.last().source === 'mic' && api.last().bands.some((v) => v > 0) && api.audioBuffers(16).hasSource === true,
+    'T6g 麦克风成为数据源：source=mic、非全 0、脚本侧活视图 hasSource=true',
+    'source=' + api.last().source + ' peak=' + Math.max(...api.last().bands).toFixed(4))
+  // 缺省档**不弹权限框**：auto 只走 permissions.query（已授权才启用）
+  {
+    const w2 = { parent: null, navigator: { mediaDevices: { getUserMedia: () => { throw new Error('auto 不该弹权限框') } },
+      permissions: { query: () => Promise.resolve({ state: 'prompt' }) } } }
+    const sa2 = { ctx: null, analyser: null, els: [], freq: null, started: false, vols: [] }
+    const body2 = BAND_BLOCK + '\n' + BUF_BLOCK + '\nreturn { BANDFEED, bandFrameTick, mic: () => bandMic }'
+    const api2 = new Function('packBands', 'simulatedBandArray', 'bandStats', 'shapeBand', 'AUDIO_BAND_LEN', 'AUDIO_BAND_HALF',
+      'createLiveBands', 'writeLiveBands', 'AUDIO_RESPONSE_BANDS', 'lib',
+      'sceneAudio', 'location', 'window', 'logf', 'AudioContext', body2)(
+      packBands, simulatedBandArray, bandStats, shapeBand, AUDIO_BAND_LEN, AUDIO_BAND_HALF,
+      createLiveBands, writeLiveBands, AUDIO_RESPONSE_BANDS, { setAudioBands: (v) => v },
+      sa2, { search: '' }, w2, () => {}, function FakeAC() { this.createAnalyser = () => fakeAnalyser([0], 1) })
+    await new Promise((r) => setTimeout(r, 0))
+    api2.bandFrameTick(0.5)
+    ok(api2.mic().status === 'idle' && api2.BANDFEED === 'auto',
+      'T6h 缺省档 auto 在"未授权/未决定"时**不弹权限框、不启用麦克风**（只有 permissions=granted 才静默启用）')
+  }
+
+  /* ── 反向变异（P-131）：把本批三处改动各自改回旧写法 ⇒ 对应断言必须变红 ── */
+  const red = []
+  const mkBlock = (mut) => {
+    const w = { parent: null, navigator: null, __mpwAudioBands: null, __mpwAudioBandSource: null }
+    const sa = { ctx: null, analyser: null, els: [], freq: null, started: false, vols: [] }
+    const calls = []
+    const b = BAND_BLOCK + '\n' + BUF_BLOCK + '\nreturn { BANDFEED, bandFrameTick, audioBuffers, band16: () => bandView16 }'
+    const fn = new Function('packBands', 'simulatedBandArray', 'bandStats', 'shapeBand', 'AUDIO_BAND_LEN', 'AUDIO_BAND_HALF',
+      'createLiveBands', 'writeLiveBands', 'AUDIO_RESPONSE_BANDS', 'lib',
+      'sceneAudio', 'location', 'window', 'logf', 'AudioContext', mut)
+    return fn(packBands, simulatedBandArray, bandStats, shapeBand, AUDIO_BAND_LEN, AUDIO_BAND_HALF,
+      createLiveBands, writeLiveBands, AUDIO_RESPONSE_BANDS, { setAudioBands: (v) => { calls.push(v); return v } },
+      sa, { search: '' }, w, () => {}, function FakeAC() { this.createAnalyser = () => fakeAnalyser([0], 1) })
+  }
+  // 变异 1：缺省档改回 `off`（批 D 之前的缺省）
+  {
+    const mut = BAND_BLOCK.replace("      return 'auto'\n    } catch (e) { return 'auto' }", "      return 'off'\n    } catch (e) { return 'off' }")
+    if (mut === BAND_BLOCK) red.push('变异1 **没生效**（缺省分支没匹配上）')
+    else {
+      const api = mkBlock(mut + '\n' + BUF_BLOCK + '\nreturn { BANDFEED }')
+      if (api.BANDFEED === 'off') red.push('变异1(缺省回 off)：BANDFEED=' + api.BANDFEED + ' ⇒ T1b「缺省 = auto」变红')
+    }
+  }
+  // 变异 2：`audioBuffers` 改回"每次新建数组的快照"（批 D 之前的形态）
+  {
+    const snapImpl = `function audioBuffers(n) {
+      const b = bandArrayNow(bandClock)
+      const out = new Array(n).fill(0)
+      for (let i = 0; i < n; i++) out[i] = b.bands[i]
+      const sum = out.reduce((a, x) => a + x, 0)
+      return { left: out, right: out.slice(), average: new Array(n).fill(sum / n) }
+    }`
+    const i0 = BUF_BLOCK.indexOf('  function audioBuffers(n) {')
+    const i1 = BUF_BLOCK.lastIndexOf('  // ═══ MPW-AUDIOBUFFERS-END')
+    const mutBuf = BUF_BLOCK.slice(0, i0) + snapImpl + '\n' + BUF_BLOCK.slice(i1)
+    const api = mkBlock(BAND_BLOCK + '\n' + mutBuf + '\nreturn { bandFrameTick, audioBuffers }')
+    api.bandFrameTick(1.0)
+    const a1 = api.audioBuffers(16)
+    const held = a1
+    api.bandFrameTick(9.0)
+    const a2 = api.audioBuffers(16)
+    if (a1 !== a2) red.push('变异2(快照 audioBuffers)：`audioBuffers(16)` 每次新对象 ⇒ T4e「同一对象」变红')
+    else if (Math.abs(held.average[0] - held.average[15]) < 1e-9 && held.average[0] !== 0) red.push('变异2b：average 又变回常量填满 ⇒ T4d「逐段有差异」变红')
+  }
+  // 变异 3：16 段活视图不注入渲染器（删掉 `lib.setAudioBands(bandView16)`）
+  {
+    const mut = BAND_BLOCK.replace("  if (BANDFEED !== 'off') { try { lib.setAudioBands(bandView16) } catch (e) { /* ignore */ } }", '')
+    if (mut === BAND_BLOCK) red.push('变异3 **没生效**（注入行没匹配上）')
+    else {
+      const w = { parent: null, navigator: null }
+      const sa = { ctx: null, analyser: null, els: [], freq: null, started: false, vols: [] }
+      const calls = []
+      const b = mut + '\n' + BUF_BLOCK + '\nreturn { BANDFEED, bandFrameTick }'
+      const api = new Function('packBands', 'simulatedBandArray', 'bandStats', 'shapeBand', 'AUDIO_BAND_LEN', 'AUDIO_BAND_HALF',
+        'createLiveBands', 'writeLiveBands', 'AUDIO_RESPONSE_BANDS', 'lib',
+        'sceneAudio', 'location', 'window', 'logf', b)(
+        packBands, simulatedBandArray, bandStats, shapeBand, AUDIO_BAND_LEN, AUDIO_BAND_HALF,
+        createLiveBands, writeLiveBands, AUDIO_RESPONSE_BANDS, { setAudioBands: (v) => { calls.push(v); return v } },
+        sa, { search: '?bandfeed=sim' }, w, () => {})
+      api.bandFrameTick(0.5)
+      if (calls.length === 0) red.push('变异3(不注入渲染器)：粒子侧拿不到 16 段活视图 ⇒ T6a 变红')
+    }
+  }
+  ok(red.length === 3, 'T6i RED-IF-REVERTED：三处 P-131 改动各自改回旧写法后，对应断言都变红（' + red.length + '/3）')
   for (const r of red) console.log('   RED ' + r)
 }
 

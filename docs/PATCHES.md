@@ -9771,3 +9771,201 @@ $ node tests/docs-check.mjs                              → rc=0  检查 16 个
 * 改 `package.json`（`files` 增 `server/we-scene-demo-server-8902.mjs`，与既有 server 条目并列）。
 * 改 `README.md`、`docs/ONLINE-DEMO.md`（各加一句 `:8902` 入口）。
 * **未改**：`:8899`（`server/we-scene-demo-server.mjs` 一字未动）、`:8901` 的启动方式与静态口径、`demo.html`、`demo/**`、`elysia/**`、`core/**`、`tests/run-all-tests.sh`、其它并行线在改的文件。
+
+---
+
+## P-132（2026-09-19 粒子**批 D** · 全语料扫描 §3-#5 / §4 批D）音频驱动发射 `audioprocessing*` 真落地 + `engine.registerAudioBuffers` 返回**活视图** + `?bandfeed=` 有数据源默认开（+ 麦克风源）
+
+任务来源：`docs/PARTICLE-CORPUS-SCAN.md` §3 第 5 条（**52 层 / 9 包**在用 `audioprocessing*`，我们"键完全不读"）与 §4 的 **批 D**；
+外加 `docs/ANSWER-REMAINING-AND-API-20260918.md` §2 表 B 单列项：`engine.registerAudioBuffers` **386 次调用 / 25 个包**，
+而返回值是**全 0 数组**（渲染器 `?bandfeed=` 缺省关；插件侧采集 0 行）⇒ 那 25 个包的音频响应是一条平线。
+本批不改 `emitter.rate` 缺省 / `oscillate*` / 颜色口径（批 A 已定），只**加**音频这一层调制。
+
+### P-132.1 复现（两条**独立**路径，都在 `/tmp` 真文件副本上跑；真树只读）
+
+复现脚本：`/tmp/p131-repro/repro.mjs`（一次性探针，不在仓内）。副本来源 = `git show HEAD:demo.html` /
+`git show HEAD:elysia/scene-scripts.js` 手工落盘（**不用** `fs.cpSync` —— 本机它抛 `EINVAL`），
+再把副本里的 `from './` 改写成绝对路径（否则 `/tmp` 里 import 不到 `nsl.js`）。
+
+```text
+$ node /tmp/p131-repro/repro.mjs
+══ 路径① `?bandfeed=` **缺省**（批 D 之前缺省 = 关）⇒ 脚本侧全 0 ══
+  旧 BANDFEED = "off" | 128 元 source = "off" | peak = 0
+  旧 old-demo audioBuffers(16) = null
+  旧 脚本读到 average[0]（5 帧后）= 0.000000  ⇒ **全 0**（音频响应是一条平线）
+
+══ 路径② 即使显式开（`?bandfeed=1`）：顶层只调一次的返回值 = **编译那一刻的快照** ══
+  旧 第 1 帧（编译时刻）脚本读到 = 0.066063
+  旧 第 2..6 帧脚本仍读到     = 0.066063 （顶层 const 冻住）
+  旧 同一时刻主机给的新值     = 0.235731 → 0.058150 → 0.058893 → 0.064394 → 0.073527 （确实在变 ⇒ 变化被丢掉）
+
+══ 对照：改动后（仓内现行文件）同两条路径 ══
+  新 BANDFEED(缺省) = "auto" | source = "silent" (全 0 但**标注诚实**：source=silent / hasSource=false，并打一条一次性日志)
+  新 第 1 帧 = 0.224519 | 后续各帧 = 0.989727 → 0.203238 → 0.185711 → 0.191056 → 0.216698 ⇒ **同一个对象、内容每帧在变**
+```
+
+两条路径的机理（都对上了官方文档）：
+① 缺省关 ⇒ 128 元数组不进链路；`demo.html` 的 `audioBuffers(n)` 又要求"有 analyser 才给数据"，而 analyser 只在
+`?audio=1` 且真的在播时存在 ⇒ 脚本侧拿到 `null` ⇒ `elysia/scene-scripts.js` 的静默 shim 回全 0。
+② 官方文档把 `AudioBuffers` 定义为**每帧自动更新的活对象**（原文："Their contents will be updated for every frame
+automatically"），官方教程示例把返回值存进**顶层 `const`**、只调一次；而旧实现每次调用 `opts.audioBuffers(len)`
+都转发宿主**新建**的数组 ⇒ 顶层那份是"编译那一刻"的拷贝 ⇒ 之后永远不动。
+
+### P-132.2 官方语义（一手出处；本批按此**独立实现**，未复制任何参考实现代码）
+
+| 项 | 官方口径（逐字要点） | 出处 |
+|---|---|---|
+| `AudioBuffers.left/right/average` | 三者是 **`Float32Array`**，长度 = `registerAudioBuffers(resolution)`；"updated for every frame automatically"；`average` = "the arithmetic mean of both channels" | 官方文档 [`docs.wallpaperengine.io` 的 AudioBuffers 页](https://docs.wallpaperengine.io/en/scene/scenescript/reference/class/AudioBuffers.html) |
+| 官方示例写法 | 顶层 `const audioBuffer = engine.registerAudioBuffers(engine.AUDIO_RESOLUTION_16)`，只调一次 | 同上教程页（链接同上一行的站内 `scenescript/tutorial/` 路径） |
+| 分辨率 | `AUDIO_RESOLUTION_16/32/64`；`[0]` 最低频（bass）、`[15]` 最高（treble） | 同上 |
+| `audioprocessingmode` | **`Center` = 左右声道同时响应；`Left`/`Right` 只限单声道；"first configure the mode"** ⇒ 0=None / 1=Left / 2=Right / 3=Center | 官方 `scene/particles/component/{emitter,initializer,operator}.html` 的 *Audio response* 段 |
+| `audioprocessingexponent` | "Exponential power … By increasing this value, you will reduce how strongly low audio volume will affect the emitter" | 同上 |
+| `audioprocessingbounds` | "control at what points the audio response starts and stops … 0.8 and 1 ⇒ only take effect for volume levels between 0.8 and 1" | 同上 |
+| `audioprocessingfrequency{start,end}` | "values go from **0 to 15**, where 0 is bass sounds and 15 higher frequency treble sounds" | 同上 |
+| emitter 的作用方式 | "**The emitter will only be active when audio is playing.**" ⇒ 发射率**乘性**门控 | emitter 页 *Audio response* |
+| turbulence / turbulentvelocityrandom | "adds a factor to the **Phase** values … **this feature has no effect on particles with a `0.00` phase**" ⇒ 相位**乘性** `phase·(1+env)`（phase=0 的粒子严格不变） | initializer / operator 页同名段 |
+| vortex | "ties the particle speed to audio playback, causing the vortex to **stop spinning when no audio**" ⇒ 速度乘性 `speed·env` | operator 页 |
+| 缺省数字 | emitter：`bounds "0.8 1.0"`、`exponent 2`、`freqStart 0`、`freqEnd 1`、`mode 0`（官方二进制字符串池里 `audioprocessingexponent` 与 `audioprocessingmode` **之间就是字面量 `"0.8 1.0"`**；`lwe-ref ObjectParser.cpp:608-612` 同值）；operator/initializer：`bounds (0,1)`、`exponent 1`、`freqEnd 15`（`lwe-ref` 的 `it.user(...)` 分支） | 官方 `wallpaper_engine/wallpaper64.exe` 字符串表（`strings -t x` ⇒ `0x3734e8/0x3734ff/0x373508…`）+ `lwe-ref`（GPL-3.0，**只作行为对照**） |
+
+**我们实现的口径**（`core/audio-band-array.mjs` 的 `parseAudioResponse` / `audioEnvelope`，纯函数、无 DOM）：
+
+```text
+通道 = mode 1→left、2→right、3→average（Center）
+raw  = 16 段频谱在 [min(freqStart,freqEnd), max(...)] **闭区间**上的**均值**
+t    = clamp((raw − bounds0)/(bounds1 − bounds0), 0, 1)      // b1<=b0 时退化成阈值判定 raw>=b1
+env  = t ** exponent                                          // mode<=0 / 无视图 ⇒ **null = 不调制**
+作用 = emitter: rate×env    turbulence/turbulentvelocityrandom: phase×(1+env)    vortex: speed×env
+```
+
+### P-132.3 语料字段 vs 我们的支持（自己从真包 grep；`tests/audio-emit-live-test.mjs` T1 把这张表钉成断言）
+
+范围 = 3 个 `mode>0` 的音频驱动包（`0917/3299228616` 36 层、`dd/3544152633` 8 层、`dd/3554161528` 1 层）直读 def：
+
+| 字段 | 语料出现（3 包 / 14 个组件） | 取值 | 我们支持 | 落点 |
+|---|---|---|---|---|
+| `audioprocessingmode` | **13**（+1 个组件不带 mode = 关） | 只有 `3`（Center） | ✅ 0-3 四档（0=不调制/1=Left/2=Right/3=Center） | `parseAudioResponse` + `audioEnvelope`（mode 分支） |
+| `audioprocessingbounds` | 7（含 mode=0 的那 1 个） | `"0 1"`(2) / `"0.5 1"`(3) / `"0.8 1"`(2) | ✅ `Vec2` 字符串/数组/`{x,y}` 三形态解析 | 同上（`pVec2Like`） |
+| `audioprocessingfrequencyend` | 4 | `15`/`10`/`3`/`2` | ✅ 16 段下标（越界钳到 `[0,15]`） | 同上 |
+| `audioprocessingfrequencystart` | 2 | `1` | ✅ 同上（>end 时自动交换） | 同上 |
+| `audioprocessingexponent` | 2 | `3` / `1` | ✅ `t ** exponent`（≤0/非有限 ⇒ 回落缺省 1） | 同上 |
+| （同族但**不在** `audioprocessing*` 前缀）`instantaneous` | 0（本 3 包） | — | 早已实现（一次性爆发） | `parseParticleEmitters` |
+
+组件分布：**emitter 11（10 个 mode>0） / initializer 1（`Stars_copy1` 的 `turbulentvelocityrandom`） / operator 2（turbulence）**。
+全语料（16 个含 `audioprocessing*` 的 def、10 个包，含 `wallpapertest1/**` 的 4 个 adb 副本层）口径：
+`emitter 17 / initializer 1 / operator 2`，其中 **mode>0 = 13**；层数按 `defRel` 命中 = **59 层 / 10 包**
+（去重 `wallpapertest1` 的 4 层 ⇒ 55 层 / 8 包；§3 表里的"52 层 / 9 包"是同一批数据的另一种去重口径，
+**差在 `wallpapertest1`/`wallpaperE` 的同字节副本层算不算**——本批按"逐包不合并"记 59/10）。
+
+### P-132.4 手算 vs 实测（`tests/particle-render-correctness-test.mjs` ⑧ 段，22 条新断言）
+
+合成 def + 注入**确定频段**（16 段活视图）⇒ 发射数 = `floor(T·rate·env)`（±1 为 `simulateParticleSystem`
+0.05s 步长量化）：
+
+| 注入视图 | spec | 手算 env | 手算发射数（T=1s, rate=100/s） | 实测 |
+|---|---|---|---|---|
+| 全 1.0 | mode3 bounds .5-1 exp2 freq1-3 | 1 | 100 | **99**（±1） |
+| 全 0.75 | 同上 | 0.25 | 25 | **24**（±1，比例 0.242） |
+| 全 0.5 | 同上 | 0 | **0**（官方"没声音不发射"） | **0** |
+| 全 0.6 | mode3 bounds 0-1 exp1 | 0.6 | 60 | 60（⑧-3 实测 `60`） |
+| 全 0.6 | mode3 bounds 0-1 exp3 | 0.216 | 21.6 | （包络断言 0.216000） |
+| 全 0.6 | mode3 bounds .8-1 exp1 | 0 | 0 | 0 |
+| L[0]=1 / R[0]=0.2 | mode1 / mode2 / mode3（freq 0-0） | 1 / 0.2 / 0.6 | 100 / 20 / 60 | **99 / 20 / 60** |
+| L=R=[1,0,0…] | mode3 freq 1-3 | 0 | 0 | **0**（"下标"语义生效） |
+
+另外三条组件级（同一段源码一次跑通）：
+* **turbulence**：`env=1 ⇒ 每颗粒子相位翻倍`（实测 `ph 1.099961 → 2.199923`）；`env=0 ⇒ 与"没有视图"逐位相同`。
+* **vortex**：平均 `|v|` 无视图 `31.945` / `env=0.5` `20.507` / `env=0` `14.142`（= 初速底数 `hypot(10,10)`）⇒ 严格单调，官方"没声音就停转"。
+* **turbulentvelocityrandom**：`env=0` 初速与"没有视图"逐位相同；`env=1` 出生角改变。
+
+### P-132.5 跨包抽检（真包 + mock-GL；注入固定频段的前后对比）
+
+`⑧R` 段：同一层渲染 3 次（① 不注入视图 = 批 D 之前 ② 注入"有源但静音" ③ 注入"满音量"），比 alive：
+
+| 包 / 层 | 音频响应（def 原文） | ① 无视图 | ② 有源+静音 | ③ 满音量 |
+|---|---|---|---|---|
+| `dd/3544152633`「Star Reactive」(id 3694) | emitter mode3 bounds .5-1 exp3 freq1-3 + turbulence mode3 freq0-2 | 74 | **0** | 74 |
+| `dd/3544152633`「reactive Stars」(id 21971) | 2×emitter + initializer[4] + operator[2] 全 mode3 | 20 | **0** | 20 |
+| `0917/3299228616`「Blinking Stars_01」(id 244) | emitter mode3（其余走 emitter 官方缺省 0.8-1/2/0-1） | 218 | **0** | 218 |
+| `dd/3554161528`「notes1_simple」(id 2006) | emitter mode3 bounds 0-1 exp1 freq1-15 | — | — | —（**本用例 SKIP**：该层贴图 `materials/workshop/2446146941/particle/notes_sprite_sheet_130x258_41.tex` 是压缩格式 `format=0`，本仓库 `decodeMip0` 不支持 ⇒ mock-GL 里拿不到纹理、整层跳过；与本批改动无关） |
+
+⇒ 三个包从"平线"变成"有响应"：**有数据源时按音量门控/调制，没有采集源时保持旧行为**（见 P-132.6 的档位）。
+
+### P-132.6 `?bandfeed=` 默认翻面 + 麦克风源 + `?audioemit=` 三档
+
+* **`?bandfeed=` 缺省从 `off` 翻成 `auto`**（`demo.html`）：有数据源（`?audio=1` 的包内音轨 AnalyserNode / **已授权**的麦克风）就默认开；
+  **没有数据源 ⇒ 128 元全 0**，且**明确可观测**：`source='silent'` + `window.__mpwAudioBandSource='silent'` +
+  `__mpwAudioBandReason`（`no-source（?audio=1 的包内音轨 / ?bandfeed=mic 的麦克风都没有）`）+ `__mpwAudioBandStats().silent=true`
+  + **一条一次性日志**（多帧不刷屏）。**不再自动回落模拟源**（不假装有声音）——模拟源只在显式 `?bandfeed=sim`。
+* **新增麦克风源**：`?bandfeed=mic` 显式请求 `getUserMedia({audio:true})` → `AnalyserNode(fftSize=4096)`（与官方 RE-16 记录的 FFT 尺寸一致），
+  拿到前保持全 0+`silent`；`auto` 档**不弹权限框**，只在 `navigator.permissions.query({name:'microphone'}) === 'granted'` 时静默启用。
+* **`?bandfeed=off` = 旧行为逐位复现**（脚本侧 `audioBuffers(n)` 一字未改地走旧分支：无 analyser ⇒ `null`；有 analyser ⇒ 旧的"总均值填满 average"形态）。
+* **新增 `?audioemit=`**（解析在 `core/we-scene-bundle.js`，登记 `docs/README-DIAGNOSTICS.md`）：
+  `auto`（缺省）= 有采集源按官方语义调制 / **没有采集源保持旧行为不调制**；`strict` = 没有采集源也照官方算（全 0 ⇒ 不发射，复现官方"没音乐不发射"）；
+  `legacy` = 完全不调制（= 批 D 之前）。**为什么 `auto` 无源不门控**：会把 52 层（含 `0917/3299228616` 的 36 层星点）在
+  "我们本来就没有音频采集能力"的机器上**整片抹掉**（= 用户最初报的"少了几层"），而官方那 25 个包在
+  `supportsaudioprocessing` 语境下**永远有音频源** ⇒ 这是**有意的偏离**，已在开关表"回退/风险"列写明。
+* **活视图贯穿三处**：`demo.html` 的 16 段活视图（`createLiveBands`/`writeLiveBands`）① 经 `lib.setAudioBands(view)` 交给渲染器粒子、
+  ② 经分分辨率活视图给脚本 `registerAudioBuffers`、③ 128 元数组照旧 20Hz `postMessage` 给宿主。同一个音频源、同一份曲线。
+* **两处口径修正（批 D 顺带，含既有测试的翻面）**：
+  ① `average` 必须是**逐段** `(left[i]+right[i])/2`（官方 "arithmetic mean of both channels"）——旧 `demo.html` 把整条 128 元的**总均值**填满 n 段，
+  而语料 **344 处**读的正是 `audioBuffer.average[scriptProperties.frequency]` ⇒ 即使有数据，音条对任何频点都是同一个数；
+  ② `elysia/scene-scripts.js` 的 `AUDIO_LIVE_VIEWS` 让"顶层只调一次"也每帧更新（`applySceneScripts` 每帧开头 `refreshAudioViews`），
+  且**不再依赖宿主是否返回同一对象**。
+
+### P-132.7 反向变异（RED-IF-REVERTED；变异体在 `/tmp` 真文件副本里做，真树只读）
+
+| 变异 | 位置 | 必红断言 | 观测 |
+|---|---|---|---|
+| A：发射率不乘 env（`const audioK = 1`） | `core/we-scene-bundle.js` | `particle-render-correctness` ⑧-2「静音 ⇒ 0 粒」 | 静音频段实测 **99 粒**（正确 0） |
+| B：turbulence 相位不乘 `(1+env)`（`const ph = ph0`） | 同上 | ⑧-4「env=1 ⇒ 相位翻倍」 | 相位 `1.1000`（正确应为 `2.1999`） |
+| C：`registerAudioBuffers` 改回"每次新建数组"（逐字取自 `git show HEAD:elysia/scene-scripts.js`） | `elysia/scene-scripts.js` | `audio-emit-live` T2a「内容随帧变化」 | 5 帧后仍 `0.250000`（顶层 const 冻住） |
+| D：`?bandfeed` 缺省改回 `off` | `demo.html` | `audio-band-wiring` T1b「缺省 = auto」 | `BANDFEED='off'` |
+| E：`audioBuffers` 改回快照实现（`if (false)` 关活视图分支） | `demo.html` | T4a/T4c/T4e | 变回 `null` / 新对象 |
+| F：16 段活视图不注入渲染器（删 `lib.setAudioBands(...)`） | `demo.html` | T6a | `setAudioBands` 调用数 0 |
+
+A/B 在 `particle-render-correctness` 的 ⑧M 段每次运行都实跑（副本落 `/tmp/p131-mut-*.mjs`、跑完 `unlink`）；
+C 在 `audio-emit-live` 的 T4 段实跑（断言里同时核对**真树 sha256 前后相同**）；D/E/F 在 `audio-band-wiring` 的 T6i 段实跑。
+
+### P-132.8 门禁与登记
+
+* 新增 `tests/audio-emit-live-test.mjs`（22 断言，~0.4s，无浏览器/无网络；**注册待办**：`tests/run-all-tests.sh` 由主对话加
+  `add "audio-emit-live" "node tests/audio-emit-live-test.mjs"` —— 本批**不改**该脚本，避免与并行线冲突）。
+* `tests/particle-render-correctness-test.mjs`：**91 → 118 通过 / 0 失败**（新增 ⑧-1..⑧-6 / ⑧R / ⑧M，共 27 条，含 3 个真包的 loud/silent/无视图三态对比）。
+* `tests/audio-band-wiring-test.mjs`：真值表按新缺省翻面（18 行）+ 新增 T6（活视图/麦克风/legacy，含 3 个必红变异）。
+* `tests/media-host-test.mjs`：T8b 原来演示"旧 audioBuffers 导致恒 0"的**负面对照**在批 D 后**翻面**（宿主的对象是否稳定已经不影响 API 层，
+  因为活视图由 `scene-scripts` 自己维护）；新增 T8b2（无数据源 ⇒ 全 0 且 `hasSource=false` 可观测）。108/1 → **110/0**。
+* `docs/README-DIAGNOSTICS.md`：`bandfeed` 行按新语义重写 + 新增 `audioemit` 行；表头计数行 149 → **153**（批 D 前实测就已 152，陈旧 3）。
+  `node tests/diag-flag-check.mjs` ⇒ **代码 153 个开关 == README 主表 153 行，0 差异**。
+* `docs/PATCHES.md`：本节（P-132；P-131 已被 `:8902` 测试台服务线占用 ⇒ 顺延）。
+
+### P-132.9 未证实项 / 需要真机或有头浏览器确认
+
+1. **包络在 `[freqstart,freqend]` 上取均值还是峰值**：官方文档只写"该区间是你要反应的频率范围"，未写聚合方式；本实现取**均值**（`raw = mean`）。真机判据：`dd/3544152633&ln=16`「Star Reactive」在鼓点密集段落里是"整段变亮"（均值）还是"只跳尖峰"（峰值）。
+2. **16 段频谱的频率切分**：官方是 mel 布局（第三方 `SoundSpectrumDsp.hpp` 的 `MakeMelLayout`），我们按自己 128 元契约 **4:1 线性折叠**（`docs/AUDIO-BAND-SPEC.md` §5 已记这条差异）⇒ 频段边界与官方不完全一致。
+3. **官方 `average` 是否严格等于 `(left+right)/2`**：文档只写"两个通道的算术平均"；本实现按此式，且**宿主给了 `average` 就原样转发**（内缝契约）。
+4. **`supportsaudioprocessing` 项目级开关**：`lwe-ref` 用它决定"要不要启动音频 DSP"（默认 false）。我们**没有**按它门控（9 个包是否都声明了该 flag 未逐一核对）⇒ 可能对"没声明却写了 `audioprocessing*`"的包比官方更积极。
+5. **听感本身无法在本机验证**：本机没有系统声卡环回、禁开浏览器（软件 WebGL ~1.5fps），所有断言都是**数字层**（发射数/相位/速度/顶点流）。
+   "音乐一响星点就跳起来"的观感必须真机确认（见 P-132.10）。
+6. **麦克风路径未在真实浏览器里跑过**：`getUserMedia` 分支只有桩测试（`win.AudioContext` + fake analyser）；权限弹窗、Android/Termux WebView 的可用性、以及"手机麦克风回授"都未验证。
+7. **`?audioemit=strict` 的官方画面**（52 层整片消失）只有 mock-GL 的 alive=0，没有像素对照。
+
+### P-132.10 需要真机 / 有头浏览器确认的清单（URL + 操作 + 期望）
+
+| URL | 操作 | 期望 |
+|---|---|---|
+| `http://<host>:8899/?id=3544152633&audio=1` | 等首帧、看控制台 | 日志出现 `① sound 层已接入`；`__mpwAudioBandInfo()` 的 `source=analyser`、`hasSource=true`（若该包无 sound 层 ⇒ `silent` + 一次性"频段数据源：无"日志） |
+| 同上（该包有音轨在播） | 听音乐看「Star Reactive」/「reactive Stars」层 | 星点**随鼓点出现/变密**（无音乐时应几乎不发射 —— 这是官方 emitter 语义） |
+| `http://<host>:8899/?id=3544152633&audio=1&bandfeed=off` | 同上 | 回到批 D 之前：星点**恒发射**、与音乐无关（回退口逐位复现） |
+| `http://<host>:8899/?id=3299228616&bandfeed=mic` | 允许麦克风权限、放音乐对着麦克风 | 36 层星点随音乐跳动；日志 `① 麦克风频谱已接入`；`__mpwAudioBandInfo().mic==='on'` |
+| `...&id=3299228616&audioemit=strict` | 不放音乐 | 星点**整片消失**（官方的"没音乐不发射"） |
+| `...&id=3299228616&bandfeed=sim` | 无需任何音频源 | 星点按**确定性模拟频谱**（132BPM 假节拍）跳动 —— 无麦克风也能验收"响应链路通" |
+| `...&id=3544152633&bandfeed=banana` | — | 非法值 = `auto`（缺省档），不是静默关；`__mpwAudioBandInfo().feed==='auto'` |
+| 任意包 + `?scriptcache=1&bandfeed=sim` | 看音条层（`Simple_Audio_Bars` 类） | 音条**逐条不同高**（`average[freq]` 逐段不同；旧实现所有条一样高） |
+
+### P-132.11 未改什么（红线）
+
+`emitter.rate` 缺省（批 A 的 5）、`oscillate*` 频率量纲、颜色口径（`?pcolor`）、`?pops`/`?pframe`/`?psize` 等既有档位、
+`tests/run-all-tests.sh`、别的线的 `tests/**`、`docs/**`（除本节的 `docs/PATCHES.md` 与 `docs/README-DIAGNOSTICS.md` 两处）、
+`server/**`、`package.json`、`README.md`、`docs/ONLINE-DEMO.md` 一字未动。
+⚠ `docs/AUDIO-BAND-WIRING.md` §1/§2 的 `bandfeed` 缺省与语义表**已因本批而过时**（该文件不在本批允许改的路径里）⇒
+  需要由该文档的归属线把 `?bandfeed=` 行（缺省 off → auto、新增 mic / `audioemit`）同步过去。

@@ -109,6 +109,161 @@ export function simulatedBandArray(t, opts = {}) {
   return packBands(s.preL, s.preR, null, { clampOnly: false });
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * ①(P-131 批 D 2026-09-19) **音频响应（audio response）** 与 **活视图（live view）**
+ *
+ * 两件事，都有官方一手文档（`docs/PATCHES.md` P-131 列了逐条出处）：
+ *   1. `engine.registerAudioBuffers(n)` 返回的 `AudioBuffers` 是**每帧自动更新的活对象**
+ *      （官方文档原文：`Their contents will be updated for every frame automatically, so you can
+ *      continuously read the audio levels from this object.`；官方示例把返回值存进顶层 `const`、
+ *      只调一次）⇒ 宿主必须交出**同一批数组对象**、内容原地刷新，不能是"调用那一刻的快照"。
+ *   2. 粒子组件的 `audioprocessing*`（mode/bounds/exponent/frequencystart/frequencyend）叫
+ *      **Audio response**，取值语义：mode = `None`(0)/`Left`(1)/`Right`(2)/`Center`(3)；
+ *      bounds = 起止阈值（在 [b0,b1] 之间线性淡入）；exponent = 幂次（越大越压低声小的部分）；
+ *      frequency 端点是 **16 段频谱的下标 0..15**（0 = 低频 bass、15 = 高频 treble）。
+ * 本模块只放**纯函数**（无 DOM/无 WebAudio）：活视图 + 包络，宿主与渲染器共用同一份口径。
+ * ⚠ 未证实项（需真机/官方二进制）：① `average` 的官方实现是否严格等于 (left+right)/2
+ *   （文档只说"两个通道的算术平均"）；② 包络在 [freqstart,freqend] 上取**均值**还是峰值
+ *   （文档未写 ⇒ 本实现取均值，见 P-131 的"未证实"节）；③ 16 段频谱的频率切分（我们按
+ *   自己 128 元契约 4:1 折叠，官方是 mel 布局，见 `docs/AUDIO-BAND-SPEC.md` §5）。
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+/** 音频响应档位（官方编辑器下拉：None / Left / Right / Center） */
+export const AUDIO_RESPONSE_MODES = { none: 0, left: 1, right: 2, center: 3 }
+
+/** 音频响应读的是 **16 段分辨率**（官方编辑器把 frequency 取值写成 0..15） */
+export const AUDIO_RESPONSE_BANDS = 16
+
+/**
+ * 官方缺省（两套，按组件类型分）：
+ *   · emitter  —— 官方二进制字符串池里 `audioprocessingbounds` 旁边就是字面量 `"0.8 1.0"`，
+ *     且 `lwe-ref` 的 emitter 解析写死 `parseVec2("audioprocessingbounds", glm::vec2(0.8,1.0))`、
+ *     `audioprocessingexponent → 2`、`frequencystart → 0`、`frequencyend → 1`、`mode → 0`。
+ *     `frequencyend=1` 与官方文档"设成 1 就只对鼓点反应"一致 ⇒ 发射器缺省只看最低两段。
+ *   · operator / initializer —— `lwe-ref` 的 `it.user(...)` 分支：bounds (0,1)、exponent 1、
+ *     frequencystart 0、frequencyend 15（全频段）、mode 0。
+ */
+export const AUDIO_RESPONSE_DEFAULTS = {
+  emitter: { mode: 0, bounds: [0.8, 1.0], exponent: 2, freqStart: 0, freqEnd: 1 },
+  operator: { mode: 0, bounds: [0.0, 1.0], exponent: 1, freqStart: 0, freqEnd: 15 },
+}
+
+/** 解析 `audioprocessing*`（原始 def 组件对象）→ 归一化 spec；mode<=0 视作"没开音频响应"。 */
+export function parseAudioResponse(raw, kind = 'operator') {
+  const d = AUDIO_RESPONSE_DEFAULTS[kind === 'emitter' ? 'emitter' : 'operator']
+  if (!raw || typeof raw !== 'object') return null
+  const has = ['audioprocessingmode', 'audioprocessingbounds', 'audioprocessingexponent',
+    'audioprocessingfrequencystart', 'audioprocessingfrequencyend'].some((k) => raw[k] !== undefined)
+  if (!has) return null
+  const i = (v, dflt) => { const n = Number(v); return Number.isFinite(n) ? Math.trunc(n) : dflt }
+  const b = pVec2Like(raw.audioprocessingbounds, d.bounds)
+  const mode = i(raw.audioprocessingmode, d.mode)
+  return {
+    mode,
+    bounds: b,
+    // 官方 exponent 是"幂次"，文档口径 ≥1；<1 会让小声被放大（未在语料出现）⇒ 只做下限保护
+    exponent: (() => { const n = Number(raw.audioprocessingexponent); return Number.isFinite(n) && n > 0 ? n : d.exponent })(),
+    // 官方 frequency 端点是 16 段下标，负数/越界在取值时再钳（这里保留作者原值，便于诊断）
+    freqStart: i(raw.audioprocessingfrequencystart, d.freqStart),
+    freqEnd: i(raw.audioprocessingfrequencyend, d.freqEnd),
+    kind: kind === 'emitter' ? 'emitter' : 'operator',
+  }
+}
+function pVec2Like(s, dflt) {
+  if (s == null) return dflt.slice()
+  if (Array.isArray(s)) return [num(s[0], dflt[0]), num(s[1], dflt[1])]
+  if (typeof s === 'object') return [num(s.x, dflt[0]), num(s.y, dflt[1])]
+  const p = String(s).trim().split(/\s+/).map(Number)
+  return [num(p[0], dflt[0]), num(p[1], dflt[1])]
+}
+
+/** 单通道重采样：`src` 的 `srcLen` 项 → `n` 段均值（低频在前；越界当 0）。`out` 复用。 */
+export function resampleBands(src, n, out = null) {
+  const len = Math.max(1, Math.trunc(num(n, 1)))
+  const dst = out && out.length === len ? out : new Float32Array(len)
+  const srcLen = src && typeof src.length === 'number' ? src.length : 0
+  for (let i = 0; i < len; i++) {
+    const a = Math.floor(i * srcLen / len), z = Math.max(a + 1, Math.floor((i + 1) * srcLen / len))
+    let s = 0
+    for (let k = a; k < z; k++) s += num(src[k], 0)
+    dst[i] = srcLen ? s / (z - a) : 0
+  }
+  return dst
+}
+
+/**
+ * 新建一份**活视图**：`{resolution, left, right, average}` 三个 `Float32Array`。
+ * 官方文档把 `left/right/average` 的类型写成 `Float32Array`，且"每帧自动更新" ⇒ 调用方
+ * （脚本顶层 `const`）长期持有它，宿主每帧 `writeLiveBands` 原地刷新。
+ */
+export function createLiveBands(resolution = AUDIO_RESPONSE_BANDS) {
+  const n = Math.max(1, Math.trunc(num(resolution, AUDIO_RESPONSE_BANDS)))
+  return {
+    resolution: n,
+    left: new Float32Array(n),
+    right: new Float32Array(n),
+    average: new Float32Array(n),
+    // 诊断（宿主填）：'analyser' | 'mic' | 'simulated' | 'silent'
+    kind: 'silent',
+    hasSource: false,
+    revision: 0,
+  }
+}
+
+/**
+ * 用左右通道数据**原地**写活视图（`average[i] = (left[i]+right[i])/2` —— 官方文档的
+ * "arithmetic mean of both channels"）。左右缺一个 ⇒ 用另一个补齐（单声道不伪造立体声差异）。
+ * 返回同一个 `view` 对象（引用恒定，内容随帧变化）。
+ */
+export function writeLiveBands(view, left, right, opts = {}) {
+  if (!view || !view.left) return view
+  const n = view.left.length
+  const l = resampleBands(left, n, view.left)
+  const r = resampleBands(right != null ? right : left, n, view.right)
+  for (let i = 0; i < n; i++) view.average[i] = (l[i] + r[i]) / 2
+  if (opts.kind !== undefined) view.kind = String(opts.kind)
+  if (opts.hasSource !== undefined) view.hasSource = !!opts.hasSource
+  view.revision = (view.revision | 0) + 1
+  return view
+}
+
+/**
+ * **音频响应包络**（0..1）——粒子 `audioprocessing*` 的官方语义：
+ *
+ * ```text
+ *   通道   = mode 1→left、2→right、3→average（Center = 左右同时）
+ *   频段   = [min(freqStart,freqEnd), max(...)] 闭区间（16 段下标，0=低频）
+ *   raw    = 该区间各段的**均值**
+ *   t      = clamp((raw − bounds0) / (bounds1 − bounds0), 0, 1)   // bounds 是"起止阈值"
+ *   env    = t ^ exponent
+ * ```
+ *
+ * 返回 `null` = **不做音频调制**（mode<=0，或没有活视图/没有数据源 —— 调用方保持原值）。
+ * 返回 0 = "有数据源但此刻是静音"（官方：没声音就不发射）。
+ */
+export function audioEnvelope(spec, view) {
+  if (!spec || !(num(spec.mode, 0) > 0)) return null
+  if (!view) return null
+  const mode = Math.trunc(num(spec.mode, 0))
+  const arr = mode === 1 ? view.left : mode === 2 ? view.right : view.average
+  if (!arr || !arr.length) return null
+  const last = arr.length - 1
+  const clampIdx = (v) => Math.max(0, Math.min(last, Math.trunc(num(v, 0))))
+  let f0 = clampIdx(spec.freqStart), f1 = clampIdx(spec.freqEnd)
+  if (f1 < f0) { const t = f0; f0 = f1; f1 = t }
+  let sum = 0
+  for (let k = f0; k <= f1; k++) sum += num(arr[k], 0)
+  const raw = sum / (f1 - f0 + 1)
+  const b0 = num(spec.bounds && spec.bounds[0], 0), b1 = num(spec.bounds && spec.bounds[1], 1)
+  let t
+  if (b1 > b0) t = (raw - b0) / (b1 - b0)
+  else t = raw >= b1 ? 1 : 0                   // 退化区间（b1<=b0）：阈值型判定
+  t = t <= 0 ? 0 : t >= 1 ? 1 : t
+  const exp = num(spec.exponent, 1)
+  const env = exp === 1 ? t : Math.pow(t, exp)
+  return env <= 0 ? 0 : env >= 1 ? 1 : env
+}
+
 /** 频段数组诊断摘要（进 diag/日志：一眼看出"有没有数据 / 是不是全零 / 峰值在哪一段"）。 */
 export function bandStats(arr) {
   const a = arr && typeof arr.length === 'number' ? arr : [];

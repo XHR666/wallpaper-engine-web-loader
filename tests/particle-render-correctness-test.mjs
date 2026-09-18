@@ -20,6 +20,9 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { createRenderer } from '../core/we-scene-bundle.js'
 import * as lib from '../core/we-scene-bundle.js'
+import crypto from 'node:crypto'
+// ①(P-131 批D) 音频响应口径（16 段活视图 + 官方包络）由模块提供；渲染器侧只接线
+import { createLiveBands, writeLiveBands, AUDIO_RESPONSE_BANDS, audioEnvelope, parseAudioResponse } from '../core/audio-band-array.mjs'
 
 const MPW_WS = process.env.MPW_ROOT || _root.WS || path.resolve(_root.ROOT, '..')
 const DIR = `${MPW_WS}/allwallpaper/dd`
@@ -29,7 +32,8 @@ const VERBOSE = process.argv.includes('--verbose')
 const checks = []
 const push = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); if (VERBOSE || !ok) console.log((ok ? '  PASS ' : '  FAIL ') + name + (detail ? ' — ' + detail : '')) }
 const near = (a, b, tol) => Math.abs(a - b) <= tol
-const hasPkg = (id) => fs.existsSync(`${DIR}/${id}/scene.pkg`)
+// ①(P-131 批D) 可选 `dir`：语料不只 `dd/**`（音频驱动包还有 `0917/**`）
+const hasPkg = (id, dir = DIR) => fs.existsSync(`${dir}/${id}/scene.pkg`)
 
 // ───────────────────────── mock GL（顶点流捕获） ─────────────────────────
 function makeGl() {
@@ -274,8 +278,8 @@ const allSame = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v
 }
 
 // ═══════════════════ ⑤ 真包：语料级证据 + 代价不回归 ═══════════════════
-function loadPkg(id) {
-  const pkg = lib.parsePkg(new Uint8Array(fs.readFileSync(`${DIR}/${id}/scene.pkg`)))
+function loadPkg(id, dir = DIR) {
+  const pkg = lib.parsePkg(new Uint8Array(fs.readFileSync(`${dir}/${id}/scene.pkg`)))
   const sj = JSON.parse(dec.decode(lib.getEntry(pkg, 'scene.json')).replace(/^\uFEFF/, ''))
   const readParticleDef = (p) => { try { const e = lib.getEntry(pkg, p); return e ? JSON.parse(dec.decode(e)) : null } catch { return null } }
   const scene = lib.parseScene(sj, null, { readParticleDef, legacyAnimY: true })
@@ -305,8 +309,8 @@ function buildTex(pkg, scene, layer) {
 }
 // 只用目标粒子层渲染 t 秒（其余层不可见），返回顶点流 + stats
 // ①(P-126) 第 5 参 layerId：同名层（hina 有两个"萤火虫"）按 id 精确选择
-async function renderRealLayer(id, layerName, modes = {}, t = 6.0, layerId = null) {
-  const { pkg, scene } = loadPkg(id)
+async function renderRealLayer(id, layerName, modes = {}, t = 6.0, layerId = null, dir = DIR) {
+  const { pkg, scene } = loadPkg(id, dir)
   const target = scene.layers.find((l) => l.particleDef && (layerId != null ? l.id === layerId : l.name === layerName))
   if (!target) return null
   for (const l of scene.layers) if (l.particleDef) l.visible = (l === target)
@@ -909,6 +913,267 @@ if (hasPkg('3544152633')) {
     !!v1c && v1c.length > 30 && v1r[1] <= 206 / 255 + 1e-6 && !!v1 && v1.stats.colorAttr === 1,
     v1c ? `顶点色∈[${v1r.map((v) => v.toFixed(4)).join(',')}] colorAttr=${v1.stats.colorAttr}` : 'no draw')
 } else push('⑦H dd/3544152633 真包缺失（SKIP 视作 PASS）', true, 'no pkg')
+
+// ── ⑧ (P-131 批D) 音频驱动发射：官方 Audio response 的 mode/bounds/exponent/frequency ──
+//   判据一律"**手算 vs 实测**"：合成分辨率 16 的活视图（官方 `audioprocessingfrequency*` 的 0..15 下标
+//   就落在 16 段上）⇒ 手算 env ⇒ 手算发射数 `floor(T·rate·env)` ⇒ 与 `simulateParticleSystem` 的实测比。
+//   另一半是三种组件的官方作用方式：emitter `rate·env`、turbulence `phase·(1+env)`、vortex `speed·env`。
+{
+  const A16 = (pairs) => { const a = new Array(AUDIO_RESPONSE_BANDS).fill(0); for (const [i, x] of pairs) a[i] = x; return a }
+  const VIEW = (spec) => {
+    const v = createLiveBands(AUDIO_RESPONSE_BANDS)
+    const l = new Float32Array(AUDIO_RESPONSE_BANDS), r = new Float32Array(AUDIO_RESPONSE_BANDS)
+    if (typeof spec === 'number') { l.fill(spec); r.fill(spec) }
+    else { for (const [i, x] of (spec.left || []).entries()) l[i] = x; for (const [i, x] of (spec.right || []).entries()) r[i] = x }
+    writeLiveBands(v, l, r, { kind: 'test', hasSource: true })
+    return v
+  }
+  const AUDIO_DEF = (audio, extra = {}) => Object.assign({
+    maxcount: 100000,
+    emitter: [Object.assign({ name: 'boxrandom', rate: 100, distancemax: '0 0 0' }, audio)],
+    initializer: [{ name: 'lifetimerandom', min: 1000, max: 1000 }],
+    operator: [{ name: 'movement' }],
+    renderer: [{ name: 'sprite' }],
+  }, extra)
+  /** 实测：注入视图 → 建系统 → 走到 T 秒 → 存活粒子数（= 发射数，寿命 1000s 不会死） */
+  const measure = (def, view, T = 1.0, ctx = {}) => {
+    lib.setAudioBands(view)
+    const sys = lib.buildParticleSystem(def, ctx)
+    lib.simulateParticleSystem(sys, T)
+    return sys
+  }
+
+  // ⑧-1 手算 env：mode/bounds/exponent/frequency 的每一档（16 段上逐段取均值 → bounds → 幂次）
+  {
+    const cases = [
+      // [视图, spec, 期望 env, 说明]
+      [VIEW(1.0), { mode: 3, bounds: [0.5, 1], exponent: 2, freqStart: 1, freqEnd: 3 }, 1, '满音量 ⇒ t=1 ⇒ env=1'],
+      [VIEW(0.75), { mode: 3, bounds: [0.5, 1], exponent: 2, freqStart: 1, freqEnd: 3 }, 0.25, 't=(0.75−0.5)/0.5=0.5 ⇒ 0.5²=0.25'],
+      [VIEW(0.5), { mode: 3, bounds: [0.5, 1], exponent: 2, freqStart: 1, freqEnd: 3 }, 0, 't=0 ⇒ 0（bounds 下限之下=不响应）'],
+      [VIEW(0.6), { mode: 3, bounds: [0, 1], exponent: 1, freqStart: 0, freqEnd: 15 }, 0.6, 'bounds 0..1 + 线性 ⇒ env=raw'],
+      [VIEW(0.6), { mode: 3, bounds: [0, 1], exponent: 3, freqStart: 0, freqEnd: 15 }, 0.216, 'exponent 3 ⇒ 0.6³=0.216'],
+      [VIEW(0.6), { mode: 3, bounds: [0.8, 1], exponent: 1, freqStart: 0, freqEnd: 15 }, 0, 'bounds 0.8..1 ⇒ 0.6 不响应'],
+      [VIEW({ left: A16([[0, 1]]), right: A16([[0, 0.2]]) }), { mode: 1, bounds: [0, 1], exponent: 1, freqStart: 0, freqEnd: 0 }, 1, 'mode=Left ⇒ 只看左通道'],
+      [VIEW({ left: A16([[0, 1]]), right: A16([[0, 0.2]]) }), { mode: 2, bounds: [0, 1], exponent: 1, freqStart: 0, freqEnd: 0 }, 0.2, 'mode=Right ⇒ 只看右通道'],
+      [VIEW({ left: A16([[0, 1]]), right: A16([[0, 0.2]]) }), { mode: 3, bounds: [0, 1], exponent: 1, freqStart: 0, freqEnd: 0 }, 0.6, 'mode=Center ⇒ (1+0.2)/2'],
+      [VIEW({ left: A16([[0, 1]]), right: A16([[0, 1]]) }), { mode: 3, bounds: [0, 1], exponent: 1, freqStart: 1, freqEnd: 3 }, 0, '区间 [1,3] 全 0 ⇒ 0（frequency 是真下标，不是装饰）'],
+      [VIEW({ left: A16([[0, 1]]), right: A16([[0, 1]]) }), { mode: 3, bounds: [0, 1], exponent: 1, freqStart: 0, freqEnd: 0 }, 1, '区间 [0,0] 取最低频段 ⇒ 1'],
+    ]
+    let bad = 0
+    const seen = []
+    for (const [v, spec, want, why] of cases) {
+      const got = audioEnvelope(spec, v)
+      if (!near(got, want, 1e-6)) { bad++; seen.push(JSON.stringify(spec) + '→' + got + '(want ' + want + ')') }
+    }
+    push('⑧-1 包络手算：mode(Left/Right/Center)/bounds/exponent/frequency 区间 11 档全部命中',
+      bad === 0, bad ? seen.join(' ') : '11/11（含 Center=(L+R)/2、区间全 0 ⇒ 0）')
+    // 官方缺省（emitter 一套：bounds 0.8 1、exponent 2、freq 0..1、mode 0）——语料 6 个 Star_*.json 只写 mode
+    const p0 = parseAudioResponse({ audioprocessingmode: 3 }, 'emitter')
+    push('⑧-1 `audioprocessingmode:3` 单独出现时的官方缺省（emitter 一套）',
+      !!p0 && p0.mode === 3 && p0.bounds[0] === 0.8 && p0.bounds[1] === 1 && p0.exponent === 2 && p0.freqStart === 0 && p0.freqEnd === 1,
+      JSON.stringify(p0))
+    const noAudio = parseAudioResponse({ rate: 5 }, 'emitter')
+    push('⑧-1 组件没写 `audioprocessing*` ⇒ 无音频响应（不是"缺省 mode=0 但照样算"）', noAudio === null, String(noAudio))
+  }
+
+  // ⑧-2 emitter：`rate × env` 的实测（手算 = floor(T·rate·env)，T=1s、rate=100/s）
+  {
+    const def = AUDIO_DEF({ audioprocessingmode: 3, audioprocessingbounds: '0.5 1', audioprocessingexponent: 2, audioprocessingfrequencystart: 1, audioprocessingfrequencyend: 3 })
+    const loud = measure(def, VIEW(1.0)), mid = measure(def, VIEW(0.75)), silent = measure(def, VIEW(0.5))
+    // 手算 = T·rate·env = 1.0s × 100/s × env；实测与手算的差 ≤1 粒（`simulateParticleSystem` 的 0.05s
+    // 步长在末尾会截断，且 `acc` 浮点累加在整边界上可能差 1e-14 ⇒ floor 少 1 —— 与音频无关的既有性质）
+    push('⑧-2 注入满音量频段 ⇒ env=1 ⇒ 发射 ≈100 粒（手算 1.0×100×1；±1 为步长量化）',
+      Math.abs(loud.particles.length - 100) <= 1 && loud.particles.length > 0, '实测 ' + loud.particles.length)
+    push('⑧-2 env=0.25（t=0.5、exp=2）⇒ 发射 ≈25 粒（手算 100×0.25；比例 0.25±0.02）',
+      Math.abs(mid.particles.length - 25) <= 1 && Math.abs(mid.particles.length / loud.particles.length - 0.25) <= 0.02,
+      '实测 ' + mid.particles.length + '（比例 ' + (mid.particles.length / loud.particles.length).toFixed(3) + '）')
+    push('⑧-2 ★有数据源但**静音**（全 0 频段）⇒ env=0 ⇒ **0 粒**（官方：emitter 只在有声音时活跃）',
+      silent.particles.length === 0, '实测 ' + silent.particles.length)
+    // 没有视图（= 批 D 之前 / `?audioemit=legacy`）⇒ 逐位回到 100 粒、不再受频段影响
+    const none = measure(def, null)
+    push('⑧-2 ★没有频段视图 ⇒ 完全不调制（≈100 粒，与批 D 之前逐位一致；`?audioemit=legacy` 同）',
+      none.particles.length === loud.particles.length && (lib.audioBandsInfo().hasView === false), '实测 ' + none.particles.length)
+    // 无源豁免（auto 档）：有视图但 `hasSource=false` ⇒ 也保持旧行为（把 52 层从"整片消失"里救回来）
+    const noSrc = createLiveBands(AUDIO_RESPONSE_BANDS)
+    const noneSrc = measure(def, noSrc)
+    push('⑧-2 auto 档"有视图但无采集源"（hasSource=false）⇒ 保持旧行为（≈100 粒）+ 记账 audioNoSource>0',
+      noneSrc.particles.length === loud.particles.length && (noneSrc.audioNoSource | 0) > 0, '实测 ' + noneSrc.particles.length + ' noSource=' + (noneSrc.audioNoSource | 0))
+  }
+
+  // ⑧-3 emitter：frequency 区间与 mode 通道选择**真的进了发射数**（不是只算了个 env）
+  {
+    const bands = { left: new Array(16).fill(0), right: new Array(16).fill(0) }
+    bands.left[0] = 1; bands.right[0] = 0.2
+    const spec = (audio) => AUDIO_DEF(Object.assign({ audioprocessingmode: 3, audioprocessingbounds: '0 1', audioprocessingexponent: 1 }, audio))
+    const left = measure(spec({ audioprocessingmode: 1, audioprocessingfrequencystart: 0, audioprocessingfrequencyend: 0 }), VIEW(bands))
+    const right = measure(spec({ audioprocessingmode: 2, audioprocessingfrequencystart: 0, audioprocessingfrequencyend: 0 }), VIEW(bands))
+    const center = measure(spec({ audioprocessingmode: 3, audioprocessingfrequencystart: 0, audioprocessingfrequencyend: 0 }), VIEW(bands))
+    const hiRange = measure(spec({ audioprocessingmode: 3, audioprocessingfrequencystart: 1, audioprocessingfrequencyend: 15 }), VIEW(bands))
+    push('⑧-3 mode 1/2/3 = 左/右/居中：(1.0 / 0.2 / 0.6) ⇒ ≈100 / 20 / 60 粒（±1 步长量化）',
+      Math.abs(left.particles.length - 100) <= 1 && Math.abs(right.particles.length - 20) <= 1 && Math.abs(center.particles.length - 60) <= 1,
+      `实测 ${left.particles.length}/${right.particles.length}/${center.particles.length}`)
+    push('⑧-3 frequency 区间 [1,15] 在该视图下全 0 ⇒ 0 粒（下标语义生效）',
+      hiRange.particles.length === 0, '实测 ' + hiRange.particles.length)
+  }
+
+  // ⑧-4 turbulence operator：官方"adds a factor to the **Phase** values" ⇒ `phase·(1+env)`
+  {
+    const mk = (audio) => ({
+      maxcount: 200,
+      emitter: [{ name: 'boxrandom', rate: 30, distancemax: '200 200 0' }],
+      initializer: [{ name: 'lifetimerandom', min: 1000, max: 1000 }, { name: 'velocityrandom', min: '10 10 0', max: '10 10 0' }],
+      operator: [Object.assign({ name: 'turbulence', scale: 0.01, speedmin: 50, speedmax: 50, phasemin: 1, phasemax: 5, mask: '1 1 0' }, audio), { name: 'movement' }],
+      renderer: [{ name: 'sprite' }],
+    })
+    const ph = (view, T = 0.5) => { const s = measure(mk({ audioprocessingmode: 3, audioprocessingbounds: '0 1', audioprocessingexponent: 1, audioprocessingfrequencystart: 0, audioprocessingfrequencyend: 15 }), view, T); return s.particles.map((p) => p.turbPh) }
+    const off = ph(null), zero = ph(VIEW(0)), one = ph(VIEW(1))
+    const doubled = off.length > 0 && off.every((v, i) => near(one[i], v * 2, 1e-9))
+    const same = off.length > 0 && off.every((v, i) => Object.is(zero[i], v))
+    push('⑧-4 turbulence：env=1 ⇒ 每颗粒子相位**翻倍**（phase·(1+env)，官方 "adds a factor to the Phase"）',
+      doubled, off.length ? 'ph(无视图)=' + off[0].toFixed(6) + ' → ph(env=1)=' + one[0].toFixed(6) : '无粒子')
+    push('⑧-4 turbulence：env=0（静音）⇒ 相位与"没有视图"逐位相同（phase·(1+0)）', same)
+  }
+
+  // ⑧-5 vortex operator：官方"ties the particle speed to audio playback … stop spinning when no audio"
+  {
+    const mk = (audio) => ({
+      maxcount: 200,
+      emitter: [{ name: 'boxrandom', rate: 30, distancemax: '200 200 0' }],
+      initializer: [{ name: 'lifetimerandom', min: 1000, max: 1000 }, { name: 'velocityrandom', min: '10 10 0', max: '10 10 0' }],
+      operator: [Object.assign({ name: 'vortex', origin: '50 0 0', scale: 100, innerradius: 0, outerradius: 1000 }, audio), { name: 'movement' }],
+      renderer: [{ name: 'sprite' }],
+    })
+    const spd = (view) => {
+      const s = measure(mk({ audioprocessingmode: 3, audioprocessingbounds: '0 1', audioprocessingexponent: 1, audioprocessingfrequencystart: 0, audioprocessingfrequencyend: 15 }), view, 0.5)
+      const a = s.particles.map((p) => Math.hypot(p.vel[0], p.vel[1]))
+      return a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0
+    }
+    const off = spd(null), zero = spd(VIEW(0)), half = spd(VIEW(0.5))
+    const init = Math.hypot(10, 10)   // 只有 velocityrandom(10,10) 时的 |v| 底数
+    push('⑧-5 vortex：env=0 ⇒ 平均 |v| 掉回初速底数（官方"没声音就停转"）',
+      off > 0 && Math.abs(zero - init) < 0.05 && zero < off - 1,
+      `均值 |v|：无视图=${off.toFixed(3)} env=0 ⇒ ${zero.toFixed(3)}（初速底数 ${init.toFixed(3)}）`)
+    push('⑧-5 vortex：env=0.5 ⇒ 平均 |v| 严格介于 env=0 与"无音频响应"之间（speed·env 单调）',
+      zero < half && half < off,
+      `env=0.5 ⇒ ${half.toFixed(3)}，无视图 ⇒ ${off.toFixed(3)}`)
+  }
+
+  // ⑧-6 turbulentvelocityrandom initializer：官方同段"adds a factor to the Phase values"
+  {
+    const mk = (audio) => ({
+      maxcount: 60,
+      emitter: [{ name: 'boxrandom', rate: 30, distancemax: '0 0 0' }],
+      initializer: [{ name: 'lifetimerandom', min: 1000, max: 1000 },
+        Object.assign({ name: 'turbulentvelocityrandom', speedmin: 100, speedmax: 100, phasemin: 0.5, phasemax: 5 }, audio)],
+      operator: [{ name: 'movement' }],
+      renderer: [{ name: 'sprite' }],
+    })
+    const vels = (view) => { const s = measure(mk({ audioprocessingmode: 3, audioprocessingbounds: '0 1', audioprocessingexponent: 1, audioprocessingfrequencystart: 0, audioprocessingfrequencyend: 15 }), view, 0.05); return s.particles.map((p) => [p.vel[0], p.vel[1]]) }
+    const off = vels(null), zero = vels(VIEW(0)), one = vels(VIEW(1))
+    push('⑧-6 turbulentvelocityrandom：env=0 ⇒ 初速与"没有视图"逐位相同（相位 ×1）',
+      off.length > 0 && off.every((v, i) => Object.is(v[0], zero[i][0]) && Object.is(v[1], zero[i][1])))
+    push('⑧-6 turbulentvelocityrandom：env=1 ⇒ 初速方向改变（相位 ×2 ⇒ 出生角不同）',
+      off.length > 0 && off.some((v, i) => Math.abs(v[0] - one[i][0]) > 1e-9 || Math.abs(v[1] - one[i][1]) > 1e-9))
+  }
+
+  lib.setAudioBands(null)   // 清场：后面的真包渲染默认回到"没有音频数据源"
+}
+
+// ── ⑧R 真包抽检：3 个真音频驱动包（注入固定频段 ⇒ 从"平线"变"有响应"）──
+{
+  const SPOT = [
+    // [语料目录, 包, 层名, 层 id, 该层的 audioprocessing*（诊断用）]
+    // ⚠ `dd/3554161528` 的 `notes1_simple`（mode3 bounds0-1 exp1 freq1-15）**贴图是压缩格式**
+    //   （`notes_sprite_sheet_130x258_41.tex` format=0，本仓库 decodeMip0 不支持）⇒ mock-GL 里
+    //   `buildTex` 拿不到纹理、整层跳过（与本批改动无关）；它在下面按"无粒子批"如实 SKIP。
+    ['dd', '3544152633', 'Star Reactive', 3694, 'emitter mode3 bounds 0.5-1 exp3 freq1-3 + turbulence mode3 freq0-2'],
+    ['dd', '3544152633', 'reactive Stars', 21971, '2×emitter + initializer[4] + operator[2] 全 mode3（bounds 0.5-1/0.8-1）'],
+    ['dd', '3554161528', 'notes1_simple', 2006, 'emitter mode3 bounds 0-1 exp1 freq1-15（贴图为压缩格式 ⇒ 本用例 SKIP）'],
+    ['0917', '3299228616', 'Blinking Stars_01', 244, 'emitter mode3（其余走 emitter 官方缺省 bounds 0.8-1 exp2 freq0-1）'],
+  ]
+  const loud = (() => { const v = createLiveBands(16); const a = new Float32Array(16).fill(1); writeLiveBands(v, a, a, { kind: 'test', hasSource: true }); return v })()
+  const quiet = (() => { const v = createLiveBands(16); const a = new Float32Array(16); writeLiveBands(v, a, a, { kind: 'test', hasSource: true }); return v })()
+  for (const [sub, id, name, lid, why] of SPOT) {
+    const dir = sub === 'dd' ? DIR : `${MPW_WS}/allwallpaper/${sub}`
+    if (!hasPkg(id, dir)) { push('⑧R 真包 ' + id + ' 缺失（SKIP 视作 PASS）', true, 'no pkg'); continue }
+    lib.setAudioBands(null)
+    const base = await renderRealLayer(id, name, {}, 6.0, lid, dir)
+    lib.setAudioBands(quiet)
+    const sil = await renderRealLayer(id, name, {}, 6.0, lid, dir)
+    lib.setAudioBands(loud)
+    const hot = await renderRealLayer(id, name, {}, 6.0, lid, dir)
+    lib.setAudioBands(null)
+    if (!base || !base.stats || !base.stats.audioLayers) { push('⑧R 真包 ' + id + '「' + name + '」无粒子批（SKIP 视作 PASS）', true); continue }
+    const nBase = base.stats.alive, nSil = sil ? sil.stats.alive : -1, nHot = hot ? hot.stats.alive : -1
+    const info = base.stats.audioLayers[name] || null
+    push('⑧R ' + id + '「' + name + '」有音频响应组件被认出来（' + why + '）',
+      !!info && info.env === null, info ? 'mode=' + info.mode + ' emitters=' + info.emitters + ' env(无视图)=' + info.env : '未记账')
+    push('⑧R ' + id + '「' + name + '」★注入"有数据源但静音" ⇒ alive 从 ' + nBase + ' 变 0（官方"没音乐不发射"）',
+      nSil === 0 && nBase > 0, 'alive: 无视图 ' + nBase + ' / 静音 ' + nSil + ' / 满音量 ' + nHot)
+    push('⑧R ' + id + '「' + name + '」★注入满音量 ⇒ alive 回到 ' + nBase + '（响应是"有数据才发射"，不是被压死）',
+      nHot === nBase, 'alive: 静音 ' + nSil + ' / 满音量 ' + nHot + ' / 无视图 ' + nBase)
+  }
+}
+
+// ── ⑧M 反向变异（P-131 音频驱动发射，改回旧写法 ⇒ 必红）──
+//   要求：变异在 **/tmp 的真文件副本**里做（手工 readFileSync/writeFileSync，不用 fs.cpSync —— 本机它抛 EINVAL）；
+//   真树只读，跑前跑后 sha256 不变（用例结束会 unlink 临时文件）。
+{
+  const red = []
+  const VIEW = (x) => { const v = createLiveBands(16); const a = new Float32Array(16).fill(x); writeLiveBands(v, a, a, { kind: 'test', hasSource: true }); return v }
+  const def = { maxcount: 100000, emitter: [{ name: 'boxrandom', rate: 100, distancemax: '0 0 0', audioprocessingmode: 3, audioprocessingbounds: '0.5 1', audioprocessingexponent: 2, audioprocessingfrequencystart: 1, audioprocessingfrequencyend: 3 }],
+    initializer: [{ name: 'lifetimerandom', min: 1000, max: 1000 }], operator: [{ name: 'movement' }], renderer: [{ name: 'sprite' }] }
+  const turbDef = { maxcount: 200, emitter: [{ name: 'boxrandom', rate: 30, distancemax: '200 200 0' }],
+    initializer: [{ name: 'lifetimerandom', min: 1000, max: 1000 }, { name: 'velocityrandom', min: '10 10 0', max: '10 10 0' }],
+    operator: [{ name: 'turbulence', scale: 0.01, speedmin: 50, speedmax: 50, phasemin: 1, phasemax: 5, mask: '1 1 0', audioprocessingmode: 3, audioprocessingbounds: '0 1', audioprocessingexponent: 1, audioprocessingfrequencystart: 0, audioprocessingfrequencyend: 15 }, { name: 'movement' }],
+    renderer: [{ name: 'sprite' }] }
+  const CORE = path.join(_root.ROOT, 'core')
+  const SRC_FILE = path.join(CORE, 'we-scene-bundle.js')
+  const SRC = fs.readFileSync(SRC_FILE, 'utf8')
+  // 真树完整性：变异只落 /tmp 副本，跑前跑后**同一 sha256**（下面 push 断言）
+  const shaOf = (f) => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex')
+  const srcSha = shaOf(SRC_FILE)
+  const sha = (f) => { try { return require('node:crypto') } catch (e) { return null } }
+  const mutant = async (label, from, to, check) => {
+    if (!SRC.includes(from)) { red.push(label + ' **变异没生效**（锚点不在源码里）'); return }
+    const tmp = '/tmp/p131-mut-' + label.replace(/[^a-zA-Z0-9]/g, '') + '.mjs'
+    // 副本落在 /tmp ⇒ 把同目录的相对 import 改写成绝对路径（否则副本 import 不到 attach-transform 等）
+    const body = SRC.replace(from, to).replace(/from '\.\//g, "from '" + CORE + '/')
+    fs.writeFileSync(tmp, body)
+    try {
+      const m = await import('file://' + tmp)
+      m.setAudioBands(VIEW(1.0))
+      const r = check(m)
+      red.push((r.red ? '变异生效' : '变异**没红**') + '｜' + label + '：' + r.detail)
+    } finally { try { fs.unlinkSync(tmp) } catch (e) { /* ignore */ } }
+  }
+  await mutant('变异A(发射率不乘 env)', 'const __env = audioFactor(em.audio, sys)\n    const audioK = __env === null ? 1 : __env', 'const audioK = 1', (m) => {
+    const sys = m.buildParticleSystem(def, {})
+    m.simulateParticleSystem(sys, 1.0)
+    // 旧算式（rate 恒不乘 env）在 env=1 下仍然是 100 粒 —— 与"本批正确值"相同 ⇒ 这个变异**不会**改数，
+    // 所以判据用"静音频段"：正确实现 env=0 ⇒ 0 粒；不乘 env 的旧写法 ⇒ 仍是 100 粒（必红）。
+    m.setAudioBands(VIEW(0))
+    const s2 = m.buildParticleSystem(def, {})
+    m.simulateParticleSystem(s2, 1.0)
+    return { red: s2.particles.length !== 0, detail: '静音频段 ⇒ 实测 ' + s2.particles.length + ' 粒（正确实现应为 0）' }
+  })
+  await mutant('变异B(turbulence 相位不乘 1+env)', 'const ph = ph0 * (1 + audioPhase)', 'const ph = ph0', (m) => {
+    const sys = m.buildParticleSystem(turbDef, {})
+    m.simulateParticleSystem(sys, 0.5)
+    m.setAudioBands(null)
+    const s0 = m.buildParticleSystem(turbDef, {})
+    m.simulateParticleSystem(s0, 0.5)
+    const a = sys.particles.map((p) => p.turbPh), b = s0.particles.map((p) => p.turbPh)
+    const doubled = a.length > 0 && a.every((v, i) => Math.abs(v - b[i] * 2) < 1e-9)
+    return { red: !doubled, detail: '相位 ' + (a[0] != null ? a[0].toFixed(4) : '?') + ' 应为无视图的一半 ' + (b[0] != null ? (b[0] * 2).toFixed(4) : '?') }
+  })
+  for (const r of red) console.log('   RED ' + r)
+  push('⑧M RED-IF-REVERTED：两处音频驱动改动各自改回旧写法后，对应断言都变红（' + red.filter((x) => /变异生效/.test(x)).length + '/2，副本在 /tmp、真树只读）',
+    red.filter((x) => /变异生效/.test(x)).length === 2)
+  const leftovers = fs.readdirSync('/tmp').filter((f) => /^p131-mut-.*\.mjs$/.test(f))
+  push('⑧M 真树 `core/we-scene-bundle.js` 跑前跑后 sha256 相同（变异副本落 /tmp 且已 unlink）',
+    shaOf(SRC_FILE) === srcSha && leftovers.length === 0, srcSha.slice(0, 16) + ' /tmp 残留=' + leftovers.length)
+}
 
 const fail = checks.filter((c) => !c.ok)
 console.log(`\n===== particle-render-correctness: ${checks.length - fail.length} 通过 / ${fail.length} 失败 =====`)
