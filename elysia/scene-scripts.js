@@ -224,6 +224,9 @@ function makeOwnerRef() {
         if (!obj || !p) return;
         obj.scale = `${p[0].toFixed(6)} ${p[1].toFixed(6)} ${p[2].toFixed(6)}`;
       },
+      // ①(P-137) `thisLayer.size`（IEffectLayer.size，官方 Vec2 / readonly）：长注释见 sizeOf 定义处
+      get size() { return sizeOf(cur()); },
+      set size(v) { /* 官方 readonly：静默丢弃而不抛错，理由见 sizeOf 上方注释 */ },
       get alpha() { const obj = cur(); return obj ? (obj.alpha != null ? obj.alpha : 1) : 1; },
       set alpha(v) { const obj = cur(); if (obj) obj.alpha = Number(v); },
       get name() { const obj = cur(); return obj ? obj.name || '' : ''; },
@@ -232,6 +235,50 @@ function makeOwnerRef() {
       clicked: false,
     };
   };
+  /* ①(P-137 2026-09-19 用户第 8 项) `thisLayer.size` / `thisObject.size`：**上一次缺失的读取器**
+   *
+   * ── 现场（真机手动上报，`$MPW_ROOT/reports/r<ts>.json`）────────────────────────────────
+   *   · `r1789751541247.json` 包 3327063360：`subsystems.scriptErrs = ["update:Cannot read
+   *     properties of undefined (reading 'x')×511"]`（511 帧 = 每帧一次）；
+   *   · `r1789751395466.json` 包 3660962877：同一条错 ×72；第三个包（3719111841）无此错。
+   *   出错的**就是** `.size`：两包的脚本分别是
+   *     `3327063360` objects[50].scale : `value.x = width / (thisLayer.size.x * initScale.x) * initScale.x;`
+   *     `3660962877` objects[122].origin: `let imageSize = thisLayer.size; imageSize.x *= scale.x * 0.5;`
+   *   全语料静态扫描（98 容器 / 37 个带脚本的包）里 `thisLayer.size` 共 **73 次**读取、分布在 11 个包，
+   *   修复前**每一个**都在第 1 帧抛这条 TypeError —— 也就是用户看到的"一堆错"。
+   *
+   * ── 官方语义出处（一手）────────────────────────────────────────────────────────────────
+   *   `$MPW_ROOT/wallpaper_engine/ui/dist/monaco/autocomplete/lib.sceneScript.d.ts`
+   *     · L775-795 `interface IEffectLayer` 的 `readonly size: Vec2`，其上方文档注释逐字为
+   *       "Resolution of the image layer in pixels. Only read this, do not write."
+   *     · L1139 `interface ILayer extends IObject, IImageLayer, ISoundLayer, IEffectLayer, …`
+   *       ⇒ `size` 是 `ILayer`（L1242 `declare let thisLayer: ILayer`）的**合法成员**。
+   *   官方文档：https://docs.wallpaperengine.io/scene/scenescript/reference/class/ILayer
+   *   行为对照（只读结论、不抄代码）：第三方参考实现 wer-ref
+   *   `src/backend/scene/internal/scenescript/WPSceneScriptHost.cpp:437`
+   *   `if (property_name == "size") return { WPDynamicValue::Type::Float2, true };`（size 是二维量）。
+   *
+   * ── 我们为什么给成 undefined（根因）────────────────────────────────────────────────────
+   *   `makeOwnerRef()` 的 `layerRef()`（= 沙箱里的 `thisLayer`）与 `objectRef()`（= `thisObject`）
+   *   是**对象字面量**，此前只声明了 origin/scale/alpha/name/id/visible…，**从来没有 `size` 这个键**；
+   *   同文件的 `emptyLayerRef()`（空引用）与 `layerRefFor()`（thisScene.getLayer 返回的层）都**有** size
+   *   —— 于是"同一个 ILayer 概念"在本文件里有两套属性面：缺的那套读出来是 `undefined`，
+   *   作者脚本紧跟的 `.x` 就抛 `Cannot read properties of undefined (reading 'x')`，每帧一次。
+   *
+   * ── 为什么返回 Vec3（官方写的是 Vec2）与 setter 的口径 ────────────────────────────────
+   *   · 读取统一走本文件既有的 `parseV` 口径（origin/scale/size 同一个函数、同一个 Vec3 返回类型，
+   *     `emptyLayerRef()`/`layerRefFor()` 的 size 本来就是 Vec3）⇒ 不引入第二套"二维/三维"分叉；
+   *     Vec3 是 Vec2 的**超集**（.x/.y 同值，.z = 0 而**不是** undefined），作者脚本哪怕读 size.z
+   *     也不会新造一个 TypeError。场景里 size 字符串本身就只有两段（`"1206.00000 512.00000"`），
+   *     `parseV` 的 `p[2] ?? def[2]` 自然补 0。
+   *   · setter 是**存在但不落盘**的 no-op：官方 d.ts 标注 `readonly` + "Only read this, do not write"；
+   *     而**只写 getter** 会让访问器没有 setter ⇒ 作者脚本（绝大多数 `'use strict'`）里
+   *     `thisLayer.size = …` 由"静默成功（在普通对象上新建自有属性）"变成 **TypeError**，
+   *     那是比"写入无效"更重的行为改变，所以宁可静默丢弃（size 由纹理/文本布局决定，渲染侧不读它）。
+   *   · ⚠ 已知口径差异（记在 PATCHES P-137 未证实项）：`layerRefFor()` 的 `set size` 目前是**写穿**
+   *     `obj.size`。同一 ILayer 概念两处 setter 语义不同，本批**不改它**（与本条 bug 无关、改动有回归面），
+   *     留给后续单独定夺。 */
+  const sizeOf = (obj) => parseV(obj ? obj.size : null, [0, 0, 0])
   // ①(P-60) 同 layerRef：惰性取 ref.current（编译期快照 = 上一个脚本节点的对象）
   const objectRef = () => {
     const cur = () => ref.current;
@@ -242,6 +289,10 @@ function makeOwnerRef() {
       set origin(v) { const obj = cur(); const p = toXYZ(v); if (obj && p) obj.origin = `${p[0]} ${p[1]} ${p[2]}`; },
       get scale() { const obj = cur(); return obj ? parseV(obj.scale, [1, 1, 1]) : new Vec3(1, 1, 1); },
       set scale(v) { const obj = cur(); const p = toXYZ(v); if (obj && p) obj.scale = `${p[0]} ${p[1]} ${p[2]}`; },
+      // ①(P-137) `thisObject.size`：与 thisLayer 同一个 ILayer 概念（属性绑定的对象就是该层），
+      //   同一份 sizeOf 读取器 —— 缺了它，把 size 写在 thisObject 上的作者脚本会掉进同一条 TypeError。
+      get size() { return sizeOf(cur()); },
+      set size(v) { /* 官方 readonly：静默丢弃而不抛错，理由见 sizeOf 上方注释 */ },
       get visible() { const obj = cur(); return obj ? obj.visible !== false : true; },
       set visible(v) { const obj = cur(); if (obj) obj.visible = !!v; },
       get name() { const obj = cur(); return obj ? obj.name || '' : ''; },
