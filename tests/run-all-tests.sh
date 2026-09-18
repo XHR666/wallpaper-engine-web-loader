@@ -376,6 +376,13 @@ add "scene-script-api-gaps" "node tests/scene-script-api-gaps-test.mjs" "" "^SKI
 #   同族扫描：有 puppet 8 个包里 **6 个**渲染路径会取到错帧（838.5u / 480.6u / 365.7u / 350.6u / 311.0u）
 #   ⇒ 同一修法同时生效。50 断言 + 6 组变异自证；~4.3s，无浏览器/无网络/无 GL，缺语料 SKIP+exit 0。
 add "kaltsit-puppet-anchor" "node tests/kaltsit-puppet-anchor-test.mjs" "" "^SKIP kaltsit-puppet-anchor"
+# ①(P-140 2026-09-19 主对话补登记) `particle-turbulence-field`：用户第 7 项（vapor 层"发散的线条"）——
+#   `turbulentvelocityrandom` 原实现是**每颗粒子一个独立随机角**（取 `p.random`），官方是**按位置采样的相干场**
+#   ⇒ 同地出生的粒子四散、`rope` 再把它们连成细线。改成位置场后真包 `dd/3544152633 ln=25`：
+#   段长中位 **172.3 → 12.8px**、ribbon 总长 **7000 → 708px**、>60px 的段 **27 → 0**；全语料同族判据 **13 → 0**
+#   （影响面 28 层 = rope 13 / sprite 14 / spritetrail 1，`?pturb=legacy` 逐位回退，开关已登记 154 == 154）。
+#   33 断言 + RED-IF-REVERTED（含"legacy 顶点流 sha256 == 换回旧算式的变异体"逐位证明）；~2.4s，无浏览器/无网络。
+add "particle-turbulence-field" "node tests/particle-turbulence-field-test.mjs" "" "^SKIP particle-turbulence-field"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /

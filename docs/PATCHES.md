@@ -10745,6 +10745,79 @@ diag-flag-check 154==154（**未新增任何 URL 开关**）、docs-check ✓。
 
 ---
 
+## P-140（2026-09-19 用户第 7 项）「第 2 个壁纸第 26 层 vapor 渲染成各种发散的线条」= `turbulentvelocityrandom` 被实现成「每颗粒子一个独立随机角」（官方 = **按位置采样的相干场**）⇒ `renderer=rope` 把散开的粒子按发射序连成细长交错的线
+
+> **性质**：只读取证（报告 `docs/VAPOR-LAYER-3544152633.md`）+ 定点修复 + 新门禁。**未开浏览器**、未跑全量门禁。
+> **编号**：任务书指定 **P-140**（落盘前实测最高 = P-139）。**提交** `eb8e319`（4 路径 + 开关登记）。
+
+### P-140.0 层身份（只读取证已定案，坐标更正见报告 §0.1）
+
+用户口语的「第 2 个壁纸第 26 层 vapor」= **`dd/3544152633`（Girl and cat）`objects[25]`「Vapor (double)」id=206100**（`?ln=25`）。
+任务书最初给的 `dd/3327063360` 全包 `/vapor/i` **零命中**（它是 `WALLPAPER-INDEX.md` 第 3 项）。
+该层 `renderer=rope`（把存活粒子按**发射序**连成 ribbon），初速**唯一**来源 = 初始化器
+`turbulentvelocityrandom{speedmin=speedmax=250, scale:0.1, timescale:0.5, phasemax:0}`（= WE stock 预设 smoke/vapor1）。
+
+### P-140.1 根因（一句话）
+
+旧实现把方向取成 `p.random`（出生时抽一次的独立 0..2π 角）⇒ 同一处出生（发射半径 5px）的粒子各自飞散，
+rope 再把发射序相邻的粒子两两连起来 ⇒ 屏幕上是一堆细长交错的线。**这不是"近似"，是换了语义**：
+官方（三个独立参考实现一致）= 方向是**位置**的函数（curl 噪声场），同地同向、邻地平滑。
+
+### P-140.2 改法（`core/we-scene-bundle.js`；RNG 流一个字节不动）
+
+- `PTURB_K = 0.002`（**待标定量**：三实现对 `scale` 量纲互相冲突、无官方二进制可对拍；注释写明"真机对拍官方 preview.gif 后可调"）
+- `spawnParticle` 记 `p.turbT = sys._scaledT`（出生时刻的子系统仿真时钟；不抽随机数、不动既有字段）
+- official 分支：`p.vel = normalize(f(p.pos·PTURB_K, zt+zp))·amp`，其中 `zt = turbT·timescale`（**不受音频影响**）、
+  `zp = p.random·phasemax·(1+env)`（**P-132 批 D 的相位落点逐字保留** ⇒ `phasemax=0` 的层正是官方那句
+  "no effect on particles with a `0.00` phase"）；场形取自本仓库 `turbulence` operator 的确定性 sin/cos 场。
+- ⚠ **与取证报告 §4.1 片段的两处必要偏离**（否则门禁红 / 语义错）：
+  ① 片段把 `(1+env)` 也乘到**场时间**上 ⇒ 违背"0 相位不受影响"；本实现只乘 `zp`。
+  ② 片段在 `p.pos=(0,0)` 处 `n1 ≡ n2 = sin z·cos z` **退化**（归一化后方向只剩 ±45°、相位只影响符号）
+     ⇒ `particle-render-correctness` ⑧-6「env=1 ⇒ 方向改变」**实测变红**；按片段自己说的"复用 turbulence
+     operator 的 sin/cos 场"把两个分量的**时间系数拆开**（operator 是 t·0.7 / t·0.5，本实现 n2 用 `z*0.5`）。
+- 未动 `one_per_frame` / `subdivision` / `children`（报告列为**另外的**缺口）。
+
+### P-140.3 数字（`/tmp` 逐层扫描：98 容器 / 28 层；每层 t=3 与 t=8 两次）
+
+真包 `dd/3544152633 ln=25`（真渲染器 + mock-GL 顶点流）：段长中位 **172.3 → 12.8px**、ribbon 总长
+**7000 → 708px**、>60px 的段 **27 → 0**（纯顶点流路径单独读：6.9px / 216px / 0）。
+
+13 个 rope 层全表（段长中位 / 总长 / >60px 段）：龙烟 ×3 `2221.3/201984/78 → 50.9/6950/22`、
+烟…… ×3 `257.1/25717/64 → 42.4/5848/27`、眼焰 ×3 `151.7/7752/30 → 6.6/303/0`、
+眼焰 ×3 `119.9/7787/31 → 6.9/327/0`、Vapor `172.3/7000/27 → 12.8/708/0`。
+
+出生期方向序参量 `|Σv̂|/n`：13 个 rope 层 **0.04~0.11 → 1.00**；同族 sprite/spritetrail 15 层 **0.01~0.09 → 0.11~0.57**
+（11 个唯一非 rope 层里 **7 个**明显"四散 → 整团漂移"，4 个因发射器跨度 ≫ 相干长度只有部分变化）。
+**`?pturb=legacy` 逐位 == 改前**：28 层全表 JSON 全等 + 真包顶点流 sha256 与"源码级换回旧算式"的变异体全等。
+
+### P-140.4 档位 `?pturb=legacy` 与登记
+
+解析点在既有 `?pframe=`/`?pops=`/`?pcolor=` 同款位置；传递 `ctx → sys → 第 9 实参`（只传前 3~4 个实参的调用逐位不变）；
+进缓存签名 + `particleStats.pturbMode`。**同一提交**改 `docs/README-DIAGNOSTICS.md` 主表 +1 行、
+重跑 `node tests/diag-flag-check.mjs` 重生成 `web/diag-flags.json`（**153 → 154，断言 154 == 154**）。
+
+### P-140.5 门禁
+
+`tests/particle-turbulence-field-test.mjs`：**33 断言 / ~2.4s** / 无浏览器无网络无 GPU / 缺真包 `SKIP`+exit 0。
+①方向是位置的函数（同位置逐位同向、0.1px 夹角 <1°、<2px <10°、500px 外 >10°、出生时刻在场里、
+`(0,0)` 不退化、legacy 各向同性、音频 `env=0` 逐位相同 / `phasemax>0` 时 env 改方向）；②真包真顶点流段长阈值；
+③legacy 与源码级变异体 **顶点流 sha256 全等**（t=1 & t=8）；④**RED-IF-REVERTED**（变异体必红：79.5px / 2417px / 15 段；
+真 bundle 绿：6.9 / 216 / 0）；⑤同族 28 层 + 判据命中 **13（legacy）/ 0（official）**。
+
+### P-140.6 不回归
+
+`--only` 11 项（pointer-trail-copy / particle-frame-uv-and-pointer / particle-render-correctness / pointer-leave /
+p74-particles / mock-gl / effects-degenerate-fbo / script-runtime-errors / diag-flags / docs-check / secret-scan）
+在改动落地后**全 PASS**（`secret-scan` 后来的红在并行线 `demo/bench-patch.js` 的在途改动里，与本批 4 个路径无关）。
+
+### P-140.7 未证实 / 需要人眼
+
+1. `PTURB_K` 是**待标定量**（量纲三实现冲突，无官方对拍）；2. 像素级观感需真机（本机软件 WebGL ~1.5fps）；
+3. sprite 族观感变化方向相反（四散 → 整团），**必须逐层对拍官方 preview.gif** 再决定是否分批放默认；
+4. y 手性（`n2` 未取负，真机看烟往上还是往下飘再定）；5. `children`（"(double)" 的第二股烟）与 `subdivision` 仍未实现。
+
+---
+
 ## P-141（2026-09-19 用户第 ⑧ 项续）P-137 残余的 **8 类 SceneScript API 缺口**收口 = 全语料「有脚本错的包」**8 → 0**（18 条 → 0）；`KNOWN_GAPS` 白名单**缩空** + 新门禁 `scene-script-api-gaps`（37 断言 / 3 组变异必红 / 全语料逐包第 1 帧 0 错）
 
 > **性质**：只读取证 + 定点修复（纯 `elysia/` 侧，**未改 `demo.html`**）+ 新门禁。证据 = 真包 `scene.json` 里的脚本原文 + 真沙箱 + 全语料逐包第 1 帧扫描；无浏览器/无 GPU/无网络，新门禁 ≈2.8s / PeakRSS 171MB。
