@@ -1,6 +1,9 @@
 // WE 渲染引擎 — puppet (从 core.js 拆分, 逻辑不变)
 import { getVal, v3sub, v3cross, v3dot, v3norm } from './math.js';
 import { Buffer } from '../buffer.js';
+// ①(P-139 2026-09-19) MDLA 采样口径的**唯一实现处**（见下方 `_sampleAnimRT` 的注释）：
+//   core 不 import elysia ⇒ 单向依赖，无循环。Node 侧（tests/*.mjs）与浏览器侧同一条路径。
+import { sampleAnimRT } from '../../core/attach-transform.mjs';
 
 // ── puppet mixin (从 core.js 拆分, 逻辑零改动) ──
 export function installPuppet(proto) {
@@ -196,58 +199,28 @@ export function installPuppet(proto) {
       }
     
       // 采样动画帧 → 每骨骼世界姿势 {angle, tx, ty}
-      // MDLA 段布局 (逆向自 32 骨骼与 6 骨骼模型, 9 列循环交错):
-      //   骨骼 b 的 pos = 段 b 帧 floor(2b/9) 列 (2b)%9,(2b+1)%9 (col9 跨下一段)
-      //   骨骼 b 的 rot = 段 b 帧 floor(2b/9)+floor((2b+5)/9) 列 (2b+5)%9
-      //   段帧循环 (frameCount+1) 帧; rot 为弧度 (bind 矩阵旋转角一致)
-      // 2D 世界链乘: 角度相加, 平移 = 父平移 + Rz(父角度)·局部平移
+      //
+      // ①(P-139 2026-09-19) **不再在本文件实现取样**：本方法是"渲染网格 GPU 蒙皮"（demo.html
+      //   `updateSkinBones` 每帧调用）与"附件锚点"（`core/attach-transform.mjs::puppetBoneFinal`）
+      //   共用的那一份采样口径 —— 唯一实现处 = `core/attach-transform.mjs::sampleAnimRT`
+      //   （内部 = `sampleBoneLocalsRT`（MDLA 逐骨寻址 + 官方 per-bone HasAuthoredTrack 作用域 +
+      //   帧号规约不回绕）+ `localWorldChainRT`（`W[b] = L_b × W[parent]` 行主序世界链））。
+      //
+      //   为什么删掉旧实现（判据在 tests/kaltsit-puppet-anchor-test.mjs A-3）：旧实现用
+      //     `posShift = floor(2b/9)`、`frame0 = ((frame + posShift) % totalFrames) * 36`、
+      //     `o = segStart + frame0 + (2b%9)*4` —— 把"每骨行移位"折进**帧号**取模，于是
+      //     **首帧（f=0）** 就按移位后的帧号读，落到轨头/邻轨垃圾上：实测单帧最大步长
+      //     主体(6 骨) **699.4u @f0 bone5（头骨）**、眼睛组合(14 骨) **365.7u @f0 bone13**、
+      //     左耳朵1(4 骨) **157.4u @f298 bone3**；换成唯一实现后同一量分别降到
+      //     **1.6u / 7.1u / 31.9u**（旧式还是"轨尾回绕"与"作用域缺失"的同一处病灶）。
+      //     旧注释里"9 列循环交错 / 段帧循环 (frameCount+1) 帧"的段布局猜测同时作废：
+      //     官方布局是"每骨一条独立轨（u32 flags + u32 byteSize + rows×36B）"，
+      //     见本文件 `_parseMdl` 的 MDLA 解析与 `core/attach-transform.mjs` 顶部注释。
+      //
+      //   本文件对 core/ 的依赖是**单向**的（core 不 import elysia），不构成循环。
 ,
     _sampleAnimRT(mesh, anim, frame, nb, bones) {
-        const out = new Array(nb);
-        const dv = new DataView(mesh.raw.buffer, mesh.raw.byteOffset, mesh.raw.byteLength);
-        const totalFrames = Math.max(1, anim.frameCount);
-        for (let b = 0; b < nb; b++) {
-          const segStart = anim.segs[b];
-          const b2 = 2 * b;
-          const posShift = Math.floor(b2 / 9);
-          const posCol = b2 % 9;
-          const frame0 = ((frame + posShift) % totalFrames) * 36;
-          const o = segStart + frame0 + posCol * 4;
-          const px = dv.getFloat32(o, true);
-          const py = dv.getFloat32(o + 4, true);
-          // rot: 列 (2b+5)%9, 段帧 posShift + floor((2b+5)/9)
-          const rotShift = Math.floor((b2 + 5) / 9);
-          const rotCol = (b2 + 5) % 9;
-          const o2 = segStart + ((frame + posShift + rotShift) % totalFrames) * 36 + rotCol * 4;
-          const rotZ = dv.getFloat32(o2, true);
-          // pos 合理性校验 (有限 + 量级 < 10000), 异常则用绑定局部矩阵 (绑定姿态, 不炸)
-          const parent = bones[b].parent;
-          if (isFinite(px) && isFinite(py) && Math.abs(px) < 10000 && Math.abs(py) < 10000 && isFinite(rotZ)) {
-            if (parent >= 0 && parent < nb && out[parent]) {
-              const pa = out[parent].angle, pc = Math.cos(pa), ps = Math.sin(pa);
-              out[b] = {
-                angle: pa + rotZ,
-                tx: out[parent].tx + px * pc - py * ps,
-                ty: out[parent].ty + px * ps + py * pc,
-              };
-            } else {
-              out[b] = { angle: rotZ, tx: px, ty: py };
-            }
-          } else {
-            const bm = bones[b].bind;
-            if (parent >= 0 && parent < nb && out[parent]) {
-              const pa = out[parent].angle, pc = Math.cos(pa), ps = Math.sin(pa);
-              out[b] = {
-                angle: pa + Math.atan2(bm[1], bm[0]),
-                tx: out[parent].tx + bm[12] * pc - bm[13] * ps,
-                ty: out[parent].ty + bm[12] * ps + bm[13] * pc,
-              };
-            } else {
-              out[b] = { angle: Math.atan2(bm[1], bm[0]), tx: bm[12], ty: bm[13] };
-            }
-          }
-        }
-        return out;
+        return sampleAnimRT(mesh, anim, frame, nb, bones);
       }
     
       // 行主序 4x4 矩阵乘法 a × b

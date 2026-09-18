@@ -1,10 +1,10 @@
 /* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 本文件中所有 `wer-ref …` 形式的引用都是**行为对照**引注（只引用行为结论，未复制其代码/注释/常量组织）。 */ // we-scene 浏览器渲染器打包（保留 export，剥离 import）
 // ①(P-21-ATTACH 2026-09-13) 附件/父链变换（移植自 elysia，浏览器/Node 共用；服务器有 /attach-transform.mjs 路由）
-import { buildAttachOffsets, matMulRow as __matMulRow16 } from './attach-transform.mjs'
+import { buildAttachOffsets, attachOffsetDeltas, parseMdl, parseMdatAnchors, matMulRow as __matMulRow16 } from './attach-transform.mjs'
 // ①(P-110 2026-09-17) bind 世界链的**唯一实现处**（子先乘修正序 + `?bindorder=legacy` 回退）。
 //   转发导出：宿主（demo.html）与测试共用同一份链序，避免"四处各写一遍、一处不同步就复发"。
 import { bindWorldChain, bindWorldPolar, bindOrderLegacy } from './puppet-skin.js'
-export { bindWorldChain, bindWorldPolar, bindOrderLegacy }
+export { bindWorldChain, bindWorldPolar, bindOrderLegacy, attachOffsetDeltas, parseMdl, parseMdatAnchors }
 // ①(P-112-BANDGEOM 2026-09-17 帧几何接线) 帧内坐标契约（纯函数，规格 docs/WEB-FRAME-GEOMETRY-SPEC.md）：
 //   "窗口坐标 → 帧内 client 像素"的换算在**唯一实现处** `core/web-frame-geometry.mjs`，
 //   本文件只做接线（`?framegeom=cover`，缺省 legacy = 逐位等于改动前的内联算式）。
@@ -1367,6 +1367,7 @@ export function parseScene(sceneJson, project, opts = {}) {
   //     （同一个 `ctx.time` 字段，只在被动画骨骼上才有差别）。
   //     为什么需要：时间写死 0 ⇒ 附件层锚点冻在 t=0、父网格逐帧呼吸 ⇒ 相对错位 70.55u（用户第 5 项）。
   let attachOffsets = null
+  let attachInfo = null
   if (opts && opts.attachCtx && typeof opts.attachCtx.readEntry === 'function') {
     try {
       const actx = opts.attachCtx
@@ -1375,6 +1376,16 @@ export function parseScene(sceneJson, project, opts = {}) {
       if (actx.bindOrder) aopts.bindOrder = actx.bindOrder
       const attTime = (typeof actx.time === 'function') ? actx.time() : actx.time
       attachOffsets = buildAttachOffsets(objects, actx.readEntry, null, attTime || 0, (aopts.fps || aopts.bindOrder) ? aopts : null)
+      // ①(P-139) 暴露"本次 parse 实际把**哪个**锚点烘进了层 origin"：宿主逐帧跟随锚点时必须做
+      //   **增量**（`origin − frozenAnchor + Δ(t)`），否则会把已烘入的锚点再应用一次 ⇒ 整批附件层
+      //   多偏 70.55u（本改动第一版就是这个 bug，门禁 A-1e 判据把它钉住）。
+      //   `frozenAnchor` 的选取口径**必须是可复算的**（宿主用同一 objects 顺序 + 同一 readEntry 就能
+      //   得到同一个值）：取 objects 里**第一个**带 attachment 且有父级的子层的锚点。同父同锚点的
+      //   附件层锚点逐位相同（本包 14 个"头部"层都是 [734.3032820141401, 856.4423128148994]），
+      //   所以"第一个"与"哪一个"无关，是确定性口径。
+      const __fzId = objects.find((o) => o && o.attachment != null && o.parent != null && attachOffsets.has(o.id))
+      const __fz = __fzId ? attachOffsets.get(__fzId.id) : null
+      if (__fz) attachInfo = { frozenTime: attTime || 0, frozenAnchor: [__fz[0], __fz[1]] }
     } catch { /* 锚点计算失败 → 无锚点（与 elysia 行为一致） */ }
   }
 
@@ -1556,6 +1567,9 @@ export function parseScene(sceneJson, project, opts = {}) {
     general: sceneJson.general || {},
     layers,
     properties,
+    // ①(P-139) 锚点烘入信息（`attachCtx` 生效时有值；宿主逐帧跟随锚点用它做增量，见该处注释）。
+    //   无 attachCtx / 无锚点层 = null ⇒ 既有消费方逐位不变（只多一个字段）。
+    __attachInfo: attachInfo,
     // ①(P-61) origin 绑定换算要用同一个投影高度（编辑器 y-up → 渲染 y-down 的翻转基准）
     projH: PROJ_H,
     // ①(MERGED-1 D 相机节点 2026-09-12) camera:"default" 空对象（WER-ALIGN B4）：

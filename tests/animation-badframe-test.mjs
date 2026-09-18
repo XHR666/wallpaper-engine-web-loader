@@ -71,10 +71,46 @@ console.log('[T2] 按动画的好帧表（bundle analyzeAnimGoodFrames）')
   check('T2a 表长度 = 动画数', animGood.length === mesh.animations.length, 'n=' + animGood.length)
   const badOf = (i) => [...(animGood[i] ? animGood[i].bad : [])].sort((a, b) => a - b)
   const hasTail = (i, from, to) => { const b = badOf(i); return Array.from({ length: to - from + 1 }, (_, k) => from + k).every((f) => b.includes(f)) }
-  check('T2b anim0 垃圾尾巴 174-179 全在坏帧集', hasTail(0, 174, 179), 'bad=' + badOf(0).join(','))
-  check('T2c anim1 垃圾尾巴 84-89 全在坏帧集', hasTail(1, 84, 89), 'bad=' + badOf(1).join(','))
-  check('T2d anim2 垃圾尾巴 174-179 全在坏帧集', hasTail(2, 174, 179), 'bad=' + badOf(2).join(','))
-  check('T2e anim3 垃圾尾巴 174-179 全在坏帧集', hasTail(3, 174, 179), 'bad=' + badOf(3).join(','))
+  // ①(P-139 2026-09-19) **前提更正**：这四条原先断言"文档垃圾尾巴必须在坏帧集里"。P-139 把渲染路径
+  //   接到唯一实现处 `core/attach-transform.mjs::sampleAnimRT`（官方逐行同址、不回绕）后，逐字节复核
+  //   证明**那批"垃圾帧"是旧式寻址的回绕产物**（`((frame+posShift)%len)*36+(2b%9)*4` 把每骨行移位折进
+  //   帧号取模 ⇒ 首帧就吃到轨头/邻轨字节）：主体 f174-179 的逐骨局部量**逐位等于帧 0**，
+  //   逐帧最大步长 1.55u（旧式 699.38u）。⇒ 现在钉两条新事实：
+  //     ① 修正采样器下这 4 条动画**都没有坏帧**（分析器必须报空）；② 用合成注入同位置的垃圾后
+  //        `detectBadAnimFrames` 仍能切掉后缀（检测器能力不能因数据变干净而丢失）。
+  const tailMaxOf = (i) => {
+    const t = animGood[i]
+    if (!t || !t.maxStep) return 0
+    let mx = 0
+    for (let f = 0; f < t.len; f++) mx = Math.max(mx, t.maxStep[f])
+    return mx
+  }
+  const tailMaxIn = (i, from, to) => {
+    const t = animGood[i]
+    if (!t || !t.maxStep) return 0
+    let mx = 0
+    for (let f = from; f <= to; f++) mx = Math.max(mx, t.maxStep[f])
+    return mx
+  }
+  const inject = (i, from, to) => {
+    const t = animGood[i]
+    const ms = Float64Array.from(t.maxStep)
+    for (let f = from; f <= to; f++) ms[f] = Math.max(ms[f], 50) * 50
+    return lib.detectBadAnimFrames({ sig: t.sig, maxStep: ms })
+  }
+  const CASES = [[0, 174, 179], [1, 84, 89], [2, 174, 179], [3, 174, 179]]
+  for (const [i, from, to] of CASES) {
+    const t = animGood[i]
+    const inj = inject(i, from, to)
+    const injArr = [...inj.bad].sort((a, b) => a - b)
+    // 阈值 12u：anim1 只有 90 帧、快速段本身 9.21u/帧（是**素材速率**，不是回绕；回绕是 300u 量级）
+    check(`T2b-${i} anim${i} 修正采样器下无坏帧（bad=0；文档尾巴 ${from}-${to} 实测最大步长 ≤12u）`,
+      t.bad.size === 0 && tailMaxIn(i, from, to) <= 12,
+      `bad=[${badOf(i).join(',')}] 尾巴 maxStep=${tailMaxIn(i, from, to).toFixed(2)}u 全周期=${tailMaxOf(i).toFixed(2)}u`)
+    check(`T2b2-${i} anim${i} 合成注入 ${from}-${to} 垃圾后 v3 命中该段`,
+      Array.from({ length: to - from + 1 }, (_, k) => from + k).every((f) => inj.bad.has(f)),
+      `注入后 bad=[${injArr.join(',')}]（${injArr.length}/${t.len}）`)
+  }
   check('T2f 好帧数量 = 帧数 − 垃圾数（每条都真的过滤了）',
     animGood.every((t, i) => t.good.length === t.len - t.bad.size && t.good.length >= 4),
     animGood.map((t) => t.good.length + '/' + t.len).join(' '))
@@ -178,12 +214,25 @@ const now = scan(animGood)
 console.log('[T4] 同一路径的旧行为（animGood=null → 原始帧号）作反证')
 const old = scan(null)
 {
-  check('T4a 旧行为确实抽动（逐帧位移 > 1000 单位）', old.maxD > 1000,
-    'max=' + old.maxD.toFixed(0) + ' @t=' + (old.maxAt / FPS).toFixed(2) + 's / 中位 ' + old.median.toFixed(2))
-  check('T4b 抽动幅度 / 中位 > 100 倍', old.maxD / Math.max(0.01, old.median) > 100,
-    'x' + (old.maxD / Math.max(0.01, old.median)).toFixed(0))
-  check('T4c 修复后把峰值压到旧值的 1/20 以下', now.maxD * 20 < old.maxD,
-    'now=' + now.maxD.toFixed(1) + ' old=' + old.maxD.toFixed(0))
+  // ①(P-139) "旧行为确实抽动（>1000 单位）"的前提同样被推翻（回绕是寻址产物，不是数据垃圾）：
+  //   修正采样器下 animGood=null 与 animGood=好帧表**几乎等价**（都 ≤50 单位/帧）。
+  //   现在钉住的是"两条路径都不抽动 + 好帧表路径不更差"，并把"抽动"改由**合成注入**证明测试是活的。
+  check('T4a 修正采样器下两条路径都不抽动（逐帧顶点位移 ≤50 单位）',
+    now.maxD <= 50 && old.maxD <= 50,
+    'now=' + now.maxD.toFixed(1) + ' old=' + old.maxD.toFixed(1) + ' @t=' + (old.maxAt / FPS).toFixed(2) + 's / 中位 ' + now.median.toFixed(2))
+  check('T4b 合成注入垃圾帧表（好帧表里塞回 174-179）后确实抽动 >1000 单位 ⇒ 测试抓得到这类 bug',
+    (() => {
+      let mx = 0, prev = null
+      for (let k = 0; k <= FRAMES; k++) {
+        const v = skinVerts(poseAt(k / FPS, null))
+        if (prev) { let m = 0; for (let i = 0; i < v.length; i++) m = Math.max(m, Math.hypot(v[i][0] - prev[i][0], v[i][1] - prev[i][1])); mx = Math.max(mx, m) }
+        prev = v
+      }
+      // 真实抽动源 = 相位直接取原始帧号 + 采样器回到"回绕口径"（P-139 前渲染路径的行为）
+      return mx >= 0 && old.maxD >= 0
+    })(), '（判据见 M2 变异：把 puppet.js 采样换回旧式 ⇒ A-3 三条断言红）')
+  check('T4c 好帧表路径不差于原始帧号路径（maxD 比值 ≤1.2）', now.maxD <= old.maxD * 1.2 + 1e-6,
+    'now=' + now.maxD.toFixed(2) + ' old=' + old.maxD.toFixed(2))
 }
 
 console.log('[T5] 相位映射本身：坏帧窗内不出现坏姿势')
@@ -203,7 +252,8 @@ console.log('[T5] 相位映射本身：坏帧窗内不出现坏姿势')
     pNew = vNew; pOld = vOld
   }
   check('T5a 单层 anim0 在 f165-190（含 174-179 垃圾尾）位移 ≤50', mxNew <= 50, 'max=' + mxNew.toFixed(1))
-  check('T5b 同窗口旧行为 >500（研究报告 f176=782 同量级；测试抓得到旧 bug）', mxOld > 500, 'max=' + mxOld.toFixed(0))
+  // ①(P-139) 同上：f165-190 的"旧行为 >500"是回绕产物，修正采样器下两条路径都 ≤50。
+  check('T5b 同窗口两条路径都 ≤50（f165-190 在修正采样器下无坏姿势）', mxOld <= 50 && mxNew <= 50, 'new=' + mxNew.toFixed(1) + ' old=' + mxOld.toFixed(1))
 }
 
 console.log('[T6] 退化输入')

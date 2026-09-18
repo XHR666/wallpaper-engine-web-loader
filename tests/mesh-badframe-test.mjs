@@ -6,6 +6,16 @@
 //   ②回绕污染（f0 的环形邻居是尾部垃圾 → f0-3 级联误杀 → 开头姿态错）；
 //   ③骨骼和抵消单骨乱跳（sig 把 58-61 好帧也拖下水）。
 //   v3 = 尾部逐骨绝对步长切除（垃圾=结尾连续后缀）+ 原邻域精修（中段孤立尖峰）。
+//
+// ①(P-139 2026-09-19) **本测试的"真数据尾部垃圾"前提已被推翻**：上面三条缺陷的真身不是"导出垃圾"，
+//   而是渲染采样器 `puppet.js::_sampleAnimRT` 的**旧式寻址**（`((frame+posShift)%totalFrames)*36 +
+//   (2b%9)*4`，把每骨行移位折进帧号取模）。P-139 把渲染路径接到唯一实现处
+//   `core/attach-transform.mjs::sampleAnimRT`（官方逐行同址）后逐字节复核：
+//     · 主体 f174-179 的**逐骨局部量逐位等于帧 0**（`sampleBoneLocalsRT` 实测 f179 vs f0 差 ≤0.001u）；
+//     · 逐帧最大步长：主体 **1.55u**、眼睛组合 **7.13u**、左耳朵1 **31.86u**（旧式分别是 699/366/157）；
+//     · 尾部（末 12 帧）步长全为 **0.0u** ⇒ **没有垃圾尾巴可切**。
+//   ⇒ 本文件里"真数据命中尾部垃圾"的断言改为：① 钉住"修正采样器下真数据无坏帧"（分析器必须报空，
+//     这是新事实）；② 用**合成注入的尾部垃圾**继续钉住 v3 检测器的能力（安全性不能因数据变干净而丢失）。
 import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
@@ -130,11 +140,23 @@ console.log('[T2] 真数据 hina 3554161528「人物」（设备日志实锤：�
     // 垃圾=尾部连续后缀（设备日志与逐骨剖面：61 起步长爆发，62-74 全灭）
     const isSuffix = badArr.length > 0 && badArr.every((f, i) => f === N - badArr.length + i)
     check('T2a v3 保留动画开头 0-3 帧', headKept, 'bad=[' + badArr.join(',') + ']')
-    check('T2b v3 垃圾=尾部连续后缀且 ≤17 帧', isSuffix && v3.bad.size <= 17,
-      badArr.length + ' 帧：[' + badArr.slice(0, 6).join(',') + '…' + badArr.slice(-3).join(',') + ']')
-    check('T2c 垃圾平台内部 67-69,71,72 被清除（旧漏杀=抽动源）', [67, 68, 69, 71, 72].every((f) => v3.bad.has(f)))
-    check('T2d 旧检测器行为与设备日志逐位一致（16 帧 [0-3+58-66,70,73,74]）',
-      old.size === 16 && [0, 1, 2, 3].every((f) => old.has(f)) && [67, 68, 69].some((f) => !old.has(f)))
+    // ①(P-139) 修正采样器下真数据 f62-74 步长全部正常（旧式的"垃圾平台"= 寻址回绕读到的邻轨字节）
+    let tailMax = 0
+    for (let f = 60; f < N; f++) tailMax = Math.max(tailMax, maxStep[f])
+    check('T2b 修正采样器下真数据无坏帧（v3 报空；尾部 f60-74 逐骨最大步长 ≤8u）',
+      v3.bad.size === 0 && tailMax <= 8, badArr.length + ' 帧 bad=[' + badArr.join(',') + '] 尾部 maxStep=' + tailMax.toFixed(2) + 'u')
+    {
+      const ms = Float64Array.from(maxStep)
+      for (let f = 65; f <= 74; f++) ms[f] = Math.max(ms[f], 50) * 50
+      const arr = [...lib.detectBadAnimFrames({ sig, maxStep: ms }).bad].sort((a, b) => a - b)
+      check('T2c 合成注入尾部垃圾（f65-74 步长 ×50）后 v3 命中整段（含邻域精修扩出的 61-64 与环形首帧 0-3）',
+        [65, 70, 74].every((f) => arr.includes(f)) && arr.length >= 10 && arr.length <= 18,
+        'bad=[' + arr.join(',') + ']')
+      check('T2c2 注入的边界帧 61-64 与环形首帧 0-3 **不是**由真实数据触发（未注入时 v3 报空 ⇒ 上一条纯属注入效应）',
+        v3.bad.size === 0, '未注入 bad 数 = ' + v3.bad.size)
+    }
+    check('T2d 旧检测器（骨骼和口径）在**修正采样器**下确实失效/退化（回绕污染源已消失，故旧实现的"16 帧"不再复现）',
+      old.size < 16, 'old.size=' + old.size + ' [' + [...old].sort((a, b) => a - b).join(',') + ']')
     // 平滑性：跨坏帧插值步进 ≤ 保留区合法最大单帧步进
     const good = []
     for (let f = 0; f < N; f++) if (!v3.bad.has(f)) good.push(f)
@@ -169,15 +191,17 @@ console.log('[T3] 真数据凯尔希 3719111841 + GirlCat 3544152633 蒙皮层�
       const badArr = [...v3.bad].sort((a, b) => a - b)
       const want = layers[t.name]
       if (want) {
-        const wantMax = want[want.length - 1]
-        // 判定：文档垃圾帧全部命中 + v3 结果是收敛到文档尾巴的连续后缀（逐骨剖面可能比 09-12 的
-        // 人工记录多出紧邻帧——如 girl 174-176 步长同样 >100，属同一垃圾后缀）
-        const hit = want.every((f) => v3.bad.has(f)) &&
-          badArr.every((f) => f >= want[0] - 6 && f <= wantMax) &&
-          badArr.every((f, i) => i === 0 || f === badArr[i - 1] + 1) &&
-          badArr[badArr.length - 1] === N - 1
-        check('T3 ' + id + ' ' + t.name + ' v3 坏帧=尾部垃圾后缀（含文档尾巴 ' + JSON.stringify(want) + '）', hit,
-          'v3=[' + badArr.join(',') + '] 旧=[' + [...old].sort((a, b) => a - b).join(',') + ']')
+        // ①(P-139) 老断言（"文档垃圾帧必须命中"）的前提已推翻：那批帧在**修正采样器**下逐位等于帧 0
+        //   （`docs/RENDER-BUGS-20260918.md` §2 的 A-2/A-3 判据）。现在钉住两条新事实：
+        //   ① 修正采样器下真数据无坏帧（v3 空）；② 合成注入同位置垃圾后 v3 仍能切掉后缀。
+        const docTailMax = Math.max(...want.map((f) => maxStep[f]))
+        const ms = Float64Array.from(maxStep)
+        for (let f = want[0]; f <= want[want.length - 1]; f++) ms[f] = Math.max(ms[f], 50) * 50
+        const injected = lib.detectBadAnimFrames({ sig, maxStep: ms })
+        const hit = v3.bad.size === 0 && docTailMax <= 8 &&
+          want.every((f) => injected.bad.has(f)) && injected.bad.size <= 17
+        check('T3 ' + id + ' ' + t.name + ' 修正采样器下无坏帧（文档尾巴 ' + JSON.stringify(want) + ' 实测步长 ≤' + docTailMax.toFixed(2) + 'u）+ 注入后 v3 仍切得掉',
+          hit, 'v3=[' + badArr.join(',') + '] 注入后=[' + [...injected.bad].sort((a, b) => a - b).join(',') + '] 旧=[' + [...old].sort((a, b) => a - b).join(',') + ']')
       } else {
         const notWorse = v3.bad.size <= old.size + 2 && v3.bad.size / N <= 0.15
         check('T3 ' + id + ' ' + t.name + ' v3 不误杀（' + v3.bad.size + '/' + N + '，旧 ' + old.size + '）', notWorse,

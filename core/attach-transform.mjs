@@ -231,50 +231,130 @@ export function parseMdl(buf) {
   return { positions, uvs, indices, vertexCount, indexCount, blendIndices, blendWeights, bones, animations, raw: buf }
 }
 
-// ── 采样动画帧 → 每骨骼世界姿势 {angle, tx, ty}（elysia _sampleAnimRT 移植 + ①G 修正）──
-// MDLA 段布局（官方，字节级验证见 blink-phase-test.mjs T2/T3）：每轨 u32 flags + u32 byteSize +
-// rows×(pos3,angle3,scale3) f32，帧 f 的 pos.x/angle.z 在轨数据 f·36+0 / +20。
-// ①(G 2026-09-14) 寻址官方化：segs[b]=官方轨头前 8b·b 处，交错公式 36·floor(2b/9)+4·((2b)%9)=8b
-//   恰好补上 b 个 8 字节轨头 → pos 读址 = 轨 b 数据 + f·36（与官方逐行同址）；
-//   rot 同式 +20（旧式 (floor(2b/9)+floor((2b+5)/9))·36+4·((2b+5)%9) 对骨≥5 晚 1~2 行，
-//   且旧式把 shift 折进帧号取模，末尾帧回绕读到轨头/邻轨垃圾——即 RE-03 记录的
-//   "眼睛 [237,238,239]、主体 [178,179]、耳朵 [0,298,299] 坏帧"的真身：数据没坏，寻址回绕了）。
-//   第三方参考实现 wer-ref WPPuppet.cpp:218-222 直接采 row∈[0,length)，无行移位。
-export function sampleAnimRT(mesh, anim, frame, nb, bones) {
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// ①(P-139 2026-09-19) **MDLA 逐骨局部量采样 = 全仓库唯一实现处（本函数）**
+//
+// 为什么要有"唯一实现处"（与 `core/puppet-skin.js::bindWorldChain` 同一条纪律）：同一套
+//   "MDLA 轨寻址 + 轨道作用域 + 越界回绕" 的判定原先在**两个地方各写了一遍**：
+//     ① 本文件 `sampleAnimRT`（只服务**附件锚点** → `puppetBoneFinal` → `attachmentOffset`）；
+//     ② `elysia/we-renderer/puppet.js::_sampleAnimRT`（服务**渲染网格的 GPU 蒙皮**，
+//        demo.html 的 `updateSkinBones` 每帧调它）。
+//   ① 在 ①G（2026-09-14）被修成"官方逐行同址、不回绕"；② **没跟上**，仍是旧式
+//   `((frame + posShift) % totalFrames)`（把"每骨行移位"折进帧号取模）。后果实测（本文件
+//   的判据，见 tests/kaltsit-puppet-anchor-test.mjs A-3）：同一骨同一动画，① 的单帧最大步长
+//   1.6u，② 在 6 骨模型上是 **699.4u @f0 bone5（头骨）**、14 骨模型上 **365.7u @f0 bone13**、
+//   4 骨模型上 **157.4u @f298 bone3** —— 也就是 ② 把"轨 0 的**第 0 帧**"当成移位后的帧号读，
+//   首帧就吃到邻轨/轨头垃圾。渲染网格走 ② ⇒ 头/眼/耳朵每次循环起点抽一下。
+//   ⇒ ② 现在改为**直接调本函数**（`installPuppet` 的 `_sampleAnimRT` 只是转发），即"同一口径的
+//     唯一实现"：改这里两边同时生效，不存在"改一处忘另一处"的第二次分叉。
+//
+// 语义（行主序/行向量，与 `sampleAnimRT` 的世界链、`bindWorldChain` 的 bind 世界链同空间）：
+//   · **寻址（官方逐行同址）**：`anim.segs[b]` 是官方轨头前 `8b` 处，交错公式
+//     `36·floor(2b/9) + 4·((2b)%9) === 8b` 恰好补上 b 个 8 字节轨头 ⇒
+//     pos 读址 = `segs[b] + f·36 + 8b`（+0 = pos.x, +4 = pos.y），rot 读址 = 同址 +20。
+//     第三方参考 wer-ref `WPPuppet.cpp:218-222` 直接采 `row ∈ [0, length)`，无行移位。
+//   · **不回绕**：帧号先规约到 `[0, frameCount)`（负帧也安全），**绝不**把移位折进取模。
+//     旧式回绕正是 RE-03 记录的"眼睛 [237,238,239]、主体 [178,179]、耳朵 [0,298,299] 坏帧"
+//     的真身：数据没坏，寻址回绕读到了轨头/邻轨垃圾。
+//   · **轨道作用域（官方 per-bone `HasAuthoredTrack`）**：某骨轨**所有帧**的
+//     pos/angle 都 ≈0（<1e-6）⇒ 官方判定"该层对该骨不贡献"，该骨取 `local_bind`
+//     （`bones[b].bind` 的局部位姿）；旧实现只在"数值非有限/超量级"时才回退 bind ⇒
+//     "只驱动部分骨骼"的导出模型会把未 authored 的骨塌到父骨原点（结构性错位）。
+//     逐位实现见 `isAuthoredTrack`（判定按**轨字节**算一次并缓存）。
+//   · 数值非法（非有限/量级 >1e4）时同样回退 `bind`（不炸渲染的既有保险，保留）。
+//
+// 缓存：`_authoredCache` 按 `mesh` 身份（WeakMap）→ Map(anim) → Uint8Array(nb)。
+//   demo.html 的 `puppetHelper._parseMdl` 每个 MDL 只解析一次并复用同一对象
+//   （`l.__skin.mesh`），所以缓存命中；`sampleAnimRT` 是每帧每层调用的热路径，
+//   "逐帧扫 240 帧 × 每骨"不能放在这里做。
+const _authoredCache = new WeakMap()
+// 导出仅为门禁断言「作用域判定本身」（RED-IF-REVERTED 把 authored 判定短路掉必须红）
+export function isAuthoredTrack(mesh, anim, bones) {
+  const nb = (bones && bones.length) || 0
+  let perAnim = _authoredCache.get(mesh)
+  if (!perAnim) { perAnim = new Map(); _authoredCache.set(mesh, perAnim) }
+  let flags = perAnim.get(anim)
+  if (flags && flags.length >= nb) return flags
+  flags = new Uint8Array(nb)
+  try {
+    const raw = mesh.raw
+    const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
+    const len = Math.max(1, anim.frameCount)
+    for (let b = 0; b < nb; b++) {
+      const segStart = anim.segs[b]
+      if (!(segStart >= 0)) continue
+      for (let f = 0; f < len; f++) {
+        const o = segStart + f * 36 + 8 * b
+        if (o + 24 > raw.length) break
+        const px = dv.getFloat32(o, true), py = dv.getFloat32(o + 4, true), rot = dv.getFloat32(o + 20, true)
+        if (Math.abs(px) > 1e-6 || Math.abs(py) > 1e-6 || Math.abs(rot) > 1e-6) { flags[b] = 1; break }
+      }
+    }
+  } catch { /* 结构异常 ⇒ 全部当 authored（= 旧行为，最保守） */ flags.fill(1) }
+  perAnim.set(anim, flags)
+  return flags
+}
+
+/**
+ * MDLA 采样：返回**每骨骼局部位姿** `{ angle, tx, ty }`（尚未做世界链合成）。
+ * @param {object} mesh  `_parseMdl`/`parseMdl` 结果（需要 `raw` 与原 buffer 视图）
+ * @param {object} anim  `mesh.animations[i]`（需要 `segs` / `frameCount`）
+ * @param {number} frame 帧号（任意整数；内部规约到 `[0, frameCount)`，不回绕到轨外）
+ * @param {number} nb    骨骼数
+ * @param {Array}  bones `[{ parent, bind:[16] }]`
+ * @returns {Array<{angle:number,tx:number,ty:number}>} 长度 nb，**局部位姿**（未合成世界链）
+ */
+export function sampleBoneLocalsRT(mesh, anim, frame, nb, bones) {
   const out = new Array(nb)
-  const dv = new DataView(mesh.raw.buffer, mesh.raw.byteOffset, mesh.raw.byteLength)
+  if (!mesh || !mesh.raw || !anim || !anim.segs || !bones || !nb) return out
+  const raw = mesh.raw
+  const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
   const totalFrames = Math.max(1, anim.frameCount)
+  let f = Math.floor(Number(frame) || 0) % totalFrames
+  if (f < 0) f += totalFrames
+  const authored = isAuthoredTrack(mesh, anim, bones)
   for (let b = 0; b < nb; b++) {
+    const bm = bones[b] && bones[b].bind
     const segStart = anim.segs[b]
-    const frame0 = (frame % totalFrames) * 36
-    const o = segStart + frame0 + 8 * b
-    const px = dv.getFloat32(o, true)
-    const py = dv.getFloat32(o + 4, true)
-    const o2 = segStart + frame0 + 8 * b + 20
-    const rotZ = dv.getFloat32(o2, true)
-    const parent = bones[b].parent
-    if (isFinite(px) && isFinite(py) && Math.abs(px) < 10000 && Math.abs(py) < 10000 && isFinite(rotZ)) {
-      if (parent >= 0 && parent < nb && out[parent]) {
-        const pa = out[parent].angle, pc = Math.cos(pa), ps = Math.sin(pa)
-        out[b] = { angle: pa + rotZ, tx: out[parent].tx + px * pc - py * ps, ty: out[parent].ty + px * ps + py * pc }
-      } else {
-        out[b] = { angle: rotZ, tx: px, ty: py }
+    let px = NaN, py = NaN, rotZ = NaN
+    if (segStart >= 0) {
+      const o = segStart + f * 36 + 8 * b
+      if (o + 24 <= raw.length) {
+        px = dv.getFloat32(o, true)
+        py = dv.getFloat32(o + 4, true)
+        rotZ = dv.getFloat32(o + 20, true)
       }
+    }
+    const usable = authored[b] && isFinite(px) && isFinite(py) && isFinite(rotZ) &&
+      Math.abs(px) < 10000 && Math.abs(py) < 10000
+    if (usable) out[b] = { angle: rotZ, tx: px, ty: py }
+    else if (bm) out[b] = { angle: Math.atan2(bm[1], bm[0]), tx: bm[12], ty: bm[13] }
+    else out[b] = { angle: 0, tx: 0, ty: 0 }
+  }
+  return out
+}
+
+/** 局部位姿 → 世界位姿（行主序：`W[b] = L_b × W[parent]`，与 `bindWorldChain` 同空间同序）。 */
+export function localWorldChainRT(locals, bones, nb) {
+  const out = new Array(nb)
+  for (let b = 0; b < nb; b++) {
+    const L = locals[b] || { angle: 0, tx: 0, ty: 0 }
+    const parent = bones[b] ? bones[b].parent : -1
+    if (parent >= 0 && parent < nb && out[parent]) {
+      const pa = out[parent].angle, pc = Math.cos(pa), ps = Math.sin(pa)
+      out[b] = { angle: pa + L.angle, tx: out[parent].tx + L.tx * pc - L.ty * ps, ty: out[parent].ty + L.tx * ps + L.ty * pc }
     } else {
-      const bm = bones[b].bind
-      if (parent >= 0 && parent < nb && out[parent]) {
-        const pa = out[parent].angle, pc = Math.cos(pa), ps = Math.sin(pa)
-        out[b] = {
-          angle: pa + Math.atan2(bm[1], bm[0]),
-          tx: out[parent].tx + bm[12] * pc - bm[13] * ps,
-          ty: out[parent].ty + bm[12] * ps + bm[13] * pc,
-        }
-      } else {
-        out[b] = { angle: Math.atan2(bm[1], bm[0]), tx: bm[12], ty: bm[13] }
-      }
+      out[b] = { angle: L.angle, tx: L.tx, ty: L.ty }
     }
   }
   return out
+}
+
+// ── 采样动画帧 → 每骨骼世界姿势 {angle, tx, ty}（elysia _sampleAnimRT 移植 + ①G 修正）──
+// ①(P-139) 本体只剩"唯一实现处调用 + 世界链合成"两行：寻址/作用域/回绕口径全在
+//   `sampleBoneLocalsRT`（渲染网格的 `puppet.js::_sampleAnimRT` 转发同一个函数）。
+export function sampleAnimRT(mesh, anim, frame, nb, bones) {
+  return localWorldChainRT(sampleBoneLocalsRT(mesh, anim, frame, nb, bones), bones, nb)
 }
 
 // ── puppet 骨骼最终世界位姿（elysia _puppetBoneFinal 移植；①G fps 定案见下）──
@@ -309,7 +389,9 @@ export function puppetBoneFinal(mesh, t, layers = null, opts = null) {
     const anim = mesh.animations[layer.animIdx] || mesh.animations[0]
     if (!anim) continue
     const fps = fpsOverride || anim.fps || 30
-    const frame = Math.floor(t * fps * layer.rate) % Math.max(1, anim.frameCount)
+    // ①(P-139) 帧号同样先规约到 [0, frameCount)（`%` 对负数会给负帧，旧式会把负帧当"回绕"读轨外）
+    const fr = Math.floor(t * fps * layer.rate) % Math.max(1, anim.frameCount)
+    const frame = fr < 0 ? fr + Math.max(1, anim.frameCount) : fr
     const lw = sampleAnimRT(mesh, anim, frame, nb, bones)
     const refRT = animRef(anim)
     for (let b = 0; b < nb; b++) {
@@ -359,6 +441,42 @@ export function selectAnimLayers(parent, mesh) {
       return { animIdx: idx, blend, rate, additive: !!l.additive }
     })
   return ls.length ? ls : null
+}
+
+// ── ①(P-139) 逐帧锚点**增量表**（demo 渲染前把层 origin 从 t=0 姿态搬到当前帧）──
+// 为什么需要它（而不是让宿主编排 `buildAttachOffsets` 两次）：`parseScene` 只把**一个时刻**的锚点
+//   烘进层 origin，之后宿主若自己再调 `buildAttachOffsets` 并"整体替换"就会**双重应用**锚点
+//   —— 必须用**增量**：`origin -= delta(t0)`，其中 `t0` = parseScene 实际用的那个时刻、
+//   delta(t) = `off_{ctx.time}(t) − off_{ctx.time}(0)`（把"每个层自己的锚点"平移**相对**起来，
+//   与 ctx.time=0 时的绝对锚点无关）。本函数返回 `Map(id → Δ)`，`t0` 必须由**同一个 ctx**算出。
+// ctx 与 `attachmentOffset` 同形状（readModelJson/readMdl/time/fps/bindOrder/_anchorCache/_mdlCache）。
+export function attachOffsetDeltas(sceneObjects, readEntry, ctx) {
+  const out = new Map()
+  // 第二个参数 = `readEntry(path) -> Uint8Array`（与 `buildAttachOffsets` 同签名）。
+  // ctx.time 允许是数字或取值器（与 parseScene 的 attachCtx 同约定）；**取值器的返回值**才是时刻。
+  //   刻意不把取值器直接透传给 buildAttachOffsets（它会读到 undefined → `t*fps=NaN` → 静默不生效）。
+  let t = ctx && ctx.time
+  if (typeof t === 'function') { try { t = t() } catch { t = 0 } }
+  t = Number(t)
+  if (!isFinite(t)) t = 0
+  const popts = (ctx && (ctx.fps || ctx.bindOrder)) ? { fps: ctx.fps, bindOrder: ctx.bindOrder } : null
+  // ⚠ 唯一实现处仍走 `buildAttachOffsets`（**不要**在这里另写一份"逐层各建 ctx"的循环：
+  //   那样每层都要重解 model.json，且与 parseScene 的共享 `_mdlCache` 口径分叉——实测差 1.9e3）。
+  //   性能由**宿主**负责（demo.html 按"动画帧号"记忆化：1/30s 才重算一次）。
+  if (typeof readEntry !== 'function') return out
+  let a0 = null, at = null
+  try {
+    a0 = buildAttachOffsets(sceneObjects, readEntry, null, 0, popts)     // 基线恒为 t=0（parse 的冻结时钟）
+    at = buildAttachOffsets(sceneObjects, readEntry, null, t, popts)
+  } catch { return out }
+  at.forEach((v, id) => {
+    const b = a0.get(id)
+    if (!b) return
+    // 同时给出**基线锚点**：宿主逐帧跟随必须做增量（`origin += W(Δ) − W(Δ₀)`），
+    //   只知道 Δ 而不知道 Δ₀ 会把"绝对值"当增量加进去（本改动第一版就是这个 bug）。
+    out.set(id, { delta: [v[0] - b[0], v[1] - b[1]], base: [b[0], b[1]] })
+  })
+  return out
 }
 
 // ── 附件锚点偏移（elysia _attachmentOffset 逐字；y-up 空间，无 y 取反）──

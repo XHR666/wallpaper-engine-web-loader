@@ -620,7 +620,7 @@ try {
   //   `attach-transform.mjs`（P-21）、`puppet-skin.js`（上面写的变异版）、`web-frame-geometry.mjs`（帧几何接线）、
   //   `audio-band-array.mjs`（①(P-132 批D) 粒子音频响应包络 + 16 段活视图）。
   //   少一个就是 ERR_MODULE_NOT_FOUND（本项曾因此假红）—— 以后再给 bundle 加同目录 import 时，这里要同步。
-  for (const f of ['we-scene-bundle.js', 'attach-transform.mjs', 'web-frame-geometry.mjs', 'audio-band-array.mjs']) fs.copyFileSync(path.join(ROOT, 'core', f), path.join(tmpDir, f))
+  for (const f of ['we-scene-bundle.js', 'attach-transform.mjs', 'web-frame-geometry.mjs', 'audio-band-array.mjs', 'we-particle-pointer.mjs', 'we-pointer-source.mjs']) fs.copyFileSync(path.join(ROOT, 'core', f), path.join(tmpDir, f))
   const M = await import(pathToFileURL(path.join(tmpDir, 'we-scene-bundle.js')).href)
   const P = PKGS[0]
   const L = loadPkg(P)

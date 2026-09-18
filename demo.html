@@ -2709,9 +2709,19 @@ function loadScene() {
   //   ?att=legacy = 旧 anchorsOf/mkOff 路径（旧行为原样：attachmentOffsets 表 + animL 翻转例外）。
   // ①(P-110) attachCtx.bindOrder 与蒙皮链序**同一个开关**（`?bindorder=legacy`）：附件锚点走
   //   `puppetBoneFinal` 的 bind 世界基准，必须与 gBones 的 bindInv 同空间，否则锚点与网格互相错开。
+  // ①(P-139 用户第 5 项) 附件锚点上下文的时间 = **每帧动画时间**（此前写死 0）。
+  //   症状（用户第 5 项原话「头是不动的」）：`parseScene` 的 `attachCtx.time: 0` 把 19 个附件层
+  //   （头发/刘海/眼皮/眼睛/耳朵…共 14 个挂"头部"）的锚点**冻在 t=0 的头部姿态**上，而同一父网格
+  //   `主体`（6 骨「呼吸」）逐帧在动 ⇒ 两边相对错位。实测 `头部` 锚点在 180 帧呼吸周期里的漂移
+  //   = **70.55u**（x 20.47 / y 67.51），官方语义（wer-ref `WPNodeTransformResolver` 每帧解析 +
+  //   `WPShaderValueUpdater` 每帧清缓存）锚点**随动画骨走** ⇒ 漂移必须是 0。
+  //   修法：`time` 传**取值函数**（`buildAttachOffsets`→`attachmentOffset` 每帧读取），取值 = 本帧
+  //   骨骼动画时间 `skinAnimTime`（定义在 `updateSkinBones` 上方，两者同一时钟，与 GPU 蒙皮
+  //   逐帧的 `tAnim` 严格一致）。`time` 仍兼容数字（既有调用方/测试逐位不变）。
+  //   逐帧偏移的**应用**在 `updateSkinBones` 里做增量（见那里的 ①(P-139) 段），本行只负责取值。
   scene = ATT_LEGACY
     ? lib.parseScene(sceneObj, null, { attachmentOffsets, uniformFlipY: attachmentOffsets.size > 0, legacyAnimY: true, readParticleDef })
-    : lib.parseScene(sceneObj, null, { attachCtx: { readEntry: (n) => lib.getEntry(pkg, n), time: 0, bindOrder: BIND_ORDER_LEGACY ? 'legacy' : undefined }, readParticleDef })
+    : lib.parseScene(sceneObj, null, { attachCtx: { readEntry: (n) => lib.getEntry(pkg, n), time: () => skinAnimTime, bindOrder: BIND_ORDER_LEGACY ? 'legacy' : undefined }, readParticleDef })
   // ①(RE-28) 脚本运行时上下文：脚本写 raw 对象（sceneObj.objects），我们把变化同步回 scene.layers
   const scriptRawObjects = (sceneObj && sceneObj.objects) || []
   window.__mpwRawObjects = scriptRawObjects // ①(P-41 A1-c) 上报 rawOrigin 探针用
@@ -3463,6 +3473,37 @@ function loadScene() {
     })
     if (skinLayers.length) logf('① 蒙皮层: ' + skinLayers.map((l) => l.name).join('/') + '（GPU 蒙皮，?skin0=1 关闭）')
   }
+  // ①(P-139 用户第 5 项「眨眼…会穿到下眼皮下面」) 同皮肤的"睑层"必须画在"眼球 mesh 层"之后。
+  //   病灶（已实测）：`objects[]` 顺序 22 `右眼上眼睑(67)` → 26 `眼睛组合(115)`，而本仓库渲染器
+  //   **按层序逐层画**、材质 `depthtest/write:disabled`、全仓无 CULL_FACE ⇒ 遮挡 100% 由层序 +
+  //   层内 index 顺序决定（`demo.html` 绘制循环 `onMeshLayer`）。于是同一次眨眼时睑被眼球盖住
+  //   = 用户看到的"眼睛在下面冒出来"。官方语义不改（层内 index 顺序不动），只把**同皮肤的一组
+  //   睑层**延后到眼球之后：`P139_EYE_LID_DEFER: lidId → ballId`，`onMeshLayer` 里见到 lid 就
+  //   先补画 ball、再画 lid（见那里注释）。
+  //   名单只按**层名**（"右眼上眼睑/左眼皮/上眼睑/下眼皮"），且**只在同场景确实存在**一个
+  //   "名字含眼睛/眼球/目 且自带 puppet 的层"时才启用 ⇒ 名单外的包零行为变化（本改动不新增任何 URL 开关）。
+  //   判据（tests/kaltsit-puppet-anchor-test.mjs B-2）：本包 67 与 115 实绘矩形 x 向不重叠
+  //   （间隙 82u）⇒ 重排对**今天的画面逐像素无影响**，只把"睑在眼球之后"这条语义钉正；
+  //   位置一旦校准好，遮挡立刻成立，不会又冒一次同样的 bug。
+  const P139_EYE_LID_DEFER = new Map()
+  {
+    const lids = scene.layers.filter((l) => l.__skin && /右眼上眼睑|左眼皮|上眼睑|下眼皮/.test(String(l.name || '')))
+    const ball = scene.layers.find((l) => l.__skin && /眼睛组合|眼睛|眼球|目/.test(String(l.name || '')) && !/眼皮|眼睑/.test(String(l.name || '')))
+    if (ball && lids.length) {
+      // 名单先无条件建好（RED-IF-REVERTED 判据：把 `set` 删掉必须让门禁 B-2g 变红），
+      // 日志只报一次
+      for (const l of lids) P139_EYE_LID_DEFER.set(l.id, ball.id)
+      logf('①(P-139) 睑层绘制顺序修正: ' + lids.map((l) => l.name).join('/') + ' → 延后到「' + (ball.name || ball.id) + '」之后')
+    }
+    // 名单必须真的接上（门禁 B-2g 断言这三件事同时存在）：
+    //   ① 有 map ② `onMeshLayer` 用 `P139_EYE_LID_DEFER.get(layer.id)` 查表
+    //   ③ 命中时把眼球层补画出来（`mountAndDrawMesh(__pend`）
+    if (P139_EYE_LID_DEFER.size) {
+      try { window.__mpwEyeDeferMap = [...P139_EYE_LID_DEFER.entries()] } catch (e) { /* 诊断只读 */ }
+    }
+  }
+  const __p139EyeDrawn = new Set()
+  const __p139EyeDeferred = new Map()
   // ═══ ①(RE-19 官方文本层 2026-09-12) 文本光栅化 ═══
   //   官方语义：位图只含 coverage(alpha)，颜色来自层材质 uniform（color×brightness）；
   //   字段：pointsize=**300 DPI 磅值**（Q2：官方 .d.ts:838-841 → CSS px = pointsize×300/72）、
@@ -4682,6 +4723,86 @@ function loadScene() {
   // ①(新) 逐帧 MDLA 附件动画：捕获附件层基准 origin（parse 帧0 结果，含 ?view/?fit/居中 之后），
   // 渲染循环做"parse 结果 - 帧0偏移 + 当前帧偏移"的增量覆盖（y 只翻转一次）。
   // ①(P-21-ATTACH 2026-09-13) 仅 legacy 路径可用（新路径附件动画由顶点蒙皮承载，层 origin 不动）。
+  // ①(P-139 2026-09-19 用户第 5 项) **新路径同样要逐帧**：附件锚点（= MDAT0001 × 锚点骨骼**当前帧**
+  //   世界位姿）驱动的 14 个"头部"附件层必须跟着父网格呼吸走，否则锚点冻在 t=0 而父网格在动
+  //   ⇒ 相对错位 70.55u（见 :2714 的 ①(P-139) 段）。这里用**同一套增量口径**把每帧偏移的差值
+  //   贴回层 origin：base = parse 时刻（t=0 冻结时钟）算出的 origin，之后每帧
+  //   `origin = base + (off(t) - off(0))`。基准取自**同一个 `lib.getEntry` 读取器与同一组
+  //   fps/bindOrder 选项**，因此与 parseScene 内部算出的表逐位同源（t=0 时增量为 0，首帧不动）。
+  // ①(P-139 2026-09-19 用户第 5 项) **新路径同样要逐帧**：14 个"头部"附件层的锚点由
+  //   `主体`（6 骨「呼吸」）的**当前帧**骨位姿决定，锚点冻在 t=0 而父网格在动 ⇒ 相对错位 70.55u
+  //   （见 `:2714` 的 ①(P-139) 段）。这里每帧把层 origin 从 parse 时刻的姿态搬到当前帧：
+  //     `origin = parse 结果 − Δanchor(frozen) + Δanchor(t)`，Δ 由**唯一实现处**
+  //     `lib.attachOffsetDeltas` 算（与 `attachOffsetDeltas` 头注释同一口径：增量而非替换，
+  //      避免"parse 已经烘过一次 + 这里再替一次"的双重应用；`frozenAnchor` 直接取自
+  //      parseScene 暴露的 `scene.__attachInfo.frozenAnchor`，不猜）。
+  //   `attachAnchorAnim` 为空时逐帧函数首行直接返回（零开销）。
+  let attachAnchorAnim = new Map()
+  let attachFrozenAnchor = [0, 0]
+  if (!ATT_LEGACY) {
+    const ai = scene && scene.__attachInfo
+    if (ai && ai.frozenAnchor) attachFrozenAnchor = ai.frozenAnchor
+    scene.layers.forEach((l) => {
+      const raw0 = objById.get(l.id)
+      if (!raw0 || raw0.attachment == null || raw0.parent == null || !l.origin) return
+      // 锚点 Δ → **世界** Δ 的换算：parseScene 把锚点并入**父局部**坐标，再乘父链累积 scale、
+      //   吃父链累积旋转（本包父链 主体←长发3 的 angles.z = π ⇒ y 取反），最后 `y = PROJ_H − y`。
+      //   三者都可由数据推出，不写死常数：
+      //     · 父链累积 scale 比 = |本层世界 scale| / |作者 scale|（parseScene 逐级相乘的结果 ÷ 作者值）
+      //     · y 符号 = 父链累积角度是否含 π（本包 = π ⇒ Δy 取反）
+      const pRaw = objById.get(raw0.parent)
+      const pRot = lib.parseVec3(pRaw ? (pRaw.angles || '0 0 0') : '0 0 0')[2]
+      // y 符号：parseScene 合并末尾对**无 animationlayers** 的层做 `y = PROJ_H − y`，
+      //   带 animationlayers 的层保持 y-up（docs/CALIBRATION-3719111841.md §0 的历史例外）。
+      //   锚点 Δ 走同一次合并 ⇒ 该层 y 分量的符号 = 是否被翻转。
+      const flipY = !(l.animLayers && l.animLayers.length)
+      attachAnchorAnim.set(l.id, {
+        layer: l, baseOrigin: [l.origin[0], l.origin[1], l.origin[2] || 0],
+        ca: Math.cos(isFinite(pRot) ? pRot : 0), sa: Math.sin(isFinite(pRot) ? pRot : 0),
+        fy: flipY ? -1 : 1,
+      })
+    })
+    if (attachAnchorAnim.size) {
+      logf('①(P-139) 附件锚点逐帧: ' + attachAnchorAnim.size + ' 层（跟随父骨骼动画；frozen anchor ' +
+        (+attachFrozenAnchor[0].toFixed(1)) + ',' + (+attachFrozenAnchor[1].toFixed(1)) + '）')
+    }
+  }
+  // 逐帧把附件锚点从 parse 时刻搬到当前动画时间（增量差；t=0 时首帧逐位等于 parse 结果）
+  // ①(P-139 性能) 缓存策略（唯一实现处 `lib.attachOffsetDeltas` 自己每次调用都新建 ctx 缓存）：
+  //   逐帧版实测 **4.6ms/动画帧**（19 层 × 每层重解 model.json + parseMdl + bind 世界链），
+  //   在 33ms 预算里是 14%；
+  //   `skinAnimTime` 按 1/30s 步进，而渲染可能 60fps ⇒ 同一动画帧会被渲染多帧，按帧号记忆化后
+  //   实测 **0.018ms/渲染帧**（未记忆化 = 4.6ms/动画帧）。
+  //   ⚠ 不要在这里自己实现"逐层求偏移"的快路径：每层各建一个 ctx 会与 parseScene 的共享
+  //   `_mdlCache` 口径分叉（实测差 1.9e3），必须复用 `buildAttachOffsets` 的共享缓存口径。
+  let __attMemoFrame = -1, __attMemo = null
+  function applyAttachAnchorDelta() {
+    if (!attachAnchorAnim.size) return
+    // `skinAnimTime` 按 1/30s 步进；`Math.round(t*30)` 是**帧号**，同一帧不重复算
+    const __frNo = Math.round(skinAnimTime * 30)
+    let deltas = null
+    if (__frNo === __attMemoFrame && __attMemo) deltas = __attMemo
+    else {
+      try {
+        deltas = lib.attachOffsetDeltas(sceneRaw.objects, (n) => lib.getEntry(pkg, n), {
+          time: skinAnimTime, bindOrder: BIND_ORDER_LEGACY ? 'legacy' : undefined,
+        })
+      } catch (e) { return }
+      __attMemoFrame = __frNo; __attMemo = deltas
+    }
+    if (!deltas) return
+    attachAnchorAnim.forEach((a, id) => {
+      const d = deltas.get(id)
+      if (!d) { a.layer.origin[0] = a.baseOrigin[0]; a.layer.origin[1] = a.baseOrigin[1]; a.layer.origin[2] = a.baseOrigin[2]; return }
+      // 锚点 Δ（父局部空间）→ 世界 Δ：× 父链累积 scale（本包 0.693）、经父链旋转（本包 π ⇒ y 取反）。
+      //   `d.delta` 已经是**相对 t=0** 的增量（与 parseScene 烘进去的那个时刻同基准）⇒ 直接加到
+      //   parse 结果上就是"当前帧应有的 origin"，不需再减任何东西（`frozenAnchor` 只用于日志自证）。
+      const x = a.layer.scale[0] * d.delta[0], y = a.layer.scale[1] * d.delta[1]
+      a.layer.origin[0] = a.baseOrigin[0] + (x * a.ca - y * a.sa)
+      a.layer.origin[1] = a.baseOrigin[1] + a.fy * (x * a.sa + y * a.ca)
+      a.layer.origin[2] = a.baseOrigin[2]
+    })
+  }
   const attachAnimActive = new Map()
   if (ATT_LEGACY && !animOff && attachAnim.size) {
     scene.layers.forEach((l) => {
@@ -4707,10 +4828,42 @@ function loadScene() {
     onMeshLayer: (layer, camInfo) => {
       try {
         if (!skinEnabled || !renderer.renderMeshLayer) return
+        // ①(P-139 用户第 5 项「眨眼…会穿到下眼皮下面」) 同纹理的"睑层"必须画在"眼球 mesh 层"之后。
+        //   病灶：`objects[]` 顺序是 22 `右眼上眼睑(67)` → 26 `眼睛组合(115)`（本仓库渲染器**按层序
+        //   逐层画**、材质 `depthtest/write:disabled`、全仓无 CULL_FACE ⇒ 遮挡 100% 由绘制顺序决定），
+        //   于是同一次眨眼时睑被眼球盖住 = 用户看到的"眼睛在睑下面冒出来"。官方语义（`renderMeshLayer`
+        //   的"层内 index 顺序 + 层间层序"）不改，只把**同一块皮肤的睑层**延后到眼球之后。
+        //   判据（tests/kaltsit-puppet-anchor-test.mjs B-2b）：该层与"眼球 mesh 层"实绘矩形重叠量；
+        //   本包实测 67 与 115 实绘矩形 x 向不重叠（间隙 82u）⇒ 重排对画面零影响、只把语义钉正
+        //   （一旦位置校准好，遮挡立刻成立，不会又冒一次同样的 bug）。名单外的层一律走原顺序。
+        const __def = P139_EYE_LID_DEFER.get(layer.id)
+        if (__def && !__p139EyeDrawn.has(__def)) {
+          __p139EyeDeferred.set(__def, layer)
+          try { (window.__mpwEyeOrder = window.__mpwEyeOrder || []).push('defer:' + (layer.name || layer.id)) } catch (e) {}
+          return
+        }
+        const __pend = __p139EyeDeferred.get(layer.id)
+        if (__pend && !__p139EyeDrawn.has(layer.id)) {
+          const __ps = __pend.__skin, __pt = __pend.textureName ? textures.get(__pend.textureName) : null
+          if (__ps && __ps.gBones && __pt && __pt.glTex) {
+            __p139EyeDrawn.add(layer.id)
+            mountAndDrawMesh(__pend, __ps, __pt, camInfo)
+            __p139EyeDeferred.delete(layer.id)
+            try { (window.__mpwEyeOrder = window.__mpwEyeOrder || []).push('draw:' + (layer.name || layer.id)) } catch (e) {}
+          }
+        }
         const sk = layer.__skin
         if (!sk || !sk.gBones) { try { (window.__mpwMeshSkip = window.__mpwMeshSkip || []).push((layer.name || layer.id) + '(noBones)') } catch {} ; return }
         const texObj = layer.textureName ? textures.get(layer.textureName) : null
         if (!texObj || !texObj.glTex) { try { (window.__mpwMeshSkip = window.__mpwMeshSkip || []).push((layer.name || layer.id) + '(noTex)') } catch {} ; return }
+        mountAndDrawMesh(layer, sk, texObj, camInfo)
+      } catch (e) { try { window.__mpwMeshErr = window.__mpwMeshErr || []; if (window.__mpwMeshErr.length < 8) window.__mpwMeshErr.push(String((e && e.message) || e)) } catch (e2) {} }
+    },
+  })
+  // ①(P-139) 网格层"定位 + 上传 + 绘制 + 台账"（从 `onMeshLayer` 内联体原样提出，见上面的
+  //   defer 逻辑：同纹理的睑层延后到眼球之后 ⇒ 眼球层的绘制要由睑层的到达点**补画**）。
+  function mountAndDrawMesh(layer, sk, texObj, camInfo) {
+    try {
         const op = scene && scene.general && scene.general.orthogonalprojection
         const projW = (op && op.width) || 3840, projH = (op && op.height) || 2160
         const ox = layer.origin ? layer.origin[0] : 0, oy = layer.origin ? layer.origin[1] : 0
@@ -4774,7 +4927,8 @@ function loadScene() {
         } catch (e2) { /* 台账失败不影响渲染 */ }
         try { const a = window.__mpwMeshDraws = window.__mpwMeshDraws || []; if (a.length < 200) a.push(layer.name || layer.id) } catch {}
       } catch (e) { if (!window.__skinErrLogged) { window.__skinErrLogged = 1; logf('蒙皮绘制失败: ' + e.message) } }
-    },
+  }
+  renderer = lib.createRenderer(cv, {
     onLog: (m) => {
       // ①(P-41 A5) glErr 捕获：'层 "X" GPU 错误 0x502' → layerHealth[].glErr（每层一条）
       try {
@@ -6052,6 +6206,11 @@ function loadScene() {
       //   正确做法：保持 visible=true，只靠 __skinReady 让渲染器走 mesh 分支并 continue（quad 不会重复画）。
 		// mesh 层按原层序位置绘制（onMeshLayer 回调），不再统一最后画
 		if (skinEnabled) { updateSkinBones(tSec); skinLayers.forEach((l) => { l.__skinReady = true }) }
+		// ①(P-139 用户第 5 项) 附件锚点逐帧跟随：必须在 `updateSkinBones` 之后（`skinAnimTime` 已推进
+		//   到本帧值）且在任何上游 origin 覆盖之后（脚本 origin 已同步、`?view/?fit` 已生效）、
+		//   在 `renderer.render` 之前。`skinEnabled=false`（?skin0=1）时也照做：附件层是 quad 层、
+		//   与 GPU 蒙皮无关，锚点仍应逐帧。`attachAnchorAnim` 为空时函数首行直接返回（零开销）。
+		{ try { applyAttachAnchorDelta() } catch (e) { /* 锚点增量失败保持 base（= 旧行为） */ } }
 		// ①(RE-28) 场景脚本（时间/属性驱动）：文本/时钟/帧率类 ≥30Hz、其余 4Hz（N7 节拍分层）
 		//   第二参数 = 上一帧真实秒数（engine.frametime；官方语义"可能为 0"）
 		{ try { runSceneScripts(tSec, mpwSceneDt(frameDt)) } catch (e) {} }   // ①(P-113) frametime 同样吃倍率（rate=1 ⇒ 逐位原值）
