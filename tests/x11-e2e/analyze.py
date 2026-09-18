@@ -9,6 +9,8 @@
   count   <png> --rect x,y,w,h [--min 128]        → 该矩形内亮度 ≥ min 的像素数与占比
   centroid <png> --rect x,y,w,h [--min 128]       → 该矩形内亮像素的质心（加权）
   diff    <a.png> <b.png> --rect x,y,w,h [--min 8]→ 两张图在矩形内的差异像素数 / 变化质心 / 包围盒
+  mask    <png> --rect x,y,w,h [--rule warm|pinkish|redish|bright|notblue]
+                                                  → 该颜色规则的匹配数/占比/质心/包围盒（找"花瓣跟不跟手"用）
   profile <png> --rect x,y,w,h [--axis x|y] [--min 128]
                                                   → 沿轴的亮像素直方图（找竖条纹/缝隙用；输出每列计数）
 """
@@ -122,6 +124,41 @@ def cmd_profile(a):
             "zero": sum(1 for c in counts if c == 0)}
 
 
+RULES = {
+    # 名称 → (谓词, 说明)。谓词收 (r,g,b,luma)。**只做相对比较**，不做色彩管理。
+    "warm":   (lambda r, g, b, L: r > b + 25 and r > 100, "暖色（R 明显高于 B 且不太暗）：樱花/花瓣/暖光"),
+    "pinkish": (lambda r, g, b, L: r > g + 18 and r > b and r > 90, "偏粉（R>G、R>=B）：花瓣的常见色"),
+    "redish": (lambda r, g, b, L: r > g + 30 and r > b + 30, "强红：只留最像花瓣的"),
+    "bright": (lambda r, g, b, L: L >= 200, "高亮：亮点/白花"),
+    "notblue": (lambda r, g, b, L: r >= b - 10 and L >= 60, "非蓝（夜空/蓝背景之外的一切）"),
+}
+
+
+def cmd_mask(a):
+    im = load(a.png)
+    x, y, w, h = rect_of(im, a.rect)
+    pred, why = RULES[a.rule]
+    crop = im.crop((x, y, x + w, y + h))
+    px = crop.load()
+    n = 0
+    sx = sy = 0.0
+    minx, miny, maxx, maxy = w, h, -1, -1
+    for j in range(h):
+        for i in range(w):
+            r, g, b = px[i, j]
+            if pred(r, g, b, luma((r, g, b))):
+                n += 1
+                sx += i; sy += j
+                minx, miny = min(minx, i), min(miny, j)
+                maxx, maxy = max(maxx, i), max(maxy, j)
+    if n == 0:
+        return {"ok": True, "rule": a.rule, "why": why, "matched": 0, "rect": [x, y, w, h]}
+    return {"ok": True, "rule": a.rule, "why": why, "matched": n,
+            "ratio": round(n / float(w * h), 6), "rect": [x, y, w, h],
+            "cx": round(x + sx / n, 2), "cy": round(y + sy / n, 2),
+            "bbox": [x + minx, y + miny, maxx - minx + 1, maxy - miny + 1]}
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -133,6 +170,10 @@ def main():
         if name == "profile":
             p.add_argument("--axis", choices=["x", "y"], default="x")
         p.set_defaults(f=fn)
+    p = sub.add_parser("mask"); p.add_argument("png")
+    p.add_argument("--rect", type=lambda s: [int(v) for v in s.split(",")])
+    p.add_argument("--rule", choices=sorted(RULES), default="warm")
+    p.set_defaults(f=cmd_mask)
     p = sub.add_parser("diff"); p.add_argument("png"); p.add_argument("png2")
     p.add_argument("--rect", type=lambda s: [int(v) for v in s.split(",")])
     p.add_argument("--min", type=float, default=8)
