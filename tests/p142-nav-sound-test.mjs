@@ -735,8 +735,30 @@ group('D 变异自证（RED-IF-REVERTED；副本在 os.tmpdir()）')
   fs.rmSync(tmp, { recursive: true, force: true })
 }
 
+/* ═══════════════════════════ 实测读数（绿跑也打印；数字与 B13–B18 断言同一批） ═══════════════════════════ */
+group('实测读数（几何模型：`#props` 832 高 / `#props-body` 756 高 / `.prop` 行高 65px（= 产物 CSS 8+name+6+24+8+1）/ 30 项）')
+{
+  const res = reserveModel(htmlSrc)
+  const cardTop = VIEW.propsBottom - res.strip - res.card
+  const items = []
+  for (let i = 0; i < 30; i++) { const top = VIEW.bodyTop + 4 + 65 * i; items.push({ id: 'p' + i, rect: { left: 1280, right: 1600, top, bottom: top + 65 } }) }
+  const bodyBase = { top: VIEW.bodyTop, bottom: VIEW.propsBottom, scrollTop: 0, scrollHeight: 4 + 65 * 30 + res.pad }
+  const stripRect = { left: 1280, right: 1600, top: VIEW.propsBottom - res.strip, bottom: VIEW.propsBottom }
+  const shut = 78                                                        // = now-playing-math.SHUT
+  const collapsed = mod.npOcclusionPlan({ body: bodyBase, strip: stripRect, items, card: { left: 1330, right: 1590, top: cardTop + (res.card - shut) / 2, bottom: cardTop + (res.card - shut) / 2 + shut } })
+  const expanded = mod.npOcclusionPlan({ body: bodyBase, strip: stripRect, items, card: { left: 1330, right: 1590, top: cardTop, bottom: cardTop + res.card } })
+  const noReserve = mod.npOcclusionPlan({ body: Object.assign({}, bodyBase, { scrollHeight: 4 + 65 * 30 + 20 }), strip: stripRect, items, card: { left: 1330, right: 1590, top: cardTop, bottom: cardTop + res.card } })
+  line(`  · 收起态：卡片 ${shut}px（居中于 ${res.card}px 挂点）⇒ cover **${collapsed.cover}px**，遮挡 **${collapsed.coveredCount} 项**（${collapsed.covered.join(',')}），滚不到 ${collapsed.unreachableCount} 项`)
+  line(`  · 展开态：卡片 ${res.card}px ⇒ cover **${expanded.cover}px**（= 静态表 --mpw-np-cover），遮挡 **${expanded.coveredCount} 项**（${expanded.covered.join(',')}），滚不到 ${expanded.unreachableCount} 项`)
+  line(`  · 判别力：把 \`#props-body\` 的底高预留拿掉（改回产物默认 20px）⇒ 立刻 **${noReserve.unreachableCount} 项**滚到底也看不到（${noReserve.unreachable.slice(0, 4).join(',')}…）`)
+  line(`  · 收纳：导轨 ${mod.NAV_RAIL_W}px；`+'`#main`'+` 宽度增量 = 300−26 = 274px（mid 档 240−26 = 214px）；键名 \`${mod.NAV_COLLAPSED_STORE}\``)
+  check('E1 读数自洽：收起/展开的 cover 与遮挡计数就是 B13–B16 断言的那四个数（164/3 与 219/4），且判别力非零（4）',
+    collapsed.cover === 164 && collapsed.coveredCount === 3 && expanded.cover === 219 && expanded.coveredCount === 4 && noReserve.unreachableCount === 4,
+    JSON.stringify({ collapsed: [collapsed.cover, collapsed.coveredCount], expanded: [expanded.cover, expanded.coveredCount], noReserve: noReserve.unreachableCount }))
+}
 /* ═══════════════════════════ 汇总 ═══════════════════════════ */
 let pass = 0
 for (const c of checks) { if (!c.ok) console.log(`FAIL  ${c.name}${c.detail !== undefined ? '  — ' + c.detail : ''}`); if (c.ok) pass++ }
-console.log(`\n${pass}/${checks.length} 通过（P-142 收纳 + 声音控件 + video 声音；A 静态 ${A.length} / B-C 假 DOM ${BC.length} / D 变异 ${checks.length - A.length - BC.length}）`)
+const bucket = (re) => checks.filter((c) => re.test(c.name)).length
+console.log(`\n${pass}/${checks.length} 通过（P-142 收纳 + 声音控件 + video 声音；A 静态 ${bucket(/^A\d/)} / B-C 假 DOM ${bucket(/^[BC]\d/)} / E 读数 ${bucket(/^E\d/)} / D 变异 ${bucket(/^变异|^对照/)}）`)
 process.exit(pass === checks.length ? 0 : 1)
