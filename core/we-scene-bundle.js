@@ -3338,6 +3338,19 @@ export function spriteTrailStretch(speed, cfg) {
   return (isFinite(m) && m > 0) ? m : 1
 }
 
+// ①(P-140 用户第 7 项 2026-09-19) 湍流初速场的**空间频率** `k`（单位 1/设计像素；相干长度 ≈ 1/k）。
+//   ⚠⚠ **这是待标定量，不是官方值。** `docs/VAPOR-LAYER-3544152633.md` §6-1 记录：**三个参考实现
+//   对 `scale`（`vapor1.json` 写 0.1）的量纲互相冲突** ——
+//     · MIT oneincase/webwallgl：`noiseVec3(p.x*scale+offset, p.y*scale+offset, t+seed*phasemax)`（每像素域）；
+//     · GPL lwe-ref：`curlNoise(p.position*0.1f + …)`，把 0.1 **硬编码**（同域）；
+//     · GPL wer-ref：`CurlNoise` 走步（既不是"每像素"也不是"归一化"，是场自身的尺度）。
+//   我们**没有**官方二进制/文档可对拍 ⇒ 相干长度只能"大到能消掉乱线"，具体值靠真机观感定。
+//   缺省 `0.002` ≈ **500px 特征尺度**：取的是报告 §3.1-G 单变量反证里用过的那一档
+//   （相干长度 ≳200px 就能让"发散长线"整条消失；200px 档与 500px 档读数同量级，见报告 §3.1-G 表）。
+//   **真机对拍官方 `preview.gif` 后可调**：第一刀调相位/手性，第二刀才谈 `scale` 的真实量纲。
+//   调法：k 调小 = 相干更长 = 更"整团"；k 调大 = 更碎 = 更接近改前的乱线（0.1 ≈ 10px 相干 ≈ 旧观感）。
+export const PTURB_K = 0.002
+
 // ctx: { origin, scale, angle, alphaMul, rateMul, maxCount, seedStr }
 export function buildParticleSystem(def, ctx = {}) {
   const scale = ctx.scale || [1, 1, 1]
@@ -3394,6 +3407,9 @@ export function buildParticleSystem(def, ctx = {}) {
     //   不传（测试/第三方调用）⇒ false = 官方默认，与渲染器默认档一致。
     expLegacy: !!ctx.expLegacy,
     speedLegacy: !!ctx.speedLegacy,
+    // ①(P-140 用户第 7 项) **湍流初速场口径**（`?pturb=legacy`）：true = 改前的"每颗粒子独立随机出生角"。
+    //   不传（测试/第三方调用）⇒ false = official（方向是位置的函数），与渲染器默认档一致。
+    pturbLegacy: !!ctx.pturbLegacy,
     countMul: (() => { const c = ctx.instanceoverride && ctx.instanceoverride.count; return (typeof c === 'number' && isFinite(c) && c >= 0) ? c : 1 })(),
     // ①(RE-20) 控制点：controlpointattract 的目标（offset 为层空间坐标）
     controlPoints: (def && def.controlpoint) || [],
@@ -3673,6 +3689,11 @@ export function spawnParticle(sys, em) {
     // ①(RE-20/RANDOMONE) 每粒子一次性随机数：randomframe 终身固定帧、colorrandom 灰度域、
     //   oscillate 的相位/频率/幅度也由它派生（官方均为"出生时抽一次"）。
     random: rng(),
+    // ①(P-140 用户第 7 项) 出生时刻的**子系统仿真时钟**（`stepParticles` 在本步发射前写入
+    //   `sys._scaledT`）—— `turbulentvelocityrandom` 的相干场相位要它（"不同出生时刻的方向不同"
+    //   ⇒ 烟是一缕弯的而不是一根直棍）。纯粹是"记一下当时几点"，**不抽随机数、不动任何既有字段**
+    //   ⇒ RNG 流与顶点流都不受影响；`?pturb=legacy` 分支根本不读它。
+    turbT: sys._scaledT || 0,
     oscAlpha: null, oscSize: null, oscPos: null,
   }
   for (const init of sys.initializers) {
@@ -3680,7 +3701,10 @@ export function spawnParticle(sys, em) {
       // ①(P-133 #3) `mapsequencearoundcontrolpoint` 的上下文（只有该 initializer 会读）：
       //   控制点世界坐标（lockToPointer 时 = 指针）+ 本发射器的分布半径 + 轮转序号。
       //   其他 initializer 忽略第 8 实参 ⇒ 零行为变化、不额外消耗 RNG。
-      (init.name === 'mapsequencearoundcontrolpoint') ? __mapAroundCtx(sys, em, wx, wy, wz) : null)
+      (init.name === 'mapsequencearoundcontrolpoint') ? __mapAroundCtx(sys, em, wx, wy, wz) : null,
+      // ①(P-140 用户第 7 项) 第 9 实参 = 湍流初速场口径（`?pturb=legacy`）；只有
+      //   `turbulentvelocityrandom` 会读，其余 initializer 忽略 ⇒ 零行为变化。
+      sys.pturbLegacy)
   }
   // ①(P-103③) 记账：本粒子至少有一个 initializer 真的吃了 exponent≠1（legacy 档恒不置位）
   if (p.__expApplied) { sys.__spawnExps = (sys.__spawnExps || 0) + 1; delete p.__expApplied }
@@ -3712,7 +3736,10 @@ export function applyInstanceOverride(p, io) {
   return p
 }
 
-export function applyInitializer(p, init, rng, vyLegacy, expLegacy, pcolorLegacy, audioEnv = null, ctx = null) {
+// 第 9 实参 `pturbLegacy`（①P-140 用户第 7 项）= 湍流初速场口径（`?pturb=legacy`），缺省 false
+//   = official（方向 = 位置的函数）。只有 `turbulentvelocityrandom` 会读它；外部（测试/第三方）
+//   只传前 3~4 个实参的既有调用**逐位不变**。
+export function applyInitializer(p, init, rng, vyLegacy, expLegacy, pcolorLegacy, audioEnv = null, ctx = null, pturbLegacy = false) {
   const pr = init.params
   // ①(P-103③ 洁净室实现) 官方 exponent **非线性分布**：`值 = min + pow(u, exponent)·(max−min)`，u=rng()。
   //   行为规格（不照抄任何 GPL 实现的行文/命名/结构，见 docs/PATCHES.md P-103 的"新旧差异"清单）：
@@ -3777,18 +3804,66 @@ export function applyInitializer(p, init, rng, vyLegacy, expLegacy, pcolorLegacy
       break
     }
     // ①(RE-20) turbulentvelocityrandom（实测 24 次）：沿 Curl 场给一个初始速度扰动。
-    //   官方是"沿 curl 噪声场走 duration 秒后的方向"；这里用**确定性伪噪声近似**（同粒子固定），
-    //   幅度取 speedmin/speedmax（缺省 0）——观感等价（粒子呈现涡旋状初速），并在文档标注为近似。
+    //   官方是"沿 curl 噪声场走 duration 秒后的方向"。
+    //
+    //   ①(P-140 用户第 7 项 2026-09-19) **旧实现的语义错**（不是"近似"）：方向取的是
+    //     `p.random`（每颗粒子出生时抽一次的独立 0..2π 角）⇒ **同一处出生的粒子各自飞散**；
+    //     官方是**按位置采样的 curl 噪声场**（同地同向、邻地平滑），三个独立参考实现都如此
+    //     （见 `docs/VAPOR-LAYER-3544152633.md` §4.1/§6-1：MIT `noiseVec3(p.x*scale…, p.y*scale…)`、
+    //     lwe-ref `curlNoise(p.position*0.1f…)`、wer-ref `CurlNoise` 走步 —— 它们对 `scale` 的
+    //     **量纲互相冲突**，所以下面的 `PTURB_K` 是**待标定量、不是官方值**）。
+    //     `0917/3233141951` 的「龙烟」(段长中位 2221px)、`dd/3544152633` 第 26 层「Vapor (double)」
+    //     （`renderer=rope`：把存活粒子按发射序连成 ribbon）就是这样变成"各种发散线条"的。
+    //   `?pturb=legacy` = **改前逐位口径**（独立随机角），A/B 用；判据/读数见上述报告 §3.1-G、§5。
     case 'turbulentvelocityrandom': {
       const smin = pGetVal(pr, 'speedmin', 0), smax = pGetVal(pr, 'speedmax', 0)
+      // ⚠ 这次 `rng()` 调用是**唯一**一次、两档都在**同一位置**抽 ⇒ RNG 流与改动前逐位一致
+      //   （只有"方向怎么算"变了，粒子数/寿命/尺寸/颜色序列一个都不动）。
       const amp = smin + rng() * (smax - smin)
       if (amp) {
-        // ①(P-131 批 D) 官方音频响应（本 initializer 专属段落）："adds a factor to the **Phase**
-        //   values … this feature has no effect on particles with a `0.00` phase." ⇒ 相位乘 (1+env)。
-        //   本实现的"相位"就是 `p.random`（0..1 → 0..2π 的出生角）⇒ 乘 (1+env)；env=0 或没开音频
-        //   响应时逐位等于旧算式（`audioEnv=null ⇒ +0`）。
-        const a = p.random * Math.PI * 2 * (1 + (audioEnv || 0)) + (p.pos[0] + p.pos[1]) * 1e-3
-        p.vel = [Math.cos(a) * amp, Math.sin(a) * amp, 0]
+        // ①(P-131 批 D / P-132 批 D 落地物，P-140 保留) 官方音频响应（本 initializer 专属段落）：
+        //   "adds a factor to the **Phase** values … this feature has no effect on particles with a
+        //   `0.00` phase." ⇒ **每粒子相位乘 (1+env)**。**逐字沿用 P-132 批 D 的落点结构**：
+        //   旧算式 = `p.random·2π·(1+env) + (pos0+pos1)·1e-3` —— 因子只乘"每粒子随机相位"那一项，
+        //   位置/时间项**不乘**。这里同样只乘 `zp`（= `p.random·phasemax`）。后果正是官方那句话：
+        //   `phasemax=0`（本层 vapor1.json 就是）⇒ `zp≡0` ⇒ **音频对它没有任何影响**；
+        //   `phasemax>0` ⇒ env 改变方向（`tests/particle-render-correctness-test.mjs` ⑧-6 钉住）。
+        //   `env=0`/无音频视图 ⇒ 系数 1 ⇒ 与"没有视图"逐位相同。
+        const phK = 1 + (audioEnv || 0)
+        if (pturbLegacy) {
+          // 改前口径（逐位）：独立随机出生角 + 与位置成正比的微小平移（发射半径 5px ⇒ 相干性≈0）。
+          const a = p.random * Math.PI * 2 * phK + (p.pos[0] + p.pos[1]) * 1e-3
+          p.vel = [Math.cos(a) * amp, Math.sin(a) * amp, 0]
+        } else {
+          // 官方口径：方向 = **位置 + 场时间**的函数（相干场）⇒ 同地同向、邻地平滑。
+          //   · `k = PTURB_K`（**待标定量**，不是官方值 —— 三个参考实现对 `scale` 的量纲互相冲突，
+          //     我们没有官方二进制可对拍）：缺省 `0.002` ≈ **500px 特征尺度**，取的是
+          //     `docs/VAPOR-LAYER-3544152633.md` §3.1-G 反证里用过的量级（那一档把本层 ribbon 总长
+          //     6796px→309px、段长中位 190px→8.5px、>60px 的段 23→0）。**真机对拍官方 `preview.gif`
+          //     后可调**（第一刀调相位/手性，第二刀才谈 `scale` 的真实量纲）。
+          //   · 相位 = 场时间 `zt`（出生时刻的子系统仿真时钟 × `timescale`，**不受音频影响**）
+          //     + 每粒子相位 `zp`（`p.random × phasemax`，受 `(1+env)` 调制，见上）
+          //     ⇒ "不同出生时刻的方向缓慢转动" = 一缕弯的烟（而不是一条直棍）。
+          //   · 场形取自本仓库 `turbulence` operator 的确定性 sin/cos 场（下方 operator 段：
+          //     `sin(x·3.1 + …)·cos(y·2.3 − …)` / `cos(x·2.7 − …)·sin(y·3.3 + …)`），initializer 与
+          //     operator 同族、物理自洽；未复制任何参考实现代码。
+          //   ⚠ **与 `docs/VAPOR-LAYER-3544152633.md` §4.1 代码片段的一处必要偏离**（该片段直接照抄
+          //     会在 `p.pos=(0,0)` 处**退化**）：片段的 `n2` 与 `n1` 在 s=t2=0 时恒等
+          //     （`n1 ≡ n2 = sin z·cos z`）⇒ 归一化后方向只剩 `±45°` **两个值**，相位只影响符号 ⇒
+          //     音频 env 对"出生在 (0,0) 的层"完全不生效（`particle-render-correctness` ⑧-6 实测就是
+          //     这么变红的）。这里按该片段自己的话"复用本仓库 turbulence operator 已有的确定性
+          //     sin/cos 场"把两个分量的**时间系数拆开**（operator 是 `t·0.7` / `t·0.5`）：
+          //     `n2` 的时间项取 `z·0.5` ⇒ (0,0) 处 `n1=sin z·cos z`、`n2=cos z·sin(z/2)`，不再退化。
+          const k = PTURB_K
+          const zt = (p.turbT || 0) * pGetVal(pr, 'timescale', 1)
+          const zp = p.random * pGetVal(pr, 'phasemax', 0) * phK
+          const z = zt + zp
+          const s = p.pos[0] * k, t2 = p.pos[1] * k
+          const n1 = Math.sin(s * 3.1 + t2 * 1.7 + z) * Math.cos(t2 * 2.3 - z)
+          const n2 = Math.cos(s * 2.3 - t2 * 2.9 + z) * Math.sin(s * 1.9 + z * 0.5)
+          const m = Math.hypot(n1, n2) || 1
+          p.vel = [n1 / m * amp, n2 / m * amp, 0]
+        }
       }
       p.turbSeed = p.random * 1000
       break
@@ -7157,6 +7232,25 @@ export function createRenderer(canvas, opts = {}) {
     } catch (e) { /* 无 location → 默认 official */ }
     return 'official'
   })()
+  // ①(P-140 用户第 7 项) **湍流初速场的口径档位**（`turbulentvelocityrandom` initializer）：
+  //   official（默认）= **方向是位置的函数**（相干场）：`dir = f(p.pos·PTURB_K, 出生时刻×timescale)`
+  //     ⇒ 同一处出生的粒子**同向**、相邻位置方向**平滑**。官方语义 = 按位置采样的 curl 噪声场
+  //     （三个独立参考实现都如此，出处见 `docs/VAPOR-LAYER-3544152633.md` §4.1/§6-1）。
+  //   `?pturb=legacy` = 改动前（P-139 及之前）的口径：方向 = `p.random` 抽的**独立随机出生角**
+  //     ⇒ 同处出生的粒子各自飞散。逐位回退（不放宽任何断言，是"换回旧算式"）。
+  //   ⚠ 为什么必须给回退口：这条 initializer 被语料 **28 层**吃到（rope 13 / sprite 14 / spritetrail 1，
+  //     复算命令见报告 §7），其中 sprite 族的观感会从"四散"变成"整团漂移"（落花/樱花/灰烬），
+  //     真机逐层对拍官方 `preview.gif` 之前必须能一键回到今天的画面。
+  //   档位随 `ctx.pturbLegacy` 进 `buildParticleSystem` → `sys.pturbLegacy` → `applyInitializer`；
+  //   场频率是**模块级**常量 `PTURB_K`（见文件上方 `PTURB_K` 的定义与"待标定量"警告）。
+  const PTURB_MODE = (() => {
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        return new URLSearchParams(location.search).get('pturb') === 'legacy' ? 'legacy' : 'official'
+      }
+    } catch (e) { /* 无 location → 默认 official */ }
+    return 'official'
+  })()
   // ①(P-131 批 D) 音频驱动发射的状态与求值在**模块级**（`AUDIO_EMIT_MODE` / `AUDIO_BANDS_VIEW` /
   //   `setAudioBands()` / `audioFactor()`，见 `parseParticleEmitters` 上方的整段注释）：页内一个音频源，
   //   所有渲染器实例共用同一份活视图（官方 `engine` 是引擎级单例）。这里只在签名里带上档位，
@@ -7184,6 +7278,8 @@ export function createRenderer(canvas, opts = {}) {
     popsMode: POPS_MODE,
     // ①(P-130 批A) A 类颜色口径档位（official=本批修完的口径 / legacy=P-126 的颜色计算口径）
     pcolorMode: PCOLOR_MODE,
+    // ①(P-140 用户第 7 项) 湍流初速场口径档位（official=方向是位置的函数 / legacy=独立随机出生角）
+    pturbMode: PTURB_MODE,
     // ①(P-131 批D) 音频驱动发射档位与生效记账（真机上报可回答"这一台到底有没有音频源、调没调制"）
     audioEmitMode: AUDIO_EMIT_MODE, audioModulated: 0, audioNoSource: 0, audioLayers: {},
     // ①(P-103) 生效记账（逐帧重置）：吃自转的 quad 数 / 吃图层变换的 quad 数 / 吃 exponent 的 initializer 次数 /
@@ -10759,6 +10855,8 @@ export function createRenderer(canvas, opts = {}) {
       POPS_MODE,
       // ①(P-130 批A) 颜色口径进签名：`?pcolor=` 切换后必须重建（colorrandom/colorchange 的出生与逐帧结果都变）
       PCOLOR_MODE,
+      // ①(P-140 用户第 7 项) 湍流初速场口径进签名：`?pturb=` 切换后必须重建（出生速度方向整批不同）
+      PTURB_MODE,
       // ①(P-131 批D) 音频口径进签名：`?audioemit=` 切换后必须重建（发射门控改变出生流与 RNG 流）
       AUDIO_EMIT_MODE,
     ].join('|')
@@ -10797,6 +10895,8 @@ export function createRenderer(canvas, opts = {}) {
         popsLegacy: POPS_MODE === 'legacy',
         // ①(P-130 批A) A 类颜色口径档位（`?pcolor=legacy`）
         pcolorLegacy: PCOLOR_MODE === 'legacy',
+        // ①(P-140 用户第 7 项) 湍流初速场口径档位（`?pturb=legacy` ⇒ 回到"每颗粒子独立随机出生角"）
+        pturbLegacy: PTURB_MODE === 'legacy',
       })
       if (PSIM === 'incr') PartSysCache.set(layer.id, { sig: __sig, sys })
     }
