@@ -233,6 +233,11 @@ add "bind-order"         "node tests/bind-order-test.mjs"
 #   每项自带 **RED-IF-REVERTED**：把真源码切片改回旧行为 ⇒ 对应结论必须变红（绿色运行也打印 RED 行）。
 #   接线说明/开关/实测数字/未定清单：`docs/AUDIO-BAND-WIRING.md`。
 add "audio-band-wiring"  "node tests/audio-band-wiring-test.mjs"
+# ①(P-132 批D 2026-09-19 主对话补登记) **音频驱动发射 + AudioBuffers 活视图**：语料 16 段字段直方图 vs
+#   `parseAudioResponse` 解析、`registerAudioBuffers(n)` 长期持有的活视图（同一引用 / 内容逐帧变化 /
+#   `average` 逐段 =(L+R)/2）、`?audioemit=` 档位表、以及"改回每次新建数组必红"的反向变异。
+#   该文件由音频线交付时**未**登记（它按纪律不碰本脚本），主对话在此补上；~1.5s，无浏览器/无网络。
+add "audio-emit-live"    "node tests/audio-emit-live-test.mjs"
 add "frame-geometry-wiring" "node tests/web-frame-geometry-wiring-test.mjs"
 
 # ——— ①(§5-⑧ 2026-09-17 回归自动化：真机验证里"能自动化的部分"全自动化）———
@@ -311,6 +316,18 @@ add "camera-origin-script" "node tests/camera-origin-script-test.mjs" "" "^SKIP 
 #   B 段 本机绝对路径（host-workspace-path / device-shared-storage / termux-private-dir）。
 #   带**白名单腐烂检测**（被豁免的命中若消失 ⇒ 判红，防白名单变遮羞布）；退出码 0/1/2。~0.5s，无网络无浏览器。
 add "secret-scan"        "node tests/secret-scan-test.mjs"
+# ①(P2-2 2026-09-18) `bench-8902`：一站式测试台服务（`server/we-scene-demo-server-8902.mjs`）的端到端自证 ——
+#   临时端口 + 夹具库真起服务：8 个 `/api/*` 的状态码与 JSON 形状、静态面 no-store、`/media/dev/**` Range 206、
+#   **路径逃逸**（`..`/绝对/符号链接）400/403、删除**默认 dryRun 不移文件**、`?confirm=1` 才进可回滚 trash、
+#   属性覆盖只落 `reports/`。63 断言 + 2 组变异自证。~2s，无浏览器。
+add "bench-8902"         "node tests/bench-server-test.mjs"
+# ①(2026-09-19「结合 X11 自己做简单测试」) `x11-pointer`：**真 X11 指针链路对拍** —— xdotool 用真 X 事件
+#   把指针移进/移出/移到画布另一端，页面里自己的监听记录 clientX/Y，断言：事件真到达、**鼠标下移 ⇒ cy 增大**
+#   （垂直反了必红）、移远仍到达、移出窗口有 leave/out。7 断言 + 5 张截图（落 `$MPW_ROOT/reports/x11-shots/`）。
+#   **无 X 显示/无 scrot/无 8899 时自我 SKIP**（`^SKIP pointer-live`）⇒ 无头机器上不红、不拖慢门禁。
+#   为什么进门禁：`page.mouse.*` 是合成事件，绕过 X 服务器；这条链（X → 浏览器 → 画布）此前**没有任何自动化**。
+#   说明与"必须人眼看"的边界：`tests/x11-e2e/README.md`。~1.5min，需要 headed firefox（本机软件 WebGL ~1fps）。
+add "x11-pointer"        "node tests/x11-e2e/pointer-live-test.mjs" "" "^SKIP pointer-live"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /

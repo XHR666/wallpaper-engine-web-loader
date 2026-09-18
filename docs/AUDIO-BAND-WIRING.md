@@ -16,8 +16,8 @@
 
 | 模块 | 落点（file:line 以本文写作时的树为准） | 消费方 | 开关 | 缺省 |
 |---|---|---|---|---|
-| `core/audio-band-array.mjs` | `demo.html:2509`（`MPW-BANDFEED` 块，切片段 `:2509-2601`） | ① 场景层脚本 `registerAudioBuffers`（`elysia/scene-scripts.js:404`）经 `demo.html:2602` 的 `audioBuffers(n)` 拿到**同源同曲线**的 n 元值；② 宿主（父页）经 `postMessage` 收到 128 元数组 | `?bandfeed=` | **关** |
-| 同上（诊断面） | `demo.html:2591`（`bandFrameTick`，由每帧钩子 `demo.html:5697` 调用） | `window.__mpwAudioBands`（128 元 `Float32Array`）、`window.__mpwAudioBandStats()`（`bandStats` 摘要，`silent` = "到底接上没有"）、`window.__mpwAudioBandInfo()` | 同上 | 关时一个字段都不写 |
+| `core/audio-band-array.mjs` | `demo.html:2754`（`MPW-BANDFEED` 块，切片段 `:2754-2948`） | ① 场景层脚本 `registerAudioBuffers`（`elysia/scene-scripts.js:513`，**活视图**）经 `demo.html:2949` 的 `audioBuffers(n)` 拿到**同源同曲线**的 n 元值；② 宿主（父页）经 `postMessage` 收到 128 元数组 | `?bandfeed=` | **auto（有源即开）** |
+| 同上（诊断面） | `demo.html:2927`（`bandFrameTick`，由每帧钩子 `demo.html:6060` 调用） | `window.__mpwAudioBands`（128 元 `Float32Array`）、`window.__mpwAudioBandStats()`（`bandStats` 摘要，`silent` = "到底接上没有"）、`window.__mpwAudioBandSource` / `__mpwAudioBandReason` | 同上 | `off` 时一个字段都不写 |
 | `core/web-frame-geometry.mjs`（帧盒） | `demo.html:1557`（`MPW-FRAMEGEOM` 块，切片段 `:1557-1608`）；调用点 `demo.html:1625`（`type=video` 壁纸）与 `demo.html:1641`（`?video=` 纯视频） | video 壁纸的 `<video>` 帧盒（`cover/contain/stretch` 三态，替换"整个交给 CSS `object-fit`"的不可断言路径） | `?framegeom=` | **legacy（关）** |
 | 同上（指针口径） | `core/we-scene-bundle.js:17`（import）、`:20`/`:27`/`:42`（导出 `FRAME_GEOM_MODES`/`frameGeomMode`/`framePointerMap`）、`:6322`（档位解析）、`:6333`（DOM pointer 路径）、`:6365`（`__mpwPointer.space='css'` 注入路径） | 场景粒子 `lockToPointer` 发射器的基准点（`?cursor=` 那条链） | `?framegeom=cover` | **legacy（关）** |
 
@@ -30,28 +30,36 @@
 
 | 开关 | 取值 | 缺省 | 作用 |
 |---|---|---|---|
-| `bandfeed` | `1`/`on`/`yes`/`true` = 开（有真实源用真实源，否则模拟）<br>`sim`/`simulated` = 只用确定性模拟源<br>`real`/`analyser` = 只认真实源（无源 ⇒ 全零 + `silent:true`）<br>`0`/`off`/`no`/`false`/空/非法 = 关 | **关** | 打开 128 元频段数组这一层 |
+| `bandfeed` | `auto`/空/`1`/`on`/`yes`/`true`/**非法值** = 有真实源（`?audio=1` 的包内音轨 / **已授权**的麦克风）就用真实源，没有就**全 0 + `silent`**（非法值不再静默回落关）<br>`mic`/`microphone` = 只用麦克风（**会请求权限**；拿不到 ⇒ 全 0 + `silent`）<br>`sim`/`simulated` = 只用确定性模拟源<br>`real`/`analyser` = 只认包内音轨的 AnalyserNode（没有 ⇒ 全 0 + `silent:true`）<br>`0`/`off`/`no`/`false` = **关**（批 D 之前的旧行为，逐位） | **auto**（批 D 起；此前 = 关） | 打开 128 元频段数组这一层 |
+| `audioemit` | `auto`（缺省）= 有采集源 ⇒ 按官方语义调制；**没有采集源 ⇒ 不调制**（并在 `#log` 记一次）<br>`strict` = 没有采集源也照官方算（全 0 ⇒ `env=0` ⇒ 音频驱动层不发射）<br>`legacy`/`off`/`0` = 完全不调制（批 D 之前的画面，逐位） | **auto** | 粒子 `audioprocessing*` / `registerAudioBuffers` 调制口径（`core/we-scene-bundle.js:3088`） |
 | `framegeom` | `cover`/`frame` = 覆盖式视口 / 模块换算<br>`contain`/`fit`、`stretch`/`fill` = 另两态（规格 §4）<br>`legacy`/`off`/`0`/空 = 关 | **legacy（关）** | 帧盒与指针口径改用帧几何模块 |
 | `frame` | `legacy`/`off`/`0` | — | 模块规格 §5 **自带的**回退开关；**优先级最高**：即使写了 `?framegeom=cover` 也强制回 legacy（`core/we-scene-bundle.js:27`） |
 
-主表登记：`docs/README-DIAGNOSTICS.md`（`bandfeed` / `framegeom` 两行）——`tests/diag-flag-check.mjs`
-按"代码里真实解析的开关"双向比对，漏登记/写陈旧都会非零退出。
+主表登记：`docs/README-DIAGNOSTICS.md`（`bandfeed` / `audioemit` / `framegeom` 各行）——`tests/diag-flag-check.mjs`
+按"代码里真实解析的开关"双向比对，漏登记/写陈旧都会非零退出（批 D 后实测 **153 开关 == 153 行**）。
 
 ## 3. 实测行为（数字都能用 §6 的命令复现）
 
 音频（`tests/audio-band-wiring-test.mjs`，纯 Node、无音频设备）：
 
-- **模拟源**：`?bandfeed=1` + 无真实源 ⇒ 输出恒 128 元 `Float32Array`，与
+- **模拟源**（只在**显式** `?bandfeed=sim`）：输出恒 128 元 `Float32Array`，与
   `simulatedBandArray(t)` **逐位**相同（`Object.is`，128/128 项），也等于 `packBands(preL, preR)`（默认 γ=1.8/gain=1.8）
   ⇒ "曲线就是规格 §2.3 那一条"是**对拍**出来的，不是描述。
   "尖"的量化：一个节拍周期（132 BPM）内扫描 `t∈[0,2)`，峰值 **1.0000 @t≈0.18**（阈值型作者 `band>0.9` 能用）；
   单点 `t=1.25` 落在拍间隙时 peak=0.3483 —— 这也说明"取一帧判断有没有声音"不可靠，要看 `bandStats.silent`。
 - **真实源**：有 analyser 时按 `0..1` **只钳位**（输入 0.2 ⇒ 输出 0.200000；若误套 γ 会变成 0.0993，
   测试专门断言这个差值 >0.1 ⇒ 反向变异必红）。单 analyser（mono 混音）⇒ 左右同源，**不伪造立体声差异**。
-- **脚本侧**：`audioBuffers(16).left` 逐段等于"128 元数组左半 → 16 段均值"的独立复算（16/16 段相等），
-  `average` 用**整条 128 元**归一；关时逐位回到旧路径（无 analyser ⇒ `null` ⇒ 脚本走静默 shim）。
-- **无源不报错、不阻塞**（P1-5 的验收口径）：`?bandfeed=real` 无源 ⇒ 128 个 0 + `silent:true`，
-  渲染循环一行不抛；`?bandfeed=1` 无源 ⇒ 模拟源顶上。两种情况的区分判据就是 `bandStats.silent` 与 `source`。
+- **脚本侧是活视图**（批 D 起，`tests/audio-emit-live-test.mjs` T2）：`registerAudioBuffers(n)` 返回的
+  **同一引用**长期有效，且内容**每帧原地刷新** —— 脚本在顶层只调一次也照样跟着音乐动。实测（有源时同一对象）
+  第 1 帧 `0.224519` → `0.989727 → 0.203238 → 0.185711 → 0.191056 → 0.216698`；旧实现（每次新建数组）
+  顶层那次调用**冻在编译那一刻**（2..6 帧恒 `0.066063`，而主机同期给 `0.235731 → … → 0.073527`）⇒ 测试的
+  "内容随帧变化"必红。`average` 逐段 = `(left[i]+right[i])/2`（**修正**了旧宿主"整条 128 元总均值灌满 n 段"
+  的口径 —— 语料 344 处读的正是 `average[frequency]`，灌成常数会让音条全平）。`left` 逐段等于
+  "128 元数组左半 → 16 段均值"的独立复算（16/16 段相等）。
+- **无源不报错、不阻塞、也不再假装有声音**（P1-5 的验收口径 + 批 D 收紧）：`?bandfeed=real` / `auto` / `mic`
+  在没有对应源时 ⇒ 128 个 0 + `source='silent'` + `bandStats.silent=true` + **一条**一次性日志，
+  渲染循环一行不抛；想"无源也有东西动"必须**显式**写 `?bandfeed=sim`。三种情况的区分判据就是
+  `bandStats.silent` 与 `window.__mpwAudioBandSource` / `__mpwAudioBandReason`。
 
 几何（`tests/web-frame-geometry-wiring-test.mjs`）：
 
@@ -86,8 +94,9 @@
    `lib/web-wallpaper.js` 的 `wallpaperRegisterAudioListener`），而"渲染器 → 插件"的音频入参**不存在**。
    谁先污染谁：本条只在显式开关下发（关时零 `postMessage`），宿主不认识时按"未知消息"忽略无害。
 3. **真实系统音频采集：本机不存在**。没有系统声卡环回（`docs/AUDIO-TRACK-SPEC.md` 与测试台"系统实况"
-   是**麦克风**）⇒ 本接线的"真实源"是渲染器**自己的** `AnalyserNode`（包内 sound 层，`?audio=1` 且真的在播），
-   不是"系统里正在放的音乐"。要"网页壁纸跟着系统音乐动"，缺的是**宿主侧采集 + 下发通道**（同上第 2 条）。
+   是**麦克风**）⇒ 本接线的"真实源"是渲染器**自己的** `AnalyserNode`（包内 sound 层，`?audio=1` 且真的在播）
+   或**麦克风**（批 D 新增 `?bandfeed=mic`；`auto` 档只在 `permissions.query` 已是 `granted` 时静默启用，
+   **绝不弹权限框**），不是"系统里正在放的音乐"。要"网页壁纸跟着系统音乐动"，缺的仍是**宿主侧采集 + 下发通道**（同上第 2 条）。
 4. **`__mpwPointer.space === 'css'` 的口径未定**。`core/we-scene-bundle.js` 原注释说"调用方自行换算
    （见 renderParticleLayer 的 css 分支）"，但全仓库**没有任何** `space:'css'` 的生产者、也没有那个分支
    （grep 0 命中）。`?framegeom=cover` 下本次按**窗口/视口坐标**（`clientX/clientY` 同空间）解释并换算；

@@ -1,9 +1,9 @@
 /* 参照来源许可声明：本文件提到的 wer-ref/lwe-ref 是第三方参考实现（GPL-2.0-only / GPL-3.0-only），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。官方语义引注见 docs/PATCHES.md P-131。 */
 // audio-emit-live-test.mjs — ①(P-131 批D 2026-09-19) **音频驱动发射 + AudioBuffers 活视图** 秒级门禁
 //
-// TODO(注册待办)：本文件**尚未**登记进 `tests/run-all-tests.sh`（本批不修改该脚本，避免与并行线冲突）。
-//   登记行建议：`add "audio-emit-live" "node tests/audio-emit-live-test.mjs"`（约 1.5s，无浏览器/无网络）。
-//   登记前的判据由已注册的 `particle-render-correctness`（⑧/⑧R/⑧M 段）与 `audio-band-wiring`（T6 段）承担。
+// 注册：①(P-132 批D 后 · 主对话补登记 2026-09-19) 已登记进 `tests/run-all-tests.sh`：
+//   `add "audio-emit-live" "node tests/audio-emit-live-test.mjs"`（实测 ~0.35s，无浏览器/无网络）。
+//   登记前该文件的判据由已注册的 `particle-render-correctness`（⑧/⑧R/⑧M 段）与 `audio-band-wiring`（T6 段）承担。
 //
 // 覆盖（全部"手算/独立复算 vs 实测"，且都在本机秒级可跑）：
 //   T1 **语料字段 vs 我们的支持**：真包（3 个 mode>0 的音频驱动包）里 `audioprocessing*` 的字段/取值直方图

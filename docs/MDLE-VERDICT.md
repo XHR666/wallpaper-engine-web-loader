@@ -17,7 +17,7 @@
 ### 1.1 语料规模与容器版本
 
 ```bash
-$ cd /root/Desktop/DSHarea/allwallpaper && find . -type f \( -name '*.pkg' -o -name '*.mpkg' \) | wc -l
+$ cd "$MPW_ROOT/allwallpaper" && find . -type f \( -name '*.pkg' -o -name '*.mpkg' \) | wc -l
 98
 $ find . -type f \( -name '*.pkg' -o -name '*.mpkg' \) | sed 's/.*\.//' | sort | uniq -c
      77 mpkg
@@ -240,7 +240,7 @@ node <MDLE 探针>           # 输出见 §1.5
 #   - 顶点"被引用" = blendIndices 槽位(40/44/48/52) 的骨号且对应权重(56/60/64/68) ∈ (0,1]
 #   - 位移 = 对静止顶点施加 corr[b] 后的欧氏距离；报 maxDisp / 位移>0.5 的顶点数
 # ③ 代码面 0 命中核对
-cd /root/Desktop/DSHarea/we-scene-demo
+cd "$MPW_ROOT/we-scene-demo"
 grep -c MDLE core/we-scene-bundle.js demo.html        # → 0 0
 grep -rIn "MDLE0002" . --exclude-dir=.git --exclude-dir=docs --exclude-dir=assets   # → 只有 elysia/we-renderer/puppet.js
 grep -rIn "\.extend\b" elysia core                     # → 只有一处写

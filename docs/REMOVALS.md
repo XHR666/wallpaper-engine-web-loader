@@ -204,7 +204,7 @@ $ git -C we-scene-demo log --all --oneline -- '*common_vertex*' | wc -l
 （文档里只允许存在"已移除"历史标注，且标注**不含**被删材料内容）：
 
 ```bash
-cd /root/Desktop/DSHarea/we-scene-demo
+cd "$MPW_ROOT/we-scene-demo"
 grep -rIn --binary-files=without-match "<pattern>" . | grep -v '^./\.git/' || echo "0 残留 ✓"
 node tests/docs-check.mjs
 node tests/publish-check.mjs
