@@ -1,11 +1,12 @@
 /* 参照来源许可声明：本文件提到的 wer-ref/ 是第三方参考实现（Aromatic05/wallpaper-engine-renderer，GPL-2.0-only，非 WE 官方代码、非「真值源」），与本项目（GPL-3.0-or-later）许可不兼容 —— 仅用于行为对照，不得复制/改写/逐行翻译其代码、注释、常量组织或错误文案。we-layerd-ref/（Aromatic05/we-layerd）无任何许可（保留所有权利），同样仅行为对照。血缘自查结论见 docs/WER-REF-LICENSE-AUDIT.md。 */ // alignment-scan.mjs — A3 取证：全语料 alignment 取值分布（P-21 第 1 步，先有数字再写码）
 // 用法: node alignment-scan.mjs [目录或 .pkg/.mpkg ...]   默认 allwallpaper/** + ~/.dsh-mpkg-wallpaper/*.mpkg
 // 输出: 各取值的全局计数 + 出现该取值的壁纸清单（basename 去重）
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
-// ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+// ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
+const MPW_WS = process.env.MPW_ROOT || WS
 const MPW_PLUGIN_CACHE = process.env.MPW_PLUGIN_CACHE || '/root/.dsh-mpkg-wallpaper'
 
 const dec = new TextDecoder()

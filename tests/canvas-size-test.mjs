@@ -21,10 +21,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
 import { applySceneScripts, createScriptCache } from '../elysia/scene-scripts.js'
-import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
+import { ROOT, WS } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 
 const HERE = ROOT   // ①(2026-09-16) 根文件（demo.html / bundle）在仓库根
-const DIR = (process.env.MPW_SCENE_ROOT || '/root/Desktop/DSHarea/allwallpaper/dd') + '/3327063360'
+const DIR = (process.env.MPW_SCENE_ROOT || path.join(WS, 'allwallpaper', 'dd')) + '/3327063360'
 const HTML = fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8')
 let pass = 0, fail = 0
 const check = (name, cond, extra) => {

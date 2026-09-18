@@ -6,7 +6,9 @@
 //   实现 = `applyRenderConfig` 的 hideUI 块把四类词从 uiRe 移出、改为按类别 + 开关判定；
 //   `?showui`（hideUI=false）仍是"整组全显示"。
 //   `embed=1`（插件 iframe 恒带）→ 日志区首次加载即完全收起 + 隐藏手柄（wallpaper iframe pointer-events:none）。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
+import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
 
 let pass = 0, fail = 0
@@ -150,7 +152,7 @@ console.log('[T4] TIME-VARIATION 时段层豁免仍然生效（showweekday=0 也
 console.log('[T5] 真实语料（3327063360：21 个文本层，旧实现只显示 6 个）：可见数对比')
 {
   const fs2 = fs
-  const p = (process.env.MPW_SCENE_ROOT || '/root/Desktop/DSHarea/allwallpaper/dd') + '/3327063360/scene.pkg'
+  const p = (process.env.MPW_SCENE_ROOT || path.join(WS, 'allwallpaper', 'dd')) + '/3327063360/scene.pkg'
   if (!fs2.existsSync(p)) { console.log('  (SKIP T5：语料包不存在)') } else {
     const pkg = lib.parsePkg(new Uint8Array(fs2.readFileSync(p)))
     const rd = (b) => new TextDecoder().decode(b).replace(/^\uFEFF/, '')

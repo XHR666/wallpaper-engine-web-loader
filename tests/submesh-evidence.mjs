@@ -25,6 +25,7 @@
 //   driver options (FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS)`（无 `/dev/dri`、PRoot 容器）；
 //   Chromium+SwiftShader 在本机 PRoot 下 newPage 挂起（`tests/headless-shot.mjs` 档位表已记）。
 //   ⇒ 本工具默认走 ②（Node 探针），台账与"哪些顶点/三角形属于哪根骨"全部可得，**像素级对比不做**。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -38,7 +39,7 @@ const lib = await import(pathToFileURL(path.join(ROOT, 'core', 'we-scene-bundle.
 const at = await import(pathToFileURL(path.join(ROOT, 'core', 'attach-transform.mjs')).href)
 const ps = await import(pathToFileURL(path.join(ROOT, 'core', 'puppet-skin.js')).href)
 
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_WS = process.env.MPW_ROOT || WS
 const ID = arg('--id', '3554161528')
 const PKG = arg('--pkg', path.join(MPW_WS, 'allwallpaper', 'dd', ID, 'scene.pkg'))
 const OUT = path.resolve(arg('--out', path.join('reports', 'submesh-' + ID)))

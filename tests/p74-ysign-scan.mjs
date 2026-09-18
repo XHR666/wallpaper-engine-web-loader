@@ -4,10 +4,11 @@
 //   · "是否受影响" = 该参数的 y 在语料里是否是**定号**的（min/max 同号、或 gravity 非 0）。
 //     定号 ⇒ 翻/不翻在**分布**上不可互换（如 velocityrandom 0 -10 0 .. 0 -100 0）；
 //     对称/零 ⇒ 翻不翻对分布等价（如湍流的随机相位、rotationrandom）。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import * as lib from '../core/we-scene-bundle.js'
-// ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+// ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
+const MPW_WS = process.env.MPW_ROOT || WS
 const DIR = `${MPW_WS}/allwallpaper/dd`
 const dec = new TextDecoder()
 const ids = fs.readdirSync(DIR).filter((d) => fs.existsSync(`${DIR}/${d}/scene.pkg`))

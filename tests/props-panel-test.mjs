@@ -12,7 +12,9 @@
 //   T3 二三级联动 / T4 绑定生效（真包 + 合成父子层 origin-scale）/ T5 combo 脚本属性（含端到端跑脚本）/
 //   T6 持久化与恢复默认 / T7 URL `?props=` 最高优先 / T8 condition 表达式求值器（语料真实表达式）/
 //   T9 N5 四类开关与包自带开关不打架。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
+import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
 
 let pass = 0, fail = 0, skipped = 0
@@ -26,7 +28,7 @@ const ID = '3554161528'
 // ①(P-87 2026-09-15 版权) 原来的第二候选 `<repo>/samples/wallpapers/<id>` 已随**真实壁纸整体移除**删除
 //   （本仓库不再分发任何第三方壁纸）。真包只从本机语料取；取不到就走下面的优雅 SKIP（门禁不红）。
 const CANDIDATES = [
-  (process.env.MPW_SCENE_ROOT || '/root/Desktop/DSHarea/allwallpaper/dd') + '/' + ID,
+  (process.env.MPW_SCENE_ROOT || path.join(WS, 'allwallpaper', 'dd')) + '/' + ID,
 ]
 const DIR = CANDIDATES.find((d) => fs.existsSync(d + '/project.json') && fs.existsSync(d + '/scene.pkg'))
 if (!DIR) {
@@ -596,7 +598,7 @@ console.log('[T10] demo.html 装载块真源码切片：改动即时生效链路
 //   T11 实体解码 / T12 `<img>` 条目 / T13 排版·输入框·勾选框 / T14 浮窗取色器+图标 /
 //   T15 改文本与属性即时生效（invalidateUserProps + 时段选层重算）
 // ═══════════════════════════════════════════════════════════════════════════════
-const CORPUS = process.env.MPW_SCENE_ROOT || '/root/Desktop/DSHarea/allwallpaper/dd'
+const CORPUS = process.env.MPW_SCENE_ROOT || path.join(WS, 'allwallpaper', 'dd')
 const MOON_DIR = CORPUS + '/3326873240'
 const MOON_SCHEMA = fs.existsSync(MOON_DIR + '/project.json')
   ? JSON.parse(fs.readFileSync(MOON_DIR + '/project.json', 'utf8')).general.properties : null

@@ -6,6 +6,7 @@
 //   于是 animations[1..3] 的 id 读成 0、name 读成乱码；文件真实值 id=71/73/94、
 //   name="Animation 2/3/4"（头在 132193/174961/259849）。`an.fps` 也从未解析（硬编码 30）。
 //   本测试同时锁死"帧数据本身不变"（新旧游走的 segs 必须逐位相同）——避免修 id 时踩坏采样。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
@@ -19,7 +20,7 @@ function check(name, ok, detail) {
 }
 
 const SCENE_ID = '3544152633'
-const ROOT = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const ROOT = process.env.MPW_ROOT || WS
 const SCENE_ROOT = process.env.MPW_SCENE_ROOT || path.join(ROOT, 'allwallpaper', 'dd')
 const PKG = path.join(SCENE_ROOT, SCENE_ID, 'scene.pkg')
 if (!fs.existsSync(PKG)) { console.log('SKIP mdla-walk-test：语料包不存在 ' + PKG); process.exit(0) }

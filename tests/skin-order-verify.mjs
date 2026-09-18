@@ -2,12 +2,13 @@
 //   正确: g_Bones[b] = bindInv[b] × W_anim[b]  → 顶点绕**骨骼枢轴**刚性旋转
 //   错误: g_Bones[b] = W_anim[b] × bindInv[b]  → 不保持"到骨骼动点距离=到绑定点距离"
 // 判据: 对 weight≈1 的顶点，|v' − 骨骼动点| 应等于 |v − 骨骼绑定点|（允许 1e-3 相对误差）
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import * as lib from '../core/we-scene-bundle.js'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
 import { Buffer as MpwBuffer } from '../elysia/buffer.js'
-// ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+// ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
+const MPW_WS = process.env.MPW_ROOT || WS
 
 const id = process.argv[2] || '3719111841'
 const want = process.argv[3] || '主体'

@@ -9,11 +9,12 @@
 //      （能抓到被 try/catch 吞掉、或走 default 分支才触发的缺口）。
 //
 // 用法: node script-corpus-audit.mjs [--verbose] [--json out.json]
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import { applySceneScripts, createScriptCache } from '../elysia/scene-scripts.js'
 
-const ROOT = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const ROOT = process.env.MPW_ROOT || WS
 const verbose = process.argv.includes('--verbose')
 const jsonIdx = process.argv.indexOf('--json')
 const DEC = new TextDecoder()

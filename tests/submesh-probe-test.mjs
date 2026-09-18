@@ -16,6 +16,7 @@
 //        （顶点数求和=497、质心落 bbox 内、bind 姿态位移恒 0、world 口径对拍、`?bones=` 可叠加）。
 //
 // 运行：node tests/submesh-probe-test.mjs   （全过输出 ALL PASS，退出码 0；缺包时真包部分 SKIP 视作 PASS）
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -29,7 +30,7 @@ const at = await import(pathToFileURL(path.join(ROOT, 'core', 'attach-transform.
 const ps = await import(pathToFileURL(path.join(ROOT, 'core', 'puppet-skin.js')).href)
 
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；默认值只是作者本机路径。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_WS = process.env.MPW_ROOT || WS
 const PKG = process.env.MPW_HINA_PKG || path.join(MPW_WS, 'allwallpaper', 'dd', '3554161528', 'scene.pkg')
 const dec = new TextDecoder()
 

@@ -38,7 +38,7 @@ import net from 'node:net'
 import { spawn } from 'node:child_process'
 import * as lib from '../core/we-scene-bundle.js'
 import { projectJsonCandidates, readProjectJson, readProjectProperties, findWorkshopDir } from '../core/scene-project-json.mjs'   // ①(2026-09-16) 服务端依赖留仓库根
-import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
+import { ROOT, WS } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 
 const HERE = ROOT
 let pass = 0, fail = 0
@@ -111,10 +111,10 @@ console.log('[A] 查找顺序：5 档同名文件 → 命中最高优先级 → 
 
 // ── 真包数据定位（语料目录 + Steam 工坊目录）────────────────────────────────
 const IDS = ['3554161528', '3544152633', '3327063360', '3719111841', '3326873240', '3660962877']
-const WS = findWorkshopDir()
-const SCENE_ROOT = process.env.MPW_SCENE_ROOT || '/root/Desktop/DSHarea/allwallpaper/dd'
+const WORKSHOP = findWorkshopDir()   // ①(2026-09-19 敏感信息加固) 原名 WS，让位给 tests/_root.mjs 的“工作区根” WS
+const SCENE_ROOT = process.env.MPW_SCENE_ROOT || path.join(WS, 'allwallpaper', 'dd')
 const sceneJsonOf = (id) => {
-  for (const rt of [SCENE_ROOT, WS]) {
+  for (const rt of [SCENE_ROOT, WORKSHOP]) {
     if (!rt) continue
     const p = path.join(rt, id, 'scene.pkg')
     try {

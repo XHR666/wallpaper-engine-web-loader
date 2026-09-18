@@ -16,10 +16,11 @@
 //   mesh 层数用 .mdl 条目数代理（每个 MDL=一个 puppet 网格模型）。
 //   脚本段数 = scene.json/project.json 深遍历中带 `script` 字符串属性的对象数（与 script-corpus-audit 同口径）。
 // 退出码：0 = 扫描完成（无论发现什么）；2 = 语料目录缺失。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 
-const ROOT = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const ROOT = process.env.MPW_ROOT || WS
 const lib = await import(path.join(ROOT, 'we-scene-demo', 'core/we-scene-bundle.js'))
 const DEC = new TextDecoder()
 

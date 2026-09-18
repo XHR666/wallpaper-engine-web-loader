@@ -11,7 +11,7 @@
 | `patch:` | `we-scene-demo/demo/bench-patch.js` | **3290 行，sha256 `c3a7ee34068906a571f4…`**（侦察期间 2801 → 2886 → 3270 → 3290，**仍在增长**） | 移动中（本地重构目标） |
 | `css:` | `we-scene-demo/demo/assets/bench-HtRiuWm6.css` | 320 行 / 33 329 B，sha256 `3e2bf2f98c33d3cf…`，**未改动** | 稳定 |
 | `bundle:` | `we-scene-demo/demo/assets/bench-DSKWIqmS.js` | 210 行，**未改动**（minified，**不可重建**） | 稳定 |
-| `gate:` | `/root/Desktop/DSHarea/references/vendor-ref/ww-pages/bench-patch.test.mjs` | 1644 行，T1–T31 / 约 323 断言 | 稳定 |
+| `gate:` | `$MPW_ROOT/references/vendor-ref/ww-pages/bench-patch.test.mjs` | 1644 行，T1–T31 / 约 323 断言 | 稳定 |
 | `demo-check:` | `we-scene-demo/tests/demo-check.mjs` | 247 行，D1–D7 | 稳定 |
 
 **引用纪律**：`gate:` / `demo-check:` / `css:` / `bundle:` 的 `file:line` 是精确且稳定的；`patch:` 的行号是 3290 行快照，**重构时请按锚点（id / 选择器 / 函数名 / 断言文本）定位，不要按行号**。

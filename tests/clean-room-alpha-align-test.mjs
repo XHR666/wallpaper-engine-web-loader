@@ -19,7 +19,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
-import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
+import { ROOT, WS } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 
 let pass = 0, fail = 0
 const fails = []
@@ -252,7 +252,7 @@ chk(alignBody.includes('ALIGNMENT_HALF_SHIFTS['), '③ alignment 实现走元组
 // ═══════════════════════════════════════════════════════════════════════════
 // ④ 真语料扫描：6 个真包的全部原始输入
 // ═══════════════════════════════════════════════════════════════════════════
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_WS = process.env.MPW_ROOT || WS
 const DD = path.join(MPW_WS, 'allwallpaper', 'dd')
 const PKGS = ['3326873240', '3327063360', '3544152633', '3554161528', '3660962877', '3719111841']
 const frozenAlpha = new Map(FROZEN_ALPHA.map(([k, v]) => [k, v]))

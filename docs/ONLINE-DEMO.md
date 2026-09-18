@@ -162,7 +162,7 @@ done                                                                            
 # ② 隐私：新目录里不得有个人绝对路径（模式串拆开写，免得本文件自己命中那道闸门）
 grep -rn "/ro""ot/" demo/ || echo "0 命中"
 
-# ③ 补丁回归（含单一真源 T28）；$MPW_ROOT = 工作区根（作者本机的默认值见 README §4）
+# ③ 补丁回归（含单一真源 T28）；$MPW_ROOT = 工作区根（默认值见 README §4）
 node "$MPW_ROOT/vendor-ref/ww-pages/bench-patch.test.mjs"
 
 # ③b Pages 产物构建（零依赖、不联网；产物自检 + 旧路径重定向页自检）

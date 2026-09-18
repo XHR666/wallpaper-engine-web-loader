@@ -1,5 +1,6 @@
 // CPU 软光栅预览器：复用渲染器的矩阵/UV 语义把场景光栅成 PNG（无 WebGL 也能“看”画面）
 // 用法: node preview.mjs <sceneId> <out.png> [w] [h]
+import { ROOT, WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -7,8 +8,8 @@ import { pathToFileURL } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 
-const BUNDLE = process.env.MPW_BUNDLE || '/root/Desktop/DSHarea/we-scene-demo/core/we-scene-bundle.js'; // ①(去个人化) 可覆盖
-const SCENE_ROOT = process.env.MPW_SCENE_ROOT || '/root/Desktop/DSHarea/allwallpaper/dd'; // ①(去个人化) 可覆盖
+const BUNDLE = process.env.MPW_BUNDLE || path.join(ROOT, 'core', 'we-scene-bundle.js'); // ①(去个人化) 可覆盖
+const SCENE_ROOT = process.env.MPW_SCENE_ROOT || path.join(WS, 'allwallpaper', 'dd'); // ①(去个人化) 可覆盖
 const lib = await import(pathToFileURL(BUNDLE).href)
 const { parsePkg, getEntry, parseScene, resolveBuiltin, applyRenderConfig } = lib
 const rd = (b) => new TextDecoder().decode(b).replace(/^\uFEFF/, '')

@@ -49,7 +49,7 @@ import net from 'node:net'
 import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
 import * as lib from '../core/we-scene-bundle.js'
-import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
+import { ROOT, WS } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 
 const HERE = ROOT
 const HTML = fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8')
@@ -646,7 +646,7 @@ if (process.env.MPW_FONT_E2E === '1') {
     const weOff = await fetch(base + '/weassist/fonts/Monofur-PK7og.ttf')
     check('T6a 前提成立：本轮的 `/weassist/fonts/` 是 404（WE 资产目录指向不存在的假根）⇒ 命中第②级只可能是仓库自带',
       weOff.status === 404, weOff.status)
-    const PW = process.env.MPW_PLAYWRIGHT || '/root/Desktop/DSHarea/dsh-mpkg-wallpaper/node_modules/playwright/index.mjs'
+    const PW = process.env.MPW_PLAYWRIGHT || path.join(WS, 'dsh-mpkg-wallpaper', 'node_modules', 'playwright', 'index.mjs')
     const { chromium } = await import(PW)
     browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox', '--disable-dev-shm-usage'] })
     const grab = async (url) => {

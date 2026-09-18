@@ -7,7 +7,9 @@
 //   · `engine.frametime` 官方语义 = 上一帧真实秒数；旧实现从不传 → 恒 1/60，22 个容器积分量错。
 // 本测试用**语料真实 FPS 脚本**（3326873240 等 16 个容器共用同一份）+ 真实脚本宿主，
 // 按两种节拍实际跑一遍，读回文本；另测 nodeFilter（节拍分层）与 fireUpdate（回调不重复触发）。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
+import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
 import { applySceneScripts, createScriptCache } from '../elysia/scene-scripts.js'
 
@@ -52,8 +54,8 @@ export function update(value) {
 }`
 function realFpsScript() {
   const cands = [
-    (process.env.MPW_SCENE_ROOT || '/root/Desktop/DSHarea/allwallpaper/dd') + '/3326873240/scene.pkg',
-    (process.env.MPW_SCENE_ROOT || '/root/Desktop/DSHarea/allwallpaper/dd') + '/3327063360/scene.pkg',
+    (process.env.MPW_SCENE_ROOT || path.join(WS, 'allwallpaper', 'dd')) + '/3326873240/scene.pkg',
+    (process.env.MPW_SCENE_ROOT || path.join(WS, 'allwallpaper', 'dd')) + '/3327063360/scene.pkg',
   ]
   for (const p of cands) {
     if (!fs.existsSync(p)) continue

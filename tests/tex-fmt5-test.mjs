@@ -2,12 +2,13 @@
 // 断言：1) 载荷长度 == BC3(mip 头尺寸)；2) decodeMip0/decodeMips 返回 mip 尺寸且 rgba 长度正确；
 //       3) 声明尺寸 ≈ 2× 载荷尺寸（不再裁剪成空白图）；4) 抽样导出 PNG 供目视
 // 用法: node tex-fmt5-test.mjs [--dump <dir>] [若干 .pkg/.mpkg 或目录]
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import * as lib from '../core/we-scene-bundle.js'
-// ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+// ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
+const MPW_WS = process.env.MPW_ROOT || WS
 // ①(去个人化 2026-09-16) 插件下载缓存 / 备用语料根：环境变量优先；默认值只是作者本机路径。
 const MPW_PLUGIN_CACHE = process.env.MPW_PLUGIN_CACHE || '/root/.dsh-mpkg-wallpaper'
 const MPW_SD_ROOT = process.env.MPW_SD_ROOT || '/mnt/sdcard/wallpapertest1'

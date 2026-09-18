@@ -56,7 +56,7 @@
 //                       general.properties 经 lib.propsDefaults 规范化后的默认值；none = 传 {}，
 //                       此时宿主会回退到对象 scriptproperties 里存的 value）
 //     --no-ab           跳过「无 userProps」A/B 变体（少跑一趟，只影响信息量）
-//     --root=<目录>     覆盖语料根（默认 env MPW_ROOT，再退 /root/Desktop/DSHarea）
+//     --root=<目录>     覆盖语料根（默认 env MPW_ROOT，再退工作区根 WS = 仓库的上一级）
 //     -h | --help       用法
 //
 // 【退出码】
@@ -85,7 +85,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { ROOT } from './_root.mjs'
+import { ROOT, WS } from './_root.mjs'
 
 // ── 渲染器 import 前的最小环境（bundle 顶层读 location/search，Node 里没有）──
 globalThis.location = globalThis.location || { search: '', href: 'http://localhost/' }
@@ -137,7 +137,7 @@ for (const a of argv) {
 }
 if (opt.out === '') { fs.writeSync(2, '用法错误：--out= 不能为空\n'); process.exit(2) }
 
-const MPW = opt.root || process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW = opt.root || process.env.MPW_ROOT || WS
 const CORPUS = path.join(MPW, 'allwallpaper')
 const ASSETS = path.join(MPW, 'wallpaper_engine', 'assets')
 

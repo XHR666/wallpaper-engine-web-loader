@@ -6,13 +6,14 @@
 //   ②回绕污染（f0 的环形邻居是尾部垃圾 → f0-3 级联误杀 → 开头姿态错）；
 //   ③骨骼和抵消单骨乱跳（sig 把 58-61 好帧也拖下水）。
 //   v3 = 尾部逐骨绝对步长切除（垃圾=结尾连续后缀）+ 原邻域精修（中段孤立尖峰）。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
 import { Buffer as MpwBuffer } from '../elysia/buffer.js'
-// ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+// ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
+const MPW_WS = process.env.MPW_ROOT || WS
 
 const DIR = `${MPW_WS}/allwallpaper/dd`
 const dec = new TextDecoder()

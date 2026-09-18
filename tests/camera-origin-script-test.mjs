@@ -35,7 +35,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { ROOT } from './_root.mjs'
+import { ROOT, WS } from './_root.mjs'
 
 const argv = process.argv.slice(2)
 for (const a of argv) {
@@ -56,7 +56,7 @@ const host = await import('../elysia/scene-scripts.js')
 //   本文件走 `setCameraScriptHost()`（模块注册口）；下面的"坏宿主"用例走 `opts.cameraScriptHost`。
 lib.setCameraScriptHost(host)
 
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_WS = process.env.MPW_ROOT || WS
 const CORPUS = path.join(MPW_WS, 'allwallpaper')
 const W = 3840, H = 2160
 const CANVAS = { x: W, y: H }          // 与探针同一参考分辨率（脚本的 engine.canvasSize）

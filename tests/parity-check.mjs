@@ -35,11 +35,12 @@
 //
 // 输出：每场景 reports/parity-<id>.json + 终端差异 Top-N 表。
 // 退出码：0 = 全部通过 / 无可对账数据（CI 条件项 SKIP 语义，不红）；1 = 存在越界差异；2 = 用法错误。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 
-const ROOT = process.env.MPW_ROOT || '/root/Desktop/DSHarea'; // ①(去个人化) 可覆盖
+const ROOT = process.env.MPW_ROOT || WS; // ①(去个人化) 可覆盖
 const DEMO = path.join(ROOT, 'we-scene-demo')
 const REPORTS = path.join(ROOT, 'reports')
 const DD = path.join(ROOT, 'allwallpaper', 'dd')

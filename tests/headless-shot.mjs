@@ -15,8 +15,9 @@
 //
 // 退出码：0=拿到截图；1=截图成功但页面有 error 级日志（仅 headless 路径）；2=连兜底也失败。
 import fs from 'node:fs'
+import path from 'node:path'
 import { execFileSync, spawn } from 'node:child_process'
-import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 根文件（demo.html / bundle / icons）在仓库根
+import { ROOT, WS } from './_root.mjs'   // ①(2026-09-16 目录整理) 根文件（demo.html / bundle / icons）在仓库根
 
 const url = process.argv[2] || 'http://127.0.0.1:8899/?id=3719111841'
 const out = process.argv[3] || '/tmp/headless.png'
@@ -44,7 +45,7 @@ if (process.argv.includes('--one')) {
 }
 
 async function runOneAttempt(name, args) {
-  const PW = process.env.MPW_PLAYWRIGHT || '/root/Desktop/DSHarea/dsh-mpkg-wallpaper/node_modules/playwright/index.mjs'; // ①(去个人化) 可覆盖
+  const PW = process.env.MPW_PLAYWRIGHT || path.join(WS, 'dsh-mpkg-wallpaper', 'node_modules', 'playwright', 'index.mjs'); // ①(去个人化) 可覆盖
   const { chromium } = await import(PW)
   const t0 = Date.now()
   let browser

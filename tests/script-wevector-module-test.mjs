@@ -52,7 +52,7 @@
 // 用法：node tests/script-wevector-module-test.mjs [--no-mutation] [--verbose]
 // 环境变量：
 //   MPW_SCENE_SCRIPTS  沙箱实现的**副本**路径（内置红-if-reverted 用；平时不要设）
-//   MPW_ROOT           工作区根（默认 /root/Desktop/DSHarea）—— 只用于真包/语料条件项
+//   MPW_ROOT           工作区根（默认 = 仓库的上一级，WS）—— 只用于真包/语料条件项
 // 退出码：0 全过（含 SKIP）/ 1 有失败 / 2 用法错误
 //
 // 参照来源许可声明：本文件为原创测试代码，不含第三方实现代码（未复制/未翻译 wer-ref、
@@ -63,7 +63,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
-import { ROOT } from './_root.mjs'
+import { ROOT, WS } from './_root.mjs'
 import { readIndexHead, readEntryBytes, walkContainers } from './_pkg-index.mjs'
 
 // ═══════════════════════════ 0. 用法 / 参数 / 退出码 ═══════════════════════════
@@ -72,7 +72,7 @@ const USAGE = `用法：node tests/script-wevector-module-test.mjs [--no-mutatio
   --verbose       打印子进程输出全文
 环境变量：
   MPW_SCENE_SCRIPTS  沙箱实现的**副本**路径（内置红-if-reverted 用；平时不要设，设了就等于"测的是副本"）
-  MPW_ROOT           工作区根（默认 /root/Desktop/DSHarea）—— 只用于真包/语料条件项
+  MPW_ROOT           工作区根（默认 = 仓库的上一级，WS）—— 只用于真包/语料条件项
 退出码：0 全过（含 SKIP）/ 1 有失败 / 2 用法错误`
 function usage(msg) { process.stderr.write('用法错误：' + msg + '\n' + USAGE + '\n'); process.exit(2) }
 const argv = process.argv.slice(2)
@@ -83,7 +83,7 @@ for (const a of argv) {
   else if (a === '-h' || a === '--help') { process.stdout.write(USAGE + '\n'); process.exit(0) }
   else usage('未知参数 ' + a)
 }
-const MPW_ROOT = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_ROOT = process.env.MPW_ROOT || WS
 const CORPUS = path.join(MPW_ROOT, 'allwallpaper')
 // 默认模块 = 仓库真源码；变异自检时指向副本（进程还是本文件）
 const SCRIPTS_MODULE = process.env.MPW_SCENE_SCRIPTS || path.join(ROOT, 'elysia', 'scene-scripts.js')

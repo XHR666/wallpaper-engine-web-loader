@@ -4,6 +4,7 @@
 // 用户口径 C 的验收对象就是凯尔希（4 条 MP3）：点开 🔊 应看到 4 条音轨、能逐条播放/下载。
 // 本测试用**生产解析器 + demo.html 真实区块**（切 MPW-AUDIO-PANEL）在 node 里把这条链路跑通：
 //   包条目枚举 → scene.json sound 层合并/去重 → lib.getEntry 现场切片 → magic MIME → Blob URL。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
@@ -15,7 +16,7 @@ function check(name, ok, detail) {
 }
 
 const SCENE_ID = '3719111841'
-const ROOT = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const ROOT = process.env.MPW_ROOT || WS
 const SCENE_ROOT = process.env.MPW_SCENE_ROOT || path.join(ROOT, 'allwallpaper', 'dd')
 const PKG = path.join(SCENE_ROOT, SCENE_ID, 'scene.pkg')
 if (!fs.existsSync(PKG)) { console.log('SKIP audio-real-pkg：语料包不存在 ' + PKG); process.exit(0) }

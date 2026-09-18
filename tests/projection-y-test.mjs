@@ -14,12 +14,13 @@
 //     （origin=画布正中、rate=100/s、maxcount=1000、spritetrail）每帧重放 250–400 步 × ~165 粒
 //     ≈ 9.6 万次粒子更新/帧（本机 62.8ms/帧）。改成按输入签名缓存 + 每帧只推进 dt 后 ≈ 400 次/帧、
 //     2.2ms/帧，存活粒子数与顶点流逐位不变。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRenderer } from '../core/we-scene-bundle.js'
 import * as lib from '../core/we-scene-bundle.js'
-// ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+// ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
+const MPW_WS = process.env.MPW_ROOT || WS
 
 let pass = 0, fail = 0
 const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓ ' + msg) } else { fail++; console.log('  ✗ ' + msg) } }

@@ -5,10 +5,11 @@
 //   ② 帧矩形归一域 = 帧所属 image 的尺寸（第三方参考实现 wer-ref WPTexHeaderParser.cpp:292-315 slotDimensions[imageId]）。
 //   ③ 跨 image 的帧边界关闭 SPRITESHEETBLEND（官方帧混合只在同纹理内可行）。
 //   ④ 单图精灵路径（computeSpriteFrameUV）不受影响（回归门）。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import * as lib from '../core/we-scene-bundle.js'
-// ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+// ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
+const MPW_WS = process.env.MPW_ROOT || WS
 
 let pass = 0, fail = 0
 const fails = []

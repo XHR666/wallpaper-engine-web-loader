@@ -14,11 +14,12 @@
 //   - 默认走移植自 elysia 的附件锚点变换（parseScene opts.attachCtx；--noattach 对照修复前）；
 //   - 自带 puppet 网格的层按**实绘矩形**计（官方：drawn = origin + scale·meshBBox，elysia
 //     renderPuppet 同式；此前用对象 size 的框对网格层不是实绘框，眼睛组合会虚差 568px）。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import * as lib from '../core/we-scene-bundle.js'
 import { parseMdl } from '../core/attach-transform.mjs'
-// ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+// ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
+const MPW_WS = process.env.MPW_ROOT || WS
 const MPW_PLUGIN_CACHE = process.env.MPW_PLUGIN_CACHE || '/root/.dsh-mpkg-wallpaper'
 
 const argv = process.argv.slice(2)

@@ -41,7 +41,7 @@
 //     --no-mutation   跳过内置的"红-if-reverted"自检（见下）
 //     --verbose       额外打印每帧台账（监听集合 / sys.pointer / 累计发射 / __ptrSkipped）
 //   环境变量：
-//     MPW_ROOT              工作区根（默认 /root/Desktop/DSHarea）—— 只用于真包条件项
+//     MPW_ROOT              工作区根（默认 = 仓库的上一级，WS）—— 只用于真包条件项
 //     MPW_POINTER_BUNDLE    备用渲染器**副本**的绝对路径（内置红-if-reverted 用它拉变异体；
 //                           平时不要设，设了就等于"测的是副本"）
 //   退出码：0 = 全过（含 SKIP / XFAIL）；1 = 有真失败；2 = 用法错误。
@@ -132,7 +132,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
-import { ROOT } from './_root.mjs'
+import { ROOT, WS } from './_root.mjs'
 
 // ═══════════════════════════ 0. 用法/参数/退出码 ═══════════════════════════
 const USAGE = `用法：node tests/pointer-leave-test.mjs [--only <名字子串>]... [--no-mutation] [--verbose]
@@ -695,7 +695,7 @@ let emittedAtLeave = 0
 
 // ═══════════════════════════ 9. E 阶段（条件项）：真包 3554161528 的 lockToPointer 层 ═══════════
 {
-  const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+  const MPW_WS = process.env.MPW_ROOT || WS
   const PKG = path.join(MPW_WS, 'allwallpaper', 'dd', '3554161528', 'scene.pkg')
   if (!fs.existsSync(PKG)) {
     skipItem('真包 3554161528 的 lockToPointer 层', '缺语料 ' + PKG)

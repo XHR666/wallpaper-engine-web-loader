@@ -15,6 +15,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 // ①(2026-09-16 目录整理) 本脚本已移入 tests/，仓库根 = 上一级；扫描/体积闸门口径不变（仍扫整棵树）。
@@ -185,6 +186,51 @@ if (followedInto.length) findings.blocking.push({ kind: 'reference-leak', file: 
 // 断言可被看见：无论是否命中都打印扫描口径（U-4 要求"能看出断言确实跑过"）
 findings.info.push({ kind: 'reference-leak', msg: `reference-leak 断言已执行：扫描 ${files.length} 个发布物路径 + ${linkScan.length} 个符号链接（仓库根 ${linkScan.filter((l) => path.dirname(l.p) === ROOT).length} 个）+ ${files.length} 个真实路径复核 → 命中 ${refLeakEntries.length + refLeakLinks.length + followedInto.length} 条（隔离对象：${REF_TREES.join('/、')}/）` })
 // ── [assert:reference-leak] END ──
+
+// ── ②D tracked 文件里的「本机绝对路径」门禁（**全量**，不是只看发布面） ──
+//   为什么单独一条：上面 ② 段的 PATH_RE 只看"发布物清单"（已按 .gitignore.public 过滤），而本机绝对路径
+//   最容易从 **docs / tests / tools / CI 配置** 漏出去 —— 公开仓库不该带操作环境信息（本机目录结构/用户名），
+//   也顺带让文档在任何机器上可读。判据 = `git grep -InE "<三种图案>"` 在 **tracked 文件**里 0 命中。
+//   ①(2026-09-19 敏感信息加固) 立此断言的直接来由：实测渲染器 73 个 tracked 文件、插件 16 个 tracked 文件里
+//   都写着作者本机的工作区绝对路径（多为"环境变量优先 + 本机路径兜底"的兜底值）⇒ 已全量改成按脚本位置推导。
+//   ⚠ 不在 git 工作树里时（`tests/publish-check-selftest.mjs` 会把本脚本复制进 os.tmpdir() 的裸夹具树）
+//     **无法**判定 tracked 面 ⇒ 退化为警告 + 在 info 里明说"本项未执行"，绝不假装查过。
+//     同一判据另有一处**独立执行**：`tests/secret-scan-test.mjs` 的 B 段（走 `git ls-files` 读内容），
+//     两处互为交叉校验，任一处腐烂另一处仍会响。
+//   ⚠ 图案按片段拼装：整串写在本文件里会被这条门禁**自指**命中（与 ②B 的 REF_TREES 处理同一道理）。
+const LOCAL_PATH_GATES = [
+  { id: 'host-workspace-path', re: '/root/Desktop/' + 'DSHarea' },
+  { id: 'device-shared-storage', re: '/storage/' + 'emulated' },
+  { id: 'termux-private-dir', re: '/data/' + 'data/com\\.termux' },
+]
+// ── [assert:tracked-local-paths] BEGIN ──
+{
+  const inWorkTree = (() => {
+    try {
+      const top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+      return top !== '' && fs.realpathSync(top) === fs.realpathSync(ROOT)
+    } catch { return false }
+  })()
+  if (!inWorkTree) {
+    findings.warnings.push({ kind: 'tracked-local-paths', file: rel(ROOT), msg: 'ROOT 不是 git 工作树的根 ⇒ 无法判定 tracked 面，本项**未执行**（真仓库里必跑；裸夹具树里属预期）' })
+  } else {
+    const gateHits = []
+    for (const g of LOCAL_PATH_GATES) {
+      let out = ''
+      try {
+        out = execFileSync('git', ['grep', '-InE', g.re], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 28 })
+      } catch (e) {
+        // git grep 的退出码 1 = "无命中"（干净）；其余（128=不是仓库…）说明判据没跑成 ⇒ 报红，不静默
+        if (e.status !== 1) findings.blocking.push({ kind: 'tracked-local-paths', file: 'tests/publish-check.mjs', msg: `git grep 未跑成（status=${e.status}）⇒ tracked 面未判定，不假装通过` })
+        continue
+      }
+      for (const l of out.split('\n').filter(Boolean)) gateHits.push({ id: g.id, at: l.split(':').slice(0, 2).join(':') })
+    }
+    if (gateHits.length) findings.blocking.push({ kind: 'tracked-local-paths', file: gateHits[0].at, msg: `tracked 文件里出现本机绝对路径 ${gateHits.length} 处 → 公开仓库不得带操作环境信息；兜底默认请按脚本自身位置推导（` + fmtList(gateHits.map((h) => h.id + '@' + h.at)) + `）` })
+    findings.info.push({ kind: 'tracked-local-paths', msg: `tracked 面本机绝对路径门禁已执行：git grep -InE × ${LOCAL_PATH_GATES.length} 种图案（${LOCAL_PATH_GATES.map((g) => g.id).join('/')}）→ 命中 ${gateHits.length} 条` })
+  }
+}
+// ── [assert:tracked-local-paths] END ──
 
 // ── ③ 专有文件混入：与 WE 官方资产逐字节相同（common*.h 就是这么抓到的） ──
 if (WE_ASSETS && fs.existsSync(WE_ASSETS)) {

@@ -24,10 +24,11 @@
 //   T5 真包回归（有包才跑）：3554161528 跑完脚本后 id 398 origin == authored
 //
 // 用法: node script-owner-live-test.mjs
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import { applySceneScripts, createScriptCache } from '../elysia/scene-scripts.js'
-// ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+// ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
+const MPW_WS = process.env.MPW_ROOT || WS
 
 let pass = 0, fail = 0
 const ok = (cond, name, detail = '') => {

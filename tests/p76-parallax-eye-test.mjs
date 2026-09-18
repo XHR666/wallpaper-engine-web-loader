@@ -21,6 +21,7 @@
 //     蒙皮层**：demo.html:3521 把 layer.scale 直接当 u_Scale 交给 renderMeshLayer（不读 size/uvRect）
 //     ⇒ 眼睛网格被放大 1/0.69297=1.4431 倍并从 x[2219,2430] 挪到 x[1912,2217]。
 //   修法：把 es 反向折进 size（size×scale ≡ es ⇒ 四边形路径逐位不变），layer.scale 保持 authored。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
@@ -39,7 +40,7 @@ function check(name, ok, detail) {
 const r2 = (v) => Math.round(v * 100) / 100
 const near = (a, b, tol) => Math.abs(a - b) <= tol
 
-const ROOT = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const ROOT = process.env.MPW_ROOT || WS
 const DD = process.env.MPW_SCENE_ROOT || path.join(ROOT, 'allwallpaper', 'dd')
 const SCENE = '3719111841'
 const PKG = path.join(DD, SCENE, 'scene.pkg')

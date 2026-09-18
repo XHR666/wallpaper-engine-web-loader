@@ -1,13 +1,14 @@
 // frame-map-verify.mjs — 交叉验证 demo.html「坏帧跳过 + 相位插值」采样（2026-09-12 定案②）
 // 用法: node frame-map-verify.mjs [wallpaperId...]
 // 判定: 插值后整周期最大相邻姿势差 ≤ 合法(非坏帧区间)最大单帧步进，且回绕处不超标 → 无"末帧抽动"
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
 import { Buffer as MpwBuffer } from '../elysia/buffer.js'
 
-const DIR = process.env.WP_DIR || '/root/Desktop/DSHarea/allwallpaper/dd'
+const DIR = process.env.WP_DIR || path.join(WS, 'allwallpaper', 'dd')
 const dec = new TextDecoder()
 const H = {}
 installPuppet(H)

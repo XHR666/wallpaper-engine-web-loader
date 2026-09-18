@@ -33,6 +33,7 @@
 //
 // 运行：node tests/bind-order-test.mjs            （全过输出 ALL PASS；缺语料时真包段 SKIP 视作 PASS）
 //       node tests/bind-order-test.mjs --report   （额外打印改前/改后数字表，供 docs/PATCHES.md P-110 引用）
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -45,7 +46,7 @@ const lib = await import(pathToFileURL(BUNDLE).href)
 const at = await import(pathToFileURL(path.join(ROOT, 'core', 'attach-transform.mjs')).href)
 const ps = await import(pathToFileURL(path.join(ROOT, 'core', 'puppet-skin.js')).href)
 
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_WS = process.env.MPW_ROOT || WS
 const REPORT = process.argv.includes('--report')
 const dec = new TextDecoder()
 

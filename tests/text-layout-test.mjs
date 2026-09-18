@@ -7,9 +7,10 @@
 //     （lib.sceneScript.d.ts:838-841）→ CSS px = pointsize × 300/72，`?pts=raw` 回旧口径。
 //     本文件在 Q2 之前**只测几何**（mock 的 measureText 直接用 ctx.font 的 px 值 → "pointsize 当 px"
 //     在测试里自洽，改了代码也照样过）→ 现在按新的 px 口径重算全部期望值，并额外锁死语料实数。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
-// ①(去个人化 2026-09-16) 工作区根：环境变量优先；下面的默认值只是作者本机路径，发布副本请设 MPW_ROOT。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+// ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
+const MPW_WS = process.env.MPW_ROOT || WS
 
 const html = fs.readFileSync(new URL('../demo.html', import.meta.url), 'utf8')
 

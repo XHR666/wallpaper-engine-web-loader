@@ -23,6 +23,7 @@
 //   T9 零副作用：`?subbase=legacy` 只改台账、GL 调用序列逐条不变（与 `?submesh=` 的既有契约一致）
 //
 // 运行：node tests/submesh-mirror-test.mjs   （全过 ALL PASS，退出码 0；缺语料时真包段 SKIP 视作 PASS）
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -35,7 +36,7 @@ const ps = await import(pathToFileURL(path.join(ROOT, 'core', 'puppet-skin.js'))
 const dec = new TextDecoder()
 
 // ①(去个人化) 工作区根：环境变量优先；默认值只是作者本机路径（与既有真包测试同口径）
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_WS = process.env.MPW_ROOT || WS
 const DD = process.env.MPW_DD || path.join(MPW_WS, 'allwallpaper', 'dd')
 const HINA = process.env.MPW_HINA_PKG || path.join(DD, '3554161528', 'scene.pkg')
 const OTHER = ['3544152633', '3327063360', '3719111841', '3326873240', '3660962877']

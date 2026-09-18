@@ -100,7 +100,7 @@ node report-audit.mjs --trend [N]   # 每场景最近 N 份跨报告趋势：稳
 ## 插件侧（dsh-mpkg-wallpaper）
 
 ```bash
-cd "$MPW_ROOT/dsh-mpkg-wallpaper"        # MPW_ROOT = 工作区根（默认作者本机路径）
+cd "$MPW_ROOT/dsh-mpkg-wallpaper"        # MPW_ROOT = 工作区根（默认由脚本位置推导 = 仓库的上一级）
 node tools/panel-smoke.mjs      # 面板冒烟（含 sceneExtUrl 输入框、diagflag 三源集合一致）
 ```
 

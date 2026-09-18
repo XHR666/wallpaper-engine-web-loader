@@ -18,6 +18,7 @@
 //   ⑦ mock-GL **真实 renderScene**：开关真的进了渲染路径（mvp 的 w 行非平凡 + 三层 z 的宽度比 6:3:2）
 //
 // 运行：node tests/camera-persp-test.mjs   （全过输出 ALL PASS，退出码 0）
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -27,7 +28,7 @@ const ROOT = path.resolve(import.meta.dirname, '..')
 const lib = await import(pathToFileURL(path.join(ROOT, 'core', 'we-scene-bundle.js')).href)
 
 // ①(去个人化 2026-09-16) 工作区根：环境变量优先；默认值只是作者本机路径，发布副本请设 MPW_ROOT。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_WS = process.env.MPW_ROOT || WS
 const DD = process.env.MPW_SCENE_ROOT || path.join(MPW_WS, 'allwallpaper', 'dd')
 const NEW17 = process.env.MPW_SCENE_ROOT_0917 || path.join(MPW_WS, 'allwallpaper', '0917')
 const PERSP_ID = '3509243656'                    // 语料唯一非正交（3D）包

@@ -6,6 +6,7 @@
 //   ③ 诊断开关一致性：跑 `node diag-flag-check.mjs`（子进程）并归并其结论（README-DIAGNOSTICS ↔ 代码双向）。
 // 用法: node docs-check.mjs            # 人读输出
 //       node docs-check.mjs --json     # 机读输出
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -14,7 +15,7 @@ const ROOT = path.resolve(import.meta.dirname, '..')            // ①(2026-09-1
 // ①(2026-09-13 主会话整合修) 与调用目录无关：文档里引用的相对路径（如 AUDIT.md）与
 //   子进程 `node diag-flag-check.mjs` 都按 cwd 解析，从父目录调用会 ENOENT 崩掉（实测）。
 try { process.chdir(ROOT) } catch {}
-const DSHAREA = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const DSHAREA = process.env.MPW_ROOT || WS
 const JSON_OUT = process.argv.includes('--json')
 
 // ---- ① 引用完整性 ----

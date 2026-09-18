@@ -20,14 +20,14 @@
 //     把"WE 目录里有"与"可以打包"**分开断言**（前者不等于后者）。
 //
 // 用法：node tests/font-gap-audit-test.mjs [--verbose]
-// 环境变量：MPW_ROOT（默认 /root/Desktop/DSHarea）、MPW_WE_ASSETS（默认 $MPW_ROOT/wallpaper_engine/assets）
+// 环境变量：MPW_ROOT（默认 = 工作区根 WS = 仓库的上一级）、MPW_WE_ASSETS（默认 $MPW_ROOT/wallpaper_engine/assets）
 // 退出码：0 全过（含 SKIP）/ 1 有失败
 //
 // 参照来源许可声明：本文件为原创测试代码；字体只**读**本机 WE 安装目录与语料容器，不复制、不打包、
 //   不落盘（`assets/fonts/` 的任何读写都在 F 组的"存在性/可解析性"断言里）。
 import fs from 'node:fs'
 import path from 'node:path'
-import { ROOT } from './_root.mjs'
+import { ROOT, WS } from './_root.mjs'
 import { readIndexHead, readEntryBytes, walkContainers } from './_pkg-index.mjs'
 
 let pass = 0, fail = 0, skip = 0
@@ -47,7 +47,7 @@ function short(v) {
 }
 
 const VERBOSE = process.argv.includes('--verbose')
-const MPW_ROOT = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_ROOT = process.env.MPW_ROOT || WS
 const CORPUS = path.join(MPW_ROOT, 'allwallpaper')
 const WE_FONTS = process.env.MPW_WE_ASSETS
   ? path.join(process.env.MPW_WE_ASSETS, 'fonts')
@@ -71,6 +71,9 @@ const BUNDLED = {
   'Segment7Standard.otf': 'segment7',
   'spincycle_3d_ot.otf': 'spin cycle',
   'Twemoji.Mozilla.ttf': 'twemoji',
+  // ①(2026-09-18) 语料里 61 层/17 包引用的 WE 内置名 `8bitOperatorPlus8-Regular.ttf` 的**合法替代**：
+  //   该字体现名 Pixel Operator（同一作者，2018-10-04 起 CC0-1.0），我们从作者渠道取现行版打包。
+  'PixelOperator8.ttf': 'pixel operator',
 }
 // 壁纸 `scene.json` 写的 WE 引用名 → 仓库文件名（与 `demo.html` 的 REPO_FONT_ALIASES 同口径；
 //   只列**已打包**的那些）。`monof55.ttf` 的族名是 `monofur`（不是文件名）—— 这就是 F2 的意义。
@@ -82,6 +85,7 @@ const WE_REF_TO_REPO = {
   'Segment7Standard.otf': 'Segment7Standard.otf',
   'spincycle_3d_ot.otf': 'spincycle_3d_ot.otf',
   'TwemojiMozilla.ttf': 'Twemoji.Mozilla.ttf',
+  '8bitOperatorPlus8-Regular.ttf': 'PixelOperator8.ttf',
 }
 // **未打包**集合：WE 有、仓库没有。`reason` 是结论口径（许可判据见 THIRD-PARTY.md 对应节）。
 const NOT_BUNDLED = {
@@ -92,7 +96,6 @@ const NOT_BUNDLED = {
   'kust.ttf': { licence: '未定（文件内只有版权串、无任何授权语句）', ref: 'THIRD-PARTY.md §4.5' },
   'opensticks.ttf': { licence: '仅"free for commercial use"（**使用**授权，非**分发**授权）', ref: 'THIRD-PARTY.md §4.5' },
   'summer85.ttf': { licence: '未定（作者站点已消失/域名易主，一手条款取不到）', ref: 'THIRD-PARTY.md §4.5' },
-  '8bitOperatorPlus8-Regular.ttf': { licence: '**OFL-1.1（可再分发）**，但作者现行发布页取不到 ⇒ 不能从 WE 副本顶替', ref: 'THIRD-PARTY.md §4.7' },
 }
 // 语料文本层引用清点（2026-09-19 实测，98 个容器）。键 = `font` 属性原文；
 //   值 = [文本层引用数, 容器数]；`tier` 是**当前**解析级别。
@@ -320,8 +323,10 @@ if (!fs.existsSync(CORPUS)) {
     .map((f) => [f, liveCensus.get('fonts/' + f)])
     .sort((a, b) => ((b[1] && b[1].n) || 0) - ((a[1] && a[1].n) || 0))
   note('未打包项按影响面排序', nbImpact.map(([f, r]) => f + '=' + (r ? r.n + '层/' + r.pkgs.size + '包' : '0')).join(' · '))
-  check('F4c 未打包项里影响面最大的是 `8bitOperatorPlus8-Regular.ttf`（61 层 / 17 容器）—— 它是唯一"许可清楚但取不到上游"的那个',
-    nbImpact[0][0] === '8bitOperatorPlus8-Regular.ttf' && nbImpact[0][1] && nbImpact[0][1].n === 61 && nbImpact[0][1].pkgs.size === 17,
+  // ①(2026-09-18 更新) 原先这里断言"最大的是 8bitOperatorPlus8-Regular.ttf（61/17）"—— 它**已经打包**
+  //   （作者现行版 Pixel Operator 8，CC0-1.0）⇒ 现在未打包里影响面最大的是 `Alcubierre.otf`（34 层/21 包）。
+  check('F4c 未打包项里影响面最大的是 `Alcubierre.otf`（34 层 / 21 容器）—— 许可未定、不能打包的那个',
+    nbImpact[0][0] === 'Alcubierre.otf' && nbImpact[0][1] && nbImpact[0][1].n === 34 && nbImpact[0][1].pkgs.size === 21,
     nbImpact.slice(0, 2).map(([f, r]) => f + '=' + (r && r.n)))
   check('F4d `kust.ttf` 与 `summer85.ttf` 在语料里**0 引用**（⇒ 结论是"不需要"，不是"缺"）',
     !liveCensus.has('fonts/kust.ttf') && !liveCensus.has('fonts/summer85.ttf'),
@@ -330,7 +335,7 @@ if (!fs.existsSync(CORPUS)) {
     !liveCensus.has('fonts/NotoSans-Regular.ttf') && !liveCensus.has('fonts/TwemojiMozilla.ttf'))
   const outside = keys.filter((k) => !k.startsWith('systemfont_') && !liveCensus.get(k).inPkg)
   note('**不在包内**的引用（真正依赖外部渠道的）', outside.map((k) => k + '=' + liveCensus.get(k).n + '层').join(' · '))
-  check('F4f 未打包的 8 个引用**全部不在包内**（⇒ 它们真的会落到第③/④级，不是"包内有所以无所谓"）',
+  check('F4f 未打包的每一项引用**全部不在包内**（⇒ 它们真的会落到第③/④级，不是"包内有所以无所谓"）',
     Object.keys(NOT_BUNDLED).every((f) => { const r = liveCensus.get('fonts/' + f); return !r || r.inPkg === false }),
     Object.keys(NOT_BUNDLED).filter((f) => { const r = liveCensus.get('fonts/' + f); return r && r.inPkg }).slice(0, 3))
 }
@@ -380,26 +385,25 @@ out('\n[F6] `systemfont_*` 系统字体别名（不进四级链；渲染器自�
     ['NotoSans-Regular.ttf', 'RobotoMono-Regular.ttf'].map((f) => f + ':' + (fs.existsSync(path.join(REPO_FONTS, f)) ? '仓库' : fs.existsSync(path.join(WE_FONTS, f)) ? 'WE' : 'MISSING')))
 }
 
-// ═══════════════ F7 8bitOperatorPlus8 的证据链（唯一"许可清楚却取不到"的）═══════════════
-out('\n[F7] `8bitOperatorPlus8-Regular.ttf`：为什么"可再分发"却仍不能打包')
+// ═══════════════ F7 8bitOperatorPlus8 的收口（原"许可清楚却取不到"，2026-09-18 已解决）═══════════════
+out('\n[F7] `8bitOperatorPlus8-Regular.ttf`（61 层/17 包）：从"取不到"到"用作者的 CC0 后继版打包"')
 {
   const doc = fs.existsSync(THIRD_PARTY) ? fs.readFileSync(THIRD_PARTY, 'utf8') : ''
-  check('F7a 未打包（冻结 open item）：文件**不在** `assets/fonts/`，且 `THIRD-PARTY.md` §4.7 有它的专门一节',
-    !fs.existsSync(path.join(REPO_FONTS, '8bitOperatorPlus8-Regular.ttf')) && /### 4\.7 Open item: `8bitOperatorPlus8-Regular\.ttf`/.test(doc))
-  if (!fs.existsSync(WE_FONTS)) skipItem('F7b F7c F7d 许可判据原文', 'WE 字体目录不存在')
-  else {
-    const info = sfntInfo(path.join(WE_FONTS, '8bitOperatorPlus8-Regular.ttf'))
-    check('F7b 文件内 `name` 表 ID13 明写 OFL-1.1（+ CC-BY-SA 4.0 双许可）、ID14 指向 scripts.sil.org —— **它是可再分发的**',
-      /SIL Open Font License 1\.1/.test(info.names.license || '') && /scripts\.sil\.org/.test(info.names.licenseURL || ''),
-      { license: info.names.license, licenseURL: info.names.licenseURL })
-    const ofl = path.join(WE_FONTS, 'SIL Open Font License.txt')
-    const oflTxt = fs.existsSync(ofl) ? fs.readFileSync(ofl, 'utf8') : ''
-    check('F7c 同目录 `SIL Open Font License.txt` 就是**它的** OFL 全文（首行含 RFN `8-bit Operator+`）⇒ 许可判据不止靠 name 表',
-      /with Reserved Font Name 8-bit Operator\+/.test(oflTxt.split('\n')[0] || '') && /SIL OPEN FONT LICENSE Version 1\.1/.test(oflTxt),
-      (oflTxt.split('\n')[0] || '').slice(0, 120))
-    check('F7d **仍然不能打包**：本机拿不到作者/上游的副本（WE 副本按铁律禁用）⇒ 结论与 `THIRD-PARTY.md` §4.7 一致',
-      /explicitly forbidden|forbids|Substituting the copy found in the Wallpaper Engine installation/.test(doc) && /HTTP 404/.test(doc))
-  }
+  check('F7a 仓库打包的是作者的**现行版** `PixelOperator8.ttf`（不是 WE 副本），且别名把语料里的旧名映射过去',
+    fs.existsSync(path.join(REPO_FONTS, 'PixelOperator8.ttf')) &&
+    !fs.existsSync(path.join(REPO_FONTS, '8bitOperatorPlus8-Regular.ttf')) &&
+    WE_REF_TO_REPO['8bitOperatorPlus8-Regular.ttf'] === 'PixelOperator8.ttf' &&
+    fs.readFileSync(DEMO_HTML, 'utf8').includes("'8bitOperatorPlus8-Regular.ttf': 'PixelOperator8.ttf'"))
+  const info = sfntInfo(path.join(REPO_FONTS, 'PixelOperator8.ttf'))
+  check('F7b 打包那份的 `name` 表 ID13 = **CC0-1.0**、ID14 指向 creativecommons zero（可自由再分发，无需署名——我们仍署名）',
+    /CC0/.test(info.names.license || '') && /creativecommons\.org\/licenses\/zero/.test(info.names.licenseURL || ''),
+    { license: info.names.license, licenseURL: info.names.licenseURL })
+  check('F7c 它是**同一作者血脉**：族名 `Pixel Operator 8`（≠ 旧名 `8-bit Operator+ 8`）、字形数 ⊃ 旧版（新增 Esperanto/货币符号）',
+    /pixel operator/i.test(info.names.family || '') &&
+    (!fs.existsSync(WE_FONTS) || sfntInfo(path.join(REPO_FONTS, 'PixelOperator8.ttf')).numGlyphs >= sfntInfo(path.join(WE_FONTS, '8bitOperatorPlus8-Regular.ttf')).numGlyphs),
+    { family: info.names.family, glyphs: info.numGlyphs })
+  check('F7d `THIRD-PARTY.md` §4.7 如实记下了这次收口（旧版 undownloadable / 现行版 CC0 / 字形不完全相同的取舍）',
+    /### 4\.7/.test(doc) && /Pixel Operator/.test(doc) && /CC0/.test(doc))
 }
 
 // ═══════════════ F8 汇总表（人读）═══════════════

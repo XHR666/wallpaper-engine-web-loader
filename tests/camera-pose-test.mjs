@@ -11,7 +11,7 @@
 //   用户原话：「相机层动画要完整接 **但是你要保留可以回退的按钮**」⇒ `?campose=full|legacy|off`。
 import fs from 'node:fs'
 import path from 'node:path'
-import { ROOT } from './_root.mjs'   // ①(2026-09-16) 仓库根（根级 demo.html / bundle）
+import { ROOT, WS } from './_root.mjs'   // ①(2026-09-16) 仓库根（根级 demo.html / bundle）
 
 globalThis.location = globalThis.location || { search: '', href: 'http://localhost/' }
 const lib = await import('../core/we-scene-bundle.js')
@@ -26,7 +26,7 @@ function check(name, ok, detail) {
 // ①(2026-09-16 目录整理) 本文件原先把 MPW_WS 定义成**工作区根**（MPW_ROOT 语义），却又拿它读**根级**
 //   demo.html / core/we-scene-bundle.js ⇒ 移入 tests/ 后暴雷。现按仓库口径拆分：
 //   工作区根 = MPW_WS（语料/WE 资产），仓库根 = ROOT（来自 tests/_root.mjs）。
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_WS = process.env.MPW_ROOT || WS
 const DD = process.env.MPW_SCENE_ROOT || path.join(MPW_WS, 'allwallpaper', 'dd')
 const W = 3840, H = 2160
 const dec = new TextDecoder()

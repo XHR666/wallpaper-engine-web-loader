@@ -11,6 +11,7 @@
 // 本测试断言的是**生产判据**（core/we-scene-bundle.js 的 resolveHdrWant，renderScene 用的同一份逻辑）
 // 在 hdr × bloom × ?hdr=0/1 × 会话熔断 四维上的真值表；并断言 hina/3778592720 两个真实包的
 // general 取值各自落在预期分支（真实值取自包内 scene.json）。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import * as lib from '../core/we-scene-bundle.js'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -81,7 +82,7 @@ console.log('[T4] hdrForceLdrSession 只关自动分支')
 // ── T5 真实包 general 取值（hina 与 bloom=true/hdr=false 的对照包）──
 console.log('[T5] 真实包 general 分支（allwallpaper/dd，缺包自动 SKIP）')
 {
-  const DD = process.env.MPW_SCENE_ROOT || '/root/Desktop/DSHarea/allwallpaper/dd'
+  const DD = process.env.MPW_SCENE_ROOT || path.join(WS, 'allwallpaper', 'dd')
   const genOf = (id) => {
     const p = path.join(DD, id, 'scene.pkg')
     if (!fs.existsSync(p)) return null

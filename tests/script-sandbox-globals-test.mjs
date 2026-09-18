@@ -69,7 +69,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
-import { ROOT } from './_root.mjs'
+import { ROOT, WS } from './_root.mjs'
 
 // ═══════════════════════════ 0. 用法/参数/退出码 ═══════════════════════════
 const USAGE = `用法：node tests/script-sandbox-globals-test.mjs [--no-mutation] [--verbose]
@@ -77,7 +77,7 @@ const USAGE = `用法：node tests/script-sandbox-globals-test.mjs [--no-mutatio
   --verbose       打印子进程输出全文
 环境变量：
   MPW_SCENE_SCRIPTS  沙箱实现的**副本**路径（内置红-if-reverted 用；平时不要设，设了就等于"测的是副本"）
-  MPW_ROOT           工作区根（默认 /root/Desktop/DSHarea）—— 只用于真包条件项
+  MPW_ROOT           工作区根（默认 = 仓库的上一级，WS）—— 只用于真包条件项
 退出码：0 全过（含 SKIP）/ 1 有失败 / 2 用法错误`
 function usage(msg) { process.stderr.write('用法错误：' + msg + '\n' + USAGE + '\n'); process.exit(2) }
 const argv = process.argv.slice(2)
@@ -179,7 +179,7 @@ const MUTE_SCRIPT = [
 
 // ═══════════════════════════ 5. S2 现场（真语料 0917/3462491575）═══════════════════════════
 {
-  const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+  const MPW_WS = process.env.MPW_ROOT || WS
   const PKG = path.join(MPW_WS, 'allwallpaper', '0917', '3462491575', 'scene.pkg')
   if (!fs.existsSync(PKG)) {
     skipItem('真包 0917/3462491575（P-120 记录的现场包）', '缺语料 ' + PKG)

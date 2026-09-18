@@ -11,6 +11,7 @@
 // 本测试用**真实包**（scene.json 的 animationlayers + models/girl_puppet.mdl）复刻
 //   demo.html:1952-1998 的多层合成 + 2004-2020 的 gBones + 顶点蒙皮，
 //   对比"旧行为（原始帧号）"与"新行为（好帧表）"的逐帧位移，断言新行为 ≤ 50 单位。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
@@ -24,7 +25,7 @@ function check(name, ok, detail) {
 }
 
 const SCENE_ID = '3544152633'
-const ROOT = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const ROOT = process.env.MPW_ROOT || WS
 const SCENE_ROOT = process.env.MPW_SCENE_ROOT || path.join(ROOT, 'allwallpaper', 'dd')
 const PKG = path.join(SCENE_ROOT, SCENE_ID, 'scene.pkg')
 if (!fs.existsSync(PKG)) {

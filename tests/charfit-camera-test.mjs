@@ -15,7 +15,7 @@
 //      ②适配收窄为"**有相机层 ⇒ 不适配**，无相机层且真超屏才兜底"；`?charfit=legacy` 一键回到旧行为。
 import fs from 'node:fs'
 import path from 'node:path'
-import { ROOT } from './_root.mjs'
+import { ROOT, WS } from './_root.mjs'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
 
 globalThis.location = globalThis.location || { search: '', href: 'http://localhost/' }
@@ -28,7 +28,7 @@ function check(name, ok, detail) {
   else { fail++; fails.push(name); console.log('  ✗ ' + name + (detail ? '  [' + detail + ']' : '')) }
 }
 
-const MPW_WS = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const MPW_WS = process.env.MPW_ROOT || WS
 const DD = process.env.MPW_SCENE_ROOT || path.join(MPW_WS, 'allwallpaper', 'dd')
 const W = 3840, H = 2160
 const dec = new TextDecoder()

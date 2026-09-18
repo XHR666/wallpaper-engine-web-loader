@@ -15,6 +15,7 @@
 //   B) `?meshsize=1` = 作者 size 框口径（gl/cpu 尺寸比 1.0 ± 0.05，供真机 A/B）；
 //   C) `?meshsize=crop` = 研究稿的 cropoffset 中心（RE-02 已判定官方运行时不消费该字段，
 //      故只作 A/B；本测试钉住它的确切位移量，真机上"发片飞出去"即证伪）。
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 // ①(P-58 H1) 模块级旗标（MCC_ENABLED 等）在 **import 时**按 location.search 求值 → 测试里先把
@@ -32,7 +33,7 @@ const r1 = (v) => Math.round(v * 10) / 10
 const r3 = (v) => Math.round(v * 1000) / 1000
 
 // ── 真包实数（生产解析器；缺包则整段 SKIP，条件项不红）──
-const ROOT = process.env.MPW_ROOT || '/root/Desktop/DSHarea'
+const ROOT = process.env.MPW_ROOT || WS
 const DD = process.env.MPW_SCENE_ROOT || path.join(ROOT, 'allwallpaper', 'dd')
 const SCENE = '3719111841'
 const PKG = path.join(DD, SCENE, 'scene.pkg')

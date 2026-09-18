@@ -18,10 +18,11 @@
 //   node report-audit.mjs reports/rXXX.json
 //   node report-audit.mjs --all           # 最近 5 份都看
 //   node report-audit.mjs --trend [N]     # 每个场景取最近 N 份（默认 5）做跨报告趋势
+import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
 
-const DIR = process.env.MPW_ROOT || '/root/Desktop/DSHarea'; // ①(去个人化) 可覆盖
+const DIR = process.env.MPW_ROOT || WS; // ①(去个人化) 可覆盖
 const REPORTS = path.join(DIR, 'reports')
 
 const args = process.argv.slice(2)
