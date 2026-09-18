@@ -306,6 +306,11 @@ add "camera-script-origin" "node tests/camera-script-origin-probe.mjs" "" "^SKIP
 #   判据含：14 包求值==独立参考求值≠静态；无脚本包**逐位不变**；userProps/canvasSize 变 ⇒ 取景跟着变；
 #   坏脚本/坏宿主不抛。带红-if-reverted（把接线分支置 false ⇒ a 组 42/42 红）。
 add "camera-origin-script" "node tests/camera-origin-script-test.mjs" "" "^SKIP camera-origin-script"
+# ①(敏感信息加固 2026-09-18) `secret-scan`：**tracked 全量**跑两组判据 ——
+#   A 段 12 条密钥模式（npm/gh/sk/AKIA/私钥/xox/AIza/JWT/Bearer/赋值式窄档+宽档；命中只打前 6 字符）；
+#   B 段 本机绝对路径（host-workspace-path / device-shared-storage / termux-private-dir）。
+#   带**白名单腐烂检测**（被豁免的命中若消失 ⇒ 判红，防白名单变遮羞布）；退出码 0/1/2。~0.5s，无网络无浏览器。
+add "secret-scan"        "node tests/secret-scan-test.mjs"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /
