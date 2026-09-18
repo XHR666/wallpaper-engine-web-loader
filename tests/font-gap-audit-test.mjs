@@ -197,11 +197,13 @@ out('\n[F1] 清点：本机 WE 内置字体 vs 仓库已打包字体')
   else {
     // 仓库文件名 = WE 引用名 **或** 上游发布名（`monof55.ttf` / `Twemoji.Mozilla.ttf` 两个改名的，
     //   映射关系见 `assets/fonts/README.md` 与 `WE_REF_TO_REPO`）
-    const RENAMED_UPSTREAM = ['monof55.ttf', 'Twemoji.Mozilla.ttf']
-    check('F1a 仓库已打包的每个文件要么是 WE 引用名、要么是那两个上游发布名（没有来历不明的多余字体）',
+    // ①(2026-09-18) 第三个"上游发布名"= `PixelOperator8.ttf`：WE 内置名 `8bitOperatorPlus8-Regular.ttf`
+    //   的**现行版**（同作者、2018 起 CC0-1.0；dafont 上旧版已标注 undownloadable）。
+    const RENAMED_UPSTREAM = ['monof55.ttf', 'Twemoji.Mozilla.ttf', 'PixelOperator8.ttf']
+    check('F1a 仓库已打包的每个文件要么是 WE 引用名、要么是那三个上游发布名（没有来历不明的多余字体）',
       repo.every((f) => we.includes(f) || RENAMED_UPSTREAM.includes(f)),
       repo.filter((f) => !we.includes(f) && !RENAMED_UPSTREAM.includes(f)))
-    check('F1a2 两个改名文件与冻结映射表对得上（`monof55.ttf`←`Monofur-PK7og.ttf`、`Twemoji.Mozilla.ttf`←`TwemojiMozilla.ttf`）',
+    check('F1a2 改名文件与冻结映射表对得上（`monof55.ttf`←`Monofur-PK7og.ttf`、`Twemoji.Mozilla.ttf`←`TwemojiMozilla.ttf`、`PixelOperator8.ttf`←`8bitOperatorPlus8-Regular.ttf`）',
       RENAMED_UPSTREAM.every((f) => Object.values(WE_REF_TO_REPO).includes(f)) && repo.includes('monof55.ttf') && repo.includes('Twemoji.Mozilla.ttf'))
     // 「未打包」= WE 有 · 仓库侧**连别名目标也没有**
     const missing = we.filter((f) => !repo.includes(f) && !(WE_REF_TO_REPO[f] && repo.includes(WE_REF_TO_REPO[f])))
@@ -395,13 +397,22 @@ out('\n[F7] `8bitOperatorPlus8-Regular.ttf`（61 层/17 包）：从"取不到"�
     WE_REF_TO_REPO['8bitOperatorPlus8-Regular.ttf'] === 'PixelOperator8.ttf' &&
     fs.readFileSync(DEMO_HTML, 'utf8').includes("'8bitOperatorPlus8-Regular.ttf': 'PixelOperator8.ttf'"))
   const info = sfntInfo(path.join(REPO_FONTS, 'PixelOperator8.ttf'))
+  // 字形数：直接从 `maxp` 表读（`sfntInfo` 只给 name 表）——用于"现行版 ⊇ 旧版"这条判据
+  const numGlyphs = (fp) => {
+    try {
+      const d = fs.readFileSync(fp); const n = d.readUInt16BE(4)
+      for (let i = 0; i < n; i++) { const r = 12 + 16 * i
+        if (d.slice(r, r + 4).toString('latin1') === 'maxp') return d.readUInt16BE(d.readUInt32BE(r + 8) + 4) }
+    } catch { }
+    return -1
+  }
   check('F7b 打包那份的 `name` 表 ID13 = **CC0-1.0**、ID14 指向 creativecommons zero（可自由再分发，无需署名——我们仍署名）',
     /CC0/.test(info.names.license || '') && /creativecommons\.org\/licenses\/zero/.test(info.names.licenseURL || ''),
     { license: info.names.license, licenseURL: info.names.licenseURL })
   check('F7c 它是**同一作者血脉**：族名 `Pixel Operator 8`（≠ 旧名 `8-bit Operator+ 8`）、字形数 ⊃ 旧版（新增 Esperanto/货币符号）',
     /pixel operator/i.test(info.names.family || '') &&
-    (!fs.existsSync(WE_FONTS) || sfntInfo(path.join(REPO_FONTS, 'PixelOperator8.ttf')).numGlyphs >= sfntInfo(path.join(WE_FONTS, '8bitOperatorPlus8-Regular.ttf')).numGlyphs),
-    { family: info.names.family, glyphs: info.numGlyphs })
+    (!fs.existsSync(WE_FONTS) || numGlyphs(path.join(REPO_FONTS, 'PixelOperator8.ttf')) >= numGlyphs(path.join(WE_FONTS, '8bitOperatorPlus8-Regular.ttf'))),
+    { family: info.names.family, glyphs: numGlyphs(path.join(REPO_FONTS, 'PixelOperator8.ttf')), old: fs.existsSync(WE_FONTS) ? numGlyphs(path.join(WE_FONTS, '8bitOperatorPlus8-Regular.ttf')) : '?' })
   check('F7d `THIRD-PARTY.md` §4.7 如实记下了这次收口（旧版 undownloadable / 现行版 CC0 / 字形不完全相同的取舍）',
     /### 4\.7/.test(doc) && /Pixel Operator/.test(doc) && /CC0/.test(doc))
 }

@@ -170,6 +170,7 @@ reference to this section, and `assets/fonts/README.md` states the same rule nex
 | `Segment7Standard.otf` | `OFL-1.1` | **OFL-1.1** (RFN `Segment7`) | `(c) Cedric Knight 2014. Licensed under SIL Open Font Licence v1.1. Reserved name: Segment7.` (in-file `name` ID0) | `https://fontlibrary.org/en/font/segment7` → download zip `https://fontlibrary.org/assets/downloads/segment7/4cc82137fc130708919bf201c0dc9aae/segment7.zip` (contains `Segment7Standard.otf` + `OFL.txt`) | 2026-09-15 | 10,464 | `f35b8ce74c9aedbd51e790b178c5dfbfe62068772db6e924a455247781cc7356` | **否**（逐字节 = 上游原件） | **是** — 作者/上游官方发布渠道 |
 | `Twemoji.Mozilla.ttf` | `CC-BY-4.0`（美术；见下） | **artwork CC-BY-4.0 / code Apache-2.0** | `Copyright 2016-2018, Mozilla Foundation` (code); emoji art © Twitter, Inc. and other contributors (Twemoji) | `https://github.com/mozilla/twemoji-colr` → release asset `https://github.com/mozilla/twemoji-colr/releases/download/v0.7.0/Twemoji.Mozilla.ttf` (v0.7.0) | 2026-09-15 | 1,474,284 | `6d90152ee0d29e82fe2a87793af5aa4b7ad13e6538360889e141e81ed299ee8e` | **否**（逐字节 = 上游原件） | **是** — 作者/上游官方发布渠道 |
 | `spincycle_3d_ot.otf` | `LicenseRef-BVFonts-Freeware-2006`（本地定义，见下） | **author freeware terms** (use + redistribution allowed, commercial use allowed; see §4.6 for the condition-by-condition mapping) | `Jess Latham (c) 2006 All Rights Reserved — bvfonts.com` (in-package `README.TXT`) | **Author's own site**: `https://www.bvfonts.com/fonts/details.php?id=44` → `https://www.bvfonts.com/fonts/files/spin_cycle_threed.zip` (in-zip path `Open Type/spincycle_3d_ot.otf`) | 2026-09-15 | 44,228 | `cc4a580ac0d112ef0eb5199fe08d497a5875fd24c2361038dc6c847a3962da4d` | **否**（逐字节 = 上游原件） | **是** — 作者/上游官方发布渠道 |
+| `PixelOperator8.ttf` | `CC0-1.0` | **CC0-1.0** (public-domain dedication; attribution not legally required — we credit the author anyway) | `This typeface is made by Jayvee Enaguas (HarvettFox96), licensed under a Creative Commons Zero (CC0) 1.0. © 2009-2018.` (dafont author note; in-file `name` ID13 = `Creative Commons Zero (CC0) 1.0`) | **Author's own DaFont release**: `https://www.dafont.com/pixel-operator.font` → `https://dl.dafont.com/dl/?f=pixel_operator` (in-zip `PixelOperator8.ttf` + `LICENSE.txt` = CC0 1.0 full text) | 2026-09-18 | 19,944 | `5cccb9ef6cf18977b6e5721d49a1a6e78dd6a6f1c4f69537470f7dc1dc829ffc` | **否**（逐字节 = 上游原件；作者当前版本，非 WE 副本） | **是** — 作者/上游官方发布渠道 |
 
 **Reading the last two columns.**
 
@@ -236,13 +237,14 @@ Licence texts and notices travel with the fonts in `assets/fonts/licenses/`:
 ### 4.3 WE reference name → file in this repository
 
 Wallpaper `scene.json` files reference WE's own font **file names**. We keep the upstream file
-names (so the sha256 column above can be re-checked against the upstream URL), and map the two
+names (so the sha256 column above can be re-checked against the upstream URL), and map the three
 that differ in `demo.html` (`REPO_FONT_ALIASES`):
 
 | Reference in a wallpaper (`fonts/…`) | File here | Why the name differs |
 |---|---|---|
 | `Monofur-PK7og.ttf` | `monof55.ttf` | upstream/Debian release name is `monof55.ttf` |
 | `TwemojiMozilla.ttf` | `Twemoji.Mozilla.ttf` | Mozilla's release name has the dot |
+| `8bitOperatorPlus8-Regular.ttf` | `PixelOperator8.ttf` | author renamed the family to **Pixel Operator** in 2018 and re-licensed it **CC0-1.0**; the old-name build is marked *undownloadable* on DaFont — see §4.7 |
 | `Blackout 2 AM.ttf`, `NotoSans-Regular.ttf`, `RobotoMono-Regular.ttf`, `Segment7Standard.otf`, `spincycle_3d_ot.otf` | same name | — |
 
 The CSS family the renderer registers is `mpw-<hash of the reference path>`, so the on-disk file
@@ -373,25 +375,33 @@ under OFL-1.1 and the request is recorded (author e-mail + Debian `debian/copyri
 `licenses/`), and the upstream notice file that asks to travel with the font is shipped as
 `licenses/monofur-monof_tt-notice.txt`.
 
-### 4.7 Open item: `8bitOperatorPlus8-Regular.ttf` (not bundled)
+### 4.7 `8bitOperatorPlus8-Regular.ttf` → bundled as the author's current **Pixel Operator 8** (CC0-1.0) — resolved 2026-09-18
 
-Referenced by several wallpapers in the local corpus (`fonts/8bitOperatorPlus8-Regular.ttf`),
-embedded licence statement = OFL-1.1 with RFN `8-bit Operator+`, © 2009-2014 Grand Chaos
-Productions (<http://grandchaos9000.deviantart.com>). Attempts made on 2026-09-15 to obtain the
-file from the author/upstream — and the results:
+**The gap** (recorded 2026-09-15): several corpus wallpapers reference WE's built-in name
+`fonts/8bitOperatorPlus8-Regular.ttf` (measured 2026-09-18: **61 text layers / 17 containers** — the
+single largest font gap). The build shipped inside WE carries an OFL-1.1 statement with RFN
+`8-bit Operator+`, © 2009-2014 Grand Chaos Productions, and OFL-1.1 *does* permit redistribution —
+but our own rule forbids taking the file out of a Wallpaper Engine installation (§4.2, §4.4), and
+the old-name build could not be obtained from the author: deviantart.com timed out from this
+machine, the author's GitHub account has no public repos, `dafont.com/8bit-operator.font` 404s, and
+fontlibrary returned 0 hits.
 
-| Attempted URL | Result |
+**Resolution**: the same typeface lives on under a new name and a new licence — **Pixel Operator**
+by **Jayvee Enaguas (HarvettFox96)**, the successor of *8-bit Operator+* (DaFont's own author note:
+"Pixel Operator (previously known as the 8-bit Operator)"; update log 2018-10-04-1: *"Changed
+licence to Creative Commons Zero (CC0) 1.0"*). We bundle the author's current release
+`PixelOperator8.ttf` (DaFont zip, `LICENSE.txt` = CC0 1.0 full text) and map the WE reference name
+to it in `demo.html` (`REPO_FONT_ALIASES`) and §4.3.
+
+| Question | Answer |
 |---|---|
-| `http://grandchaos9000.deviantart.com` / `https://www.deviantart.com/grandchaos9000/…` | connection timeout (curl exit 28, no HTTP status) — DeviantArt unreachable from this machine |
-| `https://api.github.com/users/GrandChaos9000/repos` | `[]` — the author's GitHub account has no public repositories |
-| `https://www.dafont.com/8bit-operator.font` | HTTP 404 (dafont's search for "8-bit operator" resolves only to `pixel_operator`, a different typeface/author) |
-| `https://fontlibrary.org/en/search?query=8-bit` | HTTP 200, **0 results** |
-| `https://www.fontsquirrel.com/fonts/8-bit-operator` | HTTP 202 with an empty body (Cloudflare challenge, no file) |
-| `https://www.fontspace.com/…` | HTTP 403 (Cloudflare) |
+| Is it the same design? | Same author lineage, **not byte-identical**: 241 glyphs vs the WE copy's 229 (the 2018 update added Esperanto and currency symbols and rearranged some shapes). It is the closest *legally obtainable* substitute; the alternative remains the runtime fallback chain (③ WE install → ④ `sans-serif`). |
+| Licence of the bundled file | **CC0 1.0** (public-domain dedication) — redistribution and modification are unrestricted; attribution is not legally required, we credit the author anyway (in-file `name` ID13/ID14 and the table in §4.1). |
+| Provenance | DaFont release page of the author (`dafont.com/pixel-operator.font`), zip `dl.dafont.com/dl/?f=pixel_operator`, `PixelOperator8.ttf`, 19,944 B, sha256 `5cccb9ef6cf18977b6e5721d49a1a6e78dd6a6f1c4f69537470f7dc1dc829ffc`, fetched 2026-09-18. **Not** copied from a WE install. |
+| What the user sees | Text layers that asked for `8bitOperatorPlus8-Regular.ttf` now render in the pixel face instead of falling back to `sans-serif` — with the (small, documented) glyph differences above. The A/B is `?repofonts=off` (tier ② off → WE tier ③ → `sans-serif`). |
 
-**Decision**: not bundled. Substituting the copy found in the Wallpaper Engine installation is
-explicitly forbidden by this project's provenance rule, and no other copy could be traced to the
-author. If the author's page becomes reachable, the file can be added by following §4.8.
+The remaining not-bundled WE fonts (Alcubierre / Atami / CursedTimerUlil / Lazer84 / opensticks,
+plus the 0-reference kust / summer85) are unchanged — see §4.5 for the per-font licence findings.
 
 ### 4.8 How to add or re-verify a font (recipe)
 

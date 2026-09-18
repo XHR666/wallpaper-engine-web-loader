@@ -3218,6 +3218,12 @@ function loadScene() {
   const REPO_FONT_ALIASES = {
     'Monofur-PK7og.ttf': 'monof55.ttf',
     'TwemojiMozilla.ttf': 'Twemoji.Mozilla.ttf',
+    // ①(2026-09-18) 语料里 61 层/17 个包引用的 WE 内置名 `8bitOperatorPlus8-Regular.ttf`：
+    //   该字体现名 **Pixel Operator**（同一作者 Jayvee Enaguas/HarvettFox96，2018-10-04 起改为 **CC0-1.0**），
+    //   dafont 上那份"8-bit Operator+"旧版已标注 **undownloadable** ⇒ 打包作者的**现行版** `PixelOperator8.ttf`
+    //   （241 字形 ⊃ 旧版 229 字形；CC0 = 可自由再分发，无需署名，我们仍署名并登记 sha256）。
+    //   ⚠ 与 WE 自带的那份旧版**字形不完全相同**（作者更新日志列了改动）—— 这是"能拿到的最接近的合法替代"。
+    '8bitOperatorPlus8-Regular.ttf': 'PixelOperator8.ttf',
   }
   const repoFontNameOf = (fp) => {
     const b = String(fp).split('/').pop()

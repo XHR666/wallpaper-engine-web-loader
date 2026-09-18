@@ -81,15 +81,18 @@ const REPO_FONTS = [
   { file: 'Segment7Standard.otf', bytes: 10464, sha: 'f35b8ce74c9aedbd51e790b178c5dfbfe62068772db6e924a455247781cc7356', magic: '4f54544f', ref: 'fonts/Segment7Standard.otf', type: 'font/otf' },
   { file: 'spincycle_3d_ot.otf', bytes: 44228, sha: 'cc4a580ac0d112ef0eb5199fe08d497a5875fd24c2361038dc6c847a3962da4d', magic: '4f54544f', ref: 'fonts/spincycle_3d_ot.otf', type: 'font/otf' },
   { file: 'Twemoji.Mozilla.ttf', bytes: 1474284, sha: '6d90152ee0d29e82fe2a87793af5aa4b7ad13e6538360889e141e81ed299ee8e', magic: '00010000', ref: 'fonts/TwemojiMozilla.ttf', type: 'font/ttf' },
+  // ①(2026-09-18) 8bitOperatorPlus8-Regular.ttf 的现行版（同作者、CC0-1.0）——`ref` 是被映射的 WE 引用名
+  { file: 'PixelOperator8.ttf', bytes: 19944, sha: '5cccb9ef6cf18977b6e5721d49a1a6e78dd6a6f1c4f69537470f7dc1dc829ffc', magic: '00010000', ref: 'fonts/8bitOperatorPlus8-Regular.ttf', type: 'font/ttf' },
 ]
 const LICENSE_FILES = [
   'OFL-Blackout.markdown', 'OFL-Monofur-debian-copyright.txt', 'monofur-author-OFL-email.txt',
   'monofur-monof_tt-notice.txt', 'OFL-NotoSans.txt', 'OFL-RobotoMono.txt', 'OFL-Segment7.txt',
   'Twemoji-Mozilla-LICENSE.md', 'Apache-2.0.txt', 'CC-BY-4.0-Twemoji-attribution.txt',
-  'spincycle-bvfonts-README.txt', 'spincycle-bvfonts-TOU.txt',
+  'spincycle-bvfonts-README.txt', 'spincycle-bvfonts-TOU.txt', 'CC0-1.0-PixelOperator.txt',
 ]
-// 明确**不入库**的两个（§4.5/§4.7）：7 个查不到授权 + 本次取不到上游的 8bitOperator
-const NOT_BUNDLED = ['8bitOperatorPlus8-Regular.ttf', 'Alcubierre.otf', 'Atami-Regular.otf', 'CursedTimerUlil-Aznm.ttf', 'Lazer84.ttf', 'kust.ttf', 'opensticks.ttf', 'summer85.ttf']
+// 明确**不入库**的：7 个查不到再分发授权的（§4.5）。原先还有 `8bitOperatorPlus8-Regular.ttf`——
+// ①(2026-09-18) 它已收口：改用作者现行版 `PixelOperator8.ttf`（CC0-1.0），见 THIRD-PARTY §4.7
+const NOT_BUNDLED = ['Alcubierre.otf', 'Atami-Regular.otf', 'CursedTimerUlil-Aznm.ttf', 'Lazer84.ttf', 'kust.ttf', 'opensticks.ttf', 'summer85.ttf']
 // Spin Cycle 3D：作者官方 zip 里那份（报告 §2.6 记的官方 build）与 WE 目录那份（旧 build）——必须不同
 const SPIN_OFFICIAL_SHA = 'cc4a580ac0d112ef0eb5199fe08d497a5875fd24c2361038dc6c847a3962da4d'
 const SPIN_WE_SHA = '41a1e603f5befa0bb2d5c657a8858d8c9368bbb65d09c756bcaa49c2afcd48c8'
@@ -198,8 +201,8 @@ console.log('[T1] 纯函数（从 demo.html 节选求值）：四级来源判定
     H.repoFontUrl('fonts/spincycle_3d_ot.otf') === '/assets/fonts/spincycle_3d_ot.otf' &&
     H.repoFontUrl('fonts/workshop/3219510589/LEMONMILK-Bold.otf') === '/assets/fonts/LEMONMILK-Bold.otf',
     [H.repoFontUrl('fonts/kust.ttf'), H.repoFontUrl('fonts/workshop/3219510589/LEMONMILK-Bold.otf')])
-  check('T1h 映射表**只有**那两个键（防止有人悄悄把别的字体改名）',
-    JSON.stringify(Object.keys(H.REPO_FONT_ALIASES).sort()) === JSON.stringify(['Monofur-PK7og.ttf', 'TwemojiMozilla.ttf']),
+  check('T1h 映射表**只有**那三个键（防止有人悄悄把别的字体改名）——`8bitOperatorPlus8-Regular.ttf` 是 2026-09-18 收口时新增的（现行版 Pixel Operator 8，CC0-1.0）',
+    JSON.stringify(Object.keys(H.REPO_FONT_ALIASES).sort()) === JSON.stringify(['8bitOperatorPlus8-Regular.ttf', 'Monofur-PK7og.ttf', 'TwemojiMozilla.ttf']),
     Object.keys(H.REPO_FONT_ALIASES))
 
   check('T1i 第③级 URL = /weassist/fonts/<basename>（真机时钟字体 Monofur，P-81 原样）',
@@ -455,11 +458,12 @@ console.log('[T4] 仓库自带字体：文件 / sha256 / 映射表 / 许可文�
     /SIL-OFL-1\.1/.test(fs.readFileSync(path.join(LIC_DIR, 'OFL-Monofur-debian-copyright.txt'), 'utf8')) &&
     /licensed under SIL Open Font License version 1\.1/.test(fs.readFileSync(path.join(LIC_DIR, 'monofur-author-OFL-email.txt'), 'utf8')) &&
     /freeware and can be distributed as long as they are[\s\S]{0,20}?together with this text file/.test(fs.readFileSync(path.join(LIC_DIR, 'monofur-monof_tt-notice.txt'), 'utf8')))
-  check('T4k 未收录项**确实没被塞进仓库**（8bitOperator 与另外 7 个查不到授权的字体）',
+  check('T4k 未收录项**确实没被塞进仓库**（7 个查不到再分发授权的字体）',
     NOT_BUNDLED.every((f) => !fs.existsSync(path.join(FONT_DIR, f))),
     NOT_BUNDLED.filter((f) => fs.existsSync(path.join(FONT_DIR, f))))
-  check('T4k2 THIRD-PARTY.md 如实记录了 8bitOperator 的未定项与试过的 URL 结果',
-    /8bitOperatorPlus8-Regular\.ttf/.test(doc) && /open item/i.test(doc) && /HTTP 404/.test(doc) && /0 results/.test(doc))
+  check('T4k2 THIRD-PARTY.md §4.7 如实记录了 8bitOperator 的**收口**（旧版 undownloadable / 现行版 CC0-1.0 / 字形不完全相同）与早先试过的渠道',
+    /### 4\.7/.test(doc) && /8bitOperatorPlus8-Regular\.ttf/.test(doc) && /Pixel Operator/.test(doc) && /CC0/.test(doc) &&
+    /undownloadable/i.test(doc) && /deviantart/i.test(doc) && /404s/.test(doc) && /0 hits/.test(doc))
   if (fs.existsSync(WE_FONT_DIR)) {
     check('T4l （信息项）仓库文件与 WE 目录副本的关系与 THIRD-PARTY §4.4 记载一致：Blackout/monofur 同哈希、spincycle 必不同',
       sha256(path.join(WE_FONT_DIR, 'Blackout 2 AM.ttf')) === REPO_FONTS[0].sha &&

@@ -69,7 +69,7 @@ WE `assets/fonts/` 里一共 **15 个字体**，本目录 **7 个**。差集 **8
 
 | 未打包的字体 | 许可判据（一句话） | 语料引用 | 结论 |
 |---|---|---|---|
-| `8bitOperatorPlus8-Regular.ttf` | **OFL-1.1（可再分发）** —— 文件内 `name` 表 ID13 原文 `This font is licensed from Creative Commons (CC-BY-SA 4.0) and SIL Open Font License 1.1.`，WE 目录里那份 `SIL Open Font License.txt` 就是它的全文（首行 RFN `8-bit Operator+`） | **61 层 / 17 个容器**（本目录缺的里面影响最大） | **不能打包**：作者现行发布页取不到（`THIRD-PARTY.md` §4.7 有 6 条尝试记录），而"从 WE 目录复制"是本项目**明令禁止**的取件口 |
+| ~~`8bitOperatorPlus8-Regular.ttf`~~ → **已打包为 `PixelOperator8.ttf`** | **CC0-1.0**（公有领域奉献，可自由再分发）—— 该字体现名 **Pixel Operator**（同一作者 Jayvee Enaguas / HarvettFox96，2018-10-04 起改 CC0-1.0），我们从作者 DaFont 发布页取现行版 | **61 层 / 17 个容器**（原为缺口里影响最大的） | **已收口**：`demo.html` 的 `REPO_FONT_ALIASES` 把旧名 `8bitOperatorPlus8-Regular.ttf` 映射到 `PixelOperator8.ttf`；⚠ 两版**字形不完全相同**（现行版 241 字形 ⊃ 旧版 229，作者加了 Esperanto/货币符号并微调）——详见 `THIRD-PARTY.md` §4.7 |
 | `Alcubierre.otf` | 未定：文件内 `Copyright (c) 2015 by Ellis Design. All rights reserved.`；回溯作者上游查不到分发授权 | 34 层 / 21 容器 | 不能打包（**未定**不是"可以"） |
 | `Atami-Regular.otf` | 未定：`Copyright © 2016 by Andrew Herndon. All rights reserved.`；该作者其它免费件一律带 `Personal Use` | 23 层 / 10 容器 | 不能打包 |
 | `CursedTimerUlil-Aznm.ttf` | 未定：东方同人二创，权利链本身不明 | 6 层 / 3 容器 | 不能打包 |
