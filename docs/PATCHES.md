@@ -10294,3 +10294,89 @@ $ node tests/particle-render-correctness-test.mjs
 | `http://<host>:8899/?id=3233141951` | 看「鼠标」层（`ln=61`，同一份 Cherry_Blossoms_2.json） | 同上的"樱花跟随光标 + 螺旋尾迹" |
 | `http://<host>:8899/?id=3660962877` | 看「cherry blossoms on cursor」（`ln=121`） | 同上 |
 | 任意包（如 `?id=3544152633`） | 看雪花/雨/鸟 | 精灵表层的**每一颗粒子应是一片完整的雪花/雨滴/鸟**，不是"整张图集的压缩条" |
+
+---
+
+## P-134（2026-09-19 用户第 ⑥ 项）视频壁纸「左边 1/4 颜色反相」= **无纹理层的效果链 FBO 恒 1×1** ⇒ `degenerateFbo` 短路 + 效果频谱 uniform 从不设置 + 同一材质 vert/frag 的 `[COMBO]` 默认值不取并集
+
+> **性质**：只读取证 + 定点修复。证据 = 真包 + 真 shader + 真转译器 + mock-GL（取证脚本都在 `/tmp/mpw-probe/` 下、**未入仓**，故此处不写文件名，免得被文档一致性检查当成仓库引用）。
+> **许可**：`references/wer-ref`（GPL-2.0-only）只作**行为对照**；未复制任何代码 ⇒ `THIRD-PARTY.md` 未改（无需改）。
+> **编号**：落盘前实测最高 = P-133 ⇒ 用 **P-134**。
+
+### P-134.1 症状与几何算术
+
+`http://127.0.0.1:8899/?id=3660962877`（伊蕾娜 果园春色：`scene` 包，主纹理是 TEX 内嵌 MP4）**左侧 1/4 整块反相**。
+`scene.json` 的 `objects[1]` = id **935**「纯色」：`size 500×500 × scale(5.99649, 1.97301)`、绕 Z −90°、`origin (373.256, 864.296)`、
+`colorBlendMode: 23`、`effects: [enhanced_simple_audio_bars]`。
+
+- 旋转后屏幕矩形 = **2998×987**、以 x=373.26 为中心 ⇒ 在 3840 宽画布上可见 **x∈[−120, 867] ≈ 22.6%**
+  —— 与用户口语"左边 1/4"逐像素吻合；它画在视频层之后 ⇒ 盖住左边。
+- `colorBlendMode 23` = **Phoenix**（`bPhoenix(A,B) = min(A,B) − max(A,B) + 1 = 1 − |A−B|`）—— 对"A 是画面、B 是整块纯色"而言**近似反相**。
+
+### P-134.2 根因（三处，都可证伪）
+
+1. **主因**：`core/we-scene-bundle.js` 算效果链 FBO 尺寸的两行，**无纹理分支恒取 1**
+   （`texObj === null` = 纯色 / 文本 / 容器层）⇒ FBO 恒 **1×1** ⇒ `fboW < 2 || fboH < 2` 的 `degenerateFbo`
+   短路命中 ⇒ **效果链从不执行** ⇒ 该层按"原始纯色 × Phoenix"整块合成 = 反相色块。
+   证据（mock-GL，真渲染器）：修前 `fxStats.perLayer['纯色#935'] = {effects:1,passes:0,inputKind:"white",quadW:1,quadH:1,fallback:"degenerateFbo",degenerate:true}`、`onLayerDraw.isWhite = true`。
+2. **同批第二处**：渲染器**从不设置** `g_AudioSpectrum16/32/64{Left,Right}` ⇒ 只修①的话音频条 `bar = 0 ⇒ alpha = 0`
+   （TRANSPARENCY 缺省 1 = REPLACE）⇒ 竖条会变成"什么都不画"。
+3. **同批第三处**：同一材质 pass 的 vert/frag `[COMBO]` 默认值**按文件各自解析**，而 `BAR_STYLE` 只在 `.vert` 声明（=1）
+   ⇒ frag 按 0 编译，顶点/片元几何口径不一致（实测 `i_DCorrectingFactor` vert 3 处 / frag **0** 处）。
+
+### P-134.3 改法
+
+- `core/we-scene-bundle.js` 无纹理分支：`… : 1` → **`… : (lw0 || 1)`** / `(lh0 || 1)`（实绘尺寸；`0`/`NaN` ⇒ 1）。
+- 新增 `bindAudioSpectrum(uni)` 挂在效果 pass 的 uniform 路径：16 段直取、32/64 走 `resampleBands`（缓冲复用、每 pass 零分配）；
+  **存在才设**、**无源一个都不写**（`?bandfeed=off` 逐位不变）⇒ **0 个新 URL 开关**（`diag-flag-check` 仍 153 == 153）。
+- 新增 `parseComboDefaults()` / `withSiblingComboDefaults()`：把对方 stage **独有**的 `// [COMBO] {…}` 声明以**注释**追加到本源末尾
+  （不改 GLSL 语义、不动行号），同名冲突**本方优先**（语料 0 冲突）。
+- 门禁锚点同步：`tests/hlsl2glsl-wiring-test.mjs` 的 W2e/W2f/W3 期望值按"渲染路径同口径（并集后的源）"构造（W1b/W1c/W2a~W2c 未动）。
+
+### P-134.4 判据（修前 → 修后）
+
+| 面 | 修前 | 修后 |
+|---|---|---|
+| `纯色#935` fxStats | `{passes:0,quadW:1,quadH:1,fallback:"degenerateFbo"}` | `{passes:1,quadW:2998,quadH:987,fallback:null,outKind:"fbo",outSize:"2998x987"}` |
+| `onLayerDraw.isWhite` | `true` | `false` |
+| 频谱 uniform | 无写入 | `g_AudioSpectrum32Left/Right` 各 32 项（= 16 段活视图上采样） |
+| 真 shader 转译 | `i_DCorrectingFactor` vert 3 / frag 0 | vert 3 / frag **3** |
+| 语料同类面（dd 10 包，2 包 >200MB SKIP） | `degenerateFbo` **32 层** | **0 层**（各包 fx 层数不变） |
+
+**新门禁** `tests/effects-degenerate-fbo-test.mjs`：**36 通过 / 0 失败 / ~1.1s**（无浏览器无网络；真包缺失 SKIP+exit 0）。
+三条 **RED-IF-REVERTED** 全红：M1（FBO 尺寸改回 `: 1`）16 条红 / M2（不写音频 uniform）5 条红 / M3（combo 不取并集）1 条红；
+变异副本在 `/tmp` 手工 read/write 且已 unlink，真树 `core/we-scene-bundle.js` sha256 跑前=跑后
+`3ae2da800b5aef7737997b80b8bdd83685c38a5aaa31145abe7b74fdf3a5bbc6`。
+
+### P-134.5 影响面 / 未回归
+
+- `degenerateFbo` 32 → 0；"只在一侧声明"的跨 stage combo 共 **490 个**（vert 独有 119 / frag 独有 371），
+  两侧都声明且默认值不同的 **0 个**（⇒ 并集不会改变任何"两边都有"的分支）。
+- 不回归：`particle-render-correctness` / `particle-frame-uv-and-pointer` / `mock-gl` / `p74-particles` /
+  `hlsl2glsl-wiring` 全 PASS；`glsl-validate`、`hlsl2glsl-coverage`、`clean-room-effects-blend`、`render-closeout`、
+  `tex-upload-guard`、`p76-parallax-eye`、`text-*`、`projection-y`、`audio-*`、`bind-order`、`bloom*`、
+  `particle-presets`、`sprite-sheet`、`multi-sprite`、`secret-scan`、`diag-flag-check`（153==153）、`docs-check` 全绿。
+
+### P-134.6 口径更正（本批实测推翻报告 §3.4 的一句）
+
+报告 §3.4 写"`size=0` 的占位层 `lw0=0` ⇒ 仍 1×1"——**只对非 solid 层成立**：
+渲染器自身的 WE 语义回退（`layer.solid ⇒ size = [cam.projW, cam.projH]`）发生在算 FBO **之前**，
+所以 `size=0` 的 **solid** 层实绘尺寸就是整屏、FBO 也跟着整屏。**语料里没有可复现对象**：
+size 含 0 且带 effects 的 14 层**全部 `solid=false`**（命中"无纹理非 solid"分支），尺寸回退生效的 13 层**全部 `fx=0`**
+⇒ 新旧口径在本语料上**逐位相同**。新门禁的负面断言按这三类**可达**零几何形态钉死
+（`lw0=0`→1×1；size=0 非 solid →早退；size=0 solid →整屏=实绘尺寸）。
+
+### P-134.7 未证实 / 需要真机+人眼
+
+| # | 操作 | 期望 |
+|---|---|---|
+| 1 | `?id=3660962877` | 左侧那条 986×2998 竖条**不再是整块反相**（无音源时该层"没有条"、不产生可见混合）；对照复现旧 bug：加 `&maxtex=0`（同一条退化短路）应**重新出现**整块反相 |
+| 2 | `?id=3660962877&bandfeed=sim` | 竖条内出现随时间起伏的条（确定性模拟频谱）；`&bandfeed=off` 必须与改动前逐位一致 |
+| 3 | 真机有音乐时（`&bandfeed=mic` 或包内音轨） | 条的**数量/位置/圆角形态**是否与官方一致 —— 官方 16/32/64 段的取值曲线与左右通道规则**无一手资料**（未证实） |
+| 4 | 同为"效果静默消失"的其它 5 包（3327063360 / 3544152633 / 3554161528 / 3719111841 / 3715743282） | 这些文本/纯色层**第一次真的跑效果链** ⇒ 人眼看有没有此前没见过的阴影/blur 伪影（尤其 Clock/Date 文本层） |
+| 5 | 真机性能 | 效果 FBO 从 1×1 变成真实尺寸（本包 3 层 ≈ 2998×987）⇒ 需一次真机 smoke（FPS / VRAM 代理） |
+
+**未证实**：官方 `PeakResampleSpectrum`（64 段峰值重采样）与我们"16 段均值上采样"的数值曲线差异；
+官方 combo 冲突时是否"后解析者（frag）覆盖"（本实现**本方优先**，语料 0 冲突）；并集会让 371 个"仅 frag 声明"的 combo
+也改到 vert 编译分支（官方即如此，但真机观感未逐包对视）。
+**既存红项（与本批无关）**：`baseline` 门禁 7 项 T5d 失败在 HEAD 版源码的隔离副本里**同样复现**（页面 → `/baseline` POST HTTP 0 / 快照 `[null]`）。

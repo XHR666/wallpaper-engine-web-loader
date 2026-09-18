@@ -333,6 +333,12 @@ add "x11-pointer"        "node tests/x11-e2e/pointer-live-test.mjs" "" "^SKIP po
 #   （鼠标尾迹"上下相反"）+ `mapsequencearoundcontrolpoint` / `vortex` / `FadeValueChange(size|alpha)`。
 #   36 断言 + 5 组变异自证；~0.5s，无浏览器/无网络（交付出处见 `docs/PATCHES.md` P-133）。
 add "particle-frame-uv-and-pointer" "node tests/particle-frame-uv-and-pointer-test.mjs"
+# ①(P-134 2026-09-19 主对话补登记) `effects-degenerate-fbo`：**无纹理层（纯色/文本）的效果链 FBO 恒 1×1**
+#   ⇒ `degenerateFbo` 短路 ⇒ 效果链从不执行 ⇒ 用户第 ⑥ 项"视频壁纸左侧 1/4 颜色反相"（`colorBlendMode:23`
+#   的 Phoenix ≈ 反相，整块铺上去）。同时钉住两件同批事：效果频谱 uniform（`g_AudioSpectrum*`）有源才写、
+#   无源一个都不写（`?bandfeed=off` 逐位不变），以及同一材质 vert/frag 的 `[COMBO]` 默认值**取并集**。
+#   36 断言 + 3 组变异自证；~2.7s，无浏览器/无网络（真包缺失 SKIP+exit 0）。
+add "effects-degenerate-fbo" "node tests/effects-degenerate-fbo-test.mjs"
 # ①(P-121 2026-09-18 沙箱隔离) 壁纸**作者脚本能静音宿主进程的 console**（`console.log = () => {}` 写穿宿主：
 #   宿主与脚本共享真 console 对象；实测真包 `0917/3462491575` 的脚本里就有这一行）。修法 = 每沙箱一个 Proxy
 #   门面（set 只落门面 ⇒ 作者静音意图在它自己沙箱内照常生效；get 转发到*当前*宿主同名方法 ⇒ 日志照进 stdout /
