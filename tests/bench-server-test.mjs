@@ -1,0 +1,484 @@
+// bench-server-test.mjs —— `server/we-scene-demo-server-8902.mjs`（一站式测试台 :8902）的秒级自证
+//
+// ⚠ 注册待办（主对话登记）：本文件尚未进 `tests/run-all-tests.sh` 的 `add` 列表 ——
+//   建议 `add "bench-8902" "node tests/bench-server-test.mjs"`（放在「语法/静态」那一段之后，秒级、无浏览器）。
+//
+// 判据（任一不满足 → 退出码 1）：
+//   A 静态面：`/` 是测试台 HTML、`demo/**` 挂载点齐全、**产物写死的** `/wallpaper-engine-webgl/renderer/index.html` 可服务、
+//     `Cache-Control: no-store, must-revalidate`（与 :8901 同口径）、`/demo?x=1` 302 时 query 原样带走。
+//   B 8 个 `/api/*` 的**状态码与 JSON 形状**逐条对照产物里读出来的契约（见 docs/BENCH-8902.md §2 的证据片段）。
+//   C 路径逃逸：`../`、绝对路径、多段、符号链接逃逸 ⇒ 400/403（URL 里的 `..`/`%2e%2e` 与 JSON 里的 itemId 两条路都测）。
+//   D 删除：默认 dryRun **不移动任何文件**；`?confirm=1` 才移进 `<MPW_ROOT>/Delete/bench-trash/<ts>/`（原路径消失、回收站里有它）。
+//   E 属性保存**不写进壁纸包**：覆盖落 reports，且壁纸目录的（名字+大小）清单前后逐字不变。
+//   F 诊断流：`POST /diag` → `/api/diag-stream` 真收到 `data: {"msg":…}`（调用方 `JSON.parse(e.data).msg`）。
+//   G **红-if-reverted**：在 /tmp 的**真文件副本**上做变异（去路径校验 / 让 dryRun 真删）⇒ 必须变红（RED 原文打印）。
+//     变异只在副本里做；真树（server 文件 + demo/**）跑前跑后的 sha256 必须逐字相同。
+//   H 服务**不因一个坏请求崩掉**：404/400 之后 `/__health` 仍然 200（实测踩过：同步 throw 逃出 catch 会整进程退出）。
+//
+// 口径：零依赖、不启浏览器、不连接 :8899/:8901、不碰真壁纸库（夹具库 + 夹具 reports/Delete 都在 os.tmpdir() 下）；
+//   变异副本手工 read/write（本机 `fs.cpSync` 抛 EINVAL），目录判定一律 `statSync`（`Dirent.isFile()` 在本机有误报）；
+//   静态面用真树（只读服务，靠 `MPW_BENCH_STATIC_DIR` 指回去 —— 变异副本在 /tmp，靠自身位置推不出仓库根）。
+//
+// 用法: node tests/bench-server-test.mjs                 # 主套件 + 变异 RED（人读）
+//       node tests/bench-server-test.mjs --json           # 末尾附一行 BENCH-SERVER-TEST-JSON
+//       node tests/bench-server-test.mjs --no-mutant      # 只跑主套件（变异子进程用）
+//       node tests/bench-server-test.mjs --server=<路径>  # 换被测服务（变异阶段就是这么调自己的）
+// 退出码：0 全绿 / 1 有失败（或变异没变红）/ 2 用法错误
+import fs from 'node:fs'
+import os from 'node:os'
+import net from 'node:net'
+import path from 'node:path'
+import http from 'node:http'
+import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
+
+const ROOT = path.resolve(import.meta.dirname, '..')
+const DEMO_DIR = path.join(ROOT, 'demo')
+const SERVER_REAL = path.join(ROOT, 'server', 'we-scene-demo-server-8902.mjs')
+const HERE_TEST = path.join(ROOT, 'tests', 'bench-server-test.mjs')
+
+const argv = process.argv.slice(2)
+const argVal = (n) => { const f = argv.find((a) => a.startsWith(`--${n}=`)); return f ? f.slice(f.indexOf('=') + 1) : null }
+const JSON_OUT = argv.includes('--json')
+const NO_MUTANT = argv.includes('--no-mutant')
+const SERVER_UNDER_TEST = argVal('server') || SERVER_REAL
+
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log('用法: node tests/bench-server-test.mjs [--json] [--no-mutant] [--server=<路径>]')
+  process.exit(0)
+}
+if (!fs.existsSync(SERVER_UNDER_TEST) || !fs.statSync(SERVER_UNDER_TEST).isFile()) {
+  console.error(`被测服务不存在：${SERVER_UNDER_TEST}`)
+  process.exit(2)
+}
+
+// ── 断言与输出 ────────────────────────────────────────────────────────────────────────────────────
+const results = []
+function check(name, cond, detail) {
+  const ok = !!cond
+  results.push({ name, ok, detail: detail == null ? '' : String(detail).slice(0, 400) })
+  console.log(`${ok ? '  ok  ' : 'FAIL  '} ${name}${detail && !ok ? `\n         ↳ ${String(detail).slice(0, 400)}` : ''}`)
+  return ok
+}
+const failures = () => results.filter((r) => !r.ok)
+let skipped = 0
+const skip = (name, why) => { skipped++; console.log(` SKIP   ${name}（${why}）`) }
+
+// ── 夹具（临时库 + 夹具 reports/Delete + 库外靶子）──────────────────────────────────────────────────
+function writeFile(p, content) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, content) }
+function makeFixture() {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-8902-'))
+  const ws = path.join(base, 'ws')
+  const dd = path.join(ws, 'allwallpaper', 'dd')
+  const outside = path.join(base, 'outside')
+  fs.mkdirSync(dd, { recursive: true })
+  fs.mkdirSync(path.join(ws, 'reports'), { recursive: true })
+  fs.mkdirSync(outside, { recursive: true })
+  writeFile(path.join(outside, 'secret.txt'), 'TOP-SECRET-OUTSIDE\n')
+
+  const props = {
+    clock: { type: 'bool', text: '时钟/Clock', value: false, order: 100 },
+    newproperty1: { type: 'slider', text: '强度/Strength', value: 0.5, min: 0, max: 1.5, step: 0.01, precision: 3, order: 104 },
+    schemecolor: { type: 'color', text: '颜色/Color', value: '1 1 1', order: 110 },
+    grp: { type: 'group', text: '音频组件', value: '', order: 120 },
+    fmt: { type: 'combo', text: '格式', value: '3', options: [{ label: 'A', value: '1' }, { label: 'B', value: '3' }], order: 121 },
+    newproperty2: { text: '看图<br><img src="http://example.invalid/x.png">', value: '', order: 130 },
+    tex: { type: 'file', text: '贴图', value: '', fileType: '.png,.jpg', order: 140 },
+  }
+  writeFile(path.join(dd, 'hina-scene', 'project.json'), JSON.stringify({
+    type: 'Scene', title: '夹具场景 Hina', file: 'scene.json', preview: 'preview.gif', workshopid: '3554161528',
+    general: { properties: props },
+  }, null, 1))
+  writeFile(path.join(dd, 'hina-scene', 'scene.pkg'), 'PKGV0001fixture-scene-bytes')
+  writeFile(path.join(dd, 'hina-scene', 'preview.gif'), 'GIF89a-fixture-preview')
+
+  writeFile(path.join(dd, 'web-lida', 'project.json'), JSON.stringify({ type: 'Web', title: '夹具网页壁纸', file: 'index.html', preview: 'preview.gif' }))
+  writeFile(path.join(dd, 'web-lida', 'index.html'), '<!doctype html><title>fixture web</title>')
+  writeFile(path.join(dd, 'web-lida', 'preview.gif'), 'GIF89a-web-preview')
+
+  writeFile(path.join(dd, 'trash-me', 'project.json'), JSON.stringify({ type: 'scene', title: '待删夹具', file: 'scene.json' }))
+  writeFile(path.join(dd, 'trash-me', 'scene.pkg'), 'PKGV-trash-me')
+
+  writeFile(path.join(dd, 'sub', 'inner-scene', 'project.json'), JSON.stringify({ type: 'scene', title: '子目录场景', file: 'scene.json' }))
+  writeFile(path.join(dd, 'sub', 'inner-scene', 'scene.pkg'), 'PKGV-inner')
+
+  let linkOk = false
+  try { fs.symlinkSync(outside, path.join(dd, 'evil-link'), 'dir'); linkOk = true } catch { linkOk = false }
+  return { base, ws, dd, outside, linkOk }
+}
+
+/** 目录清单指纹（名字 + 大小；一律 statSync —— 本机 Dirent.isFile() 有误报）。 */
+function dirFingerprint(dir) {
+  const out = []
+  for (const n of fs.readdirSync(dir).sort()) {
+    const st = fs.statSync(path.join(dir, n))
+    out.push(`${n}:${st.isDirectory() ? 'd' : 'f'}:${st.size}`)
+  }
+  return out.join('|')
+}
+/** 真树指纹：server 文件 + demo/**（跳过符号链接；限量防止意外放大）。 */
+function treeFingerprint() {
+  const h = createHash('sha256')
+  const files = []
+  const walk = (p, depth) => {
+    const st = fs.lstatSync(p)
+    if (st.isSymbolicLink()) { files.push(`L ${path.relative(ROOT, p)}`); return }
+    if (st.isDirectory()) { if (depth > 4) return; for (const n of fs.readdirSync(p).sort()) walk(path.join(p, n), depth + 1); return }
+    if (st.isFile() && files.length < 400) files.push(`F ${path.relative(ROOT, p)} ${st.size} ${createHash('sha256').update(fs.readFileSync(p)).digest('hex').slice(0, 16)}`)
+  }
+  for (const p of [SERVER_REAL, HERE_TEST]) walk(p, 0)
+  walk(DEMO_DIR, 0)
+  for (const f of files.sort()) h.update(f + '\n')
+  return { hash: h.digest('hex'), files: files.length }
+}
+
+// ── HTTP 客户端（用 http.request，路径**原样**发出：`..` 不会被客户端规范化）──────────────────────
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const s = net.createServer()
+    s.on('error', reject)
+    s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)) })
+  })
+}
+function request(port, method, urlPath, opts) {
+  const o = opts || {}
+  return new Promise((resolve, reject) => {
+    const headers = Object.assign({}, o.headers || {})
+    let body
+    if (o.json !== undefined) { body = Buffer.from(JSON.stringify(o.json)); headers['Content-Type'] = 'application/json'; headers['Content-Length'] = String(body.length) }
+    else if (o.body !== undefined) { body = Buffer.isBuffer(o.body) ? o.body : Buffer.from(String(o.body)); headers['Content-Length'] = String(body.length) }
+    const req = http.request({ host: '127.0.0.1', port, method, path: urlPath, headers, timeout: 8000 }, (res) => {
+      const chunks = []
+      res.on('data', (c) => chunks.push(c))
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks)
+        let json = null
+        try { json = JSON.parse(buf.toString('utf8')) } catch { json = null }
+        resolve({ status: res.statusCode, headers: res.headers, body: buf.toString('utf8'), buf, json })
+      })
+    })
+    req.on('timeout', () => { req.destroy(new Error(`超时：${method} ${urlPath}`)) })
+    req.on('error', reject)
+    if (body) req.write(body)
+    req.end()
+  })
+}
+/** SSE：读到满足 `until(text)` 就断开；返回收到的文本。 */
+function readSse(port, urlPath, until, ms) {
+  return new Promise((resolve) => {
+    const req = http.request({ host: '127.0.0.1', port, method: 'GET', path: urlPath, headers: { Accept: 'text/event-stream' }, timeout: ms || 5000 }, (res) => {
+      let buf = ''
+      const finish = (why) => { try { req.destroy() } catch { /* 已断 */ } resolve({ status: res.statusCode, headers: res.headers, text: buf, why }) }
+      res.on('data', (c) => { buf += c.toString('utf8'); if (until(buf)) finish('matched') })
+      res.on('end', () => finish('ended'))
+      setTimeout(() => finish('timeout'), ms || 5000)
+    })
+    req.on('error', () => resolve({ status: 0, headers: {}, text: '', why: 'error' }))
+    req.end()
+  })
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+async function startServer(fx, extraEnv, extraArgs) {
+  const port = await freePort()
+  const env = Object.assign({}, process.env, {
+    PORT: String(port),
+    MPW_ROOT: fx.ws,
+    MPW_LIBRARY_DIR: fx.dd,
+    MPW_REPORTS_DIR: path.join(fx.ws, 'reports'),
+    MPW_BENCH_STATIC_DIR: DEMO_DIR,          // 变异副本在 /tmp：静态面必须靠这个指回真树
+  }, extraEnv || {})
+  const child = spawn(process.execPath, [SERVER_UNDER_TEST, ...(extraArgs || [])], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  let log = ''
+  child.stdout.on('data', (c) => { log += c.toString() })
+  child.stderr.on('data', (c) => { log += c.toString() })
+  const deadline = Date.now() + 8000
+  for (;;) {
+    if (child.exitCode !== null) throw new Error(`服务提前退出（code=${child.exitCode}）：\n${log}`)
+    try { const r = await request(port, 'GET', '/__health'); if (r.status === 200) break } catch { /* 还没起来 */ }
+    if (Date.now() > deadline) throw new Error(`服务 8s 未就绪：${SERVER_UNDER_TEST}\n${log}`)
+    await sleep(100)
+  }
+  return { port, child, log: () => log, stop: async () => { try { child.kill('SIGTERM') } catch { /* 已退 */ } await sleep(120); try { child.kill('SIGKILL') } catch { /* 已退 */ } } }
+}
+
+// ── 主套件 ────────────────────────────────────────────────────────────────────────────────────────
+async function runSuite() {
+  const fx = makeFixture()
+  console.log(`夹具库：${fx.dd}`)
+  const servers = []
+  try {
+    const s = await startServer(fx, { MPW_OPEN_CMD: '/bin/true' })   // 打开器换成 /bin/true：**绝不**真开文件管理器/浏览器
+    servers.push(s)
+    const P = s.port
+    const J = (r) => r.json || {}
+
+    console.log('\n[A] 静态面（测试台 HTML + 挂载点 + no-store）')
+    const root = await request(P, 'GET', '/')
+    check('A1 GET / → 200 且是测试台 HTML（含产物入口 bench-DSKWIqmS.js）', root.status === 200 && /bench-DSKWIqmS\.js/.test(root.body), `status=${root.status} len=${root.body.length}`)
+    check('A2 GET / 的 Cache-Control = no-store, must-revalidate（:8901 口径）', String(root.headers['cache-control'] || '').includes('no-store'), root.headers['cache-control'])
+    const as = await request(P, 'GET', '/assets/bench-DSKWIqmS.js')
+    check('A3 GET /assets/bench-DSKWIqmS.js → 200 + no-store（<base href="./"> 决定它必须挂在根）', as.status === 200 && String(as.headers['cache-control'] || '').includes('no-store') && /javascript/.test(String(as.headers['content-type'])), `${as.status} ${as.headers['content-type']} ${as.headers['cache-control']}`)
+    const rend = await request(P, 'GET', '/wallpaper-engine-webgl/renderer/index.html')
+    check('A4 产物写死的 iframe 路径 /wallpaper-engine-webgl/renderer/index.html → 200 text/html', rend.status === 200 && /text\/html/.test(String(rend.headers['content-type'])), `${rend.status} ${rend.headers['content-type']}`)
+    const mounts = await Promise.all(['/demo/index.html', '/demo/', '/WEwebLoader/', '/wallpaper-engine-webgl/', '/renderer/index.html'].map((u) => request(P, 'GET', u)))
+    check('A5 四个挂载点 + /renderer/ 全部 200', mounts.every((r) => r.status === 200), mounts.map((r, i) => `${['/demo/index.html', '/demo/', '/WEwebLoader/', '/wallpaper-engine-webgl/', '/renderer/index.html'][i]}=${r.status}`).join(' '))
+    const redir = await request(P, 'GET', '/demo?x=1&t=2')
+    check('A6 /demo?x=1&t=2 → 302 到 /demo/?x=1&t=2（query 原样带走）', redir.status === 302 && redir.headers.location === '/demo/?x=1&t=2', `${redir.status} ${redir.headers.location}`)
+    const rawTrav = await request(P, 'GET', '/assets/../../etc/passwd')
+    check('A7 原始 URL 里的 .. ⇒ 400（new URL 会规范化掉，所以必须看 raw req.url）', rawTrav.status === 400, `status=${rawTrav.status}`)
+    const encTrav = await request(P, 'GET', '/assets/%2e%2e/%2e%2e/etc/passwd')
+    check('A8 %2e%2e 编码的 .. ⇒ 400', encTrav.status === 400, `status=${encTrav.status}`)
+
+    console.log('\n[B] /api/library（契约：{dir, items:[{itemId,title,type,hasScene,file,preview,properties}]}）')
+    const lib = await request(P, 'GET', '/api/library')
+    const items = (J(lib).items) || []
+    const hina = items.find((i) => i.itemId === 'hina-scene')
+    check('B1 GET /api/library → 200 + application/json + {dir, items[]}', lib.status === 200 && /application\/json/.test(String(lib.headers['content-type'])) && typeof J(lib).dir === 'string' && Array.isArray(items), `${lib.status} ${lib.headers['content-type']} items=${items.length}`)
+    check('B2 场景项字段齐全且值对（itemId/title/type/hasScene/file/preview/properties）',
+      !!hina && hina.title === '夹具场景 Hina' && hina.type === 'Scene' && hina.hasScene === true && hina.file === 'scene.json' && hina.preview === 'preview.gif'
+      && hina.kind === 'scene' && hina.properties && hina.properties.clock && hina.properties.clock.type === 'bool',
+      JSON.stringify(hina && { itemId: hina.itemId, title: hina.title, type: hina.type, hasScene: hina.hasScene, file: hina.file, preview: hina.preview, kind: hina.kind, props: hina.properties ? Object.keys(hina.properties).length : null }))
+    const web = items.find((i) => i.itemId === 'web-lida')
+    check('B3 web 项：hasScene=false、file=index.html、kind=web（调用方 rt() 的分支）', !!web && web.hasScene === false && web.file === 'index.html' && web.kind === 'web', JSON.stringify(web && { hasScene: web.hasScene, file: web.file, kind: web.kind }))
+    check('B4 逃出库根的符号链接条目**不出现**在列表里（evil-link）', !items.some((i) => i.itemId === 'evil-link'), items.map((i) => i.itemId).join(','))
+
+    console.log('\n[C] /api/library-dir（无宿主对话框 ⇒ 明确降级 + 库根内收窄）')
+    const pick = await request(P, 'POST', '/api/library-dir', { json: { pick: true } })
+    check('C1 POST {pick:true} → 200 + {cancelled:true, unsupported:true, degraded:true, degradedStatus:501}（非 2xx 会掐掉调用方的 prompt 回退）',
+      pick.status === 200 && J(pick).cancelled === true && J(pick).unsupported === true && J(pick).degraded === true && J(pick).degradedStatus === 501, `${pick.status} ${pick.body.slice(0, 180)}`)
+    const enumr = await request(P, 'GET', '/api/library-dir')
+    const enumDirs = ((J(enumr).dirs) || []).map((d) => d.name)
+    check('C2 GET /api/library-dir → 枚举库根内子目录（含 sub，不含逃逸的 evil-link）', enumr.status === 200 && enumDirs.includes('sub') && !enumDirs.includes('evil-link'), enumDirs.join(','))
+    const narrow = await request(P, 'POST', '/api/library-dir', { json: { dir: 'sub' } })
+    const libNarrow = await request(P, 'GET', '/api/library')
+    check('C3 POST {dir:"sub"} → 200 + narrowed，且 /api/library 只列子目录里的项', narrow.status === 200 && J(narrow).narrowed === true && ((J(libNarrow).items) || []).length === 1 && J(libNarrow).items[0].itemId === 'inner-scene', `${narrow.status} → ${((J(libNarrow).items) || []).map((i) => i.itemId).join(',')}`)
+    await request(P, 'POST', '/api/library-dir', { json: { reset: true } })
+    const libBack = await request(P, 'GET', '/api/library')
+    check('C4 POST {reset:true} → 库根还原（列表项数回到 4）', ((J(libBack).items) || []).length === 4, String(((J(libBack).items) || []).length))
+    const esc = await request(P, 'POST', '/api/library-dir', { json: { dir: '../../' } })
+    check('C5 POST {dir:"../../"} ⇒ 400（相对 dir 里的 .. 直接拒）', esc.status === 400, `${esc.status} ${esc.body.slice(0, 120)}`)
+
+    console.log('\n[D] /api/props（读/写：形状按调用方 + 覆盖落 reports，不写进壁纸包）')
+    const propsBefore = await request(P, 'GET', '/api/props?item=hina-scene')
+    const plist = (J(propsBefore).props) || []
+    const by = (n) => plist.find((p) => p.name === n)
+    check('D1 GET /api/props?item= → 200 + {props:[…]}（数组）', propsBefore.status === 200 && Array.isArray(plist) && plist.length === 7, `${propsBefore.status} n=${plist.length}`)
+    check('D2 描述子字段：name/text/ptype/value/default/overridden', !!by('clock') && by('clock').ptype === 'bool' && by('clock').value === false && by('clock').default === false && by('clock').overridden === false && by('clock').text === '时钟/Clock', JSON.stringify(by('clock')))
+    check('D3 slider 带 min/max/step/precision；combo 带 options；group 的 ptype=group', !!by('newproperty1') && by('newproperty1').min === 0 && by('newproperty1').max === 1.5 && by('newproperty1').step === 0.01 && Array.isArray(by('fmt').options) && by('fmt').options.length === 2 && by('grp').ptype === 'group', JSON.stringify([by('newproperty1'), by('fmt'), by('grp')]).slice(0, 260))
+    check('D4 无 type 的文案项 → ptype=text，并从 HTML 里抽出 media[{src}]', !!by('newproperty2') && by('newproperty2').ptype === 'text' && Array.isArray(by('newproperty2').media) && by('newproperty2').media[0].src === 'http://example.invalid/x.png', JSON.stringify(by('newproperty2')).slice(0, 200))
+    const fpBefore = dirFingerprint(path.join(fx.dd, 'hina-scene'))
+    const save = await request(P, 'POST', '/api/props?item=hina-scene', { json: { clock: true, newproperty1: 0.9 } })
+    const fpAfter = dirFingerprint(path.join(fx.dd, 'hina-scene'))
+    check('D5 POST /api/props → 200 {ok:true, count:2}', save.status === 200 && J(save).ok === true && J(save).count === 2, `${save.status} ${save.body.slice(0, 140)}`)
+    const propsFile = path.join(fx.ws, 'reports', 'bench-props', 'hina-scene.json')
+    const pf = fs.existsSync(propsFile) ? JSON.parse(fs.readFileSync(propsFile, 'utf8')) : null
+    check('D6 覆盖落 <reports>/bench-props/<id>.json（不在壁纸目录里）', !!pf && pf.overrides && pf.overrides.clock === true && pf.overrides.newproperty1 === 0.9, propsFile)
+    check('D7 **壁纸包没被写**：目录（名字+大小）指纹前后逐字相同', fpBefore === fpAfter, `${fpBefore} → ${fpAfter}`)
+    const propsAfter = await request(P, 'GET', '/api/props?item=hina-scene')
+    const clock2 = ((J(propsAfter).props) || []).find((p) => p.name === 'clock')
+    check('D8 再读：value=true 且 overridden=true（覆盖生效）', clock2 && clock2.value === true && clock2.overridden === true && clock2.default === false, JSON.stringify(clock2))
+    const badVal = await request(P, 'POST', '/api/props?item=hina-scene', { json: { clock: { nested: 1 } } })
+    check('D9 非标量值 ⇒ 400', badVal.status === 400, `${badVal.status} ${badVal.body.slice(0, 120)}`)
+    const badName = await request(P, 'POST', '/api/props?item=hina-scene', { json: { '../x': 1 } })
+    check('D10 非法属性名 ⇒ 400', badName.status === 400, `${badName.status} ${badName.body.slice(0, 120)}`)
+
+    console.log('\n[E] /api/props-dir 与 /api/props-file（无宿主选择器 ⇒ 降级；导入落 reports）')
+    const pdir = await request(P, 'POST', '/api/props-dir', { json: { pick: true } })
+    check('E1 POST /api/props-dir {pick:true} → 200 + unsupported + degradedStatus 501', pdir.status === 200 && J(pdir).unsupported === true && J(pdir).cancelled === true && J(pdir).degradedStatus === 501, `${pdir.status} ${pdir.body.slice(0, 160)}`)
+    const pdirEnum = await request(P, 'GET', '/api/props-dir?item=hina-scene')
+    check('E2 GET /api/props-dir?item= → 库根内枚举 {dir, dirs[]}', pdirEnum.status === 200 && typeof J(pdirEnum).dir === 'string' && Array.isArray(J(pdirEnum).dirs), `${pdirEnum.status} ${pdirEnum.body.slice(0, 140)}`)
+    const fileName = '图 片.png'
+    const up = await request(P, 'POST', `/api/props-file?item=hina-scene&name=tex`, { body: Buffer.from('PNGDATA-fixture'), headers: { 'X-Filename': encodeURIComponent(fileName), 'Content-Type': 'image/png' } })
+    check('E3 POST /api/props-file → 200 且回 value（调用方 `!r.value` 会抛）', up.status === 200 && typeof J(up).value === 'string' && J(up).value.length > 0 && J(up).bytes === 15, `${up.status} ${up.body.slice(0, 200)}`)
+    const back = J(up).value ? await request(P, 'GET', J(up).value) : { status: 0, buf: Buffer.alloc(0) }
+    check('E4 回读 value 指向的 URL：200 + 内容逐字节相同', back.status === 200 && Buffer.compare(back.buf, Buffer.from('PNGDATA-fixture')) === 0, `${back.status} ${back.buf.length}B`)
+    const upEsc = await request(P, 'POST', '/api/props-file?item=hina-scene&name=tex', { body: Buffer.from('x'), headers: { 'X-Filename': encodeURIComponent('../../escape.txt') } })
+    check('E5 X-Filename 带路径分隔符 ⇒ 400（不许逃出 reports）', upEsc.status === 400, `${upEsc.status} ${upEsc.body.slice(0, 120)}`)
+    const nameEsc = await request(P, 'POST', '/api/props-file?item=hina-scene&name=..%2Fx', { body: Buffer.from('x'), headers: { 'X-Filename': 'ok.png' } })
+    check('E6 name 带路径分隔符 ⇒ 400', nameEsc.status === 400, `${nameEsc.status} ${nameEsc.body.slice(0, 120)}`)
+
+    console.log('\n[F] /api/delete（默认 dryRun 不移动；confirm=1 移进回收站）')
+    const trashRoot = path.join(fx.ws, 'Delete', 'bench-trash')
+    const dry = await request(P, 'POST', '/api/delete', { json: { itemId: 'trash-me' } })
+    const stillThere = fs.existsSync(path.join(fx.dd, 'trash-me', 'scene.pkg'))
+    const trashHas = fs.existsSync(trashRoot) && fs.readdirSync(trashRoot).length > 0
+    check('F1 POST /api/delete（默认）→ 200 + dryRun:true + 计划（from/to/fileCount）', dry.status === 200 && J(dry).dryRun === true && J(dry).wouldMove === true && J(dry).from === path.join(fx.dd, 'trash-me') && J(dry).fileCount === 2, `${dry.status} ${dry.body.slice(0, 200)}`)
+    check('F2 dryRun **没有移动任何文件**：原路径还在、回收站是空的/不存在', stillThere && !trashHas, `原路径=${stillThere} 回收站有内容=${trashHas}`)
+    const conf = await request(P, 'POST', '/api/delete?confirm=1', { json: { itemId: 'trash-me' } })
+    const gone = !fs.existsSync(path.join(fx.dd, 'trash-me'))
+    const to = J(conf).to || ''
+    const inTrash = !!to && fs.existsSync(path.join(to, 'scene.pkg')) && to.startsWith(trashRoot + path.sep)
+    check('F3 POST /api/delete?confirm=1 → 200 + dryRun:false + to 在 <MPW_ROOT>/Delete/bench-trash/<ts>/ 下', conf.status === 200 && J(conf).dryRun === false && inTrash, `${conf.status} to=${to}`)
+    check('F4 真删后：原路径消失、回收站里有它（可 `mv` 回滚）', gone && inTrash, `原路径消失=${gone} 回收站里有=${inTrash}`)
+    const dEsc1 = await request(P, 'POST', '/api/delete', { json: { itemId: '../outside' } })
+    const dEsc2 = await request(P, 'POST', '/api/delete', { json: { itemId: '/etc' } })
+    const dEsc3 = await request(P, 'POST', '/api/delete', { json: { itemId: 'evil-link' } })
+    check('F5 delete itemId=../outside ⇒ 400；=/etc ⇒ 400（单段校验）', dEsc1.status === 400 && dEsc2.status === 400, `${dEsc1.status}/${dEsc2.status}`)
+    check('F6 delete itemId=evil-link（符号链接逃逸）⇒ 403，且库外目录**没被移走**', dEsc3.status === 403 && fs.existsSync(path.join(fx.outside, 'secret.txt')), `${dEsc3.status} ${dEsc3.body.slice(0, 120)}`)
+
+    console.log('\n[G] /api/reveal 与 /api/props /media 的路径逃逸')
+    const rEsc1 = await request(P, 'POST', '/api/reveal', { json: { itemId: 'evil-link' } })
+    const rEsc2 = await request(P, 'POST', '/api/reveal', { json: { path: '../outside' } })
+    check('G1 reveal：符号链接逃逸 ⇒ 403（先校验路径，再看打开器）', rEsc1.status === 403, `${rEsc1.status} ${rEsc1.body.slice(0, 120)}`)
+    check('G2 reveal：path 含 .. ⇒ 400', rEsc2.status === 400, `${rEsc2.status} ${rEsc2.body.slice(0, 120)}`)
+    const pEsc1 = await request(P, 'GET', '/api/props?item=..%2Foutside')
+    const pEsc2 = await request(P, 'GET', '/api/props?item=%2Fetc')
+    const pEsc3 = await request(P, 'GET', '/api/props?item=evil-link')
+    check('G3 props?item=../outside ⇒ 400、=/etc ⇒ 400、=evil-link ⇒ 403', pEsc1.status === 400 && pEsc2.status === 400 && pEsc3.status === 403, `${pEsc1.status}/${pEsc2.status}/${pEsc3.status}`)
+    const mOk = await request(P, 'GET', '/media/dev/hina-scene/scene.pkg')
+    check('G4 /media/dev/<id>/scene.pkg → 200 且字节与磁盘一致', mOk.status === 200 && mOk.body === 'PKGV0001fixture-scene-bytes', `${mOk.status} ${JSON.stringify(mOk.body.slice(0, 40))}`)
+    const mRange = await request(P, 'GET', '/media/dev/hina-scene/scene.pkg', { headers: { Range: 'bytes=0-3' } })
+    check('G5 Range: bytes=0-3 → 206 + Content-Range + 4 字节（视频/拖动进度必需）', mRange.status === 206 && mRange.headers['content-range'] === 'bytes 0-3/27' && mRange.buf.length === 4 && mRange.body === 'PKGV', `${mRange.status} ${mRange.headers['content-range']} ${JSON.stringify(mRange.body)}`)
+    const mEsc = await request(P, 'GET', '/media/dev/evil-link/secret.txt')
+    check('G6 /media/dev/evil-link/secret.txt（符号链接逃逸）⇒ 403，库外文件读不到', mEsc.status === 403 && !mEsc.body.includes('TOP-SECRET'), `${mEsc.status} ${mEsc.body.slice(0, 100)}`)
+    const mTrav = await request(P, 'GET', '/media/dev/hina-scene/../../outside/secret.txt')
+    check('G7 /media raw .. ⇒ 400，库外文件读不到', mTrav.status === 400 && !mTrav.body.includes('TOP-SECRET'), `${mTrav.status} ${mTrav.body.slice(0, 100)}`)
+    const trev = await request(P, 'POST', '/api/reveal', { json: { itemId: 'hina-scene' } })
+    check('G8 reveal（MPW_OPEN_CMD=/bin/true）→ 200 {opened:true, opener:"/bin/true"}', trev.status === 200 && J(trev).opened === true && J(trev).opener === '/bin/true', `${trev.status} ${trev.body.slice(0, 140)}`)
+
+    console.log('\n[H] /api/diag-stream（SSE）+ /diag（环形缓冲来源）+ /__health')
+    const ssePromise = readSse(P, '/api/diag-stream', (t) => t.includes('hello-bench-sse'), 5000)
+    await sleep(200)
+    const got = await ssePromise
+    await request(P, 'POST', '/diag', { json: { msg: 'hello-bench-sse' } })
+    const got2 = got.text.includes('hello-bench-sse') ? got : await readSse(P, '/api/diag-stream', (t) => t.includes('hello-bench-sse'), 3000)
+    check('H1 GET /api/diag-stream → 200 + text/event-stream', got.status === 200 && /text\/event-stream/.test(String(got.headers['content-type'])), `${got.status} ${got.headers['content-type']}`)
+    const evtLine = got2.text.split('\n').find((l) => l.includes('hello-bench-sse')) || ''
+    let evt = null
+    try { evt = JSON.parse(evtLine.replace(/^data: /, '')) } catch { evt = null }
+    check('H2 POST /diag 的消息经 SSE 到达，且 `JSON.parse(data).msg` 就是原文（调用方只读 .msg）', !!evt && evt.msg === 'hello-bench-sse', evtLine.slice(0, 160))
+    const diagImg = await request(P, 'GET', '/diag?msg=' + encodeURIComponent('image-sink'))
+    check('H3 GET /diag?msg= ←→ 200 image/gif（renderer 用 new Image() 上报，回 1×1 gif 不报错）', diagImg.status === 200 && /image\/gif/.test(String(diagImg.headers['content-type'])), `${diagImg.status} ${diagImg.headers['content-type']}`)
+    const health = await request(P, 'GET', '/__health')
+    const H = J(health)
+    check('H4 GET /__health → 200 + 端口/库根/能力清单/降级列表', health.status === 200 && H.port === P && H.libraryRoot === fx.dd && H.capabilities && Array.isArray(H.degraded) && H.degraded.length >= 3, `${health.status} port=${H.port} root=${H.libraryRoot} degraded=${(H.degraded || []).length}`)
+    check('H5 /__health.degraded 里能查到"无宿主选择器"与 reveal 的 501 说明', (H.degraded || []).some((d) => d.capability === 'native-folder-picker' && d.capabilityStatus === 501) && (H.degraded || []).some((d) => d.capability === 'open-in-file-manager'), JSON.stringify((H.degraded || []).map((d) => d.endpoint)))
+    check('H6 /__health.reveal 报告打开器（MPW_OPEN_CMD=/bin/true）', H.reveal && H.reveal.available === true && H.reveal.opener === '/bin/true', JSON.stringify(H.reveal))
+    const notFound = await request(P, 'GET', '/definitely-not-here')
+    const alive = await request(P, 'GET', '/__health')
+    check('H7 未知路径 ⇒ 404，且**服务没崩**（随后 /__health 仍 200）', notFound.status === 404 && alive.status === 200, `404=${notFound.status} health=${alive.status}`)
+    check('H8 静态面 no-store 与库根只读：库目录树指纹仍与夹具一致（服务不改库）', fs.existsSync(path.join(fx.dd, 'hina-scene', 'scene.pkg')) && dirFingerprint(path.join(fx.dd, 'hina-scene')).includes('scene.pkg'), dirFingerprint(path.join(fx.dd, 'hina-scene')))
+
+    console.log('\n[I] reveal 的 501 降级路径（PATH="" ⇒ 找不到任何打开器；**必须 501，不能 500**）')
+    const s2 = await startServer(fx, { PATH: '', MPW_OPEN_CMD: '' })
+    servers.push(s2)
+    const noOpen = await request(s2.port, 'POST', '/api/reveal', { json: { itemId: 'hina-scene' } })
+    check('I1 找不到打开器 ⇒ **501** + unsupported:true + error/reason/hint（不是 500，也不假装成功）',
+      noOpen.status === 501 && J(noOpen).unsupported === true && !!J(noOpen).error && !!J(noOpen).reason && !!J(noOpen).hint, `${noOpen.status} ${noOpen.body.slice(0, 200)}`)
+    const h2 = await request(s2.port, 'GET', '/__health')
+    check('I2 /__health.reveal 如实报告 available:false + status:501', J(h2).reveal && J(h2).reveal.available === false && J(h2).reveal.status === 501, JSON.stringify(J(h2).reveal))
+    const stillWorks = await request(s2.port, 'GET', '/api/library')
+    check('I3 降级不影响其它端点：同一进程里 /api/library 仍 200', stillWorks.status === 200, String(stillWorks.status))
+    if (!fx.linkOk) skip('符号链接逃逸用例', '本机 symlinkSync 不可用（EPERM）')
+    return { fx }
+  } finally {
+    for (const s of servers) await s.stop()
+    try { fs.rmSync(fx.base, { recursive: true, force: true }) } catch { /* tmp 清不掉不致命 */ }
+  }
+}
+
+// ── 变异（在 /tmp 的**真文件副本**上做；真树 sha256 跑前跑后必须相同）────────────────────────────────
+const MUTATIONS = [
+  {
+    name: 'A-去掉路径校验（`isInside()` 恒真 + itemId 单段正则放开 ⇒ 词法/真身两道守卫一起失效）',
+    expects: ['F5', 'F6', 'G1', 'G3', 'G6'],
+    apply(src) {
+      const reps = [
+        // 唯一的路径判据：让它恒真 ⇒ safeJoin / 每个端点的 realpath 复核 / 静态根白名单同时失效
+        ['function isInside(root, p) {\n  const rel = path.relative(root, p)', 'function isInside(root, p) {\n  if (root || p) return true\n  const rel = path.relative(root, p)'],
+        ['const ITEM_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/', 'const ITEM_ID_RE = /^[\\s\\S]*$/'],
+      ]
+      let out = src
+      for (const [from, to] of reps) {
+        if (out.split(from).length !== 2) return { error: `变异锚点未命中唯一位置：${from.slice(0, 60)}…` }
+        out = out.replace(from, to)
+      }
+      return { out }
+    },
+  },
+  {
+    name: 'B-让 dryRun 真删（`if (!confirm)` 变成 `if (false)` ⇒ 默认就移文件）',
+    expects: ['F2'],
+    apply(src) {
+      const from = '    if (!confirm) {'
+      const to = '    if (false) {'
+      if (src.split(from).length !== 2) return { error: `变异锚点未命中唯一位置：${from}` }
+      return { out: src.replace(from, to) }
+    },
+  },
+]
+
+function runChild(serverPath, args, ms) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [HERE_TEST, `--server=${serverPath}`, '--json', '--no-mutant', ...args], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    child.stdout.on('data', (c) => { out += c.toString() })
+    child.stderr.on('data', (c) => { out += c.toString() })
+    const t = setTimeout(() => { try { child.kill('SIGKILL') } catch { /* 已退 */ } }, ms || 120000)
+    child.on('close', (code) => { clearTimeout(t); resolve({ code, out }) })
+  })
+}
+function parseChildJson(out) {
+  const line = out.split('\n').filter((l) => l.startsWith('BENCH-SERVER-TEST-JSON ')).pop()
+  if (!line) return null
+  try { return JSON.parse(line.slice('BENCH-SERVER-TEST-JSON '.length)) } catch { return null }
+}
+
+async function main() {
+  console.log(`被测服务：${SERVER_UNDER_TEST}`)
+  console.log(`真树指纹（跑前）：${treeFingerprint().hash.slice(0, 24)}…（${treeFingerprint().files} 个条目）`)
+  const before = treeFingerprint()
+
+  console.log('\n═══ 主套件（干净服务）═══')
+  await runSuite()
+  const fails = failures()
+
+  let mutantReport = null
+  if (!NO_MUTANT) {
+    console.log('\n═══ 变异 RED（副本在 /tmp；真树不许变）═══')
+    const mtDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-8902-mut-'))
+    const src = fs.readFileSync(SERVER_REAL, 'utf8')
+    const rows = []
+    for (let i = 0; i < MUTATIONS.length; i++) {
+      const m = MUTATIONS[i]
+      const r = m.apply(src)
+      if (r.error) { check(`变异${i + 1} 可施加（锚点唯一）`, false, r.error); continue }
+      const p = path.join(mtDir, `mutant-${i + 1}.mjs`)
+      fs.writeFileSync(p, r.out)
+      const res = await runChild(p, [])
+      const j = parseChildJson(res.out)
+      const redLines = res.out.split('\n').filter((l) => l.startsWith('FAIL')).slice(0, 6)
+      const redNames = ((j && j.failed) || []).map((f) => f.name)
+      const expectHit = m.expects.filter((e) => redNames.some((n) => n.startsWith(e)))
+      console.log(`\n─── 变异 ${i + 1}：${m.name}`)
+      console.log(`    子进程退出码 = ${res.code}（要求 1）`)
+      console.log(`    RED 行（原文）：\n${redLines.map((l) => '      ' + l).join('\n') || '      (无 FAIL 行)'}`)
+      check(`变异${i + 1} 必红：子进程退出码 1 且有 FAIL`, res.code === 1 && redLines.length > 0, `code=${res.code} fails=${(j && j.failed || []).length}`)
+      check(`变异${i + 1} 红的正是被变异掉的判据（${m.expects.join('/')}）`, expectHit.length > 0, `命中=${expectHit.join(',') || '无'} 实际=${redNames.join(' | ').slice(0, 300)}`)
+      rows.push({ name: m.name, code: res.code, failed: redNames, redLines })
+    }
+    mutantReport = rows
+    try { fs.rmSync(mtDir, { recursive: true, force: true }) } catch { /* tmp 清不掉不致命 */ }
+  }
+
+  const after = treeFingerprint()
+  check('真树 sha256 跑前跑后逐字相同（变异只发生在 /tmp 副本里）', before.hash === after.hash, `${before.hash.slice(0, 24)} → ${after.hash.slice(0, 24)}`)
+
+  const allFails = failures()
+  const ok = allFails.length === 0
+  console.log(`\n═══ 汇总 ═══`)
+  console.log(`断言 ${results.length} 项：通过 ${results.length - allFails.length} / 失败 ${allFails.length} / SKIP ${skipped}`)
+  for (const f of allFails) console.log(`  FAIL ${f.name}${f.detail ? ` — ${f.detail.slice(0, 200)}` : ''}`)
+  console.log(ok ? 'BENCH-SERVER-TEST: 全绿 ✓' : 'BENCH-SERVER-TEST: 有失败 ✗')
+  if (JSON_OUT) console.log('BENCH-SERVER-TEST-JSON ' + JSON.stringify({ ok, total: results.length, skipped, failed: allFails.map((f) => ({ name: f.name, detail: f.detail })), mutants: mutantReport }))
+  process.exit(ok ? 0 : 1)
+}
+
+const watchdog = setTimeout(() => { console.error('BENCH-SERVER-TEST: 看门狗超时（120s）—— 本套件应当秒级完成'); process.exit(1) }, 120000)
+watchdog.unref()
+main().catch((e) => {
+  console.error('BENCH-SERVER-TEST: 崩了\n' + (e && e.stack ? e.stack : e))
+  if (JSON_OUT) console.log('BENCH-SERVER-TEST-JSON ' + JSON.stringify({ ok: false, crashed: String(e && e.message || e) }))
+  process.exit(1)
+})

@@ -28,6 +28,10 @@ bash start-demo.sh                     # 预检 + 起服务（默认 8899）；�
 离线 PWA（`web/manifest.webmanifest` + `web/sw.js`，**缓存判据明确排除用户壁纸**，见 `tests/pwa-test.mjs`）。
 端口可覆盖：`PORT=9000 bash start-demo.sh`（或 `bash start-demo.sh --port 9000`）；只想预检不起服务：`bash start-demo.sh --check`。
 
+> **要"带后端的测试台页面"**（壁纸库列表 / 属性保存 / 删除 / 渲染器诊断流都要能用）：那是**另一个**服务 ——
+> `node server/we-scene-demo-server-8902.mjs` ⇒ 打开 `http://127.0.0.1:8902/`（一个 origin 同时提供 `demo/` 静态面 +
+> 测试台要的 8 个 `/api/*` + 产物写死的渲染器 iframe 页 + `/media/dev` 媒体面 + `/diag` 诊断流；见 `docs/BENCH-8902.md`）。
+
 首屏：本机有语料就渲染默认包；**没有语料**（本仓库不分发真实壁纸）时页面明确提示并自动渲染自带的合成样例
 （也可直接打开 `http://127.0.0.1:8899/?id=sample-synthetic`）。
 

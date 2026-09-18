@@ -136,6 +136,9 @@ vendor-ref/webwallgl/bench-patch.js                    → 软链 ../ww-pages/wa
   以及 T24「补丁脚本仍是唯一一份」。
 - 页面里的引入路径是**相对本页**的 `./bench-patch.js`（P-93 起；与产物 assets 同基）⇒ 三个挂载点
   （`/demo/`、`/WEwebLoader/`、:8901 的两个软链名）都成立。
+- **想要"带后端的测试台"**（`:8901` 上 `/api/*` 与 `/diag` 全 404 ⇒ 列表/属性/删除/诊断流不可用）：起
+  `node server/we-scene-demo-server-8902.mjs` 后打开 `http://127.0.0.1:8902/` —— 同一个 origin 同时给静态面、
+  测试台要的 8 个 `/api/*`、产物写死的 `/wallpaper-engine-webgl/renderer/index.html`、`/media/dev/**` 与诊断流（见 `docs/BENCH-8902.md`）。
 
 ## 6. 哪些东西**不**会出现在线上
 

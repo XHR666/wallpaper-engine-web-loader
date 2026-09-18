@@ -40,6 +40,7 @@
     "core/audio-band-array.mjs",
     "core/puppet-skin.js",
     "server/we-scene-demo-server.mjs",
+    "server/we-scene-demo-server-8902.mjs",
     "server/pack-dir.mjs",
     "index.html",
     "demo.html",

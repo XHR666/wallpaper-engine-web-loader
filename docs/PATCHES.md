@@ -9729,3 +9729,45 @@ $ node tests/docs-check.mjs                              → rc=0  检查 16 个
 * 改 `docs/README-DIAGNOSTICS.md`（主表新增 `pcolor` 行 ⇒ `diag-flag-check` 152 == 152）。
 * 改 `docs/PATCHES.md`（本节）。
 * **未改**：`demo.html`（宿主接线批 B 才动）、`elysia/**`、`tests/run-all-tests.sh`（**按其约定不改**；新断言全部进既有 `particle-render-correctness-test.mjs`，无需注册新文件）、`web/diag-flags.json`（本批 `diag-flag-check` 的**自动产物**；工作树里它同时含并行线的行号变化 ⇒ **由并行线/集成线提交**，本批不碰）。
+
+## P-131（2026-09-19 任务书 P2-2 · 用户「怎么去进入一个在线的页面」）新增**一站式测试台服务 `:8902`**：一个 origin 同时提供「测试台静态面 + 产物里读出来的 8 个 `/api/*` + 渲染器 iframe 页 + 壁纸媒体面 + 诊断流」——`:8899`/`:8901` 一字未动
+
+**用户现象与根因**：用户打开的 `:8901` 是**纯静态**托管的产物（`/`、`/demo/`、`/WEwebLoader/`、`/wallpaper-engine-webgl/` 都 200，但 `/api/*` 与 `/diag` 全 **404**）⇒ 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流**全部不可用**（页面左侧栏自己写「静态托管（无 /api 后端）」）。
+`:8899` 是**渲染器**页（`/`、`/bundle.js`、`/elysia/**`、`/shaders/**`、`/diag`、`/baseline`、`/ext`、`/noise`），**没有**测试台要的 `/api/*`，也**不是**产物写死的那条 iframe URL。两者合起来都不构成"带后端的一站式测试台" ⇒ **新增第三个端口**（`server/we-scene-demo-server-8902.mjs`，零依赖，与既有 server 同风格；`node server/we-scene-demo-server-8902.mjs [port] [--library=…] [--no-store]`，环境变量优先）。
+
+**① 契约不是猜的：8 个 `/api/*` 全部从预构建产物里逆向出来**（`demo/assets/bench-DSKWIqmS.js` 与 `demo/bench-patch.js`，逐条字节偏移 + 证据片段写进 `docs/BENCH-8902.md` §2）：
+
+| 端点 | 方法/参数 | 调用方期望 |
+|---|---|---|
+| `/api/library` | `GET`（`Accept: application/json`） | `{dir, items[]}`；项读 `itemId/title/preview/type/hasScene/file/properties`；`e.ok && content-type 含 json` 是它判"本机 Node 后端在"的**唯一**判据 |
+| `/api/library-dir` | `POST {pick:true}` / `{dir}` | `{pick}` ⇒ `{cancelled,unsupported}` 才走它自己的 `window.prompt` 回退；`{dir}` ⇒ `{dir}`；**非 2xx 或 `error` ⇒ 直接 throw**（回退被掐掉） |
+| `/api/props` | `GET ?item=` / `POST ?item=` + body=覆盖表 | `{props:[描述子]}`；描述子读 `name/text/ptype/value/default/overridden/condition/min/max/precision/step/options/fileType/media`；`value===null` 的项不进覆盖表 |
+| `/api/props-dir` | `POST`（无 body） | 同 `library-dir`：`{cancelled,unsupported}` ⇒ `window.prompt` |
+| `/api/props-file` | `POST ?item=&name=` + `X-Filename` 头（`encodeURIComponent`）+ 原始字节 body | 响应必须有 **`value`**（`!r.value` 就抛） |
+| `/api/delete` | `POST {itemId}`（**没有** confirm/dryRun 字段） | 只看 `error`；成功后重拉列表 |
+| `/api/reveal` | `POST {itemId}` | 只看 `error` |
+| `/api/diag-stream` | `EventSource` | `onmessage` ⇒ `JSON.parse(e.data).msg`（**默认 message 类型**；状态码还被用来决定诊断区是否置灰 ⇒ 必须 200） |
+
+**② 顺手挖出一个"不修就永远点不出画面"的硬事实**：产物里 iframe 的渲染器 URL 是**写死的绝对旧路径** —— `k.src=\`/wallpaper-engine-webgl/renderer/index.html?${e}&_t=${Date.now()}\``（3 处）；场景源是 `${mediaBase}/${src}` 且 renderer 依次试 scene.pkg / scenes/scene.pkg / gifscene.pkg（它的候选表 c1），`mediaBase` = `/media/dev`。⇒ 新服务把 `demo/` 同时挂在 `/`、`/demo/`、`/WEwebLoader/`、`/wallpaper-engine-webgl/`，并提供 `/media/dev/**`（scene.pkg/预览/视频，**支持 Range**）与 `/web/dev/**`（web 壁纸 iframe）。**没有这三样，列表点得动但画面永远出不来。**
+
+**③ 诊断流数据源=本服务自己的环形缓冲**（200 条，内存；**不代理 `:8899`**）：renderer 的上报路径是同源的 `new Image().src=\`${origin}/diag?msg=…\`` ⇒ 接 `GET /diag?msg=`（回 1×1 GIF，控制台不报错）与 `POST /diag`，广播给 SSE 订阅者（连上先回放 50 条）。
+
+**④ 降级为 501 的三条（`GET /__health.degraded[]` 逐条）**：`library-dir {pick:true}` 与 `props-dir {pick:true}` 是**能力 501**（没有宿主对话框）但 **HTTP 故意回 200** + `cancelled/unsupported/degraded/degradedStatus:501` —— 因为调用方 `if(!e.ok||t.error) throw` **在** `if(t.cancelled)` **之前**，真回 501 会把"回退到 `window.prompt`"这条路掐掉（两头都要：能力如实 501 + 回退可用）；`/api/reveal` 找不到/起不动打开器时**能力与 HTTP 都是 501** + `error/reason/hint/tried`（绝不 500、绝不假装成功）。`/__health` 另给端口/库根/静态挂载点/上限/诊断缓冲。
+
+**⑤ 安全红线**：唯一路径判据 `safeJoin()`（规范化后 `path.relative` 前缀校验 + `realpathSync` 逐级回溯的**真身**复核）⇒ `..`/绝对路径/符号链接逃逸一律 400/403；URL 层另拦**原始** `req.url` 里的 `..` 与 `%2e%2e`（`new URL()` 会把它们规范化掉，实测踩到）；`itemId` 与上传文件名只允许**单段**；**没有**任意路径读/写；**删除默认 dryRun**（只回计划，一个文件都不移），真删要 `?confirm=1` ⇒ `rename` 进 `<MPW_ROOT>/Delete/bench-trash/<ISO 时间戳>/<itemId>/`（响应回 `to` 与 `rollback` 的 `mv` 命令，可回滚）；属性覆盖落 `<reports>/bench-props/<id>.json`，**不写进壁纸包**；reveal 只 `spawn` 打开器（测试用 `MPW_OPEN_CMD=/bin/true` 与 `PATH=""` 两条路，**零浏览器/零 X11**）。
+
+**⑥ 自证（`tests/bench-server-test.mjs`，秒级、零依赖、夹具库在 `os.tmpdir()`、不碰真库、不连 `:8899/:8901`）**：**63 项断言全绿**（静态面 200 + no-store + 写死 iframe 路径；8 个 `/api/*` 的状态码与形状；逃逸用例；dryRun 不移动 / `confirm=1` 进回收站；属性往返且壁纸目录指纹不变；SSE 收到 `{msg}`；`__health`；404 不打崩服务）。
+**变异 RED（副本手工 read/write 到 `/tmp`，本机 `fs.cpSync` 抛 EINVAL；真树 sha256 跑前跑后逐字相同）**：
+* 变异 A（`isInside()` 恒真 + `itemId` 单段正则放开 ⇒ 词法/真身两道守卫一起失效）⇒ 子进程退出码 **1**，**8 项红**：`B4`/`C2`（逃逸符号链接混进列表与枚举）、`C4`、`F5`（`../outside` 不再 400）、`F6`（`delete evil-link` 返回 **200 且准备移动库外目录**）、`G1`（`reveal evil-link` 200）、`G3`（`props?item=../outside` 404/`evil-link` 200）、**`G6`（`/media/dev/evil-link/secret.txt` 直接回 `TOP-SECRET-OUTSIDE`）**。
+* 变异 B（`if (!confirm)` → `if (false)`，dryRun 真删）⇒ 退出码 **1**，`F1`/`F2`/`F3`/`F4` 红（默认请求就把条目移走了）。
+* 顺带修掉一个真 bug：处理函数的**同步** throw 未被接住 ⇒ 一个 404 就把整个服务打崩（`done()` 现在 try 包住 `fn()`；用例 `H7` 钉住）。
+
+**⑦ 未证实项**（`docs/BENCH-8902.md` §6 有 10 条 URL+操作+期望的清单）：页面渲染/点击/视频拖动/属性刷新留存/诊断行上屏等**需要主对话用有头浏览器确认**（本批硬约束：不启任何浏览器；已验到"HTTP 层逐端点正确 + 字节可服务"）。
+
+**改动落点**：
+* 新增 `server/we-scene-demo-server-8902.mjs`（一站式测试台服务）。
+* 新增 `tests/bench-server-test.mjs`（63 断言 + 2 变异 RED；**注册待办**：`tests/run-all-tests.sh` 由主对话加 `add "bench-8902" "node tests/bench-server-test.mjs"`）。
+* 新增 `docs/BENCH-8902.md`（契约证据/能力清单/501 降级/怎么用/安全模型/未证实项）。
+* 改 `package.json`（`files` 增 `server/we-scene-demo-server-8902.mjs`，与既有 server 条目并列）。
+* 改 `README.md`、`docs/ONLINE-DEMO.md`（各加一句 `:8902` 入口）。
+* **未改**：`:8899`（`server/we-scene-demo-server.mjs` 一字未动）、`:8901` 的启动方式与静态口径、`demo.html`、`demo/**`、`elysia/**`、`core/**`、`tests/run-all-tests.sh`、其它并行线在改的文件。
