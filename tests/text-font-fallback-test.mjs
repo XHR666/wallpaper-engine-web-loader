@@ -155,11 +155,19 @@ function mkEnv({ entries = {}, repo = 'ok', we = 'ok', faceLoadThrows = false, r
   const helpers = new Function(
     [SRC_ALIASES, SRC_REPO_NAME, SRC_SOURCE_OF, SRC_NEXT_TIER, SRC_REPO_URL, SRC_WE_URL, SRC_TIER_LABEL].join('\n') +
     '\nreturn { REPO_FONT_ALIASES, repoFontNameOf, textFontSourceOf, textFontNextTier, repoFontUrl, weFontUrl, textFontTierLabel }')()
+  // ①(P-135 乙 2026-09-19) demo.html 的两级网络降级现在走模块级 `fetchT/bufT/withTimeout`（统一超时包装：
+  //   成功原值、失败/超时 null、成功路径零日志）。切片环境按**同一语义**注入这三个 + 两个阈值常量；
+  //   被测口径（四级来源判定 / URL 形状 / 每级日志原文 / 集合语义）一字未变，只是"谁负责吞异常"换了位置。
+  const fetchT = async (u) => { try { return await fetchStub(u) } catch (e) { return null } }
+  const bufT = async (r) => { if (!r || !r.ok) return null; try { return await r.arrayBuffer() } catch (e) { return null } }
+  const withTimeout = async (p) => { try { return await p } catch (e) { return null } }
   const ensureTextFont = new Function('lib', 'pkg', 'logf', 'mpwHash', 'Blob', 'URL', 'FontFace', 'document', 'fetch',
+    'fetchT', 'bufT', 'withTimeout', 'NET_TIMEOUT_MS', 'DECODE_TIMEOUT_MS',
     'textFontLoaded', 'textFontPending', 'textFontMissing', 'textFontSourceOf', 'textFontNextTier', 'repoFontUrl', 'weFontUrl',
     'repoFontsOff', 'textFontTierLabel',
     SRC_ENSURE + '\nreturn ensureTextFont')(
     libStub, {}, logf, mpwHash, BlobStub, URLStub, FontFaceStub, documentStub, fetchStub,
+    fetchT, bufT, withTimeout, 8000, 8000,
     st.loaded, st.pending, st.missing, helpers.textFontSourceOf, helpers.textFontNextTier, helpers.repoFontUrl, helpers.weFontUrl,
     repoFontsOff, helpers.textFontTierLabel)
   const familyOf = new Function('textFontLoaded', 'mpwHash', SRC_FAMILY + '\nreturn textFontFamily')(st.loaded, mpwHash)
@@ -377,8 +385,14 @@ console.log('[T2s] 源码级守卫：textFontLoaded 语义 + 四级链完整 + �
     /textFontLoaded\.has\(fp\) \|\| textFontMissing\.has\(fp\)/.test(SRC_ENSURE))
   check('T2s5 **调用点** `ensureTextTexture` 也认 missing（否则缺字体的层每帧 return false、永远不渲染）',
     /if \(t\.font && !textFontLoaded\.has\(t\.font\) && !textFontMissing\.has\(t\.font\)\) \{ ensureTextFont\(t\.font\); return false \}/.test(HTML))
-  check('T2s6 网络级 fetch 写法与同文件既有 `/weassist/materials/…` 一致（ok 才取字节 + catch 吞异常）',
-    /await fetch\(url\)\.then\(\(x\) => \(x\.ok \? x\.arrayBuffer\(\) : null\)\)\.catch\(\(\) => null\)/.test(SRC_ENSURE))
+  // ①(P-135 乙 2026-09-19) 口径更新：网络级取字节改为 `bufT(await fetchT(url, …))`（统一超时包装）。
+  //   "ok 才取字节 + 异常吞掉"的语义**没有变**，只是搬进那两个 helper（T2s6b 直接断言 helper 的源码语义）。
+  check('T2s6 网络级取字节仍"ok 才取字节 + 异常吞掉"（P-135 乙 起 = bufT(await fetchT(url, …))）',
+    /bufT\(await fetchT\(url, null, NET_TIMEOUT_MS, '文本字体'\), url, NET_TIMEOUT_MS, '文本字体字节'\)/.test(SRC_ENSURE))
+  check('T2s6b helper 语义未走样：bufT 非 ok 不读正文 / fetchT 带超时 / withTimeout 到点返回 null',
+    /function bufT\(r, url, ms, label\) \{\s*\n\s*if \(!r \|\| !r\.ok\) return Promise\.resolve\(null\)/.test(HTML) &&
+    /function fetchT\(url, opts, ms, label\) \{\s*\n\s*const lim = ms \|\| NET_TIMEOUT_MS/.test(HTML) &&
+    /function withTimeout\(p, ms, label\) \{/.test(HTML) && /MPW_TIMED_OUT/.test(HTML))
   check('T2s7 降级是**逐级**的：循环里先取当前级 URL，失败才 `textFontNextTier`（不是一次并发全试）',
     /while \(tier !== 'pkg' && \(!bytes \|\| !bytes\.length\)\) \{[\s\S]{0,600}?tier = textFontNextTier\(tier\)/.test(SRC_ENSURE))
   check('T2s8 服务端有 `/assets/fonts/(.+)` 路由，且带 `startsWith(base)` 穿越防护与 font/ttf·font/otf content-type',

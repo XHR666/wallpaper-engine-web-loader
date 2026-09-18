@@ -272,11 +272,95 @@ canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;backgrou
     if (window.__mpwFirstFrame) { CAP_FRAME = true; capPush(); clearInterval(timer); return }
     if (tries >= 32) clearInterval(timer)
   }, 250)
-  // 看门狗：module 脚本 7s 内没启动（静态 import 失败/语法错）→ 主动 ok:false。初始的 ok:true 已发出，
-  //   插件 8s 窗口不会再兜底；不主动判失败的话 strict 下就是永久白屏（正是契约 §1 要避免的）。只在失败路径触发。
+  // ═══ MPW-MODULE-WATCHDOG-BEGIN ①(P-135 甲 2026-09-19) ═══
+  // 看门狗：module 脚本 7s 内没启动（静态 import 404/非 JS MIME/解析失败/半截写入/顶层抛错）→ 主动 ok:false。
+  //   初始的 ok:true 已发出，插件 8s 窗口不会再兜底；不主动判失败的话 strict 下就是永久白屏（契约 §1）。
+  // ①(P-135 甲) **本块必须把失败原因写进 `#log`**：旧实现只 postMessage 给插件宿主，页面自己一个字都不说
+  //   ⇒ 用户在 `#log` 里永远只看到初始的 `loading…`（= 用户原话"整面板只有 loading…、后面什么都没有"）
+  //   且"脚本没到"与"到了但某个 await 没回"**无法区分**。本块把这两类写成两条可区分的话：
+  //     · 甲 `__mpwModuleStarted` 未置位 ⇒ `❌ …module 未启动（脚本没到）…` + 早期 error/资源错误摘要；
+  //     · 乙 已置位但 7s 无首帧   ⇒ `⚠ …已启动但 7s 无首帧… 最后一行日志 = <#log 末行>`（不发 ok:false：
+  //       慢包不该被判死，插件 8s 窗口照旧）。
+  //   健康路径（7s 前已出首帧）**一行都不写** —— tests/load-timeout-test.mjs 有这个断言钉住。
+  function __mpwWatchdogNote(msg) {
+    try {
+      var el = document.getElementById('log')
+      if (el) el.textContent += msg + '\n'
+    } catch (e) {}
+    try { console.error(msg) } catch (e) {}
+  }
+  function __mpwLastLogLine() {
+    try {
+      var el = document.getElementById('log')
+      var parts = String((el && el.textContent) || '').split('\n').filter(function (s) { return s.replace(/\s/g, '') !== '' })
+      return parts.length ? parts[parts.length - 1].slice(0, 160) : '(空)'
+    } catch (e) { return '(读不到 #log)' }
+  }
+  function __mpwLogText() {
+    try { var el = document.getElementById('log'); return String((el && el.textContent) || '') } catch (e) { return '' }
+  }
+  // 甲分支要回答"卡在哪一步"：DOM 有没有就绪、页面的 module 脚本还在不在（半截写入/被 CSP 拦都会变 0）
+  function __mpwReadyState() {
+    try { return String(document.readyState || '?') } catch (e) { return '?' }
+  }
+  function __mpwModuleScriptCount() {
+    try {
+      var n = document.querySelectorAll ? document.querySelectorAll('script[type="module"]').length : -1
+      return n >= 0 ? n : '?'
+    } catch (e) { return '?' }
+  }
+  // 早于 module 的失败（静态 import 图 404 / MIME 非 JS / 顶层抛错）不会被 module 自己的监听接到
+  //   （那些监听在 module 体内，见 demo.html 的 `❌ 页面错误`）；这里补一版，并把摘要留给 7s 看门狗。
+  var __mpwEarlyErrs = []
+  function __mpwEarlyNote(kind, detail) {
+    if (window.__mpwModuleStarted) return          // module 起来后由 module 自己的监听负责（不重复记）
+    var line = '❌ ' + kind + (detail ? '：' + detail : '')
+    if (__mpwEarlyErrs.length < 5) __mpwEarlyErrs.push(line.slice(0, 200))
+    __mpwWatchdogNote(line)
+  }
+  try {
+    window.addEventListener('error', function (e) {
+      try {
+        var t = e && e.target
+        var isEl = !!(t && t !== window && t.nodeType === 1)
+        // 只对 **脚本类**资源失败写面板（img/link 之类的失败不影响 module 是否执行；
+        // 健康页面上的一个 404 图标不该在日志里冒充"渲染器错误"）
+        if (isEl && t.tagName !== 'SCRIPT') return
+        if (isEl) { __mpwEarlyNote('脚本资源加载失败', String(t.src || '(inline module)').slice(0, 200)); return }
+        __mpwEarlyNote('脚本错误', String((e && (e.message || e.error)) || e).slice(0, 200)
+          + (e && e.filename ? ' @' + String(e.filename).split('/').pop() + ':' + (e.lineno || 0) : ''))
+      } catch (err) {}
+    }, true)
+    window.addEventListener('unhandledrejection', function (e) {
+      try {
+        var r = e && e.reason
+        __mpwEarlyNote('未处理的 Promise 拒绝', String((r && (r.message || r)) || r).slice(0, 200))
+      } catch (err) {}
+    })
+  } catch (e) {}
   setTimeout(function () {
-    try { if (!window.__mpwModuleStarted) window.__mpwCapErr('module-not-started') } catch (e) {}
+    try {
+      if (window.__mpwModuleStarted) {
+        if (window.__mpwFirstFrame) return        // 健康路径：**不写一行**（7s 前已出首帧）
+        // 只对**场景包装载已经开始**的页面说话：纯视频/视频壁纸路径不会写 `加载场景 …`
+        //   （那条日志在 type=video 路由之后），它们 7s 没有"渲染器首帧"是正常的 ⇒ 不打扰。
+        if (__mpwLogText().indexOf('加载场景 ') < 0) return
+        __mpwWatchdogNote('⚠ 7s 内没有首帧，但 module 已启动（`window.__mpwModuleStarted=1`）'
+          + '= "到了但某个 await 没回"这一类：最后一行日志 = ' + __mpwLastLogLine()
+          + '（对照 docs/RENDER-BUGS-20260918.md §1.4 判据表；P-135 起每个网络/解码 await 超时都会自写一行 `⚠ 超时 <URL>`）')
+        return
+      }
+      __mpwWatchdogNote('❌ 渲染器 module 未启动（7s 内 `window.__mpwModuleStarted` 未置位）= "脚本没到"这一类：'
+        + '静态 import 404 / 非 JS MIME / 解析失败 / 文件半截写入 / 顶层抛错之一'
+        + (__mpwEarlyErrs.length
+          ? '；已捕获 ' + __mpwEarlyErrs.length + ' 条早期错误：\n    ' + __mpwEarlyErrs.join('\n    ')
+          : '；**未捕获任何脚本/资源错误** ⇒ 疑模块图里某个请求无响应或 MIME 非 JS（控制台 Network 看第一条未完成的请求）')
+        + '；诊断：document.readyState=' + __mpwReadyState()
+        + '，页面内 module 脚本 ' + __mpwModuleScriptCount() + ' 个，首条日志本应是 ❌/✅ WebGL2')
+      window.__mpwCapErr('module-not-started')
+    } catch (e) {}
   }, 7000)
+  // ═══ MPW-MODULE-WATCHDOG-END ═══
 })();
   </script>
   <script>function shot(ev){ev.preventDefault();const c=document.getElementById('sc');const d=(window.__mpwSafeDataURL?window.__mpwSafeDataURL(c,'image/png'):null);if(!d){alert('截图失败: 画布已被跨源内容污染（不透明源下纹理未带 CORS），已标记 __mpwTainted');return}const a=document.createElement('a');a.download='scene.png';a.href=d;a.click();}</script>
@@ -1266,8 +1350,9 @@ async function fetchHeader(name) {
   if (headerCache.has(name)) return headerCache.get(name);
   let txt = null;
   try {
-    const r = await fetch('/' + name.replace('shaders/', ''));
-    if (r.ok) txt = await r.text();
+    // ①(P-135 乙) 首帧着色器编译期等它；无超时挂住 = 整帧定格（原报告 §1.3 #10）
+    const url = '/' + name.replace('shaders/', '');
+    txt = await textT(await fetchT(url, null, NET_TIMEOUT_MS, '公共头文件'), url, NET_TIMEOUT_MS, '公共头文件正文');
   } catch {}
   headerCache.set(name, txt || '');
   return txt || '';
@@ -1280,6 +1365,63 @@ function fetchWithTimeout(url, ms) {
     const t = setTimeout(() => { try { ac.abort() } catch {} }, ms)
     return fetch(url, { signal: ac.signal }).then((r) => { clearTimeout(t); return r }).catch(() => { clearTimeout(t); return null })
   } catch (e) { return Promise.resolve(null) }
+}
+
+// ═══ ①(P-135 乙 2026-09-19) 全链路超时原语（**模块常量**，不新增任何 URL 开关）═══
+// 为什么：本文件此前只有上面那一个 `fetchWithTimeout`（全文仅 1 处调用 = 着色器兜底），其余 13 处
+//   裸 `fetch` / `arrayBuffer()` / `json()` / `createImageBitmap` **没有上限**：服务端某个请求
+//   （慢盘读整包、连接不返回 FIN……）一挂，装载链就永久停在上一行日志 —— 用户报的"只有 loading…"
+//   里属于"(乙) 已出现 ✅ WebGL2 之后停住"的那一类，无法与"卡在哪个 fetch"区分。
+// 口径：
+//   · 健康路径**零行为变化**：成功的响应/正文/位图按原样返回，一行新日志都不加（只有超时才写 ⚠）；
+//   · 单个资源超时/失败**只**让该资源变成 `null`（= 既有失败约定：`⚠ 缺纹理` / `⚠ 缺 model` … 跳过它），
+//     **绝不** reject 出去打断 loadScene 的 `Promise.all`（旧实现单张位图解码失败会把整包纹理链打断）；
+//   · 阈值只在这里定义一次（模块常量）；逃生口讨论见 docs/PATCHES.md 的 P-135 条。
+const NET_TIMEOUT_MS = 8000      // 网络请求（取包/取公共资产/取着色器/上报）上限
+const DECODE_TIMEOUT_MS = 8000   // 本地解码/字体等异步（createImageBitmap / FontFace.load）上限
+const MPW_TIMED_OUT = { __mpwTimeout: true }
+function mpwNowMs() { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now() }
+// 超时竞速：值如期返回 → 原值；抛错 → null（失败后仍由各站点**既有的** ⚠ 行解释，不重复刷屏）；
+// 超时 → null + **一行可观测日志**（含 URL/标签与实测耗时，这是本补丁的核心判据）。
+function withTimeout(p, ms, label) {
+  const t0 = mpwNowMs()
+  let src
+  try { src = (typeof p === 'function') ? p() : p } catch (e) { src = Promise.reject(e) }
+  let timer = null
+  const guard = new Promise((resolve) => { timer = setTimeout(() => resolve(MPW_TIMED_OUT), ms) })
+  return Promise.race([
+    Promise.resolve(src).then((v) => ({ ok: true, v }), () => ({ ok: false, v: null })),
+    guard,
+  ]).then((r) => {
+    if (timer) { clearTimeout(timer); timer = null }
+    if (r === MPW_TIMED_OUT) {
+      try { logf('  ⚠ 超时 ' + Math.round(mpwNowMs() - t0) + 'ms（上限 ' + ms + 'ms）：' + (label || '?') + ' ⇒ 跳过该资源，装载继续') } catch (e) {}
+      return null
+    }
+    return r.ok ? r.v : null
+  })
+}
+// fetch + 超时（返回 Response / null；标签里带上 URL，超时日志才可归因）
+function fetchT(url, opts, ms, label) {
+  const lim = ms || NET_TIMEOUT_MS
+  return withTimeout(fetch(url, opts), lim, (label ? label + ' ' : '') + url)
+}
+// 响应**正文**读取 + 超时（`arrayBuffer()/json()/text()` 同样会永久挂住）
+function jsonT(r, url, ms, label) {
+  if (!r || !r.ok) return Promise.resolve(null)
+  return withTimeout(r.json(), ms || NET_TIMEOUT_MS, (label || '正文 json') + ' ' + url)
+}
+function bufT(r, url, ms, label) {
+  if (!r || !r.ok) return Promise.resolve(null)
+  return withTimeout(r.arrayBuffer(), ms || NET_TIMEOUT_MS, (label || '正文 arrayBuffer') + ' ' + url)
+}
+function textT(r, url, ms, label) {
+  if (!r || !r.ok) return Promise.resolve(null)
+  return withTimeout(r.text(), ms || NET_TIMEOUT_MS, (label || '正文 text') + ' ' + url)
+}
+// 位图解码 + 超时（单张图不 settle 时旧实现会停住整个纹理循环）
+function bitmapT(blob, label, ms) {
+  return withTimeout(createImageBitmap(blob), ms || DECODE_TIMEOUT_MS, label || 'createImageBitmap')
 }
 // 兜底着色器（GLSL ES 3.0：采样 g_Texture0，避免该层整层消失）
 const FALLBACK_FRAG = ['uniform sampler2D g_Texture0;', 'in vec2 v_TexCoord;', 'out vec4 fragColor;', 'void main() {',
@@ -1433,9 +1575,10 @@ if ((typeof PAGE === 'undefined' || PAGE) && MPW_BASELINE_OPTS.on) {
     try { window.__mpwBaselineSnapshot = snap } catch (e) {}
     let ok = false, status = 0, file = null
     try {
-      const r = await fetch('/baseline', { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+      // ①(P-135 乙) 上报也走超时：抓不到就等于没交数据，绝不能把页面挂在 fetch 上
+      const r = await fetchT('/baseline', { method: 'POST', headers: { 'content-type': 'application/json' }, body }, NET_TIMEOUT_MS, '基线回传 POST')
       ok = !!(r && r.ok); status = (r && r.status) || 0
-      if (ok) { try { file = (await r.json()).file } catch (e) { file = null } }
+      if (ok) { const j = await jsonT(r, '/baseline', NET_TIMEOUT_MS, '基线回传响应体'); file = j ? j.file : null }
     } catch (e) { status = 0 }
     const line = baselineSummary(snap) + (file ? ' → ' + file : '') + (isFinal ? '' : '（分段）')
     if (ok) logf('🛰 ' + line)
@@ -1507,8 +1650,12 @@ async function loadTex(name, opts = {}) {
   let te = lib.getEntry(pkg, 'materials/' + name + '.tex');
   if (!te) {
     // 官方全局资产（util 白/噪点/遮罩、particle 光斑 halo/beam/light_shafts 等不在 scene.pkg 内）
-    const r = await fetch('/weassist/materials/' + name + '.tex').then((x) => (x.ok ? x.arrayBuffer() : null)).catch(() => null)
-    te = r ? new Uint8Array(r) : null
+    // ①(P-135 乙) 请求 + 正文都加超时：旧实现裸 fetch/arrayBuffer，单条缺失纹理挂住会让
+    //   loadScene 的 Promise.all 永不 settle（日志停在 `纹理加载完成` 之前）。
+    const url = '/weassist/materials/' + name + '.tex'
+    const r = await fetchT(url, null, NET_TIMEOUT_MS, '缺纹理兜底')
+    const b = await bufT(r, url, NET_TIMEOUT_MS, '纹理字节')
+    te = b ? new Uint8Array(b) : null
   }
   if (!te) { logf('  ⚠ 缺纹理 materials/' + name + '.tex'); return Promise.resolve(null); }
   let tex, m
@@ -1632,7 +1779,9 @@ async function loadTex(name, opts = {}) {
   }
   if (m.png !== undefined || (m.image !== undefined && m.fif === lib.FIF.JPEG)) {
     const blob2 = new Blob([m.png || m.image], { type: m.png ? 'image/png' : 'image/jpeg' });
-    return createImageBitmap(blob2).then((bmp) => {
+    // ①(P-135 乙) 解码 + 超时（+ 失败/超时都只让本张纹理变 null，不 reject 出去打断整包 —— 原报告 §1.4 第 4 条）
+    return bitmapT(blob2, '位图解码 materials/' + name + '.tex', DECODE_TIMEOUT_MS).then((bmp) => {
+      if (!bmp) { logf('  ⚠ 缺纹理（位图解码失败或超时，跳过该层） materials/' + name + '.tex'); return null }
       // ①(W1② P-36 GirlCat 实锤) 位图上传路径加固：houseback(3840×2160)/housebasic(4948×2935)
       //   在真机上整层采样为黑——旧实现 createImageBitmap 后直接 texImage2D，**无降采样、
       //   无 getError 检查**：超设备上限（housebasic 4948 > 4096）或大位图上传失败的设备上
@@ -1762,7 +1911,8 @@ function loadScene() {
         // ①(Q5) 包内没有 → 材质候选链（/weassist 直读 + 官方预设同主题路径）；旧实现只试第一种，
         //   索引兜底回来的 def 材质永远取不到 → 层有 def 却无贴图，renderParticleLayer 静默 return。
         for (const cu of particleMaterialCandidates(layer)) {
-          const r = await fetch(cu).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+          // ①(P-135 乙) 候选链逐级也加超时：一级不返回 = 粒子层永远接不上贴图（且挡住整包 Promise.all）
+          const r = await jsonT(await fetchT(cu, null, NET_TIMEOUT_MS, '粒子材质兜底'), cu, NET_TIMEOUT_MS, '粒子材质正文');
           if (r) { material = r; break }
         }
       }
@@ -1854,9 +2004,11 @@ function loadScene() {
   // ①(新) 按 project.json type 自动路由：type=video → 直接播 dd 目录松散 mp4（不再被当 scene 解析）
   //   ①(P-77) 页级单例：多实例时只有 primary 实例做这层路由（其余实例照常按 ?id= 装载场景）
   if (typeof PAGE === 'undefined' || PAGE) try {
-    const tr = await fetch('/type/' + id).then((x) => (x.ok ? x.json() : null)).catch(() => null)
+    // ①(P-135 乙) 这两发在 `✅ WebGL2` 之后、`加载场景` 之前 ⇒ 挂住时日志恰好停在"已出 WebGL2 就没下文"
+    //   （原报告 §1.4 判据表第 2 行的唯一候选卡点）。超时 → null → 照旧按"非视频"继续。
+    const tr = await jsonT(await fetchT('/type/' + id, null, NET_TIMEOUT_MS, '路由判据'), '/type/' + id, NET_TIMEOUT_MS, '路由判据正文')
     if (tr && tr.ok && tr.type && String(tr.type).toLowerCase() === 'video') {
-      const files = await fetch('/ddlist/' + id).then((x) => (x.ok ? x.json() : null)).catch(() => null)
+      const files = await jsonT(await fetchT('/ddlist/' + id, null, NET_TIMEOUT_MS, '视频文件表'), '/ddlist/' + id, NET_TIMEOUT_MS, '视频文件表正文')
       const mp4 = files && files.find((f) => /\.mp4$/i.test(f))
       if (mp4) {
         logf('自动识别为视频壁纸（type=video）→ 纯视频模式: ' + mp4)
@@ -1897,40 +2049,62 @@ function loadScene() {
   const __pkgOverrideOk = (typeof PAGE === 'undefined' || PAGE)
   const pkgPathQ = __pkgOverrideOk ? qs.get('pkgpath') : null, pkgUrlQ = __pkgOverrideOk ? qs.get('pkgurl') : null
   let buf = null
+  // ①(P-135 乙) 取包阶段（`加载场景` 之后）是全链路唯一**不能跳过**的资源：超时只能如实报错，
+  //   但错误必须是"看得懂的一行"（含 URL 与上限），而不是永久静默停在这一行日志。
+  const pkgTimeoutErr = (what) => new Error(what + ' 取包失败或超时（上限 ' + NET_TIMEOUT_MS + 'ms）')
   if (pkgPathQ) {
     logf('加载本地容器: ' + pkgPathQ)
-    const r = await fetch('/pkgpath?p=' + encodeURIComponent(pkgPathQ))
+    const url = '/pkgpath?p=' + encodeURIComponent(pkgPathQ)
+    const r = await fetchT(url, null, NET_TIMEOUT_MS, '本地容器')
+    if (!r) throw pkgTimeoutErr('pkgpath')
     if (!r.ok) throw new Error('pkgpath HTTP ' + r.status)
-    buf = new Uint8Array(await r.arrayBuffer())
+    const b = await bufT(r, url, NET_TIMEOUT_MS, '本地容器正文')
+    if (!b) throw pkgTimeoutErr('pkgpath 正文')
+    buf = new Uint8Array(b)
   } else if (pkgUrlQ) {
     logf('加载远程容器: ' + pkgUrlQ)
     // ①(RE-25) 优先**浏览器直连**（带 cookie，可过 DSH 宿主鉴权）；失败再退服务端代理
     let okDirect = false
     try {
-      const rd = await fetch(pkgUrlQ, { credentials: 'include' })
-      if (rd.ok) { buf = new Uint8Array(await rd.arrayBuffer()); okDirect = true; logf('直连成功 ' + buf.length + ' 字节') }
-      else logf('直连失败 HTTP ' + rd.status + '，改用服务端代理')
+      const rd = await fetchT(pkgUrlQ, { credentials: 'include' }, NET_TIMEOUT_MS, '直连宿主')
+      if (!rd) logf('直连失败（超时或网络异常），改用服务端代理')
+      else if (rd.ok) {
+        const b = await bufT(rd, pkgUrlQ, NET_TIMEOUT_MS, '直连宿主正文')
+        if (b) { buf = new Uint8Array(b); okDirect = true; logf('直连成功 ' + buf.length + ' 字节') }
+        else logf('直连失败（正文超时），改用服务端代理')
+      } else logf('直连失败 HTTP ' + rd.status + '，改用服务端代理')
     } catch (e) { logf('直连异常: ' + e.message + '，改用服务端代理') }
     if (!okDirect) {
-      const r = await fetch('/pkgurl?u=' + encodeURIComponent(pkgUrlQ))
+      const url = '/pkgurl?u=' + encodeURIComponent(pkgUrlQ)
+      const r = await fetchT(url, null, NET_TIMEOUT_MS, '服务端代理')
+      if (!r) throw pkgTimeoutErr('pkgurl')
       if (!r.ok) throw new Error('pkgurl HTTP ' + r.status)
-      buf = new Uint8Array(await r.arrayBuffer())
+      const b = await bufT(r, url, NET_TIMEOUT_MS, '服务端代理正文')
+      if (!b) throw pkgTimeoutErr('pkgurl 正文')
+      buf = new Uint8Array(b)
     }
   } else {
-    const r = await fetch('/pkg/' + id)
+    const url = '/pkg/' + id
+    const r = await fetchT(url, null, NET_TIMEOUT_MS, '场景包')
+    if (!r) throw pkgTimeoutErr('pkg')
     // ①(P-87 2026-09-15 版权) 首屏默认包（3554161528）过去是**随仓库分发**的真实壁纸，已因版权移除。
     //   本机有语料时第一发就 200 ⇒ 这条路一行都不走，行为逐位不变；公开副本（无语料）时**显式**退到
     //   自带的合成样例，而不是把 404 的 "no scene" 字节喂给 parsePkg 报一个看不懂的错。
     //   ①**只在未显式指定包来源时**替换（无 ?id= 且非多实例 ?ids=）；显式指定的包拿不到就如实报错。
     if (!r.ok && !qs.has('id') && !MPW_MULTI_IDS) {
-      const r2 = await fetch('/pkg/sample-synthetic')
-      if (!r2.ok) throw new Error('默认包 ' + id + ' HTTP ' + r.status + '，自带合成样例 sample-synthetic HTTP ' + r2.status)
+      const url2 = '/pkg/sample-synthetic'
+      const r2 = await fetchT(url2, null, NET_TIMEOUT_MS, '自带合成样例')
+      if (!r2 || !r2.ok) throw new Error('默认包 ' + id + ' HTTP ' + r.status + '，自带合成样例 sample-synthetic HTTP ' + ((r2 && r2.status) || '超时'))
       logf('⚠ 默认包 ' + id + ' 不可用（HTTP ' + r.status + '）—— 本仓库不分发真实壁纸 → 改用自带合成样例 sample-synthetic')
       id = 'sample-synthetic'
-      buf = new Uint8Array(await r2.arrayBuffer())
+      const b2 = await bufT(r2, url2, NET_TIMEOUT_MS, '自带合成样例正文')
+      if (!b2) throw pkgTimeoutErr('sample-synthetic 正文')
+      buf = new Uint8Array(b2)
     } else {
       if (!r.ok) throw new Error('pkg HTTP ' + r.status + '（id=' + id + '）')
-      buf = new Uint8Array(await r.arrayBuffer())
+      const b = await bufT(r, url, NET_TIMEOUT_MS, '场景包正文')
+      if (!b) throw pkgTimeoutErr('pkg 正文')
+      buf = new Uint8Array(b)
     }
   }
   pkg = lib.parsePkg(buf)
@@ -2437,6 +2611,27 @@ function loadScene() {
   }
   // ①(Q5) 官方预设兜底（异步）：parseScene 之后、材质/纹理接线（loadScene）之前跑，缺 def 的层才能接上贴图。
   async function resolveParticleDefs() {
+    // ①(P-135 乙) 超时包装**内联**在本函数里（只用 JS 全局 + fetch）：本函数是
+    //   tests/particle-preset-fallback-test.mjs 的切片单元（`new Function('scene','logf','window','fetch')`），
+    //   引用模块级 helper 会让切片跑不起来。语义与模块级 fetchT/withTimeout 一致：
+    //   成功原值、失败/超时 null（超时另写一行含 URL 与耗时的 ⚠，便于真机归因）。
+    const defFetchJson = (u, ms) => {
+      const t0 = Date.now()
+      let ac = null
+      try { ac = (typeof AbortController !== 'undefined') ? new AbortController() : null } catch (e) { ac = null }
+      const abortT = setTimeout(() => { try { if (ac) ac.abort() } catch (e) {} }, ms)
+      let guardT = null
+      const guard = new Promise((res) => { guardT = setTimeout(() => res('__mpw_timeout__'), ms) })
+      const done = (v) => { try { clearTimeout(abortT) } catch (e) {} try { clearTimeout(guardT) } catch (e) {} return v }
+      let p = null
+      try { p = fetch(u, ac ? { signal: ac.signal } : undefined) } catch (e) { p = null }
+      const chain = Promise.resolve(p).then((r) => (r && r.ok ? r.json() : null), () => null)
+      return Promise.race([chain, guard]).then((v) => {
+        if (v !== '__mpw_timeout__') return done(v)
+        logf('  ⚠ 超时 ' + (Date.now() - t0) + 'ms（上限 ' + ms + 'ms）：粒子定义 ' + u + ' ⇒ 跳过该候选，装载继续')
+        return done(null)
+      })
+    }
     const misses = scene.layers.filter((l) => l.particle && !l.particleDef && typeof l.particle === 'string')
     const stat = { miss: misses.length, viaPath: 0, viaIndex: 0, names: [] }
     if (!misses.length) return stat
@@ -2444,7 +2639,7 @@ function loadScene() {
       const cands = particleDefCandidates(l.particle)
       for (let i = 0; i < cands.length; i++) {
         try {
-          const r = await fetch(cands[i]).then((x) => (x && x.ok ? x.json() : null)).catch(() => null)
+          const r = await defFetchJson(cands[i], 8000)
           if (r && typeof r === 'object') {
             l.particleDef = r
             l.particleDefSource = i === 0 ? 'weassist' : 'preset-index'
@@ -2611,13 +2806,17 @@ function loadScene() {
       if (q.get('exthooks')) list.push(...q.get('exthooks').split(',').map((x) => x.trim()).filter(Boolean))
       if (base) {
         try {
-          const idx = await fetch(base.replace(/\/$/, '') + '/').then((r) => (r.ok ? r.json() : null)).catch(() => null)
+          // ①(P-135 乙) ?extbase 索引（可选的第三方扩展点）：超时后按"没有扩展"继续（不挡住装载）
+          const iu = base.replace(/\/$/, '') + '/'
+          const idx = await jsonT(await fetchT(iu, null, NET_TIMEOUT_MS, '扩展钩子索引'), iu, NET_TIMEOUT_MS, '扩展钩子索引正文')
           if (idx && Array.isArray(idx.hooks)) for (const h of idx.hooks) list.push(base.replace(/\/$/, '') + '/' + h)
         } catch {}
       }
       for (const url of list) {
         try {
-          const mod = await import(/* @vite-ignore */ url)
+          // ①(P-135 乙) 动态 import 同样可能永久不 settle（第三方扩展点）：超时后按"该钩子加载失败"继续
+          const mod = await withTimeout(import(/* @vite-ignore */ url), NET_TIMEOUT_MS, '扩展钩子 import ' + url)
+          if (!mod) throw new Error('扩展钩子加载失败或超时（上限 ' + NET_TIMEOUT_MS + 'ms）')
           const obj = (mod && (mod.default || mod.hooks)) || null
           if (!obj || typeof obj !== 'object') continue
           let n = 0
@@ -3356,7 +3555,8 @@ function loadScene() {
       while (tier !== 'pkg' && (!bytes || !bytes.length)) {
         const url = tier === 'repo' ? repoFontUrl(fp) : weFontUrl(fp)
         tried.push(url)
-        const r = await fetch(url).then((x) => (x.ok ? x.arrayBuffer() : null)).catch(() => null)
+        // ①(P-135 乙) 字体网络降级链：任一级超时/失败 → 下一级（最后仍有 sans-serif 兜底），绝不静默挂住
+        const r = await bufT(await fetchT(url, null, NET_TIMEOUT_MS, '文本字体'), url, NET_TIMEOUT_MS, '文本字体字节')
         bytes = r ? new Uint8Array(r) : null
         if (bytes && bytes.length) break
         tier = textFontNextTier(tier)
@@ -3372,7 +3572,11 @@ function loadScene() {
       const blob = new Blob([bytes], { type: /\.otf$/i.test(fp) ? 'font/otf' : 'font/ttf' })
       const url = URL.createObjectURL(blob)
       const face = new FontFace('mpw-' + mpwHash(fp), 'url(' + url + ')')
-      await face.load()
+      // ①(P-135 乙) 解码加超时，但**真实性失败原因照旧冒泡**到下面既有的 catch（`⚠ 文本字体加载失败 …: <原错>`）；
+      //   只有"超时"这一种新失败才用本补丁自己的文案 —— 不能把超时当成功，也不能吞掉原始错误。
+      let faceErr = null
+      const faceOk = await withTimeout(face.load().catch((e) => { faceErr = e; return null }), DECODE_TIMEOUT_MS, '文本字体解码 ' + short)
+      if (!faceOk) throw faceErr || new Error('字体解码超时（上限 ' + DECODE_TIMEOUT_MS + 'ms）')
       document.fonts.add(face)
       textFontLoaded.add(fp)
       logf('🔤 文本字体 ' + short + '：' + origin)
@@ -3688,7 +3892,7 @@ function loadScene() {
   try {
     // 渲染配置固化：UI/音频隐藏 + 背景直绘 + 粒子关 + 长条眼窗对所有场景生效；
     // refrender 实绘定位仅对存在实绘数据的场景（凯尔希 3719111841）生效。
-    const rrRaw = await fetch('/refrender/' + id).then((x) => (x.ok ? x.json() : null)).catch(() => null)
+    const rrRaw = await jsonT(await fetchT('/refrender/' + id, null, NET_TIMEOUT_MS, 'refrender 实绘数据'), '/refrender/' + id, NET_TIMEOUT_MS, 'refrender 正文')
     // ?hier=1：父链合成位置即官方位置 → 不再用 refrender 绝对定位覆盖（否则又被改回去）
     const rr = (new URLSearchParams(location.search).get('hier') !== '0') ? null : rrRaw
     if (rr === null && rrRaw) logf('父链模式：已停用 refrender 绝对定位，改用官方父链合成（RE-01）')
@@ -3760,7 +3964,28 @@ function loadScene() {
       //   （new URLSearchParams(location.search).get(...)），diag-flag-check 靠这个形态抓取。
       const __projOff = new URLSearchParams(location.search).get('proj') === 'off'
       if (__projOff) logf('⚠ ?proj=off：跳过官方 project.json（回到"无属性表"旧行为）')
-      let pr = __projOff ? null : await fetch('/project/' + id).then((x) => (x.ok ? x.json() : null)).catch(() => null)
+      // ①(P-135 乙) 本块是 tests/time-variation-test.mjs 的切片单元（入参只有
+      //   `fetch/id/lib/pkg/rd/location/window/logf`）⇒ 超时包装**只用 JS 全局 + fetch/logf**，
+      //   不引用模块级 helper（否则切片跑不起来）。语义与模块级 jsonT/fetchT 一致：
+      //   成功原值、失败/超时 null（超时另写一行含 URL 与实测耗时的 ⚠），下游照旧回退包内 project.json。
+      const projFetchJson = (u) => {
+        const ms = 8000, t0 = Date.now()
+        let ac = null
+        try { ac = (typeof AbortController !== 'undefined') ? new AbortController() : null } catch (e) { ac = null }
+        const abortT = setTimeout(() => { try { if (ac) ac.abort() } catch (e) {} }, ms)
+        let guardT = null
+        const guard = new Promise((res) => { guardT = setTimeout(() => res('__mpw_timeout__'), ms) })
+        const done = (v) => { try { clearTimeout(abortT) } catch (e) {} try { clearTimeout(guardT) } catch (e) {} return v }
+        let p = null
+        try { p = fetch(u, ac ? { signal: ac.signal } : undefined) } catch (e) { p = null }
+        const chain = Promise.resolve(p).then((r) => (r && r.ok ? r.json() : null), () => null)
+        return Promise.race([chain, guard]).then((v) => {
+          if (v !== '__mpw_timeout__') return done(v)
+          logf('  ⚠ 超时 ' + (Date.now() - t0) + 'ms（上限 ' + ms + 'ms）：属性表 ' + u + ' ⇒ 回退包内 project.json，装载继续')
+          return done(null)
+        })
+      }
+      let pr = __projOff ? null : await projFetchJson('/project/' + id)
       if (!pr) { try { const pe = lib.getEntry(pkg, 'project.json'); if (pe) pr = JSON.parse(rd(pe)) } catch {} }
       propsSchema = (pr && pr.general && pr.general.properties) || null
       propsStore = readPropsStore()
@@ -4677,9 +4902,13 @@ function loadScene() {
   const noise = lib.generateNoiseTexture();
   if (noise) textures.set('util/noise', { glTex: lib.makeTexture(gl, noise, 256, 256), width: 256, height: 256, rg88: false });
   try {
-    const nr = await fetch('/noise');
-    if (nr.ok) {
-      const ntex = lib.parseTex(new Uint8Array(await nr.arrayBuffer()));
+    // ①(P-135 乙) `/noise` 是服务端历史热点（旧实现每请求整包扫描，本机实测 657.9MB/次）：
+    //   请求与正文都加超时；超时/失败都退回上面已生成的程序化噪声（旧行为就是 catch 掉继续）。
+    const url = '/noise'
+    const nr = await fetchT(url, null, NET_TIMEOUT_MS, '官方噪声纹理')
+    const nb = await bufT(nr, url, NET_TIMEOUT_MS, '噪声纹理字节')
+    if (nb) {
+      const ntex = lib.parseTex(new Uint8Array(nb));
       const mips = lib.decodeMips ? lib.decodeMips(ntex) : null;
       if (mips && mips.length) textures.set('util/noise', { glTex: lib.makeTextureMip(gl, mips), width: mips[0].width, height: mips[0].height, rg88: false, mips });
     }
@@ -4698,7 +4927,9 @@ function loadScene() {
   // 官方全局 util 纹理（noise/noflow/white）——效果链依赖（waterflow/lightshafts 等）
   for (const un of ['util/noise', 'util/noflow', 'util/white']) {
     try {
-      const r = await fetch('/weassist/materials/' + un + '.tex').then((x) => (x.ok ? x.arrayBuffer() : null)).catch(() => null)
+      // ①(P-135 乙) 官方全局 util 纹理兜底：三级 util 名也要有超时，否则单条挂住会挡住后面的纹理接线
+      const url = '/weassist/materials/' + un + '.tex'
+      const r = await bufT(await fetchT(url, null, NET_TIMEOUT_MS, '官方 util 纹理'), url, NET_TIMEOUT_MS, '官方 util 纹理字节')
       if (r) {
         const te2 = lib.parseTex(new Uint8Array(r))
         const mm = lib.decodeMip0(te2)
@@ -5595,8 +5826,9 @@ function loadScene() {
         }
         const body = JSON.stringify(report)
         let ok = false
-        try { const r = await fetch('/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body }); ok = r.ok } catch {}
-        if (!ok) { try { await fetch('/report', { method: 'POST', body }) } catch {} }
+        // ①(P-135 乙) 上报链（/diag → /report 兜底）：两发都要有上限，否则上报挂住会拖住后面的收尾
+        try { const r = await fetchT('/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body }, NET_TIMEOUT_MS, '自动上报 /diag'); ok = !!(r && r.ok) } catch {}
+        if (!ok) { try { await fetchT('/report', { method: 'POST', body }, NET_TIMEOUT_MS, '自动上报 /report 兜底') } catch {} }
         const msg = '自检: ' + (anomalies.length ? '异常 ' + anomalies.length + ' 项（' + anomalies.join('、') + '）' : 'OK') + ' · 报告已 POST（' + body.length + 'B）'
         const badge = document.createElement('div')
         badge.textContent = msg
@@ -5666,8 +5898,9 @@ function loadScene() {
             if (!s) return
             const body = JSON.stringify({ kind: 'perf', id: id, at: new Date().toISOString(), url: location.href.slice(0, 160), perf: s })
             let ok = false
-            try { const r = await fetch('/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body }); ok = r.ok } catch {}
-            if (!ok) { try { await fetch('/report', { method: 'POST', body }) } catch {} }
+            // ①(P-135 乙) 同上：多实例路径的上报链也必须有上限
+            try { const r = await fetchT('/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body }, NET_TIMEOUT_MS, '自动上报 /diag'); ok = !!(r && r.ok) } catch {}
+            if (!ok) { try { await fetchT('/report', { method: 'POST', body }, NET_TIMEOUT_MS, '自动上报 /report 兜底') } catch {} }
             logf('🛰 perf 报告已发送（p95=' + s.p95 + 'ms，' + body.length + 'B）')
           } catch {}
         }

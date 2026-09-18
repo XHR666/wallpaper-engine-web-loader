@@ -394,7 +394,9 @@ console.log('\n== T5d 默认关时零行为变化（demo.html 真源码切片 + 
     block.indexOf('MPW_BASELINE_OPTS.on) {') > 0 && block.indexOf('mpwBaselineInstallGlCounters') > block.indexOf('MPW_BASELINE_OPTS.on) {'))
   check('T5d 帧循环里的调用点是**唯一**一处且是 null 短路',
     (HTML.split('if (MPW_BASELINE) MPW_BASELINE.onFrame(').length - 1) === 1)
-  check('T5d 结果走 `/baseline`（不是 /report：趋势数据不能被 60 份滚动清掉）', /fetch\('\/baseline'/.test(block))
+  // ①(P-135 乙 2026-09-19) POST 现在走 demo.html 的 `fetchT('/baseline', …)`（统一超时包装）——
+  //   **判定口径一字不变**（仍必须是 /baseline，不是 /report），只是接受被包装后的写法。
+  check('T5d 结果走 `/baseline`（不是 /report：趋势数据不能被 60 份滚动清掉）', /(?:fetchT|fetch)\('\/baseline'/.test(block))
   check('T5d 开关名登记给 diag-flag-check（正则字面量）', /MPW_BASELINE_FLAGS = \[/.test(block))
 
   // 把真源码切出来跑：`new Function` 与 props-panel/log-panel 的切片驱动同一套手法
@@ -423,6 +425,12 @@ console.log('\n== T5d 默认关时零行为变化（demo.html 真源码切片 + 
       id: 'sample-synthetic', PAGE: true,
       logf: (m) => logs.push(String(m)),
       fetch: async (u, o) => { posts.push({ u, o }); return { ok: true, status: 200, json: async () => ({ ok: true, file: 'baselines/1.json' }) } },
+      // ①(P-135 乙 2026-09-19) demo.html 本块现在用模块级 `fetchT/jsonT/NET_TIMEOUT_MS`（统一超时包装）：
+      //   切片环境按既有手法把这三个也当入参注入 —— fetchT 直接转发到同一个桩（posts 记录口径不变），
+      //   jsonT 就是"ok 才解析"的薄包装（与 demo.html 里的语义一致）。
+      fetchT: (u, o) => env.fetch(u, o),
+      jsonT: async (r) => (r && r.ok ? r.json() : null),
+      NET_TIMEOUT_MS: 8000,
       lib: { registerMpwHook: () => true },
       mpw: { mpwBaselineParseOpts, mpwBaselineCreateSampler, mpwBaselineInstallGlCounters, mpwBaselineNextStage, mpwBaselineMergeHandoff },
     }
@@ -432,11 +440,13 @@ console.log('\n== T5d 默认关时零行为变化（demo.html 真源码切片 + 
     // eslint-disable-next-line no-new-func
     const fn = new Function('mpwBaselineParseOpts', 'mpwBaselineCreateSampler', 'mpwBaselineInstallGlCounters', 'mpwBaselineNextStage', 'mpwBaselineMergeHandoff',
       'location', 'sessionStorage', 'document', 'navigator', 'devicePixelRatio', 'gl', 'cv', 'scene', 'textures', 'id', 'PAGE', 'logf', 'fetch', 'lib', 'window',
+      'fetchT', 'jsonT', 'NET_TIMEOUT_MS',
       blockSrc + '\nreturn MPW_BASELINE;')
     return fn(env.mpw.mpwBaselineParseOpts, env.mpw.mpwBaselineCreateSampler, env.mpw.mpwBaselineInstallGlCounters,
       env.mpw.mpwBaselineNextStage, env.mpw.mpwBaselineMergeHandoff,
       env.location, env.sessionStorage, env.document, env.navigator, env.devicePixelRatio, env.gl, env.cv, env.scene,
-      env.textures, env.id, env.PAGE, env.logf, env.fetch, env.lib, win || {})
+      env.textures, env.id, env.PAGE, env.logf, env.fetch, env.lib, win || {},
+      env.fetchT, env.jsonT, env.NET_TIMEOUT_MS)
   }
 
   // ① 不带开关：必须什么都不做（不包装 GL、不记账、不发请求、不建定时器）

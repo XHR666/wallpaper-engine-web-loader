@@ -267,7 +267,18 @@ const ID_PAT = '[A-Za-z0-9_][A-Za-z0-9_.-]*';
 const reIdRoute = (prefix) => new RegExp('^\\/' + prefix + '\\/(' + ID_PAT + ')$');
 
 // ①(去个人化) 改为动态 import：路径由上面 MPW_PKG_EXTRACT 决定（顶层 await 在 ESM 里合法）
-const { parsePkg, readPkgEntry } = await import(MPW_PKG_EXTRACT);
+const PKG_EXTRACT_MOD = await import(MPW_PKG_EXTRACT);
+const { parsePkg, readPkgEntry } = PKG_EXTRACT_MOD;
+// ①(P-135 丙 2026-09-19) 服务端单线程热点底座：目录表只读一次 + 只读命中条目。
+//   `/noise` 旧实现每请求逐个整包读（本机实测 657.9MB/次）、`/shader/<id>/…` 每请求整包 readFileSync
+//   + parsePkg（336MB 包 = 每请求 336MB）—— 两者都在单线程事件循环里，页面并发请求会整体排队。
+//   注意：**接口行为逐位不变**（同样的 200 字节 / 404 文本 / Content-Type / 错误分支），只改读法。
+const { createPkgEntryIndex } = await import('./pkg-entry-index.mjs');
+const pkgEntryIndex = createPkgEntryIndex({
+  parsePkg, readPkgEntry,
+  // 老版本 pkg-extract 没导出 parsePkgIndex ⇒ 底座自动全程退回旧路径（服务照常起，行为 = 改动前）
+  parsePkgIndex: PKG_EXTRACT_MOD.parsePkgIndex,
+});
 
 // ①(P-87 2026-09-15 版权) 场景查找改成**两档**：生效场景根（= 使用者自己的语料）→ `<repo>/samples`
 //   （自带**合成**样例的父目录 ⇒ `?id=sample-synthetic` 在任何机器上都能打开自带样例）。
@@ -969,15 +980,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/noise') {
+      // ①(P-135 丙) 旧实现：逐个 `fs.readFileSync(整个 scene.pkg)` + parsePkg，直到命中 ——
+      //   本机语料顺序下实测 **657.9MB/次**（235.4+59.5+320.6+42.4MB），且发生在单线程里。
+      //   现在：每个包的**目录表**只读一次（64KB 起步，缓存），命中包只读那一条条目；
+      //   判定顺序/首个命中/响应字节/404 文本全部与旧实现逐字一致（见 server/pkg-entry-index.mjs）。
       for (const id of fs.readdirSync(SCENE_ROOT)) {
         const sc = findScene(id);
         if (!sc) continue;
-        const buf = new Uint8Array(fs.readFileSync(sc.pkgPath));
-        const entries = parsePkg(buf);
-        const e = entries.find((x) => /noise/i.test(x.path) && x.path.toLowerCase().endsWith('.tex'));
+        const e = pkgEntryIndex.noiseEntry(sc.pkgPath);
         if (e) {
           res.writeHead(200, { 'content-type': 'application/octet-stream' });
-          res.end(Buffer.from(readPkgEntry(buf, e)));
+          res.end(Buffer.from(pkgEntryIndex.entryBytes(sc.pkgPath, e)));
           return;
         }
       }
@@ -1052,13 +1065,15 @@ let trm = p.match(/^\/transpiled\/(\d+)\/(.+)$/);
 
     m = p.match(/^\/shader\/(\d+)\/(.+)$/);
     if (m) {
+      // ①(P-135 丙) 旧实现**每请求**都 `readFileSync(sc.pkgPath)` + parsePkg（336MB 包 = 每请求 336MB，
+      //   每包 4–8 次请求 ⇒ 冷缓存下数 GB 读 + 事件循环长时间独占）。现在只用缓存过的目录表定位条目，
+      //   再只读该条目的字节（压缩条目仍走生产解析器解压）。匹配顺序/大小写口径/响应头全部不变。
       const sc = findScene(m[1]);
       const rel = decodeURIComponent(m[2]);
-      const buf = new Uint8Array(fs.readFileSync(sc.pkgPath));
-      const entries = parsePkg(buf);
+      const entries = pkgEntryIndex.tableFor(sc.pkgPath).entries;
       for (const c of ['shaders/' + rel, rel]) {
         const e = entries.find((x) => x.path.toLowerCase() === c.toLowerCase());
-        if (e) { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(new TextDecoder().decode(readPkgEntry(buf, e))); return; }
+        if (e) { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(new TextDecoder().decode(pkgEntryIndex.entryBytes(sc.pkgPath, e))); return; }
       }
       res.writeHead(404); res.end('no shader');
       return;
