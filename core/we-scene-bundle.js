@@ -21,7 +21,8 @@ import { frameClientPoint, frameGeomModeFromQuery } from './web-frame-geometry.m
 //   为什么能同目录 import：`build-pages.mjs` 把 `core/audio-band-array.mjs` 拷到**站点根**同名文件
 //   （`['core/audio-band-array.mjs','audio-band-array.mjs']`），而 bundle 自己也在站点根 ⇒
 //   `./audio-band-array.mjs` 在"仓库 + 产物"两种布局下都命中（同 `./web-frame-geometry.mjs` 的既有形态）。
-import { parseAudioResponse, audioEnvelope } from './audio-band-array.mjs'
+//   ①(P-134 ⑥ 第二处) 其余频谱分辨率（32/64）也走同一实现处的 `resampleBands`（均值重采样）。
+import { parseAudioResponse, audioEnvelope, resampleBands } from './audio-band-array.mjs'
 
 /** `?framegeom=` 的合法档位（缺省 legacy ⇒ 一行行为都不变） */
 export const FRAME_GEOM_MODES = ['legacy', 'cover']
@@ -4559,13 +4560,50 @@ function floatifyIntArgs(text) {
 
 export { preprocess }
 
+/** ①(P-134 ⑥ 第三处) 从一段 shader 源码里取 `// [COMBO] {…}` 声明的默认值（无 `default` 的项不产出）。 */
+export function parseComboDefaults(text) {
+  const defaults = {}
+  const comboRe = /\[COMBO\][^\n]*?"combo"\s*:\s*"([^"]+)"[^\n]*?"default"\s*:\s*(-?\d+)/g
+  let m
+  while ((m = comboRe.exec(String(text || ''))) !== null) defaults[m[1]] = Number(m[2])
+  return defaults
+}
+
+/** ①(P-134 ⑥ 第三处) 把 `siblingText` 里**本方没有声明**的 `[COMBO]` 声明行补到 `srcText` 末尾。
+ *
+ *  为什么：combo 声明是**按文件**解析的，而 WE 的一个材质 pass = vert + frag **两张源共用一张
+ *  combo 表** —— 官方（行为对照：`references/wer-ref` GPL-2.0-only 的 `WPSceneParser.cpp:3691-3713`
+ *  `compile_shader` 只用**一个** `WPShaderInfo`，两个 stage 依次 `PreShaderSrc` 填同一张 `combos` 表，
+ *  再一起 `PreprocessDxcWeSource(unit.src, unit.stage, shader_info->combos, …)`）。
+ *  典型的现实后果：`Simple_Audio_Bars` 的 `BAR_STYLE` **只在 .vert 里声明**（default 1 = 圆角矩形），
+ *  frag 里没有 ⇒ frag 按"无声明 = 0"编译（直角矩形）⇒ 顶点侧按圆角定位、片元侧按直角判覆盖。
+ *  这里取**并集**：把对方独有的声明行以 `//` 注释形式**追加到本源末尾**（不改任何 GLSL 语义、
+ *  不动行号；`parseMaterialMeta`/`parseTextureCombos` 都要求注释前有 `uniform …;` ⇒ 不受影响）。
+ *  同名 combo 两边都声明时**本方保留自己的值**（对方不覆盖）—— 与 wer-ref "后解析者覆盖"的差异
+ *  只在这类冲突上出现，属未证实项（见 P-134 台账）。 */
+export function withSiblingComboDefaults(srcText, siblingText) {
+  const own = parseComboDefaults(srcText)
+  const lines = []
+  for (const ln of String(siblingText || '').split('\n')) {
+    if (!ln.includes('[COMBO]')) continue
+    const m = /"combo"\s*:\s*"([^"]+)"/.exec(ln)
+    if (!m || own[m[1]] !== undefined || lines.some((x) => x.name === m[1])) continue
+    const d = /"default"\s*:\s*(-?\d+)/.exec(ln)
+    if (!d) continue
+    lines.push({ name: m[1], text: ln.trim() })
+  }
+  if (!lines.length) return srcText
+  const text = String(srcText || '')
+  return text + (text.endsWith('\n') || text === '' ? '' : '\n') + lines.map((x) => x.text).join('\n') + '\n'
+}
+
 export function hlsl2glsl(src, stage, combos, includeResolver) {
   // combo 默认值：WE 语义 = 未显式提供时用声明里的 default（无声明 → 0）
   // （依据 linux-wallpaperengine ShaderUnit.cpp:442-477 parseComboConfiguration）
-  const defaults = {}
-  const comboRe = /\[COMBO\][^\n]*?"combo"\s*:\s*"([^"]+)"[^\n]*?"default"\s*:\s*(-?\d+)/g
-  let cm
-  while ((cm = comboRe.exec(src)) !== null) defaults[cm[1]] = Number(cm[2])
+  // ①(P-134 ⑥ 第三处)：渲染路径交给本函数的 `src` 已由 `withSiblingComboDefaults()` 补过对方 stage
+  //   独有的声明（见 getEffectProgram）⇒ 两 stage 拿到同一套默认值；直接调用本函数（工具/测试）时
+  //   仍只按传入的这一个文件解析，行为一字不变。
+  const defaults = parseComboDefaults(src)
   const effective = { ...defaults, ...(combos || {}) }
   let code = preprocess(src, effective, includeResolver, 0)  // 展开本文件保留的宏（#define 行仍在，GLSL 预处理器会展开；但函数宏在 GLSL ES 也支持，
   // 为稳妥起见用 JS 预展开，然后移除 #define 行）
@@ -8029,7 +8067,11 @@ export function createRenderer(canvas, opts = {}) {
     if (src === undefined) {
       const fragSrc = (await shaderResolver('shaders/' + shaderName + '.frag')) || ''
       const vertSrc = (await shaderResolver('shaders/' + shaderName + '.vert')) || ''
-      src = { frag: fragSrc, vert: vertSrc, texCombos: parseTextureCombos(fragSrc) }
+      // ①(P-134 ⑥ 第三处) 同一材质 pass 的 vert/frag = **一张** combo 表（官方语义，见
+      //   `withSiblingComboDefaults` 的注释）：各自补上对方独有的 `[COMBO]` 声明再编译，
+      //   否则只在 .vert 里声明的 combo（如 `Simple_Audio_Bars` 的 `BAR_STYLE`）在 frag 里按 0 编译，
+      //   顶点/片元几何口径不一致。`texCombos` 仍按**原始** frag 解析（纹理槽声明只在 frag 里）。
+      src = { frag: withSiblingComboDefaults(fragSrc, vertSrc), vert: withSiblingComboDefaults(vertSrc, fragSrc), texCombos: parseTextureCombos(fragSrc) }
       shaderSrcCache.set(shaderName, src)
     }
     // 纹理关联 combo 并入 combos（有显式值则不覆盖）
@@ -8185,6 +8227,44 @@ export function createRenderer(canvas, opts = {}) {
         if (entry.default !== undefined) setConstant(uni, entry.uniform, entry.default)
       }
     }
+  }
+
+  // ①(P-134 ⑥ 第二处) 效果 shader 的音频频谱 uniform `g_AudioSpectrum{16,32,64}{Left,Right}`。
+  //   官方语义（行为对照：`references/wer-ref` GPL-2.0-only 的 `WPShaderValueUpdater.cpp:726-793`）：
+  //   频谱源按 16/32/64 三个分辨率**各上传一组**，且**只上传该程序里真的存在**的 uniform；
+  //   没有音频源时一个都不写（uniform 保持 GL 初值 0）。此前渲染器**从不设置**它们 ⇒ 音频条类效果
+  //   （`enhanced_simple_audio_bars` 的 `bar = u_AudioSpectrum*[...]`）恒为 0 ⇒ 修好主修后整层会
+  //   "什么都不画"（对比度：官方是有音乐才出条）。
+  //   数据源 = 宿主注入的 16 段活视图（`setAudioBands()`，与粒子 `audioprocessing*` **同源同曲线**）：
+  //     · 没有活视图 / 视图 `hasSource=false`（`?bandfeed=off`、`auto` 档无音轨无麦克风）⇒ **一个都不写**
+  //       ⇒ 与接线前逐位相同（`?bandfeed=off` 下 demo 不注入 ⇒ 行为零变化）；
+  //     · 有数据源 ⇒ 16 段直取，32/64 段用 `resampleBands`（同一实现处，均值重采样；16→32/64 是
+  //       频段复制上采样）——官方是 64 段源按峰值重采样（`WPShaderValueUpdater.cpp` 的
+  //       `PeakResampleSpectrum`），我们只有 16 段源 ⇒ 数值曲线差异属**未证实项**（见台账）。
+  //   缓冲区**复用**（每帧每 pass 不分配）：一次重采样写满 64 槽，三个分辨率共用同一批缓冲。
+  const AUDIO_SPECTRUM_UNIFORMS = [
+    [16, 'g_AudioSpectrum16Left', 'g_AudioSpectrum16Right'],
+    [32, 'g_AudioSpectrum32Left', 'g_AudioSpectrum32Right'],
+    [64, 'g_AudioSpectrum64Left', 'g_AudioSpectrum64Right'],
+  ]
+  const AUDIO_SPECTRUM_BUF = new Map()
+  /** 按活视图写入存在的音频频谱 uniform；返回写入的 uniform 个数（0 = 无数据源 ⇒ 一个都没写）。 */
+  function bindAudioSpectrum(uni) {
+    const v = AUDIO_BANDS_VIEW
+    if (!v || !v.hasSource || !v.left || !v.left.length) return 0
+    const right = v.right && v.right.length ? v.right : v.left
+    let wrote = 0
+    for (const [n, lName, rName] of AUDIO_SPECTRUM_UNIFORMS) {
+      let buf = AUDIO_SPECTRUM_BUF.get(n)
+      if (!buf) { buf = { left: new Float32Array(n), right: new Float32Array(n) }; AUDIO_SPECTRUM_BUF.set(n, buf) }
+      resampleBands(v.left, n, buf.left)
+      resampleBands(right, n, buf.right)
+      for (const [name, arr] of [[lName, buf.left], [rName, buf.right]]) {
+        const u = uni.get(name)
+        if (u && u.loc !== null) { gl.uniform1fv(u.loc, arr); wrote++ }
+      }
+    }
+    return wrote
   }
 
   function resolveTextureName(name, inputFBO, effectFBOs, textures) {
@@ -9930,8 +10010,19 @@ export function createRenderer(canvas, opts = {}) {
     if (lw0 <= 0 || lh0 <= 0) {
       if (!layer.solid && !texObj) return
     }
-    const w = Math.max(1, texObj ? (layer.size[0] ? (lw0 || texObj.width) : texObj.width) : 1)
-    const h = Math.max(1, texObj ? (layer.size[1] ? (lh0 || texObj.height) : texObj.height) : 1)
+    // ①(P-134 ⑥ 主修；报告 §3.3 根因行) 无纹理层（纯色 / 文本 / 容器）也要用**实绘尺寸**建效果链 FBO。
+    //   旧写法无纹理分支恒取 `1` ⇒ FBO 塌成 1×1 ⇒ 下面 `fboW < 2 || fboH < 2` 的退化短路命中
+    //   ⇒ **效果链从不执行**，层退回"原始纯色 × colorBlendMode"整块合成（用户报的"视频壁纸左侧 1/4 反相"：
+    //   纯色层#935 的 `colorBlendMode:23`=Phoenix≈反相，2998×987 的 quad 铺满整块）。
+    //   `lw0/lh0` = size×scale = 实绘尺寸（与有纹理分支同源）；`lw0/lh0 = 0/NaN` ⇒ `|| 1` = 1
+    //   ⇒ **零几何**层仍是 1×1（`Math.max(1, …)` 再兜一道负数），行为与旧写法逐位相同。
+    //   ⚠ 口径更正（实测，见 P-134 台账"未证实项"）：`size=0` 的 **solid** 层到不了这里 —— 本函数
+    //   上方那条 WE 语义回退（"对象 size 为 0 时回退"）已把它的 size 改成**整屏投影尺寸**，所以它的
+    //   实绘尺寸就是整屏（FBO 跟着整屏，与它的绘制 quad 一致）。语料实测：size 含 0 且带 effects 的
+    //   14 层**全部 `solid=false`**（⇒ 命中上面的早退），回退生效的 13 层**全部 fx=0** ⇒ 两种口径在
+    //   语料上逐位相同。
+    const w = Math.max(1, texObj ? (layer.size[0] ? (lw0 || texObj.width) : texObj.width) : (lw0 || 1))
+    const h = Math.max(1, texObj ? (layer.size[1] ? (lh0 || texObj.height) : texObj.height) : (lh0 || 1))
     const color4 = [layer.color[0] * layer.brightness, layer.color[1] * layer.brightness, layer.color[2] * layer.brightness, layer.alpha]
     // WER-ALIGN C13：保留全部效果（含隐藏），可见性在链内以 bypass 拷贝承载（不再在此丢弃）
     let effects = (layer.effects || []).slice()
@@ -10345,6 +10436,8 @@ export function createRenderer(canvas, opts = {}) {
       await passTagErr('system-uniforms', mp.shader)
       // 常量（material 名 → uniform 映射）
       bindConstants(uni, { ...(mp.constants || {}), ...((ov && ov.constantshadervalues) || {}) }, progEntry.matMeta)
+      // ①(P-134 ⑥ 第二处) 音频频谱 uniform：**只在这条效果 pass 路径上**写（无数据源 ⇒ 一个都不写）
+      bindAudioSpectrum(uni)
       traceChk('composite-draw')
       await passTagErr('constants', mp.shader)
       // 反馈断言：绘制目标纹理与 T0 采样纹理是否同一对象（0x502 实锤前的最后验证）

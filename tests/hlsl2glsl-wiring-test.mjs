@@ -164,8 +164,17 @@ else {
 
     const rec = probes.find((p) => p.name === target.shader && p.stage === target.stage)
     ok('W2d 判别 shader 这一次转译被探针记录到', !!rec, rec ? 'combos=' + JSON.stringify(rec.combos) : '未记录到 ' + target.shader + '.' + target.stage)
+    // ①(P-134 ⑥ 第三处) 渲染路径编译的源 = 本 stage 源码 + **对方 stage 独有**的 `[COMBO]` 声明（并集，
+    //   见 `withSiblingComboDefaults`）⇒ W2e/W2f/W3 的期望值必须按**同一口径**构造（断言语义不变：
+    //   仍然证明"送进 gl.shaderSource 的是自研实现的输出"）。sibling 缺失（包内只有单 stage）⇒ 空串。
+    const renderSrc = () => {
+      const stageSrc = rd(lib.getEntry(target.pkg, target.full))
+      const sibPath = target.full.replace(/\.(frag|vert)$/, (m0, ext) => (ext === 'frag' ? '.vert' : '.frag'))
+      const sibBuf = lib.getEntry(target.pkg, sibPath)
+      return lib.withSiblingComboDefaults(stageSrc, sibBuf === null ? '' : rd(sibBuf))
+    }
     if (rec) {
-      const src = rd(lib.getEntry(target.pkg, target.full))
+      const src = renderSrc()
       const expectW = WIRED(src, target.stage, rec.combos, includeResolver)
       const expectV = VENDORED(src, target.stage, rec.combos, includeResolver)   // 渲染路径是 4 参调用（无 siblingSrc）
       const got = cap1.sources.find((s) => s === expectW)
@@ -190,7 +199,7 @@ else {
         const r2 = xlib.createRenderer(cap2.canvas, { shaderResolver, onLog: () => {} })
         await r2.render(scene, textures, 640, 360, 0.016)
         if (rec) {
-          const src = rd(lib.getEntry(target.pkg, target.full))
+          const src = renderSrc()                       // ①(P-134 ⑥) 与渲染路径同口径（并集）
           const expectW = WIRED(src, target.stage, rec.combos, includeResolver)
           const expectV = VENDORED(src, target.stage, rec.combos, includeResolver)
           const gotV = cap2.sources.find((s) => s === expectV)
