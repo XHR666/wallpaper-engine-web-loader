@@ -446,6 +446,21 @@ add "we-core-parity" "node tests/we-core-parity-test.mjs" "" "^SKIP we-core-pari
 #   **61 断言**；实测 ~6.4s、主进程 PeakRSS **~215MB**（进程树瞬时 ~430–460MB：父进程与 firefly 探针子进程重叠）、
 #   无浏览器 / 无网络 / 无 X11。真包缺失时各组 SKIP 视作 PASS（不红），与其余真包类条件项同口径。
 add "particle-children" "node tests/particle-children-test.mjs"
+
+# ①(P-152 2026-09-19) `mdl-bone-layout`：**MDLS 骨骼布局校验（防回归）** —— 把"今天恰好全合法"变成"以后坏了会红"。
+#   依据 `docs/UPSTREAM-PORT-PLAN-20260919.md` §4（上游 `be3c246` 的**判据**：先按布局 A 整体解析并校验，
+#   任一骨非法才判定变长布局；重扫拿全才采用，绝不返回残缺骨架）。今天两侧解析器**都没有任何校验**、
+#   语料恰好全合法（43 `.mdl` / 35 含 MDLS / 332 骨 / 非法骨 0）⇒ 一旦遇到变长骨名布局（B/C）或损坏记录，
+#   定步会**静默产出错位骨架**（parent 读成 16256、矩阵退化成垃圾），不抛异常、不报错。
+#   本项锁四件事：① 合成样本逐类判定（合法 A / 合成布局 B,C / parent 越界 / 材质索引越界 / 记录截断 /
+#   骨名槽超长 / 骨名槽非法字节 / 旋转非单位长 / 平移非有限 / 声明骨数越界 / 10 字节头变体）；
+#   ② 全语料回归（43 `.mdl` 默认档 == `?mdls=legacy` 档**逐字段**相同 = 零回归；332 骨 / 35 MDLS / 0 非法 / 0 拒绝）；
+#   ③ `?mdls=legacy` 逐位回退（判定式 + 逐样本 + 全语料）；④ **3 组变异自证**（真跑：复制 `core/` 到临时目录
+#   做字符串变异再 import —— R1 去掉校验 ⇒ 非法样本不再被拒必红；R2 布局判定恒 A ⇒ B/C 的 `layout` 档必红；
+#   R3 骨名槽判据弱化 ⇒ 本门禁仍全绿 = 没有靠它做过度拒绝）。
+#   **68 断言**；实测 ~11s、单进程 PeakRSS ≈ 60MB、**无浏览器 / 无网络 / 无 X11**。
+#   缺语料时组件 SKIP 视作 PASS（与其余真包类条件项同口径）。
+add "mdl-bone-layout" "node tests/mdl-bone-layout-test.mjs"
 # ①(P-153 2026-09-19 · 派单 B) 脚本 `localStorage` 的**共享持久**档 `?scriptstore=persist`（方案
 #   `docs/UPSTREAM-PORT-PLAN-20260919.md` §5）：**缺省逐位保持 legacy**（逐沙箱 `new Map()`、不共享、
 #   不持久 —— 本仓"脚本沙箱不碰宿主存储"的纪律不变），显式开关才走"同一壁纸全部脚本共享一份 +

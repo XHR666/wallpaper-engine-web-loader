@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-19T05:41:05.980Z",
+  "generatedAt": "2026-09-19T05:49:13.380Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -1008,6 +1008,17 @@
           "file": "core/we-scene-bundle.js",
           "line": 5401,
           "pattern": "regex [?&]mcc="
+        }
+      ]
+    },
+    {
+      "name": "mdls",
+      "common": false,
+      "sites": [
+        {
+          "file": "elysia/we-renderer/puppet.js",
+          "line": 751,
+          "pattern": "regex [?&]mdls="
         }
       ]
     },

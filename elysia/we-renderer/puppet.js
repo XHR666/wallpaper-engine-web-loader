@@ -4,7 +4,12 @@ import { Buffer } from '../buffer.js';
 // ①(P-139 2026-09-19) MDLA 采样口径的**唯一实现处**（见下方 `_sampleAnimRT` 的注释）：
 //   core 不 import elysia ⇒ 单向依赖，无循环。Node 侧（tests/*.mjs）与浏览器侧同一条路径。
 import { sampleAnimRT } from '../../core/attach-transform.mjs';
-
+// ①(P-152 2026-09-19) MDLS 骨骼布局校验的**判据**也在 core（`readMdlsLayoutABones` / `mdlBoneEntryOK` 是
+//   唯一实现处；本文件与 `core/attach-transform.mjs::parseMdl` 共用同一份定步读骨逻辑，避免"改一处忘另一处"
+//   的第二次分叉 —— 与 P-139 把 `_sampleAnimRT` 收敛到 core 同一条纪律）。
+//   本文件是**实际运行**的解析器（`demo.html:3442` 的 `puppetHelper._parseMdl`），故必须同批落校验：
+//   否则"防回归"只保护到附件锚点那条路径，蒙皮那条仍会静默吃错位骨。
+import { readMdlsLayoutABones } from '../../core/attach-transform.mjs';
 // ── puppet mixin (从 core.js 拆分, 逻辑零改动) ──
 export function installPuppet(proto) {
   Object.assign(proto, {
@@ -248,7 +253,12 @@ export function installPuppet(proto) {
       }
     
 ,
-    _parseMdl(buf) {
+    _parseMdl(buf, opts) {
+        // ①(P-152 2026-09-19) `?mdls=legacy`（判定式 = 本文件模块级 `mdlsLegacy()`，同 `bindOrderLegacy` 形）
+        const mdlsLegacyMode = (() => {
+          try { return mdlsLegacy((typeof location !== 'undefined' && location && location.search) || ''); }
+          catch (e) { return false; }
+        })();
         const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
         let mdlsOffset = buf.length;
         for (let off = 9; off + 4 < buf.length; off++) {
@@ -304,36 +314,63 @@ export function installPuppet(proto) {
         for (let i = 0; i < indexCount; i++) indices.push(dv.getUint16(found.indicesOffset + i * 2, true));
         // 骨骼 (MDLS) + 动画 (MDLA): puppet 蒙皮
         let bones = [], animations = [];
+        // ①(P-152 2026-09-19) 与 `core/attach-transform.mjs::parseMdl` **同契约**（判据/失败路径/回退开关
+        //   一字不差；定步读骨本身复用 core 的 `readMdlsLayoutABones` —— 唯一实现处）。`opts.mdls === 'legacy'`
+        //   或 `mdlsLegacyMode` ⇒ 逐位回到"无校验"旧行为（`?mdls=legacy`，见文件末 `mdlsLegacy()`）。
+        const legacyMode = !!((opts && (opts.mdls === 'legacy' || opts.mdlsLegacy === true)) || mdlsLegacyMode);
+        let mdlDiag = null;
         if (mdlsOffset < buf.length) {
           try {
             let p = mdlsOffset + 9;
             p += 4; // 段字节
             const boneCount = dv.getUint32(p, true); p += 4;
-            for (let b = 0; b < boneCount && p + 12 < buf.length; b++) {
-              // 骨骼头变体: 大部分 tmp 为 u8 (9 字节头); 个别骨骼 (带旋转/特殊) tmp 为 u16 (10 字节头)
-              // 用 entryLen 合理性 (0 < len <= 4096) 判断; 不合法则按 u16 tmp 重读
-              let headExtra = 0;
-              let tmp = buf[p];
-              let type = dv.getUint32(p + 1, true);
-              let parent = dv.getInt32(p + 5, true);
-              let len = dv.getUint32(p + 9, true);
-              if (len === 0 || len > 4096) {
-                tmp = dv.getUint16(p, true);
-                type = dv.getUint32(p + 2, true);
-                parent = dv.getInt32(p + 6, true);
-                len = dv.getUint32(p + 10, true);
-                headExtra = 1;
-                if (len === 0 || len > 4096) break; // 无法对齐
+            if (legacyMode) {
+              // ── 旧行为（无任何校验，P-152 之前逐字）──
+              for (let b = 0; b < boneCount && p + 12 < buf.length; b++) {
+                // 骨骼头变体: 大部分 tmp 为 u8 (9 字节头); 个别骨骼 (带旋转/特殊) tmp 为 u16 (10 字节头)
+                // 用 entryLen 合理性 (0 < len <= 4096) 判断; 不合法则按 u16 tmp 重读
+                let headExtra = 0;
+                let tmp = buf[p];
+                let type = dv.getUint32(p + 1, true);
+                let parent = dv.getInt32(p + 5, true);
+                let len = dv.getUint32(p + 9, true);
+                if (len === 0 || len > 4096) {
+                  tmp = dv.getUint16(p, true);
+                  type = dv.getUint32(p + 2, true);
+                  parent = dv.getInt32(p + 6, true);
+                  len = dv.getUint32(p + 10, true);
+                  headExtra = 1;
+                  if (len === 0 || len > 4096) break; // 无法对齐
+                }
+                p += 9 + headExtra; // tmp + type + parent 之后 (len 字段起点)
+                p += 4; // len 字段本身
+                const m = new Array(16);
+                for (let i = 0; i < 16; i++) m[i] = dv.getFloat32(p + i * 4, true);
+                p += len;
+                let je = p;
+                while (je < buf.length && buf[je] !== 0) je++;
+                p = je + 1;
+                bones.push({ index: b, type, parent: parent === -1 ? -1 : parent, bind: m });
               }
-              p += 9 + headExtra; // tmp + type + parent 之后 (len 字段起点)
-              p += 4; // len 字段本身
-              const m = new Array(16);
-              for (let i = 0; i < 16; i++) m[i] = dv.getFloat32(p + i * 4, true);
-              p += len;
-              let je = p;
-              while (je < buf.length && buf[je] !== 0) je++;
-              p = je + 1;
-              bones.push({ index: b, type, parent: parent === -1 ? -1 : parent, bind: m });
+            } else if (!(boneCount > 0 && boneCount <= 1024)) {
+              // ① 声明骨数越界 ⇒ 直接拒绝（不读骨）；② 台账 + 一行 warn（机器可判的失败信号）
+              mdlDiag = { declaredBones: boneCount, parsedBones: 0, layout: 'refused', rejected: true, reason: 'declared-bone-count-out-of-range', rejectedBones: 0, entryErrors: [] };
+              warnMdlBoneLayout(mdlsOffset, boneCount, mdlDiag);
+            } else {
+              const r = readMdlsLayoutABones(buf, dv, mdlsOffset, boneCount, null);
+              if (r.complete && !r.structErrors && !r.entryErrors.length) {
+                bones = r.bones; // 布局 A 整体合法 ⇒ 逐位采用（= 改动前结果）
+              } else {
+                // 不许静默按 A 解：定步结果**不采用**（绝不返回残缺/错位骨架）
+                bones = [];
+                mdlDiag = {
+                  declaredBones: boneCount, parsedBones: r.bones.length,
+                  layout: (r.entryErrors.length || r.structErrors > 0 || r.bones.length !== boneCount) ? 'not-A' : 'refused', rejected: true,
+                  reason: r.rejectReason || (r.entryErrors[0] && r.entryErrors[0].reason) || 'unknown',
+                  rejectedBones: r.entryErrors.length, entryErrors: r.entryErrors.slice(0, 8),
+                };
+                warnMdlBoneLayout(mdlsOffset, boneCount, mdlDiag);
+              }
             }
           } catch { bones = []; }
           // MDLA 动画
@@ -702,4 +739,28 @@ export function installPuppet(proto) {
     
       // ── 效果链 (CPU 实现 shader) ──────────────────────────────────────
   });
+}
+
+// ①(P-152 2026-09-19) `?mdls=legacy` 的**判定式**（与 `core/puppet-skin.js::bindOrderLegacy`
+//   同形：正则字面量，由 `tests/diag-flag-check.mjs` 的规则 c 抓取）。缺省/任何其它值 = 走校验。
+//   为什么在这里解析而不是 demo.html：demo.html 是**别的并行线的在改文件**（本任务禁碰），
+//   而本文件是**实际运行**的 MDLS 解析器（`demo.html:3442` 的 `puppetHelper._parseMdl`）⇒
+//   把解析点挂在真正消费它的模块上，`?mdls=legacy` 就能端到端生效，不必等接线。
+export function mdlsLegacy(search) {
+  const s = (search === undefined || search === null) ? '' : String(search);
+  return /[?&]mdls=legacy/.test(s);
+}
+
+// ①(P-152) 一行可读 warn（只在**真的拒绝**时打；合法语料一个字都不打 ⇒ 日志面也逐位不变）。
+//   与 `core/attach-transform.mjs::warnMdlBoneLayout` 同文案（同一契约的两个解析器应当报同一句话）。
+function warnMdlBoneLayout(mdlsOffset, boneCount, diag) {
+  try {
+    const w = (typeof console !== 'undefined' && typeof console.warn === 'function') ? console.warn : null;
+    if (!w) return;
+    const first = diag.entryErrors.length ? (' bone#' + diag.entryErrors[0].b + '=' + diag.entryErrors[0].reason) : '';
+    const cnt = diag.entryErrors.length ? (' entryErrors=' + diag.entryErrors.length + first) : '';
+    const tail = diag.rejectReason ? (' rejectReason=' + diag.rejectReason) : '';
+    w('[P-152] MDLS bone layout rejected @+' + mdlsOffset + ': declared=' + boneCount + ' parsed=' + diag.parsedBones
+      + ' layout=' + diag.layout + cnt + tail + ' -> bones=[] (?mdls=legacy = 逐位回到无校验旧行为)');
+  } catch (e) { /* 日志失败不影响解析 */ }
 }

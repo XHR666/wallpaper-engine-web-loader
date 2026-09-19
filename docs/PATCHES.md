@@ -11406,6 +11406,123 @@ renderer/vendor/we-scene/render/particles.js:1300      ← 消费点
 4. **子系因子语料只有 1 例**：`star_shine-2`（= 2）；事件类子系在测试帧上可能一颗都不吐 ⇒
    门禁不写死批次数，按"哪一批真的随因子变化"定位（避免用错批次得出结论）。
 
+## P-152（2026-09-19 · 派单 D）MDLS 骨骼布局校验（防回归）—— 把「今天恰好全合法」变成「坏了会红」
+
+**一句话**：两侧解析器（`core/attach-transform.mjs::parseMdl` 与 `elysia/we-renderer/puppet.js::_parseMdl`）
+今天都是**布局 A 定步、且没有任何校验**；本仓语料**恰好全合法**（43 `.mdl` / 35 含 MDLS / 332 骨 / 非法骨 0），
+所以一旦遇到"逐骨记录不是布局 A"的包（上游实测的**变长骨名布局 B/C**）或记录损坏，定步会**静默产出错位骨架**
+（`parent` 读成 `16256`、矩阵退化成 `1e-43` 垃圾 / 89° 假旋转 / `z=2.1e18`），**不抛异常、不报错** ——
+本项把"恰好没坏"变成"坏了会红"：**先校验再用 + 明确失败路径 + 一行 warn + 机器可判台账 + 回退开关**。
+
+### P-152.0 官方语义出处（一手）
+
+依据 `docs/UPSTREAM-PORT-PLAN-20260919.md` **§4 MDLS 变长骨名**（本轮**不重摸**，直接按其结论落地）：
+
+* 上游 `oneincase/webwallgl` `be3c246`（**MIT**）的 renderer/vendor/we-scene/render/mdl-parse.js（**仓外**参考检出，不入库）记录三种布局：
+  **A** 固定 78B（`id@1 / parent@5 / matrix@13(64B) / name cstr@77`）；**B** 骨名前置变长；**C** 骨名前置 + 矩阵后变长 JSON 元数据。
+* 上游的**判据**（`git show be3c246:...mdl-parse.js | sed -n '302,308p'`，函数锚点 `parseSkeleton` `:309` / `parseFixed` `:321` / `findHeader` `:343`）：
+  > **先按 A 固定布局整体解析并校验**（parent 全合法 + 每矩阵两列单位长度 + 平移有限），通过就逐位采用（旧模型零回归）；
+  > 任一骨非法才判定为 B/C 变长布局，顺序重解析；重扫必须拿全所有骨且全合法才采用，否则回退固定解析，**绝不返回残缺骨架**。
+* **只作判据引用**：本项**没有照抄任何上游代码/注释/文案**（上游是固定 78B 步进 + `findHeader` 窗口锚扫，
+  我们是"9/10 字节头变体"的既有实现 ⇒ 逐行对照无从谈起）⇒ **不加** `THIRD-PARTY.md` 段、**不记** `docs/COPYING-RULES.md` 台账
+  （照抄才登记；本项口径 = "判据契约可移植、解析器自研"，与 §附 B 的判定一致）。
+
+### P-152.1 我们的实现（落点：唯一实现处 = `core/attach-transform.mjs`）
+
+| 步骤 | 文件 | 内容 |
+|---|---|---|
+| ① 判据（唯一实现处） | `core/attach-transform.mjs`（`MDLS_NAME_SLOT_MAX` / `mdlBoneEntryOK` / `mdlNameSlotOK` / `readMdlsLayoutABones` / `mdlLooksLikeLayoutA` / `mdlsLegacy`） | 定步读骨的**逐骨判据 + 记录/槽边界**全部变成**可判定的返回值**；`readMdlsLayoutABones` 是两侧解析器共用的**定步读骨唯一实现处** |
+| ② 采用/拒绝 | 同文件 `parseMdl` 的 MDLS 段 | 只有 `complete && !structErrors && !entryErrors.length` 才**逐位采用** `bones`；否则 `bones = []` + `mdlDiag` + 一行 warn（**绝不返回残缺/错位骨架**） |
+| ③ 同构 | `elysia/we-renderer/puppet.js`（`_parseMdl`） | `demo.html:3442` 的 `puppetHelper._parseMdl` 是**实际运行**的那份解析器 ⇒ 同批落同一契约；**定步读骨复用 core 的 `readMdlsLayoutABones`**（与 P-139 把 `_sampleAnimRT` 收敛到 core 同一条纪律，`core` 不 import elysia ⇒ 无环） |
+| ④ 开关 | `elysia/we-renderer/puppet.js::mdlsLegacy` | `?mdls=legacy` = **跳过校验与判定**，逐位回到 P-152 之前的"无校验"旧行为；判定式 = 正则字面量 `/[?&]mdls=legacy/`（与 `bindOrderLegacy` 同形，`diag-flag-check` 规则 c 抓得到） |
+
+**判据全表**（任一不满足 ⇒ **拒绝该骨**，计数 + 首个原因 + 一行 `console.warn`）：
+
+| 判据 | `reason` |
+|---|---|
+| `parent ∈ [-1, 骨数)` | `parent-out-of-range` |
+| 材质(id)索引 `∈ [0, 100000)` 且有限 | `material-index-out-of-range` |
+| 记录 `len ∈ [1,4096]`（定步自己的长度字段） | 越界 ⇒ 结构错（见下） |
+| 旋转部分**两行单位长**（`|hypot-1| < 0.05`） | `rotation-row-not-unit` |
+| 平移三列有限（`m[12..14]`） | `translation-not-finite` |
+| 骨名槽可打印/合法 UTF-8（**不要求是骨名**，布局 C 的 JSON 元数据槽合法） | `name-slot-invalid-bytes` |
+| 骨名槽 ≤ 4096B | `name-slot-too-long` |
+| 记录读完（骨名以 NUL 终止且不越过文件尾） | `record-truncated` / `layout-name-fronted` |
+| 读到的骨数 == 声明骨数 | `bone-count-mismatch` |
+| 声明骨数 `∈ (0, 1024]` | `declared-bone-count-out-of-range` |
+
+**判定档与失败路径**（`mesh.mdlDiag`，**只在真拒绝时才挂**）：
+
+* `layout: 'A'` = 35/35 合法 MDLS（**不挂台账**，对象形状与改动前逐位相同）；
+* `layout: 'not-A'` = 逐骨判据拒绝 **或** 定步在读完声明骨数前失步（`reason` = `layout-name-fronted` / `bone-count-mismatch` / 首条骨判据） ——
+  **这就是"不许静默按 A 解"**；
+* `layout: 'refused'` = 定步**读完**了声明骨数但被逐骨判据拒绝（首条就被拒时也可落在 `record-truncated`）。
+* 三者都满足不变量：**`bones.length ∈ {0, 声明骨数}`**（本门禁对 12 个合成样本逐一断言 ⇒ **绝无残缺中间态**）。
+
+**①(P-152) 有意**不落**"重扫救回"**：上游在 A 校验失败后会按 B/C 顺序重扫来**救回**变长骨名的包。
+本轮只落**校验 + 明确失败路径**，不落重扫 —— 因为布局 B/C 是**合成**样本（真语料 0 命中、官方二进制**未对拍**），
+重扫的判据不被任何真数据检验 ⇒ 宁可"明确拒绝 + 计数 + 一行 warn"，也不引入一个**可能把合法 A 包改坏**的启发式。
+（这是**范围裁剪**，不是遗漏；上游自报影响面是 238 个骨架里 2 个"旧坏→新好"，我们一个都没命中。）
+
+### P-152.2 语料影响面（实测：**零回归**）
+
+命令（只读 entry 表 + 流式读单个 `.mdl` entry，**从不**整包 `readFileSync`；最大包 220–792MB 不整读）：
+
+```
+node tests/mdl-bone-layout-test.mjs
+```
+
+| 指标 | 实测 |
+|---|---|
+| `.mdl` 行数 | **43** |
+| 含 MDLS | **35**（8 个静态网格无 MDLS） |
+| 骨骼累计 | **332** |
+| 非法骨（parent 越界 / 材质索引越界 / 骨数≠声明） | **0** |
+| 默认档被拒 / warn 行数 | **0 / 0**（合法语料一个字都不打 ⇒ 日志面也逐位不变） |
+| 默认档 vs `?mdls=legacy` 逐字段差异 | **0** |
+| **默认档 vs `git show HEAD:core/attach-transform.mjs`（改动前）逐字段差异** | **0**（43/43；另跑一次 HEAD-vs-new 对比：`rows 43 / withMdls 35 / bones 332 / diffs 0`） |
+| elysia 侧（`puppet.js`）默认档 vs 自己的 legacy 档 | **0 差异**、0 个 `mdlDiag` |
+
+**顺带查明的一条既有差异（与本项无关，但必须写明）**：core 与 elysia **两侧的骨矩阵在 8 个 `.mdl` 上本来就不一致**
+（`git show HEAD:` 的两个文件实测同为 **8** 个）⇒ 门禁**不**写"core == elysia"这条断言（写了就是把既有差异记到 P-152 头上）。
+本轮只断言两侧**各自**的"默认 == legacy + 骨数 == 声明骨数"。
+
+**另一条既有基线**：8 个无 MDLS 的 `.mdl` 里 **7 个** `parseMdl` 返回 `null`（顶点块扫描没命中）、**1 个**（`models/球体04`）返回 `bones=[]`
+（HEAD 实测同值）——门禁按基线计数断言，不当成本项失败。
+
+### P-152.3 门禁 `mdl-bone-layout`（无浏览器 / 无 GPU / 无网络 / 无 X11）
+
+`node tests/mdl-bone-layout-test.mjs` ⇒ **68 断言 / 0 失败**，实测 **~3.3s**、单 node 进程 **PeakRSS ≈ 244MB**
+（含变异体 import；语料最大单项 26.8MB 的 `.mdl` 只读单个 entry）。四组：
+
+1. **合成样本逐类判定（34 断言）**：合法布局 A（逐位采用）/ **合成**布局 B（名字前置变长）/ **合成**布局 C（名字前置 + 矩阵后 JSON）/
+   parent 越界 / 材质索引越界 / 记录截断 / 骨名槽超长 / 骨名槽控制字节 / 骨名槽非法 UTF-8 / 旋转非单位长 / 平移非有限 /
+   声明骨数越界（0 与 100000）/ 10 字节头变体 / `len=0` —— 每类都断言**期望的判定结果**（`layout` / `reason` / 一行 warn / `bones=[]`）。
+   样本用**自研构造器**（`buildMdl`，块顺序照 `parseMdl` 的扫描契约排，构造时自检 `u32@13 == 顶点字节数` 等 ⇒ 拼错当场红）。
+2. **全语料回归（11 断言）**：`43 / 35 / 332 / 0 非法 / 0 拒绝 / 0 warn` + 默认 vs legacy 逐字段 sha256 相同 + 骨数==声明骨数。
+3. **`?mdls=legacy` 逐位回退（5 断言）**：判定式（含非法值回落）+ 逐样本骨指纹 + 全语料逐字段。
+4. **3 组变异自证（6 断言，真跑）**：把 `core/` 复制到临时目录做**字符串变异**再 `import`（真树 sha256 跑完不变）：
+
+| 组 | 变异 | 实际变红 |
+|---|---|---|
+| **R1** | 恒走"无校验旧路径"（`mdlsLegacyMode = true`） | **6/6 非法样本不再被拒**（layoutB/layoutC/badParent/badMatIdx/badRot/badTrans 全部 `diag=false`）⇒ 逐类判定组必红；同时合法 A 仍照常解析（红的确实是"校验"不是"解析"） |
+| **R2** | 布局判定恒为 A（`mdlLooksLikeLayoutA` 直接 `return true`） | 布局 B/C 的 `layout` 档从 `not-A` 变 `refused` ⇒ 该组必红；且"仍拒绝/仍空骨架"不变（**失败路径与判定档是两件事**） |
+| **R3** | 骨名槽判据弱化（`mdlNameSlotOK` 直接 `return true`） | 本门禁**仍全绿 5/5**（没有靠"骨名槽判据"做过度拒绝的证明） |
+
+### P-152.4 未证实项（诚实清单）
+
+1. **布局 B/C 是合成样本**：真语料 **0 命中**，**官方二进制未对拍**（本机无 WE 官方运行环境）；合成样本只证"我们的判据**会**拒绝这种记录流"，
+   不证"WE 官方**就是**这么解析 B/C 的"。（上游文档与实测注释是唯一来源。）
+2. **上游行号只对 `be3c246` 有效**：本文引的 mdl-parse.js:302-308/309/321/343（仓外参考检出）取的是**修复提交**那一版；
+   若按最终树（`fdfc578` / 1.3.23）落地，行号会不同（与本仓 U-5 同一条纪律）。
+3. **没有真机像素证据**：本轮不启动浏览器（用户纪律）；"被拒绝的包在画面上是空骨架"这句是**从代码路径读出来的**
+   （`bones=[]` ⇒ 蒙皮/附件锚点拿不到骨），不是像素证据。真机像素归主对话。
+4. **"重扫救回"未实现**（有意）：见 §P-152.1 末；若将来导入真的布局 B/C 包，需要单独一条 P 落重扫，并**先**找到可对拍的真包。
+5. **首条骨判据拒绝的档位口径**：`parent-out-of-range` 等**逐骨**原因会被记成 `layout: 'not-A'`（因为它同时是"记录流可疑"的证据）。
+   这条口径是**本项自定的**（不是上游原文）；对合法语料零影响（0 命中），但读台账时要知道 `not-A` ≠ 一定是 B/C。
+6. **`?mdls=legacy` 的解析点**：落在 `elysia/we-renderer/puppet.js`（实际运行的解析器），**不是** `demo.html`/`core/we-scene-bundle.js`
+   —— 那两个文件本批（并行线）禁碰。端到端效果：demo 页 `?mdls=legacy` 即生效（`puppetHelper._parseMdl` 自己读 URL）。
+
 ## P-153（2026-09-19 · 派单 B）脚本 `localStorage` 的**共享持久**档 `?scriptstore=persist`（缺省仍逐位 legacy）
 
 **一句话**：官方语义是"**同一张壁纸的全部脚本共享一份 + 跨会话持久**"，本仓今天是"**逐沙箱一个 `new Map()`**"
