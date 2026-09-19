@@ -11837,3 +11837,144 @@ localStorage 超限拒写（现场档仅 1649 B、`__mpwPersistFail` 不存在�
 6. **用户不需要手动重选壁纸**：现场那份半残档已被自愈推回原源，其余 90 个用户字段一字未动。
 7. `README*.md` / `package.json`（版本号）/ `lib/web-wallpaper.js` / `lib/web-interaction.js` /
    `lib/media-session.js` **未动**；渲染器仓只追加本条台账。
+
+## P-158（2026-09-19 · 渲染器侧 · `:8902` 测试台外壳一批 UI/交互 bug）工具条顶出屏幕 / 下拉有缝 / 重复下拉框 / 预览被切 / 诊断打不开 / 壁纸切换栏一次性全导入 / 类型过滤看不到 web·video
+
+> 口径：本条是本仓库（渲染器）**自己**的修复，改动面**只有两个文件** `demo/index.html`、`demo/bench-patch.js`
+> （外加门禁与测试：`tests/bench-shell-fixes-test.mjs`（新）、`tests/bench-ui-headless-test.mjs`、
+> `tests/demo-check.mjs`、`tests/run-all-tests.sh`）。**未动** `core/**`、`server/**`、`build-pages.mjs`、
+> `demo/mpw-select.js`（只读，见 §P-158.3 第 2 条）、两份 README/`THIRD-PARTY.md`。
+> 另附 `demo/bench-patch.js` 里**尾迹"离开即归中"**那条真机 bug 的修复（P-159 的内容，与本案同一提交）。
+
+**一句话**：`:8902` 的"整页布局"其实被一个 2279px 的内层网格列撑爆了 —— 由此派生出工具条被顶掉、
+预览只看得见左上角、输出栏按钮跑到视口外；再叠上"一个 `<select>` 被两套自绘控件同时增强"、
+"自绘下拉的 `position:fixed` 包含块被 `contain:paint` 抓走"、"类型过滤宿主被当已删功能摘掉处理器并 `hidden`"、
+"壁纸切换栏把整库当 tab 一次性铺开"四条，用户报的 11 条症状全部有出处。
+
+### P-158.0 修前证据（`:8902` 真机读数，headless Firefox 1360×900，探针 `/tmp/probeA1.mjs`）
+
+| 口径 | 修前 | 根因（`文件:行`） |
+|---|---|---|
+| `#main` 内层网格列 | **2279px**（`#main` 真实宽 740） | 产物 `#main{display:grid}` 单列是 `auto`，被 `#editor-tabs` 的 11 个 tab 撑到 max-content |
+| 工具条 17 个控件在视口内的个数 | **3 / 17** | 同上（`#toolbar` 宽 2279，右缘 2899 > 视口 1360） |
+| `#stage-scale` / `#frame` | **2255 × 1268**，槽只有 508 高 | 我们的 `#stage-scale{width:100%!important;height:auto!important}` + `aspect-ratio` ⇒ 只按"宽度"撑高；`max-height:56vh` 又被产物那条更特异的 `max-height:100%`（百分比对 auto 行无意义）吃掉 |
+| 分辨率下拉与触发框的缝 | **48px** | `#pages-track{contain:paint}` 是 fixed 后代的**包含块** ⇒ 内联 `top:111`（视口坐标）渲染成 155（= 111 + header 44） |
+| 工具条里的自绘控件 | 每个选项后面多一个 `.mpw_select`，label 全是「（空）」；分辨率处有**两个**「自适应 16:9」 | `init()` 的 `bindDropdown` 给所有 select 建 `.bench-rd`，随后 `enhanceBenchSelects()` 又对其中 6 个调 `enhanceSelect()`（插在 select 下一个兄弟位 = `.bench-rd` 里面）；`demo/mpw-select.js` 的 `paintButton()` 读的是**只在 `open()` 里赋值**的闭包 `model` ⇒ 首次展开前恒写「（空）」 |
+| 左侧列表的条目 | **11 项，全是 scene**（`/api/library` 实际返回 22 项：scene 11 / web 7 / video 4） | ①`#type-filter` 被塞进 `#bench-legacy-anchors[hidden]` 且**没有任何 `.seg-btn`**；②patch 的"兼容锚点"清单还把它 `onclick=null` + `hidden` ⇒ 产物 `Pe` 恒 `'scene'`（`rt(n)!==Pe` 直接 continue） |
+| 切换栏 tab | 11 个（当前 + 库前 10 项），`＋` 跟着当前项跑 | `switcherPlan(items, curId, 12)` 把整库铺开；`#wp-add` 被 `insertBefore` 到当前 tab 后面 |
+| 输出栏按钮 | 展开态两个按钮 rect 右缘 2891（**视口外**）；收起态 `#clear-logs` 被产物 `display:none` | 同"内层列撑爆"+ 产物 `#main.logs-collapsed #clear-logs{display:none}` |
+| 「渲染器诊断（/diag）」 | 一行**静态文本**，点了没反应 | 只是 `<strong data-i18n="logs.diag">`；产物自己那条 EventSource 把渲染器日志混进 `#logbody` |
+| 库来源 | 只有一行裸路径（服务端 `dir` 的实际值） | 产物按 `/api/library` 的 `dir` 写 `#libpath`，**看不出**这是"服务端默认"还是"用户选的" |
+
+### P-158.1 修法（逐条：为什么这么改）
+
+1. **①②④⑤⑧（同一处根因）**：`#main{grid-template-columns:minmax(0,1fr)!important}` —— 把产物那条 `auto`
+   内层列钉死 ⇒ 列宽 = `#main` 真实宽度 ⇒ 工具条的 `flex-wrap:wrap`（产物本来就有）才可能换行、
+   预览的容器查询才有**确定尺寸**。选"换行"而不是"更多菜单/横向滚动"的理由写在静态表里（17 个控件全是
+   产物绑定的原生 label/select/button：换行零结构改动、Tab 顺序天然正确；折叠要搬控件会断 id 绑定；
+   横滚把"看不到"变成"要横划"）。再加 `#toolbar{max-height:30vh;overflow-y:auto}` 兜底：换行仍超高时可纵向滚。
+2. **②**：`dropdownLayerPlan()` 的缝从 4px 收到 **2px**；新增纯函数 `layerFixedOffset(trackRect, inside)`
+   把"包含块原点"从坐标里减掉（`#pages-track{contain:paint}` ⇒ 锚在它里面时内联 left/top 是相对它，
+   不在里面时（设置弹层的 `#lang`）偏移为 0）；写坐标后按**实测几何**做一次贴合校正（below 对齐上边缘、
+   above 对齐下边缘，不取整 —— 取整会做出 2.2px 的缝）。
+3. **③**：外壳 6 个 select **只留一套**自绘控件 —— 工具条归 `.bench-rd`（`BENCH_BAR_SELECT_IDS`），
+   `BENCH_SELECT_IDS` 清空（mpw 只留给 `#props-body` 的 combo，用户第 6 项点名的那个面）；
+   `dropToolbarMpwSelects()` 清历史遗留的第二套控件（幂等）；新增
+   `select.bench-rd-native{display:none!important}`（这条以前是 mpw 用 `hidden` 干的，摘掉 mpw 后
+   5 个原生下拉会重新露出来）；`syncMpwLabels()` 给属性面板的 mpw 按钮做**呈现层**文案兜底。
+4. **⑤⑧**：宽屏恢复 `#stage-frame{container-type:size}` + `#stage-scale` 只钉 `aspect-ratio:16/9`
+   （尺寸交回产物那条 `:not(.fixed-res)` 的容器查询 = "容器内最大的 16:9"）；窄屏块（特异性更高、源序在后）
+   原样保留 `container-type:normal` + 定值宽高 ⇒ 2026-09-18 的窄屏修复不受影响；**不再**用
+   `width:100%!important` 覆盖 `.fixed-res` 的内联缩放盒（那是"画面被放大裁切"的另一半）。
+5. **⑥**：`#main.logs-collapsed #clear-logs{display:inline-flex!important}` 压掉产物那条 `display:none`
+   ⇒ 展开/收起两态都常驻「清空 / 复制输出」；复制/清空按**当前页签**取文本（输出 / 诊断）。
+6. **⑦**：「渲染器诊断（/diag）」从 `<strong>` 变成**真页签**（`#tab-logs` / `#tab-diag` + `#logs[data-view]`），
+   自己 `new EventSource('/api/diag-stream')`（懒连接：第一次打开才连），`JSON.parse(e.data)` 逐条渲染
+   `{seq,ts,msg,level,source}`，环形上限 400 行；断流/无后端写明确原因（复用 `diagReasonText`）。
+7. **⑨**：切换栏只放**已选/常用**（产物自己的 `#current` + 用户固定过的 tab，顺序 = 固定顺序、位置稳定），
+   `＃wp-add` 移到 `#wp-switch` 最右端**固定位**，点它**显式展开**库列表面板 `#wp-panel`
+   （类型开关 + 每行"真实类型 + 标题 + ★ 固定"）；固定集合持久化 `bench-pinned-wallpapers`（上限 8）。
+8. **⑩**：新增 `#lib-source`「当前库来源」+ 纯函数 `librarySourcePlan()` 四态（无后端 / 本机默认（**你还没有选择**）/
+   你选的 / 空）；优先采信服务端的权威字段（`/api/library-source` 或 `/api/library` 顶层 `source`），
+   拿不到时才按"有没有用户选择记录"推断 —— **没有选择就绝不画成已选**。
+9. **⑪**：设置弹层归属改成**双方共同署名**：「渲染核心：双方共同署名」+ 上游行（`#credit-link-footer` 的
+   href 与两份许可全文链接一字未动）+ 新增本仓库作者行 `#credit-repo-footer`（XHR666/wallpaper-engine-web-loader ·
+   GPL-3.0-or-later，随语言切换）。
+10. **类型全可见（用户补充要求）**：`#type-filter` 搬进左侧 `.sidebar-tools` 可见位置，由补丁生成 4 个
+    `.seg-btn`（全部 / 场景 / Web / 视频），前三档**走产物自己的委托处理器**（`Xe.onclick`，不复制它的过滤逻辑），
+    「全部」由补丁**合并三档**（节点搬移保住每个 `li` 的 `onclick` 闭包），并在产物每次重渲染后用
+    签名守卫再合并一次（`syncAllIfNeeded`，不会自激）；列表每行挂 `.bench-kind` 真实类型徽标；
+    状态栏 `#status-item` 后补同款徽标。默认档 = 「全部」。
+11. **库目录对话框（主对话转来的第 2 条）**：「选择文件夹」不再直接进系统选择器 ⇒ 应用内对话框
+    （服务端只读浏览 `/api/fs/roots` + `/api/fs/list?path=`，快捷根、上一级、"就选这个目录"，
+    选中后 `POST /api/library-dir` → 写 `we-bench-library-dir` → reload）；`roots[].listable===false`
+    的根**灰显 + 写明原因**；路由 404/无后端时**明确写出"服务端还没有 /api/fs/* 这条路由"**并给出两个兜底按钮
+    （纯前端扫描 / **显式标注**的系统选择器）。默认路径永不直接弹系统对话框。
+12. **①(P-159 尾迹线转来的真机 bug)**：`pointerParkAction()` 默认不再返回"画面正中"的活坐标，
+    调用点改成 `if (act.push) pushPointer(...)` ⇒ 离开**只发 `pointerLeave()`、保留最后位置**
+    （= 上游 `pointer.js pushExternalLeave` 的语义）；旧行为留成 `?ppark=center`，`?ppark=0` 原样保留；
+    `getPointerPark()` 暴露 `{count,pushed,mode}`，`pushed` 默认恒为 0。
+
+### P-158.2 判据（修后读数 + 门禁）
+
+* **新增无浏览器门禁 `tests/bench-shell-fixes-test.mjs`：70 通过 / 0 失败**（~0.2s；A 纯函数 40 条 /
+  B 两文件静态纪律 24 条 / C 三组变异自证 + 真树只读校验）。变异：①把默认 park 改回推中心 ⇒ A36 必红；
+  ②把 `#main` 内层列改回 `auto` ⇒ B1 必红；③删掉 `?ppark=center` 逃生口 ⇒ A37 必红。
+  已登记进 `tests/run-all-tests.sh`（`bench-shell-fixes`）。
+* **`tests/bench-ui-headless-test.mjs`：39 通过 / 0 失败**（原 15 条 + 本批 24 条；headless Firefox 1360×900，
+  ~40s）。新增 `S1`~`S11` 逐条对应用户第 1/2/3/5/6/7/8/9/10/11 条与类型/指针两条，关键读数：
+  * `S1` 工具条宽 = `#main` 宽 = **740**（改前 2279），17 个控件**溢出 0 个**（改前 14 个）。
+  * `S2a/S2b` 下拉与触发框的缝 **2.0 / 2.0 px**（下开 + 上翻两种，改前 48px）。
+  * `S3` 工具条：5 个原生 select（`bench-rd-native` 且 `display:none`）+ **5 个 `.bench-rd`** + **0 个 `.mpw_select`**，
+    5 个按钮文案 == 5 个 select 的选中项（全页「（空）」label 计数 = 0）。
+  * `S4` 收起/展开输出：`#frame` **716×403**（16:9，1.777）两态一致（Δ=0.00%）、
+    rect 完全落在 `#stage-slot` 内；「清空/复制输出」两态都可见且命中区 = 自己。
+  * `S5` 固定分辨率 1920×1080：`.fixed-res` 生效、缩放盒仍在槽内且 16:9（badge `1920 × 1080 · 37%`）。
+  * `S6` 诊断页签：点击 ⇒ `#logs[data-view="diag"]`，挂载一次后 `#diag-body` 条数 50 → 51 且
+    `data-source="renderer"` = 51（真·渲染器诊断流，不是补丁日志）。
+  * `S7` `＋` 固定在切换栏内、命中自己；面板显式展开后每行的"切换/★"命中区都等于视觉区；
+    ★ 固定后 `bench-pinned-wallpapers` 落盘且 tab 条出现该项（带真实类型）；点一行真挂载 + 面板自动收起。
+  * `S8` 类型四档：scene 11 / web 7 / video 4 / 全部 22（改前恒 11 且全 scene）。
+  * `S9` 库来源 = `default` + 实际路径 + "你还没有选择"的说明文案。
+  * `S10` 双方共同署名 + 上游 href + 两份许可链接。
+  * `S11` 合成"离开"事件后 `getPointerPark()` = `{count:2, pushed:0, mode:"leave"}`（旧默认会 push(0.5,0.5)）。
+* **`tests/demo-check.mjs`：132 通过 / 0 失败**（原 127/3）—— D8（静态表 ↔ `SITE_LAYOUT_CSS` 逐条同文）
+  覆盖本批新增的每一条；D11 新增 `⑬b layerFixedOffset` 与 `⑬c 贴合 ≤2px`（`几何①` 的期望值随缝宽 2px 同步）。
+* **未回归**：`mpw-select` 58/0、`p142-nav-sound` 92/92、`core-module-wiring` 64/0、`display-options` 71/0、
+  `pointer-leave` 67/0、`bench-8902` 116/0、`demo-syntax` 11/11（`bash tests/run-all-tests.sh --only …` 复跑全绿）。
+* 浏览器纪律：跑前跑后 `ps -eo comm | grep -cx firefox` 都是 **0**；单浏览器、`~40s`、峰值 RSS ≈ 1.8 GB（含 Firefox 全部子进程）。
+
+### P-158.3 需要别的线配合（不在我文件范围内）
+
+1. **`server/we-scene-demo-server-8902.mjs`：`:8902` 那个**在跑的进程**还是旧代码**（`GET /api/fs/roots`
+   仍 404）⇒ 服务端已交付的路由要**重启该进程**才生效；我的前端两条路都实现了（404 时明确提示"服务端还没有这条路由"
+   + 两个兜底按钮；200 时走应用内浏览）。**没有改任何 `server/**`。**
+2. `demo/mpw-select.js`（只读）：`paintButton()` 读的是闭包 `model`（只在 `open()` 里赋值）⇒ 首次展开前
+   恒显示「（空）」；正确修法是让它每次现读 `selectEl.options`。**另一处同源问题**：它的列表
+   `position:fixed` 同样被 `#pages-track{contain:paint}` 抓走包含块 ⇒ 内联 `top` 也要减掉该 rect 的 top
+   （否则 mpw 的列表也会整体下移一个 header = 44px）。我在补丁层只做了**文案兜底**（`syncMpwLabels`），
+   没有改它的行为。
+3. 产物（`demo/assets/bench-*.js`，minified 不可重建）里 `rt(item)` 只看 `hasScene` ⇒ 服务端
+   `kind: 'wallpaper'|'other'` 的条目**永远进不了左侧列表**（`rt()` 返回 null）。要显示"各类 mpkg"，
+   需要产物侧按 `kind` 分档（或前端在面板里自建列表并自行拼 `renderer/index.html?type=…&src=…`）—— 后者
+   会绕开产物的 `#current`/属性面板链路，需要单独一批。
+4. 服务端若把 `/api/library` 的 `source` 改成权威五档（`env|cli|user|default|none`），前端**已经按它渲染**
+   （`librarySourcePlan` 认这五档；`dir` 为空按"空"处理）—— 不需要再改前端。
+
+### P-158.4 诚实清单
+
+1. **`:8902` 上跑的是旧服务端**：`/api/fs/*`、`/api/library-source`、`scan.kinds` 现在都还是 404 ⇒
+   库目录对话框实测走的是**降级**分支（已断言）；`source` 权威字段也拿不到（前端按 localStorage 推断，
+   写成"本机默认目录（你还没有选择）"，不假装已选）。重启服务端后自动生效，但**我没有重启它**（不是我的进程）。
+2. **X11 真指针判定留给主对话**：本批的"点得到/触控位置"用 `elementFromPoint` + 合成的 Playwright 事件证明
+   （S7a/S7c/S4d/S6a），**没有**跑 `tests/x11-e2e/bench-click-test.mjs`（需真 X，本机 X 可能不可用）。
+3. **只能人眼看的**：①工具条换行后的观感（3 行 vs 1 行）；②库列表面板的视觉密度；③诊断流的可读性；
+   ④共同署名文案的语气。探针只判几何/存在性/可点性。
+4. **没有做 fps 改中位数**（主对话转来的可选项）：`#status-live-fps` 是产物每 500ms 写一次的，
+   要按 rAF 间隔算中位数就得包 `frame.contentWindow.requestAnimationFrame` —— 会碰渲染循环本身，
+   且与产物那条写回互相打架（两个写者）。要做得单独一批。
+5. **web/video 预览的语义**：`__wp` 就绪、iframe 起来了、URL 形状是产物自己那条（`type=web&src=/web/dev/…`、
+   `type=video&src=/media/dev/…mp4`），但渲染器对 `web` 类会打印
+   「网页壁纸：同源入口未检测到 WE shim（host 未注入？）」—— 即**入口 HTML 挂上了、WE shim 没注入**
+   （属 `core/**`/宿主注入面，不是本批）。video 类实测走 WebCodecs 解码路径。
+6. **`?ppark=center` 是逃生口**：如果真机上还有"离开后力场残留"的观感问题，可先切这个开关对照。

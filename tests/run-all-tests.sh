@@ -328,6 +328,11 @@ add "bench-8902"         "node tests/bench-server-test.mjs"
 #   与 `tests/x11-e2e/bench-click-test.mjs` 的分工：那条是**真 X11 指针**门禁（证明"用户点得到"，需 X、5–8 分钟、不常驻）；
 #   这条只做功能判定，可常驻。为什么要有它：宿主机重启会带走 X 显示（2026-09-19 实测），没有它 P-142 的判定就无从复跑。
 add "bench-ui-headless"  "node tests/bench-ui-headless-test.mjs" "" "^SKIP bench-ui-headless"
+# ①(P-158 2026-09-19) `bench-shell-fixes`：测试台外壳**一批 UI/交互修复**的无浏览器门禁 ——
+#   下拉贴合（含上翻）/包含块偏移、一个 select 一个自绘控件（工具条 0 个 `.mpw_select`）、
+#   `.bench-rd-native` 视觉隐藏、已选/常用计划、库来源四态、诊断流一行模型、类型标签归一、
+#   库目录对话框降级、指针"离开不再归中"（P-159）。70 断言（A 纯函数 / B 两文件静态纪律 / C 三组变异自证），~0.3s。
+add "bench-shell-fixes"   "node tests/bench-shell-fixes-test.mjs"
 # ①(2026-09-19「结合 X11 自己做简单测试」) `x11-pointer`：**真 X11 指针链路对拍** —— xdotool 用真 X 事件
 #   把指针移进/移出/移到画布另一端，页面里自己的监听记录 clientX/Y，断言：事件真到达、**鼠标下移 ⇒ cy 增大**
 #   （垂直反了必红）、移远仍到达、移出窗口有 leave/out。7 断言 + 5 张截图（落 `$MPW_ROOT/reports/x11-shots/`）。

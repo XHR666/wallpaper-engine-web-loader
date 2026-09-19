@@ -82,14 +82,30 @@ html.bench-shell #props[hidden]{display:flex!important}
 html.bench-shell #props.bench-props-collapsed{display:none!important}
 html.bench-shell .props-empty{padding:14px 12px;color:var(--fg-mute);font-size:12.5px;line-height:1.75}
 html.bench-shell .props-empty strong{display:block;color:var(--fg-dim);margin-bottom:4px}
-html.bench-shell #toolbar{max-height:30vh;overflow-y:auto}
+/* ── ①(2026-09-19 测试台外壳一批 UI bug) 顶部工具条"太长把后面的选项顶掉"的真因与修法 ────────────
+   `#main` 是产物自己的 `display:grid`（单列、且那条列是 `auto`）：列宽由**内容 max-content** 决定 ⇒
+   `#editor-tabs` 里 11 个切换 tab 把它撑到 2279px（视口 1360、`#main` 真实宽 740）⇒ 工具条那一行整条
+   溢出到视口外，`#main{overflow:hidden}` 把右边 12 个控件连同"输出"栏右侧的清空/复制一起裁掉
+   （实测：1360×900 下 17 个控件只有 3 个在视口内，两个按钮的 rect 右缘 2891 > 1360）。
+   修法：把内层那条列**钉成 `minmax(0,1fr)`**（`!important` 压过产物的 `auto`）⇒ 列宽 = `#main` 的真实宽度，
+   工具条自己的 `flex-wrap:wrap`（产物本来就有）这才有可能换行；再补 `max-width:100%` / 横向不滚，
+   配合下面的 `max-height:30vh + overflow-y:auto`，**窄屏也一定可达**（换行优先、超高才纵向滚动）。
+   为什么选"换行"而不是折叠进"更多"菜单或横向滚动：①产物那 17 个控件全是原生 label/select/button，
+   换行零结构改动、键盘 Tab 顺序天然正确；②"更多"菜单要把控件搬进浮层，控件 id 与产物绑定会断；
+   ③横向滚动在触控笔电上会把"看不到"变成"要横划才找到"，而用户的诉求正是"完整可达"。 */
+html.bench-shell #toolbar{max-height:30vh;overflow-y:auto;flex-wrap:wrap;max-width:100%;overflow-x:hidden}
 /* ⑬(2026-09-19 用户要求) 下拉浮层浮在页面上层：`position:fixed` 让它脱离 `#toolbar` / `#main` /
    `#props-body` 的 overflow 裁剪（这些祖先都没有 transform/contain ⇒ 不是固定定位的包含块），
    坐标由 `dropdownLayerPlan()` 在展开时写内联 left/top/min-width/max-height。
    `min-width:0` 必需：产物那条 `min-width:100%` 在 fixed 下会对齐**视口宽**。 */
 html.bench-shell .bench-rd-list{position:fixed;z-index:70;top:auto;left:auto;min-width:0;max-height:min(280px,42vh);overflow-y:auto}
-html.bench-shell #main{grid-column:3;grid-template-rows:auto minmax(140px,1fr) 6px minmax(60px,var(--mpw-logs-h,220px))!important}
+/* 这条与 #toolbar 的 `minmax(0,1fr)` 是同一处修复的两半：列钉死 ⇒ 工具条换行而不是把整行顶出视口。 */
+html.bench-shell #main{grid-column:3;grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto minmax(140px,1fr) 6px minmax(60px,var(--mpw-logs-h,220px))!important}
 html.bench-shell #main.logs-collapsed{grid-template-rows:auto minmax(0,1fr) 6px 34px!important}
+/* ⑥(用户要求)"输出 / 渲染器诊断"这一行行尾**常驻**清空 + 复制：产物那条
+   `#main.logs-collapsed #clear-logs{display:none}` 会在收起态把"清空"藏掉 ⇒ 这里按同一特异度
+   （1 id + 1 class + 1 元素 = 产物那条）+ `!important` 压回来。两个态都在，不再"只有收起才冒出复制输出"。 */
+html.bench-shell #main.logs-collapsed #clear-logs{display:inline-flex!important}
 html.bench-shell #editor-chrome{grid-row:1}
 html.bench-shell #workspace{grid-row:2}
 html.bench-shell #main > #logs-splitter{grid-row:3;cursor:row-resize;background:var(--border);opacity:.55}
@@ -257,11 +273,59 @@ html.bench-shell #np-stage{flex:0 1 auto;min-width:0;max-width:110px;overflow:hi
   html.bench-shell.bench-narrow #toolbar label,html.bench-shell.bench-narrow #toolbar .mini{font-size:11px}
   html.bench-shell.bench-narrow .site-tab{padding:0 9px;font-size:12.5px}
   html.bench-shell.bench-narrow #settings-pop{width:min(92vw,330px);right:0}
-/* 舞台尺寸：**不再依赖容器查询**（产物那条 `#stage-scale{width:min(100cqi, calc(100cqb*16/9))}` 在
-   "桌面模式手机"（布局视口 980px、无/旧容器查询支持）与窄列下会与 minmax(1fr) 互相喂高度 ⇒ 舞台爆到 1600px+。
-   这里统一：容器类型关掉，舞台按"宽度铺满 + 16:9 + 高度上限"排（宽屏时与产物原效果等价）。 */
-html.bench-shell #stage-frame{container-type:normal!important;padding:12px}
-html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-height:56vh;aspect-ratio:16/9}
+/* 舞台尺寸：**回到容器查询**（产物那套 `width:min(100cqi,calc(100cqb*16/9))` 本来就是
+   "容器内最大的 16:9"）。上一次(2026-09-18)把容器类型关掉是为了断掉**窄屏**下 `100cqb` 与
+   `minmax(1fr)` 互相喂高度的循环 —— 但它在**宽屏**留下了另一个洞：我们的
+   `#stage-scale{width:100%!important;height:auto!important}` 变成"宽度铺满 + aspect-ratio 撑高"，
+   1360×900 实测 2255×1268 塞进 508px 高的槽 ⇒ 只看得见画面左上角（用户第 8 条）。
+   现在：
+     · 宽屏：`container-type:size` 打开（特异性 (1,1,1)，**低于**窄屏块的 (1,2,1)）+ 只钉
+       `aspect-ratio:16/9`、把尺寸交回产物那条 `:not(.fixed-res)` 的容器查询 ⇒ 预览永远是"容器内最大的
+       16:9"，完整落在可视区内、宽高比恒 16:9（本改动的大前提是上面 `#main{minmax(0,1fr)}` 已经让
+       `#main` 真的是 740 宽，容器因此有确定尺寸 —— 容器查询单位要有确定尺寸才有意义）；
+     · 窄屏：`.bench-narrow` 块的 `container-type:normal!important` + 定值宽高（特异性更高、源序在后）
+       ⇒ 与 2026-09-18 的窄屏修复逐字一致，不受本改动影响；
+     · `.fixed-res`（选了具体分辨率）：产物自己把 `#stage-scale` 的宽高与 `#stage` 的 `transform:scale()`
+       算好后写成**内联样式**，这里不再用 `!important` 覆盖它（旧规则会把缩放盒打回 100% ⇒ 画面被放大裁切）。 */
+html.bench-shell #stage-frame{container-type:size!important;padding:12px}
+html.bench-shell #stage-scale{aspect-ratio:16/9}
+/* ── P-158（①②③⑤⑥⑦⑨⑩）本批新增的外壳样式 ─────────────────────────────────────────
+   与 demo/bench-patch.js 的 SITE_LAYOUT_CSS 逐条等价（tests/demo-check.mjs D8 会逐条比对）。 */
+/* ③(P-158) 被 `.bench-rd` 接管的原生 select 必须**视觉隐藏**：这条以前是 mpw-select.js 干的
+   （它给 select 打 `hidden`），本批工具条改用 `.bench-rd` 独占后它就不再被设置了 —— 实测 5 个原生下拉
+   全部 `display:block` 露在工具条上（"每个选项后面多出一个下拉框"的另一半）。回退干净：`destroy()` 摘掉
+   这个 class，select 立刻恢复可见。 */
+html.bench-shell select.bench-rd-native{display:none!important}
+html.bench-shell #wp-switch{position:relative}
+html.bench-shell #wp-add{flex:none;width:34px;min-width:34px;height:auto;border:0;border-left:1px solid var(--border);background:transparent;color:var(--fg-dim);font-size:16px;line-height:1;cursor:pointer}
+html.bench-shell #wp-add[aria-expanded="true"]{background:var(--accent,#0078d4);color:#fff}
+html.bench-shell #wp-panel{position:absolute;left:0;top:100%;z-index:60;width:min(560px,100%);max-height:min(62vh,460px);overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:0 0 8px 8px;box-shadow:0 14px 40px rgba(0,0,0,.38);padding:8px}
+html.bench-shell #wp-panel[hidden]{display:none!important}
+html.bench-shell .wp-panel-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 4px 6px}
+html.bench-shell #wp-panel-head{padding:0 6px 8px;color:var(--fg-mute);font-size:11.5px}
+html.bench-shell .wp-seg{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+html.bench-shell .wp-seg .seg-btn{appearance:none;font:inherit;font-size:12px;color:var(--fg-dim);background:transparent;border:0;padding:3px 10px;cursor:pointer}
+html.bench-shell .wp-seg .seg-btn + .seg-btn{border-left:1px solid var(--border)}
+html.bench-shell .wp-seg .seg-btn.active{background:var(--accent,#0078d4);color:#fff}
+html.bench-shell .wp-row{display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border)}
+html.bench-shell .wp-row-go{flex:1;min-width:0;display:flex;align-items:center;gap:8px;min-height:32px;padding:4px 8px;border:0;background:transparent;color:var(--fg);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+html.bench-shell .wp-row-go:hover{background:var(--hover,rgba(255,255,255,.07))}
+html.bench-shell .wp-row .wp-kind{flex:none;font-size:11px;padding:1px 6px;border:1px solid var(--border);border-radius:999px;color:var(--fg-mute)}
+html.bench-shell .wp-row .wp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html.bench-shell .wp-row .wp-pin{flex:none;width:32px;min-height:32px;border:0;background:transparent;color:var(--fg-mute);font-size:14px;cursor:pointer}
+html.bench-shell .wp-row .wp-pin.on{color:#e3b341}
+html.bench-shell .bench-kind{display:inline-block;margin-left:6px;padding:0 5px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--fg-mute)}
+html.bench-shell .bench-status-kind{margin-left:6px;padding:0 5px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--fg-mute)}
+html.bench-shell #lib-source{display:block;padding:2px 10px 6px;color:var(--fg-mute);font-size:11.5px;line-height:1.5;word-break:break-all}
+html.bench-shell #lib-source[data-kind="default"]{color:#d29922}
+html.bench-shell #logs .logs-tab{appearance:none;font:inherit;font-size:12.5px;color:var(--fg-dim);background:transparent;border:0;border-radius:4px;padding:0 8px;height:24px;cursor:pointer}
+html.bench-shell #logs .logs-tab[aria-selected="true"]{color:var(--fg);background:color-mix(in srgb,var(--fg) 14%,transparent)}
+html.bench-shell #diag-body{display:none;margin:0;padding:6px 10px;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow:auto}
+html.bench-shell #logs[data-view="diag"] #diag-body{display:block;flex:1;min-height:0}
+html.bench-shell #logs[data-view="diag"] #logbody{display:none}
+html.bench-shell #main.logs-collapsed #diag-body{display:none!important}
+html.bench-shell #diag-body .diag-line.err{color:#f85149}
+html.bench-shell #diag-body .diag-line[data-source="renderer"]{color:var(--fg-dim)}
 /* ── 纯 CSS 安全网（≤1180px）────────────────────────────────────────────────────────────
    闸门是 `<head>` 同步脚本加的 `.bench-narrow`；这一段是**它没跑成时**的兜底（脚本抛异常、被拦，
    或将来有人把判定改坏）：光靠"宽度"就能让舞台不塌、三列改堆叠。声明**逐字取自** `.bench-narrow` 块，
@@ -382,9 +446,12 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
           </div>
           <div class="pop-row"><span class="pop-k" data-i18n="nav.backend">后台</span><span id="backend-state" class="pop-val"></span></div>
           <p class="pop-note" data-i18n="nav.backendNote">静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。</p>
+          <!-- ⑪(P-158) 归属改成**双方共同署名**：本仓库作者 + 上游原作者 oneincase/webwallgl(MIT)。
+               两份上游许可全文入口原样保留（`#credit-link-footer` 的 href 与那两条链接一个字没动）。 -->
           <div class="pop-credit">
-            <span id="credit-title-footer">渲染核心原作者</span>
-            <a id="credit-link-footer" href="https://github.com/oneincase/webwallgl" target="_blank" rel="noopener noreferrer">WebWallGL · oneincase（MIT 许可）</a>
+            <span id="credit-title-footer">渲染核心：双方共同署名</span>
+            <a id="credit-link-footer" href="https://github.com/oneincase/webwallgl" target="_blank" rel="noopener noreferrer">上游作者：WebWallGL · oneincase（MIT 许可）</a>
+            <span id="credit-repo-footer">本仓库作者：<a href="https://github.com/XHR666/wallpaper-engine-web-loader" target="_blank" rel="noopener noreferrer">wallpaper-engine-web-loader（XHR666）</a> · GPL-3.0-or-later</span>
             <span class="bench-credit-license">上游许可全文：<a href="./LICENSE-webwallgl-MIT.txt">demo/LICENSE-webwallgl-MIT.txt</a> · <a href="./LICENSE-webwallgl">demo/LICENSE-webwallgl</a></span>
           </div>
         </div>
@@ -393,7 +460,6 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
       <div id="bench-legacy-anchors" hidden aria-hidden="true">
         <span id="open-pkg"></span>
         <input id="pkg-file" type="file" hidden disabled />
-        <span id="type-filter"></span>
         <span id="sponsor-btn"></span>
         <button type="button" id="act-docs"></button>
         <button type="button" id="act-explorer"></button>
@@ -425,7 +491,13 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
         <div id="bench-backend-note" class="bench-backend-note" hidden></div>
         <div class="sidebar-tools">
           <input id="filter" type="search" placeholder="过滤标题 / itemId" data-i18n-ph="ph.filter" />
+          <!-- ⑨b(P-158) 产物自己的**类型过滤宿主**搬到这里（原来被塞在 `#bench-legacy-anchors[hidden]` 里、
+               一个 `.seg-btn` 都没有 ⇒ 产物 `Pe` 永远停在 'scene'，web/video 明明在库返回里却看不到）。
+               按钮由 bench-patch.js 生成：全部 / 场景 / Web / 视频（前三个直接驱动产物自己的委托处理器）。 -->
+          <span id="type-filter" class="wp-seg" role="radiogroup" aria-label="壁纸类型过滤 / Wallpaper type filter"></span>
         </div>
+        <!-- ⑩(P-158) 「当前库来源」显式写出来：本机默认目录 / 你选的目录 / 空 / 无后端（不许假装已选） -->
+        <span id="lib-source" class="bench-lib-source" data-kind="none"></span>
         <ul id="list"></ul>
       </aside>
 
@@ -474,10 +546,20 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
       <div id="main">
         <div id="editor-chrome">
           <div id="wp-switch">
-          <div id="editor-tabs">
-            <div class="tab active" id="current" role="tab" aria-selected="true" data-i18n="tab.wallpaper">未选择壁纸</div>
-          </div>
-            <button type="button" id="wp-add" data-i18n="wp.add" data-i18n-title="wp.addTitle" title="添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸">＋</button>
+            <!-- ⑨(P-158) 切换栏只放**已选/常用**：产物自己的「当前壁纸」tab + 用户固定过的 tab（位置固定、顺序稳定）。
+                 完整库列表在右边的 `#wp-panel` 里，**显式点 ＋ 才展开**（用户第 9 条：不再"一次性全导入"）。 -->
+            <div id="editor-tabs">
+              <div class="tab active" id="current" role="tab" aria-selected="true" data-i18n="tab.wallpaper">未选择壁纸</div>
+            </div>
+            <button type="button" id="wp-add" aria-expanded="false" aria-controls="wp-panel"
+              data-i18n="wp.add" data-i18n-title="wp.addTitle" title="展开壁纸库列表 / Expand the wallpaper library">＋</button>
+            <div id="wp-panel" hidden role="dialog" aria-label="壁纸库列表 / Wallpaper library">
+              <div class="wp-panel-row">
+                <span id="wp-type-mirror" class="wp-seg" role="radiogroup" aria-label="壁纸类型 / Wallpaper type"></span>
+              </div>
+              <div id="wp-panel-head"></div>
+              <div id="wp-panel-list"></div>
+            </div>
           </div>
           <div id="toolbar">
             <label data-i18n-title="toolbar.resolutionTip" title="舞台逻辑分辨率（iframe 视口）"><span data-i18n="toolbar.resolution">分辨率</span>
@@ -603,14 +685,19 @@ html.bench-shell #stage-scale{width:100%!important;height:auto!important;max-hei
               <svg id="ico-logs-up" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
               <svg id="ico-logs-down" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
             </button>
-            <span class="panel-tab active" data-i18n="logs.head">输出</span>
-            <strong data-i18n="logs.diag">渲染器诊断（/diag）</strong>
+            <!-- ⑥⑦(P-158) 两行文字改成**真页签**：`#tab-logs` = 输出（补丁+产物日志），
+                 `#tab-diag` = 渲染器诊断流（自己订阅 `/api/diag-stream`，`#diag-body` 显示）。
+                 行尾的「清空 / 复制输出」两个按钮**常驻**（收起态也不隐藏，见静态 CSS 里那条
+                 `#main.logs-collapsed #clear-logs{display:inline-flex!important}`）。 -->
+            <button type="button" id="tab-logs" class="logs-tab panel-tab active" role="tab" aria-selected="true" aria-controls="logbody" data-i18n="logs.head">输出</button>
+            <button type="button" id="tab-diag" class="logs-tab" role="tab" aria-selected="false" aria-controls="diag-body" data-i18n="logs.diag">渲染器诊断（/diag）</button>
             <span class="spacer"></span>
             <button type="button" id="clear-logs" data-i18n="logs.clear">清空</button>
             <button type="button" id="copy-logs" data-i18n="copy.logs" data-i18n-title="copy.logs" title="复制输出">复制输出</button>
           </div>
           <div id="diag-offline" class="diag-offline" hidden></div>
           <pre id="logbody"></pre>
+          <pre id="diag-body" role="log" aria-live="polite" aria-label="渲染器诊断流 / renderer diagnostics"></pre>
         </section>
       </div>
     </div>

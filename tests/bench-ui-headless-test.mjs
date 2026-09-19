@@ -136,44 +136,343 @@ try {
   } else notes.push('N4 未测：没有 `#props-body`')
 
   // ── N5 自绘下拉（工具条）+ 没被属性面板盖住 ──────────────────────────────────
-  //  选择器口径：测试台的 6 个下拉在 **`#toolbar`** 里（`demo/bench-patch.js: BENCH_SELECT_IDS = ['lang','resolution','fit','dpr','fps','fx']`），
-  //  不是 `#bar`（2026-09-19 实测：按 `#bar` 查会得到"没挂上"的假阴性）。两个都试，再退到"属性面板之外的任意下拉"。
-  const SEL_SCOPE = ['#toolbar .mpw_select', '#bar .mpw_select', '.mpw_select']
-  const selInfo = await page.evaluate((scopes) => {
-    const out = []
-    for (const s of scopes) { const n = document.querySelectorAll(s).length; if (n > 0) { out.push({ scope: s, n }); break } }
-    return { picked: out[0] || null, lists: document.querySelectorAll('.mpw_select_list').length }
-  }, SEL_SCOPE)
-  if (selInfo.picked) {
-    const scope = selInfo.picked.scope
+  //  ①(P-158) 口径变了：工具条那 6 个下拉现在**全部**由 `bindDropdown` 的 `.bench-rd` 独占
+  //  （`demo/bench-patch.js: BENCH_BAR_SELECT_IDS`），mpw 控件只留给 `#props-body` 里的 combo。
+  //  所以这里两种控件都试：工具条优先 `.bench-rd`（打开后列表是 `.bench-rd-list`），
+  //  再退到 mpw（`.mpw_select` / `.mpw_select_list`）。判据本身不变：**恰好 1 个列表**、再点即关。
+  const kinds = [
+    { scope: '#toolbar .bench-rd', open: '.bench-rd.open', list: '.bench-rd-list', btn: '.bench-rd-btn', flipAttr: 'data-placement' },
+    { scope: '#toolbar .mpw_select', open: '.mpw_select[data-open]', list: '.mpw_select_list', btn: '.mpw_select_btn', flipAttr: 'data-flip' },
+    { scope: '.mpw_select', open: '.mpw_select[data-open]', list: '.mpw_select_list', btn: '.mpw_select_btn', flipAttr: 'data-flip' },
+  ]
+  const selInfo = await page.evaluate((ks) => {
+    for (const k of ks) { const n = document.querySelectorAll(k.scope).length; if (n > 0) return { kind: k, n } }
+    return { kind: null, n: 0 }
+  }, kinds)
+  if (selInfo.kind) {
+    const K = selInfo.kind
     let opened = false
-    for (let i = 0; i < Math.min(3, selInfo.picked.n); i++) {
-      const hit = await page.evaluate(({ scope, idx }) => {
+    for (let i = 0; i < Math.min(3, selInfo.n); i++) {
+      const hit = await page.evaluate(({ scope, idx, btnSel }) => {
         const els = [...document.querySelectorAll(scope)]
         const el = els[idx]; if (!el) return null
         el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-        const btn = el.querySelector('.mpw_select_btn'); if (!btn) return null
+        const btn = el.querySelector(btnSel); if (!btn) return null
         const r = btn.getBoundingClientRect()
         const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2)
         const at = document.elementFromPoint(x, y)
         return { x, y, self: !!(at && (at === btn || btn.contains(at))), hit: at ? (at.id || at.tagName) : null }
-      }, { scope, idx: i })
-      if (!hit || !hit.self) { notes.push(`工具条下拉[${i}]（${scope}）被遮挡（命中 ${hit && hit.hit}）`); continue }
+      }, { scope: K.scope, idx: i, btnSel: K.btn })
+      if (!hit || !hit.self) { notes.push(`工具条下拉[${i}]（${K.scope}）被遮挡（命中 ${hit && hit.hit}）`); continue }
       await page.mouse.click(hit.x, hit.y); await page.waitForTimeout(500)
-      const st = await page.evaluate(() => ({ n: document.querySelectorAll('.mpw_select_list').length, flip: (document.querySelector('.mpw_select_list') || {}).getAttribute ? document.querySelector('.mpw_select_list').getAttribute('data-flip') : null, open: document.querySelectorAll('.mpw_select[data-open]').length }))
-      if (st.n === 1 && st.open === 1) {
+      //  ①(P-158) 计数口径：`.bench-rd-list` 是**常驻**节点（`bindDropdown` 给每个 select 都建了一个），
+      //  所以"恰好 1 个列表"要看**可见/展开**的那一个（`.bench-rd.open .bench-rd-list` 的 display=block），
+      //  而不是 `querySelectorAll('.bench-rd-list').length`（那恒等于 select 数 ⇒ 假红）。
+      const st = await page.evaluate(({ openSel, listSel, flipAttr }) => {
+        const openEls = [...document.querySelectorAll(openSel)]
+        const shown = [...document.querySelectorAll(listSel)].filter((l) => getComputedStyle(l).display !== 'none')
+        return { open: openEls.length, shown: shown.length, flip: shown[0] ? shown[0].getAttribute(flipAttr) : (openEls[0] ? openEls[0].querySelector(listSel) && openEls[0].querySelector(listSel).getAttribute(flipAttr) : null) }
+      }, { openSel: K.open, listSel: K.list, flipAttr: K.flipAttr })
+      if (st.open === 1 && st.shown === 1) {
         opened = true
-        ok(!!st.flip, `N5a 工具条下拉[${i}] 点开 ⇒ **恰好 1 个**列表且带 \`data-flip\``, `scope=${scope} flip=${st.flip}`)
+        ok(!!st.flip, `N5a 工具条下拉[${i}] 点开 ⇒ **恰好 1 个展开的**列表且带贴合方向标记（\`${K.flipAttr}\`）`, `scope=${K.scope} ${K.flipAttr}=${st.flip}`)
         await page.mouse.click(hit.x, hit.y); await page.waitForTimeout(500)
-        const st2 = await page.evaluate(() => ({ n: document.querySelectorAll('.mpw_select_list').length, open: document.querySelectorAll('.mpw_select[data-open]').length }))
-        ok(st2.n === 0 && st2.open === 0, 'N5b **再点即关**（不是又开一个）', `list=${st2.n} open=${st2.open}`)
+        const st2 = await page.evaluate(({ openSel, listSel }) => ({ open: document.querySelectorAll(openSel).length, shown: [...document.querySelectorAll(listSel)].filter((l) => getComputedStyle(l).display !== 'none').length }), { openSel: K.open, listSel: K.list })
+        ok(st2.open === 0 && st2.shown === 0, 'N5b **再点即关**（不是又开一个）', `open=${st2.open} shown=${st2.shown}`)
         break
       }
     }
-    if (!opened) ok(false, 'N5a 工具条下拉点开 ⇒ 列表展开', `scope=${scope} 前 3 个都没打开（见 notes 的遮挡/命中信息）`)
-  } else notes.push('N5 未测：页面上找不到 `.mpw_select`（自绘下拉没挂上）')
+    if (!opened) ok(false, 'N5a 工具条下拉点开 ⇒ 列表展开', `scope=${K.scope} 前 3 个都没打开（见 notes 的遮挡/命中信息）`)
+  } else notes.push('N5 未测：工具条里既没有 `.bench-rd` 也没有 `.mpw_select`（自绘下拉没挂上）')
 
-  ok(errs.length === 0, 'N6 整轮 0 个 pageerror', errs.slice(0, 2).join(' | '))
+  // ══════════════════ S 组（P-158/P-159 本批 11 条 + 类型/指针）══════════════════
+  //  每条都是**几何/交互判据**，与回报里的判据一一对应；纯函数部分在 tests/bench-shell-fixes-test.mjs。
+
+  // S1 ①④ 宽屏工具条：`#main` 的内层列不再被内容撑爆 ⇒ 每个控件都在视口内
+  {
+    const s = await page.evaluate(() => {
+      const R = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), right: Math.round(r.right), bottom: Math.round(r.bottom), w: Math.round(r.width) } }
+      const tb = document.getElementById('toolbar')
+      const main = document.getElementById('main')
+      const kids = [...tb.children]
+      return {
+        toolbar: R(tb), main: R(main), n: kids.length,
+        out: kids.filter((k) => { const r = k.getBoundingClientRect(); return r.right > innerWidth + 0.5 || r.bottom > innerHeight + 0.5 }).length,
+        wide: !document.documentElement.classList.contains('bench-narrow'),
+      }
+    })
+    ok(s.toolbar.w <= s.main.w + 1, 'S1a ①④工具条宽度 = `#main` 宽度（内层列 `minmax(0,1fr)`；改前实测 2279 > 740）', `toolbar=${s.toolbar.w} main=${s.main.w} wide=${s.wide}`)
+    ok(s.out === 0, 'S1b ①④工具条里**没有**超出视口的控件（用户第 1/4 条：后面的选项被顶出屏幕）', `${s.n} 个控件，溢出 ${s.out} 个`)
+  }
+
+  // S2 ② 下拉与触发框贴合（下开 ≤2px；再把工具条临时挪到底部量一次**上翻**）
+  {
+    const gap = await page.evaluate(async () => {
+      const btn = document.getElementById('bench-rd-btn')
+      const list = document.getElementById('bench-rd-list')
+      btn.click(); await new Promise((r) => setTimeout(r, 350))
+      const b = btn.getBoundingClientRect(); const l = list.getBoundingClientRect()
+      const below = l.top >= b.top
+      const g = below ? l.top - b.bottom : b.top - l.bottom
+      btn.click(); await new Promise((r) => setTimeout(r, 200))
+      return { gap: Math.round(g * 10) / 10, below, placement: list.getAttribute('data-placement') }
+    })
+    ok(gap.gap <= 2 && gap.gap >= 0 && gap.placement === 'below', 'S2a ②分辨率下拉（下开）：列表上边缘距触发框下边缘 ≤2px', JSON.stringify(gap))
+    const up = await page.evaluate(async () => {
+      const tb = document.getElementById('toolbar')
+      const old = tb.getAttribute('style')
+      tb.setAttribute('style', 'position:fixed;left:8px;bottom:8px;right:8px;z-index:50')
+      await new Promise((r) => setTimeout(r, 250))
+      const btn = document.getElementById('bench-rd-btn')
+      const list = document.getElementById('bench-rd-list')
+      btn.click(); await new Promise((r) => setTimeout(r, 350))
+      const b = btn.getBoundingClientRect(); const l = list.getBoundingClientRect()
+      const g = b.top - l.bottom
+      const placement = list.getAttribute('data-placement')
+      btn.click()
+      if (old) tb.setAttribute('style', old); else tb.removeAttribute('style')
+      await new Promise((r) => setTimeout(r, 250))
+      return { gap: Math.round(g * 10) / 10, placement, listBottom: Math.round(l.bottom), btnTop: Math.round(b.top) }
+    })
+    ok(up.placement === 'above' && up.gap <= 2 && up.gap >= 0,
+      'S2b ②触发框贴近裁剪盒底边 ⇒ 自动**上翻**且同样贴合（列表下边缘距触发框上边缘 ≤2px）', JSON.stringify(up))
+  }
+
+  // S3 ③ 工具条：一个 select 一个自绘控件、没有空 label
+  {
+    const s = await page.evaluate(() => {
+      const tb = document.getElementById('toolbar')
+      const sels = [...tb.querySelectorAll('select')]
+      const rds = [...tb.querySelectorAll('.bench-rd')]
+      const mpw = [...tb.querySelectorAll('.mpw_select')]
+      return {
+        selects: sels.length,
+        hiddenSel: sels.filter((x) => x.hidden || getComputedStyle(x).display === 'none').length,
+        nativeClass: sels.filter((x) => x.classList.contains('bench-rd-native')).length,
+        rds: rds.length,
+        mpw: mpw.length,
+        labels: rds.map((r) => (r.querySelector('.bench-rd-btn') || {}).textContent || ''),
+        expected: sels.map((x) => ((x.options[x.selectedIndex] || {}).textContent || '').trim()),
+        emptyEverywhere: [...document.querySelectorAll('.mpw_select_label')].filter((l) => l.textContent === '（空）').length,
+      }
+    })
+    ok(s.selects === 5 && s.hiddenSel === 5 && s.nativeClass === 5 && s.rds === 5 && s.mpw === 0,
+      'S3a ③工具条：5 个原生 select（全部隐藏）+ **5 个 `.bench-rd`** + **0 个 `.mpw_select`**（重复增强的残留已删）',
+      JSON.stringify({ selects: s.selects, hidden: s.hiddenSel, benchRdNative: s.nativeClass, rds: s.rds, mpw: s.mpw }))
+    ok(s.labels.length === 5 && s.labels.every((x) => x && x.trim() && x !== '（空）') &&
+      JSON.stringify(s.labels) === JSON.stringify(s.expected),
+      'S3b ③每个自绘按钮都显示**真实选中项**，没有空 label / 展不开的空框', JSON.stringify(s.labels))
+    ok(s.emptyEverywhere === 0, 'S3c ③全页没有「（空）」label（含属性面板的 mpw 控件；mpw 自身的 paintButton 陈旧闭包由补丁层兜底）', `count=${s.emptyEverywhere}`)
+  }
+
+  // S4 ⑤ 收起/展开"输出"：预览宽高比一致 + 完全落在可视区内 + 两个按钮两态都在
+  {
+    const s = await page.evaluate(async () => {
+      const R = (sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right), bottom: Math.round(r.bottom) } }
+      const vis = (sel) => { const el = document.querySelector(sel); if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 }
+      const hit = (sel) => { const el = document.querySelector(sel); if (!el) return false; const r = el.getBoundingClientRect(); const at = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)); return !!(at && (at === el || el.contains(at))) }
+      const snap = () => {
+        const slot = R('#stage-slot'); const frame = R('#frame')
+        const inside = !!(slot && frame && frame.x >= slot.x - 1 && frame.y >= slot.y - 1 && frame.right <= slot.right + 1 && frame.bottom <= slot.bottom + 1)
+        return { slot, frame, inside, rs: frame && frame.h ? Math.round((frame.w / frame.h) * 1000) / 1000 : null, clear: vis('#clear-logs'), copy: vis('#copy-logs'), clearHit: hit('#clear-logs'), copyHit: hit('#copy-logs'), collapsed: document.getElementById('main').classList.contains('logs-collapsed') }
+      }
+      const before = snap()
+      document.getElementById('toggle-logs').click(); await new Promise((r) => setTimeout(r, 900))
+      const after = snap()
+      document.getElementById('toggle-logs').click(); await new Promise((r) => setTimeout(r, 900))
+      return { before, after }
+    })
+    ok(s.before.inside && s.after.inside,
+      'S4a ⑤⑧预览内容完整落在可视区内（`#frame` rect ⊆ `#stage-slot` rect，收起前后都要）',
+      JSON.stringify({ before: s.before.frame, after: s.after.frame, slotBefore: s.before.slot, slotAfter: s.after.slot }))
+    const d = s.before.rs && s.after.rs ? Math.abs(s.before.rs - s.after.rs) / s.before.rs : 1
+    ok(s.before.rs !== null && s.after.rs !== null && d <= 0.01 && Math.abs(s.before.rs - 16 / 9) <= 0.02,
+      'S4b ⑤收起前后预览 rect 宽高比一致（±1%）且都是 16:9', `before=${s.before.rs} after=${s.after.rs} Δ=${(d * 100).toFixed(2)}%`)
+    ok(s.before.clear && s.before.copy && s.after.clear && s.after.copy,
+      'S4c ⑥「清空」「复制输出」在**展开与收起两态都可见**（用户第 6 条）',
+      JSON.stringify({ expanded: [s.before.clear, s.before.copy], collapsed: [s.after.clear, s.after.copy] }))
+    ok((s.before.clearHit && s.before.copyHit) || (!s.before.clearHit && !s.before.copyHit),
+      'S4d ⑥两个按钮的命中区 = 可视区（没有"看得到点不到"）', JSON.stringify({ clear: s.before.clearHit, copy: s.before.copyHit }))
+  }
+
+  // S5 ⑧ 固定分辨率（`.fixed-res`）也要完整可见：产物的内联缩放盒不许被 `!important` 打回
+  {
+    const s = await page.evaluate(async () => {
+      const R = (sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right), bottom: Math.round(r.bottom) } }
+      const sel = document.getElementById('resolution')
+      sel.value = '1920x1080'; sel.dispatchEvent(new Event('change', { bubbles: true }))
+      await new Promise((r) => setTimeout(r, 900))
+      const slot = R('#stage-slot'); const sc = R('#stage-scale')
+      const inside = !!(slot && sc && sc.x >= slot.x - 1 && sc.y >= slot.y - 1 && sc.right <= slot.right + 1 && sc.bottom <= slot.bottom + 1)
+      const out = { ws: document.getElementById('workspace').className, inside, rs: sc && sc.h ? Math.round((sc.w / sc.h) * 1000) / 1000 : null, inline: document.getElementById('stage-scale').getAttribute('style'), badge: (document.getElementById('stage-badge') || {}).textContent }
+      sel.value = 'fit'; sel.dispatchEvent(new Event('change', { bubbles: true }))
+      await new Promise((r) => setTimeout(r, 700))
+      return out
+    })
+    ok(/fixed-res/.test(s.ws) && s.inside && Math.abs(s.rs - 16 / 9) <= 0.02,
+      'S5 ⑧选了具体分辨率（1920×1080）⇒ 缩放盒仍完整落在可视区内且 16:9（产物的内联尺寸没被覆盖）',
+      JSON.stringify({ ws: s.ws, inside: s.inside, rs: s.rs, badge: s.badge, inline: s.inline }))
+  }
+
+  // S6 ⑦ 渲染器诊断页签：订阅 `/api/diag-stream` 并显示**渲染器**消息（不是只显示补丁日志）
+  {
+    const s = await page.evaluate(async () => {
+      const tab = document.getElementById('tab-diag')
+      const r = tab.getBoundingClientRect()
+      const at = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2))
+      tab.click()
+      await new Promise((res) => setTimeout(res, 2500))
+      const before = document.querySelectorAll('#diag-body .diag-line').length
+      const li = document.querySelector('#list li[data-id]')
+      if (li) li.click()
+      await new Promise((res) => setTimeout(res, 6000))
+      const lines = [...document.querySelectorAll('#diag-body .diag-line')]
+      return {
+        tabHit: !!(at && (at === tab || tab.contains(at))),
+        selected: tab.getAttribute('aria-selected'),
+        view: document.getElementById('logs').dataset.view,
+        before, after: lines.length,
+        renderer: lines.filter((l) => l.dataset.source === 'renderer').length,
+        errors: lines.filter((l) => l.dataset.level === 'error').length,
+        state: document.getElementById('diag-body').dataset.state,
+        sample: lines.slice(-1).map((l) => l.textContent.slice(0, 80)),
+        logbodyHidden: getComputedStyle(document.getElementById('logbody')).display === 'none',
+      }
+    })
+    ok(s.tabHit && s.selected === 'true' && s.view === 'diag',
+      'S6a ⑦「渲染器诊断（/diag）」是可点的真页签（命中区 = 自己）⇒ `#logs[data-view="diag"]`', JSON.stringify({ hit: s.tabHit, view: s.view }))
+    ok(s.renderer > 0 && s.after > s.before && s.logbodyHidden,
+      'S6b ⑦诊断视图里是**渲染器诊断流**（挂载一次后条数增长，且 source=renderer），输出视图同时隐藏',
+      JSON.stringify({ before: s.before, after: s.after, renderer: s.renderer, errors: s.errors, sample: s.sample }))
+    await page.evaluate(async () => { document.getElementById('tab-logs').click(); await new Promise((r) => setTimeout(r, 200)) })
+  }
+
+  // S7 ⑨ 切换栏：已选/常用（位置固定、可点）+ 库列表**显式展开**
+  {
+    const s = await page.evaluate(async () => {
+      const R = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } }
+      const hit = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); const at = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)); return { self: !!(at && (at === el || el.contains(at))), got: at ? (at.id || at.className || at.tagName) : null } }
+      const add = document.getElementById('wp-add')
+      const out = {
+        tabsBefore: document.querySelectorAll('#editor-tabs .wp-tab').length,
+        addParent: add.parentElement.id, addExpanded: add.getAttribute('aria-expanded'),
+        addInBar: (() => { const b = R(document.getElementById('wp-switch')); const a = R(add); return !!(a && b && a.x >= b.x - 1 && a.y >= b.y - 1 && a.x + a.w <= b.x + b.w + 1 && a.y + a.h <= b.y + b.h + 1) })(),
+        addHit: hit(add),
+      }
+      add.click(); await new Promise((r) => setTimeout(r, 400))
+      const rows = [...document.querySelectorAll('#wp-panel-list .wp-row')]
+      out.panelOpen = !document.getElementById('wp-panel').hasAttribute('hidden')
+      out.rows = rows.length
+      out.types = rows.reduce((a, r) => { const k = (r.querySelector('.wp-kind') || {}).textContent; a[k] = (a[k] || 0) + 1; return a }, {})
+      out.rowHit = rows[0] ? hit(rows[0].querySelector('.wp-row-go')) : null
+      out.pinHit = rows[0] ? hit(rows[0].querySelector('.wp-pin')) : null
+      out.panelInBar = (() => { const b = R(document.getElementById('wp-switch')); const p = R(document.getElementById('wp-panel')); return !!(p && b && p.x >= b.x - 1 && p.x + p.w <= b.x + b.w + 1) })()
+      return out
+    })
+    ok(s.addInBar && s.addHit && s.addHit.self && s.addParent === 'wp-switch',
+      'S7a ⑨＋ 固定在切换栏内（不是浮在别处），且命中区 = 视觉区（`elementFromPoint` 命中它自己）',
+      JSON.stringify({ parent: s.addParent, inBar: s.addInBar, hit: s.addHit }))
+    ok(s.panelOpen && s.rows >= 1 && s.types && (s.types.scene || 0) >= 1,
+      'S7b ⑨点 ＋ 才**显式展开**库列表（默认收起）；列表行带真实类型标签', JSON.stringify({ rows: s.rows, types: s.types }))
+    ok(s.rowHit && s.rowHit.self && s.pinHit && s.pinHit.self,
+      'S7c ⑨每行的"切换"与"★ 固定"两个命中区都等于视觉区（没有"看得到点不到"）', JSON.stringify({ row: s.rowHit, pin: s.pinHit }))
+  }
+
+  // S7d ⑨ 从库列表挂一张壁纸 ⇒ 该壁纸进"已选"（tab 条把它固定住），面板自动收起
+  {
+    const s = await page.evaluate(async () => {
+      const rows = [...document.querySelectorAll('#wp-panel-list .wp-row')]
+      const target = rows.find((r) => (r.querySelector('.wp-kind') || {}).textContent === 'video') || rows[rows.length - 1]
+      const id = target.dataset.id
+      target.querySelector('.wp-pin').click()          // ★ 固定
+      await new Promise((r) => setTimeout(r, 400))
+      const pinnedTabs = [...document.querySelectorAll('#editor-tabs .wp-tab')].map((b) => b.dataset.id + ':' + b.dataset.kind)
+      const stored = (() => { try { return JSON.parse(localStorage.getItem('bench-pinned-wallpapers') || '[]') } catch { return null } })()
+      // 切换一次：面板里的行点击 ⇒ 挂载 + 面板收起
+      target.querySelector('.wp-row-go').click()
+      await new Promise((r) => setTimeout(r, 5500))
+      const frame = document.getElementById('frame')
+      return { id, pinnedTabs, stored, panelHidden: document.getElementById('wp-panel').hasAttribute('hidden'), src: frame.getAttribute('src') || '', current: (document.getElementById('current') || {}).textContent, wp: (() => { try { return !!frame.contentWindow.__wp } catch { return false } })() }
+    })
+    ok(s.stored && s.stored.includes(s.id) && s.pinnedTabs.some((x) => x.startsWith(s.id + ':')),
+      'S7d ⑨★ 固定生效：已选集合持久化（`bench-pinned-wallpapers`）且 tab 条里出现该项（带真实类型）', JSON.stringify({ stored: s.stored, tabs: s.pinnedTabs }))
+    ok(s.panelHidden && /type=video|type=web|type=scene/.test(s.src) && s.wp,
+      'S7e ⑨从库列表点一行 ⇒ 真的挂载（iframe 起来了）+ 面板自动收起', JSON.stringify({ hidden: s.panelHidden, src: s.src.slice(0, 120), wp: s.wp }))
+  }
+
+  // S8 类型过滤（用户补充要求：不是只能看到 scene）
+  {
+    const s = await page.evaluate(async () => {
+      const out = {}
+      const segs = (ty) => document.querySelector('#type-filter .seg-btn[data-type="' + ty + '"]')
+      const counts = () => [...document.querySelectorAll('#list li[data-id]')].map((li) => ((li.querySelector('.sub') || {}).textContent || '').split(' ')[0].toLowerCase())
+      for (const ty of ['scene', 'web', 'video', 'all']) {
+        segs(ty).click()
+        await new Promise((r) => setTimeout(r, 700))
+        const kinds = counts()
+        out[ty] = { n: kinds.length, kinds: [...new Set(kinds)] }
+      }
+      out.visible = !!document.querySelector('#type-filter') && document.querySelector('#type-filter').getBoundingClientRect().width > 0
+      out.badge = [...document.querySelectorAll('#list li[data-id] .bench-kind')].length
+      return out
+    })
+    ok(s.visible && s.scene.n > 0 && s.web.n > 0 && s.video.n > 0 && s.all.n >= s.scene.n + s.web.n + s.video.n - 1,
+      'S8a 类型过滤可用且**四档都在**：全部 = 三档之和（改前 `#type-filter` 被 hidden 且 onclick=null ⇒ 永远只有 scene）', JSON.stringify(s))
+    ok(s.web.kinds.every((k) => k === 'web') && s.video.kinds.every((k) => k === 'video') && s.badge > 0,
+      'S8b 每档列表里的条目类型都对得上（标签如实显示，不一律写 scene）', JSON.stringify({ web: s.web, video: s.video, badges: s.badge }))
+  }
+
+  // S9 ⑩ 库来源显式显示（没选过就不许写成"已选"）
+  {
+    const s = await page.evaluate(() => {
+      const el = document.getElementById('lib-source')
+      if (!el) return null
+      return { text: el.textContent, kind: el.dataset.kind, path: el.dataset.path, title: el.getAttribute('title') }
+    })
+    ok(s && s.text && s.path && (s.kind === 'default' || s.kind === 'user') && s.title,
+      'S9 ⑩「当前库来源」写出四态之一 + 实际路径（本机默认目录会明确标注"你还没有选择"）', JSON.stringify(s))
+  }
+
+  // S10 ⑪ 设置/关于里的双方共同署名 + 上游许可全文入口
+  {
+    const s = await page.evaluate(() => {
+      const q = (x) => document.getElementById(x)
+      return {
+        title: (q('credit-title-footer') || {}).textContent, link: (q('credit-link-footer') || {}).textContent,
+        href: q('credit-link-footer') && q('credit-link-footer').getAttribute('href'),
+        repo: (q('credit-repo-footer') || {}).textContent,
+        lic: [...document.querySelectorAll('.bench-credit-license a')].map((a) => a.getAttribute('href')),
+      }
+    })
+    ok(s.title && s.link && s.repo && /oneincase\/webwallgl/.test(s.href || '') &&
+      /XHR666\/wallpaper-engine-web-loader|wallpaper-engine-web-loader/.test(s.repo) &&
+      s.lic.some((h) => /LICENSE-webwallgl-MIT\.txt/.test(h)) && s.lic.some((h) => /LICENSE-webwallgl$/.test(h)),
+      'S10 ⑪双方共同署名（本仓库作者 + 上游 oneincase/webwallgl MIT）且两份许可全文入口都在', JSON.stringify(s))
+  }
+
+  // S11 ①(P-159) 指针"离开"不再推一个画面正中的活指针
+  {
+    const s = await page.evaluate(async () => {
+      const before = (window.__benchPatch && window.__benchPatch.getPointerPark) ? window.__benchPatch.getPointerPark() : null
+      const stage = document.getElementById('stage')
+      const r = stage.getBoundingClientRect()
+      // 合成事件：先给一个"在画面里"的坐标，再移出画面 + mouseout(null)
+      document.dispatchEvent(new PointerEvent('pointermove', { clientX: Math.round(r.x + r.width / 2), clientY: Math.round(r.y + r.height / 2), bubbles: true }))
+      await new Promise((res) => setTimeout(res, 200))
+      document.dispatchEvent(new PointerEvent('pointermove', { clientX: 2, clientY: 2, bubbles: true }))
+      document.dispatchEvent(new MouseEvent('mouseout', { relatedTarget: null, bubbles: true }))
+      stage.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }))
+      await new Promise((res) => setTimeout(res, 300))
+      const after = (window.__benchPatch && window.__benchPatch.getPointerPark) ? window.__benchPatch.getPointerPark() : null
+      return { before, after }
+    })
+    if (s.after) {
+      ok(s.after.count > 0 && s.after.pushed === 0 && s.after.mode === 'leave',
+        'S11a ①(P-159)"离开"确实发生了（count>0）但**一次都没推活坐标**（pushed===0；旧默认会 push(0.5,0.5)）', JSON.stringify(s.after))
+    } else notes.push('S11 未测：`__benchPatch.getPointerPark()` 不可用')
+  }
+
+  ok(errs.length === 0, 'N6 整轮 0 个 pageerror（含本批新增的页签/面板/类型过滤/诊断流）', errs.slice(0, 2).join(' | '))
   console.log(`\n── 汇总：PASS=${pass} FAIL=${fail}`)
   for (const n of notes) console.log('  note: ' + n)
   process.exitCode = fail > 0 ? 1 : 0

@@ -628,11 +628,22 @@ const landing = path.join(ROOT, 'index.html')
       }
       return bad.length === 0 && /#pages-track\{[^}]*contain:paint/.test(css)
     })())
-  check('D11 ⑬ 展开时按 dropdownLayerPlan 写内联坐标，且在 addEventListener(\'scroll\',…,true) / resize 时收起',
+  check('D11 ⑬ 展开时按 dropdownLayerPlan 写内联坐标（**减掉包含块原点**：`#pages-track{contain:paint}` 抓走 fixed 定位），且在 addEventListener(\'scroll\',…,true) / resize 时收起',
     /const plan = dropdownLayerPlan\(rect, clip, vp, list\.scrollHeight \|\| 280\)/.test(patchSrc) &&
-    /list\.style\.top = plan\.top \+ 'px'/.test(patchSrc) &&
+    /const off = layerFixedOffset\(clip, inside\)/.test(patchSrc) &&
+    /list\.style\.top = \(plan\.top - off\.dy\) \+ 'px'/.test(patchSrc) &&
+    /list\.style\.left = \(plan\.left - off\.dx\) \+ 'px'/.test(patchSrc) &&
     /addEventListener\('scroll', \(\) => closeAll\(null\), true\)/.test(patchSrc) &&
     /addEventListener\('resize', \(\) => closeAll\(null\)\)/.test(patchSrc))
+  // ⑬b(P-158 用户第 2 条) 为什么要有它：fixed 后代的包含块被 `#pages-track{contain:paint}` 抓走 ⇒
+  //   内联 left/top 是相对它而不是视口（实测差一个 header = 44px，就是用户看到的"缝"）。
+  //   锚不在 `#pages-track` 里（设置弹层 #lang 在 header 里）⇒ 偏移必须是 0。
+  check('D11 ⑬b layerFixedOffset：锚在 `#pages-track` 里 ⇒ 偏移 = 它的 left/top；不在里面 ⇒ 0（视口坐标系）',
+    (() => {
+      const inside = P.layerFixedOffset({ left: 0, top: 44, right: 1360, bottom: 882 }, true)
+      const outside = P.layerFixedOffset({ left: 0, top: 44, right: 1360, bottom: 882 }, false)
+      return inside.dx === 0 && inside.dy === 44 && outside.dx === 0 && outside.dy === 0
+    })())
   check('D11 ⑬ position() 在 wrap.classList.add(\'open\') **之后**调用（display:none 时 scrollHeight=0 会量错）',
     (() => {
       const i = patchSrc.indexOf("const open = () => {")
@@ -648,10 +659,16 @@ const landing = path.join(ROOT, 'index.html')
     // 触发器位置取**修复后**的窄屏首屏布局（切换栏 32px 之后 ⇒ 工具条第一行 ≈94px）
     const fit = P.dropdownLayerPlan({ left: 98, top: 94, right: 230, bottom: 118, width: 132, height: 24 }, clip, vp, 280)
     check('D11 ⑬ 几何①：980×690 下 132px 触发器 + 280px 列表 ⇒ placement=below 且整块落在裁剪盒内（真机改前 inViewport=false）',
-      fit.placement === 'below' && fit.left === 98 && fit.top === 122 &&
+      fit.placement === 'below' && fit.left === 98 && fit.top === 120 &&
       fit.top + fit.maxHeight <= clip.bottom && fit.left + fit.width <= clip.right,
       JSON.stringify(fit))
+    // ⑬c(P-158 用户第 2 条判据)「列表上/下边缘与触发框的间距 ≤ 2px」——两个方向都要贴合：
+    //   below ⇒ 列表上边缘贴触发框下边缘；above ⇒ 列表下边缘贴触发框上边缘。
+    //   （放在 up 之后：两条判据要一起算。）
     const up = P.dropdownLayerPlan({ left: 300, top: 640, right: 432, bottom: 664, width: 132, height: 24 }, clip, vp, 280)
+    check('D11 ⑬c 贴合判据：below 的 anchorTop − 触发框 bottom ≤ 2px，above 的 触发框 top − anchorBottom ≤ 2px',
+      (fit.anchorTop - 118) <= 2 && (fit.anchorTop - 118) >= 0 && (640 - up.anchorBottom) <= 2 && (640 - up.anchorBottom) >= 0,
+      JSON.stringify({ belowGap: fit.anchorTop - 118, aboveGap: 640 - up.anchorBottom }))
     check('D11 ⑬ 几何②：触发器贴近底边 ⇒ 翻到上方（top < 触发器 top，且不越出裁剪盒上沿）',
       up.placement === 'above' && up.top < 640 && up.top >= clip.top && up.top + up.maxHeight <= 640,
       JSON.stringify(up))

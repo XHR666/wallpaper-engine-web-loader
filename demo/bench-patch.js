@@ -20,7 +20,10 @@
 // 浏览器初始化只在 `typeof document !== 'undefined'` 时执行。
 //
 // 第五批开关（写 0/false/off/no 即回退到上游原行为；默认全开）：
-//   ?ppark=0      鼠标移出舞台/视口后**不**把指针拉回中心（上游：冻结在最后位置）
+//   ?ppark=0      鼠标移出舞台/视口后**什么都不做**（连 pointerLeave 都不发；彻底回到"上游原行为"）
+//   ?ppark=center 显式要求"归中"：移出后发 pointerLeave **并把活指针推到画面正中**（旧默认行为，逃生口）
+//                 ⚠ 默认（不写）= 只发 pointerLeave、**保留最后位置**：推一个正中活坐标会把尾迹/涡流/视差的
+//                   力中心拽到画面中心再消失（真机 bug）；上游 pointer.js `pushExternalLeave` 的语义就是"只清按键" 
 //   ?clocklock=0  **不**给注入到页面里的 DOM 时间层加 pointer-events:none/不可拖拽
 //   ?clockdrag=0  **不**关闭壁纸自带的「可拖动」布尔用户属性
 //   ?brand=0      **不**把媒体组件的名称/图标换成壁纸自己的 project.json title/preview
@@ -69,7 +72,43 @@
 //   原生 select 留在 DOM 里当值容器 ⇒ 上游 bundle 读 `.value` / 监听 `change` 的链路一行不改。
 import { enhanceSelect } from './mpw-select.js'
 
-export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","pick.count":"{n} 项","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 webwallgl 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录","nav.console":"控制台","nav.docs":"说明","nav.wpset":"壁纸设置","nav.settings":"设置","nav.settingsTip":"语言 / 主题 / 归属与许可","nav.lang":"语言","nav.theme":"主题","nav.backend":"后台","nav.backendUnknown":"未知","nav.backendNote":"静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。","wp.add":"＋","wp.addTitle":"添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸","logs.expandTip":"展开输出（控制台）","logs.collapseTip":"收起输出（控制台）","props.emptyState":"还没有选择壁纸","props.emptyHint":"从左侧「选择壁纸」里点一张，这里就会显示它 project.json 声明的可调项。"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory","nav.console":"Console","nav.docs":"Guide","nav.wpset":"Wallpaper settings","nav.settings":"Settings","nav.settingsTip":"Language / theme / attribution & licences","nav.lang":"Language","nav.theme":"Theme","nav.backend":"Backend","nav.backendUnknown":"unknown","nav.backendNote":"Static hosting (GitHub Pages) has no local Node backend: library listing / property saving / deleting / the diagnostics stream are unavailable online — by design, not a failure. “Choose folder” (in-browser scan) still works.","wp.add":"＋","wp.addTitle":"Add / switch wallpaper: open the left list filtered to hide the current one","logs.expandTip":"Expand the output (console)","logs.collapseTip":"Collapse the output (console)","props.emptyState":"No wallpaper picked yet","props.emptyHint":"Pick one in “Choose wallpaper” on the left; the options declared in its project.json show up here."}}
+export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","pick.count":"{n} 项","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 webwallgl 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录","nav.console":"控制台","nav.docs":"说明","nav.wpset":"壁纸设置","nav.settings":"设置","nav.settingsTip":"语言 / 主题 / 归属与许可","nav.lang":"语言","nav.theme":"主题","nav.backend":"后台","nav.backendUnknown":"未知","nav.backendNote":"静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。","wp.add":"＋","wp.addTitle":"添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸","logs.expandTip":"展开输出（控制台）","logs.collapseTip":"收起输出（控制台）","props.emptyState":"还没有选择壁纸","props.emptyHint":"从左侧「选择壁纸」里点一张，这里就会显示它 project.json 声明的可调项。",
+"libsrc.default":"库来源：本机默认目录（服务端内置，你还没有选择）","libsrc.default.hint":"这个目录是服务端启动时的默认值，不代表你已经选过；点「选择文件夹」在应用内浏览并指定一个目录","libsrc.default.path":"（默认库目录不可用）",
+"libsrc.user":"库来源：你选择的目录","libsrc.user.hint":"由你通过「选择文件夹」指定（服务端 /api/library-dir 已接受并落库）","libsrc.user.path":"（已选目录为空）",
+"libsrc.empty":"库来源：空（服务端没有返回库目录）","libsrc.empty.hint":"服务端返回的库目录为空；点「选择文件夹」选一个装壁纸的目录","libsrc.empty.path":"（空）",
+"libsrc.none":"库来源：不可用（静态托管 / 无本机后端）","libsrc.none.hint":"静态托管没有 /api/*：壁纸库列表与诊断流不可用；「选择文件夹」的纯前端扫描仍可用","libsrc.none.path":"（无后端）",
+"wp.pinned":"已选 / 常用","wp.lib":"壁纸库","wp.libOpen":"展开壁纸库列表","wp.libClose":"收起壁纸库列表",
+"wp.pin":"固定到「已选」","wp.unpin":"从「已选」移除","wp.pinnedCount":"已选 {n} 项","wp.libCount":"库 {n} 项",
+"wp.libEmpty":"壁纸库为空：先选一个库目录，或用左侧「选择文件夹」纯前端扫描","wp.switchHint":"点标签切换壁纸；★ = 固定 / 取消固定",
+"wp.type.all":"全部","wp.type.scene":"场景","wp.type.web":"Web","wp.type.video":"视频","wp.typeTitle":"壁纸类型过滤（场景 / Web / 视频由产物自己的类型开关驱动，「全部」由本补丁合并三档）",
+"diag.empty":"（还没有渲染器诊断消息：选中一张壁纸后，渲染器会把挂载日志发到 /diag ⇒ 这里出现）","diag.count":"{n} 条","diag.tabTitle":"渲染器诊断流（/api/diag-stream，含渲染器经 /diag 上报的消息）","diag.lost":"诊断流断开：{msg}","diag.wait":"正在连接 /api/diag-stream…",
+"logs.tabLogs":"输出","logs.tabDiag":"渲染器诊断（/diag）","logs.tabHint":"切换「输出」/「渲染器诊断流」",
+"pickd.title":"选择壁纸库目录（应用内浏览）","pickd.note":"服务端只读浏览：路径不会越出服务端给出的根",
+"pickd.noRoute":"服务端还没有 /api/fs/* 这条路由（GET /api/fs/roots 返回 404）⇒ 应用内浏览不可用；请用下面的兜底按钮",
+"pickd.noBackend":"静态托管没有本机后端 ⇒ 应用内浏览不可用；用「纯前端扫描」选目录（文件不离开浏览器）",
+"pickd.here":"就选这个目录","pickd.up":"上一级","pickd.roots":"快捷根","pickd.loading":"读取中…","pickd.empty":"（这个目录没有子目录）",
+"pickd.selected":"已选择：{path}","pickd.applying":"正在切换库目录…","pickd.done":"库目录已切换：{path}（重新载入中…）","pickd.fail":"切换失败：{msg}",
+"pickd.frontend":"纯前端扫描（文件不离开浏览器）","pickd.system":"系统选择器（可能选不到环境内目录）","pickd.systemHint":"服务端打开的原生对话框；容器/安卓环境下常常看不到或选不到环境内目录 ⇒ 仅作兜底",
+"pickd.dirTag":"目录","pickd.fileTag":"文件","pickd.rootLocked":"服务端默认不允许列出这个根（只读边界）；可用 MPW_PICK_ROOT 放宽",
+"credit.title":"渲染核心：双方共同署名","credit.link":"上游作者：WebWallGL · oneincase（MIT 许可）","credit.repo":"本仓库作者：wallpaper-engine-web-loader（XHR666）· GPL-3.0-or-later"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory","nav.console":"Console","nav.docs":"Guide","nav.wpset":"Wallpaper settings","nav.settings":"Settings","nav.settingsTip":"Language / theme / attribution & licences","nav.lang":"Language","nav.theme":"Theme","nav.backend":"Backend","nav.backendUnknown":"unknown","nav.backendNote":"Static hosting (GitHub Pages) has no local Node backend: library listing / property saving / deleting / the diagnostics stream are unavailable online — by design, not a failure. “Choose folder” (in-browser scan) still works.","wp.add":"＋","wp.addTitle":"Add / switch wallpaper: open the left list filtered to hide the current one","logs.expandTip":"Expand the output (console)","logs.collapseTip":"Collapse the output (console)","props.emptyState":"No wallpaper picked yet","props.emptyHint":"Pick one in “Choose wallpaper” on the left; the options declared in its project.json show up here.",
+"libsrc.default":"Library source: machine default directory (server built-in — you have not chosen one)","libsrc.default.hint":"This is the server's start-up default, not a choice you made; click “Choose folder” to browse in-app and pick one","libsrc.default.path":"(default library directory unavailable)",
+"libsrc.user":"Library source: the directory you chose","libsrc.user.hint":"Chosen by you via “Choose folder” (accepted by the server's /api/library-dir)","libsrc.user.path":"(chosen directory is empty)",
+"libsrc.empty":"Library source: empty (the server returned no library directory)","libsrc.empty.hint":"The server reports an empty library; click “Choose folder” and pick a directory holding wallpapers","libsrc.empty.path":"(empty)",
+"libsrc.none":"Library source: unavailable (static hosting / no local backend)","libsrc.none.hint":"Static hosting has no /api/*: the library listing and diagnostics stream are unavailable; the in-browser scan behind “Choose folder” still works","libsrc.none.path":"(no backend)",
+"wp.pinned":"Pinned / recent","wp.lib":"Wallpaper library","wp.libOpen":"Expand the wallpaper library","wp.libClose":"Collapse the wallpaper library",
+"wp.pin":"Pin to “Pinned”","wp.unpin":"Unpin from “Pinned”","wp.pinnedCount":"{n} pinned","wp.libCount":"{n} in library",
+"wp.libEmpty":"The library is empty: pick a library directory first, or scan one with “Choose folder” on the left","wp.switchHint":"Click a tab to switch wallpaper; ★ = pin / unpin",
+"wp.type.all":"All","wp.type.scene":"Scene","wp.type.web":"Web","wp.type.video":"Video","wp.typeTitle":"Wallpaper type filter (scene / web / video are driven by the bundle's own type switch; “All” merges the three here)",
+"diag.empty":"(no renderer diagnostics yet: pick a wallpaper and the renderer reports its mount log to /diag — it shows up here)","diag.count":"{n} lines","diag.tabTitle":"Renderer diagnostics stream (/api/diag-stream, including what the renderer reports via /diag)","diag.lost":"Diagnostics stream lost: {msg}","diag.wait":"Connecting to /api/diag-stream…",
+"logs.tabLogs":"Output","logs.tabDiag":"Renderer diagnostics (/diag)","logs.tabHint":"Switch between “Output” and the renderer diagnostics stream",
+"pickd.title":"Choose the wallpaper library directory (in-app browsing)","pickd.note":"Read-only server browsing: paths never escape the roots the server exposes",
+"pickd.noRoute":"The server does not have the /api/fs/* routes yet (GET /api/fs/roots returns 404), so in-app browsing is unavailable; use a fallback button below",
+"pickd.noBackend":"Static hosting has no local backend, so in-app browsing is unavailable; use “in-browser scan” (files never leave the browser)",
+"pickd.here":"Use this directory","pickd.up":"Up one level","pickd.roots":"Shortcuts","pickd.loading":"Reading…","pickd.empty":"(no subdirectories here)",
+"pickd.selected":"Selected: {path}","pickd.applying":"Switching the library directory…","pickd.done":"Library directory switched: {path} (reloading…)","pickd.fail":"Switch failed: {msg}",
+"pickd.frontend":"In-browser scan (files never leave the browser)","pickd.system":"System picker (may not reach directories inside this environment)","pickd.systemHint":"The native dialog opened by the server; in containers/Android it is often invisible or cannot reach the environment's directories — fallback only",
+"pickd.dirTag":"dir","pickd.fileTag":"file","pickd.rootLocked":"The server does not allow listing this root by default (read-only boundary); relax it with MPW_PICK_ROOT",
+"credit.title":"Renderer core: joint attribution","credit.link":"Upstream author: WebWallGL · oneincase (MIT license)","credit.repo":"This repository: wallpaper-engine-web-loader (XHR666) · GPL-3.0-or-later"}}
 
 /* ============================ 纯函数层 ============================ */
 export const LANGS = ['zh', 'en']
@@ -706,7 +745,9 @@ export function dropdownLayerPlan(btn, clip, vp, listH) {
   const vw = num(vp && vp.width, 0), vh = num(vp && vp.height, 0)
   const cx0 = Math.max(0, num(clip && clip.left, 0)), cy0 = Math.max(0, num(clip && clip.top, 0))
   const cx1 = num(clip && clip.right, vw || cx0 + bw), cy1 = num(clip && clip.bottom, vh || cy0)
-  const gap = 4
+  // ⚠ 缝宽 2px（原来是 4px）：用户点名的判据是"列表上/下边缘与触发框的间距 ≤ 2px"。
+  //   4px 在缩放 125% 的屏幕上肉眼就是一条"没接上"的缝（真机原话：「与上面的框之间露出后面的画面」）。
+  const gap = 2
   const want = Math.max(80, Math.min(320, Math.round(num(listH, 280))))
   const bottom = by + bh
   const below = Math.max(0, Math.floor(Math.min(cy1, vh || cy1) - (bottom + gap)))
@@ -716,7 +757,224 @@ export function dropdownLayerPlan(btn, clip, vp, listH) {
   const maxHeight = Math.max(80, Math.min(want, placement === 'below' ? below : above))
   const left = Math.min(Math.max(cx0, bx), Math.max(cx0, Math.min(cx1, vw || cx1) - bw))
   const top = placement === 'below' ? bottom + gap : Math.max(cy0, by - gap - maxHeight)
-  return { left: Math.round(left), top: Math.round(top), width: Math.round(bw), maxHeight: Math.round(maxHeight), placement }
+  // anchorTop/anchorBottom = **贴边锚点**（视口坐标）：below ⇒ 上边缘贴 bottom+gap；above ⇒ 下边缘贴 by-gap。
+  //   为什么把两个锚点都返回：上翻时列表的**实测高度**可能小于 maxHeight（选项少 ⇒ 内容比上限矮），
+  //   只用 `by - gap - maxHeight` 会留下 (maxHeight - 实测高) 的缝 —— 调用方按 anchorBottom 回锚一次即可。
+  // ⚠ `anchorTop`/`anchorBottom` **不取整**：它们是"贴合锚点"，调用方要按视口实际像素对齐
+  //   （取整后遇上小数 rect 会做出 2.2px 的缝，正好越过"≤2px"判据 —— 无头实测踩到过）。
+  //   `left/top` 仍取整（纯函数几何断言用它们）。
+  return {
+    left: Math.round(left), top: Math.round(top), width: Math.round(bw), maxHeight: Math.round(maxHeight), placement,
+    anchorTop: bottom + gap, anchorBottom: by - gap, minTop: Math.round(cy0),
+  }
+}
+
+/** `position:fixed` 后代的**包含块原点**（视口坐标里要减掉的那一份）。
+ *
+ *  为什么需要：`#pages-track{contain:paint}`（静态表里那条）会让它成为**固定定位后代的包含块** ——
+ *  于是内联的 `left/top` 不是"相对视口"，而是"相对 `#pages-track` 的 padding box"。
+ *  实测（1360×900 / :8902）：`dropdownLayerPlan` 算出 `top=111`（视口坐标），渲染出来却是 155 ——
+ *  正好差 `#pages-track.top`（header 44px）⇒ 下拉列表与触发框之间露出 48px 的缝（用户第 2 条）。
+ *  `anchoredInside=false`（如设置弹层里的 `#lang`：它在 `#site-header` 里，不在 `#pages-track` 内）
+ *  ⇒ 包含块就是视口，偏移为 0。
+ *  @param {{left:number,top:number}|null} trackRect `#pages-track` 的 rect
+ *  @param {boolean} anchoredInside 触发按钮是否在 `#pages-track` 子树里 */
+export function layerFixedOffset(trackRect, anchoredInside) {
+  if (!anchoredInside) return { dx: 0, dy: 0 }
+  const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+  return { dx: n(trackRect && trackRect.left), dy: n(trackRect && trackRect.top) }
+}
+
+/* ============================ P-158 外壳 UI 一批（②③⑤⑥⑦⑨⑩ + 类型/库来源）纯函数层 ============================
+   用户原话（逐条对应）：
+     ②「下拉菜单与触发框之间有缝」                                   → layerFixedOffset（上面）
+     ⑤「输出栏收起时把预览切坏 / 预览区本身左右过长」                 → 由 CSS 的容器查询那条承担（无纯函数）
+     ⑥「输出这一行最后面没有清空/复制按钮（只有收起后才冒出复制输出）」→ logsViewPlan + 两态可见性断言
+     ⑦「渲染器诊断打不开 —— 应该显示 8899 页面下面那个日志」          → parseDiagEvent / diagEntryLine
+     ⑨「扫描出来的壁纸一次性全导入（加号前后点不动、触控位置不明）」    → pinnedPlan / trackPin / wpPanelRows
+     ⑩「未选目录却默认在 …/allwallpaper/dd」                          → librarySourcePlan
+   全部是零 DOM 的纯决策函数 ⇒ `tests/bench-shell-fixes-test.mjs` 可以不进浏览器就把边界钉住。 */
+
+/** 从产物列表项的 `.sub` 文案里取**真实类型**（`${type}${props?` · n 属性`:''} · ${itemId}`）。
+ *  为什么要有它：服务端返回的 `type` 大小写不统一（`scene` / `Scene` / `web` / `Web`），
+ *  产物把原样字符串写进 `.sub`；用户要求"类型标签要如实显示，不要一律写 scene" ⇒ 统一成小写三档。
+ *  返回 'scene' | 'web' | 'video' | 'unknown'。 */
+export function kindOfSub(sub) {
+  const head = String(sub == null ? '' : sub).split('·')[0].trim().toLowerCase()
+  if (head === 'scene' || head === 'web' || head === 'video') return head
+  if (head === 'gif' || head === 'mp4') return 'video'
+  return 'unknown'
+}
+
+/** 规范化 `GET /api/fs/list` 的返回（②⑤ 的库目录对话框用）：目录在前、各自按名字排；纯函数可测。 */
+export function fsEntriesPlan(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {}
+  const rows = []
+  for (const e of (Array.isArray(p.entries) ? p.entries : [])) {
+    const name = String((e && e.name) || '')
+    if (!name) continue
+    rows.push({
+      name,
+      path: String((e && e.path) || ''),
+      type: (e && e.type === 'file') ? 'file' : 'dir',
+      size: Number(e && e.size) || 0,
+      kind: String((e && e.kind) || ''),
+    })
+  }
+  const byName = (a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN')
+  const dirs = rows.filter((r) => r.type === 'dir').sort(byName)
+  const files = rows.filter((r) => r.type === 'file').sort(byName)
+  return { ok: p.ok !== false, path: String(p.path || ''), parent: p.parent == null ? null : String(p.parent), dirs, files, rows: dirs.concat(files) }
+}
+
+/** 规范化 `GET /api/fs/roots` 的返回（快捷根）。
+ *  服务端契约（`aa2fbd2`）：`{ok,roots:[{label,labels,path,listable}]}`，**home 默认 `listable:false`**
+ *  （只读边界默认 = 库根，避免把 `~/.ssh` 之类列出来）⇒ 前端要**灰显 + 给原因**，而不是让用户点了没反应。 */
+export function fsRootsPlan(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {}
+  const roots = []
+  for (const r of (Array.isArray(p.roots) ? p.roots : [])) {
+    const path = String((r && r.path) || '')
+    if (!path) continue
+    const listable = !(r && r.listable === false)
+    roots.push({
+      label: String((r && r.label) || path), path, listable,
+      reason: String((r && (r.reason || r.enableHint)) || ''),
+    })
+  }
+  return { ok: p.ok !== false && roots.length > 0, roots }
+}
+
+/** 「已选/常用」壁纸条的计划（用户第 9 条）：
+ *  · `pinned` 是**用户显式固定过**的 id 列表（顺序 = 固定顺序，位置稳定，不再像旧实现那样
+ *    "当前项永远排第一 + 加号跟着当前项跑"）；
+ *  · 当前项一定算在"已选"里（否则切过去以后就从条上消失），但它由产物自己的 `#current` 呈现 ⇒
+ *    不再重复出一个 tab（旧实现会出现两个"当前"）；
+ *  · 超出 `max` 的旧项被丢掉（`dropped` 报数，调用方据此回写 localStorage）。
+ *  items: [{id, title, sub}]（来自 `#list li[data-id]`）。 */
+export function pinnedPlan(pinned, items, currentId, max = 8) {
+  const cap = Math.max(1, Number(max) || 8)
+  const list = Array.isArray(items) ? items : []
+  const byId = new Map(list.filter(Boolean).map((it) => [String(it.id), it]))
+  const order = []
+  for (const raw of (Array.isArray(pinned) ? pinned : [])) {
+    const id = String(raw == null ? '' : raw)
+    if (id && !order.includes(id)) order.push(id)
+  }
+  const cur = String(currentId == null ? '' : currentId)
+  if (cur && !order.includes(cur)) order.push(cur)
+  const ids = order.slice(0, cap)
+  const tabs = ids.filter((id) => id !== cur).map((id) => {
+    const it = byId.get(id) || {}
+    return { id, title: String(it.title || id), kind: kindOfSub(it.sub), active: false }
+  })
+  return { ids, tabs, dropped: Math.max(0, order.length - ids.length), current: cur || null }
+}
+
+/** 固定/取消固定一条（返回**新数组**，调用方负责持久化）。已固定的保持原位（位置稳定）。 */
+export function trackPin(pinned, id, on, max = 8) {
+  const cap = Math.max(1, Number(max) || 8)
+  const want = String(id == null ? '' : id)
+  const cur = (Array.isArray(pinned) ? pinned : []).map((x) => String(x == null ? '' : x)).filter(Boolean)
+  if (!want) return cur
+  const rest = cur.filter((x) => x !== want)
+  if (!on) return rest
+  rest.push(want)
+  return rest.length > cap ? rest.slice(rest.length - cap) : rest
+}
+
+/** 库列表面板（显式展开）的行计划：真实类型标签 + 是否已固定。 */
+export function wpPanelRows(items, pinned) {
+  const pin = new Set((Array.isArray(pinned) ? pinned : []).map((x) => String(x == null ? '' : x)))
+  return (Array.isArray(items) ? items : []).filter(Boolean).map((it) => {
+    const id = String(it.id == null ? '' : it.id)
+    const kind = kindOfSub(it.sub)
+    return { id, title: String(it.title || id), kind, pinned: pin.has(id), tag: kind === 'unknown' ? '?' : kind }
+  })
+}
+
+/** 输出面板的两个视图（用户第 6/7 条）：返回该显示谁、复制按哪个取文本。
+ *  `view`: 'logs'（补丁日志 + 产物日志，默认）| 'diag'（渲染器诊断流 `/api/diag-stream`）。 */
+export function logsViewPlan(view) {
+  const v = view === 'diag' ? 'diag' : 'logs'
+  return {
+    view: v,
+    isDiag: v === 'diag',
+    isLogs: v === 'logs',
+    copySelector: v === 'diag' ? '#diag-body' : '#logbody',
+    clearSelector: v === 'diag' ? '#diag-body' : '#logbody',
+  }
+}
+
+/** 一条 `/api/diag-stream`（SSE）事件的展示模型。容错：非 JSON 的 `data:` 原样当消息。
+ *  服务端形状（`server/we-scene-demo-server-8902.mjs`）：`data: {"seq","ts","msg","level","source"}`。 */
+export function diagEntryLine(evt) {
+  const e = (evt && typeof evt === 'object') ? evt : {}
+  const msg = String(e.msg == null ? '' : e.msg)
+  const tsNum = Number(e.ts)
+  let clock = ''
+  if (Number.isFinite(tsNum) && tsNum > 0) {
+    const d = new Date(tsNum)
+    const p2 = (n) => String(n).padStart(2, '0')
+    clock = p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds())
+  }
+  const seqNum = Number(e.seq)
+  const seq = Number.isFinite(seqNum) && seqNum > 0 ? '#' + seqNum : ''
+  const level = String(e.level || (/fail|error|ERROR|失败/.test(msg) ? 'error' : 'info'))
+  const source = String(e.source || 'renderer')
+  return {
+    clock, seq, level, source, msg,
+    line: [clock, seq, '[' + source + ']'].filter(Boolean).join(' ') + ' ' + msg,
+  }
+}
+
+/** 解析一条 SSE `data:` 载荷（服务端只在 `data:` 里放 JSON；坏数据不抛，退化成纯文本一行）。 */
+export function parseDiagEvent(raw) {
+  const s = String(raw == null ? '' : raw).trim()
+  if (!s) return null
+  try {
+    const j = JSON.parse(s)
+    return diagEntryLine((j && typeof j === 'object') ? j : { msg: s })
+  } catch { return diagEntryLine({ msg: s }) }
+}
+
+/** 「当前库来源」的展示计划（用户第 10 条）。**不许假装已选**：
+ *   · `backend=false`（静态托管 / 无 /api）      → 'none'    ：库不可用，来源未知
+ *   · `source==='user'` 或 localStorage 里有用户选过的目录 → 'user'   ：用户选的目录
+ *   · 服务端给了 dir 但**没有任何用户选择记录**    → 'default'：**本机默认目录**（服务端内置）
+ *   · dir 为空                                   → 'empty'  ：库为空
+ *  `path` 是"要显示出来的那份路径"；`labelKey` 交给词典。 */
+export function librarySourcePlan(lang, o) {
+  const x = (o && typeof o === 'object') ? o : {}
+  const dir = String(x.dir || '')
+  const chosen = String(x.chosen || '')
+  const source = String(x.source || '')
+  const backend = !!x.backend
+  let kind = 'none'
+  // 服务端五档（`/api/library-source`）：user = 用户选的；env/cli/default = **不是用户选的**（本机默认口径）；
+  //  none = 没有库；空 dir 也算空。`chosen`（localStorage 里有用户选择记录）只在服务端没给 source 时兜底。
+  if (backend) {
+    if (source === 'none') kind = 'empty'
+    else if (source === 'user') kind = 'user'
+    else kind = (dir ? (chosen && !source ? 'user' : 'default') : 'empty')
+  }
+  const path = kind === 'user' ? (chosen || dir) : dir
+  const key = 'libsrc.' + kind
+  return { kind, key, path, label: t(lang, key), hint: t(lang, key + '.hint'), pathShown: path || t(lang, key + '.path') }
+}
+
+/** 库目录对话框（②⑤ 的"选环境内文件夹"）计划：服务端路由在不在、用什么兜底。
+ *  routesOk=false（`GET /api/fs/roots` 404/网络错）⇒ 明确提示"服务端还没这条路由"，
+ *  并给出两个兜底按钮（纯前端选文件夹 / **明确标注**的系统选择器）。 */
+export function dirDialogPlan(routesOk, backend) {
+  const ok = !!routesOk && !!backend
+  return {
+    ok,
+    mode: ok ? 'server' : 'fallback',
+    noticeKey: ok ? 'pickd.note' : (backend ? 'pickd.noRoute' : 'pickd.noBackend'),
+    confirmKey: ok ? 'pickd.here' : null,
+    showSystem: true,                                  // 系统选择器永远只是**兜底按钮**（显式标注）
+  }
 }
 
 /**
@@ -750,19 +1008,38 @@ export function bindDropdown(doc, sel, registry) {
     btn.disabled = !!sel.disabled
   }
   const close = () => { wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false') }
-  /** 浮层坐标（fixed 坐标系 = 视口）—— 只在展开时算一次；滚动/改尺寸由调用方关掉重开 */
+  /** 浮层坐标（fixed 坐标系 = 视口）—— 只在展开时算一次；滚动/改尺寸由调用方关掉重开。
+   *  ⚠ 写内联坐标时**必须减掉包含块原点**：`#pages-track{contain:paint}` 是这些 fixed 后代的包含块，
+   *    不减就会整体下移一个 header 的高度（正是"下拉与触发框之间有缝"的真因，见 layerFixedOffset）。 */
   const position = () => {
     try {
       if (typeof btn.getBoundingClientRect !== 'function') return null
       const rect = btn.getBoundingClientRect()
       const clipEl = (typeof document !== 'undefined' && doc.querySelector) ? doc.querySelector('#pages-track') : null
       const clip = (clipEl && typeof clipEl.getBoundingClientRect === 'function') ? clipEl.getBoundingClientRect() : null
+      const inside = !!(clipEl && typeof clipEl.contains === 'function' && clipEl.contains(btn))
       const vp = { width: (typeof innerWidth === 'number' ? innerWidth : 0), height: (typeof innerHeight === 'number' ? innerHeight : 0) }
       const plan = dropdownLayerPlan(rect, clip, vp, list.scrollHeight || 280)
-      try { list.style.left = plan.left + 'px' } catch {}
-      try { list.style.top = plan.top + 'px' } catch {}
+      const off = layerFixedOffset(clip, inside)
+      try { list.style.left = (plan.left - off.dx) + 'px' } catch {}
+      try { list.style.top = (plan.top - off.dy) + 'px' } catch {}
       try { list.style.minWidth = plan.width + 'px' } catch {}
       try { list.style.maxHeight = plan.maxHeight + 'px' } catch {}
+      try { list.setAttribute('data-placement', plan.placement) } catch {}
+      // 贴合校正（一次）：按**实测几何**把列表的贴合边对齐到锚点 ——
+      //   · below：列表**上边缘** = 触发框下边缘 + gap；
+      //   · above：列表**下边缘** = 触发框上边缘 − gap（内容比 max-height 矮时尤其需要，否则留一条缝）。
+      //   `≤2px` 判据要在小数 rect 下也成立，所以这一步不做任何取整。
+      if (typeof list.getBoundingClientRect === 'function') {
+        try {
+          const r2 = list.getBoundingClientRect()
+          if (r2.height > 0) {
+            const wantTop = plan.placement === 'below' ? plan.anchorTop : Math.max(plan.minTop, plan.anchorBottom - r2.height)
+            const delta = wantTop - r2.top
+            if (Math.abs(delta) > 0.05) list.style.top = (r2.top + delta - off.dy) + 'px'
+          }
+        } catch { /* 桩 DOM */ }
+      }
       return plan
     } catch { return null }   // 桩 DOM 无布局：CSS 里的 fixed 默认值仍然成立
   }
@@ -801,7 +1078,8 @@ export function bindDropdown(doc, sel, registry) {
 // 用户实测三条（2026-09-15 第五批）：
 //  ①鼠标移出画面后壁纸在最后位置「原地转圈」——上游**没有**离开语义：pointer.js 的
 //    onLeaveWindow / pushExternalLeave 都只清按键、**刻意保留位置与 has**（且被文档与测试当契约守着）。
-//    我们的补丁层在**舞台外**这一点上补一条「回到中性位置（中心）」的语义，可用 ?ppark=0 回退。
+//    我们的补丁层在**舞台外**这一点上补一条「离开」语义：**只清按键、保留最后位置**（= 上游 pushExternalLeave），
+//    `?ppark=center` 可显式要旧的"归中"，`?ppark=0` 则连这条都不加（彻底上游原样）。
 //  ②壁纸自身的时钟/日期组件能被鼠标拖走——上游把「可拖动」交给壁纸自己的用户属性（如 hina
 //    3554161528 的 newproperty21「可拖动/Dragable」）；我们按属性标签识别并置 false（?clockdrag=0 回退），
 //    另对**注入到页面里的 DOM 时间层**做 pointer-events/选中/拖拽三件套（?clocklock=0 回退）。
@@ -833,18 +1111,27 @@ export function readPatchFlags(search) {
   const rawApp = String(q.get('appname') == null ? '' : q.get('appname'))
   const rawBrand = String(q.get('brand') == null ? '' : q.get('brand'))
   const appname = !(/^(upstream|0|false|off|no)$/i.test(rawApp) || /^upstream$/i.test(rawBrand))
-  return { ppark: on('ppark', true), clocklock: on('clocklock', true), clockdrag: on('clockdrag', true), brand: on('brand', true), appname, openrewrite: on('openrewrite', true) }
+  // ①(P-159) `?ppark=center` = 显式要旧的"归中"行为；其余任何"开"的写法都按新默认（只 leave、保位置）
+  const pparkMode = /^center$/i.test(String(q.get('ppark') == null ? '' : q.get('ppark'))) ? 'center' : 'leave'
+  return { ppark: on('ppark', true), pparkMode, clocklock: on('clocklock', true), clockdrag: on('clockdrag', true), brand: on('brand', true), appname, openrewrite: on('openrewrite', true) }
 }
 
-/** 鼠标离开后的「归中」决策（纯函数，便于 Node 断言）。
- *  依据：上游 pointer.js:87-88 的初值就是 u=v=0.5（中心），注释写明「视差/粒子/iris 要的是相对中心为零」
- *  ⇒ 归中等于回到「用户还没动鼠标」的状态，而不是改 has/位置冻结（那正是 bug 本身）。 */
+/** 鼠标离开后的处置决策（纯函数，便于 Node 断言）。
+ *
+ *  ⚠ ①(P-159 尾迹线实测转来的真机 bug) **默认不再"归中"**：
+ *  旧实现返回 `{u:0.5, v:0.5, leave:true}`，调用点紧接着 `api.pushPointer(0.5, 0.5, 0, 0)` —— 等于
+ *  "鼠标一离开就推一个画面正中的**活**指针" ⇒ 尾迹/涡流/吸附的力中心被拽到中心再消失（用户报的现象，
+ *  核心线已在 `cb9acb8` 修掉"无指针时退化到层原点"的另一半）。上游 `pointer.js` 的 `pushExternalLeave`
+ *  语义本来就是"**只清按键、保留最后位置**" ⇒ 默认跟随上游：`push:false`，只发 `pointerLeave()`。
+ *  想要旧行为（归中）用 `?ppark=center` 显式打开；`?ppark=0` 连 `pointerLeave` 都不发（彻底回上游原样）。
+ *  @returns {{park:boolean, reason:string, leave?:boolean, push?:boolean, u?:number, v?:number, buttons?:number}} */
 export function pointerParkAction(env) {
   const e = env || {}
   if (e.enabled === false) return { park: false, reason: 'flag-off' }
   if (!e.hasApi) return { park: false, reason: 'no-renderer-api' }
   if (e.parked) return { park: false, reason: 'already-parked' }
-  return { park: true, reason: 'leave', u: 0.5, v: 0.5, buttons: 0, leave: true }
+  if (e.mode === 'center') return { park: true, reason: 'leave-center', leave: true, push: true, u: 0.5, v: 0.5, buttons: 0 }
+  return { park: true, reason: 'leave', leave: true, push: false, buttons: 0 }
 }
 
 /** 元素自身文本（不含后代），时间层判定只看它，避免容器把整页文本聚合进来 */
@@ -1286,18 +1573,69 @@ export function npClock(sec) {
  * 返回的对象是本段的全部可观察面（X11 真机读它，门禁也读它）。
  */
 
-// ═══ MPW-SELECT-WIRING（①用户第 6 项 2026-09-19）══════════════════════════════════════
-// 工具条那 6 个原生下拉 + 上游产物渲染的"壁纸配置"面板里的 combo，统一换成自绘下拉。
-// 为什么放在这个文件：它是**唯一**的运行期补丁层（不改 minified 产物），而工具条/面板都是它已经在管的 DOM。
-// 三条纪律与 8899 那边一致：
-//   ① `enhanceSelect()` 要求元素**已在 DOM 里**（它要往父节点插控件）⇒ 只增强 `document` 里找得到的；
-//   ② 增强失败只吞掉这一个控件（`try/catch`），绝不把整页带崩；
-//   ③ 幂等：跳过已带 `data-mpw-select-native` 的，重复调用没有副作用（上游重渲染后由观察者再补一遍）。
-export const BENCH_SELECT_IDS = ['lang', 'resolution', 'fit', 'dpr', 'fps', 'fx']
+// ═══ MPW-SELECT-WIRING（①用户第 6 项 2026-09-19；③(P-158) 去重）════════════════════════
+// 分工（一条纪律：**一个原生 `<select>` 只允许一个看得见的自绘控件**）：
+//   · 测试台外壳（设置弹层的 `#lang` + 工具条的 5 个）⇒ `bindDropdown()`（本文件 A5/A6 工厂，DOM 是 `.bench-rd`）；
+//   · 壁纸自己的属性面板 `#props-body` 里的 combo ⇒ `mpw-select.js`（用户第 6 项点名的那个面）。
+// 为什么外壳那 5 个必须从 mpw 摘掉（用户第 3 条的真因，实测复现）：
+//   `init()` 里 `for (const sel of doc.querySelectorAll('select')) bindDropdown(...)` 已经给**每个** select
+//   建好了 `.bench-rd`（按钮 + 列表 + 隐藏的原生 select）；随后 `enhanceBenchSelects()` 又对其中 5 个调
+//   `enhanceSelect()`，它把 `.mpw_select` 插在 select 的**下一个兄弟位**（= `.bench-rd` 里面）⇒
+//   每个选项后面多出一个「（空）」的控件；分辨率那一处还有 `.bench-rd-btn`（写「自适应 16:9」）与
+//   `.mpw_select_btn` 两个按钮，点开 mpw 那个黑色列表选一次「自适应 16:9」后它的 label 才被填上
+//   ⇒ 工具条上出现**两个**「自适应 16:9」。⇒ 外壳侧一律只留 `.bench-rd`。
+export const BENCH_SELECT_IDS = []                       // 外壳里不再用 mpw 增强任何 select（导出名保留：门禁/文档引用过）
+/** 外壳里**该由 `.bench-rd` 独占**的 select（一个 select 一个看得见的控件；顺序 = 工具条 DOM 顺序）。 */
+export const BENCH_BAR_SELECT_IDS = ['lang', 'resolution', 'fit', 'dpr', 'fps', 'fx']
 
-/** 增强工具条那 6 个下拉；返回本次真正增强的数量。 */
+/** 清掉「历史遗留的第二套自绘控件」：`#toolbar` / `#site-actions` 里 select 后面的 `.mpw_select`。
+ *  优先走 mpw 自己的 `destroy()`（会把原生 select 放回来、卸监听），句柄丢了就直接摘节点。
+ *  幂等：清干净之后再调用恒返回 0。返回本次清掉的个数（探针/门禁读它）。 */
+export function dropToolbarMpwSelects(doc = (typeof document !== 'undefined' ? document : null)) {
+  if (!doc || !doc.querySelector) return 0
+  let n = 0
+  for (const host of ['#toolbar', '#site-actions']) {
+    const box = doc.querySelector(host)
+    if (!box) continue
+    for (const sel of box.querySelectorAll('select')) {
+      const h = sel.__mpwSelectHandle
+      if (h && typeof h.destroy === 'function') { try { h.destroy(); n++ } catch { /* 单个失败留着也无害 */ } ; continue }
+      let sib = sel.nextElementSibling
+      while (sib && sib.classList && sib.classList.contains('mpw_select')) {
+        const next = sib.nextElementSibling
+        try { sib.remove(); n++ } catch { /* ignore */ }
+        sib = next
+      }
+    }
+  }
+  return n
+}
+
+/** mpw 控件按钮上的文案同步（**呈现层兜底**，不改 `mpw-select.js` 的行为）。
+ *  为什么需要：`mpw-select.js` 的 `paintButton()` 读的是**闭包里的 `model`**，而 `model` 只在 `open()` 里
+ *  才被赋值 ⇒ 首次展开之前，按钮一直写「（空）」（选项明明在 select 里）；用户看到的"空的下拉框"就是它。
+ *  这里按同一口径（`String(o.textContent).trim()`）把 label 写成真实选中项；`mpw-select.js` 一旦把
+ *  `paintButton` 改成每次现读 options（根治），本函数写的就是同一个字符串 ⇒ 自然变成无副作用的幂等操作。 */
+export function syncMpwLabels(root = (typeof document !== 'undefined' ? document : null)) {
+  if (!root || !root.querySelectorAll) return 0
+  let n = 0
+  for (const sel of root.querySelectorAll('select[data-mpw-select-native]')) {
+    const h = sel.__mpwSelectHandle
+    if (!h || !h.root || !h.root.querySelector) continue
+    const lab = h.root.querySelector('.mpw_select_label')
+    if (!lab) continue
+    const o = sel.options && sel.options[sel.selectedIndex]
+    const want = (o && o.textContent != null) ? String(o.textContent).trim() : '（空）'
+    if (lab.textContent !== want) { try { lab.textContent = want; n++ } catch { /* ignore */ } }
+    if (h.root.setAttribute) { try { h.root.setAttribute('data-bench-label', want) } catch { /* ignore */ } }
+  }
+  return n
+}
+
+/** 增强工具条那 6 个下拉；返回本次真正增强的数量（外壳侧现为 0：`.bench-rd` 已独占，见上面的分工）。 */
 export function enhanceBenchSelects(doc = (typeof document !== 'undefined' ? document : null)) {
   if (!doc || !doc.getElementById) return 0
+  dropToolbarMpwSelects(doc)                 // ③(P-158) 先清掉历史遗留的第二套控件（幂等）
   let n = 0
   for (const id of BENCH_SELECT_IDS) {
     const sel = doc.getElementById(id)
@@ -1345,6 +1683,9 @@ export function watchBenchPropsSelects(doc = (typeof document !== 'undefined' ? 
     for (const sel of doc.querySelectorAll('#props-body select:not([data-mpw-select-native]), div#props select:not([data-mpw-select-native])')) {
       try { enhanceSelect(sel, { doc }); n++ } catch (e) { /* 保留原生 */ }
     }
+    // ③(P-158) 每次补挂之后同步一次按钮文案：mpw 自己的 `paintButton()` 在首次展开前只会写「（空）」
+    //   （`model` 只在 `open()` 里赋值），这里按同一口径补上真实选中项 ⇒ 页面上不再有"空 label"的控件。
+    try { syncMpwLabels(doc) } catch { /* ignore */ }
     return n
   }
   pass()                                     // 首帧兜底（面板若已渲染）
@@ -1958,69 +2299,427 @@ export function initSiteShell(ctx = {}) {
     }
   } catch {}
 
-  /* ── ④ 壁纸切换栏：从 bundle 渲染出的 #list 读取（dataset.id + .title + .active），点击转交 li.onclick ── */
+  /* ── ④(P-158 重做) 壁纸切换栏：**已选/常用**（固定、可点、位置固定）+ **库列表**（显式展开才显示）─────
+     用户原话：「扫描出来的壁纸一次性全导入（我选过 2 张，后面还跟着一大堆库里所有壁纸；加号前后点不动、
+     触控位置不明）」。旧实现的三条根因（都能在代码里指出来）：
+       ① `switcherPlan(items, curId, 12)` 把**库里前 12 项**全部变成 tab ⇒ "一次性全导入"；
+       ② 它永远把**当前项排到第一位** ⇒ 每切一次壁纸，所有 tab 都换位置（"点不动/位置不明"的一半）；
+       ③ `#wp-add` 被 `insertBefore(addBtn, activeTab.nextSibling)` **跟着当前项跑** ⇒ 加号在栏里跳来跳去，
+          触控目标不确定（另一半）。
+     新结构：
+       · `#editor-tabs` 里只有"当前壁纸"（产物自己的 `#current`）+ **用户固定过的** tab（顺序 = 固定顺序，
+         位置稳定，当前项不重复出现在条上）；
+       · `#wp-add` 移到 `#wp-switch` 的**最右端固定位**（静态 HTML 里就是 `#editor-tabs` 的兄弟），
+         点它 = **显式展开/收起**库列表面板 `#wp-panel`（`aria-expanded` 跟着走）；
+       · 面板里才是完整库列表：每行 = 类型标签（真实类型，小写三档）+ 标题 + 固定/取消固定（★）+ 点击切换。
+     固定集合持久化在 `bench-pinned-wallpapers`（最多 8 条，超出丢最旧）。 */
   const listEl = q('#list'), tabsBox = q('#editor-tabs'), addBtn = q('#wp-add')
+  const wpPanel = q('#wp-panel'), wpPanelList = q('#wp-panel-list'), wpPanelHead = q('#wp-panel-head')
+  const PIN_STORE = 'bench-pinned-wallpapers'      // localStorage 键（命名避开 secret-scan 的 *KEY= 长串误报）
+  const PIN_MAX = 8
   let curId = null
   function listItems() {
     if (!listEl) return []
     return [...listEl.querySelectorAll('li[data-id]')].map((li) => ({
       id: String(li.dataset.id || ''),
       title: (li.querySelector('.title')?.textContent || li.textContent || '').trim(),
+      sub: (li.querySelector('.sub')?.textContent || '').trim(),
       active: li.classList.contains('active'),
       el: li,
     }))
   }
+  function readPinned() {
+    try {
+      const raw = JSON.parse(readKey(PIN_STORE) || '[]')
+      return Array.isArray(raw) ? raw.map((x) => String(x == null ? '' : x)).filter(Boolean) : []
+    } catch { return [] }
+  }
+  let pinned = readPinned()
+  function writePinned(next) { pinned = next; try { writeKey(PIN_STORE, JSON.stringify(next)) } catch {} }
+  /** 挂到"已选"（幂等；已固定保持原位 ⇒ 位置固定）。 */
+  function pinWallpaper(id) {
+    const next = trackPin(pinned, id, true, PIN_MAX)
+    if (JSON.stringify(next) !== JSON.stringify(pinned)) writePinned(next)
+    return next
+  }
+  function unpinWallpaper(id) {
+    const next = trackPin(pinned, id, false, PIN_MAX)
+    writePinned(next)
+    return next
+  }
+  /** 点一个 id 切换壁纸：优先用它自己的 `li.onclick`（产物那条挂载链一行不改）；
+   *  该 id 当前不在列表里（被类型过滤挡掉）⇒ 先把它那一档的类型开关切过去，等产物重渲染后再点。 */
+  function switchToWallpaper(id) {
+    const want = String(id || '')
+    if (!want) return false
+    const hit = () => [...(listEl ? listEl.querySelectorAll('li[data-id]') : [])].find((li) => String(li.dataset.id || '') === want)
+    const first = hit()
+    if (first) { try { first.click() } catch { /* ignore */ } ; return true }
+    const kind = kindOfWallpaperId(want)
+    if (kind && kind !== bundleType) { setTypeFilter(kind); setTimeout(() => { const li2 = hit(); if (li2) { try { li2.click() } catch {} } }, 60); return true }
+    return false
+  }
+  /** id ⇒ 类型：优先查当前列表里的 `.sub`，查不到就查我们缓存过的 id→kind 表（切类型前也认得）。 */
+  const kindCache = new Map()
+  function rememberKinds(items) { for (const it of items) { const k = kindOfSub(it.sub); if (k !== 'unknown') kindCache.set(it.id, k) } }
+  function kindOfWallpaperId(id) { return kindCache.get(String(id)) || null }
   let switcherSig = null
   function refreshSwitcher(force = false) {
     if (!tabsBox || !listEl) return { tabs: 0 }
     const items = listItems()
+    rememberKinds(items)
     const activeItem = items.find((it) => it.active)
-    if (activeItem) curId = activeItem.id
-    const plan = switcherPlan(items, curId, 12)
+    if (activeItem) { curId = activeItem.id; pinWallpaper(curId) }      // 选过就进"已选"（位置固定，不重排）
+    const plan = pinnedPlan(pinned, items, curId, PIN_MAX)
+    if (plan.dropped > 0) writePinned(plan.ids)
     // ①(修正 2026-09-17) **签名守卫**：内容没变就一个 DOM 写都不做。
     //   真机事故：补丁往 #editor-tabs 插 tab → #editor-chrome 变高 → 产物的 stage ResizeObserver 重算 →
     //   又触发 #list 变更事件 → 再插一遍 …… 两个观察者互激成忙循环，页面 load 卡死（探针超时）。
-    const sig = JSON.stringify(plan.tabs.map((t) => [t.id, t.title, t.active])) + '|' + String(curId)
-    if (!force && sig === switcherSig) return { tabs: plan.tabs.length, total: plan.total, unchanged: true }
+    const sig = JSON.stringify(plan.tabs.map((t) => [t.id, t.title, t.kind])) + '|' + String(curId) + '|' + pinned.join(',')
+    if (!force && sig === switcherSig) { paintWpPanel(); return { tabs: plan.tabs.length, total: plan.ids.length, unchanged: true } }
     switcherSig = sig
     for (const el of [...tabsBox.querySelectorAll('.wp-tab')]) el.remove()
     for (const it of plan.tabs) {
       const b = D.createElement('button')
-      b.type = 'button'; b.className = 'wp-tab' + (it.active ? ' active' : '')
-      b.dataset.id = it.id
+      b.type = 'button'; b.className = 'wp-tab'
+      b.dataset.id = it.id; b.dataset.kind = it.kind
       b.textContent = it.title || it.id
-      b.title = it.title ? it.title + '（' + it.id + '）' : it.id
-      b.addEventListener('click', () => { try { it.el.click() } catch {} })
+      b.title = (it.title ? it.title + '（' + it.id + '） · ' : '') + it.kind + ' · ' + t(curLang(), 'wp.switchHint')
+      b.setAttribute('aria-label', b.title)
+      b.addEventListener('click', () => { switchToWallpaper(it.id) })
       tabsBox.appendChild(b)
     }
     const cur = q('#current')
     if (cur && activeItem) cur.classList.toggle('active', true)
-    // ④ 加号跟随当前壁纸那一项：把它插到"当前 tab"右边（没有 .wp-tab 时跟在 #current 之后）
-    try {
-      if (addBtn && tabsBox) {
-        const activeTab = tabsBox.querySelector('.wp-tab.active')
-        const anchor = activeTab || cur
-        if (anchor && anchor.nextSibling !== addBtn) tabsBox.insertBefore(addBtn, anchor.nextSibling)
-      }
-    } catch {}
-    return { tabs: plan.tabs.length, total: plan.total }
+    paintWpPanel()
+    return { tabs: plan.tabs.length, total: plan.ids.length }
+  }
+  /* 库列表面板：显式展开（`#wp-add`）才显示；行 = 真实类型 + 标题 + ★。 */
+  function panelOpen() { return !!(wpPanel && !wpPanel.hasAttribute('hidden')) }
+  function setPanelOpen(open) {
+    if (!wpPanel) return false
+    const want = !!open
+    if (want) { wpPanel.removeAttribute('hidden'); renderWpPanel() } else wpPanel.setAttribute('hidden', '')
+    if (addBtn) {
+      try { addBtn.setAttribute('aria-expanded', want ? 'true' : 'false') } catch {}
+      try { addBtn.setAttribute('title', t(curLang(), want ? 'wp.libClose' : 'wp.libOpen')) } catch {}
+      try { addBtn.setAttribute('aria-label', t(curLang(), want ? 'wp.libClose' : 'wp.libOpen')) } catch {}
+    }
+    return want
+  }
+  function paintWpPanel() { if (panelOpen()) renderWpPanel() }
+  function renderWpPanel() {
+    if (!wpPanelList) return 0
+    const rows = wpPanelRows(listItems(), pinned)
+    if (wpPanelHead) {
+      wpPanelHead.textContent = rows.length
+        ? t(curLang(), 'wp.pinnedCount', { n: pinned.length }) + ' · ' + t(curLang(), 'wp.libCount', { n: rows.length })
+        : t(curLang(), 'wp.libEmpty')
+    }
+    wpPanelList.textContent = ''
+    for (const r of rows) {
+      const row = D.createElement('div')
+      row.className = 'wp-row'; row.dataset.id = r.id; row.dataset.kind = r.kind
+      const go = D.createElement('button')
+      go.type = 'button'; go.className = 'wp-row-go'; go.dataset.id = r.id
+      const kind = D.createElement('span'); kind.className = 'wp-kind'; kind.textContent = r.tag
+      const name = D.createElement('span'); name.className = 'wp-name'; name.textContent = r.title || r.id
+      go.appendChild(kind); go.appendChild(name)
+      go.title = (r.title || r.id) + '（' + r.id + '） · ' + r.kind
+      go.setAttribute('aria-label', go.title)
+      go.addEventListener('click', () => { if (switchToWallpaper(r.id)) setPanelOpen(false) })
+      const star = D.createElement('button')
+      star.type = 'button'; star.className = 'wp-pin' + (r.pinned ? ' on' : '')
+      star.dataset.id = r.id
+      star.textContent = r.pinned ? '★' : '☆'
+      star.title = t(curLang(), r.pinned ? 'wp.unpin' : 'wp.pin')
+      star.setAttribute('aria-label', star.title)
+      star.setAttribute('aria-pressed', r.pinned ? 'true' : 'false')
+      star.addEventListener('click', () => {
+        if (r.pinned) unpinWallpaper(r.id); else pinWallpaper(r.id)
+        switcherSig = null                       // 固定集合变了 ⇒ 强制重画 tab 条
+        refreshSwitcher(true)
+      })
+      row.appendChild(go); row.appendChild(star)
+      wpPanelList.appendChild(row)
+    }
+    return rows.length
   }
   try {
     if (listEl && typeof MutationObserver === 'function') {
       let timer = null
-      new MutationObserver(() => { if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; refreshSwitcher() }, 60) })
-        .observe(listEl, { childList: true })
+      new MutationObserver(() => {
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => {
+          timer = null
+          try { syncAllIfNeeded() } catch { /* 单次失败不影响其它链路 */ }
+          refreshSwitcher()
+        }, 60)
+      }).observe(listEl, { childList: true })
     }
   } catch {}
-  /* ＋：切回控制台页 + 清过滤 + 把列表滚到顶部（"去左边挑另一张"） */
-  if (addBtn) addBtn.addEventListener('click', () => {
+  /* ＋：展开/收起**库列表面板**（位置固定在切换栏右端，不再跟着当前项跑）；
+     面板里的每一行才是"完整库列表" —— 用户要的"要显式展开才显示"。 */
+  if (addBtn) addBtn.addEventListener('click', (e) => {
+    try { e && e.stopPropagation && e.stopPropagation() } catch {}
     setPage('console')
-    const f = q('#filter'); if (f) { f.value = ''; try { f.dispatchEvent(new Event('input', { bubbles: true })) } catch {} }
-    if (listEl) { try { listEl.scrollTop = 0 } catch {} }
-    for (const li of listEl ? [...listEl.querySelectorAll('li[data-id]')] : []) li.classList.toggle('wp-cur', String(li.dataset.id || '') === curId)
-    const firstOther = listEl ? [...listEl.querySelectorAll('li[data-id]')].find((li) => String(li.dataset.id || '') !== curId) : null
-    if (firstOther && firstOther.scrollIntoView) { try { firstOther.scrollIntoView({ block: 'center' }) } catch {} }
+    setPanelOpen(!panelOpen())
   })
+  /* 点面板外 / Esc ⇒ 收起（面板是浮层，别让它一直挂着）。 */
+  try {
+    doc.addEventListener('click', (e) => {
+      if (!panelOpen()) return
+      const tgt = e && e.target
+      if (wpPanel && (wpPanel.contains(tgt) || tgt === addBtn)) return
+      setPanelOpen(false)
+    })
+    doc.addEventListener('keydown', (e) => { if (e && e.key === 'Escape' && panelOpen()) setPanelOpen(false) })
+  } catch { /* 桩 DOM */ }
+
+  /* ── ④b(P-158) **类型过滤**要可见可用（用户补充要求：「应该 MPKG 各类包括 Web 壁纸都可以」）──────
+     真因：产物自己的类型开关宿主 `#type-filter` 被上一批塞进了 `#bench-legacy-anchors[hidden]`
+     且**一个 `.seg-btn` 都没有** ⇒ 产物 `Pe` 永远停在初始值 `'scene'`（`rt(item)!==Pe` 直接 continue）
+     ⇒ 左侧列表永远只有 scene 那几项，web/video 明明在 `/api/library` 的返回里却一个都看不到。
+     修法：
+       · `#type-filter` 移到左侧边栏 `.sidebar-tools`（可见），由本补丁生成 **4** 个 `.seg-btn`
+         （全部 / 场景 / Web / 视频）—— scene/web/video 三个直接走产物自己的委托处理器（`Xe.onclick`）
+         ⇒ 列表、localStorage `we-bench-type-filter`、`.active` 全由产物维护，一行不改它的逻辑；
+       · 「全部」产物没有这一档（`it()` 只认三档）⇒ 由本补丁**合并三档**：依次把三档渲染出来的 `li`
+         节点搬进一个 fragment 再一起放回（节点搬移保住了 `li.onclick` 闭包 ⇒ 每个条目照样点得动）。
+     读法：`bundleType` 是"产物现在停在哪一档"，`uiType` 是"用户看到哪一档被点亮"（'all' 是补丁档）。 */
+  const TYPE_SEGS = ['all', 'scene', 'web', 'video']
+  const typeHost = q('#type-filter')
+  let uiType = 'all'
+  let bundleType = 'scene'
+  function paintTypeSegs() {
+    if (!typeHost) return 0
+    for (const b of [...typeHost.querySelectorAll('.seg-btn')]) {
+      const on = b.dataset.type === uiType
+      b.classList.toggle('active', on)
+      b.setAttribute('aria-checked', on ? 'true' : 'false')
+    }
+    const mirror = q('#wp-type-mirror')
+    if (mirror) for (const b of [...mirror.querySelectorAll('.seg-btn')]) {
+      const on = b.dataset.type === uiType
+      b.classList.toggle('active', on)
+      b.setAttribute('aria-checked', on ? 'true' : 'false')
+    }
+    return 1
+  }
+  function segBtn(host, type) {
+    const b = D.createElement('button')
+    b.type = 'button'; b.className = 'seg-btn'; b.dataset.type = type
+    b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', 'false')
+    b.textContent = t(curLang(), 'wp.type.' + type)
+    b.title = t(curLang(), 'wp.typeTitle')
+    return b
+  }
+  function buildTypeSegs() {
+    if (!typeHost) return 0
+    if (typeHost.querySelectorAll('.seg-btn').length === TYPE_SEGS.length) return 0
+    typeHost.textContent = ''
+    for (const ty of TYPE_SEGS) typeHost.appendChild(segBtn(typeHost, ty))
+    typeHost.setAttribute('role', 'radiogroup')
+    typeHost.setAttribute('aria-label', t(curLang(), 'wp.typeTitle'))
+    const mirror = q('#wp-type-mirror')
+    if (mirror && !mirror.querySelectorAll('.seg-btn').length) {
+      mirror.textContent = ''
+      for (const ty of TYPE_SEGS) {
+        const b = segBtn(mirror, ty)
+        b.addEventListener('click', () => { const src = typeHost.querySelector('.seg-btn[data-type="' + ty + '"]'); if (src) src.click() })
+        mirror.appendChild(b)
+      }
+      mirror.setAttribute('role', 'radiogroup')
+    }
+    paintTypeSegs()
+    return TYPE_SEGS.length
+  }
+  /** 让产物**按它自己的那条链**渲染某一档：`Xe.onclick` 是产物挂在 `#type-filter` 上的委托处理器
+   *  （`e.target.closest('.seg-btn').dataset.type` ⇒ `it(type)`），直接以等价事件对象调它即可
+   *  —— 不复制它的过滤逻辑，也不依赖"捕获/冒泡的先后"。
+   *  `it()` 有 `n !== Pe` 守卫：同档重复点不会重渲染 ⇒ 此时改用 `#filter` 的 input 事件逼它重画
+   *  （`Je.oninput = T`，T 用当前 Pe 重排列表）。 */
+  function driveBundleType(type) {
+    if (!typeHost || !listEl) return false
+    const btn = typeHost.querySelector('.seg-btn[data-type="' + type + '"]')
+    if (!btn) return false
+    const f = typeHost.onclick
+    if (typeof f === 'function') { try { f.call(typeHost, { target: btn }) } catch { /* 产物没接上 */ } }
+    if (bundleType !== type) bundleType = type
+    else { const inp = q('#filter'); if (inp) { try { inp.dispatchEvent(new Event('input', { bubbles: true })) } catch {} } }
+    return true
+  }
+  /** 列表当前内容的签名（id 序列 + 过滤框文本）：用来判断"要不要再合并一次"。 */
+  function listSig() {
+    if (!listEl) return ''
+    const ids = [...listEl.querySelectorAll('li[data-id]')].map((li) => String(li.dataset.id || '')).join(',')
+    const f = q('#filter')
+    return ids + '|' + String((f && f.value) || '')
+  }
+  let mergedSig = null            // 上一次「全部」合并完成时的签名
+  /** 「全部」= 依次渲染三档并把 `li` 搬到一个 fragment 里，最后一起放回（节点搬移保住 `li.onclick` 闭包）。
+   *  ⚠ 产物会在**它自己的时机**重渲染列表（库加载完成、`#filter` 输入、切档），那之后列表只剩一档
+   *  ⇒ 每次列表变动后由观察者按签名决定"要不要再合并一次"（`syncAllIfNeeded`）。 */
+  function mergeAllTypes() {
+    if (!listEl) return 0
+    const bag = []
+    for (const ty of ['scene', 'web', 'video']) {
+      driveBundleType(ty)
+      for (const li of [...listEl.querySelectorAll('li[data-id]')]) { li.remove(); bag.push(li) }
+    }
+    for (const li of bag) listEl.appendChild(li)
+    try { writeKey('we-bench-type-filter', bundleType) } catch { /* 隐私模式 */ }
+    mergedSig = listSig()
+    return bag.length
+  }
+  /** 列表被（产物）重渲染后：若用户选的是「全部」而当前内容不是合并结果 ⇒ 再合并一次。
+   *  签名相等 ⇒ 什么都不做（我们的合并自身也会触发观察者，靠这条收敛，不会自激）。 */
+  function syncAllIfNeeded() {
+    if (uiType !== 'all' || !listEl) return false
+    if (listSig() === mergedSig) return false
+    mergeAllTypes()
+    return true
+  }
+  /** 用户点了某一档：**拦住产物的委托处理器**（否则 'all' 会被它当成一个真档位 ⇒ 列表清空），
+   *  再由我们显式驱动它渲染。 */
+  function applyTypeChoice(type) {
+    uiType = (TYPE_SEGS.indexOf(type) >= 0) ? type : 'all'
+    try { writeKey('bench-lib-type', uiType) } catch { /* 隐私模式 */ }
+    if (uiType === 'all') mergeAllTypes()
+    else { driveBundleType(uiType); try { writeKey('we-bench-type-filter', uiType) } catch {} }
+    paintTypeSegs()
+    paintWpPanel()
+    return uiType
+  }
+  if (typeHost) {
+    try {
+      bundleType = (() => { const v = readKey('we-bench-type-filter'); return (v === 'scene' || v === 'web' || v === 'video') ? v : 'scene' })()
+    } catch { bundleType = 'scene' }
+    buildTypeSegs()
+    /* 产物的委托处理器挂在 `#type-filter` 上（冒泡期）。我们要在它之前把点击接管掉：
+       捕获阶段 `stopPropagation()` ⇒ 它一个字节都不会跑，随后由 `applyTypeChoice()` **显式**调它。 */
+    typeHost.addEventListener('click', (e) => {
+      const b = e && e.target && e.target.closest ? e.target.closest('.seg-btn') : null
+      const ty = b && b.dataset ? b.dataset.type : ''
+      if (!ty) return
+      try { e.preventDefault() } catch {}
+      try { e.stopPropagation() } catch {}
+      applyTypeChoice(ty)
+      setTimeout(() => { try { refreshSwitcher(true) } catch {} }, 0)     // 产物同步重渲染后再对一次账
+    }, true)
+    /* 默认档 = 「全部」（用户要的就是"各类壁纸都能看到"）；`?type=scene|web|video` 与上次的选择都可回退。 */
+    const wantType = (() => {
+      try {
+        const m = String(location.search || '').match(/[?&]type=(all|scene|web|video)/)
+        if (m) return m[1]
+        const saved = readKey('bench-lib-type')
+        return (saved === 'all' || saved === 'scene' || saved === 'web' || saved === 'video') ? saved : 'all'
+      } catch { return 'all' }
+    })()
+    const applyDefault = () => { try { applyTypeChoice(wantType); refreshSwitcher(true) } catch { /* 库没就绪：下一次 #list 变更时会重试 */ } }
+    applyDefault()
+    setTimeout(applyDefault, 1000)          // 产物在 boot 里可能又按 localStorage 重排一次 ⇒ 再对一次账
+  }
+  /* 列表里**每条**都挂真实类型标签（用户补充要求③：类型要如实显示，不要一律写 scene）。 */
+  try {
+    const tagKind = () => {
+      if (!listEl) return 0
+      let n = 0
+      for (const li of listEl.querySelectorAll('li[data-id]')) {
+        const k = kindOfSub((li.querySelector('.sub') || {}).textContent || '')
+        if (k === 'unknown') continue
+        let tag = li.querySelector('.bench-kind')
+        if (!tag) { tag = D.createElement('span'); tag.className = 'bench-kind'; li.appendChild(tag); n++ }
+        if (tag.textContent !== k) tag.textContent = k
+        tag.dataset.kind = k
+      }
+      return n
+    }
+    tagKind()
+    if (listEl && typeof MutationObserver === 'function') new MutationObserver(() => { try { tagKind() } catch {} }).observe(listEl, { childList: true, subtree: true })
+  } catch { /* 桩 DOM */ }
+
+  /* ── ⑩(P-158) 「当前库来源」要**显式**写出来（用户原话：「未选目录却默认在 …/allwallpaper/dd」）────────
+     前端侧能确定的只有三件事：
+       · `#libpath` 里那个路径是**产物**按 `/api/library` 的 `dir` 写的（用户没选过也一样有值）；
+       · `localStorage['we-bench-library-dir']` 只在**用户选过**（产物 `ut()` 成功）之后才有值；
+       · `apiStatus`（`/api/library` 的 HTTP 状态）说明后端到底在不在。
+     ⇒ 因此：没有用户选择记录时**必须写"本机默认目录（服务端内置，你还没有选择）"**，不许只甩一个路径
+       让人以为"已经选好了"。服务端若在 `/api/library` 里加 `source: 'default'|'user'|'env'|'flag'`，
+       这里优先用它的值（`librarySourcePlan` 已经按这个契约写好）。 */
+  const libSourceEl = q('#lib-source')
+  const backendStatus = typeof ctx.backendStatus === 'function' ? ctx.backendStatus : (() => 0)
+  let libApi = null
+  let libApiAsked = false
+  function paintLibSource() {
+    if (!libSourceEl) return null
+    if (backendStatus() === 200) askLibSourceOnce()      // 懒取一次 `/api/library`（拿 dir/configuredDir/source）
+    const pathEl = q('#libpath')
+    const plan = librarySourcePlan(curLang(), {
+      dir: (libApi && libApi.dir) || ((pathEl && pathEl.textContent) || '').trim(),
+      chosen: readKey('we-bench-library-dir') || '',
+      backend: backendStatus() === 200,
+      source: (libApi && libApi.source) || '',
+    })
+    const text = plan.label + '：' + plan.pathShown
+    if (libSourceEl.textContent !== text) libSourceEl.textContent = text
+    libSourceEl.title = plan.hint
+    try {
+      libSourceEl.dataset.kind = plan.kind
+      libSourceEl.dataset.path = plan.path || ''
+      libSourceEl.dataset.benchSource = String((libApi && libApi.source) || (plan.kind === 'user' ? 'user' : 'default'))
+    } catch { /* 桩 DOM */ }
+    return plan
+  }
+  /** 拿"库来源"的**权威**字段：先 `/api/library-source`（服务端契约：`source:'env'|'cli'|'user'|'default'|'none'`
+   *  + `selected/dir/configuredFrom/exists/readable/reason`），失败再退 `/api/library`（它的顶层也有 source）。
+   *  只请求一次；静态托管/离线时保持按 localStorage 推断（并明确写成"无后端"）。 */
+  function askLibSourceOnce() {
+    if (libApiAsked) return
+    libApiAsked = true
+    const take = (j) => { if (j && typeof j === 'object') { libApi = Object.assign({}, libApi || {}, j); paintLibSource() } }
+    try {
+      fetch('/api/library-source', { headers: { accept: 'application/json' } })
+        .then((r) => (r && r.ok ? r.json() : null))
+        .then((j) => (j && typeof j === 'object' && j.source ? take(j) : fetch('/api/library', { headers: { accept: 'application/json' } }).then((r2) => (r2 && r2.ok ? r2.json() : null)).then(take)))
+        .catch(() => { /* 静态托管/离线：保持按 localStorage 推断 */ })
+    } catch { /* 无 fetch */ }
+  }
+  try {
+    const pathEl = q('#libpath')
+    if (pathEl && typeof MutationObserver === 'function') {
+      new MutationObserver(() => { try { paintLibSource() } catch {} }).observe(pathEl, { childList: true, characterData: true, subtree: true })
+    }
+  } catch { /* 桩 DOM */ }
+
+  /* ── ③(用户补充要求) 状态栏 / 列表里的**类型**如实显示（不要一律写 scene）────────────────────
+     `#status-item` 由产物写成裸 itemId；这里在后面补一个真实类型徽标（`.bench-status-kind`），
+     签名守卫防观察者互激（写一次就不再写）。 */
+  try {
+    const statusItem = q('#status-item')
+    if (statusItem && typeof MutationObserver === 'function') {
+      const paintKind = () => {
+        const id = String((statusItem.textContent || '')).trim()
+        const badge = q('#status-item-kind')
+        if (!id) { if (badge) badge.textContent = ''; return }
+        const kind = kindCache.get(id) || (() => {
+          const li = listEl ? [...listEl.querySelectorAll('li[data-id]')].find((x) => String(x.dataset.id || '') === id) : null
+          return li ? kindOfSub((li.querySelector('.sub') || {}).textContent || '') : 'unknown'
+        })()
+        const want = kind === 'unknown' ? '' : kind
+        if (!badge) {
+          const b = D.createElement('span')
+          b.id = 'status-item-kind'; b.className = 'bench-status-kind'
+          statusItem.parentNode ? statusItem.parentNode.insertBefore(b, statusItem.nextSibling) : null
+          if (b.textContent !== want) b.textContent = want
+          return
+        }
+        if (badge.textContent !== want) badge.textContent = want
+      }
+      new MutationObserver(paintKind).observe(statusItem, { childList: true, characterData: true, subtree: true })
+      paintKind()
+    }
+  } catch { /* 桩 DOM */ }
 
   /* ── 壁纸参数栏常驻 + 空态（bundle 会按需 hidden 它；新样式里它是一列） ── */
   const propsEl = q('#props'), propsBody = q('#props-body')
@@ -2289,8 +2988,18 @@ export function initSiteShell(ctx = {}) {
   refreshSwitcher()
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => paintInk(pageFromName(getPage()).index))
 
+  /** ⑨⑩(P-158) 本批新增呈现面的**统一重画入口**（语言切换 / 列表变更后由 init 的
+   *  `__benchShellRefresh` 调一次）：类型开关文案 + 库列表面板 + 库来源行。 */
+  function paintLangExtras() {
+    try { buildTypeSegs(); paintTypeSegs() } catch { /* 桩 DOM */ }
+    try { refreshSwitcher(true) } catch { /* 列表未就绪：下一次 #list 变更会补 */ }
+    try { paintLibSource() } catch { /* 桩 DOM */ }
+    return true
+  }
+
   return {
     setPage, getPage, popOpen, refreshSwitcher, listItems,
+    paintLangExtras,
     logsHeight, setLogsHeight, paintLogsArrow, paintPropsEmpty, paintStatus,
     shellVersion: VER, domIsNew: DOM_NEW, maxLogsForLayout,
     // ⑫a / ⑫c（探针与测试用同一入口）
@@ -2369,6 +3078,100 @@ export function init() {
     }
     if (diagBox) diagBox.classList.toggle('bench-diag-off', !!diagState.offline)
   }
+
+  /* ── ⑦(P-158) 「渲染器诊断（/diag）」从**一行死标签**变成**真的页签**：订阅 `/api/diag-stream`（SSE）────
+     用户原话：「渲染器诊断打不开（应该显示 8899 页面下面那个日志）」。真因（前端接线，不是服务端）：
+       · `#logs .logs-head` 里那个 `<strong>渲染器诊断（/diag）</strong>` 只是**静态文本**，没有处理器；
+       · 页面确实收着诊断流 —— 产物自己的 `Jt()` 会 `new EventSource('/api/diag-stream')` 并把 `msg`
+         混进 `#logbody`（与补丁日志、渲染器日志混在一起，看不出"哪一条是诊断流"）。
+     本段做的事：
+       · 两个页签（`#tab-logs` / `#tab-diag`）+ `#logs[data-view="diag"]` 只显示 `#diag-body`；
+       · 自己订阅 `/api/diag-stream`（**懒加载**：第一次打开诊断页签才连，省一条常驻 SSE 连接），
+         `JSON.parse(e.data)` 取 `{seq,ts,msg,level,source}` 逐条渲染（`parseDiagEvent` 容错）；
+       · 环形上限 400 行（本机是 15GB 安卓环境，长跑不能无限涨）；断流/不可用写明确原因（复用 `diagReasonText`）。 */
+  const logsPanel = $('#logs'), diagBody = $('#diag-body'), tabLogsBtn = $('#tab-logs'), tabDiagBtn = $('#tab-diag')
+  const DIAG_MAX_LINES = 400
+  let logsView = 'logs'
+  let diagCount = 0
+  let diagSource = null
+  let diagErrored = false
+  function paintLogsTabs() {
+    const plan = logsViewPlan(logsView)
+    if (logsPanel && logsPanel.setAttribute) logsPanel.setAttribute('data-view', plan.view)
+    for (const [btn, on] of [[tabLogsBtn, plan.isLogs], [tabDiagBtn, plan.isDiag]]) {
+      if (!btn) continue
+      try { btn.setAttribute('aria-selected', on ? 'true' : 'false') } catch {}
+      try { btn.classList.toggle('panel-tab', on) } catch {}
+      try { btn.classList.toggle('active', on) } catch {}
+    }
+    if (tabDiagBtn) {
+      const n = t(curLang, 'diag.count', { n: diagCount })
+      const label = t(curLang, 'logs.tabDiag') + ' · ' + n
+      if (tabDiagBtn.textContent !== label) tabDiagBtn.textContent = label
+      tabDiagBtn.title = t(curLang, 'diag.tabTitle')
+    }
+    if (tabLogsBtn) { tabLogsBtn.textContent = t(curLang, 'logs.tabLogs'); tabLogsBtn.title = t(curLang, 'logs.tabHint') }
+    return plan
+  }
+  function paintDiagBody() {
+    if (!diagBody) return 0
+    if (diagCount > 0) return diagCount
+    const reason = diagErrored
+      ? t(curLang, 'diag.lost', { msg: diagErrored === true ? 'error' : String(diagErrored) })
+      : (diagState && diagState.offline ? diagReasonText(curLang, backendEnv()) : t(curLang, 'diag.wait'))
+    if (diagBody.textContent !== reason) diagBody.textContent = reason
+    try { diagBody.setAttribute('data-state', diagCount > 0 ? 'has' : (diagErrored ? 'error' : (diagState && diagState.offline ? 'offline' : 'waiting'))) } catch {}
+    return 0
+  }
+  function pushDiagEntry(raw) {
+    const entry = parseDiagEvent(raw)
+    if (!entry || !diagBody) return null
+    if (diagCount === 0) diagBody.textContent = ''          // 第一条消息把占位提示清掉
+    const line = doc.createElement('div')
+    line.className = 'diag-line' + (entry.level === 'error' ? ' err' : '')
+    line.dataset.seq = entry.seq || ''
+    line.dataset.level = entry.level
+    line.dataset.source = entry.source
+    line.textContent = entry.line
+    diagBody.appendChild(line)
+    diagCount++
+    while (diagBody.children.length > DIAG_MAX_LINES) diagBody.removeChild(diagBody.firstChild)
+    try { diagBody.scrollTop = diagBody.scrollHeight } catch {}
+    try { diagBody.setAttribute('data-count', String(diagCount)) } catch {}
+    try { diagBody.setAttribute('data-state', 'has') } catch {}
+    paintLogsTabs()
+    return entry
+  }
+  /** 懒连接：只在第一次打开诊断页签时建一条 SSE（产物自己那条是它的事，两条互不影响）。 */
+  function ensureDiagStream() {
+    if (diagSource || typeof EventSource !== 'function') return diagSource
+    try {
+      diagSource = new EventSource('/api/diag-stream')
+      diagSource.onmessage = (ev) => { try { pushDiagEntry(ev && ev.data) } catch { /* 单条坏数据不拖垮流 */ } }
+      diagSource.onerror = () => {
+        diagErrored = diagErrored || 'error'
+        try { diagBody && diagBody.setAttribute('data-state', 'error') } catch {}
+        if (diagCount === 0) paintDiagBody()
+        // 服务端把 EventSource 的自动重连交给浏览器；这里不 close（close 会让重连永不发生）
+      }
+    } catch (e) { diagErrored = (e && e.message) || 'throw' }
+    return diagSource
+  }
+  function setLogsView(view) {
+    const plan = logsViewPlan(view)
+    logsView = plan.view
+    paintLogsTabs()
+    if (plan.isDiag) {
+      ensureDiagStream()
+      if (diagCount === 0) paintDiagBody()
+      try { if (diagBody && diagBody.focus) diagBody.focus({ preventScroll: true }) } catch {}
+    }
+    return plan.view
+  }
+  if (tabLogsBtn) tabLogsBtn.addEventListener('click', () => setLogsView('logs'))
+  if (tabDiagBtn) tabDiagBtn.addEventListener('click', () => setLogsView('diag'))
+  paintLogsTabs()
+  paintDiagBody()
 
   // ── ① 主题：bundle 正常时**绝不重复接管**（否则一次点击走两格）；只在 bundle 没跑起来时兜底 ──
   //   线上事故：产物缺 assets/modulepreload-polyfill-*.js ⇒ bundle 整体不执行 ⇒ 主题按钮永远没反应。
@@ -2794,6 +3597,9 @@ export function init() {
     logLine(t(curLang, 'local.count', { n: items.length }))
     renderLocal()
   }
+  // ⑤(P-158) 「系统选择器」**只作为兜底按钮**：对话框里那个按钮置位后转发给产物自己那条原生路径
+  //   （`POST /api/library-dir {pick:true}`）；默认入口永远是**应用内**对话框。
+  let sysPassthrough = false
   if (pickLibBtn) {
     // 静态托管下 bundle 会 disable 它（bench.ts enterStaticMode）；我们的本地库让它重新可用
     const reenable = () => {
@@ -2804,8 +3610,12 @@ export function init() {
     }
     reenable(); setTimeout(reenable, 800); setTimeout(reenable, 2500)
     pickLibBtn.addEventListener('click', (e) => {
-      if (!pickLibBtn.disabled) { e.preventDefault(); e.stopImmediatePropagation(); openLibraryPicker() }
-    }, true)   // 捕获阶段：抢在 bundle 的 /api/library-dir 之前走纯前端路径
+      if (pickLibBtn.disabled) return
+      // 兜底路径：用户**显式**点了对话框里的「系统选择器」⇒ 放行给产物（不拦），随后复位标记
+      if (sysPassthrough) { sysPassthrough = false; return }
+      e.preventDefault(); e.stopImmediatePropagation()
+      try { openLibDirDialog() } catch (err) { openLibraryPicker() }     // 对话框自身出错仍留一条纯前端活路
+    }, true)   // 捕获阶段：抢在 bundle 的 /api/library-dir 之前
   }
   const clearLocalBtn = $('#clear-local')
   if (clearLocalBtn) clearLocalBtn.addEventListener('click', () => clearLocalLibrary(false))
@@ -2982,14 +3792,16 @@ export function init() {
     '#props.bench-props-collapsed{display:none!important}',
     '.props-empty{padding:14px 12px;color:var(--fg-mute);font-size:12.5px;line-height:1.75}',
     '.props-empty strong{display:block;color:var(--fg-dim);margin-bottom:4px}',
-    '#toolbar{max-height:30vh;overflow-y:auto}',
+    '#toolbar{max-height:30vh;overflow-y:auto;flex-wrap:wrap;max-width:100%;overflow-x:hidden}',
     /* ⑬(2026-09-19 用户要求) 下拉浮层浮在页面上层：`position:fixed` 让它脱离 `#toolbar` / `#main` /
        `#props-body` 的 overflow 裁剪（这些祖先都没有 transform/contain ⇒ 不是固定定位的包含块），
        坐标由 `dropdownLayerPlan()` 在展开时写内联 left/top/min-width/max-height。
        `min-width:0` 必需：产物那条 `min-width:100%` 在 fixed 下会对齐**视口宽**。 */
     '.bench-rd-list{position:fixed;z-index:70;top:auto;left:auto;min-width:0;max-height:min(280px,42vh);overflow-y:auto}',
-    '#main{grid-column:3;grid-template-rows:auto minmax(140px,1fr) 6px minmax(60px,var(--mpw-logs-h,220px))!important}',
+    '#main{grid-column:3;grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto minmax(140px,1fr) 6px minmax(60px,var(--mpw-logs-h,220px))!important}',
     '#main.logs-collapsed{grid-template-rows:auto minmax(0,1fr) 6px 34px!important}',
+    /* ⑥(P-158) 收起态也保留「清空」：产物的 `#main.logs-collapsed #clear-logs{display:none}` 被这条压回来 */
+    '#main.logs-collapsed #clear-logs{display:inline-flex!important}',
     '#editor-chrome{grid-row:1}',
     '#workspace{grid-row:2}',
     '#main > #logs-splitter{grid-row:3;cursor:row-resize;background:var(--border);opacity:.55}',
@@ -3008,6 +3820,39 @@ export function init() {
     /* ⑦ 输出按钮：折叠态给文字标签，箭头朝上（展开）/朝下（收起） */
     '#toggle-logs{gap:4px;width:auto!important;padding:0 6px!important}',
     '#logs.bench-logs-collapsed-tag #toggle-logs::after{content:attr(data-tag);font-size:11px;color:var(--fg-dim)}',
+    /* ── P-158：切换栏 / 库列表面板 / 类型开关 / 库来源 / 输出页签 / 诊断视图（与静态表逐条同文） ── */
+    '与 demo/bench-patch.js 的 SITE_LAYOUT_CSS 逐条等价（tests/demo-check.mjs D8 会逐条比对）。 */',
+    'select.bench-rd-native{display:none!important}',
+    '#wp-switch{position:relative}',
+    '#wp-add{flex:none;width:34px;min-width:34px;height:auto;border:0;border-left:1px solid var(--border);background:transparent;color:var(--fg-dim);font-size:16px;line-height:1;cursor:pointer}',
+    '#wp-add[aria-expanded="true"]{background:var(--accent,#0078d4);color:#fff}',
+    '#wp-panel{position:absolute;left:0;top:100%;z-index:60;width:min(560px,100%);max-height:min(62vh,460px);overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:0 0 8px 8px;box-shadow:0 14px 40px rgba(0,0,0,.38);padding:8px}',
+    '#wp-panel[hidden]{display:none!important}',
+    '.wp-panel-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 4px 6px}',
+    '#wp-panel-head{padding:0 6px 8px;color:var(--fg-mute);font-size:11.5px}',
+    '.wp-seg{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden}',
+    '.wp-seg .seg-btn{appearance:none;font:inherit;font-size:12px;color:var(--fg-dim);background:transparent;border:0;padding:3px 10px;cursor:pointer}',
+    '.wp-seg .seg-btn + .seg-btn{border-left:1px solid var(--border)}',
+    '.wp-seg .seg-btn.active{background:var(--accent,#0078d4);color:#fff}',
+    '.wp-row{display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border)}',
+    '.wp-row-go{flex:1;min-width:0;display:flex;align-items:center;gap:8px;min-height:32px;padding:4px 8px;border:0;background:transparent;color:var(--fg);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}',
+    '.wp-row-go:hover{background:var(--hover,rgba(255,255,255,.07))}',
+    '.wp-row .wp-kind{flex:none;font-size:11px;padding:1px 6px;border:1px solid var(--border);border-radius:999px;color:var(--fg-mute)}',
+    '.wp-row .wp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.wp-row .wp-pin{flex:none;width:32px;min-height:32px;border:0;background:transparent;color:var(--fg-mute);font-size:14px;cursor:pointer}',
+    '.wp-row .wp-pin.on{color:#e3b341}',
+    '.bench-kind{display:inline-block;margin-left:6px;padding:0 5px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--fg-mute)}',
+    '.bench-status-kind{margin-left:6px;padding:0 5px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--fg-mute)}',
+    '#lib-source{display:block;padding:2px 10px 6px;color:var(--fg-mute);font-size:11.5px;line-height:1.5;word-break:break-all}',
+    '#lib-source[data-kind="default"]{color:#d29922}',
+    '#logs .logs-tab{appearance:none;font:inherit;font-size:12.5px;color:var(--fg-dim);background:transparent;border:0;border-radius:4px;padding:0 8px;height:24px;cursor:pointer}',
+    '#logs .logs-tab[aria-selected="true"]{color:var(--fg);background:color-mix(in srgb,var(--fg) 14%,transparent)}',
+    '#diag-body{display:none;margin:0;padding:6px 10px;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow:auto}',
+    '#logs[data-view="diag"] #diag-body{display:block;flex:1;min-height:0}',
+    '#logs[data-view="diag"] #logbody{display:none}',
+    '#main.logs-collapsed #diag-body{display:none!important}',
+    '#diag-body .diag-line.err{color:#f85149}',
+    '#diag-body .diag-line[data-source="renderer"]{color:var(--fg-dim)}',
     /* ⑧ 全屏按钮在浅色主题下也必须看得见（原先只定义了 :hover，浅色下是黑底黑字） */
     '.stage-tools button{color:var(--fg)!important;background:color-mix(in srgb,var(--panel) 86%,transparent);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}',
     '.stage-tools button:hover{background:var(--accent,#0078d4)!important;border-color:var(--accent,#0078d4);color:#fff!important}',
@@ -3528,6 +4373,205 @@ export function init() {
     openDirPicker({ mode: 'dir', onPick: useSubtreeAsLibrary })
     return true
   }
+
+  /* ── ⑤(P-158 · 主对话指定契约) 「选择文件夹」= **应用内**目录对话框（服务端只读浏览）──────────────
+     为什么换掉原来的入口：原入口直接吃系统对话框（bundle 的 `POST /api/library-dir {pick:true}` → 服务端开原生
+     对话框，或在 `unsupported` 时 `window.prompt`）—— 在容器/安卓环境下这个原生对话框**看不到、也常选不到
+     环境内目录**。新做法：应用内对话框，数据来自主对话钉死的两条只读路由
+       GET /api/fs/roots            ⇒ {ok, roots:[{label,path}]}
+       GET /api/fs/list?path=<abs>  ⇒ {ok, path, parent, entries:[{name,type,size,kind}]}
+     选中后调**既有**库接口 `POST /api/library-dir {dir}`（服务端返回里带 `source:'user'` 时前端直接采信），
+     然后写 localStorage 的 `we-bench-library-dir` 并 reload（产物启动时按它 + `/api/library` 载库）。
+     优雅降级：路由还没落地（404）/ 没有后端 ⇒ 弹同一个对话框但**明确写"服务端还没有 /api/fs/* 这条路由"**，
+     并把两个兜底按钮摆出来（纯前端扫描 / **显式标注**的系统选择器），绝不静默失败。 */
+  let fsDialog = null
+  function closeFsDialog() {
+    if (fsDialog && fsDialog.box && fsDialog.box.parentNode) { try { fsDialog.box.parentNode.removeChild(fsDialog.box) } catch {} }
+    if (fsDialog && fsDialog.onKey) { try { doc.removeEventListener('keydown', fsDialog.onKey) } catch {} }
+    fsDialog = null
+  }
+  async function fsJson(url, init) {
+    const r = await fetch(url, init)
+    let body = null
+    try { body = await r.json() } catch { body = null }
+    return { status: r.status, ok: r.ok, body }
+  }
+  async function applyLibDir(dir, ui) {
+    if (ui && ui.note) ui.note.textContent = t(curLang, 'pickd.applying')
+    try {
+      const res = await fsJson('/api/library-dir', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dir }),
+      })
+      const j = res.body && typeof res.body === 'object' ? res.body : {}
+      if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status))
+      const chosen = String(j.dir || dir)
+      try { localStorage.setItem('we-bench-library-dir', chosen) } catch { /* 隐私模式 */ }
+      const src = String(j.source || 'user')                     // 服务端带 source 就采信它（契约：'user'）
+      paintLibSource()
+      if (ui && ui.note) ui.note.textContent = t(curLang, 'pickd.done', { path: chosen })
+      logLine(t(curLang, 'pickd.selected', { path: chosen }) + ' · source=' + src)
+      setTimeout(() => { try { location.reload() } catch { /* 桩 DOM */ } }, 500)
+      return chosen
+    } catch (e) {
+      const msg = (e && e.message) || String(e)
+      if (ui && ui.note) ui.note.textContent = t(curLang, 'pickd.fail', { msg })
+      logLine(t(curLang, 'pickd.fail', { msg }), true)
+      return null
+    }
+  }
+  function fsFallbackButtons(ui) {
+    const wrap = dirMk('div', 'bench-dirbox-tools')
+    const front = dirBtn('', t(curLang, 'pickd.frontend'), t(curLang, 'pickd.frontend'), 'folder')
+    front.addEventListener('click', () => { closeFsDialog(); openLibraryPicker() })
+    const sys = dirBtn('', t(curLang, 'pickd.system'), t(curLang, 'pickd.systemHint'), 'folder')
+    sys.addEventListener('click', () => { sysPassthrough = true; closeFsDialog(); try { pickLibBtn.click() } catch {} })
+    wrap.appendChild(front); wrap.appendChild(sys)
+    return wrap
+  }
+  /** 打开库目录对话框：先探 `/api/fs/roots`，据此选 server 模式还是 fallback 模式。 */
+  async function openLibDirDialog() {
+    closeFsDialog()
+    let roots = { ok: false, roots: [] }
+    let routesOk = false
+    if (apiStatus === 200) {
+      try {
+        const r = await fsJson('/api/fs/roots', { headers: { accept: 'application/json' } })
+        routesOk = r.ok && !!(r.body && r.body.ok !== false && Array.isArray(r.body.roots))
+        roots = fsRootsPlan(r.body)
+      } catch { routesOk = false }
+    }
+    const plan = dirDialogPlan(routesOk, apiStatus === 200)
+    buildFsDialog(plan, roots)
+    if (plan.ok) {
+      const start = (roots.roots[0] && roots.roots[0].path) || ''
+      if (start) navigateFs(start)
+    }
+    return plan
+  }
+  function buildFsDialog(plan, roots) {
+    const box = dirMk('div', 'bench-dirbox'); box.id = 'bench-fs-dialog'
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true')
+    const win = dirMk('div', 'bench-dirbox-win')
+    const head = dirMk('div', 'bench-dirbox-head')
+    const title = dirMk('strong', 'bench-dirbox-title', t(curLang, 'pickd.title'))
+    const xBtn = dirBtn('bench-dirbox-x', '', t(curLang, 'picker.cancel'), 'x')
+    xBtn.addEventListener('click', closeFsDialog)
+    head.appendChild(title); head.appendChild(xBtn)
+    const pathEl = dirMk('div', 'bench-dirbox-path', t(curLang, 'pickd.loading'))
+    const note = dirMk('div', 'bench-dirbox-note', t(curLang, plan.noticeKey))
+    note.id = 'bench-fs-note'
+    const tools = dirMk('div', 'bench-dirbox-tools')
+    const up = dirBtn('', t(curLang, 'pickd.up'), t(curLang, 'pickd.up'), 'up')
+    const filter = dirMk('input', 'bench-dirbox-filter')
+    filter.setAttribute('type', 'search'); filter.setAttribute('placeholder', t(curLang, 'pick.filterPh'))
+    tools.appendChild(up); tools.appendChild(filter)
+    if (plan.ok && roots.roots.length) {
+      const chips = dirMk('div', 'bench-dirbox-tools')
+      const lab = dirMk('span', 'bench-dirbox-count', t(curLang, 'pickd.roots'))
+      chips.appendChild(lab)
+      for (const r of roots.roots) {
+        const b = dirBtn('', r.label, r.path, 'folder')
+        b.dataset.path = r.path
+        if (!r.listable) {
+          // 服务端明确说这个根**不可列**（默认 home）⇒ 灰显 + 把原因写进 title/notes，别让用户点了没反应
+          b.disabled = true
+          b.dataset.listable = '0'
+          b.title = r.reason || t(curLang, 'pickd.rootLocked')
+          b.setAttribute('aria-disabled', 'true')
+        } else b.dataset.listable = '1'
+        b.addEventListener('click', () => { if (r.listable) navigateFs(r.path) })
+        chips.appendChild(b)
+      }
+      win.appendChild(head); win.appendChild(pathEl); win.appendChild(note); win.appendChild(chips)
+    } else {
+      win.appendChild(head); win.appendChild(pathEl); win.appendChild(note)
+    }
+    const list = dirMk('div', 'bench-dirbox-list'); list.id = 'bench-fs-list'
+    list.setAttribute('tabindex', '0')
+    list.addEventListener('click', (ev) => {
+      const row = ev && ev.target && ev.target.closest ? ev.target.closest('.bench-dirbox-row') : null
+      if (!row || !row.dataset || row.dataset.type !== 'dir') return
+      navigateFs(row.dataset.path)
+    })
+    const foot = dirMk('div', 'bench-dirbox-foot')
+    const count = dirMk('span', 'bench-dirbox-count', '')
+    count.id = 'bench-fs-count'
+    foot.appendChild(count)
+    let confirmBtn = null
+    if (plan.ok) {
+      confirmBtn = dirBtn('bench-dirbox-go', '', '', 'check')
+      const lab = dirMk('span', '', t(curLang, 'pickd.here'))
+      confirmBtn.appendChild(lab)
+      confirmBtn.id = 'bench-fs-confirm'
+      confirmBtn.addEventListener('click', () => { const cur = pathEl.dataset.path || ''; if (cur) applyLibDir(cur, { note }) })
+      foot.appendChild(confirmBtn)
+    }
+    const cancelBtn = dirBtn('bench-dirbox-go bench-dirbox-go2', t(curLang, 'picker.cancel'))
+    cancelBtn.addEventListener('click', closeFsDialog)
+    foot.appendChild(cancelBtn)
+    win.appendChild(tools); win.appendChild(list); win.appendChild(fsFallbackButtons()); win.appendChild(foot)
+    box.appendChild(win)
+    box.addEventListener('mousedown', (ev) => { if (ev && ev.target === box) closeFsDialog() })
+    doc.body.appendChild(box)
+    const onKey = (ev) => {
+      if (!ev) return
+      if (ev.key === 'Escape') { try { ev.preventDefault() } catch {} ; closeFsDialog() }
+      if (ev.key === 'Enter' && plan.ok && confirmBtn) { try { ev.preventDefault() } catch {} ; confirmBtn.click() }
+    }
+    try { doc.addEventListener('keydown', onKey) } catch {}
+    fsDialog = { box, pathEl, list, count, note, filter, confirmBtn, onKey, roots: roots.roots, rows: [] }
+    filter.addEventListener('input', () => paintFsRows())
+    up.addEventListener('click', () => { const p = pathEl.dataset.parent || ''; if (p) navigateFs(p) })
+    try { if (box.focus) box.focus({ preventScroll: true }) } catch {}
+    return fsDialog
+  }
+  function paintFsRows() {
+    const ui = fsDialog
+    if (!ui) return 0
+    const q2 = String((ui.filter && ui.filter.value) || '').trim().toLowerCase()
+    const rows = ui.rows.filter((r) => !q2 || r.name.toLowerCase().includes(q2))
+    ui.list.textContent = ''
+    if (!rows.length) {
+      const e = dirMk('div', 'bench-dirbox-empty', t(curLang, 'pickd.empty'))
+      ui.list.appendChild(e)
+      ui.count.textContent = t(curLang, 'pick.count', { n: 0 })
+      return 0
+    }
+    for (const r of rows) {
+      const row = dirMk('div', 'bench-dirbox-row')
+      row.dataset.path = r.path; row.dataset.type = r.type
+      const name = dirMk('span', 'bench-dirbox-name', r.name)
+      const sub = dirMk('span', 'bench-dirbox-sub', r.type === 'dir' ? t(curLang, 'pickd.dirTag') : t(curLang, 'pickd.fileTag'))
+      row.appendChild(name); row.appendChild(sub)
+      ui.list.appendChild(row)
+    }
+    ui.count.textContent = t(curLang, 'pick.count', { n: rows.length })
+    return rows.length
+  }
+  async function navigateFs(path) {
+    const ui = fsDialog
+    if (!ui) return null
+    try {
+      ui.pathEl.textContent = t(curLang, 'pickd.loading')
+      const r = await fsJson('/api/fs/list?path=' + encodeURIComponent(path), { headers: { accept: 'application/json' } })
+      const j = r.body && typeof r.body === 'object' ? r.body : {}
+      if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status))
+      // 只读浏览：文件行也显示（灰、不可进入）——用户要看得到"这个目录里有什么"
+      const plan2 = fsEntriesPlan({ ok: true, path: j.path || path, parent: j.parent, entries: (j.entries || []).concat(j.files || []) })
+      ui.rows = plan2.rows
+      ui.pathEl.dataset.path = plan2.path || path
+      ui.pathEl.dataset.parent = plan2.parent || ''
+      ui.pathEl.textContent = plan2.path || path
+      paintFsRows()
+      return plan2
+    } catch (e) {
+      const msg = (e && e.message) || String(e)
+      ui.pathEl.textContent = t(curLang, 'pickd.fail', { msg })
+      ui.rows = []
+      paintFsRows()
+      return null
+    }
+  }
   async function previewPickedFile(res) {
     const dir = res.dir || ''
     const find = (rx) => (pickIndex ? pickIndex.files.filter((f) => f.dir === dir && rx.test(f.name))[0] : null)
@@ -3732,7 +4776,23 @@ export function init() {
     } catch (e) { logLine(t(curLang, 'copy.fail', { msg: String(e && e.message) }), true); manual(); return 'manual' }
   }
   const copyLogsBtn = $('#copy-logs')
-  if (copyLogsBtn) copyLogsBtn.addEventListener('click', () => copyText(($('#logbody') && $('#logbody').textContent) || '', 'logs'))
+  // ⑥(P-158) 复制/清空按**当前页签**取文本：输出页签 = `#logbody`，诊断页签 = `#diag-body`。
+  //   复制失败仍然走 `copyText()` 的三级兜底（clipboard API → execCommand → 「手动复制」提示，
+  //   文案就是本仓既有的 `copy.manual`），两种态都在。
+  if (copyLogsBtn) copyLogsBtn.addEventListener('click', () => {
+    const plan = logsViewPlan(logsView)
+    const el = $(plan.copySelector)
+    copyText((el && el.textContent) || '', plan.view)
+  })
+  const clearLogsBtn = $('#clear-logs')
+  if (clearLogsBtn) clearLogsBtn.addEventListener('click', () => {
+    const plan = logsViewPlan(logsView)
+    const el = $(plan.clearSelector)
+    // 输出页签那条链路由产物自己的 `#clear-logs.onclick` 负责（它清 `#logbody`）；这里只补诊断页签，
+    // 以及"产物没接上时"的兜底（同一个按钮两个处理器并存，清的是同一块文本，重复清无害）。
+    if (el && (plan.isDiag || !el.textContent)) el.textContent = ''
+    if (plan.isDiag) { diagCount = 0; paintDiagBody(); paintLogsTabs() }
+  })
   const copyUrlBtn = $('#copy-url')
   if (copyUrlBtn) copyUrlBtn.addEventListener('click', () => copyText(location.href, 'url'))
 
@@ -3770,6 +4830,8 @@ export function init() {
     apiStatus = Number(r.value) || 0
     paintBackendNote()
     paintDiag()
+    // ⑩(P-158) 后端状态刚确定 ⇒ 让外壳重画「当前库来源」那一行（default / user / empty / none 四态）
+    try { if (typeof window !== 'undefined' && typeof window.__benchShellRefresh === 'function') window.__benchShellRefresh() } catch { /* 外壳未就绪 */ }
   })
 
   // ── C 组 4/4（可选）：最小错误兜底 —— error / unhandledrejection → 可见条 + 写输出区 ──
@@ -3878,14 +4940,18 @@ export function init() {
   // ① 鼠标离开舞台/视口 → 指针回中性位置（中心）+ 清按键；回到画面里自动恢复（真实 mousemove 本来就是唯一坐标源）
   let parked = false
   let parkCount = 0
+  let parkPushed = 0                  // ①(P-159) 因"离开"而推活坐标的次数（默认应为 0：只 leave）
+  let parkLastPush = null
   function parkPointerNow() {
     const api = rendererApi()
-    const act = pointerParkAction({ enabled: FLAGS.ppark, hasApi: !!api, parked })
+    const act = pointerParkAction({ enabled: FLAGS.ppark, hasApi: !!api, parked, mode: FLAGS.pparkMode })
     if (!act.park) return false
     parked = true
     parkCount++
+    // 只清按键、保留最后位置（上游语义）。**默认不推活坐标**：`act.push` 只有 `?ppark=center` 才为真。
     try { if (act.leave && typeof api.pointerLeave === 'function') api.pointerLeave() } catch { /* 旧 bundle 无此方法 */ }
-    try { if (typeof api.pushPointer === 'function') api.pushPointer(act.u, act.v, act.buttons, 0) } catch { /* 同上 */ }
+    if (act.push) { parkPushed++; parkLastPush = [act.u, act.v] }
+    try { if (act.push && typeof api.pushPointer === 'function') api.pushPointer(act.u, act.v, act.buttons, 0) } catch { /* 同上 */ }
     return true
   }
   const unparkPointer = () => { parked = false }
@@ -4189,6 +5255,7 @@ export function init() {
     // 只认文档视图那份，页脚永远不随语言切换）⇒ 页脚改成 *-footer 专名，两条一起同步（T31 通用唯一 id 断言盯着）。
     ['#credit-title-footer', 'text', 'credit.title'],
     ['#credit-link-footer', 'text', 'credit.link'],
+    ['#credit-repo-footer', 'text', 'credit.repo'],       // ⑪(P-158) 双方共同署名：本仓库作者那一行
   ]
   function syncAllLabels() {
     for (const [sel, kind, key, skip] of LABEL_SPEC) {
@@ -4199,6 +5266,11 @@ export function init() {
       else if (kind === 'title') el.setAttribute('title', trailOrPickTitle(sel, key))
     }
     for (const d of dropdowns) d.label()                        // 自绘下拉触发器（#lang/#resolution/#fit/#dpr/#fps/#fx）
+    // ⑦(P-158) 输出页签 / 诊断视图要在 init 这一侧跟着语言重画（它们在 init 作用域里）
+    try { paintLogsTabs(); paintDiagBody() } catch { /* 桩 DOM */ }
+    // ③(P-158) 属性面板的 mpw 下拉按钮文案兜底（`paintButton` 在首次展开前只写「（空）」）
+    try { syncMpwLabels(doc) } catch { /* 属性面板还没渲染 */ }
+    // ⑨⑩ 类型开关 / 库列表面板 / 库来源在 initSiteShell 那一侧：由它自己的 refresh 钩子重画
     const themeBtn = $('#theme-toggle')                         // 主题按钮 title 随模式+语言
     // ⑫c 只认**两态**：万一旧缓存 HTML 里残着 'auto'，也不许把"主题：跟随系统"写回标题
     if (themeBtn && themeBtn.dataset && (themeBtn.dataset.mode === 'dark' || themeBtn.dataset.mode === 'light')) themeBtn.title = t(curLang, 'theme.' + themeBtn.dataset.mode)
@@ -4233,7 +5305,12 @@ export function init() {
   fixStaticNotice()
 
   // ⑵⑶⑻ 已删功能留下的「兼容锚点」：节点只是让旧 bundle 不 NPE，这里再把处理器摘掉，双保险。
-  for (const pair of [['#open-pkg', 'onclick'], ['#pkg-file', 'onchange'], ['#sponsor-btn', 'onclick'], ['#type-filter', 'onclick']]) {
+  // ⚠ P-158（用户补充要求「MPKG 各类包括 Web 壁纸都可以」）**`#type-filter` 从这个清单里去掉了**：
+  //   它不属于"已删功能" —— 恰恰相反，它是产物**唯一的**类型过滤入口（`Xe.onclick` 委托处理器 + `it()` 里的
+  //   `Pe`）。旧清单把它一起摘掉并打上 `hidden`，等于把"只看得到 scene"焊死：实测 `#type-filter.onclick===null`
+  //   + `hidden=true` ⇒ 列表永远只列 scene（`/api/library` 里的 web 7 / video 4 全被 `rt(n)!==Pe` 过滤掉）。
+  //   现在它搬到左侧边栏 `.sidebar-tools` 里、由本补丁生成 4 个 `.seg-btn`（详见 ④b 段）。
+  for (const pair of [['#open-pkg', 'onclick'], ['#pkg-file', 'onchange'], ['#sponsor-btn', 'onclick']]) {
     const el = $(pair[0])
     if (!el) continue
     try { el[pair[1]] = null } catch { /* 空元素也可以没有该属性 */ }
@@ -4426,16 +5503,23 @@ export function init() {
   // ── ⑩ 站点外壳（2026-09-17 新样式）：在 syncAllLabels 之后初始化 —— 它要读已本地化的按钮文案。
   //   句柄挂 window（供 syncAllLabels 在语言切换时刷新，不走 TDZ 风险的闭包变量）。 ──
   if (!SHELL_OFF) try {
-    window.__benchShell = initSiteShell({ t, lang: () => curLang, log: (m) => logLine(String(m)), shellVersion: BENCH_SHELL_VERSION, domIsNew: DOM_IS_NEW })
+    window.__benchShell = initSiteShell({
+      t, lang: () => curLang, log: (m) => logLine(String(m)), shellVersion: BENCH_SHELL_VERSION, domIsNew: DOM_IS_NEW,
+      backendStatus: () => apiStatus,          // ⑩(P-158)「当前库来源」要按后端的真实状态判定（静态托管 vs 本机后端）
+    })
     window.__benchShellRefresh = () => {
       try {
         const sh = window.__benchShell
         if (!sh) return
         sh.paintStatus(); sh.paintPropsEmpty(); sh.refreshSwitcher()
+        if (typeof sh.paintLangExtras === 'function') sh.paintLangExtras()
         sh.paintLogsArrow(window.__benchMainCollapsed ? window.__benchMainCollapsed() : false)
       } catch { /* 外壳刷新失败不影响页面 */ }
     }
   } catch (e) { logLine('站点外壳初始化失败：' + ((e && e.message) || e), true) }
+  // ⑨⑩(P-158) 外壳刚建好 ⇒ 立刻补一次"语言附加面"首画（类型开关 / 库列表面板 / 库来源）：
+  //   上面那次 `syncAllLabels()` 跑在外壳之前，那时 `window.__benchShellRefresh` 还不存在。
+  try { if (typeof window !== 'undefined' && typeof window.__benchShellRefresh === 'function') window.__benchShellRefresh() } catch { /* 外壳未就绪 */ }
 
   // 源码侧钩子（bench/bench.ts 调用；重建后若源码自足可删）
   const api = {
@@ -4460,7 +5544,7 @@ export function init() {
     // 第五批（用户实测三条 + 归属外链）：开关状态与自检入口（探针/测试用同一入口）
     flags: () => Object.assign({}, FLAGS),
     pointerParkNow: () => parkPointerNow(),
-    getPointerPark: () => ({ parked, count: parkCount, enabled: FLAGS.ppark }),
+    getPointerPark: () => ({ parked, count: parkCount, enabled: FLAGS.ppark, mode: FLAGS.pparkMode, pushed: parkPushed, lastPush: parkLastPush }),
     lockTimeLayersNow: () => lockTimeLayersEverywhere(),
     getClockLock: () => ({ count: clockLockCount, enabled: FLAGS.clocklock }),
     applyMediaBranding: () => applyMediaBranding(),

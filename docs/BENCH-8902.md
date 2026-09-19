@@ -339,3 +339,59 @@ curl -s http://127.0.0.1:8902/api/library | head -40   # 列表
 **本批已用 curl/node 证实的**（不依赖浏览器）：静态面 200 + no-store（含**产物写死的** `/wallpaper-engine-webgl/renderer/index.html`）、
 8 个 `/api/*` 的状态码与 JSON 形状、全部逃逸用例 400/403、dryRun 不移动 / `confirm=1` 进回收站、属性读写往返且不写壁纸包、
 SSE 收到 `{msg}`、`/__health` 自述、404 不打崩服务；变异 A/B 必红（RED 原文见 §5 测试输出与 `docs/PATCHES.md` 的 P-131 节）。
+
+---
+
+## 7. 测试台外壳一批 UI/交互修复（P-158/P-159，2026-09-19；只动 `demo/index.html` + `demo/bench-patch.js`）
+
+> 本节补的是**页面外壳**（工具条 / 预览 / 输出 / 切换栏 / 类型过滤 / 库来源 / 归属）的一次性修复。
+> 服务端一行未动；上面 §1–§6 的接口契约不变。台账全文见 `docs/PATCHES.md` 的 **P-158** 节。
+
+### 7.1 三条结构性根因（一句话版）
+
+1. **`#main` 的内层网格列被内容撑爆**：产物 `#main{display:grid}` 的单列是 `auto` ⇒ 被 `#editor-tabs` 的
+   11 个 tab 撑到 **2279px**（`#main` 真实宽 740），再往下派生：工具条 17 个控件只有 3 个在视口内、
+   `#stage-scale` 2255×1268 塞进 508px 高的槽（"只看得见左上角"）、输出栏右侧的清空/复制跑到视口外。
+   修法 = `#main{grid-template-columns:minmax(0,1fr)!important}`（+ 工具条 `flex-wrap:wrap` 与纵向滚动兜底）。
+2. **`#pages-track{contain:paint}` 是 `position:fixed` 后代的包含块** ⇒ 自绘下拉按"视口坐标"算出的
+   `left/top` 会被整体下移一个 header（44px）—— 这就是"下拉与触发框之间露一条缝"（实测 48px）的真因。
+   修法 = 写内联坐标时减掉包含块原点（新增纯函数 `layerFixedOffset`），缝宽收到 2px 并按实测几何校正。
+3. **一个 `<select>` 被两套自绘控件同时增强** + **类型过滤宿主被当"已删功能"处理**：
+   前者让每个选项后面多出一个「（空）」的下拉框（分辨率处甚至有两个"自适应 16:9"）；
+   后者把 `#type-filter` 的 `onclick` 摘掉并 `hidden`，产物 `Pe` 恒 `'scene'` ⇒ 明明 `/api/library`
+   返回 scene 11 / web 7 / video 4，页面却只有 11 项。修法 = 工具条归 `.bench-rd` 独占（mpw 只留给属性面板）、
+   `#type-filter` 搬到左侧可见处并由补丁生成四档（全部/场景/Web/视频，默认「全部」= 三档合并）。
+
+### 7.2 本机 `:8902` 复现与验证（headless Firefox）
+
+```bash
+bash tests/run-all-tests.sh --only bench-shell-fixes bench-ui-headless bench-8902
+# 期望：三项全 PASS（无浏览器断言 70 条 + 浏览器几何 39 条 + 服务端 116 条）
+node tests/bench-ui-headless-test.mjs --url http://127.0.0.1:8902/ --w 1360 --h 900
+```
+
+页面里现在应当看到（都已由 `bench-ui-headless` 的 S 组断言钉住）：
+
+| 位置 | 修后 |
+|---|---|
+| 工具条 | 宽 = `#main` 宽（740@1360），17 个控件**全部在视口内**（换行，超出 30vh 才纵向滚） |
+| 分辨率下拉 | 与触发框**贴合 2px**，下方不够时自动上翻也贴合 |
+| 每个下拉 | **一个**自绘控件（工具条里 `.bench-rd`×5、`.mpw_select`×0；全页无「（空）」label） |
+| 预览 | `#frame` 恒 16:9 且完整落在 `#stage-slot` 内（收起/展开输出都一样）；选 1920×1080 也完整可见 |
+| 输出栏 | 行尾「清空 / 复制输出」**两态常驻**；「渲染器诊断（/diag）」是**真页签**，显示 `/api/diag-stream` 的渲染器消息 |
+| 切换栏 | 只放已选/常用（当前 + ★ 固定项，位置固定）；`＋` 固定在最右端，点它**显式展开**库列表面板 |
+| 左侧库 | 类型四档（全部=22 项：scene 11 / web 7 / video 4），每行有真实类型徽标 |
+| 库来源 | `#lib-source` 写明四态之一：无后端 / **本机默认目录（你还没有选择）** / 你选的 / 空 |
+| 设置弹层 | **双方共同署名**（本仓库作者 + 上游 oneincase/webwallgl MIT）+ 上游许可全文两个入口 |
+
+### 7.3 仍然是"未证实项/待别的线"的
+
+* **服务端进程要重启**：本机在跑的 `:8902` 还是旧代码（`GET /api/fs/roots` / `/api/library-source` 仍 404）⇒
+  「选择文件夹」的应用内浏览实测走的是**降级**分支（提示"服务端还没有 /api/fs/* 这条路由" + 两个兜底按钮）。
+  服务端已交付的契约（`roots[].listable`、`/api/library-source` 五档 `source`）前端**已经按它渲染**，重启即生效。
+* **旧产物的 `rt()` 只认 `hasScene`**：`kind: 'wallpaper'|'other'` 的条目在左侧列表里永远不出现（需要产物重建，
+  或前端自建面板并自行拼 iframe URL —— 后者会绕开 `#current`/属性面板链路，需单独一批）。
+* **web 类壁纸的 WE shim**：入口 HTML 挂上了，但渲染器打印「网页壁纸：同源入口未检测到 WE shim（host 未注入？）」
+  ⇒ 属 `core/**`/宿主注入面（不是本批）。
+* **真 X11 指针判定**（"用户拿鼠标点得到"）留给主对话的 `tests/x11-e2e/bench-click-test.mjs`；
+  本节的可点性用 `elementFromPoint` + 合成事件证明。
