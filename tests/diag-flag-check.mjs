@@ -40,6 +40,14 @@ const CLIENT = path.join(MPW_ROOT_DIR, 'dsh-mpkg-wallpaper', 'lib', 'client.js')
 // localStorage 诊断开关白名单（client.js 侧非 URL 参数的开关；新增时在此登记 + README ⑤ 补行）
 const PLUGIN_LS_FLAGS = ['mpwdiag']
 
+/* ①(2026-09-19) **路由/URL 参数名不算诊断开关** —— 插件侧 client.js 里大量出现
+   `host:?custom=1&folder=<dir>&file=<f>`、`/raw?ltoken=…`、`/media?token=…` 这类**路由查询参数**
+   （以及注释里的同形示例文本），会被 c) 正则字面量规则 `[?&]name=` 误当成诊断开关抓出来
+   （实测：custom/folder/ltoken/token 四个 ⇒ 门禁报"代码有·文档无"）。
+   这里显式列出这些**参数名**并跳过；真正的诊断开关仍会被抓（它们不在这个名单里）。
+   维护口径：只往这里加"确实是路由参数"的名字；能当开关用的名字**不许**加进来。 */
+const ROUTE_PARAM_NAMES = ['custom', 'folder', 'ltoken', 'token', 'file', 'index', 'offset', 'refs', 'w', 'h', 'src', 'type', 'fit', 'custommpkg', 'web', 'scene', 'shim', 'embed', 'thumbpost', 'pkgurl', 'item', 'dir', 'path', 'name']
+
 // 面板速查区"常用开关"（MERGED-3 1.3/2.3 精简版 8–10 个；面板 i18n 键 diagflag.<name> 与此对应）
 const COMMON_FLAGS = ['att', 'mcc', 'piv', 'align', 'parallax', 'audio', 'whitefallback', 'hier', 'isolate', 'audit']
 // 常用开关的"一键复制 URL 片段"（canonical 用法；面板速查区直接展示/复制）
@@ -86,7 +94,12 @@ function extractFlags(label, src) {
     while ((m = reChain.exec(ln))) add(m[2], i + 1, 'searchParams.' + m[1] + "('" + m[2] + "')")
     // c) 正则字面量 /[\?&]name=…/（源码文本里就是 "[?&]name=" 这串字符）
     const reRe = /\[\?&\]([a-zA-Z][\w-]*)(?:=|[^\w-])/g
-    while ((m = reRe.exec(ln))) add(m[1], i + 1, 'regex [?&]' + m[1] + '=')
+    while ((m = reRe.exec(ln))) {
+      // ①(2026-09-19) 这条规则会从**注释/示例文本**里抓出 `?folder=` 这类**路由参数**（插件侧尤其多）⇒
+      //   只跳过 ROUTE_PARAM_NAMES 名单里的名字；真正从 location.search 读的开关走 a)/b) 两条规则，不受影响。
+      if (ROUTE_PARAM_NAMES.indexOf(m[1]) >= 0) continue
+      add(m[1], i + 1, 'regex [?&]' + m[1] + '=')
+    }
     // d) localStorage 诊断键（白名单内才算）
     const reLs = /localStorage\.(?:get|set|remove)Item\s*\(\s*['"]([\w.-]+)['"]/g
     while ((m = reLs.exec(ln))) if (PLUGIN_LS_FLAGS.includes(m[1])) add(m[1], i + 1, "localStorage('" + m[1] + "')")
