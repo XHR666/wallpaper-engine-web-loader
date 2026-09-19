@@ -366,8 +366,10 @@ add "pkg-entry-index"   "node tests/server-pkg-index-test.mjs" "" "^SKIP pkg-ind
 add "script-runtime-errors" "node tests/script-runtime-errors-test.mjs" "" "^SKIP script-runtime-errors"
 # ①(P-138 2026-09-19 主对话补登记) `now-playing`：用户第 2 项给的 Bencho「Now playing」组件（改名 `NowPlaying`）
 #   落到 `demo/now-playing/`（组件源码照抄 + 保留全部注释 / 纯函数数学 / CSS 全在 `.snd` 子树内 / 14 个 token 只本地定义 /
-#   构建产物 `dist/now-playing.js` 自足入库）。**186 断言 + 4 组变异**（boxRadius 丢一轴 off、swell 指数、
-#   删一个 token、选择器漏出 `.snd` 子树）；~1.5s，无浏览器/无网络（无 node_modules 时 SSR 探针明确 SKIP）。
+#   构建产物 `dist/now-playing.js` 自足入库）。**216 断言 + 6 组变异**（boxRadius 丢一轴 off、swell 指数、
+#   删一个 token、选择器漏出 `.snd` 子树；P-161 新增两组：seekRatio 去钳位、seekRatio 删 width≤0 守卫）；
+#   另含 P-161 的受控数据面（data/onTransport、op 词汇、DOM 标记、受控/脱开两态 SSR 渲染）；
+#   ~1.5s，无浏览器/无网络（无 node_modules 时 SSR 探针明确 SKIP）。
 add "now-playing"       "node tests/now-playing-test.mjs"
 # ①(P-136 2026-09-19 主对话补登记) `pointer-trail-copy`：用户第 4 项「直接照抄 oneincase 跟鼠标尾迹有关的代码」——
 #   ①`core/we-pointer-source.mjs` 与上游 pointer.js **逐字节相同**（门禁断言 `tail === up`）；

@@ -51,8 +51,22 @@ const browser = await firefox.launch({ headless: true, env: { ...process.env, MO
 try {
   const ctx = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h } })
   const page = await ctx.newPage()
-  const errs = []
-  page.on('pageerror', (e) => errs.push(String(e.message).slice(0, 160)))
+  //  顶层文档自己的脚本错（精确归属）：子帧（渲染器页 / web 壁纸作者页）的错不该算到本页补丁头上，
+  //  Playwright 的 `pageerror` 会把它们混在一起、且 blob/沙箱文档常常**没有 stack** 可供判别。
+  await page.addInitScript(() => {
+    window.__topErrs = []
+    window.addEventListener('error', (e) => { try { window.__topErrs.push(String((e && (e.message || (e.error && e.error.message))) || e)) } catch { /* ignore */ } })
+    window.addEventListener('unhandledrejection', (e) => { try { window.__topErrs.push(String((e && e.reason && (e.reason.message || e.reason)) || e)) } catch { /* ignore */ } })
+  })
+  const errs = []          // 顶层文档的脚本错（门禁判定：必须 0）
+  const frameErrs = []     // 子帧（渲染器页 / web 壁纸作者页）的脚本错：进 notes（不属于本页补丁的责任面）
+  page.on('pageerror', (e) => {
+    const msg = String(e.message).slice(0, 160)
+    const st = String(e.stack || '')
+    //  渲染器产物 / blob 壁纸文档 / /web/dev/ 下的作者脚本都算"子帧"
+    const fromFrame = /assets\/renderer-|WEwebLoader\/renderer|blob:http|\/web\/dev\//.test(st)
+    ;(fromFrame ? frameErrs : errs).push(msg + (fromFrame ? ' @' + (st.match(/(?:blob:|https?:)[^\s)]+/) || [''])[0].slice(0, 90) : ''))
+  })
   await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 90000 })
   await page.waitForFunction(() => !!document.getElementById('frame'), null, { timeout: 60000 })
   await page.waitForTimeout(3500)          // 等库列表 / 首个壁纸 / patch 初始化
@@ -527,6 +541,148 @@ try {
     }
   }
 
+  // ══════════════════ T 组（P-161）播放卡片：真的在控当前媒体 ══════════════════
+  //  为什么用 web 档：卡片的数据面来自"当前媒体元素"（`<video>`/`<audio>`）。video/scene 档在本渲染器里
+  //  走 **WebCodecs 逐帧**（没有 `<video>` 元素、也没有任何 seek API），所以真控读数只能在"入口 HTML 里
+  //  带媒体元素"的 web 档上取；video/scene 档的诚实降级（canSeek=false、canPlay 可用）也在这一组里断言。
+  //  夹具选择：本机库 7 张 web 档里只有 3644069061（2×video + 3×audio）与 3646392375（1×audio）带媒体元素。
+  {
+    const t = await page.evaluate(async () => {
+      const out = {}
+      const seg = document.querySelector('#type-filter .seg-btn[data-type="web"]')
+      if (!seg) return { err: 'no web seg' }
+      seg.click()
+      await new Promise((r) => setTimeout(r, 900))
+      const lis = [...document.querySelectorAll('#list li[data-id]')]
+      const li = lis.find((x) => x.dataset.id === '3644069061') || lis[0]
+      out.id = li.dataset.id
+      li.click()
+      await new Promise((r) => setTimeout(r, 11000))
+      //  基线要在**挂载完成之后**取：挂载本身当然会换 src（那是 bundle 的换壁纸），
+      //  这一组要证的是"卡片自己的操作不再动它"。
+      const frameSrcBefore = document.getElementById('frame').getAttribute('src')
+      const card = () => window.__benchPatch.npCard()
+      const c0 = card()
+      const a = window.__benchShell.navSound
+      const pick = () => { const m = a.mediaList(); return m.vids.find((v) => !v.paused) || m.vids[0] || m.auds[0] || null }
+      const v0 = pick()
+      out.initial = {
+        snap: c0 && c0.snapshot, media: c0 && c0.media, controlled: c0 && c0.controlled, link: c0 && c0.link,
+        cardHeight: c0 && c0.cardHeight,
+        title: (document.querySelector('#np-mount .snd-title') || {}).textContent,
+        by: (document.querySelector('#np-mount .snd-by') || {}).textContent,
+        clock: [...document.querySelectorAll('#np-mount .snd-clock span')].map((x) => x.textContent),
+        rail: (() => { const r = document.querySelector('#np-mount .snd-run'); return r ? r.style.width : null })(),
+        opLabels: [...document.querySelectorAll('#np-mount .snd-op')].map((b) => b.getAttribute('aria-label') + (b.disabled ? '(disabled)' : '')),
+        video: v0 ? { paused: v0.paused, t: Math.round(v0.currentTime * 1000) / 1000, dur: Math.round((Number(v0.duration) || 0) * 1000) / 1000, volume: v0.volume, muted: v0.muted } : null,
+        markers: {
+          root: !!document.querySelector('#np-mount [data-mpw-now-playing]'),
+          scrub: !!document.querySelector('#np-mount [data-mpw-np-scrub]'),
+          link: (document.querySelector('#np-mount [data-mpw-np-link]') || {}).getAttribute ? document.querySelector('#np-mount [data-mpw-np-link]').getAttribute('data-mpw-np-link') : null,
+        },
+        frameSrc: frameSrcBefore,
+      }
+      // ① 播放/暂停：先把媒体**强制到播放中**（走宿主入口，避免被上一组/自动播放策略留在暂停态），
+      //    再点卡片那颗键 ⇒ `video.paused` 必须翻转（两条路径都是真实落点）。
+      window.__benchPatch.npTransport('play', 1)
+      await new Promise((r) => setTimeout(r, 900))
+      const lead = document.querySelector('#np-mount .snd-op[data-lead]')
+      const wasPlaying = pick() ? pick().paused === false : null
+      const before = lead.getAttribute('aria-pressed')
+      lead.click()
+      await new Promise((r) => setTimeout(r, 900))
+      const v1 = pick()
+      out.toggle1 = { wasPlaying, before, after: lead.getAttribute('aria-pressed'), paused: v1 ? v1.paused : null }
+      lead.click()
+      await new Promise((r) => setTimeout(r, 900))
+      const v2 = pick()
+      out.toggle2 = { paused: v2 ? v2.paused : null, aria: lead.getAttribute('aria-pressed') }
+      // ② 进度：在 rail 上按 75% 处点一下 ⇒ currentTime ≈ 0.75 × duration
+      const rail = document.querySelector('#np-mount .snd-rail')
+      const rr = rail.getBoundingClientRect()
+      const x = Math.round(rr.left + rr.width * 0.75)
+      const y = Math.round(rr.top + rr.height / 2)
+      rail.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, bubbles: true, pointerId: 1, buttons: 1 }))
+      rail.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y, bubbles: true, pointerId: 1 }))
+      await new Promise((r) => setTimeout(r, 600))
+      const v3 = pick()
+      out.seek = { at: { x, y }, w: Math.round(rr.width), t: v3 ? Math.round(v3.currentTime * 1000) / 1000 : null, dur: v3 ? Math.round((Number(v3.duration) || 0) * 1000) / 1000 : null, ratio: v3 && v3.duration ? Math.round((v3.currentTime / v3.duration) * 100) / 100 : null }
+      // ③ 音量：走卡片 op（宿主入口）⇒ 元素 volume 跟着变
+      const rVol = window.__benchPatch.npTransport('volume', 0.42)
+      await new Promise((r) => setTimeout(r, 400))
+      const v4 = pick()
+      out.volume = { op: rVol, volume: v4 ? Math.round(v4.volume * 100) / 100 : null, muted: v4 ? v4.muted : null }
+      window.__benchPatch.npTransport('volume', 0)
+      await new Promise((r) => setTimeout(r, 300))
+      // ④ 联动开关：点心形 ⇒ link=0、所有键置灰、再点播放**不动作**
+      const heart = document.querySelector('#np-mount [data-mpw-np-link]')
+      heart.click()
+      await new Promise((r) => setTimeout(r, 700))
+      const c1 = card()
+      const v5 = pick()
+      const lead2 = document.querySelector('#np-mount .snd-op[data-lead]')
+      const pausedBefore = v5 ? v5.paused : null
+      lead2.click()
+      await new Promise((r) => setTimeout(r, 600))
+      const v6 = pick()
+      out.link = {
+        snapLink: c1 && c1.snapshot && c1.snapshot.link, canPlay: c1 && c1.snapshot && c1.snapshot.canPlay,
+        attr: heart.getAttribute('data-mpw-np-link'), disabled: !!lead2.disabled,
+        pausedBefore, pausedAfter: v6 ? v6.paused : null,
+      }
+      heart.click()      // 联动画回来
+      await new Promise((r) => setTimeout(r, 500))
+      out.linkBack = (card() || {}).snapshot ? card().snapshot.link : null
+      // ⑤a 卡片操作**不 remount 壁纸**：这一串 op（播放/暂停/seek/音量/联动）走完，`#frame` 的 src 必须一字未动
+      out.noRemountByCard = document.getElementById('frame').getAttribute('src') === frameSrcBefore
+      // ⑤b 换壁纸（bundle 自己的 li.onclick）后卡片**重新绑定**到新壁纸的媒体（标题/媒体数跟着变）
+      const frameSrcMid = document.getElementById('frame').getAttribute('src')
+      const nextLi = lis[lis.indexOf(li) + 1] || lis[0]
+      nextLi.click()
+      await new Promise((r) => setTimeout(r, 9000))
+      const c2 = card()
+      out.rebind = {
+        newTitle: c2 && c2.snapshot && c2.snapshot.title,
+        cardStillThere: !!document.querySelector('#np-mount .snd-box'),
+        newMeta: c2 && c2.media,
+        frameReloadedBySwitch: document.getElementById('frame').getAttribute('src') !== frameSrcMid,
+        cardHeight: c2 && c2.cardHeight,
+      }
+      return out
+    })
+    const ini = t.initial || {}
+    ok(t && ini.snap && ini.media && (ini.media.videos + ini.media.audios) > 0 && ini.snap.canPlay && ini.snap.canSeek,
+      'T1 【真控·接线】web 档（带媒体元素）挂载后卡片进入受控态：媒体元素被扫到、canPlay/canSeek 为真',
+      JSON.stringify({ id: t && t.id, media: ini.media, snap: ini.snap && { kind: ini.snap.kind, source: ini.snap.source, canPlay: ini.snap.canPlay, canSeek: ini.snap.canSeek } }))
+    ok(ini.title && ini.snap && ini.title === ini.snap.title && ini.by === ini.snap.byline && ini.snap.total > 0,
+      'T2 【真控·显示】卡片上写的是**真实**标题/副标题/总长（不再是 "Cabra Field"/"Side B"/52s 那套装饰值）',
+      JSON.stringify({ title: (ini.title || '').slice(0, 40), by: ini.by, total: ini.snap && ini.snap.total }))
+    ok(t && t.toggle1 && t.toggle1.wasPlaying === true && t.toggle1.paused === true && t.toggle1.after === 'false' &&
+      t.toggle2 && t.toggle2.paused === false && t.toggle2.aria === 'true',
+      'T3 【真控·播放/暂停】强制播放后点卡片那颗键 ⇒ `video.paused` 翻转 + `aria-pressed` 跟着真实状态（再点回来）',
+      JSON.stringify({ wasPlaying: t && t.toggle1 && t.toggle1.wasPlaying, aria: [t && t.toggle1 && t.toggle1.before, t && t.toggle1 && t.toggle1.after], paused: [t && t.toggle1 && t.toggle1.paused, t && t.toggle2 && t.toggle2.paused] }))
+    ok(t && t.seek && t.seek.dur > 0 && Math.abs(t.seek.ratio - 0.75) <= 0.12,
+      'T4 【真控·进度】在卡片 rail 的 75% 处按下 ⇒ `video.currentTime/duration ≈ 0.75`（±0.12 容差）',
+      JSON.stringify(t && t.seek))
+    ok(t && t.volume && t.volume.op === 'volume' && t.volume.volume === 0.42 && t.volume.muted === false,
+      'T5 【真控·音量】经卡片 op 设 0.42 ⇒ 元素的 `volume === 0.42` 且解除静音',
+      JSON.stringify(t && t.volume))
+    ok(t && t.link && t.link.canPlay === false && t.link.disabled === true && t.link.pausedBefore === t.link.pausedAfter && t.linkBack === true,
+      'T6 【联动开关】关掉联动 ⇒ 所有键置灰、点播放**不动作**（paused 不变）；再点回来恢复',
+      JSON.stringify(t && t.link))
+    ok(t && ini.markers && ini.markers.root && ini.markers.scrub && (ini.markers.link === '1' || ini.markers.link === '0'),
+      'T7 【DOM 标记】卡片暴露 `data-mpw-now-playing` / `data-mpw-np-scrub` / `data-mpw-np-link`（与插件仓同一套标记口径）',
+      JSON.stringify(ini.markers))
+    ok(t && t.noRemountByCard === true,
+      'T8a 【不打架】卡片这一串操作（播放/暂停/seek/音量/联动）走完，`#frame` 的 src **一字未动**（卡片不会 remount 壁纸）',
+      JSON.stringify({ same: t && t.noRemountByCard }))
+    ok(t && t.rebind && t.rebind.cardStillThere && t.rebind.newTitle && t.rebind.newTitle !== ini.title && t.rebind.newMeta,
+      'T8b 【重新绑定】换一张壁纸后卡片跟着新壁纸重绑（标题/媒体数都变），React 根没被重建（`.snd-box` 仍在）',
+      JSON.stringify(t && t.rebind))
+    // 收尾：切回「全部」
+    await page.evaluate(async () => { const all = document.querySelector('#type-filter .seg-btn[data-type="all"]'); if (all) all.click(); await new Promise((r) => setTimeout(r, 700)) })
+  }
+
   // ══════════════════ W 组（P-160）web 壁纸：WE shim 真的注进去了 ══════════════════
   //  判据（用户补充要求：web 类要"真的能用"，不是只把入口挂上）：
   //   ①渲染器**不再**打印「同源入口未检测到 WE shim」；②壁纸文档里 WE API 就位（`__weSetPaused` 等）；
@@ -707,7 +863,14 @@ try {
     })
   }
 
-  ok(errs.length === 0, 'N6 整轮 0 个 pageerror（含本批新增的页签/面板/类型过滤/诊断流/mpw 夹具）', errs.slice(0, 2).join(' | '))
+  const topErrs = await page.evaluate(() => (window.__topErrs || []).slice(0, 4))
+  ok(topErrs.length === 0, 'N6 整轮**顶层文档** 0 个脚本错（页面自己的 error/unhandledrejection 钩子；含本批新增的页签/面板/类型过滤/诊断流/mpw 夹具/播放卡片）',
+    topErrs.join(' | ') || ('pageerror(含子帧)=' + errs.length))
+  for (const m of errs.slice(0, 4)) notes.push('pageerror（含子帧，仅记录）: ' + m)
+  ok(![...errs, ...frameErrs].some((m) => /bench-patch\.js|mpw-select\.js|now-playing/.test(m)),
+    'N6b 任何一层都不许出现**本页补丁自己**的脚本错（子帧里渲染器/壁纸作者的错另计，见 notes）',
+    [...errs, ...frameErrs].filter((m) => /bench-patch\.js|mpw-select\.js|now-playing/.test(m)).slice(0, 2).join(' | '))
+  for (const m of frameErrs.slice(0, 4)) notes.push('子帧脚本错（渲染器/壁纸作者，不计入 N6）: ' + m)
   console.log(`\n── 汇总：PASS=${pass} FAIL=${fail}`)
   for (const n of notes) console.log('  note: ' + n)
   process.exitCode = fail > 0 ? 1 : 0

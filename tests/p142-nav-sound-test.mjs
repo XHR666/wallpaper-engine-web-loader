@@ -291,7 +291,10 @@ async function mkRuntime(mod, opt = {}) {
         npState.mounted++
         mounts.push({ el, opts })
         const built = buildSnd(el, { playing: false, expanded: false, progress: 0, cardRect: opt.cardRect })
-        return { update() {}, unmount() {} }
+        //  ①(P-161) 这个夹具模拟的是**装饰态**组件（没有受控面）：`update()` 不提供 ⇒ 补丁不会进入
+        //  受控模式 ⇒ 本文件 C 组那批"aria 桥 + 宿主点击拦截"的判据仍然测的是它们该测的那条路。
+        //  受控模式（真组件）的行为由 `bench-ui-headless` T 组与 `bench-shell-fixes` G 组覆盖。
+        return { unmount() {} }
       },
     }),
   })
@@ -437,12 +440,15 @@ function staticFacts(patchSrc, htmlSrc, mod) {
     push('A23–A26 静态表/SITE_LAYOUT_CSS 两块都能定位', false, '缺 <style id="bench-shell-static"> 或 SITE_LAYOUT_CSS')
   }
 
-  // 「按它真实的 API 接」：P-138 的 opts 就三个（不许臆造 onPlayPause/onVolume/getState）
+  // 「按它真实的 API 接」：①(P-161) 起 opts 是五个 —— P-138 的三个旋钮 + 受控面 data/onTransport
+  // （都是组件自己导出的**类型化**入口，不是补丁臆造的 onPlayPause/onVolume/getState）。
   try {
     const mount = fs.readFileSync(path.join(ROOT, 'demo', 'now-playing', 'mount.tsx'), 'utf8')
     const keys = [...mount.matchAll(/^\s{2}([a-zA-Z]+)\?:/gm)].map((m) => m[1])
-    push('A27 组件的真实 opts 恰好是 morph/corner/stroke（本补丁只给 corner/stroke；没有臆造回调）',
-      keys.length === 3 && keys.join(',') === 'morph,corner,stroke' && /mountNowPlaying\(mountEl, \{ corner: 16, stroke: false \}\)/.test(patchSrc) && !/onPlayPause|onVolume|getState/.test(patchSrc),
+    push('A27 组件的真实 opts = morph/corner/stroke + data/onTransport（补丁只传这四个，没有臆造回调）',
+      keys.length === 5 && keys.join(',') === 'morph,corner,stroke,data,onTransport' &&
+      /mountNowPlaying\(mountEl, \{ corner: 16, stroke: false, data: npSnapshot\(\), onTransport: npTransport \}\)/.test(patchSrc) &&
+      !/onPlayPause|onVolume|getState/.test(patchSrc),
       'mount.tsx opts=' + JSON.stringify(keys))
   } catch (e) { push('A27 能读到 mount.tsx 的 opts 类型', false, String(e.message)) }
   return F
@@ -698,7 +704,7 @@ group('D 变异自证（RED-IF-REVERTED；副本在 os.tmpdir()）')
     { id: 'sound:卡片高度写错（189 → 160，遮挡账与组件真实几何脱钩）', file: 'index.html', from: '--mpw-np-card:189px', to: '--mpw-np-card:160px' },
     { id: 'video:音量只写 API、不落到 <video>（API 缺席时音量失效）', file: 'bench-patch.js', from: 'try { el.volume = clamp01(vol); el.muted = !(eff > 0) } catch {}', to: '' },
     { id: 'video:播放/暂停只走 API、不核实元素（API no-op 时播放键失效）', file: 'bench-patch.js', from: 'if (a && want !== !a.paused) { try { want ? a.play() : a.pause() } catch {} }', to: '' },
-    { id: 'video:进度不订 timeupdate（进度条不再跟 <video> 同步）', file: 'bench-patch.js', from: "const VIDEO_EVENTS = ['timeupdate', 'durationchange', 'loadedmetadata', 'play', 'pause', 'ended', 'seeking', 'seeked']", to: "const VIDEO_EVENTS = ['loadedmetadata', 'play', 'pause']" },
+    { id: 'video:进度不订 timeupdate（进度条不再跟 <video> 同步）', file: 'bench-patch.js', from: "const VIDEO_EVENTS = ['timeupdate', 'durationchange', 'loadedmetadata', 'play', 'pause', 'ended', 'seeking', 'seeked', 'volumechange']", to: "const VIDEO_EVENTS = ['loadedmetadata', 'play', 'pause']" },
   ]
   const writeMut = (mut) => {
     const dir = fs.mkdtempSync(path.join(tmp, 'm-'))

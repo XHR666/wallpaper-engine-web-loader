@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // tests/now-playing-test.mjs —— ①(P-138) NowPlaying 移植件（demo/now-playing/）的仓库侧自查
 //
-// ⚠ 登记待办（主对话登记）：本文件尚未进 `tests/run-all-tests.sh` 的 `add` 列表 ——
-//   建议 `add "now-playing" "node tests/now-playing-test.mjs"`（放在「语法/静态」那一段之后）。
+// ⚠ 登记情况（P-161 更正）：本文件**已经**在 `tests/run-all-tests.sh` 里（`add "now-playing" …`，
+//   由 P-138 那批登记）—— 上面那句"尚未登记"是过期注释，本批顺手改正。
 //
 // 口径：秒级、无浏览器、无 GPU、无网络。不需要 node_modules —— 唯一需要依赖的那一组
 // （⑦ SSR 渲染探针，用 react-dom/server 在 Node 里把组件渲染成 HTML）在没有
@@ -135,6 +135,25 @@ function swellPeakFact(m) {
   }
   return { name: "swell 峰值落在 u≈0.63", ok: Math.abs(at - 0.63) < 0.01 && best > 0.99, detail: `argmax=${at} max=${best.toFixed(6)}` };
 }
+/* ①(P-161) 进度条换算的边界（主跑与变异共用同一份判据 ⇒ 变异能红） */
+function seekRatioFacts(m) {
+  const cases = [
+    { name: "左端（x == left）⇒ 0", x: 100, rect: { left: 100, width: 200 }, want: 0 },
+    { name: "中点 ⇒ 0.5", x: 200, rect: { left: 100, width: 200 }, want: 0.5 },
+    { name: "右端（x == left+width）⇒ 1", x: 300, rect: { left: 100, width: 200 }, want: 1 },
+    { name: "条**左侧**外面 ⇒ 钳到 0（不给负进度）", x: 20, rect: { left: 100, width: 200 }, want: 0 },
+    { name: "条**右侧**外面 ⇒ 钳到 1（不给 >100%）", x: 999, rect: { left: 100, width: 200 }, want: 1 },
+  ];
+  return cases.map((c) => {
+    const got = m.seekRatio(c.x, c.rect);
+    return { name: `seekRatio ${c.name}`, ok: got !== null && Math.abs(got - c.want) < 1e-12, detail: `got=${got} want=${c.want}` };
+  }).concat([
+    { name: "width ≤ 0 ⇒ null（不把进度算成 0/NaN）", ok: m.seekRatio(10, { left: 0, width: 0 }) === null, detail: String(m.seekRatio(10, { left: 0, width: 0 })) },
+    { name: "坐标不是有限数 ⇒ null", ok: m.seekRatio("x", { left: 0, width: 10 }) === null && m.seekRatio(NaN, { left: 0, width: 10 }) === null, detail: String(m.seekRatio("x", { left: 0, width: 10 })) },
+    { name: "rect 缺失 ⇒ null（不抛）", ok: m.seekRatio(10, null) === null, detail: String(m.seekRatio(10, null)) },
+  ]);
+}
+
 function cssScopeFacts(cssText) {
   const { rules } = parseCss(cssText);
   const bad = [];
@@ -206,6 +225,7 @@ for (const f of FILES) check(`在: ${f}`, fs.existsSync(path.join(NP, f)));
 const tsx = fs.readFileSync(path.join(NP, "NowPlaying.tsx"), "utf8");
 const mathSrc = fs.readFileSync(path.join(NP, "now-playing-math.mjs"), "utf8");
 const css = fs.readFileSync(path.join(NP, "now-playing.css"), "utf8");
+const mount = fs.readFileSync(path.join(NP, "mount.tsx"), "utf8");   // ①(P-161) ⑧ 组要查透传面
 const dist = fs.readFileSync(path.join(NP, "dist", "now-playing.js"), "utf8");
 const readme = fs.readFileSync(path.join(NP, "README.md"), "utf8");
 
@@ -440,6 +460,20 @@ group("⑥ 变异自证（在 os.tmpdir() 的副本上改坏，真树不动）")
       facts: (text) => tokenFacts(text),
     },
     {
+      id: "math:seekRatio 去掉 0..1 钳位（拖到条外给出负进度 / >100%）",
+      file: "now-playing-math.mjs",
+      from: "return Math.max(0, Math.min(1, (x - left) / width))",
+      to: "return (x - left) / width",
+      facts: (text) => seekRatioFacts(text),
+    },
+    {
+      id: "math:seekRatio 把 width≤0 的守卫删掉（宽度 0 时算出 Infinity/NaN）",
+      file: "now-playing-math.mjs",
+      from: "if (!Number.isFinite(x) || !Number.isFinite(left) || !Number.isFinite(width) || width <= 0) return null",
+      to: "if (false) return null",
+      facts: (text) => seekRatioFacts(text),
+    },
+    {
       id: "css:给 .snd-box 前面加 body（选择器跑出 .snd 子树）",
       file: "now-playing.css",
       from: ".snd-box {\n  position: relative;",
@@ -477,6 +511,35 @@ group("⑥ 变异自证（在 os.tmpdir() 的副本上改坏，真树不动）")
 //    （实测抓到过：esbuild 默认 classic JSX ⇒ 产物能 build，一运行就
 //      "React is not defined"）。
 // ─────────────────────────────────────────────────────────────────────────────
+group("⑧ 受控数据面 / 传输面（P-161 测试台适配）");
+{
+  //  ⑧a 纯函数：进度条换算的边界（6+3 条）
+  for (const f of seekRatioFacts(math)) check(f.name, f.ok, f.detail);
+
+  //  ⑧b 组件源码：受控入口与 op 词汇（与插件仓控制器同一套）
+  const OPS = ["play", "pause", "prev", "next", "restart", "mute", "seek", "volume", "link"];
+  check("NowPlaying.tsx 导出 NowPlayingOp / NowPlayingData 两个类型",
+    /export type NowPlayingOp =/.test(tsx) && /export type NowPlayingData =/.test(tsx));
+  check(`op 词汇齐全（${OPS.length} 个，与插件仓控制器一致）`, OPS.every((o) => new RegExp(`"${o}"`).test(tsx)), OPS.filter((o) => !new RegExp(`"${o}"`).test(tsx)).join(","));
+  check("组件收 `data` / `onTransport` 两个可选入口（不传 = 原件装饰态）",
+    /data = null,/.test(tsx) && /onTransport = null,/.test(tsx));
+  check("不传 data 时**一个受控标记都不渲染**（装饰态 SR 产物逐字不变的前提）",
+    /controlled \? \(data\?\.source \|\| "1"\) : undefined/.test(tsx) && /data-mpw-np-scrub=\{controlled \? "1" : undefined\}/.test(tsx));
+  check("DOM 标记与插件仓同口径：\(root\)/scrub/noseek/link",
+    /data-mpw-now-playing=/.test(tsx) && /data-mpw-np-scrub=/.test(tsx) && /data-mpw-np-noseek=/.test(tsx) && /data-mpw-np-link=/.test(tsx));
+  check("进度条走 `seekRatio()` 而不是自己写算式（分母/钳位只有一处）",
+    /seekRatio\(e\.clientX, r\)/.test(tsx) && /seekRatio\(e\.clientX, e\.currentTarget\.getBoundingClientRect\(\)\)/.test(tsx));
+  check("拖动只在按住时生效（`e.buttons === 0` 直接返回 ⇒ 掠过不 seek）", /if \(e\.buttons === 0\) return;/.test(tsx));
+  check("联动开关沿用**同一颗心/同一个类**（不新增 CSS 类 ⇒ CSS↔DOM 一一对应那条断言仍成立）",
+    /className="snd-like"/.test(tsx) && /send\("link", shownLiked \? 0 : 1\)/.test(tsx));
+  check("受控模式的所有键都按 can* 置灰（不假装可点）",
+    /disabled=\{!canPlay\}/.test(tsx) && /disabled=\{!canPrev\}/.test(tsx) && /disabled=\{!canNext\}/.test(tsx));
+  check("mount.tsx 把 data/onTransport 透传下去（update 只重画、不重建根）",
+    /export type \{ NowPlayingData, NowPlayingOp \}/.test(mount) && /data\?: NowPlayingData \| null;/.test(mount) && /onTransport\?:/.test(mount) && /root\.render/.test(mount));
+  check("受控模式的悬浮放大只动整体 scale（不碰布局数字）",
+    /transform: controlled && hoverZoom \? "scale\(1\.02\)" : undefined/.test(tsx));
+}
+
 group("⑦ SSR 渲染探针（无浏览器；靠 react-dom/server）");
 {
   const req = createRequire(path.join(NP, "package.json"));
@@ -501,6 +564,14 @@ const out = {};
 for (const corner of [0, 16, 32]) out["c" + corner] = renderToStaticMarkup(createElement(NowPlaying, { corner }));
 out.stroke = renderToStaticMarkup(createElement(NowPlaying, { stroke: true }));
 out.plain = renderToStaticMarkup(createElement(NowPlaying, {}));
+out.data = renderToStaticMarkup(createElement(NowPlaying, {
+  data: { kind: "web", title: "真实标题", byline: "web · ×2 · 音量 42%", progress: 7.5, total: 10, playing: true, muted: false, volume: 0.42, canPlay: true, canPrev: false, canNext: true, canSeek: true, link: true, source: "stage-video" },
+  onTransport: () => {},
+}));
+out.unlinked = renderToStaticMarkup(createElement(NowPlaying, {
+  data: { title: "T", byline: "b", progress: 0, total: 0, playing: false, link: false, canPlay: false, canSeek: false, canPrev: false, canNext: false },
+  onTransport: () => {},
+}));
 process.stdout.write(JSON.stringify(out));
 `);
     const bundle = path.join(tmp, "probe.cjs");
@@ -548,6 +619,26 @@ process.stdout.write(JSON.stringify(out));
     const rendered = cls(c16);
     const onlyCss = [...inCss].filter((c) => !rendered.has(c));
     const onlyDom = [...rendered].filter((c) => !inCss.has(c));
+    //  ①(P-161) 受控渲染：真实数据进画面 + 受控标记 + 可控/不可控两态
+    const dat = html.data || "";
+    const unl = html.unlinked || "";
+    check("受控渲染：标题/副标题来自 data（不再是 Cabra Field / Side B）",
+      /真实标题/.test(dat) && /web · ×2 · 音量 42%/.test(dat) && !/Cabra Field/.test(dat));
+    check("受控渲染：时钟与进度条来自 data（7.5/10 ⇒ 0:07 / −0:02 / 75%）",
+      /0:07/.test(dat) && /−0:02/.test(dat) && /width:75%/.test(dat));
+    check("受控渲染：根上有 data-mpw-now-playing，rail 上有 data-mpw-np-scrub",
+      /data-mpw-now-playing="stage-video"/.test(dat) && /data-mpw-np-scrub="1"/.test(dat));
+    //  ⚠ 属性顺序：React 把 `disabled=""` 写在 `style` 之前、`aria-label` 在最后
+    //  （第一版断言写成 `aria-label="Restart" disabled` ⇒ 假红，这里按真实顺序写）
+    check("受控渲染：canPrev=false 的键 disabled、其余可点（不假装可点）",
+      /<button[^>]*disabled=""[^>]*aria-label="Restart"/.test(dat) && !/<button[^>]*disabled[^>]*aria-label="Next"/.test(dat));
+    check("受控渲染：联动开 ⇒ data-mpw-np-link=\"1\"；playing ⇒ aria-pressed=\"true\"",
+      /data-mpw-np-link="1"/.test(dat) && /aria-pressed="true"/.test(dat));
+    check("脱开（link:false）⇒ 所有键 disabled + rail 标 noseek + data-mpw-np-link=\"0\"",
+      /data-mpw-np-link="0"/.test(unl) && /data-mpw-np-noseek="1"/.test(unl) &&
+      (unl.match(/disabled/g) || []).length >= 3 && /<button[^>]*disabled=""[^>]*aria-label="Play"/.test(unl));
+    check("装饰态（不传 data）**一个受控标记都没有**（既有基线断言的护栏）",
+      !/data-mpw-now-playing|data-mpw-np-scrub|data-mpw-np-link/.test(html.plain) && !/data-mpw/.test(html.stroke));
     check("CSS 里的 .snd* 类名与渲染出来的 DOM 一一对应（没有写死的孤儿规则）",
       onlyCss.length === 0 && onlyDom.length === 0, `只在 CSS: ${onlyCss.join(",")}｜只在 DOM: ${onlyDom.join(",")}`);
     fs.rmSync(tmp, { recursive: true, force: true });

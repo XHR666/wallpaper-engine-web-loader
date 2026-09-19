@@ -1048,6 +1048,47 @@ export function injectShimIntoHtml(html, opt) {
   return { ok: true, reason: 'wrap', html: '<!DOCTYPE html><html><head>' + add + '</head><body>' + src + '</body></html>', injected: true }
 }
 
+/* ── P-161 播放卡片的受控快照（纯函数）────────────────────────────────────────────────
+   卡片（`demo/now-playing/`，本仓自己的 GPL 组件）在受控模式下只认这一份快照；本函数把它算出来
+   ⇒ Node 里可以直接把"有视频/没视频/只有音频/链路断开"四类边界钉死，不必进浏览器。
+   字段口径与插件仓 `dsh-mpkg-wallpaper/lib/now-playing.js` 的控制器**同一套词汇**（见 P-161 台账）。 */
+export function npSnapshotPlan(input) {
+  const x = (input && typeof input === 'object') ? input : {}
+  const m = (x.media && typeof x.media === 'object') ? x.media : {}
+  const item = (x.item && typeof x.item === 'object') ? x.item : {}
+  const link = x.link !== false
+  const kind = String(item.kind || (m.hasVideo ? 'video' : (m.hasAudio ? 'audio' : 'none')))
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+  const total = Math.max(0, num(m.total))
+  const progress = Math.max(0, Math.min(total > 0 ? total : num(m.progress), num(m.progress)))
+  const hasMedia = !!(m.hasVideo || m.hasAudio)
+  const linked = link && hasMedia
+  const clamp01v = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0 }
+  const title = String(item.title || m.title || (hasMedia ? '' : '未连接媒体 / no media'))
+  //  联动关时**先说脱开**（哪怕有媒体）：卡片此刻确实不跟随、也不可控，标题行必须如实说这件事；
+  //  联动开但没有媒体 ⇒ 说"没有可播放的媒体"。两者都不是装饰文本。
+  const mediaNote = [kind, m.count > 1 ? ('×' + m.count) : '', m.muted ? 'muted' : ('音量 ' + Math.round(clamp01v(m.volume) * 100) + '%')].filter(Boolean).join(' · ')
+  const byline = String(item.byline || (!link
+    ? ('卡片已脱开（联动关闭）' + (hasMedia ? ' · ' + mediaNote : ''))
+    : (hasMedia ? mediaNote : '当前壁纸没有可播放的媒体')))
+  return {
+    //  —— 卡片显示面 ——
+    kind, title, byline,
+    progress, total,
+    playing: !!m.playing,
+    muted: !!m.muted,
+    volume: clamp01v(m.volume),
+    //  —— 可控面：联动关 / 没有媒体 ⇒ 全部不可按（不假装可点）——
+    canPlay: linked,
+    canPrev: link && !!x.hasPrev,
+    canNext: link && !!x.hasNext,
+    canSeek: linked && total > 0,
+    canVolume: linked,
+    link,
+    source: String(x.source || (hasMedia ? 'stage-media' : 'none')),
+  }
+}
+
 /** 库目录对话框（②⑤ 的"选环境内文件夹"）计划：服务端路由在不在、用什么兜底。
  *  routesOk=false（`GET /api/fs/roots` 404/网络错）⇒ 明确提示"服务端还没这条路由"，
  *  并给出两个兜底按钮（纯前端选文件夹 / **明确标注**的系统选择器）。 */
@@ -1897,7 +1938,32 @@ export function initNavSound(deps = {}) {
 
   /* ── ③ video 壁纸的声音接线（同源 iframe 里的 <video>） ─────────────────────── */
   const frameDoc = () => { try { return stageEl && stageEl.contentDocument ? stageEl.contentDocument : null } catch { return null } }
-  const stageVideos = () => { const d = frameDoc(); try { return d && d.querySelectorAll ? [...d.querySelectorAll('video')] : [] } catch { return [] } }
+  /** ①(P-161) 媒体扫描要**再下一层**：web 档的入口 HTML 跑在渲染器文档里的那个 sandbox iframe 里
+   *  （`#frame` → `.//iframe`），它的 `<video>`/`<audio>` 才是"当前媒体"。同一源 ⇒ 直接可达；
+   *  跨源时 `contentDocument` 取不到（catch 掉），扫描结果自然只剩外层 —— 不假装拿到了。 */
+  const mediaDocs = () => {
+    const out = []
+    const d0 = frameDoc()
+    if (d0) out.push(d0)
+    try {
+      const nested = d0 && d0.querySelectorAll ? [...d0.querySelectorAll('iframe')] : []
+      for (const f of nested) {
+        try { if (f && f.contentDocument) out.push(f.contentDocument) } catch { /* 跨源：跳过 */ }
+      }
+    } catch { /* 桩 DOM */ }
+    return out
+  }
+  const stageVideos = () => {
+    const out = []
+    for (const d of mediaDocs()) { try { if (d.querySelectorAll) out.push(...d.querySelectorAll('video')) } catch { /* ignore */ } }
+    return out
+  }
+  /** ①(P-161) 音频元素（web 档常见：只有 BGM 没有画面视频；scene 档的音轨不在此列）。 */
+  const stageAudios = () => {
+    const out = []
+    for (const d of mediaDocs()) { try { if (d.querySelectorAll) out.push(...d.querySelectorAll('audio')) } catch { /* ignore */ } }
+    return out
+  }
   const stageApi = () => {
     try {
       const a = stageEl && stageEl.contentWindow && stageEl.contentWindow.__wp
@@ -1965,7 +2031,161 @@ export function initNavSound(deps = {}) {
     if (runEl && runEl.style) runEl.style.width = pct.toFixed(2) + '%'
     if (timeEl) timeEl.textContent = npClock(cur) + ' / ' + npClock(dur)
     if (hostEl) { try { hostEl.setAttribute('data-state', !a ? 'no-video' : (a.paused ? 'paused' : 'playing')) } catch {} }
+    try { pumpNp() } catch { /* 卡片还没挂上：忽略 */ }        // ①(P-161) 卡片与传输条吃同一份读数
     return { cur, dur, pct }
+  }
+  /* ── ②″(P-161) 播放卡片的受控数据面：把真实媒体读数推给组件，并把组件派发的 op 落回媒体 ──────
+     背景：组件（`demo/now-playing/`，本仓 GPL）原本只有 morph/corner/stroke 三个旋钮、没有数据面
+     ⇒ 卡片上的标题/进度/时间全是**装饰值**（"Cabra Field"/"Side B"/52s），进度条也不可点。
+     现在组件多了 `data`/`onTransport` 两个可选入口（见 NowPlaying.tsx 的 `NowPlayingData`），
+     这里负责：
+       · `npLink`（联动，默认开）：开 = 卡片跟随当前壁纸的媒体并可控制它；关 = 卡片只显示最后一次快照、
+         所有键不可按（`can* = false`），宿主也**停止推新数据** —— 这是用户能按的"联动开关"。
+       · `pumpNp()`：把 `npSnapshotPlan()` 的结果 `update({data})` 推过去（**只 update，不 remount** ⇒
+         换壁纸不会重建 React 根、更不会重挂壁纸）。
+       · `npTransport(op, value)`：play/pause/restart/prev/next/seek/volume/mute/link 的真实落点
+         （复用本段已有的 applyPlayPause / seekStage / nextStage / setVideoVolume / toggleMute）。 */
+  let npLink = true
+  let npLastSig = ''
+  let npLastPump = 0
+  let npPumpTimer = null
+  let npControlled = false
+  let npTitle = '', npKind = ''
+  const mediaList = () => {
+    const vids = stageVideos()
+    const auds = stageAudios()
+    return { vids, auds, all: vids.concat(auds) }
+  }
+  const activeMedia = () => {
+    const { vids, auds } = mediaList()
+    const pick = (list) => list.find((v) => v && v.paused === false) || list.find((v) => v && Number(v.duration) > 0) || list[0] || null
+    return pick(vids) || pick(auds) || null
+  }
+  /** 当前壁纸的身份（标题/类型）：优先左侧列表里 active 的那一项，否则用 `#current` 的标题。 */
+  //  ⚠ 作用域纪律（本文件踩过两次）：`initNavSound` 是**模块级函数**，拿不到 `initSiteShell` 里的
+  //  局部量（`listEl`/`curId`/`kindCache`）⇒ 一律现查 DOM（`q()` 是本函数自己的）。
+  function currentWallpaperMeta() {
+    try {
+      const listEl2 = q('#list')
+      const li = listEl2 && listEl2.querySelector ? listEl2.querySelector('li[data-id].active') : null
+      if (li) {
+        const title = (li.querySelector('.title') || {}).textContent || ''
+        const sub = (li.querySelector('.sub') || {}).textContent || ''
+        return { id: String(li.dataset.id || ''), title: String(title).trim(), kind: kindOfSub(sub) }
+      }
+    } catch { /* 桩 DOM */ }
+    const cur = q('#current')
+    return { id: '', title: String((cur && cur.textContent) || '').trim(), kind: npKind || 'unknown' }
+  }
+  function npSnapshot() {
+    const all = mediaList().all
+    const a = activeMedia()
+    const total = a && Number.isFinite(Number(a.duration)) && Number(a.duration) > 0 ? Number(a.duration) : 0
+    const progress = a && Number.isFinite(Number(a.currentTime)) ? Math.max(0, Number(a.currentTime)) : 0
+    const meta = currentWallpaperMeta()
+    return npSnapshotPlan({
+      media: {
+        hasVideo: stageVideos().length > 0,
+        hasAudio: stageAudios().length > 0,
+        count: all.length,
+        total, progress,
+        playing: !!(a && a.paused === false),
+        muted: !!muted || !!(a && a.muted),
+        volume: vol,
+        title: meta.title,
+      },
+      item: { title: meta.title, kind: meta.kind === 'unknown' ? '' : meta.kind },
+      hasPrev: npStepTarget(-1) !== null,
+      hasNext: npStepTarget(1) !== null,
+      link: npLink,
+      source: a ? (stageVideos().indexOf(a) >= 0 ? 'stage-video' : 'stage-audio') : 'none',
+    })
+  }
+  /** 相邻壁纸（"上一首/下一首"= 库列表里前后一项）；返回要点的 `li` 或 null。
+   *  当前项定位有**两道**判据：产物打的 `.active`；产物没打（列表被重排/重渲染时可能丢）就按
+   *  `#current` 的标题回退匹配 —— 两道都认不出时返回 null（按键置灰，不瞎跳）。 */
+  function npStepTarget(dir) {
+    try {
+      const listEl2 = q('#list')
+      const lis = listEl2 && listEl2.querySelectorAll ? [...listEl2.querySelectorAll('li[data-id]')] : []
+      if (!lis.length) return null
+      let active = lis.findIndex((li) => li.classList.contains('active'))
+      if (active < 0) {
+        const cur = String((q('#current') || {}).textContent || '').trim()
+        if (cur) {
+          active = lis.findIndex((li) => {
+            const t = String(((li.querySelector('.title') || {}).textContent) || '').trim()
+            return t && (t === cur || cur.indexOf(t) >= 0 || t.indexOf(cur) >= 0)
+          })
+        }
+      }
+      const from = active >= 0 ? active : (dir > 0 ? -1 : 0)
+      if (active >= 0) {
+        const i = active + dir
+        if (i < 0 || i >= lis.length) return null
+        return lis[i]
+      }
+      return lis[dir > 0 ? 0 : lis.length - 1]
+    } catch { return null }
+  }
+  /** 组件派发的 op 落点（词汇与插件仓控制器一致）。 */
+  function npTransport(op, value) {
+    const o = String(op || '')
+    try {
+      if (o === 'play') { applyPlayPause(true); return 'play' }
+      if (o === 'pause') { applyPlayPause(false); return 'pause' }
+      if (o === 'restart') { seekStage(0); return 'restart' }
+      if (o === 'seek') {
+        const a = activeMedia()
+        const total = a && Number.isFinite(Number(a.duration)) ? Number(a.duration) : 0
+        const r = Number(value)
+        if (!(total > 0) || !Number.isFinite(r)) return null
+        seekStage(Math.max(0, Math.min(1, r)) * total)
+        return 'seek'
+      }
+      if (o === 'volume') { setVideoVolume(clamp01(value)); return 'volume' }
+      if (o === 'mute') { setVideoMuted(value === undefined ? !(muted || !(vol > 0)) : !!value); return 'mute' }
+      if (o === 'prev') { return stepWallpaper(-1) ? 'prev' : null }
+      if (o === 'next') { return stepWallpaper(1) ? 'next' : null }
+      if (o === 'link') { npLink = value === undefined ? !npLink : !!value; npLastSig = ''; pumpNp(); return 'link' }
+    } catch { /* 单个 op 失败不拖垮卡片 */ }
+    return null
+  }
+  /** 上一首/下一首 = 切到库里相邻的壁纸（走产物自己的 `li.onclick` ⇒ #current/属性面板一起更新）。 */
+  function stepWallpaper(dir) {
+    const li = npStepTarget(dir)
+    if (!li) return false
+    try { li.click() } catch { return false }
+    return true
+  }
+  /** 把快照推给组件（**update 而不是重挂**）；签名守卫避免同一份数据反复触发 React 重画。 */
+  function pumpNp(force) {
+    if (!npApp || typeof npApp.update !== 'function') return null
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+    if (!force && (now - npLastPump) < 200) {
+      //  ≤5Hz 的**尾随**节流：被挡下的那一拍必须补一次，否则"暂停/seek 之后没有后续媒体事件"
+      //  就会把卡片永远留在旧状态（实测：暂停后 aria-pressed 一直不翻）。
+      if (!npPumpTimer && later) npPumpTimer = later(() => { npPumpTimer = null; try { pumpNp(true) } catch { /* ignore */ } }, 220)
+      return null
+    }
+    const data = npSnapshot()
+    const sig = JSON.stringify(data)
+    if (!force && sig === npLastSig) return data
+    npLastSig = sig
+    npLastPump = now
+    lastPlaying = data.playing                                   // 受控模式下播放态由**数据**说了算（aria 桥不再二次动作）
+    try { npApp.update({ data }); npControlled = true } catch { /* 组件重画失败不影响媒体 */ }
+    if (hostEl) {
+      try {
+        hostEl.setAttribute('data-np-link', npLink ? '1' : '0')
+        hostEl.setAttribute('data-np-kind', data.kind || '')
+        hostEl.setAttribute('data-np-canplay', data.canPlay ? '1' : '0')
+        hostEl.setAttribute('data-np-canseek', data.canSeek ? '1' : '0')
+        hostEl.setAttribute('data-np-source', data.source || '')
+        hostEl.setAttribute('data-np-title', data.title || '')
+      } catch { /* 桩 DOM */ }
+    }
+    return data
   }
   function seekStage(sec) {
     const a = activeVideo()
@@ -1986,9 +2206,10 @@ export function initNavSound(deps = {}) {
     paintProgress()
     return true
   }
-  const VIDEO_EVENTS = ['timeupdate', 'durationchange', 'loadedmetadata', 'play', 'pause', 'ended', 'seeking', 'seeked']
+  const VIDEO_EVENTS = ['timeupdate', 'durationchange', 'loadedmetadata', 'play', 'pause', 'ended', 'seeking', 'seeked', 'volumechange']
   function bindVideoEvents() {
-    for (const el of stageVideos()) {
+    // ①(P-161) 扫的是 video + audio（web 档常常只有 <audio> 背景乐），两者绑同一套事件
+    for (const el of mediaList().all) {
       if (!el || el.__benchNpBound) continue
       el.__benchNpBound = true                       // 幂等：重挂载/重复探测不会叠加监听器
       // 需求③：进度与 <video> 的 currentTime/duration 同步（订阅 timeupdate/durationchange…）
@@ -1998,7 +2219,7 @@ export function initNavSound(deps = {}) {
   let probeTimer = null, probeTries = 0
   function stopProbe() { if (probeTimer && stopEvery) { stopEvery(probeTimer); probeTimer = null } }
   function probeStage() {
-    const n = stageVideos().length
+    const n = mediaList().all.length
     if (n) {
       bindVideoEvents()
       applyAudio()
@@ -2008,7 +2229,7 @@ export function initNavSound(deps = {}) {
     if (stageNote) {
       try {
         stageNote.textContent = n
-          ? (n > 1 ? '视频壁纸 ×' + n + ' / media' : '视频壁纸已连接 / media linked')
+          ? (n > 1 ? '媒体 ×' + n + ' / media' : '媒体已连接 / media linked')
           : '未发现视频壁纸 / no video'
       } catch {}
     }
@@ -2026,7 +2247,13 @@ export function initNavSound(deps = {}) {
     }, 500)
     return probeTimer
   }
-  function onFrameLoad() { stopProbe(); probeTries = 0; armProbe(); measure() }
+  function onFrameLoad() {
+    stopProbe(); probeTries = 0; armProbe(); measure()
+    //  ①(P-161) 换了壁纸/重挂载之后：重新扫描媒体 + **只 update 卡片数据**（既不 remount 组件、
+    //  也不碰壁纸 iframe 的 src）⇒ 与 `#frame` 的挂载/卸载不打架。
+    npLastSig = ''
+    try { pumpNp(true) } catch { /* 卡片还没挂 */ }
+  }
   if (stageEl && !stageEl.__benchNpFrameBound) {
     stageEl.__benchNpFrameBound = true
     stageEl.addEventListener('load', onFrameLoad)
@@ -2065,6 +2292,9 @@ export function initNavSound(deps = {}) {
     return null
   }
   function onHostClick(e) {
+    //  ①(P-161) 受控模式下组件自己派发 op（`onTransport`）⇒ 这里那套"读 aria 再猜意图"的兜底必须让位，
+    //  否则同一个 Next 会被两条链各做一次（组件切壁纸 + 这里切媒体）。
+    if (npControlled) return null
     const label = hitLabel(e && e.target)
     if (!label || label === 'Tap') return null
     // React 的离散事件在它自己的根监听器（挂在 #np-mount）里同步 flush，我们的监听器在它的**父节点**
@@ -2093,7 +2323,9 @@ export function initNavSound(deps = {}) {
     try {
       const mod = await npLoad()
       if (!mod || typeof mod.mountNowPlaying !== 'function') throw new Error('now-playing 产物没有 mountNowPlaying')
-      npApp = mod.mountNowPlaying(mountEl, { corner: 16, stroke: false })   // 只给 P-138 的三个旋钮里的两个（morph 用默认 50）
+      //  ①(P-161) 除了 P-138 的两个旋钮，再把**受控面**交进去：data = 真实媒体快照，onTransport = op 落点
+      //  ⇒ 卡片从"装饰"变成"真控件"（标题/进度/时间是真的，键按下去真的作用到当前媒体）。
+      npApp = mod.mountNowPlaying(mountEl, { corner: 16, stroke: false, data: npSnapshot(), onTransport: npTransport })
       npState = 'mounted'
       if (propsEl) { try { propsEl.setAttribute('data-np', 'mounted') } catch {} }
       syncFromComponent()
@@ -2162,6 +2394,15 @@ export function initNavSound(deps = {}) {
     handleHostClick: onHostClick,
     hitLabel,
     applyPlayPause,
+    npSnapshot,
+    npTransport,
+    pumpNp,
+    npLinkState: () => npLink,
+    npControlled: () => npControlled,
+    mediaList,
+    activeMedia,
+    stepWallpaper,
+    npStepTarget,
     seekStage,
     nextStage,
     paintProgress,
@@ -5804,6 +6045,24 @@ export function init() {
     setNavCollapsed: (v) => (window.__benchShell ? window.__benchShell.setNavCollapsed(v) : null),
     navCollapsed: () => (window.__benchShell ? window.__benchShell.navCollapsed() : null),
     npSound: () => (window.__benchShell ? window.__benchShell.navSound : null),
+    // ①(P-161) 播放卡片：快照 / 联动开关 / op 派发（探针与门禁读同一批入口，与用户点击同一条代码路径）
+    npCard: () => {
+      const a = window.__benchShell ? window.__benchShell.navSound : null
+      if (!a || typeof a.npSnapshot !== 'function') return null
+      const m = a.mediaList()
+      const card = document.querySelector('#np-mount .snd-box')
+      return {
+        snapshot: a.npSnapshot(),
+        link: a.npLinkState(),
+        controlled: a.npControlled(),
+        media: { videos: m.vids.length, audios: m.auds.length },
+        cardHeight: card ? Math.round(card.getBoundingClientRect().height) : null,
+      }
+    },
+    npTransport: (op, v) => {
+      const a = window.__benchShell ? window.__benchShell.navSound : null
+      return (a && typeof a.npTransport === 'function') ? a.npTransport(op, v) : null
+    },
     npOcclusion: () => (window.__benchShell ? window.__benchShell.npOcclusion() : null),
     npAudio: () => (window.__benchShell ? window.__benchShell.npAudio() : null),
     setVideoVolume: (v) => (window.__benchShell ? window.__benchShell.setVideoVolume(v) : null),

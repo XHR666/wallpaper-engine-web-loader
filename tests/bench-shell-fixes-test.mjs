@@ -230,6 +230,51 @@ console.log('== E web 壁纸 shim（P-160 纯函数） ==')
   ok(P.injectShimIntoHtml(src1, { shim: '' }).ok === false, 'E4f 没有 shim 源码 ⇒ 明确失败（不产出半个文档）')
 }
 
+// ══════════════════════════════ G 播放卡片受控快照（P-161 纯函数） ══════════════════════════════
+console.log('== G 播放卡片受控快照（P-161） ==')
+{
+  const none = P.npSnapshotPlan({ media: {}, item: { kind: 'scene', title: '未连接' }, link: true })
+  ok(none.canPlay === false && none.canSeek === false && none.canPrev === false && none.canNext === false && none.canVolume === false,
+    'G1 没有媒体 ⇒ 所有 can* 为假（卡片按键置灰，不假装可点）', JSON.stringify({ canPlay: none.canPlay, canSeek: none.canSeek }))
+  ok(none.total === 0 && none.progress === 0 && /没有可播放的媒体/.test(none.byline),
+    'G2 没有媒体 ⇒ 总长/进度为 0（不是 NaN）且副标题写明原因', JSON.stringify({ total: none.total, by: none.byline }))
+
+  const vid = P.npSnapshotPlan({
+    media: { hasVideo: true, count: 2, total: 100, progress: 250, playing: true, muted: false, volume: 0.5 },
+    item: { kind: 'video', title: 'Vid' }, hasPrev: true, hasNext: true, link: true,
+  })
+  ok(vid.canPlay && vid.canSeek && vid.canPrev && vid.canNext && vid.total === 100 && vid.progress === 100,
+    'G3 有媒体：进度被钳到总长、四个 can* 为真', JSON.stringify({ progress: vid.progress, total: vid.total }))
+  ok(/音量 50%/.test(vid.byline) && /×2/.test(vid.byline) && vid.source === 'stage-media',
+    'G4 副标题把类型/个数/音量写清楚（不是一句装饰文本）', JSON.stringify({ by: vid.byline, source: vid.source }))
+
+  const audioOnly = P.npSnapshotPlan({ media: { hasAudio: true, total: 30, progress: 3 }, item: {}, link: true })
+  ok(audioOnly.canPlay === true && audioOnly.kind === 'audio', 'G5 只有 <audio>（web 档常见）也算有媒体', JSON.stringify({ kind: audioOnly.kind, canPlay: audioOnly.canPlay }))
+
+  const unlinked = P.npSnapshotPlan({ media: { hasVideo: true, total: 30, progress: 3 }, item: {}, link: false })
+  ok(unlinked.canPlay === false && unlinked.link === false && /脱开|联动关闭/.test(unlinked.byline),
+    'G6 联动关 ⇒ 全部不可控 + 副标题写明"已脱开"（状态只有一个来源）', JSON.stringify({ canPlay: unlinked.canPlay, by: unlinked.byline }))
+
+  ok(P.npSnapshotPlan({ media: { hasVideo: true, total: 0, progress: 5 }, item: {}, link: true }).canSeek === false,
+    'G7 有媒体但总长未知（流式/未加载元数据）⇒ canSeek=false（不给"拖了没反应"的假控件）')
+
+  //  patch 侧接线（静态钉子）
+  ok(/npApp\.update\(\{ data \}\)/.test(patchCode) && !/mountNowPlaying\(mountEl, \{[^}]*data:[^}]*\}\)[\s\S]{0,200}root\.render/.test(patchCode),
+    'G8 卡片数据走 `npApp.update({data})`（**不是** remount：换壁纸/推数据都不重建 React 根）')
+  ok(/npSnapshotPlan\(\{/.test(patchCode) && /onTransport: npTransport/.test(patchCode),
+    'G9 挂载时把受控面交进去（`data` = 快照、`onTransport` = op 落点）')
+  ok(/if \(npControlled\) return null/.test(patchCode),
+    'G10 受控模式下让位：旧那条"读 aria 猜意图"的宿主点击兜底不再二次动作（同一个 Next 不会被做两次）')
+  ok(/if \(!force && \(now - npLastPump\) < 200\)/.test(patchCode) && /npPumpTimer = later\(/.test(patchCode),
+    'G11 快照泵是**尾随**节流（≤5Hz 且被挡下的那拍会补一次）—— 没有这条，"暂停后卡片永远停在旧状态"')
+  ok(/const mediaDocs = \(\) =>/.test(patchCode) && /contentDocument/.test(patchCode),
+    'G12 媒体扫描会**再下一层**（web 档的入口 HTML 跑在渲染器文档里的 sandbox iframe 里）；跨源取不到就跳过')
+  ok(/function npStepTarget\(dir\)/.test(patchCode) && /classList\.contains\('active'\)/.test(patchCode) && /#current/.test(patchCode),
+    'G13 上一首/下一首 = 库列表里相邻项；当前项有**两道**判据（`.active` 或 `#current` 标题回退），认不出就置灰')
+  ok(P.npSnapshotPlan({ media: { hasVideo: true, total: 10, progress: 1, muted: true, volume: 0.42 }, item: {}, link: true }).muted === true,
+    'G14 静音态如实进快照（副标题写 muted、muted 字段为真）')
+}
+
 // ══════════════════════════════ B 静态纪律 ══════════════════════════════
 console.log('== B 静态纪律 ==')
 
@@ -376,6 +421,15 @@ console.log('== C RED-IF-REVERTED（真树只读，变异在 /tmp 副本） ==')
   const json = ME.injectShimIntoHtml('{"a":1}', { shim: 's' })
   ok(json.ok === true && json.injected === true,
     'C11 ★ 变异⑥生效：E4e（"JSON 不许被注入"）在变异体里必红（真树返回 not-html）', JSON.stringify({ ok: json.ok, reason: json.reason }))
+  // 变异⑦（P-161）：`npSnapshotPlan` 不看 `link` ⇒ G6（"联动关 ⇒ 全部不可控"）必红
+  const mutantF = patchSrc.replace("  const linked = link && hasMedia", "  const linked = hasMedia")
+  ok(mutantF !== patchSrc, 'C12 变异⑦锚点命中（快照不再看联动开关）')
+  const mutF = path.join(tmp, 'bench-patch-mutantF.mjs')
+  fs.writeFileSync(mutF, fixImports(mutantF))
+  const MF = await import(pathToFileURL(mutF).href)
+  const fUn = MF.npSnapshotPlan({ media: { hasVideo: true, total: 30, progress: 3 }, item: {}, link: false })
+  ok(fUn.canPlay === true && fUn.link === false,
+    'C13 ★ 变异⑦生效：G6 在变异体里必红（联动关了却仍然 canPlay=true）', JSON.stringify({ canPlay: fUn.canPlay }))
   ok(sha(PATCH) === before, 'C7 真树 `demo/bench-patch.js` 跑前跑后一致（变异只落 /tmp）', before.slice(0, 20))
   fs.rmSync(tmp, { recursive: true, force: true })
 }

@@ -12213,3 +12213,114 @@ GPL-3.0-or-later）+ `demo/now-playing/now-playing-math.mjs`，经 `mount.tsx` �
 **`dc43a7e`**（插件仓文档落账：把 `b5e8222` 写进 §8.6）。
 本仓（渲染器）只追加本条台账 —— **一行未动** `core/**`、`tests/**`、`demo/**`（`:8902` 的播放卡片
 属本仓，本轮只出报告、不改）。
+
+## P-161（2026-09-19 · 渲染器侧 · MPW-2 第 1⑥ 条）`:8902` 播放卡片适配：从"装饰"变成"真控件"（受控数据面 + op 落点 + 联动开关）
+
+> 改动面：`demo/now-playing/NowPlaying.tsx`、`demo/now-playing/mount.tsx`、`demo/now-playing/now-playing-math.mjs`、
+> `demo/now-playing/dist/now-playing.js`（用 `demo/now-playing/build.mjs` 重建，esbuild 来自该目录已入库的
+> `node_modules`）、`demo/bench-patch.js`、`tests/now-playing-test.mjs`（186 → **216** 断言，新增 ⑧ 组 + 2 组变异）、
+> `tests/bench-shell-fixes-test.mjs`（98 → **114**，新增 G 组 + 变异⑦）、`tests/bench-ui-headless-test.mjs`
+> （57 → **67**，新增 T 组 10 条）、`tests/run-all-tests.sh`（注释数字同步）、`docs/BENCH-8902.md` §9。
+> 顺带改正 `tests/now-playing-test.mjs` 顶部那句过期注释（"本文件尚未进 run-all-tests" —— 它 P-138 那批就已登记）。
+> **未动** `core/**`、`server/**`、`build-pages.mjs`、README。
+
+**一句话**：`:8902` 用的是**本仓自己的** `demo/now-playing/`（P-138 从 Bencho 移植，GPL），它只有
+`morph/corner/stroke` 三个旋钮、**没有任何数据/传输入口** ⇒ 卡片上的标题/副标题/进度/时间全是装饰值
+（"Cabra Field"/"Side B"/52s），进度条也不可点。本批给它补上**受控数据面**并把测试台的媒体接进去。
+
+### P-161.0 两条路的选择（为什么走 A 而不是 B「复用插件组件」）
+
+评估结论：走 **A（扩本仓组件）**。理由逐条可核：
+
+1. **不引入 MIT→GPL 的 vendoring**：B 路要把插件仓 `dsh-mpkg-wallpaper/lib/now-playing.js`（99 KB，MIT）
+   拷进 `demo/`；A 路改的是**本仓自己的 GPL 组件** ⇒ 不新增第三方代码、不需要新的许可登记（§P-161.4）。
+2. **不用运行期 CJS 求值**：B 路的 `loadCjsSource()` 手法要在页面里 `eval` 一段外部源码；本仓刚在 P-160
+   明确避开 `new Function/eval`（shim 走字符串转义还原）。A 路零求值。
+3. **保住既有几何/遮挡门禁**：卡片现在的 DOM 契约（`.snd-box`/`.snd-tap`/`.snd-op`…）被 P-142 的
+   "78↔189 形变 + `#props-body` 遮挡几何"断言盯着；B 路换组件那些断言全部要重写。
+   另外 `tests/now-playing-test.mjs` 里有一条"CSS 里的 `.snd*` 类名与渲染出的 DOM **一一对应**"——
+   A 路**没有新增任何 CSS 类**（联动开关沿用同一颗心 `.snd-like`、进度条沿用 `.snd-rail`、悬浮放大走内联
+   `transform`）⇒ 那条断言天然成立。
+4. **构建链在本仓、可离线复现**：`demo/now-playing/node_modules` 里已入库 esbuild 0.28.2 + React 19.3
+   ⇒ `node build.mjs` 一条命令重建（本批的 `demo/now-playing/dist/now-playing.js` 就是这么出的，236 029 B）。
+5. 词汇与插件仓**对齐但不共享代码**：op 名（`play|pause|prev|next|restart|mute|seek|volume|link`）与
+   快照字段（`kind/title/byline/progress/total/playing/muted/volume/can*/link/source`）按插件控制器的清单实现，
+   两仓行为一致、互不依赖。
+
+### P-161.1 修法
+
+1. **组件（`NowPlaying.tsx`）**：新增两个**可选**入口 `data` / `onTransport`。
+   - 不传 `data` ⇒ 走原件那套装饰态（本地 `going`/`liked`/`at`），SSR 产物逐字不变（既有 186 条基线断言全绿）；
+   - 传了 `data` ⇒ 一切读数来自它：标题/副标题、进度与两端时钟、播放态、`can*` 置灰、联动开关；
+   - 交互：播放/暂停、重播、下一个 → `onTransport(op)`；进度条 → `onPointerDown`/`onPointerMove`（按住才拖）
+     经纯函数 `seekRatio(clientX, rect)` 换算成 0..1 后 `onTransport('seek', r)`；
+     心形 = **联动开关**（`onTransport('link', 0|1)`，仍用同一个类名）；
+   - 新增 DOM 标记（与插件仓同口径，只加属性不加类）：根 `data-mpw-now-playing`、
+     rail `data-mpw-np-scrub` / `data-mpw-np-noseek`、心 `data-mpw-np-link`；
+   - 受控模式的悬浮放大 = 根上内联 `transform: scale(1.02)`（不动任何布局数字，原件"一个数字即状态"的纪律照旧）。
+2. **纯函数（`demo/now-playing/now-playing-math.mjs`）**：新增 `seekRatio(clientX, rect)`（钳位 0..1；`width ≤ 0` / 坐标非有限数 ⇒ `null`）。
+3. **薄壳（`mount.tsx`）**：透传 `data`/`onTransport`；`update()` 仍是"只重画、不重建根"⇒ **换壁纸不必 remount**。
+4. **补丁（`demo/bench-patch.js`）**：
+   - `npSnapshotPlan()`（**纯函数**）把"当前壁纸 + 媒体读数 + 联动开关"拼成卡片快照（四类边界可在 Node 里钉死）；
+   - 媒体扫描**再下一层**：web 档的入口 HTML 跑在渲染器文档里的 sandbox iframe 里，它的 `<video>`/`<audio>`
+     才是"当前媒体"（同源可达；跨源取不到就跳过，不假装拿到）；
+   - `pumpNp()`：≤5Hz 的**尾随**节流（被挡下的那拍补一次 —— 没有它"暂停后没有后续媒体事件 ⇒ 卡片永远停在旧状态"，
+     实测踩到过）；推数据走 `npApp.update({data})`（**不 remount**）；
+   - `npTransport(op, value)`：`play/pause → applyPlayPause`、`restart → seekStage(0)`、`seek(0..1) → seekStage(r×duration)`、
+     `volume → setVideoVolume`、`mute → setVideoMuted`、`prev/next → 库列表相邻壁纸（走产物自己的 li.onclick）`、
+     `link → npLink 状态 + 立刻重推快照`；
+   - 受控模式下让位：旧那条"读组件 aria 再猜意图"的宿主点击兜底（`onHostClick`）不再动作
+     （否则同一个 Next 会被两条链各做一次）；
+   - 联动关 ⇒ 快照 `can* = false`、副标题写"卡片已脱开（联动关闭）"，且宿主停止推新数据。
+
+### P-161.2 判据（真机读数 + 门禁）
+
+**真机读数表**（headless Firefox 1360×900；web 档 `3644069061`——本机 7 张 web 档里唯一同时带 `<video>`×2 与 `<audio>`×3 的）：
+
+| 口径 | 读数 |
+|---|---|
+| 接线（T1） | `media = {videos: 2, audios: 3}`、`source = "stage-video"`、`canPlay/canSeek = true`、`controlled = true` |
+| 显示（T2） | 卡片标题 = 壁纸真实标题（`【4K】「崩坏：星穹铁道」昔涟开屏动画4K…`）、副标题 `web · ×5 · muted`、`total = 9.713s`（不再是 Cabra Field / Side B / 52s） |
+| 播放/暂停（T3） | 强制播放态后点卡片那颗键：`aria-pressed` `true → false`、`video.paused` `false → true`；再点回来 `true / false` |
+| 进度（T4） | 在 rail 的 **75%** 处按下 ⇒ `video.currentTime = 7.285s / duration 9.713s = 0.75` |
+| 音量（T5） | `npTransport('volume', 0.42)` ⇒ 元素 `volume = 0.42`、`muted = false`（`op` 返回 `'volume'`） |
+| 联动（T6） | 关：`snapshot.link=false`、`canPlay=false`、按键 `disabled`、再点播放 **paused 不变**；开：`link=true` 恢复 |
+| 标记（T7） | `data-mpw-now-playing` / `data-mpw-np-scrub` / `data-mpw-np-link="1"` 都在 |
+| 不打架（T8a/T8b） | 卡片这一串操作走完 `#frame` 的 src **一字未动**；换壁纸后卡片重绑到新档（标题变、媒体数 `{0 video,1 audio}`），`.snd-box` 仍在（React 根没被重建） |
+
+* **`tests/now-playing-test.mjs`：216 通过 / 0 失败**（186 → 216：新增 ⑧ 组 20 条 + SSR 受控渲染 7 条；
+  ⑧ 组含 9 条 `seekRatio` 边界（左/中/右端、条外两侧钳位、`width ≤ 0`、非有限数、rect 缺失）与 11 条源码纪律，
+  SSR 探针新增"受控/脱开两态"渲染断言 + "装饰态一个受控标记都没有"的护栏）。**变异自证 6 组**
+  （原 4 组 + `seekRatio` 去钳位、`seekRatio` 删 `width≤0` 守卫）。
+* **`tests/bench-shell-fixes-test.mjs`：114 通过 / 0 失败**（98 → 114：G1–G14 快照/接线 + **变异⑦**
+  "快照不再看联动开关 ⇒ G6 必红"）。
+* **`tests/bench-ui-headless-test.mjs`：67 通过 / 0 失败**（57 → 67：T 组 10 条，逐条对应上面的真机读数表）。
+  顺带把 N6 的**错误归属**做准：改成用页面自己的 `error`/`unhandledrejection` 钩子判"顶层文档 0 错"，
+  `pageerror`（含子帧）只记 notes —— 实测子帧里那两条错来自 **web 壁纸作者自己的 Vue/three.js**
+  （`/web/dev/3646392375/js/vue/2.7.14/vue.runtime.min.js`、`vendors_*.js` 的 WebGL），与本页补丁无关。
+* 未回归：`demo-check` 132/0、`mpw-select` 70/0、`p142-nav-sound` 92/92、`bench-8902` 116/0、`demo-syntax` 11/11、
+  `secret-scan` 干净。
+* 浏览器纪律：跑前跑后 `ps -eo comm | grep -cx firefox` = 0；单浏览器；一轮 1s 采样 Firefox 峰值见回报。
+
+### P-161.3 做不到 / 只能这样的（诚实清单）
+
+1. **video / scene 档没有 seek、也没有进度读数**：这两类在本渲染器里走 **WebCodecs 逐帧**（渲染器自己的日志：
+   `media video → WebCodecs 逐帧调度（静音循环）`），页面里**没有 `<video>` 元素**；`__wp` 的公开面里
+   也**只有** `pause/resume/setVolume/setFit/…`，**没有 seek/setTime/currentTime**（本批逐字查过产物）。
+   ⇒ 这类档上卡片如实降级：`canSeek = false`、`total = 0`（进度条不假装能拖），播放/暂停与音量照常可用。
+   真机判据表因此选在**带媒体元素的 web 档**上取值（T1–T8）。
+2. **上一首/下一首 = 切库列表里相邻壁纸**（不是"壁纸内部下一段"）。库里相邻项认不出时（`.active` 丢且标题也匹配不上）
+   按键置灰，不瞎跳。
+3. **跨源 web 帧只能静音**：同源 web 档的 `<audio>/<video>` 可直接读写（T5 就是这条），但**跨源**帧拿不到
+   元素 ⇒ 只能经 shim 的 `__weSetVolume` 发"设音量/静音"意图（那是渲染器契约，不是我们直写元素）。
+4. **只验了 1 张带媒体的 web 档 + 1 张只有 `<audio>` 的 web 档**（3644069061 / 3646392375）；其余 web 档没有媒体元素。
+5. **画面正确性/观感**（悬浮放大的手感、真实标题过长时的省略）只能人眼；探针只判几何与状态。
+6. `demo/now-playing/dist/now-playing.js` 是**入库产物**：改了源码必须重建（`cd demo/now-playing && node build.mjs`），
+   本批已重建（`demo/now-playing/dist/now-playing.js`，236 029 B）；`README.md` 里"照抄/我们改的"差异清单**未同步更新**（README 不在本批授权文件内）。
+
+### P-161.4 许可
+
+* **没有引入任何第三方代码**：改的是本仓自己的 GPL 组件（`demo/now-playing/**`）；React 19.3 / lucide-react
+  本来就在 `demo/now-playing/package.json` 的依赖里、且早已内联在入库产物 `demo/now-playing/dist/now-playing.js` 中（本批未新增依赖）。
+* 因此**不新增** `THIRD-PARTY.md` 条目、**不追加** `docs/COPYING-RULES.md` §4 台账行 —— 那张表登记的是"引入的第三方代码"，
+  本批一行都没有引入。（B 路若要做，才需要按 MIT→GPL 方向登记；§P-161.0 说明了为什么没走 B。）

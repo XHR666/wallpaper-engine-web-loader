@@ -41,6 +41,7 @@ import {
   mix,
   quad,
   rate,
+  seekRatio,
   springOf,
   swell as swellAt,
 } from "./now-playing-math.mjs";
@@ -256,6 +257,34 @@ const stillness = () =>
   typeof window !== "undefined" &&
   !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
+/* ①(P-161 2026-09-19 测试台适配) 受控数据面 / 传输面。
+   与插件仓 `dsh-mpkg-wallpaper/lib/now-playing.js` 的控制器**同一套词汇**（跨仓一致，
+   见 P-161 台账 §「为什么用同一套 op 名」）：
+     op: play | pause | prev | next | restart | mute | seek(0..1) | volume(0..1) | link(0|1)
+     data 里的 canXxx 决定对应键**可不可按**（不可按 ⇒ `disabled` + 视觉降权，不假装可点）。
+   ⚠ 不传 `data` 时组件走**原件那套装饰态**（本地 `going`/`liked`/`at`），SSR 产物逐字不变 ——
+   独立演示页 `demo/now-playing/index.html` 与既有门禁的基线断言都靠这条。 */
+export type NowPlayingOp = "play" | "pause" | "prev" | "next" | "restart" | "mute" | "seek" | "volume" | "link";
+export type NowPlayingData = {
+  kind?: string;
+  title?: string;
+  byline?: string;
+  /** 进度（秒）与总长（秒）；total ≤ 0 ⇒ 进度条画成 0（不是 NaN） */
+  progress?: number;
+  total?: number;
+  playing?: boolean;
+  muted?: boolean;
+  volume?: number;
+  canPlay?: boolean;
+  canPrev?: boolean;
+  canNext?: boolean;
+  canSeek?: boolean;
+  canVolume?: boolean;
+  /** 联动：true = 卡片跟随/控制当前壁纸的媒体；false = 脱开（只显示最后一次快照） */
+  link?: boolean;
+  source?: string;
+};
+
 export function NowPlaying({
   /* how quickly the shape changes, 0..100 — 50 is the tuned
      460ms, and neither end is broken: 736 reads as deliberate
@@ -268,13 +297,38 @@ export function NowPlaying({
      那个属性）：盒子那圈发丝线只由这个开关给，默认关 —— 与原件口径
      一致（见 CSS 里 "NO BORDER of its own" 那段）。 */
   stroke = false,
-}: { morph?: number; corner?: number; stroke?: boolean } = {}) {
+  /* ①(P-161) 受控面：不传 = 装饰态（原件行为）；传了 = 卡片显示真实媒体并派发 op */
+  data = null,
+  onTransport = null,
+}: { morph?: number; corner?: number; stroke?: boolean; data?: NowPlayingData | null; onTransport?: ((op: NowPlayingOp, value?: number) => void) | null } = {}) {
   const skin = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [going, setGoing] = useState(false);
   const [liked, setLiked] = useState(false);
   const [at, setAt] = useState(52);
+  const [hoverZoom, setHoverZoom] = useState(false);   // ①(P-161) 受控模式的悬浮放大（挂在根上，不加新类）
   const still = stillness();
+
+  /* ①(P-161) 受控模式下的一切读数都来自 `data`（缺省回落到原件那套装饰值）。
+     `controlled` 一旦为真，本地 `going`/`liked`/`at` 就不再参与显示 —— 状态只有一个来源。 */
+  const controlled = !!data;
+  const shownPlaying = controlled ? !!data?.playing : going;
+  const shownLiked = controlled ? !!data?.link : liked;
+  const totalSec = controlled ? Math.max(0, Number(data?.total) || 0) : TOTAL;
+  const atSec = controlled ? Math.max(0, Math.min(totalSec || Number(data?.progress) || 0, Number(data?.progress) || 0)) : at;
+  const railPct = totalSec > 0 ? (atSec / totalSec) * 100 : 0;
+  const shownTitle = controlled ? String(data?.title || "") : "Cabra Field";
+  const shownBy = controlled ? String(data?.byline || "") : "Side B";
+  const canPlay = controlled ? data?.canPlay !== false : true;
+  const canPrev = controlled ? data?.canPrev !== false : true;
+  const canNext = controlled ? data?.canNext !== false : true;
+  const canSeek = controlled ? data?.canSeek !== false && totalSec > 0 : true;
+  /** 派发一个传输 op：受控模式交给宿主；装饰态自己吃掉（原件行为）。 */
+  const send = (op: NowPlayingOp, value?: number) => {
+    if (controlled) {
+      try { onTransport?.(op, value); } catch { /* 宿主抛错不影响卡片自己的状态机 */ }
+    }
+  };
 
   const dur = BASE * rate(clamp(morph, 0, 100));
 
@@ -486,7 +540,22 @@ export function NowPlaying({
   };
 
   return (
-    <div className="snd" data-stroke={stroke ? "on" : undefined} style={{ width: W, height: OPEN }}>
+    <div
+      className="snd"
+      data-stroke={stroke ? "on" : undefined}
+      data-mpw-now-playing={controlled ? (data?.source || "1") : undefined}
+      onMouseEnter={controlled ? () => setHoverZoom(true) : undefined}
+      onMouseLeave={controlled ? () => setHoverZoom(false) : undefined}
+      style={{
+        width: W,
+        height: OPEN,
+        /* ①(P-161) 受控模式的"悬浮态放大"：只动**整体** scale，不动任何布局数字
+           （原件那条"一个数字即状态"的纪律照旧）；装饰态不挂这个监听 ⇒ SSR 产物逐字不变。 */
+        transform: controlled && hoverZoom ? "scale(1.02)" : undefined,
+        transformOrigin: "50% 50%",
+        transition: controlled ? "transform 160ms cubic-bezier(0.28, 0.36, 1, 1)" : undefined,
+      }}
+    >
       <div
         className="snd-box"
         ref={skin}
@@ -547,10 +616,10 @@ export function NowPlaying({
           }}
         >
           <span className="snd-title" style={{ fontSize: mix(13, 15.5, p) }}>
-            Cabra Field
+            {shownTitle}
           </span>
           <span className="snd-by" style={{ fontSize: mix(11, 12, p) }}>
-            Side B
+            {shownBy}
           </span>
         </span>
 
@@ -586,12 +655,35 @@ export function NowPlaying({
             width: W - PAD * 2,
           }}
         >
-          <span className="snd-rail">
-            <span className="snd-run" style={{ width: `${(at / TOTAL) * 100}%` }} />
+          <span
+            className="snd-rail"
+            data-mpw-np-scrub={controlled ? "1" : undefined}
+            data-mpw-np-noseek={controlled && !canSeek ? "1" : undefined}
+            role={controlled ? "slider" : undefined}
+            aria-valuemin={controlled ? 0 : undefined}
+            aria-valuemax={controlled ? Math.round(totalSec) : undefined}
+            aria-valuenow={controlled ? Math.round(atSec) : undefined}
+            onPointerDown={controlled ? (e) => {
+              if (!canSeek) return;
+              const r = e.currentTarget.getBoundingClientRect();
+              const v = seekRatio(e.clientX, r);
+              if (v === null) return;
+              try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* 老浏览器 */ }
+              send("seek", v);
+            } : undefined}
+            onPointerMove={controlled ? (e) => {
+              if (!canSeek) return;
+              if (e.buttons === 0) return;                    // 只有按住才拖
+              const v = seekRatio(e.clientX, e.currentTarget.getBoundingClientRect());
+              if (v !== null) send("seek", v);
+            } : undefined}
+            style={controlled ? { cursor: canSeek ? "pointer" : "default", pointerEvents: canSeek ? "auto" : "none" } : undefined}
+          >
+            <span className="snd-run" style={{ width: `${railPct}%` }} />
           </span>
           <span className="snd-clock" style={{ opacity: late }}>
-            <span>{clock(at)}</span>
-            <span>−{clock(TOTAL - at)}</span>
+            <span>{clock(atSec)}</span>
+            <span>−{clock(Math.max(0, totalSec - atSec))}</span>
           </span>
         </span>
 
@@ -642,12 +734,14 @@ export function NowPlaying({
             the player underneath it. */}
         <button
           className="snd-like"
-          data-on={liked || undefined}
+          data-on={shownLiked || undefined}
+          data-mpw-np-link={controlled ? (shownLiked ? "1" : "0") : undefined}
           onClick={() => {
-            setLiked((v) => !v);
+            if (controlled) send("link", shownLiked ? 0 : 1);
+            else setLiked((v) => !v);
           }}
-          aria-label={liked ? "Remove from liked songs" : "Add to liked songs"}
-          aria-pressed={liked}
+          aria-label={controlled ? (shownLiked ? "Unlink the card from the media" : "Link the card to the media") : (liked ? "Remove from liked songs" : "Add to liked songs")}
+          aria-pressed={shownLiked}
           tabIndex={open ? 0 : -1}
           style={{
             left: W - PAD - LIKE,
@@ -672,8 +766,10 @@ export function NowPlaying({
               the button and which two are beside it. */}
           <button
             className="snd-op"
-            style={{ width: side, height: side }}
-            onClick={() => { setAt(0); }}
+            data-mpw-np-prev={controlled ? "1" : undefined}
+            disabled={!canPrev}
+            style={{ width: side, height: side, opacity: canPrev ? 1 : 0.4 }}
+            onClick={() => { if (!canPrev) return; if (controlled) send("prev"); else setAt(0); }}
             aria-label="Restart"
           >
             <SkipBack size={mix(13, 16, p)} strokeWidth={2} />
@@ -682,10 +778,15 @@ export function NowPlaying({
           <button
             className="snd-op"
             data-lead
-            style={{ width: lead, height: lead }}
-            onClick={() => { setGoing((v) => !v); }}
-            aria-label={going ? "Pause" : "Play"}
-            aria-pressed={going}
+            disabled={!canPlay}
+            style={{ width: lead, height: lead, opacity: canPlay ? 1 : 0.4 }}
+            onClick={() => {
+              if (!canPlay) return;
+              if (controlled) send(shownPlaying ? "pause" : "play");
+              else setGoing((v) => !v);
+            }}
+            aria-label={shownPlaying ? "Pause" : "Play"}
+            aria-pressed={shownPlaying}
           >
             {/* ── FILLED, not drawn ─────────────────────────
                 Transport marks are solid everywhere a person
@@ -699,13 +800,15 @@ export function NowPlaying({
                 This one is not a lucide icon at all — see
                 Mark, above — because it is the only mark here
                 that changes into another one. */}
-            <Mark playing={going} size={mix(14, 18, p)} still={still} />
+            <Mark playing={shownPlaying} size={mix(14, 18, p)} still={still} />
           </button>
 
           <button
             className="snd-op"
-            style={{ width: side, height: side }}
-            onClick={() => { setAt(0); }}
+            data-mpw-np-next={controlled ? "1" : undefined}
+            disabled={!canNext}
+            style={{ width: side, height: side, opacity: canNext ? 1 : 0.4 }}
+            onClick={() => { if (!canNext) return; if (controlled) send("next"); else setAt(0); }}
             aria-label="Next"
           >
             <SkipForward size={mix(13, 16, p)} strokeWidth={2} />

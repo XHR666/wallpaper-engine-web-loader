@@ -304,3 +304,16 @@ export const swell = (u) => Math.sin(Math.PI * clamp(u, 0, 1) ** 1.5);
 
 /* 播放/暂停记号的那口"软"：两端为 0、中间为 1 —— 按两次落回原样。 */
 export const goo = (t) => Math.sin(clamp(t, 0, 1) * Math.PI);
+
+/* ①(P-161 2026-09-19 测试台适配) 进度条命中：把一次指针事件的 clientX 换算成 0..1 的比例。
+   纯函数（无 DOM 依赖）⇒ tests/now-playing-test.mjs 可以直接把边界钉住。
+   - 传入的 rect 只要有 { left, width }；width ≤ 0 或坐标不是有限数 ⇒ 返回 null（调用方据此"不动作"，
+     而不是把进度算成 0 或者 NaN 写进样式）。
+   - 结果**钳位**在 0..1：拖动到条外不该给出负进度或 >100%。 */
+export function seekRatio(clientX, rect) {
+  const x = Number(clientX)
+  const left = Number(rect && rect.left)
+  const width = Number(rect && rect.width)
+  if (!Number.isFinite(x) || !Number.isFinite(left) || !Number.isFinite(width) || width <= 0) return null
+  return Math.max(0, Math.min(1, (x - left) / width))
+}

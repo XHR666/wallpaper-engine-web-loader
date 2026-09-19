@@ -453,3 +453,52 @@ minified 渲染器（`demo/assets/renderer-BOSoB05I.js`）里 web 档有两条�
 * 只验了 1 张 web 档；其它 web 档只做 API 名单级对齐（shim 自带的兼容层）。
 * 画面正确性未做像素判定（只到 API 就位 + 文档加载 + 事件可达）。
 * 鼠标可达 = 浏览器原生投递；与 WE 客户端的指针注入语义逐字一致属 `core/**`。
+
+---
+
+## 9. 播放卡片（Now playing）适配：从"装饰"到"真控件"（P-161，2026-09-19）
+
+> 只动 `demo/now-playing/**`（本仓自己的 GPL 组件）+ `demo/bench-patch.js` + 测试/台账/文档。服务端与产物一行未改。
+
+### 9.1 症状与真因
+
+右侧「壁纸配置」下半部的卡片来自 `demo/now-playing/`（P-138 从 Bencho 移植，本仓 GPL），
+`mountNowPlaying(el, opts)` 只接受 `morph/corner/stroke` 三个旋钮，**没有任何数据/传输入口** ⇒
+卡片上的标题（"Cabra Field"）、副标题（"Side B"）、进度与时间（52s / 214s）都是**装饰值**，
+进度条不可点；只有"点播放键 → 组件 aria 变 → 补丁读 aria 再驱动媒体"这条兜底桥（P-142 加的）在动。
+
+### 9.2 修法（为什么扩本仓组件而不是复用插件那份 MIT 组件）
+
+* 本仓组件是 **GPL**、插件那份是 **MIT**：复用要 vendoring 99 KB MIT 源码 + 运行期 CJS 求值（`eval`），
+  且会打破既有几何/遮挡门禁的 DOM 契约；扩本仓组件零新增第三方代码、零求值、既有门禁语义不变。
+  两组件的 **op 词汇与快照字段保持一致**（`play|pause|prev|next|restart|mute|seek|volume|link`、
+  `kind/title/byline/progress/total/playing/muted/volume/can*/link/source`），互不依赖。
+* 组件新增两个**可选**入口 `data` / `onTransport`（不传 = 原件装饰态，SSR 产物逐字不变）；
+  进度条经纯函数 `seekRatio()` 换算（按住才拖）；心形 = 联动开关（沿用同一个类，不新增 CSS 类）；
+  DOM 标记与插件仓同口径（`data-mpw-now-playing` / `data-mpw-np-scrub|noseek` / `data-mpw-np-link`）。
+* 补丁侧：`npSnapshotPlan()`（纯函数）算快照；媒体扫描**再下一层**到 web 档入口 iframe 里的
+  `<video>/<audio>`；`pumpNp()` ≤5Hz **尾随**节流推 `update({data})`（不 remount）；`npTransport()` 落回
+  `applyPlayPause/seekStage/setVideoVolume/…`；受控模式下旧的"读 aria 猜意图"兜底让位（同一个 Next 不做两次）。
+
+### 9.3 真机判据（`bash tests/run-all-tests.sh --only bench-ui-headless now-playing bench-shell-fixes`）
+
+web 档 `3644069061`（本机 7 张 web 档里唯一带 2×`<video>` + 3×`<audio>` 的）：
+
+| 口径 | 读数 |
+|---|---|
+| 接线 | `{videos:2, audios:3}`、`source=stage-video`、`canPlay/canSeek=true`、`controlled=true` |
+| 显示 | 标题 = 壁纸真实标题、副标题 `web · ×5 · muted`、`total=9.713s`（不再是 Cabra Field / 52s） |
+| 播放/暂停 | 点卡片那颗键：`aria-pressed` `true→false`、`video.paused` `false→true`；再点回来 |
+| 进度 | rail 75% 处按下 ⇒ `currentTime 7.285 / duration 9.713 = 0.75` |
+| 音量 | `npTransport('volume',0.42)` ⇒ 元素 `volume=0.42`、`muted=false` |
+| 联动 | 关：`canPlay=false` + 按键 `disabled` + 点播放 paused 不变；开：恢复 |
+| 不打架 | 卡片操作全程 `#frame` 的 src 一字未动；换壁纸后卡片重绑（标题/媒体数变）、`.snd-box` 仍在 |
+
+### 9.4 做不到（诚实清单）
+
+* **video / scene 档没有 seek 与进度读数**：这两类走 WebCodecs 逐帧（无 `<video>` 元素），`__wp` 公开面里
+  没有 seek/setTime/currentTime ⇒ 卡片如实 `canSeek=false`、`total=0`（不假装能拖），播放/暂停与音量照常。
+* 上一首/下一首 = **切库列表里相邻壁纸**（不是壁纸内部换段）；相邻项认不出时按键置灰。
+* **跨源** web 帧拿不到媒体元素 ⇒ 只能经 shim 的 `__weSetVolume` 发"设音量/静音"意图（同源帧可直接读写）。
+* 只验了 1 张带媒体 + 1 张只有 `<audio>` 的 web 档；画面观感（悬浮放大手感、长标题省略）只能人眼。
+* `demo/now-playing/dist/now-playing.js` 是**入库产物**：改源码必须 `cd demo/now-playing && node build.mjs` 重建。

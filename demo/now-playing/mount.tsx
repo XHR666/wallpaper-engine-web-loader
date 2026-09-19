@@ -8,8 +8,10 @@
    而不是跳一下。 */
 import { createRoot, type Root } from "react-dom/client";
 import { NowPlaying } from "./NowPlaying";
+import type { NowPlayingData, NowPlayingOp } from "./NowPlaying";
 
 export { NowPlaying } from "./NowPlaying";
+export type { NowPlayingData, NowPlayingOp } from "./NowPlaying";
 export type NowPlayingOptions = {
   /** 形状变化多快，0..100（50 = 原件调好的 460ms） */
   morph?: number;
@@ -17,16 +19,22 @@ export type NowPlayingOptions = {
   corner?: number;
   /** 盒子的发丝线（取代 Bencho 的全局 [data-stroke="on"]） */
   stroke?: boolean;
+  /** ①(P-161) 受控数据面：给了它就是"真控件"（显示真实媒体 + 派发 op）；不给 = 原件那套装饰态 */
+  data?: NowPlayingData | null;
+  /** ①(P-161) 传输回调：op ∈ play|pause|prev|next|restart|mute|seek|volume|link */
+  onTransport?: ((op: NowPlayingOp, value?: number) => void) | null;
 };
 
 export function mountNowPlaying(el: Element | null, opts: NowPlayingOptions = {}) {
   if (!el) throw new Error("mountNowPlaying(el): 需要一个容器元素");
   const root: Root = createRoot(el);
   let cur: NowPlayingOptions = { ...opts };
+  //  ①(P-161) 注意 `data` 是**每次整份替换**（宿主每拍给一个新对象）：`update({data})` 走的是
+  //  `{...cur, ...next}` ⇒ data 取最新那份；其余旋钮（morph/corner/stroke）仍是"续上当前值"。
   const draw = () => root.render(<NowPlaying {...cur} />);
   draw();
   return {
-    /** 改旋钮：只重画，不重建根（组件状态因此不会被冲掉） */
+    /** 改旋钮/推数据：只重画，不重建根（组件状态与动画因此不会被冲掉 ⇒ 换壁纸不必 remount） */
     update(next: NowPlayingOptions = {}) {
       cur = { ...cur, ...next };
       draw();
