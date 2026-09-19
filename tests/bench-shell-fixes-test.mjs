@@ -170,6 +170,66 @@ console.log('== A 纯函数层 ==')
     'A40 ①调用点只在 `act.push` 时才推坐标（源码级钉子）')
 }
 
+// ══════════════════════════════ E web 壁纸 shim（P-160 纯函数） ══════════════════════════════
+console.log('== E web 壁纸 shim（P-160 纯函数） ==')
+{
+  // E1 模板字符串转义还原
+  eq(P.decodeTemplateLiteral('a\\nb\\tc'), 'a\nb\tc', 'E1a `decodeTemplateLiteral`：\\n / \\t 还原成真实字符')
+  eq(P.decodeTemplateLiteral('say \\`hi\\` and \\${x} and \\\\ done'), 'say `hi` and ${x} and \\ done',
+    'E1b 反引号 / `\\${` / 反斜杠都还原（shim 里出现它们时不会被截断）')
+  eq(P.decodeTemplateLiteral('\\u4e2d\\u6587'), '中文', 'E1c \\uXXXX 还原（shim 注释里全是中文）')
+
+  // E2 从**真产物**里取 shim
+  const assetsDir = path.join(ROOT, 'demo/assets')
+  const rendererFile = fs.readdirSync(assetsDir).find((f) => /^renderer-.*\.js$/.test(f))
+  const assetText = fs.readFileSync(path.join(assetsDir, rendererFile), 'utf8')
+  const shim = P.shimFromRendererSource(assetText)
+  ok(!!shim && shim.length > 10000, 'E2a 从真产物取到 shim 源码（>10KB）', `${rendererFile} → ${shim ? shim.length : 0} B`)
+  ok(!!shim && shim.indexOf('__weSetPaused') >= 0 && shim.indexOf('wallpaperPropertyListener') >= 0 &&
+    shim.indexOf('wallpaperRegisterAudioListener') >= 0 && shim.indexOf('__wePushPointer') >= 0,
+    'E2b shim 里父页控制面与 WE 注册面都在（`__weSetPaused` / `wallpaperPropertyListener` / `RegisterAudioListener` / `__wePushPointer`）')
+  ok(!!shim && !/\\n \* WE 网页壁纸/.test(shim) && shim.startsWith('/**\n * WE 网页壁纸兼容 shim'),
+    'E2c 取出来的是**还原后的源码**（不是带 \\n 转义的原始字面量）', JSON.stringify((shim || '').slice(0, 24)))
+  ok(P.shimFromRendererSource('nothing here') === null &&
+    P.shimFromRendererSource('<html>// WE 网页壁纸兼容 shim（注入到 iframe') === null,
+    'E2d 取不到 / 取到的东西不满足契约 ⇒ 返回 null（调用方据此"如实报做不到"，不注入半个 shim）')
+  ok(/^<\/script/.test('</script'.replace(/<\/script/i, '<\\/script')) === false &&
+    P.injectShimIntoHtml('<html><head></head><body></body></html>', { shim: 'var a="</script>";' }).html.includes('<\\/script'),
+    'E2e `</script` 在注入前被转义（否则 shim 里出现该串会提前闭合标签）')
+
+  // E3 要不要注入（含"跨源做不到"要如实说）
+  const html1 = P.webShimPlan('http://127.0.0.1:8902/web/dev/3580207945/index.html', { origin: 'http://127.0.0.1:8902' })
+  ok(html1.needsShim === true && html1.baseHref === 'http://127.0.0.1:8902/web/dev/3580207945/',
+    'E3a 同源 web 入口 ⇒ 注入，并给出 `<base href>` = 入口所在目录（blob 文档的相对资源靠它）', JSON.stringify(html1))
+  eq(P.webShimPlan('http://evil.example/web/a.html', { origin: 'http://127.0.0.1:8902' }).reason, 'cross-origin',
+    'E3b 跨源入口 ⇒ **不注入**（`reason:"cross-origin"`，如实记做不到，不静默假装成功）')
+  eq([P.webShimPlan('about:blank', { origin: 'x' }).reason, P.webShimPlan('blob:http://x/1', { origin: 'x' }).reason, P.webShimPlan('data:text/html,<b/>', { origin: 'x' }).reason],
+    ['non-http', 'non-http', 'non-http'], 'E3c about:/blob:/data: 一律不碰（渲染器自己会用它们做占位/改写）')
+  eq(P.webShimPlan('http://127.0.0.1:8902/media/dev/1/a.mp4', { origin: 'http://127.0.0.1:8902' }).reason, 'not-web-entry',
+    'E3d 同源但不是入口 HTML（video 的 mp4）⇒ 不注入')
+  eq(P.webShimPlan('', { origin: 'x' }).needsShim, false, 'E3e 空串 ⇒ 不注入')
+
+  // E4 注入形态
+  const src1 = '<html><head><title>t</title></head><body>hi</body></html>'
+  const r1 = P.injectShimIntoHtml(src1, { shim: 'window.__x=1;', baseHref: 'http://h/web/1/' })
+  ok(r1.ok && r1.injected && r1.reason === 'head' && r1.html.indexOf('<base href="http://h/web/1/">') < r1.html.indexOf('data-we-shim-src') &&
+    r1.html.indexOf('data-we-shim-src') < r1.html.indexOf('<title>'),
+    'E4a shim 插在 `<head>` 之后、作者内容之前（`<base>` 在前），位置 = "作者脚本之前"', JSON.stringify(r1.html.slice(0, 90)))
+  ok(P.injectShimIntoHtml(r1.html, { shim: 'window.__x=1;' }).injected === false &&
+    P.injectShimIntoHtml('<html><head><script data-we-shim="1"></script></head></html>', { shim: 'x' }).injected === false,
+    'E4b 幂等：已有 `data-we-shim-src` / `data-we-shim` 标记 ⇒ 原样返回（不重复注入）')
+  const r2 = P.injectShimIntoHtml('<html><body>x</body></html>', { shim: 's' })
+  ok(r2.ok && r2.reason === 'html' && /<head><script data-we-shim-src="1">/.test(r2.html), 'E4c 没有 `<head>` 但有 `<html>` ⇒ 补一个 head 并插进去')
+  const r3 = P.injectShimIntoHtml('<div>裸片段</div>', { shim: 's' })
+  ok(r3.ok && r3.reason === 'wrap' && /^<!DOCTYPE html><html><head>/.test(r3.html), 'E4c′ 裸片段 ⇒ 包成完整文档（否则注入的脚本不会执行）')
+  ok(P.injectShimIntoHtml('<html><head></head></html>', { shim: '<base href="x">' }).html.match(/<base/g).length === 1,
+    'E4d 入口自带 `<base>` ⇒ 不再插第二个（相对路径基准不打架）')
+  ok(P.injectShimIntoHtml('{"a":1}', { shim: 's' }).ok === false && P.injectShimIntoHtml('{"a":1}', { shim: 's' }).reason === 'not-html' &&
+    P.looksLikeHtml('{"a":1}') === false && P.looksLikeHtml('  <!DOCTYPE html>') === true,
+    'E4e 取回来的不是 HTML（JSON/二进制）⇒ 拒绝注入（`reason:"not-html"`，退回裸 iframe）')
+  ok(P.injectShimIntoHtml(src1, { shim: '' }).ok === false, 'E4f 没有 shim 源码 ⇒ 明确失败（不产出半个文档）')
+}
+
 // ══════════════════════════════ B 静态纪律 ══════════════════════════════
 console.log('== B 静态纪律 ==')
 
@@ -199,6 +259,18 @@ ok(/#stage-scale\{aspect-ratio:16\/9\}/.test(staticCss) && /select\.bench-rd-nat
   '工具条改用 `.bench-rd` 独占后，原生 select 不再有 mpw 给的 `hidden`，不加这条就会多露出 5 个下拉框')
 ok(/sel\.classList\.add\('bench-rd-native'\)/.test(patchCode),
   'B4c ③`bindDropdown` 仍然给被接管 select 打 `bench-rd-native`（CSS 的隐藏挂点没漂）')
+
+// P-160 web shim：运行期接线（静态）
+ok(/Object\.defineProperty\(proto, 'src', \{/.test(patchCode) && /installWebShim\(rendererWin\(\)\)/.test(patchCode) &&
+  /if \(proto\.__benchWebShim === '1'\)/.test(patchCode),
+  'B22 web shim：在**渲染器窗口**里包 `HTMLIFrameElement.prototype.src`（幂等），并由轮询 + iframe load 两处安装')
+ok(/buildShimmedWebDoc\(win, plan\)/.test(patchCode) && /injectShimIntoHtml\(html, \{ shim, baseHref: plan\.baseHref \}\)/.test(patchCode) &&
+  /new win\.Blob\(\[out\.html\]/.test(patchCode) && /createObjectURL/.test(patchCode) && /revokeObjectURL/.test(patchCode),
+  'B23 web shim：改写入口 HTML → blob 文档 → 导航（并在 load 后 revoke，长跑不漏对象 URL）')
+ok(/webShimState\.failed\+\+[\s\S]{0,220}desc\.set\.call\(frame, plan\.entryUrl\)/.test(patchCode),
+  'B24 web shim：注入失败时**退回裸 iframe** 并写日志（绝不留下一个没有 src 的空 iframe）')
+ok(/webShim: \(\) =>/.test(patchCode) && /window\.__benchWebShim = \(\) =>/.test(patchCode),
+  'B25 web shim：可观察面（`__benchPatch.webShim()` 与 `window.__benchWebShim()`）供探针/门禁读注入计数与来源')
 
 // ⑨ 切换栏结构：`#wp-add` 在 `#wp-switch` 里（不在 `#editor-tabs` 里，不再跟着当前项跑）+ 面板静态存在
 ok(/<div id="wp-switch">[\s\S]{0,1200}<div id="editor-tabs">[\s\S]{0,400}<button type="button" id="wp-add"/.test(htmlSrc),
@@ -285,6 +357,25 @@ console.log('== C RED-IF-REVERTED（真树只读，变异在 /tmp 副本） ==')
   const MC = await import(pathToFileURL(mutC).href)
   const cC = MC.pointerParkAction({ enabled: true, hasApi: true, parked: false, mode: 'center' })
   ok(cC.push === false, 'C6 ★ 变异③生效：A37（`?ppark=center` 仍能归中）在变异体里必红', `变异 push=${cC.push}`)
+  // 变异⑤（P-160）：删掉注入的**幂等判据** ⇒ E4b 必红
+  const mutantD = patchSrc.replace("  if (src.indexOf(mark) >= 0 || src.indexOf('data-we-shim=') >= 0) return { ok: true, reason: 'already', html: src, injected: false }", '')
+  ok(mutantD !== patchSrc, 'C8 变异⑤锚点命中（删掉 `injectShimIntoHtml` 的幂等判据）')
+  const mutD = path.join(tmp, 'bench-patch-mutantD.mjs')
+  fs.writeFileSync(mutD, fixImports(mutantD))
+  const MD = await import(pathToFileURL(mutD).href)
+  const twice = MD.injectShimIntoHtml(MD.injectShimIntoHtml('<html><head></head><body></body></html>', { shim: 'window.__x=1;' }).html, { shim: 'window.__x=1;' })
+  ok(twice.injected === true && (twice.html.match(/data-we-shim-src/g) || []).length === 2,
+    'C9 ★ 变异⑤生效：E4b（"二次注入必须原样返回"）在变异体里必红（真树只注入一次）',
+    `变异体注入次数=${(twice.html.match(/data-we-shim-src/g) || []).length}`)
+  // 变异⑥（P-160）：删掉"取回来的必须像 HTML"这条守卫 ⇒ E4e 必红
+  const mutantE = patchSrc.replace("  if (!looksLikeHtml(src)) return { ok: false, reason: 'not-html', html: src, injected: false }", '')
+  ok(mutantE !== patchSrc, 'C10 变异⑥锚点命中（删掉 `not-html` 守卫）')
+  const mutE = path.join(tmp, 'bench-patch-mutantE.mjs')
+  fs.writeFileSync(mutE, fixImports(mutantE))
+  const ME = await import(pathToFileURL(mutE).href)
+  const json = ME.injectShimIntoHtml('{"a":1}', { shim: 's' })
+  ok(json.ok === true && json.injected === true,
+    'C11 ★ 变异⑥生效：E4e（"JSON 不许被注入"）在变异体里必红（真树返回 not-html）', JSON.stringify({ ok: json.ok, reason: json.reason }))
   ok(sha(PATCH) === before, 'C7 真树 `demo/bench-patch.js` 跑前跑后一致（变异只落 /tmp）', before.slice(0, 20))
   fs.rmSync(tmp, { recursive: true, force: true })
 }

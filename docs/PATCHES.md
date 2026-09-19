@@ -12030,3 +12030,76 @@ localStorage 超限拒写（现场档仅 1649 B、`__mpwPersistFail` 不存在�
    门禁会红，但用户可见行为不受影响。
 4. 库目录对话框的 `POST /api/fs/pick` 分支**没有使用**（服务端另有该路由）：本批沿用既有的
    `POST /api/library-dir {dir}` + `we-bench-library-dir` + reload 那条链，避免两套切换逻辑并存。
+
+## P-160（2026-09-19 · 渲染器侧 · MPW-2）web 壁纸在测试台"真的能用"：把渲染器**自带**的 WE shim 注入同源 web 入口
+
+> 改动面：`demo/bench-patch.js`（纯函数 4 个 + 渲染器窗口内的 `HTMLIFrameElement.prototype.src` 钩子 + 轮询/load 两处安装）、
+> `tests/bench-shell-fixes-test.mjs`（70 → **98** 断言：E 组 20 条 + B22–B25 + 变异⑤⑥）、
+> `tests/bench-ui-headless-test.mjs`（50 → **57**：W 组 7 条真机判据）、`docs/{PATCHES,BENCH-8902,COPYING-RULES}.md`。
+> **未动** `core/**`、`server/**`、`build-pages.mjs`；**没有**新增/复制任何第三方代码（见 §P-160.3）。
+
+**一句话**：web 档在测试台上"入口挂上了、WE API 没有" —— 因为 minified 渲染器对**同源**入口走的是
+"直接 frame，等**宿主**注入 shim"那条短路（`cw(src)===true ⇒ bo(..., {injected:true})`，`load` 时检查
+`frameWindow.__weSetPaused`），而测试台从来没注入过。渲染器在**跨源**那条路上其实自带一份完整 shim
+（模块内 44.8 KB 字符串常量）⇒ 本批把它**从渲染器自己的产物里取出来**，在 web 档挂载时把入口 HTML
+改写成"shim 在最前"的 blob 文档（= 渲染器跨源路径的等价物）。
+
+### P-160.0 修前证据（真机读数）
+
+| 口径 | 修前 | 修后 |
+|---|---|---|
+| 渲染器日志（挂 web 档 3580207945） | `scene http://127.0.0.1:8902/web/dev/3580207945/index.html: 网页壁纸：同源入口未检测到 WE shim（host 未注入？）；Spine 类壁纸请确认 /web/ HTML 改写` | **该行消失**（W3 断言整段日志里没有它、也没有"shim 注入失败"） |
+| 壁纸 iframe 的 `src` | `http://127.0.0.1:8902/web/dev/3580207945/index.html`（作者脚本裸跑） | `blob:http://127.0.0.1:8902/…`（文档里第一段就是 shim，带 `data-we-shim-src="1"` 标记 + `<base href=…/web/dev/3580207945/>`） |
+| 壁纸窗口的 WE API | 全无 | `__weSetPaused/__weSetFps/__weSetVolume/__weApplyProps` + `wallpaperPropertyListener`（访问器）+ `wallpaperRegisterAudioListener` + `wallpaperRequestRandomFileForProperty` + `__wePushPointer/__wePushWheel` 全部就位（W4/W6） |
+| 鼠标是否到达壁纸页 | （未验证） | 在壁纸文档里挂 `mousemove/mousedown` 监听，再用真鼠标事件走一遍 ⇒ `{move:2, down:1}`（W7） |
+| 注入的 shim 是谁 | — | `shimFrom = http://127.0.0.1:8902/wallpaper-engine-webgl/assets/renderer-BOSoB05I.js`、`shimBytes = 44811`、`failed = 0`、`reason = ""`（W1/W2，可读 `window.__benchWebShim()`） |
+
+### P-160.1 修法（为什么这么做，而不是照抄插件那份）
+
+1. **取渲染器自带的那份**（`shimFromRendererSource`）：在产物文本里按注释头定位 `const XX=\`…\``，
+   跳过转义找到收尾反引号，再按模板字符串规则**还原转义**（`decodeTemplateLiteral`，不用 `eval`），
+   最后校验契约（必须含 `__weSetPaused` + `wallpaperPropertyListener`，否则返回 `null`）。
+   ⇒ 与渲染器"跨源路径"注入的**是同一份字节**（44 811 B），父页控制面（`__weSet*` / `__wePush*`）天然对齐；
+   产物升级换了 shim 也自动跟上。
+2. **注入点**：在**渲染器窗口**里包 `HTMLIFrameElement.prototype.src`（幂等，标记 `__benchWebShim`）。
+   命中 web 入口时**先不导航**（否则渲染器那条 `load` 检查会先跑一次），等入口 HTML 取回、shim 拼好、
+   blob 建好再一次性导航 —— 于是 `load` 只触发一次、且必然带 shim。
+3. **改写规则**（`injectShimIntoHtml`）：`<head>` 之后插 `<base href>`（入口自带 base 就不插）+ shim 脚本；
+   没有 head 补 head；裸片段包成完整文档；`</script` 转义；**幂等**（已有 `data-we-shim(-src)` 标记就原样返回）；
+   **取回来的不像 HTML（JSON/二进制）就拒绝注入**（`reason:'not-html'`）后回退裸 iframe。
+4. **做不到就说做不到**：跨源入口（`webShimPlan` 的 `reason:'cross-origin'`）不注入并记账；
+   注入失败/入口取不回/非 HTML ⇒ 记 `failed++`/`reason` + 一行日志 + **回退裸 iframe**（不留空 iframe）。
+5. 资源面：blob 文档靠 `<base href>` 保住相对路径（实测壁纸页 title 正常、脚本数 2）；
+   blob URL 在 `load` 后 5s `revokeObjectURL`（长跑不漏）。
+
+### P-160.2 判据
+
+* **`tests/bench-shell-fixes-test.mjs`：98 通过 / 0 失败** —— 新增 E 组 20 条（转义还原 3、真产物取 shim 5、
+  注入决策 5、注入形态 7）＋ B22–B25（运行期接线的静态钉子）＋ **变异⑤/⑥**（删掉幂等判据 ⇒ E4b 必红；
+  删掉 `not-html` 守卫 ⇒ E4e 必红；两条都带"变异确实改到了源码"的前置断言与真树逐字未变校验）。
+* **`tests/bench-ui-headless-test.mjs`：57 通过 / 0 失败** —— 新增 **W 组 7 条**（W1 接线/W2 来源/W3 无告警/
+  W4 WE API 就位/W5 blob+base 形态/W6 指针通道/W7 真鼠标事件到达壁纸页），真机 Firefox 1360×900。
+* 未回归：`demo-check` 132/0、`mpw-select` 70/0、`p142-nav-sound` 92/92、`bench-8902` 116/0、`demo-syntax` 11/11、
+  `secret-scan` 干净。
+* 浏览器纪律：跑前跑后 `ps -eo comm | grep -cx firefox` = 0；单浏览器；本批拆成"每次一组断言"多次跑（PeakRSS 单轮 ≈1.4 GB）。
+
+### P-160.3 许可与来源登记
+
+* **没有新增第三方代码**：注入的是本仓已分发的产物常量（`demo/assets/renderer-BOSoB05I.js`）里那段 shim
+  ⇒ 因此**不新增** `THIRD-PARTY.md` 条目（§16 之后的 §17 用不上：那里登记的是"引入的第三方代码"）；
+  改在 `docs/COPYING-RULES.md` §4 台账**追加第 15 行**，逐列写清"未新增/未 vendored/未逐行翻译"与上游署名沿用的既有条目。
+* 也**没有**照抄插件仓 `dsh-mpkg-wallpaper/lib/web-wallpaper.js`（那是 MIT 参考实现，P-144/P-149 的"照抄 + 登记"路线
+  在本案**不适用**：抄一份 45 KB shim 反而会与产物里的那份漂移）。若将来要改这条路线，请先看这一节的对比。
+
+### P-160.4 诚实清单
+
+1. **跨源 web 入口做不到**：`webShimPlan` 会返回 `cross-origin` 并计 `crossOrigin`（本机实测记到 1–2 次，
+   来自渲染器/壁纸内部创建的其它 iframe），**不注入、不假装成功**。真跨源场景需要宿主侧代理或服务端改写。
+2. **壁纸页"能收到鼠标"是浏览器原生投递**（W7 的监听挂在壁纸文档里）——它证明"事件真的进到了壁纸页"，
+   但不等于"渲染器的指针注入通道（`__wePushPointer`）语义与 WE 客户端逐字一致"（那属于 `core/**` 的 web-frame-geometry 面）。
+3. **只验了 1 张 web 档**（3580207945，L2D/Spine 类）：其它 web 档（React/Vue 工坊页）只做了 API 名单级对齐
+   （shim 自带 29 处 `wallpaperPropertyListener` / 22 处 `RegisterAudioListener` 的兼容层）。
+4. **画面正确性未做像素级判定**：只到"WE API 就位 + 文档加载 + 事件可达"三层；画面是否与 WE 客户端一致需要人眼/基线。
+5. 注入依赖"产物里那份 shim 常量还在"：产物若被重建（本仓口径：minified 产物**不可重建**）而 shim 改名/移走，
+   `shimFromRendererSource` 会返回 `null` ⇒ 走**回退裸 iframe** + 一行明确日志（不会静默）。
+6. `new Function`／`eval` **没有使用**（转义还原是纯字符串替换，可单测）。

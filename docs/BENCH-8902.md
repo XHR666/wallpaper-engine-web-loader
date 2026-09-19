@@ -402,3 +402,54 @@ node tests/bench-ui-headless-test.mjs --url http://127.0.0.1:8902/ --w 1360 --h 
 * **不点「就选这个目录」**：门禁只断言按钮存在与浏览可用，**不 POST** `/api/library-dir`（那会真的换掉用户的库目录）。
 * **真 X11 指针判定**（"用户拿鼠标点得到"）留给主对话的 `tests/x11-e2e/bench-click-test.mjs`；
   本节的可点性用 `elementFromPoint` + 合成事件证明。
+
+---
+
+## 8. web 类壁纸"真的能用"：把渲染器自带的 WE shim 注入同源 web 入口（P-160，2026-09-19）
+
+> 只动 `demo/bench-patch.js`（+ 测试/台账/文档）。服务端与产物一行未改。
+
+### 8.1 症状与真因（逐行可查）
+
+挂 web 档（本机 3580207945）时渲染器自己打印：
+
+```
+scene http://127.0.0.1:8902/web/dev/3580207945/index.html:
+  网页壁纸：同源入口未检测到 WE shim（host 未注入？）；Spine 类壁纸请确认 /web/ HTML 改写
+```
+
+minified 渲染器（`demo/assets/renderer-BOSoB05I.js`）里 web 档有两条路：
+
+* `cw(src)` 为真（**同源**）⇒ `bo(..., {injected:true})` 直接 `<iframe src=入口>`，`load` 时检查
+  `typeof frameWindow.__weSetPaused === 'function'` —— **期望宿主注入 shim**。测试台从不注入 ⇒ 告警 + 作者脚本拿不到 API。
+* `cw(src)` 为假（跨源）⇒ 渲染器自己 `fetch(入口)` → `L1(html, N1, {baseHref, seedScript})` 把**它自带的 shim**
+  （模块内 44.8 KB 常量 `N1`）插到 `<head>` 之后，再用 blob 文档加载。
+
+### 8.2 修法（不抄第三方代码）
+
+1. 纯函数 `shimFromRendererSource(assetText)`：在产物文本里按注释头定位那段模板字符串，按模板字符串规则
+   **还原转义**（`decodeTemplateLiteral`，不用 `eval`），并校验契约（必须含 `__weSetPaused` +
+   `wallpaperPropertyListener`）⇒ 拿到的就是渲染器自己会注入的**同一份字节**（44 811 B）。
+2. 在**渲染器窗口**里包 `HTMLIFrameElement.prototype.src`（幂等）：命中同源 web 入口时先不导航，
+   `fetch` 入口 HTML → `injectShimIntoHtml()`（插 `<base href>` + shim 脚本，幂等、非 HTML 拒绝）→
+   `Blob` → 一次性导航到 blob 文档。
+3. 跨源 / 取不回 / 非 HTML ⇒ 记 `reason` + 日志 + **回退裸 iframe**；blob URL 在 `load` 后 revoke。
+
+### 8.3 判据（`bash tests/run-all-tests.sh --only bench-shell-fixes bench-ui-headless`）
+
+* 真机（`bench-ui-headless` W 组 7 条）：
+  * 渲染器日志里**没有**「未检测到 WE shim」、也没有「shim 注入失败」；
+  * 壁纸 iframe = `blob:` 文档，含 `data-we-shim-src` 标记与 `<base href="…/web/dev/<id>/">`；
+  * 壁纸窗口里 `__weSetPaused/__weSetFps/__weSetVolume` + `wallpaperPropertyListener` + `wallpaperRegisterAudioListener`
+    + `wallpaperRequestRandomFileForProperty` + `__wePushPointer/__wePushWheel` 全部就位；
+  * 在壁纸文档里挂监听后用真鼠标事件走一遍 ⇒ `{move:2, down:1}`（事件真的进到壁纸页）；
+  * `window.__benchWebShim()` 读数：`{installed:true, injected:1, failed:0, shimBytes:44811, shimFrom:<产物URL>, reason:""}`。
+* 无浏览器（`bench-shell-fixes` E 组 20 条 + B22–B25 + 变异⑤/⑥）：转义还原、真产物取 shim、注入决策（含
+  `cross-origin` 如实拒绝）、注入形态（head/html/裸片段/幂等/`</script` 转义/非 HTML 拒绝）、运行期接线静态钉子。
+
+### 8.4 仍然是"未证实项"
+
+* 跨源 web 入口**做不到**（如实记 `cross-origin`，不假装成功）。
+* 只验了 1 张 web 档；其它 web 档只做 API 名单级对齐（shim 自带的兼容层）。
+* 画面正确性未做像素判定（只到 API 就位 + 文档加载 + 事件可达）。
+* 鼠标可达 = 浏览器原生投递；与 WE 客户端的指针注入语义逐字一致属 `core/**`。

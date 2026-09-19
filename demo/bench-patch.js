@@ -952,6 +952,102 @@ export function librarySourcePlan(lang, o) {
   return { kind, key, path, label: t(lang, key), hint: t(lang, key + '.hint'), pathShown: path || t(lang, key + '.path') }
 }
 
+/* ============================ P-160 web 壁纸 WE shim（纯函数层） ============================
+   背景（真机实测）：`/api/library` 里的 web 档挂到舞台上时，渲染器打印
+   「网页壁纸：同源入口未检测到 WE shim（host 未注入？）」 —— 因为 minified 渲染器对**同源**入口走的是
+   "直接 frame，等宿主注入 shim"那条路（`cw(src)` 为真 ⇒ `bo(..., {injected:true})`），而宿主（本测试台）
+   从来没注入过。渲染器自己在**跨源**那条路上有一份完整 shim（模块内字符串常量，44.8 KB），
+   并且会在注入时打 `<script data-we-shim-src="1">` 标记。
+   ⇒ 本批的做法：**把渲染器自带的那份 shim 从它自己的产物里取出来**（不抄第三方代码、契约天然一致），
+   在 web 档挂载时把入口 HTML 改写成"shim 在最前"的 blob 文档（= 渲染器跨源那条路的等价物）。
+   下面四个纯函数把"取 shim / 判要不要注入 / 怎么注入"从 DOM 里剥出来，Node 可直接断言。 */
+
+/** 产物注入 shim 时打的标记（与渲染器 `L1()` 里的 `Bu` 同字）——也用作"已注入过"的幂等判据。 */
+export const WEB_SHIM_MARK = 'data-we-shim-src'
+/** 渲染器产物里那份 shim 字符串常量的开头（用来在 minified 文本里定位它）。 */
+export const WEB_SHIM_HEAD = 'WE 网页壁纸兼容 shim（注入到 iframe'
+
+/** 还原一个**模板字符串字面量**里的转义（`\n` / `\t` / ``\` `` / `\\` / `\uXXXX` …）。
+ *  为什么需要：shim 在产物里是 ``const XX=`…` `` 形态，直接拿到的文本带着转义序列，
+ *  必须还原成真实字符才能当源码注入（`new Function` 也能算，但那要 eval 一段外部文本 —— 这里不 eval）。 */
+export function decodeTemplateLiteral(raw) {
+  const map = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', v: '\v', '0': '\0', '`': '`', $: '$', '\\': '\\' }
+  return String(raw == null ? '' : raw).replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[\s\S])/g, (m, esc) => {
+    if (esc[0] === 'u' || esc[0] === 'x') { try { return JSON.parse('"' + m + '"') } catch { return esc } }
+    return Object.prototype.hasOwnProperty.call(map, esc) ? map[esc] : esc
+  })
+}
+
+/** 从渲染器产物文本里取出**它自带的** WE shim 源码（找不到 ⇒ null，调用方走"如实报做不到"）。
+ *  定位方式：先找注释头 `WEB_SHIM_HEAD`，再向左找包裹它的反引号（跳过转义），向右找未转义的反引号。 */
+export function shimFromRendererSource(src) {
+  const s = String(src == null ? '' : src)
+  const mi = s.indexOf(WEB_SHIM_HEAD)
+  if (mi < 0) return null
+  const start = s.lastIndexOf('`', mi)
+  if (start < 0) return null
+  let i = start + 1
+  let end = -1
+  while (i < s.length) {
+    const c = s[i]
+    if (c === '\\') { i += 2; continue }
+    if (c === '`') { end = i; break }
+    i++
+  }
+  if (end < 0) return null
+  const shim = decodeTemplateLiteral(s.slice(start + 1, end))
+  // 契约钉子：shim 必须真的提供父页控制面（少一个就说明取错了东西）
+  return (shim && shim.indexOf('__weSetPaused') >= 0 && shim.indexOf('wallpaperPropertyListener') >= 0) ? shim : null
+}
+
+/** 一个 iframe 的 `src` 要不要注入 shim（纯决策）。
+ *   · 跨源 ⇒ **不做**（做不到就如实说，`reason:'cross-origin'`；不静默假装成功）
+ *   · `about:`/`blob:`/`data:` ⇒ 不碰
+ *   · 同源且路径像 web 入口（`/web/**` 或 `*.html`）⇒ 注入，并给出 `<base href>`（blob 文档相对路径要靠它）
+ *  @returns {{needsShim:boolean, reason:string, entryUrl?:string, baseHref?:string, dir?:string}} */
+export function webShimPlan(url, opt) {
+  const o = opt || {}
+  const raw = String(url == null ? '' : url)
+  if (!raw) return { needsShim: false, reason: 'empty' }
+  if (/^(about:|blob:|data:|javascript:|mailto:|#)/i.test(raw)) return { needsShim: false, reason: 'non-http' }
+  let u = null
+  try { u = new URL(raw, o.base || 'http://placeholder.invalid/') } catch { return { needsShim: false, reason: 'bad-url' } }
+  if (o.origin && u.origin !== o.origin) return { needsShim: false, reason: 'cross-origin' }
+  const isWebPath = /\/web\//i.test(u.pathname)
+  const isHtml = /\.html?$/i.test(u.pathname)
+  if (!isWebPath && !isHtml) return { needsShim: false, reason: 'not-web-entry' }
+  const dir = u.pathname.replace(/[^/]*$/, '')
+  return { needsShim: true, reason: 'web-entry', entryUrl: u.href, baseHref: u.origin + dir, dir }
+}
+
+/** 一段文本像不像 HTML（取回来的可能是 JSON/二进制 ⇒ 那就别注入，退回裸 iframe）。 */
+export function looksLikeHtml(text) {
+  const t = String(text == null ? '' : text).replace(/^\uFEFF/, '').trimStart().slice(0, 400).toLowerCase()
+  return t.startsWith('<!doctype') || t.startsWith('<html') || t.startsWith('<head') || t.startsWith('<body') || t.startsWith('<!--') || t.startsWith('<')
+}
+
+/** 把 shim（+ `<base>`）插进入口 HTML 的**最前面**（`<head>` 之后；没有 head 就补一个）。
+ *  幂等：文本里已有 `data-we-shim-src` / `data-we-shim` 标记 ⇒ 原样返回（`injected:false`）。
+ *  `</script` 一律转义成 `<\/script`（与渲染器 `Ru()` 同口径）—— 否则 shim 里出现的该串会提前闭合标签。 */
+export function injectShimIntoHtml(html, opt) {
+  const o = opt || {}
+  const src = String(html == null ? '' : html)
+  const shim = String(o.shim || '')
+  const mark = String(o.mark || WEB_SHIM_MARK)
+  if (!shim) return { ok: false, reason: 'no-shim', html: src, injected: false }
+  if (src.indexOf(mark) >= 0 || src.indexOf('data-we-shim=') >= 0) return { ok: true, reason: 'already', html: src, injected: false }
+  if (!looksLikeHtml(src)) return { ok: false, reason: 'not-html', html: src, injected: false }
+  const esc2 = (t) => String(t).replace(/<\/script/gi, '<\\/script')
+  const base = (o.baseHref && !/<base\b/i.test(src)) ? '<base href="' + String(o.baseHref).replace(/"/g, '&quot;') + '">' : ''
+  const tag = '<script ' + mark + '="1">\n' + esc2(shim) + '\n<\/script>'
+  const add = base + tag
+  const head = /<head(\s[^>]*)?>/i.exec(src)
+  if (head) { const at = head.index + head[0].length; return { ok: true, reason: 'head', html: src.slice(0, at) + add + src.slice(at), injected: true } }
+  const htmlTag = /<html(\s[^>]*)?>/i.exec(src)
+  if (htmlTag) { const at = htmlTag.index + htmlTag[0].length; return { ok: true, reason: 'html', html: src.slice(0, at) + '<head>' + add + '</head>' + src.slice(at), injected: true } }
+  return { ok: true, reason: 'wrap', html: '<!DOCTYPE html><html><head>' + add + '</head><body>' + src + '</body></html>', injected: true }
+}
+
 /** 库目录对话框（②⑤ 的"选环境内文件夹"）计划：服务端路由在不在、用什么兜底。
  *  routesOk=false（`GET /api/fs/roots` 404/网络错）⇒ 明确提示"服务端还没这条路由"，
  *  并给出两个兜底按钮（纯前端选文件夹 / **明确标注**的系统选择器）。 */
@@ -5140,6 +5236,111 @@ export function init() {
     await brandingForItemId(itemId)
     applyMediaBranding()
   }
+  /* ═══════════════ P-160 web 壁纸：把渲染器**自带**的 WE shim 注入壁纸文档 ═══════════════
+     真机症状（挂 web 档时渲染器自己的日志）：
+       「scene <入口URL>: 网页壁纸：同源入口未检测到 WE shim（host 未注入？）；Spine 类壁纸请确认 /web/ HTML 改写」
+     成因（minified 产物里逐行可查）：渲染器对 **同源** 入口走 `cw(src)===true` 那条短路 ——
+     它直接 `<iframe src=入口>`，然后 `load` 时检查 `typeof frameWindow.__weSetPaused === 'function'`，
+     期望**宿主**（WE 客户端 / 本测试台）在作者脚本之前把 shim 注入进去。宿主不注入 ⇒ 作者的 WE 脚本
+     （`wallpaperPropertyListener` / `RegisterAudioListener` …）全部拿不到 API，壁纸等于"只挂了个网页"。
+     渲染器在**跨源**那条路上其实自带一份完整 shim（模块内 44.8 KB 字符串常量，注入时打
+     `<script data-we-shim-src="1">`）⇒ 本批不抄第三方代码，而是：
+       1. 从渲染器自己的产物文本里把那份 shim **取出来**（`shimFromRendererSource`，纯函数、可测）；
+       2. 挂 web 档时拦下壁纸 iframe 的 `src`（在**渲染器窗口**里包 `HTMLIFrameElement.prototype.src`），
+          把入口 HTML 取回来、把 shim（+ `<base href>`）插到最前、用 blob 文档导航过去
+          ⇒ 与渲染器"跨源路径"逐字等价；渲染器 `load` 时那条检查随即通过，告警消失。
+     跨源入口**做不到**（拿不到文档）⇒ 记 `reason:'cross-origin'` 并在日志里如实说，**不假装成功**。 */
+  const webShimState = { installed: false, injected: 0, failed: 0, lastEntry: '', shimBytes: 0, shimFrom: '', reason: '', crossOrigin: 0, skipped: '' }
+  let webShimSource = null
+  const webBlobUrls = new Set()
+  function rendererScriptUrl(win) {
+    try {
+      const d = win.document
+      const el = d.querySelector('script[src*="renderer-"], script[src*="assets/renderer"]')
+      const raw = el && el.getAttribute('src')
+      return raw ? new URL(raw, d.baseURI || win.location.href).href : ''
+    } catch { return '' }
+  }
+  /** 取（并缓存）渲染器产物里那份 shim 源码。失败 ⇒ null + 写明 reason。 */
+  async function ensureWebShim(win) {
+    if (webShimSource) return webShimSource
+    const url = rendererScriptUrl(win)
+    if (!url) { webShimState.reason = 'no-renderer-script'; return null }
+    try {
+      const text = await fetch(url, { credentials: 'same-origin' }).then((r) => (r.ok ? r.text() : ''))
+      const shim = shimFromRendererSource(text)
+      if (!shim) { webShimState.reason = 'shim-not-in-asset'; return null }
+      webShimSource = shim
+      webShimState.shimBytes = shim.length
+      webShimState.shimFrom = url
+      webShimState.reason = ''
+      return shim
+    } catch (e) { webShimState.reason = 'fetch-failed:' + ((e && e.message) || e); return null }
+  }
+  /** 拼一个"shim 在最前"的 blob 文档 URL（失败 ⇒ null，调用方退回裸 iframe 并写日志）。 */
+  async function buildShimmedWebDoc(win, plan) {
+    const shim = await ensureWebShim(win)
+    if (!shim) return null
+    let html = ''
+    try { html = await fetch(plan.entryUrl, { credentials: 'same-origin' }).then((r) => (r.ok ? r.text() : '')) } catch { html = '' }
+    if (!html) { webShimState.reason = 'entry-fetch-failed'; return null }
+    const out = injectShimIntoHtml(html, { shim, baseHref: plan.baseHref })
+    if (!out.ok) { webShimState.reason = out.reason; return null }
+    try {
+      const blob = new win.Blob([out.html], { type: 'text/html;charset=utf-8' })
+      return win.URL.createObjectURL(blob)
+    } catch (e) { webShimState.reason = 'blob-failed:' + ((e && e.message) || e); return null }
+  }
+  /** 在渲染器窗口里包一层 `HTMLIFrameElement.prototype.src`（幂等）。 */
+  function installWebShim(win) {
+    if (!win || !win.HTMLIFrameElement || !win.HTMLIFrameElement.prototype) return false
+    const proto = win.HTMLIFrameElement.prototype
+    try { if (proto.__benchWebShim === '1') { webShimState.installed = true; return true } } catch { return false }
+    const desc = Object.getOwnPropertyDescriptor(proto, 'src')
+    if (!desc || typeof desc.set !== 'function') { webShimState.reason = 'no-src-setter'; return false }
+    const origin = (win.location && win.location.origin) || ''
+    Object.defineProperty(proto, 'src', {
+      configurable: true,
+      enumerable: true,
+      get() { return desc.get.call(this) },
+      set(v) {
+        const plan = webShimPlan(v, { origin })
+        if (!plan.needsShim) {
+          if (plan.reason === 'cross-origin') webShimState.crossOrigin++      // 如实记账：跨源注入做不到
+          desc.set.call(this, v)
+          return
+        }
+        // web 入口：**先不导航**（导航会让渲染器那条 load 检查提前跑一次），等 shim 文档拼好再一次性导航。
+        const frame = this
+        webShimState.lastEntry = plan.entryUrl
+        buildShimmedWebDoc(win, plan).then((blobUrl) => {
+          if (!blobUrl) {
+            webShimState.failed++
+            logLine('web 壁纸 shim 注入失败（' + webShimState.reason + '）⇒ 退回裸 iframe（作者脚本拿不到 WE API）', true)
+            try { desc.set.call(frame, plan.entryUrl) } catch { /* 元素已摘 */ }
+            return
+          }
+          webBlobUrls.add(blobUrl)
+          try {
+            desc.set.call(frame, blobUrl)
+            webShimState.injected++
+          } catch (e) {
+            webShimState.failed++
+            webShimState.reason = 'assign-failed:' + ((e && e.message) || e)
+            try { desc.set.call(frame, plan.entryUrl) } catch { /* ignore */ }
+          }
+          try {
+            frame.addEventListener('load', () => setTimeout(() => { try { win.URL.revokeObjectURL(blobUrl); webBlobUrls.delete(blobUrl) } catch { /* ignore */ } }, 5000), { once: true })
+          } catch { /* 桩 DOM */ }
+        })
+      },
+    })
+    try { Object.defineProperty(proto, '__benchWebShim', { value: '1', configurable: true }) } catch { /* 冻结的原型 */ }
+    webShimState.installed = true
+    return true
+  }
+  window.__benchWebShim = () => Object.assign({}, webShimState, { cached: !!webShimSource })
+
   // 同源 iframe 里挂一层薄包装：跟住「换了哪张壁纸」（本地路径我们直接知道；后端路径从 src 里嗅 itemId）
   function wrapRendererApi() {
     const w = rendererWin()
@@ -5168,12 +5369,13 @@ export function init() {
   const batch5Timer = setInterval(() => {
     pollTick++
     wrapRendererApi()
+    try { installWebShim(rendererWin()) } catch { /* 渲染器窗口还没起来 */ }
     bindRendererPointerLeave()
     if (FLAGS.brand) applyMediaBranding()
     if (FLAGS.clocklock && pollTick % 3 === 0) lockTimeLayersEverywhere()
   }, 1200)
   if (frameEl && frameEl.addEventListener) frameEl.addEventListener('load', () => {
-    setTimeout(() => { wrapRendererApi(); bindRendererPointerLeave() }, 0)
+    setTimeout(() => { wrapRendererApi(); try { installWebShim(rendererWin()) } catch { /* ignore */ } ; bindRendererPointerLeave() }, 0)
     setTimeout(() => { lockTimeLayersEverywhere() }, 800)
   })
 
@@ -5534,6 +5736,7 @@ export function init() {
     flags: () => Object.assign({}, FLAGS),
     pointerParkNow: () => parkPointerNow(),
     getPointerPark: () => ({ parked, count: parkCount, enabled: FLAGS.ppark, mode: FLAGS.pparkMode, pushed: parkPushed, lastPush: parkLastPush }),
+    webShim: () => (typeof window !== 'undefined' && typeof window.__benchWebShim === 'function') ? window.__benchWebShim() : Object.assign({}, webShimState),
     lockTimeLayersNow: () => lockTimeLayersEverywhere(),
     getClockLock: () => ({ count: clockLockCount, enabled: FLAGS.clocklock }),
     applyMediaBranding: () => applyMediaBranding(),

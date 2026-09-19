@@ -527,6 +527,109 @@ try {
     }
   }
 
+  // ══════════════════ W 组（P-160）web 壁纸：WE shim 真的注进去了 ══════════════════
+  //  判据（用户补充要求：web 类要"真的能用"，不是只把入口挂上）：
+  //   ①渲染器**不再**打印「同源入口未检测到 WE shim」；②壁纸文档里 WE API 就位（`__weSetPaused` 等）；
+  //   ③鼠标/触摸真的能到达壁纸页（在壁纸文档里挂监听，再用真鼠标事件走一遍）；
+  //   ④注入的是**渲染器自带**的那份 shim（`shimFrom` 指渲染器产物、字节数与源码一致）。
+  {
+    // 先把日志清空：这样 W 组判的是"本次 web 挂载"的日志，而不是历史行
+    await page.evaluate(() => { const b = document.getElementById('clear-logs'); if (b) b.click() })
+    const mount = await page.evaluate(async () => {
+      const seg = document.querySelector('#type-filter .seg-btn[data-type="web"]')
+      if (!seg) return { err: 'no web seg' }
+      seg.click()
+      await new Promise((r) => setTimeout(r, 900))
+      const li = document.querySelector('#list li[data-id]')
+      if (!li) return { err: 'no web item' }
+      const id = li.dataset.id
+      li.click()
+      await new Promise((r) => setTimeout(r, 9000))
+      const frame = document.getElementById('frame')
+      const out = { id, outerSrc: frame.getAttribute('src') || '', shim: (window.__benchWebShim ? window.__benchWebShim() : null), log: (document.getElementById('logbody') || {}).textContent || '' }
+      try {
+        const rdoc = frame.contentWindow.document
+        const wf = rdoc.querySelector('iframe')
+        if (!wf) { out.err2 = 'no wallpaper iframe'; return out }
+        const wwin = wf.contentWindow
+        const wdoc = wwin.document
+        out.wall = {
+          src: wf.getAttribute('src') || '',
+          sandbox: wf.getAttribute('sandbox') || '',
+          hasSetPaused: typeof wwin.__weSetPaused === 'function',
+          hasFps: typeof wwin.__weSetFps === 'function',
+          hasVolume: typeof wwin.__weSetVolume === 'function',
+          //  shim 用 `Object.defineProperty` 装的是**访问器**（getter 返回内部变量，作者赋值前是 null）
+          //  ⇒ 判据是"这个属性由 shim 装在窗口自己身上"，而不是"当前值非空"（作者可能还没渲染到那一步）
+          hasPropListener: ('wallpaperPropertyListener' in wwin) &&
+            !!(Object.getOwnPropertyDescriptor(wwin, 'wallpaperPropertyListener') || {}).get,
+          propListenerType: (() => { try { const v = wwin.wallpaperPropertyListener; return v === null ? 'null' : typeof v } catch { return 'throw' } })(),
+          propAssignedByAuthor: (() => { try { return !!(wwin.wallpaperPropertyListener && typeof wwin.wallpaperPropertyListener === 'object') } catch { return false } })(),
+          hasAudioReg: typeof wwin.wallpaperRegisterAudioListener === 'function',
+          hasRandomFile: typeof wwin.wallpaperRequestRandomFileForProperty === 'function',
+          hasPushPointer: typeof wwin.__wePushPointer === 'function',
+          hasPushWheel: typeof wwin.__wePushWheel === 'function',
+          shimTag: !!wdoc.querySelector('script[data-we-shim-src]'),
+          baseHref: (wdoc.querySelector('base') || {}).href || '',
+          scripts: wdoc.querySelectorAll('script').length,
+          title: wdoc.title,
+        }
+        out.rendererWp = typeof frame.contentWindow.__wp === 'object' && frame.contentWindow.__wp !== null
+      } catch (e) { out.err3 = String(e.message) }
+      return out
+    })
+    ok(mount && mount.shim && mount.shim.installed && mount.shim.injected >= 1 && mount.shim.failed === 0 && mount.shim.reason === '',
+      'W1 【接线】web 档挂载时 shim hook 已装并**成功注入**（failed=0 / reason 空）', JSON.stringify(mount && mount.shim))
+    ok(mount && mount.shim && mount.shim.shimBytes > 10000 && /renderer-.*\.js$/.test(mount.shim.shimFrom || ''),
+      'W2 【来源】注入的是**渲染器产物自带**的那份 shim（不是另抄一份），字节数 = 产物里的常量长度',
+      JSON.stringify({ bytes: mount && mount.shim && mount.shim.shimBytes, from: mount && mount.shim && mount.shim.shimFrom }))
+    ok(mount && !/未检测到 WE shim/.test(mount.log) && !/shim 注入失败/.test(mount.log),
+      'W3 【判据①】渲染器**不再**打印「网页壁纸：同源入口未检测到 WE shim」，也没有注入失败行',
+      JSON.stringify({ warn: mount ? /未检测到 WE shim/.test(mount.log) : null, fail: mount ? /shim 注入失败/.test(mount.log) : null }))
+    const w = mount && mount.wall
+    ok(w && w.hasSetPaused && w.hasFps && w.hasVolume && w.hasPropListener && w.hasAudioReg && w.hasRandomFile,
+      'W4 【判据②】壁纸文档里 WE API 就位（`__weSetPaused/__weSetFps/__weSetVolume` + shim 装的 `wallpaperPropertyListener` 访问器 + 音频/随机文件注册）',
+      JSON.stringify(w && { paused: w.hasSetPaused, fps: w.hasFps, vol: w.hasVolume, prop: w.hasPropListener, propType: w.propListenerType, authorAssigned: w.propAssignedByAuthor, audio: w.hasAudioReg, rnd: w.hasRandomFile }))
+    ok(w && w.shimTag && /^blob:/.test(w.src || '') && w.baseHref && /\/web\/dev\//.test(w.baseHref) && w.scripts >= 1,
+      'W5 【形态】壁纸文档 = blob（shim 在最前，带 `data-we-shim-src` 标记）+ `<base href>` 指向入口目录（相对资源不断）',
+      JSON.stringify(w && { blob: /^blob:/.test(w.src || ''), shimTag: w.shimTag, base: w.baseHref, scripts: w.scripts }))
+    ok(mount && mount.rendererWp && w && w.hasPushPointer && w.hasPushWheel,
+      'W6 【指针通道】渲染器侧 `__wp` 仍是对象，壁纸侧 shim 的指针/滚轮通道（`__wePushPointer/__wePushWheel`）都在',
+      JSON.stringify({ rendererWp: mount && mount.rendererWp, push: w && w.hasPushPointer, wheel: w && w.hasPushWheel }))
+
+    // 判据③：真鼠标事件能不能到达壁纸页 —— 在壁纸文档里挂监听，再用 `page.mouse.move` 走一遍
+    const pt = await page.evaluate(() => {
+      const frame = document.getElementById('frame')
+      const r = frame.getBoundingClientRect()
+      try {
+        const wwin = frame.contentWindow.document.querySelector('iframe').contentWindow
+        wwin.__mpwSeen = { move: 0, down: 0 }
+        wwin.document.addEventListener('mousemove', () => { wwin.__mpwSeen.move++ }, true)
+        wwin.document.addEventListener('mousedown', () => { wwin.__mpwSeen.down++ }, true)
+      } catch (e) { return { err: String(e.message) } }
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }
+    })
+    if (pt && !pt.err) {
+      await page.mouse.move(pt.x - 40, pt.y - 30)
+      await page.mouse.move(pt.x, pt.y)
+      await page.mouse.down()
+      await page.mouse.up()
+      await page.waitForTimeout(400)
+      const seen = await page.evaluate(() => {
+        try { return document.getElementById('frame').contentWindow.document.querySelector('iframe').contentWindow.__mpwSeen } catch { return null }
+      })
+      ok(seen && seen.move > 0 && seen.down > 0,
+        'W7 【判据③】鼠标事件真的到达**壁纸页**（壁纸文档里的监听记到 mousemove/mousedown）',
+        JSON.stringify({ seen, at: pt }))
+    } else notes.push('W7 未测：拿不到壁纸 iframe 的 rect（' + JSON.stringify(pt) + '）')
+    // 收尾：切回「全部」，别让后面的断言看到 web-only 的列表
+    await page.evaluate(async () => {
+      const all = document.querySelector('#type-filter .seg-btn[data-type="all"]')
+      if (all) all.click()
+      await new Promise((r) => setTimeout(r, 700))
+    })
+  }
+
   // ══════════════════ M 组（P-159）mpw 自绘下拉：按钮文案 + 包含块偏移后的贴合 ══════════════════
   //  为什么用**夹具**：:8902 默认档（合成样例 + 本机库）里没有 combo 属性 ⇒ 页面上本来一个 `.mpw_select`
   //  都不存在（工具条那 5 个已归 `.bench-rd`）。往 `#props-body` 插两个原生 select（选中第 2 项），
