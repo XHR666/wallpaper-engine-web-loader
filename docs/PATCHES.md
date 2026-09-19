@@ -12513,7 +12513,7 @@ Chromium 在本环境起不来（GPU 进程连崩/`newPage` 挂起，与仓库�
 
 > 编号说明：提交那刻文件里的最大号是 **P-164**（并行线的 `:8902` 测试台外壳条目，同一份文件里先行追加）
 > ⇒ 本条取 **P-165**（唯一且非递减）。本仓代码**一行未动**；被改的是插件仓
-> `dsh-mpkg-wallpaper`（`lib/client.js` / `lib/index.js` / `lib/web-wallpaper.js` / `tools/*` / `docs/WALLPAPER-LIFECYCLE.md`）。
+> `dsh-mpkg-wallpaper`（`lib/client.js` / `lib/index.js` / `lib/web-wallpaper.js` / `tools/*` / `../dsh-mpkg-wallpaper/docs/WALLPAPER-LIFECYCLE.md`）。
 > 详细根因链、真机修前/修后读数、同类审计、诚实清单：**`dsh-mpkg-wallpaper/docs/WALLPAPER-LIFECYCLE.md`**。
 
 **一句话**：用户真机报的五条壁纸流水线 bug + 两条追加（交互音分类、联动开关语义）+ 一条切页音频：
