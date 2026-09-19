@@ -7,6 +7,10 @@
 //     单开注册表在、监听器**配对**装卸（open 挂 close 卸 —— 本机内存紧，常驻监听是不允许的）
 //   C **RED-IF-REVERTED**：把 math 模块复制到 /tmp 改坏（`decideFlip` 恒 'down'）⇒ 上翻判据必须变红
 //     （真树只读；本机 `fs.cpSync` 抛 EINVAL ⇒ 用 readFileSync/writeFileSync）
+//   D（P-159 新增）**按钮文案与包含块偏移**：`paintButton()` 必须**每次现读** options（不能读只在
+//     `open()` 里赋值的闭包 `model`，否则首次展开前恒「（空）」）；列表坐标必须减掉
+//     `#pages-track{contain:paint}` 抓走的包含块原点（否则整体下移一个 header = 44px 的缝）。
+//     `layerFixedOffset()` 是 `.bench-rd` 与 `mpw_select` **共用**的那一份实现（bench-patch.js re-export）。
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -118,6 +122,44 @@ ok(/destroy:/.test(src) && /selectEl\.hidden = false/.test(src), 'B15 提供 des
 ok(/MutationObserver/.test(src) && /disconnect\(\)/.test(src), 'B16 选项变化用 MutationObserver 跟随，且 disconnect 在 destroy 里')
 ok(!/document\.body\.style/.test(src) && !/documentElement\.style/.test(src), 'B17 不往 body/documentElement 写样式')
 
+// ── D 按钮文案 + 包含块偏移（P-159） ─────────────────────────────────────────
+console.log('\n== D 按钮文案 / 包含块偏移（P-159） ==')
+ok(/export function layerFixedOffset\(/.test(src) && /anchoredInside/.test(src),
+  'D1 包含块原点纯函数 `layerFixedOffset(trackRect, anchoredInside)` 在 mpw-select.js 里（两套下拉共用一份）')
+{
+  const mod = await import(pathToFileURL(SRC).href)
+  const inTrack = mod.layerFixedOffset({ left: 0, top: 44, right: 1360, bottom: 882 }, true)
+  const outside = mod.layerFixedOffset({ left: 0, top: 44, right: 1360, bottom: 882 }, false)
+  ok(inTrack.dx === 0 && inTrack.dy === 44 && outside.dx === 0 && outside.dy === 0,
+    'D2 锚在 `#pages-track` 里 ⇒ 减掉它的 left/top（实测差一个 header=44px 就是那条缝）；不在里面 ⇒ 0',
+    JSON.stringify({ inTrack, outside }))
+  ok(mod.layerFixedOffset(null, true).dy === 0 && mod.layerFixedOffset(undefined, true).dx === 0,
+    'D3 拿不到 track rect 时退化成 0（不抛错、不产出 NaN）')
+}
+ok(/const opts = optionsOf\(selectEl\)/.test(src) && /const i = selectedIndex\(opts, selectEl\.value\)/.test(src),
+  'D4 `paintButton` 走 `currentOption()` ⇒ **每次现读** `optionsOf(selectEl)`（不再读闭包 model）')
+/** `currentOption` + `paintButton` 这段（"读当前项并写按钮"的全部代码）里**不许出现闭包 `model`**。 */
+const labelRegion = (() => {
+  const a = src.indexOf('const currentOption = () => {')
+  const b = src.indexOf('const close = (focusBack', a)
+  return a >= 0 && b > a ? src.slice(a, b) : ''
+})()
+{
+  ok(labelRegion.length > 0 && !/selectedIndex\(model/.test(labelRegion) && !/\bmodel\[i\]/.test(labelRegion),
+    'D5 ★ 「读当前项 + 写按钮」这段代码里**没有**对闭包 `model` 的引用（旧实现就是 `selectedIndex(model, …)` ⇒ 首次展开前恒「（空）」）',
+    labelRegion.split('\n')[0])
+}
+ok(/const onSelChange = \(\) => paintButton\(\)/.test(src) && /selectEl\.addEventListener\('change', onSelChange\)/.test(src) &&
+  /selectEl\.removeEventListener\('change', onSelChange\)/.test(src),
+  'D6 宿主**程序化改值**也要跟上：select 自己的 change 监听（挂/卸成对；不是 document/window 常驻监听）')
+ok(/containingOffset\(doc, btn, win\)/.test(src) && /br\.bottom \+ gap - off\.dy/.test(src) &&
+  /cbBottom - \(br\.top - gap\)/.test(src) && /const gap = 2/.test(src),
+  'D7 展开时按包含块原点写坐标：下开 `top = br.bottom + 2 - dy`、上翻按**下边缘**锚定（等于 cbBottom − (br.top − 2)），缝 2px')
+ok(/list\.setAttribute\('data-origin'/.test(src) && /list\.setAttribute\('data-flip'/.test(src),
+  'D8 浮层上留了可断言的标记：`data-flip`（方向）+ `data-origin`（包含块 / 视口）')
+ok(/setAttribute\('data-mpw-label'/.test(src),
+  'D9 按钮根上留 `data-mpw-label`（探针/门禁不必读子节点的 textContent）')
+
 console.log('\n== C RED-IF-REVERTED（真树只读，变异在 /tmp 副本） ==')
 const shaBefore = (() => { const c = fs.readFileSync(MATH); return c.length + ':' + c.subarray(0, 32).toString('hex') })()
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mpw-sel-'))
@@ -135,6 +177,28 @@ ok(mutantFlip === 'down' && m.decideFlip({ spaceBelow: 50, spaceAbove: 300, want
   `变异=${mutantFlip} 真文件=${m.decideFlip({ spaceBelow: 50, spaceAbove: 300, wantHeight: 200 })}`)
 const shaAfter = (() => { const c = fs.readFileSync(MATH); return c.length + ':' + c.subarray(0, 32).toString('hex') })()
 ok(shaBefore === shaAfter, 'C3 真树 `demo/mpw-select-math.mjs` 跑前跑后一致（变异只落 /tmp）', shaAfter)
+
+// 变异④（P-159）：把 `paintButton` 改回"读闭包 model" ⇒ D4/D5 必红
+{
+  const shaSrcBefore = (() => { const c = fs.readFileSync(SRC); return c.length + ':' + c.subarray(0, 32).toString('hex') })()
+  const mutSel = path.join(tmp, 'mpw-select.mutant.mjs')
+  const mutantSel = src.replace(
+    /  const currentOption = \(\) => \{\n    const opts = optionsOf\(selectEl\)\n    const i = selectedIndex\(opts, selectEl\.value\)\n    return i < 0 \? null : opts\[i\]\n  \}/,
+    "  const currentOption = () => {\n    const i = selectedIndex(model, selectEl.value)\n    return i < 0 ? null : model[i]\n  }",
+  )
+  ok(mutantSel !== src, 'C4 变异④锚点命中（`currentOption` 改回读闭包 `model`）')
+  //  变异体得能加载：把相对 import 换成真树绝对 file: URL（/tmp 里没有 mpw-select-math.mjs）
+  const fixedSel = mutantSel.replace("from './mpw-select-math.mjs'", "from '" + pathToFileURL(MATH).href + "'")
+  fs.writeFileSync(mutSel, fixedSel)
+  await import(pathToFileURL(mutSel).href)
+  const mutD4 = /const opts = optionsOf\(selectEl\)/.test(mutantSel)
+  const mutA = mutantSel.indexOf('const currentOption = () => {')
+  const mutB = mutantSel.indexOf('const close = (focusBack', mutA)
+  const mutD5 = !/selectedIndex\(model/.test(mutantSel.slice(mutA, mutB > mutA ? mutB : mutA + 600))
+  ok(!mutD4 && !mutD5, 'C5 ★ 变异④生效：D4/D5（"每次现读 options"）在变异体里必红', `D4=${mutD4} D5=${mutD5}`)
+  const shaSrcAfter = (() => { const c = fs.readFileSync(SRC); return c.length + ':' + c.subarray(0, 32).toString('hex') })()
+  ok(shaSrcBefore === shaSrcAfter, 'C6 真树 `demo/mpw-select.js` 跑前跑后一致（变异只落 /tmp）', shaSrcAfter.slice(0, 20))
+}
 fs.rmSync(tmp, { recursive: true, force: true })
 
 console.log(`\n── 汇总：PASS=${pass} FAIL=${fail}`)

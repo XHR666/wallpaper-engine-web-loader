@@ -386,12 +386,19 @@ node tests/bench-ui-headless-test.mjs --url http://127.0.0.1:8902/ --w 1360 --h 
 
 ### 7.3 仍然是"未证实项/待别的线"的
 
-* **服务端进程要重启**：本机在跑的 `:8902` 还是旧代码（`GET /api/fs/roots` / `/api/library-source` 仍 404）⇒
-  「选择文件夹」的应用内浏览实测走的是**降级**分支（提示"服务端还没有 /api/fs/* 这条路由" + 两个兜底按钮）。
-  服务端已交付的契约（`roots[].listable`、`/api/library-source` 五档 `source`）前端**已经按它渲染**，重启即生效。
+* **服务端进程已重启，`/api/fs/*` / `/api/library-source` 实测 200**（2026-09-19 复跑；前端两档都断言）：
+  * `GET /api/fs/roots` ⇒ 200，4 个快捷根（当前库目录 / 宿主 home `listable:false` / 工作区 / 壁纸总目录）；
+  * `GET /api/fs/list?path=…` ⇒ 200，库根 22 个目录；单击进子目录后路径与 `parent` 都更新；
+  * `GET /api/library-source` ⇒ 200 `{source:"default", selected:false}` ⇒ 侧栏「库来源」渲染成
+    "本机默认目录（你还没有选择）"（**没有假装已选**）。
+  * 「选择文件夹」实测：应用内对话框列出 22 项 + 「就选这个目录」+ 4 个快捷根；服务端标 `listable:false`
+    的根**灰显**（home，`MPW_PICK_ROOT` 可放宽）；两个兜底按钮（纯前端扫描 / **显式标注**的系统选择器）都在。
+  * 路由 404 那一档（静态托管或服务端未落地）仍会明确写出"服务端还没有 /api/fs/* 这条路由" —— 门禁按
+    实测状态**两档都判**（`bench-ui-headless` 的 F 组 F3a–F3d / F4a）。
 * **旧产物的 `rt()` 只认 `hasScene`**：`kind: 'wallpaper'|'other'` 的条目在左侧列表里永远不出现（需要产物重建，
   或前端自建面板并自行拼 iframe URL —— 后者会绕开 `#current`/属性面板链路，需单独一批）。
 * **web 类壁纸的 WE shim**：入口 HTML 挂上了，但渲染器打印「网页壁纸：同源入口未检测到 WE shim（host 未注入？）」
   ⇒ 属 `core/**`/宿主注入面（不是本批）。
+* **不点「就选这个目录」**：门禁只断言按钮存在与浏览可用，**不 POST** `/api/library-dir`（那会真的换掉用户的库目录）。
 * **真 X11 指针判定**（"用户拿鼠标点得到"）留给主对话的 `tests/x11-e2e/bench-click-test.mjs`；
   本节的可点性用 `elementFromPoint` + 合成事件证明。

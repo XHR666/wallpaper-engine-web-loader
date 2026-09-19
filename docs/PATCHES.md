@@ -11921,8 +11921,8 @@ localStorage 超限拒写（现场档仅 1649 B、`__mpwPersistFail` 不存在�
   B 两文件静态纪律 24 条 / C 三组变异自证 + 真树只读校验）。变异：①把默认 park 改回推中心 ⇒ A36 必红；
   ②把 `#main` 内层列改回 `auto` ⇒ B1 必红；③删掉 `?ppark=center` 逃生口 ⇒ A37 必红。
   已登记进 `tests/run-all-tests.sh`（`bench-shell-fixes`）。
-* **`tests/bench-ui-headless-test.mjs`：39 通过 / 0 失败**（原 15 条 + 本批 24 条；headless Firefox 1360×900，
-  ~40s）。新增 `S1`~`S11` 逐条对应用户第 1/2/3/5/6/7/8/9/10/11 条与类型/指针两条，关键读数：
+* **`tests/bench-ui-headless-test.mjs`：45 通过 / 0 失败**（原 15 条 + 本批 S 组 24 条 + **F 组 6 条**（库目录对话框
+  两档）；headless Firefox 1360×900，~45s）。新增 `S1`~`S11` 逐条对应用户第 1/2/3/5/6/7/8/9/10/11 条与类型/指针两条，关键读数：
   * `S1` 工具条宽 = `#main` 宽 = **740**（改前 2279），17 个控件**溢出 0 个**（改前 14 个）。
   * `S2a/S2b` 下拉与触发框的缝 **2.0 / 2.0 px**（下开 + 上翻两种，改前 48px）。
   * `S3` 工具条：5 个原生 select（`bench-rd-native` 且 `display:none`）+ **5 个 `.bench-rd`** + **0 个 `.mpw_select`**，
@@ -11946,9 +11946,12 @@ localStorage 超限拒写（现场档仅 1649 B、`__mpwPersistFail` 不存在�
 
 ### P-158.3 需要别的线配合（不在我文件范围内）
 
-1. **`server/we-scene-demo-server-8902.mjs`：`:8902` 那个**在跑的进程**还是旧代码**（`GET /api/fs/roots`
-   仍 404）⇒ 服务端已交付的路由要**重启该进程**才生效；我的前端两条路都实现了（404 时明确提示"服务端还没有这条路由"
-   + 两个兜底按钮；200 时走应用内浏览）。**没有改任何 `server/**`。**
+1. ~~`server/we-scene-demo-server-8902.mjs`：`:8902` 那个在跑的进程还是旧代码~~ ⇒ **已重启（pid 28149），200 档实测已补**
+   （2026-09-19 复跑）：`GET /api/fs/roots` 200（4 个快捷根，home `listable:false`）、
+   `GET /api/fs/list?path=…` 200（库根 22 项、可进子目录）、`GET /api/library-source` 200
+   （`source:"default", selected:false`）。「选择文件夹」实测走**应用内浏览**：22 项 + 「就选这个目录」+ 4 个快捷根，
+   `listable:false` 的根灰显；两个兜底按钮仍在。门禁按实测状态**两档都判**（F 组 F3a–F3d/F4a），
+   404 档的降级文案仍由纯函数断言守着（`bench-shell-fixes` A30/A31/A32）。**没有改任何 `server/**`。**
 2. `demo/mpw-select.js`（只读）：`paintButton()` 读的是闭包 `model`（只在 `open()` 里赋值）⇒ 首次展开前
    恒显示「（空）」；正确修法是让它每次现读 `selectEl.options`。**另一处同源问题**：它的列表
    `position:fixed` 同样被 `#pages-track{contain:paint}` 抓走包含块 ⇒ 内联 `top` 也要减掉该 rect 的 top
@@ -11963,9 +11966,9 @@ localStorage 超限拒写（现场档仅 1649 B、`__mpwPersistFail` 不存在�
 
 ### P-158.4 诚实清单
 
-1. **`:8902` 上跑的是旧服务端**：`/api/fs/*`、`/api/library-source`、`scan.kinds` 现在都还是 404 ⇒
-   库目录对话框实测走的是**降级**分支（已断言）；`source` 权威字段也拿不到（前端按 localStorage 推断，
-   写成"本机默认目录（你还没有选择）"，不假装已选）。重启服务端后自动生效，但**我没有重启它**（不是我的进程）。
+1. ~~`:8902` 上跑的是旧服务端~~ ⇒ **已重启并复跑**：`/api/fs/*`、`/api/library-source` 实测 200，
+   库目录对话框走**应用内浏览**分支、库来源取到服务端权威 `source:"default"`（渲染成"本机默认目录（你还没有选择）"）。
+   降级分支（404 / 无后端）仍由纯函数与文案断言守着。门禁**不点「就选这个目录」**（那会真的换库目录）。
 2. **X11 真指针判定留给主对话**：本批的"点得到/触控位置"用 `elementFromPoint` + 合成的 Playwright 事件证明
    （S7a/S7c/S4d/S6a），**没有**跑 `tests/x11-e2e/bench-click-test.mjs`（需真 X，本机 X 可能不可用）。
 3. **只能人眼看的**：①工具条换行后的观感（3 行 vs 1 行）；②库列表面板的视觉密度；③诊断流的可读性；
@@ -11978,3 +11981,52 @@ localStorage 超限拒写（现场档仅 1649 B、`__mpwPersistFail` 不存在�
    「网页壁纸：同源入口未检测到 WE shim（host 未注入？）」—— 即**入口 HTML 挂上了、WE shim 没注入**
    （属 `core/**`/宿主注入面，不是本批）。video 类实测走 WebCodecs 解码路径。
 6. **`?ppark=center` 是逃生口**：如果真机上还有"离开后力场残留"的观感问题，可先切这个开关对照。
+
+## P-159（2026-09-19 · 渲染器侧 · MPW-2）`mpw-select` 自绘下拉的两条同源缺陷：首次展开前恒「（空）」+ 浮层整体下移一个 header；并把 `:8902` 的 `/api/fs/*` **200 档**实测补进 P-158
+
+> 改动面：`demo/mpw-select.js`（本批起该文件归本线）、`demo/bench-patch.js`（只改 `layerFixedOffset` 的来源：
+> 改为从 `demo/mpw-select.js` import 并 re-export，**一处实现两套下拉共用**）、
+> `tests/mpw-select-test.mjs`（58 → **70** 断言，新增 D 组 + 一组变异）、
+> `tests/bench-ui-headless-test.mjs`（45 → **50**：新增 M 组 5 条 + F 组 6 条）、`docs/{PATCHES,BENCH-8902}.md`。
+> **未动** `core/**`、`server/**`、`build-pages.mjs`。
+
+**一句话**：两条都是"同一份实现被两个宿主共用时才会暴露"的缺陷 —— ①按钮文案读的是**只在 `open()` 里
+赋值的闭包 `model`** ⇒ 首次展开前恒「（空）」（选项明明在 `<select>` 里）；②浮层是 `position:fixed`，而
+`#pages-track{contain:paint}` 把它变成了**固定定位后代的包含块** ⇒ 按视口坐标算出来的 `top` 渲染时整体
+下移一个 header（44px）⇒ 列表与触发框之间露一条缝。
+
+### P-159.0 修前证据 / 修法 / 判据
+
+| 症状 | 修前（`文件:行`） | 修法 | 判据 |
+|---|---|---|---|
+| 首次展开前按钮写「（空）」 | `demo/mpw-select.js` 的 `currentOption()` 用 `selectedIndex(model, …)`，而 `model` 只在 `open()` 里被赋值 ⇒ 展开前恒 -1 | `currentOption()` 改成**每次现读** `optionsOf(selectEl)`；`paintButton()` 内容不变时一个 DOM 写都不做；另挂 select 自己的 `change` 监听（挂/卸成对）跟上程序化改值 | 静态 D4/D5（"读当前项+写按钮"这段代码里**不许出现 `model`**）+ 真机 **M1a/M1b**：夹具 select（选中 `Beta`）增强后按钮文案 = `Beta`，**不需要先展开** |
+| 浮层与触发框之间 44~48px 的缝 | `list.style.top = br.bottom + 2`（视口坐标）+ `position:fixed`，但包含块是 `#pages-track` | 新增**共用**纯函数 `layerFixedOffset(trackRect, anchoredInside)`（`demo/mpw-select.js` 导出，`demo/bench-patch.js` import 后 re-export）；展开时减掉包含块原点；缝收到 2px；上翻改成按**下边缘**锚定（内容比 `max-height` 矮也不留缝）；浮层加 `data-origin` 标记 | 纯函数 D1–D3；真机 **M2**（下开：缝 **2px**、首项 = 第 1 个选项）、**M3**（上翻：缝 **2px**）、**M4**（两处 `data-origin=containing-block`） |
+| 回退面 | — | 未改任何对外契约：`enhanceAll/enhanceSelect` 签名不变，`destroy()` 照旧把原生 select 放回来；新增的两个属性（`data-mpw-label`/`data-origin`）都挂在控件自己的子树上 | `bench-ui-headless` 的 N5（工具条下拉开/关）与 `p142-nav-sound` 92/92 未回归 |
+
+**变异自证（新增第 ④ 组，真树只读、变异只落 /tmp）**：把 `currentOption` 改回读闭包 `model` ⇒
+`C4`（锚点命中）与 `C5`（**D4/D5 必红**）都通过，且 `C6` 校验真树 `demo/mpw-select.js` 跑前跑后逐字一致。
+
+### P-159.1 `:8902` 的 `/api/fs/*` 200 档实测（P-158 §P-158.3 第 1 条的补记）
+
+服务端那条线交付并**重启了 `:8902`**（pid 28149）⇒ 复跑读数：
+
+* `GET /api/fs/roots` **200**：4 个快捷根（当前库目录 / 宿主 home `listable:false` / 工作区（DSHAREA）/ 壁纸总目录 allwallpaper）。
+* `GET /api/fs/list?path=<库根>` **200**：22 个目录；单击进子目录后路径与 `parent` 都更新（上一级靠 `parent`，不拼字符串）。
+* `GET /api/library-source` **200** `{source:"default", selected:false}` ⇒ 侧栏「库来源」= **本机默认目录（你还没有选择）**
+  （`#lib-source` 的 `data-kind="default"`，**没有假装已选**）。
+* 「选择文件夹」= 应用内对话框（`#bench-fs-dialog`）：22 项 + 「就选这个目录」+ 4 个快捷根 + 两个兜底按钮；
+  `listable:false` 的根**灰显**（`MPW_PICK_ROOT` 可放宽）。
+* 门禁改成**两档都测**（`bench-ui-headless` F 组：F1/F2 两档共有，F3a–F3d 判 200 档，F4a 判 404 档）；
+  纯函数侧 404/无后端两档仍由 `bench-shell-fixes` 的 A30/A31/A32 守着。
+* 门禁**不点「就选这个目录」**：那会真的 `POST /api/library-dir` 换掉用户的库目录。
+
+### P-159.2 诚实清单
+
+1. **X11 真指针**仍未跑（本机 X 可能不可用）：M 组用"夹具 select + 合成 open()"证明几何与文案，
+   F 组用页面内 `row.click()` 证明浏览链路；"用户拿鼠标点得到"留给主对话的真指针门禁。
+2. **`demo/mpw-select-math.mjs` 未动**（不在本批授权文件清单里）：所以 `layerFixedOffset()` 落在
+   `demo/mpw-select.js`（而不是 math 模块）；它是纯函数、可被 Node 直接 import 断言（D1–D3）。
+3. **`data-mpw-label`/`data-origin` 是新增的可断言标记**（不是功能契约）：将来若有人删掉它们，
+   门禁会红，但用户可见行为不受影响。
+4. 库目录对话框的 `POST /api/fs/pick` 分支**没有使用**（服务端另有该路由）：本批沿用既有的
+   `POST /api/library-dir {dir}` + `we-bench-library-dir` + reload 那条链，避免两套切换逻辑并存。

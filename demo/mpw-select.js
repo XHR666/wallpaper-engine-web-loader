@@ -21,6 +21,43 @@ import {
   optionsOf, selectedIndex,
 } from './mpw-select-math.mjs'
 
+/** `position:fixed` 后代的**包含块原点**（视口坐标里要减掉的那一份）。
+ *
+ *  为什么放在这里：本仓**两套**自绘下拉（`mpw_select` 与 `bench-patch.js` 的 `.bench-rd`）都要减它。
+ *  真因：`#pages-track{contain:paint}`（测试台静态表里的那条）会让它成为**固定定位后代的包含块** ⇒
+ *  内联 `left/top` 是相对它的 padding box，而不是视口。实测（1360×900 / :8902）：
+ *  `planList` 算出 `top = br.bottom + 2`（视口坐标），渲染出来却整体下移了 `#pages-track.top`
+ *  （= header 44px）⇒ 列表与触发框之间露出 44~48px 的缝。
+ *  `anchoredInside=false`（锚不在 `#pages-track` 子树里，例如宿主自己挂的控件）⇒ 包含块就是视口，偏移 0。
+ *  @param {{left:number,top:number}|null} trackRect `#pages-track` 的 rect（拿不到就传 null）
+ *  @param {boolean} anchoredInside 触发按钮是否在 `#pages-track` 子树里
+ *  @returns {{dx:number, dy:number}} 要从视口坐标里减掉的原点
+ */
+export function layerFixedOffset(trackRect, anchoredInside) {
+  if (!anchoredInside) return { dx: 0, dy: 0 }
+  const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+  return { dx: n(trackRect && trackRect.left), dy: n(trackRect && trackRect.top) }
+}
+
+/** 目标元素的**包含块原点**：在 `#pages-track` 里就返回它的 left/top，否则 0（视口坐标系）。 */
+function containingOffset(doc, el, win) {
+  let track = null
+  let inside = false
+  try {
+    track = doc.querySelector ? doc.querySelector('#pages-track') : null
+    if (track && typeof track.contains === 'function') inside = !!track.contains(el)
+    else if (track && typeof track.getBoundingClientRect === 'function' && el && typeof el.getBoundingClientRect === 'function') {
+      // 桩 DOM 没有 contains 时的退化判据：锚落在 track 的 rect 里且 track 是它的祖先（用 parentNode 链）
+      let n = el
+      while (n && n !== track) n = n.parentNode
+      inside = n === track
+    }
+  } catch { inside = false }
+  const rect = (track && typeof track.getBoundingClientRect === 'function') ? track.getBoundingClientRect() : null
+  const off = layerFixedOffset(rect, inside)
+  return { off, trackRect: rect, inside, win }
+}
+
 const STYLE_ID = 'mpw-select-style'
 const CSS = `
 .mpw_select{position:relative;display:inline-flex;align-items:center;max-width:100%;font:12px monospace;vertical-align:middle}
@@ -111,15 +148,23 @@ export function enhanceSelect(selectEl, opt = {}) {
   let model = []
 
   const isOpen = () => !!list
+  /** 当前选中项：**每次现读** `selectEl`（不是闭包里的 `model`）。
+   *  ①(P-159) 旧实现读的是 `model`，而 `model` 只在 `open()` 里赋值 ⇒ **首次展开之前** `currentOption()`
+   *  恒为 null ⇒ 按钮一直写「（空）」（选项明明在 select 里）；展开一次之后才对上。
+   *  修法：直接从 `selectEl.options[selectedIndex]` 现取（`optionsOf` 是纯函数，读的也是 DOM，代价可忽略）。
+   *  这样：选项在运行期被填进来（产物属性面板就是）或在语言切换时被改文案，按钮都会立刻跟上。 */
   const currentOption = () => {
-    const i = selectedIndex(model, selectEl.value)
-    return i < 0 ? null : model[i]
+    const opts = optionsOf(selectEl)
+    const i = selectedIndex(opts, selectEl.value)
+    return i < 0 ? null : opts[i]
   }
   const paintButton = () => {
     const cur = currentOption()
-    label.textContent = cur ? cur.label : '（空）'
+    const next = cur ? cur.label : '（空）'
+    if (label.textContent !== next) label.textContent = next
     btn.disabled = !!selectEl.disabled
     btn.setAttribute('aria-disabled', selectEl.disabled ? 'true' : 'false')
+    try { root.setAttribute('data-mpw-label', next) } catch { /* 桩 DOM */ }
   }
   const close = (focusBack = false) => {
     if (!list) return
@@ -183,10 +228,18 @@ export function enhanceSelect(selectEl, opt = {}) {
     list.setAttribute('role', 'listbox')
     list.style.maxHeight = plan.height + 'px'
     list.style.minHeight = Math.min(MIN_H, plan.height) + 'px'
-    list.style.left = Math.round(br.left) + 'px'
-    if (plan.flip === 'down') list.style.top = Math.round(br.bottom + 2) + 'px'
-    else list.style.bottom = Math.round((win.innerHeight || br.bottom) - br.top + 2) + 'px'
+    // ①(P-159) 坐标要减掉**包含块原点**（否则整体下移一个 header —— 就是"下拉与触发框之间有缝"）。
+    const { off, trackRect } = containingOffset(doc, btn, win)
+    const gap = 2
+    list.style.left = Math.round(br.left - off.dx) + 'px'
+    if (plan.flip === 'down') list.style.top = (br.bottom + gap - off.dy) + 'px'
+    else {
+      // 上翻按**下边缘**锚定：内容比 max-height 矮时也不会留缝。
+      const cbBottom = trackRect && Number.isFinite(Number(trackRect.bottom)) ? Number(trackRect.bottom) : (win.innerHeight || br.bottom)
+      list.style.bottom = ((cbBottom - (br.top - gap))) + 'px'
+    }
     list.setAttribute('data-flip', plan.flip)
+    try { list.setAttribute('data-origin', off.dx || off.dy ? 'containing-block' : 'viewport') } catch { /* 桩 DOM */ }
     const sel = selectedIndex(model, selectEl.value)
     model.forEach((o, i) => {
       const li = doc.createElement('li')
@@ -235,6 +288,11 @@ export function enhanceSelect(selectEl, opt = {}) {
   //  ①原生 select 被程序改动（既有代码 setValue）后按钮要跟上；选项变了也要重建
   const mo = win.MutationObserver ? new win.MutationObserver(() => { if (!list) paintButton() }) : null
   if (mo) mo.observe(selectEl, { childList: true, subtree: true, attributes: true })
+  // ①(P-159) 宿主程序化改值（`sel.value = x`）或用户用键盘改原生 select 时也要跟上：
+  //   这条监听挂在 **select 自己**身上（与 `.bench-rd` 的 `sel.addEventListener('change', label)` 同形），
+  //   不是 document/window 上的常驻监听 ⇒ 不违反"监听器只在展开期间存在"那条纪律。
+  const onSelChange = () => paintButton()
+  selectEl.addEventListener('change', onSelChange)
   paintButton()
 
   const handle = {
@@ -243,6 +301,7 @@ export function enhanceSelect(selectEl, opt = {}) {
     destroy: () => {
       close(false)
       if (mo) mo.disconnect()
+      selectEl.removeEventListener('change', onSelChange)
       btn.removeEventListener('pointerdown', onBtnDown)
       btn.removeEventListener('click', onClick)
       btn.removeEventListener('keydown', onKey)

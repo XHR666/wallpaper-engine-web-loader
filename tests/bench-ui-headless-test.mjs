@@ -472,7 +472,139 @@ try {
     } else notes.push('S11 未测：`__benchPatch.getPointerPark()` 不可用')
   }
 
-  ok(errs.length === 0, 'N6 整轮 0 个 pageerror（含本批新增的页签/面板/类型过滤/诊断流）', errs.slice(0, 2).join(' | '))
+  // ══════════════════ F 组（P-158 §7.3 / 服务端 `aa2fbd2`）库目录对话框：**两档都测** ══════════════════
+  //  服务端 `GET /api/fs/*` 由另一条线交付；:8902 的进程**重启过**（2026-09-19 实测 200）。这条断言
+  //  先探路由状态，再按**对应那一档**判：200 ⇒ 应用内浏览真的可用（列根/进目录/确认按钮）；
+  //  404 ⇒ 明确提示"服务端还没有这条路由" + 两个兜底按钮。两档都必须**不是**静默失败。
+  {
+    const routesStatus = await page.evaluate(() => fetch('/api/fs/roots', { headers: { accept: 'application/json' } }).then((r) => r.status).catch(() => 0))
+    const dlg = await page.evaluate(async () => {
+      document.getElementById('pick-lib').click()
+      await new Promise((r) => setTimeout(r, 1600))
+      const box = document.getElementById('bench-fs-dialog')
+      if (!box) return null
+      const btns = [...box.querySelectorAll('button')].map((b) => ({ text: b.textContent, disabled: b.disabled, listable: b.dataset.listable || null }))
+      return {
+        note: (box.querySelector('#bench-fs-note') || {}).textContent || '',
+        path: (box.querySelector('.bench-dirbox-path') || {}).textContent || '',
+        rows: box.querySelectorAll('#bench-fs-list .bench-dirbox-row').length,
+        dirRows: box.querySelectorAll('#bench-fs-list .bench-dirbox-row[data-type="dir"]').length,
+        count: (box.querySelector('#bench-fs-count') || {}).textContent || '',
+        confirm: !!box.querySelector('#bench-fs-confirm'),
+        chips: btns.filter((b) => b.listable !== null),
+        hasFrontend: btns.some((b) => /in-browser scan|纯前端/i.test(b.text)),
+        hasSystem: btns.some((b) => /system picker|系统选择器/i.test(b.text)),
+      }
+    })
+    ok(!!dlg, 'F1 「选择文件夹」开的是**应用内对话框**（`#bench-fs-dialog`），不是直接弹系统选择器')
+    if (dlg) {
+      ok(dlg.hasFrontend && dlg.hasSystem, 'F2 对话框里两个兜底按钮都在（纯前端扫描 / **显式标注**的系统选择器）', JSON.stringify({ frontend: dlg.hasFrontend, system: dlg.hasSystem }))
+      if (routesStatus === 200) {
+        ok(dlg.rows > 0 && dlg.dirRows > 0 && dlg.confirm && dlg.chips.length > 0,
+          'F3a 【200 档 · 本机实测】应用内浏览真的可用：列出了一档目录 + 「就选这个目录」按钮 + 快捷根', JSON.stringify({ status: routesStatus, rows: dlg.rows, dirs: dlg.dirRows, chips: dlg.chips.length, count: dlg.count, path: dlg.path }))
+        ok(!/api\/fs\/\*|noRoute|还没有/i.test(dlg.note),
+          'F3b 【200 档】不再是"服务端还没有这条路由"的降级文案（走的是只读浏览说明）', dlg.note.slice(0, 60))
+        ok(dlg.chips.some((c) => c.listable === '0' && c.disabled) || dlg.chips.every((c) => c.listable === '1'),
+          'F3c 【200 档】服务端标了 `listable:false` 的根**灰显**（实测 home 默认不可列；不许"点了没反应"）', JSON.stringify(dlg.chips.map((c) => c.text + (c.disabled ? '(disabled)' : ''))))
+        // 进一个子目录（不点确认：那会真的换库目录 —— 门禁不许改用户的库）
+        const nav = await page.evaluate(async () => {
+          const row = document.querySelector('#bench-fs-list .bench-dirbox-row[data-type="dir"]')
+          if (!row) return null
+          row.click()
+          await new Promise((r) => setTimeout(r, 1200))
+          const pathEl = document.querySelector('#bench-fs-dialog .bench-dirbox-path')
+          return { path: pathEl ? pathEl.textContent : '', parent: pathEl ? pathEl.dataset.parent : '', rows: document.querySelectorAll('#bench-fs-list .bench-dirbox-row').length }
+        })
+        ok(nav && nav.rows > 0 && nav.parent,
+          'F3d 【200 档】单击目录能进去（路径 + `parent` 都更新，上一级按钮靠 `parent` 而不是字符串拼路径）', JSON.stringify(nav))
+      } else {
+        ok(/api\/fs\/\*|noRoute|还没有/i.test(dlg.note) && dlg.rows === 0,
+          'F4a 【404 档】明确写出"服务端还没有 /api/fs/* 这条路由"（不是静默失败）', JSON.stringify({ status: routesStatus, note: dlg.note.slice(0, 80) }))
+      }
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      notes.push('F 组：/api/fs/roots 实测状态 = ' + routesStatus + '（分支：' + (routesStatus === 200 ? '200 应用内浏览' : '404 降级提示') + '）')
+    }
+  }
+
+  // ══════════════════ M 组（P-159）mpw 自绘下拉：按钮文案 + 包含块偏移后的贴合 ══════════════════
+  //  为什么用**夹具**：:8902 默认档（合成样例 + 本机库）里没有 combo 属性 ⇒ 页面上本来一个 `.mpw_select`
+  //  都不存在（工具条那 5 个已归 `.bench-rd`）。往 `#props-body` 插两个原生 select（选中第 2 项），
+  //  补丁的 `watchBenchPropsSelects` 观察者会把它们增强成 mpw 控件 —— 这就是"真机首帧"的等价形态。
+  {
+    const fixture = await page.evaluate(async () => {
+      const host = document.getElementById('props-body')
+      if (!host) return { err: 'no #props-body' }
+      const mk = (id, css) => {
+        const wrap = document.createElement('div')
+        wrap.id = id + '-wrap'
+        wrap.setAttribute('style', css)
+        const sel = document.createElement('select')
+        sel.id = id
+        for (const [v, label] of [['a', 'Alpha'], ['b', 'Beta'], ['c', 'Gamma']]) {
+          const o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o)
+        }
+        sel.value = 'b'
+        wrap.appendChild(sel); host.appendChild(wrap)
+        return wrap
+      }
+      //  A：页面上部（下方空间充足 ⇒ 应**下开**）  B：贴裁剪盒底边（⇒ 应**上翻**）
+      mk('bench-mpw-down', 'position:fixed;left:24px;top:140px;z-index:8')
+      mk('bench-mpw-up', 'position:fixed;left:24px;bottom:6px;z-index:8')
+      await new Promise((r) => setTimeout(r, 600))            // 等观察者增强
+      const info = (id) => {
+        const sel = document.getElementById(id)
+        const h = sel && sel.__mpwSelectHandle
+        const btn = h && h.root ? h.root.querySelector('.mpw_select_btn') : null
+        return { enhanced: !!h, label: btn ? btn.textContent : null, dataLabel: h && h.root ? h.root.getAttribute('data-mpw-label') : null, btnRect: btn ? (() => { const r = btn.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right), bottom: Math.round(r.bottom) } })() : null }
+      }
+      return { down: info('bench-mpw-down'), up: info('bench-mpw-up') }
+    })
+    ok(fixture.down && fixture.down.enhanced && fixture.down.label === 'Beta' && fixture.down.dataLabel === 'Beta',
+      'M1a ①(P-159) 首次展开**之前**按钮文案 = 当前选中项（`Beta`），不是「（空）」',
+      JSON.stringify({ down: fixture.down && fixture.down.label, up: fixture.up && fixture.up.label }))
+    ok(fixture.up && fixture.up.enhanced && fixture.up.label === 'Beta',
+      'M1b ①两个夹具都增强成功（第 2 个也走同一条链，不是只对第一个生效）', JSON.stringify(fixture.up && fixture.up.label))
+
+    const measure = (id) => page.evaluate(async (fid) => {
+      const sel = document.getElementById(fid)
+      const h = sel && sel.__mpwSelectHandle
+      if (!h) return { err: 'not enhanced' }
+      h.open()
+      await new Promise((r) => setTimeout(r, 250))
+      const list = h.root.querySelector('.mpw_select_list')
+      const btn = h.root.querySelector('.mpw_select_btn')
+      const b = btn.getBoundingClientRect(); const l = list.getBoundingClientRect()
+      const out = {
+        flip: list.getAttribute('data-flip'), origin: list.getAttribute('data-origin'),
+        gap: Math.round(((l.top >= b.top ? l.top - b.bottom : b.top - l.bottom)) * 10) / 10,
+        firstItem: (list.firstElementChild || {}).textContent, count: list.children.length,
+        btn: { top: Math.round(b.top), bottom: Math.round(b.bottom) }, list: { top: Math.round(l.top), bottom: Math.round(l.bottom) },
+      }
+      h.close()
+      await new Promise((r) => setTimeout(r, 120))
+      return out
+    }, id)
+    const d = await measure('bench-mpw-down')
+    const u = await measure('bench-mpw-up')
+    ok(d.flip === 'down' && d.gap <= 2 && d.gap >= 0 && d.firstItem === 'Alpha' && d.count === 3,
+      'M2 ②(P-159) mpw 下开：列表与触发框的缝 ≤2px（减掉包含块原点后；改前是 44~48px），首项 = 第 1 个选项', JSON.stringify(d))
+    ok(u.flip === 'up' && u.gap <= 2 && u.gap >= 0,
+      'M3 ③(P-159) mpw 上翻：同样贴合（列表**下边缘**距触发框上边缘 ≤2px；上翻按底边锚定，内容矮也不留缝）', JSON.stringify(u))
+    ok(d.origin === 'containing-block' && u.origin === 'containing-block',
+      'M4 ②(P-159) 两处都如实标了 `data-origin=containing-block`（证明走的是"减掉 `#pages-track` 原点"那条路）', JSON.stringify({ down: d.origin, up: u.origin }))
+    // 夹具清理：别给后面的断言留脏 DOM
+    await page.evaluate(() => {
+      for (const id of ['bench-mpw-down', 'bench-mpw-up']) {
+        const sel = document.getElementById(id)
+        try { sel && sel.__mpwSelectHandle && sel.__mpwSelectHandle.destroy() } catch { /* ignore */ }
+        const w = document.getElementById(id + '-wrap')
+        if (w && w.parentNode) w.parentNode.removeChild(w)
+      }
+    })
+  }
+
+  ok(errs.length === 0, 'N6 整轮 0 个 pageerror（含本批新增的页签/面板/类型过滤/诊断流/mpw 夹具）', errs.slice(0, 2).join(' | '))
   console.log(`\n── 汇总：PASS=${pass} FAIL=${fail}`)
   for (const n of notes) console.log('  note: ' + n)
   process.exitCode = fail > 0 ? 1 : 0
