@@ -11746,3 +11746,94 @@ warn 就放弃（不装观察者、不重试）。新要求两条也一并落地
    整份丢失"；**壁纸选择字段为什么会丢**不在本任务范围，建议单独一条线查（它会让用户看不到壁纸）。
 9. `dsh-mpkg-wallpaper/lib/index.js` **一行未动**（未新增任何宿主路由）；`package.json` 版本号未动；
    `lib/web-wallpaper.js` / `lib/web-interaction.js` 未动；渲染器仓只追加本条台账。
+
+---
+
+## P-157（2026-09-19 · **插件侧** 设置持久化轮，不是渲染器侧）壁纸选择字段为什么会丢（⇒ 壁纸层被 `display:none` 藏掉）
+
+> 口径说明：与 P-155/P-156 同一个道理 —— 本条**改的是 `dsh-mpkg-wallpaper`（插件仓）**，登记在渲染器仓的
+> 台账里只是因为 P 编号台账在本文件（跨仓先例：P-155 的口径补注 `fcf16c1`、P-156 `6791197`）。
+> **本仓（渲染器）一行未动**：未动 `core/**`、未动 `tests/**`、未动 `demo/**`，只追加这一条台账。
+> 插件仓对应提交：`6514e6e`（代码+门禁+探针）、`c0f43ab`（插件仓文档落账）；根因链/修法/判据/诚实清单全文见
+> `dsh-mpkg-wallpaper/docs/SETTINGS-PERSIST.md`（本条是它的跨仓摘要）。
+
+**一句话**：用户明明选了壁纸，`image`/`webUrl` 却从**两处存储**里消失 ⇒ `buildCss` 的
+`hasImage=!!(image||webUrl)` 为 false ⇒ `.mpw-bgWrap{display:none}` 生效 ⇒ **用户看不到壁纸**。
+真机（DSH `:3080`）现场读数是"半残档"：`mpkgKey:"custom|3582362359"` 还在、`image`/`webUrl` 都没了
+（`lib/client.js` 的 NP-3 注释 :8689–8694 早就把这种档记为"真机上用户的档正是这种"，
+P-156 诚实清单第 8 条也点名"壁纸选择字段为什么会丢不在本任务范围" —— 本条就是那一刀）。
+
+### P-157.0 一手证据（真机读数，探针 `tools/settings-persist-live-probe.mjs`）
+
+| 口径 | 修前 | 修后 |
+|---|---|---|
+| 浏览器 `localStorage['dsh.mpkg-wallpaper.v2']` | 1649 B，`{mpkgKey,converted,source}` —— **无 image/webUrl** | 1749 B，**`image:"host:?custom=1&folder=3582362359&file=Mid-Autumn%20Hoshino.mp4"`** + `mpkgKey` |
+| 宿主 `<DATA_DIR>/settings.json` | `{mpkgKey,converted,…}`，**无 image/webUrl** | 同（`image` 按 `HOST_SKIP_KEYS` 老契约不进宿主） |
+| 真机 CSS/DOM | `getComputedStyle(#mpw-bgWrap).display === "none"`，样式表含 `.mpw-bgWrap{display:none}` | **`display === "block"`，那条规则不存在** |
+| 探针判据 | **4 PASS / 1 FAIL** | **9 PASS / 0 FAIL** |
+| "无关开关保存一轮"前后 | — | 本地 90 字段 → 90 字段，`丢失=[]`、`变化=["fontColorGray"]`；宿主磁盘 89 → 89，`removed=[]/added=[]/changed=[]` |
+
+### P-157.1 根因链（`文件:行` 逐跳，主因 + 三条次因）
+
+1. **主因 · 两处存储都是"整档替换"，没有任何"缺字段不覆盖"的护栏**：
+   `lib/client.js` `writeSection()`（修前 :380/:401–445）把**内存里的整段 `sectionCache`**（减 `HOST_SKIP_KEYS`）
+   写进 localStorage 并 PUT 给宿主；`lib/index.js` 的 `PUT /api/mpkg-wallpaper/settings`（修前 :1668–1680）
+   把请求体**整串覆写** `settings.json`（`writeFileSync(tmp, JSON.stringify(settings)); rename`）
+   ⇒ 一次"内存里已经不完整"的保存会把**两处一起写残**。而 `HOST_SKIP_KEYS`（:286）**明确跳过 `image`**
+   ⇒ 宿主那份永远没有壁纸源本体，"两处一起残"的表现就是现场那个半残档。
+2. **次因 · boot 的第一次渲染/落盘跑在宿主 `GET /settings` 之前**：`applyInner()` 里
+   `applyFromStorage()`（修前 :16099）先于 `initHostSettings()`（修前 :16133），那一刻内存里的档最不完整，
+   而写盘防抖只有 250ms ⇒ 既"先渲染一帧无源档（display:none）"又"可能把残档写死"。
+3. **次因 · 两处存储的新旧没有任何裁决口径**：`initHostSettings()` 的 `Object.assign({}, d.settings, local)`
+   只表达"本地有的用本地"，两处**谁新**完全没判；且合并结果**只写回 localStorage**，宿主那份残档永远修不回来。
+4. **次因 · 读侧对半残档照单全收**：`buildCss()` 的 `hasImage`（:8688）直接落进 `display:none` 分支；
+   而 `mpkgKey="custom|3582362359"` 明明足以反推源（`3582362359` **就是目录名**，见 `tools/np-media-test.mjs:265`），
+   读侧却从不尝试、也没有任何提示。
+
+**已证伪**（逐条有证据）：`boolFields`/导入净化丢字段（净化只作用于备份导入的 `BACKUP_FIELDS` 白名单，
+那里面根本没有 image/webUrl/mpkgKey）；"恢复默认"清壁纸（`resetSettings` :12724 有 `keep` 列表）；
+localStorage 超限拒写（现场档仅 1649 B、`__mpwPersistFail` 不存在）；"库重扫后找不到条目就清 image"
+（库里能找到，且代码里没有这条分支）。
+
+### P-157.2 修法（按模块语义，不是打补丁）
+
+* **不变量Ⅰ 合并不替换** `mpwMergeSection(base, patch)`：`undefined` 不覆盖、`null` 才删。
+* **不变量Ⅱ 源字段粘性** `mpwStickySource(base, next)`：`next` 没带 `image`/`webUrl`/`sceneKey` 时从当前档带过来
+  —— 显式清空（`""`）与显式删除（`null`）不受影响（**用户主动清壁纸仍然能清掉**）。
+* **不变量Ⅲ 两处存储显式裁决** `mpwReconcileStores(local, host)`：两处各带自己的写入时刻
+  （`__mpwLocalAt`/`__mpwHostAt`）⇒ 新者优先（理由进 trace）；一边没有时间戳时如实标 `*-unstamped`；
+  都没有时标 `newer:"unknown"`（**不假装知道**）；合成用 **`mpwOverlayFill(win,lose)`「补空缺、不覆盖」**。
+* **宿主侧同一条契约**：`PUT /settings` 逐键合并、`null` 才删（老客户端不带某键 ⇒ 天然受保护，无需版本协商）。
+* **boot 收尾闸门**：宿主设置合并完（或 3.5s 超时）之前，任何写只置脏不落盘；收尾补落一次并先做一次
+  "渲染前合成"（第一帧就是完整档，不再闪一帧 display:none）。
+* **半残档自愈**：判据"有来源线索（`mpkgKey`/`source` 非空）却没有源字段" ⇒ ①先查 `mpw_settings_backup`；
+  ②否则按 `mpkgKey` 反推（`custom|` / `custommpkg|` / `library|` 三类走宿主**只读**路由，不猜路径；
+  同目录多候选时**不猜**）⇒ 能推就写回两处 + **渲染前生效** + trace + 面板一行提示；推不出就**明确提示**
+  （不改写、不伪造）；同一把 key **只做一次**，迟到结果对已切换的档直接丢弃。
+
+### P-157.3 判据（无浏览器 + 真机探针）
+
+* **新增 `dsh-mpkg-wallpaper/tools/settings-persist-test.mjs`：105 通过 / 0 失败**（`--no-mutations`），
+  含变异时 **112 通过 / 0 失败**；**7 组变异自证**各自必红。它把**真 `lib/client.js`** 在假 DOM 里 `apply()`，
+  并用**真 `lib/index.js`**（`DSH_HOME` 指临时目录，绝不碰用户数据）驱动真 `/settings` 路由。
+  判据四块：①一次无关开关保存后逐字段 diff 只差这一次改的键；②两处存储裁决 4 种组合；
+  ③半残档自愈能推就推（含 `buildCss` 产物里那条 `display:none` 必须消失）+ 推不出必须明确提示；
+  ④用户主动清空壁纸仍然能清空（自愈不是"删不掉"）。
+* 接线：`tools/check.sh` **第 2 步内**追加一行（不新开 step —— `integrity-check` 断言 `step N/M` 分母与序号连续）。
+  `bash tools/check.sh --quick` 全量复跑：**全绿**（无回归）。
+* **真机探针 `tools/settings-persist-live-probe.mjs`**（只读诊断 + `--save-toggle <key>` 的保存前后 diff）：
+  修前 **4 PASS / 1 FAIL** → 修后 **9 PASS / 0 FAIL**；读数见 P-157.0。
+  浏览器纪律：跑前跑后 `ps -eo comm | grep -cx firefox` 都是 **0**，单进程 headless。
+
+### P-157.4 诚实清单（摘要；全文见插件仓 `docs/SETTINGS-PERSIST.md` §6）
+
+1. **"那一刻是哪一次点击把字段弄丢的"没有直接证据**（修前两处存储都不带写入时刻、diag 无相关事件）
+   ⇒ 只钉死"结构性缺陷 + 现场状态"；从这一版起有时间戳与 `settings:reconcile` trace，**下一次**能追到具体一轮。
+2. 宿主侧的合并**只保护未来的写**：磁盘上已经缺字段的档不会被宿主单方面补回（现场那份靠**客户端自愈**补回）。
+3. 自愈只覆盖有来源线索的档；`steam|…` 等未支持前缀走"推不出"分支并明确提示重选。
+4. "同一目录多个候选"**不猜**（宁可让用户重选，也不猜错素材）。
+5. 只能人眼看的：自愈后画面是否真的是原来那张（探针只判"源字段回来了 + `.mpw-bgWrap` 不再 `display:none` +
+   元素有 src"，不做像素级比对）。
+6. **用户不需要手动重选壁纸**：现场那份半残档已被自愈推回原源，其余 90 个用户字段一字未动。
+7. `README*.md` / `package.json`（版本号）/ `lib/web-wallpaper.js` / `lib/web-interaction.js` /
+   `lib/media-session.js` **未动**；渲染器仓只追加本条台账。
