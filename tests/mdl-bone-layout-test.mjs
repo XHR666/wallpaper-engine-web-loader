@@ -392,7 +392,12 @@ let mutN = 0
 async function withMutant(label, from, to, fn) {
   const dir = path.join(TMP, 'm' + (++mutN))
   fs.mkdirSync(dir, { recursive: true })
-  for (const f of ['puppet-skin.js', 'attach-transform.mjs']) fs.copyFileSync(path.join(CORE_SRC, f), path.join(dir, f))
+  // ①(2026-09-20 同上) 手抄清单 → 整目录复制（只跳子目录）：相对 import 闭包不会再因为"谁加了新模块"而断。
+  for (const f of fs.readdirSync(CORE_SRC)) {
+    const srcF = path.join(CORE_SRC, f)
+    if (!fs.statSync(srcF).isFile()) continue
+    fs.copyFileSync(srcF, path.join(dir, f))
+  }
   const p = path.join(dir, 'attach-transform.mjs')
   const src = fs.readFileSync(p, 'utf8')
   if (!src.includes(from)) { check('D 变异自证', label + '：变异锚点存在', false); return null }
