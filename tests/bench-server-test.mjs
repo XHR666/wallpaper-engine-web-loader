@@ -29,7 +29,7 @@ import os from 'node:os'
 import net from 'node:net'
 import path from 'node:path'
 import http from 'node:http'
-import { spawn } from 'node:child_process'
+import { spawn, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
@@ -66,6 +66,37 @@ const skip = (name, why) => { skipped++; console.log(` SKIP   ${name}（${why}�
 
 // ── 夹具（临时库 + 夹具 reports/Delete + 库外靶子）──────────────────────────────────────────────────
 function writeFile(p, content) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, content) }
+/** 造一个**真实**的 PKG 家族容器（PKGV=场景包 / PKGM=.mpkg 合集包；目录表 + 原样存储的载荷）。
+ *  与生产解析口径一致（packages/we-core/src/pkg.js 的 readPkgTable）。 */
+function buildPkg(magic, files) {
+  const i32 = (n) => { const b = Buffer.allocUnsafe(4); b.writeInt32LE(n | 0, 0); return b }
+  const u32 = (n) => { const b = Buffer.allocUnsafe(4); b.writeUInt32LE(n >>> 0, 0); return b }
+  const sized = (s) => { const body = Buffer.from(String(s), 'utf8'); return Buffer.concat([i32(body.length), body]) }
+  let dataLen = 0
+  const metas = files.map(([name, content]) => {
+    const buf = Buffer.isBuffer(content) ? content : Buffer.from(String(content))
+    const m = { name, buf, offset: dataLen }
+    dataLen += buf.length
+    return m
+  })
+  const head = [sized(magic), i32(metas.length)]
+  for (const m of metas) head.push(sized(m.name), u32(m.offset), u32(m.buf.length))
+  return Buffer.concat([...head, ...metas.map((m) => m.buf)])
+}
+/** 本机有没有 ffmpeg（缩略图抽帧那条能力用它；没有就 SKIP 对应断言，不当失败）。 */
+function whichFfmpeg() {
+  try { const p = execFileSync('which', ['ffmpeg'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); return p || null } catch { return null }
+}
+/** 造一个**真能抽帧**的 1 秒 mp4（没有 ffmpeg 就写假字节：只测类型判定，抽帧断言 SKIP）。 */
+function makeTinyMp4(out) {
+  fs.mkdirSync(path.dirname(out), { recursive: true })     // ffmpeg 不会替你建目录
+  const ff = whichFfmpeg()
+  if (!ff) { writeFile(out, 'FAKE-MP4-BYTES'); return false }
+  try {
+    execFileSync(ff, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=red:s=64x48:d=1', '-pix_fmt', 'yuv420p', out], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 30000 })
+    return fs.existsSync(out) && fs.statSync(out).size > 0
+  } catch { writeFile(out, 'FAKE-MP4-BYTES'); return false }
+}
 function makeFixture() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-8902-'))
   const ws = path.join(base, 'ws')
@@ -102,9 +133,47 @@ function makeFixture() {
   writeFile(path.join(dd, 'sub', 'inner-scene', 'project.json'), JSON.stringify({ type: 'scene', title: '子目录场景', file: 'scene.json' }))
   writeFile(path.join(dd, 'sub', 'inner-scene', 'scene.pkg'), 'PKGV-inner')
 
+  // ── 全类型语料（**独立库根** ws/types：不动 dd 的条目数，见 C3/C4）────────────────────────────
+  const types = path.join(ws, 'types')
+  writeFile(path.join(types, 'scene-a', 'project.json'), JSON.stringify({
+    type: 'Scene', title: '类型夹具·场景', file: 'scene.json', preview: 'preview.gif',
+    general: { properties: { clock: { type: 'bool', value: false } } },
+  }))
+  writeFile(path.join(types, 'scene-a', 'scene.pkg'), 'PKGV0022-scene-a')
+  writeFile(path.join(types, 'scene-a', 'preview.gif'), 'GIF89a-scene-a-preview')
+  writeFile(path.join(types, 'scene-gif', 'gifscene.pkg'), 'PKGV0022-gifscene')     // 无 project.json：靠内容判定
+  writeFile(path.join(types, 'scene-gif', 'preview.png'), 'PNG-scene-gif-preview')
+  writeFile(path.join(types, 'web-noproj', 'index.html'), '<!doctype html><title>fixture web no project.json</title>')
+  writeFile(path.join(types, 'web-noproj', 'assets', 'app.js'), 'console.log("web-noproj")')
+  writeFile(path.join(types, 'web-noproj', 'preview.gif'), 'GIF89a-web-noproj-preview')
+  const mp4Real = makeTinyMp4(path.join(types, 'video-noproj', 'clip.mp4'))          // 无 project.json / 无 preview
+  writeFile(path.join(types, 'video-declared', 'project.json'), JSON.stringify({ type: 'video', title: '类型夹具·视频', file: 'movie.mp4', preview: 'preview.jpg' }))
+  makeTinyMp4(path.join(types, 'video-declared', 'movie.mp4'))
+  writeFile(path.join(types, 'video-declared', 'preview.jpg'), 'JPEG-fixture-preview')
+  // mpkg 容器（PKGM 家族 = 实测语料里的 .mpkg 形态）：容器内 preview.gif 未压缩 ⇒ 缩略图可直出
+  const containerName = '夹具容器_01.mpkg'
+  const containerBuf = buildPkg('PKGM0018', [
+    ['preview.gif', Buffer.from('GIF89a-container-preview-bytes')],
+    ['project.json', Buffer.from(JSON.stringify({ title: '夹具容器场景', type: 'Scene', file: 'scene.pkg', preview: 'preview.gif', workshopid: '999' }))],
+    ['scene.pkg', Buffer.from('PKGV0022-inside-container')],
+  ])
+  fs.mkdirSync(path.join(types, 'mpkg-scene'), { recursive: true })
+  fs.writeFileSync(path.join(types, 'mpkg-scene', containerName), containerBuf)
+  // 顶层散落的 .mpkg（不是目录 ⇒ 不进列表，但必须**如实计数**并给出容器内类型）
+  const looseName = '散的容器.mpkg'
+  fs.mkdirSync(types, { recursive: true })
+  fs.writeFileSync(path.join(types, looseName), buildPkg('PKGM0014', [['scene.pkg', Buffer.from('PKGV0022-loose')], ['preview.gif', Buffer.from('GIF89a-loose')]]))
+  // 非 ASCII 目录名（中文收藏夹）：itemId 国际口径；内容 = scene.pkg
+  writeFile(path.join(types, '流萤', 'scene.pkg'), 'PKGV0022-liuying')
+  writeFile(path.join(types, '流萤', 'preview.gif'), 'GIF89a-liuying')
+  // unknown + 子目录提示（入口在**下一层**，本层没有信号）
+  writeFile(path.join(types, 'empty-dir', 'inner', 'scene.pkg'), 'PKGV0022-inner')
+
   let linkOk = false
   try { fs.symlinkSync(outside, path.join(dd, 'evil-link'), 'dir'); linkOk = true } catch { linkOk = false }
-  return { base, ws, dd, outside, linkOk }
+  let typesLinkOk = false
+  try { fs.symlinkSync(outside, path.join(types, 'evil-link'), 'dir'); typesLinkOk = true } catch { typesLinkOk = false }
+  return { base, ws, dd, types, outside, linkOk: linkOk && typesLinkOk, containerName, containerBuf, looseName, mp4Real }
 }
 
 /** 目录清单指纹（名字 + 大小；一律 statSync —— 本机 Dirent.isFile() 有误报）。 */
@@ -371,6 +440,236 @@ async function runSuite() {
     const stillWorks = await request(s2.port, 'GET', '/api/library')
     check('I3 降级不影响其它端点：同一进程里 /api/library 仍 200', stillWorks.status === 200, String(stillWorks.status))
     if (!fx.linkOk) skip('符号链接逃逸用例', '本机 symlinkSync 不可用（EPERM）')
+
+    console.log('\n[J] 服务端只读目录选择器（环境内浏览：不用系统对话框也能选到 <MPW_ROOT>/allwallpaper/**）')
+    const s3 = await startServer(fx, { MPW_LIBRARY_DIR: '', MPW_OPEN_CMD: '/bin/true' })   // 「默认来源」实例
+    servers.push(s3)
+    const P3 = s3.port
+    const rootList = await request(P3, 'GET', '/api/dir-list')
+    const rootDirs = ((J(rootList).dirs) || []).map((d) => d.name)
+    check('J1 GET /api/dir-list（无 path）→ 200 + 列浏览根（含 allwallpaper 与 types 夹具）',
+      rootList.status === 200 && J(rootList).dir === fx.ws && J(rootList).atRoot === true && J(rootList).parent === null && rootDirs.includes('allwallpaper') && rootDirs.includes('types') && J(rootList).readOnly === true,
+      `${rootList.status} dir=${J(rootList).dir} atRoot=${J(rootList).atRoot} dirs=${rootDirs.join(',')}`)
+    const inAll = await request(P3, 'GET', `/api/dir-list?path=${encodeURIComponent(fx.ws + '/allwallpaper')}`)
+    const inDirs = ((J(inAll).dirs) || []).map((d) => d.name)
+    check('J2 能进 <MPW_ROOT>/allwallpaper ⇒ 列出 dd（库根**之外、浏览根之内**的目录也能进）',
+      inAll.status === 200 && J(inAll).dir === path.join(fx.ws, 'allwallpaper') && inDirs.includes('dd') && J(inAll).parent === fx.ws,
+      `${inAll.status} dir=${J(inAll).dir} dirs=${inDirs.join(',')} parent=${J(inAll).parent}`)
+    const keyed = await request(P3, 'GET', '/api/dir-list?files=1&path=' + encodeURIComponent(fx.ws))
+    check('J3 列出的目录带"像不像壁纸"的判据（entryKind/signal）+ 计数 + 只读自述',
+      keyed.status === 200 && ((J(keyed).dirs) || []).every((d) => typeof d.entryKind === 'string' && 'looksLikeWallpaper' in d) && typeof J(keyed).counts.dirs === 'number' && J(keyed).pickHint && J(keyed).pickHint.commit,
+      JSON.stringify(((J(keyed).dirs) || []).slice(0, 3)))
+    const upR = await request(P3, 'GET', `/api/dir-parent?path=${encodeURIComponent(fx.ws + '/allwallpaper')}`)
+    check('J4 GET /api/dir-parent ⇒ 回上一级（from=原目录，dir=父目录）',
+      upR.status === 200 && J(upR).dir === fx.ws && J(upR).from === path.join(fx.ws, 'allwallpaper') && J(upR).atRoot === true && J(upR).moved === 'up' && J(upR).stayedAtRoot === false,
+      `${upR.status} dir=${J(upR).dir} from=${J(upR).from}`)
+    const esc1 = await request(P3, 'GET', '/api/dir-list?path=' + encodeURIComponent('../../etc'))
+    check('J5 浏览相对路径含 .. ⇒ 400（不是"被 new URL 规范化掉"）', esc1.status === 400, `${esc1.status} ${esc1.body.slice(0, 120)}`)
+    const esc2 = await request(P3, 'GET', '/api/dir-list?path=' + encodeURIComponent('/etc'))
+    const esc3 = await request(P3, 'GET', '/api/dir-list?path=%2Fetc')
+    check('J6 浏览绝对路径越界（/etc 与 %2Fetc）⇒ 403，且**没有**列出 /etc 的内容',
+      esc2.status === 403 && esc3.status === 403 && !/passwd|hostname/.test(esc2.body) && !/passwd/.test(esc3.body),
+      `${esc2.status}/${esc3.status} ${esc2.body.slice(0, 100)}`)
+    const esc4 = await request(P3, 'GET', '/api/dir-list?path=' + encodeURIComponent(fx.types + '/../..'))
+    check('J7 浏览路径用 ../.. 跳出去 ⇒ 403（绝对路径也要过真身校验）', esc4.status === 403, `${esc4.status} ${esc4.body.slice(0, 120)}`)
+    const escLink = await request(P3, 'GET', '/api/dir-list?path=' + encodeURIComponent(fx.types + '/evil-link'))
+    const typesList = await request(P3, 'GET', `/api/dir-list?path=${encodeURIComponent(fx.types)}`)
+    check('J8 符号链接逃逸目录：直接进 ⇒ 403；在父目录列表里 ⇒ **不出现**',
+      escLink.status === 403 && !((J(typesList).dirs) || []).some((d) => d.name === 'evil-link') && !/TOP-SECRET/.test(escLink.body),
+      `${escLink.status} listed=${((J(typesList).dirs) || []).map((d) => d.name).join(',')}`)
+    const pickOk = await request(P3, 'POST', '/api/dir-pick', { json: { path: fx.types } })
+    check('J9 POST /api/dir-pick（就选这个目录）⇒ 200 + picked + 扫描摘要 + **不改库根**（asLibrary 默认 false）',
+      pickOk.status === 200 && J(pickOk).picked === true && J(pickOk).dir === fx.types && J(pickOk).asLibrary === false && J(pickOk).scan && J(pickOk).scan.count === 8 && J(pickOk).libraryBefore.dir === fx.dd,
+      `${pickOk.status} ${JSON.stringify({ picked: J(pickOk).picked, dir: J(pickOk).dir, asLibrary: J(pickOk).asLibrary, count: J(pickOk).scan && J(pickOk).scan.count, kinds: J(pickOk).scan && J(pickOk).scan.kinds, escaped: J(pickOk).scan && J(pickOk).scan.escaped, before: J(pickOk).libraryBefore })}`)
+    check('J10 dir-pick 的扫描摘要如实分开"子目录条目"与"顶层散文件/容器"；逃逸软链只计 escaped 不算条目',
+      J(pickOk).scan.dirs === 9 && J(pickOk).scan.escaped === 1 && J(pickOk).scan.count === 8 && J(pickOk).scan.looseFiles === 1 && J(pickOk).scan.looseContainers.length === 1 && J(pickOk).scan.looseContainers[0].kind === 'scene' && J(pickOk).scan.looseContainers[0].name === fx.looseName,
+      JSON.stringify({ dirs: J(pickOk).scan.dirs, escaped: J(pickOk).scan.escaped, count: J(pickOk).scan.count, looseFiles: J(pickOk).scan.looseFiles, loose: J(pickOk).scan.looseContainers.map((c) => c.name + ':' + c.kind) }))
+    const pickEsc = await request(P3, 'POST', '/api/dir-pick', { json: { path: '/etc' } })
+    const pickEsc2 = await request(P3, 'POST', '/api/dir-pick', { json: { path: '../../' } })
+    const pickMiss = await request(P3, 'POST', '/api/dir-pick', { json: { path: fx.ws + '/nope-not-here' } })
+    check('J11 dir-pick：越界绝对路径 ⇒ 403；.. ⇒ 400；不存在 ⇒ 404',
+      pickEsc.status === 403 && pickEsc2.status === 400 && pickMiss.status === 404, `${pickEsc.status}/${pickEsc2.status}/${pickMiss.status}`)
+    const compat = await request(P3, 'GET', '/list-dirs?path=' + encodeURIComponent(fx.ws + '/allwallpaper'))
+    check('J12 兼容壳 GET /list-dirs（插件同形：{ok,dir,subdirs,home,platform}）⇒ 200 且 subdirs 含 dd',
+      compat.status === 200 && Array.isArray(J(compat).subdirs) && J(compat).subdirs.includes('dd') && typeof J(compat).home === 'string' && typeof J(compat).platform === 'string',
+      `${compat.status} ${compat.body.slice(0, 160)}`)
+    const fsRootsR = await request(P3, 'GET', '/api/fs/roots')
+    const labels = ((J(fsRootsR).roots) || []).map((r) => r.label).join(' | ')
+    const pathsAbs = ((J(fsRootsR).roots) || []).every((r) => path.isAbsolute(r.path))
+    check('J13 GET /api/fs/roots ⇒ {ok,roots:[{label,path(绝对)}]}（含宿主 home / 工作区 / allwallpaper / 当前库目录）',
+      fsRootsR.status === 200 && Array.isArray(J(fsRootsR).roots) && pathsAbs && J(fsRootsR).roots.length >= 4 &&
+      ((J(fsRootsR).roots) || []).some((r) => r.path === fx.ws) && ((J(fsRootsR).roots) || []).some((r) => r.path === path.join(fx.ws, 'allwallpaper')) && ((J(fsRootsR).roots) || []).some((r) => r.path === os.homedir()),
+      `${fsRootsR.status} ${labels}`)
+    const fsList = await request(P3, 'GET', '/api/fs/list?path=' + encodeURIComponent(fx.types))
+    const fe = (J(fsList).entries) || []
+    const byName = (n) => fe.find((e) => e.name === n)
+    check('J14 GET /api/fs/list ⇒ {ok,path,parent,entries:[{name,type,size,kind}]}（kind 枚举齐全）',
+      fsList.status === 200 && J(fsList).path === fx.types && J(fsList).parent === fx.ws && fe.length === 9 &&
+      fe.every((e) => typeof e.name === 'string' && (e.type === 'dir' || e.type === 'file') && typeof e.size === 'number' && ['wallpaper', 'scene', 'video', 'web', 'other'].includes(e.kind)),
+      `${fsList.status} n=${fe.length} ${fe.slice(0, 4).map((e) => `${e.name}:${e.type}:${e.kind}`).join(',')}`)
+    check('J15 fs/list 的 kind 判定：目录看"是不是壁纸目录"、文件看扩展名（scene/video/web/other），非 ASCII 名照列',
+      !!byName('scene-a') && byName('scene-a').kind === 'wallpaper' && byName('scene-a').entryKind === 'scene' &&
+      !!byName('web-noproj') && byName('web-noproj').kind === 'wallpaper' && byName('web-noproj').entryKind === 'web' &&
+      !!byName('empty-dir') && byName('empty-dir').kind === 'other' &&
+      !!byName(fx.looseName) && byName(fx.looseName).type === 'file' && byName(fx.looseName).kind === 'scene' && byName(fx.looseName).container === true &&
+      !!byName('流萤') && byName('流萤').kind === 'wallpaper' && byName('流萤').entryKind === 'scene',
+      JSON.stringify(fe.map((e) => `${e.name}:${e.type}:${e.kind}:${e.entryKind || ''}`)))
+    const fsListRel = await request(P3, 'GET', '/api/fs/list?path=relative/thing')
+    const fsListEsc = await request(P3, 'GET', '/api/fs/list?path=' + encodeURIComponent(fx.outside))
+    const fsListSym = await request(P3, 'GET', '/api/fs/list?path=' + encodeURIComponent(fx.types + '/evil-link'))
+    const fsListMiss = await request(P3, 'GET', '/api/fs/list?path=' + encodeURIComponent(fx.ws + '/nope'))
+    check('J16 fs/list 错误码：相对路径 ⇒ 400；越界/符号链接逃逸 ⇒ 403；不存在 ⇒ 404（只读，绝不写）',
+      fsListRel.status === 400 && fsListEsc.status === 403 && fsListSym.status === 403 && fsListMiss.status === 404,
+      `${fsListRel.status}/${fsListEsc.status}/${fsListSym.status}/${fsListMiss.status}`)
+    const fsPick = await request(P3, 'POST', '/api/fs/pick', { json: { path: fx.types, scan: false } })
+    const afterPick = await request(P3, 'GET', '/api/library')
+    check('J17 POST /api/fs/pick ⇒ 200 + source:"user" 且库根真的换了（/api/library.dir + items 都是它）',
+      fsPick.status === 200 && J(fsPick).source === 'user' && J(fsPick).selected === true && J(fsPick).path === fx.types &&
+      J(afterPick).dir === fx.types && J(afterPick).source === 'user' && ((J(afterPick).items) || []).length === 8,
+      `${fsPick.status} ${fsPick.body.slice(0, 160)} → dir=${J(afterPick).dir} items=${((J(afterPick).items) || []).length}`)
+    const resetBack = await request(P3, 'POST', '/api/library-dir', { json: { reset: true } })
+    check('J18 POST /api/library-dir {reset:true} ⇒ 库根还原且 source 回到配置来源（不再假装 user）',
+      resetBack.status === 200 && J(resetBack).dir === fx.dd && J(resetBack).selected === false && J(resetBack).source === 'default',
+      `${resetBack.status} ${resetBack.body.slice(0, 160)}`)
+
+    console.log('\n[K] 库来源必须**显式**（env / cli / user / default / none；未选择时不许假装已选）')
+    const srcEnv = await request(P, 'GET', '/api/library-source')
+    check('K1 MPW_LIBRARY_DIR 指定 ⇒ source=env + selected=false（配置来源 ≠ 用户已选）',
+      srcEnv.status === 200 && J(srcEnv).source === 'env' && J(srcEnv).selected === false && J(srcEnv).explicit === true && J(srcEnv).dir === fx.dd &&
+      /MPW_LIBRARY_DIR/.test(J(srcEnv).library.configuredFrom), `${srcEnv.status} ${srcEnv.body.slice(0, 200)}`)
+    const srcDefault = await request(P3, 'GET', '/api/library-source')
+    check('K2 没给 MPW_LIBRARY_DIR ⇒ source=default，且路径就是仓库约定 <MPW_ROOT>/allwallpaper/dd（不是"用户选过"）',
+      srcDefault.status === 200 && J(srcDefault).source === 'default' && J(srcDefault).selected === false && J(srcDefault).explicit === false &&
+      J(srcDefault).dir === fx.dd && J(srcDefault).library.configuredSource === 'default' && /allwallpaper/.test(J(srcDefault).library.configuredFrom),
+      `${srcDefault.status} ${srcDefault.body.slice(0, 220)}`)
+    const libDefault = await request(P3, 'GET', '/api/library')
+    check('K3 默认来源仍然可用（列表非空）但顶层 source/selected/explicit 三件套如实回报',
+      libDefault.status === 200 && J(libDefault).source === 'default' && J(libDefault).selected === false && J(libDefault).explicit === false &&
+      ((J(libDefault).items) || []).length === 3 && typeof J(libDefault).dir === 'string',
+      `source=${J(libDefault).source} selected=${J(libDefault).selected} items=${((J(libDefault).items) || []).length}`)
+    const hDef = await request(P3, 'GET', '/__health')
+    check('K4 /__health.library 也带 source/selected/reason（人读的来龙去脉，不用猜）',
+      J(hDef).library && J(hDef).library.source === 'default' && J(hDef).library.selected === false && typeof J(hDef).library.reason === 'string' && /没有人选过|默认/.test(J(hDef).library.reason),
+      JSON.stringify(J(hDef).library && { source: J(hDef).library.source, reason: String(J(hDef).library.reason).slice(0, 120) }))
+    const srcNone = await (async () => {
+      const empty = path.join(fx.base, 'emptyspace')          // MPW_ROOT 指到空目录 ⇒ 默认库根不存在
+      fs.mkdirSync(empty, { recursive: true })
+      const s5 = await startServer(fx, { MPW_ROOT: empty, MPW_LIBRARY_DIR: '', MPW_OPEN_CMD: '/bin/true' })
+      servers.push(s5)
+      const r = await request(s5.port, 'GET', '/api/library-source')
+      const lib = await request(s5.port, 'GET', '/api/library')
+      check('K5 没有显式配置且默认路径不存在 ⇒ source=none（连"回退"都不成立），items 为空且 **ok:true**（不是 500）',
+        r.status === 200 && J(r).source === 'none' && J(r).exists === false && J(r).selected === false &&
+        lib.status === 200 && J(lib).ok === true && J(lib).missing === true && ((J(lib).items) || []).length === 0 && /不存在/.test(String(J(lib).error)),
+        `${r.status} ${r.body.slice(0, 160)} | library=${lib.status} ${lib.body.slice(0, 140)}`)
+      return r
+    })()
+    check('K6 source=none 时 /api/library-source 也如实给出 reason（人读：没有 MPW_LIBRARY_DIR、默认路径也不存在）',
+      /默认路径|没有/.test(String(J(srcNone).reason)) && J(srcNone).library.configuredExists === false,
+      String(J(srcNone).reason).slice(0, 200))
+
+    console.log('\n[L] 全类型扫描（scene / video / web / mpkg）+ 缩略图 + 容器目录表（web/mp4 档也要能出图）')
+    const cliSrv = await startServer(fx, { MPW_LIBRARY_DIR: '', MPW_OPEN_CMD: '/bin/true' }, [`--library=${fx.types}`])
+    servers.push(cliSrv)
+    const P4 = cliSrv.port
+    const srcCli = await request(P4, 'GET', '/api/library-source')
+    check('L1 --library=DIR ⇒ source=cli（命令行来源也要显式）+ selected=false',
+      srcCli.status === 200 && J(srcCli).source === 'cli' && J(srcCli).selected === false && J(srcCli).explicit === true && J(srcCli).dir === fx.types,
+      `${srcCli.status} ${srcCli.body.slice(0, 200)}`)
+    const lib4 = await request(P4, 'GET', '/api/library')
+    const items4 = (J(lib4).items) || []
+    const it = (id) => items4.find((i) => i.itemId === id)
+    check('L2 逐类计数：scene 3 / video 2 / web 1 / mpkg 1 / unknown 1（fixture 8 项）',
+      J(lib4).count === 8 && JSON.stringify(J(lib4).scan.kinds) === JSON.stringify({ scene: 3, video: 2, web: 1, mpkg: 1, unknown: 1 }),
+      `count=${J(lib4).count} kinds=${JSON.stringify(J(lib4).scan.kinds)} items=${items4.map((i) => i.itemId + ':' + i.kind).join(',')}`)
+    check('L3 容器内类型单独计数（containerKinds.scene=1）+ 信号聚合（scene/web/video/mpkg/预览 逐项计数）',
+      J(lib4).scan.containerKinds.scene === 1 && J(lib4).scan.signals.withScene === 3 && J(lib4).scan.signals.withHtml === 1 && J(lib4).scan.signals.withVideo === 2 && J(lib4).scan.signals.withMpkg === 1 && J(lib4).scan.signals.withPreview === 5,
+      JSON.stringify({ containerKinds: J(lib4).scan.containerKinds, signals: J(lib4).scan.signals }))
+    check('L4 网页档（**没有 project.json**）：kind=web / kindSource=content / entryFile=index.html / renderable=true',
+      !!it('web-noproj') && it('web-noproj').kind === 'web' && it('web-noproj').kindSource === 'content' && it('web-noproj').entryFile === 'index.html' &&
+      it('web-noproj').renderable === true && it('web-noproj').hasHtml === true && it('web-noproj').type === 'web' && it('web-noproj').hasProject === false,
+      JSON.stringify(it('web-noproj') && { kind: it('web-noproj').kind, src: it('web-noproj').kindSource, entry: it('web-noproj').entryFile, type: it('web-noproj').type }))
+    check('L5 视频档：无声明（video-noproj）与有声明（video-declared）都判成 video；entryFile 指向真正的 mp4',
+      !!it('video-noproj') && it('video-noproj').kind === 'video' && it('video-noproj').entryFile === 'clip.mp4' && it('video-noproj').hasVideo === true &&
+      !!it('video-declared') && it('video-declared').kind === 'video' && it('video-declared').preview === 'preview.jpg' && it('video-declared').file === 'movie.mp4',
+      JSON.stringify(items4.filter((i) => i.kind === 'video').map((i) => ({ id: i.itemId, entry: i.entryFile, kindSource: i.kindSource }))))
+    check('L6 mpkg 档：kind=mpkg + 容器内类型 scene + 容器内 preview 可直出 + 内容优先判定（type 派生 mpkg）',
+      !!it('mpkg-scene') && it('mpkg-scene').kind === 'mpkg' && it('mpkg-scene').container === true && it('mpkg-scene').containerKind === 'scene' &&
+      it('mpkg-scene').containerEntry === 'scene.pkg' && !!it('mpkg-scene').containerPreview && it('mpkg-scene').containerPreview.entry === 'preview.gif' &&
+      it('mpkg-scene').renderable === false && it('mpkg-scene').file === fx.containerName && it('mpkg-scene').type === 'mpkg' && it('mpkg-scene').title === '夹具容器场景',
+      JSON.stringify(it('mpkg-scene') && { kind: it('mpkg-scene').kind, ck: it('mpkg-scene').containerKind, ce: it('mpkg-scene').containerEntry, cp: it('mpkg-scene').containerPreview, title: it('mpkg-scene').title }))
+    check('L7 非 ASCII 目录名（中文收藏夹）照常成条目并可渲染（itemId 国际口径，不再被静默丢掉）',
+      !!it('流萤') && it('流萤').kind === 'scene' && it('流萤').hasScene === true && it('流萤').renderable === true && it('流萤').type === 'scene',
+      JSON.stringify(it('流萤') && { id: it('流萤').itemId, kind: it('流萤').kind, scene: it('流萤').scenePkg }))
+    check('L8 顶层散落的 .mpkg 文件：不进条目列表，但**如实计数**（scan.looseFiles/looseMpkgFiles）并给出理由',
+      J(lib4).scan.looseFiles === 1 && ((J(lib4).scan.looseMpkgFiles) || []).includes(fx.looseName) && /目录型/.test(String(J(lib4).scan.looseFileNote)),
+      JSON.stringify({ looseFiles: J(lib4).scan.looseFiles, loose: J(lib4).scan.looseMpkgFiles, note: J(lib4).scan.looseFileNote }))
+    check('L9 unknown 条目带"下一层像不像壁纸"的提示（probe.subdirsWithSignals）—— 回答"为什么这层扫不出来"',
+      !!it('empty-dir') && it('empty-dir').kind === 'unknown' && it('empty-dir').probe && it('empty-dir').probe.subdirs === 1 && it('empty-dir').probe.subdirsWithSignals === 1,
+      JSON.stringify(it('empty-dir') && { kind: it('empty-dir').kind, probe: it('empty-dir').probe }))
+    const skippedNames = ((J(lib4).scan.skippedList) || []).map((s) => s.name)
+    check('L10 逃逸符号链接条目进 scan.skippedList（带理由），不是静默消失',
+      J(lib4).scan.skipped >= 1 && skippedNames.includes('evil-link') && /越出|符号链接/.test(JSON.stringify(J(lib4).scan.skippedList)),
+      JSON.stringify(J(lib4).scan.skippedList))
+    const mpkgR = await request(P4, 'GET', `/api/mpkg?item=mpkg-scene&file=${encodeURIComponent(fx.containerName)}`)
+    check('L11 GET /api/mpkg ⇒ 只读容器目录表（magic/条目/内层类型/容器内 project.json）',
+      mpkgR.status === 200 && J(mpkgR).tableOk === true && J(mpkgR).magic === 'PKGM0018' && J(mpkgR).kind === 'scene' &&
+      ((J(mpkgR).entryNames) || []).includes('scene.pkg') && J(mpkgR).declared && J(mpkgR).declared.title === '夹具容器场景' && J(mpkgR).readOnly === true,
+      `${mpkgR.status} ${mpkgR.body.slice(0, 220)}`)
+    const mpkgEsc = await request(P4, 'GET', '/api/mpkg?item=mpkg-scene&file=' + encodeURIComponent('../../secret.txt'))
+    const mpkgMiss = await request(P4, 'GET', `/api/mpkg?item=mpkg-scene&file=${encodeURIComponent('nope.mpkg')}`)
+    check('L12 /api/mpkg：容器名带路径 ⇒ 400；不存在的容器 ⇒ 404', mpkgEsc.status === 400 && mpkgMiss.status === 404, `${mpkgEsc.status}/${mpkgMiss.status}`)
+    const thWeb = await request(P4, 'GET', '/api/thumb?item=web-noproj')
+    check('L13 缩略图（web 档）：库里现成 preview.gif 直出 + X-Bench-Thumb 说明来源',
+      thWeb.status === 200 && /image\/gif/.test(String(thWeb.headers['content-type'])) && String(thWeb.headers['x-bench-thumb']).length > 0 && thWeb.buf.length > 0,
+      `${thWeb.status} ${thWeb.headers['content-type']} ${thWeb.headers['x-bench-thumb']} ${thWeb.buf.length}B`)
+    const thMpkg = await request(P4, 'GET', '/api/thumb?item=mpkg-scene')
+    check('L14 缩略图（mpkg 档）：容器内**未压缩** preview.gif 直出（不解包也能出图；来源写在响应头）',
+      thMpkg.status === 200 && /image\/gif/.test(String(thMpkg.headers['content-type'])) && thMpkg.headers['x-bench-thumb'] === 'container-preview' &&
+      decodeURIComponent(String(thMpkg.headers['x-bench-entry'] || '')) === 'preview.gif' && thMpkg.buf.toString('latin1', 0, 6) === 'GIF89a',
+      `${thMpkg.status} ${thMpkg.headers['content-type']} ${thMpkg.headers['x-bench-thumb']} ${thMpkg.headers['x-bench-entry']}`)
+    const thVideo = await request(P4, 'GET', '/api/thumb?item=video-declared')
+    check('L15 缩略图（mp4 档有 preview.jpg）：直出库里的预览图，不需要 ffmpeg',
+      thVideo.status === 200 && /image\/jpeg/.test(String(thVideo.headers['content-type'])), `${thVideo.status} ${thVideo.headers['content-type']}`)
+    if (fx.mp4Real) {
+      const thFrame = await request(P4, 'GET', '/api/thumb?item=video-noproj&w=160')
+      check('L15b 缩略图（mp4 档**没有** preview.*）：ffmpeg 抽一帧 ⇒ 200 image/jpeg（JPEG 魔数 FFD8）',
+        thFrame.status === 200 && /image\/jpeg/.test(String(thFrame.headers['content-type'])) && thFrame.buf[0] === 0xff && thFrame.buf[1] === 0xd8,
+        `${thFrame.status} ${thFrame.headers['content-type']} ${thFrame.buf.length}B`)
+    } else skip('L15b 视频抽帧缩略图', '本机没有 ffmpeg（或用它造 mp4 失败）')
+    const thNone = await request(P4, 'GET', '/api/thumb?item=empty-dir')
+    check('L16 缩略图（既无 preview 也非视频）：**501** + unsupported + reason + hint（不假装有图）',
+      thNone.status === 501 && J(thNone).unsupported === true && !!J(thNone).reason && !!J(thNone).hint, `${thNone.status} ${thNone.body.slice(0, 180)}`)
+    const webEntry = await request(P4, 'GET', '/web/dev/web-noproj/index.html')
+    const webAsset = await request(P4, 'GET', '/web/dev/web-noproj/assets/app.js')
+    const mediaHtml = await request(P4, 'GET', '/media/dev/web-noproj/index.html')
+    check('L17 web 档的清单面与入口面：/web/dev/<id>/index.html + 子资源 + /media/dev/<id>/index.html 全 200',
+      webEntry.status === 200 && /text\/html/.test(String(webEntry.headers['content-type'])) && webEntry.body.includes('web no project.json') &&
+      webAsset.status === 200 && /javascript/.test(String(webAsset.headers['content-type'])) && mediaHtml.status === 200,
+      `${webEntry.status}/${webAsset.status}/${mediaHtml.status}`)
+    const vidRange = await request(P4, 'GET', '/media/dev/video-declared/movie.mp4', { headers: { Range: 'bytes=0-3' } })
+    check('L18 mp4 档走 /media/dev/**：Range ⇒ 206 + Content-Range（拖动进度/首帧必需）',
+      vidRange.status === 206 && /^bytes 0-3\//.test(String(vidRange.headers['content-range'])) && vidRange.buf.length === 4,
+      `${vidRange.status} ${vidRange.headers['content-range']}`)
+    const intlMedia = await request(P4, 'GET', `/media/dev/${encodeURIComponent('流萤')}/preview.gif`)
+    const mpkgMedia = await request(P4, 'GET', `/media/dev/mpkg-scene/${encodeURIComponent(fx.containerName)}`)
+    check('L19 非 ASCII itemId 与 .mpkg 容器本体都能经 /media/dev/** 原样取到（容器字节逐字节相同）',
+      intlMedia.status === 200 && intlMedia.body === 'GIF89a-liuying' && mpkgMedia.status === 200 && Buffer.compare(mpkgMedia.buf, fx.containerBuf) === 0,
+      `${intlMedia.status}/${mpkgMedia.status} ${mpkgMedia.buf.length}B vs ${fx.containerBuf.length}B`)
+    const delUnknown = await request(P4, 'POST', '/api/delete?confirm=1', { json: { itemId: 'empty-dir' } })
+    const unknownStillThere = fs.existsSync(path.join(fx.types, 'empty-dir'))
+    check('L20 安全意识：库根可被选择器指到任意目录 ⇒ 真删"没有壁纸信号"的目录需要显式 ack（409 + needsAck），默认拒绝',
+      delUnknown.status === 409 && J(delUnknown).needsAck === true && unknownStillThere, `${delUnknown.status} ${delUnknown.body.slice(0, 160)}`)
+    const delAck = await request(P4, 'POST', '/api/delete?confirm=1', { json: { itemId: 'empty-dir', ack: true } })
+    check('L21 带 {ack:true} 才移进回收站（仍可 mv 回滚，不是永久删除）',
+      delAck.status === 200 && J(delAck).dryRun === false && !fs.existsSync(path.join(fx.types, 'empty-dir')) && String(J(delAck).rollback || '').startsWith('mv '),
+      `${delAck.status} ${delAck.body.slice(0, 160)}`)
+    const hFf = await request(P4, 'GET', '/__health')
+    check('L22 /__health 如实报告选择器契约、缩略图引擎与全类型能力（能力清单可被发现）',
+      !!J(hFf).dirPicker && J(hFf).dirPicker.readOnly === true && typeof J(hFf).dirPicker.browseRoot === 'string' &&
+      !!J(hFf).capabilities.fullTypeScan && !!J(hFf).capabilities.serverDirPicker && !!J(hFf).capabilities.thumbRoute &&
+      !!J(hFf).libraryScan && typeof J(hFf).libraryScan.kinds === 'object',
+      JSON.stringify({ picker: J(hFf).dirPicker && J(hFf).dirPicker.routes, caps: { fullTypeScan: J(hFf).capabilities.fullTypeScan, serverDirPicker: J(hFf).capabilities.serverDirPicker } }))
     return { fx }
   } finally {
     for (const s of servers) await s.stop()
@@ -403,6 +702,36 @@ const MUTATIONS = [
     apply(src) {
       const from = '    if (!confirm) {'
       const to = '    if (false) {'
+      if (src.split(from).length !== 2) return { error: `变异锚点未命中唯一位置：${from}` }
+      return { out: src.replace(from, to) }
+    },
+  },
+  {
+    name: 'C-目录选择器去掉浏览边界（`containingBrowseRoot()` 恒真 ⇒ 绝对越界/符号链接逃逸全部放行；`..` 仍被独立拒绝）',
+    expects: ['J5', 'J6', 'J7', 'J8', 'J11'],
+    apply(src) {
+      const from = "  return isInside(PICK_ROOT_REAL, real) ? { label: 'browseRoot', path: PICK_ROOT_REAL } : null"
+      const to = "  return { label: 'browseRoot', path: PICK_ROOT_REAL, real }   // 变异：浏览边界恒真"
+      if (src.split(from).length !== 2) return { error: `变异锚点未命中唯一位置：${from}` }
+      return { out: src.replace(from, to) }
+    },
+  },
+  {
+    name: 'D-库来源永远报"用户已选"（`source` 恒为 user + selected 恒真 ⇒ 未选择却假装已选）',
+    expects: ['K1', 'K2', 'K3'],
+    apply(src) {
+      const from = "  const baseSource = selection ? 'user' : LIBRARY_SOURCE_INFO.source"
+      const to = "  const baseSource = 'user'; selection = selection || { dir: activeRoot, at: Date.now(), mode: 'mutant' }"
+      if (src.split(from).length !== 2) return { error: `变异锚点未命中唯一位置：${from}` }
+      return { out: src.replace(from, to) }
+    },
+  },
+  {
+    name: 'E-类型判定退回"只认 scene"（内容信号优先那条早退恒真 ⇒ web/video/mpkg 全被标成 scene）',
+    expects: ['L2', 'L4', 'L5', 'L6'],
+    apply(src) {
+      const from = "  if (sig.scene) return { kind: 'scene', kindSource: 'content', reason: 'scene-container' }"
+      const to = "  if (sig.scene || true) return { kind: 'scene', kindSource: 'content', reason: 'scene-container' }"
       if (src.split(from).length !== 2) return { error: `变异锚点未命中唯一位置：${from}` }
       return { out: src.replace(from, to) }
     },
