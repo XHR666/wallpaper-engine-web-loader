@@ -517,7 +517,7 @@ web 档 `3644069061`（本机 7 张 web 档里唯一带 2×`<video>` + 3×`<audi
 |---|---|---|---|
 | ① | 壁纸条可关闭 + 长标题不把 `×` 顶远 | `demo/index.html` 里给 `#editor-tabs .tab` 上限 200px、`.wp-tab .wp-name` 走 CSS 省略号；`demo/bench-patch.js` 在每个固定标签右端内侧加 `.wp-x`，当前壁纸那一格加**兄弟**按钮 `.wp-x-cur`（`#current` 的文本由产物写，写子节点会被冲掉）；关闭决策走纯函数 `closeTabPlan()` | 标签宽 `200px`（= `max-width`）、`.wp-name` `overflow:hidden` + `text-overflow:ellipsis`；当前格 180px、`×` 紧贴右缘 **gap 0px**、`elementFromPoint` 命中它自己 |
 | ② | 新「调试模式」页签 | `#tab-debug` + `#debug-body`（按钮行 / `#dbg-state` / `#dbg-layer` / `#dbg-log`）；←/→=±1 层、↑/↓=±10 层、Ctrl=全部恢复、Alt=退出；**只在本页签激活期间**装 capture keydown，退出立刻卸掉 | 未激活时 ←/→/Alt 默认行为照旧（不吞）；激活后 `view=debug`、`active=true`、`keys=true`、日志 **129 行**；激活期间 ←/→/Ctrl 被吞、`a` 不被吞；Alt 退出后视图回 `logs`、监听卸掉、默认行为恢复 |
-| ② | 「立即上报」 | `debugReportPlan()` 组一份 `bench-debug/1` 载荷（时间/当前壁纸/UA/图层/媒体数/诊断文本 ≤100 行），依次 POST `/report` → `/baseline` → `/diag`，并把**实际落点**写进日志；本地另留一份 `localStorage['bench-debug-report']` | 载荷 **11 935 B**、`schema=bench-debug/1`、`diagLines=64`、实际落点 **`/diag`**（本机服务端只有这条）、本地副本 11 935 B |
+| ② | 「立即上报」 | `debugReportPlan()` 组一份 `bench-debug/1` 载荷（时间/当前壁纸/UA/图层/媒体数/诊断文本 ≤100 行），依次 POST `/report` → `/baseline` → `/diag`，并把**实际落点**写进日志；本地另留一份 `localStorage['bench-debug-report']` | 载荷 **11 935 B**、`schema=bench-debug/1`、`diagLines=64`、实际落点 **`/report`**（P-166 之前是 `/diag`——那时服务端只有环形缓冲这条；现在第一条就成功）、本地副本 11 935 B |
 | ② | 「截图」 | 走渲染器自己的 `__wp.capture(0)`（JPEG data URL）⇒ `a[download]`；拿不到就**写明原因**（渲染器未就绪 / capture 返回空） | 本机当前无场景 ⇒ 返回 `null` 并写日志（不假装成功）；有场景时 Z5 的口径是 `bytes > 1KB` |
 | ③ | 重复点"已选中"的壁纸必须幂等 | 决策抽成纯函数 `switchDecision()`（目标已经是当前项 ⇒ 不 `click()`）；`#list` 上再加一道**捕获阶段**拦截并计数（`#np-host[data-np-idem]`） | 连点 3 次：`#frame` src 不变、`Mount` 日志 **8→8**、列表节点身份不变、拦截计数 **3** |
 | ④ | 鼠标尾迹不按键也出（与 `:8899` 对齐） | 舞台内的 `pointermove` 经 `forwardPointerMove()` 走 `__wp.pushPointer(u,v,buttons=0,mods)`；是否转发由纯函数 `pointerForwardPlan()` 定（开关 / 入口 / **舞台上是 web 档则不转发**，避免原生+注入双投递） | 注入遮罩 + 尾迹开启下**不按键**移动：转发计数 **1→9**；尾迹画布墨迹 **0→332** 像素（`:8899` 同口径） |
@@ -536,17 +536,19 @@ web 档 `3644069061`（本机 7 张 web 档里唯一带 2×`<video>` + 3×`<audi
 
 ### 10.3 上报存哪儿（②的"写清楚"部分）
 
-| 落点 | 现状 | 存到哪 |
+| 落点 | 现状（**P-166 已补齐两条**） | 存到哪 |
 |---|---|---|
-| `POST /report` | **`:8902` 服务端没有这条路由**（返回 404） | —— （`:8899` 有：`<MPW_REPORTS_DIR>/r<ts>.json`） |
-| `POST /baseline` | **`:8902` 服务端没有这条路由**（返回 404） | —— （`:8899` 有：`<MPW_REPORTS_DIR>/baselines/<ts>.json`） |
-| `POST /diag` | 有（渲染器诊断流的同一入口） | 进 **服务端 `/diag` 环形缓冲**（`GET /api/diag-stream` 能看到），不落成单独文件 |
+| `POST /report` | ✅ **有**（`7c3a137` P-166 补；与 `:8899` 同形） | `<MPW_REPORTS_DIR>/r<ts>.json`（默认 `<MPW_ROOT>/reports/`），服务端 stdout 打印一行落点；上限 60 份 / 64 MB，最旧先删 |
+| `POST /baseline` | ✅ **有**（同批补） | `<MPW_REPORTS_DIR>/baselines/<ts>.json`；body ≤1 MB 且必须过 `core/baseline-metrics.mjs` 校验（不完整 ⇒ **400 且不落盘**）；上限 200 份 / 32 MB |
+| `POST /diag` | 有（渲染器诊断流的同一入口） | 进 **服务端 `/diag` 环形缓冲**（`GET /api/diag-stream` 能看到），不落成单独文件（内存，重启即失——前两条都不可用时的兜底） |
 | `localStorage['bench-debug-report']` | 有 | 浏览器本地副本（最近一次上报的完整 JSON），刷新后仍在 |
 | 「截图」 | 有 | 浏览器下载目录（文件名 `bench-shot-<ts>.jpg`），不经过服务端 |
 
-⇒ **要让"立即上报"落成文件**，需要 `:8902` 服务端补两条与 `:8899` 同形的路由（`<MPW_REPORTS_DIR>/r<ts>.json`
-与 `<MPW_REPORTS_DIR>/baselines/<ts>.json`）。那是 `server/**`（本批不在授权文件内），本批没动；
-在补上之前，载荷**不会**静默丢掉：它照样进 `/diag` 环形缓冲 + 本地副本，日志里写明"服务端未提供 /report 与 /baseline"。
+⇒ 「立即上报」现在**按顺序**打到 `/report`（现场快照）⇒ 成功即止；`/report` 不可用才退 `/baseline`，再退 `/diag`。
+上限、环境变量（`MPW_LIMIT_REPORTS_MAX` / `MPW_LIMIT_REPORTS_BYTES` / `MPW_LIMIT_BASELINE_MAX` /
+`MPW_LIMIT_BASELINE_BYTES`，与 `:8899` 同名同义）与滚动白名单（`<reports>/parity-*.json` 等别条线产物一个都不动）
+都在 `/__health.report` 里自述 —— 读的人不用翻代码。判据：`tests/bench-server-test.mjs` **M1–M11**（含"路由整段消失"与
+"基线校验放行"两组变异自证）。
 
 ### 10.4 判据（`bash tests/run-all-tests.sh --only bench-shell-fixes bench-ui-headless`）
 
@@ -566,7 +568,7 @@ web 档 `3644069061`（本机 7 张 web 档里唯一带 2×`<video>` + 3×`<audi
    面板如实写"没有可逐层查看的场景（未挂载 / 场景加载中 / WebGL 不可用）"，**不编造层号**。
 2. **键盘只在页签激活期间被接管**：这是刻意纪律（←/→ 在工具条其它地方有原生用途）。Alt 退出、点其它页签、
    或调 `setDebugMode(false)` 都会立刻卸监听并恢复全部图层可见。
-3. **上报不落文件**（§10.3）：缺的是服务端两条路由，不是前端不做。
+3. ~~**上报不落文件**（§10.3）~~ ⇒ **已收口**（P-166 补齐 `POST /report` 与 `POST /baseline`；见 §10.3 表）。
 4. **图标只换了测试台这一页（`demo/**`）的引用**：站点根 PWA 那一套（`web/manifest.webmanifest`、
    `web/pwa-inject.mjs`、`web/sw.js`、`web/icons/**`）仍指旧的 `icons/icon-*.png` —— 这些文件不在本批授权范围内
    （`web/icons/**` 由 `tools/make-icons.mjs` 生成、`web/icons/icons.json` 的 sha256 钉着）。
