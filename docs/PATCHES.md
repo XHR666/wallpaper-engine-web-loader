@@ -11690,7 +11690,7 @@ D3 / D8 / D10 / E1c 四条旧写法都是"宿主信号优先，即使量到很�
 **一句话**：NP-1/NP-2 交付的 Now playing 控件在**真机（DSH `:3080`）**上被一批现场症状打穿 ——
 "播放键点了没用 / 展开看着在播点不动 / 声音控制打不开一直静音 / web 壁纸目录里的音频接不上 /
 上一首下一首语义乱 / 悬浮态卡片被切掉"。根因不是一处，而是**同一形状的六个断层**（详见插件仓
-`docs/NOW-PLAYING-DSH.md` §7.7）：
+`../dsh-mpkg-wallpaper/docs/NOW-PLAYING-DSH.md` §7.7）：
 
 1. **媒体源判定**：`#mpw-bgVideo` 这个空壳 `<video>` 在页面加载时就建好、任何壁纸类型下都在 DOM 里
    ⇒ 旧实现按选择器命中它就当"当前媒体"，播放/静音全落在一个没有 `src` 的元素上。
@@ -11778,7 +11778,7 @@ P-156 诚实清单第 8 条也点名"壁纸选择字段为什么会丢不在本�
 1. **主因 · 两处存储都是"整档替换"，没有任何"缺字段不覆盖"的护栏**：
    `lib/client.js` `writeSection()`（修前 :380/:401–445）把**内存里的整段 `sectionCache`**（减 `HOST_SKIP_KEYS`）
    写进 localStorage 并 PUT 给宿主；`lib/index.js` 的 `PUT /api/mpkg-wallpaper/settings`（修前 :1668–1680）
-   把请求体**整串覆写** `settings.json`（`writeFileSync(tmp, JSON.stringify(settings)); rename`）
+   把请求体**整串覆写** 宿主 settings.json（插件运行期文件，在仓外）（`writeFileSync(tmp, JSON.stringify(settings)); rename`）
    ⇒ 一次"内存里已经不完整"的保存会把**两处一起写残**。而 `HOST_SKIP_KEYS`（:286）**明确跳过 `image`**
    ⇒ 宿主那份永远没有壁纸源本体，"两处一起残"的表现就是现场那个半残档。
 2. **次因 · boot 的第一次渲染/落盘跑在宿主 `GET /settings` 之前**：`applyInner()` 里
@@ -11825,7 +11825,7 @@ localStorage 超限拒写（现场档仅 1649 B、`__mpwPersistFail` 不存在�
   修前 **4 PASS / 1 FAIL** → 修后 **9 PASS / 0 FAIL**；读数见 P-157.0。
   浏览器纪律：跑前跑后 `ps -eo comm | grep -cx firefox` 都是 **0**，单进程 headless。
 
-### P-157.4 诚实清单（摘要；全文见插件仓 `docs/SETTINGS-PERSIST.md` §6）
+### P-157.4 诚实清单（摘要；全文见插件仓 `../dsh-mpkg-wallpaper/docs/SETTINGS-PERSIST.md` §6）
 
 1. **"那一刻是哪一次点击把字段弄丢的"没有直接证据**（修前两处存储都不带写入时刻、diag 无相关事件）
    ⇒ 只钉死"结构性缺陷 + 现场状态"；从这一版起有时间戳与 `settings:reconcile` trace，**下一次**能追到具体一轮。
