@@ -11175,7 +11175,7 @@ name:"particles/presets/firefliestrail.json", maxcount:20, scale:"1.5 1.5 1"}]`�
 $ ls -la references/vendor-ref/ww-pages/
   WEwebLoader            -> ../../../we-scene-demo/demo      (27B, 09-18 22:55)
   wallpaper-engine-webgl -> ../../../we-scene-demo/demo      (27B, 09-17 06:34)
-$ readlink -f WEwebLoader   ⇒ /root/Desktop/DSHarea/we-scene-demo/demo
+$ readlink -f WEwebLoader   ⇒ <工作区>/we-scene-demo/demo
 $ stat -c '%i %h %s %y %n' WEwebLoader/index.html wallpaper-engine-webgl/index.html <repo>/demo/index.html
   1916745 1 80582 …          ← 三条路径**同一个 inode**
 $ stat -d（目录）：部署 65099:2170505 == 仓库 65099:2170505

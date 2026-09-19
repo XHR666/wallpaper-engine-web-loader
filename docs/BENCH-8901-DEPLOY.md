@@ -30,15 +30,15 @@ drwxr-xr-x. 2 root root   3452  9月 17 02:31 probes/
 drwxr-xr-x. 3 root root   3452  9月 15 06:17 webwallgl/
 
 $ readlink -f WEwebLoader wallpaper-engine-webgl index.html      # 在 ww-pages/ 下
-/root/Desktop/DSHarea/we-scene-demo/demo
-/root/Desktop/DSHarea/we-scene-demo/demo
-/root/Desktop/DSHarea/we-scene-demo/demo/index.html
+<DSHAREA>/we-scene-demo/demo
+<DSHAREA>/we-scene-demo/demo
+<DSHAREA>/we-scene-demo/demo/index.html
 
 $ stat -c '%i %h %s %y %n' WEwebLoader/index.html wallpaper-engine-webgl/index.html \
-      /root/Desktop/DSHarea/we-scene-demo/demo/index.html
+      <DSHAREA>/we-scene-demo/demo/index.html
 1916745 1 80582 2026-09-19 02:06:09.969977701 +0800 WEwebLoader/index.html
 1916745 1 80582 2026-09-19 02:06:09.969977701 +0800 wallpaper-engine-webgl/index.html
-1916745 1 80582 2026-09-19 02:06:09.969977701 +0800 /root/Desktop/DSHarea/we-scene-demo/demo/index.html
+1916745 1 80582 2026-09-19 02:06:09.969977701 +0800 <DSHAREA>/we-scene-demo/demo/index.html
 
 $ stat -c '%i %h %s %y %n' WEwebLoader/mpw-select.js WEwebLoader/bench-patch.js
 2183058 1 13456 2026-09-19 04:14:57.513999485 +0800 WEwebLoader/mpw-select.js
@@ -50,7 +50,7 @@ $ stat -c '%i %h %s %y %n' WEwebLoader/mpw-select.js WEwebLoader/bench-patch.js
 | # | 判据 | 实测 | 
 |---|---|---|
 | ① | `lstat` 部署挂载点是**软链** | `isLink = true`（两条挂载点都是 27 字节的相对软链） |
-| ② | `realpath(部署) == realpath(仓库 demo)` | 两侧都是 `/root/Desktop/DSHarea/we-scene-demo/demo` |
+| ② | `realpath(部署) == realpath(仓库 demo)` | 两侧都是 `<DSHAREA>/we-scene-demo/demo` |
 | ③ | `stat` 的 **dev:ino** 相同 | 两侧同为 `65099:2170505`（目录）；`index.html` 三路径同为 inode `1916745` |
 
 * ①+②+③ 全过 ⇒ 形态 = **`symlink-same-tree`**（同一棵目录树）。
@@ -86,7 +86,7 @@ $ stat -c '%i %h %s %y %n' WEwebLoader/mpw-select.js WEwebLoader/bench-patch.js
 
 ```bash
 # ① 一致性（秒级；同一棵树形态下连哈希都不做）
-cd /root/Desktop/DSHarea/we-scene-demo
+cd <DSHAREA>/we-scene-demo
 node tools/bench-8901-sync.mjs --check --serve      # 0 = 无漂移；1 = 有漂移
 
 # ② 若 ① 报 separate-copy 漂移：先看清单，再同步（只新增/覆盖，绝不删部署侧独有文件）
@@ -156,7 +156,7 @@ printf 'brand-new\n'    > "$FX/repo/new.txt";   printf 'deep\n'   > "$FX/repo/su
 printf 'probe\n'        > "$FX/deploy/WEwebLoader/local-probe.txt"
 head -c 6000000 /dev/zero > "$FX/repo/big.bin"; cp "$FX/repo/big.bin" "$FX/deploy/WEwebLoader/big.bin"
 printf 'X' | dd of="$FX/deploy/WEwebLoader/big.bin" bs=1 seek=5999999 conv=notrunc status=none
-cd /root/Desktop/DSHarea/we-scene-demo
+cd <DSHAREA>/we-scene-demo
 BENCH_8901_REPO=$FX/repo BENCH_8901_ROOT=$FX/deploy node tools/bench-8901-sync.mjs --check  # ⇒ 1
 ```
 
@@ -244,13 +244,13 @@ $ grep -n "mpw-select" /tmp/bp.js | head -3
 ## 6. 诚实清单：没核到的、有歧义的
 
 1. **`references/` 不在任何 git 仓库里 ⇒ 部署树文件"未提交"不是遗漏，是无处可提交。**
-   `/root/Desktop/DSHarea` **本身没有 `.git`**（`git status` 直接报"不是 git 仓库"）；该工作区里存在的仓库是
+   `<DSHAREA>`（工作区根，按脚本自身位置推导） **本身没有 `.git`**（`git status` 直接报"不是 git 仓库"）；该工作区里存在的仓库是
    `we-scene-demo/`、`dsh-mpkg-wallpaper/`、`deepseek-watch/`、`references/{wer,we-layerd,lwe,dsbw}-ref/`、
    `references/vendor-ref/webwallgl/` —— **没有一个**覆盖 `references/vendor-ref/ww-pages/`。
    ⇒ 那三条软链（`WEwebLoader`、`wallpaper-engine-webgl`、`index.html`）**只能登记在本文件里**，无法 `git add`。
    它们都是**相对路径**软链，重建配方：
    ```bash
-   cd /root/Desktop/DSHarea/references/vendor-ref/ww-pages
+   cd <DSHAREA>/references/vendor-ref/ww-pages
    ln -sfn ../../../we-scene-demo/demo WEwebLoader
    ln -sfn ../../../we-scene-demo/demo wallpaper-engine-webgl
    ln -sfn WEwebLoader/index.html index.html
@@ -288,6 +288,6 @@ $ grep -n "mpw-select" /tmp/bp.js | head -3
 
 ```bash
 free -m                                                   # 先看内存（工具自己也会拦）
-cd /root/Desktop/DSHarea/we-scene-demo
+cd <DSHAREA>/we-scene-demo
 node tools/bench-8901-sync.mjs --check --serve             # 0 = 形态同一棵树且服务吐的是新字节
 ```
