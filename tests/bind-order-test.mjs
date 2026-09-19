@@ -626,6 +626,10 @@ try {
   for (const f of fs.readdirSync(path.join(ROOT, 'core'))) {
     const srcF = path.join(ROOT, 'core', f)
     if (!fs.statSync(srcF).isFile()) continue
+    // ⚠ **跳过 `puppet-skin.js`**：它是本次要被变异的那一个，上面已经写好变异版 ——
+    //   整目录复制会把它**覆盖回原版**，变异就白做了（第一次改这里时实测：TN1a 的 maxΔ 从几百 px
+    //   变成 0.00px，"测试是活的"那条断言直接红 —— 门禁抓住了这个假绿，这正是它该干的事）。
+    if (f === 'puppet-skin.js') continue
     fs.copyFileSync(srcF, path.join(tmpDir, f))
   }
   const M = await import(pathToFileURL(path.join(tmpDir, 'we-scene-bundle.js')).href)
