@@ -8,13 +8,8 @@
   "background_color": "#0d111a",
   "theme_color": "#0d111a",
   "icons": [
-    { "src": "icons/pwa-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/pwa-512.png", "sizes": "512x512", "type": "image/png" },
-    {
-      "src": "icons/pwa-maskable-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    }
+    { "src": "assets/brand/wallpaper-engine-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/brand/wallpaper-engine-icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "assets/brand/favicon-64.png", "sizes": "64x64", "type": "image/png" }
   ]
 }

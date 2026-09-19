@@ -17,8 +17,13 @@
     <title>wallpaper-engine-webgl</title>
     <meta name="theme-color" content="#0d111a" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="icon" type="image/png" href="./icons/pwa-192.png" />
-    <link rel="apple-touch-icon" href="./icons/pwa-192.png" />
+    <!-- ①(P-164) 页面图标换成**仓库所有者提供的**品牌图（`demo/assets/brand/**`，随仓分发；
+         来源与可用性由仓库所有者负责，见提交信息与 docs/PATCHES.md P-164；**不当作上游第三方素材登记**）。
+         32/64 给标签页，192 给 apple-touch，512 给清单图标。 -->
+    <link rel="icon" type="image/png" sizes="32x32" href="./assets/brand/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="64x64" href="./assets/brand/favicon-64.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./assets/brand/wallpaper-engine-icon-192.png" />
+    <link rel="apple-touch-icon" href="./assets/brand/wallpaper-engine-icon-192.png" />
     <script type="module" crossorigin src="./assets/bench-DSKWIqmS.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/modulepreload-polyfill-B5Qt9EMX.js">
     <link rel="stylesheet" crossorigin href="./assets/bench-HtRiuWm6.css">
@@ -296,6 +301,16 @@ html.bench-shell #stage-scale{aspect-ratio:16/9}
    全部 `display:block` 露在工具条上（"每个选项后面多出一个下拉框"的另一半）。回退干净：`destroy()` 摘掉
    这个 class，select 立刻恢复可见。 */
 html.bench-shell select.bench-rd-native{display:none!important}
+/* ①(P-164) 标签标题省略号 + 右端常驻 `×`：名字再长也不把 × 顶到很远的地方（用户点名的形态）。
+   `#current` 的文本由产物写（写 textContent 会冲掉子节点）⇒ 它的 `×` 是**兄弟节点** `.wp-x-cur`，
+   紧贴右缘、与激活态同底色 ⇒ 视觉上仍是同一格。静态表与 SITE_LAYOUT_CSS 逐条同文（D8 守）。 */
+html.bench-shell #editor-tabs .tab{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html.bench-shell .wp-tab{padding:0 4px 0 10px}
+html.bench-shell .wp-tab .wp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html.bench-shell .wp-x{flex:none;width:22px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:4px;background:transparent;color:var(--fg-dim);font-size:14px;line-height:1;cursor:pointer}
+html.bench-shell .wp-x:hover{background:var(--accent,#0078d4);color:#fff}
+html.bench-shell .wp-x-cur{align-self:stretch;height:auto;min-height:32px;border-right:1px solid var(--border);border-radius:0;background:var(--editor)}
+html.bench-shell .wp-x-cur:hover{background:var(--accent,#0078d4);color:#fff}
 html.bench-shell #wp-switch{position:relative}
 html.bench-shell #wp-add{flex:none;width:34px;min-width:34px;height:auto;border:0;border-left:1px solid var(--border);background:transparent;color:var(--fg-dim);font-size:16px;line-height:1;cursor:pointer}
 html.bench-shell #wp-add[aria-expanded="true"]{background:var(--accent,#0078d4);color:#fff}
@@ -326,6 +341,18 @@ html.bench-shell #logs[data-view="diag"] #logbody{display:none}
 html.bench-shell #main.logs-collapsed #diag-body{display:none!important}
 html.bench-shell #diag-body .diag-line.err{color:#f85149}
 html.bench-shell #diag-body .diag-line[data-source="renderer"]{color:var(--fg-dim)}
+/* ②(P-164) 调试模式视图（与 SITE_LAYOUT_CSS 逐条同文）：只用一个 `.dbg-*` 子树，不碰宿主 UI */
+html.bench-shell #debug-body{display:none}
+html.bench-shell #logs[data-view="debug"] #debug-body{display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto}
+html.bench-shell #logs[data-view="debug"] #logbody{display:none}
+html.bench-shell #logs[data-view="debug"] #diag-body{display:none}
+html.bench-shell .dbg-actions{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+html.bench-shell .dbg-actions button{appearance:none;font:inherit;font-size:12px;color:var(--fg);background:var(--input);border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer}
+html.bench-shell .dbg-actions button:hover{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}
+html.bench-shell .dbg-state{color:var(--fg-mute);font-size:11.5px}
+html.bench-shell .dbg-layer{padding:6px 10px;font:11.5px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--fg);border-bottom:1px solid var(--border);white-space:pre-wrap}
+html.bench-shell .dbg-log{flex:1;min-height:0;margin:0;padding:6px 10px;overflow:auto;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap}
+html.bench-shell .dbg-log .dbg-err{color:#f85149}
 /* ── 纯 CSS 安全网（≤1180px）────────────────────────────────────────────────────────────
    闸门是 `<head>` 同步脚本加的 `.bench-narrow`；这一段是**它没跑成时**的兜底（脚本抛异常、被拦，
    或将来有人把判定改坏）：光靠"宽度"就能让舞台不塌、三列改堆叠。声明**逐字取自** `.bench-narrow` 块，
@@ -691,6 +718,9 @@ html.bench-shell #diag-body .diag-line[data-source="renderer"]{color:var(--fg-di
                  `#main.logs-collapsed #clear-logs{display:inline-flex!important}`）。 -->
             <button type="button" id="tab-logs" class="logs-tab panel-tab active" role="tab" aria-selected="true" aria-controls="logbody" data-i18n="logs.head">输出</button>
             <button type="button" id="tab-diag" class="logs-tab" role="tab" aria-selected="false" aria-controls="diag-body" data-i18n="logs.diag">渲染器诊断（/diag）</button>
+            <!-- ②(P-164) 「调试模式」页签：逐层查看（左右键，与 :8899 同一效果）+ 立即上报 + 截图 + 当前层信息/日志。
+                 键盘只在本页签激活期间被接管，退出即恢复默认（不留全局拦截）。 -->
+            <button type="button" id="tab-debug" class="logs-tab" role="tab" aria-selected="false" aria-controls="debug-body" data-i18n="logs.debug">调试模式</button>
             <span class="spacer"></span>
             <button type="button" id="clear-logs" data-i18n="logs.clear">清空</button>
             <button type="button" id="copy-logs" data-i18n="copy.logs" data-i18n-title="copy.logs" title="复制输出">复制输出</button>
@@ -698,6 +728,16 @@ html.bench-shell #diag-body .diag-line[data-source="renderer"]{color:var(--fg-di
           <div id="diag-offline" class="diag-offline" hidden></div>
           <pre id="logbody"></pre>
           <pre id="diag-body" role="log" aria-live="polite" aria-label="渲染器诊断流 / renderer diagnostics"></pre>
+          <!-- ②(P-164) 调试视图：按用户给的草图 —— 一行两个按钮 / 一行当前层信息 / 一块日志 -->
+          <div id="debug-body" hidden>
+            <div class="dbg-actions">
+              <button type="button" id="dbg-report" data-i18n="dbg.report">立即上报</button>
+              <button type="button" id="dbg-shot" data-i18n="dbg.shot">截图</button>
+              <span id="dbg-state" class="dbg-state"></span>
+            </div>
+            <div id="dbg-layer" class="dbg-layer" role="status" aria-live="polite"></div>
+            <pre id="dbg-log" class="dbg-log" role="log" aria-live="polite"></pre>
+          </div>
         </section>
       </div>
     </div>

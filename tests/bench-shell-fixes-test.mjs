@@ -275,6 +275,154 @@ console.log('== G 播放卡片受控快照（P-161） ==')
     'G14 静音态如实进快照（副标题写 muted、muted 字段为真）')
 }
 
+// ══════════════════════════════ H 品牌图标（P-164 ⑤） ══════════════════════════════
+console.log('== H 品牌图标（P-164） ==')
+{
+  const brandDir = path.join(ROOT, 'demo/assets/brand')
+  const pngSize = (f) => {
+    const b = fs.readFileSync(f)
+    if (b.slice(1, 4).toString() !== 'PNG') return null
+    return { w: b.readUInt32BE(16), h: b.readUInt32BE(20), bytes: b.length }
+  }
+  const want = { 'wallpaper-engine-icon-512.png': 512, 'wallpaper-engine-icon-192.png': 192, 'favicon-64.png': 64, 'favicon-32.png': 32 }
+  let allOk = true
+  for (const [f, n] of Object.entries(want)) {
+    const fp = path.join(brandDir, f)
+    const good = fs.existsSync(fp) && (() => { const s2 = pngSize(fp); return !!s2 && s2.w === n && s2.h === n && s2.bytes > 500 })()
+    if (!good) allOk = false
+    ok(good, `H1 品牌图 ${f} 在且是 ${n}×${n} PNG（非空）`)
+  }
+  ok(allOk, 'H1 四张品牌图齐备（512/192/64/32，PNG 尺寸与文件名一致）')
+  const html = fs.readFileSync(path.join(ROOT, 'demo/index.html'), 'utf8')
+  ok(/<link rel="icon" type="image\/png" sizes="32x32" href="\.\/assets\/brand\/favicon-32\.png" \/>/.test(html) &&
+    /href="\.\/assets\/brand\/favicon-64\.png"/.test(html) && /href="\.\/assets\/brand\/wallpaper-engine-icon-192\.png"/.test(html) &&
+    /<link rel="apple-touch-icon" href="\.\/assets\/brand\/wallpaper-engine-icon-192\.png" \/>/.test(html),
+    'H2 `demo/index.html` 的 favicon / apple-touch 指向品牌图（不再指 `./icons/pwa-*.png`）')
+  ok(!/href="\.\/icons\/pwa-/.test(html), 'H3 `demo/index.html` 里不再引用旧的 `./icons/pwa-*`')
+  const mf = JSON.parse(fs.readFileSync(path.join(ROOT, 'demo/manifest.webmanifest'), 'utf8'))
+  ok(mf.icons.every((ic) => /^assets\/brand\//.test(ic.src)) && mf.icons.length === 3,
+    'H4 `demo/manifest.webmanifest` 的三个图标都指向品牌图', JSON.stringify(mf.icons.map((i) => i.src)))
+  for (const ic of mf.icons) ok(fs.existsSync(path.join(ROOT, 'demo', ic.src)), `H5 manifest 图标可达：${ic.src}`)
+  const np = fs.readFileSync(path.join(ROOT, 'demo/now-playing/NowPlaying.tsx'), 'utf8')
+  ok(/const COVER: string = "\.\.\/assets\/brand\/wallpaper-engine-icon-512\.png"/.test(np) &&
+    fs.existsSync(path.join(ROOT, 'demo/now-playing/assets/brand/wallpaper-engine-icon-512.png')) === false &&
+    fs.existsSync(path.join(ROOT, 'demo/assets/brand/wallpaper-engine-icon-512.png')),
+    'H6 播放卡片的封面也换成品牌图（路径相对 `demo/now-playing/` 解析得到真文件）')
+  const dist = fs.readFileSync(path.join(ROOT, 'demo/now-playing/dist/now-playing.js'), 'utf8')
+  ok(dist.includes('brand/wallpaper-engine-icon-512.png'), 'H7 组件产物里带的是新封面路径（dist 已重建）')
+}
+
+// ══════════════════════════════ I 标签关闭 / 幂等 / 指针转发 / 调试模式（P-164） ══════════════════════════════
+console.log('== I 标签关闭 / 幂等 / 指针转发 / 调试模式（P-164） ==')
+{
+  eq(P.closeTabPlan(['a', 'b', 'c'], 'b', 'b'), { pinned: ['a', 'c'], wasCurrent: true, fallback: 'c', closed: 'b' },
+    'I1 关当前项：回落到"它后面第一项"（位置稳定）')
+  eq(P.closeTabPlan(['a', 'b'], 'a', 'b'), { pinned: ['a'], wasCurrent: false, fallback: 'a', closed: 'b' },
+    'I2 关末尾项：回落到剩下的最后一项，且 wasCurrent=false（不误判成"关当前"）')
+  eq(P.closeTabPlan(['a'], 'a', 'a').fallback, null, 'I3 关掉最后一个 ⇒ fallback=null（调用方据此释放舞台）')
+  eq(P.closeTabPlan(['a'], 'a', 'z'), { pinned: ['a'], wasCurrent: false, fallback: 'a', closed: 'z' },
+    'I4 幂等：关一个根本不在集合里的 id ⇒ 集合不变、不误伤')
+
+  //  调试模式：键位路由（激活才接管；退出即还原）
+  eq(P.debugKeyPlan('ArrowRight', { active: false }), { capture: false, op: null, key: 'ArrowRight' },
+    'I5 调试模式**未激活**时 ←/→ 一个都不拦（退出后恢复默认行为）')
+  ok(P.debugKeyPlan('ArrowRight', { active: true }).op === 'next' && P.debugKeyPlan('ArrowLeft', { active: true }).op === 'prev' &&
+    P.debugKeyPlan('ArrowUp', { active: true }).op === 'next10' && P.debugKeyPlan('ArrowDown', { active: true }).op === 'prev10',
+    'I6 激活时 ←/→/↑/↓ 分别路由到 prev/next/prev10/next10（与 :8899 同一语义）')
+  ok(P.debugKeyPlan('Alt', { active: true }).op === 'exit' && P.debugKeyPlan('Control', { active: true }).op === 'all' &&
+    P.debugKeyPlan('Alt', { active: true }).swallowModifier === true && P.debugKeyPlan('Control', { active: true }).swallowModifier === true,
+    'I7 Alt=退出、Ctrl=恢复全部可见，且两个**修饰键本身**也要吞（用户明确要求拦默认行为）')
+  ok(P.debugKeyPlan('a', { active: true }).capture === false && P.debugKeyPlan('Tab', { active: true }).capture === false,
+    'I8 调试模式不碰其它键（普通字符/Tab 照常走默认行为）')
+
+  eq(P.layerStepPlan(5, 4, 1), { index: 0, count: 5, wrapped: true }, 'I9 图层步进：末尾 → 首（环绕）')
+  eq(P.layerStepPlan(5, 0, -1), { index: 4, count: 5, wrapped: true }, 'I10 首 → 末尾（反向环绕）')
+  eq(P.layerStepPlan(0, 0, 1).index, -1, 'I11 没有图层 ⇒ index=-1（调用方据此报"没有可逐层查看的场景"）')
+  eq(P.layerStepPlan(3, -1, 1).index, 0, 'I12 还没选层时按"下一个" ⇒ 从第 1 层开始')
+  eq(P.layerStepPlan(3, 0, 10), { index: 1, count: 3, wrapped: true }, 'I13 ↑/↓ 的 ±10 步也做环绕（不越界）')
+
+  ok(P.layerInfoPlan(null, 0).ok === false && /没有可逐层查看/.test(P.layerInfoPlan(null, 0).text),
+    'I14 拿不到图层数组 ⇒ 明确说"没有可逐层查看的场景"（不编造层号）')
+  const li = P.layerInfoPlan([{ id: 7, name: 'bg', type: 'image' }, { id: 8, name: 'fx' }], 1)
+  ok(li.ok && li.index === 1 && li.name === 'fx' && li.count === 2 && /图层 2\/2/.test(li.text),
+    'I15 图层信息含层号/层名/类型/可见性', JSON.stringify(li))
+  ok(P.layerInfoPlan([{ name: 'x', visible: false }], 0).visible === false, 'I16 被隐藏的层如实标 visible=false')
+
+  const rep = P.debugReportPlan({ ts: 123, id: 'w1', url: 'http://x/', ua: 'ua', debugMode: true, layers: { count: 9, index: 3, name: 'n', type: 'image' }, media: { videos: 1, audios: 2 }, diag: ['a', 'b', 'c'] })
+  ok(rep.schema === 'bench-debug/1' && rep.kind === 'bench-debug' && rep.ts === 123 && rep.layers.count === 9 && rep.layers.index === 3 &&
+    rep.diagLines === 3 && rep.media.videos === 1 && rep.media.audios === 2 && rep.debugMode === true,
+    'I17 上报载荷形状固定（schema/kind/ts/layers/media/diag）⇒ 服务端与工具都能解析', JSON.stringify(rep).slice(0, 120))
+  ok(P.debugReportPlan({ diag: Array.from({ length: 250 }, (_, i) => 'l' + i) }).diagLines === 100,
+    'I18 诊断内容最多带 100 行（不能把 200KB 的日志整体塞进一次 POST）')
+  eq(P.DEBUG_REPORT_ROUTES, ['/report', '/baseline', '/diag'], 'I19 落点顺序 = /report → /baseline → /diag（与 :8899 的约定一致）')
+
+  //  运行期接线的静态钉子
+  ok(/addEventListener\('keydown', dbgKeyHandler, true\)/.test(patchCode) && /removeEventListener\('keydown', dbgKeyHandler, true\)/.test(patchCode) &&
+    /if \(!dbgKeyHandler\) return false/.test(patchCode) && /dbgKeyHandler = null/.test(patchCode),
+    'I20 键盘监听**成对**装卸：只在本页签激活期间存在（capture），退出立刻卸掉')
+  ok(/if \(!plan\.capture\) return/.test(patchCode) && /plan\.swallowModifier && ev\.stopImmediatePropagation/.test(patchCode),
+    'I21 未接管键直接放行；接管键 preventDefault + 停传播（修饰键再补 stopImmediatePropagation）')
+  ok(/closeTabPlan\(pinned, curId, want\)/.test(patchCode) && /writePinned\(plan\.pinned\)/.test(patchCode),
+    'I22 关闭标签的运行期走纯函数决策（一处实现）')
+  ok(/switchDecision\(curId, want/.test(patchCode) && /idemHits\+\+/.test(patchCode) &&
+    /listEl\.addEventListener\('click', \(e\) => \{/.test(patchCode),
+    'I23 ③ 幂等：运行期决策走纯函数 + 点"已选中"的列表项在**捕获阶段**再拦一道并计数')
+  ok(/pointerForwardPlan\(\{/.test(patchCode) && /forwardPointerMove\(e\)/.test(patchCode) &&
+    /api\.pushPointer\(u, v, Number\(e\.buttons\) \|\| 0, mods\)/.test(patchCode),
+    'I24 ④ 移动即转发：普通移动也 `pushPointer(u,v,buttons=0)`；决策（开关/入口/嵌套帧/舞台内）走纯函数')
+  ok(/pushfwd: on\('pushfwd', true\)/.test(patchCode), 'I25 ④ 有 `?pushfwd=0` 回退口')
+
+  //  CSS：省略号 + × 常驻
+  const cssHtml = fs.readFileSync(path.join(ROOT, 'demo/index.html'), 'utf8')
+  ok(/#editor-tabs \.tab\{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/.test(cssHtml) &&
+    /\.wp-tab \.wp-name\{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/.test(cssHtml),
+    'I26 ① 标签标题用 CSS 省略号（`max-width` + `text-overflow:ellipsis`）：名字再长也不把 × 顶远')
+  ok(cssItems.includes('.wp-x{flex:none;width:22px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:4px;background:transparent;color:var(--fg-dim);font-size:14px;line-height:1;cursor:pointer}') &&
+    cssItems.includes('.wp-x-cur{align-self:stretch;height:auto;min-height:32px;border-right:1px solid var(--border);border-radius:0;background:var(--editor)}'),
+    'I27 ① `×` 按钮样式在（标签内 `.wp-x` + 当前格兄弟 `.wp-x-cur`），静态表与 SITE_LAYOUT_CSS 同文')
+  ok(/#logs\[data-view="debug"\] #debug-body\{display:flex/.test(cssHtml) && /#debug-body\{display:none\}/.test(cssHtml),
+    'I28 ② 调试视图的显隐样式在（`#logs[data-view=debug]` 打开、默认关）')
+  ok(/\.dbg-actions\{display:flex/.test(cssHtml) && /\.dbg-layer\{/.test(cssHtml) && /\.dbg-log\{/.test(cssHtml),
+    'I29 ② 调试视图三块（按钮行 / 当前层信息 / 日志）都有样式')
+
+  //  ③ 幂等决策（纯函数）：四种输入组合逐条钉死
+  eq(P.switchDecision('a', 'a', true, true), { id: 'a', inList: true, isCurrent: true, skip: true },
+    'I30 ③ 目标 = 当前项（列表带 `.active`）⇒ skip（不再 `click()` ⇒ 不重挂）')
+  eq(P.switchDecision('a', 'a', true, false).skip, true, 'I31 ③ 列表项没带 `.active` 但 id 就是当前项 ⇒ 也 skip（同一件事的两种表现）')
+  eq(P.switchDecision('a', 'b', true, false).skip, false, 'I32 ③ 换成**别的**壁纸 ⇒ 必须点（不能把"幂等"做成"点不动"）')
+  eq(P.switchDecision('a', 'b', false, false).skip, false, 'I33 ③ 目标不在当前列表里（被类型档挡住）⇒ 不 skip（要走"先切档再点"那条路）')
+  eq(P.switchDecision(null, 'b', false, false).skip, false, 'I34 ③ 还没选过任何壁纸 ⇒ 第一个必须点得动')
+
+  //  ④ 指针转发决策（纯函数）：五条边界
+  ok(P.pointerForwardPlan({ enabled: true, hasApi: true, nested: false, inStage: true, hasRect: true }).forward === true,
+    'I35 ④ 开关开 + 入口在 + 非嵌套帧 + 落在舞台内 + 舞台有尺寸 ⇒ 转发')
+  ok(P.pointerForwardPlan({ enabled: true, hasApi: true, nested: true, inStage: true, hasRect: true }).forward === false &&
+    P.pointerForwardPlan({ enabled: true, hasApi: true, nested: true, inStage: true, hasRect: true }).why === 'nested-frame',
+    'I36 ④ 舞台上是 web 档（渲染器文档里还有一层 iframe）⇒ **不转发**（原生 + 注入会双投递），原因写 `nested-frame`')
+  ok(P.pointerForwardPlan({ enabled: false, hasApi: true, nested: false, inStage: true, hasRect: true }).forward === false &&
+    P.pointerForwardPlan({ enabled: true, hasApi: false, nested: false, inStage: true, hasRect: true }).forward === false,
+    'I37 ④ `?pushfwd=0` 或渲染器入口还没就绪 ⇒ 不转发（不假装推过）')
+  ok(P.pointerForwardPlan({ enabled: true, hasApi: true, nested: false, inStage: false, hasRect: true }).forward === false &&
+    P.pointerForwardPlan({ enabled: true, hasApi: true, nested: false, inStage: true, hasRect: false }).forward === false,
+    'I38 ④ 舞台外 / 舞台还没量到尺寸 ⇒ 不转发（归一化坐标会算错）')
+  ok(P.pointerForwardPlan() && P.pointerForwardPlan().forward === false && P.pointerForwardPlan().why === 'off',
+    'I39 ④ 缺省入参按"关着"处理（纯函数不吃 undefined）')
+
+  //  ① 回落标题的取数顺序（纯函数）：列表优先 → 缓存兜底 → 最后才退回 id
+  eq(P.titleForId([{ id: 'b', title: 'B 真名' }], () => 'B 旧名', 'b'), 'B 真名', 'I40 ① 回落标题：列表里有 ⇒ 用列表的（现列表最新）')
+  eq(P.titleForId([], (k) => (k === 'b' ? 'B 缓存名' : ''), 'b'), 'B 缓存名',
+    'I41 ① 回落标题：列表**正好在重渲染**（切类型档）时用缓存 —— 不许把 id 当标题写进"当前壁纸"那一格')
+  eq(P.titleForId([], () => '', 'b3644'), 'b3644', 'I42 ① 回落标题：列表与缓存都没有 ⇒ 退回 id（有胜于无，且不编造）')
+
+  //  ② 调试轮询的定时器必须来自**本作用域**：`every`/`stopEvery` 是兄弟作用域的局部名 ⇒ 引用即 ReferenceError，
+  //  且异常会被 `setLogsView` 的 try/catch 吞掉（真机自证 Z4：日志一行没有、页签却"看着切过去了"）。
+  ok(/const dbgEvery = \(typeof setInterval === 'function'\) \? setInterval : null/.test(patchCode) &&
+    /dbgTimer = dbgEvery\(/.test(patchCode) && !/[^g]every\(\(\) => \{ try \{ dbgPaint/.test(patchCode),
+    'I43 ② 调试轮询用本作用域自带的定时器（`dbgEvery`/`dbgStopEvery`），不引用兄弟作用域的 `every`')
+  ok(/window\.__benchDebugBootErr = String\(\(e && e\.message\) \|\| e\)/.test(patchCode) && /dbgBootErr: \(\) =>/.test(patchCode),
+    'I44 ② 进出调试页签的启动错**留痕**（`__benchDebugBootErr` + `dbgBootErr()` 可读），不许再静默吞掉')
+}
+
 // ══════════════════════════════ B 静态纪律 ══════════════════════════════
 console.log('== B 静态纪律 ==')
 
@@ -430,6 +578,58 @@ console.log('== C RED-IF-REVERTED（真树只读，变异在 /tmp 副本） ==')
   const fUn = MF.npSnapshotPlan({ media: { hasVideo: true, total: 30, progress: 3 }, item: {}, link: false })
   ok(fUn.canPlay === true && fUn.link === false,
     'C13 ★ 变异⑦生效：G6 在变异体里必红（联动关了却仍然 canPlay=true）', JSON.stringify({ canPlay: fUn.canPlay }))
+  // 变异⑧（P-164）：调试模式未激活也接管方向键 ⇒ I5 必红（"退出后恢复默认行为"被破坏）
+  const mutantG = patchSrc.replace("  if (!on) return { capture: false, op: null, key: k }", '  void on')
+  ok(mutantG !== patchSrc, 'C14 变异⑧锚点命中（删掉 `debugKeyPlan` 的"未激活不接管"守卫）')
+  const mutG = path.join(tmp, 'bench-patch-mutantG.mjs')
+  fs.writeFileSync(mutG, fixImports(mutantG))
+  const MG = await import(pathToFileURL(mutG).href)
+  const gOff = MG.debugKeyPlan('ArrowRight', { active: false })
+  ok(gOff.capture === true && gOff.op === 'next',
+    'C15 ★ 变异⑧生效：I5（"未激活时一个都不拦"）在变异体里必红', JSON.stringify(gOff))
+  // 变异⑨（P-164）：closeTabPlan 把"关的是当前项"永远当 false ⇒ I1/I2 必红
+  const mutantH = patchSrc.replace("  return { pinned: rest, wasCurrent: !!closed && closed === cur, fallback, closed }",
+    '  return { pinned: rest, wasCurrent: false, fallback, closed }')
+  ok(mutantH !== patchSrc, 'C16 变异⑨锚点命中（`closeTabPlan` 不再判"关的是当前项"）')
+  const mutH = path.join(tmp, 'bench-patch-mutantH.mjs')
+  fs.writeFileSync(mutH, fixImports(mutantH))
+  const MH = await import(pathToFileURL(mutH).href)
+  const hPlan = MH.closeTabPlan(['a', 'b', 'c'], 'b', 'b')
+  ok(hPlan.wasCurrent === false,
+    'C17 ★ 变异⑨生效：I1（"关当前项要回落"）在变异体里必红（wasCurrent 恒 false ⇒ 不会回落）', JSON.stringify(hPlan))
+  // 变异⑩（P-164）：`switchDecision` 永远不 skip（= 回到了"点已选中项也重挂"的旧行为）⇒ I30/I31 必红
+  const mutantI = patchSrc.replace("  return { id: want, inList: !!targetInList, isCurrent, skip: !!want && !!targetInList && (!!targetIsActive || isCurrent) }",
+    "  return { id: want, inList: !!targetInList, isCurrent, skip: false }")
+  ok(mutantI !== patchSrc, 'C18 变异⑩锚点命中（`switchDecision` 永远不跳过）')
+  const mutI = path.join(tmp, 'bench-patch-mutantI.mjs')
+  fs.writeFileSync(mutI, fixImports(mutantI))
+  const MI = await import(pathToFileURL(mutI).href)
+  const iDec = MI.switchDecision('a', 'a', true, true)
+  ok(iDec.skip === false, 'C19 ★ 变异⑩生效：I30/I31（"点已选中项必须幂等"）在变异体里必红', JSON.stringify(iDec))
+  // 变异⑪（P-164）：`pointerForwardPlan` 不再挡"舞台上是 web 档"⇒ I36 必红（原生 + 注入双投递）
+  const mutantJ = patchSrc.replace("  const forward = f.enabled && f.hasApi && !f.nested && f.inStage && f.hasRect",
+    "  const forward = f.enabled && f.hasApi && f.inStage && f.hasRect")
+  ok(mutantJ !== patchSrc, 'C20 变异⑪锚点命中（转发决策不再看嵌套帧）')
+  const mutJ = path.join(tmp, 'bench-patch-mutantJ.mjs')
+  fs.writeFileSync(mutJ, fixImports(mutantJ))
+  const MJ = await import(pathToFileURL(mutJ).href)
+  const jPlan = MJ.pointerForwardPlan({ enabled: true, hasApi: true, nested: true, inStage: true, hasRect: true })
+  ok(jPlan.forward === true, 'C21 ★ 变异⑪生效：I36（"web 档不转发"）在变异体里必红（嵌套帧也照推）', JSON.stringify(jPlan))
+  // 变异⑫（P-164）：回落标题不再查缓存 ⇒ I41 必红（列表正在重渲染时把 id 当标题写进当前格）
+  const mutantK = patchSrc.replace("  const cached = (typeof cacheGet === 'function') ? String(cacheGet(want) || '') : ''", "  const cached = ''")
+  ok(mutantK !== patchSrc, 'C22 变异⑫锚点命中（回落标题不查缓存）')
+  const mutK = path.join(tmp, 'bench-patch-mutantK.mjs')
+  fs.writeFileSync(mutK, fixImports(mutantK))
+  const MK = await import(pathToFileURL(mutK).href)
+  const kTitle = MK.titleForId([], (k) => (k === 'b' ? 'B 缓存名' : ''), 'b')
+  ok(kTitle === 'b', 'C23 ★ 变异⑫生效：I41（"缓存兜底"）在变异体里必红（回落标题退化成 id）', JSON.stringify({ title: kTitle }))
+  // 变异⑬（P-164）：品牌图标回退成旧的 `./icons/pwa-*`（只改 /tmp 副本）⇒ H2/H3 的判据必红
+  const htmlSrc = fs.readFileSync(path.join(ROOT, 'demo/index.html'), 'utf8')
+  const mutHtml = htmlSrc.replace('href="./assets/brand/favicon-32.png"', 'href="./icons/pwa-32.png"')
+  ok(mutHtml !== htmlSrc, 'C24 变异⑬锚点命中（favicon 改回旧的 `./icons/pwa-32.png`）')
+  const h2 = (t) => /<link rel="icon" type="image\/png" sizes="32x32" href="\.\/assets\/brand\/favicon-32\.png" \/>/.test(t) && !/href="\.\/icons\/pwa-/.test(t)
+  ok(h2(htmlSrc) === true && h2(mutHtml) === false,
+    'C25 ★ 变异⑬生效：H2/H3（"favicon 必须指品牌图、不许再引 `./icons/pwa-*`"）在变异体里必红')
   ok(sha(PATCH) === before, 'C7 真树 `demo/bench-patch.js` 跑前跑后一致（变异只落 /tmp）', before.slice(0, 20))
   fs.rmSync(tmp, { recursive: true, force: true })
 }

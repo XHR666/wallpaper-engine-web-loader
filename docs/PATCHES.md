@@ -12482,8 +12482,9 @@ Chromium 在本环境起不来（GPU 进程连崩/`newPage` 挂起，与仓库�
 * **来源与登记**：这些图是**本仓所有者提供的图**（原图在**工作区根**的 `assets/brand/`，本批拷进 `demo/assets/brand/`），
   **不是**上游/第三方素材 ⇒ `THIRD-PARTY.md` 与 `docs/COPYING-RULES.md` §4 台账**一行都不加**
   （那张表登记的是"引入的第三方代码/素材"）。旧图**没有删**。
-* **只换了本页的引用**：`demo.html`、`web/**`（`web/icons/**` 由 `tools/make-icons.mjs` 生成、`web/icons/icons.json` 里
-  sha256 钉着，改不了）、`web/pwa-inject.mjs`、`web/diag.html`、`web/probe.html` 仍指旧图 —— 不在本批授权文件内。
+* **只换了测试台这一页的引用**：站点根 PWA 那一套（`web/manifest.webmanifest`、`web/pwa-inject.mjs` 第 21 行的
+  `/icons/icon-192.png`、`web/sw.js` 的预缓存清单、以及 `web/icons/**` —— 后者由 `tools/make-icons.mjs` 生成、
+  `web/icons/icons.json` 里 sha256 钉着，改不了）仍指旧的 `icons/icon-*.png`。这些文件不在本批授权范围内。
 
 ### P-164.6 判据汇总
 

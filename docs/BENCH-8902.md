@@ -502,3 +502,75 @@ web 档 `3644069061`（本机 7 张 web 档里唯一带 2×`<video>` + 3×`<audi
 * **跨源** web 帧拿不到媒体元素 ⇒ 只能经 shim 的 `__weSetVolume` 发"设音量/静音"意图（同源帧可直接读写）。
 * 只验了 1 张带媒体 + 1 张只有 `<audio>` 的 web 档；画面观感（悬浮放大手感、长标题省略）只能人眼。
 * `demo/now-playing/dist/now-playing.js` 是**入库产物**：改源码必须 `cd demo/now-playing && node build.mjs` 重建。
+
+---
+
+## 10. 可关闭的壁纸条 + 「调试模式」页签 + 幂等切换 + 移动即转发（P-164，2026-09-19）
+
+> 只动 `demo/index.html`、`demo/bench-patch.js`、`demo/manifest.webmanifest`、`demo/assets/brand/**`（新图）、
+> `demo/now-playing/NowPlaying.tsx` + 其入库产物 `demo/now-playing/dist/now-playing.js`（封面路径一行）与
+> 本批测试/台账/文档。**服务端、`core/**`、`web/**` 一行未改。**
+
+### 10.1 五条的修法与真机读数
+
+| # | 条目 | 修法 | 真机读数（headless Firefox 1360×900） |
+|---|---|---|---|
+| ① | 壁纸条可关闭 + 长标题不把 `×` 顶远 | `demo/index.html` 里给 `#editor-tabs .tab` 上限 200px、`.wp-tab .wp-name` 走 CSS 省略号；`demo/bench-patch.js` 在每个固定标签右端内侧加 `.wp-x`，当前壁纸那一格加**兄弟**按钮 `.wp-x-cur`（`#current` 的文本由产物写，写子节点会被冲掉）；关闭决策走纯函数 `closeTabPlan()` | 标签宽 `200px`（= `max-width`）、`.wp-name` `overflow:hidden` + `text-overflow:ellipsis`；当前格 180px、`×` 紧贴右缘 **gap 0px**、`elementFromPoint` 命中它自己 |
+| ② | 新「调试模式」页签 | `#tab-debug` + `#debug-body`（按钮行 / `#dbg-state` / `#dbg-layer` / `#dbg-log`）；←/→=±1 层、↑/↓=±10 层、Ctrl=全部恢复、Alt=退出；**只在本页签激活期间**装 capture keydown，退出立刻卸掉 | 未激活时 ←/→/Alt 默认行为照旧（不吞）；激活后 `view=debug`、`active=true`、`keys=true`、日志 **129 行**；激活期间 ←/→/Ctrl 被吞、`a` 不被吞；Alt 退出后视图回 `logs`、监听卸掉、默认行为恢复 |
+| ② | 「立即上报」 | `debugReportPlan()` 组一份 `bench-debug/1` 载荷（时间/当前壁纸/UA/图层/媒体数/诊断文本 ≤100 行），依次 POST `/report` → `/baseline` → `/diag`，并把**实际落点**写进日志；本地另留一份 `localStorage['bench-debug-report']` | 载荷 **11 935 B**、`schema=bench-debug/1`、`diagLines=64`、实际落点 **`/diag`**（本机服务端只有这条）、本地副本 11 935 B |
+| ② | 「截图」 | 走渲染器自己的 `__wp.capture(0)`（JPEG data URL）⇒ `a[download]`；拿不到就**写明原因**（渲染器未就绪 / capture 返回空） | 本机当前无场景 ⇒ 返回 `null` 并写日志（不假装成功）；有场景时 Z5 的口径是 `bytes > 1KB` |
+| ③ | 重复点"已选中"的壁纸必须幂等 | 决策抽成纯函数 `switchDecision()`（目标已经是当前项 ⇒ 不 `click()`）；`#list` 上再加一道**捕获阶段**拦截并计数（`#np-host[data-np-idem]`） | 连点 3 次：`#frame` src 不变、`Mount` 日志 **8→8**、列表节点身份不变、拦截计数 **3** |
+| ④ | 鼠标尾迹不按键也出（与 `:8899` 对齐） | 舞台内的 `pointermove` 经 `forwardPointerMove()` 走 `__wp.pushPointer(u,v,buttons=0,mods)`；是否转发由纯函数 `pointerForwardPlan()` 定（开关 / 入口 / **舞台上是 web 档则不转发**，避免原生+注入双投递） | 注入遮罩 + 尾迹开启下**不按键**移动：转发计数 **1→9**；尾迹画布墨迹 **0→332** 像素（`:8899` 同口径） |
+| ⑤ | 渲染器图标换成本仓所有者的图 | `demo/index.html` 的 favicon/apple-touch、`demo/manifest.webmanifest` 三个图标、播放卡片封面全部指向 `demo/assets/brand/**`（4 张：512/192/64/32 PNG） | `link[rel*=icon]` 全部 `assets/brand/*` 且 200 + `image/png`；manifest 三个图标 200（30 032 / 107 355 / 5 589 B）；卡片封面 = `wallpaper-engine-icon-512.png` |
+
+### 10.2 关闭壁纸条的回落口径（①的"明确"部分）
+
+* **关非当前项**：只从固定集合里去掉它，预览 `#frame` 的 src **一字未动**，当前那一格的字也不动。
+* **关当前项、还有别的打开项**：回落到"离它最近的下一个"（没有下一个就取最后一个，位置稳定），
+  并**立刻**把当前那一格换成回落项的标题 —— 回落标题取数走纯函数 `titleForId()`（**列表 → 缓存 → id**）：
+  回落那一刻 `#list` 可能正好因为切类型档在重渲染，只查现列表会把 id 当标题写进去。
+* **关最后一个**：当前格写回"未选择壁纸"、点产物自己的 `#release`（与用户手点同一个落点）、显示 `#empty`、
+  清空固定集合，**并且撤掉 `#list li.active`** —— 不撤的话 `refreshSwitcher` 会立刻把"列表里选中的那一项"重新固定回去
+  （自证 Y0/Y8 抓到的"空态了但 `bench-pinned-wallpapers` 还有一条"）。
+* 一个已释放的舞台旁边不再挂 `×`（那一格没有可关的东西）。
+
+### 10.3 上报存哪儿（②的"写清楚"部分）
+
+| 落点 | 现状 | 存到哪 |
+|---|---|---|
+| `POST /report` | **`:8902` 服务端没有这条路由**（返回 404） | —— （`:8899` 有：`<MPW_REPORTS_DIR>/r<ts>.json`） |
+| `POST /baseline` | **`:8902` 服务端没有这条路由**（返回 404） | —— （`:8899` 有：`<MPW_REPORTS_DIR>/baselines/<ts>.json`） |
+| `POST /diag` | 有（渲染器诊断流的同一入口） | 进 **服务端 `/diag` 环形缓冲**（`GET /api/diag-stream` 能看到），不落成单独文件 |
+| `localStorage['bench-debug-report']` | 有 | 浏览器本地副本（最近一次上报的完整 JSON），刷新后仍在 |
+| 「截图」 | 有 | 浏览器下载目录（文件名 `bench-shot-<ts>.jpg`），不经过服务端 |
+
+⇒ **要让"立即上报"落成文件**，需要 `:8902` 服务端补两条与 `:8899` 同形的路由（`<MPW_REPORTS_DIR>/r<ts>.json`
+与 `<MPW_REPORTS_DIR>/baselines/<ts>.json`）。那是 `server/**`（本批不在授权文件内），本批没动；
+在补上之前，载荷**不会**静默丢掉：它照样进 `/diag` 环形缓冲 + 本地副本，日志里写明"服务端未提供 /report 与 /baseline"。
+
+### 10.4 判据（`bash tests/run-all-tests.sh --only bench-shell-fixes bench-ui-headless`）
+
+* `tests/bench-shell-fixes-test.mjs`：**183 通过 / 0 失败**（156 → 183：新增 I30–I44 共 15 条纯函数/静态钉子、
+  H1 由 1 条汇总拆成 4 条逐图、**变异 ⑩–⑬** 四个新变异组 ⇒ 变异组 **9 → 13**）。
+* `tests/bench-ui-headless-test.mjs`：**92 通过 / 0 失败**（67 → 92：新增 X/Y/Z 三组 25 条，逐条对应 §10.1 的读数）。
+  顺带把 T1/T2 的**时序**做稳：媒体读到 metadata 之前 `canSeek/total` 本来就是假（同机两次跑一次真一次假），
+  现在等它有界就绪——判据没放松（等不到照旧失败）。
+* 未回归：`demo-syntax` 11/11、`bench-8902`、`mpw-select` 70/0、`p142-nav-sound` 92/92、`now-playing` 216/0、
+  `secret-scan` 干净、`docs-check` 见 P-164 台账行。
+
+### 10.5 做不到 / 只能这样的（诚实清单）
+
+1. **逐层查看只对"能拿到 `__sceneLayers` 的场景档"成立**：`:8902` 的 iframe 跑的是 minified 上游产物，
+   它**没有** `:8899` core 那套 `__lnOnly/__subMeshOnly` 约定，本批改用 `scene.layers[i].visible` 做隔离
+   （写它会触发产物自己的 `recomputeVisibility()`），退出时全部恢复可见。本机 WebGL 常常不可用 ⇒
+   面板如实写"没有可逐层查看的场景（未挂载 / 场景加载中 / WebGL 不可用）"，**不编造层号**。
+2. **键盘只在页签激活期间被接管**：这是刻意纪律（←/→ 在工具条其它地方有原生用途）。Alt 退出、点其它页签、
+   或调 `setDebugMode(false)` 都会立刻卸监听并恢复全部图层可见。
+3. **上报不落文件**（§10.3）：缺的是服务端两条路由，不是前端不做。
+4. **图标只换了测试台这一页（`demo/**`）的引用**：站点根 PWA 那一套（`web/manifest.webmanifest`、
+   `web/pwa-inject.mjs`、`web/sw.js`、`web/icons/**`）仍指旧的 `icons/icon-*.png` —— 这些文件不在本批授权范围内
+   （`web/icons/**` 由 `tools/make-icons.mjs` 生成、`web/icons/icons.json` 的 sha256 钉着）。
+   旧图**没有删**（`demo/icons/pwa-*.png` 与 `web/icons/**` 都还在磁盘上）。
+5. **图的来源**：`demo/assets/brand/**` 是本仓所有者提供的图（原图在**工作区根**的 `assets/brand/`），
+   **不登记为上游第三方素材**（`THIRD-PARTY.md` / `docs/COPYING-RULES.md` §4 一行都不加）。
+6. **观感类**（省略号的观感、`×` 的手感、尾迹粗细/颜色）只能人眼；探针只判几何、状态与像素计数。

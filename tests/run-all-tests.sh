@@ -325,14 +325,15 @@ add "bench-8902"         "node tests/bench-server-test.mjs"
 # ①(P-146 2026-09-19 主对话) `bench-ui-headless`：测试台 UI 的**无 X11**浏览器判定 —— 资源管理器收纳键
 #   （收起/复原/`#main` 真变宽/刷新保持）、声音控件（78→189→78 开关）、遮挡几何（两态 `unreachableCount=0`、
 #   `scrollKnown=true`、展开 cover ≥ 收起）、工具条自绘下拉（恰好 1 个列表 + `data-flip` + 再点即关）、整轮 0 pageerror。
-#   15 断言，headless firefox（**不需要 X 显示**，本机 ~45s）。无 :8902 / 无 Playwright / 无 firefox ⇒ 自我 SKIP。
+#   92 断言（N/S/F/T/W/M/X/Y/Z 各组），headless firefox（**不需要 X 显示**，本机 ~2min）。无 :8902 / 无 Playwright / 无 firefox ⇒ 自我 SKIP。
 #   与 `tests/x11-e2e/bench-click-test.mjs` 的分工：那条是**真 X11 指针**门禁（证明"用户点得到"，需 X、5–8 分钟、不常驻）；
 #   这条只做功能判定，可常驻。为什么要有它：宿主机重启会带走 X 显示（2026-09-19 实测），没有它 P-142 的判定就无从复跑。
 add "bench-ui-headless"  "node tests/bench-ui-headless-test.mjs" "" "^SKIP bench-ui-headless"
 # ①(P-158 2026-09-19) `bench-shell-fixes`：测试台外壳**一批 UI/交互修复**的无浏览器门禁 ——
 #   下拉贴合（含上翻）/包含块偏移、一个 select 一个自绘控件（工具条 0 个 `.mpw_select`）、
 #   `.bench-rd-native` 视觉隐藏、已选/常用计划、库来源四态、诊断流一行模型、类型标签归一、
-#   库目录对话框降级、指针"离开不再归中"（P-159）。70 断言（A 纯函数 / B 两文件静态纪律 / C 三组变异自证），~0.3s。
+#   库目录对话框降级、指针"离开不再归中"（P-159）、品牌图标（P-164）、标签关闭/幂等/移动即转发/调试模式（P-164）。
+#   183 断言（A 纯函数 / B 两文件静态纪律 / H 图标 / I 标签+调试 / C **13 组**变异自证），~0.3s。
 add "bench-shell-fixes"   "node tests/bench-shell-fixes-test.mjs"
 # ①(2026-09-19「结合 X11 自己做简单测试」) `x11-pointer`：**真 X11 指针链路对拍** —— xdotool 用真 X 事件
 #   把指针移进/移出/移到画布另一端，页面里自己的监听记录 clientX/Y，断言：事件真到达、**鼠标下移 ⇒ cy 增大**

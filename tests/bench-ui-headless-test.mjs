@@ -564,6 +564,15 @@ try {
       const card = () => window.__benchPatch.npCard()
       const c0 = card()
       const a = window.__benchShell.navSound
+      //  T1/T2 的读数要求"媒体元素已经读完 metadata"（`seekable` 有区间 / `duration` 有值）。同机实测：
+      //  同一份页面同一个壁纸，一次 canSeek=true、一次 false（11s 之后仍在读）⇒ 这里是**有界等待**，
+      //  不是把判据放松：等满 15s 还没读到就照旧按原判据失败。
+      for (let i = 0; i < 30; i++) {
+        const m = a.mediaList()
+        const v = m.vids[0] || m.auds[0]
+        if (v && Number(v.duration) > 0 && v.seekable && v.seekable.length > 0) break
+        await new Promise((r) => setTimeout(r, 500))
+      }
       const pick = () => { const m = a.mediaList(); return m.vids.find((v) => !v.paused) || m.vids[0] || m.auds[0] || null }
       const v0 = pick()
       out.initial = {
@@ -864,6 +873,259 @@ try {
   }
 
   const topErrs = await page.evaluate(() => (window.__topErrs || []).slice(0, 4))
+  // ══════════════════ X 组（P-164 ⑤）品牌图标：真机抓到的是新图且能取到 ══════════════════
+  {
+    const x = await page.evaluate(async () => {
+      const links = [...document.querySelectorAll('link[rel*="icon"]')].map((l) => l.getAttribute('href'))
+      const probe = async (href) => {
+        if (!href) return null
+        try {
+          const r = await fetch(href, { method: 'GET' })
+          return { href, status: r.status, type: r.headers.get('content-type') || '', bytes: (await r.arrayBuffer()).byteLength }
+        } catch (e) { return { href, err: String(e.message) } }
+      }
+      const mf = await fetch(document.querySelector('link[rel="manifest"]').getAttribute('href')).then((r) => r.json())
+      const icons = []
+      for (const ic of mf.icons || []) icons.push(await probe(new URL(ic.src, location.href).href))
+      const cover = (() => { try { const el = document.querySelector('#np-mount .snd-art'); return el ? getComputedStyle(el).backgroundImage : '' } catch { return '' } })()
+      return { links, favicons: [await probe(links[0]), await probe(links[links.length - 1])], icons, cover }
+    })
+    const allBrand = (x.links || []).every((h) => /assets\/brand\//.test(h || ''))
+    const okFetch = x.favicons.every((f) => f && f.status === 200 && /^image\//.test(f.type) && f.bytes > 500)
+    ok(allBrand && (x.links || []).length >= 3 && okFetch,
+      'X1 ⑤ 真机 `link[rel*=icon]` 全部指向品牌图且 fetch 200 + `image/*`', JSON.stringify({ links: x.links, favicons: x.favicons }))
+    ok((x.icons || []).length === 3 && x.icons.every((i) => i && i.status === 200 && /^image\//.test(i.type) && /assets\/brand\//.test(i.href)),
+      'X2 ⑤ manifest 的三个图标都是品牌图、都能取到（200 + image/*）', JSON.stringify(x.icons))
+    ok(/assets\/brand\/wallpaper-engine-icon-512\.png/.test(x.cover || ''),
+      'X3 ⑤ 播放卡片的封面背景图也换成了品牌图', JSON.stringify((x.cover || '').slice(0, 90)))
+  }
+
+  // ══════════════════ Y 组（P-164 ①③）标签关闭（×）+ 省略号 + 重复点击幂等 ══════════════════
+  {
+    const y = await page.evaluate(async () => {
+      const P = window.__benchPatch
+      const R = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), w: Math.round(r.width), right: Math.round(r.right), h: Math.round(r.height) } }
+      const hit = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); const at = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)); return { self: !!(at && (at === el || el.contains(at))), got: at ? (String(at.className || at.id || at.tagName)).slice(0, 24) : null } }
+      const out = {}
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+      const tabs = () => [...document.querySelectorAll('#editor-tabs .wp-tab')]
+      const tabIds = () => tabs().map((b) => b.dataset.id)
+      const tabOf = (id) => tabs().find((b) => b.dataset.id === String(id)) || null
+      const curText = () => String((document.getElementById('current') || {}).textContent || '')
+      const curLiId = () => { const li = document.querySelector('#list li[data-id].active'); return li ? String(li.dataset.id || '') : '' }
+      const store = () => { try { return JSON.parse(localStorage.getItem('bench-pinned-wallpapers') || '[]') } catch { return null } }
+      const emptyVisible = () => { const e = document.getElementById('empty'); return e ? getComputedStyle(e).display !== 'none' : null }
+      const srcOf = () => String(document.getElementById('frame').getAttribute('src') || '')
+      const titleOf = (id) => { const li = [...document.querySelectorAll('#list li[data-id]')].find((x) => String(x.dataset.id || '') === String(id)); return li ? String((li.querySelector('.title') || {}).textContent || '').trim() : '' }
+      const all = document.querySelector('#type-filter .seg-btn[data-type="all"]')
+      if (all) { all.click(); await sleep(800) }
+      //  **先清场**：前面各组（类型过滤 / 诊断 / mpw / 播放卡片）可能已经固定过一串项，上一版 Y6/Y7 读到的
+      //  tab 数根本不是自己造出来的 ⇒ 期望值只能靠"数自己刚点出来的东西"。这里先把残留全部关掉
+      //  （关"当前项"走的正是本批 ① 的回落 / 释放路径），再固定恰好三项 A/B/C。
+      for (let i = 0; i < 14; i++) {
+        const cx = document.querySelector('.wp-x-cur')
+        const anyTab = tabs()[0] || null
+        if (!cx && !anyTab) break
+        const before = tabIds().length + (cx ? 1 : 0)
+        ;(cx || anyTab).click()
+        await sleep(cx ? 1400 : 600)
+        const after = tabIds().length + (document.querySelector('.wp-x-cur') ? 1 : 0)
+        if (after >= before) break                                  // 没有进展就别空转满 14 轮
+      }
+      await sleep(700)
+      out.drain = { tabs: tabIds().length, curText: curText(), cleared: /未选择壁纸|No wallpaper/.test(curText()), emptyVisible: emptyVisible(), pinned: store() }
+      const lis = [...document.querySelectorAll('#list li[data-id]')]
+      const idA = String(lis[0].dataset.id || ''); const idB = String(lis[1].dataset.id || ''); const idC = String(lis[2].dataset.id || '')
+      lis[0].click(); await sleep(4000)
+      lis[1].click(); await sleep(4000)
+      lis[2].click(); await sleep(6000)
+      out.fixed = { want: [idA, idB, idC], tabs: tabIds(), cur: curLiId(), pinned: store(), curText: curText() }
+      const tab = tabOf(idA)
+      const name = tab ? tab.querySelector('.wp-name') : null
+      const xBtn = tab ? tab.querySelector('.wp-x') : null
+      out.geom = {
+        tabs: document.querySelectorAll('#editor-tabs .wp-tab').length,
+        tabRect: R(tab), xRect: R(xBtn), nameEllipsis: name ? getComputedStyle(name).textOverflow : null,
+        nameOverflow: name ? getComputedStyle(name).overflow : null, tabMaxW: tab ? getComputedStyle(tab).maxWidth : null,
+        xInsideTab: !!(tab && xBtn && R(xBtn).right <= R(tab).right + 1 && R(xBtn).x >= R(tab).x),
+        xHit: hit(xBtn),
+      }
+      const curX = document.querySelector('.wp-x-cur')
+      const cur = document.getElementById('current')
+      out.curCell = {
+        curRect: R(cur), xRect: R(curX), maxW: cur ? getComputedStyle(cur).maxWidth : null,
+        ellipsis: cur ? getComputedStyle(cur).textOverflow : null,
+        gapPx: (cur && curX) ? Math.round(R(curX).x - R(cur).right) : null, hit: hit(curX),
+      }
+      const activeLi = () => document.querySelector('#list li[data-id].active')
+      const liNow = activeLi()
+      const src0 = srcOf()
+      const mounts0 = ((document.getElementById('logbody') || {}).textContent || '').split('\n').filter((l) => /Mount /.test(l)).length
+      for (let i = 0; i < 3; i++) { liNow.click(); await sleep(600) }
+      out.idem = {
+        srcSame: srcOf() === src0,
+        mountsBefore: mounts0, mountsAfter: ((document.getElementById('logbody') || {}).textContent || '').split('\n').filter((l) => /Mount /.test(l)).length,
+        nodeSame: activeLi() === liNow,
+        hits: (() => { const h = document.getElementById('np-host'); return h ? h.getAttribute('data-np-idem') : null })(),
+      }
+      //  **关非当前项**（A）：标签消失、预览不重挂、当前那一格的字一点不动。
+      const before = tabIds(); const textBefore = curText()
+      const xA = tabOf(idA) ? tabOf(idA).querySelector('.wp-x') : null
+      if (xA) xA.click()
+      await sleep(1500)
+      out.closeOther = {
+        closed: idA, before, after: tabIds(), srcSame: srcOf() === src0, textSame: curText() === textBefore,
+        curText: curText(), pinned: store(),
+      }
+      //  **关当前项**（C，还固定着 B）⇒ 明确回落到 B：条上不再有 tab（当前项不进条），且当前那一格必须换成
+      //  B 的名字 —— 不能留着已经关掉的 C 的旧标题（上一版断言抓到的就是这个中间态）。
+      const cx2 = document.querySelector('.wp-x-cur')
+      if (cx2) cx2.click()
+      await sleep(2500)
+      out.fellBack = {
+        curText: curText(), expectTitle: titleOf(idB), tabs: tabIds(), pinned: store(), curLi: curLiId(),
+        srcChanged: srcOf() !== src0, curCellX: !!document.querySelector('.wp-x-cur'),
+      }
+      //  **关最后一个**（B）⇒ 未选择壁纸 + 空态 + 固定集合清空。
+      const cx3 = document.querySelector('.wp-x-cur')
+      if (cx3) cx3.click()
+      await sleep(2500)
+      out.release = { curText: curText(), cleared: /未选择壁纸|No wallpaper/.test(curText()), emptyVisible: emptyVisible(), pinned: store(), tabs: tabIds().length }
+      void P
+      return out
+    })
+    ok(y.drain && y.drain.tabs === 0 && y.drain.cleared && y.drain.emptyVisible === true && (y.drain.pinned || []).length === 0,
+      'Y0 ① 先把残留标签全部关掉（连点"当前项"的 `×` 直到没有）⇒ 未选择壁纸 + 空态 + 固定集合清空（本组后续期望值的干净起点）',
+      JSON.stringify(y.drain))
+    ok(y.fixed && y.fixed.tabs.length === 2 && y.fixed.cur === y.fixed.want[2] && (y.fixed.pinned || []).length === 3 && y.fixed.curText.length > 0,
+      'Y0b ① 固定三项后：条上只有"非当前"的两个标签，当前项只在 `#current` 那一格（不重复出标签）',
+      JSON.stringify(y.fixed))
+    ok(y.geom && y.geom.tabs >= 1 && y.geom.tabRect && y.geom.tabRect.w <= 200 && y.geom.tabMaxW === '200px',
+      'Y1 ① 标签宽度有上限（≤200px，`max-width` 生效）', JSON.stringify(y.geom && { w: y.geom.tabRect.w, maxW: y.geom.tabMaxW }))
+    ok(y.geom && y.geom.nameEllipsis === 'ellipsis' && y.geom.nameOverflow === 'hidden',
+      'Y2 ① 标题用 CSS 省略号（`overflow:hidden` + `text-overflow:ellipsis`）⇒ 长名字不把 × 顶远', JSON.stringify(y.geom && { o: y.geom.nameOverflow, e: y.geom.nameEllipsis }))
+    ok(y.geom && y.geom.xInsideTab && y.geom.xHit && y.geom.xHit.self,
+      'Y3 ① 固定标签的 `×` 在标签**右端内侧**且命中区 = 视觉区', JSON.stringify(y.geom && { inside: y.geom.xInsideTab, hit: y.geom.xHit }))
+    ok(y.curCell && y.curCell.maxW === '180px' && y.curCell.ellipsis === 'ellipsis' && y.curCell.hit && y.curCell.hit.self && Math.abs(y.curCell.gapPx) <= 1,
+      'Y4 ① 当前壁纸那一格：标题省略号 + 紧贴右缘的 `×`（间隙 ≤1px）且命中=视觉',
+      JSON.stringify(Object.assign({}, y.curCell, {
+        c: y.curCell ? [y.curCell.maxW === '180px', y.curCell.ellipsis === 'ellipsis', !!(y.curCell.hit && y.curCell.hit.self), Math.abs(y.curCell.gapPx) <= 1, y.curCell.gapPx] : null,
+      })))
+    ok(y.idem && y.idem.srcSame && y.idem.mountsAfter === y.idem.mountsBefore && y.idem.nodeSame && Number(y.idem.hits) >= 3,
+      'Y5 ③ 连点"已选中"项 3 次：`#frame` src 不变、`Mount` 日志不增、节点身份不变、拦截计数 ≥3',
+      JSON.stringify(y.idem))
+    ok(y.closeOther && y.closeOther.closed && !y.closeOther.after.includes(y.closeOther.closed) &&
+      y.closeOther.after.length === y.closeOther.before.length - 1 && y.closeOther.srcSame && y.closeOther.textSame,
+      'Y6 ① 点**非当前项**的 `×` ⇒ 只有该标签消失（少一个）、预览不重挂（src 不变）、当前那一格的字不动',
+      JSON.stringify(y.closeOther))
+    ok(y.fellBack && y.fellBack.tabs.length === 0 && y.fellBack.curText === y.fellBack.expectTitle &&
+      (y.fellBack.pinned || []).length === 1 && y.fellBack.curCellX === true,
+      'Y7 ① 关掉**当前项**（还固定着别的项）⇒ 明确回落到它：当前那一格换成回落项标题（不留已关项的旧标题）、固定集合只剩它',
+      JSON.stringify(y.fellBack))
+    ok(y.release && y.release.cleared && y.release.emptyVisible === true && (y.release.pinned || []).length === 0 && y.release.tabs === 0,
+      'Y8 ① 关掉最后一个（当前项）⇒ 明确回落到"未选择壁纸 + 空态"，固定集合清空', JSON.stringify(y.release))
+  }
+
+  // ══════════════════ Z 组（P-164 ②④）调试模式页签 + 指针移动转发 ══════════════════
+  {
+    const z = await page.evaluate(async () => {
+      const P = window.__benchPatch
+      const out = {}
+      const probe = (key) => { const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented }
+      out.before = { swallow: { ArrowRight: probe('ArrowRight'), Alt: probe('Alt') }, view: document.getElementById('logs').dataset.view }
+      document.getElementById('tab-debug').click()
+      await new Promise((r) => setTimeout(r, 800))
+      out.on = {
+        view: document.getElementById('logs').dataset.view, active: P.debugMode(), keys: P.dbgKeysInstalled(),
+        layerText: (document.getElementById('dbg-layer') || {}).textContent,
+        layers: P.dbgLayers(), index: P.dbgIndex(),
+        logLines: ((document.getElementById('dbg-log') || {}).textContent || '').length,
+        boot: P.dbgBootErr(),
+      }
+      const btnInfo = (id) => { const b = document.getElementById(id); if (!b) return null; const r = b.getBoundingClientRect(); const at = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)); return { id, w: Math.round(r.width), h: Math.round(r.height), hit: !!(at && (at === b || b.contains(at))) } }
+      out.buttons = [btnInfo('dbg-report'), btnInfo('dbg-shot')]
+      out.shot = P.dbgShot()
+      const rep = await P.dbgReport()
+      out.report = rep && { route: rep.route, status: rep.status || 0, bytes: rep.bytes, schema: rep.plan && rep.plan.schema, diagLines: rep.plan && rep.plan.diagLines }
+      out.reportStored = (() => { try { return (localStorage.getItem('bench-debug-report') || '').length } catch { return -1 } })()
+      out.swallowOn = { ArrowRight: probe('ArrowRight'), ArrowLeft: probe('ArrowLeft'), Control: probe('Control'), KeyA: probe('a'), AltThenExit: probe('Alt') }
+      await new Promise((r) => setTimeout(r, 500))
+      out.afterAlt = { view: document.getElementById('logs').dataset.view, active: P.debugMode(), keys: P.dbgKeysInstalled() }
+      out.swallowOff = { ArrowRight: probe('ArrowRight'), Alt: probe('Alt') }
+      return out
+    })
+    ok(z.before && z.before.swallow.ArrowRight === false && z.before.swallow.Alt === false,
+      'Z1 ② 调试模式**未激活**时 ←/→/Alt 的默认行为照旧（不吞）', JSON.stringify(z.before))
+    ok(z.on && z.on.view === 'debug' && z.on.active === true && z.on.keys === true,
+      'Z2 ② 点「调试模式」⇒ 进入调试视图且键盘路由已装上', JSON.stringify(z.on && { view: z.on.view, active: z.on.active, keys: z.on.keys }))
+    ok(z.buttons && z.buttons.every((b) => b && b.w > 40 && b.h > 0 && b.hit === true),
+      'Z3 ② 「立即上报」「截图」两个按钮可见且命中区 = 视觉区', JSON.stringify(z.buttons))
+    ok(z.on && typeof z.on.layerText === 'string' && z.on.layerText.length > 0 && z.on.logLines > 0,
+      'Z4 ② 栏内有**当前层信息**与**日志**（没有场景时如实写"没有可逐层查看的场景"）',
+      JSON.stringify({ layer: z.on && z.on.layerText, log: z.on && z.on.logLines }))
+    ok(z.shot === null || (z.shot && z.shot.bytes > 1000),
+      'Z5 ② 「截图」有场景时给出 JPEG（bytes>1KB），没有画布时走明确失败并写日志', JSON.stringify(z.shot))
+    ok(z.report && z.report.schema === 'bench-debug/1' && z.report.bytes > 50 && /^\/(report|baseline|diag)$/.test(z.report.route) && z.reportStored > 50,
+      'Z6 ② 「立即上报」：载荷 schema 正确、落点走 /report→/baseline→/diag 的第一条可用路由、并留本地副本',
+      JSON.stringify({ report: z.report, stored: z.reportStored }))
+    ok(z.swallowOn && z.swallowOn.ArrowRight === true && z.swallowOn.ArrowLeft === true && z.swallowOn.Control === true && z.swallowOn.KeyA === false,
+      'Z7 ② 激活期间 ←/→/Ctrl 被吞（含修饰键默认行为）、普通字符键照旧', JSON.stringify(z.swallowOn))
+    ok(z.afterAlt && z.afterAlt.view === 'logs' && z.afterAlt.active === false && z.afterAlt.keys === false && z.swallowOff.ArrowRight === false && z.swallowOff.Alt === false,
+      'Z8 ② Alt 退出调试模式 ⇒ 视图回输出、键盘监听**卸掉**、默认行为恢复（不留全局拦截）', JSON.stringify({ after: z.afterAlt, off: z.swallowOff }))
+    const pf = await page.evaluate(() => window.__benchPatch.pointerForward ? window.__benchPatch.pointerForward() : null)
+    ok(pf && pf.enabled === true && typeof pf.forwarded === 'number',
+      'Z9 ④ 指针转发入口可读（`enabled` + 已转发次数）', JSON.stringify(pf))
+    ok(z.on && z.on.boot === '',
+      'Z9b ② 进出调试页签没有**被吞掉的启动错**（`dbgBootErr` 必须是空串：正常路径下 setDebugMode 不许抛）',
+      JSON.stringify({ boot: z.on && z.on.boot }))
+    //  ④ 真机口径：**不按住任何键**在舞台上移动 ⇒（a）注入遮罩上收到 pointermove 并转发给渲染器，
+    //  （b）尾迹画布出现墨迹。两条都用 Playwright 的真鼠标事件（不是 DOM 合成），headless 也能测。
+    const ink = () => page.evaluate(() => {
+      const c = document.getElementById('trail-canvas')
+      if (!c) return -1
+      const g = c.getContext('2d')
+      if (!g) return -1
+      const d = g.getImageData(0, 0, c.width, c.height).data
+      let n = 0
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++
+      return n
+    })
+    const injOn = await page.evaluate(() => {
+      const p = document.getElementById('pointer-push')
+      if (p && !p.checked) p.click()
+      return { checked: !!(p && p.checked), veilShown: (() => { const v = document.getElementById('pointer-veil'); return !!(v && !v.hasAttribute('hidden')) })(), trailOnEnabled: (() => { const t = document.getElementById('trail-on'); return !!(t && !t.disabled) })() }
+    })
+    await page.waitForTimeout(500)
+    const pf0 = await page.evaluate(() => window.__benchPatch.pointerForward())
+    const rect = await page.evaluate(() => {
+      const v = document.getElementById('pointer-veil')
+      const el = (v && !v.hasAttribute('hidden')) ? v : document.getElementById('stage')
+      const r = el ? el.getBoundingClientRect() : null
+      return r ? { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } : null
+    })
+    if (rect && rect.w > 20 && rect.h > 20) {
+      const cx = rect.x + Math.round(rect.w * 0.35); const cy = rect.y + Math.round(rect.h * 0.45)
+      for (let i = 0; i < 8; i++) await page.mouse.move(cx + i * 12, cy + i * 7)      // 不按键
+      await page.waitForTimeout(300)
+    }
+    const pf1 = await page.evaluate(() => window.__benchPatch.pointerForward())
+    ok(rect && rect.w > 20 && pf1 && pf1.forwarded > pf0.forwarded,
+      'Z10 ④ 舞台内**不按键**真鼠标移动 ⇒ 坐标经 `__wp.pushPointer(...,buttons=0)` 转发（计数增加）',
+      JSON.stringify({ inj: injOn, rect, from: pf0, to: pf1 }))
+    const ink0 = await ink()
+    await page.evaluate(() => { const t = document.getElementById('trail-on'); if (t && !t.disabled && !t.checked) t.click() })
+    await page.waitForTimeout(400)
+    if (rect && rect.w > 20 && rect.h > 20) {
+      const cx = rect.x + Math.round(rect.w * 0.5); const cy = rect.y + Math.round(rect.h * 0.55)
+      for (let i = 0; i < 10; i++) await page.mouse.move(cx - i * 14, cy - i * 9)     // 依旧不按键
+      await page.waitForTimeout(300)
+    }
+    const ink1 = await ink()
+    ok(ink0 >= 0 && ink1 > 0 && ink1 >= ink0,
+      'Z11 ④ 「指针注入 + 鼠标尾迹」下**不按键**移动 ⇒ 尾迹画布出现墨迹（:8899 同一口径）',
+      JSON.stringify({ inkBefore: ink0, inkAfter: ink1, trail: await page.evaluate(() => { const t = document.getElementById('trail-on'); return { checked: !!(t && t.checked), disabled: !!(t && t.disabled) } }) }))
+  }
+
   ok(topErrs.length === 0, 'N6 整轮**顶层文档** 0 个脚本错（页面自己的 error/unhandledrejection 钩子；含本批新增的页签/面板/类型过滤/诊断流/mpw 夹具/播放卡片）',
     topErrs.join(' | ') || ('pageerror(含子帧)=' + errs.length))
   for (const m of errs.slice(0, 4)) notes.push('pageerror（含子帧，仅记录）: ' + m)

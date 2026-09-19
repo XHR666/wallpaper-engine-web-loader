@@ -49,12 +49,13 @@ import {
 
 /* COVER was Bencho's own pictures, which are not licensed
    to travel. Point this at yours. */
-/* ①(P-138 移植) 指向本仓库自己的图：demo/icons/pwa-512.png（512×512，
-   本项目的 PWA 图标，随仓库分发、许可干净）。路径**相对页面**写，
+/* ①(P-138 移植) 指向本仓库自己的图：demo/assets/brand/wallpaper-engine-icon-512.png（512×512，
+   ①(P-164) 起换成**仓库所有者提供的**品牌图，随仓库分发；来源说明见 docs/PATCHES.md P-164）。
+   路径**相对页面**写，
    所以 /demo/now-playing/ 与 /WEwebLoader/now-playing/ 两个挂载点都成立；
    本仓库不出行任何第三方美术资源，所以这里只能用自家的图 —— 详见
    demo/now-playing/README.md 的「COVER」一节。 */
-const COVER: string = "../icons/pwa-512.png";
+const COVER: string = "../assets/brand/wallpaper-engine-icon-512.png";
 
 /* ══ Sound ════════════════════════════════════════════════
    A now-playing pill that opens into a player.
