@@ -11163,3 +11163,109 @@ name:"particles/presets/firefliestrail.json", maxcount:20, scale:"1.5 1.5 1"}]`�
    ⇒ **多父粒子层的拖尾分布会与官方不同**（萤火虫层实测父粒子仅 5 颗、`maxcount 20` 未触顶）。
 6. **`pSpawnEv`/`pDeathEv` 容量上限 512**（超出丢最老的）：`?psim=replay` 档下每帧重放整段历史，
    极端场景（单帧 >512 个出生/死亡）会丢事件 —— 数量级余量很大，但**未实测**。
+
+---
+
+## P-145（2026-09-19 · 主对话派单 C）`:8901` 测试台部署树 = **软链同一棵树**，新增一条"要不要同步"的机器判据
+
+**用户条目**：第 4 条（`:8901` 那份测试台界面）——"改了仓库 `demo/` 之后，`:8901` 那份要不要重新复制？"
+
+**结论（三条判据全过，不是"看起来一样"）**：
+```
+$ ls -la references/vendor-ref/ww-pages/
+  WEwebLoader            -> ../../../we-scene-demo/demo      (27B, 09-18 22:55)
+  wallpaper-engine-webgl -> ../../../we-scene-demo/demo      (27B, 09-17 06:34)
+$ readlink -f WEwebLoader   ⇒ /root/Desktop/DSHarea/we-scene-demo/demo
+$ stat -c '%i %h %s %y %n' WEwebLoader/index.html wallpaper-engine-webgl/index.html <repo>/demo/index.html
+  1916745 1 80582 …          ← 三条路径**同一个 inode**
+$ stat -d（目录）：部署 65099:2170505 == 仓库 65099:2170505
+```
+⇒ **零同步需求**：改仓库 `demo/**` 立刻就是 `:8901` 的内容。
+（**纠正一个错误判据**：`%h = 1` **不是**"两份拷贝"的证据 —— 软链不计入硬链接数。）
+
+**新增工具** `tools/bench-8901-sync.mjs`：`--check` 只核不写、有漂移退 **1**；同树形态**零哈希**（0.07s）；
+实体副本才逐文件对账，同步**只新增/覆盖、绝不删部署侧独有**、边拷边核；`--serve` 自证「HTTP 字节 == 磁盘字节 + 旧名 302 + no-store」；
+跑前内存闸门（available < 3000MB 拒跑，`--force` 放行）。自测 10 项含 RED→GREEN。PeakRSS 91MB。
+
+**顺带纠正一个"grep 首页"的假阴性**：`mpw-select` 在 `demo/index.html` 里出现 **0 次** —— 它由
+`demo/bench-patch.js:70` 的 `import` 引入；要查"自绘下拉挂上没"必须 grep `demo/bench-patch.js`（或直接问 DOM）。
+
+**交付**：`we-scene-demo/tools/bench-8901-sync.mjs`、`we-scene-demo/docs/BENCH-8901-DEPLOY.md`（提交 `b4919f6`）。
+**未提交及原因**：`references/` 不在任何 git 仓库（工作区根本没有 `.git`）⇒ 三条软链只能登记在文档 §6.1（含 `ln -sfn` 重建配方）。
+
+## P-146（2026-09-19 · 主对话）测试台 UI 的**无 X11** 常驻门禁 + 三个真机门禁的坑
+
+**背景**：宿主机 12:0x 自动重启，X 显示随 Termux:X11 一起消失 ⇒ 需要 X 的 `bench-click-test` 无法复跑，
+P-142 的判定一度"无从复跑"。这条把**功能判定**从"必须 X"里拆出来。
+
+**新增门禁 `bench-ui-headless`**（`tests/bench-ui-headless-test.mjs`，headless firefox，**本机 17.7s**，15 断言）：
+```
+PASS N1a  #sidebar-toggle 可见                         mainW=740 lists=1
+PASS N1b  点一次 ⇒ 收起（body 类 + aria-expanded=false） collapsed=true aria=false store=1
+PASS N1c  收起后 #main 真变宽                          Δ=+274px
+PASS N1d  再点 ⇒ 复原                                   mainW=740（原 740）
+PASS N1f  收起状态**刷新后保持**（localStorage）
+PASS N2b  点声音控件 ⇒ 卡片展开                          card 78 → 189px
+PASS N2c  再点 ⇒ 收回（是开关）                          card 189 → 78px
+PASS N3b  两态都**没有够不着的属性项**                   unreachableCount=0/0
+PASS N3c  展开态遮挡高度 ≥ 收起态                        cover 164 → 219
+PASS N5a  工具条下拉[0] 点开 ⇒ 恰好 1 个列表 + data-flip  scope=#toolbar .mpw_select flip=down
+PASS N5b  再点即关                                       list=0 open=0
+PASS N6   整轮 0 个 pageerror
+── 汇总：PASS=15 FAIL=0
+```
+**诚实口径**：N4（属性表滚到底）在"这一档没选中带 properties 的壁纸"时记 **未测**（`rows=0`），**不拿空表当绿**。
+
+**同一提交修掉三个真机测试基础设施的坑**（都进了 `docs/OPERATING-LESSONS.md`）：
+* **L-22** `xdotool mousemove --sync` 在"指针已在目标点"时**挂满超时**：一次 glide(4 步) 白等 80s（`execFileSync` 默认 20s×4）、
+  S10 三次重试 ≈ 240s ⇒ 看起来像"测试卡死"。改：已在目标点直接返回 + `--sync` 单独 1.5s 小超时后降级普通 warp。
+* **L-23** 软渲染下 **"真指针到位" ≠ "页面看到指针到位"**：实测 `atBefore=svg`、指针读回 (286,146)，
+  但点击事件自带坐标 `c=(315,310)`（旧坐标）⇒ 落到 `#props`（26px 宽的收纳键当然点不到；宽控件"碰巧还能点到"）。
+  改：页面装 `__mp` 跟踪器，`aimAt()` 移完指针后 `waitForFunction(__mp ≈ 目标)` 才发点击；已在目标点先离开 6px 制造新 motion 事件。
+* S10 前置**明确关掉 `Pointer inject`**（它会接管指针，失败归因会被它污染）；诊断三件套常驻 notes
+  （按键事件环形缓冲 + body class 的 `MutationObserver` 调用栈 + 目标矩形）。
+
+**新增运维脚本** `tests/keep-servers.sh`：`:8899/:8901/:8902` 看门狗（重启后这三个 node 服务会**不明原因周期性消失**，
+旧 `keep-demo-server.sh` 只盯 :8899 且没常驻 ⇒ 表现为"刚才还 200、一会儿全 000"）。**`:3080`（用户 DSH）永不触碰**。
+
+**交付**：提交 `ace0c28`（5 文件 / +469 −6；`tests/run-all-tests.sh` 登记 `bench-ui-headless`）。
+
+## P-147（2026-09-19 · 派单 G）线上 demo（Pages）构建面完整性核对
+
+**问题**：本仓 2026-09-19 出过一次"首屏 module 图漏登记 ⇒ 白屏"（见 P-143）——本轮新增 5 个模块后必须重新核一遍。
+
+**结论：产物 + SW 两侧**对本批 5 个模块**全登记，无缺**
+`we-pointer-source.mjs`(`build-pages.mjs:74`)、`we-particle-pointer.mjs`(`:75`)、`attach-transform.mjs`(`:59`) 走具名映射；
+`demo/mpw-select.js` / `demo/mpw-select-math.mjs` 走 `demo/` 整目录(`:42`)。
+真跑产物（`--out` 到临时目录，仓库 `_site/` 全程不存在）：**232 文件 / 必需文件自检 23 项全过 / 隐私闸门通过**；
+临时端口抓 26 条 URL：**25 条 200**、所有 module 响应一律 `text/javascript`（**无空 MIME** = P-143 死因），唯一 404 是预期旧路径。
+`PRECACHE` + `SHELL_EXACT` 两侧都在、`shouldCache()` 全 `true`；门禁 `core-module-wiring` **64/0**、`pwa-test` **107/0**（改前）。
+
+**附带发现（→ 其中两条已被 P-148 修掉）**：
+① `PRECACHE` 里 `/assets/fonts/Blackout.ttf` **文件名写错**（真名带空格）⇒ 静默 404；
+② `PRECACHE` 里 `/demo.html` **没有这条路由**（服务器只认 `/` 与 `/index.html`）⇒ 静默 404；
+③ `demo/index.html` 与 `demo/now-playing/**` 不在任何预缓存清单（P2，离线降级不是白屏）；
+④ `PATCHES.md` P-127 段"旧路径不放 sw.js ⇒ 线上本就没有 SW 注册"需更正：minified 产物末行硬编码注册旧路径，
+   `demo/bench-patch.js` 的 register 包装**晚于**它执行 ⇒ 404 被 `.catch` 吞掉（**页面不受影响**）。
+
+**交付**：`docs/PAGES-BUILD-INTEGRITY.md`（437 行，含"新增 demo 模块时的三处登记 checklist"），提交 `3656d30`。
+
+## P-148（2026-09-19 · 主对话）SW 预缓存两条**永远 404** 的条目 + "每条 URL 都问真服务要 200"的门禁
+
+> 编号说明：本条的提交信息里写的是 `P-147`（与派单 G 的 `3656d30` **撞号**，它先提交）。
+> 按"编号唯一"纪律，台账这里**更正为 P-148**；提交信息不改写（已推送）。
+
+**来源**：P-147 的附带发现 ①②。SW 的 `install` 是**逐条 `try/catch`** ⇒ 清单里名字写错**不报错**，只是那条永远缓存不上
+（"写了但没缓存"，离线时才发现少东西）。
+
+**修法（`web/sw.js`）**：
+* `/assets/fonts/Blackout.ttf` → `/assets/fonts/Blackout%202%20AM.ttf`
+  （真名 `assets/fonts/Blackout 2 AM.ttf`，URL 必须 `encodeURIComponent`；与 `demo.html:3688` 的 `repoFontUrl()` 同一口径）
+* `/demo.html` → `/index.html`（`server/we-scene-demo-server.mjs:377` 只认 `/` 与 `/index.html`，两者都读 `demo.html`）
+* `VERSION` **v2 → v3**（清单变了 ⇒ 按本文件自己的规矩"版本号变更 ⇒ 旧缓存整批清理"，否则老客户端一直用旧清单）
+
+**新增判据 F11**（`tests/pwa-test.mjs`）：解析 `PRECACHE` 数组，**逐条 `fetch` 真子进程服务，必须全 200**。
+不重复实现服务器路由表 —— 直接问真服务。变异自证：任一条改回错名 ⇒ F11 必红（本轮它先红在
+`/assets/fonts/Blackout.ttf→404`，改完又红在 `/demo.html→404`，两条都是它抓出来的）。
+
+**判据**：`node tests/pwa-test.mjs` ⇒ **108 通过 / 0 失败**（改前 107/1）。提交 `7893839`（2 文件 / +30 −3）。
