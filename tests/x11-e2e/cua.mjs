@@ -75,10 +75,19 @@ export function shot(out) {
  * ①(2026-09-19 实测) `xdotool mousemove --sync` 偶发失败（X 服务器忙/指针没法同步到位；真机跑长档时遇到过一次，
  * 整个测试因此抛栈中断）。这里做一次**降级重试**：带 `--sync` 失败 ⇒ 退回不带 `--sync` 的普通 warp，
  * 再读回位置确认；两次都失败才抛（抛之前把当前位置一起报出来，便于定位）。
+ * ②(2026-09-19 再实测) **真正的坑不是"失败"而是"挂住"**：`--sync` 等的是"指针到达"事件，
+ * 若指针**已经在目标点**（重复点同一个元素时每次 glide 的每一步都落在原地），事件永不到来 ⇒
+ * `execFileSync` 只能等满 `timeout`（默认 20 s）才超时，一次 glide(4 步) 就要 80 s，
+ * 三次重试 ≈ 4 分钟（`bench-click-test` 的 S10/S11 就是这么慢下来的）。
+ * 所以：**(a) 已在目标点直接返回；(b) 给 `--sync` 单独一个 1.5 s 的小超时**，挂住也立刻降级到普通 warp。
  */
-export function pointerTo(x, y) {
+export function pointerTo(x, y, { syncTimeout = 1500 } = {}) {
   const X = String(Math.round(x)); const Y = String(Math.round(y))
-  try { run('xdotool', ['mousemove', '--sync', X, Y]); return } catch (e1) {
+  try {                                       // ②(a) 已经在目标点：不做无意义的"移动"
+    const p = pointerNow()
+    if (p.x === Number(X) && p.y === Number(Y)) return
+  } catch { /* 读不到位置就照常走下面的路 */ }
+  try { run('xdotool', ['mousemove', '--sync', X, Y], { timeout: syncTimeout }); return } catch (e1) {
     try { run('xdotool', ['mousemove', X, Y]) } catch (e2) {
       let now = '(读不到)'
       try { const p = pointerNow(); now = p.x + ',' + p.y } catch { /* ignore */ }
