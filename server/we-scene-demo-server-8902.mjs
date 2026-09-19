@@ -323,18 +323,20 @@ function fsRoots() {
     { label: '壁纸总目录 allwallpaper', path: path.join(MPW_ROOT, 'allwallpaper'), kind: 'allwallpaper' },
   ]
   const out = []
-  const seen = new Set()
+  const byPath = new Map()
   for (const c of cands) {
     const p = path.resolve(c.path)
-    if (seen.has(p)) continue
-    seen.add(p)
+    const hit = byPath.get(p)
+    if (hit) { hit.labels.push(c.label); continue }   // 同路径只出一条，标签合并（例如库根就是 allwallpaper）
     const exists = !!statSafe(p)
     const inside = !!containingBrowseRoot(p)
-    out.push(Object.assign({}, c, {
-      path: p, exists, listable: inside && exists,
+    const row = Object.assign({}, c, {
+      path: p, labels: [c.label], exists, listable: inside && exists,
       reason: inside ? (exists ? null : '路径不存在') : `不在只读浏览边界内（当前边界：${PICK_ROOT_REAL}）`,
       enableHint: inside ? null : `把浏览边界放宽到它（或它的上层）即可：MPW_PICK_ROOT=${path.resolve(c.path)}`,
-    }))
+    })
+    byPath.set(p, row)
+    out.push(row)
   }
   return out
 }
@@ -1383,7 +1385,7 @@ async function handleApi(req, res, url) {
   //     错误码：400 参数非法 / 403 越界（`..`、绝对跳转、符号链接逃逸）/ 404 不存在；只读。
   if (p === '/api/fs/roots' && (req.method === 'GET' || req.method === 'HEAD')) {
     return jsonOk(res, {
-      roots: fsRoots().map((r) => ({ label: r.label, path: r.path, kind: r.kind, exists: r.exists, listable: r.listable, reason: r.reason, enableHint: r.enableHint })),
+      roots: fsRoots().map((r) => ({ label: r.label, labels: r.labels, path: r.path, kind: r.kind, exists: r.exists, listable: r.listable, reason: r.reason, enableHint: r.enableHint })),
       browseRoot: PICK_ROOT_REAL, browseRootFrom: PICK_ROOT_FROM,
       home: os.homedir() || '/', homeListable: !!containingBrowseRoot(os.homedir() || '/'),
       library: { dir: activeRoot, source: librarySource().source, selected: librarySource().selected },
@@ -1407,7 +1409,7 @@ async function handleApi(req, res, url) {
     ]
     return jsonOk(res, {
       path: listing.dir, parent: listing.parent, entries, count: entries.length,
-      atRoot: listing.atRoot, browseRoot: PICK_ROOT_REAL, roots: fsRoots().map((r) => ({ label: r.label, path: r.path, listable: r.listable })),
+      atRoot: listing.atRoot, browseRoot: PICK_ROOT_REAL, roots: fsRoots().map((r) => ({ label: r.label, labels: r.labels, path: r.path, listable: r.listable })),
       counts: listing.counts, truncated: listing.truncated, readOnly: true,
       kindLegend: {
         dir: '"wallpaper" = 目录本身像壁纸（含 scene 容器 / 网页入口 / 视频 / mpkg / project.json）；"other" = 其余（可能还要再进一层）',

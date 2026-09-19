@@ -91,7 +91,7 @@ POST /api/fs/pick              body {"path":"<绝对路径>"}       # 选择器"
 
 | 方法 | 路径 | 入参 | 返回（要点） | 错误码 |
 |---|---|---|---|---|
-| GET | `/api/fs/roots` | — | `{ok, roots:[{label,path(绝对),kind,exists,listable,reason,enableHint}], browseRoot, home, library:{dir,source,selected}}` | — |
+| GET | `/api/fs/roots` | — | `{ok, roots:[{label,labels[],path(绝对),kind,exists,listable,reason,enableHint}], browseRoot, home, library:{dir,source,selected}}`（同路径只出一条，标签合并进 `labels[]`：库根恰好就是 allwallpaper 时 `label="当前库目录"`、`labels=["当前库目录","壁纸总目录 allwallpaper"]`） | — |
 | GET | `/api/fs/list` | `path`（**必须绝对**；省略 = 浏览根） | `{ok, path, parent, entries:[{name,type:'dir'\|'file',size,kind,path,entryKind,signal}] , count, atRoot, roots, counts, kindLegend}` | 400 相对路径/非法 · 403 越界 · 404 不存在 |
 | POST | `/api/fs/pick` | `{path, scan?}` | `{ok, picked, path, source:"user", library, scan}`（**只读校验 + 设为库根**，不写用户目录） | 400/403/404 · 405 |
 | GET | `/api/dir-list` | `path`（绝对或相对浏览根）、`files=0` | 同 `fs/list` 的超集：`dirs[]`（含 `looksLikeWallpaper`/`entryKind`/`signal`）、`files[]`、`parent`、`atRoot`、`roots[]`、`pickHint` | 400/403/404 |
