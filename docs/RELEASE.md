@@ -164,4 +164,16 @@ npm **不能撤回**已发布版本（72 小时内可 `unpublish`，但那会破
   1. 第 3 节那句 `node -e "import('…')"` **不是可选项** —— 它是唯一能抓住"包缺文件"的一步；已提到第 3 节第 1 条。
   2. 发版前跑 `node tests/pack-closure-test.mjs`（秒级到十几秒），别只跑 `packaging-test`。
   3. `files` 是白名单 ⇒ **新增 `core/` 下的模块时，必须同步加白名单**；`pack-closure` 会替你把关。
-* 0.2.0 的处理：**不 unpublish**（会破坏已装下游），用 `npm deprecate` 指向 0.2.1。
+* 0.2.0 的处理：**不 unpublish**（会破坏已装下游），用 `npm deprecate` 指向 0.2.1（已执行，`npm view …@0.2.0 deprecated` 能读到原因）。
+
+### 0.2.1 发布后验证读数（2026-09-20 实测，命令即第 3 节）
+
+| 检查 | 读数 |
+| --- | --- |
+| `npm view … dist-tags` / `@0.2.1 version` | `{ latest: '0.2.1' }` / `0.2.1`（发布后约 3 分钟才可见 —— registry 的"being processed"延迟，属正常） |
+| 真下载 `npm pack …@0.2.1` | 156 个文件 / 2.44 MB |
+| 三张此前缺失的模块 | `core/we-pointer-source.mjs` ✓ · `core/we-particle-pointer.mjs` ✓ · `server/pkg-entry-index.mjs` ✓ |
+| 品牌图标 | `web/icons/brand-*.png` 4 条 ✓ |
+| 干净目录 `npm i` + `import` | `LIB OK VERSION=0.2.1 mount=function parseScene=function` · `BUNDLE OK 204 导出` · `HLSL OK 2 导出` |
+| `@0.2.0 deprecated` | 能读到原因文案（指向 0.2.1 与本文档） |
+| git tag | `v0.2.1` 已推送 |
