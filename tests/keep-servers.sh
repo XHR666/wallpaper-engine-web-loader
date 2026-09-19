@@ -22,12 +22,27 @@ start_8899() { (cd "$REPO" && setsid node server/we-scene-demo-server.mjs 8899 >
 start_8901() { (cd "$WS/references/vendor-ref/ww-pages" && setsid node serve-8901.mjs 8901 >>/tmp/8901.log 2>&1 &) ; }
 start_8902() { (cd "$REPO" && setsid node server/we-scene-demo-server-8902.mjs 8902 >>/tmp/8902.log 2>&1 &) ; }
 
-say "启动：盯 :8899 :8901 :8902（每 10s 一次；:3080 是用户的 DSH，**不碰**）"
+# ①(2026-09-19 用户明确要求) OpenViking 记忆服务（:1933）：**没起来就先拉起来**。
+#   用官方的 restart-openviking.sh（它自己锚定路径匹配 python 进程、不会误杀别的）；只在 health 不 200 时动手。
+OV_HEALTH="http://127.0.0.1:1933/health"
+ov_up() { curl -s -o /dev/null --max-time 2 "$OV_HEALTH"; }
+start_openviking() {
+  if [ -x "$WS/restart-openviking.sh" ]; then
+    (cd "$WS" && bash restart-openviking.sh >>/tmp/keep-servers-openviking.log 2>&1 &)
+  else
+    say "找不到 $WS/restart-openviking.sh ⇒ 无法自动拉起 OpenViking"
+  fi
+}
+if ov_up; then say "OpenViking(:1933) 已在"; else say "OpenViking(:1933) 不在，拉起…"; start_openviking; sleep 6; ov_up && say "OpenViking 已恢复" || say "OpenViking 仍不可达（下一轮再试）"; fi
+
+say "启动：盯 :8899 :8901 :8902 + OpenViking(:1933)（每 10s 一次；:3080 是用户的 DSH，**不碰**）"
 for p in 8899 8901 8902; do
   if up "$p"; then say ":$p 已在"; else say ":$p 不在，拉起…"; "start_$p"; sleep 2; up "$p" && say ":$p 起来了" || say ":$p 仍不可达"; fi
 done
 
 while true; do
+  # OpenViking 只在"掉下去"时才拉（健康时一个请求都不多发）
+  if ! ov_up; then say "OpenViking(:1933) 掉了，拉起…"; start_openviking; sleep 6; ov_up && say "OpenViking 已恢复" || say "OpenViking 仍不可达（下一轮再试）"; fi
   for p in 8899 8901 8902; do
     if ! up "$p"; then
       say ":$p 掉了，拉起…"
