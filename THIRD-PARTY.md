@@ -1086,3 +1086,43 @@ name:"particles/presets/firefliestrail.json", maxcount:20, scale:"1.5 1.5 1"}]`�
 
 数值出处：`tests/particle-children-test.mjs`（④ 真包 mock-GL + ⑥ 同族扫描 + ⑤ 逐位回退 + ⑦ 6 组变异自证）。
 
+
+## 16. webwallgl  (MIT © oneincase) — **P-149: 粒子 `overbright` 按规格独立实现**
+
+**这一节声明的是"按规格独立实现"，不是"照抄"。** 上游 `oneincase/webwallgl`
+(`https://github.com/oneincase/webwallgl`, MIT © 2026 oneincase) 的 `overbright` 契约只有 **4 行**，
+本仓库**没有**复制其文件、注释、命名或常量组织，只按下面这张**逐行引文表**（取值契约 `particles.js:590-593`、消费点 `particles.js:1300`）重写了这一条语义；
+落点代码里的每一行都是自写（函数名 `particleOverbrightFactor`、参数形态、兜底顺序、
+`?overbright=legacy` 开关、`particleStats.overbright` 记账均为本仓库独有）。
+MIT 全文随仓见 **§6.2**（同一上游，不重复粘贴）。
+
+### 16.1 上游出处（可 `git show` 原样复核）
+
+| 引文（上游原样，MIT） | `file:line` | 上文/下文 |
+|---|---|---|
+| `const rawOb = cv ? cv.ui_editor_properties_overbright : undefined` | `renderer/vendor/we-scene/render/particles.js:590` | `cv = pass && pass.constantshadervalues`（同文件 `:589`） |
+| `const ob = Number(rawOb)` | `:591` | — |
+| `this.overbright = rawOb == null || !Number.isFinite(ob) ? 1 : Math.max(0, ob)` | `:592` | 同段注释明写"`Number(null)=0`：键缺失时必须显式落缺省 1" |
+| `const bright = (this._ov.brightness || 1) * (this.overbright ?? 1)` | `:1300` | `_ov` = `instanceoverride` |
+| `data[k++] = (a.r + b.r) * 0.5 * bright`（三通道同式；alpha `(a.alpha + b.alpha) * 0.5` **不乘**） | `:1341-1344` | rope 分支；证明"只乘 RGB、不动 alpha" |
+
+commit：**`19c5fab`**（上游 1.3.x 的 overbright 修复提交；行号用 `git show 19c5fab:<path> | grep -n` 复核）。
+本地检出 `references/vendor-ref/webwallgl/`（**在仓库外、不入发布物**，见 `:611-612`）。
+
+### 16.2 落点（本仓库，全部自写）
+
+| 落点 | 内容 | 与上游的关系 |
+|---|---|---|
+| `core/we-scene-bundle.js::particleOverbrightFactor(pass)`（导出，纯函数） | 取值契约：`raw == null \|\| !Number.isFinite(n)` ⇒ 1、负数 ⇒ `Math.max(0,·)`、**不设上界** | **语义相同、实现自写**（上游写在实例构造里，我们抽成可直测的纯函数；上游没有 `legacy` 档与记账） |
+| `core/we-scene-bundle.js` 粒子色段（`vis.push([p, sz, a, colorR, …])` 之前） | `obf` 取用 + 兜底（非有限数 ⇒ 1、负数 ⇒ 0）；三通道 `* obf`（钳位只作用于逐粒子基色） | **语义相同、实现自写**（上游是逐实例 `bright` 乘在 r/g/b 上；我们的两条上屏路径 = `u_Color` 上提 + `a_Color` 顶点缓冲） |
+| `core/we-scene-bundle.js::renderParticleChildren` 的 `childLayer` | `__particleOverbright: res.overbright`（子系吃自己的材质因子、不继承父层） | 上游在实例构造时各自取自己的 pass ⇒ **语义相同** |
+| `demo.html` 粒子材质段 + `resolveChildDefs` | 两处调 `lib.particleOverbrightFactor(pass)` | 上游在 `renderer/src/**` 的解析层取 pass ⇒ 语义相同，落点不同 |
+| `?overbright=legacy` | 恒 1 = 逐位回到"键被忽略"的旧画面 | **本仓库独有**（上游无回退开关） |
+
+### 16.3 与上游的**行为差异**（必须写明）
+
+1. **上界**：上游没有上界，我们也没有（语料有 `5×`）。唯一的钳位 `Math.min(1,·)` 只作用于
+   **逐粒子基色**（本仓库 P-126 的既有口径），因子在钳之后乘 ⇒ `overbright=5` 真的出 5。
+2. **`instanceoverride.brightness` 未接**：上游 `:1300` 是 `brightness × overbright` 两个因子相乘，
+   本仓库 `instanceoverride` 没有 `brightness` 字段 ⇒ 本项只落 `overbright`，**未**顺手扩字段。
+3. **脏值口径**：上游 `Number.isFinite(ob) ? Math.max(0, ob) : 1` 与我们逐字同义（`"2"` 这类数值字符串两边都吃）。

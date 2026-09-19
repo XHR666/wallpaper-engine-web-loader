@@ -11166,6 +11166,37 @@ name:"particles/presets/firefliestrail.json", maxcount:20, scale:"1.5 1.5 1"}]`�
 
 ---
 
+### P-144.9 P-149 同批调整（`overbright` 落地时改的 6 条断言）
+
+方案 `docs/UPSTREAM-PORT-PLAN-20260919.md` §1.6 预警"`particle-children` 的『父系顶点流逐位不变』会因实例色变化变红"。
+**实测结论：不会。** 两条独立原因（都已复核）：
+
+1. **该断言比的是几何流**：mock-GL 里 `batch.data` 是每顶点 9 个 float 的几何（`nX,nY,0,u,v,u2,v2,blend,alpha`），
+   P-149 的因子乘的是**另一条通道**的实例色（逐顶点 `a_Color` VBO 或 `u_Color` uniform，两者在 FS 里相乘）
+   ⇒ 颜色变化**根本进不了**那个 sha256。旧措辞把"几何不动"和"颜色不动"混在一个名字里。
+2. **本层因子恰好 = 1**：`dd/3554161528` ln=22 的父材质 `materials/presets/fireflies.json` 写着
+   `ui_editor_properties_overbright: 1`、子系 `materials/presets/firefliestrail.json` **没有**
+   `constantshadervalues` ⇒ 两档本来就逐位相同。
+
+**仍然按方案要求把口径改对**（这是"判据本来就该区分几何/结构与颜色"，**不是放宽阈值**）：
+`particle-children` **61 → 66 断言**，全绿。改动逐条列在下面（`tests/particle-children-test.mjs`）：
+
+| 断言 | 改前 | 改后 | 为什么这样改 |
+|---|---|---|---|
+| ④-g | `parentShaOff === parentShaLeg`，名字写"父系顶点流逐位不变" | **改名 + 拆维**：「父系**结构字段**（几何流：位置/尺寸/UV/alpha）逐位不变」，并额外钉住它 = 老的 `parentShaOff`（口径没被偷偷换掉） | 名字必须说清它保证的是什么；几何流的逐位保证**原样保留**（`f8634777fcd88f67…` 与 P-144 当时记录的值一致） |
+| ④-g2（新） | — | 父系**实例色流**两档逐位相同（`82f9ae434c5bea2d…`） | 老断言**完全没测颜色**；这一条补上"children 档位不碰父系颜色" |
+| ④-g3（新） | — | 走 `?overbright=legacy` 时父系**整条**（几何 + 实例色）逐位不变：children official ≡ legacy（`597771f124a28619…`） | 方案要的"逐位不变"落在**真正逐位**的那条路径上（回退档），而不是一句覆盖两维的口号 |
+| ④-g4（新） | — | 因子前置钉住：父 = 1、子系 = 1 | ④-g/④-g2/④-g3 的"相同"是**结构结论**，必须写明不是靠非 1 因子蒙的 |
+| ④-g5（新，合成因子 0.25） | — | 只给层喂 0.25（不改场景）：几何流**逐位不变**、颜色流**真的变了**（`…→2bc6ffa5b684bb11`） | 本层真因子 = 1 ⇒ 没有这一条，颜色维度的判据全是空话 |
+| ④-g6（新，合成因子 0.25 + `?overbright=legacy`） | — | 颜色流**逐位回到**基色（`…→82f9ae434c5bea2d`）、几何流也回来 | 证明回退口真的把颜色拉回来了（而不是"两边都没接线"） |
+| mock | `rec.draws[]` 只有 `{count,data}`、无 `rec.uploads` | 加 `rec.uploads` + `draws[].upIdx/uni`（**只增字段**）；`useProgram` 记 `curProg` | 颜色在另一条 VBO/uniform 上，不补这两个读数就没法把"结构 vs 颜色"分开 |
+
+同时把**宿主契约镜像**进探针：`L.__particleOverbright = lib.particleOverbrightFactor(pass)`、
+子系 map 条目带 `overbright` —— 与 `demo.html` 的两处调用点逐字同形（否则探针测的是一层"宿主没接线"的层）。
+
+数字出处：`node tests/particle-children-test.mjs` ⇒ **66 通过 / 0 失败**（改前 61/0），
+`--verbose` 的 ④-g…④-g6 六行逐条带上 sha256。
+
 ## P-145（2026-09-19 · 主对话派单 C）`:8901` 测试台部署树 = **软链同一棵树**，新增一条"要不要同步"的机器判据
 
 **用户条目**：第 4 条（`:8901` 那份测试台界面）——"改了仓库 `demo/` 之后，`:8901` 那份要不要重新复制？"
@@ -11270,6 +11301,111 @@ PASS N6   整轮 0 个 pageerror
 
 **判据**：`node tests/pwa-test.mjs` ⇒ **108 通过 / 0 失败**（改前 107/1）。提交 `7893839`（2 文件 / +30 −3）。
 
+## P-149（2026-09-19 · 派单 A）粒子材质常量 `overbright` 落地 —— 语料 **25 个粒子层**的实例亮度从"键被静默丢弃"到"按作者本意乘进 RGB"
+
+**来源**：`docs/UPSTREAM-PORT-PLAN-20260919.md` §1（排序表 §7 第 1 名：收益最高、风险最低、工作量 S）。
+上游 = `oneincase/webwallgl`（**MIT © 2026 oneincase**）`19c5fab`：
+
+```
+renderer/vendor/we-scene/render/particles.js:590-593   ← 取值契约（4 行）
+    const rawOb = cv ? cv.ui_editor_properties_overbright : undefined
+    const ob = Number(rawOb)
+    this.overbright = rawOb == null || !Number.isFinite(ob) ? 1 : Math.max(0, ob)
+renderer/vendor/we-scene/render/particles.js:1300      ← 消费点
+    const bright = (this._ov.brightness || 1) * (this.overbright ?? 1)
+（rope 分支 :1341-1343 `(a.r+b.r)*0.5*bright` / `:1344` alpha **不乘** ⇒ 只乘 RGB）
+```
+
+**本项按规格独立实现**（契约只有 4 行，无可抄之物）：取值契约唯一实现在
+`core/we-scene-bundle.js::particleOverbrightFactor(pass)`，登记见 `THIRD-PARTY.md` §16 + `docs/COPYING-RULES.md` §4 **#14**。
+
+### P-149.0 改前是什么样（全仓 **0 实现**）
+
+| 口径 | 数值 | 出处 |
+|---|---|---|
+| 代码命中 | `overbright` 在 `core/**`/`demo.html`/`elysia/**`/`tests/**` **0 行 0 次** | 方案 §1.2（本项改前实测复核：`grep -c overbright` 全 0） |
+| 语料带该键的材质 | **38 条 pass**（每条材质恰 1 个 ⇒ 也等于材质数）、**15 个包** | 门禁 ⑥-b（流式扫描，见下） |
+| 取值直方图 | `{"1":13,"2":4,"5":2,"1.33":5,"1.47":1,"1.1":3,"1.21":2,"0.17":1,"1.77":1,"0.66":1,"0.25":2,"1.01":3}` | 门禁 ⑥-c（逐键等于方案 §1.3） |
+| join 到的粒子层 | **54 层 / 15 个包 / 238 个粒子对象**（预设→children 图，深度 ≤4） | 门禁 ⑥-d |
+| **真正会变画面的层** | **非 1 的层 25 个**（值 = 1 的 29 个**必须逐位不变**） | 门禁 ⑥-e |
+| 极值 | `reactive Stars` / `Glass Shards` = **5**（今天暗 5 倍）、`Bokeh Hex`/`Bokeh Cir` = **0.25**（今天亮 4 倍，与上游 `3151551777` 的病一模一样）、`new_particle_system` = **0.17** | 门禁 ⑥-g |
+
+### P-149.1 语义（4 行级，逐条按方案 §1.4/§1.5 落地）
+
+1. **取值**（宿主 `demo.html` 粒子材质段）：`pass.constantshadervalues.ui_editor_properties_overbright`，
+   **缺省 1**，`raw == null || !Number.isFinite(Number(raw))` ⇒ 1（`Number(null)===0` 会把"没写这个键"变成 0 = 整层全黑），
+   负数 ⇒ `Math.max(0, ·)`，**不设上界**。
+2. **消费**（渲染端 `core/we-scene-bundle.js` 粒子色段）：实例 RGB ×因子，**alpha 不动**；
+   `Math.min(1,·)` 只钳**逐粒子基色**（P-126 既有口径），因子在钳之后乘 —— 否则 `overbright = 5` 会被钳回 1 = 等于没修。
+3. **子系**：`resolveChildDefs` 把**子系自己的**因子放进 map 条目，`renderParticleChildren` 写进伪层的
+   `__particleOverbright`；父层与子系互不继承（上游也是"一实例一份 `overbright`"）。
+4. **回退**：`?overbright=legacy` ⇒ 恒 1，整条顶点流（几何 + 实例色）逐字节回到改动前。
+
+### P-149.2 修前 / 修后数字（真包 + mock-GL 忠实顶点流；实例色 = `u_Color ⊙ a_Color` 两路复原）
+
+| 真包 :: 层 | 材质因子 | 修前（`?overbright=legacy`）实例色均值 R/G/B | 修后（默认）| 逐顶点核验 |
+|---|---|---|---|---|
+| `dd/3719111841` :: **Bokeh Hex** | 0.25 | 0.609589 / 0.921560 / 0.318257 | **0.152397 / 0.230390 / 0.079564** | 198 个分量全部 ≡ 基色 × 0.25（maxRelΔ = **0**） |
+| `dd/3719111841` :: **Bokeh Cir** | 0.25 | 0.255864 / 0.354731 / **1.000000** | **0.063966 / 0.088683 / 0.250000** | 270 个分量全部 ≡ × 0.25（maxRelΔ = **0**） |
+| `dd/3544152633` :: **reactive Stars** | 5 | 0.015690 / 0.741180 / 1.000000 | **0.078450 / 3.705900 / 5.000000** | 360 个分量 ≡ × 5（maxRelΔ 2.4e-8 = float32 存储精度） |
+| `0917/3509243656` :: **new_particle_system** | 0.17 | 0.827450 / 0.101960 / 0.670590 | **0.140666 / 0.017333 / 0.114000** | 1062 个分量 ≡ × 0.17（maxRelΔ 2.5e-8） |
+| `dd/3554161528` :: **萤火虫**（值 = 1 档） | 1 | 整条 sha256 `92fe997990c1511c…` | **同一个 sha256**（逐位不变） | 几何 + 颜色全字节相同 |
+| `dd/3544152633` :: `Shooting star-blue-2` → **子系 `star_shine-2`** | **2**（子系自己的材质） | 批2 均值 0 / **1.000000** / 1.000000 | **0 / 2.000000 / 2.000000** | 逐顶点 ≡ 基色 × 2（maxΔ = 0）；父层批0 两档**逐字节相同** |
+
+四层两档的**几何顶点流 sha256 全部相同**（位置/尺寸/UV/alpha；如 Bokeh Hex `4fad4d4075ffa5f4…`、
+`new_particle_system` `efbd86d89db70ae7…`），**颜色流 sha256 全部不同**（反向自证"不是怎么都相同"）。
+
+### P-149.3 回退开关 `?overbright=legacy`（逐位，不是"看起来差不多"）
+
+- 判定式是**正则字面量** `/[?&]overbright=legacy/`（与 `?bindorder=legacy`/`?parspace=legacy` 同形，
+  `tests/diag-flag-check.mjs` 规则 (c) 抓得到）；登记进 `docs/README-DIAGNOSTICS.md` 主表（`children` 行之后），
+  `web/diag-flags.json` 随 `node tests/diag-flag-check.mjs` **重生成**（未手改任何数字）。
+- **逐位证据**：值 = 1 的层两档整条 sha256 相同；因子 0.25 的层在 legacy 档下**两条不同 URL**
+  （`?overbright=legacy` 与 `?overbright=legacy&x=1`）出**同一 sha256** `a8ba807252055d60…`，
+  而默认档是另一条 sha256（反向自证）。
+- 档位进重建签名**不需要**（因子只在绘制期乘实例色，不影响模拟/RNG）⇒ 切档不重放、也不进 `__sig`。
+
+### P-149.4 门禁 `particle-overbright`（无浏览器 / 无 GPU / 无网络）
+
+`node tests/particle-overbright-test.mjs` ⇒ **91 通过 / 0 失败** = 功能断言 **80** + 变异自证记账 **11**
+（取值契约 9 / 合成场景 18 / 真包四层 24 / 子系 8 / 值=1 与 legacy 5 / 语料计数 9 / 接线与登记 7 = 80；
+⑧ 组 5×2+1 = 11）。
+真包一律走 PKG **entry 流式读**（只读文件头 ≤4 MiB + seek 单条 entry），**最大包 158 MB**
+（`0917/3509243656`）从不整包 `readFileSync`。实测 **~3.5s**、单 node 进程 PeakRSS **~190MB**（变异子进程串行派生，各自更小）。
+
+**5 组 RED-IF-REVERTED**（每组都**另跑一次探针子进程**并记录实际变红的断言；变异只在 `/tmp` 副本上做，
+真树 `core/we-scene-bundle.js` sha256 跑完不变）：
+
+| 组 | 变异（把实现改回旧写法） | 实际变红 |
+|---|---|---|
+| R1 | `particleOverbrightFactor` 去掉判空（`return Math.max(0, n)`） | **[1] ① 取值契约**（①-c 键缺失 ⇒ 1） |
+| R2 | `Math.min(1,…)` 套到乘之后 | **[2] ② 合成场景**（②-b 因子 5 / ②-h 逐顶点） |
+| R3 | 功能整体拿掉（`obf` 恒 1） | **[3] ③ 真包四层**（③-b/③-c/③-f） |
+| R4 | 子系伪层不带 `res.overbright` | **[4] ④ 子系路径**（④-d/④-f） |
+| R5 | `?overbright=legacy` 档失效 | **[5] ⑤ 值=1 与 legacy 回退**（⑤-c/⑤-d） |
+
+### P-149.5 与 P-144（`particle-children`）的冲突：**同批处理**
+
+方案 §1.6 预警"父系顶点流逐位不变"会因实例色变化变红。本轮**实测**：该断言所在的
+`dd/3554161528` ln=22 萤火虫层，材质 `materials/presets/fireflies.json` 的 `overbright = 1`、
+子系 `firefliestrail` 材质**没有** `constantshadervalues` ⇒ 因子恒 1，**④-g 本来不会变红**。
+更关键的是**老断言比的是几何流**（每顶点 9 float，颜色走另一条 VBO/uniform）⇒ 颜色变化进不了那个 sha256。
+即便如此，仍按方案要求把判据**口径**改对（**61 → 66 断言**，全绿）：④-g 改名并只保证**结构**、
+新增 ④-g2 颜色维度 / ④-g3 `?overbright=legacy` 整条逐位 / ④-g4 因子前置 / ④-g5–④-g6 合成因子 0.25 的非空反证。
+逐条对照表见 **§P-144.9**。
+
+### P-149.6 未证实项（诚实清单）
+
+1. **没有真机像素证据**：本轮不启动浏览器（用户纪律），"用户看着亮度对不对"归主对话的真机对拍。
+   本项能给的只有 mock-GL 顶点流的实例色分量（上表）与语料计数。
+2. **`instanceoverride.brightness` 未接**：上游 1300 行的 `_ov.brightness` 我们**没有**这个字段
+   （`instanceoverride` 只有 size/count/alpha/rate/speed/lifetime/colorn/color）⇒ 本项只落 `overbright` 一个因子，
+   没有顺手接 brightness（不扩大范围）。
+3. **走 `u_Color` 上提的层**：因子落在 `u_Color` 而不是 `a_Color` 顶点缓冲（两者在 FS 里相乘，等价）。
+   真机若用"只读顶点缓冲"的方式取证，需注意这一层（本门禁两条路都核了）。
+4. **子系因子语料只有 1 例**：`star_shine-2`（= 2）；事件类子系在测试帧上可能一颗都不吐 ⇒
+   门禁不写死批次数，按"哪一批真的随因子变化"定位（避免用错批次得出结论）。
+
 ## P-153（2026-09-19 · 派单 B）脚本 `localStorage` 的**共享持久**档 `?scriptstore=persist`（缺省仍逐位 legacy）
 
 **一句话**：官方语义是"**同一张壁纸的全部脚本共享一份 + 跨会话持久**"，本仓今天是"**逐沙箱一个 `new Map()`**"
@@ -11356,3 +11492,70 @@ PASS N6   整轮 0 个 pageerror
 7. **共享文件上的并发**：本条提交时工作区里另有两条并行线（P-149 `overbright` / P-152 `mdls`）的未提交改动，
    `docs/README-DIAGNOSTICS.md` 被两条线同时编辑 ⇒ 本条只提交**自己的那 4 处改动**（表头 2 行 + `scriptstore` 行），
    `web/diag-flags.json` 提交的是"HEAD + 本条"的生成结果（156 个开关）；工作区里那份含另两条线开关的 json 未纳入本条提交。
+
+---
+
+## P-155（2026-09-19 · **插件侧** NP-2，不是渲染器侧）Now playing「刷新后控件自己消失」——物理宽度优先于宿主信号
+
+**一句话**：①(NP-1) 交付的 Now playing 被**真机探针**抓到一条：页面加载后宿主 slot 出口晚几秒才渲染，
+组件重锚进 `sidebar.footer.action` 的那一帧，宿主交下来的 `ownerProps.wide=false` 把 **256px 展开**的侧栏
+判成"收起" ⇒ 组件给自己写 `data-mpw-np-hidden` 且**粘住**（用户视角 = 刷新后控件自己消失）。
+本条把判据改成**物理宽度优先**（量到 ≥96px 就不许隐藏；宿主信号只在量不到宽度时兜底），
+并给"锚点搬动那一帧"配一次性补判。**只动插件仓 `dsh-mpkg-wallpaper`，本仓（渲染器）一行未动** ——
+登记在这里只是因为 P 编号台账在这个文件里。完整设计与诚实清单：`dsh-mpkg-wallpaper/docs/NOW-PLAYING-DSH.md` §7.6。
+
+### P-155.0 一手证据（真机读数，主对话跑的探针）
+
+```
+t≈800ms : np=false（开关已开，组件还没挂）
+t≈2000ms: np=true  hidden=false anchor=settings-slot inSlot=false colW=256   ← 正常可见
+t≈4000ms: np=true  hidden=false anchor=settings-slot inSlot=false colW=256
+t≈8000ms: np=true  hidden=TRUE  anchor=slot          inSlot=true  colW=256   ← ✗ 一挪进宿主官方 slot 就自己藏了
+```
+
+栏宽 256px（展开）、宿主没有收起标记 ⇒ `hidden` 是**唯一说"收起"的那一方**，而且它是我们自己写的。
+写上去之后没有下一次事件（`ResizeObserver` 只在尺寸变化时回调、`MutationObserver` 只看侧栏根 childList）
+⇒ 错的决定永久生效。探针 `tools/np-sidebar-live-probe.mjs` 的 L6（展开态不得带 hidden）就是抓这条的。
+
+### P-155.1 根因
+
+1. **优先级写反**：判据原文是"宿主自己的状态优先、它是权威；宽度阈值是兜底" ⇒ 拿到 `wide=false` 就不看
+   实测栏宽。而 `wide` 是**派生值**（`SidebarRoot`：`wide = !collapsed || !settled`），slot 刚渲染那一帧
+   可以是 prelim 的；96px 与 256px 相差 168px（宿主收起恰好 56、展开夹在 [264,420]）⇒ 物理宽度更硬。
+2. **决策发生在宿主渲染中的那一帧，且错了就粘住**（属性是 JS 一次性写上的，之后没有事件再触发重判）。
+
+### P-155.2 修法（按模块语义，不是打补丁）
+
+* **三档判据**：① 量到 ≥96px ⇒ **不隐藏**（宿主说收起也不隐藏 —— 这一条就是 bug 的判据）；
+  ② 量到 <96px ⇒ 隐藏（宽度自己够判）；③ **量不到**（NaN / 元素已脱离文档）⇒ 才看宿主信号，宿主没说就不隐藏。
+* **锚点搬动 / slot 生命周期事件后补一次重判**（一次性 `setTimeout(0)`、自停、`stopObservers` 里清掉；
+  **不是**常驻 rAF、不改观察者数量、不占 `liveRaf` 记账）。
+* **量宽加守卫**：元素脱离文档时不量（脱离节点恒为 0 宽，而 `0 < 96 ⇒ 隐藏` 是同一类形状的坑）。
+
+### P-155.3 判据（无浏览器可复现）
+
+* `tools/now-playing-test.mjs` **79 通过 / 0 失败**（`--no-mutations` 73/0）—— 新增 **G 组 9 条**：
+  物理宽度优先三档（256 / 280 / 56 / NaN）· **重锚进 slot 的那一刻不许翻转 hidden**（复刻真机那一帧）·
+  异常几何（0 宽）不许粘住 · 补判不占 rAF。断言数 68 → 79，**一条都没删**。
+* **变异自证 4 → 6 组**，新增两组都指向 G：`host-signal-beats-width-restored`（把判据改回旧写法 ⇒ G 必红，
+  = 真机 bug 复现）与 `settle-reevaluation-removed`（删掉补判 ⇒ G 必红）。
+* **探针判据自身**有无浏览器自证：`node tools/np-sidebar-live-probe.mjs --selftest` ⇒ **4 PASS / 0 FAIL**
+  （合成三条时间线：真机 bug 形状必须被抓到 / 修好的形状 0 违规 / 真收起 56px 不算违规 / 开关关着不算违规）；
+  探针另加 L5b（等 slot 真渲染出来再断言）、L6b（**时间线任何一拍**都不许 hidden）、L6c（之后 1.5s 不许
+  自己冒出来）与诊断字段（`slotWide` / `frameCollapsed` / `rootCollapsed` / 时间线）。**没有放宽任何一条旧判据。**
+
+### P-155.4 改了语义的既有断言（不是放宽）
+
+D3 / D8 / D10 / E1c 四条旧写法都是"宿主信号优先，即使量到很宽也听宿主的"——**那正是 bug 的形状**，
+已改成"宽度优先、宿主信号只在量不到宽度时生效"。阈值（96 / 56 / 264）、`NaN ⇒ 不隐藏`、单实例、
+零注入、文档序、兜底留 warn 一条没动；覆盖面只增不减（68 → 79 条断言 / 4 → 6 组变异）。
+
+### P-155.5 未证实 / 诚实清单
+
+1. **修后真机未复跑**：需主对话跑 `node tools/np-sidebar-live-probe.mjs --out /tmp/np-live`，要求全 PASS
+   （尤其 L5b/L6b/L6c）；那次输出的**时间线**才是"修后读数"。
+2. **`wide` 的真机取值**目前是从"重锚那一刻 hidden 被写上"**反推**的；本轮已把 `data-mpw-np-wide` 与
+   时间线加进探针输出，复跑后才有直接读数。
+3. **过渡期多停留一会儿**：折叠/展开的 0.15s 里宽度还没跨过 96px ⇒ 隐藏/出现会晚一点点（"物理优先"的代价，
+   没做过渡期特判 —— 特判会引入第二套判据）。
+4. **本仓未跑任何门禁**（本条与渲染器无关，未动 `core/**`、未动 `tests/**`）。

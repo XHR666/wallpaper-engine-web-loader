@@ -7102,6 +7102,29 @@ export function describeQualityTiers(t) {
   return 'q=' + q + (s > 0 ? '(内部×' + s + ')' : '(关闭内部缩比)') + ' aa=' + aa + ' pp=' + pp
 }
 
+// ①(P-149 上游 overbright) 粒子材质常量 `ui_editor_properties_overbright` 的**取值契约**（唯一实现处）。
+//
+// 语义（上游 MIT `oneincase/webwallgl` `19c5fab:renderer/vendor/we-scene/render/particles.js:590-593`，
+// 消费点同文件 `:1300`）：材质 `passes[].constantshadervalues.ui_editor_properties_overbright` 是
+// **乘在精灵实例 RGB 上的亮度系数（不动 alpha）**，编辑器滑条缺省 **1**；上游自报影响面
+// "全库 68 壁纸 / 159 材质带该键（0.17–10）此前全被静默丢弃"（`3151551777` 的 Bokeh 光斑材质写 0.25
+// ⇒ 旧实现亮 4 倍、additive 大光斑糊屏）。
+//
+// ⚠ **键缺失必须显式落缺省 1**：`Number(null) === 0`、`Number(undefined) === NaN`，
+//   若直接 `Number(raw)` 就把"没写这个键"当成 0（整层全黑）。所以判定式是
+//   `raw == null || !Number.isFinite(n)` ⇒ 1（同时吃掉 `"abc"`/`NaN` 这类脏值）。
+// ⚠ 只做**下界** `Math.max(0, n)`、**不设上界**：上界会把 `overbright=5`（语料 `reactive Stars`/
+//   `Glass Shards`）钳回 1，等于没修；`0` 是合法值（整层不亮）。
+//
+// 宿主（`demo.html` 粒子材质段）与渲染端（`createRenderer` 的实例色装配）都调这一个函数，
+// 口径只有一份；纯函数、无副作用，Node 侧可直测（门禁 `particle-overbright` [1]）。
+export function particleOverbrightFactor(pass) {
+  const cv = pass && pass.constantshadervalues
+  const raw = cv ? cv.ui_editor_properties_overbright : undefined
+  const n = Number(raw)
+  return (raw == null || !Number.isFinite(n)) ? 1 : Math.max(0, n)
+}
+
 export function createRenderer(canvas, opts = {}) {
   // ①(P-90) 质量档位：解析优先级 = `opts.qualityTiers`（测试/宿主显式传）> `?q=`/`?aa=`/`?pp=` > 默认。
   //   解析必须在 `getContext` **之前**：`antialias` 是 **context 创建属性**，`msaa2/msaa4` 档
@@ -7568,6 +7591,22 @@ export function createRenderer(canvas, opts = {}) {
     } catch (e) { /* 无 location → 默认 official */ }
     return 'official'
   })()
+  // ①(P-149) **粒子 `overbright`（材质常量 `ui_editor_properties_overbright`）档位**（`?overbright=legacy`）：
+  //   official（默认）= 实例 RGB × 材质里的 `overbright`（缺省 1；取值契约见 `particleOverbrightFactor`）。
+  //   `legacy` = **恒 1**：三个颜色分量与改动前逐位相同（= 这个键被静默丢弃的旧画面）。
+  //   为什么必须给回退口：语料 **25 个粒子层**的亮度今天就与作者本意不符（最大 `5×`、最小 `0.17×`；
+  //   `dd/3719111841` 的 Bokeh Hex/Cir = 0.25 ⇒ 今天亮 4 倍），真机逐层对拍官方 `preview.gif`
+  //   与各包既有观感之前，必须能一键回到"键被忽略"的画面。
+  // ⚠ 判定式写成**正则字面量**（与 `?bindorder=legacy`/`?parspace=legacy` 同形）：
+  //   `tests/diag-flag-check.mjs` 的规则 (c) 只认这种写法。
+  const OVERBRIGHT_MODE = (() => {
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        return /[?&]overbright=legacy/.test(location.search) ? 'legacy' : 'official'
+      }
+    } catch (e) { /* 无 location → 默认 official */ }
+    return 'official'
+  })()
   // ①(P-131 批 D) 音频驱动发射的状态与求值在**模块级**（`AUDIO_EMIT_MODE` / `AUDIO_BANDS_VIEW` /
   //   `setAudioBands()` / `audioFactor()`，见 `parseParticleEmitters` 上方的整段注释）：页内一个音频源，
   //   所有渲染器实例共用同一份活视图（官方 `engine` 是引擎级单例）。这里只在签名里带上档位，
@@ -7602,6 +7641,9 @@ export function createRenderer(canvas, opts = {}) {
     // ①(P-144 子系) 子系口径档位与生效记账（真机上报可回答"这一台到底画了几条子系、哪一类、
     //   有没有因为缺定义/缺纹理/超预算被跳过"）。字段逐帧重置（`children` 那一行在帧首）。
     childrenMode: CHILDREN_MODE,
+    // ①(P-149) overbright 档位 + 生效记账（真机上报可回答"这一台吃了几层、因子最大/最小是多少"）
+    overbrightMode: OVERBRIGHT_MODE,
+    overbright: { layers: 0, lastFactor: 1, minFactor: 1, maxFactor: 1, lastLayer: '' },
     children: { parents: 0, specs: 0, drawn: 0, kinds: { static: 0, eventfollow: 0, eventspawn: 0, eventdeath: 0 },
       unresolved: 0, texMissing: 0, budgetSkipped: 0, depthCapped: 0, noParent: 0, followCleared: 0,
       bursts: 0, spawned: 0, capSkipped: 0, probRejected: 0, gateClosed: 0 },
@@ -10094,6 +10136,8 @@ export function createRenderer(canvas, opts = {}) {
       bursts: 0, spawned: 0, capSkipped: 0, probRejected: 0, gateClosed: 0 }
     // ①(P-74 ④) 效果链台账每帧重置
     fxStat.layers = 0; fxStat.last = null; fxStat.perLayer = {}
+    // ①(P-149) overbright 生效记账逐帧重置（`minFactor/maxFactor` 缺省 1 = "本帧没有层吃因子"）
+    partStat.overbright = { layers: 0, lastFactor: 1, minFactor: 1, maxFactor: 1, lastLayer: '' }
     // ①(P-65) trail/形状通道记账同样逐帧重置
     partStat.trailLayers = {}; partStat.trailSegments = 0; partStat.trailDrawn = 0; partStat.trailDegenerate = 0; partStat.trailSkipped = 0
     partStat.shapeFrom = { rgba: 0, rg88: 0, r8: 0, unknown: 0 }
@@ -11407,6 +11451,23 @@ export function createRenderer(canvas, opts = {}) {
     // ①(修复) 合批单次绘制：所有粒子拼进一个顶点缓冲（CPU 端 NDC 变换+颜色/alpha 入顶点色），
     // 一次 drawArrays —— 原"每粒子一次 draw"导致 5fps 卡顿（50+粒子×8层×逐帧）
     const vis = []
+    // ①(P-149 overbright) **实例色因子**：宿主（`demo.html` 粒子材质段）从 `pass.constantshadervalues`
+    //   按取值契约算好写进 `layer.__particleOverbright`（缺省 1，见 `particleOverbrightFactor`），
+    //   这里只做"取用 + 兜底"：非有限数/负数 ⇒ 1/0；`?overbright=legacy` ⇒ **恒 1**（逐位回到旧画面）。
+    //   上游 `particles.js:1300` 的同构式：`bright = (this._ov.brightness || 1) * (this.overbright ?? 1)`，
+    //   乘在实例 RGB 上、**不动 alpha**（同文件 `:1341-1343` 的 rope 分支就是三个分量各 `* bright`）。
+    const __obRaw = OVERBRIGHT_MODE === 'legacy' ? 1 : layer.__particleOverbright
+    const obf = (typeof __obRaw === 'number' && Number.isFinite(__obRaw)) ? Math.max(0, __obRaw) : 1
+    if (obf !== 1) {
+      partStat.overbright.layers++
+      // 首个吃因子的层直接定基准（否则 min 恒停在初值 1 ⇒ "只见 >1 的因子"这种误读）
+      if (partStat.overbright.layers === 1) { partStat.overbright.minFactor = obf; partStat.overbright.maxFactor = obf } else {
+        if (obf < partStat.overbright.minFactor) partStat.overbright.minFactor = obf
+        if (obf > partStat.overbright.maxFactor) partStat.overbright.maxFactor = obf
+      }
+      partStat.overbright.lastFactor = obf
+      partStat.overbright.lastLayer = String(layer.name || layer.id)
+    }
     for (const p of sys.particles) {
       const lifePos = p.life > 0 ? p.age / p.life : 1
       if (lifePos >= 1) continue
@@ -11440,9 +11501,14 @@ export function createRenderer(canvas, opts = {}) {
       //   不只是解构时空位跳过）。官方 `genericparticle.frag:39/43/46` 是
       //   `color = v_Color * Convert(tex)`，`v_Color` 是**逐粒子 vec4**（rgb=本行三个分量、
       //   a=已有的逐粒子 alpha 通道）—— 没有 color1/color2 uniform，故直接取其值。
-      const colorR = Math.max(0, Math.min(1, p.color[0] || 0))
-      const colorG = Math.max(0, Math.min(1, p.color[1] || 0))
-      const colorB = Math.max(0, Math.min(1, p.color[2] || 0))
+      // ①(P-149 overbright) `overbright` 乘在**三个颜色分量**上（`obf` 恒 ≥0）：
+      //   `obf === 1` 时 `x * 1 === x` ⇒ 与改动前**逐位相同**（29/54 层、13/38 材质走这一档）。
+      //   ⚠ **不能**把 `Math.min(1, …)` 套在乘之后：`overbright = 5`（`reactive Stars` / `Glass Shards`）
+      //   会被钳回 1，等于没修；这里只对**逐粒子基色**钳 `[0,1]`（P-126 既有口径），因子本身不设上界。
+      //   alpha 不上因子（`a` 已在上面算好，与上游 `:1344` 的 `(a.alpha + b.alpha) * 0.5` 同口径）。
+      const colorR = Math.max(0, Math.min(1, p.color[0] || 0)) * obf
+      const colorG = Math.max(0, Math.min(1, p.color[1] || 0)) * obf
+      const colorB = Math.max(0, Math.min(1, p.color[2] || 0)) * obf
       vis.push([p, sz, a, colorR, colorG, colorB, frameUV, ratioP])
     }
     // ①(P-59) 预算记账：本层实际进入顶点的粒子数从总份额里扣（未用满的份额自然顺延给后面的层）
@@ -11809,6 +11875,10 @@ export function createRenderer(canvas, opts = {}) {
         particleDef: res.def,
         particleTexName: res.texName || null,
         particleBlending: res.blending || layer.particleBlending || 'translucent',
+        // ①(P-149 overbright) 子系用**自己的材质因子**（宿主 `demo.html` 的 `resolveChildDefs` 按
+        //   同一条取值契约算好放进 map 条目），**不继承父层因子** —— 父层与子系是两个材质，
+        //   上游也是一实例一份 `overbright`（`particles.js:592` 在实例构造里取自己的 pass）。
+        __particleOverbright: res.overbright,
         origin: anchor,
         scale: [(LS[0] === 0 ? 1 : (LS[0] || 1)) * (spec.scale[0] || 1), (LS[1] === 0 ? 1 : (LS[1] || 1)) * (spec.scale[1] || 1), (LS[2] || 1) * (spec.scale[2] || 1)],
         angles: [(LA[0] || 0) + (spec.angles[0] || 0), (LA[1] || 0) + (spec.angles[1] || 0), (LA[2] || 0) + (spec.angles[2] || 0)],

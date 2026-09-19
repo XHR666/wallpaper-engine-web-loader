@@ -460,6 +460,24 @@ add "particle-children" "node tests/particle-children-test.mjs"
 #   R4 忽略 opts.scriptStore / R5 去写穿透 / R6 `clear()` 清整个后端；变异只在 /tmp 副本上做，真树不动）。
 #   无浏览器 / 无网络；实测 ~1.5s、进程树 PeakRSS **~180MB**（单 node 进程）。缺语料时 G4/G2r 标 SKIP 不红。
 add "script-storage" "node tests/script-storage-test.mjs" "" "^SKIP script-storage"
+# ①(P-149 2026-09-19 · 派单 A) 粒子材质常量 `ui_editor_properties_overbright`（缺省 **1**，乘在精灵实例
+#   RGB 上、**不动 alpha**）：语料 **38 条材质带该键 / 15 个包 / 54 个粒子层**，其中 **非 1 的层 25 个**
+#   （最大 `5×`、最小 `0.17×`；`dd/3719111841` 的 Bokeh Hex/Cir = **0.25** ⇒ 今天亮 4 倍糊屏）——
+#   此前整块随 `constantshadervalues` 被静默丢弃（全仓 0 实现）。
+#   8 组：①取值契约（键缺失/脏值 ⇒ **1**、负数 ⇒ 0、**不设上界**）②合成场景两条色路（uniform 上提 +
+#   逐顶点 `a_Color`；`0.25/0.17/1.33/2/5` 逐顶点 ≡ 基色 × 因子、因子 1 ≡ legacy 档全字节相同）
+#   ③真包四层修前→修后（Bokeh Hex/Cir 0.25、reactive Stars 5、new_particle_system 0.17；几何流逐位不变）
+#   ④子系路径（真包 `dd/3544152633` 的子系材质 `star_shine-2` = **2**：子系吃自己的因子、父层逐字节不变）
+#   ⑤值 = 1 的层（`dd/3554161528` ln=22 萤火虫）两档整条 sha256 相同 + `?overbright=legacy` 稳定可复现
+#   ⑥语料扫描计数（材质 38 / 包 15 / 层 54 / 非 1 层 25 / 值=1 层 29 + 取值直方图逐键相等）
+#   ⑦接线（`demo.html` 父层 + 子系两处）与登记（README 主表 / 本文件 / PATCHES P-149 / §16 / 台账 #14）
+#   ⑧**5 组** RED-IF-REVERTED（去掉判空 / 钳到乘之后 / 功能拿掉 / 子系不带因子 / legacy 档失效），
+#     每组都**另跑一次探针**并记录实际变红的断言。
+#   回退开关 `?overbright=legacy`（恒 1 = 逐位回到"键被忽略"的旧画面），已登记进 README-DIAGNOSTICS 主表。
+#   真包一律走 PKG **entry 流式读**（最大 158MB 的 `0917/3509243656` 不整包读入）；断言 **91**
+#   （功能 80 + 变异自证 11）、实测 ~3.5s、单 node 进程 PeakRSS ~190MB、无浏览器 / 无网络 / 无 X11。
+#   真包缺失时各组 SKIP 视作 PASS（不红）。
+add "particle-overbright" "node tests/particle-overbright-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

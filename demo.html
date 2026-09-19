@@ -1996,7 +1996,11 @@ function loadScene() {
         const e = await loadTex(texName);
         if (!e) logf('  ⚠ 缺纹理 materials/' + texName + '.tex（子系 ' + c.name + '，只跳这一条子系）');
       } else logf('  ⚠ 子系无纹理 ' + c.name + '（只跳这一条子系）');
-      out.set(c.name, { def: cdef, texName: texName, blending: (pass && pass.blending) || 'translucent', defRel: cdefRel, src: src });
+      out.set(c.name, { def: cdef, texName: texName, blending: (pass && pass.blending) || 'translucent',
+        // ①(P-149 overbright) 子系**自己的**材质因子（不继承父层）：渲染端 `renderParticleChildren`
+        //   把它写进伪层的 `__particleOverbright`，与父层走同一条实例色装配。取值契约只有一份
+        //   （`core/we-scene-bundle.js` 的 `particleOverbrightFactor`）。
+        overbright: lib.particleOverbrightFactor(pass), defRel: cdefRel, src: src });
       const sub = await resolveChildDefs(cdef, cdefRel, depth + 1);
       for (const [k, v] of sub) if (!out.has(k)) out.set(k, v);
     }
@@ -2019,6 +2023,13 @@ function loadScene() {
         }
       }
       const pass = material && material.passes && material.passes[0];
+      // ①(P-149 overbright) 粒子材质常量 `ui_editor_properties_overbright`（缺省 **1**）：
+      //   它此前整块随 `constantshadervalues` 被丢弃 ⇒ 语料 25 个粒子层的亮度与作者本意不符
+      //   （最大 5×、最小 0.17×；`dd/3719111841` 的 Bokeh Hex/Cir = 0.25，今天亮 4 倍）。
+      //   取值契约（含"键缺失必须显式落 1"—— `Number(null) === 0`）唯一实现在
+      //   `core/we-scene-bundle.js::particleOverbrightFactor`；这里只按层记下来，
+      //   由渲染端在实例色装配时乘进 RGB（不动 alpha；`?overbright=legacy` 逐位回退）。
+      layer.__particleOverbright = lib.particleOverbrightFactor(pass);
       const texName = pass && pass.textures && pass.textures[0];
       if (texName) {
         const e = await loadTex(texName);

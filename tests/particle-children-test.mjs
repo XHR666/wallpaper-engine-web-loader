@@ -17,6 +17,10 @@
 //      + mock-GL：修前/修后的父/子粒子数、子系存活数、子系↔父粒子距离分布、每帧更新次数，
 //      以及**父系顶点流逐位不变**（子系只多一批 draw）。
 //   ⑤ `?children=legacy` 逐位证明：legacy 顶点流 sha256 ≡ **源码级换回旧实现**的变异体（`/tmp` 副本）。
+//   ⑨ ①(P-149 同批调整) ④ 组的"父系顶点流逐位不变"**拆成结构 / 颜色两维**（见 ④-g…④-g6 的整段注释）：
+//      几何流（位置/尺寸/UV/alpha）逐位不变 **+** `?overbright=legacy` 下整条（几何+颜色）逐位不变 **+**
+//      合成因子 0.25 的非空反证。**不是放宽阈值**：旧措辞把"几何不动"与"颜色不动"混在一个名字里，
+//      而 `overbright` 的因子根本不在几何流里（颜色走 `a_Color` VBO / `u_Color`）。
 //   ⑥ 全语料同族扫描（149 条）：按 type 统计"真的产出了粒子"的条数（缺真包 ⇒ SKIP）。
 //   ⑦ RED-IF-REVERTED（**6 组** R1–R6）：每组"把实现改回旧写法"都只让**指定那一组**变红；
 //      变异只在 `/tmp` 的真文件副本上做（真树 sha256 跑完不变）。
@@ -400,8 +404,12 @@ console.log('\n[3] ③ RNG 纪律：父系 RNG 流与粒子位置不因 children
 console.log('\n[4] ④ 真包 dd/3554161528 萤火虫层（objects[22]=id 4569）+ mock-GL：修前/修后')
 function makeGl() {
   const W = 3840, H = 2160
-  const rec = { verts: [], draws: [], bufs: new Map() }
+  const rec = { verts: [], draws: [], bufs: new Map(), uploads: [] }   // ①(P-149 同批调整) `uploads`：给"颜色流"切批次用
   let curBuf = null
+  // ①(P-149 同批调整) 为"结构 vs 颜色"两维判据补两个字段：`curProg`（取 `u_Color` 快照）与
+  //   `rec.draws[].upIdx`（切出本次 draw 之前那次 `bufferData` = `a_Color` 顶点缓冲）。
+  //   只**增**字段，不改任何既有断言的读数（它们只读 `.count` / `.data`）。
+  let curProg = null
   const progUni = new Map()
   const setUni = (l, v) => { if (l && l.p && l.n) { if (!progUni.has(l.p.id)) progUni.set(l.p.id, {}); progUni.get(l.p.id)[l.n] = v } }
   const CONST = { LINK_STATUS: 0x8B82, COMPILE_STATUS: 0x8B81, ACTIVE_UNIFORMS: 0x8B86, ACTIVE_ATTRIBUTES: 0x8B85,
@@ -418,13 +426,14 @@ function makeGl() {
     //   `rec.verts`，是纯写不读的累积。删掉后**主进程 PeakRSS 实测没变**（215MB → 213MB，
     //   噪声级）：真正的大头是 240 帧 × 2 档的贴图解码瞬态与整场景 def（`free -m` 同口径实测
     //   见 docs/PATCHES.md P-144"资源"一节）。留着它只是为了不让这个数组随帧数无限长。
-    bufferData: (t, data) => { if (data && data.length) rec.bufs.set(curBuf, Float32Array.from(data)) },
+    bufferData: (t, data) => { if (data && data.length) { const v = Float32Array.from(data); rec.bufs.set(curBuf, v); rec.uploads.push({ buf: curBuf, data: v }) } },
     activeTexture: () => {}, bindTexture: () => {}, bindFramebuffer: () => {}, bindVertexArray: () => {},
-    useProgram: () => {}, texImage2D: () => {},
+    useProgram: (p) => { curProg = p }, texImage2D: () => {},
     uniform1i: (l, v) => setUni(l, v), uniform1f: (l, v) => setUni(l, v), uniform2f: (l, a, b) => setUni(l, [a, b]),
     uniform3f: (l, a, b, c) => setUni(l, [a, b, c]), uniform4f: (l, a, b, c, d) => setUni(l, [a, b, c, d]),
     uniformMatrix4fv: (l, tr, m) => setUni(l, m ? Array.from(m) : null), uniformMatrix3fv: () => {},
-    drawArrays: (m, f, c) => { rec.draws.push({ count: c, data: rec.bufs.get(curBuf) || null }) }, drawElements: () => {},
+    drawArrays: (m, f, c) => { rec.draws.push({ count: c, data: rec.bufs.get(curBuf) || null,
+      upIdx: rec.uploads.length, uni: Object.assign({}, (curProg && progUni.get(curProg.id)) || {}) }) }, drawElements: () => {},
     getProgramParameter: (p, k) => (k === CONST.LINK_STATUS || k === CONST.COMPILE_STATUS) ? true : (k === CONST.ACTIVE_UNIFORMS ? 0 : (k === CONST.ACTIVE_ATTRIBUTES ? 0 : null)),
     getActiveUniform: () => ({ name: 'g_Texture0', type: 0x8B62 }), getActiveAttrib: (p, i) => ({ name: i === 0 ? 'a_Position' : 'a_TexCoord', size: 1 }),
     getAttribLocation: (p, n) => ({ a_Position: 0, a_TexCoord: 1, a_TexCoordB: 2, a_Blend: 3, a_Alpha: 4, a_Color: 5 }[n] ?? -1),
@@ -474,21 +483,33 @@ async function measureFirefly(opts = {}) {
     return null
   }
   const pmat = matOf(L.particleDef.material)
-  const ptex = (((pmat || {}).passes || [])[0] || {}).textures?.[0] || null
-  // 宿主（demo.html resolveChildDefs）的口径：子系 def/材质/贴图同一条回退链
+  const pPass = ((pmat || {}).passes || [])[0] || null
+  const ptex = pPass?.textures?.[0] || null
+  // ①(P-149 同批调整) **宿主契约镜像**：`demo.html` 粒子材质段把
+  //   `lib.particleOverbrightFactor(pass)` 写进 `layer.__particleOverbright`（子系写进 map 条目）。
+  //   这里逐字照做 —— 否则本探针测的是一层"宿主没接线"的层，与真机不是同一条路径。
+  const pOb = lib.particleOverbrightFactor(pPass)
+  // 宿主（demo.html resolveChildDefs）的口径：子系 def/材质/贴图同一条回退链 + **子系自己的** overbright
   const childMap = new Map()
   for (const c of specs) {
     const cd = readParticleDef(c.name)
     const cm = cd && cd.material ? matOf(cd.material) : null
     const pass = cm && cm.passes && cm.passes[0]
     const ct = (pass && pass.textures && pass.textures[0]) || null
-    childMap.set(c.name, { def: cd, texName: ct, blending: (pass && pass.blending) || 'translucent' })
+    childMap.set(c.name, { def: cd, texName: ct, blending: (pass && pass.blending) || 'translucent',
+      overbright: lib.particleOverbrightFactor(pass) })
   }
   L.__pchildMap = childMap
   const texSrc = {}
   for (const [k, v] of childMap) texSrc[k] = (texOf(v.texName) || {}).src || 'MISSING'
-  const run = async (mode) => {
-    globalThis.location = { search: mode === 'legacy' ? '?children=legacy' : '' }
+  /**
+   * 跑一档。`extra` 追加 URL 参数（如 `overbright=legacy`）；`obOverride` 覆盖层上的因子
+   * （**合成探针专用**：本层真因子 = 1，只有人为给一个 ≠ 1 的因子才能把"颜色维度"的判据做成非空断言）。
+   */
+  const run = async (mode, extra = '', obOverride) => {
+    const q = [mode === 'legacy' ? 'children=legacy' : '', extra].filter(Boolean).join('&')
+    globalThis.location = { search: q ? '?' + q : '' }
+    L.__particleOverbright = (obOverride === undefined) ? pOb : obOverride
     lib.setProjectionYFix(null)
     const { gl, rec, W, H } = makeGl()
     const cache = new Map()
@@ -503,7 +524,7 @@ async function measureFirefly(opts = {}) {
     for (const l of scene.layers) if (l.particleDef) l.visible = (l === L)
     L.particleTexName = ptex
     const r = lib.createRenderer({ getContext: () => gl }, { onLog: () => {}, shaderResolver: SR, aggregate: true, particleSysCache: cache })
-    let last = null, parentSha = null, childSha = null, full = []
+    let last = null, parentSha = null, childSha = null, full = [], streams = null
     for (let i = 0; i < frames; i++) {
       rec.draws.length = 0
       await r.render(scene, textures, W, H, t0 + i / 60)
@@ -516,6 +537,33 @@ async function measureFirefly(opts = {}) {
       let cquads = 0
       for (let b = 1; b < batches.length; b++) cquads += batches[b].count / 6
       const pv = batches.length ? Buffer.from(batches[0].data.buffer, batches[0].data.byteOffset, batches[0].data.byteLength) : Buffer.alloc(0)
+      // ①(P-149 同批调整) 颜色**不在**几何流里：`vis` 的 RGB 走另一条 VBO（逐顶点 `a_Color`）或
+      //   `u_Color` uniform（整批同色上提），几何流只有 `nX,nY,0,u,v,u2,v2,blend,alpha` 9 个 float。
+      //   ⇒ 老断言的"父系顶点流逐位不变"**本来就没覆盖颜色**（这一点必须写清楚，见 ④-g 的措辞）。
+      //   这里把两条流分开取指纹：`geo` = 结构字段（位置/尺寸/UV/alpha）、`col` = 有效实例色
+      //   （`u_Color ⊙ a_Color`，与 FS 的 `u_Color * v_Color` 同口径）。
+      streams = (() => {
+        const geo = [], col = []
+        for (const d of batches) {
+          geo.push(Buffer.from(d.data.buffer, d.data.byteOffset, d.data.byteLength))
+          const cu = rec.uploads.slice(0, d.upIdx).filter((u) => u.data.length === d.count * 3).pop() || null
+          const uni = (d.uni && d.uni.u_Color) || [1, 1, 1]
+          const eff = new Float32Array(d.count * 3)
+          for (let i = 0; i < d.count; i++) {
+            eff[i * 3] = uni[0] * (cu ? cu.data[i * 3] : 1)
+            eff[i * 3 + 1] = uni[1] * (cu ? cu.data[i * 3 + 1] : 1)
+            eff[i * 3 + 2] = uni[2] * (cu ? cu.data[i * 3 + 2] : 1)
+          }
+          col.push(Buffer.from(eff.buffer, eff.byteOffset, eff.byteLength))
+        }
+        const per = (arr) => (arr.length ? arr.map((x) => sha(x)) : [])
+        return { geoB: Buffer.concat(geo), colB: Buffer.concat(col),
+          pGeoSha: geo.length ? sha(geo[0]) : '', pColSha: col.length ? sha(col[0]) : '',
+          // 父系**整条**（几何 + 实例色）＝ 只取批 0（父层先画；子系随后）—— 不是全帧（全帧含子系批次）
+          pAll: geo.length ? sha(Buffer.concat([geo[0], col[0]])) : '',
+          geoAll: sha(Buffer.concat(geo)), allAll: sha(Buffer.concat([Buffer.concat(geo), Buffer.concat(col)])),
+          geoSha: per(geo), colSha: per(col) }
+      })()
       const cv = batches.length > 1 ? Buffer.concat(batches.slice(1).map((b) => Buffer.from(b.data.buffer, b.data.byteOffset, b.data.byteLength))) : Buffer.alloc(0)
       const all = Buffer.concat(batches.map((b) => Buffer.from(b.data.buffer, b.data.byteOffset, b.data.byteLength)))
       parentSha = sha(pv); childSha = sha(cv)
@@ -541,10 +589,16 @@ async function measureFirefly(opts = {}) {
         })()
       }
     }
-    return { last, parentSha, childSha, fullSha: sha(full.join('|')), childTexSrc: texSrc, L }
+    return { last, parentSha, childSha, fullSha: sha(full.join('|')), childTexSrc: texSrc, L, streams }
   }
   const off = await run('official')
   const leg = await run('legacy')
+  // ①(P-149 同批调整) 追加四档：`?overbright=legacy` 下的 children 官方/legacy 两档（"逐位不变"的正确落点），
+  //   以及**合成因子 0.25** 的两档（没有这一对，本层因子 = 1 ⇒ 颜色维度的判据全成空话）。
+  const offOb = await run('official', 'overbright=legacy')
+  const legOb = await run('legacy', 'overbright=legacy')
+  const offQ = await run('official', '', 0.25)
+  const offQOb = await run('official', 'overbright=legacy', 0.25)
   return {
     off: off.last, leg: leg.last,
     parentShaOff: off.parentSha, parentShaLeg: leg.parentSha,
@@ -561,6 +615,16 @@ async function measureFirefly(opts = {}) {
     distToParent: off.last.distToParent || null, children: off.last.children,
     childTex: off.last.childTex, childSys: off.last.childSys, childSysLeg: leg.last.childSys,
     draws: off.last.draws, drawsLeg: leg.last.draws,
+    // ①(P-149 同批调整) 结构 vs 颜色两条流的指纹（父系 + 全帧）
+    parentGeoShaOff: off.streams.pGeoSha, parentGeoShaLeg: leg.streams.pGeoSha,
+    parentColShaOff: off.streams.pColSha, parentColShaLeg: leg.streams.pColSha,
+    parentAllOff: off.streams.allAll, parentAllLeg: leg.streams.allAll,
+    parentAllObOff: offOb.streams.pAll, parentAllObLeg: legOb.streams.pAll,
+    parentGeoObOff: offOb.streams.pGeoSha, parentColObOff: offOb.streams.pColSha,
+    parentGeoQ: offQ.streams.pGeoSha, parentColQ: offQ.streams.pColSha,
+    parentColBase: off.streams.pColSha, parentGeoBase: off.streams.pGeoSha,
+    parentColQOb: offQOb.streams.pColSha, parentGeoQOb: offQOb.streams.pGeoSha,
+    parentFactor: pOb, childFactors: [...childMap.values()].map((v) => v.overbright),
   }
 }
 
@@ -590,8 +654,34 @@ if (SUITE && fs.existsSync(PKG_FIREFLY)) {
   push('④-f 每帧更新次数：修后 = 父 + 子（子系只加自己的那一份，父系那部分逐位不变）',
     m.off.simUpdates > m.leg.simUpdates && m.leg.simUpdates > 0,
     `修前 ${m.leg.simUpdates} → 修后 ${m.off.simUpdates}（父系 ${m.leg.simUpdates}）；步数 ${m.leg.simSteps}→${m.off.simSteps}`)
-  push('④-g ★★ **父系顶点流逐位不变**：official 与 legacy 的父层 batch sha256 相同',
-    m.parentShaOff === m.parentShaLeg, `sha=${m.parentShaOff.slice(0, 16)}（legacy ${m.parentShaLeg.slice(0, 16)}）`)
+  // ── ①(P-149 同批调整) 判据口径拆成「结构」与「颜色」两维 ──────────────────────────────
+  // 为什么必须拆（**不是放宽阈值**）：这条断言从来测的是**几何顶点流**（`nX,nY,0,u,v,u2,v2,blend,alpha`），
+  //   而 P-149 的 `overbright` 乘的是**另一条通道**上的实例色（逐顶点 `a_Color` VBO 或 `u_Color` uniform，
+  //   两者在 FS 里相乘）⇒ 颜色变化**根本进不了**这个 sha。也就是说旧措辞"父系顶点流逐位不变"
+  //   把两件事混在一个名字里：它保证的是"子系只多一批 draw、不动父系几何"，而**颜色维度它一个字都没测**。
+  //   现在拆成三条：④-g 结构（保持逐位）／④-g2 颜色（children 档位不碰父系颜色）／
+  //   ④-g3 "整条逐位不变"落在**真正逐位的那条路径**（`?overbright=legacy`）上；
+  //   再加 ④-g5/④-g6 用**合成因子 0.25** 把颜色维度变成非空断言（本层真因子 = 1，否则 ④-g2/④-g3 全是空话）。
+  push('④-g ★★ **父系结构字段逐位不变**（几何流：位置/尺寸/UV/alpha）：official 与 legacy 的父层 batch sha256 相同',
+    m.parentGeoShaOff === m.parentGeoShaLeg && m.parentGeoShaOff === m.parentShaOff,
+    `geo sha=${m.parentGeoShaOff.slice(0, 16)}（legacy ${m.parentGeoShaLeg.slice(0, 16)}）`)
+  push('④-g2 **父系实例色流**：children 两档逐位相同（子系档位不碰父系颜色；颜色在另一条 VBO/`u_Color` 上）',
+    !!m.parentColShaOff && m.parentColShaOff === m.parentColShaLeg,
+    `col sha=${m.parentColShaOff.slice(0, 16)}（legacy ${m.parentColShaLeg.slice(0, 16)}）`)
+  push('④-g3 ★★ 走 `?overbright=legacy` 时父系**整条**（几何 + 实例色）逐位不变：children official ≡ legacy',
+    !!m.parentAllObOff && m.parentAllObOff === m.parentAllObLeg,
+    `geo+col sha=${m.parentAllObOff.slice(0, 16)}（legacy ${m.parentAllObLeg.slice(0, 16)}）`)
+  push('④-g4 因子前置钉住：本层父材质 `overbright = 1`、子系材质无该键（两处都 = 1）'
+    + ' ⇒ ④-g/④-g2/④-g3 的"两边相同"是**结构结论**，不是靠非 1 因子蒙的',
+    m.parentFactor === 1 && m.childFactors.length >= 1 && m.childFactors.every((f) => f === 1),
+    `父=${m.parentFactor} 子系=${JSON.stringify(m.childFactors)}`)
+  push('④-g5 ★ 合成因子 0.25（只喂给层、不改场景）：父系**几何流逐位不变**、**颜色流真的变了**'
+    + ' —— 这就是"结构 vs 颜色"两维判据的非空证据',
+    !!m.parentColQ && m.parentGeoQ === m.parentGeoBase && m.parentColQ !== m.parentColBase,
+    `geo ${m.parentGeoQ.slice(0, 16)}（基 ${m.parentGeoBase.slice(0, 16)}）／col 基 ${m.parentColBase.slice(0, 16)} → 0.25 档 ${m.parentColQ.slice(0, 16)}`)
+  push('④-g6 ★★ 合成因子 0.25 + `?overbright=legacy`：颜色流**逐位回到**基色（回退口真的把颜色拉回来了）',
+    !!m.parentColQOb && m.parentColQOb === m.parentColBase && m.parentGeoQOb === m.parentGeoBase,
+    `col 0.25+legacy ${String(m.parentColQOb).slice(0, 16)} vs 基 ${m.parentColBase.slice(0, 16)}`)
   push('④-h 子系记账进 `particleStats.children`（parents/specs/drawn/kinds.eventfollow）',
     m.off.children.parents >= 1 && m.off.children.drawn >= 1 && m.off.children.kinds.eventfollow >= 1 && m.leg.children.parents === 0,
     JSON.stringify(m.off.children.kinds) + ' drawn=' + m.off.children.drawn)
