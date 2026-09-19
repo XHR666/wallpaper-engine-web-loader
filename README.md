@@ -3,7 +3,7 @@
 在浏览器里**实时渲染 Wallpaper Engine 的场景壁纸**（`scene.pkg` / 本项目的 `.mpkg` 容器 / workshop 源目录），
 不需要 Wallpaper Engine、不需要 Windows、不需要 GPU 专用驱动 —— 一个本地 Node 静态服务器 + 支持 WebGL2 的浏览器即可。
 
-已发布 [wallpaper-engine-web-loader@0.1.1](https://www.npmjs.com/package/wallpaper-engine-web-loader) · [在线 demo](https://xhr666.github.io/wallpaper-engine-web-loader/)
+已发布 [wallpaper-engine-web-loader@0.2.0](https://www.npmjs.com/package/wallpaper-engine-web-loader) · [在线 demo](https://xhr666.github.io/wallpaper-engine-web-loader/)
 
 > **命名说明（2026-09-19）**：本产品现名 **WEwebLoader**（npm 包名与仓库名仍是 `wallpaper-engine-web-loader`）；
 > 上游项目名仍是 **WebWallGL**（`oneincase/webwallgl`，MIT），归属与许可不因此改变。
@@ -53,7 +53,7 @@ python3 -m http.server 8899 -d _site   # 或 npx serve _site
 
 ### A. npm 安装（把渲染器作为依赖嵌进你自己的站点/app）
 ```bash
-npm i wallpaper-engine-web-loader@0.1.1     # 锁定已发布版本；或 npm i wallpaper-engine-web-loader 跟随 latest
+npm i wallpaper-engine-web-loader@0.2.0     # 锁定已发布版本；或 npm i wallpaper-engine-web-loader 跟随 latest
 ```
 最小用法（下面这段已实测跑通：`parsePkg` 8 个入口、`parseScene` 5 层）：
 ```js
@@ -94,8 +94,8 @@ node build-pages.mjs && python3 -m http.server 8899 -d _site   # 或任何静态
 ```
 也可以只用 `npm pack` 的产物（解开即是可静态托管的目录）：
 ```bash
-npm pack wallpaper-engine-web-loader@0.1.1     # 得到 wallpaper-engine-web-loader-0.1.1.tgz
-tar -xzf wallpaper-engine-web-loader-0.1.1.tgz   # 解开得到 package/（含 demo.html / elysia/ / samples/ 等）
+npm pack wallpaper-engine-web-loader@0.2.0     # 得到 wallpaper-engine-web-loader-0.2.0.tgz
+tar -xzf wallpaper-engine-web-loader-0.2.0.tgz   # 解开得到 package/（含 demo.html / elysia/ / samples/ 等）
 ```
 - **限制（只读模式的代价）**：没有服务器端点 ⇒ 包代理、`/report` 落盘、WE 资产兜底、目录打包（`/pkgdir`）都不可用；
   只能用**浏览器直接取得到**的包（自带样例，或与页面同源的 `scene.pkg`）。
@@ -114,11 +114,11 @@ tar -xzf wallpaper-engine-web-loader-0.1.1.tgz   # 解开得到 package/（含 d
 |---|---|
 | 根 | **入口**：`README.md`、`LICENSE`、`THIRD-PARTY.md`、`package.json`、`start-demo.sh`（启动）、`check.sh`（自检）、`build-pages.mjs`（构建）、`index.html`（落地页）、`demo.html`（渲染器页，即站点根） |
 | `core/` | **解析与渲染内核**：`we-scene.mjs`（库入口 `mount()`）、`we-scene-bundle.js`（PKG/TEX/MDL 解析 + WebGL2 渲染器）、`scene-project-json.mjs`（project.json 查找链）、`attach-transform.mjs`（附件锚点）、`puppet-skin.js`（蒙皮） |
-| `server/` | **本机服务端与打包 IO**：`we-scene-demo-server.mjs`（静态服务 + `/report` `/weassist` `/pkgdir` 等路由）、`pack-dir.mjs`（源目录 → `.mpkg` 容器） |
-| `web/` | **站点外壳与离线资产**：`sw.js` + `sw-policy.mjs`（SW 与缓存判据）、`pwa-inject.mjs`（首页注入）、`manifest.webmanifest`、`icons/`、`diag.html` / `probe.html`（诊断页）、`diag-flags.json`（面板开关数据源，脚本生成） |
+| `server/` | **本机服务端与打包 IO**：`we-scene-demo-server.mjs`（`:8899` 渲染器页：静态服务 + `/report` `/baseline` `/weassist` `/pkgdir` 等路由）、`we-scene-demo-server-8902.mjs`（`:8902` 一站式测试台：静态面 + `/api/*` + 渲染器 iframe + 媒体面 + `/diag` 流 + `/report` `/baseline` 落盘）、`pack-dir.mjs`（源目录 → `.mpkg` 容器） |
+| `web/` | **站点外壳与离线资产**：`sw.js` + `sw-policy.mjs`（SW 与缓存判据）、`pwa-inject.mjs`（首页注入）、`manifest.webmanifest`、`icons/`（页面与安装图标：`brand-*` 为仓库所有者提供的图，`icon-*` 为脚本生成且 URL 仍 200）、`diag.html` / `probe.html`（诊断页）、`diag-flags.json`（面板开关数据源，脚本生成） |
 | `tools/` | **生成器**：`make-sample.mjs`（合成样例，确定性）、`make-icons.mjs`（PWA 图标，确定性） |
 | `tests/` | 全量回归与闸门（`run-all-tests.sh` 一键；`docs-check` / `publish-check` / `diag-flag-check` 三项静态闸门） |
-| `docs/` | 说明与审计文档（`PACKAGING.md`、`README-PUBLIC.md`、`RENDERER-ARCHITECTURE.md`、`PATCHES.md`、`COPYING-RULES.md`…） |
+| `docs/` | 说明与审计文档（`PACKAGING.md`、`RELEASE.md`（发布前置/命令/验证/回滚）、`README-PUBLIC.md`、`RENDERER-ARCHITECTURE.md`、`PATCHES.md`、`COPYING-RULES.md`…） |
 | `elysia/` `vendor/` `shaders/` | CPU 渲染器移植（MIT，见 §7.1(1)）、vendored 第三方（MIT/ISC）、6 个自研 API 兼容 shader 头 |
 | `samples/` `demo/` `assets/` `extensions/` | 合成样例（唯一自带场景）、WebWallGL 在线测试台（MIT 产物再分发）、随仓库分发的开源字体、扩展钩子示例 |
 | `archive/` | 本机归档（**不入库**，`publish-check` 跳过） |
