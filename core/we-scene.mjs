@@ -14,7 +14,7 @@
 import { createRenderer as defaultCreateRenderer, parseScene, applyUserProperties, applyRenderConfig } from './we-scene-bundle.js'
 
 /** 包版本（与 package.json 的 `version` 必须一致；packaging-test 会断言）。 */
-export const VERSION = '0.2.0'
+export const VERSION = '0.2.1'
 
 const DEFAULT_LOG = () => {}
 const isFn = (v) => typeof v === 'function'

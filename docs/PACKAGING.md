@@ -57,12 +57,12 @@ npm pack --dry-run                 # ③ 分发自证：文件清单 + 体积（
 | 字段 | 值 | 说明 |
 |---|---|---|
 | `name` | `wallpaper-engine-web-loader` | 由建仓线拍板；本机实测 **npm 上未被占用** |
-| `version` | `0.2.0` | 与 `core/we-scene.mjs` 的 `VERSION` **必须一致**（`mount-test.mjs` 断言）；发布流程见 `docs/RELEASE.md` |
+| `version` | `0.2.1` | 与 `core/we-scene.mjs` 的 `VERSION` **必须一致**（`mount-test.mjs` 断言）；发布流程见 `docs/RELEASE.md` |
 | `license` | `GPL-3.0-or-later` | 与 `LICENSE` 一致 ⇒ `docs/COPYING-RULES.md` §8 ① 的机器闸门 |
 | `type` | `module` | 仓库内所有 JS 模块都是 ESM（无 CJS，`packaging-test.mjs` 会扫） |
 | `private` | `true` | **发布锁**：本机 npm 未登录前不允许 `npm publish`；发布由建仓线在登录后删除这一行 |
 | `exports` | `.` → `core/we-scene.mjs`、`./bundle`、`./server`、`./hlsl2glsl`、`./package.json` | 每条目标都真实存在（断言过） |
-| `files` | 23 条白名单 | 只发**运行时 + 公开文档 + 自带样例/字体/图标**；不含 `reports/`、`archive/`、`Testphoto/`、`*.bak-*` |
+| `files` | 35 条白名单 | 只发**运行时 + 公开文档 + 自带样例/字体/图标**；不含 `reports/`、`archive/`、`Testphoto/`、`*.bak-*`。**闭合性由 `tests/pack-closure-test.mjs` 钉住**（0.2.0 漏过三个新增模块 ⇒ 包一 import 就炸，见 `docs/PATCHES.md` P-167） |
 | — | **白名单里没有整目录的 `docs/`** | 逐文件写 `docs/UNTOUCHED-AREAS.md` 而不是 `docs/`：目录级白名单会让**任何**后来加进 `docs/` 的文件（可能含作者个人绝对路径）静默进包；`packaging-test.mjs` 的 D 组就是这条的机器闸门 |
 
 **tarball 只发运行时，不发测试台**：`run-all-tests.sh`、`check.sh`、60+ 个 `*-test.mjs` 都**不在** `files` 里。

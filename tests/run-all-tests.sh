@@ -154,6 +154,12 @@ add "parity-check"       "node tests/parity-check.mjs" "slow" "^SKIP parity-chec
 add "mount"              "node tests/mount-test.mjs"     # P-91：库入口 `mount(container, opts)` 的对外契约（容器/画布口径/帧序=demo.html 逐条一致/生命周期/DI 注入点/健壮性）；40 断言；~0.3s（桩 renderer+rAF，不需要真 GL）
 add "pwa"                "node tests/pwa-test.mjs"       # P-92：离线 PWA —— 缓存判据**绝不缓存用户壁纸**（正面 16/反面 21/响应 10 条）+ manifest 与图标尺寸自洽 + sw.js 预缓存清单无用户端点 + 注入开关默认关/幂等/缺 </head> 不吞页面 + 真子进程服务验 6 条静态路由与首页注入是纯增量；107 断言；~1s
 add "packaging"          "node tests/packaging-test.mjs" # P-91：可分发形态自证 —— package.json 契约（license 与 LICENSE 一致、exports 每条存在）+ files 白名单（运行所需全覆盖/本机数据全排除）+ `npm pack --dry-run` 体积 + **真打包解包后 grep 个人绝对路径 0 命中** + start-demo.sh 真起服务 200 + check.sh 汇总口径；122 断言；~9s（两次 npm pack）
+# ①(P-166.6 2026-09-20) `pack-closure`：**发布面闭合性** —— 0.2.0 出过一次真实事故：`files` 白名单漏了三个
+#   新增模块（`core/we-pointer-source.mjs` / `core/we-particle-pointer.mjs` / `server/pkg-entry-index.mjs`）
+#   ⇒ 装下来的包一 `import` 就 MODULE_NOT_FOUND（`packaging-test` 查的是反方向："白名单里的路径存在"）。
+#   本条**真打 tarball、解开、把入口真的 import 一次**（消费者视角），再静态核对 import/URL 引用与死文件；
+#   复现力自证：从包里删掉一条被 import 的模块 ⇒ 真装载必须失败。~15s（一次 npm pack + 两次解包）
+add "pack-closure"       "node tests/pack-closure-test.mjs"
 add "hlsl2glsl-coverage" "node tests/hlsl2glsl-coverage-test.mjs" "" "^SKIP hlsl2glsl-coverage"  # P-93：把 `docs/HLSL2GLSL-COVERAGE.md` §0 的 98.2% 变成**会变红的断言**（vendored 上游 MIT 转译器逐文件过语料：0 抛错 + 覆盖率下限 + 每个"可疑"都带原因；本机实测 45/46=97.8%，语料被裁剪时按子集下限并在输出里标明；`MPW_H2G_MIN_RATIO=0.999` 可自证会红）；~3s；无语料/无包解析器时 SKIP，门禁不红
 
 # ——— ①(P-104 2026-09-17 发布纪律①②：**自动上报默认关** + 一切"自动落盘"都要有上限） ———

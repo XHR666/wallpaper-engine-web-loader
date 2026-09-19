@@ -59,7 +59,8 @@ npm publish --registry=https://registry.npmjs.org/
 ## 3. 发布后验证（逐条跑，别只看"发布成功"那一行）
 
 ```bash
-V=0.2.0
+V=0.2.1
+# ① 先看 registry 认不认这个版本（发布处理有几分钟延迟，404 属正常，等一会儿再试）
 npm view wallpaper-engine-web-loader@$V version dist.tarball --registry=https://registry.npmjs.org/
 npm view wallpaper-engine-web-loader dist-tags --registry=https://registry.npmjs.org/    # latest 应指向新版本
 # 真下载一份、逐条核对内容（不是看本地目录）：体积、文件数、关键路径在不在
@@ -68,7 +69,7 @@ npm pack wallpaper-engine-web-loader@$V --registry=https://registry.npmjs.org/
 tar -tzf wallpaper-engine-web-loader-$V.tgz | sort > files.txt
 wc -l files.txt && grep -c "package/web/icons/brand-" files.txt      # 品牌图标应 4 条
 grep -E "package/(core/we-scene.mjs|server/we-scene-demo-server-8902.mjs|web/manifest.webmanifest)$" files.txt
-# 装一份到干净目录，跑一次真实挂载（npm 包的入口是不是真能用）
+# ② **必做**：装一份到干净目录，跑一次真实装载 —— 0.2.0 就是这一步抓出来的（包缺文件 ⇒ MODULE_NOT_FOUND）
 mkdir app && cd app && npm init -y >/dev/null && npm i wallpaper-engine-web-loader@$V --registry=https://registry.npmjs.org/
 node -e "import('wallpaper-engine-web-loader').then(m=>console.log('VERSION=',m.VERSION,'mount=',typeof m.mount))"
 cd /tmp/npmpub && tar -xzf wallpaper-engine-web-loader-$V.tgz && node package/server/we-scene-demo-server-8902.mjs --help >/dev/null 2>&1; echo "8902 server 启动脚本可执行=$?"
@@ -146,3 +147,21 @@ npm **不能撤回**已发布版本（72 小时内可 `unpublish`，但那会破
 `import` 出 `VERSION` 与 `mount` / 包里 8902 服务脚本语法可执行），结果记在本节下方的"发布那一刻读数"。
 
 **已知边界**：见第 5 节（测试台不在 tarball 内、在线 demo 与包不是同一套文件、`VERSION` ≠ 页面 `#app-version`）。
+
+### 事故与修复记录：0.2.0 的包**坏了**，0.2.1 修好（2026-09-20）
+
+* **0.2.0（已弃用 `deprecated`）**：`import('wallpaper-engine-web-loader')` 直接
+  `Cannot find module '…/core/we-particle-pointer.mjs'`。根因：`files` 白名单漏了 0.1.1 之后新增的三张源文件
+  （`core/we-pointer-source.mjs`、`core/we-particle-pointer.mjs`、`server/pkg-entry-index.mjs`）——
+  `core/` 是**逐文件**列白名单，不是整目录。**0.1.1 同法核过 = 0 条缺失**（那三张当时还不存在）⇒ 是 0.2.0 引入的回归。
+  为什么老门禁没红：`packaging-test` 查的是"白名单里的路径存在"（反方向），`mount-test` 在仓库里跑（文件都在），
+  `publish-check` 管许可/隐私/反向流动。**是第 3 节"装到干净目录再 import 一次"这一步抓出来的。**
+* **0.2.1（修复版）**：`files` 补三条；新增 **`tests/pack-closure-test.mjs`**（12 断言）把这一类钉死：
+  真打 tarball → 解开 → **在包内真 `import` 三个入口**（消费者视角）+ 两个服务入口 `PORT=0` 跑到 banner；
+  再静态核对 import 闭包/URL 引用/死文件；**复现力自证**：从包里删掉一条被 import 的模块 ⇒ 必须失败。
+  该测试已进全量门禁（116 → **117** 项）。
+* **这一版学到的（写进流程）**：
+  1. 第 3 节那句 `node -e "import('…')"` **不是可选项** —— 它是唯一能抓住"包缺文件"的一步；已提到第 3 节第 1 条。
+  2. 发版前跑 `node tests/pack-closure-test.mjs`（秒级到十几秒），别只跑 `packaging-test`。
+  3. `files` 是白名单 ⇒ **新增 `core/` 下的模块时，必须同步加白名单**；`pack-closure` 会替你把关。
+* 0.2.0 的处理：**不 unpublish**（会破坏已装下游），用 `npm deprecate` 指向 0.2.1。

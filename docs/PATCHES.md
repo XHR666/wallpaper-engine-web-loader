@@ -12608,3 +12608,72 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
    并发下可能互相删到同一份（`unlink` 失败被吞掉，不影响正确性）；上限值两边一致，不会出现"谁删得更狠"。
 4. **`web/icons/brand-512-maskable.png` 是 ffmpeg 派生物**：不是源图逐字节相同（那是有意的：maskable 要留安全边距），
    生成命令写在 `tests/pwa-test.mjs` 的 B3 判据文案里，可复现。
+
+## P-167（2026-09-20 · **0.2.0 发布事故**：`files` 白名单漏了三个新增模块 ⇒ 包一 `import` 就炸；补发布面闭合性门禁 + 0.2.1 修复发布）
+
+> 编号说明：落笔时文件里的最大号是 **P-166** ⇒ 本条取 **P-167**（唯一且非递减）。
+> 本条是**自己发现自己**的事故：0.2.0 按 `docs/RELEASE.md` 的清单发布后，第 3 节"发布后验证"里
+> 那一步"装一份到干净目录、跑一次真实挂载"把问题抓了出来。
+
+### P-167.1 事故与影响面
+
+* **现象**（照抄第 3 节命令的真实输出）：
+  ```
+  $ npm i wallpaper-engine-web-loader@0.2.0 && node -e "import('wallpaper-engine-web-loader').then(...)"
+  IMPORT FAIL Cannot find module '…/node_modules/wallpaper-engine-web-loader/core/we-particle-pointer.mjs'
+              imported from '…/node_modules/wallpaper-engine-web-loader/core/we-scene-bundle.js'
+  ```
+* **根因**：`package.json.files` 是**白名单**。0.1.1 → 0.2.0 之间新增的三张源文件没人往白名单里加：
+  `core/we-pointer-source.mjs`、`core/we-particle-pointer.mjs`（P-136/P-146 加进 bundle 的指针链路）、
+  `server/pkg-entry-index.mjs`（P-135 丙 的服务端热路径底座，`server/we-scene-demo-server.mjs:276` 动态 import）。
+  `core/` 下是**逐文件**列白名单（不是整目录）⇒ 漏一个就少一个。
+* **影响面（如实）**：0.2.0 的**库入口与自带服务器入口在消费者机器上都起不来**（`import` 直接 MODULE_NOT_FOUND）；
+  0.1.1 用同一分析方法核过 = **0 条缺失**（这三张文件当时还不存在）⇒ **是 0.2.0 引入的回归**，不是老问题。
+* **为什么老门禁没红**：`tests/packaging-test.mjs` 的判据方向是"白名单里每条路径**存在**"（对"代码 import 了
+  但白名单里没有"完全无感）；`publish-check` 扫的是许可/隐私/反向流动；`mount-test` 在**仓库里**跑（文件都在）。
+
+### P-167.2 修法与新增门禁
+
+* `package.json.files` 补三条：`core/we-pointer-source.mjs`、`core/we-particle-pointer.mjs`、`server/pkg-entry-index.mjs`。
+* 新增 **`tests/pack-closure-test.mjs`（12 断言）**，判据的口径是"**以真实装载为准，静态扫描只当第二道网**"：
+  * A `npm pack --pack-destination <tmp> --json` **真打包**（发布面以 npm 自己的展开为准，不自己重写 minimatch）；
+  * B **消费者视角真装载**：解开 tarball 后
+    B1 `core/we-scene.mjs` / `core/we-scene-bundle.js` / `vendor/hlsl2glsl/hlsl2glsl.js` 三个入口在**包内**
+       真的 `import()` 得起来（子进程做，逐个报导出数）；
+    B2 两个服务入口在包内 `PORT=0` 能跑到 banner 且 stderr 无 `Cannot find module`；
+  * C 静态第二道网：`C0` 服务端别名路由表**从源码自动提取**（`path.join(CORE_DIR,'x')`，不手抄）、
+    `C1` 入口相对 import 闭包闭合（`<./bundle.js>` 这类**服务端 URL 别名**也认，`index.html`/`demo.html` 一起走）、
+    `C2` 代码里的绝对 URL 都能映射到包内文件（挂载口径 + 别名 + 已登记"不进包"项）、`C3` 闭包规模下限；
+  * D 反向：包里的运行时代码不许有"谁也引不到"的死文件（`web/sw.js`、两个服务入口、上游空 stub 逐条登记理由，
+    且判据会**去引用文件里核对那句话真的在**，防"白名单变遮羞布"）；
+  * E **复现力自证**：从包里删掉一条被 import 的模块 ⇒ B1 必须失败（实测 `MUTANT-FAIL ERR_MODULE_NOT_FOUND`）。
+* 进 `tests/run-all-tests.sh`（渲染器门禁 116 → **117** 项）。
+* 静态扫描器本身也修了两个坑（都是**假红**来源，写在这里免得下次再踩）：
+  ① 注释剥离改用**状态机**（原来的正则把字符串里的 `/*` 当块注释起点，会把后面的真代码整段吃掉 —— 实测
+     `server/we-scene-demo-server.mjs` 的 `await import('./pkg-entry-index.mjs')` 因此消失，被误报成"死文件"）；
+  ② 绝对 URL 扫描跳过 `/tmp/`、`/root/`、`/home/` 这类**宿主运行期路径**（服务端会拼 `os.tmpdir()` 下的脚本路径）。
+
+### P-167.3 发布纪律：0.2.0 → 0.2.1（修前进）
+
+* npm **不能撤回**已发布版本（`unpublish` 会破坏下游），所以按 `docs/RELEASE.md` §4 的口径**发补丁版**：
+  版本 `0.2.0 → 0.2.1`（两处：`package.json` + `core/we-scene.mjs` 的 `VERSION`，README 五处引用同步）。
+* 发布前置读数（全绿后才发）：`bash tests/run-all-tests.sh --only pack-closure packaging mount pwa docs-check`
+  ⇒ **PASS=5 FAIL=0**；`node tests/publish-check.mjs` ⇒ 无阻塞项；全量门禁上一轮 **116/0**（本批只动
+  `package.json` 的 `files`/`version` + 新增一个测试 + 文档）。
+* 发布后验证（第 3 节四条命令逐条跑）见 §P-167.4；0.2.0 用 `npm deprecate` 指向 0.2.1（不删、不 unpublish）。
+* **文档同步**：`docs/RELEASE.md` 新增"发布记录：0.2.0（已弃用）/ 0.2.1（修复版）"与本次事故复盘；
+  `docs/PACKAGING.md` §3.1 的 `version` 与 `files` 条数（23 → 35）更新并指向本条。
+
+### P-167.4 判据汇总与诚实清单
+
+* `tests/pack-closure-test.mjs`：**12 通过 / 0 失败**（含 E1 复现力自证）。
+* `bash tests/run-all-tests.sh --only pack-closure packaging mount pwa docs-check`：**5/5 PASS**。
+* 诚实清单：
+  1. **0.2.0 的破包已经发出去了**，能做的只有"发补丁版 + deprecate 标记"；若有人已经装了 0.2.0，
+     他们会在 `import` 那一刻看到 MODULE_NOT_FOUND（不是静默错数据），升到 0.2.1 即好。
+  2. 本条的 B 段**只验"能不能装载/启动到 banner"**，不验运行时行为正确性（那是 `mount-test`/`parity-check`/全量门禁的事）。
+  3. **测试台 `demo/` 仍不进 tarball**（66MB，含 `demo/now-playing/` 的本机构建残留）：`index.html` 里那条
+     `./demo/` 链接、`web/sw.js` 预缓存清单里的 `/demo/mpw-select*.js` 在包里会 404 —— 这是**已登记**的口径
+     （`docs/RELEASE.md` §5），门禁把它们记在 `NOT_SHIPPED_OK` 里且要求"引用那句话真的在文件里"。
+  4. 服务入口需要一个**包外**依赖（MIT 插件 `dsh-mpkg-wallpaper/lib/pkg-extract.js`）：README 写明"放同一父目录"
+     或 `MPW_PKG_EXTRACT=`；B2 用它按真工作区布局跑，纯 npm 消费者需要按 README 自备（门禁里记为 `EXTERNAL_OK`）。
