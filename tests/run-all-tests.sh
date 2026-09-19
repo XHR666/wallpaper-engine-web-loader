@@ -427,6 +427,25 @@ add "script-sandbox-globals" "node tests/script-sandbox-globals-test.mjs" "" "^S
 #   `Object.is` 零差异。缺语料 ⇒ SKIP。带 3 处单字节变异自证（格式表 / lz4 匹配长度 / mat4Ortho ⇒ 必红）。
 #   包内自带"零外部 import"红线断言（不许 import core/**、不许 node_modules、连 node: 内置都不用）。
 add "we-core-parity" "node tests/we-core-parity-test.mjs" "" "^SKIP we-core-parity"
+# ①(P-144 2026-09-19 主对话补登记) `particle-children`：粒子 `children`（子系 / 拖尾）**全家族** ——
+#   语料最大单项（**76 个父层 / 21 个包 / 149 条子系**：`eventfollow` 37 / `static` 34 / `eventdeath` 30 /
+#   `eventspawn` 8 / `type` 缺失 40 = 官方缺省 `static`；其中 **83 条子系贴图在包外**，走 `/weassist` 回退链）。
+#   6 组：①字段面（官方缺省 `maxcount 20`/`probability 1.0`/`controlpointstartindex 0`、未知 type 回落 `static`、
+#   非法项跳过、边界钳位）②四种 type 的行为（`static` 锚点 / `eventfollow` 跟 leader 且父粒子死则清空 /
+#   `eventspawn`/`eventdeath` 只在事件那一帧吐、且**不做持续发射** / `probability` 门 / `maxcount` 并发实例上限）
+#   ③RNG 纪律（父系 RNG 流与粒子位置**逐位不因 children 改变**、子系吃自己的 RNG）
+#   ④真包 `dd/3554161528` ln=22 id=4569「萤火虫」+ mock-GL：子系 quad **0 → 7**、子系存活 **0 → 7**、
+#     每帧更新 **5 → 12**，且**父系顶点流两档 sha256 相同**（子系只多一批 draw）
+#   ⑤`?children=legacy` **逐位回退证明**（legacy 顶点流 sha256 ≡ "源码级换回旧实现"变异体的 sha256）
+#   ⑥全语料同族扫描（149 条里 **139 条真的产出粒子**：static 74/74、eventfollow 37/37、eventspawn 8/8、
+#     eventdeath 20/30；剩下 10 条**全是作者写了 `probability: 0`**，不产出才是对的）
+#   ⑦**6 组** RED-IF-REVERTED（R1 死亡事件关掉 / R2 概率门绕过 / R3 legacy 早退失效 / R4 出生事件关掉 /
+#     R5 eventfollow 不跟 leader / R6 实例上限取消），每组都实测让**指定那一组**变红。
+#   ⑧**照抄登记**不许被静默删掉：`THIRD-PARTY.md` §15（上游 webwallgl MIT，三块照抄的 `file:line`
+#     与 G-1/H-1/I-1/I-2 适配表）+ `docs/COPYING-RULES.md` §4 台账 entry #13。
+#   **61 断言**；实测 ~6.4s、主进程 PeakRSS **~215MB**（进程树瞬时 ~430–460MB：父进程与 firefly 探针子进程重叠）、
+#   无浏览器 / 无网络 / 无 X11。真包缺失时各组 SKIP 视作 PASS（不红），与其余真包类条件项同口径。
+add "particle-children" "node tests/particle-children-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

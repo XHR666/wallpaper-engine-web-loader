@@ -27,6 +27,24 @@
 //  D  | particles.js:1010-1024 | **逐字**（仅把 `p.vx += …` 改成返回值），音频门控保留在本仓库算子层
 //  E  | particles.js:1154-1163 | **逐字**，只有 `this.` → `sys.`、`this.controlPoints` → `sys.localControlPoints`
 //  F  | scene-mount.ts:1670-1676 | **逐字语义**：每帧把**活指针**写进粒子系统，指针**不进**重建签名
+//  G  | particles.js:698-707 | `attachFollow(parent, mode, offset)` **逐字**，只有 `this.` → `sys.`、
+//     |                  | `this._syncFollow()` → `syncFollow(sys)`（见 G-1）
+//  H  | particles.js:709-713 | `leaderParticle()` **逐字**（`pool` 的取法见 H-1）
+//  I  | particles.js:724-743 | `_syncFollow()` **逐字**，只有 `this.` → `sys.`、方法调用改成自由函数（见 I-1/I-2）
+//
+//  G-1/H-1/I-1（P-144 子系追加 · 必须说明）：这三块是 P-144 为 `children` 的
+//      `eventfollow` / `static` 两个 type 照抄的。上游的"池"是**环形缓冲的定长 pool**
+//      （`this.pool`，槽位里有 `alive` 标志），本仓库是**紧凑数组** `sys.particles`
+//      （死亡即 `splice`，数组里全是活粒子）⇒ `leaderParticle` 的循环体逐字可用，
+//      只有"池从哪来"这一处改成 `sys.particles`。随之：上游 `leaderParticle()` 返回的
+//      是**环形缓冲里第一个活槽**，本仓库返回的是**最早出生的活粒子**（发射序）；
+//      上游的 `originX/originY` 就是它的模拟原点，本仓库的模拟原点是数组 `sys.origin`
+//      ⇒ `syncFollowOrigin(sys)` 是**本仓库独有的适配层**（不是照抄），把照抄来的
+//      `originX/Y/Z` 镜像进 `sys.origin` 并重跑 `syncLayerTransform`。
+//  I-2（父粒子坐标口径 · 必须说明）：上游 `host.x/host.y` 是**父系局部**坐标（渲染期才乘父系
+//      变换），本仓库 `p.pos` 出生时就是**绝对世界坐标** ⇒ `mode === 'particle'` 那一行不能
+//      照抄字面，改成 `host_world + (localToWorld(parent, off) − parent.origin)`；
+//      与上游 `localToWorld(parent, host_local + off)` 在代数上同一个式子（见 `syncFollow` 的注释）。
 //
 //  A-1（角度单位 · 必须说明）：上游那一行是 `this.angleZ = ((la[2] || 0) * Math.PI) / 180`
 //      ——它拿到的 `layer.angles` 是**度**。本仓库 `scene.json` 的 `angles` 是**弧度**
@@ -230,4 +248,103 @@ export function vortexSwirl(px, py, base, v, dt) {
 export function pushPointerFrame(sys, pointerWorld) {
   if (pointerWorld) setPointer(sys, pointerWorld[0], pointerWorld[1])
   return !!pointerWorld
+}
+
+/**
+ * 块 G：子级挂到父系统 —— `eventfollow` 跟父粒子走，`static` 跟父系统 origin 走。
+ *
+ * ①(P-144 子系：照抄上游 MIT 实现) 来源 oneincase/webwallgl
+ * renderer/vendor/we-scene/render/particles.js:698-707（MIT © 2026 oneincase），
+ * 除 `this.` → `sys.`、`this._syncFollow()` → `syncFollow(sys)` 外未做语义改写。
+ * 上游调用方：`renderer/src/scene-mount.ts:1551`（建完子系就立刻挂）。
+ *
+ * @param {object} sys 子系粒子系统
+ * @param {object|null} parent 父系粒子系统
+ * @param {'particle'|'origin'|null} mode
+ * @param {number[]} offset 子系 authored origin（父系局部坐标）
+ */
+export function attachFollow(sys, parent, mode, offset) {
+  sys._followParent = parent || null
+  sys._followMode = mode === 'particle' || mode === 'origin' ? mode : null
+  const o = offset || [0, 0, 0]
+  sys._followOffset = [o[0] || 0, o[1] || 0, o[2] || 0]
+  // 立即对一次：否则首帧（以及 eventfollow 在父粒子尚未生成时）会停在
+  // 未加 offset 的父 origin，Matrix 33 列叠成一坨。
+  syncFollow(sys)
+}
+
+/**
+ * 块 H：取"领队"父粒子（上游 `leaderParticle`，particles.js:709-713 逐字）。
+ *
+ * ①(P-144 子系：照抄上游 MIT 实现) 来源 oneincase/webwallgl particles.js:709-713
+ * （MIT © 2026 oneincase）。循环体逐字；"池"由上游的定长环形 `this.pool` 换成本仓库的
+ * 紧凑数组 `sys.particles`（见文件头 H-1）。
+ *
+ * @returns {object|null} 最早出生的活粒子；无 ⇒ null
+ */
+export function leaderParticle(sys) {
+  const pool = sys.particles || []
+  for (let i = 0; i < pool.length; i++) if (pool[i].alive) return pool[i]
+  return null
+}
+
+/**
+ * 块 I：把子系原点的当前值对到父粒子 / 父系统 origin（上游 `_syncFollow`，
+ * particles.js:724-743 逐字）。
+ *
+ * ①(P-144 子系：照抄上游 MIT 实现) 来源 oneincase/webwallgl particles.js:724-743
+ * （MIT © 2026 oneincase），除 `this.` → `sys.`、`parent.leaderParticle()` →
+ * `leaderParticle(parent)`、`parent.localToWorld(...)` → `localToWorld(parent, ...)`
+ * 外未做语义改写。上游注释（"children.origin 是父系统局部坐标，必须走 localToWorld"）保留。
+ *
+ * ⚠ 本仓库的模拟原点是 `sys.origin`（数组），照抄来的这一块只写 `originX/originY`
+ * ⇒ 调用方必须再跑一次 `syncFollowOrigin(sys)`（本仓库独有的适配层，见文件头 I-1）。
+ * ⚠ 父粒子的坐标口径（**适配 I-2，必须说明**）：上游 `host.x/host.y` 是**父系局部**
+ * 坐标（它渲染期再乘父系变换），本仓库 `p.pos` 出生时就是**绝对世界坐标**。两边
+ * 逐字同构的写法是 `localToWorld(parent, host_local + off)`；把 `host_local` 换成
+ * 世界坐标后等价于 `host_world + (localToWorld(parent, off) − parent.origin)`
+ * ⇒ 除了这一处减法（去掉 origin 平移、只留 R·S 的偏移向量），算式与上游一致。
+ */
+export function syncFollow(sys) {
+  const parent = sys._followParent
+  const mode = sys._followMode
+  if (!parent || !mode) return
+  const off = sys._followOffset
+  // children.origin 是父系统局部坐标，必须走 localToWorld（含图层 scale/旋转）。
+  // 以前直接加到世界 origin 上：2974757317 层 scale=1.5、43 列 × 60px 只铺了
+  // 2520px，掉落代码挤在画面左侧一条带里，铺不满 3840 宽。
+  if (mode === 'particle') {
+    const host = leaderParticle(parent)
+    if (!host) return
+    const w = localToWorld(parent, [off[0], off[1], off[2]])
+    sys.originX = host.pos[0] + (w[0] - parent.originX)
+    sys.originY = host.pos[1] + (w[1] - parent.originY)
+  } else {
+    const w = localToWorld(parent, [off[0], off[1], off[2]])
+    sys.originX = w[0]
+    sys.originY = w[1]
+  }
+}
+
+/**
+ * 本仓库适配层（**不是照抄**）：把照抄块 I 写好的 `originX/originY/originZ`
+ * 镜像进本仓库真正用于模拟的 `sys.origin`，并重跑 `syncLayerTransform`（指针/控制点
+ * 那一套也吃 originX/originY）。
+ *
+ * 为什么必须分开：本仓库每颗粒子的 `pos` 在出生那一刻就写成**绝对世界坐标**
+ * （`spawnParticle`：`wx = sys.origin[0] + …`）⇒ 原点一移，"新粒子在新位置出生、
+ * 老粒子留在原地漂" —— 这正是拖尾的成因；而上游是渲染期再加 origin（粒子存局部坐标）。
+ * 两种口径在"原点不动"时逐位等价，在 eventfollow 下观感同构（见 P-144 台账）。
+ *
+ * @returns {boolean} 有没有真的对上（false = 无父系/无模式/`eventfollow` 父系没有活粒子）
+ */
+export function syncFollowOrigin(sys) {
+  syncFollow(sys)
+  if (!sys.origin || typeof sys.origin.length !== 'number') return false
+  if (sys._followMode === 'particle' && leaderParticle(sys._followParent || {}) === null) return false
+  sys.origin[0] = sys.originX
+  sys.origin[1] = sys.originY
+  sys.origin[2] = sys.originZ || 0
+  syncLayerTransform(sys, { origin: sys.origin, scale: [sys.scaleX, sys.scaleY, 1], angles: [0, 0, -sys.angleZ] })
+  return true
 }

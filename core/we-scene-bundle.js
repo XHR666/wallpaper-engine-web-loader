@@ -21,7 +21,11 @@ import { frameClientPoint, frameGeomModeFromQuery } from './web-frame-geometry.m
 //     + `renderer/src/scene-mount.ts:1670-1676`（粒子侧 `setPointer` / `_cpPos` / 投放 / 涡流 / 每帧推指针）
 //   · `we-pointer-source.mjs`   ← `renderer/vendor/we-scene/render/pointer.js:1-320`（统一指针输入源，整文件逐字）
 //   各文件的来源行号、许可、以及「哪几行做了适配、为什么」写在文件头；登记见 THIRD-PARTY.md §14。
-import { syncLayerTransform, setPointer, cpPos, cpWorld, localToWorld, mapSequenceAroundControlPoint, vortexSwirl, pushPointerFrame } from './we-particle-pointer.mjs'
+//   ①(P-144 子系) 追加照抄三块：`particles.js:698-707` `attachFollow` / `:709-713` `leaderParticle` /
+//   `:724-743` `_syncFollow` + `renderer/src/scene-mount.ts:1449-1560`（递归建子系、followMode 判定、
+//   子系图层变换的合成）—— 这就是 `children` 的 `static`/`eventfollow` 两个 type 的实现来源。
+//   登记见 THIRD-PARTY.md §15。
+import { syncLayerTransform, setPointer, cpPos, cpWorld, localToWorld, mapSequenceAroundControlPoint, vortexSwirl, pushPointerFrame, attachFollow, leaderParticle, syncFollowOrigin } from './we-particle-pointer.mjs'
 import { createPointerSource } from './we-pointer-source.mjs'
 // ①(P-131 批 D 2026-09-19 音频驱动发射) 粒子 `audioprocessing*`（官方编辑器里叫 **Audio response**）
 //   的包络与频段口径在**唯一实现处** `core/audio-band-array.mjs`（纯函数、无 DOM）：
@@ -3245,6 +3249,135 @@ export function parseParticleInitializers(list) {
   return (list || []).map((i) => ({ name: i.name || '', params: i, audio: parseAudioResponse(i, 'operator') }))
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ①(P-144 2026-09-19) **`children`（子系 / 拖尾）全家族** —— 语料里"拖尾"的最大缺口。
+//
+// 规模（只读普查：`docs/PARTICLE-CORPUS-SCAN.md` §2.5 + 本轮复算 149 条逐条字段面）：
+//   **76 个父层 / 21 个包 / 149 条子系**；type 分布 `eventfollow` 37、`static` 34、
+//   `eventdeath` 30、`eventspawn` 8、**`type` 缺失 40（官方缺省 = `static`）**；
+//   83 条子系的贴图在**包外**（`particle/halo`(34)、`particle/halo_4`(34)、`util/white`(10)、
+//   `particle/beam/beam_1`(1)），63 条包内、3 条 def 本体取不到。用户最初抱怨的
+//   「萤火虫没有拖尾」就是这条（`dd/3554161528` ln=22 id=4569「萤火虫」→ `firefliestrail`）。
+//
+// 官方语义（**只读行为结论**，出处逐条给出；GPL 参考实现只读、未复制任何代码/注释）：
+//   · `type`：`references/wer-ref/src/backend/scene/internal/parser/WPSceneParser.cpp:1446-1460`
+//     `ParseSpawnType`：**只识别** `eventfollow` / `eventspawn` / `eventdeath` 三个字符串，
+//     其余（**含缺失**）= `STATIC`（缺省）。⇒ 我们这里"未知字符串"也回落到 `static`。
+//   · 字段缺省：同文件 `:5778-5800` 的 `ChildData`：`maxcount 20`、`probability 1.0`、
+//     `controlpointstartindex 0`；子系图层变换 = 子系自己的 `origin/scale/angles`。
+//   · `static`（含缺省）：**一个常驻子系统**（`:5879-5888`：STATIC ⇒ 实例数 = 1，常驻发射）
+//     —— 不是"预铺 maxcount 个实例"。
+//   · `eventfollow`：跟随**父粒子**（`:5887-5893`：实例数 = `min(authored maxcount, 父系活粒子数)`；
+//     `ParticleSystem.cpp:366-394`：锚点每帧取父粒子位置、父粒子死 ⇒ 实例死、`EVENT_FOLLOW`
+//     死时清空粒子）。⇒ 父粒子飞行途中持续吐子系 = 拖尾/流星辉光。
+//   · `eventspawn` / `eventdeath`：`:5894-5900` 各自保留 authored `maxcount` 作**实例上限**；
+//     `ParticleSystem.cpp:414-449`：父粒子 `IsNew` ⇒ 给 EVENT_FOLLOW/EVENT_SPAWN 取一个新实例；
+//     父粒子"刚死" ⇒ 给 EVENT_DEATH 取一个新实例（死亡那一帧在**父粒子位置**上吐一发）。
+//   · `probability`：`ParticleSystem.cpp:311-323` `QueryNewInstance()`：**每个实例**取用前抽一次
+//     `Random::get(0,1) <= probability`，不过就放弃（也不占 `maxcount` 名额）。
+//   · `maxcount`：同处 `m_instances.size() < m_maxcount_instance` ⇒ **并发实例上限**。
+//   · 锚点：`WPParticleRawGener.cpp:84`（`pos = inst->GetBoundedData().pos + p.position`）
+//     ⇒ 子系粒子画在"父粒子位置 + 子系自己的局部位置"，即子系变换套在锚点**外围**。
+//   · 子系贴图/材质：子系是一个**独立的粒子资产**（自己的 `def.material`），与父层同链解析。
+//
+// **我们的口径**（与官方不同处**逐条**写清；全部有门禁钉住）：
+//   ① `static`/`eventfollow` 各只建**一个**子系系统（不是每父粒子一个实例）：本仓库
+//      `spawnParticle` 出生即写**绝对世界坐标** ⇒ 原点一移，"新粒子在新位置出生、老粒子留在原地"
+//      就是拖尾；`static` 的原点 = 父层变换 × 子系 authored origin（走照抄来的 `localToWorld`），
+//      `eventfollow` 的原点每帧跟**父系最早出生的活粒子**（照抄来的 `leaderParticle`）。
+//   ② `eventspawn`/`eventdeath`：父系在 `stepParticles` 里把"本步新生/本步死亡"的粒子位置记进
+//      `sys.pSpawnEv` / `sys.pDeathEv`（**只记坐标、不抽随机数**），渲染子系时按 `probability`
+//      门控制在那些位置各吐一发（每一发 = 子系 emitter 的 `instantaneous`，缺省 1 颗）。
+//   ③ `maxcount` 折算：`static` = 子系 def 的 `maxcount`（1 个实例）；`eventfollow` = 子系
+//      存活粒子数上限（一个实例 ≈ 一粒拖尾粒子）；`eventspawn/eventdeath` = **并发事件实例**
+//      上限（每个事件实例 = 一发子粒子，存活期间占一个名额，粒子全死则名额回收）。
+//   ④ `probability`：`eventspawn/eventdeath` 按**每个父粒子事件**抽一次；`static/eventfollow`
+//      按**每帧一次发射许可**抽（≈ 发射率 × p）。`p >= 1` 与 `p <= 0` **不抽随机数**
+//      （边界逐位可控）；抽取一律走**子系自己的 RNG**，父系 RNG 流一个数都不动。
+//   ⑤ `controlpointstartindex`（缺省 0）：子系控制点 `i` 的"活"状态（`lockToPointer`）
+//      继承父层控制点 `controlpointstartindex + i`；语料 149 条**全是缺省**（写了键的 50 条
+//      值都是 `null`）⇒ 事实上零影响，见 `applyChildControlPointBase`。
+//   ⑥ 子系 `def` / `material` / 贴图走**与父层同一条回退链**（包内 → `/weassist` → 预设 basename
+//      索引）；贴图缺了**只跳该条子系**并打 `⚠ 缺纹理`，**父层与其余子系照画**（不许整层不画）。
+//   ⑦ 档位 `?children=legacy` = **一条子系都不生成、一个随机数都不抽**（逐位回到改动前）。
+//
+// 递归：子系可以再挂子系（官方同构），深度上限 3（上游同一处的守卫 `scene-mount.ts:1458`）。
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** 官方 `ParseSpawnType` 认得的三类 + 缺省；未知字符串按官方语义回落到 `static`。 */
+export const PARTICLE_CHILD_TYPES = ['static', 'eventfollow', 'eventspawn', 'eventdeath']
+
+/** 子系 authored 字段的官方缺省（wer-ref `WPSceneParser.cpp:5778-5800` 的 `ChildData`）。 */
+export const PARTICLE_CHILD_DEFAULTS = { maxcount: 20, probability: 1, controlpointstartindex: 0 }
+
+function pNum(v, def) {
+  const n = (v && typeof v === 'object' && 'value' in v) ? v.value : v
+  if (n === null || n === undefined || n === '' || typeof n === 'boolean') return def
+  const x = Number(n)
+  return isFinite(x) ? x : def
+}
+
+/**
+ * 解析 `def.children` → 子系规格数组（字段面 = 全语料 149 条实际出现的 **10 个键**：
+ * `id/name/type/maxcount/probability/controlpointstartindex/origin/scale/angles/flags`；
+ * 语料里**没有**任何 `emitter`/`rate`/`lifetime` 覆盖项 ⇒ 不存在"子系 emitter 覆盖"这回事）。
+ */
+export function parseParticleChildren(def) {
+  const list = Array.isArray(def && def.children) ? def.children : []
+  const out = []
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i]
+    if (!c || typeof c !== 'object' || typeof c.name !== 'string' || !c.name) continue
+    const raw = (c.type === null || c.type === undefined || c.type === '') ? null : String(c.type)
+    const type = (raw && PARTICLE_CHILD_TYPES.indexOf(raw) >= 0) ? raw : 'static'
+    const pRaw = pNum(c.probability, PARTICLE_CHILD_DEFAULTS.probability)
+    out.push({
+      index: i,
+      id: c.id !== undefined ? c.id : null,
+      name: c.name,
+      type,
+      typeRaw: raw,
+      // `maxcount` 缺省 20、至少 1（官方 `std::max<i32>(1, child_data.maxcount)`）
+      maxCount: Math.max(1, Math.round(pNum(c.maxcount, PARTICLE_CHILD_DEFAULTS.maxcount))),
+      // `probability` 缺省 1.0，钳到 [0,1]
+      probability: Math.max(0, Math.min(1, pNum(c.probability, PARTICLE_CHILD_DEFAULTS.probability))),
+      // `controlpointstartindex` 缺省 0
+      cpStart: Math.max(0, Math.round(pNum(c.controlpointstartindex, PARTICLE_CHILD_DEFAULTS.controlpointstartindex))),
+      // 子系自己的图层变换（叠加在父层变换上）
+      origin: pVec3(c.origin, [0, 0, 0]),
+      scale: pVec3(c.scale, [1, 1, 1]),
+      angles: pVec3(c.angles, [0, 0, 0]),
+      // 语料 51 条写了 `flags`（**值全是 null**）⇒ 官方语义未证实，只原样记下、不参与判断
+      flags: c.flags === undefined ? null : c.flags,
+      // 上游 `scene-mount.ts:1540-1544`：子系没有自己的 `instanceoverride` 时**继承父层**的
+      // （否则"颜色滑块"只作用在父层上，子系永远不上色）。
+      instanceoverride: (c.instanceoverride && typeof c.instanceoverride === 'object') ? c.instanceoverride : null,
+    })
+  }
+  return out
+}
+
+/**
+ * `controlpointstartindex` 的落地：把父层的"活控制点"状态（照抄块 E 的 `lockToPointer`）
+ * 按基址搬到子系的控制点上。语料 149 条全是缺省 0 ⇒ 调用它前后**逐位不变**（门禁钉住）。
+ *
+ * @param {object} childSys 子系粒子系统（`buildParticleSystem` 建的）
+ * @param {object|null} parentSys 父系粒子系统
+ * @param {number} start `spec.cpStart`
+ */
+export function applyChildControlPointBase(childSys, parentSys, start) {
+  const n = Math.max(0, Math.round(pNum(start, 0)))
+  if (!n || !childSys || !Array.isArray(childSys.localControlPoints) || !parentSys || !Array.isArray(parentSys.localControlPoints)) return 0
+  let hit = 0
+  for (let i = 0; i < childSys.localControlPoints.length; i++) {
+    const src = parentSys.localControlPoints[n + i]
+    if (!src) break
+    childSys.localControlPoints[i].lockToPointer = !!src.lockToPointer
+    hit++
+  }
+  return hit
+}
+
 // ①(P-74 2026-09-15) **instanceoverride** —— 作者在**层**上对粒子资产做的实例覆写（倍率语义）。
 //   一手依据（官方 .cpp/.h，逐条给出）：
 //     · 字段表：wer-ref/.../wpscene/WPParticleObject.h:138-158 `ParticleInstanceoverride`
@@ -3467,6 +3600,18 @@ export function buildParticleSystem(def, ctx = {}) {
       offset: [off[0], -off[1], off[2]],
     }
   })
+  // ①(P-144 子系) `children` 规格 + 事件记录开关。
+  //   · `?children=legacy` ⇒ `children` 恒为空数组、`pSpawnEv/pDeathEv` 恒 null
+  //     ⇒ `stepParticles` 里那两个 `if (sys.pSpawnEv)` 一次都不进 ⇒ 父系 RNG/顶点流逐位不变。
+  //   · `childDepth` = 子系嵌套深度（上游 `scene-mount.ts:1458` 同一守卫：>3 不再展开）。
+  //   · 事件数组只在**真有该类子系**时存在（零成本原则：没有 children 的层连一个数组都不建）。
+  sys.children = (ctx.childrenMode === 'legacy') ? [] : parseParticleChildren(def)
+  sys.childrenMode = ctx.childrenMode === 'legacy' ? 'legacy' : 'official'
+  sys.childDepth = (typeof ctx.childDepth === 'number' && ctx.childDepth > 0) ? ctx.childDepth : 0
+  if (sys.children.length) {
+    if (sys.children.some((c) => c.type === 'eventspawn')) sys.pSpawnEv = []
+    if (sys.children.some((c) => c.type === 'eventdeath')) sys.pDeathEv = []
+  }
   syncLayerTransform(sys, { origin: sys.origin, scale, angles: [0, 0, angle] })
   sys.pointerLocal = null       // 上游 `particles.js:197`：`this.pointer = null`（无指针 ⇒ 锁指针控制点为 null）
   return sys
@@ -3539,12 +3684,20 @@ export function stepParticles(sys, dt, simT) {
     sys.acc += sdt * em.rate * audioK * sys.rateMul * ((typeof sys.countMul === 'number' && isFinite(sys.countMul)) ? sys.countMul : 1)
     toEmit += Math.floor(sys.acc)
     sys.acc -= Math.floor(sys.acc)
-    const cap = em.flags & 2 ? 1 : toEmit
-    for (let k = 0; k < cap && sys.count < sys.maxCount; k++) {
-      const p = spawnParticle(sys, em)
-      if (!p) break            // ①(P-69) lockToPointer 发射器无指针信息 → 本步不发射
-      sys.particles.push(p)
-      sys.count++
+    // ①(P-144 子系 `probability`) 子系（`static`/`eventfollow`）的**每步发射许可**：
+    //   调用方（`renderParticleLayer` 的子系准备）每步先抽一次子系自己的 RNG 写进
+    //   `sys.__emitGate`；父系从不设它（`undefined`）⇒ 这个 `if` 对父系是空操作、
+    //   对 `?children=legacy` 也是空操作（逐位不变）。`false` = 本步不发（年龄/算子照跑）。
+    if (sys.__emitGate !== false) {
+      const cap = em.flags & 2 ? 1 : toEmit
+      for (let k = 0; k < cap && sys.count < sys.maxCount; k++) {
+        const p = spawnParticle(sys, em)
+        if (!p) break            // ①(P-69) lockToPointer 发射器无指针信息 → 本步不发射
+        sys.particles.push(p)
+        sys.count++
+        // ①(P-144 子系 `eventspawn`) 新生那一帧把**出生位置**记下（只记坐标、不抽随机数）
+        if (sys.pSpawnEv) __pushParticleEvent(sys.pSpawnEv, p.pos)
+      }
     }
   }
   for (const p of sys.particles) p.age += sdt
@@ -3567,10 +3720,23 @@ export function stepParticles(sys, dt, simT) {
   // 回收时递减 count：否则 count 触顶后不再发射（连续发射器（尘埃/光束）会在首批死后变空）。
   for (let i = sys.particles.length - 1; i >= 0; i--) {
     if (sys.particles[i].age >= sys.particles[i].life) {
+      // ①(P-144 子系 `eventdeath`) 死亡那一帧把**死亡位置**记下（只记坐标，**不抽随机数**
+      //   ⇒ 父系 RNG 流与 `?children=legacy` 逐位一致）；子系渲染时在这些位置各吐一发。
+      if (sys.pDeathEv) __pushParticleEvent(sys.pDeathEv, sys.particles[i].pos)
       sys.particles.splice(i, 1)
       sys.count--
     }
   }
+}
+
+/**
+ * ①(P-144) 父系事件位置入队（`eventspawn`/`eventdeath` 子系用）。
+ * 只 push 三个浮点数，**不消耗任何随机数**；容量上限 512（超出丢最老的）——
+ * `?psim=replay` 档下每帧会重放整段历史，不设上限会积到几十万条。
+ */
+function __pushParticleEvent(arr, pos) {
+  if (arr.length >= 512) arr.shift()
+  arr.push([pos[0], pos[1], pos[2] || 0])
 }
 
 // 发射一个粒子：pos = 世界（设计像素，y 向下）；scenePos = 编辑器 y-up 局部（供 operator 用）
@@ -3730,6 +3896,126 @@ export function spawnParticle(sys, em) {
   p.initLife = p.life || 1        // ①(官方生命周期插值用 1 − lifetime/init)
   p.baseColor = p.color.slice()
   return p
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ①(P-144 子系) 子系的**位置锚定**与**每帧准备**（模块级 = 渲染层与语料扫描/门禁共用同一份实现）
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 在**指定位置**发射一颗粒子（`eventspawn`/`eventdeath` 的锚点 = 父粒子的出生/死亡位置）。
+ * 做法：把子系的 `sys.origin` 临时挪到该位置，走**同一个** `spawnParticle`（initializer /
+ * operator / instanceoverride / 音频门控语义完全一致），随后原值恢复。
+ * **不新增任何随机数抽取**（抽取全在 `spawnParticle` 内部，走子系自己的 RNG）。
+ */
+export function spawnParticleAt(sys, em, at) {
+  const o = sys.origin
+  const sx = o[0], sy = o[1], sz = o[2]
+  o[0] = at[0]; o[1] = at[1]; o[2] = at[2] || 0
+  let p = null
+  try { p = spawnParticle(sys, em) } finally { o[0] = sx; o[1] = sy; o[2] = sz }
+  return p
+}
+
+/**
+ * 子系的**每帧准备**（在 `simulateParticleSystem` 之前调用一次）。四种 type 的全部行为：
+ *
+ *  · `static`（含 `type` 缺失）：**什么都不用做** —— 原点在建立时就固定在
+ *    "父层变换 × 子系 authored origin"（`particleChildAnchorWorld`），之后按自己的 emitter 持续发射。
+ *    只有 `controlpointstartindex > 0` 时按基址继承父层控制点的"活"状态（语料全是 0）。
+ *  · `eventfollow`：每帧把原点对到父系的 leader 粒子（照抄块 G `attachFollow` 只在新建时挂一次，
+ *    之后每帧走照抄块 I `syncFollow` + 本仓库适配层 `syncFollowOrigin`）。父系没有活粒子 ⇒
+ *    官方语义"实例死"（`ParticleSystem.cpp:394-400`）⇒ **清空 + 本帧不发**。
+ *  · `eventspawn` / `eventdeath`：**不做持续发射**（`__emitGate = false`），只把父系本帧记下的
+ *    "新生/死亡位置"各吐一发。一发 = 子系 emitter 的 `instantaneous`（缺省 1 颗）。
+ *  · `probability`：事件类**每事件**抽一次（`p<=0` ⇒ 直接不发且不抽；`p>=1` ⇒ 不抽，直接发）；
+ *    `static`/`eventfollow`**每帧**抽一次"发射许可"（写进 `sys.__emitGate`，≈ 发射率 × p）。
+ *    抽取**一律走子系自己的 `sys.rng`** ⇒ 父系 RNG 流一个数都不动（`?children=legacy` 逐位的前提）。
+ *  · `maxcount`（缺省 20）：`static` = 子系 def 的 `maxcount`（一个实例）；`eventfollow` = 子系
+ *    存活粒子上限（在渲染层用 `ctx.maxCount` 折算，一个实例 ≈ 一粒拖尾粒子）；
+ *    事件类 = **并发实例上限**（每个事件实例 = 一发，粒子存活期间占一个名额，粒子全死则名额回收）。
+ *
+ * @param {object} childSys 子系粒子系统
+ * @param {object} spec `parseParticleChildren` 的一条
+ * @param {object|null} parentSys 父系粒子系统
+ * @param {Array<number[]>|null} events 父系本帧的出生/死亡位置快照（按 type 取其一）
+ * @param {object} [st] 记账对象（渲染层传 `partStat.children`；缺省 = 不记账）
+ * @returns {{spawned:number, instances:number, cleared:boolean, gate:(boolean|undefined)}}
+ */
+export function prepareParticleChildSys(childSys, spec, parentSys, events, st) {
+  const out = { spawned: 0, instances: 0, cleared: false, gate: undefined }
+  if (!childSys || !spec) return out
+  const isEvent = spec.type === 'eventspawn' || spec.type === 'eventdeath'
+  // 事件类只按事件吐（否则 8 条 eventspawn 会退化成常驻发射器）
+  childSys.__emitGate = isEvent ? false : undefined
+  childSys.__childType = spec.type
+  if (spec.type === 'eventfollow') {
+    if (!parentSys) { childSys.__emitGate = false; if (st) st.noParent++; return out }
+    if (childSys._followParent !== parentSys || childSys._followMode !== 'particle') {
+      attachFollow(childSys, parentSys, 'particle', spec.origin)   // 照抄块 G
+    }
+    const ok = syncFollowOrigin(childSys)                          // 照抄块 I + 适配层
+    if (!ok) {
+      // 官方 `EVENT_FOLLOW`：父粒子死 ⇒ 实例死、**清空**它的粒子（`ParticleSystem.cpp:394-400`）
+      if (childSys.particles.length) {
+        childSys.particles.length = 0
+        childSys.count = 0
+        out.cleared = true
+        if (st) st.followCleared++
+      }
+      childSys.__emitGate = false
+      return out
+    }
+  }
+  if (spec.type === 'static' && spec.cpStart > 0 && parentSys) {
+    // `controlpointstartindex`（语料 149 条全是缺省 0 ⇒ 这条分支一次都不进）
+    applyChildControlPointBase(childSys, parentSys, spec.cpStart)
+  }
+  if (isEvent && events && events.length) {
+    const cap = spec.maxCount
+    // 并发实例上限：先数一遍"还活着的实例"（粒子上的 `__childInst` 标记），再边吐边加
+    const live = new Set()
+    for (const p of childSys.particles) if (p.__childInst !== undefined) live.add(p.__childInst)
+    let skippedByCap = 0
+    for (let i = 0; i < events.length; i++) {
+      // 官方 `QueryNewInstance()`：**先**抽概率门、**再**看实例上限（`ParticleSystem.cpp:311-323`）
+      if (spec.probability < 1) {
+        if (!(spec.probability > 0)) break
+        if (!(childSys.rng() < spec.probability)) { if (st) st.probRejected++; continue }
+      }
+      if (live.size >= cap) { skippedByCap++; continue }
+      const inst = (childSys.__pInstSeq = (childSys.__pInstSeq || 0) + 1)
+      let n = 0
+      for (const em of childSys.emitters) {
+        // 一发 = 该 emitter 的 `instantaneous`（官方事件子系的写法；语料 `shootingstarglow`
+        // 就是 `instantaneous:1, rate:0`），缺省 1 颗。
+        const cnt = Math.max(1, Math.round(em.instantaneous > 0 ? em.instantaneous : 1))
+        for (let k = 0; k < cnt; k++) {
+          if (childSys.count >= childSys.maxCount) break
+          const p = spawnParticleAt(childSys, em, events[i])
+          if (!p) break
+          p.__childInst = inst
+          childSys.particles.push(p)
+          childSys.count++
+          n++; out.spawned++
+        }
+      }
+      if (n > 0) live.add(inst)
+    }
+    out.instances = live.size
+    if (st) {
+      st.bursts += live.size
+      st.spawned += out.spawned
+      if (skippedByCap) st.capSkipped += skippedByCap
+    }
+  } else if (!isEvent && spec.probability < 1) {
+    // `static`/`eventfollow`：每帧一次发射许可（≈ 发射率 × probability）
+    if (!(spec.probability > 0)) childSys.__emitGate = false
+    else childSys.__emitGate = (childSys.rng() < spec.probability)
+    if (childSys.__emitGate === false && st) st.gateClosed++
+  }
+  out.gate = childSys.__emitGate
+  return out
 }
 
 // ①(P-74) 官方 genOverrideInitOp 的逐字移植（WPParticleParser.cpp:297-312）：
@@ -7265,6 +7551,23 @@ export function createRenderer(canvas, opts = {}) {
     } catch (e) { /* 无 location → 默认 official */ }
     return 'official'
   })()
+  // ①(P-144) **粒子 `children`（子系 / 拖尾）档位**（`?children=legacy`）：
+  //   official（默认）= 按官方语义生成子系（`static` / `eventfollow` / `eventspawn` / `eventdeath`，
+  //     缺省 `maxcount 20`、`probability 1.0`、`controlpointstartindex 0`；见 `parseParticleChildren`
+  //     上方的整段注释）。
+  //   `?children=legacy` = **改动前**：一条子系都不生成、一个随机数都不抽、连父系的
+  //     `pSpawnEv`/`pDeathEv` 事件数组都不建 ⇒ 顶点流/粒子数/RNG 流逐位回到 P-143 的画面。
+  //   为什么必须给回退口：`children` 命中 **76 个父层 / 21 个包 / 149 条**（本仓语料的最大单项），
+  //   其中 eventfollow 37 条会让"本来安静的一层"多出一整条拖尾 ⇒ 真机逐层对拍官方
+  //     `preview.gif` 之前必须能一键回到今天的画面。
+  const CHILDREN_MODE = (() => {
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        return new URLSearchParams(location.search).get('children') === 'legacy' ? 'legacy' : 'official'
+      }
+    } catch (e) { /* 无 location → 默认 official */ }
+    return 'official'
+  })()
   // ①(P-131 批 D) 音频驱动发射的状态与求值在**模块级**（`AUDIO_EMIT_MODE` / `AUDIO_BANDS_VIEW` /
   //   `setAudioBands()` / `audioFactor()`，见 `parseParticleEmitters` 上方的整段注释）：页内一个音频源，
   //   所有渲染器实例共用同一份活视图（官方 `engine` 是引擎级单例）。这里只在签名里带上档位，
@@ -7296,6 +7599,12 @@ export function createRenderer(canvas, opts = {}) {
     pturbMode: PTURB_MODE,
     // ①(P-131 批D) 音频驱动发射档位与生效记账（真机上报可回答"这一台到底有没有音频源、调没调制"）
     audioEmitMode: AUDIO_EMIT_MODE, audioModulated: 0, audioNoSource: 0, audioLayers: {},
+    // ①(P-144 子系) 子系口径档位与生效记账（真机上报可回答"这一台到底画了几条子系、哪一类、
+    //   有没有因为缺定义/缺纹理/超预算被跳过"）。字段逐帧重置（`children` 那一行在帧首）。
+    childrenMode: CHILDREN_MODE,
+    children: { parents: 0, specs: 0, drawn: 0, kinds: { static: 0, eventfollow: 0, eventspawn: 0, eventdeath: 0 },
+      unresolved: 0, texMissing: 0, budgetSkipped: 0, depthCapped: 0, noParent: 0, followCleared: 0,
+      bursts: 0, spawned: 0, capSkipped: 0, probRejected: 0, gateClosed: 0 },
     // ①(P-103) 生效记账（逐帧重置）：吃自转的 quad 数 / 吃图层变换的 quad 数 / 吃 exponent 的 initializer 次数 /
     //   拿到发射器初速的粒子数。默认档下这四个数应当 >0（语料有对应层），legacy 档下必须恒 0。
     protQuads: 0, pquadQuads: 0, expApplied: 0, spawnSpeeds: 0,
@@ -9779,6 +10088,10 @@ export function createRenderer(canvas, opts = {}) {
     partStat.rateCapped = 0; partStat.renderers = {}
     // ①(P-131 批D) 音频发射记账逐帧重置（audioLayers 记"本帧哪些层真的在吃音频包络"）
     partStat.audioModulated = 0; partStat.audioNoSource = 0; partStat.audioLayers = {}
+    // ①(P-144 子系) 子系记账逐帧重置
+    partStat.children = { parents: 0, specs: 0, drawn: 0, kinds: { static: 0, eventfollow: 0, eventspawn: 0, eventdeath: 0 },
+      unresolved: 0, texMissing: 0, budgetSkipped: 0, depthCapped: 0, noParent: 0, followCleared: 0,
+      bursts: 0, spawned: 0, capSkipped: 0, probRejected: 0, gateClosed: 0 }
     // ①(P-74 ④) 效果链台账每帧重置
     fxStat.layers = 0; fxStat.last = null; fxStat.perLayer = {}
     // ①(P-65) trail/形状通道记账同样逐帧重置
@@ -10723,30 +11036,51 @@ export function createRenderer(canvas, opts = {}) {
   // 理想路径：CPU 移植 elysia 模拟 + 每帧把每个粒子画成一个小 quad（光斑贴图 additively）
   // 合成到当前 framebuffer（默认画布）。位置=世界设计像素（y 向下）经 viewProj 投影。
   // 纹理形状取 red 通道（genericparticle 语义），additive → dst += color * (alpha*texR)。
+  // ①(P-144 子系) **分层**：`renderParticleLayer` = 本层（body）+ 本层的 `children`（子系）。
+  //   为什么要拆：`children` 的静态子系**必须能在父层自己缺贴图时照画**（否则 83 条包外贴图的
+  //   子系会被父层一起拖死），而父层的 body 在缺贴图时是**早退**（连 sys 都不建）⇒ 早退前
+  //   拿不到父系锚点。拆开之后 body 把 `sys`（可能为 null）返回给 wrapper，wrapper 用
+  //   "父系锚点为空"分支继续画 static 子系（eventfollow/事件类需要父系 ⇒ 那几种才跳过）。
   function renderParticleLayer(layer, textures, cam, viewProj, width, height, time) {
+    const __r = renderParticleLayerBody(layer, textures, cam, viewProj, width, height, time)
+    renderParticleChildren(layer, __r ? __r.sys : null, textures, cam, viewProj, width, height, time)
+  }
+
+  function renderParticleLayerBody(layer, textures, cam, viewProj, width, height, time) {
     const def = layer.particleDef
-    if (!def) return
+    if (!def) return { sys: null, reason: 'nodef' }
     const texName = layer.particleTexName
     const texObj = texName ? textures.get(texName) : null
     // ①(P-59) 贴图没解析/没解码出来的粒子层**直接跳过**（不画白块）：白 quad 比不画更糟。
     //   这里同时记账，真机上报可区分"没贴图跳过"与"预算跳过"。
+    //   ①(P-144 子系) 子系（`layer.__pchild`）缺贴图**只跳这一条子系**：父层与兄弟子系照画
+    //   （口径见 `parseParticleChildren` 上方第 ⑥ 条）。
     if (!texObj || !texObj.glTex) {
       partStat.skippedTex++
+      if (layer.__pchild) {
+        partStat.children.texMissing++
+        if (!partLogOnce.has('ctex:' + layer.id)) {
+          partLogOnce.add('ctex:' + layer.id)
+          try { onLog('[粒子子系] ⚠ 缺纹理 ' + (texName ? ('materials/' + texName + '.tex') : '（子系无 particleTexName）')
+            + ' ⇒ 只跳过这一条子系 "' + (layer.name || layer.id) + '"（父层与其余子系照常绘制）') } catch {}
+        }
+      }
       if (!partLogOnce.has('tex:' + texName)) {
         partLogOnce.add('tex:' + texName)
         try { onLog('[粒子] 跳过无贴图层 "' + (layer.name || layer.id) + '"（' + (texName || '无 particleTexName') + '）') } catch {}
       }
-      return
+      return { sys: null, reason: 'tex' }
     }
     // ①(P-59) 粒子预算：本帧剩余份额 ÷ 剩余粒子层数 = 本层的公平份额（用不完顺延给后面的层）
     if (partFrame.layers >= PARTICLE_BUDGET.layers || partFrame.left <= 0) {
       partStat.skippedBudget++
+      if (layer.__pchild) partStat.children.budgetSkipped++
       if (!partLogOnce.has('bud:' + (layer.name || layer.id))) {
         partLogOnce.add('bud:' + (layer.name || layer.id))
         try { onLog('[粒子预算] 层 "' + (layer.name || layer.id) + '" 超预算跳过（档=' + PARTICLE_BUDGET.tier + '，已画 '
           + partFrame.layers + '/' + PARTICLE_BUDGET.layers + ' 层，剩余份额 ' + Math.max(0, partFrame.left) + '/' + PARTICLE_BUDGET.total + '）') } catch {}
       }
-      return
+      return { sys: null, reason: 'budget' }
     }
     const remainLayers = Math.max(1, partFrame.layerTotal - partFrame.layers)
     const share = Math.max(1, Math.ceil(partFrame.left / remainLayers))
@@ -10771,7 +11105,7 @@ export function createRenderer(canvas, opts = {}) {
         partLogOnce.add('trailoff:' + (layer.name || layer.id))
         try { onLog('[粒子] 层 "' + (layer.name || layer.id) + '" renderer=' + rname + ' 因 ?trail=off 整层跳过（贴图=' + texName + '）') } catch {}
       }
-      return
+      return { sys: null, reason: 'trailoff' }
     }
     if (rname !== 'sprite' && !partLogOnce.has('rnd:' + rname + ':' + (layer.name || layer.id))) {
       partLogOnce.add('rnd:' + rname + ':' + (layer.name || layer.id))
@@ -10841,6 +11175,16 @@ export function createRenderer(canvas, opts = {}) {
     // 本帧该层的存活上限（与旧实现逐位同式；perf 倍率 × def.maxcount 再与预算取 min）
     const __capNow = (def && def.maxcount > 0)
       ? Math.max(1, Math.min(budgetCap, Math.floor(def.maxcount * (perfState.partMul || 1)))) : budgetCap
+    // ①(P-144 子系) 子系 authored `maxcount`（官方 = **并发实例上限**，缺省 20）折算成"本系统的
+    //   存活粒子上限"：`static` 只有一个实例 ⇒ 不缩（上限就是子系 def 的 maxcount）；
+    //   `eventfollow` 一个实例 ≈ 一粒拖尾粒子 ⇒ `min(def.maxcount, spec.maxCount)`；
+    //   `eventspawn`/`eventdeath` 的上限由 `prepareParticleChildSys` 的**实例计数**单独管
+    //   （粒子总数仍受子系 def 的 maxcount 与预算约束）。
+    const __capChild = (() => {
+      const sp = layer.__pchild && layer.__pchild.spec
+      if (!sp || sp.type !== 'eventfollow') return __capNow
+      return Math.max(1, Math.min(__capNow, sp.maxCount))
+    })()
     // 缓存签名**只含真正影响 RNG 流与粒子状态的输入**：origin/scale/angle/alpha/rateMul/maxcount/贴图。
     //   注意**不含 budgetCap**（它随本帧剩余预算浮动，逐帧变 → 会把缓存打成每帧重建）；
     //   存活上限逐帧直接写进 sys.maxCount（见下），不需要重放。
@@ -10873,15 +11217,19 @@ export function createRenderer(canvas, opts = {}) {
       PTURB_MODE,
       // ①(P-131 批D) 音频口径进签名：`?audioemit=` 切换后必须重建（发射门控改变出生流与 RNG 流）
       AUDIO_EMIT_MODE,
+      // ①(P-144 子系) 子系口径进签名：`?children=` 切换后必须重建（子系是否生成会改变
+      //   事件记录数组是否存在；虽然父系顶点流两档逐位相同，但重建能让 `children` 记账与
+      //   sys 上的子系规格同步，避免"切档后缓存里还挂着旧档的 sys"）
+      CHILDREN_MODE,
     ].join('|')
     const __cached = PartSysCache.get(layer.id)
     let sys
     if (PSIM === 'incr' && __cached && __cached.sig === __sig && (time - (__cached.sys.starttime || 0)) + 1e-9 >= (__cached.sys._simulatedTo || 0)) {
       sys = __cached.sys
       // 本帧预算变了 → 直接改存活上限（降上限时裁掉超出的粒子，不重放）
-      if (sys.maxCount !== __capNow) {
-        sys.maxCount = __capNow
-        if (sys.particles && sys.particles.length > __capNow) { sys.particles.length = __capNow; sys.count = __capNow }
+      if (sys.maxCount !== __capChild) {
+        sys.maxCount = __capChild
+        if (sys.particles && sys.particles.length > __capChild) { sys.particles.length = __capChild; sys.count = __capChild }
       }
     } else {
       sys = buildParticleSystem(def, {
@@ -10897,7 +11245,7 @@ export function createRenderer(canvas, opts = {}) {
         //   只降存活上限、发射器不停发；partMul 未定义（perf 关）时 ×1 → 与旧行为逐位一致；
         //   def.maxcount 缺失/0 时传 undefined → buildParticleSystem 内部保持旧回退（||100）。
         // ①(P-59) 再与预算上限取 min：真机语料里存在 maxcount=10000 的雨层（模拟存活 9609 粒）。
-        maxCount: __capNow,
+        maxCount: __capChild,
         // ①(P-74 ①) instanceoverride（层→粒子资产实例覆写）；`?io=off` 回到"一个字段都不读"
         instanceoverride: IO_MODE === 'off' ? null : (layer.instanceoverride || null),
         // ①(P-74 ③) `?vy=legacy` 回退 velocityrandom 的 y 翻转
@@ -10911,6 +11259,9 @@ export function createRenderer(canvas, opts = {}) {
         pcolorLegacy: PCOLOR_MODE === 'legacy',
         // ①(P-140 用户第 7 项) 湍流初速场口径档位（`?pturb=legacy` ⇒ 回到"每颗粒子独立随机出生角"）
         pturbLegacy: PTURB_MODE === 'legacy',
+        // ①(P-144 子系) `?children=legacy` ⇒ 不解析任何子系（`sys.children = []`、事件数组不建）
+        childrenMode: CHILDREN_MODE,
+        childDepth: typeof layer.__pdepth === 'number' ? layer.__pdepth : 0,
       })
       if (PSIM === 'incr') PartSysCache.set(layer.id, { sig: __sig, sys })
     }
@@ -10926,6 +11277,14 @@ export function createRenderer(canvas, opts = {}) {
         }
       }
     }
+    // ①(P-144 子系) 子系自己的**每帧准备**，必须在 `simulateParticleSystem` **之前**：
+    //   · `eventfollow`：原点对到父系的 leader 粒子（照抄块 I `syncFollow` + 本仓库适配层
+    //     `syncFollowOrigin`），父系没有活粒子 ⇒ 按官方语义"实例死 ⇒ 清空"且本帧不发；
+    //   · `eventspawn`/`eventdeath`：把父系本帧记下的出生/死亡位置各吐一发（概率门 + 实例上限），
+    //     这两类**不做持续发射**（`__emitGate=false`），只按事件吐；
+    //   · `static` 与 `eventfollow` 的 `probability`：每帧抽一次"发射许可"（吃子系自己的 RNG）。
+    //   父层（没有 `__pchild`）与 `?children=legacy` 都**不进这个函数** ⇒ 逐位不变。
+    if (layer.__pchild) __prepareParticleChild(layer, sys)
     const __ptrLockedLayerNow = sys0ptrLocked()
     sys.pointer = __ptrNow      // ①(P-69) null = 无指针 ⇒ lockToPointer 发射器不发射
     // ①(P-136 用户第 4 项：照抄上游 MIT 实现) **鼠标尾迹能不能看见的那一步。**
@@ -11371,6 +11730,119 @@ export function createRenderer(canvas, opts = {}) {
     }
     gl.bindVertexArray(null)
     try { const ge2 = gl.getError(); if (ge2 !== gl.NO_ERROR && !passErrorLogged.has('particle-draw 0x' + ge2.toString(16))) { passErrorLogged.add('particle-draw 0x' + ge2.toString(16)); try { onLog('[we-scene] 粒子绘制错误 0x' + ge2.toString(16)) } catch {} } } catch {}
+    return { sys }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ①(P-144 2026-09-19) **子系（`children`）的渲染侧**：把 `layer.particleDef.children` 的每一条
+  // 变成一个"伪层"再走一遍 `renderParticleLayerBody` —— 于是子系的**贴图/材质/几何/blending/
+  // 预算/缺纹理日志**全部复用父层那条通路（不抄第二份绘制代码），并且子系自己也能再挂子系
+  // （递归深度上限 3，与上游 `scene-mount.ts:1458` 同一守卫）。
+  //
+  //   子系 def/材质/贴图从哪来：**宿主解析**（`demo.html` 的 `resolveParticleChildren`，走
+  //   包内 → `/weassist` → 预设 basename 索引的同一条回退链）存进 `layer.__pchildMap`
+  //   （`Map<defPath, {def, texName, blending, src}>`，同名的 33 条 Matrix 子系只解析一次）。
+  //   宿主没解析（测试/第三方直用 bundle）⇒ 该条子系记 `unresolved` 并跳过绘制，
+  //   **父层与其余子系照画**。
+  // ═══════════════════════════════════════════════════════════════════════════
+  function renderParticleChildren(layer, parentSys, textures, cam, viewProj, width, height, time) {
+    if (CHILDREN_MODE === 'legacy') return 0
+    const specs = (parentSys && Array.isArray(parentSys.children) && parentSys.children.length)
+      ? parentSys.children
+      : (() => {
+        const d = layer.particleDef
+        if (!d || !Array.isArray(d.children) || !d.children.length) return null
+        if (!layer.__pchildSpecs) layer.__pchildSpecs = parseParticleChildren(d)
+        return layer.__pchildSpecs.length ? layer.__pchildSpecs : null
+      })()
+    if (!specs || !specs.length) return 0
+    const depth = (typeof layer.__pdepth === 'number' && layer.__pdepth > 0) ? layer.__pdepth : 0
+    if (depth >= 3) {
+      // 上游 `scene-mount.ts:1458`：`if (depth > 3) return null`（防病态数据指数展开）
+      partStat.children.depthCapped++
+      if (!partLogOnce.has('cdepth:' + layer.id)) {
+        partLogOnce.add('cdepth:' + layer.id)
+        try { onLog('[粒子子系] 层 "' + (layer.name || layer.id) + '" 子系嵌套深度到顶（3）⇒ 本层不再展开') } catch {}
+      }
+      return 0
+    }
+    // 事件快照：**父系本帧**的出生/死亡位置（`stepParticles` 只记坐标、不抽随机数）。
+    // 先整份取走再清空父系的队列 —— 同一父系的多条同 type 子系要吃**同一份**事件，
+    // 若让某一条子系"消费掉"，其余子系就一条都收不到。
+    const evSpawn = (parentSys && parentSys.pSpawnEv && parentSys.pSpawnEv.length) ? parentSys.pSpawnEv.slice() : null
+    const evDeath = (parentSys && parentSys.pDeathEv && parentSys.pDeathEv.length) ? parentSys.pDeathEv.slice() : null
+    if (parentSys) {
+      if (parentSys.pSpawnEv) parentSys.pSpawnEv.length = 0
+      if (parentSys.pDeathEv) parentSys.pDeathEv.length = 0
+    }
+    partStat.children.specs += specs.length
+    partStat.children.parents++
+    let drawnChild = 0
+    for (const spec of specs) {
+      const res = layer.__pchildMap ? layer.__pchildMap.get(spec.name) : null
+      if (!res || !res.def) {
+        partStat.children.unresolved++
+        if (!partLogOnce.has('cdef:' + spec.name)) {
+          partLogOnce.add('cdef:' + spec.name)
+          try { onLog('[粒子子系] ⚠ 缺子系定义 "' + spec.name + '"（父层 "' + (layer.name || layer.id)
+            + '"，type=' + spec.type + '）⇒ 只跳过这一条子系') } catch {}
+        }
+        continue
+      }
+      // 父层变换 × 子系 authored 变换（scale 逐轴相乘、angles 逐轴相加；origin 见下）
+      const LS = layer.scale || [1, 1, 1]
+      const LA = layer.angles || [0, 0, 0]
+      const baseName = String(spec.name).split('/').pop().replace(/\.json$/, '')
+      // `static`/事件类：原点是**固定**的锚点（父层变换 × 子系 origin，走照抄来的 `localToWorld`）；
+      // `eventfollow`：原点是固定基准，**每帧**由 `__prepareParticleChild` 改 `sys.origin` 跟父粒子走
+      //   —— 绝不能把"跟着动的锚点"写进 `layer.origin`：那会让重建签名每帧变化 ⇒ 每帧从 0 重放
+      //   （P-136 的同一类坑，见 `__sig` 注释）。
+      const anchor = particleChildAnchorWorld(parentSys || layer, layer, spec)
+      const childLayer = {
+        __pchild: { spec, parentSys: parentSys || null, parentLayer: layer, res, events: (spec.type === 'eventspawn' ? evSpawn : (spec.type === 'eventdeath' ? evDeath : null)), depth },
+        __pdepth: depth + 1,
+        // 子系的子系也能解析：map 是"全 def 名 → 解析结果"，整棵树共用一份
+        __pchildMap: layer.__pchildMap || null,
+        id: String(layer.id) + '#' + spec.index,
+        name: (layer.name || layer.id) + ' → 子系' + (spec.typeRaw === null ? '(缺省=static)' : '') + '[' + spec.type + ']' + baseName,
+        visible: layer.visible,
+        particleDef: res.def,
+        particleTexName: res.texName || null,
+        particleBlending: res.blending || layer.particleBlending || 'translucent',
+        origin: anchor,
+        scale: [(LS[0] === 0 ? 1 : (LS[0] || 1)) * (spec.scale[0] || 1), (LS[1] === 0 ? 1 : (LS[1] || 1)) * (spec.scale[1] || 1), (LS[2] || 1) * (spec.scale[2] || 1)],
+        angles: [(LA[0] || 0) + (spec.angles[0] || 0), (LA[1] || 0) + (spec.angles[1] || 0), (LA[2] || 0) + (spec.angles[2] || 0)],
+        // 上游 `scene-mount.ts:1540-1544`：子系没有自己的 instanceoverride 时继承父层的
+        //   （否则用户颜色/尺寸滑块只作用在父层上、子系永远不上色）。
+        instanceoverride: spec.instanceoverride || layer.instanceoverride || null,
+      }
+      partStat.children.kinds[spec.type] = (partStat.children.kinds[spec.type] || 0) + 1
+      renderParticleLayerBody(childLayer, textures, cam, viewProj, width, height, time)
+      drawnChild++
+    }
+    partStat.children.drawn += drawnChild
+    return drawnChild
+  }
+
+  /** 子系锚点（世界，设计像素）：父层变换 × 子系 authored origin（照抄来的 `localToWorld`）。 */
+  function particleChildAnchorWorld(parentSys, layer, spec) {
+    // 父系已建（`buildParticleSystem` 尾部 `syncLayerTransform` 写过 originX/Y/Z、scaleX/Y、angleZ）
+    if (parentSys && typeof parentSys.originX === 'number') return localToWorld(parentSys, spec.origin)
+    // 父系没建（缺贴图/超预算早退）⇒ 用父层 raw 变换现搭一个只含变换字段的对象（与
+    // `buildParticleSystem` 里 `syncLayerTransform` 的口径一致），static 子系因此照画。
+    const tmp = {}
+    syncLayerTransform(tmp, { origin: (layer && layer.origin) || [0, 0, 0], scale: (layer && layer.scale) || [1, 1, 1], angles: (layer && layer.angles) || [0, 0, 0] })
+    return localToWorld(tmp, spec.origin)
+  }
+
+  /**
+   * 子系的**每帧准备**（在 `simulateParticleSystem` 之前调用一次）：见模块级
+   * `prepareParticleChildSys` 的完整口径说明；这里只把渲染层的记账对象传下去。
+   */
+  function __prepareParticleChild(layer, childSys) {
+    const pc = layer.__pchild
+    if (!pc || !pc.spec || !childSys) return
+    prepareParticleChildSys(childSys, pc.spec, pc.parentSys, pc.events, partStat.children)
   }
 
   // ①(RE-33) bloom 链执行：默认 framebuffer → copyTex → 4 pass → 加法合成回默认 framebuffer。

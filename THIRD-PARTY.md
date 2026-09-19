@@ -992,3 +992,97 @@ font — the inline geometry is the only surface.
 
 数值出处：`tests/pointer-trail-copy-test.mjs`（mock-GL 顶点流 + 上游 `ParticleSystem` 同参对拍）。
 
+## 15. webwallgl  (MIT © oneincase) — **P-144: 粒子 `children`（子系 / 拖尾）三块照抄 + 一处语义移植**
+
+  Upstream:  https://github.com/oneincase/webwallgl
+  Licence:   MIT
+  Copyright: Copyright (c) 2026 oneincase <462534624@qq.com>
+  Commit:    `b61e8910ae0a176288aed99ce9a93a13ea07df57` —— 本机 checkout
+             `references/vendor-ref/webwallgl`（仓库外）的 HEAD，**与 §14 同一个 commit**，
+             本节所有 `file:line` 都以它为准（写本节时已逐条 `awk`/`grep -n` 回读核对，
+             不是照抄 §14 的引注）。
+  SPDX:      MIT
+  Local copy: `demo/LICENSE-webwallgl-MIT.txt`（MIT 全文，随仓库；与 §6.2/§14 逐字相同）
+  Ledger:    `docs/COPYING-RULES.md` §4, entry **#13**（2026-09-19）
+  门禁:      `tests/particle-children-test.mjs`（61 断言 + 6 组 RED-IF-REVERTED；其中 ⑧-a/⑧-b
+             就是"这一节与 §4 #13 台账必须存在"的机器断言）
+
+### 15.1 这一节为什么存在
+
+§14.1 记录的**纪律变更**（用户直接指示"直接复制过来就算了"，而不是"按行为契约自己重写"）
+在 P-144 继续适用：用户对粒子 `children`（子系/拖尾）家族给的是同一类指示 ——
+**照上游实现接上**，因为这条是语料最大单项（76 个父层 / 21 个包 / 149 条子系），
+按行为重写一遍的收益远小于"接线正确"的收益。
+
+据此本节登记：
+
+> **这三块是照抄，不是独立实现。** 下列函数来自上游 oneincase/webwallgl
+> （MIT © 2026 oneincase），**保留上游原有注释**，仅按 §15.3 的对照表做了**机械改写**
+> （`this.` → `sys.`、成员方法 → 自由函数）；凡做了语义适配的行都在源码注释里逐行标出。
+> 上游那个 TypeScript 的**接线层**（`scene-mount.ts`）没有照抄代码，只移植了它的
+> **结构与语义**（见 §15.4），实现是本仓库自己写的。
+
+### 15.2 复制了哪些函数（逐字，上游 JS → 本仓库 JS）
+
+| # | 上游 `file:line` | 上游单元 | 落到我们的 | 处置 |
+|---|---|---|---|---|
+| 1 | `renderer/vendor/we-scene/render/particles.js:698-707` | `attachFollow(parent, mode, offset)`（子级挂到父系统：记父/模式/offset，并**立刻** `_syncFollow()` 一次） | `core/we-particle-pointer.mjs` → `attachFollow()` | **逐字**：`this.` → `sys.`、`this._syncFollow()` → `syncFollow(sys)`。上游那句"否则首帧 …Matrix 33 列叠成一坨"的注释**保留** |
+| 2 | `renderer/vendor/we-scene/render/particles.js:709-713` | `leaderParticle()`（环形缓冲里第一个 `alive` 槽） | 同上 → `leaderParticle()` | 循环体**逐字**；只有"池从哪来"改了：上游 `this.pool`（定长环形缓冲）→ 本仓库 `sys.particles`（紧凑数组，死亡即 `splice`）⇒ 返回"最早出生的活粒子"而非"环里第一个活槽"，见 §15.3 H-1 |
+| 3 | `renderer/vendor/we-scene/render/particles.js:724-743` | `_syncFollow()`（`eventfollow` 跟父粒子、否则跟父系统 origin；`children.origin` 走 `localToWorld`） | 同上 → `syncFollow()` | **逐字**（`this.` → `sys.`、`parent.leaderParticle()` → `leaderParticle(parent)`、`parent.localToWorld(x,y)` → `localToWorld(parent,[x,y,z])`），**但 `mode === 'particle'` 那一行有一处必要的坐标口径适配**，见 §15.3 I-2；上游"children.origin 是父系统局部坐标，必须走 localToWorld"与"2974757317 层 scale=1.5、43 列 × 60px"两段注释**保留** |
+
+**没有复制的东西**（与 §14 同一纪律：不复制与本项无关的大段）：上游 `particles.js` 的其余约 1900 行
+（`spawn`/`_step`/rope·ropetrail 几何/材质贴图/其余 40 余个 operator·initializer/渲染装配）、
+`renderer/vendor/**` 的其余任何文件、`renderer/src/**` 的任何一行代码。本仓库的
+`syncFollowOrigin()` / `spawnParticleAt()` / `prepareParticleChildSys()` / `renderParticleChildren()` /
+`particleChildAnchorWorld()` / `applyChildControlPointBase()` / `parseParticleChildren()` 全部是
+**本仓库自己写的**（`syncFollowOrigin` 的注释里也明写"**不是照抄**"）。`packages/we-core/` 里
+**没有**放入任何上游代码。
+
+### 15.3 逐行「照抄 / 适配」对照表（改了什么必须写在这里）
+
+| 记号 | 位置 | 上游原文 | 我们的写法 | 为什么 |
+|---|---|---|---|---|
+| G-1 | `particles.js:701-707` | `this._followParent` / `this._followMode` / `this._followOffset` / `this._syncFollow()` | `sys._followParent` / `sys._followMode` / `sys._followOffset` / `syncFollow(sys)` | 纯机械改写：本仓库的粒子系统是**普通对象**不是 class，方法一律自由函数（与 §14.2 第 2/3/6 行同一套改法） |
+| H-1 | `particles.js:710-712` | `const pool = this.pool` | `const pool = sys.particles \|\| []` | 上游是**定长环形缓冲**（槽位带 `alive`），本仓库是**紧凑数组**（死亡即 `splice`，数组里全是活的）。循环体一字未动，但语义从"环里第一个活槽"变成"**最早出生的活粒子**"（发射序） |
+| I-1 | `particles.js:730-736` | `const w = parent.localToWorld(host.x + off[0], host.y + off[1])` 后直接写 `this.originX/Y = w[0]/w[1]` | 同一句照抄，**另外**由本仓库独有的适配层 `syncFollowOrigin(sys)` 把 `originX/Y/Z` 镜像进 `sys.origin[]` 并重跑 `syncLayerTransform` | 本仓库每颗粒子的 `pos` 在**出生那一刻**就写成绝对世界坐标（`spawnParticle`：`wx = sys.origin[0] + …`），模拟原点是数组 `sys.origin` 而不是上游的 `originX/originY`。照抄块只写 `originX/Y` ⇒ 必须再镜像一次，否则原点"写了个没人读的字段"。两种口径在"原点不动"时**逐位等价**，在 `eventfollow` 下观感同构（新粒子在新位置出生、老粒子留在原地 = 拖尾） |
+| I-2 | `particles.js:733-735` | `const host = parent.leaderParticle()` → `parent.localToWorld(host.x + off[0], host.y + off[1])` | `sys.originX = host.pos[0] + (w[0] − parent.originX)`；`sys.originY = host.pos[1] + (w[1] − parent.originY)`（`w = localToWorld(parent, off)`） | **父粒子坐标口径**：上游 `host.x/host.y` 是**父系局部**坐标（渲染期才乘父系变换），本仓库 `p.pos` 出生时就是**绝对世界**坐标。两边逐字同构的写法是 `localToWorld(parent, host_local + off)`；把 `host_local` 换成世界坐标后等价于 `host_world + (localToWorld(parent, off) − parent.origin)` ⇒ 只多这一处减法（去掉 origin 平移、只留 R·S 的偏移向量），算式与上游一致 |
+| I-3 | `particles.js:724-743` | 从 `this` 读 `_followParent`/`_followMode`/`_followOffset` | 从 `sys` 读同名字段 | 同 G-1 |
+
+> 三块照抄的落点是**同一个文件** `core/we-particle-pointer.mjs`，紧跟在 §14 照抄的块 A–F 之后
+> （块号 **G / H / I**）；该文件头部的"来源行号表"已同步登记这三块，并写明 G-1/H-1/I-1/I-2 四条适配。
+
+### 15.4 只移植**结构/语义**、未复制代码的上游部分（TypeScript 接线层）
+
+上游 `renderer/src/scene-mount.ts:1449-1559` 的 `buildParticleSystem(...)` 是"递归建子系"的接线层。
+**它不是 JS、也没有被逐行翻译**；本仓库只在 `core/we-scene-bundle.js` 的 `renderParticleChildren()` 里
+对齐了它的**三条语义**，并在源码注释里逐条 `file:line` 标注：
+
+| 语义 | 上游 `file:line` | 我们的落点 | 处置 |
+|---|---|---|---|
+| 嵌套深度守卫 | `scene-mount.ts:1458` `if (depth > 3) return null;` | `renderParticleChildren()` 的 `depth >= 3` 分支（记 `partStat.children.depthCapped` 并打一行日志） | 语义相同（数值上限 3 一致）；实现自写（本仓库不返回 null 而是"本层不再展开、其余照画"） |
+| `followMode` 判定 | `scene-mount.ts:1511-1515`：`eventfollow` ⇒ `'particle'`；缺失或 `static` ⇒ `'origin'`；其余 ⇒ `null` | `prepareParticleChildSys()`：`eventfollow` 走 `attachFollow(child, parent, 'particle', spec.origin)`；`static`/事件类的锚点在建层时算一次 | 语义相同。⚠ 上游把 `eventspawn`/`eventdeath` 归到 `followMode = null`（**不挂父**）；本仓库这两类**也不挂**（只在父粒子事件位置各吐一发），一致 |
+| 子系图层变换的合成 | `scene-mount.ts:1524-1541`：`scale` 逐轴相乘、`angles` 逐轴相加、`origin` 走 `ps.localToWorld(...)` | `renderParticleChildren()` 里 `childLayer` 的 `scale`/`angles`/`origin`（origin 由 `particleChildAnchorWorld()` 走 `localToWorld`） | 语义相同、实现自写（我们是"伪层 + 复用父层那条绘制通路"，上游是"建好再挂"） |
+| 子系继承父层 `instanceoverride` | `scene-mount.ts:1542-1548`（`ch.instanceoverride \|\| override`） | `childLayer.instanceoverride = spec.instanceoverride \|\| layer.instanceoverride \|\| null` | 语义相同 |
+
+### 15.5 照抄 + 接线之后**数字**变了什么
+
+真包 `dd/3554161528` `objects[22]` = id 4569「萤火虫」（`children: [{type:"eventfollow",
+name:"particles/presets/firefliestrail.json", maxcount:20, scale:"1.5 1.5 1"}]`），mock-GL 忠实顶点流，
+`t0=20s` 起 240 帧：
+
+| 指标 | 改前（`?children=legacy`） | 改后（默认 official） |
+|---|---|---|
+| 子系存活粒子数 | **0**（子系系统根本不建，`-1`） | **7** |
+| 子系顶点 quad 数 | **0** | **7** |
+| 每帧粒子更新次数 / 仿真步数 | 5 / 1 | **12 / 2** |
+| 父系顶点流 sha256 | `f8634777fcd88f67…` | `f8634777fcd88f67…`（**两档相同**） |
+| 整帧顶点流 sha256 | `608425553b440470…` | `3d820f0a0e130de0…` |
+| 子粒子到最近父粒子的距离 | — | n=7，min 4.2 / p50 19.9 / max 39.9 px（贴着父粒子飞 = 拖尾） |
+
+全语料同族扫描（98 个包容器 / 232 个粒子层 / 149 条子系）：改前 **0 条**产出
+（`git show HEAD:core/we-scene-bundle.js` 里 `children` 字面出现 **0** 次 ⇒ 功能不存在），
+改后 **139 条**产出（`static` 74/74、`eventfollow` 37/37、`eventspawn` 8/8、`eventdeath` 20/30），
+剩下 10 条**全是作者自己写了 `probability: 0`**（`fireworkshitdistort`），不产出才是正确行为。
+
+数值出处：`tests/particle-children-test.mjs`（④ 真包 mock-GL + ⑥ 同族扫描 + ⑤ 逐位回退 + ⑦ 6 组变异自证）。
+

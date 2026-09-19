@@ -11018,3 +11018,148 @@ p74-particles / mock-gl / effects-degenerate-fbo / script-runtime-errors / diag-
 2. `sw.js` 预缓存补的是"首屏 module 图"这几个名字；`/core/**` 暂不进预缓存（离线时 elysia 取它属可选失败面）。
 3. 属性面板的下拉**只在这个壁纸（combo 属性）上真机验过**；`?pkgpath=` 那些 mpkg 的属性面板实测 0 行（面板模型来源与 pkgpath 的关系未查清，记在此）。
 4. S7 的真机 `up` 只见过 1 次（贴底自动上翻）；边界值由无浏览器的 16 条钉住，真机只是"见过"。
+
+---
+
+## P-144（2026-09-19 粒子批次 B）**粒子 `children`（子系 / 拖尾）全家族** —— 语料最大单项从"完全忽略"到"149 条里 139 条真的产出粒子"
+
+任务书：`docs/PARTICLE-CORPUS-SCAN.md` §2.5 / §3 #2 / §4「批 B」；用户原话级判据是**「萤火虫没有拖尾」**
+（`dd/3554161528` `objects[22]` = id 4569「萤火虫」→ `children:[{type:"eventfollow",
+name:"particles/presets/firefliestrail.json", maxcount:20, scale:"1.5 1.5 1"}]`）。
+
+### P-144.0 规模与"改前是什么样"
+
+| 口径 | 数值 | 出处 |
+|---|---|---|
+| 父层 / 包 / 子系条数 | **76 / 21 / 149** | `docs/PARTICLE-CORPUS-SCAN.md` §2.5；本轮复算见下 |
+| `type` 分布 | `eventfollow` **37**、`static` **34**、`eventdeath` **30**、`eventspawn` **8**、**`type` 缺失 40**（官方缺省 = `static`） | 复算 = `familyScan()`（本轮实测 `total=149 eventfollow=37 eventspawn=8 eventdeath=30 static=74`，`static` 74 = 显式 34 + 缺省 40） |
+| 子系贴图在包外 | **83 / 149**（`particle/halo` 38、`particle/halo_4` 34、`util/white` 10、`particle/beam/beam_1` 1） | §2.5；走 `/weassist` 回退链，实测 ④-b 命中 |
+| **改前产出粒子的子系条数** | **0 / 149** | `git show HEAD:core/we-scene-bundle.js \| grep -c children` = **0**、`grep -c parseParticleChildren` = **0** ⇒ 功能不存在，一整族被忽略 |
+
+### P-144.1 判据（每条都能被门禁钉红）
+
+1. **字段面**（官方缺省，`wer-ref …/WPSceneParser.cpp:1448-1460` `ParseSpawnType` + `:5778-5800` `ChildData`）：
+   `type` 只识别 `eventfollow`/`eventspawn`/`eventdeath`，**其余（含缺失）= `static`**；`maxcount` 缺省 **20**、下限 **1**；
+   `probability` 缺省 **1.0**、钳到 `[0,1]`；`controlpointstartindex` 缺省 **0**、取整非负；非法项（无 `name`）跳过。
+   语料字段面只有 10 个键（**149 条里 `emitter`/`rate`/`lifetime` 覆盖项 0 条** ⇒ 不存在"子系 emitter 覆盖"）。
+2. **四种 type 的行为**：`static` 常驻、锚点 = **父层变换 × 子系 authored origin**（`localToWorld`，父层 scale 参与）；
+   `eventfollow` 原点每帧对到父系**最早出生的活粒子**，父系没有活粒子 ⇒ 官方"实例死"= **清空 + 本帧停发**；
+   `eventspawn`/`eventdeath` 只在**父粒子出生/死亡那一帧**于父粒子位置各吐一发、且**不做持续发射**；
+   `probability=0` 一颗都不吐（且不抽随机数）、`=0.5` 逐事件抽一次；`maxcount` = **并发实例上限**（100 个事件同时到达也只留 ≤20）。
+3. **RNG 纪律**：父系（无 children / 有 children / `?children=legacy`）的 **RNG 流与粒子位置逐位相同**；
+   子系一律吃**自己的** RNG。⇒ 这就是"子系不许改变父系画面"的可验证形式。
+4. **真包 + 忠实顶点流**（见 P-144.2 数字表）。
+5. **`?children=legacy` 逐位可回退**（见 P-144.3）。
+6. **全语料同族扫描**（见 P-144.4）。
+7. **6 组 RED-IF-REVERTED**（见 P-144.5）。
+
+### P-144.2 修前 / 修后数字（真包 `dd/3554161528` ln=22 id=4569，mock-GL 忠实顶点流，`t0=20s` 起 **240 帧**）
+
+| 指标 | 修前（`?children=legacy`） | 修后（默认 official） |
+|---|---|---|
+| 子系存活粒子数 | **0**（子系系统根本不建 ⇒ 探针记 `-1`） | **7** |
+| 子系顶点 quad 数 | **0** | **7** |
+| 每帧粒子更新次数 | **5** | **12**（父 5 + 子 7） |
+| 每帧仿真步数 | **1** | **2** |
+| 子粒子到最近父粒子的距离 | — | n=7，min **4.2** / p25 12.0 / **p50 19.9** / p75 38.2 / p90 39.9 / max **39.9** px（贴着父粒子飞 = 拖尾） |
+| 同帧父系 quad / 父系存活 | 5 / 5 | 5 / 5 |
+| **父系顶点流 sha256** | `f8634777fcd88f6717e24a71618616cef7914e7743dfda5613b3969345834f3c` | **同一个 sha**（两档逐位相同） |
+| 整帧顶点流 sha256 | `608425553b440470538c3f63b861f4c9220eb9d4f05968f5ef61671acf222272` | `3d820f0a0e130de085f170d57c32a6609d9e84e64eb055df872f18da9b010a11` |
+| `particleStats.children` | `parents:0 specs:0 drawn:0` | `parents:1 specs:1 drawn:1 kinds.eventfollow:1` |
+
+### P-144.3 回退开关 `?children=legacy`（逐位，不是"看起来差不多"）
+
+- `legacy` = **一条子系都不生成、一个随机数都不抽**，连父系的 `pSpawnEv`/`pDeathEv` 事件数组都不建
+  ⇒ 父系 RNG 流、粒子数、**顶点流 sha256 全部逐位回到改动前**。
+- **逐位证据**：把源码里 `renderParticleChildren` 的 legacy 早退那一行**变异成"子系整块不生效"**
+  （= 源码级换回旧实现），在 `/tmp` 副本上跑同一条探针：真文件 legacy 档 sha `608425553b440470…`
+  ≡ 变异体 legacy 档 sha `608425553b440470…`（**逐位相同**）；而真文件 official 档是 `3d820f0a0e130de0…`
+  （**两档不同** ⇒ 证明上一条不是"怎么都相同"）。变异体的 two-mode 也互相相同（两边都没子系）。
+- 开关已登记进 `docs/README-DIAGNOSTICS.md` 主表；`node tests/diag-flag-check.mjs` 实测
+  **代码 155 个开关 == README 主表 155 行，0 差异**（P-143 收口时是 154/154；本条 +1，`web/diag-flags.json` 随之重生成，未手改任何数字）。
+
+### P-144.4 全语料同族扫描（149 条：**139 条真的产出粒子**）
+
+扫描口径（`tests/particle-children-test.mjs` ⑥）：递归找 `*.pkg`/`*.mpkg`（`scene` 前缀的两种命名都算）⇒ 只读文件头 1 MiB
+建目录表 ⇒ 只 seek 单个 entry（`scene.json` / 粒子 def / 子系 def），按包内 → `/weassist` → 预设 basename 索引
+解析；每层建父系 + 每条子系建子系，`T=25s`、`dt=0.1`、`maxCount ≤ 200`。
+
+实测覆盖：**98 个包容器 / 98 张目录表可读 / 53 个可解析 `scene.json` / 232 个粒子层 / 222 个 def / 149 条子系**。
+
+| `type` | 条数 | **真的产出粒子** | 不产出 |
+|---|---|---|---|
+| `static`（含 40 条 `type` 缺失） | 74 | **74 / 74** | 0 |
+| `eventfollow` | 37 | **37 / 37** | 0 |
+| `eventspawn` | 8 | **8 / 8** | 0 |
+| `eventdeath` | 30 | **20 / 30** | **10** |
+| **合计** | **149** | **139 / 149** | 10 |
+
+**剩下 10 条为什么不产出**：**全部是作者自己写了 `probability: 0`**（`fireworkshitdistort` 一族）
+⇒ 按官方 `QueryNewInstance()` 语义"先抽概率门、不过就放弃"，**一条都不吐才是正确行为**，不是没实现。
+本轮扫描里**没有**"def 取不到"或"贴图缺"导致的零产出（3 条 def 在包外但 basename 索引命中；
+扫描本身不解贴图 —— 贴图缺失只影响绘制，见 P-144.6）。
+
+**改前对照**：HEAD 上 `children` 字面出现 **0** 次 ⇒ 改前是 **0 / 149**。
+
+### P-144.5 6 组 RED-IF-REVERTED（每组只让**指定那一组**变红；变异只在 `/tmp` 副本上做）
+
+| 组 | 变异（"改回旧写法"） | 期望变红的那一组 | 全量跑实际变红的组 |
+|---|---|---|---|
+| R1 | 关掉死亡事件记录 | `[2] ②-f eventdeath` | ②-f（`spawned 20 → 0`）；连带 ⑥-b/⑥-c（eventdeath `20/30 → 0/30`、produced `139 → 119`） |
+| R2 | 绕过 `probability` 门 | `[2] ②-h` | ②-h（p=0 吐 `0 → 20`）；连带 ⑥-b/⑥-c/⑥-d（produced `139 → 149`、zero `10 → 0`） |
+| R3 | `?children=legacy` 早退失效 | `[5] ⑤-b/⑤-c` | ⑤-b/⑤-c；连带 ④-c/④-d/④-f/④-h（legacy 档也画子系：quad `0 → 7`） |
+| R4 | 关掉出生事件记录 | `[2] ②-f eventspawn` | ②-f eventspawn（`20 → 0`）、②-i、②-j、②-k；连带 ⑥-b/⑥-c（eventspawn `8/8 → 0/8`） |
+| R5 | `eventfollow` 不再每帧对 leader | `[2] ②-c/②-d/②-e` | ②-c、②-d（原点 `(100,100) → (0,0)`）、②-e；连带 ④-e（子粒子到父粒子 `p50 19.9 → 398.4px`） |
+| R6 | 取消 `maxcount` 并发实例上限 | `[2] ②-j/②-k` | ②-j（instances `20 → 100`）、②-k |
+
+门禁自身对这 6 组的断言（每组 = "锚点唯一" + "变异体 rc=1 且形状如预期"）**12 条**；
+另有一条钉"真树 `core/we-scene-bundle.js` sha256 跑完不变"。
+
+### P-144.6 实现落点与"不许静默变白块"
+
+- `core/we-scene-bundle.js`：`parseParticleChildren` / `applyChildControlPointBase` /
+  `prepareParticleChildSys` / `spawnParticleAt` / `renderParticleChildren` / `particleChildAnchorWorld`
+  （后两者在 `createRenderer` 内），`stepParticles` 里新增"只记坐标、不抽随机数"的 `pSpawnEv`/`pDeathEv`。
+- `core/we-particle-pointer.mjs`：照抄块 **G/H/I**（`attachFollow`/`leaderParticle`/`syncFollow`，
+  上游 webwallgl MIT，登记 `THIRD-PARTY.md` **§15** + `docs/COPYING-RULES.md` §4 台账 **#13**）
+  + 本仓库适配层 `syncFollowOrigin`（注释明写"不是照抄"）。
+- `demo.html`：宿主侧 `resolveChildDefs()` —— 子系 def/材质/贴图走**与父层同一条回退链**
+  （包内 → `/weassist` → 预设 basename 索引，材质多一档"与 def 同主题的 `presets/<主题>/materials/**`"），
+  结果挂 `layer.__pchildMap`（33 条同名子系只解析一次，递归 ≤3）。
+- **缺贴图口径**（83 条包外贴图的代表）：子系缺贴图**只跳那一条子系**（记账 `partStat.children.texMissing`
+  并打一行 `⚠ 缺纹理 … ⇒ 只跳过这一条子系`），**父层与其余子系照画**；父层自己缺贴图也**不连坐**子系
+  （`static` 子系照样画，事件/`eventfollow` 类因需要父系而跳过）。**绝不静默变成白方块**
+  —— 与 P-59 同口径（白 quad 比不画更糟）。
+
+### P-144.7 门禁与资源
+
+- **门禁名**：`particle-children`（`tests/particle-children-test.mjs`），已登记进 `tests/run-all-tests.sh`
+  （追加在 `add` 列表末尾，既有项的 `add` 行号未动；`--list` 实测 **111 项**，P-143 时 110 项）。
+- **断言数**：**61 通过 / 0 失败**（全绿一次实测；`bash tests/run-all-tests.sh --only particle-children` ⇒
+  `PASS particle-children (6345ms)`、`PASS=1 FAIL=0 SKIP=0`）。
+- **资源**（`free -m` 同口径实测）：单进程 **PeakRSS ≈ 211–217MB**（限 400MB），
+  进程树瞬时峰值 **≈ 420–460MB**（父进程 ~215MB 与 `--probe firefly` 子进程 ~100–130MB **时间上重叠**；
+  两者都是"23.5MB 的真包容器 + 全场景 def + mock-GL"的常驻集，不是泄漏）；墙钟 **≈ 6.4s**；
+  无浏览器 / 无网络 / 无 X11 / 无 GPU。
+- **为什么 `--probe` 只跑探针**（`SUITE`）：[5]/[7] 会 `execFileSync(本文件, '--probe', …)` 派生子进程做变异自证，
+  若子进程也把 [4]–[7] 跑一遍就会**再**派生一层 —— 逐层分叉（第一版实测：一次运行派生几十个 node、
+  每个还把 149 条语料重扫一遍），并把"变异体输出"淹没成超时/无输出。修掉后 ⑤-d 的"无输出"随之消失。
+
+### P-144.8 未证实 / 待办（诚实清单）
+
+1. **真机未跑**：本项**一条 X11 / 真浏览器读数都没有**（本机软件渲染，X11 与截图归主对话）。
+   P-144.2 全部数字出自 mock-GL 忠实顶点流 + 真包真 def，**不等于**真机像素。真机需要：
+   `?id=3554161528&ln=22` 看萤火虫拖尾、并逐层对拍官方 `$MPW_ROOT/allwallpaper/**/preview.gif`。
+2. **`static` 的"生产路径"没有端到端渲染断言**：④ 用的是萤火虫的 `eventfollow`；`static` 的锚点
+   `particleChildAnchorWorld()` 只在 ②-a/②-b 以**同式重算**的方式钉住（父系已建时它退化成
+   `localToWorld(parentSys, spec.origin)`，而那正是 ②-b 验的式子）。**缺**一条"父系缺贴图 ⇒ static 子系照画"
+   的渲染级断言 —— 语料 74 条 `static` 里最大的一处（`Matrix spawner` 一层挂 33 条）本轮**未在渲染路径上验过**。
+3. **上游行号只在本机 checkout 上核对过**：`references/vendor-ref/webwallgl` @ `b61e891`（仓库外、不入库）。
+   换 commit 后 §15 的行号**必须重核**（§14 已立此规矩）。
+4. **`controlpointstartindex > 0` 无真语料**：149 条全是缺省 0（写了键的 50 条值都是 `null`）⇒
+   `applyChildControlPointBase()` 只有合成用例（②-m/②-n）钉住，"官方语义"未对拍二进制。
+5. **`eventfollow` 的"实例"是近似**：本仓库一个 type 只建**一个**子系系统（不是每父粒子一个实例），
+   `maxcount` 折算成"存活粒子上限"。父粒子数 > `maxcount` 时官方是"每实例跟一颗粒子"、我们是"全跟最早那颗"
+   ⇒ **多父粒子层的拖尾分布会与官方不同**（萤火虫层实测父粒子仅 5 颗、`maxcount 20` 未触顶）。
+6. **`pSpawnEv`/`pDeathEv` 容量上限 512**（超出丢最老的）：`?psim=replay` 档下每帧重放整段历史，
+   极端场景（单帧 >512 个出生/死亡）会丢事件 —— 数量级余量很大，但**未实测**。

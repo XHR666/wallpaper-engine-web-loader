@@ -1955,6 +1955,53 @@ function loadScene() {
       return chain;
     })());
   });
+  // ①(P-144 `children` 子系) 子系（子发射器）的 def / 材质 / 贴图解析 —— **与父层同一条回退链**：
+  //   ① 包内 entry ② `/weassist/<path>`（= WE 资产目录）③ 预设 basename 索引（`PARTICLE_PRESET_INDEX`）；
+  //   材质多一档"与 def 同主题的 `presets/<主题>/materials/**`"（Q5 的口径）。
+  //   结果挂 `layer.__pchildMap`（`Map<def 路径, {def, texName, blending, defRel, src}>`）——
+  //   33 条同名 Matrix 子系只解析一次；递归深度 ≤3（与 bundle 的展开守卫同值）。
+  //   贴图缺失**只影响那一条子系**（bundle 侧记 `⚠ 缺纹理` 并跳它，父层与其余子系照画）。
+  const resolveChildDefs = async (def, defRel, depth) => {
+    const out = new Map();
+    if (!def || !Array.isArray(def.children) || !def.children.length || depth > 3) return out;
+    for (const c of def.children) {
+      if (!c || typeof c.name !== 'string' || !c.name || out.has(c.name)) continue;
+      let cdef = null, cdefRel = null, src = null;
+      const ent = lib.getEntry(pkg, c.name);
+      if (ent) { try { cdef = JSON.parse(rd(ent)); cdefRel = c.name; src = 'pkg' } catch (e) { cdef = null } }
+      if (!cdef) {
+        for (const cu of particleDefCandidates(c.name)) {
+          const r = await jsonT(await fetchT(cu, null, NET_TIMEOUT_MS, '子系粒子定义兜底'), cu, NET_TIMEOUT_MS, '子系粒子定义正文');
+          if (r && typeof r === 'object') { cdef = r; cdefRel = cu.replace(/^\/weassist\//, ''); src = 'weassist'; break }
+        }
+      }
+      if (!cdef) { logf('  ⚠ 缺子系粒子定义 ' + c.name + '（父层 ' + (defRel || '?') + '）'); continue }
+      let material = null;
+      if (cdef.material) {
+        const me = lib.getEntry(pkg, cdef.material);
+        if (me) { try { material = JSON.parse(rd(me)) } catch (e) { material = null } }
+        if (!material) {
+          const cands = ['/weassist/' + String(cdef.material).replace(/^\/+/, '')];
+          const m2 = /^(presets\/[^/]+)\//.exec(String(cdefRel || ''));
+          if (m2) cands.push('/weassist/' + m2[1] + '/' + String(cdef.material).replace(/^\/+/, ''));
+          for (const cu of cands) {
+            const r = await jsonT(await fetchT(cu, null, NET_TIMEOUT_MS, '子系粒子材质兜底'), cu, NET_TIMEOUT_MS, '子系粒子材质正文');
+            if (r) { material = r; break }
+          }
+        }
+      }
+      const pass = material && material.passes && material.passes[0];
+      const texName = (pass && pass.textures && pass.textures[0]) || null;
+      if (texName) {
+        const e = await loadTex(texName);
+        if (!e) logf('  ⚠ 缺纹理 materials/' + texName + '.tex（子系 ' + c.name + '，只跳这一条子系）');
+      } else logf('  ⚠ 子系无纹理 ' + c.name + '（只跳这一条子系）');
+      out.set(c.name, { def: cdef, texName: texName, blending: (pass && pass.blending) || 'translucent', defRel: cdefRel, src: src });
+      const sub = await resolveChildDefs(cdef, cdefRel, depth + 1);
+      for (const [k, v] of sub) if (!out.has(k)) out.set(k, v);
+    }
+    return out;
+  };
   // 粒子层：def.material → pass.textures[0]（光斑贴图）→ loadTex；blending（additive/translucent）
   scene.layers.forEach((layer) => {
     if (!layer.particleDef || !layer.particleDef.material) return;
@@ -1979,6 +2026,13 @@ function loadScene() {
       }
       layer.particleBlending = (pass && pass.blending) || 'translucent';
       if (!texName || !layer.particleTexName) logf('  ⚠ 粒子层 ' + (layer.name || layer.id) + ' 无纹理');
+      // ①(P-144) 子系（children）—— 父层自己的贴图成功与否都不影响子系各自的解析
+      try {
+        if (Array.isArray(layer.particleDef.children) && layer.particleDef.children.length) {
+          layer.__pchildMap = await resolveChildDefs(layer.particleDef, layer.particleDefRel || String(layer.particle || ''), 0);
+          if (layer.__pchildMap.size) logf('  ◆ 子系 ' + layer.__pchildMap.size + ' 条（层 ' + (layer.name || layer.id) + '）');
+        }
+      } catch (e) { logf('  ⚠ 子系解析失败（层 ' + (layer.name || layer.id) + '）: ' + (e && e.message)); }
     })());
   });
   return Promise.all(jobs).then(() => true);
