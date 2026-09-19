@@ -25,7 +25,10 @@ start_8902() { (cd "$REPO" && setsid node server/we-scene-demo-server-8902.mjs 8
 # ①(2026-09-19 用户明确要求) OpenViking 记忆服务（:1933）：**没起来就先拉起来**。
 #   用官方的 restart-openviking.sh（它自己锚定路径匹配 python 进程、不会误杀别的）；只在 health 不 200 时动手。
 OV_HEALTH="http://127.0.0.1:1933/health"
-ov_up() { curl -s -o /dev/null --max-time 2 "$OV_HEALTH"; }
+# ①(2026-09-19 实测) 2s 超时容易把"忙但没死"的服务判成掉线（机器上有并行重活时会误判 ⇒ 白杀一次 500MB 级进程）。
+#   改成 5s 超时 + **连续 2 次**失败才动手；配合上面的 180s 冷却，误杀/自锁都消掉。
+OV_FAILS=0
+ov_up() { curl -s -o /dev/null --max-time 5 "$OV_HEALTH"; }
 # ①(2026-09-19 实测教训) OpenViking 从启动到 /health 200 要 **20s+**，而循环每 10s 一轮 ⇒
 #   没有守卫时会出现"上一轮还在起、这一轮又把它掐了"的自锁（日志里两个 restart 脚本同时在跑、health 恒 000）。
 #   两道守卫：**a)** 已有 restart 脚本在跑 ⇒ 跳过；**b)** 触发后**冷却 180s**（期间只探活、不再动手）。
@@ -48,13 +51,19 @@ done
 
 while true; do
   # OpenViking 只在"掉下去"时才拉（健康时一个请求都不多发）
-  if ! ov_up; then
+  if ov_up; then
+    [ "$OV_FAILS" -gt 0 ] && say "OpenViking(:1933) 恢复（连续失败计数 $OV_FAILS → 0）"
+    OV_FAILS=0
+  else
+    OV_FAILS=$((OV_FAILS + 1))
     now=$(date +%s)
     if ov_restart_running; then :                                    # 正在起：等它，不插手
+    elif [ "$OV_FAILS" -lt 2 ]; then say "OpenViking(:1933) 第 $OV_FAILS 次探活失败（连 2 次才动手）"
     elif [ "$now" -lt "$OV_COOLDOWN" ]; then :                       # 冷却期内：只探活
     else
-      say "OpenViking(:1933) 掉了，拉起…（之后 180s 冷却，期间只探活）"
+      say "OpenViking(:1933) 连续 $OV_FAILS 次探活失败，拉起…（之后 180s 冷却）"
       start_openviking
+      OV_FAILS=0
     fi
   fi
   for p in 8899 8901 8902; do
