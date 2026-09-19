@@ -511,10 +511,27 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/diag' && req.method === 'POST') {
       // ①(MERGED-2 E 2026-09-12) ?selfcheck=1 / ?perf=1 的紧凑报告接收端（≤16KB）
+      // ①(2026-09-19 同类缺陷一并修) 原来超限走 `req.destroy()`：**先掐连接再写响应**，客户端拿到的是
+      //   ECONNRESET（curl exit 56 / status 100），"如实回 413"这条口径在超限路上从来没成立过。
+      //   口径与 `/shot` 那条早就修好的路逐字相同：超限后**继续把 socket 读干净但不再缓存**，
+      //   到 `end` 再回 413 JSON（内存只留"丢弃前"那一份，字节数不再增长）。
+      //   ⚠ 千万**不能**在这里 `req.pause()`：请求体没读完 ⇒ `end` 永不触发 ⇒ 请求挂到客户端超时
+      //   （2026-09-19 实测：pause 版让 curl 卡死 25s，服务端既不回 413 也不回任何东西）。
       try {
+        const DIAG_CAP = 16 * 1024
         let body = ''
-        req.on('data', (c) => { body += c; if (body.length > 16 * 1024) req.destroy() })
+        let tooBig = false
+        req.on('data', (c) => {
+          if (tooBig) return
+          body += c
+          if (body.length > DIAG_CAP) { tooBig = true; body = '' }
+        })
         req.on('end', () => {
+          if (tooBig) {
+            res.writeHead(413, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: 'selfcheck 报告超过上限 ' + DIAG_CAP + ' 字节（未落盘）' }))
+            return
+          }
           try {
             const dir = MPW_REPORTS_DIR
             mkdirSyncSafe(dir)
@@ -593,9 +610,20 @@ const server = http.createServer(async (req, res) => {
     m = p.match(/^\/report$/);
     if (m) {
       try {
+        const REPORT_CAP = 4 * 1024 * 1024
         let body = ''
-        req.on('data', (c) => { body += c; if (body.length > 4 * 1024 * 1024) req.destroy() })
+        let tooBig = false
+        req.on('data', (c) => {
+          if (tooBig) return               // ①(2026-09-19) 超限后继续读干净但不再缓存；**不 pause**（pause ⇒ end 不来 ⇒ 挂死）
+          body += c
+          if (body.length > REPORT_CAP) { tooBig = true; body = '' }
+        })
         req.on('end', () => {
+          if (tooBig) {
+            res.writeHead(413, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: '报告超过上限 ' + REPORT_CAP + ' 字节（未落盘）' }))
+            return
+          }
           try {
             const dir = MPW_REPORTS_DIR
             mkdirSyncSafe(dir)
@@ -629,9 +657,20 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       try {
+        const BASE_CAP = 1024 * 1024
         let body = ''
-        req.on('data', (c) => { body += c; if (body.length > 1024 * 1024) req.destroy() })
+        let tooBig = false
+        req.on('data', (c) => {
+          if (tooBig) return               // ①(2026-09-19) 同 /report：读干净后回 413；不 pause、不 destroy
+          body += c
+          if (body.length > BASE_CAP) { tooBig = true; body = '' }
+        })
         req.on('end', () => {
+          if (tooBig) {
+            res.writeHead(413, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: '快照超过上限 ' + BASE_CAP + ' 字节（未落盘）' }))
+            return
+          }
           try {
             let snap = null
             try { snap = JSON.parse(body) } catch { res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'body 不是合法 JSON' })); return }

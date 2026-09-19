@@ -18,7 +18,12 @@ import path from 'node:path'
 export const PWA_HEAD_HTML = [
   '<link rel="manifest" href="/manifest.webmanifest">',
   '<meta name="theme-color" content="#0b0e14">',
-  '<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">',
+  // ①(2026-09-19 品牌图标) 浏览器标签图标换成**仓库所有者提供的图**：`/icons/brand-*.png`
+  //   （源图 = `demo/assets/brand/**`，站点根这侧是同一批图的副本；`/icons/` 下的程序化生成图**仍保留**
+  //    且 `icons.json` 的 sha256 照旧可校验 —— 只是不再是页面引用的那张）。
+  '<link rel="icon" type="image/png" sizes="32x32" href="/icons/brand-32.png">',
+  '<link rel="icon" type="image/png" sizes="192x192" href="/icons/brand-192.png">',
+  '<link rel="apple-touch-icon" sizes="192x192" href="/icons/brand-192.png">',
   '<script type="module">',
   '// ①(P-92) 离线能力（可选）：注册失败 = 只是没有离线，不影响任何渲染功能。',
   '//   `sw.js` 是 module worker（判据从 sw-policy.mjs import）；不支持的浏览器会 reject，这里静默降级。',
@@ -34,6 +39,12 @@ export const PWA_ROUTES = {
   '/manifest.webmanifest': { file: 'manifest.webmanifest', type: 'application/manifest+json; charset=utf-8' },
   '/sw.js': { file: 'sw.js', type: 'text/javascript; charset=utf-8' },
   '/sw-policy.mjs': { file: 'sw-policy.mjs', type: 'text/javascript; charset=utf-8' },
+  // ①(2026-09-19) 品牌图（页面/manifest 现在引用的就是这四张）
+  '/icons/brand-32.png': { file: path.join('icons', 'brand-32.png'), type: 'image/png' },
+  '/icons/brand-192.png': { file: path.join('icons', 'brand-192.png'), type: 'image/png' },
+  '/icons/brand-512.png': { file: path.join('icons', 'brand-512.png'), type: 'image/png' },
+  '/icons/brand-512-maskable.png': { file: path.join('icons', 'brand-512-maskable.png'), type: 'image/png' },
+  // 程序化生成的那三张**保留路由**（旧 URL 仍 200：书签/缓存里的引用不该 404；`icons.json` 的校验也照旧）
   '/icons/icon-192.png': { file: path.join('icons', 'icon-192.png'), type: 'image/png' },
   '/icons/icon-512.png': { file: path.join('icons', 'icon-512.png'), type: 'image/png' },
   '/icons/icon-512-maskable.png': { file: path.join('icons', 'icon-512-maskable.png'), type: 'image/png' },

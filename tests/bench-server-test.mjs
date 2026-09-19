@@ -670,6 +670,84 @@ async function runSuite() {
       !!J(hFf).capabilities.fullTypeScan && !!J(hFf).capabilities.serverDirPicker && !!J(hFf).capabilities.thumbRoute &&
       !!J(hFf).libraryScan && typeof J(hFf).libraryScan.kinds === 'object',
       JSON.stringify({ picker: J(hFf).dirPicker && J(hFf).dirPicker.routes, caps: { fullTypeScan: J(hFf).capabilities.fullTypeScan, serverDirPicker: J(hFf).capabilities.serverDirPicker } }))
+
+    // ═══ ①(2026-09-19) 上报落盘：测试台「立即上报」按 /report → /baseline → /diag 依次试，而 :8902 原本
+    //   只有 /diag（内存环形缓冲）⇒ 按钮的日志永远是"上报失败 → 只能进 /diag 环形缓冲"，点完什么都不剩。
+    //   这一节把两条落盘路由钉住：形状、落点、**校验不过不落盘**、**超限回 413**、以及滚动上限。
+    console.log('\n[M] 上报落盘：POST /report（现场快照）+ POST /baseline（趋势快照，复用 baseline-metrics 校验）')
+    const REPORTS = path.join(fx.ws, 'reports')
+    const minimalSnap = (over) => Object.assign({
+      kind: 'baseline', schema: 1, at: new Date().toISOString(), id: 'fixture-item',
+      window: { frames: 120 }, frames: { n: 120 },
+      fps: { windowMs: 500, median: 60 }, startup: { totalMs: 321 },
+      counts: { layers: 7 }, vramProxy: { textureBytesEst: 1024 },
+    }, over || {})
+    const repBody = JSON.stringify({ kind: 'bench-debug-report', ts: 1789000000000, diag: ['line-a', 'line-b'] })
+    const rep = await request(P, 'POST', '/report', { body: repBody, headers: { 'Content-Type': 'application/json' } })
+    const repFile = path.join(REPORTS, String(J(rep).file || 'missing'))
+    check('M1 POST /report ⇒ 200 {ok,file:"r<ts>.json",bytes} 且**内容逐字落盘**到 <reports>/r<ts>.json',
+      rep.status === 200 && J(rep).ok === true && /^r\d+\.json$/.test(String(J(rep).file)) && J(rep).bytes === repBody.length &&
+      fs.existsSync(repFile) && fs.readFileSync(repFile, 'utf8') === repBody,
+      `${rep.status} ${rep.body.slice(0, 140)} exists=${fs.existsSync(repFile)}`)
+    const repGet = await request(P, 'GET', '/report')
+    check('M2 GET /report ⇒ 405 + allow:POST + error/hint（不是 404，也不是 500）',
+      repGet.status === 405 && String(repGet.headers.allow || '').includes('POST') && !!J(repGet).error && !!J(repGet).hint,
+      `${repGet.status} ${repGet.body.slice(0, 140)}`)
+    const repBig = await request(P, 'POST', '/report', { body: 'x'.repeat(4 * 1024 * 1024 + 4096), headers: { 'Content-Type': 'application/json' } })
+    const repAlive = await request(P, 'GET', '/__health')
+    check('M3 POST /report 超限（>4MB）⇒ **413 + JSON 说明**、不落盘、服务仍活着（旧实现先 req.destroy() ⇒ 客户端只看到 ECONNRESET）',
+      repBig.status === 413 && J(repBig).ok === false && /上限/.test(String(J(repBig).error)) &&
+      fs.readdirSync(REPORTS).filter((n) => /^r\d+\.json$/.test(n)).length === 1 && repAlive.status === 200,
+      `${repBig.status} ${repBig.body.slice(0, 120)} files=${fs.readdirSync(REPORTS).filter((n) => /^r\d+\.json$/.test(n)).length} health=${repAlive.status}`)
+    const blDir = path.join(REPORTS, 'baselines')
+    const blBad = await request(P, 'POST', '/baseline', { json: { kind: 'bench-debug-report', ts: 1 } })
+    check('M4 POST /baseline 字段不全 ⇒ 400 + errors[] + **不落盘**（趋势目录里只留干净数据，缺字段不许当 0 比）',
+      blBad.status === 400 && Array.isArray(J(blBad).errors) && J(blBad).errors.length > 0 && !fs.existsSync(blDir),
+      `${blBad.status} ${blBad.body.slice(0, 160)} dirExists=${fs.existsSync(blDir)}`)
+    const blBody = JSON.stringify(minimalSnap())
+    const bl = await request(P, 'POST', '/baseline', { body: blBody, headers: { 'Content-Type': 'application/json' } })
+    const blFile = path.join(REPORTS, String(J(bl).file || 'missing'))
+    check('M5 POST /baseline 合法快照 ⇒ 200 {schema:1,file:"baselines/<ts>.json",bytes} 且内容逐字落盘',
+      bl.status === 200 && J(bl).schema === 1 && /^baselines\/\d+(-\d+)?\.json$/.test(String(J(bl).file)) && J(bl).bytes === blBody.length &&
+      fs.existsSync(blFile) && fs.readFileSync(blFile, 'utf8') === blBody,
+      `${bl.status} ${bl.body.slice(0, 160)}`)
+    const blGet = await request(P, 'GET', '/baseline')
+    check('M6 GET /baseline ⇒ 405（只收 POST）', blGet.status === 405 && !!J(blGet).error, `${blGet.status} ${blGet.body.slice(0, 120)}`)
+    const hRep = J(await request(P, 'GET', '/__health'))
+    check('M7 /__health.report 自述三条路由 + 落点 + 上限（默认 60 份 / 64MB，与 :8899 同值）；capabilities.debugReport/baselineSnapshot 都是 true',
+      hRep.report && JSON.stringify(hRep.report.routes) === JSON.stringify(['POST /report', 'POST /baseline', 'POST /diag']) &&
+      hRep.report.dir === REPORTS && hRep.report.baseline.schema === 1 &&
+      hRep.report.report.maxFiles === 60 && hRep.report.report.maxBytes === 64 * 1024 * 1024 &&
+      hRep.report.baseline.maxFiles === 200 && hRep.report.baseline.maxBytes === 32 * 1024 * 1024 &&
+      hRep.capabilities.debugReport === true && hRep.capabilities.baselineSnapshot === true,
+      JSON.stringify(hRep.report && { routes: hRep.report.routes, dir: hRep.report.dir, report: hRep.report.report, baseline: hRep.report.baseline, caps: [hRep.capabilities.debugReport, hRep.capabilities.baselineSnapshot] }))
+    // 上限要**压小**才好在秒级验完滚动：起一个专用实例（上限 3 份 / 100KB），并把"别条线的产物"当诱饵放进去
+    {
+      fs.writeFileSync(path.join(REPORTS, 'parity-keepme.json'), '{"keep":1}')      // 别条线的产物（对账门禁要读）
+      fs.writeFileSync(path.join(REPORTS, 'notes.md'), '# keep')                    // 非白名单文件
+      const sLim = await startServer(fx, { MPW_LIMIT_REPORTS_MAX: '3', MPW_LIMIT_REPORTS_BYTES: '100000', MPW_LIMIT_BASELINE_MAX: '2' })
+      servers.push(sLim)
+      const PL = sLim.port
+      for (let i = 0; i < 9; i++) await request(PL, 'POST', '/report', { body: JSON.stringify({ i, pad: 'z'.repeat(20000) }) })
+      const rFiles = fs.readdirSync(REPORTS).filter((n) => /^r\d+\.json$/.test(n))
+      const rBytes = rFiles.reduce((s, n) => s + fs.statSync(path.join(REPORTS, n)).size, 0)
+      check('M8 滚动上限（数量 3 份 / 100KB，同实例共发 9 份 ×20KB）⇒ 份数与总字节都回到限内（最旧先删）',
+        rFiles.length <= 3 && rBytes <= 100000, `n=${rFiles.length} bytes=${rBytes} (${rFiles.sort().join(',')})`)
+      check('M9 白名单化清理：`parity-keepme.json`（别条线产物）与 `notes.md` 在滚动后**原封不动**',
+        fs.existsSync(path.join(REPORTS, 'parity-keepme.json')) && fs.existsSync(path.join(REPORTS, 'notes.md')))
+      for (let i = 0; i < 5; i++) await request(PL, 'POST', '/baseline', { body: JSON.stringify(minimalSnap({ id: 'fixture-' + i })) })
+      // ⚠ 目录可能**根本不存在**（例如"上报路由被拿掉"的变异体）：这里必须容忍 ⇒ 断言失败，而不是让套件崩掉
+      //   （变异要求的是"这条判据变红"，不是"子进程抛 ENOENT"——崩了就没法核对红在哪一条）。
+      const listIfAny = (d) => { try { return fs.readdirSync(d) } catch { return [] } }
+      const blNames = listIfAny(blDir).filter((n) => /^\d+(-\d+)?\.json$/.test(n))
+      check('M10 baselines/ 的滚动与 reports/ 顶层**各管各的**（上限 2 份）：只数 baselines/，顶层 r*.json 不受影响',
+        blNames.length <= 2 && fs.readdirSync(REPORTS).filter((n) => /^r\d+\.json$/.test(n)).length <= 3,
+        `baselines=${blNames.length} top=${fs.readdirSync(REPORTS).filter((n) => /^r\d+\.json$/.test(n)).length}`)
+      const hLim = J(await request(PL, 'GET', '/__health'))
+      check('M11 上限可用 `MPW_LIMIT_*` 现场调参（与 :8899 同名同义），且非法值回落默认（绝不出现"配错=关掉上限"）',
+        hLim.report.report.maxFiles === 3 && hLim.report.baseline.maxFiles === 2 && hLim.limits.reportMaxFiles === 3,
+        JSON.stringify({ report: hLim.report.report.maxFiles, baseline: hLim.report.baseline.maxFiles }))
+    }
     return { fx }
   } finally {
     for (const s of servers) await s.stop()
@@ -736,6 +814,26 @@ const MUTATIONS = [
       return { out: src.replace(from, to) }
     },
   },
+  {
+    name: 'F-上报落盘路由整段消失（`/report` 与 `/baseline` 两行删掉 ⇒ 回到"点完什么也没留下"，只剩 /diag 环形缓冲）',
+    expects: ['M1', 'M5'],
+    apply(src) {
+      const from = "  if (p === '/report') return done(() => handleReport(req, res))\n  if (p === '/baseline') return done(() => handleBaseline(req, res))\n"
+      const to = "  // 变异：上报落盘路由整段消失\n"
+      if (src.split(from).length !== 2) return { error: `变异锚点未命中唯一位置：${from.split('\n')[0]}` }
+      return { out: src.replace(from, to) }
+    },
+  },
+  {
+    name: 'G-基线校验放行（`mpwValidateSnapshot` 恒 ok ⇒ 残缺快照也落盘，趋势数据里混进"缺字段当 0"的假结论）',
+    expects: ['M4'],
+    apply(src) {
+      const from = "    if (!v.ok) {"
+      const to = "    if (!v.ok && false) {"
+      if (src.split(from).length !== 2) return { error: `变异锚点未命中唯一位置：${from}` }
+      return { out: src.replace(from, to) }
+    },
+  },
 ]
 
 function runChild(serverPath, args, ms) {
@@ -774,7 +872,13 @@ async function main() {
       const r = m.apply(src)
       if (r.error) { check(`变异${i + 1} 可施加（锚点唯一）`, false, r.error); continue }
       const p = path.join(mtDir, `mutant-${i + 1}.mjs`)
-      fs.writeFileSync(p, r.out)
+      // ⚠ 变异副本在 /tmp ⇒ **相对 import 会断**（`../core/baseline-metrics.mjs` 会解析成 /core/…）：
+      //   与被测服务的静态面要显式给 `MPW_BENCH_STATIC_DIR` 是同一个道理（副本靠自身位置推不出仓库根）。
+      //   这里把那条相对 import 改写成指向**真树**的绝对路径（只影响副本，真树一字不动）。
+      const srcPatched = r.out.replace(
+        /from '\.\.\/core\/baseline-metrics\.mjs'/,
+        `from ${JSON.stringify(path.join(ROOT, 'core', 'baseline-metrics.mjs'))}`)
+      fs.writeFileSync(p, srcPatched)
       const res = await runChild(p, [])
       const j = parseChildJson(res.out)
       const redLines = res.out.split('\n').filter((l) => l.startsWith('FAIL')).slice(0, 6)

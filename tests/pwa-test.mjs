@@ -112,6 +112,46 @@ console.log('\n[B] manifest.webmanifest：安装必需字段 + 图标在位')
     check('图标在位且尺寸与 manifest 一致：' + ic.src, ok, dim)
   }
   check('不含任何 WE/用户素材引用（theme/background 只写颜色）', !!/^#[0-9a-f]{6}$/i.test(m && m.background_color))
+  // ①(2026-09-19 品牌图标) manifest 的三个图标必须**全部**是品牌图（站点根这一套也换）：
+  //   判据写成"全部以 /icons/brand- 开头"（而不是"包含某一张"），这样任何一张被改回程序化生成图都会红。
+  check('B8 manifest 三个图标全部指向品牌图 `/icons/brand-*`（不再引程序化生成的 `icon-*`）',
+    !!(m && Array.isArray(m.icons) && m.icons.length >= 3 && m.icons.every((i) => /^\/icons\/brand-/.test(String(i.src)))),
+    JSON.stringify((m && m.icons || []).map((i) => i.src)))
+}
+
+console.log('\n[B2] 品牌图（站点根 `/icons/brand-*`）：字节来源可追溯 + maskable 是派生物')
+{
+  // 站点根这四张是 `demo/assets/brand/**` 那批图的副本：前三张**逐字节相同**（防"两套图悄悄漂开"），
+  // maskable 那张是按下方命令派生的（带安全边距，不与源图逐字节相同 —— 因此单独断言尺寸与命令可复现）。
+  const pairs = [
+    ['brand-32.png', 'favicon-32.png'],
+    ['brand-192.png', 'wallpaper-engine-icon-192.png'],
+    ['brand-512.png', 'wallpaper-engine-icon-512.png'],
+  ]
+  for (const [site, demo] of pairs) {
+    const a = path.join(WEB, 'icons', site), b = path.join(ROOT, 'demo', 'assets', 'brand', demo)
+    let same = false, why = ''
+    try { same = fs.readFileSync(a).equals(fs.readFileSync(b)) } catch (e) { why = String(e.message) }
+    check(`B2 ${site} 与 demo/assets/brand/${demo} 逐字节相同`, same, why)
+  }
+  const mk = path.join(WEB, 'icons', 'brand-512-maskable.png')
+  let dim = '', cmd = ''
+  try {
+    const b = fs.readFileSync(mk)
+    dim = b.readUInt32BE(16) + 'x' + b.readUInt32BE(20)
+    cmd = mk
+  } catch (e) { dim = 'ERR ' + e.message }
+  check('B3 brand-512-maskable.png 在位且是 512×512（由 brand-512 缩放+留边派生：`ffmpeg -i brand-512.png -vf "scale=384:384,pad=512:512:64:64:color=0x0b0e14"`）',
+    dim === '512x512' && !!cmd, dim)
+  check('B4 程序化生成的三张图标**仍在**（旧 URL 不 404；`icons.json` 的 sha256 校验照旧在 C 段）',
+    ['icon-192.png', 'icon-512.png', 'icon-512-maskable.png'].every((f) => fs.existsSync(path.join(WEB, 'icons', f))))
+  const injSrc = fs.readFileSync(path.join(WEB, 'pwa-inject.mjs'), 'utf8')
+  check('B5 注入片段里的 favicon / apple-touch-icon 也是品牌图（`/icons/brand-32.png` + `/icons/brand-192.png`）',
+    /href="\/icons\/brand-32\.png"/.test(injSrc) && /href="\/icons\/brand-192\.png"/.test(injSrc) && !/href="\/icons\/icon-/.test(injSrc))
+  const swSrc0 = fs.readFileSync(path.join(WEB, 'sw.js'), 'utf8')
+  check('B6 sw.js 预缓存清单里是品牌图（四张全在），且**不再**缓存没人引用的 `icon-*`',
+    ['brand-32', 'brand-192', 'brand-512', 'brand-512-maskable'].every((n) => swSrc0.includes('/icons/' + n + '.png')) &&
+    !/'\s*\/icons\/icon-/.test(swSrc0))
 }
 
 console.log('\n[C] 图标与生成器逐字节一致（防手改 PNG）')
@@ -197,7 +237,9 @@ console.log('\n[F] 真子进程服务：PWA 资源与首页注入的实际字节
           return /rel="manifest"/.test(b)
         } finally { c2.kill('SIGKILL') }
       })())
-      const ROUTES = ['/manifest.webmanifest', '/sw.js', '/sw-policy.mjs', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-512-maskable.png']
+      const ROUTES = ['/manifest.webmanifest', '/sw.js', '/sw-policy.mjs', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-512-maskable.png',
+        // ①(2026-09-19 品牌图标) 页面/manifest 现在引用的四张：真服务上必须 200 + image/png
+        '/icons/brand-32.png', '/icons/brand-192.png', '/icons/brand-512.png', '/icons/brand-512-maskable.png']
       for (const r of ROUTES) {
         const resp = await fetch(base + r)
         const ct = resp.headers.get('content-type') || ''

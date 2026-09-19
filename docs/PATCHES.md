@@ -12505,7 +12505,9 @@ Chromium 在本环境起不来（GPU 进程连崩/`newPage` 挂起，与仓库�
    "没有可逐层查看的场景"，不编造层号。
 2. **上报不落文件**：本机 `:8902` 服务端没有 `/report` 与 `/baseline`（§P-164.2 与 `docs/BENCH-8902.md` §10.3），
    载荷进 `/diag` 环形缓冲 + 本地副本；要落文件需要 `server/**` 补两条路由（不在授权文件内，本批未动）。
+   ⇒ **已在 §P-166.1 收口**（两条路由补齐；落点/上限/校验与 `:8899` 逐字同口径）。
 3. **图标只在 `demo/**` 内换掉**：`demo.html` / `web/**` / `web/icons/**` 仍指旧图（见 §P-164.5）。
+   ⇒ **已在 §P-166.3 收口**（站点根 `web/**` 那套也换成同一批图；程序化生成的三张仍保留且 URL 仍 200）。
 4. **观感类只能人眼**：省略号观感、`×` 手感、尾迹粗细/颜色；探针只判几何、状态与像素计数。
 5. **`demo/now-playing/dist/now-playing.js` 是入库产物**：改它的源码必须重建（本批已重建）。
 
@@ -12533,3 +12535,76 @@ A 播放器清单混进角色语音；B 联动开关关闭后语义坏；C 切�
 happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重启才生效（ESM 模块缓存）；
 ③P-163 的 8K 贴图选级/坏纹理修复与本批**无交集**：本批的黑屏读数是"挂载分支选错 + 旧路径 404"，
 不是贴图解码路径。
+
+## P-166（2026-09-20 · `:8902` 上报落盘两条路由 + 四个 POST 接收端的 413 缺陷类 + 站点根品牌图标）
+
+> 编号说明：落笔时文件里的最大号是 **P-165**（插件侧流水线批次，同一份文件里先行追加）⇒ 本条取 **P-166**（唯一且非递减）。
+> 本条把 P-164.7 的两条"做不到"（②上报不落文件、③图标只换了 `demo/**`）**收口**。
+
+**一句话**：测试台「立即上报」点完什么都不剩（`:8902` 没有 `/report`/`/baseline`，只有内存环形缓冲的 `/diag`）
+⇒ 补两条**与 `:8899` 逐字同落点**的落盘路由；顺带查同一类缺陷时发现**四个 POST 接收端在超限时都是"先掐连接再写响应"**
+（客户端只看得到 `ECONNRESET`：curl `status=100 / exit=56`，"如实回 413"这条口径在超限路上从来没成立过）
+⇒ 一并修；站点根 PWA 那套图标（`web/icons/**`、`web/manifest.webmanifest`、`web/pwa-inject.mjs`、`web/sw.js`）
+也换成仓库所有者提供的图。
+
+### P-166.1 ①`:8902` 补 `POST /report` 与 `POST /baseline`
+
+* **根因**：`demo/bench-patch.js` 的调试页签把「立即上报」按 `DEBUG_REPORT_ROUTES = ['/report', '/baseline', '/diag']`
+  **依次**试；`:8902` 原本只有 `/diag`（内存环形缓冲 200 条、重启即失）⇒ 日志永远是
+  "上报失败：/report → HTTP 404（服务端未提供 /report 与 /baseline 时只能进 /diag 环形缓冲）"，点完磁盘上零字节。
+* **落点与 `:8899` 逐字相同**（消费端 `report-audit` / `baseline-diff` 不必区分"从哪个端口上报的"）：
+  `POST /report` ⇒ `<reports>/r<ts>.json`；`POST /baseline` ⇒ `<reports>/baselines/<ts>.json`。
+* **判据复用同一把尺子**：`/baseline` 走 `core/baseline-metrics.mjs` 的 `mpwValidateSnapshot` ——
+  字段不全 ⇒ **400 + errors[] 且不落盘**（趋势目录里只留干净数据；缺字段当 0 比会得出假结论）。
+* **上限**（`LIMITS` 里声明 + `/__health.report` 自述；环境变量与 `:8899` **同名同义**：`MPW_LIMIT_REPORTS_MAX`
+  / `MPW_LIMIT_REPORTS_BYTES` / `MPW_LIMIT_BASELINE_MAX` / `MPW_LIMIT_BASELINE_BYTES`，非法值一律回落默认）：
+  `r*`/`selfcheck*` 60 份 / 64MB、`baselines/` 200 份 / 32MB，**最旧先删**；
+  白名单化过滤器 ⇒ `<reports>/parity-*.json`、`<notes.md>` 这些**别条线/别人的产物一个都不动**。
+* `GET /report` / `GET /baseline` ⇒ **405 + `Allow: POST`**（响应头与 body 里都有；不是 404，也不是 500）。
+* `/__health` 新增 `report{...}`（三条路由、落点、上限、校验口径）+ `capabilities.debugReport/baselineSnapshot: true`；
+  启动 banner 打印两条落点与上限。
+
+### P-166.2 ② 同类缺陷一并查：四个 POST 接收端超限时"先掐连接再写响应"
+
+* **实测**（修前）：`curl -X POST --data-binary @4.3MB /report` ⇒ `status=100 / exit=56`，**看不到 413**。
+  四处都是 `req.on('data', (c) => { body += c; if (body.length > CAP) req.destroy() })`：
+  `:8899` 的 `/diag`（16KB）、`/report`（4MB）、`/baseline`（1MB）与 `:8902` 的 `readBody`（属性保存等全走它）。
+  `/shot` 那条路**早就改对了**（超限后继续读干净、到 `end` 回 413）—— 本批把其余四条对齐到同一口径。
+* **踩到的第二个坑**：中途试过 `req.pause()`（想"停止读取 + 立刻回 413"）⇒ **请求挂死**：
+  请求体没读完 ⇒ `end` 永不触发 ⇒ 服务端一句话都不回，curl 卡满 25s 超时才退。
+  正解是**继续读干净但不再缓存**（内存只留丢弃前那一份），到 `end` 回 413。
+* **修后实测**（四个路由逐条，`tests/data-limits-test.mjs` B14–B18 钉住）：`413 + {"ok":false,"error":"…超过上限…（未落盘）"}`，
+  落盘条目数不变、服务不崩、紧接的正常档仍 200。
+
+### P-166.3 ③ 站点根品牌图标（`:8899` 的浏览器标签图标 + 安装图标）
+
+* 新增 `web/icons/brand-32.png` / `web/icons/brand-192.png` / `web/icons/brand-512.png`（与 `demo/assets/brand/**` **逐字节相同**）
+  与 `web/icons/brand-512-maskable.png`（派生：`ffmpeg -i brand-512.png -vf "scale=384:384,pad=512:512:64:64:color=0x0b0e14"`，
+  安全边距用 manifest 的 `theme_color`）。
+* 引用点：`web/manifest.webmanifest` 三个 icons、`web/pwa-inject.mjs` 的 favicon/apple-touch-icon、`web/sw.js` 预缓存清单。
+* **程序化生成的三张 `icon-*.png` 一张没删**：`PWA_ROUTES` 里保留路由（旧 URL 仍 200，书签/缓存不 404），
+  `tools/make-icons.mjs --check` 与 `web/icons/icons.json` 的 sha256 校验照旧；只是**页面/manifest 不再引用**它们
+  （预缓存也不再缓存没人引用的字节）。
+* 图是**仓库所有者提供的图**（抽象暖色波浪，无上游/第三方字样）⇒ `THIRD-PARTY.md` 与 `docs/COPYING-RULES.md` 台账**一行都不加**。
+
+### P-166.4 判据
+
+* `tests/bench-server-test.mjs`：**131 通过 / 0 失败**（116 → 131：M1–M11 共 11 条 + 变异自证 4 条）。
+  **变异组 5 → 7**：新增 ⑥"上报落盘路由整段消失 ⇒ M1/M5 必红"、⑦"基线校验放行 ⇒ M4 必红"；
+  分件自证仍然要求"锚点唯一 + 变异体必红 + 真树 sha256 跑前跑后逐字相同"。
+  顺带修好变异夹具：副本在 `/tmp` ⇒ **相对 import 会断**（`../core/baseline-metrics.mjs` 解析成 `/core/…`），
+  现在写副本时把这条 import 改写成指向真树的绝对路径（与被测服务的静态面要显式给 `MPW_BENCH_STATIC_DIR` 同一个道理）。
+* `tests/data-limits-test.mjs`：**49 通过 / 0 失败**（41 → 49：B14–B18 共 8 条）。
+* `tests/pwa-test.mjs`：**124 通过 / 0 失败**（104 → 124：B2–B6 共 5 条 + F6 的四条品牌图路由 + 逐条 200）。
+* `docs-check` / `packaging-test` 仍绿；`:8899`/`:8901`/`:8902` 三服务由看门狗托管，本批重启后 `/__health` 全 200。
+
+### P-166.5 做不到 / 只能这样的（诚实清单）
+
+1. **`/report` 不校验 schema**：它是"现场诊断快照"，形状随版本走（与 `:8899` 同口径）；
+   要结构化比对就用 `/baseline`（那条会校验）。
+2. **`:8902` 的 `/diag` 仍是内存环形缓冲**：它是两条落盘路由都不可用时的最后兜底，重启即失是**设计如此**
+   （不想让"每一条诊断"都变成磁盘写）。
+3. **两个端口的滚动策略共用同一个目录**：`:8899` 与 `:8902` 都会按同一套白名单删 `r*`/`selfcheck*`，
+   并发下可能互相删到同一份（`unlink` 失败被吞掉，不影响正确性）；上限值两边一致，不会出现"谁删得更狠"。
+4. **`web/icons/brand-512-maskable.png` 是 ffmpeg 派生物**：不是源图逐字节相同（那是有意的：maskable 要留安全边距），
+   生成命令写在 `tests/pwa-test.mjs` 的 B3 判据文案里，可复现。

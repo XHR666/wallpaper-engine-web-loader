@@ -273,6 +273,46 @@ console.log('[B] 服务端落盘上限（发布纪律②）：超限 → 最旧�
         /\[limits\] 启动清理完成/.test(srv4.log()) && /\[prune\] reports\//.test(srv4.log()))
     } finally { srv4.stop() }
   }
+
+  // ═══ ①(2026-09-19 实测到的**同类缺陷**：超限时"先掐连接再写响应" ⇒ 客户端只看得到 ECONNRESET) ═══
+  //   四个 POST 接收端（/diag · /report · /baseline · /shot）原来都在 data 事件里 `req.destroy()`：
+  //   curl 实测 `status=100 / exit=56`，也就是"如实回报 413"这条口径在**超限这条路上从来没成立过**。
+  //   修好后的口径（与 `/shot` 那条早就修好的路一致，其余三条现在也照它改）：
+  //     ① 超限后**继续把请求体读干净但不再缓存**（内存不再增长）⇒ 到 `end` 回 **413 + JSON 说明**；
+  //     ② 绝不 `req.pause()`（实测：pause ⇒ `end` 永不触发 ⇒ 请求挂到客户端超时，服务端一句话都不回）；
+  //     ③ 超限的载荷**一个字节都不许落盘**，服务也不能崩（紧接着 /api 仍要 200）。
+  {
+    const srvL = await startServer({ MPW_LIMIT_REPORTS_MAX: '5' })
+    try {
+      const big = 'x'.repeat(200 * 1024)                      // 200KB：比 /diag(16KB) 与 /baseline(1MB 以下) 大
+      const bigBl = new Blob([big])
+      const cases = [
+        ['B14 /diag 超限（16KB 上限）', '/diag', big, undefined],
+        ['B15 /baseline 超限（1MB 上限）', '/baseline', big + big + big + big + big + big, undefined],
+        ['B16 /report 超限（4MB 上限）', '/report', big.repeat(22), undefined],
+        ['B17 /shot 超限（4MB 上限，参照实现）', '/shot?id=lim-shot&tag=oversize', big.repeat(22), 'image/jpeg'],
+      ]
+      for (const [name, p, body, ct] of cases) {
+        const before = listing(srvL.dir).length
+        let status = 0, err = '', json = null
+        try {
+          const r = await fetch(srvL.base + p, { method: 'POST', headers: ct ? { 'content-type': ct } : {}, body })
+          status = r.status
+          const t = await r.text()
+          try { json = JSON.parse(t) } catch { json = null }
+        } catch (e) { err = String(e && e.message || e) }
+        const after = listing(srvL.dir).length
+        check(name + ' ⇒ **413 + JSON 说明**（不是 ECONNRESET / status 100）',
+          status === 413 && !!json && json.ok === false && /上限/.test(String(json.error)) && !err,
+          'status=' + status + ' err=' + err + ' body=' + JSON.stringify(json) )
+        check(name + ' 的载荷**一个字节都没落盘**（条目数不变）', before === after, before + ' → ' + after)
+      }
+      // 服务没被这一串超限请求打崩，而且正常档仍然工作
+      const okSmall = await post(srvL.base, '/report', JSON.stringify({ after: 'oversize-batch' }))
+      check('B18 连打 4 个超限请求后服务仍活着：正常档 /report 仍 200（超限不该把进程带走）',
+        okSmall === 200 && filesOf(srvL.dir, /^r\d+\.json$/).length === 1, 'small=' + okSmall + ' files=' + filesOf(srvL.dir, /^r\d+\.json$/).length)
+    } finally { srvL.stop() }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

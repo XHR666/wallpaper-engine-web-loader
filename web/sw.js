@@ -45,8 +45,13 @@ const PRECACHE = [
   //   的 `repoFontUrl()` 同一口径）。原来那条每次安装都静默 404（`install` 里逐条 try/catch，不报错），
   //   等于"写了但没缓存"。判据：`tests/pwa-test.mjs` 的 F11 —— 预缓存清单**每条 URL 都要在真服务上 200**。
   '/assets/fonts/Blackout%202%20AM.ttf',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
+  // ①(2026-09-19 品牌图标) 预缓存换成页面/manifest 真正引用的那四张（`/icons/brand-*`，仓库所有者提供的图）。
+  //   程序化生成的三张 `icon-*.png` 仍是**可访问**的路由（`PWA_ROUTES` 里保留），只是不再进预缓存清单
+  //   —— 缓存里不该躺没人引用的字节（离线首屏用哪张就缓存哪张）。
+  '/icons/brand-32.png',
+  '/icons/brand-192.png',
+  '/icons/brand-512.png',
+  '/icons/brand-512-maskable.png',
 ]
 
 import { shouldCache, shouldStoreResponse } from './sw-policy.mjs'

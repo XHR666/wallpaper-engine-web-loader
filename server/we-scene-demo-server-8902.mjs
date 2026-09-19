@@ -41,6 +41,12 @@
 //   ④ 诊断来源（**本服务自己维护环形缓冲**这条路，没代理 :8899）：renderer bundle 的 `ce()` 用
 //      `new Image().src = `${origin}/diag?msg=…``（origin 取自 `mediaBase`）上报 ⇒ 本服务接 `GET /diag?msg=`（回 1×1 gif，
 //      图片不报错）与 `POST /diag`（JSON），进环形缓冲（上限 200 条）并广播给所有 `/api/diag-stream` 订阅者。
+//   ⑩（2026-09-19）**上报落盘**两条根路径（测试台调试页签的「立即上报」按钮按 /report → /baseline → /diag 依次试）：
+//      POST /report   ⇒ `<reports>/r<ts>.json`（body ≤4MB；只受 `r*/selfcheck*` 的 60 份 / 64MB 滚动）
+//      POST /baseline ⇒ `<reports>/baselines/<ts>.json`（body ≤1MB；**复用 core/baseline-metrics.mjs 校验**，
+//                       不完整 ⇒ 400 且不落盘；独立目录独立上限 200 份 / 32MB）
+//      POST /diag     ⇒ 环形缓冲（内存，最后兜底）。落点与 :8899 **逐字相同** ⇒ 消费端（report-audit /
+//                       baseline-diff）不必区分"从哪个端口上报的"。
 //   ⑤ `GET /__health` 自述：端口/库根/能力清单/**哪些端点降级为 501 及原因**/诊断缓冲条数。
 //
 // 安全红线（本文件里只有一条路径判据 `safeJoin()`，全部读写/删除/打开都必须过它）：
@@ -81,6 +87,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
+// 基线快照的**校验判据**与 :8899 复用同一个纯模块（`:8902` 也接 `POST /baseline` ⇒ 必须同一把尺子，
+//   否则"测试台收下的快照"与"渲染器侧产出的快照"会各有各的 schema，趋势数据没法比）。
+import { mpwValidateSnapshot, BASELINE_SCHEMA } from '../core/baseline-metrics.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
@@ -130,6 +139,11 @@ const STORE = process.env.MPW_BENCH_STORE === '1' ? true
 const STARTED_AT = new Date().toISOString()
 const OPEN_CMD_ENV = process.env.MPW_OPEN_CMD || ''
 // 上限（安全：所有落盘都要有上限；属性覆盖很小，这里给的是"单文件/单次请求"硬顶）
+// ⑩（2026-09-19）`numEnv` 与 :8899 同实现：**非法/缺省值一律回落默认**（绝不出现"配错上限 = 把上限关掉"）。
+const numEnv = (name, def) => {
+  const v = Number(process.env[name])
+  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : def
+}
 const LIMITS = {
   propsFileBytes: 64 * 1024 * 1024,   // 单次 props-file 上传 ≤64MB
   propsJsonBytes: 2 * 1024 * 1024,    // 单次 props 保存 body ≤2MB
@@ -145,6 +159,19 @@ const LIMITS = {
   thumbMs: 20000,                     // ffmpeg 抽帧单次上限
   diagBuffer: 200,                    // 诊断环形缓冲条数（内存，不落盘）
   diagMsgChars: 2000,                 // 单条诊断消息截断长度
+  // ⑩（2026-09-19）`POST /report` 与 `POST /baseline` 的**落盘上限**：与 :8899 同一套口径（数量 + 总字节，
+  //   最旧先删）。放到这里是因为测试台的「立即上报」按钮先把载荷发到 `/report`（见 demo/bench-patch.js
+  //   的 `DEBUG_REPORT_ROUTES`）—— 收下了就必须有上限，否则点几下就能把工作区写满。
+  //   **落点与 :8899 逐字相同**（`<reports>/r<ts>.json`、`<reports>/baselines/<ts>.json`）：两个端口写的是
+  //   同一种诊断/趋势数据，消费端（report-audit / baseline-diff）不该因为"从哪个端口上报的"而分两套目录。
+  //   环境变量名也与 :8899 相同（`MPW_LIMIT_REPORTS_MAX` / `MPW_LIMIT_REPORTS_BYTES` / `MPW_LIMIT_BASELINE_MAX`
+  //   / `MPW_LIMIT_BASELINE_BYTES`）：**只用于测试/现场调参** —— 把上限压到很小才能在几秒内验完清理路径。
+  reportMaxFiles: numEnv('MPW_LIMIT_REPORTS_MAX', 60),                      // <reports>/r<ts>.json ≤60 份
+  reportMaxBytes: numEnv('MPW_LIMIT_REPORTS_BYTES', 64 * 1024 * 1024),      // 顶层 r*/selfcheck* 合计 ≤64MB
+  baselineMaxFiles: numEnv('MPW_LIMIT_BASELINE_MAX', 200),                  // <reports>/baselines/<ts>.json ≤200 份
+  baselineMaxBytes: numEnv('MPW_LIMIT_BASELINE_BYTES', 32 * 1024 * 1024),   // 趋势目录合计 ≤32MB
+  reportBodyBytes: 4 * 1024 * 1024,   // 单次 /report body ≤4MB（与 :8899 逐字同口径）
+  baselineBodyBytes: 1024 * 1024,     // 单次 /baseline body ≤1MB（快照实测 3–6KB）
 }
 
 // ── 小工具 ──────────────────────────────────────────────────────────────────────────────────────
@@ -198,13 +225,21 @@ const jsonErr = (res, e) => {
 const readBody = (req, cap) => new Promise((resolve, reject) => {
   const chunks = []
   let size = 0
+  let over = false
   req.on('data', (c) => {
     size += c.length
-    if (size > cap) { reject(new HttpError(413, `请求体超过上限 ${cap} 字节`)); req.destroy(); return }
+    if (size > cap) {
+      // ⑩（2026-09-19 实测）原来这里是 `reject(...) + req.destroy()`：**先掐连接再写响应**，客户端拿到的是
+      //   `ECONNRESET`（curl exit 56、status 100），根本看不到 413 —— 也就是"如实回状态码"这条口径在
+      //   超限这条路上从来没成立过。改成**停止读取（pause）**、让调用方把 413 真正写出去：
+      //   响应发完后 Node 会关掉这条连接（请求体没读完 ⇒ 不会复用），客户端因此能读到 `413 + JSON 说明`。
+      if (!over) { over = true; reject(new HttpError(413, `请求体超过上限 ${cap} 字节（读取已停止；本服务不落盘）`)); req.pause() }
+      return
+    }
     chunks.push(c)
   })
-  req.on('end', () => resolve(Buffer.concat(chunks)))
-  req.on('error', reject)
+  req.on('end', () => { if (!over) resolve(Buffer.concat(chunks)) })
+  req.on('error', (e) => { if (!over) reject(e) })
 })
 async function readJsonBody(req, cap) {
   const buf = await readBody(req, cap)
@@ -1836,6 +1871,131 @@ function handleDiagSink(req, res, url) {
   void evt
 }
 
+// ═══ ⑩（2026-09-19）`POST /report` 与 `POST /baseline`：把测试台的「立即上报」真正收下来 ══════════════
+//   为什么在 :8902 也要有：`demo/bench-patch.js` 的调试页签把「立即上报」的落点按
+//   `DEBUG_REPORT_ROUTES = ['/report', '/baseline', '/diag']` **依次**试。:8902 原本只有 `/diag`（环形缓冲，
+//   内存里 200 条、重启即失），于是按钮的日志永远是"上报失败 → 只能进 /diag 环形缓冲"，点完什么也没留下
+//   （真实读数：`GET /report` 404）。三条路由的语义与 :8899 完全一致，**落点也一致**：
+//     · `/report`   ⇒ `<reports>/r<ts>.json`（受 60 份 / 64MB 最旧先删滚动）
+//     · `/baseline` ⇒ `<reports>/baselines/<ts>.json`（趋势数据，独立目录、独立上限，200 份 / 32MB）
+//     · `/diag`     ⇒ 环形缓冲（原样保留，作为两条落盘路由都不可用时的最后兜底）
+//   `/baseline` 的**校验判据**复用 `core/baseline-metrics.mjs`（与 :8899 同一把尺子）：不完整 ⇒ 400 且
+//   **不落盘** —— 趋势目录里只留干净数据（缺字段当 0 比会得出假结论）。
+/** 把一个目录收进 maxFiles/maxBytes 之内，**最旧先删**（与 :8899 的 `pruneDirToLimits` 同口径）。
+ *  排序 = 文件名里的 epoch 优先（`r<ts>.json` / `<ts>.json` 都是"名字即时间"），拿不到才退回 mtime。
+ *  任何一步失败都吞掉：**清理绝不能让写入路径 500**。返回 `{removed, freedBytes}`。 */
+function pruneDirToLimits(dir, opts) {
+  const o = opts || {}
+  const maxFiles = o.maxFiles === undefined ? Infinity : o.maxFiles
+  const maxBytes = o.maxBytes === undefined ? Infinity : o.maxBytes
+  let removed = 0, freedBytes = 0
+  try {
+    let names
+    try { names = fs.readdirSync(dir) } catch { return { removed: 0, freedBytes: 0 } }
+    const keep = o.filter || (() => true)
+    const tsOf = (n) => { const m = /(\d{10,})/.exec(n); return m ? Number(m[1]) : null }
+    const rows = []
+    for (const n of names) {
+      if (!keep(n)) continue
+      const st = statSafe(path.join(dir, n))
+      if (!st || !st.isFile()) continue
+      rows.push({ n, size: st.size, mtime: st.mtimeMs })
+    }
+    rows.sort((a, b) => {
+      const ta = tsOf(a.n), tb = tsOf(b.n)
+      if (ta !== null && tb !== null && ta !== tb) return ta - tb
+      return (a.mtime - b.mtime) || a.n.localeCompare(b.n)
+    })
+    let total = rows.reduce((s, r) => s + r.size, 0)
+    let count = rows.length
+    for (const r of rows) {
+      if (count <= maxFiles && total <= maxBytes) break
+      try {
+        fs.unlinkSync(path.join(dir, r.n))
+        removed++; freedBytes += r.size; count--; total -= r.size
+      } catch { /* 单个删不掉不阻断其余 */ }
+    }
+  } catch { /* ignore */ }
+  return { removed, freedBytes }
+}
+/** `reports/` 顶层的滚动：只认 `r<ts>.json` 与 `selfcheck-<ts>.json` 这两类自造文件名。
+ *  ⚠ `MPW_REPORTS_DIR` 默认是**工作区根的 reports/**，那里还躺着 `parity-*.json` 等别条线的产物
+ *  （对账门禁要读）——**一个都不许删**，所以过滤器必须白名单化。 */
+function pruneBenchReports() {
+  const a = pruneDirToLimits(REPORTS_DIR, { maxFiles: LIMITS.reportMaxFiles, filter: (n) => /^r\d+\.json$/.test(n) })
+  const b = pruneDirToLimits(REPORTS_DIR, { maxFiles: LIMITS.reportMaxFiles, filter: (n) => /^selfcheck-\d+\.json$/.test(n) })
+  const c = pruneDirToLimits(REPORTS_DIR, { maxBytes: LIMITS.reportMaxBytes, filter: (n) => /^(r\d+|selfcheck-\d+)\.json$/.test(n) })
+  return { removed: a.removed + b.removed + c.removed, freedBytes: a.freedBytes + b.freedBytes + c.freedBytes }
+}
+/** `reports/baselines/` 的滚动（只数 `<ts>.json`；与顶层各管各的）。 */
+function pruneBenchBaselines() {
+  return pruneDirToLimits(path.join(REPORTS_DIR, 'baselines'), {
+    maxFiles: LIMITS.baselineMaxFiles,
+    maxBytes: LIMITS.baselineMaxBytes,
+    filter: (n) => /^\d+(-\d+)?\.json$/.test(n),
+  })
+}
+/** `POST /report`：诊断载荷原样落 `<reports>/r<ts>.json`（不做 schema 校验——它就是"现场快照"，形状随版本走）。 */
+function handleReport(req, res) {
+  if (req.method !== 'POST') {
+    return Promise.resolve(json(res, 405, {
+      ok: false, error: '只接受 POST（body = 诊断报告 JSON）', allow: 'POST',
+      hint: 'GET 这条路由没有内容可给：报告落在 <reports>/r<ts>.json（目录见 /__health.report.dir），服务端 stdout 也会打印一行落点',
+    }, { Allow: 'POST' }))   // ①(2026-09-19) 405 按 HTTP 口径把小写 `allow` 也放进**响应头**（body 里那份是给人读的）
+  }
+  return readBody(req, LIMITS.reportBodyBytes).then((buf) => {
+    const dir = REPORTS_DIR
+    mkdirSafe(dir)
+    pruneBenchReports()   // 写入前：先把上一次遗留的超限收回去
+    const name = 'r' + Date.now() + '.json'
+    fs.writeFileSync(path.join(dir, name), buf)
+    const pr = pruneBenchReports()   // 写入后：本次这份也计入数量/字节上限
+    console.log('[8902][report] ' + path.join(dir, name) + ' ' + buf.length + 'B'
+      + (pr.removed ? '（滚动：删了 ' + pr.removed + ' 个最旧文件，释放 ' + (pr.freedBytes / 1048576).toFixed(2) + ' MB）' : ''))
+    recordDiag(`bench: 收到诊断上报 r${name.slice(1)}（${buf.length} B）`, 'info', 'report')
+    return jsonOk(res, { file: name, bytes: buf.length, dir, limit: { maxFiles: LIMITS.reportMaxFiles, maxBytes: LIMITS.reportMaxBytes } })
+  }).catch((e) => {
+    if (e instanceof HttpError) return jsonErr(res, e)
+    return jsonErr(res, new HttpError(500, '落盘失败: ' + (e && e.message)))
+  })
+}
+/** `POST /baseline`：真机基线快照 ⇒ `<reports>/baselines/<ts>.json`（校验不过 ⇒ 400 且不落盘）。 */
+function handleBaseline(req, res) {
+  if (req.method !== 'POST') {
+    return Promise.resolve(json(res, 405, { ok: false, error: '只接受 POST（body = 基线快照 JSON）', allow: 'POST' }, { Allow: 'POST' }))
+  }
+  return readBody(req, LIMITS.baselineBodyBytes).then((buf) => {
+    let snap = null
+    try { snap = JSON.parse(buf.toString('utf8').replace(/^\uFEFF/, '')) } catch {
+      return json(res, 400, { ok: false, error: 'body 不是合法 JSON' })
+    }
+    const v = mpwValidateSnapshot(snap)
+    if (!v.ok) {
+      return json(res, 400, {
+        ok: false, error: '快照不完整（' + v.errors.slice(0, 6).join('；') + '）', errors: v.errors.slice(0, 20),
+        hint: '完整快照的字段口径见 core/baseline-metrics.mjs 的 BASELINE_DEFAULTS/BASELINE_SCHEMA；不完整一律不落盘',
+      })
+    }
+    const dir = path.join(REPORTS_DIR, 'baselines')
+    mkdirSafe(dir)
+    pruneBenchBaselines()
+    const ts = Date.now()
+    let name = ts + '.json', n = 1
+    while (fs.existsSync(path.join(dir, name))) name = ts + '-' + (++n) + '.json'
+    fs.writeFileSync(path.join(dir, name), buf)
+    const pr = pruneBenchBaselines()
+    const rel = 'baselines/' + name
+    console.log('[8902][baseline] ' + path.join(dir, name) + ' ' + buf.length + 'B id=' + snap.id
+      + ' fps中位=' + (snap.fps && snap.fps.median) + ' 启动=' + (snap.startup && snap.startup.totalMs) + 'ms'
+      + (pr.removed ? '（滚动：删了 ' + pr.removed + ' 个最旧文件）' : ''))
+    recordDiag(`bench: 基线快照 ${rel}（${buf.length} B，id=${snap.id}）`, 'info', 'baseline')
+    return jsonOk(res, { schema: BASELINE_SCHEMA, file: rel, bytes: buf.length, dir })
+  }).catch((e) => {
+    if (e instanceof HttpError) return jsonErr(res, e)
+    return jsonErr(res, new HttpError(500, '落盘失败: ' + (e && e.message)))
+  })
+}
+
 function health() {
   const opener = findOpener()
   const lib = librarySource()
@@ -1867,6 +2027,17 @@ function health() {
       ? { available: true, engine: 'ffmpeg', ffmpeg, dir: THUMB_DIR, route: 'GET /api/thumb?item=&w=' }
       : { available: false, engine: 'preview-file-only', status: 501, route: 'GET /api/thumb?item=&w=', reason: '没有 preview.* 的视频档无法抽帧（PATH 里没有 ffmpeg）' },
     diag: { buffer: diagBuffer.length, bufferLimit: LIMITS.diagBuffer, seq: diagSeq, sseClients: sseClients.size, sink: ['GET /diag?msg=', 'POST /diag'], source: 'self (ring buffer; not a :8899 proxy)' },
+    // ⑩（2026-09-19）上报落点自述：测试台「立即上报」按 /report → /baseline → /diag 依次试，
+    //   这里如实回报**前两条真的存在**以及它们的磁盘落点/滚动上限（读的人不用再去翻代码）。
+    report: {
+      routes: ['POST /report', 'POST /baseline', 'POST /diag'],
+      order: 'POST /report ⇒ POST /baseline ⇒ POST /diag（bench-patch.js 的 DEBUG_REPORT_ROUTES）',
+      dir: REPORTS_DIR,
+      report: { route: 'POST /report', file: '<reports>/r<ts>.json', bodyBytes: LIMITS.reportBodyBytes, maxFiles: LIMITS.reportMaxFiles, maxBytes: LIMITS.reportMaxBytes, schema: '不校验（现场诊断快照，形状随版本走）' },
+      baseline: { route: 'POST /baseline', file: '<reports>/baselines/<ts>.json', bodyBytes: LIMITS.baselineBodyBytes, maxFiles: LIMITS.baselineMaxFiles, maxBytes: LIMITS.baselineMaxBytes, schema: BASELINE_SCHEMA, validate: 'core/baseline-metrics.mjs mpwValidateSnapshot（不完整 ⇒ 400 且不落盘）' },
+      diag: { route: 'POST /diag', sink: '内存环形缓冲（重启即失；仅当前两条都不可用时才走到）' },
+      prunes: ['r*/selfcheck* 最旧先删（数量 + 总字节）', 'baselines/ 独立滚动（数量 + 总字节）', 'reports/ 里别条线的 parity-* 等产物一个都不动'],
+    },
     reveal: opener ? { available: true, opener: opener.path } : { available: false, status: 501, tried: [OPEN_CMD_ENV, 'termux-open', 'xdg-open', 'open'].filter(Boolean) },
     capabilities: {
       staticBench: true, mediaDev: true, webDev: true, rangeRequests: true,
@@ -1878,6 +2049,7 @@ function health() {
       propsFileImport: true, propsFileReadBack: true,
       deleteDryRun: true, deleteConfirmToTrash: true, trashRollback: true,
       diagSink: true, diagStream: true, health: true,
+      debugReport: true, baselineSnapshot: true,   // ⑩ /report 与 /baseline 都真的在（不再是"只能进 /diag 环形缓冲"）
       nativeFolderPicker: false, nativeFilePicker: false,// 没有宿主对话框 ⇒ 见 degraded[]
       reveal: !!opener,
     },
@@ -1940,6 +2112,11 @@ const server = http.createServer((req, res) => {
 
   // 诊断入口（renderer 的 `/diag?msg=` 与 `POST /diag`）
   if (p === '/diag') return done(() => handleDiagSink(req, res, url))
+  // ⑩（2026-09-19）测试台「立即上报」的两条落盘路由：`/report`（现场快照）与 `/baseline`（趋势快照）。
+  //   必须是**根路径**（`demo/bench-patch.js` 用的是相对 URL，落在页面 origin 的根上），
+  //   且必须排在下面的静态兜底之前 —— 否则它们会走进静态面变成 404（这就是"点完什么也没留下"的原因）。
+  if (p === '/report') return done(() => handleReport(req, res))
+  if (p === '/baseline') return done(() => handleBaseline(req, res))
   if (p === '/__health' || p === '/__health/') return done(() => jsonOk(res, health()))
   if (p === '/favicon.ico') {
     const cand = path.join(STATIC_ROOT, 'icons', 'pwa-192.png')
@@ -2041,6 +2218,8 @@ server.listen(PORT, () => {
   line(`  属性覆盖落点   : ${PROPS_DIR}/<itemId>.json（不写进壁纸包；缩略图缓存落 ${THUMB_DIR}）`)
   line(`  回收站         : ${TRASH_ROOT}/<时间戳>/<itemId>（删除默认 dryRun；?confirm=1 才移入；可 mv 回滚）`)
   line(`  诊断流         : GET /api/diag-stream（SSE，环形缓冲 ${LIMITS.diagBuffer} 条；来源 GET /diag?msg= 与 POST /diag，**不代理 :8899**）`)
+  line(`  上报落盘       : POST /report ⇒ ${path.join(REPORTS_DIR, 'r<ts>.json')}（≤${LIMITS.reportMaxFiles} 份 / ${Math.round(LIMITS.reportMaxBytes / 1048576)}MB，最旧先删）`)
+  line(`                   POST /baseline ⇒ ${path.join(REPORTS_DIR, 'baselines', '<ts>.json')}（≤${LIMITS.baselineMaxFiles} 份 / ${Math.round(LIMITS.baselineMaxBytes / 1048576)}MB；schema ${BASELINE_SCHEMA}，校验不过 400 不落盘）`)
   line(`  健康自述       : http://127.0.0.1:${PORT}/__health`)
   line(`  降级为 501 的能力（见 /__health.degraded）：`)
   for (const d of healthSnap.degraded) line(`    · ${d.endpoint} ${d.when} → 能力 501（${d.capability}）；HTTP 用 ${d.httpStatusUsed}：${d.reason.slice(0, 60)}…`)
