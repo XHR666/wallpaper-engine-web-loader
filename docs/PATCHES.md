@@ -12390,3 +12390,145 @@ Chromium 在本环境起不来（GPU 进程连崩/`newPage` 挂起，与仓库�
 本补丁证的是"这条链上唯一可去掉的巨大代价 + 一处会把失败变成整屏黑的静默路径"，两处都有修前/修后数值与变异自证；
 `3669681034` 在本机 headed Firefox（软件 llvmpipe）下**修前修后都是非黑**（近黑 0%、mean `[196,184,160]`），
 所以"设备侧复现同一帧黑"这件事**只能靠用户真机回报**（下一次真机上报的 `texStats` 与日志会直接显示选级结果）。
+
+## P-164（2026-09-19 · 渲染器侧 · `:8902` 测试台外壳第二批）可关闭的壁纸条 + 新「调试模式」页签（逐层 / 上报 / 截图）+ 已选中项连点幂等 + 移动即转发的指针 + 品牌图标
+
+> 改动面：`demo/index.html`、`demo/bench-patch.js`、`demo/manifest.webmanifest`、
+> `demo/assets/brand/**`（**新**：4 张 PNG，本仓所有者提供的图）、`demo/now-playing/NowPlaying.tsx` +
+> 其入库产物 `demo/now-playing/dist/now-playing.js`（封面路径一行，用 `demo/now-playing/build.mjs` 重建）、
+> `tests/bench-shell-fixes-test.mjs`（156 → **183** 断言，变异组 9 → **13**）、
+> `tests/bench-ui-headless-test.mjs`（67 → **92** 断言，新增 X/Y/Z 三组）、`docs/BENCH-8902.md` §10。
+> **未动** `core/**`、`server/**`、`build-pages.mjs`、`src/**`、`web/**`、`demo.html`、README/`THIRD-PARTY.md`
+> （后两者的登记规则见 §P-164.5 —— 本批**没有**第三方素材要登记）。
+
+**一句话**：五条外壳问题一条一条修：①壁纸条能关、长标题不再把 `×` 顶到很远；②新增「调试模式」页签（逐层看 +
+立即上报 + 截图）；③点已经选中的壁纸不再重挂一遍；④鼠标尾迹不按键也出（与 `:8899` 对齐）；⑤页面/清单/卡片的
+图标换成本仓所有者提供的品牌图。
+
+### P-164.1 ① 可关闭的壁纸条（`demo/index.html` + `demo/bench-patch.js`）
+
+* **长标题不把 `×` 顶远**：`#editor-tabs .tab{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}`，
+  标题**只在一段可省略的 `span.wp-name` 里**（`flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis`），
+  右侧 `×` 是标签内的固定宽按钮 ⇒ 名字再长它也在标签右端内侧（实测：标签恰为 `max-width` 200px、`×` 命中区=视觉区）。
+* **当前壁纸那一格也带 `×`**：`#current` 的文本由产物写（写 `textContent` 会冲掉子节点），所以 `×` 做成它的
+  **兄弟节点** `.wp-x-cur`，紧贴右缘（实测 gap **0px**，`elementFromPoint` 命中它自己）。`curId` 为空（刚释放完）
+  时不画这个叉 —— 不留一个点了没反应的按钮。
+* **关闭决策 = 纯函数** `closeTabPlan(pinned, currentId, closedId)`（可单测 + 可变异）：返回新的固定集合、
+  是否关的是当前项、回落目标；关当前项时"先看它后面第一项、没有就取最后一项"，都没有 ⇒ `fallback: null`。
+* **回落 / 释放两条路都要"明确"**（§10.2 有完整口径）：
+  - 回落：`switchToWallpaper(fallback)` + **立刻**把当前格换成回落项标题（`titleForId(list, cacheGet, id)` =
+    列表 → 缓存 → id；不查缓存的话，回落那刻列表可能正在因切类型档重渲染 ⇒ 会把 id 当标题写进去）；
+  - 释放：当前格写回"未选择壁纸" + 点产物自己的 `#release` + 显示 `#empty` + 清空固定集合 +
+    **撤掉 `#list li.active`**（不撤的话 `refreshSwitcher` 会马上把"列表里选中的那一项"重新固定回去）。
+* 判据：Y0/Y0b/Y1–Y4/Y6/Y7/Y8（`tests/bench-ui-headless-test.mjs`）+ I1–I4/I22/I26/I27/I40–I42
+  （`tests/bench-shell-fixes-test.mjs`）+ **变异⑨**（`closeTabPlan` 不再判"关的是当前项" ⇒ I1 必红）+
+  **变异⑫**（回落标题不查缓存 ⇒ I41 必红）。
+
+### P-164.2 ② 新「调试模式」页签（逐层 / 立即上报 / 截图）
+
+* 视图：`#tab-debug` + `#debug-body`（按钮行 + `#dbg-state` + `#dbg-layer` + `#dbg-log`），
+  样式与静态表 `SITE_LAYOUT_CSS` 同文（D8 门禁盯着）。产物 CSS 里那条 `[hidden]{display:none!important}`
+  会压过 `#logs[data-view="debug"] #debug-body{display:flex}` ⇒ 显隐靠 JS 摘/挂 `hidden` 属性（`paintLogsTabs()`）。
+* 逐层：`:8902` 的 iframe 跑的是 minified 上游产物，**没有** `:8899` core 那套 `__lnOnly/__subMeshOnly`；
+  这里用 `window.__sceneLayers`（= `scene.layers`，每层 `visible` setter 会触发 `recomputeVisibility()`）做隔离，
+  退出时全部恢复可见。键位：←/→ = ±1 层、↑/↓ = ±10 层、Ctrl = 全部恢复、**Alt = 退出**；纯函数 `debugKeyPlan()` +
+  `layerStepPlan()` + `layerInfoPlan()`（都带边界：没有图层 ⇒ `index=-1` 且如实写"没有可逐层查看的场景"）。
+* **键盘纪律**：`dbgInstallKeys()/dbgRemoveKeys()` 成对；**只在本页签激活期间**装 capture keydown，
+  退出（Alt / 切页签 / `setDebugMode(false)`）立刻卸掉并恢复图层 —— 页签外一个键都不拦（Z1/Z7/Z8 逐条断言）。
+* 「立即上报」：`debugReportPlan()` 组一份 `bench-debug/1` 载荷（ts / 当前壁纸 / url / ua / debugMode /
+  图层 / 媒体数 / 诊断文本 ≤100 行）⇒ 依次 POST `/report` → `/baseline` → `/diag`，**把实际落点写进日志**，
+  本地再留一份 `localStorage['bench-debug-report']`。**存哪儿逐条写在 `docs/BENCH-8902.md` §10.3**：
+  本机 `:8902` 服务端只有 `/diag`（进环形缓冲，不落文件），`/report` 与 `/baseline` 是 404 ⇒ 要落成文件
+  需要服务端补两条与 `:8899` 同形的路由（`<MPW_REPORTS_DIR>/r<ts>.json`、`baselines/<ts>.json`），
+  那是 `server/**`（本批不在授权文件内）；补上之前载荷不会静默丢：`/diag` + 本地副本都在，日志写明原因。
+* 「截图」：走渲染器自己的 `__wp.capture(0)`（JPEG data URL）⇒ `a[download]`；拿不到就写明确原因。
+* 真机自证抓到的一条**真 bug**（本批修）：轮询用的定时器写成了兄弟作用域 `initSiteShell(deps)` 里的局部名
+  `every`/`stopEvery` ⇒ 在 `init()` 里是未声明标识符，`setDebugMode(true)` 抛 ReferenceError、又被
+  `setLogsView` 的 `try/catch` 吞掉 ⇒ 页签"看着切过去了、键盘也装上了，日志一行没有"（Z4 红）。
+  修法：本作用域自带 `dbgEvery/dbgStopEvery`；catch 里**留痕**（`window.__benchDebugBootErr` + `dbgBootErr()`），
+  门禁断言它恒为空串（Z9b / I43 / I44）——同类静默失败以后会被看见。
+* 判据：Z1–Z9b（headless）+ I5–I21/I28/I29/I43/I44（Node）+ **变异⑧**（未激活也接管方向键 ⇒ I5 必红）。
+
+### P-164.3 ③ 点"已选中"的壁纸必须幂等
+
+* 症状：点列表里已经是当前项的那一行，产物那条 `li.onclick` 会把同一个壁纸**重挂一次**（重新取包、进度归零、
+  日志多一条 `Mount`）。
+* 修法：决策抽成纯函数 `switchDecision(currentId, targetId, targetInList, targetIsActive)`
+  （目标已是当前项且**在列表里** ⇒ `skip`），`switchToWallpaper()` 只做落点；`#list` 上再加一道**捕获阶段**拦截
+  （`idemHits++`，`#np-host[data-np-idem]` 可读）兜住产物自己那条链。
+* 实测：连点 3 次 ⇒ `#frame` src 不变、`Mount` 日志 **8 → 8**、节点身份不变、拦截计数 **3**（Y5）。
+* 判据：I30–I34（纯函数四种组合）+ **变异⑩**（`switchDecision` 永远不跳过 ⇒ I30/I31 必红）。
+
+### P-164.4 ④ 移动即转发（鼠标尾迹不按键也出，与 `:8899` 对齐）
+
+* 舞台内的普通 `pointermove` 也推给渲染器：`__wp.pushPointer(u, v, Number(e.buttons) || 0, mods)`
+  —— `buttons=0` 就是"没按键"，与 `:8899` 的"移动即触发"同一口径。
+* 是否转发由纯函数 `pointerForwardPlan({enabled, hasApi, nested, inStage, hasRect})` 定，五条边界各有一条断言：
+  开关（`?pushfwd=0` 可关）、渲染器入口可用、**舞台上是 web 档 ⇒ 不转发**（渲染器文档里还有一层 iframe，
+  壁纸页自己收原生事件，再注入就是双投递）、坐标在舞台矩形内、舞台已量到非零尺寸。`enabled` 缺省按**关**（fail-closed）。
+* 实测：注入遮罩 + 尾迹开启下**不按键**移动 ⇒ 转发计数 **1 → 9**、尾迹画布墨迹 **0 → 332** 像素（Z10/Z11）。
+* 判据：I24/I25/I35–I39 + Z9/Z10/Z11 + **变异⑪**（转发决策不再看嵌套帧 ⇒ I36 必红）。
+
+### P-164.5 ⑤ 品牌图标（新 `demo/assets/brand/**`）
+
+* 图：`demo/assets/brand/wallpaper-engine-icon-512.png`（512², 107 355 B）、
+  `demo/assets/brand/wallpaper-engine-icon-192.png`（192², 30 032 B）、
+  `demo/assets/brand/favicon-64.png`（64², 5 589 B）、`demo/assets/brand/favicon-32.png`（32², 2 070 B）。
+* 引用点：`demo/index.html` 的 `<link rel="icon" …>`×3 + `apple-touch-icon`、`demo/manifest.webmanifest` 的三个
+  icons、播放卡片封面（`demo/now-playing/NowPlaying.tsx` 的 `COVER` + 重建后的 `dist`）。
+* 判据：H1（4 张逐图：存在 + PNG 尺寸与文件名一致 + 非空）、H2/H3（HTML 指向品牌图、不再引 `./icons/pwa-*`）、
+  H4/H5（manifest 三个图标都在且可达）、H6/H7（卡片封面 + dist 已重建）、X1–X3（真机 200 + `image/*`）、
+  **变异⑬**（favicon 改回 `./icons/pwa-*.png` ⇒ H2/H3 必红）。
+* **来源与登记**：这些图是**本仓所有者提供的图**（原图在**工作区根**的 `assets/brand/`，本批拷进 `demo/assets/brand/`），
+  **不是**上游/第三方素材 ⇒ `THIRD-PARTY.md` 与 `docs/COPYING-RULES.md` §4 台账**一行都不加**
+  （那张表登记的是"引入的第三方代码/素材"）。旧图**没有删**。
+* **只换了本页的引用**：`demo.html`、`web/**`（`web/icons/**` 由 `tools/make-icons.mjs` 生成、`web/icons/icons.json` 里
+  sha256 钉着，改不了）、`web/pwa-inject.mjs`、`web/diag.html`、`web/probe.html` 仍指旧图 —— 不在本批授权文件内。
+
+### P-164.6 判据汇总
+
+* `tests/bench-shell-fixes-test.mjs`：**183 通过 / 0 失败**（156 → 183：I30–I44 共 15 条 + H1 由 1 条汇总拆成
+  4 条逐图 + C18–C25 共 8 条新变异断言）。**变异组 9 → 13**：①–⑨（原有）+ ⑩③幂等、⑪④嵌套帧、⑫①回落标题缓存、
+  ⑬⑤图标回退；每组都是"锚点命中 + 变异体必红 + 真树跑前跑后 sha 一致"。
+* `tests/bench-ui-headless-test.mjs`：**92 通过 / 0 失败**（67 → 92：X/Y/Z 三组 25 条）。
+  顺带把 T1/T2 的**时序**做稳（媒体 metadata 就绪前 `canSeek/total` 本来就是假，同机两次跑一次真一次假 ⇒
+  有界等待；判据没放松，等不到照旧失败）。
+* 未回归：`demo-syntax` 11/11、`bench-8902` 116/0、`mpw-select` 70/0、`p142-nav-sound` 92/92、`now-playing` 216/0、
+  `secret-scan` 干净。`docs-check` 的 P-编号唯一且非递减：本条按"提交那刻最大号 + 1"取 **P-164**（P-162 / P-163
+  已被别的线占走）。
+* 浏览器纪律：跑前跑后 `ps -eo comm | grep -cx firefox` = 0（一次一个浏览器）。
+
+### P-164.7 做不到 / 只能这样的（诚实清单）
+
+1. **逐层查看依赖场景档**：拿不到 `__sceneLayers`（未挂载 / 场景加载中 / 本机 WebGL 不可用）时如实写
+   "没有可逐层查看的场景"，不编造层号。
+2. **上报不落文件**：本机 `:8902` 服务端没有 `/report` 与 `/baseline`（§P-164.2 与 `docs/BENCH-8902.md` §10.3），
+   载荷进 `/diag` 环形缓冲 + 本地副本；要落文件需要 `server/**` 补两条路由（不在授权文件内，本批未动）。
+3. **图标只在 `demo/**` 内换掉**：`demo.html` / `web/**` / `web/icons/**` 仍指旧图（见 §P-164.5）。
+4. **观感类只能人眼**：省略号观感、`×` 手感、尾迹粗细/颜色；探针只判几何、状态与像素计数。
+5. **`demo/now-playing/dist/now-playing.js` 是入库产物**：改它的源码必须重建（本批已重建）。
+
+## P-165（2026-09-20 · **插件侧** 壁纸流水线真机批次 + 交互音分类 + 联动/切页音频语义）
+
+> 编号说明：提交那刻文件里的最大号是 **P-164**（并行线的 `:8902` 测试台外壳条目，同一份文件里先行追加）
+> ⇒ 本条取 **P-165**（唯一且非递减）。本仓代码**一行未动**；被改的是插件仓
+> `dsh-mpkg-wallpaper`（`lib/client.js` / `lib/index.js` / `lib/web-wallpaper.js` / `tools/*` / `docs/WALLPAPER-LIFECYCLE.md`）。
+> 详细根因链、真机修前/修后读数、同类审计、诚实清单：**`dsh-mpkg-wallpaper/docs/WALLPAPER-LIFECYCLE.md`**。
+
+**一句话**：用户真机报的五条壁纸流水线 bug + 两条追加（交互音分类、联动开关语义）+ 一条切页音频：
+①设置面板被压缩进左侧栏（`backdrop-filter` 让侧栏成为 fixed 设置弹层的包含块，真机 `panel {x:320,w:800} → {x:13,w:254}`）；
+②「清除壁纸」清不掉（`undefined` 在不变量Ⅰ里是"不覆盖" + 粘性护栏把 `webUrl` 带回来 ⇒ 壁纸被重新加载）；
+②换档残留 `webUrl` 抢先武装（黑屏 + 破图 + 回退中间态）；①web 档预览框空白（预览分支没有 web 档那条）；
+③沙箱档被浏览器策略挡住时父页毫不知情；④卡片暂停管不住帧内音频；⑤切页不静音；
+A 播放器清单混进角色语音；B 联动开关关闭后语义坏；C 切页后"过一会儿又响一下"（我们自己的补起播/重试链在 hidden 后仍跑）。
+
+**判据**：插件仓新增 `tools/wallpaper-lifecycle-test.mjs`（A–N 十四组 + **15 组变异自证**，已进 `tools/check.sh` 第 2 步）
+与 `tools/wallpaper-lifecycle-live-probe.mjs`（真机，`--selftest` 无浏览器，13 条静态判据自证）。
+`bash tools/check.sh` 12/12 全绿；真机探针 27 PASS / 2 FAIL / 1 SKIP（2 FAIL 为探针导航时序，已补等待；1 SKIP = 服务端 ESM 未重载）。
+
+**与渲染器侧的接口**：①`?npvoice=keep|drop` 已登记进 `docs/README-DIAGNOSTICS.md` 主表
+（`node tests/diag-flag-check.mjs` ⇒ 代码 160 == 主表 160，0 差异；`web/diag-flags.json` 无需重生成）；
+②审计发现宿主三条 scene 路由的 `folder=` 一律相对**当前 customDir**（客户端改"失败即同步目录并重试一次"，
+happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重启才生效（ESM 模块缓存）；
+③P-163 的 8K 贴图选级/坏纹理修复与本批**无交集**：本批的黑屏读数是"挂载分支选错 + 旧路径 404"，
+不是贴图解码路径。
