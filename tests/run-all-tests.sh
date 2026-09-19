@@ -494,6 +494,16 @@ add "script-storage" "node tests/script-storage-test.mjs" "" "^SKIP script-stora
 #   真包缺失时各组 SKIP 视作 PASS（不红）。
 add "particle-overbright" "node tests/particle-overbright-test.mjs"
 
+# ①(尾迹离开 2026-09-19) `trail-leave`：**鼠标尾迹在指针离开窗口时的行为**（用户实测项）
+#   · 根因：无指针时涡流圆心退化成 `sys.origin`（= 图层原点；全屏尾迹层就是**画面中心**）、
+#     吸附目标退化成 authored `cp.offset` 当世界坐标用（= 左上角）——上游同形（`particles.js:1011`
+#     的 `this._cpPos(v.cp) || [0, 0, 0]`）；本仓库 P-118/P-121 的语义是"离开 ⇒ 无指针" ⇒ 必须自己兜住。
+#   · 修法：块 F 追加"最后已知指针"影子 + `shadowCpWorld()`（力中心冻结在最后离开点）+
+#     `finishTrailInPlace()`（有界衰减收尾）；离开后不再发射、第 `TRAIL_FINISH_FRAMES` 帧归零、回来重建。
+#   · 判据：合成 0.8/0.2 → 离开事件 → 逐帧力中心/质心/粒子数 + 真包 dd/3554161528 ln=389（缺失则 SKIP）。
+#     **54 条正断言 + 4 组变异自证（16 条）**，实测 ~25s、单 node 进程、无浏览器 / 无网络 / 无 X11。
+add "trail-leave" "node tests/trail-leave-test.mjs"
+
 # —— --list ——
 if [ "$LIST" = 1 ]; then
   echo "共 ${#NAMES[@]} 项（slow=--fast 跳过；条件项=无数据自动 SKIP）："

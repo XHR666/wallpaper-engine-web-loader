@@ -26,7 +26,8 @@
 //     |                  | 确定性 RNG（见 C-1）
 //  D  | particles.js:1010-1024 | **逐字**（仅把 `p.vx += …` 改成返回值），音频门控保留在本仓库算子层
 //  E  | particles.js:1154-1163 | **逐字**，只有 `this.` → `sys.`、`this.controlPoints` → `sys.localControlPoints`
-//  F  | scene-mount.ts:1670-1676 | **逐字语义**：每帧把**活指针**写进粒子系统，指针**不进**重建签名
+//  F  | scene-mount.ts:1670-1676 | **逐字语义**：每帧把**活指针**写进粒子系统，指针**不进**重建签名；
+//     |                  | 另加"最后已知指针"影子（见 F-1）——上游在这一块的**下游**没有兜住"无指针"
 //  G  | particles.js:698-707 | `attachFollow(parent, mode, offset)` **逐字**，只有 `this.` → `sys.`、
 //     |                  | `this._syncFollow()` → `syncFollow(sys)`（见 G-1）
 //  H  | particles.js:709-713 | `leaderParticle()` **逐字**（`pool` 的取法见 H-1）
@@ -58,6 +59,18 @@
 //  C-1（随机源 · 必须说明）：上游 847 行是 `const k = Math.random()`（**非确定性**，与它的
 //      `rng` 流不是同一个）。本仓库每次渲染必须可复现（门禁会逐位比两次运行），故初速仍吃
 //      系统自己的 `rng()`；位置投放（830-845）**不含随机数**，逐字照抄不受影响。
+//  F-1（**离开窗口** · 必须说明 · 本模块新增的唯一块）：块 F 只做了上游那半句——「有指针就
+//      `setPointer`」；上游**没有**规定"这一帧没有指针"时下游该怎么办，于是它自己下游的两处
+//      退化路径都是**把圆心换掉**：
+//        · `particles.js:1011` 涡流 `const base = this._cpPos(v.cp) || [0, 0, 0]` —— `_cpPos` 无指针
+//          返回 null ⇒ 圆心变成**系统原点**（本仓库 `sys.origin` = 图层原点；全屏尾迹层就是**画面中心**）；
+//        · 吸附算子里 `cp.offset`（层空间）被当世界坐标用 ⇒ 退化成画面左上角。
+//      上游自己的宿主（`pointer.js` 的 `pushExternalLeave`）**保留最后位置**，所以它从不触发这两条；
+//      本仓库 P-118/P-121 的语义是「离开 ⇒ 无指针」（`sys.pointer = null`，64 断言钉住）⇒ 必须自己
+//      兜住"无指针"：块 F 在这里**追加**一个"最后已知指针"影子（`sys.pointerShadow` +
+//      `sys.pointerLocalShadow` + `sys.pointerLeaveFrames`），并给出 `shadowCpWorld()` /
+//      `finishTrailInPlace()` 两个适配入口。照抄块 A/B/C/D/E/G/H/I 一行未动（`cpPos` 仍按上游
+//      在无指针时返回 null）。行为与判据见 `tests/trail-leave-test.mjs`。
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // 为什么这一份照抄能修好「看不见尾迹」：上游的指针是**每帧推进的活输入**
@@ -241,13 +254,109 @@ export function vortexSwirl(px, py, base, v, dt) {
  * 本仓库把这条语义放在这里，由 `core/we-scene-bundle.js` 的 `renderParticleLayer`
  * 在 `simulateParticleSystem()` **之前**调用一次。
  *
+ * ①(尾迹离开 2026-09-19 · 见文件头 F-1) 本函数额外记下**最后已知指针**（影子）：上游宿主
+ *   在"指针离开"时保留最后位置，本仓库的语义是"离开 ⇒ 无指针"，两者差这一层记忆 ——
+ *   没有它，下游（涡流/吸附）会退化到 `sys.origin`（图层原点 = 全屏尾迹层的**画面中心**）。
+ *   `sys.pointer` 的对外语义**不变**（null = 本帧无活指针 ⇒ 锁指针发射器不发射）。
+ *
  * @param {object} sys 粒子系统
  * @param {[number,number]|null} pointerWorld 设计坐标（y 向下）；null = 本帧无指针
  * @returns {boolean} 是否推进了指针（false = 本帧无指针 ⇒ lockToPointer 发射器不发射）
  */
 export function pushPointerFrame(sys, pointerWorld) {
-  if (pointerWorld) setPointer(sys, pointerWorld[0], pointerWorld[1])
-  return !!pointerWorld
+  if (pointerWorld) {
+    setPointer(sys, pointerWorld[0], pointerWorld[1])
+    // 影子（世界坐标）= 本帧活指针；`pointerLocalShadow` 是**照抄来的** `setPointer` 的产物，
+    // 供 `shadowCpWorld` 在无指针帧上重建"锁指针控制点在最后离开点"的局部坐标。
+    sys.pointerShadow = [pointerWorld[0], pointerWorld[1]]
+    sys.pointerLocalShadow = sys.pointerLocal ? { x: sys.pointerLocal.x, y: sys.pointerLocal.y } : null
+    sys.pointerLeaveFrames = 0
+    return true
+  }
+  if (sys.pointerShadow) sys.pointerLeaveFrames = (sys.pointerLeaveFrames || 0) + 1
+  return false
+}
+
+/**
+ * ①(尾迹离开 2026-09-19 · 不是照抄，是本仓库适配层)：离开后**就地收尾**的帧数窗口（**策略值**）。
+ *
+ * 为什么是 1：既有门禁 `tests/pointer-leave-test.mjs` 的 P3b 是"离开后**连续 3 帧**存活粒子为 0"
+ * （第 1 帧就算），另有 D1b/G5/G1/G1b/G2b/G2c/G3a/G3e 同口径 —— 那条断言属于**另一条线**，
+ * 本批纪律是"不改别人的断言"，所以渲染器侧取 1 帧：离开帧当场结束（用户口径"挪出去就直接消失"）。
+ * `finishTrailInPlace(sys, k)` 本身是**有界衰减**（k 帧内每帧严格更少、alpha 逐帧渐隐、第 k 帧归零），
+ * k>1 的性质由 `tests/trail-leave-test.mjs` 在单元层逐条钉住 ⇒ 将来若把 P3b 放宽到"第 2 帧起为 0"，
+ * 把这里改成 2~4 就是**一行**的事（判据已经就位，不需要重写逻辑）。
+ */
+export const TRAIL_FINISH_FRAMES = 1
+
+/**
+ * ①(尾迹离开 2026-09-19 · 适配层)：最后已知指针（世界设计坐标）；从未有过指针 ⇒ null。
+ * @returns {[number,number]|null}
+ */
+export function pointerShadowWorld(sys) {
+  return sys && sys.pointerShadow ? [sys.pointerShadow[0], sys.pointerShadow[1]] : null
+}
+
+/**
+ * ①(尾迹离开 2026-09-19 · 适配层)：**不落到 null 的** `cpPos` —— 锁指针控制点在"无指针"帧上的
+ * 当前位置 = 最后已知指针 + authored offset（局部空间）。与照抄块 E 的 `cpPos` 的差别只有一处：
+ * 拿不到指针时用影子而不是返回 null（上游 `if (!this.pointer) return null` 一字未动，仍在 `cpPos` 里）。
+ *
+ * @returns {[number,number,number]|null} null = 从未有过指针（此时保持旧行为：下游退化为层原点）
+ */
+export function shadowCpPos(sys, id) {
+  const cp = (sys.localControlPoints || []).find((c) => c.id === id)
+  if (!cp) return null
+  const P = sys.pointerLocal || sys.pointerLocalShadow
+  if (!P) return null
+  if (cp.lockToPointer) return [P.x + cp.offset[0], P.y + cp.offset[1], cp.offset[2]]
+  return cp.offset
+}
+
+/** ①(尾迹离开 2026-09-19 · 适配层)：`shadowCpPos` 的世界坐标版本（`localToWorld` 与照抄块同式）。 */
+export function shadowCpWorld(sys, id) {
+  const lo = shadowCpPos(sys, id)
+  if (!lo) return null
+  return localToWorld(sys, lo)
+}
+
+/**
+ * ①(尾迹离开 2026-09-19 · 适配层)：一帧"就地收尾" —— 把**尾迹的尾巴**（最先出生的粒子）按剩余
+ * 窗口比例丢弃，并把留下的粒子按同一比例压 alpha（可见的渐隐，而不是凭空消失）。
+ *
+ * 为什么不直接 `particles.length = 0`（P-136 的旧写法）：那会让"收尾"没有可观测口径 ——
+ * 粒子数、质心、alpha 全都在同一帧归零，出问题时（比如力中心被换到画面中心）无从度量。
+ * 就地收尾保证：
+ *   · 粒子数**每帧严格下降**，`k` 帧内归零（k = `sys.trailFinishFrames`，缺省 `TRAIL_FINISH_FRAMES`）；
+ *   · 留下的粒子位置**一帧都不改**（本函数只动 alpha 与数组头部，不碰 `p.pos`）；
+ *   · 丢的是**最老的**（`sys.particles` 是发射序紧凑数组）⇒ 最后剩下的正好是"离开点那一簇"。
+ *
+ * 成本：只在"锁指针层 + 本帧无指针 + 还有粒子"时进入，最多 k 帧，每帧 O(存活粒子)；
+ * 稳态（指针在画面内）**一次都不进**。
+ *
+ * @param {object} sys 粒子系统
+ * @param {number} [k] 收尾窗口帧数（缺省取策略值）；k=1 ⇒ 本帧归零（现网策略，见常量注释）
+ * @returns {number} 收尾后剩余粒子数
+ */
+export function finishTrailInPlace(sys, k) {
+  const P = sys.particles || []
+  const n = P.length
+  if (!n) return 0
+  const win = Math.max(1, Math.floor(k || sys.trailFinishFrames || TRAIL_FINISH_FRAMES))
+  const frames = (sys.pointerLeaveFrames || 0)
+  const left = Math.max(1, win - (frames - 1))   // 含本帧在内还剩几帧收尾
+  const drop = Math.max(1, Math.ceil(n / left))
+  P.splice(0, Math.min(drop, n))
+  const f = Math.max(0, 1 - 1 / left)
+  for (const p of P) {
+    p.alpha *= f
+    // alpha 类算子（alphafade/alphachange/oscillatealpha）每帧会**从基准值重算** alpha，
+    // 只乘 `p.alpha` 会被它们覆盖 ⇒ 基准一起压（没有这些字段的层 = 空操作）。
+    if (typeof p._initAlpha === 'number') p._initAlpha *= f
+    if (p.oscAlpha && typeof p.oscAlpha.base === 'number') p.oscAlpha.base *= f
+  }
+  sys.count = P.length
+  return P.length
 }
 
 /**

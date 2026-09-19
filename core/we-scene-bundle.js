@@ -25,7 +25,7 @@ import { frameClientPoint, frameGeomModeFromQuery } from './web-frame-geometry.m
 //   `:724-743` `_syncFollow` + `renderer/src/scene-mount.ts:1449-1560`（递归建子系、followMode 判定、
 //   子系图层变换的合成）—— 这就是 `children` 的 `static`/`eventfollow` 两个 type 的实现来源。
 //   登记见 THIRD-PARTY.md §15。
-import { syncLayerTransform, setPointer, cpPos, cpWorld, localToWorld, mapSequenceAroundControlPoint, vortexSwirl, pushPointerFrame, attachFollow, leaderParticle, syncFollowOrigin } from './we-particle-pointer.mjs'
+import { syncLayerTransform, setPointer, cpPos, cpWorld, localToWorld, mapSequenceAroundControlPoint, vortexSwirl, pushPointerFrame, attachFollow, leaderParticle, syncFollowOrigin, shadowCpWorld, finishTrailInPlace, pointerShadowWorld } from './we-particle-pointer.mjs'
 import { createPointerSource } from './we-pointer-source.mjs'
 // ①(P-131 批 D 2026-09-19 音频驱动发射) 粒子 `audioprocessing*`（官方编辑器里叫 **Audio response**）
 //   的包络与频段口径在**唯一实现处** `core/audio-band-array.mjs`（纯函数、无 DOM）：
@@ -3626,7 +3626,18 @@ function __cpWorldLocked(sys, cpIdx) {
   const ptrCp = (typeof sys.pointerCp === 'number') ? sys.pointerCp : -1
   if (ptrCp < 0 || Number(cpIdx) !== ptrCp) return null
   const P = sys.pointer
-  if (!P) { sys.pointerLocal = null; sys.__ptrLocalKey = null; return null }
+  if (!P) {
+    sys.pointerLocal = null; sys.__ptrLocalKey = null
+    // ①(尾迹离开 2026-09-19) 本帧无活指针（离开窗口 / `inside:false` / `?cursor=off` / 失焦）：
+    //   控制点**冻结在最后已知指针**上，而不是让调用方退化。
+    //   为什么必须兜住：上游 `particles.js:1011` 的涡流写的是 `this._cpPos(v.cp) || [0, 0, 0]` ——
+    //   无指针 ⇒ 圆心 = **系统原点**（本仓库 `sys.origin` = 图层原点，全屏尾迹层就是**画面中心**）；
+    //   吸附算子的退化目标则是 authored `cp.offset` 当世界坐标用（= 画面左上角）。
+    //   上游自己的宿主在离开时保留最后位置（`pointer.js` 的 `pushExternalLeave`），所以它走不到这两条；
+    //   本仓库 P-118/P-121 的语义是「离开 ⇒ 无指针」⇒ 必须在这里兜住，否则尾迹会被**拽到画面中心**。
+    //   从未有过指针（首帧 / `?cursor=off` 全程）⇒ 影子为空 ⇒ 保持旧行为（退化到层原点）。
+    return shadowCpWorld(sys, Number(cpIdx))
+  }
   // ①(P-136) 上游 `setPointer`（照抄）是局部指针的**唯一**写入路径；`sys.pointer` 仍是本仓库
   //   对外/对门禁的公共字段（世界设计坐标）。这里按坐标指纹做一次幂等同步（每帧每层一次，
   //   不是每颗粒子一次），保证"直接写 `sys.pointer` 的既有调用方（测试/门禁）"也走照抄来的通路。
@@ -3780,7 +3791,10 @@ function __mapAroundCtx(sys, em, wx, wy, wz) {
     const off = pVec3(cp.offset || cp.origin, [0, 0, 0])
     if (em.__ptrLocked) {
       // 锁指针的控制点：当前位置 = 指针（`sys.pointer`）、加 authored offset（层空间 ⇒ y 取反进世界）
-      const P = sys.pointer || [sys.origin[0], sys.origin[1]]
+      // ①(尾迹离开 2026-09-19) `sys.pointer` 为空时**不再回落到层原点**（原点 = 画面中心）：
+      //   先用最后已知指针的影子。这一行当前不可达（`spawnParticle` 在无指针时提前 `return null`），
+      //   属于同一类退化路径的**拆雷**：一旦将来放宽发射门，这里不会再把人拽到画面中央。
+      const P = sys.pointer || pointerShadowWorld(sys) || [sys.origin[0], sys.origin[1]]
       cx = P[0] + off[0] * em.scale[0]
       cy = P[1] - off[1] * em.scale[1]
       cz = wz
@@ -4467,6 +4481,16 @@ export function applyOperator(sys, op, dt, t) {
         // ①(P-69 第 6 项) 控制点是 lockToPointer 且有指针 → 目标 = 指针（世界设计坐标，已是 y-down，
         //   不能再做下面那次 y 取反）；否则沿用层空间 target 的旧算法（本次不改其语义）。
         const __cpPtr = __cpWorldLocked(sys, cpIdx) || ((sys.pointer && cpIdx === sys.pointerCp) ? sys.pointer : null)
+        // ①(尾迹离开 2026-09-19 · 只读记账，零行为变化) 本算子**实际用的力中心**（世界设计坐标）。
+        //   无指针时旧写法会退化成"层空间 offset 当世界坐标用"（= 画面左上角）；这里把有效中心
+        //   如实记在 `sys.__ptrForce*` 上，供 `tests/trail-leave-test.mjs` 断言"离开后中心 = 最后离开点、
+        //   不是层原点/画面中心"。只在**指针控制点**上当帧写两个 number（就地覆盖，不分配对象、
+        //   不进顶点流、不改 RNG）⇒ 稳态代价可忽略；非指针控制点一次都不写。
+        if (cpIdx === sys.pointerCp) {
+          sys.__ptrForceX = __cpPtr ? __cpPtr[0] : target[0]
+          sys.__ptrForceY = __cpPtr ? __cpPtr[1] : -target[1]
+          sys.__ptrForceKind = 'controlpointattract'
+        }
         const dx = __cpPtr ? (__cpPtr[0] - p.pos[0]) : (target[0] - p.pos[0])
         const dy = __cpPtr ? (__cpPtr[1] - p.pos[1]) : -(target[1] - p.pos[1])
         const d = Math.hypot(dx, dy) || 1
@@ -4570,6 +4594,15 @@ export function applyOperator(sys, op, dt, t) {
         const baseY = usePtr ? __cpPtrW[1] : sys.origin[1]
         ccx = baseX + cpOff[0] + off[0]
         ccy = baseY - cpOff[1] - off[1]
+        // ①(尾迹离开 2026-09-19 · 只读记账，零行为变化) 同 controlpointattract：把本帧**实际用的圆心**
+        //   记在 `sys.__ptrForce*` 上。无指针时 `usePtr=false` ⇒ 圆心 = `sys.origin`（图层原点；
+        //   全屏尾迹层就是**画面中心**）—— 上游 `particles.js:1011` 的 `|| [0, 0, 0]` 同一形态。
+        //   "离开后被拖到画面中央"就是这条记下来的圆心换了地方。只在指针控制点上写（见上）。
+        if (!legacy && cpIdx === ptrCp) {
+          sys.__ptrForceX = ccx
+          sys.__ptrForceY = ccy
+          sys.__ptrForceKind = 'vortex'
+        }
         // ①(P-136 用户第 4 项：照抄上游 MIT 实现) 切向加速这一段**整块**改为调用照抄来的
         //   `vortexSwirl`（← 上游 `renderer/vendor/we-scene/render/particles.js:1010-1024`）。
         //   本仓库只留在外面：圆心解析、音频门控 `audioK`、`axis.z` 手性 `sgn`。
@@ -11340,18 +11373,26 @@ export function createRenderer(canvas, opts = {}) {
     //   67px、每帧 400 步重放 ≈6.1 万次粒子更新；照抄后 1175px、每帧 1 步。数字见 P-136 台账）。
     //   `pushPointerFrame` 即上游那一块的落点（`core/we-particle-pointer.mjs` 块 F）。
     pushPointerFrame(sys, __ptrNow)
-    // ①(P-136 用户第 4 项) **无指针 ⇒ 本层清空**（把旧口径的副作用改成显式规则）。
-    //   旧写法：指针坐标进 `__sig` ⇒ 指针从 (x,y) 变成"无"时签名变化 ⇒ 整系统重建、以
-    //   `sys.pointer = null` 重放 ⇒ 一颗粒子都不发射 ⇒ `alive` 归零。照抄上游后不再重建
-    //   （指针本来就是活输入），若不显式清空，离开画布后会有"喂着旧坐标的粒子"继续留在场上
-    //   —— 那正是 tests/pointer-leave-test.mjs P3b/G5/G1 等十条断言要禁止的情形。
-    //   语义只在**无指针**时生效：指针在画布内移动时粒子**照常存活**（尾迹就靠这个），
+    // ①(尾迹离开 2026-09-19 · 改写 P-136 的"一帧清空") **无指针 ⇒ 就地收尾**。
+    //   语义来源：无指针（离开画布 / `inside:false` / 页面失焦 / `?cursor=off`）时本层不再发射，
+    //   已存活的粒子在**最后离开点**上渐隐、并在 `TRAIL_FINISH_FRAMES` 帧内归零。
+    //   为什么不是旧的 `sys.particles.length = 0`（P-136 写法）：
+    //     · 旧写法是**一帧蒸发**：离开帧整条尾迹直接不见，观感是"啪"地消失（用户口径：可以直接消失，
+    //       但要有收尾）；且它让"离开后质心有没有被拽到画面中心"这条判据没有可观测对象；
+    //     · 收尾窗口内**位置一帧都不动**（力中心由 `__cpWorldLocked` 冻结在最后离开点，见那里的注释），
+    //       所以既不会"回到画面中心"，也不会"在边缘一直转圈"（上游宿主保留旧坐标 + 不停发 ⇒ 才会转圈）。
+    //   仍然满足既有门禁（tests/pointer-leave-test.mjs 的 D1b/G5/G1/G1b/G2b/G2c/G3a/G3e/P3b…）：
+    //   那些断言要求"离开后**第 1 帧**存活粒子就为 0"（P3b 连看 3 帧）⇒ 渲染器侧收尾窗口取
+    //   `TRAIL_FINISH_FRAMES = 1`（离开帧当场归零，与用户口径"挪出去就直接消失"一致）；
+    //   `finishTrailInPlace(sys, k)` 的 k>1 衰减性质在 `tests/trail-leave-test.mjs` 单元层钉住，
+    //   将来 P3b 放宽成"第 2 帧起为 0"时把那个常量改成 2~4 即可（一行）。
+    //   语义只在**无指针**时生效：指针在画布内移动时粒子照常存活（尾迹就靠这个），
     //   所以这条不会把尾迹抹掉（对照：A3d/P4c 两条断言要求"指针一动，全部粒子就在新指针 6px 内"，
     //   与"尾迹"在定义上互斥 —— 该冲突已在 P-136 台账报告，未擅自改断言）。
     if (__ptrLockedLayerNow && !__ptrNow && sys.particles && sys.particles.length) {
-      sys.particles.length = 0
-      sys.count = 0
-      sys.__ptrCleared = (sys.__ptrCleared || 0) + 1
+      const __left = finishTrailInPlace(sys)
+      if (!__left) sys.__ptrCleared = (sys.__ptrCleared || 0) + 1
+      else sys.__ptrFinishing = (sys.__ptrFinishing || 0) + 1
     }
     if (def && def.maxcount > sys.maxCount) partStat.capped++
     const __sim = simulateParticleSystem(sys, time, PARTICLE_BUDGET.steps)
