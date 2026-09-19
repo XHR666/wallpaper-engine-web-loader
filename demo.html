@@ -1716,6 +1716,39 @@ async function loadTex(name, opts = {}) {
   let tex, m
   try { tex = lib.parseTex(te) } catch (e) { logf('  ⚠ 环节[parseTex] ' + name + ': ' + e.message); return Promise.resolve(null) }
   try { m = lib.decodeMip0(tex) } catch (e) { logf('  ⚠ 环节[decodeMip0] ' + name + ': ' + e.message); return Promise.resolve(null) }
+  // ═══ ①(P-163 2026-09-19 「3669681034 渲染全黑」) 大贴图**先选 mip 级再解码** ═══
+  //   旧链路：`decodeMip0` 恒取 0 级 → 8K PNG（7680×4320，31.7MB）先被解成 132.7MB 位图，
+  //   紧接着下面的 `texDownsampleCap` 又把它缩到 min(2048, 设备上限)（9.4MB 上传）——白解 15/16。
+  //   而容器**自带完整 mip 链**（该 .tex 五级：7680/3840/1920/960/480），取"长边 ≥ 目标的最小一级"
+  //   （= 缩放的标准 LOD 选择）画质不劣、解码/峰值内存按级数下降（本例 4×）。
+  //   这也是 P-36 记录过的真机"大位图上传失败 ⇒ 整层采样为黑（整屏黑）"那类故障的入口。
+  //   语义保护：只有 free-image（PNG/JPEG/video，各级是独立完整文件）与"确实有 ≥2 级"时才切级；
+  //   切级失败/没有更小的一级 → 逐位回到旧路径（`?mipsel=0` 可强制回退做 A/B 对照）。
+  //   ⚠ 本块会被 `tests/load-timeout-test.mjs` 之类的切片夹具用**受限入参**执行（那里没有 `location`、
+  //   也没有新 helper ⇒ 旧桩）⇒ 一律 `typeof` 守卫 + 缺 helper 直接跳过，**零日志、零行为变化**。
+  //   ⚠ **上传尺寸必须与改动前一致**：选级后位图变小（3840×2160），若让下面的 `texDownsampleCap`
+  //   按新尺寸重算就会返回 null（3840 ≤ 4096）⇒ 上传反而从 2048×1152 涨到 3840×2160（显存 3.5×）。
+  //   所以把"按 **mip0** 算出来的目标"记在 `__mipTarget` 里，交接给位图那段当 cap 用。
+  let __mipTarget = null
+  try {
+    const __mipQ = (typeof location !== 'undefined' && location.search) ? new URLSearchParams(location.search).get('mipsel') : null
+    const __freeImg = !!(m && (m.png !== undefined || m.image !== undefined || m.video !== undefined))
+    const __canSel = typeof lib.pickMipForTarget === 'function' && typeof lib.decodeImageMip === 'function'
+    if (__canSel && __freeImg && __mipQ !== '0' && tex.images && tex.images[0] && tex.images[0].length > 1) {
+      const __cap0 = lib.texDownsampleCap(tex.width || m.width, tex.height || m.height, DEV_MAX_TEX) || 0
+      const __lv = lib.pickMipForTarget(tex, __cap0)
+      if (__lv > 0) {
+        const m2 = lib.decodeImageMip(tex, 0, __lv)
+        const __fromBytes = (m.png || m.image || m.video || []).length
+        const __toBytes = (m2.png || m2.image || m2.video || []).length
+        logf('  ℹ mip 选级 ' + name + '：目标长边 ' + __cap0 + '（设备上限 ' + DEV_MAX_TEX + '）→ 用第 ' + __lv + ' 级 '
+          + m.width + 'x' + m.height + '→' + m2.width + 'x' + m2.height
+          + '（' + (__toBytes / 1048576).toFixed(1) + 'MB，省掉 ' + ((__fromBytes - __toBytes) / 1048576).toFixed(1) + 'MB 解码；上传目标仍 ' + __cap0 + '）')
+        m = m2
+        __mipTarget = __cap0
+      }
+    }
+  } catch (e) { logf('  ⚠ mip 选级失败（按 0 级兜底）: ' + e.message) }
   // ①(MERGED-2 B ?perf=auto ③) 解码总字节超预算（220MB）→ 非关键层（无效果、面积 <25% 屏）按 1/2 上传。
   //   仅在 ?perf=auto 生效；默认路径 __texBytesTotal 也累计但不做降级（判定成本≈0）。
   if (m && m.rgba) {
@@ -1852,7 +1885,10 @@ async function loadTex(name, opts = {}) {
         return { entry: e, gerr }
       }
       let src = bmp, w = bmp.width, h = bmp.height
-      const cap0 = lib.texDownsampleCap(w, h, DEV_MAX_TEX)
+      // ①(P-163) `__mipTarget` = 上面按 **mip0** 尺寸算出的降采样目标（选级生效时才有值）：
+      //   位图已经换成了更小的一级，若在这里按新尺寸重算 `texDownsampleCap`（3840 ≤ 4096）会得到
+      //   null ⇒ 上传尺寸从 2048×1152 涨到 3840×2160。用同一个目标 ⇒ **上传尺寸与改动前逐位一致**。
+      const cap0 = __mipTarget || lib.texDownsampleCap(w, h, DEV_MAX_TEX)
       if (cap0) {
         try {
           const k = Math.min(cap0 / w, cap0 / h)
@@ -1864,19 +1900,31 @@ async function loadTex(name, opts = {}) {
         } catch (e) { logf('  ⚠ 位图 canvas降采样失败 ' + name + ': ' + e.message + '（按原尺寸上传）') }
       }
       let r = uploadWithCheck(src, w, h)
+      // ①(P-163 第 2 处) 重试阶梯此前**是死代码**：`k = min(retry/w, retry/h)` 里 w/h 已经是
+      //   `texDownsampleCap` 裁过的尺寸，retry=2048 对 2048×1152 恒得 k=1 ⇒ `k >= 1` 直接 break，
+      //   1024 那档永远到不了。改成"按**目标上限**逐档缩"（2048 → 1024），只在第一次上传真的报错时跑。
       for (const retry of [2048, 1024]) {
         if (r.gerr === gl.NO_ERROR) break
         try {
+          if (Math.max(w, h) <= retry) continue
           const k = Math.min(retry / w, retry / h)
-          if (k >= 1) break
           const nw = Math.max(2, Math.round(w * k)), nh = Math.max(2, Math.round(h * k))
           const c = document.createElement('canvas'); c.width = nw; c.height = nh
           c.getContext('2d').drawImage(bmp, 0, 0, nw, nh)
           logf('  ⚠ 位图上传 GL 错误 0x' + r.gerr.toString(16) + ' ' + name + ' → 降 ' + nw + 'x' + nh + ' 重试')
           r = uploadWithCheck(c, nw, nh)
+          w = nw; h = nh
         } catch (e) { logf('  ⚠ 位图重试失败 ' + name + ': ' + e.message); break }
       }
-      if (r.gerr !== gl.NO_ERROR) logf('  ⚠ 位图上传仍报错 0x' + r.gerr.toString(16) + ' ' + name + '（' + w + 'x' + h + '）——该层可能采样为黑')
+      // ①(P-163 第 3 处) 全部上传尝试都报错 ⇒ **不登记这张坏纹理**：登记了它，层照画不误，而
+      //   WebGL 对"不完整的纹理"采样恒为 (0,0,0,1) = **不透明白黑**——整屏铺满的层（本包正是
+      //   "7680×4320 整屏底图"）于是一帧变纯黑，用户看到"整个画面完全是黑色的"。返回 null 让该层
+      //   走既有的"缺纹理"路径（透明兜底 + 明确日志），画面退到清屏色而不是黑幕，且原因写在日志里。
+      if (r.gerr !== gl.NO_ERROR) {
+        logf('  ⚠ 位图上传仍报错 0x' + r.gerr.toString(16) + ' ' + name + '（' + w + 'x' + h + '）——该纹理按**缺纹理**处理（旧实现登记坏纹理 ⇒ 整层采样为不透明黑）')
+        try { if (r.entry && r.entry.glTex && gl.deleteTexture) gl.deleteTexture(r.entry.glTex) } catch (e) {}
+        return null
+      }
       ;(window.__mpwTexStats = window.__mpwTexStats || []).push({
         n: String(name).slice(0, 14), d: w + 'x' + h, f: 0, kind: (w !== bmp.width || h !== bmp.height) ? 'png-ds' : 'png-up',
       })

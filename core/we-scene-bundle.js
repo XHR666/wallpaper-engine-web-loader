@@ -814,12 +814,57 @@ export function decodeMip0(tex) {
   return decodeImageMip0(tex, 0)
 }
 
+// ①(P-163 2026-09-19 8K 贴图黑屏) **按目标边长选 mip 级**（free-image 与原始像素格式都适用）。
+//
+// 为什么必须有：`decodeMip0` 恒取 image[0]，而 WE 的 .tex **自己就带完整 mip 链**——语料实测
+// `3669681034/materials/4k-16-9origin_waifu2x_2x_jpg.tex` 是 5 级独立 PNG：
+//   7680×4320(31.7MB) / 3840×2160(8.7MB) / 1920×1080(2.4MB) / 960×540 / 480×270。
+// 上传端的目标尺寸却是 `texDownsampleCap()` 给的 min(2048, 设备上限) ⇒ 先解码 7680×4320
+// （浏览器里 = 132.7MB RGBA 位图），再丢掉 15/16 的像素缩到 2048×1152（9.4MB）。这条"解全尺寸
+// 再降采样"的链在手机上正是 P-36 记录过的"大位图上传失败 ⇒ 整层采样为黑（整屏黑）"的入口，
+// 首帧多花的时间也挤在宿主首帧看门狗（插件侧 `first-frame-timeout-fallback` 的 `secs:8`）以内。
+//
+// 语义（= 缩放时的标准 LOD 选择）：取**长边 ≥ target 的最小一级**——它比 target 大不了多少，
+// 因此降采样后的画质**不劣于**"从 mip0 缩"，解码/内存却按级数下降（8K→4K 是 4×）。
+// 没有满足的级（target 比最小一级还小）→ 用最小一级（继续往下缩，画质最优）；
+// **target 比 mip0 还大**（不需要切级）→ 0；target 无效/≤0 → 0（= mip0，与改动前逐位一致，
+// 便于 A/B 与旧调用点零行为变化）。
+export function pickMipForTarget(tex, targetMaxSide) {
+  try {
+    const image = tex && tex.images && tex.images[0]
+    const lvls = image && image.length
+    if (!lvls || lvls < 2) return 0
+    const target = Number(targetMaxSide)
+    if (!Number.isFinite(target) || target <= 0) return 0
+    let best = 0                       // 兜底 = mip0（没有任何一级"≥ target"时 = 本来就不该切）
+    for (let i = 0; i < lvls; i++) {
+      const m = image[i]
+      const side = Math.max(Number(m.width) || 0, Number(m.height) || 0)
+      if (side >= target) best = i     // 从大到小扫，最后一个"≥ target"的就是"≥target 的最小一级"
+      else break
+    }
+    return best
+  } catch (e) { return 0 }
+}
+
+// ①(P-163) `decodeImageMip0(tex, idx)` 的**指定 mip 级**版本：逐字段同语义，只是取 `image[mipLevel]`。
+//   越界/非法级 → 回落 mip0（绝不抛"级不存在"，调用方按"要哪级给哪级、给不了给 0 级"用）。
+export function decodeImageMip(tex, idx = 0, mipLevel = 0) {
+  const image = tex && tex.images && tex.images[idx]
+  const lv = (image && Number.isInteger(mipLevel) && mipLevel > 0 && mipLevel < image.length) ? mipLevel : 0
+  return decodeImageMip0(tex, idx, lv)
+}
+
 // ①(RE-31 多图精灵) TEXB count>1 时按 imageId 解码任意槽位；idx>0 的 mip0 尺寸即该槽真实尺寸
 //   （全局 width/height 只描述槽 0，跨槽不裁剪——夜莺包 实测 7 槽各自整尺寸）
-export function decodeImageMip0(tex, idx = 0) {
+// ①(P-163) 追加第 3 参 mipLevel（缺省 0 = 逐位等于改动前）：free-image 格式（PNG/JPEG/video）的
+//   每一级在容器里都是**独立完整文件**，取哪级就解哪级；原始像素格式每级是同一格式的更小一层，
+//   `texPayloadDims` 的"声明尺寸"与裁剪只对**槽 0 的 0 级**成立（更高层的 m 宽高即真值）。
+export function decodeImageMip0(tex, idx = 0, mipLevel = 0) {
   const image = tex.images[idx]
   if (!image || image.length === 0) throw new Error('无图像数据(image ' + idx + ')')
-  const m = image[0]
+  const lv = (Number.isInteger(mipLevel) && mipLevel > 0 && mipLevel < image.length) ? mipLevel : 0
+  const m = image[lv]
   // ①(P-65) 把 .tex format 带在解码结果上：上传链路（makeTextureMip）据此给 GL 纹理对象盖
   //   `__mpwTexFmt`，粒子 FS 的 ConvertTexture0Format 才有 TEX0FORMAT 可用。盒子只加字段，
   //   所有既有消费方（demo.html loadTex / preview.mjs）读的还是 width/height/rgba，零行为变化。
@@ -829,12 +874,13 @@ export function decodeImageMip0(tex, idx = 0) {
   if (tex.freeImageFormat !== FIF.UNKNOWN) {
     return Object.assign({ width: m.width, height: m.height, image: m.data, fif: tex.freeImageFormat }, F)
   }
-  const dims = texPayloadDims(tex, m, idx === 0)
+  const dims = texPayloadDims(tex, m, idx === 0 && lv === 0)
   const rgba = decodePixels(tex.format, m.data, dims.width, dims.height)
   // 格式 5 的 mip 尺寸就是真实尺寸，不需要裁剪（声明尺寸是 2 倍，裁剪会得到空白图）
   if (isHalfResDxt5(tex)) return Object.assign({ width: dims.width, height: dims.height, rgba }, F)
-  // mip0 尺寸可能是对齐填充值，裁剪到声明尺寸（仅槽 0 有声明值，与 RePKG 行为一致）
-  if (idx === 0 && (m.width !== tex.width || m.height !== tex.height)) {
+  // mip0 尺寸可能是对齐填充值，裁剪到声明尺寸（仅槽 0 的 0 级有声明值，与 RePKG 行为一致；
+  // ①P-163：更高层级的 m 宽高就是该层真值，拿 tex.width 去裁会把 4K 层裁成 8K 画布左上角）
+  if (idx === 0 && lv === 0 && (m.width !== tex.width || m.height !== tex.height)) {
     return Object.assign({ width: tex.width, height: tex.height, rgba: cropRgba(rgba, m.width, m.height, tex.width, tex.height) }, F)
   }
   return Object.assign({ width: m.width, height: m.height, rgba }, F)

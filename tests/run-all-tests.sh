@@ -68,6 +68,7 @@ add "frame-map"          "node tests/frame-map-verify.mjs"
 add "tex-fmt5"           "node tests/tex-fmt5-test.mjs"
 add "video-quality"      "node tests/video-quality-test.mjs"     # P-68：用户第20项 MP4 画质（?res= 档位 720p/1080p/1440p/2160p 默认 1080p、?res=720p|legacy 与改动前逐值对拍、视频上传上限/直传/imageSmoothingQuality=high/可配节流、videoStats 台账、?perf=auto 高分辨率档抑制 fboCap、脚本 __videoPlay 读取点；148 断言；~2.5s）
 add "jpeg-decode"        "node tests/jpeg-decode-test.mjs" "" "^SKIP jpeg-decode"  # P-67：自带 baseline JPEG 解码器（FF00 填充丢数据字节=根因 / DRI+RSTn 跳过并复位 DC 预测器 / 4:2:0·4:2:2·4:4:4 / 截断必须抛错不许静默半张图）；3 份真机截图（ffmpeg 对照常量）+ 6 个内嵌合成向量 + 2 张真 FIF=JPEG 贴图；104 断言；~3s；真机截图缺失时 SKIP
+add "scene-intro-black"  "node tests/scene-intro-black-test.mjs" "" "^SKIP scene-intro-black"  # P-163：壁纸 3669681034（ATRI 8K）"渲染全黑"回归 —— A 段用真包否证"黑幕层/intro 时间轴"假设（2 对象=1 整屏底图+1 sound、零脚本、零 intro 字段、mock-GL 真顶点流×u_MVP 证明四边形铺满 ±1 NDC）；B 段钉住"大贴图先选 mip 级再解码"与"坏纹理不上屏"（真源码 loadTex 切片 + 真包：交给解码的 blob 33,288,714B→9,107,059B、上传仍 2048×1152、上传报错 ⇒ 返回 null 不登记）；C 段 2 组**真变异**自证；D 段语料同类计数（free-image >2048 共 10 张/5 包、>4096 共 2 张）；29 断言；~4s；缺真包语料时 SKIP
 add "alignment"          "node tests/alignment-test.mjs"
 # ①(P-91 2026-09-16) 洁净室重写验收：alpha 量纲归一化 + alignment token→偏移 两个 helper 在
 #   `docs/WER-REF-LICENSE-AUDIT.md` §3.4 被判「逐行翻译 / 同源改写」，已按行为规格
