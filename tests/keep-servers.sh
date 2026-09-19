@@ -26,9 +26,15 @@ start_8902() { (cd "$REPO" && setsid node server/we-scene-demo-server-8902.mjs 8
 #   用官方的 restart-openviking.sh（它自己锚定路径匹配 python 进程、不会误杀别的）；只在 health 不 200 时动手。
 OV_HEALTH="http://127.0.0.1:1933/health"
 ov_up() { curl -s -o /dev/null --max-time 2 "$OV_HEALTH"; }
+# ①(2026-09-19 实测教训) OpenViking 从启动到 /health 200 要 **20s+**，而循环每 10s 一轮 ⇒
+#   没有守卫时会出现"上一轮还在起、这一轮又把它掐了"的自锁（日志里两个 restart 脚本同时在跑、health 恒 000）。
+#   两道守卫：**a)** 已有 restart 脚本在跑 ⇒ 跳过；**b)** 触发后**冷却 180s**（期间只探活、不再动手）。
+OV_COOLDOWN=0
+ov_restart_running() { pgrep -f "restart-openviking.sh" >/dev/null 2>&1; }
 start_openviking() {
   if [ -x "$WS/restart-openviking.sh" ]; then
     (cd "$WS" && bash restart-openviking.sh >>/tmp/keep-servers-openviking.log 2>&1 &)
+    OV_COOLDOWN=$(( $(date +%s) + 180 ))
   else
     say "找不到 $WS/restart-openviking.sh ⇒ 无法自动拉起 OpenViking"
   fi
@@ -42,7 +48,15 @@ done
 
 while true; do
   # OpenViking 只在"掉下去"时才拉（健康时一个请求都不多发）
-  if ! ov_up; then say "OpenViking(:1933) 掉了，拉起…"; start_openviking; sleep 6; ov_up && say "OpenViking 已恢复" || say "OpenViking 仍不可达（下一轮再试）"; fi
+  if ! ov_up; then
+    now=$(date +%s)
+    if ov_restart_running; then :                                    # 正在起：等它，不插手
+    elif [ "$now" -lt "$OV_COOLDOWN" ]; then :                       # 冷却期内：只探活
+    else
+      say "OpenViking(:1933) 掉了，拉起…（之后 180s 冷却，期间只探活）"
+      start_openviking
+    fi
+  fi
   for p in 8899 8901 8902; do
     if ! up "$p"; then
       say ":$p 掉了，拉起…"
