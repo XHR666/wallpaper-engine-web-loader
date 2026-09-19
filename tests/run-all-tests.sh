@@ -446,6 +446,20 @@ add "we-core-parity" "node tests/we-core-parity-test.mjs" "" "^SKIP we-core-pari
 #   **61 断言**；实测 ~6.4s、主进程 PeakRSS **~215MB**（进程树瞬时 ~430–460MB：父进程与 firefly 探针子进程重叠）、
 #   无浏览器 / 无网络 / 无 X11。真包缺失时各组 SKIP 视作 PASS（不红），与其余真包类条件项同口径。
 add "particle-children" "node tests/particle-children-test.mjs"
+# ①(P-153 2026-09-19 · 派单 B) 脚本 `localStorage` 的**共享持久**档 `?scriptstore=persist`（方案
+#   `docs/UPSTREAM-PORT-PLAN-20260919.md` §5）：**缺省逐位保持 legacy**（逐沙箱 `new Map()`、不共享、
+#   不持久 —— 本仓"脚本沙箱不碰宿主存储"的纪律不变），显式开关才走"同一壁纸全部脚本共享一份 +
+#   跨会话持久"，后端 = 宿主 `window.localStorage`，键只落我们自己的 `mpw.<包id>.` 命名空间。
+#   覆盖：G0 开关判定式与导出面 / G1 legacy 档（同沙箱可见、**跨沙箱不可见**、门面逐沙箱一份、
+#   **0 次 setItem / 宿主 storage 一个键都不落**）/ G2 persist 档（跨沙箱可见、真落盘、键名实例、
+#   Vec3 对象 round-trip、remove、**重建 store 模拟刷新后仍在**、命名空间隔离、`LOCATION_GLOBAL`、
+#   完整 API 面、`clear()` 只清本命名空间）/ G2r 真语料真作者脚本（`dd/3326873240`：legacy 复位 vs
+#   persist 记住拖拽位置）/ G3 异常兜底（配额·getItem 抛·不透明源·无后端 ⇒ 不崩、退回内存、
+#   **恰好 1 行 warn**）/ G4 语料口径（8 包 / 66 次 / 只有 get-set-remove / `LOCATION_*`+`resizeScreen` = 0）。
+#   **113 断言 + 6 组 RED-IF-REVERTED**（R1 默认档改成 persist / R2 去键前缀 / R3 去 try/catch /
+#   R4 忽略 opts.scriptStore / R5 去写穿透 / R6 `clear()` 清整个后端；变异只在 /tmp 副本上做，真树不动）。
+#   无浏览器 / 无网络；实测 ~1.5s、进程树 PeakRSS **~180MB**（单 node 进程）。缺语料时 G4/G2r 标 SKIP 不红。
+add "script-storage" "node tests/script-storage-test.mjs" "" "^SKIP script-storage"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

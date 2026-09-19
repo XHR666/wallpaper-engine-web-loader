@@ -895,6 +895,259 @@ export function moduleGlobalFor(mod) {
     ? NSL_MODULE_GLOBALS[mod]
     : NSL_UNKNOWN_MODULE_GLOBAL;
 }
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * ①(P-153 2026-09-19) 脚本 `localStorage` 的**共享持久**档（`?scriptstore=persist`）
+ *
+ * 官方语义（一手出处：官方文档 docs.wallpaperengine.io 的 scene script `localStorage` 一节；
+ * 上游 `oneincase/webwallgl`（MIT）`renderer/vendor/we-scene/render/storage.js:1-19` 的**行为契约**）：
+ *   · **按壁纸共享**：同一张壁纸的全部脚本看到同一份存储 —— 不是每个脚本一份 Map；
+ *   · **跨会话持久**：重开壁纸/刷新之后读到的还是上次写的值；
+ *   · 位置两级：`LOCATION_SCREEN`（按壁纸，缺省）/ `LOCATION_GLOBAL`（跨壁纸）；
+ *   · API：`getItem/setItem/removeItem/delete/clear/key/keys/length` + 语料用的别名 `get/set/remove`。
+ *
+ * 本仓今天的实现（`compileScript` 的 env 构造处）= **逐沙箱一个 `new Map()`**：脚本之间互相看不见、
+ * 刷新即复位（既有注释自述"**不碰**宿主页面的存储"—— 那是本仓的纪律）。⇒ 本项**不改默认档**：
+ * 缺省仍逐位保持 legacy（逐沙箱内存 Map、不共享、不持久），只有显式 `?scriptstore=persist` 走本档。
+ * "默认要不要改成持久化"是**产品决策**，留给用户拍板（见 docs/PATCHES.md P-153 的诚实清单）。
+ *
+ * 与上游实现的**差异**（按规格独立实现，非照抄；实现者**接触过**上游 `storage.js:34-102`，
+ * 不主张洁净室）：① 后端形态不同 —— 上游要宿主注入 `{get,set,remove,keys,clear}` provider
+ * （裸键、前缀由宿主加），本实现直接吃 `window.localStorage`（Storage 形态
+ * `getItem/setItem/removeItem/key/length`），命名空间与前缀在**本文件内**唯一决定 ⇒ 宿主一行都不用改；
+ * ② 命名空间来自 `?id=`（= 包 id，与 `demo.html` 的 `mpw-props:<id>` 同一口径），
+ * `LOCATION_GLOBAL` 落 `mpw.__global.`；③ 追加**兜底**：后端访问/写入抛错（配额、Safari 隐私模式、
+ * 不透明源）⇒ 记一行 warn、整个会话退回内存，脚本不报错；④ 追加**值信封** —— 语料
+ * `dd/3326873240` 存的是 `Vec3` 对象（`localStorage.set(storageName, thisLayer.origin)`），
+ * DOM Storage 只能存字符串 ⇒ 非字符串用带标记的 JSON 信封落盘（读回是 `{x,y,z}` 普通对象，
+ * `formatResult` 认得）；上游一律 `String(value)`（会把 Vec3 变成 `"[object Object]"`）。
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+/** 键前缀（补丁方案 §5.4② 的建议名 `mpw.<包id>.<键>`；**只**写这个前缀下的键）。 */
+export const SCRIPT_STORE_KEY_PREFIX = 'mpw.';
+/** `LOCATION_GLOBAL`（跨壁纸）的命名空间段。 */
+export const SCRIPT_STORE_GLOBAL_NS = '__global';
+/** 位置常量（与上游 `storage.js:18-19` 同值；语料 0 使用，只为契约完备）。 */
+export const LOCATION_SCREEN = 0;
+export const LOCATION_GLOBAL = 1;
+/** 非字符串值的落盘信封标记（NUL 开头 ⇒ 不可能与作者手写的字符串相撞）。 */
+const SCRIPT_STORE_VALUE_TAG = '\u0000mpw-sv1:';
+
+/**
+ * `?scriptstore=persist` 的**唯一判定式**（正则字面量 ⇒ `tests/diag-flag-check.mjs` 规则 c 抓得到；
+ * 与既有 `?bindorder=legacy`（`core/puppet-skin.js::bindOrderLegacy`）同形）。
+ * 缺省 / 任何其它值（含 `?scriptstore=legacy`）= legacy 档。
+ */
+export function scriptStorePersist(search) {
+  const s = (search === undefined || search === null) ? '' : String(search);
+  return /[?&]scriptstore=persist/.test(s);
+}
+
+/** 查询串来源：显式入参 > `location.search`（浏览器，或测试注入的假 DOM）> `''`（Node）。 */
+function scriptStoreSearch(opts) {
+  if (opts && typeof opts.scriptStoreSearch === 'string') return opts.scriptStoreSearch;
+  try {
+    const loc = (typeof location !== 'undefined' && location) ? location
+      : ((typeof globalThis !== 'undefined' && globalThis) ? globalThis.location : null);
+    if (loc && typeof loc.search === 'string') return loc.search;
+  } catch { /* 没有 location（Node）/ 访问即抛的宿主 */ }
+  return '';
+}
+
+/**
+ * 命名空间：显式入参（`opts.scriptStoreNamespace` / `opts.sceneId`）> `?id=` > `'default'`。
+ * 只留 `[A-Za-z0-9_-]`（**去掉 `.`** ⇒ `mpw.<ns>.<key>` 的切分永远无歧义），上限 64 字符。
+ */
+export function scriptStoreNamespace(opts, search) {
+  const explicit = opts ? (opts.scriptStoreNamespace || opts.sceneId) : null;
+  let raw = explicit == null ? '' : String(explicit);
+  if (!raw) {
+    const s = search === undefined ? scriptStoreSearch(opts) : search;
+    try { raw = new URLSearchParams(String(s == null ? '' : s).replace(/^\?/, '')).get('id') || ''; } catch { raw = ''; }
+  }
+  return String(raw || 'default').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) || 'default';
+}
+
+/** `window.localStorage`（Storage 形态）。**访问属性本身**抛错（不透明源 / Safari 隐私模式）⇒ `null`。 */
+function scriptStoreBackend(opts) {
+  if (opts && opts.scriptStoreBackend) return opts.scriptStoreBackend;
+  try {
+    const ls = (typeof localStorage !== 'undefined' && localStorage) ? localStorage
+      : ((typeof globalThis !== 'undefined' && globalThis) ? globalThis.localStorage : null);
+    if (ls && typeof ls.getItem === 'function' && typeof ls.setItem === 'function' && typeof ls.removeItem === 'function') return ls;
+  } catch { /* 访问即抛 ⇒ 视为没有后端（下面 makeScriptStore 记一行 warn） */ }
+  return null;
+}
+
+function scriptStoreWarnSink(opts) {
+  if (opts && typeof opts.onScriptStoreWarn === 'function') return opts.onScriptStoreWarn;
+  return (msg) => { try { console.warn(msg) } catch { /* 宿主 console 不可用 */ } };
+}
+
+/** 后端不可用/写入失败：**只记一行 warn**、整会话退化内存（后续不再重试后端、不再重复告警）。 */
+function scriptStoreFail(store, err) {
+  store.degraded = true;
+  if (store.warned) return;
+  store.warned = true;
+  const why = (err && (err.name ? err.name + ': ' : '') + (err.message || String(err))) || '后端不可用';
+  try {
+    store.warn('⚠ [P-153] 脚本 localStorage 持久化不可用（' + why + '）⇒ 退回内存：本会话内脚本照常读写，'
+      + '刷新/重开壁纸后不保留（命名空间 ' + store.namespace + '）');
+  } catch { /* ignore */ }
+}
+
+/**
+ * 造一个**持久存储实例**（同一壁纸的全部脚本共用一份）。
+ * 缺省（无 `?scriptstore=persist`）⇒ `null` ⇒ `compileScript` 走 legacy 的逐沙箱 Map（逐位不变）。
+ * opts: { scriptStoreSearch, scriptStoreNamespace, sceneId, scriptStoreBackend, onScriptStoreWarn }
+ */
+export function makeScriptStore(opts = {}) {
+  const search = scriptStoreSearch(opts);
+  if (!scriptStorePersist(search)) return null;
+  const namespace = scriptStoreNamespace(opts, search);
+  const store = {
+    namespace,
+    prefix: SCRIPT_STORE_KEY_PREFIX + namespace + '.',
+    globalPrefix: SCRIPT_STORE_KEY_PREFIX + SCRIPT_STORE_GLOBAL_NS + '.',
+    search,
+    backend: scriptStoreBackend(opts),
+    mem: new Map(),          // 本会话的活值缓存（get 拿回**脚本写进去的那个对象**，与 legacy 同形）
+    degraded: false,
+    warned: false,
+    warn: scriptStoreWarnSink(opts),
+  };
+  if (!store.backend) scriptStoreFail(store, new Error('没有可用的 localStorage 后端'));
+  return store;
+}
+
+function storeFullKey(store, key, location) {
+  return ((location === LOCATION_GLOBAL) ? store.globalPrefix : store.prefix) + String(key);
+}
+function storeBackendRead(store, full) {
+  if (!store.backend || store.degraded) return null;
+  try { const v = store.backend.getItem(full); return v == null ? null : String(v); }
+  catch (e) { scriptStoreFail(store, e); return null; }
+}
+function storeBackendWrite(store, full, raw) {
+  if (!store.backend || store.degraded) return false;
+  try { store.backend.setItem(full, raw); return true; }
+  catch (e) { scriptStoreFail(store, e); return false; }
+}
+function storeBackendRemove(store, full) {
+  if (!store.backend || store.degraded) return;
+  try { store.backend.removeItem(full); } catch (e) { scriptStoreFail(store, e); }
+}
+/** 后端里属于本命名空间的键（**去掉前缀**）；顺序 = DOM 枚举顺序。 */
+function storeBackendKeys(store, location) {
+  const out = [];
+  const b = store.backend;
+  if (!b || store.degraded || typeof b.key !== 'function') return out;
+  const p = (location === LOCATION_GLOBAL) ? store.globalPrefix : store.prefix;
+  try {
+    const n = Number(b.length) || 0;
+    for (let i = 0; i < n; i++) {
+      const k = b.key(i);
+      if (typeof k === 'string' && k.slice(0, p.length) === p) out.push(k.slice(p.length));
+    }
+  } catch (e) { scriptStoreFail(store, e); }
+  return out;
+}
+/** 落盘编码：字符串原样；非字符串走带标记的 JSON 信封（`undefined`/循环引用退化成字符串）。 */
+function storeEncode(v) {
+  if (typeof v === 'string') return v;
+  let j;
+  try { j = JSON.stringify(v); } catch { j = undefined; }
+  if (j === undefined) j = JSON.stringify(String(v));
+  return SCRIPT_STORE_VALUE_TAG + j;
+}
+function storeDecode(raw) {
+  if (typeof raw !== 'string' || raw.slice(0, SCRIPT_STORE_VALUE_TAG.length) !== SCRIPT_STORE_VALUE_TAG) return raw;
+  try { return JSON.parse(raw.slice(SCRIPT_STORE_VALUE_TAG.length)); } catch { return raw; }
+}
+function storeGet(store, key, dflt, location) {
+  const full = storeFullKey(store, key, location);
+  if (store.mem.has(full)) return store.mem.get(full);
+  const raw = storeBackendRead(store, full);
+  if (raw === null) return dflt !== undefined ? dflt : null;   // 与 legacy 的 get(k, dflt) 同口径
+  const v = storeDecode(raw);
+  store.mem.set(full, v);
+  return v;
+}
+function storeSet(store, key, value, location) {
+  const full = storeFullKey(store, key, location);
+  store.mem.set(full, value);
+  storeBackendWrite(store, full, storeEncode(value));
+}
+function storeRemove(store, key, location) {
+  const full = storeFullKey(store, key, location);
+  store.mem.delete(full);
+  storeBackendRemove(store, full);
+}
+function storeHas(store, key, location) {
+  const full = storeFullKey(store, key, location);
+  return store.mem.has(full) || storeBackendRead(store, full) !== null;
+}
+function storeKeys(store, location) {
+  const out = storeBackendKeys(store, location);
+  const seen = new Set(out);
+  const p = (location === LOCATION_GLOBAL) ? store.globalPrefix : store.prefix;
+  for (const full of store.mem.keys()) {
+    if (full.slice(0, p.length) !== p) continue;
+    const k = full.slice(p.length);
+    if (!seen.has(k)) { seen.add(k); out.push(k); }
+  }
+  return out;
+}
+/** 只清**本命名空间**的键（绝不 `localStorage.clear()` —— 那会连宿主的键一起清掉）。 */
+function storeClear(store, location) {
+  for (const k of storeKeys(store, location)) storeRemove(store, k, location);
+}
+
+/** 把 store 包成脚本看得见的 `localStorage`（persist 档）。legacy 档不走这里（见 compileScript）。 */
+export function makeScriptStoreApi(store) {
+  return {
+    LOCATION_SCREEN,
+    LOCATION_GLOBAL,
+    // WE 文档名是 `delete`（成员调用合法）；DOM 名 `removeItem` 与语料别名 `remove` 都给。
+    get: (k, dflt, location) => storeGet(store, k, dflt, location),
+    set: (k, v, location) => { storeSet(store, k, v, location); },
+    remove: (k, location) => { storeRemove(store, k, location); },
+    has: (k, location) => storeHas(store, k, location),
+    clear: (location) => { storeClear(store, location); },
+    getItem: (k, dflt, location) => storeGet(store, k, dflt, location),
+    setItem: (k, v, location) => { storeSet(store, k, v, location); },
+    removeItem: (k, location) => { storeRemove(store, k, location); },
+    delete: (k, location) => { storeRemove(store, k, location); },
+    key: (i, location) => {
+      const ks = storeKeys(store, location);
+      const n = Math.trunc(Number(i));
+      return (Number.isFinite(n) && n >= 0 && n < ks.length) ? ks[n] : null;
+    },
+    keys: (location) => storeKeys(store, location),
+    get length() { return storeKeys(store, LOCATION_SCREEN).length; },   // length 只反映缺省位置
+  };
+}
+
+// 容器（`createScriptCache()` 的返回对象 / 宿主 shared 对象）→ store。**同一壁纸一份**：
+// 语料 `dd/3326873240` 的写法就是"脚本 A 写 `storageName`、脚本 B/C 读"（生产者-消费者）。
+// 用 WeakMap 而不是往容器上加属性：`demo.html:2852` 会把 `cache.shared` **整个替换**成宿主的
+// `scriptShared`（`sceneScriptCache.shared = scriptShared`）⇒ 挂在 shared 上的字段会被丢掉，
+// 而挂在容器上的字段会进 `shared` 的键空间被脚本枚举到。
+const SCRIPT_STORES = new WeakMap();
+const SCRIPT_STORE_FALLBACK_CONTAINER = {};
+
+/**
+ * 解析本壁纸的存储实例。缺省（无 `?scriptstore=persist`）⇒ `null`（legacy 档）。
+ * `opts.scriptStore` 显式给定（宿主/测试注入）时原样返回；否则按容器记忆化（同一壁纸一份）。
+ */
+export function scriptStoreFor(container, opts = {}) {
+  if (opts && opts.scriptStore) return opts.scriptStore;
+  const key = (container && typeof container === 'object') ? container : SCRIPT_STORE_FALLBACK_CONTAINER;
+  if (SCRIPT_STORES.has(key)) return SCRIPT_STORES.get(key) || null;
+  const store = makeScriptStore(opts);
+  SCRIPT_STORES.set(key, store || null);
+  return store;
+}
+
 function compileScript(source, opts = {}) {
   // 转译 ESM 导入/导出为 CommonJS
   let code = source;
@@ -1021,7 +1274,10 @@ function compileScript(source, opts = {}) {
     //       （真机上报：3554161528 / 3326873240 "init:localStorage.get is not a function"×N）
     //     · Node 里 undefined → 脚本 init 直接抛错
     //   这里提供沙箱内存实现（两种命名都支持）：脚本可正常读写，且**不碰**宿主页面的存储。
-    localStorage: (() => {
+    // ①(P-153 2026-09-19) **缺省档逐位不变**（上面这条纪律不变）：只有显式 `?scriptstore=persist`
+    //   时 `opts.scriptStore` 才非空 ⇒ 换成"同一壁纸共享 + 跨会话持久"的门面（见本文件上段
+    //   `makeScriptStore` 的长注释；键前缀 `mpw.<包id>.`，后端 = 宿主 `window.localStorage`）。
+    localStorage: opts.scriptStore ? makeScriptStoreApi(opts.scriptStore) : (() => {
       const m = new Map();
       const get = (k, dflt) => (m.has(String(k)) ? m.get(String(k)) : (dflt !== undefined ? dflt : null));
       return {
@@ -1316,6 +1572,8 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
       frametime: opts.frametime,
       audioBuffers: opts.audioBuffers,
       getVideoTexture: opts.getVideoTexture,
+      // ①(P-153) 本壁纸的脚本存储（缺省 `null` = legacy 逐沙箱 Map；`?scriptstore=persist` 时才非空）
+      scriptStore: opts.scriptStore,
     });
     entry = {
       exports: compiled.exports || {},
@@ -1475,6 +1733,10 @@ export function applySceneScripts(scene, time, opts = {}) {
   //   更早的错误掩盖（P-127 的 WEVector 复现就靠它：桩只补 makeSceneRef 里缺的那几个方法）。
   //   不给 opts.thisScene 时行为**逐位不变**（走原来的 makeSceneRef）。
   const ownerRef = makeOwnerRef();
+  // ①(P-153 2026-09-19) 本壁纸的脚本存储实例（容器 = 脚本缓存对象，缺省退回宿主 shared 对象；
+  //   两者都没有时用一个模块级容器 ⇒ "同一壁纸的全部脚本共享一份"这条语义在任何宿主下都成立）。
+  //   缺省（无 `?scriptstore=persist`）恒为 `null` ⇒ 下面整条链路与改动前逐位相同。
+  const scriptStore = scriptStoreFor(cache || shared, opts);
   // ①(P-141) `IScene.getLayerIndex(thisLayer)` 必须能把 ownerRef 的那个层引用实例还原成场景对象
   //   （ownerRef 的引用是惰性读 ref.current 的，所以两条缝都要给：实例身份 + 当前对象）。
   const thisScene = opts.thisScene || makeSceneRef(sceneObjects, {
@@ -1506,6 +1768,8 @@ export function applySceneScripts(scene, time, opts = {}) {
     onError: opts.onError,
     audioBuffers: opts.audioBuffers,
     getVideoTexture: opts.getVideoTexture,
+    // ①(P-153) 透传到 compileScript 的沙箱 env（`localStorage` 门面的后端；null = legacy 档）
+    scriptStore,
     phase,
   });
   // ①(2026-09-12 官方语义) **先跑完所有 init，再跑 update**：旧实现是"每个对象 init+update 交替"，

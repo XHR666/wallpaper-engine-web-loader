@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-19T04:34:27.475Z",
+  "generatedAt": "2026-09-19T05:26:32.161Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -1784,6 +1784,17 @@
           "file": "demo.html",
           "line": 2902,
           "pattern": "searchParams.get('scripthz')"
+        }
+      ]
+    },
+    {
+      "name": "scriptstore",
+      "common": false,
+      "sites": [
+        {
+          "file": "elysia/scene-scripts.js",
+          "line": 942,
+          "pattern": "regex [?&]scriptstore="
         }
       ]
     },

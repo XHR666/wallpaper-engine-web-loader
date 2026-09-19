@@ -11269,3 +11269,90 @@ PASS N6   整轮 0 个 pageerror
 `/assets/fonts/Blackout.ttf→404`，改完又红在 `/demo.html→404`，两条都是它抓出来的）。
 
 **判据**：`node tests/pwa-test.mjs` ⇒ **108 通过 / 0 失败**（改前 107/1）。提交 `7893839`（2 文件 / +30 −3）。
+
+## P-153（2026-09-19 · 派单 B）脚本 `localStorage` 的**共享持久**档 `?scriptstore=persist`（缺省仍逐位 legacy）
+
+**一句话**：官方语义是"**同一张壁纸的全部脚本共享一份 + 跨会话持久**"，本仓今天是"**逐沙箱一个 `new Map()`**"
+（脚本之间互相看不见、刷新即复位）。本条把新语义做成**显式开关**，缺省仍逐位保持今天的 legacy —— 因为
+"脚本沙箱不碰宿主存储"是本仓既有纪律，**默认要不要改成持久化属于产品决策，必须用户拍板**（见文末诚实清单）。
+
+### P-153.0 官方语义出处（一手）
+
+* 官方文档 `docs.wallpaperengine.io` scene script 的 `localStorage` 一节（按壁纸共享 / 跨会话持久 / 两级位置）。
+* 上游 `oneincase/webwallgl`（**MIT** © 2026 oneincase）修复提交 `9beb420` 的
+  `renderer/vendor/we-scene/render/storage.js:1-19`（契约注释）与 `:34-102`（`makeSandboxStorage` 实现）：
+  `LOCATION_SCREEN = 0` / `LOCATION_GLOBAL = 1`、provider 契约 `{get,set,remove,keys,clear}`、
+  `delete`（WE 文档名 = 保留字，成员调用合法）/ `removeItem` / `remove`（语料别名）三名并存。
+* 我们的语料：`localStorage` **66 次 / 8 个包**（全部在 `scene.json` 里），调用面**只有 `get/set/remove`**，
+  键样 = `storageName`（值如 `storedPosRoundMIC`）、`"miDragable"`、`"miShowClock"`、`STORAGE_KEY`；
+  `LOCATION_SCREEN` / `LOCATION_GLOBAL` / `resizeScreen` **全 0**（两级位置今天没有语料需求）。
+
+### P-153.1 我们的实现（落点：`elysia/scene-scripts.js`，宿主 `demo.html` **一行都不用改**）
+
+| 步骤 | 落点 | 内容 |
+|---|---|---|
+| ① 开关判定式 | `elysia/scene-scripts.js:940`（`scriptStorePersist`） | `/[?&]scriptstore=persist/`（正则字面量，`tests/diag-flag-check.mjs` 规则 c 抓得到；与 `?bindorder=legacy` 同形）。缺省/任何其它值 = legacy |
+| ② 存储实例 | 同文件 `makeScriptStore` / `scriptStoreFor` | 后端 = `window.localStorage`（Storage 形态，**不经宿主 provider**）；键 = **我们的命名空间** `mpw.<包id>.<键>`（前缀常量 `SCRIPT_STORE_KEY_PREFIX = 'mpw.'`，命名空间取自 `?id=`，与 `demo.html` 的 `mpw-props:<id>` 同口径；消毒只留 `[A-Za-z0-9_-]`，去掉 `.` ⇒ 键切分无歧义）。`LOCATION_GLOBAL` 落 `mpw.__global.`（跨壁纸），`LOCATION_SCREEN`（缺省）落 `mpw.<id>.` |
+| ③ 共享 | 同文件 `applySceneScripts`（`scriptStoreFor(cache \|\| shared, opts)`） | 容器 = `createScriptCache()` 的对象（缺省退回宿主 `shared`，再退回模块级容器）；WeakMap 记忆化 ⇒ **同一张壁纸全部脚本一份**。**不挂在 `cache.shared` 上**：`demo.html:2852` 之后会把 `cache.shared` 整个替换成宿主的 `scriptShared`（挂了会被丢掉，且会进脚本可见的键空间） |
+| ④ 兜底 | 同文件 `scriptStoreFail` | 后端访问 / 写入抛错（配额、Safari 隐私模式、不透明源）⇒ **整会话退回内存**、脚本不报错、**只记一行** `⚠ [P-153]` warn（不重复告警、不逐次重试）。`clear()` **只清本命名空间的键**（绝不 `localStorage.clear()`） |
+| ⑤ 值信封 | 同文件 `storeEncode` / `storeDecode` | 字符串原样落盘；非字符串走带标记的 JSON 信封 —— 语料 `dd/3326873240` 存的是 `Vec3`（`localStorage.set(storageName, thisLayer.origin)`），DOM Storage 只能存字符串；上游一律 `String(value)`（会把 Vec3 变成 `"[object Object]"`，本包的拖拽位置就废了） |
+| ⑥ API 面 | 同文件 `makeScriptStoreApi` | `get/set/remove`（语料三个）+ `getItem/setItem/removeItem/delete/has/clear/key/keys/length` + `LOCATION_SCREEN/LOCATION_GLOBAL`；`key()/keys()` 返回**去掉前缀**的键（脚本看不见我们的前缀） |
+| ⑦ 缺省档逐位不变 | `compileScript` 的 env 构造处 | `localStorage: opts.scriptStore ? makeScriptStoreApi(opts.scriptStore) : <原文 IIFE>` —— **legacy 的 8 个方法逐字节未改**（`git diff` 只有第一行从 `localStorage: (() => {` 变成带三元的那一行；IIFE 体 8 行 diff 为空） |
+
+**与上游的差异（按规格独立实现，非照抄；实现者接触过 `storage.js:34-102`，不主张洁净室）**：
+后端形态（Storage vs provider）、前缀归属（本文件内 vs 宿主加）、命名空间来源（`?id=` vs 宿主）、
+兜底层（新增）、值信封（新增）四处都不同；**未复制任何上游代码**，因此**没有**新增 `THIRD-PARTY.md` /
+`docs/COPYING-RULES.md` 条目（若评审按台账 #9/#10 的"仅对齐行为契约"先例要求登记，请按当时下一个可用号补）。
+
+### P-153.2 判据（新门禁 `script-storage`，**无浏览器**：假 DOM / 注入的 localStorage 桩驱动真代码）
+
+`tests/script-storage-test.mjs`（113 断言 / 0 失败；提交树连跑三次 ~1.4/1.5/1.5s、进程树 PeakRSS **180.1MB**；
+工作区并发负载下曾见过 ~4.8s / 164.1MB，两个口径都记在这里）：
+
+1. **legacy 档（缺省）**：同沙箱 `set→get` 可见；**跨沙箱不可见**（真语料里就是"脚本 A 写 `storageName`、
+   脚本 B 读"）；门面对象**逐沙箱一份**；★ **一个键都不落任何 storage** —— 注入的假
+   `window.localStorage` 实测 `setItem = 0`、`getItem = 0`、`removeItem = 0`、`key = 0`、`length = 0`、
+   `map.size = 0`（脚本里 `set/setItem` 跑了 2 次，storage 一次没碰）。
+2. **persist 档**：跨沙箱可见；★ 真 `setItem` + **键名实例 `mpw.3326873240.sharedKey`**（真作者脚本落的是
+   `mpw.3326873240.storedPosRoundMIC` / `mpw.3326873240.miDragable`）；数值与 `Vec3` 对象 round-trip
+   （跨 store 读回 `{"x":11,"y":22,"z":33}`）；`remove` 生效；★ **重新建 store（模拟刷新）后仍在**；
+   命名空间隔离（`?id=3554161528` 读不到 A 的键、写同名键不覆盖）；`LOCATION_GLOBAL` 跨壁纸可见而
+   `LOCATION_SCREEN` 不可见；完整 API 面；★ `clear()` 只清本命名空间（预置的宿主键 `mpw-props:3326873240`、
+   `mpw-ls-lru`、`unrelated`、另一张壁纸的 `mpw.3554161528.other` **逐字不动**）。
+3. **真语料真作者脚本**（`dd/3326873240` objects[21] 写 `miDragable`、objects[8] 写/读 `storedPosRoundMIC`）：
+   legacy ⇒ `shared.miDragable = false`（回退 `scriptProperties.isMovable`）、刷新后 origin 复位
+   `0.000000 0.000000 0.000000`；persist ⇒ `true`、刷新后仍是 `100.000000 200.000000 0.000000`。
+4. **异常兜底**：`setItem` 抛配额 ⇒ 脚本 **onError 调用 0 次**、同壁纸另一个脚本仍读得到（内存）、
+   **恰好 1 行 warn**（含 `P-153`/`退回内存`/`QuotaExceededError` 三要素）、后续写入不再碰后端；
+   `getItem` 抛、访问 `localStorage` 属性即抛（不透明源）、完全没有后端 ⇒ 同口径。
+5. **语料口径**：命中包 **8**、`localStorage` **66** 次、调用面 `{get,set,remove}`、`LOCATION_*`/`resizeScreen` = **0**
+   （逐包数字：`dd/3326873240 {set:5,get:5}`、`dd/3554161528 {remove:1,set:1,get:2}`、`dd/3660962877 {get:1,set:1}`）。
+6. **6 组 RED-IF-REVERTED**（真跑变异；只在 `/tmp` 副本上做，真树 sha256 不动），**实测变红组**：
+   R1 默认档改成 persist ⇒ `[G0,G1,G2,G3]`（★ legacy 组必红）｜R2 去掉键前缀 ⇒ `[G2,G2r]`｜
+   R3 去掉 try/catch ⇒ `[G3]`｜R4 忽略 `opts.scriptStore`（换回逐沙箱 Map）⇒ `[G2,G2r,G3]`｜
+   R5 去掉写穿透 ⇒ `[G2,G2r,G3]`｜R6 `clear()` 清整个后端 ⇒ `[G2]`。
+
+**诊断开关登记**：`docs/README-DIAGNOSTICS.md` 主表新增 `scriptstore` 一行（放在 `scriptcache` 之后）；
+`node tests/diag-flag-check.mjs` 实测 **代码 156 个开关 == README 主表 156 行，0 差异**（P-144 之后真实值 155，
+本条 +1；README 表头当时仍写 153 的陈旧 2 一并回填），`web/diag-flags.json` 由脚本重生成（未手改任何数字）。
+**门禁登记**：`tests/run-all-tests.sh` 追加 `add "script-storage" "node tests/script-storage-test.mjs" "" "^SKIP script-storage"`。
+
+### P-153.3 未证实 / 待办（诚实清单）
+
+1. **真机 / 真浏览器里的持久化行为未验**：本机禁止起浏览器，全部证据来自"假 DOM + 注入的 localStorage 桩
+   驱动真代码"。真机需要确认的是：`?scriptstore=persist` 下 `window.localStorage` 真的可写、刷新后
+   `dd/3326873240` 的拖拽位置真的还在、以及插件 iframe（不透明源）下是否如设计那样"1 行 warn + 内存档"。**归主对话真机验。**
+2. **"默认档要不要改成持久化"必须用户拍板**：本条只做开关版，缺省仍是 legacy（`?scriptstore=persist` 才开）。
+   翻默认 = 纪律变更（脚本开始往宿主 `localStorage` 写数据）；翻默认为持久后本文件的 legacy 组断言要整组改写。
+3. **值信封的语义偏差**：非字符串值经 JSON 信封后**原型丢失**（`Vec3` 读回是 `{x,y,z}` 普通对象，`formatResult`
+   认；但 `localStorage.get(k).add(...)` 这类"读回来直接调方法"的写法在**跨会话**读时不可用；同一会话内读的是
+   原对象，行为与 legacy 相同）。`undefined` / 函数 / 循环引用退化成字符串（`"undefined"` 等），未见语料使用。
+4. **没有实现上游的"约 100KB 容量"**：只做了异常兜底，没有配额上限/淘汰策略；语料 8 个包的写量是几个短字符串+一个 Vec3。
+5. **`key()/keys()/length` 的顺序** = DOM 枚举顺序（+ 本会话内存里尚未落盘的键追加在后）；上游是 Map 插入序，
+   两者在"跨会话重开后"可能不同。语料 0 使用这几个 API（只有 `get/set/remove`）。
+6. **未跑全量门禁**（派单约束：只跑 `--only script-storage docs-check diag-flags`）：经过同一条 env 构造的既有门禁
+   （`media-host` / `scene-script-*` / `script-tolerance` / `props-panel` 等）**本轮未复跑**；风险面由
+   "legacy 档 8 个方法逐字节未改 + 缺省 `opts.scriptStore` 恒为 `null`"这一条覆盖，但**未用真门禁实证**。
+7. **共享文件上的并发**：本条提交时工作区里另有两条并行线（P-149 `overbright` / P-152 `mdls`）的未提交改动，
+   `docs/README-DIAGNOSTICS.md` 被两条线同时编辑 ⇒ 本条只提交**自己的那 4 处改动**（表头 2 行 + `scriptstore` 行），
+   `web/diag-flags.json` 提交的是"HEAD + 本条"的生成结果（156 个开关）；工作区里那份含另两条线开关的 json 未纳入本条提交。
