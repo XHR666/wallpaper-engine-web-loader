@@ -212,6 +212,23 @@ console.log('\n[F] 真子进程服务：PWA 资源与首页注入的实际字节
       check('F9 线上 sw.js 与磁盘逐字节相同', swSrc === fs.readFileSync(path.join(WEB, 'sw.js'), 'utf8'))
       const pol = await (await fetch(base + '/sw-policy.mjs')).text()
       check('F10 线上 sw-policy.mjs 与磁盘逐字节相同（SW import 的就是它）', pol === fs.readFileSync(path.join(WEB, 'sw-policy.mjs'), 'utf8'))
+      // F11 ①(P-146 2026-09-19) **预缓存清单每条 URL 都要在真服务上 200**
+      //   为什么必须端到端测（而不是"静态比对文件存在"）：SW 的 `install` 是**逐条 try/catch**，
+      //   清单里哪怕写错一个名字也**不会报错**，只是那条永远缓存不上（"写了但没缓存"）。
+      //   实测踩过：`/assets/fonts/Blackout.ttf` 根本不存在（真名 `Blackout 2 AM.ttf`，带空格要 encodeURIComponent）。
+      //   也不重复实现服务器的路由表：直接问真服务。
+      {
+        const preBlock = (swSrc.match(/const PRECACHE = \[([\s\S]*?)\]/) || [, ''])[1]   // 只取数组本体，免得把注释/路由判断里的字符串也算进来
+        const pre = [...preBlock.matchAll(/'([^']+)'/g)].map((m) => m[1]).filter((u) => u.startsWith('/'))
+        const bad = []
+        for (const u of pre) {
+          let code = 0
+          try { code = (await fetch(base + u)).status } catch { code = -1 }
+          if (code !== 200) bad.push(u + '→' + code)
+        }
+        check('F11 预缓存清单每条 URL 在真服务上都 200（' + pre.length + ' 条：' + pre.join(' ') + '）', bad.length === 0,
+          bad.length ? '不是 200 的：' + bad.join(' ') : 'all 200')
+      }
     }
   } catch (e) {
     check('F 真服务测试未抛异常', false, e && e.message)

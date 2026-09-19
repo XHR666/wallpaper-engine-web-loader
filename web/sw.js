@@ -13,11 +13,17 @@
 //      并有逐条反面断言的测试 `pwa-test.mjs`。
 //
 // 版本号变更 ⇒ 旧缓存整批清理（避免"旧 shell + 新 bundle"的错配）。
-const VERSION = 'v2'   // ①(2026-09-19) 首屏 module 图新增 6 个自有模块 ⇒ 换版本让旧缓存整批清理
+const VERSION = 'v3'   // ①(P-146 2026-09-19) 预缓存清单改了一条**错名** URL（见下 `/assets/fonts/Blackout%202%20AM.ttf`）
+                       //   ⇒ 换版本让旧缓存整批清理，否则老客户端会一直用"少了那张字体"的 v2 清单
+                       // ①(P-143 2026-09-19) 首屏 module 图新增 6 个自有模块 ⇒ 换版本让旧缓存整批清理
+                       // （v1 → v2）
 const CACHE = 'we-scene-shell-' + VERSION
 const PRECACHE = [
   '/',
-  '/demo.html',
+  // ①(P-146 2026-09-19 修错名) 这里原本写的是 `/demo.html` —— 服务器**没有**这条路由（`server/we-scene-demo-server.mjs:377`
+  //   只认 `/` 与 `/index.html`，两者都读 `demo.html`），于是那条预缓存**永远 404**、静默失败。
+  //   判据同上：`tests/pwa-test.mjs` F11 逐条问真服务要 200（这条断言就是把两个错名一起抓出来的）。
+  '/index.html',
   '/manifest.webmanifest',
   '/we-scene-bundle.js',
   '/attach-transform.mjs',
@@ -34,7 +40,11 @@ const PRECACHE = [
   '/pkg/sample-synthetic',
   '/project/sample-synthetic',
   '/type/sample-synthetic',
-  '/assets/fonts/Blackout.ttf',
+  // ①(P-146 2026-09-19 修错名) 这里原本写的是 `/assets/fonts/Blackout.ttf` —— **仓库里没有这个文件**
+  //   （真名 `assets/fonts/Blackout 2 AM.ttf`，带空格 ⇒ URL 必须 `encodeURIComponent`，与 `demo.html:3688`
+  //   的 `repoFontUrl()` 同一口径）。原来那条每次安装都静默 404（`install` 里逐条 try/catch，不报错），
+  //   等于"写了但没缓存"。判据：`tests/pwa-test.mjs` 的 F11 —— 预缓存清单**每条 URL 都要在真服务上 200**。
+  '/assets/fonts/Blackout%202%20AM.ttf',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
 ]
