@@ -463,6 +463,29 @@ try {
     /* href 的判据放在**静态面**（`bench-shell-fixes` B18 / `demo-check` D5 直接扫 HTML 源），
        这里只判"页面上真的只剩一行、且旧节点与许可全文入口都没了" —— 运行期 DOM 上 `getAttribute('href')`
        会受补丁重建节点的方式影响（实测拿到 null），拿它当判据会把"渲染方式"误判成"内容缺失"。 */
+    /* ①(用户第 5 条「超链接点不动」) 判"点得动"的唯一硬判据 = **几何命中**：
+       把设置弹层打开，取链接中心点做 `elementFromPoint`，命中的必须还是它自己（或被它包含）。
+       只看 `href` 属性是抓不到"被覆盖层吃掉点击"的（实测就是这个）。 */
+    {
+      const opened = await page.evaluate(() => {
+        const btn = document.getElementById('settings-btn')
+        if (btn) btn.click()
+        return !(document.getElementById('settings-pop') || {}).hasAttribute?.('hidden')
+      })
+      await page.waitForTimeout(400)
+      const hit = await page.evaluate(() => {
+        const a = document.getElementById('credit-link-footer')
+        if (!a) return { found: false }
+        const r = a.getBoundingClientRect()
+        if (!(r.width > 0 && r.height > 0)) return { found: true, visible: false, rect: [r.width, r.height] }
+        const at = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2))
+        return { found: true, visible: true, hitSelf: !!(at && (at === a || a.contains(at) || at.contains(a))),
+          hitTag: at ? at.tagName + '.' + String(at.className || '').slice(0, 24) : null, href: a.getAttribute('href') }
+      })
+      ok(opened && hit.found && hit.visible && hit.hitSelf && /^https:\/\/github\.com\//.test(String(hit.href || '')),
+        'S11 设置弹层里的「许可与归属」链接**中心点命中的就是它自己**（= 真的点得动；只看 href 抓不到覆盖层）',
+        JSON.stringify(hit))
+    }
     ok(!!s.line && /README|许可与归属|License & credits/i.test(String(s.line)) && s.legacyNodes === 0 && s.legacyLic === 0,
       'S10 ⑪设置面板只留**一行**「许可与归属」链接（旧的四段长文案与两份许可全文入口都已删除；href 判据在静态面）', JSON.stringify(s))
   }

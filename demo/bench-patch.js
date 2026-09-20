@@ -2715,6 +2715,25 @@ export function initSiteShell(ctx = {}) {
     } catch { /* 桩 DOM */ }
     return on
   }
+  /* ①(用户 2026-09-20 第 5 条「设置里的超链接点不动」) 显式接管：原生 `<a target=_blank>` 在**合成事件/被覆盖层
+     命中**时可能不导航（真机实测点不动）。这里给这条链接补一个点击动作（`window.open` + `noopener`），
+     并且**只对 http(s) 放行**（`javascript:` 之类一律拒绝 —— 同批的安全策略要求）。 */
+  try {
+    const creditA = q('#credit-link-footer')
+    if (creditA) {
+      creditA.style.pointerEvents = 'auto'
+      creditA.addEventListener('click', (e) => {
+        try { e.stopPropagation() } catch {}
+        try {
+          const href = String(creditA.getAttribute('href') || '')
+          if (!/^https?:\/\//i.test(href)) return
+          e.preventDefault()
+          const w = window.open(href, '_blank', 'noopener,noreferrer')
+          try { if (w) w.opener = null } catch {}
+        } catch { /* 弹窗被拦：保留原生 href 行为 */ }
+      })
+    }
+  } catch { /* 桩 DOM */ }
   if (popBtn) popBtn.addEventListener('click', (e) => { try { e.stopPropagation() } catch {}; popOpen() })
   if (pop) pop.addEventListener('click', (e) => { try { e.stopPropagation() } catch {} })
   D.addEventListener('click', () => popOpen(false))
@@ -6200,7 +6219,9 @@ export function init() {
     // 只认文档视图那份，页脚永远不随语言切换）⇒ 页脚改成 *-footer 专名，两条一起同步（T31 通用唯一 id 断言盯着）。
     ['#credit-title-footer', 'text', 'credit.title'],
     ['#credit-link-footer', 'text', 'credit.link'],
-    ['#credit-line-footer', 'text', 'credit.link'],       // ⑪(P-158) 双方共同署名：本仓库作者那一行
+    /* ①(用户第 5 条实测根因) **不要**对 `#credit-line-footer` 做 `text` 重放：`textContent = …` 会把
+       容器里的 `<a>` 整个抹掉（实测 live DOM 里 `#credit-link-footer` 不存在 ⇒ 链接当然点不动）。
+       链接自己的 `data-i18n="credit.link"` 由**静态 i18n 那一遍**负责，这里什么都不做。 */
   ]
   function syncAllLabels() {
     for (const [sel, kind, key, skip] of LABEL_SPEC) {
