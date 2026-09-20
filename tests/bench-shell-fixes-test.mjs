@@ -496,8 +496,12 @@ ok(/<span id="lib-source"/.test(htmlSrc) && /paintLibSource/.test(patchSrc) && /
    面板节点从四个（title/link/repo/license×2）收敛成一行 `#credit-line-footer > #credit-link-footer`，
    链接指向仓库 README 的「许可与归属」章节；两份上游 MIT 全文**文件保留**（不再在页面上单独列出）。
    判据随之改成"一行链接 + 指到 README 章节 + 两个文件仍在仓库里"。 */
-ok(/id="credit-line-footer"/.test(htmlSrc) && /\['#credit-line-footer', 'text', 'credit\.link'\]/.test(patchSrc),
-  'B17 ⑪设置弹层只留**一行**许可与归属链接，并且进了标签同步清单（随语言切换）')
+/* ①(用户第 5 条实测根因) **不许**对 `#credit-line-footer` 做 `text` 重放：补丁对这类条目执行
+   `el.textContent = t(...)`，会把容器里的 `<a>` 整个抹掉 ⇒ 链接点不动（真机实测 `creditLink:false`）。
+   正确形状：容器里放带 `data-i18n="credit.link"` 的 `<a>`，由**静态 i18n 那一遍**翻译。 */
+ok(/id="credit-line-footer"[\s\S]{0,200}?id="credit-link-footer"[^>]*data-i18n="credit\.link"/.test(htmlSrc) &&
+  !/\['#credit-line-footer', 'text', 'credit\.link'\]/.test(patchSrc),
+  'B17 ⑪设置弹层只留**一行**许可与归属链接；链接自身带 `data-i18n`（**不许**用容器的 `text` 重放 —— 那会抹掉 `<a>`）')
 ok(/id="credit-link-footer"[^>]*href="https:\/\/github\.com\/XHR666\/wallpaper-engine-web-loader#[^"]*"/.test(htmlSrc) &&
   fs.existsSync(path.join(ROOT, 'demo', 'LICENSE-webwallgl-MIT.txt')) && fs.existsSync(path.join(ROOT, 'demo', 'LICENSE-webwallgl')),
   'B18 ⑪链接指向本仓 README 的「许可与归属」章节；两份上游 MIT 全文**仍在仓库里**（页面不再单列）')
