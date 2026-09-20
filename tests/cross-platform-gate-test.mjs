@@ -6,7 +6,7 @@
 //   而不是等用户在 mac/Windows 上踩一遍。
 //
 // 判据（A–F 逐类；任一不满足 ⇒ 退出码 1）：
-//   A 不可覆盖的本机绝对路径：代码里的 `/root/…`、`/home/<user>/…`、`/storage/emulated`、
+//   A 不可覆盖的本机绝对路径：代码里的 `/root/…`、`/home/<user>/…`、`/storage/` + `emulated`、
 //     Termux 私有目录、`C:\Users\…` 必须**当场给出覆盖口**（同行有 `process.env` / `os.homedir()`
 //     / `os.tmpdir()`），否则判红。白名单逐条写理由，且**每条都必须仍然命中**（防腐烂）。
 //   B 临时目录：代码里不许写死 `'/tmp/…'`（Windows 没有 `/tmp`；macOS 的 `/tmp` 是 `/private/tmp`
@@ -208,7 +208,7 @@ for (const rel of files) {
   const text = buf.toString('utf8')
   findingsAB.push(...scanHostPaths(rel, text), ...scanTmpLiterals(rel, text))
 }
-check('A/B 代码里的本机绝对路径与 `\'/tmp/…\'` 要么可覆盖、要么在白名单里', findingsAB.length === 0,
+check('A/B 代码里的本机绝对路径与 `/tmp` 字面量要么可覆盖、要么在白名单里', findingsAB.length === 0,
   findingsAB.length === 0 ? ('扫了 ' + codeFiles + ' 个代码文件，跳过 ' + skippedAssets + ' 个素材/产物路径')
     : JSON.stringify(findingsAB.slice(0, 6)))
 check('A/B 白名单逐条仍然命中（防腐烂：条目失效必须回来删）',

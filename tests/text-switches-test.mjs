@@ -182,9 +182,22 @@ console.log('[T5] 真实语料（3327063360：21 个文本层，旧实现只显�
       const onlyOld = [...A].filter((n) => !B.has(n))
       const onlyNew = [...B].filter((n) => !A.has(n))
       const fpsRe = /帧率|[Ff][Pp][Ss]|(^| )Frame($| )/
-      check('T5e 非文本层可见集差异只出现在 fps 类（clock/date/weekday 逐位不变）',
-        onlyOld.every((n) => fpsRe.test(n)) && onlyNew.every((n) => fpsRe.test(n)),
-        '共 A=' + A.size + ' B=' + B.size + ' 旧多=[' + onlyOld.join(',') + '] 新多=[' + onlyNew.join(',') + ']')
+      /* ①(P-170 2026-09-21) 音频响应型美术层（本包的 `Audio Bars`）是**另一条**豁免：hideUI 的名字正则里
+         含 `Audio|Spectrum|…`，但"名字命中音频美术词 **且** 有特效/粒子/作者绑定"的层现在被放过
+         （旧口径把它当 UI 一起藏掉）。它与 N5 文本开关**正交** ⇒ 这条断言只比"文本开关造成的差异"，
+         把音频美术层从两侧剔除；剔除这件事本身另有判据（T5e1b），否则"剔除"会变成遮羞布。 */
+      const AUDIO_ART_RE = /Audio\s?Bars?|音频|Spectrum|频谱|Visualizer/i
+      const dropped = [...new Set([...A, ...B].filter((n) => AUDIO_ART_RE.test(n)))]
+      const a2 = [...A].filter((n) => !AUDIO_ART_RE.test(n))
+      const b2 = [...B].filter((n) => !AUDIO_ART_RE.test(n))
+      const onlyOld2 = a2.filter((n) => !b2.includes(n))
+      const onlyNew2 = b2.filter((n) => !a2.includes(n))
+      check('T5e 非文本层可见集差异只出现在 fps 类（clock/date/weekday 逐位不变；音频美术层按 P-170 另计）',
+        onlyOld2.every((n) => fpsRe.test(n)) && onlyNew2.every((n) => fpsRe.test(n)),
+        '共 A=' + A.size + ' B=' + B.size + ' 旧多=[' + onlyOld.join(',') + '] 新多=[' + onlyNew.join(',') + '] 剔除=[' + dropped.join(',') + ']')
+      check('T5e1b 被剔除的层确实是音频美术层（本包应为 `Audio Bars`；剔除不是遮羞布）',
+        dropped.length > 0 && dropped.every((n) => AUDIO_ART_RE.test(n)) && dropped.some((n) => /^Audio Bars$/i.test(n)),
+        dropped.join(','))
       check('T5e2 差异里的名字全部是帧率 widget 成员（帧率位置/帧率三角…）', onlyOld.length > 0 && onlyOld.every((n) => fpsRe.test(n)),
         onlyOld.join(','))
     }

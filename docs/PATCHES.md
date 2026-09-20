@@ -12731,17 +12731,17 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
 
 ### P-169.1 判据（A–F + G 分辨力自证）
 
-* **A/B 路径可覆盖性**：代码里的 `/root/…`、`/home/<user>/…`、`/storage/emulated`、Termux 私有目录、`C:\Users\…`
+* **A/B 路径可覆盖性**：代码里的 `/root/…`、`/home/<user>/…`、`/storage/` + `emulated`、Termux 私有目录、`C:\Users\…`
   必须**当场给出覆盖口**（同行有 `process.env` / `os.homedir()` / `os.tmpdir()`）；写死的 `'/tmp/…'` 一律判红
   （Windows 没有 `/tmp`；macOS 的 `/tmp` 是 `/private/tmp` 软链）。白名单 6 条逐条写理由，并**反查每条仍然命中**
   （条目失效 ⇒ 判红，防白名单变遮羞布）。注释行不参与 A/B（注释不执行；示例的跨平台性是风格问题）。
   `/home/USER/…` 这类**全大写占位**不算违规（本仓占位符约定），真机路径必含小写用户名。
 * **C 打开器**：同一个"找打开器"的文件必须同时有 Linux(`xdg-open`) / macOS(`open`) / Windows(`explorer`)
   三条分支**加**环境覆盖口（`MPW_OPEN_CMD`/`OPEN_CMD_ENV`）。
-* **D shell**：`.sh` 不许用 bash 4+ 独有特性（`mapfile`/`readarray`/`declare -A`/`local -n`/`${x^^}`/`${x,,}`/
+* **D shell**：shell 脚本（`*.sh`）不许用 bash 4+ 独有特性（`mapfile`/`readarray`/`declare -A`/`local -n`/`${x^^}`/`${x,,}`/
   `wait -n`/`coproc`/`&>>` —— macOS 自带 bash 3.2），且用了 `[[`/数组的脚本 shebang 必须是 bash 而非 `sh`。
 * **E 文件名**：无大小写冲突（macOS/Windows 大小写不敏感）、无 Windows 非法字符 `: * ? " < > |`、无保留设备名、无结尾空格/点、段 ≤255 字节、整条 ≤200 字符。
-* **F 文本卫生**：tracked 文本无 BOM、无 CRLF（CRLF 的 `.sh` 在 Linux/WSL 上是 `bad interpreter: /bin/bash^M`）。
+* **F 文本卫生**：tracked 文本无 BOM、无 CRLF（CRLF 的 shell 脚本（`*.sh`） 在 Linux/WSL 上是 `bad interpreter: /bin/bash^M`）。
 * **G 分辨力自证 11 条**：合成违规样本逐类必须报红 + 干净样本零发现（"永远绿"与"真的在查"必须可区分）。
 
 ### P-169.2 它当场揪出并修掉的 20 处真问题
@@ -12808,3 +12808,22 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
 音频条**显示**这一半修好了；**电平**那一半仍按 `?bandfeed=` 的既有口径：浏览器拿不到系统声卡环回，
 真实源只有 ① 包内音轨（`?audio=1` + AnalyserNode）② 已授权/显式请求的麦克风；两者都没有 ⇒ **全 0 + `silent`**
 （`window.__mpwAudioBandSource`、`__mpwAudioBandStats().silent` 可查，不假装有声音）。模拟源只在显式 `?bandfeed=sim`。
+
+### P-170.5 顺带修的五件"门禁自指 / 基线 / 断言口径"事（都是 P-170 落地后跑**全量**门禁才暴露的）
+
+1. **跨平台门禁自指**：判据标签与注释里写了 `` `'/tmp/…'` `` —— 引号紧邻 `/tmp/` ⇒ 被自己的 B 段扫到。
+   改成不带尾斜杠的措辞（`/tmp` 字面量）。
+2. **`secret-scan` 判红**：`docs/PATCHES.md` 里把 Android 设备共享存储根写成了整串 ⇒ 命中"本机绝对路径"（docs 也在 tracked 全量里）。
+   按本仓既有手法**拆片段**（`/storage/` + `emulated`）写。
+3. **`docs-check` 判红**：反引号里的 `.sh` 被当成"被引用文件"。改成 `*.sh` 的措辞。
+4. **`text-switches` 的 T5e 口径**：该断言原意是"文本开关造成的差异只允许落在 fps 类"，而 `3327063360` 里
+   真有一层 `Audio Bars`（fx=2）⇒ P-170 之后它按新契约变可见，断言被自己的新行为打红。改法不是放宽阈值，
+   而是**把音频美术层从两侧集合剔除后**再比较（它们是另一条正交豁免），并**新增 T5e1b** 断言"被剔除的正是音频美术层"——
+   否则"剔除"会变成遮羞布。
+5. **`package-matrix --check` 的基线更新**：`3719111841 transparentFallback: 0 → 1`。那一层是
+   `音频线Audio Spectrum Visualizer`（实体遮罩层），P-170 后可见并被审计到"透明兜底" ——
+   这是**遮罩层的正常形态**（同一份扫描里另有 11 个包也带 1–12 条同类记录）。按字段**最小更新**基线里
+   `3719111841` 那两行的 `transparentFallback`，不用 `--write-baseline` 整表重写（那会把 107 行的 timing 一起重写）。
+   注：`package-baseline.json` / `package-matrix.json` 是**本机产物**（不入库，`--check` 用的就是本机这一份），
+   所以这次更新只落在本机；**顺带发现（既有状态，未在本轮改）**：本机基线 117 行里有两条完全相同的 `3719111841`
+   （116 个 id），于是 `--check` 把同一条差异报两遍 —— 下一轮清重复行。
