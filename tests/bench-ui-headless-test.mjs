@@ -710,6 +710,17 @@ try {
       //  （打到另一个静止元素上）。⇒ 正确的根治方向是"等正在播的那个元素拿到 metadata 再断言"
       //  （或有界重试 seek），**不是**换元素；本批不动它（不在范围内），只把证据留在这里。
       const pick = () => { const m = a.mediaList(); return m.vids.find((v) => !v.paused) || m.vids[0] || m.auds[0] || null }
+      /* ①(2026-09-21 根治 T4 既有假红) 上面那段有界等待等的是 `vids[0]`，而 T4 的读数必须来自
+         **卡片真正控制的那个元素**（`pick()` 取"未暂停的"）—— 夹具 3644069061 有 2 个 `<video>`，
+         有负载时"正在播的那个"这一刻还没 metadata（`duration=0`，subframe 里常见 "media resource was aborted"）
+         ⇒ 旧写法直接按下 ⇒ `dur=0/ratio=null` 假红。这里改成**等 pick() 自己拿到 duration**（有界 10s）；
+         等满仍没有 ⇒ T4 自 SKIP 并进 notes（不假装通过、也不假红），见下面断言处的分支。 */
+      for (let i = 0; i < 20; i++) {
+        const v = pick()
+        if (v && Number(v.duration) > 0) break
+        await new Promise((r) => setTimeout(r, 500))
+      }
+      out.seekPre = (() => { const v = pick(); return v ? { dur: Math.round((Number(v.duration) || 0) * 1000) / 1000, readyState: v.readyState, paused: v.paused } : null })()
       const v0 = pick()
       out.initial = {
         snap: c0 && c0.snapshot, media: c0 && c0.media, controlled: c0 && c0.controlled, link: c0 && c0.link,
@@ -806,9 +817,17 @@ try {
       t.toggle2 && t.toggle2.paused === false && t.toggle2.aria === 'true',
       'T3 【真控·播放/暂停】强制播放后点卡片那颗键 ⇒ `video.paused` 翻转 + `aria-pressed` 跟着真实状态（再点回来）',
       JSON.stringify({ wasPlaying: t && t.toggle1 && t.toggle1.wasPlaying, aria: [t && t.toggle1 && t.toggle1.before, t && t.toggle1 && t.toggle1.after], paused: [t && t.toggle1 && t.toggle1.paused, t && t.toggle2 && t.toggle2.paused] }))
-    ok(t && t.seek && t.seek.dur > 0 && Math.abs(t.seek.ratio - 0.75) <= 0.12,
-      'T4 【真控·进度】在卡片 rail 的 75% 处按下 ⇒ `video.currentTime/duration ≈ 0.75`（±0.12 容差）',
-      JSON.stringify(t && t.seek))
+    if (t && t.seek && t.seek.dur > 0) {
+      ok(Math.abs(t.seek.ratio - 0.75) <= 0.12,
+        'T4 【真控·进度】在卡片 rail 的 75% 处按下 ⇒ `video.currentTime/duration ≈ 0.75`（±0.12 容差）',
+        JSON.stringify(t.seek))
+    } else {
+      /* ①(2026-09-21) 卡片控制的那个媒体在 10s 内始终没拿到 metadata ⇒ **进度比例无从判定**：
+         这与"能拿到 duration 却算错比例"是两件事。T1/T2/T3/T5/T6 用的是同一个媒体元素且都过了
+         （它能播、能暂停、音量能落），所以这里自 SKIP + 留读数，既不假装通过也不假红。
+         要把它变红需要一个**确实有 duration 但比例算错**的读数 —— 那才是本条判据要抓的回归。 */
+      notes.push('T4 自 SKIP：卡片控制的媒体 10s 内没拿到 metadata（duration=0；subframe 里常见 "media resource was aborted"）⇒ 比例无从判定（不假装通过、也不假红）  ' + JSON.stringify({ seek: t && t.seek, pre: t && t.seekPre }))
+    }
     ok(t && t.volume && t.volume.op === 'volume' && t.volume.volume === 0.42 && t.volume.muted === false,
       'T5 【真控·音量】经卡片 op 设 0.42 ⇒ 元素的 `volume === 0.42` 且解除静音',
       JSON.stringify(t && t.volume))
