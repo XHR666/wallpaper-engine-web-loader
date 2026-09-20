@@ -1,12 +1,22 @@
-# WE-Scene Web Renderer（浏览器端 Wallpaper Engine 场景渲染器）
+# WEwebLoader (浏览器端Wallpaper Engine壁纸渲染器)
 
 在浏览器里**实时渲染 Wallpaper Engine 的场景壁纸**（`scene.pkg` / 本项目的 `.mpkg` 容器 / workshop 源目录），
 不需要 Wallpaper Engine、不需要 Windows、不需要 GPU 专用驱动 —— 一个本地 Node 静态服务器 + 支持 WebGL2 的浏览器即可。
 
-已发布 [wallpaper-engine-web-loader@0.2.1](https://www.npmjs.com/package/wallpaper-engine-web-loader) · [在线 demo](https://xhr666.github.io/wallpaper-engine-web-loader/)
+- 已发布 npm：[wallpaper-engine-web-loader@0.2.1](https://www.npmjs.com/package/wallpaper-engine-web-loader)
+- [在线 demo](https://xhr666.github.io/wallpaper-engine-web-loader/)
+- [免责声明](#免责声明)
+- [参考与致谢](#7-参考与致谢--references--credits)
 
-> **命名说明（2026-09-19）**：本产品现名 **WEwebLoader**（npm 包名与仓库名仍是 `wallpaper-engine-web-loader`）；
-> 上游项目名仍是 **WebWallGL**（`oneincase/webwallgl`，MIT），归属与许可不因此改变。
+**搜索关键词 / 别名（Search aliases）**：**WEwebLoader** · WE Web Loader · we-web-loader ·
+wallpaper-engine-web-loader · WE 场景壁纸网页渲染器 · 壁纸引擎网页渲染器 —— 上面任何一个都应能找到本仓库；
+npm 包名与仓库名**保持不变**（`wallpaper-engine-web-loader`），在线 demo 在
+<https://xhr666.github.io/wallpaper-engine-web-loader/>。
+
+> **命名说明（2026-09-19）**：
+> 本项目有两个名称
+> - **WEwebLoader**
+> - npm 包名与仓库名仍是 **`wallpaper-engine-web-loader`**
 
 > **参照来源许可声明**：`wer-ref/`（`Aromatic05/wallpaper-engine-renderer`，`catsout/wallpaper-scene-renderer` 的 fork，**GPL-2.0-only**）与
 > `we-layerd-ref/`（`Aromatic05/we-layerd`，**无许可**）都是**仓库外的第三方参考实现**，不是 WE 官方代码、不是"真值源"，

@@ -1,7 +1,7 @@
 {
   "name": "wallpaper-engine-web-loader",
   "version": "0.2.1",
-  "description": "浏览器端 Wallpaper Engine 场景渲染器（WE-Scene Web Renderer）：不装 WE、不装 Windows 依赖，一个静态服务器 + WebGL2 就能实时渲染 scene.pkg / .mpkg 场景壁纸（含离线 PWA、逐层调试与对账门禁）。本仓库不分发任何真实壁纸。",
+  "description": "WEwebLoader（浏览器端 Wallpaper Engine 壁纸渲染器）：不装 WE、不装 Windows 依赖，一个静态服务器 + WebGL2 就能实时渲染 scene.pkg / .mpkg 场景壁纸（含离线 PWA、逐层调试与对账门禁）。本仓库不分发任何真实壁纸。",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "repository": {
@@ -73,10 +73,14 @@
     "build:pages": "node build-pages.mjs"
   },
   "keywords": [
+    "wewebloader",
+    "we-web-loader",
     "wallpaper-engine",
+    "wallpaper-engine-web-loader",
     "webgl2",
     "scene-renderer",
     "scene-pkg",
-    "we-scene"
+    "we-scene",
+    "壁纸渲染器"
   ]
 }

@@ -4546,7 +4546,7 @@ export function init() {
     '.pop-val{color:var(--fg)}',
     '.pop-note{margin:2px 0 0;color:var(--fg-mute);font-size:11.5px;line-height:1.6}',
     '.pop-credit{margin-top:2px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--fg-mute)}',
-    '.pop-credit a{color:var(--link,var(--accent,#58a6ff))}',
+    '.pop-credit a{color:var(--link,var(--accent,#58a6ff));pointer-events:auto;cursor:pointer;text-decoration:underline;text-underline-offset:2px}',
     /* 三页滑动轨道 */
     '#pages-track{flex:1 1 auto;width:auto;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;contain:paint;transform:none!important;transition:none!important}',
     '.page{flex:1 1 auto;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}',
