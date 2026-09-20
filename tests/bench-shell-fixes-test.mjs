@@ -737,5 +737,167 @@ console.log('== F 组（2026-09-20 用户第 1–11 条）==')
     'F21 ① 幽灵叉号：`curId` 只在"列表里真有 active 项"时非空 + 叉号按同一判据渲染 + 关不存在的 id 幂等返回 false（不写日志）')
 }
 
+// ══════════════════ K 组（2026-09-21 属性面板批：用户第 18/23/25/26/27/28/30/34 条 + 第 14 行布局半条）══
+//  这一组**不碰浏览器**：判据分三层 ——
+//    ① 纯函数逐值对账（隐藏名单 / 富文本 token / 占位颜色 / 数字解析 / 外链白名单），
+//    ② 运行期接线的静态钉子（面板状态机、装饰入口、隐藏名单真被调用、`location.reload` 不存在），
+//    ③ RED-IF-REVERTED：把真源复制到 /tmp 改坏，上面几条必须变红（证明判据不是恒真）。
+console.log('== K 属性面板批（#18/#23/#25/#26/#27/#28/#30/#34 + #14） ==')
+{
+  const num = (raw, spec) => P.parseNumberSafe(raw, spec)
+  //  ① 数字解析（#34）
+  eq(num('1e9', { min: 0, max: 10 }).reason, 'exponent', 'K1 #34 `1e9` 被拒（不支持科学计数法）')
+  eq(num('Infinity', { min: 0, max: 10 }).reason, 'not-finite', 'K2 #34 `Infinity` 被拒')
+  eq(num('NaN', {}).reason, 'not-finite', 'K3 #34 `NaN` 被拒')
+  eq(num('0x10', {}).reason, 'radix-prefix', 'K4 #34 `0x10` 被拒（十六进制前缀）')
+  eq(num('0b11', {}).reason, 'radix-prefix', 'K5 #34 `0b11` 被拒（二进制前缀）')
+  eq(num('1,5', {}).reason, 'not-a-number', 'K6 #34 `1,5` 被拒（不是数字）')
+  eq(num('', {}).reason, 'empty', 'K7 #34 空串被拒')
+  eq(num('1'.repeat(25), {}).reason, 'too-long', 'K8 #34 超长（>24 字符）被拒')
+  eq(num('0.' + '1'.repeat(13), {}).reason, 'too-many-decimals', 'K9 #34 小数位过多（>12）被拒')
+  eq([num('-2.5', {}).ok, num('-2.5', {}).value], [true, -2.5], 'K10 #34 合法负数原样通过')
+  eq(num('5', { min: 0, max: 1 }), { ok: true, value: 1, clamped: true, notes: ['max'], reason: '' }, 'K11 #34 越上界 ⇒ 钳到 max 并记 note')
+  eq(num('-5', { min: 0, max: 1 }), { ok: true, value: 0, clamped: true, notes: ['min'], reason: '' }, 'K12 #34 越下界 ⇒ 钳到 min 并记 note')
+  eq(num('0.6145', { min: 0.1, max: 2, step: 0.001 }), { ok: true, value: 0.615, clamped: true, notes: ['step'], reason: '' },
+    'K13 #34 不合步长 ⇒ 按 step 对齐（0.1 + n×0.001；浮点尘埃已消）')
+  eq(num('1.23456', { precision: 2 }), { ok: true, value: 1.23, clamped: true, notes: ['precision'], reason: '' }, 'K14 #34 超精度 ⇒ 按 precision 取整')
+  eq(num(' 0.5 ', { min: 0, max: 1 }), { ok: true, value: 0.5, clamped: false, notes: [], reason: '' }, 'K15 #34 首尾空白被容忍（不写回但也不误判）')
+
+  //  ② 内置隐藏名单（#18）
+  eq(P.propsHiddenReason({ name: 'ui_browse_properties_scheme_color', text: '' }), 'internal-prefix', 'K16 #18 `ui_` 前缀 ⇒ 隐藏')
+  eq(P.propsHiddenReason({ name: 'schemecolor', text: 'ui_browse_properties_scheme_color' }), 'internal-name', 'K17 #18 真实数据形态：name=schemecolor / text=内部键 ⇒ 隐藏（只看 name 会漏，只看 text 也会漏）')
+  eq(P.propsHiddenReason({ name: 'whatever', text: 'ui_browse_properties_playback_rate' }), 'internal-text', 'K18 #18 内部键出现在**文案**里也隐藏（换壁纸后原文案不同，这正是第 25 条的场景）')
+  eq(P.propsHiddenReason({ name: 'foo', text: '颜色/Color' }), '', 'K19 #18 正常文案不误伤')
+  eq(P.propsHiddenReason({ name: 'x', text: '请把 ui_ 前缀的属性当内部项处理（说明文字）' }), '', 'K20 #18 文案中段出现 `ui_` 不误伤（只认"整段就是那个键"）')
+  eq(P.propsRawMode('?rawprops=1'), true, 'K21 #18 `?rawprops=1` ⇒ 排障档')
+  eq([P.propsRawMode('?rawprops=0'), P.propsRawMode('?x=1')], [false, false], 'K22 #18 缺省/关档不进排障档')
+
+  //  ③ 富文本 token（#26/#28）
+  const t1 = P.parsePropRichText('<big><b>显示赞助信息<br>Display</b></big>')
+  eq(P.propRichTextPlain(t1), '显示赞助信息\nDisplay', 'K23 #28 `<big>/<b>` 剥标签留文字，`<br>` 变换行（不加粗、不放大）')
+  eq(t1.every((t) => ['text', 'br', 'font', 'link', 'img'].includes(t.k)), true, 'K24 #28 token 只有四类语义（颜色/换行/图/链接），没有字号字重')
+  const t2 = P.parsePropRichText('<font color=#b7edff>蓝字</font><font color=red>红字</font><font color=url(x)>灰字</font>')
+  eq([t2[0].k, t2[0].color, t2[0].kids[0].v, t2[1].color, t2[2].k, t2[2].v], ['font', '#b7edff', '蓝字', 'red', 'text', '灰字'],
+    'K25 #28 `<font color>` 只取颜色：合法色（hex/颜色名）生效，非法色（`url(x)`）当没写、文字照留')
+  const t3 = P.parsePropRichText('<img src="http://a/b.png" width=100><img src=x onerror=alert(1)>')
+  eq([t3.length, t3[0].k, t3[0].src, t3[1].k, t3[1].src], [2, 'img', 'http://a/b.png', 'img', 'x'], 'K26 #26 `<img>` 只出图 token（标签文字不进正文）；src 原样收着，渲染时再按 http(s) 白名单过')
+  eq(P.propRichTextPlain(t3), '', 'K27 #26 `<img>` 不贡献任何文字 ⇒ "图片已渲染但下面还留着标签文本"从根上不可能')
+  const t4 = P.parsePropRichText("<a href='https://x.com/a?b=1'>可点</a><a href='javascript:alert(1)'>不可点</a><a href='Media integration size'>垃圾</a>")
+  eq([t4[0].k, t4[0].host, t4[0].kids[0].v, t4[1].k, t4[1].v, t4[2].k, t4[2].v], ['link', 'x.com', '可点', 'text', '不可点', 'text', '垃圾'],
+    'K28 #30 只有 http(s) 变成 link token；`javascript:` 与垃圾串剥标签留文字（点不动）')
+  eq(P.propRichTextPlain(P.parsePropRichText('<center><hr>&nbsp;A&amp;B&#65;<marquee>M</marquee><!-- 注释 -->T')), '\u00a0A&BA' + 'MT',
+    'K29 #28 未知标签/注释/`<hr>` 一律剥掉（实体 `&nbsp;/&amp;/&#65;` 正确解码；未闭合的 `<` 不吞后文）')
+  eq(P.propRichTextPlain(P.parsePropRichText('<font color=#fff><big>内容')), '内容', 'K30 #28 未闭合标签不抛异常、内容照留')
+  eq(P.safeCssColor('expression(alert(1))') + P.safeCssColor('rgb(1,2,3)') + P.safeCssColor('RED'), 'rgb(1,2,3)red', 'K31 #28 颜色白名单只收 hex/rgb()/颜色名')
+
+  //  ④ 占位颜色（#27）与"有没有实义文字"
+  eq([P.propsHasRealText(''), P.propsHasRealText('\u00a0  '), P.propsHasRealText('颜色'), P.propsHasRealText('Color 1')], [false, false, true, true],
+    'K32 #27 空白/`&nbsp;` 不算实义文字；中英文都算')
+  eq([P.propsPlaceholderColor({ ptype: 'color', text: '<img src="http://a/b.png">' }),
+    P.propsPlaceholderColor({ ptype: 'color', text: '<big><b><br/>' }),
+    P.propsPlaceholderColor({ ptype: 'color', text: '颜色/Color' }),
+    P.propsPlaceholderColor({ ptype: 'slider', text: '<img src=x>' })], [true, true, false, false],
+    'K33 #27 值类型 color 且文案里只有 `<img>`/`<big>`/空白 ⇒ 占位（不渲染控件）；有实义文案、或本来就不是 color ⇒ 不是占位')
+
+  //  ⑤ 外链白名单（#30）
+  eq(P.externalLinkInfo('https://space.bilibili.com/279406515?x=1'), { ok: true, href: 'https://space.bilibili.com/279406515?x=1', host: 'space.bilibili.com' }, 'K34 #30 https 放行并给出域名')
+  eq(P.externalLinkInfo('HTTPS://Example.COM/Path').host, 'example.com', 'K35 #30 大小写不敏感、域名归一为小写')
+  eq([P.externalLinkInfo('javascript:alert(1)').ok, P.externalLinkInfo('data:text/html,x').ok, P.externalLinkInfo('ftp://a/b').ok,
+    P.externalLinkInfo('./rel').ok, P.externalLinkInfo('//evil.com/x').ok, P.externalLinkInfo('').ok], [false, false, false, false, false, false],
+    'K36 #30 只有 http(s) 绝对地址放行（`javascript:`/`data:`/`ftp:`/相对路径/协议相对 一律拒绝）')
+
+  //  ⑥ 运行期接线（静态钉子）
+  ok(/const PROPS_RAW = propsRawMode\(/.test(patchCode) && /if \(!PROPS_RAW\)/.test(patchCode) && /propsHiddenReason\(\{ name:/.test(patchCode),
+    'K37 #18 排障档 + 隐藏名单在**运行期装饰路径**里真的被用上（不是只定义了纯函数）')
+  ok(/propsPlaceholderColor\(\{ name:/.test(patchCode) && /ctl\.hidden = true/.test(patchCode) && /props\.placeholderNote/.test(patchCode),
+    'K38 #27 占位颜色项在运行期收掉控件并写明原因')
+  ok(/parsePropRichText\(el\.textContent\)/.test(patchCode) && /createTextNode\(tok\.v\)/.test(patchCode) &&
+    !/innerHTML\s*=\s*[^'"]*tok|innerHTML\s*=\s*[^'"]*(text|html)/.test(patchCode),
+    'K39 #26/#28 富文本走 token → `createElement/textContent`（**不 innerHTML**：作者文本结构上变不成 HTML）')
+  ok(/parseNumberSafe\(input\.value, propNumSpec\(input\)\)/.test(patchCode) && /ev\.stopImmediatePropagation\(\)/.test(patchCode) &&
+    /props\.num\.invalid/.test(patchCode),
+    'K40 #34 数值框在**捕获阶段**接管（拦下产物那条只认 `Number.isFinite` 的处理器）、非法走行内报错')
+  ok(/function propsResolvedItem\(\)/.test(patchCode) && /propsPendingItem/.test(patchCode) && /propsStickyItem/.test(patchCode),
+    'K41 #23 面板状态机有"目标 + 粘性当前项"两道兜底（产物重画列表的那 60ms 窗口里 `.active` 会消失 —— 只看 DOM 会误判"未选择"）')
+  ok(/artifactPropsToggle = typeof propsToggleBtn\.onclick === 'function'/.test(patchCode) && /artifactPropsToggle\.call\(propsToggleBtn\)/.test(patchCode),
+    'K42 #23 保存了产物 `#toggle-props` 的原始处理器并用它强制重读（收起期间切壁纸的唯一读入口）')
+  ok(!/location\.reload\(/.test(patchCode), 'K43 #23 全程**没有**整页 `location.reload()`（面板重挂载走的是"清空 → 重读 → 重画"）')
+  ok(/parsePropRichText\(propAttrOf\(attrs, 'href'\)\)|externalLinkInfo\(propAttrOf\(attrs, 'href'\)\)/.test(patchCode) && /window\.open\(target, '_blank', 'noopener,noreferrer'\)/.test(patchCode) &&
+    /propsExtConfirm/.test(patchCode),
+    'K44 #30 链接 token 只由 `externalLinkInfo` 放行，确认后 `window.open(url,"_blank","noopener,noreferrer")`')
+  ok(/PROPS_HIDDEN_PREFIXES = \['ui_'\]/.test(patchCode) && /PROPS_HIDDEN_NAMES = \[/.test(patchCode),
+    'K45 #18 隐藏名单是**数据驱动的一处常量**（前缀数组 + 明确集合），不在渲染逻辑里散落 if')
+  ok(/function decorateListRow\(li\)/.test(patchCode) && /idEl\.title = id/.test(patchCode) && /decorateListRows\(listEl\)/.test(patchCode) &&
+    /'#list \.sub \.bench-row-id\{display:block;max-width:100%;font-family:var\(--mono\)/.test(patchCode),
+    'K46 #14 列表行：ID 拆成独立元素（等宽 + 单行省略号 + `title` 完整值），`refreshSwitcher` 每次都过一遍（幂等）')
+  const cssItems2 = cssItems.join('\n')
+  ok(/#list \.sub \.bench-row-id\{display:block;max-width:100%;font-family:var\(--mono\)[^}]*text-overflow:ellipsis\}/.test(cssItems2) &&
+    /\.bench-num-err\{margin-top:4px;color:var\(--danger\)/.test(cssItems2) && /\.bench-ext\{position:fixed/.test(cssItems2) &&
+    /html\.bench-shell \.bench-ext\{position:fixed/.test(staticCss.replace(/\/\*[\s\S]*?\*\//g, ' ')),
+    'K47 #14/#30/#34 新样式在 SITE_LAYOUT_CSS 与静态表里都在（ID 行布局 / 行内报错 / 外链确认弹层）')
+  /* ⚠ 注释剥除器的**结构脆弱面**（本轮真踩到）：`stripComments` 用跨全文的 `/<!--[\s\S]*?-->/g`，
+     源码里只要**同时**出现 `<!--` 与 `-->` 两个字面量，中间几万字节代码就会被整段当 HTML 注释吃掉
+     （实测：`<!--` 在 1083 行、`-->` 在 tokenizer 里 ⇒ 60 587 字节被吞，I20–I25/G8–G13 集体变红而真代码没坏）。
+     所以钉一条：剥完块注释后不许再出现 `-->`。 */
+  ok(!/-->/.test(patchCode), 'K48 剥离块注释后源码里不再出现 `-->` 字面量（否则本文件的注释剥除器会把中间数万字节代码整段吃掉 —— 这条是本轮实测的防复发钉子）')
+
+  const newKeys = ['props.hiddenNote', 'props.placeholderNote', 'props.emptyShownNote', 'props.ext.title', 'props.ext.host', 'props.ext.warn',
+    'props.ext.cancel', 'props.ext.open', 'props.ext.wait', 'props.ext.opening', 'props.ext.cancelled', 'props.linkBlocked',
+    'props.num.invalid', 'props.num.clamped', 'num.why.empty', 'num.why.too-long', 'num.why.not-finite', 'num.why.radix-prefix',
+    'num.why.exponent', 'num.why.not-a-number', 'num.why.too-many-decimals', 'num.why.min', 'num.why.max', 'num.why.step', 'num.why.precision']
+  const missK = newKeys.filter((k) => !P.DICT.zh[k] || !P.DICT.en[k])
+  ok(missK.length === 0, 'K49 本批 25 个新文案键中英齐全（缺键会退化成键名）', JSON.stringify(missK.slice(0, 4)))
+
+  //  RED-IF-REVERTED（变异在 /tmp，真树只读）：每条的变异都对着**用户看得见的那条行为**
+  const tmpK = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-props-k-'))
+  const fixImportsK = (t) => t
+    .replace("from './mpw-select.js'", "from '" + pathToFileURL(path.join(ROOT, 'demo/mpw-select.js')).href + "'")
+    .replace("from './mpw-select-math.mjs'", "from '" + pathToFileURL(path.join(ROOT, 'demo/mpw-select-math.mjs')).href + "'")
+  const mutK = async (name, src2) => {
+    const f = path.join(tmpK, name)
+    fs.writeFileSync(f, fixImportsK(src2))
+    return await import(pathToFileURL(f).href)
+  }
+  /* 变异①：数字解析退回"什么都收"（去掉科学计数法闸门 **且** 放宽形状正则 —— 两道闸是叠加的，
+     只删一道不会改变行为，那也不该算"判据有效"）。 */
+  const mK1 = patchSrc
+    .replace("  if (/[eE]/.test(s)) return bad('exponent')\n", '')
+    .replace("  if (!/^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$/.test(s)) return bad('not-a-number')",
+      "  if (!/^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$/.test(s)) return bad('not-a-number')")
+  ok(mK1 !== patchSrc, 'K50 变异①锚点命中（数字解析放行科学计数法）')
+  const MK1 = await mutK('mutant-num.mjs', mK1)
+  ok(MK1.parseNumberSafe('1e9', { min: 0, max: 10 }).ok === true,
+    'K51 ★ 变异①生效：K1（`1e9` 必须被拒）在变异体里必红', JSON.stringify(MK1.parseNumberSafe('1e9', { min: 0, max: 10 })))
+  /* 变异②：隐藏名单丢掉"看文案"那一半（真实数据里内部键就在文案上 ⇒ 换成别的壁纸就漏出来） */
+  const mK2 = patchSrc.replace(`  const plain = propPlainText(s.text).trim().toLowerCase()
+  if (plain && plain.length <= 64) {`, `  const plain = ''
+  if (false) {`)
+  ok(mK2 !== patchSrc, 'K52 变异②锚点命中（隐藏名单丢掉"看文案"那一半）')
+  const MK2 = await mutK('mutant-hide.mjs', mK2)
+  ok(MK2.propsHiddenReason({ name: 'whatever', text: 'ui_browse_properties_playback_rate' }) === '',
+    'K53 ★ 变异②生效：K18（文案里带内部键也要隐藏）在变异体里必红')
+  /* 变异③：富文本退回"原文照显"（= 用户第 26/28 条看到的现象：标签被当文字显示） */
+  const mK3 = patchSrc.replace('  const src = String(text == null ? \'\' : text)\n  const root = []',
+    "  const src = String(text == null ? '' : text)\n  if (src) return [{ k: 'text', v: src }]\n  const root = []")
+  ok(mK3 !== patchSrc, 'K54 变异③锚点命中（富文本退回原文照显）')
+  const MK3 = await mutK('mutant-rich.mjs', mK3)
+  ok(MK3.propRichTextPlain(MK3.parsePropRichText('<big><b>内容<br>B')) !== '内容\nB',
+    'K55 ★ 变异③生效：K23/K29（`<big>` 里的文字必须留下、标签必须消失）在变异体里必红',
+    JSON.stringify(MK3.propRichTextPlain(MK3.parsePropRichText('<big><b>内容<br>B'))))
+  /* 变异④：外链白名单退回"只要有值就放行" */
+  const mK4 = patchSrc.replace('export function externalLinkInfo(href) {',
+    "export function externalLinkInfo(href) {\n  return { ok: true, href: String(href == null ? '' : href), host: 'mutant' }")
+  ok(mK4 !== patchSrc, 'K56 变异④锚点命中（外链白名单放行一切）')
+  const MK4 = await mutK('mutant-link.mjs', mK4)
+  ok(MK4.externalLinkInfo('javascript:alert(1)').ok === true,
+    'K57 ★ 变异④生效：K36（`javascript:` 必须被拒）在变异体里必红', JSON.stringify(MK4.externalLinkInfo('javascript:alert(1)')))
+  /* 变异⑤：占位颜色抑制退回"什么都渲染控件"（第 27 条的现象） */
+  const mK5 = patchSrc.replace('  return !propsHasRealText(propPlainText(s.text))', '  return false')
+  ok(mK5 !== patchSrc, 'K58 变异⑤锚点命中（占位颜色不再抑制控件）')
+  const MK5 = await mutK('mutant-phcolor.mjs', mK5)
+  ok(MK5.propsPlaceholderColor({ ptype: 'color', text: '<img src="http://a/b.png">' }) === false,
+    'K59 ★ 变异⑤生效：K33（占位颜色必须被认出来）在变异体里必红')
+}
+
 console.log(`\n── 汇总：PASS=${pass} FAIL=${fail}`)
 process.exitCode = fail ? 1 : 0

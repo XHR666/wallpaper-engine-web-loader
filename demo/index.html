@@ -188,6 +188,27 @@ html.bench-shell{--bench-input-border:#ccc;--bench-input-focus:#111}
 html.bench-shell[data-theme="dark"]{--bench-input-border:#3c3c3c;--bench-input-focus:#fff}
 html.bench-shell input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), html.bench-shell textarea{border:1px solid var(--bench-input-border)!important}
 html.bench-shell input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):focus, html.bench-shell textarea:focus{outline:none;border-color:var(--bench-input-focus)!important}
+/* 本轮（用户第 14/18/23/25/26/27/28/30/34 条）：资源管理器行布局 + 属性面板富文本/报错 + 外链确认弹层 */
+html.bench-shell #list .meta{min-width:0}
+html.bench-shell #list .sub .bench-row-id{display:block;max-width:100%;font-family:var(--mono);font-size:10.5px;color:var(--fg-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html.bench-shell #list li.active .sub .bench-row-id{color:#b4d0e8}
+html.bench-shell #list .sub .bench-row-kind{display:block;overflow:hidden;text-overflow:ellipsis}
+html.bench-shell .bench-prop-note{padding:2px 0 0;color:var(--fg-mute);font-size:11px;line-height:1.5}
+html.bench-shell .bench-prop-imgwrap{display:block;margin:4px 0}
+html.bench-shell .bench-prop-img{display:block;max-width:100%;height:auto;border-radius:2px}
+html.bench-shell .bench-prop-link{color:var(--link);text-decoration:underline;cursor:pointer}
+html.bench-shell .bench-num-err{margin-top:4px;color:var(--danger);font-size:11px;line-height:1.5}
+html.bench-shell .bench-props-hidden-note{font-size:11px;line-height:1.6}
+html.bench-shell .bench-ext{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5)}
+html.bench-shell .bench-ext-box{width:min(520px,92vw);padding:16px 18px;border:1px solid var(--widget-border);border-radius:8px;background:var(--panel);color:var(--fg);box-shadow:var(--shadow)}
+html.bench-shell .bench-ext-title{font-size:14px;font-weight:600;margin-bottom:6px}
+html.bench-shell .bench-ext-host{font-size:13px;color:var(--fg);word-break:break-all}
+html.bench-shell .bench-ext-url{display:block;margin:6px 0;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input);color:var(--fg-dim);font:11px/1.5 var(--mono);word-break:break-all}
+html.bench-shell .bench-ext-warn{margin:6px 0 12px;color:var(--fg-mute);font-size:12px;line-height:1.6}
+html.bench-shell .bench-ext-row{display:flex;justify-content:flex-end;gap:8px}
+html.bench-shell .bench-ext-row button{height:26px;padding:0 12px;border:1px solid var(--widget-border);border-radius:4px;background:var(--input);color:var(--fg);cursor:pointer}
+html.bench-shell .bench-ext-open:not(:disabled){background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}
+html.bench-shell .bench-ext-open:disabled{opacity:.55;cursor:default}
 /* ── ⑪(2026-09-20 用户第 11 条)：首屏防闪 ────────────────────────────────────────────────
    用户原话：「刷新时先看到所有内容堆在一起，约 1 秒后才正常」。这段**必须在 head 的静态表里**
    （不依赖 JS/补丁）：补丁/外壳把关键布局接管完之前，body 先不画；`<head>` 里那段同步脚本在

@@ -91,7 +91,7 @@ export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"
 "pickd.selected":"已选择：{path}","pickd.applying":"正在切换库目录…","pickd.done":"库目录已切换：{path}（重新载入中…）","pickd.fail":"切换失败：{msg}","pickd.relisted":"已重新拉取壁纸库列表（{n} 项）","pickd.noStart":"服务端没有给出可浏览的快捷根（GET /api/fs/roots 的 roots 为空）","pickd.listFail":"读取目录失败：{path} —— {msg}",
 "pickd.frontend":"纯前端扫描（文件不离开浏览器）","pickd.system":"系统选择器（可能选不到环境内目录）","pickd.systemHint":"服务端打开的原生对话框；容器/安卓环境下常常看不到或选不到环境内目录 ⇒ 仅作兜底",
 "pickd.dirTag":"目录","pickd.fileTag":"文件","pickd.rootLocked":"服务端默认不允许列出这个根（只读边界）；可用 MPW_PICK_ROOT 放宽",
-"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.mic":"Enable microphone","toolbar.micTip":"Off by default: while off the page never requests the microphone (getUserMedia is not called) and “Live system” keeps title/progress only; when on it is requested only if a wallpaper/feature declares the need, never pre-requested at load","dbg.switch":"Enable debug mode","dbg.switchTip":"Step through layers (left/right) and isolate them; the keyboard is captured only while the debug view is open, Alt exits","logs.cleared":"Cleared ({view})","log.micOn":"Microphone enabled: requested only when a wallpaper/feature declares the need (no pre-request at load)","log.micOff":"Microphone disabled: no mic request is issued at all","log.micNeeded":"The microphone half of “Live system” needs “Enable microphone” first — title/progress only for now","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","logs.debug":"Debug mode","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
+"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）","props.hiddenNote":"已隐藏 {n} 项内部/占位属性（在地址后加 {flag} 显示全部原始项）","props.placeholderNote":"占位属性（文案里没有可读内容）⇒ 不显示控件","props.emptyShownNote":"该壁纸没有可显示的可调项","props.ext.title":"打开外部链接？","props.ext.host":"目标域名：{host}","props.ext.warn":"这条链接来自壁纸作者的属性文案，不是本页生成的。确认域名可信再继续：只会以新标签打开，并带 noopener / noreferrer。","props.ext.cancel":"取消","props.ext.open":"打开","props.ext.wait":"请稍候（{n}s）","props.ext.opening":"已打开外部链接：{host}","props.ext.cancelled":"已取消：没有打开外部链接","props.linkBlocked":"已拒绝该链接：只放行 http(s)","props.num.invalid":"非法输入（{why}）：未写回，已恢复原值","props.num.clamped":"已按属性范围调整：{v}（{why}）","num.why.empty":"空值","num.why.too-long":"位数过多","num.why.not-finite":"不是有限数（Infinity / NaN）","num.why.radix-prefix":"不支持十六/八/二进制前缀","num.why.exponent":"不支持科学计数法（1e9）","num.why.not-a-number":"不是数字","num.why.too-many-decimals":"小数位过多","num.why.min":"低于下界","num.why.max":"高于上界","num.why.step":"按步长对齐","num.why.precision":"按精度取整"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.mic":"Enable microphone","toolbar.micTip":"Off by default: while off the page never requests the microphone (getUserMedia is not called) and “Live system” keeps title/progress only; when on it is requested only if a wallpaper/feature declares the need, never pre-requested at load","dbg.switch":"Enable debug mode","dbg.switchTip":"Step through layers (left/right) and isolate them; the keyboard is captured only while the debug view is open, Alt exits","logs.cleared":"Cleared ({view})","log.micOn":"Microphone enabled: requested only when a wallpaper/feature declares the need (no pre-request at load)","log.micOff":"Microphone disabled: no mic request is issued at all","log.micNeeded":"The microphone half of “Live system” needs “Enable microphone” first — title/progress only for now","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","logs.debug":"Debug mode","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
 "dbg.report":"Report now","dbg.reportTip":"Post the current diagnostics immediately (/report, then /baseline, then /diag)","dbg.shot":"Screenshot","dbg.shotTip":"Download the preview canvas as JPEG","dbg.reporting":"Reporting…","dbg.reported":"Reported: {where} ({bytes} B)","dbg.reportFail":"Report failed: {msg}","dbg.shotOk":"Screenshot saved: {name} ({kb} KB)","dbg.shotFail":"Screenshot failed: {why}","dbg.on":"Debug mode: on (left/right steps layers; Alt exits)","dbg.off":"Debug mode: off","dbg.layerNone":"No scene to inspect layer by layer","dbg.layerLine":"Layer {i}/{n} · {name}","dbg.noScene":"No scene layers right now (not mounted / failed to load)","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory","nav.console":"Console","nav.docs":"Guide","nav.wpset":"Wallpaper settings","nav.settings":"Settings","nav.settingsTip":"Language / theme / attribution & licences","nav.lang":"Language","nav.theme":"Theme","nav.backend":"Backend","nav.backendUnknown":"unknown","nav.backendNote":"Static hosting (GitHub Pages) has no local Node backend: library listing / property saving / deleting / the diagnostics stream are unavailable online — by design, not a failure. “Choose folder” (in-browser scan) still works.","wp.add":"＋","wp.addTitle":"Add / switch wallpaper: open the left list filtered to hide the current one","logs.expandTip":"Expand the output (console)","logs.collapseTip":"Collapse the output (console)","props.emptyState":"No wallpaper picked yet","props.emptyHint":"Pick one in “Choose wallpaper” on the left; the options declared in its project.json show up here.",
 "libsrc.default":"Library source: machine default directory (server built-in — you have not chosen one)","libsrc.default.hint":"This is the server's start-up default, not a choice you made; click “Choose folder” to browse in-app and pick one","libsrc.default.path":"(default library directory unavailable)",
 "libsrc.user":"Library source: the directory you chose","libsrc.user.hint":"Chosen by you via “Choose folder” (accepted by the server's /api/library-dir)","libsrc.user.path":"(chosen directory is empty)",
@@ -110,7 +110,7 @@ export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"
 "pickd.selected":"Selected: {path}","pickd.applying":"Switching the library directory…","pickd.done":"Library directory switched: {path} (reloading…)","pickd.fail":"Switch failed: {msg}","pickd.relisted":"library list re-fetched ({n} items)","pickd.noStart":"The server exposed no browsable root (GET /api/fs/roots returned an empty roots array)","pickd.listFail":"Listing failed: {path} — {msg}",
 "pickd.frontend":"In-browser scan (files never leave the browser)","pickd.system":"System picker (may not reach directories inside this environment)","pickd.systemHint":"The native dialog opened by the server; in containers/Android it is often invisible or cannot reach the environment's directories — fallback only",
 "pickd.dirTag":"dir","pickd.fileTag":"file","pickd.rootLocked":"The server does not allow listing this root by default (read-only boundary); relax it with MPW_PICK_ROOT",
-"credit.link":"README · License & credits (GPL-3.0-or-later + upstream MIT)"}}
+"credit.link":"README · License & credits (GPL-3.0-or-later + upstream MIT)","props.hiddenNote":"Hid {n} internal/placeholder item(s) (append {flag} to show every raw item)","props.placeholderNote":"Placeholder property (no readable text) — colour control hidden","props.emptyShownNote":"This wallpaper has no adjustable items to show","props.ext.title":"Open external link?","props.ext.host":"Target domain: {host}","props.ext.warn":"This link comes from the wallpaper author\u2019s property text, not from this page. Continue only if you trust the domain: it opens in a new tab with noopener / noreferrer.","props.ext.cancel":"Cancel","props.ext.open":"Open","props.ext.wait":"Wait ({n}s)","props.ext.opening":"Opened external link: {host}","props.ext.cancelled":"Cancelled: no external link opened","props.linkBlocked":"Link refused: only http(s) is allowed","props.num.invalid":"Invalid input ({why}): not saved, original value restored","props.num.clamped":"Adjusted to the property range: {v} ({why})","num.why.empty":"empty","num.why.too-long":"too many characters","num.why.not-finite":"not a finite number (Infinity / NaN)","num.why.radix-prefix":"hex/octal/binary prefixes are unsupported","num.why.exponent":"scientific notation (1e9) is unsupported","num.why.not-a-number":"not a number","num.why.too-many-decimals":"too many decimals","num.why.min":"below the minimum","num.why.max":"above the maximum","num.why.step":"snapped to the step","num.why.precision":"rounded to the precision"}}
 
 /* ============================ 纯函数层 ============================ */
 export const LANGS = ['zh', 'en']
@@ -2622,6 +2622,253 @@ export function clampLogsHeight(px, viewportH, min = 80, maxFrac = 0.72) {
   return Math.max(min, Math.min(hi, v))
 }
 
+/* ══════════════════ 属性面板：纯函数层（#18 #23 #25 #26 #27 #28 #30 #34）════════════════════════════
+   为什么先做成纯函数：属性文案（`project.json → general.properties[].text`）**全部来自壁纸作者**，
+   属于不可信输入；而面板 DOM 由 minified 产物渲染（本仓许可口径：产物一个字节都不改）。于是把
+   "作者的标签文本 → 安全节点"、"哪些项不该给用户看"、"数字怎么解析"、"外链能不能点"做成**无 DOM
+   依赖**的纯函数：Node 里可逐值对账（tests/bench-shell-fixes-test.mjs），浏览器层只负责用
+   `createElement` / `textContent` 把结果建成节点 —— **永远不 innerHTML**，结构上不可能 XSS。
+   ⚠ `?rawprops=1` 只改"显示哪些项"（排障），**不绕过**转义与外链确认：原始项走同一套渲染。 */
+
+/** 内置隐藏名单 = `ui_` 前缀 + 明确集合。这些是 **Wallpaper Engine 编辑器内部属性**：属性名/文案里
+ *  直接写 `ui_browse_properties_*`，壁纸作者在编辑器里看不到、用户改它也没有意义 —— 让它出现在
+ *  "壁纸配置"就是"未选择壁纸时一直占着面板的那个 scheme color"。
+ *  真实数据里产物的描述子把内部键放在 `text` 上（例：`{name:"schemecolor", text:"ui_browse_properties_scheme_color"}`），
+ *  所以判据**同时看 name 与显示文案**；只看 name 会在换成别的壁纸时漏出来（用户第 18/25 条实测）。 */
+export const PROPS_HIDDEN_PREFIXES = ['ui_']
+export const PROPS_HIDDEN_NAMES = ['schemecolor', 'ui_browse_properties_scheme_color', 'ui_browse_properties_show_color_options']
+
+/** `?rawprops=1` = 排障档：显示全部原始项（隐藏名单与占位控件抑制一并停用）。`0/false/off/no` 关。 */
+export function propsRawMode(search) {
+  const p = new URLSearchParams(String(search == null ? '' : search))
+  const v = String(p.get('rawprops') == null ? '' : p.get('rawprops')).trim().toLowerCase()
+  return v === '1' || v === 'true' || v === 'on' || v === 'yes'
+}
+
+/** 属性是否属于"内置/编辑器内部"⇒ 面板不显示。返回原因串（空串 = 显示）。 */
+export function propsHiddenReason(spec) {
+  const s = spec || {}
+  const name = String(s.name == null ? '' : s.name).trim().toLowerCase()
+  if (name) {
+    for (const p of PROPS_HIDDEN_PREFIXES) if (name.indexOf(p) === 0) return 'internal-prefix'
+    if (PROPS_HIDDEN_NAMES.indexOf(name) >= 0) return 'internal-name'
+  }
+  //  文案那一半只认"整段就是那个内部键"的形态（短、且以 `ui_` 开头 / 等于名单）——
+  //  正常文案里出现 `ui_`（比如一句说明）不该被误伤。
+  const plain = propPlainText(s.text).trim().toLowerCase()
+  if (plain && plain.length <= 64) {
+    for (const p of PROPS_HIDDEN_PREFIXES) if (plain.indexOf(p) === 0) return 'internal-text'
+    if (PROPS_HIDDEN_NAMES.indexOf(plain) >= 0) return 'internal-text'
+  }
+  return ''
+}
+
+/** 命名实体表（只收常见的一小撮；其余保持原样，宁可显示 `&foo;` 也不猜）。 */
+const PROP_ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0', ensp: '\u2002', emsp: '\u2003',
+  thinsp: '\u2009', middot: '\u00b7', hellip: '\u2026', mdash: '\u2014', ndash: '\u2013', copy: '\u00a9',
+  reg: '\u00ae', trade: '\u2122', laquo: '\u00ab', raquo: '\u00bb', times: '\u00d7', deg: '\u00b0',
+  bull: '\u2022', rarr: '\u2192', larr: '\u2190', harr: '\u2194',
+}
+
+/** 解 HTML 实体（数字实体取 `&#NN;` / `&#xNN;`，越界一律原样保留）。 */
+export function decodePropEntities(s) {
+  return String(s == null ? '' : s).replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (m, body) => {
+    if (body.charAt(0) === '#') {
+      const hex = body.charAt(1) === 'x' || body.charAt(1) === 'X'
+      const n = Number.parseInt(hex ? body.slice(2) : body.slice(1), hex ? 16 : 10)
+      if (!Number.isFinite(n) || n <= 0 || n > 0x10ffff) return m
+      try { return String.fromCodePoint(n) } catch { return m }
+    }
+    const k = body.toLowerCase()
+    return Object.prototype.hasOwnProperty.call(PROP_ENTITIES, k) ? PROP_ENTITIES[k] : m
+  })
+}
+
+/** 颜色白名单（只有这些形态会被写进 `style.color`；其余一律当作"没写颜色"：
+ *  `expression(...)` / `url(...)` / `var(...)` 这类东西进不了样式表）。 */
+const PROP_CSS_COLOR_NAMES = ['black', 'silver', 'gray', 'grey', 'white', 'maroon', 'red', 'purple', 'fuchsia',
+  'magenta', 'green', 'lime', 'olive', 'yellow', 'navy', 'blue', 'teal', 'aqua', 'cyan', 'orange', 'pink',
+  'gold', 'brown', 'violet', 'indigo', 'darkgray', 'darkgrey', 'lightgray', 'lightgrey', 'transparent']
+export function safeCssColor(v) {
+  const s = String(v == null ? '' : v).trim().toLowerCase()
+  if (!s) return ''
+  if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/.test(s)) return s
+  if (/^rgba?\(\s*[0-9.]+%?\s*(?:,\s*[0-9.]+%?\s*){2}(?:,\s*[0-9.]+%?\s*)?\)$/.test(s)) return s
+  if (PROP_CSS_COLOR_NAMES.indexOf(s) >= 0) return s
+  return ''
+}
+
+/** 外链白名单（用户第 30 条）：**只**放行 http(s) 绝对地址 —— `javascript:` / `data:` / 相对路径
+ *  （会解析成"本页所在源"）一律拒绝。返回 `{ok:true, href, host}` 或 `{ok:false, reason}`。 */
+export function externalLinkInfo(href) {
+  const s = String(href == null ? '' : href).trim()
+  if (!s) return { ok: false, reason: 'empty' }
+  if (!/^https?:\/\//i.test(s)) return { ok: false, reason: 'scheme' }
+  let u = null
+  try { u = new URL(s) } catch { return { ok: false, reason: 'unparsable' } }
+  const proto = String(u.protocol || '').toLowerCase()
+  if (proto !== 'http:' && proto !== 'https:') return { ok: false, reason: 'scheme' }
+  if (!u.hostname) return { ok: false, reason: 'no-host' }
+  return { ok: true, href: u.href, host: u.hostname }
+}
+
+const PROP_VOID_TAGS = ['img', 'br', 'hr', 'input', 'meta', 'link', 'source', 'area', 'base', 'col', 'embed', 'param', 'track', 'wbr']
+/* `<!--` / `-->` 两个字面量**故意拆开拼**（下面两行）：门禁 `tests/bench-shell-fixes-test.mjs` 的
+   注释剥除器用的是**跨全文**配对的正则 `/<!--[\s\S]*?-->/g` —— 源码里只要同时出现这两个字面量，
+   它就会把中间几万字节代码整段当 HTML 注释吃掉。本轮实测：`-->` 出现在这里、`<!--` 出现在
+   1083 行的 `startsWith('<!--')`，于是 60 587 字节被吞（I20–I25 / G8–G13 集体变红，真代码一行没坏）。 */
+const PROP_HTML_COMMENT_OPEN = '<' + '!--'
+const PROP_HTML_COMMENT_CLOSE = '--' + '>'
+function propAttrOf(attrs, name) {
+  const m = new RegExp('(?:^|[\\s/])' + name + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s"\'>]+))', 'i')
+    .exec(String(attrs == null ? '' : attrs))
+  if (!m) return ''
+  const raw = m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : (m[3] || ''))
+  return decodePropEntities(raw).trim()
+}
+
+/** 属性文案 → 安全 token 数组（**纯函数、无 DOM**）。只保留三样语义（用户第 26/28 条口径）：
+ *    · `<br>`（含 `<br/>`）      → `{k:'br'}` 换行
+ *    · `<font color=…>`          → `{k:'font',color}` 文本色（**不改字号/粗细**：`<big>`/`<b>` 一律不建节点）
+ *    · `<img src=…>`             → `{k:'img',src}` **只渲染图**，不把标签当文字显示
+ *    · `<a href=http(s)://…>`    → `{k:'link',href,host}` 可点（点击走第 30 条的二次确认）；
+ *                                  非 http(s) 的 `<a>`（`javascript:`、垃圾串）→ 剥标签留文字
+ *  其余标签（`<big>`/`<b>`/`<center>`/`<hr>`/`<p>`/未知）**剥掉标签只留内部文字**；
+ *  `<!-- -->` 注释整段丢弃；未闭合的 `<` 当普通文字（不吞后面的内容）。 */
+export function parsePropRichText(text) {
+  const src = String(text == null ? '' : text)
+  const root = []
+  const stack = [{ name: '', kids: root }]
+  const top = () => stack[stack.length - 1]
+  const addText = (raw) => { const v = decodePropEntities(raw); if (v) top().kids.push({ k: 'text', v: v }) }
+  let i = 0
+  while (i < src.length) {
+    const lt = src.indexOf('<', i)
+    if (lt < 0) { addText(src.slice(i)); break }
+    if (lt > i) addText(src.slice(i, lt))
+    if (src.slice(lt, lt + 4) === PROP_HTML_COMMENT_OPEN) {
+      const end = src.indexOf(PROP_HTML_COMMENT_CLOSE, lt + 4)
+      i = end < 0 ? src.length : end + 3
+      continue
+    }
+    const gt = src.indexOf('>', lt + 1)
+    if (gt < 0) { addText(src.slice(lt)); break }
+    const inner = src.slice(lt + 1, gt)
+    i = gt + 1
+    const m = /^\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9:_-]*)([\s\S]*)$/.exec(inner)
+    if (!m) { addText(src.slice(lt, gt + 1)); continue }
+    const closing = m[1] === '/'
+    const tag = m[2].toLowerCase()
+    const attrs = m[3] || ''
+    if (closing) {
+      for (let d = stack.length - 1; d >= 1; d--) if (stack[d].name === tag) { stack.length = d; break }
+      continue
+    }
+    if (tag === 'br') { top().kids.push({ k: 'br' }); continue }
+    if (tag === 'img') { const s = propAttrOf(attrs, 'src'); if (s) top().kids.push({ k: 'img', src: s }); continue }
+    if (PROP_VOID_TAGS.indexOf(tag) >= 0) continue                  // hr/input/meta… 剥掉（它们没有内部文字）
+    if (/\/\s*$/.test(attrs)) continue                              // 自闭合的非空元素：没有内容
+    if (tag === 'font') {
+      const c = safeCssColor(propAttrOf(attrs, 'color'))
+      const kids = []
+      if (c) top().kids.push({ k: 'font', color: c, kids: kids })
+      stack.push({ name: 'font', kids: c ? kids : top().kids })
+      continue
+    }
+    if (tag === 'a') {
+      const info = externalLinkInfo(propAttrOf(attrs, 'href'))
+      if (info.ok) {
+        const kids = []
+        top().kids.push({ k: 'link', href: info.href, host: info.host, kids: kids })
+        stack.push({ name: 'a', kids: kids })
+      } else stack.push({ name: 'a', kids: top().kids })             // 非 http(s)：剥标签留文字
+      continue
+    }
+    stack.push({ name: tag, kids: top().kids })                      // 未知标签：剥标签留文字（不建节点、不改样式）
+  }
+  return root
+}
+
+/** token → 纯文本（`<br>` 变成 `\n`）。 */
+export function propRichTextPlain(tokens) {
+  const out = []
+  const walk = (list) => {
+    for (const t of list || []) {
+      if (!t) continue
+      if (t.k === 'text') out.push(t.v)
+      else if (t.k === 'br') out.push('\n')
+      else if (t.kids) walk(t.kids)
+    }
+  }
+  walk(tokens)
+  return out.join('')
+}
+/** 属性文案 → 纯文本（剥标签 + 解实体）。 */
+export function propPlainText(text) { return propRichTextPlain(parsePropRichText(text)) }
+
+/** "有没有实义文字"：剥掉标签/实体/空白后还剩字母或数字才算有（`<img>`/`<big>`/`&nbsp;` 不算）。 */
+export function propsHasRealText(plain) {
+  const s = String(plain == null ? '' : plain)
+  try { return /[\p{L}\p{N}]/u.test(s) } catch { return /[0-9A-Za-z\u00c0-\uffff]/.test(s) }
+}
+
+/** 占位颜色属性（用户第 27 条）：值类型是 color，但文案里**没有可读内容**（只有 `<img>`/`<big>`/空白）
+ *  ⇒ 那个取色框只是占位/给图片让位，对用户没有意义 ⇒ 不渲染控件（`?rawprops=1` 回退显示）。 */
+export function propsPlaceholderColor(spec) {
+  const s = spec || {}
+  if (String(s.ptype || '') !== 'color') return false
+  return !propsHasRealText(propPlainText(s.text))
+}
+
+/** 数字输入的**唯一**解析入口（用户第 34 条"数字输入"半条）：拒科学计数法（`1e9`）/十六·八·二进制
+ *  前缀/`Infinity`/`NaN`/非数字/超长（>24 字符）/小数位过多（>12），再按属性的 min/max/step/precision 钳制。
+ *  非法 ⇒ `{ok:false, reason}`，调用方**必须不写回**并报错；合法但被调整 ⇒ `notes` 说明动了哪一项。 */
+export const NUM_MAX_LEN = 24
+export const NUM_MAX_DECIMALS = 12
+function numDecimalsOf(x) {
+  const m = /\.(\d+)$/.exec(String(x))
+  return m ? m[1].length : 0
+}
+function numSnapToStep(v, base, step) {
+  const d = Math.min(NUM_MAX_DECIMALS, numDecimalsOf(step) + 2)
+  return Number((base + Math.round((v - base) / step) * step).toFixed(d))
+}
+export function parseNumberSafe(raw, spec) {
+  const s = String(raw == null ? '' : raw).trim()
+  const bad = (reason) => ({ ok: false, value: null, clamped: false, notes: [], reason: reason })
+  if (!s) return bad('empty')
+  if (s.length > NUM_MAX_LEN) return bad('too-long')
+  if (/^[+-]?(infinity|nan)$/i.test(s)) return bad('not-finite')
+  if (/^[+-]?0[xbo]/i.test(s)) return bad('radix-prefix')
+  if (/[eE]/.test(s)) return bad('exponent')
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(s)) return bad('not-a-number')
+  if (numDecimalsOf(s) > NUM_MAX_DECIMALS) return bad('too-many-decimals')
+  let v = Number(s)
+  if (!Number.isFinite(v)) return bad('not-finite')
+  const o = spec || {}
+  const min = Number(o.min)
+  const max = Number(o.max)
+  const step = Number(o.step)
+  const prec = Number(o.precision)
+  const hasMin = Number.isFinite(min)
+  const hasMax = Number.isFinite(max)
+  const notes = []
+  if (hasMin && v < min) { v = min; notes.push('min') }
+  if (hasMax && v > max) { v = max; notes.push('max') }
+  if (Number.isFinite(step) && step > 0 && notes.length === 0) {
+    const snapped = numSnapToStep(v, hasMin ? min : 0, step)
+    if (snapped !== v) { v = snapped; notes.push('step') }
+    if (hasMin && v < min) { v = min; notes.push('min') }
+    if (hasMax && v > max) { v = max; notes.push('max') }
+  }
+  if (Number.isInteger(prec) && prec >= 0 && prec <= NUM_MAX_DECIMALS) {
+    const r = Number(v.toFixed(prec))
+    if (r !== v) { v = r; notes.push('precision') }
+  }
+  return { ok: true, value: v, clamped: notes.length > 0, notes: notes, reason: '' }
+}
+
 /** 站点外壳初始化。ctx = { t, lang, log }（都是可选；缺省安全降级）。 */
 export function initSiteShell(ctx = {}) {
   // ①(修正 2026-09-18 门禁抓到) 版本/新 DOM 两个值由**调用方注入**（ctx），不要直接引用模块作用域常量：
@@ -2892,6 +3139,8 @@ export function initSiteShell(ctx = {}) {
     if (!tabsBox || !listEl) return { tabs: 0 }
     const items = listItems()
     rememberKinds(items)
+    //  ①(本轮 #14) 列表行布局：标题与 ID 分行（产物 `T()` 每次重画都会重建这些节点 ⇒ 这里每次都过一遍，幂等）
+    decorateListRows(listEl)
     const activeItem = items.find((it) => it.active)
     if (activeItem) { curId = activeItem.id; pinWallpaper(curId) }      // 选过就进"已选"（位置固定，不重排）
     //  ①(用户第 9 条「未选择壁纸时出现幽灵叉号」) `curId` 的**唯一事实源 = 列表里真的有一项 `.active`**：
@@ -3001,6 +3250,10 @@ export function initSiteShell(ctx = {}) {
       log(t(curLang(), 'wp.closed', { id: want }))
     }
     refreshSwitcher(true)
+    //  ①(本轮 #25) 上面这条"没有其它打开项 ⇒ 释放舞台"的路只`classList.remove('active')`，不产生
+    //  childList 变更 ⇒ 列表观察者不会响。这里显式让属性面板对一次账：面板必须落到"未选择"空态、
+    //  旧那张壁纸的行（`ui_browse_properties_scheme_color` 等）一个都不留。
+    try { refreshPropsPanel('list') } catch { /* 单次失败不影响关闭流程 */ }
     return true
   }
 
@@ -3067,6 +3320,8 @@ export function initSiteShell(ctx = {}) {
           //  按 uiType 再对一次账 —— 否则就是用户看到的"高亮在视频、内容是全部分"。
           try { paintTypeSegs() } catch { /* 桩 DOM */ }
           refreshSwitcher()
+          //  ①(本轮 #23/#25) 列表被重画 ⇒ 属性面板跟着"当前 item"对账：释放舞台后这里会落到"未选择"空态
+          try { refreshPropsPanel('list') } catch { /* 单次失败不影响切换栏 */ }
         }, 60)
       }).observe(listEl, { childList: true })
     }
@@ -3361,8 +3616,104 @@ export function initSiteShell(ctx = {}) {
     }
   } catch { /* 桩 DOM */ }
 
-  /* ── 壁纸参数栏常驻 + 空态（bundle 会按需 hidden 它；新样式里它是一列） ── */
+  /* ══════════ 壁纸参数栏：#23/#25 的"跟着当前壁纸重挂载"状态机 + #18/#26/#27/#28/#30/#34 装饰 ══════════
+     真因（无头探针实测，不是猜）：
+       · 产物 `Ue(item)`（点列表项）只在 `Le.hidden === false` 时才 `yt(item.itemId)` 重读属性表；
+         而 `#props-close` 会（走产物自己的 `ue(!1)`）把 `#props` 打上 `hidden` ⇒ **面板收起期间切壁纸
+         一次 `/api/props` 都不发**，再展开时行还是上一张壁纸的（读数：切到 B 之后仍是 A 的 5 行、
+         `/api/props` 请求数 0）—— 用户第 23 条"配置窗口开着时切壁纸，面板不刷新"的真实路径。
+       · 产物 `ht()`（释放舞台 / 关掉自带壁纸）只把面板 hidden 掉、**不清行** ⇒ 未选择壁纸时上一张的
+         `ui_browse_properties_scheme_color` 等行仍然占着面板 —— 用户第 25 条。
+     修法：面板内容 = f(当前 item)，状态机归本层（`unselected | reading | ok | none | error`，
+     落在 `#props[data-bench-props-state]`，探针可读）：
+       ① 点列表项时在**捕获阶段**（先于产物 `li.onclick` 的挂载链）清空上一张的行 + 写 reading
+          + 保证 `hidden` 已摘（产物才会自己重读）⇒ 产物读完画回来的必然是新那张，不会互相覆盖；
+       ② 收起期间切过壁纸 ⇒ 展开时清空 + 调**产物自己的** `#toggle-props` 处理器强制重读（唯一重读入口）；
+       ③ 释放舞台 ⇒ `unselected`：零残留行 + "还没有选择壁纸"空态；
+       ④ 拿到回执（行/提示出现，或 `#props-state` 变红 = 读失败）⇒ 落 ok / none / error 并跑装饰。
+     "正在读 / 读失败 / 无属性"三态的**文案**仍由产物自己的 `#props-state` 负责（读取中… / 读取失败：…
+     / 该壁纸未声明可自定义项）；本层只保证"读到之前面板里没有上一张的行"。
+     ⚠ 观察者纪律（本文件踩过两次自激）：所有写 DOM 的路径都先比状态/签名，同值不写。 */
   const propsEl = q('#props'), propsBody = q('#props-body')
+  const PROPS_RAW = propsRawMode((typeof location !== 'undefined' && location.search) || '')
+  const PROPS_STATE_ATTR = 'data-bench-props-state'
+  let propsState = 'unselected'
+  let propsShownItem = null            // 面板当前**内容**属于哪个 item（产物那套 readId 是本模块私有的，读不到）
+  let propsReadSeq = 0
+  let propsPoll = null, propsDeadline = null, propsUnselectTimer = null
+  let propsForced = false
+  /* 目标与"粘性当前项"（实测：点列表项后 t+6ms 列表被产物重画成**4 项且一个 `.active` 都没有**，
+     t+70ms 才画回 22 项 + `.active`）—— 只看 DOM 会在那个窗口里把面板误判成"未选择"。 */
+  let propsPendingItem = null          // 刚点了、还没落地的目标
+  let propsStickyItem = null           // 最近一次真的看到过的 `.active`（重画瞬间兜底）
+
+  function propsActiveItemId() {
+    const li = listEl ? listEl.querySelector('li[data-id].active') : null
+    return li ? String(li.dataset.id || '') : null
+  }
+  /** 面板该显示的 item：目标 > DOM 里的 active > 粘性值。 */
+  function propsResolvedItem() { return propsPendingItem || propsActiveItemId() || propsStickyItem || null }
+  function notePropsActive(domActive) {
+    if (!domActive) return
+    propsStickyItem = domActive
+    if (propsPendingItem && domActive === propsPendingItem) propsPendingItem = null    // 目标落地
+  }
+  function cancelPropsUnselect() {
+    if (propsUnselectTimer) { clearTimeout(propsUnselectTimer); propsUnselectTimer = null }
+  }
+  function propsUnselect() {
+    cancelPropsUnselect()
+    propsPendingItem = null
+    propsStickyItem = null
+    clearPropsBody()
+    propsShownItem = null
+    setPropsState('unselected')
+    paintPropsEmpty()
+    return propsState
+  }
+  /** 属性行 = **任意深度**的 `.prop` / `.prop-group` / `.prop-text`。
+   *  ⚠ 不能只看 `#props-body` 的直接子节点：产物把 `ptype:"group"` 声明的项装进
+   *  `<details class="prop-group"><div class="prop-group-body">…` ⇒ 绝大多数行都在组里，
+   *  只遍历顶层会漏掉它们（实测：15 个取色行里只装饰到 1 个）。 */
+  function propsRows() {
+    if (!propsBody) return []
+    return [...propsBody.querySelectorAll('.prop, .prop-group, .prop-text')]
+  }
+  /** "看得见"= 自己没被隐藏名单收掉、祖先组也没被收掉（不用几何：面板收起时几何恒 0）。 */
+  function propsVisibleRows() {
+    return propsRows().filter((el) => {
+      if (el.hidden) return false
+      const g = el.closest ? el.closest('.prop-group') : null
+      return !(g && g !== el && g.hidden)
+    })
+  }
+  function propsHasNote() { return !!(propsBody && propsBody.querySelector('.prop-hint')) }
+  /** 读失败的唯一信号：产物 `L(msg, true)` 会把 `#props-state` 染成内联红色（文案随语言变，颜色不变）。 */
+  function propsReadFailed() {
+    const el = q('#props-state')
+    return !!(el && el.style && el.style.color)
+  }
+  function setPropsState(s) {
+    if (propsState === s) return s
+    propsState = s
+    try { if (propsEl) propsEl.setAttribute(PROPS_STATE_ATTR, s) } catch {}
+    return s
+  }
+  function clearPropsBody() {
+    if (!propsBody) return 0
+    let n = 0
+    while (propsBody.firstChild) { propsBody.removeChild(propsBody.firstChild); n++ }
+    return n
+  }
+  /** `hidden` 只当"产物眼里的收起标志"用（视觉收起是我们自己的类）：面板可见时必须为 false，
+   *  否则产物在下次切换时跳过重读 —— 那正是第 23 条的根因。 */
+  function syncPropsHidden() {
+    if (!propsEl) return
+    try {
+      if (propsCollapsedNow()) propsEl.setAttribute('hidden', '')
+      else propsEl.removeAttribute('hidden')
+    } catch { /* 桩 DOM */ }
+  }
   function paintPropsEmpty() {
     if (!propsEl || !propsBody) return
     // ①(修正 2026-09-17) **必须先排除我们自己插的空态节点**再判断"有没有内容"：
@@ -3370,32 +3721,513 @@ export function initSiteShell(ctx = {}) {
     //   （真机表现：页面 load 卡死、探针超时）。空态节点不算内容，判据里直接滤掉。
     const kids = [...propsBody.children].filter((el) => el.id !== 'props-empty')
     const has = kids.length > 0
-    if (propsEl.hasAttribute('hidden')) { try { propsEl.removeAttribute('hidden') } catch {} }
+    syncPropsHidden()
     let empty = propsBody.querySelector('#props-empty')
-    // ①(修正 2026-09-17) 状态一致就不写 DOM（同样的观察者互激问题：写 → 观察者 → 再写）
-    if (!has && empty && empty.dataset.state === curLang()) return
-    if (has && !empty) return
-    if (!has) {
-      if (!empty) {
-        empty = D.createElement('div'); empty.id = 'props-empty'; empty.className = 'props-empty'
-        empty.innerHTML = ''
-        const a = D.createElement('strong'); a.textContent = tr(curLang(), 'props.emptyState')
-        const b = D.createElement('span'); b.textContent = tr(curLang(), 'props.emptyHint')
-        empty.appendChild(a); empty.appendChild(b); propsBody.appendChild(empty)
-      } else {
-        empty.firstChild.textContent = tr(curLang(), 'props.emptyState')
-        empty.lastChild.textContent = tr(curLang(), 'props.emptyHint')
-      }
-      try { empty.dataset.state = curLang() } catch {}
-    } else if (empty) empty.remove()
+    //  ①(修正 2026-09-17) 状态一致就不写 DOM（同样的观察者互激问题：写 → 观察者 → 再写）
+    if (has || propsState !== 'unselected') { if (empty) empty.remove(); return }
+    if (empty && empty.dataset.state === curLang()) return
+    if (!empty) {
+      empty = D.createElement('div'); empty.id = 'props-empty'; empty.className = 'props-empty'
+      empty.innerHTML = ''
+      const a = D.createElement('strong'); a.textContent = tr(curLang(), 'props.emptyState')
+      const b = D.createElement('span'); b.textContent = tr(curLang(), 'props.emptyHint')
+      empty.appendChild(a); empty.appendChild(b); propsBody.appendChild(empty)
+    } else {
+      if (empty.firstChild) empty.firstChild.textContent = tr(curLang(), 'props.emptyState')
+      if (empty.lastChild) empty.lastChild.textContent = tr(curLang(), 'props.emptyHint')
+    }
+    try { empty.dataset.state = curLang() } catch {}
   }
+
+  /* ── 装饰：隐藏名单（#18）/ 富文本（#26 #28）/ 占位颜色（#27）/ 数值（#34）/ 外链（#30） ───────── */
+  function propRowMeta(row) {
+    const title = String((row && row.getAttribute && row.getAttribute('title')) || '')
+    const i = title.lastIndexOf(' · ')
+    return i > 0 ? { name: title.slice(0, i), ptype: title.slice(i + 3) } : { name: '', ptype: '' }
+  }
+  /** token → 节点（只用 createElement/textContent：**结构上**不可能把作者文本变成 HTML/脚本）。 */
+  function propRichFragment(tokens) {
+    if (!tokens || !tokens.length) return null
+    const frag = D.createDocumentFragment()
+    const walk = (list, host) => {
+      for (const tok of list || []) {
+        if (!tok) continue
+        if (tok.k === 'text') { host.appendChild(D.createTextNode(tok.v)); continue }
+        if (tok.k === 'br') { host.appendChild(D.createElement('br')); continue }
+        if (tok.k === 'font') {
+          const sp = D.createElement('span'); sp.className = 'bench-prop-fg'
+          try { sp.style.color = tok.color } catch { /* 白名单外的颜色进不来 */ }
+          walk(tok.kids, sp); host.appendChild(sp); continue
+        }
+        if (tok.k === 'link') {
+          const a = D.createElement('a')
+          a.className = 'bench-prop-link'
+          a.href = tok.href; a.target = '_blank'; a.rel = 'noopener noreferrer'
+          a.dataset.benchExt = tok.host; a.title = tok.host
+          walk(tok.kids, a); host.appendChild(a); continue
+        }
+        if (tok.k === 'img') {
+          const info = externalLinkInfo(tok.src)      // 只渲染 http(s) 图：面板里没有可靠的相对基址
+          if (!info.ok) continue
+          const wrap = D.createElement('span'); wrap.className = 'bench-prop-imgwrap'
+          const im = D.createElement('img'); im.className = 'bench-prop-img'
+          im.src = info.href; im.alt = ''; im.loading = 'lazy'; im.referrerPolicy = 'no-referrer'
+          wrap.appendChild(im); host.appendChild(wrap); continue
+        }
+      }
+    }
+    walk(tokens, frag)
+    return frag.childNodes.length ? frag : null
+  }
+  function decoratePropRow(row) {
+    if (!row || !row.dataset || row.dataset.benchPropsRow === 'done') return false
+    const isGroup = !!(row.classList && row.classList.contains('prop-group'))
+    const meta = propRowMeta(row)
+    //  组容器：只认它自己的 `summary`（`querySelectorAll` 会把组内每一项的文案也串进来 ⇒ 判据会被污染）
+    const summary = isGroup ? [...row.children].find((c) => c.tagName === 'SUMMARY') || null : row.querySelector('summary')
+    const labelEls = isGroup ? (summary ? [summary] : []) : [...row.querySelectorAll('.prop-name, .prop-text-cap')]
+    const plain = labelEls.map((e) => e.textContent).join('\n')
+    const groupName = summary ? String(summary.getAttribute('title') || '') : ''
+    //  ① #18 内置/编辑器内部属性：数据驱动隐藏（`ui_` 前缀 + 明确集合；`?rawprops=1` 全显）
+    if (!PROPS_RAW) {
+      const why = propsHiddenReason({ name: meta.name || groupName, text: plain })
+      if (why) { row.hidden = true; row.dataset.benchPropsRow = 'hidden-' + why; return true }
+    }
+    //  ② #26/#28 富文本：`<img>` 只渲染图、`<font color>` 只给颜色、`<br>` 换行，其余标签剥掉留文字
+    for (const el of labelEls) {
+      if (el.dataset.benchRich === '1') continue
+      const frag = propRichFragment(parsePropRichText(el.textContent))
+      if (frag) { el.textContent = ''; el.appendChild(frag) }
+      el.dataset.benchRich = '1'
+    }
+    //  ③ #27 占位颜色属性：不渲染那个没有意义的取色框（`?rawprops=1` 回退）
+    if (!PROPS_RAW && propsPlaceholderColor({ name: meta.name, ptype: meta.ptype, text: plain })) {
+      const ctl = row.querySelector('.prop-ctl')
+      if (ctl && !ctl.hidden) {
+        ctl.hidden = true; ctl.dataset.benchPropsCtl = 'placeholder'
+        if (!row.querySelector('.bench-prop-note')) {
+          const note = D.createElement('div'); note.className = 'bench-prop-note'
+          note.textContent = tr(curLang(), 'props.placeholderNote')
+          row.appendChild(note)
+        }
+      }
+    }
+    row.dataset.benchPropsRow = 'done'
+    if (PROPS_RAW) row.dataset.benchPropsRaw = '1'
+    return true
+  }
+  /** 被隐藏名单挡下的项数 + 面板末尾那条说明（不抢产物自己的 `.prop-hint` 行）。 */
+  function paintPropsHiddenNote() {
+    if (!propsBody) return 0
+    const hidden = propsRows().filter((el) => el.hidden && String(el.dataset.benchPropsRow || '').indexOf('hidden-') === 0)
+    const n = PROPS_RAW ? 0 : hidden.length
+    let note = propsBody.querySelector('#props-hidden-note')
+    if (!n) { if (note) note.remove(); return 0 }
+    if (!note) {
+      note = D.createElement('div'); note.id = 'props-hidden-note'
+      note.className = 'prop-hint bench-props-hidden-note'
+      propsBody.appendChild(note)                     // 追加在末尾：不动产物已经画好的顺序
+    }
+    const txt = tr(curLang(), 'props.hiddenNote').replace('{n}', String(n)).replace('{flag}', '?rawprops=1')
+    if (note.textContent !== txt) note.textContent = txt
+    return n
+  }
+  /** 全被隐藏（或本来就是"没有可显示项"）时也要说人话，而不是留一块空白。 */
+  function paintPropsShownNote() {
+    if (!propsBody) return 0
+    const need = propsRows().length > 0 && propsVisibleRows().length === 0
+    let note = propsBody.querySelector('#props-shown-note')
+    if (!need) { if (note) note.remove(); return 0 }
+    if (!note) {
+      note = D.createElement('div'); note.id = 'props-shown-note'
+      note.className = 'prop-hint bench-props-hidden-note'
+      propsBody.appendChild(note)
+    }
+    const txt = tr(curLang(), 'props.emptyShownNote')
+    if (note.textContent !== txt) note.textContent = txt
+    return 1
+  }
+  function decoratePropsBody() {
+    if (!propsBody) return 0
+    let n = 0
+    for (const row of propsRows()) { try { if (decoratePropRow(row)) n++ } catch { /* 单行失败不影响别的行 */ } }
+    //  组壳：组内每一项都被隐藏名单收掉时，别留一个只有标题的空组（可回退：rawprops 档不收）
+    for (const g of propsBody.querySelectorAll('.prop-group')) {
+      try {
+        if (g.hidden) continue
+        const inner = [...g.querySelectorAll('.prop, .prop-text')]
+        const allHidden = inner.length > 0 && inner.every((el) => el.hidden || String(el.dataset.benchPropsRow || '').indexOf('hidden-') === 0)
+        if (allHidden) { g.hidden = true; g.dataset.benchPropsRow = 'hidden-empty-group' }
+        else if (String(g.dataset.benchPropsRow || '') === 'hidden-empty-group') { g.hidden = false; g.dataset.benchPropsRow = 'done' }
+      } catch { /* ignore */ }
+    }
+    paintPropsHiddenNote()
+    paintPropsShownNote()
+    return n
+  }
+  /** 落状态：error（读失败）> ok（有可见行）> none（有提示/行但没可显示项）> unselected（没选壁纸）。 */
+  /** 落状态：error（读失败）> ok（有可见行）> none（有提示/行但没可显示项）> reading（有目标、行还没到）
+   *  > unselected（确实没有当前壁纸）。**只有**这里写 `propsState`，别的路径一律不写（单一事实源）。 */
+  function propsSettle() {
+    if (!propsBody) return propsState
+    notePropsActive(propsActiveItemId())
+    const item = propsResolvedItem()
+    decoratePropsBody()
+    const failed = propsReadFailed()
+    let next
+    if (failed) next = 'error'
+    else if (propsVisibleRows().length > 0) next = 'ok'
+    else if (propsRows().length > 0 || propsHasNote()) next = 'none'
+    else if (item) next = 'reading'          // 有目标而面板还空 ⇒ 还在读（由催读/期限收口，不在这里猜）
+    else next = 'unselected'
+    if (next !== 'reading') propsPendingItem = null
+    syncPropsHidden()
+    setPropsState(next)
+    if (next === 'unselected') paintPropsEmpty()
+    return next
+  }
+  /** 让**产物自己**重读属性表：把面板临时当作"收起着"（`hidden`）+ 调它自己的 `#toggle-props` 处理器
+   *  ⇒ 走 `ue(true)` + `S !== w.itemId` 时的 `yt(w.itemId)`。这是产物里唯一的重读入口。
+   *  ⚠ 必须在产物 `Ue(item)` 已经跑过之后调（`w` 才是新项）——所以收起态那次催读交给 watcher 的 900ms 重试。 */
+  function forceArtifactPropsRead() {
+    if (!propsEl || !propsToggleBtn || typeof artifactPropsToggle !== 'function') return false
+    try {
+      propsEl.hidden = true
+      artifactPropsToggle.call(propsToggleBtn)
+      const ws = q('#workspace'); if (ws) ws.classList.remove('props-open')
+      if (propsToggleBtn) propsToggleBtn.classList.add('checked')
+      syncPropsHidden()
+      return true
+    } catch { return false }
+  }
+  /** 等回执：轮询到"状态不再是 reading"为止；900ms 还没动静就催一次产物重读；超时落 error。
+   *  收起态切换时这是**唯一**的读入口（产物 `Ue` 因 `hidden` 短路不读，见文件头注释）。 */
+  function watchPropsOutcome(item, ms) {
+    const seq = ++propsReadSeq
+    if (propsPoll) { clearInterval(propsPoll); propsPoll = null }
+    if (propsDeadline) { clearTimeout(propsDeadline); propsDeadline = null }
+    const started = Date.now()
+    const stop = () => {
+      if (propsPoll) { clearInterval(propsPoll); propsPoll = null }
+      if (propsDeadline) { clearTimeout(propsDeadline); propsDeadline = null }
+    }
+    const tick = () => {
+      if (seq !== propsReadSeq) return
+      const st = propsSettle()
+      const waited = Date.now() - started
+      if (st !== 'reading' && waited >= 120) { stop(); return }
+      if (!propsForced && waited >= 900) { propsForced = true; forceArtifactPropsRead() }
+    }
+    propsPoll = setInterval(tick, 60)
+    propsDeadline = setTimeout(() => {
+      if (seq !== propsReadSeq) return
+      stop(); propsSettle()
+      if (propsState === 'reading') setPropsState('error')
+    }, Number(ms) > 0 ? Number(ms) : 9000)
+    tick()
+  }
+  function beginPropsRead(item, why) {
+    cancelPropsUnselect()
+    propsForced = false
+    clearPropsBody()
+    propsShownItem = item || null
+    if (!item) return propsUnselect()
+    setPropsState('reading')
+    syncPropsHidden()
+    //  可见态：产物自己的 `li.onclick`（`Ue`）马上会重读（前提是 `hidden` 已摘）；展开/收起态：它不会再读，
+    //  由 watcher 在 900ms 后（那时 `w` 已是新项）替它调重读入口 —— 捕获阶段当场调只会读到**旧** `w`。
+    if (why === 'expand') forceArtifactPropsRead()
+    watchPropsOutcome(item)
+    return propsState
+  }
+  /** 面板重挂载入口。`why`：switch（点列表项，捕获阶段）/ expand（由收起转展开）/ list（列表变更后）/
+   *  probe（探针显式调用）。`itemHint` 给"即将切到"的 id（列表里还没打 `.active` 时也对得上）。 */
+  function refreshPropsPanel(why, itemHint) {
+    if (!propsBody) return propsState
+    if (why === 'switch' || why === 'expand' || why === 'probe') {
+      const item = itemHint !== undefined ? (itemHint ? String(itemHint) : null) : propsResolvedItem()
+      propsPendingItem = item
+      return beginPropsRead(item, why)
+    }
+    //  list：列表被重画过（产物 `T()` 会先画一小批过滤结果、再画全量）——**绝不**清行，只对账；
+    //  "没有 .active" 要等它稳定下来才算数（否则那 60ms 窗口会把面板打成"未选择"）。
+    notePropsActive(propsActiveItemId())
+    if (!propsActiveItemId() && !propsPendingItem) {
+      cancelPropsUnselect()
+      if (propsState === 'reading') return propsState
+      propsUnselectTimer = setTimeout(() => {
+        propsUnselectTimer = null
+        if (propsPendingItem || propsActiveItemId()) return
+        propsUnselect()
+      }, 320)
+      return propsState
+    }
+    cancelPropsUnselect()
+    propsSettle()
+    return propsState
+  }
+
+  /* ── #34 数字输入：所有数值框统一走 `parseNumberSafe`（非法 ⇒ 行内报错 + **不写回**）────────────
+     产物自己那条 `g.onchange` 只做 `Number.isFinite(Number(v))` ⇒ `1e9`、`0x10` 都会被当成合法数字写回，
+     `Infinity` 则被**静默忽略**（用户看不到任何提示）。这里在**捕获阶段**接管：
+       · 非法（科学计数法/进制前缀/非有限数/非数字/超长/小数位过多）⇒ 恢复原值 + 行内 `.bench-num-err` 说明；
+       · 合法但越界/不合步长/超精度 ⇒ 钳制后**走产物自己的链路**（给滑条赋值 + 派发 `input`
+         ⇒ 它的 `m.oninput` 更新模型、重画面板、并按它自己的精度格式化数值框 —— 我们不复制它的格式化逻辑）；
+       · 写回推迟到本次事件之后：产物 `x()` 会整块重画面板，当场写注释会挂到已被丢弃的节点上。 */
+  const PROP_NUM_ERR = 'bench-num-err'
+  function propNumIsNumeric(el) {
+    if (!el || el.tagName !== 'INPUT') return false
+    return !!(el.classList && el.classList.contains('prop-num')) || el.type === 'number'
+  }
+  function propRowOf(el) { return el && el.closest ? el.closest('.prop') : null }
+  function findPropRowByName(name) {
+    if (!propsBody || !name) return null
+    for (const el of propsBody.querySelectorAll('.prop')) if (propRowMeta(el).name === name) return el
+    return null
+  }
+  function numErrEl(input, create) {
+    const row = propRowOf(input)
+    if (!row) return null
+    let el = null
+    for (const c of [...row.children]) if (c.classList && c.classList.contains(PROP_NUM_ERR)) { el = c; break }
+    if (!el && create) {
+      el = D.createElement('div'); el.className = PROP_NUM_ERR; el.setAttribute('role', 'alert')
+      row.appendChild(el)
+    }
+    return el
+  }
+  function setNumErr(input, text) {
+    const el = numErrEl(input, !!text)
+    if (!el) return null
+    const want = String(text || '')
+    if (el.textContent !== want) el.textContent = want
+    el.hidden = !want
+    try { if (want) el.setAttribute('data-bench-num-err', '1'); else el.removeAttribute('data-bench-num-err') } catch {}
+    return el
+  }
+  /** 数值规格：min/max/step 优先取输入框自己的属性，缺了就看同行的滑条；precision 取数值框**当前显示**的
+   *  小数位（产物就是按它的 precision 格式化的 ⇒ 用它，不自己另定一套）。 */
+  function propNumSpec(input) {
+    const row = propRowOf(input)
+    const range = row ? row.querySelector('input[type="range"]') : null
+    const pick = (attr) => {
+      const own = String((input.getAttribute && input.getAttribute(attr)) || '')
+      if (own !== '') return Number(own)
+      const fromRange = String((range && range.getAttribute && range.getAttribute(attr)) || '')
+      return fromRange !== '' ? Number(fromRange) : NaN
+    }
+    const shown = String(input.dataset.benchNumPrev || input.value || '')
+    const dm = /\.(\d+)$/.exec(shown)
+    return { min: pick('min'), max: pick('max'), step: pick('step'), precision: dm ? dm[1].length : NaN }
+  }
+  function applyPropNumber(name, fallbackInput, res) {
+    const row = findPropRowByName(name)
+    const range = row ? row.querySelector('input[type="range"]') : null
+    if (range) {
+      const want = String(res.value)
+      try { range.value = want } catch { /* 越界会被浏览器钳回，下面照旧派发 */ }
+      try { range.dispatchEvent(new Event('input', { bubbles: true })) } catch { /* 老浏览器没有 Event 构造器 */ }
+    }
+    const after = findPropRowByName(name) || row
+    const afterInput = after ? after.querySelector('input.prop-num, input[type="number"]') : null
+    if (afterInput) {
+      if (!range) afterInput.value = String(res.value)
+      afterInput.dataset.benchNumPrev = String(afterInput.value || '')
+      setNumErr(afterInput, res.clamped
+        ? tr(curLang(), 'props.num.clamped', { v: String(res.value), why: res.notes.map((n) => tr(curLang(), 'num.why.' + n)).join(' / ') })
+        : '')
+    } else setNumErr(fallbackInput, '')
+  }
+  function onPropNumChange(ev) {
+    const input = ev && ev.target
+    if (!propNumIsNumeric(input)) return undefined
+    const row = propRowOf(input)
+    const name = row ? propRowMeta(row).name : ''
+    const res = parseNumberSafe(input.value, propNumSpec(input))
+    //  拦下产物那条只认 `Number.isFinite` 的处理器：它会把 `1e9` / `0x10` 写回模型
+    try { ev.stopPropagation() } catch { /* 合成事件 */ }
+    try { ev.stopImmediatePropagation() } catch { /* 合成事件 */ }
+    if (!res.ok) {
+      const prev = String(input.dataset.benchNumPrev || '')
+      if (prev) input.value = prev
+      setNumErr(input, tr(curLang(), 'props.num.invalid', { why: tr(curLang(), 'num.why.' + res.reason) }))
+      return false
+    }
+    setTimeout(() => { try { applyPropNumber(name, input, res) } catch { /* 面板可能刚被重画 */ } }, 0)
+    return true
+  }
+
+  /* ── #30 外链二次确认：写明**域名** + 3 秒倒计时，确认后 `window.open(url,'_blank','noopener,noreferrer')` ── */
+  let extDlg = null, extTimer = null
+  function closeExternalConfirm() {
+    if (extTimer) { clearInterval(extTimer); extTimer = null }
+    if (extDlg) { try { extDlg.remove() } catch { /* 已被移除 */ } ; extDlg = null }
+  }
+  function openExternalConfirm(url) {
+    const info = externalLinkInfo(url)                      // 只放行 http(s)：`javascript:` 等一律拒绝
+    if (!info.ok) { log(tr(curLang(), 'props.linkBlocked')); return null }
+    closeExternalConfirm()
+    const wrap = D.createElement('div'); wrap.className = 'bench-ext'; wrap.id = 'bench-ext-confirm'
+    wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true')
+    const box = D.createElement('div'); box.className = 'bench-ext-box'
+    const title = D.createElement('div'); title.className = 'bench-ext-title'; title.textContent = tr(curLang(), 'props.ext.title')
+    const host = D.createElement('div'); host.className = 'bench-ext-host'; host.id = 'bench-ext-host'
+    host.textContent = tr(curLang(), 'props.ext.host', { host: info.host })
+    const full = D.createElement('code'); full.className = 'bench-ext-url'; full.textContent = info.href
+    const warn = D.createElement('div'); warn.className = 'bench-ext-warn'; warn.textContent = tr(curLang(), 'props.ext.warn')
+    const row = D.createElement('div'); row.className = 'bench-ext-row'
+    const cancel = D.createElement('button')
+    cancel.type = 'button'; cancel.className = 'bench-ext-cancel'; cancel.textContent = tr(curLang(), 'props.ext.cancel')
+    const go = D.createElement('button')
+    go.type = 'button'; go.className = 'bench-ext-open'; go.id = 'bench-ext-open'; go.disabled = true
+    let left = 3
+    const paintGo = () => { go.textContent = left > 0 ? tr(curLang(), 'props.ext.wait', { n: left }) : tr(curLang(), 'props.ext.open') }
+    paintGo()
+    cancel.addEventListener('click', () => { closeExternalConfirm(); log(tr(curLang(), 'props.ext.cancelled')) })
+    go.addEventListener('click', () => {
+      if (go.disabled) return
+      const target = info.href
+      closeExternalConfirm()
+      try { window.open(target, '_blank', 'noopener,noreferrer') } catch { /* 被弹窗拦截：浏览器自己会提示 */ }
+      log(tr(curLang(), 'props.ext.opening', { host: info.host }))
+    })
+    extTimer = setInterval(() => {
+      left -= 1
+      if (left <= 0) {
+        left = 0
+        if (extTimer) { clearInterval(extTimer); extTimer = null }
+        go.disabled = false
+      }
+      paintGo()
+    }, 1000)
+    row.appendChild(cancel); row.appendChild(go)
+    box.appendChild(title); box.appendChild(host); box.appendChild(full); box.appendChild(warn); box.appendChild(row)
+    wrap.appendChild(box)
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) closeExternalConfirm() })
+    wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeExternalConfirm() })
+    D.body.appendChild(wrap)
+    extDlg = wrap
+    try { cancel.focus() } catch { /* 无焦点环境 */ }
+    return { host: info.host, href: info.href }
+  }
+  function extConfirmState() {
+    if (!extDlg) return { open: false }
+    const go = extDlg.querySelector('.bench-ext-open')
+    const host = extDlg.querySelector('.bench-ext-host')
+    return {
+      open: true, disabled: !!(go && go.disabled), label: go ? String(go.textContent || '') : '',
+      host: host ? String(host.textContent || '') : '',
+      href: String((extDlg.querySelector('.bench-ext-url') || {}).textContent || ''),
+      buttons: extDlg.querySelectorAll('button').length,
+    }
+  }
+
+  if (propsBody) {
+    try {
+      propsBody.addEventListener('focusin', (ev) => {
+        const el = ev && ev.target
+        if (propNumIsNumeric(el)) el.dataset.benchNumPrev = String(el.value == null ? '' : el.value)
+      }, true)
+      propsBody.addEventListener('change', onPropNumChange, true)
+      propsBody.addEventListener('click', (ev) => {
+        const t0 = ev && ev.target
+        const a = t0 && t0.closest ? t0.closest('a.bench-prop-link') : null
+        if (!a) return
+        try { ev.preventDefault() } catch { /* 合成事件 */ }
+        try { ev.stopImmediatePropagation() } catch { /* 合成事件 */ }
+        openExternalConfirm(String(a.getAttribute('href') || a.dataset.benchExt || ''))
+      }, true)
+    } catch { /* 桩 DOM */ }
+  }
+  function propsPanelState() {
+    const rows = propsRows()
+    if (!propsBody) return { state: propsState, item: propsShownItem, rows: 0, raw: PROPS_RAW }
+    return {
+      state: propsState, item: propsShownItem, active: propsActiveItemId(), raw: PROPS_RAW,
+      rows: rows.length, visible: propsVisibleRows().length,
+      topLevel: propsBody.children.length, groups: propsBody.querySelectorAll('.prop-group').length,
+      hiddenNames: rows.filter((el) => el.hidden).map((el) => propRowMeta(el).name || '[text-row]'),
+      names: propsVisibleRows().map((el) => propRowMeta(el).name),
+      texts: propsVisibleRows().map((el) => {
+        const n = el.querySelector('.prop-name, .prop-text-cap, summary')
+        return n ? String(n.textContent || '') : ''
+      }),
+      links: [...propsBody.querySelectorAll('a.bench-prop-link')].map((a) => String(a.getAttribute('href') || '')),
+      numInputs: propsBody.querySelectorAll('input.prop-num, input[type="number"]').length,
+      notes: propsBody.querySelectorAll('.bench-num-err:not([hidden])').length,
+      stateText: String(((q('#props-state') || {}).textContent) || ''),
+      empty: !!propsBody.querySelector('#props-empty'),
+    }
+  }
+
+  /* ── #14 资源管理器列表行布局：标题与 ID **分行**、ID 等宽 + 单行省略号 + `title` 完整值 ─────────────
+     产物把 `类型 · N 属性 · itemId` 全塞进**一行** `.sub`（`white-space:nowrap`）⇒ 属性数一多，
+     ID 就被省略号吃掉（用户第 14 条"属性太多导致 ID 显示不全"）。这里只动 `.sub` 的内部结构，
+     不碰产物的 `li.onclick`（列表项照样点得动）。 */
+  function decorateListRow(li) {
+    if (!li || !li.dataset || li.dataset.benchRowLayout === '1') return false
+    const id = String(li.dataset.id || '')
+    const sub = li.querySelector('.meta > .sub') || li.querySelector('.sub')
+    if (!sub || !id) return false
+    const text = String(sub.textContent || '')
+    const tail = ' · ' + id
+    let head = null
+    if (text === id) head = ''
+    else if (text.slice(-tail.length) === tail) head = text.slice(0, text.length - tail.length)
+    if (head === null) return false                 // 产物格式漂移：宁可不拆，也不把别的文字当 ID
+    sub.textContent = ''
+    if (head) {
+      const kind = D.createElement('span'); kind.className = 'bench-row-kind'; kind.textContent = head
+      sub.appendChild(kind)
+    }
+    const idEl = D.createElement('span')
+    idEl.className = 'bench-row-id'; idEl.textContent = id; idEl.title = id
+    sub.appendChild(idEl)
+    li.dataset.benchRowLayout = '1'
+    return true
+  }
+  function decorateListRows(scope) {
+    const root = scope || listEl
+    if (!root || !root.querySelectorAll) return 0
+    let n = 0
+    for (const li of root.querySelectorAll('li[data-id]')) { try { if (decorateListRow(li)) n++ } catch { /* 单行失败不影响别的行 */ } }
+    return n
+  }
+
   try {
     if (propsEl && typeof MutationObserver === 'function') {
       let t2 = null
-      new MutationObserver(() => { if (t2) clearTimeout(t2); t2 = setTimeout(() => { t2 = null; paintPropsEmpty() }, 80) })
-        .observe(propsBody || propsEl, { childList: true })
+      new MutationObserver(() => { if (t2) clearTimeout(t2); t2 = setTimeout(() => { t2 = null; propsSettle() }, 80) })
+        .observe(propsBody || propsEl, { childList: true, subtree: true })
     }
   } catch {}
+  /* 点列表项（捕获阶段，先于产物 `li.onclick` 的整条挂载链）⇒ 面板按"新那张"重挂载。 */
+  try {
+    if (listEl && !listEl.__benchPropsClickBound) {
+      listEl.__benchPropsClickBound = true
+      listEl.addEventListener('click', (ev) => {
+        const t0 = ev && ev.target
+        const li = t0 && t0.closest ? t0.closest('li[data-id]') : null
+        if (!li) return
+        const id = String(li.dataset.id || '')
+        if (!id || li.classList.contains('active')) return    // 点当前项：产物自己幂等（P-164），面板不用动
+        try { refreshPropsPanel('switch', id) } catch { /* 单次失败不阻断产物那条点击链 */ }
+      }, true)
+    }
+  } catch {}
+  /* 列表侧的**第二道**观察（与 `#list` 那条 childList 观察分开）：`class` 属性变化也要能叫醒面板 ——
+     "没有其它打开项 ⇒ 释放舞台"那条路只摘 `.active`，不产生 childList 变更（本轮实测：面板会停在
+     上一张壁纸的 17 行上）。`decorateListRows` 只写 `dataset`/子节点、不写 `class` ⇒ 不会自激。 */
+  try {
+    if (listEl && typeof MutationObserver === 'function') {
+      let t3 = null
+      new MutationObserver(() => {
+        if (t3) clearTimeout(t3)
+        t3 = setTimeout(() => { t3 = null; try { refreshPropsPanel('list') } catch { /* ignore */ } }, 80)
+      }).observe(listEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+    }
+  } catch {}
+  let artifactPropsToggle = null                            // 产物 `#toggle-props` 的原始处理器（重读入口）
 
   /* ── ⑫a(2026-09-19 用户要求)「壁纸配置」要能**收起** ────────────────────────────────────────
      真因（两条都在我们自己的代码里，产物那条 `#props-close.onclick = () => ue(!1)` 其实一直在跑）：
@@ -3420,11 +4252,23 @@ export function initSiteShell(ctx = {}) {
       try { propsToggleBtn.setAttribute('aria-pressed', want ? 'false' : 'true') } catch {}
     }
     try { const ws = q('#workspace'); if (ws) ws.classList.remove('props-open') } catch {}
+    //  ①(本轮 #23) `hidden` 是**产物眼里的收起标志**（视觉收起走我们自己的类）：可见时必须为 false，
+    //  否则产物在切壁纸时跳过属性重读（`Le.hidden || yt(...)` 短路）—— 那正是第 23 条的根因。
+    syncPropsHidden()
     if (persist) writeKey(PROPS_COLLAPSED_KEY, want ? '1' : '0')
+    if (!want) {
+      //  ②(本轮 #23) 收起期间切过壁纸 ⇒ 面板里是上一张的行：展开时清空 + 让产物重读一次。
+      const item = propsActiveItemId()
+      if (item && (String(item) !== String(propsShownItem || '') || (!propsRows().length && !propsHasNote()))) refreshPropsPanel('expand', item)
+      else propsSettle()
+    }
     return want
   }
   if (propsCloseBtn) propsCloseBtn.addEventListener('click', (e) => { try { e && e.preventDefault && e.preventDefault() } catch {}; setPropsCollapsed(true) })
   if (propsToggleBtn) {
+    //  ①(本轮) 先把产物自己的处理器**存下来**再摘：它是"强制重读属性表"的唯一入口
+    //  （`forceArtifactPropsRead()` 用它；不存的话收起期间切壁纸就再也刷不出来了）。
+    try { artifactPropsToggle = typeof propsToggleBtn.onclick === 'function' ? propsToggleBtn.onclick : null } catch { artifactPropsToggle = null }
     try { propsToggleBtn.onclick = null } catch { /* 桩 DOM 允许覆盖 */ }
     propsToggleBtn.addEventListener('click', (e) => {
       try { e && e.preventDefault && e.preventDefault() } catch {}
@@ -3653,6 +4497,10 @@ export function initSiteShell(ctx = {}) {
     shellVersion: VER, domIsNew: DOM_NEW, maxLogsForLayout,
     // ⑫a / ⑫c（探针与测试用同一入口）
     setPropsCollapsed, propsCollapsed: propsCollapsedNow, themeMode: currentThemeMode,
+    // ①(本轮 #18/#23/#25/#26/#27/#28/#30/#34) 属性面板状态机 / 装饰 / 外链确认（探针与门禁读同一批入口）
+    propsPanel: propsPanelState, propsRefresh: refreshPropsPanel, propsDecorate: decoratePropsBody,
+    propsExtConfirm: openExternalConfirm, propsExtState: extConfirmState, propsExtClose: closeExternalConfirm,
+    propsDecorateList: decorateListRows, propsRaw: PROPS_RAW,
     // ⑭(P-142) 收纳 / 声音控件 / video 声音（X11 真机与门禁读同一批入口）
     navSound: navSound,
     setNavCollapsed: (v) => (navSound ? navSound.setNavCollapsed(v) : null),
@@ -4789,6 +5637,30 @@ export function init() {
     /* ⑨(用户第 10 条) 输入框：平时灰边、聚焦黑边（暗色模式聚焦白边）—— 颜色变量在静态表里一处定义。 */
     'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), textarea{border:1px solid var(--bench-input-border)!important}',
     'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):focus, textarea:focus{outline:none;border-color:var(--bench-input-focus)!important}',
+    '/*  —— 本轮（用户第 14/18/23/25/26/27/28/30/34 条）——*/',
+    /* ①(本轮 #14) 行布局：标题一行、ID 自己一行（等宽 + 单行省略号 + `title` 给完整值）——
+   产物把 `类型 · N 属性 · itemId` 塞进同一行 `.sub`（nowrap）⇒ 属性一多 ID 就被省略号吃掉。 */
+    '#list .meta{min-width:0}',
+    '#list .sub .bench-row-id{display:block;max-width:100%;font-family:var(--mono);font-size:10.5px;color:var(--fg-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '#list li.active .sub .bench-row-id{color:#b4d0e8}',
+    '#list .sub .bench-row-kind{display:block;overflow:hidden;text-overflow:ellipsis}',
+    '.bench-prop-note{padding:2px 0 0;color:var(--fg-mute);font-size:11px;line-height:1.5}',
+    '.bench-prop-imgwrap{display:block;margin:4px 0}',
+    '.bench-prop-img{display:block;max-width:100%;height:auto;border-radius:2px}',
+    '.bench-prop-link{color:var(--link);text-decoration:underline;cursor:pointer}',
+    '.bench-num-err{margin-top:4px;color:var(--danger);font-size:11px;line-height:1.5}',
+    '.bench-props-hidden-note{font-size:11px;line-height:1.6}',
+    /* ①(本轮 #30) 外链二次确认：弹层里写明域名、只放行 http(s)、确认按钮 3 秒倒计时后才可点。 */
+    '.bench-ext{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5)}',
+    '.bench-ext-box{width:min(520px,92vw);padding:16px 18px;border:1px solid var(--widget-border);border-radius:8px;background:var(--panel);color:var(--fg);box-shadow:var(--shadow)}',
+    '.bench-ext-title{font-size:14px;font-weight:600;margin-bottom:6px}',
+    '.bench-ext-host{font-size:13px;color:var(--fg);word-break:break-all}',
+    '.bench-ext-url{display:block;margin:6px 0;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input);color:var(--fg-dim);font:11px/1.5 var(--mono);word-break:break-all}',
+    '.bench-ext-warn{margin:6px 0 12px;color:var(--fg-mute);font-size:12px;line-height:1.6}',
+    '.bench-ext-row{display:flex;justify-content:flex-end;gap:8px}',
+    '.bench-ext-row button{height:26px;padding:0 12px;border:1px solid var(--widget-border);border-radius:4px;background:var(--input);color:var(--fg);cursor:pointer}',
+    '.bench-ext-open:not(:disabled){background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}',
+    '.bench-ext-open:disabled{opacity:.55;cursor:default}',
     'select.bench-rd-native{display:none!important}',
     '#wp-switch{position:relative}',
     '#wp-add{flex:none;width:34px;min-width:34px;height:auto;border:0;border-left:1px solid var(--border);background:transparent;color:var(--fg-dim);font-size:16px;line-height:1;cursor:pointer}',
@@ -6987,6 +7859,14 @@ export function init() {
     // ⑫a / ⑫c（探针/测试入口；与用户点击走**同一条**代码路径）
     setPropsCollapsed: (v) => (window.__benchShell ? window.__benchShell.setPropsCollapsed(v) : null),
     propsCollapsed: () => (window.__benchShell ? window.__benchShell.propsCollapsed() : null),
+    // ①(本轮 #18/#23/#25/#26/#27/#28/#30/#34)：属性面板（状态机读数 / 显式重挂载 / 外链确认）
+    propsPanel: () => (window.__benchShell ? window.__benchShell.propsPanel() : null),
+    propsRefresh: (why) => (window.__benchShell ? window.__benchShell.propsRefresh(why || 'probe') : null),
+    propsDecorate: () => (window.__benchShell ? window.__benchShell.propsDecorate() : null),
+    propsExtConfirm: (url) => (window.__benchShell ? window.__benchShell.propsExtConfirm(url) : null),
+    propsExt: () => (window.__benchShell ? window.__benchShell.propsExtState() : null),
+    propsExtClose: () => (window.__benchShell ? window.__benchShell.propsExtClose() : null),
+    propsRaw: () => (window.__benchShell ? window.__benchShell.propsRaw : null),
     themeMode: () => (window.__benchShell ? window.__benchShell.themeMode() : null),
     // ⑭(P-142 2026-09-19 用户第 1/2/3 项)：收纳 / 声音控件遮挡 / video 声音（与用户点击同一条代码路径）
     setNavCollapsed: (v) => (window.__benchShell ? window.__benchShell.setNavCollapsed(v) : null),

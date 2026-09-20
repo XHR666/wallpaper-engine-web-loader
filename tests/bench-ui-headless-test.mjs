@@ -71,6 +71,24 @@ try {
         if (typeof orig === 'function') window[k] = function () { window.__nativePromptCalls++; return orig.apply(window, arguments) }
       } catch { /* 不可写：跳过 */ }
     }
+    /* ── P 组（属性面板批）用的请求台账：`/api/props` 的 GET/POST 各记一份（含 POST body）。
+       为什么要有它：判"面板真的重读了新壁纸"不能只看行变了 —— 要能证明**新那张的 `/api/props` 请求真发生过**；
+       判"非法数字没写回"要能证明**保存链里没出现 `1e9`**。 */
+    window.__propsReqs = []
+    window.__propsPosts = []
+    try {
+      const of = window.fetch
+      window.fetch = function (input, init) {
+        try {
+          const u = String((input && input.url) || input || '')
+          if (u.indexOf('/api/props') >= 0) {
+            if (String((init && init.method) || 'GET').toUpperCase() === 'POST') window.__propsPosts.push(String((init && init.body) || ''))
+            else window.__propsReqs.push(u)
+          }
+        } catch { /* ignore */ }
+        return of.apply(this, arguments)
+      }
+    } catch { /* ignore */ }
     window.__gumCalls = 0
     try {
       const md = navigator.mediaDevices
@@ -1549,6 +1567,417 @@ try {
     ok(ink0 >= 0 && ink1 > 0 && ink1 >= ink0,
       'Z11 ④ 「指针注入 + 鼠标尾迹」下**不按键**移动 ⇒ 尾迹画布出现墨迹（:8899 同一口径）',
       JSON.stringify({ inkBefore: ink0, inkAfter: ink1, trail: await page.evaluate(() => { const t = document.getElementById('trail-on'); return { checked: !!(t && t.checked), disabled: !!(t && t.disabled) } }) }))
+  }
+
+  // ══════════════════ P 组（2026-09-21 用户第 18/23/25/26/27/28/29/30/34 条 + 第 14 条行布局半条）══════
+  //  纪律：判据都是**契约 / 几何 / 状态机**读数；item 一律由 `/api/library` + `/api/props` **现算**
+  //  （不写死任何本机 id、目录名、路径），找不到满足条件的语料就**自 SKIP 那一条**（进 notes），不假装通过。
+  //  "面板换了一张"这类判据要求三件事同时成立：① 显示的行名集合 ⊆ **新那张**声明的项（减内置隐藏名单）
+  //  ② 与上一张的行集合**不同** ③ 至少有一个名字**不在上一张的声明里**（否则可能只是"旧数据恰好同形"）；
+  //  并且 `/api/props?item=<新>` 请求确实在切换之后发生过。
+  {
+    const PP = await import(pathToFileURL(path.join(ROOT, 'demo/bench-patch.js')).href)
+    const libItems = await page.evaluate(async () => {
+      const r = await (await fetch('/api/library')).json()
+      return (r.items || []).map((i) => ({ id: i.itemId, decl: Object.keys(i.properties || {}).length }))
+    })
+    const declOf = (id) => page.evaluate(async (item) => {
+      const r = await (await fetch('/api/props?item=' + encodeURIComponent(item))).json()
+      return r.props || []
+    }, id)
+    const pick = async (id, waitMs = 2600) => {
+      await page.evaluate((want) => {
+        const li = [...document.querySelectorAll('#list li[data-id]')].find((x) => x.dataset.id === want)
+        if (li) li.click()
+      }, id)
+      await page.waitForTimeout(waitMs)
+    }
+    const panel = () => page.evaluate(() => window.__benchPatch.propsPanel())
+    const propsReqs = () => page.evaluate(() => (Array.isArray(window.__propsReqs) ? window.__propsReqs.slice() : []))
+    const shownNames = (st) => (st && Array.isArray(st.names) ? st.names.filter(Boolean).sort() : [])
+    //  允许显示的上界 = 该壁纸声明的项 − 内置隐藏名单（占位颜色**仍然显示行**，只是没有控件 ⇒ 不排除）
+    const allowed = (decl) => decl.filter((s) => !PP.propsHiddenReason({ name: s.name, text: s.text })).map((s) => s.name)
+    const cand = libItems.filter((x) => x.decl >= 6).sort((a, b) => b.decl - a.decl).slice(0, 3)
+    const decls = {}
+    for (const c of cand) decls[c.id] = await declOf(c.id)
+    const three = cand.filter((c) => new Set(decls[c.id].map((s) => s.name)).size >= 3)
+    const [A, B, C] = three
+    ok(!!B && !!C, 'P0 语料自检：库里至少三张"可调项 ≥6 且名字集合互不相同"的壁纸（后续每条的对照项都由它现算）',
+      JSON.stringify({ cand: cand.map((c) => [c.id, c.decl]), uniq: three.map((c) => decls[c.id].length) }))
+
+    if (B && C) {
+      const swapProof = (namesNew, declOld, label) => {
+        const old = new Set(declOld.map((s) => s.name))
+        return namesNew.length > 0 && namesNew.every((n) => !old.has(n) || true) && namesNew.some((n) => !old.has(n))
+          ? { ok: true } : { ok: false, why: label + '：新行名没有一个不在旧声明里（可能仍是旧数据）', namesNew: namesNew.slice(0, 6), old: [...old].slice(0, 6) }
+      }
+
+      // ── P1 #23 面板开着时切壁纸 ⇒ 面板**重挂载**（行集合按新那张换掉，不是"函数被调过"）──────────
+      await pick(A.id)
+      const sA = await panel()
+      const nA = shownNames(sA)
+      const beforeReqs = (await propsReqs()).length
+      await pick(B.id)
+      const sB = await panel()
+      const nB = shownNames(sB)
+      const reqsB = (await propsReqs()).slice(beforeReqs)
+      const allowB = new Set(allowed(decls[B.id])); const allowA = new Set(allowed(decls[A.id]))
+      const proof = swapProof(nB, decls[A.id], 'P1')
+      ok(sA.state === 'ok' && sA.item === A.id && nA.length > 0 && sB.state === 'ok' && sB.item === B.id &&
+        nB.length > 0 && JSON.stringify(nA) !== JSON.stringify(nB) &&
+        nB.every((n) => allowB.has(n)) && nA.every((n) => allowA.has(n)) && proof.ok &&
+        reqsB.some((r) => r.indexOf(B.id) >= 0),
+        'P1 #23 面板开着时切壁纸 ⇒ 面板真的**换了一张**：行名集合 ⊆ 新壁纸声明的项（减内置隐藏名单）、与上一张不同、且有名字**不在**上一张的声明里 + 新那张的 `/api/props` 请求确实发生过',
+        JSON.stringify({ A: { id: A.id, rows: sA.rows, names: nA.slice(0, 4) }, B: { id: B.id, rows: sB.rows, names: nB.slice(0, 4) }, reqsB, proof }))
+
+      // ── P2 #23 根因路径：**收起期间**切壁纸，展开后必须是新那张（旧写法这里一行都不刷）──────────
+      await page.click('#props-close'); await page.waitForTimeout(400)
+      const collapsed = await page.evaluate(() => window.__benchPatch.propsCollapsed())
+      const beforeCollapsed = (await propsReqs()).length
+      await pick(C.id)
+      const during = await panel()
+      await page.click('#toggle-props'); await page.waitForTimeout(2600)
+      const after = await panel()
+      const reqsC = (await propsReqs()).slice(beforeCollapsed)
+      const nC = shownNames(after)
+      const allowC = new Set(allowed(decls[C.id]))
+      const proofC = swapProof(nC, decls[B.id], 'P2')
+      const staleSeen = shownNames(during).filter((n) => !allowC.has(n))
+      ok(collapsed === true && during.item === C.id && after.state === 'ok' && after.item === C.id &&
+        nC.length > 0 && nC.every((n) => allowC.has(n)) && proofC.ok && staleSeen.length === 0 &&
+        reqsC.some((r) => r.indexOf(C.id) >= 0),
+        'P2 #23 **收起期间**切壁纸 ⇒ 面板先清空、展开时重读并画成新那张（收起态/展开后都不留上一张的行；`/api/props?item=<新>` 有请求）',
+        JSON.stringify({ collapsed, during: { state: during.state, item: during.item, rows: during.rows, stale: staleSeen.slice(0, 4) }, after: { state: after.state, item: after.item, rows: after.rows, names: nC.slice(0, 4) }, reqsC, proofC }))
+
+      // ── P3 #25 未选择壁纸 ⇒ "未选择"空态 + **零残留行** ────────────────────────────────────
+      {
+        for (let i = 0; i < 15; i++) {
+          const gone = await page.evaluate(() => {
+            const cur = document.querySelector('.wp-x-cur'); const any = document.querySelector('.wp-x:not(.wp-x-cur)')
+            const b = cur || any
+            if (!b) return true
+            b.click(); return false
+          })
+          if (gone) break
+          await page.waitForTimeout(420)
+        }
+        await page.waitForTimeout(1200)
+        const s = await panel()
+        const dom = await page.evaluate(() => {
+          const body = document.getElementById('props-body')
+          const empty = document.getElementById('props-empty')
+          const drawn = (el) => el.getBoundingClientRect().height > 0
+          return {
+            rows: body.querySelectorAll('.prop, .prop-group, .prop-text').length,
+            drawnRows: [...body.querySelectorAll('.prop, .prop-group, .prop-text')].filter(drawn).length,
+            kids: body.children.length,
+            emptyVisible: !!(empty && drawn(empty)),
+            emptyText: empty ? String(empty.textContent || '').trim() : '',
+            active: document.querySelectorAll('#list li.active').length,
+            uiRows: [...body.querySelectorAll('.prop, .prop-text')].filter((r) => drawn(r) && /(^|\s)ui_/i.test((r.getAttribute('title') || '') + ' ' + r.textContent)).length,
+          }
+        })
+        ok(s.state === 'unselected' && s.rows === 0 && dom.rows === 0 && dom.drawnRows === 0 && dom.uiRows === 0 && dom.emptyVisible && dom.emptyText.length > 0 && dom.active === 0,
+          'P3 #25 关掉全部壁纸（未选择）⇒ 面板落到"未选择"空态、**任何残留属性行都不留**（含 `ui_browse_properties_scheme_color`），空态文案可见',
+          JSON.stringify({ state: s.state, rows: s.rows, dom }))
+      }
+
+      // ── P4 #18 内置/编辑器内部属性不进用户面板（两张不同壁纸各查一次）──────────────────────
+      const hiddenReports = []
+      for (const c of [A, B]) {
+        await pick(c.id)
+        const st = await panel()
+        const dom = await page.evaluate(() => {
+          const body = document.getElementById('props-body')
+          const drawn = (el) => el.getBoundingClientRect().height > 0
+          const rows = [...body.querySelectorAll('.prop, .prop-text, .prop-group')]
+          const nameOf = (r) => {
+            const title = String(r.getAttribute('title') || '')
+            const own = title.indexOf(' · ') > 0 ? title.slice(0, title.lastIndexOf(' · ')) : title
+            const label = String((r.querySelector('.prop-name, .prop-text-cap, summary') || {}).textContent || '')
+            return { own, label: label.trim() }
+          }
+          const leak = rows.filter((r) => drawn(r)).filter((r) => {
+            const m = nameOf(r)
+            return /^ui_/i.test(m.own) || /^ui_/i.test(m.label) || /^schemecolor$/i.test(m.own)
+          }).map((r) => String(r.getAttribute('title') || r.textContent).slice(0, 40))
+          return {
+            leak,
+            hiddenRows: rows.filter((r) => r.hidden).map((r) => ({ t: String(r.getAttribute('title') || '').slice(0, 30), drawn: drawn(r) })),
+          }
+        })
+        hiddenReports.push({ id: c.id, ...dom, expHidden: decls[c.id].filter((s) => PP.propsHiddenReason({ name: s.name, text: s.text })).map((s) => s.name), shown: shownNames(st).length })
+      }
+      ok(hiddenReports.every((h) => h.leak.length === 0) && hiddenReports.some((h) => h.expHidden.length > 0) &&
+        hiddenReports.every((h) => h.hiddenRows.every((x) => x.drawn === false)) && hiddenReports.every((h) => h.shown > 0),
+        'P4 #18 两张不同壁纸下面板里都**没有**渲染 `ui_*` / `schemecolor` 这类编辑器内部项（数据驱动：该壁纸确实声明过它，被隐藏名单挡下且几何高度为 0），其余项照常显示',
+        JSON.stringify(hiddenReports.map((h) => ({ id: h.id, leak: h.leak, hidden: h.hiddenRows.slice(0, 3), expHidden: h.expHidden, shown: h.shown }))))
+
+      // ── P5 #26/#28 富文本：`<img>` 只渲染图、`<font color>` 只给颜色、`<br>` 换行、其余剥标签留文字 ──
+      let tagItem = null
+      for (const it of libItems) {
+        const decl = await declOf(it.id)
+        const hasFont = decl.some((s) => /<font\s+color\s*=/i.test(String(s.text || '')))
+        const hasImg = decl.some((s) => /<img\s+[^>]*src\s*=/i.test(String(s.text || '')))
+        const hasBig = decl.some((s) => /<big\b|<b\b|<center\b|&nbsp;|<br\s*\/?>/i.test(String(s.text || '')))
+        if (hasFont && hasImg && hasBig) { tagItem = { id: it.id, decl }; break }
+      }
+      if (!tagItem) notes.push('P5 自 SKIP：库里没有同时含 <font color>/<img src>/<big|br|&nbsp; 的壁纸属性文本（换语料后自动生效）')
+      else {
+        await pick(tagItem.id, 2800)
+        const rich = await page.evaluate(() => {
+          const body = document.getElementById('props-body')
+          const raw = [...body.querySelectorAll('.prop, .prop-text, .prop-group')]
+            .map((r) => String(r.textContent || ''))
+            .filter((t) => /<img\b|<\/?font\b|<big>|<b>|<br\s*\/?>|&nbsp;|<\/a>|<center>/i.test(t))
+          const fg = [...body.querySelectorAll('.bench-prop-fg')].map((el) => ({
+            color: getComputedStyle(el).color, inlineSize: el.style.fontSize, inlineWeight: el.style.fontWeight,
+            parentSize: getComputedStyle(el.parentNode).fontSize, parentWeight: getComputedStyle(el.parentNode).fontWeight,
+            selfSize: getComputedStyle(el).fontSize, selfWeight: getComputedStyle(el).fontWeight }))
+          const imgs = [...body.querySelectorAll('.bench-prop-img')].map((i) => ({ src: String(i.getAttribute('src') || ''), w: Math.round(i.getBoundingClientRect().width) }))
+          const brRows = [...body.querySelectorAll('.prop, .prop-text')].filter((r) => r.querySelector('.prop-name > br, .prop-text-cap > br'))
+          const brGeom = brRows.slice(0, 3).map((r) => {
+            const el = r.querySelector('.prop-name, .prop-text-cap') || r
+            const cs = getComputedStyle(el)
+            const lh = Number.parseFloat(cs.lineHeight) || (Number.parseFloat(cs.fontSize) * 1.4)
+            return { h: Math.round(el.getBoundingClientRect().height), lh: Math.round(lh), lines: Math.round(el.getBoundingClientRect().height / lh) }
+          })
+          const dangerous = [...body.querySelectorAll('script, iframe, object, embed')].length +
+            [...body.querySelectorAll('*')].filter((el) => [...el.attributes].some((a) => /^on/i.test(a.name))).length
+          return { raw, fg, imgs, brGeom, dangerous, links: [...body.querySelectorAll('a.bench-prop-link')].length }
+        })
+        const sizesOk = rich.fg.every((f) => f.inlineSize === '' && f.inlineWeight === '' && f.selfSize === f.parentSize && f.selfWeight === f.parentWeight)
+        ok(rich.raw.length === 0 && rich.dangerous === 0,
+          'P5a #26/#28 属性文本里的标签**不再当文字显示**（`<img …>`/`<big><b>`/`<font …>`/`<br>`/`&nbsp;` 一处都不出现在文本里），且面板里没有 script/iframe 与任何 `on*` 属性',
+          JSON.stringify({ rawTags: rich.raw.slice(0, 2), dangerous: rich.dangerous, links: rich.links }))
+        ok(rich.fg.length > 0 && sizesOk,
+          'P5b #28 只保留**颜色**语义：`<font color>` 落到 `style.color`，字号/字重与父节点**逐值相同**（不实现 `<big>/<b>` 的字号字重）',
+          JSON.stringify({ n: rich.fg.length, sample: rich.fg.slice(0, 2), sizesOk }))
+        ok(rich.imgs.length > 0 && rich.imgs.every((i) => /^https?:\/\//i.test(i.src)),
+          'P5c #26 `<img src>` **只渲染图**（http(s) 图片真出现在面板里），标签文字不再重复显示',
+          JSON.stringify({ imgs: rich.imgs.slice(0, 3) }))
+        ok(rich.brGeom.length > 0 && rich.brGeom.every((g) => g.lines >= 2),
+          'P5d #28 `<br>` 真的换行（含 `<br>` 的属性文案在面板里占 ≥2 行 —— 几何量，不是看字符串）',
+          JSON.stringify(rich.brGeom))
+      }
+
+      // ── P6 #27 占位颜色属性：不渲染那个没意义的取色框（`?rawprops=1` 回退见 P11）──────────────
+      let phItem = null
+      for (const it of libItems) {
+        const decl = await declOf(it.id)
+        const ph = decl.filter((s) => PP.propsPlaceholderColor({ name: s.name, ptype: s.ptype, text: s.text }))
+        const real = decl.filter((s) => s.ptype === 'color' &&
+          !PP.propsPlaceholderColor({ name: s.name, ptype: s.ptype, text: s.text }) &&
+          !PP.propsHiddenReason({ name: s.name, text: s.text }))
+        if (ph.length > 0 && real.length > 0) { phItem = { id: it.id, decl, ph, real }; break }
+      }
+      if (!phItem) notes.push('P6 自 SKIP：库里没有"值类型 color 但文案没有实义文字"的占位属性（换语料后自动生效）')
+      else {
+        await pick(phItem.id, 2800)
+        const probeRows = (names) => page.evaluate((list) => list.map((n) => {
+          const all = [...document.querySelectorAll('#props-body .prop')]
+          const row = all.find((r) => String(r.getAttribute('title') || '').indexOf(n + ' · ') === 0)
+          if (!row) return { name: n, found: false }
+          const ctl = row.querySelector('.prop-ctl')
+          const inp = row.querySelector('input[type="color"]')
+          const drawn = (el) => !!(el && el.getBoundingClientRect().width > 0)
+          return { name: n, found: true, ctlHidden: !!(ctl && ctl.hidden), colorDrawn: drawn(inp), note: !!row.querySelector('.bench-prop-note') }
+        }), names)
+        const norm = await probeRows(phItem.ph.map((s) => s.name))
+        const keep = await probeRows(phItem.real.map((s) => s.name).slice(0, 4))
+        ok(norm.length > 0 && norm.every((x) => x.found && !x.colorDrawn && x.ctlHidden && x.note) && keep.every((x) => x.found && x.colorDrawn),
+          'P6 #27 "只为占位/显示图片"的颜色属性**不渲染取色控件**（行还在、控件收掉并写明原因），而**有实义文案**的颜色属性控件照常在（同一张壁纸里对照）',
+          JSON.stringify({ id: phItem.id, ph: norm.slice(0, 3), real: keep }))
+      }
+
+      // ── P7 #29 属性面板里的数字输入：平时灰边、聚焦黑/白边（变量口径）────────────────────────
+      await pick(A.id)
+      const focusP = await page.evaluate(async () => {
+        const body = document.getElementById('props-body')
+        const q = () => body.querySelector('input.prop-num, input[type="number"]')
+        if (!q()) return null
+        const resolveVar = (n) => { const d = document.createElement('div'); d.style.color = 'var(' + n + ')'; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v }
+        const before = getComputedStyle(q())
+        let after = null
+        //  面板会被产物重画（挂载回执到达时）⇒ 每一轮重新取节点，focus 生效那一轮才算数
+        for (let i = 0; i < 15 && !after; i++) {
+          const el = q(); if (!el) break
+          el.focus()
+          await new Promise((r) => setTimeout(r, 80))
+          if (document.activeElement === el) { const cs = getComputedStyle(el); after = { c: cs.borderTopColor, o: cs.outlineStyle } }
+        }
+        if (after) { try { q().blur() } catch { /* ignore */ } }
+        return { before: { c: before.borderTopColor, o: before.outlineStyle }, after,
+          varBorder: resolveVar('--bench-input-border'), varFocus: resolveVar('--bench-input-focus') }
+      })
+      const NORM = (c) => String(c || '').replace(/\s+/g, '')
+      ok(focusP && focusP.after && focusP.after.o === 'none' && NORM(focusP.before.c) === NORM(focusP.varBorder) && NORM(focusP.after.c) === NORM(focusP.varFocus),
+        'P7 #29 **属性面板里的数值框**同样吃这条变量（平时 = `--bench-input-border`、聚焦 = `--bench-input-focus`、`outline:none`，不再是产物那条带 id 的 `#0078d4`）',
+        JSON.stringify(focusP))
+
+      // ── P8 #30 属性里的 http(s) 链接：二次确认 + 域名 + 3 秒倒计时（只放行 http(s)）─────────
+      const ext = await page.evaluate(async () => {
+        const P = window.__benchPatch
+        const bad = { js: P.propsExtConfirm('javascript:alert(1)'), data: P.propsExtConfirm('data:text/html,<b>x</b>'), open: P.propsExt() }
+        const good = P.propsExtConfirm('https://example.com/a/b?c=1#d')
+        const opened = []
+        const orig = window.open
+        window.open = function () { opened.push([...arguments]); return null }
+        const t0 = performance.now()
+        const btn0 = document.getElementById('bench-ext-open')
+        const first = { disabled: !!btn0.disabled, label: String(btn0.textContent || ''), host: String((document.getElementById('bench-ext-host') || {}).textContent || '') }
+        btn0.click()                                    // 倒计时里点：必须无效
+        const early = { disabled: !!document.getElementById('bench-ext-open').disabled, opened: opened.length }
+        let enabledAt = null
+        for (let k = 0; k < 80; k++) {
+          await new Promise((r) => setTimeout(r, 100))
+          const b = document.getElementById('bench-ext-open')
+          if (b && !b.disabled) { enabledAt = Math.round(performance.now() - t0); break }
+        }
+        const b2 = document.getElementById('bench-ext-open')
+        const label2 = b2 ? String(b2.textContent || '') : ''
+        if (b2) b2.click()
+        await new Promise((r) => setTimeout(r, 150))
+        window.open = orig
+        return { bad, goodHost: good && good.host, first, early, enabledAt, label2, opened, after: P.propsExt() }
+      })
+      ok(ext.bad.js === null && ext.bad.data === null && ext.bad.open.open === false,
+        'P8a #30 `javascript:` / `data:` 链接**连确认弹层都不给**（只放行 http(s)）', JSON.stringify(ext.bad))
+      ok(ext.first.disabled === true && /example\.com/.test(ext.first.host) && ext.early.disabled === true && ext.early.opened === 0 &&
+        ext.enabledAt !== null && ext.enabledAt >= 3000 && ext.after.open === false &&
+        ext.opened.length === 1 && ext.opened[0][0] === 'https://example.com/a/b?c=1#d' && ext.opened[0][1] === '_blank' &&
+        /noopener/.test(String(ext.opened[0][2])) && /noreferrer/.test(String(ext.opened[0][2])),
+        'P8b #30 确认弹层写明**目标域名**、确认按钮**倒计时 3 秒**内点不动（实测 ≥3000ms 才可点），确认后 `window.open(url,"_blank","noopener,noreferrer")` 且弹层关闭',
+        JSON.stringify({ first: ext.first, early: ext.early, enabledAt: ext.enabledAt, label2: ext.label2, opened: ext.opened, after: ext.after }))
+
+      // ── P9 #34 数字输入统一 `parseNumberSafe`：非法**不写回** + 行内报错；越界按属性 min/max 钳制 ──
+      {
+        const slider = (decls[A.id].find((s) => s.ptype === 'slider' && Number.isFinite(Number(s.max)) && Number.isFinite(Number(s.min))) || null)
+        if (!slider) notes.push('P9 自 SKIP：这张壁纸没有声明带 min/max 的 slider')
+        else {
+          const num = await page.evaluate(async (name) => {
+            const q2 = (v) => String(v == null ? '' : v)
+            const rowOf = () => [...document.querySelectorAll('#props-body .prop')].find((r) => String(r.getAttribute('title') || '').indexOf(name + ' · ') === 0)
+            const read = () => {
+              const row = rowOf(); if (!row) return null
+              const n = row.querySelector('input.prop-num, input[type="number"]')
+              const rg = row.querySelector('input[type="range"]')
+              const err = row.querySelector('.bench-num-err')
+              return { num: q2(n && n.value), range: q2(rg && rg.value), err: err ? q2(err.textContent) : '', errVisible: !!(err && !err.hidden && err.getBoundingClientRect().height > 0) }
+            }
+            const fire = async (v) => {
+              const row = rowOf(); const n = row.querySelector('input.prop-num, input[type="number"]')
+              n.focus(); n.value = v
+              n.dispatchEvent(new Event('change', { bubbles: true }))
+              await new Promise((r) => setTimeout(r, 700))
+              return read()
+            }
+            const row0 = rowOf()
+            const rg0 = row0.querySelector('input[type="range"]')
+            const out = { init: read(), max: q2(rg0.max), min: q2(rg0.min), mid: q2(rg0.step) }
+            //  先证明**合法值确实写回**（否则"非法值没写回"可能只是因为整条链根本不写）
+            out.valid = await fire((Number(out.min) + Number(out.max)) / 2)
+            out.exp = await fire('1e9')
+            out.hex = await fire('0x10')
+            out.inf = await fire('Infinity')
+            out.dec = await fire('0.' + '1'.repeat(20))
+            out.clamp = await fire(String(Number(out.max) + 1000))
+            return out
+          }, slider.name)
+          const rejected = [num.exp, num.hex, num.inf, num.dec]
+          const mid = (Number(num.min) + Number(num.max)) / 2
+          ok(num.valid && Math.abs(Number(num.valid.range) - mid) < 1e-6 && num.valid.errVisible === false,
+            'P9a #34 合法值照常写回（**先证明这条链会写**：中间值落到滑条上、且没有报错）',
+            JSON.stringify({ name: slider.name, min: num.min, max: num.max, mid, valid: num.valid }))
+          ok(num.init && num.init.range !== '' && rejected.every((r) => r && r.range === num.valid.range && r.errVisible && r.err.length > 0) &&
+            num.clamp && Number(num.clamp.range) === Number(num.max) && Math.abs(Number(num.clamp.num) - Number(num.max)) < 1e-9,
+            'P9b #34 非法数字（`1e9`/`0x10`/`Infinity`/超长小数）**一律不写回**（滑条值停在合法值上不动）且**行内报错可见**；越界值按属性的 `max` 钳制到位',
+            JSON.stringify({ name: slider.name, max: num.max, init: num.init, exp: num.exp, hex: num.hex, inf: num.inf, dec: num.dec, clamp: num.clamp }))
+          const posts = await page.evaluate(() => (Array.isArray(window.__propsPosts) ? window.__propsPosts.slice() : []))
+          ok(!posts.some((b) => /1e9|Infinity|0x10/.test(String(b))),
+            'P9c #34 非法输入**没有**经产物的保存链落盘（本轮所有 POST /api/props 的 body 里都不含 `1e9`/`Infinity`/`0x10`）',
+            JSON.stringify({ posts: posts.length, sample: posts.slice(-2) }))
+          //  收尾：把这一轮钳制测试写下的覆盖恢复成默认（不给下一个人留脏数据）
+          const reset = await page.evaluate(async () => {
+            const btn = document.getElementById('props-reset')
+            if (!btn) return null
+            btn.click()
+            await new Promise((r) => setTimeout(r, 1200))
+            const row = [...document.querySelectorAll('#props-body .prop')].find((r) => r.classList.contains('overridden'))
+            return { overriddenRows: document.querySelectorAll('#props-body .prop.overridden').length, sample: row ? String(row.getAttribute('title') || '') : null }
+          })
+          ok(!!reset && reset.overriddenRows === 0,
+            'P9d #34（副作用收尾）「恢复默认」在装饰之后仍然有效：本轮钳制测试写下的覆盖被清掉，行上的 `overridden` 标记归零',
+            JSON.stringify(reset))
+        }
+      }
+
+      // ── P10 #14 资源管理器行布局：标题与 ID **分行**、ID 等宽 + 单行省略号 + `title` 完整值 ────
+      const rowGeom = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('#list li[data-id]')]
+        const bad = []
+        const sample = []
+        let overflow = 0
+        for (const li of rows) {
+          const idEl = li.querySelector('.bench-row-id')
+          const kindEl = li.querySelector('.bench-row-kind')
+          if (!idEl) { bad.push({ id: li.dataset.id, why: 'no-id-el' }); continue }
+          const cs = getComputedStyle(idEl)
+          const r = idEl.getBoundingClientRect()
+          const ri = li.getBoundingClientRect()
+          const kr = kindEl ? kindEl.getBoundingClientRect() : null
+          const liCs = getComputedStyle(li)
+          const contentRight = ri.right - Number.parseFloat(liCs.paddingRight || '0') - Number.parseFloat(liCs.borderRightWidth || '0')
+          const rec = {
+            id: li.dataset.id, title: idEl.title, text: idEl.textContent, mono: /mono/i.test(cs.fontFamily),
+            nowrap: cs.whiteSpace === 'nowrap', ellipsis: cs.textOverflow === 'ellipsis', clipped: cs.overflow === 'hidden' || cs.overflowX === 'hidden',
+            ownLine: kr ? (r.top >= kr.bottom - 1) : null, insideRow: r.right <= contentRight + 1 && r.left >= ri.left - 1,
+            w: Math.round(r.width), h: Math.round(r.height),
+          }
+          if (li.scrollWidth > li.clientWidth + 1) overflow++
+          if (!(rec.title === rec.id && rec.text === rec.id && rec.mono && rec.nowrap && rec.ellipsis && rec.clipped && rec.insideRow) || (kr && !rec.ownLine)) bad.push(rec)
+          else if (sample.length < 3) sample.push(rec)
+        }
+        return { rows: rows.length, bad: bad.slice(0, 4), badCount: bad.length, overflow, sample }
+      })
+      ok(rowGeom.rows > 0 && rowGeom.badCount === 0 && rowGeom.overflow === 0,
+        'P10 #14 每一行：ID 与标题/属性数**分行**（ID 顶边 ≥ 前一行文字底边）、等宽字体、单行省略号、`title` = 完整 itemId，且行内**无横向溢出**（属性再多也不把 ID 挤掉）',
+        JSON.stringify(rowGeom))
+
+      // ── P11 #18/#27 排障档 `?rawprops=1`：显示全部原始项，但仍然**只转义**、外链仍要确认 ──────
+      {
+        const ctx2 = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h } })
+        try {
+          const p2 = await ctx2.newPage()
+          const rawErrs = []
+          p2.on('pageerror', (e) => rawErrs.push(String(e.message).slice(0, 120)))
+          await p2.goto(URL_BASE + (URL_BASE.indexOf('?') >= 0 ? '&' : '?') + 'rawprops=1', { waitUntil: 'domcontentloaded', timeout: 90000 })
+          await p2.waitForFunction(() => !!document.getElementById('frame'), null, { timeout: 60000 })
+          await p2.waitForTimeout(2600)
+          const rawPick = tagItem ? tagItem.id : A.id
+          await p2.evaluate((want) => { const li = [...document.querySelectorAll('#list li[data-id]')].find((x) => x.dataset.id === want); if (li) li.click() }, rawPick)
+          await p2.waitForTimeout(3200)
+          const rawState = await p2.evaluate(() => {
+            const P = window.__benchPatch.propsPanel()
+            const body = document.getElementById('props-body')
+            const drawn = (el) => !!(el && el.getBoundingClientRect().width > 0)
+            const rows = [...body.querySelectorAll('.prop')]
+            const scheme = rows.filter((r) => String(r.getAttribute('title') || '').indexOf('schemecolor') === 0)
+            const tagRaw = [...body.querySelectorAll('.prop, .prop-text')].filter((r) => /<img\b|<\/?font\b|<big>|<br\s*\/?>|&nbsp;/i.test(String(r.textContent || ''))).length
+            const dangers = [...body.querySelectorAll('script, iframe, object, embed')].length +
+              [...body.querySelectorAll('*')].filter((el) => [...el.attributes].some((a) => /^on/i.test(a.name))).length
+            return { raw: P.raw, rows: P.rows, hidden: P.hiddenNames.length,
+              scheme: scheme.map((r) => ({ hidden: r.hidden, colorDrawn: drawn(r.querySelector('input[type="color"]')) })),
+              colorDrawn: rows.filter((r) => drawn(r.querySelector('input[type="color"]'))).length,
+              tagRaw, dangers, links: body.querySelectorAll('a.bench-prop-link').length }
+          })
+          ok(rawState.raw === true && rawState.hidden === 0 && (rawState.scheme.length === 0 || rawState.scheme.every((s) => !s.hidden && s.colorDrawn)) &&
+            rawState.colorDrawn > 0 && rawState.tagRaw === 0 && rawState.dangers === 0 && rawErrs.length === 0,
+            'P11 #18/#27 排障档 `?rawprops=1`：隐藏名单与占位抑制**都停用**（原始项连同取色框一起显示），但**转义照旧**（0 处裸标签、0 个 script/on* 属性、0 个本次页面的脚本错）',
+            JSON.stringify({ ...rawState, errs: rawErrs.slice(0, 2) }))
+        } finally { await ctx2.close() }
+      }
+    }
   }
 
   // ══════════════════ G10 ⑪(用户第 11 条) 首屏不闪：**没有任何一帧**在堆叠态被看见 ══════════════════
