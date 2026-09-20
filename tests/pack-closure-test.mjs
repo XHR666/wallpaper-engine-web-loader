@@ -162,6 +162,9 @@ const NOT_SHIPPED_OK = [
   { url: '/diag-flags.json', in: 'server/we-scene-demo-server.mjs', why: '服务端的静态路由表里登记了这个数据源（随站点外壳发布，不在 npm 运行面）' },
   { url: '/demo/mpw-select.js', in: 'server/we-scene-demo-server.mjs', why: '服务端的静态路由表里提到测试台模块（测试台不进包）' },
   { url: '/demo/mpw-select-math.mjs', in: 'server/we-scene-demo-server.mjs', why: '同上一行' },
+  /* `:8902` 服务里那条**产物写死的 iframe 路径**指向的是上游渲染器产物（在 `demo/assets/**` 里），
+     而 `demo/` 整体不进 tarball（见 docs/RELEASE.md §5）⇒ 与上一条同一口径；服务自己会以 404 如实回应。 */
+  { url: '/wallpaper-engine-webgl/renderer/index.html', in: 'server/we-scene-demo-server-8902.mjs', why: '测试台 iframe 写死的渲染器页路径：产物在 demo/（按 docs/RELEASE.md §5 不进包）' },
 ]
 /** 明确**依赖包外**的引用（下游自备，理由要与仓库文档逐字对得上，判据会去核对那句 needle）。 */
 const EXTERNAL_OK = [
@@ -172,7 +175,11 @@ const EXTERNAL_OK = [
   },
 ]
 const htmlEntries = shipped.filter((f) => /\.html$/.test(f))
-const entries = [...jsEntries, ...htmlEntries]
+/* ①(`:8902` 服务是**随包发布但不在 `exports` 里**的独立入口：`node server/we-scene-demo-server-8902.mjs`）
+   ⇒ 它必须也当闭包根：否则它 import 的东西（例如 `server/upload-policy.mjs`）会被 D1 判成"发了没人引用的死文件"
+   （实测踩到）。这条与 `DYNAMIC_OK` 里的"文档登记的独立入口"是同一条事实，两处都要一致。 */
+const standaloneEntries = shipped.filter((f) => f === 'server/we-scene-demo-server-8902.mjs')
+const entries = [...jsEntries, ...htmlEntries, ...standaloneEntries]
 
 function closure(fileSet, entryList) {
   const visited = new Set()

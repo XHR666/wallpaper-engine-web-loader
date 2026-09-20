@@ -160,6 +160,11 @@ add "packaging"          "node tests/packaging-test.mjs" # P-91：可分发形�
 #   本条**真打 tarball、解开、把入口真的 import 一次**（消费者视角），再静态核对 import/URL 引用与死文件；
 #   复现力自证：从包里删掉一条被 import 的模块 ⇒ 真装载必须失败。~15s（一次 npm pack + 两次解包）
 add "pack-closure"       "node tests/pack-closure-test.mjs"
+# ①(用户 2026-09-20 第 34 条 安全策略) `upload-policy`：导入文件的**白名单 + 内容嗅探**门禁 ——
+#   文件名（防穿越）/ 扩展名白名单（脚本·可执行·归档·主动内容一律拒）/ 内容与扩展名**同类**
+#   （PE·ELF·`#!`·`<script>` 改名 `.png` 也拒）/ 音频格式适配（`.flac .opus .m4a .aac .oga` 的 magic 与 MIME）/
+#   文本类上限 + UTF-8 + 无 NUL / 服务端**真的接线**（含一条真 HTTP 415）/ 变异自证。~2s
+add "upload-policy"      "node tests/upload-policy-test.mjs"
 # ①(P-168 2026-09-20) `tex-wrap-repeat`：上游 1.3.18 的 **REPEAT 采样契约**（云/神光类贴图的 uv 随 g_Time
 #   无界增长 ⇒ 必须平铺，CLAMP 会把天空拉成静止伪影）。判据：名单语义（只有可平铺的那几张）/ 回退开关
 #   （`?texwrap=clamp|repeat`）/ 真写进 GL（假 GL 记录 WRAP_S+WRAP_T）/ demo.html 三个创建点都接线 /

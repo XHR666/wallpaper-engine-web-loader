@@ -90,6 +90,8 @@ import { spawn } from 'node:child_process'
 // 基线快照的**校验判据**与 :8899 复用同一个纯模块（`:8902` 也接 `POST /baseline` ⇒ 必须同一把尺子，
 //   否则"测试台收下的快照"与"渲染器侧产出的快照"会各有各的 schema，趋势数据没法比）。
 import { mpwValidateSnapshot, BASELINE_SCHEMA } from '../core/baseline-metrics.mjs'
+// ①(用户第 34 条 安全策略) 导入文件的**统一白名单/内容嗅探**（同一份纯模块给测试台与插件用，避免两处漂移）
+import { checkUpload } from './upload-policy.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
@@ -1736,6 +1738,13 @@ async function handleApi(req, res, url) {
       const filename = assertFileName(rawName, 'X-Filename')
       const buf = await readBody(req, LIMITS.propsFileBytes)
       if (!buf.length) throw bad('空文件（body 为空）')
+      /* ①(用户第 34 条「限制导入的文件类型」) **白名单 + 内容嗅探**：扩展名要在白名单里、**实际内容**
+         要与扩展名同类、且不含可执行/脚本特征（PE/ELF/`#!`/`<script>`…）。客户端传的 content-type 一律不采信。
+         拒收时回 4xx + 人读原因（不静默截断、不"改了后缀就放行"）。策略本体在 `server/upload-policy.mjs`（纯函数、可单测）。 */
+      const verdict = checkUpload({ filename, buf, maxBytes: LIMITS.propsFileBytes })
+      if (!verdict.ok) {
+        throw new HttpError(/过大/.test(verdict.reason) ? 413 : 415, '导入被拒：' + verdict.reason, { policy: 'upload-policy.mjs' })
+      }
       const outDir = path.join(PROPS_DIR, 'files', item, name)
       mkdirSafe(outDir)
       const target = path.join(outDir, filename)

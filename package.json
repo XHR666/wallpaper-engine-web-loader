@@ -45,6 +45,7 @@
     "server/we-scene-demo-server-8902.mjs",
     "server/pack-dir.mjs",
     "server/pkg-entry-index.mjs",
+    "server/upload-policy.mjs",
     "index.html",
     "demo.html",
     "web/diag.html",
