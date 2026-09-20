@@ -355,6 +355,25 @@ tar -xzf wallpaper-engine-web-loader-0.2.1.tgz   # 解开得到 package/（含 d
   每个文件头注明 `Original implementation for this project; API-compatible with the shader includes used here. No third-party code.`
 - `common_vertex.h` **故意不发布**（管线零引用、`BuildTangentSpace` 零调用；重写后与 WE 原件"有效行 100% 重合"故不算洁净室产物）：
   留痕范围正式记为 **6 个**，原件与替换件都保留在仓库外的证据归档里；三条事实与复现命令见 `docs/COMMON-HEADERS-REPLACEMENT.md` **§1.1**。
+---
+
+## 许可与归属（License & credits）
+
+> 本节是**交付物面板里的那一个链接**的落点（`:8902` 测试台「设置 → 归属与许可」只留一行链接指到这里，
+> 不再在页面上堆署名与许可全文）。口径与 `THIRD-PARTY.md`、`docs/COPYING-RULES.md` 三处一致；
+> 如发现不一致，**以事实为准**并同步修正这三处。
+
+| 对象 | 许可 | 说明 |
+| --- | --- | --- |
+| **本仓库**（渲染器 / 自带服务器 / 测试台） | **GPL-3.0-or-later** | 全文见仓库根 `LICENSE`。分发本仓库或其衍生作品时，必须同样以 GPL-3.0-or-later 提供源码 |
+| **上游渲染核心**：WebWallGL（[oneincase/webwallgl](https://github.com/oneincase/webwallgl)） | **MIT** | 本仓库的渲染核心由它**独立重写/移植**而来；MIT 许可要求保留其版权与许可声明 —— 全文见 `demo/LICENSE-webwallgl-MIT.txt` 与 `demo/LICENSE-webwallgl`（**文件随仓库保留**，只是不再在页面上单独列出链接） |
+| **其它第三方组件**（vendored 转译器、字体、参考实现等） | 逐条登记 | 见 [`THIRD-PARTY.md`](THIRD-PARTY.md)：每条都给出版本、来源、许可与"是否随包分发" |
+| **Wallpaper Engine 本体与其资产** | 专有（Valve/Steam） | **不随本仓库分发**；运行时只从**用户自己的** WE 安装读取（见上一节） |
+| **真实壁纸包**（工坊作品 / 用户语料） | 各自作者所有 | **不随本仓库分发**：仓库只带一个**自造的合成样例**（`tools/make-sample.mjs` 生成），用户语料留在仓库外，用 `MPW_SCENE_ROOT` / `?pkgpath=` 指过去 |
+
+**为什么页面上只留一个链接**：署名与许可全文属于**仓库文档**（GPL 要求"随分发提供"的是仓库里的
+`LICENSE` / `THIRD-PARTY.md` / 两个上游 MIT 全文文件），把全文贴进产品界面既不利于阅读、也会随版本漂移；
+界面只负责**把你指到唯一的权威位置**。
 
 ---
 

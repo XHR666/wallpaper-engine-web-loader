@@ -492,14 +492,18 @@ ok(/DIAG_MAX_LINES = 400/.test(patchSrc) && /children\.length > DIAG_MAX_LINES/.
 // ⑩⑪ 库来源行 + 双方共同署名
 ok(/<span id="lib-source"/.test(htmlSrc) && /paintLibSource/.test(patchSrc) && /librarySourcePlan/.test(patchSrc),
   'B16 ⑩「当前库来源」有静态挂点 + 运行期绘制')
-ok(/id="credit-repo-footer"/.test(htmlSrc) && /\['#credit-repo-footer', 'text', 'credit\.repo'\]/.test(patchSrc),
-  'B17 ⑪设置弹层里新增"本仓库作者"那一行，并且进了标签同步清单（随语言切换）')
-ok(/id="credit-link-footer" href="https:\/\/github\.com\/oneincase\/webwallgl"/.test(htmlSrc) &&
-  /href="\.\/LICENSE-webwallgl-MIT\.txt"/.test(htmlSrc) && /href="\.\/LICENSE-webwallgl"/.test(htmlSrc),
-  'B18 ⑪上游链接与两份许可全文入口一个字没动（D5 的钉子继续成立）')
-ok(/credit\.title":"渲染核心：双方共同署名/.test(patchSrc) && /credit\.repo":"本仓库作者/.test(patchSrc) &&
-  /credit\.link":"上游作者/.test(patchSrc),
-  'B19 ⑪中英双语的归属文案都改成"双方共同署名"（本仓库作者 + 上游 oneincase/webwallgl）')
+/* ①(2026-09-20 用户要求) 设置面板里**只留一行超链接**（署名/许可全文属仓库文档，界面负责指到唯一权威位置）：
+   面板节点从四个（title/link/repo/license×2）收敛成一行 `#credit-line-footer > #credit-link-footer`，
+   链接指向仓库 README 的「许可与归属」章节；两份上游 MIT 全文**文件保留**（不再在页面上单独列出）。
+   判据随之改成"一行链接 + 指到 README 章节 + 两个文件仍在仓库里"。 */
+ok(/id="credit-line-footer"/.test(htmlSrc) && /\['#credit-line-footer', 'text', 'credit\.link'\]/.test(patchSrc),
+  'B17 ⑪设置弹层只留**一行**许可与归属链接，并且进了标签同步清单（随语言切换）')
+ok(/id="credit-link-footer"[^>]*href="https:\/\/github\.com\/XHR666\/wallpaper-engine-web-loader#[^"]*"/.test(htmlSrc) &&
+  fs.existsSync(path.join(ROOT, 'demo', 'LICENSE-webwallgl-MIT.txt')) && fs.existsSync(path.join(ROOT, 'demo', 'LICENSE-webwallgl')),
+  'B18 ⑪链接指向本仓 README 的「许可与归属」章节；两份上游 MIT 全文**仍在仓库里**（页面不再单列）')
+ok(/credit\.link":"README · 许可与归属（GPL-3\.0-or-later \+ 上游 MIT）"/.test(patchSrc) &&
+  /credit\.link":"README · License & credits \(GPL-3\.0-or-later \+ upstream MIT\)"/.test(patchSrc),
+  'B19 ⑪中英双语各只有**一行**许可与归属链接文案（都指向 README 章节）')
 
 // 新增文案键中英齐全（缺键会退化成键名）
 {
@@ -508,7 +512,7 @@ ok(/credit\.title":"渲染核心：双方共同署名/.test(patchSrc) && /credit
   ok(missEn.length === 0 && missZh.length === 0, 'B20 新文案键中英齐全（DICT 两份键集合相等）', JSON.stringify({ missEn: missEn.slice(0, 5), missZh: missZh.slice(0, 5) }))
   const used = ['libsrc.default', 'libsrc.user', 'libsrc.empty', 'libsrc.none', 'wp.pinned', 'wp.lib', 'wp.pin', 'wp.unpin',
     'wp.type.all', 'wp.type.scene', 'wp.type.web', 'wp.type.video', 'diag.empty', 'diag.count', 'diag.lost', 'pickd.noRoute',
-    'pickd.noBackend', 'pickd.here', 'pickd.system', 'pickd.frontend', 'credit.repo']
+    'pickd.noBackend', 'pickd.here', 'pickd.system', 'pickd.frontend', 'credit.link']
   const missing = used.filter((k) => !P.DICT.zh[k] || !P.DICT.en[k])
   ok(missing.length === 0, 'B21 本批用到的 21 个键两份词典里都在（无键名原文泄漏）', JSON.stringify(missing))
 }

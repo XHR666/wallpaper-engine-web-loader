@@ -473,13 +473,10 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
           </div>
           <div class="pop-row"><span class="pop-k" data-i18n="nav.backend">后台</span><span id="backend-state" class="pop-val"></span></div>
           <p class="pop-note" data-i18n="nav.backendNote">静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。</p>
-          <!-- ⑪(P-158) 归属改成**双方共同署名**：本仓库作者 + 上游原作者 oneincase/webwallgl(MIT)。
-               两份上游许可全文入口原样保留（`#credit-link-footer` 的 href 与那两条链接一个字没动）。 -->
-          <div class="pop-credit">
-            <span id="credit-title-footer">渲染核心：双方共同署名</span>
-            <a id="credit-link-footer" href="https://github.com/oneincase/webwallgl" target="_blank" rel="noopener noreferrer">上游作者：WebWallGL · oneincase（MIT 许可）</a>
-            <span id="credit-repo-footer">本仓库作者：<a href="https://github.com/XHR666/wallpaper-engine-web-loader" target="_blank" rel="noopener noreferrer">wallpaper-engine-web-loader（XHR666）</a> · GPL-3.0-or-later</span>
-            <span class="bench-credit-license">上游许可全文：<a href="./LICENSE-webwallgl-MIT.txt">demo/LICENSE-webwallgl-MIT.txt</a> · <a href="./LICENSE-webwallgl">demo/LICENSE-webwallgl</a></span>
+          <!-- ①(2026-09-20 用户要求) 面板里只留**一行超链接**：署名与许可全文属仓库文档，
+               界面负责把你指到唯一权威位置（README 的「许可与归属」章节）。
+               上游 MIT 全文文件（demo/LICENSE-webwallgl*）**文件保留**，只是不再在页面上单独列出。 -->
+            <span id="credit-line-footer">许可与归属：<a id="credit-link-footer" href="https://github.com/XHR666/wallpaper-engine-web-loader#%E8%AE%B8%E5%8F%AF%E4%B8%8E%E5%BD%92%E5%B1%9Elicense--credits" target="_blank" rel="noopener noreferrer" data-i18n="credit.link">README · 许可与归属（GPL-3.0-or-later + 上游 MIT）</a></span>
           </div>
         </div>
       </div>

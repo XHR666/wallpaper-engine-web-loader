@@ -119,9 +119,10 @@ const landing = path.join(ROOT, 'index.html')
   check('D4 许可与致谢链接都在（LICENSE / THIRD-PARTY.md / COPYING-RULES.md / README.md）',
     /href="\.\/LICENSE"/.test(h) && /href="\.\/THIRD-PARTY\.md"/.test(h) &&
     /href="\.\/docs\/COPYING-RULES\.md"/.test(h) && /href="\.\/README\.md"/.test(h))
-  check('D4 落地页保留上游外链（oneincase/webwallgl，MIT）与两份许可文件的链接',
-    /href="https:\/\/github\.com\/oneincase\/webwallgl"/.test(h) &&
-    /LICENSE-webwallgl-MIT\.txt/.test(h) && /LICENSE-webwallgl"/.test(h))
+  /* ①(2026-09-20 用户要求) 落地页/测试台的署名与许可只留**一行链接**指向仓库 README 的「许可与归属」章节；
+     两份上游 MIT 全文文件仍在仓库里（下一条 D5 断言文件存在），只是不再逐处列出链接。 */
+  check('D4 落地页的许可归属指向仓库 README「许可与归属」章节（不再堆全文链接）',
+    /README\.md/.test(h) && /许可与归属|License & credits/.test(h))
   check('D4 落地页不含赞赏/收款入口（二维码图与收款卡片都没加回来）',
     !/sponsor|wechat\.png|alipay\.png|收款码|赞赏码/i.test(h) &&
     /赞赏二维码已移除，本项目不接受也不展示任何收款方式/.test(h))
@@ -140,9 +141,9 @@ const landing = path.join(ROOT, 'index.html')
   check('D5 页面上写清"在线版没有本机后端"（说明页 + 设置弹层，中英双语、纯静态不依赖 JS/后端）',
     /id="page-docs"/.test(h) && /没有本机 Node 后端/.test(h) && /no local Node backend/i.test(h) &&
     /api\/\*/.test(h) && /选择文件夹/.test(h))
-  check('D5 上游归属外链（设置弹层）+ 两份 MIT 许可文件链接',
-    /id="credit-link-footer" href="https:\/\/github\.com\/oneincase\/webwallgl"/.test(h) &&
-    /href="\.\/LICENSE-webwallgl-MIT\.txt"/.test(h) && /href="\.\/LICENSE-webwallgl"/.test(h))
+  check('D5 测试台设置弹层只留一行「许可与归属」链接（指向本仓 README 的对应章节）',
+    /id="credit-link-footer"[^>]*href="https:\/\/github\.com\/XHR666\/wallpaper-engine-web-loader#/.test(h) &&
+    !/id="credit-repo-footer"/.test(h) && !/bench-credit-license/.test(h))
   check('D5 上游 MIT 声明两份都在（不许只有一份）',
     fs.existsSync(path.join(ROOT, DEMO, 'LICENSE-webwallgl-MIT.txt')) && fs.existsSync(path.join(ROOT, DEMO, 'LICENSE-webwallgl')))
   check('D5 测试台不引用任何真实壁纸（只认 samples/sample-synthetic）',
@@ -268,9 +269,10 @@ const landing = path.join(ROOT, 'index.html')
   check('D7 测试台两个选择器入口各一份（#pick-lib / #pick-file）', cnt('pick-lib') === 1 && cnt('pick-file') === 1, '#pick-lib=' + cnt('pick-lib') + ' #pick-file=' + cnt('pick-file'))
   // ①(2026-09-17 新样式) 原文档视图那张"渲染核心原作者"卡片整块删除 ⇒ 旧 id 计数必须为 0；
   //   归属只保留设置弹层里的 *-footer 一份（各 1）。
-  check('D7 归属外链只剩设置弹层一份（*-footer 各 1；旧的 #credit-title/#credit-link 已 0）',
-    cnt('credit-title') === 0 && cnt('credit-link') === 0 && cnt('credit-title-footer') === 1 && cnt('credit-link-footer') === 1,
-    JSON.stringify({ t: cnt('credit-title'), l: cnt('credit-link'), tf: cnt('credit-title-footer'), lf: cnt('credit-link-footer') }))
+  check('D7 归属只留设置弹层里的**一行**链接（#credit-line-footer / #credit-link-footer 各 1；旧的 title/repo/许可全文节点已 0）',
+    cnt('credit-title') === 0 && cnt('credit-link') === 0 && cnt('credit-title-footer') === 0 && cnt('credit-repo-footer') === 0 &&
+    cnt('credit-line-footer') === 1 && cnt('credit-link-footer') === 1 && !/bench-credit-license/.test(demoHtml),
+    JSON.stringify({ t: cnt('credit-title'), l: cnt('credit-link'), tf: cnt('credit-title-footer'), rf: cnt('credit-repo-footer'), line: cnt('credit-line-footer'), lf: cnt('credit-link-footer'), lic: /bench-credit-license/.test(demoHtml) }))
 }
 
 

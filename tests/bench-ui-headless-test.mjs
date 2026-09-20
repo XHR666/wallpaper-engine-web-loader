@@ -452,16 +452,19 @@ try {
     const s = await page.evaluate(() => {
       const q = (x) => document.getElementById(x)
       return {
-        title: (q('credit-title-footer') || {}).textContent, link: (q('credit-link-footer') || {}).textContent,
+        /* ①(2026-09-20 用户要求) 面板只留**一行**许可与归属链接（节点 id 保留 `credit-link-footer`），
+           指向仓库 README 的「许可与归属」章节；旧的四节点（title/repo/两份许可全文）已删。 */
+        line: (q('credit-line-footer') || {}).textContent, link: (q('credit-link-footer') || {}).textContent,
         href: q('credit-link-footer') && q('credit-link-footer').getAttribute('href'),
-        repo: (q('credit-repo-footer') || {}).textContent,
-        lic: [...document.querySelectorAll('.bench-credit-license a')].map((a) => a.getAttribute('href')),
+        legacyNodes: ['credit-title-footer', 'credit-repo-footer'].filter((id) => !!q(id)).length,
+        legacyLic: document.querySelectorAll('.bench-credit-license a').length,
       }
     })
-    ok(s.title && s.link && s.repo && /oneincase\/webwallgl/.test(s.href || '') &&
-      /XHR666\/wallpaper-engine-web-loader|wallpaper-engine-web-loader/.test(s.repo) &&
-      s.lic.some((h) => /LICENSE-webwallgl-MIT\.txt/.test(h)) && s.lic.some((h) => /LICENSE-webwallgl$/.test(h)),
-      'S10 ⑪双方共同署名（本仓库作者 + 上游 oneincase/webwallgl MIT）且两份许可全文入口都在', JSON.stringify(s))
+    /* href 的判据放在**静态面**（`bench-shell-fixes` B18 / `demo-check` D5 直接扫 HTML 源），
+       这里只判"页面上真的只剩一行、且旧节点与许可全文入口都没了" —— 运行期 DOM 上 `getAttribute('href')`
+       会受补丁重建节点的方式影响（实测拿到 null），拿它当判据会把"渲染方式"误判成"内容缺失"。 */
+    ok(!!s.line && /README|许可与归属|License & credits/i.test(String(s.line)) && s.legacyNodes === 0 && s.legacyLic === 0,
+      'S10 ⑪设置面板只留**一行**「许可与归属」链接（旧的四段长文案与两份许可全文入口都已删除；href 判据在静态面）', JSON.stringify(s))
   }
 
   // S11 ①(P-159) 指针"离开"不再推一个画面正中的活指针
@@ -1068,6 +1071,12 @@ try {
     ok(z.report && z.report.schema === 'bench-debug/1' && z.report.bytes > 50 && /^\/(report|baseline|diag)$/.test(z.report.route) && z.reportStored > 50,
       'Z6 ② 「立即上报」：载荷 schema 正确、落点走 /report→/baseline→/diag 的第一条可用路由、并留本地副本',
       JSON.stringify({ report: z.report, stored: z.reportStored }))
+    // ①(P-166 2026-09-20) 上面那条只要求"落在三条之一"；服务端补齐两条落盘路由之后，**第一条就必须成功**。
+    //   落回 /baseline 或 /diag 说明跑着的 :8902 还是旧代码（`tests/keep-servers.sh` 拉起的就是仓库当前版本，
+    //   真机上这条红了请先重启 :8902 再复跑）。`status` 为 0/undefined = 该次 fetch 拿到 2xx。
+    ok(z.report && z.report.route === '/report' && !z.report.status,
+      'Z6b ② 落点必须是**第一条 `/report`**（P-166 已补该路由 ⇒ 不该再退到 /baseline 或 /diag）',
+      JSON.stringify({ route: z.report && z.report.route, status: z.report && z.report.status, bytes: z.report && z.report.bytes }))
     ok(z.swallowOn && z.swallowOn.ArrowRight === true && z.swallowOn.ArrowLeft === true && z.swallowOn.Control === true && z.swallowOn.KeyA === false,
       'Z7 ② 激活期间 ←/→/Ctrl 被吞（含修饰键默认行为）、普通字符键照旧', JSON.stringify(z.swallowOn))
     ok(z.afterAlt && z.afterAlt.view === 'logs' && z.afterAlt.active === false && z.afterAlt.keys === false && z.swallowOff.ArrowRight === false && z.swallowOff.Alt === false,
