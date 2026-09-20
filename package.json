@@ -1,6 +1,6 @@
 {
   "name": "wallpaper-engine-web-loader",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "WEwebLoader（浏览器端 Wallpaper Engine 壁纸渲染器）：不装 WE、不装 Windows 依赖，一个静态服务器 + WebGL2 就能实时渲染 scene.pkg / .mpkg 场景壁纸（含离线 PWA、逐层调试与对账门禁）。本仓库不分发任何真实壁纸。",
   "license": "GPL-3.0-or-later",
   "type": "module",

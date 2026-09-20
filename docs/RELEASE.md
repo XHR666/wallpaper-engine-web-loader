@@ -177,3 +177,30 @@ npm **不能撤回**已发布版本（72 小时内可 `unpublish`，但那会破
 | 干净目录 `npm i` + `import` | `LIB OK VERSION=0.2.1 mount=function parseScene=function` · `BUNDLE OK 204 导出` · `HLSL OK 2 导出` |
 | `@0.2.0 deprecated` | 能读到原因文案（指向 0.2.1 与本文档） |
 | git tag | `v0.2.1` 已推送 |
+
+## 发布记录：0.3.0（2026-09-21 · 音频美术层不再被自家规则吞掉 + 跨平台静态门禁 + 导入白名单 + 测试台两批）
+
+**为什么是 minor**：有**用户可见的行为变化**（音频响应型美术层从"被隐藏"变成"按作者意图显示"）、
+一个新模块与新语义（导入文件的统一白名单/内容嗅探 ⇒ 415/413），以及测试台一批能力（渲染器页反代、属性面板/外壳修复）。
+按 semver「加功能 = minor」取 **0.3.0**（0.x 阶段沿用本仓 0.2.0 的口径）。
+
+| 面 | 内容 | 判据读数 |
+| --- | --- | --- |
+| **音频美术层**（P-170，`193ad99`） | 「我的音频条没有做出来」的真因是**我们自己的两条隐藏启发式**：`hideUI` 的名字正则含 `Audio\|音频\|Spectrum\|播放\|音量\|sound`；`hideBars` 关掉「父组纯色遮罩条」，而可视化条**自己就是** `models/util/solidlayer.json` 的实体遮罩层。新增 `audioArtIds(scene)`（名字命中音频美术词 **且** 有特效/粒子/作者绑定 ⇒ 豁免），两条启发式都查它；`?audioart=hide` 做对照。语料实测：`3544152633` 可见层 23→24、`3326873240` 29→30、`3719111841` 的 `音频线Audio Spectrum Visualizer` 可见；`Song Title`/`Play Icon`/`.mp3`/`MUSIC PLAYER` 仍隐藏 | `tests/scene-layer-baseline-test.mjs` **20 通过 / 0 失败 / 1 SKIP**（含读数确定性、语料缺失明确 SKIP、两条分辨力自证）；`tests/render-audit.mjs` 新增机读契约 `MPW-AUDIT-JSON` |
+| **逐层基线夹具**（P-170） | `tests/fixtures/scene-layer-baseline.json` 钉住四条记录（自带样例 + 三个语料包）的逐层事实：可见层/带纹理可见层/蒙皮隐藏与命中/每帧 draw 数/音频美术层可见性/外壳层可见数（必须 0） | 同上（20 断言）；进全量门禁（121 → **122** 项） |
+| **跨平台静态门禁**（P-169，`d3f7e31`） | 新增 `tests/cross-platform-gate-test.mjs`（18 断言）：代码里的本机绝对路径必须可覆盖、写死的 `'/tmp/…'` 判红（白名单逐条带理由 + 反查防腐烂）、打开器必须四平台齐（`xdg-open`/`open`/`explorer` + 环境覆盖口）、`.sh` 不许用 bash 4+ 特性、文件名可移植性、BOM/CRLF、11 条分辨力自证 | 18 通过 / 0 失败；进全量门禁（118 → 121 项） |
+| **顺着它修的真问题** | `server/we-scene-demo-server.mjs` **11 处**写死 `/tmp` ⇒ `TMP_ROOT = process.env.MPW_TMP_ROOT \|\| os.tmpdir()`；`tests/` **8 个文件 13 处** `mkdtempSync('/tmp/…')`/默认输出路径 ⇒ `os.tmpdir()`；`:8902` 打开器候选链补 **Windows**（`explorer`，否则 Windows 上「打开文件夹」必回 501） | 门禁本身即判据；`:8902` 相关断言在 `bench-server-test` 内 |
+| **导入白名单 + 内容嗅探**（`9a9165f`） | 新模块 `server/upload-policy.mjs`：`checkUpload({filename,buf,maxBytes})`（后缀 + magic 双判）、`sniffKind`/`sniffDanger`/`checkName`/`mimeForKind`、ISO-BMFF 品牌拆分（`m4a`=audio vs `isom`=video）；接进 `POST /api/props-file` ⇒ **415**（类型）/**413**（超限），并进 `package.json.files` | `tests/upload-policy-test.mjs` **46/0**；`bench-server-test` 的 E3b/E3c |
+| **测试台（`:8902`）两批**（`c32018f` / `2021329` / `234e62e`） | ①`/webloader/**` 反向代理到渲染器页 ⇒ 8K 贴图壁纸不再只能看黑屏（`?id=3669681034`）；②外壳第三批 10 条（目录浏览器卡 `Reading…` 的根因是产物同元素 `onclick` 的模态 `prompt()` 阻塞主线程）；③属性面板 10 条（收起态切壁纸一行不刷、内部项隐藏名单、富文本只留颜色/换行/图/链接、数字统一解析、外链二次确认倒计时、列表 ID 分行） | `bench-server-test` 137 项、`bench-shell-fixes-test` **263/0**、`bench-ui-headless-test` **147/0**（无 X11 浏览器判定）、`demo-check` 132/0、`demo-syntax` 11/11 |
+
+**发布前置读数**：`bash tests/run-all-tests.sh` ⇒ 全量 **122 项**（本轮收口跑，读数见下）；
+`node tests/pack-closure-test.mjs` ⇒ 真打 tarball → 解开 → 包内 `import` 三个入口 + 两个服务入口；
+`tools/` 下的冒烟与 `bench-ui-headless` 读数同上表。
+
+**诚实清单**
+1. 浏览器拿不到**系统声卡环回**：音频条的**电平**仍只有两个真实源（包内音轨 `?audio=1`、显式/已授权的麦克风），
+   都没有 ⇒ 全 0 + `silent`（`window.__mpwAudioBandSource` / `__mpwAudioBandStats().silent` 可查，不假装有声音）；
+   模拟源只在显式 `?bandfeed=sim`。本轮修的是"**显示**"这一半（层级可见性）。
+2. 逐层基线夹具里的语料包在**本机没有语料**时明确 SKIP（不假装通过）；夹具是"当前形态"的快照，
+   任何有意的渲染变化都要 `--update` 并复核（改数前先确认变化是有意的）。
+3. `?audioart=hide` 只影响本插件/本仓的渲染配置，不改作者包里的 `visible` 数据。
