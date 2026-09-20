@@ -3,6 +3,7 @@
 // 用法: node render-audit.mjs [id] [--skinoff] [--bgfx]
 import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
+import path from 'node:path'
 import * as lib from '../core/we-scene-bundle.js'
 import { installPuppet } from '../elysia/we-renderer/puppet.js'
 import { Buffer as MpwBuffer } from '../elysia/buffer.js'
@@ -57,6 +58,11 @@ const shaderResolver = async (rel) => (rel.endsWith('.vert') ? VERT : FRAG)
 // ①(RE-25) 支持直接审计任意 PKG/PKGM 容器：node render-audit.mjs --pkg <path>
 const argPkg = process.argv.indexOf('--pkg')
 const pkgPath = argPkg > 0 ? process.argv[argPkg + 1] : `${DIR}/${id}/scene.pkg`
+/* ①(2026-09-21 逐层基线夹具) `tests/scene-layer-baseline-test.mjs` 要的是**数字**，不是人读的行。
+   人读输出保持原样（向后兼容），末尾额外打一行 `MPW-AUDIT-JSON {...}` 作为机读契约：
+   层数/可见层/首帧逐层状态/跳过原因/每帧背景直绘/蒙皮命中/音频层。 */
+const argJson = process.argv.indexOf('--json')
+const jsonPath = argJson > 0 ? process.argv[argJson + 1] : null
 const pkg = parsePkg(new Uint8Array(fs.readFileSync(pkgPath)))
 const entry = (n) => { const e = getEntry(pkg, n); return e ? new Uint8Array(e) : null }
 const REF = `${MPW_WS}/we-scene-demo/refrender-${id}.json`
@@ -155,9 +161,11 @@ for (const d of draws) for (const t of (d.tex || [])) if (t) usedTex.add(t)
 const wantTex = ['背景', '长发3', '长带子', '主体', '右侧发']
 console.log('  纹理是否被 draw 使用: ' + wantTex.map((n) => n + '=' + (usedTex.has(n) ? '是' : '否')).join(' '))
 // 背景层的 draw 顶点数据（帧间对比：缓存键命中有没有导致几何没上传）
+const frameReports = []
 for (let fi = 1; fi <= 3; fi++) {
   await renderer.render(scene, textures, 3840, 2160, fi)
   const bgDraws = draws.filter((d) => (d.tex || []).includes('背景') && !d.fbo)
+  frameReports.push({ frame: fi, bgDraws: bgDraws.length, totalDraws: draws.length, verts: bgDraws[0] ? bgDraws[0].verts : null })
   console.log('  帧' + fi + ' 背景直绘 draw 次数=' + bgDraws.length +
     (bgDraws[0] ? ' 顶点=' + JSON.stringify(bgDraws[0].verts) + ' tex=' + JSON.stringify(bgDraws[0].tex.filter(Boolean)) : ''))
   draws.length = 0
@@ -172,3 +180,30 @@ console.log(skinLayers.length === 0
   ? '  【断言】该包无蒙皮层（跳过）—'
   : `  【断言】mesh 回调命中 ${meshDrawn}/${skinLayers.length} 层 → ${meshDrawn === skinLayers.length ? '通过 ✓' : '失败 ✗（层会消失）'}`)
 if (skipLogs.length) { console.log('  渲染器日志:'); skipLogs.slice(0, 20).forEach((m) => console.log('    ' + m)) }
+
+/* ── 机读报告（见文件上方 `--json` 注释）：人读输出已全部打完，这里只追加一行契约 ── */
+{
+  const parseFirstFrame = (m) => {
+    const g = /^\[首帧\] #(\d+) (.+?) vis=(\d+) tex=(\S+) skin=(\d+) fx=(\d+) part=(\d+)$/.exec(m)
+    return g ? { index: Number(g[1]), name: g[2], vis: Number(g[3]), tex: g[4], skin: Number(g[5]), fx: Number(g[6]), part: Number(g[7]) } : null
+  }
+  const firstFrame = skipLogs.map(parseFirstFrame).filter(Boolean)
+  const skipped = skipLogs.filter((m) => /^\[首帧\] \. #\d+ 跳过/.test(m)).map((m) => m.replace(/^\[首帧\] \. /, ''))
+  const audioLayers = firstFrame.filter((f) => /audio|音条|音频/i.test(f.name))
+  const report = {
+    id,
+    pkg: path.relative(MPW_WS, pkgPath).split(path.sep).join('/'),   // 相对路径：报告里不留宿主绝对路径
+    layers: { total: scene.layers.length, visible: scene.layers.filter((l) => l.visible).length },
+    textures: textures.size,
+    drawCalls: drawCount,
+    renderError: err ? String(err.message) : null,
+    skin: { layers: skinLayers.map((l) => l.name), hidden: hiddenSkin, drawn: meshDrawn, total: skinLayers.length },
+    firstFrame,
+    skipped,
+    frames: frameReports,
+    audioLayers,
+  }
+  const line = 'MPW-AUDIT-JSON ' + JSON.stringify(report)
+  console.log(line)
+  if (jsonPath) { try { fs.writeFileSync(jsonPath, JSON.stringify(report, null, 1) + '\n') } catch (e) { console.log('  ⚠ 写 --json 失败: ' + e.message) } }
+}

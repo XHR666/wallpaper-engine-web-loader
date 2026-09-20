@@ -4284,6 +4284,10 @@ function loadScene() {
       dbgRed: new URLSearchParams(location.search).has('dbgred'),
       clearBgFx: !new URLSearchParams(location.search).has('bgfx'),
       hideBars: !new URLSearchParams(location.search).has('bars'),
+      // ①(2026-09-21 音频条) 音频响应型美术层（`Audio bar(s)` / `…Spectrum Visualizer`）默认**豁免**
+      //   hideUI 与 hideBars 两条隐藏启发式（它们是作者做的可视化条，不是播放器外壳）；
+      //   `?audioart=hide` 可关掉豁免回到旧行为，用于对照"这一层到底是谁在显示/隐藏"。
+      hideAudioArt: new URLSearchParams(location.search).get('audioart') === 'hide',
       log: logf,
     })
     // ── TIME-VARIATION（2026-09-14 第5项）: 时段层按现实时钟自动选择；?time/?hour 可覆盖 ──

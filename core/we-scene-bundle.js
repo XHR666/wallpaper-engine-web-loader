@@ -1736,6 +1736,34 @@ export function timeVariantIds(scene) {
   for (const g of timeVariantGroups(scene)) for (const m of g.members) ids.add(m.layer.id)
   return ids
 }
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+   ①(2026-09-21 音频条被自家 UI 正则吞掉) **音频响应型美术层**豁免 UI 隐藏
+   ──────────────────────────────────────────────────────────────────────────────────────────
+   现场：用户点名"我的音频条没有做出来"。离线逐层审计（`tests/render-audit.mjs 3544152633`）
+   显示 `#3 Audio bar vis=0` —— 不是没有音频源，而是它被**我们自己的** hideUI 正则
+   （`Audio|音频|Spectrum|播放|音量|sound`…）无条件隐藏了；同一类层在语料里还有
+   `Audio Bars`（3326873240 / 3327063360 / 3470764447，均 fx=2）与
+   `音频线Audio Spectrum Visualizer`（3719111841，绑 `audiobar`，fx=1）。
+   语料取证（11 包 / 17 个音频类名字层）把两类分得很干净：
+     · **美术层**：名字含 Audio bar(s)/Spectrum/频谱/Visualizer，**且有特效 / 粒子 / 作者属性绑定**（= 作者做的可视化条）；
+     · **播放器外壳与音源对象**：`Song Title`/`Artist Name`/`Play Icon`/`.mp3`/`----MUSIC PLAYER----`（无可视内容）。
+   因此判据 = 名字命中音频美术词 **且** 有特效|粒子|作者绑定 ⇒ 豁免（与 `timeVariantIds` 同款豁免机制；
+   `opts.hideAudioArt === true` 可关掉豁免，供回归/对照使用）。 */
+const AUDIO_ART_RE = /Audio\s?Bars?|音频|Spectrum|频谱|Visualizer|visualizer/i
+/** 音频响应型美术层的 id 集合（hideUI 必须放过它们）。 */
+export function audioArtIds(scene) {
+  const ids = new Set()
+  for (const l of (scene && scene.layers) || []) {
+    const n = String(l.name || '')
+    if (!AUDIO_ART_RE.test(n)) continue
+    const hasFx = !!(l.effects && l.effects.length)
+    const hasPart = !!(l.particles && l.particles.length)
+    const b = l.__bindRaw || null
+    const bound = !!(b && (b.visible || b.alpha || b.color || b.audiobars || b.audioopacity || b.audiobarcolor))
+    if (hasFx || hasPart || bound) ids.add(l.id)
+  }
+  return ids
+}
 // opts: { properties, time: 层名/condition/"morning|day|dusk|night", hour: 固定小时(自检用), log }
 export function applyTimeVariation(scene, opts = {}) {
   const groups = timeVariantGroups(scene)
@@ -2588,6 +2616,11 @@ export function applyRenderConfig(scene, opts = {}) {
   //   `?showui`（hideUI=false）仍是"整组全显示"，语义不变。
   //   注意：`Clock Container` / `Text Container` 等**容器**名仍留在 uiRe 里无条件隐藏 ——
   //   容器本身无纹理，且渲染器不做绘制期的父链可见性级联（hideUI 只改本层），子层开关结果不受影响。
+  /* ①(2026-09-21) 音频响应型美术层（`Audio bar` / `Audio Bars` / `音频线…Spectrum Visualizer`）
+     豁免**两条**隐藏启发式：hideUI 的名字正则、hideBars 的"父组纯色遮罩条"（可视化条本身就是
+     `models/util/solidlayer.json` 的实体遮罩层 —— 实测 3326873240 的 `Audio Bars` 正是被后者吞掉的）。
+     取证与判据见 `audioArtIds()` 上方。`opts.hideAudioArt === true` 可整体关掉豁免（对照/回归用）。 */
+  const __audioIds = opts.hideAudioArt === true ? new Set() : audioArtIds(scene)
   if (hideUI) {
     const __tvIds = timeVariantIds(scene)   // TIME-VARIATION: 时段变体层豁免 UI 正则
     // ①(2026-09-12 用户要求) 提示框（prompt box）一律隐藏：WE 场景里常见 "提示框"/"Hint"/"Prompt" 层
@@ -2621,6 +2654,7 @@ export function applyRenderConfig(scene, opts = {}) {
     const panelDriven = { clock: 0, date: 0, weekday: 0, fps: 0 }
     for (const l of scene.layers) {
       if (__tvIds.has(l.id)) continue
+      if (__audioIds.has(l.id)) continue
       const n = String(l.name || '')
       if (uiRe.test(n)) { l.visible = false; continue }
       for (const k of ['clock', 'date', 'weekday', 'fps']) {
@@ -2649,9 +2683,16 @@ export function applyRenderConfig(scene, opts = {}) {
       opts.log('P-61 包自带开关优先：' + ['clock', 'date', 'weekday', 'fps'].map((k) => k + '=' + panelDriven[k]).join(' ')
         + ' 层由包的用户属性驱动（N5 的 show* 开关对它们不生效）')
     }
+    /* ①(2026-09-21) 豁免了哪些音频美术层要能被看见（否则"音频条不显示"又变成只能靠猜） */
+    if (opts.log && __audioIds.size) {
+      const names = scene.layers.filter((l) => __audioIds.has(l.id)).map((l) => l.name).slice(0, 6)
+      opts.log('① 音频响应型美术层豁免 hideUI：' + __audioIds.size + ' 层（' + names.join(' / ') + '）')
+    }
+    if (opts.log && opts.hideAudioArt === true) opts.log('① 音频美术层豁免被显式关闭（opts.hideAudioArt=true）')
   }
-  // 6) 父组纯色遮罩条默认隐藏
+  // 6) 父组纯色遮罩条默认隐藏（①2026-09-21：音频美术层豁免 —— 可视化条自己就是这种遮罩层）
   if (hideBars) for (const l of scene.layers) {
+    if (__audioIds.has(l.id)) continue
     if (l.parent !== undefined && l.solid && l.image && l.image.indexOf('models/util/solidlayer') === 0) l.visible = false
   }
   return scene
