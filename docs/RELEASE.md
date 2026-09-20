@@ -193,7 +193,10 @@ npm **不能撤回**已发布版本（72 小时内可 `unpublish`，但那会破
 | **导入白名单 + 内容嗅探**（`9a9165f`） | 新模块 `server/upload-policy.mjs`：`checkUpload({filename,buf,maxBytes})`（后缀 + magic 双判）、`sniffKind`/`sniffDanger`/`checkName`/`mimeForKind`、ISO-BMFF 品牌拆分（`m4a`=audio vs `isom`=video）；接进 `POST /api/props-file` ⇒ **415**（类型）/**413**（超限），并进 `package.json.files` | `tests/upload-policy-test.mjs` **46/0**；`bench-server-test` 的 E3b/E3c |
 | **测试台（`:8902`）两批**（`c32018f` / `2021329` / `234e62e`） | ①`/webloader/**` 反向代理到渲染器页 ⇒ 8K 贴图壁纸不再只能看黑屏（`?id=3669681034`）；②外壳第三批 10 条（目录浏览器卡 `Reading…` 的根因是产物同元素 `onclick` 的模态 `prompt()` 阻塞主线程）；③属性面板 10 条（收起态切壁纸一行不刷、内部项隐藏名单、富文本只留颜色/换行/图/链接、数字统一解析、外链二次确认倒计时、列表 ID 分行） | `bench-server-test` 137 项、`bench-shell-fixes-test` **263/0**、`bench-ui-headless-test` **147/0**（无 X11 浏览器判定）、`demo-check` 132/0、`demo-syntax` 11/11 |
 
-**发布前置读数**：`bash tests/run-all-tests.sh` ⇒ 全量 **122 项**（本轮收口跑，读数见下）；
+**发布前置读数**：`bash tests/run-all-tests.sh` ⇒ **PASS=121 / FAIL=0 / SKIP=1（总 122 项，退出码 0）** ——
+SKIP 的那一项是 `scene-layer-baseline` 里**本机没有语料**时的显式跳过分支（该测试自带，不是被跳过的门禁）；
+本轮另外单独跑过：`cross-platform` 18/0、`text-switches` 36/0、`docs-check` 通过（745 个引用）、`packaging` 141/0、
+`package-matrix --check` 无退化、`scene-layer-baseline` 20/0 + 1 SKIP、`secret-scan` 干净、`scene-intro-black` 29/29；
 `node tests/pack-closure-test.mjs` ⇒ 真打 tarball → 解开 → 包内 `import` 三个入口 + 两个服务入口；
 `tools/` 下的冒烟与 `bench-ui-headless` 读数同上表。
 
