@@ -160,6 +160,11 @@ add "packaging"          "node tests/packaging-test.mjs" # P-91：可分发形�
 #   本条**真打 tarball、解开、把入口真的 import 一次**（消费者视角），再静态核对 import/URL 引用与死文件；
 #   复现力自证：从包里删掉一条被 import 的模块 ⇒ 真装载必须失败。~15s（一次 npm pack + 两次解包）
 add "pack-closure"       "node tests/pack-closure-test.mjs"
+# ①(P-168 2026-09-20) `tex-wrap-repeat`：上游 1.3.18 的 **REPEAT 采样契约**（云/神光类贴图的 uv 随 g_Time
+#   无界增长 ⇒ 必须平铺，CLAMP 会把天空拉成静止伪影）。判据：名单语义（只有可平铺的那几张）/ 回退开关
+#   （`?texwrap=clamp|repeat`）/ 真写进 GL（假 GL 记录 WRAP_S+WRAP_T）/ demo.html 三个创建点都接线 /
+#   缺省仍是 CLAMP（无全局行为变化）/ 变异自证（删掉 REPEAT 分支必须红）。~0.4s
+add "tex-wrap-repeat"    "node tests/tex-wrap-repeat-test.mjs"
 add "hlsl2glsl-coverage" "node tests/hlsl2glsl-coverage-test.mjs" "" "^SKIP hlsl2glsl-coverage"  # P-93：把 `docs/HLSL2GLSL-COVERAGE.md` §0 的 98.2% 变成**会变红的断言**（vendored 上游 MIT 转译器逐文件过语料：0 抛错 + 覆盖率下限 + 每个"可疑"都带原因；本机实测 45/46=97.8%，语料被裁剪时按子集下限并在输出里标明；`MPW_H2G_MIN_RATIO=0.999` 可自证会红）；~3s；无语料/无包解析器时 SKIP，门禁不红
 
 # ——— ①(P-104 2026-09-17 发布纪律①②：**自动上报默认关** + 一切"自动落盘"都要有上限） ———

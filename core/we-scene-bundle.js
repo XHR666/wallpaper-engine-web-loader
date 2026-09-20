@@ -12261,6 +12261,60 @@ function parseVec3Local(s) {
   return [p[0] || 0, p[1] || 0, p[2] || 0]
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════
+   ①(P-168 2026-09-20 · 上游 1.3.18 `4b7b07e` 的 REPEAT 契约) 哪些贴图必须**平铺采样**
+   ──────────────────────────────────────────────────────────────────────────────────────────────────
+   上游原文（`<UP>/renderer/vendor/we-scene/render/gl-util.js:41-45`）：
+     `const wrap = opts && opts.wrap === 'repeat' ? gl.REPEAT : gl.CLAMP_TO_EDGE`
+   为什么需要：云/神光这类效果的 uv 随 `g_Time` **无界增长**（`uv = uv0 + t*speed`），
+   CLAMP 下超过 1 的范围会被"拉边" ⇒ 云密度恒等、天空变成一层**静止伪影**（1.3.18 修的就是这个）。
+   ⚠ 我们**不是**给所有贴图改 REPEAT：只有**可平铺**的那几张才该 REPEAT（改错会让本不该接缝的
+   贴图在边缘出现一圈复制 —— 例如角色/UI 图集）。所以用**名单**而不是全局开关，名单就在下面这一处。
+   ⚠ 我们**不内置任何 WE 素材**（本仓库红线）：这些名字只决定"从用户本机 WE 资产 / `/weassist` 取来的
+   那张图用什么 wrap 采样"，取不到就还是跳过该效果（既有行为不变）。
+   回退开关（A/B 与排障）：`?texwrap=clamp` 全部按旧行为（CLAMP）；`?texwrap=repeat` 全部 REPEAT。 */
+export const REPEAT_TEX_NAMES = [
+  // 云密度图：clouds 效果链的 uv 随 g_Time 无界增长（上游 1.3.18 的原始场景）
+  'util/clouds_256',
+];
+/** 名字归一化：`materials/` 前缀与扩展名都不参与判定（宿主两处调用口径不同，见 demo.html 的 loadTex）。 */
+function texNameKey(name) {
+  try {
+    return String(name == null ? '' : name)
+      .replace(/^materials\//, '').replace(/\.tex$/i, '').replace(/\\/g, '/').trim();
+  } catch (e) { return '' }
+}
+/** 该贴图该用哪种 wrap：`'repeat'` | `'clamp'`。
+ *  `search` 可显式传入（测试用；浏览器里缺省取 `location.search`）——避免判据依赖全局 location。 */
+export function texWrapMode(name, search) {
+  const q = (() => {
+    try {
+      const s = (search !== undefined && search !== null) ? String(search)
+        : (typeof location !== 'undefined' && location && location.search ? String(location.search) : '');
+      return new URLSearchParams(s);
+    } catch (e) { return null }
+  })();
+  try {
+    const force = q ? q.get('texwrap') : null;
+    if (force === 'clamp') return 'clamp';
+    if (force === 'repeat') return 'repeat';
+  } catch (e) {}
+  return REPEAT_TEX_NAMES.indexOf(texNameKey(name)) >= 0 ? 'repeat' : 'clamp';
+}
+/** 把 wrap 落到**已经创建好**的 GL 纹理上（`makeTexture*` 的缺省是 CLAMP，本函数只在需要时改）。
+ *  返回实际用的模式，便于调用方/测试断言。`gl` 缺任一常量时静默跳过（假 GL 夹具不会因此炸）。 */
+export function applyTexWrap(gl, tex, name, search) {
+  const mode = texWrapMode(name, search);
+  try {
+    if (!gl || !tex) return mode;
+    const want = mode === 'repeat' ? gl.REPEAT : gl.CLAMP_TO_EDGE;
+    if (want === undefined || want === null) return mode;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, want);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, want);
+  } catch (e) { /* 假 GL / 上下文丢失：保持既有 wrap，不抛 */ }
+  return mode;
+}
 export function makeTexture(gl, rgba, width, height, bitmap = null, fmt = null) {
   // ①(P-65) fmt（可选第 6 参 / rgba.__mpwFmt）= 该纹理所出 .tex 的 format id。
   //   只有 makeTextureMip 那条主链路能自动带上它；本函数由宿主（demo.html）直接调用，

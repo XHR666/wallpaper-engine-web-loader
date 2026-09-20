@@ -12677,3 +12677,47 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
      （`docs/RELEASE.md` §5），门禁把它们记在 `NOT_SHIPPED_OK` 里且要求"引用那句话真的在文件里"。
   4. 服务入口需要一个**包外**依赖（MIT 插件 `dsh-mpkg-wallpaper/lib/pkg-extract.js`）：README 写明"放同一父目录"
      或 `MPW_PKG_EXTRACT=`；B2 用它按真工作区布局跑，纯 npm 消费者需要按 README 自备（门禁里记为 `EXTERNAL_OK`）。
+
+## P-168（2026-09-20 · 上游 1.3.18 的 **REPEAT 采样契约**移植 + 「手抄依赖清单」这一类的第四次收口）
+
+> 编号说明：落笔时文件里的最大号是 **P-167** ⇒ 本条取 **P-168**（唯一且非递减）。
+> 来源：`docs/UPSTREAM-1.3.17-1.3.23.md` §1 的 `4b7b07e`（1.3.18「下雨场景云层静止」），
+> 其"②**可直接移植**"的那一条：`<UP>/renderer/vendor/we-scene/render/gl-util.js:41-45`
+> `const wrap = opts && opts.wrap === 'repeat' ? gl.REPEAT : gl.CLAMP_TO_EDGE`。
+
+### P-168.1 为什么需要它（行为契约，一句）
+
+云/神光这类效果链的 uv 随 `g_Time` **无界增长**（`uv = uv0 + t*speed`）。缺省 `CLAMP_TO_EDGE` 下，
+超出 `[0,1]` 的部分被"拉边" ⇒ **云密度恒等、天空退化成一层静止伪影**（上游 1.3.18 修的就是这个）。
+反面同样重要：**不能**给所有贴图改 REPEAT —— 角色/UI 图集在边缘会出现一圈复制。
+
+### P-168.2 落点与开关（都只有一处事实源）
+
+* `core/we-scene-bundle.js` 新增：`REPEAT_TEX_NAMES`（**名单**，当前仅 `util/clouds_256`）、
+  `texWrapMode(name, search)`（名字归一化：`materials/` 前缀与 `.tex` 后缀不参与判定）、
+  `applyTexWrap(gl, tex, name, search)`（把 wrap 真正写进 GL；假 GL/上下文丢失时**不抛**，仍返回模式）。
+* `demo.html` 的 `loadTex`：新增 `wrapTex(entry, name)` helper，**三个**纹理创建点（普通 / 视频占位 / 位图路径）
+  全部过一遍；helper 在 `lib.applyTexWrap` 缺席（旧桩、受限切片夹具）时原样返回 ⇒ 零行为变化。
+* 回退/对照开关：`?texwrap=clamp`（全部按旧行为）与 `?texwrap=repeat`（全部 REPEAT，排障用）。
+* **缺省仍是 CLAMP**：`makeTexture`/`makeTextureMip` 等 12 处 `TEXTURE_WRAP_*` 一行未动，
+  REPEAT 只可能经 `applyTexWrap` 按名字生效（判据 E1/E2 钉住）。
+
+### P-168.3 判据（`tests/tex-wrap-repeat-test.mjs`，18 断言）
+
+* A 名单语义（clouds ⇒ repeat / 粒子与图集 ⇒ clamp / 前缀后缀不参与）；
+* B 回退开关（`clamp`/`repeat`/无关参数）；
+* C 落点（假 GL 记录 `texParameteri`：**两轴**都写；异常不抛）；
+* D 接线（`demo.html` 的 `wrapTex(` ≥4 处、helper 有能力守卫、三个创建点齐）；
+* E 默认不变（12 处 CLAMP 缺省未动；源码里没有把 REPEAT 写死进创建路径）；
+* F **变异自证**：把 `texWrapMode` 的 REPEAT 分支删掉（副本在 mkdtemp）⇒ A 组必红，真树 sha 不变。
+* 已进全量门禁：渲染器 **117 → 118 项**。
+
+### P-168.4 顺带：**第四次**踩到"变异/夹具副本缺相对依赖"
+
+本条写变异夹具时又踩了一次同一类坑（前三次：`bench-server-test`、`host-body-limit-test`、
+`better-sidebar-compat-test`；渲染器侧 `bind-order-test`/`mdl-bone-layout-test` 已改成整目录复制）：
+`core/we-scene-bundle.js` **自己**就 `import './attach-transform.mjs'`（还有粒子/指针/音频几个同目录模块），
+把单文件丢进 `/tmp` 变异 ⇒ 子进程 `ERR_MODULE_NOT_FOUND` 直接崩 ⇒ "A 组变红"变成**假红**（实测）。
+**固定口径**（本仓与插件仓一致）：**先整目录复制（只跳子目录），再覆盖被变异的那一个文件**。
+组件测试里凡是"复制一个文件到临时目录再 import"的夹具，都按这条写；写变异时还要**跳过被变异的那一个**，
+否则整目录复制会把变异体覆盖回原版（`bind-order-test` 那次假绿就是这么来的）。

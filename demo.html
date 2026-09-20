@@ -1700,6 +1700,12 @@ let __texBytesTotal = 0
 // 非关键层 = 无效果链 && 层面积 < 25% 设计画布（3840×2160）
 const isNonCriticalLayer = (l) => l && !(l.effects && l.effects.length) && l.size && l.scale &&
   (l.size[0] * l.scale[0]) * (l.size[1] * l.scale[1]) < 0.25 * 3840 * 2160
+/** ①(P-168) 按名字给纹理定 wrap（`'repeat'` | `'clamp'`）；`lib.applyTexWrap` 不在（旧桩/受限切片夹具）时原样返回。
+ *  幂等、绝不抛：wrap 只是采样参数，取不到就保持 `makeTexture` 的默认 CLAMP（= 改动前行为）。 */
+function wrapTex(entry, name) {
+  try { if (entry && entry.glTex && lib && typeof lib.applyTexWrap === 'function') lib.applyTexWrap(gl, entry.glTex, name) } catch (e) {}
+  return entry
+}
 async function loadTex(name, opts = {}) {
   if (textures.has(name)) return Promise.resolve(textures.get(name));
   let te = lib.getEntry(pkg, 'materials/' + name + '.tex');
@@ -1837,7 +1843,11 @@ async function loadTex(name, opts = {}) {
       //   layer.textureName 虽被赋值，但之后 textures.get() 取不到 → 该层永远不绘制。
       //   6000px 背景正好是唯一走本分支的层 = 用户看到的"背景一直没有"。
       const g0 = gl.getError()   // 清掉历史错误，随后只看本次上传是否报错
-      const entry = { glTex: lib.makeTexture(gl, dst, nw, nh), width: nw, height: nh, rg88: tex.format === 8, sprite }
+      /* ①(P-168 2026-09-20 上游 1.3.18 REPEAT 契约) 创建后按**名字**决定 wrap：
+         云/神光那类 uv 随 `g_Time` 无界增长的贴图必须 REPEAT（CLAMP 会把天空拉成静止伪影），
+         其余一律 CLAMP（默认不变）。名单与回退开关都在 `core/we-scene-bundle.js` 的 `REPEAT_TEX_NAMES`
+         / `?texwrap=clamp|repeat`，这里只负责"按名字问一次"。 */
+      const entry = wrapTex({ glTex: lib.makeTexture(gl, dst, nw, nh), width: nw, height: nh, rg88: tex.format === 8, sprite }, name)
       const g1 = gl.getError()
       const okTex = entry.glTex && gl.isTexture(entry.glTex) && gl.getParameter(gl.TEXTURE_BINDING_2D) !== null
       if (g1 !== gl.NO_ERROR) logf('  ⚠ 降采样纹理上传报错 ' + name + ' 0x' + g1.toString(16) + '（' + nw + 'x' + nh + '，' + (dst.length / 1048576).toFixed(1) + 'MB）')
@@ -1861,7 +1871,7 @@ async function loadTex(name, opts = {}) {
     videoEl.play().catch((e) => logf('  ⚠ 视频自动播放失败: ' + e.message));
     videoEl.addEventListener('error', (e) => logf('  ⚠ 视频解码错误 code=' + (videoEl.error ? videoEl.error.code : '?')));
     videoEl.addEventListener('loadeddata', () => logf('  ✅ 视频已加载 ' + videoEl.videoWidth + 'x' + videoEl.videoHeight));
-    const ve = { video: videoEl, glTex: lib.makeTexture(gl, new Uint8Array([0,0,0,0]), 1, 1), width: m.width, height: m.height, rg88: false, lastUploaded: -1, sprite };
+    const ve = wrapTex({ video: videoEl, glTex: lib.makeTexture(gl, new Uint8Array([0,0,0,0]), 1, 1), width: m.width, height: m.height, rg88: false, lastUploaded: -1, sprite }, name);
     textures.set(name, ve);
     return Promise.resolve(ve);
   }
@@ -1876,7 +1886,7 @@ async function loadTex(name, opts = {}) {
       //   纹理静默为黑（效果链把黑底+光斑一起输出=用户看到的"全黑只剩窗帘/光斑"）。
       //   现在：超 min(4096, 设备上限) 先 canvas 缩图；上传后查错，失败按 2048→1024 阶梯
       //   重试并逐级记日志（下一份上报能直接回答"为什么黑"）。
-      const mkEntry = (src, w, h) => ({ glTex: lib.makeTexture(gl, null, 0, 0, src), width: w, height: h, rg88: rg88, sprite })
+      const mkEntry = (src, w, h) => wrapTex({ glTex: lib.makeTexture(gl, null, 0, 0, src), width: w, height: h, rg88: rg88, sprite }, name)
       const uploadWithCheck = (src, w, h) => {
         try { gl.getError() } catch (e) {}   // 清掉历史错误，只看本次上传
         const e = mkEntry(src, w, h)
