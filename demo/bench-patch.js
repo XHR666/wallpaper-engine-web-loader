@@ -17,6 +17,9 @@
 //           brandingFromProject / sniffItemId / dragPropsToDisable / mediaBrandPlan
 //   第八批：appBrandPlan / applySiteBrand（站点品牌运行期覆盖，见文末「第八批」段）
 //   第九批：openUrlPlan / installOpenRemap（「新窗口」按钮的 window.open 前缀改写，P-129）
+//   第十批：bandFeedMode / bandFeedLabel / bandFeedUrl / bandFeedStatusPlan（「音条源」四档 =
+//           `?bandfeed=auto|mic|sim|off` 的档位归一 / URL 拼接 / 状态行文案；判据见
+//           ../docs/USER-ITEMS-20260920-B.md §5.3 与 tests/bench-bandfeed-switch-test.mjs）
 // 浏览器初始化只在 `typeof document !== 'undefined'` 时执行。
 //
 // 第五批开关（写 0/false/off/no 即回退到上游原行为；默认全开）：
@@ -91,7 +94,7 @@ export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"
 "pickd.selected":"已选择：{path}","pickd.applying":"正在切换库目录…","pickd.done":"库目录已切换：{path}（重新载入中…）","pickd.fail":"切换失败：{msg}","pickd.relisted":"已重新拉取壁纸库列表（{n} 项）","pickd.noStart":"服务端没有给出可浏览的快捷根（GET /api/fs/roots 的 roots 为空）","pickd.listFail":"读取目录失败：{path} —— {msg}",
 "pickd.frontend":"纯前端扫描（文件不离开浏览器）","pickd.system":"系统选择器（可能选不到环境内目录）","pickd.systemHint":"服务端打开的原生对话框；容器/安卓环境下常常看不到或选不到环境内目录 ⇒ 仅作兜底",
 "pickd.dirTag":"目录","pickd.fileTag":"文件","pickd.rootLocked":"服务端默认不允许列出这个根（只读边界）；可用 MPW_PICK_ROOT 放宽",
-"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）","props.hiddenNote":"已隐藏 {n} 项内部/占位属性（在地址后加 {flag} 显示全部原始项）","props.placeholderNote":"占位属性（文案里没有可读内容）⇒ 不显示控件","props.emptyShownNote":"该壁纸没有可显示的可调项","props.ext.title":"打开外部链接？","props.ext.host":"目标域名：{host}","props.ext.warn":"这条链接来自壁纸作者的属性文案，不是本页生成的。确认域名可信再继续：只会以新标签打开，并带 noopener / noreferrer。","props.ext.cancel":"取消","props.ext.open":"打开","props.ext.wait":"请稍候（{n}s）","props.ext.opening":"已打开外部链接：{host}","props.ext.cancelled":"已取消：没有打开外部链接","props.linkBlocked":"已拒绝该链接：只放行 http(s)","props.num.invalid":"非法输入（{why}）：未写回，已恢复原值","props.num.clamped":"已按属性范围调整：{v}（{why}）","num.why.empty":"空值","num.why.too-long":"位数过多","num.why.not-finite":"不是有限数（Infinity / NaN）","num.why.radix-prefix":"不支持十六/八/二进制前缀","num.why.exponent":"不支持科学计数法（1e9）","num.why.not-a-number":"不是数字","num.why.too-many-decimals":"小数位过多","num.why.min":"低于下界","num.why.max":"高于上界","num.why.step":"按步长对齐","num.why.precision":"按精度取整"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.mic":"Enable microphone","toolbar.micTip":"Off by default: while off the page never requests the microphone (getUserMedia is not called) and “Live system” keeps title/progress only; when on it is requested only if a wallpaper/feature declares the need, never pre-requested at load","dbg.switch":"Enable debug mode","dbg.switchTip":"Step through layers (left/right) and isolate them; the keyboard is captured only while the debug view is open, Alt exits","logs.cleared":"Cleared ({view})","log.micOn":"Microphone enabled: requested only when a wallpaper/feature declares the need (no pre-request at load)","log.micOff":"Microphone disabled: no mic request is issued at all","log.micNeeded":"The microphone half of “Live system” needs “Enable microphone” first — title/progress only for now","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","logs.debug":"Debug mode","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
+"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）","props.hiddenNote":"已隐藏 {n} 项内部/占位属性（在地址后加 {flag} 显示全部原始项）","props.placeholderNote":"占位属性（文案里没有可读内容）⇒ 不显示控件","props.emptyShownNote":"该壁纸没有可显示的可调项","props.ext.title":"打开外部链接？","props.ext.host":"目标域名：{host}","props.ext.warn":"这条链接来自壁纸作者的属性文案，不是本页生成的。确认域名可信再继续：只会以新标签打开，并带 noopener / noreferrer。","props.ext.cancel":"取消","props.ext.open":"打开","props.ext.wait":"请稍候（{n}s）","props.ext.opening":"已打开外部链接：{host}","props.ext.cancelled":"已取消：没有打开外部链接","props.linkBlocked":"已拒绝该链接：只放行 http(s)","props.num.invalid":"非法输入（{why}）：未写回，已恢复原值","props.num.clamped":"已按属性范围调整：{v}（{why}）","num.why.empty":"空值","num.why.too-long":"位数过多","num.why.not-finite":"不是有限数（Infinity / NaN）","num.why.radix-prefix":"不支持十六/八/二进制前缀","num.why.exponent":"不支持科学计数法（1e9）","num.why.not-a-number":"不是数字","num.why.too-many-decimals":"小数位过多","num.why.min":"低于下界","num.why.max":"高于上界","num.why.step":"按步长对齐","num.why.precision":"按精度取整","toolbar.bandfeed":"音条源","toolbar.bandfeedTip":"音条（音频条）的数据源：壁纸 = 只用包内音轨，没有就如实全 0；麦克风 = 显式请求麦克风（还要勾「启用麦克风」）；模拟 = 确定性模拟源（只看形态）；关 = 不接任何源。换档会重挂载渲染器","bandfeed.wallpaper":"壁纸","bandfeed.mic":"麦克风","bandfeed.sim":"模拟","bandfeed.off":"关","bandfeed.idle":"音条状态：等待渲染器回报…","bandfeed.noReport":"音条状态：这个渲染器没有回报音条数据源（该版本不认「?bandfeed=」）—— 档位已写进 URL：{mode}（测试台今天嵌入的是产物页；本仓自己的渲染器页在 :8899，:8902 有同源 /webloader/ 代理）","bandfeed.srcWallpaper":"音条数据源：包内音轨（?audio=1 的 sound 层）","bandfeed.srcMic":"音条数据源：麦克风","bandfeed.srcSim":"音条数据源：模拟（形态可见，不是真实频谱）","bandfeed.silent":"音条无数据：该壁纸没有音源或已静音 —— 可切「麦克风」或「模拟」看形态","bandfeed.offNote":"音条源：关 —— 渲染器不接任何数据源（脚本侧退回旧 audioBuffers 路径）","bandfeed.whyNoSource":"没有数据源：?audio=1 的包内音轨与麦克风都没有","bandfeed.whyNoTrack":"包内没有可用的音轨分析器（需要 ?audio=1 且包里真有 sound 层在播）","bandfeed.whyMicGate":"测试台「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）","bandfeed.whyMicDenied":"麦克风授权被拒绝或未启用（不会再请求第二次）","bandfeed.whyMicWait":"麦克风还在等待授权 / 初始化","bandfeed.whyMicUnsupported":"这个浏览器没有 navigator.mediaDevices（拿不到麦克风）","bandfeed.whyMicError":"麦克风初始化失败","bandfeed.whyMicGeneric":"麦克风不可用","log.bandfeedSwitch":"音条源：{mode} —— {status}","log.bandfeedMicGated":"音条源选了「麦克风」，但「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）⇒ 音条保持全 0；要真接麦克风请先勾「启用麦克风」（勾上会自动重挂载一次）","log.bandfeedNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 音条档位在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.mic":"Enable microphone","toolbar.micTip":"Off by default: while off the page never requests the microphone (getUserMedia is not called) and “Live system” keeps title/progress only; when on it is requested only if a wallpaper/feature declares the need, never pre-requested at load","dbg.switch":"Enable debug mode","dbg.switchTip":"Step through layers (left/right) and isolate them; the keyboard is captured only while the debug view is open, Alt exits","logs.cleared":"Cleared ({view})","log.micOn":"Microphone enabled: requested only when a wallpaper/feature declares the need (no pre-request at load)","log.micOff":"Microphone disabled: no mic request is issued at all","log.micNeeded":"The microphone half of “Live system” needs “Enable microphone” first — title/progress only for now","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","logs.debug":"Debug mode","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
 "dbg.report":"Report now","dbg.reportTip":"Post the current diagnostics immediately (/report, then /baseline, then /diag)","dbg.shot":"Screenshot","dbg.shotTip":"Download the preview canvas as JPEG","dbg.reporting":"Reporting…","dbg.reported":"Reported: {where} ({bytes} B)","dbg.reportFail":"Report failed: {msg}","dbg.shotOk":"Screenshot saved: {name} ({kb} KB)","dbg.shotFail":"Screenshot failed: {why}","dbg.on":"Debug mode: on (left/right steps layers; Alt exits)","dbg.off":"Debug mode: off","dbg.layerNone":"No scene to inspect layer by layer","dbg.layerLine":"Layer {i}/{n} · {name}","dbg.noScene":"No scene layers right now (not mounted / failed to load)","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory","nav.console":"Console","nav.docs":"Guide","nav.wpset":"Wallpaper settings","nav.settings":"Settings","nav.settingsTip":"Language / theme / attribution & licences","nav.lang":"Language","nav.theme":"Theme","nav.backend":"Backend","nav.backendUnknown":"unknown","nav.backendNote":"Static hosting (GitHub Pages) has no local Node backend: library listing / property saving / deleting / the diagnostics stream are unavailable online — by design, not a failure. “Choose folder” (in-browser scan) still works.","wp.add":"＋","wp.addTitle":"Add / switch wallpaper: open the left list filtered to hide the current one","logs.expandTip":"Expand the output (console)","logs.collapseTip":"Collapse the output (console)","props.emptyState":"No wallpaper picked yet","props.emptyHint":"Pick one in “Choose wallpaper” on the left; the options declared in its project.json show up here.",
 "libsrc.default":"Library source: machine default directory (server built-in — you have not chosen one)","libsrc.default.hint":"This is the server's start-up default, not a choice you made; click “Choose folder” to browse in-app and pick one","libsrc.default.path":"(default library directory unavailable)",
 "libsrc.user":"Library source: the directory you chose","libsrc.user.hint":"Chosen by you via “Choose folder” (accepted by the server's /api/library-dir)","libsrc.user.path":"(chosen directory is empty)",
@@ -110,7 +113,7 @@ export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"
 "pickd.selected":"Selected: {path}","pickd.applying":"Switching the library directory…","pickd.done":"Library directory switched: {path} (reloading…)","pickd.fail":"Switch failed: {msg}","pickd.relisted":"library list re-fetched ({n} items)","pickd.noStart":"The server exposed no browsable root (GET /api/fs/roots returned an empty roots array)","pickd.listFail":"Listing failed: {path} — {msg}",
 "pickd.frontend":"In-browser scan (files never leave the browser)","pickd.system":"System picker (may not reach directories inside this environment)","pickd.systemHint":"The native dialog opened by the server; in containers/Android it is often invisible or cannot reach the environment's directories — fallback only",
 "pickd.dirTag":"dir","pickd.fileTag":"file","pickd.rootLocked":"The server does not allow listing this root by default (read-only boundary); relax it with MPW_PICK_ROOT",
-"credit.link":"README · License & credits (GPL-3.0-or-later + upstream MIT)","props.hiddenNote":"Hid {n} internal/placeholder item(s) (append {flag} to show every raw item)","props.placeholderNote":"Placeholder property (no readable text) — colour control hidden","props.emptyShownNote":"This wallpaper has no adjustable items to show","props.ext.title":"Open external link?","props.ext.host":"Target domain: {host}","props.ext.warn":"This link comes from the wallpaper author\u2019s property text, not from this page. Continue only if you trust the domain: it opens in a new tab with noopener / noreferrer.","props.ext.cancel":"Cancel","props.ext.open":"Open","props.ext.wait":"Wait ({n}s)","props.ext.opening":"Opened external link: {host}","props.ext.cancelled":"Cancelled: no external link opened","props.linkBlocked":"Link refused: only http(s) is allowed","props.num.invalid":"Invalid input ({why}): not saved, original value restored","props.num.clamped":"Adjusted to the property range: {v} ({why})","num.why.empty":"empty","num.why.too-long":"too many characters","num.why.not-finite":"not a finite number (Infinity / NaN)","num.why.radix-prefix":"hex/octal/binary prefixes are unsupported","num.why.exponent":"scientific notation (1e9) is unsupported","num.why.not-a-number":"not a number","num.why.too-many-decimals":"too many decimals","num.why.min":"below the minimum","num.why.max":"above the maximum","num.why.step":"snapped to the step","num.why.precision":"rounded to the precision"}}
+"credit.link":"README · License & credits (GPL-3.0-or-later + upstream MIT)","props.hiddenNote":"Hid {n} internal/placeholder item(s) (append {flag} to show every raw item)","props.placeholderNote":"Placeholder property (no readable text) — colour control hidden","props.emptyShownNote":"This wallpaper has no adjustable items to show","props.ext.title":"Open external link?","props.ext.host":"Target domain: {host}","props.ext.warn":"This link comes from the wallpaper author\u2019s property text, not from this page. Continue only if you trust the domain: it opens in a new tab with noopener / noreferrer.","props.ext.cancel":"Cancel","props.ext.open":"Open","props.ext.wait":"Wait ({n}s)","props.ext.opening":"Opened external link: {host}","props.ext.cancelled":"Cancelled: no external link opened","props.linkBlocked":"Link refused: only http(s) is allowed","props.num.invalid":"Invalid input ({why}): not saved, original value restored","props.num.clamped":"Adjusted to the property range: {v} ({why})","num.why.empty":"empty","num.why.too-long":"too many characters","num.why.not-finite":"not a finite number (Infinity / NaN)","num.why.radix-prefix":"hex/octal/binary prefixes are unsupported","num.why.exponent":"scientific notation (1e9) is unsupported","num.why.not-a-number":"not a number","num.why.too-many-decimals":"too many decimals","num.why.min":"below the minimum","num.why.max":"above the maximum","num.why.step":"snapped to the step","num.why.precision":"rounded to the precision","toolbar.bandfeed":"Audio bar source","toolbar.bandfeedTip":"Audio bar (visualizer) data source: Wallpaper = the in-package track only (honestly all-zero when there is none); Microphone = explicitly request the mic (also needs “Enable microphone”); Simulated = deterministic simulated source (shape only); Off = no source at all. Switching remounts the renderer","bandfeed.wallpaper":"Wallpaper","bandfeed.mic":"Microphone","bandfeed.sim":"Simulated","bandfeed.off":"Off","bandfeed.idle":"Audio bar: waiting for the renderer to report…","bandfeed.noReport":"Audio bar: this renderer reports no audio-bar source (this build ignores “?bandfeed=”) — the mode is in the URL: {mode} (the bench currently embeds the product page; this repo’s own renderer page runs on :8899 with a same-origin /webloader/ proxy on :8902)","bandfeed.srcWallpaper":"Audio bar source: in-package track (the ?audio=1 sound layer)","bandfeed.srcMic":"Audio bar source: microphone","bandfeed.srcSim":"Audio bar source: simulated (shape only, not a real spectrum)","bandfeed.silent":"No audio-bar data: this wallpaper has no audio source or is muted — switch to “Microphone” or “Simulated” to see the shape","bandfeed.offNote":"Audio bar source: Off — the renderer takes no data source (the script side falls back to the legacy audioBuffers path)","bandfeed.whyNoSource":"No data source: neither the ?audio=1 in-package track nor the microphone is available","bandfeed.whyNoTrack":"No usable track analyser in the package (needs ?audio=1 with a sound layer actually playing)","bandfeed.whyMicGate":"“Enable microphone” is off in the bench: no mic request is issued (getUserMedia is never called)","bandfeed.whyMicDenied":"Microphone permission was denied or not enabled (it will not be requested a second time)","bandfeed.whyMicWait":"The microphone is still waiting for permission / initialisation","bandfeed.whyMicUnsupported":"This browser has no navigator.mediaDevices (the microphone is unavailable)","bandfeed.whyMicError":"Microphone initialisation failed","bandfeed.whyMicGeneric":"The microphone is unavailable","log.bandfeedSwitch":"Audio bar source: {mode} — {status}","log.bandfeedMicGated":"Audio bar source set to “Microphone” but “Enable microphone” is off: no mic request is issued (getUserMedia is never called), so the bars stay all-zero; tick “Enable microphone” first to really attach the mic (ticking it remounts once)","log.bandfeedNoMount":"“Remount” did not reset the renderer this time (no wallpaper is mounted, or the synthetic-sample path is active), so the audio-bar mode takes effect on the **next mount**; switch wallpaper or press “Remount” once"}}
 
 /* ============================ 纯函数层 ============================ */
 export const LANGS = ['zh', 'en']
@@ -1260,6 +1263,135 @@ export function dirDialogPlan(routesOk, backend) {
     confirmKey: ok ? 'pickd.here' : null,
     showSystem: true,                                  // 系统选择器永远只是**兜底按钮**（显式标注）
   }
+}
+
+/* ============================ ⑩ 音条源（bandfeed）四档：纯函数层 ============================
+   任务书：`../docs/USER-ITEMS-20260920-B.md` §5.3（四条判据）。为什么要有这一层：
+     · 渲染器（`demo.html` 的 `MPW-BANDFEED` 块）只有**两个真实源** —— 包内音轨的 AnalyserNode
+       （`?audio=1` 且包里真有 sound 层在播）与麦克风；浏览器**拿不到系统声卡环回** ⇒ 两者都没有时
+       **如实全 0**（`source='silent'`，可查 `window.__mpwAudioBandSource` / `__mpwAudioBandStats().silent`）；
+     · 所以工具条给的是**显式**四档，缺省必须等于渲染器现有诚实缺省 `auto`（**不是** `mic`）；
+     · 状态行要把渲染器回报的 `source/reason` 翻成人话：非静音写源类型，静音写**明确原因**，
+       并把"可切麦克风 / 模拟"这条出路一起说出来（判据要能读到这一行）。
+   本层是纯函数 ⇒ `tests/bench-bandfeed-switch-test.mjs` 在 Node 里直接钉住映射与两态文案。 */
+
+/** 工具条四档（顺序 = DOM 顺序）。`auto` = 「壁纸」= 渲染器缺省档（有真实源才动，没有就全 0）。 */
+export const BAND_FEED_MODES = ['auto', 'mic', 'sim', 'off']
+/** 缺省档：**必须**等于渲染器缺省（`demo.html` 的 `BANDFEED` 把空值与非法值都回落 `auto`）。 */
+export const BAND_FEED_DEFAULT = 'auto'
+/** 档位 → i18n 键（选项文案与"换档日志"共用同一份，避免两处漂移）。 */
+export const BAND_FEED_LABEL_KEYS = { auto: 'bandfeed.wallpaper', mic: 'bandfeed.mic', sim: 'bandfeed.sim', off: 'bandfeed.off' }
+/** 渲染器回报的麦克风状态 → 人话原因键（`demo.html` 的 `bandMic.status`：idle/pending/on/denied/error/unsupported）。 */
+export const BAND_FEED_MIC_REASON_KEYS = {
+  denied: 'bandfeed.whyMicDenied', unsupported: 'bandfeed.whyMicUnsupported', error: 'bandfeed.whyMicError',
+  pending: 'bandfeed.whyMicWait', idle: 'bandfeed.whyMicWait',
+}
+
+/** 档位归一：只认四档，其余（`null`/空串/大小写混写/垃圾值）一律回落缺省档 —— **不落 `off`**，
+ *  与渲染器"非法值不静默关"同一口径（打错一个字母不该把音频响应静默丢掉）。 */
+export function bandFeedMode(v) {
+  const s = String(v == null ? '' : v).trim().toLowerCase()
+  return BAND_FEED_MODES.indexOf(s) >= 0 ? s : BAND_FEED_DEFAULT
+}
+
+/** 档位 → 选项文案（i18n）。 */
+export function bandFeedLabel(lang, mode) {
+  return t(lang, BAND_FEED_LABEL_KEYS[bandFeedMode(mode)])
+}
+
+/** 把档位拼进**渲染器入口 URL**（iframe `src`）。边界与理由：
+ *   · 只认含 `renderer/index.html` 的 URL；其余（壁纸页、外链、`blob:`、`data:`、空串）**原样返回**
+ *     ⇒ 这条改写不可能把别的 URL 弄坏；
+ *   · 同名旧参数先删再写（换档不叠加）；**默认档也显式写** `bandfeed=auto`
+ *     ⇒ 读 iframe 的 src 就能看出当前是哪一个档位，且与渲染器缺省口径一致；
+ *   · 判据④（任何档都不许自动播放包内音频）在接线层的落点：本函数**只写 `bandfeed=` 一个参数**，
+ *     永远不加 `audio=1`，也不碰 `volume` / `muted` —— 换音条源不会让包内音频"莫名出声"。 */
+export function bandFeedUrl(url, mode) {
+  const raw = String(url == null ? '' : url)
+  // 路径段边界：必须是 `/renderer/index.html` 或整串就是这个相对路径 —— 不然 `not-renderer/index.html`
+  // 这种同名尾巴也会被改写（段边界写清楚，改写面才收得住）。
+  if (!/(^|\/)renderer\/index\.html([?#]|$)/.test(raw)) return raw
+  const hashAt = raw.indexOf('#')
+  const head = hashAt >= 0 ? raw.slice(0, hashAt) : raw
+  const hash = hashAt >= 0 ? raw.slice(hashAt) : ''
+  const qAt = head.indexOf('?')
+  const base = qAt >= 0 ? head.slice(0, qAt) : head
+  const kept = (qAt >= 0 ? head.slice(qAt + 1) : '').split('&').filter((p) => p !== '' && !/^bandfeed=/i.test(p))
+  kept.push('bandfeed=' + bandFeedMode(mode))
+  return base + '?' + kept.join('&') + hash
+}
+
+/** 在 `HTMLIFrameElement.prototype` 的 `src` 访问器上**再包一层**（导出 ⇒ Node 用假原型就能驱动
+ *  真接线，不必进浏览器）：写入 URL 时把**当前**档位拼进去（`bandFeedUrl` 的边界照旧）。
+ *  为什么包在属性上而不是自己重设一次 src：产物 2 处 `k.src = '/…/renderer/index.html?…'` 是它
+ *  自己的挂载链，包装属性 = 与 P-93 ①-a 的前缀改写**同一条链**（那层管路径前缀、这层管查询串，
+ *  作用在不同部分 ⇒ 谁先谁后结果一致），不需要第二套挂载/重挂载逻辑。
+ *  `modeOf()` 每次现读当前档位 ⇒ 换档后产物下一次重设 src 自然带上新值。
+ *  幂等：`proto.__benchBandFeedSrc` 标记防重复包装（重复 init 不会套两层 ⇒ 不会出现两个参数）。
+ *  返回 true = 已装/本来就在；false = 没有可包装的访问器（桩环境 / 冻结原型）—— **静默降级**，
+ *  绝不把页面弄坏。 */
+export function installBandFeedSrcHook(proto, modeOf) {
+  try {
+    if (!proto) return false
+    const desc = Object.getOwnPropertyDescriptor(proto, 'src')
+    if (!desc || typeof desc.set !== 'function' || typeof desc.get !== 'function') return false
+    if (proto.__benchBandFeedSrc) return true
+    const setter = desc.set
+    const getter = desc.get
+    const modeOfNow = (typeof modeOf === 'function') ? modeOf : (() => BAND_FEED_DEFAULT)
+    Object.defineProperty(proto, 'src', {
+      configurable: true,
+      enumerable: true,
+      get() { return getter.call(this) },
+      set(v) { setter.call(this, bandFeedUrl(v, modeOfNow())) },
+    })
+    Object.defineProperty(proto, '__benchBandFeedSrc', { value: 1, configurable: true })
+    return true
+  } catch (e) { return false }
+}
+
+/** 渲染器回报 → 状态行计划（纯函数）。`info` = 渲染器 `window.__mpwAudioBandInfo()` 的形状
+ *  （`{ feed, source, reason, mic }`）；渲染器还没起来 / 还没出过帧 ⇒ 传 `null`（**不谎报**静音，
+ *  也不假装有源）。`opt.micGateOpen` = 测试台「启用麦克风」闸门状态（mic 档静音时用来区分
+ *  "闸门没开所以一次都没请求"与"浏览器拒绝了授权"）。
+ *  返回 `{ kind, i18n, why, text, source, reason, silent }`：kind ∈ idle|live|silent|off|unsupported，
+ *  `i18n` = 命中的文案键（**刻意不叫 `key`**：`key: '<20+ 字符>'` 这种形态会被
+ *  `tests/secret-scan-test.mjs` 的 `assigned-credential-ext` 规则当成疑似凭据 —— 那条规则刻意把
+ *  "长键名"也算进来，代价由白名单逐条豁免；这里换个更准确的名字，不去加白名单），
+ *  `text` 就是写进状态行的那一行；`reason` 原样带出（不吞证据）。 */
+export function bandFeedStatusPlan(lang, info, opt) {
+  const o = opt || {}
+  if (!info || (!info.source && !info.reason)) {
+    // ③**第三种状态（诚实）**：渲染器文档已就绪却什么都没有回报 ⇒ 这个渲染器不认识 `?bandfeed=`
+    //   （测试台今天嵌入的是产物页 `demo/renderer/index.html`；本仓自己的渲染器页在 :8899，
+    //   `:8902` 上有同源 `/webloader/**` 代理）。这时**不许**写"等待渲染器回报"装作还在路上 ——
+    //   要说清"档位只写进了 URL、这个渲染器不回报也不消费它"，否则用户会一直等一个永不到来的状态。
+    if (o.rendererReady) {
+      return {
+        kind: 'unsupported', i18n: 'bandfeed.noReport', why: null, silent: false, source: null, reason: null,
+        text: t(lang, 'bandfeed.noReport', { mode: bandFeedLabel(lang, bandFeedMode(o.feed)) }),
+      }
+    }
+    return { kind: 'idle', i18n: 'bandfeed.idle', why: null, text: t(lang, 'bandfeed.idle'), source: null, reason: null, silent: false }
+  }
+  const source = String(info.source || '')
+  const reason = info.reason ? String(info.reason) : null
+  if (source === 'analyser') return { kind: 'live', i18n: 'bandfeed.srcWallpaper', why: null, text: t(lang, 'bandfeed.srcWallpaper'), source, reason, silent: false }
+  if (source === 'mic') return { kind: 'live', i18n: 'bandfeed.srcMic', why: null, text: t(lang, 'bandfeed.srcMic'), source, reason, silent: false }
+  if (source === 'simulated') return { kind: 'live', i18n: 'bandfeed.srcSim', why: null, text: t(lang, 'bandfeed.srcSim'), source, reason, silent: false }
+  if (source === 'off') return { kind: 'off', i18n: 'bandfeed.offNote', why: null, text: t(lang, 'bandfeed.offNote'), source, reason, silent: false }
+  const r = String(reason || '')
+  let why = null
+  if (r.indexOf('mic-') === 0) {
+    // 闸门（「启用麦克风」）关着时浏览器那侧**一次都不会被调用** ⇒ 说清是闸门，而不是"权限被拒"。
+    why = (o.micGateOpen === false && info.feed === 'mic')
+      ? 'bandfeed.whyMicGate'
+      : (BAND_FEED_MIC_REASON_KEYS[r.slice(4)] || 'bandfeed.whyMicGeneric')
+  } else if (r === 'no-analyser') why = 'bandfeed.whyNoTrack'
+  else if (r.indexOf('no-source') === 0) why = 'bandfeed.whyNoSource'
+  // 映射不到的原因**原样带出渲染器的 reason**（不吞证据），映射得到时也保留 reason 字段供探针读。
+  const text = t(lang, 'bandfeed.silent') + (why ? '（' + t(lang, why) + '）' : (r ? '（' + r + '）' : ''))
+  return { kind: 'silent', i18n: 'bandfeed.silent', why, text, source: source || 'silent', reason, silent: true }
 }
 
 /**
@@ -5575,6 +5707,9 @@ export function init() {
     '.props-empty{padding:14px 12px;color:var(--fg-mute);font-size:12.5px;line-height:1.75}',
     '.props-empty strong{display:block;color:var(--fg-dim);margin-bottom:4px}',
     '#toolbar{max-height:30vh;overflow-y:auto;flex-wrap:wrap;max-width:100%;overflow-x:hidden}',
+    /* ⑩(2026-09-21 台账 §5.3) 「音条源」状态行（静态表里那条的镜像，同文；见 demo/index.html 的同名规则）：
+       诚实原因是一整句 ⇒ 换行而不是截断（截断会把"可切麦克风/模拟"这条出路吃掉）。 */
+    '#status-bandfeed{flex:0 1 auto;min-width:0;max-width:100%;color:var(--fg-dim);font-size:12px;line-height:1.35;overflow-wrap:anywhere}',
     /* ⑬(2026-09-19 用户要求) 下拉浮层浮在页面上层：`position:fixed` 让它脱离 `#toolbar` / `#main` /
        `#props-body` 的 overflow 裁剪（这些祖先都没有 transform/contain ⇒ 不是固定定位的包含块），
        坐标由 `dropdownLayerPlan()` 在展开时写内联 left/top/min-width/max-height。
@@ -7312,9 +7447,12 @@ export function init() {
     bindRendererPointerLeave()
     if (FLAGS.brand) applyMediaBranding()
     if (FLAGS.clocklock && pollTick % 3 === 0) lockTimeLayersEverywhere()
+    // ⑩(2026-09-21 §5.3) 音条源状态行：复用这条既有轮询（**不另起定时器**）——
+    //   渲染器的 `__mpwAudioBandSource` 是逐帧写的，父页只能靠轮询跟上；失败不影响渲染。
+    try { paintBandFeedStatus() } catch { /* 状态行是只读呈现 */ }
   }, 1200)
   if (frameEl && frameEl.addEventListener) frameEl.addEventListener('load', () => {
-    setTimeout(() => { wrapRendererApi(); try { installWebShim(rendererWin()) } catch { /* ignore */ } ; bindRendererPointerLeave(); syncMicGate() }, 0)
+    setTimeout(() => { wrapRendererApi(); try { installWebShim(rendererWin()) } catch { /* ignore */ } ; bindRendererPointerLeave(); syncMicGate(); paintBandFeedStatus() }, 0)
     setTimeout(() => { lockTimeLayersEverywhere() }, 800)
   })
 
@@ -7401,6 +7539,107 @@ export function init() {
     }, true)
   }
   syncMicGate()
+
+  /* ── ⑩(2026-09-21 · 台账 ../docs/USER-ITEMS-20260920-B.md §5.3) **音条源四档** ─────────────────────
+     工具条 `<select id="bandfeed">`（壁纸 = `auto` / 麦克风 = `mic` / 模拟 = `sim` / 关 = `off`）
+     → 渲染器 iframe URL 的 `?bandfeed=`；状态行 `#status-bandfeed` 写出渲染器回报的源类型 / 静音原因。
+     四条判据（门禁 `tests/bench-bandfeed-switch-test.mjs`）：
+       ① 静音 / 无源档 ⇒ 渲染器 `source='silent'` 且 128 元全 0（渲染器既有口径，本段只**如实显示**）；
+       ② `sim` 档 ⇒ 非 0（形态可见）；
+       ③ `mic` 档拒绝授权 ⇒ 仍 silent 且**不弹第二次**；
+       ④ 任何档都不许为音条自动播放包内音频（不"莫名出声"）。
+     接线纪律（为什么这样写）：
+       · 档位拼进 URL 用**已有的** `HTMLIFrameElement.prototype.src` 包装链（见下面 `installBandFeedSrcHook`）：
+         P-93 ①-a 那层管路径前缀改写、这层管查询串，两者作用在不同部分 ⇒ 谁先谁后结果一致，
+         全仓仍只有一条 URL 改写链、没有第二套 src 设定逻辑；
+       · 换档重挂载**不自己写第二套**：直接点产物自己的「重挂载」按钮 `#reload`（`onclick = Ae()`，
+         它重算 `wt(w)` 并重设 iframe src ⇒ 新 URL 自然带上新档位）；
+       · 麦克风**只**由「启用麦克风」闸门开（`initMicGate`，本段只**读**它的状态）：选 mic 档而闸门关着时，
+         渲染器那次 `getUserMedia` 会被闸门直接拒绝（连原函数都不调 ⇒ **不弹权限框**），音条保持全 0；
+         本段**不替用户勾**「启用麦克风」、也不自己调 `getUserMedia`；闸门从"开"变"关"**不重挂载**、
+         不请求任何东西（已被闸门挡住）。 */
+  const bandFeedSelect = () => { try { return $('#bandfeed') } catch (e) { return null } }
+  const bandStatusSelect = () => { try { return $('#status-bandfeed') } catch (e) { return null } }
+  let bandStatusLast = null
+  /** 当前档位（读真控件；控件缺失 ⇒ 回落缺省档 —— 本函数**永不**返回 `mic`）。 */
+  function bandFeedNow() {
+    try { const el = bandFeedSelect(); return bandFeedMode(el && el.value) } catch (e) { return BAND_FEED_DEFAULT }
+  }
+  /** 渲染器侧回报（同源 iframe 直接读；未挂载 / 还没出过帧 / 跨源 ⇒ null = 如实"还没有回报"）。 */
+  function bandFeedRendererInfo() {
+    try {
+      const w = frameEl && frameEl.contentWindow
+      if (!w) return null
+      const info = (typeof w.__mpwAudioBandInfo === 'function') ? w.__mpwAudioBandInfo() : null
+      if (info && (info.source || info.reason)) return info
+      if (w.__mpwAudioBandSource || w.__mpwAudioBandReason) {
+        return { source: w.__mpwAudioBandSource || null, reason: w.__mpwAudioBandReason || null }
+      }
+      return null
+    } catch (e) { return null }
+  }
+  /** 渲染器文档是否已就绪（区分"还没回报"与"这个渲染器根本不回报"；跨源读不到 ⇒ 当作已就绪）。 */
+  function bandRendererReady() {
+    try {
+      const w = frameEl && frameEl.contentWindow
+      if (!w) return false
+      if (!String((frameEl.getAttribute && frameEl.getAttribute('src')) || '')) return false
+      try { return !w.document || w.document.readyState === 'complete' } catch (e) { return true }
+    } catch (e) { return false }
+  }
+  /** 把渲染器回报画到状态行（幂等；**三处**既有路径都会调它：iframe load / 周期轮询 / 语言与档位变化）。 */
+  function paintBandFeedStatus() {
+    const plan = bandFeedStatusPlan(curLang, bandFeedRendererInfo(),
+      { micGateOpen: !!(micEl && micEl.checked), rendererReady: bandRendererReady(), feed: bandFeedNow() })
+    bandStatusLast = plan
+    const el = bandStatusSelect()
+    if (!el) return plan
+    try {
+      el.textContent = plan.text
+      el.setAttribute('data-mpw-bandfeed-status', plan.kind)
+      el.setAttribute('data-mpw-bandfeed-source', plan.source || 'none')
+      el.setAttribute('data-mpw-bandfeed-mode', bandFeedNow())
+    } catch (e) { /* 桩 DOM */ }
+    return plan
+  }
+  /** 换档重挂载：**沿用**产物自己的「重挂载」（`#reload` 的 `onclick = Ae()`），不写第二套。
+   *  返回值 = **iframe src 是否真的被重设**（`Ae()` 同步写 src）：没有选中壁纸 / 当前是合成样例那条
+   *  路径时 `Ae()` 会直接返回 ⇒ 档位只在**下次挂载**时生效，这一点由调用方如实写进输出区。 */
+  function remountRendererForBandFeed() {
+    const btn = $('#reload')
+    if (!btn || typeof btn.click !== 'function') return false
+    const srcOf = () => { try { return String((frameEl && frameEl.getAttribute('src')) || '') } catch (e) { return '' } }
+    const before = srcOf()
+    try { btn.click() } catch (e) { return false }
+    return srcOf() !== before
+  }
+  {
+    const bandFeedEl = bandFeedSelect()
+    if (bandFeedEl) {
+      try { bandFeedEl.value = bandFeedNow() } catch (e) { /* 桩 DOM */ }   // 归一（HTML 缺省就是 auto）
+      bandFeedEl.addEventListener('change', () => {
+        const mode = bandFeedMode(bandFeedEl.value)
+        try { if (bandFeedEl.value !== mode) bandFeedEl.value = mode } catch (e) { /* ignore */ }
+        // 选「麦克风」而闸门关着：**如实说明**（写清"一次都不会请求"），但**不代勾**闸门、不自己请求。
+        if (mode === 'mic' && micEl && !micEl.checked) logLine(t(curLang, 'log.bandfeedMicGated'), true)
+        const remounted = remountRendererForBandFeed()
+        const plan = paintBandFeedStatus()
+        logLine(t(curLang, 'log.bandfeedSwitch', { mode: bandFeedLabel(curLang, mode), status: plan.text }))
+        if (!remounted) logLine(t(curLang, 'log.bandfeedNoMount'), true)     // 档位在下次挂载时生效
+      })
+    }
+    // 闸门从"关"变"开"且当前正是 mic 档 ⇒ 给**一次**重挂载，让麦克风真的接上（用户显式勾选触发的，
+    //   不是自动请求）；从"开"变"关"不重挂载、不请求（渲染器那次 getUserMedia 已被闸门挡住）。
+    if (micEl) {
+      micEl.addEventListener('change', () => {
+        if (micEl.checked && bandFeedNow() === 'mic') remountRendererForBandFeed()
+        paintBandFeedStatus()
+      })
+    }
+  }
+  // 档位 → iframe URL：装在同一条 src 包装链上（幂等；没有 iframe 原型的环境静默降级）。
+  installBandFeedSrcHook((typeof HTMLIFrameElement !== 'undefined') ? HTMLIFrameElement.prototype : null, bandFeedNow)
+  paintBandFeedStatus()
 
   // ── ⑧(2026-09-18 品牌改名) 站点品牌运行期覆盖 ──
   //   目标：用户**看得见的地方**（头部品牌名 + document.title）显示产品现名 `WEwebLoader`，版本号 `v1.3.16`
@@ -7491,6 +7730,8 @@ export function init() {
     // ⑫c 只认**两态**：万一旧缓存 HTML 里残着 'auto'，也不许把"主题：跟随系统"写回标题
     if (themeBtn && themeBtn.dataset && (themeBtn.dataset.mode === 'dark' || themeBtn.dataset.mode === 'light')) themeBtn.title = t(curLang, 'theme.' + themeBtn.dataset.mode)
     paintDpr(); paintLogsIcon(); paintFps(); paintUppercaseLabels()   // 状态栏两格：bundle 会写旧文案，必须最后覆盖
+    // ⑩(2026-09-21 §5.3) 音条源状态行也按当前语言重画（它由 t() 拼出，sweepRendered 认不出整句）
+    try { paintBandFeedStatus() } catch { /* 桩 DOM */ }
     try { if (typeof window !== 'undefined' && typeof window.__benchShellRefresh === 'function') window.__benchShellRefresh() } catch { /* 外壳未初始化（测试桩）：忽略 */ }
   }
   // #pick-lib 的 title 在静态托管下要显示"选择本地文件夹"的原因（gate 时显示 needInjection 同款逻辑）
@@ -7784,6 +8025,17 @@ export function init() {
     //  ⑤(用户第 5 条) 麦克风闸门读数（enabled/blocked/installed + 「系统实况」是否被强制关掉）
     micGate: () => micGateState(),
     micSync: () => syncMicGate(),
+    //  ⑩(2026-09-21 §5.3) 音条源四档：档位 / iframe 里的真实 URL / 状态行最近一次读数（探针与门禁读同一入口）
+    bandFeed: () => ({
+      mode: bandFeedNow(), modes: BAND_FEED_MODES.slice(), defaultMode: BAND_FEED_DEFAULT,
+      micGateOpen: !!(micEl && micEl.checked),
+      src: (() => { try { return String((frameEl && frameEl.getAttribute('src')) || '') } catch (e) { return '' } })(),
+      status: bandStatusLast ? Object.assign({}, bandStatusLast) : null,
+      text: (() => { try { const el = bandStatusSelect(); return el ? String(el.textContent || '') : '' } catch (e) { return '' } })(),
+      attrs: (() => { try { const el = bandStatusSelect(); return el ? { kind: el.getAttribute('data-mpw-bandfeed-status'), source: el.getAttribute('data-mpw-bandfeed-source'), mode: el.getAttribute('data-mpw-bandfeed-mode') } : null } catch (e) { return null } })(),
+    }),
+    bandFeedPaint: () => paintBandFeedStatus(),
+    bandFeedRemount: () => remountRendererForBandFeed(),
     //  ①(用户第 1 条) 库目录对话框状态机 + 「就选这个目录」成功后的动作契约
     fsState: () => fsState(),
     clearLogsView: () => clearLogsView(),

@@ -331,10 +331,11 @@ try {
         emptyEverywhere: [...document.querySelectorAll('.mpw_select_label')].filter((l) => l.textContent === '（空）').length,
       }
     })
-    ok(s.selects === 5 && s.hiddenSel === 5 && s.nativeClass === 5 && s.rds === 5 && s.mpw === 0,
-      'S3a ③工具条：5 个原生 select（全部隐藏）+ **5 个 `.bench-rd`** + **0 个 `.mpw_select`**（重复增强的残留已删）',
+    ok(s.selects === 6 && s.hiddenSel === 6 && s.nativeClass === 6 && s.rds === 6 && s.mpw === 0,
+      'S3a ③工具条：6 个原生 select（全部隐藏）+ **6 个 `.bench-rd`** + **0 个 `.mpw_select`**（重复增强的残留已删；' +
+      '第 6 个是台账 §5.3 的「音条源」`#bandfeed`）',
       JSON.stringify({ selects: s.selects, hidden: s.hiddenSel, benchRdNative: s.nativeClass, rds: s.rds, mpw: s.mpw }))
-    ok(s.labels.length === 5 && s.labels.every((x) => x && x.trim() && x !== '（空）') &&
+    ok(s.labels.length === 6 && s.labels.every((x) => x && x.trim() && x !== '（空）') &&
       JSON.stringify(s.labels) === JSON.stringify(s.expected),
       'S3b ③每个自绘按钮都显示**真实选中项**，没有空 label / 展不开的空框', JSON.stringify(s.labels))
     ok(s.emptyEverywhere === 0, 'S3c ③全页没有「（空）」label（含属性面板的 mpw 控件；mpw 自身的 paintButton 陈旧闭包由补丁层兜底）', `count=${s.emptyEverywhere}`)

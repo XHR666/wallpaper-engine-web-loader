@@ -549,6 +549,27 @@ add "particle-overbright" "node tests/particle-overbright-test.mjs"
 #     **54 条正断言 + 4 组变异自证（16 条）**，实测 ~25s、单 node 进程、无浏览器 / 无网络 / 无 X11。
 add "trail-leave" "node tests/trail-leave-test.mjs"
 
+# ①(2026-09-21 · 台账 `../docs/USER-ITEMS-20260920-B.md` §5.3) `bench-bandfeed-switch`：测试台工具条
+#   「音条源」四档（壁纸 / 麦克风 / 模拟 / 关 → 渲染器 `?bandfeed=auto|mic|sim|off`）的**接线门禁**。
+#   判据原文四条：①静音 / 无源档 ⇒ 渲染器 `source='silent'` 且音条层顶点色的**输入**（128 元数组 +
+#   交给渲染器的 16 段活视图）全 0（如实）；②`?bandfeed=sim` ⇒ 非 0（形态可见）；③`?bandfeed=mic`
+#   且拒绝授权 ⇒ 仍 silent 且**不弹第二次**（`getUserMedia` 恰好一次）；④任何档都**不许**为音条
+#   自动播放包内音频（不"莫名出声"）。
+#   A 段把 `demo.html` 的 MPW-BANDFEED 块**真源码切片**出来 + 桩 analyser / 麦克风 / 计数用媒体元素跑
+#   真实分支（与既有 `audio-band-wiring` 同一手法）；B 段钉接线：四档 → URL 映射（真纯函数
+#   `bandFeedUrl`）、默认档 = `auto`（**不许** mic）、`mic` 档没被任何自动路径打开（本批不调
+#   `getUserMedia` / 不代勾 `#mic-enable`、auto 档在"未决定"时 0 次请求）、状态行在静音与非静音
+#   两态下文案不同（真纯函数 `bandFeedStatusPlan` + `#status-bandfeed` 的 `data-mpw-*` 挂点 + 三处
+#   既有重画路径；静音 / 非静音 / **"渲染器已就绪但不回报"** 三态互不相同 —— 最后一态是本轮实测
+#   发现的：测试台嵌入的是产物页 `demo/renderer/index.html`，它不认 `?bandfeed=`，不许一直写
+#   "等待渲染器回报"），以及接线是**行为级**的（用假原型驱动真 `installBandFeedSrcHook`：换档后每次
+#   写入 src 都带当时档位、只有一个 `bandfeed` 参数、非渲染器 URL 一字不改）；C 段 **6 组**变异自证
+#   （默认档改 mic / auto 拼成 off / 删掉静音原因 / 插一次 `play()` / 摘掉 src 拼接 / 短路"不回报"分支
+#   ⇒ 对应断言必红）——变异只落内存切片与 os.tmpdir() 副本，真树跑前跑后同哈希。
+#   54 断言、实测 ~0.2s、无浏览器 / 无网络。诚实边界（文件头也写着）：真机权限框弹几次与屏幕上的
+#   真实像素**不在本项**；那部分只做到"喂给顶点色的数据 + 请求次数"这一层。
+add "bench-bandfeed-switch" "node tests/bench-bandfeed-switch-test.mjs"
+
 # —— --list ——
 if [ "$LIST" = 1 ]; then
   echo "共 ${#NAMES[@]} 项（slow=--fast 跳过；条件项=无数据自动 SKIP）："
