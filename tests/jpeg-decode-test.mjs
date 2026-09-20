@@ -14,7 +14,7 @@
 //      reports/r1789402095234.json  shot → 包 3326873240  2026-09-14T16:08:15Z  12883 B
 //    提取（与 `node report-latest.mjs --id <pkg> --shot` 同款）：
 //      const d = JSON.parse(fs.readFileSync('reports/rXXXX.json','utf8'))
-//      fs.writeFileSync('/tmp/x.jpg', Buffer.from(d.shot.split(',')[1], 'base64'))
+//      fs.writeFileSync(path.join(os.tmpdir(), 'x.jpg'), Buffer.from(d.shot.split(',')[1], 'base64'))
 //    期望值命令（离线）：
 //      ffmpeg -v error -y -i /tmp/x.jpg -f rawvideo -pix_fmt rgba /tmp/x.raw
 //      → 近黑占比(r,g,b<16) / 四角 RGB / 中心 17x17 均值；下表 expect 常量即 ffmpeg 输出。
@@ -43,6 +43,7 @@
 import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { decodeJpeg } from '../elysia/we-renderer/jpeg.js'
 // ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
 const MPW_WS = process.env.MPW_ROOT || WS

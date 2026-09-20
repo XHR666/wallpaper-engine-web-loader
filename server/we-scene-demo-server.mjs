@@ -6,6 +6,7 @@ function statSyncSafe(p) { try { return fs.statSync(p) } catch { return null } }
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { packDir, collectFiles } from './pack-dir.mjs'; // ①(第22项) 目录源 → PKG 容器（混合加载）
 // ①(P-85 2026-09-15) 官方 project.json 的**统一查找链**（与 demo/测试共用 core/scene-project-json.mjs）：
@@ -41,6 +42,10 @@ const port = Number(process.env.PORT || process.argv[2] || 8899);
 //   ⇒ 本机行为一字不变；公开副本也不会把作者的个人目录带进分发产物（`npm pack` 后逐条 grep 个人
 //   绝对前缀的自查见 packaging-test.mjs）。覆盖方式示例：
 //     MPW_ROOT=/path/to/workspace MPW_REPORTS_DIR=/tmp/reports node server/we-scene-demo-server.mjs
+/* ①(2026-09-21 跨平台) 临时目录一律走 `os.tmpdir()`：Windows 没有 `/tmp`，macOS 的 `/tmp` 是
+   `/private/tmp` 的软链 ⇒ 写死 `/tmp/...` 等于"只在 Linux 上能跑"。由 `tests/cross-platform-gate-test.mjs`
+   B 段与 E/F 段一起钉住（该门禁自己也会被这条规则约束）。 */
+const TMP_ROOT = process.env.MPW_TMP_ROOT || os.tmpdir()
 const MPW_ROOT = process.env.MPW_ROOT || path.resolve(REPO_ROOT, '..');
 // ①(P-87 2026-09-15 版权) 场景根：显式环境变量 > <MPW_ROOT>/allwallpaper/dd（作者机 / 使用者自己的语料）
 //   > **<repo>/samples**（本仓库自带样例的父目录 ⇒ `?id=sample-synthetic` 正好命中
@@ -243,10 +248,10 @@ const MPW_ALLOW_DIRS = (process.env.MPW_ALLOW_DIRS || [
   // ①(去个人化 2026-09-16) 插件下载缓存与备用语料根：环境变量优先；无 HOME 时退到系统临时目录
   //   （P-91 收尾：删掉写死的个人主目录前缀 —— 它只会在"没有 HOME"的极少数环境生效，
   //    但会随分发产物泄露作者机布局。有 HOME 时的解析结果与改动前**逐字节相同**。）
-  process.env.MPW_PLUGIN_CACHE || (process.env.HOME ? process.env.HOME + '/.dsh-mpkg-wallpaper' : (process.env.TMPDIR || '/tmp') + '/.dsh-mpkg-wallpaper'),
+  process.env.MPW_PLUGIN_CACHE || (process.env.HOME ? process.env.HOME + '/.dsh-mpkg-wallpaper' : os.tmpdir() + '/.dsh-mpkg-wallpaper'),
   process.env.MPW_SD_ROOT || '/mnt/sdcard/wallpapertest1',
   MPW_ROOT + '/allwallpaper',
-  '/tmp/customwall2',
+  path.join(TMP_ROOT, 'customwall2'),
   // ①(P-87 2026-09-15 版权) 本仓库自带的**合成**样例目录也进白名单：`?pkgpath=<repo>/samples/sample-synthetic/scene.pkg`
   //   与 `/pkgdir?d=<repo>/samples/sample-synthetic-src` 是自带样例的官方打开方式，不该要求用户先改环境变量。
   //   （只放我们自己程序化生成的文件，无第三方内容，见 samples/README.md。）
@@ -908,7 +913,7 @@ const server = http.createServer(async (req, res) => {
     m = p.match(/^\/elysia-video\/(\d+)$/);
     if (m) {
       // elysia CPU 渲染 90 帧 → mp4（后台生成；缓存）
-      const mp4 = '/tmp/elysia-render/' + m[1] + '-video.mp4'
+      const mp4 = path.join(TMP_ROOT, 'elysia-render', m[1] + '-video.mp4')
       if (fs.existsSync(mp4)) {
         const st = statSyncSafe(mp4)
         sendFileStream(req, res, mp4, st.size, 'video/mp4')
@@ -920,12 +925,12 @@ const server = http.createServer(async (req, res) => {
     m = p.match(/^\/elysia\/(\d+)$/);
     if (m) {
       const sid = m[1]
-      const cached = '/tmp/elysia-render/' + sid + '.png'
+      const cached = path.join(TMP_ROOT, 'elysia-render', sid + '.png')
       try {
         if (!fs.existsSync(cached)) {
           const { execFileSync } = await import('node:child_process')
-          mkdirSyncSafe('/tmp/elysia-render')
-          execFileSync('node', ['/tmp/elysia-run/render-one.mjs'], { timeout: 600000, env: { ...process.env, ELYSIA_ID: sid } })
+          mkdirSyncSafe(path.join(TMP_ROOT, 'elysia-render'))
+          execFileSync('node', [path.join(TMP_ROOT, 'elysia-run', 'render-one.mjs')], { timeout: 600000, env: { ...process.env, ELYSIA_ID: sid } })
         }
         if (fs.existsSync(cached)) {
           const st = statSyncSafe(cached)
@@ -969,7 +974,7 @@ const server = http.createServer(async (req, res) => {
     pm(/^\/videolib\/(.+)$/);
     if (m) {
       const rel = decodeURIComponent(m[1])
-      const base = '/tmp/loose-cmp'
+      const base = path.join(TMP_ROOT, 'loose-cmp')
       const full = path.join(base, rel)
       const st = statSyncSafe(full)
       if (full.startsWith(base) && st && st.isFile()) {
@@ -1081,12 +1086,12 @@ const server = http.createServer(async (req, res) => {
     let rm = p.match(/^\/render\/(\d+)\.png$/);
     if (rm) {
       const sid = rm[1]
-      const cached = path.join('/tmp/elysia-render', sid + '.png')
+      const cached = path.join(TMP_ROOT, 'elysia-render', sid + '.png')
       try {
         if (!fs.existsSync(cached)) {
           // 异步渲染（防阻塞事件循环）；轮询等待最多 120s
-          mkdirSyncSafe('/tmp/elysia-render')
-          try { spawn('node', ['/tmp/elysia-run/render-one.mjs', sid], { env: { ...process.env, ELYSIA_ID: sid }, detached: true, stdio: 'ignore' }).unref() } catch {}
+          mkdirSyncSafe(path.join(TMP_ROOT, 'elysia-render'))
+          try { spawn('node', [path.join(TMP_ROOT, 'elysia-run', 'render-one.mjs'), sid], { env: { ...process.env, ELYSIA_ID: sid }, detached: true, stdio: 'ignore' }).unref() } catch {}
           const wait = async () => {
             for (let i = 0; i < 240; i++) {
               if (fs.existsSync(cached)) return true

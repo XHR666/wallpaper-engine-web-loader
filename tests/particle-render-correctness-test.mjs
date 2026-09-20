@@ -17,6 +17,7 @@
 //   这样本文件在**两种 `_root.mjs` 版本下都能跑**（本批的提交不依赖别的线未提交的改动）。
 import * as _root from './_root.mjs'
 import path from 'node:path'
+import os from 'node:os'
 import fs from 'node:fs'
 import { createRenderer } from '../core/we-scene-bundle.js'
 import * as lib from '../core/we-scene-bundle.js'
@@ -1163,7 +1164,7 @@ if (hasPkg('3544152633')) {
   const sha = (f) => { try { return require('node:crypto') } catch (e) { return null } }
   const mutant = async (label, from, to, check) => {
     if (!SRC.includes(from)) { red.push(label + ' **变异没生效**（锚点不在源码里）'); return }
-    const tmp = '/tmp/p131-mut-' + label.replace(/[^a-zA-Z0-9]/g, '') + '.mjs'
+    const tmp = path.join(os.tmpdir(), 'p131-mut-' + label.replace(/[^a-zA-Z0-9]/g, '') + '.mjs')
     // 副本落在 /tmp ⇒ 把同目录的相对 import 改写成绝对路径（否则副本 import 不到 attach-transform 等）
     const body = SRC.replace(from, to).replace(/from '\.\//g, "from '" + CORE + '/')
     fs.writeFileSync(tmp, body)

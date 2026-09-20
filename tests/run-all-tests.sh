@@ -255,6 +255,18 @@ add "audio-band-wiring"  "node tests/audio-band-wiring-test.mjs"
 #   `average` 逐段 =(L+R)/2）、`?audioemit=` 档位表、以及"改回每次新建数组必红"的反向变异。
 #   该文件由音频线交付时**未**登记（它按纪律不碰本脚本），主对话在此补上；~1.5s，无浏览器/无网络。
 add "audio-emit-live"    "node tests/audio-emit-live-test.mjs"
+# ①(2026-09-21 音频美术层 + 逐层基线) `scene-layer-baseline`：两件事一起钉 ——
+#   ①**逐层基线夹具** `tests/fixtures/scene-layer-baseline.json`：`3544152633`（用户点名的音频条包）、
+#     `3326873240`（`Audio Bars`，实体遮罩层）、`3719111841`（`音频线…Spectrum Visualizer`）与仓库自带
+#     样例的**逐层事实**（总层/可见层/带纹理的可见层/蒙皮命中/每帧 draw 数/音频美术层/外壳可见数）逐项相等；
+#     读数来自 `tests/render-audit.mjs` 的机读契约 `MPW-AUDIT-JSON`（不复制第二份 mock-GL harness）；
+#     B 段证明读数确定性（两次独立运行逐字段相同）；语料不在本机时**明确 SKIP**（不假装通过）。
+#   ②**音频美术层可见性契约**：`Audio bar(s)` / `…Spectrum Visualizer` 曾被**自家**两条隐藏启发式吞掉
+#     （hideUI 名字正则含 `Audio|Spectrum|音量`；hideBars 关掉"父组纯色遮罩条"，而可视化条自己就是
+#     `models/util/solidlayer.json`）⇒ 现在按"名字 + 特效/粒子/作者绑定"豁免；C 段纯函数正反例 + 真包上
+#     "美术层 vis=1 而外壳（Song Title/.mp3/MUSIC PLAYER）仍 vis=0"；D 段分辨力自证（`hideAudioArt:true`
+#     ⇒ 美术层重新隐藏；夹具改一个数字 ⇒ 比较器报红）。~3s，无浏览器。
+add "scene-layer-baseline" "node tests/scene-layer-baseline-test.mjs"
 add "frame-geometry-wiring" "node tests/web-frame-geometry-wiring-test.mjs"
 
 # ——— ①(§5-⑧ 2026-09-17 回归自动化：真机验证里"能自动化的部分"全自动化）———
@@ -333,6 +345,14 @@ add "camera-origin-script" "node tests/camera-origin-script-test.mjs" "" "^SKIP 
 #   B 段 本机绝对路径（host-workspace-path / device-shared-storage / termux-private-dir）。
 #   带**白名单腐烂检测**（被豁免的命中若消失 ⇒ 判红，防白名单变遮羞布）；退出码 0/1/2。~0.5s，无网络无浏览器。
 add "secret-scan"        "node tests/secret-scan-test.mjs"
+# ①(2026-09-21 跨平台门禁) `cross-platform`：**静态**判"有没有写成 Linux 独占"（换平台才炸的那一类）——
+#   A/B 代码里的本机绝对路径必须当场可覆盖（env/家目录/tmpdir）、写死的 `'/tmp/…'` 判红（白名单 6 条，逐条带理由 +
+#   **防腐烂反查**）；C "找打开器"的文件必须同时有 Linux(`xdg-open`)/macOS(`open`)/Windows(`explorer`) 三条分支 + 覆盖口；
+#   D `.sh` 不许用 bash 4+ 独有特性（macOS 自带 3.2）且 shebang 与语法匹配；E 文件名（大小写冲突/Windows 非法字符/
+#   保留设备名/结尾空格点/超长路径）；F 文本卫生（BOM/CRLF）。G 段 11 条分辨力自证（合成样本逐类必须报红 + 干净样本零发现）。
+#   本轮由它揪出并修掉 20 处真问题（`server/we-scene-demo-server.mjs` 11 处 `/tmp` 字面量、tests 里 13 处、
+#   `:8902` 打开器缺 Windows 分支）。~0.3s，无网络无浏览器。
+add "cross-platform"     "node tests/cross-platform-gate-test.mjs"
 # ①(P2-2 2026-09-18) `bench-8902`：一站式测试台服务（`server/we-scene-demo-server-8902.mjs`）的端到端自证 ——
 #   临时端口 + 夹具库真起服务：8 个 `/api/*` 的状态码与 JSON 形状、静态面 no-store、`/media/dev/**` Range 206、
 #   **路径逃逸**（`..`/绝对/符号链接）400/403、删除**默认 dryRun 不移文件**、`?confirm=1` 才进可回滚 trash、

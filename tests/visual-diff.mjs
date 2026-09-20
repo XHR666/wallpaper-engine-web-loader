@@ -17,6 +17,7 @@
 //       不是绝对相似度；基线=当前版本分数（visual-baseline.json），用于检测**回归**。
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { ROOT, WS } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 // ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
@@ -29,7 +30,7 @@ const DEMO = 'http://127.0.0.1:8899'
 const DD = `${MPW_WS}/allwallpaper/dd`
 const TESTPHOTO = `${MPW_WS}/Testphoto`
 const TP_MAP = { '3719111841': 'TP8' } // 用户截图目录映射（有新对照时在此登记）
-const OUT = argVal('--out') || '/tmp/vd/'
+const OUT = argVal('--out') || (path.join(os.tmpdir(), 'vd') + '/')
 const RENDER_W = 960, RENDER_H = 540
 
 const id = argVal('--id')

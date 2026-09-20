@@ -497,7 +497,7 @@ const MUTANTS = [
 if (!RUN_MUTANTS) {
   console.log('  ⤵ SKIP [G5]（--no-mutants / 变异子进程）')
 } else {
-  const tmp = fs.mkdtempSync('/tmp/p153-mut-')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p153-mut-'))
   try {
     // ① 不用 `fs.cpSync`（本机 Node 24 对它抛 EINVAL）——自己走目录树逐文件复制
     copyTree(path.join(ROOT, 'elysia'), path.join(tmp, 'elysia'))

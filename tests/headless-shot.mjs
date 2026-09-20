@@ -16,11 +16,12 @@
 // 退出码：0=拿到截图；1=截图成功但页面有 error 级日志（仅 headless 路径）；2=连兜底也失败。
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { execFileSync, spawn } from 'node:child_process'
 import { ROOT, WS } from './_root.mjs'   // ①(2026-09-16 目录整理) 根文件（demo.html / bundle / icons）在仓库根
 
 const url = process.argv[2] || 'http://127.0.0.1:8899/?id=3719111841'
-const out = process.argv[3] || '/tmp/headless.png'
+const out = process.argv[3] || path.join(os.tmpdir(), 'headless.png')
 const waitMs = Number(process.argv[4] || 6000)
 const W = Math.min(1280, Number(process.argv[5] || 640))
 const H = Math.min(720, Number(process.argv[6] || 360))
@@ -82,7 +83,7 @@ async function runOneAttempt(name, args) {
     console.log('STATS ' + JSON.stringify(stats))
     console.log('LOGS ' + JSON.stringify(logs.filter((l) => /\[we-scene\]|⚠|js-error|\[pageerror\]|error/i.test(l)).slice(0, 40)))
     console.log('PAGELOG ' + JSON.stringify(pageLog.split('\n').slice(-25).join('\n')))
-    fs.writeFileSync('/tmp/headless.log', logs.join('\n') + '\n\n=== 页面 #log ===\n' + pageLog)
+    fs.writeFileSync(path.join(os.tmpdir(), 'headless.log'), logs.join('\n') + '\n\n=== 页面 #log ===\n' + pageLog)
   } catch (e) {
     try { await browser?.close() } catch {}
     console.log('RESULT ' + JSON.stringify({ ok: false, mode: 'headless-' + name, ms: Date.now() - t0, err: String(e.message).slice(0, 300) }))
@@ -132,7 +133,7 @@ if (process.env.SHOT_MODE === 'cpu') {
     console.error(`[headless-shot] 档位 ${r.name}: ${r.ok ? '成功' : '失败'} (${r.ms}ms)${r.err ? ' · ' + String(r.err).slice(0, 120) : ''}`)
     if (r.ok) { success = r; break }
   }
-  fs.writeFileSync('/tmp/headless-evidence.json', JSON.stringify(evidence, null, 1))
+  fs.writeFileSync(path.join(os.tmpdir(), 'headless-evidence.json'), JSON.stringify(evidence, null, 1))
 }
 
 if (success) {

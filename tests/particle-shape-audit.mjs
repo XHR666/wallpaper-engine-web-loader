@@ -17,6 +17,8 @@
 //   全不设 = official（与真机默认逐位同路）。用途：quad 长宽比 / 长轴角散布 / 竖直占比 /
 //   alpha 覆盖率的**前后 A/B 数字**（几何改动的可见判据），产物 JSON 名带上档位标签防覆盖。
 import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
+import os from 'node:os'
+import path from 'node:path'
 import fs from 'node:fs'
 import { createRenderer } from '../core/we-scene-bundle.js'
 import * as lib from '../core/we-scene-bundle.js'
@@ -279,5 +281,5 @@ for (const id of PKGS) {
 }
 function canvasOf() { return { getContext: () => gl } }
 console.log('\n===== particle-shape-audit: ' + pass + ' 通过 / ' + fail + ' 失败 =====')
-fs.writeFileSync('/tmp/particle-shape-audit-' + TRAIL + '-' + MODE_TAG.replace(/[^a-z0-9=]+/gi, '_') + '.json', JSON.stringify(report, null, 1))
+fs.writeFileSync(path.join(os.tmpdir(), 'particle-shape-audit-' + TRAIL + '-' + MODE_TAG.replace(/[^a-z0-9=]+/gi, '_') + '.json'), JSON.stringify(report, null, 1))
 process.exit(fail ? 1 : 0)

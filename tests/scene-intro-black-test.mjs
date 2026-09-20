@@ -243,6 +243,12 @@ function sliceFn(src, header) {
 const PRIM_HEADS = ['function withTimeout(p, ms, label) {', 'function fetchT(url, opts, ms, label) {', 'function jsonT(r, url, ms, label) {', 'function bufT(r, url, ms, label) {', 'function textT(r, url, ms, label) {', 'function bitmapT(blob, label, ms) {']
 const LOADTEX_HEAD = 'async function loadTex(name, opts = {}) {'
 const sliceLoadTex = (src) => sliceFn(src, LOADTEX_HEAD)
+/* ①(2026-09-21 全量门禁扫出来的真回归) `loadTex` 内部三处贴图创建走 `wrapTex(entry, name)`（P-168 的
+   REPEAT 采样契约），而 `wrapTex` 定义在 `loadTex` **上方的模块作用域** ⇒ 只切 `loadTex` 的夹具里它是
+   `undefined`（`ReferenceError: wrapTex is not defined`，整条链跑不起来）。夹具必须把它一起切进来
+   （与 `slicePrims` 多函数切片同款；`lib`/`gl` 已经是 Function 的形参，作用域对得上）。 */
+const WRAPTEX_HEAD = 'function wrapTex(entry, name) {'
+const sliceWrapTex = (src) => sliceFn(src, WRAPTEX_HEAD)
 const slicePrims = (src) => PRIM_HEADS.map((h) => sliceFn(src, h)).join('\n')
 const TEX_LEAF = '4k-16-9origin_waifu2x_2x_jpg'
 
@@ -283,7 +289,7 @@ async function runLoadTex(o = {}) {
   const fn = new Function('fetch', 'lib', 'pkg', 'textures', 'logf', 'window', 'document', 'gl',
     'withTimeout', 'fetchT', 'jsonT', 'bufT', 'textT', 'bitmapT',
     'NET_TIMEOUT_MS', 'DECODE_TIMEOUT_MS', 'perfAutoQ', 'TEX_BUDGET', '__texBytesTotal', 'DEV_MAX_TEX', 'location',
-    sliceLoadTex(src) + '\nreturn loadTex')
+    sliceWrapTex(src) + '\n' + sliceLoadTex(src) + '\nreturn loadTex')
   const loadTex = fn(() => Promise.resolve(null), libStub, {}, textures, (m) => logs.push(String(m)), win, doc, gl,
     prims.withTimeout, prims.fetchT, prims.jsonT, prims.bufT, prims.textT, prims.bitmapT,
     8000, 8000, false, 220 * 1048576, 0, 16384, o.location)

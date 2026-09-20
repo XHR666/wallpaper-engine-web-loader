@@ -3,6 +3,7 @@
 import { ROOT, WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import zlib from 'node:zlib'
 import { pathToFileURL } from 'node:url'
 import { execFileSync } from 'node:child_process'
@@ -15,7 +16,7 @@ const { parsePkg, getEntry, parseScene, resolveBuiltin, applyRenderConfig } = li
 const rd = (b) => new TextDecoder().decode(b).replace(/^\uFEFF/, '')
 
 const sceneId = process.argv[2]
-const outFile = process.argv[3] || '/tmp/preview.png'
+const outFile = process.argv[3] || path.join(os.tmpdir(), 'preview.png')
 const W = Number(process.argv[4] || 960)
 const H = Number(process.argv[5] || 540)
 const showBars = process.argv[6] === 'bars' || process.argv[7] === 'bars'
@@ -121,7 +122,7 @@ function loadTexRGBA(tn) {
         // 本地解码 PNG：JS 解码对隔行/调色板 PNG 不可靠，走 PIL（真实解码）
         const blob = m0.png || m0.image
         try {
-          const tmp = '/tmp/pngdec_' + randomUUID() + '.png'
+          const tmp = path.join(os.tmpdir(), 'pngdec_' + randomUUID() + '.png')
           fs.writeFileSync(tmp, Buffer.from(blob))
           const dims = String(execFileSync('python3', ['-c', `from PIL import Image
 import sys

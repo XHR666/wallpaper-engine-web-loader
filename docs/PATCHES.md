@@ -12721,3 +12721,90 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
 **固定口径**（本仓与插件仓一致）：**先整目录复制（只跳子目录），再覆盖被变异的那一个文件**。
 组件测试里凡是"复制一个文件到临时目录再 import"的夹具，都按这条写；写变异时还要**跳过被变异的那一个**，
 否则整目录复制会把变异体覆盖回原版（`bind-order-test` 那次假绿就是这么来的）。
+
+## P-169. 跨平台静态门禁（写死路径 / 打开器平台分支 / bash 版本 / 文件名 / 文本卫生）
+
+**触发**：2026-09-20 第 1 条 ——「不要面向结果编程；要适配 mac / Windows / WSL」。此前这些约束只存在于
+"作者知道要这么写"这一层：写死 `/tmp` 的服务端在 Linux 上永远不报错，缺 Windows 分支的打开器在 Termux 上永远走不到。
+**做法**：把"能不能在别的平台跑"变成静态判据（`tests/cross-platform-gate-test.mjs`，18 断言，~0.3s，无网络无浏览器），
+只扫 `git ls-files`（没有 git ⇒ 明确 SKIP，不假装通过）。
+
+### P-169.1 判据（A–F + G 分辨力自证）
+
+* **A/B 路径可覆盖性**：代码里的 `/root/…`、`/home/<user>/…`、`/storage/emulated`、Termux 私有目录、`C:\Users\…`
+  必须**当场给出覆盖口**（同行有 `process.env` / `os.homedir()` / `os.tmpdir()`）；写死的 `'/tmp/…'` 一律判红
+  （Windows 没有 `/tmp`；macOS 的 `/tmp` 是 `/private/tmp` 软链）。白名单 6 条逐条写理由，并**反查每条仍然命中**
+  （条目失效 ⇒ 判红，防白名单变遮羞布）。注释行不参与 A/B（注释不执行；示例的跨平台性是风格问题）。
+  `/home/USER/…` 这类**全大写占位**不算违规（本仓占位符约定），真机路径必含小写用户名。
+* **C 打开器**：同一个"找打开器"的文件必须同时有 Linux(`xdg-open`) / macOS(`open`) / Windows(`explorer`)
+  三条分支**加**环境覆盖口（`MPW_OPEN_CMD`/`OPEN_CMD_ENV`）。
+* **D shell**：`.sh` 不许用 bash 4+ 独有特性（`mapfile`/`readarray`/`declare -A`/`local -n`/`${x^^}`/`${x,,}`/
+  `wait -n`/`coproc`/`&>>` —— macOS 自带 bash 3.2），且用了 `[[`/数组的脚本 shebang 必须是 bash 而非 `sh`。
+* **E 文件名**：无大小写冲突（macOS/Windows 大小写不敏感）、无 Windows 非法字符 `: * ? " < > |`、无保留设备名、无结尾空格/点、段 ≤255 字节、整条 ≤200 字符。
+* **F 文本卫生**：tracked 文本无 BOM、无 CRLF（CRLF 的 `.sh` 在 Linux/WSL 上是 `bad interpreter: /bin/bash^M`）。
+* **G 分辨力自证 11 条**：合成违规样本逐类必须报红 + 干净样本零发现（"永远绿"与"真的在查"必须可区分）。
+
+### P-169.2 它当场揪出并修掉的 20 处真问题
+
+* `server/we-scene-demo-server.mjs`：**11 处**写死 `/tmp/…`（elysia 渲染缓存、`customwall2`、`loose-cmp`、
+  插件缓存兜底）⇒ 新增 `const TMP_ROOT = process.env.MPW_TMP_ROOT || os.tmpdir()`，全部改 `path.join(TMP_ROOT, …)`。
+* `tests/`：**8 个文件 13 处**（`mkdtempSync('/tmp/…')`、`'/tmp/glsl-check'`、`headless-shot` 的产物与证据、
+  `visual-diff` 的输出目录、`preview` 的默认输出、变异副本）⇒ 全部走 `os.tmpdir()`。
+* `server/we-scene-demo-server-8902.mjs`：打开器候选链**缺 Windows**（只有 `termux-open → xdg-open → open`）
+  ⇒ Windows 上点"打开文件夹"必回 501；补 `explorer`（PATH 里必有）并同步 501 文案 / `tried` 清单 /
+  `/__health` 能力说明 / `docs/BENCH-8902.md`。
+* 已进全量门禁：渲染器 **118 → 121 项**（`cross-platform` + 随后登记的 `scene-layer-baseline`）。
+
+### P-169.3 顺带：**全量门禁扫出一条被漏掉的既有回归**
+
+`tests/scene-intro-black-test.mjs` 用"**真源码切片**"跑 `demo.html` 的 `loadTex`，而 P-168 新增的 `wrapTex`
+定义在 `loadTex` **上方的模块作用域** ⇒ 切片里 `ReferenceError: wrapTex is not defined`，整条装载链跑不起来
+（29 断言里全红）。**这一类"切片只切了被调函数、没切它依赖的同文件 helper"的坑**，判据是：
+凡是 `new Function(切片… )` 的夹具，切片清单必须**按被调函数的真实依赖**列全（该测试已有 `slicePrims` 多函数切片先例）。
+修法：切片清单加 `WRAPTEX_HEAD`，与 `loadTex` 一起注入。修后 29/29 通过。
+**教训**：P-168 那批只跑了新门禁与相关子集，没跑全量 ⇒ 一条既有门禁红着进了仓库；收口必须跑全量（本条已登记为纪律）。
+
+## P-170. 音频响应型美术层被**自家**两条隐藏启发式吞掉（用户"音频条没有做出来"的真因）+ 逐层基线夹具
+
+**现场**：用户点名 `3544152633`「他的渲染是对的，oneincase 背景全错」并补一句「**我的音频条没有做出来**」。
+离线逐层审计（`node tests/render-audit.mjs 3544152633`）第一帧就写着 `#3 Audio bar vis=0 tex=- fx=2` ——
+**不是没有音频源，是这一层被我们自己关掉了**。
+
+### P-170.1 根因（两条启发式，缺一不可）
+
+* **hideUI 的名字正则**：`uiRe` 里含 `Audio|音频|Spectrum|播放|音量|sound`（原意是隐藏"播放器外壳"），
+  于是作者做的可视化条按名字被整类隐藏。
+* **hideBars 的"父组纯色遮罩条"**：`l.parent != null && l.solid && l.image` 以 `models/util/solidlayer` 开头就关掉 ——
+  而**可视化条自己就是这种实体遮罩层**（实测 `3326873240` 的 `Audio Bars`：`image=models/util/solidlayer.json`、
+  `visible={"user":"newproperty61","value":true}`，作者默认**可见**，却被这条规则吞掉；`3544152633` 的 `Audio bar` 同理）。
+
+### P-170.2 判据（语料 11 包 / 17 个"音频类名字"层，两类分得很干净）
+
+* **美术层** = 名字命中 `Audio bar(s)` / `Spectrum` / `频谱` / `Visualizer` **且**有特效|粒子|作者属性绑定
+  ⇒ 豁免（`core/we-scene-bundle.js` 新增 `audioArtIds(scene)`，与 `timeVariantIds` 同款豁免机制）。
+* **外壳与音源对象** = `Song Title`/`Artist Name`/`Play Icon`/`----MUSIC PLAYER----`/`xxx.mp3`（无可视内容）
+  ⇒ 照旧隐藏（名字不命中音频美术词，或没有任何"这是美术"的证据）。
+* 回退口：`opts.hideAudioArt === true`（demo 侧 `?audioart=hide`）—— 对照"这一层到底是谁在显示/隐藏"。
+* 豁免生效时打一行日志（`① 音频响应型美术层豁免 hideUI：N 层（名字…）`），不靠猜。
+
+### P-170.3 逐层基线夹具（让"观感退化"以后可判）
+
+`tests/fixtures/scene-layer-baseline.json` + `tests/scene-layer-baseline-test.mjs`（20 断言 / 1 SKIP，~3s）：
+* 四条记录：仓库自带样例（必跑）、`3544152633`、`3326873240`、`3719111841`（语料不在本机 ⇒ **明确 SKIP**，不假装通过）；
+* 钉住的事实：总层/可见层、`renderError`、蒙皮隐藏数/命中数、**带纹理的可见层清单**、每帧 draw 数、
+  **音频美术层的可见性**、外壳层可见数（必须为 0）；
+* 读数来自 `tests/render-audit.mjs` 的**机读契约** `MPW-AUDIT-JSON {...}`（人读输出一字未改，
+  只是末尾多一行）——**不复制第二份 mock-GL harness**（复制出来的第二份迟早和真渲染器漂移）；
+* B 段：同一包连跑两次读数逐字段相同（夹具确定性，不是"每次都不一样所以永远绿"）；
+* D 段分辨力自证：`hideAudioArt:true` ⇒ 美术层重新被隐藏（证明可见性确实来自这条豁免）；
+  夹具改一个数字 ⇒ 比较器报红（证明夹具不是摆设）。
+* 修后实测：`3544152633` 可见层 **23 → 24**（`Audio bar` vis=1）、`3326873240` **29 → 30**（`Audio Bars` vis=1）、
+  `3719111841` 的 `音频线Audio Spectrum Visualizer` vis=1；三包的 `Song Title`/`Play Icon`/`.mp3`/`MUSIC PLAYER`
+  仍然 vis=0（外壳没有跟着漏出来）。
+* 已进全量门禁：渲染器 **121 → 122 项**。
+
+### P-170.4 仍缺的一环（诚实清单）
+
+音频条**显示**这一半修好了；**电平**那一半仍按 `?bandfeed=` 的既有口径：浏览器拿不到系统声卡环回，
+真实源只有 ① 包内音轨（`?audio=1` + AnalyserNode）② 已授权/显式请求的麦克风；两者都没有 ⇒ **全 0 + `silent`**
+（`window.__mpwAudioBandSource`、`__mpwAudioBandStats().silent` 可查，不假装有声音）。模拟源只在显式 `?bandfeed=sim`。

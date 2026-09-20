@@ -17,7 +17,7 @@
 //     MPW_REPORTS_DIR=/path/reports 上报根（默认 <MPW_ROOT>/reports）⇒ 属性覆盖落在 <reports>/bench-props/
 //     MPW_BENCH_STATIC_DIR=/path/demo 测试台静态面根（默认 <repo>/demo；测试的变异副本靠它指回真树）
 //     MPW_BENCH_STORE=1            静态面**不要** no-store（默认 no-store，与 :8901 同口径）
-//     MPW_OPEN_CMD=/bin/true       `/api/reveal` 用的"打开器"（默认按 termux-open → xdg-open → open 查找）
+//     MPW_OPEN_CMD=/bin/true       `/api/reveal` 用的"打开器"（默认按 termux-open → xdg-open → open → explorer 查找：四个平台各一条）
 //     MPW_LIMIT_*                  与 :8899 同名的上限变量在这里**不复用**（本服务只写属性覆盖文件，见 PROPS 上限）
 //
 // 一个 origin 提供的东西（逐条都对着产物里的**调用方**，不是猜的；证据见 docs/BENCH-8902.md）：
@@ -1086,7 +1086,10 @@ function whichSync(cmd) {
   return null
 }
 function findOpener() {
-  const cands = [OPEN_CMD_ENV, 'termux-open', 'xdg-open', 'open'].filter(Boolean)
+  /* ①(2026-09-21 跨平台) 四平台候选：环境覆盖 → Termux → Linux → macOS → Windows。
+     Windows 上打开文件夹就是 `explorer <path>`（PATH 里必有；`start` 需要经 cmd，故不选它）。
+     只写 termux-open/xdg-open/open 会让 Windows 用户点"打开文件夹"直接 501（`tests/cross-platform-gate-test.mjs` C 段钉住）。 */
+  const cands = [OPEN_CMD_ENV, 'termux-open', 'xdg-open', 'open', 'explorer'].filter(Boolean)
   for (const c of cands) { const hit = whichSync(c); if (hit) return { cmd: c, path: hit } }
   return null
 }
@@ -1873,10 +1876,10 @@ async function handleApi(req, res, url) {
       // 诚实降级：501 + 说明（调用方把它当错误显示在日志里；**不是** 500，也不是假装成功）
       return json(res, 501, {
         ok: false, unsupported: true, degraded: true, itemId: body.itemId || null, path: target,
-        error: '本机没有可用的"打开文件夹"程序（找不到 termux-open / xdg-open / open）',
+        error: '本机没有可用的"打开文件夹"程序（找不到 termux-open / xdg-open / open / explorer）',
         reason: '无头/精简环境常见：没有 X11 打开器；本服务**不会**替你启动浏览器或文件管理器',
-        hint: '装 termux-open 或 xdg-open，或用 MPW_OPEN_CMD=/path/to/opener 指定；也可以直接 `cd` 到上面这个 path',
-        tried: [OPEN_CMD_ENV, 'termux-open', 'xdg-open', 'open'].filter(Boolean),
+        hint: '装 termux-open / xdg-open / explorer（Windows 自带），或用 MPW_OPEN_CMD=/path/to/opener 指定；也可以直接 `cd` 到上面这个 path',
+        tried: [OPEN_CMD_ENV, 'termux-open', 'xdg-open', 'open', 'explorer'].filter(Boolean),
       })
     }
     const r = await spawnDetached(opener.path, [target])
@@ -2106,7 +2109,7 @@ function health() {
       diag: { route: 'POST /diag', sink: '内存环形缓冲（重启即失；仅当前两条都不可用时才走到）' },
       prunes: ['r*/selfcheck* 最旧先删（数量 + 总字节）', 'baselines/ 独立滚动（数量 + 总字节）', 'reports/ 里别条线的 parity-* 等产物一个都不动'],
     },
-    reveal: opener ? { available: true, opener: opener.path } : { available: false, status: 501, tried: [OPEN_CMD_ENV, 'termux-open', 'xdg-open', 'open'].filter(Boolean) },
+    reveal: opener ? { available: true, opener: opener.path } : { available: false, status: 501, tried: [OPEN_CMD_ENV, 'termux-open', 'xdg-open', 'open', 'explorer'].filter(Boolean) },
     capabilities: {
       staticBench: true, mediaDev: true, webDev: true, rangeRequests: true,
       libraryList: true, libraryDirEnumerate: true, libraryDirNarrow: true,
@@ -2133,7 +2136,7 @@ function health() {
         reason: '同上：宿主对话框没有；目录型用户属性请改用服务端选择器（GET /api/dir-list → POST /api/dir-pick）',
       },
       {
-        endpoint: 'POST /api/reveal', when: '找不到 termux-open/xdg-open/open 或启动失败', capability: 'open-in-file-manager', capabilityStatus: 501,
+        endpoint: 'POST /api/reveal', when: '找不到 termux-open/xdg-open/open/explorer 或启动失败', capability: 'open-in-file-manager', capabilityStatus: 501,
         httpStatusUsed: 501, body: '{ok:false, unsupported:true, error, reason, hint}',
         reason: '无头/精简环境没有打开器；按能力不可用**真回 501**（调用方本来就把它当错误显示），绝不是 500',
       },
@@ -2295,6 +2298,6 @@ server.listen(PORT, () => {
   line(`  健康自述       : http://127.0.0.1:${PORT}/__health`)
   line(`  降级为 501 的能力（见 /__health.degraded）：`)
   for (const d of healthSnap.degraded) line(`    · ${d.endpoint} ${d.when} → 能力 501（${d.capability}）；HTTP 用 ${d.httpStatusUsed}：${d.reason.slice(0, 60)}…`)
-  line(opener ? `  /api/reveal 打开器：${opener.path}` : '  /api/reveal 打开器：**没有**（找不到 termux-open/xdg-open/open ⇒ 真回 501 + 说明）')
+  line(opener ? `  /api/reveal 打开器：${opener.path}` : '  /api/reveal 打开器：**没有**（找不到 termux-open/xdg-open/open/explorer ⇒ 真回 501 + 说明）')
   line(`已就绪。curl 自检： curl -s http://127.0.0.1:${PORT}/__health | head -30`)
 })

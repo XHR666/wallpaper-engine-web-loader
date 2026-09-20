@@ -28,6 +28,7 @@
 import { WS } from './_root.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import crypto from 'node:crypto'
 import * as lib from '../core/we-scene-bundle.js'
 
@@ -391,7 +392,7 @@ else {
     if (!SRC.includes(mu.from) || (mu.from2 && !SRC.includes(mu.from2))) { ok('⑦ ' + mu.label + ' 变异生效（锚点在源码里）', false, '锚点不在源码里'); continue }
     let body = SRC.replace(mu.from, mu.to)
     if (mu.from2) body = body.replace(mu.from2, mu.to2)
-    const tmp = '/tmp/p134-mut-' + mu.label.replace(/[^A-Za-z0-9]/g, '') + '.mjs'
+    const tmp = path.join(os.tmpdir(), 'p134-mut-' + mu.label.replace(/[^A-Za-z0-9]/g, '') + '.mjs')
     fs.rmSync(tmp, { force: true })                              // L-02：写前先删，绝不写穿软链
     fs.writeFileSync(tmp, body.replace(/from '\.\//g, "from '" + CORE + '/'))
     let red = null, detail = ''
@@ -406,7 +407,7 @@ else {
     console.log('   RED ' + (red ? '变异生效' : '变异**没红**') + '｜' + mu.label + '：' + detail)
     ok('⑦ ' + mu.label + ' ⇒ 对应断言变红（RED-IF-REVERTED）', red === true, detail)
   }
-  const leftovers = fs.readdirSync('/tmp').filter((f) => /^p134-mut-.*\.mjs$/.test(f))
+  const leftovers = fs.readdirSync(os.tmpdir()).filter((f) => /^p134-mut-.*\.mjs$/.test(f))
   ok('⑦ 真树 `core/we-scene-bundle.js` 跑前跑后 sha256 相同（变异副本落 /tmp 且已 unlink）',
     shaOf(SRC_FILE) === srcSha && leftovers.length === 0, srcSha.slice(0, 16) + ' /tmp 残留=' + leftovers.length)
 }

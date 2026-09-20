@@ -13,10 +13,12 @@
 //   · 没有标记 ⇒ 一律按子进程真实 rc（超时 124 / 失败非 0）上报；
 //   · 真回归（SSIM 偏离）走的是 `✗`/`process.exit(1)` 分支，**永远不会**命中这里的成功标记。
 import { spawn } from 'node:child_process'
+import os from 'node:os'
+import path from 'node:path'
 
 const MARK = '✓ --check：与基线一致'
 // ①(2026-09-16 目录整理) 子脚本与包装器同在 tests/ ⇒ 用仓库根相对的 tests/ 前缀（runner 的 cwd = 仓库根）
-const args = ['tests/visual-diff.mjs', '--id', '3719111841', '--out', `${process.env.MPW_VD_OUT || '/tmp/vd'}/`, '--check', '--skip-render']
+const args = ['tests/visual-diff.mjs', '--id', '3719111841', '--out', `${process.env.MPW_VD_OUT || path.join(os.tmpdir(), 'vd')}/`, '--check', '--skip-render']
 const HARD_MS = Number(process.env.MPW_VDKAL_TIMEOUT_MS || 120000)   // 无标记时的硬上限
 const GRACE_MS = 3000                                                // 见到标记后再等多久才判定"完成不退出"
 

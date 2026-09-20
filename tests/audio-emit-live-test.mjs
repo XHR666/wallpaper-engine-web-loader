@@ -17,6 +17,7 @@
 // 运行：node tests/audio-emit-live-test.mjs [--verbose]   （全过输出 ALL PASS，退出码 0）
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import * as _root from './_root.mjs'
@@ -228,7 +229,7 @@ console.log('\n== T4 反向变异（/tmp 真文件副本；真树只读）==')
   let red = null
   if (!src.includes(anchor)) red = '变异**没生效**（找不到 registerAudioBuffers 锚点）'
   else {
-    const tmp = '/tmp/p131-mut-scene-scripts.mjs'
+    const tmp = path.join(os.tmpdir(), 'p131-mut-scene-scripts.mjs')
     // 手工 readFileSync/writeFileSync（本机 fs.cpSync 抛 EINVAL；不用它）
     fs.writeFileSync(tmp, src.replace(anchor, OLD_IMPL).replace(/from '\.\//g, "from '" + path.join(ROOT, 'elysia') + '/'))
     try {

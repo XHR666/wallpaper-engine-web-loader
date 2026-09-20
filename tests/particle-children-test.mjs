@@ -34,6 +34,7 @@
 import { WS, ROOT } from './_root.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 
@@ -693,7 +694,7 @@ if (SUITE && fs.existsSync(PKG_FIREFLY)) {
 // ═══════════════ ⑤ ?children=legacy 逐位证明 ═══════════════
 console.log('\n[5] ⑤ `?children=legacy` 逐位：≡ 源码级换回旧实现')
 if (SUITE && fs.existsSync(PKG_FIREFLY)) {
-  const tmp = fs.mkdtempSync('/tmp/p144-mut-')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p144-mut-'))
   const coreSrc = path.join(ROOT, 'core')
   for (const f of fs.readdirSync(coreSrc)) {
     if (!/\.(mjs|js)$/.test(f)) continue
@@ -857,7 +858,7 @@ if (SUITE && fs.existsSync(`${MPW_WS}/allwallpaper`)) {
 // ═══════════════ ⑦ RED-IF-REVERTED（6 组变异） ═══════════════
 console.log('\n[7] ⑦ RED-IF-REVERTED：6 组变异，每组必须让**指定那一组**变红')
 if (SUITE) {
-  const tmp = fs.mkdtempSync('/tmp/p144-red-')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p144-red-'))
   const coreSrc = path.join(ROOT, 'core')
   const copyCore = (d) => { for (const f of fs.readdirSync(coreSrc)) if (/\.(mjs|js)$/.test(f)) fs.writeFileSync(path.join(d, f), fs.readFileSync(path.join(coreSrc, f))) }
   copyCore(tmp)

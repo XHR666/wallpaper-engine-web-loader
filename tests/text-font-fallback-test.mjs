@@ -45,6 +45,7 @@
 //   缺真包时 T3/T3b 输出 `SKIP …`（门禁条件项）；T1/T2/T2s/T4/T5 永远跑。
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import net from 'node:net'
 import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
@@ -642,7 +643,7 @@ if (process.env.MPW_FONT_E2E === '1') {
   const freePort = () => new Promise((res) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)) }) })
   const port = await freePort()
   const base = 'http://127.0.0.1:' + port
-  const tmpRoot = fs.mkdtempSync('/tmp/mpw-font-e2e-')
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mpw-font-e2e-'))
   let child = null, browser = null
   try {
     child = spawn(process.execPath, [SERVER], {

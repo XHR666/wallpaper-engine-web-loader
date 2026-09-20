@@ -204,7 +204,7 @@ if(!t.ok||n.error) throw new Error(n.error||`HTTP ${t.status}`); b(p("ok.reveal"
 ```
 
 * 只接受**库根内**的 `{itemId}` 或 `{path}`（先做路径校验，**再看打开器**：逃逸 ⇒ 403，不是 501）。
-* 打开器按 `MPW_OPEN_CMD` → `termux-open` → `xdg-open` → `open` 找；**找不到 ⇒ 501 + `{unsupported:true, error, reason, hint}`**
+* 打开器按 `MPW_OPEN_CMD` → `termux-open` → `xdg-open` → `open` → `explorer` 找（四个平台各一条：Termux / Linux / macOS / Windows）；**找不到 ⇒ 501 + `{unsupported:true, error, reason, hint}`**
   （绝不 500、绝不假装成功）；启动失败同样 501。本服务**不会**替你启动浏览器（测试里用 `MPW_OPEN_CMD=/bin/true` 验证成功分支，
   用 `PATH=""` 验证 501 分支，全程零 X11/零浏览器）。
 

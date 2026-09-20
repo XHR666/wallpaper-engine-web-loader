@@ -23,6 +23,7 @@
 import { WS, ROOT } from './_root.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 
@@ -382,7 +383,7 @@ if (m && fs.existsSync(UP_PARTICLES)) {
 console.log('\n[4] ④ RED-IF-REVERTED：把"指针不进签名"换回旧写法 ⇒ 尾迹断言必须变红')
 if (fs.existsSync(`${DIR}/3554161528/scene.pkg`)) {
   // 变异只在 /tmp 的**真文件副本**上做（本机 fs.cpSync 抛 EINVAL ⇒ readFileSync/writeFileSync 逐文件复制）
-  const tmp = fs.mkdtempSync('/tmp/p136-mut-')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p136-mut-'))
   const coreSrc = path.join(ROOT, 'core')
   for (const f of fs.readdirSync(coreSrc)) {
     if (!/\.(mjs|js)$/.test(f)) continue

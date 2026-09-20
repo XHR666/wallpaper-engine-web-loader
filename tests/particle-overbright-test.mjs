@@ -32,6 +32,7 @@
 import { WS, ROOT } from './_root.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 
@@ -710,7 +711,7 @@ function runProbeSub(bundlePath, scenario) {
 
 function runMutations() {
   group('[8] ⑧ RED-IF-REVERTED（5 组变异，每组另跑一次探针并记录实际变红的断言）')
-  const tmp = fs.mkdtempSync('/tmp/p149-red-')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p149-red-'))
   const coreSrc = path.join(ROOT, 'core')
   const copyCore = (d) => { for (const f of fs.readdirSync(coreSrc)) if (/\.(mjs|js)$/.test(f)) fs.writeFileSync(path.join(d, f), fs.readFileSync(path.join(coreSrc, f))) }
   copyCore(tmp)

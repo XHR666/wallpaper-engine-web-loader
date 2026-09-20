@@ -50,6 +50,7 @@
 import { WS, ROOT } from './_root.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { execFileSync } from 'node:child_process'
 
@@ -534,7 +535,7 @@ if (!MUTATION) {
 } else if (IS_PROBE) {
   push('5 变异自证在 --probe 模式下不跑（子进程只跑判据）', true, 'skip')
 } else {
-  const tmp = fs.mkdtempSync('/tmp/trail-leave-mut-')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'trail-leave-mut-'))
   const cases = [
     {
       tag: 'M1 力中心退化（`__cpWorldLocked` 无指针 ⇒ null，回到"退化到层原点/左上角"的旧写法）',
