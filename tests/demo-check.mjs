@@ -598,12 +598,18 @@ const landing = path.join(ROOT, 'index.html')
     // DICT 定义行以外，全文不许再出现 theme.auto 的**取值/按键拼接**
     !/theme\.'\s*\+\s*\(?mode\b/.test(patchSrc) &&
     (patchSrc.split('\n').filter((l) => !l.includes('export const DICT')).join('\n').match(/'theme\.auto'/g) || []).length === 0)
-  check('D11 ⑫c 图标居中：.theme-btn 走 inline-flex 居中 + 内联 svg 块级化（去掉基线降部留白）',
-    /#site-actions \.theme-btn\{[^}]*display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1\}/.test(css) &&
-    /#theme-toggle \.ic\{display:block;flex:none\}/.test(css))
-  check('D11 ⑫c 两条居中声明在 SITE_LAYOUT_CSS 里也有（D8 逐条比对之外再点名）',
-    patchSrc.includes("display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1}") &&
-    patchSrc.includes("'#theme-toggle .ic{display:block;flex:none}'"))
+  /* ⑥(2026-09-20 用户第 6 条「暗色模式小月亮图标不居中」)：判据从"写了 flex 居中"升级成**几何居中的三件事
+     同时在场** —— ①按钮 `border:0`（产物 `.act` 的 `border-left:2px` 在 `*{box-sizing:border-box}` 下
+     会把内容盒推右 1px，实测就是这个）②容器居中（flex/`place-items`）③图标 `display:block;line-height:1`。
+     真正的几何判据（中心偏差 ≤1px、两主题各一次）在 tests/bench-ui-headless-test.mjs 的 G 组。 */
+  check('D11 ⑥ 图标居中：.theme-btn 去边框 + flex/place-items 居中 + 内联 svg 块级化（去掉基线降部留白）',
+    /#site-actions \.theme-btn\{[^}]*border:0[^}]*display:inline-flex;align-items:center;justify-content:center;place-items:center;padding:0;line-height:1[^}]*\}/.test(css) &&
+    /#theme-toggle \.ic\{display:block;flex:none\}/.test(css) &&
+    /#theme-toggle svg\.ic\{display:block;line-height:1;margin:0;vertical-align:middle\}/.test(css))
+  check('D11 ⑥ 三条居中声明在 SITE_LAYOUT_CSS 里也有（D8 逐条比对之外再点名）',
+    patchSrc.includes("display:inline-flex;align-items:center;justify-content:center;place-items:center;padding:0;line-height:1") &&
+    patchSrc.includes("'#theme-toggle .ic{display:block;flex:none}'") &&
+    patchSrc.includes("'#theme-toggle svg.ic{display:block;line-height:1;margin:0;vertical-align:middle}'"))
 
   // ⑬ 下拉浮层：position:fixed + 自己算坐标 + 祖先链上没有会"抓走"固定定位的 transform/contain
   check('D11 ⑬ .bench-rd-list 改成 position:fixed（脱离 #toolbar{overflow:auto} / #workbench{overflow:hidden} 的裁剪）',

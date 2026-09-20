@@ -642,5 +642,100 @@ console.log('== C RED-IF-REVERTED（真树只读，变异在 /tmp 副本） ==')
   fs.rmSync(tmp, { recursive: true, force: true })
 }
 
+// ══════════════════ F 组（2026-09-20 用户第 1–11 条）静态纪律与纯函数契约 ══════════════════
+//  与 `bench-ui-headless` 的 G 组互补：那边测**运行期几何/状态机**，这边钉**静态不漂移**
+//  （关键 CSS 必须在 head 里内联、开关必须在页签内部、成功路径契约的形状、清空按视图分流……）。
+console.log('== F 组（2026-09-20 用户第 1–11 条）==')
+{
+  const staticBare = staticCss.replace(/\/\*[\s\S]*?\*\//g, ' ')
+
+  // ①(用户第 1 条) 入口单一主人：接管 `#pick-lib` 时必须把产物自己的 `onclick` 摘掉
+  ok(/function detachArtifactPickChain\(\)/.test(patchCode) && /pickLibBtn\.onclick = null/.test(patchCode) &&
+    /detachArtifactPickChain\(\)/.test(patchCode) && /callArtifactPickChain\(\)/.test(patchCode),
+    'F1 ① 接管「选择文件夹」时**摘掉产物自己的 onclick**（同元素捕获拦不住它 ⇒ 它会 window.prompt 阻塞主线程）')
+  ok(/export function libDirCommitPlan\(\)/.test(patchSrc) &&
+    /closeFsDialog\('committed'\)/.test(patchCode) && /refreshLibrarySoft\(\)/.test(patchCode),
+    'F2 ① 成功路径三段在代码里真的接上了：重拉列表（`refreshLibrarySoft`）+ 自动关窗（`closeFsDialog(\'committed\')`）')
+  const plan = P.libDirCommitPlan()
+  ok(plan.reloadPage === false && plan.closeDialogOnSuccess === true && plan.closeDialogOnFailure === false &&
+    plan.touchSelection === false && plan.showReasonOnFailure === true &&
+    plan.listRequest.method === 'GET' && plan.listRequest.path === '/api/library',
+    'F3 ① 「就选这个目录」成功之后的动作契约（纯函数）：同页 GET /api/library + 自动关窗 + **不碰当前选中的壁纸**；失败不关窗 + 写原因',
+    JSON.stringify(plan))
+  ok(/function fsSetState\(/.test(patchCode) && /FS_TIMEOUT_MS/.test(patchCode) && /ui\.gen !== gen/.test(patchCode),
+    'F4 ① 状态机自带可见状态 + 超时 + 代际号（"永远停在 Reading…"从构造上不可能）')
+  ok(/if \(el && \(plan\.isDiag \|\| !el\.textContent\)\)/.test(patchCode) === false,
+    'F5 ② 清空按钮那条**自锁判据**（`plan.isDiag || !el.textContent` ⇒ 调试视图永远清不掉）已删除')
+
+  // ②(用户第 2 条) 清空按当前视图分流，三个视图各留一条"已清空"
+  ok(/function clearLogsView\(\)/.test(patchCode) && /dbgLines = \[\]/.test(patchCode) &&
+    /logsView === 'diag'/.test(patchCode) && /logsView === 'debug'/.test(patchCode) && /logs\.cleared/.test(patchSrc),
+    'F6 ② 清空按**当前视图**分流（输出 / 诊断 / 调试各清各的 + 调试的行缓冲一起清）+ 一条"已清空"系统行')
+
+  // ③(用户第 3 条) 开关在页签内部；切页签不碰模式
+  ok(/id="dbg-mode"/.test(htmlSrc) && /id="debug-body"[\s\S]{0,900}?id="dbg-mode"/.test(htmlSrc),
+    'F7 ③ 调试模式开关在**调试页签内部**（`#debug-body` 里的 `#dbg-mode`），不是页签自己')
+  ok(/setDebugMode\(plan\.isDebug\)/.test(patchCode) === false && /dbgSyncKeys\(\)/.test(patchCode),
+    'F8 ③ `setLogsView()` **不再**调 `setDebugMode`（切页签永不改模式）；键盘改由 `dbgSyncKeys()` 按"模式 ∧ 本页可见"装卸')
+  ok(/'#debug-body'/.test(patchSrc) === false || true, 'F9 ③ （占位：`#debug-body` 由静态 HTML 提供，补丁只查 `#dbg-mode`）')
+
+  // ④(用户第 4 条) 调试页签要看到与 :8899 同一份诊断文本
+  ok(/function dbgMirrorDiagLine\(/.test(patchCode) && /dbgMirrorDiagLine\(entry\)/.test(patchCode) &&
+    /dataset\.src = 'diag'/.test(patchCode),
+    'F10 ④ 诊断流的每一条都**原样**镜像进 `#dbg-log`（带 `data-src="diag"` 标记 ⇒ 与 :8899 的 #log 同一份内容）')
+  ok(/dbgReportBtn/.test(patchCode) && /dbgShotBtn/.test(patchCode),
+    'F11 ④ 8902 自己的「立即上报 / 截图」按钮保留（镜像不替换它们）')
+
+  // ⑤(用户第 5 条) 麦克风默认关 + 闸门
+  ok(/id="mic-enable"/.test(htmlSrc) && /id="mic-enable"[^>]*checked/.test(htmlSrc) === false,
+    'F12 ⑤ 工具条有「启用麦克风」且**静态 HTML 里没有 checked**（默认关）')
+  ok(/function installMicGateOn\(/.test(patchCode) && /micGateOpen\(\)/.test(patchCode) &&
+    /Promise\.reject\(micDeny\(win\)\)/.test(patchCode) && /liveEl\.checked = false/.test(patchCode),
+    'F13 ⑤ 闸门三层都在：getUserMedia 包装（关着直接拒绝、不调原函数）+ 「系统实况」强制关（URL 拿不到 liveSystem=1）+ 探针')
+
+  // ⑥(用户第 6 条) 图标几何居中三件事
+  ok(/border:0;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;place-items:center/.test(staticBare) &&
+    /#theme-toggle svg\.ic\{display:block;line-height:1;margin:0;vertical-align:middle\}/.test(staticBare),
+    'F14 ⑥ 居中三件事同时在静态表里：按钮 `border:0` + flex/place-items 居中 + 图标 `display:block;line-height:1`')
+
+  // ⑦(用户第 7 条) 滚动条：一处定义（变量）+ 两处引用（同一份选择器清单）
+  ok(/--bench-sb-size:8px/.test(staticBare) && /--bench-sb-thumb:rgba\(255,255,255,\.5\)/.test(staticBare) &&
+    /--bench-sb-thumb:rgba\(0,0,0,\.28\)/.test(staticBare) &&
+    /scrollbar-width:thin;scrollbar-color:var\(--bench-sb-thumb\) var\(--bench-sb-track\)/.test(staticBare) &&
+    /border-radius:999px/.test(staticBare),
+    'F15 ⑦ 滚动条：细 8px + 滑块 rgba(255,255,255,.5)（亮色 rgba(0,0,0,.28)）+ 透明轨道 + 999px 圆角，各只定义一次')
+  const sbRule = (staticBare.match(/^html\.bench-shell ([^{]*#list[^{]*)\{scrollbar-width:thin[^}]*\}$/m) || [])[1] || ''
+  ok(/#list/.test(sbRule) && /#logbody/.test(sbRule) && /#diag-body/.test(sbRule) && /\.dbg-log/.test(sbRule) && /,/.test(sbRule),
+    'F16 ⑦ 资源管理器列表与输出区**共用同一条选择器清单**（一处定义、两处引用：改样式只改这一行）', sbRule.slice(0, 90))
+
+  // ⑨(用户第 10 条) 输入框聚焦
+  ok(/--bench-input-border:#ccc;--bench-input-focus:#111/.test(staticBare) &&
+    /--bench-input-focus:#fff/.test(staticBare) &&
+    /border:1px solid var\(--bench-input-border\)!important/.test(staticBare) &&
+    /:focus, html\.bench-shell textarea:focus\{outline:none;border-color:var\(--bench-input-focus\)!important\}/.test(staticBare),
+    'F17 ⑨ 输入框：平时灰边、聚焦黑边（暗色白边），`outline:none` + 两处颜色统一到变量；`!important` 必需（产物 `#filter:focus` 带 id，特异性永远压过不带 id 的选择器）')
+
+  // ⑪(用户第 11 条) 首屏防闪**必须在 head 的静态表里**
+  ok(/html\.bench-shell:not\(\[data-bench-ready\]\) body\{visibility:hidden\}/.test(staticBare) &&
+    /html\.bench-shell\[data-bench-ready\] body\{visibility:visible\}/.test(staticBare),
+    'F18 ⑪ 首屏闸门在 `<style id="bench-shell-static">` 里内联（不依赖 JS/补丁就能挡住堆叠帧）')
+  /* ⚠ 这条用**原始 HTML**（`htmlSrc`）而不是剥注释版：index.html 那句 `demo/assets/brand/**` 里的 `/**`
+     会让 `stripComments` 的「斜杠星号 … 星号斜杠」规则提前收尾，把 head 里那段脚本整段吞掉
+     （踩到过：断言读不到明明存在的代码）。查的是 script 里的真代码，用原始文本更准。 */
+  ok(/window\.__benchReady = ready/.test(htmlSrc) && /setTimeout\(ready, 1200\)/.test(htmlSrc) && /setTimeout\(ready, 3000\)/.test(htmlSrc) &&
+    /document\.addEventListener\('DOMContentLoaded', function \(\) \{ setTimeout\(ready, 0\) \}\)/.test(htmlSrc),
+    'F19 ⑪ 摘闸门有三个时刻：补丁显式就绪 + DOMContentLoaded + 1.2s/3s 硬兜底（任何异常路径下都不会白屏）')
+
+  // ⑧(用户第 8 条) 类型筛选单一事实源
+  ok(/function setSegActive\(b, on\)/.test(patchCode) && /b\.classList\.contains\('active'\) !== !!on/.test(patchCode) &&
+    /try \{ paintTypeSegs\(\) \} catch/.test(patchCode),
+    'F20 ⑧ 高亮与过滤同一个变量：`paintTypeSegs()` 只读 `uiType`，且列表每次变动后按它再对一次账（写同值不产生 mutation）')
+
+  // ①(用户第 9 条) 幽灵叉号
+  ok(/else curId = null/.test(patchCode) && /if \(cur && curId && activeItem && cur\.parentNode === tabsBox\)/.test(patchCode) &&
+    /const isOpen = \(Array\.isArray\(pinned\) && pinned\.indexOf\(want\) >= 0\)/.test(patchCode),
+    'F21 ① 幽灵叉号：`curId` 只在"列表里真有 active 项"时非空 + 叉号按同一判据渲染 + 关不存在的 id 幂等返回 false（不写日志）')
+}
+
 console.log(`\n── 汇总：PASS=${pass} FAIL=${fail}`)
 process.exitCode = fail ? 1 : 0

@@ -57,6 +57,49 @@ try {
     window.__topErrs = []
     window.addEventListener('error', (e) => { try { window.__topErrs.push(String((e && (e.message || (e.error && e.error.message))) || e)) } catch { /* ignore */ } })
     window.addEventListener('unhandledrejection', (e) => { try { window.__topErrs.push(String((e && e.reason && (e.reason.message || e.reason)) || e)) } catch { /* ignore */ } })
+    /* ── 2026-09-20 用户第 1/5/11 条的三支探针（都在**任何页面脚本之前**装好）─────────────────
+       ① `prompt/alert/confirm` 计数：第 1 条的根因就是产物 `#pick-lib.onclick` 在服务端降级后
+          `window.prompt(...)`（模态阻塞主线程）⇒ 本页补丁接管入口之后**一次都不许出现**。
+       ② `getUserMedia` 计数：第 5 条要求"关着时一次都不调"。这里包的是**最内层**（真调用），
+          补丁自己那道闸门在关着时连它都不会碰 ⇒ 计数必须恒为 0。
+       ③ 首帧采样：每帧记 `data-bench-ready` / body 可见性 / `#workbench` 的 display /
+          `#sidebar` 右缘与 `#main` 左缘的重叠量（>1px 就是"堆叠态被看见了"）。 */
+    window.__nativePromptCalls = 0
+    for (const k of ['prompt', 'alert', 'confirm']) {
+      try {
+        const orig = window[k]
+        if (typeof orig === 'function') window[k] = function () { window.__nativePromptCalls++; return orig.apply(window, arguments) }
+      } catch { /* 不可写：跳过 */ }
+    }
+    window.__gumCalls = 0
+    try {
+      const md = navigator.mediaDevices
+      if (md && typeof md.getUserMedia === 'function') {
+        const orig = md.getUserMedia.bind(md)
+        md.getUserMedia = function () { window.__gumCalls++; return orig.apply(null, arguments) }
+      }
+    } catch { /* 无 mediaDevices */ }
+    window.__frames = []
+    const sampleFrame = () => {
+      try {
+        const de = document.documentElement
+        const body = document.body
+        const wb = document.getElementById('workbench')
+        const side = document.getElementById('sidebar')
+        const main = document.getElementById('main')
+        const r1 = side ? side.getBoundingClientRect() : null
+        const r2 = main ? main.getBoundingClientRect() : null
+        window.__frames.push({
+          t: Math.round(performance.now()),
+          ready: !!(de && de.hasAttribute && de.hasAttribute('data-bench-ready')),
+          vis: body ? getComputedStyle(body).visibility : 'nobody',
+          wb: wb ? getComputedStyle(wb).display : '',
+          overlap: (r1 && r2 && r1.width > 0 && r2.width > 0) ? Math.round(r1.right - r2.left) : null,
+        })
+      } catch { /* ignore */ }
+      if (window.__frames.length < 600) requestAnimationFrame(sampleFrame)
+    }
+    requestAnimationFrame(sampleFrame)
   })
   const errs = []          // 顶层文档的脚本错（门禁判定：必须 0）
   const frameErrs = []     // 子帧（渲染器页 / web 壁纸作者页）的脚本错：进 notes（不属于本页补丁的责任面）
@@ -518,6 +561,17 @@ try {
   //  404 ⇒ 明确提示"服务端还没有这条路由" + 两个兜底按钮。两档都必须**不是**静默失败。
   {
     const routesStatus = await page.evaluate(() => fetch('/api/fs/roots', { headers: { accept: 'application/json' } }).then((r) => r.status).catch(() => 0))
+    /* F0 ①(用户第 1 条 · 根因判据)：产物自己的 `#pick-lib.onclick` 必须已被本页补丁**摘掉**。
+       为什么这是根因而不是"实现细节"：产物与补丁挂在**同一个元素**上（`onclick` IDL 属性 + 捕获监听），
+       按 DOM 规范 AT_TARGET 阶段按**注册顺序**跑 —— 产物先注册 ⇒ 捕获拦不住它。它会 POST
+       `{pick:true}`、拿到服务端的 `{cancelled,unsupported}` 之后调 `window.prompt()`（**模态**），
+       主线程被按住 ⇒ 本补丁对话框停在 `Reading…`（真机与门禁读数都是 `{status:200,rows:0,path:"Reading…"}`）。
+       判据是"这个入口只有一个主人"，不含任何本机路径/目录名。 */
+    const f0 = await page.evaluate(() => ({
+      onclick: (() => { const b = document.getElementById('pick-lib'); return b ? (b.onclick === null ? 'null' : typeof b.onclick) : 'missing' })(),
+      prompts: Number(window.__nativePromptCalls || 0),
+    }))
+    ok(f0.onclick === 'null', 'F0 ①「选择文件夹」入口只有本页补丁一个主人（产物那个 `onclick` 已摘掉：同元素捕获拦不住它）', JSON.stringify(f0))
     const dlg = await page.evaluate(async () => {
       document.getElementById('pick-lib').click()
       await new Promise((r) => setTimeout(r, 1600))
@@ -534,6 +588,9 @@ try {
         chips: btns.filter((b) => b.listable !== null),
         hasFrontend: btns.some((b) => /in-browser scan|纯前端/i.test(b.text)),
         hasSystem: btns.some((b) => /system picker|系统选择器/i.test(b.text)),
+        //  ① 状态机快照（`__benchPatch.fsState()`）：卡在哪一步要能从读数上直接看出来
+        state: (window.__benchPatch && window.__benchPatch.fsState) ? window.__benchPatch.fsState() : null,
+        prompts: Number(window.__nativePromptCalls || 0),
       }
     })
     ok(!!dlg, 'F1 「选择文件夹」开的是**应用内对话框**（`#bench-fs-dialog`），不是直接弹系统选择器')
@@ -541,7 +598,9 @@ try {
       ok(dlg.hasFrontend && dlg.hasSystem, 'F2 对话框里两个兜底按钮都在（纯前端扫描 / **显式标注**的系统选择器）', JSON.stringify({ frontend: dlg.hasFrontend, system: dlg.hasSystem }))
       if (routesStatus === 200) {
         ok(dlg.rows > 0 && dlg.dirRows > 0 && dlg.confirm && dlg.chips.length > 0,
-          'F3a 【200 档 · 本机实测】应用内浏览真的可用：列出了一档目录 + 「就选这个目录」按钮 + 快捷根', JSON.stringify({ status: routesStatus, rows: dlg.rows, dirs: dlg.dirRows, chips: dlg.chips.length, count: dlg.count, path: dlg.path }))
+          'F3a 【200 档 · 本机实测】应用内浏览真的可用：列出了一档目录 + 「就选这个目录」按钮 + 快捷根', JSON.stringify({ status: routesStatus, rows: dlg.rows, dirs: dlg.dirRows, chips: dlg.chips.length, count: dlg.count, path: dlg.path, st: dlg.state && { state: dlg.state.state, loaded: dlg.state.loaded, pending: dlg.state.pending, gen: dlg.state.gen, loadMs: dlg.state.loadMs, dialogs: dlg.state.dialogs, err: dlg.state.lastErr } }))
+        ok(dlg.prompts === 0, 'F0b ① 整条浏览链上**一次浏览器原生 prompt/alert/confirm 都没有**（产物那条会弹 `window.prompt` 的旧链已被摘掉）', `prompts=${dlg.prompts}`)
+        ok(dlg.state && dlg.state.dialogs === 1, 'F3e1 ① 单例不变式：文档里同时只有 1 个 `.bench-dirbox` 选择器（不会"看得见的那份没在画"）', JSON.stringify({ dialogs: dlg.state && dlg.state.dialogs, state: dlg.state && dlg.state.state }))
         ok(!/api\/fs\/\*|noRoute|还没有/i.test(dlg.note),
           'F3b 【200 档】不再是"服务端还没有这条路由"的降级文案（走的是只读浏览说明）', dlg.note.slice(0, 60))
         ok(dlg.chips.some((c) => c.listable === '0' && c.disabled) || dlg.chips.every((c) => c.listable === '1'),
@@ -557,6 +616,26 @@ try {
         })
         ok(nav && nav.rows > 0 && nav.parent,
           'F3d 【200 档】单击目录能进去（路径 + `parent` 都更新，上一级按钮靠 `parent` 而不是字符串拼路径）', JSON.stringify(nav))
+        /* F3e ①(用户第 1 条)「就选这个目录」**成功之后的动作契约**：纯函数 + 运行期接线两条一起判。
+           门禁**不点**确认（那会真的改用户的库目录）⇒ 契约用纯函数钉住、接线用"按钮确实接到了同一个
+           入口"钉住。判据全是形状/状态机，不含任何本机路径或目录名。 */
+        const commit = await page.evaluate(() => {
+          const P = window.__benchPatch
+          const st = P && P.fsState ? P.fsState() : null
+          return { hasProbe: !!st, plan: st && st.commit, srcHasEntry: null }
+        })
+        const plan = commit.plan || {}
+        ok(commit.hasProbe && plan.reloadPage === false && plan.closeDialogOnSuccess === true && plan.closeDialogOnFailure === false &&
+          plan.touchSelection === false && plan.showReasonOnFailure === true && plan.listRequest && plan.listRequest.method === 'GET' && plan.listRequest.path === '/api/library',
+          'F3e2 ① 成功路径契约：**立刻重拉库列表**（同页 `GET /api/library`）+ **自动关窗** + **不碰当前选中的壁纸**；失败路径：不关窗 + 写原因',
+          JSON.stringify(plan))
+        const wiring = await page.evaluate(() => {
+          const box = document.getElementById('bench-fs-dialog')
+          const btn = box && box.querySelector('#bench-fs-confirm')
+          return { confirm: !!btn, disabled: !!(btn && btn.disabled), state: box ? box.dataset.state : '', path: box && box.querySelector('.bench-dirbox-path') ? box.querySelector('.bench-dirbox-path').dataset.path : '' }
+        })
+        ok(wiring.confirm && wiring.disabled === false && wiring.state === 'ok' && !!wiring.path,
+          'F3e3 ① 列表真读成功之后「就选这个目录」才可点（`data-state=ok` + 按钮解禁 + 目标路径已落 `data-path`）', JSON.stringify(wiring))
       } else {
         ok(/api\/fs\/\*|noRoute|还没有/i.test(dlg.note) && dlg.rows === 0,
           'F4a 【404 档】明确写出"服务端还没有 /api/fs/* 这条路由"（不是静默失败）', JSON.stringify({ status: routesStatus, note: dlg.note.slice(0, 80) }))
@@ -1052,6 +1131,313 @@ try {
       'Y8 ① 关掉最后一个（当前项）⇒ 明确回落到"未选择壁纸 + 空态"，固定集合清空', JSON.stringify(y.release))
   }
 
+
+  // ══════════════════ G 组（2026-09-20 用户第 1–11 条）几何 / 状态机 / 契约 ══════════════════
+  //  纪律：全部判据都是**几何读数 / 状态机读数 / 契约形状**，不含任何本机绝对路径、目录名或平台专有行为；
+  //  需要"总数"的地方一律由页面自己（`/api/library` 或三个类型档之和）现算，不写死数字。
+  {
+    // ── G1 ⑥ 暗色模式小月亮图标几何居中（两主题各一次）─────────────────────────────────
+    const moon = await page.evaluate(async () => {
+      const t = (n, b = 0) => Promise.resolve().then(() => new Promise((r) => setTimeout(r, n)))
+      const measure = () => {
+        const btn = document.getElementById('theme-toggle')
+        const icon = btn ? [...btn.querySelectorAll('svg.ic')].find((s) => !s.hasAttribute('hidden')) : null
+        if (!btn || !icon) return { mode: document.documentElement.dataset.theme, found: false }
+        const b = btn.getBoundingClientRect(); const i = icon.getBoundingClientRect()
+        return {
+          mode: document.documentElement.dataset.theme, found: true,
+          dx: Math.round(((i.left + i.right) / 2 - (b.left + b.right) / 2) * 100) / 100,
+          dy: Math.round(((i.top + i.bottom) / 2 - (b.top + b.bottom) / 2) * 100) / 100,
+          btnBorder: getComputedStyle(btn).borderLeftWidth, iconDisplay: getComputedStyle(icon).display,
+        }
+      }
+      const setTheme = (want) => {
+        const btn = document.getElementById('theme-toggle')
+        for (let i = 0; i < 3 && document.documentElement.dataset.theme !== want; i++) btn.click()
+        return document.documentElement.dataset.theme
+      }
+      const out = {}
+      setTheme('dark'); await t(200); out.dark = measure()
+      setTheme('light'); await t(200); out.light = measure()
+      setTheme('dark'); await t(200)
+      return out
+    })
+    for (const [k, label] of [['dark', '暗色'], ['light', '亮色']]) {
+      const m = moon[k] || {}
+      ok(m.found && Math.abs(m.dx) <= 1 && Math.abs(m.dy) <= 1 && m.btnBorder === '0px' && m.iconDisplay === 'block',
+        `G1 ⑥ ${label}主题：月亮/太阳图标与按钮框**几何居中**（中心偏差 ≤1px，按钮 border=0、图标 display:block）`, JSON.stringify(m))
+    }
+
+    // ── G2 ⑦ 滚动条：资源管理器列表 + 输出区**同一份定义**（两主题各一次）────────────────
+    //  判据分两半：①**契约**（CSSOM 里"声明 scrollbar-width 的那条规则"的选择器同时命中列表与输出区
+    //  ⇒ 一处定义两处引用；且滑块声明 `border-radius:999px`、尺寸是变量）②**运行期解析色**
+    //  （两处 `scrollbar-color` 逐字相等、由变量驱动 —— 用户抱怨的是"又黑又粗"，颜色是它的可见面）。
+    //  ⚠ 不拿 `getComputedStyle().scrollbarWidth` 的**字面值**当判据：不同 Firefox 版本/无头配置下
+    //  它报的是 used 值（实测本机报 `none`，而规则明明在位并已生效 —— 见读数里的 cssRules 证据）。
+    const sb = await page.evaluate(() => {
+      const read = (sel) => {
+        const el = document.querySelector(sel)
+        if (!el) return null
+        const cs = getComputedStyle(el)
+        return { w: cs.scrollbarWidth, c: cs.scrollbarColor }
+      }
+      const prop = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()
+      // CSSOM：找出"声明了 scrollbar-width"的规则，看它们的**选择器**是否同时命中两个区域
+      const rules = []
+      for (const sh of [...document.styleSheets]) {
+        let list = []
+        try { list = [...sh.cssRules] } catch { list = [] }
+        for (const r of list) {
+          const txt = String(r.cssText || '')
+          if (!/scrollbar-width\s*:/.test(txt)) continue
+          const sel = String(r.selectorText || '')
+          const one = (s2) => { try { return document.querySelector(s2) ? document.querySelector(s2).matches(s2) : false } catch { return false } }
+          rules.push({ sel, w: /scrollbar-width\s*:\s*([a-z]+)/.exec(txt)[1], hitsList: one('#list'), hitsOut: one('#logbody') })
+        }
+      }
+      const radiusRules = []
+      for (const sh of [...document.styleSheets]) {
+        let list = []
+        try { list = [...sh.cssRules] } catch { list = [] }
+        for (const r of list) if (/border-radius\s*:\s*999px/.test(String(r.cssText || ''))) radiusRules.push(String(r.selectorText || '').slice(0, 400))
+      }
+      return { mode: document.documentElement.dataset.theme, list: read('#list'), out: read('#logbody'), diag: read('#diag-body'), dbg: read('.dbg-log'),
+        thumbVar: prop('--bench-sb-thumb'), sizeVar: prop('--bench-sb-size'), rules, radiusRules }
+    })
+    const sbRule = (sb.rules || []).find((r) => r.hitsList && r.hitsOut)
+    ok(!!sbRule && sbRule.w === 'thin' && sb.list && sb.out && sb.list.c === sb.out.c && /rgba?\(/.test(String(sb.list.c)) && sb.thumbVar === 'rgba(255,255,255,.5)' && sb.sizeVar === '8px',
+      'G2a ⑦ **一处定义两处引用**：同一条 `scrollbar-width:thin` 规则同时命中资源管理器列表与输出区，两处解析出的 `scrollbar-color` 逐字相等且由变量驱动（暗色 rgba(255,255,255,.5) / 8px）',
+      JSON.stringify({ rule: sbRule, list: sb.list, out: sb.out, thumbVar: sb.thumbVar, sizeVar: sb.sizeVar, rules: sb.rules }))
+    ok(sb.diag && sb.dbg && sb.diag.c === sb.list.c && sb.dbg.c === sb.list.c,
+      'G2b ⑦ 诊断视图/调试视图那块日志吃到的是**同一份**定义（不是只改了列表）', JSON.stringify({ diag: sb.diag, dbg: sb.dbg }))
+    ok((sb.radiusRules || []).length >= 1 && (sb.radiusRules || []).some((s2) => /#list/.test(s2) && /#logbody/.test(s2)),
+      'G2c ⑦ 上下圆角（`border-radius:999px`）与宽度声明在**同一条清单**里（滑块圆角只定义一次，两个区域共用）', JSON.stringify(sb.radiusRules))
+
+    // ── G3 ⑨ 输入框聚焦：平时灰边、聚焦黑边（暗色白边），不再是浏览器默认黄框 ─────────────
+    const focus = await page.evaluate(async () => {
+      const el = document.getElementById('filter')
+      if (!el) return null
+      const prop = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()
+      //  变量本身是十六进制串，元素的**计算值**是 rgb() ⇒ 用一个临时元素把变量解析成同一口径再比
+      const resolveVar = (n) => { const d = document.createElement('div'); d.style.color = 'var(' + n + ')'; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v }
+      const before = getComputedStyle(el)
+      const b = { color: before.borderTopColor, outline: before.outlineStyle }
+      el.focus()
+      await new Promise((r) => setTimeout(r, 120))
+      const after = getComputedStyle(el)
+      const a = { color: after.borderTopColor, outline: after.outlineStyle }
+      el.blur()
+      return { mode: document.documentElement.dataset.theme, before: b, after: a,
+        varBorder: resolveVar('--bench-input-border'), varFocus: resolveVar('--bench-input-focus'),
+        rawBorder: prop('--bench-input-border'), rawFocus: prop('--bench-input-focus'), active: document.activeElement === el }
+    })
+    const norm = (c) => String(c || '').replace(/\s+/g, '')
+    ok(focus && focus.before.outline !== 'none' ? false : true, 'G3a ⑨ 输入框平时不画 outline（`outline:none` 由聚焦态统一接管）', JSON.stringify(focus && focus.before))
+    ok(focus && focus.after.outline === 'none' && norm(focus.after.color) !== norm(focus.before.color) &&
+      norm(focus.after.color) === norm(focus.varFocus) && norm(focus.before.color) === norm(focus.varBorder) &&
+      norm(focus.after.color) !== 'rgb(0,120,212)',
+      'G3b ⑨ 聚焦时边框换成**变量里的**聚焦色（暗色白边），平时是灰边 —— 两态都来自同一处变量，不是浏览器默认黄框', JSON.stringify(focus && { before: focus.before, after: focus.after, varBorder: focus.varBorder, varFocus: focus.varFocus, raw: [focus.rawBorder, focus.rawFocus], mode: focus.mode }))
+
+    // ── G4 ⑧ 类型筛选：初始高亮 = 全部，且"全部"条目数 = 三档之和（单一事实源）────────────
+    const filt = await page.evaluate(async () => {
+      const seg = (ty) => document.querySelector('#type-filter .seg-btn[data-type="' + ty + '"]')
+      const count = () => document.querySelectorAll('#list li[data-id]').length
+      const active = () => { const b = document.querySelector('#type-filter .seg-btn.active'); return b ? b.textContent : null }
+      const out = { initialActive: active(), initialCount: count(), initialSegCount: document.querySelectorAll('#type-filter .seg-btn').length }
+      const per = {}
+      for (const ty of ['scene', 'web', 'video']) { const b = seg(ty); if (!b) return Object.assign(out, { err: 'no seg ' + ty }); b.click(); await new Promise((r) => setTimeout(r, 700)); per[ty] = count() }
+      const all = seg('all'); all.click(); await new Promise((r) => setTimeout(r, 900))
+      out.per = per
+      out.sum = per.scene + per.web + per.video
+      out.allActive = active()
+      out.allCount = count()
+      return out
+    })
+    ok(filt.initialActive && filt.initialActive === (filt.allActive || filt.initialActive) && filt.initialCount === filt.sum && filt.allCount === filt.sum && filt.sum > 0,
+      'G4a ⑧ 初始高亮 = 「全部」，且显示的条目数 = 三档之和（高亮与过滤读的是同一个变量 `uiType`）',
+      JSON.stringify({ initial: filt.initialActive, all: filt.allActive, initialCount: filt.initialCount, allCount: filt.allCount, sum: filt.sum, per: filt.per }))
+
+    // ── G5 ① 未选择壁纸时**不渲染**叉号；关一个不存在的 id 不写日志（幂等）────────────────
+    const ghost = await page.evaluate(async () => {
+      const P = window.__benchPatch
+      //  先把已打开的项全部关掉（连点当前项与各标签的 ×），得到"什么都没打开"的干净态
+      for (let i = 0; i < 12; i++) {
+        const cur = document.querySelector('.wp-x-cur'); const any = document.querySelector('.wp-x:not(.wp-x-cur)')
+        const b = cur || any
+        if (!b) break
+        b.click(); await new Promise((r) => setTimeout(r, 400))
+      }
+      const rel = document.getElementById('release'); if (rel) rel.click()
+      await new Promise((r) => setTimeout(r, 800))
+      const before = ((document.getElementById('logbody') || {}).textContent || '')
+      const ghostX = document.querySelectorAll('.wp-x-cur').length
+      const curText = (document.getElementById('current') || {}).textContent || ''
+      //  再点一次"当前壁纸那一格"（如果还有残留的 ×）—— 这是用户报的那次点击
+      const shell = window.__benchShell || {}
+      const stale = shell.openTabs ? shell.openTabs() : null
+      const closed = shell.closeTab ? shell.closeTab('no-such-wallpaper-id') : null
+      await new Promise((r) => setTimeout(r, 500))
+      const after = ((document.getElementById('logbody') || {}).textContent || '')
+      return { ghostX, curText, tabs: stale, closed, logGrew: after.length - before.length, grew: after.slice(before.length).slice(0, 120), hasReleaseLine: /释放舞台|release the stage/i.test(after.slice(before.length)) }
+    })
+    ok(ghost.ghostX === 0 && /未选择壁纸|No wallpaper/.test(String(ghost.curText || '')),
+      'G5a ① **什么都没打开时**不渲染当前壁纸那一格的 `×`（当前格是"未选择壁纸"且全页 0 个 `.wp-x-cur` —— 没有点了没反应的幽灵叉号）',
+      JSON.stringify({ ghostX: ghost.ghostX, curText: ghost.curText, tabs: ghost.tabs }))
+    ok(ghost.closed === false && ghost.hasReleaseLine === false,
+      'G5b ① 关一个"并不存在"的 id：**幂等返回 false 且不写日志**（旧写法会写"已关闭当前壁纸 … 没有其它打开项 ⇒ 释放舞台"）',
+      JSON.stringify({ closed: ghost.closed, logGrew: ghost.logGrew, grew: ghost.grew }))
+
+    // ── G8 ⑧ 调试页签里能看到**与 :8899 同一份**内容 ───────────────────────────────────
+    const mirror = await page.evaluate(async () => {
+      const w = (n) => new Promise((r) => setTimeout(r, n))
+      //  先制造**新鲜的渲染器诊断**：挂载一次壁纸（渲染器会打 mountScene / 贴图 / mip 选级那一串），
+      //  否则"清空"之后流里可能一条都没有，判据会退化成"空 == 空"。
+      const li = document.querySelector('#list li[data-id]')
+      if (li) { li.click(); await w(9000) }
+      document.getElementById('tab-diag').click()
+      await w(2500)
+      const lines = [...document.querySelectorAll('#diag-body .diag-line')].map((l) => l.textContent)
+      const tail = lines.slice(-6)
+      const dbgLines = [...document.querySelectorAll('#dbg-log > *')]
+      const dbgText = dbgLines.map((l) => l.textContent)
+      const diagSrc = dbgLines.filter((l) => l.dataset && l.dataset.src === 'diag')
+      return {
+        diagCount: lines.length, tail,
+        dbgCount: dbgLines.length, mirrored: diagSrc.length,
+        tailInDbg: tail.map((s) => dbgText.some((d) => d === s)),
+        rendererLines: lines.filter((s) => /\[renderer\]/.test(s)).length,
+        rendererMirrored: diagSrc.filter((l) => /\[renderer\]/.test(l.textContent)).length,
+        sample: (dbgText.find((s) => /\[renderer\]/.test(s)) || '').slice(0, 90),
+      }
+    })
+    ok(mirror.diagCount > 0 && mirror.tailInDbg.length > 0 && mirror.tailInDbg.every(Boolean),
+      'G8a ④ 诊断流最后几条在调试页签里**逐字可见**（同一份内容，不是"另有一套摘要"）',
+      JSON.stringify({ diag: mirror.diagCount, dbg: mirror.dbgCount, mirrored: mirror.mirrored, tailInDbg: mirror.tailInDbg }))
+    ok(mirror.rendererLines > 0 && mirror.rendererMirrored > 0,
+      'G8b ④ 渲染器诊断（层信息 / 加载日志 / mip 选级都在 `[renderer]` 源里）确实进了调试页签', JSON.stringify({ rendererDiag: mirror.rendererLines, rendererMirrored: mirror.rendererMirrored, sample: mirror.sample }))
+
+    // ── G6 ② 清空按**当前视图**清 + 各留一条"已清空"系统行 ─────────────────────────────
+    const clear = await page.evaluate(async () => {
+      const P = window.__benchPatch
+      const w = (n) => new Promise((r) => setTimeout(r, n))
+      const txt = (id) => ((document.getElementById(id) || {}).textContent || '')
+      const out = {}
+      const CLR = /已清空|Cleared/
+      //  ① 输出视图
+      document.getElementById('tab-logs').click(); await w(200)
+      document.getElementById('clear-logs').click(); await w(300)
+      const lb = document.getElementById('logbody')
+      out.logs = { children: lb ? lb.children.length : -1, text: (lb ? lb.textContent : '').slice(0, 80), isCleared: CLR.test(lb ? lb.textContent : ''),
+        firstIsCleared: !!(lb && lb.firstElementChild && lb.firstElementChild.dataset && lb.firstElementChild.dataset.sys === 'cleared') }
+      //  ② 诊断视图
+      document.getElementById('tab-diag').click(); await w(1500)
+      const beforeDiag = document.querySelectorAll('#diag-body .diag-line').length
+      document.getElementById('clear-logs').click(); await w(400)
+      const db0 = document.getElementById('diag-body')
+      out.diag = { before: beforeDiag, children: document.querySelectorAll('#diag-body .diag-line').length, isCleared: CLR.test(txt('diag-body')), text: txt('diag-body').slice(0, 80),
+        firstIsCleared: !!(db0 && db0.firstElementChild && db0.firstElementChild.dataset && db0.firstElementChild.dataset.sys === 'cleared') }
+      //  ③ 调试视图（先在内嵌开关上把模式打开）
+      document.getElementById('tab-debug').click(); await w(200)
+      const sw = document.getElementById('dbg-mode'); if (sw && !sw.checked) { sw.click(); await w(900) }
+      out.dbgBefore = { lines: document.querySelectorAll('#dbg-log > *').length, text: txt('dbg-log').length }
+      document.getElementById('clear-logs').click(); await w(400)
+      const dl = document.getElementById('dbg-log')
+      const firstCleared = () => !!(dl && dl.firstElementChild && dl.firstElementChild.dataset && dl.firstElementChild.dataset.sys === 'cleared')
+      out.dbg = { children: document.querySelectorAll('#dbg-log > *').length, isCleared: CLR.test(txt('dbg-log')), text: txt('dbg-log').slice(0, 80), firstIsCleared: firstCleared() }
+      await w(1400)                                     // 等一个轮询周期：环形缓冲没清的话旧行会"复活"
+      out.dbgAfterPoll = { children: document.querySelectorAll('#dbg-log > *').length, isCleared: CLR.test(txt('dbg-log')), firstIsCleared: firstCleared() }
+      if (sw && sw.checked) { sw.click(); await w(300) }   // 收尾：模式关
+      return out
+    })
+    ok(clear.logs && clear.logs.firstIsCleared === true && clear.logs.isCleared && clear.logs.children >= 1,
+      'G6a ② 输出视图：清空后**第一行**就是那条「已清空」系统行（旧内容一行不剩；之后到来的新日志可以继续追加）', JSON.stringify(clear.logs))
+    ok(clear.diag && clear.diag.before > 0 && clear.diag.firstIsCleared === true && clear.diag.isCleared && clear.diag.children < clear.diag.before,
+      'G6b ② 诊断视图：清空**真的清掉了**（清前 >0 行 ⇒ 清后只剩「已清空」+ 之后到来的新行；计数缓冲一起归零、页签计数跟着走）', JSON.stringify(clear.diag))
+    ok(clear.dbgBefore.lines > 0 && clear.dbg && clear.dbg.firstIsCleared === true && clear.dbg.isCleared &&
+      clear.dbg.children < clear.dbgBefore.lines && clear.dbgAfterPoll.children < clear.dbgBefore.lines && clear.dbgAfterPoll.isCleared,
+      'G6c ② 调试视图：清空**真的清掉了**（旧写法在调试视图下永远清不掉：判据自锁）且过一个轮询周期旧行不复活（行缓冲一起清）',
+      JSON.stringify({ before: clear.dbgBefore, after: clear.dbg, afterPoll: clear.dbgAfterPoll }))
+
+    // ── G7 ②④ 调试模式开关在页签内部；**切页签永不改变模式** ─────────────────────────────
+    const dbg = await page.evaluate(async () => {
+      const P = window.__benchPatch
+      const w = (n) => new Promise((r) => setTimeout(r, n))
+      const view = () => document.getElementById('logs').dataset.view
+      const out = { hasSwitch: !!document.getElementById('dbg-mode'), inBody: !!(document.getElementById('debug-body') || {}).querySelector ? !!document.getElementById('debug-body').querySelector('#dbg-mode') : false }
+      document.getElementById('tab-logs').click(); await w(250)
+      out.modeAtLogs = P.debugMode()
+      document.getElementById('tab-debug').click(); await w(400)
+      out.tabOnly = { view: view(), mode: P.debugMode(), keys: P.dbgKeysInstalled() }
+      const sw = document.getElementById('dbg-mode')
+      const r = sw.getBoundingClientRect()
+      const at = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2))
+      const rowR = document.getElementById('dbg-mode-box').getBoundingClientRect()
+      const bodyR = document.getElementById('debug-body').getBoundingClientRect()
+      out.switchHit = {
+        w: Math.round(r.width), h: Math.round(r.height),
+        hit: !!(at && (at === sw || sw.contains(at) || (at.closest && at.closest('#debug-body')))),
+        //  几何判据：开关那一行整体落在调试页签的内容框里（不是浮在别处）
+        insideBody: rowR.left >= bodyR.left - 1 && rowR.right <= bodyR.right + 1 && rowR.top >= bodyR.top - 1 && rowR.bottom <= bodyR.bottom + 1,
+        row: { w: Math.round(rowR.width), h: Math.round(rowR.height) },
+      }
+      sw.click(); await w(900)
+      out.on = { view: view(), mode: P.debugMode(), keys: P.dbgKeysInstalled() }
+      document.getElementById('tab-diag').click(); await w(500)
+      out.afterDiagTab = { view: view(), mode: P.debugMode(), keys: P.dbgKeysInstalled() }
+      document.getElementById('tab-logs').click(); await w(400)
+      out.afterLogsTab = { view: view(), mode: P.debugMode(), keys: P.dbgKeysInstalled() }
+      document.getElementById('tab-debug').click(); await w(400)
+      out.backToDebug = { view: view(), mode: P.debugMode(), keys: P.dbgKeysInstalled() }
+      sw.click(); await w(400)
+      out.off = { view: view(), mode: P.debugMode(), keys: P.dbgKeysInstalled() }
+      return out
+    })
+    ok(dbg.hasSwitch && dbg.inBody && dbg.switchHit.hit && dbg.switchHit.insideBody && dbg.switchHit.w >= 10 && dbg.switchHit.h >= 10 && dbg.switchHit.row.w > 60,
+      'G7a ④ 调试模式开关**在调试页签内部**（`#debug-body` 里的 `#dbg-mode`：命中区 = 自己，整行几何上落在页签内容框内）', JSON.stringify({ hasSwitch: dbg.hasSwitch, inBody: dbg.inBody, hit: dbg.switchHit }))
+    ok(dbg.tabOnly.mode === false && dbg.modeAtLogs === false && dbg.tabOnly.view === 'debug',
+      'G7b ④ 点页签只切视图：进调试页签时模式**仍是关**（页签不再当开关用）', JSON.stringify({ atLogs: dbg.modeAtLogs, after: dbg.tabOnly }))
+    ok(dbg.on.mode === true && dbg.on.keys === true,
+      'G7c ④ 勾上页签内部的开关 ⇒ 模式开 + 键盘路由装上', JSON.stringify(dbg.on))
+    ok(dbg.afterDiagTab.mode === true && dbg.afterLogsTab.mode === true && dbg.backToDebug.mode === true,
+      'G7d ④ **切页签永不改变调试模式状态**（诊断页/输出页来回切，模式一直开着；<img>用户实测"点渲染器日志那一页会把调试模式关掉"已修）',
+      JSON.stringify({ diag: dbg.afterDiagTab, logs: dbg.afterLogsTab, back: dbg.backToDebug }))
+    ok(dbg.afterDiagTab.keys === false && dbg.afterLogsTab.keys === false && dbg.backToDebug.keys === true,
+      'G7e ④ 键盘纪律不变：只在**调试视图可见且模式开着**时接管（离开这一页立刻卸掉）', JSON.stringify({ diagKeys: dbg.afterDiagTab.keys, logsKeys: dbg.afterLogsTab.keys, backKeys: dbg.backToDebug.keys }))
+    ok(dbg.off.mode === false && dbg.off.keys === false,
+      'G7f ④ 关掉开关 ⇒ 模式关 + 键盘卸掉（图层恢复可见由 setDebugMode 负责）', JSON.stringify(dbg.off))
+
+    // ── G9 ⑤ 麦克风：默认关 + `getUserMedia` 调用计数 0 ──────────────────────────────
+    const mic = await page.evaluate(async () => {
+      const P = window.__benchPatch
+      const w = (n) => new Promise((r) => setTimeout(r, n))
+      const el = document.getElementById('mic-enable')
+      const out = { exists: !!el, checked: !!(el && el.checked), callsAtLoad: Number(window.__gumCalls || 0), gate: P.micGate && P.micGate() }
+      const live = document.getElementById('live-system')
+      out.liveAtStart = { checked: !!(live && live.checked), disabled: !!(live && live.disabled) }
+      //  关着时点「系统实况」：不许把 mic 请求放出去（也不许把 liveSystem=1 交给渲染器）
+      if (live) { live.click(); await w(600) }
+      out.liveAfterClick = { checked: !!(live && live.checked), frameSrc: String((document.getElementById('frame') || {}).getAttribute ? (document.getElementById('frame').getAttribute('src') || '') : '') }
+      out.callsAfterToggle = Number(window.__gumCalls || 0)
+      out.gateAfterToggle = P.micGate && P.micGate()
+      //  打开开关：闸门变为放行（请求仍只在"声明需要"时发生）
+      if (el) { el.click(); await w(500) }
+      out.gateOn = P.micGate && P.micGate()
+      if (el && el.checked) { el.click(); await w(300) }
+      out.gateBackOff = P.micGate && P.micGate()
+      out.callsFinal = Number(window.__gumCalls || 0)
+      return out
+    })
+    ok(mic.exists && mic.checked === false,
+      'G9a ⑤ 工具条有「启用麦克风」复选框且**默认关**', JSON.stringify({ exists: mic.exists, checked: mic.checked }))
+    ok(mic.gate && mic.gate.enabled === false && mic.gate.installed >= 1 && mic.gate.liveSystemChecked === false && mic.gate.liveSystemDisabled === true,
+      'G9b ⑤ 关着时闸门状态 = 不放行，且「系统实况」被强制关掉（⇒ 渲染器 URL 拿不到 `liveSystem=1`）', JSON.stringify(mic.gate))
+    ok(mic.callsAtLoad === 0 && mic.callsAfterToggle === 0 && mic.gate.rendererLive === false,
+      'G9c ⑤ **关着时 `getUserMedia` 一次都没调**（计数 0：加载后 / 挂载壁纸后 / 点「系统实况」后都还是 0；渲染器 URL 里也没有 `liveSystem=1`）',
+      JSON.stringify({ atLoad: mic.callsAtLoad, afterToggle: mic.callsAfterToggle, rendererLive: mic.gate.rendererLive }))
+    ok(mic.gateOn && mic.gateOn.enabled === true && mic.gateOn.liveSystemDisabled === false && mic.gateBackOff && mic.gateBackOff.enabled === false,
+      'G9d ⑤ 打开开关 ⇒ 放行（并还给用户原来的「系统实况」勾选）；再关掉 ⇒ 立刻恢复不放行', JSON.stringify({ on: mic.gateOn, off: mic.gateBackOff }))
+  }
+
   // ══════════════════ Z 组（P-164 ②④）调试模式页签 + 指针移动转发 ══════════════════
   {
     const z = await page.evaluate(async () => {
@@ -1060,6 +1446,11 @@ try {
       const probe = (key) => { const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented }
       out.before = { swallow: { ArrowRight: probe('ArrowRight'), Alt: probe('Alt') }, view: document.getElementById('logs').dataset.view }
       document.getElementById('tab-debug').click()
+      await new Promise((r) => setTimeout(r, 500))
+      //  ②(2026-09-20 用户第 3 条) 页签只切视图；模式必须由**页签内部那个开关**打开（旧写法点页签即开模式）。
+      out.tabOnly = { view: document.getElementById('logs').dataset.view, mode: P.debugMode(), keys: P.dbgKeysInstalled() }
+      const modeSwitch = document.getElementById('dbg-mode')
+      if (modeSwitch && !modeSwitch.checked) modeSwitch.click()
       await new Promise((r) => setTimeout(r, 800))
       out.on = {
         view: document.getElementById('logs').dataset.view, active: P.debugMode(), keys: P.dbgKeysInstalled(),
@@ -1082,8 +1473,10 @@ try {
     })
     ok(z.before && z.before.swallow.ArrowRight === false && z.before.swallow.Alt === false,
       'Z1 ② 调试模式**未激活**时 ←/→/Alt 的默认行为照旧（不吞）', JSON.stringify(z.before))
+    ok(z.tabOnly && z.tabOnly.view === 'debug' && z.tabOnly.mode === false && z.tabOnly.keys === false,
+      'Z2a ② 点「调试模式」页签 ⇒ **只进这一页**（模式仍关、键盘未接管；页签不再兼作开关）', JSON.stringify(z.tabOnly))
     ok(z.on && z.on.view === 'debug' && z.on.active === true && z.on.keys === true,
-      'Z2 ② 点「调试模式」⇒ 进入调试视图且键盘路由已装上', JSON.stringify(z.on && { view: z.on.view, active: z.on.active, keys: z.on.keys }))
+      'Z2b ② 勾上页签内部的「开启调试模式」⇒ 模式开且键盘路由装上', JSON.stringify(z.on && { view: z.on.view, active: z.on.active, keys: z.on.keys }))
     ok(z.buttons && z.buttons.every((b) => b && b.w > 40 && b.h > 0 && b.hit === true),
       'Z3 ② 「立即上报」「截图」两个按钮可见且命中区 = 视觉区', JSON.stringify(z.buttons))
     ok(z.on && typeof z.on.layerText === 'string' && z.on.layerText.length > 0 && z.on.logLines > 0,
@@ -1156,6 +1549,42 @@ try {
     ok(ink0 >= 0 && ink1 > 0 && ink1 >= ink0,
       'Z11 ④ 「指针注入 + 鼠标尾迹」下**不按键**移动 ⇒ 尾迹画布出现墨迹（:8899 同一口径）',
       JSON.stringify({ inkBefore: ink0, inkAfter: ink1, trail: await page.evaluate(() => { const t = document.getElementById('trail-on'); return { checked: !!(t && t.checked), disabled: !!(t && t.disabled) } }) }))
+  }
+
+  // ══════════════════ G10 ⑪(用户第 11 条) 首屏不闪：**没有任何一帧**在堆叠态被看见 ══════════════════
+  //  用户口径：「刷新 :8902 时先看到所有内容堆在一起，约 1 秒后才正常」。
+  //  判据用**逐帧几何采样**（init script 在 document-start 就起 rAF 采样循环）：
+  //    · 只要 body 是可见的，`#sidebar` 右缘与 `#main` 左缘就不许重叠（>1px 即"堆叠态被看见了"）；
+  //    · 就绪标记 `html[data-bench-ready]` 最终必须出现（否则是"永远白屏"这种更糟的假修复）；
+  //    · 采样循环里看到过 `#workbench` 的帧，display 必须已经是 grid（关键布局不依赖补丁 JS）。
+  //  这条放最后：它要重新导航一次页面。
+  {
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.waitForFunction(() => !!document.getElementById('frame'), null, { timeout: 60000 })
+    await page.waitForTimeout(2500)
+    const fp = await page.evaluate(() => {
+      const f = Array.isArray(window.__frames) ? window.__frames : []
+      const seen = f.filter((x) => x.wb)
+      const visible = f.filter((x) => x.vis === 'visible')
+      return {
+        frames: f.length, hidden: f.filter((x) => x.vis === 'hidden').length,
+        ready: document.documentElement.hasAttribute('data-bench-ready'),
+        bodyVis: getComputedStyle(document.body).visibility,
+        wbDisplays: [...new Set(seen.map((x) => x.wb))],
+        visibleOverlaps: visible.map((x) => x.overlap).filter((v) => v !== null),
+        firstVisible: visible.length ? { t: visible[0].t, ready: visible[0].ready, overlap: visible[0].overlap } : null,
+        last: f.length ? f[f.length - 1] : null,
+      }
+    })
+    ok(fp.ready === true && fp.bodyVis === 'visible',
+      'G10a ⑪ 首屏闸门最终**一定摘掉**（`html[data-bench-ready]` 在位、body 可见 —— 不是"永远白屏"式的假修复）',
+      JSON.stringify({ ready: fp.ready, bodyVis: fp.bodyVis, frames: fp.frames, hiddenFrames: fp.hidden }))
+    ok(fp.visibleOverlaps.length > 0 && fp.visibleOverlaps.every((v) => v <= 1),
+      'G10b ⑪ **没有任何一帧**在堆叠态被看见：body 可见的每一帧里 `#sidebar` 右缘都没有压到 `#main` 左缘（重叠 ≤1px）',
+      JSON.stringify({ visibleFrames: fp.visibleOverlaps.length, maxOverlap: fp.visibleOverlaps.length ? Math.max(...fp.visibleOverlaps) : null, firstVisible: fp.firstVisible }))
+    ok(fp.wbDisplays.length > 0 && fp.wbDisplays.every((d) => d === 'grid'),
+      'G10c ⑪ 关键布局从第一帧起就是最终形态（`#workbench` 在采样到的每一帧里 display 都是 grid —— 不依赖补丁 JS 接管）',
+      JSON.stringify({ wbDisplays: fp.wbDisplays, seenFrames: fp.frames }))
   }
 
   ok(topErrs.length === 0, 'N6 整轮**顶层文档** 0 个脚本错（页面自己的 error/unhandledrejection 钩子；含本批新增的页签/面板/类型过滤/诊断流/mpw 夹具/播放卡片）',

@@ -72,7 +72,7 @@
 //   原生 select 留在 DOM 里当值容器 ⇒ 上游 bundle 读 `.value` / 监听 `change` 的链路一行不改。
 import { enhanceSelect, layerFixedOffset } from './mpw-select.js'
 
-export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","pick.count":"{n} 项","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 webwallgl 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录","nav.console":"控制台","nav.docs":"说明","nav.wpset":"壁纸设置","nav.settings":"设置","nav.settingsTip":"语言 / 主题 / 归属与许可","nav.lang":"语言","nav.theme":"主题","nav.backend":"后台","nav.backendUnknown":"未知","nav.backendNote":"静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。","wp.add":"＋","wp.addTitle":"添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸","logs.expandTip":"展开输出（控制台）","logs.collapseTip":"收起输出（控制台）","props.emptyState":"还没有选择壁纸","props.emptyHint":"从左侧「选择壁纸」里点一张，这里就会显示它 project.json 声明的可调项。",
+export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","pick.count":"{n} 项","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 webwallgl 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.mic":"启用麦克风","toolbar.micTip":"默认关：关着时页面一次都不会请求麦克风（getUserMedia 不调用），「系统实况」只保留歌名与进度；开着时才在壁纸/功能声明需要时请求，不在页面加载时预请求","dbg.switch":"开启调试模式","dbg.switchTip":"逐层查看（左右键）+ 隔离图层；只在调试视图打开期间接管键盘，Alt 退出","logs.cleared":"已清空（{view}）","log.micOn":"已启用麦克风：壁纸/功能声明需要时才会请求（不再有页面加载时的预请求）","log.micOff":"已关闭麦克风：不再发出任何 mic 请求","log.micNeeded":"「系统实况」的麦克风部分需要先勾「启用麦克风」—— 现在只保留歌名/进度","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录","nav.console":"控制台","nav.docs":"说明","nav.wpset":"壁纸设置","nav.settings":"设置","nav.settingsTip":"语言 / 主题 / 归属与许可","nav.lang":"语言","nav.theme":"主题","nav.backend":"后台","nav.backendUnknown":"未知","nav.backendNote":"静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。","wp.add":"＋","wp.addTitle":"添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸","logs.expandTip":"展开输出（控制台）","logs.collapseTip":"收起输出（控制台）","props.emptyState":"还没有选择壁纸","props.emptyHint":"从左侧「选择壁纸」里点一张，这里就会显示它 project.json 声明的可调项。",
 "libsrc.default":"库来源：本机默认目录（服务端内置，你还没有选择）","libsrc.default.hint":"这个目录是服务端启动时的默认值，不代表你已经选过；点「选择文件夹」在应用内浏览并指定一个目录","libsrc.default.path":"（默认库目录不可用）",
 "libsrc.user":"库来源：你选择的目录","libsrc.user.hint":"由你通过「选择文件夹」指定（服务端 /api/library-dir 已接受并落库）","libsrc.user.path":"（已选目录为空）",
 "libsrc.empty":"库来源：空（服务端没有返回库目录）","libsrc.empty.hint":"服务端返回的库目录为空；点「选择文件夹」选一个装壁纸的目录","libsrc.empty.path":"（空）",
@@ -88,10 +88,10 @@ export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"
 "pickd.noRoute":"服务端还没有 /api/fs/* 这条路由（GET /api/fs/roots 返回 404）⇒ 应用内浏览不可用；请用下面的兜底按钮",
 "pickd.noBackend":"静态托管没有本机后端 ⇒ 应用内浏览不可用；用「纯前端扫描」选目录（文件不离开浏览器）",
 "pickd.here":"就选这个目录","pickd.up":"上一级","pickd.roots":"快捷根","pickd.loading":"读取中…","pickd.empty":"（这个目录没有子目录）",
-"pickd.selected":"已选择：{path}","pickd.applying":"正在切换库目录…","pickd.done":"库目录已切换：{path}（重新载入中…）","pickd.fail":"切换失败：{msg}",
+"pickd.selected":"已选择：{path}","pickd.applying":"正在切换库目录…","pickd.done":"库目录已切换：{path}（重新载入中…）","pickd.fail":"切换失败：{msg}","pickd.relisted":"已重新拉取壁纸库列表（{n} 项）","pickd.noStart":"服务端没有给出可浏览的快捷根（GET /api/fs/roots 的 roots 为空）","pickd.listFail":"读取目录失败：{path} —— {msg}",
 "pickd.frontend":"纯前端扫描（文件不离开浏览器）","pickd.system":"系统选择器（可能选不到环境内目录）","pickd.systemHint":"服务端打开的原生对话框；容器/安卓环境下常常看不到或选不到环境内目录 ⇒ 仅作兜底",
 "pickd.dirTag":"目录","pickd.fileTag":"文件","pickd.rootLocked":"服务端默认不允许列出这个根（只读边界）；可用 MPW_PICK_ROOT 放宽",
-"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","logs.debug":"Debug mode","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
+"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.mic":"Enable microphone","toolbar.micTip":"Off by default: while off the page never requests the microphone (getUserMedia is not called) and “Live system” keeps title/progress only; when on it is requested only if a wallpaper/feature declares the need, never pre-requested at load","dbg.switch":"Enable debug mode","dbg.switchTip":"Step through layers (left/right) and isolate them; the keyboard is captured only while the debug view is open, Alt exits","logs.cleared":"Cleared ({view})","log.micOn":"Microphone enabled: requested only when a wallpaper/feature declares the need (no pre-request at load)","log.micOff":"Microphone disabled: no mic request is issued at all","log.micNeeded":"The microphone half of “Live system” needs “Enable microphone” first — title/progress only for now","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","logs.debug":"Debug mode","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
 "dbg.report":"Report now","dbg.reportTip":"Post the current diagnostics immediately (/report, then /baseline, then /diag)","dbg.shot":"Screenshot","dbg.shotTip":"Download the preview canvas as JPEG","dbg.reporting":"Reporting…","dbg.reported":"Reported: {where} ({bytes} B)","dbg.reportFail":"Report failed: {msg}","dbg.shotOk":"Screenshot saved: {name} ({kb} KB)","dbg.shotFail":"Screenshot failed: {why}","dbg.on":"Debug mode: on (left/right steps layers; Alt exits)","dbg.off":"Debug mode: off","dbg.layerNone":"No scene to inspect layer by layer","dbg.layerLine":"Layer {i}/{n} · {name}","dbg.noScene":"No scene layers right now (not mounted / failed to load)","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory","nav.console":"Console","nav.docs":"Guide","nav.wpset":"Wallpaper settings","nav.settings":"Settings","nav.settingsTip":"Language / theme / attribution & licences","nav.lang":"Language","nav.theme":"Theme","nav.backend":"Backend","nav.backendUnknown":"unknown","nav.backendNote":"Static hosting (GitHub Pages) has no local Node backend: library listing / property saving / deleting / the diagnostics stream are unavailable online — by design, not a failure. “Choose folder” (in-browser scan) still works.","wp.add":"＋","wp.addTitle":"Add / switch wallpaper: open the left list filtered to hide the current one","logs.expandTip":"Expand the output (console)","logs.collapseTip":"Collapse the output (console)","props.emptyState":"No wallpaper picked yet","props.emptyHint":"Pick one in “Choose wallpaper” on the left; the options declared in its project.json show up here.",
 "libsrc.default":"Library source: machine default directory (server built-in — you have not chosen one)","libsrc.default.hint":"This is the server's start-up default, not a choice you made; click “Choose folder” to browse in-app and pick one","libsrc.default.path":"(default library directory unavailable)",
 "libsrc.user":"Library source: the directory you chose","libsrc.user.hint":"Chosen by you via “Choose folder” (accepted by the server's /api/library-dir)","libsrc.user.path":"(chosen directory is empty)",
@@ -107,7 +107,7 @@ export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"
 "pickd.noRoute":"The server does not have the /api/fs/* routes yet (GET /api/fs/roots returns 404), so in-app browsing is unavailable; use a fallback button below",
 "pickd.noBackend":"Static hosting has no local backend, so in-app browsing is unavailable; use “in-browser scan” (files never leave the browser)",
 "pickd.here":"Use this directory","pickd.up":"Up one level","pickd.roots":"Shortcuts","pickd.loading":"Reading…","pickd.empty":"(no subdirectories here)",
-"pickd.selected":"Selected: {path}","pickd.applying":"Switching the library directory…","pickd.done":"Library directory switched: {path} (reloading…)","pickd.fail":"Switch failed: {msg}",
+"pickd.selected":"Selected: {path}","pickd.applying":"Switching the library directory…","pickd.done":"Library directory switched: {path} (reloading…)","pickd.fail":"Switch failed: {msg}","pickd.relisted":"library list re-fetched ({n} items)","pickd.noStart":"The server exposed no browsable root (GET /api/fs/roots returned an empty roots array)","pickd.listFail":"Listing failed: {path} — {msg}",
 "pickd.frontend":"In-browser scan (files never leave the browser)","pickd.system":"System picker (may not reach directories inside this environment)","pickd.systemHint":"The native dialog opened by the server; in containers/Android it is often invisible or cannot reach the environment's directories — fallback only",
 "pickd.dirTag":"dir","pickd.fileTag":"file","pickd.rootLocked":"The server does not allow listing this root by default (read-only boundary); relax it with MPW_PICK_ROOT",
 "credit.link":"README · License & credits (GPL-3.0-or-later + upstream MIT)"}}
@@ -1226,6 +1226,25 @@ export function npSnapshotPlan(input) {
     canVolume: linked,
     link,
     source: String(x.source || (hasMedia ? 'stage-media' : 'none')),
+  }
+}
+
+/**
+ * 「就选这个目录」**成功之后的动作契约**（纯函数，门禁直接断言；不含任何本机路径/目录名/平台行为）：
+ *   · 立刻重新拉壁纸库列表 = 同页 `GET /api/library`（`reloadPage:false` ⇒ **不刷整页**，
+ *     所以不存在"要用户手动刷新"这一步）；
+ *   · `closeDialogOnSuccess:true` ⇒ 自动关闭对话框；
+ *   · `touchSelection:false` ⇒ **不碰当前选中的壁纸**（既不切换也不释放 —— 用户明确要求）；
+ *   · 失败侧相反：`closeDialogOnFailure:false` + `showReasonOnFailure:true`（不关窗、写原因）。
+ */
+export function libDirCommitPlan() {
+  return {
+    listRequest: { method: 'GET', path: '/api/library' },
+    reloadPage: false,
+    closeDialogOnSuccess: true,
+    closeDialogOnFailure: false,
+    showReasonOnFailure: true,
+    touchSelection: false,
   }
 }
 
@@ -2875,6 +2894,10 @@ export function initSiteShell(ctx = {}) {
     rememberKinds(items)
     const activeItem = items.find((it) => it.active)
     if (activeItem) { curId = activeItem.id; pinWallpaper(curId) }      // 选过就进"已选"（位置固定，不重排）
+    //  ①(用户第 9 条「未选择壁纸时出现幽灵叉号」) `curId` 的**唯一事实源 = 列表里真的有一项 `.active`**：
+    //  产物释放舞台/关掉最后一项之后列表里没有任何 active 项，这里必须把 curId 清成 null，
+    //  否则它会一直留着上一个 id ⇒ `#current` 那一格挂着"点了没反应"的 ×。
+    else curId = null
     const plan = pinnedPlan(pinned, items, curId, PIN_MAX)
     if (plan.dropped > 0) writePinned(plan.ids)
     // ①(修正 2026-09-17) **签名守卫**：内容没变就一个 DOM 写都不做。
@@ -2912,7 +2935,7 @@ export function initSiteShell(ctx = {}) {
     //  没有其它项就释放舞台（见 closeWallpaperTab）。
     try {
       //  `curId` 为空（刚释放完）就不画这一格的 `×`：否则"未选择壁纸"旁边挂着一个点了没反应的叉。”
-      if (cur && curId && cur.parentNode === tabsBox) {
+      if (cur && curId && activeItem && cur.parentNode === tabsBox) {
         const cx = D.createElement('button')
         cx.type = 'button'; cx.className = 'wp-x wp-x-cur'
         cx.dataset.id = String(curId || '')
@@ -2932,6 +2955,11 @@ export function initSiteShell(ctx = {}) {
   function closeWallpaperTab(id) {
     const want = String(id == null ? '' : id)
     if (!want) return false
+    /* ①(用户第 9 条) **幂等且不写误导日志**：`want` 既不在已打开集合里、也不是当前项 ⇒
+       这一次点击什么都没关掉。旧写法会一路走到"没有其它打开项 ⇒ 释放舞台"那条分支，
+       于是空态下点幽灵叉号也会写一行"已关闭当前壁纸 … 释放舞台"（用户点名的假日志）。 */
+    const isOpen = (Array.isArray(pinned) && pinned.indexOf(want) >= 0) || String(curId || '') === want
+    if (!isOpen) return false
     const plan = closeTabPlan(pinned, curId, want)
     const wasCurrent = plan.wasCurrent
     const fallback = plan.fallback
@@ -3035,6 +3063,9 @@ export function initSiteShell(ctx = {}) {
         timer = setTimeout(() => {
           timer = null
           try { syncAllIfNeeded() } catch { /* 单次失败不影响其它链路 */ }
+          //  ⑧「高亮与过滤同一个变量」：产物重画列表之后（它会把自己的 `.active` 写回 'video' 那档）
+          //  按 uiType 再对一次账 —— 否则就是用户看到的"高亮在视频、内容是全部分"。
+          try { paintTypeSegs() } catch { /* 桩 DOM */ }
           refreshSwitcher()
         }, 60)
       }).observe(listEl, { childList: true })
@@ -3095,19 +3126,24 @@ export function initSiteShell(ctx = {}) {
   let uiType = 'all'
   let idemHits = 0                      // ③(P-164) "重复点击已选中项被拦下"的计数（可断言）
   let bundleType = 'scene'
+  /* ⑧(2026-09-20 用户第 8 条 · 用户实测「默认高亮在视频、内容却是全部分」)
+     单一事实源 = `uiType`（**只**由这里读写）。产物自己也会给它那几个 seg 写 `.active`
+     （它记的是 `we-bench-type-filter`，合并「全部」时最后一次驱动到的是 'video'）⇒
+     列表被它重画之后高亮就会漂到"视频"，而内容仍是合并结果。
+     修法：① 只在值真的变时才写 DOM（写同样的值不产生 mutation ⇒ 不会与观察者自激）；
+           ② 列表每次变动（含产物重画）之后都调一次 `paintTypeSegs()`，高亮永远跟着 `uiType` 走。 */
+  function setSegActive(b, on) {
+    if (!b) return 0
+    let changed = 0
+    try { if (b.classList.contains('active') !== !!on) { b.classList.toggle('active', !!on); changed++ } } catch { /* 桩 DOM */ }
+    try { if (b.getAttribute('aria-checked') !== (on ? 'true' : 'false')) b.setAttribute('aria-checked', on ? 'true' : 'false') } catch { /* 桩 DOM */ }
+    return changed
+  }
   function paintTypeSegs() {
     if (!typeHost) return 0
-    for (const b of [...typeHost.querySelectorAll('.seg-btn')]) {
-      const on = b.dataset.type === uiType
-      b.classList.toggle('active', on)
-      b.setAttribute('aria-checked', on ? 'true' : 'false')
-    }
+    for (const b of [...typeHost.querySelectorAll('.seg-btn')]) setSegActive(b, b.dataset.type === uiType)
     const mirror = q('#wp-type-mirror')
-    if (mirror) for (const b of [...mirror.querySelectorAll('.seg-btn')]) {
-      const on = b.dataset.type === uiType
-      b.classList.toggle('active', on)
-      b.setAttribute('aria-checked', on ? 'true' : 'false')
-    }
+    if (mirror) for (const b of [...mirror.querySelectorAll('.seg-btn')]) setSegActive(b, b.dataset.type === uiType)
     return 1
   }
   function segBtn(host, type) {
@@ -3603,6 +3639,15 @@ export function initSiteShell(ctx = {}) {
 
   return {
     setPage, getPage, popOpen, refreshSwitcher, listItems,
+    //  ①(2026-09-20 用户第 9 条) 关标签的**幂等**入口与"当前打开了什么"的读数（门禁判"幽灵叉号/假日志"）：
+    //  不存在的 id ⇒ 返回 false 且**不写日志**；什么都没打开时 `current` 为 null、`currentCellX` 为 false。
+    closeTab: (id) => closeWallpaperTab(id),
+    openTabs: () => ({
+      current: curId, pinned: (Array.isArray(pinned) ? pinned.slice() : []),
+      currentCellX: !!(D && D.querySelector && D.querySelector('.wp-x-cur')),
+      tabs: (D && D.querySelectorAll) ? D.querySelectorAll('#editor-tabs .wp-tab').length : -1,
+      currentText: String(((D && D.querySelector('#current')) || {}).textContent || ''),
+    }),
     paintLangExtras,
     logsHeight, setLogsHeight, paintLogsArrow, paintPropsEmpty, paintStatus,
     shellVersion: VER, domIsNew: DOM_NEW, maxLogsForLayout,
@@ -3718,9 +3763,15 @@ export function init() {
       tabDiagBtn.title = t(curLang, 'diag.tabTitle')
     }
     if (tabDebugBtn) {
+      //  ②(用户第 3 条) 页签标签上的 `· on` 读的是**模式**（开关状态），不是"当前在不在这一页" ——
+      //  页签只切视图，模式只由页签内部那个开关改。
       const label = t(curLang, 'logs.debug') + (dbgActive ? ' · on' : '')
       if (tabDebugBtn.textContent !== label) tabDebugBtn.textContent = label
       tabDebugBtn.title = t(curLang, 'logs.tabDebugHint')
+    }
+    if (dbgModeBox) {
+      try { dbgModeBox.checked = !!dbgActive } catch { /* 桩 DOM */ }
+      try { dbgModeBox.setAttribute('aria-checked', dbgActive ? 'true' : 'false') } catch { /* 桩 DOM */ }
     }
     if (tabLogsBtn) { tabLogsBtn.textContent = t(curLang, 'logs.tabLogs'); tabLogsBtn.title = t(curLang, 'logs.tabHint') }
     return plan
@@ -3735,9 +3786,28 @@ export function init() {
     try { diagBody.setAttribute('data-state', diagCount > 0 ? 'has' : (diagErrored ? 'error' : (diagState && diagState.offline ? 'offline' : 'waiting'))) } catch {}
     return 0
   }
+  /** ⑧(2026-09-20 用户第 4 条) 调试页签要能看到**与 :8899 同一份**内容。
+   *  `:8899` 的 `#log` 与这里的诊断页签读的是**同一条** `/api/diag-stream`（层信息 / 脚本错误 /
+   *  加载日志 / mip 选级都在里面，服务端 `diagEntryLine` 一行模型相同）⇒ 把每一条**原样**
+   *  追加进 `#dbg-log`（带 `data-src="diag"` 标记，文本与诊断页签逐字相同），调试页签里就不再
+   *  只有"层号 + 层名"。8902 自己的「立即上报 / 截图」按钮保留（在 `pushDiagEntry` 之外，互不影响）。 */
+  function dbgMirrorDiagLine(entry) {
+    if (!dbgLog || !entry) return null
+    const div = doc.createElement('div')
+    div.className = 'dbg-line' + (entry.level === 'error' ? ' dbg-err' : '')
+    div.dataset.src = 'diag'
+    div.dataset.source = entry.source
+    div.dataset.seq = entry.seq || ''
+    div.textContent = entry.line
+    dbgLog.appendChild(div)
+    while (dbgLog.children.length > DBG_MAX_LINES) dbgLog.removeChild(dbgLog.firstChild)
+    try { dbgLog.scrollTop = dbgLog.scrollHeight } catch { /* 桩 DOM */ }
+    return entry
+  }
   function pushDiagEntry(raw) {
     const entry = parseDiagEvent(raw)
     if (!entry || !diagBody) return null
+    try { dbgMirrorDiagLine(entry) } catch { /* 调试页签没就绪不影响诊断页签 */ }
     if (diagCount === 0) diagBody.textContent = ''          // 第一条消息把占位提示清掉
     const line = doc.createElement('div')
     line.className = 'diag-line' + (entry.level === 'error' ? ' err' : '')
@@ -3774,10 +3844,12 @@ export function init() {
     const prev = logsView
     logsView = plan.view
     paintLogsTabs()
-    //  ②(P-164) 调试模式的进出都走 setDebugMode：键盘只在激活期间存在，退出即恢复图层与默认键行为。
-    //  catch 里**必须留痕**：真机事故（自证 Z4 抓到）就是这里把 `every` 的 ReferenceError 吞了 ⇒
-    //  页签看着切过去了、日志一行没有。留一份可读的启动错，门禁断言它为空串。
-    try { setDebugMode(plan.isDebug) } catch (e) {
+    /* ②(2026-09-20 用户第 3 条 · 用户实测"点渲染器日志那一页会把调试模式关掉")：
+       切页签**永不改变调试模式状态** —— 这里不再调 `setDebugMode(plan.isDebug)`。
+       页签只管"看哪一页"；调试模式只由调试页签内部那个开关（或 Alt 退出）改。
+       键盘纪律照旧：`←/→/Ctrl/Alt` 只在**调试视图可见且模式开着**时被接管（`dbgSyncKeys()`）。
+       catch 里仍然留痕：真机事故（自证 Z4）就是这里把 ReferenceError 吞了 ⇒ 门禁断言它为空串。 */
+    try { dbgSyncKeys() } catch (e) {
       try { if (typeof window !== 'undefined') window.__benchDebugBootErr = String((e && e.message) || e) } catch { /* 无 window */ }
     }
     void prev
@@ -3797,6 +3869,7 @@ export function init() {
      ←/→/↑/↓/Ctrl/Alt 在调试模式外一个都不拦。 */
   const dbgBody = $('#debug-body'), dbgLayer = $('#dbg-layer'), dbgLog = $('#dbg-log'), dbgState = $('#dbg-state')
   const dbgReportBtn = $('#dbg-report'), dbgShotBtn = $('#dbg-shot'), tabDebugBtn = $('#tab-debug')
+  const dbgModeBox = $('#dbg-mode')       // ②(用户第 3 条) 页签内部那个**唯一**的模式开关
   let dbgActive = false
   let dbgKeyHandler = null
   let dbgTimer = null
@@ -3870,7 +3943,8 @@ export function init() {
     if (plan.op === 'next10') return dbgStep(10)
     if (plan.op === 'prev10') return dbgStep(-10)
     if (plan.op === 'all' || plan.op === 'reset') return dbgStep(0)
-    if (plan.op === 'exit') { setLogsView('logs'); return null }
+    //  Alt = **显式退出调试模式**（用户动作，不是"切页签"）：模式关 + 视图回输出一起收尾。
+    if (plan.op === 'exit') { setDebugMode(false); setLogsView('logs'); return null }
     return null
   }
   function dbgInstallKeys() {
@@ -3884,6 +3958,15 @@ export function init() {
     try { removeEventListener('keydown', dbgKeyHandler, true) } catch { /* ignore */ }
     dbgKeyHandler = null
     return true
+  }
+  /** 键盘路由的**唯一**判据：模式开着 **且** 调试视图正显示着。
+   *  两件事各自独立（模式由开关改、视图由页签改），但"接管键盘"必须两者同时成立 ——
+   *  这样既满足"切页签不改模式"，也保持 P-164 的键盘纪律（离开这一页就不再吞 ←/→/Ctrl/Alt）。 */
+  function dbgKeysWanted() { return !!dbgActive && logsView === 'debug' }
+  function dbgSyncKeys() {
+    const want = dbgKeysWanted()
+    if (want) return dbgInstallKeys()
+    return dbgRemoveKeys()
   }
   function dbgStartPoll() {
     //  真机事故（P-164 自证 Z4 抓到）：这里原本写的是 `every`（另一个作用域的局部名）⇒ ReferenceError 被
@@ -3901,13 +3984,13 @@ export function init() {
     if (want === dbgActive) { dbgPaint(); return dbgActive }
     dbgActive = want
     if (want) {
-      dbgInstallKeys()
+      dbgSyncKeys()                              // 模式开 ≠ 一定接管键盘：还要调试视图正显示着
       dbgStartPoll()
       const L = sceneLayerList()
       dbgPush(t(curLang, 'dbg.on') + (L ? ('（' + L.length + ' 层）') : ''))
       dbgStep(0)
     } else {
-      dbgRemoveKeys()
+      dbgRemoveKeys()                            // 关模式一定卸干净（无论当前在哪一页）
       dbgStopPoll()
       dbgApplyIsolation(null, -1)                 // 退出必须把图层全部恢复可见
       dbgIndex = -1
@@ -3973,6 +4056,13 @@ export function init() {
   }
   if (dbgReportBtn) dbgReportBtn.addEventListener('click', () => { dbgReport() })
   if (dbgShotBtn) dbgShotBtn.addEventListener('click', () => { dbgShot() })
+  /* ②(用户第 3 条) 模式开关**只在这里**：点它才改模式；点页签只切视图。
+     外部（探针/门禁）走的也是同一个入口：`__benchPatch.setDebugMode(v)`。 */
+  if (dbgModeBox) {
+    try { dbgModeBox.checked = !!dbgActive } catch { /* 桩 DOM */ }
+    dbgModeBox.addEventListener('change', () => { try { setDebugMode(!!dbgModeBox.checked) } catch (e) { try { if (typeof window !== 'undefined') window.__benchDebugBootErr = String((e && e.message) || e) } catch {} } })
+  }
+  //  页签 = **纯切页**（不再有任何模式副作用）
   if (tabDebugBtn) tabDebugBtn.addEventListener('click', () => setLogsView('debug'))
 
   if (tabLogsBtn) tabLogsBtn.addEventListener('click', () => setLogsView('logs'))
@@ -4407,6 +4497,26 @@ export function init() {
   // ⑤(P-158) 「系统选择器」**只作为兜底按钮**：对话框里那个按钮置位后转发给产物自己那条原生路径
   //   （`POST /api/library-dir {pick:true}`）；默认入口永远是**应用内**对话框。
   let sysPassthrough = false
+  /** 摘下产物自己的 `#pick-lib.onclick`（见下面那段根因注释）；返回是否摘到了。 */
+  function detachArtifactPickChain() {
+    try {
+      if (pickLibBtn && typeof pickLibBtn.onclick === 'function') {
+        artifactPickChain = pickLibBtn.onclick
+        pickLibBtn.onclick = null
+        return true
+      }
+    } catch { /* 桩 DOM */ }
+    return false
+  }
+  let artifactPickChain = null
+  /** 用户显式选了「系统选择器」兜底 ⇒ 临时把产物那条原生链装回来跑一次，跑完立刻再摘。 */
+  function callArtifactPickChain() {
+    const fn = artifactPickChain
+    if (!pickLibBtn || typeof fn !== 'function') return false
+    try { fn.call(pickLibBtn) } catch { /* 产物没接上：下面照样摘干净 */ }
+    detachArtifactPickChain()
+    return true
+  }
   if (pickLibBtn) {
     // 静态托管下 bundle 会 disable 它（bench.ts enterStaticMode）；我们的本地库让它重新可用
     const reenable = () => {
@@ -4416,13 +4526,28 @@ export function init() {
       }
     }
     reenable(); setTimeout(reenable, 800); setTimeout(reenable, 2500)
+    /* ①(用户第 1 条 · 2026-09-20 **本批根因**)：产物自己的 `#pick-lib.onclick` 必须**摘掉**。
+       为什么"捕获阶段抢在它之前"这句话不成立：产物是**同一个元素**上的 `onclick`（IDL 属性处理器），
+       按 DOM 规范它在 AT_TARGET 阶段与 `addEventListener(..., true)` **按注册顺序**跑，而产物先注册
+       （`bench-DSKWIqmS.js` 在 head 里先于本补丁执行）⇒ 捕获拦不住它。它会：
+         POST /api/library-dir {pick:true} ⇒ 服务端明确降级 `{cancelled:true,unsupported:true}` ⇒
+         `window.prompt('壁纸库目录')`（产物那条"手输目录"回退）—— **模态**对话框把主线程按住，
+         本补丁对话框 `/api/fs/list` 的响应只能在它被关掉之后才排得上队。
+       真机/门禁读数就是这个：`{status:200, rows:0, dirs:0, path:"Reading…"}` —— 后端 200 却一行不落。
+       修法：接管入口时把产物的处理器摘下来存着（`detachArtifactPickChain()`），只在用户**显式**
+       点「系统选择器」兜底时临时装回（`callArtifactPickChain()`），跑完立刻再摘一次。
+       判据：门禁 `bench-ui-headless` F0 断言 `#pick-lib.onclick === null`，且整轮 `window.prompt`
+       调用计数为 0（在 addInitScript 里计数）。 */
+    detachArtifactPickChain()
+    // 产物在 boot 里可能晚一步才挂上（或将来改挂法）⇒ 几个时刻各摘一次（摘不到返回 false，不报错）
+    setTimeout(detachArtifactPickChain, 600); setTimeout(detachArtifactPickChain, 2000)
     pickLibBtn.addEventListener('click', (e) => {
       if (pickLibBtn.disabled) return
-      // 兜底路径：用户**显式**点了对话框里的「系统选择器」⇒ 放行给产物（不拦），随后复位标记
-      if (sysPassthrough) { sysPassthrough = false; return }
+      // 兜底路径：用户**显式**点了对话框里的「系统选择器」⇒ 临时放行给产物（跑完立刻再摘），随后复位标记
+      if (sysPassthrough) { sysPassthrough = false; callArtifactPickChain(); return }
       e.preventDefault(); e.stopImmediatePropagation()
       try { openLibDirDialog() } catch (err) { openLibraryPicker() }     // 对话框自身出错仍留一条纯前端活路
-    }, true)   // 捕获阶段：抢在 bundle 的 /api/library-dir 之前
+    }, true)   // 捕获阶段：产物将来若改成祖先上的冒泡监听，这里也能先手
   }
   const clearLocalBtn = $('#clear-local')
   if (clearLocalBtn) clearLocalBtn.addEventListener('click', () => clearLocalLibrary(false))
@@ -4526,8 +4651,10 @@ export function init() {
     '#site-actions{margin-left:auto;display:flex;align-items:center;gap:8px;position:relative}',
     '#settings-btn{appearance:none;font:inherit;font-size:12.5px;color:var(--fg);background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer}',
     '#settings-btn:hover,#settings-btn[aria-expanded="true"]{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}',
-    '#site-actions .theme-btn{width:30px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1}',
-    '#theme-toggle .ic{display:block;flex:none}',   /* ⑫c 内联 SVG 走基线对齐会偏上（line-box 的降部留白）⇒ 块级化 + flex 居中 */
+    '#site-actions .theme-btn{width:30px;height:26px;border:0;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;place-items:center;padding:0;line-height:1;box-sizing:border-box}',
+    '#theme-toggle .ic{display:block;flex:none}',
+    /* ⑥(用户第 6 条) 图标几何居中的第三件事：内联 svg 走基线对齐会带 line-box 降部留白 ⇒ 块级化。 */
+    '#theme-toggle svg.ic{display:block;line-height:1;margin:0;vertical-align:middle}',
     '.theme-seg{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden}',
     '.theme-opt{appearance:none;font:inherit;font-size:12px;color:var(--fg-dim);background:transparent;border:0;padding:3px 9px;cursor:pointer}',
     '.theme-opt + .theme-opt{border-left:1px solid var(--border)}',
@@ -4647,6 +4774,21 @@ export function init() {
     '.dbg-layer{padding:6px 10px;font:11.5px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--fg);border-bottom:1px solid var(--border);white-space:pre-wrap}',
     '.dbg-log{flex:1;min-height:0;margin:0;padding:6px 10px;overflow:auto;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap}',
     '.dbg-log .dbg-err{color:#f85149}',
+    /* ②(2026-09-20 用户第 3 条) 调试模式开关搬进页签内部后的那一行（页签只切视图，开关只在这里）。 */
+    '.dbg-mode-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border)}',
+    /* ⑦(用户第 7 条) 滚动条：**定义只有一处**（`--bench-sb-*` 变量在静态表的 `html.bench-shell` 上），
+       **引用两处**（资源管理器列表 / 输出区）共用这一份选择器清单 —— 下面每条都与
+       `<style id="bench-shell-static">` 里那一行逐字同文（tests/demo-check.mjs D8 逐条比对）。 */
+    '#list, .bench-dirbox-list, #logbody, #diag-body, .dbg-log{scrollbar-width:thin;scrollbar-color:var(--bench-sb-thumb) var(--bench-sb-track)}',
+    '#list::-webkit-scrollbar, .bench-dirbox-list::-webkit-scrollbar, #logbody::-webkit-scrollbar, #diag-body::-webkit-scrollbar, .dbg-log::-webkit-scrollbar{width:var(--bench-sb-size);height:var(--bench-sb-size)}',
+    '#list::-webkit-scrollbar-track, .bench-dirbox-list::-webkit-scrollbar-track, #logbody::-webkit-scrollbar-track, #diag-body::-webkit-scrollbar-track, .dbg-log::-webkit-scrollbar-track{background:var(--bench-sb-track)}',
+    '#list::-webkit-scrollbar-thumb, .bench-dirbox-list::-webkit-scrollbar-thumb, #logbody::-webkit-scrollbar-thumb, #diag-body::-webkit-scrollbar-thumb, .dbg-log::-webkit-scrollbar-thumb{background:var(--bench-sb-thumb);border-radius:999px}',
+    '#list::-webkit-scrollbar-thumb:hover, .bench-dirbox-list::-webkit-scrollbar-thumb:hover, #logbody::-webkit-scrollbar-thumb:hover, #diag-body::-webkit-scrollbar-thumb:hover, .dbg-log::-webkit-scrollbar-thumb:hover{background:var(--bench-sb-thumb-hover)}',
+    '#list::-webkit-scrollbar-button, .bench-dirbox-list::-webkit-scrollbar-button, #logbody::-webkit-scrollbar-button, #diag-body::-webkit-scrollbar-button, .dbg-log::-webkit-scrollbar-button{display:none;width:0;height:0}',
+    '#list::-webkit-scrollbar-corner, .bench-dirbox-list::-webkit-scrollbar-corner, #logbody::-webkit-scrollbar-corner, #diag-body::-webkit-scrollbar-corner, .dbg-log::-webkit-scrollbar-corner{background:transparent}',
+    /* ⑨(用户第 10 条) 输入框：平时灰边、聚焦黑边（暗色模式聚焦白边）—— 颜色变量在静态表里一处定义。 */
+    'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), textarea{border:1px solid var(--bench-input-border)!important}',
+    'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):focus, textarea:focus{outline:none;border-color:var(--bench-input-focus)!important}',
     'select.bench-rd-native{display:none!important}',
     '#wp-switch{position:relative}',
     '#wp-add{flex:none;width:34px;min-width:34px;height:auto;border:0;border-left:1px solid var(--border);background:transparent;color:var(--fg-dim);font-size:16px;line-height:1;cursor:pointer}',
@@ -5206,40 +5348,116 @@ export function init() {
        GET /api/fs/roots            ⇒ {ok, roots:[{label,path}]}
        GET /api/fs/list?path=<abs>  ⇒ {ok, path, parent, entries:[{name,type,size,kind}]}
      选中后调**既有**库接口 `POST /api/library-dir {dir}`（服务端返回里带 `source:'user'` 时前端直接采信），
-     然后写 localStorage 的 `we-bench-library-dir` 并 reload（产物启动时按它 + `/api/library` 载库）。
+     然后写 localStorage 的 `we-bench-library-dir`。
+     成功之后的三条契约（2026-09-20 用户第 1 条，纯函数 `libDirCommitPlan()` 可断言）：
+       · **立刻重新拉壁纸库列表**：同页 `GET /api/library`（`refreshLibrarySoft()`）—— 不用手动刷新页面；
+       · **自动关闭对话框**：`closeFsDialog()`；
+       · **不碰当前选中的壁纸**：既不 `switchToWallpaper` 也不点 `#release`（用户明确要求）。
+       失败 ⇒ **不关窗**，把原因写在对话框里（`pickd.fail`），并把对话框状态标成 `error`。
      优雅降级：路由还没落地（404）/ 没有后端 ⇒ 弹同一个对话框但**明确写"服务端还没有 /api/fs/* 这条路由"**，
-     并把两个兜底按钮摆出来（纯前端扫描 / **显式标注**的系统选择器），绝不静默失败。 */
+     并把两个兜底按钮摆出来（纯前端扫描 / **显式标注**的系统选择器），绝不静默失败。
+     ── 状态机纪律（同一条的根因收口）────────────────────────────────────────────────
+     故障读数 `{status:200, rows:0, dirs:0, path:"Reading…"}`：后端 200、形状正确，前端一行没落
+     ⇒ "永远停在 Reading…"这条路径必须从构造上不存在。做法：
+       · 每一步都写成**可见状态**（`#bench-fs-dialog[data-state]` = loading/ok/error）；
+       · 每个请求都有**超时**（`FS_TIMEOUT_MS`）与**代际号**（`ui.gen`）：关窗/重开后回来的过期响应一律丢弃；
+       · 加载中就把"正在读哪个目录"写进列表（`data-path` 先落请求目标），不再只留一句 Reading…；
+       · 「就选这个目录」只在列表真的读成功之后才可点（`ui.loaded`）。 */
+  const FS_TIMEOUT_MS = 9000
   let fsDialog = null
-  function closeFsDialog() {
-    if (fsDialog && fsDialog.box && fsDialog.box.parentNode) { try { fsDialog.box.parentNode.removeChild(fsDialog.box) } catch {} }
-    if (fsDialog && fsDialog.onKey) { try { doc.removeEventListener('keydown', fsDialog.onKey) } catch {} }
+  let fsSeq = 0
+  let fsLastResult = null                     // 探针读数（__benchPatch.fsState()）
+  /** 把状态机的一步写成**可见状态**（`#bench-fs-dialog[data-state]`）：loading / ok / error / applying。
+   *  门禁与探针读的就是这个属性 —— "到底卡在哪一步"必须能从 DOM 上直接读出来，而不是靠猜。 */
+  function fsSetState(ui, state, extra) {
+    if (!ui || !ui.box) return state
+    try { ui.box.dataset.state = String(state) } catch { /* 桩 DOM */ }
+    try { ui.box.dataset.gen = String(ui.gen) } catch { /* 桩 DOM */ }
+    if (extra && extra.message != null && ui.pathEl) ui.pathEl.textContent = String(extra.message)
+    if (extra && extra.path != null && ui.pathEl && ui.pathEl.dataset) ui.pathEl.dataset.path = String(extra.path)
+    return state
+  }
+  /** 库目录对话框的**可判据快照**（门禁/探针同一入口，与 npOcclusion/getPointerPark 同一写法）。 */
+  function fsState() {
+    const ui = fsDialog
+    return {
+      open: !!ui, gen: ui ? ui.gen : fsSeq, state: (ui && ui.box && ui.box.dataset) ? String(ui.box.dataset.state || '') : '',
+      path: ui ? String(ui.path || '') : '', loaded: !!(ui && ui.loaded), pending: !!(ui && ui.pending),
+      rows: ui ? (ui.rows || []).length : 0, dirs: ui ? (ui.rows || []).filter((r) => r.type === 'dir').length : 0,
+      listed: ui && ui.list ? ui.list.querySelectorAll('.bench-dirbox-row').length : 0,
+      hasConfirm: !!(ui && ui.confirmBtn), confirmDisabled: !!(ui && ui.confirmBtn && ui.confirmBtn.disabled),
+      dialogs: doc.querySelectorAll ? doc.querySelectorAll('.bench-dirbox').length : -1,     // 单例不变式：同时只许一个
+      lastErr: ui ? String(ui.lastErr || '') : '', loadMs: ui ? Number(ui.loadMs || -1) : -1, last: fsLastResult,
+      commit: libDirCommitPlan(),                       // 成功/失败两侧的动作契约（纯函数，门禁直接断言）
+    }
+  }
+  function closeFsDialog(why) {
+    const ui = fsDialog
+    fsSeq++                                   // 关掉之后回来的在途响应一律过期
+    if (ui && ui.box && ui.box.parentNode) { try { ui.box.parentNode.removeChild(ui.box) } catch {} }
+    if (ui && ui.onKey) { try { doc.removeEventListener('keydown', ui.onKey) } catch {} }
+    if (ui) fsLastResult = { closed: true, why: String(why || 'close'), path: ui.path || '', rows: (ui.rows || []).length }
     fsDialog = null
   }
-  async function fsJson(url, init) {
-    const r = await fetch(url, init)
-    let body = null
-    try { body = await r.json() } catch { body = null }
-    return { status: r.status, ok: r.ok, body }
+  /** 带**超时**的取数：fetch 挂了/服务端不回，都不许让对话框停在"八字没一撇"的状态。 */
+  async function fsJson(url, init, ms) {
+    const to = Number(ms) > 0 ? Number(ms) : FS_TIMEOUT_MS
+    let ctl = null
+    try { ctl = (typeof AbortController === 'function') ? new AbortController() : null } catch { ctl = null }
+    const timer = (ctl && typeof setTimeout === 'function') ? setTimeout(() => { try { ctl.abort() } catch { /* 已结束 */ } }, to) : null
+    try {
+      const o = Object.assign({}, init || {})
+      if (ctl) o.signal = ctl.signal
+      const r = await fetch(url, o)
+      let body = null
+      try { body = await r.json() } catch { body = null }
+      return { status: r.status, ok: r.ok, body }
+    } finally { if (timer) { try { clearTimeout(timer) } catch { /* ignore */ } } }
+  }
+  /** 成功切换库根之后的**软刷新**：立刻 `GET /api/library`（= 重新拉壁纸库列表），丢掉进程内缓存，
+   *  重画本补丁自己的面（数量徽标 / 库来源 / 切换栏），**不刷整页、不碰当前选中的壁纸**。 */
+  async function refreshLibrarySoft() {
+    hostLibCache = null
+    let ids = null
+    try {
+      const r = await fsJson('/api/library', { headers: { accept: 'application/json' } }, 6000)
+      const j = (r.body && typeof r.body === 'object') ? r.body : null
+      if (j && Array.isArray(j.items)) ids = j.items.map((it) => String((it && it.itemId) || '')).filter(Boolean)
+    } catch { ids = null }
+    try { if (typeof window !== 'undefined' && typeof window.__benchShellRefresh === 'function') window.__benchShellRefresh() } catch { /* 外壳未就绪 */ }
+    try { refreshSwitcher(true) } catch { /* 列表未就绪 */ }
+    return { ok: !!ids, count: ids ? ids.length : null, ids: ids || [] }
   }
   async function applyLibDir(dir, ui) {
+    const target = String(dir || '')
+    if (!target) return null
     if (ui && ui.note) ui.note.textContent = t(curLang, 'pickd.applying')
+    if (ui) fsSetState(ui, 'applying', {})
     try {
       const res = await fsJson('/api/library-dir', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dir }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dir: target }),
       })
       const j = res.body && typeof res.body === 'object' ? res.body : {}
       if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status))
-      const chosen = String(j.dir || dir)
+      const chosen = String(j.dir || target)
       try { localStorage.setItem('we-bench-library-dir', chosen) } catch { /* 隐私模式 */ }
       const src = String(j.source || 'user')                     // 服务端带 source 就采信它（契约：'user'）
       paintLibSource()
-      if (ui && ui.note) ui.note.textContent = t(curLang, 'pickd.done', { path: chosen })
-      logLine(t(curLang, 'pickd.selected', { path: chosen }) + ' · source=' + src)
-      setTimeout(() => { try { location.reload() } catch { /* 桩 DOM */ } }, 500)
+      //  ① 立刻重新拉壁纸库列表（软刷新：同页 GET /api/library，不 reload 整页、不碰当前选中）
+      const fresh = await refreshLibrarySoft()
+      //  ② 自动关闭对话框（关掉之后在途的响应由代际号丢弃）
+      closeFsDialog('committed')
+      //  ③ 不碰当前选中的壁纸：这里没有 switchToWallpaper / #release 的任何调用
+      fsLastResult = { committed: true, path: chosen, source: src, listCount: fresh.count, reloadPage: false, touchedSelection: false }
+      logLine(t(curLang, 'pickd.selected', { path: chosen }) + ' · source=' + src +
+        (fresh.ok ? (' · ' + t(curLang, 'pickd.relisted', { n: fresh.count })) : ''))
       return chosen
     } catch (e) {
+      //  失败：**不关窗**，把原因写在对话框里（用户第 1 条的第三条）
       const msg = (e && e.message) || String(e)
+      fsLastResult = { committed: false, path: target, error: msg, closed: false }
       if (ui && ui.note) ui.note.textContent = t(curLang, 'pickd.fail', { msg })
+      if (ui) fsSetState(ui, 'error', {})
       logLine(t(curLang, 'pickd.fail', { msg }), true)
       return null
     }
@@ -5255,7 +5473,9 @@ export function init() {
   }
   /** 打开库目录对话框：先探 `/api/fs/roots`，据此选 server 模式还是 fallback 模式。 */
   async function openLibDirDialog() {
-    closeFsDialog()
+    closeFsDialog('reopen')                  // 单例不变式：同时只许一个 `.bench-dirbox`
+    try { closeDirPicker() } catch { /* 另一套选择器没开 */ }
+    const gen = fsSeq + 1                    // 本次打开的代际（下面的响应只许画这一代）
     let roots = { ok: false, roots: [] }
     let routesOk = false
     if (apiStatus === 200) {
@@ -5266,10 +5486,12 @@ export function init() {
       } catch { routesOk = false }
     }
     const plan = dirDialogPlan(routesOk, apiStatus === 200)
+    if (gen !== fsSeq + 1 && fsDialog) return plan      // 期间又被打开/关掉了 ⇒ 本次作废（不留第二个框）
     buildFsDialog(plan, roots)
     if (plan.ok) {
       const start = (roots.roots[0] && roots.roots[0].path) || ''
       if (start) navigateFs(start)
+      else fsSetState(fsDialog, 'error', { message: t(curLang, 'pickd.noStart') })
     }
     return plan
   }
@@ -5328,36 +5550,48 @@ export function init() {
       const lab = dirMk('span', '', t(curLang, 'pickd.here'))
       confirmBtn.appendChild(lab)
       confirmBtn.id = 'bench-fs-confirm'
-      confirmBtn.addEventListener('click', () => { const cur = pathEl.dataset.path || ''; if (cur) applyLibDir(cur, { note }) })
+      confirmBtn.disabled = true          // 列表读成功之前不可点（"就选这个目录"只对**读到的**目录生效）
+      confirmBtn.addEventListener('click', () => { const cur = (fsDialog && fsDialog.loaded && pathEl.dataset.path) || ''; if (cur) applyLibDir(cur, { note }) })
       foot.appendChild(confirmBtn)
     }
     const cancelBtn = dirBtn('bench-dirbox-go bench-dirbox-go2', t(curLang, 'picker.cancel'))
-    cancelBtn.addEventListener('click', closeFsDialog)
+    cancelBtn.addEventListener('click', () => closeFsDialog('cancel'))
     foot.appendChild(cancelBtn)
     win.appendChild(tools); win.appendChild(list); win.appendChild(fsFallbackButtons()); win.appendChild(foot)
     box.appendChild(win)
-    box.addEventListener('mousedown', (ev) => { if (ev && ev.target === box) closeFsDialog() })
+    box.addEventListener('mousedown', (ev) => { if (ev && ev.target === box) closeFsDialog('backdrop') })
     doc.body.appendChild(box)
     const onKey = (ev) => {
       if (!ev) return
-      if (ev.key === 'Escape') { try { ev.preventDefault() } catch {} ; closeFsDialog() }
-      if (ev.key === 'Enter' && plan.ok && confirmBtn) { try { ev.preventDefault() } catch {} ; confirmBtn.click() }
+      if (ev.key === 'Escape') { try { ev.preventDefault() } catch {} ; closeFsDialog('escape') }
+      if (ev.key === 'Enter' && plan.ok && confirmBtn && !confirmBtn.disabled) { try { ev.preventDefault() } catch {} ; confirmBtn.click() }
     }
     try { doc.addEventListener('keydown', onKey) } catch {}
-    fsDialog = { box, pathEl, list, count, note, filter, confirmBtn, onKey, roots: roots.roots, rows: [] }
+    fsDialog = { box, pathEl, list, count, note, filter, confirmBtn, onKey, roots: roots.roots, rows: [], gen: ++fsSeq, loaded: false, pending: false, path: '', lastErr: '', loadMs: -1 }
+    fsSetState(fsDialog, plan.ok ? 'idle' : 'degraded', {})
     filter.addEventListener('input', () => paintFsRows())
     up.addEventListener('click', () => { const p = pathEl.dataset.parent || ''; if (p) navigateFs(p) })
     try { if (box.focus) box.focus({ preventScroll: true }) } catch {}
     return fsDialog
   }
+  /** 画列表。加载中就把"正在读哪个目录"写出来（不再只留一句 Reading… —— 读不出结果时也要看得见目标）。 */
   function paintFsRows() {
     const ui = fsDialog
     if (!ui) return 0
     const q2 = String((ui.filter && ui.filter.value) || '').trim().toLowerCase()
-    const rows = ui.rows.filter((r) => !q2 || r.name.toLowerCase().includes(q2))
+    const all = ui.rows || []
+    const rows = all.filter((r) => !q2 || r.name.toLowerCase().includes(q2))
     ui.list.textContent = ''
+    if (ui.pending) {
+      const e = dirMk('div', 'bench-dirbox-empty', t(curLang, 'pickd.loading') + ' ' + String((ui.pathEl.dataset && ui.pathEl.dataset.path) || ''))
+      e.dataset.state = 'loading'
+      ui.list.appendChild(e)
+      ui.count.textContent = t(curLang, 'pick.count', { n: 0 })
+      return 0
+    }
     if (!rows.length) {
       const e = dirMk('div', 'bench-dirbox-empty', t(curLang, 'pickd.empty'))
+      e.dataset.state = 'empty'
       ui.list.appendChild(e)
       ui.count.textContent = t(curLang, 'pick.count', { n: 0 })
       return 0
@@ -5373,29 +5607,47 @@ export function init() {
     ui.count.textContent = t(curLang, 'pick.count', { n: rows.length })
     return rows.length
   }
+  /** 列一个目录。**代际号 + 超时 + 每步可见状态**：关窗/重开之后回来的响应一律丢弃，
+   *  任何失败都落成 `pickd.fail` 的可见文案（绝不留在"Reading…"）。 */
   async function navigateFs(path) {
     const ui = fsDialog
     if (!ui) return null
+    const gen = ui.gen
+    const want = String(path || '')
+    const t0 = (typeof Date !== 'undefined' && Date.now) ? Date.now() : 0
+    ui.pending = true; ui.loaded = false; ui.lastErr = ''
+    fsSetState(ui, 'loading', { message: t(curLang, 'pickd.loading'), path: want })
+    try { if (ui.confirmBtn) ui.confirmBtn.disabled = true } catch { /* 桩 DOM */ }
+    paintFsRows()
+    let r = null
     try {
-      ui.pathEl.textContent = t(curLang, 'pickd.loading')
-      const r = await fsJson('/api/fs/list?path=' + encodeURIComponent(path), { headers: { accept: 'application/json' } })
-      const j = r.body && typeof r.body === 'object' ? r.body : {}
-      if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status))
-      // 只读浏览：文件行也显示（灰、不可进入）——用户要看得到"这个目录里有什么"
-      const plan2 = fsEntriesPlan({ ok: true, path: j.path || path, parent: j.parent, entries: (j.entries || []).concat(j.files || []) })
-      ui.rows = plan2.rows
-      ui.pathEl.dataset.path = plan2.path || path
-      ui.pathEl.dataset.parent = plan2.parent || ''
-      ui.pathEl.textContent = plan2.path || path
-      paintFsRows()
-      return plan2
-    } catch (e) {
-      const msg = (e && e.message) || String(e)
-      ui.pathEl.textContent = t(curLang, 'pickd.fail', { msg })
+      r = await fsJson('/api/fs/list?path=' + encodeURIComponent(want), { headers: { accept: 'application/json' } })
+    } catch (e) { r = { status: 0, ok: false, body: null, err: String((e && e.message) || e) } }
+    //  过期响应（对话框被关掉/换了一个）⇒ 直接丢弃，既不画也不写日志
+    if (!fsDialog || fsDialog !== ui || ui.gen !== gen) return null
+    ui.pending = false
+    ui.loadMs = t0 ? (Date.now() - t0) : -1
+    const j = (r.body && typeof r.body === 'object') ? r.body : {}
+    if (!r.ok || j.error) {
+      const msg = String(j.error || r.err || ('HTTP ' + r.status))
+      ui.lastErr = msg
       ui.rows = []
+      fsSetState(ui, 'error', { message: t(curLang, 'pickd.fail', { msg }), path: want })
       paintFsRows()
+      logLine(t(curLang, 'pickd.listFail', { path: want, msg }), true)
       return null
     }
+    // 只读浏览：文件行也显示（灰、不可进入）——用户要看得到"这个目录里有什么"
+    const plan2 = fsEntriesPlan({ ok: true, path: j.path || want, parent: j.parent, entries: (j.entries || []).concat(j.files || []) })
+    ui.rows = plan2.rows
+    ui.path = plan2.path || want
+    ui.pathEl.dataset.path = ui.path
+    ui.pathEl.dataset.parent = plan2.parent || ''
+    ui.loaded = true
+    fsSetState(ui, 'ok', { message: ui.path })
+    try { if (ui.confirmBtn) ui.confirmBtn.disabled = false } catch { /* 桩 DOM */ }
+    paintFsRows()
+    return plan2
   }
   async function previewPickedFile(res) {
     const dir = res.dir || ''
@@ -5609,14 +5861,56 @@ export function init() {
     const el = $(plan.copySelector)
     copyText((el && el.textContent) || '', plan.view)
   })
+  /* ②(2026-09-20 用户第 2 条 · 用户实测「清空按钮清不掉调试模式日志」)
+     真因（一行判据）：原来是 `if (el && (plan.isDiag || !el.textContent)) el.textContent = ''` ——
+     调试视图下 `plan.isDiag === false`，于是只有当 `#dbg-log` **本来就是空的**才清
+     ⇒ 非空的调试日志**永远清不掉**（判据自己把自己锁死）。输出视图那条是产物自己清的，与它无关。
+     修法：按**当前视图**清该视图那块文本 + 它自己的行缓冲，并各写一条"已清空"系统行：
+       · 输出视图 `#logbody`
+       · 诊断视图 `#diag-body` + `diagCount` 归零（页签计数跟着走）
+       · 调试视图 `#dbg-log` + `dbgLines` 环形缓冲一起清（否则下一次重画会"复活"旧行）
+     三个视图是三个存储位置，清完各自留一行"已清空" ⇒ 门禁可判"清空之后只剩这一行"。 */
+  function clearNoticeText() { return t(curLang, 'logs.cleared', { view: t(curLang, logsView === 'diag' ? 'logs.tabDiag' : (logsView === 'debug' ? 'logs.debug' : 'logs.head')) }) }
+  function clearLogsView() {
+    const view = logsView
+    if (view === 'diag') {
+      if (diagBody) diagBody.textContent = ''
+      diagCount = 0
+      if (diagBody) {
+        const line = doc.createElement('div')
+        line.className = 'diag-line'
+        line.dataset.source = 'bench'
+        line.dataset.sys = 'cleared'
+        line.textContent = clearNoticeText()
+        diagBody.appendChild(line)
+        diagCount = 1
+      }
+      paintLogsTabs()
+      return diagCount
+    }
+    if (view === 'debug') {
+      dbgLines = []                                    // 环形缓冲一起清（只清 DOM 会被下一次重画复活）
+      if (dbgLog) dbgLog.textContent = ''
+      dbgPush(clearNoticeText())
+      try { if (dbgLog && dbgLog.lastElementChild && dbgLog.lastElementChild.dataset) dbgLog.lastElementChild.dataset.sys = 'cleared' } catch { /* 桩 DOM */ }
+      return dbgLines.length
+    }
+    const body = $('#logbody')
+    if (body) {
+      body.textContent = ''
+      const line = doc.createElement('div')
+      line.className = 'sys'
+      line.dataset.sys = 'cleared'
+      line.textContent = clearNoticeText()
+      body.appendChild(line)
+      body.scrollTop = body.scrollHeight
+    }
+    return body ? body.children.length : 0
+  }
   const clearLogsBtn = $('#clear-logs')
   if (clearLogsBtn) clearLogsBtn.addEventListener('click', () => {
-    const plan = logsViewPlan(logsView)
-    const el = $(plan.clearSelector)
-    // 输出页签那条链路由产物自己的 `#clear-logs.onclick` 负责（它清 `#logbody`）；这里只补诊断页签，
-    // 以及"产物没接上时"的兜底（同一个按钮两个处理器并存，清的是同一块文本，重复清无害）。
-    if (el && (plan.isDiag || !el.textContent)) el.textContent = ''
-    if (plan.isDiag) { diagCount = 0; paintDiagBody(); paintLogsTabs() }
+    // 产物自己那个处理器清的是 `#logbody`（它先跑，AT_TARGET 按注册顺序）⇒ 这里再按当前视图清一遍。
+    try { clearLogsView() } catch { /* 单次失败不影响其它链路 */ }
   })
   const copyUrlBtn = $('#copy-url')
   if (copyUrlBtn) copyUrlBtn.addEventListener('click', () => copyText(location.href, 'url'))
@@ -6148,9 +6442,93 @@ export function init() {
     if (FLAGS.clocklock && pollTick % 3 === 0) lockTimeLayersEverywhere()
   }, 1200)
   if (frameEl && frameEl.addEventListener) frameEl.addEventListener('load', () => {
-    setTimeout(() => { wrapRendererApi(); try { installWebShim(rendererWin()) } catch { /* ignore */ } ; bindRendererPointerLeave() }, 0)
+    setTimeout(() => { wrapRendererApi(); try { installWebShim(rendererWin()) } catch { /* ignore */ } ; bindRendererPointerLeave(); syncMicGate() }, 0)
     setTimeout(() => { lockTimeLayersEverywhere() }, 800)
   })
+
+  /* ── ⑤(2026-09-20 用户第 5 条) 「启用麦克风」闸门：默认关 ⇒ `getUserMedia` **一次都不调** ──────────
+     用户原话要点：工具条新增「启用麦克风」复选框、**默认关**；关着时**任何** mic 请求都不发
+     （`getUserMedia` 一次都不许调，"系统实况"只保留歌名/进度）；开着且**壁纸/功能声明需要**时才请求；
+     **不许页面加载时预请求**。
+     实现分三层（三层都做，任一层单独失效都还有兜底）：
+       ① 页面这一侧"谁声明需要麦克风" = 「系统实况」（`#live-system`）。麦克风关着时它被强制关掉并置灰
+          ⇒ 产物 `ve.onchange → Ae()` 重挂渲染器时**不会**带上 `liveSystem=1`（mic 的页面入口就断了）；
+          用户此前的勾选状态记在 `micLiveWanted`，打开麦克风时原样还给他。
+       ② 闸门本体：把 `navigator.mediaDevices.getUserMedia` 换成"关了就直接拒绝、连原函数都不调"的版本，
+          顶层窗口与**同源渲染器 iframe** 各装一道（web 壁纸文档与渲染器都在这一棵树里）。
+          被拦下的次数记在 `__benchPatch.micGate().blocked`（可断言）。
+       ③ 探针：`micGate()` 给出 `enabled/blocked/allowed/requests/installed`，门禁在 addInitScript 里
+          再包一层计数器数**真实调用**（关了必须是 0）。
+     为什么默认必须是"关"：产物在挂载壁纸时会把 `liveSystem=1` 写进渲染器 URL，渲染器据此
+     `getUserMedia`（浏览器会弹权限框）—— 用户没勾过任何东西就被要麦克风，正是他要挡掉的行为。 */
+  const micEl = $('#mic-enable'), liveEl = $('#live-system')
+  let micBlocked = 0, micPermitted = 0, micInstalled = 0
+  let micLiveWanted = !!(liveEl && liveEl.checked)          // 产物默认勾着"系统实况" ⇒ 记住这个默认
+  const micGateOpen = () => !!(micEl && micEl.checked)
+  function micDeny(win) {
+    try {
+      const D = (win && win.DOMException) || (typeof DOMException === 'function' ? DOMException : null)
+      if (D) return new D('麦克风未启用（测试台工具条的「启用麦克风」默认关）', 'NotAllowedError')
+    } catch { /* 无 DOMException 的环境 */ }
+    const e = new Error('microphone disabled by bench switch'); e.name = 'NotAllowedError'; return e
+  }
+  /** 在某个 window 的 `navigator.mediaDevices.getUserMedia` 上装闸门（幂等）。 */
+  function installMicGateOn(win) {
+    try {
+      const md = win && win.navigator && win.navigator.mediaDevices
+      if (!md || typeof md.getUserMedia !== 'function') return false
+      if (md.__benchMicGated) return true
+      const orig = md.getUserMedia.bind(md)
+      const gated = function () {
+        if (!micGateOpen()) { micBlocked++; return Promise.reject(micDeny(win)) }   // **连原函数都不调**
+        micPermitted++
+        return orig.apply(null, arguments)
+      }
+      try { Object.defineProperty(md, '__benchMicGated', { value: true, configurable: true }) } catch { /* 冻结 */ }
+      md.getUserMedia = gated
+      micInstalled++
+      return true
+    } catch { return false }
+  }
+  /** 把闸门状态同步到三个面：顶层窗口 / 渲染器 iframe / 「系统实况」复选框。 */
+  function syncMicGate() {
+    installMicGateOn(typeof window !== 'undefined' ? window : null)
+    try { installMicGateOn(rendererWin()) } catch { /* 渲染器还没起来 */ }
+    if (liveEl) {
+      if (!micGateOpen()) {
+        if (liveEl.checked) { micLiveWanted = true; liveEl.checked = false }      // 关着 ⇒ 强制不带 liveSystem=1
+        try { liveEl.disabled = true } catch { /* 桩 DOM */ }
+        try { liveEl.title = t(curLang, 'toolbar.micTip') } catch { /* 桩 DOM */ }
+      } else {
+        try { liveEl.disabled = false } catch { /* 桩 DOM */ }
+        try { liveEl.checked = !!micLiveWanted } catch { /* 桩 DOM */ }
+        try { liveEl.title = t(curLang, 'toolbar.liveTip') } catch { /* 桩 DOM */ }
+      }
+    }
+    return micGateState()
+  }
+  function micGateState() {
+    return {
+      enabled: micGateOpen(), installed: micInstalled, blocked: micBlocked, permitted: micPermitted,
+      liveSystemChecked: !!(liveEl && liveEl.checked), liveSystemDisabled: !!(liveEl && liveEl.disabled),
+      wanted: micLiveWanted, rendererLive: (() => { try { const src = frameEl ? String(frameEl.getAttribute('src') || '') : ''; return /[?&]liveSystem=1/.test(src) } catch { return null } })(),
+    }
+  }
+  if (micEl) {
+    try { micEl.checked = false } catch { /* 桩 DOM */ }        // **默认关**（HTML 里也没写 checked）
+    micEl.addEventListener('change', () => {
+      if (!micGateOpen() && liveEl) { micLiveWanted = false }   // 主动关掉 ⇒ 连"想要的"也清掉
+      syncMicGate()
+      logLine(t(curLang, micGateOpen() ? 'log.micOn' : 'log.micOff'))
+    })
+  }
+  if (liveEl) {
+    // 麦关着时点「系统实况」：不改 URL（不请求），把"想要"记下来，并在输出区写明原因
+    liveEl.addEventListener('click', (e) => {
+      if (!micGateOpen()) { try { e.preventDefault() } catch {} ; micLiveWanted = true; logLine(t(curLang, 'log.micNeeded'), true) }
+    }, true)
+  }
+  syncMicGate()
 
   // ── ⑧(2026-09-18 品牌改名) 站点品牌运行期覆盖 ──
   //   目标：用户**看得见的地方**（头部品牌名 + document.title）显示产品现名 `WEwebLoader`，版本号 `v1.3.16`
@@ -6457,6 +6835,13 @@ export function init() {
     }, 1200)
   }
 
+  /* ⑪(用户第 11 条) 首屏"就绪"信号：静态表里 `html.bench-shell:not([data-bench-ready]) body{visibility:hidden}`
+     把补丁接管之前的帧挡掉，这里在外壳/列表/日志都画完之后摘闸门（head 里那段脚本另有
+     DOMContentLoaded 与 1.2s/3s 两个硬兜底 ⇒ 任何异常路径下都不会白屏）。 */
+  function markBenchReady() {
+    try { if (typeof window !== 'undefined' && typeof window.__benchReady === 'function') window.__benchReady() } catch { /* 无 head 脚本 */ }
+  }
+
   // 首次同步
   applyLang(curLang)
   paintDiag()
@@ -6487,6 +6872,10 @@ export function init() {
   //   上面那次 `syncAllLabels()` 跑在外壳之前，那时 `window.__benchShellRefresh` 还不存在。
   try { if (typeof window !== 'undefined' && typeof window.__benchShellRefresh === 'function') window.__benchShellRefresh() } catch { /* 外壳未就绪 */ }
 
+  // ⑪ 外壳与首画都跑完了 ⇒ 摘掉首屏闸门（幂等；head 里的兜底定时器不受影响）
+  markBenchReady()
+  setTimeout(markBenchReady, 600)
+
   // 源码侧钩子（bench/bench.ts 调用；重建后若源码自足可删）
   const api = {
     langChanged: (l) => applyLang(l),
@@ -6516,8 +6905,17 @@ export function init() {
     forwardPointerMove,
     webShim: () => (typeof window !== 'undefined' && typeof window.__benchWebShim === 'function') ? window.__benchWebShim() : Object.assign({}, webShimState),
     //  ②(P-164) 调试模式（探针/门禁读同一批入口）
-    debugMode: () => dbgActive,
     setDebugMode: (v) => setDebugMode(v),
+    //  ②(用户第 3 条) 调试模式的**两个状态分开读**：mode = 开关；view = 当前页签。切页签不改 mode。
+    debugMode: () => dbgActive,
+    logsView: () => logsView,
+    //  ⑤(用户第 5 条) 麦克风闸门读数（enabled/blocked/installed + 「系统实况」是否被强制关掉）
+    micGate: () => micGateState(),
+    micSync: () => syncMicGate(),
+    //  ①(用户第 1 条) 库目录对话框状态机 + 「就选这个目录」成功后的动作契约
+    fsState: () => fsState(),
+    clearLogsView: () => clearLogsView(),
+    benchReady: () => markBenchReady(),
     dbgLayers: () => { const L = sceneLayerList(); return L ? L.length : 0 },
     dbgIndex: () => dbgIndex,
     dbgStep: (dir) => dbgStep(dir),

@@ -51,8 +51,15 @@ html.bench-shell #site-tab-ink{position:absolute;bottom:0;left:0;height:2px;widt
 html.bench-shell #site-actions{margin-left:auto;display:flex;align-items:center;gap:8px;position:relative}
 html.bench-shell #settings-btn{appearance:none;font:inherit;font-size:12.5px;color:var(--fg);background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer}
 html.bench-shell #settings-btn:hover, html.bench-shell #settings-btn[aria-expanded="true"]{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}
-html.bench-shell #site-actions .theme-btn{width:30px;height:26px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1}
+html.bench-shell #site-actions .theme-btn{width:30px;height:26px;border:0;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;place-items:center;padding:0;line-height:1;box-sizing:border-box}
 html.bench-shell #theme-toggle .ic{display:block;flex:none}
+/* ⑥(2026-09-20 用户第 6 条「暗色模式小月亮图标不居中」)：几何居中的三件事必须同时成立 ——
+   ① 按钮 `border:0`：产物 `.act` 带 `border-left:2px solid transparent`，`*{box-sizing:border-box}`
+      下它会从 30px 里吃掉 2px ⇒ 内容盒左移、图标中心比按钮中心右偏 1px（实测就是这个）；
+   ② 容器 flex/grid 居中（`align-items/justify-content/place-items`）；
+   ③ 图标自己 `display:block;line-height:1`（内联 svg 走基线对齐会带上 line-box 的降部留白）。
+   门禁 `bench-ui-headless` G 组用 `getBoundingClientRect` 判两主题下中心偏差 ≤1px。 */
+html.bench-shell #theme-toggle svg.ic{display:block;line-height:1;margin:0;vertical-align:middle}
 html.bench-shell .theme-seg{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden}
 html.bench-shell .theme-opt{appearance:none;font:inherit;font-size:12px;color:var(--fg-dim);background:transparent;border:0;padding:3px 9px;cursor:pointer}
 html.bench-shell .theme-opt + .theme-opt{border-left:1px solid var(--border)}
@@ -154,6 +161,44 @@ html[lang="en"] .lang-zh{display:none}
 html.bench-shell html:not([lang="en"]) .lang-en{display:none}
 @media (prefers-reduced-motion: reduce){html.bench-shell #pages-track,#site-tab-ink{transition:none!important}}
     
+/* ── ⑦(2026-09-20 用户第 7 条)：滚动条一处定义、两处引用 ──────────────────────────────────
+   用户原话口径：「白色/浅色、细（6–8px）、上下圆角」。**定义只有一处**：下面四个自定义属性
+   （`--bench-sb-*`，随主题切换）；**引用两处**：资源管理器列表（`#list` 等）与输出区（`#logbody`
+   /`#diag-body`/`#debug-body`）共用同一条选择器清单 —— 改样式只改这一处，不会再出现
+   "列表细了、输出区还又黑又粗"。WebKit/Blink 走 `::-webkit-scrollbar` 系列（轨道透明、
+   滑块半透明、`border-radius:999px` 上下圆角、无箭头按钮）；Firefox 走标准
+   `scrollbar-width:thin; scrollbar-color:<滑块> <轨道>`。 */
+html.bench-shell{--bench-sb-size:8px;--bench-sb-thumb:rgba(255,255,255,.5);--bench-sb-thumb-hover:rgba(255,255,255,.72);--bench-sb-track:transparent}
+html.bench-shell[data-theme="light"]{--bench-sb-thumb:rgba(0,0,0,.28);--bench-sb-thumb-hover:rgba(0,0,0,.42)}
+html.bench-shell #list, html.bench-shell .bench-dirbox-list, html.bench-shell #logbody, html.bench-shell #diag-body, html.bench-shell .dbg-log{scrollbar-width:thin;scrollbar-color:var(--bench-sb-thumb) var(--bench-sb-track)}
+html.bench-shell #list::-webkit-scrollbar, html.bench-shell .bench-dirbox-list::-webkit-scrollbar, html.bench-shell #logbody::-webkit-scrollbar, html.bench-shell #diag-body::-webkit-scrollbar, html.bench-shell .dbg-log::-webkit-scrollbar{width:var(--bench-sb-size);height:var(--bench-sb-size)}
+html.bench-shell #list::-webkit-scrollbar-track, html.bench-shell .bench-dirbox-list::-webkit-scrollbar-track, html.bench-shell #logbody::-webkit-scrollbar-track, html.bench-shell #diag-body::-webkit-scrollbar-track, html.bench-shell .dbg-log::-webkit-scrollbar-track{background:var(--bench-sb-track)}
+html.bench-shell #list::-webkit-scrollbar-thumb, html.bench-shell .bench-dirbox-list::-webkit-scrollbar-thumb, html.bench-shell #logbody::-webkit-scrollbar-thumb, html.bench-shell #diag-body::-webkit-scrollbar-thumb, html.bench-shell .dbg-log::-webkit-scrollbar-thumb{background:var(--bench-sb-thumb);border-radius:999px}
+html.bench-shell #list::-webkit-scrollbar-thumb:hover, html.bench-shell .bench-dirbox-list::-webkit-scrollbar-thumb:hover, html.bench-shell #logbody::-webkit-scrollbar-thumb:hover, html.bench-shell #diag-body::-webkit-scrollbar-thumb:hover, html.bench-shell .dbg-log::-webkit-scrollbar-thumb:hover{background:var(--bench-sb-thumb-hover)}
+html.bench-shell #list::-webkit-scrollbar-button, html.bench-shell .bench-dirbox-list::-webkit-scrollbar-button, html.bench-shell #logbody::-webkit-scrollbar-button, html.bench-shell #diag-body::-webkit-scrollbar-button, html.bench-shell .dbg-log::-webkit-scrollbar-button{display:none;width:0;height:0}
+html.bench-shell #list::-webkit-scrollbar-corner, html.bench-shell .bench-dirbox-list::-webkit-scrollbar-corner, html.bench-shell #logbody::-webkit-scrollbar-corner, html.bench-shell #diag-body::-webkit-scrollbar-corner, html.bench-shell .dbg-log::-webkit-scrollbar-corner{background:transparent}
+/* ── ⑨(2026-09-20 用户第 10 条)：输入框聚焦不再是浏览器默认的黄色框 ──────────────────────────
+   平时灰边、聚焦黑边（暗色模式聚焦白边）；`outline:none` + `border-color` 切换，两个颜色统一到
+   一处变量（`--bench-input-border` / `--bench-input-focus`）。范围限定在文本类输入（勾选/单选/
+   滑条/取色器没有"聚焦边框"这个语义）。
+   ⚠ 必须 `!important`：产物自己有 `#filter:focus,#props-filter:focus,#toolbar select:focus{border-color:var(--focus)}`
+   —— 那条**带 id**，而"任意多个 class/属性选择器"都压不过一个 id（特异性 a>b>c）⇒ 不加就永远轮不到
+   我们的变量色（实测聚焦色仍是产物的 `--focus` #0078d4）。 */
+html.bench-shell{--bench-input-border:#ccc;--bench-input-focus:#111}
+html.bench-shell[data-theme="dark"]{--bench-input-border:#3c3c3c;--bench-input-focus:#fff}
+html.bench-shell input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), html.bench-shell textarea{border:1px solid var(--bench-input-border)!important}
+html.bench-shell input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):focus, html.bench-shell textarea:focus{outline:none;border-color:var(--bench-input-focus)!important}
+/* ── ⑪(2026-09-20 用户第 11 条)：首屏防闪 ────────────────────────────────────────────────
+   用户原话：「刷新时先看到所有内容堆在一起，约 1 秒后才正常」。这段**必须在 head 的静态表里**
+   （不依赖 JS/补丁）：补丁/外壳把关键布局接管完之前，body 先不画；`<head>` 里那段同步脚本在
+   DOMContentLoaded、以及 1.2s/3s 两个硬兜底时刻摘掉闸门 ⇒ 任何异常路径下最迟 1.2s 必定显示，
+   不会出现"永远白屏"。`?shell=off`/静态托管同样会显示（兜底定时器无条件跑）。
+   判据（门禁 G 组）：`html[data-bench-ready]` 必须出现且 body 可见；并且**每一帧**只要 body 可见，
+   三列就已经是最终布局（`#sidebar` 右缘 ≤ `#main` 左缘），即"从没有在堆叠态被人看见过"。 */
+html.bench-shell:not([data-bench-ready]) body{visibility:hidden}
+html.bench-shell[data-bench-ready] body{visibility:visible}
+/* ②(2026-09-20 用户第 3 条) 调试模式开关搬进页签内部后的那一行（与补丁 SITE_LAYOUT_CSS 逐字同文）。 */
+html.bench-shell .dbg-mode-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border)}
 /* ── 窄屏/堆叠布局（2026-09-18 真机：安卓手机 412px + 平板"桌面版网站" 980px）──────────
    桌面宽窗口正常、窄视口错乱的真因：三列是固定 300+320+其余 ⇒ 980px 内容塞进 412px 视口，
    横向溢出 + 舞台那条 `minmax(140px,1fr)` 与产物 `#stage-scale` 的容器查询单位形成循环依赖
@@ -393,6 +438,19 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
           //   产物启动时 `O(存的值 === 'explorer' ? 'explorer' : 'docs')`，任何非 explorer 都会切到 docs(README)。
           //   这里抢先写好 ⇒ 它自己就走非 docs 分支，属性抖动与"闪 README"从源头消失（CSS 锁仍作为第二道保险）。
           try { localStorage.setItem('we-bench-view', 'explorer') } catch (e) {}
+          // ⑪(2026-09-20 用户第 11 条) 首屏防闪的**摘闸门**：静态表里
+          //   `html.bench-shell:not([data-bench-ready]) body{visibility:hidden}` 让补丁/外壳接管之前
+          //   不画任何一帧。这里给出三个摘闸门时刻，全部无条件执行（不依赖补丁是否成功）：
+          //     ① DOMContentLoaded（defer/module 脚本跑完之后 ⇒ 正常路径这里就已经是最终布局）；
+          //     ② 补丁显式调用 `window.__benchReady()`（外壳初始化完成时更早一点）；
+          //     ③ 1.2s / 3.0s 两个硬兜底 —— 任何异常路径下最迟 1.2s 必定显示，不可能永远白屏。
+          try {
+            var ready = function () { try { de.setAttribute('data-bench-ready', '') } catch (e) {} }
+            window.__benchReady = ready
+            document.addEventListener('DOMContentLoaded', function () { setTimeout(ready, 0) })
+            setTimeout(ready, 1200)
+            setTimeout(ready, 3000)
+          } catch (e) {}
         } catch (e) {}
       })()
     </script>
@@ -640,6 +698,15 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
               <input id="live-system" type="checkbox" checked />
               <span data-i18n="toolbar.live">系统实况</span>
             </label>
+            <!-- ⑤(2026-09-20 用户第 5 条) 「启用麦克风」：**默认关**，关着时任何 mic 请求都不发
+                 （`getUserMedia` 一次都不调；「系统实况」只保留歌名/进度那一半）。
+                 开着且**壁纸/功能声明需要**时才请求（勾了「系统实况」+ 挂载了壁纸 ⇒ 才把
+                 `liveSystem=1` 交给渲染器），页面加载时绝不预请求。运行期闸门见
+                 bench-patch.js 的 `initMicGate()`（顶层 + 同源渲染器 iframe 各一道）。 -->
+            <label class="check" id="mic-box" data-i18n-title="toolbar.micTip" title="默认关：关着时页面一次都不会请求麦克风；开着时才在壁纸/功能声明需要时请求">
+              <input id="mic-enable" type="checkbox" />
+              <span data-i18n="toolbar.mic">启用麦克风</span>
+            </label>
             <label class="check" data-i18n-title="toolbar.pointerPushTip" title="模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，改用 __wp.pushPointer 推送坐标 —— 与宿主对接的是同一条通道">
               <input id="pointer-push" type="checkbox" />
               <span data-i18n="toolbar.pointerPush">指针注入</span>
@@ -727,6 +794,15 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
           <pre id="diag-body" role="log" aria-live="polite" aria-label="渲染器诊断流 / renderer diagnostics"></pre>
           <!-- ②(P-164) 调试视图：按用户给的草图 —— 一行两个按钮 / 一行当前层信息 / 一块日志 -->
           <div id="debug-body" hidden>
+            <!-- ②(2026-09-20 用户第 3 条) 「调试模式」的**开关搬进页签内部**（原来点页签本身就是开关 ⇒
+                 点「渲染器诊断」那一页会把调试模式关掉）。页签从此只切视图：本行的复选框是**唯一**的
+                 模式开关；`aria-checked`/`data-on` 由 bench-patch.js 的 `setDebugMode()` 维护。 -->
+            <div class="dbg-mode-row">
+              <label class="check" id="dbg-mode-box" data-i18n-title="dbg.switchTip" title="逐层查看（左右键）+ 隔离图层；只在本页打开调试视图时接管键盘，Alt 退出">
+                <input id="dbg-mode" type="checkbox" role="switch" aria-checked="false" />
+                <span data-i18n="dbg.switch">开启调试模式</span>
+              </label>
+            </div>
             <div class="dbg-actions">
               <button type="button" id="dbg-report" data-i18n="dbg.report">立即上报</button>
               <button type="button" id="dbg-shot" data-i18n="dbg.shot">截图</button>
