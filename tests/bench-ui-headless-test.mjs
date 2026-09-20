@@ -697,17 +697,18 @@ try {
         if (v && Number(v.duration) > 0 && v.seekable && v.seekable.length > 0) break
         await new Promise((r) => setTimeout(r, 500))
       }
-      //  ⚠ **既有假红（2026-09-21 实测，与本批「音条源」改动无关，别误判成回归）**：
-      //  下面这个 `pick()` 取"未暂停的那个 video"，而本夹具（3644069061）有 **2 个** `<video>` ——
-      //  机器有负载时**另一个**（没有 metadata、`duration=0`）也可能是 unpaused ⇒ T3/T4/T5 会拿到
-      //  `dur=0` 的元素，T4 报 `ratio=null` 假红。
+      //  ⚠ **既有假红（2026-09-21 实测，与「音条源」改动无关，别误判成回归）**：
+      //  旧写法 `pick()` 取"未暂停的那个 video"，而本夹具（3644069061）有 **2 个** `<video>` ——
+      //  有负载时"正在播的那个"这一刻可能还没有 metadata（`duration=NaN`，subframe 里能看到
+      //  "media resource was aborted"），T4 于是报 `dur=0/ratio=null` 假红。
       //  A/B 证据（可复跑）：把 `demo/index.html` + `demo/bench-patch.js` 换回 HEAD
       //  （`git archive HEAD demo | tar -x -C <tmp>`，另一个端口用 `--static-root <tmp>/demo` 起服务，
-      //  headless 用 `--url` 指过去）跑同一条门禁 —— T4 一样红，读数与 subframe 的
-      //  "media resource was aborted" note 完全一致 ⇒ 与这两个文件的改动无关；把机器空出来重跑即绿
-      //  （147/0 实测。同一次会话里 T4 红/绿交替出现，故为竞态而非确定性缺陷）。
-      //  要根治：让 `pick()` 优先取"已有 metadata（`duration>0`）"的元素（**断言不许放松**），
-      //  或把夹具换成单 `<video>` 的 web 档；本批不动这条（不属于本批范围）。
+      //  headless 用 `--url` 指过去）跑同一条门禁 —— T4 一样红，读数与 subframe 的媒体 abort note
+      //  完全一致 ⇒ 与本批改动无关；空载重跑即绿（147/0）。同一会话里红/绿交替 ⇒ 竞态。
+      //  ⚠ **已试过并回退的"修法"**：让 `pick()` 优先取"已有 metadata"的那个元素 —— 实测**更坏**：
+      //  卡片的 op（播放/暂停/seek）作用在"正在播的那个"，于是 T3 也跟着红、T4 变成 `dur=8.2/ratio=0`
+      //  （打到另一个静止元素上）。⇒ 正确的根治方向是"等正在播的那个元素拿到 metadata 再断言"
+      //  （或有界重试 seek），**不是**换元素；本批不动它（不在范围内），只把证据留在这里。
       const pick = () => { const m = a.mediaList(); return m.vids.find((v) => !v.paused) || m.vids[0] || m.auds[0] || null }
       const v0 = pick()
       out.initial = {
