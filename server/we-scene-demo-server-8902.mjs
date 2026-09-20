@@ -82,6 +82,7 @@
 //      优先库里现成的 `preview.*`；其次容器内**未压缩**的 `preview.*`；视频档用本机 ffmpeg 抽一帧
 //      缓存到 `<reports>/bench-thumbs/`；都没有就**如实 501**）。
 import http from 'node:http'
+const httpRequest = http.request
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -107,6 +108,17 @@ const flagVal = (name) => {
 }
 const positional = argv.filter((a) => !a.startsWith('--'))
 const PORT = Number(process.env.PORT || positional[0] || 8902)
+/* ①(用户报「3669681034 在 :8902 打开全黑」的根因与修法) **渲染器页反向代理**：
+   `:8902` 的预览 iframe 原来只指向上游**产物页**（`demo/renderer/index.html` → `assets/renderer-*.js`），
+   而那份产物是"先解码整张图再缩放上传"——对 `3669681034` 那张 **7680×4320 / 43.8MB / 5 级 mip** 的贴图，
+   它必须先解出 132MB 位图（本仓 core 的 P-163 修复是**先选级再解码**，所以 `:8899` 不黑、`:8902` 黑）。
+   这里把本仓自己的渲染器页（`:8899` 的 `/`、`/bundle.js`、`/pkg/…`、`/media/…` 等一整套路由）**在本服务上
+   挂一个同源入口** `/webloader/**` ⇒ 测试台可以用它做预览，既拿到 mip 选级修复、又不会踩跨源。
+   上游地址用环境变量覆盖（默认本机 8899；**不写死本机路径**，跨平台一致）。 */
+const RENDERER_UPSTREAM = (() => {
+  const raw = String(process.env.MPW_RENDERER_8899 || 'http://127.0.0.1:8899').trim()
+  try { const u = new URL(raw); return { raw, host: u.hostname, port: Number(u.port || (u.protocol === 'https:' ? 443 : 80)), secure: u.protocol === 'https:', path: u.pathname.replace(/\/$/, '') } } catch { return null }
+})()
 const MPW_ROOT = path.resolve(process.env.MPW_ROOT || path.resolve(REPO_ROOT, '..'))
 // 库根**来源**（显式记录，`/api/library` 与 `/__health` 都如实回报 —— 不把"仓库约定默认值"当成"用户已选"）：
 //   env     = 环境变量 MPW_LIBRARY_DIR（优先级最高，与既有服务同风格）
@@ -1290,6 +1302,45 @@ function thumbPlan(item) {
   return { kind: 'none', item: it, reason: `该条目没有 preview.* 且不是视频（kind=${it.kind}）`, hint: '把 preview.gif/jpg/png 放进壁纸目录即可' }
 }
 
+// ── 渲染器页反向代理：`/webloader/**` → 上游（默认 http://127.0.0.1:8899）─────────────────────────
+/** 逐跳头不该转发（RFC 7230 §6.1）：转发它们会让两端连接语义串味。 */
+const HOP_HEADERS = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length'])
+function proxyRenderer(req, res, url) {
+  if (!RENDERER_UPSTREAM) return json(res, 500, { ok: false, error: '渲染器上游地址配错（MPW_RENDERER_8899）' })
+  const rel = url.pathname.replace(/^\/webloader\/?/, '')
+  const targetPath = (RENDERER_UPSTREAM.path ? RENDERER_UPSTREAM.path + '/' : '/') + rel + (url.search || '')
+  const headers = {}
+  for (const [k, v] of Object.entries(req.headers)) if (!HOP_HEADERS.has(String(k).toLowerCase())) headers[k] = v
+  headers.host = RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port
+  const up = httpRequest({
+    host: RENDERER_UPSTREAM.host, port: RENDERER_UPSTREAM.port, method: req.method, path: targetPath,
+    headers, timeout: 15000,
+  }, (upRes) => {
+    const out = {}
+    for (const [k, v] of Object.entries(upRes.headers)) if (!HOP_HEADERS.has(String(k).toLowerCase())) out[k] = v
+    /* ⚠ 响应头只能是 **ASCII**（latin-1）：一开始这里写了个 `→` 箭头，Node 直接
+       `ERR_INVALID_CHAR: Invalid character in header content` 抛在异步回调里 ⇒ 连接被掐、curl 只看得到 `000`（实测踩到）。
+       头里的说明一律用 ASCII；要给人读的中文说明放**响应体**（走 /__health 的自述）。 */
+    out['X-Bench-Proxy'] = 'webloader->' + RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port
+    res.writeHead(upRes.statusCode || 502, out)
+    upRes.pipe(res)
+  })
+  up.on('timeout', () => { try { up.destroy(new Error('upstream-timeout')) } catch { /* 已断 */ } })
+  up.on('error', (e) => {
+    if (res.headersSent) { try { res.destroy() } catch { /* 已断 */ } return }
+    /* 上游没起来 ⇒ **502 + 人读说明**（不是挂住、也不是 500）：明确告诉调用方"本机 :8899 没在跑"以及怎么办。 */
+    json(res, 502, {
+      ok: false, error: '渲染器上游不可达：' + String(e && e.code || e && e.message || e),
+      upstream: RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port,
+      hint: '本仓渲染器页默认跑在本机 8899（`bash start-demo.sh` 或看门狗 `tests/keep-servers.sh`）；'
+        + '也可用 MPW_RENDERER_8899=http://host:port 指到别处。测试台在上游不可用时应回退到产物页预览。',
+      fallback: '/wallpaper-engine-webgl/renderer/index.html',
+    })
+  })
+  req.pipe(up)
+  return undefined
+}
+
 // ── 静态面 ──────────────────────────────────────────────────────────────────────────────────────
 const MOUNTS = ['/demo', '/WEwebLoader', '/wallpaper-engine-webgl', '']   // `''` = 直接挂根（产物 HTML 是 <base href="./">）
 function mapStatic(pathname) {
@@ -2020,6 +2071,14 @@ function health() {
     librarySource: lib.source, librarySelected: lib.selected, libraryExplicit: lib.explicit,
     reportsDir: REPORTS_DIR, propsDir: PROPS_DIR, trashRoot: TRASH_ROOT, thumbDir: THUMB_DIR,
     staticRoot: STATIC_ROOT, staticMounts: ['/', '/demo/', '/WEwebLoader/', '/wallpaper-engine-webgl/'], staticStore: STORE ? 'cache' : 'no-store',
+    /* ① 渲染器页同源入口（测试台可用它预览；上游不可达时回退产物页） */
+    rendererProxy: RENDERER_UPSTREAM ? {
+      path: '/webloader/**', upstream: RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port,
+      from: process.env.MPW_RENDERER_8899 ? 'env MPW_RENDERER_8899' : '默认 http://127.0.0.1:8899',
+      purpose: '让测试台用**本仓渲染器页**预览（带 P-163 的"先选级再解码"；超大贴图不再黑屏）',
+      fallback: '/wallpaper-engine-webgl/renderer/index.html（上游产物页）',
+      unreachable: '502 + {upstream,hint,fallback}（不挂住、不 500）',
+    } : { path: '/webloader/**', error: '上游地址配错' },
     mediaBase: '/media/dev', webBase: '/web/dev', rendererPage: '/wallpaper-engine-webgl/renderer/index.html',
     dirPicker: {
       available: !!statSafe(PICK_ROOT_REAL), readOnly: true, browseRoot: PICK_ROOT_REAL, browseRootFrom: PICK_ROOT_FROM,
@@ -2132,6 +2191,10 @@ const server = http.createServer((req, res) => {
     if (statSafe(cand) && sendFile(req, res, cand)) return undefined
     res.writeHead(204, { 'Cache-Control': NO_STORE }); return res.end()
   }
+  /* ①(渲染器页同源入口) `/webloader/**` 转发到本仓渲染器页（含 `/bundle.js`、`/pkg/…`、`/media/…` 全套路由）。
+     为什么要有它：测试台预览超大贴图（如 3669681034 的 7680×4320/43.8MB）时，上游产物页"先解码再缩放"会黑屏，
+     而本仓 core 有 P-163 的"先选级再解码"修复 ⇒ 让测试台能走我们自己的页。 */
+  if (p === '/webloader' || p.startsWith('/webloader/')) return done(() => proxyRenderer(req, res, url))
   if (p.startsWith('/api/')) return done(() => handleApi(req, res, url))
 
   // 兼容壳：与插件 `dsh-mpkg-wallpaper` 的 `GET /list-dirs?path=` **逐字段同形**

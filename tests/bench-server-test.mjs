@@ -358,10 +358,19 @@ async function runSuite() {
     const pdirEnum = await request(P, 'GET', '/api/props-dir?item=hina-scene')
     check('E2 GET /api/props-dir?item= → 库根内枚举 {dir, dirs[]}', pdirEnum.status === 200 && typeof J(pdirEnum).dir === 'string' && Array.isArray(J(pdirEnum).dirs), `${pdirEnum.status} ${pdirEnum.body.slice(0, 140)}`)
     const fileName = '图 片.png'
-    const up = await request(P, 'POST', `/api/props-file?item=hina-scene&name=tex`, { body: Buffer.from('PNGDATA-fixture'), headers: { 'X-Filename': encodeURIComponent(fileName), 'Content-Type': 'image/png' } })
-    check('E3 POST /api/props-file → 200 且回 value（调用方 `!r.value` 会抛）', up.status === 200 && typeof J(up).value === 'string' && J(up).value.length > 0 && J(up).bytes === 15, `${up.status} ${up.body.slice(0, 200)}`)
+    /* ①(用户第 34 条 安全策略) 夹具改成**真 PNG 头**：新策略要求"内容类别与扩展名一致"，
+       旧夹具 `'PNGDATA-fixture'`（只是 ASCII 文本却叫 `.png`）现在会被**正确拒收**（415）——
+       这正是那条判据在起作用；夹具必须给合法内容，否则就是在要求"放松策略"。 */
+    const PNG_FIXTURE = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('fixture-bytes')])
+    const up = await request(P, 'POST', `/api/props-file?item=hina-scene&name=tex`, { body: PNG_FIXTURE, headers: { 'X-Filename': encodeURIComponent(fileName), 'Content-Type': 'image/png' } })
+    check('E3 POST /api/props-file → 200 且回 value（调用方 `!r.value` 会抛）', up.status === 200 && typeof J(up).value === 'string' && J(up).value.length > 0 && J(up).bytes === PNG_FIXTURE.length, `${up.status} ${up.body.slice(0, 200)}`)
     const back = J(up).value ? await request(P, 'GET', J(up).value) : { status: 0, buf: Buffer.alloc(0) }
-    check('E4 回读 value 指向的 URL：200 + 内容逐字节相同', back.status === 200 && Buffer.compare(back.buf, Buffer.from('PNGDATA-fixture')) === 0, `${back.status} ${back.buf.length}B`)
+    check('E4 回读 value 指向的 URL：200 + 内容逐字节相同', back.status === 200 && Buffer.compare(back.buf, PNG_FIXTURE) === 0, `${back.status} ${back.buf.length}B`)
+    /* 安全策略在**这条路由**上的行为也要钉住（用户第 34 条）：脚本类一律 415、内容与扩展名不符也 415。 */
+    const upHtml = await request(P, 'POST', '/api/props-file?item=hina-scene&name=tex', { body: Buffer.from('<html><script>x</script>'), headers: { 'X-Filename': 'evil.html' } })
+    check('E3b 安全策略：`.html`（脚本类）⇒ **415 + 人读原因**', upHtml.status === 415 && /拒收|白名单/.test(upHtml.body), `${upHtml.status} ${upHtml.body.slice(0, 140)}`)
+    const upPe = await request(P, 'POST', '/api/props-file?item=hina-scene&name=tex', { body: Buffer.from('MZ\x90\x00binary'), headers: { 'X-Filename': 'evil.png' } })
+    check('E3c 安全策略：PE 可执行改名 `.png` ⇒ **415**（防改后缀绕过）', upPe.status === 415 && /可执行/.test(upPe.body), `${upPe.status} ${upPe.body.slice(0, 140)}`)
     const upEsc = await request(P, 'POST', '/api/props-file?item=hina-scene&name=tex', { body: Buffer.from('x'), headers: { 'X-Filename': encodeURIComponent('../../escape.txt') } })
     check('E5 X-Filename 带路径分隔符 ⇒ 400（不许逃出 reports）', upEsc.status === 400, `${upEsc.status} ${upEsc.body.slice(0, 120)}`)
     const nameEsc = await request(P, 'POST', '/api/props-file?item=hina-scene&name=..%2Fx', { body: Buffer.from('x'), headers: { 'X-Filename': 'ok.png' } })
@@ -671,6 +680,45 @@ async function runSuite() {
       !!J(hFf).libraryScan && typeof J(hFf).libraryScan.kinds === 'object',
       JSON.stringify({ picker: J(hFf).dirPicker && J(hFf).dirPicker.routes, caps: { fullTypeScan: J(hFf).capabilities.fullTypeScan, serverDirPicker: J(hFf).capabilities.serverDirPicker } }))
 
+    // ═══ ①(用户报「3669681034 打开全黑」的配套修法) `/webloader/**` 反向代理：测试台能预览**本仓渲染器页** ═══
+    //   为什么需要：`:8902` 的预览 iframe 原来只指向上游**产物页**（先解码整张图再缩放上传）——
+    //   对 `3669681034` 那张 7680×4320 / 43.8MB / 5 级 mip 的贴图会黑；本仓 core 有 P-163 的"先选级再解码"。
+    //   判据用**测试自带的上游**（不依赖真 :8899 在不在）：路径/查询/方法/body 逐项转发、上游挂了 ⇒ 502 + 人读说明。
+    console.log('\n[K2] `/webloader/**` 渲染器页反向代理（测试自带上游，不依赖真 :8899）')
+    {
+      const upSrv = http.createServer((q, r) => {
+        let body = ''
+        q.on('data', (c) => { body += c })
+        q.on('end', () => {
+          r.writeHead(200, { 'content-type': 'application/json' })
+          r.end(JSON.stringify({ seenPath: q.url, seenMethod: q.method, seenBody: body, seenHost: q.headers.host }))
+        })
+      })
+      await new Promise((res) => upSrv.listen(0, '127.0.0.1', res))
+      const upPort = upSrv.address().port
+      const sPx = await startServer(fx, { MPW_RENDERER_8899: 'http://127.0.0.1:' + upPort })
+      servers.push(sPx)
+      const PX = sPx.port
+      const g1 = await request(PX, 'GET', '/webloader/some/page.html?q=1&x=2')
+      let j1 = {}; try { j1 = JSON.parse(g1.body) } catch { /* 断言会报 */ }
+      check('K2a `GET /webloader/<path>?<query>` 逐项转发到上游（路径 + 查询都在），并带 `X-Bench-Proxy` 说明头',
+        g1.status === 200 && j1.seenPath === '/some/page.html?q=1&x=2' && j1.seenMethod === 'GET' && !!g1.headers['x-bench-proxy'],
+        `${g1.status} ${g1.body.slice(0, 140)} proxy=${g1.headers['x-bench-proxy']}`)
+      const g2 = await request(PX, 'POST', '/webloader/api/thing', { body: 'hello-body', headers: { 'content-type': 'text/plain' } })
+      let j2 = {}; try { j2 = JSON.parse(g2.body) } catch { /* 断言会报 */ }
+      check('K2b `POST` 的**方法与 body** 也转发（流式，不缓冲成 GET）',
+        g2.status === 200 && j2.seenMethod === 'POST' && j2.seenBody === 'hello-body', `${g2.status} ${g2.body.slice(0, 140)}`)
+      const hPx = J(await request(PX, 'GET', '/__health'))
+      check('K2c `/__health.rendererProxy` 自述入口/上游/用途/回退页（读的人不用翻代码）',
+        !!(hPx.rendererProxy && hPx.rendererProxy.path === '/webloader/**' && /127\.0\.0\.1/.test(String(hPx.rendererProxy.upstream)) && hPx.rendererProxy.fallback),
+        JSON.stringify(hPx.rendererProxy).slice(0, 180))
+      await new Promise((res) => upSrv.close(res))
+      const g3 = await request(PX, 'GET', '/webloader/anything')
+      let j3 = {}; try { j3 = JSON.parse(g3.body) } catch { /* 断言会报 */ }
+      check('K2d 上游不可达 ⇒ **502 + {upstream,hint,fallback}**（不挂住、不 500、不假成功）',
+        g3.status === 502 && j3.ok === false && !!j3.upstream && !!j3.hint && !!j3.fallback, `${g3.status} ${g3.body.slice(0, 160)}`)
+    }
+
     // ═══ ①(2026-09-19) 上报落盘：测试台「立即上报」按 /report → /baseline → /diag 依次试，而 :8902 原本
     //   只有 /diag（内存环形缓冲）⇒ 按钮的日志永远是"上报失败 → 只能进 /diag 环形缓冲"，点完什么都不剩。
     //   这一节把两条落盘路由钉住：形状、落点、**校验不过不落盘**、**超限回 413**、以及滚动上限。
@@ -872,12 +920,15 @@ async function main() {
       const r = m.apply(src)
       if (r.error) { check(`变异${i + 1} 可施加（锚点唯一）`, false, r.error); continue }
       const p = path.join(mtDir, `mutant-${i + 1}.mjs`)
-      // ⚠ 变异副本在 /tmp ⇒ **相对 import 会断**（`../core/baseline-metrics.mjs` 会解析成 /core/…）：
-      //   与被测服务的静态面要显式给 `MPW_BENCH_STATIC_DIR` 是同一个道理（副本靠自身位置推不出仓库根）。
-      //   这里把那条相对 import 改写成指向**真树**的绝对路径（只影响副本，真树一字不动）。
+      /* ⚠ 变异副本在 /tmp ⇒ **相对 import 会断**（`../core/baseline-metrics.mjs` 解析成 /core/…、
+         `./upload-policy.mjs` 解析成 /upload-policy.mjs）—— 与被测服务的静态面要显式给
+         `MPW_BENCH_STATIC_DIR` 是同一个道理（副本靠自身位置推不出仓库根）。
+         口径：**把相对 import 全部改写成指向真树的绝对路径**（只影响副本，真树一字不动）。
+         历史：这条夹具已经因为"新增相对 import 忘了同步"红过两次（`../core/baseline-metrics.mjs`、
+         本轮 `./upload-policy.mjs`）⇒ 现在用正则**一次覆盖所有相对说明符**，不再逐个手写。 */
       const srcPatched = r.out.replace(
-        /from '\.\.\/core\/baseline-metrics\.mjs'/,
-        `from ${JSON.stringify(path.join(ROOT, 'core', 'baseline-metrics.mjs'))}`)
+        /from '(\.\.?\/[^']+)'/g,
+        (m0, rel) => `from ${JSON.stringify(path.resolve(path.dirname(SERVER_REAL), rel))}`)
       fs.writeFileSync(p, srcPatched)
       const res = await runChild(p, [])
       const j = parseChildJson(res.out)
@@ -896,7 +947,11 @@ async function main() {
   }
 
   const after = treeFingerprint()
-  check('真树 sha256 跑前跑后逐字相同（变异只发生在 /tmp 副本里）', before.hash === after.hash, `${before.hash.slice(0, 24)} → ${after.hash.slice(0, 24)}`)
+  /* ⚠ 这条判据的**已知环境假红**：指纹覆盖 `demo/**`（静态面），而本仓允许**多条工作线并行**——
+     别的线在跑本套件期间改 `demo/index.html` 之类的文件，指纹当然会变（实测：与 `:8902` 外壳线并行时红过一次）。
+     它抓的是"**本套件的变异写进了真树**"这一类事故；并行编辑属于外部写，重跑即可（或等别的线收工再跑）。 */
+  check('真树 sha256 跑前跑后逐字相同（变异只发生在 /tmp 副本里；与其它工作线并行时会假红，见上）',
+    before.hash === after.hash, `${before.hash.slice(0, 24)} → ${after.hash.slice(0, 24)}`)
 
   const allFails = failures()
   const ok = allFails.length === 0
