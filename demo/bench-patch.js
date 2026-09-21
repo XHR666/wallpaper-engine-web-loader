@@ -5123,13 +5123,23 @@ export function init() {
     while (dbgLog.children.length > DBG_MAX_LINES) dbgLog.removeChild(dbgLog.firstChild)
     try { dbgLog.scrollTop = dbgLog.scrollHeight } catch { /* 桩 DOM */ }
   }
-  /** 把"只留第 i 层可见"落到渲染器（数组为空 ⇒ 全部恢复）。 */
+  /** 把"只留第 i 层可见"落到渲染器（数组为空 ⇒ 全部恢复）。
+      ⚠ **必须走 `__lnHidden`**（真机取证 2026-09-23，无头 Firefox + WebGL2 预置项）：本仓 core 每帧按自己的
+      状态重算 `visible`（`recomputeVisibility()` 与"脚本 raw 对象 → scene.layers"的同步回写都会改它）。
+      直接测：宿主把 5 层写成 `[F,F,T,F,F]`，**1.6s 后读回是 `[T,T,T,T,F]`** —— 隔离被渲染器自己冲掉，
+      表现出来就是"步进只换了层号文字、画面没隔离"。
+      `__lnHidden` 是**绘制期**判据（core 的 draw 循环每帧 `if (layer.__lnHidden) continue`，与 `:8899` 的
+      `?ln=N` 逐层调试同一条约定），没有任何一帧会去重算它 ⇒ 宿主写进去就稳定生效。容器层不隐藏（与
+      `?ln=` 同语义：容器只承载父子链/定位，本来就不参与绘制）。`visible` 仍然一并写：对只认这套的渲染器
+      （上游产物档）保持原行为。 */
   function dbgApplyIsolation(list, index) {
     const L = list || sceneLayerList()
     if (!L) return 0
     let n = 0
     for (let i = 0; i < L.length; i++) {
-      try { L[i].visible = (index < 0) ? true : (i === index); n++ } catch { /* 单层失败不影响其它层 */ }
+      const hide = (index >= 0) && (i !== index)
+      try { L[i].__lnHidden = hide && !L[i].isContainer; n++ } catch { /* 单层失败不影响其它层 */ }
+      try { L[i].visible = (index < 0) ? true : (i === index) } catch { /* 只认一种约定的渲染器 */ }
     }
     return n
   }

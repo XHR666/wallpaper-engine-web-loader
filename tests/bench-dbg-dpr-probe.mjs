@@ -23,6 +23,18 @@ const ok = (c, label, extra = '') => { if (c) { pass++; console.log('PASS ' + la
 const skip = (label, why) => console.log('SKIP ' + label + ' —— ' + why)
 
 /** 纯判据：给定层的 visible 数组，判断"恰好隔离了一层"。 */
+/** 纯判据：绘制期隔离落在**哪一层**上。
+    输入 = read() 的 `lnList`（每层 `{name, container, hidden}`；`hidden` = `layer.__lnHidden`）。
+    为什么不用 `visible`：本仓 core 每帧按自己的状态重算它 —— 实测宿主写 `[F,F,T,F,F]`，1.6s 后读回
+    `[T,T,T,T,F]`，用 `visible` 判隔离会时真时假。`__lnHidden` 是**绘制期**判据（draw 循环每帧
+    `if (layer.__lnHidden) continue`），宿主写进去就稳定生效。容器层不参与绘制 ⇒ 不计入。
+    返回 `{ index, drawing, total }`：`index` = 唯一仍在绘制的非容器层下标（-1 = 没有隔离/不唯一）。 */
+export function isolationIndex(lnList) {
+  if (!Array.isArray(lnList) || lnList.length === 0) return null
+  const draw = lnList.filter((l) => l && !l.container && !l.hidden)
+  return { index: draw.length === 1 ? draw[0].i : -1, drawing: draw.length, total: lnList.filter((l) => l && !l.container).length }
+}
+
 export function isolatedExactlyOne(flags) {
   if (!Array.isArray(flags) || flags.length === 0) return null
   const on = flags.filter(Boolean).length
@@ -42,7 +54,27 @@ if (SELFTEST) {
   ok(isolatedExactlyOne([false, false]) === false && isolatedExactlyOne([true, true]) === false, 'S2 零层/多层可见 ⇒ false')
   ok(isolatedExactlyOne([]) === null, 'S3 没有层 ⇒ null（无可判对象，不许当通过）')
   ok(dprResizeOk({ cssW: 528, dpr: 1, width: 528 }, { cssW: 528, dpr: 2, width: 1056 }) === true, 'S4 DPR 1→2 画布变大 ⇒ true')
+  /* S6 隔离落点（容器层不计）：只有 #2 在画 ⇒ index 2；容器不参与 ⇒ total 只数非容器层。 */
+  {
+    const L = [{ i: 0, hidden: true }, { i: 1, hidden: true }, { i: 2, hidden: false }, { i: 3, container: true, hidden: false }]
+    const r = isolationIndex(L)
+    ok(r && r.index === 2 && r.drawing === 1 && r.total === 3, 'S6 隔离落点判据：容器不计、只认绘制期 __lnHidden', JSON.stringify(r))
+    ok(isolationIndex(L.map((x) => ({ ...x, hidden: false }))).index === -1, 'S6b 全部参与绘制 ⇒ index=-1（没有隔离，不当成"隔离成功"）')
+    ok(isolationIndex([]) === null, 'S6c 没有层 ⇒ null（不许当通过）')
+  }
   ok(dprResizeOk({ cssW: 528, dpr: 1, width: 528 }, { cssW: 528, dpr: 1, width: 528 }) === null, 'S5 两档相同 ⇒ null（无从判定）')
+  /* S7 契约两端（静态）：① 测试台把隔离写进**绘制期** `__lnHidden`；② core 的 draw 循环每帧读它。
+     只改一端就会退化成"写 visible ⇒ 被渲染器重算冲掉"（真机实测 1.6s 后 `[T,T,T,T,F]`）。 */
+  {
+    const rd = (rel) => { try { return fs.readFileSync(path.join(ROOT, rel), 'utf8') } catch (e) { return '' } }
+    const bench = rd('demo/bench-patch.js'), core = rd('core/we-scene-bundle.js')
+    const m = /function dbgApplyIsolation[\s\S]{0,1400}?\n  }/.exec(bench)
+    const body = m ? m[0] : ''
+    ok(/\.__lnHidden = hide/.test(body), 'S7a 测试台隔离写的是绘制期 `__lnHidden`（不是只写 `visible`）',
+      body ? (/\.__lnHidden = hide/.test(body) ? 'ok' : body.slice(0, 90)) : '找不到 dbgApplyIsolation')
+    ok(/isContainer/.test(body), 'S7b 隔离跳过容器层（与 `:8899` 的 `?ln=N` 同语义：容器不参与绘制）')
+    ok(/if \(layer\.__lnHidden\)/.test(core), 'S7c core 的 draw 循环每帧读 `layer.__lnHidden`（契约另一端在位）')
+  }
   console.log('\n── selftest 汇总：PASS=' + pass + ' FAIL=' + fail + '（未起浏览器）')
   process.exit(fail > 0 ? 1 : 0)
 }
@@ -58,7 +90,10 @@ if (!pwPath) { console.log('SKIP bench-dbg-dpr-probe — 找不到 playwright（
 const pw = createRequire(import.meta.url)(pwPath)
 const firefox = (pw.default && pw.default.firefox) || pw.firefox
 if (!firefox) { console.log('SKIP bench-dbg-dpr-probe — playwright 没有 firefox 导出'); process.exit(0) }
-const browser = await firefox.launch({ headless: true })
+/* ⚠ 必须显式开 WebGL2：无头 Firefox 默认**没有** WebGL2，页面会停在「启动失败: 当前浏览器不支持
+   WebGL2」——此时 `__mpwLiveRes` 一类活档位读数永远缺失。本探针第一版就是漏了这行，把"环境缺能力"
+   读成了"产品没跑到"，必须靠预置项把环境补齐。 */
+const browser = await firefox.launch({ headless: true, firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
 try {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   const page = await ctx.newPage()
@@ -71,11 +106,16 @@ try {
     const w = fr && fr.contentWindow
     const layers = (() => { try { return Array.isArray(w.__sceneLayers) ? w.__sceneLayers : null } catch (e) { return null } })()
     const flags = layers ? layers.map((l) => !!l.visible) : null
+    /* ⚠ 隔离的真判据是 `__lnHidden`（绘制期，core 每帧 `if (layer.__lnHidden) continue`）：
+       `visible` 会被渲染器自己重算回写 —— 实测宿主写 `[F,F,T,F,F]`，1.6s 后读回 `[T,T,T,T,F]`。
+       两条都读出来：`flags` 只用于"是否仍然可见"的对照，隔离断言一律落在 `lnFlags` 上。 */
+    const lnFlags = layers ? layers.map((l) => !l.__lnHidden) : null
+    const lnList = layers ? layers.map((l, i) => ({ i, name: String(l.name || ''), container: !!l.isContainer, hidden: !!l.__lnHidden })) : null
     const live = (() => { try { return w.__mpwLiveRes || null } catch (e) { return null } })()
     const dbg = document.getElementById('dbg-layer')
     return {
       layerText: dbg ? String(dbg.textContent || '').slice(0, 60) : null,
-      flags, total: flags ? flags.length : 0,
+      flags, lnFlags, lnList, total: flags ? flags.length : 0,
       live, frameW: fr ? fr.clientWidth : 0, frameH: fr ? fr.clientHeight : 0,
       frameSrc: fr ? String(fr.getAttribute('src') || '').slice(0, 160) : null,
       frameSearch: (() => { try { return String((fr && fr.contentWindow && fr.contentWindow.location && fr.contentWindow.location.search) || '').slice(0, 160) } catch (e) { return 'ERR:' + String(e && e.message || e).slice(0, 40) } })(),
@@ -95,6 +135,20 @@ try {
     for (let i = 0; i < n; i++) { await page.keyboard.press('ArrowRight'); await page.waitForTimeout(350) }
   }
 
+  /* ── W 组：**环境前置**（不是产品判据）────────────────────────────────────────────────
+     为什么要有它：本探针的活档位读数（`__mpwLiveRes`）只在场景真的启动后才有。无头 Firefox **默认没有
+     WebGL2** ⇒ 页面停在「启动失败: 当前浏览器不支持 WebGL2」，P 组于是走 `skip(...)` —— 那种 SKIP 在汇总里
+     与"通过"难以区分，DPR 那条链就会长期没人测。这里把它变成**前置红**：探针已显式开了 WebGL2 预置项，
+     若仍拿不到 WebGL2，说明环境没按预期配好，此时任何"没测到"都必须显式失败。 */
+  {
+    const webgl2 = await page.evaluate(() => {
+      try { const c = document.createElement('canvas'); return !!c.getContext('webgl2') } catch (e) { return false }
+    })
+    ok(webgl2 === true, 'W1 宿主浏览器拿得到 WebGL2（否则本探针的 live 结论一律不可信 —— 不许静默 SKIP）',
+      JSON.stringify({ webgl2, prefs: 'webgl.force-enabled/gfx.webrender.software/webgl.out-of-process=false' }))
+    if (!webgl2) console.log('  ⚠ 环境缺 WebGL2：上面 W1 已红，后续 live 判据的 SKIP 不再具备"通过"含义')
+  }
+
   /* ── D 组：调试逐层隔离 ── */
   const r0 = await read()
   if (!r0.flags || r0.flags.length === 0) {
@@ -111,22 +165,37 @@ try {
     /* 契约（实测口径）：**进入调试**只显示"当前层信息"，全层仍可见；**隔离在步进时应用**（D2/D2b 钉它）。
        真机读数：进入后 `on=5/total=5`（全可见）→ 按一次右键 `from:0 → to:2` 且 `on=1`。 */
     const on1 = (r1.flags || []).filter(Boolean).length
-    ok(on1 === r1.total || on1 === 1, 'D1b 进入调试时要么全层可见（隔离待步进应用）、要么已隔离一层 —— 不许出现"半隔离"',
-      JSON.stringify({ total: r1.total, on: on1, text: r1.layerText }))
+    const iso1 = isolationIndex(r1.lnList)
+    ok(on1 === r1.total || on1 === 1 || (iso1 && (iso1.drawing === iso1.total || iso1.drawing === 1)),
+      'D1b 进入调试时要么全层参与绘制（隔离待步进应用）、要么已隔离一层 —— 不许出现"半隔离"',
+      JSON.stringify({ total: r1.total, on: on1, iso: iso1, text: r1.layerText }))
     await stepRight(3)
     const r2 = await read()
-    const idx1 = (r1.flags || []).indexOf(true), idx2 = (r2.flags || []).indexOf(true)
-    ok(idx2 >= 0 && idx2 !== idx1, 'D2 按右方向键后**隔离的层换了一个**（层号与可见层同步变）',
-      JSON.stringify({ from: idx1, to: idx2, text2: r2.layerText }))
-    ok(isolatedExactlyOne(r2.flags) === true, 'D2b 换层后仍然恰好一层可见（没有越走越乱）')
+    const iso2 = isolationIndex(r2.lnList)
+    ok(iso2 && iso2.index >= 0 && (!iso1 || iso1.index < 0 || iso2.index !== iso1.index),
+      'D2 按右方向键后**隔离的层换了一个**（绘制期 `__lnHidden` 与层号同步变）',
+      JSON.stringify({ from: iso1, to: iso2, text2: r2.layerText, lnList: r2.lnList, visible: r2.flags }))
+    ok(iso2 && iso2.drawing === 1, 'D2b 换层后仍然恰好一层参与绘制（没有越走越乱）', JSON.stringify({ iso2 }))
+    /* D2c：**持久性** —— 宿主写完 1.5s（≈90 帧 + 若干脚本 tick）之后，隔离必须还在。
+       修前这条必红：写 `visible` 会被渲染器重算回写（实测 1.6s 后 `[T,T,T,T,F]`）。 */
+    await page.waitForTimeout(1500)
+    const r2b = await read()
+    const iso2b = isolationIndex(r2b.lnList)
+    ok(iso2b && iso2 && iso2b.index === iso2.index && iso2b.drawing === 1,
+      'D2c 隔离在 1.5s / 约 90 帧后仍然生效（渲染器的可见性重算不许把它冲掉）',
+      JSON.stringify({ atStep: iso2, after: iso2b, lnList: r2b.lnList, visible: r2b.flags }))
     /* 退出调试：全部恢复 */
     await page.evaluate(() => { const sw = document.getElementById('dbg-mode'); if (sw && sw.checked) sw.click() })
     await page.waitForTimeout(1200)
     const r3 = await read()
     const on3 = (r3.flags || []).filter(Boolean).length
+    const iso3 = isolationIndex(r3.lnList)
     ok((r3.flags || []).length === 0 || on3 === (r3.flags || []).length || on3 > 1,
       'D3 退出调试后隔离解除（可见层数回到挂载时的常态，不是只剩一层）',
       JSON.stringify({ on: on3, total: (r3.flags || []).length }))
+    ok(!iso3 || iso3.drawing === iso3.total,
+      'D3b 退出调试后 `__lnHidden` 全部清掉（绘制期隔离没有残留）',
+      JSON.stringify({ iso3, lnList: r3.lnList }))
   }
 
   /* ── P 组：DPR 切换 ── */

@@ -61,7 +61,10 @@ const pw = createRequire(import.meta.url)(pwPath)
 const firefox = (pw.default && pw.default.firefox) || pw.firefox
 if (!firefox) { console.log('SKIP bench-log-clip-probe — playwright 没有 firefox 导出'); process.exit(0) }
 
-const browser = await firefox.launch({ headless: true })
+/* ⚠ 必须显式开 WebGL2：无头 Firefox 默认**没有** WebGL2，页面会停在「启动失败: 当前浏览器不支持
+   WebGL2」——此时 `__mpwLiveRes` 一类活档位读数永远缺失。本探针第一版就是漏了这行，把"环境缺能力"
+   读成了"产品没跑到"，必须靠预置项把环境补齐。 */
+const browser = await firefox.launch({ headless: true, firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
 try {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   const page = await ctx.newPage()
