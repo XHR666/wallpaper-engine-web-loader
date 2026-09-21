@@ -1114,6 +1114,10 @@ try {
 const cv = document.getElementById('sc');
 /* ⑥ web 帧的页级状态：`webReady`（shim 报到）/ `webReloads`（降档次数，防来回抖）/ `mpwWebSend`（宿主→帧控制面） */
 let webReady = false, webReloads = 0, webPaused = false, webObjectUrl = '', mpwWebSend = null;
+/* ⑥ 宿主可据此**让位**：本页自己会挂 web 帧，而且 shim 由**服务端**在 `/web/**` 的 HTML 里注入
+   ⇒ 宿主（测试台）那条「包 iframe.src 改成 blob 再注入」的旧通路不要再插一手（真机实测：它会与
+   服务端注入叠加，并计一次注入失败）。上游渲染器没有这个标记 ⇒ 旧的 blob 通路对它照旧生效。 */
+try { window.__mpwWebPath = { version: 1, serverInjects: true, modes: ['auto', 'compat', 'sandbox'] } } catch (e) { /* 无 window */ }
 const log = document.getElementById('log');
 const fpsEl = document.getElementById('fps');
 // ①(2026-09-21 诊断流镜像) 把本页的日志行**同时**投给同源 `/diag?msg=`（与上游产物页 `ce()` 同形的 1×1

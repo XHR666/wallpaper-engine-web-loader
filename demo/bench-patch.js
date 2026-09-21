@@ -1077,6 +1077,10 @@ export function webShimPlan(url, opt) {
   let u = null
   try { u = new URL(raw, o.base || 'http://placeholder.invalid/') } catch { return { needsShim: false, reason: 'bad-url' } }
   if (o.origin && u.origin !== o.origin) return { needsShim: false, reason: 'cross-origin' }
+  /* ⑥(2026-09-23) **宿主让位**：渲染器页自己声明了会挂 web 帧且 shim 由服务端注入
+     （`window.__mpwWebPath.serverInjects`）⇒ 这里一个字节都不动，交给它自己走原始 URL。
+     为什么要让：旧的 blob 通路会把服务端已注入的入口再包一层（双重 shim），真机实测还会计一次注入失败。 */
+  if (o.hostInjects) return { needsShim: false, reason: 'host-injects' }
   const isWebPath = /\/web\//i.test(u.pathname)
   const isHtml = /\.html?$/i.test(u.pathname)
   if (!isWebPath && !isHtml) return { needsShim: false, reason: 'not-web-entry' }
@@ -7670,9 +7674,13 @@ export function init() {
       enumerable: true,
       get() { return desc.get.call(this) },
       set(v) {
-        const plan = webShimPlan(v, { origin })
+        const plan = webShimPlan(v, { origin, hostInjects: !!(win && win.__mpwWebPath && win.__mpwWebPath.serverInjects) })
         if (!plan.needsShim) {
-          if (plan.reason === 'cross-origin') webShimState.crossOrigin++      // 如实记账：跨源注入做不到
+          /* 如实记账：跨源注入做不到；宿主自己会挂 web 帧时我们让位（`host-injects`）。
+             ⚠ 只记这两条"值得读出来"的原因：渲染器页还会建别的 iframe（`not-web-entry` 会刷屏），
+             把最后一条原因覆盖掉就没法从状态面判"到底为什么没注入"。 */
+          if (plan.reason === 'cross-origin') webShimState.crossOrigin++
+          if (plan.reason === 'cross-origin' || plan.reason === 'host-injects') webShimState.skipped = plan.reason
           desc.set.call(this, v)
           return
         }

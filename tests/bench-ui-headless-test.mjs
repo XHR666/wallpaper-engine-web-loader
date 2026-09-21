@@ -312,6 +312,7 @@ try {
     await setRendererSource('repo')
     await page.waitForTimeout(1200)
     const r2 = await page.evaluate(async () => {
+      const fr = document.getElementById('frame')
       const seg = document.querySelector('#type-filter .seg-btn[data-type="web"]')
       if (seg) seg.click()
       await new Promise((r) => setTimeout(r, 900))
@@ -326,14 +327,24 @@ try {
         id: li ? li.dataset.id : null,
         attr: st ? st.getAttribute('data-mpw-renderer-src') : null,
         injected: shim ? shim.injected : null,
+        skipped: shim ? shim.skipped : null,
         videos: list ? list.vids.length : null,
         audios: list ? list.auds.length : null,
+        frameReady: (() => { try { return !!(fr && fr.contentWindow && fr.contentWindow.__mpwWebFrame && fr.contentWindow.__mpwWebFrame.ready) } catch (e) { return null } })(),
+        frameMode: (() => { try { return fr && fr.contentWindow && fr.contentWindow.__mpwWebFrame ? fr.contentWindow.__mpwWebFrame.mode : null } catch (e) { return null } })(),
+        frameState: (() => { try { return fr && fr.contentWindow && fr.contentWindow.__mpwWebFrame ? fr.contentWindow.__mpwWebFrame.state : null } catch (e) { return null } })(),
       }
     })
-    ok(r2.attr === 'repo' && r2.injected === 0 && r2.videos === 0 && r2.audios === 0,
-      'R3 ★诚实边界（新契约的一部分，不是意外）：本仓渲染器档 + web 壁纸 ⇒ WE shim **注入 0 次**、' +
-      '媒体元素扫到 **0** 个（本仓渲染器页没有 web 路径）⇒ T/W 两组因此**显式切上游档**做夹具',
+    /* ①(2026-09-23 第 ⑥ 条) **契约已变**：本仓渲染器页现在自己有 web 路径（`?type=web` + 原始 URL +
+       服务端注入 shim），所以「注入 0 次 / 媒体 0 个」这条**旧缺口的记录**必须换成新判据：
+       宿主让位（`skipped:host-injects`、不再包 blob）+ 帧真的挂上并报到（`__mpwWebFrame.ready`）。 */
+    ok(r2.attr === 'repo' && r2.injected === 0 && r2.skipped === 'host-injects',
+      'R3 ★新契约：本仓渲染器档 + web 壁纸 ⇒ **宿主让位**（不再包 blob 注入：`skipped=host-injects`、注入 0 次）' +
+      '—— web 帧由渲染器页自己挂、shim 由服务端注入',
       JSON.stringify(r2))
+    ok(r2.frameReady === true && r2.frameMode === 'compat',
+      'R3b 本仓渲染器档的 web 帧**真的挂上并报到**（`__mpwWebFrame.ready=true`、`mode=compat`）',
+      JSON.stringify({ ready: r2.frameReady, mode: r2.frameMode, state: r2.frameState }))
     //  收尾：把类型过滤恢复成「全部」并把来源切回上游 —— 后面的 S 组按"全部档列表"取数，
     //  夹具留下的 web 过滤会让它看到的行数与类型都不对（实测 S7b 就是这么红的）。
     await page.evaluate(async () => {
