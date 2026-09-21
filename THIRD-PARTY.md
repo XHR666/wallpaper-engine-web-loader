@@ -709,7 +709,7 @@ scope as **six files** with the reproduction commands.
   Upstream:  https://github.com/oneincase/webwallgl
   Licence:   MIT
   Copyright: Copyright (c) 2026 oneincase <462534624@qq.com>
-  Commit:    `fdfc578a577d0e680a9cfe2cf2e3e825d3cd2372` (2026-09-15, version **1.3.23**)
+  Commit:    `d6dd5bc31d` (2026-09-21, upstream `origin/main`；两个 vendored 转译器文件于 2026-09-22 更新到此版本)
   SPDX:      MIT
   Ledger:    `docs/COPYING-RULES.md` §4, entry **#8** (2026-09-16)
   Local copy: `vendor/hlsl2glsl/README.md` (per-file blob / sha256 / byte counts)
@@ -718,8 +718,8 @@ scope as **six files** with the reproduction commands.
 
 | Upstream path | Upstream blob | Bytes / lines | sha256 (our copy) | Lands at |
 |---|---|---|---|---|
-| `renderer/vendor/we-scene/render/hlsl2glsl.js` | `f5725e92dafecca0fc81f0780ebea2859984789b` | 77,953 / 1401 | `c5fc3002ea2f82ce0b2add13d9c182a568dce972fdace38f84a0bdadfa2c6c15` | `vendor/hlsl2glsl/hlsl2glsl.js` |
-| `renderer/vendor/we-scene/render/hlsl-preprocessor.js` | `dd9dba1d3350b832aeb2dcf24035b4b53e3c70ad` | 14,971 / 423 | `0583682e035f03f0d04b7867f2e92e77e48a5415008164c75b666ff23f6f9cfb` | `vendor/hlsl2glsl/hlsl-preprocessor.js` |
+| `renderer/vendor/we-scene/render/hlsl2glsl.js` | `66efe02d2f25c2369decee0f92ed655a5855715b` | 93,531 / 1658 | `574fa82372bccc78efb12db958e31dc315bf9df2eac302be9e8982482293bc8f` | `vendor/hlsl2glsl/hlsl2glsl.js` |
+| `renderer/vendor/we-scene/render/hlsl-preprocessor.js` | `5544c1359a61c2ee5dd137b6ec1fa46b1a1ae65b` | 14,920 / 418 | `ced8a2ceaea4e0137dfc185b248529eaf8051ae61ad8f632fdc5084c941ec907` | `vendor/hlsl2glsl/hlsl-preprocessor.js` |
 | `LICENSE` (repo root) | — | 1,085 / 21 | `857432ca4f48930e6079aca25164c27b791576ee2a7d3e3c9d6a92a089fe4948` | `vendor/hlsl2glsl/LICENSE` |
 
 **Byte-level verification**: our copies are **verbatim** — `git diff origin/main -- <the two paths>` in the
