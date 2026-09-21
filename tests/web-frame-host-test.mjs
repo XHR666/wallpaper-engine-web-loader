@@ -349,6 +349,103 @@ console.log('== P 渲染器页接线（demo.html；静态判据）==')
     /mpwWebSend\('props'/.test(html) && /mpwWebSend\('pause'/.test(html) && /mpw: 'mpw:web'/.test(html))
 }
 
+
+console.log('== X 交互桥（合成事件；vm 里跑真 shim）==')
+{
+  /* 假 DOM：elementFromPoint 命中一个记录器元素；事件构造器只记录被派发的类型。 */
+  function runBridge(env = {}) {
+    const fired = []
+    const target = { dispatchEvent: (ev) => { fired.push({ type: ev.type, x: ev.clientX, y: ev.clientY, buttons: ev.buttons, trusted: !!ev.isTrusted }); return true } }
+    class FakeEv { constructor(type, init) { this.type = type; Object.assign(this, init || {}); this.isTrusted = false } }
+    class TouchEv extends FakeEv {}
+    const win = {
+      location: { search: '' }, parent: { postMessage: () => {} }, console: { warn: () => {} },
+      addEventListener: () => {}, setTimeout: () => 1, clearTimeout: () => {},
+      PointerEvent: FakeEv, MouseEvent: FakeEv, WheelEvent: FakeEv, TouchEvent: FakeEv, Touch: env.noTouchCtor ? undefined : FakeEv,
+    }
+    win.window = win
+    const doc = { elementFromPoint: () => (env.miss ? null : target), body: target, documentElement: target, querySelectorAll: () => [] }
+    const ctx = { window: win, document: doc, Promise, Object, JSON, Array, String, Number, Math, Date, Error, URLSearchParams, DOMException, setTimeout: win.setTimeout, clearTimeout: win.clearTimeout, console: win.console }
+    ctx.globalThis = ctx
+    vm.createContext(ctx)
+    vm.runInContext(buildWebShimSource(), ctx, { filename: 'mpw-web-shim.js' })
+    return { win, fired }
+  }
+  {
+    const { win, fired } = runBridge()
+    const r = win.__mpwWebControl({ op: 'pointer', type: 'down', x: 10, y: 20, buttons: 1 })
+    ok('X1 指针 down ⇒ 帧内派发 pointerdown + mousedown（作者两种写法都覆盖）',
+      r && r.ok && fired.map((f) => f.type).join(',') === 'pointerdown,mousedown', JSON.stringify(fired))
+    ok('X2 合成事件如实标 isTrusted=false（不许假装是真事件）', fired.every((f) => f.trusted === false))
+    fired.length = 0
+    win.__mpwWebControl({ op: 'pointer', type: 'up', x: 10, y: 20, buttons: 0 })
+    ok('X3 up ⇒ pointerup + mouseup + click（同一命中元素上补 click）',
+      fired.map((f) => f.type).join(',') === 'pointerup,mouseup,click', JSON.stringify(fired))
+    fired.length = 0
+    win.__mpwWebControl({ op: 'pointer', type: 'move', x: 30, y: 40 })
+    ok('X4 move 到新元素 ⇒ 先给旧元素 pointerout/leave、再给新元素 over/enter，最后 move',
+      fired.length >= 4 && /pointermove/.test(fired.map((f) => f.type).join(',')), JSON.stringify(fired.map((f) => f.type)))
+    fired.length = 0
+    win.__mpwWebControl({ op: 'wheel', x: 5, y: 6, deltaY: 120 })
+    ok('X5 滚轮 ⇒ wheel + legacy mousewheel（两份都给）',
+      fired.map((f) => f.type).join(',') === 'wheel,mousewheel', JSON.stringify(fired.map((f) => f.type)))
+  }
+  {
+    const { win, fired } = runBridge()
+    const r = win.__mpwWebControl({ op: 'touch', type: 'start', x: 1, y: 2, identifier: 3 })
+    ok('X6 触摸：真 TouchEvent 可用时派发 touchstart 并标 kind=toucht',
+      r && r.ok && r.kind === 'toucht' && fired.some((f) => f.type === 'touchstart'), JSON.stringify(fired.map((f) => f.type)))
+  }
+  {
+    const { win, fired } = runBridge({ noTouchCtor: true })
+    const r = win.__mpwWebControl({ op: 'touch', type: 'start', x: 1, y: 2 })
+    ok('X7 Touch 构造器不可用时**退回 pointer/mouse** 并把 kind 如实标成 pointer-fallback（不假装是触摸）',
+      r && r.kind === 'pointer-fallback' && fired.some((f) => f.type === 'pointerdown'), JSON.stringify({ kind: r.kind, fired: fired.map((f) => f.type) }))
+  }
+  {
+    /* down 在 A、up 在 B（跨元素拖拽）⇒ **不许**补 click */
+    const fired = []
+    const A = { dispatchEvent: (ev) => { fired.push(ev.type); return true } }
+    const B = { dispatchEvent: (ev) => { fired.push(ev.type); return true } }
+    let hit = A
+    class FakeEv2 { constructor(type, init) { this.type = type; Object.assign(this, init || {}); this.isTrusted = false } }
+    const win = { location: { search: '' }, parent: { postMessage: () => {} }, console: { warn: () => {} }, addEventListener: () => {}, setTimeout: () => 1, clearTimeout: () => {}, PointerEvent: FakeEv2, MouseEvent: FakeEv2, WheelEvent: FakeEv2, TouchEvent: FakeEv2, Touch: FakeEv2 }
+    win.window = win
+    const ctx = { window: win, document: { elementFromPoint: () => hit, body: A, documentElement: A, querySelectorAll: () => [] }, Promise, Object, JSON, Array, String, Number, Math, Date, Error, URLSearchParams, DOMException, setTimeout: win.setTimeout, clearTimeout: win.clearTimeout, console: win.console }
+    ctx.globalThis = ctx
+    vm.createContext(ctx); vm.runInContext(buildWebShimSource(), ctx, { filename: 'mpw-web-shim.js' })
+    win.__mpwWebControl({ op: 'pointer', type: 'down', x: 1, y: 1 })
+    hit = B
+    win.__mpwWebControl({ op: 'pointer', type: 'up', x: 2, y: 2 })
+    ok('X9 按下与抬起**不在同一元素** ⇒ 不补 click（跨元素拖拽不该被当成点击）',
+      !fired.includes('click'), JSON.stringify(fired))
+  }
+  {
+    const { win, fired } = runBridge({ miss: true })
+    const r = win.__mpwWebControl({ op: 'pointer', type: 'down', x: 999, y: 999 })
+    ok('X8 命中不到元素（点空白）⇒ hit=false 且不炸（事件派给兜底节点）',
+      r && r.ok && r.hit === false && fired.length >= 1, JSON.stringify({ r, fired: fired.length }))
+  }
+}
+
+console.log('== Y 页面交互桥接线（静态判据）==')
+{
+  const html = fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8')
+  ok('Y1 交互桥**只在 sandbox 档**装（compat 档要原生透传）',
+    /if \(plan\.mode === 'sandbox'\) \{[\s\S]{0,400}mpw-web-frame-veil/.test(html))
+  ok('Y2 用**透明遮罩**接事件（iframe 内的事件不会冒泡到父页 —— 装在盒子上真机一次都不触发）',
+    /id = 'mpw-web-frame-veil'/.test(html) && /veil\.addEventListener\('pointerdown'/.test(html)
+    && !/box\.addEventListener\('pointerdown'/.test(html))
+  ok('Y3 指针/滚轮/触摸三种都转发（op 名与 shim 的 control() 同源）',
+    /fwd\('pointer'/.test(html) && /fwd\('wheel'/.test(html) && /fwd\('touch'/.test(html))
+  ok('Y4 坐标换算补偿祖先缩放（帧内 client 像素 = 显示盒坐标 × clientWidth/rect.width）',
+    /fr\.clientWidth \/ r\.width/.test(html) && /fr\.clientHeight \/ r\.height/.test(html))
+  ok('Y5 `pub()` 与已有状态**合并**（重建会把 interactions/ready/lastByKind 清成默认值 —— 本轮踩过）',
+    /window\.__mpwWebFrame = Object\.assign\(\{\}, window\.__mpwWebFrame \|\| \{\}, \{/.test(html))
+  ok('Y6 帧自上报三种都记（交互/暂停/音频），且音频带 hasListener（"为什么没投递"要能读出来）',
+    /d\.op === 'interaction'/.test(html) && /d\.op === 'paused'/.test(html) && /audio-received/.test(html) && /hasListener/.test(html))
+}
+
 console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败')
 if (fail === 0) console.log('✓ web 宿主契约通过：三档解析 / 入口规划（同源绝不 blob）/ 降档三条硬规则 / 九个失败态 / 注入五条规则 / shim 语义 23 条 / 存储落盘 13 条')
 process.exit(fail > 0 ? 1 : 0)

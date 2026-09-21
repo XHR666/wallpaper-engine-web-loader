@@ -2344,8 +2344,23 @@ const server = http.createServer((req, res) => {
     return undefined
   })
 })
-/** shim 源只生成一次（字符串常量；每个 HTML 响应共享，不做无谓重复构建）。 */
-const WEB_SHIM_SOURCE = buildWebShimSource()
+/**
+ * shim 源：**按源文件 mtime 失效**的缓存（不是模块加载时的一锤子买卖）。
+ * 为什么：原先写作 `const WEB_SHIM_SOURCE = buildWebShimSource()`（进程启动时算一次），改完
+ * `core/we-web-shim.mjs` 不重启服务就会**继续发旧字符串** —— 本轮真机踩到：帧里跑的是旧 shim
+ * （没有 `post('paused')` / 交互 op），宿主侧却按新协议等回报，于是"消息到了、状态不回"，
+ * 看起来像投递坏了。判据：每次请求 stat 一次源文件，mtimeMs 变了就重建（构建 15KB 字符串，代价可忽略）。
+ */
+let webShimCache = { mtimeMs: 0, source: '' }
+function webShimSource() {
+  const file = fileURLToPath(new URL('../core/we-web-shim.mjs', import.meta.url))
+  let mtimeMs = 0
+  try { mtimeMs = fs.statSync(file).mtimeMs } catch { /* 取不到就退化成"每次重建" */ }
+  if (mtimeMs !== webShimCache.mtimeMs || !webShimCache.source) {
+    webShimCache = { mtimeMs, source: buildWebShimSource() }
+  }
+  return webShimCache.source
+}
 /** web 帧首帧种子：作者属性默认值（+ reports 里的覆盖）+ 该壁纸的存储快照（不透明源 facade 回灌用）。 */
 function webSeedFor(item, dir, rel) {
   const raw = (() => { try { const p = readProjectJson(dir); return (p && p.general && p.general.properties) || null } catch { return null } })()
@@ -2388,7 +2403,7 @@ function webMediaServe(req, res, item, segs, url) {
   let out
   try {
     const html = fs.readFileSync(file, 'utf8')
-    out = injectWebShim(html, { shimSource: WEB_SHIM_SOURCE, seed: webSeedFor(item, dir, rel) })
+    out = injectWebShim(html, { shimSource: webShimSource(), seed: webSeedFor(item, dir, rel) })
   } catch (e) {
     /* 读/注入失败只 warn 不 500（原样发文件，别把壁纸弄成打不开） */
     try { process.stderr.write('[web-shim] 注入失败 ' + item + '/' + rel + '：' + (e && e.message) + '\n') } catch { /* ignore */ }

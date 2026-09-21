@@ -1113,7 +1113,21 @@ try {
 // ═══ MPW-SELECT-WIRING-END ═══
 const cv = document.getElementById('sc');
 /* ⑥ web 帧的页级状态：`webReady`（shim 报到）/ `webReloads`（降档次数，防来回抖）/ `mpwWebSend`（宿主→帧控制面） */
-let webReady = false, webReloads = 0, webPaused = false, webObjectUrl = '', mpwWebSend = null;
+/** ⑥ web 帧的 128 元频段泵（节流 30Hz；暂停期间**不发**；没有帧时是空操作）。
+    诚实口径：`source` 原样带过去（wallpaper/mic/simulated/silent）—— 帧内 shim 与作者都不该被喂假频谱。 */
+let webBandAt = -1
+function mpwWebPushBands(tSec, band) {
+  if (typeof mpwWebSend !== 'function' || webPaused || !band) return null
+  const t = Number.isFinite(tSec) ? tSec : 0
+  if (webBandAt >= 0 && (t - webBandAt) < 0.033) return null
+  webBandAt = t
+  const bands = Array.from(band.bands)
+  mpwWebSend('audio', { bands, source: band.source })
+  return bands.length
+}
+let webReady = false, webReloads = 0, webPaused = false, webObjectUrl = '', mpwWebSend = null, webInteractions = 0, webAudioFrames = 0
+const webLastByKind = {}
+let webLastInteraction = null, webLastAudio = null
 /* ⑥ 宿主可据此**让位**：本页自己会挂 web 帧，而且 shim 由**服务端**在 `/web/**` 的 HTML 里注入
    ⇒ 宿主（测试台）那条「包 iframe.src 改成 blob 再注入」的旧通路不要再插一手（真机实测：它会与
    服务端注入叠加，并计一次注入失败）。上游渲染器没有这个标记 ⇒ 旧的 blob 通路对它照旧生效。 */
@@ -2414,10 +2428,14 @@ function loadScene() {
     const entry = webEntryPlan(abs ? abs.href : '', { sameOrigin, blobOptIn: String(q.get('webshim') || '').toLowerCase() === 'blob' })
     const pub = (extra) => {
       try {
-        window.__mpwWebFrame = Object.assign({
+        /* ⚠ 与**已有状态合并**（不是每次重建）：各条回报只带自己那几个字段 —— 重建会把别的字段
+           （interactions / ready / lastByKind…）清成默认值，读出来就像"根本没发生过"（本轮踩过）。 */
+        window.__mpwWebFrame = Object.assign({}, window.__mpwWebFrame || {}, {
           at: Date.now(), id: itemId, mode: plan.mode, explicit: plan.explicit, modeWhy: plan.why,
           entryKind: entry.kind, entryUrl: entry.url, sameOrigin, embed, ready: false, reloads: webReloads,
-          timeoutMs: WEB_SHIM_READY_TIMEOUT_MS, bands: 0, paused: false,
+          timeoutMs: WEB_SHIM_READY_TIMEOUT_MS, interactions: webInteractions, audioFrames: webAudioFrames,
+          paused: webPaused, lastInteraction: webLastInteraction,
+          lastByKind: Object.assign({}, webLastByKind), lastAudio: webLastAudio,
         }, extra || {})
       } catch (e) { /* ignore */ }
     }
@@ -2455,6 +2473,43 @@ function loadScene() {
     } else {
       pub({ state: 'mounting' })
     }
+    /* 宿主 → 帧的控制面先定义（交互桥与暂停都要用它） */
+    mpwWebSend = (op, payload) => { try { fr.contentWindow.postMessage(Object.assign({ mpw: 'mpw:web', op }, payload || {}), '*') } catch (e) { /* ignore */ } }
+    window.__mpwWebSend = mpwWebSend
+    /* ⑥ sandbox 档的交互桥：帧不透明 ⇒ 指针/滚轮/触摸在**宿主侧**采集，换算成帧内 client 像素后
+       用 `op:'pointer'|'wheel'|'touch'` 投给帧内 shim（它在命中的元素上派发合成事件）。
+       compat 档**一个监听都不装**（原生透传才有真 `:hover/:active/isTrusted`）。 */
+    if (plan.mode === 'sandbox') {
+      /* ⚠ 必须用**透明遮罩**接事件：iframe 内的事件不会冒泡到父页（真机实测：监听装在盒子上，
+         真实鼠标落在 iframe 里 ⇒ 一次都没触发）。遮罩在 iframe 之上、透明、只做采集与转发 ——
+         这正是"合成事件"的机制，也是 `:hover/:active/isTrusted` 拿不到的原因（compat 档存在的理由）。 */
+      const veil = document.createElement('div')
+      veil.id = 'mpw-web-frame-veil'
+      veil.setAttribute('aria-hidden', 'true')
+      veil.style.cssText = 'position:absolute;inset:0;z-index:1;background:transparent;cursor:default'
+      box.appendChild(veil)
+      const toFrame = (ev) => {
+        const r = fr.getBoundingClientRect()
+        const sx = r.width > 0 ? (fr.clientWidth / r.width) : 1
+        const sy = r.height > 0 ? (fr.clientHeight / r.height) : 1
+        return { x: (ev.clientX - r.left) * sx, y: (ev.clientY - r.top) * sy }
+      }
+      const fwd = (op, ev, extra) => {
+        if (typeof mpwWebSend !== 'function') return
+        const p = toFrame(ev)
+        mpwWebSend(op, Object.assign({ x: p.x, y: p.y, buttons: ev.buttons || 0, button: ev.button || 0,
+          pointerId: ev.pointerId, pointerType: ev.pointerType }, extra || {}))
+      }
+      veil.addEventListener('pointerdown', (ev) => { try { veil.setPointerCapture && veil.setPointerCapture(ev.pointerId) } catch (e) {}; ev.preventDefault(); fwd('pointer', ev, { type: 'down' }) })
+      veil.addEventListener('pointermove', (ev) => fwd('pointer', ev, { type: 'move' }))
+      veil.addEventListener('pointerup', (ev) => { fwd('pointer', ev, { type: 'up' }); try { veil.releasePointerCapture && veil.releasePointerCapture(ev.pointerId) } catch (e) {} })
+      veil.addEventListener('pointercancel', (ev) => fwd('pointer', ev, { type: 'up' }))
+      veil.addEventListener('wheel', (ev) => { ev.preventDefault(); fwd('wheel', ev, { deltaX: ev.deltaX, deltaY: ev.deltaY, deltaMode: ev.deltaMode }) }, { passive: false })
+      veil.addEventListener('touchstart', (ev) => { const t = ev.changedTouches && ev.changedTouches[0]; if (t) fwd('touch', t, { type: 'start', identifier: t.identifier }) }, { passive: true })
+      veil.addEventListener('touchmove', (ev) => { const t = ev.changedTouches && ev.changedTouches[0]; if (t) fwd('touch', t, { type: 'move', identifier: t.identifier }) }, { passive: true })
+      veil.addEventListener('touchend', (ev) => { const t = ev.changedTouches && ev.changedTouches[0]; if (t) fwd('touch', t, { type: 'end', identifier: t.identifier }) }, { passive: true })
+      logf('⑥ web 帧：sandbox 档已装交互桥（透明遮罩采集 → 帧内合成事件；`:hover/:active/isTrusted` 拿不到，这是 compat 档存在的理由）')
+    }
     fr.src = src
     // shim 报到 / 作者异常：帧内 shim 用 postMessage 上报（协议形状见 core/we-web-shim.mjs）
     const onMsg = (ev) => {
@@ -2466,6 +2521,24 @@ function loadScene() {
         pub({ state: 'ok', ready: true, readyMs: Date.now() - t0, shimVersion: d.version || null })
         logf('⑥ web 帧：shim 已报到（v' + (d.version || '?') + '，' + (Date.now() - t0) + 'ms）')
         mpwWebPushProps()
+        return
+      }
+      if (d.op === 'interaction') {
+        webInteractions++
+        const kind = String(d.kind || '')
+        const rec = { kind, type: String(d.type || ''), x: d.x, y: d.y, hit: !!d.hit, fired: d.fired, at: Date.now() }
+        /* 每种交互各留最后一条（只留 lastInteraction 的话，滚轮/触摸会被后面的指针覆盖掉，
+           判据就没法分别证明"三种都通"）。 */
+        webLastByKind[kind] = rec
+        webLastInteraction = rec
+        pub({ state: 'ok', interactions: webInteractions })
+        return
+      }
+      if (d.op === 'paused') { webPaused = !!d.paused; pub({ state: 'ok', paused: webPaused }); return }
+      if (d.op === 'audio-received' || d.op === 'audio-dropped') {
+        if (d.op === 'audio-received') webAudioFrames++
+        webLastAudio = { op: d.op, len: d.len, source: String(d.source || ''), hasListener: !!d.hasListener, at: Date.now() }
+        pub({ state: 'ok', audioFrames: webAudioFrames })
         return
       }
       if (d.op === 'author-error') {
@@ -2482,9 +2555,6 @@ function loadScene() {
       frameStatus({ state: 'shim-missing', downgraded: d.changed })
       if (d.changed) reloadAsCompat()
     }, WEB_SHIM_READY_TIMEOUT_MS + 50)
-    // 宿主 → 帧的控制面：属性/暂停/音频/媒体（同一套 op 名，与 shim 的 control() 对齐）
-    mpwWebSend = (op, payload) => { try { fr.contentWindow.postMessage(Object.assign({ mpw: 'mpw:web', op }, payload || {}), '*') } catch (e) { /* ignore */ } }
-    window.__mpwWebSend = mpwWebSend
     if (String(q.get('webpause') || '') === '1') { webPaused = true; mpwWebSend('pause', { paused: true }) }
     logf('⑥ web 帧已挂载：档 ' + plan.mode + '（' + plan.why + '）· 入口 ' + entry.kind + ' · ' + entry.url.slice(0, 120))
     logf('⑥ web 帧入口说明：' + entry.why)
@@ -3648,6 +3718,9 @@ function loadScene() {
   }
   let bandPublishAt = -1
   function bandPublish(tSec) {
+    /* ⑥ 先把同一条读数投给**帧内** shim（web 壁纸的 audio 通道）：与下面给宿主的通道互不影响 ——
+       帧内那条不需要"被宿主嵌入"这个前提（本页自己就是宿主）。 */
+    try { if (bandLast) mpwWebPushBands(tSec, bandLast) } catch (e) { /* ignore */ }
     // 渲染器 → 宿主：128 元数组（节流 20Hz，只有 `?bandfeed=` 开着且确实被嵌进宿主时才发）。
     // ⚠ **未定/缺证据**：in-repo 没有任何消费者；插件侧的网页壁纸桥是**父页 → 帧内**
     //   `{mpw:'mpw:web', op:'audio', bands}`（dsh-mpkg-wallpaper/docs/WEB-WALLPAPER.md §5.2、

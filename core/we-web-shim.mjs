@@ -107,6 +107,81 @@ export function buildWebShimSource(opts = {}) {
     later(cb, (pool && pool.length) ? pool[Math.floor(Math.random() * pool.length)] : '');
   };
   W.wallpaperPluginListener = W.wallpaperPluginListener || { onPluginLoaded: function () {} };
+  /* ── 交互桥（sandbox 档：合成事件；compat 档用原生，不走这里） ─────────────────────────
+     协议：宿主发 {mpw:'mpw:web', op:'pointer'|'wheel'|'touch', type, x, y, …}（坐标 = **帧内 client 像素**）。
+     固有边界（照实说，不假装）：合成事件 isTrusted 恒为 false、CSS :hover/:active **不生效**
+     —— 这正是 compat 档存在的理由（原生透传才有真语义）。 */
+  function hit(x, y) {
+    try { return D.elementFromPoint(x, y) || D.body || D.documentElement } catch (e) { return D.body || null }
+  }
+  function fire(target, type, init, Ctor) {
+    if (!target) return false;
+    var ev = null;
+    try { ev = new Ctor(type, init); } catch (e) { ev = null; }
+    if (!ev) { note('synthetic-unsupported', type); return false; }
+    try { target.dispatchEvent(ev); return true; } catch (e) { note('dispatch-failed', type); return false; }
+  }
+  var lastHit = null, downHit = null;
+  function pointerInit(msg) {
+    return { bubbles: true, cancelable: true, composed: true, clientX: Number(msg.x) || 0, clientY: Number(msg.y) || 0,
+      button: Number(msg.button) || 0, buttons: Number(msg.buttons) || 0, pointerId: Number(msg.pointerId) || 1,
+      pointerType: msg.pointerType || 'mouse', isPrimary: true, view: W };
+  }
+  function dispatchPointer(msg) {
+    var t = String(msg.type || '');
+    var target = hit(Number(msg.x) || 0, Number(msg.y) || 0);
+    var init = pointerInit(msg);
+    var n = 0;
+    if (t === 'move' && target !== lastHit) {
+      if (lastHit) { n += fire(lastHit, 'pointerout', init, W.PointerEvent || W.MouseEvent) ? 1 : 0; n += fire(lastHit, 'pointerleave', init, W.PointerEvent || W.MouseEvent) ? 1 : 0; }
+      n += fire(target, 'pointerover', init, W.PointerEvent || W.MouseEvent) ? 1 : 0;
+      n += fire(target, 'pointerenter', init, W.PointerEvent || W.MouseEvent) ? 1 : 0;
+      lastHit = target;
+    }
+    if (t === 'down') { downHit = target; n += fire(target, 'pointerdown', init, W.PointerEvent || W.MouseEvent) ? 1 : 0; }
+    else if (t === 'up') n += fire(target, 'pointerup', init, W.PointerEvent || W.MouseEvent) ? 1 : 0;
+    else n += fire(target, 'pointermove', init, W.PointerEvent || W.MouseEvent) ? 1 : 0;
+    /* 作者脚本里大量用的是 mouse 系列（addEventListener('mousemove')）⇒ 同一位置补一份。 */
+    var mtype = t === 'down' ? 'mousedown' : (t === 'up' ? 'mouseup' : 'mousemove');
+    n += fire(target, mtype, init, W.MouseEvent) ? 1 : 0;
+    /* click 的真实语义是「**按下与抬起在同一元素**」，与中间有没有 move 无关（第一版只在 move 过之后补，
+       真机探针恰好先 move 才没暴露；vm 单测 X3 直接 down→up 就红了）。 */
+    if (t === 'up') { if (target && target === downHit) n += fire(target, 'click', init, W.MouseEvent) ? 1 : 0; downHit = null; }
+    var r = { ok: true, hit: !!(target && target !== D.body), fired: n };
+post('interaction', { kind: 'pointer', type: t, x: Number(msg.x) || 0, y: Number(msg.y) || 0, hit: !!r.hit, fired: r.fired, isTrusted: false });
+    return r;
+  }
+  function dispatchWheel(msg) {
+    var target = hit(Number(msg.x) || 0, Number(msg.y) || 0);
+    var init = { bubbles: true, cancelable: true, composed: true, clientX: Number(msg.x) || 0, clientY: Number(msg.y) || 0,
+      deltaX: Number(msg.deltaX) || 0, deltaY: Number(msg.deltaY) || 0, deltaMode: Number(msg.deltaMode) || 0, view: W };
+    var n = fire(target, 'wheel', init, W.WheelEvent || W.MouseEvent) ? 1 : 0;
+    /* 现代 wheel + legacy mousewheel（部分老作者只听后者）。 */
+    n += fire(target, 'mousewheel', Object.assign({}, init, { wheelDelta: -(Number(msg.deltaY) || 0) }), W.MouseEvent) ? 1 : 0;
+    post('interaction', { kind: 'wheel', type: 'wheel', x: Number(msg.x) || 0, y: Number(msg.y) || 0, hit: !!(target && target !== D.body), fired: n, isTrusted: false });
+    return { ok: true, fired: n };
+  }
+  function dispatchTouch(msg) {
+    var t = String(msg.type || '');
+    var target = hit(Number(msg.x) || 0, Number(msg.y) || 0);
+    var id = Number(msg.identifier) || 1;
+    if (typeof W.Touch === 'function' && typeof W.TouchEvent === 'function') {
+      try {
+        var touch = new W.Touch({ identifier: id, target: target, clientX: Number(msg.x) || 0, clientY: Number(msg.y) || 0, pageX: Number(msg.x) || 0, pageY: Number(msg.y) || 0 });
+        var ev = new W.TouchEvent('touch' + t, { bubbles: true, cancelable: true, composed: true,
+          touches: t === 'end' ? [] : [touch], targetTouches: t === 'end' ? [] : [touch], changedTouches: [touch], view: W });
+        target.dispatchEvent(ev);
+        post('interaction', { kind: 'touch', type: t, x: Number(msg.x) || 0, y: Number(msg.y) || 0, hit: !!(target && target !== D.body), fired: 1, isTrusted: false });
+        return { ok: true, kind: 'toucht' , fired: 1 };
+      } catch (e) { note('touch-ctor-failed', e && e.message); }
+    }
+    /* 三级构造阶梯的最后一级：真 TouchEvent 不可用 ⇒ 退回 pointer/mouse 合成，并**如实标 kind**（不假装是触摸）。 */
+    var r = t === 'start' ? dispatchPointer({ type: 'down', x: msg.x, y: msg.y, pointerType: 'touch' })
+      : (t === 'end' ? dispatchPointer({ type: 'up', x: msg.x, y: msg.y, pointerType: 'touch' })
+        : dispatchPointer({ type: 'move', x: msg.x, y: msg.y, pointerType: 'touch' }));
+    post('interaction', { kind: 'touch-pointer-fallback', type: t, x: Number(msg.x) || 0, y: Number(msg.y) || 0, hit: false, fired: r.fired, isTrusted: false });
+    return { ok: true, kind: 'pointer-fallback', fired: r.fired };
+  }
   /* ── 控制面（宿主 → 帧）：同一套语义既走 postMessage 也走 __mpwWebControl ── */
   function control(msg) {
     if (!msg || typeof msg !== 'object') return null;
@@ -126,11 +201,13 @@ export function buildWebShimSource(opts = {}) {
         STATE.paused = p;
         if (listener && typeof listener.setPaused === 'function') later(listener.setPaused, p);
         freezeMedia(p);
+        post('paused', { paused: p });
         return { ok: true, paused: p };
       }
       case 'audio':
         STATE.audio = Array.isArray(msg.bands) ? msg.bands : null;
-        if (STATE.audio && !STATE.paused && W.__mpwWebAudioCb) later(W.__mpwWebAudioCb, STATE.audio);
+        if (STATE.audio && !STATE.paused && W.__mpwWebAudioCb) { later(W.__mpwWebAudioCb, STATE.audio); post('audio-received', { len: STATE.audio.length, source: msg.source || '' }); }
+        else post('audio-dropped', { len: STATE.audio ? STATE.audio.length : 0, paused: !!STATE.paused, hasListener: !!W.__mpwWebAudioCb });
         return { ok: true };
       case 'media':
         for (var k of ['mediaProps', 'mediaThumb', 'mediaPlayback', 'mediaTimeline', 'mediaStatus']) {
@@ -142,6 +219,9 @@ export function buildWebShimSource(opts = {}) {
       case 'random':
         STATE.randomFiles = (msg.files && typeof msg.files === 'object') ? msg.files : null;
         return { ok: true };
+      case 'pointer': return dispatchPointer(msg);
+      case 'wheel': return dispatchWheel(msg);
+      case 'touch': return dispatchTouch(msg);
       default:
         return null;
     }
