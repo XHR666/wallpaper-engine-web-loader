@@ -1071,7 +1071,7 @@ import { packBands, simulatedBandArray, bandStats, AUDIO_BAND_LEN, AUDIO_BAND_HA
 // ①(P-112-BANDGEOM 2026-09-17 帧几何接线) 帧内坐标契约（规格 docs/WEB-FRAME-GEOMETRY-SPEC.md）：video 壁纸的
 //   帧盒按"内容比例 ≠ 舞台比例 ⇒ 覆盖式视口（居中裁切）"算（`?framegeom=cover|contain|stretch`；
 //   缺省 legacy = 一行都不动）。渲染器侧的指针口径接线在 `core/we-scene-bundle.js`。
-import { coverViewport, contentAspectOf, frameVisibleRect, normalizeFrameFit } from './web-frame-geometry.mjs';
+import { coverViewport, contentAspectOf, frameVisibleRect, normalizeFrameFit, sceneFitPlan } from './web-frame-geometry.mjs';
 // ①(用户第 6 项 2026-09-19) 自绘下拉（共享模块，测试台与渲染器页同一个实现）：
 //   模块住在 `demo/`（测试台天然托管），8899 这边由服务器补了一条**限定这两个文件**的只读路由。
 import { enhanceSelect } from './demo/mpw-select.js';
@@ -5084,7 +5084,20 @@ function loadScene() {
       logf('?view= 窗口 (' + vx + ',' + vy + ',' + vw + ',' + vh + ')');
     }
   }
-  if (new URLSearchParams(location.search).has('fit')) {
+  /* ①(2026-09-23 上游 fit 语义对齐 · "画面偏小右移") `?fit=` 必须**按取值**分流 —— 修前这里只判
+     `has('fit')`：宿主/测试台的预览 URL 恒带 `fit=cover`（**上游 fit 模式**），于是被当成"本页的自动适应
+     取景"，对所有层做了 k≈0.78 的缩放 + 一次 `origin=(origin−c)/k` 的居中（**除反了**）⇒ 真机 A/B（同
+     640×360 取景框、同一张 Girl and Cat）实测本仓内容只占中右一块、左侧/上方露出清屏灰，上游铺满整幅。
+     现在按取值分流：
+       · `?fit=1` / `?fit=auto` = 本页的**自动适应取景**（原功能，仅显式取值才走）；
+       · `?fit=cover|contain|stretch|fill|fit` = **上游 fit 语义**（按画布比例取景 + 居中偏移 + 元素
+         object-fit），实现见 `sceneFitPlan`（纯函数，tests/scene-fit-view-test.mjs 逐值钉）；
+       · 其余取值一律不动作（保持改动前逐位不变）。 */
+  const __fitRaw = new URLSearchParams(location.search).get('fit')
+  const __fitVal = __fitRaw === null ? '' : String(__fitRaw).trim().toLowerCase()
+  const FIT_AUTOFIT = (__fitVal === '1' || __fitVal === 'auto')
+  const SCENE_FIT = (__fitVal === 'cover' || __fitVal === 'contain' || __fitVal === 'stretch' || __fitVal === 'fill' || __fitVal === 'fit') ? __fitVal : null
+  if (FIT_AUTOFIT) {
     // 官方预览同款"适应取景"：只统计与设计区相交的内容层，缩放≥0.75 且≤1.0，中心对准设计中心
     const g0 = scene.general || {}
     const DCW = g0.orthogonalprojection ? g0.orthogonalprojection.width : cv.width
@@ -5101,12 +5114,48 @@ function loadScene() {
     }
     if (maxX > minX && maxY > minY) {
       const k = Math.min(1, Math.max(0.75, Math.min(DCH * 0.98 / (maxY - minY), DCW * 0.98 / (maxX - minX))))
-      const cx = (minX + maxX) / 2 - DCW / 2
-      const cy = (minY + maxY) / 2 - DCH / 2
+      /* ①(2026-09-23) 居中公式修反：意图是"以内容包围盒中心为心缩放 k 倍，再把包围盒中心挪到设计中心"，
+         即 `p' = (p − bboxC)·k + designC`。旧式 `(p − c)/k`（c = bboxC − designC）**除以** k 且丢了
+         designC 项 ⇒ k<1 时把内容推得又远又偏（真机读数：origin 1959.6→2488.1、scale 1.0489→0.8215）。
+         下面按推导展开：`p' = k·p − k·c + designC·(1 − k)`。 */
+      const bcx = (minX + maxX) / 2, bcy = (minY + maxY) / 2
       for (const l of scene.layers) {
-        if (l.origin) { l.origin = [(l.origin[0] - cx) / k, (l.origin[1] - cy) / k, l.origin[2] || 0]; l.scale = [l.scale[0] * k, l.scale[1] * k, l.scale[2] || 1] }
+        if (!l.origin) continue
+        l.origin = [
+          k * l.origin[0] - k * (bcx - DCW / 2) + DCW / 2 * (1 - k),
+          k * l.origin[1] - k * (bcy - DCH / 2) + DCH / 2 * (1 - k),
+          l.origin[2] || 0,
+        ]
+        l.scale = [l.scale[0] * k, l.scale[1] * k, l.scale[2] || 1]
       }
-      logf('?fit=1：适应取景 k=' + k.toFixed(3));
+      logf('?fit=1：适应取景 k=' + k.toFixed(3) + '（内容 ' + Math.round(maxX - minX) + 'x' + Math.round(maxY - minY)
+        + ' → 设计 ' + DCW + 'x' + DCH + '，包围盒中心 ' + Math.round(bcx) + ',' + Math.round(bcy) + '）');
+    }
+  }
+  /* ②(2026-09-23 第 ⑤ 条) 上游 fit 语义：按**画布比例**取景 + 居中偏移 + 元素 object-fit。
+     偏移落法与本仓 `?view=` 同口径（把层原点反向平移），不动层尺寸 ⇒ 不重采样、不引入缩放误差。 */
+  if (SCENE_FIT) {
+    const g0 = scene.general || (scene.general = {})
+    const proj0 = g0.orthogonalprojection
+    const projW = (proj0 && Number(proj0.width) > 0) ? Number(proj0.width) : cv.width
+    const projH = (proj0 && Number(proj0.height) > 0) ? Number(proj0.height) : cv.height
+    const plan = sceneFitPlan(SCENE_FIT, projW, projH, cv.width, cv.height, 0.5, 0.5)
+    if (plan) {
+      let moved = 0
+      if (plan.offX || plan.offY) {
+        for (const l of scene.layers) {
+          if (!l.origin) continue
+          l.origin = [l.origin[0] - plan.offX, l.origin[1] - plan.offY, l.origin[2] || 0]
+          moved++
+        }
+      }
+      if (plan.viewW !== projW || plan.viewH !== projH) g0.orthogonalprojection = { width: plan.viewW, height: plan.viewH }
+      try { cv.style.objectFit = plan.objectFit } catch (e) { /* 无样式（Node 侧语法检查） */ }
+      logf('② 上游 fit=' + plan.mode + '：视口 ' + Math.round(plan.viewW) + 'x' + Math.round(plan.viewH)
+        + '（投影 ' + projW + 'x' + projH + '，画布 ' + cv.width + 'x' + cv.height + '，偏移 '
+        + plan.offX.toFixed(1) + ',' + plan.offY.toFixed(1) + '，' + moved + ' 层平移，object-fit=' + plan.objectFit + '）')
+    } else {
+      logf('⚠ 上游 fit=' + SCENE_FIT + '：取景参数不可用，保持原样（投影 ' + projW + 'x' + projH + '，画布 ' + cv.width + 'x' + cv.height + '）')
     }
   }
   // ①(N2 2026-09-14 第6项 伊蕾娜相框) 脚本驱动 origin 的"近整屏层"兜底：判据与锚点**都按 alignment**

@@ -617,6 +617,16 @@ add "bench-props-text" "node tests/bench-props-text-test.mjs"
 #   `scrollWidth ≤ clientWidth+2`**（修前实测 `#dbg-log` 23020/1094 ⇒ 这条会红）。
 #   纯判据 `--selftest` 5 条常驻（含 S5 静态契约：5 处日志规则缺一处即红），`--live` 那半需要 :8902。
 add "bench-log-clip-probe" "node tests/bench-log-clip-probe.mjs --selftest"
+# ②(2026-09-23 第 ⑤ 条) `scene-fit-view`：场景档 `?fit=` 的上游语义（"画面偏小右移"的根因）。
+#   修前本仓只判 `has('fit')` —— 宿主预览 URL 恒带 `fit=cover`（上游 fit 模式）⇒ 被当成"本页自动适应取景"，
+#   对全体层做 k≈0.78 缩放 + 一次 `origin=(origin−c)/k`（居中除反）⇒ 同 640×360 取景框下上游铺满、
+#   本仓只占中右一块（真机 A/B 读数 dx=+47.7 / cover 0.69 vs 0.85）。现在按取值分流：`1|auto` = 自动取景、
+#   `cover|contain|stretch|fill|fit` = 上游三态取景（按画布比例算视口 + 居中偏移 + 元素 object-fit）。
+#   26 条断言（归一表 / 整比例视口 / 三态与偏移 / object-fit / 源码接线 / 分辨力自证），纯函数、无浏览器。
+add "scene-fit-view" "node tests/scene-fit-view-test.mjs"
+# ②(2026-09-23 第 ⑤ 条) `cover-ab-probe`：两个渲染器**同一取景框**的像素级 A/B（内容包围盒/质心/尺度比）。
+#   纯判据 `--selftest` 6 条常驻；`--live`（`--direct` 或测试台模式）需要 :8899/:8902。
+add "cover-ab-probe" "node tests/cover-ab-probe.mjs --selftest"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

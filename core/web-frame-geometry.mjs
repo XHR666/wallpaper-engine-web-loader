@@ -123,6 +123,78 @@ export function frameVisibleRect(stageW, stageH, frameBox) {
   return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }
 
+/* ═══ 上游 fit 语义（场景级取景） ═══════════════════════════════════════════════════════════════════
+ * 为什么单独一组：本模块上面的 `normalizeFrameFit`/`coverViewport` 是**帧盒**（video/web iframe）口径，
+ * 而 `?fit=` 到了场景壁纸这一层是**取景**口径 —— 上游产物 bundle 里是三个函数串起来的：
+ *   `Gn(v)` 归一（`fit`→contain、`fill`→cover、未知→cover）
+ *   `Eh(canvasW,canvasH,projW,projH)` 覆盖式视口：画布比例落在容差内就直接用投影，否则查设备比例表，
+ *      再不行返回 null 交给调用方按 `max` 兜底
+ *   `wo(fit,projW,projH,canvasW,canvasH,alignX,alignY)` 三态取景 + 居中偏移 + 元素的 object-fit
+ * 本仓此前**根本没有**这一层（`?fit=` 只作用于 video 帧盒，场景档整个忽略），宿主传 `fit=cover` 时
+ * 场景既没按画布比例取景、也没有对齐偏移 ⇒ 与上游同框不同构图。这组函数把它补齐到**可逐值对拍**。
+ * 三个函数都是纯函数，Node 侧直接钉（tests/scene-fit-view-test.mjs）。
+ * 取值容差/比例表与上游一致（0.02 相对容差；表 = 16:9 / 16:10 / 21:9 / 32:9）。 */
+export const SCENE_FIT_EPS = 0.02;
+export const SCENE_FIT_RATIOS = [[16, 9], [16, 10], [21, 9], [32, 9]];
+
+/** fit 取值归一（与上游 `Gn` 同表）：`fit`→`contain`、`fill`→`cover`、未知/缺省→`cover`。 */
+export function normalizeSceneFit(mode) {
+  const s = typeof mode === 'string' ? mode.trim().toLowerCase() : '';
+  if (s === 'contain' || s === 'fit') return 'contain';
+  if (s === 'stretch') return 'stretch';
+  return 'cover';
+}
+
+/**
+ * 覆盖式视口（上游 `Eh`）：返回与画布**同比例**且不小于投影的视口；`null` = 没有整比例匹配。
+ * 与「直接把画布比例盖到投影上」的差别在**取整比例**分支：画布 16:10 而投影 16:9 时，视口取 16:10
+ * 的整比例而不是 0.625 这种任意值，保证像素取整不产生半像素错位（上游行为，逐值可对拍）。
+ */
+export function sceneFitViewport(canvasW, canvasH, projW, projH) {
+  const cw = num(canvasW, 0), ch = num(canvasH, 0), pw = num(projW, 0), ph = num(projH, 0);
+  if (!(ch > 0) || !(cw > 0) || !(pw > 0) || !(ph > 0)) return null;
+  const canvasAspect = cw / ch;
+  if (!Number.isFinite(canvasAspect) || canvasAspect <= 0) return null;
+  const projAspect = pw / ph;
+  if (Math.abs(canvasAspect - projAspect) <= SCENE_FIT_EPS * projAspect) return { viewW: pw, viewH: ph };
+  for (const [rw, rh] of SCENE_FIT_RATIOS) {
+    const r = rw / rh;
+    if (Math.abs(canvasAspect - r) > SCENE_FIT_EPS * r) continue;
+    const viewH = ph, viewW = ph * r;
+    // 该比例下视口比投影更宽 ⇒ 改按宽度贴合（仍然覆盖，另一维溢出）
+    return viewW > pw + 1e-6 ? { viewW: pw, viewH: pw / r } : { viewW, viewH };
+  }
+  return null;
+}
+
+/**
+ * fit 三态取景（上游 `wo` + `ac`）：返回 `{mode, viewW, viewH, offX, offY, objectFit}`；`null` = 参数不可用。
+ * 偏移语义：上游把视口放在投影坐标系里的 `(offX, offY)` 处（默认居中 0.5）——调用方应把**层原点反向平移**
+ * 同样的量，等价于把视口挪到原点（本仓 `?view=` 用的就是这条口径）。
+ * `objectFit` = 元素该用的 CSS（cover→`cover`、contain→`contain`、stretch→`fill`）。
+ */
+export function sceneFitPlan(fit, projW, projH, canvasW, canvasH, alignX = 0.5, alignY = 0.5) {
+  const pw = num(projW, 0), ph = num(projH, 0), cw = num(canvasW, 0), ch = num(canvasH, 0);
+  if (!(pw > 0) || !(ph > 0) || !(cw > 0) || !(ch > 0)) return null;
+  const mode = normalizeSceneFit(fit);
+  const ax = num(alignX, 0.5), ay = num(alignY, 0.5);
+  if (mode === 'stretch') return { mode, viewW: pw, viewH: ph, offX: 0, offY: 0, objectFit: 'fill' };
+  if (mode === 'contain') {
+    const canvasAspect = cw / ch;
+    if (pw / ph > canvasAspect) {         // 投影更宽 ⇒ 按宽度贴合，上下留边
+      const viewH = pw / canvasAspect;
+      return { mode, viewW: pw, viewH, offX: 0, offY: (ph - viewH) / 2, objectFit: 'contain' };
+    }
+    const viewW = ph * canvasAspect;      // 投影更高 ⇒ 按高度贴合，左右留边
+    return { mode, viewW, viewH: ph, offX: (pw - viewW) / 2, offY: 0, objectFit: 'contain' };
+  }
+  const v = sceneFitViewport(cw, ch, pw, ph);
+  if (v) return { mode, viewW: v.viewW, viewH: v.viewH, offX: (pw - v.viewW) * ax, offY: (ph - v.viewH) * ay, objectFit: 'cover' };
+  const k = Math.max(cw / pw, ch / ph);   // 上游兜底：按 max 比例覆盖
+  const viewW = cw / k, viewH = ch / k;
+  return { mode, viewW, viewH, offX: (pw - viewW) * ax, offY: (ph - viewH) * ay, objectFit: 'cover' };
+}
+
 /**
  * 回退开关解析（`?frame=legacy|off` → `'legacy'`；其余/缺省 → `'cover'`）。
  * 调用方在 legacy 档**不调用本模块**（iframe 100%×100%），使回退路径本身也能被断言。
