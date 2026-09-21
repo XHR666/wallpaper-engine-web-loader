@@ -591,6 +591,12 @@ add "trail-leave" "node tests/trail-leave-test.mjs"
 #   54 断言、实测 ~0.2s、无浏览器 / 无网络。诚实边界（文件头也写着）：真机权限框弹几次与屏幕上的
 #   真实像素**不在本项**；那部分只做到"喂给顶点色的数据 + 请求次数"这一层。
 add "bench-bandfeed-switch" "node tests/bench-bandfeed-switch-test.mjs"
+# ①(2026-09-22 用户第 25/29/12 条) `bench-dropdown-theme`：三条"静态可判"的真机报障 ——
+#   25 叉贴后卡住（`setTypeFilter` 从未定义 ⇒ 改用产物自己的 `driveBundleType`；按**剥注释后的代码**扫全文）、
+#   29 分辨率下拉里滚轮一滚就关（捕获监听仍在、非内部滚动仍收起，但**浮层内部的滚动要跳过**）、
+#   12 一进页面就是深色（主题规范化：**没存过 ⇒ light**、显式照办、历史 'auto' 仍按系统迁移）。
+#   17 断言（含纯函数口径与三条分辨力自证），~0.1s，无浏览器。
+add "bench-dropdown-theme" "node tests/bench-dropdown-theme-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

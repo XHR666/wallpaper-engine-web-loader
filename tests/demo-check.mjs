@@ -641,7 +641,10 @@ const landing = path.join(ROOT, 'index.html')
     /const off = layerFixedOffset\(clip, inside\)/.test(patchSrc) &&
     /list\.style\.top = \(plan\.top - off\.dy\) \+ 'px'/.test(patchSrc) &&
     /list\.style\.left = \(plan\.left - off\.dx\) \+ 'px'/.test(patchSrc) &&
-    /addEventListener\('scroll', \(\) => closeAll\(null\), true\)/.test(patchSrc) &&
+    /* ①(2026-09-22 用户第 29 条) **契约更新**（旧 → 新）：旧契约只要求"scroll ⇒ closeAll"；新契约要求
+       捕获监听仍在、且**浮层自己内部的滚动不再关它**（下拉列表 `overflow-y:auto` 可滚，一滚滚轮就关 =
+       用户报的那个 bug）。这里同样要求"非内部的滚动仍然 closeAll" —— 是加严不是放宽。 */
+    /addEventListener\('scroll', \(e\) => \{[\s\S]{0,900}?d\.wrap\.contains\(t\)[\s\S]{0,300}?closeAll\(null\)/.test(patchSrc) &&
     /addEventListener\('resize', \(\) => closeAll\(null\)\)/.test(patchSrc))
   // ⑬b(P-158 用户第 2 条) 为什么要有它：fixed 后代的包含块被 `#pages-track{contain:paint}` 抓走 ⇒
   //   内联 left/top 是相对它而不是视口（实测差一个 header = 44px，就是用户看到的"缝"）。

@@ -418,7 +418,11 @@ export function resolveTheme(mode, prefersDark) {
 /** 主题模式规范化：只允许 dark/light 两态；'auto'/非法值按系统偏好**一次性**落到具体一态（不锁死、不留第三态） */
 export function normalizeThemeMode(saved, prefersDark) {
   const raw = String(saved == null ? '' : saved)
-  return (raw === 'dark' || raw === 'light') ? raw : resolveTheme('auto', prefersDark)
+  if (raw === 'dark' || raw === 'light') return raw                 // 用户显式选过 ⇒ 照办
+  if (raw === 'auto') return resolveTheme('auto', prefersDark)      // 历史值 ⇒ 按系统偏好迁移一次（旧行为）
+  /* ①(2026-09-22 用户第 12 条) **从没设过** ⇒ 默认浅色（此前回落到 dark：一进页面就是深色）。
+     注意只改"没存过"这一支：显式 dark/light 与历史 'auto' 的语义都逐位不变。 */
+  return 'light'
 }
 
 /** 从 localStorage 的原始值算出 {mode, theme} —— 两态；非法值 = 按系统偏好迁移一次 */
@@ -3431,7 +3435,9 @@ export function initSiteShell(ctx = {}) {
     if (switchDecision(curId, want, !!first, !!(first && first.classList.contains('active'))).skip) { curId = want; return false }
     if (first) { try { first.click() } catch { /* ignore */ } ; return true }
     const kind = kindOfWallpaperId(want)
-    if (kind && kind !== bundleType) { setTypeFilter(kind); setTimeout(() => { const li2 = hit(); if (li2) { try { li2.click() } catch {} } }, 60); return true }
+    // ①(2026-09-22 用户第 25 条) 旧写法调用的 `setTypeFilter` **从未定义** ⇒ 叉掉几张贴后 ReferenceError 卡住；
+    //   改用产物自己的类型档驱动函数（同作用域函数声明，会提升；它按 `.seg-btn[data-type]` 的委托处理器切档）。
+    if (kind && kind !== bundleType) { driveBundleType(kind); setTimeout(() => { const li2 = hit(); if (li2) { try { li2.click() } catch {} } }, 60); return true }
     return false
   }
   /** id ⇒ 类型：优先查当前列表里的 `.sub`，查不到就查我们缓存过的 id→kind 表（切类型前也认得）。 */
@@ -5268,7 +5274,7 @@ export function init() {
     const raw = (themeBtn && themeBtn.dataset && themeBtn.dataset.mode) || ''
     if (raw === 'dark' || raw === 'light') return raw
     try { const saved = (typeof localStorage !== 'undefined') ? localStorage.getItem(THEME_KEY) : null; if (saved === 'dark' || saved === 'light') return saved } catch {}
-    return 'dark'
+    return 'light'   // ①(2026-09-22 第12条) 没存过 ⇒ 浅色（与 normalizeThemeMode 的缺省支一致）
   }
   function ensureThemeFallback() {
     if (!themeBtn) return false
@@ -5334,7 +5340,15 @@ export function init() {
   //   捕获阶段监听：`#pages-track` 里的滚动不冒泡到 window，必须 capture 才收得到。
   try {
     if (typeof addEventListener === 'function') {
-      addEventListener('scroll', () => closeAll(null), true)
+      addEventListener('scroll', (e) => {
+        /* ①(2026-09-22 用户第 29 条) 浮层**自己内部**的滚动不该把它关掉：分辨率下拉/目录选择器的列表是
+           `overflow-y:auto` 可滚的，而这里是**捕获阶段**监听（连 `#pages-track` 里不冒泡的滚动都要收）
+           ⇒ 连列表自身的滚动也收到、一滚滚轮浮层就关。判据 = "在打开的下拉里滚轮：列表真的滚动且浮层不关"。
+           用已登记的 dropdown 句柄判包含关系（不写死类名，目录选择器/其它浮层一并受益）。 */
+        const t = e && e.target
+        if (t) { for (const d of dropdowns) { try { if (d.wrap && d.wrap.contains(t)) return } catch { /* 桩 DOM */ } } }
+        closeAll(null)
+      }, true)
       addEventListener('resize', () => closeAll(null))
     }
   } catch { /* 桩 DOM：忽略 */ }
