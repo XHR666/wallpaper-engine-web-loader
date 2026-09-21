@@ -627,6 +627,13 @@ add "scene-fit-view" "node tests/scene-fit-view-test.mjs"
 # ②(2026-09-23 第 ⑤ 条) `cover-ab-probe`：两个渲染器**同一取景框**的像素级 A/B（内容包围盒/质心/尺度比）。
 #   纯判据 `--selftest` 6 条常驻；`--live`（`--direct` 或测试台模式）需要 :8899/:8902。
 add "cover-ab-probe" "node tests/cover-ab-probe.mjs --selftest"
+# ③(2026-09-23 第 ⑥ 条) `web-frame-host`：web 壁纸**宿主契约**（`core/web-frame-host.mjs` +
+#   `core/we-web-shim.mjs` + `server/web-store.mjs`）。三块：档位/入口/降档/失败态（纯函数，含三条硬规则：
+#   同源绝不 blob、被嵌入绝不自动升 compat、显式档位永不自动换档）；注入五条规则（幂等/转义/无 head 自造/
+#   超限跳过/CSP 跳过）；**真 shim 在 node:vm 里跑**的语义（回调延后到微任务、晚挂 listener 拿全量快照、
+#   暂停期不下发音频、媒体 listener 回放最近一帧、不透明源才装 storage facade、上限抛 QuotaExceededError、
+#   种子懒回灌）+ 存储落盘（wallId 受限字符集/合并/最旧淘汰/不透明源 CORS）。73 条，纯函数无浏览器。
+add "web-frame-host" "node tests/web-frame-host-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

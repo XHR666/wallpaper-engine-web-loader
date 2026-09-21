@@ -93,6 +93,10 @@ import { spawn } from 'node:child_process'
 import { mpwValidateSnapshot, BASELINE_SCHEMA } from '../core/baseline-metrics.mjs'
 // ①(用户第 34 条 安全策略) 导入文件的**统一白名单/内容嗅探**（同一份纯模块给测试台与插件用，避免两处漂移）
 import { checkUpload } from './upload-policy.mjs'
+/* ⑥(2026-09-23) web 壁纸宿主：服务端注入 shim（`/web/**` 的 HTML）+ 不透明源存储落盘。
+   纯逻辑在 core/we-web-shim.mjs 与 server/web-store.mjs 里，本文件只做接线与 HTTP 头。 */
+import { buildWebShimSource, injectWebShim } from '../core/we-web-shim.mjs'
+import { WEB_STORE_LIMITS, normalizeWallId, wallIdFor, storePath, mergeStore, evictPlan, opaqueCorsHeaders } from './web-store.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
@@ -143,6 +147,8 @@ const PICK_ROOT_CONFIG = path.resolve(process.env.MPW_PICK_ROOT || MPW_ROOT)
 const PICK_ROOT_FROM = process.env.MPW_PICK_ROOT ? 'env MPW_PICK_ROOT' : '默认 = MPW_ROOT（工作区；不含整个 home）'
 const REPORTS_DIR = path.resolve(process.env.MPW_REPORTS_DIR || path.join(MPW_ROOT, 'reports'))
 const PROPS_DIR = path.join(REPORTS_DIR, 'bench-props')
+/* ⑥ web 帧的存储落盘：`<reports>/web-store/<wallId>.json`（与 bench-props 同一条纪律：**绝不写进壁纸包**） */
+const WEB_STORE_DIR = path.join(REPORTS_DIR, 'web-store')
 const TRASH_ROOT = path.join(MPW_ROOT, 'Delete', 'bench-trash')
 const STATIC_ROOT = path.resolve(process.env.MPW_BENCH_STATIC_DIR || (typeof flagVal('static-root') === 'string' ? flagVal('static-root') : '') || path.join(REPO_ROOT, 'demo'))
 // no-store 默认开（:8901 口径）；`--no-store` 显式、`--store` 或 MPW_BENCH_STORE=1 关闭（环境变量优先）
@@ -1011,6 +1017,34 @@ function buildProps(dir, overrides) {
   }
   return out
 }
+/* ⑥ web 帧存储：读一张 / 列全部（含 mtime，供淘汰按"最旧优先"）。**绝不写进壁纸包**。 */
+function readWebStore(wallId) {
+  const id = normalizeWallId(wallId)
+  if (!id) return {}
+  const file = storePath(WEB_STORE_DIR, id)
+  const st = statSafe(file)
+  if (!st || !st.isFile()) return {}
+  try {
+    const j = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''))
+    return (j && typeof j === 'object' && j.data && typeof j.data === 'object') ? j.data : {}
+  } catch { return {} }
+}
+function listWebStore() {
+  let names = []
+  try { names = fs.readdirSync(WEB_STORE_DIR) } catch { return [] }
+  const out = []
+  for (const n of names) {
+    if (!/\.json$/.test(n)) continue
+    const id = normalizeWallId(n.replace(/\.json$/, ''))
+    if (!id) continue
+    const st = statSafe(path.join(WEB_STORE_DIR, n))
+    out.push({ id, mtimeMs: st ? st.mtimeMs : 0 })
+  }
+  return out
+}
+/** web 帧的 wallId：只吃**相对量**（条目 id + 入口相对路径），不含绝对路径（与插件同形）。 */
+const webWallIdFor = (item, rel) => wallIdFor([String(item || ''), String(rel || '').replace(/\\/g, '/')])
+
 // 属性覆盖：落 <reports>/bench-props/<id>.json（**绝不写进壁纸包** —— 库里只有 project.json 是读的）
 const propsFileFor = (id) => path.join(PROPS_DIR, `${assertItemId(id)}.json`)
 function readOverrides(id) {
@@ -1707,6 +1741,32 @@ async function handleApi(req, res, url) {
     })
   }
 
+  // ⑥(2026-09-23) GET/POST /api/web-store —— web 帧（不透明源）的存储落盘
+  //   契约见 docs/WEB-WALLPAPER-MERGE.md §3.5：帧内 facade 每 400ms 推一次快照，首帧由注入的种子回灌。
+  //   `text/plain` 简单请求 ⇒ 无预检；wallId 必须受限字符集（拼路径前再校验一次）。
+  if (p === '/api/web-store') {
+    if (req.method === 'POST') {
+      const body = await readJsonBody(req, WEB_STORE_LIMITS.bodyBytes)
+      const wallId = normalizeWallId(body.wallId)
+      if (!wallId) throw bad('wallId 不合法（只接受 6..32 位字母数字）')
+      const prev = readWebStore(wallId)
+      const merged = mergeStore(prev, body.data)
+      const entries = listWebStore()
+      const victims = evictPlan(entries, wallId)
+      fs.mkdirSync(WEB_STORE_DIR, { recursive: true })
+      const file = storePath(WEB_STORE_DIR, wallId)
+      fs.writeFileSync(file, JSON.stringify({ wallId, at: Date.now(), data: merged.data }), 'utf8')
+      for (const id of victims) { try { fs.unlinkSync(storePath(WEB_STORE_DIR, id)) } catch { /* 已被删/权限 */ } }
+      return jsonOk(res, { ok: true, wallId, keys: Object.keys(merged.data).length, dropped: merged.dropped, truncated: merged.truncated, evicted: victims })
+    }
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      const wallId = normalizeWallId(q.get('wallId') || '')
+      if (!wallId) return jsonOk(res, { ok: true, walls: listWebStore().length, ids: listWebStore().map((e) => e.id) })
+      return jsonOk(res, { ok: true, wallId, data: readWebStore(wallId) })
+    }
+    throw bad('只支持 GET/POST /api/web-store')
+  }
+
   // ③ GET/POST /api/props —— 读属性表 / 保存覆盖（覆盖落在 reports，**不写进壁纸包**）
   if (p === '/api/props') {
     const item = assertItemId(q.get('item') || '')
@@ -2253,6 +2313,9 @@ const server = http.createServer((req, res) => {
         const segs = p.slice(prefix.length).split('/')
         const rawItem = segs.shift() || ''
         const item = assertItemId(decodeURIComponent(rawItem))
+        /* ⑥ /web/dev/ 的 **HTML** 走"注入 shim"那条（同源入口必须原始 URL + 服务端注入，见 docs §3.1/§3.6）；
+           其余（图片/字体/脚本/媒体）与 /media/dev/ 逐字节同路。 */
+        if (prefix === '/web/dev/') return webMediaServe(req, res, item, segs, url)
         return mediaServe(req, res, item, segs, prefix)
       })
     }
@@ -2281,6 +2344,68 @@ const server = http.createServer((req, res) => {
     return undefined
   })
 })
+/** shim 源只生成一次（字符串常量；每个 HTML 响应共享，不做无谓重复构建）。 */
+const WEB_SHIM_SOURCE = buildWebShimSource()
+/** web 帧首帧种子：作者属性默认值（+ reports 里的覆盖）+ 该壁纸的存储快照（不透明源 facade 回灌用）。 */
+function webSeedFor(item, dir, rel) {
+  const raw = (() => { try { const p = readProjectJson(dir); return (p && p.general && p.general.properties) || null } catch { return null } })()
+  const ov = readOverrides(item)
+  const props = {}
+  if (raw && typeof raw === 'object') {
+    for (const [k, d] of Object.entries(raw)) {
+      if (typeof k !== 'string' || !PROP_NAME_RE.test(k)) continue
+      const def = (d && typeof d === 'object' && Object.prototype.hasOwnProperty.call(d, 'value')) ? d.value : null
+      props[k] = { value: Object.prototype.hasOwnProperty.call(ov, k) ? ov[k] : def }
+    }
+  }
+  const wallId = webWallIdFor(item, rel)
+  return { op: 'props', props, store: { wallId, data: readWebStore(wallId) } }
+}
+/**
+ * `/web/dev/<itemId>/<rel>`：与 `mediaServe` 同一套路径校验，差别只有一条 ——
+ * **HTML 响应会注入 WE API shim**（不透明源 CORS 也在这里给）。
+ * 纪律：`?mpwshim=0`、非 HTML、HEAD、超过 8MB、命中阻塞性 CSP ⇒ **逐字节原样**（只在响应头留痕）。
+ */
+function webMediaServe(req, res, item, segs, url) {
+  const dir = itemDirReal(item)
+  const st0 = statSafe(dir)
+  if (!st0 || !st0.isDirectory()) throw notFound(`壁纸不存在：${item}`)
+  const real0 = realpathDeepest(dir)
+  if (!isInside(activeRoot, real0)) throw forbidden(`条目经符号链接越出库根：${item}`)
+  const rel = segs.join('/')
+  if (!rel) throw notFound(`缺少文件路径：/web/dev/${item}/`)
+  const file = safeJoin(dir, rel, '文件路径')
+  const fst = statSafe(file)
+  if (!fst || !fst.isFile()) throw notFound(`文件不存在：/web/dev/${item}/${rel}`)
+  const freal = realpathDeepest(file)
+  if (!isInside(activeRoot, freal)) throw forbidden(`文件经符号链接越出库根：${rel}`)
+  const cors = opaqueCorsHeaders(req.headers.origin)
+  const htmlish = /\.(html?|xhtml)$/i.test(rel)
+  const off = url && url.searchParams.get('mpwshim') === '0'
+  if (!htmlish || off || req.method === 'HEAD') {
+    return sendFile(req, res, file, { headers: Object.assign({ 'X-Mpw-Shim': off ? 'off-by-query' : 'not-html' }, cors) })
+  }
+  let out
+  try {
+    const html = fs.readFileSync(file, 'utf8')
+    out = injectWebShim(html, { shimSource: WEB_SHIM_SOURCE, seed: webSeedFor(item, dir, rel) })
+  } catch (e) {
+    /* 读/注入失败只 warn 不 500（原样发文件，别把壁纸弄成打不开） */
+    try { process.stderr.write('[web-shim] 注入失败 ' + item + '/' + rel + '：' + (e && e.message) + '\n') } catch { /* ignore */ }
+    return sendFile(req, res, file, { headers: Object.assign({ 'X-Mpw-Shim': 'error' }, cors) })
+  }
+  const headers = Object.assign({
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': NO_STORE,
+    'X-Bench-Server': 'we-scene-demo-8902',
+    'X-Mpw-Shim': out.injected ? 'injected' : ('skipped:' + out.reason),
+  }, cors)
+  if (!out.injected) return sendFile(req, res, file, { headers })
+  res.writeHead(200, Object.assign({ 'Content-Length': String(Buffer.byteLength(out.html)) }, headers))
+  res.end(out.html)
+  return true
+}
+
 /** `/media/dev/<itemId>/<rel>`：库根内只读 + Range。 */
 function mediaServe(req, res, item, segs, prefix) {
   const dir = itemDirReal(item)
@@ -2295,7 +2420,8 @@ function mediaServe(req, res, item, segs, prefix) {
   if (!fst || !fst.isFile()) throw notFound(`文件不存在：${prefix}${item}/${rel}`)
   const freal = realpathDeepest(file)
   if (!isInside(activeRoot, freal)) throw forbidden(`文件经符号链接越出库根：${rel}`)
-  if (!sendFile(req, res, file)) throw notFound(`文件不可读：${rel}`)
+  /* ⑥ 不透明源（sandbox 帧）要能用 fetch 取资源：**恰好** `Origin: null` 才给 CORS 头。 */
+  if (!sendFile(req, res, file, { headers: opaqueCorsHeaders(req.headers.origin) })) throw notFound(`文件不可读：${rel}`)
   return undefined
 }
 
