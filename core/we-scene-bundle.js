@@ -7012,7 +7012,14 @@ export function resolveLiveCanvasSize(input) {
   const dev = Math.max(1, Number(v.deviceDpr) || 1)
   const capRaw = Number(v.dprCap)
   const hasCap = Number.isFinite(capRaw) && capRaw >= 1
-  const dpr = Math.min(dev, hasCap ? capRaw : Infinity)
+  /* ①(2026-09-22) **显式乘数** `dprWanted`（来自 `?res=dpr1..dpr5` 或宿主 `setRenderDpr(N)`）：
+     它是"我要按 N 倍出图"（超采样），**不是上限** —— 在 1× 屏上选 2 也必须真的变 2×。
+     真机复现（修前）：无头/1× 屏上 `dpr = min(deviceDpr=1, cap=2) = 1` ⇒ 切 DPR 画布一点不变
+     （用户报的"DPR 1→2 无法显示"）。缺省档（不带 N）行为**逐位不变**：`min(设备 DPR, 上限)`。
+     安全上限仍由 `LIVE_CANVAS_LIMITS`（单边 ≤4096 / 总像素 ≤3840×2160）在下面兜住。 */
+  const wantRaw = Number(v.dprWanted)
+  const hasWant = Number.isFinite(wantRaw) && wantRaw >= 1
+  const dpr = hasWant ? wantRaw : Math.min(dev, hasCap ? capRaw : Infinity)
   let w = cssW * dpr, h = cssH * dpr, capped = 'ok'
   const shrink = (k, why) => { if (k < 1) { w *= k; h *= k; capped = why } }
   if (w > lim.maxDim || h > lim.maxDim) shrink(Math.min(lim.maxDim / w, lim.maxDim / h), 'dim-cap')

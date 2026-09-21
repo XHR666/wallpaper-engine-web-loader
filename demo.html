@@ -1625,6 +1625,8 @@ async function bootInstance(inst) {
         try {
           if (!__resTier.live) { note('setRenderDpr', '⚠ 当前 `?res=' + (__resTier.requested || '(默认)') + '` 是固定档位 ⇒ 运行期改 DPR 无效（请用 `?res=dpr` 或重挂载）'); return false }
           __resTier.liveDprCap = (Number.isFinite(v) && v >= 1) ? Math.min(5, Math.round(v)) : null
+          /* ①(2026-09-22) 宿主显式设的档位 = **乘数**（不只是上限）：1× 屏上选 2 也要真的 2× */
+          __resTier.liveDprWanted = (Number.isFinite(v) && v >= 1) ? Math.min(5, Math.round(v)) : null
           note('setRenderDpr', '活档位 DPR 上限 = ' + (__resTier.liveDprCap == null ? '设备 DPR（无上限）' : __resTier.liveDprCap) + ' ⇒ 立即重算画布')
           if (typeof inst.liveResApply === 'function') inst.liveResApply('host-dpr')
           return true
@@ -5548,6 +5550,9 @@ function loadScene() {
   //   超限必走 2D canvas）——回归基线，见 video-quality-test.mjs。
   //   渲染器侧用**同一个** lib.parseResTier 解析**同一个** ?res= 作为视频纹理上传上限 ⇒ 同源同值。
   const __resTier = lib.parseResTier(new URLSearchParams(location.search).get('res'));
+  /* ①(2026-09-22) `?res=dprN` 里的 N = **显式乘数**（见 `resolveLiveCanvasSize` 的说明）：
+     在 1× 屏上它也要真的放大到 N 倍（"我要按 N 倍出图"），而**不是**只当上限。 */
+  __resTier.liveDprWanted = (() => { const m = /^dpr([1-5])$/.exec(String(__resTier.requested || '')); return m ? Number(m[1]) : null })();
   cv.width = __resTier.width; cv.height = __resTier.height;
   try { window.__mpwResTier = __resTier } catch (e) {}
   // ①(P-77 一页多实例预算，设计文档 §3)：maxinst ≥ 3 ⇒ 画布自动降到 720p，并在状态条标"已降档"。
@@ -5580,11 +5585,31 @@ function loadScene() {
     let liveUpdates = 0
     const applyLiveNow = (why) => {
       liveTimer = null
+      /* ①(2026-09-22) **画布可能还没建**（测试台按 `?id=` 晚挂载时就是这样）：旧写法直接读
+         `cv.clientWidth` ⇒ 抛错把整块（含状态发布）都吞掉，于是 `window.__mpwLiveRes` 永远不存在。
+         这里改成"先如实写一条 `no-canvas` 状态、等补跑"，不是静默失败。 */
+      if (!cv) { publishLive(null, 'no-canvas'); return null }
       const size = lib.resolveLiveCanvasSize({
         cssW: cv.clientWidth, cssH: cv.clientHeight,
         deviceDpr: (typeof devicePixelRatio === 'number' ? devicePixelRatio : 1),
         dprCap: __resTier.liveDprCap,
+        dprWanted: __resTier.liveDprWanted,
       })
+      /* ①(2026-09-22) 先把状态写出去**再**判"尺寸没变"：否则初次应用（画布已在 URL 档位里定好尺寸）
+         会走提前 return ⇒ `window.__mpwLiveRes` **永远不存在**（测试台/宿主读不到活档位状态；
+         本轮真机取证就是被这条挡住的）。 */
+      const publishLive = (sz, why2) => {
+        if (!MPW_WRITE_GLOBALS) return
+        try { window.__mpwResTier = __resTier } catch (e) {}
+        try {
+          window.__mpwLiveRes = sz ? {
+            cssW: sz.cssW, cssH: sz.cssH, dpr: sz.dpr, dprCap: sz.dprCap,
+            dprWanted: sz.dprWanted === undefined ? null : sz.dprWanted,
+            width: sz.width, height: sz.height, capped: sz.capped, updates: liveUpdates, why: why2,
+          } : { cssW: 0, cssH: 0, dpr: null, width: 0, height: 0, capped: 'no-canvas', updates: liveUpdates, why: why2 }
+        } catch (e) {}
+      }
+      publishLive(size, why)
       if (size.width === cv.width && size.height === cv.height) return size
       const from = cv.width + 'x' + cv.height
       cv.width = size.width; cv.height = size.height
@@ -5611,7 +5636,10 @@ function loadScene() {
       liveTimer = setTimeout(() => applyLiveNow(why), LIVE_DEBOUNCE_MS)
     }
     let liveRo = null
-    try { if (typeof ResizeObserver === 'function') { liveRo = new ResizeObserver(() => scheduleLive('resize')); liveRo.observe(cv) } } catch (e) { liveRo = null }
+    try { if (typeof ResizeObserver === 'function' && cv) { liveRo = new ResizeObserver(() => scheduleLive('resize')); liveRo.observe(cv) } } catch (e) { liveRo = null }
+    /* ①(2026-09-22) 画布晚到（嵌入路径）时补跑：一次 1.2s、一次 3.5s（画布建好后 observer 自己也会触发，
+       这里只是保证"没有 observer 也能自愈"，不引入常驻定时器）。 */
+    if (!cv) { try { setTimeout(() => applyLiveNow('canvas-late-1'), 1200); setTimeout(() => applyLiveNow('canvas-late-2'), 3500) } catch (e) {} }
     const onLiveWinResize = () => scheduleLive('window-resize')
     window.addEventListener('resize', onLiveWinResize)
     // DPR 变化（拖到另一块屏 / 浏览器缩放 / 全屏）不会触发 resize 事件 ⇒ 用一条 `(resolution: N dppx)`
