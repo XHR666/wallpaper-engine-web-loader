@@ -52,6 +52,11 @@ add "visual-diff-kal"    "node tests/visual-diff-kal.mjs"   # P-79：包一层"�
 #   被 timeout 判 rc=124 → 假红。包装器只在**见到显式成功标记**时按成功收尾并打印 ⚠，未见标记一律如实上报子进程 rc。
 add "script-origin-sync" "node tests/script-origin-sync-test.mjs"
 add "text-script-props"  "node tests/text-script-props-test.mjs"
+# ①(2026-09-22) `tex-container-variant`：`.tex` 容器魔数**两种版式** —— 语料 231 张里有 30 张（全在
+#   `materials/lut/`，flags=0x42）在 TEXI 头之后多一个 u32 ⇒ TEXB 在偏移 **50** 而不是 46；旧实现按固定
+#   偏移读 ⇒ 那 30 张必然抛错（LUT 拿不到贴图）。判据：合成夹具（正常版式插入 4 字节）两版式**同摘要**、
+#   语料全量 0 失败、解析决定性、坏魔数仍按原口径报错、以及"改回固定偏移必红"的源码级分辨力。11 断言，~1s。
+add "tex-container-variant" "node tests/tex-container-variant-test.mjs"
 add "script-owner-live"  "node tests/script-owner-live-test.mjs"  # P-60：脚本宿主 thisLayer/thisObject 错绑回归（首属性捕获"编译那一刻"的 ref.current = 上一个脚本节点的层；真机 3554161528 时钟层 id398 origin 被 id1592 改写 2833,1379；11 断言；~0.5s）
 add "script-api-corpus"  "node tests/script-corpus-audit.mjs --strict"
 add "media-host"         "node tests/media-host-test.mjs" "" "^SKIP media-host"  # P-62：媒体集成 + 音频响应宿主（官方 5 个 media*Changed 回调 / registerAudioBuffers 同一对象原地更新 / 封面 URL+字节两形态 / 歌词 LRC 解析+二分 / dispatchScriptEvent 多条目广播且 thisLayer 不串层＝P-60 防回归；真包 3554161528+3544152633+3660962877；109 断言；~0.9s）。①(P-87) 真包只从本机语料取（仓库内 samples/wallpapers 已因版权整体移除）⇒ 缺语料时**整体 SKIP**，门禁不红

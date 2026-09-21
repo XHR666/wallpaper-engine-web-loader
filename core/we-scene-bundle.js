@@ -457,6 +457,23 @@ export const TEXTURE_FORMATS = {
 
 export const FIF = { UNKNOWN: -1, JPEG: 2, PNG: 13, GIF: 25, WEBP: 35, MP4: 35 }
 
+/** ①(2026-09-22) 在头部**有界搜索** `TEXB000x\0` 魔数（不再假定固定偏移）。
+ *  为什么要搜索：语料实测 231 张 .tex 里有 **30 张**（全部 `lut/`，`flags=0x42`）在 TEXI 头之后
+ *  **多一个 u32** ⇒ TEXB 在偏移 **50** 而不是 46。旧实现按固定偏移读 ⇒ 这 30 张**必然抛错**
+ *  （LUT 整条效果链拿不到贴图）。format/flags 的位置两种版式一致（18/22），所以只需要把"剩下几个
+ *  字段"与魔数之间的距离变成**可搜索**的。有界（默认 40 字节）= 不误命中像素数据里的偶然字节序列。
+ *  @returns {number} TEXB 魔数起始偏移；找不到返回 -1（调用方保持原有的报错口径）。 */
+function findTexbMagic(buf, from, limit = 40) {
+  const end = Math.min(buf.length - 9, from + limit)
+  for (let i = Math.max(0, from); i <= end; i++) {
+    if (buf[i] !== 0x54 || buf[i + 1] !== 0x45 || buf[i + 2] !== 0x58 || buf[i + 3] !== 0x42) continue  // TEXB
+    if (buf[i + 4] !== 0x30 || buf[i + 5] !== 0x30 || buf[i + 6] !== 0x30) continue                  // 000
+    if (buf[i + 7] < 0x31 || buf[i + 7] > 0x38) continue                                             // 1..8
+    if (buf[i + 8] !== 0x00) continue                                                                // NUL
+    return i
+  }
+  return -1
+}
 export function parseTex(buf) {
   let p = 0
   const magic1 = asciiTex(buf, p, 9)
@@ -480,6 +497,10 @@ export function parseTex(buf) {
   p += 4
   p += 4 // ignored（实测 0xFF000000，编辑器用途）
 
+  /* ①(2026-09-22) 容器魔数**搜索定位**（两种版式：TEXB 在 46 或 50）。找不到就保持原有报错文案。 */
+  const texbAt = findTexbMagic(buf, p)
+  if (texbAt < 0) throw new Error('未知 TEXB 容器: ' + asciiTex(buf, p, 9))
+  p = texbAt
   const containerMagic = asciiTex(buf, p, 9)
   p += 9
   const imageCount = u32(buf, p)
