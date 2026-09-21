@@ -377,9 +377,13 @@ console.log('== I 标签关闭 / 幂等 / 指针转发 / 调试模式（P-164）
   ok(/#editor-tabs \.tab\{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/.test(cssHtml) &&
     /\.wp-tab \.wp-name\{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/.test(cssHtml),
     'I26 ① 标签标题用 CSS 省略号（`max-width` + `text-overflow:ellipsis`）：名字再长也不把 × 顶远')
+  /* ①(2026-09-22 用户第 20 条) **契约更新**：当前那一格的 `×` 过去被拉成整条（`align-self:stretch;height:auto;
+     border-radius:0`），用户看到"第一个壁纸的叉号是长条、后面的是方框" ⇒ 现在要求与 `.wp-x` **同形**
+     （22×22、圆角 4），且**旧写法一旦回来就红**（不是放宽，是换契约 + 反向钉住）。 */
   ok(cssItems.includes('.wp-x{flex:none;width:22px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:4px;background:transparent;color:var(--fg-dim);font-size:14px;line-height:1;cursor:pointer}') &&
-    cssItems.includes('.wp-x-cur{align-self:stretch;height:auto;min-height:32px;border-right:1px solid var(--border);border-radius:0;background:var(--editor)}'),
-    'I27 ① `×` 按钮样式在（标签内 `.wp-x` + 当前格兄弟 `.wp-x-cur`），静态表与 SITE_LAYOUT_CSS 同文')
+    cssItems.includes('.wp-x-cur{align-self:center;height:22px;min-height:22px;border-radius:4px}') &&
+    !cssItems.some((r) => /^\.wp-x-cur\{/.test(r) && /align-self:stretch|height:auto/.test(r)),
+    'I27 ① `×` 按钮样式在（标签内 `.wp-x` + 当前格兄弟 `.wp-x-cur`），**当前格的 × 与其它同形**（不再是整条；旧契约 align-self:stretch/height:auto 出现即红），静态表与 SITE_LAYOUT_CSS 同文')
   ok(/#logs\[data-view="debug"\] #debug-body\{display:flex/.test(cssHtml) && /#debug-body\{display:none\}/.test(cssHtml),
     'I28 ② 调试视图的显隐样式在（`#logs[data-view=debug]` 打开、默认关）')
   ok(/\.dbg-actions\{display:flex/.test(cssHtml) && /\.dbg-layer\{/.test(cssHtml) && /\.dbg-log\{/.test(cssHtml),

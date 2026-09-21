@@ -62,6 +62,22 @@ ok('12f `themePlan` 与实际生效 theme 自洽（light ⇒ data-theme=light）
 ok('12g 点击循环仍是两态（light ⇄ dark），没有被改成三态',
   nextThemeMode('light') === 'dark' && nextThemeMode('dark') === 'light')
 
+console.log('\n== 26 配置按钮"选中"必须=真的展开且有内容 ==')
+ok('26a 按下态由"未收起 **且** 属性表真有行"决定（旧写法只看收起与否 ⇒ 新加载壁纸时亮蓝底却是空的）',
+  /let hasRows = false/.test(PATCH) && /c\.dataset && c\.dataset\.benchPropsEmpty/.test(PATCH) && /const on = !want && hasRows/.test(PATCH))
+ok('26b 我们插的空态带 `data-bench-props-empty` 标记（不给空态也算"有行"）',
+  /benchPropsEmpty/.test(PATCH))
+ok('26c `aria-pressed` 与 `checked` 都由这同一个 `on` 写（两处不许各判一套）',
+  /propsToggleBtn\.classList\.toggle\('checked', on\)/.test(PATCH) && /propsToggleBtn\.setAttribute\('aria-pressed', on \? 'true' : 'false'\)/.test(PATCH))
+
+console.log('\n== 27 页签全叉光 ⇒ 属性面板必须清空 ==')
+ok('27a `closeWallpaperTab` 里判"一个都不剩"（没打开项且没有当前项）',
+  /const noneLeft = !\(Array\.isArray\(pinned\) && pinned\.length\) && !curId/.test(PATCH))
+ok('27b 走到那条分支时真的清空 + 回到空态（`clearPropsBody()` + `paintPropsEmpty()`）',
+  /if \(noneLeft\) \{ clearPropsBody\(\); paintPropsEmpty\(\) \}/.test(PATCH))
+ok('27c 清空发生在落盘之后（用的是刚写回的 `pinned`/`curId`，不是旧的）',
+  PATCH.indexOf('writePinned(plan.pinned)') < PATCH.indexOf('const noneLeft ='))
+
 console.log('\n== D 分辨力自证：把三处改回旧写法必红 ==')
 ok('D1 旧写法（`setTypeFilter`）一旦回到代码里，25b 立刻红 —— 这里证明该判据确实在扫"代码"（注释不算）',
   /setTypeFilter/.test(stripComments('switchToWallpaper(): setTypeFilter(kind)')) && !/setTypeFilter/.test(PATCH)

@@ -3557,6 +3557,12 @@ export function initSiteShell(ctx = {}) {
     const wasCurrent = plan.wasCurrent
     const fallback = plan.fallback
     writePinned(plan.pinned)              // 决策走纯函数（可单测），落盘/重画在这里
+    /* ①(2026-09-22 用户第 27 条) **全叉光之后配置面板必须清空**：旧写法只在"切档/未选中"时清，
+       于是把所有页签都关掉后面板仍留着上一张壁纸的属性表（看起来像"还在配置它"）。 */
+    try {
+      const noneLeft = !(Array.isArray(pinned) && pinned.length) && !curId
+      if (noneLeft) { clearPropsBody(); paintPropsEmpty() }
+    } catch (e) {}
     switcherSig = null
     if (wasCurrent) {
       if (fallback) {
@@ -4600,8 +4606,13 @@ export function initSiteShell(ctx = {}) {
     try { propsEl.classList.toggle('bench-props-collapsed', want) } catch {}
     try { if (want) propsEl.setAttribute('data-bench-props', 'collapsed'); else propsEl.removeAttribute('data-bench-props') } catch {}
     if (propsToggleBtn) {
-      try { propsToggleBtn.classList.toggle('checked', !want) } catch {}
-      try { propsToggleBtn.setAttribute('aria-pressed', want ? 'false' : 'true') } catch {}
+      /* ①(2026-09-22 用户第 26 条) "选中态"必须等于**真的展开且有内容**：新加载一张壁纸时按钮会亮蓝底
+         但面板是空的（旧写法只看 `want`）。判据 = 未收起 **且** 属性表里真有行（我们插的空态不算行）。 */
+      let hasRows = false
+      try { hasRows = !!(propsBody && [...propsBody.children].some((c) => !(c.dataset && c.dataset.benchPropsEmpty))) } catch {}
+      const on = !want && hasRows
+      try { propsToggleBtn.classList.toggle('checked', on) } catch {}
+      try { propsToggleBtn.setAttribute('aria-pressed', on ? 'true' : 'false') } catch {}
     }
     try { const ws = q('#workspace'); if (ws) ws.classList.remove('props-open') } catch {}
     //  ①(本轮 #23) `hidden` 是**产物眼里的收起标志**（视觉收起走我们自己的类）：可见时必须为 false，
@@ -5972,7 +5983,9 @@ export function init() {
     '.wp-tab .wp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.wp-x{flex:none;width:22px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:4px;background:transparent;color:var(--fg-dim);font-size:14px;line-height:1;cursor:pointer}',
     '.wp-x:hover{background:var(--accent,#0078d4);color:#fff}',
-    '.wp-x-cur{align-self:stretch;height:auto;min-height:32px;border-right:1px solid var(--border);border-radius:0;background:var(--editor)}',
+    /* ①(2026-09-22 用户第 20 条) **当前那张**的 `×` 曾被拉成整条（`align-self:stretch;height:auto;border-radius:0`）
+       —— 用户看到的就是"第一个壁纸的叉号是长条、后面的是方框"。现在与其它 `×` **同形**（22×22、圆角 4）。 */
+    '.wp-x-cur{align-self:center;height:22px;min-height:22px;border-radius:4px}',
     '.wp-x-cur:hover{background:var(--accent,#0078d4);color:#fff}',
     '#debug-body{display:none}',
     '#logs[data-view="debug"] #debug-body{display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto}',
