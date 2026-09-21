@@ -597,6 +597,12 @@ add "bench-bandfeed-switch" "node tests/bench-bandfeed-switch-test.mjs"
 #   12 一进页面就是深色（主题规范化：**没存过 ⇒ light**、显式照办、历史 'auto' 仍按系统迁移）。
 #   17 断言（含纯函数口径与三条分辨力自证），~0.1s，无浏览器。
 add "bench-dropdown-theme" "node tests/bench-dropdown-theme-test.mjs"
+# ①(2026-09-22 第 13/14 条) `bench-dbg-dpr-probe`：**调试逐层隔离**与 **DPR 切换**的真机自上报判据 ——
+#   进调试（先切 `#tab-debug` 再点 `#dbg-mode`）后栏里有层号；**按右方向键隔离层真的换了一个**
+#   （实测 `from:0 → to:2` 且始终恰好一层可见）、退出后全层恢复；DPR 改档 + 重挂载后画布像素真的跟着变、
+#   iframe 不白屏、且可逆。纯判据 `--selftest` 5 条常驻（`--live` 那半需要 :8902，缺 playwright 如实 SKIP）。
+#   ⚠ 断言口径已按实测校准：**进调试只显示层信息、隔离在步进时应用**（不是"一进就隔离"）。
+add "bench-dbg-dpr-probe" "node tests/bench-dbg-dpr-probe.mjs --selftest"
 # ①(2026-09-22 用户第 5/6/7 条) `bench-props-text`：属性面板富文本三条 —— 图片按**解析后 URL** 去重
 #   （同一张只画一遍）、`&nbsp;` 收口（**双重编码** `&amp;nbsp;` + **无分号** `&nbsp`；后面紧跟字母数字时
 #   **不猜**；其它实体不过度解码）、文案里的 `BVxxxxxxxxxx` 转 `https://b23.tv/<BV>` 并**走既有 link 白名单通道**。
