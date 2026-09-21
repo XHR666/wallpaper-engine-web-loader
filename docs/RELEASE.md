@@ -207,3 +207,29 @@ SKIP 的那一项是 `scene-layer-baseline` 里**本机没有语料**时的显�
 2. 逐层基线夹具里的语料包在**本机没有语料**时明确 SKIP（不假装通过）；夹具是"当前形态"的快照，
    任何有意的渲染变化都要 `--update` 并复核（改数前先确认变化是有意的）。
 3. `?audioart=hide` 只影响本插件/本仓的渲染配置，不改作者包里的 `visible` 数据。
+
+## 发布记录：0.4.0（2026-09-22 · 测试台预览接本仓渲染器 + 画布 DPR 活档位 + 官方 ITextureAnimation + 上游三项 P0）
+
+**为什么是 minor**：① 测试台预览的**默认渲染器换了**（从"上游产物页"改为**本仓渲染器**，`/webloader/**` 同源反代）
+——这是用户可见的行为变化，也是"一个渲染器表面"的整合第一步；② 新增 `?res=dpr` 画布活档位（显示尺寸 × 设备 DPR）；
+③ 新增官方 `ITextureAnimation` 面（`rate` 可写 / `frameCount` / `duration` / `rate=0` 冻结）；
+④ 上游三项 P0 修复（转译器更新、脚本单帧 dt 封顶、`.tex` 容器变体）。按 semver「加功能 = minor」取 **0.4.0**。
+
+| 面 | 内容 | 判据读数 |
+| --- | --- | --- |
+| **预览默认 = 本仓渲染器**（P-171） | `demo/index.html` 的 `#renderer-src` 缺省 `repo` + 状态行；`repo` 档 = `/webloader/` 同源反代并**保留原 query 一个不丢**（补 `id=`/`res=dpr`，不覆盖已有 `res=`），换档沿用产物自己的「重挂载」；`upstream` 档仍可切回（对照/排障） | 真机同包同面板：**上游 529×297 @DPR1 `alpha:false`** vs **本仓 1056×594 @DPR2 `alpha:true`**（用户报的"所有 scene 都糊"= 上游按 CSS 像素出图）；`bench-renderer-source` **36/0**（含真机读数）；两档可逆 |
+| **`.tex` 容器变体** | `findTexbMagic()` 有界搜索容器魔数（不再假定偏移 46）：语料 231 张里 **30 张**（全部 `materials/lut/`，`flags=0x42`）TEXB 在偏移 **50**，旧写法**必然抛错** | 本机语料 **231/231 解析成功**（修前 201/231）；`tex-container-variant` **11/0**（两版式同摘要 + 全量 0 失败 + 坏魔数原口径报错 + 分辨力自证） |
+| **脚本单帧 dt 封顶**（上游 9e287ea） | `mpwCapScriptDt()`：封顶 0.05s（20fps 下限），**正常帧逐位透传**、**首帧 0 原样保留**、坏值退回 1/60（与既有守卫同口径）；两个真实喂入点（`engine.frametime` 与 `runSceneScripts`）都接上，且封顶在**乘倍率之前** | `script-frametime-cap` **13/0**（含"把封顶去掉必红"的分辨力自证） |
+| **转译器更新到上游 origin/main**（d6dd5bc） | `vendor/hlsl2glsl/` 两个 MIT 文件：1401→**1658** 行 / 423→**418** 行（与上游逐字节一致；替换前核对旧版与 `fdfc578` diff 为 0 ⇒ 没有本地补丁）；`THIRD-PARTY.md` §9 与 `vendor/hlsl2glsl/README.md` 的 blob/字节/行数/sha256 逐项同步 | `hlsl2glsl-coverage-test` **46/46 = 100.0%**（修前 45/46，文档基线 98.2%）——"作者手写 GLSL 编译失败 ⇒ 效果链静默跳过"少一条实例 |
+| **画布活档位 + 宿主契约 + 纹理动画面** | core 的 `?res=dpr|dpr1..dpr5` + `resolveLiveCanvasSize`（显示尺寸 × 设备 DPR，上限 4096/8.29MP）+ `demo.html` 的 MPW-LIVERES（ResizeObserver + `(resolution: Ndppx)` + 120ms 防抖，`window.__mpwLiveRes`）；`window.__wp` 早发布并补齐公开面（7 个明确降级的能力在 caps 位/诊断/状态行列名）；`elysia/scene-scripts.js` 补齐官方 `ITextureAnimation` | `bench-renderer-source` 36/0、`scene-texanim` **19/0**、`bench-ui-headless` **151/0**（默认档：调试逐层/截图/立即上报/诊断页签/指针注入/音条源/属性面板全在） |
+| **门禁** | 新增 `bench-renderer-source`(36)、`scene-texanim`(19)、`script-frametime-cap`(13)、`tex-container-variant`(11)；`bench-bandfeed-switch` 的切片锚点随代码移动同步 | 全量 **PASS=123 FAIL=0 SKIP=2 / 总 125 项**（0.4.0 前）→ 本次再 +2 项 = **127** |
+
+**诚实清单**
+1. **本仓渲染器仍缺"内容包围盒 cover 填充"**（既有差异，非本版引入）：同包同分辨率下产物把 content `4249×3076`
+   铺满 view `3840×2160`（≈1.42×），本仓没有 ⇒ 画面偏小右移、左侧露灰带。**这是同一张壁纸在 `:8899` 与 `:8902` 观感不同的原因**，下一批修。
+2. **web 类壁纸本仓渲染器仍不支持**（`demo.html` 里 `/web/` 零命中）⇒ 测试台那两组 web 断言现**显式切上游档**当夹具，
+   并新增 R 组把边界钉成判据（默认=repo / 能切回上游 / 本仓档对 web 如实降级）。
+3. 上游产物**文件不能删**（产物 JS 里 3 处写死路径、Pages 产物映射、`sw.js` 预缓存、P-160 从它源码抽 44.8KB shim、
+   以及多个门禁拿它当判据）；**但页面不再默认加载它**。
+4. `#open`「新窗口」按钮仍开产物页（`demo-check` D12 钉住这条链不许绕开）。
+5. 迟到补播那类"卡顿后过冲"修的是**单帧 dt 封顶**；第三方调度器的队列我们**只检测报告**，不替它清（bfcache 恢复的分布判定留在报告里）。

@@ -57,7 +57,7 @@ npm pack --dry-run                 # ③ 分发自证：文件清单 + 体积（
 | 字段 | 值 | 说明 |
 |---|---|---|
 | `name` | `wallpaper-engine-web-loader` | 由建仓线拍板；本机实测 **npm 上未被占用** |
-| `version` | `0.3.0` | 与 `core/we-scene.mjs` 的 `VERSION` **必须一致**（`mount-test.mjs` 断言）；发布流程见 `docs/RELEASE.md` |
+| `version` | `0.4.0` | 与 `core/we-scene.mjs` 的 `VERSION` **必须一致**（`mount-test.mjs` 断言）；发布流程见 `docs/RELEASE.md` |
 | `license` | `GPL-3.0-or-later` | 与 `LICENSE` 一致 ⇒ `docs/COPYING-RULES.md` §8 ① 的机器闸门 |
 | `type` | `module` | 仓库内所有 JS 模块都是 ESM（无 CJS，`packaging-test.mjs` 会扫） |
 | `private` | `true` | **发布锁**：本机 npm 未登录前不允许 `npm publish`；发布由建仓线在登录后删除这一行 |
