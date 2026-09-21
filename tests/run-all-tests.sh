@@ -662,6 +662,9 @@ for i in "${!NAMES[@]}"; do
     fi
     RESULTS+=("FAIL"); FAIL=$((FAIL+1)); FAILNAMES+=("$name")
     echo "== FAIL $name (rc=$rc)" >> "$LASTLOG"; tail -20 "$ITEMLOG" >> "$LASTLOG"
+    # ①(2026-09-21) 失败项留**完整**输出到本次运行目录：只留 tail -20 时，失败断言若不在末尾
+    #   （例如 T 组在 P/G/N 组之前）就会被裁掉，事后只能猜"哪一条红的"（本轮实测踩到）。
+    cp -f "$ITEMLOG" "$RUNTMP/fail-$name.log" 2>/dev/null || true
   fi
   rm -f "$ITEMLOG"
 done
@@ -672,7 +675,7 @@ cp -f "$LASTLOG" "$LASTLOG_RUN" 2>/dev/null || true
 echo "（本次运行产物：$RUNTMP ；日志副本：$LASTLOG_RUN）"
 if [ "$FAIL" -gt 0 ]; then
   echo "失败项（最后 20 行见 $LASTLOG）："
-  for n in "${FAILNAMES[@]}"; do echo "  ✗ $n"; done
+  for n in "${FAILNAMES[@]}"; do echo "  ✗ $n（完整输出：$RUNTMP/fail-$n.log）"; done
 fi
 if [ "$JSON" = 1 ]; then
   printf '{"pass":%d,"fail":%d,"skip":%d,"results":[' "$PASS" "$FAIL" "$SKIP"
