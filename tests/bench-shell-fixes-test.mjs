@@ -258,26 +258,35 @@ console.log('== G 播放卡片受控快照（P-161） ==')
   ok(P.npSnapshotPlan({ media: { hasVideo: true, total: 0, progress: 5 }, item: {}, link: true }).canSeek === false,
     'G7 有媒体但总长未知（流式/未加载元数据）⇒ canSeek=false（不给"拖了没反应"的假控件）')
 
-  /* ── G13/G14/G15 第 8② 条：时间轴可证实性（实测 3326873240：帧里 5 个 loop 视频层**全 muted**，
-        进度条却拿其中一个 19.98s 的时间轴当"当前播放" ⇒ 每 20 秒绕一圈，而用户听到的音频并没循环） ── */
-  const allMuted = P.npSnapshotPlan({
+  /* ── G13/G14/G15 第 8② 条：时间轴可证实性 ────────────────────────────────────────────────────
+     ⚠ 判据**只认"有没有总长 > 0 的时间轴"**，不认静音：本轮先写过更严的"必须不静音"，被
+     `bench-ui-headless` T1/T4 两条真机断言否掉（web 壁纸的视频层常常 muted，但那条时间轴是真的；
+     而且按静音筛会让卡片指向 `<audio>`、传输条仍走 `activeVideo()` ⇒ 两处口径分叉）。 */
+  const mutedTimeline = P.npSnapshotPlan({
     media: { hasVideo: true, count: 5, total: 19.98, progress: 3, hasTimelineElement: true, audible: false },
     item: { kind: 'scene', title: '夜莺Night' }, link: true,
   })
-  ok(allMuted.timelineKnown === false && allMuted.canSeek === false,
-    'G13 只有静音画面层（能听见的音频不在 DOM 里）⇒ `timelineKnown=false` 且不可拖（卡片据此写 `--:--`）',
-    JSON.stringify({ timelineKnown: allMuted.timelineKnown, canSeek: allMuted.canSeek }))
-  const audible = P.npSnapshotPlan({
-    media: { hasVideo: true, count: 1, total: 79.4, progress: 3, hasTimelineElement: true, audible: true },
+  ok(mutedTimeline.timelineKnown === true && mutedTimeline.canSeek === true,
+    'G13 静音但有真时间轴 ⇒ 仍算"可证实"（视觉层静音 ≠ 没有时间轴；T1/T4 就是这条的真机证据）',
+    JSON.stringify({ timelineKnown: mutedTimeline.timelineKnown, canSeek: mutedTimeline.canSeek }))
+  const unknown = P.npSnapshotPlan({
+    media: { hasVideo: true, count: 1, total: 0, progress: 0, hasTimelineElement: true },
     item: { kind: 'video', title: 'V' }, link: true,
   })
-  ok(audible.timelineKnown === true && audible.canSeek === true,
-    'G14 有声元素 ⇒ `timelineKnown=true`（不许把正常的视频壁纸也打成"不知道"）',
-    JSON.stringify({ timelineKnown: audible.timelineKnown }))
-  ok(P.npSnapshotPlan({ media: { hasVideo: true, total: 10, progress: 1, hasTimelineElement: true, audible: false, timelineKnown: true }, item: {}, link: true }).timelineKnown === true,
-    'G15 宿主可显式覆盖 `media.timelineKnown`（上游档有自己的媒体面，不必跟着本仓判据走）')
+  ok(unknown.timelineKnown === false && unknown.canSeek === false,
+    'G14 没有可用总长 ⇒ `timelineKnown=false` 且不可拖（卡片据此写 `--:--`，不写 0:00）',
+    JSON.stringify({ timelineKnown: unknown.timelineKnown, canSeek: unknown.canSeek }))
+  const explicit = P.npSnapshotPlan({
+    media: { hasVideo: true, count: 1, total: 79.4, progress: 3, timelineKnown: false },
+    item: {}, link: true,
+  })
+  ok(explicit.timelineKnown === false && explicit.canSeek === false,
+    'G14b 宿主**显式**说这条时间轴不可证实 ⇒ 照办（组件写 `--:--`、不可拖）',
+    JSON.stringify({ timelineKnown: explicit.timelineKnown, canSeek: explicit.canSeek }))
+  ok(P.npSnapshotPlan({ media: { hasVideo: true, total: 10, progress: 1, timelineKnown: true }, item: {}, link: true }).timelineKnown === true,
+    'G15 宿主可显式说"可证实"（上游档有自己的媒体面，不必跟着本仓判据走）')
   ok(P.npSnapshotPlan({ media: { hasVideo: true, total: 30, progress: 3 }, item: {}, link: true }).timelineKnown === true,
-    'G16 旧调用方（不传 hasTimelineElement/audible）行为逐位不变 —— 默认仍是"可证实"')
+    'G16 旧调用方（一个字都不传）行为逐位不变 —— 默认仍是"可证实"')
 
   //  patch 侧接线（静态钉子）
   ok(/npApp\.update\(\{ data \}\)/.test(patchCode) && !/mountNowPlaying\(mountEl, \{[^}]*data:[^}]*\}\)[\s\S]{0,200}root\.render/.test(patchCode),
