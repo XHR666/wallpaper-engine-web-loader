@@ -58,9 +58,10 @@ console.log('\n== 7 `BV…` 变 B 站链接（走既有 link 通道）==')
 console.log('\n== 5 图片去重（DOM 路径接线 + tokenizer 不背锅）==')
 {
   ok('5a 渲染路径按**解析后的 URL** 去重（同一 src 第二次直接跳过）',
-    /if \(!seenSrc\) \{ seenSrc = new Set\(\) \}/.test(SRC) && /if \(seenSrc\.has\(info\.href\)\) continue/.test(SRC) && /seenSrc\.add\(info\.href\)/.test(SRC))
-  ok('5b 去重集合是**跨调用保留**的（行内 + 行间都去重，不是每次渲染清空）',
-    /let seenSrc = null/.test(SRC) && !/seenSrc = new Set\(\)[\s\S]{0,80}return frag/.test(SRC))
+    /const seenSrc = new Set\(\)/.test(SRC) && /if \(seenSrc\.has\(info\.href\)\) continue/.test(SRC) && /seenSrc\.add\(info\.href\)/.test(SRC))
+  ok('5b 去重集合建在**渲染函数内部、每趟一个新集合**（跨趟不串：重新渲染该有的图还在）',
+    /function propRichFragment\(tokens\) \{[\s\S]{0,400}?const seenSrc = new Set\(\)/.test(SRC)
+    && !/let seenSrc = null/.test(SRC) && !/var seenSrc = null/.test(SRC))
   ok('5c tokenizer 不改语义（两张不同 URL 仍是两个 img token —— 去重是渲染期的事）',
     parsePropRichText('<img src="https://a/1.png"><img src="https://b/2.png">').filter((x) => x.k === 'img').length === 2)
   ok('5d 同一 URL 在 tokenizer 里也仍然是两个 token（证明 5a 的去重确实是**渲染期**收口）',

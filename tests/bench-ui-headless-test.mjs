@@ -1739,12 +1739,24 @@ try {
       const r = await (await fetch('/api/props?item=' + encodeURIComponent(item))).json()
       return r.props || []
     }, id)
-    const pick = async (id, waitMs = 2600) => {
+    /* ①(2026-09-22) **有界自适应等待**：固定 2600ms 在整套门禁并发跑时会不够（面板还没换完就采样 ⇒ 假红）。
+       现在点完就轮询"面板真的换了"（行集合变化 或 该 id 的 `/api/props` 请求出现过），最长 9s；
+       超时仍返回当前快照 —— 判据本身不放宽，只是不再靠"睡够时间"。 */
+    const pick = async (id, waitMs = 9000) => {
+      const beforeReqs = (await propsReqs()).length
+      const beforeNames = shownNames(await panel()).join('|')
       await page.evaluate((want) => {
         const li = [...document.querySelectorAll('#list li[data-id]')].find((x) => x.dataset.id === want)
         if (li) li.click()
       }, id)
-      await page.waitForTimeout(waitMs)
+      const t0 = Date.now()
+      while (Date.now() - t0 < waitMs) {
+        await page.waitForTimeout(250)
+        const names = shownNames(await panel()).join('|')
+        const reqs = (await propsReqs()).length
+        if (names && names !== beforeNames) return
+        if (reqs > beforeReqs) { await page.waitForTimeout(600); return }
+      }
     }
     const panel = () => page.evaluate(() => window.__benchPatch.propsPanel())
     const propsReqs = () => page.evaluate(() => (Array.isArray(window.__propsReqs) ? window.__propsReqs.slice() : []))

@@ -71,10 +71,11 @@ ok('26c `aria-pressed` 与 `checked` 都由这同一个 `on` 写（两处不许�
   /propsToggleBtn\.classList\.toggle\('checked', on\)/.test(PATCH) && /propsToggleBtn\.setAttribute\('aria-pressed', on \? 'true' : 'false'\)/.test(PATCH))
 
 console.log('\n== 27 页签全叉光 ⇒ 属性面板必须清空 ==')
-ok('27a `closeWallpaperTab` 里判"一个都不剩"（没打开项且没有当前项）',
-  /const noneLeft = !\(Array\.isArray\(pinned\) && pinned\.length\) && !curId/.test(PATCH))
-ok('27b 走到那条分支时真的清空 + 回到空态（`clearPropsBody()` + `paintPropsEmpty()`）',
-  /if \(noneLeft\) \{ clearPropsBody\(\); paintPropsEmpty\(\) \}/.test(PATCH))
+ok('27a `closeWallpaperTab` 里判"一个都不剩"（没打开项、没当前项，**且列表里没有 `.active`**）',
+  /const noneLeft = \(\) => !\(Array\.isArray\(pinned\) && pinned\.length\) && !curId/.test(PATCH)
+  && /querySelector\('#list li\.active'\)/.test(PATCH))
+ok('27b 清空是**延迟一拍再判定**（切档瞬间 curId/pinned 都可能是空的 ⇒ 立刻清会误清新那张的面板）',
+  /if \(noneLeft\(\)\) setTimeout\(\(\) => \{ try \{ if \(noneLeft\(\)\) \{ clearPropsBody\(\); paintPropsEmpty\(\) \}/.test(PATCH))
 ok('27c 清空发生在落盘之后（用的是刚写回的 `pinned`/`curId`，不是旧的）',
   PATCH.indexOf('writePinned(plan.pinned)') < PATCH.indexOf('const noneLeft ='))
 
