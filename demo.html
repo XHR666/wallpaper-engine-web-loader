@@ -1543,6 +1543,18 @@ async function bootInstance(inst) {
   //    用 `new Function` 单独执行，那里没有 PAGE 绑定 ⇒ 兜底为 true，切片行为与改动前一致）。
   const SCHEDULED = !!inst.scheduled
   const MPW_WRITE_GLOBALS = PAGE
+  /* ①(2026-09-22) **首个错误捕获**（可观测性）：嵌入路径下"活档位块没跑到"只能靠猜，这条把它变成读数。
+     只记第一条（含 message/stack/时间），不改变任何行为；宿主/探针读 `window.__mpwBootError`。 */
+  try {
+    if (!window.__mpwBootError && typeof addEventListener === 'function') {
+      addEventListener('error', (e) => {
+        try { if (!window.__mpwBootError) window.__mpwBootError = { message: String((e && (e.message || (e.error && e.error.message))) || 'error'), at: Date.now(), stack: String((e && e.error && e.error.stack) || '').slice(0, 600) } } catch (e2) {}
+      })
+      addEventListener('unhandledrejection', (e) => {
+        try { if (!window.__mpwBootError) window.__mpwBootError = { message: 'unhandledrejection: ' + String((e && e.reason && (e.reason.message || e.reason)) || ''), at: Date.now(), stack: '' } } catch (e2) {}
+      })
+    }
+  } catch (e) {}
   let mpwDisposed = false          // dispose 后再被调度器误调 frame 时直接 return
   let mpwFirstFrameDone = 0        // 每实例独立的首帧标记（原来是 window.__mpwFirstFrame 单例）
   // ═══ MPW-HOSTSTATE ①(2026-09-21) 宿主 API（`window.__wp`）的受控位 ═══
@@ -5579,6 +5591,12 @@ function loadScene() {
   //      旧尺寸的 FBO 会留在缓存里 —— 这是既有实现的性质，本块不擅自回收别人的缓存。
   //   ② `?res=` 之外的档位（720p…2160p/auto/legacy）**一个字都不动**：它们仍是"启动时一次"的固定档
   //      （video-quality-test 用冻结算式逐值对拍）。
+  /* ①(2026-09-22) 引导标记（可观测性，不是调试残留）：测试台/宿主据此判"活档位块到底跑到没有"。
+     修前真机取证：帧里 `__sceneLayers` 有、`__mpwLiveRes` 没有 ⇒ 只能猜是"没跑到"还是"跑到了没发布"，
+     这两条标记把它变成读数。 */
+  try { window.__mpwLiveStart = { at: Date.now(), requested: __resTier.requested, live: !!__resTier.live, globals: !!MPW_WRITE_GLOBALS } } catch (e) {}
+  /* 活档位块**之前**再放一个标记：只有 `__mpwLiveStart` 缺失而这条在 ⇒ 说明中间那段抛了（配合 __mpwBootError 读原文） */
+  try { window.__mpwLivePre = { at: Date.now(), hasCv: !!cv } } catch (e) {}
   if (__resTier.live) {
     const LIVE_DEBOUNCE_MS = 120
     let liveTimer = null

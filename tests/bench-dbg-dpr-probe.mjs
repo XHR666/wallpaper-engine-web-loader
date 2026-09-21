@@ -77,7 +77,10 @@ try {
       layerText: dbg ? String(dbg.textContent || '').slice(0, 60) : null,
       flags, total: flags ? flags.length : 0,
       live, frameW: fr ? fr.clientWidth : 0, frameH: fr ? fr.clientHeight : 0,
-      frameSrc: fr ? String(fr.getAttribute('src') || '').slice(0, 120) : null,
+      frameSrc: fr ? String(fr.getAttribute('src') || '').slice(0, 160) : null,
+      frameSearch: (() => { try { return String((fr && fr.contentWindow && fr.contentWindow.location && fr.contentWindow.location.search) || '').slice(0, 160) } catch (e) { return 'ERR:' + String(e && e.message || e).slice(0, 40) } })(),
+      hasLive: (() => { try { return !!(fr && fr.contentWindow && fr.contentWindow.__mpwLiveRes) } catch (e) { return false } })(),
+      boot: (() => { try { const w = fr.contentWindow; return { start: w.__mpwLiveStart || null, pre: w.__mpwLivePre || null, err: w.__mpwBootError || null, res: w.__mpwResTier ? { requested: w.__mpwResTier.requested, live: !!w.__mpwResTier.live, name: w.__mpwResTier.name } : null, layers: !!w.__sceneLayers, wp: !!w.__wp } } catch (e) { return { err: String(e && e.message || e).slice(0, 60) } } })(),
     }
   })
   const setDpr = async (v) => {
@@ -128,6 +131,14 @@ try {
 
   /* ── P 组：DPR 切换 ── */
   /* P 组：先切一次 DPR（这会把 `res=dpr` 写进预览 URL —— 本仓档的活画布档位需要它），再回到 1 取基线 */
+  /* 先把预览档位**确保为「本仓渲染器」**：`res=dpr` 活档位只在这个档位存在（上游档没有 ⇒ P 组如实 SKIP，
+     但那种 SKIP 说明"没测到"，不是"不支持"）。档位是持久化在 localStorage 的，别的测试可能留在上游档。 */
+  const srcMode = await page.evaluate(() => { try { const el = document.getElementById('renderer-src'); return el ? String(el.value || '') : null } catch (e) { return null } })
+  console.log('  预览档位（改前）= ' + JSON.stringify(srcMode))
+  if (srcMode && srcMode !== 'repo') {
+    await page.evaluate(() => { const el = document.getElementById('renderer-src'); if (el) { el.value = 'repo'; el.dispatchEvent(new Event('change', { bubbles: true })) } })
+    await page.waitForTimeout(1200)
+  }
   /* `res=` 档位是**挂载时**写进预览 URL 的 ⇒ 改完 DPR 点一次「重挂载」，再读活档位。 */
   const remount = async () => { await page.evaluate(() => { const b = document.getElementById('reload'); if (b) b.click() }); await page.waitForTimeout(6000) }
   await setDpr(2); await remount()
@@ -136,7 +147,7 @@ try {
   await setDpr(2); await remount()
   const b = await read()
   if (!a.live || !b.live) {
-    skip('P DPR 切换', '当前渲染器档位没有 `__mpwLiveRes`（对照档不支持 res=dpr）—— 不假装通过')
+    skip('P DPR 切换', '没有 `__mpwLiveRes` —— 诊断：hasLive=' + JSON.stringify(b.hasLive) + ' frameSearch=' + JSON.stringify(b.frameSearch) + ' frameSrc=' + JSON.stringify(b.frameSrc) + ' iframe=' + b.frameW + 'x' + b.frameH + ' boot=' + JSON.stringify(b.boot))
   } else {
     ok(dprResizeOk(a.live, b.live) === true, 'P1 DPR 1→2：画布像素真的跟着变大（不是只换了个数字）',
       JSON.stringify({ a: { dpr: a.live.dpr, w: a.live.width }, b: { dpr: b.live.dpr, w: b.live.width } }))
