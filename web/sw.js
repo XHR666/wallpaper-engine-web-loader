@@ -33,6 +33,9 @@ const PRECACHE = [
   '/we-particle-pointer.mjs',
   '/web-frame-geometry.mjs',
   '/audio-band-array.mjs',
+  /* ①(2026-09-23 第 ⑥ 条) web 帧宿主契约 + shim（首屏 module 图的一部分） */
+  '/web-frame-host.mjs',
+  '/we-web-shim.mjs',
   '/baseline-metrics.mjs',
   '/core/attach-transform.mjs',
   '/demo/mpw-select.js',

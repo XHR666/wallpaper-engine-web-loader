@@ -433,6 +433,12 @@ const server = http.createServer(async (req, res) => {
       sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'web-frame-geometry.mjs')), 'text/javascript');
       return;
     }
+    // ①(2026-09-23 第 ⑥ 条) web 壁纸宿主契约 + shim：demo.html 以 `./web-frame-host.mjs` / `./we-web-shim.mjs`
+    //   相对 import ⇒ 产物根必须有同名文件（与上面几条同形；漏登记就是 P0：整条 module 图断在 404）。
+    if (p === '/web-frame-host.mjs' || p === '/we-web-shim.mjs') {
+      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, p.slice(1))), 'text/javascript');
+      return;
+    }
     if (p === '/audio-band-array.mjs') {
       sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'audio-band-array.mjs')), 'text/javascript');
       return;

@@ -36,6 +36,10 @@ const ENTRIES = [
   { file: 'core/we-pointer-source.mjs', servedUrl: '/we-pointer-source.mjs', note: '产物根同名文件' },
   { file: 'core/we-particle-pointer.mjs', servedUrl: '/we-particle-pointer.mjs', note: '产物根同名文件' },
   { file: 'demo/mpw-select.js', servedUrl: '/demo/mpw-select.js', note: '自绘下拉（用户第 6 项）' },
+  /* ⚠ 2026-09-23 补：**页面本体**此前不在被扫描的入口里 —— 于是"给 demo.html 加一条产物根同名 import
+     但没登记"这种改动可以一路绿灯（本轮就发生过：`./web-frame-host.mjs` ⇒ 8899 404 ⇒ 页面停在
+     `loading…`，而 A/A2 全绿，因为 A2 只跑在被扫的入口上）。页面是最大的一张相对 import 表，必须扫。 */
+  { file: 'demo.html', servedUrl: '/demo.html', note: '渲染器页本体（8899 `/` 发它）' },
 ]
 
 /** 从源码里抠出所有相对说明符（静态 import / 动态 import() / export … from）。 */
@@ -68,6 +72,10 @@ function resolveUrl(servedUrl, spec) {
 
 /** URL → 仓库文件（本仓库的产物根映射约定：根目录同名文件住在 `core/`）。 */
 function urlToRepoFile(url) {
+  /* ⚠ 产物根同名映射**不是**统一的：`/bundle.js` 是 `core/we-scene-bundle.js` 的服务器 URL（见 ENTRIES
+     第 1 行的 note），不是 `core/bundle.js`。把 demo.html 纳入扫描后这条立刻暴露成假红 ⇒ 在这里显式列出
+     已知例外，而不是放宽判据。 */
+  if (url === '/bundle.js') return 'core/we-scene-bundle.js'
   const rel = url.slice(1)
   const cands = []
   if (url.startsWith('/demo/') || url.startsWith('/elysia/') || url.startsWith('/core/')
@@ -101,6 +109,14 @@ for (const e of ENTRIES) {
     const exists = !!repoFile && fs.existsSync(path.join(ROOT, repoFile))
     ok(exists, `A 目标文件存在：${e.file} → ${r.s} ⇒ ${r.url}`, exists ? `→ ${repoFile}` : '（URL 解析不到仓库文件！）')
     if (!exists) problems.push(`${e.file} → ${r.url} 解析不到仓库文件`)
+    /* ⚠ A2（2026-09-23 补的盲区）：「文件存在」**不等于**「浏览器取得到」。本轮给 demo.html 加了两条
+       `./web-frame-host.mjs` / `./we-web-shim.mjs`（产物根同名），文件都在、A 全绿，可 8899 的产物根
+       是**固定名单**（通用路由只覆盖 `/core/**`）⇒ 页面报「脚本资源加载失败：(inline module)」、整条
+       module 图断掉，而这条门禁当时是绿的。现在逐条断言**解析出的 URL 真的有人服务**。 */
+    const served = isRouted(r.url) || isDirKept(r.url)
+    ok(served, `A2 目标 URL 真有人服务：${e.file} → ${r.s} ⇒ ${r.url}`,
+      served ? '' : '（8899 路由与 Pages 目录都没有它 ⇒ 浏览器 404 = 整条 module 图断掉）')
+    if (!served) problems.push(`${e.file} → ${r.url} 没有服务方`)
   }
 }
 void problems

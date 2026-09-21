@@ -11,12 +11,15 @@
 //     不是"源码里有这行字"——上一轮吃过"判据只认字符串"的亏。
 //
 // 运行：node tests/web-frame-host-test.mjs   （全过退出码 0）
+import fs from 'node:fs'
+import path from 'node:path'
 import vm from 'node:vm'
 import {
   WEB_FRAME_MODES, WEB_SHIM_READY_TIMEOUT_MS, WEB_INJECT_MAX_BYTES,
   normalizeWebFrameMode, resolveWebFrameMode, webFrameSandboxAttr, webFrameBox,
   webEntryPlan, webShimDowngradePlan, webFrameStatus,
 } from '../core/web-frame-host.mjs'
+import { ROOT } from './_root.mjs'
 import { WEB_SHIM_ATTR, buildWebShimSource, hasBlockingCsp, escapeScriptClose, injectWebShim } from '../core/we-web-shim.mjs'
 import { WEB_STORE_LIMITS, normalizeWallId, wallIdFor, storePath, sanitizeStoreData, mergeStore, evictPlan, opaqueCorsHeaders } from '../server/web-store.mjs'
 
@@ -313,6 +316,37 @@ console.log('== W 存储落盘的服务端逻辑（§3.5；与帧内 facade 同�
     h['Access-Control-Allow-Origin'] === 'null' && !('Access-Control-Allow-Credentials' in h) && h.Vary === 'Origin')
   ok('W13 别的源一个头都不给（真实站点拿不到该头）',
     Object.keys(opaqueCorsHeaders('https://x.example')).length === 0 && Object.keys(opaqueCorsHeaders(undefined)).length === 0)
+}
+
+console.log('== P 渲染器页接线（demo.html；静态判据）==')
+{
+  const html = fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8')
+  ok('P1 有 `?type=web` 分支且**先于**取包/解析场景（web 包可能根本没有 scene.pkg）',
+    /=== 'web'\)\s*\{\s*\n\s*await mountWebFrame\(id\)/.test(html)
+    && html.includes('await mountWebFrame(id)')
+    && html.indexOf('await mountWebFrame(id)') < html.indexOf("logf('加载场景 '"))
+  ok('P2 帧属性来自契约函数（不手写字符串）：sandbox = webFrameSandboxAttr(...)',
+    /fr\.setAttribute\('sandbox', webFrameSandboxAttr\(plan\.mode\)\)/.test(html))
+  /* ⚠ 只在**那一行**上判：整份 demo.html 里当然到处都有 `allow*` 字样（注释/能力表），
+     拿全文搜会把无关文字当成违规（第一版就是这么假红的）。 */
+  /* ⚠ 只看**属性值本身**：那一行后面的注释里就写着"指针锁/弹窗/表单/下载/top-navigation 都不给"，
+     拿整行去搜负向词会把注释判成违规（第二版又假红了一次）。 */
+  const allowVal = (html.match(/setAttribute\('allow',\s*'([^']*)'\)/) || [, ''])[1]
+  ok('P3 `allow` 只给 autoplay（指针锁/弹窗/表单/下载/top-navigation 都不给）',
+    allowVal.split(/\s+/).filter(Boolean).length === 1 && /^autoplay$/.test(allowVal.trim()),
+    JSON.stringify(allowVal))
+  ok('P4 档位/入口/降档/状态四条都走 core 的纯函数（页内不另写一套判定）',
+    /resolveWebFrameMode\(q\.get\('webframe'\)/.test(html) && /webEntryPlan\(/.test(html)
+    && /webShimDowngradePlan\(/.test(html) && /webFrameStatus\(/.test(html))
+  ok('P5 只有 `?webshim=blob` 才走 fetch→注入→blob（同源绝不 blob）',
+    /blobOptIn: String\(q\.get\('webshim'\) \|\| ''\)\.toLowerCase\(\) === 'blob'/.test(html)
+    && /if \(entry\.kind === 'blob'\)/.test(html))
+  ok('P6 状态面对外可读（`window.__mpwWebFrame`，测试台/探针据此判"到底跑到没有"）',
+    /window\.__mpwWebFrame = Object\.assign\(/.test(html))
+  ok('P7 降档只走一次（`webReloads` 计数进 URL，重载后 alreadyDowngraded=true）',
+    /alreadyDowngraded: webReloads > 0/.test(html) && /_webreload/.test(html))
+  ok('P8 宿主→帧控制面与 shim 的 op 名同源（props/pause/audio/media/random）',
+    /mpwWebSend\('props'/.test(html) && /mpwWebSend\('pause'/.test(html) && /mpw: 'mpw:web'/.test(html))
 }
 
 console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败')

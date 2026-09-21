@@ -65,6 +65,9 @@ const PAGES_KEEP_FILES = [
   //   一样，产物根必须有同名文件；自带服务器的同名路由读同一份 core/ 文件）。
   ['core/web-frame-geometry.mjs', 'web-frame-geometry.mjs'],
   ['core/audio-band-array.mjs', 'audio-band-array.mjs'],
+  // ①(2026-09-23 第 ⑥ 条) web 壁纸宿主契约与 shim（demo.html 的相对 import ⇒ 产物根同名）
+  ['core/web-frame-host.mjs', 'web-frame-host.mjs'],
+  ['core/we-web-shim.mjs', 'we-web-shim.mjs'],
   ['core/puppet-skin.js', 'puppet-skin.js'],
   // ①(P-136 用户第 4 项「照抄上游鼠标尾迹」2026-09-19 补漏) `core/we-scene-bundle.js` 新增两个**同目录** import
   //   （`./we-pointer-source.mjs` / `./we-particle-pointer.mjs`）⇒ 产物根必须有同名文件；否则浏览器把 404 当

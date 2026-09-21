@@ -1072,6 +1072,10 @@ import { packBands, simulatedBandArray, bandStats, AUDIO_BAND_LEN, AUDIO_BAND_HA
 //   帧盒按"内容比例 ≠ 舞台比例 ⇒ 覆盖式视口（居中裁切）"算（`?framegeom=cover|contain|stretch`；
 //   缺省 legacy = 一行都不动）。渲染器侧的指针口径接线在 `core/we-scene-bundle.js`。
 import { coverViewport, contentAspectOf, frameVisibleRect, normalizeFrameFit, sceneFitPlan } from './web-frame-geometry.mjs';
+/* ⑥(2026-09-23) web 壁纸宿主：档位/入口/降档/失败态的契约在 core/web-frame-host.mjs（纯函数，被门禁逐条钉住），
+   注入器在 core/we-web-shim.mjs（跨源 `?webshim=blob` 时才在页内用）。 */
+import { resolveWebFrameMode, webFrameSandboxAttr, webEntryPlan, webShimDowngradePlan, webFrameStatus, WEB_SHIM_READY_TIMEOUT_MS } from './web-frame-host.mjs';
+import { injectWebShim } from './we-web-shim.mjs';   // ①(第 ⑥ 条) 两者按仓库约定**三处登记**（8899 路由 / Pages 映射 / sw 预缓存）
 // ①(用户第 6 项 2026-09-19) 自绘下拉（共享模块，测试台与渲染器页同一个实现）：
 //   模块住在 `demo/`（测试台天然托管），8899 这边由服务器补了一条**限定这两个文件**的只读路由。
 import { enhanceSelect } from './demo/mpw-select.js';
@@ -1108,6 +1112,8 @@ try {
 } catch (e) { /* 无 DOM（Node 侧语法检查）⇒ 忽略 */ }
 // ═══ MPW-SELECT-WIRING-END ═══
 const cv = document.getElementById('sc');
+/* ⑥ web 帧的页级状态：`webReady`（shim 报到）/ `webReloads`（降档次数，防来回抖）/ `mpwWebSend`（宿主→帧控制面） */
+let webReady = false, webReloads = 0, webPaused = false, webObjectUrl = '', mpwWebSend = null;
 const log = document.getElementById('log');
 const fpsEl = document.getElementById('fps');
 // ①(2026-09-21 诊断流镜像) 把本页的日志行**同时**投给同源 `/diag?msg=`（与上游产物页 `ce()` 同形的 1×1
@@ -2382,6 +2388,130 @@ function loadScene() {
     } catch (e) { return null }
   }
   // ═══ MPW-FRAMEGEOM-END ═══
+  /* ⑥ web 壁纸帧宿主。做四件事，每件都对应 core/web-frame-host.mjs 里一条被门禁钉住的规则：
+       ① 解析入口（`?src=`，本服务 `/web/**` 视为同源、可服务端注入）与档位（`?webframe=auto|compat|sandbox`）；
+       ② 建 iframe：同源档用**原始 URL**（blob 会让 origin=null ⇒ 相对贴图跨域），sandbox 属性只给白名单里的两项；
+       ③ 等 shim 的 `ready`；2.5s 没到按 `webShimDowngradePlan` 决定要不要**一次性**降 compat（嵌入/显式档不降）；
+       ④ 把实情写成 `window.__mpwWebFrame`（测试台/探针读它），并把作者属性/暂停/音频按需推给帧。
+       宿主性质：`?webres=WxH` 定逻辑视口，`?webshim=blob` 允许跨源 fetch→注入→blob，`?webstore=0|mem` 由帧内 facade 读。 */
+  async function mountWebFrame(itemId) {
+    const t0 = Date.now()
+    const q = new URLSearchParams(location.search)
+    const raw = q.get('src') || q.get('web') || ''
+    const frameStatus = (input) => {
+      const st = webFrameStatus(Object.assign({ mode: plan.mode }, input))
+      logf('⑥ web 帧：' + st.line)
+      return st
+    }
+    const abs = (() => { try { return raw ? new URL(raw, location.href) : null } catch (e) { return null } })()
+    const sameOrigin = !!(abs && abs.origin === location.origin && /^\/web\//.test(abs.pathname))
+    const embed = (() => { try { return q.has('embed') && q.get('embed') !== '0' } catch (e) { return false } })()
+    const plan = resolveWebFrameMode(q.get('webframe'), { sameOriginService: sameOrigin, embed })
+    const entry = webEntryPlan(abs ? abs.href : '', { sameOrigin, blobOptIn: String(q.get('webshim') || '').toLowerCase() === 'blob' })
+    const pub = (extra) => {
+      try {
+        window.__mpwWebFrame = Object.assign({
+          at: Date.now(), id: itemId, mode: plan.mode, explicit: plan.explicit, modeWhy: plan.why,
+          entryKind: entry.kind, entryUrl: entry.url, sameOrigin, embed, ready: false, reloads: webReloads,
+          timeoutMs: WEB_SHIM_READY_TIMEOUT_MS, bands: 0, paused: false,
+        }, extra || {})
+      } catch (e) { /* ignore */ }
+    }
+    if (!entry.url) { pub({ state: 'entry-missing' }); frameStatus({ state: 'entry-missing' }); return }
+    // 帧盒：默认 100%×100%（web 没有内在尺寸）；`?webres=WxH` 给逻辑视口（测试台"分辨率"语义）
+    const box = document.createElement('div')
+    box.id = 'mpw-web-frame-box'
+    box.style.cssText = 'position:fixed;left:0;top:0;z-index:0;background:#000;overflow:hidden'
+    const vp = (() => { const m = /^(\d{2,5})x(\d{2,5})$/.exec(String(q.get('webres') || '')); return m ? { w: Number(m[1]), h: Number(m[2]) } : null })()
+    box.style.width = (vp ? vp.w : (window.innerWidth || 0)) + 'px'
+    box.style.height = (vp ? vp.h : (window.innerHeight || 0)) + 'px'
+    const fr = document.createElement('iframe')
+    fr.id = 'mpw-web-frame'
+    fr.setAttribute('title', 'web wallpaper')
+    fr.setAttribute('sandbox', webFrameSandboxAttr(plan.mode))
+    fr.setAttribute('allow', 'autoplay')     // 只给播放；指针锁/弹窗/表单/下载/top-navigation 一律不给
+    fr.style.cssText = 'border:0;width:100%;height:100%;display:block;background:transparent'
+    box.appendChild(fr)
+    document.body.appendChild(box)
+    let src = entry.url
+    if (entry.kind === 'blob') {
+      try {
+        const r = await fetch(entry.url, { mode: 'cors' })
+        const text = await r.text()
+        const out = injectWebShim(text, { seed: { op: 'props', props: mpwWebSeedProps() } })
+        src = URL.createObjectURL(new Blob([out.html], { type: 'text/html' }))
+        webObjectUrl = src
+      } catch (e) {
+        pub({ state: 'entry-fetch-failed', detail: (e && e.message) || '' })
+        frameStatus({ state: 'entry-fetch-failed', detail: (e && e.message) || '' })
+      }
+    } else if (!entry.injectable) {
+      pub({ state: 'cross-origin-no-shim' })
+      frameStatus({ state: 'cross-origin-no-shim' })
+    } else {
+      pub({ state: 'mounting' })
+    }
+    fr.src = src
+    // shim 报到 / 作者异常：帧内 shim 用 postMessage 上报（协议形状见 core/we-web-shim.mjs）
+    const onMsg = (ev) => {
+      const d = ev && ev.data
+      if (!d || d.mpw !== 'mpw:web') return
+      try { if (ev.source && fr.contentWindow && ev.source !== fr.contentWindow) return } catch (e) { /* 跨源比较失败就按协议走 */ }
+      if (d.op === 'ready') {
+        webReady = true
+        pub({ state: 'ok', ready: true, readyMs: Date.now() - t0, shimVersion: d.version || null })
+        logf('⑥ web 帧：shim 已报到（v' + (d.version || '?') + '，' + (Date.now() - t0) + 'ms）')
+        mpwWebPushProps()
+        return
+      }
+      if (d.op === 'author-error') {
+        pub({ state: 'author-error', detail: String(d.detail || '').slice(0, 160) })
+        logf('⑥ web 帧：作者脚本报错（已兜住）' + (d.kind ? ' [' + d.kind + ']' : '') + ' ' + String(d.detail || '').slice(0, 120))
+      }
+    }
+    window.addEventListener('message', onMsg)
+    // 2.5s 兜底：按契约决定降档（仅 auto + 非嵌入 + 未显式）
+    window.setTimeout(() => {
+      if (webReady) return
+      const d = webShimDowngradePlan({ mode: plan.mode, explicit: plan.explicit, embed, ready: false, elapsedMs: Date.now() - t0, alreadyDowngraded: webReloads > 0 })
+      pub({ state: 'shim-missing', downgraded: d.changed, why: d.why })
+      frameStatus({ state: 'shim-missing', downgraded: d.changed })
+      if (d.changed) reloadAsCompat()
+    }, WEB_SHIM_READY_TIMEOUT_MS + 50)
+    // 宿主 → 帧的控制面：属性/暂停/音频/媒体（同一套 op 名，与 shim 的 control() 对齐）
+    mpwWebSend = (op, payload) => { try { fr.contentWindow.postMessage(Object.assign({ mpw: 'mpw:web', op }, payload || {}), '*') } catch (e) { /* ignore */ } }
+    window.__mpwWebSend = mpwWebSend
+    if (String(q.get('webpause') || '') === '1') { webPaused = true; mpwWebSend('pause', { paused: true }) }
+    logf('⑥ web 帧已挂载：档 ' + plan.mode + '（' + plan.why + '）· 入口 ' + entry.kind + ' · ' + entry.url.slice(0, 120))
+    logf('⑥ web 帧入口说明：' + entry.why)
+  }
+  /** 降档重载：把当前 URL 的 `webframe` 改成 compat 再重挂一次（只在契约允许时被调用）。 */
+  function reloadAsCompat() {
+    try {
+      const u = new URL(location.href)
+      u.searchParams.set('webframe', 'compat')
+      u.searchParams.set('_webreload', String(webReloads + 1))
+      webReloads++
+      logf('⑥ web 帧 shim 未报到 ⇒ 按契约一次性降 compat 重载')
+      location.replace(u.toString())
+    } catch (e) { logf('⚠ web 帧降档重载失败: ' + e.message) }
+  }
+  /** 帧内作者属性需要的那份默认值（本页已解析过 project.json ⇒ 直接复用，不另起一套）。 */
+  function mpwWebSeedProps() {
+    try {
+      const raw = (typeof schema !== 'undefined' && schema && schema.properties) ? schema.properties : null
+      if (!raw || typeof raw !== 'object') return {}
+      const out = {}
+      for (const [k, d] of Object.entries(raw)) out[k] = { value: (d && typeof d === 'object' && 'value' in d) ? d.value : null }
+      return out
+    } catch (e) { return {} }
+  }
+  function mpwWebPushProps() {
+    try {
+      const props = mpwWebSeedProps()
+      if (Object.keys(props).length) mpwWebSend('props', { props })
+    } catch (e) { /* ignore */ }
+  }
   // ①(新) 按 project.json type 自动路由：type=video → 直接播 dd 目录松散 mp4（不再被当 scene 解析）
   //   ①(P-77) 页级单例：多实例时只有 primary 实例做这层路由（其余实例照常按 ?id= 装载场景）
   if (typeof PAGE === 'undefined' || PAGE) try {
@@ -2405,6 +2535,12 @@ function loadScene() {
       }
     }
   } catch {}
+  // ═══ ⑥(2026-09-23) web 壁纸：`?type=web&src=<entryUrl>&id=<itemId>`（与上游产物页/测试台同形的入口契约）═══
+  //   放在 scene 之前：`type=web` 是**显式**的，不该再走"取包 → 解析场景"那条路（那份包可能根本不存在）。
+  if (String((typeof PAGE === 'undefined' || PAGE) ? (new URLSearchParams(location.search).get('type') || '') : '').toLowerCase() === 'web') {
+    await mountWebFrame(id)
+    return
+  }
   // 纯视频模式：?video=<rel> 直接播放库中原始 mp4（伊蕾娜无水印整片等）
   const videoRel = (typeof PAGE === 'undefined' || PAGE) ? new URL(location.href).searchParams.get('video') : null
   if (videoRel) {
