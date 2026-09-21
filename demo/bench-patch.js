@@ -6014,14 +6014,19 @@ export function init() {
     '.dbg-actions button{appearance:none;font:inherit;font-size:12px;color:var(--fg);background:var(--input);border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer}',
     '.dbg-actions button:hover{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}',
     '.dbg-state{color:var(--fg-mute);font-size:11.5px}',
-    '.dbg-layer{padding:6px 10px;font:11.5px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--fg);border-bottom:1px solid var(--border);white-space:pre-wrap}',
-    '.dbg-log{flex:1;min-height:0;margin:0;padding:6px 10px;overflow:auto;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap}',
+    '.dbg-layer{padding:6px 10px;font:11.5px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--fg);border-bottom:1px solid var(--border);white-space:pre-wrap;overflow-wrap:anywhere}',
+    '.dbg-log{flex:1;min-height:0;margin:0;padding:6px 10px;overflow:auto;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}',
     '.dbg-log .dbg-err{color:#f85149}',
     /* ②(2026-09-20 用户第 3 条) 调试模式开关搬进页签内部后的那一行（页签只切视图，开关只在这里）。 */
     '.dbg-mode-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border)}',
     /* ⑦(用户第 7 条) 滚动条：**定义只有一处**（`--bench-sb-*` 变量在静态表的 `html.bench-shell` 上），
        **引用两处**（资源管理器列表 / 输出区）共用这一份选择器清单 —— 下面每条都与
        `<style id="bench-shell-static">` 里那一行逐字同文（tests/demo-check.mjs D8 逐条比对）。 */
+    /* ②(P-166 第 23 条) 输出区行首**永远可见**：`#logbody` 是产物的 `<pre>`（默认 `white-space:pre`）⇒
+       一行比容器宽就长出横向滚动区，行首那段时间只能靠横滚才看得见（用户报的"时间被切"）。
+       台账症状「清空/重挂载后又好了」也吻合：内容一换短，`scrollWidth` 缩回、横滚归零。
+       这里把折行变成**结构保证**，而不是靠"没人去设 scrollLeft"的巧合。 */
+    '#logbody{white-space:pre-wrap;overflow-wrap:anywhere}',
     '#list, .bench-dirbox-list, #logbody, #diag-body, .dbg-log{scrollbar-width:thin;scrollbar-color:var(--bench-sb-thumb) var(--bench-sb-track)}',
     '#list::-webkit-scrollbar, .bench-dirbox-list::-webkit-scrollbar, #logbody::-webkit-scrollbar, #diag-body::-webkit-scrollbar, .dbg-log::-webkit-scrollbar{width:var(--bench-sb-size);height:var(--bench-sb-size)}',
     '#list::-webkit-scrollbar-track, .bench-dirbox-list::-webkit-scrollbar-track, #logbody::-webkit-scrollbar-track, #diag-body::-webkit-scrollbar-track, .dbg-log::-webkit-scrollbar-track{background:var(--bench-sb-track)}',
@@ -6081,7 +6086,7 @@ export function init() {
     '#lib-source[data-kind="default"]{color:#d29922}',
     '#logs .logs-tab{appearance:none;font:inherit;font-size:12.5px;color:var(--fg-dim);background:transparent;border:0;border-radius:4px;padding:0 8px;height:24px;cursor:pointer}',
     '#logs .logs-tab[aria-selected="true"]{color:var(--fg);background:color-mix(in srgb,var(--fg) 14%,transparent)}',
-    '#diag-body{display:none;margin:0;padding:6px 10px;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow:auto}',
+    '#diag-body{display:none;margin:0;padding:6px 10px;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto}',
     '#logs[data-view="diag"] #diag-body{display:block;flex:1;min-height:0}',
     '#logs[data-view="diag"] #logbody{display:none}',
     '#main.logs-collapsed #diag-body{display:none!important}',

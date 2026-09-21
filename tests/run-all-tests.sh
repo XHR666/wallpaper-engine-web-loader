@@ -608,6 +608,15 @@ add "bench-dbg-dpr-probe" "node tests/bench-dbg-dpr-probe.mjs --selftest"
 #   **不猜**；其它实体不过度解码）、文案里的 `BVxxxxxxxxxx` 转 `https://b23.tv/<BV>` 并**走既有 link 白名单通道**。
 #   16 断言（纯函数口径 + 源码级接线 + 分辨力自证），~0.1s，无浏览器。
 add "bench-props-text" "node tests/bench-props-text-test.mjs"
+# ①(2026-09-23 第 23 条) `bench-log-clip-probe`：输出区/调试区**行首时间永远可见** —— 用户报"调试输出前面的
+#   时间被左侧边栏切掉，清空/重挂载后又好了"。真机制是**长行**：`#logbody` 是产物的 `<pre>`（默认
+#   `white-space:pre`）⇒ 一行比容器宽就长出横向滚动区，行首那段时间只能靠横滚才看得见（内容一换短
+#   `scrollWidth` 缩回 ⇒ "又好了"）。修法是 `white-space:pre-wrap;overflow-wrap:anywhere`（补丁 SITE_LAYOUT_CSS
+#   + 静态表 + 调试区三处 + `:8899` 渲染器页 `#log`），让折行成为**结构保证**。判据四档 × 四条：行左缘 ≥
+#   侧栏右缘−1px、容器 `scrollLeft==0`、行首时间戳不被任何不透明面板压住、**插一条 4000 字符无空格行后
+#   `scrollWidth ≤ clientWidth+2`**（修前实测 `#dbg-log` 23020/1094 ⇒ 这条会红）。
+#   纯判据 `--selftest` 5 条常驻（含 S5 静态契约：5 处日志规则缺一处即红），`--live` 那半需要 :8902。
+add "bench-log-clip-probe" "node tests/bench-log-clip-probe.mjs --selftest"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

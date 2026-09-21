@@ -177,6 +177,8 @@ html.bench-shell html:not([lang="en"]) .lang-en{display:none}
    `scrollbar-width:thin; scrollbar-color:<滑块> <轨道>`。 */
 html.bench-shell{--bench-sb-size:8px;--bench-sb-thumb:rgba(255,255,255,.5);--bench-sb-thumb-hover:rgba(255,255,255,.72);--bench-sb-track:transparent}
 html.bench-shell[data-theme="light"]{--bench-sb-thumb:rgba(0,0,0,.28);--bench-sb-thumb-hover:rgba(0,0,0,.42)}
+/* ②(P-166 第 23 条) 输出区行首永远可见（与补丁 SITE_LAYOUT_CSS 逐条同文，D8 守）：长行折行、不横滚。 */
+html.bench-shell #logbody{white-space:pre-wrap;overflow-wrap:anywhere}
 html.bench-shell #list, html.bench-shell .bench-dirbox-list, html.bench-shell #logbody, html.bench-shell #diag-body, html.bench-shell .dbg-log{scrollbar-width:thin;scrollbar-color:var(--bench-sb-thumb) var(--bench-sb-track)}
 html.bench-shell #list::-webkit-scrollbar, html.bench-shell .bench-dirbox-list::-webkit-scrollbar, html.bench-shell #logbody::-webkit-scrollbar, html.bench-shell #diag-body::-webkit-scrollbar, html.bench-shell .dbg-log::-webkit-scrollbar{width:var(--bench-sb-size);height:var(--bench-sb-size)}
 html.bench-shell #list::-webkit-scrollbar-track, html.bench-shell .bench-dirbox-list::-webkit-scrollbar-track, html.bench-shell #logbody::-webkit-scrollbar-track, html.bench-shell #diag-body::-webkit-scrollbar-track, html.bench-shell .dbg-log::-webkit-scrollbar-track{background:var(--bench-sb-track)}
@@ -411,7 +413,7 @@ html.bench-shell #props-body input[type=range]::-webkit-slider-thumb, html.bench
 html.bench-shell #props-body input[type=range]::-moz-range-thumb, html.bench-shell #props input[type=range]::-moz-range-thumb{width:14px;height:14px;border:0;border-radius:50%;background:var(--accent,#0078d4);cursor:pointer}
 html.bench-shell #logs .logs-tab{appearance:none;font:inherit;font-size:12.5px;color:var(--fg-dim);background:transparent;border:0;border-radius:4px;padding:0 8px;height:24px;cursor:pointer}
 html.bench-shell #logs .logs-tab[aria-selected="true"]{color:var(--fg);background:color-mix(in srgb,var(--fg) 14%,transparent)}
-html.bench-shell #diag-body{display:none;margin:0;padding:6px 10px;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow:auto}
+html.bench-shell #diag-body{display:none;margin:0;padding:6px 10px;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto}
 html.bench-shell #logs[data-view="diag"] #diag-body{display:block;flex:1;min-height:0}
 html.bench-shell #logs[data-view="diag"] #logbody{display:none}
 html.bench-shell #main.logs-collapsed #diag-body{display:none!important}
@@ -426,8 +428,8 @@ html.bench-shell .dbg-actions{display:flex;align-items:center;gap:8px;padding:6p
 html.bench-shell .dbg-actions button{appearance:none;font:inherit;font-size:12px;color:var(--fg);background:var(--input);border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer}
 html.bench-shell .dbg-actions button:hover{background:var(--accent,#0078d4);border-color:var(--accent,#0078d4);color:#fff}
 html.bench-shell .dbg-state{color:var(--fg-mute);font-size:11.5px}
-html.bench-shell .dbg-layer{padding:6px 10px;font:11.5px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--fg);border-bottom:1px solid var(--border);white-space:pre-wrap}
-html.bench-shell .dbg-log{flex:1;min-height:0;margin:0;padding:6px 10px;overflow:auto;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap}
+html.bench-shell .dbg-layer{padding:6px 10px;font:11.5px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--fg);border-bottom:1px solid var(--border);white-space:pre-wrap;overflow-wrap:anywhere}
+html.bench-shell .dbg-log{flex:1;min-height:0;margin:0;padding:6px 10px;overflow:auto;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 html.bench-shell .dbg-log .dbg-err{color:#f85149}
 /* ── 纯 CSS 安全网（≤1180px）────────────────────────────────────────────────────────────
    闸门是 `<head>` 同步脚本加的 `.bench-narrow`；这一段是**它没跑成时**的兜底（脚本抛异常、被拦，

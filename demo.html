@@ -5,7 +5,7 @@ body{margin:0;background:#111;color:#eee;font-family:system-ui}
 canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
 #bar{position:fixed;top:0;left:0;right:0;z-index:13;/* ①(2026-09-19 用户第 6 项副产) 必须**高于**属性面板（z=12）：栏是 flex-wrap，窄窗/多控件时会折到第二行（`#mpw-display-box` 就在那里，实测 y≈61），而面板 `top:38px` ⇒ 面板会盖住工具栏第二行 ⇒ 里面那个"速"下拉鼠标点不到（真机实测 elementFromPoint 命中的是面板标题）。工具栏是全局 chrome，永远该在最上面。 */display:flex;gap:8px;padding:8px;background:rgba(0,0,0,.7);flex-wrap:wrap;font-size:13px}
 #bar a{color:#8cf;text-decoration:none;padding:4px 10px;border:1px solid #468;border-radius:6px}
-#log{position:fixed;bottom:0;left:0;right:0;z-index:9;padding:4px 8px;background:rgba(0,0,0,.75);font:11px monospace;white-space:pre-wrap;height:35vh;overflow:auto;color:#8f8}
+#log{position:fixed;bottom:0;left:0;right:0;z-index:9;padding:4px 8px;background:rgba(0,0,0,.75);font:11px monospace;white-space:pre-wrap;overflow-wrap:anywhere;height:35vh;overflow:auto;color:#8f8}
 /* ①(Q8 2026-09-14 用户第 15 项) 日志手柄：贴在日志上沿，可拖动/点击收纳；完全收起时缩成右下角小药丸（不遮壁纸） */
 #logbar{position:fixed;left:0;right:0;bottom:35vh;height:16px;line-height:16px;z-index:10;background:rgba(0,0,0,.6);color:#8f8;font:11px monospace;cursor:ns-resize;user-select:none;-webkit-user-select:none;touch-action:none;padding:0 8px;box-sizing:border-box;border-top:1px solid #2a4;white-space:nowrap;overflow:hidden}
 #logbar.collapsed{left:auto;right:8px;bottom:0;border:1px solid #2a4;border-bottom:0;border-radius:6px 6px 0 0}
