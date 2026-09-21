@@ -79,6 +79,23 @@ ok('27b 清空是**延迟一拍再判定**（切档瞬间 curId/pinned 都可能
 ok('27c 清空发生在落盘之后（用的是刚写回的 `pinned`/`curId`，不是旧的）',
   PATCH.indexOf('writePinned(plan.pinned)') < PATCH.indexOf('const noneLeft ='))
 
+console.log('\n== 9 重挂载后音量要按当前档位重放（唯一落点不复制）==')
+ok('9a 音量唯一落点被引到模块级（`applyAudio` 仍在 initNavSound 闭包内定义，只做引用转发）',
+  /let MPW_APPLY_AUDIO = null/.test(PATCH) && /try \{ MPW_APPLY_AUDIO = applyAudio \}/.test(PATCH)
+  && (PATCH.match(/function applyAudio\(\)/g) || []).length === 1)
+ok('9b iframe `load` 后按当前档位重放两次（300ms / 1200ms —— 渲染器建媒体是异步的）',
+  /setTimeout\(\(\) => \{ try \{ if \(MPW_APPLY_AUDIO\) MPW_APPLY_AUDIO\(\) \} catch \(e\) \{\} \}, 300\)/.test(PATCH)
+  && /\}, 1200\)/.test(PATCH))
+
+console.log('\n== 10 属性面板滑动条样式（补丁表 + 静态镜像同文）==')
+ok('10a 三条规则在补丁表里（轨道 4px 圆角 / WebKit 滑块 / Firefox 滑块；appearance:none）',
+  /'#props-body input\[type=range\],#props input\[type=range\]\{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:999px/.test(PATCH)
+  && /::-webkit-slider-thumb/.test(PATCH) && /::-moz-range-thumb/.test(PATCH))
+ok('10b 静态镜像同文（逐条加 `html.bench-shell ` 前缀；`demo-check` D8 是本条的端到端兜底）',
+  (HTML_CODE.match(/html\.bench-shell #props-body input\[type=range\]/g) || []).length >= 2
+  && /html\.bench-shell #props-body input\[type=range\]::-webkit-slider-thumb/.test(HTML_CODE)
+  && /html\.bench-shell #props-body input\[type=range\]::-moz-range-thumb/.test(HTML_CODE))
+
 console.log('\n== D 分辨力自证：把三处改回旧写法必红 ==')
 ok('D1 旧写法（`setTypeFilter`）一旦回到代码里，25b 立刻红 —— 这里证明该判据确实在扫"代码"（注释不算）',
   /setTypeFilter/.test(stripComments('switchToWallpaper(): setTypeFilter(kind)')) && !/setTypeFilter/.test(PATCH)

@@ -406,6 +406,9 @@ html.bench-shell .bench-kind{display:inline-block;margin-left:6px;padding:0 5px;
 html.bench-shell .bench-status-kind{margin-left:6px;padding:0 5px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--fg-mute)}
 html.bench-shell #lib-source{display:block;padding:2px 10px 6px;color:var(--fg-mute);font-size:11.5px;line-height:1.5;word-break:break-all}
 html.bench-shell #lib-source[data-kind="default"]{color:#d29922}
+html.bench-shell #props-body input[type=range], html.bench-shell #props input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:999px;background:var(--border);outline:none;cursor:pointer}
+html.bench-shell #props-body input[type=range]::-webkit-slider-thumb, html.bench-shell #props input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border:0;border-radius:50%;background:var(--accent,#0078d4);cursor:pointer}
+html.bench-shell #props-body input[type=range]::-moz-range-thumb, html.bench-shell #props input[type=range]::-moz-range-thumb{width:14px;height:14px;border:0;border-radius:50%;background:var(--accent,#0078d4);cursor:pointer}
 html.bench-shell #logs .logs-tab{appearance:none;font:inherit;font-size:12.5px;color:var(--fg-dim);background:transparent;border:0;border-radius:4px;padding:0 8px;height:24px;cursor:pointer}
 html.bench-shell #logs .logs-tab[aria-selected="true"]{color:var(--fg);background:color-mix(in srgb,var(--fg) 14%,transparent)}
 html.bench-shell #diag-body{display:none;margin:0;padding:6px 10px;font:11.5px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow:auto}

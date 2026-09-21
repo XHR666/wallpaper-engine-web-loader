@@ -2302,6 +2302,10 @@ export function watchBenchPropsSelects(doc = (typeof document !== 'undefined' ? 
 }
 // ═══ MPW-SELECT-WIRING-END ═══
 
+/* ①(2026-09-22 用户第 9 条) 音量**唯一落点**的模块级持有者：`applyAudio` 定义在 `initNavSound` 闭包内，
+   而"改壁纸配置 ⇒ 产物重挂载渲染器"发生在 `init()` 的 iframe load 处理器里（跨闭包）⇒ 用它把落点引出去。
+   只做引用转发，音量逻辑仍然只有 `applyAudio` 一份（不复制落点）。 */
+let MPW_APPLY_AUDIO = null
 export function initNavSound(deps = {}) {
   const D = deps.doc || (typeof document !== 'undefined' ? document : null)
   if (!D || !D.body || typeof D.querySelector !== 'function') return null
@@ -2702,6 +2706,7 @@ export function initNavSound(deps = {}) {
     if (n) {
       bindVideoEvents()
       applyAudio()
+      try { MPW_APPLY_AUDIO = applyAudio } catch (e) { /* 桩环境忽略 */ }   // ①(第 9 条) 引出唯一落点
       paintProgress()
       stopProbe()                                                             // 找到就自停（不留常驻定时器）
     }
@@ -5995,6 +6000,12 @@ export function init() {
        —— 用户看到的就是"第一个壁纸的叉号是长条、后面的是方框"。现在与其它 `×` **同形**（22×22、圆角 4）。 */
     '.wp-x-cur{align-self:center;height:22px;min-height:22px;border-radius:4px}',
     '.wp-x-cur:hover{background:var(--accent,#0078d4);color:#fff}',
+    /* ①(2026-09-22 用户第 10 条) 属性面板里的**滑动条**此前没有样式（还是产物默认外观）：
+       轨道 4px 圆角 + 14px 圆形滑块 + accent 色；`appearance:none` 才能同时管住 WebKit 与 Firefox 的默认皮肤。
+       同文镜像在 demo/index.html 的 SITE_LAYOUT_CSS（`demo-check` D8 逐条比对会看住两处一致）。 */
+    '#props-body input[type=range],#props input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:999px;background:var(--border);outline:none;cursor:pointer}',
+    '#props-body input[type=range]::-webkit-slider-thumb,#props input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border:0;border-radius:50%;background:var(--accent,#0078d4);cursor:pointer}',
+    '#props-body input[type=range]::-moz-range-thumb,#props input[type=range]::-moz-range-thumb{width:14px;height:14px;border:0;border-radius:50%;background:var(--accent,#0078d4);cursor:pointer}',
     '#debug-body{display:none}',
     '#logs[data-view="debug"] #debug-body{display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto}',
     '#logs[data-view="debug"] #logbody{display:none}',
@@ -7705,6 +7716,11 @@ export function init() {
   if (frameEl && frameEl.addEventListener) frameEl.addEventListener('load', () => {
     setTimeout(() => { wrapRendererApi(); try { installWebShim(rendererWin()) } catch { /* ignore */ } ; bindRendererPointerLeave(); syncMicGate(); paintBandFeedStatus(); paintRendererSrcStatus(); applyRepoChromeHide() }, 0)
     setTimeout(() => { lockTimeLayersEverywhere() }, 800)
+    /* ①(2026-09-22 用户第 9 条) **重挂载后把当前音量重新落一遍**：改壁纸配置会让产物重挂载渲染器，
+       新渲染器的媒体是新建的（音量回到默认 1）⇒ 用户看到"改完配置音量变 100%（界面还显示 20%）"。
+       唯一落点仍是 `initNavSound` 的 `applyAudio`（这里只按当前档位重放）；渲染器建媒体是异步的 ⇒ 补两次。 */
+    setTimeout(() => { try { if (MPW_APPLY_AUDIO) MPW_APPLY_AUDIO() } catch (e) {} }, 300)
+    setTimeout(() => { try { if (MPW_APPLY_AUDIO) MPW_APPLY_AUDIO() } catch (e) {} }, 1200)
   })
 
   /* ── ⑤(2026-09-20 用户第 5 条) 「启用麦克风」闸门：默认关 ⇒ `getUserMedia` **一次都不调** ──────────
