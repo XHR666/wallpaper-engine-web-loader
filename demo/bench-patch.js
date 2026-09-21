@@ -2993,7 +2993,7 @@ const PROP_ENTITIES = {
 
 /** 解 HTML 实体（数字实体取 `&#NN;` / `&#xNN;`，越界一律原样保留）。 */
 export function decodePropEntities(s) {
-  return String(s == null ? '' : s).replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (m, body) => {
+  const one = (t) => String(t == null ? '' : t).replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (m, body) => {
     if (body.charAt(0) === '#') {
       const hex = body.charAt(1) === 'x' || body.charAt(1) === 'X'
       const n = Number.parseInt(hex ? body.slice(2) : body.slice(1), hex ? 16 : 10)
@@ -3003,6 +3003,12 @@ export function decodePropEntities(s) {
     const k = body.toLowerCase()
     return Object.prototype.hasOwnProperty.call(PROP_ENTITIES, k) ? PROP_ENTITIES[k] : m
   })
+  /* ①(2026-09-22 用户第 6 条) 面板文案里残留字面量 `&nbsp;` 的两种来源，都在这条收口：
+     ① **双重编码**（`&amp;nbsp;` 先解成 `&nbsp;` 就停了）；② **无分号形态**（`&nbsp`）。
+     只对**空白类**实体多解一轮/收无分号 —— 其它实体保持"只解一遍"的标准语义（`&amp;lt;` 这类
+     作者本意是显示字面量，过度解码会把它改掉）。 */
+  const WS_ENT = { nbsp: '\u00a0', ensp: '\u2002', emsp: '\u2003', thinsp: '\u2009' }
+  return one(s).replace(/&(nbsp|ensp|emsp|thinsp)\b;?/gi, (m, name) => WS_ENT[String(name).toLowerCase()])
 }
 
 /** 颜色白名单（只有这些形态会被写进 `style.color`；其余一律当作"没写颜色"：
@@ -3061,7 +3067,23 @@ export function parsePropRichText(text) {
   const root = []
   const stack = [{ name: '', kids: root }]
   const top = () => stack[stack.length - 1]
-  const addText = (raw) => { const v = decodePropEntities(raw); if (v) top().kids.push({ k: 'text', v: v }) }
+  /* ①(2026-09-22 用户第 7 条) 文案里的 `BVxxxxxxxxxx`（B 站视频号，常见写法 `BV…(点击跳转)`）转成**可点链接**
+     `https://b23.tv/<BV>`。刻意走既有的 `link` token 渲染路径 ⇒ 自动继承"只放行 http(s) + 目标域名确认弹层 +
+     noopener/noreferrer"，**不新开第二条外链通道**（新通道就等于新的绕过点）。BV 号按 B 站现行格式 10 位
+     `[0-9A-Za-z]` 严格匹配，不做模糊猜测。 */
+  const BV_RE = /(BV[0-9A-Za-z]{10})/g
+  const addText = (raw) => {
+    const v = decodePropEntities(raw)
+    if (!v) return
+    let last = 0
+    for (const m of v.matchAll(BV_RE)) {
+      if (m.index > last) top().kids.push({ k: 'text', v: v.slice(last, m.index) })
+      const bv = m[1]
+      top().kids.push({ k: 'link', href: 'https://b23.tv/' + bv, host: 'b23.tv', kids: [{ k: 'text', v: bv }] })
+      last = m.index + bv.length
+    }
+    if (last < v.length) top().kids.push({ k: 'text', v: v.slice(last) })
+  }
   let i = 0
   while (i < src.length) {
     const lt = src.indexOf('<', i)
@@ -4091,6 +4113,12 @@ export function initSiteShell(ctx = {}) {
         if (tok.k === 'img') {
           const info = externalLinkInfo(tok.src)      // 只渲染 http(s) 图：面板里没有可靠的相对基址
           if (!info.ok) continue
+          /* ①(2026-09-22 用户第 5 条) **同一张图只显示一遍**：作者文案里同一 URL 常出现多次
+             （有的产物自己也会画一张），面板再各画一张就成了"显示两遍"。
+             去重键 = 解析后的绝对 URL，作用域 = 本次富文本渲染（行内 + 行间都算）。 */
+          if (!seenSrc) { seenSrc = new Set() }
+          if (seenSrc.has(info.href)) continue
+          seenSrc.add(info.href)
           const wrap = D.createElement('span'); wrap.className = 'bench-prop-imgwrap'
           const im = D.createElement('img'); im.className = 'bench-prop-img'
           im.src = info.href; im.alt = ''; im.loading = 'lazy'; im.referrerPolicy = 'no-referrer'
@@ -4101,6 +4129,8 @@ export function initSiteShell(ctx = {}) {
     walk(tokens, frag)
     return frag.childNodes.length ? frag : null
   }
+  /** ①(第 5 条) 图片去重集合：按**解析后的 URL** 去重（`let` 在函数作用域，跨调用保留 ⇒ 行内/行间都去重）。 */
+  let seenSrc = null
   function decoratePropRow(row) {
     if (!row || !row.dataset || row.dataset.benchPropsRow === 'done') return false
     const isGroup = !!(row.classList && row.classList.contains('prop-group'))

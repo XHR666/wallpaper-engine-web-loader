@@ -597,6 +597,11 @@ add "bench-bandfeed-switch" "node tests/bench-bandfeed-switch-test.mjs"
 #   12 一进页面就是深色（主题规范化：**没存过 ⇒ light**、显式照办、历史 'auto' 仍按系统迁移）。
 #   17 断言（含纯函数口径与三条分辨力自证），~0.1s，无浏览器。
 add "bench-dropdown-theme" "node tests/bench-dropdown-theme-test.mjs"
+# ①(2026-09-22 用户第 5/6/7 条) `bench-props-text`：属性面板富文本三条 —— 图片按**解析后 URL** 去重
+#   （同一张只画一遍）、`&nbsp;` 收口（**双重编码** `&amp;nbsp;` + **无分号** `&nbsp`；后面紧跟字母数字时
+#   **不猜**；其它实体不过度解码）、文案里的 `BVxxxxxxxxxx` 转 `https://b23.tv/<BV>` 并**走既有 link 白名单通道**。
+#   16 断言（纯函数口径 + 源码级接线 + 分辨力自证），~0.1s，无浏览器。
+add "bench-props-text" "node tests/bench-props-text-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then
