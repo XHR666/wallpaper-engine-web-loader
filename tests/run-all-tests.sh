@@ -64,6 +64,11 @@ add "particle-sprite"    "node tests/particle-sprite-verify.mjs"
 add "text-layout"        "node tests/text-layout-test.mjs"
 add "bloom"              "node tests/bloom-verify.mjs"
 add "script-tolerance"   "node tests/script-tolerance-test.mjs"
+# ①(2026-09-22 上游 9e287ea) `script-frametime-cap`：**脚本单帧 dt 封顶 0.05s** —— 一次卡顿（切档重挂/
+#   GC/后台恢复）会把 frameDt 变成几百毫秒，脚本拿它做平滑/积分时部件"甩出画面再荡回来"。判据顺序是
+#   "先证正常帧逐位不变（含首帧 0 原样保留）、再证异常帧被夹住、最后证两个真实喂入点都接上了"，
+#   并含分辨力自证（把封顶去掉 ⇒ 必红；真树 sha 不变）。13 断言，~0.05s，无浏览器。
+add "script-frametime-cap" "node tests/script-frametime-cap-test.mjs"
 add "frame-map"          "node tests/frame-map-verify.mjs"
 add "tex-fmt5"           "node tests/tex-fmt5-test.mjs"
 add "video-quality"      "node tests/video-quality-test.mjs"     # P-68：用户第20项 MP4 画质（?res= 档位 720p/1080p/1440p/2160p 默认 1080p、?res=720p|legacy 与改动前逐值对拍、视频上传上限/直传/imageSmoothingQuality=high/可配节流、videoStats 台账、?perf=auto 高分辨率档抑制 fboCap、脚本 __videoPlay 读取点；148 断言；~2.5s）

@@ -1240,6 +1240,17 @@ function mpwDisplayApplyAll() {
 const MPW_SCENE_CLOCK = lib.createSceneClock({ rate: MPW_DISPLAY.playbackRate })
 function mpwSceneClockAt(now, legacyTime) { return MPW_SCENE_CLOCK.at(now, legacyTime) }
 function mpwSceneDt(dt) { return lib.scaleSceneDt(dt, MPW_SCENE_CLOCK.rate) }
+/* ①(2026-09-22 上游 9e287ea) **脚本单帧 dt 封顶**：一次卡顿（切档重挂、GC、页面从后台恢复）会让 frameDt
+   变成几百毫秒，脚本拿它做平滑/积分时部件会"甩出画面再荡回来"。封顶 0.05s（= 20fps 的下限）后：
+   **正常帧（≥20fps）逐位不变**（1/60 = 0.0167 < 0.05，原样透传），只有异常大帧被夹住。
+   纯函数 = 门禁可直接断言；坏值口径与下面 `runSceneScripts` 原有守卫一致（退回 1/60）。
+   **0 必须原样保留**（官方语义"首帧可能为 0"，把它换成 1/60 会改变首帧行为）。 */
+const MPW_MAX_SCRIPT_FRAME_DT = 0.05
+function mpwCapScriptDt(dt) {
+  const v = Number(dt)
+  if (!isFinite(v) || v < 0) return 1 / 60
+  return v > MPW_MAX_SCRIPT_FRAME_DT ? MPW_MAX_SCRIPT_FRAME_DT : v
+}
 let MPW_RATE_APPLIED = 1
 function mpwSyncVideoRates() {
   const r = MPW_SCENE_CLOCK.rate
@@ -3601,7 +3612,7 @@ function loadScene() {
         canvasSize: mpwEngineCanvasSize(),
         // ①(N7) 真实 frametime（官方语义"上一帧秒数"，可能为 0）——旧实现从不传 → 恒 1/60，
         //   语料 22 个容器用它做平滑/积分（4Hz 节拍下积分量差 4 倍以上）。
-        frametime: (typeof frameDt === 'number' && isFinite(frameDt) && frameDt >= 0) ? frameDt : (1 / 60),
+        frametime: mpwCapScriptDt(frameDt),   // ①(2026-09-22) 单帧封顶 0.05s（正常帧逐位不变）
         nodeFilter: fastOnly ? textScriptFilter : null,
         fireUpdate: !fastOnly,
         shared: scriptShared,
@@ -6676,7 +6687,7 @@ function loadScene() {
 		{ try { applyAttachAnchorDelta() } catch (e) { /* 锚点增量失败保持 base（= 旧行为） */ } }
 		// ①(RE-28) 场景脚本（时间/属性驱动）：文本/时钟/帧率类 ≥30Hz、其余 4Hz（N7 节拍分层）
 		//   第二参数 = 上一帧真实秒数（engine.frametime；官方语义"可能为 0"）
-		{ try { runSceneScripts(tSec, mpwSceneDt(frameDt)) } catch (e) {} }   // ①(P-113) frametime 同样吃倍率（rate=1 ⇒ 逐位原值）
+		{ try { runSceneScripts(tSec, mpwSceneDt(mpwCapScriptDt(frameDt))) } catch (e) {} }   // ①(P-113) frametime 同样吃倍率（rate=1 ⇒ 逐位原值）
 		// ①(N6) 音频反应预留位：只有外部挂了 window.__mpwAudioFrame 才取样（默认零成本）
 		{ try { audioFrameTick(tSec) } catch (e) {} }
 		// ③(P-64-MEDIA 用户第 9④ 项) 媒体集成：真实源（🔊 音频面板音轨）→ 官方五回调 + 音频响应频谱；
