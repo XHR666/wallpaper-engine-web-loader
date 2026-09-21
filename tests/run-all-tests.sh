@@ -365,6 +365,18 @@ add "bench-8902"         "node tests/bench-server-test.mjs"
 #   与 `tests/x11-e2e/bench-click-test.mjs` 的分工：那条是**真 X11 指针**门禁（证明"用户点得到"，需 X、5–8 分钟、不常驻）；
 #   这条只做功能判定，可常驻。为什么要有它：宿主机重启会带走 X 显示（2026-09-19 实测），没有它 P-142 的判定就无从复跑。
 add "bench-ui-headless"  "node tests/bench-ui-headless-test.mjs" "" "^SKIP bench-ui-headless"
+# ①(2026-09-21) `bench-renderer-source`：「预览用哪个渲染器」两档（上游产物 / 本仓渲染器）——
+#   A 纯函数（档位归一 / URL 改写**完整保留原有 query** / DPR 上限只在显式改过时生效 / src 包装层幂等）、
+#   B core 的画布活档位 `?res=dpr|dpr1..dpr5`（显示尺寸 × DPR + 上限，既有档位语义一位不动）、
+#   C HTML/补丁/服务端静态纪律（含"`/diag`、`/media|web/dev`、`/api` **不许**进反代名单"）、
+#   D **真机读数**（headless firefox，SKIP-able）：同一块面板同一张包下，上游画布 = CSS×1、本仓 = CSS×设备DPR。
+#   无 :8902 / 无 Playwright / 无 firefox ⇒ **只有 D 段 SKIP**（A/B/C 段照跑，门禁不红）。
+add "bench-renderer-source" "node tests/bench-renderer-source-test.mjs" "" "^SKIP bench-renderer-source"
+# ①(2026-09-21) `scene-texanim`：官方 `ITextureAnimation` 面（真机语料 3544152633 逐字用到
+#   `getTextureAnimation().rate / getFrame() / frameCount`）——旧实现缺 `rate/frameCount/duration/
+#   isPlaying/join` ⇒ **静默错分支**（`getFrame()==frameCount-1` 恒假、`rate=9` 没人读）。
+#   19 断言：真源码面 / 元数据回填与 rate 前推的接线钉子 / 精灵帧 UV 回绕。纯 Node，~0.2s。
+add "scene-texanim"      "node tests/scene-texanim-api-test.mjs"
 # ①(P-158 2026-09-19) `bench-shell-fixes`：测试台外壳**一批 UI/交互修复**的无浏览器门禁 ——
 #   下拉贴合（含上翻）/包含块偏移、一个 select 一个自绘控件（工具条 0 个 `.mpw_select`）、
 #   `.bench-rd-native` 视觉隐藏、已选/常用计划、库来源四态、诊断流一行模型、类型标签归一、

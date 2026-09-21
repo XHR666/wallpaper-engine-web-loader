@@ -256,7 +256,10 @@ console.log('\n== B 接线：工具条四档 → 渲染器 URL / 默认档 / 闸
   }
 
   // ── B3 mic 档没被任何自动路径打开 ──
-  const bandSec = slice(PATCH, '  /* ── ⑩(2026-09-21 · 台账 ../docs/USER-ITEMS-20260920-B.md §5.3)', '  paintBandFeedStatus()\n\n  // ── ⑧')
+  // 切片终点(2026-09-21)：音条源接线块之后**新插入**了「渲染器来源」接线块（同一条 iframe src 链的
+  //   另一个档位）。终点锚点因此从 `// ── ⑧` 移到新块的起始注释 —— 切出来的仍是**同一段**音条源代码，
+  //   B3 的三条负向断言（不调 getUserMedia / 不代勾闸门 / 不碰 audio=1）口径一字未改，只是边界跟着挪。
+  const bandSec = slice(PATCH, '  /* ── ⑩(2026-09-21 · 台账 ../docs/USER-ITEMS-20260920-B.md §5.3)', '  /* ── ⑪(2026-09-21) **渲染器来源两档**')
   // 负向断言必须先在**剥掉注释**的文本上做：本段注释里刻意引用了 `getUserMedia` 当反例
   // （说明"闸门会拒绝它"），不剥注释就会自己把自己判红（与 bench-shell-fixes 同一口径）。
   const bandCode = bandSec.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ')

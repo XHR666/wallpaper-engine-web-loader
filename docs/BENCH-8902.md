@@ -576,3 +576,69 @@ web 档 `3644069061`（本机 7 张 web 档里唯一带 2×`<video>` + 3×`<audi
 5. **图的来源**：`demo/assets/brand/**` 是本仓所有者提供的图（原图在**工作区根**的 `assets/brand/`），
    **不登记为上游第三方素材**（`THIRD-PARTY.md` / `docs/COPYING-RULES.md` §4 一行都不加）。
 6. **观感类**（省略号的观感、`×` 的手感、尾迹粗细/颜色）只能人眼；探针只判几何、状态与像素计数。
+
+---
+
+## 11. 「渲染器来源」两档 + 画布活档位（P-171，2026-09-21）
+
+> 只动 `demo/index.html`、`demo/bench-patch.js`、`demo.html`、`core/we-scene-bundle.js`、
+> `elysia/scene-scripts.js`、`server/we-scene-demo-server-8902.mjs` + 测试/台账/文档。
+> 服务端只**新增**一条反代路由（渲染器页自己的根绝对路由），既有八条 `/api/*` 契约一行未动。
+
+### 11.1 工具条第 7 个控件
+
+| 控件 | 取值 | 缺省 | 行为 |
+|---|---|---|---|
+| `#renderer-src` 「渲染器」 | `repo`（本仓渲染器）/ `upstream`（上游产物·对照档） | **`repo`** | 换档时改写 `#frame` 的 src；有已挂载壁纸就走产物自己的「重挂载」`#reload`，没有（例如预览停在合成样例上）就把**当前 URL 按新档位重写一次**（同一条改写链） |
+| `#status-renderer-src` | 只读状态行 | — | 写三件事：跑的是哪条路径、**画布/DPR 真读数**（`__mpwLiveRes`）、**哪些宿主能力明确降级**（`__mpwHostCaps` 里 `false` 的键） |
+
+* `upstream`档 = 逐字不改（"上游 = 现在的行为"）。
+* `repo`档 = 同源 `/webloader/?…`（反代到 `:8899` 的 `demo.html` + 本仓 core），**原有 query 一个不丢**，
+  按需补 `id=<itemId>` 与 `res=dpr`（URL 里已有 `res=` 则不覆盖）。
+* **默认 = 本仓渲染器**（用户 2026-09-21 拍板："把两个整合成一个"）。上游产物降为**对照/排障档**，
+  可显式切回（判据 `bench-ui-headless` R1/R2/R4）。翻转默认时把"上游当默认"写死的那 14 条断言**逐条改成
+  描述新契约**（旧契约 → 新契约清单见 `docs/PATCHES.md` P-171.5；没有删断言、没有放宽容差、没有跳过）。
+
+### 11.2 `/webloader/` 现在真的能挂载了（一条实测缺口）
+
+`/webloader/**` 是**路径前缀**反代，而渲染器页取包用的是**根绝对**路径（`demo.html` 的 `/pkg/<id>`）
+⇒ 实测 `/webloader/?id=3544152633`：日志 `❌ 启动失败: pkg HTTP 404（id=3544152633）`、画布停在 300×150 空画布。
+现新增 `RENDERER_ROOT_ROUTES`（渲染器页自己的只读路由，穷尽集）：`/pkg/ /type/ /ddlist/ /ddvideo/ /videolib/
+/project/ /refrender/ /weassist/ /noise /pkgpath /pkgurl` 按前缀转发到同一上游；**静态面优先**
+（`demo/` 里真有同名文件就不代理），越根/坏 URL 仍走本服务 400/403 口径。
+**刻意不转**：`/diag`（诊断流进测试台自己的环形缓冲 —— 转走的话「渲染器诊断」页签就哑了）、
+`/report` + `/baseline`（本服务自己落盘）、`/media/dev/**` + `/web/dev/**`（库根只读面 + Range）、`/api/**`。
+
+### 11.3 判据
+
+```bash
+node tests/bench-renderer-source-test.mjs     # 34 断言（末段真机读数；无服务/无浏览器时只有 D 段 SKIP）
+node tests/scene-texanim-api-test.mjs         # 19 断言（官方 ITextureAnimation 面，纯 Node）
+```
+
+真机读数（`deviceScaleFactor:2`，面板 528×297，包 `3544152633`）：
+
+| 路径 | 画布 | 生效 DPR |
+|---|---|---|
+| 上游产物 | 529×297 | 1（`renderDpr` 档缺省 1 的上限） |
+| 本仓渲染器 | **1056×594** | **2 = 设备 DPR** |
+
+### 11.4 本仓渲染器档下已知的能力差异（状态行会原样写出来）
+
+真机读数（`bench-ui-headless` 一轮，默认档 = 本仓渲染器）：
+
+| `:8902` 能力 | 本仓渲染器档 | 证据 |
+|---|---|---|
+| 预览画质（画布 = 显示尺寸 × 设备 DPR） | ✅ | `bench-renderer-source` D 段：面板 528×297 ⇒ 画布 **1056×594 @DPR2**（上游对照档 529×297 = 1×CSS） |
+| 「调试模式」逐层走 + 隔离 | ✅（本批接通） | `Z4` = `图层 1/62 · myLayer · 已隐…`；做法：`demo.html` 发布 `window.__sceneLayers`（测试台只认这个全局），core 渲染循环逐帧读 `layer.visible` |
+| 截图 | ✅ | `Z5`：`bench-shot-*.jpg` 1046 B（取自本仓画布） |
+| 「立即上报」 | ✅ | `Z6`/`Z6b`：落点第一条 `/report` |
+| 渲染器诊断页签 | ✅（本批接通） | `G8a/G8b`：诊断流 315 行、其中 `[renderer]` 314 行；做法：`logf` 在被嵌入时镜像到同源 `/diag?msg=`（限速 20 行/秒） |
+| 指针注入 / 鼠标尾迹 | ✅ | `Z9`：`{enabled:true, forwarded:1, why:'ok'}`（`__wp.pushPointer` / `pointerLeave` 真实现） |
+| 音条源四档 | ✅ | 本仓渲染器原生实现 `?bandfeed=`（MPW-BANDBFEED 块）+ 回报 `__mpwAudioBandInfo` |
+| 属性面板 | ✅（UI/保存链） | `P` 组全绿（面板读 `/api/props`、写覆盖；`updateWebProps` 那条"拖动禁用"推送在本仓档下是明确降级，见下行） |
+| `setFit` / `setSceneFps` / `updateWebProps` / `loadSceneFile` / `pushWheel` / `restore` / `setWallpaper` | ⚠️ **明确降级** | `window.__mpwHostCaps` 里为 `false`；调用会往输出区写"不生效 + 为什么"（状态行也把名单列出来） |
+| web 类壁纸（入口 HTML + WE shim + 入口里的 `<video>/<audio>`） | ❌ **不支持** | 本仓渲染器页只认 scene / video（`/web/` 零命中）⇒ `bench-ui-headless` 的 T/W 两组**显式切上游档**做夹具，并由新增的 `R3` 把这条边界钉成判据（shim 注入 0 次、媒体元素 0 个） |
+| 播放卡片（NP） | ⚠️ 部分 | scene/video 档没有 `<video>` 元素（走 WebCodecs 逐帧）⇒ 卡片如实写 `canSeek=false`/无媒体；web 档要媒体元素 ⇒ 当前只能在上游对照档上看 |
+| 合成样例自动挂载 | ✅ | 本仓档下按 `?id=sample-synthetic` **导航预览**（同一个样例、同一份字节，取包走本仓 `/pkg/<id>`） |
+| 「新窗口」按钮 | ⚠️ 仍指上游产物页 | `installOpenRemap` 在本机形态下按 `local-bench` 原样放行（`demo-check` D12 钉住这条链不许绕开）——本批不动，见 PATCHES P-171.6 的诚实清单 |

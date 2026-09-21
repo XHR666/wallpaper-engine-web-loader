@@ -1308,9 +1308,22 @@ function thumbPlan(item) {
 // ── 渲染器页反向代理：`/webloader/**` → 上游（默认 http://127.0.0.1:8899）─────────────────────────
 /** 逐跳头不该转发（RFC 7230 §6.1）：转发它们会让两端连接语义串味。 */
 const HOP_HEADERS = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length'])
-function proxyRenderer(req, res, url) {
+/** ②(2026-09-21 渲染器来源=本仓) 渲染器页**自己的只读路由**（它写在根上，见 §1.1 的同一条事实）。
+ *  为什么需要这份名单：`demo.html` 取包用的是**根绝对路径** `/pkg/<id>`（`demo.html:2265`），
+ *  挂在 `/webloader/` 下时这个请求会落到本服务根 ⇒ 实测 404、页面日志写 `pkg HTTP 404`、
+ *  画布停在 300×150 的空画布（`/webloader/?id=3544152633` 的真机读数）。只代理 `/webloader/**`
+ *  不够 ⇒ 把这些**渲染器页自己的**路由按前缀转发到同一上游。
+ *  名单为什么是这几个：对 `demo.html` + `elysia/**` 做全量 grep（`'/pkg/`、`'/type/`、`'/ddlist/`、
+ *  `'/ddvideo/`、`'/videolib/`、`'/project/`、`'/refrender/`、`'/weassist/`、`` `/noise ``、`'/pkgpath`、
+ *  `'/pkgurl`）得到的**穷尽集**，一个不多。
+ *  **刻意不在名单里**的（它们必须留在本服务）：`/diag`（诊断流要进测试台自己的环形缓冲，
+ *  转走的话测试台的「渲染器诊断」页签就哑了）、`/report`+`/baseline`（本服务自己落盘）、
+ *  `/media/dev/**`+`/web/dev/**`（库根只读面 + Range，本服务自己的）、`/api/**`（后端契约）。
+ *  静态面**优先**：同名文件真的在 `demo/` 里存在就不代理（本服务是这台机上的权威静态面）。 */
+const RENDERER_ROOT_ROUTES = ['/pkg/', '/type/', '/ddlist/', '/ddvideo/', '/videolib/', '/project/', '/refrender/', '/weassist/', '/noise', '/pkgpath', '/pkgurl']
+function proxyRenderer(req, res, url, relOverride) {
   if (!RENDERER_UPSTREAM) return json(res, 500, { ok: false, error: '渲染器上游地址配错（MPW_RENDERER_8899）' })
-  const rel = url.pathname.replace(/^\/webloader\/?/, '')
+  const rel = (typeof relOverride === 'string') ? relOverride : url.pathname.replace(/^\/webloader\/?/, '')
   const targetPath = (RENDERER_UPSTREAM.path ? RENDERER_UPSTREAM.path + '/' : '/') + rel + (url.search || '')
   const headers = {}
   for (const [k, v] of Object.entries(req.headers)) if (!HOP_HEADERS.has(String(k).toLowerCase())) headers[k] = v
@@ -2198,6 +2211,20 @@ const server = http.createServer((req, res) => {
      为什么要有它：测试台预览超大贴图（如 3669681034 的 7680×4320/43.8MB）时，上游产物页"先解码再缩放"会黑屏，
      而本仓 core 有 P-163 的"先选级再解码"修复 ⇒ 让测试台能走我们自己的页。 */
   if (p === '/webloader' || p.startsWith('/webloader/')) return done(() => proxyRenderer(req, res, url))
+  /* ②(2026-09-21 渲染器来源=本仓) 渲染器页**自己的**路由（它写在根上）同样转到上游 —— 否则
+     `/webloader/?id=<id>` 会在取包那一步 404（读数见 `RENDERER_ROOT_ROUTES` 的注释）。
+     静态面优先：`demo/` 里真有同名文件就不代理（本服务的静态面是权威）；越根/坏 URL 仍按
+     本服务既有口径 400/403（`staticTarget` 会抛，**不**把请求推给上游）。 */
+  if (RENDERER_ROOT_ROUTES.some((r) => p === r || p.startsWith(r))) {
+    const rel = p.replace(/^\/+/, '')
+    // 静态面优先（`staticTarget` 的越根/坏 URL 抛错仍按本服务既有口径 400/403，**不**推给上游；
+    //  `done()` 只是"把 fn 的同步 throw 接到 onErr"，靠它返回 undefined 判"有没有本地文件"是错的 —— 那会挂住连接）
+    let localErr = null
+    let localStat = null
+    try { localStat = statSafe(staticTarget(rel)) } catch (e) { localErr = e }
+    if (localErr) return jsonErr(res, localErr)
+    if (!localStat || localStat.isDirectory()) return done(() => proxyRenderer(req, res, url, rel))
+  }
   if (p.startsWith('/api/')) return done(() => handleApi(req, res, url))
 
   // 兼容壳：与插件 `dsh-mpkg-wallpaper` 的 `GET /list-dirs?path=` **逐字段同形**

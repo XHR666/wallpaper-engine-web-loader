@@ -1110,7 +1110,29 @@ try {
 const cv = document.getElementById('sc');
 const log = document.getElementById('log');
 const fpsEl = document.getElementById('fps');
-const logf = (m) => { log.textContent += m + '\n'; console.log(m); };
+// ①(2026-09-21 诊断流镜像) 把本页的日志行**同时**投给同源 `/diag?msg=`（与上游产物页 `ce()` 同形的 1×1
+//   GIF GET）——为什么需要：测试台（`:8902`）的「渲染器诊断（/diag）」页签读的是**服务端 `/diag` 环形缓冲**
+//   （经 `/api/diag-stream`），而本页此前只写自己的 `#log` DOM ⇒ 预览切到本仓渲染器后那个页签是空的
+//   （真机实测：挂载一次前后都是 50 行）。产物页之所以"天然有"，只是因为它也往这条通道投。
+//   三条纪律：① **只在被嵌入时**投（`window.top !== window.self`：本页单独打开时行为逐位不变，
+//   也不去给 :8899 的 `/diag`（它回的是 HTML 页面、不是图片）添无谓请求）；
+//   ② **限速 20 行/秒**（超了记 `__mpwDiagDropped`，不静默堆请求）；③ 计数写 `window.__mpwDiagSent` 便于核对。
+let mpwDiagSceneId = ''
+let mpwDiagSent = 0, mpwDiagDropped = 0, mpwDiagWinAt = 0, mpwDiagWinN = 0
+const MPW_DIAG_CAP_PER_SEC = 20
+function mpwDiagMirror(m) {
+  try {
+    if (typeof window === 'undefined' || window.top === window.self) return
+    const now = Date.now()
+    if (now - mpwDiagWinAt > 1000) { mpwDiagWinAt = now; mpwDiagWinN = 0 }
+    if (mpwDiagWinN >= MPW_DIAG_CAP_PER_SEC) { mpwDiagDropped++; window.__mpwDiagDropped = mpwDiagDropped; return }
+    mpwDiagWinN++; mpwDiagSent++
+    window.__mpwDiagSent = mpwDiagSent
+    const img = new Image()
+    img.src = '/diag?msg=' + encodeURIComponent('scene ' + (mpwDiagSceneId || '?') + ': ' + String(m).slice(0, 300))
+  } catch (e) { /* 无 window / 无 Image：忽略 */ }
+}
+const logf = (m) => { log.textContent += m + '\n'; console.log(m); mpwDiagMirror(m); };
 // 桥接 console.warn/error 到页面日志（we-scene 的跳过/错误信息都在 console.warn，之前页面看不到！）
 {
   const ow = console.warn, oe = console.error;
@@ -1327,6 +1349,7 @@ else {
 //   供 loadTex 的 rgba 与位图两条上传路径共用，并进上报（maxTextureSize）。
 const DEV_MAX_TEX = (() => { try { return (gl && gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 4096 } catch { return 4096 } })()
 const id = new URL(location.href).searchParams.get('id') || '3554161528';
+try { mpwDiagSceneId = String(id) } catch (e) { /* ignore */ }   // ①(诊断流镜像) 行前缀用当前包 id
 // ①(新) ?autorun=1：自动轮换场景（每 20s 跳下一个，循环）——用户只开一次页面，我收全部报告
 try {
   if (new URLSearchParams(location.search).has('autorun')) {
@@ -1511,6 +1534,161 @@ async function bootInstance(inst) {
   const MPW_WRITE_GLOBALS = PAGE
   let mpwDisposed = false          // dispose 后再被调度器误调 frame 时直接 return
   let mpwFirstFrameDone = 0        // 每实例独立的首帧标记（原来是 window.__mpwFirstFrame 单例）
+  // ═══ MPW-HOSTSTATE ①(2026-09-21) 宿主 API（`window.__wp`）的受控位 ═══
+  //   为什么声明在这里（而不是宿主块里）：本函数**更早**的代码会读它们（`frame()` 首行的暂停位、
+  //   `updateSceneAudioVolume()` 的宿主音量），`let` 的 TDZ 要求声明先于任何可能执行的读。
+  //   · mpwHostVolume：宿主音量档（0..1）——乘进 sound 层既有音量算式；缺省 1 ⇒ 算式逐位不变
+  let mpwHostPaused = false
+  let mpwHostVolume = 1
+  //  · mpwHostFrameFn / mpwHostDisposeFn：宿主 API 在**本函数一开始**就发布（`__wp` 的显示选项那几个键
+  //    是模块级早于本函数写的 ⇒ 宿主在装载期就能摸到 `__wp`）；而 `frame` / `mpwHandle` 要到函数末尾
+  //    才建好 ⇒ 用两个引用持有，宿主过早调用时**如实说"还没就绪"**，绝不抛 TypeError
+  //    （真机踩到：测试台点「释放」时 `E().release is not a function` 直接冒到错误条）。
+  let mpwHostFrameFn = null
+  let mpwHostDisposeFn = null
+
+  // ═══ MPW-HOSTAPI ①(2026-09-21) 宿主契约 `window.__wp` / `window.__wpStats`（测试台预览要用的那几个） ═══
+  // 为什么要有：测试台（`:8902`）的工具条按钮与指针注入**只认上游产物页的公开面**（`__wp.pause/resume/
+  //   release/setFilter/setSceneFps/setRenderDpr/setVolume/setFit/pushPointer/capture` + `__wpStats.frame()`）。
+  //   把预览源切到本仓渲染器后，这些调用若无人接，表现就是"按钮点了没反应"——那比不做还坏。
+  // 三条纪律：
+  //   ① **只补不覆盖**（`window.__wp` 上已存在的键一律不动，同 P-113 的显示选项块）；
+  //   ② 有能力就**真做**，没能力就 `__mpwHostCaps.<名字> = false` + **一条诊断**（诊断流里看得见，不静默）；
+  //   ③ 每次调用都往各自的计数器记账（`__mpwHostCalls`），门禁/真机都能核对"到底谁被调过"。
+  // 坐标口径（`pushPointer`）：测试台给的是**遮罩盒归一坐标** u,v∈[0,1]；本仓库的注入通道
+  //   （`core/we-scene-bundle.js` 的 `__injectedPointer()`）收的是**设计坐标**（场景投影空间，y 向下）。
+  //   ⇒ 这里按 `scene.general.orthogonalprojection.{width,height}`（缺省画布尺寸）换算，`inside:true`；
+  //   `pushPointerLeave()` 写 `inside:false`（P-118 G5：显式"不在画布内" ⇒ 无指针，不回落到旧坐标）。
+  if (PAGE) {
+    try {
+      const WP = (window.__wp = window.__wp || {})
+      const CAPS = (window.__mpwHostCaps = window.__mpwHostCaps || {})
+      const CALLS = (window.__mpwHostCalls = window.__mpwHostCalls || {})
+      const note = (name, msg) => { CALLS[name] = (CALLS[name] || 0) + 1; logf('① 宿主 API ' + name + '：' + msg) }
+      const put = (name, fn, cap) => { if (typeof WP[name] !== 'function') { WP[name] = fn; CAPS[name] = cap !== false } }
+      const projSize = () => {
+        try {
+          const p = (scene && scene.general && scene.general.orthogonalprojection) || {}
+          const w = Number(p.width) > 0 ? Number(p.width) : (cv.width || 1)
+          const h = Number(p.height) > 0 ? Number(p.height) : (cv.height || 1)
+          return [w, h]
+        } catch (e) { return [cv.width || 1, cv.height || 1] }
+      }
+      // 注入通道：**不改写**宿主已放的 `window.__mpwPointer`（只在自己创建时持有引用并原地改字段）
+      const injObj = (window.__mpwPointer && typeof window.__mpwPointer === 'object')
+        ? window.__mpwPointer
+        : (window.__mpwPointer = { x: 0, y: 0, inside: false })
+      // ① 真能力：暂停 / 恢复（冻结渲染循环；恢复走同一处既有重排）
+      put('pause', () => { if (mpwHostPaused) return true; mpwHostPaused = true; try { if (rafId != null) cancelAnimationFrame(rafId) } catch (e) {} rafId = null; note('pause', '渲染循环已冻结（画面停在最后一帧）'); return true })
+      put('resume', () => {
+        if (!mpwHostPaused) return true
+        mpwHostPaused = false
+        try { last = performance.now(); lastFrameNow = 0 } catch (e) { /* 装载期还没这些绑定 */ }
+        if (typeof mpwHostFrameFn !== 'function') { note('resume', '⚠ 帧循环还没就绪（页面还在装载）⇒ 恢复位已清，出帧由装载完成后的自排接管'); return true }
+        note('resume', '渲染循环已恢复')
+        try { mpwHostFrameFn(performance.now()) } catch (e) { note('resume', '⚠ 重启失败: ' + ((e && e.message) || e)) }
+        return true
+      })
+      put('isPaused', () => mpwHostPaused)
+      // ① 真能力：释放（与 P-77 的显式释放同一条路：loseContext + 清引用）
+      put('release', () => {
+        if (typeof mpwHostDisposeFn !== 'function') { note('release', '⚠ 实例还没建好（页面还在装载）⇒ 本次释放是空操作（可重挂载后再试）'); return false }
+        note('release', '已释放本实例（loseContext + 清引用）；再挂载请重新导航本页')
+        try { mpwHostDisposeFn() } catch (e) { return false }
+        return true
+      })
+      // ① 真能力：CSS 滤镜——写进显示选项的**快照**（`composeFilterCss` 的"既有 filter 串"那一档），
+      //   于是它与本页自己的亮度/对比/饱和/色相**合成**而不是互相覆盖（`mpwDisplayApplyAll` 会重算）。
+      put('setFilter', (v) => {
+        const s = (v == null ? '' : String(v)).trim()
+        const snap = MPW_DISPLAY_CANVASES.get(cv)
+        if (!snap) { note('setFilter', '⚠ 本画布没有登记进显示选项 ⇒ 未应用（' + s + '）'); return false }
+        snap.filter = (s && s !== 'none') ? s : ''
+        try { mpwDisplayApplyAll() } catch (e) { return false }
+        note('setFilter', '已应用到渲染输出（与显示选项合成）：' + (snap.filter || '(无)'))
+        return true
+      })
+      // ① 真能力：DPR 上限（活档位下立即重算画布；非活档位下只记一条——固定档位是启动时一次的选择）
+      put('setRenderDpr', (n) => {
+        const v = Number(n)
+        try {
+          if (!__resTier.live) { note('setRenderDpr', '⚠ 当前 `?res=' + (__resTier.requested || '(默认)') + '` 是固定档位 ⇒ 运行期改 DPR 无效（请用 `?res=dpr` 或重挂载）'); return false }
+          __resTier.liveDprCap = (Number.isFinite(v) && v >= 1) ? Math.min(5, Math.round(v)) : null
+          note('setRenderDpr', '活档位 DPR 上限 = ' + (__resTier.liveDprCap == null ? '设备 DPR（无上限）' : __resTier.liveDprCap) + ' ⇒ 立即重算画布')
+          if (typeof inst.liveResApply === 'function') inst.liveResApply('host-dpr')
+          return true
+        } catch (e) { note('setRenderDpr', '⚠ 装载期还没解析画布档位 ⇒ 本次忽略（重挂载后生效）'); return false }
+      })
+      // ① 真能力：宿主音量（乘进 sound 层既有算式；`?audio=1` 之外没有音轨元素 ⇒ 只是记档）
+      put('setVolume', (n) => {
+        const v = Number(n)
+        mpwHostVolume = (Number.isFinite(v) && v >= 0) ? Math.min(1, v) : 1
+        let els = -1
+        try { updateSceneAudioVolume(); els = sceneAudio.els.length } catch (e) { els = -1 }
+        note('setVolume', '宿主音量 = ' + mpwHostVolume + (els === 0 ? '（本页当前没有音轨元素：`?audio=1` 才建）' : (els < 0 ? '（音轨模块还没接上：装载期调用只记档，接上后按 4Hz 生效）' : '（' + els + ' 条音轨元素已按新音量重算）')))
+        return true
+      })
+      // ① 真能力：指针注入（归一坐标 → 设计坐标；注入通道是 core 的既有宿主契约）
+      put('pushPointer', (u, v, buttons) => {
+        const [pw, ph] = projSize()
+        const uu = Math.min(1, Math.max(0, Number(u)))
+        const vv = Math.min(1, Math.max(0, Number(v)))
+        if (!Number.isFinite(uu) || !Number.isFinite(vv)) return false
+        injObj.x = uu * pw; injObj.y = vv * ph; injObj.inside = true
+        if (Number.isFinite(Number(buttons))) injObj.buttons = Number(buttons)
+        CALLS.pushPointer = (CALLS.pushPointer || 0) + 1
+        return true
+      })
+      //  产物页的公开名是 `pointerLeave`；本页早先只写了 `pushPointerLeave` ⇒ **两个名字都给**
+      //  （真机踩到：测试台点「指针注入」关闭时调 `pointerLeave`，没有它直接 TypeError 冒到错误条）。
+      const pointerLeaveImpl = () => { injObj.inside = false; CALLS.pointerLeave = (CALLS.pointerLeave || 0) + 1; return true }
+      put('pointerLeave', pointerLeaveImpl)
+      put('pushPointerLeave', pointerLeaveImpl)
+      // ① 真能力：截图（走本页既有的跨源守卫 `__mpwSafeDataURL`；失败返回 null，**不抛**）
+      put('capture', (quality) => {
+        CALLS.capture = (CALLS.capture || 0) + 1
+        try { return window.__mpwSafeDataURL ? window.__mpwSafeDataURL(cv, 'image/jpeg', Number(quality) || 0.9) : null } catch (e) { return null }
+      })
+      // ② 明确降级（有日志、有 caps 位，不假装成功）：本页的场景路径没有这三样语义
+      put('setFit', (v) => { note('setFit', '⚠ 本仓渲染器的场景路径没有"舞台适配档"（cover/contain/stretch 是上游产物页给 iframe 视口用的）⇒ 本档位在预览里不生效：' + String(v)); return false }, false)
+      put('setSceneFps', (v) => { note('setSceneFps', '⚠ 运行期改帧率未接线（本页渲染循环按 vsync；`?fps=` 也未实现）⇒ 本档位在预览里不生效：' + String(v)); return false }, false)
+      put('updateWebProps', (v) => { note('updateWebProps', '⚠ 网页壁纸属性推送未接线（本仓渲染器的 web 档走宿主注入面）⇒ 本次调用被忽略'); return false }, false)
+      put('loadSceneFile', () => { note('loadSceneFile', '⚠ 本仓渲染器不从 Blob 挂载（请用 `?id=` / `?pkgurl=` / `?pkgpath=` 指定包）⇒ 本次调用被忽略'); return false }, false)
+      put('pushWheel', (dx, dy) => { note('pushWheel', '⚠ 本仓的注入通道只有位置/按键（`window.__mpwPointer`：x/y/inside/buttons），没有滚轮通道 ⇒ 本次滚轮（' + String(dx) + ',' + String(dy) + '）被忽略'); return false }, false)
+      put('restore', () => { note('restore', '⚠ 释放后"恢复"需要重新挂载：本仓渲染器的装载在本页导航时一次完成 ⇒ 请重新选一次壁纸（或点「重挂载」）'); return false }, false)
+      put('setWallpaper', () => { note('setWallpaper', '⚠ 本仓渲染器按 `?id=` 挂载（不接宿主传入的壁纸对象）⇒ 本次调用被忽略'); return false }, false)
+      //  真能力：音频桥（本页既有的 `window.__mpwAudioFrame(freqBytes)` 就是同一个钩子 —— 只在
+      //  `?audio=1` 且真有音轨分析器时才被逐帧调用，缺省一次都不调，与音条源的"不自动出声"纪律一致）
+      put('setAudioBridge', (fn) => {
+        const f = (typeof fn === 'function') ? fn : null
+        try { window.__mpwAudioFrame = f || undefined } catch (e) { return false }
+        note('setAudioBridge', f ? '已接管音频桥（逐帧喂 Uint8 频谱；需要 ?audio=1 且包内有音轨）' : '已清空音频桥')
+        return true
+      })
+      //  真能力：用户属性快照（本页的面板与脚本宿主共用 `window.__mpwUserProps` 同一对象 ⇒ 直接浅拷贝）
+      put('getProperties', () => {
+        CALLS.getProperties = (CALLS.getProperties || 0) + 1
+        try { return window.__mpwUserProps ? Object.assign({}, window.__mpwUserProps) : null } catch (e) { return null }
+      })
+      // `__wpStats.frame()`：测试台的状态条按它显示"壁纸实测帧率"
+      try {
+        if (!window.__wpStats || typeof window.__wpStats.frame !== 'function') {
+          window.__wpStats = Object.assign(window.__wpStats || {}, {
+            frame: () => {
+              let fps = 0
+              try { fps = Number(String(fpsEl && fpsEl.textContent || '').replace(/[^0-9.]/g, '')) || Number(window.__mpwFps) || 0 } catch (e) { fps = 0 }
+              return { running: !mpwHostPaused && !mpwDisposed, fps, frame: window.__mpwFrameNo || 0, res: cv.width + 'x' + cv.height }
+            },
+            size: () => ({ width: cv.width, height: cv.height, cssWidth: cv.clientWidth, cssHeight: cv.clientHeight, dpr: (typeof devicePixelRatio === 'number' ? devicePixelRatio : 1) }),
+          })
+        }
+      } catch (e) { /* 无 window */ }
+      try { window.__mpwHostApiReady = 1 } catch (e) {}
+      const __capsFalse = Object.keys(CAPS).filter((k) => CAPS[k] === false)
+      logf('① 宿主 API 已发布（window.__wp）：真能力 pause/resume/release/setFilter/setRenderDpr/setVolume/pushPointer/capture'
+        + (__capsFalse.length ? '；明确降级 ' + __capsFalse.join('/') : '') + '（读数见 window.__mpwHostCaps）')
+    } catch (e) { logf('⚠ 宿主 API 发布失败: ' + ((e && e.message) || e)) }
+  }
   if (!inst.ctx) inst.ctx = { lost: 0, restored: 0, at: null }   // 每实例上下文丢失计数（多实例诊断逐格）
   let renderer = null, scene = null, pkg = null, textures = new Map(), rafId = null, renderBusy = false
 // ═══ MPW-BASELINE-BEGIN ①(§5-⑨ 真机基线快照 2026-09-17) ═══
@@ -2900,6 +3078,12 @@ function loadScene() {
   scene = ATT_LEGACY
     ? lib.parseScene(sceneObj, null, { attachmentOffsets, uniformFlipY: attachmentOffsets.size > 0, legacyAnimY: true, readParticleDef })
     : lib.parseScene(sceneObj, null, { attachCtx: { readEntry: (n) => lib.getEntry(pkg, n), time: () => skinAnimTime, bindOrder: BIND_ORDER_LEGACY ? 'legacy' : undefined }, readParticleDef })
+  // ①(2026-09-21 宿主调试面) 把图层数组发布到 `window.__sceneLayers`：测试台（`:8902`）「调试模式」页签的
+  //   逐层隔离**只认这个全局**（`demo/bench-patch.js` 的 `sceneLayerList()`），没有它面板会如实写
+  //   "没有可逐层查看的场景"。本仓 core 的渲染循环**逐帧**读 `layer.visible`（`render()` 里
+  //   `let __layerVis = layer.visible`）⇒ 宿主改写 `.visible` 当场生效，不需要额外的 recompute 调用。
+  //   只由 primary 实例写（多实例时全局只该反映被点中的那一格），与既有 `__mpwRawObjects` 同一种写法。
+  if (MPW_WRITE_GLOBALS) { try { window.__sceneLayers = scene.layers } catch (e) { /* 无 window */ } }
   // ①(RE-28) 脚本运行时上下文：脚本写 raw 对象（sceneObj.objects），我们把变化同步回 scene.layers
   const scriptRawObjects = (sceneObj && sceneObj.objects) || []
   window.__mpwRawObjects = scriptRawObjects // ①(P-41 A1-c) 上报 rawOrigin 探针用
@@ -3134,8 +3318,14 @@ function loadScene() {
   // 音量绑定的实时更新（官方声明式绑定：用户改属性 → SetStreamVolume；挂在 4Hz 脚本节拍上足够）
   function updateSceneAudioVolume() {
     if (!sceneAudio.started) return
+    // ①(2026-09-21 宿主 API) 宿主音量档 `__wp.setVolume(n)` 作为**总乘子**：缺省 `mpwHostVolume=1`
+    //   ⇒ 既有算式 `currentAudioVolume(...) * 0.5` 逐位不变（回归红线）。
+    //   写法上**必须**用 `typeof` 兜底：本函数被 `tests/audio-semantics-test.mjs` **整段切片**到 VM 里
+    //   单跑（切片约定见该测试头部），那里没有 `mpwHostVolume` 绑定 —— 裸引用会 ReferenceError 并被
+    //   下面那个 `catch` 吞掉，表现为"用户属性改了音量不动"（真机踩到：该测试的 ① 变红）。
+    const __hostGain = (typeof mpwHostVolume === 'number' && isFinite(mpwHostVolume) && mpwHostVolume >= 0) ? mpwHostVolume : 1
     for (const v of sceneAudio.vols) {
-      try { v.el.volume = currentAudioVolume(null, v.binding) * 0.5 } catch (e) { /* ignore */ }
+      try { v.el.volume = currentAudioVolume(null, v.binding) * 0.5 * __hostGain } catch (e) { /* ignore */ }
     }
   }
   // ═══ MPW-BANDFEED-BEGIN ①(P-112-BANDGEOM 2026-09-17；P-131 批D 2026-09-19 改缺省+加麦克风源) 128 元频段数组接线 ═══
@@ -3484,6 +3674,15 @@ function loadScene() {
       } else if (l.__texFrameForced) { l.__texFrameForced = false; synced++ }
       const play = raw.__texFramePlay === true
       if (play !== (l.__texFramePlay === true)) { l.__texFramePlay = play; synced++ }
+      // ①(2026-09-21 官方 ITextureAnimation) 两个方向的接线：
+      //   ① **回填**：`frameCount/duration` 的真值来自包里的 TEXS 帧表（解析期由 core 盖章到
+      //      `l.__texFrameCount/__texFrameDuration`），而脚本侧的 `getTextureAnimation()` 句柄读的是
+      //      **raw 对象** ⇒ 这里回填给它（只在脚本侧还没有值时写：脚本自己写过的优先）。
+      //      没有这一步，作者脚本里的 `getFrame() == frameCount-1` 会因为 `undefined` 恒假（静默错分支）。
+      //   ② **前推**：脚本写 `raw.__texRate`（速度倍率）⇒ 同步到渲染层，core 的精灵帧推进按它缩放。
+      if (raw.__texFrameCount === undefined && typeof l.__texFrameCount === 'number') raw.__texFrameCount = l.__texFrameCount
+      if (raw.__texFrameDuration === undefined && typeof l.__texFrameDuration === 'number') raw.__texFrameDuration = l.__texFrameDuration
+      if (typeof raw.__texRate === 'number' && isFinite(raw.__texRate) && l.__texRate !== raw.__texRate) { l.__texRate = raw.__texRate; synced++ }
     }
     // TIME-VARIATION: "加载此层"的钉层优先于脚本（脚本 4Hz 会抢，这里在同一帧内扳回，无闪烁）
     if (window.__mpwTime) { try { if (window.__mpwTime.reassert()) synced++ } catch (e) {} }
@@ -5349,6 +5548,83 @@ function loadScene() {
     if (MPW_WRITE_GLOBALS) { try { window.__mpwResTier = __resDown } catch (e) {} }
     try { window.__mpwInstResTier = { name: __resDown.name, width: __resDown.width, height: __resDown.height } } catch (e) {}
   }
+  // ═══ MPW-LIVERES ①(2026-09-21) 活档位 `?res=dpr` / `?res=dpr1..dpr5`：画布 = 显示尺寸 × DPR（有上限） ═══
+  // 为什么要有它（真机读数，不是推测）：测试台 `:8902` 的预览面板实测 **624×351 CSS px**，而当时的画布
+  //   读数也是 **624×351** —— 上游产物页的算式是 `画布 = clientWidth × min(devicePixelRatio, renderDpr)`，
+  //   工具条「DPR」档缺省就是 `1` ⇒ 任何 DPR>1 的屏幕上**永远按 1× CSS 像素出图**（2× 屏正好糊一倍），
+  //   全屏时画布会跟着盒子变大、但乘数仍是 1（"全屏也一样糊"）。本档位把乘数换成**设备 DPR**，
+  //   并且**显示尺寸 / DPR / 全屏一变就重算** —— 这正是"画布尺寸 = 显示尺寸 × DPR（有上限）
+  //   且全屏/改 DPR 时真的重算"那条链。算式只有一份：`lib.resolveLiveCanvasSize`（纯函数，Node 侧钉住）。
+  // 判据（读数，不是观感）：`window.__mpwLiveRes = {cssW,cssH,dpr,dprCap,width,height,capped,updates,why}`
+  //   + 一条 `① 画布随显示尺寸重算…` 日志；门禁 `tests/bench-renderer-source-test.mjs` 直接吃这两个读数。
+  // 诚实边界（两条）：
+  //   ① 每次改尺寸都要新的 FBO（core 的 `fboCache` 按"尺寸"做键、且**从不回收**）⇒ 这里对重算做 120ms
+  //      防抖（拖窗口不会一帧一个新尺寸），并靠 `LIVE_CANVAS_LIMITS` 封顶（单边 ≤4096、总像素 ≤3840×2160）；
+  //      旧尺寸的 FBO 会留在缓存里 —— 这是既有实现的性质，本块不擅自回收别人的缓存。
+  //   ② `?res=` 之外的档位（720p…2160p/auto/legacy）**一个字都不动**：它们仍是"启动时一次"的固定档
+  //      （video-quality-test 用冻结算式逐值对拍）。
+  if (__resTier.live) {
+    const LIVE_DEBOUNCE_MS = 120
+    let liveTimer = null
+    let liveUpdates = 0
+    const applyLiveNow = (why) => {
+      liveTimer = null
+      const size = lib.resolveLiveCanvasSize({
+        cssW: cv.clientWidth, cssH: cv.clientHeight,
+        deviceDpr: (typeof devicePixelRatio === 'number' ? devicePixelRatio : 1),
+        dprCap: __resTier.liveDprCap,
+      })
+      if (size.width === cv.width && size.height === cv.height) return size
+      const from = cv.width + 'x' + cv.height
+      cv.width = size.width; cv.height = size.height
+      // 视频纹理上传上限与画布**同源同值**（`?res=` 的既有口径）：画布变了，上限跟着变
+      __resTier.width = size.width; __resTier.height = size.height
+      __resTier.capW = size.width; __resTier.capH = size.height
+      liveUpdates++
+      if (MPW_WRITE_GLOBALS) {
+        try { window.__mpwResTier = __resTier } catch (e) {}
+        try {
+          window.__mpwLiveRes = {
+            cssW: size.cssW, cssH: size.cssH, dpr: size.dpr, dprCap: size.dprCap,
+            width: size.width, height: size.height, capped: size.capped, updates: liveUpdates, why,
+          }
+        } catch (e) {}
+      }
+      logf('① 画布随显示尺寸重算（' + why + '）：' + from + ' → ' + size.width + 'x' + size.height
+        + '（显示 ' + size.cssW + 'x' + size.cssH + ' × DPR ' + size.dpr
+        + (size.dprCap ? '（上限 ' + size.dprCap + '）' : '') + '，' + size.capped + '）')
+      return size
+    }
+    const scheduleLive = (why) => {
+      if (liveTimer != null) clearTimeout(liveTimer)
+      liveTimer = setTimeout(() => applyLiveNow(why), LIVE_DEBOUNCE_MS)
+    }
+    let liveRo = null
+    try { if (typeof ResizeObserver === 'function') { liveRo = new ResizeObserver(() => scheduleLive('resize')); liveRo.observe(cv) } } catch (e) { liveRo = null }
+    const onLiveWinResize = () => scheduleLive('window-resize')
+    window.addEventListener('resize', onLiveWinResize)
+    // DPR 变化（拖到另一块屏 / 浏览器缩放 / 全屏）不会触发 resize 事件 ⇒ 用一条 `(resolution: N dppx)`
+    // 媒体查询盯着**当前** DPR，命中即重新武装并重算（每一档都要重新注册，媒体查询只报"离开"）。
+    let liveDprMq = null
+    const onLiveDprChange = () => { armLiveDpr(); scheduleLive('dpr-change') }
+    function armLiveDpr() {
+      try { liveDprMq = matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)') } catch (e) { liveDprMq = null }
+      try { if (liveDprMq && typeof liveDprMq.addEventListener === 'function') liveDprMq.addEventListener('change', onLiveDprChange, { once: true }) } catch (e) {}
+    }
+    armLiveDpr()
+    // 给宿主 API 用（`__wp.setRenderDpr`）：块作用域里的函数在外面看不到 ⇒ 挂到实例记录上，
+    // 与 `liveResDispose` 同一处（顺手把"宿主改 DPR 立即重算"这条链留成显式入口）。
+    inst.liveResApply = (why) => applyLiveNow(why || 'host-dpr')
+    inst.liveResDispose = () => {
+      try { if (liveTimer != null) clearTimeout(liveTimer) } catch (e) {}
+      try { if (liveRo) liveRo.disconnect() } catch (e) {}
+      try { window.removeEventListener('resize', onLiveWinResize) } catch (e) {}
+      try { if (liveDprMq && typeof liveDprMq.removeEventListener === 'function') liveDprMq.removeEventListener('change', onLiveDprChange) } catch (e) {}
+    }
+    // 立即校正一次：`parseResTier` 的初值用的是 `innerWidth/innerHeight`，非 16:9 窗口下与画布的
+    // **CSS 盒**（`fitCanvas` 取窗口内最大的 16:9 盒）不同 ⇒ 这里以画布盒为准（`applyLiveNow` 不改尺寸就静默）。
+    applyLiveNow('init')
+  }
   logf('分辨率档位 ?res=' + (__resTier.invalid ? __resTier.invalid + '(非法→回退)' : (__resTier.requested || '(默认)')) + ' → ' + __resTier.name + ' ' + __resTier.width + 'x' + __resTier.height + '，视频上传上限 ' + __resTier.capW + 'x' + __resTier.capH + '，节流 ' + (__resTier.legacy ? '33ms(legacy)' : '60fps') + (__resTier.legacy ? ' [legacy 逐位兼容]' : ''));
   // ①(P-68 交接 ⑤.2，P-64-MEDIA 轮顺带修) `?diag` 逐层采样的**坐标口径**：设计像素（世界系）
   //   → 画布像素。**两轴都是正比换算、不做 y 翻转** —— 依据：`core/we-scene-bundle.js:5941` 注释
@@ -6298,6 +6574,11 @@ function loadScene() {
   let lastFrameNow = last0;      // ①(N7) 真实 frametime 取样点（上一帧的 performance.now）
   const frame = (now) => {
     if (mpwDisposed) return;   // ①(P-77) dispose 之后即使被误调也不再出帧（引用已清空）
+    // ①(2026-09-21 宿主 API) `__wp.pause()` 冻结：本帧不出、也**不自排**下一帧（`resume()` 直接调
+    //   `mpwHandle.frame(performance.now())` 重启 ⇒ 重排仍只发生在函数末尾那一处既有站点）。
+    //   诚实边界：暂停期间画布保持最后一帧（与上游 `paused` 一致），sound 层仍按自己的 `<audio>` 播放
+    //   —— 本页没有把音轨接进暂停语义（`?audio=1` 才建音轨元素，缺省一个都没有）。
+    if (mpwHostPaused) return;
     frames++; ft += (now - last); last = now;
     // ①(N7 2026-09-14) 上一帧真实秒数（官方 engine.frametime 语义；首帧为 0）
     const frameDt = (typeof now === 'number' && isFinite(now) && lastFrameNow) ? Math.max(0, (now - lastFrameNow) / 1000) : 0;
@@ -6521,6 +6802,10 @@ function loadScene() {
     //   多实例：**不自排** —— 由外层唯一的调度器（multi-instance.js）决定这一帧给谁跑（设计文档 §2.3）。
     if (!SCHEDULED) rafId = requestAnimationFrame(frame);
   };
+  // ①(2026-09-21 宿主 API) `frame` 到这里才初始化完 ⇒ 交给早发布的那份 API（`__wp.resume()` 用它重启）。
+  //   放在**定义之后**是硬要求：`const frame` 是块级绑定，提前读 = TDZ ReferenceError（实测踩到：
+  //   页面日志写 `can't access lexical declaration 'frame' before initialization`、画面全空）。
+  mpwHostFrameFn = frame;
   // ═══ MPW-AUDIO-PANEL-BEGIN ①(N6 2026-09-14 用户决策 C) :8899 顶栏 🔊 音频面板 ═══
   //   用户口径 C：**先在 :8899 加按钮**、**现场解析当前包内音轨**、逐条播放/导出；反应效果只留接口位。
   //   纯客户端（服务端零改动）：包已整体读进内存 —— `pkg.entries` + `lib.getEntry(pkg, path)`，
@@ -7024,6 +7309,9 @@ function loadScene() {
       mpwDisposed = true;
       try { if (rafId != null) cancelAnimationFrame(rafId) } catch (e) {}
       rafId = null;
+      // ①(2026-09-21 活档位) 摘掉本实例装的 ResizeObserver / resize / DPR 媒体查询监听
+      //   （多实例来回切时不留悬挂监听；`inst` 是本实例记录，装载时就写好的那个对象）
+      try { if (typeof inst.liveResDispose === 'function') inst.liveResDispose() } catch (e) {}
       try { mpwLoseContext(gl) } catch (e) { logf('⚠ loseContext 失败: ' + ((e && e.message) || e)) }
       try {
         for (const t of textures.values()) {
@@ -7048,6 +7336,8 @@ function loadScene() {
   } else {
     rafId = requestAnimationFrame(frame);
   }
+  // ①(2026-09-21 宿主 API) 实例句柄就绪 ⇒ `__wp.release()` 用它（与 P-77 的显式释放同一条路）
+  mpwHostDisposeFn = () => mpwHandle.dispose();
   return mpwHandle;
 }
 // ═══ ①(P-77 一页多实例·第 1~5 步) 两个调用点 ═══

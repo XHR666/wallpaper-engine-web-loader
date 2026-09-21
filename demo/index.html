@@ -110,6 +110,9 @@ html.bench-shell #toolbar{max-height:30vh;overflow-y:auto;flex-wrap:wrap;max-wid
    可切「麦克风」或「模拟」看形态"），所以让它**换行**（`flex-wrap` 优先）而不是 `nowrap` +
    `text-overflow:ellipsis` —— 截断会把"可切麦克风/模拟"这条出路吃掉。*/
 html.bench-shell #status-bandfeed{flex:0 1 auto;min-width:0;max-width:100%;color:var(--fg-dim);font-size:12px;line-height:1.35;overflow-wrap:anywhere}
+/* ⑪(2026-09-21) 「渲染器来源」状态行：与上面那条同口径（一整句、可换行、不截断）——
+   它写的是"跑的是哪条路径 + 画布/DPR 真读数 + 哪些能力明确降级"，截断会把降级名单吃掉。*/
+html.bench-shell #status-renderer-src{flex:0 1 auto;min-width:0;max-width:100%;color:var(--fg-dim);font-size:12px;line-height:1.35;overflow-wrap:anywhere}
 /* ⑬(2026-09-19 用户要求) 下拉浮层浮在页面上层：`position:fixed` 让它脱离 `#toolbar` / `#main` /
    `#props-body` 的 overflow 裁剪（这些祖先都没有 transform/contain ⇒ 不是固定定位的包含块），
    坐标由 `dropdownLayerPlan()` 在展开时写内联 left/top/min-width/max-height。
@@ -751,6 +754,20 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
                  随语言与档位重画；`data-mpw-bandfeed-status` = 状态种类（idle/live/silent/off），
                  `data-mpw-bandfeed-source` = 源类型。判据读这两个属性 + 文本。 -->
             <span id="status-bandfeed" data-mpw-bandfeed-status="idle" data-mpw-bandfeed-source="none" data-mpw-bandfeed-mode="auto" data-i18n-title="toolbar.bandfeedTip" title="音条（音频条）的数据源：壁纸 = 只用包内音轨，没有就如实全 0；麦克风 = 显式请求麦克风（还要勾「启用麦克风」）；模拟 = 确定性模拟源（只看形态）；关 = 不接任何源">音条状态：等待渲染器回报…</span>
+            <!-- ⑪(2026-09-21) 「渲染器来源」两档：预览 iframe 到底跑哪一个渲染器。
+                 上游产物 = `demo/renderer/index.html`（minified、不可重建、`alpha:false` 且画布乘数被
+                 `renderDpr` 上限 1 夹住）；本仓渲染器 = 同源 `/webloader/` 代理到 `:8899` 的 `demo.html`
+                 （含本仓 core 的透明/粒子/画质修复与 `?res=dpr` 活档位）。
+                 换档**只改写 iframe src 的路径与补充参数**，原有 query 一个不丢（`bandfeed`、调试档都在），
+                 然后走产物自己的「重挂载」`#reload` 重设 src。判据见 tests/bench-renderer-source-test.mjs。 -->
+            <label data-i18n-title="toolbar.rendererSrcTip" title="预览用哪个渲染器：上游产物页 = demo/renderer/index.html（不可重建的 minified 包）；本仓渲染器 = 同源 /webloader/（:8899 的 demo.html + 本仓 core）。换档会重挂载预览">
+              <span data-i18n="toolbar.rendererSrc">渲染器</span>
+              <select id="renderer-src">
+                <option value="repo" selected data-i18n="rendererSrc.repo">本仓渲染器</option>
+                <option value="upstream" data-i18n="rendererSrc.upstream">上游产物</option>
+              </select>
+            </label>
+            <span id="status-renderer-src" data-mpw-renderer-src="repo" data-mpw-renderer-ready="0" data-i18n-title="toolbar.rendererSrcTip" title="预览用哪个渲染器：上游产物页 = demo/renderer/index.html（不可重建的 minified 包）；本仓渲染器 = 同源 /webloader/（:8899 的 demo.html + 本仓 core）。换档会重挂载预览">渲染器来源：等待挂载…</span>
             <label class="check" data-i18n-title="toolbar.pointerPushTip" title="模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，改用 __wp.pushPointer 推送坐标 —— 与宿主对接的是同一条通道">
               <input id="pointer-push" type="checkbox" />
               <span data-i18n="toolbar.pointerPush">指针注入</span>

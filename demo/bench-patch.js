@@ -94,7 +94,7 @@ export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"
 "pickd.selected":"已选择：{path}","pickd.applying":"正在切换库目录…","pickd.done":"库目录已切换：{path}（重新载入中…）","pickd.fail":"切换失败：{msg}","pickd.relisted":"已重新拉取壁纸库列表（{n} 项）","pickd.noStart":"服务端没有给出可浏览的快捷根（GET /api/fs/roots 的 roots 为空）","pickd.listFail":"读取目录失败：{path} —— {msg}",
 "pickd.frontend":"纯前端扫描（文件不离开浏览器）","pickd.system":"系统选择器（可能选不到环境内目录）","pickd.systemHint":"服务端打开的原生对话框；容器/安卓环境下常常看不到或选不到环境内目录 ⇒ 仅作兜底",
 "pickd.dirTag":"目录","pickd.fileTag":"文件","pickd.rootLocked":"服务端默认不允许列出这个根（只读边界）；可用 MPW_PICK_ROOT 放宽",
-"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）","props.hiddenNote":"已隐藏 {n} 项内部/占位属性（在地址后加 {flag} 显示全部原始项）","props.placeholderNote":"占位属性（文案里没有可读内容）⇒ 不显示控件","props.emptyShownNote":"该壁纸没有可显示的可调项","props.ext.title":"打开外部链接？","props.ext.host":"目标域名：{host}","props.ext.warn":"这条链接来自壁纸作者的属性文案，不是本页生成的。确认域名可信再继续：只会以新标签打开，并带 noopener / noreferrer。","props.ext.cancel":"取消","props.ext.open":"打开","props.ext.wait":"请稍候（{n}s）","props.ext.opening":"已打开外部链接：{host}","props.ext.cancelled":"已取消：没有打开外部链接","props.linkBlocked":"已拒绝该链接：只放行 http(s)","props.num.invalid":"非法输入（{why}）：未写回，已恢复原值","props.num.clamped":"已按属性范围调整：{v}（{why}）","num.why.empty":"空值","num.why.too-long":"位数过多","num.why.not-finite":"不是有限数（Infinity / NaN）","num.why.radix-prefix":"不支持十六/八/二进制前缀","num.why.exponent":"不支持科学计数法（1e9）","num.why.not-a-number":"不是数字","num.why.too-many-decimals":"小数位过多","num.why.min":"低于下界","num.why.max":"高于上界","num.why.step":"按步长对齐","num.why.precision":"按精度取整","toolbar.bandfeed":"音条源","toolbar.bandfeedTip":"音条（音频条）的数据源：壁纸 = 只用包内音轨，没有就如实全 0；麦克风 = 显式请求麦克风（还要勾「启用麦克风」）；模拟 = 确定性模拟源（只看形态）；关 = 不接任何源。换档会重挂载渲染器","bandfeed.wallpaper":"壁纸","bandfeed.mic":"麦克风","bandfeed.sim":"模拟","bandfeed.off":"关","bandfeed.idle":"音条状态：等待渲染器回报…","bandfeed.noReport":"音条状态：这个渲染器没有回报音条数据源（该版本不认「?bandfeed=」）—— 档位已写进 URL：{mode}（测试台今天嵌入的是产物页；本仓自己的渲染器页在 :8899，:8902 有同源 /webloader/ 代理）","bandfeed.srcWallpaper":"音条数据源：包内音轨（?audio=1 的 sound 层）","bandfeed.srcMic":"音条数据源：麦克风","bandfeed.srcSim":"音条数据源：模拟（形态可见，不是真实频谱）","bandfeed.silent":"音条无数据：该壁纸没有音源或已静音 —— 可切「麦克风」或「模拟」看形态","bandfeed.offNote":"音条源：关 —— 渲染器不接任何数据源（脚本侧退回旧 audioBuffers 路径）","bandfeed.whyNoSource":"没有数据源：?audio=1 的包内音轨与麦克风都没有","bandfeed.whyNoTrack":"包内没有可用的音轨分析器（需要 ?audio=1 且包里真有 sound 层在播）","bandfeed.whyMicGate":"测试台「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）","bandfeed.whyMicDenied":"麦克风授权被拒绝或未启用（不会再请求第二次）","bandfeed.whyMicWait":"麦克风还在等待授权 / 初始化","bandfeed.whyMicUnsupported":"这个浏览器没有 navigator.mediaDevices（拿不到麦克风）","bandfeed.whyMicError":"麦克风初始化失败","bandfeed.whyMicGeneric":"麦克风不可用","log.bandfeedSwitch":"音条源：{mode} —— {status}","log.bandfeedMicGated":"音条源选了「麦克风」，但「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）⇒ 音条保持全 0；要真接麦克风请先勾「启用麦克风」（勾上会自动重挂载一次）","log.bandfeedNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 音条档位在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.mic":"Enable microphone","toolbar.micTip":"Off by default: while off the page never requests the microphone (getUserMedia is not called) and “Live system” keeps title/progress only; when on it is requested only if a wallpaper/feature declares the need, never pre-requested at load","dbg.switch":"Enable debug mode","dbg.switchTip":"Step through layers (left/right) and isolate them; the keyboard is captured only while the debug view is open, Alt exits","logs.cleared":"Cleared ({view})","log.micOn":"Microphone enabled: requested only when a wallpaper/feature declares the need (no pre-request at load)","log.micOff":"Microphone disabled: no mic request is issued at all","log.micNeeded":"The microphone half of “Live system” needs “Enable microphone” first — title/progress only for now","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","logs.debug":"Debug mode","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
+"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）","props.hiddenNote":"已隐藏 {n} 项内部/占位属性（在地址后加 {flag} 显示全部原始项）","props.placeholderNote":"占位属性（文案里没有可读内容）⇒ 不显示控件","props.emptyShownNote":"该壁纸没有可显示的可调项","props.ext.title":"打开外部链接？","props.ext.host":"目标域名：{host}","props.ext.warn":"这条链接来自壁纸作者的属性文案，不是本页生成的。确认域名可信再继续：只会以新标签打开，并带 noopener / noreferrer。","props.ext.cancel":"取消","props.ext.open":"打开","props.ext.wait":"请稍候（{n}s）","props.ext.opening":"已打开外部链接：{host}","props.ext.cancelled":"已取消：没有打开外部链接","props.linkBlocked":"已拒绝该链接：只放行 http(s)","props.num.invalid":"非法输入（{why}）：未写回，已恢复原值","props.num.clamped":"已按属性范围调整：{v}（{why}）","num.why.empty":"空值","num.why.too-long":"位数过多","num.why.not-finite":"不是有限数（Infinity / NaN）","num.why.radix-prefix":"不支持十六/八/二进制前缀","num.why.exponent":"不支持科学计数法（1e9）","num.why.not-a-number":"不是数字","num.why.too-many-decimals":"小数位过多","num.why.min":"低于下界","num.why.max":"高于上界","num.why.step":"按步长对齐","num.why.precision":"按精度取整","toolbar.bandfeed":"音条源","toolbar.bandfeedTip":"音条（音频条）的数据源：壁纸 = 只用包内音轨，没有就如实全 0；麦克风 = 显式请求麦克风（还要勾「启用麦克风」）；模拟 = 确定性模拟源（只看形态）；关 = 不接任何源。换档会重挂载渲染器","bandfeed.wallpaper":"壁纸","bandfeed.mic":"麦克风","bandfeed.sim":"模拟","bandfeed.off":"关","bandfeed.idle":"音条状态：等待渲染器回报…","bandfeed.noReport":"音条状态：这个渲染器没有回报音条数据源（该版本不认「?bandfeed=」）—— 档位已写进 URL：{mode}（测试台今天嵌入的是产物页；本仓自己的渲染器页在 :8899，:8902 有同源 /webloader/ 代理）","bandfeed.srcWallpaper":"音条数据源：包内音轨（?audio=1 的 sound 层）","bandfeed.srcMic":"音条数据源：麦克风","bandfeed.srcSim":"音条数据源：模拟（形态可见，不是真实频谱）","bandfeed.silent":"音条无数据：该壁纸没有音源或已静音 —— 可切「麦克风」或「模拟」看形态","bandfeed.offNote":"音条源：关 —— 渲染器不接任何数据源（脚本侧退回旧 audioBuffers 路径）","bandfeed.whyNoSource":"没有数据源：?audio=1 的包内音轨与麦克风都没有","bandfeed.whyNoTrack":"包内没有可用的音轨分析器（需要 ?audio=1 且包里真有 sound 层在播）","bandfeed.whyMicGate":"测试台「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）","bandfeed.whyMicDenied":"麦克风授权被拒绝或未启用（不会再请求第二次）","bandfeed.whyMicWait":"麦克风还在等待授权 / 初始化","bandfeed.whyMicUnsupported":"这个浏览器没有 navigator.mediaDevices（拿不到麦克风）","bandfeed.whyMicError":"麦克风初始化失败","bandfeed.whyMicGeneric":"麦克风不可用","log.bandfeedSwitch":"音条源：{mode} —— {status}","log.bandfeedMicGated":"音条源选了「麦克风」，但「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）⇒ 音条保持全 0；要真接麦克风请先勾「启用麦克风」（勾上会自动重挂载一次）","log.bandfeedNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 音条档位在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可","toolbar.rendererSrc":"渲染器","toolbar.rendererSrcTip":"预览用哪个渲染器：上游产物 = demo/renderer/index.html（不可重建的 minified 包，画布乘数被「DPR」档上限夹住、上下文 alpha:false）；本仓渲染器 = 同源 /webloader/（:8899 的 demo.html + 本仓 core，含 ?res=dpr 画布活档位与透明/粒子修复）。换档会重挂载预览","rendererSrc.upstream":"上游产物","rendererSrc.repo":"本仓渲染器","rendererSrc.loading":"渲染器来源：本仓渲染器正在加载…","rendererSrc.repoOn":"渲染器来源：本仓渲染器（{label}）· 画布 {res}","rendererSrc.repoDegraded":"渲染器来源：本仓渲染器（{label}）· 画布 {res} —— 明确降级的能力：{caps}","rendererSrc.notRepo":"渲染器来源：本仓渲染器 —— ⚠ 但当前文档看着不像本仓渲染器（{url}）","rendererSrc.unreachable":"渲染器来源：本仓渲染器 —— ⚠ 打不开（{why}）：本机 :8899 没在跑？回退请选「上游产物」","rendererSrc.upstreamOn":"渲染器来源：上游产物（{label}）—— minified 包，画质与透明按上游口径","log.rendererSrcSwitch":"渲染器来源：{mode}（{detail}）","log.rendererSrcNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 渲染器来源在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可","log.rendererSrcRewrote":"「重挂载」这次没有重设渲染器（没有已挂载的壁纸 / 走的是合成样例那条路径）⇒ 已把**当前预览 URL 按新档位重写一次**（同一条改写链），立即生效","log.rendererSrcSampleSkipped":"合成样例：本仓渲染器档不载它（本仓按 ?id= 取包挂载；那条 __wp.loadSceneFile 契约本仓明确降级）—— 上游产物档行为不变","log.rendererSrcSampleRepo":"合成样例：本仓渲染器档按 `?id=sample-synthetic` 挂载（与产物档同一个样例、同一份字节；取包走本仓 `/pkg/<id>`）：{url}","log.rendererSrcSampleExplicit":"合成样例：本仓渲染器档不认 `?sample=<url>`（那是产物页 `loadSceneFile(blob)` 的调试档）—— 已忽略，仍用自带样例"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the webwallgl source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.mic":"Enable microphone","toolbar.micTip":"Off by default: while off the page never requests the microphone (getUserMedia is not called) and “Live system” keeps title/progress only; when on it is requested only if a wallpaper/feature declares the need, never pre-requested at load","dbg.switch":"Enable debug mode","dbg.switchTip":"Step through layers (left/right) and isolate them; the keyboard is captured only while the debug view is open, Alt exits","logs.cleared":"Cleared ({view})","log.micOn":"Microphone enabled: requested only when a wallpaper/feature declares the need (no pre-request at load)","log.micOff":"Microphone disabled: no mic request is issued at all","log.micNeeded":"The microphone half of “Live system” needs “Enable microphone” first — title/progress only for now","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","logs.debug":"Debug mode","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
 "dbg.report":"Report now","dbg.reportTip":"Post the current diagnostics immediately (/report, then /baseline, then /diag)","dbg.shot":"Screenshot","dbg.shotTip":"Download the preview canvas as JPEG","dbg.reporting":"Reporting…","dbg.reported":"Reported: {where} ({bytes} B)","dbg.reportFail":"Report failed: {msg}","dbg.shotOk":"Screenshot saved: {name} ({kb} KB)","dbg.shotFail":"Screenshot failed: {why}","dbg.on":"Debug mode: on (left/right steps layers; Alt exits)","dbg.off":"Debug mode: off","dbg.layerNone":"No scene to inspect layer by layer","dbg.layerLine":"Layer {i}/{n} · {name}","dbg.noScene":"No scene layers right now (not mounted / failed to load)","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory","nav.console":"Console","nav.docs":"Guide","nav.wpset":"Wallpaper settings","nav.settings":"Settings","nav.settingsTip":"Language / theme / attribution & licences","nav.lang":"Language","nav.theme":"Theme","nav.backend":"Backend","nav.backendUnknown":"unknown","nav.backendNote":"Static hosting (GitHub Pages) has no local Node backend: library listing / property saving / deleting / the diagnostics stream are unavailable online — by design, not a failure. “Choose folder” (in-browser scan) still works.","wp.add":"＋","wp.addTitle":"Add / switch wallpaper: open the left list filtered to hide the current one","logs.expandTip":"Expand the output (console)","logs.collapseTip":"Collapse the output (console)","props.emptyState":"No wallpaper picked yet","props.emptyHint":"Pick one in “Choose wallpaper” on the left; the options declared in its project.json show up here.",
 "libsrc.default":"Library source: machine default directory (server built-in — you have not chosen one)","libsrc.default.hint":"This is the server's start-up default, not a choice you made; click “Choose folder” to browse in-app and pick one","libsrc.default.path":"(default library directory unavailable)",
 "libsrc.user":"Library source: the directory you chose","libsrc.user.hint":"Chosen by you via “Choose folder” (accepted by the server's /api/library-dir)","libsrc.user.path":"(chosen directory is empty)",
@@ -113,7 +113,7 @@ export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"
 "pickd.selected":"Selected: {path}","pickd.applying":"Switching the library directory…","pickd.done":"Library directory switched: {path} (reloading…)","pickd.fail":"Switch failed: {msg}","pickd.relisted":"library list re-fetched ({n} items)","pickd.noStart":"The server exposed no browsable root (GET /api/fs/roots returned an empty roots array)","pickd.listFail":"Listing failed: {path} — {msg}",
 "pickd.frontend":"In-browser scan (files never leave the browser)","pickd.system":"System picker (may not reach directories inside this environment)","pickd.systemHint":"The native dialog opened by the server; in containers/Android it is often invisible or cannot reach the environment's directories — fallback only",
 "pickd.dirTag":"dir","pickd.fileTag":"file","pickd.rootLocked":"The server does not allow listing this root by default (read-only boundary); relax it with MPW_PICK_ROOT",
-"credit.link":"README · License & credits (GPL-3.0-or-later + upstream MIT)","props.hiddenNote":"Hid {n} internal/placeholder item(s) (append {flag} to show every raw item)","props.placeholderNote":"Placeholder property (no readable text) — colour control hidden","props.emptyShownNote":"This wallpaper has no adjustable items to show","props.ext.title":"Open external link?","props.ext.host":"Target domain: {host}","props.ext.warn":"This link comes from the wallpaper author\u2019s property text, not from this page. Continue only if you trust the domain: it opens in a new tab with noopener / noreferrer.","props.ext.cancel":"Cancel","props.ext.open":"Open","props.ext.wait":"Wait ({n}s)","props.ext.opening":"Opened external link: {host}","props.ext.cancelled":"Cancelled: no external link opened","props.linkBlocked":"Link refused: only http(s) is allowed","props.num.invalid":"Invalid input ({why}): not saved, original value restored","props.num.clamped":"Adjusted to the property range: {v} ({why})","num.why.empty":"empty","num.why.too-long":"too many characters","num.why.not-finite":"not a finite number (Infinity / NaN)","num.why.radix-prefix":"hex/octal/binary prefixes are unsupported","num.why.exponent":"scientific notation (1e9) is unsupported","num.why.not-a-number":"not a number","num.why.too-many-decimals":"too many decimals","num.why.min":"below the minimum","num.why.max":"above the maximum","num.why.step":"snapped to the step","num.why.precision":"rounded to the precision","toolbar.bandfeed":"Audio bar source","toolbar.bandfeedTip":"Audio bar (visualizer) data source: Wallpaper = the in-package track only (honestly all-zero when there is none); Microphone = explicitly request the mic (also needs “Enable microphone”); Simulated = deterministic simulated source (shape only); Off = no source at all. Switching remounts the renderer","bandfeed.wallpaper":"Wallpaper","bandfeed.mic":"Microphone","bandfeed.sim":"Simulated","bandfeed.off":"Off","bandfeed.idle":"Audio bar: waiting for the renderer to report…","bandfeed.noReport":"Audio bar: this renderer reports no audio-bar source (this build ignores “?bandfeed=”) — the mode is in the URL: {mode} (the bench currently embeds the product page; this repo’s own renderer page runs on :8899 with a same-origin /webloader/ proxy on :8902)","bandfeed.srcWallpaper":"Audio bar source: in-package track (the ?audio=1 sound layer)","bandfeed.srcMic":"Audio bar source: microphone","bandfeed.srcSim":"Audio bar source: simulated (shape only, not a real spectrum)","bandfeed.silent":"No audio-bar data: this wallpaper has no audio source or is muted — switch to “Microphone” or “Simulated” to see the shape","bandfeed.offNote":"Audio bar source: Off — the renderer takes no data source (the script side falls back to the legacy audioBuffers path)","bandfeed.whyNoSource":"No data source: neither the ?audio=1 in-package track nor the microphone is available","bandfeed.whyNoTrack":"No usable track analyser in the package (needs ?audio=1 with a sound layer actually playing)","bandfeed.whyMicGate":"“Enable microphone” is off in the bench: no mic request is issued (getUserMedia is never called)","bandfeed.whyMicDenied":"Microphone permission was denied or not enabled (it will not be requested a second time)","bandfeed.whyMicWait":"The microphone is still waiting for permission / initialisation","bandfeed.whyMicUnsupported":"This browser has no navigator.mediaDevices (the microphone is unavailable)","bandfeed.whyMicError":"Microphone initialisation failed","bandfeed.whyMicGeneric":"The microphone is unavailable","log.bandfeedSwitch":"Audio bar source: {mode} — {status}","log.bandfeedMicGated":"Audio bar source set to “Microphone” but “Enable microphone” is off: no mic request is issued (getUserMedia is never called), so the bars stay all-zero; tick “Enable microphone” first to really attach the mic (ticking it remounts once)","log.bandfeedNoMount":"“Remount” did not reset the renderer this time (no wallpaper is mounted, or the synthetic-sample path is active), so the audio-bar mode takes effect on the **next mount**; switch wallpaper or press “Remount” once"}}
+"credit.link":"README · License & credits (GPL-3.0-or-later + upstream MIT)","props.hiddenNote":"Hid {n} internal/placeholder item(s) (append {flag} to show every raw item)","props.placeholderNote":"Placeholder property (no readable text) — colour control hidden","props.emptyShownNote":"This wallpaper has no adjustable items to show","props.ext.title":"Open external link?","props.ext.host":"Target domain: {host}","props.ext.warn":"This link comes from the wallpaper author\u2019s property text, not from this page. Continue only if you trust the domain: it opens in a new tab with noopener / noreferrer.","props.ext.cancel":"Cancel","props.ext.open":"Open","props.ext.wait":"Wait ({n}s)","props.ext.opening":"Opened external link: {host}","props.ext.cancelled":"Cancelled: no external link opened","props.linkBlocked":"Link refused: only http(s) is allowed","props.num.invalid":"Invalid input ({why}): not saved, original value restored","props.num.clamped":"Adjusted to the property range: {v} ({why})","num.why.empty":"empty","num.why.too-long":"too many characters","num.why.not-finite":"not a finite number (Infinity / NaN)","num.why.radix-prefix":"hex/octal/binary prefixes are unsupported","num.why.exponent":"scientific notation (1e9) is unsupported","num.why.not-a-number":"not a number","num.why.too-many-decimals":"too many decimals","num.why.min":"below the minimum","num.why.max":"above the maximum","num.why.step":"snapped to the step","num.why.precision":"rounded to the precision","toolbar.bandfeed":"Audio bar source","toolbar.bandfeedTip":"Audio bar (visualizer) data source: Wallpaper = the in-package track only (honestly all-zero when there is none); Microphone = explicitly request the mic (also needs “Enable microphone”); Simulated = deterministic simulated source (shape only); Off = no source at all. Switching remounts the renderer","bandfeed.wallpaper":"Wallpaper","bandfeed.mic":"Microphone","bandfeed.sim":"Simulated","bandfeed.off":"Off","bandfeed.idle":"Audio bar: waiting for the renderer to report…","bandfeed.noReport":"Audio bar: this renderer reports no audio-bar source (this build ignores “?bandfeed=”) — the mode is in the URL: {mode} (the bench currently embeds the product page; this repo’s own renderer page runs on :8899 with a same-origin /webloader/ proxy on :8902)","bandfeed.srcWallpaper":"Audio bar source: in-package track (the ?audio=1 sound layer)","bandfeed.srcMic":"Audio bar source: microphone","bandfeed.srcSim":"Audio bar source: simulated (shape only, not a real spectrum)","bandfeed.silent":"No audio-bar data: this wallpaper has no audio source or is muted — switch to “Microphone” or “Simulated” to see the shape","bandfeed.offNote":"Audio bar source: Off — the renderer takes no data source (the script side falls back to the legacy audioBuffers path)","bandfeed.whyNoSource":"No data source: neither the ?audio=1 in-package track nor the microphone is available","bandfeed.whyNoTrack":"No usable track analyser in the package (needs ?audio=1 with a sound layer actually playing)","bandfeed.whyMicGate":"“Enable microphone” is off in the bench: no mic request is issued (getUserMedia is never called)","bandfeed.whyMicDenied":"Microphone permission was denied or not enabled (it will not be requested a second time)","bandfeed.whyMicWait":"The microphone is still waiting for permission / initialisation","bandfeed.whyMicUnsupported":"This browser has no navigator.mediaDevices (the microphone is unavailable)","bandfeed.whyMicError":"Microphone initialisation failed","bandfeed.whyMicGeneric":"The microphone is unavailable","log.bandfeedSwitch":"Audio bar source: {mode} — {status}","log.bandfeedMicGated":"Audio bar source set to “Microphone” but “Enable microphone” is off: no mic request is issued (getUserMedia is never called), so the bars stay all-zero; tick “Enable microphone” first to really attach the mic (ticking it remounts once)","log.bandfeedNoMount":"“Remount” did not reset the renderer this time (no wallpaper is mounted, or the synthetic-sample path is active), so the audio-bar mode takes effect on the **next mount**; switch wallpaper or press “Remount” once","toolbar.rendererSrc":"Renderer","toolbar.rendererSrcTip":"Which renderer the preview uses: Upstream product = demo/renderer/index.html (the unrebuildable minified bundle: its canvas multiplier is capped by the toolbar DPR value and its context is alpha:false); This repo = same-origin /webloader/ (the :8899 demo.html + this repo’s core, with the ?res=dpr live canvas tier and the transparency/particle fixes). Switching remounts the preview","rendererSrc.upstream":"Upstream product","rendererSrc.repo":"This repo","rendererSrc.loading":"Renderer source: this repo’s renderer is loading…","rendererSrc.repoOn":"Renderer source: this repo’s renderer ({label}) · canvas {res}","rendererSrc.repoDegraded":"Renderer source: this repo’s renderer ({label}) · canvas {res} — explicitly degraded: {caps}","rendererSrc.notRepo":"Renderer source: this repo’s renderer — ⚠ but the current document does not look like this repo’s renderer ({url})","rendererSrc.unreachable":"Renderer source: this repo’s renderer — ⚠ cannot open ({why}): is :8899 running? Pick “Upstream product” to fall back","rendererSrc.upstreamOn":"Renderer source: upstream product ({label}) — the minified bundle: image quality and transparency follow upstream","log.rendererSrcSwitch":"Renderer source: {mode} ({detail})","log.rendererSrcNoMount":"“Remount” did not reset the renderer this time (no wallpaper is mounted, or the synthetic-sample path is active), so the renderer source takes effect on the **next mount**; switch wallpaper or press “Remount” once","log.rendererSrcRewrote":"“Remount” did not reset the renderer this time (no mounted wallpaper / synthetic-sample path) — the current preview URL was rewritten for the new source through the same rewrite chain, so it takes effect immediately","log.rendererSrcSampleSkipped":"Synthetic sample: not loaded in this-repo mode (this repo mounts by ?id=; the __wp.loadSceneFile contract is explicitly degraded here) — upstream mode is unchanged","log.rendererSrcSampleRepo":"Synthetic sample: mounted in this-repo mode via `?id=sample-synthetic` (same sample, same bytes; the package is fetched through this repo’s `/pkg/<id>`): {url}","log.rendererSrcSampleExplicit":"Synthetic sample: this-repo mode does not accept `?sample=<url>` (that is the product page’s loadSceneFile(blob) debug hook) — ignored, the bundled sample is used"}}
 
 /* ============================ 纯函数层 ============================ */
 export const LANGS = ['zh', 'en']
@@ -1319,6 +1319,190 @@ export function bandFeedUrl(url, mode) {
   const kept = (qAt >= 0 ? head.slice(qAt + 1) : '').split('&').filter((p) => p !== '' && !/^bandfeed=/i.test(p))
   kept.push('bandfeed=' + bandFeedMode(mode))
   return base + '?' + kept.join('&') + hash
+}
+
+/* ============================ ⑪ 渲染器来源（renderer source）两档：纯函数层 ============================
+   背景（真机读数，不是推测）：测试台预览 iframe 一直跑**上游产物页** `demo/renderer/index.html`
+   （`demo/assets/renderer-BOSoB05I.js`，minified、不可重建）。它的场景路径把画布尺寸算成
+   `clientWidth × min(devicePixelRatio, renderDpr)` 且工具条「DPR」档缺省就是 `1`
+   ⇒ 实测面板 624×351 CSS px 时画布也是 624×351，DPR>1 的屏幕上**永远 1× CSS 像素出图**（全屏同理）；
+   并且它建 WebGL 上下文用的是 `alpha:false`（上游产物独有）⇒ 该透的地方是不透明黑。
+   本仓渲染器（`:8899` 的 `demo.html` + `core/we-scene-bundle.js`）没有这两条：上下文 `alpha:true`，
+   画布尺寸有 `?res=dpr` 活档位（显示尺寸 × 设备 DPR，随尺寸/DPR 重算）。
+   ⇒ 工具条给一个**显式**两档，让预览能在**同源**下用本仓渲染器（`:8902` 有 `/webloader/**` 反代）。
+   本层是纯函数 ⇒ `tests/bench-renderer-source-test.mjs` 在 Node 里直接钉住映射与 URL 改写。 */
+
+/** 工具条两档（顺序 = DOM 顺序）。`upstream` = 保持原来的行为；`repo` = 同源 `/webloader/` 走本仓渲染器。 */
+export const RENDERER_SOURCES = ['upstream', 'repo']
+// 默认档：**本仓渲染器**（`/webloader/**` 同源反代 → `:8899` 的 `demo.html` + 本仓 core）。
+// 为什么不默认上游产物（2026-09-21 真机读数）：上游产物页的画布 = `clientWidth × min(devicePixelRatio,
+//   renderDpr)`，而工具条「DPR」档缺省就是 `1` ⇒ DPR>1 的屏幕上**永远 1× CSS 像素出图**（实测同面板同包：
+//   上游 529×297、本仓 1056×594 @DPR2），且它的上下文是 `alpha:false`。预览默认跑它 = 默认给用户看
+//   "糊 + 该透的地方黑"的那一份。⇒ 默认翻转成**一个**渲染器表面（本仓），上游产物只作**对照/排障档**保留。
+// 翻转默认带来的一次性断言改动（**旧契约 → 新契约**，逐条写在提交信息与 `docs/PATCHES.md` P-171.6 里）：
+//   · `bench-ui-headless` S4a/S4b：旧"静态台在 1.2s 用产物页的 `__wp.loadSceneFile(blob)` 挂合成样例"
+//     → 新"本仓档按 `?id=sample-synthetic` 导航预览"（同样"打开就有画面"，判据口径不动）；
+//   · 同文件 T1–T5 / W1–W6（web 档 11 条）：旧"默认 iframe 就是产物页" → 新"这两组**显式切到上游档**再测
+//     （web 壁纸路径本仓渲染器还没有，见 §11.4），断言口径一条不动"。
+export const RENDERER_SOURCE_DEFAULT = 'repo'
+/** 档位 → i18n 键（选项文案、换档日志、状态行共用一份，避免三处漂移）。 */
+export const RENDERER_SOURCE_LABEL_KEYS = { upstream: 'rendererSrc.upstream', repo: 'rendererSrc.repo' }
+/** 本仓渲染器的同源入口（`:8902` 的反代路由，见 `server/we-scene-demo-server-8902.mjs` 的 `/webloader/**`）。 */
+export const RENDERER_SOURCE_REPO_PATH = '/webloader/'
+
+/** 档位归一：只认两档，其余（`null`/空串/大小写混写/垃圾值）一律回落缺省档 —— 与音条源同一口径
+ *  （打错一个字母不该把预览悄悄弄成另一种渲染器）。 */
+export function rendererSourceMode(v) {
+  const s = String(v == null ? '' : v).trim().toLowerCase()
+  return RENDERER_SOURCES.indexOf(s) >= 0 ? s : RENDERER_SOURCE_DEFAULT
+}
+/** 档位 → 选项文案（i18n）。 */
+export function rendererSourceLabel(lang, mode) {
+  return t(lang, RENDERER_SOURCE_LABEL_KEYS[rendererSourceMode(mode)])
+}
+/** 工具条「DPR」档 → 本仓渲染器的 **DPR 上限**（`?res=dprN`）；`null` = 不设上限（用设备 DPR）。
+ *  为什么需要 `touched`：那个 `<select>` 的**缺省值就是 1**（产物 HTML 的第一个 option，没有 `selected`
+ *  也没有 localStorage 回填），而 `1` 在上游语义里是"画布 = 1× CSS 像素"的**上限**。用户从没碰过它时
+ *  把 1 传下去 = 把本仓的画质修复原地抵消（实测就是这么糊的）⇒ 只有**显式改过**才当上限。
+ *  `dpr` 允许 1..5（与产物 HTML 的取值域同）；越界/非数字 ⇒ 当作没改过（如实回落到设备 DPR）。 */
+export function rendererDprCap(opts) {
+  const o = opts || {}
+  if (o.dprTouched !== true) return null
+  const n = Number(o.dpr)
+  if (!Number.isFinite(n) || n < 1) return null
+  return Math.min(5, Math.round(n))
+}
+/** 把「渲染器来源」档应用到**渲染器入口 URL**。边界与理由：
+ *  · `upstream` 档 ⇒ **原样返回**（"上游 = 现在的行为"是硬要求，一个字符都不改）；
+ *  · `repo` 档 ⇒ 只认两种入口：产物写死的 `…/renderer/index.html`（3 处绝对路径里的 iframe 那两处）
+ *    与已经是 `/webloader/…` 的 URL；其余（web 壁纸页、`blob:`、外链、空串）**原样返回**
+ *    ⇒ 这条改写不可能把别的 URL 弄坏；
+ *  · **完整保留原有 query**：`type/src/fit/renderDpr/sceneFps/filter/muted/loop/mediaBase/_t/liveSystem`
+ *    以及测试台自己加的 `bandfeed`、以及别人手工加的调试档 —— 一个参数都不删（只在缺 `id`/`res` 时**补**）；
+ *  · 补 `id=<itemId>`：本仓渲染器按 `?id=` 取包（`demo.html` 的 `/pkg/<id>`）；scene 档 `src` 就是 itemId，
+ *    web/video 档 `src` 是路径 ⇒ 从 `${mediaBase}/<id>/…` / `${webBase}/<id>/…` 那段取回同一个 id
+ *    （取不到就**不补**，让渲染器自己按 `src` 报错，而不是编一个 id）；
+ *  · 补 `res=dpr`（或显式 DPR 档下的 `res=dprN`）：本仓渲染器的活档位。若 URL 里**已经有** `res=`，
+ *    那是别人显式的调试档 ⇒ **不覆盖**（"保留原有 query"优先于我们的缺省）；
+ *  · hash 原样带着（本仓库没有任何带 hash 的渲染器入口，但改写不该吞掉它）。 */
+export function rendererSourceUrl(url, mode, opts) {
+  const raw = String(url == null ? '' : url)
+  const isProduct = /(^|\/)renderer\/index\.html([?#]|$)/.test(raw)
+  const isLoader = /(^|\/)webloader\/?([?#]|$)/.test(raw)
+  const itemIdOf = (q) => {
+    const get = (k) => { const hit = q.split('&').find((x) => x.split('=')[0].toLowerCase() === k); return hit === undefined ? null : decodeURIComponent(hit.slice(hit.indexOf('=') + 1)) }
+    const src = get('src') || ''
+    const type = String(get('type') || 'scene').toLowerCase()
+    if (type === 'scene' && src && !/[\/\\]/.test(src)) return src
+    const m = /(?:^|\/)(?:media|web)\/dev\/([^/?#]+)/.exec(src)
+    return (m && m[1]) || ''
+  }
+  //  `upstream` 档：
+  //    · 产物入口 URL（本来就指向产物页）⇒ **逐字返回**（"上游 = 现在的行为"，A5 钉住）；
+  //    · `/webloader/` 的 URL ⇒ 这是**本仓档写进去的**，切回上游必须把路径换回去（否则换档之后
+  //      iframe 还是本仓渲染器 —— 真机实测：没有已挂载壁纸时产物自己的「重挂载」`Ae()` 会直接返回，
+  //      src 不会重设 ⇒ 需要这条反向映射兜底）。查询串原样带走（多出来的 `id`/`res` 对产物页是无害的
+  //      未知参数：它只读 type/src/fit/renderDpr/sceneFps/muted/loop/filter/mediaBase/liveSystem/opaque）。
+  if (rendererSourceMode(mode) !== 'repo') {
+    if (!isLoader) return raw
+    const hashAt = raw.indexOf('#')
+    const head = hashAt >= 0 ? raw.slice(0, hashAt) : raw
+    const hash = hashAt >= 0 ? raw.slice(hashAt) : ''
+    const qAt = head.indexOf('?')
+    const originPrefix = (/^https?:\/\/[^/]+/i.exec(raw) || [''])[0]
+    return originPrefix + '/wallpaper-engine-webgl/renderer/index.html' + (qAt >= 0 ? head.slice(qAt) : '') + hash
+  }
+  if (!isProduct && !isLoader) return raw
+  const originPrefix = (/^https?:\/\/[^/]+/i.exec(raw) || [''])[0]
+  const hashAt = raw.indexOf('#')
+  const head = hashAt >= 0 ? raw.slice(0, hashAt) : raw
+  const hash = hashAt >= 0 ? raw.slice(hashAt) : ''
+  const qAt = head.indexOf('?')
+  const kept = (qAt >= 0 ? head.slice(qAt + 1) : '').split('&').filter((s) => s !== '')
+  const get = (k) => {
+    const hit = kept.find((s) => s.split('=')[0].toLowerCase() === k)
+    if (hit === undefined) return null
+    try { return decodeURIComponent(hit.slice(hit.indexOf('=') + 1)) } catch (e) { return hit.slice(hit.indexOf('=') + 1) }
+  }
+  const upsert = (k, v) => {
+    const i = kept.findIndex((s) => s.split('=')[0].toLowerCase() === k)
+    if (i >= 0) kept[i] = k + '=' + v
+    else kept.push(k + '=' + v)
+  }
+  //  scene：`src` 就是 itemId；web/video：`src` 是路径 ⇒ 从 `${mediaBase|webBase}/<id>/…` 段取回同一个 id
+  //  （取不到就不补，让渲染器自己按 `src` 报错，而不是编一个 id）
+  const itemId = get('id') || itemIdOf(kept.join('&'))
+  if (itemId) upsert('id', encodeURIComponent(itemId))
+  if (get('res') === null) {
+    const cap = rendererDprCap(opts)
+    upsert('res', cap == null ? 'dpr' : ('dpr' + cap))
+  }
+  return originPrefix + RENDERER_SOURCE_REPO_PATH + '?' + kept.join('&') + hash
+}
+/** 在 `HTMLIFrameElement.prototype` 的 `src` 访问器上**再包一层**（与 `installBandFeedSrcHook` 同构、
+ *  同一条链）：写入 URL 时按**当前**来源档改写路径/补参数。三层包装（P-93 前缀 → bandfeed 查询 →
+ *  本层来源）作用在不同部分 ⇒ 谁先谁后结果一致，全仓仍只有一条 URL 改写链。
+ *  幂等：`proto.__benchRendererSrc` 标记；没有可包装的访问器 ⇒ 静默降级（返回 false，不弄坏页面）。 */
+export function installRendererSourceSrcHook(proto, modeOf, optsOf) {
+  try {
+    if (!proto) return false
+    const desc = Object.getOwnPropertyDescriptor(proto, 'src')
+    if (!desc || typeof desc.set !== 'function' || typeof desc.get !== 'function') return false
+    if (proto.__benchRendererSrc) return true
+    const setter = desc.set
+    const getter = desc.get
+    const modeNow = (typeof modeOf === 'function') ? modeOf : (() => RENDERER_SOURCE_DEFAULT)
+    const optsNow = (typeof optsOf === 'function') ? optsOf : (() => ({}))
+    Object.defineProperty(proto, 'src', {
+      configurable: true,
+      enumerable: true,
+      get() { return getter.call(this) },
+      set(v) { setter.call(this, rendererSourceUrl(v, modeNow(), optsNow())) },
+    })
+    Object.defineProperty(proto, '__benchRendererSrc', { value: 1, configurable: true })
+    return true
+  } catch (e) { return false }
+}
+/** 状态行计划（纯函数）：把"当前档位 + 渲染器回报的能力"翻成一行。
+ *  `probe` = 渲染器 iframe 里读到的东西（读不到传 null，**不谎报**）：
+ *    · `probe.src`       = iframe 当前 src（用来判"到底跑的是哪条路径"）
+ *    · `probe.loaded`    = 文档是否已就绪
+ *    · `probe.hasWp`     = 是否发布了 `window.__wp`
+ *    · `probe.caps`      = `window.__mpwHostCaps`（`false` 的键 = 该能力**明确降级**）
+ *    · `probe.repoRenderer` = 是否认出了本仓渲染器（`__mpwHostApiReady` / `__mpwResTier`）
+ *    · `probe.res`       = `window.__mpwLiveRes || window.__mpwResTier`（画布/DPR 读数）
+ *    · `probe.error`     = 未能加载的原因（502/404 等，来自 iframe 的 load/错误探针）
+ *  返回 `{ kind, text, attrs }`：kind ∈ upstream|repo|repo-degraded|loading|unreachable。 */
+export function rendererSourceStatusPlan(lang, mode, probe) {
+  const m = rendererSourceMode(mode)
+  const p = probe || null
+  const label = rendererSourceLabel(lang, m)
+  if (m === 'upstream') {
+    return { kind: 'upstream', text: t(lang, 'rendererSrc.upstreamOn', { label }), attrs: { src: 'upstream', ready: p && p.loaded ? '1' : '0' } }
+  }
+  if (p && p.error) {
+    return { kind: 'unreachable', text: t(lang, 'rendererSrc.unreachable', { why: p.error }), attrs: { src: 'repo', ready: '0' } }
+  }
+  if (!p || !p.loaded) {
+    return { kind: 'loading', text: t(lang, 'rendererSrc.loading', { why: '' }), attrs: { src: 'repo', ready: '0' } }
+  }
+  const caps = (p && p.caps) || {}
+  const degraded = Object.keys(caps).filter((k) => caps[k] === false)
+  if (!p.repoRenderer) {
+    return { kind: 'repo-degraded', text: t(lang, 'rendererSrc.notRepo', { url: String((p && p.src) || '').slice(0, 80) || '—' }), attrs: { src: 'repo', ready: '1' } }
+  }
+  const res = p.res || null
+  return {
+    kind: degraded.length ? 'repo-degraded' : 'repo',
+    text: t(lang, degraded.length ? 'rendererSrc.repoDegraded' : 'rendererSrc.repoOn', {
+      //  `__mpwResTier`（固定档位）**没有** `dpr` 字段，只有 `__mpwLiveRes`（活档位）才有
+      //  ⇒ 缺字段时只写尺寸，不许渲染成 `DPRundefined`（那是把"没有这个读数"写成假读数）。
+      label,
+      res: res ? (res.width + '×' + res.height + (typeof res.dpr === 'number' ? ' @DPR' + res.dpr : '')) : '—',
+      caps: degraded.join('/') || '—',
+    }),
+    attrs: { src: 'repo', ready: '1' },
+  }
 }
 
 /** 在 `HTMLIFrameElement.prototype` 的 `src` 访问器上**再包一层**（导出 ⇒ Node 用假原型就能驱动
@@ -7450,9 +7634,11 @@ export function init() {
     // ⑩(2026-09-21 §5.3) 音条源状态行：复用这条既有轮询（**不另起定时器**）——
     //   渲染器的 `__mpwAudioBandSource` 是逐帧写的，父页只能靠轮询跟上；失败不影响渲染。
     try { paintBandFeedStatus() } catch { /* 状态行是只读呈现 */ }
+    try { paintRendererSrcStatus() } catch { /* 同上：渲染器来源状态行 */ }
+    try { if (rendererSrcNow() === 'repo') applyRepoChromeHide() } catch { /* 同上：只隐开发外壳 */ }
   }, 1200)
   if (frameEl && frameEl.addEventListener) frameEl.addEventListener('load', () => {
-    setTimeout(() => { wrapRendererApi(); try { installWebShim(rendererWin()) } catch { /* ignore */ } ; bindRendererPointerLeave(); syncMicGate(); paintBandFeedStatus() }, 0)
+    setTimeout(() => { wrapRendererApi(); try { installWebShim(rendererWin()) } catch { /* ignore */ } ; bindRendererPointerLeave(); syncMicGate(); paintBandFeedStatus(); paintRendererSrcStatus(); applyRepoChromeHide() }, 0)
     setTimeout(() => { lockTimeLayersEverywhere() }, 800)
   })
 
@@ -7640,6 +7826,110 @@ export function init() {
   // 档位 → iframe URL：装在同一条 src 包装链上（幂等；没有 iframe 原型的环境静默降级）。
   installBandFeedSrcHook((typeof HTMLIFrameElement !== 'undefined') ? HTMLIFrameElement.prototype : null, bandFeedNow)
   paintBandFeedStatus()
+
+  /* ── ⑪(2026-09-21) **渲染器来源两档**（上游产物 / 本仓渲染器）─────────────────────────────────
+     工具条 `<select id="renderer-src">` → 预览 iframe 的**路径**：`upstream` 保持原样（一个字符都不改），
+     `repo` 改成同源 `/webloader/?…`（`:8902` 的反代到 `:8899` 的 `demo.html` + 本仓 core）。
+     接线纪律（与音条源**同构**，不写第二套）：
+       · URL 改写装在同一条 `HTMLIFrameElement.prototype.src` 包装链上（`installRendererSourceSrcHook`，幂等）；
+       · 换档重挂载**沿用**产物自己的「重挂载」`#reload`（同一个 `remountRendererForBandFeed()` ——
+         它做的事与音条无关，就是"点 #reload 并回报 src 是否真被重设"）；
+       · 状态行把三件事写成人话：**跑的是哪条路径**、**画布/DPR 真读数**（读 iframe 的
+         `window.__mpwLiveRes`，本仓渲染器的 `?res=dpr` 活档位会写它）、**哪些能力被明确降级**
+         （读 iframe 的 `window.__mpwHostCaps`，`false` 的键就是在预览里不生效的那几个）；
+       · `#dpr` 档只在**用户显式改过**时当上限传下去（缺省 1 是产物页的"1× CSS 像素"口径，
+         照传会把本仓的画质修复原地抵消 —— 见 `rendererDprCap` 的注释）。 */
+  const rendererSrcSelect = () => { try { return $('#renderer-src') } catch (e) { return null } }
+  const rendererSrcStatusEl = () => { try { return $('#status-renderer-src') } catch (e) { return null } }
+  let rendererDprTouched = false
+  function rendererSrcNow() {
+    try { const el = rendererSrcSelect(); return rendererSourceMode(el && el.value) } catch (e) { return RENDERER_SOURCE_DEFAULT }
+  }
+  /** `#dpr` 档 → 上限（**只在用户显式改过时**；缺省值 1 不算"改过"）。 */
+  function rendererDprOpts() {
+    try { const el = $('#dpr'); return { dpr: el ? el.value : null, dprTouched: rendererDprTouched } } catch (e) { return { dpr: null, dprTouched: false } }
+  }
+  /** 读预览 iframe 的真实情况（同源可直接读；跨源/还没起来 ⇒ 逐项如实置空，不谎报）。 */
+  function rendererSrcProbe() {
+    try {
+      const el = frameEl
+      if (!el) return null
+      const src = String(el.getAttribute('src') || '')
+      if (!src) return null
+      const w = el.contentWindow
+      let loaded = false, hasWp = false, caps = null, res = null, repoRenderer = false, error = ''
+      try { loaded = !!(w && w.document && w.document.readyState === 'complete') } catch (e) { loaded = true }
+      try { hasWp = !!(w && w.__wp) } catch (e) { /* 跨源 */ }
+      try { caps = (w && w.__mpwHostCaps) || null } catch (e) { /* 跨源 */ }
+      try { res = (w && (w.__mpwLiveRes || w.__mpwResTier)) || null } catch (e) { /* 跨源 */ }
+      try { repoRenderer = !!(w && (w.__mpwHostApiReady || w.__mpwResTier || typeof w.__mpwAudioBandInfo === 'function')) } catch (e) { /* 跨源 */ }
+      // 反代上游没起来时本服务回的是 502 + JSON（iframe 会把它当文档渲染）⇒ 认出这具"尸体"，如实写原因
+      try {
+        const txt = (w && w.document && w.document.body) ? String(w.document.body.textContent || '').slice(0, 300) : ''
+        if (/渲染器上游不可达|渲染器上游地址配错/.test(txt)) error = (txt.match(/"error"\s*:\s*"([^"]{0,120})"/) || [])[1] || 'upstream-502'
+      } catch (e) { /* 跨源 */ }
+      return { src, loaded, hasWp, caps, res, repoRenderer, error }
+    } catch (e) { return null }
+  }
+  function paintRendererSrcStatus() {
+    const plan = rendererSourceStatusPlan(curLang, rendererSrcNow(), rendererSrcProbe())
+    const el = rendererSrcStatusEl()
+    if (el) {
+      try {
+        el.textContent = plan.text
+        el.setAttribute('data-mpw-renderer-src', plan.attrs.src)
+        el.setAttribute('data-mpw-renderer-ready', plan.attrs.ready)
+      } catch (e) { /* 桩 DOM */ }
+    }
+    return plan
+  }
+  {
+    const sel = rendererSrcSelect()
+    if (sel) {
+      try { sel.value = rendererSrcNow() } catch (e) { /* 桩 DOM */ }     // 归一（HTML 缺省已是 repo）
+      sel.addEventListener('change', () => {
+        const mode = rendererSourceMode(sel.value)
+        try { if (sel.value !== mode) sel.value = mode } catch (e) { /* ignore */ }
+        const remounted = remountRendererForBandFeed()
+        let rewritten = false
+        if (!remounted && frameEl) {
+          //  产物自己的「重挂载」只在"已有已挂载壁纸"时重设 src；本仓档下预览可能是**导航到样例**
+          //  （没有产物那侧的 `w`）⇒ 换档后 src 会停在旧渲染器上（真机实测：切回上游后 iframe 还是
+          //  `/webloader/`）。这条兜底把**当前 URL 按新档位重写一次**，走的还是同一条改写链（幂等）。
+          try {
+            const cur = String(frameEl.getAttribute('src') || '')
+            if (cur) { frameEl.src = rendererSourceUrl(cur, mode, rendererDprOpts()); rewritten = true }
+          } catch (e) { /* 保持原样 */ }
+        }
+        const plan = paintRendererSrcStatus()
+        logLine(t(curLang, 'log.rendererSrcSwitch', { mode: rendererSourceLabel(curLang, mode), detail: plan.text }))
+        if (!remounted) logLine(t(curLang, rewritten ? 'log.rendererSrcRewrote' : 'log.rendererSrcNoMount'), true)
+      })
+    }
+    const dprEl = (() => { try { return $('#dpr') } catch (e) { return null } })()
+    if (dprEl) dprEl.addEventListener('change', () => { rendererDprTouched = true; paintRendererSrcStatus() })
+  }
+  // 档位 → iframe URL：装在同一条 src 包装链上（幂等；没有 iframe 原型的环境静默降级）。
+  installRendererSourceSrcHook((typeof HTMLIFrameElement !== 'undefined') ? HTMLIFrameElement.prototype : null, rendererSrcNow, rendererDprOpts)
+  paintRendererSrcStatus()
+  /** ⑪ 预览里隐掉**本仓渲染器页自己的开发用外壳**（顶栏/显示选项条、属性面板、日志面板、音频面板）。
+   *  为什么需要：产物页是"一张裸画布"，本仓渲染器页是带面板的开发页 —— 直接嵌进来会在预览里套一层
+   *  与本页重复的属性面板/日志，挤掉画面。这是**呈现层**处理（只注入一条 CSS），不改渲染器页；
+   *  上游产物档下这些 id 根本不存在（注入是空操作，且不会重复注入：按 `<style id>` 判重）。
+   *  用 `!important` 是因为那些面板自带内联 `display`（面板脚本会写 inline style）。 */
+  function applyRepoChromeHide() {
+    try {
+      const w = rendererWin()
+      const d = w && w.document
+      if (!d || !d.head) return false
+      try { if (d.getElementById('bench-repo-chrome-hide')) return true } catch (e) { return false }
+      const st = d.createElement('style')
+      st.id = 'bench-repo-chrome-hide'
+      st.textContent = '#bar,#fps,#logbar,#log,#mpw-props-panel,#mpw-props-btn,#mpw-audio-panel,#mpw-audio-btn,#__mpwLnTag{display:none!important}'
+      d.head.appendChild(st)
+      return true
+    } catch (e) { return false }
+  }
 
   // ── ⑧(2026-09-18 品牌改名) 站点品牌运行期覆盖 ──
   //   目标：用户**看得见的地方**（头部品牌名 + document.title）显示产品现名 `WEwebLoader`，版本号 `v1.3.16`
@@ -7938,11 +8228,63 @@ export function init() {
       return { ok: false, reason: String((e && e.message) || e), url: pkgUrl }
     }
   }
+  /** 默认 = 本仓渲染器时的"打开就有画面"（2026-09-21 默认翻转的配套）：
+   *  把预览**导航**到 `?id=sample-synthetic` —— 与产物页那条 `loadSceneFile(blob)` 是**同一个样例**、
+   *  同一份字节（`samples/sample-synthetic/scene.pkg`，本仓库自造、不含第三方内容），
+   *  但取包走本仓渲染器的 `/pkg/<id>`（`:8899` 路由，`:8902` 由 `/webloader/pkg/**` 反代）。
+   *  返回值形状与 `loadDefaultSample` 对齐（`{ok, url, reason?}`），调用方不必分叉。
+   *  `?sample=0` 仍然关得掉（与上游档同一开关口径）；显式 `?sample=<url>` 是"换一个包源"的调试档，
+   *  本仓档下**不支持**（那是产物页契约）⇒ 如实返回 `reason` 并写一行日志，不假装成功。 */
+  function loadRepoDefaultSample(fr) {
+    let raw = ''
+    try {
+      const m = String((typeof location !== 'undefined' && location.search) || '').match(/[?&]sample=([^&]*)/)
+      raw = m ? decodeURIComponent(m[1]) : ''
+    } catch (e) { raw = '' }
+    const plan = defaultSamplePlan({ force: raw })
+    if (!plan.auto) return Promise.resolve({ ok: false, reason: 'sample-flag-off' })
+    if (String(raw) !== '' && String(raw) !== plan.sample) {
+      logLine(t(curLang, 'log.rendererSrcSampleExplicit'), true)
+      return Promise.resolve({ ok: false, reason: 'explicit-url-unsupported-in-repo' })
+    }
+    //  URL 与产物页那条同形（`type/src/fit/renderDpr/sceneFps/filter/muted/loop`），
+    //  再过一遍 `rendererSourceUrl` ⇒ 路径/`id`/`res` 由**同一条改写链**决定，不在这里手拼第二份。
+    const q = 'type=scene&src=sample-synthetic&fit=' + encodeURIComponent('cover') + '&renderDpr=1&sceneFps=60&filter=none&muted=true&loop=true'
+    const url = rendererSourceUrl('/wallpaper-engine-webgl/renderer/index.html?' + q + '&_t=' + Date.now(), 'repo', rendererDprOpts())
+    try {
+      if (fr) fr.src = url
+      const cur = $('#current')
+      if (cur) { cur.textContent = 'sample-synthetic'; cur.title = t(curLang, 'demo.onlineSample') }
+      const em = $('#empty'); if (em) em.style.display = 'none'
+      if (fr && fr.classList) fr.classList.add('on')
+      logLine(t(curLang, 'log.rendererSrcSampleRepo', { url }))
+      return Promise.resolve({ ok: true, url, bytes: null, hasProject: false, repo: true })
+    } catch (e) {
+      logLine('❌ ' + t(curLang, 'demo.sampleMissing', { msg: String((e && e.message) || e) }), true)
+      return Promise.resolve({ ok: false, reason: String((e && e.message) || e), url })
+    }
+  }
   let defaultSample = null
   // 本机静态台（:8901，无 Node host）与线上都载一次 —— "打开就有画面"两边一致；
   // vite 宿主（:1430，hostBlocked=false，有真 Node 后端）不抢它自己的默认壁纸。
   if (HOST_BLOCKED_HERE || demoEnv.online) {
     setTimeout(() => {
+      // ⑪(2026-09-21 渲染器来源) 本仓渲染器档下**不载合成样例**：它按 `?id=<itemId>` 取包挂载，
+      //   而合成样例那条路走的是产物页的 `__wp.loadSceneFile(blob, projectJson)` 契约（本仓渲染器
+      //   明确降级：`window.__mpwHostCaps.loadSceneFile === false`）。不跳过的话每次开页面都会在输出区
+      //   留一条红字（"合成样例载入失败：rendererApi.loadSceneFile is not a function"），而那**不是**故障。
+      //   上游产物档行为不变（照旧载样例 —— 静态台/线上"打开就有画面"那条口径原样保留）。
+      if (rendererSrcNow() === 'repo') {
+        // 新契约（默认 = 本仓渲染器）：合成样例在**本仓档**下同样"打开就有画面" —— 但走的是本仓自己的
+        // 取包路径（`?id=sample-synthetic` → `/pkg/sample-synthetic`，`demo.html` 的 `/pkg/<id>` 路由，
+        // 已实测 200 / 33 299 B），**不是**产物页那条 `__wp.loadSceneFile(blob)` 契约
+        // （本仓对该契约明确降级：`window.__mpwHostCaps.loadSceneFile === false`）。
+        // 实现方式照旧"不写第二套"：直接**导航预览**到样例 URL，且让它走同一条 src 包装链
+        // ⇒ 来源档/`res=dpr`/DPR 上限/`bandfeed` 自动带上。
+        defaultSample = loadRepoDefaultSample($('#frame'))   // ⚠ 这里没有 `fr` 绑定（那是 loadDefaultSample 的局部量）—— 实测漏写会 ReferenceError 冒到错误条、挡住整条工具条
+        defaultSample.then((r) => { if (r && r.ok) wrapRendererApi() })
+        return
+      }
       defaultSample = loadDefaultSample()
       defaultSample.then((r) => { if (r && r.ok) wrapRendererApi() })
     }, 1200)
@@ -8036,6 +8378,11 @@ export function init() {
     }),
     bandFeedPaint: () => paintBandFeedStatus(),
     bandFeedRemount: () => remountRendererForBandFeed(),
+    //  ⑪(2026-09-21) 渲染器来源：档位 / 真读数 / 状态行（门禁与真机排查都读这三个）
+    rendererSource: () => rendererSrcNow(),
+    rendererSourceProbe: () => rendererSrcProbe(),
+    rendererSourcePaint: () => paintRendererSrcStatus(),
+    rendererDprOpts: () => rendererDprOpts(),
     //  ①(用户第 1 条) 库目录对话框状态机 + 「就选这个目录」成功后的动作契约
     fsState: () => fsState(),
     clearLogsView: () => clearLogsView(),

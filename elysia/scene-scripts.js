@@ -36,12 +36,40 @@ export function transformMatrixShared(obj) {
   return { m: [c * sc.x, si * sc.x, 0, 0, -si * sc.y, c * sc.y, 0, 0, 0, 0, 1, 0, o.x, o.y, o.z || 0, 1], x: o.x, y: o.y, z: o.z || 0 };
 }
 export function texAnimRefShared(obj) {
+  // ①(2026-09-21 官方 ITextureAnimation 面) 为什么补这几个成员：
+  //   官方 `ITextureAnimation`（本机 d.ts `lib.sceneScript.d.ts:551-606`）是
+  //   `{ frameCount(只读), duration(只读), rate(可写), isPlaying():bool, getFrame():num,
+  //      setFrame(n), join() }`。旧实现只有 `play/stop/setFrame/getFrame` + 四个**自造**的空
+  //   `setXxx()` —— 后果是**静默错分支**（不是抛错）：`if (tex.getFrame() == tex.frameCount-1)`
+  //   里 `frameCount` 是 `undefined` ⇒ `NaN` 比较恒 false，作者脚本"播完这一遍就做某事"永远不触发。
+  //   真机语料实例（包 3544152633）：`playeroutlineanim.origin` 写 `rate = 9`、
+  //   `playerplay.alpha/origin` 读 `getFrame()/frameCount` 并写 `rate`（见 tests/scene-texanim-api-test.mjs）。
+  //   语义（官方文档）：`rate` = **速度倍率（默认 1）**；`frameCount/duration` = 帧数/时长；
+  //   `join()` = 回到"所有实例共享的动画状态"（本仓库没有共享时钟实例的概念 ⇒ 清掉本对象的
+  //   强制帧，回到跟随 `__texFramePlay` 的自动推进，这是**行为上最近**的一个映射）。
+  //   `frameCount/duration` 的**真值**由宿主在解析出 sprite 元数据后盖章（`__texFrameCount`/
+  //   `__texFrameDuration`，见 demo.html 与 core/we-scene-bundle.js 的两处 sprite 登记点）；
+  //   没盖到 ⇒ 返 0（**不编造**：0 与"未知"在数值上无法区分，但比 `undefined` 好 ——
+  //   `getFrame() == frameCount-1` 会变成 `0 == -1` = false，与"没有帧信息"一致且可观测）。
+  const num = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
   return {
     play: () => { if (obj) obj.__texFramePlay = true },
     stop: () => { if (obj) obj.__texFramePlay = false },
     setFrame: (f) => { if (obj) { obj.__texFrame = Number(f) || 0; obj.__texFrameForced = true } },
-    getFrame: () => (obj && obj.__texFrame) || 0,
-    setFrameCount: () => {}, setTime: () => {}, setFps: () => {}, setRate: () => {},
+    getFrame: () => num(obj && obj.__texFrame),
+    setFrameCount: () => {}, setTime: () => {}, setFps: () => {}, setRate: () => {},   // 自造名的空实现（**保留**：语料里已有调用方，删掉会变成新版 TypeError）
+    get frameCount() { return num(obj && obj.__texFrameCount) },
+    get duration() { return num(obj && obj.__texFrameDuration) },
+    get rate() { return (obj && typeof obj.__texRate === 'number' && isFinite(obj.__texRate)) ? obj.__texRate : 1 },
+    set rate(v) {
+      if (!obj) return
+      const n = Number(v)
+      if (!isFinite(n)) return                                   // 非有限值不写（不把速度写成 NaN）
+      obj.__texRate = n
+      apiBump('texAnimRateWrite')
+    },
+    isPlaying: () => !!(obj && obj.__texFramePlay),
+    join: () => { if (obj) { obj.__texFrameForced = false; apiBump('texAnimJoin') } },
   };
 }
 
@@ -127,6 +155,8 @@ export const SCENE_SCRIPT_API_DIAG = {
   emitParticles: 0,       // IParticleSystem.emitParticles（本机无粒子发射注入点 ⇒ no-op + 计数）
   particleInstanceWrite: 0,   // IParticleSystemInstance 字段**写穿** obj.instanceoverride 的次数
   animationWrite: 0,      // IAnimation 的 rate/setFrame 等可写字段被写次数
+  texAnimRateWrite: 0,    // ①(2026-09-21) ITextureAnimation.rate 写次数（官方可写字段，来自真机语料）
+  texAnimJoin: 0,         // ①(2026-09-21) ITextureAnimation.join() 命中次数（回到共享动画状态）
   timerScheduled: 0, timerFired: 0, timerCleared: 0,  // engine.setInterval 家族
 };
 /** 计数表快照（浅拷贝；测试/诊断用，**不**暴露可变引用）。 */

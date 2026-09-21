@@ -260,6 +260,91 @@ try {
     if (!opened) ok(false, 'N5a 工具条下拉点开 ⇒ 列表展开', `scope=${K.scope} 前 3 个都没打开（见 notes 的遮挡/命中信息）`)
   } else notes.push('N5 未测：工具条里既没有 `.bench-rd` 也没有 `.mpw_select`（自绘下拉没挂上）')
 
+  /* ⑪(2026-09-21 渲染器来源：默认 = 本仓渲染器) 切档助手 + 新契约判据。
+     为什么需要它：预览现在**默认**跑本仓渲染器（`/webloader/**` 同源反代 → `:8899` 的 `demo.html` + 本仓 core）。
+     而 web 壁纸那条路（同源入口 + WE shim 注入 + 入口里的 `<video>/<audio>`）目前**只有上游产物页有**
+     （本仓渲染器页只认 scene/video，见 docs/BENCH-8902.md §11.4）⇒ T/W 两组测 web 档时**显式**切到上游档当夹具，
+     **断言口径一条不动**；切换本身与"默认是谁"由下面 R 组另立判据钉住（旧契约"默认 iframe 就是产物页"
+     → 新契约"默认 = 本仓渲染器，且能显式切回产物页当对照"）。 */
+  const setRendererSource = (mode) => page.evaluate((m) => {
+    const sel = document.getElementById('renderer-src')
+    if (!sel) return null
+    sel.value = m
+    sel.dispatchEvent(new Event('change'))
+    return sel.value
+  }, mode)
+  const rendererSourceState = () => page.evaluate(() => {
+    const sel = document.getElementById('renderer-src')
+    const st = document.getElementById('status-renderer-src')
+    const fr = document.getElementById('frame')
+    return {
+      mode: sel ? sel.value : null,
+      attr: st ? st.getAttribute('data-mpw-renderer-src') : null,
+      text: st ? String(st.textContent || '') : '',
+      src: fr ? String(fr.getAttribute('src') || '') : '',
+    }
+  })
+
+  // ══════════════════ R 组（⑪ 渲染器来源：默认 = 本仓 + 能切回上游 + web 档的诚实边界）══════════════════
+  {
+    //  R 组跑在 S 组之前（页面刚起来）⇒ `#frame` 的 src 由"合成样例"那条路径在 1.2s 后才写
+    //  （本仓档下 = 导航到 `?id=sample-synthetic`）⇒ **有界等待**它出现（等不到照旧失败，不放松）
+    for (let i = 0; i < 20; i++) {
+      const cur = await rendererSourceState()
+      if (cur.src) break
+      await page.waitForTimeout(500)
+    }
+    const r0 = await rendererSourceState()
+    ok(r0.mode === 'repo' && r0.attr === 'repo' && String(r0.src).startsWith('/webloader/?') && /[?&]id=/.test(r0.src),
+      'R1 ★新契约：**预览默认就是本仓渲染器**（`#renderer-src`=repo、状态行 `data-mpw-renderer-src`=repo、' +
+      'iframe 一开始就是 `/webloader/?…&id=<壁纸>`，不是产物页）——"一个渲染器表面"这条要求的第一判据',
+      JSON.stringify({ mode: r0.mode, attr: r0.attr, src: String(r0.src).slice(0, 90) }))
+    //  切到上游档：路径必须变回产物那条（对照/排障档仍然可用），且状态行如实写"上游产物"
+    await setRendererSource('upstream')
+    await page.waitForTimeout(1500)
+    const r1 = await rendererSourceState()
+    ok(r1.mode === 'upstream' && /renderer\/index\.html/.test(r1.src) && !/\/webloader\//.test(r1.src) &&
+      r1.attr === 'upstream',
+      'R2 显式切「上游产物」⇒ iframe 回到产物页那条路径（对照档真的还能用，不是单向开关）',
+      String(r1.src).slice(0, 90))
+    //  web 档在本仓渲染器上的**诚实边界**：切回本仓 + 挂一张 web 壁纸 ⇒ 不注入 shim、扫不到媒体元素
+    //  （这正是 T/W 两组必须切上游档的原因，也是"整合成一个"还差的那块工作量的证据）
+    await setRendererSource('repo')
+    await page.waitForTimeout(1200)
+    const r2 = await page.evaluate(async () => {
+      const seg = document.querySelector('#type-filter .seg-btn[data-type="web"]')
+      if (seg) seg.click()
+      await new Promise((r) => setTimeout(r, 900))
+      const lis = [...document.querySelectorAll('#list li[data-id]')]
+      const li = lis.find((x) => x.dataset.id === '3644069061') || lis[0]
+      if (li) li.click()
+      await new Promise((r) => setTimeout(r, 9000))
+      const st = document.getElementById('status-renderer-src')
+      const shim = (window.__benchWebShim ? window.__benchWebShim() : null)
+      const list = window.__benchShell && window.__benchShell.navSound ? window.__benchShell.navSound.mediaList() : null
+      return {
+        id: li ? li.dataset.id : null,
+        attr: st ? st.getAttribute('data-mpw-renderer-src') : null,
+        injected: shim ? shim.injected : null,
+        videos: list ? list.vids.length : null,
+        audios: list ? list.auds.length : null,
+      }
+    })
+    ok(r2.attr === 'repo' && r2.injected === 0 && r2.videos === 0 && r2.audios === 0,
+      'R3 ★诚实边界（新契约的一部分，不是意外）：本仓渲染器档 + web 壁纸 ⇒ WE shim **注入 0 次**、' +
+      '媒体元素扫到 **0** 个（本仓渲染器页没有 web 路径）⇒ T/W 两组因此**显式切上游档**做夹具',
+      JSON.stringify(r2))
+    //  收尾：把类型过滤恢复成「全部」并把来源切回上游 —— 后面的 S 组按"全部档列表"取数，
+    //  夹具留下的 web 过滤会让它看到的行数与类型都不对（实测 S7b 就是这么红的）。
+    await page.evaluate(async () => {
+      const all = document.querySelector('#type-filter .seg-btn[data-type="all"]')
+      if (all) all.click()
+      await new Promise((r) => setTimeout(r, 700))
+    })
+    await setRendererSource('upstream')
+    await page.waitForTimeout(1500)
+  }
+
   // ══════════════════ S 组（P-158/P-159 本批 11 条 + 类型/指针）══════════════════
   //  每条都是**几何/交互判据**，与回报里的判据一一对应；纯函数部分在 tests/bench-shell-fixes-test.mjs。
 
@@ -331,11 +416,15 @@ try {
         emptyEverywhere: [...document.querySelectorAll('.mpw_select_label')].filter((l) => l.textContent === '（空）').length,
       }
     })
-    ok(s.selects === 6 && s.hiddenSel === 6 && s.nativeClass === 6 && s.rds === 6 && s.mpw === 0,
-      'S3a ③工具条：6 个原生 select（全部隐藏）+ **6 个 `.bench-rd`** + **0 个 `.mpw_select`**（重复增强的残留已删；' +
-      '第 6 个是台账 §5.3 的「音条源」`#bandfeed`）',
+    // 计数 6→7(2026-09-21)：工具条新增第 7 个控件「渲染器来源」`#renderer-src`
+    // （上游产物 / 本仓渲染器，两档；见 demo/index.html 的 ⑪ 块与 tests/bench-renderer-source-test.mjs）。
+    // **口径一条没改**：每一个原生 select 都必须被隐藏、都必须恰好有一个 `.bench-rd`、且全页 0 个 `.mpw_select`
+    // （重复增强的残留判据照旧）；上面 `expected` 是**逐个 select** 现算的 ⇒ 新控件也自动进"label 必须等于真实选中项"这条。
+    ok(s.selects === 7 && s.hiddenSel === 7 && s.nativeClass === 7 && s.rds === 7 && s.mpw === 0,
+      'S3a ③工具条：7 个原生 select（全部隐藏）+ **7 个 `.bench-rd`** + **0 个 `.mpw_select`**（重复增强的残留已删；' +
+      '第 6 个是台账 §5.3 的「音条源」`#bandfeed`，第 7 个是本批的「渲染器来源」`#renderer-src`）',
       JSON.stringify({ selects: s.selects, hidden: s.hiddenSel, benchRdNative: s.nativeClass, rds: s.rds, mpw: s.mpw }))
-    ok(s.labels.length === 6 && s.labels.every((x) => x && x.trim() && x !== '（空）') &&
+    ok(s.labels.length === 7 && s.labels.every((x) => x && x.trim() && x !== '（空）') &&
       JSON.stringify(s.labels) === JSON.stringify(s.expected),
       'S3b ③每个自绘按钮都显示**真实选中项**，没有空 label / 展不开的空框', JSON.stringify(s.labels))
     ok(s.emptyEverywhere === 0, 'S3c ③全页没有「（空）」label（含属性面板的 mpw 控件；mpw 自身的 paintButton 陈旧闭包由补丁层兜底）', `count=${s.emptyEverywhere}`)
@@ -398,6 +487,14 @@ try {
       const at = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2))
       tab.click()
       await new Promise((res) => setTimeout(res, 2500))
+      //  ⑪(2026-09-21) **先清空再挂载**：诊断列表是**有界**的（回放最近 50 条 + 后续追加到上限），
+      //  页面起来后本仓渲染器的日志镜像已经把它填到上限 ⇒ 不清空的话"挂载后条数增长"这条**结构上**
+      //  观察不到（实测 before=after=50）。清空后挂载再看增长 —— 判据本身（挂着数增长且 source=renderer）
+      //  一条没动，只是把"从 0 开始"这个前提显式做出来。
+      try { window.__benchShell && window.__benchShell.clearLogsView ? window.__benchShell.clearLogsView() : null } catch (e) { /* ignore */ }
+      const clearBtn = document.getElementById('clear-logs')
+      if (clearBtn) clearBtn.click()
+      await new Promise((res) => setTimeout(res, 400))
       const before = document.querySelectorAll('#diag-body .diag-line').length
       const li = document.querySelector('#list li[data-id]')
       if (li) li.click()
@@ -670,7 +767,19 @@ try {
   //  走 **WebCodecs 逐帧**（没有 `<video>` 元素、也没有任何 seek API），所以真控读数只能在"入口 HTML 里
   //  带媒体元素"的 web 档上取；video/scene 档的诚实降级（canSeek=false、canPlay 可用）也在这一组里断言。
   //  夹具选择：本机库 7 张 web 档里只有 3644069061（2×video + 3×audio）与 3646392375（1×audio）带媒体元素。
+  //  ⑪(2026-09-21) **渲染器来源**：web 档这条路只有上游产物页有（本仓渲染器页只认 scene/video，R3 已钉住）
+  //  ⇒ 这一组显式切到「上游产物」档做夹具（上面的 R2 已经切过一次，这里再断言一次"确实是上游"，
+  //  免得后继改动把夹具悄悄换掉）。断言口径与本组读数一字未动。
   {
+    //  夹具自证：本组读数只在产物页上有效 ⇒ 先确认/切到上游档
+    await setRendererSource('upstream')
+    await page.waitForTimeout(1500)
+    {
+      const r = await rendererSourceState()
+      ok(/renderer\/index\.html/.test(r.src) && !/\/webloader\//.test(r.src),
+        'T0 夹具自证：T/W 两组跑在**上游产物**档（web 壁纸路径的当前唯一实现），不是本仓渲染器档',
+        String(r.src).slice(0, 80))
+    }
     const t = await page.evaluate(async () => {
       const out = {}
       const seg = document.querySelector('#type-filter .seg-btn[data-type="web"]')
@@ -848,6 +957,7 @@ try {
   }
 
   // ══════════════════ W 组（P-160）web 壁纸：WE shim 真的注进去了 ══════════════════
+  //  ⑪(2026-09-21) 同 T 组：web 档的 shim 注入只有产物页那条路有 ⇒ 本组同样跑在上游档（T0 已自证过）。
   //  判据（用户补充要求：web 类要"真的能用"，不是只把入口挂上）：
   //   ①渲染器**不再**打印「同源入口未检测到 WE shim」；②壁纸文档里 WE API 就位（`__weSetPaused` 等）；
   //   ③鼠标/触摸真的能到达壁纸页（在壁纸文档里挂监听，再用真鼠标事件走一遍）；
@@ -948,6 +1058,18 @@ try {
       if (all) all.click()
       await new Promise((r) => setTimeout(r, 700))
     })
+  }
+
+  // ⑪(2026-09-21) T/W 两组为了 web 档的 shim 夹具切到了上游档；这里**切回默认档（本仓渲染器）**，
+  //   让后面的 M/X/Y/G/Z/P/G10 组（几何 / 标签 / 属性面板 / 调试页签 + 指针转发 / 品牌 / 首屏）
+  //   全部跑在**用户默认看到的那一个渲染器**上 —— 那些判据是"整合成一个"之后必须继续成立的。
+  {
+    await setRendererSource('repo')
+    await page.waitForTimeout(1500)
+    const r = await rendererSourceState()
+    ok(r.mode === 'repo' && r.attr === 'repo' && String(r.src).startsWith('/webloader/?'),
+      'R4 默认档回归：T/W 之后切回「本仓渲染器」⇒ 后面的组都在**默认渲染器**上跑（不是只在对照档上绿）',
+      String(r.src).slice(0, 90))
   }
 
   // ══════════════════ M 组（P-159）mpw 自绘下拉：按钮文案 + 包含块偏移后的贴合 ══════════════════

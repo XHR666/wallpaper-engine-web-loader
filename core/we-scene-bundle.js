@@ -6957,6 +6957,51 @@ export const RES_TIER_SIZES = { '720p': [1280, 720], '1080p': [1920, 1080], '144
 export const DEFAULT_RES_TIER = '1080p'
 // `?res=legacy` 的历史别名集合（都映射到 legacy 档 = 改动前行为）
 const RES_LEGACY_TIER = '720p'
+// ①(2026-09-21 「画布跟着显示尺寸走」) **活档位**名字：`?res=dpr` / `?res=dpr1`…`?res=dpr5`。
+//   与 `auto` 的区别（**为什么不用 auto 顶替**）：`auto` 是**启动时一次**按 `innerWidth×min(dpr,2)`
+//   向上取整到命名档（`720p|1080p|1440p|2160p`），它的四条读数被 `tests/video-quality-test.mjs:161-165`
+//   逐值钉住 ⇒ 改它的语义 = 改既有判据。本档位是**新增值**（不新增开关名，见下），语义是
+//   「画布 = 画布的 **CSS 显示尺寸** × min(devicePixelRatio, 上限)，随尺寸/DPR 变化**重算**」，
+//   并且有硬上限（见 LIVE_CANVAS_LIMITS）—— 这正是"面板小就按面板出图、全屏要重算"那条链。
+export const RES_LIVE_TIER = RES_LIVE_TIER_NAME()
+function RES_LIVE_TIER_NAME() { return 'dpr' }
+// 活档位的上限（**有上限**是要求的一部分：没有上限时 4K 全屏 × DPR3 = 11520×6480 ≈ 75 MPix/帧，
+// 移动 GPU 上必然掉帧/丢上下文）。两条同时生效：单边 ≤ 4096、总像素 ≤ 3840×2160（8.29 MPix）。
+// 数字来历：4096 是本仓库 `DEV_MAX_TEX` 的兜底值（core 里同口径），8.29 MPix = 本仓库 `?res=2160p`
+// 档的像素数 —— 活档位**不该比显式最大档更贵**。
+export const LIVE_CANVAS_LIMITS = { maxDim: 4096, maxPixels: 3840 * 2160, minDim: 2 }
+
+/**
+ * 活档位的**唯一**尺寸算式（纯函数 ⇒ Node 可直接钉住；demo.html 只做接线）。
+ * 输入 `{ cssW, cssH, deviceDpr, dprCap, limits }`：
+ *   · `cssW/cssH` = 画布的 **CSS 显示尺寸**（clientWidth/clientHeight，不是窗口，也不是设计分辨率）；
+ *   · `deviceDpr`  = `window.devicePixelRatio`；
+ *   · `dprCap`     = 可选上限（`?res=dprN` 的 N；缺省/非法 ⇒ 不设上限 = 用设备 DPR）。
+ * 输出 `{ width, height, dpr, capped, deviceDpr, dprCap, cssW, cssH }`，`capped ∈ ok|dim-cap|pixel-cap|bad-input`。
+ * 两条**诚实边界**：① 非有限/非正的 CSS 尺寸 ⇒ 退化成 `minDim×minDim` 并标 `bad-input`（不猜、不抛）；
+ * ② 收缩是**等比**的，宽高比不变（画布比例 = 显示比例，不会把画面拉变形）。
+ */
+export function resolveLiveCanvasSize(input) {
+  const v = input || {}
+  const cssW = Number(v.cssW), cssH = Number(v.cssH)
+  const lim = Object.assign({}, LIVE_CANVAS_LIMITS, v.limits || {})
+  if (!Number.isFinite(cssW) || !Number.isFinite(cssH) || cssW <= 0 || cssH <= 0) {
+    return { width: lim.minDim, height: lim.minDim, dpr: 1, capped: 'bad-input', deviceDpr: 1, dprCap: null, cssW: 0, cssH: 0 }
+  }
+  const dev = Math.max(1, Number(v.deviceDpr) || 1)
+  const capRaw = Number(v.dprCap)
+  const hasCap = Number.isFinite(capRaw) && capRaw >= 1
+  const dpr = Math.min(dev, hasCap ? capRaw : Infinity)
+  let w = cssW * dpr, h = cssH * dpr, capped = 'ok'
+  const shrink = (k, why) => { if (k < 1) { w *= k; h *= k; capped = why } }
+  if (w > lim.maxDim || h > lim.maxDim) shrink(Math.min(lim.maxDim / w, lim.maxDim / h), 'dim-cap')
+  if (w * h > lim.maxPixels) shrink(Math.sqrt(lim.maxPixels / (w * h)), 'pixel-cap')
+  const even = (x) => Math.max(lim.minDim, Math.round(x / 2) * 2)
+  return {
+    width: even(w), height: even(h), dpr: Math.round(dpr * 1000) / 1000, capped,
+    deviceDpr: dev, dprCap: hasCap ? capRaw : null, cssW: Math.round(cssW), cssH: Math.round(cssH),
+  }
+}
 
 /** 解析档位。raw 为 URL `?res=` 原值（null/'' = 默认 1080p）。env 供 auto 用（默认取 window）。 */
 export function parseResTier(raw, env) {
@@ -6986,6 +7031,21 @@ export function parseResTier(raw, env) {
     // auto 命中 720p 时**不是** legacy 档（沿用新上传参数：60fps / smoothing high）；
     // 只有显式 `?res=720p|legacy` 才是逐位兼容档。
     return mk(nm, pick, Math.round(pick * 9 / 16), false, { auto: true, autoPxW: pxW, autoDpr: dpr })
+  }
+  // 活档位：`dpr`（= 不设上限，用设备 DPR）或 `dprN`（N=1..5 ⇒ `?res=dpr1` 上限 1×，与测试台「DPR」档同值域）。
+  // **为什么不新增开关名**：`tests/diag-flag-check.mjs` 把"页面里 `URLSearchParams.get('x')` 的名字"与
+  // `docs/README-DIAGNOSTICS.md` 主表**双向**比对 —— 上限放进 `res` 的取值域 ⇒ 不新增开关名、不改那张表。
+  const liveM = /^dpr([0-9]?)$/.exec(req)
+  if (liveM) {
+    const size = resolveLiveCanvasSize({
+      cssW: Number(e && e.innerWidth) || 1920,
+      cssH: Number(e && e.innerHeight) || 1080,
+      deviceDpr: Number(e && e.devicePixelRatio) || 1,
+      dprCap: liveM[1] === '' ? null : Number(liveM[1]),
+    })
+    return mk(RES_LIVE_TIER, size.width, size.height, false, {
+      live: true, liveDpr: size.dpr, liveDprCap: size.dprCap, liveCap: size.capped,
+    })
   }
   const m = /^([0-9]{2,5})x([0-9]{2,5})$/.exec(req)
   if (m) {
@@ -10553,9 +10613,28 @@ export function createRenderer(canvas, opts = {}) {
     //   钉帧 / play→__texFramePlay 按时间×frametime 自动推进）才接管 UV；否则清掉，
     //   保持 uvRect/整图旧行为（凯尔希眼睛等无脚本 sprite 层零影响）。
     try {
+      if (texObj && texObj.sprite) {
+        // ①(2026-09-21 官方 ITextureAnimation) 帧元数据**盖章**到图层：`frameCount`/`duration` 的真值
+        //   只有这里拿得到（`texObj.sprite` 由 TEXS 帧表算出）。脚本侧的
+        //   `getTextureAnimation().frameCount/duration` 由宿主把它回填进脚本可见对象
+        //   （demo.html 的同帧同步），没有它作者脚本会静默走 `undefined` 分支。
+        if (typeof layer.__texFrameCount !== 'number') layer.__texFrameCount = Number(texObj.sprite.numFrames) || 0
+        if (typeof layer.__texFrameDuration !== 'number') layer.__texFrameDuration = Number(texObj.sprite.duration) || 0
+      }
       if (texObj && texObj.sprite && (layer.__texFrameForced || layer.__texFramePlay)) {
         const ft = (texObj.sprite.frametime > 0) ? texObj.sprite.frametime : 0.1
-        const frame = layer.__texFrameForced ? (Number(layer.__texFrame) || 0) : Math.floor((time || 0) / ft)
+        // ①(2026-09-21 官方 ITextureAnimation.rate) 速度倍率（默认 1）：
+        //   · 未写过 `rate` ⇒ 算式与改动前**逐位相同**（`floor(time/ft)`）；
+        //   · `rate > 0` ⇒ `floor(time*rate/ft)`（快放/慢放）；
+        //   · `rate === 0` ⇒ **冻结在上一帧**（官方语义"速度为 0"= 停住；不能退化成 frame 0，
+        //     真机语料 `playerplay.origin` 就是靠 `rate=0` 停在动画末帧做"播完就停"）；
+        //   · 负值/非有限 ⇒ 当 0 处理（冻结）—— 倒放没有实现，不假装支持。
+        const rateRaw = layer.__texRate
+        const rate = (typeof rateRaw === 'number' && isFinite(rateRaw)) ? rateRaw : 1
+        let frame
+        if (layer.__texFrameForced) { frame = Number(layer.__texFrame) || 0; layer.__spriteFrame = frame }
+        else if (!(rate > 0)) { frame = (typeof layer.__spriteFrame === 'number') ? layer.__spriteFrame : 0 }
+        else { frame = Math.floor((time || 0) * rate / ft); layer.__spriteFrame = frame }
         const rct = spriteFrameRectUV(texObj.sprite, frame)
         layer.__spriteUV = rct ? [rct.u0, rct.v0, rct.u1, rct.v1] : null
       } else if (layer.__spriteUV) layer.__spriteUV = null

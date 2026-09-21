@@ -12827,3 +12827,132 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
    注：`package-baseline.json` / `package-matrix.json` 是**本机产物**（不入库，`--check` 用的就是本机这一份），
    所以这次更新只落在本机；**顺带发现（既有状态，未在本轮改）**：本机基线 117 行里有两条完全相同的 `3719111841`
    （116 个 id），于是 `--check` 把同一条差异报两遍 —— 下一轮清重复行。
+
+---
+
+## P-171（2026-09-21 · `:8902` 测试台预览 + 本仓渲染器）「渲染器来源」两档 + 画布活档位（显示尺寸 × DPR）+ 官方 `ITextureAnimation` 面
+
+### P-171.0 三条真机读数（先把"糊在哪"钉死，再改）
+
+| 路径 | 面板 CSS | 画布像素 | 生效 DPR | 上下文 alpha | 备注 |
+|---|---|---|---|---|---|
+| 上游产物页（`demo/renderer/index.html`，minified） | 529×297 | **529×297** | **1** | `alpha:false`（产物独有） | `renderDpr=1` 是工具条「DPR」档**缺省**，产物算式是 `clientWidth × min(devicePixelRatio, renderDpr)` ⇒ DPR>1 的屏上永远 1× CSS 像素出图（全屏同理） |
+| 本仓渲染器（`:8902/webloader/` → `:8899` 的 `demo.html` + 本仓 core） | 528×297 | **1056×594** | **2**（= 设备） | `alpha:true` | `?res=dpr` 活档位：显示尺寸 × 设备 DPR（有上限），随尺寸/DPR/全屏重算 |
+| 切回上游 | 529×297 | 529×297 | 1 | — | 两档都真的可切（不是单向开关） |
+
+* 读数来源：`tests/bench-renderer-source-test.mjs` D 段（headless firefox，`deviceScaleFactor:2`，同一张包 `3544152633`、
+  同一块面板）；同一份读数也落在 `$TMPDIR/bench-renderer-source-readings.json`。
+* 上游产物页的像素读数另有一份独立取证（同一包、同一尺寸、`?fit=cover&renderDpr=1`）：`fit cover: view 3840x2160
+  scene 3840x2160 canvas 624x351` + `text widgets: 16 (… quality 0.50)` + `particles: 26 systems, 0 builtin tex generated`
+  + `particles live: 15600 across 26 systems` + `bloom post: off` + `container "Clouds" alpha 无信息 → 加法`
+  —— 与用户给的调试日志**逐字同形**，说明那串日志出自产物页，不是本仓渲染器。
+
+### P-171.1 「渲染器来源」两档（`demo/index.html` + `demo/bench-patch.js`）
+
+* 工具条新增 `<select id="renderer-src">`（上游产物 / 本仓渲染器）+ 状态行 `#status-renderer-src`（i18n 双语）。
+* 纯函数 `rendererSourceUrl(url, mode, opts)`（`bench-patch.js`）：
+  `upstream` ⇒ **逐字返回**；`repo` ⇒ 路径换成 `/webloader/`，**完整保留原有 query**（`type/src/fit/renderDpr/sceneFps/
+  filter/muted/loop/mediaBase/_t/liveSystem` + 测试台自己加的 `bandfeed` + 别人手工加的调试档），并按需**补**
+  `id=<itemId>`（scene 取 `src`；web/video 从 `${mediaBase|webBase}/<id>/…` 段取回）与 `res=dpr`/`res=dprN`；
+  URL 里**已有** `res=` ⇒ 不覆盖（那是显式调试档）。非渲染器入口（同名尾巴 / `blob:` / 外链 / 空串）**一字不改**。
+* URL 改写装在同一条 `HTMLIFrameElement.prototype.src` 包装链上（`installRendererSourceSrcHook`，`__benchRendererSrc`
+  幂等标记，与 P-93 ①-a 的前缀改写、音条源那层**作用在不同部分**）；换档重挂载**沿用**产物自己的 `#reload`
+  （与音条源同一个 `remountRendererForBandFeed()`），不写第二套挂载逻辑。
+* `#dpr` 档只在**用户显式改过**时当上限传下去（`rendererDprCap`）：那个 `<select>` 的缺省值就是 `1`，照传会把本仓的
+  画质修复原地抵消；改过之后 `res=dprN` 与产物语义（"DPR 上限"）对齐。
+* 预览呈现：本仓渲染器页是**带面板的开发页**，直接嵌进来会在预览里套一层与本页重复的属性面板/日志/逐层调试角标
+  ⇒ 同源注入一条 `#bench-repo-chrome-hide` CSS（幂等；上游产物档下那些 id 不存在，是空操作）。
+* 合成样例：本仓档下**不载**产物页那条 `__wp.loadSceneFile(blob)`（本仓渲染器明确降级该契约），改由输出区写一行
+  说明 ⇒ 不再每次开页面留一条红字；上游档行为不变。
+* **默认 = 本仓渲染器**（用户 2026-09-21 拍板："不能把两个整合成一个吗" ⇒ 预览只跑**一个**渲染器表面；
+  上游产物降为**对照/排障档**，可显式切回）。翻转默认时既有门禁有 **14 条**断言把"默认 iframe = 产物页"
+  写成了前提 ⇒ **逐条改断言去描述新契约**（不是删断言、不是放宽容差、不是跳过），清单见 P-171.5。
+
+### P-171.2 画布活档位：`?res=dpr` / `?res=dpr1..dpr5`（core + `demo.html`）
+
+* `core/we-scene-bundle.js`：新增 `resolveLiveCanvasSize({cssW,cssH,deviceDpr,dprCap})`（**唯一算式**）+ `parseResTier`
+  的 `dpr` 分支 + `LIVE_CANVAS_LIMITS`（单边 ≤4096、总像素 ≤3840×2160、偶数对齐、坏输入退化成 2×2 并标 `bad-input`）。
+* `demo.html`：`ResizeObserver(cv)` + `window.resize` + `(resolution: Ndppx)` 媒体查询（DPR 变化不触发 resize 事件）
+  ⇒ 120ms 防抖后重算画布；每实例可释放（`inst.liveResDispose`）；读数写 `window.__mpwLiveRes`；改尺寸时同步更新
+  `__resTier.capW/capH`（视频上传上限与画布**同源同值**）。
+* **既有档位一位没动**：`auto`（启动时一次、按 `innerWidth×min(dpr,2)` 选命名档，被 `video-quality-test:161-165` 逐值钉住）、
+  缺省 1080p、`legacy` 逐位兼容、非法值回退并点名；`?res=dpr` 是**新增取值**（不新增开关名 ⇒ `diag-flag-check` 的主表
+  只需扩取值列，已改 `docs/README-DIAGNOSTICS.md` 的 `res` 行）。
+* 诚实边界：改尺寸要新的 FBO，而 core 的 `fboCache` 按尺寸做键、**从不回收** ⇒ 防抖 + 封顶是唯一防线，
+  旧尺寸的 FBO 会留在缓存里（既有实现的性质，本批不擅自回收别人的缓存）。
+
+### P-171.3 宿主契约 `window.__wp`（本仓渲染器补齐产物页那一套公开面）
+
+* 在 `demo.html` 里**早发布**（`bootInstance` 一开始）`__wp` / `__wpStats` / `__mpwHostCaps` / `__mpwHostCalls`，
+  帧函数与实例句柄用**引用持有**（`mpwHostFrameFn` / `mpwHostDisposeFn`）——装载期宿主就摸得到这些键，且
+  **过早调用只记一条"还没就绪"，绝不抛 TypeError**（真机踩到：点「释放」/关「指针注入」时
+  `E().release / D().pointerLeave is not a function` 冒到测试台错误条）。
+* 真能力：`pause/resume/isPaused/release/setFilter`（与显示选项**合成**，走 `composeFilterCss` 的"既有 filter 串"档）/
+  `setRenderDpr/setVolume`（乘进 sound 层既有算式）/`pushPointer/pointerLeave`（归一坐标 → 设计坐标写
+  `window.__mpwPointer`）/`capture`（`__mpwSafeDataURL` 守卫）/`setAudioBridge`（= 本页既有的 `window.__mpwAudioFrame`）/
+  `getProperties`（`window.__mpwUserProps` 浅拷贝）。
+* 明确降级（`__mpwHostCaps.<名> = false` + 一条诊断 + 计数）：`setFit`、`setSceneFps`、`updateWebProps`、
+  `loadSceneFile`、`pushWheel`、`restore`、`setWallpaper`。状态行把这些名字原样写出来（不静默）。
+
+### P-171.4 官方 `ITextureAnimation` 面（`elysia/scene-scripts.js`）
+
+* `texAnimRefShared()` 补齐官方成员：`rate`（**可写**，缺省 1，非有限值不写）、`frameCount`、`duration`、
+  `isPlaying()`、`join()`；保留自造的四个空 `setXxx()`（语料里已有调用方，删掉会把 no-op 变成新版 TypeError）。
+* 元数据链路：core 在精灵帧处理处把 `texObj.sprite.{numFrames,duration}` **盖章**到图层，`demo.html` 的同帧同步把它
+  **回填**给脚本可见对象（只在脚本侧还没有值时）；脚本写的 `rate` **前推**到渲染层。
+* 帧推进：`rate` 缺省 ⇒ `floor(time/ft)`（**与改动前逐位相同**）；`rate>0` ⇒ `floor(time*rate/ft)`；
+  `rate<=0` ⇒ **冻结在上一帧**（真机脚本用 `rate=0` 停在动画末帧，不能退化成 frame 0）。
+* 为什么这不是"用户报的那四条错"的修法：那四条（`rate` 只有 getter / `engine.isScreensaver` 不是函数 /
+  `layer.getFrame` 缺失）出自**上游产物页**（标签格式 `对象脚本 <层名>.<字段> 求值失败`、产物强行 `"use strict"`、
+  产物的 `isScreensaver` 是**布尔**而官方是**方法**、产物的纹理动画句柄有 `get rate()` 无 setter 且无 `getFrame`）；
+  本仓库这边本来就是（或现在是）官方形状。但那四条暴露的**同类缺口**在本仓库是**静默错分支**（不是抛错）⇒ 一并收口。
+
+### P-171.5 门禁
+
+* 新增 `tests/bench-renderer-source-test.mjs`（34 断言：A 纯函数 / B core 活档位 / C HTML+补丁+服务端静态纪律 /
+  D 真机读数，D 段无服务/无浏览器时自我 SKIP）与 `tests/scene-texanim-api-test.mjs`（19 断言，纯 Node）；
+  两条都已登记进 `tests/run-all-tests.sh`（全量 122 → 124 项）。
+* 服务端 `server/we-scene-demo-server-8902.mjs`：`/webloader/` 只是**路径前缀**反代，而渲染器页取包用的是**根绝对**
+  `/pkg/<id>`（实测 `/webloader/?id=…` 日志写 `pkg HTTP 404`、画布停在 300×150 空画布）⇒ 新增
+  `RENDERER_ROOT_ROUTES`（`/pkg/ /type/ /ddlist/ /ddvideo/ /videolib/ /project/ /refrender/ /weassist/ /noise
+  /pkgpath /pkgurl`，对 `demo.html` + `elysia/**` 全量 grep 得到的**穷尽集**）按前缀转发到同一上游；
+  **静态面优先**，且 `/diag`（诊断流要进测试台自己的环形缓冲）、`/report`+`/baseline`（本服务自己落盘）、
+  `/media|web/dev/**`（库根只读面 + Range）、`/api/**`（后端契约）**刻意不在名单里**（判据 C4）。
+* **默认翻转带来的断言改动（旧契约 → 新契约，逐条）**：
+  1. `bench-ui-headless` **S3a/S3b**：工具条 select 计数 `6 → 7`（新增「渲染器来源」`#renderer-src`）。
+     口径**一条没改**（每个 select 仍必须被隐藏、恰好一个 `.bench-rd`、全页 0 个 `.mpw_select`，
+     label 仍逐个等于真实选中项）。旧契约"工具条 6 个下拉" → 新契约"7 个下拉（第 7 个是渲染器来源）"。
+  2. `bench-ui-headless` **S4a/S4b**：旧契约"静态台在 1.2s 用**产物页**的 `__wp.loadSceneFile(blob)` 挂合成样例
+     ⇒ `#frame` 已有内容" → 新契约"**本仓档**按 `?id=sample-synthetic` **导航预览**挂同一个样例
+     （`loadRepoDefaultSample()`，同一个样例、同一份字节，取包走本仓 `/pkg/<id>`）"。判据（预览 rect ⊆ 槽位、
+     16:9、收起前后一致）一条没动。
+  3. `bench-ui-headless` **S6b**（诊断流挂载后条数增长）：新增"**先清空诊断视图再挂载**"这一步。
+     旧契约下页面起来时诊断列表还没到上限，"增长"自然可见；新契约下本仓渲染器的日志镜像（见 P-171.6）
+     在页面起来后就把有界列表填满了 ⇒ **结构上**观察不到增长（实测 before=after=50）。
+     判据本身（挂载后条数增长 + `source=renderer` + 输出视图隐藏）一条没动，只是把"从 0 开始"这个前提显式做出来。
+  4. `bench-ui-headless` **T1–T5 / W1–W6**（web 档 11 条）：新增 `T0 夹具自证` + 在 T/W 两组前**显式切到
+     「上游产物」档**。旧契约"默认 iframe 就是产物页 ⇒ web 档天然可测" → 新契约"web 壁纸路径当前只有产物页有
+     （本仓渲染器页只认 scene/video）⇒ 这两组**显式**用它当夹具，并另立 **R3** 把这条能力边界钉成判据"。
+     11 条断言口径一条没动。
+  5. `bench-ui-headless` 新增 **R 组 5 条**（R1 默认=repo；R2 能切回上游；R3 web 档在本仓档下如实降级；
+     R4 T/W 之后切回默认档，后面的组都在默认渲染器上跑；以及 R 组自己的收尾）——**断言是加不是减**。
+  6. `bench-bandfeed-switch-test` **B3**：切片终点从 `// ── ⑧` 移到新插入块的起始注释（切出来仍是**同一段**
+     音条源代码，三条负向断言口径不变）——旧契约"音条源接线块之后紧跟着品牌块" → 新契约"之后跟着渲染器来源块"。
+* `tests/bench-bandfeed-switch-test.mjs`：B3 的切片终点从 `// ── ⑧` 移到新插入块的起始注释（切出来仍是**同一段**
+  音条源代码，三条负向断言口径不变）。
+
+### P-171.6 诊断流镜像（默认翻转的配套：`:8902` 的「渲染器诊断」页签不能因为换渲染器就空掉）
+
+* 测试台的「渲染器诊断（/diag）」页签读的是**服务端 `/diag` 环形缓冲**（经 `/api/diag-stream`），
+  而上游产物页之所以"天然有"只是因为它也往这条通道投（`ce()` → `new Image().src='/diag?msg='`）。
+  本仓渲染器页此前只写自己的 `#log` DOM ⇒ 切到本仓档后那个页签是空的（真机实测：挂载一次前后都是 50 行）。
+* 修法：`demo.html` 的 `logf` 增一条**诊断流镜像**（`mpwDiagMirror`）。三条纪律：
+  ① **只在被嵌入时投**（`window.top !== window.self`）——本页单独打开（`:8899`）时行为逐位不变，
+  也不去给 `:8899` 的 `/diag`（它回的是 HTML 页面、不是图片）添无谓请求；
+  ② **限速 20 行/秒**，超出记 `window.__mpwDiagDropped`；③ 计数写 `window.__mpwDiagSent`（真机读数：
+  一轮 `bench-ui-headless` 里 315 条诊断行、其中 314 条 `[renderer]` 源，`G8a/G8b` 逐字可见）。
+* 配套：`demo.html` 把图层数组发布成 `window.__sceneLayers`（测试台「调试模式」页签的逐层隔离只认这个全局；
+  本仓 core 的渲染循环逐帧读 `layer.visible` ⇒ 宿主改写当场生效）。真机读数：`Z4` = `图层 1/62 · myLayer · 已隐…`，
+  即 62 层可逐层走、可隔离；`Z5` 截图 1046 B JPEG（本仓画布）、`Z9` 指针转发生效。
+* 仍**没接**的（诚实清单）：`#open`「新窗口」按钮走的还是产物页路径（`installOpenRemap` 在本机形态下
+  按 `local-bench` 原样放行，且 `demo-check` D12 钉住"改写必须走同一个真源函数"这条链）——本批不动它。
