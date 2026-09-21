@@ -3560,8 +3560,15 @@ export function initSiteShell(ctx = {}) {
     /* ①(2026-09-22 用户第 27 条) **全叉光之后配置面板必须清空**：旧写法只在"切档/未选中"时清，
        于是把所有页签都关掉后面板仍留着上一张壁纸的属性表（看起来像"还在配置它"）。 */
     try {
-      const noneLeft = !(Array.isArray(pinned) && pinned.length) && !curId
-      if (noneLeft) { clearPropsBody(); paintPropsEmpty() }
+      /* ⚠ 必须**延迟一拍再判定**：切档时"旧页签刚关、新项还没设成当前"会出现一瞬间的"一个都不剩"，
+         立刻清空会把新壁纸的面板一起清掉（真机门禁 `bench-ui-headless` 的 P1 就是这么红的：
+         切过去那张 A 的 rows=0）。延迟后重新判一次：真的还是空 ⇒ 才清。 */
+      /* 条件再加一道：**列表里还有 `.active` 当前项**（产物按它标当前壁纸）⇒ 绝不清 ——
+         切档时"旧页签刚关、新项还没设成当前"这一瞬间 curId/pinned 都可能是空的，
+         但 `#list li.active` 已经指向新那张（真机门禁 P1：A 声明 237 项却被清成 0 行）。 */
+      const noneLeft = () => !(Array.isArray(pinned) && pinned.length) && !curId
+        && !(typeof document !== 'undefined' && document.querySelector && document.querySelector('#list li.active'))
+      if (noneLeft()) setTimeout(() => { try { if (noneLeft()) { clearPropsBody(); paintPropsEmpty() } } catch (e) {} }, 0)
     } catch (e) {}
     switcherSig = null
     if (wasCurrent) {
@@ -4097,6 +4104,10 @@ export function initSiteShell(ctx = {}) {
   }
   /** token → 节点（只用 createElement/textContent：**结构上**不可能把作者文本变成 HTML/脚本）。 */
   function propRichFragment(tokens) {
+    /* ①(2026-09-22 用户第 5 条) 图片去重集合：**每次渲染一趟一个新集合** —— 同一张图（按解析后的 URL）
+       在这一趟里只画一遍。刻意放在函数内部：作用域与使用点一致（放到外面曾因不可见而抛错被 catch，
+       整块富文本回退成纯文本 ⇒ 面板里标签被当文字显示、一张图都没有）。 */
+    const seenSrc = new Set()
     if (!tokens || !tokens.length) return null
     const frag = D.createDocumentFragment()
     const walk = (list, host) => {
@@ -4122,7 +4133,6 @@ export function initSiteShell(ctx = {}) {
           /* ①(2026-09-22 用户第 5 条) **同一张图只显示一遍**：作者文案里同一 URL 常出现多次
              （有的产物自己也会画一张），面板再各画一张就成了"显示两遍"。
              去重键 = 解析后的绝对 URL，作用域 = 本次富文本渲染（行内 + 行间都算）。 */
-          if (!seenSrc) { seenSrc = new Set() }
           if (seenSrc.has(info.href)) continue
           seenSrc.add(info.href)
           const wrap = D.createElement('span'); wrap.className = 'bench-prop-imgwrap'
@@ -4135,8 +4145,6 @@ export function initSiteShell(ctx = {}) {
     walk(tokens, frag)
     return frag.childNodes.length ? frag : null
   }
-  /** ①(第 5 条) 图片去重集合：按**解析后的 URL** 去重（`let` 在函数作用域，跨调用保留 ⇒ 行内/行间都去重）。 */
-  let seenSrc = null
   function decoratePropRow(row) {
     if (!row || !row.dataset || row.dataset.benchPropsRow === 'done') return false
     const isGroup = !!(row.classList && row.classList.contains('prop-group'))

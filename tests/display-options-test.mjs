@@ -235,7 +235,7 @@ console.log('\n== T6 播放速度：场景时钟 + 被求值的动画值（advan
     'T6f 判别力对照：同一时刻重复求值稳定（确定性）、该窗口内动画确实在变、t=0 处回到初值（等式不是巧合）')
   check(r2.e.api.mpwSceneDt(0.016) === 0.032 && r1.e.api.mpwSceneDt(0.016) === 0.016,
     'T6g `engine.frametime` 同倍率：rate=2 ⇒ 0.032；rate=1 ⇒ 逐位 0.016')
-  check(/mpwSceneClockAt\(now, \(now - last0\) \/ 1000\)/.test(HTML) && /runSceneScripts\(tSec, mpwSceneDt\(frameDt\)\)/.test(HTML),
+  check(/mpwSceneClockAt\(now, \(now - last0\) \/ 1000\)/.test(HTML) && /runSceneScripts\(tSec, mpwSceneDt\(mpwCapScriptDt\(frameDt\)\)\)/.test(HTML),
     'T6h demo.html 帧循环真源码：`tSec` 与传给场景脚本的 frametime 都走了倍率（不是只在 API 里存了个数）')
 }
 

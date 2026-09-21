@@ -176,8 +176,12 @@ console.log('[T5] demo.html 接线')
     && /SCRIPT_FAST_HZ > 0 && \(tSec - scriptLastFast >= 1 \/ SCRIPT_FAST_HZ\)/.test(html))
   check('T5b 只对文本层脚本节点提频（__text id 集合 + owner.id 命中）',
     /function textScriptFilter\(obj, owner\)/.test(html) && /textLayerScriptIds/.test(html) && /nodeFilter: fastOnly \? textScriptFilter : null/.test(html))
-  check('T5c 渲染循环传真实帧间隔（frameDt → runSceneScripts → frametime）',
-    /const frameDt = /.test(html) && /runSceneScripts\(tSec, frameDt\)/.test(html) && /frametime: \(typeof frameDt === 'number'/.test(html))
+  /* ①(2026-09-22 上游 9e287ea) **契约更新**：仍然要求"真实帧间隔一路传到脚本"，但两处现在都过
+     `mpwCapScriptDt(frameDt)`（单帧封顶 0.05s：卡顿后部件不再甩飞）。旧写法（裸 frameDt）出现即红。 */
+  check('T5c 渲染循环传真实帧间隔（frameDt → 封顶 → runSceneScripts → frametime）',
+    /const frameDt = /.test(html) && /runSceneScripts\(tSec, mpwSceneDt\(mpwCapScriptDt\(frameDt\)\)\)/.test(html)
+    && /frametime: mpwCapScriptDt\(frameDt\)/.test(html)
+    && !/frametime: \(typeof frameDt === 'number'/.test(html))
   check('T5d 4Hz 慢档仍在（非文本脚本不被提频）', /setTimeout|tSec - scriptLastRun >= 0\.25/.test(html) && /fireUpdate: !fastOnly/.test(html))
 }
 
