@@ -574,6 +574,15 @@ out.unlinked = renderToStaticMarkup(createElement(NowPlaying, {
   data: { title: "T", byline: "b", progress: 0, total: 0, playing: false, link: false, canPlay: false, canSeek: false, canPrev: false, canNext: false },
   onTransport: () => {},
 }));
+/* ①(2026-09-23 第 8② 条) 时间轴不可证实 ⇒ 两个时间位都写 --:--（不是 0:00 / -0:00，更不是负数）。 */
+out.unknown = renderToStaticMarkup(createElement(NowPlaying, {
+  data: { title: "T", byline: "b", progress: 3, total: 19.98, playing: true, link: true, timelineKnown: false, canPlay: true, canSeek: false },
+  onTransport: () => {},
+}));
+out.known = renderToStaticMarkup(createElement(NowPlaying, {
+  data: { title: "T", byline: "b", progress: 3, total: 19.98, playing: true, link: true, timelineKnown: true, canPlay: true, canSeek: true },
+  onTransport: () => {},
+}));
 process.stdout.write(JSON.stringify(out));
 `);
     const bundle = path.join(tmp, "probe.cjs");
@@ -591,6 +600,17 @@ process.stdout.write(JSON.stringify(out));
     const html = JSON.parse(execFileSync(process.execPath, [bundle], { encoding: "utf8", timeout: 60_000 }));
     const c16 = html.c16, c0 = html.c0, c32 = html.c32;
     const cls = (s) => new Set([...s.matchAll(/class="([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/).filter((c) => c.startsWith("snd"))));
+    /* ①(2026-09-23 第 8② 条) 时间轴可证实性：false ⇒ `--:--` 两次、进度条 0%；true ⇒ 正常时间文本。
+       这条同时钉住"默认（不传 timelineKnown）行为不变"—— G16 在 bench-shell-fixes 里钉数据面。 */
+    {
+      const unknownClocks = [...html.unknown.matchAll(/class="snd-clock"[^>]*>([\s\S]*?)<\/span><\/span>/g)].length;
+      const hasDash = (html.unknown.match(/--:--/g) || []).length;
+      const runUnknown = (html.unknown.match(/class="snd-run"[^>]*width:([0-9.]+)%/) || [])[1];
+      check("第 8② 条：`timelineKnown:false` ⇒ 两个时间位都写 `--:--`（共 2 处）", hasDash === 2, "dash=" + hasDash + " groups=" + unknownClocks);
+      check("第 8② 条：`timelineKnown:false` ⇒ 进度条 0%（不拿静音画面层的 19.98s 时间轴冒充播放）", runUnknown === "0", "width=" + runUnknown);
+      check("第 8② 条：`timelineKnown:true` ⇒ 仍然渲染正常时间文本（判据有分辨力，不是恒真）",
+        /0:03/.test(html.known) && /−0:16/.test(html.known) && !/--:--/.test(html.known));
+    }
     check("渲染出的 DOM 有根 .snd（width 260 / height OPEN=189）", /class="snd"/.test(c16) && /width:260px;height:189px/.test(c16));
     check("关闭态盒子是 260×78（SHUT）", /class="snd-box"[^>]*width:260px;height:78px/.test(c16));
     check("封面 40×40 且 background-image 指向 COVER", /class="snd-art"[^>]*url\(\.\.\/assets\/brand\/wallpaper-engine-icon-512\.png\)[^>]*width:40px;height:40px/.test(c16));

@@ -273,6 +273,11 @@ export type NowPlayingData = {
   /** 进度（秒）与总长（秒）；total ≤ 0 ⇒ 进度条画成 0（不是 NaN） */
   progress?: number;
   total?: number;
+  /* ①(2026-09-23 第 8② 条) **时间轴是否可证实**。false = 宿主只找到"看起来像媒体、但不是当前
+     能听见的那条"的元素（实测 3326873240：帧里 5 个 loop 视频层全 muted，进度条却拿其中一个
+     19.98s 的时间轴当"当前播放" ⇒ 每 20 秒绕一圈，而用户听到的音频根本没循环）。
+     语义：false ⇒ 两个时间位都写 `--:--`、进度条 0%、不可拖 —— 宁可说"不知道"，不许编一个时间轴。 */
+  timelineKnown?: boolean;
   playing?: boolean;
   muted?: boolean;
   volume?: number;
@@ -317,13 +322,16 @@ export function NowPlaying({
   const shownLiked = controlled ? !!data?.link : liked;
   const totalSec = controlled ? Math.max(0, Number(data?.total) || 0) : TOTAL;
   const atSec = controlled ? Math.max(0, Math.min(totalSec || Number(data?.progress) || 0, Number(data?.progress) || 0)) : at;
-  const railPct = totalSec > 0 ? (atSec / totalSec) * 100 : 0;
+  /* ①(2026-09-23 第 8② 条) 时间轴不可证实 ⇒ 两个时间位都写 `--:--`（`timelineKnown` 缺省 = true，
+     兼容既有调用方：只有**显式** false 才改显示，别的装饰档/受控档逐字不变）。 */
+  const timelineKnown = controlled ? data?.timelineKnown !== false : true;
+  const railPct = (timelineKnown && totalSec > 0) ? (atSec / totalSec) * 100 : 0;
   const shownTitle = controlled ? String(data?.title || "") : "Cabra Field";
   const shownBy = controlled ? String(data?.byline || "") : "Side B";
   const canPlay = controlled ? data?.canPlay !== false : true;
   const canPrev = controlled ? data?.canPrev !== false : true;
   const canNext = controlled ? data?.canNext !== false : true;
-  const canSeek = controlled ? data?.canSeek !== false && totalSec > 0 : true;
+  const canSeek = controlled ? data?.canSeek !== false && totalSec > 0 && timelineKnown : true;
   /** 派发一个传输 op：受控模式交给宿主；装饰态自己吃掉（原件行为）。 */
   const send = (op: NowPlayingOp, value?: number) => {
     if (controlled) {
@@ -683,8 +691,8 @@ export function NowPlaying({
             <span className="snd-run" style={{ width: `${railPct}%` }} />
           </span>
           <span className="snd-clock" style={{ opacity: late }}>
-            <span>{clock(atSec)}</span>
-            <span>−{clock(Math.max(0, totalSec - atSec))}</span>
+            <span>{timelineKnown ? clock(atSec) : "--:--"}</span>
+            <span>{timelineKnown ? "−" + clock(Math.max(0, totalSec - atSec)) : "--:--"}</span>
           </span>
         </span>
 

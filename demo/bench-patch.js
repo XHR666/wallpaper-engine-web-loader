@@ -1209,6 +1209,16 @@ export function npSnapshotPlan(input) {
   const total = Math.max(0, num(m.total))
   const progress = Math.max(0, Math.min(total > 0 ? total : num(m.progress), num(m.progress)))
   const hasMedia = !!(m.hasVideo || m.hasAudio)
+  /* ①(2026-09-23 第 8② 条) **时间轴可证实**：宿主必须能把"这条时间轴"和"用户能听见的那条"对上。
+     判据（对实测形态取最小充分集）：① 真的选到了元素；② 它有 >0 的总长；③ 它**不是静音**的。
+     只有画面层（全 muted）时 ⇒ false ⇒ 卡片如实写 `--:--`，不拿静音视频层的时长冒充播放进度。
+     `m.timelineKnown` 可由宿主显式覆盖（上游档有自己的媒体面，不必跟着本仓的判据走）。 */
+  const timelineKnown = (m.timelineKnown !== undefined)
+    ? !!m.timelineKnown
+    /* 旧调用方（两个新字段都没给）⇒ 默认"可证实"，行为逐位不变；只给了新字段才按新判据算。 */
+    : ((m.hasTimelineElement === undefined && m.audible === undefined)
+      ? true
+      : !!(m.hasTimelineElement && total > 0 && m.audible !== false))
   const linked = link && hasMedia
   const clamp01v = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0 }
   const title = String(item.title || m.title || (hasMedia ? '' : '未连接媒体 / no media'))
@@ -1222,6 +1232,7 @@ export function npSnapshotPlan(input) {
     //  —— 卡片显示面 ——
     kind, title, byline,
     progress, total,
+    timelineKnown,
     playing: !!m.playing,
     muted: !!m.muted,
     volume: clamp01v(m.volume),
@@ -1229,7 +1240,7 @@ export function npSnapshotPlan(input) {
     canPlay: linked,
     canPrev: link && !!x.hasPrev,
     canNext: link && !!x.hasNext,
-    canSeek: linked && total > 0,
+    canSeek: linked && total > 0 && timelineKnown,
     canVolume: linked,
     link,
     source: String(x.source || (hasMedia ? 'stage-media' : 'none')),
@@ -2512,7 +2523,9 @@ export function initNavSound(deps = {}) {
     const cur = a && isFinite(Number(a.currentTime)) ? Math.max(0, Number(a.currentTime)) : 0
     const pct = dur > 0 ? Math.max(0, Math.min(100, (cur / dur) * 100)) : 0
     if (runEl && runEl.style) runEl.style.width = pct.toFixed(2) + '%'
-    if (timeEl) timeEl.textContent = npClock(cur) + ' / ' + npClock(dur)
+    /* ①(2026-09-23 第 8② 条) 同一条诚实口径：传输条也不能拿"静音画面层"的时间冒充播放进度。 */
+    const known = !!(a && dur > 0 && a.muted === false)
+    if (timeEl) timeEl.textContent = known ? (npClock(cur) + ' / ' + npClock(dur)) : '--:-- / --:--'
     if (hostEl) { try { hostEl.setAttribute('data-state', !a ? 'no-video' : (a.paused ? 'paused' : 'playing')) } catch {} }
     try { pumpNp() } catch { /* 卡片还没挂上：忽略 */ }        // ①(P-161) 卡片与传输条吃同一份读数
     return { cur, dur, pct }
@@ -2539,9 +2552,20 @@ export function initNavSound(deps = {}) {
     const auds = stageAudios()
     return { vids, auds, all: vids.concat(auds) }
   }
+  /* ①(2026-09-23 第 8② 条) 媒体选择口径：**先挑"能听见的"**，再退回"有时间的"。
+     为什么：实测 3326873240 的帧里是 5 个 `loop` 视频层（1×79.4s + 4×19.98s）**全部 muted**
+     —— 它们只是画面层；能听见的音频不在 DOM 里（包内音轨走 Web Audio）。旧口径取"第一个没暂停的"
+     ⇒ 进度条拿一个 19.98s 的静音视频层当"当前播放"，每 20 秒绕一圈，而用户听到的音频根本没循环。
+     新的三级顺序：① 没暂停 **且没静音** → ② 没静音 → ③ 没暂停 → ④ 有时间 → ⑤ 第一个。
+     全都静音时仍然会选中一个（时间轴本身可能是真的），"可不可证实"由 `npSnapshotPlan` 的
+     `timelineKnown` 判定，不由这里偷偷决定。 */
   const activeMedia = () => {
     const { vids, auds } = mediaList()
-    const pick = (list) => list.find((v) => v && v.paused === false) || list.find((v) => v && Number(v.duration) > 0) || list[0] || null
+    const pick = (list) => list.find((v) => v && v.paused === false && v.muted === false)
+      || list.find((v) => v && v.muted === false)
+      || list.find((v) => v && v.paused === false)
+      || list.find((v) => v && Number(v.duration) > 0)
+      || list[0] || null
     return pick(vids) || pick(auds) || null
   }
   /** 当前壁纸的身份（标题/类型）：优先左侧列表里 active 的那一项，否则用 `#current` 的标题。 */
@@ -2572,6 +2596,8 @@ export function initNavSound(deps = {}) {
         hasAudio: stageAudios().length > 0,
         count: all.length,
         total, progress,
+        hasTimelineElement: !!a,
+        audible: a ? a.muted === false : false,
         playing: !!(a && a.paused === false),
         muted: !!muted || !!(a && a.muted),
         volume: vol,
