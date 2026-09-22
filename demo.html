@@ -1129,6 +1129,10 @@ let webReady = false, webReloads = 0, webPaused = false, webObjectUrl = '', mpwW
 const webLastByKind = {}
 let webLastInteraction = null, webLastAudio = null
 let webFitScale = 1
+/* ⚠ 状态面里**所有会变**的字段都必须有模块级单一来源：`pub()` 的默认值每次都会参与合并 ——
+   把 `ready:false` / `state:'mounting'` / `framefit:null` 这类字面量留在默认值里，后续任何一条回报
+   （framefit / paused / interaction）都会把它们重置回去（日志写着「已报到」、状态面却是 ready:false）。 */
+let webState = 'idle', webReadyMs = null, webShimVersion = null, webFitState = null
 /* ⑥ 宿主可据此**让位**：本页自己会挂 web 帧，而且 shim 由**服务端**在 `/web/**` 的 HTML 里注入
    ⇒ 宿主（测试台）那条「包 iframe.src 改成 blob 再注入」的旧通路不要再插一手（真机实测：它会与
    服务端注入叠加，并计一次注入失败）。上游渲染器没有这个标记 ⇒ 旧的 blob 通路对它照旧生效。 */
@@ -2429,13 +2433,22 @@ function loadScene() {
     const entry = webEntryPlan(abs ? abs.href : '', { sameOrigin, blobOptIn: String(q.get('webshim') || '').toLowerCase() === 'blob' })
     const pub = (extra) => {
       try {
+        /* 先把本轮 extra 里的可变字段同步到模块级（默认值随后从那里读 ⇒ 不会被下一条回报重置）。 */
+        if (extra) {
+          if (extra.state !== undefined) webState = extra.state
+          if (extra.ready !== undefined) webReady = !!extra.ready
+          if (extra.readyMs !== undefined) webReadyMs = extra.readyMs
+          if (extra.shimVersion !== undefined) webShimVersion = extra.shimVersion
+          if (extra.framefit !== undefined) webFitState = extra.framefit
+        }
         /* ⚠ 与**已有状态合并**（不是每次重建）：各条回报只带自己那几个字段 —— 重建会把别的字段
            （interactions / ready / lastByKind…）清成默认值，读出来就像"根本没发生过"（本轮踩过）。 */
         window.__mpwWebFrame = Object.assign({}, window.__mpwWebFrame || {}, {
           at: Date.now(), id: itemId, mode: plan.mode, explicit: plan.explicit, modeWhy: plan.why,
-          entryKind: entry.kind, entryUrl: entry.url, sameOrigin, embed, ready: false, reloads: webReloads,
+          entryKind: entry.kind, entryUrl: entry.url, sameOrigin, embed,
+          state: webState, ready: webReady, readyMs: webReadyMs, shimVersion: webShimVersion, reloads: webReloads,
           timeoutMs: WEB_SHIM_READY_TIMEOUT_MS, interactions: webInteractions, audioFrames: webAudioFrames,
-          paused: webPaused, framefit: null, fitScale: webFitScale, lastInteraction: webLastInteraction,
+          paused: webPaused, framefit: webFitState, fitScale: webFitScale, lastInteraction: webLastInteraction,
           lastByKind: Object.assign({}, webLastByKind), lastAudio: webLastAudio,
         }, extra || {})
       } catch (e) { /* ignore */ }

@@ -440,8 +440,16 @@ console.log('== Y 页面交互桥接线（静态判据）==')
     /fwd\('pointer'/.test(html) && /fwd\('wheel'/.test(html) && /fwd\('touch'/.test(html))
   ok('Y4 坐标换算补偿祖先缩放（帧内 client 像素 = 显示盒坐标 × clientWidth/rect.width）',
     /fr\.clientWidth \/ r\.width/.test(html) && /fr\.clientHeight \/ r\.height/.test(html))
-  ok('Y5 `pub()` 与已有状态**合并**（重建会把 interactions/ready/lastByKind 清成默认值 —— 本轮踩过）',
+  ok('Y5 `pub()` 与已有状态**合并**（重建会把 interactions/ready/lastByKind 清成默认值 —— 真机踩过）',
     /window\.__mpwWebFrame = Object\.assign\(\{\}, window\.__mpwWebFrame \|\| \{\}, \{/.test(html))
+  /* ⚠ 这一类踩了三次：合并还不够 —— 默认值里残留 `ready:false` / `state:'mounting'` / `framefit:null`
+     这类**可变字面量**，后续任何一条回报都会把它们重置回去（日志写着「已报到」、状态面却是 ready:false，
+     真机 R3b 就是被这条抓到的）。判据：可变字段在默认值里必须读**模块级活值**，不许写字面量。 */
+  ok('Y7 状态面里所有**可变字段**都读模块级活值（默认值里不许留 ready:false / state 字面量 / framefit:null 这类写法）',
+    /state: webState, ready: webReady, readyMs: webReadyMs, shimVersion: webShimVersion/.test(html)
+    && /paused: webPaused, framefit: webFitState/.test(html)
+    && !/embed, ready: false, reloads: webReloads/.test(html)
+    && !/paused: webPaused, framefit: null/.test(html))
   ok('Y6 帧自上报三种都记（交互/暂停/音频），且音频带 hasListener（"为什么没投递"要能读出来）',
     /d\.op === 'interaction'/.test(html) && /d\.op === 'paused'/.test(html) && /audio-received/.test(html) && /hasListener/.test(html))
 }
