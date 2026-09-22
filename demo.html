@@ -2515,8 +2515,11 @@ function loadScene() {
     let src = entry.url
     if (entry.kind === 'blob') {
       try {
-        const r = await fetch(entry.url, { mode: 'cors' })
-        const text = await r.text()
+        /* ⚠ 必须走**有上限**的取回链：本仓门禁 `load-timeout` 的 T4a/T4b 明令页面里不许有裸
+           `await fetch(` 与裸 `await *.text()`（网络/解码都要有超时，否则一个卡住的入口会把页面挂死）。 */
+        const r = await fetchT(entry.url, null, NET_TIMEOUT_MS, 'web 入口')
+        const text = r ? await textT(r, entry.url, NET_TIMEOUT_MS, 'web 入口正文') : ''
+        if (!text) throw new Error('入口正文为空或取回超时')
         const out = injectWebShim(text, { seed: { op: 'props', props: mpwWebSeedProps() } })
         src = URL.createObjectURL(new Blob([out.html], { type: 'text/html' }))
         webObjectUrl = src

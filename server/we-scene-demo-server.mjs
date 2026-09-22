@@ -435,8 +435,15 @@ const server = http.createServer(async (req, res) => {
     }
     // ①(2026-09-23 第 ⑥ 条) web 壁纸宿主契约 + shim：demo.html 以 `./web-frame-host.mjs` / `./we-web-shim.mjs`
     //   相对 import ⇒ 产物根必须有同名文件（与上面几条同形；漏登记就是 P0：整条 module 图断在 404）。
-    if (p === '/web-frame-host.mjs' || p === '/we-web-shim.mjs') {
-      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, p.slice(1))), 'text/javascript');
+    //   ⚠ 两条**分开写、文件名写成字面量**：`tests/pack-closure-test.mjs` 的别名表就是从这个文件里
+    //   按 `path.join(CORE_DIR, '<名字>')` 提取的 —— 写成 `p.slice(1)` 那种合并式，发布面闭包判据
+    //   就看不到别名（本轮实测：B2/C1/C2 三条同时红）。
+    if (p === '/web-frame-host.mjs') {
+      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'web-frame-host.mjs')), 'text/javascript');
+      return;
+    }
+    if (p === '/we-web-shim.mjs') {
+      sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, 'we-web-shim.mjs')), 'text/javascript');
       return;
     }
     if (p === '/audio-band-array.mjs') {

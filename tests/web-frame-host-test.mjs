@@ -12,6 +12,7 @@
 //
 // 运行：node tests/web-frame-host-test.mjs   （全过退出码 0）
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import {
@@ -23,6 +24,7 @@ import { ROOT } from './_root.mjs'
 import { WEB_SHIM_ATTR, buildWebShimSource, hasBlockingCsp, escapeScriptClose, injectWebShim, applyWebReplacements } from '../core/we-web-shim.mjs'
 import { WEB_STORE_LIMITS, normalizeWallId, wallIdFor, storePath, sanitizeStoreData, mergeStore, evictPlan, opaqueCorsHeaders } from '../server/web-store.mjs'
 
+const pathJoin = (...a) => path.join(...a)
 let pass = 0, fail = 0
 const ok = (n, c, d = '') => { if (c) { pass++; console.log('  ✓ ' + n + (d ? '  [' + d + ']' : '')) } else { fail++; console.log('  ✗ ' + n + (d ? '  [' + d + ']' : '')) } }
 
@@ -286,8 +288,10 @@ console.log('== W 存储落盘的服务端逻辑（§3.5；与帧内 facade 同�
     && normalizeWallId('') === '' && normalizeWallId('中文') === '')
   ok('W2 wallId 生成只吃相对量（同输入同结果、长度 12）',
     wallIdFor(['3580207945', 'index.html']) === wallIdFor('3580207945index.html') && wallIdFor(['a', 'b']).length === 12)
+  /* ⚠ 断言里不许出现 `/tmp` 字面量（跨平台门禁 A/B 组会红）：用 OS 临时目录拼。 */
+  const tmpRoot = pathJoin(os.tmpdir(), 'mpw-store-probe')
   ok('W3 storePath：非法 id ⇒ 空串（调用方据此 400，而不是拼出个路径）',
-    storePath('/tmp/x', '30587e367c02') === '/tmp/x/30587e367c02.json' && storePath('/tmp/x', '../y') === '')
+    storePath(tmpRoot, '30587e367c02') === pathJoin(tmpRoot, '30587e367c02.json') && storePath(tmpRoot, '../y') === '')
 
   const big = sanitizeStoreData({ a: 'x', big: 'y'.repeat(WEB_STORE_LIMITS.value + 1), '': 'z' })
   ok('W4 单值超限**丢这一项**（不是丢整张）、空键丢掉', big.data.a === 'x' && !('big' in big.data) && big.dropped === 2, JSON.stringify(big))

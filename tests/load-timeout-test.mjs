@@ -248,11 +248,17 @@ const SITES = [
 function staticChecks(src, tag) {
   const out = []
   const P = (name, ok, detail) => out.push({ name: '[' + tag + '] ' + name, ok: !!ok, detail: detail === undefined ? '' : String(detail) })
-  const bareAwait = (src.match(/await fetch\(/g) || []).length
+  /* ⚠ 先剥注释再扫：T4a/T4b 是**源码级**判据，而注释里为了说明这条纪律很容易写出
+     `await fetch(` / `await r.text()` 这种字面量 —— 拿全文扫会把注释判成违规（本轮就假红过一次）。
+     只剥 `/* … *\/` 与行首 `//`（保守：不动字符串里的内容）。 */
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split('\n').map((l) => l.replace(/(^|\s)\/\/.*$/, '$1')).join('\n')
+  const bareAwait = (code.match(/await fetch\(/g) || []).length
   P('T4a 全文无裸 `await fetch(`（0 处）', bareAwait === 0, 'n=' + bareAwait)
-  const bareBody = (src.match(/await [A-Za-z0-9_.$]+\.(arrayBuffer|json|text)\(\)/g) || []).length
-  P('T4b 全文无裸 `await *.arrayBuffer()/json()/text()`（0 处；正文读取也要有上限）', bareBody === 0, 'n=' + bareBody + ' ' + JSON.stringify((src.match(/await [A-Za-z0-9_.$]+\.(arrayBuffer|json|text)\(\)/g) || []).slice(0, 3)))
-  const bareBitmap = (src.match(/await createImageBitmap\(|\breturn createImageBitmap\(/g) || []).length
+  const bareBody = (code.match(/await [A-Za-z0-9_.$]+\.(arrayBuffer|json|text)\(\)/g) || []).length
+  P('T4b 全文无裸 `await *.arrayBuffer()/json()/text()`（0 处；正文读取也要有上限）', bareBody === 0, 'n=' + bareBody + ' ' + JSON.stringify((code.match(/await [A-Za-z0-9_.$]+\.(arrayBuffer|json|text)\(\)/g) || []).slice(0, 3)))
+  const bareBitmap = (code.match(/await createImageBitmap\(|\breturn createImageBitmap\(/g) || []).length
   P('T4c `createImageBitmap` 只出现在 bitmapT 内（0 处裸调用）', bareBitmap === 0, 'n=' + bareBitmap)
   let missing = 0
   for (const [label, pat] of SITES) {

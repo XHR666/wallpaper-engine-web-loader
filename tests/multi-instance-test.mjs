@@ -380,11 +380,18 @@ console.log('[T11] 真接线动态跑：切 demo.html 的 `if (MPW_MULTI_IDS) {.
     return Promise.resolve({ id: inst.id, frame() {}, dispose() { calls.push('dispose:' + inst.id) } })
   }
   // eslint-disable-next-line no-new-func
+  /* ⚠ 切片块现在还依赖模块级的 `lib.glCanvasAttrs()`（画布上下文属性的唯一来源，第 24 条）。
+     桩必须把它一起注入：第一版漏了 ⇒ 块内抛 ReferenceError ⇒ `bootInstance` 一次都没调、T11c 读数是 `[]`。 */
+  const libStub = { glCanvasAttrs: () => ({ alpha: false, premultipliedAlpha: false, antialias: false, preserveDrawingBuffer: true, depth: true, stencil: false }) }
+  /* ⚠ 切片块读 `location.search`（画布上下文属性走 `lib.glCanvasAttrs(location.search)`，第 24 条）
+     ⇒ 桩里必须有 `location`。第一版只补了 `lib`、漏了 `location`：块内每个格子取上下文时抛
+     ReferenceError（被逐格 try/catch 吞掉）⇒ `bootInstance` 0 次调用、T11c 读数 `[]`。 */
+  const locationStub = { search: '', href: 'http://localhost/' }
   const run = new Function('cv', 'MPW_MULTI_IDS', 'MPW_MULTI_OPTS', 'MPW_MULTI_BUDGET', 'createMultiInstanceHost',
-    'bootInstance', 'mpwMultiHost', 'log', 'logf', 'fpsEl', 'document', 'window',
+    'bootInstance', 'mpwMultiHost', 'log', 'logf', 'fpsEl', 'document', 'window', 'lib', 'location',
     BLOCK + '\nreturn { get host() { return mpwMultiHost } };')
   const api = run(cv, { ids, invalid: [{ raw: '@@x', reason: '非法 id（不是包 id 形状）' }], dupes: [] }, opts, budget,
-    createMultiInstanceHost, bootInstance, null, logEl, (m) => logs.push(String(m)), mkEl('span'), doc, win)
+    createMultiInstanceHost, bootInstance, null, logEl, (m) => logs.push(String(m)), mkEl('span'), doc, win, libStub, locationStub)
   const flush = async (n = 6) => { for (let k = 0; k < n; k++) await new Promise((r) => setTimeout(r, 0)) }
   await flush()
   const host = api.host
