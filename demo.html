@@ -1375,7 +1375,11 @@ if (MODE === 'elysia') {
 } else {
 // ①(P-77) 多实例时**不在 #sc 上取上下文**（每个格子自建自己的 canvas+context，上限 = maxinst）；
 //   单实例路径（无 ?ids=）这一行逐字不变。
-const gl = MPW_MULTI_IDS ? null : cv.getContext('webgl2', { antialias: true, alpha: true, preserveDrawingBuffer: true });
+/* ①(第 24 条 2026-09-23) 上下文属性走**唯一来源** `lib.glCanvasAttrs()`：
+   这里创建的上下文会被渲染器复用（同一个 canvas 只有一次 getContext 生效），属性必须与渲染器
+   `createRenderer` 请求的一致 —— 此前写死 `{antialias:true, alpha:true}`，把渲染器要的
+   `alpha:false / premultipliedAlpha:false` 静默顶掉了（真机对照：本仓 alpha:true vs 上游 alpha:false）。 */
+const gl = MPW_MULTI_IDS ? null : cv.getContext('webgl2', lib.glCanvasAttrs(location.search));
 if (!MPW_MULTI_IDS) {
 if (!gl) { logf('❌ 无 WebGL2！'); try { window.__mpwCapErr && window.__mpwCapErr('no-webgl2') } catch (e) {} }
 else {
@@ -7762,7 +7766,7 @@ if (MPW_MULTI_IDS) {
   try { cv.style.display = 'none' } catch (e) {}
   const mpwInstBoot = (rec) => {
     // 每个格子自己取一个 webgl2 上下文（上限由 maxinst 硬性封顶；超限的格子上面就不建 canvas）
-    const glI = rec.canvas.getContext('webgl2', { antialias: true, alpha: true, preserveDrawingBuffer: true });
+    const glI = rec.canvas.getContext('webgl2', lib.glCanvasAttrs(location.search));   // ①(第 24 条) 同一来源
     if (!glI) throw new Error('该格子取不到 WebGL2 上下文（可能已达浏览器上下文上限）');
     return bootInstance({
       canvas: rec.canvas, gl: glI, id: rec.id,

@@ -697,6 +697,26 @@ section('⑥ 与既有开关（`?res` / `?nofx` / `?perf` / `?ln`）组合不冲
 }
 
 // =====================================================================================
+// ── ①(2026-09-23 第 24 条) 画布上下文属性必须与渲染器/上游一致 ────────────────────────────────
+//  真机对照（同一张壁纸、同一个测试台）：本仓曾因**页面先建上下文**而拿到
+//  `alpha:true, premultipliedAlpha:true, antialias:true`，上游是 `alpha:false, premultipliedAlpha:false,
+//  antialias:false` ⇒ 透明语义不同（"该透的地方发黑"）。同一 canvas 只有一次 getContext 生效。
+{
+  const d = lib.glCanvasAttrs('')
+  check('glCanvasAttrs 默认与上游同值（alpha:false / premultipliedAlpha:false / preserveDrawingBuffer:true）',
+    d.alpha === false && d.premultipliedAlpha === false && d.preserveDrawingBuffer === true, JSON.stringify(d))
+  check('默认 `?aa` 档不请求硬件 AA（antialias:false —— 只有 msaa 档才 true）', d.antialias === false)
+  check('`?aa=msaa4` ⇒ antialias:true（档位真的传到上下文）', lib.glCanvasAttrs('?aa=msaa4').antialias === true)
+  check('`?aa=off` / `?aa=fxaa` ⇒ antialias:false', lib.glCanvasAttrs('?aa=off').antialias === false && lib.glCanvasAttrs('?aa=fxaa').antialias === false)
+  check('URLSearchParams 与字符串两种入参等价', lib.glCanvasAttrs(new URLSearchParams('aa=msaa2')).antialias === lib.glCanvasAttrs('?aa=msaa2').antialias)
+  /* 源码级：页面两处上下文创建都必须走这个唯一来源（写死属性 = 又把渲染器顶掉） */
+  const html = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'demo.html'), 'utf8')
+  const hard = html.match(/getContext\('webgl2', \{/g) || []
+  const viaHelper = html.match(/getContext\('webgl2', lib\.glCanvasAttrs\(location\.search\)\)/g) || []
+  check('demo.html 的每一处 getContext(webgl2, …) 都走 lib.glCanvasAttrs()（没有写死的属性对象）',
+    hard.length === 0 && viaHelper.length >= 2, '写死=' + hard.length + ' 走统一来源=' + viaHelper.length)
+}
+
 console.log('\n' + '─'.repeat(72))
 console.log(`quality-tiers-test：${pass} 通过 / ${fail} 失败（共 ${pass + fail} 条断言）`)
 if (fail) { console.log('失败项：\n  - ' + fails.join('\n  - ')); process.exit(1) }

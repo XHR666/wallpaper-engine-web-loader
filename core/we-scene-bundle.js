@@ -12869,3 +12869,37 @@ export function snapshotAuthoredOrigins(rawObjects) {
   }
   return base
 }
+
+/**
+ * ①(2026-09-23 第 24 条取证) **画布上下文属性的唯一来源**。
+ *
+ * 为什么需要它（真机读数，不是推测）：同一个 canvas 只有一个 WebGL 上下文，**先 `getContext` 的那次
+ * 决定全部属性**，后面再请求别的属性会被**静默忽略**。本仓 `demo.html` 为了早期探测/多实例，在渲染器
+ * 之前就用 `{ antialias:true, alpha:true, preserveDrawingBuffer:true }` 建好了上下文 ⇒ 渲染器那句
+ * `{ premultipliedAlpha:false, antialias:AA_WANT_NATIVE, alpha:false, preserveDrawingBuffer:true }`
+ * 一个字都没生效。两档实测属性对照（同一张壁纸、同一个测试台）：
+ *   · 本仓：`alpha:true, premultipliedAlpha:true, antialias:true`
+ *   · 上游：`alpha:false, premultipliedAlpha:false, antialias:false`
+ * 透明语义不同 ⇒「该透的地方发黑」这类观感差异；MSAA 也被意外打开（与 `?aa=` 档位无关）。
+ * 现在页面与渲染器都从这一个函数取实参（渲染器内部仍用同一份 `AA_WANT_NATIVE` 语义）。
+ *
+ * @param {string|URLSearchParams|null} search 页面 URL 的查询串（算 `?aa=` 档位用）
+ * @returns {{alpha:false, premultipliedAlpha:false, preserveDrawingBuffer:true, antialias:boolean, depth:boolean, stencil:boolean}}
+ */
+export function glCanvasAttrs(search) {
+  const tier = parseQualityTiers((k) => {
+    if (k !== 'aa') return null
+    try {
+      if (search instanceof URLSearchParams) return search.get('aa')
+      return (typeof search === 'string' && search) ? new URLSearchParams(search).get('aa') : null
+    } catch (e) { return null }
+  })
+  return {
+    premultipliedAlpha: false,          // 与上游同值：输出 alpha 恒 1.0，不做预乘
+    antialias: AA_MSAA_SAMPLES[tier.aa] > 0,   // 只有 msaa 档请求硬件 AA（off/fxaa 档为 false）
+    alpha: false,                       // 画布不透明（上游同值；"透明壁纸"靠场景自身颜色，不靠画布 alpha）
+    preserveDrawingBuffer: true,
+    depth: true,
+    stencil: false,
+  }
+}
