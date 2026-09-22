@@ -641,6 +641,13 @@ add "web-frame-host" "node tests/web-frame-host-test.mjs"
 #   纯判据 `--selftest` 6 条常驻（含"位图 193 画在 265 上 ⇒ 必须违反"的分辨力自证）；真机模式需 :8902，
 #   支持 `--viewport WxH`（小视口最容易出问题 —— 实测 1280×720 / 960×540 / 624×351 各 29/67/47 条读数、0 违反）。
 add "text-box-invariant" "node tests/text-box-invariant-probe.mjs --selftest"
+# ①(2026-09-23 第 18/19 条取证) `minification-quality-probe`：**缩采样质量**读数 —— 同场景分别按大画布与
+#   小画布渲染，把大画布那张用浏览器高质量滤波降到小尺寸当参照，量 MAE（0..255）。
+#   诚实边界（写进探针头注释）：只对**准静态**场景有意义 —— 实测动场景同尺寸自比的"地板"就有 4.33
+#   （粒子/时钟在走），静场景 0.29~0.38；探针默认只报读数，阈值等拿到多张基线再写死。
+#   已用它在 `3554161528` 上对拍过 `?texmip=tri`（三线性 mip）：默认 LIN 1.755 vs tri 3.440（地板 0.379）
+#   ⇒ **默认不翻**，该档保持显式开关（并带 Adreno 大 NPOT generateMipmap 静默失败的已知风险）。
+add "minification-quality" "node tests/minification-quality-probe.mjs --selftest"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-22T01:48:38.253Z",
+  "generatedAt": "2026-09-22T02:12:26.281Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -2067,6 +2067,17 @@
           "file": "elysia/demo-elysia.js",
           "line": 69,
           "pattern": "searchParams.get('t')"
+        }
+      ]
+    },
+    {
+      "name": "texmip",
+      "common": false,
+      "sites": [
+        {
+          "file": "core/we-scene-bundle.js",
+          "line": 12565,
+          "pattern": "searchParams.get('texmip')"
         }
       ]
     },

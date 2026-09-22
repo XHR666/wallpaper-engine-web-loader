@@ -12552,6 +12552,20 @@ export function texDownsampleCap(w, h, devMax) {
   return Math.max(2, cap)
 }
 
+/* ①(2026-09-23 第 18 条取证) 缩采样滤波档 `?texmip=lin|tri`：
+ *   · `lin`（**缺省**，逐位等于改动前）：`MIN_FILTER=LINEAR`，只采 level 0；
+ *   · `tri`：为**静态纹理**建 mip 链并改采 `LINEAR_MIPMAP_LINEAR`（三线性）。
+ * 为什么默认不动：仓库里有一条**实锤**教训 —— 大 NPOT 纹理的 `generateMipmap` 在部分 Adreno 驱动上
+ * 会**静默失败**，失败后纹理不完整 ⇒ 采样恒黑/透明（比"糊"严重得多）。所以这一档做成显式开关，
+ * 并把"真的建成了没有"记进 `globalThis.__mpwMipStats`（`ok`/`err` 计数），拿真机读数再决定默认值。
+ * WebGL2 规范允许 NPOT 建 mip；`getError()` 能抓到**报错**的那种失败（静默失败抓不到 —— 那条只能靠
+ * 真机看画面，故本档默认关）。 */
+export const TEXMIP_MODE = (() => {
+  try {
+    return (typeof location !== 'undefined' && location.search && new URLSearchParams(location.search).get('texmip') === 'tri') ? 'tri' : 'lin'
+  } catch (e) { return 'lin' }
+})()
+
 export function makeTextureMip(gl, levels, rg88 = false) {
   const tex = gl.createTexture()
   // ①(P-65) 把 .tex format 盖在 GL 纹理对象上（decodeMip0/decodeMips 已带 levels[0].fmt）。
@@ -12608,6 +12622,37 @@ export function makeTextureMip(gl, levels, rg88 = false) {
   //   驱动标记不完整后 draw 0x502 + 采黑（上报"背景" 0x502 + DIAG 黑像素，三症状一根因）。
   const __pot = (v) => (v | 0) > 0 && ((v | 0) & ((v | 0) - 1)) === 0
   if (__pot(lv.width) && __pot(lv.height)) gl.generateMipmap(gl.TEXTURE_2D)
+  /* ①(第 18 条) `?texmip=tri`：连 NPOT 也试一次建 mip，建成才改采三线性。
+     - 建成（无 GL 错）⇒ `MIN_FILTER=LINEAR_MIPMAP_LINEAR`：缩小采样从 4-tap 变三线性，走样显著减小；
+     - 报错 ⇒ 保持 `LINEAR` 并把错误码记进统计（**不静默**：真机读数里能看到哪台设备不行）。
+     统计挂 `globalThis.__mpwMipStats = { ok, err, lastErr }`（诊断面，零开销：只在开关打开时写）。 */
+  const __MIP_BAD = (() => {
+    const g = (typeof globalThis !== 'undefined') ? globalThis : null
+    if (!g) return null
+    return g.__mpwMipBadSizes = g.__mpwMipBadSizes || new Set()
+  })()
+  const __mipKey = (lv.width | 0) + 'x' + (lv.height | 0)
+  if (TEXMIP_MODE === 'tri' && !(__MIP_BAD && __MIP_BAD.has(__mipKey))) {
+    try {
+      const before = gl.getError()      // 清掉此前遗留的错误，避免把别人的错算到这一步
+      void before
+      gl.generateMipmap(gl.TEXTURE_2D)
+      const err = gl.getError()
+      const stats = (typeof globalThis !== 'undefined' ? globalThis : window).__mpwMipStats =
+        (typeof globalThis !== 'undefined' ? globalThis : window).__mpwMipStats || { ok: 0, err: 0, lastErr: 0 }
+      if (err === gl.NO_ERROR) {
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+        try { tex.__mpwMipFiltered = 1 } catch (e) {}
+        stats.ok++
+      } else {
+        stats.err++; stats.lastErr = err
+        /* 同一尺寸不再重试：一次 INVALID_OPERATION 之后每次都报同一错只会刷日志，
+           而且该尺寸本来就已经退化成 level-0 采样（行为与默认档一致）。 */
+        if (__MIP_BAD) __MIP_BAD.add(__mipKey)
+        try { gl.getError() } catch (e) {}
+      }
+    } catch (e) { /* 假 GL / 上下文丢失：保持 LINEAR */ }
+  }
   return tex
 }
 
