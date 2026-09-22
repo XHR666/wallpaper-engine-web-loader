@@ -146,3 +146,33 @@ export function webFrameStatus(input = {}) {
       return Object.assign(t(true, false, false), { line: 'web 帧已挂载（' + mode + '）：' + str(input.detail || 'shim 已报到') });
   }
 }
+
+/* ── `?framefit`：web 帧的"露底才换视口"（docs §3.2）───────────────────────────────────────────────
+ * 为什么**不默认 cover**：web 壁纸没有内在尺寸（`contentAspectOf` 只认内在尺寸，量不到就返回 null），
+ * 拿舞台比例当内容比例就是自欺。所以默认 100%×100%，只有**量到"露底"**（文档比视口小 ⇒ 边上留白）才动。
+ * 为什么只在 compat 档：不透明源读不到帧内 `scrollWidth/Height` ⇒ sandbox 档**不做检测**，
+ * 并在日志/状态里如实写"露底检测不可用"，而不是假装做过。 */
+export const WEB_FIT_EPS = 0.02;
+
+/**
+ * @param {{mode?:string, fit?:string, docW?:number, docH?:number, boxW?:number, boxH?:number}} s
+ * @returns {{apply:boolean, why:string, scale:number, docW:number, docH:number, boxW:number, boxH:number}}
+ */
+export function webFitPlan(s = {}) {
+  const fit = str(s.fit).trim().toLowerCase();
+  const mode = str(s.mode).trim().toLowerCase() || 'sandbox';
+  const docW = Number(s.docW), docH = Number(s.docH);
+  const boxW = Number(s.boxW), boxH = Number(s.boxH);
+  const out = { apply: false, why: '', scale: 1, docW: Number.isFinite(docW) ? docW : 0, docH: Number.isFinite(docH) ? docH : 0, boxW: Number.isFinite(boxW) ? boxW : 0, boxH: Number.isFinite(boxH) ? boxH : 0 };
+  if (fit === 'legacy' || fit === 'off' || fit === '0' || fit === 'no' || fit === 'false') return Object.assign(out, { why: 'off' });
+  if ((fit === '' || fit === 'auto') && mode === 'sandbox') return Object.assign(out, { why: 'sandbox-no-pixels' });
+  if (!(out.docW > 0) || !(out.docH > 0) || !(out.boxW > 0) || !(out.boxH > 0)) return Object.assign(out, { why: 'no-measure' });
+  const docAspect = out.docW / out.docH;
+  const boxAspect = out.boxW / out.boxH;
+  /* 容差内视为"已贴合"：不做任何事（躲开滚动条/取整带来的假露底）。 */
+  if (Math.abs(docAspect - boxAspect) <= WEB_FIT_EPS * boxAspect) return Object.assign(out, { why: 'no-bars' });
+  /* 覆盖式：把帧整体放大到"内容铺满视口"，居中裁掉溢出的一边（不动内容自身排版 ⇒ 1 CSS px 仍是 1 px）。 */
+  const scale = Math.max(out.boxW / out.docW, out.boxH / out.docH);
+  if (!Number.isFinite(scale) || scale <= 1) return Object.assign(out, { why: 'no-bars' });
+  return Object.assign(out, { apply: true, why: 'bars-detected', scale: +scale.toFixed(4) });
+}

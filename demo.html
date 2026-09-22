@@ -1074,7 +1074,7 @@ import { packBands, simulatedBandArray, bandStats, AUDIO_BAND_LEN, AUDIO_BAND_HA
 import { coverViewport, contentAspectOf, frameVisibleRect, normalizeFrameFit, sceneFitPlan } from './web-frame-geometry.mjs';
 /* ⑥(2026-09-23) web 壁纸宿主：档位/入口/降档/失败态的契约在 core/web-frame-host.mjs（纯函数，被门禁逐条钉住），
    注入器在 core/we-web-shim.mjs（跨源 `?webshim=blob` 时才在页内用）。 */
-import { resolveWebFrameMode, webFrameSandboxAttr, webEntryPlan, webShimDowngradePlan, webFrameStatus, WEB_SHIM_READY_TIMEOUT_MS } from './web-frame-host.mjs';
+import { resolveWebFrameMode, webFrameSandboxAttr, webEntryPlan, webShimDowngradePlan, webFrameStatus, webFitPlan, WEB_SHIM_READY_TIMEOUT_MS } from './web-frame-host.mjs';
 import { injectWebShim } from './we-web-shim.mjs';   // ①(第 ⑥ 条) 两者按仓库约定**三处登记**（8899 路由 / Pages 映射 / sw 预缓存）
 // ①(用户第 6 项 2026-09-19) 自绘下拉（共享模块，测试台与渲染器页同一个实现）：
 //   模块住在 `demo/`（测试台天然托管），8899 这边由服务器补了一条**限定这两个文件**的只读路由。
@@ -1128,6 +1128,7 @@ function mpwWebPushBands(tSec, band) {
 let webReady = false, webReloads = 0, webPaused = false, webObjectUrl = '', mpwWebSend = null, webInteractions = 0, webAudioFrames = 0
 const webLastByKind = {}
 let webLastInteraction = null, webLastAudio = null
+let webFitScale = 1
 /* ⑥ 宿主可据此**让位**：本页自己会挂 web 帧，而且 shim 由**服务端**在 `/web/**` 的 HTML 里注入
    ⇒ 宿主（测试台）那条「包 iframe.src 改成 blob 再注入」的旧通路不要再插一手（真机实测：它会与
    服务端注入叠加，并计一次注入失败）。上游渲染器没有这个标记 ⇒ 旧的 blob 通路对它照旧生效。 */
@@ -2434,10 +2435,49 @@ function loadScene() {
           at: Date.now(), id: itemId, mode: plan.mode, explicit: plan.explicit, modeWhy: plan.why,
           entryKind: entry.kind, entryUrl: entry.url, sameOrigin, embed, ready: false, reloads: webReloads,
           timeoutMs: WEB_SHIM_READY_TIMEOUT_MS, interactions: webInteractions, audioFrames: webAudioFrames,
-          paused: webPaused, lastInteraction: webLastInteraction,
+          paused: webPaused, framefit: null, fitScale: webFitScale, lastInteraction: webLastInteraction,
           lastByKind: Object.assign({}, webLastByKind), lastAudio: webLastAudio,
         }, extra || {})
       } catch (e) { /* ignore */ }
+    }
+    /* ⑥ `?framefit`：**露底才换视口**。compat 档能读帧内文档尺寸 ⇒ 量"文档比视口小"那种留白，
+       量到就把帧整体放大到铺满（`transform: scale`，居中裁溢出边），不改编排 ⇒ 1 CSS px 仍是 1 px。
+       sandbox 档读不到帧内 ⇒ 如实写"露底检测不可用"，不假装做过。 */
+    const applyFrameFit = (why) => {
+      try {
+        const rect = fr.getBoundingClientRect()
+        let docW = 0, docH = 0
+        if (plan.mode === 'compat') {
+          const d = fr.contentDocument
+          const bd = d && d.body
+          /* ⚠ 用 `body.getBoundingClientRect()` 而**不是** `scrollWidth/Height`：后两者会被钳到
+             **视口尺寸**（真机实测：800×600 的固定文档在 1600×900 视口里，scrollWidth 报的也是 1600）
+             ⇒ 永远测不出"露底"，这条检测会静默失效。内容盒才是"作者真正画了多大"。 */
+          const rb = bd && bd.getBoundingClientRect ? bd.getBoundingClientRect() : null
+          docW = rb ? rb.width : 0
+          docH = rb ? rb.height : 0
+        }
+        /* ⚠ 盒子必须用**布局盒** `clientWidth/Height`，不能用 `getBoundingClientRect()`：后者含我们自己
+           刚加上的 `transform: scale()` ⇒ 每次补跑都把"已放大的盒子"再当成新盒子，2→4→8→16 失控放大
+           （真机实测 box 12800×7200、scale 16）。布局盒不受 transform 影响 ⇒ 每次算出同一个 plan。 */
+        const fp = webFitPlan({ mode: plan.mode, fit: q.get('framefit') || '', docW, docH,
+          boxW: fr.clientWidth || Math.round(rect.width), boxH: fr.clientHeight || Math.round(rect.height) })
+        if (fp.apply && fp.scale !== webFitScale) {
+          webFitScale = fp.scale
+          fr.style.transform = 'scale(' + fp.scale + ')'
+          fr.style.transformOrigin = '50% 50%'
+          logf('⑥ web 帧 framefit：检测到露底（文档 ' + fp.docW + 'x' + fp.docH + ' vs 视口 ' + fp.boxW + 'x' + fp.boxH
+            + '）⇒ 放大 ' + fp.scale + ' 倍铺满（居中裁溢出边）')
+        } else if (!fp.apply) {
+          /* ⚠ 必须是 `else if (!fp.apply)`：写成 `else` 会把"已缩放且 scale 未变"也当成"不缩放"，
+             于是第二次补跑清掉刚设的 transform、下一次又重设 ⇒ 来回抖（真机实测 transform 为空）。 */
+          if (webFitScale !== 1) { webFitScale = 1; fr.style.transform = '' }
+          if (fp.why === 'sandbox-no-pixels') logf('⑥ web 帧 framefit：不透明源读不到帧内像素 ⇒ 露底检测不可用（不换视口）')
+          else if (fp.why === 'bars-detected') logf('⑥ web 帧 framefit：露底但无处可放')
+        }
+        pub({ state: 'ok', framefit: { why: fp.why, scale: fp.scale, docW: fp.docW, docH: fp.docH, boxW: fp.boxW, boxH: fp.boxH, at: Date.now(), trigger: why } })
+        return fp
+      } catch (e) { pub({ state: 'ok', framefit: { why: 'error:' + ((e && e.message) || ''), trigger: why } }); return null }
     }
     if (!entry.url) { pub({ state: 'entry-missing' }); frameStatus({ state: 'entry-missing' }); return }
     // 帧盒：默认 100%×100%（web 没有内在尺寸）；`?webres=WxH` 给逻辑视口（测试台"分辨率"语义）
@@ -2521,6 +2561,7 @@ function loadScene() {
         pub({ state: 'ok', ready: true, readyMs: Date.now() - t0, shimVersion: d.version || null })
         logf('⑥ web 帧：shim 已报到（v' + (d.version || '?') + '，' + (Date.now() - t0) + 'ms）')
         mpwWebPushProps()
+        applyFrameFit('ready')
         return
       }
       if (d.op === 'interaction') {
@@ -2547,6 +2588,11 @@ function loadScene() {
       }
     }
     window.addEventListener('message', onMsg)
+    /* 帧 load 之后再量一次：作者脚本常在 load 后才把布局撑开（只测 ready 那一刻会漏）。
+       另加两次补跑（1.2s / 3.5s，与本页"画布晚到"同款做法）：跨源/无 shim 的入口既没有 ready，
+       `load` 也可能早于监听挂上（真机实测：data: 入口就没触发）⇒ 不许因为"没事件"就永不检测。 */
+    try { fr.addEventListener('load', () => setTimeout(() => applyFrameFit('load'), 600), { once: true }) } catch (e) { /* 桩 DOM */ }
+    try { setTimeout(() => applyFrameFit('late-1'), 1200); setTimeout(() => applyFrameFit('late-2'), 3500) } catch (e) { /* 桩 DOM */ }
     // 2.5s 兜底：按契约决定降档（仅 auto + 非嵌入 + 未显式）
     window.setTimeout(() => {
       if (webReady) return

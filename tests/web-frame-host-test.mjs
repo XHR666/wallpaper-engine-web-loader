@@ -17,7 +17,7 @@ import vm from 'node:vm'
 import {
   WEB_FRAME_MODES, WEB_SHIM_READY_TIMEOUT_MS, WEB_INJECT_MAX_BYTES,
   normalizeWebFrameMode, resolveWebFrameMode, webFrameSandboxAttr, webFrameBox,
-  webEntryPlan, webShimDowngradePlan, webFrameStatus,
+  webEntryPlan, webShimDowngradePlan, webFrameStatus, webFitPlan,
 } from '../core/web-frame-host.mjs'
 import { ROOT } from './_root.mjs'
 import { WEB_SHIM_ATTR, buildWebShimSource, hasBlockingCsp, escapeScriptClose, injectWebShim } from '../core/we-web-shim.mjs'
@@ -444,6 +444,44 @@ console.log('== Y 页面交互桥接线（静态判据）==')
     /window\.__mpwWebFrame = Object\.assign\(\{\}, window\.__mpwWebFrame \|\| \{\}, \{/.test(html))
   ok('Y6 帧自上报三种都记（交互/暂停/音频），且音频带 hasListener（"为什么没投递"要能读出来）',
     /d\.op === 'interaction'/.test(html) && /d\.op === 'paused'/.test(html) && /audio-received/.test(html) && /hasListener/.test(html))
+}
+
+
+console.log('== Z framefit 露底检测（纯判据 + 页面接线）==')
+{
+  ok('Z1 同比例 ⇒ 不动作（`no-bars`；躲开滚动条/取整造成的假露底）',
+    webFitPlan({ fit: '', mode: 'compat', docW: 1600, docH: 900, boxW: 960, boxH: 540 }).why === 'no-bars')
+  ok('Z2 文档比视口小 ⇒ 放大铺满（800×600 内容 vs 1600×900 视口 ⇒ scale 2）',
+    (() => { const p = webFitPlan({ fit: 'cover', mode: 'compat', docW: 800, docH: 600, boxW: 1600, boxH: 900 }); return p.apply === true && p.scale === 2 && p.why === 'bars-detected' })())
+  ok('Z3 文档比视口大 ⇒ 不需要动（`no-bars`，scale 不会 <1 去缩）',
+    webFitPlan({ fit: 'cover', mode: 'compat', docW: 3200, docH: 1800, boxW: 960, boxH: 540 }).apply === false)
+  ok('Z4 **sandbox 档 auto 不检测**（不透明源读不到帧内；如实写 `sandbox-no-pixels`）',
+    webFitPlan({ fit: '', mode: 'sandbox', docW: 800, docH: 600, boxW: 960, boxH: 540 }).why === 'sandbox-no-pixels')
+  ok('Z5 显式 `cover` 在 sandbox 档也照办（调用方明确要求 ⇒ 不替它判断）',
+    webFitPlan({ fit: 'cover', mode: 'sandbox', docW: 800, docH: 600, boxW: 960, boxH: 540 }).apply === true)
+  ok('Z6 `legacy`/`off`/`0` ⇒ 关', ['legacy', 'off', '0'].every((f) => webFitPlan({ fit: f, mode: 'compat', docW: 800, docH: 600, boxW: 960, boxH: 540 }).why === 'off'))
+  ok('Z7 量不到 ⇒ `no-measure`（不许编一个视口出来）',
+    webFitPlan({ fit: 'cover', mode: 'compat', docW: 0, docH: 0, boxW: 960, boxH: 540 }).why === 'no-measure'
+    && webFitPlan({ fit: 'cover', mode: 'compat', docW: 800, docH: 600, boxW: 0, boxH: 0 }).why === 'no-measure')
+  ok('Z8 分辨力自证：同比例与露底两种输入的结论**不同**（判据不是恒真）',
+    webFitPlan({ fit: 'cover', mode: 'compat', docW: 1600, docH: 900, boxW: 960, boxH: 540 }).apply
+    !== webFitPlan({ fit: 'cover', mode: 'compat', docW: 800, docH: 600, boxW: 960, boxH: 540 }).apply)
+}
+{
+  const html = fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8')
+  ok('Z9 露底判据用**内容盒** `body.getBoundingClientRect()`（`scrollWidth/Height` 被钳到视口 ⇒ 永远测不出露底）',
+    /body\.getBoundingClientRect\(\)/.test(html) && !/docW = Math\.max\(de \? de\.scrollWidth/.test(html))
+  ok('Z10 帧盒取**布局盒** `clientWidth/Height`（取显示盒会把已放大的盒子再当新盒子 ⇒ 2→4→8→16 失控）',
+    /boxW: fr\.clientWidth \|\| Math\.round\(rect\.width\)/.test(html))
+  /* 断言**语义结构**而不是某一种写法：关键是"已缩放且 scale 未变"不能落进重置分支。
+     当前实现 = `if (fp.apply && fp.scale !== webFitScale) {…} else if (!fp.apply) {重置}`（等价且更短）。 */
+  ok('Z11 重复补跑幂等：`scale` 未变不重设，且**重置只在 `!fp.apply` 时**发生',
+    /if \(fp\.apply && fp\.scale !== webFitScale\)/.test(html) && /\} else if \(!fp\.apply\) \{/.test(html))
+  ok('Z12 检测时机齐备：ready + load + 两次补跑（跨源/无 shim 的入口既没 ready，load 也可能早于监听）',
+    /applyFrameFit\('ready'\)/.test(html) && /applyFrameFit\('load'\)/.test(html)
+    && /applyFrameFit\('late-1'\)/.test(html) && /applyFrameFit\('late-2'\)/.test(html))
+  ok('Z13 结果进状态面（why/scale/doc/box + trigger）供测试台与探针读',
+    /framefit: \{ why: fp\.why, scale: fp\.scale, docW: fp\.docW, docH: fp\.docH, boxW: fp\.boxW, boxH: fp\.boxH/.test(html))
 }
 
 console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败')
