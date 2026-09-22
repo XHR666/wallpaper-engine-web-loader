@@ -2352,6 +2352,32 @@ const server = http.createServer((req, res) => {
  * 看起来像投递坏了。判据：每次请求 stat 一次源文件，mtimeMs 变了就重建（构建 15KB 字符串，代价可忽略）。
  */
 let webShimCache = { mtimeMs: 0, source: '' }
+/**
+ * 注入面的**内容替换表**（默认不存在 ⇒ 一个字节都不动）。文件：`<reports>/web-replace.json`，形状
+ * `[{ "from": "作者写的字符串", "to": "替换成什么", "count": 1 }]`（`count` 省略 = 全部替换）。
+ * 为什么走文件而不是 URL 旗标：替换规则属于**宿主策略**（每个宿主一套），不该让壁纸 URL 携带它；
+ * 也避免插件/测试台各自发明一套参数。同样按 mtime 失效，改完不必重启服务。
+ * 用途见台账第 17 条（网页档作者内嵌的署名文字/图标路径换成宿主自己的）。
+ */
+const WEB_REPLACE_FILE = () => path.join(REPORTS_DIR, 'web-replace.json')
+let webReplaceCache = { mtimeMs: -1, list: [] }
+function webReplacements() {
+  const file = WEB_REPLACE_FILE()
+  let mtimeMs = -2
+  try { mtimeMs = fs.statSync(file).mtimeMs } catch { mtimeMs = -1 }
+  if (mtimeMs !== webReplaceCache.mtimeMs) {
+    let list = []
+    if (mtimeMs >= 0) {
+      try {
+        const j = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''))
+        const arr = Array.isArray(j) ? j : (j && Array.isArray(j.replacements) ? j.replacements : [])
+        list = arr.filter((r) => r && typeof r.from === 'string' && r.from).map((r) => ({ from: r.from, to: typeof r.to === 'string' ? r.to : '', count: r.count }))
+      } catch (e) { try { process.stderr.write('[web-replace] 解析失败，按空表处理：' + (e && e.message) + '\n') } catch { /* ignore */ } }
+    }
+    webReplaceCache = { mtimeMs, list }
+  }
+  return webReplaceCache.list
+}
 function webShimSource() {
   const file = fileURLToPath(new URL('../core/we-web-shim.mjs', import.meta.url))
   let mtimeMs = 0
@@ -2403,7 +2429,7 @@ function webMediaServe(req, res, item, segs, url) {
   let out
   try {
     const html = fs.readFileSync(file, 'utf8')
-    out = injectWebShim(html, { shimSource: webShimSource(), seed: webSeedFor(item, dir, rel) })
+    out = injectWebShim(html, { shimSource: webShimSource(), seed: webSeedFor(item, dir, rel), replacements: webReplacements() })
   } catch (e) {
     /* 读/注入失败只 warn 不 500（原样发文件，别把壁纸弄成打不开） */
     try { process.stderr.write('[web-shim] 注入失败 ' + item + '/' + rel + '：' + (e && e.message) + '\n') } catch { /* ignore */ }
@@ -2414,6 +2440,8 @@ function webMediaServe(req, res, item, segs, url) {
     'Cache-Control': NO_STORE,
     'X-Bench-Server': 'we-scene-demo-8902',
     'X-Mpw-Shim': out.injected ? 'injected' : ('skipped:' + out.reason),
+    /* 替换表命中数如实写响应头（0 也写：能一眼区分"没配替换表"与"配了但一条没命中"）。 */
+    'X-Mpw-Shim-Replaced': String(out.replaced || 0),
   }, cors)
   if (!out.injected) return sendFile(req, res, file, { headers })
   res.writeHead(200, Object.assign({ 'Content-Length': String(Buffer.byteLength(out.html)) }, headers))

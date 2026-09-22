@@ -373,27 +373,70 @@ export function injectWebShim(html, opts = {}) {
   const src = typeof html === 'string' ? html : '';
   const bytes = src.length;
   const maxBytes = Number.isFinite(Number(opts.maxBytes)) ? Number(opts.maxBytes) : WEB_INJECT_MAX_BYTES;
-  if (!src) return { html: src, injected: false, skipped: true, reason: 'empty', bytes };
-  if (bytes > maxBytes) return { html: src, injected: false, skipped: true, reason: 'too-large', bytes };
-  if (new RegExp(WEB_SHIM_ATTR + '(=|\\s|>)', 'i').test(src)) return { html: src, injected: false, skipped: true, reason: 'already', bytes };
+  if (!src) return { html: src, injected: false, skipped: true, reason: 'empty', bytes, replacements: [], replaced: 0 };
+  if (bytes > maxBytes) return { html: src, injected: false, skipped: true, reason: 'too-large', bytes, replacements: [], replaced: 0 };
+  if (new RegExp(WEB_SHIM_ATTR + '(=|\\s|>)', 'i').test(src)) return { html: src, injected: false, skipped: true, reason: 'already', bytes, replacements: [], replaced: 0 };
   if (opts.skipCsp !== false && hasBlockingCsp(src)) return { html: src, injected: false, skipped: true, reason: 'csp', bytes };
+  /* 注入前的**内容替换**（默认空表 ⇒ 逐字节不变；报表随返回值一起给出，供宿主记账/打响应头）。 */
+  const rep = applyWebReplacements(src, opts.replacements);
+  const body = rep.html;
+  const withRep = (r) => Object.assign(r, { replacements: rep.report, replaced: rep.total });
   const shim = typeof opts.shimSource === 'string' && opts.shimSource ? opts.shimSource : buildWebShimSource();
   const seed = opts.seed && typeof opts.seed === 'object'
     ? '\n<script ' + WEB_SHIM_ATTR + '-seed="' + WEB_SHIM_VERSION + '">\nwindow.__mpwWebSeed=' + escapeScriptClose(JSON.stringify(opts.seed)) + ';\n</script>'
     : '';
   const inject = '<script ' + WEB_SHIM_ATTR + '="' + WEB_SHIM_VERSION + '">\n' + escapeScriptClose(shim) + '\n</script>' + seed;
-  const head = /<head(\s[^>]*)?>/i.exec(src);
+  const head = /<head(\s[^>]*)?>/i.exec(body);
   if (head) {
     const at = head.index + head[0].length;
-    return { html: src.slice(0, at) + inject + src.slice(at), injected: true, skipped: false, reason: 'head', bytes };
+    return withRep({ html: body.slice(0, at) + inject + body.slice(at), injected: true, skipped: false, reason: 'head', bytes });
   }
-  const htmlOpen = /<html(\s[^>]*)?>/i.exec(src);
+  const htmlOpen = /<html(\s[^>]*)?>/i.exec(body);
   if (htmlOpen) {
     const at = htmlOpen.index + htmlOpen[0].length;
-    return { html: src.slice(0, at) + '<head>' + inject + '</head>' + src.slice(at), injected: true, skipped: false, reason: 'made-head', bytes };
+    return withRep({ html: body.slice(0, at) + '<head>' + inject + '</head>' + body.slice(at), injected: true, skipped: false, reason: 'made-head', bytes });
   }
-  return {
-    html: '<!DOCTYPE html><html><head>' + inject + '</head><body>' + src + '</body></html>',
+  return withRep({
+    html: '<!DOCTYPE html><html><head>' + inject + '</head><body>' + body + '</body></html>',
     injected: true, skipped: false, reason: 'made-document', bytes,
-  };
+  });
+}
+
+/* ── 注入面的**内容替换**（可配置、默认关闭）─────────────────────────────────────────────────────────
+ * 用途（第 17 条「内嵌文字与图标没被改成我们的」）：网页档的作者 HTML 里常带写死的署名文字/图标路径，
+ * 宿主可能想把它换成自己的。这里只提供**机制**：一张 `[{from, to, count?}]` 表，在注入 shim **之前**
+ * 对 HTML 源做字面替换 —— 内容由调用方给（默认空表 ⇒ 一个字节都不动，避免我们替用户编品牌名）。
+ * 纪律：
+ *   ① 只做**字面**替换（不做正则、不碰 `<script>` 之外的语义），`from` 为空/非串一律忽略；
+ *   ② `count` 缺省 = 全部替换；给了就最多替换那么多次（便于"只换第一处"这类需求）；
+ *   ③ 如实回报每条的替换数（`replaced`），**0 命中不报错**（作者改版了很正常）。
+ *   ⚠ 图标替换天然是 URL 级的：作者写 `src="author.png"`，把 `author.png` 换成宿主的路径即可（同一张表）。
+ */
+export function applyWebReplacements(html, list) {
+  let out = typeof html === 'string' ? html : '';
+  const rows = Array.isArray(list) ? list : [];
+  const report = [];
+  for (const r of rows) {
+    const from = (r && typeof r.from === 'string') ? r.from : '';
+    const to = (r && typeof r.to === 'string') ? r.to : '';
+    if (!from) continue;
+    const limit = Number.isFinite(Number(r.count)) && Number(r.count) > 0 ? Math.floor(Number(r.count)) : Infinity;
+    let n = 0;
+    if (limit === Infinity) {
+      const parts = out.split(from);
+      n = parts.length - 1;
+      if (n > 0) out = parts.join(to);
+    } else {
+      let idx = 0;
+      while (n < limit) {
+        const at = out.indexOf(from, idx);
+        if (at < 0) break;
+        out = out.slice(0, at) + to + out.slice(at + from.length);
+        idx = at + to.length;
+        n++;
+      }
+    }
+    report.push({ from: from.slice(0, 40), to: to.slice(0, 40), n });
+  }
+  return { html: out, report, total: report.reduce((a, b) => a + b.n, 0) };
 }

@@ -20,7 +20,7 @@ import {
   webEntryPlan, webShimDowngradePlan, webFrameStatus, webFitPlan,
 } from '../core/web-frame-host.mjs'
 import { ROOT } from './_root.mjs'
-import { WEB_SHIM_ATTR, buildWebShimSource, hasBlockingCsp, escapeScriptClose, injectWebShim } from '../core/we-web-shim.mjs'
+import { WEB_SHIM_ATTR, buildWebShimSource, hasBlockingCsp, escapeScriptClose, injectWebShim, applyWebReplacements } from '../core/we-web-shim.mjs'
 import { WEB_STORE_LIMITS, normalizeWallId, wallIdFor, storePath, sanitizeStoreData, mergeStore, evictPlan, opaqueCorsHeaders } from '../server/web-store.mjs'
 
 let pass = 0, fail = 0
@@ -537,6 +537,29 @@ console.log('== W2 键盘注入与 hard pause（vm 里跑真 shim）==')
     ok('W2-4 恢复 ⇒ 挂起的回调**只放行一次**并清空队列（不重放累积帧）',
       win.__mpwHardPause.heldRaf.length === 0 && win.__mpwHardPause.heldTimer.length === 0 && r && r.ok === true)
   }
+}
+
+
+console.log('== R 注入面的内容替换表（第 17 条：默认关闭）==')
+{
+  const html = '<html><head><title>WEwebLoader</title></head><body><img src="author.png"><p>WEwebLoader</p></body></html>'
+  const r = applyWebReplacements(html, [{ from: 'WEwebLoader', to: 'OUR BRAND' }, { from: 'author.png', to: '/assets/ours.png' }])
+  ok('R1 字面替换：文字与图标路径都能换', r.html.includes('OUR BRAND') && !r.html.includes('WEwebLoader') && r.html.includes('/assets/ours.png'), JSON.stringify(r.report))
+  ok('R2 逐条如实回报命中数（0 命中不报错）',
+    r.report[0].n === 2 && r.report[1].n === 1 && r.total === 3
+    && applyWebReplacements(html, [{ from: '不存在', to: 'x' }]).report[0].n === 0)
+  const one = applyWebReplacements(html, [{ from: 'WEwebLoader', to: 'X', count: 1 }])
+  ok('R3 `count` 限制最多替换几处（只换第一处）', (one.html.match(/X/g) || []).length === 1 && (one.html.match(/WEwebLoader/g) || []).length === 1)
+  ok('R4 空表 / 非法行 / 空 from ⇒ 一个字节都不动（默认关闭）',
+    applyWebReplacements(html, []).html === html && applyWebReplacements(html, null).html === html
+    && applyWebReplacements(html, [{ to: 'x' }, { from: '', to: 'y' }]).html === html)
+  ok('R5 非字符串输入不崩', applyWebReplacements(null, [{ from: 'a', to: 'b' }]).html === '')
+  /* R6 顺序：**先替换、后注入**（否则替换表会命中 shim 自己的文本，或把注入标记改坏） */
+  const inj = injectWebShim(html, { replacements: [{ from: 'WEwebLoader', to: 'OUR BRAND' }] })
+  ok('R6 注入与替换同一条链：替换生效、shim 标记仍在、报表随返回值给出',
+    inj.injected === true && inj.html.includes('OUR BRAND') && new RegExp(WEB_SHIM_ATTR + '=').test(inj.html) && inj.replaced === 2)
+  ok('R7 未命中/空表的注入结果里报表是空数组（能区分"没配"与"配了没命中"）',
+    JSON.stringify(injectWebShim(html).replacements) === '[]' && injectWebShim(html).replaced === 0)
 }
 
 console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败')
