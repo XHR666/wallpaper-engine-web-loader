@@ -648,6 +648,13 @@ add "text-box-invariant" "node tests/text-box-invariant-probe.mjs --selftest"
 #   已用它在 `3554161528` 上对拍过 `?texmip=tri`（三线性 mip）：默认 LIN 1.755 vs tri 3.440（地板 0.379）
 #   ⇒ **默认不翻**，该档保持显式开关（并带 Adreno 大 NPOT generateMipmap 静默失败的已知风险）。
 add "minification-quality" "node tests/minification-quality-probe.mjs --selftest"
+# ①(第 19 条取证) `video-downscale-flicker-probe`：**非全屏（缩小显示）黑线闪烁**的可量读数 ——
+#   用浏览器自己的缩放器把原生帧逐帧画到目标尺寸，量「高通层的时间方差」（闪烁）与「细节能量」。
+#   内存纪律写进探针头（帧不进 Node 内存 / 页内只解一张 / 指标边算边累加）：本机 15GB、曾 OOM 重启。
+#   实测（`3588989102` 2558×1438@60，16 帧）：非全屏尺寸上「一次直降」的闪烁是「逐级减半」的
+#   **1.6~2.7×**（细节低 1.4~1.9× ⇒ 取舍而非纯赢）；`imageSmoothingQuality` low↔high 在 Firefox
+#   上**逐位无效果**。缺帧目录 ⇒ SKIP；纯判据 7 条常驻。
+add "video-downscale-flicker" "node tests/video-downscale-flicker-probe.mjs --selftest"
 # ①(第 18 条续：LDR bloom / FXAA **整屏黑**) `canvas-capture-test`：画布回读契约。
 #   根因实锤：`alpha:false` 的默认帧缓冲上 `copyTexSubImage2D` 报 0x502 **且纹理保持全零**
 #   （Firefox 实测；`alpha:true` 同场景拷贝成功；antialias/premultipliedAlpha/preserveDrawingBuffer
