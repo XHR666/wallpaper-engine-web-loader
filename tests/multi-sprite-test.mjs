@@ -7,6 +7,8 @@
 //   ④ 单图精灵路径（computeSpriteFrameUV）不受影响（回归门）。
 import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
+import path from 'node:path'
+import { walkContainers } from './_pkg-index.mjs'
 import * as lib from '../core/we-scene-bundle.js'
 // ①(去个人化 2026-09-16 / 敏感信息加固 2026-09-19) 工作区根：环境变量优先；兜底默认由 tests/_root.mjs 按**脚本自身位置**推导（不再写作者本机绝对路径）。
 const MPW_WS = process.env.MPW_ROOT || WS
@@ -18,8 +20,27 @@ function chk(cond, label, detail) {
   else { fail++; fails.push(label + (detail !== undefined ? '  [' + detail + ']' : '')); console.log('FAIL  ' + label + (detail !== undefined ? '  [' + detail + ']' : '')) }
 }
 const eq = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps
-const PKG_ALONE = `${MPW_WS}/allwallpaper/wallpapertest1/夜莺night——【time_variation_时间变化】alone_孤独の少女【原画：rella].mpkg`
-const PKG_FIREFLY = `${MPW_WS}/allwallpaper/wallpapertest1/夜莺night——【customize自定义】firefly_流萤_星空之誓——夜莺night崩坏星穹铁道.mpkg`
+/* ②(2026-09-23 语料漂移修复) 回归资产**按内容特征定位**，不再写死路径：今晚 `wallpapertest1/*.mpkg`
+ *   被整体重命名成 `wallpapertest1_*.mpkg`（分类整理）⇒ 写死的两条路径直接 ENOENT，把整项**打崩**
+ *   （不是判据红，是工具崩）。这里先试精确路径，再在语料里按"同名 / 带 `_` 前缀重命名"找**唯一**命中
+ *   （同一语料根优先，避免与 `wallpaperE/other/` 下的同名包混淆）；仍找不到 ⇒ 明确 SKIP 不崩。 */
+function resolvePkg(rel) {
+  const ALL = path.join(MPW_WS, 'allwallpaper')
+  const exact = path.join(ALL, rel)
+  if (fs.existsSync(exact)) return exact
+  const base = path.basename(rel), root = rel.split('/')[0]
+  const all = walkContainers(ALL).filter((f) => path.basename(f) === base || path.basename(f).endsWith('_' + base))
+  const same = all.filter((f) => path.relative(ALL, f).split('/')[0] === root)
+  const pick = same.length === 1 ? same[0] : (all.length === 1 ? all[0] : null)
+  if (!pick) {
+    console.log('SKIP multi-sprite —— 回归资产定位不到（同名候选 ' + all.length + ' 个）：' + rel)
+    process.exit(0)   // 语料属本机资产：缺了按 SKIP（rc=0）而不是崩/红
+  }
+  console.log('· 回归资产按内容特征定位：' + rel + ' → ' + path.relative(ALL, pick))
+  return pick
+}
+const PKG_ALONE = resolvePkg('wallpapertest1/夜莺night——【time_variation_时间变化】alone_孤独の少女【原画：rella].mpkg')
+const PKG_FIREFLY = resolvePkg('wallpapertest1/夜莺night——【customize自定义】firefly_流萤_星空之誓——夜莺night崩坏星穹铁道.mpkg')
 
 function loadTex(pkgPath, entryName) {
   const pkg = lib.parsePkg(new Uint8Array(fs.readFileSync(pkgPath)))

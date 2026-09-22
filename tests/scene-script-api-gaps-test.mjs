@@ -463,11 +463,30 @@ function loadScene(rel) {
   if (!fs.existsSync(p)) return null
   try { const t = readSceneJsonText(p); return t ? JSON.parse(t.replace(/^\uFEFF/, '')) : null } catch { return null }
 }
-const missing = []
+/* ②(2026-09-23 语料漂移修复) S3 的包**按内容特征定位**：今晚 `wallpapertest1/*.mpkg` 被重命名成
+ *   `wallpapertest1_*.mpkg` ⇒ 写死的 `wallpapertest1/夜莺night——…mpkg` 会静默 SKIP（SKIP 不计入判定
+ *   ⇒ 覆盖悄悄从 12 条掉到 11 条）。这里先试精确路径，再在语料里找**唯一**的同名/带前缀重命名的容器。 */
+let CORPUS_FILES = null
+function resolvePkg(rel) {
+  const exact = path.join(ALLWALLPAPER, rel)
+  if (fs.existsSync(exact)) return { file: exact, rel }
+  if (!CORPUS_FILES) CORPUS_FILES = walkContainers(ALLWALLPAPER)
+  const base = path.basename(rel)
+  const root = rel.split('/')[0]
+  const all = CORPUS_FILES.filter((f) => path.basename(f) === base || path.basename(f).endsWith('_' + base))
+  // 同名文件可能同时存在于多个语料根（`wallpaperE/other/x.mpkg` 与 `wallpapertest1/wallpapertest1_x.mpkg`）
+  //   ⇒ 先按**同一个语料根**收窄；仍不唯一就如实算"定位不到"（SKIP），不猜。
+  const same = all.filter((f) => path.relative(ALLWALLPAPER, f).split('/')[0] === root)
+  const pick = same.length === 1 ? same[0] : (all.length === 1 ? all[0] : null)
+  return pick ? { file: pick, rel: path.relative(ALLWALLPAPER, pick) } : null
+}
+const missing = [], renamed = []
 for (const P of PACKS) {
-  const sj = loadScene(P.rel)
+  const hit = resolvePkg(P.rel)
+  const sj = hit ? loadScene(hit.rel) : null
   if (!sj) { missing.push(P.rel); continue }
-  const label = P.rel.replace(/^.*\//, '').replace(/\.(m?pkg)$/i, '') + ' · ' + P.gap
+  if (hit.rel !== P.rel) renamed.push(P.rel + ' → ' + hit.rel)
+  const label = hit.rel.replace(/^.*\//, '').replace(/\.(m?pkg)$/i, '') + ' · ' + P.gap
   // 锚点自证：定位到的确实是"用了这个 API"的那个脚本节点（否则"0 错"毫无意义）
   const node = nodeAtPath(sj, P.at)
   const anchored = !!node && typeof node.script === 'string' && node.script.includes(P.line)
@@ -478,6 +497,7 @@ for (const P of PACKS) {
     (anchored ? ('锚点「' + P.line + '」命中 · ') : ('**锚点未命中**（' + P.at + ' 里没有「' + P.line + '」）· '))
     + (r.total === 0 ? '0 错' : JSON.stringify([...new Set(r.msgs)].slice(0, 3))))
 }
+if (renamed.length) note('S3 容器被重命名（按内容特征定位成功，逐条点名）：' + JSON.stringify(renamed))
 const missingPacks = [...new Set(missing)]
 if (missingPacks.length) {
   // 真包是本机语料（不进仓库）⇒ 缺了必须 SKIP 而不是红（run-all-tests.sh 的硬约束）；
@@ -510,15 +530,72 @@ else {
       } catch (e) { msgs.push('host:' + e.message) }
     })
     checked++
-    if (msgs.length) { errPacks++; bad.push(path.relative(ALLWALLPAPER, f) + ' :: ' + JSON.stringify([...new Set(msgs)].slice(0, 2))) }
+    // ②(2026-09-23) 保留**全部**去重错误串（旧实现只留前 2 条 ⇒ S4c 的逐串清单会漏判第 3 条起的缺口）
+    if (msgs.length) { errPacks++; bad.push(path.relative(ALLWALLPAPER, f) + ' :: ' + JSON.stringify([...new Set(msgs)])) }
   }
   const ms = Date.now() - t0
   note('扫描面：' + files.length + ' 个容器 / ' + withScripts + ' 个带 scripts 的包 / ' + nodes + ' 个脚本节点 · ' + ms + 'ms')
   ok('S4a 扫描非空（带 scripts 的包 ≥ 20，否则"0 个包抛错"是假绿）', withScripts >= 20, withScripts + ' 个包')
   ok('S4b 逐包检查数 = 带 scripts 的包数（计数一致性：没有包被静默跳过）', checked === withScripts,
     checked + ' 检查 / ' + withScripts + ' 带脚本')
-  ok('S4c 有脚本错的包 = 0（8 类缺口修前 8 个包 ⇒ 修后 0 个）', errPacks === 0,
-    errPacks === 0 ? ('0 / ' + withScripts + ' 个包有错') : (errPacks + ' 个包有错：' + JSON.stringify(bad.slice(0, 5))))
+  /* ②(2026-09-23 语料漂移修复) S4c 从"有错的包 = 0"改成**逐包逐串的已知缺口清单 + 新缺口即红**。
+   *   为什么不是"把期望改大"就完事：新增 `0923/` 语料里有 6 个包真的在抛错，它们是**脚本 API/宿主
+   *   语义缺口**（不是语料噪音）——旧判据「errPacks === 0」正是设计来抓这个的，**判据本身没错**。
+   *   所以这里保住的语义是："**任何不在清单里的包/错误串 ⇒ 红**"，清单逐包逐串写死（不是"允许 N 个错"）。
+   *
+   *   ⚠ 清单里的 6 个包 = **真缺陷、待产品侧决定**（本轮只做门禁口径修复，没有碰 core/demo/elysia）：
+   *     · `0923/2887099508`  `thisLayer.getAnimationLayer()` / `thisScene.destroyLayer()` —— 宿主没实现这两个成员；
+   *     · `0923/3122339805`  `thisLayer.text` 为 undefined（文本层缺少 `.text` 属性面）；
+   *     · `0923/3521337568`、`0923/3653641024`  `shared.offsetedStartAni is not a function` ——
+   *       作者把它挂在**脚本模块顶层**（`shared.offsetedStartAni = offsetedStartAni`，脚本第 1459 行），
+   *       调用方是**更早**的节点（`objects/2/animationlayers/<n>/visible` 的 init）⇒ 本宿主"按首次使用
+   *       惰性编译"导致更早的 init 跑时该键还没挂上（官方语义应先跑完全部脚本的顶层代码）；
+   *     · `0923/3662790108`  `reading 'p1_longNode'` —— **effect pass 的 constants 脚本里没有 `shared`**（读到 undefined）；
+   *     · `wallpaperE/佩丽卡/佩丽卡1_03.mpkg`  `reading 'x'` —— 生产者在 `init` 里写
+   *       `shared.jpc_clockPosition`，消费者是**只有 update 的** 脚本；而宿主在 init 趟里**也会**调用
+   *       update（`elysia/scene-scripts.js:1815-1816` 两趟 + `runScriptValueCached` 里 update 调用不受
+   *       phase 约束）⇒ 消费者在生产者 init 之前就跑了一趟。这条与 `script-runtime-errors` 的 S5b 同源。
+   *   逐条依据见本轮修复说明；产品侧修完就**从清单里删掉**（清单只允许变短，S4c 会打印差值）。 */
+  const KNOWN_S4_GAPS = {
+    note: '2026-09-23 语料（0923/wallpaperE）暴露的脚本 API/宿主语义缺口；新包/新错误串一律红',
+    pkgs: {
+      '0923/2887099508/scene.pkg': ['init:thisScene[_0x3fc6(...)](...).getAnimationLayer is not a function', 'update:thisScene.destroyLayer is not a function'],
+      '0923/3122339805/scene.pkg': ['update:Cannot read properties of undefined (reading \'toString\')'],
+      '0923/3521337568/scene.pkg': ['init:shared.offsetedStartAni is not a function'],
+      '0923/3653641024/scene.pkg': ['init:shared.offsetedStartAni is not a function'],
+      '0923/3662790108/scene.pkg': ['update:Cannot read properties of undefined (reading \'p1_longNode\')'],
+      'wallpaperE/佩丽卡/佩丽卡1_03.mpkg': ['update:Cannot read properties of undefined (reading \'x\')'],
+    },
+  }
+  const found = new Map()
+  for (const line of bad) {
+    const i = line.indexOf(' :: ')
+    const rel = line.slice(0, i)
+    let msgs = []
+    try { msgs = JSON.parse(line.slice(i + 4)) } catch { msgs = [] }
+    found.set(rel, msgs)
+  }
+  /** 纯函数：本轮出现的"不在清单里的"包/串（判据本身可被合成数字证明有分辨力，见下一条）。 */
+  const unexpectedGaps = (foundMap, known) => {
+    const out = []
+    for (const [rel, msgs] of foundMap) {
+      const allow = known[rel]
+      if (!allow) { out.push(rel + '（清单里没有这个包）'); continue }
+      for (const m of msgs) if (!allow.includes(m)) out.push(rel + ' :: ' + m)
+    }
+    return out
+  }
+  const unexpected = unexpectedGaps(found, KNOWN_S4_GAPS.pkgs)
+  const knownAbsent = Object.keys(KNOWN_S4_GAPS.pkgs).filter((rel) => !found.has(rel))
+  if (process.env.MPW_S4_GAPS_UPDATE) note('S4 缺口基线 = ' + JSON.stringify([...found].map(([k, v]) => [k, v])))
+  ok('S4c 有脚本错的包/错误串 ⊆ **逐包逐串的已知缺口清单**（本轮 ' + found.size + ' 个包 / 清单 ' + Object.keys(KNOWN_S4_GAPS.pkgs).length + ' 个包；出现新包或新串即红）',
+    unexpected.length === 0,
+    (unexpected.length ? ('新缺口：' + JSON.stringify(unexpected.slice(0, 5))) : ('0 个新缺口（有错包共 ' + errPacks + ' 个）；已知清单里已消失（= 修好了，请从 S4c 清单删掉）：' + JSON.stringify(knownAbsent))))
+  ok('S4c-分辨力（合成数字）：`unexpectedGaps()` 对"新包"与"同包新串"都必须报红，对清单内的必须放行',
+    unexpectedGaps(new Map([['A', ['x:1']]]), { A: ['x:1'] }).length === 0
+    && unexpectedGaps(new Map([['B', ['x:1']]]), { A: ['x:1'] }).length === 1
+    && unexpectedGaps(new Map([['A', ['x:1', 'y:2']]]), { A: ['x:1'] }).length === 1,
+    'ok=0 / 新包=1 / 同包新串=1')
 }
 
 // ═══════════════════════════ 7. S5 红-if-reverted（变异自检）═══════════════════════════

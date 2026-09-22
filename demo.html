@@ -5807,9 +5807,13 @@ function loadScene() {
     //   `?parallax=legacy` 保留旧 lwe 近似式（(depth+amount)×disp）做 A/B。
     parallaxLegacy: new URLSearchParams(location.search).get('parallax') === 'legacy',
     // ①(2026-09-12 用户要求"先把视差关掉，不然有些壁纸不好测试") 视差默认**关**：
-    //   层不再跟随鼠标位移（否则截图/验收的位置都带随机偏移）。`?parallax=1` 打开，
-    //   `?parallax=legacy` 仍走旧 lwe 近似式（打开视差时生效）。
-    parallaxOff: new URLSearchParams(location.search).get('parallax') !== '1',
+    //   层不再跟随鼠标位移（否则截图/验收的位置都带随机偏移）。
+    // ①(WEBWALLGL #5 2026-09-23 **接线不一致的真 bug**)：旧式 `get('parallax') !== '1'` 只认 `1`，
+    //   于是 `?parallax=legacy` **仍然关着视差** —— 而插件诊断项文案（client.js 的 `?parallax=legacy`）
+    //   说它能"切到旧公式" ⇒ 用户点了那个诊断项**什么都不会发生**（视差整体没开）。
+    //   现在三个值都**打开**视差，`legacy` 只切公式（与上一行 `parallaxLegacy` 同一份取值）；
+    //   其余取值（含缺省/空/垃圾值）仍是**关** ⇒ 缺省行为与 2026-09-12 的用户要求逐位一致。
+    parallaxOff: !/^(1|official|legacy)$/.test(String(new URLSearchParams(location.search).get('parallax') || '')),
     // P-21 A3：?align=0 → 复现旧行为（origin 恒几何中心，非 center 对齐层不偏移）
     align: new URLSearchParams(location.search).get('align') !== '0',
     // ①(MERGED-1 D 相机节点) ?cam=0 关节点相机（静态）；?cam=node 强制；缺省=节点 origin 有动画即用

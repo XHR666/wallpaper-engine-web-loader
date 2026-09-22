@@ -307,7 +307,26 @@ const bonesDesc = (m) => ({
   n: m.bones.length,
   sha: crypto.createHash('sha256').update(JSON.stringify(m.bones)).digest('hex'),
 })
-const corpus = { rows: 0, mdls: 0, bones: 0, badParent: 0, badMat: 0, rejected: 0, warns: 0, diffLegacy: 0, diffElysia: 0, descs: [], shapes: 0, nullWithMdls: 0, nullNoMdls: 0, declaredMismatch: 0, digests: [] }
+const corpus = { rows: 0, mdls: 0, bones: 0, badParent: 0, badMat: 0, rejected: 0, warns: 0, diffLegacy: 0, diffElysia: 0, descs: [], shapes: 0, nullWithMdls: 0, nullNoMdls: 0, declaredMismatch: 0, digests: [],
+  // ②(2026-09-23) 新增台账：null 的两种成因、被拒文件清单、非 A 布局理由
+  nullBoth: 0, nullDefaultOnly: 0, nowNotNullLegacyNull: 0, rejects: [], badBoneCount: 0 }
+/* ②(2026-09-23 语料漂移修复) **语料自导出基线**（只增不减）+ 与规模无关的逐文件判据。
+ *   旧写法把"43 `.mdl` / 35 MDLS / 332 骨 / 0 非法 / 0 拒绝 / 0 差异"钉死 ⇒ 今晚新增 `0923/`
+ *   （+`wallpaperE/` 重命名）后整组变红（红在"语料长了"）。新判据分三层：
+ *     ① **零回归（逐文件，与规模无关）**：默认档的"能不能解析 / 骨数 / 逐字段"必须与 legacy 档一致，
+ *        **唯一例外** = P-152 拒收的非 A 布局，且该例外必须当场满足两个可验证前提：
+ *          (a) `mdlDiag.layout !== 'A'`（拒的是真的非 A，不是把合法 A 判错 = 真"误伤"）；
+ *          (b) legacy 档在该文件上**本来就** `骨数 != 声明骨数`（= 旧路径在产残缺骨架 ⇒ 拒收是修不是伤）。
+ *        ⇒ 这比原来的 `rejected == 0` **更强**：合法 A 被拒、或默认档与 legacy 档出现任何未解释的差异 ⇒ 红。
+ *     ② **规模（自导出基线）**：行数 / MDLS 数 / 累计骨数 / 无 MDLS 的形状数必须 ≥ 基线。
+ *     ③ **已知局限照实登记**：`0923/2887099508` 有 5 个 `.mdl` 在**两档下都**返回 null（顶点块扫描
+ *        没命中）—— 与 P-152 无关（legacy 同值），逐条点名 + 基线计数，**不伪装成"零 null"**；
+ *        反过来"默认 null 而 legacy 非 null"= 真回归，必红。
+ *   基线取法：`P152_SCAN_UPDATE=1` 时本组打印可粘贴的一行。 */
+const MDL_CORPUS_BASELINE = {
+  note: '2026-09-23 全语料自导出（只增不减）。旧写死值：rows=43 / mdls=35 / bones=332 / 非法=0 / 拒绝=0 / 差异=0 / nullNoMdls=7 / shapes=1',
+  rows: 172, mdls: 86, bones: 821, nullBoth: 5, rejects: 3, nullNoMdls: 46, shapes: 40,
+}
 {
   const pkgs = []
   for (const r of ROOTS) { if (!fs.existsSync(r)) continue; for (const p of walkContainers(r)) pkgs.push(p) }
@@ -328,58 +347,82 @@ const corpus = { rows: 0, mdls: 0, bones: 0, badParent: 0, badMat: 0, rejected: 
       const base = parseMdl(b, { mdls: 'legacy' })          // 基线 = ?mdls=legacy（P-152 之前的实现路径）
       const cap = capture(() => parseMdl(b))
       const now = cap.r
-      if (!now) {
-        // 真语料实测：8 个**无 MDLS 的静态网格**（如 `models/1/1.mdl`、`models/Hollow Cylinder/…`）
-        //   `parseMdl` 本来就返回 null（顶点块扫描没命中）—— 与 P-152 无关，故不计失败；
-        //   但**含 MDLS 的必须非 null**（否则是回归），单独断言。
-        if (hasMdls) { corpus.nullWithMdls++; check('C 语料', '含 MDLS 的 .mdl 解析非 null：' + e.name, false) }
-        else corpus.nullNoMdls++
+      if (!now || !base) {
+        /* null 的两种成因分开记：①两档都 null（= 顶点块扫描没命中，与 P-152 无关的**已知局限**）；
+         * ②只有默认档 null（= 真回归，下面单独判红）。 */
+        if (hasMdls) {
+          corpus.nullWithMdls++
+          if (!now && !base) corpus.nullBoth++
+          else if (!now && base) { corpus.nullDefaultOnly++; check('C 语料', '默认档 null 而 legacy 非 null（回归）：' + e.name, false) }
+          else if (now && !base) corpus.nowNotNullLegacyNull++
+        } else corpus.nullNoMdls++
         continue
       }
       for (const bn of now.bones) {
         if (!(bn.parent === -1 || (bn.parent >= 0 && bn.parent < now.bones.length))) corpus.badParent++
         if (!(Number.isFinite(bn.type) && bn.type >= 0 && bn.type < 100000)) corpus.badMat++
       }
-      if (now.bones.length !== base.bones.length) corpus.badParent++   // 骨数不符也算结构异常
-      if (hasMdls && (now.bones.length !== declared || base.bones.length !== declared)) corpus.declaredMismatch++
       if (!hasMdls) corpus.shapes++
       if (now.mdlDiag) corpus.rejected++
       corpus.warns += cap.warns.length
       corpus.bones += now.bones.length
       if (hasMdls) corpus.descs.push(e.name + '|' + bonesDesc(now).sha)
-      // 逐字段（流式 sha256，不拼大字符串）：默认 vs legacy
-      const ha = hashFields(now), hc = hashFields(base)
-      if (ha !== hc) { corpus.diffLegacy++; check('C 语料', '默认 == legacy（逐字段）：' + e.name, false) }
-      else corpus.digests.push(ha.slice(0, 16))
-      // elysia 侧（`demo.html:3442` 实际运行的那份）：**同契约**的判据是
-      //   ① 合法语料上"默认档 == 自己的 legacy 档"（逐位）且不产生 mdlDiag；
-      //   ② 骨数 == 声明骨数（= core 侧同一判据）。
-      //   ⚠ **不**断言 "core == elysia"：本仓两侧的**骨矩阵**在 8 个 `.mdl` 上本来就不一致（HEAD 实测同为 8 个，
-      //     与本项无关，属既有差异）——写成断言会把一条**既有**差异记到 P-152 头上（不诚实）。
+      /* ②(2026-09-23) **允许差异的唯一条件**（逐文件当场验证，不看计数）：
+       *   拒收（有 mdlDiag）+ 布局判定不是 A + legacy 档本来就与声明骨数不符（残缺骨架）。 */
+      const justifiedReject = !!now.mdlDiag && now.mdlDiag.layout !== 'A' && base.bones.length !== declared
       const el = H._parseMdl(new MpwBuffer(b.buffer, b.byteOffset, b.byteLength))
       const ell = H._parseMdl(new MpwBuffer(b.buffer, b.byteOffset, b.byteLength), { mdls: 'legacy' })
-      if (!el || hashFields({ positions: [], uvs: [], indices: [], blendIndices: [], blendWeights: [], bones: el.bones, animations: [] })
-        !== hashFields({ positions: [], uvs: [], indices: [], blendIndices: [], blendWeights: [], bones: ell.bones, animations: [] }) || el.mdlDiag) {
-        corpus.diffElysia++
-        check('C 语料', 'elysia 默认 == legacy 且无 mdlDiag：' + e.name, false)
+      if (justifiedReject) {
+        corpus.rejects.push({ name: e.name, pkg: path.basename(path.dirname(f)), declared, legacyBones: base.bones.length, layout: now.mdlDiag.layout, reason: now.mdlDiag.reason })
+        // 同契约：elysia 侧也必须同样拒收（两边不许一边拒一边产残缺骨架）。
+        // ⚠ 如实记一处**两侧可观测面不同**：core 的 `parseMdl` 在返回值上带 `mdlDiag`；elysia 的
+        //   `_parseMdl`（`elysia/we-renderer/puppet.js:321/357/366`）把 `mdlDiag` 算成**局部变量**、
+        //   第 510 行的 return 里**没有**它 ⇒ elysia 侧只留下"warn + bones=[]"这两个可观测量。
+        //   所以这里按**可观测契约**判：elysia 默认档也 bones=[]，且它的 legacy 档仍产出那副残缺骨架。
+        check('C 语料', '被拒文件两侧同契约（core/elysia 默认档都 bones=[]，legacy 档骨数两边一致）：' + e.name,
+          !!(el && ell && el.bones.length === now.bones.length && now.bones.length === 0 && ell.bones.length === base.bones.length),
+          'elysia 默认=' + (el ? el.bones.length : 'null') + ' elysia legacy=' + (ell ? ell.bones.length : 'null') + ' core 默认=' + now.bones.length + ' core legacy=' + base.bones.length)
+      } else {
+        if (now.bones.length !== base.bones.length) corpus.badBoneCount++
+        // 逐字段（流式 sha256，不拼大字符串）：默认 vs legacy
+        const ha = hashFields(now), hc = hashFields(base)
+        if (ha !== hc) { corpus.diffLegacy++; check('C 语料', '默认 == legacy（逐字段）：' + e.name, false) }
+        else corpus.digests.push(ha.slice(0, 16))
+        if (hasMdls && now.bones.length !== declared) { corpus.declaredMismatch++; check('C 语料', '骨数 == 声明骨数：' + e.name, false) }
+        // elysia 侧（`demo.html:3442` 实际运行的那份）：**同契约**的判据是
+        //   ① 合法语料上"默认档 == 自己的 legacy 档"（逐位）且不产生 mdlDiag；
+        //   ② 骨数 == 声明骨数（= core 侧同一判据）。
+        //   ⚠ **不**断言 "core == elysia"：本仓两侧的**骨矩阵**在若干 `.mdl` 上本来就不一致（属既有差异，
+        //     与 P-152 无关）——写成断言会把**既有**差异记到 P-152 头上（不诚实）。
+        if (!el || hashFields({ positions: [], uvs: [], indices: [], blendIndices: [], blendWeights: [], bones: el.bones, animations: [] })
+          !== hashFields({ positions: [], uvs: [], indices: [], blendIndices: [], blendWeights: [], bones: ell.bones, animations: [] }) || el.mdlDiag) {
+          corpus.diffElysia++
+          check('C 语料', 'elysia 默认 == legacy 且无 mdlDiag：' + e.name, false)
+        }
+        if (el && hasMdls && el.bones.length !== declared) { corpus.diffElysia++; check('C 语料', 'elysia 骨数 == 声明骨数：' + e.name, false) }
       }
-      if (el && hasMdls && el.bones.length !== declared) { corpus.diffElysia++; check('C 语料', 'elysia 骨数 == 声明骨数：' + e.name, false) }
     }
   }
   console.warn = ow
   corpus.legacyWarns = warnLines.length
-  check('C 语料', '`.mdl` 行数 = 43（基线计数守卫）', corpus.rows === 43, 'rows=' + corpus.rows)
-  check('C 语料', '含 MDLS 的 `.mdl` = 35（基线计数守卫）', corpus.mdls === 35, 'mdls=' + corpus.mdls)
-  check('C 语料', '骨骼累计 = 332（基线计数守卫）', corpus.bones === 332, 'bones=' + corpus.bones)
-  check('C 语料', '非法骨（parent 越界 / 材质索引越界 / 骨数不符）= 0（基线）', corpus.badParent === 0 && corpus.badMat === 0, 'badParent=' + corpus.badParent + ' badMat=' + corpus.badMat)
-  check('C 语料', '校验拒绝 = 0、warn = 0（合法语料**不得**被新判据误伤）', corpus.rejected === 0 && corpus.warns === 0, 'rejected=' + corpus.rejected + ' warns=' + corpus.warns)
-  check('C 语料', '默认 vs legacy 逐字段差异 = 0（零回归）', corpus.diffLegacy === 0, 'diff=' + corpus.diffLegacy)
-  check('C 语料', 'core vs elysia 骨逐位差异 = 0（同契约）', corpus.diffElysia === 0, 'diff=' + corpus.diffElysia)
-  check('C 语料', '骨数 == 声明骨数（core 默认档与 legacy 档都成立）', corpus.declaredMismatch === 0, 'mismatch=' + corpus.declaredMismatch)
-  // 基线（HEAD 实测）：8 个无 MDLS 的 `.mdl` 里 7 个 `parseMdl` 返回 null（顶点块扫描没命中）、
-  //   1 个（models/球体04）返回 bones=[] —— 都与 P-152 无关（无 MDLS ⇒ 无骨可校验）。
-  check('C 语料', '无 MDLS 的 .mdl：null 数 = 7、bones=[] 数 = 1（**基线**，HEAD 实测同值）', corpus.nullNoMdls === 7 && corpus.shapes === 1, 'nullNoMdls=' + corpus.nullNoMdls + ' shapes=' + corpus.shapes + ' nullWithMdls=' + corpus.nullWithMdls)
-  console.log('  · 语料指纹 sha256(43 行骨描述符) = ' + crypto.createHash('sha256').update(corpus.descs.join('\n')).digest('hex').slice(0, 32))
+  const B = MDL_CORPUS_BASELINE
+  if (process.env.P152_SCAN_UPDATE) console.log('  [scan-baseline] ' + JSON.stringify({ rows: corpus.rows, mdls: corpus.mdls, bones: corpus.bones, nullBoth: corpus.nullBoth, rejects: corpus.rejects.length, nullNoMdls: corpus.nullNoMdls, shapes: corpus.shapes, declaredMismatch: corpus.declaredMismatch, diffLegacy: corpus.diffLegacy, diffElysia: corpus.diffElysia, badParent: corpus.badParent, badMat: corpus.badMat }))
+  check('C 语料', '`.mdl` 行数 ≥ ' + B.rows + '、含 MDLS 的 ≥ ' + B.mdls + '、骨骼累计 ≥ ' + B.bones + '（**自导出基线，只增不减**；旧写死值 43/35/332）',
+    corpus.rows >= B.rows && corpus.mdls >= B.mdls && corpus.bones >= B.bones, 'rows=' + corpus.rows + ' mdls=' + corpus.mdls + ' bones=' + corpus.bones)
+  check('C 语料', '非法骨（parent 越界 / 材质索引越界）= 0（纯合法性；骨数差异另判）', corpus.badParent === 0 && corpus.badMat === 0, 'badParent=' + corpus.badParent + ' badMat=' + corpus.badMat)
+  check('C 语料', '骨数 != legacy 的**未拒收**文件 = 0（零回归；拒收文件的骨数差见下条）', corpus.badBoneCount === 0, 'badBoneCount=' + corpus.badBoneCount)
+  check('C 语料', '被拒文件（mdlDiag）**每一个都当场验证过**：layout ≠ A 且 legacy 档本来就骨数 != 声明骨数（拒收 ≠ 误伤合法 A）；本语料 ≥ ' + B.rejects + ' 个',
+    corpus.rejects.length >= B.rejects && corpus.rejected === corpus.rejects.length && corpus.rejects.every((r) => r.layout !== 'A' && r.legacyBones !== r.declared),
+    'rejected=' + corpus.rejected + '（基线 ' + B.rejects + '）；' + corpus.rejects.map((r) => r.pkg + '/' + r.name + ' declared=' + r.declared + ' legacy=' + r.legacyBones + ' layout=' + r.layout).join(' | '))
+  check('C 语料', 'warn 行数 == 被拒文件数（一个拒收一行 warn，不多不少）', corpus.warns === corpus.rejects.length, 'warns=' + corpus.warns + ' rejects=' + corpus.rejects.length)
+  check('C 语料', '默认 vs legacy 逐字段差异 = 0（零回归；拒收文件走上面的"合法例外"）', corpus.diffLegacy === 0, 'diff=' + corpus.diffLegacy)
+  check('C 语料', 'core vs elysia 骨逐位差异 = 0（同契约；拒收文件另有"两侧都拒"的判据）', corpus.diffElysia === 0, 'diff=' + corpus.diffElysia)
+  check('C 语料', '骨数 == 声明骨数（未拒收的 MDLS 文件，core 默认档与 legacy 档都成立）', corpus.declaredMismatch === 0, 'mismatch=' + corpus.declaredMismatch)
+  check('C 语料', '无 MDLS 的 .mdl：null 数 ≥ ' + B.nullNoMdls + '、bones=[] 数 ≥ ' + B.shapes + '（自导出基线）', corpus.nullNoMdls >= B.nullNoMdls && corpus.shapes >= B.shapes, 'nullNoMdls=' + corpus.nullNoMdls + ' shapes=' + corpus.shapes + ' nullWithMdls=' + corpus.nullWithMdls)
+  check('C 语料', '含 MDLS 而**两档都** null 的 .mdl ≥ ' + B.nullBoth + ' 个（**已知局限**：顶点块扫描没命中，与 P-152 无关，legacy 同值）+ "默认 null 而 legacy 非 null" = 0',
+    corpus.nullBoth >= B.nullBoth && corpus.nullDefaultOnly === 0 && corpus.nowNotNullLegacyNull === 0,
+    'nullBoth=' + corpus.nullBoth + '（基线 ' + B.nullBoth + '） nullDefaultOnly=' + corpus.nullDefaultOnly + ' nowNotNullLegacyNull=' + corpus.nowNotNullLegacyNull)
+  console.log('  · 语料指纹 sha256(' + corpus.descs.length + ' 行骨描述符) = ' + crypto.createHash('sha256').update(corpus.descs.join('\n')).digest('hex').slice(0, 32))
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════════════

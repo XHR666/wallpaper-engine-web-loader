@@ -9,7 +9,10 @@
 //      **完全相同**（文件头横幅之外一个字节都不许改）；`core/we-particle-pointer.mjs` 的每个照抄块
 //      都带 `①(P-136 用户第 4 项：照抄上游 MIT 实现) 来源 …:<line>` 标注。
 //   ② 照抄单元的纯函数行为（无真包也跑）：`createPointerSource` / `setPointer` / `cpPos` / `cpWorld` /
-//      `mapSequenceAroundControlPoint` / `vortexSwirl` 的具体数字。
+//      `mapSequenceAroundControlPoint` / `vortexSwirl` 的具体数字。②(vortex-chirality 2026-09-23)
+//      `vortex` 切向本批改成带手性档位（默认 `(dy,−dx)`；`tangentSign=−1` = 上游那一版 `(−dy,+dx)`，
+//      见 `docs/VORTEX-CHIRALITY-RE-20260923.md`）⇒ ①-c 的"含上游 token"改成"上游版逐位数值对拍"，
+//      ②-s 两档手性都钉住（默认 [0,−15] / legacy [0,+15]）—— 判据没有放宽，只是跟着实现参数化。
 //   ③ 尾迹数字（真包 dd/3554161528 objects[27]=id389 `Cherry_Blossoms_2.json` + mock-GL）：
 //      指针逐帧右移 40px × 30 帧后，粒子**铺开跨度**与**距指针最远距离**；并直接与**上游自己的
 //      ParticleSystem**（同 def、同层参数、同指针轨迹）对拍 —— 照抄是否真的等价。
@@ -205,7 +208,6 @@ if (fs.existsSync(UP_POINTER)) {
   const need = [
     ['setPointer 反旋转/反缩放', '(dx * c - dy * s) / (this.scaleX || 1)'],
     ['_cpPos 锁指针分支', 'return [this.pointer.x + cp.offset[0], this.pointer.y + cp.offset[1], cp.offset[2]]'],
-    ['vortex 切向', '(-dy / dist) * speed * dt'],
   ]
   const oursPtr = fs.readFileSync(OUR_PTR, 'utf8')
   for (const [tag, token] of need) {
@@ -215,6 +217,30 @@ if (fs.existsSync(UP_POINTER)) {
     const ourForm = token.replace(/this\.pointer\b/g, 'sys.pointerLocal').replace(/this\./g, 'sys.')
     push(`①-c 照抄 token 与上游同一式子（${tag}）`, upHas && oursPtr.includes(ourForm),
       `上游含=${upHas} 我们含=${oursPtr.includes(ourForm)}（改写后="${ourForm.slice(0, 60)}…"）`)
+  }
+  /* ②(vortex-chirality 2026-09-23) `vortex 切向` 这一行**不再逐字照抄**：本批把它改成带手性档位的
+   *   `(s·dy, −s·dx)`（`?pvortex=legacy` ⇒ `s = −1` = 上游那一版；新默认 `s = +1` 见
+   *   `docs/VORTEX-CHIRALITY-RE-20260923.md`）。⇒ 判据从"我们的源码文本里含上游 token"升级为
+   *   **数值级**："上游那一版（s=−1）必须能被我们的实现逐位复现"，期望值由**上游源码里的两个 token**
+   *   现场算出（上游那两个 token 不在了 ⇒ upVortex=false ⇒ 红：对拍基准丢了要重新取证）。 */
+  {
+    const upVortex = upPart.includes('(-dy / dist) * speed * dt') && upPart.includes('(dx / dist) * speed * dt')
+    const upForm = (px, py, base, v, dt) => {          // ← 与上游两个 token 逐字同形
+      const dx = px - (base[0] + v.offset[0]), dy = py - (base[1] + v.offset[1])
+      const dist = Math.hypot(dx, dy)
+      if (dist < 1e-3) return null
+      const span = v.distanceOuter - v.distanceInner
+      const k = span > 0 ? Math.min(1, Math.max(0, (dist - v.distanceInner) / span)) : 0
+      const speed = v.speedInner + (v.speedOuter - v.speedInner) * k
+      return [(-dy / dist) * speed * dt, (dx / dist) * speed * dt]
+    }
+    const v = { offset: [0, 0, 0], distanceInner: 0, distanceOuter: 50, speedInner: 300, speedOuter: 0 }
+    const upstream = upForm(1025, 1000, [1000, 1000, 0], v, 0.1)
+    const oursLegacy = ptrMod.vortexSwirl(1025, 1000, [1000, 1000, 0], v, 0.1, -1)
+    const genericForm = oursPtr.includes('s * dy / dist') && oursPtr.includes('s * dx / dist')
+    push('①-c 照抄 token 与上游同一式子（vortex 切向：上游版 = `tangentSign=−1` 档，逐位数值对拍）',
+      upVortex && genericForm && JSON.stringify(oursLegacy) === JSON.stringify(upstream),
+      `上游 token=${upVortex} 我们的参数化形式=${genericForm} 我们的 legacy 档=${JSON.stringify(oursLegacy)} 上游式子=${JSON.stringify(upstream)}`)
   }
   push('①-d 每个照抄块都带本仓库风格的来源标注 `①(P-136 用户第 4 项：照抄上游 MIT 实现)` + `file:line`',
     (oursPtr.match(/①\(P-136 用户第 4 项：照抄上游 MIT 实现\)/g) || []).length >= 5
@@ -310,10 +336,20 @@ console.log('\n[2] ② 照抄单元：createPointerSource / setPointer / _cpPos 
   {
     const v = { offset: [0, 0, 0], distanceInner: 0, distanceOuter: 50, speedInner: 300, speedOuter: 0 }
     const dv = ptrMod.vortexSwirl(1025, 1000, [1000, 1000, 0], v, 0.1)
+    const dvLegacy = ptrMod.vortexSwirl(1025, 1000, [1000, 1000, 0], v, 0.1, -1)
     push('②-r ★ 上游半径权重 k=(d−inner)/(outer−inner)（**无 +0.1**）：d=25/inner=0/outer=50 ⇒ |Δv|/dt = **150.0**',
       near(Math.hypot(dv[0], dv[1]) / 0.1, 150.0, 1e-9), `|Δv|/dt=${(Math.hypot(dv[0], dv[1]) / 0.1).toFixed(4)}`)
-    push('②-s 切向 ⊥ 半径（radial=(+25,0) ⇒ Δv 只有 +y 分量，手性 = axis +z）',
-      near(dv[0], 0, 1e-12) && dv[1] > 0, JSON.stringify(dv))
+    /* ②(vortex-chirality 2026-09-23) 手性**两档**都钉住（radial=(+25,0) ⇒ 切向只有 y 分量）：
+     *   · 默认（official，`s=+1`）= `(dy,−dx)` ⇒ Δv = [0,−15]（y-down 屏幕 = 顺时针 = 轴 −z）；
+     *   · `tangentSign=−1`（`?pvortex=legacy`）= `(−dy,+dx)` = **上游 oneincase/webwallgl 那一版**
+     *     ⇒ Δv = [0,+15]（= 轴 +z，改动前的手性）。
+     *   依据（含"这是证据更强的一方、不是已证实的一方"的如实声明）见
+     *   `docs/VORTEX-CHIRALITY-RE-20260923.md` 与 `docs/README-DIAGNOSTICS.md` 的 `pvortex` 行。
+     *   两档都要 ⊥ 半径：径向 (+25,0) ⇒ 两档的 x 分量都必须是 0。 */
+    push('②-s 切向 ⊥ 半径 + 手性两档与文档一致（默认 `(dy,−dx)` ⇒ [0,−15]；`tangentSign=−1` = 上游 `(−dy,+dx)` ⇒ [0,+15]）',
+      near(dv[0], 0, 1e-12) && dv[1] < 0 && near(dv[1], -15, 1e-9)
+      && near(dvLegacy[0], 0, 1e-12) && dvLegacy[1] > 0 && near(dvLegacy[1], 15, 1e-9),
+      `默认=${JSON.stringify(dv)} legacy=${JSON.stringify(dvLegacy)}`)
     push('②-t d=0（与圆心重合）⇒ 返回 null（上游 `if (dist < 1e-3) continue`）',
       ptrMod.vortexSwirl(1000, 1000, [1000, 1000, 0], v, 0.1) === null, 'null')
     push('②-u d ≥ distanceouter ⇒ speedouter（半径门真的生效）',

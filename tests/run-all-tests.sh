@@ -68,6 +68,7 @@ add "mock-gl"            "node tests/mock-gl-test.mjs"
 #   官方 cursorripple/depthparallax/xray/fluidsimulation 的 7 个输入 uniform 真的被写、值随指针/时间变化、
 #   legacy 档逐键回到改动前；3 条变异自证（改回 (0,0) / legacy 也写 / 不推快照 ⇒ 对应断言必红）；41 断言；~2s
 add "ptrfx-uniform"      "node tests/ptrfx-uniform-test.mjs"
+add "parallax-live"       "node tests/parallax-live-test.mjs --offline"   # 真机档（有头浏览器）由人工单独跑：去掉 --offline
 add "sprite-sheet"       "node tests/sprite-sheet-test.mjs"
 add "particle-sprite"    "node tests/particle-sprite-verify.mjs"
 add "text-layout"        "node tests/text-layout-test.mjs"
@@ -418,6 +419,7 @@ add "particle-frame-uv-and-pointer" "node tests/particle-frame-uv-and-pointer-te
 #   无源一个都不写（`?bandfeed=off` 逐位不变），以及同一材质 vert/frag 的 `[COMBO]` 默认值**取并集**。
 #   36 断言 + 3 组变异自证；~2.7s，无浏览器/无网络（真包缺失 SKIP+exit 0）。
 add "effects-degenerate-fbo" "node tests/effects-degenerate-fbo-test.mjs"
+add "clearfx-narrow"      "node tests/clearfx-narrow-test.mjs"
 # ①(P-135 2026-09-19 主对话补登记) 两条：
 #   `load-timeout` —— 用户第 ④ 项（"整面板只有 loading…" = module 从未执行）：看门狗必须把失败原因**写进 `#log`**、
 #     全链路 await 收进统一超时（`NET_TIMEOUT_MS`/`DECODE_TIMEOUT_MS = 8000`，模块常量，**0 新开关**）、
@@ -612,6 +614,7 @@ add "particle-sphere-dim" "node tests/particle-sphere-dim-test.mjs"
 #   文件头，判据定位是"佐证 + 回归"而非"方向仲裁"）、V4 调用点符号**源码切片变异** ⇒ V2 必红。
 #   18 断言（含 1 组变异）、实测 ~0.7s、无浏览器 / 无网络 / 无 GPU；语料/官方资产缺席时对应段 SKIP 不红。
 add "particle-vortex-chirality" "node tests/particle-vortex-chirality-test.mjs"
+add "particle-op-census"  "node tests/particle-op-census-test.mjs"
 
 # ①(2026-09-21 · 台账 `../docs/USER-ITEMS-20260920-B.md` §5.3) `bench-bandfeed-switch`：测试台工具条
 #   「音条源」四档（壁纸 / 麦克风 / 模拟 / 关 → 渲染器 `?bandfeed=auto|mic|sim|off`）的**接线门禁**。

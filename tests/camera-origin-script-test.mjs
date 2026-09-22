@@ -3,18 +3,20 @@
 // 复现：node tests/camera-origin-script-test.mjs [--machine] [--no-mutation]
 //
 // 背景（量化证据见 `tests/camera-script-origin-probe.mjs`，本文件是它的"渲染路径对拍"）：
-//   全语料 16 个相机对象里 **14 个**的 `origin` 是 `{script:…, value:…}`，同一段 781 字符脚本
-//   （sha256 `151da98895ccdaed…`），作者原意 = 按用户属性滑块算镜头位置：
+//   语料里相机对象的 `origin` 是 `{script:…, value:…}` 的那种：②(2026-09-23) 起**运行期发现**，
+//   实测 **16 个包**（15 个用同一段 781 字符脚本，sha256 `151da98895ccdaed…`；`0923/3605722997`
+//   是另一段脚本），作者原意 = 按用户属性滑块算镜头位置：
 //     `value.x = scriptProperties.x * engine.canvasSize.x`（y 同理）。
 //   静态 `.value`（编辑器保存时刻的快照）与宿主求值结果差 **Δx −2434.38477 / Δy −725.25116**。
-//   渲染器此前只认 `{animation}`（`cameraNode.active`）⇒ 这 14 个包的相机 origin **完全没接线**。
+//   渲染器此前只认 `{animation}`（`cameraNode.active`）⇒ 这些包的相机 origin **完全没接线**。
 //   ①(P-120) 起：相机解析路径用**既有脚本宿主**（`elysia/scene-scripts.js`）的求值结果代替静态 `.value`。
 //
 // 本文件的判据（每条都能变红；`--machine` 时额外吐 `P120CHK <id> <pass|fail> <name>` 供变异跑解析）：
-//   (a) 14 个包：`renderer.cameraOriginScript.value` == **独立参考求值**（真宿主 + 全场景 + 新缓存）
-//       且 ≠ 冻结的静态快照 ⇒ "真的跑了脚本，不是抄 `.value`"。
+//   (a) 发现的脚本相机包（运行期发现；2026-09-23 实测 16 个）：`renderer.cameraOriginScript.value` ==
+//       **独立参考求值**（真宿主 + 全场景 + 新缓存）且 ≠ 冻结的静态快照 ⇒ "真的跑了脚本，不是抄 `.value`"
+//       （唯一例外 = 脚本求值恰好 == 快照的巧合包，须由独立参考求值证实，见 a3 注释）。
 //   (b) 反向不变：语料里**没有脚本**的包（`dd/3554161528` 关键帧 origin、`0917/3509243656` 静态字符串 origin）
-//       与"接线关"逐位相同；顺带覆盖"14 包在 project.json 默认属性下取景逐位不变"。
+//       与"接线关"逐位相同；顺带覆盖"发现的包在 project.json 默认属性下取景逐位不变"。
 //   (c) 用户属性变化 ⇒ 相机 origin 跟着变：`project.json` 默认值 vs 把 `x3` 改 0.25 两档对拍
 //       （求值 0→960，非满幅层实绘矩形 Δx = −960）。
 //   (d) 求值失败（坏脚本 / 坏宿主）⇒ **不抛**，且相机 origin 只有"回退静态快照"或"不施加"两种落点
@@ -26,7 +28,7 @@
 // 【只读、无浏览器】只 import `core/we-scene-bundle.js` 与 `elysia/scene-scripts.js`；不改真树任何文件
 //   （唯一写盘 = /tmp 下的隔离副本，跑完删掉）。本机无 GPU/WebGL2 且禁止启动浏览器 ⇒ 全部结论都是
 //   **数值/矩阵/字符串级**（mock GL + `onLayerDraw` 的实绘矩形），**不含任何像素/成像结论**。
-// 【资源纪律】不整包读语料：14 个包走"表头前缀 + scene.json 精确切片"（见 `sliceScene`），
+// 【资源纪律】不整包读语料：发现的包走"表头前缀 + scene.json 精确切片"（见 `sliceScene`），
 //   只有 2 个对照包真读整包（`dd/3327063360` 60MB、`dd/3554161528` 23MB —— 与 `camera-pose-test` 同一口径）。
 //
 // 【退出码】0 = 判据全过（含 SKIP）；1 = 有判据红/工具自身出错；2 = 用法错误。
@@ -260,37 +262,51 @@ const sameRects = (a, b) => {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// ① 语料里的 14 个 `origin.script` 相机包（表来自 `camera-script-origin-probe.mjs` 的机读报告
-//    `reports/camera-script-origin/*.json` 的 `rows[].file`，逐条在下面按运行期解析复核）
+// ① 语料里的 `origin.script` 相机包 —— **按内容特征在运行期发现**（不与文件名/目录名绑定）
+//   ②(2026-09-23 语料漂移修复) 此前这里写死 14 条路径（表来自探针报告）。今晚语料两处变化
+//   把这份清单打穿了：①`wallpapertest1/*.mpkg` → `wallpapertest1_*.mpkg` **重命名**（4 条路径
+//   不存在 ⇒ SKIP ⇒ 覆盖 14→10）；②新增 `allwallpaper/0923/` 里又有 2 个脚本相机包（漏扫）。
+//   ⇒ 改成**发现**：容器 `scene.json` 的 `objects[]` 里 `typeof o.camera === 'string'` 且
+//   `o.origin` 是 `{script:<字符串>}` —— 与 `tests/camera-script-origin-probe.mjs` 的命中判据
+//   同一行代码。包怎么改名、语料怎么加根都不影响覆盖；"包变少/扫漏了"由下面的基线兜住。
 // ════════════════════════════════════════════════════════════════════════════
-const SCRIPT_CAM_PKGS = [
-  'allwallpaper/0917/3448877775/scene.pkg',
-  'allwallpaper/0917/3462491575/scene.pkg',
-  'allwallpaper/dd/3326873240/scene.pkg',
-  'allwallpaper/dd/3327063360/scene.pkg',
-  'allwallpaper/dd/3470764447/scene.pkg',
-  'allwallpaper/wallpaperE/other/夜莺night——【time_variation_时间变化】alone_孤独の少女【原画：rella].mpkg',
-  'allwallpaper/wallpaperE/伊蕾娜/夜莺night——【time_variation时间变化】elaina_伊蕾娜：闲憩微息【魔女之旅】day_night.mpkg',
-  'allwallpaper/wallpaperE/流萤/夜莺night——【customize自定义】firefly_流萤_星空之誓——夜莺night崩坏星穹铁道.mpkg',
-  'allwallpaper/wallpaperE/砂狼白子/砂狼白子11_03.mpkg',
-  'allwallpaper/wallpaperE/遐蝶/夜莺Night——Honkai Star Rail Castorice 遐蝶 冥河永渡 崩坏星穹铁道The Etern.mpkg',
-  'allwallpaper/wallpapertest1/夜莺Night——Honkai Star Rail Castorice 遐蝶 冥河永渡 崩坏星穹铁道The Etern.mpkg',
-  'allwallpaper/wallpapertest1/夜莺night——【customize自定义】firefly_流萤_星空之誓——夜莺night崩坏星穹铁道.mpkg',
-  'allwallpaper/wallpapertest1/夜莺night——【time_variation_时间变化】alone_孤独の少女【原画：rella].mpkg',
-  'allwallpaper/wallpapertest1/夜莺night——【time_variation时间变化】elaina_伊蕾娜：闲憩微息【魔女之旅】day_night.mpkg',
-]
+const CAM_CORPUS_BASELINE = {
+  note: '2026-09-23 全语料自导出（只增不减）。旧写死值：清单 14 条路径 / 同段脚本 14 包 / eval≠static 14 包',
+  discovered: 16,   // 语料里 origin.script 相机包总数
+  mainScript: 15,   // 用主脚本（SCRIPT_SHA）的包数
+  notStatic: 15,    // 求值结果与静态快照不同的包数（第 16 个是脚本求值 == 快照的巧合包，见 a3）
+}
+function discoverScriptCamPkgs() {
+  const found = []
+  const walk = (d, depth) => {
+    if (depth > 3 || !fs.existsSync(d)) return
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const fp = path.join(d, e.name)
+      if (e.isDirectory()) { walk(fp, depth + 1); continue }
+      if (!/\.(pkg|mpkg)$/i.test(e.name)) continue
+      let raw = null
+      try { raw = sliceScene(fp).raw } catch (err) { continue }        // 无 scene.json / 读不了 ⇒ 不是命中
+      const cam = camObjOf(raw)
+      if (!cam || !cam.origin || typeof cam.origin !== 'object' || typeof cam.origin.script !== 'string') continue
+      found.push(path.relative(MPW_WS, fp))
+    }
+  }
+  walk(CORPUS, 0)
+  return found.sort()
+}
+const SCRIPT_CAM_PKGS = discoverScriptCamPkgs()
 const NO_SCRIPT_PKGS = {
   anim: 'allwallpaper/dd/3554161528/scene.pkg',       // origin = {animation:…}（语料唯一关键帧相机）
   stat: 'allwallpaper/0917/3509243656/scene.pkg',     // origin = "0 0 6"（静态字符串；语料唯一 3D/透视包）
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// ② (a) 14 个包：相机 origin == 宿主求值结果（且 ≠ 静态快照）
+// ② (a) 发现的脚本相机包：相机 origin == 宿主求值结果（且 ≠ 静态快照）
 // ════════════════════════════════════════════════════════════════════════════
-out('\n══ (a) 14 个 `origin.script` 相机包：渲染路径的相机 origin == 宿主求值结果 ══')
+out('\n══ (a) 发现的 `origin.script` 相机包（' + SCRIPT_CAM_PKGS.length + ' 个，运行期发现）：渲染路径的相机 origin == 宿主求值结果 ══')
 {
-  let okPackages = 0, evalOK = 0, notStatic = 0, missing = 0
-  const shas = new Set()
+  let okPackages = 0, evalOK = 0, notStatic = 0, coincidences = 0, missing = 0
+  const shaGroups = new Map()   // 脚本 sha → 包 id 列表（a5：逐段脚本点名）
   for (const rel of SCRIPT_CAM_PKGS) {
     const file = path.join(MPW_WS, rel)
     const id = rel.replace(/^allwallpaper\//, '').replace(/\/(scene\.pkg|[^/]+\.mpkg)$/i, '')   // 与探针 pkgIdOf 同口径
@@ -300,7 +316,9 @@ out('\n══ (a) 14 个 `origin.script` 相机包：渲染路径的相机 origi
     const camRaw = camObjOf(scn.raw)
     const srcLen = camRaw && camRaw.origin && typeof camRaw.origin === 'object' && typeof camRaw.origin.script === 'string' ? camRaw.origin.script.length : 0
     if (!srcLen) { missing++; skip('a', id + ' 该包的相机 origin 不是脚本（语料变了）', 'script len=' + srcLen); continue }
-    shas.add(crypto.createHash('sha256').update(camRaw.origin.script).digest('hex').slice(0, 16))
+    const sha16 = crypto.createHash('sha256').update(camRaw.origin.script).digest('hex').slice(0, 16)
+    if (!shaGroups.has(sha16)) shaGroups.set(sha16, [])
+    shaGroups.get(sha16).push(id)
     const ref = refHostEval(scn.raw, propsOf(scn.proj))
     const r = await renderScene({ id, scene: scn })
     const led = r.ledger
@@ -310,12 +328,30 @@ out('\n══ (a) 14 个 `origin.script` 相机包：渲染路径的相机 origi
     if (ledVec && ref.value && eq3(ledVec, ref.value, 1e-6)) evalOK++
     check('a2', id + ' 相机 origin 逐分量 == 独立参考求值 ' + JSON.stringify(ref.value), !!(ledVec && ref.value && eq3(ledVec, ref.value, 1e-6)), 'not台=' + JSON.stringify(ledVec) + ' 参考=' + JSON.stringify(ref.value))
     const st = r.cam && r.cam.originStatic ? r.cam.originStatic : null
-    if (ledVec && st && !eq3(ledVec, st, 1e-6)) notStatic++
-    check('a3', id + ' 相机 origin ≠ 冻结静态快照 ' + JSON.stringify(st), !!(ledVec && st && !eq3(ledVec, st, 1e-6)), '静态=' + JSON.stringify(st) + ' Δx=' + (ledVec && st ? (ledVec[0] - st[0]).toFixed(5) : '-'))
+    const notStaticPkg = !!(ledVec && st && !eq3(ledVec, st, 1e-6))
+    if (notStaticPkg) notStatic++
+    /* ②(2026-09-23) 例外要**被第二条独立路径证实**才允许：`0923/3605722997` 的脚本在默认属性下算出的
+     *   origin 恰好与静态快照数值相同（Δ=0）⇒ "≠ 快照"对它不可能成立（这不是回归，是巧合）。
+     *   落点 = "≠ 快照" **或** "独立参考求值也 == 快照"。变异体里 `ledVec` 为 null ⇒ 仍必然红，
+     *   所以 m4「逐包判据全红」不受影响。 */
+    const coincident = !!(ledVec && st && eq3(ledVec, st, 1e-6) && ref.value && eq3(ref.value, st, 1e-6))
+    if (coincident) coincidences++
+    check('a3', id + ' 相机 origin ≠ 冻结静态快照 ' + JSON.stringify(st) + (coincident ? '（本包脚本求值 == 快照，独立参考求值同值 ⇒ 记为巧合，不算回归）' : ''),
+      !!(ledVec && st && (notStaticPkg || coincident)), '静态=' + JSON.stringify(st) + ' Δx=' + (ledVec && st ? (ledVec[0] - st[0]).toFixed(5) : '-'))
   }
-  check('a4', '(a) 覆盖 14 个包且逐包求值成功', okPackages === 14 && evalOK === 14, '包=' + okPackages + ' 求值对齐=' + evalOK + ' 跳过=' + missing)
-  check('a5', '(a) 14 个包用的是**同一段**脚本（sha256 前缀 ' + SCRIPT_SHA + '）', shas.size === 1 && [...shas][0].startsWith(SCRIPT_SHA), [...shas].join(','))
-  check('a6', '(a) 14/14 的求值结果都与静态快照不同（证明确实不是抄 `.value`）', notStatic === 14, notStatic + '/14')
+  const mainPkgs = shaGroups.get(SCRIPT_SHA) || []
+  const otherGroups = [...shaGroups.entries()].filter(([k]) => k !== SCRIPT_SHA)
+  note('脚本分组：' + [...shaGroups.entries()].map(([k, v]) => k + '×' + v.length).join(' | '))
+  check('a4', '(a) 覆盖 ' + CAM_CORPUS_BASELINE.discovered + '+ 个包（自导出基线）且逐包求值成功',
+    okPackages >= CAM_CORPUS_BASELINE.discovered && evalOK === okPackages && missing === 0,
+    '包=' + okPackages + '（基线 ' + CAM_CORPUS_BASELINE.discovered + '） 求值对齐=' + evalOK + ' 跳过=' + missing)
+  check('a5', '(a) 主脚本（sha256 前缀 ' + SCRIPT_SHA + '）覆盖 ≥ ' + CAM_CORPUS_BASELINE.mainScript + ' 个包；其余脚本逐段点名且同样跑了 a1/a2/a3',
+    !!SCRIPT_SHA && mainPkgs.length >= CAM_CORPUS_BASELINE.mainScript && otherGroups.every(([, v]) => v.length > 0),
+    [...shaGroups.entries()].map(([k, v]) => k + '×' + v.length + (k === SCRIPT_SHA ? '(主)' : '')).join(',')
+    + (otherGroups.length ? '；非主脚本：' + otherGroups.map(([k, v]) => k + ' → ' + v.join('/')).join(' ') : ''))
+  check('a6', '(a) 求值结果 != 静态快照的包数 ≥ ' + CAM_CORPUS_BASELINE.notStatic + '，且每个包要么"≠快照"要么"巧合（参考求值同值）"（没有解释不了的包）',
+    notStatic >= CAM_CORPUS_BASELINE.notStatic && notStatic + coincidences === okPackages,
+    notStatic + '/' + okPackages + '（基线 ' + CAM_CORPUS_BASELINE.notStatic + '；巧合包 ' + coincidences + '）')
 }
 
 // ════════════════════════════════════════════════════════════════════════════

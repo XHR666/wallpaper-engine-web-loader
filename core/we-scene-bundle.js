@@ -2492,6 +2492,80 @@ export function applyScriptProps(sceneJson, props, opts = {}) {
   return stats
 }
 
+// ===== ①(WEBWALLGL #4 2026-09-23) `clearBgFx` 的**收窄**（背景类超大层效果链）=====
+// 原判据（本批之前的唯一实现）：
+//   `if (clearBgFx) for (const l of scene.layers) if (l.effects && l.effects.length && l.size &&
+//      ((l.size[0] || 0) >= 3800 || (l.size[1] || 0) >= 2000)) l.effects = []`
+// 它是一条**绝对像素**阈值：语料里 **28 个包**的设计画布就是 3840×2160（`general.orthogonalprojection`），
+// 于是它们**每一张整屏背景层都命中**（size = 3840×2160 ≥ 3800/2000）⇒ blur/bloom/godrays/lightshafts/
+// waterwaves… 整条作者后处理链被丢掉、只剩直绘基色 ⇒ 边缘天然"硬"（正是 WEBWALLGL issue #4 的
+// "气体/流体动效锐度过高、生硬"）。而 1920×1080 设计画布的包（整屏层 size=1920×1080）**不命中**、
+// 效果链保留 ⇒ **同一渲染器对不同设计分辨率给出不同观感**，这本身就是判据过宽的直接信号。
+//
+// 收窄后的判据（缺省 `narrow`，两条件**同时**满足才砍，逐条都能离线断言）：
+//   ① **阈值按设计画布同比放大**（Legacy 的 3800/2000 是**绝对像素**阈值，隐含假设的设计画布就是
+//      1920×1080 —— `3800 = 3840−40 ≈ 2×1920`、`2000 ≈ 1.85×1080`）：`size[0] ≥ 3800·(设计W/1920)` 或
+//      `size[1] ≥ 2000·(设计H/1080)`（比例各自 `max(1, …)` 下钳）。于是**设计画布 3840×2160 的包
+//      整屏层（size=3840×2160）不再命中**（阈值被抬到 7600/4000）⇒ 效果链保留；
+//   ② 效果链里**没有"输出型"效果**（blur / bloom / godrays / lightshafts / lens_flare / glow /
+//      reflection / watercaustics / hdr —— 这些正是"柔化/后处理观感"的来源，砍掉它们就是把
+//      issue #4 的症状制造出来）。
+// **硬不变量（可离线证明，也可门禁断言）：新判据砍掉的每一层，旧判据都会砍** —— 因为
+//   `max(1, 设计/1920) ≥ 1` 与 `max(1, 设计/1080) ≥ 1` ⇒ 命中 ① 必命中旧阈值；再叠加 ② 只会更少砍。
+//   ⇒ 不可能出现"旧版保留、新版砍掉"的新回归。语料实测（53 个含场景的包 / **806 个带效果层**）：
+//   **旧砍 76 层（30 包）→ 新砍 3 层（3 包）、被保住 73 层（29 包）、新砍而旧不砍 = 0 例**。
+//   剩下那 3 层都是真正的超大层（`0917/3351163962` 4000×4000 占位符、`dd/3660962877` 559×7544
+//   Date 条、`wallpaperE/庄方宜_7` 5000×5000 专辑图），且链里没有输出型效果。
+// 回退档：`?clearfx=legacy`（= 逐位回到旧判据）；`opts.clearFx='legacy'` 供测试同进程切两态。
+/** "输出型"效果（其输出不是"基色 ± 颜色/alpha 调制"，而是空间域的后处理/柔化）—— 命中即**保护**整条链。 */
+const CLEARFX_OUTPUT_FX_RE = /(blur|bloom|godrays|lightshafts|lens_?flare|glow|reflection|watercaustics|hdr)/i
+/** 只读判据：这个效果条目是不是"输出型"（吃 `effect.file`；也认 `name` 以便合成夹具免造 file）。 */
+export function clearBgFxIsOutputFx(effect) {
+  if (!effect) return false
+  const s = String(effect.file || effect.name || '')
+  return CLEARFX_OUTPUT_FX_RE.test(s)
+}
+/** 设计画布（`[w,h]`）：官方 `general.orthogonalprojection`；缺失 ⇒ 1920×1080（= 旧阈值的隐含画布）。 */
+export function designCanvasOf(scene) {
+  const op = scene && scene.general && scene.general.orthogonalprojection
+  const w = op && Number(op.width) > 0 ? Number(op.width) : 1920
+  const h = op && Number(op.height) > 0 ? Number(op.height) : 1080
+  return [w, h]
+}
+/** 旧判据的绝对阈值（唯一常量处；`clearBgFxShouldDrop` 的 legacy 档与 narrow 档的缩放基准都取它）。 */
+export const CLEARFX_LEGACY_THRESHOLDS = [3800, 2000]
+/** 旧阈值的**隐含设计画布**（缩放基准；见上方注释 ①）。 */
+export const CLEARFX_BASE_CANVAS = [1920, 1080]
+/**
+ * **纯函数判据**（门禁直接调它，不必建渲染器）：这一层在 `clearBgFx` 下要不要被清掉效果链？
+ * @param {{effects?:any[],size?:number[]}} layer
+ * @param {number[]} design 设计画布 `[w,h]`（`designCanvasOf`）
+ * @param {'narrow'|'legacy'} mode
+ */
+export function clearBgFxShouldDrop(layer, design, mode) {
+  if (!layer || !layer.effects || !layer.effects.length || !layer.size) return false
+  const s = layer.size
+  if (mode === 'legacy') {
+    return ((s[0] || 0) >= CLEARFX_LEGACY_THRESHOLDS[0] || (s[1] || 0) >= CLEARFX_LEGACY_THRESHOLDS[1])
+  }
+  const d = design && design.length === 2 ? design : CLEARFX_BASE_CANVAS
+  const kx = Math.max(1, (d[0] || 0) / CLEARFX_BASE_CANVAS[0])
+  const ky = Math.max(1, (d[1] || 0) / CLEARFX_BASE_CANVAS[1])
+  const oversized = (s[0] || 0) >= CLEARFX_LEGACY_THRESHOLDS[0] * kx || (s[1] || 0) >= CLEARFX_LEGACY_THRESHOLDS[1] * ky
+  if (!oversized) return false
+  for (const e of layer.effects) if (clearBgFxIsOutputFx(e)) return false
+  return true
+}
+/** `?clearfx=` 档位（唯一解析点）：`legacy` = 旧判据；其余（含缺省） = `narrow`。 */
+const CLEARFX_MODE = (() => {
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('clearfx') === 'legacy' ? 'legacy' : 'narrow'
+    }
+  } catch (e) { /* 无 location → 默认 narrow */ }
+  return 'narrow'
+})()
+
 export function applyRenderConfig(scene, opts = {}) {
   const refrender = opts.refrender || null
   const anchor = opts.anchor || 'refcenter'
@@ -2624,8 +2698,32 @@ export function applyRenderConfig(scene, opts = {}) {
   // 3) 粒子默认关
   if (hideParticles) for (const l of scene.layers) if (l.particle) l.visible = false
   // 4) 背景类超大层效果链停用（直绘基色，灰/白块根治）
+  // ①(WEBWALLGL #4 2026-09-23 **收窄**)：判据见 `clearBgFxShouldDrop` 上方整段注释 ——
+  //   "严格超设计画布 **且** 链里没有输出型效果"才砍；`?clearfx=legacy` 逐位回到旧判据。
+  //   台账 `scene.__clearFx` / `window.__mpwClearFx`：真机与门禁可读"这一包到底砍了几层、
+  //   保了几层、被保护的是哪几层"（否则"效果链到底跑没跑"只能靠猜）。
+  const __clearFxMode = (opts.clearFx === 'legacy' || opts.clearFx === 'narrow') ? opts.clearFx : CLEARFX_MODE
+  const __clearFxStats = { mode: __clearFxMode, clearBgFx: !!clearBgFx, design: designCanvasOf(scene),
+    dropped: 0, kept: 0, saved: 0, savedNames: [] }
   if (clearBgFx) for (const l of scene.layers) {
-    if (l.effects && l.effects.length && l.size && ((l.size[0] || 0) >= 3800 || (l.size[1] || 0) >= 2000)) l.effects = []
+    if (!l.effects || !l.effects.length || !l.size) continue
+    const __legacyWould = clearBgFxShouldDrop(l, __clearFxStats.design, 'legacy')
+    if (clearBgFxShouldDrop(l, __clearFxStats.design, __clearFxMode)) { l.effects = []; __clearFxStats.dropped++ }
+    else {
+      __clearFxStats.kept++
+      // `saved` = 旧判据会砍、新判据保住（= 本项修复的**唯一**行为面，门禁就钉它）
+      if (__clearFxMode !== 'legacy' && __legacyWould) {
+        __clearFxStats.saved++
+        if (__clearFxStats.savedNames.length < 8) __clearFxStats.savedNames.push(String(l.name || l.id))
+      }
+    }
+  }
+  try { scene.__clearFx = __clearFxStats } catch (e) { /* 冻结场景对象：忽略 */ }
+  if (typeof window !== 'undefined') { try { window.__mpwClearFx = __clearFxStats } catch (e) { /* 无 window */ } }
+  if (opts.log && (__clearFxStats.dropped || __clearFxStats.kept)) {
+    opts.log('① clearBgFx(' + __clearFxMode + ')：丢弃 ' + __clearFxStats.dropped + ' 层效果链 / 保留 '
+      + __clearFxStats.kept + ' 层（其中 ' + __clearFxStats.saved + ' 层是旧判据会砍的；设计画布 '
+      + __clearFxStats.design.join('×') + '）')
   }
   // 5) 隐藏播放器/音频/UI/歌曲组件层（官方预览无这些 UI）
   // ①(N5 2026-09-14 用户决策 A：四类文本做开关) 时钟/日期/星期三类此前被 uiRe **无条件**隐藏
@@ -3671,6 +3769,10 @@ export function buildParticleSystem(def, ctx = {}) {
     //   （档位随 ctx 进 sys，再由算子层转成 `vortexSwirl` 的 `tangentSign`）
     vortexLegacy: !!ctx.vortexLegacy,
     countMul: (() => { const c = ctx.instanceoverride && ctx.instanceoverride.count; return (typeof c === 'number' && isFinite(c) && c >= 0) ? c : 1 })(),
+    // ①(WEBWALLGL-ELYSIA 2026-09-23) 未知/未实现算子台账（`noteUnknownParticleOp` 写、渲染器逐帧汇总）：
+    //   `unknownOps` = {名字: 作用次数}、`unknownOpNames` = 去重名字（保首次出现序）、`unknownOpHits` = 总次数。
+    //   本批之前这类算子**静默消失**（switch 无 default）⇒ 现在至少"看得见"。
+    unknownOps: {}, unknownOpNames: [], unknownOpHits: 0,
     // ①(RE-20) 控制点：controlpointattract 的目标（offset 为层空间坐标）
     controlPoints: (def && def.controlpoint) || [],
     // ①(P-69 第 6 项) lockToPointer：`controlpoint[i].flags` bit0（=1）= 该控制点锁定鼠标指针。
@@ -4471,9 +4573,49 @@ function fadeValueChange1(life, start, end, sv, ev) {
   return sv + (ev - sv) * ((life - start) / (end - start))
 }
 
+// ①(WEBWALLGL-ELYSIA 2026-09-23) **算子普查：实现的算子名唯一真值表 + 未知算子如实出声**。
+// 为什么要它：`applyOperator` 的 `switch` **没有 `default:`**（见该函数），而官方资产
+// `wallpaper_engine/assets/scenes/particleelementpreviews/**`（官方元素预览场景，每个算子一个目录）
+// 里有 **25 个**官方算子名，本渲染器只实现其中 12 个 ⇒ 剩下 13 个（含 `vortex_v2` /
+// `maintaindistancetocontrolpoint`）此前**静默**当成"没有这个力"（少一个力、画面不对且无任何痕迹）。
+// 本表是"我们真的实现了"的声明面：表外的名字一律走 `noteUnknownParticleOp` 记一次 + 一次日志。
+// ⚠ 维护口径：**只往这里加"switch 里真有 case"的名字**（`tests/particle-op-census-test.mjs` 会用
+//   官方 25 名字表 + 逐个 case 名字对拍，把"表里有、switch 里没有"钉成红）。
+export const PARTICLE_OP_IMPLEMENTED = new Set([
+  'movement', 'angularmovement', 'sizechange', 'alphachange', 'alphafade', 'colorchange',
+  'oscillatealpha', 'oscillateposition', 'oscillatesize', 'turbulence', 'controlpointattract',
+  'vortex', 'vortex_v2', 'maintaindistancetocontrolpoint',
+])
+/** 本渲染器**尚未实现**的官方算子名（= 官方 25 名单 − 上表；只读，供上报/门禁读；不参与渲染）。 */
+export const PARTICLE_OP_UNIMPLEMENTED_OFFICIAL = [
+  'boids', 'capvelocity', 'collisionbounds', 'collisionmodel', 'collisionplane', 'collisionquad',
+  'collisionsphere', 'inheritvaluefromevent', 'maintaindistancebetweencontrolpoints',
+  'reducemovementnearcontrolpoint', 'remapvalue',
+]
+/**
+ * 记一次"未知/未实现算子"（幂等口径：**同一算子名在每个系统里只记首次**进名字表，次数累加）。
+ * `sys` 由 `createParticleSystem` 建（`unknownOps`/`unknownOpNames`/`unknownOpHits`），
+ * 汇总进 `renderer.particleStats.unknownOps`（真机上报/门禁读）。
+ */
+export function noteUnknownParticleOp(sys, name) {
+  const n = String(name == null || name === '' ? '(未命名)' : name)
+  if (!sys) return n
+  if (!sys.unknownOps) { sys.unknownOps = {}; sys.unknownOpNames = []; sys.unknownOpHits = 0 }
+  if (sys.unknownOps[n] === undefined) { sys.unknownOps[n] = 0; sys.unknownOpNames.push(n) }
+  sys.unknownOps[n]++
+  sys.unknownOpHits = (sys.unknownOpHits || 0) + 1
+  return n
+}
+
 export function applyOperator(sys, op, dt, t) {
   const pr = op.params
   const rng = sys.rng
+  // ①(WEBWALLGL-ELYSIA) **未知算子先出声再返回**（放在粒子循环**之前**：零粒子时同样如实记录，
+  //   否则"这一层只有一个没实现的力"会在没有存活粒子时看不见）。绝不假装有力、也绝不抛错打断整帧。
+  if (!PARTICLE_OP_IMPLEMENTED.has(String(op.name))) {
+    noteUnknownParticleOp(sys, op.name)
+    return
+  }
   // ①(P-131 批 D) 音频系数**每个算子每帧只算一次**（不放进粒子循环：既省 pow，也让记账是"算子次数"）
   const __env = audioFactor(op.audio, sys)
   const audioK = __env === null ? 1 : __env          // 速度类：乘性（vortex `speed·env`）
@@ -4679,6 +4821,49 @@ export function applyOperator(sys, op, dt, t) {
         }
         break
       }
+      // ①(WEBWALLGL-ELYSIA 2026-09-23) **`maintaindistancetocontrolpoint`（官方**独立**算子）**：
+      //   官方把它做成一个**单独的算子名**（`assets/presets/magic/particles/presets/magic_vortex_orb.json`
+      //   的 `operator[3]` = `{id:12, name:"maintaindistancetocontrolpoint", variablestrength:5}`），
+      //   **不是** `vortex` 的 flag 位 —— 这正是判定 `references/lwe-ref` 的 `flags&2=保持距离`
+      //   口径偏离官方数据的第二条依据（`docs/VORTEX-CHIRALITY-RE-20260923.md` §5-#11/#12）。
+      //   官方元素预览场景 `assets/scenes/particleelementpreviews/maintaindistancetocontrolpoint/
+      //   particles/new_particle_system.json` 的字段集也只有 `variablestrength`（无 controlpoint ⇒ cp0）。
+      //   ⚠ **语义如实声明**：本机**没有**该算子的官方实现/反编译产物，lwe-ref、wer-ref、上游
+      //   `oneincase/webwallgl` 里都**没有**它的实现（`grep maintaindistance` = 0 命中）⇒ 下面是
+      //   **按名字与官方字段推出的模型**（证据强度：弱），不是"对齐官方"：
+      //     · 圆心 = 控制点（与 `controlpointattract`/`vortex` **同一套**解析：lockToPointer 控制点
+      //       ⇒ 指针世界坐标；否则层空间 target）；
+      //     · 每颗粒子记住**首次受本算子作用时**到圆心的距离 `p._mdcpDist`（缺省 = 出生距离），
+      //       之后按 `k = clamp(variablestrength·dt, 0, 1)` 做两件事：①把**径向**速度分量按 k 衰减
+      //       （距离不再被径向速度改变）；②把距离往 `_mdcpDist` 拉回（`k·(refDist − d)`）。
+      //       切向分量**不动** ⇒ 粒子仍可绕控制点转（与同文件的 `vortex_v2` 环形成套使用）。
+      //     · `variablestrength` 缺省 **0** = 逐位空操作（保守口径：官方两处夹具都写了 5；
+      //       缺字段时**不发明**一个会改变画面的力）。`?pops=legacy` 不提供回退档 —— 旧代码里这个
+      //       算子根本不存在（无行为可回退），所以"回到改动前"= `variablestrength` 缺省 0 或删掉该算子。
+      case 'maintaindistancetocontrolpoint': {
+        const strength = Number(pGetVal(pr, 'variablestrength', 0)) || 0
+        if (!(strength > 0)) break          // 缺省 0 ⇒ 空操作（逐位等于"没有这个算子"）
+        const cpIdx = pGetVal(pr, 'controlpoint', 0)
+        const cp = (sys.controlPoints || [])[cpIdx]
+        const target = cp ? pVec3(cp.offset || cp.origin, [0, 0, 0]) : pVec3(pGetVal(pr, 'origin'), [0, 0, 0])
+        const __cpPtr = __cpWorldLocked(sys, cpIdx) || ((sys.pointer && cpIdx === sys.pointerCp) ? sys.pointer : null)
+        const cx0 = __cpPtr ? __cpPtr[0] : target[0]
+        const cy0 = __cpPtr ? __cpPtr[1] : -target[1]
+        const k = Math.min(1, Math.max(0, strength * dt))
+        const dx = p.pos[0] - cx0, dy = p.pos[1] - cy0
+        const d = Math.hypot(dx, dy)
+        if (d < 1e-3) break                 // 正在圆心上 ⇒ 径向未定义（同 `vortexSwirl` 的 null 口径）
+        if (p._mdcpDist === undefined) p._mdcpDist = d
+        const ux = dx / d, uy = dy / d
+        const vr = p.vel[0] * ux + p.vel[1] * uy
+        // ① 径向衰减（去掉"距离正在被改变"的那一部分速度）
+        const dRad = -vr * k
+        // ② 距离回归（refDist 与当前距离之差，按 k 拉回）
+        const dRet = (p._mdcpDist - d) * k
+        p.vel[0] += ux * (dRad + dRet)
+        p.vel[1] += uy * (dRad + dRet)
+        break
+      }
       // turbulence（28 次）：官方 speed×CurlNoise(pos·2scale+phase+timescale·t)；这里用确定性伪噪声近似
       case 'turbulence': {
         const sc = pGetVal(pr, 'scale', 0.002)
@@ -4723,8 +4908,33 @@ export function applyOperator(sys, op, dt, t) {
       //   单位/符号：`distanceouter − distanceinner` 是**半径**区间（官方 `dis_mid = outer − inner + 0.1`，
       //   旧实现误把外半径当成"世界坐标上界"）；切向用 `axis × radial` 的等价二维式 `(−ry, rx)/d`，
       //   手性由 axis.z 的符号决定（`axis` 缺省 +z）。`?pops=legacy` 逐位回到旧口径（A/B）。
-      case 'vortex': {
+      // ①(WEBWALLGL-ELYSIA 2026-09-23 **`vortex_v2` 补齐**)：官方 `magic_vortex_orb.json` 用的名字是
+      //   `vortex_v2`（本批之前 `core/` 与产物 **0 命中** ⇒ 吃到就静默少一个力）。官方语义（取证见
+      //   `docs/VORTEX-CHIRALITY-RE-20260923.md` §5-#10/#11/#12 与官方元素预览场景）：
+      //     · **环形模式由「参数存在性」触发，不是 flag 位** —— `ringradius>0 && ringwidth>0 &&
+      //       ringpulldistance>0`。依据：官方 `assets/scenes/particleelementpreviews/vortex_v2/
+      //       particles/new_particle_system.json` 是 `flags:3` **且无 ring 字段**（⇒ 普通涡旋），
+      //       而 `assets/presets/magic/particles/presets/magic_vortex_orb.json` 是 `flags:2` **且带**
+      //       三件套（⇒ 环形）。若按 `references/lwe-ref` 的 `flags&4 = 环形` 口径，官方那张
+      //       "vortex orb" 根本不进环形模式 —— 与它自己的字段命名矛盾 ⇒ lwe-ref 的 flags 解码判为
+      //       **偏离**，本实现**一个 flag 位都不读**（只读参数存在性）。
+      //     · 环形几何（`ringInner = r − w/2`、`ringOuter = r + w/2`；`ringpulldistance` = 环外
+      //       "仍受拉"的带宽）与三段式速度曲线按 `references/lwe-ref .../CParticle.cpp:1378-1432`
+      //       的 ring 分支（第三方参考实现，**未反汇编官方二进制**）。径向拉力 `ringpullforce`
+      //       官方夹具没写 ⇒ 缺省 **0**（只走速度曲线，不额外拉），与"缺省=不生效"的算子惯例一致。
+      //     · `distanceinner/distanceouter` 在环形档**不参与**（与 lwe-ref 同口径）；
+      //       `speedinner/speedouter` 仍是环内/环外的速度端点。
+      case 'vortex':
+      case 'vortex_v2': {
+        const __isV2 = op.name === 'vortex_v2'
         const axis = pVec3(pGetVal(pr, 'axis'), [0, 0, 1])
+        // ①(WEBWALLGL-ELYSIA) **环形档判定**：只看参数存在性（`ringradius/ringwidth/ringpulldistance`
+        //   三个都 > 0），**一个 flag 位都不读**（依据见上方整段注释）。`vortex_v2` 才可能是环形；
+        //   老名字 `vortex` 官方夹具里从来没有 ring 字段 ⇒ 恒走普通档（逐位不变）。
+        const __ringR = Number(pGetVal(pr, 'ringradius', 0)) || 0
+        const __ringW = Number(pGetVal(pr, 'ringwidth', 0)) || 0
+        const __ringP = Number(pGetVal(pr, 'ringpulldistance', 0)) || 0
+        const __ringOn = __isV2 && __ringR > 0 && __ringW > 0 && __ringP > 0
         // ①(P-131 批 D) 官方 "ties the particle speed to audio playback, causing the vortex to stop
         //   spinning when no audio is being played." ⇒ 强度乘 `env`（env=1 = 旧行为逐位不变）。
         const legacy = !!sys.popsLegacy
@@ -4750,6 +4960,8 @@ export function applyOperator(sys, op, dt, t) {
         const spOut = pGetVal(pr, 'speedouter', baseIn) * audioK
         const inner = pGetVal(pr, 'distanceinner', 0)
         const outer = pGetVal(pr, 'distanceouter', 1e9)
+        // ①(WEBWALLGL-ELYSIA `vortex_v2` 环形档) 径向拉力（官方夹具未写 ⇒ 缺省 0 = 不额外拉）
+        const ringPullForce = Number(pGetVal(pr, 'ringpullforce', 0)) || 0
         // 该 vortex 相对控制点的偏移（`offset` / 旧名 `origin`，层空间 ⇒ y 取反）
         const off = pVec3(pGetVal(pr, 'offset', pGetVal(pr, 'origin', null)), [0, 0, 0])
         // 圆心（世界设计坐标，y-down）= 控制点当前位置 + cp.offset + 本算子 offset。
@@ -4774,6 +4986,38 @@ export function applyOperator(sys, op, dt, t) {
           sys.__ptrForceX = ccx
           sys.__ptrForceY = ccy
           sys.__ptrForceKind = 'vortex'
+        }
+        // ①(WEBWALLGL-ELYSIA) **`vortex_v2` 环形档**（`ringradius/ringwidth/ringpulldistance` 三件套
+        //   齐备时生效）。几何/曲线按 lwe-ref ring 分支；手性仍走同一个 `?pvortex` 档位（`(dy,−dx)` /
+        //   `(−dy,+dx)`，与普通档同一个单位切向）；**径向拉力不乘 `sgn`** —— 与 lwe-ref 一致
+        //   （切向 = `cross(axis, radial)` 随 axis 反向，径向 = `−normalize(radial)` 与 axis 无关）。
+        if (__ringOn) {
+          const dxr = p.pos[0] - ccx, dyr = p.pos[1] - ccy
+          const dr = Math.hypot(dxr, dyr)
+          if (dr < 1e-3) break          // 正在圆心上 ⇒ 切向未定义（同 `vortexSwirl` 的 null 口径）
+          const ux = dxr / dr, uy = dyr / dr
+          const rIn = __ringR - __ringW * 0.5, rOut = __ringR + __ringW * 0.5
+          const ts = sys.vortexLegacy ? -1 : 1
+          let spd = 0, pullK = 0
+          if (dr < rIn) {
+            spd = 0                     // 环心空心区：不旋转
+          } else if (dr <= rOut) {
+            spd = spIn + (spOut - spIn) * ((dr - rIn) / __ringW)   // 环带内：线性插值
+          } else if (dr <= rOut + __ringP) {
+            const pullT = (dr - rOut) / __ringP
+            spd = spOut * (1 - pullT)    // 环外"仍受拉"带宽：速度线性衰减到 0
+            pullK = ringPullForce * pullT
+          }
+          if (spd) {
+            p.vel[0] += (ts * uy) * spd * dt * sgn
+            p.vel[1] += (-ts * ux) * spd * dt * sgn
+          }
+          // 径向：`−u` = 指向圆心 = 指向环（粒子在环外时才拉）。不与手性 `sgn` 相乘（见上）。
+          if (pullK) {
+            p.vel[0] += -ux * pullK * dt
+            p.vel[1] += -uy * pullK * dt
+          }
+          break
         }
         // ①(P-136 用户第 4 项：照抄上游 MIT 实现) 切向加速这一段**整块**改为调用照抄来的
         //   `vortexSwirl`（← 上游 `renderer/vendor/we-scene/render/particles.js:1010-1024`）。
@@ -4832,6 +5076,14 @@ export function applyOperator(sys, op, dt, t) {
       //   却是同一批算子的第二套（官方口径的）实现 —— 这既是"看起来像已修其实没生效"的来源，
       //   也是一颗雷（任何人重排 case 都会静默换语义）。本批把官方口径**合并进上面活代码**，
       //   然后删掉这 4 段死代码；`?pops=legacy` 提供旧行为的 A/B 回退（见上面各 case 内的分支）。
+      // ①(WEBWALLGL-ELYSIA 2026-09-23) **补 `default:`（本来没有）**：走到这里 = 名字在
+      //   `PARTICLE_OP_IMPLEMENTED` 表里却**没有 case**（表与 switch 漂移）—— 唯一可能的原因是
+      //   有人改了一处忘了另一处。同样**如实计数**（不静默）；正常情况下这个分支一次都不会执行
+      //   （表外的名字在粒子循环之前就返回了），所以它是"表/实现漂移"的报警器。
+      default: {
+        noteUnknownParticleOp(sys, op.name)
+        break
+      }
     }
   }
 }
@@ -7960,6 +8212,9 @@ export function createRenderer(canvas, opts = {}) {
     psphMode: SPH_MODE,
     // ①(vortex-chirality 2026-09-23) vortex 切向手性档位（official=(dy,−dx) / legacy=(−dy,+dx)）
     pvortexMode: VORTEX_MODE,
+    // ①(WEBWALLGL-ELYSIA 2026-09-23) **未知/未实现算子记账**（逐帧重置；真机上报可回答
+    //   "这一包到底有没有吃到我们没实现的算子、是哪几个"）。`unknownOpNames` 保首次出现序。
+    unknownOps: {}, unknownOpNames: [], unknownOpHits: 0,
     // ①(P-131 批D) 音频驱动发射档位与生效记账（真机上报可回答"这一台到底有没有音频源、调没调制"）
     audioEmitMode: AUDIO_EMIT_MODE, audioModulated: 0, audioNoSource: 0, audioLayers: {},
     // ①(P-144 子系) 子系口径档位与生效记账（真机上报可回答"这一台到底画了几条子系、哪一类、
@@ -10729,8 +10984,18 @@ export function createRenderer(canvas, opts = {}) {
       lastParallaxTime = time
       // ①(RE-24 官方) 平滑：t = 1 − exp(−(frameTime·ln100)/delay) → delay 秒后残余 ≈1%（100 倍沉降）。
       //   旧实现用 `delay*dt` 线性系数（无单位含义，delay<1 时几乎瞬时、delay>1 时抖动）。
+      // ①(WEBWALLGL #5 2026-09-23 **鼠标视差整条死掉的根因，实测**)：这里原本写的是 `Math.LN100`
+      //   —— **JS 没有这个常量**（`Math` 只有 `LN2`/`LN10`/`LOG2E`/`LOG10E`/`PI`/`SQRT1_2`/`SQRT2`）
+      //   ⇒ `Math.LN100 === undefined` ⇒ `parDt * undefined = NaN` ⇒ `k = 1 − exp(NaN) = NaN` ⇒
+      //   `k = Math.min(1, Math.max(0, NaN)) = NaN` ⇒ **`if (k > 0)` 恒假** ⇒ `parDispX` 永远是 0
+      //   ⇒ **`?parallax=1` 下场景级/对象级的"鼠标项"一个像素都不动**（只有与鼠标无关的
+      //   `(node_pos − cam_pos)` 常量项还在）。这不是"默认关"，是**开也死**：
+      //   离线 mock-GL 实测（`tests/parallax-live-test.mjs` B 段）改前 Δx=0.000px、改后
+      //   Δx=−204.288px（= −0.4·3840·0.07·3.8·0.5，与官方 `(0.5−mouse)∘depth×amount` 逐位吻合）。
+      //   修法：用标准库 `Math.log(100)`（= 4.605170185988092 = ln100，正是注释里写的那个数）。
+      const LN100 = Math.log(100)
       let k = 1
-      if (isFinite(delay) && delay > 0) k = 1 - Math.exp(-(Math.max(0, parDt) * Math.LN100) / delay)
+      if (isFinite(delay) && delay > 0) k = 1 - Math.exp(-(Math.max(0, parDt) * LN100) / delay)
       k = Math.min(1, Math.max(0, k))
       // ①(RE-24 官方 2026-09-14) 鼠标向量：归一化 → **世界像素**（乘设计画布）+ y 取反
       //   （换算与推导见本文件「视差」段落头部注释：按我们自己的 y-down 世界空间推出，不引用上游表达式）。
@@ -10772,6 +11037,8 @@ export function createRenderer(canvas, opts = {}) {
     partStat.trailLayers = {}; partStat.trailSegments = 0; partStat.trailDrawn = 0; partStat.trailDegenerate = 0; partStat.trailSkipped = 0
     partStat.shapeFrom = { rgba: 0, rg88: 0, r8: 0, unknown: 0 }
     partStat.simSteps = 0; partStat.simUpdates = 0   // ①(P-69) 本帧粒子模拟代价（步数 / 粒子更新次数）
+    // ①(WEBWALLGL-ELYSIA 2026-09-23) 未知算子记账逐帧重置（见 `noteUnknownParticleOp` / `default:`）
+    partStat.unknownOps = {}; partStat.unknownOpNames = []; partStat.unknownOpHits = 0
     // ①(P-103) 本轮四个档位的逐帧记账同样逐帧重置
     partStat.protQuads = 0; partStat.pquadQuads = 0; partStat.expApplied = 0; partStat.spawnSpeeds = 0
     partStat.colorUni = 0; partStat.colorAttr = 0   // ①(P-126 A) 颜色通道记账（u_Color 上提 / 顶点属性批数）
@@ -12040,6 +12307,29 @@ export function createRenderer(canvas, opts = {}) {
     if (def && def.maxcount > sys.maxCount) partStat.capped++
     const __sim = simulateParticleSystem(sys, time, PARTICLE_BUDGET.steps)
     if (__sim) { partStat.simSteps += __sim.steps; partStat.simUpdates += __sim.updates }
+    // ①(WEBWALLGL-ELYSIA 2026-09-23) **未知算子汇总**（本帧）：按每系统**高水位**取增量累加
+    //   （同一系统跨帧不重复计、被重建的系统重新计），并**每个（层,算子名）只打一次日志** ——
+    //   "不许静默忽略"的落点：既不刷屏，也不会看不见。
+    if (sys.unknownOpNames && sys.unknownOpNames.length) {
+      sys.__opReported = sys.__opReported || {}
+      for (const __n of sys.unknownOpNames) {
+        const __c = sys.unknownOps[__n] | 0
+        const __delta = __c - (sys.__opReported[__n] | 0)
+        if (__delta <= 0) continue
+        sys.__opReported[__n] = __c
+        partStat.unknownOps[__n] = (partStat.unknownOps[__n] | 0) + __delta
+        partStat.unknownOpHits += __delta
+        if (partStat.unknownOpNames.indexOf(__n) < 0) partStat.unknownOpNames.push(__n)
+        if (!partLogOnce.has('unkop:' + layer.id + ':' + __n)) {
+          partLogOnce.add('unkop:' + layer.id + ':' + __n)
+          try {
+            onLog('[算子] 层 "' + (layer.name || layer.id) + '" 用了本渲染器**尚未实现**的算子 "' + __n
+              + '" ⇒ 这一条力按"没有"处理（如实记账，不再静默）。官方算子名清单与实现状态见 '
+              + 'core/we-scene-bundle.js 的 PARTICLE_OP_IMPLEMENTED / PARTICLE_OP_UNIMPLEMENTED_OFFICIAL')
+          } catch (e) { /* ignore */ }
+        }
+      }
+    }
     // ①(P-131 批D) **音频驱动发射**：本层开了音频响应吗、本帧包络多少、有没有采集源。
     //   记账进 `particleStats.audioLayers`（真机上报/门禁断言用）；"开了但没源"另出一条**一次性日志**
     //   —— 这是"没有麦克风/没有 <audio> 源时保持可观测、不静默"的落点之一。

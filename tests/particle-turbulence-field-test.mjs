@@ -407,7 +407,18 @@ console.log('\n[4] ⑤ 同族扫描：语料里吃到非零 `turbulentvelocityra
   }
   const hit = (r) => [r.s3, r.s8].every((s) => s && s.segMed >= 40 && s.szMed > 0 && s.segMed / s.szMed >= 4)
   const files = walkContainers(`${MPW_WS}/allwallpaper`).sort()
-  const found = { total: 0, rope: 0, ropetrail: 0, sprite: 0, spritetrail: 0 }
+  /* ②(2026-09-23 语料漂移修复) **语料自导出基线**：旧写法把扫描结果钉死成"共 28 层
+   *   （rope 13 / sprite 14 / spritetrail 1）"，今晚新增 `allwallpaper/0923/` 后实测 62 层
+   *   ⇒ 门禁红在"语料长了"而不是"实现坏了"。新判据：
+   *     · **规模只增不减**（各计数 ≥ 基线；掉下来 = 包没了/扫漏了 ⇒ 红）+ 分类和 = 总数；
+   *     · **逐条/逐档语义**（与规模无关）：同一条 `hit()` 判据在 legacy 档必须命中 ≥ 基线条数、
+   *       在 official 档必须**恰好 0** 条（`⑤-c`，这条是产品判据本身，不许放宽）。
+   *   基线下方的合成夹具（`⑤-e`）证明 `hit()` 判据有分辨力 —— 不依赖本机语料。 */
+  const TURB_CORPUS_BASELINE = {
+    note: '2026-09-23 全语料自导出；只增不减。旧写死值：total=28 / rope=13 / sprite=14 / spritetrail=1（ropetrail=0）',
+    total: 62, rope: 15, ropetrail: 0, sprite: 28, spritetrail: 19, legacyHits: 13,
+  }
+  const found = { total: 0, rope: 0, ropetrail: 0, sprite: 0, spritetrail: 0, other: 0 }
   const hitsLegacy = [], hitsOfficial = []
   let scanned = 0, skippedNoDef = 0
   for (const file of files) {
@@ -436,18 +447,34 @@ console.log('\n[4] ⑤ 同族扫描：语料里吃到非零 `turbulentvelocityra
       const kind = lib.particleTrailCfg(def).name
       found.total++
       if (found[kind] !== undefined) found[kind]++
+      else found.other++
       if (kind !== 'rope' && kind !== 'ropetrail') continue
       if (hit(sim(lib, def, o, true))) hitsLegacy.push(`${path.basename(path.dirname(file))}/${li}`)
       if (hit(sim(lib, def, o, false))) hitsOfficial.push(`${path.basename(path.dirname(file))}/${li}`)
     }
   }
-  push('⑤-a 吃到**非零** `turbulentvelocityrandom` 的粒子层共 28 层（rope 13 / sprite 14 / spritetrail 1）',
-    found.total === 28 && found.rope === 13 && found.ropetrail === 0 && found.sprite === 14 && found.spritetrail === 1,
-    JSON.stringify(found) + `（扫到 scene.json 的容器 ${scanned}/${files.length}，def 解析失败 ${skippedNoDef}）`)
-  push('⑤-b 报告 §5 的"发散长线"判据在 **legacy 档（= 改前口径）** 下命中 **13** 层：判据可复算、不是拍的',
-    hitsLegacy.length === 13, `命中 ${hitsLegacy.length}：${hitsLegacy.slice(0, 6).join(' ')} …`)
-  push('⑤-c 同一个判据在 **official 档** 下命中 **0** 层（13 → 0，用户的"发散线条"整族消失）',
+  const B = TURB_CORPUS_BASELINE
+  const kindsAll = ['rope', 'ropetrail', 'sprite', 'spritetrail', 'other']
+  const sumKinds = kindsAll.reduce((s, k) => s + found[k], 0)
+  if (process.env.P140_SCAN_UPDATE) console.log('  [scan-baseline] ' + JSON.stringify({ ...found, legacyHits: hitsLegacy.length, officialHits: hitsOfficial.length }))
+  push('⑤-a 吃到**非零** `turbulentvelocityrandom` 的粒子层 ≥ 基线（' + JSON.stringify(B) + '；分类和 = 总数）',
+    found.total >= B.total && kindsAll.every((k) => found[k] >= (B[k] || 0)) && found.total === sumKinds && scanned >= 20,
+    JSON.stringify(found) + `（基线 total=${B.total} rope=${B.rope} sprite=${B.sprite} spritetrail=${B.spritetrail}；扫到 scene.json 的容器 ${scanned}/${files.length}，def 解析失败 ${skippedNoDef}）`)
+  push('⑤-b 报告 §5 的"发散长线"判据在 **legacy 档（= 改前口径）** 下命中 ≥ 基线 ' + B.legacyHits + ' 层：判据可复算、不是拍的',
+    hitsLegacy.length >= B.legacyHits && hitsLegacy.length > 0, `命中 ${hitsLegacy.length}（基线 ${B.legacyHits}）：${hitsLegacy.slice(0, 6).join(' ')} …`)
+  push('⑤-c 同一个判据在 **official 档** 下命中 **0** 层（用户的"发散线条"整族消失；这一条不放宽）',
     hitsOfficial.length === 0, hitsOfficial.length ? `仍命中：${hitsOfficial.join(' ')}` : '0 层')
+  /* ⑤-e 合成夹具（不随用户语料变化）：`hit()` 判据本身有分辨力 —— 合规行过、两个方向各造一个坏行必红。
+   *     这条与语料无关，永远跑；证明 ⑤-a/⑤-b 用的不是"永远真"的空判据。 */
+  {
+    const okRow = { s3: { segMed: 50, szMed: 5 }, s8: { segMed: 60, szMed: 5 } }     // 段长 50≥40、比值 10≥4
+    const shortRow = { s3: { segMed: 20, szMed: 5 }, s8: { segMed: 60, szMed: 5 } }  // 段长不够
+    const fatRow = { s3: { segMed: 50, szMed: 20 }, s8: { segMed: 60, szMed: 5 } }   // 比值 2.5 < 4（团状，不是长线）
+    const nullRow = { s3: null, s8: { segMed: 60, szMed: 5 } }
+    push('⑤-e 合成夹具：`hit()`（段长 ≥40 且 段长/尺寸 ≥4，两帧都成立）有分辨力（合规=过 / 三个坏行=红）',
+      hit(okRow) && !hit(shortRow) && !hit(fatRow) && !hit(nullRow),
+      'ok=' + hit(okRow) + ' short=' + hit(shortRow) + ' fat=' + hit(fatRow) + ' null=' + hit(nullRow))
+  }
 }
 
 // ───────────────────────── 汇总 ─────────────────────────

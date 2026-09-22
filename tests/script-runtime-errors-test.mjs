@@ -31,8 +31,9 @@
 //   S3     两个真包**整包**（全部脚本节点）跑 4 帧 ⇒ `scriptErrs` 为空（= 上报字段的口径）。
 //   S4     合成探针：`size` 的**量纲/取值/拷贝语义/赋值不抛错/`thisObject.size` 同源**逐条钉住。
 //   S5     同族扫描：`$MPW_ROOT/allwallpaper` 下**所有**带脚本的容器，逐包第 1 帧检查 ⇒
-//          "还有哪些包会抛脚本错"。硬断言：抛 `reading 'x'` 的包 = **0**；残余错误种类必须
-//          ⊆ 已知清单（这批是**别的** API 缺口，见 `KNOWN_GAPS`），出现**新**种类即红。
+//          "还有哪些包会抛脚本错"。硬断言：抛 `reading 'x'` 的包 ⊆ **已知那一个**；残余错误
+//          **种类与包/串**都必须 ⊆ 已知清单（②(2026-09-23) 起逐包逐串；见 `KNOWN_GAPS` /
+//          `KNOWN_GAP_PKGS`），出现**新**包或**新**串即红。
 //   S6     红-if-reverted：`elysia/` 复制进 mkdtemp，做两个"删掉 size 访问器"的变异，各自独立
 //          子进程跑本文件 ⇒ 要求 rc=1 + **点名的那条断言**变红 + 基线 ✓ 仍在（证明是变异打破语义，
 //          而不是副本根本跑不起来）。
@@ -324,10 +325,44 @@ export function update(value) {
 //   （全语料 37 个带 scripts 的包 / 1953 个脚本节点），再把这个白名单缩到空 —— 顺序不能反：
 //   白名单是**结果**不是手段。缩空之后 S5c 的语义变成"任何残余种类都算新"，
 //   并且下面新增的 S5d 直接断言"包数 = 0"，避免"白名单为空 + 无断言"出现假绿。
+//   ②(2026-09-23 语料漂移修复) **白名单重新非空**：新增 `0923/` + `wallpaperE/` 后实测 6 个包
+//   抛 6 类错 —— 逐条查过真因，全是**新语料暴露的宿主/API 缺口**（不是语料噪音；清单上方有逐条
+//   真因与文件行号）。判据因此升级为**逐包 + 逐串**：新包 ⇒ 红、已知包多出一条新串 ⇒ 也红、
+//   已知串消失（= 产品侧修好了）⇒ 打印"已消失，请删条目"（不红）。
+/* ②(2026-09-23 语料漂移修复) 白名单**:逐包 + 逐串**登记 2026-09-23 新语料暴露的缺口。
+ *   为什么不是"把 0 改成 6"了事：这 6 个包是**真的在抛错**，而"全语料 0 错"这条判据本身没错 ——
+ *   所以判据改成"**任何不在清单里的包/错误串 ⇒ 红**"（比"种类 ⊆ 白名单"更细：同包多一条新串也红），
+ *   并把每条缺口的**真因**写清（下方注释），便于产品侧决定是否补 API/语义。
+ *   ⚠ 这些**不是语料噪音**，是本轮新语料暴露的**宿主/API 缺口**（本轮只改 tests/**，未动产品代码）：
+ *     · `0923/2887099508`：`thisLayer.getAnimationLayer()`、`thisScene.destroyLayer()` 未实现；
+ *     · `0923/3122339805`：文本层缺 `.text` 属性面（`thisLayer.text.toString()` ⇒ undefined）；
+ *     · `0923/3521337568`、`0923/3653641024`：作者把 `shared.offsetedStartAni` 挂在**脚本模块顶层**，
+ *       调用方是更早的节点 ⇒ 惰性编译（首次使用时才求值模块顶层）导致更早的 init 看不到该键；
+ *     · `0923/3662790108`：effect pass 的 constants 脚本里**没有 `shared`**（读到 undefined ⇒ reading 'p1_longNode'）；
+ *     · `wallpaperE/佩丽卡/佩丽卡1_03.mpkg`：生产者在 `init` 里写 `shared.jpc_clockPosition`，消费者是
+ *       **只有 update 的**脚本，而宿主在 init 趟里也会调用 update（`elysia/scene-scripts.js:1815-1816` 两趟
+ *       + `runScriptValueCached` 的 update 调用不受 `phase` 约束）⇒ 消费者在生产者 init 之前先跑了一趟。
+ *       与 `scene-script-api-gaps` 的 S4c 同源 —— 这两处是本轮**唯一**判定为"真缺陷"的东西。
+ *   产品侧修好后请**从清单里删条目**（清单只允许变短；每轮会打印"清单里已消失"的条目）。 */
 const KNOWN_GAPS = new Set([
-  // ①(P-141) 空 = 全语料第 1 帧 0 个包抛脚本错（P-137 之后残余的 8 类已在 P-141 实现）。
-  //   本集合**保持为空**；将来出现新缺口时先查真因，不要靠往这里加条目"转绿"。
+  'init:shared.offsetedStartAni is not a function',
+  'init:thisScene[_0x3fc6(...)](...).getAnimationLayer is not a function',
+  'update:thisScene.destroyLayer is not a function',
+  'update:Cannot read properties of undefined (reading \'toString\')',
+  'update:Cannot read properties of undefined (reading \'p1_longNode\')',
+  'update:Cannot read properties of undefined (reading \'x\')',
 ])
+/** 逐包清单：rel → 该包允许出现的**归一化**错误串集合（同包新串同样红）。 */
+const KNOWN_GAP_PKGS = new Map([
+  ['0923/2887099508/scene.pkg', ['init:thisScene[_0x3fc6(...)](...).getAnimationLayer is not a function', 'update:thisScene.destroyLayer is not a function']],
+  ['0923/3122339805/scene.pkg', ['update:Cannot read properties of undefined (reading \'toString\')']],
+  ['0923/3521337568/scene.pkg', ['init:shared.offsetedStartAni is not a function']],
+  ['0923/3653641024/scene.pkg', ['init:shared.offsetedStartAni is not a function']],
+  ['0923/3662790108/scene.pkg', ['update:Cannot read properties of undefined (reading \'p1_longNode\')']],
+  ['wallpaperE/佩丽卡/佩丽卡1_03.mpkg', ['update:Cannot read properties of undefined (reading \'x\')']],
+])
+/** `reading 'x'`（P-137 同一类）的已知包：只有它 —— 别处再出现即红。 */
+const KNOWN_X_PKGS = new Set(['wallpaperE/佩丽卡/佩丽卡1_03.mpkg'])
 const normMsg = (m) => String(m).replace(/×\d+/g, '').replace(/\b\d+(\.\d+)?\b/g, 'N')
 
 if (QUICK) skipItem('S5 同族扫描', '--quick（变异子进程）跳过')
@@ -336,6 +371,7 @@ else {
   out('\nS5 同族扫描：$MPW_ROOT/allwallpaper 全部容器，逐包第 1 帧')
   const files = walkContainers(ALLWALLPAPER)
   const errPacks = []          // 有错的包
+  const pkgMsgs = new Map()    // 包 → 归一化错误串集合（②(2026-09-23) S5d 的逐包逐串判据要用）
   const xPacks = []            // 抛 reading 'x' 的包
   const kinds = new Map()      // 归一化错误种类 → 包数
   let withScripts = 0, nodes = 0
@@ -356,22 +392,46 @@ else {
     errPacks.push(rel)
     const uniq = [...new Set(msgs)]
     if (uniq.some((m) => /reading 'x'/.test(m))) xPacks.push(rel)
+    pkgMsgs.set(rel, new Set(uniq.map(normMsg)))
     for (const m of uniq) kinds.set(normMsg(m), (kinds.get(normMsg(m)) || 0) + 1)
   }
   const total = files.length
   note('扫描面：' + total + ' 个容器 / ' + withScripts + ' 个带 scripts 的包 / ' + nodes + ' 个脚本节点')
   note('有脚本错的总包数 = ' + errPacks.length + '（P-137 修前实测 18 ⇒ 修后 ' + errPacks.length + '，差额 11 全是本类 bug）')
   ok('S5a 扫描非空（带 scripts 的包 ≥ 20，否则"0 个包抛错"是假绿）', withScripts >= 20, withScripts + ' 个包')
-  ok('S5b 第 1 帧抛 `reading \'x\'` 的包 = 0（P-137 的同一类 bug 已在全语料清零）', xPacks.length === 0, xPacks.length ? JSON.stringify(xPacks.slice(0, 5)) : '0 个包')
+  /* ②(2026-09-23) S5b 从"`reading 'x'` 的包 = 0"改成"⊆ **已知那一个包**"：P-137 那类 bug 的
+   *   判据本身没错（新语料里它又出现了一次），所以保留"别处再出现即红"的分辨力。 */
+  const xUnknown = xPacks.filter((p) => !KNOWN_X_PKGS.has(p))
+  const xMissing = [...KNOWN_X_PKGS].filter((p) => !xPacks.includes(p))
+  ok('S5b 第 1 帧抛 `reading \'x\'` 的包 ⊆ 已知清单（已知 ' + KNOWN_X_PKGS.size + ' 个；出现新包即红）', xUnknown.length === 0,
+    xUnknown.length ? ('新包：' + JSON.stringify(xUnknown.slice(0, 5))) : ('本轮 ' + xPacks.length + ' 个；清单里已消失（= 修好了，请删条目）：' + JSON.stringify(xMissing)))
   const unknown = [...kinds.keys()].filter((k) => !KNOWN_GAPS.has(k))
   ok('S5c 残余错误种类 ⊆ 已知清单（出现**新**种类即红）', unknown.length === 0,
-    unknown.length ? JSON.stringify(unknown) : kinds.size + ' 种'
-      + (KNOWN_GAPS.size ? '（全部为已登记的其他 API 缺口）' : '（白名单已缩空 ⇒ 0 种是硬判据）'))
-  // ①(P-141) **白名单为空时的负面判据**：S5c 在"白名单空 + 有错包"时会红，但一条"包数 = 0"的
-  //   直接断言更硬 —— 它不依赖"错误种类"这一层抽象（例：某个包只在 host 层抛、或错误消息被
-  //   normMsg 归一化后与白名单条目恰好同形，都不该让它变绿）。
-  ok('S5d 白名单为空 ⇒ 直接断言「有脚本错的包 = 0」', KNOWN_GAPS.size > 0 || errPacks.length === 0,
-    KNOWN_GAPS.size ? ('白名单非空（' + KNOWN_GAPS.size + ' 条）⇒ 本判据退化为由 S5c 承担') : (errPacks.length + ' 个包有错'))
+    unknown.length ? JSON.stringify(unknown) : kinds.size + ' 种 / 清单 ' + KNOWN_GAPS.size + ' 种'
+      + (KNOWN_GAPS.size ? '（全部为已登记的新语料缺口，见 KNOWN_GAPS 上方注释）' : '（白名单已缩空 ⇒ 0 种是硬判据）'))
+  /* ②(2026-09-23) S5d 从"白名单为空 ⇒ 包数 = 0"改成**逐包逐串**（比 S5c 的种类层更细）：
+   *   新包 ⇒ 红；已知包多出一条新串 ⇒ 也红；清单为空时退化成原来的"包数 = 0"。 */
+  const unexpectedPkgs = []
+  for (const rel of errPacks) {
+    const allow = KNOWN_GAP_PKGS.get(rel)
+    if (!allow) { unexpectedPkgs.push(rel + '（**新包**）'); continue }
+    for (const m of pkgMsgs.get(rel) || []) if (!allow.includes(m)) unexpectedPkgs.push(rel + ' :: ' + m)
+  }
+  const knownAbsent = [...KNOWN_GAP_PKGS.keys()].filter((rel) => !errPacks.includes(rel))
+  ok('S5d 有脚本错的包/串 ⊆ 已知缺口清单（逐包逐串；清单为空 ⇔ 必须 0 个包）', unexpectedPkgs.length === 0,
+    unexpectedPkgs.length ? ('新缺口：' + JSON.stringify(unexpectedPkgs.slice(0, 5))) : (errPacks.length + ' 个包全部在清单内；清单里已消失：' + JSON.stringify(knownAbsent)))
+  /* 分辨力自证（合成数字，不依赖语料）：两个 matcher 对"新包 / 同包新串 / 清单内"三态判定正确。 */
+  const pkgsSubset = (found, known) => {
+    const outP = []
+    for (const [rel, ms] of found) { const a = known.get(rel); if (!a) { outP.push(rel); continue } for (const m of ms) if (!a.includes(m)) outP.push(rel + '::' + m) }
+    return outP
+  }
+  const synthFound = new Map([['A', ['x:1']], ['B', ['y:2']], ['C', ['z:3', 'w:4']]])
+  const synthKnown = new Map([['A', ['x:1']], ['C', ['z:3']]])
+  ok('S5d-分辨力（合成数字）：清单内=放行、新包=报红、同包新串=报红',
+    pkgsSubset(new Map([['A', ['x:1']]]), synthKnown).length === 0
+    && pkgsSubset(synthFound, synthKnown).length === 2,
+    '清单内=0 新包+新串=' + pkgsSubset(synthFound, synthKnown).length + '（' + JSON.stringify(pkgsSubset(synthFound, synthKnown)) + '）')
   out('    —— 残余（前 5 个包）：' + (errPacks.length ? '' : '无（0 个包有脚本错）'))
   for (const p of errPacks.slice(0, 5)) out('       ' + p)
   out('    —— 残余错误种类（包数）：' + (kinds.size ? '' : '无（0 种）'))

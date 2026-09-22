@@ -49,6 +49,11 @@ const RECORDS = [
 ]
 const AUDIO_RE = /audio|音频|频谱|spectrum|visualizer/i
 const CHROME_RE = /\.mp3$|Song Title|Artist Name|Album Title|Play Icon|Pause Icon|MUSIC PLAYER|Launcher/i
+/* ②(2026-09-23) `framesDrawn` 的**上一次夹具读数**（`clearBgFx` 收窄之前的实测值）：
+ *   只用于 D4 的**分辨力自证** —— 把这些值改回夹具里，比较器必须报红。
+ *   现夹具值见 `tests/fixtures/scene-layer-baseline.json`（3544152633=[102,51,51]、3719111841=[126,63,63]）。
+ *   若两者相等 ⇒ 自证是空的，D4 会连带失败（不会静默变成"永远绿"）。 */
+const PRE_CLEARFX_FRAMES_DRAWN = { 3544152633: [68, 34, 34], 3719111841: [114, 57, 57] }
 
 /** 跑一次 `render-audit.mjs`，取机读报告。 */
 function audit(rec) {
@@ -74,6 +79,12 @@ function facts(rep) {
     skinTotal: rep.skin.total,
     texturedVisible: textured.slice(0, 8),
     texturedVisibleCount: textured.length,
+    // ②(2026-09-23) **渲染敏感（不是语料敏感）**：`framesDrawn` = 每帧 mock-GL 的真实 draw 调用数。
+    //   夹具在 `clearBgFx` 收窄（WEBWALLGL #4：超大背景层不再无条件丢效果链）落地后重取 ⇒
+    //   `3544152633` [68,34,34]→[102,51,51]、`3719111841` [114,57,57]→[126,63,63]（同包同字节、
+    //   `scene.pkg` mtime 未变 ⇒ 变化**只能**来自渲染器；实测 narrow 档比 legacy 档多保留 5 层效果链：
+    //   `__clearFx={dropped:0,kept:32,saved:5}` vs legacy `{dropped:5,kept:27}`）。
+    //   逐包逐层事实（total/visible/蒙皮/纹理/音频美术）都没变 —— 变的只有这一条"真的画了几笔"。
     framesDrawn: rep.frames.map((f) => f.totalDraws),
     audioArt: audio,
     chromeVisible: chrome.filter((c) => c.vis === 1).map((c) => c.name),
@@ -161,6 +172,20 @@ console.log('\n== D 分辨力自证（豁免真的在起作用 / 夹具不是摆
     } else skip('D3 夹具分辨力', '本轮没有取到任何夹具读数')
   }
   void now
+}
+
+console.log('\n== D4 分辨力自证（framesDrawn 逐字段变异）==')
+/* ②(2026-09-23) D3 只证明"visible 变了会报红"。本项补一条**升级过的**自证：把 `framesDrawn` 改回
+ *   `clearBgFx` 收窄之前的**旧夹具值** ⇒ 比较器必须报红且**只**报 framesDrawn。这样"逐层事实变了就红"
+ *   这句话对**真的会变的那一格**也成立（否则夹具升级成新值之后，没人能证明它还在比）。 */
+for (const [id, oldVals] of Object.entries(PRE_CLEARFX_FRAMES_DRAWN)) {
+  const cur = current[id]
+  if (!cur) { skip('D4 ' + id, '本轮没有取到该包读数（语料缺失）'); continue }
+  const mutated = Object.assign({}, cur, { framesDrawn: oldVals })
+  const diffKeys = Object.keys(cur).filter((k) => JSON.stringify(cur[k]) !== JSON.stringify(mutated[k]))
+  check('D4 ' + id + ' framesDrawn 改回旧值 ' + JSON.stringify(oldVals) + ' ⇒ 比较器报红（该字段真的在比）',
+    JSON.stringify(oldVals) !== JSON.stringify(cur.framesDrawn) && diffKeys.length === 1 && diffKeys[0] === 'framesDrawn',
+    '报红字段=' + JSON.stringify(diffKeys) + ' 夹具现值=' + JSON.stringify(cur.framesDrawn))
 }
 
 console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败' + (skipped ? ', ' + skipped + ' SKIP' : ''))

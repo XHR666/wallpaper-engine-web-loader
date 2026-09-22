@@ -429,7 +429,21 @@ console.log('\n[G3] 异常兜底：配额 / 隐私模式 / 不透明源 ⇒ 绝�
 // ───────────────────────── G4 语料口径 ─────────────────────────
 // （变异子进程跳过本组：它只负责回答"哪一组变红"，而全部变异期望组都在 G0–G3；
 //   跳过还能把子进程的内存/耗时压到最低 —— 父进程已跑过这一组。）
-console.log('\n[G4] 语料口径（8 包 / 66 次 / 只用 get-set-remove / LOCATION_*+resizeScreen = 0）')
+/* ②(2026-09-23 语料漂移修复) G4 的**语料自导出基线**：旧写法把数字钉死成"命中包 = 8 / 调用 66 次 /
+ *   `resizeScreen` = 0"，今晚新增 `allwallpaper/0923/`（37 个包）后实测 10 包 / 92 次 ⇒ 门禁红在
+ *   "语料长了"而不是"实现坏了"。新判据：
+ *     · **规模只增不减**：命中包数/调用次数必须 ≥ 下面这份自导出基线（掉下来 = 包没了/扫漏了 ⇒ 红）；
+ *     · **逐包语义**（与规模无关）：每个命中包的调用面只有 get/set/remove、每次出现都在 scene.json 里、
+ *       `resizeScreen` 的每一次出现都必须有**作者自己的同名定义**（`hostResizeSurface() === 0`）——
+ *       即"语料没有在调宿主 API"，这才是原判据（`resizeScreen` 命中共 0）真正想守的东西。
+ *   与语料无关的**精确**判据仍在别处：G0–G3 全是合成夹具（假 DOM + 注入 storage 桩）的逐值断言，
+ *   G2r 钉真包作者脚本的两档读数差 —— 判据本身的分辨力不依赖本机语料。
+ *   基线取法：`P153_CORPUS_UPDATE=1` 时本组会打印可粘贴的一行（见下）。 */
+const CORPUS_BASELINE = {
+  note: '2026-09-23 全语料（含 0923/）自导出；只增不减。旧写死值：pkgs=8 / occ=66 / resizeScreen 出现=0',
+  pkgs: 10, occ: 92,
+}
+console.log('\n[G4] 语料口径（自导出基线 ' + JSON.stringify(CORPUS_BASELINE) + ' / 只用 get-set-remove / LOCATION_* 宿主面 = 0）')
 if (MUTANT_MODE) {
   console.log('  ⤵ SKIP [G4]（变异子进程：本组与任何变异期望组无关）')
 } else {
@@ -439,11 +453,22 @@ if (MUTANT_MODE) {
   } else {
     console.log('    命中包：')
     for (const r of corpus.rows) console.log(`      ${r.id.padEnd(14)} -> ${JSON.stringify(r.calls)}  键样: ${r.keys.slice(0, 4).join(', ') || '—'}`)
-    eq('G4', corpus.rows.length, 8, '命中包 = 8（含跨语料根重复的 夜莺/流萤 ×3）')
-    eq('G4', corpus.rows.reduce((s, r) => s + r.occ, 0), 66, '`localStorage` 出现次数 = 66')
-    eq('G4', corpus.allJsonOcc, corpus.rows.reduce((s, r) => s + r.occ, 0), '66 次**全部**在 scene.json 里（全部 JSON entry 同数）')
+    /* `resizeScreen` 的"宿主 API 面" = 调用数 − 同包内作者自己的定义数（作者自己定义了就不需要宿主提供）。
+     * 纯函数 ⇒ 判据本身可以拿合成数字证明有分辨力（下面 G4 的第二条）。 */
+    const hostResizeSurface = (calls, defs) => Math.max(0, calls - defs)
+    // ②(2026-09-23) 用**全部带 scene.json 的容器**的台账（`rsPerFile`），不是 `rows`（见扫描器里的注释）
+    const rsEntries = [...(corpus.rsPerFile || new Map())].map(([file, v]) => ({ file, calls: v.calls, defs: v.defs }))
+    const rsCalls = rsEntries.reduce((s, r) => s + r.calls, 0)
+    const rsDefs = rsEntries.reduce((s, r) => s + r.defs, 0)
+    const rsSurface = rsEntries.reduce((s, r) => s + hostResizeSurface(r.calls, r.defs), 0)
+    if (process.env.P153_CORPUS_UPDATE) console.log('  [corpus-baseline] ' + JSON.stringify({ pkgs: corpus.rows.length, occ: corpus.rows.reduce((s, r) => s + r.occ, 0), rsCalls, rsDefs }))
+    check('G4', corpus.rows.length >= CORPUS_BASELINE.pkgs && corpus.rows.every((r) => r.occ > 0 && /\.(mpkg|pkg)$/.test(r.file)),
+      '命中包数 ≥ 基线 ' + CORPUS_BASELINE.pkgs + '（每个命中包都真的带 scene.json 且真出现 localStorage）', `实测 ${corpus.rows.length} 包（基线 ${CORPUS_BASELINE.pkgs}）`)
+    check('G4', corpus.rows.reduce((s, r) => s + r.occ, 0) >= CORPUS_BASELINE.occ,
+      '`localStorage` 出现次数 ≥ 基线 ' + CORPUS_BASELINE.occ, `实测 ${corpus.rows.reduce((s, r) => s + r.occ, 0)} vs 基线 ${CORPUS_BASELINE.occ}`)
+    eq('G4', corpus.allJsonOcc, corpus.rows.reduce((s, r) => s + r.occ, 0), '每一次出现**全部**在 scene.json 里（全部 JSON entry 同数）')
     const methods = new Set(corpus.rows.flatMap((r) => Object.keys(r.calls)))
-    eq('G4', [...methods].sort().join(','), 'get,remove,set', '调用面只有 get/set/remove（方案 §5.3）')
+    eq('G4', [...methods].sort().join(','), 'get,remove,set', '调用面只有 get/set/remove（方案 §5.3；逐包，与语料规模无关）')
     const by = (tail) => corpus.rows.find((r) => r.file.endsWith(tail))
     const canon = (calls) => JSON.stringify(Object.fromEntries(Object.entries(calls || {}).sort()))
     eq('G4', canon(by('/dd/3326873240/scene.pkg') && by('/dd/3326873240/scene.pkg').calls), '{"get":5,"set":5}',
@@ -454,7 +479,15 @@ if (MUTANT_MODE) {
       '`dd/3660962877 -> {get:1,set:1}`')
     eq('G4', corpus.tok.LOCATION_SCREEN.occ, 0, '`LOCATION_SCREEN` 命中共 0')
     eq('G4', corpus.tok.LOCATION_GLOBAL.occ, 0, '`LOCATION_GLOBAL` 命中共 0')
-    eq('G4', corpus.tok.resizeScreen.occ, 0, '`resizeScreen` 命中共 0')
+    /* ②(2026-09-23) `resizeScreen`：不再是"出现 0 次"，而是"**宿主 API 面 = 0**" —— 语料里每一次出现
+     *   都有同包内作者自己的定义（实测 `0923/3589454154` 的 `export function resizeScreen(size) {}`）。
+     *   哪天有包**只调不定义** ⇒ rsSurface > 0 ⇒ 红（那才是"沙箱要补这个全局"的信号）。 */
+    check('G4', rsSurface === 0 && rsCalls >= rsDefs,
+      '`resizeScreen` 的**宿主 API 面 = 0**（每次出现都有同包内作者定义；只调不定义 ⇒ 红）',
+      `出现 ${rsCalls} / 作者定义 ${rsDefs} / 宿主面 ${rsSurface}（语料面：${JSON.stringify(rsEntries.filter((r) => r.calls).map((r) => path.relative(MPW_WS, r.file)))}）`)
+    check('G4', hostResizeSurface(0, 0) === 0 && hostResizeSurface(1, 1) === 0 && hostResizeSurface(0, 1) === 0 && hostResizeSurface(1, 0) === 1,
+      '`hostResizeSurface()` 本身有分辨力（合成数字：自己定义⇒不算宿主面；只调不定义⇒宿主面 1）',
+      JSON.stringify([[0, 0], [1, 1], [0, 1], [1, 0]].map((p) => hostResizeSurface(p[0], p[1]))))
     check('G4', corpus.tok.LOCATION_SCREEN.files.size === 0 && corpus.tok.LOCATION_GLOBAL.files.size === 0,
       '两级位置在语料里**一个包都没用到**（缺省 LOCATION_SCREEN 无回归面）')
   }
@@ -599,6 +632,11 @@ function scanCorpus() {
   const tok = {}; for (const t of TOK) tok[t] = { occ: 0, files: new Set() }
   const rows = []
   let allJsonOcc = 0
+  /* ②(2026-09-23) `resizeScreen` 的逐容器台账必须**独立于下面的 `localStorage` 过滤**：
+   *   旧写法把它挂在 `rows` 上，而 `rows` 只收"scene.json 里出现 localStorage"的容器 ⇒
+   *   `0923/3589454154`（只有作者自写的 `export function resizeScreen(){}`、没有 localStorage）
+   *   会整个漏掉，判据变成空转（实测：挂 rows 时读到 0 次，独立台账读到 1 次）。 */
+  const rsPerFile = new Map()   // 容器 → { calls, defs }（全部带 scene.json 的容器都记）
   for (const f of files) {
     let fd = -1
     try {
@@ -625,12 +663,21 @@ function scanCorpus() {
       if (!sceneEnt) continue                        // 视频容器/壳：与 §5.3 口径一致
       let sceneText = null
       let pkgOcc = 0
+      let rsCalls = 0, rsDefs = 0                    // ②(2026-09-23) `resizeScreen`：本容器内的调用/作者定义数
       for (const e of ents) {
         if (!/\.json$/i.test(e.name) || e.size <= 0 || e.size > (8 << 20)) continue
         const b = Buffer.alloc(e.size)
         fs.readSync(fd, b, 0, e.size, dataStart + e.off)
         const t = b.toString('utf8')
         for (const k of TOK) { const c = countOcc(t, k); if (c) { tok[k].occ += c; tok[k].files.add(f) } }
+        if (t.includes('resizeScreen')) {
+          rsCalls += (t.match(/resizeScreen\s*\(/g) || []).length
+          rsDefs += (t.match(/(?:function|const|let|var)\s+resizeScreen\b/g) || []).length
+          const acc = rsPerFile.get(f) || { calls: 0, defs: 0 }
+          acc.calls += (t.match(/resizeScreen\s*\(/g) || []).length
+          acc.defs += (t.match(/(?:function|const|let|var)\s+resizeScreen\b/g) || []).length
+          rsPerFile.set(f, acc)
+        }
         const o = countOcc(t, 'localStorage')
         pkgOcc += o
         allJsonOcc += o
@@ -644,9 +691,9 @@ function scanCorpus() {
       for (const m of sceneText.matchAll(/localStorage\.(?:get|set|remove|has|getItem|setItem|removeItem|delete)\(\s*([^,)]{1,40})/g)) {
         const k = m[1].trim(); if (!keys.includes(k)) keys.push(k)
       }
-      rows.push({ file: f, id: path.basename(path.dirname(f)), occ: sceneOcc, pkgOcc, calls, keys })
+      rows.push({ file: f, id: path.basename(path.dirname(f)), occ: sceneOcc, pkgOcc, calls, keys, rsCalls, rsDefs })
     } catch { /* 单包损坏：跳过（不静默改数字：下面的计数断言会兜住） */ } finally { if (fd >= 0) try { fs.closeSync(fd) } catch { /* ignore */ } }
   }
   rows.sort((a, b) => a.id.localeCompare(b.id))
-  return { files: files.length, rows, tok, allJsonOcc }
+  return { files: files.length, rows, tok, allJsonOcc, rsPerFile }
 }

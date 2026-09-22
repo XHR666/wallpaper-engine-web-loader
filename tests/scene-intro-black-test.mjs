@@ -88,9 +88,22 @@ const tex = lib.parseTex(texEntry.bytes)
     jpath(sceneJson, 'general.orthogonalprojection.width') === 7680 && jpath(sceneJson, 'general.orthogonalprojection.height') === 4320 &&
     layer0.size === '7680.00000 4320.00000' && layer0.origin === '3840.00000 2160.00000 0.00000',
     `ortho=${jpath(sceneJson, 'general.orthogonalprojection.width')}x${jpath(sceneJson, 'general.orthogonalprojection.height')} origin=${layer0.origin} size=${layer0.size}（JSON 路径 objects[0].origin/.size）`)
-  P('A6 效果链在本包**默认不参与**：3 个效果挂在整屏层上，被 applyRenderConfig(clearBgFx) 丢弃（不是黑屏来源）',
+  P('A6 效果链在本包**默认不再被丢**：3 个效果挂在整屏层上，旧 `clearBgFx` 判据会砍（`?clearfx=legacy` 复现），新缺省档保留 —— 与"全屏黑"无因果',
     (layer0.effects || []).length === 3 && ((layer0.effects || []).map((e) => e.file).join(',') === 'effects/shake/effect.json,effects/foliagesway/effect.json,effects/lightshafts/effect.json'),
     'effects=' + V((layer0.effects || []).map((e) => e.file)))
+  // ①(WEBWALLGL #4 2026-09-23) 判据收窄的**真语料**断言（本包 = 7680×4320 设计画布 + 7680×4320 整屏层，
+  //   正是"绝对阈值 3800/2000 全命中"的 28 个包那一类）：直接调纯函数判据，不建渲染器、零 GPU。
+  {
+    const design = lib.designCanvasOf({ general: sceneJson.general })
+    const probe = { size: [7680, 4320], effects: [{ file: 'effects/shake/effect.json' }] }
+    P('A6b clearBgFx 判据（真语料）：本包整屏层在**缺省档保留**效果链、`?clearfx=legacy` 下被砍',
+      lib.clearBgFxShouldDrop(probe, design, 'narrow') === false && lib.clearBgFxShouldDrop(probe, design, 'legacy') === true,
+      V({ design, narrow: lib.clearBgFxShouldDrop(probe, design, 'narrow'), legacy: lib.clearBgFxShouldDrop(probe, design, 'legacy') }))
+    const blur = { size: [4096, 2296], effects: [{ file: 'effects/blur/effect.json' }] }
+    P('A6c clearBgFx 判据（输出型保护）：1920×1080 画布上 4096×2296 的 blur 层两档都保留（旧档砍 = issue #4 的成因）',
+      lib.clearBgFxShouldDrop(blur, [1920, 1080], 'narrow') === false && lib.clearBgFxShouldDrop(blur, [1920, 1080], 'legacy') === true,
+      V({ narrow: lib.clearBgFxShouldDrop(blur, [1920, 1080], 'narrow'), legacy: lib.clearBgFxShouldDrop(blur, [1920, 1080], 'legacy') }))
+  }
   P('A7 sound 对象没有 image ⇒ 层走"solid 占位"透明兜底（不可能是黑幕）',
     snds[0].solid === true && snds[0].image === undefined, 'solid=' + snds[0].solid + ' image=' + V(snds[0].image))
 }

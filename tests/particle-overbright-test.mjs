@@ -503,7 +503,7 @@ async function runLegacy() {
   const on = await measureLayer(id, name, { q: '', t: 20.0 })
   const off = await measureLayer(id, name, { q: '?overbright=legacy', t: 20.0 })
   if (on.err || !on.bs.length) { push('⑤ 真包可测（画出粒子）', false, JSON.stringify(on.err || 'no draw')); return }
-  push('⑤-a 层 4569「萤火虫」材质 `overbright: 1`（语料 13/38 材质、29/54 层走这一档）',
+  push('⑤-a 层 4569「萤火虫」材质 `overbright: 1`（这一档的语料规模见 ⑥ 的自导出基线）',
     on.factor === 1 && off.factor === 1, `factor=${on.factor} 材质=${on.L.particleDef.material}`)
   push('⑤-b ★★ 值 = 1 的层：默认档与 `?overbright=legacy` 的**整条**（几何 + 实例色）sha256 相同 —— 逐位不变',
     on.fullSha === off.fullSha && on.colSha === off.colSha && on.geoSha === off.geoSha,
@@ -525,7 +525,7 @@ async function runLegacy() {
 
 // ═══════════════ [6] ⑥ 语料扫描（流式；§1.3 的计数可复现） ═══════════════
 function runCorpus() {
-  group('[6] ⑥ 语料扫描计数（38 材质 / 15 包 / 54 层 / 25 非 1 层）')
+  group('[6] ⑥ 语料扫描计数（**自导出基线，只增不减**：规模 + 与规模无关的语义不变量）')
   const roots = [`${MPW_WS}/allwallpaper`, `${process.env.HOME || '/root'}/.dsh-mpkg-wallpaper`]
   const pkgs = []
   const walk = (p) => {
@@ -536,7 +536,7 @@ function runCorpus() {
   }
   for (const r of roots) walk(r)
   const st = { scenePkgs: 0, overMats: 0, overMatPkgs: new Set(), overVals: {}, overLayers: 0, overLayerPkgs: new Set(),
-    overJoin: 0, nonOneLayers: [], nonOneMats: new Set(), oneLayers: 0, particles: 0 }
+    overJoin: 0, nonOneLayers: [], nonOneMats: new Set(), oneLayers: 0, particles: 0, maxDepth: 0 }
   for (const f of pkgs) {
     let tab
     try { tab = pkgTable(f) } catch { continue }
@@ -592,6 +592,7 @@ function runCorpus() {
       st.particles++
       st.overJoin++
       const g = graph(pn, 0, new Set())
+      for (const it of g) if (it.depth > st.maxDepth) st.maxDepth = it.depth   // ②(2026-09-23) ②(2026-09-23) join 深度上限（≤4）要可断言
       const vals = []
       let hit = false
       for (const it of g) {
@@ -611,37 +612,63 @@ function runCorpus() {
   }
   // ⚠ 计数口径：`overMats` 数的是**带该键的 pass 条数**（每条材质恰 1 个 ⇒ 也等于材质数），
   //   与方案文档 §1.3 的扫描器逐字同口径；`overVals` 是 pass 级直方图。
-  const HIST = { 1: 13, 2: 4, 5: 2, 1.33: 5, 1.47: 1, 1.1: 3, 1.21: 2, 0.17: 1, 1.77: 1, 0.66: 1, 0.25: 2, 1.01: 3 }
-  push('⑥-a 语料容器与场景包计数：56 个带 `scene.json` 的包（46 个 PKGM 视频包 + 1 壳不计入）',
-    st.scenePkgs === 56, `scenePkgs=${st.scenePkgs}（候选包 ${pkgs.length}）`)
-  push('⑥-b ★ 带 `ui_editor_properties_overbright` 的材质 = **38**、命中包 = **15**',
-    st.overMats === 38 && st.overMatPkgs.size === 15, `materials=${st.overMats} materialPkgs=${st.overMatPkgs.size}`)
-  push('⑥-c ★ 取值直方图逐键等于 §1.3 实测（12 个键，含 0.25×2 / 5×2 / 0.17×1）',
-    JSON.stringify(Object.keys(st.overVals).sort()) === JSON.stringify(Object.keys(HIST).sort())
-    && Object.keys(HIST).every((k) => st.overVals[k] === HIST[k]),
-    JSON.stringify(st.overVals))
-  push('⑥-d ★ 通过 preset→children 图（深度 ≤4）join 到的粒子层 = **54**、覆盖 **15** 个包',
-    st.overLayers === 54 && st.overLayerPkgs.size === 15 && st.overJoin === 238,
-    `layers=${st.overLayers} layerPkgs=${st.overLayerPkgs.size} particleObjsJoined=${st.overJoin}`)
-  push('⑥-e ★★ **非 1 层 = 25、值 = 1 的层 = 29（25 + 29 = 54）** —— 真正会变画面的只有这 25 个',
-    st.nonOneLayers.length === 25 && st.oneLayers === 29, `非1=${st.nonOneLayers.length} 恰为1=${st.oneLayers}`)
-  push('⑥-f ★ 非 1 层里**互不相同**的取值 = 11 种（0.17/0.25/0.66/1.01/1.1/1.21/1.33/1.47/1.77/2/5），'
-    + '且 `1.01` 只出现在"1.01 父层 + 2 子系"那种同层双值里（语料 3 处跨根重复的 `Twinkling shooting star`）',
-    (() => {
-      const s = new Set(); for (const l of st.nonOneLayers) for (const v of l.vals) s.add(v)
-      const want = ['0.17', '0.25', '0.66', '1.01', '1.1', '1.21', '1.33', '1.47', '1.77', '2', '5']
-      const ok = s.size === want.length && want.every((v) => s.has(v))
-      const only1 = st.nonOneLayers.every((l) => l.vals.length === 1 || (l.vals.length === 2 && l.vals.includes('1.01') && l.vals.includes('2')))
-      return ok && only1
-    })(),
-    [...new Set(st.nonOneLayers.flatMap((l) => l.vals))].sort().join(','))
+  /* ②(2026-09-23 语料漂移修复) **语料自导出基线**（只增不减）。旧写法把 §1.3 的 12 键直方图与
+   *   "56 包 / 38 材质 / 15 包命中 / 54 层 / 25 非 1 层"全部钉死 ⇒ 今晚新增 `0923/`+`wallpaperE/`
+   *   后整组变红（红在"语料长了"）。新判据 = **规模只增不减 + 与规模无关的语义不变量**：
+   *     · `Σ 直方图 = 材质数`（每条材质恰一个值，不能多算/漏算）；
+   *     · 每个键都是有限正数；`非 1 材质数 = 材质数 − 值 = 1 的材质数`；
+   *     · `非1层 + 恰为1层 = 总层数`（划分）；每层的取值都必须是材质级直方图里出现过的键（跨级核对）；
+   *     · §1.3 的旧键**一个都不许消失**（老壁纸的层还在）；⑥-g 的点名极值仍在。
+   *   基线由本扫描器自导出（`P149_SCAN_UPDATE=1` 打印可粘贴值）。 */
+  const OVERBRIGHT_CORPUS_BASELINE = {
+    note: '2026-09-23 全语料自导出（含 0923/；只增不减）。旧写死值（0923 之前）：scenePkgs=56 / overMats=38 / overMatPkgs=15 / overLayers=54 / overLayerPkgs=15 / overJoin=238 / nonOneLayers=25 / oneLayers=29 / nonOneMats=25 / 取值 11 种',
+    scenePkgs: 123, overMats: 70, overMatPkgs: 29, overLayers: 112, overLayerPkgs: 29, overJoin: 463,
+    nonOneLayers: 41, oneLayers: 71, nonOneMats: 37, nonOneLayerDirs: 21, multiValueLayers: 2, maxDepth: 2,
+    vals: ['0.17', '0.25', '0.33', '0.66', '0.75', '0.98', '1.01', '1.1', '1.2', '1.2000000476837158', '1.21', '1.33', '1.46', '1.47', '1.77', '1.8', '2', '2.61', '5'],
+  }
+  /** §1.3 实测过的 12 个键（老语料的面）：只要求"还在"，不再要求计数逐键相等（新包会让计数变大）。 */
+  const HIST_1_3 = { 1: 13, 2: 4, 5: 2, 1.33: 5, 1.47: 1, 1.1: 3, 1.21: 2, 0.17: 1, 1.77: 1, 0.66: 1, 0.25: 2, 1.01: 3 }
+  const B = OVERBRIGHT_CORPUS_BASELINE
+  const valSum = Object.values(st.overVals).reduce((s, n) => s + n, 0)
+  const keysAllNumeric = Object.keys(st.overVals).every((k) => k !== '' && Number.isFinite(Number(k)) && Number(k) > 0)
+  const distinctVals = [...new Set(st.nonOneLayers.flatMap((l) => l.vals))].sort()
+  const multiValueLayers = st.nonOneLayers.filter((l) => l.vals.length > 1).length
+  if (process.env.P149_SCAN_UPDATE) console.log('  [scan-baseline] ' + JSON.stringify({ scenePkgs: st.scenePkgs, overMats: st.overMats, overMatPkgs: st.overMatPkgs.size, overLayers: st.overLayers, overLayerPkgs: st.overLayerPkgs.size, overJoin: st.overJoin, nonOneLayers: st.nonOneLayers.length, oneLayers: st.oneLayers, nonOneMats: st.nonOneMats.size, multiValueLayers, maxDepth: st.maxDepth, vals: distinctVals }))
+  push('⑥-a 语料容器与场景包计数（**自导出基线，只增不减**）：带 `scene.json` 的包 ≥ ' + B.scenePkgs,
+    st.scenePkgs >= B.scenePkgs && st.scenePkgs > 0 && st.scenePkgs <= pkgs.length,
+    `scenePkgs=${st.scenePkgs}（基线 ${B.scenePkgs}；候选包 ${pkgs.length}）`)
+  push('⑥-b ★ 带 `ui_editor_properties_overbright` 的材质 ≥ ' + B.overMats + '、命中包 ≥ ' + B.overMatPkgs + '（逐材质：每个记录值都是有限正数）',
+    st.overMats >= B.overMats && st.overMatPkgs.size >= B.overMatPkgs && keysAllNumeric,
+    `materials=${st.overMats}（基线 ${B.overMats}） materialPkgs=${st.overMatPkgs.size}（基线 ${B.overMatPkgs}）`)
+  push('⑥-c ★ 取值直方图：值域 = 有限正数 + `Σ 计数 = 材质数`（不漏算/不重复计）+ §1.3 的 ' + Object.keys(HIST_1_3).length + ' 个键一个不少',
+    keysAllNumeric && valSum === st.overMats
+    && Object.keys(HIST_1_3).every((k) => (st.overVals[k] || 0) >= 1)
+    && Object.keys(st.overVals).length >= Object.keys(HIST_1_3).length,
+    `Σ=${valSum} vs materials=${st.overMats}；键数=${Object.keys(st.overVals).length}（§1.3 的键缺=${Object.keys(HIST_1_3).filter((k) => !(st.overVals[k] > 0)).join(',') || '无'}） 直方图=${JSON.stringify(st.overVals)}`)
+  push('⑥-d ★ preset→children 图（深度 ≤4）join 到的粒子层 ≥ ' + B.overLayers + '、覆盖 ≥ ' + B.overLayerPkgs + ' 个包、join 数 ≥ ' + B.overJoin + '（逐层：join 深度 ≤ 4 且命中包 ⊆ 材质命中包）',
+    st.overLayers >= B.overLayers && st.overLayerPkgs.size >= B.overLayerPkgs && st.overJoin >= B.overJoin
+    && st.maxDepth <= 4 && [...st.overLayerPkgs].every((p) => st.overMatPkgs.has(p)),
+    `layers=${st.overLayers}（基线 ${B.overLayers}） layerPkgs=${st.overLayerPkgs.size}（基线 ${B.overLayerPkgs}） particleObjsJoined=${st.overJoin}（基线 ${B.overJoin}） maxDepth=${st.maxDepth}`)
+  push('⑥-e ★★ 非 1 层 / 恰为 1 层：**划分不变量**（两者之和 = 总层数）+ 各自 ≥ 基线 ' + B.nonOneLayers + '/' + B.oneLayers + '（真正会变画面的只有前一类）',
+    st.nonOneLayers.length + st.oneLayers === st.overLayers
+    && st.nonOneLayers.length >= B.nonOneLayers && st.oneLayers >= B.oneLayers
+    && st.nonOneLayers.every((l) => l.vals.length > 0 && l.vals.some((v) => v !== '1')),
+    `非1=${st.nonOneLayers.length}（基线 ${B.nonOneLayers}） 恰为1=${st.oneLayers}（基线 ${B.oneLayers}） 合计=${st.nonOneLayers.length + st.oneLayers}/${st.overLayers}`)
+  push('⑥-f ★ 非 1 层的取值集合：≥ 基线 ' + B.vals.length + ' 种、基线取值一个不少、且**每个取值都在材质级直方图里出现过**（跨级核对，不是两套口径）',
+    distinctVals.length >= B.vals.length && B.vals.every((v) => distinctVals.includes(v))
+    && distinctVals.every((v) => (st.overVals[v] || 0) >= 1) && distinctVals.every((v) => v !== '1')
+    && multiValueLayers >= B.multiValueLayers,
+    distinctVals.join(',') + `；同层多值的层=${multiValueLayers}（基线 ${B.multiValueLayers}）`)
   const has = (n, v) => st.nonOneLayers.some((l) => l.name === n && l.vals.includes(v))
   push('⑥-g ★ 点名极值：Bokeh Hex = 0.25、Bokeh Cir = 0.25、reactive Stars = 5、Glass Shards = 5、new_particle_system = 0.17',
     has('Bokeh Hex', '0.25') && has('Bokeh Cir', '0.25') && has('reactive Stars', '5') && has('Glass Shards', '5') && has('new_particle_system', '0.17'))
-  push('⑥-h ★ 25 个非 1 层里**父层材质**非 1 的包覆盖 11 个互不相同的 `scene.pkg`（15 含跨语料根重复：红鸾樱落×3、夜莺/流萤×3）',
-    st.nonOneLayers.length === 25, `非1层包目录名 ${new Set(st.nonOneLayers.map((l) => l.id)).size} 个（含重复根）`)
-  push('⑥-i 非 1 材质 = 25（38 − 13）、逐包可点名（`dd/3544152633` 的 halo_1 = 5、`0917/3509243656` 的 halo_2 = 0.17）',
-    st.nonOneMats.size === 25, `nonOneMats=${st.nonOneMats.size}`)
+  push('⑥-h ★ 非 1 层覆盖的 `scene.pkg` 目录名 ≥ 基线 ' + B.nonOneLayerDirs + '（逐层可点名；语料跨根重名的包会计多次）',
+    st.nonOneLayers.length >= B.nonOneLayers && new Set(st.nonOneLayers.map((l) => l.id)).size >= B.nonOneLayerDirs
+    && st.nonOneLayers.every((l) => l.id && l.name),
+    `非1层 ${st.nonOneLayers.length} 个，分布 ${new Set(st.nonOneLayers.map((l) => l.id)).size} 个目录名（基线 ${B.nonOneLayerDirs}，含重复根）：` + [...new Set(st.nonOneLayers.map((l) => l.id))].slice(0, 8).join(' '))
+  push('⑥-i 非 1 材质 = 材质数 − 值恰为 1 的材质数（**派生量**，不再钉 25）；逐包可点名（`dd/3544152633` 的 halo_1 = 5、`0917/3509243656` 的 halo_2 = 0.17）',
+    st.nonOneMats.size === st.overMats - (st.overVals['1'] || 0) && st.nonOneMats.size >= B.nonOneMats,
+    `nonOneMats=${st.nonOneMats.size}（基线 ${B.nonOneMats}）= ${st.overMats} − ${st.overVals['1'] || 0}`)
   globalThis.__P149_CORPUS = { st, nonOne: st.nonOneLayers }
 }
 
@@ -762,7 +789,7 @@ console.log('\n[2] ② 合成场景端到端（uniform 上提路径 + 逐顶点�
 console.log('\n[3] ③ 真包四层（修前 = ?overbright=legacy → 修后 = 默认）'); await runReal()
 console.log('\n[4] ④ 子系路径（真包 dd/3544152633 Shooting star-blue-2）'); await runChild()
 console.log('\n[5] ⑤ 值 = 1 的层逐位不变 + `?overbright=legacy` 整条回退'); await runLegacy()
-console.log('\n[6] ⑥ 语料扫描计数（38 材质 / 15 包 / 54 层 / 25 非 1 层）'); runCorpus()
+console.log('\n[6] ⑥ 语料扫描计数（自导出基线：规模只增不减 + 语义不变量）'); runCorpus()
 console.log('\n[7] ⑦ 接线 + 登记'); runWiring()
 console.log('\n[8] ⑧ RED-IF-REVERTED 5 组变异'); runMutations()
 

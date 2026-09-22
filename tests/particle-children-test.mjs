@@ -21,7 +21,9 @@
 //      几何流（位置/尺寸/UV/alpha）逐位不变 **+** `?overbright=legacy` 下整条（几何+颜色）逐位不变 **+**
 //      合成因子 0.25 的非空反证。**不是放宽阈值**：旧措辞把"几何不动"与"颜色不动"混在一个名字里，
 //      而 `overbright` 的因子根本不在几何流里（颜色走 `a_Color` VBO / `u_Color`）。
-//   ⑥ 全语料同族扫描（149 条）：按 type 统计"真的产出了粒子"的条数（缺真包 ⇒ SKIP）。
+//   ⑥ 全语料同族扫描（**语料自导出**，2026-09-23 起：语料根动态枚举 + 逐条语义
+//      「probability>0 ⇔ 真的产出粒子」+ 规模只增不减的自导出基线；旧写法钉死 149 条，
+//      新增 `0923/`、`wallpaperE/` 重命名后必红）。
 //   ⑦ RED-IF-REVERTED（**6 组** R1–R6）：每组"把实现改回旧写法"都只让**指定那一组**变红；
 //      变异只在 `/tmp` 的真文件副本上做（真树 sha256 跑完不变）。
 //   ⑧ 照抄登记（上游 MIT 代码的记账不许被静默删掉）：`THIRD-PARTY.md` §15 + `docs/COPYING-RULES.md` §4 #13。
@@ -733,12 +735,26 @@ if (SUITE && fs.existsSync(PKG_FIREFLY)) {
   push('⑤ 真包缺失 ⇒ legacy 逐位证明 SKIP（视作 PASS）', true, 'no ' + PKG_FIREFLY)
 }
 
-// ═══════════════ ⑥ 全语料同族扫描（149 条） ═══════════════
-console.log('\n[6] ⑥ 同族扫描：全语料 149 条 children 里多少条真的产出了粒子')
+// ═══════════════ ⑥ 全语料同族扫描（语料自导出；2026-09-23 起） ═══════════════
+console.log('\n[6] ⑥ 同族扫描：全语料 children 里多少条真的产出了粒子')
+/* ②(2026-09-23 语料漂移修复) **判据从"钉死 149/139"改成"从语料自导出"**：
+ *   旧写法把四个数字写死（149 条 / 74+37+30+8 / 139 产出 / 10 条不产出），今晚 `allwallpaper/0923/`
+ *   新下载 + `wallpaperE/` 分类重命名 ⇒ 同族条目 149→（含 0923 的全量）⇒ 门禁红在"语料变了"而不是
+ *   "实现坏了"。新判据分两层：
+ *     · **逐条语义（与语料规模无关）**：`probability > 0` 的子系必须真的产出粒子；`maxAlive > 0` 的
+ *       必须来自 `probability > 0` —— 双向，逐条，语料增删都不放过"某一条不再产粒子"。
+ *     · **规模只增不减**：各计数必须 ≥ 下面自导出的基线（掉下来 = 包没了/扫漏了/整类不再产出 ⇒ 红）。
+ *   基线由本文件扫描器在同日全语料上自导出（`P144_SCAN_UPDATE=1` 时打印可粘贴的形式），
+ *   语料只会增 ⇒ 不再因为"新增壁纸"变红。 */
+const CHILDREN_CORPUS_BASELINE = {
+  note: '2026-09-23 语料（0917/0923/dd/wallpaperE/wallpapertest1 全量）自导出；只增不减（旧写死值 total=149/static=74/eventfollow=37/eventdeath=30/eventspawn=8/produced=139/probZero=10 是 0923 之前、且不含 0923 根的面）',
+  total: 208, static: 94, eventfollow: 51, eventdeath: 49, eventspawn: 14, produced: 193, probZero: 15,
+}
 function familyScan() {
-  const invPath = `${MPW_WS}/we-scene-demo/package-matrix.json`
   const files = []
-  // 递归两层（`wallpaperE/<作者>/<包>/scene.pkg` 与 `wallpapertest1/<包>.mpkg` 都要覆盖）
+  // ②(2026-09-23) **语料根动态枚举**：此前写死 `dd/0917/wallpaperE/wallpapertest1` 四个 —— 今晚新增的
+  //   `allwallpaper/0923/` 因此**静默逃出扫描面**（"全语料"名不副实）。现在枚举 `$MPW_WS/allwallpaper/`
+  //   下的所有子目录（最多递归 3 层），新增分类目录自动纳入，不再需要改测试。
   const walk = (d, depth) => {
     if (depth > 3 || !fs.existsSync(d)) return
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
@@ -747,10 +763,13 @@ function familyScan() {
       if (e.name === 'scene.pkg' || e.name === 'scene.mpkg' || /\.mpkg$/.test(e.name)) files.push(fp)
     }
   }
-  for (const sub of ['allwallpaper/dd', 'allwallpaper/0917', 'allwallpaper/wallpaperE', 'allwallpaper/wallpapertest1']) walk(`${MPW_WS}/${sub}`, 0)
-  void invPath
+  const corpusRoot = `${MPW_WS}/allwallpaper`
+  const roots = fs.existsSync(corpusRoot)
+    ? fs.readdirSync(corpusRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => `${corpusRoot}/${e.name}`).sort()
+    : []
+  for (const r of roots) walk(r, 0)
   const rows = []
-  const dbg = { files: files.length, table: 0, scene: 0, layers: 0, defs: 0, childSpecs: 0 }
+  const dbg = { roots: roots.length, files: files.length, table: 0, scene: 0, layers: 0, defs: 0, childSpecs: 0 }
   for (const f of files) {
     let t = null
     try { t = pkgTable(f); dbg.table++ } catch (e) { continue }
@@ -838,19 +857,48 @@ if (SUITE && fs.existsSync(`${MPW_WS}/allwallpaper`)) {
   }
   const total = rows.length
   const produced = rows.filter((r) => r.maxAlive > 0).length
-  push('⑥-a 语料规模复算：149 条子系 / 四类分布 74 static（含 40 条 type 缺失）+ 37 eventfollow + 30 eventdeath + 8 eventspawn',
-    total === 149 && byType.static.all === 74 && byType.eventfollow.all === 37 && byType.eventdeath.all === 30 && byType.eventspawn.all === 8,
-    `total=${total} ` + Object.entries(byType).map(([k, v]) => `${k}=${v.all}`).join(' '))
-  push('⑥-b ★ **真的产出粒子**：139 / 149（static 74/74、eventfollow 37/37、eventspawn 8/8、eventdeath 20/30）',
-    produced === 139 && byType.static.produced === 74 && byType.eventfollow.produced === 37 && byType.eventspawn.produced === 8 && byType.eventdeath.produced === 20,
-    `produced=${produced}/${total} ` + Object.entries(byType).map(([k, v]) => `${k}=${v.produced}/${v.all}`).join(' '))
-  push('⑥-c 剩下 10 条不产出的 eventdeath **全是作者写了 `probability: 0`**（不是没实现）',
-    rows.filter((r) => r.maxAlive === 0).length === 10 && rows.filter((r) => r.maxAlive === 0).every((r) => !(r.probability > 0)),
-    'zero=' + rows.filter((r) => r.maxAlive === 0).length + '，其中 probability=0 的 ' + rows.filter((r) => r.maxAlive === 0 && !(r.probability > 0)).length)
-  const prob0 = rows.filter((r) => !(r.probability > 0))
-  push('⑥-d 语料里 `probability: 0` 共 10 条、全部是 eventdeath（`fireworkshitdistort`）⇒ 一条都不吐是**正确行为**',
-    prob0.length === 10 && prob0.every((r) => r.type === 'eventdeath' && r.maxAlive === 0),
-    'probability=0：' + prob0.length + ' 条，产出 ' + prob0.filter((r) => r.maxAlive > 0).length + ' 条')
+  const zeroRows = rows.filter((r) => r.maxAlive === 0)            // 一条都没吐的
+  const prob0 = rows.filter((r) => !(r.probability > 0))           // 作者声明不吐的
+  const B = CHILDREN_CORPUS_BASELINE
+  const scale = { total, static: byType.static.all, eventfollow: byType.eventfollow.all, eventdeath: byType.eventdeath.all, eventspawn: byType.eventspawn.all, produced, probZero: prob0.length }
+  if (process.env.P144_SCAN_UPDATE) console.log('  [scan-baseline] ' + JSON.stringify(scale))
+  /* ⑥-a 规模 **只增不减**（不再钉死 149/74/37/30/8）：掉下来 = 包没了/扫漏了/整类消失 ⇒ 红。
+   *   基线见 CHILDREN_CORPUS_BASELINE（2026-09-23 全语料自导出；原写死的期望值是 total=149、
+   *   static=74、eventfollow=37、eventdeath=30、eventspawn=8 —— 新增 0923/wallpaperE 后不再适用）。 */
+  push('⑥-a 语料规模复算（**自导出基线，只增不减**：' + JSON.stringify(B) + '）',
+    total >= B.total && Object.keys(byType).every((k) => byType[k].all >= (B[k] || 0))
+    && total === Object.values(byType).reduce((s, v) => s + v.all, 0)   // 分类和 = 总数（没有条目掉出分类）
+    && Number.isInteger(total) && total >= 20,                          // 非空守卫：语料扫不到就是假绿
+    `total=${total}（基线 ${B.total}）` + Object.entries(byType).map(([k, v]) => `${k}=${v.all}（基线 ${B[k] || 0}）`).join(' '))
+  /* ⑥-b ★ **逐条语义**（与语料规模无关，双向）：probability>0 ⇒ 必须真的产出粒子；产出 ⇒ 必须来自
+   *   probability>0。这两条对**每一条**子系成立 ⇒ 语料增删不会让它红，"某一条不再产粒子"一定红。
+   *   （原写死期望：139/149 产出、static 74/74、eventfollow 37/37、eventspawn 8/8、eventdeath 20/30。） */
+  const falseNeg = rows.filter((r) => r.probability > 0 && !(r.maxAlive > 0))
+  const falsePos = rows.filter((r) => r.maxAlive > 0 && !(r.probability > 0))
+  push('⑥-b ★ **真的产出粒子**（逐条：probability>0 ⇔ 产出；规模 ≥ 基线 ' + B.produced + '）',
+    falseNeg.length === 0 && falsePos.length === 0 && produced >= B.produced,
+    `produced=${produced}/${total}（基线 ${B.produced}）` + Object.entries(byType).map(([k, v]) => `${k}=${v.produced}/${v.all}`).join(' ')
+    + `；该产出而没产出的=${falseNeg.length}${falseNeg.length ? ' ' + JSON.stringify(falseNeg.slice(0, 3)) : ''}`
+    + `；不该产出却产出的=${falsePos.length}`)
+  /* ⑥-c 不产出的那些**恰好**是作者写了 `probability: 0` 的（集合双向相等，不是"数量相等"）： */
+  push('⑥-c 不产出的条目 ⟺ 作者写了 `probability: 0` 的条目（双向集合相等；规模 ≥ 基线 ' + B.probZero + '）',
+    zeroRows.length === prob0.length && zeroRows.every((r) => !(r.probability > 0)) && prob0.every((r) => !(r.maxAlive > 0))
+    && prob0.length >= B.probZero,
+    'zero=' + zeroRows.length + '，其中 probability=0 的 ' + zeroRows.filter((r) => !(r.probability > 0)).length + '，prob0 总数=' + prob0.length + '（基线 ' + B.probZero + '）')
+  push('⑥-d 语料里 `probability: 0` 的条目**全部**是 eventdeath ⇒ 一条都不吐是**正确行为**',
+    prob0.length > 0 && prob0.every((r) => r.type === 'eventdeath' && !(r.maxAlive > 0)),
+    'probability=0：' + prob0.length + ' 条，产出 ' + prob0.filter((r) => r.maxAlive > 0).length + ' 条；类型分布=' + JSON.stringify([...new Set(prob0.map((r) => r.type))]))
+  /* ⑥-e **合成夹具（不随用户语料变化）**：证明 ⑥-b/⑥-c 用的那条判据公式本身有分辨力 ——
+   *   合规行过、两个方向各造一个坏行都必须被抓。这条与语料无关，永远跑。 */
+  {
+    const verdict = (r) => (r.probability > 0) === (r.maxAlive > 0)
+    const good = [{ type: 'static', probability: 1, maxAlive: 3 }, { type: 'eventdeath', probability: 0, maxAlive: 0 }]
+    const badA = [{ type: 'static', probability: 1, maxAlive: 0 }]     // 该吐没吐
+    const badB = [{ type: 'eventdeath', probability: 0, maxAlive: 2 }] // 声明不吐却吐了
+    push('⑥-e 合成夹具：判据公式「probability>0 ⇔ 产出」有分辨力（合规=过 / 两个方向的坏行=红）',
+      good.every(verdict) && !badA.every(verdict) && !badB.every(verdict),
+      'good=' + JSON.stringify(good.map(verdict)) + ' badA=' + JSON.stringify(badA.map(verdict)) + ' badB=' + JSON.stringify(badB.map(verdict)))
+  }
 } else {
   push('⑥ 语料目录缺失 ⇒ 同族扫描 SKIP（视作 PASS）', true, 'no ' + MPW_WS + '/allwallpaper')
 }
