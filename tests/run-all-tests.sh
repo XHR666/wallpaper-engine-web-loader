@@ -648,6 +648,16 @@ add "text-box-invariant" "node tests/text-box-invariant-probe.mjs --selftest"
 #   已用它在 `3554161528` 上对拍过 `?texmip=tri`（三线性 mip）：默认 LIN 1.755 vs tri 3.440（地板 0.379）
 #   ⇒ **默认不翻**，该档保持显式开关（并带 Adreno 大 NPOT generateMipmap 静默失败的已知风险）。
 add "minification-quality" "node tests/minification-quality-probe.mjs --selftest"
+# ①(第 18 条续：LDR bloom / FXAA **整屏黑**) `canvas-capture-test`：画布回读契约。
+#   根因实锤：`alpha:false` 的默认帧缓冲上 `copyTexSubImage2D` 报 0x502 **且纹理保持全零**
+#   （Firefox 实测；`alpha:true` 同场景拷贝成功；antialias/premultipliedAlpha/preserveDrawingBuffer
+#   三项无关）⇒ 老实现把全零纹理当场景色 compose 写满屏 = 整屏黑（同包 `?pp=off` 画面正常即判据）。
+#   契约：copy 快路径 → readPixels 兜底 → 两级都失败**整链跳过（0 draw）**；compose 只在链干净时才画。
+add "canvas-capture"     "node tests/canvas-capture-test.mjs"
+# ①(第 18 条续) 同一条 Bug 的**活体**闸门：真画布像素（`#sc` 元素截图，外壳先藏掉 —— 整页截图会把
+#   日志面板文字算成亮度，那是假绿）。基线 / `?pp=off` / `?bloomcap=skip` / `?aa=fxaa` 四档都必须不黑；
+#   需要语料 `3778592720` + playwright + :8902，缺任一 ⇒ SKIP；纯判据 7 条常驻。
+add "bloom-ldr-black"    "node tests/bloom-ldr-black-probe.mjs --selftest"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

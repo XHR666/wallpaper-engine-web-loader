@@ -5682,8 +5682,7 @@ function loadScene() {
             const conv = cv.width / projW
             const cxp = Math.max(0, Math.min(cv.width - 1, Math.round((rd2[0] + rd2[2] / 2) * conv)))
             const cyp = Math.max(0, Math.min(cv.height - 1, Math.round((rd2[1] + rd2[3] / 2) * conv)))
-            const buf2 = new Uint8Array(4); let px3 = null
-            try { renderer.gl.readPixels(cxp, cv.height - 1 - cyp, 1, 1, renderer.gl.RGBA, renderer.gl.UNSIGNED_BYTE, buf2); px3 = [buf2[0], buf2[1], buf2[2]] } catch {}
+            const px3 = mpwSamplePixel(renderer.gl, cxp, cv.height - 1 - cyp)   // ①(第 23 轮) null = 读失败（台账里如实为 null）
             const nm2 = String(layer.name || layer.id).slice(0, 20)
             const arr2 = window.__mpwLayerLedger = window.__mpwLayerLedger || []
             if (arr2.length < 60 && !arr2.some((e) => e.n === nm2)) {
@@ -5743,10 +5742,8 @@ function loadScene() {
         const y0 = yy.y0, y1 = yy.y1
         const cx = Math.max(0, Math.min(info.width - 1, Math.round((x0 + x1) / 2)))
         const cyTop = Math.max(0, Math.min(info.height - 1, Math.round((y0 + y1) / 2)))
-        const buf = new Uint8Array(4)
-        let px = null
-        // readPixels 是 GL 底左原点 → 由 y-down 顶左换回去
-        try { renderer.gl.readPixels(cx, info.height - 1 - cyTop, 1, 1, renderer.gl.RGBA, renderer.gl.UNSIGNED_BYTE, buf); px = [buf[0], buf[1], buf[2]] } catch {}
+        // readPixels 是 GL 底左原点 → 由 y-down 顶左换回去；①(第 23 轮) 读失败 = null（不再假 0,0,0）
+        const px = mpwSamplePixel(renderer.gl, cx, info.height - 1 - cyTop)
         const arr = window.__mpwLayerLedger = window.__mpwLayerLedger || []
         const nm = String(layer.name || layer.id).slice(0, 20)
         if (arr.length < 60 && !arr.some((e) => e.n === nm)) {
@@ -6067,6 +6064,20 @@ function loadScene() {
       Math.max(0, Math.min(ch - 1, Math.round(Number(y) / H * ch))),
     ]
   }
+  /* ①(第 23 轮 同类缺陷) **取像诊断必须诚实**：`readPixels` 失败在 WebGL 里**不抛异常**（只置错误码），
+     老写法 `try { gl.readPixels(...) } catch {}` 于是把"根本没读到"当成"读到 0,0,0" —— 本轮第 18 条
+     取证就被它误导过（`【帧40】中心=0,0,0` 与"画面真黑"在日志里无法区分，只能靠截图判）。
+     本助手：读前**排水**（只把本次读的错算在自己头上）、读后查错，失败返回 `null`
+     （调用方据此打 `ERR` / 不计入均值），成功路径返回 `[r,g,b]`（既有输出格式一字不变）。 */
+  function mpwSamplePixel(gl, x, y) {
+    try {
+      for (let i = 0; i < 8; i++) { if (!gl.getError()) break }
+      const b = new Uint8Array(4)
+      gl.readPixels(x | 0, y | 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b)
+      if (gl.getError() !== gl.NO_ERROR) return null
+      return [b[0], b[1], b[2]]
+    } catch (e) { return null }
+  }
   // ①(诊断) ?diag=1：渲染后逐层 quad 中心 readPixels 采样（真机"长发/背景层是否上屏"差异定位）
   // ①(2026-09-12) 默认开启（逐层中心 9 像素采样，30 次 readPixels，开销可忽略）
   const diagMode = !new URLSearchParams(location.search).has('nodiag')
@@ -6086,8 +6097,8 @@ function loadScene() {
           for (let dx = -2; dx <= 2; dx += 2) for (let dy = -2; dy <= 2; dy += 2) {
             const q = mpwDesignToCanvas(p[0] + dx, p[1] + dy, cv.width, cv.height, projW, projH)
             const px = q[0], py = q[1]
-            const bufx = new Uint8Array(4)
-            try { gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, bufx); sr += bufx[0]; sg += bufx[1]; sb += bufx[2]; cnt++ } catch {}
+            const smp = mpwSamplePixel(gl, px, py)   // ①(第 23 轮) 读失败不计入均值（老写法把失败当 0,0,0）
+            if (smp) { sr += smp[0]; sg += smp[1]; sb += smp[2]; cnt++ }
           }
           if (cnt) {
             const o = l.origin || [0, 0]
@@ -7193,9 +7204,9 @@ function loadScene() {
             // ①(MERGED-3 1.1) 第 90 帧纹理已齐全 → 二次上报覆盖首帧缩略图（观感更接近稳定画面）
             if (window.__mpwFrameNo === 90 && window.__mpwThumbPostFn) { try { window.__mpwThumbPostFn('t90') } catch (e) {} }
             if (window.__mpwFrameNo <= 40) {
-              const px = new Uint8Array(4), py = new Uint8Array(4)
-              gl.readPixels(8, Math.floor(cv.height / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
-              gl.readPixels(Math.floor(cv.width / 2), Math.floor(cv.height / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, py)
+              // ①(第 23 轮) 读失败 ⇒ ERR 而不是假 0,0,0（见 mpwSamplePixel）
+              const px = mpwSamplePixel(gl, 8, Math.floor(cv.height / 2)) || ['ERR', 'ERR', 'ERR']
+              const py = mpwSamplePixel(gl, Math.floor(cv.width / 2), Math.floor(cv.height / 2)) || ['ERR', 'ERR', 'ERR']
               // ①(W5③ P-36) 探针对象按**该场景的背景层**判定：以前写死 textures.get('背景') +
               //   scene.layers[1]——Girl cat 的背景叫 houseback、hina 叫 背景，写死导致跨场景误报
               //   （GirlCat 恒 texNULL）。判据：可见+带纹理名+近满幅（≥3800×1800）的第一层。

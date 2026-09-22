@@ -8549,6 +8549,101 @@ export function createRenderer(canvas, opts = {}) {
     return tex
   }
 
+  /* ①(第 18 条续) **画布回读**：`copyTexSubImage2D` 优先、`readPixels` 兜底，两级都失败返回 `'fail'`。
+   *
+   * 为什么必须有：`alpha:false` 的默认帧缓冲上 copy 会报 0x502 **且目标纹理保持全零**
+   * （Firefox 实测；`alpha:true` 同场景拷贝成功）——老实现不看错误码，于是 bloom 的 compose
+   * 把全零纹理当场景色写满屏 = 整屏黑。这里把"回读到底成没成"变成**可判定的返回值**，
+   * 调用方据此要么用兜底路径、要么跳过整条链（画面保持场景色），不再有"静默写黑"这一态。
+   *
+   * 返回 `'copy' | 'readpixels' | 'fail'`；诊断面 `globalThis.__mpwCanvasCapture`
+   * = `{ n, copy, readpixels, fail, last:{ mode, detail } }`（`detail` = 首次失败的 GL 错误码）。
+   * `fromDefault` = 源是**默认帧缓冲**（只有这种情况才允许 readPixels 兜底：readPixels 读的是
+   * 当前绑定的读帧缓冲，源不是画布时语义不同 ⇒ 直接判失败，交给调用方跳过）。
+   */
+  let __capBuf = null
+  let __capBufLen = 0
+  const __capCost = []          // 最近 CAP_COST_WINDOW 次兜底回读的实测耗时（ms）
+  let __capAutoOff = null        // 非空 = 已按"实测太贵"停用兜底（会话粘性）
+  const nowMs = () => { try { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now() } catch (e) { return Date.now() } }
+  // 兜底回读的上限：>16MB（≈4MP，2560×1440 之上）宁可**不 bloom** 也不每帧卡一次同步回读。
+  const CAP_MAX_BYTES = 16 * 1024 * 1024
+  function capLog(mode, detail) {
+    try {
+      const g = (typeof window !== 'undefined' && window) ? window : globalThis
+      const rec = g.__mpwCanvasCapture = g.__mpwCanvasCapture || { n: 0, copy: 0, readpixels: 0, copyFail: 0, fail: 0, last: null, modes: [] }
+      rec.n++
+      // 计数语义（分开记：`copy-fail` 是**每次都发生**的平台事实，`fail` 是**链级**失败）
+      if (mode === 'copy') rec.copy++
+      else if (mode === 'readpixels') rec.readpixels++
+      else if (mode === 'copy-fail') rec.copyFail++
+      else rec.fail++
+      if (__capCost.length) { const v = capFallbackVerdict(__capCost, CAP_COST_BUDGET_MS); rec.costMs = v.median; rec.costN = v.n }
+      if (__capAutoOff) rec.autoOff = __capAutoOff
+      if (rec.modes.indexOf(mode) < 0) {
+        rec.modes.push(mode)
+        if (mode !== 'copy') {   // copy = 缺省快路径，不必刷日志；其余各类各报一次
+          try {
+            onLog('[bloom] 画布回读 = ' + mode + (detail ? '（GL 0x' + Number(detail).toString(16) + '）' : '')
+              + (mode === 'auto-off-slow' ? '：兜底实测中位数 ' + (__capAutoOff && __capAutoOff.median) + 'ms > 预算 ' + CAP_COST_BUDGET_MS + 'ms ⇒ 停用兜底（bloom/FXAA 跳过，画面保持场景色；?bloomcap=readpixels 可强制继续）' : '')
+              + (mode === 'skip' || mode === 'copy-fail' || mode === 'readpixels' ? '（?bloomcap=auto|copy|readpixels|skip 可强制）' : ''))
+          } catch (e) {}
+        }
+      }
+      if (mode !== 'copy' && mode !== 'readpixels' && mode !== 'copy-fail') rec.last = { mode, detail: detail | 0 }
+    } catch (e) {}
+  }
+  function captureCanvasToTexture(tex, width, height, fromDefault) {
+    const bytes = Math.max(1, width | 0) * Math.max(1, height | 0) * 4
+    if (TEXCAP_MODE === 'skip') { capLog('skip', 0); return 'fail' }
+    // 自适应关断后：直接判失败（调用方跳过整条链）。`?bloomcap=readpixels` = 用户显式要求 ⇒ 不关断。
+    if (__capAutoOff && TEXCAP_MODE !== 'readpixels') { capLog('auto-off', 0); return 'fail' }
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    if (TEXCAP_MODE !== 'readpixels') {
+      try { gl.getError() } catch (e) {}            // 前排水：只把"本次 copy"的错算在自己头上
+      gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, width, height)
+      let ce = 0
+      try { ce = gl.getError() } catch (e) { ce = -1 }
+      if (ce === 0) { capLog('copy', 0); return 'copy' }
+      capLog('copy-fail', ce)
+    }
+    if (!fromDefault || TEXCAP_MODE === 'copy') return 'fail'
+    if (bytes > CAP_MAX_BYTES) { capLog('skip-big', bytes); return 'fail' }
+    try {
+      if (!__capBuf || __capBufLen !== bytes) { __capBuf = new Uint8Array(bytes); __capBufLen = bytes }
+      // 行序：readPixels 与 copyTexSubImage2D 都是"第 0 行 = 帧缓冲底行 = 纹理 v=0" ⇒ 方向一致，
+      // 不需要翻转（翻转会把画面上下颠倒，且这种错在对称构图上肉眼很难发现）。
+      const t0 = nowMs()
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, __capBuf)
+      let re = 0
+      try { re = gl.getError() } catch (e) { re = -1 }
+      if (re !== 0) { capLog('readpixels-fail', re); return 'fail' }
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, __capBuf)
+      let ue = 0
+      try { ue = gl.getError() } catch (e) { ue = -1 }
+      if (ue !== 0) { capLog('upload-fail', ue); return 'fail' }
+      // ①(第 18 条续) **代价记账 + 自适应关断**（判据 `capFallbackVerdict`，纯函数可穷举）
+      const cost = Math.max(0, nowMs() - t0)
+      __capCost.push(cost)
+      if (__capCost.length > CAP_COST_WINDOW) __capCost.shift()
+      capLog('readpixels', 0)
+      const verdict = capFallbackVerdict(__capCost, CAP_COST_BUDGET_MS)
+      if (verdict.off && TEXCAP_MODE !== 'readpixels') {
+        __capAutoOff = { reason: 'slow', median: verdict.median, n: verdict.n, at: Date.now() }
+        capLog('auto-off-slow', 0)
+      }
+      return 'readpixels'    // 本帧已拿到**正确**画面 ⇒ 照常 compose（下一帧起才关断）
+    } catch (e) { capLog('exception', 0); return 'fail' }
+  }
+  /** 排空当前挂起的 GL 错误（返回第一条非零码或 0）。用于"只把本段产生的错误归因到自己"。 */
+  function drainGlError() {
+    let first = 0
+    try {
+      for (let i = 0; i < 8; i++) { const e = gl.getError(); if (!e) break; if (!first) first = e }
+    } catch (e) {}
+    return first
+  }
+
   // ===================================================================================
   // ①(P-90) `?aa=` 抗锯齿 pass + `?q=` 内部渲染上采样 —— 帧末后处理链的最后两段。
   //
@@ -8620,8 +8715,12 @@ export function createRenderer(canvas, opts = {}) {
       // ① 回读当前（默认）帧缓冲 → 纹理。必须在**未绑定 FBO** 时调用。
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
       gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, tex)
-      gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, width, height)
+      // ①(第 18 条续 同类缺陷) **与 bloom 同款回读**：`alpha:false` 的默认帧缓冲 copy 会 0x502
+      //   且纹理全零 ⇒ 老实现把全零纹理当"当前画面"过一遍 FXAA 再直写全屏 = **整屏黑**
+      //   （`?aa=fxaa` 的整屏黑与 LDR bloom 是同一个根因）。回读失败 ⇒ 跳过本帧 FXAA
+      //   （画面保持未经 FXAA 的场景色，宁可少一道抗锯齿也不写黑）。
+      const cap = captureCanvasToTexture(tex, width, height, true)
+      if (cap === 'fail') return false   // 失败原因已由 captureCanvasToTexture 记进 __mpwCanvasCapture
       // ② 全屏 FXAA 直写（alpha 恒 1、禁混合、禁深度 ⇒ 覆盖写）
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
       gl.viewport(0, 0, width, height)
@@ -12150,6 +12249,22 @@ export function createRenderer(canvas, opts = {}) {
     prepareParticleChildSys(childSys, pc.spec, pc.parentSys, pc.events, partStat.children)
   }
 
+  /* ①(第 18 条续) bloom 链的中止出口：把"哪一步、什么错误码"记进 `__mpwBloomInfo`（诊断面），
+   *   恢复调用方的 framebuffer 绑定，返回 false = 本帧没画 compose（画面保持场景色）。
+   *   为什么不在出错后硬画：compose 是唯一覆盖整屏的一步，链上有错还画它 = 用不确定的数据
+   *   盖掉**已经正确**的场景（这正是老实现"整屏黑"的成因）。 */
+  function bloomAbort(prevFbo, where, code) {
+    try {
+      if (typeof window !== 'undefined') {
+        window.__mpwBloomInfo = Object.assign(window.__mpwBloomInfo || {}, { skipped: where, code: code | 0 })
+        const rec = window.__mpwBloomSkip = window.__mpwBloomSkip || {}
+        rec[where] = (rec[where] || 0) + 1
+      }
+    } catch (e) {}
+    try { gl.bindFramebuffer(gl.FRAMEBUFFER, prevFbo || null) } catch (e) {}
+    return false
+  }
+
   // ①(RE-33) bloom 链执行：默认 framebuffer → copyTex → 4 pass → 加法合成回默认 framebuffer。
   //   enabled 与 strength 都为 0/假时直接跳过（官方虽建链但 pass1 写黑 = 视觉中性，跳过等价且省 3 次全屏 pass）。
   function runBloom(general, width, height) {
@@ -12192,13 +12307,28 @@ export function createRenderer(canvas, opts = {}) {
       const prevFbo = gl.getParameter(gl.FRAMEBUFFER_BINDING)
       // 场景颜色 → 纹理：HDR 帧直接用浮点场景 RT（无钳制）；LDR 从默认 framebuffer 拷贝（WebGL2）
       let sceneTex
+      let capMode = 'hdr'
       if (hdrFbo) {
         sceneTex = hdrFbo.tex
       } else {
+        // ①(第 18 条续) 回读**必须**对着默认帧缓冲做：老实现依赖"调用方刚好没绑 FBO"，
+        //   这里显式绑定；`prevFbo` 非空（调用方在自建 FBO 里渲染）时不走 readPixels 兜底。
+        gl.bindFramebuffer(gl.FRAMEBUFFER, prevFbo || null)
         sceneTex = ensureBloomSceneTex(width, height)
-        gl.bindTexture(gl.TEXTURE_2D, sceneTex)
-        gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, width, height)
+        capMode = captureCanvasToTexture(sceneTex, width, height, !prevFbo)
+        if (capMode === 'fail') {
+          // ①(第 18 条续) 回读失败 ⇒ **整条链跳过**（不画 compose）。
+          //   老实现继续往下走：sceneTex 是全零 ⇒ compose 把全零当场景色写满屏 = 整屏黑。
+          try {
+            if (typeof window !== 'undefined') {
+              window.__mpwBloomInfo = { enabled, isHdr, skipped: 'capture-fail', threshold, strength: sHdr, mip1: [w1, h1], mip2: [w2, h2] }
+            }
+          } catch (e) {}
+          gl.bindFramebuffer(gl.FRAMEBUFFER, prevFbo || null)
+          return false
+        }
       }
+      drainGlError()   // 前面 pass/别家的挂起错误不许算到本链头上（下面对每个 pass 都查错）
       const mip1 = getFBO(w1, h1, 'bloom-mip1')
       const mip2 = getFBO(w2, h2, 'bloom-mip2')
       const aux = getFBO(w2, h2, 'bloom-aux')
@@ -12220,6 +12350,11 @@ export function createRenderer(canvas, opts = {}) {
       gl.uniform1f(progs.ue.hdr, isHdr ? 1 : 0)
       gl.bindVertexArray(ensureBloomVao())
       gl.drawArrays(gl.TRIANGLES, 0, 6)
+      // ①(第 18 条续) pass1~3 的错误闸门：**compose 是唯一覆盖整屏的一步**，只有在
+      //   "读得到场景 + 前三步都干净"时才允许画它。任一步报错 ⇒ 跳过 compose（画面保持
+      //   未加 bloom 的场景色），错误码写进 `__mpwBloomInfo.skipped`。
+      const pass1Err = drainGlError()
+      if (pass1Err) return bloomAbort(prevFbo, 'pass1', pass1Err)
       // pass2 blurX：mip1 → mip2（间距 = 8×mip1 texel）
       gl.bindFramebuffer(gl.FRAMEBUFFER, mip2.fbo)
       gl.viewport(0, 0, mip2.width, mip2.height)
@@ -12237,6 +12372,8 @@ export function createRenderer(canvas, opts = {}) {
       gl.uniform2f(progs.ub.dir, 0, 1)
       gl.uniform2f(progs.ub.step, (8 / mip2.width) * scatter, (8 / mip2.height) * scatter)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
+      const pass3Err = drainGlError()
+      if (pass3Err) return bloomAbort(prevFbo, 'pass3', pass3Err)
       // pass4 compose：scene + aux → 默认 framebuffer（直写，无混合）
       gl.bindFramebuffer(gl.FRAMEBUFFER, prevFbo || null)
       gl.viewport(0, 0, width, height)
@@ -12565,6 +12702,59 @@ export const TEXMIP_MODE = (() => {
     return (typeof location !== 'undefined' && location.search && new URLSearchParams(location.search).get('texmip') === 'tri') ? 'tri' : 'lin'
   } catch (e) { return 'lin' }
 })()
+
+/* ①(第 18 条续：LDR bloom / FXAA 整屏黑) 画布回读档 `?bloomcap=auto|copy|readpixels|skip`。
+ *
+ * 实锤（本机 Firefox + llvmpipe 最小复现，见 tests/canvas-capture-test.mjs 的活体读数）：
+ *   **`alpha:false` 的默认帧缓冲上 `copyTexSubImage2D` 报 0x502，且目标纹理保持全零**；
+ *   同场景改 `alpha:true` 拷贝成功（0 错、纹理内容正确）。矩阵实测与 `antialias` /
+ *   `premultipliedAlpha` / `preserveDrawingBuffer` **三项无关**，唯一变量就是 `alpha`。
+ *   而本仓库画布恒为 `alpha:false`（`glCanvasAttrs`：不透明窗口壁纸的前提）⇒ 老实现里
+ *   bloom 的 compose pass 把"全零的场景纹理"当场景色写满屏 = **整屏黑**（层其实都画对了，
+ *   `?pp=off` 同包同帧画面完全正常 —— 这也是本条 Bug 的判据）。
+ *
+ * 档位语义（缺省 `auto` 是与改动前**唯一有意不同**的地方：改动前不检测、直接写黑）：
+ *   · `auto`      ：先 `copyTexSubImage2D`（快路径，Chrome/多数实现是一次 GPU→GPU 拷贝，
+ *                   与改动前逐位一致）；报错 ⇒ 退 `readPixels`+`texSubImage2D`（正确，代价是
+ *                   每帧一次同步回读）；两者都失败 ⇒ **整条后处理链跳过**，画面保持未加
+ *                   bloom/FXAA 的场景色（**绝不写黑**），原因写进 `__mpwCanvasCapture`。
+ *   · `copy`      ：只走 copy，失败即跳过（A/B 用：确认某设备 copy 到底行不行）。
+ *   · `readpixels`：直接走回读（A/B 用：比画质/比帧率）。
+ *   · `skip`      ：不跑该链（只关 bloom / 只关 FXAA 的对照档）。
+ */
+export const TEXCAP_MODE = (() => {
+  try {
+    const v = (typeof location !== 'undefined' && location.search) ? new URLSearchParams(location.search).get('bloomcap') : null
+    return (v === 'copy' || v === 'readpixels' || v === 'skip') ? v : 'auto'
+  } catch (e) { return 'auto' }
+})()
+
+/** 兜底回读的**代价预算**（毫秒/帧）与预热样本数（见 `capFallbackVerdict`）。 */
+export const CAP_COST_BUDGET_MS = 4
+export const CAP_COST_WARMUP = 12
+export const CAP_COST_WINDOW = 16
+
+/**
+ * **自适应关断的纯判据**：给定最近若干次"兜底回读"的实测耗时（ms）与预算，决定是否停用兜底。
+ *
+ * 为什么需要：本机软件渲染（llvmpipe）实测 —— 每帧 `readPixels`+`texSubImage2D`（1280×720 = 3.7MB）
+ * 让帧率从 **38.2fps 掉到 20.2fps**（同包同档，仅回读之差）。所以"正确但贵"的兜底不能无条件常开：
+ *   · 样本不足 `CAP_COST_WARMUP` ⇒ **先开着**（`reason:'warmup'`）——按前几帧的抖动关断会误杀；
+ *   · 取**中位数**而非均值 —— 单帧的长尾（GC/合成抖动）不该决定策略；
+ *   · 超预算 ⇒ 停用（`reason:'slow'`），此后 bloom/FXAA 走"跳过"分支（画面保持场景色，**绝不写黑**）；
+ *   · 停用是**会话粘性**的（不反复开关：开关会在"有/无 bloom"之间造成可见抖动）。
+ *
+ * @returns {{off:boolean, reason:'warmup'|'ok'|'slow', median:number|null, n:number}}
+ */
+export function capFallbackVerdict(samples, budgetMs) {
+  const list = Array.isArray(samples) ? samples.filter((v) => Number.isFinite(v)) : []
+  const budget = Number.isFinite(budgetMs) ? budgetMs : CAP_COST_BUDGET_MS
+  if (list.length < CAP_COST_WARMUP) return { off: false, reason: 'warmup', median: null, n: list.length }
+  const s = list.slice().sort((a, b) => a - b)
+  const median = s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2
+  const off = median > budget
+  return { off, reason: off ? 'slow' : 'ok', median: +median.toFixed(3), n: list.length }
+}
 
 export function makeTextureMip(gl, levels, rg88 = false) {
   const tex = gl.createTexture()

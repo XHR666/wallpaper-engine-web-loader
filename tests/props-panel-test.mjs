@@ -1613,11 +1613,14 @@ console.log('[T21] P-64-MEDIA 轮顺带（侦察报告）：台账 `rect`/`px` �
     !!f && JSON.stringify(f(0, 100, 1080, null)) === JSON.stringify({ y0: 980, y1: 1080, flipped: true })
     && f(0, 100, 1080, undefined).y0 === 980)
   check('T21c 真源码接线：`onLayerDraw` 用 `mpwLedgerYDown(yA, yB, info.height, oyPx)`（锚 = layer.origin 经投影高换算）'
-    + '，`rd` 与 `px` 同一套 y（px 再由 y-down 换回 GL 底左给 readPixels）',
+    + '，`rd` 与 `px` 同一套 y（px 再由 y-down 换回 GL 底左、经 `mpwSamplePixel` 诚实取样）',
     /const yy = mpwLedgerYDown\(yA, yB, info\.height, oyPx\)/.test(HTML)
     && /const y0 = yy\.y0, y1 = yy\.y1/.test(HTML)
     && /Number\(layer\.origin\[1\]\) \/ projH \* info\.height/.test(HTML)
-    && /readPixels\(cx, info\.height - 1 - cyTop/.test(HTML)
+    // ①(2026-09-23) 取样统一走 `mpwSamplePixel`（读失败返回 null，不再把"没读到"当 0,0,0）：
+    //   契约从"裸 readPixels(cx, H-1-cyTop…)"升级为"同一个 y-down→GL 换算 + 诚实取样助手"。
+    && /mpwSamplePixel\(renderer\.gl, cx, info\.height - 1 - cyTop\)/.test(HTML)
+    && /function mpwSamplePixel\(gl, x, y\)[\s\S]{0,420}?gl\.readPixels\(x \| 0, y \| 0, 1, 1/.test(HTML)
     && /rd: \[Math\.round\(x0 \* k\), Math\.round\(y0 \* k\)/.test(HTML))
   check('T21d 口径文档化：README 写明 `rect`/`px` 是 y-down（顶左原点）且与 `layers[].origin` 同空间',
     /`rect`[\s\S]{0,80}y-down/.test(fs.readFileSync(new URL('../docs/README-DIAGNOSTICS.md', import.meta.url), 'utf8'))
