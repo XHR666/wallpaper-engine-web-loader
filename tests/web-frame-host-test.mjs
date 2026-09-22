@@ -173,6 +173,7 @@ console.log('== S 真 shim 的语义（node:vm 里跑生成的源）==')
 {
   const { win, posted, listeners } = runShim()
   ok('S1 shim 装好了并上报 ready', !!win.__mpwWebShim && posted.some((m) => m.op === 'ready'))
+  ok('S1b shim 源里**不许有反引号**（整段嵌在模板字符串里 —— 本轮为此返工三次）', !buildWebShimSource().includes(String.fromCharCode(96)))
   ok('S2 `wallpaperMediaIntegration` 三个数是官方值（PLAYING=1，否则 `PLAYING||0` 会误判）',
     win.wallpaperMediaIntegration.PLAYING === 1 && win.wallpaperMediaIntegration.PLAYBACK_STOPPED === 0 && win.wallpaperMediaIntegration.PAUSED === 2)
 
@@ -490,6 +491,52 @@ console.log('== Z framefit 露底检测（纯判据 + 页面接线）==')
     && /applyFrameFit\('late-1'\)/.test(html) && /applyFrameFit\('late-2'\)/.test(html))
   ok('Z13 结果进状态面（why/scale/doc/box + trigger）供测试台与探针读',
     /framefit: \{ why: fp\.why, scale: fp\.scale, docW: fp\.docW, docH: fp\.docH, boxW: fp\.boxW, boxH: fp\.boxH/.test(html))
+}
+
+
+console.log('== W2 键盘注入与 hard pause（vm 里跑真 shim）==')
+{
+  function runExtra() {
+    const fired = []
+    const target = { dispatchEvent: (ev) => { fired.push({ type: ev.type, key: ev.key }); return true } }
+    class FakeEv { constructor(type, init) { this.type = type; Object.assign(this, init || {}); this.isTrusted = false } }
+    const held = { raf: [], timeout: [] }
+    const win = {
+      location: { search: '' }, parent: { postMessage: () => {} }, console: { warn: () => {} }, addEventListener: () => {},
+      PointerEvent: FakeEv, MouseEvent: FakeEv, WheelEvent: FakeEv, TouchEvent: FakeEv, Touch: FakeEv, KeyboardEvent: FakeEv,
+      requestAnimationFrame: (cb) => { held.raf.push(cb); return held.raf.length },
+      cancelAnimationFrame: () => {},
+      setTimeout: (fn) => { held.timeout.push(fn); return held.timeout.length },
+      clearTimeout: () => {}, setInterval: () => 1, clearInterval: () => {},
+    }
+    win.window = win
+    const doc = { elementFromPoint: () => target, body: target, documentElement: target, querySelectorAll: () => [], activeElement: target }
+    const ctx = { window: win, document: doc, Promise, Object, JSON, Array, String, Number, Math, Date, Error, URLSearchParams, DOMException, setTimeout: win.setTimeout, clearTimeout: win.clearTimeout, console: win.console }
+    ctx.globalThis = ctx
+    vm.createContext(ctx); vm.runInContext(buildWebShimSource(), ctx, { filename: 'mpw-web-shim.js' })
+    return { win, fired, held }
+  }
+  {
+    const { win, fired } = runExtra()
+    win.__mpwWebControl({ op: 'key', type: 'down', key: 'a', code: 'KeyA', keyCode: 65 })
+    win.__mpwWebControl({ op: 'key', type: 'up', key: 'a', code: 'KeyA', keyCode: 65 })
+    ok('W2-1 键盘 op ⇒ 在 activeElement 上派发 keydown/keyup（作者监听 document/keydown 也能收到，事件冒泡）',
+      fired.map((f) => f.type).join(',') === 'keydown,keyup' && fired[0].key === 'a', JSON.stringify(fired))
+  }
+  {
+    const { win, held } = runExtra()
+    ok('W2-2 默认档**不碰**作者计时器（没开 hard 时 rAF/setTimeout 原样）',
+      !win.__mpwHardPause && typeof win.requestAnimationFrame === 'function')
+    win.__mpwWebControl({ op: 'hardpause', enabled: true })
+    win.__mpwWebControl({ op: 'pause', paused: true })
+    win.requestAnimationFrame(() => {})
+    win.setTimeout(() => {})
+    ok('W2-3 `hardpause` + 暂停 ⇒ rAF/setTimeout 被**挂起**（回调进队列、不立即执行）',
+      win.__mpwHardPause && win.__mpwHardPause.heldRaf.length === 1 && win.__mpwHardPause.heldTimer.length === 1)
+    const r = win.__mpwWebControl({ op: 'pause', paused: false })
+    ok('W2-4 恢复 ⇒ 挂起的回调**只放行一次**并清空队列（不重放累积帧）',
+      win.__mpwHardPause.heldRaf.length === 0 && win.__mpwHardPause.heldTimer.length === 0 && r && r.ok === true)
+  }
 }
 
 console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败')

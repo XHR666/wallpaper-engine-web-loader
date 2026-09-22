@@ -2526,9 +2526,21 @@ function loadScene() {
     } else {
       pub({ state: 'mounting' })
     }
-    /* 宿主 → 帧的控制面先定义（交互桥与暂停都要用它） */
-    mpwWebSend = (op, payload) => { try { fr.contentWindow.postMessage(Object.assign({ mpw: 'mpw:web', op }, payload || {}), '*') } catch (e) { /* ignore */ } }
+    /* 宿主 → 帧的控制面先定义（交互桥与暂停都要用它）。
+       ⚠ **就绪前必须排队**：`fr.src` 刚设、帧内文档还没解析时发的消息会被直接丢掉 —— 真机实测
+       `?webpause=hard` / `?webkeys=full` 的起手 op 全都没到（宿主状态以为暂停了，帧内根本没收到）。
+       排队到 `ready`（或帧 load）后按顺序重放。 */
+    const pendingOps = []
+    const postToFrame = (op, payload) => { try { fr.contentWindow.postMessage(Object.assign({ mpw: 'mpw:web', op }, payload || {}), '*') } catch (e) { /* ignore */ } }
+    mpwWebSend = (op, payload) => { if (!webReady) { pendingOps.push([op, payload]); return } postToFrame(op, payload) }
     window.__mpwWebSend = mpwWebSend
+    const flushPendingOps = () => {
+      if (webReady || !pendingOps.length) return 0
+      webReady = true                                  /* 只放行一次；之后走直发 */
+      const n = pendingOps.length
+      for (const [op, payload] of pendingOps.splice(0)) postToFrame(op, payload)
+      return n
+    }
     /* ⑥ sandbox 档的交互桥：帧不透明 ⇒ 指针/滚轮/触摸在**宿主侧**采集，换算成帧内 client 像素后
        用 `op:'pointer'|'wheel'|'touch'` 投给帧内 shim（它在命中的元素上派发合成事件）。
        compat 档**一个监听都不装**（原生透传才有真 `:hover/:active/isTrusted`）。 */
@@ -2572,6 +2584,8 @@ function loadScene() {
       if (d.op === 'ready') {
         webReady = true
         pub({ state: 'ok', ready: true, readyMs: Date.now() - t0, shimVersion: d.version || null })
+        const flushed = flushPendingOps()
+        if (flushed) logf('⑥ web 帧：就绪前排队 ' + flushed + ' 条控制 op 已重放（暂停/键盘等起手 op 不再丢）')
         logf('⑥ web 帧：shim 已报到（v' + (d.version || '?') + '，' + (Date.now() - t0) + 'ms）')
         mpwWebPushProps()
         applyFrameFit('ready')
@@ -2589,6 +2603,8 @@ function loadScene() {
         return
       }
       if (d.op === 'paused') { webPaused = !!d.paused; pub({ state: 'ok', paused: webPaused }); return }
+      if (d.op === 'hardpause') { pub({ state: 'ok', hardpause: { released: d.released, at: Date.now() } }); return }
+      if (d.op === 'hardpause-ack') { pub({ state: 'ok', hardpause: { enabled: !!d.enabled, active: !!d.active, paused: !!d.paused, at: Date.now() } }); return }
       if (d.op === 'audio-received' || d.op === 'audio-dropped') {
         if (d.op === 'audio-received') webAudioFrames++
         webLastAudio = { op: d.op, len: d.len, source: String(d.source || ''), hasListener: !!d.hasListener, at: Date.now() }
@@ -2604,7 +2620,7 @@ function loadScene() {
     /* 帧 load 之后再量一次：作者脚本常在 load 后才把布局撑开（只测 ready 那一刻会漏）。
        另加两次补跑（1.2s / 3.5s，与本页"画布晚到"同款做法）：跨源/无 shim 的入口既没有 ready，
        `load` 也可能早于监听挂上（真机实测：data: 入口就没触发）⇒ 不许因为"没事件"就永不检测。 */
-    try { fr.addEventListener('load', () => setTimeout(() => applyFrameFit('load'), 600), { once: true }) } catch (e) { /* 桩 DOM */ }
+    try { fr.addEventListener('load', () => setTimeout(() => { applyFrameFit('load'); flushPendingOps() }, 600), { once: true }) } catch (e) { /* 桩 DOM */ }
     try { setTimeout(() => applyFrameFit('late-1'), 1200); setTimeout(() => applyFrameFit('late-2'), 3500) } catch (e) { /* 桩 DOM */ }
     // 2.5s 兜底：按契约决定降档（仅 auto + 非嵌入 + 未显式）
     window.setTimeout(() => {
@@ -2614,6 +2630,9 @@ function loadScene() {
       frameStatus({ state: 'shim-missing', downgraded: d.changed })
       if (d.changed) reloadAsCompat()
     }, WEB_SHIM_READY_TIMEOUT_MS + 50)
+    /* `?webpause=1` = 温和档（作者 setPaused + 帧内 media 冻结）。设计稿的 `hard` 档（冻结 rAF/计时器）
+       shim 侧已实现且被 vm 单测覆盖，但**页面侧接线端到端没跑通**（真机：监听与队列都到位、帧内始终没收到
+       起手 op）⇒ 本页**不提供**该旗标（传 `hard` = 不暂停的温和档），需要时先查清再开，别留半接线的开关。 */
     if (String(q.get('webpause') || '') === '1') { webPaused = true; mpwWebSend('pause', { paused: true }) }
     logf('⑥ web 帧已挂载：档 ' + plan.mode + '（' + plan.why + '）· 入口 ' + entry.kind + ' · ' + entry.url.slice(0, 120))
     logf('⑥ web 帧入口说明：' + entry.why)

@@ -98,15 +98,58 @@ export function buildWebShimSource(opts = {}) {
   regMedia('wallpaperRegisterMediaPlaybackListener', 'mediaPlayback');
   regMedia('wallpaperRegisterMediaTimelineListener', 'mediaTimeline');
   regMedia('wallpaperRegisterMediaStatusListener', 'mediaStatus');
-  /* ⚠ 取值必须是官方那三个数：缺省会让作者的 \`PLAYING || 0\` 把"播放"误判成 0（§3.4）。 */
+  /* ⚠ 取值必须是官方那三个数：缺省会让作者的 PLAYING || 0 把「播放」误判成 0（§3.4）。 */
   W.wallpaperMediaIntegration = { PLAYBACK_STOPPED: 0, PLAYING: 1, PAUSED: 2 };
-  /* 池空 ⇒ 回调空串（作者普遍 \`if (p)\` 守卫）。 */
+  /* 池空 ⇒ 回调空串（作者普遍 if (p) 守卫）。 */
   W.wallpaperRequestRandomFileForProperty = function (prop, cb) {
     if (typeof cb !== 'function') return;
     var pool = (STATE.randomFiles && STATE.randomFiles[prop]) || null;
     later(cb, (pool && pool.length) ? pool[Math.floor(Math.random() * pool.length)] : '');
   };
   W.wallpaperPluginListener = W.wallpaperPluginListener || { onPluginLoaded: function () {} };
+  /* ── ?webpause=hard：冻结作者的计时器（rAF / setTimeout / setInterval） ──────────────────────
+     为什么默认**不做**：它会改作者的计时语义（档位文档里写明）。开启后暂停期间回调排队不发，
+     恢复时按"只补一次"的策略放行 —— 不重放累积的每一帧（那会让页面在恢复瞬间卡住）。 */
+  function installHardPause() {
+    if (W.__mpwHardPause) return;
+    var raf = W.requestAnimationFrame, caf = W.cancelAnimationFrame;
+    var st = W.setTimeout, si = W.setInterval, ct = W.clearTimeout, ci = W.clearInterval;
+    var heldRaf = [], heldTimer = [];
+    W.__mpwHardPause = { on: true, heldRaf: heldRaf, heldTimer: heldTimer };
+    if (typeof raf === 'function') W.requestAnimationFrame = function (cb) {
+      if (!STATE.paused) return raf.call(W, cb);
+      return heldRaf.push(cb) - 1 + 1000000;   /* 假 id：恢复前取消不了（与冻结语义一致） */
+    };
+    if (typeof caf === 'function') W.cancelAnimationFrame = function (id) { if (id < 1000000) return caf.call(W, id); heldRaf[id - 1000000] = null; };
+    if (typeof st === 'function') W.setTimeout = function (fn, ms) {
+      var args = [].slice.call(arguments, 2);
+      if (!STATE.paused) return st.apply(W, arguments);
+      return heldTimer.push(function () { try { fn.apply(W, args); } catch (e) { note('hardpause-threw', e && e.message); } }) - 1 + 1000000;
+    };
+    if (typeof ct === 'function') W.clearTimeout = function (id) { if (id < 1000000) return ct.call(W, id); heldTimer[id - 1000000] = null; };
+    if (typeof si === 'function') W.setInterval = function (fn, ms) {
+      var args = [].slice.call(arguments, 2);
+      if (!STATE.paused) return si.apply(W, arguments);
+      var slot = heldTimer.push(null) - 1 + 1000000;
+      var self = W.setInterval;   /* 递归时用被包装后的自己 ⇒ 恢复后自然变成真 interval */
+      var tick = function () { try { fn.apply(W, args); } catch (e) { note('hardpause-threw', e && e.message); } };
+      heldTimer[slot - 1000000] = function () { tick(); heldTimer[slot - 1000000] = null; si.call(W, tick, Math.max(16, Number(ms) || 16)); };
+      return slot;
+    };
+    if (typeof ci === 'function') W.clearInterval = function (id) { if (id < 1000000) return ci.call(W, id); heldTimer[id - 1000000] = null; };
+  }
+  function releaseHardPause() {
+    var hp = W.__mpwHardPause;
+    if (!hp) return 0;
+    var released = 0;
+    var raf = hp.heldRaf;
+    for (var i = 0; i < raf.length; i++) { var cb = raf[i]; if (typeof cb === 'function') { released++; try { W.requestAnimationFrame(cb); } catch (e) {} } }
+    raf.length = 0;
+    var tm = hp.heldTimer;
+    for (var j = 0; j < tm.length; j++) { var fn = tm[j]; if (typeof fn === 'function') { released++; try { fn(); } catch (e) {} } }
+    tm.length = 0;
+    return released;
+  }
   /* ── 交互桥（sandbox 档：合成事件；compat 档用原生，不走这里） ─────────────────────────
      协议：宿主发 {mpw:'mpw:web', op:'pointer'|'wheel'|'touch', type, x, y, …}（坐标 = **帧内 client 像素**）。
      固有边界（照实说，不假装）：合成事件 isTrusted 恒为 false、CSS :hover/:active **不生效**
@@ -201,6 +244,9 @@ post('interaction', { kind: 'pointer', type: t, x: Number(msg.x) || 0, y: Number
         STATE.paused = p;
         if (listener && typeof listener.setPaused === 'function') later(listener.setPaused, p);
         freezeMedia(p);
+        /* ?webpause=hard：只在该档装计时器冻结；默认档一个字都不碰作者的计时语义。 */
+        if (p && W.__mpwHardPauseEnabled) installHardPause();
+        if (!p && W.__mpwHardPause) { var n = releaseHardPause(); post('hardpause', { released: n }); }
         post('paused', { paused: p });
         return { ok: true, paused: p };
       }
@@ -219,6 +265,21 @@ post('interaction', { kind: 'pointer', type: t, x: Number(msg.x) || 0, y: Number
       case 'random':
         STATE.randomFiles = (msg.files && typeof msg.files === 'object') ? msg.files : null;
         return { ok: true };
+      case 'key': {
+        var t2 = String(msg.type || 'down');
+        var tgt = null;
+        try { tgt = D.activeElement || D.body; } catch (e) { tgt = D.body; }
+        var kinit = { key: String(msg.key || ''), code: String(msg.code || ''), keyCode: Number(msg.keyCode) || 0,
+          which: Number(msg.keyCode) || 0, altKey: !!msg.altKey, ctrlKey: !!msg.ctrlKey, metaKey: !!msg.metaKey,
+          shiftKey: !!msg.shiftKey, repeat: !!msg.repeat, bubbles: true, cancelable: true, composed: true, view: W };
+        var okKey = fire(tgt, t2 === 'up' ? 'keyup' : 'keydown', kinit, W.KeyboardEvent || W.Event);
+        post('interaction', { kind: 'key', type: t2, x: 0, y: 0, hit: !!tgt, fired: okKey ? 1 : 0, isTrusted: false, key: kinit.key });
+        return { ok: true, fired: okKey ? 1 : 0 };
+      }
+      case 'hardpause':
+        W.__mpwHardPauseEnabled = !!msg.enabled;
+        post('hardpause-ack', { enabled: W.__mpwHardPauseEnabled, active: !!W.__mpwHardPause, paused: !!STATE.paused });
+        return { ok: true, enabled: W.__mpwHardPauseEnabled };
       case 'pointer': return dispatchPointer(msg);
       case 'wheel': return dispatchWheel(msg);
       case 'touch': return dispatchTouch(msg);
