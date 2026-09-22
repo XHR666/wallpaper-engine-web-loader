@@ -4501,6 +4501,22 @@ function loadScene() {
       layer.solid = false
       // ①(RE-32 ③) 层尺寸 = 文本框（作者 size 或回填盒），不再是墨迹尺寸
       layer.size = [e.boxW || e.width, e.boxH || e.height]
+      /* ①(2026-09-23 第 11 条取证) 文本层**不变量**：绘制四边形（`layer.size`）必须等于这次光栅化的
+         位图盒（`boxW/boxH`）—— 两者不一致就会出现"字被拉伸/像被切掉"的观感。判据由
+         `tests/text-box-invariant-probe.mjs` 读这里上报的读数（`window.__mpwTextBoxWant` 才采集，
+         默认零开销：只 push 一个小对象数组）。 */
+      try {
+        if (window.__mpwTextBoxWant) {
+          const arr = window.__mpwTextBoxes = window.__mpwTextBoxes || []
+          if (arr.length < 200) arr.push({ n: String(layer.name || layer.id).slice(0, 24), text: String(t.text || '').slice(0, 20),
+            box: [Math.round(e.boxW || e.width), Math.round(e.boxH || e.height)],
+            size: [Math.round(layer.size[0]), Math.round(layer.size[1])],
+            pt: +(t.pointsize || 0).toFixed(2), limw: !!t.limitwidth })
+        }
+        /* ⚠ 诊断自身的异常**要能看见**：第一版这里写了 `k`（那是 `rasterizeTextLayer` 内的局部量，
+           本作用域没有）⇒ 每次都在这里抛、又被 catch 吞掉，探针读数是「开关开着但一条都没采到」。
+           现在把错误也上报（`window.__mpwTextBoxErr`），别让诊断的失败伪装成"没问题"。 */
+      } catch (e2) { try { window.__mpwTextBoxErr = String((e2 && e2.message) || e2).slice(0, 120) } catch (e3) { /* ignore */ } }
       layer.image = layer.image || 'text:' + key
       return true
     } catch (e) { return false }

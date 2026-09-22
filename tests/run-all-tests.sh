@@ -634,6 +634,13 @@ add "cover-ab-probe" "node tests/cover-ab-probe.mjs --selftest"
 #   暂停期不下发音频、媒体 listener 回放最近一帧、不透明源才装 storage facade、上限抛 QuotaExceededError、
 #   种子懒回灌）+ 存储落盘（wallId 受限字符集/合并/最旧淘汰/不透明源 CORS）。73 条，纯函数无浏览器。
 add "web-frame-host" "node tests/web-frame-host-test.mjs"
+# ①(2026-09-23 第 11 条取证) `text-box-invariant-probe`：文本层「绘制四边形 == 光栅化位图盒」不变量。
+#   起因：`3326873240` 报「星期文字的 M/Y 被切一半、秒数区只露 1/5」。逐层读数 + 现场裁图显示字形是完整的，
+#   于是把真正该守的那条钉住：`layer.size` 必须等于**这次**光栅化的 `boxW/boxH`（不一致 = 字被拉伸/像被切，
+#   不报错、不白屏，只在某些壁纸某些字号下"看起来怪"）。页面侧读数由 `__mpwTextBoxWant` 开关控制。
+#   纯判据 `--selftest` 6 条常驻（含"位图 193 画在 265 上 ⇒ 必须违反"的分辨力自证）；真机模式需 :8902，
+#   支持 `--viewport WxH`（小视口最容易出问题 —— 实测 1280×720 / 960×540 / 624×351 各 29/67/47 条读数、0 违反）。
+add "text-box-invariant" "node tests/text-box-invariant-probe.mjs --selftest"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then
