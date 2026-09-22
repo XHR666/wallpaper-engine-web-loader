@@ -48,6 +48,9 @@ run-all-tests.sh          # 0d29bdd 目录收拢时移入 tests/，属重命名
 | 2026-09-11 | `lib/client.js.bak-20260907`（插件仓） | 备份文件不入库 | `0f0649f` |
 | 2026-09-16 | `tools/mdl_explorer.py`、`tools/tex2png.py`、`tools/unmpkg.py`、`tools/xref.py`（4 个）+ 插件仓 screenshots 目录下的 dhsw1.jpg、dshw2.jpg、dshw3.jpg（3 张旧截图） | 按 MIT 口径移出**许可血缘存疑**的 py 工具；旧截图同期清理 | `73b860f` |
 | 2026-09-18 | `tools/liquid-demo/vendor/*.js`（9 文件）（插件仓） | 与 `lib/liquid-glass/` **逐字节重复** ⇒ 去重，保留唯一一份 | `47d2bad` |
+| 2026-09-23 | demo/icons/pwa-maskable-512.png（上游 WebWallGL 图标，**已删**） | 品牌/残留清理：全树 0 引用（`grep -rn pwa-maskable` 覆盖 `docs/ tests/ archive/ build-pages.mjs package.json` 与两个 minified 产物均 0 命中）；同时 /favicon.ico 路由从上游 pwa-192.png 改指向自家 assets/brand/ 图 | 待提交（本轮） |
+| 2026-09-23 | 插件仓 docs/ 共 5 篇（4 篇调研：elysia395-scene-renderer-分析 / scene-渲染方案评估-v3-elysia实证 / scene-渲染方案重新评估-WebGPU浏览器端可行 / virgl-ANGLE-GPU加速操作指南-Adreno830；+ 1 篇孤儿 scene-渲染加速方案分析，其唯一引用源正是被删的 WebGPU 篇） | 文档卫生：五类引用源（README/README.en/THIRD-PARTY/LICENSE、package.json 的 files 白名单、代码与门禁、插件仓 docs 交叉引用、check.sh 与 integrity-check 点名）全部 0 命中；删后 `integrity-check` 72/0 逐字不变 | 待提交（本轮） |
+| 2026-09-23 | 渲染器仓 docs/CLEANUP.md → **移出仓库**至工作区 docs/CLEANUP.md（sha256 逐字节一致，git rm 后历史保留） | 文档卫生：非 README 引用面，但属带证据的历史修复记录 ⇒ 非破坏性移出而非删除 | 待提交（本轮） |
 | 2026-09-16 | `common_vertex.h` | 有效行 100% 重合（187/187）⇒ **原件移出分发面**，归档在**仓库外** | **无（从未入库）**：`git log --all -- '*common_vertex*'` → **0 命中** |
 
 **复核命令与输出**（本轮实跑）：

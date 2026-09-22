@@ -48,6 +48,11 @@ export const PWA_ROUTES = {
   '/icons/icon-192.png': { file: path.join('icons', 'icon-192.png'), type: 'image/png' },
   '/icons/icon-512.png': { file: path.join('icons', 'icon-512.png'), type: 'image/png' },
   '/icons/icon-512-maskable.png': { file: path.join('icons', 'icon-512-maskable.png'), type: 'image/png' },
+  // ①(2026-09-23 第二轮品牌清理 · 用户③) 浏览器**默认**请求的 `/favicon.ico`：`demo.html` 里没有
+  //   `<link rel=icon>`（上游产物，本仓不许改它）⇒ 不拦这条路径时标签页图标是空的（实测 404）。
+  //   发的是品牌图 32×32 PNG（浏览器按**内容**嗅探，这里 content-type 如实写 image/png）。
+  //   注意：这条路由与**注入开关无关** —— 注入（HTML 片段）默认关，但静态路由一直可用。
+  '/favicon.ico': { file: path.join('icons', 'brand-32.png'), type: 'image/png' },
 }
 
 /**

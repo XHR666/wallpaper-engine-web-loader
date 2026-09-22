@@ -570,7 +570,16 @@ if (hasPkg('3554161528')) {
   const em0 = (fl.particleDef.emitter || [])[0] || {}
   const dirs = String(em0.directions || '1 1 0').trim().split(/\s+/).map(Number)
   const dmax = Number(em0.distancemax || 0)
-  const MARGIN = 200
+  // ①(sphere-dim 2026-09-23) MARGIN 200 → **320**：本层的发射器是 `sphererandom`（见下行 `em0.name`），
+  //   而 `?psph` 的新默认把半径从**线性均匀**换成**按维度幂次分布**（`r=(lo^d+u·(hi^d−lo^d))^(1/d)`，
+  //   2D = 面积均匀）⇒ 出生半径的期望从 `hi/2 = 256` 抬到 `2hi/3 ≈ 341`（+85px），
+  //   即"出生点本身整体外移"，而漂移量（turbulence/movement）并没有变大。
+  //   实测同种子同一层（1200 帧）：legacy `y∈[1291,2979]`（余量用掉 128/200，PASS）；
+  //   官方档 `y∈[1117,2987]` ⇒ 比 bbox 下沿 1163 低 46px（**不是**粒子飞出画布：
+  //   `|py| ≤ |dirs[1]|·dmax = 768` 这条出生域上界两档都严格成立，超出的只有"漂移余量"）。
+  //   ⇒ 判据的**意图**（粒子全程留在"出生域 + 有界漂移"内）不变，只把余量按同一比例放宽。
+  //   对照读数写在这里，便于以后复核：legacy y∈[1291,2979] / official y∈[1117,2987]。
+  const MARGIN = 320
   const bbox = {
     x0: fl.origin[0] - Math.abs(dirs[0]) * dmax - MARGIN, x1: fl.origin[0] + Math.abs(dirs[0]) * dmax + MARGIN,
     y0: fl.origin[1] - Math.abs(dirs[1]) * dmax - MARGIN, y1: fl.origin[1] + Math.abs(dirs[1]) * dmax + MARGIN,

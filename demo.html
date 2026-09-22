@@ -2022,6 +2022,9 @@ async function loadTex(name, opts = {}) {
   // ①(2026-09-12 诊断) 纹理内容统计（进自动上报）：解码后的尺寸 + 采样均值 + 全透明占比。
   //   用途：区分"绘制参数对但纹理本身是空的"（→ 层看不到）与"绘制被跳过"。真机上后者已排除，
   //   前者只能靠像素统计判断（只报结构数据，不做判断，阈值留给分析端）。
+  // ①(2026-09-23 静默失败审计 A-7 表 #9) 该纹理的 texStats 条目**句柄**：本条记的是 CPU 解码缓冲
+  //   （尺寸/均值），上传成败必须写在**同一条**上 —— 否则读报区分不出"纹理正常"与"GPU 上传失败"。
+  let __texStatEnt = null
   try {
     if (m.rgba && m.width && m.height) {
       const n = m.width * m.height
@@ -2033,15 +2036,27 @@ async function loadTex(name, opts = {}) {
         if (m.rgba[o + 3] === 0) a0++
         cnt++
       }
-      ;(window.__mpwTexStats = window.__mpwTexStats || []).push({
+      __texStatEnt = {
         n: String(name).slice(0, 14), d: m.width + 'x' + m.height, f: tex.format,
         rgb: [Math.round(sr / cnt), Math.round(sg / cnt), Math.round(sb / cnt)],
         a: Math.round(sa / cnt), a0: Math.round(a0 / cnt * 100)
-      })
+      }
+      ;(window.__mpwTexStats = window.__mpwTexStats || []).push(__texStatEnt)
     } else {
-      ;(window.__mpwTexStats = window.__mpwTexStats || []).push({ n: String(name).slice(0, 14), d: (m.width || 0) + 'x' + (m.height || 0), f: tex.format, kind: m.video !== undefined ? 'video' : (m.png !== undefined ? 'png' : (m.image !== undefined ? 'jpeg' : 'other')) })
+      __texStatEnt = { n: String(name).slice(0, 14), d: (m.width || 0) + 'x' + (m.height || 0), f: tex.format, kind: m.video !== undefined ? 'video' : (m.png !== undefined ? 'png' : (m.image !== undefined ? 'jpeg' : 'other')) }
+      ;(window.__mpwTexStats = window.__mpwTexStats || []).push(__texStatEnt)
     }
   } catch (e) {}
+  // ①(2026-09-23 审计 A-7) 上传状态落账助手（只加字段、不动任何既有数值）：
+  //   up='ok' | '0x<err>'；upTries>1 = 走了阶梯；upSize = 降级后的实际上传尺寸；upFail=1 = 判"缺纹理"。
+  const texStatUp = (r, tries) => {
+    try {
+      if (!__texStatEnt) return
+      __texStatEnt.up = r === 0 ? 'ok' : '0x' + Number(r).toString(16)
+      if (r !== 0) __texStatEnt.upFail = 1
+      if (tries && tries > 1) __texStatEnt.upTries = tries
+    } catch (e) {}
+  }
   // ①(修复 2026-09-12) 设备 MAX_TEXTURE_SIZE=4096：6000px 级背景纹理上传即 0x501（白块/黑背景）。
   //   旧实现：6000² canvas + 4096² canvas + ImageData（≈350MB）→ 手机 OOM 时静默失败 = "背景一直没有"。
   //   新实现：纯 JS 盒式滤波直接缩到小缓冲，再直接 texImage2D 上传（不建任何大 canvas），
@@ -2083,11 +2098,15 @@ async function loadTex(name, opts = {}) {
          云/神光那类 uv 随 `g_Time` 无界增长的贴图必须 REPEAT（CLAMP 会把天空拉成静止伪影），
          其余一律 CLAMP（默认不变）。名单与回退开关都在 `core/we-scene-bundle.js` 的 `REPEAT_TEX_NAMES`
          / `?texwrap=clamp|repeat`，这里只负责"按名字问一次"。 */
-      const entry = wrapTex({ glTex: lib.makeTexture(gl, dst, nw, nh), width: nw, height: nh, rg88: tex.format === 8, sprite }, name)
-      const g1 = gl.getError()
+      const entry = wrapTex({ glTex: lib.makeTexture(gl, dst, nw, nh, null, null, 'materials/' + name + '.tex'), width: nw, height: nh, rg88: tex.format === 8, sprite }, name)
+      // ①(2026-09-23 静默失败审计 A-7) `makeTexture` 现在**自己**在 texImage2D 之后查一次错
+      //   （记账进 `__mpwTexUploadErrs`）⇒ 这里不能再靠 `gl.getError()` 读（旗标已被它取走，恒 0），
+      //   改读同一份判定值；万一跑的是旧 bundle（无该字段）则回退到原来的 getError。
+      const g1 = (entry.glTex && typeof entry.glTex.__mpwUploadErr === 'number') ? entry.glTex.__mpwUploadErr : gl.getError()
       const okTex = entry.glTex && gl.isTexture(entry.glTex) && gl.getParameter(gl.TEXTURE_BINDING_2D) !== null
       if (g1 !== gl.NO_ERROR) logf('  ⚠ 降采样纹理上传报错 ' + name + ' 0x' + g1.toString(16) + '（' + nw + 'x' + nh + '，' + (dst.length / 1048576).toFixed(1) + 'MB）')
       else logf('  ✅ 降采样纹理已上传 ' + name + ' ' + nw + 'x' + nh + '（' + (dst.length / 1048576).toFixed(1) + 'MB, glErr=0, tex=' + (entry.glTex ? 'ok' : 'null') + '）')
+      texStatUp(g1)
       textures.set(name, entry)
       return entry
     } catch (e) { logf('  ⚠ JS降采样失败 ' + name + ': ' + e.message) }
@@ -2122,12 +2141,17 @@ async function loadTex(name, opts = {}) {
       //   纹理静默为黑（效果链把黑底+光斑一起输出=用户看到的"全黑只剩窗帘/光斑"）。
       //   现在：超 min(4096, 设备上限) 先 canvas 缩图；上传后查错，失败按 2048→1024 阶梯
       //   重试并逐级记日志（下一份上报能直接回答"为什么黑"）。
-      const mkEntry = (src, w, h) => wrapTex({ glTex: lib.makeTexture(gl, null, 0, 0, src), width: w, height: h, rg88: rg88, sprite }, name)
+      const mkEntry = (src, w, h) => wrapTex({ glTex: lib.makeTexture(gl, null, 0, 0, src, null, 'materials/' + name + '.tex'), width: w, height: h, rg88: rg88, sprite }, name)
       const uploadWithCheck = (src, w, h) => {
         try { gl.getError() } catch (e) {}   // 清掉历史错误，只看本次上传
         const e = mkEntry(src, w, h)
+        // ①(2026-09-23 静默失败审计 A-7) `makeTexture` 现在**自己**在 texImage2D 之后查一次错（并记账
+        //   进 `__mpwTexUploadErrs`）⇒ 这里不能再用 `gl.getError()` 读（旗标已被它取走，恒 0 ⇒ 下面的
+        //   重试阶梯会退化成死代码），改读同一份判定值；旧 bundle（无该字段）时回退原 getError。
         let gerr = 0
-        try { gerr = gl.getError() } catch (err) {}
+        const t = e && e.glTex
+        if (t && typeof t.__mpwUploadErr === 'number') gerr = t.__mpwUploadErr
+        else { try { gerr = gl.getError() } catch (err) {} }
         return { entry: e, gerr }
       }
       let src = bmp, w = bmp.width, h = bmp.height
@@ -2168,9 +2192,11 @@ async function loadTex(name, opts = {}) {
       //   走既有的"缺纹理"路径（透明兜底 + 明确日志），画面退到清屏色而不是黑幕，且原因写在日志里。
       if (r.gerr !== gl.NO_ERROR) {
         logf('  ⚠ 位图上传仍报错 0x' + r.gerr.toString(16) + ' ' + name + '（' + w + 'x' + h + '）——该纹理按**缺纹理**处理（旧实现登记坏纹理 ⇒ 整层采样为不透明黑）')
+        texStatUp(r.gerr)
         try { if (r.entry && r.entry.glTex && gl.deleteTexture) gl.deleteTexture(r.entry.glTex) } catch (e) {}
         return null
       }
+      texStatUp(0)
       ;(window.__mpwTexStats = window.__mpwTexStats || []).push({
         n: String(name).slice(0, 14), d: w + 'x' + h, f: 0, kind: (w !== bmp.width || h !== bmp.height) ? 'png-ds' : 'png-up',
       })
@@ -2180,7 +2206,24 @@ async function loadTex(name, opts = {}) {
     });
   }
   if (m.image !== undefined) return Promise.resolve(null);
-  const e = { glTex: lib.makeTextureMip(gl, [m], rg88), width: m.width, height: m.height, rg88: rg88, sprite };
+  /* ①(2026-09-23 静默失败审计 A-7 表 #9) `.tex` 主上传路径此前**零校验**（同文件 2081-2090 与
+   *   2126-2173 两条位图路径早就做了 getError + 降档重试）⇒ 上传失败即"整层变黑/消失"，而 texStats
+   *   记的是 CPU 解码缓冲 ⇒ 读报区分不出"纹理正常"与"GPU 上传失败"。
+   *   改用 `makeTextureMipGuarded`：上传后查错 → 失败按**既有阶梯**（[2048, 1024]，与位图路径同档）
+   *   逐档纯 JS 重采样重试 → 全档仍错则按"缺纹理"处理（不登记坏纹理：不完整纹理采样恒不透明黑）。
+   *   未降级成功时尺寸/参数/返回值与改动前**逐位相同**（只多一次 getError 探测）。 */
+  const up = lib.makeTextureMipGuarded(gl, [m], rg88, { where: 'materials/' + name + '.tex' })
+  if (!up.ok) {
+    logf('  ⚠ 纹理上传失败 0x' + up.gerr.toString(16) + ' materials/' + name + '.tex（' + up.attempts.map((a) => a.w + 'x' + a.h).join(' → ') + '）——该纹理按缺纹理兜底（旧实现登记不完整纹理 ⇒ 整层采样为黑/透明）')
+    texStatUp(up.gerr, up.attempts.length)
+    return Promise.resolve(null)
+  }
+  if (up.w !== m.width || up.h !== m.height) {
+    logf('  ⚠ 纹理上传降档 ' + name + ' ' + m.width + 'x' + m.height + ' → ' + up.w + 'x' + up.h + '（' + up.attempts.map((a) => a.w + 'x' + a.h + (a.err ? '(0x' + a.err.toString(16) + ')' : '')).join(' → ') + '）')
+    if (__texStatEnt) __texStatEnt.upSize = up.w + 'x' + up.h
+  }
+  texStatUp(0, up.attempts.length)
+  const e = { glTex: up.tex, width: up.w, height: up.h, rg88: rg88, sprite };
   textures.set(name, e);
   return Promise.resolve(e);
 }

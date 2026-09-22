@@ -25,7 +25,11 @@ export const WEB_INJECT_MAX_BYTES = 8 * 1024 * 1024;
 
 const str = (v) => (typeof v === 'string' ? v : '');
 
-/** 档位归一：已知档原样；空/垃圾 ⇒ `auto`（并让调用方知道回落过）。 */
+/**
+ * 档位归一：已知档原样；空/垃圾 ⇒ `auto`（并让调用方知道回落过）。
+ * @param {unknown} raw `?webframe=` 的原值
+ * @returns {{mode:'compat'|'sandbox'|'auto', explicit:boolean, fellBack:boolean, raw?:string}}
+ */
 export function normalizeWebFrameMode(raw) {
   const s = str(raw).trim().toLowerCase();
   if (s === 'compat' || s === 'sandbox') return { mode: s, explicit: true, fellBack: false };
@@ -46,11 +50,15 @@ export function resolveWebFrameMode(raw, ctx = {}) {
   const sameOrigin = !!ctx.sameOriginService;
   const embed = !!ctx.embed;
   if (n.explicit) {
+    /* ① 类型层收窄（`strict:false` 下 TS 不会从 `explicit` 反推 `mode` 的联合类型）：
+       `explicit === true` 只可能来自 `normalizeWebFrameMode` 的 compat/sandbox 分支
+       ⇒ 这里显式收窄，**行为逐位不变**（'auto' 在这条分支上不可达）。 */
+    const explicitMode = n.mode === 'sandbox' ? 'sandbox' : 'compat'
     return {
-      mode: n.mode,
+      mode: explicitMode,
       explicit: true,
       fellBack: false,
-      why: 'explicit:' + n.mode + (n.mode === 'compat' && !sameOrigin ? '（调用方显式要求，非同源入口也照办）' : ''),
+      why: 'explicit:' + explicitMode + (explicitMode === 'compat' && !sameOrigin ? '（调用方显式要求，非同源入口也照办）' : ''),
     };
   }
   // ① 本服务提供 + 没被宿主嵌入 ⇒ compat（原生指针/焦点，Spine/WebGL 类贴图可用）
@@ -101,7 +109,9 @@ export function webEntryPlan(entryUrl, ctx = {}) {
 
 /**
  * §3.3 第 3 条：起手 sandbox 且 2.5s 没等到 `ready` ⇒ **仅非嵌入 + 非显式**时一次性降 compat。
- * @param {{mode:string, explicit:boolean, embed:boolean, ready:boolean, elapsedMs:number, timeoutMs?:number, alreadyDowngraded?:boolean}} s
+ * 入参**全可选**：本函数就是给"状态还没凑齐"的调用方用的（缺字段走保守分支），
+ * JSDoc 如实描述这一点，不要写成必填（`s = {}` 的默认值就是证据）。
+ * @param {{mode?:string, explicit?:boolean, embed?:boolean, ready?:boolean, elapsedMs?:number, timeoutMs?:number, alreadyDowngraded?:boolean}} [s]
  */
 export function webShimDowngradePlan(s = {}) {
   const timeout = Number.isFinite(Number(s.timeoutMs)) ? Number(s.timeoutMs) : WEB_SHIM_READY_TIMEOUT_MS;

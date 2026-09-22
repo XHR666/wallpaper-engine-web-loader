@@ -709,7 +709,8 @@ scope as **six files** with the reproduction commands.
   Upstream:  https://github.com/oneincase/webwallgl
   Licence:   MIT
   Copyright: Copyright (c) 2026 oneincase <462534624@qq.com>
-  Commit:    `d6dd5bc31d` (2026-09-21, upstream `origin/main`；两个 vendored 转译器文件于 2026-09-22 更新到此版本)
+  Commit:    `9531aaf69e` (2026-09-22, 本轮上游终点；`hlsl2glsl.js` 于 2026-09-23 更新到此版本) /
+             `d6dd5bc31d` (2026-09-21；`hlsl-preprocessor.js` 自该版本起未变，两个文件于 2026-09-22 更新到此版本)
   SPDX:      MIT
   Ledger:    `docs/COPYING-RULES.md` §4, entry **#8** (2026-09-16)
   Local copy: `vendor/hlsl2glsl/README.md` (per-file blob / sha256 / byte counts)
@@ -718,13 +719,40 @@ scope as **six files** with the reproduction commands.
 
 | Upstream path | Upstream blob | Bytes / lines | sha256 (our copy) | Lands at |
 |---|---|---|---|---|
-| `renderer/vendor/we-scene/render/hlsl2glsl.js` | `66efe02d2f25c2369decee0f92ed655a5855715b` | 93,531 / 1658 | `574fa82372bccc78efb12db958e31dc315bf9df2eac302be9e8982482293bc8f` | `vendor/hlsl2glsl/hlsl2glsl.js` |
-| `renderer/vendor/we-scene/render/hlsl-preprocessor.js` | `5544c1359a61c2ee5dd137b6ec1fa46b1a1ae65b` | 14,920 / 418 | `ced8a2ceaea4e0137dfc185b248529eaf8051ae61ad8f632fdc5084c941ec907` | `vendor/hlsl2glsl/hlsl-preprocessor.js` |
+| `renderer/vendor/we-scene/render/hlsl2glsl.js` | `179b6f8192f50ec709ae5f9923d240245f30cef7` (commit `9531aaf`, 2026-09-22) | 95,759 / 1693 | `af4c0a2ac04f2c15132858964e40dd2f1f09e08684e0c668e1ab8c72e720dec3` | `vendor/hlsl2glsl/hlsl2glsl.js` |
+| `renderer/vendor/we-scene/render/hlsl-preprocessor.js` | `5544c1359a61c2ee5dd137b6ec1fa46b1a1ae65b` (commit `d6dd5bc`, 2026-09-21) | 14,920 / 418 | `ced8a2ceaea4e0137dfc185b248529eaf8051ae61ad8f632fdc5084c941ec907` | `vendor/hlsl2glsl/hlsl-preprocessor.js` |
 | `LICENSE` (repo root) | — | 1,085 / 21 | `857432ca4f48930e6079aca25164c27b791576ee2a7d3e3c9d6a92a089fe4948` | `vendor/hlsl2glsl/LICENSE` |
 
-**Byte-level verification**: our copies are **verbatim** — `git diff origin/main -- <the two paths>` in the
-upstream checkout (`../vendor-ref/webwallgl/`) is **empty**, and the sha256 triple above matches the
-copies shipped here. **Not one character was changed**; no reformatting, no comment stripping.
+**Byte-level verification**: our copies are **verbatim** — each equals the blob of the upstream commit named
+in the table (`git hash-object <our copy>` ⇒ the same 40-hex), and `hlsl2glsl.js` differs from the previous
+vendored revision (upstream `d6dd5bc`'s blob `66efe02d…`) by **exactly three hunks (+38 / −3)** — i.e. only
+the two upstream patches of batch `3351179520`, with no local rewriting. Reproduce:
+
+```bash
+git -C ../references/vendor-ref/webwallgl show d6dd5bc:renderer/vendor/we-scene/render/hlsl2glsl.js \
+  | diff -u - vendor/hlsl2glsl/hlsl2glsl.js | grep '^@@'      # 3 hunks: @@ -671 / @@ -1254 / @@ -1296
+```
+
+**2026-09-23 update (`hlsl2glsl.js` → commit `9531aaf`)**: upstream `78718843` (v1.4.1) added two rules to
+this translator; without them a whole effect pass **fails to compile and is skipped silently**:
+(1) `9-3)` compound-assignment vector truncation (`vec2 s; s *= <vec4 expr>;` ⇒ append `.xy`) and
+(2) `vertConflicts` (a same-named varying declared in **both** branches of a sibling's `#if/#else` with
+different widths ⇒ the fragment side is neither widened nor narrowed). Fetch method: single-file
+`web_fetch` of the upstream raw file + the GitHub contents API for the blob id — **no** `git clone`,
+**no** `npm install`, **no** `git fetch` (the local checkout's `origin/main` is still `d6dd5bc`).
+Coverage on this machine's 4-package / 46-file subset is **unchanged at 45/46 = 97.8 %** before and after
+(`MPW_H2G_IMPL=vendor`), i.e. the "never goes down" rule holds; the subset simply does not exercise the two
+new rules. Judged by `tests/hlsl2glsl-3351179520-test.mjs` (pure-function, with a slice-mutation
+"red-if-reverted" proof). See `vendor/hlsl2glsl/README.md` §1.1 for the full ledger.
+
+⚠ **This copy does not change what is rendered today.** `tests/hlsl2glsl-wiring-test.mjs` instruments the
+real render path and proves it calls the **inlined** translator in `core/we-scene-bundle.js` (arity 4 — it
+does **not** accept `siblingSrc`); the vendored copy is consumed only by the coverage gate. Both gaps of the
+same family are therefore **still open on the render path**: the inlined translator has neither the
+`9 / 9a-2 / 9-3` vector-width rule family nor any cross-stage varying widening/narrowing (so there is
+structurally nothing for `vertConflicts` to arbitrate) — measured: the same fixture keeps
+`s *= 500.0 / g_Texture0Resolution;` verbatim under the inlined implementation, i.e. it would fail GLSL ES
+compilation. Closing it means porting that whole rule family first — a separate item.
 
 ### 9.2 What was deliberately **NOT** vendored
 

@@ -314,7 +314,7 @@ console.log('== H 品牌图标（P-164） ==')
     if (b.slice(1, 4).toString() !== 'PNG') return null
     return { w: b.readUInt32BE(16), h: b.readUInt32BE(20), bytes: b.length }
   }
-  const want = { 'wallpaper-engine-icon-512.png': 512, 'wallpaper-engine-icon-192.png': 192, 'favicon-64.png': 64, 'favicon-32.png': 32 }
+  const want = { 'brand-512.png': 512, 'brand-192.png': 192, 'favicon-64.png': 64, 'favicon-32.png': 32 }
   let allOk = true
   for (const [f, n] of Object.entries(want)) {
     const fp = path.join(brandDir, f)
@@ -325,8 +325,8 @@ console.log('== H 品牌图标（P-164） ==')
   ok(allOk, 'H1 四张品牌图齐备（512/192/64/32，PNG 尺寸与文件名一致）')
   const html = fs.readFileSync(path.join(ROOT, 'demo/index.html'), 'utf8')
   ok(/<link rel="icon" type="image\/png" sizes="32x32" href="\.\/assets\/brand\/favicon-32\.png" \/>/.test(html) &&
-    /href="\.\/assets\/brand\/favicon-64\.png"/.test(html) && /href="\.\/assets\/brand\/wallpaper-engine-icon-192\.png"/.test(html) &&
-    /<link rel="apple-touch-icon" href="\.\/assets\/brand\/wallpaper-engine-icon-192\.png" \/>/.test(html),
+    /href="\.\/assets\/brand\/favicon-64\.png"/.test(html) && /href="\.\/assets\/brand\/brand-192\.png"/.test(html) &&
+    /<link rel="apple-touch-icon" href="\.\/assets\/brand\/brand-192\.png" \/>/.test(html),
     'H2 `demo/index.html` 的 favicon / apple-touch 指向品牌图（不再指 `./icons/pwa-*.png`）')
   ok(!/href="\.\/icons\/pwa-/.test(html), 'H3 `demo/index.html` 里不再引用旧的 `./icons/pwa-*`')
   const mf = JSON.parse(fs.readFileSync(path.join(ROOT, 'demo/manifest.webmanifest'), 'utf8'))
@@ -334,12 +334,42 @@ console.log('== H 品牌图标（P-164） ==')
     'H4 `demo/manifest.webmanifest` 的三个图标都指向品牌图', JSON.stringify(mf.icons.map((i) => i.src)))
   for (const ic of mf.icons) ok(fs.existsSync(path.join(ROOT, 'demo', ic.src)), `H5 manifest 图标可达：${ic.src}`)
   const np = fs.readFileSync(path.join(ROOT, 'demo/now-playing/NowPlaying.tsx'), 'utf8')
-  ok(/const COVER: string = "\.\.\/assets\/brand\/wallpaper-engine-icon-512\.png"/.test(np) &&
-    fs.existsSync(path.join(ROOT, 'demo/now-playing/assets/brand/wallpaper-engine-icon-512.png')) === false &&
-    fs.existsSync(path.join(ROOT, 'demo/assets/brand/wallpaper-engine-icon-512.png')),
+  ok(/const COVER: string = "\.\.\/assets\/brand\/brand-512\.png"/.test(np) &&
+    fs.existsSync(path.join(ROOT, 'demo/now-playing/assets/brand/brand-512.png')) === false &&
+    fs.existsSync(path.join(ROOT, 'demo/assets/brand/brand-512.png')),
     'H6 播放卡片的封面也换成品牌图（路径相对 `demo/now-playing/` 解析得到真文件）')
   const dist = fs.readFileSync(path.join(ROOT, 'demo/now-playing/dist/now-playing.js'), 'utf8')
-  ok(dist.includes('brand/wallpaper-engine-icon-512.png'), 'H7 组件产物里带的是新封面路径（dist 已重建）')
+  ok(dist.includes('brand/brand-512.png'), 'H7 组件产物里带的是新封面路径（dist 已重建）')
+
+  // ①(2026-09-23 第二轮品牌清理 · 用户裁定 ①②③) 品牌位的**第二批收口**：站点根（web/**）+ 落地页
+  //   + 两个 SW 缓存名。判据一律"新名在位 + 旧名在**代码面**零残留"（负向断言前先剥注释：
+  //   注释里刻意留了旧名当历史说明，见本文件顶部的 stripComments 说明）。
+  const siteMf = JSON.parse(fs.readFileSync(path.join(ROOT, 'web/manifest.webmanifest'), 'utf8'))
+  ok(siteMf.name === 'WEwebLoader' && siteMf.short_name === 'WEwebLoader',
+    'H8 `web/manifest.webmanifest` 安装名 = WEwebLoader（旧内部名 WE-Scene 不再出现在安装面）',
+    JSON.stringify({ name: siteMf.name, short_name: siteMf.short_name }))
+  const siteSwSrc = fs.readFileSync(path.join(ROOT, 'web/sw.js'), 'utf8')
+  // 注意：本文件的 stripComments 只剥块注释/HTML 注释 ⇒ 这里再剥一遍**整行 `//` 注释**
+  //（web/sw.js 的历史说明正好写在 `//` 行里，不剥就会"自己把自己判红"）。
+  const siteSwCode = stripComments(siteSwSrc).replace(/^[ \t]*\/\/.*$/gm, ' ')
+  ok(/const CACHE = 'wewebloader-shell-' \+ VERSION/.test(siteSwCode) && !/we-scene-shell-/.test(siteSwCode),
+    'H9 站点根 SW 缓存名换成产品名（代码面零 `we-scene-shell-`；activate 按名清理 ⇒ 旧缓存自动回收）')
+  const demoSrc = fs.readFileSync(path.join(ROOT, 'demo/sw.js'), 'utf8')
+  ok(/const VERSION = "wewebloader-bench-v1";/.test(demoSrc) && !/const VERSION = "webwallgl/.test(demoSrc),
+    'H10 测试台 SW 缓存名常量 = `wewebloader-bench-v1`（旧上游名只作为历史说明留在注释里）')
+  const landing = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')
+  ok(/<link rel="icon" type="image\/png" sizes="32x32" href="\.\/icons\/brand-32\.png" \/>/.test(landing) &&
+    /<link rel="icon" type="image\/png" sizes="192x192" href="\.\/icons\/brand-192\.png" \/>/.test(landing) &&
+    /<link rel="apple-touch-icon" sizes="192x192" href="\.\/icons\/brand-192\.png" \/>/.test(landing),
+    'H11 落地页 `index.html` 声明了品牌 favicon / apple-touch（原先一条图标声明都没有 ⇒ 标签页只能去要 /favicon.ico）')
+  ok(!/icons\/(pwa-|icon-)/.test(stripComments(landing)),
+    'H12 落地页不引用任何上游图 `icons/pwa-*` 或程序化生成图 `icons/icon-*`')
+  const injectSrc2 = fs.readFileSync(path.join(ROOT, 'web/pwa-inject.mjs'), 'utf8')
+  ok(/'\/favicon\.ico':\s*\{[^}]*brand-32\.png/.test(injectSrc2),
+    'H13 `/favicon.ico` 路由发品牌图（`demo.html` 没有 <link rel=icon>，标签页图标靠这条兜住）')
+  const pagesSrc = fs.readFileSync(path.join(ROOT, 'build-pages.mjs'), 'utf8')
+  ok(/\['web\/icons\/brand-32\.png', 'favicon\.ico'\]/.test(pagesSrc),
+    'H14 Pages 产物带 `/favicon.ico`（浏览器默认路径在线上不落空）')
 }
 
 // ══════════════════════════════ I 标签关闭 / 幂等 / 指针转发 / 调试模式（P-164） ══════════════════════════════

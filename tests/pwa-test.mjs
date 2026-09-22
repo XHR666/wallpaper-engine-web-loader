@@ -125,8 +125,8 @@ console.log('\n[B2] 品牌图（站点根 `/icons/brand-*`）：字节来源可�
   // maskable 那张是按下方命令派生的（带安全边距，不与源图逐字节相同 —— 因此单独断言尺寸与命令可复现）。
   const pairs = [
     ['brand-32.png', 'favicon-32.png'],
-    ['brand-192.png', 'wallpaper-engine-icon-192.png'],
-    ['brand-512.png', 'wallpaper-engine-icon-512.png'],
+    ['brand-192.png', 'brand-192.png'],
+    ['brand-512.png', 'brand-512.png'],
   ]
   for (const [site, demo] of pairs) {
     const a = path.join(WEB, 'icons', site), b = path.join(ROOT, 'demo', 'assets', 'brand', demo)
@@ -239,7 +239,10 @@ console.log('\n[F] 真子进程服务：PWA 资源与首页注入的实际字节
       })())
       const ROUTES = ['/manifest.webmanifest', '/sw.js', '/sw-policy.mjs', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-512-maskable.png',
         // ①(2026-09-19 品牌图标) 页面/manifest 现在引用的四张：真服务上必须 200 + image/png
-        '/icons/brand-32.png', '/icons/brand-192.png', '/icons/brand-512.png', '/icons/brand-512-maskable.png']
+        '/icons/brand-32.png', '/icons/brand-192.png', '/icons/brand-512.png', '/icons/brand-512-maskable.png',
+        // ①(2026-09-23 第二轮品牌清理 · 用户③) 浏览器**默认**请求的 `/favicon.ico`（`demo.html` 没写
+        //   `<link rel=icon>`）⇒ 这条必须真服务 200，否则标签页图标就是空的
+        '/favicon.ico']
       for (const r of ROUTES) {
         const resp = await fetch(base + r)
         const ct = resp.headers.get('content-type') || ''

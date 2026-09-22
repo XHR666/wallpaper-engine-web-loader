@@ -2263,8 +2263,14 @@ const server = http.createServer((req, res) => {
   if (p === '/baseline') return done(() => handleBaseline(req, res))
   if (p === '/__health' || p === '/__health/') return done(() => jsonOk(res, health()))
   if (p === '/favicon.ico') {
-    const cand = path.join(STATIC_ROOT, 'icons', 'pwa-192.png')
-    if (statSafe(cand) && sendFile(req, res, cand)) return undefined
+    /* ①(2026-09-23 品牌清理) 这里以前发的是 `icons/pwa-192.png` —— 那是**上游 WebWallGL 自己的图标**
+       （`demo/LICENSE-webwallgl:23` 把 `icons/*.png` 列为上游产物）。改成仓库所有者的品牌图
+       （`demo/assets/brand/favicon-32.png`，与站点根 `/icons/brand-32.png` 逐字节相同）。
+       兜底顺序：favicon-32 → brand-192；两张都不在才 204（原行为不变）。 */
+    for (const rel of [['assets', 'brand', 'favicon-32.png'], ['assets', 'brand', 'brand-192.png']]) {
+      const cand = path.join(STATIC_ROOT, ...rel)
+      if (statSafe(cand) && sendFile(req, res, cand)) return undefined
+    }
     res.writeHead(204, { 'Cache-Control': NO_STORE }); return res.end()
   }
   /* ①(渲染器页同源入口) `/webloader/**` 转发到本仓渲染器页（含 `/bundle.js`、`/pkg/…`、`/media/…` 全套路由）。

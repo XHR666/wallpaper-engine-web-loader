@@ -94,8 +94,8 @@ export const BENIGN_404 = [
   },
   {
     re: /^\/favicon\.ico$/,
-    why: '浏览器自动请求站点图标；demo.html 没有 <link rel=icon>，页面不依赖它',
-    evidence: '`curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8899/favicon.ico` → 404；本次运行未观测到该请求（防御性条目）',
+    why: '浏览器自动请求站点图标；demo.html 没有 <link rel=icon>，页面不依赖它（取不到只是标签页没图标，不影响渲染/建档）',
+    evidence: '①2026-09-23 起 :8899 **有**这条路由：`web/pwa-inject.mjs` 的 PWA_ROUTES 把品牌图 32×32 发在 `/favicon.ico`，`tests/pwa-test.mjs` F6 对真服务断言 200 + `image/png`；②本条目按"纵深防御"保留：更早的构建（或没带 `web/icons/brand-32.png` 的部署）仍会 404，而该请求**一定是浏览器自发**、与页面行为无关',
   },
   {
     re: /^\/weassist\//,

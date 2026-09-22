@@ -152,6 +152,12 @@ check('C0 服务端别名表能从源码提取到（`CORE_DIR` 路由）', URL_A
 /** 明确**不随包发布**的引用（每条都要写清理由；判据要求那句话真的能在引用文件里找到，防"白名单变遮羞布"）。 */
 const NOT_SHIPPED_OK = [
   { url: './demo/', in: 'index.html', why: '测试台目录（66MB，含本机构建残留）按 docs/RELEASE.md §5 不进 tarball；落地页那条链接在包里会 404，是已登记的口径' },
+  /* `index.html:12-14` 三条品牌图 `<link>`（32 / 192 / apple-touch 同 192）与上面 `./demo/` **完全同类**，故同一口径登记：
+     ①产物侧成立：`build-pages.mjs` 的 `['web/icons', 'icons']` 把真源 `web/icons/**` 拷成产物根的 `./icons/*`；
+     ②npm 包白名单（`package.json.files`）只有 `web/icons/`、不含根 `icons/` ⇒ tarball 里这两条会 404。
+     真源唯一（`web/icons/**`），仓库根**不再**留第二份品牌图副本。 */
+  { url: './icons/brand-32.png', in: 'index.html', why: `由构建产物提供、不进 npm 包：build-pages.mjs 的 ['web/icons', 'icons'] 把真源 web/icons/** 拷成产物 ./icons/*；package.json.files 白名单不含根 icons/，与 ./demo/ 那条同类` },
+  { url: './icons/brand-192.png', in: 'index.html', why: `同上（index.html:13-14 两条 link 共用这一份 192 图，故只需登记一条 url）` },
   { url: './demo/mpw-select.js', in: 'demo.html', why: '测试台自绘下拉：demo.html 引用它，但测试台整体不进包（同上）' },
   { url: './demo/mpw-select-math.mjs', in: 'demo.html', why: '同上一行' },
   { url: '/diag-flags.json', in: 'web/sw-policy.mjs', why: '面板开关数据源随站点外壳发布，不在 npm 运行面（docs/PACKAGING.md 的白名单口径）' },
@@ -201,7 +207,17 @@ function closure(fileSet, entryList) {
       if (hit) return { hit }
       const alias = URL_ALIASES.get('/' + target)
       if (alias && fileSet.has(alias.file)) return { hit: alias.file }
-      const excused = NOT_SHIPPED_OK.some((x) => x.in === relFile && (x.url === spec || x.url === './' + target || x.url === target))
+      /** ①(收口"登记即成") 登记必须**可核对**：被登记的那条 `url`（或它等价的 target 写法）必须真的
+       *  出现在 `in` 指定文件的内容里。绝对 URL 分支本来就有这道 `raw.includes(u)`（见下面 URL_REF_RE
+       *  那段的 `x.url === u && x.in === rel && raw.includes(u)`），相对分支此前只比 `url`/`in`，
+       *  于是"只要登记就放行"—— 登记会退化成遮羞布。这里补齐，不满足就照常落到 `{ missing }` 报红。 */
+      const registeredReallyReferenced = (x) => {
+        const t = path.posix.normalize(path.posix.join(path.posix.dirname(relFile), x.url))
+        return raw.includes(x.url) || raw.includes(t) || raw.includes('./' + t)
+      }
+      const excused = NOT_SHIPPED_OK.some((x) => x.in === relFile
+        && (x.url === spec || x.url === './' + target || x.url === target)
+        && registeredReallyReferenced(x))
       if (excused) return { excused: true }
       return { missing: target }
     }

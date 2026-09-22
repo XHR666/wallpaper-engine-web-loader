@@ -323,7 +323,7 @@ console.log('\n[5] ③-c `vortex`：字段名 distanceinner/distanceouter/speedi
   const run = (modes, ptr) => {
     setModes(modes)
     // `?pops=legacy` 由渲染器解析后经 ctx 传给 buildParticleSystem（bundle:10393）⇒ 直连构建要照传
-    const sys = lib.buildParticleSystem(vexDef(), { origin: [1000, 1000, 0], scale: [1, 1, 1], angle: 0, seedStr: 'vex', maxCount: 20, popsLegacy: modes === 'pops=legacy' })
+    const sys = lib.buildParticleSystem(vexDef(), { origin: [1000, 1000, 0], scale: [1, 1, 1], angle: 0, seedStr: 'vex', maxCount: 20, popsLegacy: modes === 'pops=legacy', vortexLegacy: modes === 'pvortex=legacy' })
     sys.pointer = ptr
     const p = lib.spawnParticle(sys, sys.emitters[0])
     p.pos = [ptr[0] + 25, ptr[1]]      // 距光标 25px（在 distanceinner..distanceouter 之内）
@@ -335,14 +335,23 @@ console.log('\n[5] ③-c `vortex`：字段名 distanceinner/distanceouter/speedi
   const ptr = [1000, 1000]
   const on = run('', ptr)
   const leg = run('pops=legacy', ptr)
-  // 圆心 = 光标(1000,1000)、粒子在 (1025,1000) ⇒ radial=(+25,0) ⇒ 切向 (0,+1)（axis=+z）；
+  const legV = run('pvortex=legacy', ptr)
+  // 圆心 = 光标(1000,1000)、粒子在 (1025,1000) ⇒ radial=(+25,0)、axis=+z
+  // ⇒ **本批新默认**切向 = `radial × axis` = `(dy,−dx)/d` = `(0,−1)`（P-136 及之前是 `axis × radial` = `(0,+1)`，
+  //    依据 `docs/VORTEX-CHIRALITY-RE-20260923.md`：第三方多实现共识 + 上游带理由的单向翻转；
+  //    **本机无 WE 官方反编译/官方方向定义**，`?pvortex=legacy` 保留旧符号）。
   // 半径权重按官方 `lerp((d−inner)/(outer−inner+0.1), speedinner, speedouter)`：d=25、inner=0、outer=50
-  // ⇒ 300 + (0−300)·(25/50.1) = 150.299…
+  // ⇒ 300 + (0−300)·(25/50.1) = 150.299…（量值与手性无关，故 ③-c-1 的 150.30 一字不动，只翻符号）
   const expectW = 300 + (0 - 300) * (25 / 50.1)
   const speed = Math.hypot(on.dv[0], on.dv[1]) / 0.1
   push('③-c-1 ★ 官方档：切向加速度按半径权重 = 150.30 px/s²（旧实现读不到字段 ⇒ 恒 1）',
-    near(speed, expectW, 0.5) && near(on.dv[0], 0, 1e-6) && on.dv[1] > 0,
+    near(speed, expectW, 0.5) && near(on.dv[0], 0, 1e-6) && on.dv[1] < 0,
     `|Δv|/dt=${speed.toFixed(2)} Δv=(${on.dv[0].toFixed(4)}, ${on.dv[1].toFixed(4)})`)
+  // ①(vortex-chirality 2026-09-23) **手性判据**：官方 = `(dy,−dx)`、`?pvortex=legacy` = `(−dy,+dx)`，
+  //   同配置下**严格相反**（量值相同、符号相反）⇒ 这条断言对"翻默认"敏感（改回去必红）。
+  push('③-c-1b 手性 ★ 官方 `(dy,−dx)` 与 `?pvortex=legacy` `(−dy,+dx)` **严格相反**（量值相同）',
+    near(legV.dv[0], -on.dv[0], 1e-9) && near(legV.dv[1], -on.dv[1], 1e-9) && Math.hypot(legV.dv[0], legV.dv[1]) > 1,
+    `官方 Δv=(${on.dv[0].toFixed(4)}, ${on.dv[1].toFixed(4)}) / legacy Δv=(${legV.dv[0].toFixed(4)}, ${legV.dv[1].toFixed(4)})`)
   push('③-c-2 `?pops=legacy` 复现旧口径：字段读不到 ⇒ 圆心退化成粒子自己的出生点 ⇒ 切向为 0（力恒 0）',
     near(Math.hypot(leg.dv[0], leg.dv[1]) / 0.1, 0, 1e-6),
     `legacy |Δv|/dt=${(Math.hypot(leg.dv[0], leg.dv[1]) / 0.1).toFixed(4)}`)

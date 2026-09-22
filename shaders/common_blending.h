@@ -288,6 +288,20 @@ vec3 ApplyBlending(const int blendMode, vec3 A, vec3 B, float opacity)
 	return mix(A, B, opacity);
 }
 
+// float overload. The combo substitution in the HLSL->GLSL pipeline writes
+// numeric combo values as plain GLSL literals, but package shaders that spell
+// the selector out by hand write a float literal (`ApplyBlending(0.0, ...)`).
+// That is legal in HLSL and rejected by GLSL ES, which has no float->int
+// implicit conversion ("no matching overloaded function found"), and a pass
+// that fails to compile is only console.warn'd and then skipped -- the effect
+// silently disappears (circular_text and friends). Rounding to nearest keeps
+// the authored values exact; int call sites still bind the `const int`
+// overload above exactly, so this is additive.
+vec3 ApplyBlending(float blendMode, vec3 A, vec3 B, float opacity)
+{
+	return ApplyBlending(int(blendMode + 0.5), A, B, opacity);
+}
+
 // ---------------------------------------------------------------------------
 // Macro API
 // ---------------------------------------------------------------------------

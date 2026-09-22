@@ -7,11 +7,21 @@
  *      DPR 上限只在"用户显式改过"时生效 / 状态行计划 / src 包装层（假原型驱动真接线）。
  *   B. **core 的画布活档位**（`?res=dpr|dpr1..dpr5`）：`parseResTier` + `resolveLiveCanvasSize`
  *      的算式与上限（"画布 = 显示尺寸 × DPR（有上限）"这条链的**唯一真源**）。
- *   C. **真机读数**（headless firefox，SKIP-able）：`:8902` 里把预览切到「本仓渲染器」，读
+ *   C. **真机读数**（firefox，SKIP-able）：`:8902` 里把预览切到「本仓渲染器」，读
  *      **同一个包、同一块面板**下两条路径的画布像素 / 生效 DPR / query 保留情况。
  *      —— 这是"上游 1× CSS 像素 vs 本仓 显示尺寸×DPR"的**判据**（数字，不是观感）。
+ *      ⚠ **这条判据的前置不是"有没有浏览器"，而是"这台浏览器能不能建 WebGL2"**（2026-09-22 归因）：
+ *      本机（Android/PRoot，无 `/dev/dri`）**无头 Firefox 连 WebGL1 都建不了**（实测 `webgl1/webgl2` 都是
+ *      null，控制台 `FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS`）⇒ 渲染器页停在
+ *      「❌ 启动失败: 当前浏览器不支持 WebGL2」，画布停在 300×150 空画布、`__mpwLiveRes` 永不发布
+ *      ⇒ D3/D4/D5 会**假红**（读数看着像产品坏了，其实是环境缺能力：同一浏览器里**上游产物页**也建不了 GL）。
+ *      本仓库既有唯一能出 WebGL2 的组合（`docs/REAL-MACHINE-AUTOMATION.md` §1、`tests/x11-e2e/README.md` §1）
+ *      = **有头 Firefox + X 显示 `:0` + 软件 llvmpipe** ⇒ D 段默认走有头；`MPW_BENCH_HEADLESS=1` 强制无头
+ *      （给真有 GL 的机器用）、`MPW_X11_DISPLAY` 换显示号。拿不到 WebGL2 时：D0–D2（URL/档位层）照跑，
+ *      D3–D5（画布/DPR 层）打印 SKIP + 原因 —— **不谎报成红，也不静默通过**。
+ *      读数的**时序**同理不靠盲等：场景挂载/活档位发布改为**轮询到读数出现为止**（有上限，超时照读照断言）。
  *
- * 无 :8902 / 无 Playwright / 无 firefox ⇒ C 段整体 SKIP（A/B 段照跑，门禁不红）。
+ * 无 :8902 / 无 Playwright / 无 firefox ⇒ D 段整体 SKIP（A/B/C 段照跑，门禁不红）。
  * 纪律：真树只读（所有改写都在内存对象/假原型上做）；不启新服务；浏览器用完必关。
  */
 import fs from 'node:fs'
@@ -213,87 +223,223 @@ if (!pwPath) {
     console.log(`── 汇总：PASS=${pass} FAIL=${fail}（D 段 SKIP）`)
     process.exit(fail === 0 ? 0 : 1)
   }
-  const browser = await firefox.launch({
-    headless: true,
-    env: { ...process.env, MOZ_WEBGL_FORCE_SOFTWARE: '1', LIBGL_ALWAYS_SOFTWARE: '1' },
+  /* ⚠ D 段的前置 = "这台浏览器能不能建 WebGL2"（见文件头 C 段的说明）。默认**有头 + X 显示**：本机
+     （Android/PRoot，无 /dev/dri）无头 Firefox 建不了 GL ⇒ 画布/DPR 读数必假红（实测读数：
+     `{"panelRepo":558,"upScale":0,"repoScale":0.537…,"dpr":2}`、`__mpwLiveRes=null`、
+     `transparentPct=100` —— 那正是"页面停在 WebGL2 启动失败"的样子）。有头起不来才回落无头。 */
+  const XDISPLAY = process.env.MPW_X11_DISPLAY || ':0'
+  const FORCE_HEADLESS = process.env.MPW_BENCH_HEADLESS === '1'
+  const launchOpts = (headless) => ({
+    headless,
+    env: {
+      ...process.env, MOZ_WEBGL_FORCE_SOFTWARE: '1', LIBGL_ALWAYS_SOFTWARE: '1',
+      ...(headless ? {} : { DISPLAY: XDISPLAY }),
+    },
     firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false },
   })
-  let read = null
-  try {
+  /** 起浏览器：有头优先（本机唯一能出 WebGL2 的组合），起不来回落无头（那时 D3–D5 会显式 SKIP）。 */
+  const launchBrowser = async () => {
+    let note = ''
+    let b = null
+    if (!FORCE_HEADLESS) {
+      try { b = await firefox.launch(launchOpts(false)); note = '有头 DISPLAY=' + XDISPLAY }
+      catch (e) { note = '有头起不来（' + String((e && e.message) || e).slice(0, 90) + '）⇒ 回落无头' }
+    }
+    if (!b) { b = await firefox.launch(launchOpts(true)); note = FORCE_HEADLESS ? '无头（MPW_BENCH_HEADLESS=1）' : note + ' · 无头' }
+    return { browser: b, note }
+  }
+  /** 跑一轮：起浏览器 → 能力前置 → 面板→画布读数。拆成函数的唯一理由：**浏览器被环境带走时能重来一次**
+      （本机 X 显示会被别的线重启 —— 本轮实测跑了一半显示从 1280×1024 变 1920×1200，有头 Firefox 当场被
+      带走、`page.waitForTimeout` 抛 "Target page, context or browser has been closed"）。判据类失败不重试。 */
+  const runAttempt = async () => {
+    const launched = await launchBrowser()
+    const browser = launched.browser
+    const launchNote = launched.note
+    /* 能力前置（读一次，不猜）：把"环境缺能力"与"产品没跑到"分开 —— 这是本轮归因的关键读数。 */
+    let webgl2 = false
+    let glNote = ''
+    try {
+      const glCtx = await browser.newContext({ viewport: { width: 400, height: 300 } })
+      const glPage = await glCtx.newPage()
+      await glPage.goto('about:blank')
+      const g = await glPage.evaluate(() => {
+        try {
+          const c = document.createElement('canvas')
+          const gl = c.getContext('webgl2')
+          const d = gl && gl.getExtension('WEBGL_debug_renderer_info')
+          return { ok: !!gl, ver: gl ? String(gl.getParameter(gl.VERSION)) : null, renderer: d ? String(gl.getParameter(d.UNMASKED_RENDERER_WEBGL)) : null }
+        } catch (e) { return { ok: false, err: String((e && e.message) || e).slice(0, 80) } }
+      })
+      webgl2 = g.ok === true
+      glNote = JSON.stringify(g)
+      await glCtx.close()
+    } catch (e) { glNote = 'GL 探针失败: ' + String((e && e.message) || e).slice(0, 120) }
+    console.log('D 段浏览器：' + launchNote + ' · WebGL2=' + (webgl2 ? '有 ' + glNote : '无 ' + glNote))
+    if (!webgl2) {
+      console.log('  ⚠ 拿不到 WebGL2 ⇒ 画布/DPR 层读数（D3/D4/D5）不可信，一律打 SKIP 而不是假红：')
+      console.log('    渲染器页会停在「❌ 启动失败: 当前浏览器不支持 WebGL2」，画布停在 300×150 空画布、')
+      console.log('    `__mpwLiveRes` 不发布 —— 这是**环境缺能力**（同一浏览器里上游产物页也建不了 GL），')
+      console.log('    不是本仓渲染器的判据。要跑满：起 X 显示（本仓库既有做法 `DISPLAY=:0`，见')
+      console.log('    tests/x11-e2e/README.md §1）后重跑；只有显式 `MPW_BENCH_HEADLESS=1` 才会强制无头。')
+    }
+    const pageErrs = []
     const ctx = await browser.newContext({ viewport: { width: 1360, height: 900 }, deviceScaleFactor: 2 })
     const page = await ctx.newPage()
-    const pageErrs = []
     page.on('pageerror', (e) => pageErrs.push(String(e.message).slice(0, 160)))
-    await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 })
-    await page.waitForSelector('#list li[data-id]', { timeout: 30000 })
-    const readLive = () => page.evaluate(async () => {
-      const fr = document.getElementById('frame')
-      const st = document.getElementById('status-renderer-src')
-      const out = {
-        src: fr ? String(fr.getAttribute('src') || '') : '',
-        status: st ? String(st.textContent || '') : '',
-        attrSrc: st ? st.getAttribute('data-mpw-renderer-src') : null,
-        dpr: window.devicePixelRatio,
-      }
-      try {
-        const w = fr.contentWindow
-        const cv = w.document.querySelector('canvas')
-        if (cv) {
-          const b = cv.getBoundingClientRect()
-          out.canvas = { w: cv.width, h: cv.height, cssW: Math.round(b.width), cssH: Math.round(b.height) }
-          out.innerDpr = w.devicePixelRatio
-          out.live = w.__mpwLiveRes || null
-          out.hostCaps = w.__mpwHostCaps ? Object.keys(w.__mpwHostCaps).filter((k) => w.__mpwHostCaps[k] === false) : null
-          // 该透的地方是不是黑：读画布的 alpha 分布（100% 不透明 = 没有透明区；透明区占比是像素数）
-          const bmp = await w.createImageBitmap(await (await w.fetch(cv.toDataURL('image/png'))).blob())
-          const oc = new w.OffscreenCanvas(bmp.width, bmp.height); const cx = oc.getContext('2d'); cx.drawImage(bmp, 0, 0)
-          const dd = cx.getImageData(0, 0, bmp.width, bmp.height).data
-          let tr = 0, blk = 0; const n = bmp.width * bmp.height
-          for (let i = 0; i < dd.length; i += 4) { if (dd[i + 3] < 16) tr++; else if (dd[i] < 12 && dd[i + 1] < 12 && dd[i + 2] < 12) blk++ }
-          out.alpha = { transparentPct: +(tr / n * 100).toFixed(1), opaqueBlackPct: +(blk / n * 100).toFixed(1) }
+    try {
+      await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 })
+      await page.waitForSelector('#list li[data-id]', { timeout: 30000 })
+      const readLive = () => page.evaluate(async () => {
+        const fr = document.getElementById('frame')
+        const st = document.getElementById('status-renderer-src')
+        const out = {
+          src: fr ? String(fr.getAttribute('src') || '') : '',
+          status: st ? String(st.textContent || '') : '',
+          attrSrc: st ? st.getAttribute('data-mpw-renderer-src') : null,
+          dpr: window.devicePixelRatio,
+          frameBox: fr ? (fr.clientWidth + 'x' + fr.clientHeight) : '',   // 面板盒（画布定尺的输入，取证用）
         }
-      } catch (e) { out.innerErr = String(e.message).slice(0, 120) }
-      return out
-    })
-    const selectSource = (mode) => page.evaluate((m) => {
-      const s = document.getElementById('renderer-src')
-      s.value = m
-      s.dispatchEvent(new Event('change'))
-    }, mode)
-    // 默认档 = 本仓渲染器。⚠ 时序（实测）：静态台在 1.2s 会走一次"合成样例"（本仓档下 = 把预览导航到
-    //   `?id=sample-synthetic`）⇒ 先等它落定，再点壁纸，读数才是"已挂载的那张壁纸"。
-    await page.waitForTimeout(4000)
-    await page.evaluate((id) => {
-      const li = [...document.querySelectorAll('#list li[data-id]')].find((x) => String(x.dataset.id) === String(id)) || document.querySelector('#list li[data-id]')
-      if (li) li.click()
-    }, PROBE_ID)
-    await page.waitForTimeout(13000)
-    // 兜一次：若样例探测的导航在点击之后才生效，src 会缺 `src=` ⇒ 再点一次（产物自己的挂载路径）
-    if (!/src=/.test(String((await readLive()).src))) {
-      await page.evaluate((id) => {
+        try {
+          const w = fr.contentWindow
+          const cv = w.document.querySelector('canvas')
+          if (cv) {
+            const b = cv.getBoundingClientRect()
+            out.canvas = { w: cv.width, h: cv.height, cssW: Math.round(b.width), cssH: Math.round(b.height) }
+            out.innerDpr = w.devicePixelRatio
+            out.live = w.__mpwLiveRes || null
+            out.hostCaps = w.__mpwHostCaps ? Object.keys(w.__mpwHostCaps).filter((k) => w.__mpwHostCaps[k] === false) : null
+            // 该透的地方是不是黑：读画布的 alpha 分布（100% 不透明 = 没有透明区；透明区占比是像素数）
+            const bmp = await w.createImageBitmap(await (await w.fetch(cv.toDataURL('image/png'))).blob())
+            const oc = new w.OffscreenCanvas(bmp.width, bmp.height); const cx = oc.getContext('2d'); cx.drawImage(bmp, 0, 0)
+            const dd = cx.getImageData(0, 0, bmp.width, bmp.height).data
+            let tr = 0, blk = 0; const n = bmp.width * bmp.height
+            for (let i = 0; i < dd.length; i += 4) { if (dd[i + 3] < 16) tr++; else if (dd[i] < 12 && dd[i + 1] < 12 && dd[i + 2] < 12) blk++ }
+            out.alpha = { transparentPct: +(tr / n * 100).toFixed(1), opaqueBlackPct: +(blk / n * 100).toFixed(1) }
+          }
+        } catch (e) { out.innerErr = String(e.message).slice(0, 120) }
+        return out
+      })
+      const selectSource = (mode) => page.evaluate((m) => {
+        const s = document.getElementById('renderer-src')
+        s.value = m
+        s.dispatchEvent(new Event('change'))
+      }, mode)
+      /* 就绪轮询（替代盲等）：本机软件渲染 ~1fps、包 44MB，挂载/定尺时间随机器负载浮动 ⇒ 判据等的是
+         "读数真的稳住了"，不是"睡够 N 秒"（旧写法 13s/16s/11s 是"环境刚好跑得动"的隐含假设）。
+         一帧快照：`box` = iframe 盒（换档会让工具条/状态行重排，实测会走 505×284 → 558×314 → 529×297
+         三段才定尺）、`cv` = 帧内第一块画布的像素尺寸、`ok` = 该档位的渲染器真的跑到出读数了。
+         ⚠ 两个坑（2026-09-22 本轮真机实测，都不是猜的）：
+         ① **换 src 之后旧文档不会立刻消失**（`contentWindow` 还是旧的、`__mpwLiveRes` 也还在）⇒ 只看读数
+            会把旧文档当就绪：`repo0` 因此读到过 300×150 空画布（匹配到 1.2s 那次"合成样例"导航的文档）；
+         ② **盒与画布不是同一拍定尺**：上游产物页在盒子还是 558×314 时建画布，盒子变到 529×297 之后约 5s
+            才把画布重算到 529×297 ⇒ 只看"有画布"会把中途尺寸当读数：`back` 因此读到 558×314（CSS 盒
+            529×297）。⇒ 就绪 = 文档对上 **且** 盒与画布**连着几拍都没变**（`waitReady` 的稳定拍数）。 */
+      const frameSnap = (a) => {
+        const fr = document.getElementById('frame')
+        const st = document.getElementById('status-renderer-src')
+        const out = { ok: false, box: '', cv: '', doc: '' }
+        if (!fr || !st) return out
+        out.box = fr.clientWidth + 'x' + fr.clientHeight
+        if (st.getAttribute('data-mpw-renderer-src') !== a.mode) return out
+        let w = null
+        try { w = fr.contentWindow } catch (e) { return out }
+        if (!w || !w.document) return out
+        let path = '', search = '', rs = ''
+        try {
+          path = String(w.location.pathname || '')
+          search = String(w.location.search || '')
+          rs = String(w.document.readyState || '')
+        } catch (e) { return out }
+        if (rs !== 'complete') return out
+        const cv = w.document.querySelector('canvas')
+        out.cv = cv ? (cv.width + 'x' + cv.height) : '-'
+        if (a.mode === 'repo') {
+          if (path.indexOf('/webloader') !== 0) return out
+          const m = /[?&]id=([^&]+)/.exec(search)
+          if (!m || m[1] === 'sample-synthetic') return out   // 1.2s 那次"合成样例"导航的文档不是判据
+          out.doc = 'repo:' + m[1]
+          out.ok = !!cv && cv.width > 0 && !!w.__mpwLiveRes  // 活档位发布 = 场景真的挂上了
+          return out
+        }
+        if (!/renderer\/index\.html$/.test(path)) return out
+        out.doc = 'upstream'
+        out.ok = !!cv && cv.width > 0
+        return out
+      }
+      /** 等就绪：`ok` 成立 **且** 盒与画布连着 `stableTicks` 拍没变才认。
+          为什么两档的稳定拍数不同（真机实测的时间线，`/tmp/timeline.json` 那份取证）：
+            · 本仓档：`__mpwLiveRes` 发布 = 场景挂上且画布按当前盒定过尺，盒+画布稳 3 拍（2.4s）足够；
+            · 上游产物档：它在**盒子还是 558×314 时**就建了画布，盒子变到 529×297 之后**约 5s**才把画布
+              重算过来（本机软件渲染 ~1fps ⇒ 它那侧的重定尺落在"下一批帧"上）⇒ 稳定窗口要长过这段滞后
+              （10 拍 ≈ 10.8s；旧写法给的是 11–13s 盲等，读数口径一致，只是这里改成"稳住了才读"）。
+          到点没等到就返回 false，调用方**照读照断言**（超时也要给出数字，不许吞成通过）。 */
+      const TICK_MS = 1200
+      const waitReady = async (mode, ms, stableTicks) => {
+        const t0 = Date.now()
+        let prevKey = null
+        let stable = 0
+        for (;;) {
+          const s = await page.evaluate(frameSnap, { mode }).catch(() => null)
+          const key = s ? (s.box + '|' + s.cv) : null
+          if (s && s.ok && key === prevKey) stable++
+          else stable = 0
+          prevKey = key
+          if (stable >= stableTicks - 1) return true
+          if (Date.now() - t0 >= ms) return false
+          await page.waitForTimeout(TICK_MS)
+        }
+      }
+      const REPO_STABLE_TICKS = 3
+      const UP_STABLE_TICKS = 10
+      // 无 WebGL2 时渲染器页永远到不了就绪态（见上面的能力前置）⇒ 不等满 60s，读数只作证据不作判据
+      const READY_MS = webgl2 ? 60000 : 8000
+      const clickItem = () => page.evaluate((id) => {
         const li = [...document.querySelectorAll('#list li[data-id]')].find((x) => String(x.dataset.id) === String(id)) || document.querySelector('#list li[data-id]')
         if (li) li.click()
       }, PROBE_ID)
-      await page.waitForTimeout(12000)
+      // 默认档 = 本仓渲染器。⚠ 时序（实测）：静态台在 1.2s 会走一次"合成样例"（本仓档下 = 把预览导航到
+      //   `?id=sample-synthetic`）⇒ 先等它落定，再点壁纸，读数才是"已挂载的那张壁纸"。
+      await page.waitForTimeout(4000)
+      await clickItem()
+      let readyNow = await waitReady('repo', READY_MS, REPO_STABLE_TICKS)
+      // 兜一次：若样例探测的导航在点击之后才生效，src 会缺 `src=` ⇒ 再点一次（产物自己的挂载路径）
+      if (!readyNow && !/src=/.test(String((await readLive()).src))) {
+        await clickItem()
+        readyNow = await waitReady('repo', READY_MS, REPO_STABLE_TICKS)
+      }
+      //  新契约：**打开就是本仓**（先读它）⇒ 再切到上游当对照 ⇒ 再切回本仓验证可逆。
+      const repo0 = await readLive()
+      await selectSource('upstream')
+      await waitReady('upstream', READY_MS, UP_STABLE_TICKS)
+      const up = await readLive()
+      await selectSource('repo')
+      await waitReady('repo', READY_MS, REPO_STABLE_TICKS)
+      const repo = await readLive()
+      await selectSource('upstream')
+      await waitReady('upstream', READY_MS, UP_STABLE_TICKS)
+      const back = await readLive()
+      return { launchNote, webgl2, glNote, read: { repo0, up, repo, back, pageErrs } }
+    } finally {
+      try { await browser.close() } catch { /* 已关 */ }
     }
-    //  新契约：**打开就是本仓**（先读它）⇒ 再切到上游当对照 ⇒ 再切回本仓验证可逆。
-    const repo0 = await readLive()
-    await selectSource('upstream')
-    await page.waitForTimeout(13000)
-    const up = await readLive()
-    await selectSource('repo')
-    await page.waitForTimeout(16000)
-    const repo = await readLive()
-    await selectSource('upstream')
-    await page.waitForTimeout(11000)
-    const back = await readLive()
-    read = { repo0, up, repo, back, pageErrs }
-  } finally {
-    try { await browser.close() } catch { /* 已关 */ }
   }
-  const { repo0, up, repo, back, pageErrs } = read
-  fs.writeFileSync(path.join(os.tmpdir(), 'bench-renderer-source-readings.json'), JSON.stringify(read, null, 1))
-  console.log('读数 ' + JSON.stringify({ defaultCanvas: repo0.canvas, upstream: up.canvas, repo: repo.canvas, back: back.canvas, dpr: repo.dpr, repoLive: repo.live, repoAlpha: repo.alpha }))
+  /** 只对"浏览器/页面被环境关掉"这一类重试一次（判据类失败照旧红，不重试）。 */
+  const isEnvDeath = (e) => /has been closed|Target closed|browser has been closed|Browser closed|ECONNREFUSED|crash/i.test(String((e && e.message) || e))
+  let att = null
+  for (let i = 1; i <= 2 && !att; i++) {
+    try { att = await runAttempt() } catch (e) {
+      if (i === 1 && isEnvDeath(e)) {
+        console.log('⚠ D 段浏览器被环境带走（' + String((e && e.message) || e).slice(0, 100) + '）⇒ 重试一次')
+        continue
+      }
+      throw e
+    }
+  }
+  const { launchNote, webgl2, glNote } = att
+  const { repo0, up, repo, back, pageErrs } = att.read
+  fs.writeFileSync(path.join(os.tmpdir(), 'bench-renderer-source-readings.json'),
+    JSON.stringify({ launch: { mode: launchNote, webgl2, gl: glNote }, ...att.read }, null, 1))
+  console.log('读数 ' + JSON.stringify({ launch: launchNote, webgl2, defaultCanvas: repo0.canvas, upstream: up.canvas, repo: repo.canvas, back: back.canvas, dpr: repo.dpr, repoLive: repo.live, repoAlpha: repo.alpha }))
   ok(repo0.attrSrc === 'repo' && String(repo0.src).startsWith('/webloader/?') && /[?&]id=/.test(String(repo0.src)),
     'D0 ★新契约：**打开预览就是本仓渲染器**（iframe 一开始就是 `/webloader/?…&id=<壁纸>`，不是产物页）',
     String(repo0.src).slice(0, 110))
@@ -310,17 +456,28 @@ if (!pwPath) {
   const near = (a, b, tol) => Math.abs(a - b) <= tol
   const upScale = up.canvas ? up.canvas.w / up.canvas.cssW : 0
   const repoScale = repo.canvas ? repo.canvas.w / repo.canvas.cssW : 0
-  ok(up.canvas && repo.canvas && near(up.canvas.cssW, repo.canvas.cssW, 2) &&
-    near(upScale, 1, 0.05) && near(repoScale, repo.dpr, 0.05),
-    'D3 ★画质判据（同一块面板、同一张包）：上游画布 = 面板 CSS 像素 × **1**（`renderDpr=1` 上限），' +
-    '本仓画布 = 面板 CSS 像素 × **设备 DPR** —— 这就是"预览糊"的根因与修法',
-    JSON.stringify({ panelUp: up.canvas && up.canvas.cssW, panelRepo: repo.canvas && repo.canvas.cssW, upScale, repoScale, dpr: repo.dpr }))
-  ok(repo.live && repo.live.width === repo.canvas.w && repo.live.height === repo.canvas.h && repo.live.dpr === repo.dpr && repo.live.updates >= 1,
-    'D4 活档位读数自洽（`window.__mpwLiveRes`）：canvas 尺寸 == live.width/height、dpr == devicePixelRatio、重算计数 ≥1',
-    JSON.stringify(repo.live))
-  ok(back.attrSrc === 'upstream' && String(back.src).includes('/wallpaper-engine-webgl/renderer/index.html') &&
-    back.canvas && back.canvas.w === back.canvas.cssW,
-    'D5 上游档的画布口径与原来逐位一致（1× CSS 像素）—— 对照档没有被"整合"弄坏', JSON.stringify(back.canvas))
+  /* D3/D4/D5 是**画布级**判据 ⇒ 前置是"这台浏览器真的能建 WebGL2"（见文件头 C 段与上面的能力前置）。
+     拿不到 WebGL2 时读数必然是"300×150 空画布 + `__mpwLiveRes=null`"（渲染器页停在「当前浏览器不支持
+     WebGL2」），把它当红了就是**把环境缺能力说成产品坏** ⇒ 这几条打 SKIP 并**把读数原样打出来**，
+     既不谎报成红、也不静默通过（要跑满就起 X 显示，见打印的两条出路）。 */
+  if (webgl2) {
+    ok(up.canvas && repo.canvas && near(up.canvas.cssW, repo.canvas.cssW, 2) &&
+      near(upScale, 1, 0.05) && near(repoScale, repo.dpr, 0.05),
+      'D3 ★画质判据（同一块面板、同一张包）：上游画布 = 面板 CSS 像素 × **1**（`renderDpr=1` 上限），' +
+      '本仓画布 = 面板 CSS 像素 × **设备 DPR** —— 这就是"预览糊"的根因与修法',
+      JSON.stringify({ panelUp: up.canvas && up.canvas.cssW, panelRepo: repo.canvas && repo.canvas.cssW, upScale, repoScale, dpr: repo.dpr }))
+    ok(repo.live && repo.canvas && repo.live.width === repo.canvas.w && repo.live.height === repo.canvas.h && repo.live.dpr === repo.dpr && repo.live.updates >= 1,
+      'D4 活档位读数自洽（`window.__mpwLiveRes`）：canvas 尺寸 == live.width/height、dpr == devicePixelRatio、重算计数 ≥1',
+      JSON.stringify(repo.live))
+    ok(back.attrSrc === 'upstream' && String(back.src).includes('/wallpaper-engine-webgl/renderer/index.html') &&
+      back.canvas && back.canvas.w === back.canvas.cssW,
+      'D5 上游档的画布口径与原来逐位一致（1× CSS 像素）—— 对照档没有被"整合"弄坏', JSON.stringify(back.canvas))
+  } else {
+    console.log('SKIP D3 ★画质判据（画布像素）—— 本机浏览器无 WebGL2（画布级读数不可信）；读数 ' +
+      JSON.stringify({ panelUp: up.canvas && up.canvas.cssW, panelRepo: repo.canvas && repo.canvas.cssW, upScale, repoScale, dpr: repo.dpr }))
+    console.log('SKIP D4 活档位读数自洽 —— 本机浏览器无 WebGL2（`__mpwLiveRes` 只在场景启动后发布）；读数 ' + JSON.stringify(repo.live || null))
+    console.log('SKIP D5 上游档画布口径 —— 本机浏览器无 WebGL2（产物页同样建不了 GL）；读数 ' + JSON.stringify(back.canvas || null))
+  }
   ok(pageErrs.filter((m) => !/WEBGL_debug_renderer_info|Error in parsing value/.test(m)).length === 0,
     'D6 整轮顶层页 0 个脚本错（切档/重挂载不得抛错）', JSON.stringify(pageErrs.slice(0, 3)))
 }

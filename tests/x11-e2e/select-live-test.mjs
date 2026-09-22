@@ -13,6 +13,10 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { ROOT, WS } from '../_root.mjs'
 import * as cua from './cua.mjs'
+/* ①(2026-09-23 全仓清扫) 能力前置探针：本档的 S0b/S0c 判的就是"渲染器页**装载成功并真的在出帧**"
+   （`__mpwCap().ok` + `__mpwFrames ≥1`）⇒ 没有 GL 必然假红（白屏/启动失败）。口径照抄
+   `tests/bench-renderer-source-test.mjs` 的 D 段（见 `tests/_gl-browser.mjs` 的文件头）。 */
+import { glCapability, logGLSkip, glSkipWhy, glPrefs, closeQuiet, headedNote } from '../_gl-browser.mjs'
 
 const argv = process.argv.slice(2)
 const argOf = (n, d) => { const i = argv.indexOf(n); if (i >= 0 && argv[i + 1]) return argv[i + 1]; const eq = argv.find((a) => a.startsWith(n + '=')); return eq ? eq.slice(n.length + 1) : d }
@@ -30,8 +34,11 @@ const URL_ = argOf('--url', PKGPATH
 const VIEW = { w: Number(argOf('--w', 1280)), h: Number(argOf('--h', 800)) }
 const SHOTS = process.env.MPW_X11_SHOTS || path.join(WS, 'reports', 'x11-shots', new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '-select')
 
-let pass = 0; let fail = 0; const notes = []
+let pass = 0; let fail = 0; let skipN = 0; const notes = []
 const ok = (c, label, extra = '') => { if (c) { pass++; console.log('PASS ' + label + (extra ? '  ' + extra : '')) } else { fail++; console.log('FAIL ' + label + (extra ? '  ' + extra : '')) } }
+/** 单条判据的 SKIP（**前置缺失 ⇒ 绝不当通过**，与 `bench-click-test.mjs` 同口径）：
+ *  与整档 `skip()` 不同，它只作废这一条，并且**计数**（汇总里看得见 `SKIP=n`）。 */
+const skipItem = (label, why) => { skipN++; console.log('SKIP ' + label + ' —— 缺输入：' + why) }
 const skip = (why) => { console.log('SKIP select-live — ' + why); process.exit(0) }
 
 const ch = cua.channelSummary()
@@ -56,16 +63,37 @@ if (!firefox) skip('playwright 没有 firefox 导出')
 const browser = await firefox.launch({
   headless: false,
   env: { ...process.env, DISPLAY: cua.DISPLAY, MOZ_WEBGL_FORCE_SOFTWARE: '1', LIBGL_ALWAYS_SOFTWARE: '1', MOZ_ENABLE_WAYLAND: '0' },
-  firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false },
+  /* ⚠ WebGL 预置项走共用口径（`_gl-browser.mjs`）：默认显式开；`MPW_GL_FORCE_OFF=1` 时关掉
+     —— 用它在有 GL 的机器上自证"无 GL ⇒ SKIP + 原样读数"这条路真的会走。 */
+  firefoxUserPrefs: { ...glPrefs(), 'gfx.webrender.software': true, 'webgl.out-of-process': false },
 })
 try {
+  /* 能力前置探针（读一次，不猜）：拿不到 WebGL2 ⇒ **SKIP + 原样读数**（不是 FAIL：那是环境缺能力，
+     本档连页都起不来 ⇒ S0b/S0c 必红）。 */
+  const gl = await glCapability(browser)
+  if (!gl.webgl2) {
+    await closeQuiet(browser)
+    logGLSkip('select-live 全档（自绘下拉 + 渲染器页冒烟）', headedNote(cua.DISPLAY), gl)
+    glSkipWhy()
+    process.exit(0)
+  }
   const ctx = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h } })
   const page = await ctx.newPage()
   const errs = []
   page.on('pageerror', (e) => errs.push(String(e.message).slice(0, 200)))
   await page.goto(URL_, { waitUntil: 'domcontentloaded', timeout: 90000 })
   try { await page.waitForFunction(() => !!window.__mpwModuleStarted, null, { timeout: 180000 }) } catch { /* 下面按实际判 */ }
-  await page.waitForTimeout(2500)
+  /* 就绪轮询（**不盲等**）：`__mpwFrames` 只在**首帧之后**才有 —— 实测软件 GL 下首帧落在 2.5–5s 之间
+     （@2.5s `__mpwFrames`=undefined / @5s 10 行）⇒ 原来固定 2.5s 会把 S0c 读成"没在出帧"（假红）。
+     有上限；超时照读照断言（判据一条不放松）。口径同 `tests/bench-renderer-source-test.mjs` 的 D 段。 */
+  try {
+    await page.waitForFunction(() => {
+      const cap = window.__mpwCap ? window.__mpwCap() : null
+      if (cap && cap.firstFrame) return true
+      const f = window.__mpwFrames
+      return (typeof f === 'number' && f >= 1) || (Array.isArray(f) && f.length >= 1)
+    }, null, { timeout: 30000 })
+  } catch { /* 超时 ⇒ 下面照读，S0c 该红就红 */ }
   const g = await page.evaluate(() => ({ ix: window.mozInnerScreenX, iy: window.mozInnerScreenY }))
   const shot = (n) => cua.shot(path.join(SHOTS, n + '.png'))
 
@@ -205,9 +233,11 @@ const NATIVE_OF = `(el) => {
   const s2 = await listState()
   ok(r3.ok && s2.n === 0 && s2.openIdx === -1, 'S3 **再点即关**（列表数归零，不是"又开一个"）', `list=${s2.n}（第 ${r3.tries} 次点击生效）`)
 
-  // ── S8 连开两个不同的 ⇒ 同时只允许一个（页面上只有一个下拉时本段没得测 ⇒ 记 note） ──────
+  // ── S8 连开两个不同的 ⇒ 同时只允许一个（页面上只有一个下拉时本段没得测 ⇒ 记 SKIP 读数） ──────
   if (info.roots < 2) {
-    notes.push(`S8 未测：本页只有 ${info.roots} 个自绘下拉（单开注册表由无浏览器的 mpw-select-test B9 与真机的"再点即关"共同覆盖）⇒ 换一个带 combo 属性的壁纸（\`--pkgpath <dir>\`）可补测`)
+    /* ⚠ 2026-09-23：以前只打 note ⇒ 判据静默消失（"缺输入 ⇒ 没测到"必须看得见、算得清）。 */
+    skipItem('S8 连开两个不同的下拉 ⇒ 同一时刻只有一个列表（单开注册表）',
+      `本页只有 ${info.roots} 个自绘下拉（单开注册表另由无浏览器的 mpw-select-test B9 与真机"再点即关"共同覆盖）⇒ 换一个带 combo 属性的壁纸（\`--pkgpath <dir>\`）可补测`)
   } else {
     await clickUntil(0, async () => (await listState()).n === 1)
     const a1 = await listState()
@@ -223,9 +253,16 @@ const NATIVE_OF = `(el) => {
   const s4idx = info.roots > 1 ? 1 : 0
   //  ①先把列表打开（S3 刚把它关掉），否则没有 `.mpw_select_item` 可点；同样带轮询
   const r4open = await clickUntil(s4idx, async () => (await listState()).n === 1)
-  if (!r4open.ok) notes.push(`S4：列表没能打开（第 ${r4open.tries} 次点击后仍为 0）⇒ 本段按"未测"处理`)
   const items0 = await page.evaluate(() => document.querySelectorAll('.mpw_select_item').length)
-  if (items0 === 0) { notes.push('S4 未测：列表里没有选项'); } else {
+  /* ⚠ 2026-09-23：以前这三条前置只打 note ⇒ S4 整段悄悄不跑（"缺输入 ⇒ 判据消失"，与 `bench-click-test`
+     的 B4 同形态）。现在：**前置不成立 ⇒ 显式红 + 一条计数的 SKIP 读数**，判据总数不再静默缩水。 */
+  if (!r4open.ok) {
+    ok(false, 'S4 前置：真点击能把自绘列表打开（否则没有可点的选项）', `第 ${r4open.tries} 次点击后列表仍为 0`)
+    skipItem('S4 点选项 ⇒ 原生 `<select>` 派发 `change` 且列表收起', '列表没能打开（上一条已按红报）')
+  } else if (items0 === 0) {
+    ok(false, 'S4 前置：展开的列表里有选项（`.mpw_select_item` ≥1）', '列表开着但 0 个选项 —— 控件没画出可选项')
+    skipItem('S4 点选项 ⇒ 原生 `<select>` 派发 `change` 且列表收起', '列表里没有选项（上一条已按红报）')
+  } else {
   const pick = await page.evaluate(() => {
     const EL = [...document.querySelectorAll('.mpw_select')]
     const el = EL[Math.min(1, EL.length - 1)]
@@ -238,8 +275,10 @@ const NATIVE_OF = `(el) => {
     nat.addEventListener('change', () => { window.__selChanged++ }, { once: false })
     return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), before: nat.value, want: target.textContent, n: items.length }
   })
-  if (pick.err) { notes.push('S4 未测：打开后列表里没有可点的项（' + pick.err + '）') }
-  else {
+  if (pick.err) {
+    ok(false, 'S4 前置：列表里有可点的项（拿到 rect 的 `.mpw_select_item`）', 'pick.err=' + pick.err)
+    skipItem('S4 点选项 ⇒ 原生 `<select>` 派发 `change` 且列表收起', '打开后列表里没有可点的项（上一条已按红报）')
+  } else {
   cua.pointerGlide(g.ix + pick.x, g.iy + pick.y, { steps: 4, dwellMs: 60 }); await cua.sleep(180)
   cua.run('xdotool', ['click', '1']); await cua.sleep(800)
   const after = await page.evaluate(() => {
@@ -258,7 +297,8 @@ const NATIVE_OF = `(el) => {
   const s5idx = info.roots > 1 ? 1 : 0
   const r5open = await clickUntil(s5idx, async () => (await listState()).n === 1)
   const o1 = await listState()
-  if (!r5open.ok) notes.push('S5：列表没能打开 ⇒ 本段按"未测"处理')
+  //  ①打不开不是"未测"：下面的 S5 断言会如实变红（`o1.n === 1` 不成立）—— 这里只留一条读数。
+  if (!r5open.ok) notes.push(`S5：列表没能打开（第 ${r5open.tries} 次点击后仍为 0）⇒ 下面的断言会红，不是"未测"`)
   //  ①"点外面"要点在**画布中央**（那里没有任何面板/链接）。第一版点左下角，命中了工具栏里一个链接
   //    ⇒ 整页导航 ⇒ `Execution context was destroyed`（测试自己崩，不是产品问题）。
   cua.pointerTo(g.ix + Math.round(VIEW.w * 0.6), g.iy + Math.round(VIEW.h * 0.35)); await cua.sleep(150)
@@ -320,14 +360,15 @@ const NATIVE_OF = `(el) => {
     ok(allConsistent, `S7 ${flips.length} 次"开"里每一次的 data-flip 都与可用空间一致`, `up=${sawUp} down=${sawDown}`)
     ok(sawDown >= 1, 'S7b 至少见过一次 **down**（默认方向）', `down=${sawDown}`)
   } else {
-    notes.push('S7b 未跑（默认跳过）')
+    /* ⚠ 2026-09-23：默认不跑是**显式取舍**（`--flips` 才做），但"没测到"要看得见 ⇒ 计数的 SKIP 读数。 */
+    skipItem('S7b 至少见过一次 **down**（贴底自动上翻的探测）', '本轮未加 `--flips`（默认跳过；16 个边界值由无浏览器的 mpw-select-test A 段钉住）')
   }
   notes.push(sawUp >= 1 ? `S7c 见过 ${sawUp} 次 **up**（贴底自动上翻）` : 'S7c 本轮没构造出"下方不够"的位置 ⇒ 上翻只由无浏览器的 mpw-select-test A 段钉住（16 个边界值）')
 
   await shot('05-final')
   ok(errs.length === 0, '整轮 0 个 pageerror', errs.slice(0, 2).join(' | '))
   console.log(`\n shots: ${SHOTS}`)
-  console.log(`\n── 汇总：PASS=${pass} FAIL=${fail}`)
+  console.log(`\n── 汇总：PASS=${pass} FAIL=${fail} SKIP=${skipN}`)
   for (const n of notes) console.log('  note: ' + n)
   process.exitCode = fail ? 1 : 0
 } finally {

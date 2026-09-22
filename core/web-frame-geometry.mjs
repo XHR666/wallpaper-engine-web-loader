@@ -46,8 +46,8 @@ export function normalizeFrameFit(mode) {
  * 而帧内部视口（`clientWidth/clientHeight`）不含缩放。
  *
  * @param {{clientX:number, clientY:number}} ev
- * @param {{left:number, top:number, width:number, height:number}} frameRect 显示盒
- * @param {{width:number, height:number}} frameViewport 内部视口
+ * @param {{left?:number, top?:number, width?:number, height?:number}} frameRect 显示盒（**字段可选**：缺字段按 0 处理并返回 null，见 `frameRect || {}`）
+ * @param {{width?:number, height?:number}} frameViewport 内部视口（**字段可选**：本函数对缺字段走保守分支，缺了返回 null 而不是抛）
  * @returns {{x:number, y:number, inside:boolean, scaleX:number, scaleY:number}|null}
  *   null = 无法计算（非有限值 / 尺寸为 0）⇒ 调用方必须丢弃（NaN 会污染调用方状态且不报错）
  */

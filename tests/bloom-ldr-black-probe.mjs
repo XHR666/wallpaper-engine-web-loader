@@ -25,6 +25,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { ROOT, WS } from './_root.mjs'
+/* ①(2026-09-23 全仓清扫) 「有头优先 + 能力前置探针 + 无 GL 打 SKIP」这套口径的**唯一实现**
+   （照抄 `tests/bench-renderer-source-test.mjs` 的 D 段；见 `tests/_gl-browser.mjs` 的文件头）。 */
+import { launchGLBrowser, glCapability, logGLSkip, glSkipWhy } from './_gl-browser.mjs'
 
 const argv = process.argv.slice(2)
 const SELFTEST = argv.includes('--selftest')
@@ -87,8 +90,17 @@ const CASE = [
   ['L3 ?bloomcap=skip（只关 bloom）', '&bloomcap=skip'],
   ['L4 ?aa=fxaa（同一回读手法的 FXAA）', '&aa=fxaa'],
 ]
-const browser = await firefox.launch({ headless: true, firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
+/* ⚠ 前置不是"有没有浏览器"，而是"这台浏览器能不能建 WebGL2"（2026-09-23 归因，口径照抄
+   `tests/bench-renderer-source-test.mjs` 的 D 段，见 `tests/_gl-browser.mjs`）：本机（Android/PRoot，无
+   `/dev/dri`）**无头 Firefox 连 WebGL1 都建不了** ⇒ `#sc` 停在 300×150 空画布、四档全读到
+   `meanL=0 maxL=0`（实测 L1–L4 全红）——那是**环境缺能力**，不是"后处理链把画面写黑了"。
+   所以：**有头优先**（`DISPLAY=:0`，`MPW_X11_DISPLAY` 可换），有头起不来才回落无头；
+   `MPW_BENCH_HEADLESS=1` 强制无头。拿不到 WebGL2 ⇒ 四档打 **SKIP + 原样读数**（读数照采，只是不当判据）。 */
+const { browser, launchNote } = await launchGLBrowser(firefox)
 try {
+  /* 能力前置探针（读一次，不猜）：webgl2/webgl1 到底能不能建 —— L1–L4 是断言还是 SKIP 由它决定。 */
+  const gl = await glCapability(browser)
+  if (!gl.webgl2) { logGLSkip('bloom-ldr-black L1–L4（画布像素：整屏黑）', launchNote, gl, '下面四档仍照采读数作证据'); glSkipWhy() }
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } })
   for (const [label, extra] of CASE) {
     const page = await ctx.newPage()
@@ -128,7 +140,9 @@ try {
       const v = blacknessVerdict(stat.meanL, stat.maxL)
       console.log(`  ${label} → canvas=${st.canvas} meanL=${stat.meanL} maxL=${stat.maxL} bloomRuns=${st.bloomRuns}`
         + ` bloomInfo=${JSON.stringify(st.bloomInfo)} cap=${JSON.stringify(st.cap && { modes: st.cap.modes, copy: st.cap.copy, readpixels: st.cap.readpixels, fail: st.cap.fail })}`)
-      ok(v === 'ok', label + ' 画布不是整屏黑', 'meanL=' + stat.meanL + ' maxL=' + stat.maxL)
+      /* 有 WebGL2 ⇒ 照旧断言；拿不到 ⇒ **SKIP + 原样读数**（读数照采：空画布的签名正是 meanL=0/maxL=0）。 */
+      if (!gl.webgl2) logGLSkip(label + ' 画布不是整屏黑', launchNote, gl, '原样读数 canvas=' + st.canvas + ' meanL=' + stat.meanL + ' maxL=' + stat.maxL + ' bloomRuns=' + st.bloomRuns)
+      else ok(v === 'ok', label + ' 画布不是整屏黑', 'meanL=' + stat.meanL + ' maxL=' + stat.maxL)
       // L5 诊断一致：跳过只能是已知原因；回读档位必须能在诊断面读到（静默降级 = 不许）
       const sk = (st.bloomInfo && st.bloomInfo.skipped) || undefined
       ok(sk === undefined || KNOWN_SKIPS.indexOf(sk) >= 0, label + ' skipped 取值合法', 'skipped=' + String(sk))

@@ -8,10 +8,13 @@
  *
  * 内部路径全部相对 SW 自身位置，GitHub Pages 的 /WEwebLoader/ 子路径（P-127 前的旧名
  * /wallpaper-engine-webgl/ 只留重定向页，不再放 SW）与根路径部署通吃。
- * 缓存名 `webwallgl-bench-v2` **不动**：它是缓存标识、不含路径成分，改名只会让已装 SW 的旧缓存
- * 白留一轮（activate 里按名字清理）。
+ * 缓存名 `wewebloader-bench-v1`（2026-09-23 第二轮品牌清理 · 用户第 2 项裁定 A）：旧名
+ * `webwallgl-bench-v2` 含**上游项目名**，按规则① 统一成产品名。它是缓存标识、不含路径成分，
+ * 改名的唯一副作用是让已装 SW 的旧缓存白留一轮 —— `activate` 里按名字清理（下面那个
+ * `keys().filter(k => k !== VERSION)`），所以**不需要任何迁移代码**，一轮之后自动回收。
+ * P-127.5-③ 当初"不动"的理由（不含路径成分）仍然成立，本轮是**品牌口径**优先于"少一轮白留"。
  */
-const VERSION = "webwallgl-bench-v2";
+const VERSION = "wewebloader-bench-v1";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

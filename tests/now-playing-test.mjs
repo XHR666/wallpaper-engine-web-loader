@@ -255,8 +255,8 @@ group("① 源码完整性（注释条数对账 / 导出名 / 该删的删了）
     /function Mark\(/.test(tsx) && /function useTween\(/.test(tsx) && /function useSpring\(/.test(tsx));
   //  ⑤(P-164) 封面换成本仓所有者提供的品牌图（原 `../icons/pwa-512.png`）：断言跟着**新**路径走，
   //  判据不变（"不是空占位 / 图真的在仓库里"），只把落点从 `demo/icons/**` 换成 `demo/assets/brand/**`。
-  check("COVER 不是空占位（指向本仓库的图）", /const COVER: string = "\.\.\/assets\/brand\/wallpaper-engine-icon-512\.png"/.test(tsx), (tsx.match(/const COVER[^\n]*/) || [""])[0]);
-  check("COVER 指到的图真的在仓库里", fs.existsSync(path.join(ROOT, "demo", "assets", "brand", "wallpaper-engine-icon-512.png")));
+  check("COVER 不是空占位（指向本仓库的图）", /const COVER: string = "\.\.\/assets\/brand\/brand-512\.png"/.test(tsx), (tsx.match(/const COVER[^\n]*/) || [""])[0]);
+  check("COVER 指到的图真的在仓库里", fs.existsSync(path.join(ROOT, "demo", "assets", "brand", "brand-512.png")));
   check("stroke 属性取代了 Bencho 的全局 [data-stroke]（组件写 data-stroke）", /data-stroke=\{stroke \? "on" : undefined\}/.test(tsx));
   check("保留的注释里那 4 处「原件世界」的说法没被删（wall/bench/CLAUDE.md）",
     /CLAUDE\.md/.test(tsx + mathSrc) && /lab\/motion/.test(mathSrc) && /scripts\/cover\.sh/.test(tsx));
@@ -613,7 +613,7 @@ process.stdout.write(JSON.stringify(out));
     }
     check("渲染出的 DOM 有根 .snd（width 260 / height OPEN=189）", /class="snd"/.test(c16) && /width:260px;height:189px/.test(c16));
     check("关闭态盒子是 260×78（SHUT）", /class="snd-box"[^>]*width:260px;height:78px/.test(c16));
-    check("封面 40×40 且 background-image 指向 COVER", /class="snd-art"[^>]*url\(\.\.\/assets\/brand\/wallpaper-engine-icon-512\.png\)[^>]*width:40px;height:40px/.test(c16));
+    check("封面 40×40 且 background-image 指向 COVER", /class="snd-art"[^>]*url\(\.\.\/assets\/brand\/brand-512\.png\)[^>]*width:40px;height:40px/.test(c16));
     check("corner=16：盒子圆角 20 / 封面 10（同心：差 = off = 10）",
       /border-radius:20px/.test(c16.match(/class="snd-box"[^>]*/)[0]) && /border-radius:10px/.test(c16.match(/class="snd-art"[^>]*/)[0]));
     // 关闭态读的是**胶囊那一端**的半径（mix(bar, card, p) 在 p=0 处 = 索引 0）：

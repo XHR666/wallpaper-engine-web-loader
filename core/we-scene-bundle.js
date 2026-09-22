@@ -3665,6 +3665,11 @@ export function buildParticleSystem(def, ctx = {}) {
     // ①(P-140 用户第 7 项) **湍流初速场口径**（`?pturb=legacy`）：true = 改前的"每颗粒子独立随机出生角"。
     //   不传（测试/第三方调用）⇒ false = official（方向是位置的函数），与渲染器默认档一致。
     pturbLegacy: !!ctx.pturbLegacy,
+    // ①(sphere-dim 2026-09-23) `?psph=legacy`：`sphererandom` 回到"z 泄漏 + 线性半径"的旧口径
+    sphLegacy: !!ctx.sphLegacy,
+    // ①(vortex-chirality 2026-09-23) `?pvortex=legacy`：`vortex` 切向回到 `(−dy,+dx)` 旧手性
+    //   （档位随 ctx 进 sys，再由算子层转成 `vortexSwirl` 的 `tangentSign`）
+    vortexLegacy: !!ctx.vortexLegacy,
     countMul: (() => { const c = ctx.instanceoverride && ctx.instanceoverride.count; return (typeof c === 'number' && isFinite(c) && c >= 0) ? c : 1 })(),
     // ①(RE-20) 控制点：controlpointattract 的目标（offset 为层空间坐标）
     controlPoints: (def && def.controlpoint) || [],
@@ -3932,13 +3937,72 @@ export function spawnParticle(sys, em) {
   }
   const randRange = (a, b) => (Math.min(a, b) + rng() * Math.abs(b - a))
   if (em.name === 'sphererandom') {
-    const angle = rng() * Math.PI * 2
+    const dirX = em.directions[0], dirY = em.directions[1], dirZ = em.directions[2] || 0
     const minR = em.distanceMin[0], maxR = em.distanceMax[0]
-    const r = minR + rng() * (maxR - minR)
-    const zr = em.distanceMin[2] !== undefined ? (em.distanceMin[2] + rng() * Math.abs((em.distanceMax[2] || 0) - em.distanceMin[2])) : r
-    px = Math.cos(angle) * r * em.directions[0]
-    py = Math.sin(angle) * r * em.directions[1]
-    pz = (em.directions[2] ? signOf(2) * zr * em.directions[2] : signOf(2) * zr)
+    if (sys.sphLegacy) {
+      // ── legacy（`?psph=legacy`：改动前逐位不变，只作真机 A/B）───────────────────────────
+      const angle = rng() * Math.PI * 2
+      const r = minR + rng() * (maxR - minR)
+      const zr = em.distanceMin[2] !== undefined ? (em.distanceMin[2] + rng() * Math.abs((em.distanceMax[2] || 0) - em.distanceMin[2])) : r
+      px = Math.cos(angle) * r * dirX
+      py = Math.sin(angle) * r * dirY
+      pz = (dirZ ? signOf(2) * zr * dirZ : signOf(2) * zr)
+    } else {
+      // ── official（默认）───────────────────────────────────────────────────────────────
+      // ①(sphere-dim 2026-09-23) 两处口径修正（依据 `docs/UPSTREAM-TRIAGE-20260923.md` §4 第 2 条
+      //   与 `docs/VAPOR-LAYER-3544152633.md`；官方语义的第三方参考实现口径）：
+      //   ① **方向维度由 `directions` 的激活轴数决定**（Mirage `ActiveAxisCount` 口径）：
+      //      `|dir[2]| ≤ 1e-6 ⇒ nz = 0`、(nx,ny) 是**严格单位圆**。改动前 `dir[2]=0` 时仍走
+      //      `signOf(2)*zr` 白送一个 ±r 的 z —— 三维球面方向投影到二维后半径 = `r·√(1−u²)`
+      //      随机缩短，`directions "1 1 0"` 的圆盘/光环会被螺旋填进内部（`flags&4` 的透视层
+      //      尤其明显）。**z 只由激活轴给**。
+      //   ② **半径按维度做幂次分布**（Mirage `RandomRadius`）：`r = (lo^d + u·(hi^d−lo^d))^(1/d)`，
+      //      d=2 是面积均匀、d=3 是体积均匀。改动前是线性均匀 ⇒ 粒子在圆盘中心附近堆积
+      //      （d=2 时半径中位数应为 `rmax/√2`，线性实现对 `rmax/2`）。d=1 时与线性式**同形**。
+      //   与上游同批改动一致的口径；`?psph=legacy` 逐位回到改动前（见上）。
+      //   ⚠ 有意保留的一处**本仓约定**：`sign[2]` 缺省/0 时仍按 `signOf(2)` 随机翻转 z ——
+      //     `nz` 本就均匀分布于 [−1,1]，乘 ±1 后分布不变，故与"只在 `sign[2]` 非 0 时强制"
+      //     的写法**同分布**，同时不必平移既有 RNG 约定（见 `signOf` 上方注释）。
+      const useZ = Math.abs(dirZ) > 1e-6
+      const dims = Math.max(1,
+        (Math.abs(dirX) > 1e-6 ? 1 : 0) + (Math.abs(dirY) > 1e-6 ? 1 : 0) + (useZ ? 1 : 0))
+      let nx, ny, nz = 0
+      if (useZ) {
+        // 均匀单位球面方向
+        const u = rng() * 2 - 1
+        const th = rng() * Math.PI * 2
+        const sq = Math.sqrt(Math.max(0, 1 - u * u))
+        nx = sq * Math.cos(th)
+        ny = sq * Math.sin(th)
+        nz = u
+      } else {
+        // 2D：严格单位圆（不留 z）
+        const th = rng() * Math.PI * 2
+        nx = Math.cos(th)
+        ny = Math.sin(th)
+        // ①(流对齐 2026-09-23) 旧算式在 z 轴上还要抽**两次**（z 行程一次、z 符号一次）；
+        //   新口径两处都不需要，但这里**照旧抽掉、值不使用** —— 目的 = **不平移整条粒子 RNG 流**
+        //   （本仓既有纪律：`?pturb`/`?pspeed` 的注释都写着"不额外抽签以保住与旧档的逐位可比性"）。
+        //   不这么做的后果（实测，不是推测）：`dir[2]=0` 的每一层里，**与本档位无关**的逐粒子
+        //   随机量（`oscillate*` 的频率/相位/幅度、湍流相位、`colorrandom`、寿命）会整体换一组 ⇒
+        //   ① `?psph` 的 A/B 不再"只差 z 屏蔽 + 半径分布"这一个变量；② 既有门禁
+        //   `tests/particle-render-correctness-test.mjs` ⑥D（萤火虫 `corr(x,y)` 的 max-over-20
+        //   统计，阈值 0.99）被扰动：实测 0.9515 → 0.9957（**变红**），而两者的差别只是随机样本换了。
+        //   抽签的**条件结构**与旧算式逐字相同（`zr` 那一次看 `distanceMin[2] !== undefined`，
+        //   符号那一次看 `sign[2]` 是否非 0 —— `signOf` 只在 sign 为 0 时抽签）。
+        if (em.distanceMin[2] !== undefined) rng()
+        if (!((em.sign && em.sign[2]) || 0)) rng()
+      }
+      const lo = Math.max(0, minR), hi = Math.max(lo, maxR)
+      // 半径抽签**恒抽一次**（即使 `lo === hi`，与旧算式 `minR + rng()*(maxR−minR)` 同）
+      // —— 这是 E 段"流对齐"的一部分：少抽一次就会把整条粒子 RNG 流往前挪一位。
+      const uR = rng()
+      const r = lo === hi ? lo
+        : Math.pow(Math.pow(lo, dims) + uR * (Math.pow(hi, dims) - Math.pow(lo, dims)), 1 / dims)
+      px = nx * r * dirX
+      py = ny * r * dirY
+      pz = useZ ? signOf(2) * nz * r * dirZ : 0
+    }
   } else {
     // boxrandom：每轴在 [distancemin, distancemax] 范围内随机距离 + sign 指定/随机翻转符号
     const rx = randRange(em.distanceMin[0], em.distanceMax[0])
@@ -4718,7 +4782,12 @@ export function applyOperator(sys, op, dt, t) {
         //   P-133 用的是 wer-ref 的 `(d−inner)/(outer−inner+0.1)`；`③-c-1` 的容差 0.5 覆盖这 0.299
         //   （实测 150.00 vs 150.30 px/s²，判据见 P-136 台账「行为差」）。
         const dv = vortexSwirl(p.pos[0], p.pos[1], [ccx, ccy, 0],
-          { offset: [0, 0, 0], distanceInner: inner, distanceOuter: outer, speedInner: spIn, speedOuter: spOut }, dt)
+          { offset: [0, 0, 0], distanceInner: inner, distanceOuter: outer, speedInner: spIn, speedOuter: spOut }, dt,
+          // ①(vortex-chirality 2026-09-23) 切向手性档位：+1 = `(dy,−dx)`（本批新默认）、
+          //   −1 = `(−dy,+dx)`（`?pvortex=legacy`，改动前）。⚠ 依据是第三方多实现共识 +
+          //   上游带理由的单向翻转，**不是**官方反编译结论 —— 详见 `VORTEX_MODE` 上方注释
+          //   与 `docs/VORTEX-CHIRALITY-RE-20260923.md`。
+          sys.vortexLegacy ? -1 : 1)
         if (dv) { p.vel[0] += dv[0] * sgn; p.vel[1] += dv[1] * sgn }
         break
       }
@@ -7454,6 +7523,9 @@ export function createRenderer(canvas, opts = {}) {
     src: null, up: null, direct: 0, bytesPerFrame: 0, MBps: 0,
     uploads: 0, upFps: 0, frames: 0, skipThrottle: 0, skipNotReady: 0,
     viaCanvas: 0, err: 0, firstAt: null, lastAt: null,
+    // ①(2026-09-23 审计 A-5 表 #6) 上传**GL 错误**单独计数/留因（`err` 只统计 JS 异常）：
+    //   `upErr` = texImage2D 之后 getError 非 0 的次数，`lastUpErr` = 末次错误码。
+    upErr: 0, lastUpErr: null,
     perfMode: perfState.mode || '', perfLevel: 0, perfFboCap: fboCapFactor, perfSuppressed: 0,
     play: { seen: 0, play: 0, pause: 0, seek: 0, rate: 0, src: null },
     tex: [],
@@ -7782,6 +7854,46 @@ export function createRenderer(canvas, opts = {}) {
     } catch (e) { /* 无 location → 默认 official */ }
     return 'official'
   })()
+  // ①(sphere-dim 2026-09-23) **`sphererandom` 发射器的方向维度 / 半径分布档位**（`?psph=legacy`）：
+  //   official（默认）= 本批修完的口径（`spawnParticle` 的 `sphererandom` 分支有完整注释）：
+  //     ① 方向维度由 `directions` 的**激活轴数**决定 —— `|dir[2]| ≤ 1e-6 ⇒ pz = 0`、
+  //        `(nx,ny)` 是严格单位圆（不再给 `dir[2]=0` 白送一个 ±r 的 z）；
+  //     ② 半径按维度做幂次分布 `r = (lo^d + u·(hi^d−lo^d))^(1/d)`（d=2 面积均匀、d=3 体积均匀）。
+  //   `?psph=legacy` = 改动前逐位不变：`dir[2]=0` 时仍 `pz = signOf(2)*zr`（z 泄漏）、
+  //     半径线性均匀（⇒ 圆盘中心堆积，d=2 的半径中位数是 `rmax/2` 而不是 `rmax/√2`）。
+  //   为什么必须给回退口：`directions "1 1 0"` 是本机语料与测试里最常见的写法，z 泄漏只在
+  //     `flags&4`（透视图层）可见，但半径分布对**所有** sphererandom 层（雨/雪/花瓣/光环）
+  //     的密度都有可见影响 ⇒ 真机逐层对拍之前必须能一键回到今天的画面。
+  const SPH_MODE = (() => {
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        return new URLSearchParams(location.search).get('psph') === 'legacy' ? 'legacy' : 'official'
+      }
+    } catch (e) { /* 无 location → 默认 official */ }
+    return 'official'
+  })()
+  // ①(vortex-chirality 2026-09-23) **`vortex` 算子的切向手性档位**（`?pvortex=legacy`）：
+  //   official（默认）= `(dy, −dx)` = `radial × axis`（`axis=(0,0,1)` 时）——本批**翻**过来的一方。
+  //   `?pvortex=legacy` = 改动前的 `(−dy, +dx)` = `axis × radial`。
+  //   ⚠ **本机没有任何 WE 官方反编译产物、也没有官方的方向定义**（取证见
+  //     `docs/VORTEX-CHIRALITY-RE-20260923.md` §3）。这条默认值的依据是
+  //     **第三方参考实现的多实现共识**（`references/wer-ref` 与 `open-wallpaper-engine` 同源，
+  //     只能算一条口径）+ **上游 oneincase/webwallgl 带理由的单向翻转**（commit `78718843`，
+  //     2026-09-22，自述为对齐官方观测）；`references/lwe-ref` 用老符号，但它在 `vortex_v2`
+  //     语义上可验证地偏离官方数据（把 `flags&2` 当环形，而官方 `magic_vortex_orb.json` 是
+  //     `flags:2` + ring 字段）⇒ 权重最低。**不要**把这次改动描述成"对齐官方"：它是
+  //     "证据更强的一方"，不是"已证实的一方"。官方级结论需要真机录官方出帧对拍。
+  //   为什么必须给回退口：语料 vortex 命中 5 处算子 / 4 个包（含 `magic_vortex_orb` 同族的
+  //     `vortex_v2` 缺口，见 `docs/VORTEX-CHIRALITY-RE-20260923.md` §5-5），
+  //     默认一翻就是观感变化 ⇒ 真机逐包对拍之前必须能一键回到今天的画面。
+  const VORTEX_MODE = (() => {
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        return new URLSearchParams(location.search).get('pvortex') === 'legacy' ? 'legacy' : 'official'
+      }
+    } catch (e) { /* 无 location → 默认 official */ }
+    return 'official'
+  })()
   // ①(P-144) **粒子 `children`（子系 / 拖尾）档位**（`?children=legacy`）：
   //   official（默认）= 按官方语义生成子系（`static` / `eventfollow` / `eventspawn` / `eventdeath`，
   //     缺省 `maxcount 20`、`probability 1.0`、`controlpointstartindex 0`；见 `parseParticleChildren`
@@ -7844,6 +7956,10 @@ export function createRenderer(canvas, opts = {}) {
     pcolorMode: PCOLOR_MODE,
     // ①(P-140 用户第 7 项) 湍流初速场口径档位（official=方向是位置的函数 / legacy=独立随机出生角）
     pturbMode: PTURB_MODE,
+    // ①(sphere-dim 2026-09-23) sphererandom 方向维度/半径分布档位（official=激活轴 + 幂次半径 / legacy=旧口径）
+    psphMode: SPH_MODE,
+    // ①(vortex-chirality 2026-09-23) vortex 切向手性档位（official=(dy,−dx) / legacy=(−dy,+dx)）
+    pvortexMode: VORTEX_MODE,
     // ①(P-131 批D) 音频驱动发射档位与生效记账（真机上报可回答"这一台到底有没有音频源、调没调制"）
     audioEmitMode: AUDIO_EMIT_MODE, audioModulated: 0, audioNoSource: 0, audioLayers: {},
     // ①(P-144 子系) 子系口径档位与生效记账（真机上报可回答"这一台到底画了几条子系、哪一类、
@@ -8043,6 +8159,12 @@ export function createRenderer(canvas, opts = {}) {
   })()
   const __pointerFlip = () => displayFlipH(opts.displayFlipH, (typeof window !== 'undefined' && window) ? window.__mpwDisplay : undefined, FLIPH_QUERY)
   let __pointerN = null      // { nx, ny } ∈[0,1]（画布归一化）
+  // ①(WEBWALLGL #4 P0) **指针按键**状态（bit0 = 左键），只服务效果链的 `g_PointerState.z`
+  //   （官方 `cursorripple_apply_force.frag` 的 `pointerMoveAmt + g_PointerState.z * 5.0`：
+  //    点击时额外注入一次冲量）。来源三条：画布 pointerdown/pointerup、画布"离开"、
+  //   注入通道的可选 `buttons` 位掩码（与 `core/we-pointer-source.mjs` 的 `pushExternal({buttons})` 同口径）。
+  //   缺省 0 ⇒ 与改动前逐位相同（此前从不写这个 uniform ⇒ GL 初值 0）。
+  let __pointerButtons = 0
   let __pointerHooked = false
   // ①(P-136 用户第 4 项：照抄上游 MIT 实现) 上游的**统一指针输入源**（整文件逐字照抄，
   //   见 `core/we-pointer-source.mjs` ← `renderer/vendor/we-scene/render/pointer.js:1-320`）。
@@ -8084,6 +8206,7 @@ export function createRenderer(canvas, opts = {}) {
     try {
       __pointerLeaveWhy = why
       __pointerN = null
+      __pointerButtons = 0       // ①(WEBWALLGL #4 P0) 指针不在画布内 ⇒ 按键不可能还按着（g_PointerState.z）
       __pointerGone = true
       __pointerGoneInj = __injectedPointer()
       __pointerGoneKey = __injKey(__pointerGoneInj)
@@ -8144,14 +8267,26 @@ export function createRenderer(canvas, opts = {}) {
           if (!p) return
           __pointerN = { nx: p.nx, ny: p.ny }
           __pointerGone = false      // ①(P-118 G1) 画布又收到新坐标 ⇒ "已离开"作废
+          // ①(WEBWALLGL #4 P0) 按键位掩码（bit0 左键）：`PointerEvent.buttons` 是**状态**
+          //   （0=无键、1=左键），对 pointermove/down/up 三路都成立 ⇒ 一处收下即可；
+          //   量不到（最小假 DOM / 老实现）时**不动**已有值（不把"量不出来"当成"松开了"）。
+          if (ev && Number.isFinite(ev.buttons)) __pointerButtons = ev.buttons | 0
+          else if (ev && ev.type === 'pointerdown' && (ev.button === undefined || ev.button === 0)) __pointerButtons = 1
           // ①(P-136 用户第 4 项) 照抄来的指针源同时收下这一发（上游 `pushExternal` 是
           //   "宿主/测试台注入"与 DOM 监听**共用**的写入路径，见 pointer.js:53-63/231-242）。
           //   本仓库这里只用它的状态容器与 `syncWorld`，DOM 监听仍由本函数自己装。
-          __ptrSource.pushExternal({ u: p.nx, v: p.ny })
+          __ptrSource.pushExternal({ u: p.nx, v: p.ny, buttons: __pointerButtons })
         } catch (e) { /* ignore */ }
       }
       el.addEventListener('pointermove', set, { passive: true })
       el.addEventListener('pointerdown', set, { passive: true })
+      // ①(WEBWALLGL #4 P0) 松开左键（`pointerup` 也可能落在画布外 ⇒ `pointerleave` 一并清，见下方钩子）
+      el.addEventListener('pointerup', (ev) => {
+        try {
+          if (ev && Number.isFinite(ev.buttons)) __pointerButtons = ev.buttons | 0
+          else if (!ev || ev.button === undefined || ev.button === 0) __pointerButtons = 0
+        } catch (e) { /* ignore */ }
+      }, { passive: true })
       el.addEventListener('pointerleave', () => __pointerLeave('pointerleave'), { passive: true })
       // ①(P-121 B-G2) `pointerout` + `relatedTarget === null` 是"离开文档/窗口"的**等价路径**
       //   （切窗口/系统弹窗时有的实现只发 pointerout 不发 pointerleave）⇒ 与 pointerleave 同一处置。
@@ -8207,6 +8342,10 @@ export function createRenderer(canvas, opts = {}) {
         //   离开后累计 39→54、基准点仍 (800,400)；同一发 leave 在注入撤掉后立刻生效 ⇒ 是优先级问题）。
         if (__pointerGone && inj === __pointerGoneInj && __injKey(inj) === __pointerGoneKey) return null
         __pointerGone = false      // 注入变了 = 新证据（宿主重新给了坐标/inside）⇒ "已离开"作废
+        // ①(WEBWALLGL #4 P0) 注入通道的**可选**键位掩码（bit0 左键，与
+        //   `core/we-pointer-source.mjs` 的 `pushExternal({buttons})`、宿主 `input.cursorLeftDown` 同口径）：
+        //   只有显式给了数字才写，缺省不动已有值（老宿主不传 ⇒ 逐位回到改动前）。
+        if (Number.isFinite(inj.buttons)) __pointerButtons = inj.buttons | 0
         // `space:'css'`：注入方给的是 **CSS 像素**（窗口/视口坐标，即 clientX/clientY 同空间），
         //   需换算成"帧内 client 像素"再归一。口径与实测见 docs/AUDIO-BAND-WIRING.md §4：
         //   本仓库**没有任何** `space:'css'` 的生产者（grep 0 命中），且"css"是窗口空间还是
@@ -9017,6 +9156,140 @@ export function createRenderer(canvas, opts = {}) {
   let parDispY = 0
   let parAmount = 0
   let parEnabled = false
+  // ══════════════════════════════════════════════════════════════════════════════════════════
+  // ①(WEBWALLGL #4 + #5 P0) 效果链的**指针 / 指针状态 / 帧时间 / 视差位置** uniform 接线
+  //   上游 issue：#4「气体/流体动效锐度过高、交互僵死」+#5「鼠标视差壁纸首帧多层叠加 / 根本不动」。
+  //
+  //   官方资产原文（证据强度 ①，本机 `wallpaper_engine/assets/effects/**`，逐条 grep 可复现）：
+  //     · `cursorripple/shaders/effects/cursorripple_apply_force.vert:6,49` → `g_PointerPosition(-Last)`
+  //       + `g_EffectTextureProjectionMatrixInverse`；同效果 `.frag` 的
+  //       `pointerMoveAmt + g_PointerState.z * 5.0`（点击冲量）与 `timeAmt = g_Frametime / 0.02`；
+  //     · `depthparallax/shaders/effects/depthparallax.vert:6,8,9,33-38` → `g_ParallaxPosition * 2 - 1`
+  //       （`v_ParallaxOffset`）+ `CAST3X3(g_EffectTextureProjectionMatrixInverse)`；
+  //     · `xray/shaders/effects/xray.vert:3,8,37,40` → `g_PointerPosition` + ETVPInverse + `g_PointerScale`；
+  //     · `fluidsimulation/shaders/effects/fluidsimulation_vorticity.vert:6,64,69` → 同上。
+  //
+  //   改动前（本次取证）：`g_PointerPosition` / `g_PointerPositionLast` **硬编码 (0,0)**；
+  //   `g_PointerState` / `g_Frametime` / `g_ParallaxPosition` / `g_EffectTextureProjectionMatrix(Inverse)`
+  //   **全仓 0 命中**（从不写 ⇒ uniform 保持 GL 初值 0）⇒ 上面这 4 个官方效果拿不到任何输入。
+  //
+  //   档位（`?ptrfx=`，缺省 official = 开）：
+  //     · official：按官方语义喂真实值；
+  //     · legacy  ：**逐位回到改动前** —— Pos/PosLast 恒 (0,0)，其余 6 个一个都不写。
+  //   数据来源全部是本仓**既有**实现，不新增输入管道：
+  //     · 位置 = `__pointerN`（画布归一坐标；DOM 画布通道）或注入通道（`window/globalThis.__mpwPointer`
+  //       的设计坐标，经 `__pointerDesign` 同一套优先级/离开/挂起规则裁决后反算回归一化）；
+  //     · `g_PointerPositionLast` = **上一帧**的值（照上游 `renderer.js:813-822` 的 last 语义；
+  //       事件频率 > 帧率时若在事件里推进 last，`length(Pos−PosLast)` 恒 ≈0 ⇒ cursorripple 完全不起波，
+  //       见 `core/we-pointer-source.mjs` 文件头「last 快照按帧而不是按事件推进」）；
+  //     · `g_ParallaxPosition` = `parallaxState`（[0,1]，缺省 (0.5,0.5) = 正中心 ⇒ 首帧零偏移 = 官方口径）；
+  //     · `g_Frametime` = 帧间隔秒，钳制式照上游 `renderer.js:1897`
+  //       （`dt ∈ (0,1)` 直取，否则夹到 [0.001, 0.1]），初值 1/60 同上游 `:659`；
+  //     · `g_PointerState` = `(u, v, 左键按下?1:0, 0)`（官方只有 cursorripple 读 `.z`）。
+  //   层 UV 换算（Pos/PosLast/State.xy 落到**当前层**的 UV 空间）见 `bindSystemUniforms` 里的
+  //   `__fxPointerToLayerUV`，口径照上游 `renderer.js:840-848`（强度 ③，**非官方**；层铺满且与画布
+  //   同宽高比时该式退化为恒等 ⇒ 对多数层零变化，结论同该处注释）。
+  // ══════════════════════════════════════════════════════════════════════════════════════════
+  const PTRFX_MODE = (() => {
+    let v = 'official'
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        if (new URLSearchParams(location.search).get('ptrfx') === 'legacy') v = 'legacy'
+      }
+    } catch (e) { /* 无 location（node 测试）→ 默认 official */ }
+    return v
+  })()
+  /** `g_EffectTextureProjectionMatrix*` / `g_PointerPosition` 等 7 个效果输入 uniform 名（统计/断言用）。 */
+  const FX_PTR_UNIFORMS = ['g_PointerPosition', 'g_PointerPositionLast', 'g_PointerState', 'g_Frametime',
+    'g_ParallaxPosition', 'g_EffectTextureProjectionMatrix', 'g_EffectTextureProjectionMatrixInverse']
+  /** 每帧一次的指针/时间快照（效果链所有 pass 共用同一份 ⇒ 同一帧内不可能出现两个指针值）。 */
+  const __fxPtr = { u: 0.5, v: 0.5, lastU: 0.5, lastV: 0.5, has: false, dt: 1 / 60, lastT: null }
+  /** 未收到过指针时 xray 的开窗停位（上游 `renderer.js:283-300` 的 `XRAY_IDLE_SCREEN_UV` /
+   *  `xrayShouldParkPointer`：**只**对声明了 `g_PointerScale` 的 xray 族生效 —— 停在中心会在壁纸
+   *  圆心挖一个洞；iris/ripple 仍用中心，避免眼球看向屏外、涟漪从角上起）。 */
+  const XRAY_IDLE_SCREEN_UV = -1
+  const xrayShouldParkPointer = (pointerHas, hasPointerScaleUni) => !!hasPointerScaleUni && !pointerHas
+  /** 效果链 uniform 台账（只读；门禁/真机诊断用 —— `?ptrfx=legacy` 下 `writes` 恒为 2/pass）。 */
+  const ptrFxStats = {
+    mode: PTRFX_MODE, frames: 0, pointerFrames: 0, parkFrames: 0,
+    uniformWrites: 0, lastPointer: [0.5, 0.5], lastPointerLast: [0.5, 0.5],
+    lastPointerState: [0.5, 0.5, 0, 0], lastFrametime: 1 / 60, lastParallax: [0.5, 0.5],
+  }
+  /**
+   * 每帧**一次**的指针/时间快照。`renderScene` 建好 `cam` 之后、任何层渲染之前调用。
+   * 只写上面的快照对象，不碰 GL、不改任何既有语义（`?ptrfx=legacy` 下它照跑但**没人消费**，
+   * 台账仍可读 ⇒ "legacy 档的值真的没进 shader"是可断言的，而不是靠"我们没调用"）。
+   */
+  function __fxPtrFrame(cam, time) {
+    try {
+      ptrFxStats.frames++
+      // 帧时间（与档位无关：legacy 下只是没人消费）——钳制式照上游 renderer.js:1897
+      const t = Number(time)
+      const rawDt = (__fxPtr.lastT === null || !Number.isFinite(t)) ? 0 : (t - __fxPtr.lastT)
+      if (Number.isFinite(t)) __fxPtr.lastT = t
+      __fxPtr.dt = (rawDt > 0 && rawDt < 1) ? rawDt : Math.min(0.1, Math.max(0.001, rawDt || 1 / 60))
+      // 当前位置：DOM 画布通道（`__pointerN` 已是画布归一化）优先，否则用**同一个**指针裁决器
+      // `__pointerDesign`（注入通道 / 离开 / 挂起 的优先级规则都在里面，一处口径）反算回归一化。
+      let uv = null
+      if (!CURSOR_OFF && !__pointerSuspended) {
+        if (__pointerN) uv = [__pointerN.nx, __pointerN.ny]
+        else {
+          const d = __pointerDesign(cam)
+          if (d && cam) {
+            const win = __fxFramedWindow(cam)
+            if (win.viewW > 0 && win.viewH > 0) uv = [0.5 + (d[0] - cam.projW / 2) / win.viewW, 0.5 + (d[1] - cam.projH / 2) / win.viewH]
+          }
+        }
+      }
+      if (uv) {
+        // last 只在**帧边界**推进（消费方读的是"上一帧"）；**首个指针帧把 last 对齐到 current**
+        //   （照上游 pointer.js `applyMove` 的 `if (!state.has) { lastU = u; lastV = v }`：
+        //    否则第一帧会从中心拉出一道贯穿全屏的假位移 ⇒ cursorripple 凭空拍出一圈大水波）。
+        const first = !__fxPtr.has
+        __fxPtr.lastU = first ? uv[0] : __fxPtr.u
+        __fxPtr.lastV = first ? uv[1] : __fxPtr.v
+        __fxPtr.u = uv[0]
+        __fxPtr.v = uv[1]
+        __fxPtr.has = true
+        ptrFxStats.pointerFrames++
+      } else {
+        // 无指针：current **与** last 都停在中心（上游 renderer.js:819-822 的 `p ? p.u : 0.5`）
+        // ⇒ 帧间位移恒 0（不会凭空拉出一道横贯全屏的假波纹），视差也回到"零偏移"的官方首帧语义。
+        __fxPtr.u = 0.5; __fxPtr.v = 0.5; __fxPtr.lastU = 0.5; __fxPtr.lastV = 0.5
+        __fxPtr.has = false
+      }
+      ptrFxStats.lastPointer = [__fxPtr.u, __fxPtr.v]
+      ptrFxStats.lastPointerLast = [__fxPtr.lastU, __fxPtr.lastV]
+      ptrFxStats.lastFrametime = __fxPtr.dt
+      ptrFxStats.lastParallax = [parallaxState.x, parallaxState.y]
+      ptrFxStats.lastPointerState = [__fxPtr.u, __fxPtr.v, (__pointerButtons & 1) ? 1 : 0, 0]
+    } catch (e) { /* 取证路径绝不打断渲染 */ }
+  }
+  /**
+   * 画布归一坐标 → **当前层**的 UV 空间（上游 `renderer.js:840-848` 的 `toLayerU/toLayerV`，强度 ③）。
+   * 为什么不能直接喂画布归一值：`xray.frag` 拿 `d = texSource - P` 求开窗中心，`texSource` 是**层 UV**；
+   * 层与画布宽高比不同时 fit=cover 会把层裁掉一部分 ⇒ 屏幕 v 与层 v 差"裁掉的边距 + 缩放"。
+   * 层铺满且与画布同宽高比时该式**逐位退化为恒等**。量不出（无 cam / 层尺寸 0）⇒ 原样返回。
+   * `off/view` 从 `cam` 现算（上游 cam 有 `offX/viewW` 字段，本仓库 `buildCamera` 只给
+   * `projW/projH/framedW/framedH/projection/projKind` ⇒ 用与 `__pointerDesign` 同一套换算，不新增字段）。
+   */
+  function __fxFramedWindow(cam) {
+    const fw = (cam.projKind === 'persp') ? cam.framedW : (cam.projection && cam.projection[0] ? 2 / cam.projection[0] : cam.projW)
+    const fh = (cam.projKind === 'persp') ? cam.framedH : (cam.projection && cam.projection[5] ? 2 / Math.abs(cam.projection[5]) : cam.projH)
+    return { offX: cam.projW / 2 - fw / 2, offY: cam.projH / 2 - fh / 2, viewW: fw, viewH: fh }
+  }
+  function __fxPointerToLayerUV(u, v, layer, cam) {
+    try {
+      if (!cam || !layer || !layer.size || !layer.scale || !layer.origin) return [u, v]
+      const lw = Math.abs(layer.size[0] * layer.scale[0])
+      const lh = Math.abs(layer.size[1] * layer.scale[1])
+      if (!(lw > 0) || !(lh > 0)) return [u, v]
+      const win = __fxFramedWindow(cam)
+      const lx = layer.origin[0] - lw / 2
+      const ly = (cam.projH - layer.origin[1]) - lh / 2      // 世界 y 朝下（与 layerModelMatrix 同空间）
+      return [(win.offX + u * win.viewW - lx) / lw, (win.offY + v * win.viewH - ly) / lh]
+    } catch (e) { return [u, v] }
+  }
   // ①(P-100) 角色层适配档（`?charfit=`，见 `charfitModeFrom`）：每帧在 `renderScene` 里按
   //   `opts.charfit` > `?charfit=` 解析一次，`compositeLayer` 消费（避免逐层重复解析）。
   let charfitMode = 'auto'
@@ -9062,7 +9335,7 @@ export function createRenderer(canvas, opts = {}) {
   }
   const mat3Identity = () => new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1])
 
-  function bindSystemUniforms(uni, layer, time, projW, projH, mvp, modelM, viewProjM, resolutions, outW, outH) {
+  function bindSystemUniforms(uni, layer, time, projW, projH, mvp, modelM, viewProjM, resolutions, outW, outH, cam) {
     setVal(uni, 'g_Time', (l) => gl.uniform1f(l, time))
     setVal(uni, 'g_Daytime', (l) => gl.uniform1f(l, 0))
     setVal(uni, 'g_ModelViewProjectionMatrix', (l) => gl.uniformMatrix4fv(l, false, mvp))
@@ -9081,8 +9354,40 @@ export function createRenderer(canvas, opts = {}) {
     // WER-ALIGN F9（wer-ref WPShaderValueUpdater.cpp:684-687）：g_Screen=(输出宽,输出高,宽/高比)
     const sw = outW || projW, sh = outH || projH
     setVal(uni, 'g_Screen', (l) => gl.uniform3f(l, sw, sh, sw / sh))
-    setVal(uni, 'g_PointerPosition', (l) => gl.uniform2f(l, 0, 0))
-    setVal(uni, 'g_PointerPositionLast', (l) => gl.uniform2f(l, 0, 0))
+    // ①(WEBWALLGL #4/#5 P0) 指针 / 指针状态 / 帧时间 / 视差位置（见 `__fxPtr` 上方长注释）。
+    //   `?ptrfx=legacy` = **逐位回到改动前**：Pos/PosLast 恒 (0,0)，其余 6 个一个都不写。
+    if (PTRFX_MODE === 'legacy') {
+      setVal(uni, 'g_PointerPosition', (l) => gl.uniform2f(l, 0, 0))
+      setVal(uni, 'g_PointerPositionLast', (l) => gl.uniform2f(l, 0, 0))
+      ptrFxStats.uniformWrites += 2
+    } else {
+      // xray 族（程序声明了 `g_PointerScale`）在**从未收到指针**时停到画布外
+      // （上游 `renderer.js:816-822,283-300`；iris/ripple 不受影响，仍用中心）
+      const park = xrayShouldParkPointer(__fxPtr.has, uni.get('g_PointerScale'))
+      const su = park ? XRAY_IDLE_SCREEN_UV : __fxPtr.u
+      const sv = park ? XRAY_IDLE_SCREEN_UV : __fxPtr.v
+      const slu = park ? XRAY_IDLE_SCREEN_UV : __fxPtr.lastU
+      const slv = park ? XRAY_IDLE_SCREEN_UV : __fxPtr.lastV
+      if (park) ptrFxStats.parkFrames++
+      const pu = __fxPointerToLayerUV(su, sv, layer, cam)
+      const pl = __fxPointerToLayerUV(slu, slv, layer, cam)
+      setVal(uni, 'g_PointerPosition', (l) => gl.uniform2f(l, pu[0], pu[1]))
+      setVal(uni, 'g_PointerPositionLast', (l) => gl.uniform2f(l, pl[0], pl[1]))
+      // `g_PointerState`：官方只有 `cursorripple_apply_force.frag` 用，且只读 `.z`
+      // （`pointerMoveAmt + g_PointerState.z * 5.0` = 点击时额外注入一次冲量）⇒ xy 放位置、z 放按键。
+      const down = (__pointerButtons & 1) ? 1 : 0
+      setVal(uni, 'g_PointerState', (l) => gl.uniform4f(l, pu[0], pu[1], down, 0))
+      setVal(uni, 'g_Frametime', (l) => gl.uniform1f(l, __fxPtr.dt))
+      setVal(uni, 'g_ParallaxPosition', (l) => gl.uniform2f(l, parallaxState.x, parallaxState.y))
+      // 效果纹理投影矩阵：与第三方参考实现 lwe-ref（`CPass.cpp:881-882` 给 ETVP 补单位矩阵）同口径，
+      // 也与本文件既有的 `g_ModelViewProjectionMatrixInverse`（同上一行 IDENT_M4）一致 ——
+      // 我们的效果 pass 是"层铺满 + 轴对齐"的近似，取单位阵即该近似下的逆（**近似项**，已在台账记录）。
+      setVal(uni, 'g_EffectTextureProjectionMatrix', (l) => gl.uniformMatrix4fv(l, false, IDENT_M4))
+      setVal(uni, 'g_EffectTextureProjectionMatrixInverse', (l) => gl.uniformMatrix4fv(l, false, IDENT_M4))
+      let wrote = 0
+      for (const n of FX_PTR_UNIFORMS) { const u = uni.get(n); if (u && u.loc !== null) wrote++ }
+      ptrFxStats.uniformWrites += wrote
+    }
     for (let i = 0; i < 8; i++) {
       setVal(uni, 'g_Texture' + i, (l) => gl.uniform1i(l, i))
     }
@@ -9187,7 +9492,21 @@ export function createRenderer(canvas, opts = {}) {
             else cfg.uv = ncomp
           }
         }
-      } catch {}
+      } catch (e) {
+        /* ①(2026-09-23 静默失败审计 A-6 表 #7) 这里此前是 `catch {}` —— 正是本函数上方 9167-9169
+         * 记录的那次"效果层整体隐形"事故的形态：探测抛错被静默吞掉，cfg 停在兜底布局（甚至可能停在
+         * **半填**状态：pos 已读、uv 未读）⇒ 指针 stride/offset 与 quadVBO 的实际布局不符 ⇒ 顶点退化、
+         * 整层隐形。现在：①如实记录（cfg.probeErr + 诊断面 + 一次日志；progVAO 缓存 ⇒ 每个程序只报一次）
+         * ②**不留坏状态**：按顶点数据本身的真实分量数（verts.length / 6 顶点）重建兜底布局，保证
+         * `vertexAttribPointer` 与随后 `bufferData` 的那个缓冲逐字节一致 —— 探测失败也不继续用坏状态。 */
+        cfg.probeErr = String((e && e.message) || e)
+        const per = (verts && verts.length > 0 && verts.length % 6 === 0) ? (verts.length / 6) : 0
+        cfg.pos = (per === 5) ? 3 : 2      // 5 float/顶点 = pos3+uv2（PASS_QUAD/LOCAL_QUAD 的实际布局）
+        cfg.uv = 2
+        try { onLog('[we-scene] VAO 属性布局探测失败（按数据实际布局 pos' + cfg.pos + '/uv' + cfg.uv + ' 兜底，不沿用半填配置）: ' + cfg.probeErr) } catch (err) {}
+        const g = (typeof globalThis !== 'undefined') ? globalThis : null
+        if (g) (g.__mpwVaoProbe = g.__mpwVaoProbe || []).push({ err: cfg.probeErr, pos: cfg.pos, uv: cfg.uv })
+      }
       cfg.key = cfg.pos + '|' + cfg.uv
       progVAO.set(prog, cfg)
     }
@@ -10373,6 +10692,10 @@ export function createRenderer(canvas, opts = {}) {
       : ((camPose && camPose.__zoomOnly)
         ? buildCamera(scene, width, height, Object.assign({}, opts, { cameraPose: { x: 0, y: 0, zoom: camPose.zoom } }))
         : buildCamera(scene, width, height, opts))
+    // ①(WEBWALLGL #4/#5 P0) 每帧**一次**的指针/帧时间快照（效果链 uniform 用）——
+    //   必须在建好 `cam` 之后（指针 → 设计坐标要用相机的 framed 窗口）、任何层渲染之前
+    //   （同一帧内所有 pass 共用同一份 ⇒ 不会逐 pass 漂移）。
+    __fxPtrFrame(cam, time)
     let viewProj = mat4Multiply(cam.projection, cam.view)
     // 满幅背景层专用（相机平移豁免；无相机姿态时与 viewProj 相同）
     let viewProjBg = cam.viewBg ? mat4Multiply(cam.projection, cam.viewBg) : viewProj
@@ -10823,38 +11146,60 @@ export function createRenderer(canvas, opts = {}) {
               texObj.height = v.videoHeight || texObj.height
             }
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src)
-            texObj.lastUploaded = v.currentTime
-            texObj.lastUploadAt = now
-            // ①(P-68) 上传台账（源 vs 实际、直传/中转、实测上传 fps、每秒字节）
-            videoUploadTick(now)
-            const vt = videoTexStatOf(String(layer.textureName || layer.name || layer.id), layer.textureName || layer.name)
-            vt.src = (v.videoWidth || 0) + 'x' + (v.videoHeight || 0)
-            vt.up = (texObj.width || 0) + 'x' + (texObj.height || 0)
-            vt.direct = (src === v) ? 1 : 0   // 按**实际**上传源记账（无 document 时 canvas 建不出来 → 仍算直传）
-            vt.uploads = videoStat.uploads
-            vt.upFps = videoStat.upFps
-            vt.viaCanvas = videoStat.viaCanvas
-            videoStat.src = vt.src
-            videoStat.up = vt.up
-            videoStat.direct = vt.direct
-            videoStat.bytesPerFrame = (texObj.width || 0) * (texObj.height || 0) * 4
-            videoStat.MBps = +((videoStat.bytesPerFrame * videoStat.upFps) / 1e6).toFixed(1)
-            videoStat.perfLevel = perfState.autoLevel
-            syncVideoTexStat(layer, vt)
-            maybeLogVideoStats(now)
-            if (!texObj.firstUploaded) {
-              texObj.firstUploaded = true
-              try {
-                onLog('[we-scene] 视频首帧已上传 ' + (texObj.width || '?') + 'x' + (texObj.height || '?') +
-                  '（源 ' + vt.src + '，档位 ' + RES_TIER.name + '，上限 ' + vt.cap + '，' + (plan.direct ? '直传' : '2D 中转') + '，节流 ' + videoStat.throttleMs + 'ms）')
-                // 亮度探针：canvas 1x1 抽样，判断 drawImage 是否为空/黑
-                if (texObj.canvas) {
-                  const px = texObj.canvas.getContext('2d').getImageData(Math.floor(texObj.canvas.width / 2), Math.floor(texObj.canvas.height / 2), 1, 1).data
-                  onLog('[we-scene] 视频中心像素 rgba=' + px[0] + ',' + px[1] + ',' + px[2] + ',' + px[3])
-                }
-              } catch {}
+            /* ①(2026-09-23 静默失败审计 A-5 表 #6) 上传**失败不抛异常**：旧实现紧接着无条件记
+             *   `lastUploaded/lastUploadAt` 并填 `videoStat`/每纹理台账 ⇒ 画面停在旧帧而 `videoStats`
+             *   （`12513` 暴露、每 5s 一条日志）报"上传正常" —— 台账说谎。
+             *   现在先 `getError()`：非 0 ⇒ **如实记失败**（`err` + `upErr` 计数 + `lastUpErr` 错误码 +
+             *   每纹理 `err/lastErr`，一次日志），记账整段搬进"无错"分支（审计原话）。
+             *   这里**不预先排水**（每帧排水会吃掉渲染器逐层 glErr 探针正要读的旗标）；因此判定值可能
+             *   含本帧早先遗留的错误 —— 取保守方向（宁可疑、不假装成功），且不改变任何绘制路径。*/
+            let __upErr = 0
+            try { __upErr = gl.getError() || 0 } catch (e) { __upErr = 0 }
+            if (__upErr !== 0) {
+              videoStat.err++
+              videoStat.upErr++
+              videoStat.lastUpErr = '0x' + __upErr.toString(16)
+              const vtErr = videoTexStatOf(String(layer.textureName || layer.name || layer.id), layer.textureName || layer.name)
+              vtErr.err = (vtErr.err || 0) + 1
+              vtErr.lastErr = '0x' + __upErr.toString(16)
+              if (!texObj.uploadErr) {
+                texObj.uploadErr = true
+                try { onLog('[we-scene] 视频帧上传 GL 错误 0x' + __upErr.toString(16) + '（' + (texObj.width || 0) + 'x' + (texObj.height || 0) + '，画面停留在上一帧；本次不计入上传台账）') } catch {}
+              }
+            } else {
+              texObj.lastUploaded = v.currentTime
+              texObj.lastUploadAt = now
+              // ①(P-68) 上传台账（源 vs 实际、直传/中转、实测上传 fps、每秒字节）
+              videoUploadTick(now)
+              const vt = videoTexStatOf(String(layer.textureName || layer.name || layer.id), layer.textureName || layer.name)
+              vt.src = (v.videoWidth || 0) + 'x' + (v.videoHeight || 0)
+              vt.up = (texObj.width || 0) + 'x' + (texObj.height || 0)
+              vt.direct = (src === v) ? 1 : 0   // 按**实际**上传源记账（无 document 时 canvas 建不出来 → 仍算直传）
+              vt.uploads = videoStat.uploads
+              vt.upFps = videoStat.upFps
+              vt.viaCanvas = videoStat.viaCanvas
+              videoStat.src = vt.src
+              videoStat.up = vt.up
+              videoStat.direct = vt.direct
+              videoStat.bytesPerFrame = (texObj.width || 0) * (texObj.height || 0) * 4
+              videoStat.MBps = +((videoStat.bytesPerFrame * videoStat.upFps) / 1e6).toFixed(1)
+              videoStat.perfLevel = perfState.autoLevel
+              syncVideoTexStat(layer, vt)
+              maybeLogVideoStats(now)
+              if (!texObj.firstUploaded) {
+                texObj.firstUploaded = true
+                try {
+                  onLog('[we-scene] 视频首帧已上传 ' + (texObj.width || '?') + 'x' + (texObj.height || '?') +
+                    '（源 ' + vt.src + '，档位 ' + RES_TIER.name + '，上限 ' + vt.cap + '，' + (plan.direct ? '直传' : '2D 中转') + '，节流 ' + videoStat.throttleMs + 'ms）')
+                  // 亮度探针：canvas 1x1 抽样，判断 drawImage 是否为空/黑
+                  if (texObj.canvas) {
+                    const px = texObj.canvas.getContext('2d').getImageData(Math.floor(texObj.canvas.width / 2), Math.floor(texObj.canvas.height / 2), 1, 1).data
+                    onLog('[we-scene] 视频中心像素 rgba=' + px[0] + ',' + px[1] + ',' + px[2] + ',' + px[3])
+                  }
+                } catch {}
+              }
+              if (texObj.uploadErr) { texObj.uploadErr = false; try { onLog('[we-scene] 视频上传恢复') } catch {} }
             }
-            if (texObj.uploadErr) { texObj.uploadErr = false; try { onLog('[we-scene] 视频上传恢复') } catch {} }
           } catch (e) {
             // 视频帧不可用（如跨域/解码中）：保留上一帧，仅首次记录
             videoStat.err++
@@ -11340,7 +11685,8 @@ export function createRenderer(canvas, opts = {}) {
         resolutions.set(ti, [t.width, t.height, t.width, t.height])
       }
       // 系统 uniform
-      bindSystemUniforms(uni, layer, time, cam.projW, cam.projH, IDENT_M4, layerOrtho, IDENT_M4, resolutions, width, height)
+      // ①(WEBWALLGL #4/#5 P0) 末参 `cam`：效果链的指针 uniform 要换算到**本层 UV 空间**（见 `__fxPointerToLayerUV`）
+      bindSystemUniforms(uni, layer, time, cam.projW, cam.projH, IDENT_M4, layerOrtho, IDENT_M4, resolutions, width, height, cam)
       await passTagErr('system-uniforms', mp.shader)
       // 常量（material 名 → uniform 映射）
       bindConstants(uni, { ...(mp.constants || {}), ...((ov && ov.constantshadervalues) || {}) }, progEntry.matMeta)
@@ -11629,6 +11975,10 @@ export function createRenderer(canvas, opts = {}) {
         pcolorLegacy: PCOLOR_MODE === 'legacy',
         // ①(P-140 用户第 7 项) 湍流初速场口径档位（`?pturb=legacy` ⇒ 回到"每颗粒子独立随机出生角"）
         pturbLegacy: PTURB_MODE === 'legacy',
+        // ①(sphere-dim 2026-09-23) `?psph=legacy` ⇒ 回到"z 未按激活轴屏蔽 + 线性半径"的旧口径
+        sphLegacy: SPH_MODE === 'legacy',
+        // ①(vortex-chirality 2026-09-23) `?pvortex=legacy` ⇒ 回到 `(−dy,+dx)` 旧手性
+        vortexLegacy: VORTEX_MODE === 'legacy',
         // ①(P-144 子系) `?children=legacy` ⇒ 不解析任何子系（`sys.children = []`、事件数组不建）
         childrenMode: CHILDREN_MODE,
         childDepth: typeof layer.__pdepth === 'number' ? layer.__pdepth : 0,
@@ -12506,6 +12856,9 @@ export function createRenderer(canvas, opts = {}) {
     },
     // ①(P-59) 粒子预算/统计只读快照（mock-GL 测试与真机上报共用）
     get particleStats() { return Object.assign({}, partStat, { budget: Object.assign({}, PARTICLE_BUDGET) }) },
+    // ①(WEBWALLGL #4/#5 P0) 效果链**指针/视差/帧时间** uniform 台账（只读）：`mode`（official|legacy）、
+    //   帧数、有指针帧数、xray 停位数、uniform 写入次数、上一帧各值。真机诊断/门禁都读它。
+    get ptrFxStats() { return Object.assign({}, ptrFxStats) },
     // ①(P-74 ④) 效果链输入台账只读快照（回答"链输入为空？"的代码级判据）
     get fxStats() { return { layers: fxStat.layers, last: fxStat.last, perLayer: fxStat.perLayer } },
     // ①(P-68) 视频档位/上传台账只读快照（档位、源 vs 实际上传尺寸、上传 fps、节流命中、
@@ -12600,7 +12953,36 @@ export function applyTexWrap(gl, tex, name, search) {
   } catch (e) { /* 假 GL / 上下文丢失：保持既有 wrap，不抛 */ }
   return mode;
 }
-export function makeTexture(gl, rgba, width, height, bitmap = null, fmt = null) {
+/* ①(2026-09-23 静默失败审计 表 #8/A-7) `texImage2D` **不抛异常**：上传失败只置一个 GL 错误旗标 ⇒
+ *   "调用过了"曾被当成"上传成功了"。同文件 `?texmip=tri`（12827-12843）与 demo.html 位图路径
+ *   （2126-2173）早就有 getError 判据，`.tex` 主链却一直零校验：失败即"整层采样为黑/透明"，
+ *   而 `texStats` 记的是 CPU 解码缓冲 ⇒ 读报区分不出"纹理正常"与"上传失败"。
+ *   本函数把同一判据补到每个 texImage2D 出口，只加不改：
+ *   · 只在**之后**查错，不预先排水 —— 预先 `getError()` 会吃掉调用方正要读的旗标（demo.html 的
+ *     位图重试阶梯、渲染器逐层 glErr 探针都靠它归因）；需要精确归因的调用方自己先排水；
+ *   · 记账沿用既有诊断面命名风格（`__mpwTexSanitizeCount` / `__mpwMipStats`）：
+ *     `__mpwTexUploadErrs`（累计次数）+ `__mpwTexUploadErrLast`（末次 where/错误码/尺寸）+
+ *     纹理对象上盖 `__mpwUploadErr`（0 = 本次上传干净，供调用方判定）；
+ *   · 零错误时**只多一次 getError**，返回值/尺寸/参数一个不动（默认路径逐位不变）。 */
+function texUploadProbe(gl, tex, w, h, where) {
+  let gerr = 0
+  try { gerr = gl.getError() || 0 } catch (e) { gerr = 0 }   // 假 GL / 上下文丢失：当"查不到错"，不误报
+  try { tex.__mpwUploadErr = gerr } catch (e) {}
+  if (!gerr) return 0
+  const g = (typeof globalThis !== 'undefined') ? globalThis : null
+  if (g) {
+    g.__mpwTexUploadErrs = (g.__mpwTexUploadErrs || 0) + 1
+    g.__mpwTexUploadErrLast = { where: String(where || ''), err: gerr, hex: '0x' + gerr.toString(16), w: w | 0, h: h | 0, at: Date.now() }
+  }
+  // demo.html 1165-1169 把 console.warn 桥进页面日志与上报镜像 ⇒ 用 warn 就能进现场日志
+  try {
+    console.warn('[we-scene] 纹理上传报错 0x' + gerr.toString(16) + ' ' + String(where || '') + ' ' + (w | 0) + 'x' + (h | 0) +
+      '（不完整纹理采样可能恒为黑/透明，累计 __mpwTexUploadErrs=' + (g ? g.__mpwTexUploadErrs : '?') + '）')
+  } catch (e) {}
+  return gerr
+}
+
+export function makeTexture(gl, rgba, width, height, bitmap = null, fmt = null, where = null) {
   // ①(P-65) fmt（可选第 6 参 / rgba.__mpwFmt）= 该纹理所出 .tex 的 format id。
   //   只有 makeTextureMip 那条主链路能自动带上它；本函数由宿主（demo.html）直接调用，
   //   拿不到 format → 传 null，粒子 FS 走透传分支 = 旧行为。详见 texFormatOf()。
@@ -12653,6 +13035,9 @@ export function makeTexture(gl, rgba, width, height, bitmap = null, fmt = null) 
   } else {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba)
   }
+  // ①(2026-09-23 审计 A-7) 上传后查错（见 texUploadProbe）：位图取真实像素尺寸记账
+  texUploadProbe(gl, tex, bitmap ? (bitmap.width | 0) || (width | 0) : (width | 0), bitmap ? (bitmap.height | 0) || (height | 0) : (height | 0),
+    where || ('makeTexture ' + (tex.__mpwId || '')))
   return tex
 }
 
@@ -12756,7 +13141,7 @@ export function capFallbackVerdict(samples, budgetMs) {
   return { off, reason: off ? 'slow' : 'ok', median: +median.toFixed(3), n: list.length }
 }
 
-export function makeTextureMip(gl, levels, rg88 = false) {
+export function makeTextureMip(gl, levels, rg88 = false, where = null) {
   const tex = gl.createTexture()
   // ①(P-65) 把 .tex format 盖在 GL 纹理对象上（decodeMip0/decodeMips 已带 levels[0].fmt）。
   //   demo.html:840 / :3128 的既有调用签名不变；rg88 是旧宿主唯一的格式信息 → 回退成 8。
@@ -12773,8 +13158,11 @@ export function makeTextureMip(gl, levels, rg88 = false) {
   // WE 的 TEXI 容器可能只存部分 mip 级（如 5000×3000 仅 5 级），
   // 不完整的 mip 链在 WebGL 下纹理不完整 → 采样恒黑。
   const lv = levels[0]
+  // ①(2026-09-23 审计 A-7) 上传可判定化的统一记账标签（诊断面/日志用；不影响上传参数）
+  const __upWhere = where || ('makeTextureMip ' + (lv.width | 0) + 'x' + (lv.height | 0))
   if (lv.bitmap) {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, lv.bitmap)
+    texUploadProbe(gl, tex, lv.width | 0, lv.height | 0, __upWhere)
   } else if (rg88 && lv.rgba) {
     // RGBA 解码（rgb=G, a=R）→ GL_RG 上传（原始 R,G；shader .r=原始R .g=原始G，与参考实现一致）
     const n = lv.width * lv.height
@@ -12786,10 +13174,12 @@ export function makeTextureMip(gl, levels, rg88 = false) {
     // ①(W1② P-36) WebGL1 无 RG8/RG 常量 → 展开回 RGBA（r=g=R, a=G 保 shader 语义）
     if (gl.RG8 !== undefined && gl.RG !== undefined) {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, lv.width, lv.height, 0, gl.RG, gl.UNSIGNED_BYTE, rg)
+      texUploadProbe(gl, tex, lv.width | 0, lv.height | 0, __upWhere)
     } else {
       const rgba = new Uint8Array(n * 4)
       for (let p = 0; p < n; p++) { rgba[p * 4] = rg[p * 2]; rgba[p * 4 + 1] = rg[p * 2 + 1]; rgba[p * 4 + 2] = rg[p * 2]; rgba[p * 4 + 3] = 255 }
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, lv.width, lv.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba)
+      texUploadProbe(gl, tex, lv.width | 0, lv.height | 0, __upWhere)
     }
   } else {
     // ①(W1② P-36) 长度终检（同 makeTexture）：解码产物不足 w*h*4 时补零成合法缓冲，
@@ -12805,6 +13195,7 @@ export function makeTextureMip(gl, levels, rg88 = false) {
       data = fixed
     }
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, lv.width, lv.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, data)
+    texUploadProbe(gl, tex, lv.width | 0, lv.height | 0, __upWhere)
   }
   // ①(W1 P-36) generateMipmap 只对 POT 调用。MIN_FILTER=LINEAR 从不读 mip（上方注释、
   //   2796 的 mip 平滑是 shader 侧模拟），而大 NPOT（hina 背景 3840×2260）的 generateMipmap
@@ -12844,6 +13235,74 @@ export function makeTextureMip(gl, levels, rg88 = false) {
     } catch (e) { /* 假 GL / 上下文丢失：保持 LINEAR */ }
   }
   return tex
+}
+
+
+/* ①(2026-09-23 静默失败审计 A-7 表 #9) `.tex` 主上传路径的**可判定 + 阶梯降级**闭环。
+ * 背景：`texImage2D` 失败不抛异常（见 texUploadProbe），demo.html 的 `.tex` 主路径此前零校验 ⇒
+ *   整层变黑/消失而 `texStats` 读起来一切正常。
+ * 做法：照搬同文件位图路径（demo.html 2126-2173）那条既有阶梯 ——「上传后查错 → [2048, 1024]
+ *   逐档降采样重试 → 全档仍错 ⇒ 按**缺纹理**处理（不登记坏纹理：不完整纹理采样恒 (0,0,0,1)
+ *   = 整屏不透明黑，位图路径 2165-2173 的教训）」。
+ * 逐位兼容：零错误时**只上传一次**，尺寸/参数/返回值与改动前完全相同（仅多一次 getError 探测）。
+ * 降采样用纯 JS 盒式滤波（与 demo.html 2045-2048 的 OOM 教训同因：不建大 canvas），且每次重试
+ *   都从**原始**缓冲重采（同 2159 从原 bmp 重画）。 */
+export const TEX_UPLOAD_LADDER = [2048, 1024]
+
+/** 纯 JS 盒式滤波（源 → nw×nh RGBA）。算法与 demo.html 2052-2074 的降采样块一致。 */
+export function boxDownsampleRGBA(src, sw, sh, nw, nh) {
+  const out = new Uint8Array(nw * nh * 4)
+  const xr = sw / nw, yr = sh / nh
+  for (let y = 0; y < nh; y++) {
+    const y0 = Math.floor(y * yr), y1 = Math.min(sh, Math.max(y0 + 1, Math.floor((y + 1) * yr)))
+    for (let x = 0; x < nw; x++) {
+      const x0 = Math.floor(x * xr), x1 = Math.min(sw, Math.max(x0 + 1, Math.floor((x + 1) * xr)))
+      let r = 0, g = 0, b = 0, a = 0, n = 0
+      for (let sy = y0; sy < y1; sy++) {
+        let o = (sy * sw + x0) * 4
+        for (let sx = x0; sx < x1; sx++, o += 4) { r += src[o]; g += src[o + 1]; b += src[o + 2]; a += src[o + 3]; n++ }
+      }
+      if (!n) n = 1
+      const d = (y * nw + x) * 4
+      out[d] = r / n; out[d + 1] = g / n; out[d + 2] = b / n; out[d + 3] = a / n
+    }
+  }
+  return out
+}
+
+/** `.tex` 主路径上传（makeTextureMip + 查错 + [2048,1024] 阶梯）。
+ *  `opts.where` = 诊断标签（物料名）；`opts.ladder` 可覆盖档位（测试用）。
+ *  返回 `{ ok, tex, gerr, w, h, up, attempts }`：`up` = `'ok'` 或 `'0x…'`（供 texStats 直接落账），
+ *  `attempts` = 逐档 `{w,h,err}`（读报能看到"在哪一档成功/全败"）。 */
+export function makeTextureMipGuarded(gl, levels, rg88 = false, opts = {}) {
+  const o = opts || {}
+  const where = o.where || null
+  const ladder = Array.isArray(o.ladder) ? o.ladder : TEX_UPLOAD_LADDER
+  const lv0 = (levels && levels[0]) || null
+  let w = (lv0 && lv0.width) | 0, h = (lv0 && lv0.height) | 0
+  let tex = makeTextureMip(gl, levels, rg88, where)
+  let gerr = (tex && tex.__mpwUploadErr) | 0
+  const attempts = [{ w: w, h: h, err: gerr }]
+  for (let i = 0; gerr && i < ladder.length; i++) {
+    const cap = ladder[i] | 0
+    if (!(cap > 0)) continue
+    if (Math.max(w, h) <= cap) continue                 // 已在档位内：不缩（与位图路径 2155 的 continue 同义）
+    if (!(lv0 && lv0.rgba && lv0.width > 0 && lv0.height > 0)) break   // 位图级/缺像素：无法重采样 ⇒ 只如实记账
+    const k = Math.min(cap / w, cap / h)
+    const nw = Math.max(2, Math.round(w * k)), nh = Math.max(2, Math.round(h * k))
+    let small
+    try { small = boxDownsampleRGBA(lv0.rgba, lv0.width | 0, lv0.height | 0, nw, nh) } catch (e) { break }
+    try { if (gl.deleteTexture) gl.deleteTexture(tex) } catch (e) {}   // 坏纹理不留（不完整纹理采样恒黑/不透明）
+    tex = makeTextureMip(gl, [Object.assign({}, lv0, { width: nw, height: nh, rgba: small })], rg88, where)
+    gerr = (tex && tex.__mpwUploadErr) | 0
+    w = nw; h = nh
+    attempts.push({ w: w, h: h, err: gerr })
+  }
+  if (gerr) {
+    try { if (gl.deleteTexture) gl.deleteTexture(tex) } catch (e) {}
+    return { ok: false, tex: null, gerr: gerr, w: w, h: h, up: '0x' + gerr.toString(16), attempts: attempts }
+  }
+  return { ok: true, tex: tex, gerr: 0, w: w, h: h, up: 'ok', attempts: attempts }
 }
 
 

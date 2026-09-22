@@ -19,6 +19,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { ROOT, WS } from './_root.mjs'
+/* ①(2026-09-23 全仓清扫) 「有头优先 + 能力前置探针 + 无 GL 打 SKIP」这套口径的**唯一实现**
+   （照抄 `tests/bench-renderer-source-test.mjs` 的 D 段；见 `tests/_gl-browser.mjs` 的文件头）。 */
+import { launchGLBrowser, glCapability, logGLSkip, glSkipWhy } from './_gl-browser.mjs'
 
 const argv = process.argv.slice(2)
 const SELFTEST = argv.includes('--selftest')
@@ -79,8 +82,17 @@ if (!small || !big) { skip('minification-quality', '尺寸参数不合法（--bi
 const urlFor = (wh) => 'http://' + AUTHORITY + '/webloader/?id=' + encodeURIComponent(WANT_ID)
   + '&res=' + wh.w + 'x' + wh.h + '&time=06:30:00&nopanel' + (EXTRA ? '&' + EXTRA.replace(/^&/, '') : '')
 
-const browser = await firefox.launch({ headless: true, firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
+/* ⚠ 前置不是"有没有浏览器"，而是"这台浏览器能不能建 WebGL2"（2026-09-23 归因，口径照抄
+   `tests/bench-renderer-source-test.mjs` 的 D 段，见 `tests/_gl-browser.mjs`）：本机（Android/PRoot，无
+   `/dev/dri`）**无头 Firefox 连 WebGL1 都建不了** ⇒ 两边截到的都是同一张空画布（300×150），
+   `mae` 读到 **0** —— 那个数字看着像"缩采样质量完美"，其实是**没渲染**（本探针默认只报读数 ⇒ 会变成
+   **静默假绿**，比假红更坏）。所以：**有头优先**（`DISPLAY=:0`，`MPW_X11_DISPLAY` 可换），有头起不来才回落
+   无头；`MPW_BENCH_HEADLESS=1` 强制无头。拿不到 WebGL2 ⇒ 读数打 **SKIP + 原样读数**（读数照采作证据）。 */
+const { browser, launchNote } = await launchGLBrowser(firefox)
 try {
+  /* 能力前置探针（读一次，不猜）：webgl2/webgl1 到底能不能建 —— 读数是否可判由它决定。 */
+  const gl = await glCapability(browser)
+  if (!gl.webgl2) { logGLSkip('缩采样质量读数（画布像素 mae）', launchNote, gl, '下面两张图仍照采，用来证明"空画布 ⇒ mae=0"的假绿签名'); glSkipWhy() }
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } })
   const shot = async (wh) => {
     const page = await ctx.newPage()
@@ -130,7 +142,11 @@ try {
   else {
     console.log('缩采样读数：' + JSON.stringify(Object.assign({}, diff, { id: WANT_ID, big: BIG, small: SMALL, extra: EXTRA || null })))
     console.log('  （mae = 小画布渲染 vs 大画布渲染的高质量降采样的平均差；worst1pct = 最差 1% 像素）')
-    ok(true, '读数已取得（本探针默认只报读数；阈值在拿到多张基线后写死）', 'mae=' + diff.mae)
+    /* 有 WebGL2 ⇒ 照旧「读数已取得」（本探针默认只报读数，不放阈值）；拿不到 ⇒ **SKIP + 原样读数**：
+       空画布两张 ⇒ mae=0，那个 0 **不能**当成"缩采样质量完美"（这就是本条要防的静默假绿）。 */
+    if (!gl.webgl2) logGLSkip('缩采样质量读数已取得', launchNote, gl,
+      '原样读数 ' + JSON.stringify({ big: bigSt.canvas, small: smallSt.canvas, mae: diff.mae, worst1pct: diff.worst1pct, live: bigSt.live || null }))
+    else ok(true, '读数已取得（本探针默认只报读数；阈值在拿到多张基线后写死）', 'mae=' + diff.mae)
   }
 } finally {
   await browser.close().catch(() => {})

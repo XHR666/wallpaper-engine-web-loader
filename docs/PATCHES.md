@@ -4600,7 +4600,7 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 
 | 文件 | 改动 |
 |---|---|
-| `LICENSE` | 21 行 MIT → **697 行 / 36,452 字节**。前 **35,147 字节 = GNU GPL v3 条款原文**（与系统 canonical 副本 `cmp` **逐字节相同**，条款文字零改动）；其后追加分隔线 + 版权声明（`Copyright (C) 2026 XHR666`）+ 标准 `either version 3 of the License, or (at your option) any later version` 措辞 + `SPDX-License-Identifier: GPL-3.0-or-later` |
+| `LICENSE` | 21 行 MIT → **697 行 / 36,442 字节**（2026-09-23：一度把署名替换成 `XFeroni66`（用户另一个 GitHub 用户名，+3 字节），经用户澄清后**已原路回滚**为 `XHR666`；同日程序名 `WE-Scene Web Renderer` → `WEwebLoader`（−10 字节）。**行数全程 697 不变**）。前 **35,147 字节 = GNU GPL v3 条款原文**（与系统 canonical 副本 `cmp` **逐字节相同**，条款文字零改动）；其后追加分隔线 + 版权声明（`Copyright (C) 2026 XHR666`）+ 标准 `either version 3 of the License, or (at your option) any later version` 措辞 + `SPDX-License-Identifier: GPL-3.0-or-later` |
 | `archive/LICENSE.MIT.bak-20260916` | 旧 MIT 全文另存（21 行，供回退；`archive/` 本来就在 `publish-check.mjs` 的 SKIP_DIRS 里，不进发布物） |
 | `docs/README-PUBLIC.md` §5（原 75–81 行） | 整段重写：**GPL-3.0-or-later** + **本仓库不含任何 WE 素材** + vendored `webwallgl`（**MIT © oneincase**，当前**未 vendored**，只在仓库外研读）+ 字体（OFL/Apache/CC-BY，指向 `THIRD-PARTY.md` §4 与 `assets/fonts/licenses/`）+ **渲染器 import 了 MIT 插件 `dsh-mpkg-wallpaper`，其 MIT 声明随之保留** + 指向 `docs/COPYING-RULES.md` + "本文件不是法律意见" |
 | `THIRD-PARTY.md` 末尾 | 追加 §5（本仓库自有许可 = GPL-3.0-or-later，**§1–§4 的 MIT/ISC/OFL/Apache/CC-BY 声明不因换 GPL 而失效**，MIT 声明必须随再分发继续传递）、§6（webwallgl：上游地址 / MIT / **未 vendored 未分发** / 将来引入必须升级为正式条目）、§7（插件 MIT、import 关系、单向流动与反向禁止） |
@@ -4685,7 +4685,7 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 - `node docs-check.mjs` → 退出码 0。
 - `bash run-all-tests.sh` → `══ 汇总：PASS=62 FAIL=0 SKIP=1 / 总 63 项`（退出码 0；与 P-88 基线**逐项相同**，唯一 SKIP 仍是既有的条件项 `jpeg-decode`）。
 - `node diag-flag-check.mjs` → 开关数不变（114 == 114，0 差异）。
-- LICENSE 自证：`head -1 LICENSE` = `                    GNU GENERAL PUBLIC LICENSE`；`wc -c` = **36,452**；
+- LICENSE 自证：`head -1 LICENSE` = `                    GNU GENERAL PUBLIC LICENSE`；`wc -c` = **36,442**（2026-09-23：署名回滚为 `XHR666` + 程序名改为 `WEwebLoader` 之后；替换风波期间一度为 36,455）；
   `head -c 35147 LICENSE | cmp - /usr/share/common-licenses/GPL-3` → 无差异（条款原文逐字节相同）。
 
 ### 7. 回退（回到"不改许可"的状态）
@@ -9005,7 +9005,7 @@ D11（`tests/demo-check.mjs:469-633`）逐条覆盖：⑪ 下限在位 / 下限 
 | A3 | 产物**必需文件自检** + 旧路径"不许有非重定向页"自检（新写） | 4 + 2 | `build-pages.mjs:170-174`（MUST）、`:180-210`（两条会红的自检） |
 | A4 | 运行期**前缀改写**（iframe src / SW 注册） | 4 | `demo/bench-patch.js:506-517`（常量 + `sitePathAliasOf`）、`:572-581`（`demoAssetUrl` 认双前缀）、`:2013`（自发起 iframe src 用新名）、`:3599`（setter 守卫改判 `sitePathAliasOf`） |
 | A5 | 页面注释里的**挂载路径** | 2 | `demo/index.html:6-8`、`demo/renderer/index.html:34-36` |
-| A6 | `demo/sw.js` 注释里的 Pages 子路径 | 1 | `demo/sw.js:9-12`（**缓存名 `webwallgl-bench-v2` 不动**，见 P-127.5-③） |
+| A6 | `demo/sw.js` 注释里的 Pages 子路径 | 1 | `demo/sw.js:9-12`（**缓存名 `webwallgl-bench-v2` 不动**，见 P-127.5-③）〔①2026-09-23 第二轮品牌清理：用户裁定 A ⇒ 缓存名已改为 `wewebloader-bench-v1`，注释同步重写；本行"不动"是 P-127.5 当时的结论，照留作历史〕 |
 | A7 | **CI 自检**（独立第二双眼睛） | 6 | `.github/workflows/pages.yml:4-8`（头注）、`:49-66`（新挂载点 + 旧路径只允许重定向页） |
 | A8 | 文档里的 URL / 命令示例 | 6 处 5 文件 | `docs/ONLINE-DEMO.md`（§2 表 + §2.1 重写 + §3 第 2/2b/4 步 + §5 软链树 + §7 curl）、`docs/BENCH-PAGE-MAP.md:20/233/263`、`docs/README-DIAGNOSTICS.md:355-359`、`docs/ICONS-NEEDED.md:66`、`THIRD-PARTY.md:558-562` |
 | A9 | **仓外**（不在 git）：本机软链 + `references/vendor-ref/ww-pages/serve-8901.mjs` 示例 URL + 3 个 probe 默认 URL + 门禁 T32 | 5 文件 | `references/vendor-ref/ww-pages/` 下四处（行号为改后）：①新软链 `WEwebLoader`；②`references/vendor-ref/ww-pages/serve-8901.mjs`（`:14/81-82`）；③三个 probe 的默认 URL —— `references/vendor-ref/ww-pages/probes/ff-batch-probe.mjs`（`:21/34`）、`references/vendor-ref/ww-pages/probes/ff-docs-panel-probe.mjs`（`:6`）、`references/vendor-ref/ww-pages/probes/ff-picker-probe.mjs`（`:17`）；④门禁 `references/vendor-ref/ww-pages/bench-patch.test.mjs`（新增 T32 七条） |
@@ -9016,7 +9016,7 @@ D11（`tests/demo-check.mjs:469-633`）逐条覆盖：⑪ 下限在位 / 下限 
 |---|---|---|
 | `localStorage` 键：`webwallgl-theme`（补丁 + 产物各一处）/ `webwallgl-lang` / `webwallgl-fx` / `we-bench-pointer-push` / `bench-props-collapsed` | 5 键 · 6 落点 | 改了 = **用户设置全丢**（主题/语言/滤镜/指针注入/面板收起） |
 | DOM 属性名 `data-webwallgl-gl` | 2 | 产物 minified 里写死的契约，页面/测试/面板都按它查 |
-| SW 缓存名 `webwallgl-bench-v2` | 1 | **不含路径成分**；改名只会让已装 SW 的旧缓存白留一轮（activate 按名字清理） |
+| SW 缓存名 `webwallgl-bench-v2` | 1 | **不含路径成分**；改名只会让已装 SW 的旧缓存白留一轮（activate 按名字清理）〔①**2026-09-23 第二轮品牌清理推翻本条**：它是**唯一**含上游项目名的缓存标识，用户第 2 项裁定 A ⇒ 现名 `wewebloader-bench-v1`；"白留一轮"的代价由 activate 自动回收，无迁移代码〕 |
 | npm 包名 `wallpaper-engine-web-loader` | 1 | 与 URL 路径无关（站点根 = 仓库名，本来就是它） |
 
 **(C) 上游归属 / 历史位 —— 不改**
@@ -12471,8 +12471,8 @@ Chromium 在本环境起不来（GPU 进程连崩/`newPage` 挂起，与仓库�
 
 ### P-164.5 ⑤ 品牌图标（新 `demo/assets/brand/**`）
 
-* 图：`demo/assets/brand/wallpaper-engine-icon-512.png`（512², 107 355 B）、
-  `demo/assets/brand/wallpaper-engine-icon-192.png`（192², 30 032 B）、
+* 图：`demo/assets/brand/brand-512.png`（512², 107 355 B；原名 wallpaper-engine-icon-512.png，2026-09-23 品牌清理时改名，**历史名照留在此处**）、
+  `demo/assets/brand/brand-192.png`（192², 30 032 B；原名 wallpaper-engine-icon-192.png，同上）、
   `demo/assets/brand/favicon-64.png`（64², 5 589 B）、`demo/assets/brand/favicon-32.png`（32², 2 070 B）。
 * 引用点：`demo/index.html` 的 `<link rel="icon" …>`×3 + `apple-touch-icon`、`demo/manifest.webmanifest` 的三个
   icons、播放卡片封面（`demo/now-playing/NowPlaying.tsx` 的 `COVER` + 重建后的 `dist`）。

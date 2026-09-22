@@ -83,6 +83,9 @@ if (SELFTEST) {
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import { ROOT, WS } from './_root.mjs'
+/* ①(2026-09-23 全仓清扫) 「有头优先 + 能力前置探针 + 无 GL 打 SKIP」这套口径的**唯一实现**
+   （照抄 `tests/bench-renderer-source-test.mjs` 的 D 段；见 `tests/_gl-browser.mjs` 的文件头）。 */
+import { launchGLBrowser, glCapability, glReading, logGLSkip, glSkipWhy } from './_gl-browser.mjs'
 const pwPath = [process.env.MPW_PLAYWRIGHT, path.join(ROOT, 'node_modules/playwright/index.js'),
   path.join(WS, 'dsh-mpkg-wallpaper/node_modules/playwright/index.js'), '/opt/node/lib/node_modules/playwright/index.js']
   .filter((p) => { try { return !!p && fs.existsSync(p) } catch (e) { return false } })[0]
@@ -90,11 +93,17 @@ if (!pwPath) { console.log('SKIP bench-dbg-dpr-probe — 找不到 playwright（
 const pw = createRequire(import.meta.url)(pwPath)
 const firefox = (pw.default && pw.default.firefox) || pw.firefox
 if (!firefox) { console.log('SKIP bench-dbg-dpr-probe — playwright 没有 firefox 导出'); process.exit(0) }
-/* ⚠ 必须显式开 WebGL2：无头 Firefox 默认**没有** WebGL2，页面会停在「启动失败: 当前浏览器不支持
-   WebGL2」——此时 `__mpwLiveRes` 一类活档位读数永远缺失。本探针第一版就是漏了这行，把"环境缺能力"
-   读成了"产品没跑到"，必须靠预置项把环境补齐。 */
-const browser = await firefox.launch({ headless: true, firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
+/* ⚠ 前置不是"有没有浏览器"，而是"这台浏览器能不能建 WebGL2"（2026-09-23 归因）：
+   无头 Firefox **默认没有 WebGL2**，页面会停在「启动失败: 当前浏览器不支持 WebGL2」——此时 `__mpwLiveRes`
+   一类活档位读数永远缺失。本机（Android/PRoot，无 `/dev/dri`）更狠：**连 WebGL1 都建不了**
+   （`FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS`）⇒ 硬断言 `webgl2===true` 就是把环境缺能力说成产品坏（假红）。
+   所以：**有头优先**（本机唯一能出 WebGL2 的组合 = 有头 + X 显示 `:0` + 软件 llvmpipe），有头起不来才回落
+   无头；`MPW_X11_DISPLAY` 换显示号、`MPW_BENCH_HEADLESS=1` 强制无头。口径照抄
+   `tests/bench-renderer-source-test.mjs` 的 D 段（见 `tests/_gl-browser.mjs`）。 */
+const { browser, launchNote } = await launchGLBrowser(firefox)
 try {
+  /* 能力前置探针（读一次，不猜）：这台浏览器到底能不能建 `webgl2`/`webgl1` —— 下面 W1/P 组的 SKIP 由它决定。 */
+  const gl = await glCapability(browser)
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   const page = await ctx.newPage()
   await page.goto('http://' + AUTHORITY + '/', { waitUntil: 'domcontentloaded', timeout: 60000 })
@@ -138,21 +147,26 @@ try {
   /* ── W 组：**环境前置**（不是产品判据）────────────────────────────────────────────────
      为什么要有它：本探针的活档位读数（`__mpwLiveRes`）只在场景真的启动后才有。无头 Firefox **默认没有
      WebGL2** ⇒ 页面停在「启动失败: 当前浏览器不支持 WebGL2」，P 组于是走 `skip(...)` —— 那种 SKIP 在汇总里
-     与"通过"难以区分，DPR 那条链就会长期没人测。这里把它变成**前置红**：探针已显式开了 WebGL2 预置项，
-     若仍拿不到 WebGL2，说明环境没按预期配好，此时任何"没测到"都必须显式失败。 */
+     与"通过"难以区分，DPR 那条链就会长期没人测。这里先**真去问一次浏览器**（上面的 `gl` 探针，不猜）：
+       · 有 WebGL2 ⇒ 照旧**显式断言**（门禁不放水，W1 仍会红）；
+       · 拿不到 ⇒ 打 **SKIP + 原样读数**：本机无 `/dev/dri`，无头 Firefox 连 WebGL1 都建不了 ⇒
+         那是**环境缺能力**（同一浏览器里上游产物页也建不了 GL），不是本仓渲染器的判据，
+         把它当红就是假红；但 SKIP 行里带着 launch/读数，**不静默通过**。 */
   {
-    const webgl2 = await page.evaluate(() => {
-      try { const c = document.createElement('canvas'); return !!c.getContext('webgl2') } catch (e) { return false }
-    })
-    ok(webgl2 === true, 'W1 宿主浏览器拿得到 WebGL2（否则本探针的 live 结论一律不可信 —— 不许静默 SKIP）',
-      JSON.stringify({ webgl2, prefs: 'webgl.force-enabled/gfx.webrender.software/webgl.out-of-process=false' }))
-    if (!webgl2) console.log('  ⚠ 环境缺 WebGL2：上面 W1 已红，后续 live 判据的 SKIP 不再具备"通过"含义')
+    if (!gl.webgl2) {
+      logGLSkip('W1 宿主浏览器拿得到 WebGL2', launchNote, gl, '后续 live 判据（P 组）的 SKIP 不再具备"通过"含义')
+      glSkipWhy()
+    } else {
+      ok(gl.webgl2 === true, 'W1 宿主浏览器拿得到 WebGL2（否则本探针的 live 结论一律不可信 —— 不许静默 SKIP）',
+        glReading(launchNote, gl))
+    }
   }
 
   /* ── D 组：调试逐层隔离 ── */
   const r0 = await read()
   if (!r0.flags || r0.flags.length === 0) {
-    skip('D 调试逐层', '当前档位没有 `__sceneLayers`（未挂载/该档不支持）—— 不假装通过')
+    skip('D 调试逐层', '当前档位没有 `__sceneLayers`（未挂载/该档不支持）—— 不假装通过'
+      + (gl.webgl2 ? '' : '；且本机浏览器拿不到 WebGL2 ⇒ 场景起不来，读数 ' + glReading(launchNote, gl)))
   } else {
     /* 进入调试：**先切到调试页签再点开关**（`bench-ui-headless` 同款路径；只点开关不会生效 ——
        本轮实测：跳过这一步时 `#dbg-layer` 是空的、隔离也没发生）。 */
@@ -216,7 +230,9 @@ try {
   await setDpr(2); await remount()
   const b = await read()
   if (!a.live || !b.live) {
-    skip('P DPR 切换', '没有 `__mpwLiveRes` —— 诊断：hasLive=' + JSON.stringify(b.hasLive) + ' frameSearch=' + JSON.stringify(b.frameSearch) + ' frameSrc=' + JSON.stringify(b.frameSrc) + ' iframe=' + b.frameW + 'x' + b.frameH + ' boot=' + JSON.stringify(b.boot))
+    skip('P DPR 切换', '没有 `__mpwLiveRes`'
+      + (gl.webgl2 ? '' : '（本机浏览器拿不到 WebGL2 ⇒ 场景起不来、活档位永不发布：读数 ' + glReading(launchNote, gl) + '）')
+      + ' —— 诊断：hasLive=' + JSON.stringify(b.hasLive) + ' frameSearch=' + JSON.stringify(b.frameSearch) + ' frameSrc=' + JSON.stringify(b.frameSrc) + ' iframe=' + b.frameW + 'x' + b.frameH + ' boot=' + JSON.stringify(b.boot))
   } else {
     ok(dprResizeOk(a.live, b.live) === true, 'P1 DPR 1→2：画布像素真的跟着变大（不是只换了个数字）',
       JSON.stringify({ a: { dpr: a.live.dpr, w: a.live.width }, b: { dpr: b.live.dpr, w: b.live.width } }))

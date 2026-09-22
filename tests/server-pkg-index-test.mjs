@@ -17,11 +17,15 @@
 //   C `/shader`：单条目字节与旧实现逐字节相同（含大小写/`shaders/` 前缀两种匹配）；第二次请求不再读目录表。
 //   D HTTP 端到端（本机临时端口起真服务）：`/noise` 200 + `application/octet-stream` + 逐字节等于参考；
 //      `/shader/...` 200 + `text/plain` + 逐字节等于参考 + 两次一致；404 文本、缺场景 500 文本与改动前逐字相同。
+//   F 合成夹具（**不依赖真语料**，①G10 2026-09-23 新增）：容器族 `PKG[VM]` —— `.mpkg`（PKGM0014）
+//      与同结构 `scene.pkg`（PKGV0022）的目录表逐条一致、条目字节逐位一致、没退回整包读；
+//      底座自检 `stats().magicFamily` 如实且 `PKG_MAGIC_RE` 与 pkg-extract 同源；未知 magic 仍如实抛错；
+//      外加 2 组变异自证（判据改回 PKGV-only / 把自检写死 true）。**缺语料时只 SKIP A–E，F 照跑。**
 //   E 变异自证：把 `PKG_HEAD_BYTES` 改成 1GB（等价"又整包读"）⇒ A/B 的字节断言必须变红（RED 原文打印），
 //      而**返回字节仍然正确** —— 证明抓住它的是"读了多少字节"，不是"结果对不对"。
 //
 // 口径：只读语料、不写语料；>64MB 的包**不整包读**（参考实现只对 ≤64MB 的包做逐字节对照）；
-//   无本机语料时整体 `SKIP pkg-index` 且退出 0（与其它真包类门禁同口径）。
+//   无本机语料时 A–E 段 SKIP（F 段照跑，退出码按 F 段结果）。
 // 用法: node tests/server-pkg-index-test.mjs     退出码 0 全绿/SKIP，1 有失败
 import fs from 'node:fs'
 import os from 'node:os'
@@ -30,7 +34,7 @@ import path from 'node:path'
 import http from 'node:http'
 import { spawn } from 'node:child_process'
 import { ROOT, WS } from './_root.mjs'
-import { createPkgEntryIndex } from '../server/pkg-entry-index.mjs'
+import { createPkgEntryIndex, PKG_MAGIC_RE } from '../server/pkg-entry-index.mjs'
 
 const MPW_ROOT = process.env.MPW_ROOT || WS
 const DD = process.env.MPW_SCENE_ROOT || path.join(MPW_ROOT, 'allwallpaper', 'dd')
@@ -41,16 +45,23 @@ const checks = []
 const P = (name, ok, detail) => checks.push({ name, ok: !!ok, detail: detail === undefined ? '' : String(detail) })
 const bytes = (n) => Number(n).toLocaleString('en-US')
 const mb = (n) => (n / 1048576).toFixed(1)
-
-// ── 语料探测（SKIP 口径）──────────────────────────────────────────────────────────
-function sceneIds(root) {
-  let ids = []
-  try { ids = fs.readdirSync(root) } catch { return [] }
-  return ids.filter((id) => { try { return fs.existsSync(path.join(root, id, 'scene.pkg')) } catch { return false } })
+// 汇总（**合成段 [F] 在缺语料时也要出读数** ⇒ 提前定义，SKIP 分支与文件末尾共用同一份）
+function report() {
+  let pass = 0
+  for (const c of checks) { console.log((c.ok ? '  ✓ ' : '  ✗ ') + c.name + (c.detail ? '  (' + c.detail + ')' : '')); if (c.ok) pass++ }
+  console.log('\n' + pass + '/' + checks.length + ' 通过（server-pkg-index P-135 丙）')
+  return pass === checks.length ? 0 : 1
 }
-const IDS = sceneIds(DD)
-if (!IDS.length || !fs.existsSync(PKG_EXTRACT)) {
-  console.log('SKIP pkg-index：本机无场景语料（' + DD + '）或 pkg-extract（' + PKG_EXTRACT + '）—— 只读命中条目类断言需要真包')
+// 合成夹具（[F] 段 + 变异自证）退出兜底清理：只写 mkdtemp
+const FIXTURE_DIRS = []
+process.on('exit', () => { for (const d of FIXTURE_DIRS) { try { fs.rmSync(d, { recursive: true, force: true }) } catch { /* 忽略 */ } } })
+
+// ── 解析器探测（SKIP 口径）────────────────────────────────────────────────────────
+//   口径（①G10 2026-09-23 调整）：**合成段 [F] 只需要 pkg-extract**（不需要真语料），
+//   真语料只有 A–E 段的"读了多少字节/逐字节对照"需要 ⇒ 语料缺失只 SKIP A–E，不再整份退出。
+const PKG_EXTRACT_OK = fs.existsSync(PKG_EXTRACT)
+if (!PKG_EXTRACT_OK) {
+  console.log('SKIP pkg-index：本机无 pkg-extract（' + PKG_EXTRACT + '）—— 底座是注入式的，没有解析器就无从测起')
   process.exit(0)
 }
 const ext = await import(PKG_EXTRACT)
@@ -59,6 +70,159 @@ if (typeof ext.parsePkgIndex !== 'function') {
   process.exit(0)
 }
 const newIndex = () => createPkgEntryIndex({ parsePkg: ext.parsePkg, readPkgEntry: ext.readPkgEntry, parsePkgIndex: ext.parsePkgIndex })
+
+// ── F 合成夹具：容器族 PKG[VM]（G10；**不依赖真语料**）─────────────────────────────
+// G10（docs/PKG-IMPORT-VERIFICATION-20260923.md §3）：`.mpkg`（真机 magic PKGM0014）在本底座上
+//   抛 `pkg: bad magic 'PKGM0014'` —— 判据却是别人（pkg-extract）的，本模块只把它传下去。
+// 判据（第一性原理：容器就是容器）：PKGM 与 PKGV 的**目录表同源**
+//   （`[i32 串长][magic][i32 条目数]{[i32 名字长][name][u32 offset][u32 size]}*`，offset 相对 dataStart），
+//   条目数据里的压缩由 pkg-extract 逐条 probe（与 magic 无关）⇒ 用"同一条目表、只换 magic"的一对
+//   合成夹具钉四件事：① 目录表逐条一致且**没退回整包读**；② 条目字节逐位一致（同一个 parsePkg/readPkgEntry）；
+//   ③ 底座自检 magicFamily 如实 + 与 pkg-extract 的 PKG_MAGIC_RE 同源；④ PKGV 侧独立黄金表回归。
+console.log('[F] 合成夹具：容器族 PKG[VM]（G10；真语料可缺）')
+const F_TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'p135-pkgfamily-'))
+FIXTURE_DIRS.push(F_TMP)
+{
+  // 写入端：与 server/pack-dir.mjs 的写出格式逐字段同源（读取端一律是生产解析器，这里**不写第二个解析器**）。
+  const buildFixture = (magic, files) => {
+    const mbuf = Buffer.from(magic, 'latin1')
+    const head = Buffer.alloc(4 + mbuf.length + 4)
+    head.writeUInt32LE(mbuf.length, 0)
+    mbuf.copy(head, 4)
+    head.writeUInt32LE(files.length, 4 + mbuf.length)
+    const table = []
+    let rel = 0
+    for (const [name, data] of files) {
+      const nb = Buffer.from(name, 'utf8')
+      const h = Buffer.alloc(4 + nb.length + 8)
+      h.writeUInt32LE(nb.length, 0)
+      nb.copy(h, 4)
+      h.writeUInt32LE(rel, 4 + nb.length)
+      h.writeUInt32LE(data.length, 4 + nb.length + 4)
+      table.push(h)
+      rel += data.length
+    }
+    return Buffer.concat([head, ...table, ...files.map(([, d]) => d)])
+  }
+  const F_FILES = [
+    ['scene.json', Buffer.from('{"general":{"type":"scene"}}', 'utf8')],
+    ['shaders/noise.h', Buffer.from('// noise fixture\n', 'utf8')],
+    ['textures/main.tex', Buffer.alloc(1024, 7)],
+    ['preview.gif', Buffer.concat([Buffer.from('GIF89a', 'latin1'), Buffer.alloc(36, 3)])],
+  ]
+  const fPkgv = path.join(F_TMP, 'scene.pkg')          // 真机口径 PKGV0022
+  const fPkgm = path.join(F_TMP, 'we_mobile.mpkg')    // 真机口径 PKGM0014
+  const fPkgx = path.join(F_TMP, 'unknown.pkg')       // 未知 magic PKGX0001
+  fs.writeFileSync(fPkgv, buildFixture('PKGV0022', F_FILES))
+  fs.writeFileSync(fPkgm, buildFixture('PKGM0014', F_FILES))
+  fs.writeFileSync(fPkgx, buildFixture('PKGX0001', F_FILES))
+  const shape = (rec) => JSON.stringify(rec.entries.map((e) => [e.path, e.offset, e.compressedSize, e.size, e.flags]))
+  // 独立算出的黄金目录表（不经过任何解析器）
+  const golden = (() => {
+    let dataStart = 4 + 8 + 4
+    for (const [n] of F_FILES) dataStart += 4 + Buffer.byteLength(n, 'utf8') + 8
+    let rel = 0
+    return F_FILES.map(([n, d]) => {
+      const row = [n, dataStart + rel, d.length, d.length, 0]
+      rel += d.length
+      return row
+    })
+  })()
+
+  // F1 PKGM 目录表可读，且与同结构 PKGV **逐条一致**（不是两套逻辑）
+  //   ⚠ 用 try 包住：注入的解析器若还是 PKGV-only（G10 的改前状态 / 变异）⇒ 让断言**干净地报红**
+  //   （详情里带真实错误文本），而不是让整个门禁抛栈崩掉。
+  const idx = newIndex()
+  const st = { rv: null, rm: null, err: null, bytesV: [], bytesM: [], bytesErr: null }
+  try { st.rv = idx.tableFor(fPkgv); st.rm = idx.tableFor(fPkgm) } catch (e) { st.err = String(e && e.message) }
+  const { rv, rm } = st
+  const sAfterTables = idx.stats()
+  P('F1 G10 PKGM0014 的目录表可读：magic=' + (rm && rm.magic) + '，' + (rm ? rm.entries.length : 0) + ' 条，与同结构 PKGV0022 逐条一致（path/offset/compressedSize 全等）',
+    !!rm && !!rv && rm.magic === 'PKGM0014' && rv.magic === 'PKGV0022' && shape(rm) === shape(rv) && rm.entries.length === F_FILES.length,
+    st.err ? 'err=' + st.err : 'mpkg=' + shape(rm).slice(0, 70) + '…')
+  P('F1b .mpkg 走的是**只读目录表**路径（legacy=false、没退回整包读；两次 tableFor 共读 ' + bytes(sAfterTables.tableBytes) + ' B ≤ 2×64KB）',
+    !!rm && !!rv && !rm.legacy && !rv.legacy && sAfterTables.legacyFallbacks === 0 && sAfterTables.tableBytes > 0 && sAfterTables.tableBytes <= 2 * 65536,
+    JSON.stringify(sAfterTables))
+
+  // F2 条目字节逐位一致（走的是同一个 parsePkg + readPkgEntry —— 含合成单条目容器的 magic 原样带过）
+  try {
+    if (rv) st.bytesV = rv.entries.map((e) => Buffer.from(idx.entryBytes(fPkgv, e)))
+    if (rm) st.bytesM = rm.entries.map((e) => Buffer.from(idx.entryBytes(fPkgm, e)))
+  } catch (e) { st.bytesErr = String(e && e.message) }
+  const { bytesV, bytesM } = st
+  P('F2 同结构 PKGM/PKGV 的**每条**条目字节逐位相同（' + F_FILES.length + ' 条；覆盖 entryBytes→合成容器→parsePkg/readPkgEntry 全链）',
+    !st.bytesErr && bytesM.length === F_FILES.length && bytesM.length === bytesV.length && bytesM.every((b, i) => Buffer.compare(b, bytesV[i]) === 0),
+    st.bytesErr ? 'err=' + st.bytesErr : 'sizes=' + bytesM.map((b) => b.length).join(','))
+
+  // F3 PKGV 侧逐位回归（独立黄金表 + 原载荷）
+  P('F3 PKGV0022 回归：目录表 == 独立算出的黄金表，且每条载荷与源夹具逐位相同',
+    !!rv && shape(rv) === JSON.stringify(golden) && bytesV.length === F_FILES.length && bytesV.every((b, i) => Buffer.compare(b, F_FILES[i][1]) === 0),
+    'golden[0]=' + JSON.stringify(golden[0]))
+
+  // F4 底座自检 + 三处口径同源（G10：本模块 / pkg-extract / we-core 都按 PKG[VM]）
+  const fam = idx.stats().magicFamily
+  P('F4 底座自检如实：注入的解析器认 PKG[VM] 两种 magic（magicFamily=' + JSON.stringify(fam) + '）+ PKG_MAGIC_RE 与 pkg-extract 同源',
+    !!fam && fam.PKGV === true && fam.PKGM === true && 'PKG_MAGIC_RE' in ext
+    && ext.PKG_MAGIC_RE.source === PKG_MAGIC_RE.source
+    && PKG_MAGIC_RE.test('PKGV0022') && PKG_MAGIC_RE.test('PKGM0014') && !PKG_MAGIC_RE.test('PKGX0001'),
+    'ext=' + (ext.PKG_MAGIC_RE && ext.PKG_MAGIC_RE.source) + ' 本模块=' + PKG_MAGIC_RE.source)
+
+  // F5 未知 magic 仍**如实抛错**（没有宽到什么都认）
+  const errOf = (fn) => { try { fn(); return null } catch (e) { return String(e && e.message) } }
+  const ex = errOf(() => newIndex().tableFor(fPkgx))
+  P('F5 未知 magic（PKGX0001）仍抛 `pkg: bad magic \'PKGX0001\'`（如实报，不伪造成功）',
+    ex === "pkg: bad magic 'PKGX0001'", 'err=' + ex)
+
+  // F6 变异自证 ×2（改回去必红；变异只发生在 mkdtemp 副本，真树文件不动）
+  //   · E4：pkg-extract 判据改回 PKGV-only ⇒ F1/F4 型断言必红（且**如实**降级成整包读后抛错）
+  //   · E5：把底座自检写成"永远 true" ⇒ 上面 F4 的如实性断言会红（自检不是摆设）
+  const copyOf = (tag, srcPath) => {
+    const p = path.join(F_TMP, tag, path.basename(srcPath))
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, fs.readFileSync(srcPath))
+    return p
+  }
+  const mutate = (p, from, to) => {
+    const s = fs.readFileSync(p, 'utf8')
+    if (!s.includes(from)) return false
+    fs.writeFileSync(p, s.replace(from, to))
+    return true
+  }
+  const extCopy = copyOf('mut-extract', PKG_EXTRACT)
+  const injE4 = mutate(extCopy, 'const PKG_MAGIC_RE = /^PKG[VM]\\d{4}$/;', 'const PKG_MAGIC_RE = /^PKGV\\d{4}$/;')
+  const mExt = await import('file://' + extCopy + '?v=' + Date.now())
+  const midx = createPkgEntryIndex({ parsePkg: mExt.parsePkg, readPkgEntry: mExt.readPkgEntry, parsePkgIndex: mExt.parsePkgIndex })
+  const mErr = errOf(() => midx.tableFor(fPkgm))
+  const mFam = midx.stats().magicFamily
+  const mStats = midx.stats()
+  P('E4 判据改回 PKGV-only ⇒ .mpkg 的 tableFor 又抛 bad magic（F1 型断言变红）；底座**如实**记录 magicFamily.PKGM=false + 退回旧路径（legacyFallbacks=' + mStats.legacyFallbacks + '）',
+    injE4 && mErr === "pkg: bad magic 'PKGM0014'" && !!mFam && mFam.PKGM === false && mFam.PKGV === true
+    && midx.stats().legacyFallbacks >= 1,
+    'err=' + mErr + ' magicFamily=' + JSON.stringify(mFam))
+  P('E4b 同一次变异下 PKGV 侧不受影响（回归：PKGV 目录表仍可读且逐条等于黄金表）',
+    shape(midx.tableFor(fPkgv)) === JSON.stringify(golden), 'pkgv entries=' + midx.tableFor(fPkgv).entries.length)
+  const idxCopy = copyOf('mut-index', path.join(ROOT, 'server', 'pkg-entry-index.mjs'))
+  const injE5 = mutate(idxCopy,
+    "      const one = parsePkg(new Uint8Array(synthOneEntryPkg(magic, 'probe.bin', Buffer.from('probe', 'utf8'))))\n      family[tag] = Array.isArray(one) && one.length === 1 && one[0].path === 'probe.bin'",
+    '      family[tag] = true   // 变异：不问解析器，直接说"认"')
+  const mIndexMod = await import('file://' + idxCopy + '?v=' + Date.now())
+  const lied = mIndexMod.createPkgEntryIndex({ parsePkg: mExt.parsePkg, readPkgEntry: mExt.readPkgEntry, parsePkgIndex: mExt.parsePkgIndex }).stats().magicFamily
+  P('E5 把底座自检写成"永远 true" ⇒ 面对同一个 PKGV-only 解析器它会**说谎**（magicFamily.PKGM=true）⇒ F4 的如实性断言确有分辨力',
+    injE5 && !!lied && lied.PKGM === true, 'inj=' + injE5 + ' magicFamily=' + JSON.stringify(lied))
+}
+
+// ── 语料探测（SKIP 口径，只作用于下面 A–E 段）─────────────────────────────────────
+function sceneIds(root) {
+  let ids = []
+  try { ids = fs.readdirSync(root) } catch { return [] }
+  return ids.filter((id) => { try { return fs.existsSync(path.join(root, id, 'scene.pkg')) } catch { return false } })
+}
+const IDS = sceneIds(DD)
+if (!IDS.length) {
+  console.log('\nSKIP pkg-index：本机无场景语料（' + DD + '）—— A–E 段的"只读命中条目/逐字节对照"需要真包；'
+    + '[F] 合成段已跑（容器族 PKG[VM] 与 PKGV 回归不依赖语料）')
+  process.exit(report())
+}
 
 // ── A 目录表只读 ─────────────────────────────────────────────────────────────────
 console.log('[A] 目录表只读（表字节 vs 包体积）')
@@ -287,7 +451,4 @@ console.log('\n[E] 变异自证：PKG_HEAD_BYTES 改成 1GB（等价又整包读
 }
 
 // ── 汇总 ────────────────────────────────────────────────────────────────────────
-let pass = 0
-for (const c of checks) { console.log((c.ok ? '  ✓ ' : '  ✗ ') + c.name + (c.detail ? '  (' + c.detail + ')' : '')); if (c.ok) pass++ }
-console.log('\n' + pass + '/' + checks.length + ' 通过（server-pkg-index P-135 丙）')
-process.exit(pass === checks.length ? 0 : 1)
+process.exit(report())

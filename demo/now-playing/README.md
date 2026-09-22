@@ -32,7 +32,7 @@ demo/now-playing/
 | 本仓库这一层（移植、纯函数拆分、演示页、打包脚本、测试） | GPL-3.0-or-later | 与仓库其余部分一致（见仓库根 `LICENSE`） |
 | `lucide-react`（图标） | ISC | 依赖，运行时由 npm 装；不进仓库（`node_modules/` 已被根 `.gitignore` 忽略） |
 | `icons.tsx`（离线兜底图标） | ISC | 几何数据逐字节取自 `lucide-react@1.47.0`；许可正文仓库里已有：`demo/LICENSE-lucide-ISC.txt`；归属见 `THIRD-PARTY.md` |
-| `demo/icons/pwa-512.png`（COVER） | 本项目自有 | 见下文「COVER」 |
+| `demo/assets/brand/brand-512.png`（COVER；P-164 前是 `demo/icons/pwa-512.png`） | 本项目自有（仓库所有者提供的品牌图） | 见下文「COVER」 |
 
 **没有出行任何 Bencho 的图片**：原件顶部那句 `COVER was Bencho's own pictures, which are not
 licensed to travel` 就是原因，照抄时它连同注释一起留下了。
@@ -112,10 +112,12 @@ node build.mjs                                                  # → dist/now-p
 
 ## 5. COVER 怎么处理的（任务书第 5 条）
 
-**指向本仓库自己的图**：`../icons/pwa-512.png`（512×512，本项目的 PWA 图标，随仓库分发、许可干净）。
+**指向本仓库自己的图**：`../assets/brand/brand-512.png`（512×512，**仓库所有者提供的品牌图**，随仓库分发、许可干净）。
+（P-164 之前这里指的是 `../icons/pwa-512.png` —— 那是**上游 WebWallGL 的图标**，已不再被本组件引用；
+2026-09-23 品牌清理又把它与站点根同名图统一改成 `brand-512.png`。）
 
 - 路径**相对页面**写 ⇒ `/demo/now-playing/` 与 `/WEwebLoader/now-playing/` 两个挂载点都成立
-  （8902 的两个挂载点都指向 `demo/`，`../icons/` 落到 `demo/icons/`）。
+  （8902 的两个挂载点都指向 `demo/`，`../assets/brand/` 落到 `demo/assets/brand/`）。
 - 为什么不用"漂亮的封面"：本仓库**不分发任何第三方美术资源**（`tests/demo-check.mjs` 的 D3/D5
   有对应闸门），Bencho 的图也不随许可出行。自家图标是唯一既合法又在仓库里的选择。
 - 它同时是 `.snd-art` 那层兜底渐变验证不到的**真图**：`.snd-art` 的 `background-image`
@@ -142,7 +144,7 @@ node build.mjs                                                  # → dist/now-p
      算式一字未改，论证注释留在组件原位。
    - 目的：让"同心圆角""swell 两端为 0、峰值在 0.63""QUART(0)=0 / QUART(1)=1"这些关系
      能被 `tests/now-playing-test.mjs` 直接断言 —— 组件与测试读同一份算式，不会漂移。
-3. **COVER** 由空串（占位）改成 `../icons/pwa-512.png`（见上一节）。
+3. **COVER** 由空串（占位）改成 `../icons/pwa-512.png`，P-164 起改为 `../assets/brand/brand-512.png`（见上一节）。
 4. **`stroke` 属性取代 Bencho 的全局 `[data-stroke="on"]`**：本项目没有那个全局属性
    ⇒ 发丝线改成组件自己的可选属性（`<NowPlaying stroke />` 时给根元素写 `data-stroke="on"`），
    CSS 里的选择器随之写成 `.snd[data-stroke="on"] .snd-box`（仍在 `.snd` 子树内）。

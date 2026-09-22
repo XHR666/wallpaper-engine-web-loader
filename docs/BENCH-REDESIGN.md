@@ -107,7 +107,7 @@
 （用户看到的"nav 点什么"）；③默认落在产物的 docs 视图（README）；④控制台因为 `#main` 轨道规则缺失被挤没。
 
 **修法（已落地）**：
-* `demo/sw.js` → `VERSION = webwallgl-bench-v2`；**不带哈希的文件（`bench-patch.js`/`sw.js`/`manifest`/HTML）改 network-first**
+* `demo/sw.js` → `VERSION = webwallgl-bench-v2`（①2026-09-23 第二轮品牌清理：缓存名现为 `wewebloader-bench-v1`，见 `docs/PATCHES.md` P-127.5；下面的 network-first 策略一字未变）；**不带哈希的文件（`bench-patch.js`/`sw.js`/`manifest`/HTML）改 network-first**
   （离线回落缓存），带哈希的 `assets/*.<hash>.js|css` 与 `icons/` 仍 cache-first。浏览器每次导航都会字节校验 `sw.js`，
   所以老客户端**一次硬刷新**之后就会拿到 v2 并从此自愈。
 * 本地 :8901 换成 **显式 `Cache-Control: no-store`** 的静态服务器：`references/vendor-ref/ww-pages/serve-8901.mjs`

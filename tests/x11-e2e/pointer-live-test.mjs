@@ -27,6 +27,10 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { ROOT, WS } from '../_root.mjs'
 import * as cua from './cua.mjs'
+/* ①(2026-09-23 全仓清扫) 能力前置探针：本档的判据落在"**真渲染帧**上的真指针事件"（`cap.firstFrame`
+   + `#sc` 画布），没有 GL 就无从测起。口径照抄 `tests/bench-renderer-source-test.mjs` 的 D 段
+   （见 `tests/_gl-browser.mjs` 的文件头）：真去问一次浏览器，拿不到 ⇒ **SKIP + 原样读数**。 */
+import { glCapability, logGLSkip, glSkipWhy, glPrefs, closeQuiet, headedNote } from '../_gl-browser.mjs'
 
 const URL_BASE = process.env.MPW_DEMO_URL || 'http://127.0.0.1:8899'
 const argv = process.argv.slice(2)
@@ -85,11 +89,22 @@ const browser = await firefox.launch({
     MOZ_WEBGL_FORCE_SOFTWARE: '1', LIBGL_ALWAYS_SOFTWARE: '1', MOZ_ENABLE_WAYLAND: '0',
   },
   firefoxUserPrefs: {
-    'webgl.force-enabled': true, 'webgl.disabled': false,
+    /* ⚠ WebGL 预置项走共用口径（`_gl-browser.mjs`）：默认显式开；`MPW_GL_FORCE_OFF=1` 时关掉
+       —— 用它在有 GL 的机器上自证"无 GL ⇒ SKIP + 原样读数"这条路真的会走。 */
+    ...glPrefs(),
     'gfx.webrender.software': true, 'webgl.out-of-process': false,
   },
 })
 try {
+  /* 能力前置探针（读一次，不猜）：本档的判据全落在"真渲染帧"上（下面还有 `cap.firstFrame` 兜底），
+     **没有 GL 就无从测起** ⇒ 拿不到 WebGL2 时打 **SKIP + 原样读数**，不谎报成红、也不静默通过。 */
+  const gl = await glCapability(browser)
+  if (!gl.webgl2) {
+    await closeQuiet(browser)
+    logGLSkip('pointer-live 全档（X11 真指针 → 真渲染画布）', headedNote(cua.DISPLAY), gl)
+    glSkipWhy()
+    process.exit(0)
+  }
   const ctx = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h } })
   const page = await ctx.newPage()
   const pageProblems = []

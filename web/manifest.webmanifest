@@ -1,6 +1,6 @@
 {
-  "name": "WE-Scene Web Renderer",
-  "short_name": "WE-Scene",
+  "name": "WEwebLoader",
+  "short_name": "WEwebLoader",
   "description": "浏览器端 Wallpaper Engine 场景渲染器：不装 WE、不装 Windows 依赖，WebGL2 实时渲染 scene.pkg 场景壁纸（离线可渲染自带合成样例）。",
   "lang": "zh-CN",
   "start_url": "/?id=sample-synthetic",

@@ -1184,7 +1184,7 @@ try {
       'X1 ⑤ 真机 `link[rel*=icon]` 全部指向品牌图且 fetch 200 + `image/*`', JSON.stringify({ links: x.links, favicons: x.favicons }))
     ok((x.icons || []).length === 3 && x.icons.every((i) => i && i.status === 200 && /^image\//.test(i.type) && /assets\/brand\//.test(i.href)),
       'X2 ⑤ manifest 的三个图标都是品牌图、都能取到（200 + image/*）', JSON.stringify(x.icons))
-    ok(/assets\/brand\/wallpaper-engine-icon-512\.png/.test(x.cover || ''),
+    ok(/assets\/brand\/brand-512\.png/.test(x.cover || ''),
       'X3 ⑤ 播放卡片的封面背景图也换成了品牌图', JSON.stringify((x.cover || '').slice(0, 90)))
   }
 

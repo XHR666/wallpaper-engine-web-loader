@@ -115,6 +115,13 @@ function mkLibStub(extra) {
     decodeMip0: () => ({ width: 1, height: 1, rgba: new Uint8Array([1, 2, 3, 255]) }),
     makeTexture: () => ({ fake: true }),
     makeTextureMip: () => ({ fake: true, mip: true }),
+    // ①(2026-09-23 静默失败审计 A-7) 宿主 `.tex` 主路径改走 `makeTextureMipGuarded`（上传查错 + [2048,1024]
+    //   阶梯 + up 状态落账）⇒ 源码切片夹具的 lib 桩必须跟着补同名入口（同 `texDownsampleCap` 的补桩口径）。
+    //   健康桩：零错、单次上传、尺寸=入参级（T3c 要的 `!!r.glTex` / 登记身份 / 零 ⚠ 行全部保留）。
+    makeTextureMipGuarded: (gl, levels, rg88) => {
+      const lv = (levels && levels[0]) || {}
+      return { ok: true, tex: { fake: true, mip: true }, gerr: 0, w: lv.width, h: lv.height, up: 'ok', attempts: [{ w: lv.width, h: lv.height, err: 0 }] }
+    },
     spriteInfo: () => null,
     texDownsampleCap: () => 0,
   }, extra || {})

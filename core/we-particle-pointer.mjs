@@ -222,14 +222,32 @@ export function mapSequenceAroundControlPoint(around, seqIndex, count, bounds, r
  * 上游 1019-1020 的音频门控 `vK`（`v.audioMode ? audioGate(...) : 1`）由本仓库算子层
  * 的 `audioK` 提供（等价：无音频视图时 audioK = 1），故本函数不含音频参数。
  *
+ * ①(vortex-chirality 2026-09-23) **切向方向本批翻转，并加了 `tangentSign` 档位**。
+ *   取 `radial = (dx, dy) = p − center`、`axis = (0,0,1)`：
+ *     · `tangentSign = +1`（**新默认**）= `(dy, −dx)` = `radial × axis` = `−axis × radial`；
+ *     · `tangentSign = −1`（`?pvortex=legacy`）= `(−dy, +dx)` = `axis × radial`（= 改动前的实现，
+ *       也正是上游 `particles.js:1010-1024` 在 `78718843` **之前**的符号）。
+ *   依据（**必须如实声明，不要写成"对齐官方"**）：本机**没有**任何 WE 官方反编译产物、
+ *   官方资产里也**没有**方向定义（`magic_vortex` 预设与官方元素预览场景都只锁字段集）。
+ *   `+1` 的依据是**第三方参考实现的多实现共识** —— `references/wer-ref`（`relative.cross(axis)`）
+ *   与 `open-wallpaper-engine`（`-axis.cross(radial)`）**同源**（共享 `contropoint` 误拼，只能算
+ *   一条口径）+ **上游 oneincase/webwallgl 带理由的单向翻转**（commit `78718843`，v1.4.1，
+ *   自述为对齐官方观测）；`references/lwe-ref`（`cross(axis, radial)`）用老符号，但它在
+ *   `vortex_v2` 语义上可验证地偏离官方数据（`flags&2` 被当成环形，而官方 `magic_vortex_orb.json`
+ *   是 `flags:2` **且**带 ring 字段）⇒ 权重最低。
+ *   ⇒ 这是"证据更强的一方"，**不是**"已证实的一方"；官方级结论需要真机录 WE 出帧对拍。
+ *   完整取证：`docs/VORTEX-CHIRALITY-RE-20260923.md`；档位常量见 `core/we-scene-bundle.js`
+ *   的 `VORTEX_MODE`（唯一调用点在同一文件的 vortex 分支）。
+ *
  * @param {number} px 粒子 x（与 base 同一空间）
  * @param {number} py 粒子 y
  * @param {number[]} base 控制点当前位置（与粒子同一空间）
  * @param {{offset:number[],distanceInner:number,distanceOuter:number,speedInner:number,speedOuter:number}} v
  * @param {number} dt
+ * @param {number} [tangentSign=1] 切向手性：`+1` = `(dy,−dx)`（默认）、`−1` = `(−dy,+dx)`（legacy）
  * @returns {[number,number]|null} `[dvx, dvy]`；距离 < 1e-3（上游 `continue`）⇒ null
  */
-export function vortexSwirl(px, py, base, v, dt) {
+export function vortexSwirl(px, py, base, v, dt, tangentSign = 1) {
   const dx = px - (base[0] + v.offset[0])
   const dy = py - (base[1] + v.offset[1])
   const dist = Math.hypot(dx, dy)
@@ -237,7 +255,9 @@ export function vortexSwirl(px, py, base, v, dt) {
   const span = v.distanceOuter - v.distanceInner
   const k = span > 0 ? Math.min(1, Math.max(0, (dist - v.distanceInner) / span)) : 0
   const speed = v.speedInner + (v.speedOuter - v.speedInner) * k
-  return [(-dy / dist) * speed * dt, (dx / dist) * speed * dt]
+  // ①(vortex-chirality) 手性由 `tangentSign` 决定，默认 = `(dy, −dx)`
+  const s = tangentSign >= 0 ? 1 : -1
+  return [(s * dy / dist) * speed * dt, (-s * dx / dist) * speed * dt]
 }
 
 /**

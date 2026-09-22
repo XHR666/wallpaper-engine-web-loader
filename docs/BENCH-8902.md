@@ -521,7 +521,7 @@ web 档 `3644069061`（本机 7 张 web 档里唯一带 2×`<video>` + 3×`<audi
 | ② | 「截图」 | 走渲染器自己的 `__wp.capture(0)`（JPEG data URL）⇒ `a[download]`；拿不到就**写明原因**（渲染器未就绪 / capture 返回空） | 本机当前无场景 ⇒ 返回 `null` 并写日志（不假装成功）；有场景时 Z5 的口径是 `bytes > 1KB` |
 | ③ | 重复点"已选中"的壁纸必须幂等 | 决策抽成纯函数 `switchDecision()`（目标已经是当前项 ⇒ 不 `click()`）；`#list` 上再加一道**捕获阶段**拦截并计数（`#np-host[data-np-idem]`） | 连点 3 次：`#frame` src 不变、`Mount` 日志 **8→8**、列表节点身份不变、拦截计数 **3** |
 | ④ | 鼠标尾迹不按键也出（与 `:8899` 对齐） | 舞台内的 `pointermove` 经 `forwardPointerMove()` 走 `__wp.pushPointer(u,v,buttons=0,mods)`；是否转发由纯函数 `pointerForwardPlan()` 定（开关 / 入口 / **舞台上是 web 档则不转发**，避免原生+注入双投递） | 注入遮罩 + 尾迹开启下**不按键**移动：转发计数 **1→9**；尾迹画布墨迹 **0→332** 像素（`:8899` 同口径） |
-| ⑤ | 渲染器图标换成本仓所有者的图 | `demo/index.html` 的 favicon/apple-touch、`demo/manifest.webmanifest` 三个图标、播放卡片封面全部指向 `demo/assets/brand/**`（4 张：512/192/64/32 PNG） | `link[rel*=icon]` 全部 `assets/brand/*` 且 200 + `image/png`；manifest 三个图标 200（30 032 / 107 355 / 5 589 B）；卡片封面 = `wallpaper-engine-icon-512.png` |
+| ⑤ | 渲染器图标换成本仓所有者的图 | `demo/index.html` 的 favicon/apple-touch、`demo/manifest.webmanifest` 三个图标、播放卡片封面全部指向 `demo/assets/brand/**`（4 张：512/192/64/32 PNG） | `link[rel*=icon]` 全部 `assets/brand/*` 且 200 + `image/png`；manifest 三个图标 200（30 032 / 107 355 / 5 589 B）；卡片封面 = `brand-512.png` |
 
 ### 10.2 关闭壁纸条的回落口径（①的"明确"部分）
 
@@ -572,7 +572,10 @@ web 档 `3644069061`（本机 7 张 web 档里唯一带 2×`<video>` + 3×`<audi
 4. **图标只换了测试台这一页（`demo/**`）的引用**：站点根 PWA 那一套（`web/manifest.webmanifest`、
    `web/pwa-inject.mjs`、`web/sw.js`、`web/icons/**`）仍指旧的 `icons/icon-*.png` —— 这些文件不在本批授权范围内
    （`web/icons/**` 由 `tools/make-icons.mjs` 生成、`web/icons/icons.json` 的 sha256 钉着）。
-   旧图**没有删**（`demo/icons/pwa-*.png` 与 `web/icons/**` 都还在磁盘上）。
+   旧图**当时没有删**（`web/icons/**` 全在；`demo/icons/` 原有 3 张，其中零引用的
+   `pwa-maskable-512.png` 已于 2026-09-23 品牌清理删除，`pwa-192.png` / `pwa-512.png`
+   因仍然出现在文档历史记录里而保留；`server/we-scene-demo-server-8902.mjs` 的 `/favicon.ico`
+   也已在同一天从 `icons/pwa-192.png` 改成品牌图 `assets/brand/favicon-32.png`）。
 5. **图的来源**：`demo/assets/brand/**` 是本仓所有者提供的图（原图在**工作区根**的 `assets/brand/`），
    **不登记为上游第三方素材**（`THIRD-PARTY.md` / `docs/COPYING-RULES.md` §4 一行都不加）。
 6. **观感类**（省略号的观感、`×` 的手感、尾迹粗细/颜色）只能人眼；探针只判几何、状态与像素计数。

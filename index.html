@@ -6,6 +6,12 @@
     <title>wallpaper-engine-web-loader — 浏览器端 WE 场景渲染器 · 在线 demo</title>
     <meta name="description" content="WEwebLoader（浏览器端 Wallpaper Engine 壁纸渲染器）在线 demo：不装 WE、不装 Windows 依赖，一个静态服务器 + WebGL2 就能实时渲染 scene.pkg。本项目不分发任何真实壁纸。" />
     <meta name="theme-color" content="#0f1116" />
+    <!-- ①(2026-09-23 第二轮品牌清理 · 用户③) 落地页原先**一条图标声明都没有** ⇒ 浏览器标签页只能去要
+         `/favicon.ico`（Pages 上原本 404）。这三行指向仓库所有者的品牌图：站点根副本在 `web/icons/brand-*`，
+         构建（build-pages.mjs）把它拷成产物里的 `./icons/brand-*`，另有一条 `favicon.ico` 映射兜住默认路径。 -->
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/brand-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/brand-192.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="./icons/brand-192.png" />
     <style>
       :root {
         color-scheme: dark;

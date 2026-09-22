@@ -23,6 +23,9 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import { ROOT, WS } from './_root.mjs'
+/* ①(2026-09-23 全仓清扫) 「有头优先 + 能力前置探针 + 无 GL 打 SKIP」这套口径的**唯一实现**
+   （照抄 `tests/bench-renderer-source-test.mjs` 的 D 段；见 `tests/_gl-browser.mjs` 的文件头）。 */
+import { launchGLBrowser, glCapability, glReading, logGLSkip, glSkipWhy } from './_gl-browser.mjs'
 
 const argv = process.argv.slice(2)
 const SELFTEST = argv.includes('--selftest')
@@ -135,10 +138,16 @@ if (!pwPath) { console.log('SKIP cover-ab-probe — 找不到 playwright（可�
 const pw = createRequire(import.meta.url)(pwPath)
 const firefox = (pw.default && pw.default.firefox) || pw.firefox
 if (!firefox) { console.log('SKIP cover-ab-probe — playwright 没有 firefox 导出'); process.exit(0) }
-/* ⚠ 必须显式开 WebGL2：无头 Firefox 默认没有它，页面会停在「启动失败: 当前浏览器不支持 WebGL2」，
-   两种档位都会截到同一张"错误页" ⇒ A/B 读数全是噪声。 */
-const browser = await firefox.launch({ headless: true, firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
+/* ⚠ 前置不是"有没有浏览器"，而是"这台浏览器能不能建 WebGL2"（2026-09-23 归因，口径照抄
+   `tests/bench-renderer-source-test.mjs` 的 D 段，见 `tests/_gl-browser.mjs`）：本机（Android/PRoot，无
+   `/dev/dri`）**无头 Firefox 连 WebGL1 都建不了** ⇒ 页面停在「启动失败: 当前浏览器不支持 WebGL2」，
+   两种档位都截到同一张"错误页" ⇒ W1/W2 的像素读数全是噪声（实测 `webgl2:false` + `repoBlank:true`）。
+   所以**有头优先**（`DISPLAY=:0`，`MPW_X11_DISPLAY` 可换），有头起不来才回落无头；`MPW_BENCH_HEADLESS=1`
+   强制无头。拿不到 WebGL2 ⇒ W1/W2 打 **SKIP + 原样读数**（不谎报成红、也不静默通过）。 */
+const { browser, launchNote } = await launchGLBrowser(firefox)
 try {
+  /* 能力前置探针（读一次，不猜）：webgl2/webgl1 到底能不能建 —— 决定下面像素类判据是断言还是 SKIP。 */
+  const gl = await glCapability(browser)
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   const page = await ctx.newPage()
   /* 舞台逻辑分辨率钉死（等价工具条「分辨率」下拉）：不钉的话切渲染器来源时 `#frame` 的 CSS 盒会变
@@ -151,9 +160,14 @@ try {
   await page.waitForTimeout(9000)
 
   {
-    const webgl2 = await page.evaluate(() => { try { return !!document.createElement('canvas').getContext('webgl2') } catch (e) { return false } })
-    ok(webgl2 === true, 'W1 宿主浏览器拿得到 WebGL2（否则像素读数一律不可信 —— 不许静默 SKIP）', JSON.stringify({ webgl2 }))
-    if (!webgl2) { console.log('  ⚠ 环境缺 WebGL2：本探针余下读数作废'); }
+    /* 有 WebGL2 ⇒ 照旧**显式断言**；拿不到 ⇒ **SKIP + 原样读数**（不是 FAIL：无头 Firefox 无 `/dev/dri`
+       时连 WebGL1 都建不了，那是环境缺能力；但 SKIP 行带着 launch/读数，不静默通过）。 */
+    if (!gl.webgl2) {
+      logGLSkip('W1 宿主浏览器拿得到 WebGL2', launchNote, gl, '本探针余下读数作废')
+      glSkipWhy()
+    } else {
+      ok(gl.webgl2 === true, 'W1 宿主浏览器拿得到 WebGL2（否则像素读数一律不可信 —— 不许静默 SKIP）', glReading(launchNote, gl))
+    }
   }
 
   /* ── `--direct`：**直接开两个渲染器页**、同一个 viewport 做 A/B ─────────────────────────────
@@ -195,6 +209,10 @@ try {
         })
         await pg.waitForTimeout(600)
       }
+      return snap(pg, label)
+    }
+    /** 截图 + 解码 + 包围盒（`shot()` 的后半段；重试时只重截、**不重新导航**）。 */
+    const snap = async (pg, label) => {
       const buf = await pg.screenshot({ clip: { x: 0, y: 0, width: VP.width, height: VP.height } })
       const probe = await ctx.newPage()
       try {
@@ -218,11 +236,28 @@ try {
         return { label, box: { x: 0, y: 0, width: VP.width, height: VP.height }, shot: { w: r.w, h: r.h }, bbox, state: st, blank: !bbox || bbox.cover < 0.05 }
       } finally { await probe.close().catch(() => {}) }
     }
-    const dRepo = await shot(repoPage, 'repo')
-    const dUp = await shot(upPage, 'upstream')
+    /* 就绪轮询（**不盲等**）：软件 GL 下"首帧"可能晚于固定等待 —— 实测上游产物页在测试台里
+       +12s 仍是全黑（mean=0/std=0）、+15s 才画出内容 ⇒ 固定 13s 会把"还没画"读成"没画"（W2 假红）。
+       这里空白帧就再等再截（有上限；超时照读照断言，判据不放松）。口径同
+       `bench-renderer-source-test.mjs` 的 D 段（"轮询到读数出现为止"）。 */
+    const shotReady = async (pg, label, tries = 5, gapMs = 5000) => {
+      let last = await shot(pg, label)
+      for (let i = 1; i < tries && last.blank; i++) {
+        console.log('  ⏳ direct ' + label + ' 仍空白（第 ' + i + ' 次读数）⇒ 再等 ' + (gapMs / 1000) + 's 重截')
+        await pg.waitForTimeout(gapMs)
+        last = await snap(pg, label)
+      }
+      return last
+    }
+    const dRepo = await shotReady(repoPage, 'repo')
+    const dUp = await shotReady(upPage, 'upstream')
     console.log('  repo 档读数: ' + JSON.stringify({ bbox: dRepo.bbox, blank: dRepo.blank, state: dRepo.state }))
     console.log('  upstream 档读数: ' + JSON.stringify({ bbox: dUp.bbox, blank: dUp.blank, state: dUp.state }))
-    ok(!dRepo.blank && !dUp.blank, 'W2 两档都画出了内容（背景占比 <95%）', JSON.stringify({ repo: dRepo.bbox && dRepo.bbox.cover, up: dUp.bbox && dUp.bbox.cover }))
+    /* 有 WebGL2 ⇒ 照旧断言；拿不到 ⇒ **SKIP + 原样读数**（读数照采，只是不当判据 —— 空画布的签名就是
+       `blank:true / cover:null`，把它当红就是把环境缺能力说成产品坏）。 */
+    if (!gl.webgl2) logGLSkip('W2 两档都画出了内容（背景占比 <95%）[direct]', launchNote, gl,
+      '原样读数 ' + JSON.stringify({ repo: { blank: dRepo.blank, cover: dRepo.bbox && dRepo.bbox.cover, canvas: dRepo.state && dRepo.state.canvas }, upstream: { blank: dUp.blank, cover: dUp.bbox && dUp.bbox.cover, canvas: dUp.state && dUp.state.canvas } }))
+    else ok(!dRepo.blank && !dUp.blank, 'W2 两档都画出了内容（背景占比 <95%）', JSON.stringify({ repo: dRepo.bbox && dRepo.bbox.cover, up: dUp.bbox && dUp.bbox.cover }))
     const dcmp = (!dRepo.blank && !dUp.blank) ? compareBBox(dRepo.bbox, dUp.bbox) : null
     if (!dcmp) skip('内容包围盒 A/B（direct）', '有一侧量不到内容像素 —— 不假装通过')
     else {
@@ -322,7 +357,22 @@ try {
   }
   const baseBox = await frameBox()
   console.log('  基准截图盒（两档共用）= ' + JSON.stringify(baseBox))
-  const repo = await measure('repo', baseBox)
+  /* 就绪轮询（**不盲等**）：上游产物页在软件 GL 下首帧晚于固定等待 —— 实测测试台切到上游档后
+     +12s 仍是全黑（mean=0/std=0）、+15s 才画出内容 ⇒ 固定 9s 会把"还没画"读成"没画"（W2 假红）。
+     空白帧就再等再量（有上限；超时照读照断言，判据不放松）。口径同 `bench-renderer-source-test.mjs` D 段。 */
+  const measureReady = async (label, box, tries = 5, gapMs = 5000) => {
+    let last = null
+    for (let i = 0; i < tries; i++) {
+      last = await measure(label, box)
+      if (!last.blank) return last
+      if (i < tries - 1) {
+        console.log('  ⏳ ' + label + ' 仍空白（第 ' + (i + 1) + ' 次读数）⇒ 再等 ' + (gapMs / 1000) + 's 重量')
+        await page.waitForTimeout(gapMs)
+      }
+    }
+    return last
+  }
+  const repo = await measureReady('repo', baseBox)
   console.log('  repo 档读数: ' + JSON.stringify({ bbox: repo.bbox, blank: repo.blank, state: repo.state }))
 
   /* 切到上游产物档：同一条重挂载链（`#renderer-src` + `#reload`），与 DPR 那组同一路径。 */
@@ -331,8 +381,8 @@ try {
     if (el) { el.value = 'upstream'; el.dispatchEvent(new Event('change', { bubbles: true })) }
     const b = document.getElementById('reload'); if (b) b.click()
   })
-  await page.waitForTimeout(9000)
-  const upstream = await measure('upstream', baseBox)
+  await page.waitForTimeout(3000)
+  const upstream = await measureReady('upstream', baseBox)
   /* 切档后盒子若变了，就把 repo 侧**按新盒子再量一次**（此时布局已稳定）——两侧始终同一个取景框。 */
   const box2 = await frameBox()
   const boxChanged = !(box2 && baseBox && box2.width === baseBox.width && box2.height === baseBox.height)
@@ -346,8 +396,11 @@ try {
     'W3 两档截图尺寸一致（共用同一个 #frame 盒）',
     JSON.stringify({ repo: repoUse.shot, upstream: upstream.shot, box: repoUse.box, boxChanged }))
 
-  /* W2 前置：两档都得**真的画出内容**，否则谈不上构图对比。 */
-  ok(!repo.blank && !upstream.blank, 'W2 两档都画出了内容（背景占比 <95%）—— 否则 A/B 读数无意义',
+  /* W2 前置：两档都得**真的画出内容**，否则谈不上构图对比。
+     ⚠ 有 WebGL2 ⇒ 照旧断言（这条会红）；拿不到 ⇒ **SKIP + 原样读数**（不是 FAIL —— 见 `tests/_gl-browser.mjs`）。 */
+  if (!gl.webgl2) logGLSkip('W2 两档都画出了内容（背景占比 <95%）', launchNote, gl,
+    '原样读数 ' + JSON.stringify({ repoBlank: !!repo.blank, upstreamBlank: !!upstream.blank, repoCover: repo.bbox && repo.bbox.cover, upstreamCover: upstream.bbox && upstream.bbox.cover, canvas: { repo: repo.state && repo.state.canvas, upstream: upstream.state && upstream.state.canvas } }))
+  else ok(!repo.blank && !upstream.blank, 'W2 两档都画出了内容（背景占比 <95%）—— 否则 A/B 读数无意义',
     JSON.stringify({ repoBlank: !!repo.blank, upstreamBlank: !!upstream.blank, repoCover: repo.bbox && repo.bbox.cover, upstreamCover: upstream.bbox && upstream.bbox.cover }))
   const cmp = (!repoUse.blank && !upstream.blank) ? compareBBox(repoUse.bbox, upstream.bbox) : null
   if (!cmp) {

@@ -85,7 +85,10 @@ console.log('\n== D 接线（demo.html 的 loadTex 每个创建点都要过）==
   ok(wraps >= 4, 'D1 `loadTex` 三个创建点 + helper 自身定义 ⇒ `wrapTex(` 至少 4 处', 'wrapTex 调用/定义 ' + wraps + ' 处')
   ok(/function wrapTex\(entry, name\) \{/.test(src) && /typeof lib\.applyTexWrap === 'function'/.test(src),
     'D2 helper 有**能力守卫**：`lib.applyTexWrap` 不在（旧桩/受限切片夹具）时原样返回，零行为变化')
-  ok(/const entry = wrapTex\(\{ glTex: lib\.makeTexture\(gl, dst, nw, nh\)/.test(src)
+  // ①(2026-09-23 静默失败审计 A-7)：两处 `makeTexture*` 调用各多了一个"上传诊断标签"实参
+  //   （`where` = `'materials/<名>.tex'`，只用于日志/台账）⇒ 正则放宽到"前缀仍在 wrapTex({ … } 里"，
+  //   判据本身不变：三个创建点都必须过 wrapTex。
+  ok(/const entry = wrapTex\(\{ glTex: lib\.makeTexture\(gl, dst, nw, nh[,)]/.test(src)
     && /const ve = wrapTex\(\{ video: videoEl/.test(src)
     && /const mkEntry = \(src, w, h\) => wrapTex\(/.test(src),
     'D3 三个创建点（普通/视频占位/位图路径）都接上了')

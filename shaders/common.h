@@ -34,6 +34,20 @@ vec2 rotateVec2(vec2 v, float angle)
 	return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
 }
 
+// vec4 overload. Effect shaders are authored in HLSL's dialect, where passing a
+// vec4 actual argument to a float2 parameter is an implicit truncation; GLSL ES
+// has no such implicit conversion, so `rotateVec2(v_DirectionN, a)` with a vec4
+// `v_DirectionN` fails to compile with "no matching overloaded function found".
+// A failed pass is only console.warn'd by the renderer, so the effect silently
+// disappears (multistage_wave.vert with GLOBAL_ROTATION=1 is the whole
+// multi-layer ribbon/hair wave class). Truncating to .xy here restores the HLSL
+// argument semantics. vec2 call sites still bind the overload above exactly
+// (an exact match is preferred over a truncating one), so this is additive.
+vec2 rotateVec2(vec4 v, float angle)
+{
+	return rotateVec2(v.xy, angle);
+}
+
 // ---------------------------------------------------------------------------
 // Luminance
 // ---------------------------------------------------------------------------

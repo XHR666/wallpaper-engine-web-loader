@@ -64,6 +64,10 @@ add "internal-shaders"   "node tests/internal-shader-validate.mjs"
 add "glsl-validate"      "node tests/glsl-validate.mjs"
 # —— 渲染器语义套件（mock-GL / 纯 JS）——
 add "mock-gl"            "node tests/mock-gl-test.mjs"
+# ①(WEBWALLGL #4/#5 P0 2026-09-23) 效果链指针/视差/帧时间 uniform 接线（含 ?ptrfx=legacy 逐位回退）：
+#   官方 cursorripple/depthparallax/xray/fluidsimulation 的 7 个输入 uniform 真的被写、值随指针/时间变化、
+#   legacy 档逐键回到改动前；3 条变异自证（改回 (0,0) / legacy 也写 / 不推快照 ⇒ 对应断言必红）；41 断言；~2s
+add "ptrfx-uniform"      "node tests/ptrfx-uniform-test.mjs"
 add "sprite-sheet"       "node tests/sprite-sheet-test.mjs"
 add "particle-sprite"    "node tests/particle-sprite-verify.mjs"
 add "text-layout"        "node tests/text-layout-test.mjs"
@@ -379,7 +383,10 @@ add "bench-ui-headless"  "node tests/bench-ui-headless-test.mjs" "" "^SKIP bench
 #   A 纯函数（档位归一 / URL 改写**完整保留原有 query** / DPR 上限只在显式改过时生效 / src 包装层幂等）、
 #   B core 的画布活档位 `?res=dpr|dpr1..dpr5`（显示尺寸 × DPR + 上限，既有档位语义一位不动）、
 #   C HTML/补丁/服务端静态纪律（含"`/diag`、`/media|web/dev`、`/api` **不许**进反代名单"）、
-#   D **真机读数**（headless firefox，SKIP-able）：同一块面板同一张包下，上游画布 = CSS×1、本仓 = CSS×设备DPR。
+#   D **真机读数**（**有头优先 + 无 GL 时 SKIP**）：同一块面板同一张包下，上游画布 = CSS×1、本仓 = CSS×设备DPR。
+#     默认起**有头** Firefox（`DISPLAY=:0`，`MPW_X11_DISPLAY` 可换；本机唯一能出 WebGL2 的组合，无头连 WebGL1
+#     都建不了），起不来才回落无头；拿不到 WebGL2（能力前置探针**真去问一次浏览器**）⇒ D3–D5 打 SKIP 并打印
+#     原样读数（不谎报成红、也不静默通过）；`MPW_BENCH_HEADLESS=1` 强制无头。
 #   无 :8902 / 无 Playwright / 无 firefox ⇒ **只有 D 段 SKIP**（A/B/C 段照跑，门禁不红）。
 add "bench-renderer-source" "node tests/bench-renderer-source-test.mjs" "" "^SKIP bench-renderer-source"
 # ①(2026-09-21) `scene-texanim`：官方 `ITextureAnimation` 面（真机语料 3544152633 逐字用到
@@ -571,6 +578,41 @@ add "particle-overbright" "node tests/particle-overbright-test.mjs"
 #     **54 条正断言 + 4 组变异自证（16 条）**，实测 ~25s、单 node 进程、无浏览器 / 无网络 / 无 X11。
 add "trail-leave" "node tests/trail-leave-test.mjs"
 
+# ①(2026-09-23 上游分诊 P0) `hlsl2glsl-3351179520`：把 vendored 转译器补到上游 `9531aaf`（MIT）后，
+#   上游 patch 批 `3351179520` 那两条**纯函数**判据（依据 `docs/UPSTREAM-TRIAGE-20260923.md` §4 第 1 条）：
+#     · 9-3) **复合赋值的向量截断**：`vec2 s; s *= 500.0 / <vec4>;` ⇒ 右值补 `.xy`（HLSL 按左值宽度截断，
+#       GLSL ES 报 `'=' : cannot convert from 'vec4' to 'vec2'` ⇒ 整条 pass 编译失败被静默跳过）；
+#     · **vertConflicts**：同名 varying 出现在兄弟原文的 `#if/#else` 两分支且宽度不同 ⇒ 片元侧既不加宽
+#       也不收窄（旧口径被死分支覆盖 ⇒ `calWaveData(vec4)` 调用报废）。
+#   ＋ `shaders/common.h` 的 `rotateVec2(vec4,float)` 重载（GLOBAL_ROTATION=1 的飘带/头发整类）
+#   与 `shaders/common_blending.h` 的 `ApplyBlending(float,…)` 保险重载：两者都做**真编译**判据
+#   （glslangValidator）＋"把重载拿掉必编不过"的必要性对照。
+#   分辨力自证：把 vendored 源码的两段补丁**切片删掉**再 import ⇒ T1/T2 的判定必须翻转（内建，不依赖改文件）。
+#   19 断言（含 2 组变异）、实测 ~0.3s、无浏览器 / 无网络 / 无 GPU；glslangValidator 缺席时真编译一节 SKIP 不红。
+add "hlsl2glsl-3351179520" "node tests/hlsl2glsl-3351179520-test.mjs"
+
+# ①(2026-09-23 上游分诊 P1) `particle-sphere-dim`：`sphererandom` 发射器的**方向维度 + 半径分布**
+#   （上游 `78718843` `particles.js` `@@ -1068`；依据 `docs/UPSTREAM-TRIAGE-20260923.md` §4 第 2 条）。
+#   official（默认）＝ 方向维度由 `directions` 的激活轴数决定（`|dir[2]|≤1e-6 ⇒ pz=0`、`(nx,ny)` 严格单位圆）
+#   ＋半径幂次分布 `r=(lo^d+u·(hi^d−lo^d))^(1/d)`（d=2 面积均匀、d=3 体积均匀）；`?psph=legacy` 逐位回退。
+#   判据分四类：A `|pz|<1e-6` 且 `hypot∈[254,258]`（legacy 对照读数 |pz|≡256 ⇒ 有分辨力）、
+#   B `"1 1 1"` 允许投影缩短但 z 不得恒 0（防"强制 2D"过度修正）、
+#   C 2D 半径中位数 ≈ 256/√2 ≈ 181.0（legacy ≈ 128）、
+#   D **legacy 逐位不变**：把改动前那 6 行算式**源码切片变异**回 bundle、同种子逐颗粒子 `Object.is` 比 `pos`。
+#   17 断言（含 3 组逐位对拍 + 1 组"新默认必须不同"）、实测 ~0.2s、无浏览器 / 无网络 / 无 GPU。
+add "particle-sphere-dim" "node tests/particle-sphere-dim-test.mjs"
+
+# ①(2026-09-23 涡旋手性取证) `particle-vortex-chirality`：`vortex` 算子**切向手性**的回归门禁。
+#   official（**本批新默认**）= `(dy,−dx)` = `radial × axis`；`?pvortex=legacy` = `(−dy,+dx)` = `axis × radial`。
+#   ⚠ 依据是**第三方多实现共识 + 上游带理由的单向翻转**（`docs/VORTEX-CHIRALITY-RE-20260923.md`）；
+#   **本机没有 WE 官方反编译产物、官方资产也没有方向定义** ⇒ 注释与门禁措辞都**不许**写成"对齐官方"。
+#   判据：V1 纯函数（圆心 (0,0)、粒子 (r,0) ⇒ official `(0,−speed·dt)` / legacy `(0,+speed·dt)`）、
+#   V2 端到端用**官方元素预览场景**的 vortex def（该层涡旋是主导力）⇒ 轨迹手性 L = ∓0.3218、
+#   V3 真包语料读数逐条留档（5 处 vortex；**只有 1 处干净可分辨**，其余被该层主导力盖住 —— 已如实写进
+#   文件头，判据定位是"佐证 + 回归"而非"方向仲裁"）、V4 调用点符号**源码切片变异** ⇒ V2 必红。
+#   18 断言（含 1 组变异）、实测 ~0.7s、无浏览器 / 无网络 / 无 GPU；语料/官方资产缺席时对应段 SKIP 不红。
+add "particle-vortex-chirality" "node tests/particle-vortex-chirality-test.mjs"
+
 # ①(2026-09-21 · 台账 `../docs/USER-ITEMS-20260920-B.md` §5.3) `bench-bandfeed-switch`：测试台工具条
 #   「音条源」四档（壁纸 / 麦克风 / 模拟 / 关 → 渲染器 `?bandfeed=auto|mic|sim|off`）的**接线门禁**。
 #   判据原文四条：①静音 / 无源档 ⇒ 渲染器 `source='silent'` 且音条层顶点色的**输入**（128 元数组 +
@@ -655,6 +697,13 @@ add "minification-quality" "node tests/minification-quality-probe.mjs --selftest
 #   **1.6~2.7×**（细节低 1.4~1.9× ⇒ 取舍而非纯赢）；`imageSmoothingQuality` low↔high 在 Firefox
 #   上**逐位无效果**。缺帧目录 ⇒ SKIP；纯判据 7 条常驻。
 add "video-downscale-flicker" "node tests/video-downscale-flicker-probe.mjs --selftest"
+# ①(TypeScript 只当**类型检查器**) `types-check`：`tsc --noEmit`（allowJs + checkJs）扫**纯逻辑小模块**
+#   （core/web-frame-host.mjs / core/web-frame-geometry.mjs / server/web-store.mjs）。
+#   为什么不重写成 TS：插件半边必须单文件下发（integrity-check ⑩）、渲染器半边必须直出源码
+#   （/bundle.js 就是本体，多处门禁按源码行守卫、server 里按字面量 path.join 抽路由）⇒ 都不能引构建步骤。
+#   落地即抓到 3 处真实不一致（返回联合类型 / 防御式取值却标必填 / 默认 {} 与必填参数冲突），已修实。
+#   含判别力自证（临时真错误文件必须变红）；未装 typescript ⇒ SKIP（不假装通过）。
+add "types-check"        "node tests/types-check.mjs"
 # ①(第 18 条续：LDR bloom / FXAA **整屏黑**) `canvas-capture-test`：画布回读契约。
 #   根因实锤：`alpha:false` 的默认帧缓冲上 `copyTexSubImage2D` 报 0x502 **且纹理保持全零**
 #   （Firefox 实测；`alpha:true` 同场景拷贝成功；antialias/premultipliedAlpha/preserveDrawingBuffer

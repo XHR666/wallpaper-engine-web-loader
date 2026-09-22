@@ -102,7 +102,8 @@
    it is what the shape is if the file is ever missing. */
 /* ①(P-138 移植) 上面那句 "inlined by scripts/cover.sh" 是**原件**的做法（Bencho 把
    封面内联进单文件产物）。本仓库没有那套管线 ⇒ 封面是组件里 `COVER` 给出的
-   **相对页面的链接图**（demo/icons/pwa-512.png）。下面这条渐变与 `background-size:
+   **相对页面的链接图**（demo/assets/brand/brand-512.png；P-164 前是 demo/icons/pwa-512.png）。
+   下面这条渐变与 `background-size:
    cover` 的口径不变，而"图片解码前那一帧看到的是渐变"这句因此更成立。 */
 .snd-art {
   position: absolute;

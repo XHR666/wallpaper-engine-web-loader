@@ -18,6 +18,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { ROOT, WS } from './_root.mjs'
+/* ①(2026-09-23 全仓清扫) 「有头优先 + 能力前置探针 + 无 GL 打 SKIP」这套口径的**唯一实现**
+   （照抄 `tests/bench-renderer-source-test.mjs` 的 D 段；见 `tests/_gl-browser.mjs` 的文件头）。 */
+import { launchGLBrowser, glCapability, glReading, skipGL } from './_gl-browser.mjs'
 
 const argv = process.argv.slice(2)
 const SELFTEST = argv.includes('--selftest')
@@ -72,18 +75,25 @@ const pw = createRequire(import.meta.url)(pwPath)
 const firefox = (pw.default && pw.default.firefox) || pw.firefox
 if (!firefox) { skip('text-box-invariant', 'playwright 没有 firefox 导出'); process.exit(0) }
 
-/* ⚠ 必须显式开 WebGL2（无头 Firefox 默认没有）：否则场景根本起不来，读数全是空表 ⇒ "0 违反"会变成假绿。 */
-const browser = await firefox.launch({ headless: true, firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
+/* ⚠ 前置不是"有没有浏览器"，而是"这台浏览器能不能建 WebGL2"（2026-09-23 归因，口径照抄
+   `tests/bench-renderer-source-test.mjs` 的 D 段，见 `tests/_gl-browser.mjs`）：本机（Android/PRoot，无
+   `/dev/dri`）**无头 Firefox 连 WebGL1 都建不了** ⇒ 场景根本起不来、`__mpwTextBoxes` 是空表
+   ⇒ 硬断言 W1 会把环境缺能力说成产品坏（实测假红：W1 FAIL + W2/W4 rows=0），而 W3「0 违反」还会
+   **假绿**（空表当然 0 违反）。所以：**有头优先**（`DISPLAY=:0`，`MPW_X11_DISPLAY` 可换），有头起不来才
+   回落无头；`MPW_BENCH_HEADLESS=1` 强制无头。拿不到 WebGL2 ⇒ W1–W4 整组 **SKIP + 原样读数**
+   （不谎报成红、也不静默通过）。 */
+const { browser, launchNote } = await launchGLBrowser(firefox)
 try {
+  /* 能力前置探针（读一次，不猜）：webgl2/webgl1 到底能不能建 —— W 组是断言还是 SKIP 由它决定。 */
+  const gl = await glCapability(browser)
+  if (!gl.webgl2) await skipGL(browser, 'text-box-invariant W1–W4（文本层读数：绘制四边形 == 位图盒）', launchNote, gl)
   const page = await (await browser.newContext({ viewport: VIEWPORT })).newPage()
   await page.addInitScript(() => { window.__mpwTextBoxWant = 1 })
   const url = 'http://' + AUTHORITY + '/webloader/?id=' + encodeURIComponent(WANT_ID) + '&res=dpr&nopanel'
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })
   await page.waitForTimeout(12000)
-  {
-    const webgl2 = await page.evaluate(() => { try { return !!document.createElement('canvas').getContext('webgl2') } catch (e) { return false } })
-    ok(webgl2 === true, 'W1 宿主浏览器拿得到 WebGL2（否则场景起不来、读数全空 ⇒ 不许静默 SKIP）', JSON.stringify({ webgl2 }))
-  }
+  /* 有 WebGL2（上面已探到）⇒ W1 照旧**显式断言**（门禁不放水）。 */
+  ok(gl.webgl2 === true, 'W1 宿主浏览器拿得到 WebGL2（否则场景起不来、读数全空 ⇒ 不许静默 SKIP）', glReading(launchNote, gl))
   const rows = await page.evaluate(() => (window.__mpwTextBoxes || []).slice(0, 200))
   ok(Array.isArray(rows) && rows.length > 0, 'W2 文本层产出了读数（挂了 ' + WANT_ID + '）', 'rows=' + (rows ? rows.length : 0))
   const rep = boxInvariantViolations(rows)

@@ -51,6 +51,10 @@ const PAGES_KEEP_FILES = [
   ['web/sw.js', 'sw.js'],
   ['web/sw-policy.mjs', 'sw-policy.mjs'],
   ['web/icons', 'icons'],                             // 目录（PWA 图标）
+  // ①(2026-09-23 第二轮品牌清理 · 用户③) 浏览器**默认**请求的 `/favicon.ico`：给产物放一份真文件，
+  //   否则没写 <link rel=icon> 的页（如上游产物 demo.html，本仓不许改它）在 Pages 上标签页无图标。
+  //   内容 = 品牌图 32×32 PNG（浏览器按内容嗅探，扩展名只影响 Pages 发的 content-type）。
+  ['web/icons/brand-32.png', 'favicon.ico'],
   // 内核：`elysia/demo-elysia.js` 以相对路径 `../we-scene-bundle.js` 取它 ⇒ 产物根必须有同名文件；
   // demo.html 用相对说明符 `./bundle.js` ⇒ 产物根同时要有 `bundle.js`（自带服务器的 /bundle.js 路由读同一份）。
   ['core/we-scene-bundle.js', 'we-scene-bundle.js'],

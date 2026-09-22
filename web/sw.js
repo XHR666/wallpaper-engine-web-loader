@@ -17,7 +17,11 @@ const VERSION = 'v3'   // ①(P-146 2026-09-19) 预缓存清单改了一条**错
                        //   ⇒ 换版本让旧缓存整批清理，否则老客户端会一直用"少了那张字体"的 v2 清单
                        // ①(P-143 2026-09-19) 首屏 module 图新增 6 个自有模块 ⇒ 换版本让旧缓存整批清理
                        // （v1 → v2）
-const CACHE = 'we-scene-shell-' + VERSION
+// ①(2026-09-23 第二轮品牌清理 · 用户第 2 项裁定 A) 缓存名前缀从 `we-scene-shell-`（本仓库旧内部名）
+//   改成 `wewebloader-shell-`（产品名），与 `demo/sw.js` 的 `wewebloader-bench-v1` 同一口径。
+//   同样**不需要迁移代码**：下面的 `activate` 按名字删掉一切 != CACHE 的缓存 ⇒ 老客户端下一轮
+//   自动回收旧 shell，代价只是重新预缓存一次（离线可用性不受影响：HTML 本来就是网络优先）。
+const CACHE = 'wewebloader-shell-' + VERSION
 const PRECACHE = [
   '/',
   // ①(P-146 2026-09-19 修错名) 这里原本写的是 `/demo.html` —— 服务器**没有**这条路由（`server/we-scene-demo-server.mjs:377`

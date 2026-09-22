@@ -240,5 +240,253 @@ const check = (name, cond, detail) => { if (cond) { pass++; console.log('  ✓ '
   check('?eyehack=0 → 凯尔希也可关（对照）', !eyeOf(d).uvRect)
 }
 
+/* ══════════════ 审计 A-5/A-6/A-7（2026-09-23 静默失败可判定化）══════════════
+ * 三条被修链路的契约各留一条**能判红**的断言（把修复改回去必须变红）：
+ *   ① `.tex` 主上传（makeTexture/makeTextureMip）上传报错 → 查得出 + 记进诊断面（日志/计数/留因）；
+ *   ② 失败按**既有阶梯**（[2048,1024]，与 demo.html 位图路径同档）处理；全档失败/档内失败时
+ *      「不登记假的成功」（ok=false / up='0x…' / tex=null，且坏纹理被删）；
+ *   ③ 零错路径的 GL 调用序列与改动前**逐位一致**：冻结基线 = `git show HEAD:core/we-scene-bundle.js`
+ *      用**同一份记录器**跑出的非 getError 调用序列（字面量钉在本段末尾）；
+ *   ④ 视频帧上传失败 → `videoStats`/每纹理台账**如实标记**（不再"上传正常"）；
+ *   ⑤ VAO 属性探测抛错 → 如实记录 + 一次日志 + 按顶点数据实际布局兜底（不沿用半填/兜底 2|2 坏状态）。
+ * 记录器 `mkLogGL` 与冻结基线的取证脚本逐字符相同（否则基线不算证据）。 */
+function mkLogGL(opts = {}) {
+  const calls = []
+  const uploads = []
+  let seq = 0
+  let pending = 0
+  const gl = {
+    TEXTURE_2D: 3553, TEXTURE_WRAP_S: 10242, TEXTURE_WRAP_T: 10243, CLAMP_TO_EDGE: 33071,
+    LINEAR: 9729, TEXTURE_MIN_FILTER: 10241, TEXTURE_MAG_FILTER: 10240, RGBA: 6408, UNSIGNED_BYTE: 5121,
+    RG8: 0x822B, RG: 0x8227, NO_ERROR: 0, FLOAT: 5126,
+    createTexture: () => { calls.push(['createTexture']); return { __tok: 'tex' + (++seq) } },
+    bindTexture: (a, b) => { calls.push(['bindTexture', a, b ? (b.__tok || 'obj') : null]) },
+    texParameteri: (a, b, c) => { calls.push(['texParameteri', a, b, c]) },
+    texImage2D: (...a) => {
+      const src = a[a.length - 1]
+      const kind = (src && typeof src.length === 'number') ? 'bytes:' + src.length
+        : (src && typeof src.width === 'number') ? 'bitmap:' + src.width + 'x' + src.height
+          : (src && src.videoWidth !== undefined) ? 'video' : 'other'
+      calls.push(['texImage2D', a.length, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], kind])
+      uploads.push({ n: a.length, w: a.length === 9 ? a[3] : ((src && src.width) | 0), h: a.length === 9 ? a[4] : ((src && src.height) | 0), kind })
+      if (opts.failWhen && opts.failWhen(uploads[uploads.length - 1], uploads.length - 1)) pending = opts.errCode || 0x502
+    },
+    generateMipmap: (a) => { calls.push(['generateMipmap', a]) },
+    getError: () => { calls.push(['getError']); const e = pending; pending = 0; return e },
+    deleteTexture: (t) => { calls.push(['deleteTexture', t ? (t.__tok || 'obj') : null]) },
+  }
+  return { gl, calls, uploads }
+}
+const stripGetErr = (cs) => cs.filter((c) => c[0] !== 'getError')
+const GL_CASES = {
+  makeTexture_rgba: (gl) => lib.makeTexture(gl, new Uint8Array(4 * 4 * 4), 4, 4),
+  makeTexture_bitmap: (gl) => lib.makeTexture(gl, null, 0, 0, { width: 8, height: 8 }),
+  makeTextureMip_npot: (gl) => lib.makeTextureMip(gl, [{ width: 250, height: 130, rgba: new Uint8Array(250 * 130 * 4), fmt: 5 }], false),
+  makeTextureMip_256x128: (gl) => lib.makeTextureMip(gl, [{ width: 256, height: 128, rgba: new Uint8Array(256 * 128 * 4), fmt: 5 }], false),
+  makeTextureMip_pot: (gl) => lib.makeTextureMip(gl, [{ width: 64, height: 64, rgba: new Uint8Array(64 * 64 * 4) }], false),
+  makeTextureMip_rg88: (gl) => lib.makeTextureMip(gl, [{ width: 64, height: 32, rgba: new Uint8Array(64 * 32 * 4) }], true),
+}
+// 冻结基线（**改动前**的 core/we-scene-bundle.js + 上面这份记录器；含 getError 的一律剔除）
+const FROZEN_GL = {
+  makeTexture_rgba: [['createTexture'], ['bindTexture', 3553, 'tex1'], ['texParameteri', 3553, 10242, 33071], ['texParameteri', 3553, 10243, 33071], ['texParameteri', 3553, 10241, 9729], ['texParameteri', 3553, 10240, 9729], ['texImage2D', 9, 3553, 0, 6408, 4, 4, 0, 6408, 5121, 'bytes:64']],
+  makeTexture_bitmap: [['createTexture'], ['bindTexture', 3553, 'tex1'], ['texParameteri', 3553, 10242, 33071], ['texParameteri', 3553, 10243, 33071], ['texParameteri', 3553, 10241, 9729], ['texParameteri', 3553, 10240, 9729], ['texImage2D', 6, 3553, 0, 6408, 6408, 5121, { width: 8, height: 8 }, null, null, 'bitmap:8x8']],
+  makeTextureMip_npot: [['createTexture'], ['bindTexture', 3553, 'tex1'], ['texParameteri', 3553, 10242, 33071], ['texParameteri', 3553, 10243, 33071], ['texParameteri', 3553, 10241, 9729], ['texParameteri', 3553, 10240, 9729], ['texImage2D', 9, 3553, 0, 6408, 250, 130, 0, 6408, 5121, 'bytes:130000']],
+  makeTextureMip_256x128: [['createTexture'], ['bindTexture', 3553, 'tex1'], ['texParameteri', 3553, 10242, 33071], ['texParameteri', 3553, 10243, 33071], ['texParameteri', 3553, 10241, 9729], ['texParameteri', 3553, 10240, 9729], ['texImage2D', 9, 3553, 0, 6408, 256, 128, 0, 6408, 5121, 'bytes:131072'], ['generateMipmap', 3553]],
+  makeTextureMip_pot: [['createTexture'], ['bindTexture', 3553, 'tex1'], ['texParameteri', 3553, 10242, 33071], ['texParameteri', 3553, 10243, 33071], ['texParameteri', 3553, 10241, 9729], ['texParameteri', 3553, 10240, 9729], ['texImage2D', 9, 3553, 0, 6408, 64, 64, 0, 6408, 5121, 'bytes:16384'], ['generateMipmap', 3553]],
+  makeTextureMip_rg88: [['createTexture'], ['bindTexture', 3553, 'tex1'], ['texParameteri', 3553, 10242, 33071], ['texParameteri', 3553, 10243, 33071], ['texParameteri', 3553, 10241, 9729], ['texParameteri', 3553, 10240, 9729], ['texImage2D', 9, 3553, 0, 33323, 64, 32, 0, 33319, 5121, 'bytes:4096'], ['generateMipmap', 3553]],
+}
+
+// ---- ③ 零错路径逐位不变（冻结基线对拍）----
+{
+  console.log('— 审计 A-7③ 零错路径逐位不变（冻结基线）—')
+  const errs0 = globalThis.__mpwTexUploadErrs || 0
+  for (const [k, want] of Object.entries(FROZEN_GL)) {
+    const { gl, calls } = mkLogGL()
+    GL_CASES[k](gl)
+    const got = stripGetErr(calls)
+    check('③ ' + k + '：非 getError 调用序列与改动前逐位一致', JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got))
+  }
+  const { gl, calls } = mkLogGL()
+  const tex = lib.makeTexture(gl, new Uint8Array(4 * 4 * 4), 4, 4)
+  const added = calls.filter((c) => c[0] === 'getError').length
+  check('③ 正常路径只多了 1 次 getError 探测（无额外上传/参数/删除）',
+    added === 1 && !calls.some((c) => c[0] === 'deleteTexture'), 'getError×' + added + ' calls=' + JSON.stringify(calls.map((c) => c[0])))
+  check('③ 正常路径盖章 __mpwUploadErr=0 且不产生失败计数',
+    tex.__mpwUploadErr === 0 && (globalThis.__mpwTexUploadErrs || 0) === errs0, String(tex.__mpwUploadErr))
+}
+
+// ---- ① 上传报错被检出并记进诊断面 ----
+{
+  console.log('— 审计 A-7① 上传报错被检出 + 记账 —')
+  const warns = []
+  const ow = console.warn
+  console.warn = (...a) => warns.push(a.join(' '))
+  try {
+    const before = globalThis.__mpwTexUploadErrs || 0
+    const { gl, uploads } = mkLogGL({ failWhen: () => true })
+    const tex = lib.makeTextureMip(gl, [{ width: 300, height: 200, rgba: new Uint8Array(300 * 200 * 4) }], false, 'materials/probe.tex')
+    check('① 上传报错被检出（tex.__mpwUploadErr = 0x502）', tex.__mpwUploadErr === 0x502, String(tex.__mpwUploadErr))
+    check('① 诊断面计数 +1（__mpwTexUploadErrs，接口风格同 __mpwTexSanitizeCount）',
+      (globalThis.__mpwTexUploadErrs || 0) === before + 1, String(globalThis.__mpwTexUploadErrs))
+    const last = globalThis.__mpwTexUploadErrLast || {}
+    check('① 诊断面留因（where / 错误码 / 尺寸）',
+      last.where === 'materials/probe.tex' && last.err === 0x502 && last.w === 300 && last.h === 200 && uploads.length === 1, JSON.stringify(last))
+    check('① 一条明确日志（console.warn → demo.html 1165-1169 桥进页面日志/上报镜像）',
+      warns.some((m) => m.includes('纹理上传报错 0x502') && m.includes('materials/probe.tex')), JSON.stringify(warns.slice(0, 2)))
+  } finally { console.warn = ow }
+}
+
+// ---- ② 失败按既有阶梯处理 + 不登记假的成功 ----
+{
+  console.log('— 审计 A-7② 阶梯重试 / 不登记假的成功 —')
+  // (a) 3000×1500：超 2048 档报错 → 2048 档成功 ⇒ ok，尺寸/参数来自成功那一档
+  const A = mkLogGL({ failWhen: (u) => Math.max(u.w, u.h) > 2048 })
+  const ra = lib.makeTextureMipGuarded(A.gl, [{ width: 3000, height: 1500, rgba: new Uint8Array(3000 * 1500 * 4) }], false, { where: 'materials/big.tex' })
+  check('② 阶梯重试后成功（3000×1500 → 2048×1024）', ra.ok === true && ra.w === 2048 && ra.h === 1024 && ra.up === 'ok', JSON.stringify([ra.ok, ra.w, ra.h, ra.up]))
+  check('② attempts 逐档留因（读报能看到哪一档失败/成功）',
+    JSON.stringify(ra.attempts) === '[{"w":3000,"h":1500,"err":1282},{"w":2048,"h":1024,"err":0}]', JSON.stringify(ra.attempts))
+  check('② 只上传 2 次（原尺寸 + 2048 档；档位内的 1024 不再缩）',
+    A.uploads.length === 2 && A.uploads[0].w === 3000 && A.uploads[1].w === 2048, JSON.stringify(A.uploads.map((u) => u.w + 'x' + u.h)))
+  check('② 失败那次留下的坏纹理被删（不留不完整纹理）', A.calls.filter((c) => c[0] === 'deleteTexture').length === 1, JSON.stringify(A.calls.filter((c) => c[0] === 'deleteTexture')))
+  // (b) 全档失败 ⇒ 不假装成功
+  const B = mkLogGL({ failWhen: () => true })
+  const rb = lib.makeTextureMipGuarded(B.gl, [{ width: 3000, height: 1500, rgba: new Uint8Array(3000 * 1500 * 4) }], false, { where: 'materials/bad.tex' })
+  check('② 全档失败 ⇒ ok=false / tex=null / up=0x502（不登记假的成功）',
+    rb.ok === false && rb.tex === null && rb.up === '0x502', JSON.stringify([rb.ok, rb.tex, rb.up]))
+  check('② 全档失败 ⇒ 3 档全留错误码（3000 → 2048 → 1024）',
+    rb.attempts.length === 3 && rb.attempts.every((a) => a.err === 0x502) && rb.w === 1024, JSON.stringify(rb.attempts))
+  // (c) 已在档位内的失败：不做无意义降档，也不登记成功
+  const C = mkLogGL({ failWhen: () => true })
+  const rc = lib.makeTextureMipGuarded(C.gl, [{ width: 256, height: 256, rgba: new Uint8Array(256 * 256 * 4) }], false, {})
+  check('② 档位内的失败只上传 1 次且如实判失败（与位图路径 max<=retry 的 continue 同义）',
+    C.uploads.length === 1 && rc.ok === false && rc.up === '0x502', JSON.stringify([C.uploads.length, rc.ok, rc.up]))
+  // (d) 阶梯成功路径的 GL 调用序列 = 直接 makeTextureMip 的（零错时不多一次上传/删纹理）
+  const D1 = mkLogGL(), D2 = mkLogGL()
+  GL_CASES.makeTextureMip_pot(D1.gl)
+  lib.makeTextureMipGuarded(D2.gl, [{ width: 64, height: 64, rgba: new Uint8Array(64 * 64 * 4) }], false, { where: 'x' })
+  check('② guarded 零错路径与 makeTextureMip 的调用序列逐位一致',
+    JSON.stringify(stripGetErr(D2.calls)) === JSON.stringify(stripGetErr(D1.calls)), JSON.stringify(stripGetErr(D2.calls)))
+}
+
+// ---- ④ 视频帧上传失败：台账如实标记 ----
+{
+  console.log('— 审计 A-5④ 视频帧上传失败如实记账 —')
+  const CONST = { LINK_STATUS: 0x8B82, COMPILE_STATUS: 0x8B81, ACTIVE_UNIFORMS: 0x8B86, ACTIVE_ATTRIBUTES: 0x8B85,
+    FRAMEBUFFER_COMPLETE: 0x8CD5, MAX_TEXTURE_SIZE: 0x0D33, NO_ERROR: 0, TEXTURE0: 0 }
+  const VERT = 'attribute vec3 a_Position; attribute vec2 a_TexCoord; uniform mat4 g_ModelViewProjectionMatrix; varying vec2 v_TexCoord; void main(){ gl_Position = g_ModelViewProjectionMatrix * vec4(a_Position,1.0); v_TexCoord = a_TexCoord; }'
+  const FRAG = 'uniform sampler2D g_Texture0; varying vec2 v_TexCoord; void main(){ gl_FragColor = texture(g_Texture0, v_TexCoord); }'
+  const shaderResolver = async (rel) => (rel.endsWith('.vert') ? VERT : FRAG)
+  const mkVideo = () => ({ readyState: 4, currentTime: 0.5, videoWidth: 640, videoHeight: 360, paused: true, playbackRate: 1, play() { this.paused = false; return Promise.resolve() }, pause() { this.paused = true } })
+  const runVideoFrame = async (errCode) => {
+    const logs = []
+    const video = mkVideo()
+    let pending = 0
+    const handlers = {
+      createTexture: () => ({}), createFramebuffer: () => ({}), createBuffer: () => ({}), createVertexArray: () => ({}),
+      createShader: () => ({}), createProgram: () => ({}),
+      getProgramParameter: (p, k) => (k === CONST.LINK_STATUS || k === CONST.COMPILE_STATUS) ? true : (k === CONST.ACTIVE_UNIFORMS ? 1 : (k === CONST.ACTIVE_ATTRIBUTES ? 2 : null)),
+      getActiveUniform: () => ({ name: 'g_Texture0', type: 0x8B62 }),
+      getActiveAttrib: (p, i) => ({ name: i === 0 ? 'a_Position' : 'a_TexCoord', size: i === 0 ? 3 : 2 }),
+      getAttribLocation: (p, n) => (n === 'a_Position' ? 0 : 1),
+      getUniformLocation: () => ({}), getShaderParameter: () => true, checkFramebufferStatus: () => CONST.FRAMEBUFFER_COMPLETE,
+      getParameter: (k) => (k === CONST.MAX_TEXTURE_SIZE ? 4096 : 0), getExtension: () => null,
+      texImage2D: (...a) => { if (a[a.length - 1] === video && errCode) pending = errCode },
+      getError: () => { const e = pending; pending = 0; return e },
+    }
+    const gl = new Proxy({}, { get(t, prop) {
+      if (prop in handlers) return handlers[prop]
+      if (typeof prop === 'string' && /^[A-Z0-9_]+$/.test(prop)) return CONST[prop] !== undefined ? CONST[prop] : 1
+      return () => {}
+    } })
+    const r = lib.createRenderer({ getContext: () => gl }, { shaderResolver, onLog: (m) => logs.push(String(m)) })
+    const texObj = { glTex: { id: 'vidtex' }, width: 640, height: 360, video, lastUploaded: -1 }
+    const scene = { general: { orthogonalprojection: { width: 1920, height: 1080 } }, camera: null, properties: {}, layers: [
+      { id: 1, name: '视频层', visible: true, solid: false, isContainer: false, textureName: 'vid', size: [640, 360],
+        scale: [1, 1, 1], origin: [960, 540, 0], angles: [0, 0, 0], alignment: 'center', color: [1, 1, 1], alpha: 1, brightness: 1,
+        effects: [], particle: null, particleDef: null, anim: undefined, animLayers: false, parallaxDepth: null }] }
+    await r.render(scene, new Map([['vid', texObj]]), 640, 360, 0.5)
+    return { s: r.videoStats, logs }
+  }
+  const bad = await runVideoFrame(0x502)
+  check('④ 上传 GL 错误被检出：err/upErr 计数 + lastUpErr 留因',
+    bad.s.err >= 1 && bad.s.upErr >= 1 && bad.s.lastUpErr === '0x502', JSON.stringify({ err: bad.s.err, upErr: bad.s.upErr, lastUpErr: bad.s.lastUpErr }))
+  check('④ 不假装成功：uploads 不增、视频上传尺寸仍为 null',
+    bad.s.uploads === 0 && bad.s.up === null && bad.s.MBps === 0, JSON.stringify({ uploads: bad.s.uploads, up: bad.s.up, MBps: bad.s.MBps }))
+  check('④ 每纹理台账如实标记（err / lastErr）',
+    bad.s.tex.length === 1 && bad.s.tex[0].err >= 1 && bad.s.tex[0].lastErr === '0x502' && bad.s.tex[0].up === null, JSON.stringify(bad.s.tex))
+  check('④ 一条明确日志（不是"上传正常"）',
+    bad.logs.some((m) => m.includes('视频帧上传 GL 错误 0x502')) && !bad.logs.some((m) => m.includes('视频首帧已上传')), JSON.stringify(bad.logs.slice(-3)))
+  const good = await runVideoFrame(0)
+  check('④ 对照（零错）：照常记 uploads=1 / up=640x360 / upErr=0',
+    good.s.uploads === 1 && good.s.up === '640x360' && good.s.upErr === 0 && good.s.err === 0 && good.s.tex[0].up === '640x360',
+    JSON.stringify({ uploads: good.s.uploads, up: good.s.up, upErr: good.s.upErr, err: good.s.err }))
+}
+
+// ---- ⑤ VAO 属性探测失败：如实记录 + 不继续用坏状态 ----
+{
+  console.log('— 审计 A-6⑤ VAO 属性探测失败 —')
+  const CONST = { LINK_STATUS: 0x8B82, COMPILE_STATUS: 0x8B81, ACTIVE_UNIFORMS: 0x8B86, ACTIVE_ATTRIBUTES: 0x8B85,
+    FRAMEBUFFER_COMPLETE: 0x8CD5, MAX_TEXTURE_SIZE: 0x0D33, NO_ERROR: 0, TEXTURE0: 0,
+    FLOAT: 5126, FLOAT_VEC2: 0x8B50, FLOAT_VEC3: 0x8B51, FLOAT_VEC4: 0x8B52 }
+  const VERT = 'attribute vec3 a_Position; attribute vec2 a_TexCoord; uniform mat4 g_ModelViewProjectionMatrix; varying vec2 v_TexCoord; void main(){ gl_Position = g_ModelViewProjectionMatrix * vec4(a_Position,1.0); v_TexCoord = a_TexCoord; }'
+  const FRAG1 = 'uniform sampler2D g_Texture0; varying vec2 v_TexCoord; void main(){ gl_FragColor = texture(g_Texture0, v_TexCoord); }'
+  const FRAG2 = 'uniform sampler2D g_Texture0; uniform sampler2D g_Texture1; varying vec2 v_TexCoord; void main(){ gl_FragColor = texture(g_Texture0, v_TexCoord) + texture(g_Texture1, v_TexCoord); }'
+  const shaderResolver = async (rel) => (rel.includes('blurx') ? (rel.endsWith('.vert') ? VERT : FRAG1) : (rel.endsWith('.vert') ? VERT : FRAG2))
+  const eff = { file: 'fx', visible: true, passes: [{ combos: {}, textures: [null] }], fbos: [{ name: '_rt_A' }], materialPasses: [
+    { shader: 'blurx', blending: 'normal', target: '_rt_A', binds: [], textures: [], combos: {}, constants: {} },
+    { shader: 'blury', blending: 'normal', target: null, binds: [{ index: 0, name: '_rt_A' }], textures: [], combos: {}, constants: {} } ] }
+  const scene = { general: { orthogonalprojection: { width: 1920, height: 1080 } }, camera: null, properties: {}, layers: [
+    { id: 1, name: '效果层', visible: true, solid: false, isContainer: false, textureName: 'tex_a', size: [400, 400],
+      scale: [1, 1, 1], origin: [960, 540, 0], angles: [0, 0, 0], alignment: 'center', color: [1, 1, 1], alpha: 1, brightness: 1,
+      effects: [eff], particle: null, particleDef: null, anim: undefined, animLayers: false, parallaxDepth: null }] }
+  const runFx = async (throwProbe) => {
+    const ptr = []
+    const draws = []
+    const logs = []
+    let curVao = null, vaoSeq = 0
+    const handlers = {
+      createTexture: () => ({}), createFramebuffer: () => ({}), createBuffer: () => ({}),
+      createVertexArray: () => ({ __vid: 'vao' + (++vaoSeq) }), bindVertexArray: (v) => { curVao = v ? v.__vid : null },
+      createShader: () => ({}), createProgram: () => ({}),
+      // 指针/绘制都记"当时绑的是哪个 VAO"——只有效果 pass 的 fxVao 由 9181 那条探测决定布局
+      vertexAttribPointer: (...a) => ptr.push({ vao: curVao, args: a }),
+      drawArrays: () => draws.push({ vao: curVao }),
+      // 抛错模拟"部分驱动 getActiveAttrib/ACTIVE_ATTRIBUTES 查询失败"（历史事故：9181 那条探测）
+      getProgramParameter: (p, k) => { if (k === CONST.ACTIVE_ATTRIBUTES) { if (throwProbe) throw new Error('mock: 属性探测不可用'); return 2 } return (k === CONST.LINK_STATUS || k === CONST.COMPILE_STATUS) ? true : (k === CONST.ACTIVE_UNIFORMS ? 1 : null) },
+      getActiveUniform: () => ({ name: 'g_Texture0', type: 0x8B62 }),
+      // 真机语义：a_Position 是 vec3、a_TexCoord 是 vec2（分量数必须按 type 换算 —— 9185 注释里的历史坑）
+      getActiveAttrib: (p, i) => ({ name: i === 0 ? 'a_Position' : 'a_TexCoord', type: i === 0 ? CONST.FLOAT_VEC3 : CONST.FLOAT_VEC2 }),
+      getAttribLocation: (p, n) => (n === 'a_Position' ? 0 : 1),
+      getUniformLocation: () => ({}), getShaderParameter: () => true, checkFramebufferStatus: () => CONST.FRAMEBUFFER_COMPLETE,
+      getError: () => CONST.NO_ERROR, getParameter: (k) => (k === CONST.MAX_TEXTURE_SIZE ? 4096 : 0), getExtension: () => null,
+    }
+    const gl = new Proxy({}, { get(t, prop) {
+      if (prop in handlers) return handlers[prop]
+      if (typeof prop === 'string' && /^[A-Z0-9_]+$/.test(prop)) return CONST[prop] !== undefined ? CONST[prop] : 1
+      return () => {}
+    } })
+    const r = lib.createRenderer({ getContext: () => gl }, { shaderResolver, onLog: (m) => logs.push(String(m)) })
+    await r.render(scene, new Map([['tex_a', { glTex: { id: 'tex_a' }, width: 100, height: 100 }]]), 640, 360, 0.016)
+    // 夹具（与 tests/mock-gl-test.mjs 场景 1 同一份）：4 次 draw = copy + fx0 + fx1 + 合成，d[1] 用 fxVao
+    const fxVao = draws.length === 4 ? draws[1].vao : null
+    const fxPtr = ptr.filter((p) => p.vao === fxVao).map((p) => p.args)
+    return { ptr, logs, draws, fxVao, fxPtr }
+  }
+  const okProbe = await runFx(false)
+  check('⑤ 夹具成立：4 次 draw 且效果 pass 用独立 VAO', okProbe.draws.length === 4 && !!okProbe.fxVao, JSON.stringify(okProbe.draws))
+  check('⑤ 探测正常：fxVao 指针 pos3/uv2（size=3 / stride=20，既有行为不变）',
+    okProbe.fxPtr.some((a) => a[0] === 0 && a[1] === 3 && a[2] === 5126 && a[4] === 20 && a[5] === 0) &&
+    okProbe.fxPtr.some((a) => a[0] === 1 && a[1] === 2 && a[4] === 20 && a[5] === 12), JSON.stringify(okProbe.fxPtr))
+  const failProbe = await runFx(true)
+  const probeLogs = failProbe.logs.filter((m) => m.includes('VAO 属性布局探测失败'))
+  check('⑤ 探测抛错被检出：一次明确日志（不再 catch {} 静默）', probeLogs.length >= 1 && probeLogs.length <= 3, JSON.stringify(failProbe.logs.slice(-3)))
+  const diag = globalThis.__mpwVaoProbe || []
+  check('⑤ 记进诊断面 __mpwVaoProbe（带错误文本）',
+    diag.length >= 1 && diag.some((d) => /属性探测不可用/.test(String(d.err))), JSON.stringify(diag.slice(-2)))
+  check('⑤ 失败也不继续用坏状态：fxVao 指针按**数据实际布局** pos3/uv2（size=3 / stride=20 / uv@12；旧实现停在兜底 2|2 ⇒ 2/16/8）',
+    failProbe.fxPtr.some((a) => a[0] === 0 && a[1] === 3 && a[4] === 20) && failProbe.fxPtr.some((a) => a[0] === 1 && a[1] === 2 && a[4] === 20 && a[5] === 12),
+    JSON.stringify(failProbe.fxPtr))
+}
+
 console.log('\n===== tex-upload-guard 验证: ' + pass + ' 通过 / ' + fail + ' 失败 =====')
 process.exit(fail ? 1 : 0)
