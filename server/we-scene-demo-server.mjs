@@ -53,12 +53,33 @@ const MPW_ROOT = process.env.MPW_ROOT || path.resolve(REPO_ROOT, '..');
 //   历史：第二兜底原为 `<repo>/samples/wallpapers/`（198MB 真实 Steam 工坊壁纸）——因版权**已整体删除**，
 //   本仓库**不分发任何真实壁纸**。三档都不存在时返回一个**明确不存在**的占位路径（绝不留"指向空目录
 //   却当成成功"的假象）：此时 `?id=` 一律 404，启动日志会打印生效值 + "请用 ?pkgpath= 或自己放语料"。
-const MPW_SCENE_ROOT = (() => {
-  if (process.env.MPW_SCENE_ROOT) return process.env.MPW_SCENE_ROOT
-  const cands = [MPW_ROOT + '/allwallpaper/dd', REPO_ROOT + '/samples']
-  for (const c of cands) { try { if (fs.existsSync(c) && fs.statSync(c).isDirectory()) return c } catch {} }
-  return REPO_ROOT + '/samples/NO-BUNDLED-CORPUS'   // 占位：明确不存在（见上行口径）
+/* ②(2026-09-24 可移植性审计 B2) **参数化 + 存在性探测**，把"作者语料布局"降级为**候选之一**：
+   旧读数（审计报告）：`:58` 的兜底链只有 `<MPW_ROOT>/allwallpaper/dd` 与 `<repo>/samples` 两档，
+   `:252` 更是把 `process.env.MPW_SD_ROOT || '/mnt/sdcard/wallpapertest1'`（**Android 专属路径**）
+   写进了随 npm 包发布的服务里。现在：
+     · 场景根候选全部由环境/仓库位置推导，**逐条存在性探测**，采用哪条 + 为什么写进 `SCENE_ROOT_INFO`
+       （`/__health`、启动日志、`sceneRoot.info` 都读它）；
+     · 允许目录（`MPW_ALLOW_DIRS`）同样参数化：`MPW_SD_ROOT` 只在**显式设置**时才进白名单（不再有
+       `/mnt/sdcard/...` 这种默认值）；`MPW_PLUGIN_CACHE`、`$HOME` 两条仍按需推导。
+   没有任何候选存在时仍返回**明确不存在**的占位路径（口径不变，见上面那段注释）。 */
+const SCENE_ROOT_INFO = (() => {
+  if (process.env.MPW_SCENE_ROOT) return { root: process.env.MPW_SCENE_ROOT, from: 'env MPW_SCENE_ROOT', candidates: [], explicit: true }
+  const candidates = [
+    { path: MPW_ROOT + '/allwallpaper/dd', why: '工作区语料布局 <MPW_ROOT>/allwallpaper/dd（作者机/自备语料的常见布局，**不是**产品默认）' },
+    { path: MPW_ROOT + '/allwallpaper', why: '工作区语料总目录 <MPW_ROOT>/allwallpaper' },
+    { path: REPO_ROOT + '/samples', why: '本仓自带**合成**样例 <repo>/samples（任何检出都存在 ⇒ 别人机器开箱就有东西可开）' },
+  ]
+  const probed = candidates.map((c) => {
+    let exists = false
+    try { exists = fs.existsSync(c.path) && fs.statSync(c.path).isDirectory() } catch { exists = false }
+    return Object.assign({}, c, { exists })
+  })
+  const hit = probed.find((c) => c.exists)
+  if (hit) return { root: hit.path, from: hit.why, candidates: probed, explicit: false }
+  return { root: REPO_ROOT + '/samples/NO-BUNDLED-CORPUS', from: '**没有任何候选存在**（占位路径：?id= 一律 404，请用 MPW_SCENE_ROOT= 或 ?pkgpath=）', candidates: probed, explicit: false }
 })();
+const MPW_SCENE_ROOT = SCENE_ROOT_INFO.root;
+
 const MPW_REPORTS_DIR = process.env.MPW_REPORTS_DIR || (MPW_ROOT + '/reports');
 // ═══ ①(P-104 2026-09-17 发布纪律①②：自动上报默认关 + 一切"自动落盘"都要有上限) ═══
 //   用户原话：①"像你这种测试用的自动上报的功能，这种你在上传仓库的时候要把它默认给关掉。"
@@ -244,24 +265,43 @@ const WE_ASSET_CANDIDATES = [
   'D:\\Steam\\steamapps\\common\\wallpaper_engine\\assets',
 ].filter(Boolean);
 const MPW_WE_ASSETS = WE_ASSET_CANDIDATES.find((d) => { try { return fs.existsSync(d) } catch { return false } }) || WE_ASSET_CANDIDATES[1];
-const MPW_ALLOW_DIRS = (process.env.MPW_ALLOW_DIRS || [
-  // ①(去个人化 2026-09-16) 插件下载缓存与备用语料根：环境变量优先；无 HOME 时退到系统临时目录
-  //   （P-91 收尾：删掉写死的个人主目录前缀 —— 它只会在"没有 HOME"的极少数环境生效，
-  //    但会随分发产物泄露作者机布局。有 HOME 时的解析结果与改动前**逐字节相同**。）
-  process.env.MPW_PLUGIN_CACHE || (process.env.HOME ? process.env.HOME + '/.dsh-mpkg-wallpaper' : os.tmpdir() + '/.dsh-mpkg-wallpaper'),
-  process.env.MPW_SD_ROOT || '/mnt/sdcard/wallpapertest1',
-  MPW_ROOT + '/allwallpaper',
-  path.join(TMP_ROOT, 'customwall2'),
-  // ①(P-87 2026-09-15 版权) 本仓库自带的**合成**样例目录也进白名单：`?pkgpath=<repo>/samples/sample-synthetic/scene.pkg`
-  //   与 `/pkgdir?d=<repo>/samples/sample-synthetic-src` 是自带样例的官方打开方式，不该要求用户先改环境变量。
-  //   （只放我们自己程序化生成的文件，无第三方内容，见 samples/README.md。）
-  REPO_ROOT + '/samples',
-].join(':')).split(':').filter(Boolean);
-// 包解析器：优先本目录 vendor 副本（公开仓库自带），其次插件仓库
-const MPW_PKG_EXTRACT = process.env.MPW_PKG_EXTRACT
-  || (fs.existsSync(path.join(REPO_ROOT, 'pkg-extract.mjs'))
-      ? path.join(REPO_ROOT, 'pkg-extract.mjs')
-      : MPW_ROOT + '/dsh-mpkg-wallpaper/lib/pkg-extract.js');
+const MPW_ALLOW_DIRS_INFO = (() => {
+  /* ②(审计 B2) 白名单条目**逐条可追溯**：每条都记来源（env / $HOME 推导 / 工作区推导 / 仓库自带）。
+     `MPW_SD_ROOT` 只有**显式设置**时才进白名单 —— 旧实现里 `|| '/mnt/sdcard/wallpapertest1'` 那个
+     Android 专属默认值已经删掉（它只会在"别人机器上恰好存在同名目录"时产生误导）。 */
+  const rows = []
+  const push = (p, from) => { if (p) rows.push({ path: p, from }) }
+  push(process.env.MPW_PLUGIN_CACHE, 'env MPW_PLUGIN_CACHE')
+  if (!process.env.MPW_PLUGIN_CACHE) {
+    push(process.env.HOME ? process.env.HOME + '/.dsh-mpkg-wallpaper' : os.tmpdir() + '/.dsh-mpkg-wallpaper',
+      process.env.HOME ? '$HOME/.dsh-mpkg-wallpaper（推导）' : 'os.tmpdir()/.dsh-mpkg-wallpaper（无 HOME ⇒ 推导）')
+  }
+  push(process.env.MPW_SD_ROOT, 'env MPW_SD_ROOT（**仅显式设置时**；旧默认值 /mnt/sdcard/wallpapertest1 已删除）')
+  push(MPW_ROOT + '/allwallpaper', '工作区推导 <MPW_ROOT>/allwallpaper')
+  push(path.join(TMP_ROOT, 'customwall2'), '临时目录 os.tmpdir()/customwall2（推导）')
+  push(REPO_ROOT + '/samples', '本仓自带合成样例 <repo>/samples')
+  if (process.env.MPW_ALLOW_DIRS) { rows.length = 0; for (const d of String(process.env.MPW_ALLOW_DIRS).split(/[:;]/).filter(Boolean)) push(d, 'env MPW_ALLOW_DIRS') }
+  return { dirs: rows.map((r) => r.path), rows, from: process.env.MPW_ALLOW_DIRS ? 'env MPW_ALLOW_DIRS（整体覆盖）' : '推导（逐条见 rows）' }
+})();
+const MPW_ALLOW_DIRS = MPW_ALLOW_DIRS_INFO.dirs;
+/* 包解析器：**候选 + 存在性探测**（审计 B2 的 `:264`）：① env ② 本仓根 `pkg-extract.mjs`
+   ③ 姊妹插件仓 `<MPW_ROOT>/dsh-mpkg-wallpaper/lib/pkg-extract.js`。三条都不存在时**如实记原因**
+   （加载失败会走上面 ⓪ 的降级路径，不再让进程起不来）。 */
+const PKG_EXTRACT_CANDIDATES = [
+  { path: process.env.MPW_PKG_EXTRACT, from: 'env MPW_PKG_EXTRACT' },
+  { path: path.join(REPO_ROOT, 'pkg-extract.mjs'), from: '本仓根 pkg-extract.mjs' },
+  { path: MPW_ROOT + '/dsh-mpkg-wallpaper/lib/pkg-extract.js', from: '姊妹插件仓 <MPW_ROOT>/dsh-mpkg-wallpaper（推导）' },
+].filter((c) => !!c.path);
+const PKG_EXTRACT_INFO = (() => {
+  const probed = PKG_EXTRACT_CANDIDATES.map((c) => {
+    let exists = false
+    try { exists = fs.existsSync(c.path) } catch { exists = false }
+    return Object.assign({}, c, { exists })
+  })
+  const hit = probed.find((c) => c.exists)
+  return hit ? { path: hit.path, from: hit.from, candidates: probed } : { path: probed[0] ? probed[0].path : '', from: '**没有可用的包解析器**（候选逐条见 candidates）', candidates: probed }
+})();
+const MPW_PKG_EXTRACT = PKG_EXTRACT_INFO.path;
 const SCENE_ROOT = MPW_SCENE_ROOT;
 // ①(P-87 2026-09-15 版权) 自带**合成**样例的父目录：`<repo>/samples/<id>/scene.pkg` 形式（id=sample-synthetic）。
 //   真实壁纸不再随仓库分发，所以这是唯一"仓库内自带"的 id 来源。
@@ -271,31 +311,91 @@ const SAMPLE_ROOT = REPO_ROOT + '/samples';
 const ID_PAT = '[A-Za-z0-9_][A-Za-z0-9_.-]*';
 const reIdRoute = (prefix) => new RegExp('^\\/' + prefix + '\\/(' + ID_PAT + ')$');
 
-// ①(去个人化) 改为动态 import：路径由上面 MPW_PKG_EXTRACT 决定（顶层 await 在 ESM 里合法）
-const PKG_EXTRACT_MOD = await import(MPW_PKG_EXTRACT);
-const { parsePkg, readPkgEntry } = PKG_EXTRACT_MOD;
+/* ①(2026-09-24 复用安全) 顶层动态 import **不许**把宿主一起带崩：`:8902` 现在 import 本模块来复用
+   同一份处理器，若这台机器上没有包解析器（公开副本 / 未装插件仓库 / MPW_PKG_EXTRACT 指错），
+   原来那行 `await import()` 会在**加载期**抛 ⇒ `:8902` 连启动都起不来。现在：解析器可用 ⇒ 行为不变；
+   不可用 ⇒ 只有"要解析 pkg 的那几条路由"如实 500（响应体逐字带原因），其余路由照常。
+   注意这**不是**把错误吞掉：原因逐字记在 `PKG_EXTRACT_ERR`，并由 `pkgParserUnavailable()` 暴露给宿主。 */
+const PKG_EXTRACT_ERR = { message: null }
+let PKG_EXTRACT_MOD = null
+try {
+  PKG_EXTRACT_MOD = await import(MPW_PKG_EXTRACT)
+} catch (e) {
+  PKG_EXTRACT_ERR.message = 'pkg-extract 加载失败（' + MPW_PKG_EXTRACT + '）：' + String((e && e.message) || e)
+  console.warn('[pkg-extract] ' + PKG_EXTRACT_ERR.message + ' —— 需要解析包的路由会如实报错，其余路由不受影响')
+}
+const parsePkg = (PKG_EXTRACT_MOD && typeof PKG_EXTRACT_MOD.parsePkg === 'function') ? PKG_EXTRACT_MOD.parsePkg : null
+const readPkgEntry = (PKG_EXTRACT_MOD && typeof PKG_EXTRACT_MOD.readPkgEntry === 'function') ? PKG_EXTRACT_MOD.readPkgEntry : null
+/** 缺解析器时的**如实失败**（不是假成功）：原因原样给调用方/宿主，绝不静默返回空结果。 */
+export function pkgParserUnavailable() { return PKG_EXTRACT_ERR.message }
+/** 缺解析器时的替身：调用即抛出（带原因），由各路由既有的错误分支如实回报。 */
+const noPkgParser = () => { throw new Error(PKG_EXTRACT_ERR.message || 'pkg-extract 不可用') }
 // ①(P-135 丙 2026-09-19) 服务端单线程热点底座：目录表只读一次 + 只读命中条目。
 //   `/noise` 旧实现每请求逐个整包读（本机实测 657.9MB/次）、`/shader/<id>/…` 每请求整包 readFileSync
 //   + parsePkg（336MB 包 = 每请求 336MB）—— 两者都在单线程事件循环里，页面并发请求会整体排队。
 //   注意：**接口行为逐位不变**（同样的 200 字节 / 404 文本 / Content-Type / 错误分支），只改读法。
 const { createPkgEntryIndex } = await import('./pkg-entry-index.mjs');
 const pkgEntryIndex = createPkgEntryIndex({
-  parsePkg, readPkgEntry,
+  parsePkg: parsePkg || noPkgParser, readPkgEntry: readPkgEntry || noPkgParser,
   // 老版本 pkg-extract 没导出 parsePkgIndex ⇒ 底座自动全程退回旧路径（服务照常起，行为 = 改动前）
-  parsePkgIndex: PKG_EXTRACT_MOD.parsePkgIndex,
-});
+  parsePkgIndex: PKG_EXTRACT_MOD ? PKG_EXTRACT_MOD.parsePkgIndex : undefined,
+})
 
-// ①(P-87 2026-09-15 版权) 场景查找改成**两档**：生效场景根（= 使用者自己的语料）→ `<repo>/samples`
-//   （自带**合成**样例的父目录 ⇒ `?id=sample-synthetic` 在任何机器上都能打开自带样例）。
-//   语义仍是"<root>/<id>/scene.pkg"，两档都没有就返回 null（调用方 404）——
-//   **绝不**用别的包顶替（不留"看起来成功其实是另一张壁纸"的假象）。
+/* ═══ ⓪(2026-09-24 · 库根**唯一真源** + 处理器可被复用) ═══════════════════════════════════════════
+   两个问题一起收口，改动只在"定义/引用"层面（不吞异常、不改任何路由的响应形状）：
+
+   ① **库根唯一真源**：原先按 id 解析的路由各写各的根 —— `/pkg`、`/shader` 走 `findScene()`（动态查
+      两档），而 `/ddvideo/`（:976）、`/noise`（:1085）、`/transpiled/`（:1143）**直接**读
+      `MPW_SCENE_ROOT`／`SCENE_ROOT`，`/project`·`/ddlist`·`/type` 的兜底也直接读 `MPW_SCENE_ROOT`。
+      后果：宿主把"当前生效的库根"改掉之后，**一部分路由跟着变、一部分不跟着变**，同一 id
+      有的 200 有的 404（真机实测：切换库根后 `/pkg/<id>` 恒 404 ⇒ 页面全是 "PKG HTTP 404"）。
+      现在只留一个读取点 `currentLibraryRoot()`：所有按 id 解析的路由**都必须**经它（或经它驱动的
+      `findScene()`）。宿主（`:8902`）用 `setLibraryRootProvider()` 注入"当前生效的库根"。
+
+   ② **处理器可复用**：请求处理整段提成 `rendererRequestHandler(req, res)` 并导出，`:8902` 直接
+      `import` 后在自己的 origin 上挂载（**同一份实现**，不是复制一份）；本文件作为 `node
+      server/we-scene-demo-server.mjs 8899` 直接运行时行为不变（`listen` 只在"本文件是入口"时发生）。
+
+   语义不变：仍是"<root>/<id>/scene.pkg"，两档（生效根 → 自带合成样例根）都没有就返回 null
+   （调用方 404）—— **绝不**用别的包顶替（不留"看起来成功其实是另一张壁纸"的假象）。 */
+let libraryRootProvider = null   // null ⇒ 用本进程自己的 MPW_SCENE_ROOT（独立运行时的既有行为）
+/** 宿主注入"当前生效的库根"（`:8902` 每次请求现算 ⇒ 切换库根**不刷新**也立刻生效）。 */
+export function setLibraryRootProvider(fn) {
+  libraryRootProvider = (typeof fn === 'function') ? fn : null;
+  return libraryRootProvider !== null;
+}
+/** **唯一**的库根读取点：宿主注入优先，否则本进程启动时解析出的 `MPW_SCENE_ROOT`。 */
+export function currentLibraryRoot() {
+  if (libraryRootProvider) {
+    try {
+      const v = libraryRootProvider();
+      if (typeof v === 'string' && v) return v;
+    } catch { /* 宿主解析失败 ⇒ 如实退回本进程的根，不吞成"空根" */ }
+  }
+  return MPW_SCENE_ROOT;
+}
+/** 按 id 解析的两档根（生效根 → 自带合成样例根）。**所有** id 路由都从这里取根。 */
+function libraryRoots() {
+  const primary = currentLibraryRoot();
+  return primary === SAMPLE_ROOT ? [primary] : [primary, SAMPLE_ROOT];
+}
 function findScene(id) {
-  for (const root of [SCENE_ROOT, SAMPLE_ROOT]) {
+  for (const root of libraryRoots()) {
     const dir = path.join(root, String(id));
     const pkgPath = path.join(dir, 'scene.pkg');
-    if (fs.existsSync(pkgPath)) return { dir, pkgPath };
+    if (fs.existsSync(pkgPath)) return { dir, pkgPath, root };
   }
   return null;
+}
+/** 根下的条目名（`/noise` 要遍历生效根；根不存在/不可读 ⇒ 空表，**不抛**给调用方 500）。 */
+function listRootNames(root) {
+  try { return fs.readdirSync(root) } catch { return [] }
+}
+/** id 的包内条目读取：**唯一**入口（`/transpiled`、`/shader` 等都要经它），
+ *  根不存在 ⇒ null（调用方 404），不会被上层 catch 成 500。 */
+function pkgPathOf(id) {
+  const sc = findScene(id);
+  return sc ? sc.pkgPath : null;
 }
 
 // ═══ ①(B6 渲染器沙箱 2026-09-14) CORS：iframe 去掉 allow-same-origin 后是不透明源，
@@ -366,7 +466,46 @@ function sendFileStream(req, res, full, size, contentType) {
   fs.createReadStream(full).pipe(res);
 }
 
-const server = http.createServer(async (req, res) => {
+/* ═══ ⓪b(2026-09-24) 「无外壳」入口：`?shell=0` 的**纯函数**注入（`:8902` 的预览框用）═══════════════
+   真机症状（用户第 6 条）：测试台右侧预览框在切壁纸时**先闪一下 8899 那种带控制台的整页**约 1 秒，
+   再黑屏，然后才出壁纸 —— 因为预览 iframe 先加载了 demo.html 的**页面外壳**（顶栏 `#bar`、
+   日志面板 `#log`/`#logbar`、FPS/属性面板…），外壳是首屏就画的，而画布要等取包+首帧。
+   修法（**不改 demo.html 一个字节**）：本函数返回一段**追加到 `</body>` 前**的样式 + 首帧握手脚本，
+   只有请求显式带 `?shell=0` 时才注入（不带 ⇒ 响应逐字节等于改动前，既有两个端口行为不变）：
+     · 样式：把外壳元素藏掉、页面转黑（画布 `canvas{position:fixed;inset:0}` 本来就铺满视口，
+       藏掉兄弟节点不影响它 —— 见 demo.html 顶部 style 的 `canvas{position:fixed;inset:0;…}`）；
+     · 脚本：看门狗 + 首帧探测（`canvas` 有绘制尺寸 / 有 WebGL 上下文即认为"渲染器已经出帧"），
+       给 `<html data-mpw-frame="1">` 置位并把这一帧 `postMessage` 给父窗口（父窗口据此才显示预览框）。
+   `shellShim()` 是纯函数（同样输入同样输出）⇒ `tests/bench-*` 可直接断言，不需要浏览器。 */
+export function shellShimScript() {
+  return '<style id="mpw-noshell">'
+    + 'html,body{background:#000!important;overflow:hidden!important}'
+    // 外壳 = body 的直接子节点里除画布/脚本/样式之外的一切（顶栏、日志、手柄、FPS、属性面板…）
+    + 'body>*:not(canvas):not(script):not(style):not(#mpw-noshell){display:none!important;visibility:hidden!important}'
+    + '#mpw-noshell{display:none!important}'
+    + '</style>'
+    + '<script id="mpw-noshell-frame">(function(){'
+    + 'try{var d=document;var put=function(){try{if(d.documentElement.getAttribute("data-mpw-frame")==="1")return true;'
+    + 'var c=d.querySelector("canvas");var ok=false;'
+    + 'if(c&&c.width>0&&c.height>0){try{ok=!!(c.getContext("webgl2")||c.getContext("webgl")||c.getContext("2d"))}catch(e){ok=true}}'
+    + 'if(ok){d.documentElement.setAttribute("data-mpw-frame","1");'
+    + 'try{if(window.parent&&window.parent!==window)window.parent.postMessage({type:"mpw-first-frame",ts:Date.now()},"*")}catch(e){}'
+    + 'return true}}catch(e){}return false};'
+    + 'var raf=window.requestAnimationFrame||function(f){return setTimeout(f,16)};'
+    + 'var tick=function(){if(!put())raf(tick)};raf(tick);'
+    + '}catch(e){}})();</script>';
+}
+/** 把 `shell=0` 的外壳样式/握手脚本插到 `</body>` 前（没有 `</body>` 就追加到末尾）。
+ *  `html` 不是字符串/为空 ⇒ 原样返回（绝不把坏输入变成"注入了一半"的页面）。 */
+export function injectShellShim(html) {
+  if (typeof html !== 'string' || !html) return html;
+  const shim = shellShimScript();
+  const i = html.toLowerCase().lastIndexOf('</body>');
+  if (i < 0) return html + shim;
+  return html.slice(0, i) + shim + html.slice(i);
+}
+
+const serverHandler = async (req, res) => {
   applyCors(res);
   try {
     // ①(B6) 预检：不透明源下渲染器带 content-type 的 POST（/report、/diag）会触发预检请求。
@@ -389,6 +528,11 @@ const server = http.createServer(async (req, res) => {
       //   manifest 链接 + 注册脚本），关闭时**逐字节等于改动前**的 demo.html 字节流。
       if (pwaEnabledFrom(url.searchParams, process.env)) {
         buf = Buffer.from(injectPwa(buf), 'utf8');
+      }
+      /* ⓪b(2026-09-24) 预览框的「无外壳」形态：`?shell=0` ⇒ 注入隐藏外壳的样式 + 首帧握手。
+         不带这个参数 ⇒ 这一行不执行，响应与改动前**逐字节相同**（:8899 页面行为不变）。 */
+      if (url.searchParams.get('shell') === '0') {
+        buf = Buffer.from(injectShellShim(buf.toString('utf8')), 'utf8');
       }
       sendBuffer(req, res, buf, 'text/html; charset=utf-8');
       return;
@@ -899,7 +1043,7 @@ const server = http.createServer(async (req, res) => {
         //   ①(P-87) sceneRoot 用 findScene 真正命中的那一档根（语料根 **或** 自带样例父目录），
         //   这样 `?id=sample-synthetic` 的属性表也能读到；两档都没命中时退回既有默认值（行为不变）。
         const sc = findScene(m[1]);
-        const pr = readProjectJson(m[1], { root: MPW_ROOT, sceneRoot: sc ? path.dirname(sc.dir) : MPW_SCENE_ROOT });
+        const pr = readProjectJson(m[1], { root: MPW_ROOT, sceneRoot: sc ? path.dirname(sc.dir) : currentLibraryRoot() });
         if (!pr) { res.writeHead(404); res.end('no project.json'); return }
         const buf = fs.readFileSync(pr.path) // 原始字节直出（命中同一文件时与改动前逐字节一致）
         res.writeHead(200, { 'content-type': 'application/json', 'x-project-source': pr.source })
@@ -916,7 +1060,7 @@ const server = http.createServer(async (req, res) => {
       try {
         // ①(P-87) 同样用 findScene 命中的那一档根：`?id=sample-synthetic` 也能列出自带样例目录的文件。
         const sc = findScene(m[1]);
-        const base = sc ? sc.dir : path.join(MPW_SCENE_ROOT, m[1])
+        const base = sc ? sc.dir : path.join(currentLibraryRoot(), m[1])
         const files = fs.readdirSync(base).filter((f) => f !== 'scene.pkg')
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ ok: true, files }))
@@ -961,7 +1105,7 @@ const server = http.createServer(async (req, res) => {
       //   读不到时**逐字保留**既有兜底（ok:true, type:'unknown'），调用方行为不变。
       //   ①(P-87) sceneRoot 同 /project：用 findScene 命中的那一档根（自带样例也能读）。
       const scT = findScene(m[1]);
-      const pr = readProjectJson(m[1], { root: MPW_ROOT, sceneRoot: scT ? path.dirname(scT.dir) : MPW_SCENE_ROOT })
+      const pr = readProjectJson(m[1], { root: MPW_ROOT, sceneRoot: scT ? path.dirname(scT.dir) : currentLibraryRoot() })
       try {
         if (!pr) throw new Error('no project.json')
         const j = pr.json
@@ -973,7 +1117,8 @@ const server = http.createServer(async (req, res) => {
     m = p.match(/^\/ddvideo\/(\d+)\/(.+)$/);
     if (m) {
       const rel = decodeURIComponent(m[2])
-      const base = path.join(MPW_SCENE_ROOT, m[1])
+      const scV = findScene(m[1])                     // 与 /pkg 同一档根（原先只读 MPW_SCENE_ROOT）
+      const base = scV ? scV.dir : path.join(currentLibraryRoot(), m[1])
       const full = path.join(base, rel)
       const st = statSyncSafe(full)
       if (full.startsWith(base) && st && st.isFile()) {
@@ -1082,7 +1227,7 @@ const server = http.createServer(async (req, res) => {
       //   本机语料顺序下实测 **657.9MB/次**（235.4+59.5+320.6+42.4MB），且发生在单线程里。
       //   现在：每个包的**目录表**只读一次（64KB 起步，缓存），命中包只读那一条条目；
       //   判定顺序/首个命中/响应字节/404 文本全部与旧实现逐字一致（见 server/pkg-entry-index.mjs）。
-      for (const id of fs.readdirSync(SCENE_ROOT)) {
+      for (const id of listRootNames(currentLibraryRoot())) {
         const sc = findScene(id);
         if (!sc) continue;
         const e = pkgEntryIndex.noiseEntry(sc.pkgPath);
@@ -1140,7 +1285,9 @@ let trm = p.match(/^\/transpiled\/(\d+)\/(.+)$/);
     if (trm) {
       try {
         const { hlsl2glsl, parsePkg, getEntry } = await import('../core/we-scene-bundle.js')
-        const pkg = parsePkg(new Uint8Array(fs.readFileSync(path.join(MPW_SCENE_ROOT, trm[1], 'scene.pkg'))))
+        const pkgPath = pkgPathOf(trm[1])
+        if (!pkgPath) { res.writeHead(404); res.end('no scene'); return }
+        const pkg = parsePkg(new Uint8Array(fs.readFileSync(pkgPath)))
         const rel = decodeURIComponent(trm[2])
         const e = pkg.entries.find((x) => x.name === rel)
         if (!e) { res.writeHead(404); res.end('no shader'); return }
@@ -1167,6 +1314,7 @@ let trm = p.match(/^\/transpiled\/(\d+)\/(.+)$/);
       //   每包 4–8 次请求 ⇒ 冷缓存下数 GB 读 + 事件循环长时间独占）。现在只用缓存过的目录表定位条目，
       //   再只读该条目的字节（压缩条目仍走生产解析器解压）。匹配顺序/大小写口径/响应头全部不变。
       const sc = findScene(m[1]);
+      if (!sc) { res.writeHead(404); res.end('no scene'); return; }     // 根里没有这个 id ⇒ 404（原先会抛成 500）
       const rel = decodeURIComponent(m[2]);
       const entries = pkgEntryIndex.tableFor(sc.pkgPath).entries;
       for (const c of ['shaders/' + rel, rel]) {
@@ -1188,12 +1336,26 @@ let trm = p.match(/^\/transpiled\/(\d+)\/(.+)$/);
       else { try { res.end() } catch {} }
     } catch { /* 兜底：绝不让异常冒泡到进程 */ }
   }
-});
+};
+/* ⓪② 导出**同一份**处理器：`:8902` 直接 `import { rendererRequestHandler }` 挂到自己 origin 上
+   （不复制实现）。契约：调用方负责把 `req.url` 换成"渲染器路由空间"里的路径，本处理器只认 `req.url`。 */
+export const rendererRequestHandler = serverHandler;
 
+// ①(2026-09-24) `listen` 只在**本文件是进程入口**时发生 —— 否则 `import` 本模块（:8902 的复用路径、
+//   `tests/bench-*` 的纯 Node 断言）会顺手在 8899 端口起一个没人要的服务，直接踩掉用户正在用的端口。
+const isMainModule = (() => {
+  try {
+    const entry = process.argv[1] ? fs.realpathSync(path.resolve(process.argv[1])) : '';
+    return entry === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch { return false; }
+})();
 
 const osInfo = await import('node:os')
 
-server.listen(port, '0.0.0.0', () => {
+/* ⓪② `server` 只在本文件是入口时创建（`:8902` 复用处理器时不该在这里开监听）。 */
+export const server = isMainModule ? http.createServer(serverHandler) : null
+
+if (isMainModule) server.listen(port, '0.0.0.0', () => {
   // ①(P-104 2026-09-17 用户发布纪律②) **启动清理一次**：把上次遗留的超限上报目录收回限内，
   //   并在 stdout 打出"删了几个 / 释放多少 MB / 当前上限"（清理动作必须留痕）。
   try { pruneAllOnStartup() } catch (e) { console.warn('[limits] 启动清理失败（不影响服务）：' + (e && e.message)) }

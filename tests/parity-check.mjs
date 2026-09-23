@@ -30,6 +30,12 @@
 //               ② 平均色差 > hardPx（默认 max(0.6,pxFrac)——实测 blend=6 层合法差到 0.63，内容级错误更极端，P-36 黑纹理类）；
 //        · diff（advisory）：介于两者之间的管线级差异，报告不判失败。
 //   白名单：we-scene-demo/known-issues.json（每条带证据），命中记 known(KI-x) 不判失败（--strict 除外）。
+//   ①(2026-09-24 可移植性审计 PA-34/PA-38) **台账防腐烂**：`knownFor()` 只在命中时豁免、不命中不报错 ⇒
+//      内容哈希当 scene 键（重新打包就换哈希）、层名/场景改名都会让豁免**静默失效**。现在每轮都跑
+//      `tests/known-ledger-audit.mjs` 的审计：键必须是可复算的场景身份（`*` 或工坊 id 形态）、
+//      affects 必须落在真在用的口径上、rect 不许全局豁免、**对账过的场景里条目必须至少命中一次**，
+//      违规一律判红（退出码 1）。只想记录"按什么结构分类"的条目用 `scope:'structural'` + `affects:[]`
+//      （分类 ≠ 豁免），并要求其 `classify.rule` 有消费方实现（见本文件 classifyNoLocalScene）。
 //   已知三类分叉自动标注：ownSizes 嫌疑（skin 层 gl/cpu 尺寸比 0.3–0.75）、
 //   附件锚点/脚本 origin 嫌疑（gl 中心命中「无锚点期望」而非「锚点后期望」）。
 //
@@ -37,8 +43,10 @@
 // 退出码：0 = 全部通过 / 无可对账数据（CI 条件项 SKIP 语义，不红）；1 = 存在越界差异；2 = 用法错误。
 import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { makeKnownLedger } from './known-ledger-audit.mjs'   // ①(PA-34) 台账匹配 + 防腐烂判据（纯函数，可被别的门禁复用）
 
 const ROOT = process.env.MPW_ROOT || WS; // ①(去个人化) 可覆盖
 const DEMO = path.join(ROOT, 'we-scene-demo')
@@ -75,16 +83,71 @@ const rd = (b) => DEC.decode(b).replace(/^\uFEFF/, '')
 
 // ---- known-issues 白名单 ----
 // ①(2026-09-16 目录整理) known-issues.json 随测试脚本收进 tests/（它只被测试消费）
+// ①(PA-34 2026-09-24) 匹配逻辑（逐字同旧 knownFor 语义）+ **防腐烂审计**一起搬进 known-ledger-audit.mjs：
+//   纯函数 ⇒ 能被 tests/portability-audit-fix-test.mjs 用合成台账证明"腐烂必红"，也能在下面的
+//   SKIP 早退路径里照跑（否则"没有上报"这条路上台账永远不被检查 = 又一个盲点）。
 const KNOWN_DOC = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'known-issues.json'), 'utf8'))
 const KNOWN = KNOWN_DOC.issues || KNOWN_DOC
-function knownFor(sceneId, layerName, aspect) {
-  for (const k of KNOWN) {
-    if (k.scene !== '*' && k.scene !== sceneId) continue
-    if (!(k.affects || []).includes(aspect)) continue
-    const pats = String(k.layer).split('|')
-    if (pats.some((p) => p === '*' || String(layerName).includes(p))) return k
+
+// ---- 结构性判据（`scope:'structural'` 的 KI 条目：**分类 ≠ 豁免**）----
+// ①(PA-34) KI-7 原来用 mpkg **内容哈希**当 scene 键豁免整张包的 rect+px。改成一般规则：
+//   「容器里没有 scene.pkg 但有 wallpaper.mp4 ⇒ 视频壁纸，不参与 scene 对账」——这条判据对**任何**
+//   视频壁纸容器成立，不需要点名任何 id/哈希。判据必须**可举证**：找不到容器或容器读不了 ⇒
+//   如实说"未判定"，不许假装分类成功（也不许静默什么都不说）。
+const CONTAINER_CAP_MB = Number(process.env.MPW_W9_MAX_MB || 128)
+const CONTAINER_DIRS = (() => {
+  const home = (() => { try { return os.homedir() } catch { return '' } })()
+  const dirs = [process.env.MPW_PLUGIN_CACHE, home ? path.join(home, '.dsh-mpkg-wallpaper') : null, DD, path.dirname(DD)]
+  try {
+    for (const e of fs.readdirSync(path.dirname(DD), { withFileTypes: true })) if (e.isDirectory()) dirs.push(path.join(path.dirname(DD), e.name))
+  } catch { /* 语料根不存在：容器候选就少几条，不影响判定 */ }
+  return [...new Set(dirs.filter(Boolean))]
+})()
+
+function classifyNoLocalScene(id) {
+  for (const dir of CONTAINER_DIRS) {
+    const p = path.join(dir, String(id) + '.mpkg')
+    let st = null
+    try { st = fs.statSync(p) } catch { continue }
+    if (st.size > CONTAINER_CAP_MB * 1048576) return { rule: 'video-wallpaper', hit: false, why: `${p} 超过 ${CONTAINER_CAP_MB}MB 上限（MPW_W9_MAX_MB 可调），未解析 ⇒ 不假装判定` }
+    try {
+      const pkg = lib.parsePkg(new Uint8Array(fs.readFileSync(p)))
+      const names = (pkg.entries || []).map((e) => e.name)
+      const hasScene = names.includes('scene.pkg')
+      const video = names.find((n) => /(^|\/)wallpaper\.(mp4|webm)$/i.test(n))
+      return video && !hasScene
+        ? { rule: 'video-wallpaper', hit: true, why: `${path.relative(ROOT, p)}：有 ${video}、无 scene.pkg ⇒ 视频壁纸（按分类跳过，不是豁免）` }
+        : { rule: 'video-wallpaper', hit: false, why: `${path.relative(ROOT, p)}：hasScene=${hasScene} hasVideo=${!!video} ⇒ 不符合该分类` }
+    } catch (e) { return { rule: 'video-wallpaper', hit: false, why: `${path.relative(ROOT, p)} 解析失败：${(e && e.message) || e}` } }
   }
-  return null
+  return { rule: 'video-wallpaper', hit: false, why: '本机找不到该场景的容器（无法判定分类）' }
+}
+
+const LEDGER = makeKnownLedger(KNOWN_DOC, { implementedRules: ['video-wallpaper'] })
+const knownFor = (sceneId, layerName, aspect) => LEDGER.knownFor(sceneId, layerName, aspect)
+
+/** 本机能看到的场景 id（上报索引 ∪ 本地语料目录）——审计用它判"scene 键还是不是可复算的身份"。 */
+function knownSceneIds() {
+  const s = new Set([...reportsByScene.keys()].map(String))
+  const roots = [DD]
+  try { for (const e of fs.readdirSync(path.dirname(DD), { withFileTypes: true })) if (e.isDirectory()) roots.push(path.join(path.dirname(DD), e.name)) } catch { /* 无语料：集合里只有上报索引 */ }
+  for (const r of roots) {
+    try { for (const e of fs.readdirSync(r, { withFileTypes: true })) if (e.isDirectory() && /^\d{6,12}$/.test(e.name)) s.add(e.name) } catch { /* 单条读不到不影响其它候选 */ }
+  }
+  return s
+}
+
+/** 台账审计 + 打印。返回 true = 无腐烂。**三条退出路径都要调它**（含 SKIP 早退）。 */
+function auditLedger() {
+  const res = LEDGER.audit({ knownSceneIds: knownSceneIds(), implementedRules: ['video-wallpaper'] })
+  console.log('\n── known-issues 台账审计（防腐烂：豁免必须仍然命中；内容哈希键 / 整口径豁免 / 0 命中 一律判红）──')
+  console.log(`  条目 ${LEDGER.entries.length}：豁免型 ${res.exempting.length} / 结构性 ${res.structural.length}；本次实际豁免 ${res.applied.reduce((s, x) => s + x.n, 0)} 条（${res.applied.map((x) => x.id + '×' + x.n).join(' ') || '无'}）`)
+  for (const n of res.notes) console.log('  · ' + n.msg)
+  for (const w of res.warnings) console.log('  ⚠ ' + w.msg)
+  for (const e of res.errors) console.error('  ✗ ' + e.msg)
+  if (res.errors.length) { console.error(`  ⇒ 台账防腐烂判红 ${res.errors.length} 条（豁免腐烂 = 对账口径已经悄悄变了，先修台账）`); return false }
+  console.log('  ✓ 台账无腐烂：键可复算、口径合法、对账过的场景里条目都命中')
+  return true
 }
 // applyRenderConfig 同款 UI 名单（CPU 预览未过 hideUI → 这些层像素口径不同）
 const uiRe = /Cube|Song Title|Artist Name|Album Title|Play Icon|Pause Icon|dragAndDrop|clockHide|clockOrientation|textOrientation|Clock Container|Text Container|Rounded Corners|Round R|Round L|(^| )Frame($| )|toggle|Audio|音频|Spectrum|播放|音量|sound|Clock|Date|D a y|Day|时间|日期|星期|Launcher|歌词|Lyrics|music|Music|UI|mp3|MSR|唱片|Spectrum Visualizer|提示框|提示窗|prompt|Prompt/i
@@ -223,7 +286,9 @@ function cpuScenes(id) {
 // ---- CPU 预览光栅（preview.mjs 子进程，REFR=0 与浏览器默认父链一致）----
 const PW = 960, PH = 540
 function previewSamples(id, designPts) {
-  const png = `/tmp/parity-prev-${id}.png`
+  // ①(PA-09/PA-11 2026-09-24) 临时 PNG 不再写死 `/tmp`（Windows 没有 /tmp、macOS 是 /private/tmp 软链、
+  //   容器里常是小容量 tmpfs）⇒ 走 os.tmpdir()（同目录的 headless-shot/preview 早就是这个口径）。
+  const png = path.join(os.tmpdir(), `parity-prev-${id}.png`)
   try {
     execFileSync('node', [path.join(DEMO, 'preview.mjs'), id, png, String(PW), String(PH)],
       { env: { ...process.env, REFR: '0' }, timeout: 240000, stdio: ['ignore', 'ignore', 'ignore'] })
@@ -250,15 +315,25 @@ let anyFail = false, compared = 0
 
 if (!sceneIds.length) {
   console.log('SKIP parity-check：无可对账上报（reports/ 无含 layerLedger 的 r*.json）')
-  process.exit(0)
+  // ①(PA-34) 早退路径也要审台账：否则"没有上报"这条路上豁免腐烂永远不被发现（盲点）。
+  const ledgerOk = auditLedger()
+  process.exit(ledgerOk ? 0 : 1)
 }
 
 for (const id of sceneIds) {
   const { file, data: rep, led } = reportsByScene.get(id)
+  LEDGER.markCompared(id)
   console.log('\n' + '═'.repeat(96))
   console.log(`场景 ${id}  上报 ${file}  at=${rep.at}  台账 ${led.length} 层  阈值 rect≤${rectTol}px(size≤${sizeTol}) px≤${(pxFrac * 100).toFixed(0)}%`)
   const cs = cpuScenes(id)
-  if (!cs) { console.log('  SKIP：无本地 scene.pkg（mpkg/视频壁纸类，见 known-issues KI-7）'); continue }
+  if (!cs) {
+    // ①(PA-34) 原来只写死一句"（mpkg/视频壁纸类，见 known-issues KI-7）"。现在跑**结构性判据**并如实报：
+    //   命中 ⇒ 打印命中哪条规则与证据；不命中 ⇒ 明说"分类未判定"，不假装知道原因。
+    const cls = classifyNoLocalScene(id)
+    LEDGER.markStructural(cls.rule, cls.hit, cls.why)
+    console.log('  SKIP：无本地 scene.pkg —— ' + (cls.hit ? `结构性判据 ${cls.rule} 命中：${cls.why}` : `分类**未判定**（${cls.why}）`))
+    continue
+  }
 
   const { scene, noAnchor, scriptedKeys, projW, projH, clears } = cs
   // CPU 期望层（可见、非容器、非粒子、尺寸非退化）；键 = 设备台账同款约定（name||id，截 20 字符）
@@ -413,6 +488,8 @@ for (const id of sceneIds) {
     scene: id, report: { file, at: rep.at }, generated: new Date().toISOString(),
     tol: { rect: rectTol, size: sizeTol, px: pxFrac }, strict: STRICT,
     summary: { rows: rows.length, fail: fails.length, known: knowns.length, softPx: softs.length, diffPx: diffs.length, size0: size0.length, noCpu: noCpu.length, cpuOnly: cpuOnly.length, verdict: failCount ? 'FAIL' : 'PASS' },
+    // ①(PA-34/PA-35) 豁免计数落进产物：人读 JSON 时能直接看到"本次 px/rect 各被哪条 KI 豁免了几层"
+    knownLedger: { entries: LEDGER.entries.length, applied: [...LEDGER.hitCounts.entries()].map(([ki, n]) => ({ ki, n })) },
     layers: rows.map((r) => ({
       name: r.name, verdict: r.verdict, pxVerdict: r.pxVerdict || null,
       // ①(P-63 随修) caliber/caliberNote 之前**算完就丢**（行内 push 了却不在 JSON 里），
@@ -429,6 +506,10 @@ for (const id of sceneIds) {
 }
 
 console.log('\n' + '═'.repeat(96))
-if (!compared) { console.log('SKIP parity-check：有上报但均无本地 scene.pkg'); process.exit(0) }
-console.log(anyFail ? `✗ parity-check：存在越界差异（见上）` : `✓ parity-check：${compared} 场景对账完成，无越界差异（known/soft 见各场景 JSON）`)
-process.exit(anyFail ? 1 : 0)
+const ledgerOk = auditLedger()
+if (!compared) {
+  console.log('SKIP parity-check：有上报但均无本地 scene.pkg')
+  process.exit(ledgerOk ? 0 : 1)
+}
+console.log((anyFail || !ledgerOk) ? `✗ parity-check：存在越界差异或台账腐烂（见上）` : `✓ parity-check：${compared} 场景对账完成，无越界差异（known/soft 见各场景 JSON）`)
+process.exit((anyFail || !ledgerOk) ? 1 : 0)

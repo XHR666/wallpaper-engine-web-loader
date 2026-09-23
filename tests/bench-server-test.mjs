@@ -503,12 +503,34 @@ async function runSuite() {
       compat.status === 200 && Array.isArray(J(compat).subdirs) && J(compat).subdirs.includes('dd') && typeof J(compat).home === 'string' && typeof J(compat).platform === 'string',
       `${compat.status} ${compat.body.slice(0, 160)}`)
     const fsRootsR = await request(P3, 'GET', '/api/fs/roots')
-    const labels = ((J(fsRootsR).roots) || []).map((r) => r.label).join(' | ')
-    const pathsAbs = ((J(fsRootsR).roots) || []).every((r) => path.isAbsolute(r.path))
-    check('J13 GET /api/fs/roots ⇒ {ok,roots:[{label,path(绝对)}]}（含宿主 home / 工作区 / allwallpaper / 当前库目录）',
-      fsRootsR.status === 200 && Array.isArray(J(fsRootsR).roots) && pathsAbs && J(fsRootsR).roots.length >= 4 &&
-      ((J(fsRootsR).roots) || []).some((r) => r.path === fx.ws) && ((J(fsRootsR).roots) || []).some((r) => r.path === path.join(fx.ws, 'allwallpaper')) && ((J(fsRootsR).roots) || []).some((r) => r.path === os.homedir()),
-      `${fsRootsR.status} ${labels}`)
+    const roots = (J(fsRootsR).roots) || []
+    const labels = roots.map((r) => r.label).join(' | ')
+    const pathsAbs = roots.every((r) => path.isAbsolute(r.path))
+    /* ①(PA-37 2026-09-24 可移植性审计) 这里原来把实现里那 3 条候选**逐字钉死**
+       （`r.path === fx.ws`、`r.path === path.join(fx.ws,'allwallpaper')`、`r.path === os.homedir()`）：
+       测试与实现自我循环 —— 于是"把作者专属快捷根改成一般规则"必然让门禁变红，**门禁在保护缺陷**。
+       现在断言的是**契约**（与"具体有哪些根"无关，任何一台机器上都成立）：
+         ① roots 非空、path 绝对且已规范化；② 每条带 exists/listable/reason，且 `exists` 必须**如实**
+         （用 fs.existsSync 逐条复核）；③ `listable ⇒ exists`，不可列必须给非空 reason（不许"列出来但不说为什么"）；
+         ④ path 去重；⑤ **标签必须由 basename/角色词拼出**，不得把 ≥2 段的绝对路径原样抄进标签
+         （"标签也要推导"—— 作者工作区目录名当初就是这么漏进 UI 的）；
+         ⑥ 必须含**当前库根**与**它的上一级**（两者都从夹具/运行期推导）；⑦ 必须含 os.homedir()。
+       "还有哪些根"由实现按运行期信息推导 ⇒ 本判据不关心，也就不会再保护任何一种写法。
+       （分辨力证明：把实现里那两条作者式根删掉/参数化后，本条**仍然绿** —— 见下面"变异 J2"那一段。）*/
+    const absNorm = roots.length > 0 && roots.every((r) => typeof r.path === 'string' && path.isAbsolute(r.path) && path.resolve(r.path) === r.path)
+    const existsTruthful = roots.every((r) => typeof r.exists === 'boolean' && r.exists === fs.existsSync(r.path))
+    const flagsContract = roots.every((r) => typeof r.listable === 'boolean'
+      && (r.listable ? r.exists === true : (typeof r.reason === 'string' && r.reason.length > 0)))
+    const dedupedPaths = new Set(roots.map((r) => r.path)).size === roots.length
+    const ABS_IN_LABEL = /(^|[\s（(])(\/[^/\s]+\/[^/\s]+|[A-Za-z]:\\)/
+    const labelsDerived = roots.every((r) => typeof r.label === 'string' && r.label.length > 0 && !ABS_IN_LABEL.test(r.label))
+    const hasLibrary = roots.some((r) => r.path === path.resolve(fx.dd) && (r.kind === 'library' || r.role === 'library'))
+    const hasLibraryParent = roots.some((r) => r.path === path.resolve(path.dirname(fx.dd)))       // 从库根推导，不点名作者目录
+    const hasHome = roots.some((r) => r.path === path.resolve(os.homedir()))
+    check('J13 GET /api/fs/roots ⇒ {ok,roots:[…]} 且满足快捷根**契约**（非空 / 绝对且规范化 / exists 如实 / listable⇒exists 且不可列必有 reason / path 去重 / 标签只由 basename+角色词拼出 / 含当前库根与其上一级与 os.homedir()）',
+      fsRootsR.status === 200 && Array.isArray(J(fsRootsR).roots) && pathsAbs &&
+      absNorm && existsTruthful && flagsContract && dedupedPaths && labelsDerived && hasLibrary && hasLibraryParent && hasHome,
+      `${fsRootsR.status} n=${roots.length} abs=${absNorm} exists如实=${existsTruthful} flags=${flagsContract} 去重=${dedupedPaths} 标签推导=${labelsDerived} 库根=${hasLibrary} 库根上一级=${hasLibraryParent} home=${hasHome} | ${labels}`)
     const fsList = await request(P3, 'GET', '/api/fs/list?path=' + encodeURIComponent(fx.types))
     const fe = (J(fsList).entries) || []
     const byName = (n) => fe.find((e) => e.name === n)
@@ -561,13 +583,17 @@ async function runSuite() {
       J(hDef).library && J(hDef).library.source === 'default' && J(hDef).library.selected === false && typeof J(hDef).library.reason === 'string' && /没有人选过|默认/.test(J(hDef).library.reason),
       JSON.stringify(J(hDef).library && { source: J(hDef).library.source, reason: String(J(hDef).library.reason).slice(0, 120) }))
     const srcNone = await (async () => {
-      const empty = path.join(fx.base, 'emptyspace')          // MPW_ROOT 指到空目录 ⇒ 默认库根不存在
+      const empty = path.join(fx.base, 'emptyspace')          // MPW_ROOT 指到空目录 ⇒ 推导候选全都不存在
       fs.mkdirSync(empty, { recursive: true })
-      const s5 = await startServer(fx, { MPW_ROOT: empty, MPW_LIBRARY_DIR: '', MPW_OPEN_CMD: '/bin/true' })
+      /* ⚠(2026-09-24 契约变更，随可移植性审计 B1 一起来) 库根默认值从"写死 <MPW_ROOT>/allwallpaper/dd"
+         改成**候选列表 + 存在性探测**（…/allwallpaper/dd → …/allwallpaper → **<repo>/samples**）。
+         于是"候选全都不存在"这条路径要靠 `MPW_NO_BUNDLED_SAMPLES=1`（显式不采用仓库自带样例）才能构造 ——
+         本判据的**意图一个字没变**：没有任何可用库根时必须 `source:'none'` + 空列表 + `ok:true`（不是 500）。 */
+      const s5 = await startServer(fx, { MPW_ROOT: empty, MPW_LIBRARY_DIR: '', MPW_NO_BUNDLED_SAMPLES: '1', MPW_OPEN_CMD: '/bin/true' })
       servers.push(s5)
       const r = await request(s5.port, 'GET', '/api/library-source')
       const lib = await request(s5.port, 'GET', '/api/library')
-      check('K5 没有显式配置且默认路径不存在 ⇒ source=none（连"回退"都不成立），items 为空且 **ok:true**（不是 500）',
+      check('K5 没有显式配置且**所有候选都不存在**（MPW_NO_BUNDLED_SAMPLES=1）⇒ source=none，items 为空且 **ok:true**（不是 500）',
         r.status === 200 && J(r).source === 'none' && J(r).exists === false && J(r).selected === false &&
         lib.status === 200 && J(lib).ok === true && J(lib).missing === true && ((J(lib).items) || []).length === 0 && /不存在/.test(String(J(lib).error)),
         `${r.status} ${r.body.slice(0, 160)} | library=${lib.status} ${lib.body.slice(0, 140)}`)
@@ -836,8 +862,11 @@ const MUTATIONS = [
     name: 'C-目录选择器去掉浏览边界（`containingBrowseRoot()` 恒真 ⇒ 绝对越界/符号链接逃逸全部放行；`..` 仍被独立拒绝）',
     expects: ['J5', 'J6', 'J7', 'J8', 'J11'],
     apply(src) {
-      const from = "  return isInside(PICK_ROOT_REAL, real) ? { label: 'browseRoot', path: PICK_ROOT_REAL } : null"
-      const to = "  return { label: 'browseRoot', path: PICK_ROOT_REAL, real }   // 变异：浏览边界恒真"
+      /* ②(2026-09-24) 锚点跟着实现走：浏览边界从"单个 PICK_ROOT_REAL"改成**推导出来的允许根清单**
+         （`BROWSE_ROOTS`：MPW_PICK_ROOT → 库根/库根的上一级 → MPW_ALLOW_DIRS），`containingBrowseRoot()`
+         里那句前缀判定随之变形。变异语义不变：**让边界判定恒真** ⇒ 越界/逃逸必须全线变红。 */
+      const from = "  for (const r of BROWSE_ROOTS) if (isInside(r, real)) return { label: 'browseRoot', path: r }"
+      const to = "  return { label: 'browseRoot', path: BROWSE_ROOTS[0], real }   // 变异：浏览边界恒真\n" + from
       if (src.split(from).length !== 2) return { error: `变异锚点未命中唯一位置：${from}` }
       return { out: src.replace(from, to) }
     },
@@ -880,6 +909,46 @@ const MUTATIONS = [
       const to = "    if (!v.ok && false) {"
       if (src.split(from).length !== 2) return { error: `变异锚点未命中唯一位置：${from}` }
       return { out: src.replace(from, to) }
+    },
+  },
+  {
+    name: 'H-快捷根契约破坏（`path` 变相对 + `exists` 恒真 + 标签抄绝对路径 ⇒ J13 契约判据必须红）',
+    expects: ['J13'],
+    apply(src) {
+      const from = "    const row = Object.assign({}, c, {\n      path: p, labels: [c.label], exists, listable: inside && exists,"
+      const to = "    const row = Object.assign({}, c, {\n      path: path.relative(BROWSE_ROOTS[0], p) || p, labels: [p], exists: true, listable: inside && exists,   // 变异：相对路径 + exists 恒真 + 标签抄绝对路径"
+      if (src.split(from).length !== 2) return { error: `变异锚点未命中唯一位置：${from.split('\n')[1]}` }
+      return { out: src.replace(from, to) }
+    },
+  },
+  {
+    /* ①(PA-37) **分辨力证明**（与上面几条相反：这条要求"仍然绿"）：旧 J13 把实现里那 3 条候选
+       （`fx.ws` / `fx.ws/allwallpaper` / `os.homedir()`）逐字钉死 ⇒ 谁把"作者式快捷根"删掉/参数化，
+       门禁就红 ⇒ 门禁在保护缺陷。改成语义契约后，删掉那两条**属于"这台机器的事实"的候选**
+       （`MPW_ROOT` 工作区根、`process.cwd()`）**必须仍然绿**：契约只要求
+       "含当前库根 + **它的上一级** + os.homedir()" —— 库根本身与"它的上一级"都从库根推导得出
+       （`<repo>/samples` 与配置库根那两条仍在），与"作者工作区叫什么"无关。
+       ⚠ 不要拿"库根的上一级"那条来变异：契约**明确要求**它存在，删了本来就该红（那是契约不是缺陷）。 */
+    name: 'J2 删掉"这台机器的事实"式快捷根（MPW_ROOT 工作区根 + process.cwd()）⇒ J13 **必须仍然绿**（判据不得保护缺陷）',
+    expects: [],
+    mustStayGreen: ['J13'],
+    apply(src) {
+      const cut = (s, frag) => {
+        const i = s.indexOf(frag)
+        if (i < 0) return null
+        const lineEnd = s.indexOf('\n', i)
+        return s.slice(0, i) + s.slice(lineEnd + 1)
+      }
+      let out = src
+      for (const frag of [
+        "{ label: '工作区根（' + path.basename(MPW_ROOT) + '）', path: MPW_ROOT, kind: 'workspace', role: 'workspace' },",
+        "{ label: '当前工作目录（' + path.basename(process.cwd()) + '）', path: process.cwd(), kind: 'cwd', role: 'cwd' },",
+      ]) {
+        const next = cut(out, frag)
+        if (next === null) return { error: `变异锚点未命中：${frag.slice(0, 50)}` }
+        out = next
+      }
+      return { out }
     },
   },
 ]
@@ -936,11 +1005,20 @@ async function main() {
       const redNames = ((j && j.failed) || []).map((f) => f.name)
       const expectHit = m.expects.filter((e) => redNames.some((n) => n.startsWith(e)))
       console.log(`\n─── 变异 ${i + 1}：${m.name}`)
-      console.log(`    子进程退出码 = ${res.code}（要求 1）`)
+      console.log(`    子进程退出码 = ${res.code}（要求 ${m.mustStayGreen ? 0 : 1}）`)
       console.log(`    RED 行（原文）：\n${redLines.map((l) => '      ' + l).join('\n') || '      (无 FAIL 行)'}`)
-      check(`变异${i + 1} 必红：子进程退出码 1 且有 FAIL`, res.code === 1 && redLines.length > 0, `code=${res.code} fails=${(j && j.failed || []).length}`)
-      check(`变异${i + 1} 红的正是被变异掉的判据（${m.expects.join('/')}）`, expectHit.length > 0, `命中=${expectHit.join(',') || '无'} 实际=${redNames.join(' | ').slice(0, 300)}`)
-      rows.push({ name: m.name, code: res.code, failed: redNames, redLines })
+      if (m.mustStayGreen) {
+        /* ①(PA-37) "必须仍然绿"的变异：判据不许保护缺陷 —— 被点名的判据**不得**出现在红集里，
+           而且整轮不许有**别的**失败（否则说明这次变异把它处判据也带红了，分辨力证明不成立）。 */
+        const leaked = m.mustStayGreen.filter((e) => redNames.some((n) => n.startsWith(e)))
+        check(`变异${i + 1} 分辨力：把作者式写法删掉后 ${m.mustStayGreen.join('/')} **仍然绿**（判据不保护缺陷）`,
+          res.code === 0 && redNames.length === 0 && leaked.length === 0,
+          `code=${res.code} 该判据变红=${leaked.join(',') || '否'} 本轮红集=${redNames.join(' | ').slice(0, 200) || '（空）'}`)
+      } else {
+        check(`变异${i + 1} 必红：子进程退出码 1 且有 FAIL`, res.code === 1 && redLines.length > 0, `code=${res.code} fails=${(j && j.failed || []).length}`)
+        check(`变异${i + 1} 红的正是被变异掉的判据（${m.expects.join('/')}）`, expectHit.length > 0, `命中=${expectHit.join(',') || '无'} 实际=${redNames.join(' | ').slice(0, 300)}`)
+      }
+      rows.push({ name: m.name, code: res.code, failed: redNames, redLines, mustStayGreen: m.mustStayGreen || null })
     }
     mutantReport = rows
     try { fs.rmSync(mtDir, { recursive: true, force: true }) } catch { /* tmp 清不掉不致命 */ }

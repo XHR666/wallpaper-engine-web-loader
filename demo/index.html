@@ -288,15 +288,23 @@ html.bench-shell #np-mount .snd button{pointer-events:auto}
 html.bench-shell #props-body{padding-bottom:calc(20px + var(--mpw-np-cover))}
 html.bench-shell #props[data-np="missing"] #props-body{padding-bottom:20px}
 html.bench-shell #props[data-np="missing"] #np-host{display:none}
-html.bench-shell #np-audio{height:var(--mpw-np-strip);display:flex;align-items:center;gap:6px;padding:0 8px;background:color-mix(in srgb,var(--panel) 86%,transparent);border-top:1px solid var(--border);font-size:11px;color:var(--fg-dim)}
 html.bench-shell #np-mute{flex:none;width:22px;height:22px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:4px;background:transparent;color:var(--fg);cursor:pointer}
 html.bench-shell #np-mute:hover{background:var(--hover,rgba(255,255,255,.07))}
-html.bench-shell #np-volume{flex:none;width:64px;height:16px;margin:0}
-html.bench-shell #np-seek{position:relative;flex:1;min-width:40px;height:14px;padding:0;border:0;background:transparent;cursor:pointer}
 html.bench-shell #np-seek::before{content:"";position:absolute;left:0;right:0;top:6px;height:3px;border-radius:2px;background:var(--input)}
 html.bench-shell #np-run{position:absolute;left:0;top:6px;height:3px;width:0;border-radius:2px;background:var(--accent,#0078d4)}
-html.bench-shell #np-time{flex:none;font-variant-numeric:tabular-nums;color:var(--fg-mute)}
 html.bench-shell #np-stage{flex:0 1 auto;min-width:0;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-mute)}
+html.bench-shell #np-audio{height:var(--mpw-np-strip);display:flex;align-items:center;gap:6px;padding:0 8px;background:color-mix(in srgb,var(--panel) 86%,transparent);border-top:1px solid var(--border);font-size:11px;color:var(--fg-dim);min-width:0;max-width:100%;box-sizing:border-box;overflow:hidden}
+html.bench-shell #np-volume{flex:1 1 48px;width:auto;min-width:34px;max-width:96px;height:16px;margin:0}
+html.bench-shell #np-seek{position:relative;flex:2 1 32px;min-width:24px;height:14px;padding:0;border:0;background:transparent;cursor:pointer}
+html.bench-shell #np-time{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--fg-mute)}
+html.bench-shell .bench-props-group{margin:0 0 8px;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+html.bench-shell .bench-props-group > .bench-props-group-head{display:flex;align-items:center;gap:6px;padding:5px 8px;cursor:pointer;background:color-mix(in srgb,var(--panel) 70%,transparent);font-size:12px;color:var(--fg-dim);user-select:none}
+html.bench-shell .bench-props-group > .bench-props-group-head:hover{background:var(--hover,rgba(255,255,255,.06))}
+html.bench-shell .bench-props-group > .bench-props-group-head .bench-props-group-caret{flex:none;transition:transform .12s linear}
+html.bench-shell .bench-props-group[data-collapsed="1"] > .bench-props-group-head .bench-props-group-caret{transform:rotate(-90deg)}
+html.bench-shell .bench-props-group[data-collapsed="1"] > .bench-props-group-body{display:none}
+html.bench-shell .bench-props-group > .bench-props-group-body{padding:2px 6px 4px}
+html.bench-shell .bench-props-group .prop, html.bench-shell .bench-props-group .prop-text{margin-top:2px}
 /* ⚠ 这一整块**没有 @media 包裹**（2026-09-18 修）：原来那次"去掉媒体查询依赖"的编辑把 `@media(…){`
    这一行删掉了，却留下了块内的规则和末尾那个 `}` ⇒ ①多出一个孤立的大括号；②末尾 4 条本该"只在窄屏生效"
    的规则（工具栏字号 / site-tab / 设置弹层宽度）**泄漏到所有桌面宽度**；③其中一条选择器写成了

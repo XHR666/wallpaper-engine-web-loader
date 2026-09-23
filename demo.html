@@ -1368,8 +1368,11 @@ function mpwGyroClamp01(x) {
 function mpwGyroModeOfValue(v) {
   const raw = (v === null || v === undefined) ? '' : String(v).trim().toLowerCase()
   if (raw === '1' || raw === 'on' || raw === 'force' || raw === 'true') return 'on'
-  if (raw === '0' || raw === 'off' || raw === 'none' || raw === 'false') return 'off'
-  return 'auto'
+  /* ①(2026-09-24 口径修正) **缺省 = 不启用（opt-in）**：项目所有者说明"陀螺仪只是讲实现方式的区别、
+     并不是要你做出陀螺仪效果"（桌面端本来也没有传感器）⇒ 姿态源**默认一个监听都不挂**，
+     要现场验证或真在手机上用时显式给 `?gyro=1`（强制）或 `?gyro=auto`（触摸设备才启用）。 */
+  if (raw === 'auto') return 'auto'
+  return 'off'
 }
 function mpwGyroModeFrom(search) {
   try {

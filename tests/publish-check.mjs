@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 
 // ①(2026-09-16 目录整理) 本脚本已移入 tests/，仓库根 = 上一级；扫描/体积闸门口径不变（仍扫整棵树）。
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const SELF_PATH = fileURLToPath(import.meta.url)   // ①(PA-44) 自指文件：活性反查时要排除自己（图案会命中自身）
 const argv = process.argv.slice(2)
 const has = (f) => argv.includes(f)
 const val = (f, d) => { const i = argv.indexOf(f); return i >= 0 && argv[i + 1] ? argv[i + 1] : d }
@@ -34,19 +35,29 @@ const SKIP_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.we
 // ①(2026-09-14 自查修复) **不要**依赖 readdir 的 dirent 类型：本机（PRoot/overlay）下
 //   `Dirent.isFile()` 对部分普通文件返回 false → 7 个 common*.h 里漏掉 5 个，发布闸门差点漏报专有文件。
 //   改为逐项 `lstat` 判定（慢一点但正确）。
-const walk = (dir, out = []) => {
+// ①(PA-45 2026-09-24 可移植性审计) 这里原来是 `catch { return out }`：**目录读不到就静默返回部分清单**，
+//   于是发布闸门"少扫一片还打 ✓" —— 正是"让现象消失"。现在：读不到的目录/文件**逐条记账**（路径 + errno），
+//   汇总成**阻塞项**（下面的 [assert:walk-unreadable] 段），`--json` 里也能看到 unreadable[]；
+//   `walk()` 返回 `{ files, unreadable }`（所有调用点已同步改）。判别力自证：同段用**合成反例**
+//   （非目录路径 ⇒ ENOTDIR、不存在路径 ⇒ ENOENT）证明"读不到真的会被记下来"，不靠权限位（root 下 chmod 无效）。
+const walkCollect = (dir, out, unreadable, readdir) => {
   let ents = []
-  try { ents = fs.readdirSync(dir, { withFileTypes: true }) } catch { return out }
+  try { ents = readdir(dir, { withFileTypes: true }) } catch (e) {
+    unreadable.push({ kind: 'dir', path: dir, code: (e && e.code) || null, error: (e && e.message) || String(e) })
+    return out
+  }
   for (const e of ents) {
     const p = path.join(dir, e.name)
     let st = null
-    try { st = fs.lstatSync(p) } catch { continue }
+    try { st = fs.lstatSync(p) } catch (e) { unreadable.push({ kind: 'entry', path: p, code: (e && e.code) || null, error: (e && e.message) || String(e) }); continue }
     if (st.isSymbolicLink()) continue
-    if (st.isDirectory()) { if (!SKIP_DIRS.has(e.name)) walk(p, out) }
+    if (st.isDirectory()) { if (!SKIP_DIRS.has(e.name)) walkCollect(p, out, unreadable, readdir) }
     else if (st.isFile()) out.push(p)
   }
   return out
 }
+/** 扫一棵树。返回 `{files, unreadable}`：**少扫了什么必须能被看见**（PA-45）。 */
+const walk = (dir) => { const found = []; const unreadable = []; walkCollect(dir, found, unreadable, fs.readdirSync); return { files: found, unreadable } }
 
 // ── 忽略清单（.gitignore.public）：**只报"真正会进仓库"的问题**，否则会把已排除的本机数据算成阻塞 ──
 const IGNORE_FILE = path.join(ROOT, '.gitignore.public')
@@ -71,11 +82,42 @@ const isIgnored = (relPath) => {
     return re.test(base) || re.test(segs.join('/')) || dirs.some((d) => re.test(d))
   })
 }
-const allFiles = walk(ROOT)
+const rootScan = walk(ROOT)
+const allFiles = rootScan.files
 const skippedByIgnore = allFiles.filter((p) => isIgnored(path.relative(ROOT, p)))
 const files = allFiles.filter((p) => !isIgnored(path.relative(ROOT, p)))
 const rel = (p) => path.relative(ROOT, p)
 const findings = { blocking: [], warnings: [], info: [] }
+// ①(PA-45) **覆盖面积**的机读字段（`--json` 里直接看得到；不是只有一句人读文案）：
+//   扫了多少 / 哪些目录条目读不到 / 官方索引少建了几个。
+const coverage = { scannedFiles: 0, unreadable: [], weUnreadable: [], unindexedOfficial: 0, unindexedMine: 0, skipDirs: [...SKIP_DIRS].sort() }
+
+// ── [assert:walk-unreadable] BEGIN ──
+//   ①(PA-45) 判据本体 + **判别力自证**放同一段：合成反例必须被记进 unreadable[]，否则判据自己就是哑的。
+//   反例都用"真实存在但读不了"的形态，不需要权限位（root 下 000 目录照样可读 ⇒ chmod 造不出失败）：
+//     · `<ROOT>/LICENSE/<子路径>`：父级是普通文件 ⇒ readdir 抛 ENOTDIR；
+//     · `<ROOT>/.<不可能存在的名字>` ⇒ ENOENT。
+{
+  const probe = (p) => { const out = []; const un = []; walkCollect(p, out, un, fs.readdirSync); return un }
+  const probeNotDir = probe(path.join(ROOT, 'LICENSE', 'not-a-dir'))
+  const probeMissing = probe(path.join(ROOT, '.mpw-no-such-dir-' + '4f2a19'))
+  const stamp = (u) => (u[0] && u[0].code) || 'null'
+  const selfOk = probeNotDir.length === 1 && probeMissing.length === 1 &&
+    ['ENOTDIR', 'ENOENT'].includes(stamp(probeNotDir)) && stamp(probeMissing) === 'ENOENT' && !!probeNotDir[0].path
+  if (!selfOk) findings.blocking.push({ kind: 'walk-selftest', file: 'tests/publish-check.mjs', msg: '`walk()` 的"读不到必记账"判据自身失效（合成反例未被记进 unreadable ⇒ 发布闸门又会静默少扫）' })
+  findings.info.push({ kind: 'walk-selftest', msg: `walk 记账判据已执行：合成反例 ENOTDIR/ENOENT 各 1 条 → 记账 ${probeNotDir.length}+${probeMissing.length} 条（${stamp(probeNotDir)}/${stamp(probeMissing)}）；真树未扫到 ${rootScan.unreadable.length} 条` })
+  findings.info.push({ kind: 'walk-scan', msg: `扫描面（walk 逐条记账口径）：${allFiles.length} 个文件，未扫到 ${rootScan.unreadable.length} 个目录/条目` })
+  coverage.scannedFiles = allFiles.length; coverage.unreadable = rootScan.unreadable
+  if (rootScan.unreadable.length) {
+    findings.blocking.push({
+      kind: 'walk-unreadable', file: rel(rootScan.unreadable[0].path),
+      msg: `发布闸门**少扫**了 ${rootScan.unreadable.length} 个目录/条目（读不到 ⇒ 覆盖面积缩小，不许打 ✓）：`
+        + rootScan.unreadable.slice(0, 20).map((u) => rel(u.path) + '（' + (u.code || '?') + '）').join('、')
+        + (rootScan.unreadable.length > 20 ? `…（共 ${rootScan.unreadable.length} 条，见 --json 的 unreadable[]）` : ''),
+    })
+  }
+}
+// ── [assert:walk-unreadable] END ──
 
 // ── ③-0 证据化标注（2026-09-17，按律师意见） ──
 //   背景：`--assets` 跑起来时，"与 WE 官方资产逐字节相同 / 去注释后相同 / 同名有效行重合"这三条判据
@@ -113,7 +155,20 @@ const SECRET_FILE_RE = /(^|\/)(id_rsa|id_dsa|id_ecdsa|id_ed25519|\.env(\..+)?|[^
 //   （实测各漏 15+ 处，含 `known.json`、`known-issues.json`）。
 //   现把它们并入 PATH_RE；"环境变量优先 + 作者本机默认值"的写法仍由 DEFAULT_LINE_RE 豁免。
 const PATH_RE = /(\/root\/Desktop\/|\/root\/\.dsh-mpkg-wallpaper|\/mnt\/sdcard\/|\/home\/[a-z]+\/|C:\\\\?Users\\\\?[A-Za-z]+)/
-const DEFAULT_LINE_RE = /process\.env\.[A-Z_]+ \|\||MPW_[A-Z_]+ \|\||\$\{MPW_ROOT:-|\|\| '\/root\/Desktop\/DSHarea'|\/\/ ①\(去个人化\)/
+// ①(PA-44 2026-09-24 可移植性审计) 这里原来还有一个分支 `|| '<作者工作区绝对路径>'`：去个人化之后
+//   tracked 树里**已经没有任何这样的字面量** ⇒ 该分支永不命中（腐烂），但它**仍然生效**：
+//   一旦有人写回 `const X = argv.dir || '<作者工作区绝对路径>'`（不带 `process.env` ⇒ 躲过第一个分支），
+//   这条门禁会**静默放行**，而 secret-scan-test 的 B 段会判红 ⇒ 两处判据不一致。
+//   现在：分支拆成**可逐条反查活性**的数组（每条必须在某个发布物文件里仍然命中，否则判红，见下），
+//   并且临时写死本机绝对路径**必须**被这条判据抓到（合成自证，见 [assert:path-exemption] 段）。
+const DEFAULT_LINE_BRANCHES = [
+  { id: 'env-default', re: /process\.env\.[A-Z_]+ \|\|/, why: '环境变量优先的兜底写法' },
+  { id: 'mpw-var-default', re: /MPW_[A-Z_]+ \|\|/, why: 'MPW_* 变量优先的兜底写法' },
+  { id: 'mpw-root-shell-default', re: /\$\{MPW_ROOT:-/, why: 'shell 里的 ${MPW_ROOT:-…} 默认值' },
+  { id: 'depersonalize-note', re: /\/\/ ①\(去个人化\)/, why: '"本行已去个人化、可覆盖"的显式标注' },
+]
+const DEFAULT_LINE_RE = new RegExp(DEFAULT_LINE_BRANCHES.map((b) => b.re.source).join('|'))
+const branchHits = new Map(DEFAULT_LINE_BRANCHES.map((b) => [b.id, 0]))
 for (const p of files) {
   if (SECRET_FILE_RE.test(rel(p))) { findings.blocking.push({ kind: 'secret-file', file: rel(p), msg: '疑似私钥/证书/环境变量文件，不要进公开仓库' }); continue }
   if (SKIP_EXT.has(path.extname(p).toLowerCase())) continue
@@ -122,8 +177,44 @@ for (const p of files) {
   s.split('\n').forEach((line, i) => {
     if (SECRET_RE.test(line)) findings.blocking.push({ kind: 'secret', file: rel(p) + ':' + (i + 1), msg: '疑似凭据字面量' })
     if (PATH_RE.test(line) && !DEFAULT_LINE_RE.test(line)) findings.warnings.push({ kind: 'path', file: rel(p) + ':' + (i + 1), msg: '出现个人绝对路径（若非"环境变量默认值"需改造）' })
+    for (const b of DEFAULT_LINE_BRANCHES) if (b.re.test(line)) branchHits.set(b.id, branchHits.get(b.id) + 1)
   })
 }
+// ── [assert:path-exemption] BEGIN ──
+//   ①(PA-44) 两条都要活着：①**活性**——每个豁免分支必须在发布物里仍然命中（0 命中 = 腐烂 = 判红，
+//   与 secret-scan-test.mjs C 段同一纪律；自指文件本行排除，避免"图案自己命中自己"把活性造假）；
+//   ②**判别力**——合成一行"写死本机绝对路径"必须被判据抓到（改前：被 `|| '<作者路径>'` 分支豁免 ⇒ 放行）。
+{
+  const SELF = rel(SELF_PATH)
+  /* ⚠ 活性反查要求"这就是真仓库"：`tests/publish-check-selftest.mjs` 会把本脚本复制进 os.tmpdir() 的
+     **裸夹具树**（骨架文件十几个，豁免分支一条都不在场）⇒ 那里必须退化为"未判定 + warning"，
+     否则本项会把"夹具树本来就没有那些写法"误判成"白名单腐烂"，把自检的三条回退证明一起带红
+     （与 ②D tracked 面、以及 publish-check-selftest 的既有降级口径同源）。 */
+  const inWorkTree = (() => {
+    try {
+      const top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+      return top !== '' && fs.realpathSync(top) === fs.realpathSync(ROOT)
+    } catch { return false }
+  })()
+  const stale = !inWorkTree ? [] : DEFAULT_LINE_BRANCHES.filter((b) => {
+    const n = [...files].filter((p) => rel(p) !== SELF).reduce((acc, p) => {
+      if (SKIP_EXT.has(path.extname(p).toLowerCase())) return acc
+      try { if (fs.statSync(p).size > 4 * 1048576) return acc; return acc + fs.readFileSync(p, 'utf8').split('\n').filter((l) => b.re.test(l)).length } catch { return acc }
+    }, 0)
+    return n === 0
+  }).map((b) => b.id)
+  const HARD = "const X = argv.dir || '" + '/root' + '/Desktop/' + 'DSHarea' + "'"
+  const SOFT = "const X = process.env.MPW_X || '" + '/root' + '/Desktop/' + 'DSHarea' + "'"
+  const hardCaught = PATH_RE.test(HARD) && !DEFAULT_LINE_RE.test(HARD)
+  const softExempt = PATH_RE.test(SOFT) && DEFAULT_LINE_RE.test(SOFT)
+  findings.info.push({ kind: 'path-exemption', msg: `豁免分支活性：${DEFAULT_LINE_BRANCHES.map((b) => b.id + '=' + branchHits.get(b.id)).join(' ')}`
+    + (inWorkTree ? `（自指文件已排除再数一遍：${stale.length ? '有 0 命中的分支' : '全部仍有命中'}）` : '（**未判定**：ROOT 不是 git 工作树根 —— 裸夹具树，本项按既有口径降级）') })
+  if (!inWorkTree) findings.warnings.push({ kind: 'path-exemption-liveness', file: rel(ROOT), msg: 'DEFAULT_LINE_RE 的"每条分支必须仍然命中"**未执行**：ROOT 不是 git 工作树的根（裸夹具树里那些写法本就不在场）⇒ 不假装查过' })
+  else if (stale.length) findings.blocking.push({ kind: 'path-exemption-stale', file: 'tests/publish-check.mjs', msg: `DEFAULT_LINE_RE 有 ${stale.length} 个分支**永不命中**（腐烂：豁免的目标不存在了，却还留着后门）：${stale.join('、')} ⇒ 删分支或改判据` })
+  if (!hardCaught) findings.blocking.push({ kind: 'path-exemption-selftest', file: 'tests/publish-check.mjs', msg: '判别力自证失败：写死本机绝对路径的合成行**没有被判红**（PATH_RE 命中且 DEFAULT_LINE_RE 未命中这一条不成立）⇒ 豁免判据失效' })
+  if (!softExempt) findings.blocking.push({ kind: 'path-exemption-selftest', file: 'tests/publish-check.mjs', msg: '判别力自证失败：「环境变量优先 + 本机默认值」的合成行**没有**被既有豁免口径放行 ⇒ 豁免口径写坏了' })
+}
+// ── [assert:path-exemption] END ──
 // 私有库清单类文件（内嵌本机包列表/路径）
 for (const p of files) {
   const b = path.basename(p)
@@ -234,39 +325,53 @@ const LOCAL_PATH_GATES = [
 
 // ── ③ 专有文件混入：与 WE 官方资产逐字节相同（common*.h 就是这么抓到的） ──
 if (WE_ASSETS && fs.existsSync(WE_ASSETS)) {
+  // ①(PA-45 2026-09-24) 原来这里的每个 `catch {}` 都是**静默**：目录读不到 ⇒ `walk()` 少返回一批；
+  //   单个官方文件读不到 ⇒ 它**不进索引** ⇒ "逐字节相同"这条比对就漏掉它。现在全部**计数 + 进 warnings**，
+  //   并在 --json 里出字段（unreadable / unindexed 两族）。
+  const unreadableWE = []
+  const weScan = (() => {
+    const a = walk(WE_ASSETS), b = walk(WE_ASSETS)
+    unreadableWE.push(...a.unreadable, ...b.unreadable)
+    return a.files
+  })()
+  let unindexedOfficial = 0
   const official = new Map() // sha256 → 官方相对路径
-  for (const p of walk(WE_ASSETS)) {
-    try { if (fs.statSync(p).size > 2 * 1048576) continue; official.set(crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex'), path.relative(WE_ASSETS, p)) } catch {}
+  for (const p of weScan) {
+    try { if (fs.statSync(p).size > 2 * 1048576) continue; official.set(crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex'), path.relative(WE_ASSETS, p)) } catch { unindexedOfficial++ }
   }
   // ①(2026-09-14 自查加强) **归一化比对**：只比字节哈希会被“加注释/改空白式改写”骗过
   //   （实测：某次“重写”去掉注释后与原文逐行 100% 相同）。故再建一份去注释/空白的索引。
   const normText = (t) => t.split('\n').map((l) => l.replace(/\/\/.*$/, '').replace(/\/\*[\s\S]*?\*\//g, '').trim()).filter((l) => l.length > 3).join('\n')
   const officialNorm = new Map()
-  for (const p of walk(WE_ASSETS)) {
+  for (const p of weScan) {
     try {
       if (fs.statSync(p).size > 2 * 1048576) continue
       const nt = normText(fs.readFileSync(p, 'utf8'))
       if (nt) officialNorm.set(nt, path.relative(WE_ASSETS, p))
-    } catch {}
+    } catch { unindexedOfficial++ }
   }
   let hits = 0
+  let unindexedMine = 0
   for (const p of files) {
     if (SKIP_EXT.has(path.extname(p).toLowerCase())) continue
     let buf = null
-    try { if (fs.statSync(p).size > 2 * 1048576) continue; buf = fs.readFileSync(p) } catch { continue }
+    try { if (fs.statSync(p).size > 2 * 1048576) continue; buf = fs.readFileSync(p) } catch { unindexedMine++; continue }
     const h = crypto.createHash('sha256').update(buf).digest('hex')
     if (official.has(h)) { hits++; findings.blocking.push(withNote({ kind: 'proprietary', file: rel(p), msg: '与 WE 官方资产逐字节相同：' + official.get(h) + '（不得随公开仓库分发）' }, sourceFile(rel(p)))) }
     // ①归一化二次比对：去掉注释/空白后若与官方完全相同 = 照抄再排版，同样阻塞
     try {
       const nt = normText(fs.readFileSync(p, 'utf8'))
       if (nt && officialNorm.has(nt)) { hits++; findings.blocking.push(withNote({ kind: 'proprietary-normalized', file: rel(p), msg: '去掉注释/空白后与 WE 官方完全相同：' + officialNorm.get(nt) + '（等同照抄再排版，不得发布）' }, sourceFile(rel(p)))) }
-    } catch {}
+    } catch { unindexedMine++ }
   }
+  if (unreadableWE.length) findings.warnings.push({ kind: 'proprietary-unreadable', file: 'tests/publish-check.mjs', msg: `WE 官方资产树有 ${unreadableWE.length} 个目录/条目**读不到** ⇒ 官方索引不完整（比对覆盖面积缩小）：` + fmtList(unreadableWE.map((u) => path.relative(WE_ASSETS, u.path) + '（' + (u.code || '?') + '）')) })
+  coverage.weUnreadable = unreadableWE; coverage.unindexedOfficial = unindexedOfficial; coverage.unindexedMine = unindexedMine
+  if (unindexedOfficial || unindexedMine) findings.warnings.push({ kind: 'proprietary-unindexed', file: 'tests/publish-check.mjs', msg: `未建入索引的文件：官方侧 ${unindexedOfficial} 个 / 本仓侧 ${unindexedMine} 个（读失败或超 2MB 上限之外）⇒ "逐字节相同"这类比对对它们是**没查**，不是查过` })
   // ①(2026-09-14 加强 v3) **按同名文件的有效行重合率**判定"照抄再排版"：
   //   整文件归一化太严格（少一行就漏判），而逐行重合率对"加注释/改空白/换行序"都稳。
   const sigLines = (p) => { try { return new Set(fs.readFileSync(p, 'utf8').split('\n').map((l) => l.replace(/\/\/.*$/, '').replace(/\/\*[\s\S]*?\*\//g, '').trim()).filter((l) => l.length > 3)) } catch { return new Set() } }
   const officialByName = new Map()
-  for (const p of walk(WE_ASSETS)) { try { const b = path.basename(p); if (!officialByName.has(b)) officialByName.set(b, p) } catch {} }
+  for (const p of weScan) { try { const b = path.basename(p); if (!officialByName.has(b)) officialByName.set(b, p) } catch { unindexedOfficial++ } }
   for (const p of files) {
     const b = path.basename(p)
     const op = officialByName.get(b)
@@ -285,7 +390,7 @@ if (WE_ASSETS && fs.existsSync(WE_ASSETS)) {
     if (ratio >= 0.9) findings.blocking.push(withNote({ kind: 'proprietary-overlap', file: rel(p), msg: `有效行与 WE 官方同名文件重合 ${(ratio * 100).toFixed(0)}%（${same}/${off.size}）→ 属"照抄再排版"，不得发布` }, sourceFile(rel(p))))
     else if (ratio >= 0.5) findings.warnings.push(withNote({ kind: 'proprietary-overlap', file: rel(p), msg: `与 WE 官方同名文件有效行重合 ${(ratio * 100).toFixed(0)}% → 请人工确认是否独立实现` }, sourceFile(rel(p))))
   }
-  findings.info.push({ kind: 'proprietary', msg: `与 WE 官方资产比对：${official.size} 个官方文件做索引，命中 ${hits} 个（逐条打印，附证据引用 note；口径见 THIRD-PARTY.md §4.1/§4A）` })
+  findings.info.push({ kind: 'proprietary', msg: `与 WE 官方资产比对：${official.size} 个官方文件做索引，命中 ${hits} 个（逐条打印，附证据引用 note；口径见 THIRD-PARTY.md §4.1/§4A）；未扫到目录 ${unreadableWE.length} 个 / 未建入索引 ${unindexedOfficial + unindexedMine} 个（**覆盖面积**口径，见 warnings）` })
 } else {
   findings.warnings.push({ kind: 'proprietary', msg: '未提供 WE 资产根（--assets / MPW_WE_ASSETS）→ 跳过"专有文件混入"比对（建议发布前务必跑一次）' })
 }
@@ -523,6 +628,7 @@ else {
 }
 
 // ── 输出 ──
+findings.coverage = coverage   // ①(PA-45) 覆盖面积机读字段（--json 与 warnings 同一份数据，不另算一套）
 if (JSON_OUT) { console.log(JSON.stringify(findings, null, 1)); process.exit(findings.blocking.length ? 1 : 0) }
 for (const f of findings.info) console.log('· ' + (f.file ? f.file + ' — ' : '') + f.msg)
 // ③-3 打印时附 `note`（证据引用/复核结论）。**命中的行数与退出码都不变** —— 见文件头 ③-0 的说明。

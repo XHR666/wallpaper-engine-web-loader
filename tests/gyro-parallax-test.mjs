@@ -293,7 +293,10 @@ async function probe(mod, o) {
   const { gl, rec } = mkGL(canvas)
   const saved = { w: globalThis.window, l: globalThis.location }
   globalThis.window = win
-  globalThis.location = { search: o.search || '', href: 'http://localhost/demo.html' + (o.search || '') }
+  /* ①(2026-09-24 口径修正) `?gyro` 缺省已改成**不启用** ⇒ 这组"测姿态源机制"的用例显式给 `gyro=1`
+     （`o.search === undefined` 时默认开启；要测缺省/关闭的用例自己传 `''` 或 `'?gyro=0'`）。 */
+  const qs = (o.search === undefined) ? 'gyro=1' : o.search
+  globalThis.location = { search: qs, href: 'http://localhost/demo.html' + qs }
   const lines = []
   try {
     const reads = {}
@@ -302,7 +305,7 @@ async function probe(mod, o) {
       onLayerDraw: (layer, info) => { reads[String(layer.name)] = [info.mvp[12], info.mvp[13]] },
     })
     const bridge = mod.mpwAttachGyroBridge({
-      win: win, canvas: canvas, getProjSize: () => [3840, 2160], search: o.search || '',
+      win: win, canvas: canvas, getProjSize: () => [3840, 2160], search: qs,
       cfg: o.cfg, center: o.center, log: (m) => lines.push(m), sinks: o.sinks,
     })
     const scene = mkScene()
@@ -342,10 +345,10 @@ async function suite(mod) {
   // ── B1 ① 无事件 ─────────────────────────────────────────────────────────────────
   {
     const win = mkWindow({})
-    const src = mod.mpwCreateGyroSource({ win: win, search: '', log: () => {} })
+    const src = mod.mpwCreateGyroSource({ win: win, search: 'gyro=auto', log: () => {} })
     src.start()
     const st = src.state
-    push('B1', '①无事件 ⇒ enabled=true、uv 保持中心 (0.5,0.5)、events=0、applied=0、零副作用',
+    push('B1', '①无事件（?gyro=auto）⇒ enabled=true、uv 保持中心 (0.5,0.5)、events=0、applied=0、零副作用',
       st.enabled === true && st.mode === 'auto' && st.why === 'auto:touch' && st.uv.u === 0.5 && st.uv.v === 0.5
       && st.events === 0 && st.applied === 0 && st.invalid === 0 && st.ignored === 0
       && win.count('deviceorientation') === 1 && win.count('deviceorientationabsolute') === 1
@@ -359,7 +362,7 @@ async function suite(mod) {
   {
     const win = mkWindow({})
     const sinkCalls = []
-    const src = mod.mpwCreateGyroSource({ win: win, search: '', cfg: { smooth: 1 }, log: () => {},
+    const src = mod.mpwCreateGyroSource({ win: win, search: 'gyro=1', cfg: { smooth: 1 }, log: () => {},
       onUv: (u, v) => sinkCalls.push([u, v]) })
     src.start()
     win.fire('deviceorientation', { alpha: 0, beta: 0, gamma: 0 })
@@ -381,7 +384,7 @@ async function suite(mod) {
   {
     const win = mkWindow({})
     const sinkCalls = []
-    const src = mod.mpwCreateGyroSource({ win: win, search: '', cfg: { smooth: 1 }, log: () => {},
+    const src = mod.mpwCreateGyroSource({ win: win, search: 'gyro=1', cfg: { smooth: 1 }, log: () => {},
       onUv: (u, v) => sinkCalls.push([u, v]) })
     src.start()
     win.fire('deviceorientation', { alpha: 0, beta: 0, gamma: 0 })
@@ -399,7 +402,7 @@ async function suite(mod) {
   // ── B4 ③ 无效读数不污染状态 ─────────────────────────────────────────────────────
   {
     const win = mkWindow({})
-    const src = mod.mpwCreateGyroSource({ win: win, search: '', cfg: { smooth: 1 }, log: () => {} })
+    const src = mod.mpwCreateGyroSource({ win: win, search: 'gyro=1', cfg: { smooth: 1 }, log: () => {} })
     src.start()
     win.fire('deviceorientation', { alpha: 0, beta: 0, gamma: 0 })
     win.fire('deviceorientation', { alpha: 0, beta: 0, gamma: 12 })
@@ -429,7 +432,7 @@ async function suite(mod) {
   {
     const win = mkWindow({})
     Object.defineProperty(win, '__mpwGyro', { value: null, writable: false, configurable: false })
-    const src = mod.mpwCreateGyroSource({ win: win, search: '', cfg: { smooth: 1 }, log: () => {} })
+    const src = mod.mpwCreateGyroSource({ win: win, search: 'gyro=1', cfg: { smooth: 1 }, log: () => {} })
     let threw = null
     try {
       src.start()
@@ -444,10 +447,10 @@ async function suite(mod) {
   // ── B7/B8 auto 语义 ─────────────────────────────────────────────────────────────
   {
     const wFine = mkWindow({ finePointer: true })
-    const sFine = mod.mpwCreateGyroSource({ win: wFine, search: '', log: () => {} })
+    const sFine = mod.mpwCreateGyroSource({ win: wFine, search: 'gyro=auto', log: () => {} })
     sFine.start()
     const wTouch = mkWindow({})
-    const sTouch = mod.mpwCreateGyroSource({ win: wTouch, search: '', log: () => {} })
+    const sTouch = mod.mpwCreateGyroSource({ win: wTouch, search: 'gyro=auto', log: () => {} })
     sTouch.start()
     push('B7', 'auto：有细指针（`pointer: fine` = 鼠标/触控板）⇒ 不启用、不挂监听、不碰注入通道、why 记账',
       sFine.state.enabled === false && sFine.state.why === 'auto:fine-pointer' && sFine.state.listeners === 0
@@ -455,12 +458,21 @@ async function suite(mod) {
     push('B8', 'auto：触摸设备（maxTouchPoints>0）⇒ 启用、why=auto:touch（= 手机上"什么都不用加"就能用）',
       sTouch.state.enabled === true && sTouch.state.why === 'auto:touch' && sTouch.state.listeners === 2
       && sTouch.state.supported === true)
+    /* ①(2026-09-24 口径修正) **缺省 = 不启用**：项目所有者明确"陀螺仪只是讲实现方式的区别" ⇒ 默认一个监听都不挂。 */
+    const wDef = mkWindow({})
+    const sDef = mod.mpwCreateGyroSource({ win: wDef, search: '', log: () => {} })
+    sDef.start()
+    push('B14', '缺省（不带 ?gyro）⇒ 不启用、0 监听、不碰注入通道、why=off:default（桌面/手机都不做陀螺仪，显式 ?gyro=1|auto 才开）',
+      sDef.state.enabled === false && sDef.state.mode === 'off' && sDef.state.listeners === 0
+      && wDef.count('deviceorientation') === 0 && wDef.__mpwPointer.inside === false
+      && /off/.test(String(sDef.state.why)),
+      'mode=' + sDef.state.mode + ' why=' + sDef.state.why + ' listeners=' + sDef.state.listeners)
   }
   // ── B9 无事件看门狗（如实记账，不静默）───────────────────────────────────────────
   {
     const win = mkWindow({})
     const lines = []
-    const src = mod.mpwCreateGyroSource({ win: win, search: '', log: (m) => lines.push(m) })
+    const src = mod.mpwCreateGyroSource({ win: win, search: 'gyro=1', log: (m) => lines.push(m) })
     src.start()
     const fired = win.fireTimer(3000)
     push('B9', '不是传感器设备 / 没有事件 ⇒ 到点记一条 + `why=no-events` + `noEvents` 位（一行日志，不静默、不抛）',
@@ -471,12 +483,12 @@ async function suite(mod) {
   // ── B10 iOS 13+ requestPermission：有就请求、被拒只记账 ──────────────────────────
   {
     const wDeny = mkWindow({ permission: () => Promise.resolve('denied') })
-    const sDeny = mod.mpwCreateGyroSource({ win: wDeny, search: '', log: () => {} })
+    const sDeny = mod.mpwCreateGyroSource({ win: wDeny, search: 'gyro=1', log: () => {} })
     sDeny.start()
     const beforeListeners = wDeny.count('deviceorientation')
     const rDeny = await sDeny.requestPermission()
     const wGrant = mkWindow({ permission: () => Promise.resolve('granted') })
-    const sGrant = mod.mpwCreateGyroSource({ win: wGrant, search: '', log: () => {} })
+    const sGrant = mod.mpwCreateGyroSource({ win: wGrant, search: 'gyro=1', log: () => {} })
     sGrant.start()
     const rGrant = await sGrant.requestPermission()
     push('B10', 'iOS 13+：有 `requestPermission` 才请求（手势里挂着）；granted ⇒ 挂监听，denied ⇒ 记账不抛',
@@ -487,7 +499,7 @@ async function suite(mod) {
   // ── B11 中立位 = 首个有效读数 ────────────────────────────────────────────────────
   {
     const win = mkWindow({})
-    const src = mod.mpwCreateGyroSource({ win: win, search: '', cfg: { smooth: 1 }, log: () => {} })
+    const src = mod.mpwCreateGyroSource({ win: win, search: 'gyro=1', cfg: { smooth: 1 }, log: () => {} })
     src.start()
     win.fire('deviceorientation', { alpha: 0, beta: 40, gamma: -15 })      // 手机竖着拿（beta=40）也从中立位起
     const first = { uv: src.state.uv, center: src.state.center }
@@ -515,7 +527,7 @@ async function suite(mod) {
   // ── B13 页面默认 EMA：单调、不越界、不超调 ───────────────────────────────────────
   {
     const win = mkWindow({})
-    const src = mod.mpwCreateGyroSource({ win: win, search: '', log: () => {} })   // 用页面默认 cfg.smooth=0.35
+    const src = mod.mpwCreateGyroSource({ win: win, search: 'gyro=1', log: () => {} })   // 用页面默认 cfg.smooth=0.35
     src.start()
     win.fire('deviceorientation', { alpha: 0, beta: 0, gamma: 0 })
     const seq = []
@@ -618,7 +630,10 @@ const MUTANTS = [
     tag: 'M4',
     label: '`?gyro=0` 不生效（off 分支短路掉）',
     pairs: [["if (mode === 'off') {", 'if (false) {']],
-    expect: ['B5', 'C5'],
+    /* ①(2026-09-24 口径修正后的级联) M4 把 `off` 分支短路 ⇒ `?gyro=0` 与**缺省**（也走 off）一起失效
+       ⇒ 红集是 B5（显式 0）、C5（0 档逐位不动）**加上 B14（缺省不启用）**。这是"off 语义"被整体破坏的
+       正确级联，不是判据放宽。 */
+    expect: ['B14', 'B5', 'C5'],
   },
 ]
 for (const mu of MUTANTS) {

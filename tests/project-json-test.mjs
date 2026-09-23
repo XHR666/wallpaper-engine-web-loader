@@ -37,7 +37,7 @@ import path from 'node:path'
 import net from 'node:net'
 import { spawn } from 'node:child_process'
 import * as lib from '../core/we-scene-bundle.js'
-import { projectJsonCandidates, readProjectJson, readProjectProperties, findWorkshopDir } from '../core/scene-project-json.mjs'   // ①(2026-09-16) 服务端依赖留仓库根
+import { projectJsonCandidates, projectJsonProbe, readProjectJson, readProjectProperties, findWorkshopDir } from '../core/scene-project-json.mjs'   // ①(2026-09-16) 服务端依赖留仓库根
 import { ROOT, WS } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根（本脚本已移入 tests/）
 
 const HERE = ROOT
@@ -74,11 +74,22 @@ console.log('[A] 查找顺序：5 档同名文件 → 命中最高优先级 → 
       ['allwallpaper-flat', path.join(dRoot, 'allwallpaper', ID, 'project.json')],
     ]
     const cands = projectJsonCandidates(ID, OPTS)
-    check('A1 候选正好 5 档且顺序 = 显式→env→语料→工坊→扁平',
-      JSON.stringify(cands.map((c) => c.source)) === JSON.stringify(tiers.map((t) => t[0])),
+    const bySource = (s) => cands.filter((c) => c.source === s)
+    /* ①(可移植性审计 PA-52 2026-09-24) 这里原来断言"候选**正好** 5 档且顺序逐字"——那是把实现的
+       候选表当契约钉死（同一族自我循环，见 PA-37）。现在断言的是**顺序契约与可解释性**：
+       显式档之间的相对顺序不得变；通用候选（库根自身/父目录/home…）允许增加。 */
+    check('A1 显式档相对顺序 = 显式→env→语料→工坊（候选表允许增加通用档；只钉顺序不钉总数）',
+      ['explicit-dir', 'env-MPW_PROJECT_JSON_DIR', 'scene-root', 'we-workshop'].every((s) => bySource(s).length >= 1) &&
+      cands.findIndex((c) => c.source === 'explicit-dir') < cands.findIndex((c) => c.source === 'env-MPW_PROJECT_JSON_DIR') &&
+      cands.findIndex((c) => c.source === 'env-MPW_PROJECT_JSON_DIR') < cands.findIndex((c) => c.source === 'scene-root') &&
+      cands.findIndex((c) => c.source === 'scene-root') < cands.findIndex((c) => c.source === 'we-workshop'),
       JSON.stringify(cands.map((c) => c.source)))
-    check('A2 候选路径逐档指向各自目录',
-      JSON.stringify(cands.map((c) => c.path)) === JSON.stringify(tiers.map((t) => t[1])))
+    check('A1b 每条候选都带 source/from/why（"采用了哪条 / 谁给的 / 为什么"三个字段都要能如实回报）',
+      cands.length > 0 && cands.every((c) => c.source && c.from && c.why),
+      JSON.stringify(cands.find((c) => !(c.source && c.from && c.why)) || `n=${cands.length}`))
+    check('A2 五档候选路径逐档指向各自目录（按 source 取第一条）',
+      JSON.stringify(tiers.map(([src]) => { const c = bySource(src)[0]; return c ? c.path : null })) === JSON.stringify(tiers.map((t) => t[1])),
+      JSON.stringify(cands.map((c) => c.source + '=' + c.path)))
     for (const [src, p] of tiers) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify({ __tier: src })) }
     let r = readProjectJson(ID, OPTS)
     check('A3 五档俱全 → 命中最高优先级（explicit-dir）', !!r && r.source === 'explicit-dir' && r.json.__tier === 'explicit-dir',
@@ -103,6 +114,33 @@ console.log('[A] 查找顺序：5 档同名文件 → 命中最高优先级 → 
     check('A10 readProjectProperties 取 general.properties 且带 source',
       !!pr && pr.source === 'explicit-dir' && pr.properties && pr.properties.p1 && pr.properties.p1.value === true,
       pr && pr.source)
+    /* ①(PA-52 2026-09-24) 通用候选三连：旧实现把 `<root>/allwallpaper/dd`（作者语料布局）当**默认值**，
+       于是别人 import 这个包只会去探那一棵树。现在候选表全部由入参/库根推导 —— 下面三条把
+       "别处的布局也找得到" 与 "一个都没有就 null（不抛、不硬用错路径）" 变成机器判据。 */
+    const GID = '4319609998'                                   // 合成 id：本机语料/工坊里不可能存在
+    const gRoot = path.join(TMP, 'generic-root')
+    fs.mkdirSync(path.join(gRoot, GID), { recursive: true })
+    fs.writeFileSync(path.join(gRoot, GID, 'project.json'), JSON.stringify({ __tier: 'library-root' }))
+    const g1 = readProjectJson(GID, { root: gRoot })
+    check('A11 只有 <库根自身>/<id>/project.json 时也找得到（source=library-root，from 说明是哪条候选）',
+      !!g1 && g1.source === 'library-root' && g1.json.__tier === 'library-root' && /库根自身/.test(String(g1.from || '')),
+      g1 ? g1.source + ' from=' + g1.from : 'null')
+
+    const gParent = path.join(TMP, 'generic-parent')
+    const gRoot2 = path.join(gParent, 'repo')
+    fs.mkdirSync(path.join(gParent, GID), { recursive: true })
+    fs.writeFileSync(path.join(gParent, GID, 'project.json'), JSON.stringify({ __tier: 'library-parent' }))
+    fs.mkdirSync(gRoot2, { recursive: true })
+    const g2 = readProjectJson(GID, { root: gRoot2 })
+    check('A12 只有 <库根的父目录>/<id>/project.json 时 → source=library-parent',
+      !!g2 && g2.source === 'library-parent' && g2.json.__tier === 'library-parent', g2 ? g2.source + ' from=' + g2.from : 'null')
+
+    const probe = projectJsonProbe(GID, { root: path.join(TMP, 'nothing-here') })
+    check('A13 一个候选都不存在 → null（不抛）且 probe 逐条如实记账（没有"静默用错路径"）',
+      probe.found === null && probe.attempts.length >= 3 && probe.attempts.every((a) => a.exists === false && a.path && a.source),
+      'attempts=' + probe.attempts.length + ' found=' + JSON.stringify(probe.found))
+    check('A14 readProjectJson 绝不返回不存在的路径（候选只探测、不硬用）',
+      !probe.found && (!g1 || fs.existsSync(g1.path)) && (!g2 || fs.existsSync(g2.path)))
   } finally {
     if (ENV_SAVED === undefined) delete process.env.MPW_PROJECT_JSON_DIR
     else process.env.MPW_PROJECT_JSON_DIR = ENV_SAVED
@@ -131,8 +169,8 @@ for (const id of IDS) {
   const pr = readProjectProperties(id)
   check('B1 ' + id + ' 属性表非空', !!pr && pr.properties && Object.keys(pr.properties).length > 0,
     pr ? 'source=' + pr.source + ' keys=' + Object.keys(pr.properties).length : 'null')
-  check('B2 ' + id + ' 命中档位 = scene-root 或 we-workshop（本机两个真实档）',
-    !!pr && (pr.source === 'scene-root' || pr.source === 'we-workshop'), pr && pr.source)
+  check('B2 ' + id + ' 命中档位 = 语料档（scene-root / scene-root-workspace）或工坊档（本机真实存在的两族档）',
+    !!pr && (pr.source === 'scene-root' || pr.source === 'scene-root-workspace' || pr.source === 'we-workshop'), pr && pr.source)
   const pw = readProjectProperties(id, { sceneRoot: path.join(TMP, 'no-such-scene-root') }) // 挖掉语料档
   check('B3 ' + id + ' 挖掉语料档后必命中 we-workshop（Steam 工坊目录 431960/<id>/）',
     !!pw && pw.source === 'we-workshop' && Object.keys(pw.properties).length > 0, pw && pw.source)
@@ -236,8 +274,8 @@ console.log('[F] 服务端路由契约：子进程起 server/we-scene-demo-serve
         !!j && j.general && j.general.properties && Object.keys(j.general.properties).length > 0,
         j && j.general && j.general.properties ? 'keys=' + Object.keys(j.general.properties).length : 'null')
       const src = r.headers.get('x-project-source')
-      check('F4 响应头 x-project-source 标出来源（scene-root / we-workshop）',
-        src === 'scene-root' || src === 'we-workshop', 'x-project-source=' + src)
+      check('F4 响应头 x-project-source 标出来源（语料档 scene-root / scene-root-workspace，或工坊档 we-workshop）',
+        src === 'scene-root' || src === 'scene-root-workspace' || src === 'we-workshop', 'x-project-source=' + src)
       const r2 = await fetch(base + '/project/0000000000')
       check('F5 不存在的 id → 404 no project.json', r2.status === 404, 'status=' + r2.status)
     }

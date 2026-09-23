@@ -1795,7 +1795,50 @@ export function parseScene(sceneJson, project, opts = {}) {
 //   'refcenter'=直接置于实绘中心（=以主体实绘中心为锚的相对位移，不引入相机缩放）；
 //   'scene'=相对主体 scene origin 位移（保留主体设计位）。
 // ①(W3 P-36) 长条眼窗白名单：只为凯尔希标定过；?eyehack=1 可对任意场景强制开（对照/回退）。
-const EYE_HACK_SCENES = ['3719111841']
+// ②(PA-31 2026-09-24 可移植性审计) **依据强度如实登记 + 表可注入 + 每次生效都记账**。
+//    审计的话：用**一张壁纸的 id** 当闸门 = "面向结果编程"的教科书形态。它到底在修什么？
+//      · 凯尔希 3719111841 是 3/4 侧脸 + puppet 蒙皮，作者把整张眼睛贴图（含上下睫毛/眼白）
+//        画进一个 584×759 的网格层；官方实绘时只露出"长条眼窗"那一横带（绿瞳 + 上睫弧）。
+//      · 渲染器早期实现按整张 quad 画 ⇒ 眼睛被画成一大块（真机清单里的"眼睛窗口错位"）。
+//      · 修法 = 对**该层**改用横带 uvRect [0.04,0.30,0.96,0.70] + 目标框 405×120。
+//    为什么还没换成一般规则（结构与数据都写在这里，供接手的人直接落地）：
+//      · 可行的结构判据：层名 ∈ {眼睛组合,左眼皮,右眼上眼睑} **且** 该层是 puppet 蒙皮层（skin=1 / 有网格）
+//        **且** authored 长宽比 ≈ 584/759 = 0.769（竖长条）而目标横条比 405/120 = 3.375 ⇒ 比值 > 4 倍。
+//      · 之所以**先不做**：这套数字是逐位对着官方 preview 比出来的（CALIBRATION-3719111841 / P-38），
+//        改成结构判据会改变"哪些场景/哪些层被压成 405×120" ⇒ 已通过的门禁读数会漂
+//        （layer-rect-kal 要求 19/22 层 Δ<5px、parity 要求两端一致）。按审计口径：
+//        "如果一般化会改变已通过的门禁读数，就只加如实记账 + 开关"。
+//    因此本版**只做**三件事（行为逐位不变）：① 表带证据/依据强度；② 表可注入（不用改代码就能换标定集）；
+//    ③ 每次真正生效都写台账（opts.log + scene.__eyeHackLedger），不再"悄悄压扁一层眼睛"。
+//    开关（都已有/新增）：opts.eyeHack=true/false 强制开/关、?eyehack=1/0、?eyehack=legacy（旧口径）、
+//    opts.eyeHackSceneIds（**注入标定表**；URL 形态需同时更新 web/diag-flags.json 与诊断文档，见 eyeHackSceneIds 注释）。
+const EYE_HACK_TABLE = [
+  {
+    id: '3719111841',
+    kind: 'calibrated-single-scene',
+    strength: 'weak —— 单场景、人工逐位标定，**不是**一般规则；换场景/换壁纸不成立',
+    evidence: 'CALIBRATION-3719111841.md（标定过程）+ PATCHES.md P-38（W3 白名单定案）+ tests/known-issues.json KI-6',
+    authored: [584, 759],
+    target: [405, 120],
+    note: '3/4 侧脸 puppet 蒙皮；横带 uvRect=[0.04,0.30,0.96,0.70]；眼皮层 uvRect=[0.08,0.10,0.92,0.90]',
+  },
+]
+const EYE_HACK_SCENES = EYE_HACK_TABLE.map((e) => e.id)
+/** 生效的眼窗标定表：显式注入（`opts.eyeHackSceneIds`）> 内置表。返回 id 数组（去重、转字符串）。
+ *  ⚠ 注入口只走 **API**（`applyRenderConfig(…, {eyeHackSceneIds:[…]})`），不开 URL 参数：
+ *    新增 `?xxx=` 会同时要求更新 `web/diag-flags.json` 与诊断文档（`tests/diag-flag-check.mjs` 的
+ *    "代码有·文档无 ⇒ 失败"纪律）——那两个文件不在本次可移植性修复线的写权内。
+ *    要做成 URL 可调（`?eyehackscenes=id1,id2`）请连带更新那两处，别只改这里。 */
+export function eyeHackSceneIds(opts = {}) {
+  const norm = (v) => (Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean)
+  if (opts.eyeHackSceneIds !== undefined && opts.eyeHackSceneIds !== null && opts.eyeHackSceneIds !== '') return [...new Set(norm(opts.eyeHackSceneIds))]
+  return [...EYE_HACK_SCENES]
+}
+/** 该场景在内置标定表里的登记条目（没有 ⇒ null）。审计/日志用：**"开了什么、凭什么开的"可查**。 */
+export function eyeHackEntry(sceneId) {
+  const id = String(sceneId === undefined || sceneId === null ? '' : sceneId)
+  return EYE_HACK_TABLE.find((e) => String(e.id) === id) || null
+}
 // ===== TIME-VARIATION (2026-09-14 用户第 5 项 日月循环) =====
 // WE 引擎没有内置"时间变化"；带时段变体的场景靠作者脚本（objects[].visible.script）按
 // new Date().getHours() 切换同组层（3326873240 的 `后处理层`）。脚本失败/缺失时这些层停在
@@ -2691,33 +2734,51 @@ export function applyRenderConfig(scene, opts = {}) {
       : (() => { try { return new URLSearchParams(location.search).get('eyehack') === 'legacy' } catch (e) { return false } })()
     const __eyeHack = (opts.eyeHack !== undefined)
       ? !!opts.eyeHack
-      : EYE_HACK_SCENES.includes(String(opts.sceneId || ''))
-    if (__eyeHack) for (const l of scene.layers) {
-      if (l.name === '眼睛组合') {
-        // 长条眼窗：uvRect 横带选"绿瞳部件"，quad=405×120（横长条，暗睫弧在上构成杏仁眼，
-        // 贴合官方 3/4 侧脸观感；比例优先"长条眼"视觉，而非实绘 169.78×277.88 的高度比）。
-        l.uvRect = [0.04, 0.30, 0.96, 0.70]
-        const es = opts.eyeSize || [405, 120]
-        // ①(P-76 真机：凯尔希"眼睛位置不对") **不再覆写 l.scale**。
-        //   旧实现 `l.size=[405,120]; l.scale=[1,1,…]` 是按"四边形层 w=size×scale"写的，
-        //   但本层是 **puppet 蒙皮层**：demo.html:3521 把 `layer.scale` 直接当 u_Scale 交给
-        //   renderMeshLayer（wpos = u_Origin + u_Scale·蒙皮后顶点），**不读 layer.size/uvRect**。
-        //   而该层对象没有 scale 键、父链（115→91→475）解析出的世界 scale = 0.69297 ⇒ 覆写成 1
-        //   让眼睛网格被放大 1/0.69297 = 1.4431 倍，并把实绘框从 x[2219,2430] 挪到 x[1912,2217]
-        //   （真机台账 rd=[1912,541,305,253]、sc=[1,1]；同门 sibling 右眼上眼睑 sc=[0.693,0.693]、
-        //   rd 与官方标定 refrender[67] 逐位吻合）。
-        //   改法：把 es **反向折进 size**（`size×scale ≡ es`）⇒ 四边形路径的 w/h = size×scale
-        //   与旧行为逐位不变（drawGuard / isFullCanvasLayer / renderLayer FBO 全用同一乘积），
-        //   而 layer.scale 保持 authored ⇒ 蒙皮路径回到正确比例。
-        //   scale 退化（0/NaN）时保留旧写法兜底。回退开关：`?eyehack=legacy`（旧口径）。
-        const __sx = Number(l.scale && l.scale[0]), __sy = Number(l.scale && l.scale[1])
-        if (__eyeHackLegacy || !isFinite(__sx) || !isFinite(__sy) || Math.abs(__sx) <= 1e-6 || Math.abs(__sy) <= 1e-6) {
-          l.size = [es[0], es[1]]; l.scale = [1, 1, l.scale[2] || 1]
-        } else {
-          l.size = [es[0] / __sx, es[1] / __sy]
+      : eyeHackSceneIds(opts).includes(String(opts.sceneId || ''))
+    if (__eyeHack) {
+      // ②(PA-31) **如实记账**：这条 hack 会真实改写眼睛层几何，不许"悄悄生效"。
+      //   台账三件事：谁被改（applied）、凭什么（内置标定条目的证据/依据强度，或"注入表/显式开关 ⇒ 依据未知"）、
+      //   以及是否属于"内置已标定集"（`inBuiltinTable`）。人读日志一句话，机读落在 scene 上。
+      const __entry = eyeHackEntry(opts.sceneId)
+      const __applied = []
+      for (const l of scene.layers) {
+        if (l.name === '眼睛组合') {
+          // 长条眼窗：uvRect 横带选"绿瞳部件"，quad=405×120（横长条，暗睫弧在上构成杏仁眼，
+          // 贴合官方 3/4 侧脸观感；比例优先"长条眼"视觉，而非实绘 169.78×277.88 的高度比）。
+          l.uvRect = [0.04, 0.30, 0.96, 0.70]
+          const es = opts.eyeSize || [405, 120]
+          // ①(P-76 真机：凯尔希"眼睛位置不对") **不再覆写 l.scale**。
+          //   旧实现 `l.size=[405,120]; l.scale=[1,1,…]` 是按"四边形层 w=size×scale"写的，
+          //   但本层是 **puppet 蒙皮层**：demo.html:3521 把 `layer.scale` 直接当 u_Scale 交给
+          //   renderMeshLayer（wpos = u_Origin + u_Scale·蒙皮后顶点），**不读 layer.size/uvRect**。
+          //   而该层对象没有 scale 键、父链（115→91→475）解析出的世界 scale = 0.69297 ⇒ 覆写成 1
+          //   让眼睛网格被放大 1/0.69297 = 1.4431 倍，并把实绘框从 x[2219,2430] 挪到 x[1912,2217]
+          //   （真机台账 rd=[1912,541,305,253]、sc=[1,1]；同门 sibling 右眼上眼睑 sc=[0.693,0.693]、
+          //   rd 与官方标定 refrender[67] 逐位吻合）。
+          //   改法：把 es **反向折进 size**（`size×scale ≡ es`）⇒ 四边形路径的 w/h = size×scale
+          //   与旧行为逐位不变（drawGuard / isFullCanvasLayer / renderLayer FBO 全用同一乘积），
+          //   而 layer.scale 保持 authored ⇒ 蒙皮路径回到正确比例。
+          //   scale 退化（0/NaN）时保留旧写法兜底。回退开关：`?eyehack=legacy`（旧口径）。
+          const __sx = Number(l.scale && l.scale[0]), __sy = Number(l.scale && l.scale[1])
+          if (__eyeHackLegacy || !isFinite(__sx) || !isFinite(__sy) || Math.abs(__sx) <= 1e-6 || Math.abs(__sy) <= 1e-6) {
+            l.size = [es[0], es[1]]; l.scale = [1, 1, l.scale[2] || 1]
+          } else {
+            l.size = [es[0] / __sx, es[1] / __sy]
+          }
+          __applied.push(l.name)
         }
+        else if (l.name === '左眼皮' || l.name === '右眼上眼睑') { l.uvRect = [0.08, 0.10, 0.92, 0.90]; __applied.push(l.name) }
       }
-      else if (l.name === '左眼皮' || l.name === '右眼上眼睑') l.uvRect = [0.08, 0.10, 0.92, 0.90]
+      scene.__eyeHackLedger = {
+        sceneId: String(opts.sceneId || ''), applied: __applied,
+        inBuiltinTable: !!__entry, entry: __entry,
+        source: __entry ? 'builtin-table' : (opts.eyeHack !== undefined ? 'opts.eyeHack（显式开关）' : 'injected-table（注入/URL 标定集）'),
+        strength: __entry ? __entry.strength : '**未登记**：不在内置标定表里（依据强度未知）',
+      }
+      if (opts.log) {
+        opts.log('眼窗 hack 生效 scene=' + (opts.sceneId || '-') + ' 层=[' + __applied.join(',') + '] '
+          + (__entry ? '依据=' + __entry.strength + '；证据=' + __entry.evidence : '⚠ ' + scene.__eyeHackLedger.strength + '（' + scene.__eyeHackLedger.source + '）'))
+      }
     }
   }
   // 2.4) ①(P-61 用户属性面板) 对象属性 `{user:...}` 绑定 → 真实渲染字段

@@ -190,9 +190,18 @@ const CORE = await import(pathToFileURL(path.join(ROOT, 'core', 'we-scene-bundle
     !/'\/diag'/.test(routeList) && !/'\/media/.test(routeList) && !/'\/api/.test(routeList),
     'C4 服务端：渲染器页**自己的**根绝对路由（`/pkg/`…）被转发到上游；`/diag`、`/report`、`/baseline`、' +
     '/media|web/dev、/api 一律**不在**名单里（诊断流/落盘/媒体面必须留在本服务）')
-  ok(/RENDERER_ROOT_ROUTES\.some/.test(SERVER_TEXT) && /proxyRenderer\(req, res, url, rel\)/.test(SERVER_TEXT) &&
+  /* C5(2026-09-24 用户第 5 条「把 8899 直接集成到 8902」后的**新契约**，判据口径不变：
+     静态面优先 + 越根/坏 URL 仍 400/403)。旧读数 = "渲染器根路由被**转发到上游**"；
+     现在 = "**本地直供**（同一份 `rendererRequestHandler`），静态面里真有同名文件仍然优先"。 */
+  ok(/RENDERER_LOCAL_EXACT\.has\(p\) \|\| RENDERER_LOCAL_PREFIXES\.some/.test(SERVER_TEXT) &&
+    /serveRenderer\(req, res, url, relForRenderer\)/.test(SERVER_TEXT) &&
     /if \(localErr\) return jsonErr\(res, localErr\)/.test(SERVER_TEXT),
-    'C5 服务端：静态面优先（`demo/` 里真有同名文件就不代理），越根/坏 URL 仍走本服务 400/403 的口径')
+    'C5 服务端：渲染器根路由**本地直供**（静态面优先，`demo/` 里真有同名文件就不打扰渲染器处理器），' +
+    '越根/坏 URL 仍走本服务 400/403 的口径')
+  ok(/X-Bench-Served': 'local'/.test(SERVER_TEXT) && /X-Bench-Upstream'/.test(SERVER_TEXT) &&
+    /localFallbackOk/.test(SERVER_TEXT) && /'X-Bench-Upstream-Error': code/.test(SERVER_TEXT),
+    'C5b 服务端：本地直供带可观测标记 `X-Bench-Served: local`（配了上游再补 `X-Bench-Upstream`）；' +
+    '上游连不上时 GET/HEAD **回退本地**（页面照常出画），只有"本地也没这条路由"才按老口径 502')
 }
 
 /* ═══════════════════ D. 真机读数（SKIP-able）：面板 → 画布像素的两条路径对比 ═══════════════════ */

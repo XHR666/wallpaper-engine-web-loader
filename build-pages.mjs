@@ -43,7 +43,8 @@ const PAGES_KEEP_DIRS = ['core', 'demo', 'samples', 'assets', 'vendor', 'elysia'
 const PAGES_KEEP_FILES = [
   ['index.html', 'index.html'],                       // 落地页（Pages 的 /）
   ['demo.html', 'demo.html'],                         // 渲染器 demo
-  ['README.md', 'README.md'],                         // 落地页 ./README.md + ONLINE-DEMO §2 的口径
+  ['README.md', 'README.md'],
+  ['README.en.md', 'README.en.md'],                         // 落地页 ./README.md + ONLINE-DEMO §2 的口径
   ['docs/COPYING-RULES.md', 'docs/COPYING-RULES.md'], // 落地页 ./docs/COPYING-RULES.md（只发这一份开发文档）
   ['web/diag.html', 'diag.html'],
   ['web/probe.html', 'probe.html'],
@@ -113,7 +114,13 @@ const PAGES_DENY_BASENAMES = new Set([...PAGES_DENY_FILES].map((p) => p.split('/
 //   为什么闸门要放**构建里**而不只在 workflow 里：本脚本的输出就是要发出去的那一份 ——
 //   只有构建自己拒绝产出带个人路径的产物，"本地绿"才等于"线上绿"（事故见上面的 ①）。
 const PATH_RE = /(\/root\/Desktop\/|\/root\/\.dsh-mpkg-wallpaper|\/mnt\/sdcard\/|\/home\/[a-z]+\/|C:\\Users\\[A-Za-z]+)/
-const DEFAULT_LINE_RE = /process\.env\.[A-Z_]+ \|\||MPW_[A-Z_]+ \|\||\$\{MPW_ROOT:-|\|\| '\/root\/Desktop\/DSHarea'|\/\/ ①\(去个人化\)/
+// ①(PA-44 2026-09-24 可移植性审计) 这里原来还有一个分支 `|| '<作者工作区绝对路径>'`：
+//   去个人化之后产物里**已经没有任何这样的字面量** ⇒ 该分支永不命中（腐烂），但仍**生效** ——
+//   一旦有人写回 `const X = argv.dir || '<作者工作区绝对路径>'`（不带 `process.env` ⇒ 躲过第一个分支），
+//   构建闸门会**静默放行**（而仓库级 publish-check / secret-scan 会判红 ⇒ 两处判据不一致）。
+//   现在删掉该死分支；判别力用**同段合成自证**钉住（写死本机绝对路径必须红、环境变量默认值口径必须放行）：
+//   判据自己哑了 ⇒ 构建直接退出码 1，而不是"产物看起来干净"。
+const DEFAULT_LINE_RE = /process\.env\.[A-Z_]+ \|\||MPW_[A-Z_]+ \|\||\$\{MPW_ROOT:-|\/\/ ①\(去个人化\)/
 
 const copied = []
 const skipped = []
@@ -253,6 +260,28 @@ const walkFiles = (d, base = d, out = []) => {
   return out
 }
 const privacyHits = []
+// ── [assert:privacy-predicate] BEGIN ──
+//   ①(PA-44) 合成自证：判据必须能抓住"不带 process.env 的写死本机绝对路径"，且仍放行
+//   "环境变量优先 + 本机默认值"的刻意写法。片段按 `+` 拼装（整串写出来会被自己这条判据自指命中）。
+{
+  const HOSTPATH = '/root' + '/Desktop/' + 'DSHarea'
+  const CASES = [
+    { id: 'hardcoded-no-override', line: 'const X = argv.dir || ' + JSON.stringify(HOSTPATH), must: 'flag' },
+    { id: 'env-default-exempt', line: 'const X = process.env.MPW_X || ' + JSON.stringify(HOSTPATH), must: 'exempt' },
+    { id: 'mpw-var-exempt', line: 'const X = MPW_X || ' + JSON.stringify(HOSTPATH), must: 'exempt' },
+    { id: 'shell-default-exempt', line: 'D="${MPW_ROOT:-' + HOSTPATH + '}"', must: 'exempt' },
+  ]
+  const bad = CASES.filter((c) => {
+    const caught = PATH_RE.test(c.line) && !DEFAULT_LINE_RE.test(c.line)
+    return c.must === 'flag' ? !caught : caught
+  })
+  if (bad.length) {
+    console.error('✗ 产物隐私判据的**判别力自证失败**：' + bad.map((c) => c.id).join('、') + ' ⇒ 疑似有人把"死分支"写回去了，或路径图案被改坏；构建中止（不产出"看起来干净"的产物）')
+    process.exit(1)
+  }
+  console.log('  · 隐私判据自证：写死本机绝对路径必抓 + 三种可覆盖写法放行（' + CASES.length + ' 条合成样本）')
+}
+// ── [assert:privacy-predicate] END ──
 for (const rel of walkFiles(OUT)) {
   if (/\.(png|jpg|jpeg|gif|webp|ttf|otf|woff2?|pkg|mpkg|mp4|ico|map)$/i.test(rel)) continue // 二进制，不做文本扫描（与 publish-check 同）
   let text = ''

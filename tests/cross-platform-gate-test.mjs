@@ -9,8 +9,12 @@
 //   A 不可覆盖的本机绝对路径：代码里的 `/root/…`、`/home/<user>/…`、`/storage/` + `emulated`、
 //     Termux 私有目录、`C:\Users\…` 必须**当场给出覆盖口**（同行有 `process.env` / `os.homedir()`
 //     / `os.tmpdir()`），否则判红。白名单逐条写理由，且**每条都必须仍然命中**（防腐烂）。
-//   B 临时目录：代码里不许写死 `'/tmp/…'`（Windows 没有 `/tmp`；macOS 的 `/tmp` 是 `/private/tmp`
-//     的软链）⇒ 走 `os.tmpdir()`。扫描器自己的"宿主路径前缀表"是词汇表，走白名单。
+//   B 临时目录：代码里不许写死 `/tmp/…`（Windows 没有 `/tmp`；macOS 的 `/tmp` 是 `/private/tmp`
+//     的软链）⇒ 走 `os.tmpdir()`。判据 = **裸 `/tmp/` 片段**（不再要求紧贴引号 —— 2026-09-24
+//     可移植性审计 PA-09：旧判据只认 `'/tmp/`、`"/tmp/`，实测渲染器 shell 脚本里**代码行**含
+//     `/tmp/` 的 8 处全漏；「规则没写全」比「没规则」更危险）。注释（行首 / 行尾 / 块注释）不执行
+//     ⇒ 不参与判据（文档里的举例照旧允许）；同行给出覆盖口（process.env / os.tmpdir() / …）也放行。
+//     扫描器自己的"宿主路径前缀表"与**存量站点**走白名单：每条必写理由、且必须仍然命中（防腐烂）。
 //   C 打开器候选链：同一文件里必须同时有 Linux(`xdg-open`) / macOS(`open`) / Windows(`explorer`
 //     或 `cmd … start`) 三条分支**加**环境覆盖口 —— 只写 Termux/Linux 的打开器 = 另外两个平台
 //     点"打开文件夹"直接 501。
@@ -56,15 +60,37 @@ const HOST_PATH_RES = [
   { name: 'windows-user-profile', re: new RegExp('[A-Za-z]:\\\\\\\\?' + 'Users' + '\\\\\\\\') },
 ]
 const OVERRIDE_HINT = /process\.env|os\.homedir|os\.tmpdir|homedir\(\)|tmpdir\(\)/
-const TMP_LITERAL_RE = new RegExp(QUOTES + SL + 'tmp' + SL)
-/* 白名单：key = `相对路径::特征串`；reason 必填；每条都会被反查"是否仍然命中"（不命中 = 腐烂 = 红） */
+/* ①(PA-09 2026-09-24) **裸 `/tmp/`**（去掉 QUOTES 前缀）：`cp x /tmp/y`、`> /tmp/z`、`X=/tmp/…`
+   这类**代码行**里的写法也必须抓到。旧判据 `QUOTES + /tmp/` 只认紧贴引号的形态 ⇒ 实测 8/8 漏检。
+   片段仍按 `SL + 'tmp' + SL` 拼装：整串写出来会被这条判据自指命中。 */
+const TMP_LITERAL_RE = new RegExp(SL + 'tmp' + SL)
+/* 白名单：key = `相对路径::特征串`；reason 必填（空理由 = 静默放宽，判红）；每条都会被反查"是否仍然命中"
+   （不命中 = 腐烂 = 红）。
+   ①(PA-09 2026-09-24) 判据放宽后新暴露的存量站点**逐条**登记在这里（改前它们 8/8 漏检，所以从没被看见）：
+   特征串取**该站点自己的路径片段**（不是整个文件的 `/tmp/` 通配）⇒ 谁把那行修好了，条目立刻失效并判红，
+   逼人回来删条目（这就是"白名单不许腐烂"）。理由里同时写明**正确修法**，便于别的工作线接手。 */
+const TMPDIR_FIX = '修法：TMPDIR="${TMPDIR:-$(node -e \'process.stdout.write(require("os").tmpdir())\')}" 或整体落 $(mktemp -d)'
 const ALLOW = [
   { key: 'tests/docs-check.mjs::' + SL + 'root' + SL, reason: '文档检查器要**认出**本机路径形态（扫描器词汇，不是运行时依赖）' },
-  { key: 'tests/pack-closure-test.mjs::' + SL + 'tmp' + SL, reason: '打包扫描器的"宿主路径前缀表"：它正是用来判定产物里**不许**出现这些前缀' },
+  { key: 'tests/pack-closure-test.mjs::' + SL + 'tmp' + SL, reason: '打包扫描器的"宿主路径前缀表"：它正是用来判定产物里**不许**出现这些前缀（词汇表）' },
   { key: 'tests/secret-scan-test.mjs::' + SL + 'root' + SL, reason: '敏感信息扫描器的"本机工作区绝对路径"图案（词汇表）' },
   { key: 'tests/publish-check.mjs::' + SL + 'root' + SL, reason: '发布面隐私扫描器的"作者工作区前缀"图案 + 它的注释（词汇表）' },
   { key: 'tests/secret-scan-test.mjs::' + SL + 'data' + SL, reason: '敏感信息扫描器的 Termux 私有目录图案（词汇表）' },
   { key: 'tests/cross-platform-gate-test.mjs::' + SL + 'root' + SL, reason: '本门禁自己的图案片段（自指豁免；片段已拆开写，命中即说明有人把它们拼回整串）' },
+  /* —— B 段放宽后暴露的存量 `/tmp` 站点（PA-11，class B；逐条登记 + 理由 + 修法）—— */
+  { key: 'tests/keep-servers.sh::' + SL + 'tmp' + SL + 'keep-servers.log', reason: '存量：keep-servers.sh 日志写死 /tmp（PA-11）。' + TMPDIR_FIX + '；写权不在本次可移植性修复线（只放宽判据，不动该脚本）' },
+  { key: 'tests/keep-servers.sh::' + SL + 'tmp' + SL + 'we-scene-8899.log', reason: '存量：start_8899 重定向写死 /tmp（PA-11）。' + TMPDIR_FIX },
+  { key: 'tests/keep-servers.sh::' + SL + 'tmp' + SL + '8901.log', reason: '存量：start_8901 重定向写死 /tmp（PA-11）。' + TMPDIR_FIX },
+  { key: 'tests/keep-servers.sh::' + SL + 'tmp' + SL + '8902.log', reason: '存量：start_8902 重定向写死 /tmp（PA-11）。' + TMPDIR_FIX },
+  { key: 'tests/keep-servers.sh::' + SL + 'tmp' + SL + 'keep-servers-openviking.log', reason: '存量：openviking 重定向写死 /tmp（PA-11）。' + TMPDIR_FIX },
+  { key: 'tests/keep-demo-server.sh::' + SL + 'tmp' + SL + 'demo-server.log', reason: '存量：demo server 日志写死 /tmp（PA-11）。' + TMPDIR_FIX },
+  { key: 'tests/run-all-tests.sh::LOCKFILE=' + SL + 'tmp' + SL + '.mpw-gate.lock', reason: '存量：门禁**锁文件**写死 /tmp（PA-11；多用户机器上 /tmp 还是可被抢占的路径，比日志更要紧）。' + TMPDIR_FIX },
+  { key: 'tests/run-all-tests.sh::LASTLOG=' + SL + 'tmp' + SL + 'run-all-tests-last.log', reason: '存量：门禁日志写死 /tmp（PA-11）。' + TMPDIR_FIX },
+  { key: 'tests/shot-to-png.mjs::' + SL + 'tmp' + SL + 'auto-', reason: '存量：默认输出路径写死 /tmp（PA-11 同族）。修法：`process.argv[3] || path.join(os.tmpdir(), ...)`（同文件 :24/:29 已有 require(\'node:os\') 可用）' },
+  { key: 'tests/shot-to-png.mjs::' + SL + 'tmp' + SL + '_shot-', reason: '存量：抽帧中间文件写死 /tmp（PA-11 同族）。修法同上（os.tmpdir()）' },
+  { key: 'tests/report-latest.mjs::' + SL + 'tmp' + SL + 'mpw-shot-', reason: '存量：截图落地路径写死 /tmp（PA-11 同族）。修法：`path.join(os.tmpdir(), ...)`' },
+  { key: 'tests/headless-shot.mjs::' + SL + 'tmp' + SL + 'headless-evidence.json', reason: '存量：**帮助文本**里的证据路径示例（打印给人看，不执行）。⚠ 顺带发现实现与文案不一致：实际写 `path.join(os.tmpdir(), …)`（:136）而文案说 /tmp ⇒ 该行文案应改成 os.tmpdir() 的动态值（属该线写权）' },
+  { key: 'tests/video-downscale-flicker-probe.mjs::' + SL + 'tmp' + SL + 'vid19', reason: '存量：**帮助文本**里的抽帧示例（两行 console.log 打印给用户的用法示例，不执行）——「文档里的举例」口径，判据不据此报红，但仍按"逐条登记"纪律列在这里' },
 ]
 const BASH4_RES = [
   { name: 'mapfile', re: /\bmapfile\b/ },
@@ -95,18 +121,18 @@ export function scanHostPaths(rel, text) {
   })
   return found
 }
-/** B 段：写死的 `'/tmp/…'`。 */
+/** B 段：写死的 `/tmp/…`（**裸片段**：`cp x /tmp/y` / `> /tmp/z` / `X=/tmp/…` 都算）。
+ *  ①(PA-09) 只看**代码部分**（注释剥离），同行有覆盖口（process.env / os.tmpdir() / …）则放行。 */
 export function scanTmpLiterals(rel, text) {
   const found = []
   if (!isCode(rel)) return found
   const lines = text.split('\n')
+  const code = codePartsOfLines(rel, lines)
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    if (isCommentLine(line)) continue
-    if (!TMP_LITERAL_RE.test(line)) continue
-    if (OVERRIDE_HINT.test(line)) continue
-    if (allowHit(rel, line, 'tmp')) continue
-    found.push({ rel, line: i + 1, kind: 'tmp-literal', text: line.trim().slice(0, 120) })
+    if (!TMP_LITERAL_RE.test(code[i])) continue
+    if (OVERRIDE_HINT.test(code[i])) continue
+    if (allowHit(rel, lines[i], 'tmp')) continue      // 白名单按**原行**匹配（登记的是原文特征，便于人核对）
+    found.push({ rel, line: i + 1, kind: 'tmp-literal', text: lines[i].trim().slice(0, 120) })
   }
   return found
 }
@@ -173,6 +199,42 @@ export function openerChainGaps(text) {
 /** 注释行（`#` / `//` / 块注释内部）不参与 A/B 判据：注释**不会执行**，不构成"平台上跑不了"；
     门禁管的是"能跑起来的那部分代码有没有可覆盖的路径"。（示例注释的跨平台性是风格约定，另说。） */
 function isCommentLine(line) { return /^\s*(#|\/\/|\*|\/\*)/.test(line) }
+/** 取若干行的**代码部分**（注释剥掉，行号一一对应）—— B 段用它：
+    ①(PA-09 2026-09-24) 旧判据只看"行首是不是注释"，于是 **行尾注释** 与 **块注释内部**（例如
+    行尾注释（`const x = y // … /tmp/…`）与**块注释内部**（斜杠星号开、星号斜杠闭，含跨行续行）
+    都会被旧判据误判成"代码里写死了 /tmp"（假阳性）；反过来，真正的代码写法（`cp x /tmp/y`、`> /tmp/z`）
+    又因为要求紧贴引号而被漏掉（假阴性）。这里一次解决两头：
+      · `/tmp/` 判据只看**代码部分**；白名单仍按**原行**匹配（登记的是人看得见的原文特征）。
+      · 注释风格按文件类型：`.sh` 认 `#`（`#` 需在行首或空白之后，避免切掉 `$#`/`${x#y}`）；
+        `.mjs/.js` 认 `//` 与块注释（跨行用状态机跟住）。注意本注释里**不能出现**那个结束序列，
+        否则会把注释提前闭合（上一版就踩了这一下）。
+    轻量词法（只跟踪 ' " ` 三种引号与转义）足够本判据用：它不是解释器，只求"别把注释当代码"。 */
+function codePartsOfLines(rel, lines) {
+  const shell = /\.(sh|bash)$/i.test(rel)
+  const out = []
+  let inBlock = false
+  for (const line of lines) {
+    let code = ''
+    let inStr = null
+    for (let i = 0; i < line.length;) {
+      const c = line[i], c2 = line.slice(i, i + 2)
+      if (inBlock) { if (c2 === '*/') { inBlock = false; i += 2 } else i++; continue }
+      if (inStr) {
+        code += c
+        if (c === '\\') { code += line[i + 1] || ''; i += 2; continue }
+        if (c === inStr) inStr = null
+        i++; continue
+      }
+      if (!shell && c2 === '/*') { inBlock = true; code += ' '; i += 2; continue }
+      if (!shell && c2 === '//') break
+      if (shell && c === '#' && (i === 0 || /\s/.test(line[i - 1]))) break
+      if (c === '"' || c === "'" || c === '`') { inStr = c; code += c; i++; continue }
+      code += c; i++
+    }
+    out.push(code)
+  }
+  return out
+}
 function isCode(rel) {
   if (/\.md$/i.test(rel)) return false            /* 代码目录里的 .md 是文档：可以贴日志/例子（泄漏那一面由 secret-scan 覆盖全量 tracked） */
   return CODE_DIRS.some((d) => rel.startsWith(d)) && !TEXT_SKIP.some((re) => re.test(rel))
@@ -270,10 +332,30 @@ say('\n== G 分辨力自证（合成样本必须逐类报红；干净样本必�
     JSON.stringify(scanHostPaths('tools/fake.mjs', dirtyHost)[0] || null))
   check('G2 同一行给出 env 覆盖口就不算违规', scanHostPaths('tools/fake.mjs', cleanHost).length === 0)
   check('G2b 文档不在 A 段扫描面内（docs 可以当例子引用）', scanHostPaths('docs/fake.md', dirtyHost).length === 0)
-  const tmpSample = 'const d = ' + JSON.stringify(SL + 'tmp' + SL + 'x') + '\n'
+  const T = SL + 'tmp' + SL
+  const tmpSample = 'const d = ' + JSON.stringify(T + 'x') + '\n'
   check('G3 写死的临时目录被 B 段抓到', scanTmpLiterals('tools/fake.mjs', tmpSample).length === 1)
   check('G3b 走 os.tmpdir() 的写法不报', scanTmpLiterals('tools/fake.mjs', 'const d = path.join(os.tmpdir(), "x")\n').length === 0)
-  check('G3c 注释行里的示例不算违规（注释不执行）', scanTmpLiterals('tools/fake.mjs', '// 例: node x.mjs ' + JSON.stringify(SL + 'tmp' + SL + 'a.png') + '\n').length === 0)
+  check('G3c 注释行里的示例不算违规（注释不执行）', scanTmpLiterals('tools/fake.mjs', '// 例: node x.mjs ' + JSON.stringify(T + 'a.png') + '\n').length === 0)
+  /* ①(PA-09 2026-09-24) 判据放宽的**分辨力反例**（旧判据 QUOTES+`/tmp/` 在这四条上全漏 ⇒ 这条门禁曾经
+     "以为查了、其实一处没查"）。shell 变量赋值 / 重定向 / 命令参数三种真实写法必须逐条报红。 */
+  check('G3d shell 变量赋值 `LOG=' + T + 'keep.log` 被 B 段抓到（旧判据漏检）',
+    scanTmpLiterals('tools/fake.sh', 'LOG=' + T + 'keep.log\n').length === 1,
+    JSON.stringify(scanTmpLiterals('tools/fake.sh', 'LOG=' + T + 'keep.log\n')))
+  check('G3e 重定向 `>> ' + T + 'x.log 2>&1 &` 被 B 段抓到（旧判据漏检）',
+    scanTmpLiterals('tools/fake.sh', 'node server.mjs >> ' + T + 'x.log 2>&1 &\n').length === 1)
+  check('G3f 命令参数 `cp a ' + T + 'b` 被 B 段抓到（旧判据漏检）',
+    scanTmpLiterals('tools/fake.sh', 'cp a ' + T + 'b\n').length === 1)
+  // ⚠ 提示文案里也不能出现那个整串（本文件自己也是 tracked、也被 B 段扫）⇒ 同样按片段拼。
+  check('G3g 反引号模板串 `' + T + 'x-${id}.png` 被 B 段抓到（旧判据只认单双引号 ⇒ 漏检）',
+    scanTmpLiterals('tools/fake.mjs', 'const p = `' + T + 'x-${id}.png`\n').length === 1)
+  check('G3h **行尾注释**里的 /tmp 不算违规（注释不执行；旧判据会假阳性）',
+    scanTmpLiterals('tools/fake.mjs', 'const p = path.join(OUT, "a.png") // 避开共用 ' + T + 'vd/ 的覆盖\n').length === 0)
+  check('G3i **块注释内部**（含跨行续行）里的 /tmp 不算违规',
+    scanTmpLiterals('tools/fake.mjs', '/* 说明：\n   Windows 没有 ' + T + '，macOS 是 /private' + T + ' 的软链\n*/\nconst a = 1\n').length === 0)
+  check('G3j shell 里 `#` 之后的 /tmp 不算违规，但同一行的 `$#`/`${x#y}` 不会被误当注释',
+    scanTmpLiterals('tools/fake.sh', 'echo done # 日志见 ' + T + 'x.log\n').length === 0
+    && scanTmpLiterals('tools/fake.sh', 'echo ${x#y} > ' + T + 'out\n').length === 1)
   check('G4 bash 4 独有特性被 D 段抓到（mapfile / declare -A / ${x^^}）',
     scanBashPortability('a.sh', '#!/usr/bin/env bash\nmapfile -t x < f\ndeclare -A m\necho ${v^^}\n').length === 3)
   check('G5 `#!/bin/sh` + bash 语法被 D 段抓到',

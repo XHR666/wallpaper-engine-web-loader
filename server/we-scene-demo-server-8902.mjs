@@ -62,14 +62,19 @@
 //        GET  /api/fs/roots             ⇒ {ok, roots:[{label,path(绝对),exists,listable,…}]}
 //        GET  /api/fs/list?path=<绝对>  ⇒ {ok, path, parent, entries:[{name,type:'dir'|'file',size,kind}]}
 //        POST /api/fs/pick {path}       ⇒ 选为壁纸库根，回 {ok, path, source:"user", library, scan}
+//        GET  /api/fs/file?path=<绝对>  ⇒ **只读**取文件字节（"选择文件"用它把服务端文件喂给预览链；
+//                                          同一个 `assertBrowsePath()` ⇒ 同一份允许根/同一套 403；支持 Range）
 //      同一套浏览能力的另几个入口（字段更细：上一级/计数/入口类型/插件同形兼容壳）：
 //        GET  /api/dir-list?path=…   列目录（子目录 + 文件 + 上一级 + 计数 + 入口类型）
 //        GET  /api/dir-parent?path=… 上一级（到根即 atRoot:true，不是错误）
 //        POST /api/dir-pick {path}    "就选这个目录"：只读校验 + 该目录的壁纸扫描摘要（默认不改状态）
 //        GET  /list-dirs?path=…       与插件 `dsh-mpkg-wallpaper` 的 `/list-dirs` **逐字段同形**的兼容壳
-//      浏览边界 = 浏览根（`MPW_PICK_ROOT`，默认 = `MPW_ROOT`）；`..`/绝对越界/符号链接逃逸 ⇒ 400/403。
-//      `GET /api/fs/roots` 会把 home 一并列出但标 `listable:false`（默认边界不含整个 home）——
-//      要放宽就用 `MPW_PICK_ROOT=<更外层的目录>`。
+//      **允许根清单**（`BROWSE_ROOTS`，都从环境推导，绝不写死本机路径）：
+//        `MPW_PICK_ROOT`（默认 = `MPW_ROOT`）→ 库根/库根的上一级（仅当它落在浏览根之外时才追加）
+//        → `MPW_ALLOW_DIRS`（冒号分隔的额外允许目录）。`..`/绝对越界/符号链接逃逸 ⇒ 400/403。
+//      `GET /api/fs/roots` 的快捷根**全部推导**（库根、库根的上一级、`os.homedir()`、`process.cwd()`、
+//      工作区根、`/media`·`/mnt`·`/run/media` 或 Windows 盘符）；home 一并列出但标 `listable:false`。
+//      要放宽就用 `MPW_PICK_ROOT=<更外层的目录>` 或 `MPW_ALLOW_DIRS=<目录1:目录2>`。
 //      所有浏览只做 readdir/stat（不写用户目录、不删除、不解包）。
 //   ⑦ 库来源状态（**显式**，不假装已选）：`source: "env"|"cli"|"user"|"default"|"none"` + 实际路径，
 //      见 `GET /api/library-source`、`GET /api/library`（顶层 `source`/`selected`/`explicit`/`library`）
@@ -97,6 +102,15 @@ import { checkUpload } from './upload-policy.mjs'
    纯逻辑在 core/we-web-shim.mjs 与 server/web-store.mjs 里，本文件只做接线与 HTTP 头。 */
 import { buildWebShimSource, injectWebShim } from '../core/we-web-shim.mjs'
 import { WEB_STORE_LIMITS, normalizeWallId, wallIdFor, storePath, mergeStore, evictPlan, opaqueCorsHeaders } from './web-store.mjs'
+/* ⓐ(2026-09-24 · 用户第 5 条「直接把 8899 集成到 8902，我以后拿 8902 测试」)
+   **同一份实现复用**，不是复制一份：`:8899` 的服务器把请求处理器导出成 `rendererRequestHandler`，
+   本服务把它挂到自己的 origin 上（`/webloader/**` 与渲染器自己的根路由）。
+   两个配套契约也在那边：`setLibraryRootProvider()`（库根**唯一真源**：本服务把 activeRoot 注入进去
+   ⇒ `/pkg/<id>`、`/project/<id>`、`/ddlist/<id>`… 全部随"当前生效的库根"走，不用刷新、不用重启）
+   与 `shellShimScript()`（预览框的 `?shell=0` 无外壳形态）。
+   ⚠ 这个 import 之所以安全：那边已把顶层 `pkg-extract` 动态 import 改成"失败即降级"，
+   且 `listen` 只在它自己是进程入口时发生（见 server/we-scene-demo-server.mjs 的 ⓪/⓪② 段）。 */
+import { rendererRequestHandler, setLibraryRootProvider, pkgParserUnavailable } from './we-scene-demo-server.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
@@ -120,22 +134,57 @@ const PORT = Number(process.env.PORT || positional[0] || 8902)
    挂一个同源入口** `/webloader/**` ⇒ 测试台可以用它做预览，既拿到 mip 选级修复、又不会踩跨源。
    上游地址用环境变量覆盖（默认本机 8899；**不写死本机路径**，跨平台一致）。 */
 const RENDERER_UPSTREAM = (() => {
-  const raw = String(process.env.MPW_RENDERER_8899 || 'http://127.0.0.1:8899').trim()
-  try { const u = new URL(raw); return { raw, host: u.hostname, port: Number(u.port || (u.protocol === 'https:' ? 443 : 80)), secure: u.protocol === 'https:', path: u.pathname.replace(/\/$/, '') } } catch { return null }
+  /* ①②(2026-09-24 用户第 5 条：只开 8902 一个服务)
+     上游现在是**可选**的（原来无论谁都得先跑 :8899，否则预览整页 502）：
+       · `MPW_RENDERER_UPSTREAM`（新名，**显式设置才生效**）或 `MPW_RENDERER_8899`（旧名，兼容既有测试/脚本）；
+       · **两个都不设 ⇒ 没有上游** ⇒ `/webloader/**` 与渲染器根路由**全部由本服务本地直供**（默认口径）；
+       · 设了但**指到死端口**：先按上游试一次，连接层失败就**回退本地直供**（页面照常出画），
+         只有"本地也没有这条路由"时才按老口径 502（既有 K2d 判据不变）。
+     值可以是 `http://host:port[/path]`，也可以是裸的 `host:port`（用户手册里写的就是后者）。 */
+  const raw = String(process.env.MPW_RENDERER_UPSTREAM || process.env.MPW_RENDERER_8899 || '').trim()
+  if (!raw) return null
+  const norm = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : ('http://' + raw)
+  try { const u = new URL(norm); return { raw, host: u.hostname, port: Number(u.port || (u.protocol === 'https:' ? 443 : 80)), secure: u.protocol === 'https:', path: u.pathname.replace(/\/$/, ''), bad: false, from: process.env.MPW_RENDERER_UPSTREAM ? 'env MPW_RENDERER_UPSTREAM' : 'env MPW_RENDERER_8899（旧名）' } } catch { /* 配错**不静默**：health 如实回报，服务照常本地直供 */ return { raw, host: null, port: null, path: '', bad: true, from: process.env.MPW_RENDERER_UPSTREAM ? 'env MPW_RENDERER_UPSTREAM' : 'env MPW_RENDERER_8899（旧名）' } }
 })()
 const MPW_ROOT = path.resolve(process.env.MPW_ROOT || path.resolve(REPO_ROOT, '..'))
-// 库根**来源**（显式记录，`/api/library` 与 `/__health` 都如实回报 —— 不把"仓库约定默认值"当成"用户已选"）：
-//   env     = 环境变量 MPW_LIBRARY_DIR（优先级最高，与既有服务同风格）
-//   cli     = 命令行 --library=DIR
-//   default = 仓库约定 <MPW_ROOT>/allwallpaper/dd（**没人选过它**；MPW_ROOT 本身也可能是默认推出来的）
-//   none    = 既没有显式配置、默认路径也不存在（运行期 /api/library 的 `source` 才会出现这个值）
+/* 库根**来源**（显式记录，`/api/library`、`/api/library-source` 与 `/__health` 都如实回报 ——
+   不把"推导出来的默认值"当成"用户已选"）：
+     env     = 环境变量 MPW_LIBRARY_DIR（优先级最高，与既有服务同风格）
+     cli     = 命令行 --library=DIR
+     default = **候选列表里第一条存在的**（推导；采用哪条/为什么写在 `reason` 与 `candidates[]` 里）
+     none    = 所有候选都不存在（运行期 `/api/library` 的 `source` 才会出现这个值）
+   ⚠①(2026-09-24 可移植性审计 B1：`process/we-scene-demo-server-8902.mjs:160` 的旧读数)
+     旧实现把 `<MPW_ROOT>/allwallpaper/dd` 写成了**产品默认值**（作者机器的语料布局），别人机器上启动
+     就 `source:'none'`/空库。现在默认值是**候选列表 + 存在性探测**，且**不写死任何本机路径**：
+       `<MPW_ROOT>/allwallpaper/dd` → `<MPW_ROOT>/allwallpaper` → **本仓自带合成样例 `<repo>/samples`**
+     最后一条是"任何检出都存在"的兜底 ⇒ 换台机器开箱就有东西可开；三条都不存在才 `none`。
+     想关掉"自动采用仓库自带样例"这一条（例如发布版不希望把 samples 当库）：`MPW_NO_BUNDLED_SAMPLES=1`。 */
 const LIBRARY_SOURCE_INFO = (() => {
   const envVal = process.env.MPW_LIBRARY_DIR
   const cliVal = typeof flagVal('library') === 'string' ? flagVal('library') : ''
-  if (envVal) return { source: 'env', from: 'env MPW_LIBRARY_DIR', raw: envVal }
-  if (cliVal) return { source: 'cli', from: 'argv --library=DIR', raw: cliVal }
-  return { source: 'default', from: '仓库约定 <MPW_ROOT>/allwallpaper/dd', raw: path.join(MPW_ROOT, 'allwallpaper', 'dd') }
+  if (envVal) return { source: 'env', from: 'env MPW_LIBRARY_DIR', raw: envVal, candidates: [] }
+  if (cliVal) return { source: 'cli', from: 'argv --library=DIR', raw: cliVal, candidates: [] }
+  const cands = [
+    { raw: path.join(MPW_ROOT, 'allwallpaper', 'dd'), why: '工作区语料布局 <MPW_ROOT>/allwallpaper/dd（不是产品默认，只是第一条候选）' },
+    { raw: path.join(MPW_ROOT, 'allwallpaper'), why: '工作区语料总目录 <MPW_ROOT>/allwallpaper' },
+    ...(process.env.MPW_NO_BUNDLED_SAMPLES === '1' ? [] : [{ raw: path.join(REPO_ROOT, 'samples'), why: '本仓自带**合成**样例 <repo>/samples（任何检出都存在）' }]),
+  ]
+  const probed = cands.map((c) => {
+    const p = path.resolve(c.raw)
+    let exists = false
+    try { exists = fs.existsSync(p) && fs.statSync(p).isDirectory() } catch { exists = false }
+    return { path: p, why: c.why, exists }
+  })
+  const hit = probed.find((c) => c.exists)
+  const chosen = hit || probed[0] || { path: path.join(MPW_ROOT, 'allwallpaper', 'dd'), why: '没有任何候选（占位）', exists: false }
+  return {
+    source: 'default', from: hit ? chosen.why : '**候选全部不存在**（' + chosen.path + ' 是占位；要换库根请设 MPW_LIBRARY_DIR / --library=DIR 或 MPW_NO_BUNDLED_SAMPLES 之外自己放语料）',
+    raw: chosen.path, candidates: probed, adopted: hit ? chosen.path : null,
+  }
 })()
+const LIBRARY_ROOT_FROM = LIBRARY_SOURCE_INFO.source === 'default'
+  ? ('推导候选（' + (LIBRARY_SOURCE_INFO.adopted ? '采用第一条存在的：' : '**没有存在的候选**：') + LIBRARY_SOURCE_INFO.from + '）')
+  : LIBRARY_SOURCE_INFO.from
 const MPW_ROOT_FROM = process.env.MPW_ROOT ? 'env MPW_ROOT' : '默认 = 本仓库的上一级目录'
 const LIBRARY_ROOT_CONFIG = path.resolve(LIBRARY_SOURCE_INFO.raw)
 // 目录浏览根（只读浏览的**信任边界**）：默认 = MPW_ROOT（本机工作区），可用 MPW_PICK_ROOT 覆盖。
@@ -172,6 +221,10 @@ const LIMITS = {
   scanOps: 20000,                     // 单次库扫描的探测操作上限（readdir/stat；防病态目录）
   dirEntries: 2000,                   // /api/dir-list 单层最多列 2000 个目录
   browserFiles: 1000,                 // /api/dir-list 单层最多列 1000 个文件
+  /* ②b(2026-09-24) `GET /api/fs/file` 的单文件上限：**读**（不是列）用户的壁纸包，最大的一份实测
+     336MB（scene.pkg），给一倍余量；超限**如实 413**，绝不截断成"半个包"当成功。
+     与 `propsFileBytes`（上传，64MB）不同：这条是**只读下载**，不落盘、不进内存（sendFile 流式 + Range）。 */
+  browseReadBytes: numEnv('MPW_LIMIT_FS_FILE_BYTES', 768 * 1024 * 1024),
   projectJsonBytes: 512 * 1024,       // project.json 超过它就不读（绝不整包读大文件）
   pkgTableBytes: 64 * 1024,           // PKGV 容器目录表首读窗口（不够 ×4 倍增）
   pkgTableMaxBytes: 1024 * 1024,      // 目录表倍增硬顶（超过就放弃容器内类型判定，如实上报）
@@ -360,29 +413,87 @@ const PICK_ROOT_REAL = (() => {
   try { return fs.realpathSync(PICK_ROOT_CONFIG) } catch { return PICK_ROOT_CONFIG }
 })()
 const LIBRARY_ROOT_EXISTS = !!statSafe(LIBRARY_ROOT_REAL)
-/** 命中的浏览根（浏览边界只有**一个**：PICK_ROOT_REAL）。 */
-function containingBrowseRoot(p) {
+/* ②(2026-09-24 用户第 1/2 条 · 只读浏览的**允许目录**策略)
+   浏览边界从"单个根"变成"一份**推导出来的**允许根清单"，三条来源（都跨平台、都不写死本机路径）：
+     ① `MPW_PICK_ROOT`（默认 = MPW_ROOT，工作区）—— 旧口径，永远在清单里、永远是第一顺位；
+     ② **库根 / 库根的上一级**：库根可能由 `MPW_LIBRARY_DIR`/`--library=` 指到浏览根之外，
+        那时"库根自己"与"放壁纸的上一级目录"都必须能浏览，否则用户就被自己的配置锁在门外；
+     ③ `MPW_ALLOW_DIRS`：冒号/分号分隔的**额外**允许目录（显式放宽口，逐条生效）。
+   保守之处：②③ 只在**确实落在浏览根之外**时才追加 —— 默认布局（库根在 MPW_ROOT 内）下
+   这份清单与旧行为**逐字节等价**（不会因为"库根的上一级"顺带把 `/tmp` 之类打开）。 */
+const BROWSE_EXTRA_DIRS = String(process.env.MPW_ALLOW_DIRS || '')
+  .split(/[:;]/).map((s) => s.trim()).filter(Boolean).map((d) => path.resolve(d))
+const BROWSE_ROOTS = (() => {
+  const out = [PICK_ROOT_REAL]
+  const add = (p) => { const r = realpathDeepest(p); if (!out.includes(r) && statSafe(r)) out.push(r) }
+  const libParent = path.dirname(LIBRARY_ROOT_REAL)
+  for (const p of [LIBRARY_ROOT_REAL, libParent, ...BROWSE_EXTRA_DIRS]) {
+    if (out.some((r) => isInside(r, p))) continue       // 已经在允许清单里 ⇒ 不加（不放大边界）
+    add(p)
+  }
+  return out
+})()
+const BROWSE_ROOTS_FROM = [
+  'MPW_PICK_ROOT / MPW_ROOT（' + PICK_ROOT_FROM + '）',
+  ...(BROWSE_ROOTS.length > 1 ? ['库根或库根的上一级（推导）' + (BROWSE_EXTRA_DIRS.length ? ' + MPW_ALLOW_DIRS' : '')] : []),
+].join(' + ')
+/** 命中的浏览根（清单里的**第一个**包含 p 的根）。`sameAs` 给"上一级"用：只在同一个根内向上。 */
+function containingBrowseRoot(p, sameAs) {
   const real = realpathDeepest(p)
-  return isInside(PICK_ROOT_REAL, real) ? { label: 'browseRoot', path: PICK_ROOT_REAL } : null
+  if (sameAs) {
+    const base = BROWSE_ROOTS.find((r) => isInside(r, realpathDeepest(sameAs)))
+    if (base) return isInside(base, real) ? { label: 'browseRoot', path: base } : null
+  }
+  for (const r of BROWSE_ROOTS) if (isInside(r, real)) return { label: 'browseRoot', path: r }
+  return null
 }
 /** `/api/fs/roots` 的roots[]：前端选择器的入口列表（`path` 一律绝对路径）。
- *  `listable` 才是"能不能列"（默认边界 = 工作区，home 通常在外 ⇒ 标 false 并给出放宽办法）。 */
+ *  `listable` 才是"能不能列"（默认边界 = 工作区，home 通常在外 ⇒ 标 false 并给出放宽办法）。
+ *
+ *  ⚠①(2026-09-24 用户第 1 条「不要写死我的目录」) 这份候选表**必须全部是推导出来的**，且标签也要推导：
+ *    旧实现里有两条是"这台机器的事实"被写成了字面量 —— `label:'工作区（DSHAREA）'`（工作区目录名写死）
+ *    与 `label:'壁纸总目录 allwallpaper'`（把某台机的语料目录名当产品名词）。现在：
+ *      · 标签一律由 `path.basename()` + **角色词**拼出来（工作区根 / 库根的上一级 / 宿主 home …）；
+ *      · 候选一律从**库根（配置/环境变量/运行期选择）**、`os.homedir()`、`process.cwd()`、`/media`、
+ *        Windows 盘符这些**任何机器上都成立**的东西推导；
+ *      · 不存在的候选**照样列出**（`exists:false` + 原因），因为"列出来但没有"比"悄悄消失"更好排查。
+ *    判据：`tests/bench-dsh-libroot-test.mjs` B 段扫描本文件（tracked 源）里不许出现本机绝对路径与
+ *    写死的工作区名（与 `tests/secret-scan-test.mjs` 同一口径，那里扫的是全仓库 tracked 文件）。 */
 function fsRoots() {
   const home = os.homedir() || '/'
-  // 顺序即去重优先级（同路径只留先出现的那条 ⇒ "当前库目录"永远在列表里）
+  const lib = activeRoot
+  const libParent = path.dirname(lib)
+  const configuredParent = path.dirname(LIBRARY_ROOT_CONFIG)
+  /** 跨平台通用候选：POSIX 的挂载点目录 + Windows 盘符（都是"这台机器上可能存在的根"，不是写死的路径）。 */
+  const platformRoots = []
+  if (process.platform === 'win32') {
+    for (const drive of 'CDEFGHIJ') {
+      const p = drive + ':\\'
+      if (statSafe(p)) platformRoots.push({ label: '盘符 ' + drive + ':', path: p, kind: 'drive' })
+    }
+  } else {
+    for (const m of ['/media', '/mnt', '/run/media']) if (statSafe(m)) platformRoots.push({ label: '挂载点 ' + m, path: m, kind: 'mount' })
+  }
+  // 顺序即去重优先级（同路径只留先出现的那条 ⇒ "当前库目录"永远在列表最前）
   const cands = [
-    { label: '当前库目录', path: activeRoot, kind: 'library' },
-    { label: '配置库根', path: LIBRARY_ROOT_CONFIG, kind: 'library-configured' },
-    { label: '宿主 home', path: home, kind: 'home' },
-    { label: '工作区（DSHAREA）', path: MPW_ROOT, kind: 'workspace' },
-    { label: '壁纸总目录 allwallpaper', path: path.join(MPW_ROOT, 'allwallpaper'), kind: 'allwallpaper' },
+    { label: '当前库目录', path: lib, kind: 'library', role: 'library' },
+    { label: '配置库根', path: LIBRARY_ROOT_CONFIG, kind: 'library-configured', role: 'configured' },
+    // ①(用户第 1 条) 库根的**上一级**：从库根推导，跨机器成立（作者机上是 …/allwallpaper，别人机上是别的）
+    { label: '库根的上一级（' + path.basename(libParent) + '）', path: libParent, kind: 'library-parent', role: 'library-parent' },
+    { label: '宿主 home', path: home, kind: 'home', role: 'home' },
+    { label: '当前工作目录（' + path.basename(process.cwd()) + '）', path: process.cwd(), kind: 'cwd', role: 'cwd' },
+    { label: '工作区根（' + path.basename(MPW_ROOT) + '）', path: MPW_ROOT, kind: 'workspace', role: 'workspace' },
+    ...(configuredParent !== libParent && configuredParent !== lib && configuredParent !== MPW_ROOT
+      ? [{ label: '配置库根的上一级（' + path.basename(configuredParent) + '）', path: configuredParent, kind: 'library-parent-configured', role: 'library-parent' }]
+      : []),
+    ...platformRoots.map((r) => Object.assign({ role: r.kind }, r)),
   ]
   const out = []
   const byPath = new Map()
   for (const c of cands) {
     const p = path.resolve(c.path)
     const hit = byPath.get(p)
-    if (hit) { hit.labels.push(c.label); continue }   // 同路径只出一条，标签合并（例如库根就是 allwallpaper）
+    if (hit) { hit.labels.push(c.label); continue }   // 同路径只出一条，标签合并（例如库根就是配置库根）
     const exists = !!statSafe(p)
     const inside = !!containingBrowseRoot(p)
     const row = Object.assign({}, c, {
@@ -412,6 +523,12 @@ let selection = null            // { dir, at, mode }
 const selectRoot = (dir, mode) => { activeRoot = dir; selection = { dir, at: Date.now(), mode: mode || 'dir' }; return selection }
 const clearSelection = () => { selection = null; activeRoot = LIBRARY_ROOT_REAL; return null }
 const itemDirReal = (id) => path.join(activeRoot, assertItemId(id))
+/* ③(2026-09-24 用户第 3/4 条：切根后**不刷新**就必须全部跟着变)
+   把"当前生效的库根"以**函数**形式注入给渲染器处理器（`:8899` 那份实现里的**唯一**读取点
+   `currentLibraryRoot()`）。为什么是函数而不是值：`activeRoot` 每次 `POST /api/library-dir` 都会变，
+   注入一个取值器 ⇒ 同一个进程内 `/pkg/<id>`、`/project/<id>`、`/ddlist/<id>`、`/type/<id>`、
+   `/ddvideo/…`、`/noise`、`/transpiled/…`、`/shader/…` **当次请求**就用新根，不必刷页面、不必重启服务。 */
+setLibraryRootProvider(() => activeRoot)
 
 /** 浏览路径解析（**唯一**入口）：`..` ⇒ 400；越浏览根 ⇒ 403；符号链接逃逸 ⇒ 403；NUL ⇒ 400。 *  返回 { norm, root }（root = 命中的浏览根），调用方要"只是校验"就用 assertBrowsePath()。 */
 function resolveBrowsePath(input) {
@@ -428,10 +545,11 @@ function resolveBrowsePath(input) {
     norm = path.resolve(PICK_ROOT_REAL, dec)
   }
   const root = containingBrowseRoot(norm)
-  if (!root) throw forbidden(`${what} 越出浏览根（允许：${PICK_ROOT_REAL}）：${input}`)
+  if (!root) throw forbidden(`${what} 越出浏览根（允许：${BROWSE_ROOTS.join(' , ')}）：${input}`)
   const real = realpathDeepest(norm)
-  if (!containingBrowseRoot(real)) throw forbidden(`${what} 经符号链接越出浏览根：${input}`)
-  return { norm, root, real }
+  const rootReal = containingBrowseRoot(real)
+  if (!rootReal) throw forbidden(`${what} 经符号链接越出浏览根：${input}`)
+  return { norm, root: rootReal, real }
 }
 function assertBrowsePath(input) {
   return resolveBrowsePath(input == null || input === '' ? '.' : String(input)).norm
@@ -439,7 +557,7 @@ function assertBrowsePath(input) {
 /** 库来源状态（`source` 只可能是 env/cli/user/default/none；`selected` 才是"用户选过没有"）。 */
 function librarySource() {
   const baseSource = selection ? 'user' : LIBRARY_SOURCE_INFO.source
-  // 既没有显式配置、默认路径也不存在 ⇒ `none`（连"回退到仓库约定目录"都不成立）
+  // 既没有显式配置、候选里也没有任何一条存在 ⇒ `none`（连"回退到某条推导路径"都不成立）
   const source = (!selection && baseSource === 'default' && !LIBRARY_ROOT_EXISTS) ? 'none' : baseSource
   const exists = !!statSafe(activeRoot)
   const narrowed = activeRoot !== LIBRARY_ROOT_REAL
@@ -447,9 +565,9 @@ function librarySource() {
     if (source === 'user') return `用户在选择器里显式选定（${selection && selection.mode === 'pick' ? '{pick:true} 宿主对话框' : '路径提交'}）：${activeRoot}`
     if (source === 'env') return `环境变量 MPW_LIBRARY_DIR 指定：${LIBRARY_ROOT_CONFIG}`
     if (source === 'cli') return `命令行 --library= 指定：${LIBRARY_ROOT_CONFIG}`
-    if (source === 'default') return `**没有人选过**：回退到仓库约定 ${LIBRARY_ROOT_CONFIG}（来源 ${LIBRARY_SOURCE_INFO.from}）；` +
+    if (source === 'default') return `**没有人选过**：按候选顺序探测后采用 ${LIBRARY_ROOT_CONFIG}（${LIBRARY_SOURCE_INFO.from}）；` +
       '要换库根请在页面里用选择器选，或设 MPW_LIBRARY_DIR / --library=DIR'
-    return `没有任何可用库根：既没有 MPW_LIBRARY_DIR/--library=，默认路径 ${LIBRARY_ROOT_CONFIG} 也不存在`
+    return `没有任何可用库根：既没有 MPW_LIBRARY_DIR/--library=，候选里也没有任何一条存在（逐条见 candidates）`
   })()
   return {
     dir: activeRoot,
@@ -460,8 +578,12 @@ function librarySource() {
     configuredDirReal: LIBRARY_ROOT_REAL,
     configuredSource: LIBRARY_SOURCE_INFO.source,
     configuredFrom: LIBRARY_SOURCE_INFO.from,
+    configuredFromDerived: LIBRARY_ROOT_FROM,
     configuredExists: LIBRARY_ROOT_EXISTS,
-    defaultDir: path.join(MPW_ROOT, 'allwallpaper', 'dd'),
+    /* ①(审计 B1) 候选列表逐条如实回报（哪条被采用、哪条不存在、为什么）——
+       "别人机器上为什么是这个库根"必须能一眼看出来，而不是靠读源码。 */
+    candidates: (LIBRARY_SOURCE_INFO.candidates || []).map((c) => Object.assign({}, c, { adopted: c.path === LIBRARY_ROOT_CONFIG })),
+    defaultDir: LIBRARY_ROOT_CONFIG,                             // 采用的那条（不再写死 <MPW_ROOT>/allwallpaper/dd）
     narrowed,
     withinConfiguredRoot: isInside(LIBRARY_ROOT_REAL, activeRoot),
     withinBrowseRoot: !!containingBrowseRoot(activeRoot),
@@ -1179,7 +1301,10 @@ function dirListing(dir, opts) {
   const st = statSafe(dir)
   if (!st || !st.isDirectory()) throw notFound(`目录不存在或不是目录：${dir}`)
   const real = realpathDeepest(dir)
-  if (!containingBrowseRoot(real)) throw forbidden(`目录经符号链接越出浏览根：${dir}`)
+  const hitRoot = containingBrowseRoot(real)
+  if (!hitRoot) throw forbidden(`目录经符号链接越出浏览根：${dir}`)
+  /* ②(2026-09-24) 相对路径/`parent` 一律按**这个目录命中的那个允许根**算（多根清单下才不会有 `../../…`）。 */
+  const rootReal = hitRoot.path
   const budget = makeBudget(6000)
   const names = listDirNames(dir, LIMITS.dirEntries + LIMITS.browserFiles + 200)
   const dirs = []
@@ -1197,7 +1322,7 @@ function dirListing(dir, opts) {
       if (dirs.length >= LIMITS.dirEntries) { truncated = true; continue }
       const probed = dirWallpaperSignal(sub, budget)
       dirs.push({
-        name: n, path: path.relative(PICK_ROOT_REAL, sub), abs: sub,
+        name: n, path: path.relative(rootReal, sub), abs: sub,
         looksLikeWallpaper: probed.kind !== 'other', entryKind: probed.kind, signal: probed.signal,
       })
     } else if (s2.isFile() && o.files !== false) {
@@ -1205,12 +1330,14 @@ function dirListing(dir, opts) {
       files.push({ name: n, ext: path.extname(n).toLowerCase(), size: s2.size, kind: fileKindOf(n), abs: sub })
     }
   }
-  const parent = (() => { const par = path.dirname(dir); return (par !== dir && containingBrowseRoot(par)) ? par : null })()
+  //  上一级：只在**同一个允许根**里向上（多根清单下不会从库根"上"到别的根去）
+  const parent = (() => { const par = path.dirname(dir); return (par !== dir && containingBrowseRoot(par, dir)) ? par : null })()
   const rootInfo = browseRootInfo()
   return {
     dir,
-    path: path.relative(PICK_ROOT_REAL, dir) || '.',
-    browseRoot: PICK_ROOT_REAL, root: PICK_ROOT_REAL, configuredRoot: rootInfo.configuredRoot, rootFrom: rootInfo.from,
+    path: path.relative(rootReal, dir) || '.',
+    browseRoot: rootReal, root: rootReal, configuredRoot: rootInfo.configuredRoot, rootFrom: rootInfo.from,
+    allowedRoots: BROWSE_ROOTS.slice(),
     parent, atRoot: !parent, insideRoot: true, readOnly: true,
     home: rootInfo.home, platform: rootInfo.platform,
     roots: [{ name: rootInfo.root, path: rootInfo.root, kind: 'browseRoot' }],
@@ -1355,8 +1482,58 @@ const HOP_HEADERS = new Set(['connection', 'keep-alive', 'proxy-authenticate', '
  *  `/media/dev/**`+`/web/dev/**`（库根只读面 + Range，本服务自己的）、`/api/**`（后端契约）。
  *  静态面**优先**：同名文件真的在 `demo/` 里存在就不代理（本服务是这台机上的权威静态面）。 */
 const RENDERER_ROOT_ROUTES = ['/pkg/', '/type/', '/ddlist/', '/ddvideo/', '/videolib/', '/project/', '/refrender/', '/weassist/', '/noise', '/pkgpath', '/pkgurl']
+/* ①②(2026-09-24 用户第 5 条) **渲染器面本地直供**：这些是渲染器页自己的路由（渲染器页写在渲染器路由
+   空间里的**根**上），`:8902` 现在能自己服务它们 —— 名单 = 「前面那串 id 路由」+「静态资源路由」+「几个精确端点」。
+   为什么要单独列：`:8902` 的静态面（`demo/`）挂在 `/`、`/demo/`、`/WEwebLoader/`、`/wallpaper-engine-webgl/`，
+   凡是静态面里**真有同名文件**的，仍然由静态面优先（本服务是这台机上的权威静态面）；其余才交给渲染器处理器。
+   **刻意不在名单里**的（必须留在本服务自己手里）：`/`（测试台页）、`/api/**`（后端契约）、`/diag`
+   （诊断流进本服务的环形缓冲）、`/report`+`/baseline`（本服务落盘）、`/media/**`+`/web/**`（库根只读面 + Range）。 */
+const RENDERER_LOCAL_PREFIXES = [
+  ...RENDERER_ROOT_ROUTES,
+  '/core/', '/shaders/', '/elysia/', '/assets/', '/render/', '/ref/', '/transpiled/', '/shader/',
+  '/elysia-video/', '/ext/',
+]
+const RENDERER_LOCAL_EXACT = new Set([
+  '/bundle.js', '/we-scene-bundle.js', '/puppet-skin.js', '/diag-flags.json',
+  '/baseline-metrics.mjs', '/attach-transform.mjs', '/web-frame-geometry.mjs', '/web-frame-host.mjs',
+  '/we-web-shim.mjs', '/audio-band-array.mjs', '/we-pointer-source.mjs', '/we-particle-pointer.mjs',
+  '/ext', '/noise', '/pkgpath', '/pkgurl', '/pkgdir', '/probe', '/shot',
+])
+const RENDERER_LOCAL_DIRS = ['web', 'core', 'shaders'].map((d) => path.join(REPO_ROOT, d))
+/** 这条路径**本地就能服务**吗（用于"上游配了但连不上"时决定回退本地还是按老口径 502）。
+ *  判据刻意保守：只认**明确的渲染器路由**（前缀/精确端点）、渲染器页本身、以及仓库里真实存在的
+ *  渲染器静态资源（`web/`、`core/`、`shaders/`、`extensions/`、`assets/`）。
+ *  `路径不在名单里` ⇒ 说"本地没有"（例如 `/webloader/anything`）⇒ 保持既有 502 语义。 */
+function rendererLocalServes(p) {
+  if (p === '/' || p === '/index.html') return true
+  if (RENDERER_LOCAL_EXACT.has(p)) return true
+  if (RENDERER_LOCAL_PREFIXES.some((pre) => p === pre || p.startsWith(pre))) return true
+  const rel = p.replace(/^\/+/, '')
+  if (!rel) return false
+  for (const dir of [...RENDERER_LOCAL_DIRS, path.join(REPO_ROOT, 'extensions'), path.join(REPO_ROOT, 'assets')]) {
+    const st = statSafe(path.join(dir, rel))
+    if (st && st.isFile()) return true
+  }
+  return false
+}
+/** 把请求交给**同一份**渲染器处理器（本地直供）。`relOverride` = 已经去掉挂载前缀的相对路径。 */
+function serveRendererLocal(req, res, url, relOverride, extraHeaders) {
+  const rel = (typeof relOverride === 'string') ? relOverride : url.pathname.replace(/^\/webloader\/?/, '')
+  const mountPath = '/' + String(rel).replace(/^\/+/, '')
+  req.url = mountPath + (url.search || '')
+  const head = Object.assign({ 'X-Bench-Served': 'local' }, extraHeaders || {})
+  /* 可观测标记：本地直供的渲染器资源一律带 `X-Bench-Served: local`；
+     若同时配了（但没用上的）上游，再补 `X-Bench-Upstream: <host:port>`，一眼能看出"上游在但没走它"。 */
+  if (RENDERER_UPSTREAM && RENDERER_UPSTREAM.host) head['X-Bench-Upstream'] = RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port
+  try { for (const [k, v] of Object.entries(head)) if (!res.headersSent) res.setHeader(k, v) } catch { /* 已发头 */ }
+  recordDiag(`bench: 渲染器面本地直供 ${req.method} ${mountPath}${url.search || ''}`, 'info', 'renderer-local')
+  return rendererRequestHandler(req, res)
+}
 function proxyRenderer(req, res, url, relOverride) {
-  if (!RENDERER_UPSTREAM) return json(res, 500, { ok: false, error: '渲染器上游地址配错（MPW_RENDERER_8899）' })
+  if (!RENDERER_UPSTREAM || RENDERER_UPSTREAM.bad || !RENDERER_UPSTREAM.host) {
+    /* 配错/没配 ⇒ 不再 500（那是"必须先起 8899"的旧口径）：本地直供。 */
+    return serveRendererLocal(req, res, url, relOverride, { 'X-Bench-Upstream': 'unconfigured' })
+  }
   const rel = (typeof relOverride === 'string') ? relOverride : url.pathname.replace(/^\/webloader\/?/, '')
   const targetPath = (RENDERER_UPSTREAM.path ? RENDERER_UPSTREAM.path + '/' : '/') + rel + (url.search || '')
   const headers = {}
@@ -1372,23 +1549,39 @@ function proxyRenderer(req, res, url, relOverride) {
        `ERR_INVALID_CHAR: Invalid character in header content` 抛在异步回调里 ⇒ 连接被掐、curl 只看得到 `000`（实测踩到）。
        头里的说明一律用 ASCII；要给人读的中文说明放**响应体**（走 /__health 的自述）。 */
     out['X-Bench-Proxy'] = 'webloader->' + RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port
+    out['X-Bench-Served'] = 'upstream'
+    out['X-Bench-Upstream'] = RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port
     res.writeHead(upRes.statusCode || 502, out)
     upRes.pipe(res)
   })
   up.on('timeout', () => { try { up.destroy(new Error('upstream-timeout')) } catch { /* 已断 */ } })
+  const localFallbackOk = (req.method === 'GET' || req.method === 'HEAD') && rendererLocalServes(url.pathname.replace(/^\/webloader\/?/, '/'))
   up.on('error', (e) => {
     if (res.headersSent) { try { res.destroy() } catch { /* 已断 */ } return }
+    const code = String((e && e.code) || (e && e.message) || e)
+    /* ②(2026-09-24) **上游配了但连不上 ⇒ 回退本地直供**（用户要求："把死端口设成上游，页面仍能完整工作"）。
+       只对 GET/HEAD 回退：POST 的 body 已经喂给上游了，回退会拿到半个请求（那种情况保持老口径 502）。
+       本地也没有这条路由（`rendererLocalServes` 说不认）⇒ 保持既有 502 + 人读说明（K2d 判据不变）。 */
+    if (localFallbackOk) {
+      recordDiag(`bench: 渲染器上游不可达（${code}）⇒ 本地直供 ${url.pathname}`, 'info', 'renderer-local')
+      return serveRendererLocal(req, res, url, undefined, { 'X-Bench-Upstream-Error': code })
+    }
     /* 上游没起来 ⇒ **502 + 人读说明**（不是挂住、也不是 500）：明确告诉调用方"本机 :8899 没在跑"以及怎么办。 */
     json(res, 502, {
-      ok: false, error: '渲染器上游不可达：' + String(e && e.code || e && e.message || e),
+      ok: false, error: '渲染器上游不可达：' + code,
       upstream: RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port,
-      hint: '本仓渲染器页默认跑在本机 8899（`bash start-demo.sh` 或看门狗 `tests/keep-servers.sh`）；'
-        + '也可用 MPW_RENDERER_8899=http://host:port 指到别处。测试台在上游不可用时应回退到产物页预览。',
+      hint: '本服务**默认不需要上游**：不设 MPW_RENDERER_UPSTREAM 时 `/webloader/**` 与渲染器根路由全部本地直供。'
+        + '这里出现 502 说明显式配了 MPW_RENDERER_UPSTREAM/MPW_RENDERER_8899 而它连不上，且这条路径本地也没有。',
       fallback: '/wallpaper-engine-webgl/renderer/index.html',
     })
   })
   req.pipe(up)
   return undefined
+}
+/** 渲染器面入口：**本地优先**（没配上游时就是纯本地；配了就走上游，上游连接失败回退本地）。 */
+function serveRenderer(req, res, url, relOverride) {
+  if (RENDERER_UPSTREAM && !RENDERER_UPSTREAM.bad && RENDERER_UPSTREAM.host) return proxyRenderer(req, res, url, relOverride)
+  return serveRendererLocal(req, res, url, relOverride)
 }
 
 // ── 静态面 ──────────────────────────────────────────────────────────────────────────────────────
@@ -1482,7 +1675,7 @@ async function handleApi(req, res, url) {
     const cur = assertBrowsePath(q.get('path') || '')
     const wantFiles = q.get('files') !== '0'
     if (p === '/api/dir-parent') {
-      const par = (() => { const x = path.dirname(cur); return (x !== cur && isInside(PICK_ROOT_REAL, x)) ? x : null })()
+      const par = (() => { const x = path.dirname(cur); return (x !== cur && containingBrowseRoot(x, cur)) ? x : null })()
       const payload = dirListing(par || cur, { files: wantFiles })
       payload.from = cur                      // 从哪个目录上来
       payload.atRoot = !payload.parent        // atRoot = **列出来的这个目录**已在浏览根（与 dirListing 同义）
@@ -1499,11 +1692,12 @@ async function handleApi(req, res, url) {
     const st = statSafe(dir)
     if (!st || !st.isDirectory()) throw notFound(`目录不存在或不是目录：${body.path}`)
     const real = realpathDeepest(dir)
-    if (!isInside(PICK_ROOT_REAL, real)) throw forbidden(`目录经符号链接越出浏览根：${body.path}`)
+    const hitPick = containingBrowseRoot(real)
+    if (!hitPick) throw forbidden(`目录经符号链接越出浏览根：${body.path}`)
     recordDiag(`bench: 选择器"就选这个目录" = ${dir}（只读校验；未改任何状态${body.asLibrary ? '；随后设为库根' : ''}）`, 'info', 'dir-pick')
     const out = {
-      picked: true, dir, abs: dir, path: path.relative(PICK_ROOT_REAL, dir) || '.',
-      browseRoot: PICK_ROOT_REAL, isDirectory: true, readable: dirReadable(dir), readOnly: true,
+      picked: true, dir, abs: dir, path: path.relative(hitPick.path, dir) || '.',
+      browseRoot: hitPick.path, isDirectory: true, readable: dirReadable(dir), readOnly: true,
       scan: body.scan === false ? null : scanDirForPicker(dir),
       asLibrary: !!body.asLibrary,
       libraryBefore: { dir: activeRoot, source: librarySource().source, selected: librarySource().selected },
@@ -1563,16 +1757,40 @@ async function handleApi(req, res, url) {
     const dir = assertBrowsePath(spec)
     const st = statSafe(dir)
     if (!st || !st.isDirectory()) throw notFound(`目录不存在或不是目录：${spec}`)
-    const real = realpathDeepest(dir)
-    if (!containingBrowseRoot(real)) throw forbidden(`目录经符号链接越出浏览根：${spec}`)
+    const hitFsPick = containingBrowseRoot(realpathDeepest(dir))
+    if (!hitFsPick) throw forbidden(`目录经符号链接越出浏览根：${spec}`)
     selectRoot(dir, 'pick')
     const src = librarySource()
     recordDiag(`bench: /api/fs/pick 选定库根 ${dir}（source=user）`, 'info', 'fs-pick')
     return jsonOk(res, {
       picked: true, path: dir, dir, source: src.source, selected: src.selected, library: src,
       scan: body.scan === false ? null : scanDirForPicker(dir),
-      browseRoot: PICK_ROOT_REAL, readOnly: true,
+      browseRoot: hitFsPick.path, readOnly: true,
     })
+  }
+  /* ②b(2026-09-24 用户第 2 条「选择文件为什么不能像选择文件夹一样，选我环境里的文件？」)
+     `GET /api/fs/file?path=<绝对路径>` —— **同一个浏览 API/同一棵浏览树**里的**只读**取文件：
+     与 `/api/fs/list` 用**同一个** `assertBrowsePath()`（= 同一份允许根清单 + 同一套 `..`/真身校验），
+     越界**如实 403**、不存在 404、目录 400、超过单文件上限 413（不截断成"半个包"假装成功）。
+     为什么需要它：服务端浏览树能"看见"文件之后，页面必须能把选中文件的**字节**喂给既有的预览链
+     （`previewLocal({pkg,proj,…})`）——否则"能选不能用"。支持 Range（大包按需取段）。 */
+  if (p === '/api/fs/file' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const rawSpec = q.get('path')
+    const file = assertBrowsePath(rawSpec == null ? '' : rawSpec)
+    const st = statSafe(file)
+    if (!st) throw notFound(`文件不存在：${rawSpec}`)
+    if (st.isDirectory()) throw bad(`这是目录不是文件（要列目录请用 GET /api/fs/list）：${rawSpec}`)
+    if (!st.isFile()) throw bad(`不是普通文件：${rawSpec}`)
+    const hitFile = containingBrowseRoot(realpathDeepest(file))
+    if (!hitFile) throw forbidden(`文件经符号链接越出浏览根：${rawSpec}`)
+    if (st.size > LIMITS.browseReadBytes) {
+      throw new HttpError(413, `文件超过单次读取上限 ${LIMITS.browseReadBytes} 字节（${st.size}）：${rawSpec}`)
+    }
+    /* 大包**不**进内存：sendFile 走 createReadStream + Range。 */
+    if (!sendFile(req, res, file, { headers: { 'X-Bench-Served': 'local', 'X-Bench-Browse-Root': hitFile.path } })) {
+      throw notFound(`文件不可读：${rawSpec}`)
+    }
+    return undefined
   }
 
   // ② /api/library-dir —— 选择库根：{pick:true} 降级；{dir} 收窄/显式选定；GET 枚举子目录
@@ -2147,24 +2365,42 @@ function health() {
     librarySource: lib.source, librarySelected: lib.selected, libraryExplicit: lib.explicit,
     reportsDir: REPORTS_DIR, propsDir: PROPS_DIR, trashRoot: TRASH_ROOT, thumbDir: THUMB_DIR,
     staticRoot: STATIC_ROOT, staticMounts: ['/', '/demo/', '/WEwebLoader/', '/wallpaper-engine-webgl/'], staticStore: STORE ? 'cache' : 'no-store',
-    /* ① 渲染器页同源入口（测试台可用它预览；上游不可达时回退产物页） */
+    /* ①②③④(2026-09-24 用户第 4/5 条) 渲染器面：**默认本地直供**（同一份实现，见 rendererRequestHandler），
+       上游只是**可选**的；配了连不上就回退本地。自述里把"上游在不在、走没走"写清楚。 */
+    renderer: {
+      servedBy: 'local', servedHeader: 'X-Bench-Served: local', upstreamHeader: 'X-Bench-Upstream: <host:port>',
+      handler: 'server/we-scene-demo-server.mjs 的 rendererRequestHandler（同一份实现被两个入口复用）',
+      libraryRootProvider: 'setLibraryRootProvider(() => activeRoot)——所有按 itemId 解析的路由用它',
+      pkgParser: pkgParserUnavailable() ? { available: false, error: pkgParserUnavailable() } : { available: true },
+    },
     rendererProxy: RENDERER_UPSTREAM ? {
-      path: '/webloader/**', upstream: RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port,
-      from: process.env.MPW_RENDERER_8899 ? 'env MPW_RENDERER_8899' : '默认 http://127.0.0.1:8899',
+      path: '/webloader/**', upstream: RENDERER_UPSTREAM.bad ? null : (RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port),
+      from: RENDERER_UPSTREAM.from,
+      mode: RENDERER_UPSTREAM.bad ? 'configured-but-invalid（本地直供，上游值无法解析）' : 'upstream-first（连接层失败 ⇒ 本地直供回退）',
       purpose: '让测试台用**本仓渲染器页**预览（带 P-163 的"先选级再解码"；超大贴图不再黑屏）',
+      localFallback: 'GET/HEAD：上游连不上 ⇒ 本地直供（响应头 X-Bench-Served: local + X-Bench-Upstream-Error）',
       fallback: '/wallpaper-engine-webgl/renderer/index.html（上游产物页）',
-      unreachable: '502 + {upstream,hint,fallback}（不挂住、不 500）',
-    } : { path: '/webloader/**', error: '上游地址配错' },
+      unreachable: '仅当**本地也没有这条路由**时：502 + {upstream,hint,fallback}（不挂住、不 500）',
+    } : {
+      path: '/webloader/**', upstream: null, from: '未设置 MPW_RENDERER_UPSTREAM / MPW_RENDERER_8899',
+      mode: 'local-only（默认口径：不需要上游，8902 自己服务渲染器面）',
+      purpose: '只开 8902 一个服务就能打开并预览本仓渲染器页',
+      localFallback: '全部本地直供', fallback: '/wallpaper-engine-webgl/renderer/index.html（上游产物页）',
+      unreachable: '不适用（没有上游）',
+    },
     mediaBase: '/media/dev', webBase: '/web/dev', rendererPage: '/wallpaper-engine-webgl/renderer/index.html',
     dirPicker: {
-      available: !!statSafe(PICK_ROOT_REAL), readOnly: true, browseRoot: PICK_ROOT_REAL, browseRootFrom: PICK_ROOT_FROM,
+      available: BROWSE_ROOTS.some((r) => statSafe(r)), readOnly: true, browseRoot: PICK_ROOT_REAL, browseRootFrom: PICK_ROOT_FROM,
+      allowedRoots: BROWSE_ROOTS.slice(), allowedRootsFrom: BROWSE_ROOTS_FROM,
+      allowDirsEnv: 'MPW_ALLOW_DIRS（冒号/分号分隔的额外允许目录）',
       home: os.homedir() || '/', platform: process.platform,
       routes: {
         roots: 'GET /api/fs/roots', listAbs: 'GET /api/fs/list?path=', pickAbs: 'POST /api/fs/pick',
+        fileAbs: 'GET /api/fs/file?path=',      // ②(第 2 条) "选择文件"与"选择文件夹"走同一棵浏览树
         list: 'GET /api/dir-list?path=', parent: 'GET /api/dir-parent?path=', pick: 'POST /api/dir-pick',
         commit: 'POST /api/library-dir {dir|?path=}', compat: 'GET /list-dirs?path=', source: 'GET /api/library-source',
       },
-      escapes: '相对路径含 .. ⇒ 400；绝对路径越浏览根 ⇒ 403；符号链接逃逸 ⇒ 403（不列出）；NUL/控制符 ⇒ 400',
+      escapes: '相对路径含 .. ⇒ 400；绝对路径越允许根 ⇒ 403；符号链接逃逸 ⇒ 403（不列出）；NUL/控制符 ⇒ 400',
       systemPickerFallback: '页面自带 showDirectoryPicker/webkitdirectory（Android 上即系统选择器）只能作兜底；服务端这条路由才是环境内路径的正路',
     },
     thumb: ffmpeg
@@ -2273,23 +2509,24 @@ const server = http.createServer((req, res) => {
     }
     res.writeHead(204, { 'Cache-Control': NO_STORE }); return res.end()
   }
-  /* ①(渲染器页同源入口) `/webloader/**` 转发到本仓渲染器页（含 `/bundle.js`、`/pkg/…`、`/media/…` 全套路由）。
-     为什么要有它：测试台预览超大贴图（如 3669681034 的 7680×4320/43.8MB）时，上游产物页"先解码再缩放"会黑屏，
-     而本仓 core 有 P-163 的"先选级再解码"修复 ⇒ 让测试台能走我们自己的页。 */
-  if (p === '/webloader' || p.startsWith('/webloader/')) return done(() => proxyRenderer(req, res, url))
-  /* ②(2026-09-21 渲染器来源=本仓) 渲染器页**自己的**路由（它写在根上）同样转到上游 —— 否则
-     `/webloader/?id=<id>` 会在取包那一步 404（读数见 `RENDERER_ROOT_ROUTES` 的注释）。
-     静态面优先：`demo/` 里真有同名文件就不代理（本服务的静态面是权威）；越根/坏 URL 仍按
-     本服务既有口径 400/403（`staticTarget` 会抛，**不**把请求推给上游）。 */
-  if (RENDERER_ROOT_ROUTES.some((r) => p === r || p.startsWith(r))) {
-    const rel = p.replace(/^\/+/, '')
-    // 静态面优先（`staticTarget` 的越根/坏 URL 抛错仍按本服务既有口径 400/403，**不**推给上游；
-    //  `done()` 只是"把 fn 的同步 throw 接到 onErr"，靠它返回 undefined 判"有没有本地文件"是错的 —— 那会挂住连接）
-    let localErr = null
-    let localStat = null
-    try { localStat = statSafe(staticTarget(rel)) } catch (e) { localErr = e }
-    if (localErr) return jsonErr(res, localErr)
-    if (!localStat || localStat.isDirectory()) return done(() => proxyRenderer(req, res, url, rel))
+  /* ①(渲染器页同源入口) `/webloader/**`：**默认本地直供**（= 同一份渲染器处理器），
+     只有显式配了 `MPW_RENDERER_UPSTREAM`/`MPW_RENDERER_8899` 才走上游（连不上则回退本地）。
+     为什么要有这条路径：测试台预览超大贴图（如 3669681034 的 7680×4320/43.8MB）时，上游产物页
+     "先解码再缩放"会黑屏，而本仓 core 有 P-163 的"先选级再解码"修复。 */
+  if (p === '/webloader' || p.startsWith('/webloader/')) return done(() => serveRenderer(req, res, url))
+  /* ②(2026-09-21 渲染器来源=本仓；2026-09-24 本地直供) 渲染器页**自己的**路由（它写在根上）：
+     静态面优先（`demo/` 里真有同名文件就不打扰渲染器处理器），否则交给**同一份**渲染器实现。
+     越根/坏 URL 仍按本服务既有口径 400/403（`staticTarget` 会抛，**不**把请求推给上游）。 */
+  {
+    const relForRenderer = p.replace(/^\/+/, '')
+    const isRendererPath = RENDERER_LOCAL_EXACT.has(p) || RENDERER_LOCAL_PREFIXES.some((r) => p === r || p.startsWith(r))
+    if (isRendererPath) {
+      let localErr = null
+      let localStat = null
+      try { localStat = statSafe(staticTarget(relForRenderer)) } catch (e) { localErr = e }
+      if (localErr) return jsonErr(res, localErr)
+      if (!localStat || localStat.isDirectory()) return done(() => serveRenderer(req, res, url, relForRenderer))
+    }
   }
   if (p.startsWith('/api/')) return done(() => handleApi(req, res, url))
 
@@ -2485,10 +2722,13 @@ server.listen(PORT, () => {
   line(`一站式测试台服务已启动：http://127.0.0.1:${PORT}/`)
   line(`  静态测试台     : ${STATIC_ROOT} 挂载在 / 、/demo/ 、/WEwebLoader/ 、/wallpaper-engine-webgl/（${STORE ? 'cache' : 'no-store'}）`)
   line(`  渲染器 iframe  : http://127.0.0.1:${PORT}/wallpaper-engine-webgl/renderer/index.html?type=scene&src=<itemId>（产物写死的路径）`)
+  line(`  渲染器面(本地) : /webloader/** 与渲染器根路由（/bundle.js /core/** /elysia/** /pkg/<id> /project/<id> …）` +
+    `由本服务**本地直供**（同一份 rendererRequestHandler；响应头 X-Bench-Served: local）` +
+    (RENDERER_UPSTREAM ? `；上游=可选（${RENDERER_UPSTREAM.raw}${RENDERER_UPSTREAM.bad ? ' ← **解析不了**，按本地直供' : '，连不上则回退本地'}）` : '；上游=未配置（不需要 :8899）'))
   line(`  壁纸库根(只读) : ${activeRoot}${statSafe(activeRoot) ? '' : '  ← **不存在**（/api/library 会返回 missing+error）'}`)
   const lib = healthSnap.library
   line(`  库来源(显式)   : source=${lib.source} selected=${lib.selected}（${lib.reason}）`)
-  line(`  浏览根(只读)   : ${PICK_ROOT_REAL}（${PICK_ROOT_FROM}）—— 选择器：GET /api/dir-list · GET /api/dir-parent · POST /api/dir-pick · 兼容壳 GET /list-dirs`)
+  line(`  浏览根(只读)   : ${BROWSE_ROOTS.join(' , ')}（${BROWSE_ROOTS_FROM}）—— 选择器：GET /api/fs/roots·list·file · GET /api/dir-list · GET /api/dir-parent · POST /api/dir-pick · 兼容壳 GET /list-dirs`)
   line(`  全类型扫描     : ${JSON.stringify(healthSnap.libraryScan.kinds || {})}（container: ${JSON.stringify(healthSnap.libraryScan.containerKinds || {})}）` +
     `；跳过 ${healthSnap.libraryScan.skipped == null ? '?' : healthSnap.libraryScan.skipped} 项（原因见 /api/library 的 scan.skippedList）`)
   line(`  缩略图         : GET /api/thumb?item=&w=（现成 preview.* 直出${healthSnap.thumb.available ? '；视频档用 ' + healthSnap.thumb.ffmpeg + ' 抽帧' : '；**没有 ffmpeg** ⇒ 无 preview 的视频档如实 501'}）`)

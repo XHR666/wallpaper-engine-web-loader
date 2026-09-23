@@ -13,18 +13,32 @@
 //   · 用户属性绑定（`{user:"clock"}` 等）全部回落到作者默认值。
 // 而**用户本机装了 WE** ⇒ Steam 工坊目录里那份 project.json 一直在，只是我们从没去读。
 //
-// ── 顺序（先私有、后官方；先显式、后猜测）──────────────────────────────────────
+// ── 顺序（先显式、后推导；**没有任何"作者语料布局当默认值"**）────────────────────────
+//   · 显式语料根（opts.sceneRoot / MPW_SCENE_ROOT / MPW_LIBRARY_DIR）优先于一切推导；
+//   · 官方工坊目录（本文件要解决的那一档，P-85）优先于**未配置时的历史布局猜测**；
+//   · 历史布局与通用推导（库根自身/父目录/home）都只是**存在性探测的候选**，不是默认值。
 //   1. `opts.dir` / `MPW_PROJECT_JSON_DIR`           显式指定（测试与部署用，最高优先级）
-//   2. `<MPW_SCENE_ROOT>/<id>/project.json`         语料目录自己带的那份（有就用，行为不变）
-//   3. `<MPW_WE_WORKSHOP>/<id>/project.json`        **Steam 工坊目录**（本文件要解决的那一档）
-//   4. `<MPW_ROOT>/allwallpaper/<id>/project.json`  另一种历史语料布局
-// 命中即返回，并回传 `source` 供日志/上报显示"这份属性表是从哪来的"（排查时最想知道的一件事）。
+//   2. `opts.sceneRoot` / `MPW_SCENE_ROOT`          调用方**明确给出**的语料根（未给就没有这一档）
+//   3. `opts.workshopDir` / `MPW_WE_WORKSHOP` / 推导  **Steam 工坊目录**（本文件要解决的那一档）
+//   4. `MPW_LIBRARY_DIR`                            库根环境变量（本仓服务端同一口径）
+//   5. `<root>/allwallpaper/<id>`、`<root>/allwallpaper/dd/<id>`  两种**历史语料布局**
+//      ⚠ 它们只是候选（存在性探测决定用不用），**不是**默认值：`<root>` 是调用方给的库根，
+//      别人 `import` 这个包时不会"静默去找作者机器上的老布局"（2026-09-24 可移植性审计 PA-52）。
+//   6. `<root>/<id>`（库根自身）、`<dirname(root)>/<id>`（库根的父目录）、`<os.homedir()>/<id>`
+//      —— 通用推导候选：任何机器上都成立，不依赖任何作者目录名。
+// 命中即返回，并回传：
+//   · `source` —— **档位名**（消费方按档位分流：scene-root / we-workshop / …）；
+//   · `from`   —— 这一档**具体是谁给的**（opts / 哪个环境变量 / 哪条推导），排查时最想知道的那件事；
+//   · `why`    —— 人读的"为什么采用它"。
+// 一个都不存在 ⇒ `readProjectJson()` 返回 `null`（不抛），调用方按"无属性表"优雅降级；
+// `projectJsonProbe()` 会给出**逐条候选的探测台账**（谁不存在、谁读坏了），供日志如实上报。
 //
 // ── 我们**不分发**任何 WE 资产 ────────────────────────────────────────────────
 // 这里只读用户本机已存在的文件（与 `/weassist/**` 同一条原则）；找不到就返回 null，
 // 调用方按"无属性表"的既有路径优雅降级。**不复制、不缓存、不打包**。
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -59,36 +73,76 @@ export function findWorkshopDir(opts = {}) {
 }
 
 /**
- * 按优先级列出 `<id>/project.json` 的候选路径（不判存在性，便于测试逐条断言顺序）。
- * @returns {{path:string, source:string}[]}
+ * 按优先级列出 `<id>/project.json` 的候选（**不判存在性**，便于测试逐条断言顺序）。
+ *
+ * 每一条都带 `source`（档位名）/ `from`（谁给的）/ `why`（为什么）—— 三个字段一起才够排查。
+ * 候选表**全部由入参/环境变量/库根推导**：没有任何"作者机上那条路径"当默认值。
+ * @returns {{path:string, source:string, from:string, why:string}[]}
  */
 export function projectJsonCandidates(id, opts = {}) {
-  const root = opts.root || process.env.MPW_ROOT || MPW_ROOT_DEFAULT
-  const sceneRoot = opts.sceneRoot || process.env.MPW_SCENE_ROOT || root + '/allwallpaper/dd'
+  const root = path.resolve(opts.root || process.env.MPW_ROOT || MPW_ROOT_DEFAULT)
+  const home = (() => { try { return os.homedir() } catch { return HOME } })() || HOME
   const out = []
-  const push = (p, source) => { if (p) out.push({ path: p, source }) }
-  if (opts.dir) push(path.join(opts.dir, String(id), 'project.json'), 'explicit-dir')
-  if (process.env.MPW_PROJECT_JSON_DIR) push(path.join(process.env.MPW_PROJECT_JSON_DIR, String(id), 'project.json'), 'env-MPW_PROJECT_JSON_DIR')
-  push(path.join(sceneRoot, String(id), 'project.json'), 'scene-root')
+  const push = (p, source, from, why) => { if (p) out.push({ path: p, source, from, why }) }
+  const inRoot = (dir, label) => path.join(dir, String(id), 'project.json')
+
+  // 1) 显式：调用方说了算（测试与部署用）
+  if (opts.dir) push(inRoot(opts.dir), 'explicit-dir', 'opts.dir=' + opts.dir, '调用方显式指定的目录（最高优先级）')
+  if (process.env.MPW_PROJECT_JSON_DIR) push(inRoot(process.env.MPW_PROJECT_JSON_DIR), 'env-MPW_PROJECT_JSON_DIR', 'env MPW_PROJECT_JSON_DIR=' + process.env.MPW_PROJECT_JSON_DIR, '环境变量显式指定的目录')
+
+  // 2) 语料根：只有**调用方/环境**明确给出时才有这一档（旧实现的"默认 = <root>/allwallpaper/dd"已删）
+  if (opts.sceneRoot) push(inRoot(opts.sceneRoot), 'scene-root', 'opts.sceneRoot=' + opts.sceneRoot, '调用方给出的语料根')
+  else if (process.env.MPW_SCENE_ROOT) push(inRoot(process.env.MPW_SCENE_ROOT), 'scene-root', 'env MPW_SCENE_ROOT=' + process.env.MPW_SCENE_ROOT, '环境变量给出的语料根')
+
+  // 3) Steam 工坊目录（官方安装里 project.json 与 scene.pkg 同级，P-85 的根因）
+  const wsFrom = opts.workshopDir ? 'opts.workshopDir=' + opts.workshopDir
+    : (process.env.MPW_WE_WORKSHOP ? 'env MPW_WE_WORKSHOP=' + process.env.MPW_WE_WORKSHOP : null)
   const ws = opts.workshopDir || process.env.MPW_WE_WORKSHOP || findWorkshopDir(opts)
-  if (ws) push(path.join(ws, String(id), 'project.json'), 'we-workshop')
-  push(path.join(root, 'allwallpaper', String(id), 'project.json'), 'allwallpaper-flat')
+  if (ws) push(inRoot(ws), 'we-workshop', wsFrom || '推导出的 Steam 工坊目录=' + ws, 'Steam 工坊 431960：作者把 project.json 放在 scene.pkg 同级')
+
+  // 4) 库根环境变量（本仓服务端 MPW_LIBRARY_DIR 的同一口径）
+  if (process.env.MPW_LIBRARY_DIR) push(inRoot(process.env.MPW_LIBRARY_DIR), 'env-MPW_LIBRARY_DIR', 'env MPW_LIBRARY_DIR=' + process.env.MPW_LIBRARY_DIR, '库根环境变量（与服务端 /api/library 同一取值）')
+
+  // 5) 历史语料布局（**只是候选**：存在性探测决定用不用 ⇒ 不是"默认值"）
+  push(inRoot(path.join(root, 'allwallpaper')), 'allwallpaper-flat', '库根 <root>/allwallpaper（root=' + root + '）', '历史语料布局之一：<root>/allwallpaper/<id>')
+  push(inRoot(path.join(root, 'allwallpaper', 'dd')), 'scene-root-workspace', '工作区语料布局 <root>/allwallpaper/dd（root=' + root + '）', '本仓工作区约定的语料布局；仅候选之一，不存在就继续往下探')
+
+  // 6) 通用推导候选：库根自身 / 库根的父目录 / 宿主 home —— 任何机器上都成立
+  push(inRoot(root), 'library-root', '库根自身 <root>（root=' + root + '）', '调用方给的库根下直接放 <id>/project.json')
+  const parent = path.dirname(root)
+  if (parent && parent !== root) push(inRoot(parent), 'library-parent', '库根的父目录 <dirname(root)>（root=' + root + '）', '库根与语料平级时的布局')
+  if (home) push(inRoot(home), 'home', 'os.homedir()=' + home, '宿主 home 下的同名目录（最宽的兜底候选）')
   return out
 }
 
 /**
+ * 逐条探测候选（**只读**；不抛）—— 供调用方如实上报"找了哪些地方、各自什么结果"。
+ * @returns {{found:{path:string,source:string,from:string,why:string,json:object}|null,
+ *            attempts:{path:string,source:string,from:string,exists:boolean,error:string|null}[]}}
+ */
+export function projectJsonProbe(id, opts = {}) {
+  const attempts = []
+  for (const c of projectJsonCandidates(id, opts)) {
+    let exists = false
+    try { exists = fs.existsSync(c.path) } catch (e) { attempts.push({ path: c.path, source: c.source, from: c.from, exists: false, error: 'existsSync: ' + ((e && e.message) || e) }); continue }
+    if (!exists) { attempts.push({ path: c.path, source: c.source, from: c.from, exists: false, error: null }); continue }
+    try {
+      const json = JSON.parse(fs.readFileSync(c.path, 'utf8').replace(/^\uFEFF/, ''))
+      return { found: { path: c.path, source: c.source, from: c.from, why: c.why, json }, attempts: [...attempts, { path: c.path, source: c.source, from: c.from, exists: true, error: null }] }
+    } catch (e) {
+      // 坏文件不致命：继续找下一档，但**记账**（不静默吞掉）
+      attempts.push({ path: c.path, source: c.source, from: c.from, exists: true, error: 'JSON: ' + ((e && e.message) || e) })
+    }
+  }
+  return { found: null, attempts }
+}
+
+/**
  * 读官方 project.json。
- * @returns {{path:string, source:string, json:object}|null} 读不到（或 JSON 坏）→ null
+ * @returns {{path:string, source:string, from:string, why:string, json:object}|null} 读不到（或 JSON 坏）→ null
  */
 export function readProjectJson(id, opts = {}) {
-  for (const c of projectJsonCandidates(id, opts)) {
-    try {
-      if (!fs.existsSync(c.path)) continue
-      const json = JSON.parse(fs.readFileSync(c.path, 'utf8').replace(/^\uFEFF/, ''))
-      return { path: c.path, source: c.source, json }
-    } catch { /* 坏文件不致命：继续找下一档 */ }
-  }
-  return null
+  return projectJsonProbe(id, opts).found
 }
 
 /**
@@ -98,5 +152,5 @@ export function readProjectJson(id, opts = {}) {
 export function readProjectProperties(id, opts = {}) {
   const r = readProjectJson(id, opts)
   const props = r && r.json && r.json.general && r.json.general.properties
-  return props ? { path: r.path, source: r.source, properties: props } : null
+  return props ? { path: r.path, source: r.source, from: r.from, why: r.why, properties: props } : null
 }
