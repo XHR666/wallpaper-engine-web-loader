@@ -749,6 +749,38 @@ add "canvas-capture"     "node tests/canvas-capture-test.mjs"
 #   需要语料 `3778592720` + playwright + :8902，缺任一 ⇒ SKIP；纯判据 7 条常驻。
 add "bloom-ldr-black"    "node tests/bloom-ldr-black-probe.mjs --selftest"
 
+# ③(P-173 2026-09-24) `mdlv0016`：**`MDLV0016` 紧凑网格容器变体（顶点块签名 `0x01800009` + 顶点步长 52）**。
+#   背景：`0923/2887099508` 的 5 个 `.mdl` 在**顶点块扫描**这一步就 `return null`（`core/attach-transform.mjs::parseMdl`
+#   与 `elysia/we-renderer/puppet.js::_parseMdl` 都在解析 MDLS **之前**退出）⇒ 蒙皮/骨架整块丢失（P-172 末段
+#   点名的"未救回"项）。它们的 MDLS 逐骨记录本身**合法**（A 定步读齐声明骨数、0 结构错、0 逐骨错）⇒ 缺的只是
+#   "怎么读懂这个容器变体"。逐字节取证（5/5）：头 `MDLV0016` / 13B 固定头 / `21` 起 `materials/…` cstr /
+#   4 个 0 填充 / 块签名 `0x01800009` / **`vertexBytes / 52 === maxIndex + 1`**（8684/52=167、33488/52=644、
+#   16900/52=325、152776/52=2938）/ 索引数据写到 MDLS 起点。
+#   新分支 = **可判定的合取**（签名 / 步长 / 顶点块与索引块界内且不越 MDLS / 顶点数与索引域互证 /
+#   全量索引界内 / 全量逐顶点：pos 有限且 |v|≤1e6（**同一个闸门，没放宽**）· uv 有限 · 权重和 |Σ−1|<1e-3 ·
+#   混合索引 < 声明骨数）；任一不满足 ⇒ `parseMdl` 仍返回 `null` + 一行 `[P-173]` warn + 机器可判
+#   `mdlDiag.reason`（`opts.diag` 出口），**绝不返回残缺/错位网格**。旧 80 步长扫描**逐字保留** ⇒ 今天能解析的
+#   166 个非 v16 文件一个字节都不经过新分支。
+#   本项锁六件事：① 逐字节取证 + 判据复算（读数直接打印）② **全语料 172 行改前/改后逐字段对拍**（"改前" =
+#   新分支关掉的副本；除这 5 个之外逐字段不变）③ 5/5 骨数 == 声明（2/5/2/2/3）+ 台账 + `?mdls=legacy` 两档
+#   逐字段相同 + core⇔elysia 逐位相同 ④ 16 条合成边界夹具（签名/起点/步长/索引/权重/混合索引/pos·uv/越界/
+#   越 MDLS/骨数/锚点/伪造 magic/截断）**必须仍被拒** ⑤ **8 组变异自证**（关分支 / 逐条去掉判据 / 起点错位，
+#   每组打印 `MUTANT-RED-OK` 且**期望红集 == 实际红集**）⑥ `run-all-tests.sh` 登记。
+#   **不新增 URL 开关**（新增开关要求同批登记 `docs/README-DIAGNOSTICS.md` 主表，本批禁碰 `docs/**`；
+#   回退 = `git revert` `findMdlVertexBlock` 里那一行调用）。语料里第 6 个 `MDLV0016`（无 MDLS，块签名
+#   `0x0000000f`、步长 48）**有意不接**（本分支只服务"要骨架"的网格），门禁断言它仍是 `null`。
+#   纯 Node、无浏览器 / 无网络 / 无 X11 / 无 GPU；真语料缺失 ⇒ 红（不 SKIP，与兄弟项 `mdl-bone-layout` 同口径）。
+add "mdlv0016"           "node tests/mdlv0016-test.mjs"
+
+# ①(P-172.6 2026-09-24 主对话补登记) 没有 `scene.json` 的容器：有视频 ⇒ 按纯视频壁纸播（blob 源 + blob 媒体看门狗）、
+#   连视频也没有 ⇒ 如实报错并列条目名（此前一律 `TextDecoder.decode(undefined)` 整页启动失败）；另有 256MiB 上限与多实例守卫。
+#   判据：源码序 + 切真源码跑 8 个场景 + 3 组变异自证。纯 Node、不读语料、<1s。
+add "mpkg-noscene"       "node tests/mpkg-noscene-test.mjs"
+
+# ①(P-174 2026-09-24 主对话补登记) 层引用成员 × 五个面全表普查（官方 d.ts 60 成员 × 5 面 × 三档；缺一项点名成员+面）
+#   + `ISoundLayer.volume`（落点 soundprops.volume、保作者节点、非有限值不落盘、五面同源=函数身份相等）+ byId/getParent 修复。
+add "script-layer-ref-audit" "node tests/script-layer-ref-audit-test.mjs" "" "^SKIP script-layer-ref-audit"
+
 # —— --list ——
 if [ "$LIST" = 1 ]; then
   echo "共 ${#NAMES[@]} 项（slow=--fast 跳过；条件项=无数据自动 SKIP）："

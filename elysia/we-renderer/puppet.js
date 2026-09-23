@@ -10,6 +10,12 @@ import { sampleAnimRT } from '../../core/attach-transform.mjs';
 //   本文件是**实际运行**的解析器（`demo.html:3442` 的 `puppetHelper._parseMdl`），故必须同批落校验：
 //   否则"防回归"只保护到附件锚点那条路径，蒙皮那条仍会静默吃错位骨。
 import { readMdlsLayoutABones } from '../../core/attach-transform.mjs';
+// ③(P-173 2026-09-24) **顶点块定位**同样收敛到 core（`findMdlVertexBlock` = 唯一实现处：旧 80 步长启发扫描
+//   + `MDLV0016` 紧凑容器变体（顶点步长 52）分支）。为什么必须改本文件：这 5 个 `.mdl` 是**material json 的
+//   `puppet` 字段**指向的蒙皮网格（`models/r ear1.json` → `models/r ear1_puppet.mdl` …），`demo.html:4190`
+//   走的就是本文件的 `_parseMdl` —— 只改 core 等于"门禁绿、实际渲染路径仍然 null"。
+//   属性偏移由 finder 的 `attr` 给出（80 步长 = 0/40/56/72；52 步长 = 0/12/28/44）⇒ 本文件不再各写一套。
+import { findMdlVertexBlock, warnMdlV16MeshRefused } from '../../core/attach-transform.mjs';
 // ── puppet mixin (从 core.js 拆分, 逻辑零改动) ──
 export function installPuppet(proto) {
   Object.assign(proto, {
@@ -264,51 +270,27 @@ export function installPuppet(proto) {
         for (let off = 9; off + 4 < buf.length; off++) {
           if (buf[off] === 0x4d && buf[off+1] === 0x44 && buf[off+2] === 0x4c && buf[off+3] === 0x53) { mdlsOffset = off; break; }
         }
-        let found = null;
-        for (let offset = 9; offset + 12 < mdlsOffset; offset++) {
-          const vertexBytes = dv.getUint32(offset + 4, true);
-          const verticesOffset = offset + 8;
-          if (vertexBytes === 0 || vertexBytes % 80 !== 0) continue;
-          const indexLenOffset = verticesOffset + vertexBytes;
-          if (indexLenOffset + 4 > mdlsOffset) continue;
-          const indexBytes = dv.getUint32(indexLenOffset, true);
-          const indicesOffset = indexLenOffset + 4;
-          if (indexBytes === 0 || indexBytes % 2 !== 0 || indicesOffset + indexBytes > mdlsOffset) continue;
-          // 顶点合理性: 前若干顶点的 pos 必须有限且量级合理 (部分 MDL 有垃圾候选块,
-          // 选错会把顶点炸到 1e28 导致渲染崩溃)
-          const vc = vertexBytes / 80;
-          let sane = true;
-          for (let i = 0; i < Math.min(vc, 64); i++) {
-            const vo = verticesOffset + i * 80;
-            for (let k = 0; k < 3; k++) {
-              const v = dv.getFloat32(vo + k * 4, true);
-              if (!isFinite(v) || Math.abs(v) > 1e6) { sane = false; break; }
-            }
-            if (!sane) break;
-          }
-          if (!sane) continue;
-          // 索引范围: 前若干索引必须 < 顶点数 (部分 MDL 索引与顶点块不匹配)
-          const ic = indexBytes / 2;
-          if (ic > 0) {
-            let idxOk = 0;
-            for (let k = 0; k < Math.min(ic, 400); k++) {
-              if (dv.getUint16(indicesOffset + k * 2, true) < vc) idxOk++;
-            }
-            if (idxOk < Math.min(ic, 400) * 0.98) continue;
-          }
-          found = { verticesOffset, vertexBytes, indicesOffset, indexBytes };
-          break;
+        // ③(P-173 2026-09-24) 顶点块定位 = core 的**唯一实现处**（`findMdlVertexBlock`：旧 80 步长扫描逐字
+        //   搬过去 + `MDLV0016` 紧凑变体（步长 52）分支；判据/失败路径见 core 内该函数的注释）。
+        //   与 `core/attach-transform.mjs::parseMdl` 共用同一份 ⇒ 不再存在"两个真相"。
+        //   ⚠ 与 core 侧**有意保留的不对称**：本函数的返回值里**没有** `mdlDiag`（`debug` 面只有 warn，
+        //     见 `tests/mdl-bone-layout-test.mjs` 组 E 的现状登记）；这里只把"被拒原因"打一行同文案 warn。
+        const vscan = findMdlVertexBlock(buf, dv, mdlsOffset);
+        const found = vscan.block;
+        if (!found) {
+          if (vscan.diag) warnMdlV16MeshRefused(vscan.diag);
+          return null;
         }
-        if (!found) return null;
-        const vertexCount = found.vertexBytes / 80;
+        const vertexCount = found.vertexBytes / found.stride;
         const indexCount = found.indexBytes / 2;
+        const A = found.attr;   // ③(P-173) 属性偏移由 finder 给出（80 步长与 52 步长不同）
         const positions = [], uvs = [], blendIndices = [], blendWeights = [];
         for (let i = 0; i < vertexCount; i++) {
-          const vo = found.verticesOffset + i * 80;
-          positions.push([dv.getFloat32(vo, true), dv.getFloat32(vo + 4, true), dv.getFloat32(vo + 8, true)]);
-          uvs.push([dv.getFloat32(vo + 72, true), dv.getFloat32(vo + 76, true)]);
-          blendIndices.push([dv.getUint32(vo + 40, true), dv.getUint32(vo + 44, true), dv.getUint32(vo + 48, true), dv.getUint32(vo + 52, true)]);
-          blendWeights.push([dv.getFloat32(vo + 56, true), dv.getFloat32(vo + 60, true), dv.getFloat32(vo + 64, true), dv.getFloat32(vo + 68, true)]);
+          const vo = found.verticesOffset + i * found.stride;
+          positions.push([dv.getFloat32(vo + A.pos, true), dv.getFloat32(vo + A.pos + 4, true), dv.getFloat32(vo + A.pos + 8, true)]);
+          uvs.push([dv.getFloat32(vo + A.uv, true), dv.getFloat32(vo + A.uv + 4, true)]);
+          blendIndices.push([dv.getUint32(vo + A.blendIndices, true), dv.getUint32(vo + A.blendIndices + 4, true), dv.getUint32(vo + A.blendIndices + 8, true), dv.getUint32(vo + A.blendIndices + 12, true)]);
+          blendWeights.push([dv.getFloat32(vo + A.blendWeights, true), dv.getFloat32(vo + A.blendWeights + 4, true), dv.getFloat32(vo + A.blendWeights + 8, true), dv.getFloat32(vo + A.blendWeights + 12, true)]);
         }
         const indices = [];
         for (let i = 0; i < indexCount; i++) indices.push(dv.getUint16(found.indicesOffset + i * 2, true));

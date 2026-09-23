@@ -13002,7 +13002,7 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
 判据全是可判定的合取（固定起点 `mdls+17`、`len===64`、骨名/槽 ≤4096 可打印 UTF-8、`parent∈[-1,骨数)` 且 `parent<骨序号`、
 矩阵三行单位长两两正交、不越段界、带槽/不带槽恰好一种成立），任一不满足 ⇒ 如实拒绝；**闸门只在 A 定步真失步时重扫**。
 真语料：172 行里 118 逐字段相同 + 51 两档都 null + 差异仅 3 个（`asuna body bottom` 0→7、`人物` 0→55、`deimos.fbx` 0→2）；legacy 档逐位不变。
-判据：`tests/mdl-bone-layout-test.mjs`（断言 72 → 139，6 组变异）。未救回：`0923/2887099508` 的 5 个 `MDLV0016` 网格容器（`parseMdl` 顶点块扫描即返回 null ⇒ 重扫无入口）。
+判据：`tests/mdl-bone-layout-test.mjs`（断言 72 → 139，6 组变异）。未救回（**已由 P-173 接上**）：`0923/2887099508` 的 5 个 `MDLV0016` 网格容器 —— 当时 `parseMdl` 在顶点块扫描就返回 null（发生在 MDLS 解析之前）⇒ 重扫无入口；P-173 补了 `MDLV0016` 紧凑网格分支后这 5 个能出网格。
 
 ### P-172.5 三处"门禁自己过期"（都不是产品缺陷）
 
@@ -13012,8 +13012,132 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
 | `font-gap-audit` F4a–F4d | 语料从 98 容器长到 206、文本层引用 1050 条 ⇒ 冻结 CENSUS 必然过期（且 F4c/F4d 把数字写死在断言里） | 新增 `--write-census` **重定基入口**（生成物落在 `CENSUS-BEGIN/END` 之间，打印增/删/改）；F4c 改成只断言语义结论、F4d 改成当前成立的那条（`summer85` 0 引用、`kust` ≤1 层） |
 | `package-matrix --check` | 去重收口把 7 个重复包按同盘 rename 移入 `allwallpaper/delete/` ⇒ 基线 path 消失，`--absorb-new` 按设计拒绝 | **就地重定基**（只改这 7 行 path + 3 行因 §P-172.1 少报的门禁字段；其余 203 行与**全部 timing 基线一字未动**，并在基线里加 `note` 说明），`--check` 恢复"无退化" |
 
-### P-172.6 本轮新增/登记的判据
+### P-172.6 没有 `scene.json` 的容器：从"看不懂的 TypeError"到"能播就播、不能播就说清"
+
+全库 155 个 `.mpkg` 里 **85 个没有 `scene.json`**（其中 85 个都有可播视频。`docs/MPKG-SWEEP-20260923.md` §2/§4 的样本就是下面那个包）。
+此前它们一律落到无条件的 `rd(lib.getEntry(pkg,'scene.json'))` ⇒ `TextDecoder.decode(undefined)` ⇒ 整页
+`❌ 启动失败: TextDecoder.decode: Argument 1 could not be converted to any of: ArrayBufferView, ArrayBuffer`
+—— 既不点明原因、也不给出路（占全库 55%）。
+现在在 `demo.html` 的 `MPW-NOSCENE-BEGIN/END` 段（紧跟 `parsePkg`、**早于**那行无条件 decode）分两档：
+
+| 档 | 条件 | 行为 |
+|---|---|---|
+| 纯视频壁纸 | 没有 `scene.json`，但 `project.json.file` 指向的条目存在（不存在则按条目后缀 `mp4/webm/mov` 兜底，`project.json` 坏 JSON 也不抛） | 按既有 `?video=` / `type=video` 两档**同形**播：DOM 覆盖层 + blob 源 + `mpwBlobMediaRetry`（P-172.0 的看门狗），日志两行写明"不是场景包 ⇒ 按纯视频壁纸播放"与条目清单，`return` 不再进场景路径 |
+| 如实报错 | 连视频也没有 | `throw new Error('这个容器不是场景包：没有 scene.json，也没有可播的视频（条目：…）')` —— 点名原因 + 列出条目名，**不再是 TypeError** |
+| 网格内拒绝 | 多实例的**非主实例**（`PAGE=false`） | 这条纯视频路是整页语义（`position:fixed;inset:0`，与既有 `?video=`/`type=video` 同形，那两档也只跑在页级实例）⇒ 网格里**如实报错**并记账 `grid-unsupported`，不拿一个整页视频盖住整张网格 |
+| 上限拒绝 | 视频条目 > **256MiB** | 本页是"容器整包在内存里"（`parsePkg(buf)`）的口径，再复制成 Blob 会让峰值翻倍；本语料这 85 个包的视频条目中位数 ~96MB、**最大 791.5MB**（12 个 >256MB）⇒ 超限**如实拒绝**并给出出路（走插件/测试台的流式路径），记账 `path:'too-big'`；64MiB 以上额外提示一行峰值 |
+
+* 判据：`tests/mpkg-noscene-test.mjs`（28 项：源码序 + 切真源码跑 8 个场景，含大小上限与多实例两档 + 3 组变异自证）。
+* 真机（`tests/mpkg-noscene-live-probe.mjs`，样本 = 扫面里报那个 TypeError 的同一个包（wallpaperE/卡提希娅/卡提希娅_09.mpkg，容器文件不在仓库内，故不写成反引号路径））：
+  `__mpwNoScene={"path":"video","entry":"bilibili-吃面面用勺-欢迎转载.mp4"}`、日志两行命中、
+  看门狗 `{"calls":1,"retries":1,"gaveUp":0}`、`<video>` **`rs=4 / 3840x2160 / dur=5.53 / paused=false`（真的在放）**、
+  画布 `meanL=82.675 / stdL=63.991 / litFrac=0.8856`。
+
+### P-172.7 本轮新增/登记的判据
 
 `blob-media-retry`（46）· `video-base-order`（13）· `solidlayer-fallback`（13）· `script-phase-order`（37）· `script-member-gaps`（60）· `mdl-bone-layout`（139）；
 四个探针的落盘读数（reports/ 目录被 .gitignore 忽略，属本机读数，不进仓库）：
 reports/mpkg-video-codec.json · reports/mpkg-video-decode.json · reports/mpkg-videobase-live.json · reports/mpkg-videobase-autoretry.json。
+
+## P-173（2026-09-24 · 渲染器侧）`MDLV0016` 紧凑网格容器（顶点步长 52）：5 个 `.mdl` 从 `null` 到给出骨架
+
+**一句话**：容器 0923/2887099508/scene.pkg（不在仓库内，故不写成反引号路径）里 5 个蒙皮网格（`r ear1` / `back leg body` / `L ear1` / `hand book` / `front leg`）在
+P-152b 之后**仍**解析为 `null` —— 它们在**MDLS 解析之前**的"顶点块扫描"就被 `vertexBytes % 80 !== 0` 挡掉（4 个 0 候选的直接原因），
+于是骨架侧再怎么救都无入口。本项把这类**紧凑网格容器**（步长 **52**、块签名 **`0x01800009`**）接上，
+全语料骨数 **885 → 899**（+14 = 2+5+2+2+3），172 行里**只有这 5 行**变化。
+
+### P-173.0 取证（逐字节，只读语料）
+
+| 文件 | size | vertexBytes | %80 | stride | vc = maxIndex+1 | 索引数 | 声明骨数 |
+|---|---|---|---|---|---|---|---|
+| `models/r ear1_puppet.mdl` | 20194 | 8684 | 44 | **52** | 167 = 167 | 891 | 2 |
+| `models/back leg body_puppet.mdl` | 52247 | 33488 | 48 | **52** | 644 = 644 | 3255 | 5 |
+| `models/L ear1_puppet.mdl` | 20185 | 8684 | 44 | **52** | 167 = 167 | 888 | 2 |
+| `models/hand book_puppet.mdl` | 27533 | 16900 | 20 | **52** | 325 = 325 | 1659 | 2 |
+| `models/front leg_puppet.mdl` | 194892 | 152776 | 56 | **52** | 2938 = 2938 | 17262 | 3 |
+
+* 布局：`0..7` 魔数、`8..20` 13 字节定长头、**`21` 起 `materials/…` cstr**（全语料 **172/172** 条 `.mdl` 同址 ⇒ 可作锚点）、
+  4 个 0 字节、`u32 = 0x01800009`（块签名）、`u32 = 顶点字节数`、顶点数据 `+8`；索引块紧接其后，索引数据**正好写到 MDLS 起点**（gap=0）。
+* 属性偏移整套不同：52B = `pos@0 / blendIndices@12 / blendWeights@28 / uv@44`（80B = `0/40/56/72`）。
+* **反证"不是放宽闸门"**：只把 `%80` 放宽成 `%52`（不换偏移）⇒ 5/5 命中但读出错位网格：
+  `maxBlendIndex` = 3276013568 / 3306287104 / 3280502784 / 3292889088 / 3301543936（把权重 float 当 u32）、权重和不归一、`uv ≈ 1e-39`。
+  52B 布局的判读依据：全顶点 `Σ权重 = 1.000000`、4 个混合索引 < 声明骨数、`uv` 有限、按索引重建三角形**退化数 0**、`z ≡ 0`。
+* 子变体：**A（本项接）** 有 MDLS + 签名 `0x01800009` + 步长 52 ⇒ 5 个；**B（有意不接）** 无 MDLS + 签名 `0x0000000f` + 步长 48
+  （`3509243656/models/Hollow Cylinder/Hollow Cylinder.mdl`）；其余 166 个是 `MDLV0019`(14)/`MDLV0021`(2)/`MDLV0023`(150)，步长 80。
+
+### P-173.1 实现（两个文件）
+
+| 文件 | 变更 | 锚点 |
+|---|---|---|
+| `core/attach-transform.mjs` | +226/−18 | 新段 `③(P-173)`：`readMdlv0016CompactVertexBlock()`、`findMdlVertexBlock()`（**顶点块定位唯一实现处**，旧 80 步长扫描逐字搬入 + v16 分支）、`warnMdlV16MeshRefused()`；`parseMdl` 改调 finder、按 `found.attr` 读属性、成功时台账 `mdlDiag.layout='mdlv0016-compact'` + `mesh.{variant,stride,vertexCount,indexCount}` |
+| `elysia/we-renderer/puppet.js` | +23/−41 | **必须改**：`demo.html` 的蒙皮路径走的是这份 `_parseMdl`（material json 的 `puppet` 字段）⇒ 只改 core = "门禁绿、真渲染路径仍 null"。做法 = **删掉本文件里那份 35 行重复扫描**，改调 core 的 `findMdlVertexBlock`（与 P-139/P-152 的"唯一实现处"纪律一致）。`_parseMdlStatic` 未动（不在这 5 个的运行路径上） |
+
+判据是**可判定的合取**（任一不满足 ⇒ `null` + `mdlDiag.reason` + 一行 `[P-173]` warn，**绝不返回残缺/错位网格**）：
+旧扫描没命中 → 魔数 `MDLV0016` 且有 MDLS → `21` 起 `materials/…` cstr（≤512B） → 0 填充 ≤64 后签名 `0x01800009` →
+`vb>0 && vb%52==0` → 顶点/索引块界内且不越 MDLS → **`vb/52 == maxIndex+1`**（全量扫索引） → **全部**索引 < 顶点数 →
+声明骨数 ∈ (0,1024] → 逐顶点**全量**：pos 有限且 `|v|≤1e6`（**同一闸门，未放宽**）/uv 有限/权重和 `|Σ−1|<1e-3`/混合索引 < 声明骨数。
+`?mdls=legacy` 只管 MDLS 布局校验 ⇒ 本分支**两档都生效**（实测两档逐字段相同）。
+
+### P-173.2 读数与判据
+
+* 语料对拍（两套独立证据：与 HEAD `851bd88` 的 core 副本对拍 + 测试内"关掉新分支"的变异副本）：
+  `rows=172  changedDigest=5  becameNull=0  becameMesh=5`；**没有一行"改前能解析、改后变 null"**。
+* 这 5 个改后：顶点块**解析成功**（五组流长度 == 顶点数/索引数）、骨数 == 声明、`?mdls=legacy` 两档逐字段相同、
+  core ⇔ elysia **逐位相同** 5/5、解析它们 **0 行 warn**、MDLA 动画在位（`左下1#451(30帧/2骨)` … `开腿#931(30/3)`）。
+* `tests/mdlv0016-test.mjs`（新增，584 行）**118 断言**：逐字节取证 + 全语料对拍 + 16 条边界夹具（签名篡改/起点错/vb 非 52 倍数/
+  索引越界/权重和不归一/越 MDLS/伪造 magic/截断…每条要求 `null` + 期望 reason + 恰好一行 warn）+ **8 组变异自证**
+  （M1 关分支(19) / M2 去签名(2) / M3 去索引域(1) / M4 去顶点-索引互证(1) / M5 去混合索引(1) / M6 去"不越 MDLS"(1) / M7 去权重和(1) / M8 起点写错(15)），
+  逐组 `MUTANT-RED-OK` 且"期望红集 == 实际红集"。
+* 重定基（只改数字、判据谓词一字未动）：`mdl-bone-layout` 的 `nullBoth 5→0`、`bones 885→899`；两条方向性判据仍钉死为 0。
+* 门禁：`mdl-bone-layout` 139/139、`mdlv0016` 118/118、`--only` 两项 2/2、`docs-check` ✓；
+  另跑 13 项共享实现的连带面（`attach-transform` / `mdla-walk` / `kaltsit-puppet-anchor` / `bind-order` / `blink-phase` / `meshsize` /
+  `projection-y` / `frame-map` / `mesh-badframe` / `submesh-mirror` / `submesh-probe` / `charfit-camera` / `p76-parallax-eye`）全绿。
+* 回退手段：`git revert` `findMdlVertexBlock` 里那一行调用（= 变异 M1）。**本项有意不新增 URL 开关**。
+* **到达绘制路径的证据**（比"解析出网格"更强的离线读数）：`node tests/package-matrix.mjs --pkg …/0923/2887099508/scene.pkg --json`
+  的审计里 **`meshDrawn` = ['r ear1', 'back leg body', 'l ear1', 'hand book', 'front leg']**（正是这 5 个模型层），
+  该包 82 层 / 绘制 45 层 / `whiteFallback=[]` / `transparentFallback=[]` / `layerErrors=0`、门禁 ✓。
+* 边界：签名 `0x01800009` 的语义**无权威来源**（无官方规范/反编译产物/上游实现对拍），判据全部来自真语料逐字节 +
+  同语料 81 个 stride=80 块上同族判据的普遍性；**真机像素/蒙皮形变仍未验**（需人眼；上面那条只证明"进了网格绘制清单"）。
+
+## P-174（2026-09-24 · `elysia` 侧）层引用成员 × **五个面**全表普查 + `ISoundLayer.volume` + `byId`/`getParent` 修复
+
+**一句话**：P-143 是"按现象点补"的四类成员；本项把官方 d.ts 的**全部**层引用成员与**五个面**做成可复算的覆盖矩阵
+（缺一项就点名"成员@面"），在其中补上 `ISoundLayer.volume`，并顺手挖出并修掉一个**让 F3 面整条死掉、语料 117 处 `getParent()` 全中招**的真 bug。
+（⚠ 代码注释里原先写的编号 `P-144` 与 2026-09-19 的粒子批 B **撞号**，已全量改为 **P-174**，共 20 处代码 + 5 处测试。）
+
+### P-174.0 普查口径与矩阵
+
+* 官方名单：`<WE>/ui/dist/monaco/autocomplete/lib.sceneScript.d.ts`（md5 `ccbb4634e8fc8d26f04916d0c06eebb2`）
+  的 `ILayer extends IObject, IImageLayer, ISoundLayer, IEffectLayer, ITextLayer, IParticleSystem, IModel, ICamera`（L1139）闭包 = **60 个成员**，逐成员带出处行号；
+  测试用真 d.ts 重解析核对（60/60 成员 + 60/60 行号命中）。`IModel` 官方没声明（笔误）⇒ 按 `IModelLayer`(L1082) 取；官方**没有** `IParticleLayer`（粒子面是 `IParticleSystem`）。
+* 五个面：F1 = `makeSceneRef().layer()`（`getLayer/enumerateLayers/getSceneObject/createLayer` 的引用）、F2 = `emptyLayerRef()`、
+  F3 = `layerRefFor()`、F4 = `thisLayer.layerRef()`、F5 = `thisObject.objectRef()`。
+* 三档：**已实现（166 格必须真实在场，缺一项即红并点名）** / **gap（39 个成员五面都缺，逐族给依据；在场即"表过期"红）** / **na（故意不做，逐条给依据）**。
+  五面统计 `impl/gap/na`：F1=F2=F3=F4 = **36/40/3**；F5 = **22/39/18**（F5 的 na 依据：官方 d.ts **没有 `thisObject` 声明**，
+  两份 d.ts 全文 0 命中；语料 0 处 `thisObject.<方法>()` ⇒ 只给值成员）。
+* 语料普查：39 个 gap 成员在语料里**全部 0 命中**（含 2.8 增量的 13 个单列项）⇒ 这一批 gap 是"官方有、语料不用"，不是"我们缺得离谱"。
+
+### P-174.1 本批实现（`elysia/scene-scripts.js`，+330/−48）
+
+| 项 | 内容 |
+|---|---|
+| 五面同源 | 新增 `LAYER_REF_MEMBER_ACCESSORS`（`volume/alpha/angles/color/parallaxDepth/alignment` 六个成员**同一对 get/set 函数对象**）+ `bindLayerFace/layerFaceObject/LAYER_FACE_NAMES`；F1 里原来那份内联实现删掉，五个面统一挂同一对函数 ⇒ 测试用**函数身份相等**自证"一套实现挂在五处" |
+| `ISoundLayer.volume` | 读 = `soundCtl.getVolume()` → `soundprops.volume` → 用户属性活值 → 节点 `value` → **1**（全程 clamp[0,1]）；写 = `nodeWrite(soundprops,'volume')` + `nodeWrite(obj,'volume')`（**保作者节点**：`{user,value}` 的 `user` 键一字不动）+ `soundCtl.setVolume` + `markExplicitPropWrite`；**非有限值直接拒（不落盘）**。依据：官方 d.ts L744-771/L768 + 本仓内置渲染器源码树（webwallgl，MIT，只取行为结论）+ `demo.html` 既有音量链 |
+| `buildById` 修复 | `byId` 原来挂在 `makeOwnerRef()` 的**返回壳**上，而读它的是内层 `ref.byId` ⇒ 恒 `undefined` ⇒ **`thisLayer.getParent()` 永远返回空引用、`layerRefFor` 面整条是死代码**；语料 **6 包 / 117 处** `getParent()` 全中招（含 `.getParent().getParent()`、`parent.getTransformMatrix().m[13]`）。改挂内层 `ref` |
+| 其它 | F3 的 `visible/origin/scale/size/name/id` 从 `Object.assign` 字面量**挪进 `defineAccessors`**（原来会被摊平成"创建时快照数据属性"⇒ `parent.origin = …` 静默丢弃）；F4 删掉自己那份把 `{script,value}` 节点直接给作者参与算术（⇒ NaN）的 `alpha`；`particleInstanceOf(null)` 短路；`applySceneScripts` 首尾 `noteUserProps`（帧内有效、帧外退回节点值，不泄漏上一帧） |
+
+### P-174.2 读数与判据
+
+* 真包 `0923/2887099508`（`getLayer('桥')`，author `volume={"user":"bgm","value":1}`）：
+  **改前** `typeof …volume` = `'undefined'`、写 `0.25` 后仍是 `{"user":"bgm","value":1}` 且**没有 `soundprops` 键**；
+  **改后** 读 `1`（`userProps={bgm:0.4}` 时读 `0.4`；`soundprops` 在场时它优先）、写 `0.25` ⇒ `桥.soundprops={"volume":0.25}` 且 `桥.volume={"user":"bgm","value":0.25}`（`user` 键保留）。
+* `tests/script-layer-ref-audit-test.mjs`（纯 Node、秒级、峰值 81MB）：**56 断言**（覆盖矩阵 166 个 impl 格逐格在场 + gap/na 格必须缺席 + 每格带依据 + volume 行为 + 真包 + 面身份）
+  + **4 组变异自证**（V1 摘掉 F4 的 volume / V2 写穿不建 `soundprops`（错落点）/ V3 去掉非有限值守门 / V4 把 `byId` 修复回退 ⇒ F3 退回空引用），
+  逐组 rc=1 且**期望红集 == 实际红集**（6/7/2/8 项）。
+* 门禁：新项 56/0、`script-member-gaps` **60/0**（未被打挂）、`script-phase-order` 37/0、`docs-check` ✓；
+  另跑 `script-owner-live` 11/0、`scene-script-api-gaps` 37/0、`time-variation` 70/0、`script-sandbox-globals` 31/0、
+  `script-runtime-errors` 24/0（全语料 206 容器）、`script-corpus-audit --strict` ✓ 全绿。
+* **未验证（如实）**：无浏览器/画面证据；`demo.html` 的 `<audio>` 音量绑定是**创建时快照**（`makeSoundElement` + 每帧 `updateSceneAudioVolume`）
+  ⇒ 该路径上"脚本写 `volume` 立刻改变正在播放的响度"**按现状不成立**（已在实现注释里标为已知限制，改 `demo.html` 不在本批）；
+  `byId` 修复改变了真包 `getParent()` 行为（全语料错误/NaN 扫描干净、无新包，但没有金标/画面对照）；
+  `alignment`/`color` 缺字段的读口径变化（`undefined→'center'`、`(0,1,1)→(1,1,1)`）同样只有单元断言 + 全语料无新错。

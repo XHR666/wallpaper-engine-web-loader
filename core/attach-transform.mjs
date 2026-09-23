@@ -380,15 +380,160 @@ function warnMdlBoneLayoutRescued(mdlsOffset, boneCount, diag) {
   } catch { /* 日志失败不影响解析 */ }
 }
 
-// ── MDL 解析（elysia _parseMdl 逐字移植；顶点块校验规则原样保留）──
-// 返回 { positions, uvs, indices, vertexCount, indexCount, blendIndices, blendWeights, bones, animations, raw }
-// bones 为空数组 = 无 MDLS / 校验拒绝（后者多一个 `mdlDiag`，见上）；`opts.mdls === 'legacy'` = 无校验旧行为
-export function parseMdl(buf, opts) {
-  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
-  let mdlsOffset = buf.length
-  for (let off = 9; off + 4 < buf.length; off++) {
-    if (buf[off] === 0x4d && buf[off + 1] === 0x44 && buf[off + 2] === 0x4c && buf[off + 3] === 0x53) { mdlsOffset = off; break }
-  }
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// ③(P-173 2026-09-24) **`MDLV0016` 紧凑网格容器变体**（顶点块签名 `0x01800009` + 顶点步长 52）
+//
+// 病（`docs/PATCHES.md` P-172 末段点名的"未救回"项）：`0923/2887099508` 的 5 个 `.mdl` 在**顶点块扫描**
+//   这一步就 `return null`（`parseMdl` 与 elysia `_parseMdl` 都在解析 MDLS **之前**退出）⇒ 蒙皮/骨架整块
+//   丢失；而它们的 MDLS 逐骨记录本身**合法**（A 定步读齐声明骨数、0 结构错、0 逐骨错 —— 本项实测）。
+//
+// 逐字节取证（2026-09-24，只读语料；夹具与逐条断言见 `tests/mdlv0016-test.mjs`）：
+//   · 5/5 文件头 = `MDLV0016`；`8..20` = 13 字节固定头；**`21` 起 = `materials/…` cstr**
+//     （全语料 172/172 条 `.mdl` 都在这个地址上，与版本无关 ⇒ 可作锚点）
+//   · material 路径 cstr 之后 **4 个 0 字节**，再 `u32 = 0x01800009`（紧凑顶点块签名）、`u32 = 顶点字节数`
+//     ⇒ 顶点数据从 `签名 + 8` 起（旧 80 步长布局的块签名是 `0x0180000f` / `0x0000000f`）
+//   · **顶点步长 = 52**：`vertexBytes / 52 === maxIndex + 1`（5/5 **精确相等**：8684/52=167、33488/52=644、
+//     16900/52=325、152776/52=2938；且 `vertexBytes % 80 ≠ 0` ⇒ 旧 `%80` 闸门**不可能**命中
+//     —— 这是"另一套读法"，**不是**把闸门放宽）
+//   · 索引块紧跟顶点数据：`u32 = 索引字节数`（偶数），索引数据一直写到 **MDLS 起点**（5/5 gap = 0）
+//   · 52 字节顶点布局（相对 80 字节布局少了 28 字节中段，其余字段顺序一致）：
+//       `+0 pos.xyz(3×f32) | +12 混合索引(4×u32) | +28 权重(4×f32) | +44 uv(2×f32)`
+//     判读依据（可复算）：全部顶点 `Σ权重 = 1.000000`、4 个混合索引 `< 声明骨数`、`uv` 有限、
+//     按索引重建的三角形**退化数 = 0**、`z ≡ 0`（2D puppet 网格）、材质路径与 `models/*.json` 同名。
+//   ⚠ 判据**不是**从这 5 个文件里挑出来的：同语料 **81** 个"读法正确"的 stride=80 网格块
+//     （`vertexBytes == 80×(maxIndex+1)`）上，`全部索引 < 顶点数` **81/81**、`混合索引 < 声明骨数`
+//     **81/81**、`uv 有限` **81/81**、`权重和 ≈ 1` **80/81**（唯一例外 `rw_puppet.mdl` 1 个顶点）
+//     ⇒ 这几条描述的是"网格块自洽"，与步长无关。
+//   ⚠ 语料里第 6 个 `MDLV0016`（`3509243656/models/Hollow Cylinder/Hollow Cylinder.mdl`）**无 MDLS**，且是
+//     **另一种**紧凑格式（块签名 `0x0000000f`、步长 48：`12384/48 === maxIndex+1 === 258`）—— 不在本项
+//     范围（本分支只服务"要骨架"的网格）⇒ 它连试都不试（无 MDLS 即不进入），仍按既有口径返回 `null`。
+//
+// 判据（**全部是可判定的合取**；任一不满足 ⇒ `reason = …`、`parseMdl` 仍返回 `null` + 一行 warn，
+//   **绝不返回残缺/错位网格**）：
+//   ① 旧 80 步长扫描没命中（⇒ 今天能解析的非 v16 文件**一个字节都不经过这里**）
+//   ② 魔数 `MDLV0016` 且**有 MDLS 段**（无 MDLS ⇒ 本分支不进入、不产台账、不打日志）
+//   ③ `21` 起是 `materials/…` cstr，≤512B 且能终止
+//   ④ cstr 之后跳过 0 字节（≤64 个）后 `u32 == 0x01800009`
+//   ⑤ `vertexBytes > 0` 且 `% 52 === 0`
+//   ⑥ 索引块 `u32` 偶数且 > 0；顶点块 + 索引块**逐字节落在文件内**、且索引块结束不越过 MDLS 起点
+//   ⑦ `vertexBytes / 52 === maxIndex + 1`（**全量扫索引** ⇒ 顶点数与索引域互相印证）
+//   ⑧ **全部**索引 `< 顶点数`（全量）
+//   ⑨ 声明骨数 ∈ (0,1024]（与 P-152 同界）；逐顶点**全量**：pos 三轴有限且 `|v| ≤ 1e6`（**同一个量级
+//      闸门，没放宽**）、uv 有限、权重 4 个有限且 `|Σ−1| < 1e-3`（允许 ≤0.1% 顶点例外 = 语料实测口径）、
+//      4 个混合索引 `< 声明骨数`
+// ⚠ 与 `?mdls=legacy` 的关系（**有意如此**）：那个开关的文档语义是"MDLS **骨骼布局校验** + 变长布局
+//   重扫"的回退开关（`docs/README-DIAGNOSTICS.md` 主表 `mdls` 行），**不管网格容器变体** ⇒ 本分支**两档
+//   都生效**。实测：这 5 个文件的 MDLS 记录两档下都读齐且**逐位相同**（A 定步 complete + 0 错）⇒
+//   两档给出的网格与骨架完全一致（门禁有"两档逐字段相同"的断言）。
+// ⚠ 本分支**不新增任何 URL 开关**（新增开关要求同批登记 `docs/README-DIAGNOSTICS.md` 主表，本轮禁碰
+//   `docs/**`）⇒ 回退手段 = `git revert` 本段的**一处入口**（`findMdlVertexBlock` 里的那行调用）。
+const MDLV0016_MAGIC = 'MDLV0016'
+const MDLV0016_VERTEX_TAG = 0x01800009
+const MDLV0016_STRIDE = 52
+const MDLV0016_ATTR = { pos: 0, blendIndices: 12, blendWeights: 28, uv: 44 }      // 52B 步长（本项新增）
+const MDL_STRIDE80_ATTR = { pos: 0, blendIndices: 40, blendWeights: 56, uv: 72 }  // 80B 步长（改动前的偏移，一字不变）
+const MDL_MATERIAL_PATH_OFFSET = 21     // 全语料 172/172：8B 魔数 + 13B 固定头之后就是 `materials/`
+const MDL_MATERIAL_PATH_MAX = 512
+const MDLV0016_HEADER_GAP_MAX = 64      // cstr 与顶点块之间的 0 填充上限（实测 4）
+const MDLV0016_WEIGHT_SUM_TOL = 1e-3
+const MDLV0016_WEIGHT_BAD_RATE = 0.001  // 权重和判据的例外率（语料 80/81 文件 100% 成立）
+const MDL_POS_MAX_ABS = 1e6             // 顶点量级闸门（改动前是字面量 1e6；值一字不变）
+
+/**
+ * ③(P-173) `MDLV0016` 紧凑顶点块（步长 52）：**定位 + 全量校验**（唯一实现处）。
+ *
+ * 返回 `{ block, diag }`：
+ *   `block` = `{verticesOffset, vertexBytes, indicesOffset, indexBytes, stride, variant, attr}` 或 `null`；
+ *   `diag`  = 机器可判台账；`null` = 本分支**根本没被触发**（不是 v16 / 无 MDLS —— 此时不产生任何日志）。
+ * 拒绝时 `diag = { layout:'mdlv0016-compact', variant:'stride-52', rejected:true, reason, … }`。
+ * ⚠ 不抛异常：内部 `try` 兜底（畸形/越界输入 ⇒ `reason='v16-scan-exception'` 的可判定拒绝）。
+ */
+export function readMdlv0016CompactVertexBlock(raw, dv, mdlsOffset) {
+  const refuse = (reason, extra) => ({ block: null, diag: Object.assign({ layout: 'mdlv0016-compact', variant: 'stride-52', rejected: true, reason }, extra || {}) })
+  const accept = (blk, extra) => ({ block: blk, diag: Object.assign({ layout: 'mdlv0016-compact', variant: 'stride-52', rejected: false, reason: null }, extra || {}) })
+  // ② 只对"自述 MDLV0016 且带得下 MDLS 头"的文件尝试；其余 ⇒ `diag = null`（不产台账、不打日志）
+  if (!(raw.length >= 8 && matchBytes(raw, 0, MDLV0016_MAGIC))) return { block: null, diag: null }
+  if (!(mdlsOffset >= 0 && mdlsOffset + 17 <= raw.length)) return { block: null, diag: null }
+  try {
+    // ③ material 路径 cstr（锚点 = 固定头之后的 21；不搜窗口，位置由格式决定）
+    if (!(raw.length >= MDL_MATERIAL_PATH_OFFSET + 10) || !matchBytes(raw, MDL_MATERIAL_PATH_OFFSET, 'materials/')) return refuse('material-path-not-at-21')
+    let pe = MDL_MATERIAL_PATH_OFFSET
+    while (pe < raw.length && raw[pe] !== 0) pe++
+    if (pe >= raw.length) return refuse('material-path-not-terminated')
+    if (pe - MDL_MATERIAL_PATH_OFFSET > MDL_MATERIAL_PATH_MAX) return refuse('material-path-too-long')
+    // ④ 0 填充 + 紧凑顶点块签名
+    let p = pe + 1
+    let gap = 0
+    while (p < raw.length && raw[p] === 0) { p++; gap++ }
+    if (gap > MDLV0016_HEADER_GAP_MAX) return refuse('vertex-block-header-not-found', { gap })
+    if (p + 8 > raw.length || dv.getUint32(p, true) !== MDLV0016_VERTEX_TAG) return refuse('vertex-block-tag-mismatch')
+    // ⑤ 步长 52
+    const vertexBytes = dv.getUint32(p + 4, true)
+    if (!(vertexBytes > 0) || vertexBytes % MDLV0016_STRIDE !== 0) return refuse('vertex-bytes-not-multiple-of-52', { vertexBytes })
+    // ⑥ 两块都要完整落在文件内、且索引块不越过 MDLS 起点
+    const verticesOffset = p + 8
+    const indexLenOffset = verticesOffset + vertexBytes
+    if (indexLenOffset + 4 > raw.length) return refuse('vertex-block-overruns-file', { vertexBytes })
+    const indexBytes = dv.getUint32(indexLenOffset, true)
+    if (!(indexBytes > 0) || indexBytes % 2 !== 0) return refuse('index-bytes-invalid', { indexBytes })
+    const indicesOffset = indexLenOffset + 4
+    if (indicesOffset + indexBytes > raw.length) return refuse('index-block-overruns-file', { indexBytes })
+    if (indicesOffset + indexBytes > mdlsOffset) return refuse('mesh-overruns-mdls', { indexBytes })
+    const vertexCount = vertexBytes / MDLV0016_STRIDE
+    const indexCount = indexBytes / 2
+    // ⑧ 索引界内（全量）
+    let maxIndex = -1
+    for (let k = 0; k < indexCount; k++) {
+      const v = dv.getUint16(indicesOffset + k * 2, true)
+      if (v >= vertexCount) return refuse('index-out-of-range', { at: k, index: v, vertexCount })
+      if (v > maxIndex) maxIndex = v
+    }
+    // ⑦ 顶点数与索引域互证（全量）
+    if (maxIndex + 1 !== vertexCount) return refuse('vertex-count-mismatch', { vertexCount, maxIndexPlus1: maxIndex + 1 })
+    // ⑨ 声明骨数（与 P-152 同界）—— 混合索引的判据上界
+    const declaredBones = dv.getUint32(mdlsOffset + 13, true)
+    if (!(declaredBones > 0 && declaredBones <= 1024)) return refuse('declared-bone-count-out-of-range', { declaredBones })
+    // ⑨ 逐顶点全量
+    const A = MDLV0016_ATTR
+    const allowedBadWeights = Math.floor(vertexCount * MDLV0016_WEIGHT_BAD_RATE)
+    let badWeights = 0
+    for (let i = 0; i < vertexCount; i++) {
+      const vo = verticesOffset + i * MDLV0016_STRIDE
+      for (let k = 0; k < 3; k++) {
+        const v = dv.getFloat32(vo + A.pos + k * 4, true)
+        if (!isFinite(v) || Math.abs(v) > MDL_POS_MAX_ABS) return refuse('vertex-position-invalid', { at: i })
+      }
+      const u = dv.getFloat32(vo + A.uv, true), vv = dv.getFloat32(vo + A.uv + 4, true)
+      if (!isFinite(u) || !isFinite(vv)) return refuse('vertex-uv-not-finite', { at: i })
+      let sum = 0
+      for (let k = 0; k < 4; k++) {
+        const w = dv.getFloat32(vo + A.blendWeights + k * 4, true)
+        if (!isFinite(w)) return refuse('vertex-weight-not-finite', { at: i })
+        sum += w
+      }
+      if (Math.abs(sum - 1) >= MDLV0016_WEIGHT_SUM_TOL) {
+        badWeights++
+        if (badWeights > allowedBadWeights) return refuse('vertex-weights-not-normalized', { at: i, weightSum: sum })
+      }
+      for (let k = 0; k < 4; k++) {
+        const bi = dv.getUint32(vo + A.blendIndices + k * 4, true)
+        if (bi >= declaredBones) return refuse('blend-index-out-of-range', { at: i, blendIndex: bi, declaredBones })
+      }
+    }
+    return accept(
+      { verticesOffset, vertexBytes, indicesOffset, indexBytes, stride: MDLV0016_STRIDE, variant: 'mdlv0016-compact-52', attr: MDLV0016_ATTR },
+      { blockHeaderOffset: p, materialPathEnd: pe, vertexCount, indexCount, declaredBones })
+  } catch { return refuse('v16-scan-exception') }
+}
+
+/**
+ * ③(P-173) **顶点块定位（唯一实现处）**：`parseMdl` 与 `elysia/we-renderer/puppet.js::_parseMdl` 共用本函数。
+ *   ① 旧路径：自 `offset = 9` 起启发扫描（`u32@offset+4` = 80 的倍数 ⇒ 顶点块，索引块紧随其后），
+ *      **逐字保留**（既有 166 个非 v16 文件的接受条件与顺序一字不动）；
+ *   ② ① 没命中 且 `MDLV0016` 且带 MDLS ⇒ 紧凑变体分支（判据见 `readMdlv0016CompactVertexBlock`）。
+ * 返回 `{ block, diag }`（`block` 形状见上；`diag` 只在 ② 被拒时有值）。
+ */
+export function findMdlVertexBlock(raw, dv, mdlsOffset) {
   let found = null
   for (let offset = 9; offset + 12 < mdlsOffset; offset++) {
     const vertexBytes = dv.getUint32(offset + 4, true)
@@ -406,7 +551,7 @@ export function parseMdl(buf, opts) {
       const vo = verticesOffset + i * 80
       for (let k = 0; k < 3; k++) {
         const v = dv.getFloat32(vo + k * 4, true)
-        if (!isFinite(v) || Math.abs(v) > 1e6) { sane = false; break }
+        if (!isFinite(v) || Math.abs(v) > MDL_POS_MAX_ABS) { sane = false; break }
       }
       if (!sane) break
     }
@@ -420,19 +565,66 @@ export function parseMdl(buf, opts) {
       }
       if (idxOk < Math.min(ic, 400) * 0.98) continue
     }
-    found = { verticesOffset, vertexBytes, indicesOffset, indexBytes }
+    found = { verticesOffset, vertexBytes, indicesOffset, indexBytes, stride: 80, variant: 'stride-80', attr: MDL_STRIDE80_ATTR }
     break
   }
-  if (!found) return null
-  const vertexCount = found.vertexBytes / 80
+  if (found) return { block: found, diag: null }
+  // ③(P-173) 紧凑变体分支（**本项唯一的入口**；关掉这一行 = 逐位回到改动前）
+  return readMdlv0016CompactVertexBlock(raw, dv, mdlsOffset)
+}
+
+/** ③(P-173) 一行可读 warn：**`MDLV0016` 紧凑顶点块被拒**（只在真拒绝时打 ⇒ 5/5 救回文件零输出）。
+ *  与骨骼布局的 warn 同族：文案由本函数唯一产出，core 与 elysia 两侧共用（同一契约同一个出口）。 */
+export function warnMdlV16MeshRefused(diag) {
+  try {
+    const w = (typeof console !== 'undefined' && typeof console.warn === 'function') ? console.warn : null
+    if (!w || !diag) return
+    w('[P-173] MDLV0016 compact vertex block rejected: reason=' + diag.reason
+      + (diag.vertexBytes !== undefined ? ' vertexBytes=' + diag.vertexBytes : '')
+      + (diag.vertexCount !== undefined ? ' vertexCount=' + diag.vertexCount : '')
+      + (typeof diag.at === 'number' ? ' at=' + diag.at : '')
+      + ' -> mesh=null (网格按既有口径拒收；绝不返回残缺/错位网格)')
+  } catch { /* 日志失败不影响解析 */ }
+}
+
+// ── MDL 解析（elysia _parseMdl 逐字移植；顶点块校验规则原样保留）──
+// 返回 { positions, uvs, indices, vertexCount, indexCount, blendIndices, blendWeights, bones, animations, raw }
+// bones 为空数组 = 无 MDLS / 校验拒绝（后者多一个 `mdlDiag`，见上）；`opts.mdls === 'legacy'` = 无校验旧行为
+// ③(P-173) 顶点块定位收敛到 `findMdlVertexBlock`（唯一实现处；旧 80 步长扫描 + MDLV0016 紧凑变体）；
+//   `opts.diag`（可选，对象）= 顶点块**被拒**时的台账出口（拒绝路径按既有契约返回 `null`，`null` 上挂不了字段）。
+export function parseMdl(buf, opts) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+  let mdlsOffset = buf.length
+  for (let off = 9; off + 4 < buf.length; off++) {
+    if (buf[off] === 0x4d && buf[off + 1] === 0x44 && buf[off + 2] === 0x4c && buf[off + 3] === 0x53) { mdlsOffset = off; break }
+  }
+  let found = null
+  {
+    // ③(P-173) 旧 80 步长扫描逐字搬进 `findMdlVertexBlock`（唯一实现处，elysia 侧共用同一份）；
+    //   没命中时它再试 MDLV0016 紧凑变体（判据见该函数）。**接受条件与顺序一字不动**。
+    const vscan = findMdlVertexBlock(buf, dv, mdlsOffset)
+    found = vscan.block
+    if (!found) {
+      // ③ 顶点块被拒（只在 MDLV0016 分支真被触发时有 `diag`）：如实拒绝 + 一行 warn；
+      //   返回值仍是 `null`（既有契约：拿不到网格 = null）。台账出口仅在调用方显式给 `opts.diag` 时填。
+      if (vscan.diag) {
+        warnMdlV16MeshRefused(vscan.diag)
+        if (opts && opts.diag && typeof opts.diag === 'object') opts.diag.mdlDiag = vscan.diag
+      }
+      return null
+    }
+  }
+  const vertexCount = found.vertexBytes / found.stride
   const indexCount = found.indexBytes / 2
+  // ③(P-173) 属性偏移由 finder 给出（80 步长 = 0/40/56/72，52 步长 = 0/12/28/44）⇒ 两侧不再各写一套偏移
+  const attr = found.attr
   const positions = [], uvs = [], blendIndices = [], blendWeights = []
   for (let i = 0; i < vertexCount; i++) {
-    const vo = found.verticesOffset + i * 80
-    positions.push([dv.getFloat32(vo, true), dv.getFloat32(vo + 4, true), dv.getFloat32(vo + 8, true)])
-    uvs.push([dv.getFloat32(vo + 72, true), dv.getFloat32(vo + 76, true)])
-    blendIndices.push([dv.getUint32(vo + 40, true), dv.getUint32(vo + 44, true), dv.getUint32(vo + 48, true), dv.getUint32(vo + 52, true)])
-    blendWeights.push([dv.getFloat32(vo + 56, true), dv.getFloat32(vo + 60, true), dv.getFloat32(vo + 64, true), dv.getFloat32(vo + 68, true)])
+    const vo = found.verticesOffset + i * found.stride
+    positions.push([dv.getFloat32(vo + attr.pos, true), dv.getFloat32(vo + attr.pos + 4, true), dv.getFloat32(vo + attr.pos + 8, true)])
+    uvs.push([dv.getFloat32(vo + attr.uv, true), dv.getFloat32(vo + attr.uv + 4, true)])
+    blendIndices.push([dv.getUint32(vo + attr.blendIndices, true), dv.getUint32(vo + attr.blendIndices + 4, true), dv.getUint32(vo + attr.blendIndices + 8, true), dv.getUint32(vo + attr.blendIndices + 12, true)])
+    blendWeights.push([dv.getFloat32(vo + attr.blendWeights, true), dv.getFloat32(vo + attr.blendWeights + 4, true), dv.getFloat32(vo + attr.blendWeights + 8, true), dv.getFloat32(vo + attr.blendWeights + 12, true)])
   }
   const indices = []
   for (let i = 0; i < indexCount; i++) indices.push(dv.getUint16(found.indicesOffset + i * 2, true))
@@ -573,8 +765,24 @@ export function parseMdl(buf, opts) {
     }
   }
   const out = { positions, uvs, indices, vertexCount, indexCount, blendIndices, blendWeights, bones, animations, raw: buf }
+  // ③(P-173) 网格来自紧凑变体 ⇒ 记一条**机器可判**台账（这 5 个文件在本项之前是 `null`，对象形状不可能
+  //   "变化"；合法 stride-80 语料一个字段都不多）。与骨骼台账（P-152/P-152b）同用一个键：网格信息落在
+  //   `mdlDiag.mesh` 里，两个台账都在时字段取并集、键名不冲突。
+  const meshLedger = found.variant === 'mdlv0016-compact-52'
+    ? { variant: found.variant, stride: found.stride, vertexCount, indexCount }
+    : null
+  if (mdlDiag && meshLedger) mdlDiag.mesh = meshLedger
   // ①(P-152) 只在真拒绝/不符时挂台账（合法语料 = 无此字段 ⇒ 对象形状与改动前逐位相同）
   if (mdlDiag) out.mdlDiag = mdlDiag
+  else if (meshLedger) {
+    out.mdlDiag = {
+      layout: 'mdlv0016-compact',
+      // 声明骨数（v16 分支成立时必有 MDLS 头 ⇒ 这个读址在界内；仍留一个界检查作防御）
+      declaredBones: (mdlsOffset + 17 <= buf.length) ? dv.getUint32(mdlsOffset + 13, true) : 0,
+      parsedBones: bones.length,
+      rejected: false, reason: null, rejectedBones: 0, entryErrors: [], mesh: meshLedger,
+    }
+  }
   return out
 }
 

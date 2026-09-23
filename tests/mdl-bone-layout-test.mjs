@@ -510,10 +510,22 @@ const corpus = { rows: 0, mdls: 0, bones: 0, badParent: 0, badMat: 0, rejected: 
  *        没命中；它们的第一段是 `MDLV0016` 变体，null 发生在 MDLS 解析**之前** ⇒ 变长布局重扫无从作用）
  *        —— 与 P-152/P-152b 无关（legacy 同值），逐条点名 + 基线计数，**不伪装成"零 null"**；
  *        反过来"默认 null 而 legacy 非 null"= 真回归，必红。
- *   基线取法：`P152_SCAN_UPDATE=1` 时本组打印可粘贴的一行。 */
+ *        ⚠ ③(P-173 2026-09-24) 这 5 个**已不再是 null**（网格容器变体另立一项救回，见下方重定基说明）⇒
+ *          第 ③ 条今天只剩"第 6 个 `MDLV0016`（无 MDLS 的 `Hollow Cylinder`，仍 null）"这一个同类样本，
+ *          其判据在 `tests/mdlv0016-test.mjs`（本组不再重复）。
+ *   基线取法：`P152_SCAN_UPDATE=1` 时本组打印可粘贴的一行。
+ *   ⚠ ③(P-173 2026-09-24) **重定基一次（判据谓词一字未动）**：`nullBoth` 5 → **0**、`bones` 885 → **899**。
+ *     原因不是"语料变了"，而是**本项列在这里的那条已知局限被另一项修掉了**：`0923/2887099508` 的 5 个
+ *     `MDLV0016`（顶点块步长 52 的紧凑容器变体）现在能被解析 ⇒ 它们从"两档都 null"变成"两档都给出骨架"
+ *     （新增 14 骨 = 2+5+2+2+3）。判定这些文件的判据**全部**搬去了新门禁 `tests/mdlv0016-test.mjs`
+ *     （逐字节取证 / 全语料改前改后对拍 / 骨架与台账 / 16 条边界夹具 / 8 组变异自证）；
+ *     本组保留的谓词仍是"nullBoth ≥ 基线 ∧ 默认 null 而 legacy 非 null == 0 ∧ 默认非 null 而 legacy null == 0"
+ *     —— 只是基线数字随"局限被修掉"下调（否则本组会把"修好了"记成红）。
+ *     ⚠ 本组**不**声称"零 null"：`nullNoMdls`（46）与 `shapes`（40）照旧，且语料里第 6 个 `MDLV0016`
+ *     （`Hollow Cylinder`，**无 MDLS**、块签名 `0x0000000f`、步长 48）**仍是有意不接**的那一个。 */
 const MDL_CORPUS_BASELINE = {
-  note: '2026-09-23 全语料自导出（只增不减）。旧写死值：rows=43 / mdls=35 / bones=332 / 非法=0 / 拒绝=0 / 差异=0 / nullNoMdls=7 / shapes=1。P-152b 后：rejects 3→0（那 3 个被救回）、rescued=3、bones 821→885。',
-  rows: 172, mdls: 86, bones: 885, nullBoth: 5, rejects: 0, rescued: 3, nullNoMdls: 46, shapes: 40,
+  note: '2026-09-23 全语料自导出（只增不减）。旧写死值：rows=43 / mdls=35 / bones=332 / 非法=0 / 拒绝=0 / 差异=0 / nullNoMdls=7 / shapes=1。P-152b 后：rejects 3→0（那 3 个被救回）、rescued=3、bones 821→885。P-173（2026-09-24）：MDLV0016 紧凑变体（5 个文件）被解析 ⇒ nullBoth 5→0、bones 885→899（+14）。',
+  rows: 172, mdls: 86, bones: 899, nullBoth: 0, rejects: 0, rescued: 3, nullNoMdls: 46, shapes: 40,
 }
 /* ②(P-152b) 救回的**已知清单**（按文件名钉住，不是只比数量）：关掉重扫 ⇒ 清单为空 ⇒ 必红。
  *   真语料实测（2026-09-23，改前/改后骨数）：`asuna body bottom_puppet.mdl` 声明 7 / 旧路径 1 → 7；
@@ -653,7 +665,11 @@ const rescuedNamePred = (list) => RESCUED_KNOWN.every((x) => list.some((r) => r.
   check('C 语料', 'core vs elysia 骨逐位差异 = 0（布局 A 同契约；救回文件另有"两侧都不许残缺"的判据）', corpus.diffElysia === 0, 'diff=' + corpus.diffElysia)
   check('C 语料', '骨数 == 声明骨数（未救回也未拒收的 MDLS 文件，core 默认档与 legacy 档都成立）', corpus.declaredMismatch === 0, 'mismatch=' + corpus.declaredMismatch)
   check('C 语料', '无 MDLS 的 .mdl：null 数 ≥ ' + B.nullNoMdls + '、bones=[] 数 ≥ ' + B.shapes + '（自导出基线）', corpus.nullNoMdls >= B.nullNoMdls && corpus.shapes >= B.shapes, 'nullNoMdls=' + corpus.nullNoMdls + ' shapes=' + corpus.shapes + ' nullWithMdls=' + corpus.nullWithMdls)
-  check('C 语料', '含 MDLS 而**两档都** null 的 .mdl ≥ ' + B.nullBoth + ' 个（**已知局限**：顶点块扫描没命中，与 P-152/P-152b 无关，legacy 同值）+ "默认 null 而 legacy 非 null" = 0',
+  // ③(P-173 2026-09-24) 谓词一字未动，只把基线数字重定基（见 `MDL_CORPUS_BASELINE` 上方那段注释）：
+  //   本项之前这里点的"顶点块扫描没命中"的 5 个 `MDLV0016` 已被新门禁 `tests/mdlv0016-test.mjs` 收编
+  //   ⇒ `nullBoth` 基线随之下调；两条"方向性"判据（默认 null/legacy 非 null = 真回归；
+  //   默认非 null/legacy null = 两侧分叉）仍**钉死为 0**。
+  check('C 语料', '含 MDLS 而**两档都** null 的 .mdl ≥ ' + B.nullBoth + ' 个（自导出基线；P-173 前那 5 个 `MDLV0016` 已由 `mdlv0016` 项解析 ⇒ 基线 5→0）+ "默认 null 而 legacy 非 null" = 0 + "默认非 null 而 legacy null" = 0',
     corpus.nullBoth >= B.nullBoth && corpus.nullDefaultOnly === 0 && corpus.nowNotNullLegacyNull === 0,
     'nullBoth=' + corpus.nullBoth + '（基线 ' + B.nullBoth + '） nullDefaultOnly=' + corpus.nullDefaultOnly + ' nowNotNullLegacyNull=' + corpus.nowNotNullLegacyNull)
   // ③(P-152b) 两侧**可观测面**：core 有 `mdlDiag`（机器可判）；elysia 现状是**没有**它（局部变量、

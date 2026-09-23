@@ -171,6 +171,10 @@ export const SCENE_SCRIPT_API_DIAG = {
   effectWrite: 0,         // IEffect 的 visible/name/setMaterialProperty 写穿次数
   effectWriteUnresolved: 0, // 对"未解析句柄"的写（记帐而非静默丢弃）
   debugRead: 0, debugWrite: 0,  // thisLayer.debug（官方无此成员，见 debugFlagOf 注释）
+  // ①(P-174 2026-09-24) `ISoundLayer.volume`（d.ts L744-771/L768）—— 本批新成员的可观测计数。
+  //   读/写各自留痕；`volumeWriteRejected` = 非有限值被拒（**不落盘**）；`volumeClamp` = 超出 [0,1]
+  //   被 clamp（写进去的是 clamp 后的数，读回来才等于屏幕上的数）。
+  volumeRead: 0, volumeWrite: 0, volumeWriteRejected: 0, volumeClamp: 0,
 };
 /** 计数表快照（浅拷贝；测试/诊断用，**不**暴露可变引用）。 */
 export function sceneScriptApiDiag() { return Object.assign({}, SCENE_SCRIPT_API_DIAG); }
@@ -507,6 +511,242 @@ const defineAccessors = (target, spec) => {
   return target;
 };
 
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * ①(P-174 2026-09-24) **层引用成员 × 五个面**：`ISoundLayer.volume` + "同一个 ILayer 概念一套面"
+ *
+ * 五个面（本文件里同一个 ILayer 概念的五个挂载点，P-137 的教训就是它们必须逐位同源）：
+ *   F1 `makeSceneRef().layer()`（`thisScene.getLayer/enumerateLayers/getSceneObject/createLayer` 返回的引用）
+ *   F2 `makeOwnerRef().emptyLayerRef()`（空引用：`getParent()` 找不到父层、根层再往上）
+ *   F3 `makeOwnerRef().layerRefFor(obj)`（`getParent()` **找到**父层时的引用）
+ *   F4 `thisLayer`（`makeOwnerRef().layerRef()`）
+ *   F5 `thisObject`（`makeOwnerRef().objectRef()`）
+ * 本批把 6 个"值成员"做成**同一对 get/set 函数对象挂在五个面上**（同源可自证：
+ *   `Object.getOwnPropertyDescriptor(face,'volume').get === LAYER_REF_MEMBER_ACCESSORS.volume.get`），
+ *   不是五份复制代码 —— 这正是 tests/script-layer-ref-audit-test.mjs 的 S5 要钉的东西。
+ *
+ * 成员与一手出处（官方类型声明 `$MPW_ROOT/wallpaper_engine/ui/dist/monaco/autocomplete/
+ *   lib.sceneScript.d.ts`，行号为实测；`L1139 interface ILayer extends IObject, IImageLayer,
+ *   ISoundLayer, IEffectLayer, ITextLayer, IParticleSystem, IModel, ICamera` ⇒ 下列成员在**每个** ILayer 上）：
+ *   · `volume`        —— L744-771 `ISoundLayer` 的 `volume: Number`（L768，注释 "Adjust volume."）。
+ *     **本批之前五个面一个都没有** ⇒ 真包 `0923/2887099508` 的
+ *     `thisScene['getLayer']('桥')['volume']=0x1`（objects[76] 的可见性脚本，实测 6 处写 volume）
+ *     既不报错也不生效：返回的层引用是临时对象，赋值只是在它上面新建一个立刻丢弃的自有属性。
+ *   · `alpha`         —— L995-998 `IImageLayer.alpha`（"Opacity of the layer."），L826-829 `ITextLayer.alpha`
+ *   · `color`         —— L1000-1003 `IImageLayer.color`（"Image color."），L821-824 `ITextLayer.color`
+ *   · `alignment`     —— L1005-1008 `IImageLayer.alignment`（"center, top, right, bottom, left, topright etc"）
+ *   · `angles`        —— L1148-1151 `ILayer.angles`（"Orientation of the layer in euler angles and degrees."）
+ *   · `parallaxDepth` —— L1158-1161 `ILayer.parallaxDepth`（"Controls parallax strength along x and y axes individually."）
+ *   为什么这 6 个一起做：前 5 个在 F1 早就有、F2-F5 缺失 —— 而语料里
+ *     `thisObject.color = shared.accentColor`、`bar.parallaxDepth = new Vec2(0,0)`（9 包 11 处）、
+ *     `bar.angles = {x,y,z}`（12 包 33 处）、`if (bar.alignment !== x) bar.alignment = x`（10 包 29 处）
+ *   都是真写法（语料普查：206 容器 / 121 可解析 / 80 带脚本包，只在脚本源码串上按 `.M` 与 `['M']` 计数）
+ *   ⇒ 缺一面就是静默错值/静默 no-op，正是 P-137 "同一个 ILayer 概念两套属性面"的病灶。
+ *   `volume` 是本批的新成员，必须与它们共用同一套挂载机制（同源）。
+ *
+ * ── `volume` 的语义依据（本仓渲染器实际行为，不是猜）──────────────────────────────────
+ *   · **落点 = `layer.soundprops.volume`**：本仓内置的渲染器产物 `demo/assets/renderer-BOSoB05I.js`
+ *     的源码树在工作区 `references/vendor-ref/webwallgl/renderer/`（MIT 许可；**只取行为结论，
+ *     未复制代码/注释**）：场景解析就是 `soundprops: { volume: parseNum(o.volume, 1), … }`
+ *     （`vendor/we-scene/scene/parse.js:273-275`），播放端读
+ *     `au.volume = Math.max(0, Math.min(1, layer.soundprops?.volume ?? 1))`（`src/scene-mount.ts:1602-1603`），
+ *     两条既有写路径都是 **双写 + 实时控制器**：
+ *       `run.layer.soundprops.volume = out; run.layer.soundCtl?.setVolume?.(out)`（`src/scene-mount.ts:3112-3118`）
+ *       `layer.soundprops.volume = vol; layer.soundCtl?.setVolume?.(vol)`（同文件 `:3391-3396`）。
+ *     它自己的层引用实现（`vendor/we-scene/render/text.js:1591-1603`）就是这个成员的标准形：
+ *       get = `soundCtl.getVolume()` → `soundprops.volume` → **1**；
+ *       set = 非有限值**直接 return**、`Math.max(0, Math.min(1, n))` 后写 `soundprops.volume` + `soundCtl.setVolume(c)`。
+ *   · **本仓另一条既有链**：`demo.html` 的声音层 `<audio>`（`makeSoundElement` L3721、每帧
+ *     `updateSceneAudioVolume()` L3796-3807）读 scene.json 的 `volume` 字段（`soundLayerVolumeBinding`
+ *     L3693-3697 + `currentAudioVolume` L3698-3711）。所以写穿**同时**落到 `obj.volume`（并且
+ *     **保作者节点**：真包 0923/2887099508 的 '桥' 是 `{user:"bgm", value:1}`、'HF' 是
+ *     `{script:…, user:"bgm", value:1}` —— 整只替换会把作者的 script/user 绑定删掉）与
+ *     `obj.soundprops.volume`（渲染器模型落点）+ `obj.soundCtl.setVolume()`（活控制器）。
+ *   · **缺省 1、clamp[0,1]**：`parseNum(o.volume, 1)`（parse.js:274）+ 播放端与 setter 的 clamp。
+ *   · **用户属性绑定优先**：`demo.html` 的 `currentAudioVolume`（L3698-3711）在 `volume` 是
+ *     `{user:…}` 节点且用户属性有值时**用户值即屏幕值**；webwallgl 的属性热更同款
+ *     （`boundUserName(src.volume)` 命中 ⇒ 用该值覆盖 `soundprops.volume`）。所以读的顺位是
+ *     soundCtl → soundprops → 用户属性活值 → 节点 `value` → 1。
+ *   ⚠ 已知限制（如实标注，不装成"全链生效"）：`demo.html` 的 `<audio>` 音量绑定对象是
+ *     `makeSoundElement()` 创建时的**快照**，每帧只按该快照重算 ⇒ 本批写穿**不会**改变当前页面里
+ *     已经建好的 `<audio>.volume`。这不是新增缺口：落点是"渲染器模型 + 作者节点 + 活控制器"三处
+ *     **既有**落点（改 `demo.html` 不在本批权限内），而只要 `soundCtl` 存在（内置渲染器路径）
+ *     `setVolume` 就是真生效。
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+/** 面对象 → 取底层 scene.json 对象的函数。**必须惰性**：F4/F5 的 `ref.current` 每次属性访问时
+ *  才确定（P-60 的根因），所以绑的是"取对象的函数"而不是对象本身。用 WeakMap 而不是往面对象上
+ *  挂字段：面对象是作者 `Object.keys()`/展开可见的，多一个键就是多一份作者可见的形状。 */
+const LAYER_FACE_TARGET = new WeakMap();
+const bindLayerFace = (face, getObj) => { try { LAYER_FACE_TARGET.set(face, getObj) } catch { /* ignore */ } return face };
+const layerFaceObject = (face) => {
+  try { const g = face ? LAYER_FACE_TARGET.get(face) : null; return typeof g === 'function' ? g() : null } catch { return null }
+};
+
+/** 当前用户属性活表（`applySceneScripts`/`dispatchScriptEvent` 每次执行前刷新）。
+ *  只用于"用户属性绑定优先"的读取（见上方 volume 读顺位 ③）；没有它时退回节点 value。 */
+let CURRENT_USER_PROPS = null;
+const noteUserProps = (up) => { CURRENT_USER_PROPS = (up && typeof up === 'object') ? up : null };
+const userPropOf = (name) => {
+  const up = CURRENT_USER_PROPS;
+  if (!up || typeof name !== 'string' || !name) return undefined;
+  try { return up[name] } catch { return undefined }
+};
+const clamp01 = (n) => (n < 0 ? 0 : (n > 1 ? 1 : n));
+
+/** ①(P-174) `layer.soundprops`：**已存在就复用**（保住里面可能有的 `{script,value}` 节点与
+ *  其它键），不存在才按渲染器解析的形状新建一个只含 `volume` 的对象。非对象（含数组）⇒ 换掉。 */
+function soundPropsFor(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  let sp = obj.soundprops;
+  if (!sp || typeof sp !== 'object' || Array.isArray(sp)) {
+    sp = {};
+    try { obj.soundprops = sp } catch { return null }
+  }
+  return sp;
+}
+
+/** ①(P-174) `ISoundLayer.volume`（d.ts L768）**读**：读到"屏幕上真正用的那个数"。
+ *  顺位 = 活控制器 → 渲染器模型落点 → 用户属性活值 → authored 节点 value → 1（见上方长注释）。
+ *  全程 clamp[0,1]：播放端与解析端都是 clamp 后的值 ⇒ 读到的数就是 `<audio>.volume` 的那个数。 */
+const volumeOf = (obj) => {
+  apiBump('volumeRead');
+  if (!obj || typeof obj !== 'object') return 1;
+  try {
+    const ctl = obj.soundCtl;
+    if (ctl && typeof ctl.getVolume === 'function') {
+      const n = Number(ctl.getVolume());
+      if (Number.isFinite(n)) return clamp01(n);
+    }
+  } catch { /* 控制器抛错不影响读：继续往下走真实落点 */ }
+  const sp = obj.soundprops;
+  if (sp && typeof sp === 'object') {
+    const n = Number(nodeRaw(sp.volume));
+    if (Number.isFinite(n)) return clamp01(n);
+  }
+  const raw = obj.volume;
+  if (raw && typeof raw === 'object' && typeof raw.user === 'string' && raw.user) {
+    const n = Number(userPropOf(raw.user));
+    if (Number.isFinite(n)) return clamp01(n);
+  }
+  const n = Number(nodeRaw(raw));
+  return Number.isFinite(n) ? clamp01(n) : 1;
+};
+
+/** ①(P-174) `ISoundLayer.volume` **写**：`nodeWrite` 保作者节点 + 非有限值**不落盘** +
+ *  clamp[0,1] + 三处既有落点（`obj.volume` 节点、`obj.soundprops.volume`、`soundCtl.setVolume`）。
+ *  `markExplicitPropWrite` ⇒ 与 P-143 的 `EXPLICIT_PROP_WRITE`（显式属性写优先于返回值）同一机制：
+ *  该属性自身也是脚本节点时，同一次调用里的显式赋值不被作者的返回值回滚。
+ *  返回是否真的写了（测试可直接断言）。 */
+const writeVolume = (obj, v) => {
+  if (!obj || typeof obj !== 'object') { apiBump('volumeWriteRejected'); return false }
+  const n = Number(v);
+  if (!Number.isFinite(n)) { apiBump('volumeWriteRejected'); return false }   // ⚠ 非有限值不落盘
+  const c = clamp01(n);
+  if (c !== n) apiBump('volumeClamp');
+  const sp = soundPropsFor(obj);
+  if (sp) nodeWrite(sp, 'volume', c);
+  nodeWrite(obj, 'volume', c);
+  markExplicitPropWrite(obj, 'volume');
+  try {
+    const ctl = obj.soundCtl;
+    if (ctl && typeof ctl.setVolume === 'function') ctl.setVolume(c);
+  } catch { /* 控制器抛错不拖垮脚本 */ }
+  apiBump('volumeWrite');
+  return true;
+};
+
+/* ①(P-174) 另外 5 个值成员的**同一套**读写实现（F1 原来那一份的语义逐位保留，只有两处按
+ *  "读到的数 = 屏幕上用的数"补齐缺省、并统一走 nodeWrite 保节点）：
+ *   · `angles`       默认 (0,0,0)（`core/we-scene-bundle.js:1614 angles: world.angles`）
+ *   · `color`        默认 (1,1,1)：`core:1616 color: parseColor(o.color)` + `:1378-1383 parseColor`
+ *                    对 undefined/null/非字符串对象**就是** [1,1,1]。
+ *                    ⚠ F1 旧读法是 `parseV(obj.color,[1,1,1])`，缺字段时 `Number('')===0` 让 x 变成 0
+ *                    ⇒ 读到 (0,1,1)（屏幕上其实是白的）—— 本批顺手修掉（"default 只在 nullish 生效"
+ *                    这个坑 `createLayer` 里已经踩过一次）。
+ *   · `alignment`    默认 `'center'`：`core:1615 alignment: o.alignment || 'center'`；F1 旧读法直接
+ *                    返回 `obj.alignment`（缺字段 = undefined）⇒ 作者的
+ *                    `if (bar.alignment !== x) bar.alignment = x`（语料 10 包 29 处）会永远为真。
+ *   · `parallaxDepth` 默认 (1,1,0)：与 F1 既有 default 一致（官方只写 Vec2、没写缺省 ⇒ **不编造**）；
+ *                    写入口接受 Vec2/Vec3/数组/`"x y"` 串（`toXYZShared` 已覆盖三者）。
+ *   · `alpha`        默认 1（`core:1619 alpha: … typeof o.alpha === 'number' ? o.alpha : 1`）；
+ *                    写口径**逐位保留 F1 既有契约** `Number(v)||0`（本批不改既有语义）。
+ *  写一律 `nodeWrite`（`{script,value}` 节点只改 value、不整只替换）+ `toXYZShared` 归一化
+ *  （P-60 的教训：字符串按字符下标取值会把坐标写坏）。 */
+const ANGLES_DEFAULT = [0, 0, 0];
+const COLOR_DEFAULT = [1, 1, 1];
+const PARALLAX_DEFAULT = [1, 1, 0];
+const ALIGNMENT_DEFAULT = 'center';
+const vec3OfField = (obj, key, def) => {
+  const p = toXYZShared(nodeRaw(obj ? obj[key] : null));
+  return p ? new Vec3(p[0], p[1], p[2]) : new Vec3(def[0], def[1], def[2]);
+};
+const writeVec3Field = (obj, key, v) => {
+  if (!obj) return false;
+  const p = toXYZShared(v);
+  if (!p) return false;                                  // 解析不了 ⇒ 静默不写（绝不写坏坐标）
+  nodeWrite(obj, key, `${p[0].toFixed(6)} ${p[1].toFixed(6)} ${p[2].toFixed(6)}`);
+  return true;
+};
+const anglesOf = (obj) => vec3OfField(obj, 'angles', ANGLES_DEFAULT);
+const writeAngles = (obj, v) => writeVec3Field(obj, 'angles', v);
+const colorOf = (obj) => vec3OfField(obj, 'color', COLOR_DEFAULT);
+const writeColor = (obj, v) => writeVec3Field(obj, 'color', v);
+const parallaxDepthOf = (obj) => vec3OfField(obj, 'parallaxDepth', PARALLAX_DEFAULT);
+const writeParallaxDepth = (obj, v) => {
+  if (!obj) return false;
+  const p = toXYZShared(v);
+  if (!p) return false;
+  nodeWrite(obj, 'parallaxDepth', `${p[0]} ${p[1]}`);     // 官方是 Vec2（d.ts L1158）⇒ 只写两段
+  return true;
+};
+const alignmentOf = (obj) => {
+  const raw = nodeRaw(obj ? obj.alignment : null);
+  return (typeof raw === 'string' && raw) ? raw : ALIGNMENT_DEFAULT;
+};
+const writeAlignment = (obj, v) => {
+  if (!obj || v == null) return false;
+  nodeWrite(obj, 'alignment', String(v));
+  return true;
+};
+const alphaOf = (obj) => {
+  const a = nodeRaw(obj ? obj.alpha : null);
+  return a === undefined || a === null ? 1 : Number(a);
+};
+const writeAlpha = (obj, v) => { if (!obj) return false; nodeWrite(obj, 'alpha', Number(v) || 0); return true };
+
+/** ①(P-174) **五面共用的访问器对象**（同一对 get/set 函数对象；测试用身份相等自证"一套实现挂在五处"）。
+ *  `this` = 面对象 ⇒ 通过 LAYER_FACE_TARGET 取底层 scene.json 对象（惰性，F4/F5 必需）。
+ *  ⚠ 必须写成 `{ get() {}, set() {} }` 这种**方法简写**（数据属性），不能写成 `{ get x() {} }`
+ *  （那会在 spec 对象自身上建访问器，`defineAccessors` 的 `Object.assign` 会把它**取值摊平**）。 */
+export const LAYER_REF_MEMBER_ACCESSORS = {
+  volume: {
+    get() { return volumeOf(layerFaceObject(this)) },
+    set(v) { writeVolume(layerFaceObject(this), v) },
+  },
+  alpha: {
+    get() { return alphaOf(layerFaceObject(this)) },
+    set(v) { writeAlpha(layerFaceObject(this), v) },
+  },
+  angles: {
+    get() { return anglesOf(layerFaceObject(this)) },
+    set(v) { writeAngles(layerFaceObject(this), v) },
+  },
+  color: {
+    get() { return colorOf(layerFaceObject(this)) },
+    set(v) { writeColor(layerFaceObject(this), v) },
+  },
+  parallaxDepth: {
+    get() { return parallaxDepthOf(layerFaceObject(this)) },
+    set(v) { writeParallaxDepth(layerFaceObject(this), v) },
+  },
+  alignment: {
+    get() { return alignmentOf(layerFaceObject(this)) },
+    set(v) { writeAlignment(layerFaceObject(this), v) },
+  },
+};
+/** ①(P-174) 五个面的名字（审计表/测试的列口径；顺序 = F1…F5）。 */
+export const LAYER_REF_FACE_NAMES = ['F1_getLayer', 'F2_emptyLayerRef', 'F3_layerRefFor', 'F4_thisLayer', 'F5_thisObject'];
+
 /** ①(P-142 2026-09-23) `IImageLayer.getAnimationLayerCount(): Number`（d.ts L1017-1020；`IModelLayer`
  *   同款 L1096）—— `getAnimationLayer` 的**官方伴生成员**，`in` 检查与循环都成对出现：
  *   语料实例 `0923/3521337568`、`0923/3653641024`（NSL 库）与 `0917/3462491575`：
@@ -577,10 +817,15 @@ const PARTICLE_REF_OF = new WeakMap();
 function particleInstanceOf(obj) {
   const box = obj || {};                       // 空层引用 ⇒ 挂在临时对象上（读写都不抛错）
   const fill = (o) => { for (const k of PARTICLE_INSTANCE_KEYS) if (!(k in o)) o[k] = undefined; return o };
-  if (!obj.instanceoverride || typeof obj.instanceoverride !== 'object') {
+  /* ①(P-174) `obj == null` 必须先短路：下面两处都直接读 `obj.instanceoverride`/`obj.particle`。
+   *   旧代码靠"空引用这条路没人读过 `instance`"侥幸不炸 —— 本批把 F3（`layerRefFor`）打通后，
+   *   `Object.assign(Object.create(null), emptyLayerRef(), {…})` 会**遍历读取** emptyLayerRef 的所有
+   *   访问器（含 `get instance`）⇒ 立刻 `Cannot read properties of null (reading 'instanceoverride')`
+   *   （实测：真包 getParent 链上第一次进入 F3 就抛，update 直接失败）。 */
+  if (!obj || !obj.instanceoverride || typeof obj.instanceoverride !== 'object') {
     // 只有**真的是粒子层**（有 particle 字段）才新建 instanceoverride：往非粒子层上凭空造一个
     // 会让渲染器的 resolveParticleOverride 多出一组"全 1 覆写"，是不必要的副作用。
-    if (obj.particle) { const io = fill({}); obj.instanceoverride = io }
+    if (obj && obj.particle) { const io = fill({}); obj.instanceoverride = io }
     else { let side = PARTICLE_REF_OF.get(box); if (!side) { side = fill({}); PARTICLE_REF_OF.set(box, side) } return side }
   }
   // 官方 `IParticleSystemInstance` 的 15 个字段在实例上**都存在**（缺的置 undefined）。
@@ -726,7 +971,10 @@ export function makeSceneRef(objects, hooks) {
     const p = String(v == null ? '' : v).trim().split(/\s+/).map(Number);
     return new Vec3(p[0] ?? def[0], p[1] ?? def[1], p[2] ?? def[2]);
   };
-  const layer = (obj) => ({
+  /* ①(P-174) F1 = `thisScene.getLayer/…` 的层引用：字面量 + 末尾一次 `defineAccessors` 挂上六个
+   *   五面共用的值成员（angles/color/parallaxDepth/alignment/alpha/volume —— 原来这一份是五份字面量
+   *   里最全的，本批起改成**同一对 get/set 函数对象**，见 LAYER_REF_MEMBER_ACCESSORS 上方长注释）。 */
+  const layer = (obj) => defineAccessors(bindLayerFace({
     // ①(2026-09-12) thisScene.getLayer(name) / enumerateLayers() 返回的层引用必须与 thisLayer 同一套 API
     //   （上报：`thisScene.getLayer(...).getTextureAnimation is not a function`）。
     getTextureAnimation: () => texAnimRefShared(obj),
@@ -738,8 +986,6 @@ export function makeSceneRef(objects, hooks) {
     },
     get visible() { return obj.visible !== false; },
     set visible(v) { obj.visible = !!v; },
-    get alignment() { return obj.alignment; },
-    set alignment(v) { obj.alignment = v; },
     get size() { return parseV(obj.size, [0, 0, 0]); },
     set size(v) { /* 官方 IEffectLayer.size readonly：与 thisLayer 同一口径（P-137），静默丢弃不抛错 */ },
     get scale() { return parseV(obj.scale, [1, 1, 1]); },
@@ -756,25 +1002,15 @@ export function makeSceneRef(objects, hooks) {
       const z = v.z != null ? v.z : v[2];
       obj.origin = `${Number(x).toFixed(6)} ${Number(y).toFixed(6)} ${Number(z).toFixed(6)}`;
     },
-    // ①(P-141) 官方 `ILayer.angles: Vec3`（d.ts L1150-1153）/ `ILayer.parallaxDepth: Vec2`（L1155-1158）/
-    //   `IImageLayer.alpha: Number`（L995-998）/ `IImageLayer.color: Vec3`（L1000-1003）。
-    //   这四项是语料在新**建层**上真正会写的（洛茜_11 写 origin/angles/alpha/color/parallaxDepth；
-    //   3509243656 写 color/alpha/scale/visible）⇒ 缺了就是"新建层只能看不能动"。
-    get angles() { return parseV(obj.angles, [0, 0, 0]); },
-    set angles(v) { const p = toXYZShared(v); if (p) nodeWrite(obj, 'angles', `${p[0].toFixed(6)} ${p[1].toFixed(6)} ${p[2].toFixed(6)}`) },
-    get parallaxDepth() { return parseV(obj.parallaxDepth, [1, 1, 0]); },
-    set parallaxDepth(v) {
-      if (v == null) return;
-      const x = v.x != null ? v.x : v[0];
-      const y = v.y != null ? v.y : (v[1] != null ? v[1] : 0);
-      nodeWrite(obj, 'parallaxDepth', `${Number(x) || 0} ${Number(y) || 0}`);
-    },
-    // ①(P-141) 读也要拆节点：scene.json 里 `alpha` 可能是 `{script,value}` 节点，直接返回会把
-    //   节点对象当成数字（旧行为），作者脚本 `bar.alpha + 0.1` 立刻得到 NaN。
-    get alpha() { const a = nodeRaw(obj.alpha); return a === undefined || a === null ? 1 : Number(a) },
-    set alpha(v) { nodeWrite(obj, 'alpha', Number(v) || 0) },
-    get color() { return parseV(obj.color, [1, 1, 1]); },
-    set color(v) { const p = toXYZShared(v); if (p) nodeWrite(obj, 'color', `${p[0].toFixed(6)} ${p[1].toFixed(6)} ${p[2].toFixed(6)}`) },
+    // ①(P-141) 官方 `ILayer.angles: Vec3`（d.ts L1148）/ `ILayer.parallaxDepth: Vec2`（L1158）/
+    //   `IImageLayer.alpha: Number`（L995）/ `IImageLayer.color: Vec3`（L1000）/
+    //   `IImageLayer.alignment: String`（L1005）/ `ISoundLayer.volume: Number`（L768）。
+    //   这六项是语料在新**建层**上真正会写的（洛茜_11 写 origin/angles/alpha/color/parallaxDepth；
+    //   3509243656 写 color/alpha/scale/visible；2887099508 写 `getLayer('桥')['volume']`）
+    //   ⇒ 缺了就是"新建层只能看不能动"。
+    //   ⚠ ①(P-174) 这六项**不再在这里写第六份字面量**：统一由模块级的
+    //   `LAYER_REF_MEMBER_ACCESSORS` 提供（同一对 get/set 函数对象挂到五个面 ⇒ "五面同源"可自证），
+    //   在下面的 `defineAccessors(...)` 里一次性挂上。读写语义与缺省见该常量上方的长注释。
     get name() { return obj.name || ''; },
     get id() { return obj.id; },
     // ①(P-141) 官方 `ILayer extends … ISoundLayer, … IParticleSystem`（d.ts L1139）⇒ 同一个层引用上
@@ -820,7 +1056,7 @@ export function makeSceneRef(objects, hooks) {
     get instance() { return particleInstanceOf(obj) },
     clicked: false,
     cursorDetected: false,
-  });
+  }, () => obj), LAYER_REF_MEMBER_ACCESSORS);
   const objList = Array.isArray(objects) ? objects : [];
   /* ①(P-143) `originalOrigin` 的 authored 快照：本工厂在 `applySceneScripts` 里是在三趟之前建的，
    *   所以在这里抓一次就等价于"任何脚本跑之前"（幂等：先到先得，后续调用不覆盖）。 */
@@ -1141,7 +1377,10 @@ function makeOwnerRef() {
       get name() { return '' }, get id() { return -1 },
       clicked: false, cursorDetected: false,
     }
-    return self
+    /* ①(P-174) 六个值成员（angles/color/parallaxDepth/alignment/alpha/volume）也挂**同一对**共享访问器：
+     *   空引用的底层对象是 null ⇒ 读回缺省（角度 0 0 0 / 颜色 1 1 1 / 视差 1 1 / 居中 / alpha 1 / 音量 1），
+     *   写被 `write*` 的 `!obj` 分支拒掉（不抛错、不落盘）。 */
+    return defineAccessors(bindLayerFace(self, () => null), LAYER_REF_MEMBER_ACCESSORS);
   }
   // ①(2026-09-12) 纹理动画句柄（`thisLayer.getTextureAnimation()`）：脚本用 stop()/setFrame()/play()
   //   驱动精灵表帧（3326873240 的 dragAndDropToggle/clockHideToggle）。帧号写进 obj.__texFrame，
@@ -1162,18 +1401,11 @@ function makeOwnerRef() {
       getAnimation: (name) => { apiBump('getAnimation'); return makeAnimationRef(obj, name) },
       getParticleSystem: () => { apiBump('getParticleSystem'); return particleRefFor(obj) },
       get instance() { return particleInstanceOf(obj) },
-      get visible() { return obj.visible !== false },
-      set visible(v) { obj.visible = !!v },
-      get origin() { return parseV(obj.origin, [0, 0, 0]) },
-      set origin(v) { if (v == null) return; obj.origin = `${Number(v.x != null ? v.x : v[0]).toFixed(6)} ${Number(v.y != null ? v.y : v[1]).toFixed(6)} ${Number(v.z != null ? v.z : v[2] || 0).toFixed(6)}` },
-      get scale() { return parseV(obj.scale, [1, 1, 1]) },
-      set scale(v) { if (v == null) return; obj.scale = `${Number(v.x != null ? v.x : v[0]).toFixed(6)} ${Number(v.y != null ? v.y : v[1]).toFixed(6)} ${Number(v.z != null ? v.z : v[2] || 0).toFixed(6)}` },
-      get size() { return parseV(obj.size, [0, 0, 0]) },
-      set size(v) { if (v == null) return; obj.size = `${Number(v.x != null ? v.x : v[0]).toFixed(6)} ${Number(v.y != null ? v.y : v[1]).toFixed(6)} ${Number(v.z != null ? v.z : v[2] || 0).toFixed(6)}` },
-      get name() { return obj.name || '' },
-      get id() { return obj.id },
-      get alpha() { return obj.alpha === undefined ? 1 : Number(obj.alpha) },
-      set alpha(v) { obj.alpha = v },
+      // ①(P-174) `visible/origin/scale/size/name/id` **从字面量里挪到下面的 defineAccessors**：
+      //   这一段字面量是 `Object.assign` 的**源**，访问器在赋值时被取值摊平成**快照数据属性**
+      //   ⇒ 写在 `getParent()` 引用上的 `parent.origin = …` 会静默丢掉（读也只读创建那一刻的值）。
+      //   本批把 F3 打通（byId 修复）后这条路径第一次真的会被走到，所以顺手修掉；读写语义逐位照抄
+      //   原来那几行（origin/scale 六位小数格式、size 直写、visible 布尔化）。
       // ①(P-143) 方法形态的成员（不是访问器 ⇒ 不会被 Object.assign 摊平，可以直接留在字面量里）
       getEffect: (name) => effectRefFor(obj, name),
       getEffectCount: () => effectCountOf(obj),
@@ -1184,7 +1416,10 @@ function makeOwnerRef() {
      *   `getParent()` 引用上的 `text` 会静默丢失。读=层的文本、写=写穿节点 value，与 thisLayer 同一面。 */
     /* ①(P-143) 同一坑对新成员同样成立（它们全是访问器）⇒ 一并在这里重挂；`originalOrigin` 尤其必须
      *   是**每次访问重新读**（快照可能在这一帧稍后才被 createLayer/applySceneScripts 抓上）。 */
-    return defineAccessors(bindLayerObject(built, obj), {
+    /* ①(P-174) 六个五面共用的值成员（angles/color/parallaxDepth/alignment/alpha/volume）同样必须在这里
+     *   重挂：`emptyLayerRef()` 那一份经 `Object.assign` 已被摊平成**快照数据属性**（读一次就冻住），
+     *   不重挂的话 `parent.color`/`parent.volume` 会永远是空引用的缺省值（长度像素级静默错值）。 */
+    return defineAccessors(bindLayerObject(bindLayerFace(built, () => obj), obj), Object.assign({
       text: { get: () => textOf(obj), set: (v) => writeText(obj, v) },
       pointsize: { get: () => pointsizeOf(obj), set: (v) => textLayerWrite(obj, 'pointsize', v) },
       font: { get: () => fontOf(obj), set: (v) => textLayerWrite(obj, 'font', v) },
@@ -1192,7 +1427,23 @@ function makeOwnerRef() {
       verticalalign: { get: () => alignOf(obj, 'verticalalign'), set: (v) => textLayerWrite(obj, 'verticalalign', v) },
       originalOrigin: { get: () => authoredOriginOf(obj), set: () => { /* 只读虚拟成员：静默丢弃不抛错 */ } },
       debug: { get: () => debugFlagOf(obj), set: (v) => writeDebugFlag(obj, v) },
-    })
+      // ①(P-174) 见上面"从字面量里挪过来"的说明（这六项原来会被摊平成快照数据属性）
+      visible: { get: () => obj.visible !== false, set: (v) => { obj.visible = !!v } },
+      origin: {
+        get: () => parseV(obj.origin, [0, 0, 0]),
+        set: (v) => { if (v == null) return; obj.origin = `${Number(v.x != null ? v.x : v[0]).toFixed(6)} ${Number(v.y != null ? v.y : v[1]).toFixed(6)} ${Number(v.z != null ? v.z : v[2] || 0).toFixed(6)}` },
+      },
+      scale: {
+        get: () => parseV(obj.scale, [1, 1, 1]),
+        set: (v) => { if (v == null) return; obj.scale = `${Number(v.x != null ? v.x : v[0]).toFixed(6)} ${Number(v.y != null ? v.y : v[1]).toFixed(6)} ${Number(v.z != null ? v.z : v[2] || 0).toFixed(6)}` },
+      },
+      size: {
+        get: () => parseV(obj.size, [0, 0, 0]),
+        set: (v) => { if (v == null) return; obj.size = `${Number(v.x != null ? v.x : v[0]).toFixed(6)} ${Number(v.y != null ? v.y : v[1]).toFixed(6)} ${Number(v.z != null ? v.z : v[2] || 0).toFixed(6)}` },
+      },
+      name: { get: () => obj.name || '' },
+      id: { get: () => obj.id },
+    }, LAYER_REF_MEMBER_ACCESSORS))
   }
   // ①(P-60 2026-09-14 第1项时钟错位根因) **必须每次属性访问时重新读 ref.current**：
   //   旧实现把 `const obj = ref.current` 写在工厂函数体开头，而 makeLayer()/makeObject() 在
@@ -1204,7 +1455,12 @@ function makeOwnerRef() {
   //   修法：cur() 惰性取值，所有 getter/setter 内联调用。
   const layerRef = () => {
     const cur = () => ref.current;
-    return {
+    /* ①(P-174) F4 = `thisLayer`：字面量 + 末尾挂上六个五面共用的值成员（angles/color/parallaxDepth/
+     *   alignment/alpha/volume）。底层对象必须**惰性**取（`cur()`，P-60），所以绑的是取对象的函数；
+     *   注意 `alpha` 原来在这里有一份自己的 getter/setter（读法是 `obj.alpha != null ? obj.alpha : 1`）
+     *   —— 节点形态（`{script,value}`）会被原样返回给作者参与算术（NaN），本批起统一走 `alphaOf`
+     *   （nodeRaw + 缺省 1，与 F1/F3 逐位一致）。 */
+    return defineAccessors(bindLayerFace({
       getAnimationLayer: (i) => animRef(cur()),
       getAnimationLayerCount: () => animLayerCountOf(cur()),
       getParent: () => { const obj = cur(); return layerRefFor(obj && ref.byId ? ref.byId.get(obj.parent) : null) },
@@ -1258,8 +1514,6 @@ function makeOwnerRef() {
       // ①(P-137) `thisLayer.size`（IEffectLayer.size，官方 Vec2 / readonly）：长注释见 sizeOf 定义处
       get size() { return sizeOf(cur()); },
       set size(v) { /* 官方 readonly：静默丢弃而不抛错，理由见 sizeOf 上方注释 */ },
-      get alpha() { const obj = cur(); return obj ? (obj.alpha != null ? obj.alpha : 1) : 1; },
-      set alpha(v) { const obj = cur(); if (obj) obj.alpha = Number(v); },
       // ①(P-142) 官方 `ITextLayer.text: String`（d.ts L812-816，`ILayer extends … ITextLayer` L1139）：
       //   文本层脚本 `thisLayer.text.toString().split("|").join("\n")` 此前读到 undefined ⇒
       //   `update:Cannot read properties of undefined (reading 'toString')`（真包 0923/3122339805 三处）。
@@ -1290,7 +1544,7 @@ function makeOwnerRef() {
       get id() { const obj = cur(); return obj ? obj.id : 0; },
       cursorDetected: false,
       clicked: false,
-    };
+    }, cur), LAYER_REF_MEMBER_ACCESSORS);
   };
   /* ①(P-137 2026-09-19 用户第 8 项) `thisLayer.size` / `thisObject.size`：**上一次缺失的读取器**
    *
@@ -1337,9 +1591,17 @@ function makeOwnerRef() {
    *     留给后续单独定夺。 */
   const sizeOf = (obj) => parseV(obj ? obj.size : null, [0, 0, 0])
   // ①(P-60) 同 layerRef：惰性取 ref.current（编译期快照 = 上一个脚本节点的对象）
+  /* ①(P-174) F5 = `thisObject`。⚠ 官方 d.ts 里**没有** `thisObject` 这个声明（两份官方 d.ts 全文 0 命中；
+   *   最近的类型是 L504-510 `interface IThisPropertyObjectBase extends IObject {}` —— 空接口）。
+   *   本仓的既有口径（P-137/P-142/P-143 一路下来）是"`thisObject` 就是该层 ⇒ 不能两套面"，
+   *   所以**值成员**（origin/scale/size/visible/text/pointsize/font/对齐/alpha/angles/color/parallaxDepth/
+   *   alignment/volume）与 thisLayer 同源；而**方法面**（getParent/getTextureAnimation/getAnimationLayer/
+   *   play-pause-stop-isPlaying/getTransformMatrix/…）只在 thisLayer 上给 —— 官方没有 thisObject 面、
+   *   语料里也 0 处 `thisObject.<方法>()`（普查：thisObject 只被用来读写值），本批不扩这条回归面。
+   *   审计表里 F5 的这些格子标 `na`（依据就是本条），不是"漏了"。 */
   const objectRef = () => {
     const cur = () => ref.current;
-    return {
+    return defineAccessors(bindLayerFace({
       getMaterial: () => ({}),
       // ①(P-141) `objectRef().getAnimation` 此前返回 `animRef`（IAnimationLayer 的 no-op 面）。
       //   官方 `IObject.getAnimation` 的返回类型是 **IAnimation**（d.ts L494-499）⇒ 换成
@@ -1378,7 +1640,7 @@ function makeOwnerRef() {
       set debug(v) { const obj = cur(); if (obj) writeDebugFlag(obj, v); },
       get name() { const obj = cur(); return obj ? obj.name || '' : ''; },
       get id() { const obj = cur(); return obj ? obj.id : 0; },
-    };
+    }, cur), LAYER_REF_MEMBER_ACCESSORS);
   };
   // ①(P-141) `thisLayer` 那个**层引用实例**（`compileScript` 只调用一次 `makeLayer()`）：
   //   `thisScene.getLayerIndex(thisLayer)` 需要把"层引用对象"还原成 `scene.objects` 里的对象，
@@ -2160,10 +2422,23 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
    *   于是"编译时机"从"第一次被选中执行时"变成"第一帧的头一趟" ⇒ 这个错位会命中更多脚本。 */
   const buildById = (r) => {
     try {
-      if (r && !r.byId) {
+      /* ①(P-174 2026-09-24) **byId 必须挂在 `ref` 上，不是挂在 makeOwnerRef() 的返回壳上**。
+       *   现场（本批普查实测）：`makeOwnerRef()` 返回 `{ ref, makeLayer, makeObject, layerRefObj, setOwner }`，
+       *   而读它的是 `layerRef()`/`layerRefFor()` 里的 `ref.byId`（**内层** `ref`）—— 旧实现只给**外层壳**
+       *   挂了 `byId` ⇒ `ref.byId` 恒 undefined ⇒
+       *     · `thisLayer.getParent()` **永远**返回 `emptyLayerRef()`（`name: ''`、`id: -1`）；
+       *     · `layerRefFor(obj)`（F3）**整条路径不可达**（唯一调用点传进去的永远是 null）。
+       *   语料面：`getParent` 在 6 个包/117 处被调用，含 `thisLayer.getParent().getParent()` 链式与
+       *   `parent.getTransformMatrix().m[13] > engine.canvasSize.y/2`（3326873240），全部读到空引用。
+       *   修法：目标对象 = 内层 `ref`（有则用），并保留外层壳上的同一份（既有读法不破）；"先到先得"
+       *   语义不变（同一份场景对象表只建一次）。 */
+      if (!r) return;
+      const inner = (r.ref && typeof r.ref === 'object') ? r.ref : r;
+      if (!inner.byId) {
         const m = new Map();
         for (const o of (opts.sceneObjects || [])) if (o && o.id !== undefined) m.set(o.id, o);
-        r.byId = m;
+        inner.byId = m;
+        if (r !== inner) r.byId = m;
       }
     } catch { /* ignore */ }
   };
@@ -2361,6 +2636,12 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
 export function applySceneScripts(scene, time, opts = {}) {
   const cache = opts.scriptCache && opts.scriptCache.map ? opts.scriptCache : null;
   const shared = (cache ? cache.shared : null) || opts.shared || {};
+  /* ①(P-174) 发布"本帧的用户属性活表"给模块级读路径（`ISoundLayer.volume` 的用户绑定优先需要它：
+   *   `volume` 是 `{user:"bgm", value:1}` 时屏幕上的数是用户属性值，不是节点 value；依据见
+   *   LAYER_REF_MEMBER_ACCESSORS 上方长注释）。**帧内有效、帧末清空**：帧外（测试直接
+   *   `makeSceneRef()` 读、宿主在两次 apply 之间读）没有"当前用户属性"这个概念 ⇒ 退回节点 value，
+   *   行为确定、不会把上一帧的表泄漏出去。 */
+  noteUserProps(opts.userProps);
   // ①(P-131 批 D) **每帧先刷新音频活视图**（脚本顶层只调一次 `registerAudioBuffers` 时，
   //   这是"内容随帧变化"的唯一驱动点）。没有脚本用过音频 ⇒ Map 为空、零成本。
   refreshAudioViews(opts.audioBuffers);
@@ -2492,6 +2773,7 @@ export function applySceneScripts(scene, time, opts = {}) {
       try { if (entry && entry.context && entry.context.scene && typeof entry.context.scene.__fireUpdate === 'function') entry.context.scene.__fireUpdate() } catch { /* ignore */ }
     }
   }
+  noteUserProps(null);   // ①(P-174) 帧末清空（见函数开头：帧外没有"当前用户属性"这个概念）
   return shared;
 }
 

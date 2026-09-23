@@ -2924,6 +2924,69 @@ function loadScene() {
   }
   pkg = lib.parsePkg(buf)
   logf('容器: ' + pkg.magic + ' 条目 ' + pkg.entries.length + ' 个')
+  // ═══ MPW-NOSCENE-BEGIN ═══
+  /* ①(2026-09-24 MPKG 抽扫) **没有 `scene.json` 的容器不再抛看不懂的 TypeError**：全库 155 个 `.mpkg`
+     里 85 个没有 `scene.json`（其中约 75 个是"视频壁纸"打包），此前一律落到下一行的
+     `rd(lib.getEntry(pkg, 'scene.json'))` ⇒ `TextDecoder.decode(undefined)` ⇒ 整页
+     `❌ 启动失败: TextDecoder.decode: Argument 1 could not be converted to any of: ArrayBufferView, ArrayBuffer`
+     —— 既不点明原因、也不给出路。
+     现在分两档：① 容器里有可播视频（`project.json.file` 优先，没有就按条目后缀兜底）⇒ 按**纯视频壁纸**播
+     （与既有 `?video=` / `type=video` 两档同形：DOM 覆盖层 + blob 源 + 上面那个 blob 媒体看门狗）；
+     ② 连视频也没有 ⇒ **如实报错并列出条目名**，不再是一句 TypeError。
+     判据：tests/mpkg-noscene-test.mjs（源码序 + 按源码序执行原文 + 变异自证）。 */
+  if (!lib.getEntry(pkg, 'scene.json')) {
+    const nsNames = (pkg.entries || []).map((e) => String(e.name)).join(', ')
+    let nsFile = ''
+    try {
+      const nsPj = lib.getEntry(pkg, 'project.json')
+      if (nsPj) { const pj = JSON.parse(rd(nsPj)); nsFile = pj.file || (pj.general && pj.general.file) || '' }
+    } catch (e) { /* project.json 缺失/坏：下面按条目后缀兜底，不抛 */ }
+    const nsEnt = (nsFile && lib.getEntry(pkg, nsFile))
+      ? nsFile
+      : (((pkg.entries || []).find((e) => /\.(mp4|webm|mov)$/i.test(String(e.name)))) || {}).name || ''
+    if (!nsEnt) {
+      try { if (typeof window !== 'undefined') window.__mpwNoScene = { path: 'error', names: nsNames, at: Date.now() } } catch (e) {}
+      throw new Error('这个容器不是场景包：没有 scene.json，也没有可播的视频（条目：' + nsNames + '）')
+    }
+    /* ①(2026-09-24 内存纪律) 本页是"容器整包在内存里"的口径（`parsePkg(buf)`），把视频条目再复制成 Blob
+       会让峰值大致翻倍。本语料 85 个无 `scene.json` 的包里，视频条目中位数 ~96MB、最大 **791.5MB**（12 个 >256MB）
+       ⇒ 设 **256MiB** 上限：超过就**如实拒绝并说明出路**（此前这些包本来也只报一句看不懂的 TypeError，
+       不是回退）；64MiB 以上额外提示一行峰值，便于现场判断。 */
+    const nsSize = (((pkg.entries || []).find((e) => e.name === nsEnt)) || {}).size || 0
+    const nsMax = 256 << 20
+    if (nsSize > nsMax) {
+      try { if (typeof window !== 'undefined') window.__mpwNoScene = { path: 'too-big', entry: nsEnt, bytes: nsSize, limit: nsMax, at: Date.now() } } catch (e) {}
+      logf('⚠ 视频条目 ' + (nsSize / 1048576).toFixed(1) + 'MB 超过本页上限 ' + (nsMax / 1048576) + 'MB（容器已在内存里，再复制成 Blob 会翻倍）')
+      throw new Error('这个容器没有 scene.json，它的视频条目 ' + (nsSize / 1048576).toFixed(1) + 'MB 超过本页内存内播放上限 '
+        + (nsMax / 1048576) + 'MB ⇒ 这种大包请走插件/测试台的流式路径（不整包入内存）')
+    }
+    /* ①(2026-09-24 多实例) 非主实例（多实例网格里的格子）没有"整页"语义：这条纯视频路会铺满**整页**
+       （`position:fixed;inset:0`，与既有 `?video=` / `type=video` 两档同形，那两档本身也只跑在页级实例上）
+       ⇒ 网格里**如实报错**，别用一个整页视频盖住整张网格。 */
+    if (!(typeof PAGE === 'undefined' || PAGE)) {
+      try { if (typeof window !== 'undefined') window.__mpwNoScene = { path: 'grid-unsupported', entry: nsEnt, at: Date.now() } } catch (e) {}
+      throw new Error('这个容器不是场景包（没有 scene.json，视频 ' + nsEnt + '）：多实例网格只渲染场景包 ⇒ 请单独打开这一项')
+    }
+    logf('⚠ 容器里没有 scene.json（不是场景包）⇒ 按**纯视频壁纸**播放：' + nsEnt + '（' + (nsSize / 1048576).toFixed(1) + 'MB）')
+    if (nsSize > (64 << 20)) logf('  · 该条目 ' + (nsSize / 1048576).toFixed(1) + 'MB：本页会把容器与 blob 同时持有一段时间（峰值约 2 倍）')
+    logf('  条目：' + nsNames)
+    try { if (typeof window !== 'undefined') window.__mpwNoScene = { path: 'video', entry: nsEnt, names: nsNames, at: Date.now() } } catch (e) {}
+    const nsUrl = URL.createObjectURL(new Blob([lib.getEntry(pkg, nsEnt)], { type: /\.webm$/i.test(nsEnt) ? 'video/webm' : 'video/mp4' }))
+    const nsV = document.createElement('video')
+    nsV.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;background:#000'
+    nsV.autoplay = true; nsV.loop = true; nsV.muted = true; nsV.playsInline = true
+    nsV.setAttribute('playsinline', ''); nsV.setAttribute('webkit-playsinline', '')
+    document.body.appendChild(nsV)
+    nsV.src = nsUrl
+    try { window.__mpwFixMedia && window.__mpwFixMedia(nsV) } catch (e) {}
+    try { nsV.load() } catch (e) {}
+    nsV.play().catch((e) => { if (nsV.__mpwBlobRetryAborts) nsV.__mpwBlobRetryAborts--; else logf('  ⚠ 纯视频壁纸自动播放失败: ' + e.message) })
+    nsV.addEventListener('error', () => logf('视频加载失败: ' + nsEnt + '（code=' + (nsV.error ? nsV.error.code : '?') + '）'))
+    nsV.addEventListener('loadeddata', () => { logf('视频已加载 ' + (nsV.videoWidth || '?') + 'x' + (nsV.videoHeight || '?')); try { applyVideoFrameBox(nsV, 'mpkg-video') } catch (e) {}; try { mpwSyncVideoRates() } catch (e) {} })
+    try { mpwBlobMediaRetry(nsV, '视频壁纸包') } catch (e) {}
+    return
+  }
+  // ═══ MPW-NOSCENE-END ═══
   const sceneJson = rd(lib.getEntry(pkg, 'scene.json'));
   // ①(P-21-ATTACH 2026-09-13) 附件锚点默认走移植自 elysia 的实现（bundle parseScene 的 opts.attachCtx，
   //   MDAT0001 锚点表 + MDLA 帧0 骨骼世界位姿；POSITION-FINDINGS.md §4）。?att=legacy 回退旧
