@@ -309,7 +309,10 @@ const SAMPLE_ROOT = REPO_ROOT + '/samples';
 // ①(P-87) id 形态统一：真实语料目录名是数字，自带样例是 slug（sample-synthetic）。统一常量避免各路由手写漂移；
 //   **必须**排除以点开头的名字（`?id=..` 经 path.join 会逃出场景根）。
 const ID_PAT = '[A-Za-z0-9_][A-Za-z0-9_.-]*';
-const reIdRoute = (prefix) => new RegExp('^\\/' + prefix + '\\/(' + ID_PAT + ')$');
+/* ③(2026-09-24 mpkg 一等项) 原来这里还有一个 `reIdRoute(prefix)`（`^/<prefix>/<单段 ASCII id>$`），
+   `/pkg`、`/project`、`/ddlist`、`/type` 四条 id 路由都用它。现在这四条改成"**嵌套 id + 非 ASCII**"
+   （`rePkgRoute()` 与逐条的 `^\/<name>\/(.+)$`）⇒ 该助手**已无调用点**，按"不留死代码"删掉。
+   ⚠ `ID_PAT` 仍在用（`/shot/<id>` 的 id 过滤口径，见下面那条路由），不动。 */
 
 /* ①(2026-09-24 复用安全) 顶层动态 import **不许**把宿主一起带崩：`:8902` 现在 import 本模块来复用
    同一份处理器，若这台机器上没有包解析器（公开副本 / 未装插件仓库 / MPW_PKG_EXTRACT 指错），
@@ -397,6 +400,68 @@ function pkgPathOf(id) {
   const sc = findScene(id);
   return sc ? sc.pkgPath : null;
 }
+
+/* ═══ ③(2026-09-24 mpkg 一等项 · 渲染器面) 库根内的**嵌套 itemId** ════════════════════════════════
+   背景（真机读数，不是推测）：项目所有者的库布局是 `wallpaperE/<角色>/<角色>_NN.mpkg`，
+   测试台把它折成"一个 `.mpkg` = 一个库项、itemId = 相对库根的嵌套路径"（`:8902` 的
+   `libraryItemFromFile`）。渲染器页 `demo.html` 取包用的是**根绝对路径** `/pkg/<id>`（`demo.html` 的
+   `const url = '/pkg/' + id`，`id` 取自 `?id=` 且 `URLSearchParams.get()` **已解码** `%2F`）
+   ⇒ 这里必须能吃两种 id：
+     · **目录型**（老口径，逐字不变）：`<root>/<id>/scene.pkg`（`findScene()`），
+     · **文件型**（`.mpkg`/`.pkg` 一等项）：`<root>/<id>` **本身就是一个文件** ⇒ 直接把**容器字节**回给
+       页面（页面侧 `parsePkg(buf)` 本来就认 `PKGM0014/0018`，见 `demo.html` 的"容器: "那一行日志）。
+   安全（与 `:8902` 的 `assertItemPath` **同一套口径**，两边都不许放宽）：
+     · 每一段是单段名（无 `/` `\` 控制符、不以 `.` 开头、非空、≤120 字符）；
+     · `path.resolve(root, id)` 必须在根内（`id` 里出现 `..` 直接判非法 ⇒ **400**，不落到文件系统上）；
+     · 真身（`fs.realpathSync`）也必须在根内 ⇒ 符号链接逃逸 ⇒ **403**（绝不读出根外字节）。
+   ⚠ 本模块**没有** `safeJoin`（那是 `:8902` 的实现）：这里的等价物是
+   `libItemResolve()` 的三道校验；判据见 `tests/bench-mpkg-items-test.mjs` 的越界组
+   （`..%2F..%2Fetc%2Fpasswd` ⇒ 400、绝对路径 ⇒ 400、符号链接逃逸 ⇒ **403** 且字节不泄漏）。 */
+const LIB_ID_MAX_SEGS = 8
+const LIB_SEG_RE = /^[^\u0000-\u001f\u007f/\\]{1,120}$/
+/** 嵌套 itemId 的**段校验**：合法返回规范化后的相对路径，非法返回 null（调用方 400）。 */
+function libItemRel(id) {
+  if (typeof id !== 'string' || !id || id.length > 400) return null
+  const segs = id.split('/')
+  if (segs.length > LIB_ID_MAX_SEGS) return null
+  for (const s of segs) {
+    if (!s || s === '.' || s === '..' || s[0] === '.') return null
+    if (!LIB_SEG_RE.test(s)) return null
+  }
+  return segs.join('/')
+}
+function realpathSafe(p) { try { return fs.realpathSync(p) } catch { return null } }
+function insideDir(root, p) {
+  const rel = path.relative(root, p)
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+/** `<root>/<id>` 解析（**唯一**入口）：段校验 + 根内前缀 + 真身校验，任一不过 ⇒ `{ ok:false, code }`。
+ *  `code`: **400** = id 本身非法（`..`/绝对路径/伪装段）；**404** = 合法但不存在；**403** = 真身（符号链接）
+ *  逃出库根（"越界拒绝"要和"没有这个包"分得开：前者是安全事件，后者是常见情况）。 */
+function libItemResolve(root, id) {
+  const rel = libItemRel(id)
+  if (!rel) return { ok: false, code: 400, reason: `id 非法（只允许相对库根的路径段，不许 "." 开头/含分隔符控制符）：${String(id).slice(0, 120)}` }
+  const rootReal = realpathSafe(root) || root
+  const full = path.resolve(root, rel)
+  if (!insideDir(rootReal, full)) return { ok: false, code: 403, reason: `id 越出库根：${String(id).slice(0, 120)}` }
+  const st = statSyncSafe(full)
+  if (!st) return { ok: false, code: 404, reason: `不存在：${String(id).slice(0, 120)}` }
+  const real = realpathSafe(full)
+  if (!real || !insideDir(rootReal, real)) return { ok: false, code: 403, reason: `经符号链接越出库根：${String(id).slice(0, 120)}` }
+  return { ok: true, full, st, isFile: st.isFile(), isDir: st.isDirectory() }
+}
+/** `/pkg/<id>` 的单包大小上限（③）：本机最大的一份 `.mpkg` = **331 194 792 B（331.2MB）**
+ *  （`wallpaperE/伊蕾娜/夜莺night——【time_variation时间变化】…day_night.mpkg`；第二大的 `卡提希娅_01.mpkg` = 294MB），
+ *  给一倍余量。超限 ⇒ **如实 413**（绝不截断成"半个包"当成功）；发送走 `sendFileStream`（流式 + Range），
+ *  不整包读进内存。环境变量只给测试/现场调参用（默认 768MB，与 `:8902` 的 `/api/fs/file` 同一把尺子）。 */
+const PKG_MAX_BYTES = (() => {
+  const v = Number(process.env.MPW_LIMIT_PKG_BYTES)
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : 768 * 1024 * 1024
+})()
+/** `/pkg/<id>` 的 id 路由：**嵌套 + 非 ASCII** 都要能进来（老口径 `ID_PAT` 只认单段 ASCII，
+ *  实测 `GET /pkg/卡提希娅` 直接落到"not found" ⇒ 页面日志 `pkg HTTP 404`）。
+ *  放宽的只是**匹配**：解出来的 id 一律过 `libItemResolve()` 的段校验/根内/真身三道。 */
+const rePkgRoute = () => /^\/pkg\/(.+)$/
 
 // ═══ ①(B6 渲染器沙箱 2026-09-14) CORS：iframe 去掉 allow-same-origin 后是不透明源，
 //   渲染器**自己**的 fetch('/report' | '/pkg/' | '/pkgurl' | '/noise' | '/weassist/…') 全变跨源。
@@ -1035,35 +1100,62 @@ const serverHandler = async (req, res) => {
       } catch (e) { res.writeHead(404); res.end('not found') }
       return
     }
-    m = p.match(reIdRoute('project'));
+    m = p.match(/^\/project\/(.+)$/);
     if (m) {
+      /* ③(2026-09-24) id 可含 `/`（mpkg 一等项的嵌套 itemId）。**属性表来自"条目所在的目录"**：
+         目录型 id ⇒ 老口径（`<root>/<id>/project.json`）；文件型 id（`<角色>/<x>.mpkg`）⇒
+         退一层到**它的目录**（`<root>/<角色>/project.json`，包旁 JSON 的工坊口径）。
+         非法 id（`..`/绝对路径）⇒ 400；找不到 ⇒ 老口径 404 `no project.json`。 */
+      let pid = m[1]
+      try { pid = decodeURIComponent(pid) } catch { res.writeHead(400); res.end('bad id'); return }
+      if (!libItemRel(pid)) { res.writeHead(400); res.end('bad id'); return }
       try {
-        // ①(P-85 2026-09-15) 改用统一查找链：原来只读 <MPW_SCENE_ROOT>/<id>/project.json，语料目录
+        //  ①(P-85 2026-09-15) 改用统一查找链：原来只读 <MPW_SCENE_ROOT>/<id>/project.json，语料目录
         //   没有这份文件时（公开副本无 allwallpaper/、语料只留容器）恒 404 → 前端 propsSchema=null
         //   → 属性面板空白、visible:{user:{condition:…}} 全走"缺失→按可见"兜底。现在会兜到本机
         //   Steam 工坊目录里的同名文件。行为保持"返回该 json 的原始体 + application/json"；
         //   命中时额外带 x-project-source: <source>（排查"这份属性表从哪来"）。
         //   ①(P-87) sceneRoot 用 findScene 真正命中的那一档根（语料根 **或** 自带样例父目录），
         //   这样 `?id=sample-synthetic` 的属性表也能读到；两档都没命中时退回既有默认值（行为不变）。
-        const sc = findScene(m[1]);
-        const pr = readProjectJson(m[1], { root: MPW_ROOT, sceneRoot: sc ? path.dirname(sc.dir) : currentLibraryRoot() });
+        const sc = findScene(pid);
+        let pr = readProjectJson(pid, { root: MPW_ROOT, sceneRoot: sc ? path.dirname(sc.dir) : currentLibraryRoot() });
+        let lookedUpAs = pid
+        if (!pr) {
+          const parent = path.dirname(pid)
+          if (parent && parent !== '.' && parent !== pid) {
+            pr = readProjectJson(parent, { root: MPW_ROOT, sceneRoot: currentLibraryRoot() })
+            if (pr) lookedUpAs = parent
+          }
+        }
         if (!pr) { res.writeHead(404); res.end('no project.json'); return }
         const buf = fs.readFileSync(pr.path) // 原始字节直出（命中同一文件时与改动前逐字节一致）
         res.writeHead(200, { 'content-type': 'application/json', 'x-project-source': pr.source })
         res.end(buf)
-        if (!PROJECT_SOURCE_LOGGED.has(m[1])) {
-          PROJECT_SOURCE_LOGGED.add(m[1]);
-          console.log('[project] ' + m[1] + ' ← ' + pr.source + ' (' + pr.path + ')');
+        if (!PROJECT_SOURCE_LOGGED.has(pid)) {
+          PROJECT_SOURCE_LOGGED.add(pid);
+          console.log('[project] ' + pid + ' ← ' + pr.source + ' (' + pr.path + ')' + (lookedUpAs === pid ? '' : '（文件型条目 ⇒ 取所在目录 ' + lookedUpAs + '）'));
         }
       } catch (e) { res.writeHead(404); res.end('no project.json') }
       return
     }
-    m = p.match(reIdRoute('ddlist'));
+    m = p.match(/^\/ddlist\/(.+)$/);
     if (m) {
+      /* ③(2026-09-24) 同上：嵌套 id 也能列（目录型 = 老口径；文件型 = 它所在的目录，且把该容器本身列进去）。 */
+      let lid = m[1]
+      try { lid = decodeURIComponent(lid) } catch { res.writeHead(400); res.end('bad id'); return }
+      if (!libItemRel(lid)) { res.writeHead(400); res.end('bad id'); return }
       try {
         // ①(P-87) 同样用 findScene 命中的那一档根：`?id=sample-synthetic` 也能列出自带样例目录的文件。
-        const sc = findScene(m[1]);
-        const base = sc ? sc.dir : path.join(currentLibraryRoot(), m[1])
+        const sc = findScene(lid);
+        const base = sc ? sc.dir : path.join(currentLibraryRoot(), lid)
+        const stBase = statSyncSafe(base)
+        if (stBase && stBase.isFile()) {
+          /* ③文件型条目（`.mpkg` 一等项）：视频在**容器里**，而 `/ddvideo` 只服务磁盘上的松散文件 ⇒
+             如实回空表（页面据此继续走"取包 → 容器内视频"那条路），**不编**一个 /ddvideo 取不到的假名字。 */
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ ok: true, files: [], itemRole: 'file', note: '容器型条目：视频在容器内，/ddvideo 只服务磁盘上的松散文件' }))
+          return
+        }
         const files = fs.readdirSync(base).filter((f) => f !== 'scene.pkg')
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ ok: true, files }))
@@ -1102,13 +1194,24 @@ const serverHandler = async (req, res) => {
       } catch (e) { res.writeHead(500); res.end(String(e && e.message || e)) }
       return
     }
-    m = p.match(reIdRoute('type'));
+    m = p.match(/^\/type\/(.+)$/);
     if (m) {
       // ①(P-85 2026-09-15) 同 /project 改走统一查找链（原来也是只读 <MPW_SCENE_ROOT>/<id>/project.json）；
       //   读不到时**逐字保留**既有兜底（ok:true, type:'unknown'），调用方行为不变。
       //   ①(P-87) sceneRoot 同 /project：用 findScene 命中的那一档根（自带样例也能读）。
-      const scT = findScene(m[1]);
-      const pr = readProjectJson(m[1], { root: MPW_ROOT, sceneRoot: scT ? path.dirname(scT.dir) : currentLibraryRoot() })
+      /* ③(2026-09-24) id 可含 `/`（mpkg 一等项）；声明在**条目所在目录**的 project.json 里（包旁 JSON）⇒
+         目录型走老口径，文件型退一层到它的目录 —— 与 `/project` 同一套口径。
+         ⚠ 容器**内**的 project.json 这里不读（那要解包）：本路由只回答"磁盘上声明了什么"，
+         读不到就照旧 `type:'unknown'`（页面随后按 `?pkgpath/?id` 取包，容器内类型由容器目录表统一给）。 */
+      let tid = m[1]
+      try { tid = decodeURIComponent(tid) } catch { res.writeHead(400); res.end('bad id'); return }
+      if (!libItemRel(tid)) { res.writeHead(400); res.end('bad id'); return }
+      const scT = findScene(tid);
+      let pr = readProjectJson(tid, { root: MPW_ROOT, sceneRoot: scT ? path.dirname(scT.dir) : currentLibraryRoot() })
+      if (!pr) {
+        const parent = path.dirname(tid)
+        if (parent && parent !== '.' && parent !== tid) pr = readProjectJson(parent, { root: MPW_ROOT, sceneRoot: currentLibraryRoot() })
+      }
       try {
         if (!pr) throw new Error('no project.json')
         const j = pr.json
@@ -1216,12 +1319,48 @@ const serverHandler = async (req, res) => {
       return;
     }
 
-    m = p.match(reIdRoute('pkg'));
+    m = p.match(rePkgRoute());
     if (m) {
-      const sc = findScene(m[1]);
-      if (!sc) { res.writeHead(404); res.end('no scene'); return; }
-      res.writeHead(200, { 'content-type': 'application/octet-stream' });
-      res.end(fs.readFileSync(sc.pkgPath));
+      /* ③(2026-09-24) `/pkg/<id>`：**先老口径**（目录型：`<root>/<id>/scene.pkg`，逐字不变），
+         再**新增**文件型（`.mpkg`/`.pkg` 一等项：`<root>/<id>` 本身是文件 ⇒ 回容器字节）。
+         两条都失败才 404，且 404 文本保持老口径的 `no scene`（既有客户端按它判断"这个包没有"）。 */
+      let id = m[1]
+      try { id = decodeURIComponent(id) } catch { res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }); res.end('bad id'); return }
+      const relOk = !!libItemRel(id)
+      if (!relOk) { res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }); res.end('bad id'); return }
+      const sc = findScene(id);
+      let hit = null
+      if (sc) {
+        const st = statSyncSafe(sc.pkgPath)
+        if (st && st.isFile()) hit = { file: sc.pkgPath, size: st.size, from: 'scene-dir' }
+      }
+      if (!hit) {
+        let firstErr = null
+        for (const root of libraryRoots()) {
+          const r = libItemResolve(root, id)
+          if (r.ok) { if (r.isFile && /\.(mpkg|pkg)$/i.test(id)) { hit = { file: r.full, size: r.st.size, from: 'container-file' }; break } }
+          else if (!firstErr) firstErr = r
+        }
+        /* 越界（400/403）要如实回，不能糊成 404：这是安全事件，与"这个 id 没有包"是两回事。
+           合法的"不存在"仍走下面的老口径 404 `no scene`（既有客户端按这段文本判断）。 */
+        if (firstErr && (firstErr.code === 400 || firstErr.code === 403)) {
+          res.writeHead(firstErr.code, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end((firstErr.code === 403 ? 'forbidden id: ' : 'bad id: ') + firstErr.reason);
+          return;
+        }
+      }
+      if (!hit) { res.writeHead(404); res.end('no scene'); return; }
+      if (hit.size > PKG_MAX_BYTES) {
+        /* 如实 413（不是 500、不是截断）：这一档只有在"包比上限还大"时才发生，说明上限配小了或文件异常。 */
+        res.writeHead(413, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('package too large: ' + hit.size + ' bytes > limit ' + PKG_MAX_BYTES
+          + ' (MPW_LIMIT_PKG_BYTES) — 请求被拒绝；本路由**不截断**包体');
+        return;
+      }
+      /* 大文件一律**流式**发（本机最大 294MB）：老实现是 `fs.readFileSync(整个包)` ⇒ 单线程里一份
+         完整副本进内存。响应字节/Content-Type 与老口径一致（`application/octet-stream`），
+         额外带上 content-length + accept-ranges（新增 Range ⇒ 206，纯增量）。 */
+      sendFileStream(req, res, hit.file, hit.size, 'application/octet-stream');
       return;
     }
 

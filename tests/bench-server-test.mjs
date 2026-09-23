@@ -614,11 +614,18 @@ async function runSuite() {
     const lib4 = await request(P4, 'GET', '/api/library')
     const items4 = (J(lib4).items) || []
     const it = (id) => items4.find((i) => i.itemId === id)
-    check('L2 逐类计数：scene 3 / video 2 / web 1 / mpkg 1 / unknown 1（fixture 8 项）',
-      J(lib4).count === 8 && JSON.stringify(J(lib4).scan.kinds) === JSON.stringify({ scene: 3, video: 2, web: 1, mpkg: 1, unknown: 1 }),
+    /* ③(2026-09-24 `.mpkg` 一等项口径变化，读数重算 —— 见 `tests/bench-mpkg-items-test.mjs` A1 段)：
+       `types/mpkg-scene/` 里只有一个 `夹具容器_01.mpkg` ⇒ 该目录**逐文件成项**（itemId 变**嵌套路径**
+       `mpkg-scene/夹具容器_01.mpkg`），条目类型按**容器内条目**判定（容器里有 `scene.pkg` ⇒ `scene`），
+       目录那一条**不再产出**（否则同一批壁纸重复计数）。所以：
+         · `count` 仍是 **8**（8 个目录 ⇒ 7 个目录条 + 1 个文件条）；
+         · `kinds` 由 `{scene:3,…,mpkg:1}` 变成 `{scene:4,…,mpkg:0}`（那一条从"mpkg 容器档"变成按内容判的 scene）；
+         · `signals.withScene` 4 / `withPreview` 6（文件条也有 scene 信号与容器内预览）。 */
+    check('L2 逐类计数：scene 4 / video 2 / web 1 / mpkg 0 / unknown 1（fixture 8 项；`.mpkg` 目录逐文件成项后类型按容器内容判）',
+      J(lib4).count === 8 && JSON.stringify(J(lib4).scan.kinds) === JSON.stringify({ scene: 4, video: 2, web: 1, mpkg: 0, unknown: 1 }),
       `count=${J(lib4).count} kinds=${JSON.stringify(J(lib4).scan.kinds)} items=${items4.map((i) => i.itemId + ':' + i.kind).join(',')}`)
     check('L3 容器内类型单独计数（containerKinds.scene=1）+ 信号聚合（scene/web/video/mpkg/预览 逐项计数）',
-      J(lib4).scan.containerKinds.scene === 1 && J(lib4).scan.signals.withScene === 3 && J(lib4).scan.signals.withHtml === 1 && J(lib4).scan.signals.withVideo === 2 && J(lib4).scan.signals.withMpkg === 1 && J(lib4).scan.signals.withPreview === 5,
+      J(lib4).scan.containerKinds.scene === 1 && J(lib4).scan.signals.withScene === 4 && J(lib4).scan.signals.withHtml === 1 && J(lib4).scan.signals.withVideo === 2 && J(lib4).scan.signals.withMpkg === 1 && J(lib4).scan.signals.withPreview === 6,
       JSON.stringify({ containerKinds: J(lib4).scan.containerKinds, signals: J(lib4).scan.signals }))
     check('L4 网页档（**没有 project.json**）：kind=web / kindSource=content / entryFile=index.html / renderable=true',
       !!it('web-noproj') && it('web-noproj').kind === 'web' && it('web-noproj').kindSource === 'content' && it('web-noproj').entryFile === 'index.html' &&
@@ -628,11 +635,22 @@ async function runSuite() {
       !!it('video-noproj') && it('video-noproj').kind === 'video' && it('video-noproj').entryFile === 'clip.mp4' && it('video-noproj').hasVideo === true &&
       !!it('video-declared') && it('video-declared').kind === 'video' && it('video-declared').preview === 'preview.jpg' && it('video-declared').file === 'movie.mp4',
       JSON.stringify(items4.filter((i) => i.kind === 'video').map((i) => ({ id: i.itemId, entry: i.entryFile, kindSource: i.kindSource }))))
-    check('L6 mpkg 档：kind=mpkg + 容器内类型 scene + 容器内 preview 可直出 + 内容优先判定（type 派生 mpkg）',
-      !!it('mpkg-scene') && it('mpkg-scene').kind === 'mpkg' && it('mpkg-scene').container === true && it('mpkg-scene').containerKind === 'scene' &&
-      it('mpkg-scene').containerEntry === 'scene.pkg' && !!it('mpkg-scene').containerPreview && it('mpkg-scene').containerPreview.entry === 'preview.gif' &&
-      it('mpkg-scene').renderable === false && it('mpkg-scene').file === fx.containerName && it('mpkg-scene').type === 'mpkg' && it('mpkg-scene').title === '夹具容器场景',
-      JSON.stringify(it('mpkg-scene') && { kind: it('mpkg-scene').kind, ck: it('mpkg-scene').containerKind, ce: it('mpkg-scene').containerEntry, cp: it('mpkg-scene').containerPreview, title: it('mpkg-scene').title }))
+    /* ③(2026-09-24) 旧判据认的是"目录那一条"（`itemId=mpkg-scene`、`kind=mpkg`、`type=mpkg`）。
+       现在 `.mpkg` 是**一等库项**：条目 id 是**嵌套路径** `mpkg-scene/夹具容器_01.mpkg`，类型按
+       **容器内条目**判定（这里只有 `scene.pkg`、没有 `scene.json` ⇒ `kind/type=scene`，但
+       `renderable=false` + 理由），`file` = 文件名本身 —— 断言**更严**（多了 itemId 形态 / itemRole /
+       容器内容派生 type / 不可渲染的理由），并把"目录条不再重复产出"这条口径也钉住。 */
+    const cItem = it('mpkg-scene/' + fx.containerName)
+    check('L6 mpkg 档（一等项）：itemId=嵌套路径 + itemRole=file + 容器内类型派生 type/kind=scene + 容器内 preview + 只有 scene.pkg ⇒ renderable=false',
+      !!cItem && cItem.itemRole === 'file' && cItem.container === true && cItem.kind === 'scene' && cItem.type === 'scene' &&
+      cItem.containerKind === 'scene' && cItem.containerEntry === 'scene.pkg' && !!cItem.containerPreview && cItem.containerPreview.entry === 'preview.gif' &&
+      cItem.renderable === false && /scene\.json/.test(String(cItem.renderReason)) && cItem.file === fx.containerName &&
+      cItem.title === '夹具容器场景' && cItem.thumbUrl === '/api/thumb?item=' + encodeURIComponent('mpkg-scene/' + fx.containerName),
+      JSON.stringify(cItem && { id: cItem.itemId, role: cItem.itemRole, kind: cItem.kind, type: cItem.type, ck: cItem.containerKind, ce: cItem.containerEntry, cp: cItem.containerPreview, renderable: cItem.renderable, thumb: cItem.thumbUrl }))
+    check('L6b 逐文件成项的口径可核对：`mpkg-scene` 不再产出"目录那一条"，且 `fileItems + dirItems === count`（不重复计数）',
+      !it('mpkg-scene') && J(lib4).scan.itemRoles && J(lib4).scan.itemRoles.fileItems === 1 &&
+      (J(lib4).scan.itemRoles.fileItems + J(lib4).scan.itemRoles.dirItems) === J(lib4).count,
+      JSON.stringify({ dirItem: !!it('mpkg-scene'), roles: J(lib4).scan.itemRoles, count: J(lib4).count }))
     check('L7 非 ASCII 目录名（中文收藏夹）照常成条目并可渲染（itemId 国际口径，不再被静默丢掉）',
       !!it('流萤') && it('流萤').kind === 'scene' && it('流萤').hasScene === true && it('流萤').renderable === true && it('流萤').type === 'scene',
       JSON.stringify(it('流萤') && { id: it('流萤').itemId, kind: it('流萤').kind, scene: it('流萤').scenePkg }))

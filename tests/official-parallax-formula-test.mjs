@@ -50,6 +50,9 @@
 //   （与 `git show HEAD:` 的改前构建对拍）。变异新增 M7（默认值改回旧的）/ M8（显式 0 当缺省）/
 //   M9（legacy 档也换新默认）/ M10（只把 amount 默认改回 0）。
 import fs from 'node:fs'
+
+/* “改前”基线：0.5.6（6b90af1）之前的那次提交 —— 视差默认值还是旧的 amount=0/delay=1/influence=1。 */
+const PRE_DEFAULTS_REV = '912c8d1'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -361,7 +364,10 @@ async function runSuite(lib) {
   const runMissingFixture = async (l, f, legacy) => (await probe(l, mkScene([L(1, 'leg', f.depth)], f.general), f.cursor,
     { dt: f.dt, frames: f.frames, rendererOpts: legacy ? { parallaxLegacy: true } : undefined })).readings.leg
   const OLD_SRC = (() => {
-    try { return execFileSync('git', ['show', 'HEAD:core/we-scene-bundle.js'], { cwd: ROOT, maxBuffer: 128 * 1024 * 1024 }).toString('utf8') }
+    /* ①(2026-09-24 口径修正，与 portability-fix 同一条教训) "改前"必须**钉死提交号**，不能用 `HEAD`：
+       本轮改动一旦提交（0.5.6 = 6b90af1），`HEAD` 就**变成改后** ⇒ 反假绿判据 `…-DIFFERS-FROM-PREV` 必然假红。
+       `912c8d1` = 0.5.6 之前那一次提交（视差默认值仍是旧的 0/1/1）。**不要**顺手把它更新成新提交。 */
+    try { return execFileSync('git', ['show', PRE_DEFAULTS_REV + ':core/we-scene-bundle.js'], { cwd: ROOT, maxBuffer: 128 * 1024 * 1024 }).toString('utf8') }
     catch (e) { return null }
   })()
   let oldLib = null, tmpOld = null
@@ -376,7 +382,7 @@ async function runSuite(lib) {
   if (!oldLib) {
     for (const id of ['LEGACY-BITEXACT-VS-PREV', 'LEGACY-KEEPS-OLD-INFLUENCE', 'DEFAULT-EXPLICIT-BITEXACT-VS-PREV',
       'DEF-MISSING-DIFFERS-FROM-PREV', 'DEF-LEGACY-MISSING-BITEXACT', 'DEF-LEGACY-MISSING-NONZERO']) {
-      checks[id] = 'skip'; show[id] = '拿不到改前构建（git show HEAD:core/we-scene-bundle.js 失败）'
+      checks[id] = 'skip'; show[id] = '拿不到改前构建（git show ' + PRE_DEFAULTS_REV + ':core/we-scene-bundle.js 失败 —— 浅克隆缺该提交就应如实报红）'
     }
   } else {
     const same = [], diff = []

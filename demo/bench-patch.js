@@ -1740,7 +1740,12 @@ export function rendererSourceUrl(url, mode, opts) {
     const get = (k) => { const hit = q.split('&').find((x) => x.split('=')[0].toLowerCase() === k); return hit === undefined ? null : decodeURIComponent(hit.slice(hit.indexOf('=') + 1)) }
     const src = get('src') || ''
     const type = String(get('type') || 'scene').toLowerCase()
-    if (type === 'scene' && src && !/[\/\\]/.test(src)) return src
+    /* ①(2026-09-24 `.mpkg` 一等项) scene 档的 `src` 过去要求**不带任何斜杠**（那是"单段 itemId"的旧口径）。
+       库根 = `wallpaperE/**` 这种"一个目录里多份 `.mpkg`"的布局下，itemId 是**相对库根的嵌套路径**
+       （`卡提希娅/卡提希娅_01.mpkg`）⇒ 旧判据返回空 ⇒ 预览 URL 不写 `id=` ⇒ 测试台点了没反应（挂成合成样例）。
+       新判据 = "**相对路径**"：不吃绝对路径（`/`、`\\`、盘符）、不吃 `..`、不吃协议头；其余（含嵌套）都放行。
+       服务端侧对嵌套 itemId 的越界校验在 `assertItemPath()/safeJoin()`（本轮已加判据：`..` ⇒ 400、软链逃逸 ⇒ 403）。 */
+    if (type === 'scene' && src && !/^[\/\\]/.test(src) && !src.includes('..') && !/^[a-z]+:\/\//i.test(src)) return src
     const m = /(?:^|\/)(?:media|web)\/dev\/([^/?#]+)/.exec(src)
     return (m && m[1]) || ''
   }

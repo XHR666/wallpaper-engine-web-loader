@@ -230,6 +230,8 @@ const LIMITS = {
   bodyBytes: 2 * 1024 * 1024,         // 其它 JSON body ≤2MB
   listItems: 5000,                    // /api/library 最多列 5000 项（防病态目录把响应撑爆）
   scanOps: 20000,                     // 单次库扫描的探测操作上限（readdir/stat；防病态目录）
+  mpkgPerDir: 400,                    // ③单个目录里最多把多少个 `.mpkg` 折成**独立条目**（病态目录上限）
+  videoPerDir: 200,                   // ③mpkg 档目录里顺带成条的视频文件上限（同上）
   dirEntries: 2000,                   // /api/dir-list 单层最多列 2000 个目录
   browserFiles: 1000,                 // /api/dir-list 单层最多列 1000 个文件
   /* ②b(2026-09-24) `GET /api/fs/file` 的单文件上限：**读**（不是列）用户的壁纸包，最大的一份实测
@@ -536,7 +538,48 @@ let activeRoot = LIBRARY_ROOT_REAL
 let selection = null            // { dir, at, mode }
 const selectRoot = (dir, mode) => { activeRoot = dir; selection = { dir, at: Date.now(), mode: mode || 'dir' }; return selection }
 const clearSelection = () => { selection = null; activeRoot = LIBRARY_ROOT_REAL; return null }
-const itemDirReal = (id) => path.join(activeRoot, assertItemId(id))
+/* ③(2026-09-24 用户「壁纸都启动失败 / PKG HTTP404」的根因那一半) itemId 从"**单个路径段**"推广到
+   "**相对库根的嵌套路径**"（`<角色>/<角色>_NN.mpkg`）。为什么必须推广：项目所有者真实的库布局是
+   `wallpaperE/<角色>/<角色>_NN.mpkg`（实测 148 个 `.mpkg`），旧口径"一个目录一个条目"让用户只看到
+   20 条（= 20 个角色目录，每个 `file` = 该目录第一个 `.mpkg`）⇒ 148 张壁纸里绝大多数**根本看不见**。
+   安全口径**一处都没放宽**（这是本文件唯一的路径判据，改动必须比原来更严、不许更松）：
+     · 每一段仍是**单段名**：无 `/`、无 `\`、无控制符、不以 `.` 开头、非空、≤120 字符；
+     · 整条路径仍走 `safeJoin(root, v, 'itemId')` 那三道校验：相对路径里出现 `..` ⇒ **400**、
+       解析后越出库根 ⇒ **403**、真身（realpath）经符号链接越出库根 ⇒ **403**、含 NUL ⇒ 400。
+   ⚠ 不许为了让嵌套 id 通过而把 `..`/越根判定改宽 —— 判据见 `tests/bench-mpkg-items-test.mjs`
+   （`../../etc/passwd`、绝对路径 `/etc/passwd`、符号链接逃逸三组都必须被拒）。 */
+const ITEM_PATH_MAX_SEGS = 8
+function assertItemPath(id) {
+  if (typeof id !== 'string' || !id) throw bad('缺少 itemId')
+  if (id.length > 400) throw bad(`itemId 过长（>400）：${String(id).slice(0, 120)}`)
+  const segs = id.split('/')
+  if (segs.length > ITEM_PATH_MAX_SEGS) throw bad(`itemId 层级过深（>${ITEM_PATH_MAX_SEGS} 段）：${String(id).slice(0, 120)}`)
+  for (const s of segs) {
+    if (!s) throw bad(`itemId 有空路径段（首尾或连续 "/"）：${String(id).slice(0, 120)}`)
+    if (s === '.' || s === '..' || s[0] === '.') throw bad(`itemId 段非法（不许以 "." 开头）：${String(id).slice(0, 120)}`)
+    if (!ITEM_ID_INTL_RE.test(s)) throw bad(`itemId 段含路径分隔符/控制符或过长：${String(id).slice(0, 120)}`)
+  }
+  return segs.join('/')
+}
+/** itemId → 库根内**词法**绝对路径（**唯一**入口：段校验 + `safeJoin` 三道校验）。 */
+const itemAbsPath = (id, label) => safeJoin(activeRoot, assertItemPath(id), label || 'itemId')
+/** itemId 定位：**目录项**（`isDir`）或**单文件项**（`isFile`；`dir` = 所在目录、`base` = 文件名）。
+ *  为什么要有"文件项"：`.mpkg` 一等项的 itemId 就指向一个**文件**（`<角色>/<角色>_01.mpkg`），
+ *  而 `/api/props`、`/api/thumb`、`/api/reveal` 这些老路由要的是"条目所在的目录"⇒ 两种形态在这里收口。 */
+function itemLocate(id) {
+  const rel = assertItemPath(id)
+  const abs = safeJoin(activeRoot, rel, 'itemId')
+  const st = statSafe(abs)
+  if (!st) throw notFound(`条目不存在：${rel}`)
+  const real = realpathDeepest(abs)
+  if (!isInside(activeRoot, real)) throw forbidden(`条目经符号链接越出库根：${rel}`)
+  if (st.isDirectory()) return { id: rel, abs, real, isDir: true, isFile: false, dir: abs, base: null, st }
+  if (st.isFile()) return { id: rel, abs, real, isDir: false, isFile: true, dir: path.dirname(abs), base: path.basename(abs), st }
+  throw notFound(`条目既不是文件也不是目录：${rel}`)
+}
+/** 老的"目录型"取法（`itemId` 指向一个目录）。单段 id 的返回与旧实现逐字相同；
+ *  嵌套 id 现在也成立（`<角色>/<子目录>`）；若指向的是**文件**，调用方应改用 `itemLocate()`。 */
+const itemDirReal = (id) => itemAbsPath(id)
 /* ③(2026-09-24 用户第 3/4 条：切根后**不刷新**就必须全部跟着变)
    把"当前生效的库根"以**函数**形式注入给渲染器处理器（`:8899` 那份实现里的**唯一**读取点
    `currentLibraryRoot()`）。为什么是函数而不是值：`activeRoot` 每次 `POST /api/library-dir` 都会变，
@@ -756,11 +799,17 @@ function readPkgTableHead(file) {
     }
   } finally { try { fs.closeSync(fd) } catch { /* 已关 */ } }
 }
-/** 容器内条目 → 类型信号（只按**路径名**判定，不读条目内容）。 */
+/** 容器内条目 → 类型信号（只按**路径名**判定，不读条目内容）。
+ *  ③(2026-09-24 mpkg 一等项) 除聚合信号 `scene` 外，另给**两个更细的**字段 `sceneJson` / `scenePkg`：
+ *  为什么必须分开：渲染器页的场景路只认 `scene.json`（`demo.html` 的 `lib.getEntry(pkg,'scene.json')`，
+ *  没有就走"纯视频壁纸"或如实报错），而"容器里只有 scene.pkg"（PKGV 套 PKGV）**它吃不了**。
+ *  聚合字段 `scene`/`kind` 的取值与顺序**逐字不变**（目录条目的 `containerKind` 判据不受影响）。 */
 function classifyPkgEntries(entries) {
   const paths = (entries || []).map((e) => String(e.path || ''))
   const find = (re) => paths.find((p) => re.test(p)) || null
-  const scene = find(/(^|\/)(scene\.pkg|gifscene\.pkg)$/i) || find(/(^|\/)scene\.json$/i)
+  const sceneJson = find(/(^|\/)scene\.json$/i)
+  const scenePkg = find(/(^|\/)(scene\.pkg|gifscene\.pkg)$/i)
+  const scene = scenePkg || sceneJson
   const html = find(/(^|\/)(index\.html?|index\.xhtml)$/i) || find(/\.html?$/i)
   const video = find(VIDEO_EXT_RE)
   const mpkg = find(MPKG_COLLECTION_RE)
@@ -768,7 +817,7 @@ function classifyPkgEntries(entries) {
   const preview = find(/(^|\/)preview\.(gif|png|jpe?g|webp|bmp|avif)$/i)
   // 顺序与目录口径一致：scene 容器 > 网页入口 > 视频 > 嵌套容器 > 未知
   const kind = scene ? 'scene' : html ? 'web' : video ? 'video' : mpkg ? 'mpkg' : 'unknown'
-  return { kind, scene, html, video, mpkg, project, preview, count: paths.length }
+  return { kind, scene, sceneJson, scenePkg, html, video, mpkg, project, preview, count: paths.length }
 }
 /** 只读容器里某个条目的**开头**并尝试当 JSON 解析（project.json 通常是未压缩的普通 JSON）。
  *  解析不出来 ⇒ null（**不猜**、不解压）。
@@ -1037,6 +1086,153 @@ function libraryItem(id, budget) {
   if (!isInside(activeRoot, real)) throw forbidden(`条目经符号链接越出库根：${id}`)
   return libraryItemFromDir(id, dir, budget)
 }
+/* ── ③(2026-09-24) **文件型库项**：一个 `.mpkg` 文件 = 一个一等条目 ────────────────────────────────
+   为什么必须逐文件成项：项目所有者真实用法下的读数（改前，库根 = wallpaperE）——
+   `GET /api/library` ⇒ **items=20**（= 20 个**角色目录**），每条的 `file` = 该目录里**第一个** `.mpkg`；
+   用户看到的 20 条背后是 148 个 `.mpkg`（`PKGM0014`×143 / `PKGM0018`×5，全部含 `preview.*`）
+   ⇒ "好多壁纸都是启动失败 / PKG HTTP404"的**前一半根因**就是"它们在列表里根本不存在"。
+   口径（逐字段与 `libraryItemFromDir` 对照，前端可以只认老字段）：
+     · `itemId`  = **相对库根的嵌套路径** `<目录>/<文件名>`（路由侧仍走同一套 `safeJoin` 校验）；
+     · `file`    = 文件名本身（不再借道"目录那一条"的 `file`）；
+     · `type`/`kind` = **容器内条目判定**：`scene.json` ⇒ `scene`、视频 ⇒ `video`、`index.html` ⇒ `web`、
+       只有嵌套 `.pkg` ⇒ `scene`（容器套容器）、都没有 ⇒ `unknown`。声明（容器内 project.json）只作线索；
+     · `hasScene` = 该容器**能按场景挂载**（= 有 `scene.json`）。产物页 `wt()` 用 `hasScene ? 'scene' : type`
+       选 `?type=`，而 `demo.html` 的场景路只认 `scene.json` ⇒ 这个布尔必须与"渲染器真的能吃"一致；
+     · `preview` **恒为 null**：容器里的 `preview.*` **不是磁盘上的同级文件**，
+       给 `/media/dev/<itemId>/<preview>` 会 404 ⇒ 缩略图统一走 `thumbUrl = /api/thumb?item=<嵌套 id>`
+       （服务端只读容器内**未压缩**的 `preview.*` 那一段字节）；`previewInContainer` 另字段如实给出；
+     · `renderable` = 渲染器页真能吃（scene/video/web 三档）；"只有 scene.pkg 没有 scene.json"的容器
+       **标 false 并给理由**（不是静默失败，也不是假装能渲染）。 */
+function libraryItemFromFile(id, loc) {
+  const base = loc.base
+  const parentDir = path.dirname(id)
+  const isContainer = MPKG_EXT_RE.test(base)
+  const isVideo = VIDEO_EXT_RE.test(base)
+  const sum = isContainer ? mpkgSummary(loc.abs, base) : null
+  const sig = sum && sum.signals ? sum.signals : null
+  const ckind = isContainer ? containerKindOf(sum) : null
+  const kind = isContainer ? ckind : (isVideo ? 'video' : 'unknown')
+  const entry = sig ? (sig.scene || sig.html || sig.video || null) : null
+  const previewInContainer = sum && sum.previewInContainer ? sum.previewInContainer : null
+  /* `renderable` 的判据 = **渲染器页真能吃**（不是"类型看起来像"），三档各有依据：
+       · 容器里有 `scene.json` ⇒ 走场景路（`demo.html` 取包 → `lib.getEntry(pkg,'scene.json')`）；
+       · 容器里**没有** `scene.json` 但有视频 ⇒ 走"纯视频壁纸"路（`demo.html` 的 MPW-NOSCENE 分支）；
+       · 容器里**只有** `index.html` ⇒ **不可渲染**：网页档要磁盘上的入口 URL（`/web/dev/<id>/index.html`），
+         容器内条目取不到（那要解包）—— 如实标 false，不假装能挂；
+       · 松散视频文件（非容器）⇒ 可渲染（`/media/dev/**` + `/ddvideo/**` 直出）。 */
+  const hasSceneJson = !!(sig && sig.sceneJson)
+  const videoOnly = !!(sig && !sig.sceneJson && sig.video)
+  const renderable = isContainer ? (hasSceneJson || videoOnly) : isVideo
+  const renderReason = renderable ? null
+    : isContainer
+      ? (sig && sig.scenePkg
+        ? '容器里只有 scene.pkg（没有 scene.json）：渲染器页的场景路只认 scene.json ⇒ 这种包要走解包/插件路径'
+        : sig && sig.html
+          ? '容器里只有网页入口（index.html）：渲染器页的 web 档要磁盘上的入口 URL（/web/dev/<id>/index.html），容器内条目取不到 ⇒ 要走解包路径'
+          : '容器里没有 scene.json / 视频 / 网页入口（只读目录表可见的条目：' + ((sum && sum.entryNames) || []).slice(0, 6).join(', ') + '）')
+      : `不支持的文件型条目（${base}）`
+  const thumbUrl = (isContainer && previewInContainer) || isVideo ? `/api/thumb?item=${encodeURIComponent(id)}` : null
+  const thumbReason = thumbUrl ? null
+    : isContainer
+      ? (sum && !sum.tableOk
+        ? `容器目录表读不出来：${sum.tableReason}`
+        : '容器里没有可直出的 preview.*（或它是压缩条目）')
+      : '该文件既不是容器也不是视频（无法出图）'
+  const declaredType = sum && sum.project && sum.project.type ? String(sum.project.type) : null
+  return {
+    itemId: id,
+    dir: parentDir === '.' ? '' : parentDir,     // 所在目录（相对库根）；`/api/library` 顶层的 `dir` 字段才是绝对根
+    title: (sum && sum.project && sum.project.title) || base,
+    type: kind,
+    hasScene: kind === 'scene',                  // ③"能不能按场景挂载"（= 容器里有 scene.json）
+    file: base,
+    preview: null,                               // ③容器内预览不是磁盘文件（见上）
+    scenePkg: null,                              // 没有磁盘上的 scene.pkg（容器内的另用 containerEntry 给）
+    properties: null,                            // 属性表在容器里（GET /api/props 按需读，不塞进列表）
+    kind,
+    workshopid: (sum && sum.project && sum.project.workshopid) || null,
+    kindSource: 'content',
+    kindReason: isContainer ? ('container-entry:' + (sig && sig.sceneJson ? 'scene.json' : (entry || 'none'))) : 'video-file',
+    declaredType,
+    mismatch: !!declaredType && declaredType.toLowerCase() !== kind && !(declaredType.toLowerCase() === 'gif' && kind === 'video'),
+    entryFile: base,
+    entryExists: true,                           // 文件就在这儿（`/api/library` 里不存在"声明了但缺失"这一档）
+    renderable,
+    renderReason,
+    hasHtml: kind === 'web',
+    hasVideo: isVideo || !!(sig && sig.video),
+    hasPreview: !!previewInContainer,
+    hasProject: !!(sum && sum.project),    previewSource: 'none',
+    previewUrl: null,
+    thumbUrl,
+    thumbReason,
+    signals: {
+      scene: null, sceneJson: !!(sig && sig.sceneJson), html: sig ? sig.html : null,
+      video: sig ? sig.video : (isVideo ? base : null), videoCount: sig && sig.video ? 1 : (isVideo ? 1 : 0),
+      mpkg: [base], preview: previewInContainer, previewSource: 'none',
+      project: !!(sum && sum.project), audio: 0, subdirs: 0,
+    },
+    container: isContainer,
+    containerKind: ckind,
+    containerEntry: entry,
+    mpkgFiles: isContainer
+      ? [{ name: base, size: sum.size, tableOk: sum.tableOk, tableReason: sum.tableReason, entries: sum.entries, kind: sum.kind, previewInContainer }]
+      : [],
+    containerPreview: previewInContainer ? { container: base, entry: previewInContainer } : null,
+    probe: null,
+    /* 新字段（本轮新增，老消费方可以不读）：本条是**文件型**条目，以及它在库根里的层级。 */
+    itemRole: 'file',
+    parentDir: parentDir === '.' ? '' : parentDir,
+    containerMagic: (sum && sum.magic) || null,
+    containerEntries: (sum && sum.entries) || 0,
+  }
+}
+/** 容器摘要 → 条目类型（**内容优先**；`sceneJson` 与 `scenePkg` 分开看，理由见 `classifyPkgEntries`）。 */
+function containerKindOf(sum) {
+  const s = sum && sum.signals
+  if (!s) return 'unknown'
+  if (s.sceneJson) return 'scene'          // 渲染器页的场景路（首选）
+  if (s.video) return 'video'              // 纯视频壁纸（demo.html 的"没有 scene.json"那一档）
+  if (s.html) return 'web'
+  if (s.scenePkg || s.scene) return 'scene'  // 容器套容器（PKGV 在内层）：标 scene 但 `renderable=false`
+  return 'unknown'
+}
+/** 一个库项目录 → **该目录产出的条目列表**（③ 本轮唯一的口径变化，必须讲清"避免重复计数"）：
+ *  ① 目录顶层有 `.mpkg` ⇒ **逐文件成项**：每个 `.mpkg` 一条（嵌套 itemId）；
+ *     并且**同一个目录里的视频文件也各成一条**（实测语料：`伊蕾娜/` = 5 `.mpkg` + 1 `.mp4`，
+ *     `流萤/` = 4 `.mpkg` + 1 `.mp4`）—— 否则"换个目录就少几张壁纸"，还是同一类毛病；
+ *  ② 逐文件成项的目录**不再产出"目录那一条"**：目录条与文件条是**同一批壁纸的两种表示**，
+ *     两条都给就是重复计数（用户会看到 148 条文件 + 20 条目录 = 168，而库里其实只有 148 张）；
+ *  ③ 目录顶层**没有** `.mpkg` ⇒ 维持旧口径：目录本身一条 —— `dd/<id>/scene.pkg`、网页档、视频档
+ *     （目录里只有一个 mp4）、空目录、`<目录>/<子目录>` 这些**逐字不变**（回归读数：dd = 22 条）；
+ *  ④ 一个 `.mpkg` 都没 stat 成功（权限/断链）⇒ 退回目录那一条并在 `scan.skippedList` 留痕，不静默丢。
+ *  ⚠ 有意取舍（写下来，不藏着）：**同时**含 `.mpkg` 与 `index.html` 的目录，网页入口不会单独成条
+ *   （`/web/dev/<目录>/index.html` 仍可直取）；实测 148 个容器的所在目录里没有一个含 `index.html`。 */
+function libraryEntriesForDir(id, dir, budget) {
+  const names = listDirNames(dir, 4000)
+  if (budget) budget.op()
+  const mpkgNames = names.filter((n) => MPKG_COLLECTION_RE.test(n))
+  if (!mpkgNames.length) return [libraryItemFromDir(id, dir, budget)]
+  const out = []
+  const failed = []
+  const add = (n, wantRe) => {
+    if (!wantRe.test(n)) return
+    if (budget && !budget.op()) return
+    const abs = path.join(dir, n)
+    const st = statSafe(abs)
+    if (!st || !st.isFile()) { failed.push({ name: n, reason: 'stat 失败或不是普通文件' }); return }
+    /* ③真身必须在库根内：**跟着软链走**的 `.mpkg` 不许成条 —— 否则"列表里看得见、取不到"
+       （路由侧 `itemLocate()` 会 403）本身就不一致，而且会把库外文件的 title/size 泄进列表。 */
+    const real = realpathDeepest(abs)
+    if (!isInside(activeRoot, real)) { failed.push({ name: n, reason: '经符号链接越出库根' }); return }
+    out.push(libraryItemFromFile(id + '/' + n, { id: id + '/' + n, abs, real, isDir: false, isFile: true, dir, base: n, st }))
+  }
+  for (const n of mpkgNames.slice(0, LIMITS.mpkgPerDir)) add(n, MPKG_COLLECTION_RE)
+  for (const n of names.filter((x) => VIDEO_EXT_RE.test(x)).slice(0, LIMITS.videoPerDir)) add(n, VIDEO_EXT_RE)
+  if (!out.length) return [libraryItemFromDir(id, dir, budget)]      // ④退回目录条（调用方按它自己的口径留痕）
+  out.failedFiles = failed
+  return out
+}
 const KINDS = ['scene', 'video', 'web', 'mpkg', 'unknown']
 function listLibrary() {
   const t0 = Date.now()
@@ -1047,6 +1243,9 @@ function listLibrary() {
   const containerKinds = { scene: 0, video: 0, web: 0, mpkg: 0, unknown: 0 }
   const signals = { withScene: 0, withHtml: 0, withVideo: 0, withMpkg: 0, withPreview: 0, withProject: 0, noPreview: 0, renderable: 0, mismatch: 0 }
   let hiddenDirs = 0, looseFiles = 0, dirCount = 0
+  /* ③(2026-09-24) 逐文件成项的记账（"避免重复计数"这条口径的**可核对读数**）：
+     `fileItems` + `dirItems` 必须 = `items`；`mpkgFiles` 是"折成了独立条目的 `.mpkg` 个数"。 */
+  const perFile = { items: 0, mpkg: 0, video: 0, dirsWithDirItem: 0, failed: 0 }
   const looseMpkg = []
   const loosePkg = []
   const src = librarySource()
@@ -1074,19 +1273,30 @@ function listLibrary() {
     let id
     try { id = assertItemId(name) } catch (e) { skipped.push({ name, reason: `itemId 非法：${e instanceof HttpError ? e.message : String(e && e.message || e)}` }); continue }
     try {
-      const it = libraryItem(id, budget)
-      if (!it) { skipped.push({ name, reason: '不是目录' }); continue }
-      items.push(it)
-      kinds[it.kind] = (kinds[it.kind] || 0) + 1
-      if (it.container) containerKinds[it.containerKind || 'unknown'] = (containerKinds[it.containerKind || 'unknown'] || 0) + 1
-      if (it.hasScene) signals.withScene++
-      if (it.hasHtml) signals.withHtml++
-      if (it.hasVideo) signals.withVideo++
-      if (it.hasPreview) signals.withPreview++; else signals.noPreview++
-      if (it.hasProject) signals.withProject++
-      if (it.mpkgFiles && it.mpkgFiles.length) signals.withMpkg++
-      if (it.mismatch) signals.mismatch++
-      if (it.renderable) signals.renderable++
+      /* ③(2026-09-24) 一个**目录**现在可能产出**多条**（目录里有 `.mpkg` ⇒ 逐文件成项，见
+         `libraryEntriesForDir` 的口径与"避免重复计数"那三条）。目录里没有 `.mpkg` 时逐字等价旧行为。 */
+      const real = realpathDeepest(full)
+      if (!isInside(activeRoot, real)) throw forbidden(`条目经符号链接越出库根：${name}`)
+      const its = libraryEntriesForDir(id, full, budget)
+      for (const f of (its.failedFiles || [])) { skipped.push({ name: id + '/' + f.name, reason: f.reason }); perFile.failed++ }
+      for (const it of its) {
+        if (items.length >= LIMITS.listItems) { skipped.push({ name: it.itemId, reason: `超过 listItems 上限 ${LIMITS.listItems}（截断）` }); break }
+        items.push(it)
+        if (it.itemRole === 'file') {
+          perFile.items++
+          if (it.container) perFile.mpkg++; else perFile.video++
+        } else perFile.dirsWithDirItem++
+        kinds[it.kind] = (kinds[it.kind] || 0) + 1
+        if (it.container) containerKinds[it.containerKind || 'unknown'] = (containerKinds[it.containerKind || 'unknown'] || 0) + 1
+        if (it.hasScene) signals.withScene++
+        if (it.hasHtml) signals.withHtml++
+        if (it.hasVideo) signals.withVideo++
+        if (it.hasPreview) signals.withPreview++; else signals.noPreview++
+        if (it.hasProject) signals.withProject++
+        if (it.mpkgFiles && it.mpkgFiles.length) signals.withMpkg++
+        if (it.mismatch) signals.mismatch++
+        if (it.renderable) signals.renderable++
+      }
     } catch (e) {
       // 越界的符号链接 / 真身逃逸条目：跳过（不是整表报错），但**必须留痕**（`scan.skipped` 里能查到）
       skipped.push({ name, reason: e instanceof HttpError ? e.message : String(e && e.message || e) })
@@ -1103,6 +1313,14 @@ function listLibrary() {
           (looseMpkg.length ? `；其中 ${looseMpkg.length} 个是 .mpkg/.pkg 容器：容器内类型见 GET /api/mpkg?item=&file= 或 POST /api/dir-pick 的 scan.looseContainers（本服务只读容器目录表，不解包）` : '') + '）'
         : undefined,
       kinds, containerKinds, signals,
+      /* ③逐文件成项的记账（"一个 `.mpkg` 一条、目录条不再重复计"这条口径的可核对读数）：
+         `fileItems + dirItems === items`，且 `mpkgFiles` = 折成独立条目的 `.mpkg` 个数。 */
+      itemRoles: {
+        fileItems: perFile.items, dirItems: perFile.dirsWithDirItem,
+        mpkgFiles: perFile.mpkg, videoFiles: perFile.video, failedFiles: perFile.failed,
+        note: '按内容判定：目录顶层有 .mpkg ⇒ 该目录**逐文件成项**（每个 .mpkg 一条 + 同目录视频各一条），'
+          + '不再产出"目录那一条"（两条都给 = 同一批壁纸重复计数）；目录里没有 .mpkg ⇒ 维持"目录一条"的旧口径',
+      },
       skipped: skipped.length, skippedList: skipped.slice(0, 20),
       budgetExceeded: budget.exceeded, opsUsed: budget.used, opsLimit: budget.limit,
       durationMs: Date.now() - t0,
@@ -1209,7 +1427,9 @@ function listWebStore() {
 const webWallIdFor = (item, rel) => wallIdFor([String(item || ''), String(rel || '').replace(/\\/g, '/')])
 
 // 属性覆盖：落 <reports>/bench-props/<id>.json（**绝不写进壁纸包** —— 库里只有 project.json 是读的）
-const propsFileFor = (id) => path.join(PROPS_DIR, `${assertItemId(id)}.json`)
+/* ③(2026-09-24 mpkg 一等项) 覆盖文件名：嵌套 itemId 的 `/` 换 `__`（保证仍落在 `PROPS_DIR` 一层里，
+   且单段 itemId 与改动前**逐字相同** —— 老覆盖文件一个都不用迁）。与 `thumbCachePath` 同一套换算。 */
+const propsFileFor = (id) => path.join(PROPS_DIR, `${assertItemPath(id).replace(/\//g, '__')}.json`)
 /* [we-json:strict|host-state] **不是包内/包旁 JSON**：读的是 `<reports>/bench-props/<id>.json` = **本服务自己**保存的
    用户属性覆盖（同一个文件由下面的 `writeOverrides` 原子落盘）。⇒ 保持严格：宿主状态"读失败 ≠ 没存过"，
    宽容会把**半份/损坏的覆盖**糊成"能读"，于是面板显示的值与用户存下的值悄悄不一致。 */
@@ -1449,7 +1669,13 @@ function findFfmpeg() {
   return ffmpegPathCache
 }
 const THUMB_DIR = path.join(REPORTS_DIR, 'bench-thumbs')
-function thumbCachePath(item, w) { return path.join(THUMB_DIR, `${assertItemId(item)}-${w}.jpg`) }
+/** ③缩略图缓存名：嵌套 itemId 的 `/` 换成 `__`（单段 itemId 与改动前**逐字相同**）。
+ *  为什么不能直接用 itemId 拼：`<角色>/<文件>.mpkg` 会让缓存路径多一层目录（`mkdirSafe(THUMB_DIR)`
+ *  只建一层）⇒ ffmpeg/写盘都会失败；也不能用 `path.basename`（`A/1.mpkg` 与 `B/1.mpkg` 会撞名）。 */
+function thumbCachePath(item, w) {
+  const safe = assertItemPath(item).replace(/\//g, '__')
+  return path.join(THUMB_DIR, `${safe}-${w}.jpg`)
+}
 function runFfmpegFrame(src, out, w) {
   return new Promise((resolve) => {
     const bin = findFfmpeg()
@@ -1472,18 +1698,20 @@ function runFfmpegFrame(src, out, w) {
   })
 }
 /** 缩略图计划：`file` = 直接回库里的图；`container` = 容器内未压缩 preview.*；`ffmpeg` = 抽帧后回；
- *  `none` = 明确 501（给理由）。 */
+ *  `none` = 明确 501（给理由）。
+ *  ③(2026-09-24 mpkg 一等项) `item` 现在可能是**目录项**（老口径）或**单文件项**（`<角色>/<x>.mpkg`）：
+ *  单文件项走得通的那一档是"容器内**未压缩** preview.*"（`/api/thumb?item=<嵌套 id>`），
+ *  这正是产物列表缩略图用的 URL（`preview` 对文件项恒 null，见 `libraryItemFromFile`）。 */
 function thumbPlan(item) {
-  const dir = itemDirReal(item)
-  const st = statSafe(dir)
-  if (!st || !st.isDirectory()) throw notFound(`壁纸不存在：${item}`)
-  const real = realpathDeepest(dir)
-  if (!isInside(activeRoot, real)) throw forbidden(`条目经符号链接越出库根：${item}`)
-  const it = libraryItem(item, makeBudget(4000))
-  if (it.preview) {
-    const p = path.join(dir, it.preview)
-    const pst = statSafe(p)
-    if (pst && pst.isFile()) return { kind: 'file', path: p, item: it, from: it.previewSource === 'declared' ? 'declared-preview' : 'preview-file' }
+  const loc = itemLocate(item)
+  const dir = loc.dir
+  const it = loc.isFile ? libraryItemFromFile(loc.id, loc) : libraryItem(item, makeBudget(4000))
+  if (!loc.isFile) {
+    if (it.preview) {
+      const p = path.join(dir, it.preview)
+      const pst = statSafe(p)
+      if (pst && pst.isFile()) return { kind: 'file', path: p, item: it, from: it.previewSource === 'declared' ? 'declared-preview' : 'preview-file' }
+    }
   }
   if (it.containerPreview) {
     const cfile = path.join(dir, it.containerPreview.container)
@@ -1507,6 +1735,8 @@ function thumbPlan(item) {
       hint: '本服务只读容器目录表 + 未压缩的 preview.*；压缩条目/其它素材要解包请用插件侧 pkg-extract',
     }
   }
+  /* ③非容器/非视频的**散文件**：与改动前同一状态码（以前 `isDirectory()` 不成立就 404 "壁纸不存在"）。 */
+  if (loc.isFile) throw notFound(`壁纸不存在：${item}`)
   return { kind: 'none', item: it, reason: `该条目没有 preview.* 且不是视频（kind=${it.kind}）`, hint: '把 preview.gif/jpg/png 放进壁纸目录即可' }
 }
 
@@ -1916,7 +2146,7 @@ async function handleApi(req, res, url) {
 
   // ②b GET /api/thumb —— 缩略图（web/mp4 档都要能出图；缺什么补什么）
   if (p === '/api/thumb' && (req.method === 'GET' || req.method === 'HEAD')) {
-    const item = assertItemId(q.get('item') || '')
+    const item = assertItemPath(q.get('item') || '')       // ③嵌套 itemId（`<角色>/<x>.mpkg`）也吃
     const w = Math.max(16, Math.min(LIMITS.thumbPixels, Number(q.get('w')) || 320))
     const plan = thumbPlan(item)
     if (plan.kind === 'file') {
@@ -1978,28 +2208,29 @@ async function handleApi(req, res, url) {
 
   // ②c GET /api/mpkg —— 只读容器目录表（`.mpkg`/`.pkg` 里到底是 scene / video / web）
   if (p === '/api/mpkg' && (req.method === 'GET' || req.method === 'HEAD')) {
-    const item = assertItemId(q.get('item') || '')
-    const dir = itemDirReal(item)
-    const st = statSafe(dir)
-    if (!st || !st.isDirectory()) throw notFound(`壁纸不存在：${item}`)
-    const real = realpathDeepest(dir)
-    if (!isInside(activeRoot, real)) throw forbidden(`条目经符号链接越出库根：${item}`)
+    /* ③(2026-09-24) `item` 两种形态都吃：**目录项**（老口径：目录里挑一个容器，默认第一个）
+       与**单文件项**（`.mpkg` 一等项：itemId 就指向那个容器本身）。两条都过 `itemLocate()`
+       ⇒ 同一套 `safeJoin`（`..`/越根/真身三道），没有第二条路径判据。 */
+    const loc = itemLocate(q.get('item') || '')
+    if (loc.isFile && !MPKG_EXT_RE.test(loc.base)) throw notFound(`${loc.id} 不是 .mpkg/.pkg 容器（是散文件）`)
     const want = q.get('file') || ''
-    const names = listDirNames(dir, 400).filter((n) => MPKG_EXT_RE.test(n))   // .mpkg 与 .pkg 都是 PKG 家族，都读表
-    const file = want ? assertFileName(want, 'file') : names[0]
-    if (!file) throw notFound(`${item} 里没有 .mpkg/.pkg 文件`)
-    if (!names.includes(file)) throw notFound(`${item} 里没有这个容器：${file}`)
-    const abs = path.join(dir, file)
+    const available = loc.isDir
+      ? listDirNames(loc.dir, 400).filter((n) => MPKG_EXT_RE.test(n))   // .mpkg 与 .pkg 都是 PKG 家族，都读表
+      : [loc.base]
+    const file = want ? assertFileName(want, 'file') : available[0]
+    if (!file) throw notFound(`${loc.id} 里没有 .mpkg/.pkg 文件`)
+    if (!available.includes(file)) throw notFound(`${loc.id} 里没有这个容器：${file}`)
+    const abs = loc.isDir ? path.join(loc.dir, file) : loc.abs
     const absReal = realpathDeepest(abs)
     if (!isInside(activeRoot, absReal)) throw forbidden(`容器经符号链接越出库根：${file}`)
     const sum = mpkgSummary(abs, file)
     return jsonOk(res, {
-      itemId: item, file, abs, size: sum.size, magic: sum.magic || null,
+      itemId: loc.id, file, abs, size: sum.size, magic: sum.magic || null,
       tableOk: sum.tableOk, tableReason: sum.tableReason, entries: sum.entries,
       kind: sum.kind, signals: sum.signals, entryNames: sum.entryNames,
       declared: sum.project, previewInContainer: sum.previewInContainer,
       readOnly: true, note: '只读容器**目录表**（不解包、不解压、不整包读）；条目字节不在本服务职责内',
-      available: names,
+      available,
     })
   }
 
@@ -2031,12 +2262,12 @@ async function handleApi(req, res, url) {
 
   // ③ GET/POST /api/props —— 读属性表 / 保存覆盖（覆盖落在 reports，**不写进壁纸包**）
   if (p === '/api/props') {
-    const item = assertItemId(q.get('item') || '')
-    const dir = itemDirReal(item)
-    const st = statSafe(dir)
-    if (!st || !st.isDirectory()) throw notFound(`壁纸不存在：${item}`)
-    const real = realpathDeepest(dir)
-    if (!isInside(activeRoot, real)) throw forbidden(`条目经符号链接越出库根：${item}`)
+    /* ③(2026-09-24 mpkg 一等项) `item` = 目录项或**单文件项**；属性表一律来自"**条目所在的目录**"里那份
+       `project.json`（包旁 JSON，工坊口径）—— 文件项（`.mpkg`）的所在目录就是 `<角色>/`，
+       与目录项共用同一份。容器**内**的 project.json 不在本路由职责内（`/api/mpkg` 的 `declared` 给线索）。 */
+    const loc = itemLocate(q.get('item') || '')
+    const item = loc.id
+    const dir = loc.dir
     if (req.method === 'GET' || req.method === 'HEAD') {
       const overrides = readOverrides(item)
       const props = buildProps(dir, overrides)
@@ -2044,6 +2275,7 @@ async function handleApi(req, res, url) {
         item, itemId: item, props, overridden: overrides, propsFile: propsFileFor(item),
         declared: props.length, overriddenCount: Object.keys(overrides).length,
         projectJson: !!readProjectJson(dir),
+        itemRole: loc.isFile ? 'file' : 'dir', propsSourceDir: dir,
       })
     }
     if (req.method === 'POST') {
@@ -2063,8 +2295,11 @@ async function handleApi(req, res, url) {
   // ④ /api/props-dir —— 目录型属性：{pick:true} 降级；GET 枚举库根内目录；POST {dir} 取绝对目录
   if (p === '/api/props-dir') {
     if (req.method === 'GET') {
-      const item = q.get('item') ? assertItemId(q.get('item')) : null
-      const base = item ? itemDirReal(item) : activeRoot
+      /* ③(2026-09-24) `item` 可为目录项或单文件项：单文件项（`.mpkg`）枚举的是**它所在的目录**
+         （目录型属性本来就是"从某个目录里挑一个子目录"，见调用方文案）。 */
+      const loc = q.get('item') ? itemLocate(q.get('item')) : null
+      const item = loc ? loc.id : null
+      const base = loc ? loc.dir : activeRoot
       const st = statSafe(base)
       if (!st || !st.isDirectory()) throw notFound(`目录不存在：${item || activeRoot}`)
       const dir = safeJoin(LIBRARY_ROOT_REAL, q.get('dir') || path.relative(LIBRARY_ROOT_REAL, base) || '.', 'dir')
@@ -2093,7 +2328,7 @@ async function handleApi(req, res, url) {
         const target = safeJoin(LIBRARY_ROOT_REAL, body.dir, 'dir')
         const st = statSafe(target)
         if (!st || !st.isDirectory()) throw notFound(`目录不存在：${body.dir}`)
-        return jsonOk(res, { item: body.item ? assertItemId(body.item) : null, name: body.name ? assertPropName(body.name) : null, dir: target, value: target })
+        return jsonOk(res, { item: body.item ? assertItemPath(body.item) : null, name: body.name ? assertPropName(body.name) : null, dir: target, value: target })
       }
       throw bad('需要 {pick:true} 或 {dir:"库根内的路径"}')
     }
@@ -2107,7 +2342,9 @@ async function handleApi(req, res, url) {
       // 回读：/api/props-file/<itemId>/<name>/<filename>
       const segs = p.split('/').filter(Boolean).slice(2).map((s) => { try { return decodeURIComponent(s) } catch { throw bad('URL 解码失败') } })
       if (segs.length !== 3) throw bad('形状：/api/props-file/<itemId>/<name>/<filename>')
-      const [item, name, file] = [assertItemId(segs[0]), assertPropName(segs[1]), assertFileName(segs[2], '文件名')]
+      const [item, name, file] = [assertItemPath(segs[0]), assertPropName(segs[1]), assertFileName(segs[2], '文件名')]
+      /* ③嵌套 itemId 的回读 URL 由**写入侧**用 `encodeURIComponent(item)` 拼出（`/` ⇒ `%2F`，仍是**一段**）
+         ⇒ 这里 `decodeURIComponent` 之后拿到的就是同一条嵌套 id，形状判据（3 段）不用改。 */
       const target = path.join(PROPS_DIR, 'files', item, name, file)
       const st = statSafe(target)
       if (!st || !st.isFile()) throw notFound(`未导入过该文件：${item}/${name}/${file}`)
@@ -2116,12 +2353,9 @@ async function handleApi(req, res, url) {
       return fs.createReadStream(target).pipe(res)
     }
     if (req.method === 'POST') {
-      const item = assertItemId(q.get('item') || '')
+      const loc = itemLocate(q.get('item') || '')      // ③目录项 / 单文件项（`.mpkg`）都吃
+      const item = loc.id
       const name = assertPropName(q.get('name') || '')
-      const dir = itemDirReal(item)
-      if (!statSafe(dir)) throw notFound(`壁纸不存在：${item}`)
-      const real = realpathDeepest(dir)
-      if (!isInside(activeRoot, real)) throw forbidden(`条目经符号链接越出库根：${item}`)
       let rawName = String(req.headers['x-filename'] || '')
       try { rawName = decodeURIComponent(rawName) } catch { /* 未编码就算了 */ }
       const filename = assertFileName(rawName, 'X-Filename')
@@ -2151,20 +2385,23 @@ async function handleApi(req, res, url) {
   if (p === '/api/delete') {
     if (req.method !== 'POST') throw new HttpError(405, '只支持 POST')
     const body = await readJsonBody(req, LIMITS.bodyBytes)
-    const item = assertItemId(body.itemId || body.item || '')
-    const dir = itemDirReal(item)
-    const st = statSafe(dir)
-    if (!st || !st.isDirectory()) throw notFound(`壁纸不存在：${item}`)
-    const real = realpathDeepest(dir)
-    if (!isInside(activeRoot, real)) throw forbidden(`条目经符号链接越出库根：${item}`)
+    /* ③(2026-09-24 mpkg 一等项) 两种条目都能删：**目录项** ⇒ 移整个目录（老口径逐字不变）；
+       **单文件项**（`.mpkg`）⇒ 只移那个文件（不会连坐同一个角色目录里的其它容器）。
+       默认仍是 dryRun、真删仍是"移到回收站"、可 `mv` 回滚；回收站里的落点保留嵌套路径的可读性
+       （`<itemId>` 里的 `/` 换成 `__`，与 `propsFileFor`/`thumbCachePath` 同一套换算）。 */
+    const loc = itemLocate(body.itemId || body.item || '')
+    const item = loc.id
+    const dir = loc.abs
     const confirm = q.get('confirm') === '1' || body.confirm === true || body.confirm === 1
-    const plan = collectPlan(dir)
+    const plan = loc.isDir ? collectPlan(dir) : { count: 1, bytes: loc.st.size, files: [{ rel: loc.base, size: loc.st.size }] }
+    const trashName = item.replace(/\//g, '__')
     if (!confirm) {
       recordDiag(`bench: 删除为 **dryRun**（未移动任何文件）：${item}（${plan.count} 个文件 / ${plan.bytes} B）` +
         `—— 真要删请用 ?confirm=1（移到 ${path.join(TRASH_ROOT, '<时间戳>')}，可回滚）`, 'info', 'delete')
       return jsonOk(res, {
         item, itemId: item, dryRun: true, wouldMove: true, confirm: false, action: 'move-to-trash',
-        from: dir, to: path.join(TRASH_ROOT, '<ts>', item), trashRoot: TRASH_ROOT,
+        itemRole: loc.isFile ? 'file' : 'dir',
+        from: dir, to: path.join(TRASH_ROOT, '<ts>', trashName), trashRoot: TRASH_ROOT,
         files: plan.files, fileCount: plan.count, bytes: plan.bytes,
         hint: '重发 POST /api/delete?confirm=1 才真删（移到回收站，不永久删除）',
       })
@@ -2172,7 +2409,8 @@ async function handleApi(req, res, url) {
     // 安全闸（①2026-09-19 选择器轮）：库根现在可以由选择器指到浏览根内**任何**目录 ⇒ 真删前先确认
     //   这一项**确实像壁纸**。没有任何壁纸信号（kind=unknown 且无 project.json）时，必须显式 ack。
     //   dryRun 不受影响（上面那条分支照旧只回计划）。
-    const sig = libraryItem(item, makeBudget(4000))
+    //   ③文件项（`.mpkg`）本身就是容器 ⇒ 有明确壁纸信号，`libraryItemFromFile` 给 kind/container。
+    const sig = loc.isFile ? libraryItemFromFile(item, loc) : libraryItem(item, makeBudget(4000))
     if (sig && !sig.renderable && sig.kind === 'unknown' && !sig.hasProject && body.ack !== true) {
       throw new HttpError(409, `拒绝删除：${item} 没有任何壁纸信号（不是壁纸目录）`, {
         needsAck: true, itemId: item, kind: sig.kind, signals: sig.signals,
@@ -2180,10 +2418,11 @@ async function handleApi(req, res, url) {
         hint: '确实要删就带 {ack:true} 重发（仍只移到回收站，可 mv 回滚）',
       })
     }
-    const moved = moveToTrash(item, dir)
+    const moved = moveToTrash(trashName, dir)
     recordDiag(`bench: 已删除 ${item} → ${moved.to}（移到回收站，可回滚：mv "${moved.to}" "${dir}"）`, 'info', 'delete')
     return jsonOk(res, {
       item, itemId: item, dryRun: false, wouldMove: false, confirm: true, action: 'move-to-trash',
+      itemRole: loc.isFile ? 'file' : 'dir',
       from: dir, to: moved.to, trashRoot: moved.trashRoot, files: plan.files, fileCount: plan.count, bytes: plan.bytes,
       rollback: `mv "${moved.to}" "${dir}"`,
     })
@@ -2195,10 +2434,10 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req, LIMITS.bodyBytes)
     let target
     if (body.itemId || body.item) {
-      const item = assertItemId(body.itemId || body.item)
-      const dir = itemDirReal(item)
-      if (!statSafe(dir)) throw notFound(`壁纸不存在：${item}`)
-      target = dir
+      /* ③(2026-09-24) 单文件项（`<角色>/<x>.mpkg`）也能"打开所在文件夹" ⇒ 落点是**它所在的目录**
+         （调用方文案本来就是"打开所在文件夹"；把文件本身交给 xdg-open 会变成"用某程序打开它"）。 */
+      const loc = itemLocate(body.itemId || body.item)
+      target = loc.isDir ? loc.abs : loc.dir
     } else if (typeof body.path === 'string' && body.path) {
       target = safeJoin(activeRoot, body.path, 'path')
     } else throw bad('需要 {itemId} 或 {path:"库根内的路径"}')
@@ -2601,13 +2840,18 @@ const server = http.createServer((req, res) => {
   for (const prefix of ['/media/dev/', '/web/dev/']) {
     if (p.startsWith(prefix)) {
       return done(() => {
-        const segs = p.slice(prefix.length).split('/')
-        const rawItem = segs.shift() || ''
-        const item = assertItemId(decodeURIComponent(rawItem))
+        /* ③(2026-09-24 mpkg 一等项) itemId 现在可能是**嵌套路径**（`<角色>/<x>.mpkg`）⇒
+           `/media/dev/<角色>/<x>.mpkg` 有**两种读法**且指向同一个文件：
+             ① item=<角色>      + rel=<x>.mpkg   （老读法：`<目录项>/<文件>`）
+             ② item=<角色>/<x>.mpkg + rel=''      （新读法：嵌套 itemId 本身）
+           取**最长的"目录前缀"**作为 itemId（①优先，保持 `/web/dev/**` 的 shim 注入路径不被绕过），
+           一个目录前缀都不成立时整条当单文件项（②）。两种读法的字节完全一致，
+           段校验 / `safeJoin`（`..` ⇒ 400、越根 ⇒ 403、真身逃逸 ⇒ 403）一个不少。 */
+        const { item, rel, rawRel } = splitItemRel(p.slice(prefix.length))
         /* ⑥ /web/dev/ 的 **HTML** 走"注入 shim"那条（同源入口必须原始 URL + 服务端注入，见 docs §3.1/§3.6）；
            其余（图片/字体/脚本/媒体）与 /media/dev/ 逐字节同路。 */
-        if (prefix === '/web/dev/') return webMediaServe(req, res, item, segs, url)
-        return mediaServe(req, res, item, segs, prefix)
+        if (prefix === '/web/dev/') return webMediaServe(req, res, item, rel, rawRel, url)
+        return mediaServe(req, res, item, rel, rawRel, prefix)
       })
     }
   }
@@ -2698,21 +2942,47 @@ function webSeedFor(item, dir, rel) {
   return { op: 'props', props, store: { wallId, data: readWebStore(wallId) } }
 }
 /**
+ * `/media/dev/<…>` / `/web/dev/<…>` 的 **itemId / rel 切分**（③嵌套 itemId 的唯一入口）。
+ * 取**最长的"目录前缀"**当 itemId（= 老的 `<itemId>/<rel…>` 读法，多层级也成立）；
+ * 一个目录前缀都不成立 ⇒ 整条当一个**单文件项**的 itemId（`rel` 为空，直接回那个文件）。
+ * 段校验走 `assertItemPath`（单段名 + 不给 `.`/`..`/控制符），路径校验走 `safeJoin` —— 与别的路由同一套。
+ * `rel`（给 `safeJoin` 用的那一段）**保持百分号编码原样**：老的 `/media/dev/**` 就是这么传的
+ * （`safeJoin` 内部解码一次），这样 rel 里的 `%` 行为与改动前逐字一致；`rawRel` 只是原样回显/诊断用。
+ */
+function splitItemRel(rawPath) {
+  const parts = String(rawPath || '').split('/')
+  const dec = (s) => { try { return decodeURIComponent(s) } catch { return s } }
+  const dparts = parts.map(dec)
+  if (!dparts.length || !dparts[0]) throw bad('缺少 itemId：/media/dev/<itemId>/<rel>')
+  let best = null
+  for (let n = 1; n < dparts.length; n++) {
+    let cand
+    try { cand = assertItemPath(dparts.slice(0, n).join('/')) } catch { break }   // 这一段就不合法 ⇒ 更长的也不合法
+    const st = statSafe(safeJoin(activeRoot, cand, 'itemId'))
+    if (st && st.isDirectory()) best = { item: cand, n }
+  }
+  if (best) return { item: best.item, rel: parts.slice(best.n).join('/'), rawRel: parts.slice(best.n).join('/') }
+  const item = assertItemPath(dparts.join('/'))
+  return { item, rel: '', rawRel: '' }
+}
+
+/**
  * `/web/dev/<itemId>/<rel>`：与 `mediaServe` 同一套路径校验，差别只有一条 ——
  * **HTML 响应会注入 WE API shim**（不透明源 CORS 也在这里给）。
  * 纪律：`?mpwshim=0`、非 HTML、HEAD、超过 8MB、命中阻塞性 CSP ⇒ **逐字节原样**（只在响应头留痕）。
  */
-function webMediaServe(req, res, item, segs, url) {
-  const dir = itemDirReal(item)
-  const st0 = statSafe(dir)
-  if (!st0 || !st0.isDirectory()) throw notFound(`壁纸不存在：${item}`)
-  const real0 = realpathDeepest(dir)
-  if (!isInside(activeRoot, real0)) throw forbidden(`条目经符号链接越出库根：${item}`)
-  const rel = segs.join('/')
+function webMediaServe(req, res, item, rel, rawRel, url) {
+  const loc = itemLocate(item)
+  if (!loc.isDir) {
+    // ③单文件项（不会命中下面的 HTML 注入：容器/视频都不是 html）⇒ 原样直出。
+    if (rel) throw notFound(`文件不存在：/web/dev/${item}/${rel}`)
+    return sendFile(req, res, loc.abs, { headers: opaqueCorsHeaders(req.headers.origin) })
+  }
+  const dir = loc.dir
   if (!rel) throw notFound(`缺少文件路径：/web/dev/${item}/`)
   const file = safeJoin(dir, rel, '文件路径')
   const fst = statSafe(file)
-  if (!fst || !fst.isFile()) throw notFound(`文件不存在：/web/dev/${item}/${rel}`)
+  if (!fst || !fst.isFile()) throw notFound(`文件不存在：/web/dev/${item}/${rawRel}`)
   const freal = realpathDeepest(file)
   if (!isInside(activeRoot, freal)) throw forbidden(`文件经符号链接越出库根：${rel}`)
   const cors = opaqueCorsHeaders(req.headers.origin)
@@ -2744,18 +3014,20 @@ function webMediaServe(req, res, item, segs, url) {
   return true
 }
 
-/** `/media/dev/<itemId>/<rel>`：库根内只读 + Range。 */
-function mediaServe(req, res, item, segs, prefix) {
-  const dir = itemDirReal(item)
-  const st = statSafe(dir)
-  if (!st || !st.isDirectory()) throw notFound(`壁纸不存在：${item}`)
-  const real = realpathDeepest(dir)
-  if (!isInside(activeRoot, real)) throw forbidden(`条目经符号链接越出库根：${item}`)
-  const rel = segs.join('/')
+/** `/media/dev/<itemId>/<rel>`：库根内只读 + Range。③`itemId` 可为目录项或单文件项（嵌套路径）。 */
+function mediaServe(req, res, item, rel, rawRel, prefix) {
+  const loc = itemLocate(item)
+  if (!loc.isDir) {
+    // ③单文件项（`.mpkg` 一等项走这条，也顺带让 `<角色>/<x>.mpkg` 的两种读法都能取到同一份字节）
+    if (rel) throw notFound(`文件不存在：${prefix}${item}/${rawRel}`)
+    if (!sendFile(req, res, loc.abs, { headers: opaqueCorsHeaders(req.headers.origin) })) throw notFound(`文件不可读：${item}`)
+    return undefined
+  }
+  const dir = loc.dir
   if (!rel) throw notFound(`缺少文件路径：${prefix}${item}/`)
   const file = safeJoin(dir, rel, '文件路径')
   const fst = statSafe(file)
-  if (!fst || !fst.isFile()) throw notFound(`文件不存在：${prefix}${item}/${rel}`)
+  if (!fst || !fst.isFile()) throw notFound(`文件不存在：${prefix}${item}/${rawRel}`)
   const freal = realpathDeepest(file)
   if (!isInside(activeRoot, freal)) throw forbidden(`文件经符号链接越出库根：${rel}`)
   /* ⑥ 不透明源（sandbox 帧）要能用 fetch 取资源：**恰好** `Origin: null` 才给 CORS 头。 */

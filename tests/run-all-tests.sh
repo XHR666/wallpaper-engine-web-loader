@@ -840,6 +840,13 @@ add "we-json-tolerance-server" "node tests/we-json-tolerance-server-test.mjs"
 #   7 个**变异自证**（MUTANT-RED-OK：改回去必红，且红的正是被变异掉的那条）。
 add "bench-dsh-libroot"  "node tests/bench-dsh-libroot-test.mjs"
 
+# ①(2026-09-24 `.mpkg` 一等库项) 用户"壁纸都启动失败 / PKG HTTP404"的**根因那一半**：旧口径一个**目录**一条
+#   （真实库布局 `wallpaperE/<角色>/<角色>_NN.mpkg` ⇒ 148 个 `.mpkg` 只看得见 20 条目录、`/pkg/<中文 id>` 连路由都进不去）。
+#   判据：逐文件成项（嵌套 itemId = `<目录>/<文件名>`）+ 容器内类型判定（scene.json/video/index.html）+ **目录条不重复计数**
+#   + `/pkg/<嵌套 id>` 200 且与 `stat` 等长 + `/api/mpkg`/缩略图/`/media/dev/**` 两种读法 + 越界仍被拒（`..`/绝对路径/软链逃逸）
+#   + 超限如实 413（流式，不整包入内存）+ 真语料条件项（148 个 `.mpkg` 全成条、dd 22 条零回归）+ 4 组 MUTANT-RED-OK 变异自证。
+add "bench-mpkg-items"   "node tests/bench-mpkg-items-test.mjs"
+
 # ①(2026-09-24 可移植性审计修复线：`docs/PORTABILITY-AUDIT-20260924.md` 的**服务器文件之外**那一半) PA-52/34/36/44/45/09/37/31 的常驻判据：
 #   候选表+存在性探测（core/scene-project-json）· KI 台账防腐烂（known-ledger-audit）· 门禁默认输入不许写死
 #   内容哈希 · 发布面死豁免分支已删+写死本机路径必抓 · walk() 少扫必记账 · 裸 `/tmp/` 判据（8/8 存量站点读数）
