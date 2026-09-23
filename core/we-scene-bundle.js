@@ -352,6 +352,92 @@ export function syncVideoPlaybackRate(doc, rate, force) {
   } catch (e) { /* 无 DOM */ }
   return n
 }
+// ===== src/pkg/we-json.js =====
+// 官方 JSON 的**宽容解析**（WE 允许尾逗号；我们的 `JSON.parse` 不允许）。
+//
+// ── 为什么必须有（官方证据，2026-09-24 官方产物盘点）────────────────────────────
+//   · 官方随包发布的 `assets/effects/fluidsimulation/effect.json`（10,224 B）**自己就带尾逗号**：
+//     第 402 行 `"shaders/effects/fluidsimulation_normal.vert",` 后面紧跟 `}` ⇒ 标准 `JSON.parse`
+//     报 `Expecting value: line 403 column 2`。WE 照发照用 ⇒ **官方容忍尾逗号**（引擎用 jsoncpp，
+//     二进制里带 `allowTrailingCommas`/`allowComments` 开关名）。
+//   · 后果是**静默**的：我们这边凡是"读容器里的 JSON 失败就 catch 成 null"的地方（project.json 属性表、
+//     材质/效果/模型/combo 定义…），遇到这种文件会**整份丢掉**——例如属性面板空白、`{user:…}` 绑定
+//     全部回落默认值，而**日志里一行都不会有**。
+//
+// ── 口径（只做"官方明确容忍"的那两件事，其余照旧抛）──────────────────────────
+//   ① 尾逗号：`,` 后面（跳过空白）紧跟 `}` / `]` ⇒ 丢掉这个逗号；**字符串内的逗号一律不动**
+//      （扫描器带 inString/escape 状态，不会碰 `"a,}"` 这种内容）。
+//   ② 注释：**只在**"去掉尾逗号后仍解析失败"时才尝试剥 `//` 与 `/* */`（同样字符串内不动），
+//      并单独计数 —— 这样"到底有没有真用到"现场看得见，不是我们猜的。
+//   计数：`weJsonStats()` 返回 `{ calls, plain, trailingComma, comments, failed }`，供上报/日志一眼看。
+export const weJsonCounters = { calls: 0, plain: 0, trailingComma: 0, comments: 0, failed: 0 }
+/** 只读快照（对外只给这个，避免调用方改计数）。 */
+export const weJsonStats = () => ({ ...weJsonCounters })
+
+/** 去掉**字符串外**的尾逗号（单趟、有界；不动字符串内容）。 */
+function __stripTrailingCommas(src) {
+  let out = '', inStr = false, esc = false
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]
+    if (inStr) {
+      out += c
+      if (esc) esc = false
+      else if (c === '\\') esc = true
+      else if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') { inStr = true; out += c; continue }
+    if (c === ',') {
+      let j = i + 1
+      while (j < src.length && (src[j] === ' ' || src[j] === '\t' || src[j] === '\n' || src[j] === '\r')) j++
+      if (src[j] === '}' || src[j] === ']') continue      // 尾逗号 ⇒ 丢掉
+    }
+    out += c
+  }
+  return out
+}
+
+/** 去掉**字符串外**的 `//` 行注释与 `/* *\/` 块注释（把注释替换成等长空白，保持行号可读）。 */
+function __stripComments(src) {
+  let out = '', inStr = false, esc = false
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i], d = src[i + 1]
+    if (inStr) {
+      out += c
+      if (esc) esc = false
+      else if (c === '\\') esc = true
+      else if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') { inStr = true; out += c; continue }
+    if (c === '/' && d === '/') { while (i < src.length && src[i] !== '\n') { out += ' '; i++ } out += '\n'; continue }
+    if (c === '/' && d === '*') {
+      out += '  '; i += 2
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) { out += (src[i] === '\n' ? '\n' : ' '); i++ }
+      out += '  '; i++
+      continue
+    }
+    out += c
+  }
+  return out
+}
+
+/**
+ * 解析官方随包 JSON（scene.json / project.json / materials / effects / models / combo 定义…）。
+ * 与 `JSON.parse` 的差别只有两条：容忍尾逗号；再不行才容忍注释。**其余一律照旧抛**（调用方的 try/catch 语义不变）。
+ * @param {string} text
+ * @returns {any}
+ */
+export function parseWeJson(text) {
+  weJsonCounters.calls++
+  const s0 = (typeof text === 'string') ? text : String(text == null ? '' : text)
+  const s = s0.charCodeAt(0) === 0xFEFF ? s0.slice(1) : s0       // BOM 与官方一致地吃掉
+  try { const v = JSON.parse(s); weJsonCounters.plain++; return v } catch (e) { /* 落到宽容路径 */ }
+  try { const v = JSON.parse(__stripTrailingCommas(s)); weJsonCounters.trailingComma++; return v } catch (e) { /* 再试注释 */ }
+  try { const v = JSON.parse(__stripTrailingCommas(__stripComments(s))); weJsonCounters.comments++; return v }
+  catch (e) { weJsonCounters.failed++; throw e }
+}
+
 // ===== src/pkg/container.js =====
 // scene.pkg 容器解析器
 // 格式（实测 PKGV0012 ~ PKGV0023）：
@@ -2837,7 +2923,7 @@ export function resolveEffectChain(pkg, effect, readText) {
   if (entry === null) return
   let ej
   try {
-    ej = JSON.parse(readText(entry))
+    ej = parseWeJson(readText(entry))
   } catch (e) {
     return
   }
@@ -2867,7 +2953,7 @@ export function resolveEffectChain(pkg, effect, readText) {
       effect.materialPasses.push({ shader: null, copyCommand: false, target: p.target || null, binds: p.bind || [], blending: 'normal', textures: [], combos: {}, constants: {} })
       continue
     }
-    const mj = JSON.parse(readText(me))
+    const mj = parseWeJson(readText(me))
     const mp = (mj.passes && mj.passes[0]) || {}
     effect.materialPasses.push({
       shader: mp.shader || null,

@@ -49,10 +49,10 @@ const PLUGIN_LS_FLAGS = ['mpwdiag']
 const ROUTE_PARAM_NAMES = ['custom', 'folder', 'ltoken', 'token', 'file', 'index', 'offset', 'refs', 'w', 'h', 'src', 'type', 'fit', 'custommpkg', 'web', 'scene', 'shim', 'embed', 'thumbpost', 'pkgurl', 'item', 'dir', 'path', 'name']
 
 // 面板速查区"常用开关"（MERGED-3 1.3/2.3 精简版 8–10 个；面板 i18n 键 diagflag.<name> 与此对应）
-const COMMON_FLAGS = ['att', 'mcc', 'piv', 'align', 'parallax', 'audio', 'whitefallback', 'hier', 'isolate', 'audit']
+const COMMON_FLAGS = ['att', 'mcc', 'piv', 'align', 'parallax', 'gyro', 'audio', 'whitefallback', 'hier', 'isolate', 'audit']
 // 常用开关的"一键复制 URL 片段"（canonical 用法；面板速查区直接展示/复制）
 const COMMON_USAGE = {
-  att: 'att=legacy', mcc: 'mcc=1', piv: 'piv=1', align: 'align=0', parallax: 'parallax=legacy',
+  att: 'att=legacy', mcc: 'mcc=1', piv: 'piv=1', align: 'align=0', parallax: 'parallax=legacy', gyro: 'gyro=1',
   audio: 'audio=1', whitefallback: 'whitefallback=0', hier: 'hier=0', isolate: 'isolate=<层名>', audit: 'audit=3',
 }
 

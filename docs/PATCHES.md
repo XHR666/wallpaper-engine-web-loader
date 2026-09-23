@@ -13188,3 +13188,65 @@ P-152b 之后**仍**解析为 `null` —— 它们在**MDLS 解析之前**的"�
    （既有 `?video=` / `type=video` 两档因为发生在该日志**之前**才天然豁免）⇒ 视频明明播出来了，日志却打一句
    "7s 内没有首帧"，扫面也把它计成 `❌`。修法：`loadeddata`（第一个解码帧）里按场景路径同一套写入口径置位
    （`MPW_WRITE_GLOBALS` 才写全局 + `__mpwCapMarkFrame`）。真机复核：`after.firstFrame = True`。
+
+## P-177（2026-09-24 · 渲染器侧）官方随包 JSON 的**宽容解析**：尾逗号会让整条效果链**静默消失**
+
+**一句话**：官方随包发布的 fluidsimulation 效果定义（`assets/effects/fluidsimulation/` 下那份 effect.json，10,224 B，容器外的官方文件故不写成反引号路径）**自己就带尾逗号**
+（第 402 行 `"shaders/effects/fluidsimulation_normal.vert",` 后面紧跟 `}`）⇒ 标准 `JSON.parse` 报
+`Expecting value: line 403 column 2`，而 WE 照发照用（引擎用 jsoncpp，二进制里带 `allowTrailingCommas`/`allowComments` 开关名）。
+我们这边凡"读失败就 catch 成 null/return"的地方都是**静默**丢：官方该效果是 **20 pass / 9 FBO / 2 个 swap command**，
+`resolveEffectChain` 抛错后直接 `return` ⇒ 玩家看到的是"效果没了"，日志里**一行都没有**。
+
+* 实现：`core/we-scene-bundle.js` 新增 `parseWeJson(text)` + `weJsonStats()`（`we-json` 段）——
+  先 `JSON.parse`；失败再去**字符串外**的尾逗号（单趟扫描，带 `inString/escape` 状态）；仍失败才剥**字符串外**的
+  `//`、`/* */` 注释；BOM 与官方一致地吃掉；**真坏 JSON 仍然抛**（调用方 try/catch 语义不变）。
+  计数 `{calls,plain,trailingComma,comments,failed}` 让"这次是靠宽容过的"可见，不再静默。
+* 覆盖：**页面与 bundle 里所有"吃容器条目文本"的解析点**都换成它 —— `demo.html` 15 处（`scene.json` 本体、
+  `project.json`（属性表 + 视频路由）、材质/模型/combo/cursor 定义、`rd(...)` 各处）+ bundle 2 处（`effect.json`、material）。
+* 读数：官方那份 effect.json 严格解析失败 ⇒ 宽容解析成功（`passes=20`、`fbos=9`）；
+  `resolveEffectChain` 在宽容解析下建出 **18 个材质 pass + 2 个 swap command**（此前 `materialPasses=undefined`）。
+* 判据：`tests/we-json-tolerance-test.mjs`（18 断言：结构自推导"0 处严格残留" + 夹具逐条（含**字符串内的 `,}`/`,]`/`//`/`/*` 一个字不许动**）+ 官方真样本 + 变异自证：
+  把 `parseWeJson` 退回严格 `JSON.parse` ⇒ S2/S3 精确变红）。
+* 连带修正：`tests/issue-fluidsim-3840-test.mjs` 的 A3 原先是"**钉住缺陷**"（断言 `materialPasses === undefined`）⇒
+  改成"修好之后"的读数（18 pass + 2 command + 计数增长），并把变异 M5 反过来（**换回严格解析 ⇒ 必红**）。
+  这正是"门禁钉住旧实现"那一类的处理方式。
+
+## P-178（2026-09-24 · 渲染器侧）移动端**陀螺仪视差**（官方叫 Device Motion）接到既有指针链
+
+**一句话**：项目所有者指出"鼠标视差在安卓上是用**陀螺仪**实现的" ⇒ 新增姿态源：`deviceorientation` 的
+`beta/gamma` 映射成与鼠标**同一套** `u,v`（0..1，中心 0.5），经 `pushExternal` 喂进指针源 ⇒ 视差
+`g_ParallaxPosition`、粒子、轨迹、脚本指针**全链复用**，下游一行未改。
+
+* 官方依据（本机产物）：APK `壁纸引擎_2.8.8.apk` 的 `classes.dex` 里有 `io/wallpaperengine/weutil/ParallaxController`
+  （`VALUE_PARALLAX_{DISABLED,GYRO,GYRO_FREE,SCROLL}_INDEX`、`parallaxMode/Strength`、`updateParallaxOffsets`、
+  `sendNormalizedParallaxOffset`、`PARALLAX_MAX_DIST`）+ `SensorManager/getDefaultSensor/registerListener/SensorEvent`；
+  场景属性 `mobileparallax`（`condition: "mobileparallax.value"`）与 `mobileparallaxstrength`；官方 UI 文案
+  `ui_browse_properties_parallax_gyro` = **设备运动 / Device Motion**（APK 与 Windows 的 ui_zh-chs.json 逐字相同）。
+  轴与量程用 W3C Device Orientation and Motion §3.1（`beta∈[−180,180)`、`gamma∈[−90,90)`）。
+* **没找到（如实）**：姿态角 → 视差偏移的**换算式与缩放常量**在官方 Windows `assets/**`、`scenescript*.dll`、
+  APK assets 里都 0 命中（编译在 dex 字节码/`.so` 机器码里）⇒ 映射是本仓自定（依据强度 ③，注释里标注），
+  方向/幅度待真机确认（只需改 `MPW_GYRO_SIGN_U/V`、`MPW_GYRO_DEFAULTS.range` 三个常量）。
+* 开关：`?gyro=auto`（缺省：有细指针不启用、触摸设备启用）/ `?gyro=1`（强制）/ `?gyro=0`（完全不监听）；
+  与 `?parallax` / `?ptrfx` / `?cursor` **正交**（实测钉住）。已**正式登记**进 `docs/README-DIAGNOSTICS.md`
+  （179 == 179）并进 `diag-flags.json` 的 **common**（面板速查区 11 个）。
+* 可观测：`window.__mpwGyro = {supported,mode,enabled,permission,events,invalid,last:{alpha,beta,gamma},uv,center,why,noEvents}`；
+  无事件/权限被拒/非安全上下文**如实记账 + 一行日志**，不静默；无传感器也能验：`window.__mpwGyroSrc.feed({beta,gamma})`。
+* 判据：`tests/gyro-parallax-test.mjs`（32 断言 + 4 组变异）：姿态 Δu=0.4 ⇒ `g_ParallaxPosition=(0.9,0.5)`、
+  正深度层 Δx=**−204.288px**（官方公式）、深度 0 层不动、`?gyro=0` 逐位不动且 0 监听、三 sink 计数一致；
+  变异（映射写反 / 去掉 clamp / 无事件写 NaN / `?gyro=0` 失效）分别精确变红 11/3/2/2 条。
+* **未验证**：真机传感器事件（本机无传感器、未开浏览器）；iOS 13+ `requestPermission` 只做了 mock 断言。
+
+## P-179（2026-09-24 · 渲染器侧）issue #2/#3/#4 的**根因**：不等样本，用官方定义 + 合成场景直接查
+
+**一句话**：项目所有者要求"不用那几张壁纸也把原因查出来" ⇒ 用官方 46 个效果定义 + 合成场景逐条复现/反证，
+判据落成两个纯 Node 测试（`tests/issue-fluidsim-3840-test.mjs` 25 断言 / `tests/clock-combo-visible-test.mjs` 17 断言，共 10 个变异体全 `MUTANT-RED-OK`）。
+
+| 现象 | 结论 |
+|---|---|
+| **#4（模糊/丢效果）** | **两条彼此独立的成因**：① 官方 fluidsimulation 效果定义（effect.json）的尾逗号 ⇒ 我们静默丢整条链（**已由 P-177 修掉**）；② `clearBgFx`：3840×2160 设计画布 + 整屏层 + 官方链 blur(4)+godrays(5)+lightshafts(1) ⇒ 缺省档**真的执行 10 个 pass / 12 draw / 6 FBO**，`?clearfx=legacy` 才是 0 pass；同场景 1920×1080 两档都保留 ⇒ 判据确实按设计画布同比。**结论：这条不必再收窄**（缺的只是"链为什么没跑"的统一台账）。更正：日志前缀是 `① clearBgFx(...)`，**没有** `[CLEARFX]` |
+| **#3（剧烈晃动）** | 官方 `shake.frag:17` strength 上界 **0.5**、`:82` 位移 `offset·g_Amp²·flowMask` ⇒ **25.1% UV**；真语料（206 容器、两条独立实现互证）**最大位移 0.2510**，3 层正好用 0.5，越界 0 ⇒ 官方定义**足以解释**"剧烈晃动"，**不需要**假定我们读错参数（此前"作者都很乖 ≤3.6% UV"只覆盖 `foliagesway` 的 UV 路）。唯一潜在问题：同链里 copy pass 用像素 quad、材质 pass 用 NDC（差 1920 倍）⇒ 官方 Vertex 路（MODE=1）会被喂 NDC；**官方几何空间未证实、本语料 0 层使用** ⇒ 只报告、不夹取、不改 core |
+| **#2（偶发两个时钟）** | 能复现，但**不是**重算不完备/帧窗口（已钉成反证断言：props 完整时逐帧恒 1 个、切换原子、幂等、12 组真语料每取值只 1 簇）。真因：① **属性表整体缺失**（121 个场景容器只有 70 个带包内 `project.json`）⇒ "未知 → 可见"让所有变体可见（`dd/3660962877` 每个字体取值都同屏 2 个时钟；缺单个键真语料 29 组 ≥2）；② **装载路径与面板路径对"缺键"口径不一致**（`[11,12,13]` vs `[11]`）⇒ 结果取决于"最后一次是谁写的"，这就是"偶发"；③ bool 值 + ≥3 condition 的 `pv===true` 兜底；④ 数据层同 condition 重复层（1 组）。建议：把"没有属性表（保持可见）"与"表里有其它键但此键缺失（回落作者默认）"拆开、两条路径收敛到**一个** helper、bool+≥3 打警告、加 `scene.__visStats` 台账 |
+
+* 报告（含官方 file:line 原文、读数表、未证实项清单）：工作区 `docs/ISSUES-ROOTCAUSE-20260924.md`。
+* 两条口径更正（本轮取证）：本仓**没有** `recomputeLayerVisibility/visibleSelf/visibleScript`（只在上游 MIT 构建产物里）；
+  本仓等价链是 `parseScene:1544 __bindRaw` → RE-06（`:2662-2697`）+ 面板路径 `applyUserProperties:2362`。

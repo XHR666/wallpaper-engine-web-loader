@@ -85,6 +85,18 @@ const SAMPLE = {
     { rel: 'wallpaperE/佩丽卡/佩丽卡1_01.mpkg', why: '对照：**无 scene.json**（10.6MB，3 条目）' },
     { rel: 'wallpaperE/白洲梓/白洲梓1_07.mpkg', why: '对照：**无 scene.json**（11.8MB，3 条目）' },
   ],
+  /* G 批（2026-09-24 补）：70 个含 `scene.json` 的 `.mpkg` 里的**下一批**，取**视频最大的几个**
+     （各 ~58MB，仍在"容器整包在内存里"的安全区内；`--abort-free-mb` 看门狗照旧生效）。 */
+  G: [
+    { rel: 'wallpaperE/砂狼白子/砂狼白子11_03.mpkg', why: '补扫：59.8MB 视频条目（70 个里最大的一档）' },
+    { rel: 'wallpaperE/佩丽卡/佩丽卡1_06.mpkg', why: '补扫：59.7MB' },
+    { rel: 'wallpaperE/白洲梓/白洲梓_09.mpkg', why: '补扫：59.0MB' },
+    { rel: 'wallpaperE/洛茜/洛茜_07.mpkg', why: '补扫：58.8MB' },
+    { rel: 'wallpaperE/蔚蓝档案/蔚蓝档案_06.mpkg', why: '补扫：58.8MB' },
+    { rel: 'wallpaperE/佩丽卡/佩丽卡1_09.mpkg', why: '补扫：58.6MB' },
+    { rel: 'wallpaperE/芙宁娜/芙宁娜1_04.mpkg', why: '补扫：58.4MB（NSL 类脚本包的对照）' },
+    { rel: 'wallpaperE/遐蝶/遐蝶_09.mpkg', why: '补扫：58.1MB' },
+  ],
   /* D 批 = 大 PKGM0018（真场景工程）：**一个一批**，每个自带一次独立浏览器生命周期 */
   D: [
     { rel: 'delete/wallpapertest1/wallpapertest1_夜莺night——【time_variation_时间变化】alone_孤独の少女【原画：rella].mpkg', why: '任务⑤ 同包（49.2MB/PKGM0018，132 条目，含 7500×7500 DXT5）' },

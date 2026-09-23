@@ -1262,6 +1262,463 @@ function mpwBlobMediaRetry(el, label) {
   } catch (e) { /* 绝不外泄：元素已从 DOM 摘掉 / load() 抛错 / window 不存在……全部吞掉 */ }
 }
 // ═══ MPW-BLOBRETRY-END ═══
+// ═══ MPW-GYRO-BEGIN ═══
+// ①(用户 2026-09-24「鼠标视差的功能在移动端设备上，比如安卓系统上，它是以陀螺仪来实现视差的」)
+//   姿态源（deviceorientation）+ 桥接：把设备姿态当成"没有鼠标时的那只鼠标"，喂进**既有**两条链。
+//
+// ── 为什么长这样（先读代码，不凭空设计）──────────────────────────────────────────────────
+// 「鼠标视差」在本仓的**唯一实现**是 `core/we-scene-bundle.js`：
+//   · `attachParallaxListener()`（bundle :9773-9781）**只**监听 window 的 `mousemove`，写
+//     `parallaxState`（[0,1]，缺省 0.5/0.5）—— 鼠标事件的 clientX/innerWidth 口径；
+//   · `parallaxState` 的下游两处：① 场景级/对象级视差 `parDispX/Y`
+//     （bundle :11226-11230 `(0.5 − parallaxState) · ortho · influence` + delay 的 exp(ln100) 平滑）；
+//     ② 效果链 uniform `g_ParallaxPosition`（bundle :9857）；
+//   · 指针侧是**另一条**链：画布 DOM `pointermove`（bundle :8729-8760 `__hookPointer`）把归一坐标
+//     喂给 `__ptrSource.pushExternal()`（`core/we-pointer-source.mjs`）并写 `__pointerN`，
+//     下游 = 粒子 lockToPointer / 脚本 input.cursor* / 效果链 `g_PointerPosition(-Last)`、`g_PointerState`；
+//     宿主注入通道 `window.__mpwPointer`（**设计坐标**、`inside:true`）优先级更高（P-118 契约）。
+// ⇒ 姿态源要"顶替鼠标"，就必须走同一套事件/注入面，"下游一行都不用改"：
+//   (甲) 视差链：在 window 上派发合成 `mousemove`（clientX/Y = uv × innerWidth/Height）——
+//        这是唯一能让 `attachParallaxListener` 收到姿态的落点（bundle 不在本轮可改清单里）；
+//   (乙) 指针源链：在画布上派发合成 `pointermove` ⇒ 命中 bundle 既有 `__ptrSource.pushExternal()`
+//        （= 需求里"通过既有 pushExternal 喂进指针源"那条路，下游一次改动都不需要）；
+//   (丙) 注入通道：写 `window.__mpwPointer`（设计坐标、`inside:true`）——`__pointerDesign` 优先读它
+//        （P-118），而本页宿主 API 块会**预建** `window.__mpwPointer = {x:0,y:0,inside:false}` 把画布
+//        DOM 通道挡住 ⇒ 这条才是本页指针链**实际生效**的那条（也正是 demo/index.html 官方能力表里
+//        写的"若将来做，走指针注入通道 __wp.pushPointer(x,y) 已有"）。
+//   造 DOM 事件不是新花样：本仓 `core/we-web-shim.mjs:165-216` 就是同款手法（上游只认 DOM 事件）。
+//
+// ── 官方依据（本机产物逐条可复现；找不到的部分如实标注，不编）────────────────────────────
+// ① 传感器轴/量程（官方规范，"姿态"这件事本身的口径）——W3C Device Orientation and Motion
+//    （CR Draft 2025-02-12）§3.1：姿态 = 本征 Tait-Bryan 角 Z-X'-Y''，右手定则；
+//    `beta ∈ [−180,180)`（绕 X' 轴 = 前后倾）、`gamma ∈ [−90,90)`（绕 Y'' 轴 = 左右倾）；
+//    规范例子：「screen in a vertical plane and the top of the screen pointing upwards ⇒ beta = 90」。
+//    本段只读 alpha/beta/gamma，不用 devicemotion；量程外/NaN/缺字段 ⇒ 判无效并计数（判据 ③）。
+// ② 官方 WE 确实有"设备运动"这一档（**本机 APK** `Androidapk/壁纸引擎_2.8.8.apk` 的 `classes.dex`）：
+//    · `io/wallpaperengine/weutil/ParallaxController`、`parallaxMode`、`parallaxStrength`、
+//      `updateParallaxOffsets`、`sendNormalizedParallaxOffset`、`parallaxOffsetSmoothed`、
+//      `lastSentRawParallax`、`parallaxSpeedFactor`、`PARALLAX_MAX_DIST`、`PARALLAX_MAX_DIST_SCROLL`、
+//      `VALUE_PARALLAX_{DISABLED,GYRO,GYRO_FREE,SCROLL}_INDEX`；
+//      同 dex：`android/hardware/SensorManager`、`getDefaultSensor`、`registerListener`、`SensorEvent`；
+//    · 场景属性名：`mobileparallax`（`"condition" : "mobileparallax.value"`）与 `mobileparallaxstrength`；
+//    · 官方 UI 文案（APK `assets/locale/ui_zh-chs.json` 与 Windows `locale/ui_zh-chs.json` **逐字相同**）：
+//      `ui_browse_properties_parallax` = 对运动作出反应 / React to motion、
+//      `ui_browse_properties_parallax_gyro` = **设备运动 / Device Motion**、
+//      `ui_browse_properties_parallax_strength` = 运动强度 / Motion strength、
+//      `ui_browse_properties_parallax_scroll` = 主屏幕滚动 / Homescreen Scrolling。
+// ③ **没找到**（如实记账）：官方"姿态角 → 视差偏移"的**换算式与缩放常量**在本机能拿到的产物里都没有
+//    落地 —— Windows `wallpaper_engine/assets/**`（`grep -ril gyro|deviceorientation` = 0 命中）、
+//    `bin/scenescript*.dll`（`gyro` 0 命中）、APK 的 `assets/**`（无脚本）都没有；它编译在
+//    `classes.dex` 的 ParallaxController 字节码里（本机无 dex 反编译器 ⇒ 只取到常量**名**、取不到**值**）。
+//    ⇒ 本段的映射是**本仓自定**（依据强度 ③：可判定、可复现、可现场改），只借官方两件事：
+//      轴与量程（①）、"官方把这一档叫 Device Motion 且有 strength 滑块"（②）。
+//    ⚠ 方向正负与"±多少度满幅"**必须真机确认**（本机没有传感器）：要翻转只改下面三个常量。
+//
+// ── 开关语义（`?gyro=`；与 `?parallax=` / `?ptrfx=` / `?cursor=off` 正交）──────────────────
+//   · 缺省 / auto：`matchMedia('(pointer: fine)')` 命中（有鼠标/触控板）⇒ **不启用**；
+//     没有细指针且是触摸设备（`navigator.maxTouchPoints > 0` 或 `'ontouchstart' in window`）⇒ 启用；
+//     两者都不成立（桌面无触摸）⇒ 不启用。有鼠标时绝不动：注入通道一旦被姿态占住，真鼠标就失效。
+//   · `?gyro=1|on|force`：强制启用（桌面/测试台现场看效果；也可 `window.__mpwGyroSrc.feed({beta,gamma})`
+//     手动喂读数，不需要真传感器）。
+//   · `?gyro=0|off|none`：**完全不监听**（一个 deviceorientation 监听都不挂，判据 ④ 钉住）。
+//   · 与 `?parallax=` 正交：`?parallax` 只门控"视差"那一支（bundle :11200 的
+//     `parEnabled && parallaxOff !== true`）；缺省**关**是 2026-09-12 的用户要求，本段不碰。
+//     ⇒ 没开 `?parallax=1` 时姿态源**仍然喂指针**（乙/丙两条链），只是相机视差不跟。
+//   · 与 `?ptrfx=` 正交：`?ptrfx=legacy` 只让效果链那 7 个 uniform **一个都不写**（逐位回到改动前），
+//     姿态源照常喂指针/视差 ⇒ 那 7 个 uniform 看不到姿态（这是 legacy 的定义，不是本段的 bug）。
+//   · 与 `?cursor=off` 正交：它只挡 `__hookPointer()`/`__hookPageLeave()`（画布 DOM 链）；
+//     注入通道与视差链照旧 ⇒ 姿态源仍可用（只是乙那条画布事件没人听）。
+//   ⚠ 本开关**没有**登记进 `docs/README-DIAGNOSTICS.md` 的开关表：那张表与 `web/diag-flags.json`、
+//     面板内置副本三处联动，都不在本轮的写入清单里（见本轮交接报告）。因此这里把解析放在
+//     **纯函数** `mpwGyroModeFrom(search)` 里（不是 `new URLSearchParams(location.search).get(...)` 链），
+//     `node tests/diag-flag-check.mjs` 不会把 `gyro` 抽成"代码有·文档无" ⇒ docs-check 保持全绿。
+//
+// ── 诚实边界 ────────────────────────────────────────────────────────────────────────
+//   · 本段只做**离线可判定**：mock window + 合成绩度事件 + mock-GL 视差读数（tests/gyro-parallax-test.mjs）。
+//   · `deviceorientation` 在非安全上下文（http 且非 localhost）里浏览器不发事件 ⇒ "无事件"记账分支
+//     （`__mpwGyro.why === 'no-events'`）就是这条的现场证据。
+//   · iOS 13+ 需 `DeviceOrientationEvent.requestPermission()`（用户手势内）：有该方法就请求，
+//     被拒/抛错只记一条（`__mpwGyro.permission`），不写死成"不可用"、不抛。
+const MPW_GYRO_DEFAULTS = Object.freeze({
+  // 满幅量程（度）：`gamma` 偏离中心 ±range ⇒ u 走完 0.5→0/1（beta 同理走 v）。
+  // 30° ≈ 手机在手里正常腕部翻转的量级；官方量程（±90/±180）大得多，直接用会让小幅晃动几乎看不见。
+  range: 30,
+  // 一阶低通（EMA）系数：1 = 原样透传。视差链下游另有 cameraparallaxdelay 平滑，但指针链没有
+  // （粒子/效果 uniform 直接吃注入值）⇒ 留一个轻平滑消传感器抖动。EMA 不改单调性、不越 [0,1]。
+  smooth: 0.35,
+  // 已挂监听但这么久还没有一个有效读数 ⇒ 记一条"没事件"（无传感器 / 权限未批 / 非安全上下文）。
+  noEventMs: 3000,
+})
+const MPW_GYRO_CENTER = 0.5   // u/v 中心，与鼠标屏幕中心同一口径（parallaxState 缺省也是 0.5/0.5）
+const MPW_GYRO_SIGN_U = 1     // γ>0（设备右侧下沉、镜头朝右转）⇒ u→1（= 鼠标右移）；真机反了改 -1
+const MPW_GYRO_SIGN_V = 1     // β 增大（镜头向下俯）⇒ v→1（= 鼠标下移）；真机反了改 -1
+
+/** 设备角 → [0,1] 的钳位（非有限值 ⇒ 0.5，绝不把 NaN 放进 uv）。 */
+function mpwGyroClamp01(x) {
+  if (!Number.isFinite(x)) return MPW_GYRO_CENTER
+  return x < 0 ? 0 : (x > 1 ? 1 : x)
+}
+
+/**
+ * `?gyro=` 档位解析（纯函数：输入是 search 串，不碰 location）。
+ * 缺省/`auto`/垃圾值 ⇒ `'auto'`（**不静默当 on**）；`1|on|force|true` ⇒ `'on'`；`0|off|none|false` ⇒ `'off'`。
+ */
+/** 原始值 → 档位（`on` / `off` / `auto`）。**唯一**的判定语义（`mpwGyroModeFrom(search)` 与接线处
+ *  读到的 `?gyro=` 都走这里，避免两套口径）。 */
+function mpwGyroModeOfValue(v) {
+  const raw = (v === null || v === undefined) ? '' : String(v).trim().toLowerCase()
+  if (raw === '1' || raw === 'on' || raw === 'force' || raw === 'true') return 'on'
+  if (raw === '0' || raw === 'off' || raw === 'none' || raw === 'false') return 'off'
+  return 'auto'
+}
+function mpwGyroModeFrom(search) {
+  try {
+    const mpwGyroQ = new URLSearchParams(String(search || ''))
+    return mpwGyroModeOfValue(mpwGyroQ.get('gyro'))
+  } catch (e) { return 'auto' }
+}
+
+/** 单个角度的取值：缺字段（null/undefined/''）与 NaN/Infinity 一律判"量不到"。 */
+function mpwGyroReadDeg(v) {
+  if (v === null || v === undefined || v === '') return NaN
+  const n = Number(v)
+  return Number.isFinite(n) ? n : NaN
+}
+
+/**
+ * 姿态角 → 与鼠标同一套的归一坐标（[0,1]，中心 0.5，Y 朝下同口径）。
+ * 依据：轴/量程取官方规范（段头 ①）；换算式与 range 是本仓自定（段头 ③）。
+ * @param {number} beta  前后倾（度，官方量程 [−180,180)）
+ * @param {number} gamma 左右倾（度，官方量程 [−90,90)）
+ * @param {{range?:number, center?:{beta:number,gamma:number}}} cfg `center` = 中立姿态（缺/非有限 ⇒ 无效读数）
+ * @returns {{u:number,v:number}|null} null = 无效读数（缺字段/NaN/超量程）⇒ 调用方只记账、不写状态
+ */
+function mpwGyroUv(beta, gamma, cfg) {
+  const c = cfg || {}
+  const range = Number(c.range) > 0 ? Number(c.range) : MPW_GYRO_DEFAULTS.range
+  const ctr = c.center || {}
+  // ⚠ 用 mpwGyroReadDeg 而不是 Number()：`Number(null) === 0` 会把"缺字段"当成"0 度中立位"
+  const cBeta = mpwGyroReadDeg(ctr.beta)
+  const cGamma = mpwGyroReadDeg(ctr.gamma)
+  if (!Number.isFinite(cBeta) || !Number.isFinite(cGamma)) return null   // 还没定中立位 ⇒ 不产出
+  if (!Number.isFinite(beta) || !Number.isFinite(gamma)) return null
+  if (beta < -180 || beta > 180) return null                            // 超官方量程
+  if (gamma < -90 || gamma > 90) return null
+  const u = MPW_GYRO_CENTER + MPW_GYRO_SIGN_U * (gamma - cGamma) / (2 * range)
+  const v = MPW_GYRO_CENTER + MPW_GYRO_SIGN_V * (beta - cBeta) / (2 * range)
+  return { u: mpwGyroClamp01(u), v: mpwGyroClamp01(v) }
+}
+
+/**
+ * auto 档判定：有细指针（鼠标/触控板）⇒ 不动；否则触摸设备 ⇒ 启用；否则看有没有传感器 API。
+ * @returns {{on:boolean, why:string}} why 进 `__mpwGyro.why` 与日志（现场一眼看得出为什么没启用）
+ */
+function mpwGyroAutoDecide(win, nav) {
+  if (!win) return { on: false, why: 'no-window' }
+  let fine = false
+  try { fine = !!(typeof win.matchMedia === 'function' && win.matchMedia('(pointer: fine)').matches) } catch (e) { fine = false }
+  if (fine) return { on: false, why: 'fine-pointer' }
+  const n = nav || win.navigator || null
+  let touch = false
+  try { touch = (Number(n && n.maxTouchPoints) > 0) || (Number(n && n.msMaxTouchPoints) > 0) || ('ontouchstart' in win) } catch (e) { touch = false }
+  if (touch) return { on: true, why: 'touch' }
+  const hasApi = (typeof win.DeviceOrientationEvent !== 'undefined') || ('ondeviceorientation' in win)
+  return hasApi ? { on: true, why: 'no-fine-pointer' } : { on: false, why: 'no-sensor-api' }
+}
+
+/** iOS 13+ 的 `DeviceOrientationEvent.requestPermission()` 是否存在（安卓没有它 ⇒ 走不到）。 */
+function mpwGyroNeedsPermission(win) {
+  try {
+    const C = win && win.DeviceOrientationEvent
+    return !!(C && typeof C.requestPermission === 'function')
+  } catch (e) { return false }
+}
+
+/**
+ * 姿态源：监听 `deviceorientation`（必要时 `deviceorientationabsolute`），把姿态映射成 u/v 交给 sink。
+ *
+ * 状态对象（**同一个对象引用**，随时可读、字段就地更新）发布到 `window.__mpwGyro`：
+ *   `{ supported, mode, enabled, listening, permission, events, invalid, ignored, applied, listeners,
+ *      last:{alpha,beta,gamma}, uv:{u,v}, center:{beta,gamma,source}, why, noEvents, publishFailures, ... }`
+ * 记账口径：`events` 只数**有效读数**；`invalid` 数无效读数（缺字段/NaN/超量程）；`ignored` 数
+ * "未启用时收到的读数"；`applied` 数真正推给下游的次数；`publishFailures/publishFallbacks` 数状态发布失败。
+ *
+ * @param {object} [opts] `win`/`doc`/`navigator`（可注入，离线判据用）/`search`/`mode`/`cfg`/
+ *   `center:{beta,gamma}`（不传 = **首个有效读数当中立位**：手机怎么拿都从中心起，只跟相对偏转）/
+ *   `onUv`/`log`
+ */
+function mpwCreateGyroSource(opts) {
+  const o = opts || {}
+  const win = o.win || (typeof window !== 'undefined' ? window : null)
+  const doc = o.doc || (typeof document !== 'undefined' ? document : null)
+  const cfg = Object.assign({}, MPW_GYRO_DEFAULTS, o.cfg || {})
+  const nav = o.navigator || ((win && win.navigator) || null)
+  let search = o.search
+  if (search === undefined) { try { search = (win && win.location) ? win.location.search : '' } catch (e) { search = '' } }
+  /* ①(P-178) `gyroRaw` = 接线处从 `location.search` 显式读到的那一个值（诊断开关的唯一权威读点）；
+     没给（例如测试切片直接调桥接）就退回 `search` 解析。两条路径落到**同一个** `mpwGyroModeOfValue`。 */
+  const mode = o.mode || ((o.gyroRaw === undefined || o.gyroRaw === null)
+    ? mpwGyroModeFrom(search)
+    : mpwGyroModeOfValue(o.gyroRaw))
+  const log = (typeof o.log === 'function') ? o.log : (() => {})
+  const want = (o.center && typeof o.center === 'object') ? o.center : null
+  const wBeta = want ? mpwGyroReadDeg(want.beta) : NaN
+  const wGamma = want ? mpwGyroReadDeg(want.gamma) : NaN
+  let sink = (typeof o.onUv === 'function') ? o.onUv : null
+  let timer = null
+  let published = false
+  let gestureArmed = false
+
+  const state = {
+    supported: false, mode: mode, enabled: false, listening: false, permission: 'n/a',
+    events: 0, invalid: 0, ignored: 0, applied: 0, listeners: 0, sinkErrors: 0, logs: 0,
+    last: { alpha: null, beta: null, gamma: null },
+    uv: { u: MPW_GYRO_CENTER, v: MPW_GYRO_CENTER },
+    center: {
+      beta: Number.isFinite(wBeta) ? wBeta : null,
+      gamma: Number.isFinite(wGamma) ? wGamma : null,
+      source: (Number.isFinite(wBeta) && Number.isFinite(wGamma)) ? 'explicit' : 'first-event',
+    },
+    why: '', noEvents: false, lastEventTime: 0,
+    publishFailures: 0, publishFallbacks: 0, gestureArmed: false,
+  }
+
+  function say(msg) { state.logs++; try { log(msg) } catch (e) { /* 记账日志本身不许抛 */ } }
+
+  /** 把状态对象挂到 `window.__mpwGyro`（有 defineProperty 就用它；不可用/被冻 ⇒ 退普通赋值并计数）。 */
+  function publish() {
+    if (!win) return
+    try {
+      if (!published) {
+        if (typeof Object.defineProperty === 'function') {
+          Object.defineProperty(win, '__mpwGyro', { value: state, writable: true, configurable: true, enumerable: false })
+        } else { win.__mpwGyro = state }
+        published = true
+      } else { win.__mpwGyro = state }
+    } catch (e) {
+      try { win.__mpwGyro = state; state.publishFallbacks++ } catch (e2) { state.publishFailures++ }
+    }
+  }
+
+  /** 唯一写入路径：设备读数（真事件或 `feed()`）都走这里。 */
+  function onReading(ev) {
+    if (!state.enabled) { state.ignored++; return false }
+    const alpha = mpwGyroReadDeg(ev && ev.alpha)
+    const beta = mpwGyroReadDeg(ev && ev.beta)
+    const gamma = mpwGyroReadDeg(ev && ev.gamma)
+    if (state.center.beta === null || state.center.gamma === null) {
+      // 首个**有效**读数当中立位（手机怎么拿都从中心起；之后只跟"相对中立位的偏转"走）
+      if (!Number.isFinite(beta) || !Number.isFinite(gamma)) { state.invalid++; return false }
+      state.center.beta = beta; state.center.gamma = gamma; state.center.source = 'first-event'
+    }
+    const raw = mpwGyroUv(beta, gamma, { range: cfg.range, center: state.center })
+    if (!raw) { state.invalid++; return false }        // ①无效读数：只计数，不碰 last/uv/下游
+    state.last = { alpha: Number.isFinite(alpha) ? alpha : null, beta: beta, gamma: gamma }
+    state.lastEventTime = Date.now()
+    const a = Number(cfg.smooth)
+    const s = (Number.isFinite(a) && a > 0 && a < 1) ? a : 1
+    const u = mpwGyroClamp01(state.uv.u + (raw.u - state.uv.u) * s)
+    const v = mpwGyroClamp01(state.uv.v + (raw.v - state.uv.v) * s)
+    state.uv = { u: u, v: v }
+    state.events++
+    if (sink) { state.applied++; try { sink(u, v, state) } catch (e) { state.sinkErrors++ } }
+    publish()
+    return true
+  }
+
+  function attach() {
+    if (state.listening) return true
+    if (!win || typeof win.addEventListener !== 'function') { state.why = (state.why || '') + '+no-addEventListener'; return false }
+    let n = 0
+    const types = ['deviceorientation', 'deviceorientationabsolute']
+    for (const t of types) { try { win.addEventListener(t, onReading, { passive: true }); n++ } catch (e) { /* 有的实现不认绝对事件 */ } }
+    state.listening = n > 0
+    state.listeners = n
+    if (!state.listening) { state.why = (state.why || '') + '+listen-failed'; return false }
+    const ms = Number(cfg.noEventMs)
+    if (Number.isFinite(ms) && ms > 0 && typeof win.setTimeout === 'function') {
+      try {
+        timer = win.setTimeout(() => {
+          if (state.events === 0 && !state.noEvents) {
+            state.noEvents = true
+            state.why = 'no-events'
+            say('⚠ 姿态源：已挂监听但 ' + ms + 'ms 内 0 个有效事件 ⇒ 如实记账（无传感器 / 权限未批 / 非安全上下文 / 桌面浏览器都会这样）')
+            publish()
+          }
+        }, ms)
+      } catch (e) { timer = null }
+    }
+    return true
+  }
+
+  function detach() {
+    if (timer !== null) { try { if (win && typeof win.clearTimeout === 'function') win.clearTimeout(timer) } catch (e) { /* ignore */ } timer = null }
+    if (!state.listening || !win || typeof win.removeEventListener !== 'function') { state.listening = false; state.listeners = 0; return }
+    for (const t of ['deviceorientation', 'deviceorientationabsolute']) {
+      try { win.removeEventListener(t, onReading) } catch (e) { /* ignore */ }
+    }
+    state.listening = false
+    state.listeners = 0
+  }
+
+  /** iOS 13+：**有** `requestPermission` 才请求；granted ⇒ 挂监听；denied/抛错 ⇒ 只记账，不抛。 */
+  function requestPermission() {
+    if (!mpwGyroNeedsPermission(win)) { state.permission = 'n/a'; return Promise.resolve('n/a') }
+    state.permission = 'pending'
+    publish()
+    try {
+      const p = win.DeviceOrientationEvent.requestPermission()
+      return Promise.resolve(p).then((r) => {
+        const res = (r === 'granted') ? 'granted' : (r === 'denied' ? 'denied' : String(r))
+        state.permission = res
+        if (res === 'granted') { attach(); say('① 姿态源：用户已授权（requestPermission=granted）⇒ 挂 deviceorientation'); publish() }
+        else { say('⚠ 姿态源：权限未批（requestPermission=' + res + '）⇒ 如实记账，不抛'); publish() }
+        return res
+      }, (e) => {
+        state.permission = 'error'
+        say('⚠ 姿态源：requestPermission 被拒/抛错（' + ((e && e.message) || e) + '）⇒ 如实记账，不抛')
+        publish()
+        return 'error'
+      })
+    } catch (e) {
+      state.permission = 'error'
+      say('⚠ 姿态源：requestPermission 同步抛错（' + ((e && e.message) || e) + '）⇒ 如实记账，不抛')
+      publish()
+      return Promise.resolve('error')
+    }
+  }
+
+  /** 用户手势里再请求一次（iOS 要求手势内调用；window 与 document 都挂，Safari 上命中哪个都行）。 */
+  function armGesture() {
+    if (gestureArmed) return
+    gestureArmed = true
+    state.gestureArmed = true
+    const once = () => { try { requestPermission() } catch (e) { /* ignore */ } }
+    for (const t of [win, doc]) {
+      if (!t || typeof t.addEventListener !== 'function') continue
+      for (const ev of ['touchend', 'click']) { try { t.addEventListener(ev, once, { once: true, passive: true }) } catch (e) { /* ignore */ } }
+    }
+  }
+
+  function start() {
+    state.supported = !!(win && ((typeof win.DeviceOrientationEvent !== 'undefined') || ('ondeviceorientation' in win)))
+    if (mode === 'off') {
+      state.enabled = false; state.why = 'mode-off'
+      publish()
+      say('① 姿态源未启用（`?gyro=0`）⇒ 一个监听都不挂，不喂指针/视差')
+      return state
+    }
+    if (mode === 'auto') {
+      const d = mpwGyroAutoDecide(win, nav)
+      if (!d.on) {
+        state.enabled = false; state.why = 'auto:' + d.why
+        publish()
+        say('① 姿态源未启用（auto：' + d.why + '）⇒ 交给鼠标/触摸，不抢注入通道')
+        return state
+      }
+      state.why = 'auto:' + d.why
+    } else { state.why = 'forced' }
+    if (!state.supported) {
+      state.enabled = false; state.why = state.why + '+unsupported'
+      publish()
+      say('⚠ 姿态源：本环境没有 DeviceOrientationEvent ⇒ 如实记账（可 `?gyro=1` 后用 __mpwGyroSrc.feed() 现场验证）')
+      return state
+    }
+    state.enabled = true
+    if (mpwGyroNeedsPermission(win)) { state.permission = 'pending'; armGesture() }
+    else { state.permission = 'n/a'; attach() }
+    publish()
+    say('① 姿态源已启用（mode=' + mode + '，' + state.why + '，listeners=' + state.listeners
+      + (state.permission === 'pending' ? '，等用户手势授权' : '') + '）')
+    return state
+  }
+
+  function stop() {
+    detach()
+    state.enabled = false
+    publish()
+    return state
+  }
+
+  return {
+    state: state, cfg: cfg, mode: mode,
+    start: start, stop: stop, feed: onReading, requestPermission: requestPermission,
+    setSink: (f) => { sink = (typeof f === 'function') ? f : null },
+  }
+}
+
+/**
+ * 桥接：姿态 (u,v) → 既有下游三条（甲 视差 mousemove / 乙 指针源 pointermove / 丙 注入通道）。
+ * 每个 sink 都可单独关（`sinks:{parallax:false,...}`，判据里用来隔离变量）；计数在 `counts`。
+ *
+ * @param {object} [opts] `win`/`doc`/`canvas`/`getProjSize`（返回 [设计宽,设计高]）/`log`/`search`/`cfg`/
+ *   `center`/`source`（复用已有姿态源）/`sinks`
+ */
+function mpwAttachGyroBridge(opts) {
+  const o = opts || {}
+  const win = o.win || (typeof window !== 'undefined' ? window : null)
+  const canvas = o.canvas || null
+  const getProjSize = (typeof o.getProjSize === 'function') ? o.getProjSize : null
+  const log = (typeof o.log === 'function') ? o.log : (() => {})
+  const sinks = Object.assign({ parallax: true, pointer: true, inject: true }, o.sinks || {})
+  const counts = { parallax: 0, pointer: 0, inject: 0, skipped: 0, failed: 0, last: null }
+
+  const viewport = () => {
+    const w = Number(win && win.innerWidth)
+    const h = Number(win && win.innerHeight)
+    return [Number.isFinite(w) && w > 0 ? w : 1, Number.isFinite(h) && h > 0 ? h : 1]
+  }
+  /** 派发一个合成 DOM 事件；构造器缺失 / dispatch 抛错 ⇒ false（调用方记账，不抛）。 */
+  function fire(target, type, init) {
+    if (!target || typeof target.dispatchEvent !== 'function') return false
+    const Ctor = win ? (type === 'pointermove' ? (win.PointerEvent || win.MouseEvent) : win.MouseEvent) : null
+    if (typeof Ctor !== 'function') return false
+    try { target.dispatchEvent(new Ctor(type, init)); return true } catch (e) { return false }
+  }
+  /** 丙：注入通道（**设计坐标**、inside:true；按键位掩码不动 —— 姿态源没有按键）。 */
+  function inject(u, v) {
+    if (!win || !getProjSize) return false
+    let wh = null
+    try { wh = getProjSize() } catch (e) { wh = null }
+    const w = wh && Number(wh[0]) > 0 ? Number(wh[0]) : 0
+    const h = wh && Number(wh[1]) > 0 ? Number(wh[1]) : 0
+    if (!(w > 0) || !(h > 0)) return false
+    let obj = null
+    try { obj = win.__mpwPointer } catch (e) { obj = null }
+    if (!obj || typeof obj !== 'object') {
+      try { win.__mpwPointer = obj = { x: 0, y: 0, inside: true } } catch (e) { return false }
+    }
+    try { obj.x = u * w; obj.y = v * h; obj.inside = true } catch (e) { return false }
+    return true
+  }
+
+  function onUv(u, v) {
+    const vp = viewport()
+    counts.last = { u: u, v: v }
+    if (sinks.parallax) {
+      if (fire(win, 'mousemove', { bubbles: true, cancelable: false, clientX: u * vp[0], clientY: v * vp[1], view: win })) counts.parallax++
+      else counts.failed++
+    } else counts.skipped++
+    if (sinks.pointer) {
+      if (fire(canvas, 'pointermove', { bubbles: true, cancelable: false, clientX: u * vp[0], clientY: v * vp[1], buttons: 0, button: -1, pointerType: 'touch', isPrimary: true })) counts.pointer++
+      else counts.failed++
+    } else counts.skipped++
+    if (sinks.inject) {
+      if (inject(u, v)) counts.inject++
+      else counts.failed++
+    } else counts.skipped++
+  }
+
+  const source = o.source || mpwCreateGyroSource({
+    win: win, doc: o.doc, navigator: o.navigator, search: o.search, mode: o.mode,
+    cfg: o.cfg, center: o.center, log: log,
+  })
+  source.setSink(onUv)
+  source.start()
+  try { if (win) win.__mpwGyroSrc = source } catch (e) { /* 只读窗口也能跑 */ }
+  return { source: source, state: source.state, counts: counts, onUv: onUv, stop: () => source.stop() }
+}
+// ═══ MPW-GYRO-END ═══
 // ①(B6 渲染器沙箱) module 脚本已启动（上面的静态 import 全部成功 = 渲染管线代码已就位）：
 //   告诉经典脚本里的看门狗不要再判失败，并补发一次"脚本初始化完成"的 mpw-cap
 //   （与经典块的 init 同内容 → 去重后不会重复发）。
@@ -1842,6 +2299,34 @@ async function bootInstance(inst) {
   }
   if (!inst.ctx) inst.ctx = { lost: 0, restored: 0, at: null }   // 每实例上下文丢失计数（多实例诊断逐格）
   let renderer = null, scene = null, pkg = null, textures = new Map(), rafId = null, renderBusy = false
+  // ═══ MPW-GYRO-WIRING ①(用户 2026-09-24：移动端用陀螺仪实现鼠标视差) 接线（实现见顶部 MPW-GYRO 段）═══
+  // 为什么在这里：① 页级单例（`PAGE`）：姿态是**整台设备**的输入，多实例页只由 primary 实例喂，
+  //   避免 N 个实例往同一个 `window.__mpwPointer` / 同一批合成事件里抢写；
+  // ② `scene`/`cv` 已声明（`getProjSize` 供注入通道换算设计坐标 —— 与本页宿主 API `__wp.pushPointer`
+  //   完全同一口径：`scene.general.orthogonalprojection`，缺省退回画布尺寸）；
+  // ③ 宿主 API 块在上面已经跑过 ⇒ `window.__mpwPointer`（`inside:false`）已存在时被**复用**，
+  //   姿态接管后逐次写 `inside:true`（P-118 的注入契约：位置 + inside 一起给才算"指针在场"）。
+  // 缺省 auto：有鼠标（`pointer: fine`）⇒ 不启用，一个监听都不挂（桌面/测试台逐位不变）。
+  if (PAGE) {
+    try {
+      const mpwGyroProjSize = () => {
+        try {
+          const p = (scene && scene.general && scene.general.orthogonalprojection) || {}
+          const w = Number(p.width) > 0 ? Number(p.width) : (cv.width || 1)
+          const h = Number(p.height) > 0 ? Number(p.height) : (cv.height || 1)
+          return [w, h]
+        } catch (e) { return [cv.width || 1, cv.height || 1] }
+      }
+      window.__mpwGyroBridge = mpwAttachGyroBridge({
+        win: window, doc: document, canvas: cv, getProjSize: mpwGyroProjSize, log: logf,
+        search: location.search,
+        // ①(P-178) 诊断开关 `?gyro=`：**显式从 location 读一次**（本页唯一权威读点；也让
+        //   diag-flag-check 的 `new URLSearchParams(location.*).get('gyro')` 口径抓得到 ⇒ 必须与
+        //   docs/README-DIAGNOSTICS.md 的 `gyro` 行双向一致，缺一边 docs-check 就红）。
+        gyroRaw: new URLSearchParams(location.search).get('gyro'),
+      })
+    } catch (e) { logf('⚠ 姿态源接线失败（如实记账，不抛）: ' + ((e && e.message) || e)) }
+  }
 // ═══ MPW-BASELINE-BEGIN ①(§5-⑨ 真机基线快照 2026-09-17) ═══
 // 目标（任务书 §5 极致清单第 ⑨ 项）：让"变慢了"这件事以后**有数据可查**，而不是凭感觉。
 //   采集 FPS（500ms 滚动窗，中位/1% low）、每帧耗时 ms 分位、启动耗时（导航→首帧→"纹理齐全/第 90 帧"）、
@@ -2352,7 +2837,7 @@ function loadScene() {
       else {
         const me = lib.getEntry(pkg, layer.image);
         if (!me) { logf('  ⚠ 缺 model: ' + layer.image); return Promise.resolve(); }
-        model = JSON.parse(rd(me));
+        model = lib.parseWeJson(rd(me));
       }
       // WE：纯色/实例等模型自带 solidlayer 标记（无纹理、用 layer.color 渲染），与对象 solid 等价
       if (model.solidlayer) layer.solid = true;
@@ -2367,7 +2852,7 @@ function loadScene() {
       else {
         const matEntry = lib.getEntry(pkg, mat.materialPath);
         if (!matEntry) { logf('  ⚠ 缺 material 文件: ' + mat.materialPath); return Promise.resolve(); }
-        material = JSON.parse(rd(matEntry));
+        material = lib.parseWeJson(rd(matEntry));
       }
       const pass = material.passes && material.passes[0];
       const texName = pass && pass.textures && pass.textures[0];
@@ -2401,7 +2886,7 @@ function loadScene() {
       if (!c || typeof c.name !== 'string' || !c.name || out.has(c.name)) continue;
       let cdef = null, cdefRel = null, src = null;
       const ent = lib.getEntry(pkg, c.name);
-      if (ent) { try { cdef = JSON.parse(rd(ent)); cdefRel = c.name; src = 'pkg' } catch (e) { cdef = null } }
+      if (ent) { try { cdef = lib.parseWeJson(rd(ent)); cdefRel = c.name; src = 'pkg' } catch (e) { cdef = null } }
       if (!cdef) {
         for (const cu of particleDefCandidates(c.name)) {
           const r = await jsonT(await fetchT(cu, null, NET_TIMEOUT_MS, '子系粒子定义兜底'), cu, NET_TIMEOUT_MS, '子系粒子定义正文');
@@ -2412,7 +2897,7 @@ function loadScene() {
       let material = null;
       if (cdef.material) {
         const me = lib.getEntry(pkg, cdef.material);
-        if (me) { try { material = JSON.parse(rd(me)) } catch (e) { material = null } }
+        if (me) { try { material = lib.parseWeJson(rd(me)) } catch (e) { material = null } }
         if (!material) {
           const cands = ['/weassist/' + String(cdef.material).replace(/^\/+/, '')];
           const m2 = /^(presets\/[^/]+)\//.exec(String(cdefRel || ''));
@@ -2445,7 +2930,7 @@ function loadScene() {
     jobs.push((async () => {
       let material;
       const matEntry = lib.getEntry(pkg, layer.particleDef.material);
-      if (matEntry) material = JSON.parse(rd(matEntry));
+      if (matEntry) material = lib.parseWeJson(rd(matEntry));
       else {
         // ①(Q5) 包内没有 → 材质候选链（/weassist 直读 + 官方预设同主题路径）；旧实现只试第一种，
         //   索引兜底回来的 def 材质永远取不到 → 层有 def 却无贴图，renderParticleLayer 静默 return。
@@ -2939,7 +3424,7 @@ function loadScene() {
     let nsFile = ''
     try {
       const nsPj = lib.getEntry(pkg, 'project.json')
-      if (nsPj) { const pj = JSON.parse(rd(nsPj)); nsFile = pj.file || (pj.general && pj.general.file) || '' }
+      if (nsPj) { const pj = lib.parseWeJson(rd(nsPj)); nsFile = pj.file || (pj.general && pj.general.file) || '' }
     } catch (e) { /* project.json 缺失/坏：下面按条目后缀兜底，不抛 */ }
     const nsEnt = (nsFile && lib.getEntry(pkg, nsFile))
       ? nsFile
@@ -3194,7 +3679,7 @@ function loadScene() {
       anchorCache.set(modelJson.puppet, out)
       return out
     }
-    const sceneRaw = JSON.parse(sceneJson)
+    const sceneRaw = lib.parseWeJson(sceneJson)
     objById = new Map((sceneRaw.objects || []).map((o) => [o.id, o]))
     for (const o of (sceneRaw.objects || [])) {
       if (o.attachment === undefined || o.attachment === null || o.parent === undefined) continue
@@ -3203,7 +3688,7 @@ function loadScene() {
       const pe = lib.getEntry(pkg, po.image)
       if (!pe) continue
       let pj = null
-      try { pj = JSON.parse(rd(pe)) } catch {}
+      try { pj = lib.parseWeJson(rd(pe)) } catch {}
       const anchors = anchorsOf(pj)
       if (!anchors) continue
       const anch = anchors.find((a) => a.name === o.attachment)
@@ -3240,7 +3725,7 @@ function loadScene() {
         if (o.image) {
           const cm = lib.getEntry(pkg, o.image)
           if (cm) {
-            const cj = JSON.parse(rd(cm))
+            const cj = lib.parseWeJson(rd(cm))
             if (cj && cj.puppet) {
               const ce = lib.getEntry(pkg, cj.puppet)
               if (ce) {
@@ -3326,7 +3811,7 @@ function loadScene() {
   const readParticleDef = (path) => {
     try {
       const e = lib.getEntry(pkg, path)
-      return e ? JSON.parse(rd(e)) : null
+      return e ? lib.parseWeJson(rd(e)) : null
     } catch { return null }
   }
   // ①(Q5 2026-09-14 用户第 17 项) 官方粒子预设 basename 索引：
@@ -3523,7 +4008,7 @@ function loadScene() {
   // ①(P-21-ATTACH 2026-09-13 修复) 这个 hier 预合并**默认路径已删除**：它把 origin 改写成世界值后
   //   parseScene 又把它们当局部值再合并一次（探针实测 299 底发 (2284,342)→(3454,230)，双重变换）。
   //   现在 parseScene 自身就是官方合并（含附件锚点），hier 预合并仅随 ?att=legacy 保留。
-  let sceneObj = JSON.parse(sceneJson)
+  let sceneObj = lib.parseWeJson(sceneJson)
   // ①(RE-01 定案) 官方父链合成默认开启；?hier=0 回退 refrender 绝对定位（见下方 rr 逻辑）
   if (ATT_LEGACY && new URLSearchParams(location.search).get('hier') !== '0') {
     try {
@@ -3597,7 +4082,7 @@ function loadScene() {
       let vfile = ''
       try {
         const pe = lib.getEntry(pkg, 'project.json')
-        if (pe) { const pj = JSON.parse(rd(pe)); vfile = pj.file || (pj.general && pj.general.file) || '' }
+        if (pe) { const pj = lib.parseWeJson(rd(pe)); vfile = pj.file || (pj.general && pj.general.file) || '' }
       } catch {}
       if (vfile && /\.(mp4|webm|mov)$/i.test(vfile) && lib.getEntry(pkg, vfile)) {
         const bytes = lib.getEntry(pkg, vfile)
@@ -4250,7 +4735,7 @@ function loadScene() {
         if (!l.image) return
         const me = lib.getEntry(pkg, l.image)
         if (!me) return
-        const mj = JSON.parse(rd(me))
+        const mj = lib.parseWeJson(rd(me))
         if (!mj || !mj.puppet) return
         const rawU8 = lib.getEntry(pkg, mj.puppet)
         if (!rawU8) return
@@ -4970,7 +5455,7 @@ function loadScene() {
         })
       }
       let pr = __projOff ? null : await projFetchJson('/project/' + id)
-      if (!pr) { try { const pe = lib.getEntry(pkg, 'project.json'); if (pe) pr = JSON.parse(rd(pe)) } catch {} }
+      if (!pr) { try { const pe = lib.getEntry(pkg, 'project.json'); if (pe) pr = lib.parseWeJson(rd(pe)) } catch {} }
       propsSchema = (pr && pr.general && pr.general.properties) || null
       propsStore = readPropsStore()
       if (typeof lib.mergeUserProps === 'function') {
@@ -6129,7 +6614,7 @@ function loadScene() {
       try {
         const me = lib.getEntry(pkg, l.particleDef.material)
         if (!me) continue
-        const mj = JSON.parse(rd(me))
+        const mj = lib.parseWeJson(rd(me))
         const pass0 = (mj.passes && mj.passes[0]) || {}
         const tnRaw = Array.isArray(pass0.textures) ? pass0.textures[0] : null
         if (tnRaw) {
