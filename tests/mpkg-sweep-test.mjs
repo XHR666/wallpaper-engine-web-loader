@@ -52,6 +52,9 @@ const RES = argVal('--res') || 'dpr'
 const DSF = Number(argVal('--dsf') || 1)
 const EXTRA_Q = argVal('--extra-q') || ''
 const NO_RESIZE = argv.includes('--no-resize')
+/* ①(2026-09-24) `--hide-shell`：恢复旧的"先摘外壳再截图"口径。**本机实测该口径会让画布截图恒为纯黑**
+   （见像素段注释与 tests/mpkg-videoblack-probe.mjs 的读数），只用于复现旧读数，不作为判定依据。 */
+const HIDE_SHELL_MODE = argv.includes('--hide-shell')
 /* `--save-shots <dir>`：把每个包的画布那一块**落盘**（用来肉眼复核"截到的到底是不是画面"）。 */
 const SAVE_SHOTS = argVal('--save-shots')
 /* 首帧之后给 `<video>`（PKGM0014 的 `__videoBase`）的有界等待窗口。 */
@@ -302,9 +305,20 @@ try {
         rec.videoWaitMs = Date.now() - tv
         rec.state = st
       }
-      /* 截像素**之前**先摘外壳**再**读数：外壳压在画布上会让"画布非空"变成一句假话。 */
-      rec.shell = await page.evaluate(HIDE_SHELL).catch((e) => ({ err: String((e && e.message) || e).slice(0, 120) }))
-      await page.waitForTimeout(700)
+      /* ①(2026-09-24 采样口径缺陷，实测) **不再"先 display:none 摘外壳再截图"** —— 那一步会把**每一张**
+         WebGL 画布的截图变成纯黑（与画的是什么无关）。取证（`tests/mpkg-videoblack-probe.mjs`，同一个包、
+         同一个 URL 形状 `?type=scene&id=mpkg-sweep&res=dpr`、同一个 960×540 viewport）：
+           · 不摘外壳：t=2.6s `meanL=10.8 maxL=255`；t=6.3s 起稳定 `meanL=12.56 maxL=255`（视频 rs=4、ct 在走）
+           · 摘外壳：t=4.1s 起**一路 `meanL=0 maxL=0`**，到 t=14.8s（视频 ct=9.88 仍在放）依旧是 0
+         机制层：`body` 的子元素全被 `display:none` 后 `body` 高度塌成 0，此时 Firefox 对这段区域的截图会走
+         "重新绘制"路径，而 WebGL 画布是 `preserveDrawingBuffer:false`（默认）⇒ 重绘拿到的是**已被清空**的缓冲。
+         ⇒ 口径改成"**不摘外壳，只按画布盒裁剪**"（与 `mpkg-video*-probe.mjs` 一致，那两个探针一直这么量，
+         读数一直正常）。要复现旧口径/对拍时用 `--hide-shell` 显式打开。 */
+      if (HIDE_SHELL_MODE) {
+        rec.shell = await page.evaluate(HIDE_SHELL).catch((e) => ({ err: String((e && e.message) || e).slice(0, 120) }))
+        rec.shellNote = '⚠ --hide-shell：本机实测该口径会把画布截图变纯黑（见文件头注释），读数不可用于判定"是否出画"'
+        await page.waitForTimeout(700)
+      } else rec.shell = { skipped: '不摘外壳（按画布盒裁剪；见 --hide-shell 注释）' }
       st = await page.evaluate(READ_STATE)
       rec.stateAfterHide = { canvas: st.canvas, liveRes: st.liveRes, videos: st.videos }
       const shotName = r.rel.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(-70)

@@ -13141,3 +13141,50 @@ P-152b 之后**仍**解析为 `null` —— 它们在**MDLS 解析之前**的"�
   ⇒ 该路径上"脚本写 `volume` 立刻改变正在播放的响度"**按现状不成立**（已在实现注释里标为已知限制，改 `demo.html` 不在本批）；
   `byId` 修复改变了真包 `getParent()` 行为（全语料错误/NaN 扫描干净、无新包，但没有金标/画面对照）；
   `alignment`/`color` 缺字段的读口径变化（`undefined→'center'`、`(0,1,1)→(1,1,1)`）同样只有单元断言 + 全语料无新错。
+
+## P-175（2026-09-24 · 渲染器侧）上游**宽度表整族**（9 / 9-3 / 9a-2）移植进**渲染路径的内联实现**
+
+**一句话**：`vendor/hlsl2glsl/hlsl2glsl.js`（上游 `oneincase/webwallgl` @`9531aaf`，MIT）里有整整一族"按**声明宽度**把更宽的右值截断到左值"的规则，
+而**真正在渲染路径上跑的是 `core/we-scene-bundle.js` 里的内联实现**（arity=4、不收 sibling）⇒ 换代不改画面：
+`vec2 strength; strength *= 500.0 / g_Texture0Resolution;` 原样输出 ⇒ GLSL ES 报 `'=' cannot convert from vec4 to vec2` ⇒ 整个 pass 被驱动拒掉、**效果静默消失**。
+本项把 9 / 9-3 / 9a-2 三条规则按内联实现的结构重写进去。
+
+### P-175.0 上游规则 ↔ 内联落点
+
+| 上游（`vendor/hlsl2glsl/hlsl2glsl.js`） | 内容 | 内联落点（`core/we-scene-bundle.js`） |
+|---|---|---|
+| 规则 **9** `:644-673` | 宽度表本体 `:655-665` + 裸标识符赋值截断 `:668-673` | 移植块 `:5687-5888`（注释头 `:5687-5724`、`w9Mask` `:5728`、宽度表 `:5744`、`w9Float` `:5751`、规则 9 `:5789-5802`） |
+| 规则 **9-3** `:674-697` | 复合赋值（`*= /= += -=`）截断（注释里的现场就是 `strength *= 500.0 / g_Texture0Resolution`） | `:5803-5831` |
+| 规则 **9a-2** `:699-779` | 声明式初始化截断（`float x = <vec4 来源>`、`vec2/3 x = <更宽来源>`） | `:5832-5888` |
+| 依赖结构 | `width: Map`、`floatDecl: Set`、`SW={2:'xy',3:'xyz',4:'xyzw'}` | 同名结构内置在移植块里；另加可观测计数器 `h2gWidthStats` `:5513-5529` |
+
+**结构差（为什么不能原样搬）**：① 内联实现**零宽度数据结构**（原来只有 `2f :5680-5681` 按字面 swizzle 推宽度）；② 上游入口先 `stripComments` 而内联**保留注释** ⇒ 宽度表只喂"注释挖空"的只读副本 `w9Mask`，改写仍作用在带注释的源码上（输出一行都不因此变化）；③ 整数字面量规则顺序相反 ⇒ 本块两种字面量形态都收；④ 上游 `idents=[m[2],m[3]]` 会把数字字面量当标识符 ⇒ 改成显式捕获（否则"宽度不明"计数误报，实测修前对两个真 shader 误报 3 条）。
+**故意差异 3 条**：只搬 9/9-3/9a-2（**不搬 9b** 标量广播 —— 上游自记"收紧后会少 569 个 pass"）；宽度**只从本文件可见声明读**（不给 WE 内建猜宽度）；每个操作数宽度**可确证才动手**。
+
+### P-175.1 读数
+
+* 扫描口径：`allwallpaper/{dd,wallpaperE,wallpapertest1,0917,0923}` = **199 包 / 980 shader 条目 / 276 去重 shader**（sha256 去重）。
+* **改前 27/276 真编译失败**（`glslangValidator`）；移植后**变化恰好 4 条，全部落在改前编不过的那 27 条里**；**既有可编译的 272 条 sha256 逐条逐位不变、0 回归**；其中 **2 条新可编译**：
+  `cloudmotion.vert`（`v_NoiseCoord = v_TexCoord;` → `… = v_TexCoord.xy;`）、`shimmer.frag`（`vec3 … = texture(…)` → `(…).xyz`）。
+  另 2 条部分修好（`cutout_vignette.frag`、`chromatic_aberration.frag`，下一处卡在别的族）。
+* 计数器（全语料）：`{widthDecls:5367, rule9:1, rule93:0, rule9a2:4, unresolved:1}`；那 1 条 unresolved 是多运算符表达式（上游同样推不出）⇒ **原样保留 + 计数**，不静默产错值。
+* **更正一条前提（取证）**：语料里用到 `g_TextureNResolution` 的 **459 个条目全部自带 `uniform vec4 …` 声明**（0 个未声明）⇒ 真机制是"缺宽度表 + 缺截断规则"，"给内建猜宽度"既不必要、也是被禁的糊法。
+* `before` 参考实现（单切片关掉宽度表）**与 `git show HEAD:core/we-scene-bundle.js` 逐 shader 逐字节自证等价（276/276）** ⇒ A/B 不是"我说是 before 就是 before"。
+* 判据：新增 `tests/hlsl2glsl-width-table-test.mjs`（**43 断言**：A 10 组夹具 26 条含真编译、B 全语料"变化集精确相等"、C **3 组变异**且期望红集==实际红集 18/7/3）。
+* 门禁：`hlsl2glsl-coverage` / `hlsl2glsl-wiring` / `hlsl2glsl-3351179520` / `hlsl2glsl-width-table` = **4/4**；`scene-layer-baseline` + `mock-gl` = 2/2；`docs-check` ✓。
+* **未做/边界（如实）**：9-3 在本机语料**无真阳性**（上游点名的 `3351179520` 不在本机）⇒ 该规则只有合成夹具证据；只修好 2/27（其余属别的族或缺配套族）；**未移植**跨 stage varying 加宽/收窄与 `vertConflicts`（内联 arity=4、不收 sibling，形状上不兼容）、9b 标量广播、uv-arg 截断、int/const 族。
+
+## P-176（2026-09-24 · 渲染器侧）两处"读数/信号"口径缺陷：扫面截图恒黑、纯视频路径不标首帧
+
+1. **扫面像素读数恒黑（测量口径缺陷，不是渲染缺陷）**：`tests/mpkg-sweep-test.mjs` 原来在截图前 `HIDE_SHELL`
+   （把所有不含画布的 body 子元素 `display:none`）。实测（`tests/mpkg-videoblack-probe.mjs`，同包同 URL 同 viewport）：
+   不摘外壳 `meanL=10.8~12.6 / maxL=255`（视频 `rs=4`、`ct` 在走）；**摘了外壳从 t=4.1s 起到 t=14.8s（ct=9.88 仍在放）一路 `meanL=0 / maxL=0`**。
+   机制层：body 子元素全隐藏后 body 高度塌成 0，此时 Firefox 对这段区域的截图会走"重新绘制"路径，而 WebGL 画布是
+   `preserveDrawingBuffer:false`（默认）⇒ 重绘拿到的是**已清空的缓冲**。
+   ⇒ 口径改成"**不摘外壳、只按画布盒裁剪**"（与三个 `mpkg-video*-probe` 一致），旧口径用 `--hide-shell` 显式复现。
+   修好后重跑 A/B 两批：**13/13 PASS**（7 个 PKGM0014/PKGM0018 + 3 个无 `scene.json` 的纯视频包 + 其余对照），
+   读数示例：`红鸾樱落 meanL=56.3 lit=0.80`、`白洲梓1_10 meanL=12.54 maxL=255 lit=0.107`、`佩丽卡1_01 meanL=120.4 lit=0.95`。
+2. **纯视频壁纸不标首帧**：`MPW-NOSCENE` 分支在 `加载场景 …` **之后**才接管，而 7s 看门狗只看 `window.__mpwFirstFrame`
+   （既有 `?video=` / `type=video` 两档因为发生在该日志**之前**才天然豁免）⇒ 视频明明播出来了，日志却打一句
+   "7s 内没有首帧"，扫面也把它计成 `❌`。修法：`loadeddata`（第一个解码帧）里按场景路径同一套写入口径置位
+   （`MPW_WRITE_GLOBALS` 才写全局 + `__mpwCapMarkFrame`）。真机复核：`after.firstFrame = True`。

@@ -780,6 +780,7 @@ add "mpkg-noscene"       "node tests/mpkg-noscene-test.mjs"
 # ①(P-174 2026-09-24 主对话补登记) 层引用成员 × 五个面全表普查（官方 d.ts 60 成员 × 5 面 × 三档；缺一项点名成员+面）
 #   + `ISoundLayer.volume`（落点 soundprops.volume、保作者节点、非有限值不落盘、五面同源=函数身份相等）+ byId/getParent 修复。
 add "script-layer-ref-audit" "node tests/script-layer-ref-audit-test.mjs" "" "^SKIP script-layer-ref-audit"
+add "hlsl2glsl-width-table" "node tests/hlsl2glsl-width-table-test.mjs"  # ①(P-115 2026-09-23) 上游**宽度表整族**（`vendor/hlsl2glsl/hlsl2glsl.js` 的 9 :644-673 / 9-3 :674-697 / 9a-2 :699-779，MIT）移植到**在跑的内联实现**（`core/we-scene-bundle.js:5687-5888`）的判据：A 10 组夹具（三条规则真阳性 + 缺 resolution uniform / 多内建 / 非采样器上下文 / 同名 float / 等宽边界 / **sibling 缺失**；真阳性都过 glslangValidator）+ B **真语料逐 shader sha256 对拍**（全语料 199 包 / 276 去重 shader；before 参考实现 = 单切片关掉宽度表的副本，并与 `git show HEAD:` 的移植前真源码**逐字节自证等价**；变化集 == 预期 4 条、0 回归、2 条新可编译）+ C 3 组变异自证（`MUTANT-RED-OK`，"期望红集 == 实际红集"）；43 断言、实测 ~34s、PeakRSS ~1.4GB（单包上限默认 1024MB，可用 `MPW_W9_MAX_MB` 收窄）、无浏览器 / 无网络 / 无 GPU；无语料 / 无包解析器时只有 B 段 SKIP、A+C 照判
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

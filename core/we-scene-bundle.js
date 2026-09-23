@@ -5510,6 +5510,24 @@ export function withSiblingComboDefaults(srcText, siblingText) {
   return text + (text.endsWith('\n') || text === '' ? '' : '\n') + lines.map((x) => x.text).join('\n') + '\n'
 }
 
+// [P-115 2026-09-23 上游移植] **宽度表整族规则**（上游 `oneincase/webwallgl` @9531aaf 的 9 / 9-3 / 9a-2）
+//   的可观测计数器。渲染路径每次调 `hlsl2glsl()` 都累加；`h2gWidthStatsReset()` 供测试/诊断清零。
+//   为什么必须可见：这三条规则的判据是"宽度**可确证**才动手"，那么"看起来要截断、宽度却推不出来"
+//   的条数就必须**读得到** —— 否则"不确定就原样保留"会退化成静默跳过（= 另一种糊法，任务书禁止）。
+//   · widthDecls / rule9 / rule93 / rule9a2 = 宽度表规模与三条规则各自的**实际改写条数**（按上游规则号分桶）
+//   · unresolved                            = 命中规则**形态**但宽度不可确证 ⇒ **原样保留**的条数
+//   · unresolvedReasons                     = 上面那些条数的原因分桶（可复核，不是黑盒数字）
+export const h2gWidthStats = { widthDecls: 0, rule9: 0, rule93: 0, rule9a2: 0, unresolved: 0, unresolvedReasons: {} }
+export function h2gWidthStatsReset() {
+  h2gWidthStats.widthDecls = 0
+  h2gWidthStats.rule9 = 0
+  h2gWidthStats.rule93 = 0
+  h2gWidthStats.rule9a2 = 0
+  h2gWidthStats.unresolved = 0
+  h2gWidthStats.unresolvedReasons = {}
+  return h2gWidthStats
+}
+
 export function hlsl2glsl(src, stage, combos, includeResolver) {
   // combo 默认值：WE 语义 = 未显式提供时用声明里的 default（无声明 → 0）
   // （依据 linux-wallpaperengine ShaderUnit.cpp:442-477 parseComboConfiguration）
@@ -5665,6 +5683,209 @@ export function hlsl2glsl(src, stage, combos, includeResolver) {
   code = code.replace(/(\s)(\([^()]*?(?:<=|>=|==|!=|<|>)[^()]*?\))(\s*[*\/])/g, '$1float$2$3')
   code = code.replace(/([*\/]\s*)(\([^()]*?(?:<=|>=|==|!=|<|>)[^()]*?\))/g, '$1float$2')
   code = code.replace(/([+\-*/]?=)\s*(\([^()]*?(?:<=|>=|==|!=|<|>)[^()]*?\))(?=\s*[;,)])/g, '$1 float$2')
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════
+  // [P-115 2026-09-23 上游移植] **宽度表整族规则**：上游 `oneincase/webwallgl` @9531aaf（MIT）的规则
+  //   **9 / 9-3 / 9a-2** 移植到本**内联实现**（= 渲染路径真正在跑的那一份，`:9586-9587` 调用）。
+  //   ⚠ 文本约定：本注释**故意不写出 vendored 副本的完整路径**（写全会让 P-114 的两条
+  //   "渲染路径没接 vendored" 的 grep 断言误判 —— 它们按 `vendor/` + 目录名的连写串计数）。
+  //   那份 MIT 逐字节副本在仓库 `vendor/` 下的 `hlsl2glsl/` 子目录（文件 `hlsl2glsl.js`，
+  //   许可台账 `THIRD-PARTY.md` §9）；**它不在渲染路径上**（依据 P-114）。
+  //
+  //   上游落点（file:line + 规则号，逐条可复核；文件名 = 上面那份 vendored 副本）：
+  //     · 规则 9    hlsl2glsl.js:644-673 —— 宽度表本体 :655-665（宽松正则 :663-665）、
+  //                 裸标识符赋值截断 :668-673（`vec2 a; vec4 b; a = b;` ⇒ `a = b.xy;`）
+  //     · 规则 9-3  同文件 :674-697 —— 复合赋值（`*= /= += -=`）的向量截断；注释里的原始现场是
+  //                 `vec2 strength; strength *= 500.0 / g_Texture0Resolution;`（壁纸 3351179520）
+  //     · 规则 9a-2 同文件 :699-779 —— 声明式初始化截断：floatDecl 闸门 :717-722、宽度推导 vecW :723-756、
+  //                 `float x = <vec4 来源>` :757-764、`vec2/vec3 x = <更宽来源>` :769-778
+  //
+  //   **为什么内联实现缺这一族**（结构差，不是"少写一条正则"）：
+  //     ① 内联实现全文**没有任何"向量宽度"数据结构**；只有 `2f`（`:5680-5681`）一条按**字面 swizzle**
+  //        推断的正则（`float x = a.xy * b;` ⇒ `(a.xy * b).x`）。凡是"宽度要看**声明**"的形态
+  //        （LHS 不带 swizzle、RHS 是 `标量 op vec4`、RHS 是 `texSample2D(...)`）它一条都不覆盖
+  //        ⇒ 原样输出 ⇒ GLSL ES 报 `'=' : cannot convert from 'vec4' to 'vec2'`（或 `texture` 无匹配重载）
+  //        ⇒ 驱动拒绝整条 pass、渲染器只 console.warn 后跳过 —— **效果静默消失**。
+  //     ② 内联实现**保留注释**（coverage 门禁 ② 记录了这一点），上游在入口 `stripComments(src)`（:199）。
+  //        注释里的 `vecN 名字` 会被宽松宽度表当成真声明 ⇒ 本块**只给宽度表**喂一份"注释挖空"的副本
+  //        （下面 `w9Mask`），改写仍作用在带注释的 `code` 上 ⇒ 一行输出都不因此变化。
+  //     ③ 内联实现的整数字面量规则（2a-2e，`:5646-5678`）跑在本块**之前**，上游的第 10 条跑在 9 之后；
+  //        两边看到的字面量形态不同（内联侧已是 `500.0`）⇒ 本块的正则两种写法都收。
+  //
+  //   三条**有意差异**（都以"既有输出逐位不变 / 绝不产出错值"为准；逐条理由见移植报告）：
+  //     ⓐ 只搬 9 / 9-3 / 9a-2，**不搬 9b**（标量→向量广播）：那是另一族、且上游自己在 :656-662 记录了
+  //        "收紧 width 正则 ⇒ 全库真实编译 1733→1164 pass（一次性回归 569 个）"。
+  //     ⓑ 宽度**只从本文件可见的 `vecN <名字>` 声明**读，**不给 WE 内建猜宽度**：语料实测 290/290 个
+  //        用到 `g_TextureNResolution` 的 shader 都自带 `uniform vec4 g_TextureNResolution;`
+  //        （2026-09-23 全语料 199 包 / 980 shader 条目扫描：**0 个未声明**），声明里的 4 就是真宽度。
+  //        凭空给未知标识符补一个宽度/1.0 正是任务书禁止的糊法。
+  //     ⓒ 每个操作数宽度都**可确证**才动手；`float <同名>` 声明优先于宽松宽度表（上游在 9b :844-853
+  //        用同一道闸门，理由同源：`common_blending.h` 的 24 个 `vec3 BlendXxx(vec3 base, vec3 blend)`
+  //        形参会污染宽度表）。宽度推不出来的**原样保留**，并按原因计入 `h2gWidthStats`（可读、可断言）。
+  // ═══════════════════════════════════════════════════════════════════════════════════════════
+  {
+    // 注释挖空（**只读副本**，不参与输出）：`//` 到行尾、`/* */` 整段用空格顶替，换行位置保持。
+    const w9Mask = (s) => {
+      let out = ''
+      for (let i = 0; i < s.length; i++) {
+        if (s[i] === '/' && s[i + 1] === '/') { while (i < s.length && s[i] !== '\n') { out += ' '; i++ } out += '\n'; continue }
+        if (s[i] === '/' && s[i + 1] === '*') {
+          out += '  '; i += 2
+          while (i < s.length && !(s[i] === '*' && s[i + 1] === '/')) { out += (s[i] === '\n' ? '\n' : ' '); i++ }
+          out += '  '; i++
+          continue
+        }
+        out += s[i]
+      }
+      return out
+    }
+    const w9Src = w9Mask(code)
+    // ── 宽度表（上游 :655-665 同款正则；含 uniform/varying/attribute/in/out/局部/形参）──
+    const w9Width = new Map()
+    {
+      const w9re = /\b(?:uniform|varying|attribute|in|out)?\s*\b(vec([234]))\s+([A-Za-z_]\w*)/g
+      let w9m
+      while ((w9m = w9re.exec(w9Src)) !== null) w9Width.set(w9m[3], Number(w9m[2]))
+    }
+    // ── 声明为 float 的名字（上游 :717-722 / :796-799 同款）──
+    const w9Float = new Set()
+    {
+      const w9fd = /\b(?:uniform|varying|attribute|in|out|const)?\s*\bfloat\s+([A-Za-z_]\w*)/g
+      let w9f
+      while ((w9f = w9fd.exec(w9Src)) !== null) w9Float.add(w9f[1])
+    }
+    h2gWidthStats.widthDecls = w9Width.size
+    if (w9Width.size > 0) {
+      const W9_SW = { 2: 'xy', 3: 'xyz', 4: 'xyzw' }
+      const w9Miss = (reason) => {
+        h2gWidthStats.unresolved++
+        h2gWidthStats.unresolvedReasons[reason] = (h2gWidthStats.unresolvedReasons[reason] || 0) + 1
+      }
+      // **诊断专用**（不参与任何判定）：右值"头部"可确证的向量宽度下界。一条右值可能因为末尾多挂了
+      // 运算（`vec4(...).xyz`、`texture(...).r * 2.0`）而让 vecW 返回 0 —— 那种"看起来要截断、
+      // 宽度却推不出来"的形态必须计进 `unresolved`，而不是静默放过。
+      const w9Head = (expr0) => {
+        let e = String(expr0).trim()
+        const call = /^(vec([234])|texture(?:Lod)?)\s*\(/.exec(e)
+        if (call) {
+          let depth = 0
+          let i = e.indexOf('(')
+          for (; i < e.length; i++) {
+            if (e[i] === '(') depth++
+            else if (e[i] === ')') { depth--; if (depth === 0) break }
+          }
+          if (i >= e.length) return 0
+          const cw = call[2] ? Number(call[2]) : 4
+          e = e.slice(i + 1).trim()
+          if (!e) return cw
+          const sw = /^\.([xyzwrgba]{1,4})\b/.exec(e)
+          return sw ? sw[1].length : cw
+        }
+        const m = /^([A-Za-z_]\w*)\s*(?:\.([xyzwrgba]{1,4})\b)?/.exec(e)
+        if (!m) return 0
+        if (m[2]) return m[2].length
+        if (w9Float.has(m[1])) return 1
+        return w9Width.get(m[1]) || 0
+      }
+      // ── 规则 9（上游 :668-673）：`<vecL> = <vecR>;`（两侧都是**不带 swizzle 的单一标识符**，左值更窄）
+      //    ⇒ 右值补 swizzle。左值更宽/等宽、右值不是已声明向量、同名 float 声明 ⇒ 一律不动。──
+      code = code.replace(/(^|[;{}\n]\s*)([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*;/g, (all, pre, lhs, rhs) => {
+        const lw = w9Width.get(lhs)
+        if (!lw) return all                                  // 左值不是已声明的向量 ⇒ 与截断无关（不是不确定）
+        if (w9Float.has(lhs)) return all                     // 同名 float 声明优先（防形参名污染）
+        if (w9Float.has(rhs)) return all
+        const rw = w9Width.get(rhs)
+        if (!rw) { w9Miss('9-rhs-width-unknown'); return all }   // 右值类型不明 ⇒ 保留原样 + 计数
+        if (lw >= rw) return all
+        h2gWidthStats.rule9++
+        return pre + lhs + ' = ' + rhs + '.' + W9_SW[lw] + ';'
+      })
+      // ── 规则 9-3（上游 :674-697）：复合赋值的向量截断。形态**故意收窄**到上游那一种：
+      //    右值 = 单个操作数（数字字面量 / 标识符），或"操作数 op 操作数"恰好一次二元运算。
+      //    两个操作数的宽度都要**可确证**；宽度不同/类型不明/同名 float ⇒ 保留原样 + 计数。──
+      code = code.replace(/(^|[;{}\n]\s*)([A-Za-z_]\w*)\s*(\*=|\/=|\+=|-=)\s*([^;\n]+);/g, (all, pre, lhs, op, rhs) => {
+        const lw = w9Width.get(lhs)
+        if (!lw) return all
+        if (w9Float.has(lhs)) return all
+        // 形态正则与上游 :684 **同一个语言**（只把两个**标识符**各自捕获出来）：上游 `[m[2], m[3]]` 里的
+        // m[3] 是"整个第二操作数"，遇到数字字面量给出的是 `'0.001'` 这种非标识符串 —— 上游靠
+        // `width.get('0.001')` 查不到而跳过，结果等价；本块显式分辨，免得把它错记成"类型不明"。
+        const m = /^\s*(-?\s*(?:\d+(?:\.\d+)?f?|([A-Za-z_]\w*))\s*(?:[*/+\-]\s*-?\s*(?:\d+(?:\.\d+)?f?|([A-Za-z_]\w*))\s*)?)$/.exec(rhs)
+        if (!m) return all                                   // 出形态（函数调用/多运算符/带 swizzle）：上游同样不碰
+        const ids = [m[2], m[3]].filter(Boolean)
+        let rw = 0
+        for (const id of ids) {
+          const vw = w9Width.get(id)
+          if (!vw) {
+            if (!w9Float.has(id)) { w9Miss('9-3-rhs-type-unknown'); return all }   // 既不是已知向量也不是已声明 float
+            continue                                                               // 已声明 float ⇒ 标量操作数
+          }
+          if (w9Float.has(id)) { w9Miss('9-3-rhs-type-ambiguous'); return all }    // 同名 float 与 vecN 并存 ⇒ 不猜
+          if (rw === 0) rw = vw
+          else if (rw !== vw) { w9Miss('9-3-rhs-width-conflict'); return all }     // 两个不同宽的向量混算 ⇒ 推不出结果宽
+        }
+        if (rw <= lw) return all                             // 右值不比左值宽（含纯标量右值）⇒ 合法，不动
+        const sw = W9_SW[lw]
+        h2gWidthStats.rule93++
+        return pre + lhs + ' ' + op + ' ' + rhs.replace(/\b[A-Za-z_]\w*\b/g, (id) => (w9Width.has(id) ? id + '.' + sw : id)) + ';'
+      })
+      // ── 规则 9a-2（上游 :699-778）：**声明式初始化**的向量→标量 / 窄向量截断。上面第 9 条只看
+      //    "已声明变量之间的赋值"，看不到 `float mask = texSample2D(...);`、`vec3 albedo = texSample2D(...);`。
+      //    宽度三来源（与上游 vecW :723-756 逐条对齐）：① 显式 `vecN(...)` 构造；② `texture/textureLod`
+      //    调用（GLSL 规范返回 vec4）；③ `<标识符或 swizzle> <*|/> <不含向量特征的标量>`。──
+      const w9VecW = (expr) => {
+        const e = String(expr).trim()
+        {
+          const c = /^vec([234])\s*\(/.exec(e)
+          if (c) {
+            let depth = 0
+            for (let i = e.indexOf('('); i < e.length; i++) {
+              if (e[i] === '(') depth++
+              else if (e[i] === ')') { depth--; if (depth === 0) return i === e.length - 1 ? Number(c[1]) : 0 }
+            }
+            return 0
+          }
+        }
+        if (/^texture(?:Lod)?\s*\(/.test(e)) {
+          let depth = 0
+          for (let i = e.indexOf('('); i < e.length; i++) {
+            if (e[i] === '(') depth++
+            else if (e[i] === ')') { depth--; if (depth === 0) return i === e.length - 1 ? 4 : 0 }
+          }
+          return 0
+        }
+        const m = /^([A-Za-z_]\w*)(?:\.([xyzwrgba]{2,4}))?\s*[*/]\s*([^*/]+)$/.exec(e)
+        if (!m) return 0
+        const rhsPart = m[3]
+        if (/\bvec[234]\s*\(|\.[xyzwrgba]{2,4}\b/.test(rhsPart)) return 0
+        if (m[2]) return m[2].length
+        if (w9Float.has(m[1])) return 0
+        return w9Width.get(m[1]) || 0
+      }
+      // `float x = <宽度 >= 2 的右值>;` ⇒ HLSL 隐式取 .x；GLSL ES 报 cannot convert from vecN to float
+      code = code.replace(/(^|[;{}\n]\s*)float\s+([A-Za-z_]\w*)\s*=\s*([^;]+);/g, (all, pre, name, rhs) => {
+        const w = w9VecW(rhs)
+        if (w < 2) {
+          if (w9Head(rhs) >= 2) w9Miss('9a2-float-head-vector-but-width-unprovable')
+          return all
+        }
+        h2gWidthStats.rule9a2++
+        return pre + 'float ' + name + ' = (' + rhs.trim() + ').x;'
+      })
+      // `vec2/vec3 x = <更宽的右值>;`（典型 `vec3 albedo = texSample2D(...)`：返回 vec4，HLSL 取前 3 个分量）
+      const W9_SWN = { 2: 'xy', 3: 'xyz' }
+      code = code.replace(/(^|[;{}\n]\s*)vec([23])\s+([A-Za-z_]\w*)\s*=\s*([^;]+);/g, (all, pre, dim, name, rhs) => {
+        const lw = Number(dim)
+        const rw = w9VecW(rhs)
+        if (rw <= lw) {
+          if (w9Head(rhs) > lw) w9Miss('9a2-vec-head-wider-but-width-unprovable')
+          return all
+        }
+        h2gWidthStats.rule9a2++
+        return pre + 'vec' + dim + ' ' + name + ' = (' + rhs.trim() + ').' + W9_SWN[lw] + ';'
+      })
+    }
+  }
 
   // mul(a, b)：HLSL 行向量语义
   // 收集矩阵类型 uniform/局部变量名
