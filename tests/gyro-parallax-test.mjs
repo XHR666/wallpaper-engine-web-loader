@@ -322,7 +322,15 @@ async function probe(mod, o) {
     const p1 = V(reads)
     if (o.tilt !== false) {
       pose(o.beta || 0, o.gamma === undefined ? 24 : o.gamma)
-      await step(24)                   // 视差平滑 k≈0.536/帧 ⇒ 24 帧后残余 <1e-6
+      /* ①(2026-09-24 视差对齐官方后) 平滑从旧的指数式（k≈0.536/帧）换成官方闭式
+
+         `k = min(1,(1−delay/3)·10·dt)`（delay=0.1、60fps ⇒ **0.1611**）⇒ 24 帧只剩 1.45% 残余
+
+         （实测偏差 3.014px，与 204.288×1.45%=2.96px 吻合）。这里把收敛窗口按**新 k** 放宽到 60 帧，
+
+         而判据本身（Δx 必须等于 −204.288）不放宽。 */
+
+      await step(60)   // 官方 k≈0.1611/帧 ⇒ 60 帧后残余 <1e-4
     }
     const p2 = V(reads)
     const lastW = (name) => { const w = rec.uniWrites.filter((x) => x.name === name); return w.length ? w[w.length - 1].v : null }

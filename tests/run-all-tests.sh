@@ -20,7 +20,39 @@ export MPW_REPO_ROOT="${MPW_REPO_ROOT:-$PWD}"   # ②(2026-09-16) 仓库根（cd
 #   我在目录整理时曾把它写成 `$PWD`（仓库根）⇒ 所有依赖语料/WE 资产的用例集体变红（真包类 30+ 项）。
 #   现已恢复原语义（与收拢前 `$(cd .. && pwd)` 逐字等价）。
 export MPW_ROOT="${MPW_ROOT:-$(cd .. && pwd)}"
-export MPW_PERF_PKG="${MPW_PERF_PKG:-$HOME/.dsh-mpkg-wallpaper/d5007a52866682e2210d9d855d170c80.mpkg}"
+# ④(P-180 2026-09-24 可移植性审计 PA-36) **不再把某个容器的内容哈希当默认值**：旧默认是
+#   `$HOME/.dsh-mpkg-wallpaper/d5007a52…….mpkg` —— 那是作者机上一份具体容器的**内容指纹**
+#   （审计 PA-34/KI-7 里同一个哈希），换台机器必然不存在（本机实测该目录里只有 2aeac838…/
+#   5a85a54b…/aef86642…/f643f908…，根本没有 d5007a52…）⇒ 依赖它的性能项静默走"0 个包"分支。
+#   现在的口径：① 显式 `MPW_PERF_PKG` 优先（存在就用并打印读数/大小；不存在 ⇒ 明确打印
+#   **SKIP** 与原因，绝不静默降级）；② 否则扫 `${MPW_PLUGIN_CACHE:-$HOME/.dsh-mpkg-wallpaper}`
+#   里的 `*.mpkg`，取**最大的那个**（最大合集包覆盖路径最广；`ls -S` 口径可复现，与目录顺序无关），
+#   并打印"采用了哪个 / 为什么"；③ 目录不存在或没有 `*.mpkg` ⇒ 打印 **SKIP** 读数，置空哨兵值
+#   （哨兵 = 明确不存在的一条路径，让子进程走"找不到包"的既有分支，而不是回落成全量扫描）。
+MPW_PERF_PKG_FROM=''
+if [ -n "${MPW_PERF_PKG:-}" ]; then
+  if [ -f "$MPW_PERF_PKG" ]; then
+    MPW_PERF_PKG_FROM="显式指定（存在）"
+    echo "[gate] MPW_PERF_PKG = $MPW_PERF_PKG（$MPW_PERF_PKG_FROM，$(wc -c <"$MPW_PERF_PKG" 2>/dev/null || echo '?') B）"
+  else
+    MPW_PERF_PKG_FROM="显式指定但**不存在**"
+    echo "[gate] SKIP perf 包：MPW_PERF_PKG 显式指定但**不存在** = $MPW_PERF_PKG ⇒ 依赖它的项（perf-profile-smoke）拿不到输入，按条件项跳过（不静默降级、不回落成全量扫描）"
+    MPW_PERF_PKG="$MPW_ROOT/.no-perf-pkg-SKIP"
+  fi
+else
+  MPW_PERF_DIR="${MPW_PLUGIN_CACHE:-$HOME/.dsh-mpkg-wallpaper}"
+  MPW_PERF_PICK="$(ls -S -- "$MPW_PERF_DIR"/*.mpkg 2>/dev/null | head -1)"
+  if [ -n "$MPW_PERF_PICK" ]; then
+    MPW_PERF_PKG="$MPW_PERF_PICK"
+    MPW_PERF_PKG_FROM="扫描 $MPW_PERF_DIR/*.mpkg 取最大者"
+    echo "[gate] MPW_PERF_PKG = $MPW_PERF_PKG（$MPW_PERF_PKG_FROM：$(wc -c <"$MPW_PERF_PKG" 2>/dev/null || echo '?') B；可用 MPW_PERF_PKG= 显式覆盖）"
+  else
+    MPW_PERF_PKG_FROM="无候选"
+    echo "[gate] SKIP perf 包：$MPW_PERF_DIR 不存在或没有 *.mpkg（也没有显式 MPW_PERF_PKG）⇒ 依赖它的项（perf-profile-smoke）按条件项跳过；这不是通过，是缺数据"
+    MPW_PERF_PKG="$MPW_ROOT/.no-perf-pkg-SKIP"
+  fi
+fi
+export MPW_PERF_PKG
 
 FAST=0; JSON=0; LIST=0; ONLY=()
 while [ $# -gt 0 ]; do
@@ -43,6 +75,7 @@ add() { NAMES+=("$1"); CMDS+=("$2"); SLOWPAT+=("${3:-}"); SKIPPAT+=("${4:-}"); }
 # —— 语法/静态 ——
 add "bundle-syntax"      "node --check core/we-scene-bundle.js"
 add "demo-syntax"        "node tests/demo-syntax-check.mjs"
+add "demo-check"         "node tests/demo-check.mjs"   # ①E(2026-09-24) 补登记（132 断言：首屏静态外壳 CSS 与补丁 SITE_LAYOUT_CSS 逐条等价 D8 / 品牌钉子 D10 / 显示选项 D11 / 新窗口改写 D12 …）。此前只在文档与手工命令里被引用（`--only demo-check` 会报"未知测试项"exit 2），本表一直没有它 ⇒ 默认门禁不会跑；纯 Node、~5s、无浏览器/网络。
 # ①(P-70b 2026-09-15) **把它排到重项之前**：单独跑 4.9s，但排在 `tex-fmt5`(45s)/`package-matrix`(38–52s)
 #   之后时会因内存压力（本机 15G、free 0）换页抖动到 >600s 被超时中止 —— 实测 120× 慢、
 #   单独复跑永远绿、`--out` 换新目录也绿（所以**不是** P-70 的唯一临时目录导致的）。
@@ -79,6 +112,7 @@ add "blob-media-retry"   "node tests/blob-media-retry-test.mjs"
 #   legacy 档逐键回到改动前；3 条变异自证（改回 (0,0) / legacy 也写 / 不推快照 ⇒ 对应断言必红）；41 断言；~2s
 add "ptrfx-uniform"      "node tests/ptrfx-uniform-test.mjs"
 add "parallax-live"       "node tests/parallax-live-test.mjs --offline"   # 真机档（有头浏览器）由人工单独跑：去掉 --offline
+add "official-parallax-formula" "node tests/official-parallax-formula-test.mjs"  # RE-24 官方鼠标视差静态逆向对齐（A3/A4/C1/C2）：官方算式逐条对照（含 influence min(·,1)、桌面平滑闭式、顶层祖先 depth、cameraparallax=false 冻结）+ 4 组反例钉死 + `?parallax=legacy` 与改前构建**逐位**对拍 + 6 组变异自证（期望红集==实际红集，含"#4 机械删项"反证）；23 断言；~4s
 add "sprite-sheet"       "node tests/sprite-sheet-test.mjs"
 add "particle-sprite"    "node tests/particle-sprite-verify.mjs"
 add "text-layout"        "node tests/text-layout-test.mjs"
@@ -781,6 +815,37 @@ add "mpkg-noscene"       "node tests/mpkg-noscene-test.mjs"
 #   + `ISoundLayer.volume`（落点 soundprops.volume、保作者节点、非有限值不落盘、五面同源=函数身份相等）+ byId/getParent 修复。
 add "script-layer-ref-audit" "node tests/script-layer-ref-audit-test.mjs" "" "^SKIP script-layer-ref-audit"
 add "hlsl2glsl-width-table" "node tests/hlsl2glsl-width-table-test.mjs"  # ①(P-115 2026-09-23) 上游**宽度表整族**（`vendor/hlsl2glsl/hlsl2glsl.js` 的 9 :644-673 / 9-3 :674-697 / 9a-2 :699-779，MIT）移植到**在跑的内联实现**（`core/we-scene-bundle.js:5687-5888`）的判据：A 10 组夹具（三条规则真阳性 + 缺 resolution uniform / 多内建 / 非采样器上下文 / 同名 float / 等宽边界 / **sibling 缺失**；真阳性都过 glslangValidator）+ B **真语料逐 shader sha256 对拍**（全语料 199 包 / 276 去重 shader；before 参考实现 = 单切片关掉宽度表的副本，并与 `git show HEAD:` 的移植前真源码**逐字节自证等价**；变化集 == 预期 4 条、0 回归、2 条新可编译）+ C 3 组变异自证（`MUTANT-RED-OK`，"期望红集 == 实际红集"）；43 断言、实测 ~34s、PeakRSS ~1.4GB（单包上限默认 1024MB，可用 `MPW_W9_MAX_MB` 收窄）、无浏览器 / 无网络 / 无 GPU；无语料 / 无包解析器时只有 B 段 SKIP、A+C 照判
+add "gyro-parallax"        "node tests/gyro-parallax-test.mjs"  # ①(用户 2026-09-24「移动端以陀螺仪实现鼠标视差」) demo.html 的 MPW-GYRO 段**真源码切片** + mock `window/deviceorientation` + 真 bundle/mock-GL 的视差读数（姿态 Δu=0.4 ⇒ 正深度层 Δx=−204.288px = 官方公式）+ 4 组变异自证 `MUTANT-RED-OK`；30 断言、实测 ~0.4s、无浏览器 / 无网络 / 无 GPU
+
+# ①(P-179 2026-09-24 主对话补登记) issue #2/#3/#4 的根因判据（官方定义 + 合成场景，不等样本）：
+#   fluidsimulation 官方 effect.json 的尾逗号 / clearBgFx 收窄是否够 / shake·foliageswag 位移量级 / 时钟 combo 可见性。
+add "issue-fluidsim-3840" "node tests/issue-fluidsim-3840-test.mjs"
+add "clock-combo-visible"  "node tests/clock-combo-visible-test.mjs"
+
+# ①(P-177 2026-09-24 主对话登记) 官方随包 JSON 的宽容解析（尾逗号/注释）：官方 fluidsimulation/effect.json
+#   自带尾逗号 ⇒ 严格 JSON.parse 会静默丢掉整条效果链（20 pass / 9 FBO）；页面与 bundle 的"读条目文本"解析点必须全走 parseWeJson。
+add "we-json-tolerance"   "node tests/we-json-tolerance-test.mjs"
+# ①(2026-09-24 收口线) 同一口径的**服务端 + elysia 入口**残留收口：`:8902` 的库项目录 project.json（包旁）与容器条目
+#   project.json（包内）走 parseWeJson；elysia `makePkg().readJson`（pkg 条目）走 lib.parseWeJson；HTTP 请求体与宿主自有状态
+#   （bench-props / web-store / web-replace）**保持严格**并带 `[we-json:strict|分类]` 标记（逐类计数反查）。真 HTTP 端到端 +
+#   6 组变异自证（M1/M2/M6 改回去必红；M3/M4/M5 反向放宽必红，期望红集 == 实际红集）；21 断言、~9s、无浏览器/无网络。
+add "we-json-tolerance-server" "node tests/we-json-tolerance-server-test.mjs"
+
+# ①(2026-09-24 用户五条 + 追加 A1/A2/E) 8902 测试台的自证判据（纯 Node + 真 HTTP 为主，浏览器段 GL 前置可 SKIP）：
+#   第1条 快捷根**全部推导**（库根/父目录/home/cwd/挂载点或盘符）且源码里 0 处本机绝对路径、第2条 选文件与选文件夹
+#   同一棵服务端浏览树（同一份允许根，越界如实 403）、第3条① `paintLibSource` 真定义在模块作用域、② 切根**同页**
+#   立刻生效（列表/来源/缩略图缓存击穿）、第4条 所有按 itemId 解析的路由走**唯一真源**（切根前后 /pkg 状态码+字节数）、
+#   第5条 渲染器面**本地直供**（死上游照常出画 + X-Bench-Served 标记）、第6条 预览 `?shell=0` 无外壳 + 首帧黑幕、
+#   A1 WE 自带项折叠分组、A2 音量条不越容器（含改前复现对照）、E 富文本同图跨行只画一遍（真语料 33→1）；
+#   7 个**变异自证**（MUTANT-RED-OK：改回去必红，且红的正是被变异掉的那条）。
+add "bench-dsh-libroot"  "node tests/bench-dsh-libroot-test.mjs"
+
+# ①(2026-09-24 可移植性审计修复线：`docs/PORTABILITY-AUDIT-20260924.md` 的**服务器文件之外**那一半) PA-52/34/36/44/45/09/37/31 的常驻判据：
+#   候选表+存在性探测（core/scene-project-json）· KI 台账防腐烂（known-ledger-audit）· 门禁默认输入不许写死
+#   内容哈希 · 发布面死豁免分支已删+写死本机路径必抓 · walk() 少扫必记账 · 裸 `/tmp/` 判据（8/8 存量站点读数）
+#   · J13 断言语义化 · EYE_HACK 依据强度登记+可注入+记账。**每条都有 MUTANT-RED-OK 变异自证**（回退用
+#   `git show HEAD:` 的真版本，不是手搓近似）；46 断言、~15s、纯 Node（无浏览器/无网络/无 GPU），不写仓库文件。
+add "portability-fix"    "node tests/portability-audit-fix-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

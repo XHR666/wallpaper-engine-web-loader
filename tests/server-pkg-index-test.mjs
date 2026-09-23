@@ -416,8 +416,16 @@ async function waitReady(port, ms = 20000) {
     const r404 = await req(port, '/shader/' + (shaderRef ? shaderRef.id : IDS[0]) + '/effects/__p135_nope__.frag')
     P('D5 未知 shader → 404 + `no shader`（与改动前逐字相同）', r404.status === 404 && r404.body.toString() === 'no shader', r404.status + ' ' + JSON.stringify(r404.body.toString()))
     const rMiss = await req(port, '/shader/99999999/effects/shake.frag')
-    P('D6 未知场景 → 500 + 与改动前逐字相同的 TypeError 文本（`sc.pkgPath` 语义未变）',
-      rMiss.status === 500 && /Cannot read properties of null \(reading 'pkgPath'\)/.test(rMiss.body.toString()), rMiss.status + ' ' + JSON.stringify(rMiss.body.toString().slice(0, 90)))
+    /* ①(**契约变更** 2026-09-24 · 变更来源 = `1b2a332`「渲染器 0.5.5：8902 自给自足与选择器修复」)：
+       改动前：根里没有这个 id ⇒ `findScene()` 回 null ⇒ `sc.pkgPath` 抛 TypeError ⇒ 兜底 500（**把"查无此场景"
+       报成"服务端炸了"**）。改动后：源码那一行显式 `if (!sc) { res.writeHead(404); res.end('no scene') }`，
+       注释原文「根里没有这个 id ⇒ 404（原先会抛成 500）」⇒ 这是**有意的契约变更**（诚实 404），
+       不是回归 ⇒ 判据随之更新为 404 + `no scene`。
+       旧契约必红（等价证据）：同一条请求在改动前的实现上是 500 + TypeError（本文件 `git show 851bd88:server/
+       we-scene-demo-server.mjs` 的那一行没有 `if (!sc)` 守卫）；把新判据（404）拿去跑旧实现必红。 */
+    P('D6 未知场景 → 404 + `no scene`（★契约变更：原先 `sc.pkgPath` 抛 TypeError ⇒ 500「查无此场景被报成服务端炸了」；' +
+      '现为诚实 404，来源 1b2a332；与 `/shader` 未知条目同口径）',
+      rMiss.status === 404 && rMiss.body.toString() === 'no scene', rMiss.status + ' ' + JSON.stringify(rMiss.body.toString().slice(0, 90)))
   }
   } finally {
     try { child.kill('SIGTERM') } catch { /* ignore */ }

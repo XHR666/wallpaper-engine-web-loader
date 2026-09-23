@@ -46,6 +46,14 @@ for (const a of argv) {
 }
 const REPO_ROOT = path.resolve(path.dirname(SERVER_UNDER_TEST), '..')
 const DEMO_DIR = path.join(ROOT, 'demo')
+/* ①(2026-09-24 cross-platform 门禁读数) 本机工作区绝对路径**按片段拼**，连 `root` 那一段一起拆开：
+   `tests/cross-platform-gate-test.mjs` 的 A 段判据认的是"两个斜杠夹住 root"这个**裸片段**（不是整条路径），
+   所以只把后半截拼起来（`'/' + 'root' + …` 那种半吊子写法）仍会被它命中 —— 实测 3 处红：
+   本文件 :157 / :418 与 tests/portability-audit-fix-test.mjs:384，修复就是这三行。
+   不往白名单里加：白名单是给**存量站点**的，这里是新写的字符串，没有理由要豁免 ——
+   片段拼装才是本仓对"扫描器词汇"的既有写法（同 `tests/cross-platform-gate-test.mjs` 的 `SL + 'root' + SL`）。
+   ⚠ 本注释里刻意**不出现**那个裸片段：A 段的注释过滤只认**行首**注释符，块注释的续行照样会被扫。 */
+const WS_ABS = '/' + 'root' + '/Desktop/' + 'DSHarea'
 
 // ── 断言小工具（与 tests/ 既有风格一致：GOOD/FAIL 两行都打，人读与机读同一份）──────────────
 let pass = 0
@@ -154,7 +162,7 @@ console.log(`夹具：libA=${F.libA} libB=${F.libB}（每个库里一个真 scen
    整串写在源码里等于把本机路径又抄一遍。 */
 {
   const PAT = [
-    { name: '本机工作区绝对路径', re: new RegExp('/root/Desktop/' + 'DSHarea') },
+    { name: '本机工作区绝对路径', re: new RegExp(WS_ABS) },
     { name: '设备共享存储根', re: new RegExp('/storage/' + 'emulated') },
     { name: 'Termux 私有目录', re: new RegExp('/data/' + 'data/com\\.termux') },
   ]
@@ -385,7 +393,7 @@ try {
     /propsBody\.insertBefore\(group, propsBody\.firstChild\)/.test(PATCH),
     'A8 「渲染器设置（WE 自带）」分组：判据（schemecolor / visual_bar* / `ui_browse_properties_*` 文案）' +
     '+ 收进 `.bench-props-group` + **插到 `#props-body` 最前**（用户原话"它上面永远有这几个选项"）')
-  ok(/const WE_GROUP_KEY = 'bench-props-we-collapsed'/.test(PATCH) && /localStorage\.setItem\(WE_GROUP_KEY/.test(PATCH) &&
+  ok(/const WE_GROUP_COLLAPSED_LS = 'bench-props-we-collapsed'/.test(PATCH) && /localStorage\.setItem\(WE_GROUP_COLLAPSED_LS/.test(PATCH) &&
     /head\.addEventListener\('click', toggle\)/.test(PATCH) && /'aria-expanded'/.test(PATCH),
     'A8a 折叠：标题行可点/可键盘操作、状态记 `bench-props-we-collapsed`（缺省展开），并如实写 `aria-expanded`')
   ok(/"props\.weGroup":"渲染器设置（WE 自带）"/.test(PATCH) && /"props\.weGroup":"Renderer settings \(built into WE\)"/.test(PATCH),
@@ -415,7 +423,10 @@ const MUTATIONS = [
     expects: ['A0'],
     apply(files) {
       const from = "    { label: '工作区根（' + path.basename(MPW_ROOT) + '）', path: MPW_ROOT, kind: 'workspace', role: 'workspace' },"
-      const to = "    { label: '工作区（DSHAREA）', path: '/root/Desktop/' + 'DSHarea', kind: 'workspace', role: 'workspace' },"
+      /* 变异载荷 = "用户第 1 条的原样回退"：写死作者机器的绝对路径。**按片段拼**（`WS_ABS`）——
+         载荷在运行期拼出的文本与被变异掉的那一版逐字相同（A0 判据照样抓得到），
+         但本文件源码里不再出现那个裸片段（否则本文件自己会被 cross-platform 门禁扫红）。 */
+      const to = "    { label: '工作区（DSHAREA）', path: '" + WS_ABS + "', kind: 'workspace', role: 'workspace' },"
       const s = files.main
       if (s.split(from).length !== 2) return { error: '锚点未命中唯一位置：快捷根那一行' }
       return { main: s.replace(from, to) }

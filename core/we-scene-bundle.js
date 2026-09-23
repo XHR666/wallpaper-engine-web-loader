@@ -9779,6 +9779,29 @@ export function createRenderer(canvas, opts = {}) {
   let parDispY = 0
   let parAmount = 0
   let parEnabled = false
+  // ①(RE-24 官方 #3 2026-09-24) 官方 `Scene::Draw` 的每层视差要沿 `GetParent()` 走到**最顶层祖先**
+  //   （A4 `0x2557bf4-0x2557c14`）再从**根**读 `parallaxDepth`（`[x22,#320]`）。本仓的 `layer.parent`
+  //   是**层 id**（parseScene 存 `o.parent`），所以父链解析需要一张 id→层 的表；表按场景缓存，
+  //   只在换场景时重建（`renderScene` 里赋值），避免每层每帧重建 Map。
+  let parLayerById = null
+  let parLayerByIdScene = null
+  /**
+   * 沿 `layer.parent`（层 id）走到最顶层祖先；本层无父 ⇒ 返回本层。
+   * 防环：循环上限 64 跳（层树是有限树，环只可能来自坏数据，不能挂死渲染循环）。
+   * @param {object} layer
+   * @returns {object} 最顶层祖先（至少是 `layer` 本身）
+   */
+  function parTopAncestorOf(layer) {
+    let root = layer
+    for (let g = 0; g < 64; g++) {
+      const pid = root && root.parent
+      if (pid === undefined || pid === null || !parLayerById) break
+      const p = parLayerById.get(pid)
+      if (!p || p === root) break
+      root = p
+    }
+    return root
+  }
   // ══════════════════════════════════════════════════════════════════════════════════════════
   // ①(WEBWALLGL #4 + #5 P0) 效果链的**指针 / 指针状态 / 帧时间 / 视差位置** uniform 接线
   //   上游 issue：#4「气体/流体动效锐度过高、交互僵死」+#5「鼠标视差壁纸首帧多层叠加 / 根本不动」。
@@ -10333,18 +10356,38 @@ export function createRenderer(canvas, opts = {}) {
     const __parOffLegacy = (opts.parallaxOffLegacy !== undefined)
       ? !!opts.parallaxOffLegacy : PARALLAX_OFF_LEGACY
     let parOffX = 0, parOffY = 0
-    if (parEnabled && layer.parallaxDepth && (opts.parallaxOff !== true || __parOffLegacy)) {
-      const camCx = cam.projW / 2, camCy = cam.projH / 2
-      const dpx = Number(layer.parallaxDepth[0]) || 0
-      const dpy = Number(layer.parallaxDepth[1]) || 0
-      if (opts.parallaxLegacy) {
-        // 旧 lwe 近似（?parallax=legacy 回退 A/B 用）：(depth+amount)×disp（世界像素）
-        parOffX = (dpx + parAmount) * parDispX
-        parOffY = (dpy + parAmount) * parDispY
-      } else {
-        // ①(RE-24 官方公式) offset = ((node_pos − cam_pos) + mouse) ∘ depth × amount（世界像素）
-        parOffX = ((ox - camCx) + parDispX) * dpx * parAmount
-        parOffY = ((oy - camCy) + parDispY) * dpy * parAmount
+    if (parEnabled && (opts.parallaxOff !== true || __parOffLegacy)) {
+      // ①(RE-24 官方 #3 2026-09-24) `parallaxDepth` 取**最顶层祖先**的，不是本层的（子层完全继承顶层）。
+      //   依据（逐指令）：A4 `0x2557bf4-0x2557c14` 先用 `Renderable::GetParent()` 一路走到 `GetParent()==null`
+      //   （x22 = 根），随后 `0x2557c30 ldr d2,[x22,#320]` 读的是**根**的 parallaxDepth（arm64 `Renderable+320`）；
+      //   桌面 x86-64 独立复现同一条父链 + 同一个读（C2 `14014c990-9d` 父链循环 → `14014c9d5 mulss 0x180(%rcx)`，
+      //   `rcx` 就是循环产物）。独立旁证 A20：37 个官方默认工程里 `parallaxDepth` 40/40 处都在 `depth=0`（顶层）。
+      //   **回退口径**（本仓防御，非官方）：顶层祖先没有 `parallaxDepth` 而本层有时，仍用本层 ——
+      //   官方语料里不会出现"深度挂在子层"的层，这条只为不改坏本仓存量场景（报告"未改/未验证"一节有记录）。
+      const parRoot = parTopAncestorOf(layer)
+      const parDepthSrc = (parRoot && parRoot.parallaxDepth) ? parRoot : layer
+      if (parDepthSrc.parallaxDepth) {
+        const camCx = cam.projW / 2, camCy = cam.projH / 2
+        const dpx = Number(parDepthSrc.parallaxDepth[0]) || 0
+        const dpy = Number(parDepthSrc.parallaxDepth[1]) || 0
+        if (opts.parallaxLegacy) {
+          // 旧 lwe 近似（?parallax=legacy 回退 A/B 用，**逐位回旧行为**）：(depth+amount)×disp（世界像素）
+          parOffX = (dpx + parAmount) * parDispX
+          parOffY = (dpy + parAmount) * parDispY
+        } else {
+          // ①(RE-24 官方公式 / 修订 #4 2026-09-24) 官方 = `(root[248..252] − Scene[704..708]) ∘ depth × amount`
+          //   （A4 `0x2557c28 fsub` → `0x2557c34 fmul`(×amount) → `0x2557c38 fmul`(∘depth)；x86-64 独立复现：
+          //   C2 `14014c9a7/9b9/cb/d5`）——**乘法**，且对这两个槽的 `addss` 全量扫描 0 命中 ⇒ 加法形式被排除。
+          //   `Scene[704..708]` 是场景视差**位置** S（renderScene 段注释），本仓 `parDisp` ≡ `(S−0.5)×画布`
+          //   ⇒ 官方差式在本仓写成 `(ox − camCx) + parDisp`（`camCx = 0.5·画布` 与 `parDisp` 里的 `0.5·画布` 对消）。
+          //   ⚠ **这两项不是"鼠标重复计入"**（修订了逆向报告的一版读法）：删 `(ox−camCx)` 会丢官方 root 参考点、
+          //   删 `parDisp` 会丢鼠标项，任一都会与官方差一个常量或一整项 —— 见 tests/official-parallax-formula-test.mjs
+          //   的 ①/④ 判据（"只改鼠标 ⇒ 位移变化率"读数）。
+          //   残余差异（**未改**，证据已记录）：官方 `[x22,#248]` 取的是**顶层祖先**位置，本仓这两项仍用本层的 `ox,oy`；
+          //   官方语料 A20 里 40/40 的 parallaxDepth 都在顶层 ⇒ root==layer，两者在官方语料上不可分辨。
+          parOffX = ((ox - camCx) + parDispX) * dpx * parAmount
+          parOffY = ((oy - camCy) + parDispY) * dpy * parAmount
+        }
       }
     }
     let m = mat4Identity()
@@ -11336,46 +11379,97 @@ export function createRenderer(canvas, opts = {}) {
       return layer.size[0] * layer.scale[0] >= sw2 - 1 && layer.size[1] * layer.scale[1] >= sh2 - 1
     }
 
-    // ---- 场景级视差（cameraparallax）——移植 linux-wallpaperengine 语义 ----
-    // disp = 平滑后的(鼠标中心偏移 × amount × influence)；每层位移 = (parallaxDepth + amount) × disp × 场景宽/高
+    // ---- 场景级视差（cameraparallax）——官方 arm64 `Scene::Update` + 桌面 `wallpaper64.exe` §B-4 ----
+    // ①(RE-24 官方对齐 2026-09-24) 本段涉及的**官方算式**逐项（证据：docs/OFFICIAL-PARALLAX-RE-20260924.md
+    //   §A.2/§A.3/§B-4 + 转储 docs/_official-extract/parallax/{A3,A4,C1,C2}）：
+    //     · 归一化位置  `S = 0.5 − p·min(influence,1)`（A3 `0x2556140 fadd`(2·infl) → `0x2556154 fminnm`(,2.0)
+    //        → `0x2556164 fmul`(乘到 p) → `0x2556174 fadd`(+0.5)；p 是**中心相对**输入，鼠标居中 ⇒ p=0 ⇒ S=0.5）
+    //     · 每层位移    `(rootPos − S) ∘ rootDepth × amount`（A4 `0x2557c28-0x2557c40`；x86-64 独立复现 C2）
+    //   ⇒ 本仓 `parallaxState` 是 [0,1] 原始指针（中心 0.5），所以 `(0.5 − parallaxState)` 就是 `−p`；
+    //     本仓 `parDispX/Y` ≡ `(S − 0.5) × 画布`（**中心相对的位移量**）。对 `(S−0.5)` 做 EMA 与对 `S` 做 EMA
+    //     逐位等价（平移不变），所以每层那处的 `(ox − camCx) + parDisp` ≡ 官方 `(rootPos − S)×画布`。
+    //   ⚠ 旧注释"每层位移 = (parallaxDepth + amount) × disp"是**旧 lwe 近似**（官方是乘法，加法形式已被排除），
+    //     现只留在 `?parallax=legacy` 档。
     const parRaw = general.cameraparallax
     // 修复(2026-09-10)：此处此前声明 const parEnabled 遮蔽了闭包外层 let parEnabled（compositeLayer
     // 读外层恒 false）→ 对象级视差（layer.parallaxDepth）永不生效。改为赋值外层变量。
     parEnabled = parRaw === true || (parRaw !== null && typeof parRaw === 'object' && parRaw.value === true)
     parAmount = typeof general.cameraparallaxamount === 'number' ? general.cameraparallaxamount : 0
+    // ①(RE-24 官方 #3 配套) 父链解析用的 id→层 表：按**场景对象**缓存，换场景才重建（不在每层每帧建 Map）。
+    if (parLayerByIdScene !== scene) {
+      parLayerByIdScene = scene
+      parLayerById = new Map()
+      for (const __l of (scene.layers || [])) parLayerById.set(__l.id, __l)
+    }
     // ①(2026-09-12 用户要求) opts.parallaxOff（demo 默认给 true，`?parallax=1` 关掉该开关）→ 视差整体停用
-    if (parEnabled && opts.parallax !== false && opts.parallaxOff !== true) {
-      attachParallaxListener()
-      const influence = typeof general.cameraparallaxmouseinfluence === 'number' ? general.cameraparallaxmouseinfluence : 1
-      const delay = typeof general.cameraparallaxdelay === 'number' ? general.cameraparallaxdelay : 1
+    // ①(RE-24 官方 #6 2026-09-24) **两个"关"必须分开**（依据与语义都不同）：
+    //   · `opts.parallaxOff`（`?parallax=` 产品开关）= **本仓产品决定** ⇒ 语义仍是"视差整体停用" ⇒ `parDisp` **归零**；
+    //   · 场景级 `general.cameraparallax === false` = **官方语义**：桌面 B-4 `0x14014b626 je 0x14014b7e4`
+    //     ⇒ 关掉时**整段跳过、保持上一次的视差位置（冻结）**，官方**不归零**。所以这一支不再写 0。
+    if (opts.parallax !== false && opts.parallaxOff !== true) {
+      // ①(官方帧间隔口径) 桌面 `0x14014b61c movss %xmm1,0x13c(%rbx)` 在 `je`(cameraparallax 判定)**之前**
+      //   ⇒ 帧间隔记账在冻结期间照常推进 ⇒ `lastParallaxTime` 也放在 `parEnabled` 判定之外。
       const parDt = time - lastParallaxTime
       lastParallaxTime = time
-      // ①(RE-24 官方) 平滑：t = 1 − exp(−(frameTime·ln100)/delay) → delay 秒后残余 ≈1%（100 倍沉降）。
-      //   旧实现用 `delay*dt` 线性系数（无单位含义，delay<1 时几乎瞬时、delay>1 时抖动）。
-      // ①(WEBWALLGL #5 2026-09-23 **鼠标视差整条死掉的根因，实测**)：这里原本写的是 `Math.LN100`
-      //   —— **JS 没有这个常量**（`Math` 只有 `LN2`/`LN10`/`LOG2E`/`LOG10E`/`PI`/`SQRT1_2`/`SQRT2`）
-      //   ⇒ `Math.LN100 === undefined` ⇒ `parDt * undefined = NaN` ⇒ `k = 1 − exp(NaN) = NaN` ⇒
-      //   `k = Math.min(1, Math.max(0, NaN)) = NaN` ⇒ **`if (k > 0)` 恒假** ⇒ `parDispX` 永远是 0
-      //   ⇒ **`?parallax=1` 下场景级/对象级的"鼠标项"一个像素都不动**（只有与鼠标无关的
-      //   `(node_pos − cam_pos)` 常量项还在）。这不是"默认关"，是**开也死**：
-      //   离线 mock-GL 实测（`tests/parallax-live-test.mjs` B 段）改前 Δx=0.000px、改后
-      //   Δx=−204.288px（= −0.4·3840·0.07·3.8·0.5，与官方 `(0.5−mouse)∘depth×amount` 逐位吻合）。
-      //   修法：用标准库 `Math.log(100)`（= 4.605170185988092 = ln100，正是注释里写的那个数）。
-      const LN100 = Math.log(100)
-      let k = 1
-      if (isFinite(delay) && delay > 0) k = 1 - Math.exp(-(Math.max(0, parDt) * LN100) / delay)
-      k = Math.min(1, Math.max(0, k))
-      // ①(RE-24 官方 2026-09-14) 鼠标向量：归一化 → **世界像素**（乘设计画布）+ y 取反
-      //   （换算与推导见本文件「视差」段落头部注释：按我们自己的 y-down 世界空间推出，不引用上游表达式）。
-      //   depth 与 amount 在每层位移时按官方公式相乘（旧 `(depth + amount)` 相加已废弃）。
-      const orthoW = cam && cam.projW ? cam.projW : width
-      const orthoH = cam && cam.projH ? cam.projH : height
-      const tx = (0.5 - parallaxState.x) * orthoW * influence
-      const ty = (0.5 - parallaxState.y) * orthoH * influence
-      if (k > 0) {
-        parDispX += (tx - parDispX) * k
-        parDispY += (ty - parDispY) * k
+      if (parEnabled) {
+        attachParallaxListener()
+        const influence = typeof general.cameraparallaxmouseinfluence === 'number' ? general.cameraparallaxmouseinfluence : 1
+        const delay = typeof general.cameraparallaxdelay === 'number' ? general.cameraparallaxdelay : 1
+        // ①(RE-24 官方 #5 2026-09-24) 平滑改用**桌面官方闭式**（本批唯一有 bit 级可比闭式的一条）：
+        //     `k = min(1.0, (1 − delay/3.0) × 10.0 × dt)`；`delay <= dt` 时**直接吸附**（不平滑）；
+        //     **只封顶、不夹下界**（delay>3 时 k<0 = 官方会反向外插）。
+        //   逐指令：`0x14014b6c2`(delay=Scene+0x318) / `0x14014b6ce`+`0x14014b6f8`(delay<=dt ⇒ 跳到吸附)
+        //   / `0x14014b6fa`(÷3.0) / `0x14014b705`(1−) / `0x14014b709`(×10.0) / `0x14014b711`(×dt)
+        //   / `0x14014b716`+`0x14014b71b`(comiss 1.0 + movaps ⇒ 只封顶) / `0x14014b758`(吸附：直接写目标)。
+        //   数值（官方默认 `delay=0.1`、60fps）：官方 k≈0.1611；旧式 `1−exp(−dt·ln100/delay)` ≈ 0.5358
+        //   ⇒ **本仓比官方快 3.3 倍**；`delay=1` 时反过来（官方 0.1111 vs 旧式 0.0742）。
+        // ①(WEBWALLGL #5 2026-09-23 那个坑的守卫)：`delay` 非有限数时**不能**照官方式算（乘出来 NaN ⇒
+        //   下面的有限性判定恒假 ⇒ 整条鼠标链静默死掉）。这里沿用旧口径 `k=1`（吸附）作失败安全 ——
+        //   这是**本仓的防御**，不是官方语义（官方对非有限 delay 没有对应分支）。
+        let k
+        if (opts.parallaxLegacy) {
+          // 旧式（`?parallax=legacy` **逐位回旧行为**）：t = 1 − exp(−(frameTime·ln100)/delay) → delay 秒后残余 ≈1%。
+          // ①(WEBWALLGL #5 **根因，实测**)：这里原本写的是 `Math.LN100` —— **JS 没有这个常量**（`Math` 只有
+          //   `LN2`/`LN10`/`LOG2E`/`LOG10E`/`PI`/`SQRT1_2`/`SQRT2`）⇒ `Math.LN100 === undefined` ⇒
+          //   `parDt * undefined = NaN` ⇒ `k = 1 − exp(NaN) = NaN` ⇒ `k = clamp01(NaN) = NaN` ⇒
+          //   **`if (k > 0)` 恒假** ⇒ `parDispX` 永远是 0 ⇒ `?parallax=1` 下"鼠标项"一个像素都不动
+          //   （只有与鼠标无关的 `(node_pos − cam_pos)` 常量项还在）。**不是"默认关"，是开也死**：
+          //   离线 mock-GL 实测（`tests/parallax-live-test.mjs` B 段）改前 Δx=0.000px、修后 Δx=−204.288px。
+          //   修法：用标准库 `Math.log(100)`（= 4.605170185988092 = ln100，正是注释里写的那个数）。
+          const LN100 = Math.log(100)
+          k = 1
+          if (isFinite(delay) && delay > 0) k = 1 - Math.exp(-(Math.max(0, parDt) * LN100) / delay)
+          k = Math.min(1, Math.max(0, k))
+        } else if (!isFinite(delay)) {
+          k = 1
+        } else if (delay <= parDt) {
+          k = 1                                          // 官方：delay <= dt ⇒ 吸附到目标（不平滑）
+        } else {
+          k = Math.min(1, (1 - delay / 3) * 10 * parDt)   // 官方：只封顶 1.0，**不夹下界**
+        }
+        // ①(RE-24 官方 2026-09-14) 鼠标向量：归一化 → **世界像素**（乘设计画布）+ y 取反
+        //   （换算与推导见本文件「视差」段落头部注释：按我们自己的 y-down 世界空间推出，不引用上游表达式）。
+        //   depth 与 amount 在每层位移时按官方公式相乘（旧 `(depth + amount)` 相加已废弃）。
+        const orthoW = cam && cam.projW ? cam.projW : width
+        const orthoH = cam && cam.projH ? cam.projH : height
+        // ①(RE-24 官方 #2 2026-09-24) `influence` 必须**先截断到 1 再乘到输入上**：
+        //   A3 `0x2556140 fadd s0,s2,s2`(2·influence) → `0x2556154 fminnm s0,s0,s1`(s1=2.0) ⇒ scale=min(2·infl,2)
+        //   → `0x2556164/0x2556168 fmul` 乘到 p 上 ⇒ 官方位置 = `0.5 − p·min(influence,1)`。
+        //   旧式 `(0.5 − p)·influence` 把 influence 乘在**整个 (0.5−p)** 上：`influence==1` 时逐位相同，
+        //   `influence>1` 时差常量 `0.5·(influence−1)`（旧式继续放大，官方在 1 处截断）。
+        //   `influence <= 1` 时（含官方默认 `mouseinfluence = 0.0`）**一位都不差** ⇒ 存量读数不变。
+        const inflClamped = opts.parallaxLegacy ? influence : Math.min(influence, 1)
+        const tx = (0.5 - parallaxState.x) * orthoW * inflClamped
+        const ty = (0.5 - parallaxState.y) * orthoH * inflClamped
+        // 官方 B-4 对被乘的 k **没有** `k>0` 守卫（`0x14014b726-0x14014b732` 无条件 lerp）⇒ 这里只在
+        // `k` 为**有限非零**时更新：`k<0`（delay>3）按官方照做反向外插；`NaN` 只可能来自非有限的 `time`，
+        // 跳过以免把 `parDisp` 污染成 NaN（旧口径 `k>0` 在 legacy 档逐位等价：0 与 NaN 都跳过）。
+        if (isFinite(k) && k !== 0) {
+          parDispX += (tx - parDispX) * k
+          parDispY += (ty - parDispY) * k
+        }
       }
+      // else：官方 `cameraparallax === false` ⇒ **冻结**（保持上一次的 `parDispX/Y`，不归零）—— 见上方 #6。
     } else {
       parDispX = 0; parDispY = 0
     }

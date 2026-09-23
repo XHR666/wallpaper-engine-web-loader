@@ -166,6 +166,18 @@ const NOT_SHIPPED_OK = [
   { url: '/demo/mpw-select.js', in: 'web/sw.js', why: 'SW 自己的预缓存清单里也列了测试台那两个模块（同上不进包）' },
   { url: '/demo/mpw-select-math.mjs', in: 'web/sw.js', why: '同上一行' },
   { url: '/diag-flags.json', in: 'server/we-scene-demo-server.mjs', why: '服务端的静态路由表里登记了这个数据源（随站点外壳发布，不在 npm 运行面）' },
+  /* ①(2026-09-24 P-177「:8902 自给自足」那轮) `:8902` 现在也**本地直供**渲染器根路由（不再只反代 :8899）⇒
+     `RENDERER_LOCAL_EXACT` 里新增了 `/diag-flags.json`，于是这条 URL 多出第三个引用点（C2 因此变红）。
+     为什么仍是"不进包"（与上面 8899 / sw-policy 两条同口径，且这不是偷懒）：`web/diag-flags.json` 是
+     **开发期生成物** —— 由 `tests/diag-flag-check.mjs` 从源码抓取后写出（只读代码 + 只写这一个文件），
+     随站点外壳发布；`package.json.files` 白名单里没有它，面板离线时用 client.js 的**内置副本**
+     （`tools/panel-smoke.mjs` 断言两者集合一致，见 docs/README-DIAGNOSTICS.md「与面板/校验的关系」）。
+     代价（讲清楚，别含糊）：npm 包内单独 `node server/we-scene-demo-server-8902.mjs` 时这条 URL 会 404 ⇒
+     面板速查区回落到内置副本（功能不缺，只少了"在线数据源"；与 8899 在包内的行为逐字相同）。
+     另一条路（加进 `package.json.files`）被否：那会把一份带 `generatedAt` 时间戳的**开发期快照**
+     永久冻进 tarball，且与 sw-policy 那条"面板数据源不进包"的既有登记自相矛盾。
+     防腐烂：下面 C2b 断言这个文件**确实不在包里**（哪天它进了包，这条登记就成了遮羞布 ⇒ 必须回来删）。 */
+  { url: '/diag-flags.json', in: 'server/we-scene-demo-server-8902.mjs', why: '`:8902` 本地直供的渲染器静态路由（RENDERER_LOCAL_EXACT）登记了这个数据源；它是开发期生成物（tests/diag-flag-check.mjs 产出）随站点外壳发布、不在 npm 运行面 ⇒ 面板离线用内置副本，代价 = 包内这条 404（与 8899 逐字同口径）' },
   { url: '/demo/mpw-select.js', in: 'server/we-scene-demo-server.mjs', why: '服务端的静态路由表里提到测试台模块（测试台不进包）' },
   { url: '/demo/mpw-select-math.mjs', in: 'server/we-scene-demo-server.mjs', why: '同上一行' },
   /* `:8902` 服务里那条**产物写死的 iframe 路径**指向的是上游渲染器产物（在 `demo/assets/**` 里），
@@ -259,6 +271,12 @@ check('C1 入口闭包内每条**相对 import** 都能在包里解析到（含�
   missingImports.length ? missingImports.slice(0, 6).map((x) => x.from + ' → ' + x.spec).join(' ; ') + (missingImports.length > 6 ? ` …共 ${missingImports.length} 条` : '') : '闭包 ' + visited.size + ' 个模块')
 check('C2 代码/页面里引用的**绝对 URL** 都能映射到包内文件（挂载口径 + 别名表 + 已登记的不进包项）', missingUrls.length === 0,
   missingUrls.length ? missingUrls.slice(0, 6).map((x) => x.from + ' → ' + x.url).join(' ; ') + (missingUrls.length > 6 ? ` …共 ${missingUrls.length} 条` : '') : 'URL 引用全部命中')
+/* ①(2026-09-24) C2 那条 `/diag-flags.json` 登记的**承重性**自证：它必须真的不在包里（= 登记是必要的），
+   否则"登记"就退化成遮羞布（把一条本可以正常解析的引用挡掉）⇒ 那时该回来删登记而不是留着。
+   这条同时是"改回去必红"的等价证据：把登记删掉 ⇒ C2 立刻红（`server/we-scene-demo-server-8902.mjs →
+   /diag-flags.json` 无法映射，正是本轮修前的读数）。 */
+check('C2b 该登记**承重**：`web/diag-flags.json` 确实不在包里（开发期生成物，`package.json.files` 不含它）⇒ 删掉登记 C2 必红',
+  !shippedSet.has('web/diag-flags.json'), 'inPkg=' + shippedSet.has('web/diag-flags.json') + '（若变成 true ⇒ 回来删 NOT_SHIPPED_OK 里那条）')
 check('C3 闭包至少走到 25 个模块（防止"入口只剩一个空壳"也算绿）', visited.size >= 25, 'visited=' + visited.size)
 
 // ── D 反向：运行时代码不许有死文件 ──────────────────────────────────────────────────────────────────

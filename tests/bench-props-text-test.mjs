@@ -11,7 +11,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { ROOT } from './_root.mjs'
-import { decodePropEntities, parsePropRichText } from '../demo/bench-patch.js'
+import { decodePropEntities, parsePropRichText, normalizeRichImageUrl, richImageKey, richImageRelation, planRichImageMode, makeRichImagePass, dedupeRichImages } from '../demo/bench-patch.js'
 
 let pass = 0, fail = 0
 const ok = (n, c, d = '') => { if (c) { pass++; console.log('  ✓ ' + n + (d ? '  [' + d + ']' : '')) } else { fail++; console.log('  ✗ ' + n + (d ? '  [' + d + ']' : '')) } }
@@ -55,20 +55,238 @@ console.log('\n== 7 `BV…` 变 B 站链接（走既有 link 通道）==')
     parsePropRichText('<a href="https://example.com/a">x</a>').filter((x) => x.k === 'link').length === 1)
 }
 
-console.log('\n== 5 图片去重（DOM 路径接线 + tokenizer 不背锅）==')
+console.log('\n== 5 图片去重（用户第 3 档「任何一张图在整个面板里只画一次」+ 三层回退；规则可判定）==')
 {
-  ok('5a 渲染路径按**解析后的 URL** 去重（同一 src 第二次直接跳过）',
-    /const seenSrc = new Set\(\)/.test(SRC) && /if \(seenSrc\.has\(info\.href\)\) continue/.test(SRC) && /seenSrc\.add\(info\.href\)/.test(SRC))
-  ok('5b 去重集合建在**渲染函数内部、每趟一个新集合**（跨趟不串：重新渲染该有的图还在）',
-    /function propRichFragment\(tokens\) \{[\s\S]{0,400}?const seenSrc = new Set\(\)/.test(SRC)
-    && !/let seenSrc = null/.test(SRC) && !/var seenSrc = null/.test(SRC))
-  ok('5c tokenizer 不改语义（两张不同 URL 仍是两个 img token —— 去重是渲染期的事）',
-    parsePropRichText('<img src="https://a/1.png"><img src="https://b/2.png">').filter((x) => x.k === 'img').length === 2)
-  ok('5d 同一 URL 在 tokenizer 里也仍然是两个 token（证明 5a 的去重确实是**渲染期**收口）',
+  /* 规则（实现在 `demo/bench-patch.js` 模块顶部，函数名与判据一一对应；报告
+     `reports/bench-propimg-dedup-20260924.md` 有改前/改后读数与"没验证的"）：
+       ⓐ `normalizeRichImageUrl` 相同（逐字节同一资源）⇒ **无条件**只画一遍；
+       ⓑ `richImageKey` 相同（只差**白名单**里的尺寸/格式/水印类参数或后缀，图片 id 不动）⇒ 候选；
+       ⓒ 候选要**尺寸证据**：两张都 load 成功且 naturalWidth/naturalHeight 相同才归并；
+          尺寸不同 ⇒ **一定不归并**；证据拿不到（加载失败 / 本趟超时）⇒ **不归并**。
+     反例护栏（上一轮实测）：按 `host+path` 归并会把 `m.qpic.cn/psc` 同一个 path 下的 **4 张真图**
+     （身份在 query 的第一个无名段里）压成 1 张 ⇒ 本节逐条断言"一张都不许少"。 */
+  const U = 'http://photg.example/psc?/USER/IMGAAA'
+  const V = 'http://photg.example/psc?/USER/IMGBBB'
+  /** 真语料 `allwallpaper/dd/3660962877` 里 `m.qpic.cn/psc` 同一个 path 下的 **4 张不同图**（原样抄录）。 */
+  const QPIC4 = [
+    'http://m.qpic.cn/psc?/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/TmEUgtj9EK6.7V8ajmQrEBsexJSlhMg7OiSbTz*Vq3QACEYkZ8E7D9iP.Od05WVwf*Zty7Ju024B0os.zP7PIbqo.3*UAdtYXXx9jjaGF1A!/b&bo=4gHXAQAAAAABBxU!&rf=viewer_4',
+    'http://m.qpic.cn/psc?/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/TmEUgtj9EK6.7V8ajmQrEOlNbbR8QyH.V3DOKIQNRif85YCGLfi9pSXuaZqxdq9vSR5s5uHZgJLf1DqrxMxRMTafCMS1IHiigGZSLlOCyvE!/mnull&bo=SAFIAUgBSAEDByI!&rf=photolist&t=5',
+    'http://m.qpic.cn/psc?/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/TmEUgtj9EK6.7V8ajmQrEMQXeDhXW2lYWF93UJF.nZ.2WxR10Rb.mdx71GJTB0aXalAzL1BM3tkUxAZw2oSRRgvDWflCZlln3Eou6lAIMO8!/mnull&bo=6APXAegD1wEDByI!&rf=photolist&t=5',
+    'http://m.qpic.cn/psc?/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/TmEUgtj9EK6.7V8ajmQrEK.dTR0S5PnqaxucocfhhjUEzkloqXuqp0JsbUmHwzB1hnBAwn4iULfdmGz9S2FcNNdUWClXxYZKe6DMP4VWV5M!/mnull&bo=AQF3AAEBdwADByI!&rf=photolist&t=5',
+  ]
+  /** 同一形态再补到 **6 张**（父任务书里的"6 张不同图"口径；id 段/`bo`/`rf` 都不同）。 */
+  const QPIC6 = QPIC4.concat([
+    'http://m.qpic.cn/psc?/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/TmEUgtj9EK6.7V8ajmQrEZZZ000000000000000000000000000000000000000000000!/mnull&bo=ZAAAAAABdwADByI!&rf=photolist&t=5',
+    'http://m.qpic.cn/psc?/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/TmEUgtj9EK6.7V8ajmQrEYYY111111111111111111111111111111111111111111111!/mnull&bo=ZAAAAAABdwADByI!&rf=photolist&t=6',
+  ])
+  /** 规则 ⓑ 的真阳性夹具：同 id、只差**尺寸后缀**（`@200w_1e_1c` vs `@200w_1e_1c_90q`，等效 ⇒ 尺寸相同）。 */
+  const S1 = 'https://i.example/a/pic.jpg@200w_1e_1c'
+  const S2 = 'https://i.example/a/pic.jpg@200w_1e_1c_90q'
+  /** 规则 ⓒ 的真阴性夹具：同 id、**不同渲染尺寸**（`@100w` vs `@600w`）⇒ 一定不归并。 */
+  const B1 = 'https://i.example/b/pic.jpg@100w'
+  const B2 = 'https://i.example/b/pic.jpg@600w'
+  /** 格式/水印类：微信 `wx_fmt`/`wxfrom`/`wx_lazy`/`wx_co` 与 `_!web-…` 水印后缀（同一张画面）。 */
+  const F1 = 'https://mmbiz.qpic.cn/mmbiz_jpg/ABC/640?wx_fmt=jpeg&wxfrom=5&wx_lazy=1'
+  const F2 = 'https://mmbiz.qpic.cn/mmbiz_jpg/ABC/640?wx_fmt=png&wx_co=1'
+  const W1 = 'https://i.example/c/pic.png'
+  const W2 = 'https://i.example/c/pic.png_!web-article-pic'
+  /** 有意重复的**分隔图**（作者就是要它们各画一遍：URL 与 path 都不同）。 */
+  const SEP = ['http://i.example/9HK/fengefu000.gif', 'http://i.example/Cs0/fengefu001.gif', 'http://i.example/Tqx/fengefu002.gif']
+  const SZ = (w, h) => ({ w: w, h: h, ok: true })
+
+  ok('5a 归一化只做无争议的事：host/scheme 小写、去 fragment、去默认端口（**不动 query** —— 身份在那里）',
+    normalizeRichImageUrl('HTTP://Photg.Example:80/psc?/U/A#frag') === 'http://photg.example/psc?/U/A' &&
+    normalizeRichImageUrl('https://photg.example:443/psc?/U/A') === 'https://photg.example/psc?/U/A' &&
+    normalizeRichImageUrl('http://photg.example/psc?/U/A?x=1') === 'http://photg.example/psc?/U/A?x=1',
+    JSON.stringify(normalizeRichImageUrl('HTTP://Photg.Example:80/psc?/U/A#frag')))
+  ok('5b 规则 ⓑ 只删**白名单**参数：`wx_fmt`/`wxfrom`/`wx_lazy`/`wx_co`/`bo`/`rf`/`x-oss-process=`/`@100w…`/`_!web-…`',
+    richImageKey(F1) === richImageKey(F2) && richImageKey(W1) === richImageKey(W2) &&
+    richImageKey('https://i.example/d/p.jpg?x-oss-process=image/resize,w_200') === richImageKey('https://i.example/d/p.jpg') &&
+    richImageKey(B1) === richImageKey('https://i.example/b/pic.jpg'),
+    JSON.stringify([richImageKey(F1), richImageKey(W1)]))
+  ok('5c ★**不在白名单里的一律保留**（`t=`、无名段、图片 id 段）：删了它们会把不同图压成一张',
+    richImageKey(QPIC4[0]) !== richImageKey(QPIC4[1]) &&
+    richImageKey(QPIC4[1]) !== richImageKey(QPIC4[2]) &&
+    richImageRelation(QPIC4[0], QPIC4[1]) === 'different' &&
+    richImageKey(QPIC4[1]).indexOf('/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/') > 0)
+  ok('5d `richImageRelation`：同一资源 = `same-resource`（规则 ⓐ，无条件）；变体 = `variant-candidate`（要证据）',
+    richImageRelation(U, U) === 'same-resource' && richImageRelation(S1, S2) === 'variant-candidate' &&
+    richImageRelation(F1, F2) === 'variant-candidate' && richImageRelation(U, V) === 'different',
+    JSON.stringify([richImageRelation(U, U), richImageRelation(S1, S2), richImageRelation(U, V)]))
+
+  /* 纯 Node 里复刻 DOM 生命周期：`take()` → 挂起（探针藏起来）→ **超时兜底** `releasePending()`。
+     `sc.sizes` = 预置尺寸证据（等价于"两张都 load 成功"）；`sc.scope(i)` = 该 img 属于第几条属性行。 */
+  const runPass = (sc) => {
+    const p = makeRichImagePass({ mode: sc.mode || 'once', sizes: sc.sizes })
+    const verdicts = sc.urls.map((u, i) => p.take(u, sc.scope ? sc.scope(i) : 0))
+    const rel = p.releasePending('no-size-evidence').release
+    const drawn = sc.urls.filter((u, i) => verdicts[i].draw || rel.indexOf(normalizeRichImageUrl(u)) >= 0)
+    return { drawn, verdicts, released: rel, report: p.report(), pass: p }
+  }
+  const runOne = (urls, opts) => runPass(Object.assign({ urls: urls }, opts || {}))
+
+  ok('5e 规则 ⓐ 行内：逐字节同一 URL 画一遍（3 遍 ⇒ 1 张），不同 URL 各画一遍',
+    runOne([U, U, U]).drawn.length === 1 && runOne([U, V]).drawn.length === 2,
+    JSON.stringify([runOne([U, U, U]).drawn.length, runOne([U, V]).drawn.length]))
+  ok('5f ★规则 ⓐ **跨行**：同一趟渲染的多条属性里同一 URL 也只剩一遍（本次 bug 的判据）',
+    (() => {
+      const r = runOne([U, U, U, V], { scope: (i) => i })
+      return r.drawn.length === 2 && r.report.images === 4 && r.report.duplicatesSkipped === 2 &&
+        r.report.duplicateGroups.length === 1 && r.report.duplicateGroups[0].count === 3 &&
+        r.report.rendered === r.report.groups.length          // 老判据（B7）依赖的不变量
+    })(),
+    JSON.stringify(runOne([U, U, U, V], { scope: (i) => i }).report))
+  ok('5g `?propimg=all` 是**对照档**：完全不去重（3 遍还是 3 遍）—— 证明 5f 的"只剩一遍"不是恒真',
+    runOne([U, U, U], { mode: 'all' }).drawn.length === 3 &&
+    runOne([U, U, U], { mode: 'all' }).report.duplicatesSkipped === 0)
+  ok('5h `?propimg=row` = 旧的"只在行内去重"语义（跨行重复会重现：3 行 ⇒ 3 张）',
+    runOne([U, U, U], { mode: 'row', scope: (i) => i }).drawn.length === 3 &&
+    runOne([U, U, U], { mode: 'row' }).drawn.length === 1)
+  ok('5i ★"已经画成图的那张图又作为**链接**出现" ⇒ 链接被压掉（用户原话里的"图片链接再展示一遍"）',
+    (() => {
+      const tk = parsePropRichText('<img src="' + U + '"><a href="' + U + '">看这张</a>')
+      const r = dedupeRichImages(tk, { mode: 'once' })
+      return r.report.rendered === 1 && r.report.linksSuppressed === 1 && r.tokens.filter((x) => x.k === 'link').length === 0
+    })(),
+    JSON.stringify(dedupeRichImages(parsePropRichText('<img src="' + U + '"><a href="' + U + '">看这张</a>'), { mode: 'once' }).report))
+  ok('5j 锚文本不是图片 URL 的链接**照旧保留**（只压"同一张图的重复展示"，不误伤真链接）',
+    dedupeRichImages(parsePropRichText('<img src="' + U + '"><a href="https://b23.tv/BV1xzpee9EAF">视频</a>'), { mode: 'once' }).tokens.filter((x) => x.k === 'link').length === 1)
+  ok('5k **有意重复的分隔图（不同 URL）一律保留**：3 张分隔图就是 3 个 img（去重只认"同一张画面"）',
+    runOne(SEP).drawn.length === 3 && dedupeRichImages(SEP.map((u) => ({ k: 'img', src: u })), { mode: 'once' }).report.rendered === 3)
+  ok('5l tokenizer 不背锅：同一 URL 在 tokenizer 层仍是两个 token（去重是渲染期的事，tokenizer 不改语义）',
     parsePropRichText('<img src="https://a/1.png"><img src="https://a/1.png">').filter((x) => x.k === 'img').length === 2)
+  ok('5m ★真阳性①（规则 ⓑ+ⓒ）：同 id 两种**尺寸后缀**、载入尺寸相同 ⇒ 压成 1 张',
+    runOne([S1, S2], { sizes: { [S1]: SZ(200, 112), [S2]: SZ(200, 112) } }).drawn.length === 1,
+    JSON.stringify(runOne([S1, S2], { sizes: { [S1]: SZ(200, 112), [S2]: SZ(200, 112) } }).report.duplicateGroups))
+  ok('5n ★真阳性②（规则 ⓑ+ⓒ）：格式/水印类后缀（`wx_fmt` 族 / `_!web-…`）尺寸相同 ⇒ 各压成 1 张',
+    runOne([F1, F2, W1, W2], { sizes: { [F1]: SZ(640, 360), [F2]: SZ(640, 360), [W1]: SZ(800, 450), [W2]: SZ(800, 450) } }).drawn.length === 2)
+  ok('5o ★真阴性①（规则 ⓒ **硬否决**）：同 id 两种尺寸后缀但载入尺寸**不同**（100×56 vs 600×338）⇒ 一定不归并',
+    (() => {
+      const r = runOne([B1, B2], { sizes: { [B1]: SZ(100, 56), [B2]: SZ(600, 338) } })
+      return r.drawn.length === 2 && r.report.variants.unmerged === 1 && r.report.variants.merged === 0
+    })(),
+    JSON.stringify(runOne([B1, B2], { sizes: { [B1]: SZ(100, 56), [B2]: SZ(600, 338) } }).report.variants))
+  ok('5p ★真阴性②（规则 ⓒ 证据缺失）：只加载成功一张 / 两张都失败 ⇒ **不归并**（保守），超时兜底要放它们出来',
+    (() => {
+      const a = runOne([W1, W2], { sizes: { [W1]: SZ(800, 450), [W2]: { w: 0, h: 0, ok: false } } })
+      const b = runOne([W1, W2])                                   // 两张都没有证据（超时前没 load）
+      return a.drawn.length === 2 && a.report.variants.unmerged === 1 && b.drawn.length === 2 && b.released.length === 1
+    })(),
+    JSON.stringify(runOne([W1, W2], { sizes: { [W1]: SZ(800, 450), [W2]: { w: 0, h: 0, ok: false } } }).report.variants))
+  ok('5q ★同一变体出现两次也只剩一遍（归并确认后按"参考身份"继续记账）',
+    runOne([S1, S2, S2], { sizes: { [S1]: SZ(200, 112), [S2]: SZ(200, 112) } }).drawn.length === 1 &&
+    runOne([F1, F2, F1, F2], { sizes: { [F1]: SZ(640, 360), [F2]: SZ(640, 360) } }).drawn.length === 1)
+  ok('5r ★★反例护栏：`m.qpic.cn/psc` **同一个 path** 下的 4 张**真图**（3660962877 原样）⇒ 4 张，一张都不许少',
+    runOne(QPIC4).drawn.length === 4 && new Set(QPIC4.map(richImageKey)).size === 4,
+    JSON.stringify({ drawn: runOne(QPIC4).drawn.length, keys: new Set(QPIC4.map(richImageKey)).size }))
+  ok('5s ★★反例护栏②：同形态 **6 张**（不同 id 段/`bo`/`rf`）⇒ 6 张（父任务书的"6 张"口径）',
+    runOne(QPIC6).drawn.length === 6 && new Set(QPIC6.map(richImageKey)).size === 6)
+
+  /* ── 真语料读数（有语料才判；没有就**明确 SKIP**，不静默变绿）──────────────────────────────
+     语料位置：`<工作区>/allwallpaper/<分组>/<itemId>/project.json`（本机实测路径不写死；试 dd/0923/0917/wallpapertest1/ 与直接子目录）。 */
+  {
+    const roots = [path.join(ROOT, '..', 'allwallpaper'), path.join(ROOT, 'allwallpaper')]
+    const findPkg = (id) => {
+      for (const r of roots) for (const sub of ['dd', '0923', '0917', 'wallpapertest1', '']) {
+        const p = path.join(r, sub, id, 'project.json')
+        if (fs.existsSync(p)) return p
+      }
+      return ''
+    }
+    const readPkg = (p) => {
+      const o = JSON.parse(fs.readFileSync(p, 'utf8'))
+      const props = (o.general && o.general.properties) || {}
+      const urls = [], panelUrls = []
+      let hiddenRows = 0
+      const walk = (toks, out) => { for (const t of toks || []) { if (!t) continue; if (t.k === 'img') out.push(t.src); if (t.kids) walk(t.kids, out) } }
+      for (const v of Object.values(props)) {
+        if (!v || typeof v.text !== 'string') continue
+        const deep = []; walk(parsePropRichText(v.text), deep)
+        if (!deep.length) continue
+        urls.push(...deep)                                   // 任意深度：`<a href><img></a>` 里嵌套的也算（面板会画它们）
+        if (v.condition) { hiddenRows++; continue }           // 有 condition 的行由产物自己决定显隐（真机默认隐藏）
+        panelUrls.push(...deep)
+      }
+      return { urls, panelUrls, hiddenRows }
+    }
+    /* 真机对照（2026-09-24，:8902 真面板 `__benchPatch.propsImages()`）：
+         `3660962877`：`once` 画 **6** 张 / `row` 与 `all` 各 **38** 张（38 = 39 个 token − 1 行被 `condition` 隐藏）
+         `3326873240`：`once` 画 **6** 张 / `row` 与 `all` 各 **13** 张（14 − 1）。
+       离线按"任意深度 + 不减 condition 行"读 ⇒ 39/14 个 token、7 个身份；两者差的就是那一行。 */
+    const pkgs = [['3660962877', 39, 7, 38], ['3326873240', 14, 7, 13]]
+    let seen = 0
+    for (const [id, wantTokens, wantOnce, wantPanel] of pkgs) {
+      const p = findPkg(id)
+      if (!p) { console.log('  – SKIP 真语料读数 ' + id + '：找不到 project.json（试过 ' + roots.join(' / ') + '）'); continue }
+      seen++
+      const { urls, panelUrls, hiddenRows } = readPkg(p)
+      const once = new Set(urls.map(normalizeRichImageUrl)).size
+      const tier2 = new Set(urls.map(richImageKey)).size
+      const qpic = urls.filter((u) => u.indexOf('m.qpic.cn/psc') > 0)
+      const drawn = runPass({ urls: urls })
+      ok('5t 真语料 ' + id + '：' + urls.length + ' 个 img token（任意深度）/ 身份 ' + once + ' / 新规则候选键 ' + tier2 +
+        ' / 面板可见行画 ' + panelUrls.length + ' 张（真机 `all` 档读数 ' + wantPanel + '）—— 新规则在真语料上**多压 0 张**',
+        urls.length === wantTokens && once === wantOnce && tier2 === once && drawn.drawn.length === once &&
+        panelUrls.length === wantPanel && hiddenRows === 1 && qpic.length === 6,
+        JSON.stringify({ tokens: urls.length, once: once, tier2: tier2, drawn: drawn.drawn.length, panelVisible: panelUrls.length, hiddenRows: hiddenRows, qpic: qpic.length }))
+    }
+    if (!seen) console.log('  – SKIP 真语料读数：两份语料都不在（本条**不是通过**，是缺数据）')
+  }
+
+  /* ── 三层回退的**存在性/接线**（源码级；DOM 夹具另见 §D 的源码变异自证）──────────────────── */
+  ok('5u 第一层（URL 档）仍在：`?propimg=once|row|all` + 权威读点 `new URLSearchParams(location.search).get(\'propimg\')`',
+    /new URLSearchParams\(location\.search\)\.get\('propimg'\)/.test(SRC) && /RICH_IMAGE_MODES = \['once', 'row', 'all'\]/.test(SRC))
+  ok('5v 第二层（面板可见开关）：`#bench-imgmode` 三档 + 中英 i18n 键 + 提示；第三层（缺省 once）在 `planRichImageMode`',
+    /sel\.id = 'bench-imgmode'/.test(SRC) && /RICH_IMAGE_MODES/.test(SRC) &&
+    /IMG_MODE_LABEL_KEYS = \{ once: 'props\.imgDedupOnce', row: 'props\.imgDedupRow', all: 'props\.imgDedupAll' \}/.test(SRC) &&
+    /data-i18n', 'props\.imgDedup'/.test(SRC) && /setAttribute\('data-i18n-title', 'props\.imgDedupTip'\)/.test(SRC) &&
+    /"props\.imgDedup":"图片去重"/.test(SRC) && /"props\.imgDedup":"Image dedup"/.test(SRC) &&
+    /RICH_IMAGE_MODE_DEFAULT = 'once'/.test(SRC))
+  /* 真机实测的假绿坑：控件是外壳起来后才建的，`applyStaticI18n` 那趟早跑完了 ⇒ 只挂 `data-i18n`
+     会得到**空标签**的下拉框（`options` 实测 `once=`/`row=`/`all=`）。判据：文案必须显式写。 */
+  ok('5v2 控件的文案**显式写**（不靠已经跑过的那趟 i18n）：caption/三档 option/title 三处都要有 `t(curLang(), …)` 赋值',
+    /cap\.textContent = t\(curLang\(\), 'props\.imgDedup'\)/.test(SRC) &&
+    /sel\.title = t\(curLang\(\), 'props\.imgDedupTip'\)/.test(SRC) &&
+    /op\.textContent = t\(curLang\(\), IMG_MODE_LABEL_KEYS\[m\]/.test(SRC) &&
+    /if \(op\.textContent !== want\) op\.textContent = want/.test(SRC) &&
+    /if \(capEl && capEl\.textContent !== t\(curLang\(\), 'props\.imgDedup'\)\) capEl\.textContent = t\(curLang\(\), 'props\.imgDedup'\)/.test(SRC))
+  ok('5w 立即生效：开关 `change` ⇒ 记 localStorage（19 字符键）+ **原地重画** `redrawPropsRich()` + 状态重画',
+    /localStorage\.setItem\(IMG_MODE_PREF_LS, v\)/.test(SRC) && /redrawPropsRich\(\)/.test(SRC) &&
+    /function redrawPropsRich\(\)/.test(SRC) && /RICH_TEXT_SRC\.set\(el, raw\)/.test(SRC) &&
+    /IMG_MODE_PREF_LS = 'bench-props-imgmode'/.test(SRC))
+  ok('5x URL 档 vs UI 档的**优先关系**只在一处解析：`planRichImageMode({ url, stored })`（URL > 面板开关 > 缺省）',
+    /return planRichImageMode\(\{ url, stored \}\)/.test(SRC) &&
+    planRichImageMode({ url: 'all', stored: 'row' }).mode === 'all' && planRichImageMode({ url: 'all', stored: 'row' }).forced === true &&
+    planRichImageMode({ stored: 'row' }).mode === 'row' && planRichImageMode({ stored: 'row' }).source === 'stored' &&
+    planRichImageMode({}).mode === 'once' && planRichImageMode({ url: 'bogus', stored: 'bogus' }).mode === 'once',
+    JSON.stringify([planRichImageMode({ url: 'all', stored: 'row' }), planRichImageMode({ stored: 'row' }), planRichImageMode({})]))
+  ok('5y 规则 ⓒ 的 DOM 接线：候选先建节点但**藏起来**（`data-bench-img-variant`）、`load`/`error` 都结算、超时兜底放行',
+    /im\.hidden = true; im\.dataset\.benchImgVariant = '1'/.test(SRC) &&
+    /function settleRichImageEvidence\(url, size\)/.test(SRC) && /addEventListener\('load', onEvidence\)/.test(SRC) &&
+    /addEventListener\('error', onEvidence\)/.test(SRC) && /function armRichImageProbeTimer\(\)/.test(SRC) &&
+    /releasePending\('no-size-evidence'\)/.test(SRC) && /RICH_IMAGE_PROBE_MS = 1500/.test(SRC))
+  /** `SITE_LAYOUT_CSS` 数组块的**切片**（不含后面运行期注入的 `BENCH_PICK_CSS`）：样式通道的判据要用它。 */
+  const siteLayoutBlock = (s) => {
+    const i = s.indexOf('const SITE_LAYOUT_CSS = [')
+    if (i < 0) return ''
+    const j = s.indexOf("].join('')", i)
+    return j < 0 ? s.slice(i) : s.slice(i, j)
+  }
+  ok('5z 新样式只进运行期注入的 `BENCH_PICK_CSS`（**不进** `SITE_LAYOUT_CSS`：那张表要与 demo/index.html 逐条等价，D8 会红）',
+    /'#bench-imgmode-wrap\{display:flex/.test(SRC) && !/bench-imgmode/.test(siteLayoutBlock(SRC)) &&
+    /'#bench-imgmode\{flex:none/.test(SRC) && /'#bench-imgmode-note\{/.test(SRC))
+  ok('5za 探针入口扩了读数：`propsImages()` 给 rendered/probes/unmerged/modeSource/natural（旧字段一个没删）',
+    /function propsImages\(\)/.test(SRC) && /probes: imgs\.length - visible\.length/.test(SRC) &&
+    /modeSource: richImageModePlan\(\)\.source/.test(SRC) && /propsImages: \(\) => propsImages\(\)/.test(SRC))
+  /* 改名**只改一半**是这类改动的经典事故（真发生过：声明与 get 改了、`setItem` 里还是旧名 ⇒
+     `ReferenceError` 被 try/catch 吞掉 ⇒ "折叠状态记不住"这种静默失效）。判据：三处同一新名 + 全文 0 处旧名。 */
+  ok('5zb 「渲染器设置」分组折叠状态的 localStorage 常量：声明/get/set 三处同名（`WE_GROUP_COLLAPSED_LS`），全文 0 处旧名',
+    (SRC.match(/WE_GROUP_COLLAPSED_LS/g) || []).length === 3 && SRC.indexOf('WE_GROUP_KEY') < 0 &&
+    /const WE_GROUP_COLLAPSED_LS = 'bench-props-we-collapsed'/.test(SRC) &&
+    /localStorage\.getItem\(WE_GROUP_COLLAPSED_LS/.test(SRC) && /localStorage\.setItem\(WE_GROUP_COLLAPSED_LS/.test(SRC))
 }
 
-console.log('\n== D 分辨力自证（改回旧写法必红）==')
+console.log('\n== D 分辨力自证 / 变异自证（改回去/改错必红；期望红集 == 实际红集）==')
 {
   const onePass = (s) => String(s).replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (m) => m)   // 模拟"只解一遍且不认无分号"
   ok('D1 旧解码（只解一遍、不认无分号）下 `&amp;nbsp;` 与 `&nbsp` 都留字面量 ⇒ 6b/6c 必红',
@@ -77,10 +295,144 @@ console.log('\n== D 分辨力自证（改回旧写法必红）==')
   ok('D2 没有 BV 分支时 `BV1xzpee9EAF` 只会是纯文本 ⇒ 7a 必红（裸 BV 现在也是链接：它就是 B 站 id）',
     parsePropRichText('BV1xzpee9EAF').filter((x) => x.k === 'link').length === 1
     && parsePropRichText('随便一句话，没有视频号').filter((x) => x.k === 'link').length === 0)
-  ok('D3 没有去重时同 URL 会画两张（源码级证据：跳过语句在，且只在 URL 相等时触发）',
-    /info\.href/.test(SRC) && /seenSrc\.has\(info\.href\)\) continue/.test(SRC))
+  ok('D3 源码级：去重收口在**渲染期**（tokenizer 之后），且判定走账本 `pass.take(...)` 而不是"键相等就跳过"',
+    /const verdict = pass \? pass\.take\(info\.href, richImageScope\)/.test(SRC) &&
+    /if \(!verdict\.draw && !verdict\.hold\)/.test(SRC) && /const pass = richImagePass/.test(SRC) &&
+    !/const seenSrc = new Set\(\)/.test(SRC))
+
+  /* ── 变异自证（**纯函数层**）：同一批 claim 跑"真实现"与"被变异实现"，期望红集 == 实际红集 ──────
+     为什么这样做：claim 是**真断言**（改坏了哪条会红，是算出来的，不是我声明的）。 */
+  {
+    const U2 = 'http://photg.example/psc?/USER/IMGAAA'
+    const V2 = 'http://photg.example/psc?/USER/IMGBBB'
+    const SZ = (w, h) => ({ w: w, h: h, ok: true })
+    const S1 = 'https://i.example/a/pic.jpg@200w_1e_1c'
+    const S2 = 'https://i.example/a/pic.jpg@200w_1e_1c_90q'
+    const B1 = 'https://i.example/b/pic.jpg@100w'
+    const B2 = 'https://i.example/b/pic.jpg@600w'
+    const F1 = 'https://mmbiz.qpic.cn/mmbiz_jpg/ABC/640?wx_fmt=jpeg&wxfrom=5&wx_lazy=1'
+    const F2 = 'https://mmbiz.qpic.cn/mmbiz_jpg/ABC/640?wx_fmt=png&wx_co=1'
+    const W1 = 'https://i.example/c/pic.png'
+    const W2 = 'https://i.example/c/pic.png_!web-article-pic'
+    const QPIC4 = [
+      'http://m.qpic.cn/psc?/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/TmEUgtj9EK6.7V8ajmQrEBsexJSlhMg7OiSbTz*Vq3QACEYkZ8E7D9iP.Od05WVwf*Zty7Ju024B0os.zP7PIbqo.3*UAdtYXXx9jjaGF1A!/b&bo=4gHXAQAAAAABBxU!&rf=viewer_4',
+      'http://m.qpic.cn/psc?/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/TmEUgtj9EK6.7V8ajmQrEOlNbbR8QyH.V3DOKIQNRif85YCGLfi9pSXuaZqxdq9vSR5s5uHZgJLf1DqrxMxRMTafCMS1IHiigGZSLlOCyvE!/mnull&bo=SAFIAUgBSAEDByI!&rf=photolist&t=5',
+      'http://m.qpic.cn/psc?/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/TmEUgtj9EK6.7V8ajmQrEMQXeDhXW2lYWF93UJF.nZ.2WxR10Rb.mdx71GJTB0aXalAzL1BM3tkUxAZw2oSRRgvDWflCZlln3Eou6lAIMO8!/mnull&bo=6APXAegD1wEDByI!&rf=photolist&t=5',
+      'http://m.qpic.cn/psc?/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/TmEUgtj9EK6.7V8ajmQrEK.dTR0S5PnqaxucocfhhjUEzkloqXuqp0JsbUmHwzB1hnBAwn4iULfdmGz9S2FcNNdUWClXxYZKe6DMP4VWV5M!/mnull&bo=AQF3AAEBdwADByI!&rf=photolist&t=5',
+    ]
+    const SEP = ['http://i.example/9HK/fengefu000.gif', 'http://i.example/Cs0/fengefu001.gif', 'http://i.example/Tqx/fengefu002.gif']
+    const runPass2 = (sc) => {
+      const p = makeRichImagePass({ mode: sc.mode || 'once', sizes: sc.sizes })
+      const verdicts = sc.urls.map((u, i) => p.take(u, sc.scope ? sc.scope(i) : 0))
+      const rel = p.releasePending('no-size-evidence').release
+      const drawn = sc.urls.filter((u, i) => verdicts[i].draw || rel.indexOf(normalizeRichImageUrl(u)) >= 0)
+      return { drawn: drawn, verdicts: verdicts, report: p.report() }
+    }
+    const hostPath = (u) => { const x = new URL(u); return x.host + x.pathname }
+    /** 变异体：按给定键归并（**不看尺寸**，也不等证据）—— 用于"去掉尺寸护栏"与"丢图片 id"两种变异。
+     *  只变异"归并规则"，**不动**档位语义（`all` 照旧全画、`row` 照旧按行）⇒ 红集只反映归并规则。 */
+    const mergeByKey = (sc, keyOf) => {
+      if (sc.mode === 'all') return { drawn: sc.urls.slice() }
+      const seen = new Set(); const drawn = []
+      for (let i = 0; i < sc.urls.length; i++) {
+        const u = sc.urls[i]
+        const k = (sc.mode === 'row' ? String(sc.scope ? sc.scope(i) : 0) + '|' : '') + keyOf(u)
+        if (seen.has(k)) continue
+        seen.add(k); drawn.push(u)
+      }
+      return { drawn: drawn }
+    }
+    /** 旧 bug 的忠实复刻：**每条属性行各自一份账本**（第一版 `seenSrc` 的语义）。 */
+    const perRowLedger = (sc) => {
+      const byScope = new Map()
+      sc.urls.forEach((u, i) => { const k = sc.scope ? sc.scope(i) : 0; if (!byScope.has(k)) byScope.set(k, []); byScope.get(k).push(u) })
+      const drawn = []
+      for (const list of byScope.values()) {
+        const p = makeRichImagePass({ mode: sc.mode || 'once', sizes: sc.sizes })
+        const vs = list.map((u) => p.take(u, 0))
+        const rel = p.releasePending('no-size-evidence').release
+        list.forEach((u, j) => { if (vs[j].draw || rel.indexOf(normalizeRichImageUrl(u)) >= 0) drawn.push(u) })
+      }
+      return { drawn: drawn }
+    }
+    const CLAIMS = [
+      { id: 'C1-行内逐字节同一 URL 只画一遍', sc: { urls: [U2, U2, U2] }, want: (r) => r.drawn.length === 1 },
+      { id: 'C2-跨行同一 URL 只画一遍', sc: { urls: [U2, U2, U2, V2], scope: (i) => i }, want: (r) => r.drawn.length === 2 },
+      { id: 'C3-all 档完全不去重', sc: { urls: [U2, U2, U2], mode: 'all' }, want: (r) => r.drawn.length === 3 },
+      { id: 'C4-row 档跨行重复重现', sc: { urls: [U2, U2, U2], mode: 'row', scope: (i) => i }, want: (r) => r.drawn.length === 3 },
+      { id: 'C5-尺寸后缀等价 ⇒ 归并', sc: { urls: [S1, S2], sizes: { [S1]: SZ(200, 112), [S2]: SZ(200, 112) } }, want: (r) => r.drawn.length === 1 },
+      { id: 'C6-格式/水印类 ⇒ 归并', sc: { urls: [F1, F2, W1, W2], sizes: { [F1]: SZ(640, 360), [F2]: SZ(640, 360), [W1]: SZ(800, 450), [W2]: SZ(800, 450) } }, want: (r) => r.drawn.length === 2 },
+      { id: 'C7-尺寸不同 ⇒ 一定不归并', sc: { urls: [B1, B2], sizes: { [B1]: SZ(100, 56), [B2]: SZ(600, 338) } }, want: (r) => r.drawn.length === 2 },
+      { id: 'C8-证据缺失 ⇒ 不归并', sc: { urls: [W1, W2] }, want: (r) => r.drawn.length === 2 },
+      { id: 'C9-反例护栏 qpic 4 张真图', sc: { urls: QPIC4 }, want: (r) => r.drawn.length === 4 },
+      { id: 'C10-分隔图保留', sc: { urls: SEP }, want: (r) => r.drawn.length === 3 },
+      { id: 'C11-同一变体两次 ⇒ 一遍', sc: { urls: [S1, S2, S2], sizes: { [S1]: SZ(200, 112), [S2]: SZ(200, 112) } }, want: (r) => r.drawn.length === 1 },
+    ]
+    const MUTANTS = [
+      { id: 'M1-去掉尺寸护栏', why: '同候选键就归并（不看尺寸、不等证据）', impl: (sc) => mergeByKey(sc, richImageKey), expect: ['C7-尺寸不同 ⇒ 一定不归并', 'C8-证据缺失 ⇒ 不归并'] },
+      { id: 'M2-丢掉图片 id', why: '归并键 = host+path（query 整个丢掉）', impl: (sc) => mergeByKey(sc, hostPath), expect: ['C2-跨行同一 URL 只画一遍', 'C5-尺寸后缀等价 ⇒ 归并', 'C6-格式/水印类 ⇒ 归并', 'C9-反例护栏 qpic 4 张真图', 'C11-同一变体两次 ⇒ 一遍'] },
+      { id: 'M3-all 档失效', why: '`?propimg=all` 按 once 跑（其余档不动）', impl: (sc) => runPass2(sc.mode === 'all' ? Object.assign({}, sc, { mode: 'once' }) : sc), expect: ['C3-all 档完全不去重'] },
+      { id: 'M4-账本退回每行一个', why: '第一版 `seenSrc` 的忠实复刻（每条属性行一份账本）', impl: perRowLedger, expect: ['C2-跨行同一 URL 只画一遍'] },
+      { id: 'M5-证据缺失即归并', why: '把"拿不到尺寸"当成"同一张"（与规则 ⓒ 相反）', impl: (sc) => { const r = runPass2(sc); return { drawn: r.drawn.filter((u, i) => !r.verdicts[i].hold) } }, expect: ['C8-证据缺失 ⇒ 不归并'] },
+    ]
+    const realOf = {}
+    for (const c of CLAIMS) realOf[c.id] = !!c.want(runPass2(c.sc))
+    let mutOk = 0
+    for (const m of MUTANTS) {
+      const actual = []
+      for (const c of CLAIMS) {
+        let got = false
+        try { got = !!c.want(m.impl(c.sc)) } catch { got = false }
+        if (got !== realOf[c.id]) actual.push(c.id)
+      }
+      const exp = m.expect.slice().sort()
+      const act = actual.slice().sort()
+      const same = exp.length === act.length && exp.every((x, i) => x === act[i])
+      if (same) mutOk++
+      console.log((same ? '  MUTANT-RED-OK ' : '  MUTANT-RED-MISMATCH ') + m.id + '（' + m.why + '） 期望红集=' + JSON.stringify(exp) + ' 实际红集=' + JSON.stringify(act))
+    }
+    ok('D4 ★变异自证 ≥3 组：期望红集 == 实际红集（' + mutOk + '/' + MUTANTS.length + ' 组；含"去掉尺寸护栏""丢掉图片 id""all 档失效""账本退回每行一个""证据缺失即归并"）',
+      mutOk === MUTANTS.length && MUTANTS.length >= 3 && Object.values(realOf).every(Boolean),
+      JSON.stringify({ mutants: MUTANTS.length, redOk: mutOk, realClaims: Object.values(realOf).filter(Boolean).length + '/' + CLAIMS.length }))
+  }
+
+  /* ── 变异自证（**源码级**：UI 开关与优先级接线）────────────────────────────────────────────
+     同一条 claim 在"真源码"上为真、在"被改坏的源码"上为假 ⇒ 红的是被变异掉的那条。 */
+  {
+    const siteBlock = (s) => {
+      const i = s.indexOf('const SITE_LAYOUT_CSS = [')
+      if (i < 0) return ''
+      const j = s.indexOf("].join('')", i)
+      return j < 0 ? s.slice(i) : s.slice(i, j)
+    }
+    const IMG_RULE = "    '#bench-imgmode-wrap{display:flex;align-items:center;gap:6px;flex:1 1 100%;min-width:0;margin-top:4px}',\n"
+    const SRC_CLAIMS = [
+      { id: 'S1-URL 档优先的接线', re: /planRichImageMode\(\{ url, stored \}\)/, mutate: (s) => s.replace('planRichImageMode({ url, stored })', 'planRichImageMode({ url: "", stored: stored })') },
+      { id: 'S2-面板开关 id + 三档', re: /sel\.id = 'bench-imgmode'[\s\S]{0,400}?for \(const m of RICH_IMAGE_MODES\)/, mutate: (s) => s.replace("sel.id = 'bench-imgmode'", "sel.id = 'bench-imgmode-dead'") },
+      { id: 'S3-变体探针藏起来 + 结算', re: /im\.hidden = true; im\.dataset\.benchImgVariant = '1'/, mutate: (s) => s.replace("im.hidden = true; im.dataset.benchImgVariant = '1'", "im.hidden = false") },
+      { id: 'S4-换档立即生效（原地重画）', re: /redrawPropsRich\(\)\s*\/\/ 立刻生效/, mutate: (s) => s.replace('redrawPropsRich()                                   // 立刻生效', 'void 0') },
+      /* 样式通道：claim = "规则在文件里，且 `SITE_LAYOUT_CSS` 数组块里**没有**它"；变异 = 把它搬进 SITE_LAYOUT_CSS。 */
+      { id: 'S5-新样式走 BENCH_PICK_CSS 而不是 SITE_LAYOUT_CSS', claim: (s) => /'#bench-imgmode-wrap\{display:flex/.test(s) && !/bench-imgmode/.test(siteBlock(s)), mutate: (s) => s.replace(IMG_RULE, '').replace('  const SITE_LAYOUT_CSS = [\n', '  const SITE_LAYOUT_CSS = [\n' + IMG_RULE) },
+    ]
+    let srcOk = 0
+    for (const c of SRC_CLAIMS) {
+      const claim = c.claim || ((s) => c.re.test(s))
+      const before = claim(SRC)
+      const after = claim(c.mutate(SRC))
+      const good = before && !after
+      if (good) srcOk++
+      console.log((good ? '  MUTANT-RED-OK ' : '  MUTANT-RED-MISMATCH ') + c.id + '（真源码=' + before + ' 变异后=' + after + '）')
+    }
+    ok('D5 ★源码级变异自证：开关/优先级/探针/立即生效/样式通道 5 条 claim —— 改坏哪条就红哪条',
+      srcOk === SRC_CLAIMS.length, JSON.stringify({ claims: SRC_CLAIMS.length, redOk: srcOk }))
+  }
+
+  ok('D6 反例护栏的分辨力：若按 `host+path` 归并，真语料那 4 张图会被压成 1 张（所以判据选"整条 URL + 白名单后缀"）',
+    new Set(['http://m.qpic.cn/psc?/U/AAA.1', 'http://m.qpic.cn/psc?/U/BBB.2'].map((u) => { const x = new URL(u); return x.host + x.pathname })).size === 1 &&
+    richImageKey('http://m.qpic.cn/psc?/U/AAA.1') !== richImageKey('http://m.qpic.cn/psc?/U/BBB.2') &&
+    richImageKey('http://m.qpic.cn/psc?/U/AAA.1') === richImageKey('HTTP://M.QPIC.CN:80/psc?/U/AAA.1#x'))
 }
 
 console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败')
-if (fail === 0) console.log('✓ 属性面板富文本三条通过：nbsp 收口（含双重/无分号、不过度解码）/ BV 转链接走既有白名单通道 / 图片按 URL 去重')
+if (fail === 0) console.log('✓ 属性面板富文本通过：nbsp 收口（含双重/无分号、不过度解码）/ BV 转链接走既有白名单通道 / 图片去重三规则（①逐字节同一资源无条件一遍 ②只差尺寸·格式·水印类参数或后缀的算候选 ③候选要两张都 load 成功且原始宽高相同才归并）+ 反例护栏 + 三层回退（URL 档 > 面板开关 > 缺省）+ 10 组变异自证')
 process.exit(fail > 0 ? 1 : 0)

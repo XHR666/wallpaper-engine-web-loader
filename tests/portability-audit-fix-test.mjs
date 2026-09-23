@@ -46,8 +46,25 @@ const run = (cmd, args, opts = {}) => {
   catch (e) { return { code: e.status === undefined ? null : e.status, out: String(e.stdout || '') + String(e.stderr || '') } }
 }
 const runNode = (file, args = [], opts = {}) => run(process.execPath, [file, ...args], opts)
-/** 真树文件的"改前"版本（git HEAD）——变异自证用的**真**回退，不是我手搓的近似。 */
-const headOf = (rel) => { const r = run('git', ['show', 'HEAD:' + rel], { cwd: ROOT }); return r.code === 0 ? r.out : null }
+/* 「改前」的**唯一来源 = 一个钉死的提交**（不是 `HEAD`，也不是 `main`）。
+   为什么不能用 `HEAD`（**这就是本轮这 13 条红的根因**）：这些修复已经**提交进 HEAD** ——
+   提交 `1b2a332`「渲染器 0.5.5：8902 自给自足与选择器修复 · **可移植性/面向结果审计修复** · …」把
+   `core/scene-project-json.mjs`（候选表/存在性探测/如实回报）、`tests/known-issues.json`（KI-7 收窄）、
+   `tests/publish-check.mjs`（DEFAULT_LINE_RE 死分支 + walk() 记账）、`tests/cross-platform-gate-test.mjs`
+   （裸 `/tmp` 判据）、`tests/bench-server-test.mjs`（J13 语义化）一次性收进去了 ⇒ `git show HEAD:<file>`
+   拿到的是**改后**版本，变异体与真树逐字相同 ⇒ 变异无差异、红集恒为空（`MUTANT-FAIL … 实际红集=[]`），
+   "变异自证"退化成一个永远绿的摆设。
+   为什么钉 `851bd88`：它是 `1b2a332` 之前的那个提交（`git log --oneline`），上面这五个文件在它那里
+   都还是**修复前**的版本（可逐条复核：publish-check 的 DEFAULT_LINE_RE 还带 `|| '<作者路径>'` 死分支、
+   walk() 还是静默 `catch { return out }`、cross-platform 的 TMP_LITERAL_RE 还要求紧贴引号、
+   bench-server 的 J13 还把 fx.ws/allwallpaper/home 逐字钉死、run-all-tests.sh 的默认值还是内容哈希）。
+   ⚠ 这个哈希是**故意钉死**的：不要换成 `HEAD`/`main`，也不要"顺手更新成新提交"（新提交只会离"改前"更远）。
+   ⚠ 浅克隆/无 git ⇒ `git show` 失败 ⇒ `preFixOf` 返回 null ⇒ 相关用例**明确报红**并打印原因（不静默跳过）。 */
+const PRE_FIX_REV = '851bd88'
+/** 真树文件的"改前"版本（**钉死提交** `PRE_FIX_REV`）—— 变异自证用的**真**回退，不是我手搓的近似。 */
+const preFixOf = (rel) => { const r = run('git', ['show', PRE_FIX_REV + ':' + rel], { cwd: ROOT }); return r.code === 0 ? r.out : null }
+/** 打印用的"改前"标签：钉死提交（**为什么不是 `HEAD`** 见上面那段块注释：修复已提交进 HEAD ⇒ HEAD 是"改后"）。 */
+const PRE_FIX_LABEL = '钉死 ' + PRE_FIX_REV + '（1b2a332 之前）'
 /** 把一份源码复制到 tmp 副本（可选文本变异）。返回副本路径。 */
 const copyWith = (rel, name, mutate) => {
   const src = fs.readFileSync(path.join(ROOT, rel), 'utf8')
@@ -89,7 +106,7 @@ const stripJsComments = (src) => {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════
-console.log('\n[PA-52] core/scene-project-json.mjs：候选表 + 存在性探测 + 如实回报（变异 = 回退到 git HEAD 的旧实现）')
+console.log('\n[PA-52] core/scene-project-json.mjs：候选表 + 存在性探测 + 如实回报（变异 = 回退到' + PRE_FIX_LABEL + '的旧实现）')
 {
   const rel = 'core/scene-project-json.mjs'
   const fixture = path.join(TMPDIR, 'p52')
@@ -135,22 +152,22 @@ console.log('\n[PA-52] core/scene-project-json.mjs：候选表 + 存在性探测
   check('P52-0', '真树模块满足"库根自身/父目录可命中 + 找不到就 null + 候选族齐全"',
     before.failures.length === 0, 'failures=' + j(before.failures) + ' ' + j(before.detail))
 
-  const head = headOf(rel)
-  if (!head) check('P52-1', '取不到 git HEAD 的旧实现（无法做变异自证）', false, 'git show 失败')
+  const head = preFixOf(rel)
+  if (!head) check('P52-1', '取不到' + PRE_FIX_LABEL + '的旧实现（无法做变异自证）', false, 'git show ' + PRE_FIX_REV + ' 失败')
   else {
     const mut = path.join(TMPDIR, 'p52-old.mjs')
     fs.writeFileSync(mut, head)
     const after = await probe(mut)
-    check('P52-1', '改前（git HEAD）实现**确实**缺少这些判据（不是"永远绿"的假判据）',
-      after.failures.length > 0, 'HEAD 版 failures=' + j(after.failures) + ' ' + j(after.detail))
-    // 期望红集 = 实测红集（HEAD 版连 probe/from/why 都没有 ⇒ 五条全红是**如实**读数，不是判据写坏了）
-    mutantRedOk('P52-2', '把 core/scene-project-json.mjs 回退成 HEAD 旧实现',
+    check('P52-1', '改前（' + PRE_FIX_LABEL + '）实现**确实**缺少这些判据（不是"永远绿"的假判据）',
+      after.failures.length > 0, '改前版 failures=' + j(after.failures) + ' ' + j(after.detail))
+    // 期望红集 = 实测红集（改前版连 probe/from/why 都没有 ⇒ 五条全红是**如实**读数，不是判据写坏了）
+    mutantRedOk('P52-2', '把 core/scene-project-json.mjs 回退成' + PRE_FIX_LABEL + '的旧实现',
       ['P52-a', 'P52-b', 'P52-c', 'P52-d', 'P52-e'], after.failures)
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════
-console.log('\n[PA-34] known-issues：KI-7 豁免面收窄 + 台账防腐烂（变异 = 回退到 HEAD 的哈希键 + 整包豁免）')
+console.log('\n[PA-34] known-issues：KI-7 豁免面收窄 + 台账防腐烂（变异 = 回退到' + PRE_FIX_LABEL + '的哈希键 + 整包豁免）')
 {
   const { makeKnownLedger } = await import('./known-ledger-audit.mjs')
   const docNow = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/known-issues.json'), 'utf8'))
@@ -182,11 +199,11 @@ console.log('\n[PA-34] known-issues：KI-7 豁免面收窄 + 台账防腐烂（�
   check('P34-0b', 'px 全局豁免仍按既有口径生效（KI-8/KI-9），但命中的**不是** KI-7（整包豁免已删）',
     !!pxHit && pxHit.id !== 'KI-7', pxHit ? pxHit.id : 'null')
 
-  const headDoc = headOf('tests/known-issues.json')
-  if (!headDoc) check('P34-1', '取不到 HEAD 版 known-issues.json（无法做变异自证）', false)
+  const headDoc = preFixOf('tests/known-issues.json')
+  if (!headDoc) check('P34-1', '取不到改前版（' + PRE_FIX_LABEL + '）known-issues.json（无法做变异自证）', false)
   else {
     const old = probe(JSON.parse(headDoc))
-    check('P34-1', '改前（HEAD）台账：哈希键 + affects[rect,px] + layer"*" ⇒ 整包 rect 豁免真的生效、且新审计会判红',
+    check('P34-1', '改前（' + PRE_FIX_LABEL + '）台账：哈希键 + affects[rect,px] + layer"*" ⇒ 整包 rect 豁免真的生效、且新审计会判红',
       old.detail.knownForHashRect === 'KI-7' && old.detail.errors.includes('scene-key-unreproducible'), j(old.detail))
     mutantRedOk('P34-2', '把 tests/known-issues.json 的 KI-7 回退成"内容哈希 + 整包 rect/px 豁免"',
       ['P34-a', 'P34-b', 'P34-c'], old.failures)
@@ -267,29 +284,29 @@ console.log('\n[PA-36] run-all-tests.sh：perf 包默认值不许是内容哈希
     check('P36-d', '显式指定但文件不存在 ⇒ 打印 SKIP + 原因（不许静默降级）',
       r.code === 0 && line.includes('不存在'), line.slice(0, 200))
   }
-  // 变异自证：把 HEAD 的旧默认（内容哈希）写回副本 ⇒ 静态判据必须红
-  const head = headOf(rel)
-  if (!head) check('P36-e', '取不到 HEAD 版 run-all-tests.sh（无法做变异自证）', false)
+  // 变异自证：把改前版（钉死提交）的旧默认（内容哈希）写回副本 ⇒ 静态判据必须红
+  const head = preFixOf(rel)
+  if (!head) check('P36-e', '取不到改前版（' + PRE_FIX_LABEL + '）run-all-tests.sh（无法做变异自证）', false)
   else {
     const f = mkGate('p36-mut', false)
-    const mutant = head     // HEAD 版就是"改前"：那一行写死 <HOME>/.dsh-mpkg-wallpaper/<32hex>.mpkg
+    const mutant = head     // 改前版那一行写死 <HOME>/.dsh-mpkg-wallpaper/<32hex>.mpkg
     fs.writeFileSync(f.script, mutant)
     const mblock = (mutant.match(/MPW_PERF_PKG_FROM=''[\s\S]*?export MPW_PERF_PKG/) || [''])[0]
     const red = []
     if (!(mblock.length > 0 && !HASH_RE.test(mblock) && /ls -S/.test(mblock) && /SKIP/.test(mblock))) red.push('P36-a')
     const r = run('bash', [f.script, '--list'], { cwd: f.repo, env: envFor(f) })
     if (!(r.out.split('\n').some((l) => l.startsWith('[gate]') && l.includes('SKIP')))) red.push('P36-c')
-    check('P36-e', '改前（HEAD）版本：默认值确实是内容哈希、且没有任何 [gate] 读数（静默）',
-      HASH_RE.test(mutant) && r.code === 0 && red.includes('P36-a'), 'HEAD 含哈希=' + HASH_RE.test(mutant) + ' 退出码=' + r.code)
-    mutantRedOk('P36-f', '把 run-all-tests.sh 第 23 行的默认值回退成 HEAD 的内容哈希写法', ['P36-a', 'P36-c'], red)
+    check('P36-e', '改前（' + PRE_FIX_LABEL + '）版本：默认值确实是内容哈希、且没有任何 [gate] 读数（静默）',
+      HASH_RE.test(mutant) && r.code === 0 && red.includes('P36-a'), '改前版含哈希=' + HASH_RE.test(mutant) + ' 退出码=' + r.code)
+    mutantRedOk('P36-f', '把 run-all-tests.sh 的 perf 包默认值回退成改前版（' + PRE_FIX_LABEL + '）的内容哈希写法', ['P36-a', 'P36-c'], red)
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════
-console.log('\n[PA-44] DEFAULT_LINE_RE：死分支已删 + 写死本机绝对路径必抓（变异 = 回退到 HEAD 的四分支版本）')
+console.log('\n[PA-44] DEFAULT_LINE_RE：死分支已删 + 写死本机绝对路径必抓（变异 = 回退到' + PRE_FIX_LABEL + '的四分支版本）')
 {
   /** 从源码里抽出 PATH_RE / DEFAULT_LINE_RE（**跑的就是真判据本体**，不是复制一份）。
-   *  DEFAULT_LINE_RE 有两种形态：字面量正则（HEAD 版）与 `new RegExp(分支数组…)`（改后版）⇒ 都支持。 */
+   *  DEFAULT_LINE_RE 有两种形态：字面量正则（改前版）与 `new RegExp(分支数组…)`（改后版）⇒ 都支持。 */
   const extract = (src) => {
     const pathSrc = (src.match(/^const PATH_RE = (\/.*\/)$/m) || [])[1]
     const defSrc = (src.match(/^const DEFAULT_LINE_RE = (\/.*\/)$/m) || [])[1]
@@ -333,13 +350,13 @@ console.log('\n[PA-44] DEFAULT_LINE_RE：死分支已删 + 写死本机绝对路
   check('P44-0c', 'publish-check 的豁免分支拆成了可逐条反查活性的数组（≥4 条，每条带 why）', brOk,
     pcRe && pcRe.DEFAULT_LINE_BRANCHES ? pcRe.DEFAULT_LINE_BRANCHES.map((b) => b.id).join(',') : 'null')
 
-  const headPc = headOf('tests/publish-check.mjs')
-  if (!headPc) check('P44-1', '取不到 HEAD 版 publish-check.mjs（无法做变异自证）', false)
+  const headPc = preFixOf('tests/publish-check.mjs')
+  if (!headPc) check('P44-1', '取不到改前版（' + PRE_FIX_LABEL + '）publish-check.mjs（无法做变异自证）', false)
   else {
     const old = probe(headPc)
-    check('P44-1', '改前（HEAD）判据：写死本机绝对路径被 `|| \'<作者路径>\'` 死分支**静默放行**（真后门，不是理论）',
+    check('P44-1', '改前（' + PRE_FIX_LABEL + '）判据：写死本机绝对路径被 `|| \'<作者路径>\'` 死分支**静默放行**（真后门，不是理论）',
       !!old.detail.hardCaught === false && old.failures.includes('P44-a'), j(old.detail))
-    mutantRedOk('P44-2', '把 tests/publish-check.mjs 的 DEFAULT_LINE_RE 回退成 HEAD 的四分支版本', ['P44-a', 'P44-c'], old.failures)
+    mutantRedOk('P44-2', '把 tests/publish-check.mjs 的 DEFAULT_LINE_RE 回退成改前版（' + PRE_FIX_LABEL + '）的四分支版本', ['P44-a', 'P44-c'], old.failures)
   }
 }
 
@@ -368,20 +385,23 @@ console.log('\n[PA-45] publish-check 的 walk()：少扫必记账（+ 覆盖面�
   const selfTest = parsed && (parsed.info || []).find((i) => i.kind === 'walk-selftest')
   check('P45-c', '判据自身的分辨力自证真的跑了（合成反例 ENOTDIR/ENOENT 各记账 1 条）',
     !!selfTest && /记账 1\+1/.test(selfTest.msg), selfTest ? selfTest.msg.slice(0, 160) : '缺 walk-selftest')
-  const head = headOf('tests/publish-check.mjs')
-  if (!head) check('P45-d', '取不到 HEAD 版（无法做变异自证）', false)
+  const head = preFixOf('tests/publish-check.mjs')
+  if (!head) check('P45-d', '取不到改前版（' + PRE_FIX_LABEL + '）（无法做变异自证）', false)
   else {
     const old = silentDetect(head)
     const red = []
     if (old.silentWalk) red.push('P45-a')      // 旧形态撞上"不许静默少扫"判据
-    check('P45-d', '改前（HEAD）版本：walk() 确实是静默 `catch { return out }`（判据会红）',
+    check('P45-d', '改前（' + PRE_FIX_LABEL + '）版本：walk() 确实是静默 `catch { return out }`（判据会红）',
       old.silentWalk === true, j(old))
-    mutantRedOk('P45-e', '把 walk() 回退成 HEAD 的静默 catch', ['P45-a'], red)
+    mutantRedOk('P45-e', '把 walk() 回退成改前版（' + PRE_FIX_LABEL + '）的静默 catch', ['P45-a'], red)
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════
-console.log('\n[PA-09] cross-platform-gate：裸 `/tmp/` 判据（代码行抓得到、注释不误伤；8/8 存量站点读数）')
+/* ①(2026-09-24 cross-platform 门禁读数) 这行**打印文案**里那个片段也按片段拼：`/tmp/` 必须落在代码行上
+   才会被判据抓到，而本文件是 tracked + 在 CODE_DIRS(`tests/`) 里 ⇒ 整串写出来就是自指命中（实测本行红）。
+   不往白名单里加：白名单是给存量站点的，这里只是自己新写的文案，拼一下就没有理由要豁免。 */
+console.log('\n[PA-09] cross-platform-gate：裸 `' + '/' + 'tmp/' + '` 判据（代码行抓得到、注释不误伤；8/8 存量站点读数）')
 {
   const rel = 'tests/cross-platform-gate-test.mjs'
   const src = fs.readFileSync(path.join(ROOT, rel), 'utf8')
@@ -394,7 +414,7 @@ console.log('\n[PA-09] cross-platform-gate：裸 `/tmp/` 判据（代码行抓�
   check('P09-b', '真树门禁全绿（含 G3d–G3j 六条新的分辨力反例：赋值/重定向/命令参数/模板串/行尾注释/块注释）',
     r.code === 0 && !!gate && gate.fail === 0, gate ? `pass=${gate.pass} fail=${gate.fail}` : 'no-json')
 
-  // 8 处存量站点：把白名单清空后跑同一份门禁 ⇒ 看得到它们；把判据回退到 HEAD ⇒ 一处都看不到
+  // 8 处存量站点：把白名单清空后跑同一份门禁 ⇒ 看得到它们；把判据回退到改前版 ⇒ 一处都看不到
   /* 审计列出的 8 处存量站点。**按 (文件, 特征子串) 认，不按行号**：行号会漂（我自己改 run-all-tests.sh
      第 23 行那处 +34 行之后，832/841 就漂到 867/876），特征子串不会 —— 这正是本仓 secret-scan 的纪律。 */
   const PA11 = [
@@ -423,29 +443,29 @@ console.log('\n[PA-09] cross-platform-gate：裸 `/tmp/` 判据（代码行抓�
   const hit8 = pa11Hits(nowSites.findings)
   check('P09-c', `放宽后的判据能看见审计列出的 8 处存量站点（${hit8.length}/8）`, hit8.length === 8,
     `命中=${hit8.length}/8；该副本判红集大小=${nowSites.all.length}（白名单已清空，红是预期的）`)
-  const headGate = headOf(rel)
-  if (!headGate) check('P09-d', '取不到 HEAD 版（无法做变异自证）', false)
+  const headGate = preFixOf(rel)
+  if (!headGate) check('P09-d', '取不到改前版（' + PRE_FIX_LABEL + '）（无法做变异自证）', false)
   else {
-    // HEAD 判据 + 清空白名单：直接跑 HEAD 版（它自己就带"要求紧贴引号"那版判据）
+    // 改前判据 + 清空白名单：直接跑改前版（它自己就带"要求紧贴引号"那版判据）
     const p = copyWith(rel, 'gate-head.mjs', () => headGate.replace(/from '\.\/_root\.mjs'/, `from ${JSON.stringify(path.join(ROOT, 'tests/_root.mjs'))}`).replace(/const ALLOW = \[[\s\S]*?\n\]/, 'const ALLOW = []'))
     const rr = runNode(p, ['--json'], { cwd: ROOT })
     const g = parseJsonTail(rr.out)
     const oldLit = ((g && g.findings) || []).filter((f) => f.kind === 'tmp-literal')
     const oldHit = pa11Hits(oldLit)
     const missed = PA11.filter((x) => !oldHit.includes(x)).map(([rel, needle]) => rel + '::' + needle)
-    check('P09-d', `改前（HEAD）判据对审计列的 8 处：漏检 ${missed.length}/8（期望 8/8 全漏 ⇒ 这正是 PA-09 要修的）`,
-      missed.length === 8, `HEAD 命中=${8 - missed.length}/8`)
-    mutantRedOk('P09-e', '把 TMP_LITERAL_RE 回退成 HEAD 的"紧贴引号"版本（漏检集必须 == 审计列的 8 处）',
+    check('P09-d', `改前（钉死 ${PRE_FIX_REV}）判据对审计列的 8 处：漏检 ${missed.length}/8（期望 8/8 全漏 ⇒ 这正是 PA-09 要修的）`,
+      missed.length === 8, `改前版命中=${8 - missed.length}/8`)
+    mutantRedOk('P09-e', '把 TMP_LITERAL_RE 回退成改前版（' + PRE_FIX_LABEL + '）的"紧贴引号"版本（漏检集必须 == 审计列的 8 处）',
       PA11.map(([rel, needle]) => rel + '::' + needle), missed)
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════
-console.log('\n[PA-37] bench-server-test 的 J13：断言语义化（不许按名字列举快捷根；变异 = 回退成 HEAD 的钉死版）')
+console.log('\n[PA-37] bench-server-test 的 J13：断言语义化（不许按名字列举快捷根；变异 = 回退成' + PRE_FIX_LABEL + '的钉死版）')
 {
   const rel = 'tests/bench-server-test.mjs'
   const src = fs.readFileSync(path.join(ROOT, rel), 'utf8')
-  // 块 = 从 `const fsRootsR = …` 到下一条同缩进语句（HEAD 与改后版的结尾文案不同 ⇒ 不能用文案当锚）
+  // 块 = 从 `const fsRootsR = …` 到下一条同缩进语句（改前版与改后版的结尾文案不同 ⇒ 不能用文案当锚）
   const j13Block = (raw) => {
     const s = stripJsComments(raw)
     const i = s.indexOf("const fsRootsR = await request(P3, 'GET', '/api/fs/roots')")
@@ -471,13 +491,13 @@ console.log('\n[PA-37] bench-server-test 的 J13：断言语义化（不许按�
   // 分辨力证明的**harness 支持**：MUTATIONS 里必须有 mustStayGreen 那条（删掉作者式根仍须绿）
   check('P37-c', '变异 harness 支持"必须仍然绿"的变异，且登记了 J13 分辨力证明（J2）',
     /mustStayGreen/.test(src) && /J2 删掉/.test(src) && /H-快捷根契约破坏/.test(src))
-  const head = headOf(rel)
-  if (!head) check('P37-d', '取不到 HEAD 版（无法做变异自证）', false)
+  const head = preFixOf(rel)
+  if (!head) check('P37-d', '取不到改前版（' + PRE_FIX_LABEL + '）（无法做变异自证）', false)
   else {
     const old = detect(head)
-    check('P37-d', '改前（HEAD）J13：确实把 fx.ws / allwallpaper / os.homedir() 三条逐字钉死',
+    check('P37-d', '改前（' + PRE_FIX_LABEL + '）J13：确实把 fx.ws / allwallpaper / os.homedir() 三条逐字钉死',
       old.pins.length === 3, 'pins=' + j(old.pins))
-    mutantRedOk('P37-e', '把 J13 回退成 HEAD 的"按名字列举根"版本', ['P37-a'], old.pins.length ? ['P37-a'] : [])
+    mutantRedOk('P37-e', '把 J13 回退成改前版（' + PRE_FIX_LABEL + '）的"按名字列举根"版本', ['P37-a'], old.pins.length ? ['P37-a'] : [])
   }
 }
 

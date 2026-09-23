@@ -330,6 +330,12 @@ try {
         skipped: shim ? shim.skipped : null,
         videos: list ? list.vids.length : null,
         audios: list ? list.auds.length : null,
+        /* ①(2026-09-24) 「宿主让位」的**载荷证据**（不只看记账字段）：渲染器页自己挂的那条 web 帧，
+           `src` 必须是**原始 http(s) 入口**（`/web/…`），不是宿主那条 blob 通路产出的 `blob:` URL。
+           为什么补这条：`skipped` 是宿主的状态面字段，单看它无法区分"真让位"和"根本没看见这次赋值"。 */
+        nested: (() => {
+          try { return [...fr.contentWindow.document.querySelectorAll('iframe')].map((f) => String(f.getAttribute('src') || '')) } catch (e) { return null }
+        })(),
         frameReady: (() => { try { return !!(fr && fr.contentWindow && fr.contentWindow.__mpwWebFrame && fr.contentWindow.__mpwWebFrame.ready) } catch (e) { return null } })(),
         frameMode: (() => { try { return fr && fr.contentWindow && fr.contentWindow.__mpwWebFrame ? fr.contentWindow.__mpwWebFrame.mode : null } catch (e) { return null } })(),
         frameState: (() => { try { return fr && fr.contentWindow && fr.contentWindow.__mpwWebFrame ? fr.contentWindow.__mpwWebFrame.state : null } catch (e) { return null } })(),
@@ -338,10 +344,26 @@ try {
     /* ①(2026-09-23 第 ⑥ 条) **契约已变**：本仓渲染器页现在自己有 web 路径（`?type=web` + 原始 URL +
        服务端注入 shim），所以「注入 0 次 / 媒体 0 个」这条**旧缺口的记录**必须换成新判据：
        宿主让位（`skipped:host-injects`、不再包 blob）+ 帧真的挂上并报到（`__mpwWebFrame.ready`）。 */
-    ok(r2.attr === 'repo' && r2.injected === 0 && r2.skipped === 'host-injects',
+    ok(r2.attr === 'repo' && r2.injected === 0 && r2.skipped === 'host-injects' &&
+      Array.isArray(r2.nested) && r2.nested.length > 0 && r2.nested.every((u) => /^https?:\/\/[^/]+\/web\//.test(u)),
       'R3 ★新契约：本仓渲染器档 + web 壁纸 ⇒ **宿主让位**（不再包 blob 注入：`skipped=host-injects`、注入 0 次）' +
-      '—— web 帧由渲染器页自己挂、shim 由服务端注入',
+      '—— web 帧由渲染器页自己挂（帧 `src` 是原始 `/web/…` URL，**不是** `blob:`）、shim 由服务端注入',
       JSON.stringify(r2))
+    /* ①(2026-09-24) R3c：「shim 由服务端注入」这句话必须**可独立核对**（不是靠宿主自述）：直接取一次帧入口，
+       看服务端的注入头与文档里的注入标记。为什么这条要与 R3 分开：R3 的 `skipped` 是宿主状态面，
+       R3c 是服务端事实 —— 两条一起才排得掉"两边都以为对方注入了"（旧读数的 `failed:1` 就是这种双重注入）。 */
+    const srvShim = Array.isArray(r2.nested) && r2.nested.length
+      ? await page.evaluate(async (u) => {
+        try {
+          const r = await fetch(u, { credentials: 'same-origin' })
+          const t = await r.text()
+          return { ok: r.ok, status: r.status, shim: r.headers.get('X-Mpw-Shim'), marker: /data-mpw-we-shim/.test(t) }
+        } catch (e) { return { err: String((e && e.message) || e) } }
+      }, r2.nested[0])
+      : { err: 'no-nested-frame' }
+    ok(srvShim.ok === true && srvShim.shim === 'injected' && srvShim.marker === true,
+      'R3c ★新契约：「shim 由服务端注入」独立核对（`GET <帧入口>` ⇒ `X-Mpw-Shim: injected` + 文档里有 `data-mpw-we-shim` 注入标记）',
+      JSON.stringify(srvShim))
     ok(r2.frameReady === true && r2.frameMode === 'compat',
       'R3b 本仓渲染器档的 web 帧**真的挂上并报到**（`__mpwWebFrame.ready=true`、`mode=compat`）',
       JSON.stringify({ ready: r2.frameReady, mode: r2.frameMode, state: r2.frameState }))

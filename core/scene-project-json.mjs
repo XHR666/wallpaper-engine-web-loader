@@ -41,6 +41,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+/* ①(2026-09-24 P-177 收口) 官方随包 JSON 允许**尾逗号**（官方 fluidsimulation 的 effect.json 自带一个，
+   标准 JSON.parse 抛错、WE 照用）⇒ 这里读的是**包旁**的 project.json（`<壁纸目录>/project.json`，工坊布局
+   里与 scene.pkg 同级）⇒ 必须与页面/bundle 走**同一个**宽容实现，否则 8899 的 `/project/<id>`、`/props/<id>`
+   会在这种文件上 404，而客户端与插件侧都已经能读（同族不同口径 = 又一处"同一概念两套面"）。 */
+import { parseWeJson } from './we-scene-bundle.js'
 
 const HOME = process.env.HOME || ''
 // ①(P-101 2026-09-16 目录再整理) 这里原来把作者机的**绝对路径**写成 MPW_ROOT 的兜底默认值。
@@ -127,7 +132,7 @@ export function projectJsonProbe(id, opts = {}) {
     try { exists = fs.existsSync(c.path) } catch (e) { attempts.push({ path: c.path, source: c.source, from: c.from, exists: false, error: 'existsSync: ' + ((e && e.message) || e) }); continue }
     if (!exists) { attempts.push({ path: c.path, source: c.source, from: c.from, exists: false, error: null }); continue }
     try {
-      const json = JSON.parse(fs.readFileSync(c.path, 'utf8').replace(/^\uFEFF/, ''))
+      const json = parseWeJson(fs.readFileSync(c.path, 'utf8').replace(/^\uFEFF/, ''))
       return { found: { path: c.path, source: c.source, from: c.from, why: c.why, json }, attempts: [...attempts, { path: c.path, source: c.source, from: c.from, exists: true, error: null }] }
     } catch (e) {
       // 坏文件不致命：继续找下一档，但**记账**（不静默吞掉）

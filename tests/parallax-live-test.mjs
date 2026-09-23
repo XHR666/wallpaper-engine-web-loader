@@ -277,18 +277,26 @@ async function parallaxProbe(lib) {
   // ── E2/E3：渲染器副本 ──
   const mutants = [
     {
-      label: 'M2(`Math.log(100)` 改回 `Math.LN100`)',
-      pairs: [['      const LN100 = Math.log(100)', '      const LN100 = Math.LN100']],
+      label: 'M2(缺省档的平滑系数被打断：`k` 变成 undefined 常量 ⇒ NaN ⇒ 鼠标项死)',
+      // ①(RE-24 官方 #5 2026-09-24 改锚点) 官方闭式落地后，`Math.log(100)` 只在 `?parallax=legacy`
+      //   那一支里（缺省档已换成官方式 `k = (1 − delay/3)·10·dt`）⇒ 旧锚点只打到 legacy 支，
+      //   缺省档读数不再受影响（自证会假绿）。这里改成把**缺省档**的 k 换成 `Math.LN100`
+      //   —— 与 WEBWALLGL #5 的根因同形（JS 没有这个常量 ⇒ undefined ⇒ NaN ⇒ `k` 判定恒假 ⇒ 鼠标项恒 0）。
+      pairs: [['          k = Math.min(1, (1 - delay / 3) * 10 * parDt)   // 官方：只封顶 1.0，**不夹下界**',
+        '          k = Math.LN100']],
       probe: async (mm) => { const r = await parallaxProbe(mm); return { red: Math.abs(r.dxOn) < 1e-6, detail: '变异体 Δx=' + r.dxOn.toFixed(3) + 'px（0 = 鼠标项又死了 ⇒ B1 会红）' } },
     },
     {
       label: 'M3(`parallaxOff` 门控整体失效：累计门 + 应用门一起去掉)',
       // 两处门是**冗余**的（`renderScene` 那处只累计 `parDispX`，`compositeLayer` 那处决定动不动）
       // ⇒ 只拿掉一处时另一处仍然挡住 ⇒ 变异没红。要自证就得把**两处**都拿掉（= "关视差"彻底失效）。
+      // ①(RE-24 官方 #6 2026-09-24 改锚点) 场景级那处的门已按官方语义拆成
+      //   `if (opts.parallax !== false && opts.parallaxOff !== true) { ... if (parEnabled) {...} }`
+      //   （`cameraparallax=false` 走"冻结"而非归零），所以累计门的锚点跟着换。
       pairs: [
-        ['    if (parEnabled && opts.parallax !== false && opts.parallaxOff !== true) {', '    if (parEnabled && opts.parallax !== false) {'],
-        ['    if (parEnabled && layer.parallaxDepth && (opts.parallaxOff !== true || __parOffLegacy)) {',
-          '    if (parEnabled && layer.parallaxDepth) {'],
+        ['    if (opts.parallax !== false && opts.parallaxOff !== true) {', '    if (opts.parallax !== false) {'],
+        ['    if (parEnabled && (opts.parallaxOff !== true || __parOffLegacy)) {',
+          '    if (parEnabled) {'],
       ],
       probe: async (mm) => { const r = await parallaxProbe(mm); return { red: !r.offBitIdentical, detail: '变异体 `parallaxOff:true` 下 before/after ' + (r.offBitIdentical ? '仍逐位相同' : '不再相同') + ' ⇒ B3 会红' } },
     },

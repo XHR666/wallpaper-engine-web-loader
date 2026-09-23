@@ -702,6 +702,22 @@ console.log('== C RED-IF-REVERTED（真树只读，变异在 /tmp 副本） ==')
   const h2 = (t) => /<link rel="icon" type="image\/png" sizes="32x32" href="\.\/assets\/brand\/favicon-32\.png" \/>/.test(t) && !/href="\.\/icons\/pwa-/.test(t)
   ok(h2(htmlSrc) === true && h2(mutHtml) === false,
     'C25 ★ 变异⑬生效：H2/H3（"favicon 必须指品牌图、不许再引 `./icons/pwa-*`"）在变异体里必红')
+  /* 变异⑭（2026-09-24 本轮 K39 回归）：tokenizer 的输入改回**中间变量** `raw`（= 修前那一版的写法）
+     ⇒ K39 里"作者文本直接来自 DOM 文本 `el.textContent`"这条钉子必红。
+     为什么值得单列一条：K39 是**源码级**钉子，它抓的是"词法输入是谁"；换成中间变量本身不改行为，
+     但会让这条钉子失去分辨力（下一手就可能把那个变量从 innerHTML 里取）。 */
+  /* ⚠ 锚点必须带上前缀 `const toks = `：光写 `parsePropRichText(el.textContent)` 会**先命中实现旁边那条
+     注释**（上面 K39 的说明里逐字引用了它）⇒ 变异只落在注释上、真代码没动，变异体照样"绿"（实测踩到）。 */
+  const mutantL = patchSrc.replace('const toks = parsePropRichText(el.textContent)', 'const toks = parsePropRichText(raw)')
+  ok(mutantL !== patchSrc, 'C26 变异⑭锚点命中（K39 那条 `parsePropRichText(el.textContent)` 改回中间变量）')
+  const k39 = (t) => {
+    const code = stripComments(t)
+    return /parsePropRichText\(el\.textContent\)/.test(code) && /createTextNode\(tok\.v\)/.test(code) &&
+      !/innerHTML\s*=\s*[^'"]*tok|innerHTML\s*=\s*[^'"]*(text|html)/.test(code)
+  }
+  ok(k39(patchSrc) === true && k39(mutantL) === false,
+    'C27 ★ 变异⑭生效：K39（"tokenizer 只吃 `el.textContent`"）在变异体里必红（真树为绿）',
+    `真树=${k39(patchSrc)} 变异体=${k39(mutantL)}`)
   ok(sha(PATCH) === before, 'C7 真树 `demo/bench-patch.js` 跑前跑后一致（变异只落 /tmp）', before.slice(0, 20))
   fs.rmSync(tmp, { recursive: true, force: true })
 }

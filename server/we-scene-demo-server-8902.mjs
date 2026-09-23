@@ -102,6 +102,17 @@ import { checkUpload } from './upload-policy.mjs'
    纯逻辑在 core/we-web-shim.mjs 与 server/web-store.mjs 里，本文件只做接线与 HTTP 头。 */
 import { buildWebShimSource, injectWebShim } from '../core/we-web-shim.mjs'
 import { WEB_STORE_LIMITS, normalizeWallId, wallIdFor, storePath, mergeStore, evictPlan, opaqueCorsHeaders } from './web-store.mjs'
+/* ①(P-177 同口径 2026-09-24) 官方随包 JSON 的**宽容解析**：**同一份实现直接复用**，不复制第二/第三份 ——
+   `core/we-scene-bundle.js` 的 `parseWeJson`/`weJsonStats` 就是页面与 bundle 在用的那一份（P-177）。
+   为什么本服务需要：库里那份 `project.json`（= **包旁**文件，与 scene.pkg 同级）与容器条目里的
+   `project.json`（= **包内**）都可能带尾逗号/注释（官方 `assets/effects/fluidsimulation/effect.json`
+   第 402 行自己就带尾逗号，WE 用 jsoncpp 照用）⇒ 严格 `JSON.parse` 会把整份**属性表**静默丢成 null
+   （面板空白、`{user:…}` 全回落默认值），而日志一行都没有。
+   ⚠ 宿主自有状态**绝不放宽**（HTTP 请求体 / bench-props 覆盖 / web-store 帧存储 / web-replace 策略）：
+   那些地方"读失败 ≠ 没存过"，宽容会把**损坏**糊成"能读"（本仓既有纪律，见各站点上的 `[we-json:strict]`）。
+   代价与副作用：本模块无顶层 DOM/IO（Node 里 import 实测 ~90ms、不写盘不联网），且 `:8899` 的
+   `/transpiled/*` 早就在动态 import 同一个文件 ⇒ 不是新增一类依赖，只是提前到加载期。 */
+import { parseWeJson, weJsonStats } from '../core/we-scene-bundle.js'
 /* ⓐ(2026-09-24 · 用户第 5 条「直接把 8899 集成到 8902，我以后拿 8902 测试」)
    **同一份实现复用**，不是复制一份：`:8899` 的服务器把请求处理器导出成 `rendererRequestHandler`，
    本服务把它挂到自己的 origin 上（`/webloader/**` 与渲染器自己的根路由）。
@@ -314,6 +325,9 @@ const readBody = (req, cap) => new Promise((resolve, reject) => {
   req.on('end', () => { if (!over) resolve(Buffer.concat(chunks)) })
   req.on('error', (e) => { if (!over) reject(e) })
 })
+/* [we-json:strict|request-body] **不是包内/包旁 JSON**：这是 **HTTP 请求体**（客户端写进来的），不是 WE 随包文件。
+   客户端给坏 JSON 必须**如实 400**（宽容会把"客户端 bug"糊成"服务端读懂了"⇒ 调用方永远发现不了自己发错了）。
+   ⇒ 这里**永远**用严格 `JSON.parse`，不许换成 `parseWeJson`。 */
 async function readJsonBody(req, cap) {
   const buf = await readBody(req, cap)
   if (!buf.length) return {}
@@ -624,12 +638,32 @@ function recordDiag(msg, level, source) {
 const GIF_1x1 = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64')
 
 // ── /api/library：列表（只读）────────────────────────────────────────────────────────────────────
+/** 包内/包旁 JSON 解析失败、调用方**按原有语义吞掉**时的记账（计数 + 一行诊断，不静默）。
+ *  计数在解析器里（`weJsonStats()` 的 `calls/plain/trailingComma/comments/failed`），这里补一行 `console.warn`
+ *  并在行尾带上累计 `failed`；同一个 `where|原因` 只吵一次 —— `readProjectJson` 在 `/api/library` 上
+ *  是**逐条目**调用的，不去重会把一次损坏刷成几百行。返回值恒 `null`，方便 `catch (e) { return swallowWeJson(...) }`。 */
+const weJsonSwallowedSeen = new Map()
+function swallowWeJson(where, e) {
+  try {
+    const key = where + '|' + String((e && e.message) || e)
+    const n = (weJsonSwallowedSeen.get(key) || 0) + 1
+    weJsonSwallowedSeen.set(key, n)
+    if (n === 1) console.warn('[8902] 包内/包旁 JSON 读取/解析失败（按原语义吞掉）: ' + where
+      + ' — ' + String((e && e.message) || e) + '（weJsonStats.failed=' + weJsonStats().failed + '）')
+  } catch { /* 记账本身失败不影响请求 */ }
+  return null
+}
+/** 读库项目录里的 `project.json`（**包旁** JSON：与 scene.pkg 同级，属性表/标题/类型/入口都声明在这里）。
+ *  （"包旁"判定：路径 = `<库项目录>/project.json`，由 `libraryItemFromDir`/`dirSignals`/`buildProps` 传入；
+ *   `core/scene-project-json.mjs` 里那份查找链也是同一个官方法——WE 工坊布局就是"一个壁纸一个目录"。）
+ *  官方容忍尾逗号/注释（jsoncpp）⇒ 走 `parseWeJson`（P-177 同一份实现）。
+ *  语义与改动前逐条一致：不存在/超限 ⇒ `null`；真坏 JSON 仍然抛 ⇒ 这里按原语义吞掉并**记账**。 */
 function readProjectJson(dir) {
   const p = path.join(dir, 'project.json')
   const st = statSafe(p)
   if (!st || !st.isFile()) return null
   if (st.size > LIMITS.projectJsonBytes) return null     // 大文件不读（绝不为一个属性表整包读盘）
-  try { return JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '')) } catch { return null }
+  try { return parseWeJson(fs.readFileSync(p, 'utf8')) } catch (e) { return swallowWeJson('readProjectJson(' + p + ')', e) }
 }
 const SCENE_CANDIDATES = ['scene.pkg', 'scenes/scene.pkg', 'gifscene.pkg']   // 与 renderer bundle 的 `c1` 逐字一致
 // 网页入口候选：**白名单路径**（不是递归搜索）—— 与插件 detectWebWallpaperKind 的"入口"口径一致，
@@ -737,7 +771,9 @@ function classifyPkgEntries(entries) {
   return { kind, scene, html, video, mpkg, project, preview, count: paths.length }
 }
 /** 只读容器里某个条目的**开头**并尝试当 JSON 解析（project.json 通常是未压缩的普通 JSON）。
- *  解析不出来 ⇒ null（**不猜**、不解压）。 */
+ *  解析不出来 ⇒ null（**不猜**、不解压）。
+ *  ⚠ 这是**包内** JSON（条目路径 `…/project.json` 来自容器目录表）⇒ 走 `parseWeJson`（官方容忍尾逗号/注释）。
+ *  归因只落在**解析**这一段：`openSync/readSync` 失败仍由外层 `catch { return null }` 兜（读盘失败 ≠ JSON 坏）。 */
 function readPkgEntryHeadJson(file, dataStart, entry) {
   if (!entry || !(entry.length > 0) || entry.length > LIMITS.projectJsonBytes) return null
   const n = Math.min(entry.length, 64 * 1024)
@@ -747,9 +783,11 @@ function readPkgEntryHeadJson(file, dataStart, entry) {
     const buf = Buffer.allocUnsafe(n)
     let got = 0
     while (got < n) { const r = fs.readSync(fd, buf, got, n - got, dataStart + entry.offset + got); if (r <= 0) break; got += r }
-    const text = buf.subarray(0, got).toString('utf8').replace(/^\uFEFF/, '')
-    const j = JSON.parse(text)
-    return j && typeof j === 'object' && !Array.isArray(j) ? j : null
+    const text = buf.subarray(0, got).toString('utf8')      // BOM 由 parseWeJson 与官方一致地吃掉
+    try {
+      const j = parseWeJson(text)
+      return j && typeof j === 'object' && !Array.isArray(j) ? j : null
+    } catch (e) { return swallowWeJson('readPkgEntryHeadJson(' + file + '#' + String(entry.path || '') + ')', e) }
   } catch { return null } finally { try { fs.closeSync(fd) } catch { /* 已关 */ } }
 }
 /** `.mpkg`/`.pkg` 容器摘要：目录表 + 内层类型 + （能从容器里读到的）project.json。 */
@@ -1140,6 +1178,9 @@ function buildProps(dir, overrides) {
   return out
 }
 /* ⑥ web 帧存储：读一张 / 列全部（含 mtime，供淘汰按"最旧优先"）。**绝不写进壁纸包**。 */
+/* [we-json:strict|host-state] **不是包内/包旁 JSON**：读的是 `<reports>/web-store/<wallId>.json` = **本服务自己**
+   在 POST /api/web-store 时写下的宿主自有状态（同一个文件由本文件的写侧 `fs.writeFileSync` 生产）。
+   ⇒ 保持严格：宿主设置"读失败 ≠ 没存过"（宽容会把**损坏**糊成"能读"，页面拿到半份 facade 快照却不报错）。 */
 function readWebStore(wallId) {
   const id = normalizeWallId(wallId)
   if (!id) return {}
@@ -1169,6 +1210,9 @@ const webWallIdFor = (item, rel) => wallIdFor([String(item || ''), String(rel ||
 
 // 属性覆盖：落 <reports>/bench-props/<id>.json（**绝不写进壁纸包** —— 库里只有 project.json 是读的）
 const propsFileFor = (id) => path.join(PROPS_DIR, `${assertItemId(id)}.json`)
+/* [we-json:strict|host-state] **不是包内/包旁 JSON**：读的是 `<reports>/bench-props/<id>.json` = **本服务自己**保存的
+   用户属性覆盖（同一个文件由下面的 `writeOverrides` 原子落盘）。⇒ 保持严格：宿主状态"读失败 ≠ 没存过"，
+   宽容会把**半份/损坏的覆盖**糊成"能读"，于是面板显示的值与用户存下的值悄悄不一致。 */
 function readOverrides(id) {
   const p = propsFileFor(id)
   const st = statSafe(p)
@@ -2213,6 +2257,8 @@ function handleDiagSink(req, res, url) {
     return readBody(req, LIMITS.bodyBytes).then((buf) => {
       let msg = ''
       const text = buf.toString('utf8')
+      /* [we-json:strict|request-body] **不是包内/包旁 JSON**：`POST /diag` 的**请求体**；不是 JSON 就整份当消息文本用
+         （既有降级语义，逐字保留）⇒ 严格 `JSON.parse` + `catch { msg = text }`。 */
       try { const j = JSON.parse(text); msg = j && typeof j === 'object' ? String(j.msg == null ? text : j.msg) : text } catch { msg = text }
       const evt = recordDiag(msg, url.searchParams.get('level') || undefined, 'renderer')
       return jsonOk(res, { buffered: diagBuffer.length, seq: evt ? evt.seq : null, msg: evt ? evt.msg : '' })
@@ -2314,6 +2360,8 @@ function handleReport(req, res) {
   })
 }
 /** `POST /baseline`：真机基线快照 ⇒ `<reports>/baselines/<ts>.json`（校验不过 ⇒ 400 且不落盘）。 */
+/* [we-json:strict|request-body] **不是包内/包旁 JSON**：body 是**客户端上报的**快照（HTTP 请求体）⇒ 坏 JSON 必须 400，
+   宽容会让"上报端写错了"变成"服务端帮忙猜对了"，趋势数据从此不可信。 */
 function handleBaseline(req, res) {
   if (req.method !== 'POST') {
     return Promise.resolve(json(res, 405, { ok: false, error: '只接受 POST（body = 基线快照 JSON）', allow: 'POST' }, { Allow: 'POST' }))
@@ -2604,6 +2652,10 @@ let webShimCache = { mtimeMs: 0, source: '' }
  */
 const WEB_REPLACE_FILE = () => path.join(REPORTS_DIR, 'web-replace.json')
 let webReplaceCache = { mtimeMs: -1, list: [] }
+/* [we-json:strict|host-state] **不是包内/包旁 JSON**：读的是 `<reports>/web-replace.json` = **宿主自己**的策略表
+   （本服务 REPORTS_DIR 下、由人/宿主写）。⇒ 保持严格：策略是"注入面内容替换"的授权表，
+   宽容会把一份**写坏的**策略当成有效策略用（或悄悄当成空表），两种都不是"如实用户写的"。
+   这里已有诊断（stderr 一行 + 按空表处理），不是静默。 */
 function webReplacements() {
   const file = WEB_REPLACE_FILE()
   let mtimeMs = -2

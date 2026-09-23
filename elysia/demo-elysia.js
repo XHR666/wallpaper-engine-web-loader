@@ -20,7 +20,11 @@ function makePkg(pkg) {
     // 返回副本 (getEntry), 避免后续 Buffer 视图与外层共享被意外改写
     return lib.getEntry(pkg, name);
   };
-  const readJson = (name) => { const b = read(name); return b ? JSON.parse(rd(b)) : null; };
+  /* ①(P-177 同口径 2026-09-24) 读的是**包内条目**（project.json / effect.json / material.json…）⇒ 必须容忍
+     官方允许的尾逗号与注释（官方 `effects/fluidsimulation/effect.json` 第 402 行自带尾逗号，WE 照用）。
+     走 `lib.parseWeJson`（页面/bundle 用的**同一份**实现，不另写一份）。语义与改动前逐条一致：
+     **条目不存在 ⇒ null**；条目在而 JSON 真坏 ⇒ 照样抛（调用方 try/catch 语义不变）。 */
+  const readJson = (name) => { const b = read(name); return b ? lib.parseWeJson(rd(b)) : null; };
   const readText = (name) => { const b = read(name); return b ? rd(b) : null; };
   const has = (name) => map.has(name);
   return { has, read, readJson, readText, entries: () => pkg.entries };

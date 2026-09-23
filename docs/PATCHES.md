@@ -13250,3 +13250,114 @@ P-152b 之后**仍**解析为 `null` —— 它们在**MDLS 解析之前**的"�
 * 报告（含官方 file:line 原文、读数表、未证实项清单）：工作区 `docs/ISSUES-ROOTCAUSE-20260924.md`。
 * 两条口径更正（本轮取证）：本仓**没有** `recomputeLayerVisibility/visibleSelf/visibleScript`（只在上游 MIT 构建产物里）；
   本仓等价链是 `parseScene:1544 __bindRaw` → RE-06（`:2662-2697`）+ 面板路径 `applyUserProperties:2362`。
+
+## P-181（2026-09-24 · 门禁线）全量套件 6 条红：根因、改法、读数与变异自证
+
+> 编号说明：**P-180 已被可移植性审计线占用**（`tests/run-all-tests.sh:23` 的注释里引用了它：perf 包默认值
+> 不再是内容哈希），所以本轮从 P-181 起编；`docs-check` 只要求 P 编号唯一且非降，允许跳号。
+
+**背景读数**：`bash tests/run-all-tests.sh` ⇒ `PASS=157 FAIL=6 SKIP=2 / 总 165`。6 条红分成两类 ——
+**4 条是实现回归/实现缺口**（按"不许放宽判据"的口径**改实现**），**2 条是契约确实变了**
+（把断言改写成新契约，并在**断言名**里写明"契约变更 + 变更来源"）。每条都配"改回去必红"的变异读数。
+
+### ① `bench-shell-fixes` K39（274/1 → **277/0**）富文本 tokenizer 的输入被换成中间变量
+* **根因**：`demo/bench-patch.js` 的 `decoratePropRow()` 为了支持"换档原地重画"把作者原文存进
+  `RICH_TEXT_SRC`，顺手把 `parsePropRichText(el.textContent)` 改成了 `parsePropRichText(raw)`（`raw = el.textContent`）。
+  行为没变，但 K39 是一条**源码级**钉子，它钉的正是"词法输入只能是 DOM 文本、不是 innerHTML" ⇒ 失去分辨力。
+* **改法（改实现）**：把调用写成 `const toks = parsePropRichText(el.textContent)`（`raw` 只做记账与判空），
+  并在调用点写明这条纪律；断言一字未放宽，另在 C 段补了一条**变异自证**。
+* **变异自证**：`C26/C27` 把 `const toks = parsePropRichText(el.textContent)` 改回 `…(raw)` ⇒
+  `真树=true 变异体=false`（K39 必红）。⚠ 锚点必须带 `const toks = ` 前缀：K39 的说明注释里逐字引用了那个
+  调用（注释会被 `stripComments` 剥掉，但 `String.replace` 会先命中注释 ⇒ 变异落空、变异体照样"绿"，实测踩到）。
+* **同一条改动带出的行为回归**（见 ②）：图片去重让 `propRichFragment()` 可能返回**空** fragment。
+
+### ② `bench-ui-headless` P5a/P11/R3（150/3 → **154/0**）
+* **P5a/P11 根因（实现回归）**：`demo/bench-patch.js` 的 `decoratePropRow()` 旧写法是 `if (frag) { el.textContent=''; … }`。
+  ①E 的图片去重上线后，`propRichFragment()` 对"整行 token 都被去重压掉"的行返回 `null`（真语料里同一张图
+  重复 33 次，这一行恰好是"重复的那几行"）⇒ 旧写法**什么都不做**，作者原文里的
+  `<img src="…" width="2000" height="5">` 原样留在 DOM 里当文字显示（用户第 26 条的 bug 回来了）。
+  改前读数：`P5a rawTags:["<img src=\"http://photogz…\" width=\"2000\" height=\"5\">", … height=\"2\">"]`、
+  `P11 tagRaw=7`。
+* **改法（改实现）**：`if (frag || toks.length || /</.test(raw)) el.textContent = ''` —— 有 token、或原文本来
+  就有标签 ⇒ 原文一律清掉；图片去重只决定"画不画节点"，不决定"留不留原文"。改后读数：
+  `P5a rawTags:[] · dangerous:0`、`P11 tagRaw:0 · dangers:0 · errs:[]`。
+* **P5a/P11 变异自证**：把那一行改回 `if (frag) el.textContent=''` ⇒ 只跑真机 UI 档：期望红集
+  `{P5a,P11}` == 实际红集 `{P5a,P11}`（`rawTags` 2 条、`tagRaw=7`，与改前逐字相同），其余 152 条照常绿。
+* **R3 根因（实现缺口，不是契约变更）**：契约（2026-09-22 `686ab56` 定的：本仓渲染器档 + web 壁纸 ⇒
+  宿主让位、`skipped=host-injects`、注入 0 次）没变，但**记账看不到了**。渲染器页是在**自己的文档脚本里**
+  就把 web 帧挂上的（测试台把 `?type=web&src=…` 直接重写进渲染器 iframe 的 URL）⇒ 帧的 `src` 在宿主拿到
+  这个 realm 之前就写好；宿主那条 `HTMLIFrameElement.prototype.src` 包装只能在 realm 出现之后
+  （1200ms 轮询 / `load` 事件）才装得上 ⇒ 这一次赋值永远看不到，`skipped` 恒为空串。
+  时间线证据（探针，同一棵树）：`frame-load` 事件 +0ms 时嵌套帧**已存在**、包装 `patched=true` ⇒ 赋值早于包装。
+  改前读数：`{attr:'repo', injected:0, skipped:'', nested:['http://127.0.0.1:8902/web/dev/3644069061/index.html'], frameReady:true, frameMode:'compat'}`。
+* **改法（改实现）**：`demo/bench-patch.js` 新增 `accountStoodDownFrames(win)` —— 按**同一条决策函数**
+  `webShimPlan(raw, {origin, hostInjects:true})` 对**既有** iframe 补一次账（只记 `host-injects`，不改 DOM、
+  不重设 src）；在 `installWebShim()` 的两条返回路径上都调用（幂等）。改后读数：
+  `{attr:'repo', injected:0, skipped:'host-injects', nested:['…/web/dev/…'], frameReady:true, frameMode:'compat'}`。
+* **R3 断言**：`skipped=host-injects` + 注入 0 次**原样保留**，另**加**载荷证据（帧 `src` 必须是原始
+  `/web/…` URL、不是宿主 blob 通路产出的 `blob:`）；新增 **R3c** 把"shim 由服务端注入"变成可独立核对的事实：
+  `GET <帧入口>` ⇒ `X-Mpw-Shim: injected` + 文档里有 `data-mpw-we-shim` 注入标记（改后读数
+  `{ok:true,status:200,shim:"injected",marker:true}`）。
+* **R3 变异自证（探针级 A/B，不是常驻门禁）**：同一个只读探针（`/tmp/r3-probe.mjs`，只换实现）在改前读
+  `skipped:''`、改后读 `skipped:"host-injects"`；把 `accountStoodDownFrames` 拿掉即回到空串。
+  **没能做成常驻变异**：R3 需要一次真机 web 帧挂载（第二个 realm + 5 分钟浏览器档），
+  在门禁里再造一个"变异后的宿主"等于再起一整套夹具，故只留探针 A/B 与两次全档读数。
+
+### ③ `pkg-entry-index` D6（35/36 → **36/36**）**契约变更**：未知场景 500 TypeError → 404 `no scene`
+* **根因**：`1b2a332`（渲染器 0.5.5）在 `server/we-scene-demo-server.mjs:1320` 显式加了
+  `if (!sc) { res.writeHead(404); res.end('no scene') }`，注释原文「根里没有这个 id ⇒ 404（原先会抛成 500）」。
+  改动前 `sc.pkgPath` 抛 TypeError ⇒ 兜底 500（**把"查无此场景"报成"服务端炸了"**）。
+* **改法（更新断言，写明契约变更）**：断言名改成「404 + `no scene`（★契约变更：原先 `sc.pkgPath` 抛 TypeError
+  ⇒ 500…；现为诚实 404，来源 1b2a332；与 `/shader` 未知条目同口径）」，判据从 `status===500 && /pkgPath/`
+  改成 `status===404 && body==='no scene'`。
+* **"旧契约必红"证据（等价的变异自证）**：把 `server/we-scene-demo-server.mjs` 里那行守卫**删掉**（= `851bd88` 的
+  旧实现）跑同一次门禁 ⇒ D6 红，读数 `500 "server error: Cannot read properties of null (reading 'pkgPath')"`
+  （期望红集 `{D6}` == 实际红集 `{D6}`）；恢复后 36/36。
+
+### ④ `pack-closure` C2（11/1 → **13/0**）`:8902` 本地直供新增了一个包外引用点
+* **根因**：`:8902` 自给自足后 `RENDERER_LOCAL_EXACT` 收录了 `/diag-flags.json`（`server/we-scene-demo-server-8902.mjs:1541`），
+  而该数据源是**开发期生成物**（`tests/diag-flag-check.mjs` 产出）、`package.json.files` 白名单不含它
+  ⇒ C2 报 `server/we-scene-demo-server-8902.mjs → /diag-flags.json` 无法映射。
+* **改法（选 (a)：登记为"已登记的不进包项"，附完整理由）**：在 `NOT_SHIPPED_OK` 里加一条（与 8899 / sw-policy
+  两条同口径），并新增 **C2b** 断言这条登记**承重**：`web/diag-flags.json` 确实不在包里（`inPkg=false`）——
+  哪天它进了包，登记就成了遮羞布、C2b 会红逼人回来删。
+* **代价（讲清）**：npm 包内单独跑 `node server/we-scene-demo-server-8902.mjs` 时该 URL 404 ⇒ 面板速查区
+  回落到 client.js 内置副本（`tools/panel-smoke.mjs` 断言两者集合一致，见 `docs/README-DIAGNOSTICS.md`），
+  功能不缺、与 8899 在包内逐字同行为。**否掉的另一条路**：加进 `package.json.files` 会把一份带 `generatedAt`
+  时间戳的开发期快照永久冻进 tarball，且与 sw-policy 那条既有登记自相矛盾。
+* **变异自证**：把这条登记从 `NOT_SHIPPED_OK` 删掉 ⇒ C2 红，读数与改前逐字相同
+  `[server/we-scene-demo-server-8902.mjs → /diag-flags.json]`（期望红集 `{C2}` == 实际红集 `{C2}`）；恢复后 13/0。
+
+### ⑤ `cross-platform`（24/1 → **25/0**）三处新写的裸本机路径片段
+* **根因**：门禁 A/B 段的判据是**裸片段**（A 段 `/root/`、B 段 `/tmp/`；`tests/cross-platform-gate-test.mjs:55,66`），
+  而三处新写的字符串只把后半截拼起来了：`tests/bench-dsh-libroot-test.mjs:157`（`'/root/Desktop/' + 'DSHarea'`）、
+  `:418`（变异载荷里同形）、`tests/portability-audit-fix-test.mjs:384`（`console.log` 文案里的 `/tmp/`）。
+* **改法（拼接，不往白名单加）**：本机工作区前缀收成一处 `const WS_ABS = '/' + 'root' + '/Desktop/' + 'DSHarea'`
+  （连 `root` 段一起拆），变异载荷按 `'" + WS_ABS + "'` 拼；文案里那段写成 `'/' + 'tmp/'`。白名单是给
+  **存量站点**的，新写字符串没有理由要豁免；块注释的**续行**也要注意（门禁的注释过滤只认**行首**注释符）。
+* **变异自证**：把三处精确回退成修前逐字文本 ⇒ 红，三条发现与改前同类同名（`workspace-abs` ×2 + `tmp-literal` ×1，
+  行号 165/429/404 —— 行号漂移是因为本轮在文件头补了说明注释）；恢复后 25/0。
+
+### ⑥ `portability-fix`（33/13 → **46/0**）"改前"取错了版本：`git show HEAD:` == 改后
+* **根因**：`tests/portability-audit-fix-test.mjs` 的 `headOf()` 用 `git show HEAD:<file>` 当"改前"，但**这些修复
+  已经被提交进 HEAD**（`1b2a332`「可移植性/面向结果审计修复」一次性收进了 `core/scene-project-json.mjs`、
+  `tests/known-issues.json`、`tests/publish-check.mjs`、`tests/cross-platform-gate-test.mjs`、
+  `tests/bench-server-test.mjs`）⇒ 变异体与真树逐字相同 ⇒ 变异无差异、红集恒为空（13 条红）。
+* **改法**：`PRE_FIX_REV = '851bd88'`（`1b2a332` 之前那个提交）+ `preFixOf()` 取代 `headOf()`，全部标签/注释改写成
+  「改前（钉死 851bd88（1b2a332 之前））」，并在文件头写明**为什么不能用 HEAD**（以及"不要顺手更新成新提交"）。
+  取哪个文件、哪一版都可复核：`publish-check` 的 `DEFAULT_LINE_RE` 在 851bd88 上还带 `|| '<作者路径>'` 死分支、
+  `walk()` 还是静默 `catch { return out }`、`cross-platform` 的 `TMP_LITERAL_RE` 还要求紧贴引号、
+  `bench-server` 的 J13 还逐字钉死 `fx.ws`/`allwallpaper`/`os.homedir()`、`run-all-tests.sh` 默认值还是内容哈希。
+* **改后读数**：P52-1 改前版 failures 非空、P52-2 `MUTANT-RED-OK`；P34-1/P34-2 同；P36-e/P36-f `MUTANT-RED-OK`；
+  P44-1/P44-2、P45-d/P45-e、P09-d/P09-e（漏检 8/8 → 期望红集 == 实际红集）、P37-d/P37-e 全部 `MUTANT-RED-OK`；
+  `结果: 46 通过, 0 失败`。
+* **未验证/边界**：`851bd88` 是**故意钉死**的哈希 —— 浅克隆或缺该对象时 `git show` 失败 ⇒ 相关用例明确报红
+  （不静默跳过）；本轮没有在浅克隆上实测这条失败路径。
+
+### 未能验证的（如实）
+* R3 的"稳位"只做到**探针级 A/B**（见 ②），没有做成常驻变异门禁；浏览器档没有在"变异后的宿主"下跑第二遍全档。
+* ⑤ 的变异自证是在**真树临时回退**上做的（跑完立刻 `sha256sum -c` 复原），不是"副本即红"的常驻机制；
+  门禁本身仍然只扫真树（这是它本来的口径）。
+* 本轮只动 `demo/bench-patch.js` 的两处实现、6 条门禁的断言/登记与 `docs/PATCHES.md`；
+  `core/we-scene-bundle.js`、`demo.html`、`elysia/**`、`server/we-scene-demo-server.mjs` 一字未改
+  （③ 的变异自证里那份临时回退已按哈希复原）。

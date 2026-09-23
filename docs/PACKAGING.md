@@ -62,7 +62,7 @@ npm pack --dry-run                 # ③ 分发自证：文件清单 + 体积（
 | `type` | `module` | 仓库内所有 JS 模块都是 ESM（无 CJS，`packaging-test.mjs` 会扫） |
 | `private` | `true` | **发布锁**：本机 npm 未登录前不允许 `npm publish`；发布由建仓线在登录后删除这一行 |
 | `exports` | `.` → `core/we-scene.mjs`、`./bundle`、`./server`、`./hlsl2glsl`、`./package.json` | 每条目标都真实存在（断言过） |
-| `files` | 35 条白名单 | 只发**运行时 + 公开文档 + 自带样例/字体/图标**；不含 `reports/`、`archive/`、`Testphoto/`、`*.bak-*`。**闭合性由 `tests/pack-closure-test.mjs` 钉住**（0.2.0 漏过三个新增模块 ⇒ 包一 import 就炸，见 `docs/PATCHES.md` P-167） |
+| `files` | 39 条白名单 | 只发**运行时 + 公开文档 + 自带样例/字体/图标**；不含 `reports/`、`archive/`、`Testphoto/`、`*.bak-*`。**闭合性由 `tests/pack-closure-test.mjs` 钉住**（0.2.0 漏过三个新增模块 ⇒ 包一 import 就炸，见 `docs/PATCHES.md` P-167） |
 | — | **白名单里没有整目录的 `docs/`** | 逐文件写 `docs/UNTOUCHED-AREAS.md` 而不是 `docs/`：目录级白名单会让**任何**后来加进 `docs/` 的文件（可能含作者个人绝对路径）静默进包；`packaging-test.mjs` 的 D 组就是这条的机器闸门 |
 
 **tarball 只发运行时，不发测试台**：`run-all-tests.sh`、`check.sh`、60+ 个 `*-test.mjs` 都**不在** `files` 里。
@@ -72,7 +72,7 @@ npm pack --dry-run                 # ③ 分发自证：文件清单 + 体积（
 `npm pack` 实测（2026-09-16，`--dry-run`）：
 
 ```
-117 文件 · tarball 1.9MB · 解包 4.9MB · 最大单文件 core/we-scene-bundle.js 506.5kB
+161 文件（含 README.md + README.en.md）· tarball ≈2.63MB · 解包 ≈6.82MB · 最大单文件 core/we-scene-bundle.js（体积以 `node tests/packaging-test.mjs` 的实测读数为准）
 打包清单含：core/we-scene.mjs / web/manifest.webmanifest / web/sw.js / web/sw-policy.mjs / web/icons/*.png /
             vendor/hlsl2glsl/* / samples/sample-synthetic/scene.pkg / LICENSE / THIRD-PARTY.md
 打包清单不含：reports/** 、*.bak-* 、run-all-tests.sh 、check.sh

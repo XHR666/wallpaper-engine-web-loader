@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-23T18:39:05.919Z",
+  "generatedAt": "2026-09-23T19:45:37.480Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -413,7 +413,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 13783,
+          "line": 13877,
           "pattern": "searchParams.get('bloomcap')"
         }
       ]
@@ -722,7 +722,7 @@
       "sites": [
         {
           "file": "elysia/demo-elysia.js",
-          "line": 68,
+          "line": 72,
           "pattern": "searchParams.get('fps')"
         }
       ]
@@ -760,7 +760,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11660,
+          "line": 11754,
           "pattern": "searchParams.get('fx')"
         }
       ]
@@ -787,7 +787,7 @@
       "sites": [
         {
           "file": "elysia/demo-elysia.js",
-          "line": 67,
+          "line": 71,
           "pattern": "searchParams.get('h')"
         }
       ]
@@ -1287,7 +1287,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11659,
+          "line": 11753,
           "pattern": "searchParams.has('nofx')"
         }
       ]
@@ -1298,7 +1298,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11674,
+          "line": 11768,
           "pattern": "searchParams.has('nofxfb')"
         }
       ]
@@ -1721,7 +1721,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 12519,
+          "line": 12613,
           "pattern": "searchParams.get('psim')"
         }
       ]
@@ -1765,7 +1765,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 9820,
+          "line": 9843,
           "pattern": "searchParams.get('ptrfx')"
         }
       ]
@@ -2140,7 +2140,7 @@
       "sites": [
         {
           "file": "elysia/demo-elysia.js",
-          "line": 69,
+          "line": 73,
           "pattern": "searchParams.get('t')"
         }
       ]
@@ -2151,7 +2151,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 13758,
+          "line": 13852,
           "pattern": "searchParams.get('texmip')"
         }
       ]
@@ -2162,7 +2162,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 13607,
+          "line": 13701,
           "pattern": "searchParams.get('texwrap')"
         }
       ]
@@ -2200,7 +2200,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11645,
+          "line": 11739,
           "pattern": "searchParams.has('trace')"
         },
         {
@@ -2293,7 +2293,7 @@
       "sites": [
         {
           "file": "elysia/demo-elysia.js",
-          "line": 66,
+          "line": 70,
           "pattern": "searchParams.get('w')"
         }
       ]

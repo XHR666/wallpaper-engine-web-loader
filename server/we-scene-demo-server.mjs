@@ -835,6 +835,9 @@ const serverHandler = async (req, res) => {
           }
           try {
             let snap = null
+            /* [we-json:strict|request-body] **不是包内/包旁 JSON**：客户端上报的基线快照（HTTP 请求体）⇒ 坏 JSON 必须 400。
+               （本文件里"读包内/包旁 JSON"的路径是 `readProjectJson`，走 core/scene-project-json.mjs；
+                本文件自身的 `JSON.parse` 只此一处，且永远是请求体。） */
             try { snap = JSON.parse(body) } catch { res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'body 不是合法 JSON' })); return }
             const v = mpwValidateSnapshot(snap)
             if (!v.ok) {
