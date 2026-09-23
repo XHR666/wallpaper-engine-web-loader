@@ -158,6 +158,19 @@ export const SCENE_SCRIPT_API_DIAG = {
   texAnimRateWrite: 0,    // ①(2026-09-21) ITextureAnimation.rate 写次数（官方可写字段，来自真机语料）
   texAnimJoin: 0,         // ①(2026-09-21) ITextureAnimation.join() 命中次数（回到共享动画状态）
   timerScheduled: 0, timerFired: 0, timerCleared: 0,  // engine.setInterval 家族
+  // ①(P-143 2026-09-23) **静默缺口批次**（"不抛错但值错"）的可观测计数：读/写各自留痕，
+  //   门禁与新测试直接读它（口径 ③「不得静默」）。
+  textPointsizeWrite: 0,  // ITextLayer.pointsize 写穿次数（非有限值**不写**，见 textLayerWrite 注释）
+  textFontWrite: 0,       // ITextLayer.font 写穿次数
+  textAlignWrite: 0,      // ITextLayer.horizontalalign / verticalalign 写穿次数
+  originalOriginRead: 0,  // thisLayer.originalOrigin 命中 authored 快照（真值）
+  originalOriginMiss: 0,  // 无 authored 快照 ⇒ 惰性补抓/空引用（可观测的降级）
+  getEffect: 0,           // IEffectLayer.getEffect(name|index) **解析成功**
+  getEffectUnresolved: 0, // 同上但解析不到（返回安全句柄，不抛错）
+  getEffectCount: 0,      // IEffectLayer.getEffectCount()
+  effectWrite: 0,         // IEffect 的 visible/name/setMaterialProperty 写穿次数
+  effectWriteUnresolved: 0, // 对"未解析句柄"的写（记帐而非静默丢弃）
+  debugRead: 0, debugWrite: 0,  // thisLayer.debug（官方无此成员，见 debugFlagOf 注释）
 };
 /** 计数表快照（浅拷贝；测试/诊断用，**不**暴露可变引用）。 */
 export function sceneScriptApiDiag() { return Object.assign({}, SCENE_SCRIPT_API_DIAG); }
@@ -177,6 +190,297 @@ const nodeWrite = (obj, key, v) => {
   const cur = obj ? obj[key] : undefined;
   if (cur && typeof cur === 'object' && 'value' in cur) cur.value = v;
   else if (obj) obj[key] = v;
+};
+/* ①(P-142 2026-09-23) 官方 `ITextLayer.text: String`（d.ts L812-816 “The text that will be displayed.”，
+ *   且 `interface ILayer extends IObject, IImageLayer, ISoundLayer, IEffectLayer, ITextLayer, …` L1139
+ *   ⇒ **每个** ILayer 上都有 `text`）。
+ *   · 读：属性是 `{script,value}` 节点时取 `value`（与 origin/scale/alpha 同一个 nodeRaw 口径）；
+ *     `null/undefined` ⇒ 返回 `''`（官方类型是 String ⇒ 保证作者脚本的 `.toString()/.split()/…`
+ *     不会掉进 TypeError；'' 与"这个层没有文本"在数值上无法区分，但不编造内容）。
+ *   · 写：写穿到节点的 `value`（nodeWrite），**不整只替换节点**（那会把作者的脚本删掉）。
+ *   · 依据强度：高（官方 d.ts 字段类型 + 真包 `0923/3122339805` 的
+ *     `thisLayer.text.toString().split("|").join("\n")` 三处调用点，读不到就是 `reading 'toString'`）。 */
+const textOf = (obj) => { const t = nodeRaw(obj ? obj.text : null); return t == null ? '' : String(t) };
+const writeText = (obj, v) => { if (obj) nodeWrite(obj, 'text', v == null ? '' : String(v)) };
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * ①(P-143 2026-09-23) **静默缺口批次**：`ITextLayer` 的四个值成员 + `originalOrigin` +
+ *   `IEffectLayer.getEffect` + `thisLayer.debug`
+ *
+ * 为什么单独一批（比抛错更危险）：这四类都**不抛错**，只是让作者脚本拿到 `undefined`，
+ *   再在算术后变成 `NaN`（或让 `if (x)` 恒假）—— 门禁看不见、日志看不见，画面/布局错。
+ *   现场（本文件实测，改前读数写进 tests/script-member-gaps-test.mjs 的 S2 注释）：
+ *     · `wallpaperE/佩丽卡/佩丽卡1_03.mpkg` `objects[5].origin`（update 第 3 帧）：
+ *       `value.y = shared.jpc_clockPosition.y + thisLayer.pointsize * 0.36 + 5`
+ *       —— `pointsize` 是 `undefined` ⇒ `undefined * 0.36` = **NaN** ⇒ 整条 origin 变成
+ *       `"2925.104490 NaN 0.000000"`（实测；同包 objects[3]/[4] 写 horizontalalign/verticalalign）。
+ *     · `wallpaperE/芙宁娜/芙宁娜1_04.mpkg` / `芙宁娜_08.mpkg` 的 init：
+ *       `thisScene.createLayer({ …, pointsize: thisLayer.pointsize, font: thisLayer.font, … })`
+ *       —— 阴影文本层被建成 `pointsize: undefined, font: undefined`（静默用渲染器缺省 32/默认字体，
+ *       与源层的 38/`fonts/8bitOperatorPlus8-Regular.ttf` 不一致）。
+ *     · `0923/3521337568` / `0923/3653641024` / `dd/3554161528` 的 NSL 拖动库：
+ *       `thisLayer.origin = thisLayer.originalOrigin; // 恢复初始位置` —— 读不到 ⇒ 传给 `set origin`
+ *       的是 undefined ⇒ `toXYZShared` 返 null ⇒ **静默不写**（"重置位置"这个功能整条死掉）。
+ *     · `0923/3122339805`（`thisLayer.getEffect(0).visible=false`，effect 开关）与
+ *       `0923/2887099508`（`thisScene.getLayer('中-菜单-浮动')['getEffect']('阴影-设置3').visible=true`，
+ *       鼠标进出切换 UI 阴影）—— 缺成员 ⇒ `getEffect is not a function`（update / cursorEnter 抛）。
+ *     · `0923/3662790108`：`if (thisLayer.debug) { console.log(…) }` —— 读不到 ⇒ 作者调试分支
+ *       恒假，且 `typeof thisLayer.debug` 是 `'undefined'` 而不是布尔。
+ *
+ * 官方语义出处（一手 = 随引擎发布的类型声明 `$MPW_ROOT/wallpaper_engine/ui/dist/monaco/autocomplete/
+ *   lib.sceneScript.d.ts`，行号为实测；官方文档 docs.wallpaperengine.io 作补充）：
+ *   · L812-868 `interface ITextLayer`：`text: String`；`color: Vec3`；`alpha: Number`；
+ *     `pointsize: Number`（注："Size of the font in points for 300 DPI."）；
+ *     `font: String`（"Font path."）；`horizontalalign: String`
+ *     （"Horizontal text alignment: left, center, right."）；`verticalalign: String`
+ *     （"Vertical text alignment: center, top, bottom."）。L1139 `interface ILayer extends IObject,
+ *     IImageLayer, ISoundLayer, IEffectLayer, ITextLayer, …` ⇒ **每个** ILayer 上都有这四个。
+ *   · L775-806 `interface IEffectLayer`：`getEffect(name: String|Number): IEffect`（L779，
+ *     "Find a material effect by its name or index."）、`getEffectCount(): Number`（L784）。
+ *     L520-545 `interface IEffect extends IObject`：`getMaterial(index)`、`getMaterialCount()`、
+ *     `setMaterialProperty(propertyName, value)`、`visible: Boolean`、`name: String`；
+ *     L512-514 `interface IMaterial extends IObject {}`（**没有**自己的字段）。
+ *   · `originalOrigin` 与 `debug` **不在**官方 d.ts、也**不在**官方 ILayer 文档页
+ *     （docs.wallpaperengine.io/en/scene/scenescript/reference/class/ILayer.html 只列
+ *     origin/angles/scale/name/visible/parallaxDepth + getAnimation/getParent/…）⇒ 这两条的
+ *     依据强度只有"真机语料 + 行为对照"，见各自实现处的强度标注。
+ *
+ * 缺省值策略（**绝不返回 undefined/NaN 给参与算术的值**）：
+ *   四个文本成员的缺省**逐位对齐本仓库渲染器实际使用的那份**（一台机器只有一个真值）：
+ *     `core/we-scene-bundle.js:1583` `pointsize: textNum(o.pointsize, 32)`（同一函数要求 `> 0`）、
+ *     `:1578` `font: typeof o.font === 'string' ? o.font : ''`、
+ *     `:1586-1587` `horizontalalign → 'left'` / `verticalalign → 'top'`；
+ *     `demo.html:4403` `Math.max(6, (t.pointsize || 32) * ptScale)` 同款 32。
+ *   所以 `thisLayer.pointsize` 读到的就是**屏幕上那个字号**（缺字段 ⇒ 32，不是 NaN）。
+ *
+ * 写回口径（"写回不破坏节点"）：一律走 `nodeWrite` —— 属性是作者的 `{script,value}` 节点
+ *   （或 `{user,value}` 用户属性绑定）时写它的 `value`，**不整只替换**（替换会删掉作者的脚本，
+ *   下一帧 `collect()` 就再也找不到这个节点 ⇒ 作者的属性脚本永久停摆）。数值字段（pointsize）
+ *   只在 **Number.isFinite** 时写 ⇒ 作者写 NaN/undefined 不会把节点写坏。
+ *
+ * ⚠ 已知限制（未证实项，记在这里以免被当成"看起来没生效"的新 bug）：`demo.html` 每帧的
+ *   "脚本 → 渲染层"同步白名单只有 text/alpha/visible/color/origin（demo.html:3992-4034），
+ *   且 `__text` 的字号/对齐是 core 在**载入时**烘焙的 ⇒ 本批的 pointsize/font/horizontalalign/
+ *   verticalalign 写穿对**当前渲染画面**不生效（改 demo/core 不在本批权限内）。本批保证的是
+ *   "读到真值 + 写进 scene.json 契约（节点保留）"，这也是作者脚本自己 `createLayer({pointsize:
+ *   thisLayer.pointsize})` 这类**读取**路径的真值来源。
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+/** ①(P-143) `ITextLayer.pointsize`（d.ts L838-841，Number，"Size of the font in points for 300 DPI."）。
+ *  读：`{script,value}`/`{user,value}` 节点取 value（nodeRaw 一处口径），再按**渲染器**的
+ *  `textNum` 语义归一：非有限或 ≤ 0 ⇒ **32**（`core/we-scene-bundle.js:1583/1395-1400`）。
+ *  为什么 ≤0 也回 32：读到的数必须等于屏幕上用的数（P-137 的"同一个 ILayer 概念不能有两套数"），
+ *  而渲染器对 0/负值就是画 32。依据强度：**高**（官方字段类型 + 仓库渲染器自己的缺省 + 3 个真包）。 */
+const pointsizeOf = (obj) => {
+  const n = Number(nodeRaw(obj ? obj.pointsize : null));
+  return Number.isFinite(n) && n > 0 ? n : 32;
+};
+/** ①(P-143) `ITextLayer.font`（d.ts L843-846，String，"Font path."）。
+ *  读：缺字段 ⇒ `''`（**不是 undefined**：作者脚本常做 `font.split('/').pop()` / `+ ''`）。
+ *  依据强度：高（官方 String 类型 + `core:1578` 同款缺省 `''` + 2 个真包读 `thisLayer.font`）。 */
+const fontOf = (obj) => {
+  const raw = nodeRaw(obj ? obj.font : null);
+  return raw == null ? '' : String(raw);
+};
+/** ①(P-143) `ITextLayer.horizontalalign` / `verticalalign`（d.ts L853-861，String）。
+ *  读：非空字符串 ⇒ 原样返回（**真值**，含作者写的未知取值）；否则给渲染器缺省
+ *  （`core:1586-1587`：horizontalalign → 'left'、verticalalign → 'top'）。
+ *  依据强度：高（官方字段类型 + 官方取值表 left/center/right、center/top/bottom + 仓库渲染器缺省）。 */
+const HAlignDefault = 'left';
+const VAlignDefault = 'top';
+const alignOf = (obj, key) => {
+  const raw = nodeRaw(obj ? obj[key] : null);
+  if (typeof raw === 'string' && raw) return raw;
+  return key === 'verticalalign' ? VAlignDefault : HAlignDefault;
+};
+/** ①(P-143) 四个文本成员的**统一写入口**（"写回不破坏节点" + "绝不写坏成 NaN"）。
+ *  · pointsize：只在 `Number.isFinite` 时写（作者写 NaN/undefined ⇒ 原地不动 + 不计数）；
+ *  · font：null/undefined ⇒ `''`（官方 String，与 readText 的缺省一致）；
+ *  · 两个对齐：null/undefined ⇒ 不写（保持 authored）；其余 `String(v)` 原样写（不编造取值表）。
+ *  返回是否真的写了（测试可直接断言）。 */
+const textLayerWrite = (obj, key, v) => {
+  if (!obj) return false;
+  if (key === 'pointsize') {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return false;      // ⚠ 这一行就是"静默变 NaN"的对策：非有限值不落盘
+    nodeWrite(obj, 'pointsize', n);
+    apiBump('textPointsizeWrite');
+    return true;
+  }
+  if (key === 'font') {
+    nodeWrite(obj, 'font', v == null ? '' : String(v));
+    apiBump('textFontWrite');
+    return true;
+  }
+  if (v == null) return false;
+  nodeWrite(obj, key, String(v));
+  apiBump('textAlignWrite');
+  return true;
+};
+
+/* ①(P-143) `originalOrigin`（**官方 d.ts/文档都没有**；真机语料 3 个包 + 行为对照 wer-ref
+ *   `WPSceneScriptHost.cpp:2268-2295`：它把 originalOrigin 实现成"**作者 authored 的**层 origin"
+ *   —— 逐字结论 "Wallpaper Engine exposes originalOrigin as the authored base layer origin,
+ *   not the script-updated runtime origin"，且从**载入时抓的初始层配置**里取、并解 `{value}` 节点；
+ *   同文件 `:6747-6752` 只在"该层仍有初始配置记录"时才把 originalOrigin 报成存在的成员。
+ *   ⇒ 依据强度：**中**（两条独立行为证据 + 真包调用点；非官方类型声明）。
+ *
+ *   为什么必须有"快照"而不是直接读 `obj.origin`：本文件的脚本宿主会把作者脚本的返回值写回
+ *   **同一个节点的 `value`**（`runScriptValueCached`：`scriptVal.value = formatResult(result)`）⇒
+ *   `obj.origin.value` 是**运行值**，不是 authored 值。用运行值当 originalOrigin，"恢复初始位置"
+ *   就退化成 no-op（静默错值）。所以快照必须在**任何脚本跑之前**抓：入口 `applySceneScripts`
+ *   在 prepare 趟之前调 `snapshotAuthoredOrigins(sceneObjects)`；`createLayer` 造的新层在返回给
+ *   作者之前抓（否则下一帧抓到的已经是作者脚本动过的位置）。
+ *   没有任何记录可抓时（例如测试直接 `makeSceneRef(objects)` 后再读）⇒ **惰性补抓当前值**
+ *   （尽力而为）并计 `originalOriginMiss`（可观测的降级，不静默）。空引用 ⇒ Vec3(0,0,0)（有限值）。 */
+const AUTHORED_ORIGIN = new WeakMap();
+/** 抓一份 authored origin 快照（幂等：已有记录不覆盖）。返回记录或 null。 */
+function noteAuthoredOrigin(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  let rec = null;
+  try { rec = AUTHORED_ORIGIN.get(obj) || null } catch { rec = null }
+  if (rec) return rec;
+  const p = toXYZShared(nodeRaw(obj.origin));
+  rec = p || [0, 0, 0];
+  try { AUTHORED_ORIGIN.set(obj, rec) } catch { /* ignore */ }
+  return rec;
+}
+/** 在**任何脚本跑之前**给整层表抓快照（applySceneScripts 的 prepare 趟之前调用）。
+ *  返回本次新抓的层数（第二次起恒 0 = 幂等，不覆盖第一帧的真值）。 */
+export function snapshotAuthoredOrigins(objects) {
+  let n = 0;
+  for (const o of Array.isArray(objects) ? objects : []) {
+    if (!o || typeof o !== 'object') continue;
+    let has = false;
+    try { has = AUTHORED_ORIGIN.has(o) } catch { has = false }
+    if (!has) { noteAuthoredOrigin(o); n++ }
+  }
+  return n;
+}
+/** 读 authored origin（**永远返回有限值的 Vec3**：作者脚本会直接 `.add()/.subtract()`）。 */
+const authoredOriginOf = (obj) => {
+  if (!obj || typeof obj !== 'object') { apiBump('originalOriginMiss'); return new Vec3(0, 0, 0) }
+  let rec = null;
+  try { rec = AUTHORED_ORIGIN.get(obj) || null } catch { rec = null }
+  if (!rec) { apiBump('originalOriginMiss'); rec = noteAuthoredOrigin(obj) || [0, 0, 0] }
+  else apiBump('originalOriginRead');
+  return new Vec3(rec[0], rec[1], rec[2]);
+};
+
+/* ①(P-143) `IEffectLayer.getEffect(name|Number): IEffect` + `getEffectCount(): Number`
+ *   （官方 d.ts L775-784；`ILayer extends … IEffectLayer …` L1139 ⇒ `thisLayer` 上就有）。
+ *   真值落点（两份真包的 scene.json 实测）：层的 `effects: [ { file, id, name, visible,
+ *   passes:[{ constantshadervalues:{…}, id }] } ]` —— `getEffect(0)` = 下标、
+ *   `getEffect('阴影-设置3')` = 按 `name` 找（0923/2887099508 的 '中-菜单-浮动' 有
+ *   ""/阴影-设置1..4 五个 effect）；`visible` 可能是作者的 `{script,value}` 节点
+ *   （0923/3122339805 的 effects[0].visible 就是脚本节点）。
+ *   解析不到（层没有 effects / 名字对不上 / 下标越界）⇒ 返回**安全句柄**（不是 undefined，
+ *   作者紧跟的 `.visible = …` 不抛错）+ 计 `getEffectUnresolved`（不静默）。
+ *   依据强度：高（官方签名 + 两份真包调用点与真值结构）。 */
+const EFFECT_REF_OF = new WeakMap();
+const effectListOf = (obj) => (obj && Array.isArray(obj.effects)) ? obj.effects : null;
+const effectIndexOf = (obj, nameOrIndex) => {
+  const list = effectListOf(obj);
+  if (!list || !list.length) return -1;
+  if (typeof nameOrIndex === 'number') {
+    const i = Math.trunc(nameOrIndex);
+    return (i >= 0 && i < list.length) ? i : -1;
+  }
+  if (typeof nameOrIndex === 'string') {
+    for (let i = 0; i < list.length; i++) { const e = list[i]; if (e && typeof e.name === 'string' && e.name === nameOrIndex) return i }
+    return -1;
+  }
+  return -1;
+};
+/** 官方 `IMaterial extends IObject {}`（d.ts L512-514 没有自己的字段）⇒ 只给 IObject 面
+ *  （`getAnimation(name?)`，d.ts L494-499），与其它 IObject 句柄同一份实现。 */
+const makeMaterialRef = () => ({
+  getAnimation: (name) => { apiBump('getAnimation'); return makeAnimationRef(null, name) },
+});
+/** 一个 IEffect 句柄（同一个 effect 每次访问返回**同一个对象** ⇒ 作者缓存它、改一处不分叉）。 */
+function makeEffectRef(obj, index, requestedName) {
+  const eff = (obj && index >= 0) ? ((effectListOf(obj) || [])[index] || null) : null;
+  const ref = {
+    get visible() { return eff ? (nodeRaw(eff.visible) !== false) : true },   // 未解析 ⇒ true（没有可关的效果，不编造 false）
+    set visible(v) { if (eff) { nodeWrite(eff, 'visible', !!v); apiBump('effectWrite') } else apiBump('effectWriteUnresolved') },
+    get name() {
+      if (eff && typeof eff.name === 'string') return eff.name;
+      return typeof requestedName === 'string' ? requestedName : '';
+    },
+    set name(v) { if (eff) { nodeWrite(eff, 'name', v == null ? '' : String(v)); apiBump('effectWrite') } else apiBump('effectWriteUnresolved') },
+    getMaterialCount: () => (eff && Array.isArray(eff.passes)) ? eff.passes.length : 0,
+    /** 官方 `IMaterial extends IObject {}`（d.ts L512-514 **没有**自己的字段）⇒ 只给 IObject 面；
+     *  pass 的常量表通过上面的 `setMaterialProperty` 写（那才是官方提供的写入口）。
+     *  未解析的 effect 也给同一个句柄形状（作者 `getMaterial(0).getAnimation(name)` 不抛错）。 */
+    getMaterial: () => makeMaterialRef(),
+    /** 官方："Set a property value on all materials used by this effect that have a matching property."
+     *  真值落点 = 各 pass 的 `constantshadervalues`（语料里那些 `.effects[i].passes[0].constantshadervalues`
+     *  脚本节点就是同一处）；只写**已经存在**的键（"that have a matching property" 逐字语义）。 */
+    setMaterialProperty: (propertyName, value) => {
+      if (!eff || !Array.isArray(eff.passes)) { apiBump('effectWriteUnresolved'); return }
+      const key = String(propertyName);
+      const w = (value && typeof value === 'object')
+        ? (Array.isArray(value) ? value.join(' ') : `${Number(value.x) || 0} ${Number(value.y) || 0} ${Number(value.z) || 0}`)
+        : value;
+      let n = 0;
+      for (const pass of eff.passes) {
+        const csv = pass && pass.constantshadervalues;
+        if (csv && typeof csv === 'object' && key in csv) { nodeWrite(csv, key, w); n++ }
+      }
+      if (n) apiBump('effectWrite', n); else apiBump('effectWriteUnresolved');
+    },
+  };
+  return ref;
+}
+/** `getEffect` 的唯一入口：解析 + 稳定句柄缓存 + 计数。 */
+function effectRefFor(obj, nameOrIndex) {
+  const index = effectIndexOf(obj, nameOrIndex);
+  if (index < 0) { apiBump('getEffectUnresolved'); return makeEffectRef(obj, -1, nameOrIndex) }
+  apiBump('getEffect');
+  let box = null;
+  try { box = obj ? EFFECT_REF_OF.get(obj) : null } catch { box = null }
+  if (!box) { box = new Map(); if (obj) { try { EFFECT_REF_OF.set(obj, box) } catch { /* ignore */ } } }
+  let r = box.get(index);
+  if (!r) { r = makeEffectRef(obj, index, nameOrIndex); box.set(index, r) }
+  return r;
+}
+const effectCountOf = (obj) => { apiBump('getEffectCount'); const l = effectListOf(obj); return l ? l.length : 0 };
+
+/* ①(P-143) `thisLayer.debug`（真包 0923/3662790108 两处 `if (thisLayer.debug) { console.log(…) }`）。
+ *  ⚠ 依据强度：**低** —— 官方 d.ts 与官方 ILayer 文档页都**没有**这个成员（实测 grep 两份都 0 命中），
+ *  所以不存在"官方语义优先"可依。取"**布尔调试开关，缺省 false**"是唯一不改变作者行为的安全缺省：
+ *    · 读：`false`（调试输出保持关闭 = WE 里该分支不成立的同一观感），且 `typeof` 是 `'boolean'`
+ *      而不是 `'undefined'` ⇒ `if (x === false)` / `!x` / `String(x)` 这类写法不再因类型不同走岔；
+ *    · 写：记进 WeakMap（`thisLayer.debug = true` 之后读得到 true，作者自建的调试开关自洽）+ 计数；
+ *    · 绝不在 `obj` 上凭空造 `debug` 键（scene.json 形状不被污染）。
+ *  没有把 `thisLayer.debug` 映射到作者的 `scriptProperties.debug`（虽然那个包的作者显然想要那个效果）：
+ *   官方没有这条映射，编造映射会让"读的是层属性"这一语义在别的包里悄悄变味。 */
+const LAYER_DEBUG_STATE = new WeakMap();
+const debugFlagOf = (obj) => {
+  apiBump('debugRead');
+  if (!obj) return false;
+  try { return LAYER_DEBUG_STATE.get(obj) === true } catch { return false }
+};
+const writeDebugFlag = (obj, v) => {
+  if (!obj) return false;
+  try { LAYER_DEBUG_STATE.set(obj, !!v); apiBump('debugWrite'); return true } catch { return false }
+};
+
+/* ①(P-143) **"作者显式属性写优先于返回值"**（键 = 脚本节点对象本身）。
+ *   背景：`runScriptValueCached` 在 update/init 返回后会把返回值写回节点（`scriptVal.value = formatResult(r)`），
+ *   而作者的返回值常常是**进入函数时的快照**（`export function update(value) { thisLayer.origin = …; return value; }`
+ *   —— `value` 是赋值前的旧值）⇒ 会把刚写的显式赋值**回滚**。
+ *   旧实现为什么"看起来没事"：`thisLayer.origin = …` 直接把整个 `{script,value}` 节点替换成字符串 ⇒
+ *   返回值落进那个**已经脱离场景树**的节点，场景里留下的是显式赋值 —— 但代价是作者的脚本节点被删掉、
+ *   下一帧 `collect()` 再也找不到它（作者的属性脚本**永久停摆**，静默）。
+ *   本批把 origin/scale 的写改成 nodeWrite（保节点）之后，必须同时把"显式写优先"这条语义显式补上，
+ *   否则 P-60 的既有契约（tests/script-owner-live-test.mjs T3b：脚本里写 origin 必须落在场景对象上）会破。
+ *   机制：setter 里 nodeWrite 之后把**那个节点对象**记进 WeakSet；runScriptValueCached 在调用前后
+ *   各清一次，只在"本次调用期间发生过显式写"时跳过返回值写回（不会跨帧残留）。 */
+const EXPLICIT_PROP_WRITE = new WeakSet();
+const markExplicitPropWrite = (obj, key) => {
+  const node = obj ? obj[key] : null;
+  if (node && typeof node === 'object') { try { EXPLICIT_PROP_WRITE.add(node) } catch { /* ignore */ } }
 };
 /** ①(P-141) 定义**访问器**（不是数据属性）。为什么不用 `Object.assign(target, { get x() {} })`：
  *   `Object.assign` 对源对象的访问器是**取值后拷贝**（规范 [[Get]] + CreateDataProperty）⇒ 目标上
@@ -202,6 +506,17 @@ const defineAccessors = (target, spec) => {
   }
   return target;
 };
+
+/** ①(P-142 2026-09-23) `IImageLayer.getAnimationLayerCount(): Number`（d.ts L1017-1020；`IModelLayer`
+ *   同款 L1096）—— `getAnimationLayer` 的**官方伴生成员**，`in` 检查与循环都成对出现：
+ *   语料实例 `0923/3521337568`、`0923/3653641024`（NSL 库）与 `0917/3462491575`：
+ *     `let aniCount = overrideAniCount === null ? thisLayer.getAnimationLayerCount() : overrideAniCount`
+ *     `for (i = 0; i < aniCount; i++) initSwayAni(thisLayer.getAnimationLayer(i), …)`
+ *   （同段的 `if (!'getAnimationLayer' in thisLayer) throw 'You can only use …in image layers'` 也说明
+ *   NSL 把这一族当成图片层的判据。）缺了它就是 `is not a function`、整段动画初始化死掉。
+ *   口径与 `getAnimationLayer()` 返回的句柄上的同名成员**完全一致**（同一份 `animRefShared`，含
+ *   "没有 `animationlayers` 字段 ⇒ 1"的既有口径）⇒ 一个 ILayer 概念不会出现两套数。 */
+const animLayerCountOf = (obj) => animRefShared(obj).getAnimationLayerCount();
 
 /* ①(P-141) 层引用 → 场景对象的**身份表**。
  *   `thisScene.getLayerIndex(thisLayer)` 必须能把"层引用"映射回 `scene.objects` 里的那个对象；
@@ -468,6 +783,38 @@ export function makeSceneRef(objects, hooks) {
     ...makePlaybackRef(obj),
     // ①(P-141) 官方 `IObject.getAnimation(name?: String): IAnimation`（d.ts L494-499）
     getAnimation: (name) => { apiBump('getAnimation'); return makeAnimationRef(obj, name) },
+    /* ①(P-142) 官方 `IImageLayer.getAnimationLayer(name: String|Number): IAnimationLayer`
+     *   （d.ts L1022-1025；`IModelLayer` 同款 L1096-1101）—— `thisLayer` 那一半（makeOwnerRef 的
+     *   layerRef）早就有，缺的是**本工厂**这一半 ⇒ 真包 `0923/2887099508` 的混淆脚本
+     *   `thisScene.getLayer('front leg').getAnimationLayer('神腿').setFrame(29)` 抛
+     *   `thisScene[..](...).getAnimationLayer is not a function`（init 失败、实例被永久禁用）。
+     *   返回与 `thisLayer.getAnimationLayer()` **同一份** `animRefShared`（no-op 面 + 计数）：
+     *   本机渲染器没有可寻址的骨骼动画播放器，句柄让作者的 setFrame/play 有落点且不抛错。
+     *   依据强度：高（官方签名 + 真包调用点 + 同文件 thisLayer 那一半的既有实现）。 */
+    getAnimationLayer: (name) => { apiBump('getAnimationLayer'); return animRefShared(obj) },
+    // ①(P-142) 伴生计数（见模块级 animLayerCountOf 注释）：与上面返回的句柄同一个数
+    getAnimationLayerCount: () => animLayerCountOf(obj),
+    // ①(P-142) 官方 `ITextLayer.text`（见上方 textOf/writeText 注释）：与 thisLayer 同一套读写面。
+    get text() { return textOf(obj) },
+    set text(v) { writeText(obj, v) },
+    /* ①(P-143) `ITextLayer` 的四个值成员 + `IEffectLayer.getEffect/getEffectCount`（IEffectLayer 同属
+     *   ILayer，d.ts L1139）+ `originalOrigin` + `debug` —— 见文件上方 P-143 长注释。
+     *   ⚠ `thisScene.getLayer(name)` 返回的层引用与 `thisLayer` 是**同一个 ILayer 概念**（P-137 的教训：
+     *   不能两套属性面），所以这一份必须与 makeOwnerRef 的 layerRef/objectRef 逐位同源。 */
+    get pointsize() { return pointsizeOf(obj) },
+    set pointsize(v) { textLayerWrite(obj, 'pointsize', v) },
+    get font() { return fontOf(obj) },
+    set font(v) { textLayerWrite(obj, 'font', v) },
+    get horizontalalign() { return alignOf(obj, 'horizontalalign') },
+    set horizontalalign(v) { textLayerWrite(obj, 'horizontalalign', v) },
+    get verticalalign() { return alignOf(obj, 'verticalalign') },
+    set verticalalign(v) { textLayerWrite(obj, 'verticalalign', v) },
+    get originalOrigin() { return authoredOriginOf(obj) },
+    set originalOrigin(v) { /* 官方无此写入口（wer-ref 同款只读虚拟成员）⇒ 静默丢弃不抛错 */ },
+    getEffect: (name) => effectRefFor(obj, name),
+    getEffectCount: () => effectCountOf(obj),
+    get debug() { return debugFlagOf(obj) },
+    set debug(v) { writeDebugFlag(obj, v) },
     // ①(P-141) 语料写法（官方无此成员；官方模型里"本层的粒子系统"就是本层自己）⇒ 返回 IParticleSystem 视图
     getParticleSystem: () => { apiBump('getParticleSystem'); return particleRefFor(obj) },
     get instance() { return particleInstanceOf(obj) },
@@ -475,6 +822,9 @@ export function makeSceneRef(objects, hooks) {
     cursorDetected: false,
   });
   const objList = Array.isArray(objects) ? objects : [];
+  /* ①(P-143) `originalOrigin` 的 authored 快照：本工厂在 `applySceneScripts` 里是在三趟之前建的，
+   *   所以在这里抓一次就等价于"任何脚本跑之前"（幂等：先到先得，后续调用不覆盖）。 */
+  snapshotAuthoredOrigins(objList);
   // ①(P-141) 层引用 → 场景对象身份表（`getLayerIndex(thisLayer)` 靠它解析；见文件上方 P-141 块）
   const asLayer = (obj) => bindLayerObject(layer(obj), obj);
   const emptyLayer = (name) => asLayer({ name: name || '', origin: '0 0 0', scale: '1 1 1', size: '0 0 0', visible: true, id: -1 });
@@ -483,7 +833,28 @@ export function makeSceneRef(objects, hooks) {
   //   写入不抛错），只是不再进入 objList/`enumerateLayers()`，并计入 `createLayerReused`（可观测）。
   const MAX_DYNAMIC_LAYERS = 2048;
   let dynSeq = 0;
-  return {
+  /* ①(P-142 2026-09-23) `destroyLayer` 的两个零件（成员本体见下方 api.destroyLayer）：
+   *   · `resolveLayerArg`：解析口径与既有的 sortLayer / getLayerIndex / getInitialLayerConfig **逐字
+   *     相同**（字符串 = 层名、数字 = 层表下标、对象 = 层引用；`thisLayer` 那个 owner 层引用靠
+   *     hooks 还原成场景对象）。这里抽成一处只给 destroyLayer 用，既有三个成员维持原状不动。
+   *   · `destroyQueue`：官方是**延迟删除**（"removed after all scripts on that frame updated"）⇒
+   *     先入队，`applySceneScripts` 在本帧两趟跑完后调 `__flushDestroyedLayers()` 真摘。
+   *     注：本工厂**每次 applySceneScripts 新建一个**（`opts.thisScene` 没给时）⇒ 队列只在
+   *     "一次调用"内有意义，而官方要的"这一帧内"正好就是这个窗口。 */
+  const resolveLayerArg = (layerOrName) => {
+    if (typeof layerOrName === 'string') return objList.find((x) => x && x.name === layerOrName) || null;
+    if (typeof layerOrName === 'number') return objList[Math.trunc(layerOrName)] || null;
+    if (layerOrName && typeof layerOrName === 'object') {
+      const o = layerObjectOf(layerOrName);
+      if (o) return o;
+      if (typeof hk.ownerLayerRef === 'function' && layerOrName === hk.ownerLayerRef()) {
+        return (typeof hk.ownerObj === 'function' ? hk.ownerObj() : null) || null;
+      }
+    }
+    return null;
+  };
+  const destroyQueue = [];
+  const api = {
     // ①(2026-09-12) 上报错误 "thisScene.enumerateLayers is not a function"（3544152633 的 Clock/
     //   $mediaThumbnail/playerplay 都用它遍历层找 player/媒体层）→ 返回全部层引用。
     enumerateLayers: () => objList.map((o) => asLayer(o)),
@@ -556,6 +927,10 @@ export function makeSceneRef(objects, hooks) {
         visible: true,
       }, src, { id: top + (++dynSeq), name: src.name || ('__mpw_dyn_' + dynSeq) });
       obj.__dynamic = true;                       // 记号：宿主/诊断可区分"脚本新建的层"
+      // ①(P-143) 新层的 `originalOrigin` **就是它被创建时的 origin**（wer-ref 的等价物是"载入时
+      //   的初始层配置"）。必须在这里抓：作者拿到句柄后往往立刻写 origin（洛茜_07/11 的音频条、
+      //   0917/3509243656 的轨迹点），下一帧由 applySceneScripts 统一抓时已经不是 authored 值了。
+      noteAuthoredOrigin(obj);
       if (objList.length < MAX_DYNAMIC_LAYERS) { objList.push(obj); apiBump('createLayer'); return asLayer(obj) }
       apiBump('createLayerReused');
       return layer(obj);                          // 超上限：仍给属性齐全的层引用，只是不进场景表
@@ -604,6 +979,98 @@ export function makeSceneRef(objects, hooks) {
       return out;
     },
   };
+  /* ①(P-142) `IScene.destroyLayer(layer: String|Number|ILayer): Boolean`（d.ts L1270-1272）。
+   *   官方注释逐字："Remove a layer by name, index or object. **The layer is removed after all
+   *   scripts on that frame updated.**" ⇒ 两段语义都实现：
+   *     · 解析：名字 / 下标 / 层引用（含 `thisLayer`），解析不到 ⇒ 返回 **false**（官方 Boolean，
+   *       不抛错）；重复请求同一层只入队一次。
+   *     · 时机：**不在调用点摘层**，而是入队；由 `applySceneScripts` 在本帧 init+update 两趟都跑完
+   *       之后调 `__flushDestroyedLayers()` 真从层表（= 宿主传进来的 `renderObjects` = `scene.objects`）
+   *       里 splice 掉。提前摘会让同帧后续脚本的 `getLayerIndex`/`enumerateLayers` 看到位移后的下标。
+   *   数字参数按**下标**解：d.ts 对 destroyLayer 列的是 "name, index or object"（而 getLayer 那一处
+   *   写的是 "editor name, index or ID"）⇒ 不把数字另外当 ID 解，避免摘错层。
+   *   语料：`0923/2887099508` 的混淆脚本 4+14 处（`thisScene.destroyLayer(0x0/0x1/0x2/0x5)` 拆 UI 层）。
+   *   依据强度：高（官方 d.ts 逐字 + 语料调用点）。 */
+  api.destroyLayer = (layerOrName) => {
+    const o = resolveLayerArg(layerOrName);
+    if (!o) { apiBump('destroyLayerUnresolved'); return false; }
+    if (destroyQueue.indexOf(o) < 0) destroyQueue.push(o);
+    apiBump('destroyLayer');
+    return true;
+  };
+  /* ①(P-142) 官方 `IScene.getAnimation(name?: String): IAnimation`（d.ts L1305-1308 “Get an animation
+   *   object by name from any layer”）—— 与 `getAnimationLayer` 同一条暴露链上的下一个缺口
+   *   （真包 0923/2887099508 的 init：`thisScene.getAnimation(name).setFrame(29)`）。
+   *   本机没有"按名字跨层查找动画实例"的表（动画层由 core 按对象解析），⇒ 返回 **IAnimation 句柄**
+   *   （与 `thisLayer.getAnimation` 同一份实现；状态挂在"无对象"槽上）：作者脚本的 setFrame/rate
+   *   有落点、不抛错，但**不改渲染**。
+   *   依据强度：中 —— 官方签名与真包调用点是一手证据；返回值语义按"能读能写、不确定就不编造状态"补。 */
+  api.getAnimation = (name) => { apiBump('getAnimation'); return makeAnimationRef(null, name) };
+  /* ①(P-142 链式暴露) 官方 `IScene.getCameraTransforms(): CameraTransforms` / `setCameraTransforms(t): void`
+   *   （d.ts L1290-1303；`class CameraTransforms { eye: Vec3; center: Vec3; up: Vec3; zoom: Number }`
+   *   L243-250）。
+   *   为什么本轮要补：`destroyLayer` 修好后，`0923/2887099508` 里**同一条链**上的下一个成员立刻暴露
+   *   （`objects[52].visible` 的 update：`let ct = thisScene.getCameraTransforms(); ct.eye.subtract(...)`）
+   *   —— 这正是前几轮"链式暴露"的同款形态。
+   *   取值来源（**真值而非编造**）：scene.json 根上的 `camera`（`{center, eye, up}` 三个 "x y z" 串）
+   *   与 `general.zoom` —— 就是这个真包的
+   *   `"camera":{"center":"49.04232 -716.01788 -1.00000","eye":"…","up":"0 1 0"}`。
+   *   走 `hooks.camera()`（applySceneScripts 把 `scene` 根交给它）；没有 root 时退回默认值
+   *   （eye/center = 原点、up = +Y、zoom = 1，与官方 CameraTransforms 的中性值一致）。
+   *   `setCameraTransforms` 按同一份字段**写回**（格式与 authored 相同 = "x y z" 六位小数串，
+   *   `zoom` 写进 general）—— 官方那句注释就是 "Set current static scene camera transforms"，
+   *   所以这是写穿而不是 no-op。
+   *   依据强度：高（官方 d.ts 签名 + CameraTransforms 类型 + 真包 scene.json 的字段 `camera`/`general.zoom`）。 */
+  const cameraRoot = () => (typeof hk.camera === 'function' ? hk.camera() : null);
+  // 没有 scene.camera / scene.general 时的落点：**不往 scene.json 上凭空造键**（那会改变场景形状，
+  // 而 `core/we-scene-bundle.js` 在烘焙时已经把 `sceneJson.camera || null` 抓走了）——读写都落在这里，
+  // 于是"设了再读"自洽；场景本来就有 camera 时全部走真值对象（写穿 = 真改渲染器读的那份）。
+  const camStore = {};
+  const camNode = () => { const r = cameraRoot(); return (r && r.camera && typeof r.camera === 'object') ? r.camera : camStore; };
+  const genNode = () => { const r = cameraRoot(); return (r && r.general && typeof r.general === 'object') ? r.general : camStore; };
+  const v3of = (raw, def) => {
+    const v = rawVal(raw);
+    const p = String(v == null ? '' : v).trim().split(/\s+/).map(Number);
+    return new Vec3(isFinite(p[0]) ? p[0] : def[0], isFinite(p[1]) ? p[1] : def[1], isFinite(p[2]) ? p[2] : def[2]);
+  };
+  const fmt3 = (v) => `${Number(v.x != null ? v.x : v[0] || 0).toFixed(6)} ${Number(v.y != null ? v.y : v[1] || 0).toFixed(6)} ${Number(v.z != null ? v.z : v[2] || 0).toFixed(6)}`;
+  api.getCameraTransforms = () => {
+    apiBump('getCameraTransforms');
+    const cam = camNode();
+    const zoom = Number(rawVal(genNode().zoom));
+    return {
+      eye: v3of(cam.eye, [0, 0, 0]),
+      center: v3of(cam.center, [0, 0, 0]),
+      up: v3of(cam.up, [0, 1, 0]),
+      zoom: isFinite(zoom) && zoom > 0 ? zoom : 1,
+    };
+  };
+  api.setCameraTransforms = (t) => {
+    apiBump('setCameraTransforms');
+    if (!t || typeof t !== 'object') return;
+    const cam = camNode();
+    if (t.eye !== undefined) cam.eye = fmt3(t.eye);
+    if (t.center !== undefined) cam.center = fmt3(t.center);
+    if (t.up !== undefined) cam.up = fmt3(t.up);
+    const z = Number(t.zoom);
+    if (isFinite(z) && z > 0) genNode().zoom = z;
+  };
+  // ①(P-142) 帧末落地（`applySceneScripts` 调用）：把本帧排队删掉的层真从 `objList` 摘掉。
+  //   非枚举（脚本 `Object.keys(thisScene)`/for-in 看不到它，不污染作者可见的对象面）。
+  Object.defineProperty(api, '__flushDestroyedLayers', {
+    value: () => {
+      let n = 0;
+      for (const o of destroyQueue) {
+        const i = objList.indexOf(o);
+        if (i >= 0) { objList.splice(i, 1); n++; }
+      }
+      destroyQueue.length = 0;
+      if (n) apiBump('destroyLayerFlushed', n);
+      return n;
+    },
+    enumerable: false, configurable: true, writable: true,
+  });
+  return api;
 }
 
 // 当前脚本所属对象代理: thisObject/thisLayer 通过它指向"当前对象",
@@ -648,12 +1115,26 @@ function makeOwnerRef() {
       getTextureAnimation: () => texAnimRef(null),
       getVideoTexture: () => videoTexRefShared(null),
       getAnimationLayer: () => animRef(null),
+      getAnimationLayerCount: () => animLayerCountOf(null),
       // ①(P-141) 空层引用也要有完整 ILayer 面（官方 IObject.getAnimation / ISoundLayer / IParticleSystem）
       ...makePlaybackRef(null),
       getAnimation: (name) => { apiBump('getAnimation'); return makeAnimationRef(null, name) },
       getParticleSystem: () => { apiBump('getParticleSystem'); return particleRefFor(null) },
       get instance() { return particleInstanceOf(null) },
       get visible() { return true }, set visible(v) {},
+      // ①(P-142) 官方 ITextLayer.text（见模块级 textOf/writeText）：空引用给 `''`（可 toString）而不是 undefined
+      get text() { return '' }, set text(v) {},
+      /* ①(P-143) 空层引用也要有**完整的** ILayer 面（与 layerRef/layerRefFor 同一套；P-137 的教训：
+       *   同一个 ILayer 概念不能两套属性面）。缺成员会让 `parent.getEffect(...)`/`parent.pointsize`
+       *   掉回 undefined ⇒ 又是静默 NaN/错分支。缺省与真层一致（pointsize 32 等），写全部静默丢弃。 */
+      get pointsize() { return 32 }, set pointsize(v) {},
+      get font() { return '' }, set font(v) {},
+      get horizontalalign() { return HAlignDefault }, set horizontalalign(v) {},
+      get verticalalign() { return VAlignDefault }, set verticalalign(v) {},
+      get originalOrigin() { return new Vec3(0, 0, 0) }, set originalOrigin(v) {},
+      getEffect: (name) => { apiBump('getEffectUnresolved'); return makeEffectRef(null, -1, name) },
+      getEffectCount: () => { apiBump('getEffectCount'); return 0 },
+      get debug() { return false }, set debug(v) {},
       get origin() { return new Vec3(0, 0, 0) }, set origin(v) {},
       get scale() { return new Vec3(1, 1, 1) }, set scale(v) {},
       get size() { return new Vec3(0, 0, 0) }, set size(v) {},
@@ -669,11 +1150,13 @@ function makeOwnerRef() {
   const layerRefFor = (obj) => {
     if (!obj) return emptyLayerRef()
     const parentObj = (obj.parent !== undefined && obj.parent !== null && ref.byId) ? ref.byId.get(obj.parent) : null
-    return bindLayerObject(Object.assign(Object.create(null), emptyLayerRef(), {
+    const built = Object.assign(Object.create(null), emptyLayerRef(), {
       getTransformMatrix: () => transformMatrixOf(obj),
       getParent: () => layerRefFor(parentObj),
       getTextureAnimation: () => texAnimRef(obj),
       getVideoTexture: () => videoTexRefShared(obj),
+      // ①(P-142) getAnimationLayer 的伴生计数（本引用是 Object.assign 摊平的，见下方 text 的同类说明）
+      getAnimationLayerCount: () => animLayerCountOf(obj),
       // ①(P-141) 同一套 ILayer 面（见文件上方 P-141 块）：IObject.getAnimation / ISoundLayer / IParticleSystem
       ...makePlaybackRef(obj),
       getAnimation: (name) => { apiBump('getAnimation'); return makeAnimationRef(obj, name) },
@@ -691,8 +1174,25 @@ function makeOwnerRef() {
       get id() { return obj.id },
       get alpha() { return obj.alpha === undefined ? 1 : Number(obj.alpha) },
       set alpha(v) { obj.alpha = v },
+      // ①(P-143) 方法形态的成员（不是访问器 ⇒ 不会被 Object.assign 摊平，可以直接留在字面量里）
+      getEffect: (name) => effectRefFor(obj, name),
+      getEffectCount: () => effectCountOf(obj),
       clicked: false, cursorDetected: false,
-    }))
+    })
+    /* ①(P-142) `text` 必须**单独重挂成访问器**：上面那份字面量是 `Object.assign` 的源 ⇒ 访问器在
+     *   赋值时被**取值摊平成快照数据属性**（本文件 defineAccessors 上方注释记的正是这个坑），写在
+     *   `getParent()` 引用上的 `text` 会静默丢失。读=层的文本、写=写穿节点 value，与 thisLayer 同一面。 */
+    /* ①(P-143) 同一坑对新成员同样成立（它们全是访问器）⇒ 一并在这里重挂；`originalOrigin` 尤其必须
+     *   是**每次访问重新读**（快照可能在这一帧稍后才被 createLayer/applySceneScripts 抓上）。 */
+    return defineAccessors(bindLayerObject(built, obj), {
+      text: { get: () => textOf(obj), set: (v) => writeText(obj, v) },
+      pointsize: { get: () => pointsizeOf(obj), set: (v) => textLayerWrite(obj, 'pointsize', v) },
+      font: { get: () => fontOf(obj), set: (v) => textLayerWrite(obj, 'font', v) },
+      horizontalalign: { get: () => alignOf(obj, 'horizontalalign'), set: (v) => textLayerWrite(obj, 'horizontalalign', v) },
+      verticalalign: { get: () => alignOf(obj, 'verticalalign'), set: (v) => textLayerWrite(obj, 'verticalalign', v) },
+      originalOrigin: { get: () => authoredOriginOf(obj), set: () => { /* 只读虚拟成员：静默丢弃不抛错 */ } },
+      debug: { get: () => debugFlagOf(obj), set: (v) => writeDebugFlag(obj, v) },
+    })
   }
   // ①(P-60 2026-09-14 第1项时钟错位根因) **必须每次属性访问时重新读 ref.current**：
   //   旧实现把 `const obj = ref.current` 写在工厂函数体开头，而 makeLayer()/makeObject() 在
@@ -706,6 +1206,7 @@ function makeOwnerRef() {
     const cur = () => ref.current;
     return {
       getAnimationLayer: (i) => animRef(cur()),
+      getAnimationLayerCount: () => animLayerCountOf(cur()),
       getParent: () => { const obj = cur(); return layerRefFor(obj && ref.byId ? ref.byId.get(obj.parent) : null) },
       getTransformMatrix: () => transformMatrixOf(cur()),
       getTextureAnimation: () => texAnimRef(cur()),
@@ -738,19 +1239,53 @@ function makeOwnerRef() {
       set origin(v) {
         const obj = cur(); const p = toXYZ(v);
         if (!obj || !p) return;
-        obj.origin = `${p[0].toFixed(6)} ${p[1].toFixed(6)} ${p[2].toFixed(6)}`;
+        /* ①(P-143) **写回不破坏节点**：原实现直接 `obj.origin = 字符串`，当 origin 是作者的
+         *   `{script,value}` 节点时会把节点整只换掉 ⇒ 下一帧 `applySceneScripts.collect()` 再也找不到
+         *   这个脚本、作者的 origin 脚本**永久停摆**（静默）。必须走 nodeWrite（与 thisScene 的层引用、
+         *   P-141 的 alpha/parallaxDepth 同一口径）。本批的直接触发场景：真包 0923/3521337568 /
+         *   3653641024 / dd/3554161528 的 NSL 拖动库 `thisLayer.origin = thisLayer.originalOrigin`
+         *   （"恢复初始位置"）—— 节点若被换掉，这条重置只在第一帧生效。 */
+        nodeWrite(obj, 'origin', `${p[0].toFixed(6)} ${p[1].toFixed(6)} ${p[2].toFixed(6)}`);
+        markExplicitPropWrite(obj, 'origin');   // ①(P-143) 显式赋值优先于返回值（见 EXPLICIT_PROP_WRITE 注释）
       },
       get scale() { const obj = cur(); return obj ? parseV(obj.scale, [1, 1, 1]) : new Vec3(1, 1, 1); },
       set scale(v) {
         const obj = cur(); const p = toXYZ(v);
         if (!obj || !p) return;
-        obj.scale = `${p[0].toFixed(6)} ${p[1].toFixed(6)} ${p[2].toFixed(6)}`;
+        nodeWrite(obj, 'scale', `${p[0].toFixed(6)} ${p[1].toFixed(6)} ${p[2].toFixed(6)}`);   // ①(P-143) 同上：保节点
+        markExplicitPropWrite(obj, 'scale');
       },
       // ①(P-137) `thisLayer.size`（IEffectLayer.size，官方 Vec2 / readonly）：长注释见 sizeOf 定义处
       get size() { return sizeOf(cur()); },
       set size(v) { /* 官方 readonly：静默丢弃而不抛错，理由见 sizeOf 上方注释 */ },
       get alpha() { const obj = cur(); return obj ? (obj.alpha != null ? obj.alpha : 1) : 1; },
       set alpha(v) { const obj = cur(); if (obj) obj.alpha = Number(v); },
+      // ①(P-142) 官方 `ITextLayer.text: String`（d.ts L812-816，`ILayer extends … ITextLayer` L1139）：
+      //   文本层脚本 `thisLayer.text.toString().split("|").join("\n")` 此前读到 undefined ⇒
+      //   `update:Cannot read properties of undefined (reading 'toString')`（真包 0923/3122339805 三处）。
+      get text() { return textOf(cur()) },
+      set text(v) { const obj = cur(); if (obj) writeText(obj, v); },
+      /* ①(P-143) `ITextLayer` 四个值成员 + `IEffectLayer.getEffect/getEffectCount` + `originalOrigin`
+       *   + `debug`（长注释见文件上方 P-143 块）。四条口径在这里的落点：
+       *     · **惰性 cur()**（P-60 的根因：编译期 ref.current 还是上一个节点的对象）；
+       *     · 读缺省**不为 NaN/undefined**（pointsize 32 / font '' / align left,top / originalOrigin Vec3(0,0,0)
+       *       / debug false）—— 真包 `佩丽卡1_03` 的 `value.y = … + thisLayer.pointsize * 0.36 + 5` 就是靠这条；
+       *     · 写走 `textLayerWrite`（nodeWrite 保节点 + pointsize 非有限值不落盘）；
+       *     · 每次命中计数（`sceneScriptApiDiag()` 可观测）。 */
+      get pointsize() { return pointsizeOf(cur()) },
+      set pointsize(v) { const obj = cur(); if (obj) textLayerWrite(obj, 'pointsize', v); },
+      get font() { return fontOf(cur()) },
+      set font(v) { const obj = cur(); if (obj) textLayerWrite(obj, 'font', v); },
+      get horizontalalign() { return alignOf(cur(), 'horizontalalign') },
+      set horizontalalign(v) { const obj = cur(); if (obj) textLayerWrite(obj, 'horizontalalign', v); },
+      get verticalalign() { return alignOf(cur(), 'verticalalign') },
+      set verticalalign(v) { const obj = cur(); if (obj) textLayerWrite(obj, 'verticalalign', v); },
+      get originalOrigin() { return authoredOriginOf(cur()) },
+      set originalOrigin(v) { /* 只读虚拟成员（wer-ref 同款）：静默丢弃不抛错 */ },
+      getEffect: (name) => effectRefFor(cur(), name),
+      getEffectCount: () => effectCountOf(cur()),
+      get debug() { return debugFlagOf(cur()) },
+      set debug(v) { const obj = cur(); if (obj) writeDebugFlag(obj, v); },
       get name() { const obj = cur(); return obj ? obj.name || '' : ''; },
       get id() { const obj = cur(); return obj ? obj.id : 0; },
       cursorDetected: false,
@@ -812,15 +1347,35 @@ function makeOwnerRef() {
       //   所以既有调用（语料 11 个包用 thisObject.getAnimation()）一个都不少，只是多出官方 IAnimation 面。
       getAnimation: (name) => { apiBump('getAnimation'); return makeAnimationRef(cur(), name) },
       get origin() { const obj = cur(); return obj ? parseV(obj.origin, [0, 0, 0]) : new Vec3(0, 0, 0); },
-      set origin(v) { const obj = cur(); const p = toXYZ(v); if (obj && p) obj.origin = `${p[0]} ${p[1]} ${p[2]}`; },
+      set origin(v) { const obj = cur(); const p = toXYZ(v); if (obj && p) { nodeWrite(obj, 'origin', `${p[0]} ${p[1]} ${p[2]}`); markExplicitPropWrite(obj, 'origin') } },   // ①(P-143) nodeWrite：保节点 + 显式写优先
       get scale() { const obj = cur(); return obj ? parseV(obj.scale, [1, 1, 1]) : new Vec3(1, 1, 1); },
-      set scale(v) { const obj = cur(); const p = toXYZ(v); if (obj && p) obj.scale = `${p[0]} ${p[1]} ${p[2]}`; },
+      set scale(v) { const obj = cur(); const p = toXYZ(v); if (obj && p) { nodeWrite(obj, 'scale', `${p[0]} ${p[1]} ${p[2]}`); markExplicitPropWrite(obj, 'scale') } },     // ①(P-143) 同上
       // ①(P-137) `thisObject.size`：与 thisLayer 同一个 ILayer 概念（属性绑定的对象就是该层），
       //   同一份 sizeOf 读取器 —— 缺了它，把 size 写在 thisObject 上的作者脚本会掉进同一条 TypeError。
       get size() { return sizeOf(cur()); },
       set size(v) { /* 官方 readonly：静默丢弃而不抛错，理由见 sizeOf 上方注释 */ },
       get visible() { const obj = cur(); return obj ? obj.visible !== false : true; },
       set visible(v) { const obj = cur(); if (obj) obj.visible = !!v; },
+      // ①(P-142) 官方 `ITextLayer.text`（thisObject 与 thisLayer 是同一个 ILayer 概念 ⇒ 不能两套面，
+      //   P-137 的 size 就是这么栽的）：读写都走模块级 textOf/writeText。
+      get text() { return textOf(cur()) },
+      set text(v) { const obj = cur(); if (obj) writeText(obj, v); },
+      /* ①(P-143) 与 thisLayer 逐位同源的四个文本成员 + getEffect/getEffectCount + originalOrigin + debug
+       *   （同一个 ILayer 概念 ⇒ 不能两套面；`thisObject` 就是该层）。 */
+      get pointsize() { return pointsizeOf(cur()) },
+      set pointsize(v) { const obj = cur(); if (obj) textLayerWrite(obj, 'pointsize', v); },
+      get font() { return fontOf(cur()) },
+      set font(v) { const obj = cur(); if (obj) textLayerWrite(obj, 'font', v); },
+      get horizontalalign() { return alignOf(cur(), 'horizontalalign') },
+      set horizontalalign(v) { const obj = cur(); if (obj) textLayerWrite(obj, 'horizontalalign', v); },
+      get verticalalign() { return alignOf(cur(), 'verticalalign') },
+      set verticalalign(v) { const obj = cur(); if (obj) textLayerWrite(obj, 'verticalalign', v); },
+      get originalOrigin() { return authoredOriginOf(cur()) },
+      set originalOrigin(v) { /* 只读虚拟成员：静默丢弃不抛错 */ },
+      getEffect: (name) => effectRefFor(cur(), name),
+      getEffectCount: () => effectCountOf(cur()),
+      get debug() { return debugFlagOf(cur()) },
+      set debug(v) { const obj = cur(); if (obj) writeDebugFlag(obj, v); },
       get name() { const obj = cur(); return obj ? obj.name || '' : ''; },
       get id() { const obj = cur(); return obj ? obj.id : 0; },
     };
@@ -1584,12 +2139,36 @@ export function peekAudioView(n) {
 }
 
 // 执行脚本值 (缓存模式): 编译一次, init 一次, 每帧 update(value) → 写回 obj.value
-// opts: { canvasSize, userProps, shared, sceneObjects, thisScene, cache, runtime, frametime, ownerRef }
+// opts: { canvasSize, userProps, shared, sceneObjects, thisScene, cache, runtime, frametime, ownerRef, phase }
+//   phase 语义（②P-142 2026-09-23 起**严格分趟**，见 applySceneScripts 的调用点）：
+//     'prepare' 只做"编译 + 模块顶层求值"，不跑任何生命周期（"先建全图"那一趟）
+//     'init'    只跑 init 生命周期（init → applyUserProperties），**不跑 update**
+//     'update'  只跑 update
+//     'both'    兼容档：一次调用里跑完 init + update（旧默认值；本文件内已无调用方，留给外部直用）
 function runScriptValueCached(scriptVal, time, opts = {}) {
-  const phase = opts.phase || 'both';   // ①(2026-09-12) 'init' | 'update' | 'both'（两趟执行用）
+  const phase = opts.phase || 'both';
   if (!scriptVal || typeof scriptVal !== 'object' || !('script' in scriptVal)) return;
   const src = scriptVal.script;
   const cache = opts.cache;
+  /* ①(P-142 2026-09-23) **ownerRef 必须在编译之前指向本节点**：`compileScript` 里的
+   *   `vm.runInContext(code, …)` 会把整段脚本执行一遍 ⇒ **模块顶层代码就在这一刻求值**
+   *   （作者把 `shared.xxx = …` 挂在顶层的那种"生产者"全都发生在这里）。顶层代码里读到的
+   *   `thisLayer/thisObject` 由 `ownerRef.current` 决定，而旧实现把 `setOwner` 放在编译**之后** ⇒
+   *   首次编译时顶层看到的是**上一个脚本节点留下的对象**（与 P-60 同一根因，只是发生位置在
+   *   模块顶层而不是某个 getter 里）。
+   *   为什么现在必须修：`applySceneScripts` 新增了 prepare 趟（一次性求值所有节点的模块顶层），
+   *   于是"编译时机"从"第一次被选中执行时"变成"第一帧的头一趟" ⇒ 这个错位会命中更多脚本。 */
+  const buildById = (r) => {
+    try {
+      if (r && !r.byId) {
+        const m = new Map();
+        for (const o of (opts.sceneObjects || [])) if (o && o.id !== undefined) m.set(o.id, o);
+        r.byId = m;
+      }
+    } catch { /* ignore */ }
+  };
+  buildById(opts.ownerRef);
+  if (opts.ownerRef && opts.ownerRef.setOwner) opts.ownerRef.setOwner(opts.currentObject || null);
   let entry = cache ? cache.get(src) : null;
   if (!entry) {
     const compiled = compileScript(src, {
@@ -1674,14 +2253,10 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
   // 所属对象 — 缓存共享条目在多个对象间不串
   const ownerRef = entry.ownerRef;
   // ①(2026-09-12) 给 ownerRef 挂 id→对象 表：thisLayer.getParent() 要靠它拿父层（否则父链断）
-  try {
-    if (ownerRef && !ownerRef.byId) {
-      const m = new Map();
-      for (const o of (opts.sceneObjects || [])) if (o && o.id !== undefined) m.set(o.id, o);
-      ownerRef.byId = m;
-    }
-  } catch { /* ignore */ }
-  if (ownerRef && ownerRef.setOwner) ownerRef.setOwner(opts.currentObject || null);
+  buildById(ownerRef);
+  // ①(P-142) 编译前已对 `opts.ownerRef` 绑过一次；若 entry 自己的代理不是同一个（调用方没传
+  //   ownerRef ⇒ compileScript 现造一个），这里补绑一次，保证沙箱里的 thisLayer 与 entry 一致。
+  if (ownerRef && ownerRef !== opts.ownerRef && ownerRef.setOwner) ownerRef.setOwner(opts.currentObject || null);
   // ①(P-62) 记下本次运行的 owner，供 dispatchScriptEvent 还原（见 entry 创建处注释）
   entry.lastOwner = opts.currentObject || null;
   if (entry.owners && opts.currentObject) { try { entry.owners.add(opts.currentObject) } catch { /* ignore */ } }
@@ -1693,30 +2268,56 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
     const ft = Number(opts.frametime);
     if (isFinite(ft) && ft >= 0) entry.context.engine.frametime = ft;
   }
-  if (phase === 'init' && entry.initialized) return;      // 已初始化过 → init 趟不重复
-  const valueObj = toValueObj(scriptVal.value);
   // ①(RE-35 官方错误矩阵 WPSceneScriptHost:8802-8812 / :9503-9508)：
   //   · init 失败 → **永久禁用该实例**（避免每帧把同一根因变成噪音），authored 值保持
   //   · update 失败 → 只跳过本帧、保留 last-known 值、下一帧继续
   //   · 返回 undefined → 不写属性（authored 值保持）
   if (entry.disabled) return;
-  if (phase === 'update' && !entry.initialized) return;   // init 趟还没跑过 → update 趟跳过
-  if (!entry.initialized && typeof exports.init === 'function') {
-    try {
-      // NSL init(value): 一次性初始化 (如启动骨骼动画), 返回新值
-      const r = exports.init(valueObj);
-      if (r != null) scriptVal.value = formatResult(r);
-      entry.initialized = true;
-    } catch (e) {
-      entry.disabled = true;
-      entry.initError = (e && (e.stack || e.message)) || String(e);
-      if (typeof opts.onError === 'function') { try { opts.onError('init', e) } catch { /* ignore */ } }
-      return;
+  // ①(P-142) **prepare 趟到此为止**：上面 `cache.get(src)` / `compileScript(src)` 已经把脚本编译并
+  //   执行了模块顶层（= 生产者挂 `shared.xxx` 的地方），生命周期（init/applyUserProperties/update）
+  //   一概不跑。它就是"先建全图、再跑生命周期"里的第一趟。
+  if (phase === 'prepare') return;
+  /* ①(P-142) **无缓存档**（`?scriptcache=0` 旧路径）逐位保留旧跑序：没有缓存 ⇒ 每趟都现编译出一个
+   *   新 entry、`initialized` 恒 false、跨趟状态不存在。旧实现在这里（update 趟）直接 return
+   *   （"init 趟还没跑过"），于是无缓存档的全部生命周期都发生在 **init 趟**里（init → aup → update）。
+   *   若不给这条缝：update 趟会"就地补 init 再 update"，init 就变成每帧两次。 */
+  if (phase === 'update' && !cache && !entry.initialized) return;
+  const valueObj = toValueObj(scriptVal.value);
+  /* ①(P-142 2026-09-23) **init 生命周期**：每个实例一次，且**只在 init 趟**跑。
+   *   与旧实现的差异（都是为了"跑序"这个根因）：
+   *     · 旧实现只在"脚本导出 init 且它没抛错"时置 `entry.initialized = true` ⇒ **只有 update 的
+   *       脚本**永远 initialized=false ⇒ 它唯一的执行点变成 init 趟里那次"越界的 update"
+   *       （旧实现的 update 段不受 phase 约束）。现在**无论有没有导出 init**，跑完这一趟都置位
+   *       ⇒ update 一律发生在 update 趟，消费脚本不再抢在生产者 init 之前。
+   *     · `phase === 'update'` 且实例尚未 init 时（调用方**只**跑 update 趟，不走本文件的两趟协议），
+   *       旧实现直接 `return`（该实例永不更新）；现在**就地补一次 init 生命周期**，保证"先 init
+   *       后 update"在任何调用路径上都成立（官方：所有实例先初始化，再逐帧 update）。 */
+  if (!entry.initialized) {
+    if (typeof exports.init === 'function') {
+      try {
+        // NSL init(value): 一次性初始化 (如启动骨骼动画), 返回新值
+        EXPLICIT_PROP_WRITE.delete(scriptVal);          // ①(P-143) 防上一帧遗留（一次调用一次判定）
+        const r = exports.init(valueObj);
+        const wroteInit = EXPLICIT_PROP_WRITE.has(scriptVal);
+        EXPLICIT_PROP_WRITE.delete(scriptVal);
+        // ①(P-143) 作者在 init 里显式写过 thisLayer.origin/scale ⇒ 返回值（常是写前快照）**不回滚**它
+        if (r != null && !wroteInit) scriptVal.value = formatResult(r);
+      } catch (e) {
+        entry.disabled = true;
+        entry.initError = (e && (e.stack || e.message)) || String(e);
+        if (typeof opts.onError === 'function') { try { opts.onError('init', e) } catch { /* ignore */ } }
+        return;
+      }
     }
+    entry.initialized = true;   // ← 没有 init 导出也算"init 生命周期已完成"（见上方长注释）
   }
-  // applyUserProperties: NSL 语义在用户属性变化时调用 (715 Dock 逻辑的
-  // shared.minScale/maxScale/radius 都在这里计算)。本地无变化检测 → 首次
-  // 执行一次 (属性固定, 幂等); 不执行则依赖它的脚本读到 undefined。
+  /* applyUserProperties: NSL 语义在用户属性变化时调用 (715 Dock 逻辑的
+   * shared.minScale/maxScale/radius 都在这里计算)。本地无变化检测 → 首次执行一次 (属性固定, 幂等);
+   * 不执行则依赖它的脚本读到 undefined。
+   * ⚠ ①(P-142) **这个门必须独立于 `entry.initialized`**：`invalidateUserProps(cache)`（P-61 属性面板
+   *   改值后调的那个安全阀，见本文件末尾）只清 `userPropsApplied`、**不清** `initialized` ⇒ 若把它
+   *   塞进上面那个 `if (!entry.initialized)` 块里，面板改值后再也不会生效（demo.html:1051 的接线
+   *   依赖这条缝）。位置与旧实现一致：init 之后、update 之前，同一节点内只调一次。 */
   if (!entry.userPropsApplied && typeof exports.applyUserProperties === 'function') {
     try {
       // ①(TIME-VARIATION 2026-09-14 第5项) 官方语义：changed = 当前用户属性表
@@ -1731,10 +2332,23 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
       if (typeof opts.onError === 'function') { try { opts.onError('applyUserProperties', e) } catch { /* ignore */ } }
     }
   }
+  // ①(P-142) **update 只在 update 趟跑**（'both' 兼容档也跑）。走到这里（phase==='update'）时，
+  //   本帧的 init 趟已经把**所有**节点的 init 跑完 ⇒ "生产者晚于消费者"在结构上不可能再发生。
+  //   例外：**无缓存档的 init 趟**照旧要顺带跑 update（见上方"无缓存档"注释：那一档的生命周期
+  //   全在 init 趟里发生，少了这一句就永远不更新）。
+  if (phase === 'init' && cache) return;
   if (typeof exports.update === 'function') {
     try {
+      EXPLICIT_PROP_WRITE.delete(scriptVal);          // ①(P-143) 防上一帧遗留（一次调用一次判定）
       const result = exports.update(valueObj);
-      if (result != null) scriptVal.value = formatResult(result);
+      const wroteUpdate = EXPLICIT_PROP_WRITE.has(scriptVal);
+      EXPLICIT_PROP_WRITE.delete(scriptVal);
+      /* ①(P-143) **显式属性写优先于返回值**：作者在同一次 update 里 `thisLayer.origin = …` 时，
+       *   返回值往往正是**赋值前的快照**（`return value`）⇒ 直接写回会把显式赋值回滚。
+       *   旧实现靠"赋值把节点整只换掉"侥幸得到同一结果（代价是作者脚本永久停摆，见
+       *   EXPLICIT_PROP_WRITE 定义处注释）；改 nodeWrite 之后必须在这里显式补上这条契约
+       *   （tests/script-owner-live-test.mjs T3b 钉的就是它）。 */
+      if (result != null && !wroteUpdate) scriptVal.value = formatResult(result);
     } catch (e) {
       entry.updateErrors = (entry.updateErrors || 0) + 1;
       if (typeof opts.onError === 'function') { try { opts.onError('update', e) } catch { /* ignore */ } }
@@ -1772,15 +2386,31 @@ export function applySceneScripts(scene, time, opts = {}) {
   const thisScene = opts.thisScene || makeSceneRef(sceneObjects, {
     ownerLayerRef: () => ownerRef.layerRefObj(),
     ownerObj: () => ownerRef.ref.current,
+    // ①(P-142) `thisScene.getCameraTransforms()` 的真值来源：scene.json 根的 `camera`/`general`
+    //   （不是 objects 的一部分 ⇒ 必须单独给钩子；理由与字段出处见 makeSceneRef 里的实现注释）。
+    camera: () => scene,
   });
+  /* ①(P-143) `originalOrigin` 的 authored 快照**必须在任何脚本跑之前**抓（含 prepare 趟的模块顶层代码
+   *   —— 作者完全可以在顶层写 `thisLayer.origin = …`）。`makeSceneRef()` 那条路径已经在工厂里抓过
+   *   （幂等）；这里再显式抓一次是为了 `opts.thisScene` 由调用方自带（测试隔离档）时也成立。 */
+  snapshotAuthoredOrigins(sceneObjects);
   const nodes = [];
-  const collect = (obj, owner) => {
+  /* ①(P-143 2026-09-23) `owner` = 该脚本节点所属的**层**（沙箱里 `thisLayer`/`thisObject` 的绑定）。
+   *   旧实现 `if (Array.isArray(obj)) obj.forEach((x) => collect(x, x))` 对**每个**数组都把元素升级成
+   *   owner —— 对 `scene.objects` 那一层恰好正确（元素就是层），但嵌套数组（`effects[]`、`passes[]`、
+   *   `animationlayers[]`）也一样 ⇒ 绑在 `objects[85].effects[0].visible` 上的脚本，`thisLayer` 变成
+   *   了**那个 effect 条目**。真包实测（0923/3122339805 `thisLayer.getEffect(0).visible=false`）：
+   *   effect 条目上没有 `effects` 字段 ⇒ `getEffect` 解析不到 ⇒ 作者的开关静默失效（计
+   *   `getEffectUnresolved`）。官方语义是无论脚本绑在层的哪个属性上，`thisLayer` 都是**那一层**
+   *   （docs: "You can access this interface through the global object thisLayer … to interact with
+   *   the current layer"），所以只有 `objects` 这个数组的元素才是层 owner。 */
+  const collect = (obj, owner, isLayerArray) => {
     if (!obj || typeof obj !== 'object') return;
     if ('script' in obj && 'value' in obj && typeof obj.script === 'string') { nodes.push([obj, owner || null]); return; }
-    if (Array.isArray(obj)) { obj.forEach((x) => collect(x, x)); return; }
-    for (const k of Object.keys(obj)) collect(obj[k], obj);
+    if (Array.isArray(obj)) { obj.forEach((x) => collect(x, isLayerArray ? x : owner, false)); return; }
+    for (const k of Object.keys(obj)) collect(obj[k], owner, k === 'objects' && Array.isArray(obj[k]));
   };
-  collect(scene, null);
+  collect(scene, null, false);
   const run = (obj, owner, phase) => runScriptValueCached(obj, time, {
     canvasSize: opts.canvasSize,
     userProps: opts.userProps,
@@ -1812,8 +2442,39 @@ export function applySceneScripts(scene, time, opts = {}) {
   //   （高频子集趟不重复触发作者 update 回调，避免回调里的重活被放大 8 倍）。
   const nodeFilter = (typeof opts.nodeFilter === 'function') ? opts.nodeFilter : null
   const pick = (obj, owner) => (!nodeFilter || !!nodeFilter(obj, owner))
+  /* ⓪(P-142 2026-09-23) **prepare 趟：先建全图** —— 把所有节点的脚本**编译/求值**一遍，
+   *   **不跑任何生命周期**、也**不看 nodeFilter**（节拍过滤管的是"这一趟跑不跑脚本"，
+   *   不管"脚本的模块顶层要不要求值"）。
+   *   为什么必须补这一趟（真包复现，见 tests/script-phase-order-test.mjs）：
+   *     作者常把 `shared.xxx = fn` / `shared.xxx = value` 挂在**脚本模块顶层**（模块顶层在
+   *     `compileScript` 的 `vm.runInContext` 里求值）。而编译是**按首次使用惰性发生**的：
+   *     节点顺序里靠后的脚本，模块顶层就晚于靠前节点的生命周期才被求值 ⇒
+   *     `wallpaperE` 的 NSL 库包（`0923/3521337568`、`0923/3653641024`）里，
+   *     `objects[20].animationlayers[*].visible` 的 **init** 调 `shared.offsetedStartAni(...)`，
+   *     而定义它的 `objects[29].visible`（NSL 主脚本，第 1459 行顶层赋值）还没编译 ⇒
+   *     `shared.offsetedStartAni is not a function`、init 失败、实例被永久禁用。
+   *   官方等价语义：脚本实例在场景载入时全部建立（模块顶层求值），随后才跑生命周期。
+   *   代价：一次 `cache.get(src)`（按源码记忆化，第二帧起全部命中缓存、不重复求值）。 */
+  for (const [obj, owner] of nodes) {
+    try { run(obj, owner, 'prepare') } catch (e) { if (typeof opts.onError === 'function') try { opts.onError('prepare', e) } catch { /* ignore */ } }
+  }
+  /* ①(P-142) init 趟：**只跑 init**（+ 每实例一次的 applyUserProperties）+ ①(2026-09-12 官方语义)
+   *   先跑完所有 init，再跑 update。旧实现虽然写了两趟，但 `runScriptValueCached` 里的 update 调用
+   *   **不受 phase 约束** ⇒ init 趟会按节点顺序顺带跑一遍 update，"消费者（只有 update 的脚本）先于
+   *   生产者（更靠后节点的 init）"因此真实发生（真包 `wallpaperE/佩丽卡/佩丽卡1_03.mpkg`：生产者
+   *   `objects[6].origin` 的 init 写 `shared.jpc_clockPosition`，消费者 `objects[3..5].origin` 只有
+   *   update、且排在前面 ⇒ 首帧 `reading 'x'`）。现在两趟严格分开，跑序由结构保证。
+   *   第三方参考实现 wer-ref 的 WPSceneScriptHost 同样是"先初始化全部脚本实例，再逐帧 update"。 */
   for (const [obj, owner] of nodes) { if (!pick(obj, owner)) continue; try { run(obj, owner, 'init') } catch (e) { if (typeof opts.onError === 'function') try { opts.onError('init', e) } catch {} } }
+  /* ②(P-142) update 趟：**只跑 update**。走到这里时全图已建、所有节点的 init 已跑完。 */
   for (const [obj, owner] of nodes) { if (!pick(obj, owner)) continue; try { run(obj, owner, 'update') } catch (e) { if (typeof opts.onError === 'function') try { opts.onError('update', e) } catch {} } }
+  /* ③(P-142) `thisScene.destroyLayer()` 的落地点。官方 d.ts L1270-1272 逐字：“Remove a layer by
+   *   name, index or object. **The layer is removed after all scripts on that frame updated.**”
+   *   ⇒ 本帧两趟都跑完之后才真从层表里摘掉（提前摘会让同帧后续脚本的 `getLayerIndex` 看到位移后的
+   *   下标；层表就是宿主传进来的 `renderObjects` = `scene.objects` 那个数组）。 */
+  if (typeof thisScene.__flushDestroyedLayers === 'function') {
+    try { thisScene.__flushDestroyedLayers() } catch { /* ignore */ }
+  }
   // ①(P-141) **每帧推进脚本定时器**（`engine.setInterval` 的驱动点）。放在 init/update 两趟**之后**：
   //   本帧新注册的定时器能在同一帧拿到时钟原点（`lastClock = time`），下一帧起按真实 Δt 累积 ——
   //   放在趟前会让"首帧注册"白丢一帧的时间（μs 级代码，语义差别却是一整帧）。

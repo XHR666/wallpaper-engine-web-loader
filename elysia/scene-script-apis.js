@@ -3,6 +3,26 @@
 // 以及 App Dock 等复杂脚本的基础 API
 import { parseVec3 } from './we-renderer/math.js';
 
+/* ①(P-143 2026-09-23) 向量构造的**有限数缺省**（"静默变 NaN"对策之一）。
+ *   官方 `lib.sceneScript.d.ts` L95-100 `class Vec3 { x: Number; y: Number; z: Number;
+ *   constructor(x: Number|Vec2|String, y?: Number, z?: Number) }`（Vec2 同款 L7-11）——
+ *   三个字段的类型都是 **Number**（不是 `Number|undefined`），而 y/z 是**可选参数** ⇒
+ *   省略的分量在引擎里必然落到某个有限数（向量没有 undefined 分量）；取 **0** 是唯一
+ *   与"Vec3 的零元 / 拷贝构造"都自洽的取值。
+ *   为什么要按这条实现（语料实锤，见 tests/script-member-gaps-test.mjs 的 S5/S6g/S7）：
+ *   全语料"静默 NaN"扫描（1 cache × 2 帧，80 个带脚本包）里，**中和对照版 17 个包**有 NaN；
+ *   其中 `砂狼白子11_03` / `流萤…星空之誓` / `delete/wallpapertest1/…星空之誓` 的
+ *   `let oldColor = new Vec3(0), newColor = new Vec3(0)`（媒体封面颜色过渡的初值）把
+ *   `undefined` 分量带进 `mix()/multiply()` ⇒ 整层颜色变 `"0.000000 NaN NaN"`（不抛错）；
+ *   本批（含这条）把 17 包降到 7 包，且**没有**任何新包。
+ *   依据强度：**高**（官方字段类型 + 可选参数签名；不是"猜"）。String 形态（官方签名里也有）
+ *   按同一份 `parseVec3` 解析（依据强度：中 —— 只有官方签名、语料 0 个调用点）。 */
+const numOr0 = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0 };
+const parseXYZ = (s) => {
+  const p = parseVec3(s);                       // ⚠ parseVec3 返回**数组**（不是 {x,y,z}）
+  return [numOr0(p && p[0]), numOr0(p && p[1]), numOr0(p && p[2])];
+};
+
 // WEColor API (引擎颜色工具)
 // ①(2026-09-12) 颜色值类型：脚本常把 WEColor 的结果存进 shared，之后另一个脚本再调
 //   `.mix()/.lerp()`（上报：`shared.miPrimaryColor.mix is not a function`）。
@@ -140,8 +160,13 @@ export class ScriptPropertiesBuilder {
 //   导致 3660962877 等壁纸的定位脚本每帧抛错、层位置停在 authored 值。接口与 Vec3 对齐。
 export class Vec2 {
   constructor(x, y) {
-    if (x && typeof x === 'object' && 'x' in x) { this.x = x.x; this.y = x.y; }
-    else { this.x = x; this.y = y; }
+    // ①(P-143 2026-09-23) 缺省分量回 **0**（不是 undefined/NaN）：官方 `lib.sceneScript.d.ts` L7-11
+    //   `class Vec2 { x: Number; y: Number; constructor(x: Number|Vec3|String, y?: Number, z?: Number) }`
+    //   —— 字段类型是 Number 而 y 是**可选参数** ⇒ 省略时必须落到一个有限数（0）。同 Vec3 的理由，
+    //   见 Vec3 构造函数上方注释（语料里 `new Vec3(0)` 这类"单参数"写法会把 undefined 带进算术）。
+    if (x && typeof x === 'object' && 'x' in x) { this.x = numOr0(x.x); this.y = numOr0(x.y); }
+    else if (typeof x === 'string') { const p = parseXYZ(x); this.x = p[0]; this.y = p[1]; }
+    else { this.x = numOr0(x); this.y = numOr0(y); }
   }
   add(o) { return new Vec2(this.x + o.x, this.y + o.y); }
   subtract(o) { return new Vec2(this.x - o.x, this.y - o.y); }
@@ -165,8 +190,12 @@ export class Vec3 {
     //   旧实现直接取 `x.z` ⇒ 对 Vec2 得到 `undefined` ⇒ 下游 `multiply()/add()` 级联 NaN
     //   （语料实证：洛茜_11 `new Vec3(WEVector.angleVector2(a)).multiply(k)` → origin 的 z 变 NaN）。
     //   只补 z 缺失这一条；`String` 形态与 `Vec2` 的 `x: Number|Vec3|String` 仍未实现（见 PATCHES 未证实项）。
-    if (x && typeof x === 'object' && 'x' in x) { this.x = x.x; this.y = x.y; this.z = x.z !== undefined ? x.z : 0; }
-    else { this.x = x; this.y = y; this.z = z; }
+    // ①(P-143 2026-09-23) 上面那条"只补 z"扩成**三个分量都回有限数 0**（理由与依据见文件头
+    //   `numOr0` 注释：官方字段类型 Number + y/z 可选 ⇒ 省略分量在引擎里必然是有限数；语料 6 个包
+    //   的 `new Vec3(0)`/`new Vec3(1)` 单参数写法就是靠这条不再级联 NaN）。String 形态一并支持。
+    if (x && typeof x === 'object' && 'x' in x) { this.x = numOr0(x.x); this.y = numOr0(x.y); this.z = numOr0(x.z); }
+    else if (typeof x === 'string') { const p = parseXYZ(x); this.x = p[0]; this.y = p[1]; this.z = p[2]; }
+    else { this.x = numOr0(x); this.y = numOr0(y); this.z = numOr0(z); }
   }
   add(o) { return new Vec3(this.x + o.x, this.y + o.y, this.z + o.z); }
   subtract(o) { return new Vec3(this.x - o.x, this.y - o.y, this.z - o.z); }

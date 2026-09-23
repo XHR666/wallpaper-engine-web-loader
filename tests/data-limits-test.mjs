@@ -263,12 +263,21 @@ console.log('[B] 服务端落盘上限（发布纪律②）：超限 → 最旧�
     for (let i = 0; i < 20; i++) fs.writeFileSync(path.join(seedDir, 'r' + (1789000000000 + i) + '.json'), '{"i":' + i + '}')
     const srv4 = await startServer({ MPW_REPORTS_DIR: seedDir, MPW_LIMIT_REPORTS_MAX: '5' })
     try {
-      await new Promise((r) => setTimeout(r, 300))
-      const left = filesOf(seedDir, /^r\d+\.json$/).sort()
+      /* ①(2026-09-24 套件负载下的时序刀口) 原来固定等 300ms —— HTTP 先 listen、**启动清理在其后**，
+         满载（全量套件并行跑）时 300ms 会早于那次清理 ⇒ 假红（实测读数 `n=20 min=1789000000000`）。
+         改成**有界轮询**：最多 8s，读到限内即走（清理仍是"服务启动时自己做的、不需要任何 POST"，
+         语义没变）；超时也照读，读数里带 waitedMs 便于分辨"真没清理"与"还没轮到"。 */
+      const t0 = Date.now()
+      let left = filesOf(seedDir, /^r\d+\.json$/).sort()
+      while (Date.now() - t0 < 8000 && left.length > 5) {
+        await new Promise((r) => setTimeout(r, 100))
+        left = filesOf(seedDir, /^r\d+\.json$/).sort()
+      }
+      const waitedMs = Date.now() - t0
       const nums = left.map((n) => Number(/^r(\d+)\.json$/.exec(n)[1]))
       check('B12 **启动清理一次**：预先塞 20 份（上限 5）→ 服务一起来就只剩 5 份，且留下的都是**最新**的 5 个',
         srv4.ready && left.length === 5 && Math.min(...nums) === 1789000000015,
-        'n=' + left.length + ' min=' + (nums.length ? Math.min(...nums) : '-'))
+        'n=' + left.length + ' min=' + (nums.length ? Math.min(...nums) : '-') + ' waitedMs=' + waitedMs)
       check('B13 启动清理也打日志（[limits] + [prune] 两行都在）',
         /\[limits\] 启动清理完成/.test(srv4.log()) && /\[prune\] reports\//.test(srv4.log()))
     } finally { srv4.stop() }

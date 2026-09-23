@@ -64,6 +64,16 @@ add "internal-shaders"   "node tests/internal-shader-validate.mjs"
 add "glsl-validate"      "node tests/glsl-validate.mjs"
 # —— 渲染器语义套件（mock-GL / 纯 JS）——
 add "mock-gl"            "node tests/mock-gl-test.mjs"
+# ①(MPKG-SWEEP 2026-09-23 §3/§4 两条产品缺陷的常驻门禁 2026-09-23) 纯 Node / mock-GL / 合成夹具，不开浏览器、不加载真包：
+#   · video-base-order：`demo.html` 的 `__videoBase`（视频作最底层）块**位置**判据 + 按源码序执行原文
+#     （层数 2→3、视频层在最前、几何取自 scene.general）+ mock-GL 首帧绘制序；变异 = 把块搬回 parseScene
+#     之前（＝缺陷原状）⇒ 期望 6 条必红（子进程在 /tmp 隔离副本上真改 demo.html）。
+#   · solidlayer-fallback：`[TRANSPARENT_FALLBACK] 纯色` 的窄口径缺陷（显式 `models/util/solidlayer*`
+#     层 + 无 color ⇒ 白，不是透明兜底）+ 作者占位层仍透明等 4 条对照；变异 2 组（删新分支 / 放宽成
+#     所有 solid）⇒ 期望红集各为 {A0,A1} / {B0}。合计 26 断言 + 3 组真变异；~4s
+add "video-base-order"   "node tests/demo-videobase-order-test.mjs"
+add "solidlayer-fallback" "node tests/solidlayer-fallback-test.mjs"
+add "blob-media-retry"   "node tests/blob-media-retry-test.mjs"
 # ①(WEBWALLGL #4/#5 P0 2026-09-23) 效果链指针/视差/帧时间 uniform 接线（含 ?ptrfx=legacy 逐位回退）：
 #   官方 cursorripple/depthparallax/xray/fluidsimulation 的 7 个输入 uniform 真的被写、值随指针/时间变化、
 #   legacy 档逐键回到改动前；3 条变异自证（改回 (0,0) / legacy 也写 / 不推快照 ⇒ 对应断言必红）；41 断言；~2s
@@ -433,6 +443,15 @@ add "pkg-entry-index"   "node tests/server-pkg-index-test.mjs" "" "^SKIP pkg-ind
 #   （上报实测 ×511 / ×72 → 0；全语料同类 **11 包 / 61 个脚本节点**清零，有脚本错的包 18 → 8）。
 #   22 断言 + 2 组变异自证（删 size 访问器 ⇒ 511 次重现）；~2.0s，无浏览器/无网络，缺语料 SKIP+exit 0。
 add "script-runtime-errors" "node tests/script-runtime-errors-test.mjs" "" "^SKIP script-runtime-errors"
+add "script-phase-order" "node tests/script-phase-order-test.mjs"   # 脚本 prepare/init/update 三趟跑序 + 四类成员缺口（37 断言 + 4 组变异）
+# ①(P-143 2026-09-23 主对话补登记) `script-member-gaps`：上一批登记的**静默缺口**（不抛错但值错）——
+#   `ITextLayer.pointsize/font/horizontalalign/verticalalign`（真包 `佩丽卡1_03` 的 `objects[5].origin.y`
+#   因 `pointsize` undefined 参与算术后变 NaN："2925.104490 NaN 0.000000" → 2952.965060）、
+#   `originalOrigin`（NSL 拖动库"恢复初始位置"静默 no-op）、`IEffectLayer.getEffect`（3122339805/2887099508
+#   的效果开关）、`thisLayer.debug`（3662790108 作者调试分支）+ `Vec3/Vec2` 单参数构造的有限缺省。
+#   判据：38 断言（含 6 个真包的改前/改后读数）+ 全语料静默 NaN 扫描（17 包 → 7 包，白名单只留另案）
+#   + 6 组变异自证；~40s（--quick 只跳全语料扫描），无浏览器/无网络，缺语料 SKIP+exit 0。
+add "script-member-gaps" "node tests/script-member-gaps-test.mjs" "" "^SKIP script-member-gaps"
 # ①(P-138 2026-09-19 主对话补登记) `now-playing`：用户第 2 项给的 Bencho「Now playing」组件（改名 `NowPlaying`）
 #   落到 `demo/now-playing/`（组件源码照抄 + 保留全部注释 / 纯函数数学 / CSS 全在 `.snd` 子树内 / 14 个 token 只本地定义 /
 #   构建产物 `dist/now-playing.js` 自足入库）。**216 断言 + 6 组变异**（boxRadius 丢一轴 off、swell 指数、
@@ -523,19 +542,31 @@ add "we-core-parity" "node tests/we-core-parity-test.mjs" "" "^SKIP we-core-pari
 #   无浏览器 / 无网络 / 无 X11。真包缺失时各组 SKIP 视作 PASS（不红），与其余真包类条件项同口径。
 add "particle-children" "node tests/particle-children-test.mjs"
 
-# ①(P-152 2026-09-19) `mdl-bone-layout`：**MDLS 骨骼布局校验（防回归）** —— 把"今天恰好全合法"变成"以后坏了会红"。
+# ①(P-152 2026-09-19 / **P-152b 2026-09-23**) `mdl-bone-layout`：**MDLS 骨骼布局校验 + 变长布局重扫救回**。
 #   依据 `docs/UPSTREAM-PORT-PLAN-20260919.md` §4（上游 `be3c246` 的**判据**：先按布局 A 整体解析并校验，
-#   任一骨非法才判定变长布局；重扫拿全才采用，绝不返回残缺骨架）。今天两侧解析器**都没有任何校验**、
-#   语料恰好全合法（43 `.mdl` / 35 含 MDLS / 332 骨 / 非法骨 0）⇒ 一旦遇到变长骨名布局（B/C）或损坏记录，
-#   定步会**静默产出错位骨架**（parent 读成 16256、矩阵退化成垃圾），不抛异常、不报错。
-#   本项锁四件事：① 合成样本逐类判定（合法 A / 合成布局 B,C / parent 越界 / 材质索引越界 / 记录截断 /
-#   骨名槽超长 / 骨名槽非法字节 / 旋转非单位长 / 平移非有限 / 声明骨数越界 / 10 字节头变体）；
-#   ② 全语料回归（43 `.mdl` 默认档 == `?mdls=legacy` 档**逐字段**相同 = 零回归；332 骨 / 35 MDLS / 0 非法 / 0 拒绝）；
-#   ③ `?mdls=legacy` 逐位回退（判定式 + 逐样本 + 全语料）；④ **3 组变异自证**（真跑：复制 `core/` 到临时目录
-#   做字符串变异再 import —— R1 去掉校验 ⇒ 非法样本不再被拒必红；R2 布局判定恒 A ⇒ B/C 的 `layout` 档必红；
-#   R3 骨名槽判据弱化 ⇒ 本门禁仍全绿 = 没有靠它做过度拒绝）。
-#   **68 断言**；实测 ~11s、单进程 PeakRSS ≈ 60MB、**无浏览器 / 无网络 / 无 X11**。
-#   缺语料时组件 SKIP 视作 PASS（与其余真包类条件项同口径）。
+#   任一骨非法才判定变长布局；重扫拿全才采用，绝不返回残缺骨架）。P-152 落了"校验 + 明确失败路径"，
+#   但**有意不落重扫** ⇒ 真语料 3 个**非 A 变长布局**包被拒收（`bones=[]` = 丢蒙皮），而 legacy 路径在
+#   那 3 个包上本来就只产**残缺骨架**（`asuna body bottom` 声明 7 得 1 / `人物` 声明 55 得 3 /
+#   `deimos.fbx` 声明 2 得 0）。**P-152b** 补上"骨名前置变长布局"的**可判定**重扫（判据合取：
+#   固定起点 / `len==64` / 骨名槽可打印且有界 / `parent<骨序号` / 三行正交矩阵 / 不越段界 /
+#   带槽与不带槽两种读法只允许一种成立或结果逐位相同），**解析不出仍如实拒绝**；A 路径逐位不变。
+#   本项锁五件事：① 合成样本逐类判定（合法 A / parent 越界 / 材质索引越界 / 记录截断 / 骨名槽超长 /
+#   骨名槽非法字节 / 旋转非单位长 / 平移非有限 / 声明骨数越界 / 10 字节头变体）；①b 变长布局（骨名前置）
+#   合成夹具：布局 B/C ⇒ **救回**且 type/parent 与构造值逐位相同；父前向引用 / `len≠64` / 记录截断 /
+#   矩阵非正交 / 越过段界 ⇒ **仍拒绝**且 `mdlDiag.rescan.reason` 可见；② 全语料回归（布局 A 文件默认档
+#   == `?mdls=legacy` 档**逐字段**相同；3 个变长布局包**只在此处**允许差异，且必须当场满足"骨数==声明 +
+#   legacy 残缺且是逐位前缀"）；③ `?mdls=legacy` 逐位回退（判定式 + 逐样本 + 全语料；legacy **不救回**）；
+#   ④ **6 组变异自证**（真跑：复制 `core/` 到临时目录做字符串变异再 import —— R1 去掉校验 ⇒ 非法样本不再
+#   被拒必红；R2 布局判定恒 A ⇒ 拒绝档 `layout` 必红；R3 骨名槽判据弱化 ⇒ 本门禁仍全绿 = 没有靠它做
+#   过度拒绝；R4 关掉重扫 ⇒ 4 个变长夹具退回拒绝必红；R5 重扫在矩阵截断处 `break`（接受残缺）⇒
+#   "绝不残缺"必红；R6 去掉"父必须先声明" ⇒ 前向引用夹具被误救回必红）；⑤ 两侧可观测面（core 的
+#   `mdlDiag` ⇔ elysia 现状：局部变量未随 return ⇒ 只留 "warn + bones=[]"，如实登记不对称）。
+#   **139 断言**；实测（2026-09-23，当前语料 172 `.mdl` / 86 MDLS / 885 骨）~46s、单进程 PeakRSS ≈ 1.4GB
+#   —— 峰值**几乎全在全语料通读**（335k 顶点的模型要实例化 `positions/uvs/blend*` 数组：单独跑"只解析
+#   全语料"的探针也要 ≈0.77GB），①②④⑤ 组（合成夹具 + 变异自证）是 60MB 级；**无浏览器 / 无网络 / 无 X11**。
+#   ⚠ **语料敏感**：③ 组的计数/文件名清单随本机语料走（`$MPW_ROOT/allwallpaper` + `~/.dsh-mpkg-wallpaper`），
+#     基线自导出、只增不减；真语料缺失 ⇒ 该组红（**不** SKIP：语料是本项判据的可信来源）。
+#   ✅ **不渲染敏感**：①②④⑤ 组是纯字节解析 + 合成夹具，与语料/GPU 无关。
 add "mdl-bone-layout" "node tests/mdl-bone-layout-test.mjs"
 # ①(P-153 2026-09-19 · 派单 B) 脚本 `localStorage` 的**共享持久**档 `?scriptstore=persist`（方案
 #   `docs/UPSTREAM-PORT-PLAN-20260919.md` §5）：**缺省逐位保持 legacy**（逐沙箱 `new Map()`、不共享、

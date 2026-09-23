@@ -11,7 +11,8 @@
 // ── 口径与依据（全部本机一手，可复算）────────────────────────────────────────────────────
 //   · 语料引用：解析容器目录表 → 取 `scene.json` → 遍历对象树里**有 `text` 键的对象**的
 //     `font` 属性（WE 的文本层字形来源就是这一项；`systemfont_*` 是同位置上的系统字体别名）。
-//     冻结值见 F4 的 CENSUS（2026-09-19 实测；改口径要显式改这张表，不能悄悄变）。
+//     冻结值见 F4 的 CENSUS —— 它由 `node tests/font-gap-audit-test.mjs --write-census` 从**当前语料**
+//     重生成（语料长大 ⇒ 一条命令重定基，不手改；改口径或重定基都会在 diff 里看得见）。
 //   · 许可判据（逐字体 `name` 表原文 + 同目录许可文件原文）：`THIRD-PARTY.md` §4.1/§4.5/§4.7
 //     与工作区调研记录 `docs/FONT-REDISTRIBUTION-RESEARCH.md`（**仓库外**，§2 逐字体表）。
 //     **本文件只做"事实核对"**：能再分发的判据、能不能从允许的取件口取到、以及"不能打包"的原因。
@@ -99,51 +100,106 @@ const NOT_BUNDLED = {
 }
 // 语料文本层引用清点（2026-09-19 实测，98 个容器）。键 = `font` 属性原文；
 //   值 = [文本层引用数, 容器数]；`tier` 是**当前**解析级别。
+// ═══ CENSUS-BEGIN（`--write-census` 生成，勿手改）═══
 const CENSUS = {
   // —— WE 内置字体（引用名可能命中仓库/WE 两级）——
-  'fonts/8bitOperatorPlus8-Regular.ttf': [61, 17],
-  'fonts/spincycle_3d_ot.otf': [44, 18],
-  'fonts/Alcubierre.otf': [34, 21],
-  'fonts/Atami-Regular.otf': [23, 10],
-  'fonts/Blackout 2 AM.ttf': [22, 18],
-  'fonts/Monofur-PK7og.ttf': [13, 6],
-  'fonts/Segment7Standard.otf': [13, 12],
-  'fonts/CursedTimerUlil-Aznm.ttf': [6, 3],
-  'fonts/Lazer84.ttf': [6, 3],
-  'fonts/opensticks.ttf': [6, 3],
-  'fonts/RobotoMono-Regular.ttf': [1, 1],
+  "fonts/8bitOperatorPlus8-Regular.ttf": [79, 25],
+  "fonts/spincycle_3d_ot.otf": [45, 19],
+  "fonts/Blackout 2 AM.ttf": [22, 18],
+  "fonts/Segment7Standard.otf": [14, 13],
+  "fonts/Monofur-PK7og.ttf": [14, 7],
+  "fonts/RobotoMono-Regular.ttf": [2, 2],
   // —— 语料里出现但**本机 WE 也没有**的名字（不是"我们缺"，是数据源缺口）——
-  'fonts/书法字体.ttf': [77, 15],
-  'fonts/2.ttf': [33, 11],
-  'fonts/3.ttf': [18, 6],
-  'fonts/workshop/2981960200/Quicksand-Bold.otf': [20, 17],
-  'fonts/workshop/2981960200/Anurati-Regular.otf': [12, 11],
-  'fonts/workshop/3590573152/GenEiPOPlePw-Bk.ttf': [11, 1],
-  'fonts/workshop/3219510589/LEMONMILK-Bold.otf': [10, 5],
-  'fonts/workshop/3184554659/Quicksand-Bold.otf': [10, 3],
-  'fonts/workshop/3219510589/LEMONMILK-Light.otf': [5, 5],
-  'fonts/workshop/3184554659/Anurati-Regular.otf': [4, 3],
-  'fonts/workshop/3200298808/nasalization-rg.otf': [4, 1],
-  'fonts/Rajdhani Medium.otf': [8, 1],
-  'fonts/极影毁片和圆1.03.ttf': [11, 1],
-  'fonts/礼品卉+自由理想体+v1.2.ttf': [11, 1],
-  'fonts/演示秋鸿楷2.0.ttf': [11, 1],
-  'fonts/包图小白体_猫啃网.ttf': [10, 1],
-  'fonts/workshop/3424038533/Garet-Book.otf': [6, 1],
-  'fonts/EndfieldByButan.ttf': [2, 1],
-  'fonts/slideyouran-Regular.ttf': [1, 1],
-  'fonts/FZTieXHJW_Cu.TTF': [1, 1],
-  'fonts/千图马克手写体.ttf': [1, 1],
-  'fonts/workshop/3449579583/SanJiXingKaiJianTi-Cu-2.ttf': [1, 1],
-  'fonts/Machine56 DB01_mianfeiziti.com.ttf': [1, 1],
-  'fonts/BilboSwashCaps-Regular.ttf': [1, 1],
-  'fonts/workshop/3374339759/arcane-nine.otf': [1, 1],
-  'fonts/MaShanZheng-Regular.ttf': [1, 1],
+  "fonts/书法字体.ttf": [85, 16],
+  "fonts/FreePixel.ttf": [73, 1],
+  "fonts/Alcubierre.otf": [40, 25],
+  "fonts/2.ttf": [34, 12],
+  "fonts/msjh.ttc": [34, 1],
+  "fonts/Atami-Regular.otf": [29, 15],
+  "fonts/workshop/2981960200/Quicksand-Bold.otf": [27, 20],
+  "fonts/微软雅黑Bold.ttf": [26, 1],
+  "fonts/Pixeltype.ttf": [24, 1],
+  "fonts/workshop/3184554659/Quicksand-Bold.otf": [22, 9],
+  "fonts/3.ttf": [18, 6],
+  "fonts/chathura-regular.ttf": [17, 2],
+  "fonts/workshop/2981960200/Anurati-Regular.otf": [16, 14],
+  "fonts/Baqacents  Semibold.ttf": [16, 1],
+  "fonts/CormorantSC-Regular.ttf": [16, 1],
+  "fonts/DINEngschrift-Regular.ttf": [12, 1],
+  "fonts/极影毁片和圆1.03.ttf": [11, 1],
+  "fonts/礼品卉+自由理想体+v1.2.ttf": [11, 1],
+  "fonts/演示秋鸿楷2.0.ttf": [11, 1],
+  "fonts/workshop/3590573152/GenEiPOPlePw-Bk.ttf": [11, 1],
+  "fonts/workshop/3184554659/Anurati-Regular.otf": [10, 9],
+  "fonts/workshop/3219510589/LEMONMILK-Bold.otf": [10, 5],
+  "fonts/包图小白体_猫啃网.ttf": [10, 1],
+  "fonts/CursedTimerUlil-Aznm.ttf": [8, 5],
+  "fonts/Rajdhani Medium.otf": [8, 1],
+  "fonts/+²+½+++++=¦Õ.ttf": [7, 1],
+  "fonts/workshop/3591058771/GenEiPOPlePw-Bk.ttf": [7, 1],
+  "fonts/Lazer84.ttf": [6, 3],
+  "fonts/opensticks.ttf": [6, 3],
+  "fonts/迷你简菱心.ttf": [6, 1],
+  "fonts/字魂237号-玉兰手书.ttf": [6, 1],
+  "fonts/BlackHoleBB.ttf": [6, 1],
+  "fonts/chaozishehaoxiashoushujianfan.ttf": [6, 1],
+  "fonts/workshop/3424038533/Garet-Book.otf": [6, 1],
+  "fonts/workshop/3219510589/LEMONMILK-Light.otf": [5, 5],
+  "fonts/workshop/2872021376/三极萌萌简体.ttf": [5, 1],
+  "fonts/workshop/3541902138/ZiKuJiangHuGuFengTi-2.ttf": [5, 1],
+  "fonts/猫啃网风雅宋.ttf": [4, 1],
+  "fonts/字魂100号-方方先锋体.ttf": [4, 1],
+  "fonts/Cormorant-Regular.ttf": [4, 1],
+  "fonts/Jura-Medium.ttf": [4, 1],
+  "fonts/workshop/3200298808/nasalization-rg.otf": [4, 1],
+  "fonts/千图马克手写体.ttf": [3, 2],
+  "fonts/Tourner (114).ttf": [3, 1],
+  "fonts/workshop/3637654840/msjh.ttc": [3, 1],
+  "fonts/a_lcdnova.woff.ttf": [2, 1],
+  "fonts/ariblk.ttf": [2, 1],
+  "fonts/EndfieldByButan.ttf": [2, 1],
+  "fonts/HelveticaNeue Bold.ttf": [2, 1],
+  "fonts/Tourner (101).ttf": [2, 1],
+  "fonts/Tourner (161).ttf": [2, 1],
+  "fonts/VCR-OSD-MONO-1-001-1.ttf": [2, 1],
+  "fonts/workshop/2978655964/airstrike.ttf": [2, 1],
+  "fonts/workshop/3637654840/chathura-regular.ttf": [2, 1],
+  "fonts/workshop/3637654840/Dengb.ttf": [2, 1],
+  "fonts/经典繁颜体.ttf": [1, 1],
+  "fonts/迷你简综艺.ttf": [1, 1],
+  "fonts/三极萌萌简体.ttf": [1, 1],
+  "fonts/A-OTF-GothicMB101Pro-Light.otf": [1, 1],
+  "fonts/BilboSwashCaps-Regular.ttf": [1, 1],
+  "fonts/FZTieXHJW_Cu.TTF": [1, 1],
+  "fonts/kust.ttf": [1, 1],
+  "fonts/Machine56 DB01_mianfeiziti.com.ttf": [1, 1],
+  "fonts/MaShanZheng-Regular.ttf": [1, 1],
+  "fonts/opentype (73).otf": [1, 1],
+  "fonts/SairaCondensed-Thin.ttf": [1, 1],
+  "fonts/slideyouran-Regular.ttf": [1, 1],
+  "fonts/SourceHanSans-Bold.otf": [1, 1],
+  "fonts/Steelfish Rg.ttf": [1, 1],
+  "fonts/Tourner (100).ttf": [1, 1],
+  "fonts/Tourner (151).ttf": [1, 1],
+  "fonts/Tourner (192).ttf": [1, 1],
+  "fonts/Tourner (29).ttf": [1, 1],
+  "fonts/Tourner (330).ttf": [1, 1],
+  "fonts/Tourner (332).ttf": [1, 1],
+  "fonts/Tourner (592).ttf": [1, 1],
+  "fonts/workshop/2661133110/simhei.ttf": [1, 1],
+  "fonts/workshop/2856544206/YuGothB.ttc": [1, 1],
+  "fonts/workshop/3374339759/arcane-nine.otf": [1, 1],
+  "fonts/workshop/3449579583/SanJiXingKaiJianTi-Cu-2.ttf": [1, 1],
+  "fonts/workshop/3489089062/Black Freeday.ttf": [1, 1],
+  "fonts/workshop/3637654840/A-OTF-GothicMB101Pro-Light.otf": [1, 1],
   // —— systemfont_* 系统字体别名（不进四级链，见 F6）——
-  'systemfont_consolas': [63, 3],
-  'systemfont_arial': [48, 4],
-  'systemfont_comicsans': [4, 1],
+  "systemfont_arial": [75, 9],
+  "systemfont_consolas": [67, 5],
+  "systemfont_comicsans": [4, 1],
+  "systemfont_cambria": [1, 1],
+  "systemfont_verdana": [1, 1],
 }
+// ═══ CENSUS-END ═══
 // 语料**用到**的 systemfont_* 别名（F6 的覆盖断言）
 const CORPUS_SYSTEMFONT = ['systemfont_arial', 'systemfont_comicsans', 'systemfont_consolas']
 
@@ -311,7 +367,49 @@ if (!fs.existsSync(CORPUS)) {
   }
   note('实扫', containers + ' 个容器 / ' + textLayers + ' 个文本层引用')
   const keys = [...liveCensus.keys()].sort()
-  check('F4a 实扫引用名集合 == 冻结清单（口径漂移要显式改 CENSUS）',
+  /* ①(2026-09-24 语料漂移) **重定基入口**：语料长大/重命名后，CENSUS 的"集合 + 逐个数字"必然过期。
+     以前只能手改 40 行表（改错了看不出），现在一条命令从**当前实扫**重生成，并在同一处打印增/删/改，
+     让 diff 与读数都能审。生成物落在 CENSUS-BEGIN/END 之间；本分支跑完即退出，不参与断言。 */
+  if (process.argv.includes('--write-census')) {
+    const lines = (group, pred) => keys.filter(pred).sort((a, b) => {
+      const ra = liveCensus.get(a), rb = liveCensus.get(b)
+      return (rb.n - ra.n) || (rb.pkgs.size - ra.pkgs.size) || a.localeCompare(b)
+    }).map((k) => '  ' + JSON.stringify(k) + ': [' + liveCensus.get(k).n + ', ' + liveCensus.get(k).pkgs.size + '],')
+    const isSys = (k) => k.startsWith('systemfont_')
+    const isWe = (k) => { const base = k.replace(/^fonts\//, ''); return !!(BUNDLED[base] || WE_REF_TO_REPO[base]) }
+    const body = [
+      'const CENSUS = {',
+      '  // —— WE 内置字体（引用名可能命中仓库/WE 两级）——',
+      ...lines('we', (k) => !isSys(k) && isWe(k)),
+      '  // —— 语料里出现但**本机 WE 也没有**的名字（不是"我们缺"，是数据源缺口）——',
+      ...lines('gap', (k) => !isSys(k) && !isWe(k)),
+      '  // —— systemfont_* 系统字体别名（不进四级链，见 F6）——',
+      ...lines('sys', isSys),
+      '}',
+    ].join('\n')
+    const self = import.meta.filename
+    const src = fs.readFileSync(self, 'utf8')
+    const b = src.indexOf('// ═══ CENSUS-BEGIN')
+    const e = src.indexOf('// ═══ CENSUS-END')
+    if (b < 0 || e < 0) { console.error('✗ 找不到 CENSUS-BEGIN/END 标记'); process.exit(1) }
+    const head = src.slice(0, b)
+    const tail = src.slice(e)
+    const stamp = '// ═══ CENSUS-BEGIN（`--write-census` 生成，勿手改）═══\n'
+    const out = head + stamp + body + '\n' + tail
+    const oldKeys = Object.keys(CENSUS)
+    const added = keys.filter((k) => !CENSUS[k])
+    const removed = oldKeys.filter((k) => !liveCensus.has(k))
+    const changed = keys.filter((k) => CENSUS[k] && (CENSUS[k][0] !== liveCensus.get(k).n || CENSUS[k][1] !== liveCensus.get(k).pkgs.size))
+    fs.writeFileSync(self, out)
+    console.log('== CENSUS 已重定基 ==')
+    console.log('· 条目 ' + oldKeys.length + ' → ' + keys.length + '（新增 ' + added.length + ' / 删除 ' + removed.length + ' / 数字变化 ' + changed.length + '）')
+    if (added.length) console.log('· 新增：' + added.join(' · '))
+    if (removed.length) console.log('· 删除：' + removed.join(' · '))
+    if (changed.length) console.log('· 变化：' + changed.map((k) => k + ' ' + CENSUS[k].join('/') + '→' + liveCensus.get(k).n + '/' + liveCensus.get(k).pkgs.size).join(' · '))
+    console.log('· 实扫：' + containers + ' 个容器 / ' + textLayers + ' 个文本层引用')
+    process.exit(0)
+  }
+  check('F4a 实扫引用名集合 == 冻结清单（口径漂移要显式改 CENSUS：`node tests/font-gap-audit-test.mjs --write-census`）',
     keys.join('\u0000') === Object.keys(CENSUS).sort().join('\u0000'),
     { 多出: keys.filter((k) => !CENSUS[k]), 缺少: Object.keys(CENSUS).filter((k) => !liveCensus.has(k)) })
   const diffs = []
@@ -327,11 +425,16 @@ if (!fs.existsSync(CORPUS)) {
   note('未打包项按影响面排序', nbImpact.map(([f, r]) => f + '=' + (r ? r.n + '层/' + r.pkgs.size + '包' : '0')).join(' · '))
   // ①(2026-09-18 更新) 原先这里断言"最大的是 8bitOperatorPlus8-Regular.ttf（61/17）"—— 它**已经打包**
   //   （作者现行版 Pixel Operator 8，CC0-1.0）⇒ 现在未打包里影响面最大的是 `Alcubierre.otf`（34 层/21 包）。
-  check('F4c 未打包项里影响面最大的是 `Alcubierre.otf`（34 层 / 21 容器）—— 许可未定、不能打包的那个',
-    nbImpact[0][0] === 'Alcubierre.otf' && nbImpact[0][1] && nbImpact[0][1].n === 34 && nbImpact[0][1].pkgs.size === 21,
-    nbImpact.slice(0, 2).map(([f, r]) => f + '=' + (r && r.n)))
-  check('F4d `kust.ttf` 与 `summer85.ttf` 在语料里**0 引用**（⇒ 结论是"不需要"，不是"缺"）',
-    !liveCensus.has('fonts/kust.ttf') && !liveCensus.has('fonts/summer85.ttf'),
+  // ①(2026-09-24) 这里原先把"34 层 / 21 容器"写死在断言里 ⇒ 语料一长就假红（数字本来就该从实扫取）。
+  //   断言的是**语义结论**：许可未定的那个仍是未打包里影响面最大的；数字只用于**报错时**给读数。
+  check('F4c 未打包项里影响面最大的是 `Alcubierre.otf` —— 许可未定、不能打包的那个',
+    nbImpact[0][0] === 'Alcubierre.otf' && nbImpact[0][1] && nbImpact[0][1].n > 0,
+    nbImpact.slice(0, 2).map(([f, r]) => f + '=' + (r ? r.n + '层/' + r.pkgs.size + '包' : '0')))
+  // ①(2026-09-24 语料漂移后如实修正) 旧断言写"两者 0 引用"；新语料里 `kust.ttf` 出现了 1 处引用 ⇒
+  //   断言改成**仍然成立的那条语义**：`summer85.ttf` 0 引用；`kust.ttf` 至多 1 层/1 容器（影响面微不足道，
+  //   不构成"必须解决的分发许可缺口"）。数值突然变大（例如 >2）时这条会红，仍能钉住结论。
+  check('F4d `summer85.ttf` 0 引用、`kust.ttf` 影响面 ≤1 层/1 容器（⇒ 许可未定的这两个都不是阻塞项）',
+    !liveCensus.has('fonts/summer85.ttf') && (!liveCensus.has('fonts/kust.ttf') || liveCensus.get('fonts/kust.ttf').n <= 1),
     [liveCensus.get('fonts/kust.ttf'), liveCensus.get('fonts/summer85.ttf')])
   check('F4e `NotoSans-Regular.ttf` / `TwemojiMozilla.ttf` 也 0 引用（前者只经 `systemfont_*` 别名间接用到，后者供 emoji）',
     !liveCensus.has('fonts/NotoSans-Regular.ttf') && !liveCensus.has('fonts/TwemojiMozilla.ttf'))

@@ -276,16 +276,21 @@ export function update(value) {
 }
 {
   // S1f `thisScene.createLayer(configuration)` 三种形态 + 属性写穿 + enumerateLayers 可见
+  // ⚠(P-142 2026-09-23) `init` 必须 `return value`（而**不是** `return 1`）：分趟后"首帧的 update"只跑一次，
+  //   它拿到的是**当前属性值**（= init 返回值写回后的那份）。`return 1` 会把 origin 这个 Vec3 属性写成标量 1，
+  //   紧接着的 `value.x = …` 在数字上没有落点 ⇒ 探针自己把属性写坏（旧实现靠"init 趟顺带再跑一次 update"
+  //   用 init 前那份 Vec3 把它自愈了，那是跑序巧合、不是契约）。全语料实扫：960 个 export init 的节点里，
+  //   0 个对 origin/scale/angles/color/size 这类 Vec3 属性返回标量 ⇒ 这条改动对真包零命中。
   const src = `'use strict';
 let A = null, B = null, C = null;
-export function init() {
+export function init(value) {
   A = thisScene.createLayer({ image: 'models/x.json', origin: new Vec3(11, 22, 33), alpha: 0.5, visible: false });
   B = thisScene.createLayer('models/bar.json');
   C = thisScene.createLayer(engine.registerAsset('particles/p141.json'));
   A.scale = new Vec3(2, 2, 1);
   A.origin = new Vec3(7, 8, 9);
   A.visible = true;
-  return 1;
+  return value;
 }
 export function update(value) {
   value.x = (A && typeof A.getAnimation === 'function' && typeof A.getTextureAnimation === 'function'
@@ -306,14 +311,14 @@ export function update(value) {
 }
 {
   // S1g `thisScene.sortLayer(layer, index): Boolean`：真的改顺序（洛茜 createLayer 后紧接着调它）
-  // ⚠ 首帧的 **init 趟在 init() 之后还会跑一次 update()**（`runScriptValueCached` 的既有语义，
-  //   P-137 的 S1/S2 就是按这个算窗口的）⇒ "排序前"的下标必须在**第一次** update 里记下来，
-  //   否则第二次 update 看到的是已经排好序的结果（实测：不记就是 0/0，看起来像 sortLayer 没生效）。
+  // ⚠(P-142 2026-09-23) 首帧的 update 现在**只跑一次**（init 趟只跑 init）⇒ "排序前"的下标只能在
+  //   这唯一一次 update 里记（`before` 仍要记，否则 `value.y` 拿不到搬迁前的下标）。
+  //   `init` 必须 `return value`（同 S1f 的理由：`return 1` 会把 origin 写成标量）。
   const src = `'use strict';
 let L = null, before = -1, recorded = false;
-export function init() {
+export function init(value) {
   L = thisScene.createLayer({ image: 'models/y.json' });
-  return 1;
+  return value;
 }
 export function update(value) {
   if (!recorded) { before = thisScene.getLayerIndex(L); recorded = true; }
@@ -347,15 +352,16 @@ export function update(value) {
 }
 {
   // S1i `thisScene.getLayer(name)` 的层带 ISoundLayer 面（语料 0917/3600630828 的 audioLayer.stop()）
+  // （P-142 同 S1f/S1g：`init` 返回**入参 value**，不返回标量 —— 这个属性是 Vec3 的 origin）
   const src = `'use strict';
-export function init() {
+export function init(value) {
   const audioLayer = thisScene.getLayer('bloom');
-  if (!audioLayer) return 1;
+  if (!audioLayer) return value;
   audioLayer.stop();
   audioLayer.play();
   audioLayer.pause();
   audioLayer.stop();
-  return 1;
+  return value;
 }
 export function update(value) {
   const audioLayer = thisScene.getLayer('bloom');
@@ -543,28 +549,31 @@ else {
    *   语义缺口**（不是语料噪音）——旧判据「errPacks === 0」正是设计来抓这个的，**判据本身没错**。
    *   所以这里保住的语义是："**任何不在清单里的包/错误串 ⇒ 红**"，清单逐包逐串写死（不是"允许 N 个错"）。
    *
-   *   ⚠ 清单里的 6 个包 = **真缺陷、待产品侧决定**（本轮只做门禁口径修复，没有碰 core/demo/elysia）：
-   *     · `0923/2887099508`  `thisLayer.getAnimationLayer()` / `thisScene.destroyLayer()` —— 宿主没实现这两个成员；
-   *     · `0923/3122339805`  `thisLayer.text` 为 undefined（文本层缺少 `.text` 属性面）；
-   *     · `0923/3521337568`、`0923/3653641024`  `shared.offsetedStartAni is not a function` ——
-   *       作者把它挂在**脚本模块顶层**（`shared.offsetedStartAni = offsetedStartAni`，脚本第 1459 行），
-   *       调用方是**更早**的节点（`objects/2/animationlayers/<n>/visible` 的 init）⇒ 本宿主"按首次使用
-   *       惰性编译"导致更早的 init 跑时该键还没挂上（官方语义应先跑完全部脚本的顶层代码）；
-   *     · `0923/3662790108`  `reading 'p1_longNode'` —— **effect pass 的 constants 脚本里没有 `shared`**（读到 undefined）；
-   *     · `wallpaperE/佩丽卡/佩丽卡1_03.mpkg`  `reading 'x'` —— 生产者在 `init` 里写
-   *       `shared.jpc_clockPosition`，消费者是**只有 update 的** 脚本；而宿主在 init 趟里**也会**调用
-   *       update（`elysia/scene-scripts.js:1815-1816` 两趟 + `runScriptValueCached` 里 update 调用不受
-   *       phase 约束）⇒ 消费者在生产者 init 之前就跑了一趟。这条与 `script-runtime-errors` 的 S5b 同源。
-   *   逐条依据见本轮修复说明；产品侧修完就**从清单里删掉**（清单只允许变短，S4c 会打印差值）。 */
+   *   ③(P-142 2026-09-23 **产品侧修复后清单已收缩 6 → 1**)：`elysia/scene-scripts.js` 修掉
+   *     ①跑序（新增 prepare 趟"先建全图"；init 趟只跑 init、update 趟只跑 update）+ ②四类成员/作用域缺口
+   *     （`thisScene.getLayer(...).getAnimationLayer` / `thisScene.destroyLayer` / `ITextLayer.text` /
+   *     effect-pass constants 脚本的 `shared` 可观测性），6 个包里 5 个已 0 错（逐条对照见
+   *     `tests/script-phase-order-test.mjs` 的 S2/S4 真包断言与 S5 全语料扫描）。
+   *
+   *   ⚠ 仍然留在清单里的**唯一**一条 = **作者笔误，不是宿主缺口**（本轮实测证据）：
+   *     · `0923/3662790108` 的 `P1 Data` 常量脚本（`objects[10].effects[0].passes[0].constantshadervalues`）
+   *       读的是 `shared.shared.p1_longNode` —— **多写了一层 `.shared`**；
+   *     · 同包同组的 `P1 Asc Node` 脚本读 `shared.p1_longNode || 0` **0 错** ⇒ 证明 effect-pass constants
+   *       脚本**拿得到 `shared`**（"constants 脚本里没有 shared"这条假设**被证伪**）；
+   *     · 生产者在同包里用的是动态键 `shared['p' + idx + '_longNode']`（`grep 'shared\['` 命中）——
+   *       真要读的键是 `shared.p1_longNode`；
+   *     · 全语料 206 个容器扫描：`shared.shared` 只在这一个包出现（reads=2 / writes=0）⇒ 没有任何脚本
+   *       会写出 `shared.shared`；`shared` 的官方语义是"全局共享对象"（d.ts L1626-1629 "Reference to the
+   *       global shared object"），第三方参考实现同样只把 `shared` 指到那一个对象（无自引用成员）。
+   *     ⇒ 宿主**不**伪造 `shared.shared`（那会静默吞掉作者笔误，还会污染脚本可见的键空间）；
+   *       `tests/script-phase-order-test.mjs` 的 S3d 用负面对照把这条**钉住**（合成脚本读 `shared.shared.x`
+   *       必须抛，且真包的残余错误串就是它）。
+   *   逐条依据见本轮修复说明；产品侧再修就**从清单里删掉**（清单只允许变短，S4c 会打印差值）。 */
   const KNOWN_S4_GAPS = {
     note: '2026-09-23 语料（0923/wallpaperE）暴露的脚本 API/宿主语义缺口；新包/新错误串一律红',
     pkgs: {
-      '0923/2887099508/scene.pkg': ['init:thisScene[_0x3fc6(...)](...).getAnimationLayer is not a function', 'update:thisScene.destroyLayer is not a function'],
-      '0923/3122339805/scene.pkg': ['update:Cannot read properties of undefined (reading \'toString\')'],
-      '0923/3521337568/scene.pkg': ['init:shared.offsetedStartAni is not a function'],
-      '0923/3653641024/scene.pkg': ['init:shared.offsetedStartAni is not a function'],
+      // P-142 后仅存：作者把 `shared.p1_longNode` 写成了 `shared.shared.p1_longNode`（非宿主缺口，理由见上）
       '0923/3662790108/scene.pkg': ['update:Cannot read properties of undefined (reading \'p1_longNode\')'],
-      'wallpaperE/佩丽卡/佩丽卡1_03.mpkg': ['update:Cannot read properties of undefined (reading \'x\')'],
     },
   }
   const found = new Map()

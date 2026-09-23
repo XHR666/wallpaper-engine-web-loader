@@ -11516,9 +11516,22 @@ export function createRenderer(canvas, opts = {}) {
     //     · solid + **非白颜色** → 照旧画（whiteTex + color4）→ 颜色填充保留；
     //     · solid + 白色/未定义颜色（作者的占位/容器层，如 myLayer/193/组件/1054）→ 透明；
     //     · 非 solid 且缺纹理 → 只在 `?whitefallback=1` 时画白（默认透明，避免白块）。
+    // ①(MPKG-SWEEP 2026-09-23 §4 修；原取证 docs/MPKG-SWEEP-20260923.md) **显式纯色层模型**必须判为纯色：
+    //   上面那条"白 ⇒ 透明"的细化把**两支不同来源的 solid 层**混为一谈了：
+    //     ① 作者占位/容器层：`solid:true` 且**无 image**（myLayer/193/组件/1054）——纹理缺失是异常 ⇒ 透明兜底；
+    //     ② **显式纯色层**：`image: "models/util/solidlayer*.json"`——内置材质 `BUILTIN_MATERIALS`
+    //        ['materials/util/solidlayer.json'].passes[0].textures 本来就是 `[]`（**无纹理是设计**），
+    //        颜色只在 `layer.color`；WE 语义里 `color` 缺省 = 白 ⇒ 画 whiteTex × color4。
+    //   旧谓词只认"非白 color" ⇒ ②未写 color（=白）时被当①静默吞成 1×1 全 0 透明纹理，
+    //   **整层消失**（真机包 `wallpapertest1_…alone 孤独の少女….mpkg` 第 51 层 `纯色`：
+    //   image=solidlayer.json、无 color 字段、size=1000×1000 ⇒ package-matrix 报 `[TRANSPARENT_FALLBACK] 纯色`）。
+    //   另两条守卫不变、也必须同时满足：`layer.solid`（parseScene 对同一 image 前缀置 true，见上方 parse 段）
+    //   与 `!effTex`（包内/钩子**真给了**纹理时仍以真纹理为准，纯色判据不覆盖它）。
+    const __solidModel = typeof layer.image === 'string' && layer.image.indexOf('models/util/solidlayer') === 0
     const __solidColored = (() => {
       try {
         if (!layer.solid || effTex) return false
+        if (__solidModel) return true   // 显式纯色层模型：无纹理是设计；color 缺省 = 白
         const c = layer.color || [1, 1, 1]
         return Math.abs(c[0] - 1) > 0.02 || Math.abs(c[1] - 1) > 0.02 || Math.abs(c[2] - 1) > 0.02
       } catch { return false }

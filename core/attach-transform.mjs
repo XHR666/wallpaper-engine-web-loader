@@ -220,6 +220,135 @@ export function mdlLooksLikeLayoutA(entryErrors) {
   return ((entryErrors && entryErrors.length) || 0) === 0
 }
 
+// ── ②(P-152b 2026-09-23) 变长布局（骨名前置）**重扫救回** ─────────────────────────────────────
+//
+// 缺口（P-152 **有意**留下的，见 `docs/PATCHES.md` P-152 §P-152.1 末 / §P-152.4 第 4 条）：P-152 只校验
+//   不重扫 ⇒ 真语料里 3 个**非 A 变长布局**包被拒收（`bones=[]` = 丢蒙皮）；而 legacy 路径在这 3 个包上
+//   本来就只产出**残缺骨架**（`asuna body bottom` 声明 7 得 1 / `人物` 声明 55 得 3 / `deimos.fbx`
+//   声明 2 得 0）⇒ "拒收"是把残缺换成没有，不是误伤合法 A。
+//
+// 上游（`oneincase/webwallgl` be3c246，MIT）在 A 校验失败后按 B/C **重扫救回**。本条落**同语义的可判定
+//   形式**（判据引用，不照抄实现）。物理布局（本机语料逐字节核对 3/3 命中）：
+//     `[骨名 cstr][id u32][parent i32][len u32=64][64B 矩阵][槽 cstr]`
+//   ——骨名在**前**（布局 A 是 `[tmp u8][id][parent][len][矩阵][骨名 cstr]`，且矩阵在骨名之前），矩阵后
+//   还有**一个 cstr 槽**（布局 C 的 JSON 元数据 `{"a":…,"tp":"…"}`；空槽、或合成布局 B 里它就是
+//   **下一条记录的名字**）。
+//
+// 判据（**全部是可判定的合取**；任一不满足 ⇒ `rescued=false` = **如实拒绝**，绝不返回残缺骨架）：
+//   ① 起点固定 `mdlsOffset + 17`（**不搜窗口**：上游 `findHeader` 的窗口锚扫是启发式；这里改成"记录流
+//      必须从声明骨数之后的第一字节开始"，位置由格式决定，不由"哪条最像"决定）；
+//   ② `len === 64`（上游同判据；本仓 839/839 骨的 len 全 = 64 —— 全语料实扫）；
+//   ③ 骨名/槽 ≤4096B 且可打印 ASCII 或合法 UTF-8（**复用**布局 A 的 `mdlNameSlotOK`，与 A 同判据）；
+//   ④ `parent ∈ [-1, 骨数)` 且 `parent === -1 || parent < 骨序号`（父必须先声明；本仓 825/825 骨满足
+//      —— 全语料实扫。比布局 A 的判据**更严**：越界的"残缺/错位骨架"仍然一律拒）；
+//   ⑤ 矩阵三行基向量各自单位长（±0.05）且两两正交（±0.05）—— 比布局 A 的"两行在 xy 分量上单位长"
+//      近似判据**更强**（2026-09-23 全语料实扫：825/825 骨满足）；再加平移 `m[12..14]` 有限、
+//      id ∈ [0,100000)。⚠ **A 路径仍用旧的两行近似判据**（本轮不改 A 判据 ⇒ 布局 A 里绕 X 的 90°
+//      正交矩阵仍被判 rotation-row-not-unit，见门禁 ①b 的 ROT_X 对照片；真语料 `deimos.fbx` 是骨名
+//      前置、A 定步在骨 0 就失步 ⇒ 走的是重扫路径，不受这条影响）；
+//   ⑥ 记录流不越过**段界** `segBytes@+9`（2026-09-23 全语料实扫：86/86 MDLS 文件的该字段都落在
+//      (MDLS 起点, 文件长]，且 = 下一段起点或差 1 字节 ⇒ 取 `segBytes + 1` 为开区间上界；不可信时退回文件长）；
+//   ⑦ **变体歧义 ⇒ 拒绝**：带槽（= 合成布局 C）/ 不带槽（= 合成布局 B）两种读法各跑一遍 ——
+//      · 恰好一种完整且全合法 ⇒ 采用（`layout` = `'C'` / `'B'`）；
+//      · 两种都完整且全合法、**骨逐位相同** ⇒ 采用（`layout` = `'B/C'`：结果与读法无关，无歧义）；
+//      · 两种都成立但骨不同 ⇒ **拒绝**（分不清 B/C，宁可不给）。
+// ⚠ 本函数**只在** `readMdlsLayoutABones` 未整体通过时被调用（调用点见 `parseMdl`）⇒ 布局 A 合法的
+//   文件（本仓 83/86 MDLS / 825 骨）**一个字节都不经过这里** ⇒ A 路径逐位不变（门禁有断言）。
+const MDLS_RESCAN_BONE_LEN = 64
+
+/** ②(P-152b) 救回路径专用矩阵判据：三行基向量单位长（±0.05）+ 两两正交（±0.05）。 */
+function mdlBoneMatrixOrthonormal(m) {
+  const l0 = Math.hypot(m[0], m[1], m[2]), l1 = Math.hypot(m[4], m[5], m[6]), l2 = Math.hypot(m[8], m[9], m[10])
+  if (Math.abs(l0 - 1) >= 0.05 || Math.abs(l1 - 1) >= 0.05 || Math.abs(l2 - 1) >= 0.05) return false
+  const d01 = m[0] * m[4] + m[1] * m[5] + m[2] * m[6]
+  const d02 = m[0] * m[8] + m[1] * m[9] + m[2] * m[10]
+  const d12 = m[4] * m[8] + m[5] * m[9] + m[6] * m[10]
+  return Math.abs(d01) < 0.05 && Math.abs(d02) < 0.05 && Math.abs(d12) < 0.05
+}
+
+/** ②(P-152b) 单一变体的定步扫描（`withSlot` = 矩阵后是否还有 cstr 槽）。返回 `{bones, reason, at, end}`。 */
+function scanMdlsNameFronted(raw, dv, start, boneCount, sectionEnd, withSlot) {
+  const bones = []
+  let p = start
+  for (let b = 0; b < boneCount; b++) {
+    let je = p
+    while (je < raw.length && raw[je] !== 0) je++
+    if (je >= raw.length) return { bones, reason: 'name-not-terminated', at: b, end: p }
+    if (je - p > MDLS_NAME_SLOT_MAX) return { bones, reason: 'name-slot-too-long', at: b, end: p }
+    if (!mdlNameSlotOK(raw, p, je)) return { bones, reason: 'name-slot-invalid-bytes', at: b, end: p }
+    p = je + 1
+    if (p + 12 > raw.length) return { bones, reason: 'head-truncated', at: b, end: p }
+    const id = dv.getUint32(p, true), parent = dv.getInt32(p + 4, true), len = dv.getUint32(p + 8, true)
+    p += 12
+    if (len !== MDLS_RESCAN_BONE_LEN) return { bones, reason: 'bone-len-not-64', at: b, end: p }
+    if (p + len > raw.length) return { bones, reason: 'matrix-truncated', at: b, end: p }
+    const m = new Array(16)
+    for (let i = 0; i < 16; i++) m[i] = dv.getFloat32(p + i * 4, true)
+    p += len
+    if (withSlot) {
+      let se = p
+      while (se < raw.length && raw[se] !== 0) se++
+      if (se >= raw.length) return { bones, reason: 'slot-not-terminated', at: b, end: p }
+      if (se - p > MDLS_NAME_SLOT_MAX) return { bones, reason: 'slot-too-long', at: b, end: p }
+      if (!mdlNameSlotOK(raw, p, se)) return { bones, reason: 'slot-invalid-bytes', at: b, end: p }
+      p = se + 1
+    }
+    // ⑥ 段界：记录流必须留在 MDLS 段内（越界 ⇒ 不是一份可解释的记录流）
+    if (p > sectionEnd) return { bones, reason: 'overruns-section', at: b, end: p }
+    // ④ / ⑤ 逐骨判据（与布局 A 同族的可判定判据，父序与矩阵更严）
+    if (!(parent === -1 || (parent >= 0 && parent < boneCount))) return { bones, reason: 'parent-out-of-range', at: b, end: p }
+    if (!(parent === -1 || parent < b)) return { bones, reason: 'parent-not-before-child', at: b, end: p }
+    if (!(Number.isFinite(id) && id >= 0 && id < 100000)) return { bones, reason: 'material-index-out-of-range', at: b, end: p }
+    if (!mdlBoneMatrixOrthonormal(m)) return { bones, reason: 'matrix-not-orthonormal', at: b, end: p }
+    if (!Number.isFinite(m[12]) || !Number.isFinite(m[13]) || !Number.isFinite(m[14])) return { bones, reason: 'translation-not-finite', at: b, end: p }
+    bones.push({ index: b, type: id, parent: parent === -1 ? -1 : parent, bind: m })
+  }
+  return { bones, reason: null, at: boneCount, end: p }
+}
+
+/** ②(P-152b) 两副骨逐位相同？（用于"两种读法结果一致 ⇒ 无歧义"的判定；NaN 也按位同形比较） */
+function sameBones(a, b) {
+  if (a.length !== b.length) return false
+  const f = (v) => (Number.isFinite(v) ? String(v) : 'x' + String(v))
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].index !== b[i].index || a[i].type !== b[i].type || a[i].parent !== b[i].parent) return false
+    for (let k = 0; k < 16; k++) if (f(a[i].bind[k]) !== f(b[i].bind[k])) return false
+  }
+  return true
+}
+
+/**
+ * ②(P-152b 2026-09-23) 变长布局（骨名前置）**重扫救回**（唯一实现处；判据见上）。
+ * 只在布局 A 未整体通过时调用；返回 `{rescued:true, bones, layout, variant}` 或
+ * `{rescued:false, reason, parsedBones, variant}`（`reason` 只用于**台账**，不改变"拒绝"这一结果）。
+ * ⚠ **不抛异常**：内部 `try` 兜底（畸形/越界输入也返回一个可判定的 `rescued=false`）—— 调用点的
+ *   `parseMdl` 外层有 `catch { bones = [] }`，若这里抛出去就会变成"没台账的静默空骨架"，正是不许的。
+ */
+export function rescanMdlsNameFrontedBones(raw, dv, mdlsOffset, boneCount) {
+  try {
+    const start = mdlsOffset + 17
+    if (!(boneCount > 0 && boneCount <= 1024) || !(mdlsOffset >= 0) || start + 12 > raw.length) {
+      return { rescued: false, reason: 'not-attemptable', parsedBones: 0, variant: null }
+    }
+    const segBytes = dv.getUint32(mdlsOffset + 9, true)
+    const sectionEnd = (segBytes > start && segBytes <= raw.length) ? segBytes + 1 : raw.length
+    const v1 = scanMdlsNameFronted(raw, dv, start, boneCount, sectionEnd, true)   // 合成布局 C（带槽）
+    const v2 = scanMdlsNameFronted(raw, dv, start, boneCount, sectionEnd, false)  // 合成布局 B（不带槽）
+    const ok1 = !v1.reason, ok2 = !v2.reason
+    if (ok1 && ok2) {
+      if (sameBones(v1.bones, v2.bones)) return { rescued: true, bones: v1.bones, layout: 'B/C', variant: 'name-fronted' }
+      return { rescued: false, reason: 'ambiguous-layout-bc', parsedBones: Math.max(v1.bones.length, v2.bones.length), variant: 'both' }
+    }
+    if (ok1) return { rescued: true, bones: v1.bones, layout: 'C', variant: 'name-fronted+slot' }
+    if (ok2) return { rescued: true, bones: v2.bones, layout: 'B', variant: 'name-fronted' }
+    // 只用于台账：报"走得最远"的那一副的失败原因（**不影响**接受/拒绝的判定）
+    const best = v1.bones.length >= v2.bones.length ? v1 : v2
+    return { rescued: false, reason: best.reason, parsedBones: best.bones.length, variant: best === v1 ? 'C' : 'B' }
+  } catch {
+    return { rescued: false, reason: 'rescan-exception', parsedBones: 0, variant: null }
+  }
+}
+
 /** ①(P-152) `?mdls=legacy` 的**唯一判定式**（与 `bindOrderLegacy` 同形：正则字面量，
  *  由 `tests/diag-flag-check.mjs` 的规则 c 抓取）。缺省/任何其它值 = 走校验（判据见上）。 */
 export function mdlsLegacy(search) {
@@ -237,6 +366,17 @@ function warnMdlBoneLayout(mdlsOffset, boneCount, diag) {
     const tail = diag.rejectReason ? (' rejectReason=' + diag.rejectReason) : ''
     w('[P-152] MDLS bone layout rejected @+' + mdlsOffset + ': declared=' + boneCount + ' parsed=' + diag.parsedBones
       + ' layout=' + diag.layout + cnt + tail + ' -> bones=[] (?mdls=legacy = 逐位回到无校验旧行为)')
+  } catch { /* 日志失败不影响解析 */ }
+}
+
+/** ②(P-152b) 一行可读 warn：**变长布局重扫成功**（与"拒绝"同样只在异常文件上打一行 ⇒ 合法 A 语料零输出）。 */
+function warnMdlBoneLayoutRescued(mdlsOffset, boneCount, diag) {
+  try {
+    const w = (typeof console !== 'undefined' && typeof console.warn === 'function') ? console.warn : null
+    if (!w) return
+    const r = diag.rescan || {}
+    w('[P-152] MDLS bone layout rescued @+' + mdlsOffset + ': declared=' + boneCount + ' parsed=' + diag.parsedBones
+      + ' layout=' + diag.layout + ' variant=' + (r.variant || '-') + ' (A 校验未过 ⇒ 按骨名前置布局重扫)')
   } catch { /* 日志失败不影响解析 */ }
 }
 
@@ -347,22 +487,43 @@ export function parseMdl(buf, opts) {
           const r = readMdlsLayoutABones(buf, dv, mdlsOffset, boneCount, null)
           const rejects = r.entryErrors
           if (r.complete && !r.structErrors && !rejects.length) {
-            bones = r.bones // 布局 A 整体合法 ⇒ 逐位采用（= 改动前结果）
+            bones = r.bones // 布局 A 整体合法 ⇒ 逐位采用（= 改动前结果；**不经过**重扫）
           } else {
-            // ② 不许静默按 A 解：定步结果**不采用**（绝不返回残缺/错位骨架），台账 + 一行 warn
-            bones = []
+            // ② 不许静默按 A 解：定步结果**不采用**（绝不返回残缺/错位骨架）
             const notA = !mdlLooksLikeLayoutA(rejects) || r.structErrors > 0 || r.bones.length !== boneCount
-            mdlDiag = {
-              declaredBones: boneCount, parsedBones: r.bones.length,
-              layout: notA ? 'not-A' : 'refused',
-              rejected: true,
-              reason: r.rejectReason || (rejects[0] && rejects[0].reason) || 'unknown',
-              rejectedBones: rejects.length,
-              entryErrors: rejects.slice(0, 8),
+            // ③(P-152b 2026-09-23) **变长布局（骨名前置）重扫救回**：判据/失败路径见
+            //   `rescanMdlsNameFrontedBones`（可判定的合取；解析不出 ⇒ 返回 rescued=false）。
+            //   ⚠ **闸门**：只在 A 定步**真的失步**时重扫（`!complete || structErrors > 0` = 记录流读不齐
+            //   声明的骨数 / 结构错 —— 变长布局的签名）。若 A 定步把声明的骨数**读齐了**（只是某条骨的
+            //   判据不过），那这份流就是布局 A，骨非法 = 真缺陷 ⇒ 按 P-152 原样拒绝，**不**用另一种读法
+            //   去"绕过"逐骨判据（否则 P-152 的"非法 ⇒ 拒绝整个骨架"会被悄悄削弱）。
+            const res = (!r.complete || r.structErrors > 0) ? rescanMdlsNameFrontedBones(buf, dv, mdlsOffset, boneCount) : null
+            if (res && res.rescued) {
+              bones = res.bones
+              mdlDiag = {
+                declaredBones: boneCount, parsedBones: bones.length,
+                layout: res.layout, rescued: true, rejected: false,
+                reason: null, rejectedBones: 0, entryErrors: [],
+                // 台账里留"为什么需要救回"（A 路径读了几条 / 卡在哪）⇒ 机器可判、可回归
+                rescan: { variant: res.variant, aBones: r.bones.length, aReason: r.rejectReason || (rejects[0] && rejects[0].reason) || null },
+              }
+            } else {
+              bones = []
+              mdlDiag = {
+                declaredBones: boneCount, parsedBones: r.bones.length,
+                layout: notA ? 'not-A' : 'refused',
+                rejected: true,
+                reason: r.rejectReason || (rejects[0] && rejects[0].reason) || 'unknown',
+                rejectedBones: rejects.length,
+                entryErrors: rejects.slice(0, 8),
+                // 救援尝试也留痕（**只作台账**：这不改变"拒绝"）；A 定步没失步时=null（闸门见上）
+                rescan: res ? { attempted: true, parsedBones: res.parsedBones, reason: res.reason, variant: res.variant } : null,
+              }
             }
+            if (mdlDiag.rescued) warnMdlBoneLayoutRescued(mdlsOffset, boneCount, mdlDiag)
           }
         }
-        if (mdlDiag) { warnMdlBoneLayout(mdlsOffset, boneCount, mdlDiag) }
+        if (mdlDiag && mdlDiag.rejected === true) { warnMdlBoneLayout(mdlsOffset, boneCount, mdlDiag) }
       }
     } catch { bones = [] }
     // MDLA 动画（RE-03 官方头布局：id i32 + 丢弃 i32 + name\0 + mode\0 + fps f32 + length i32 + pad + boneTrackCount + segBytes）

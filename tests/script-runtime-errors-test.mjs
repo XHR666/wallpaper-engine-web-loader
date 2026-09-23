@@ -27,7 +27,8 @@
 //
 // ── 本文件钉住什么（每条都是真跑出来的数值判据，无浏览器、无网络、秒级）──────────────────
 //   S1/S2  真包脚本原文 + 我们的沙箱跑 N 帧：**修后 0 次**；N 选得让"修前"**逐字等于上报里的
-//          ×511 / ×72**（首帧 init 趟会多跑一次 update ⇒ 510/71 帧 ↔ 511/72 次计数，见 S1 注释）。
+//          ×511 / ×72**（修前首帧 init 趟会多跑一次 update ⇒ 510/71 帧 ↔ 511/72 次计数，
+//          P-142 跑序修好后首帧同样只跑一次，见 S1 注释）。
 //   S3     两个真包**整包**（全部脚本节点）跑 4 帧 ⇒ `scriptErrs` 为空（= 上报字段的口径）。
 //   S4     合成探针：`size` 的**量纲/取值/拷贝语义/赋值不抛错/`thisObject.size` 同源**逐条钉住。
 //   S5     同族扫描：`$MPW_ROOT/allwallpaper` 下**所有**带脚本的容器，逐包第 1 帧检查 ⇒
@@ -193,11 +194,11 @@ else {
 
 // ═══════════════════════════ 4. S1/S2 真包脚本原文 + 我们的沙箱跑 N 帧 ═══════════════════════════
 //
-// 为什么 TICKS = 510 / 71（而不是 511 / 72）：`applySceneScripts` 一次调用同时跑 **init 趟**与
-// **update 趟**，而这两个包的脚本都 export 了 `init`；首帧的 init 趟在 init() 之后**继续调 update()**
-// （`elysia/scene-scripts.js` 的 runScriptValueCached：init 段没有 return，随后是 update 段），
-// 于是首帧计 **2** 次、其后每帧 1 次 ⇒ `TICKS` 次调用 = `TICKS + 1` 次 update 计数。
-// 取 510/71 正好让"修前"逐字等于上报里的 **×511 / ×72**。
+// 为什么 TICKS = 510 / 71（而不是 511 / 72）：这两个数**只用来对齐"修前"的上报窗口**。旧实现
+// `applySceneScripts` 一次调用里 init 趟会顺带再调一次 update（`runScriptValueCached` 的 update 段
+// 当时不受 phase 约束）⇒ 首帧计 **2** 次、其后每帧 1 次 = `TICKS + 1` 次，取 510/71 正好逐字等于
+// 上报里的 ×511 / ×72。①(P-142 2026-09-23) 跑序修好后首帧也只跑一次 ⇒ 本窗口实测 = `TICKS` 次
+// （断言只看"抛错 = 0"，计数只进 note，所以窗口值不需要改）。
 out('\nS1/S2 真包脚本原文 × N 帧（复现窗口 = 上报计数）')
 for (const P of [PACK_A, PACK_B]) {
   const tag = P === PACK_A ? 'S1' : 'S2'
@@ -212,8 +213,8 @@ for (const P of [PACK_A, PACK_B]) {
   if (!node) continue
   const alone = { general: {}, objects: [node] }
   const r = runTicks(alone, P.ticks)
-  note(tag + ' 窗口：' + P.ticks + ' 帧 × 1 次/帧 + 首帧 init 趟 1 次 = ' + (P.ticks + 1) + ' 次'
-    + '（上报 ' + P.report + ' 的 ×' + P.reportCount + '）——本窗口实测 = ' + r.total + ' 次')
+  note(tag + ' 窗口：' + P.ticks + ' 帧 × 1 次/帧 = ' + P.ticks + ' 次（P-142 起首帧不再多跑一次）'
+    + '；上报 ' + P.report + ' 的 ×' + P.reportCount + ' 是"修前"的计数窗口 ——本窗口实测错数 = ' + r.total + ' 次')
   ok(tag + 'b ' + P.id + ' ' + P.at + ' 跑 ' + P.ticks + ' 帧 ⇒ update 抛错 ' + P.reportCount + ' → 0',
     r.update === 0, r.total === 0 ? '本窗口 0 错（上报字段 scriptErrs 口径）' : ('实测 ' + r.total + ' 错：' + JSON.stringify([...new Set(r.msgs)].slice(0, 3))))
 }
@@ -333,36 +334,25 @@ export function update(value) {
  *   为什么不是"把 0 改成 6"了事：这 6 个包是**真的在抛错**，而"全语料 0 错"这条判据本身没错 ——
  *   所以判据改成"**任何不在清单里的包/错误串 ⇒ 红**"（比"种类 ⊆ 白名单"更细：同包多一条新串也红），
  *   并把每条缺口的**真因**写清（下方注释），便于产品侧决定是否补 API/语义。
- *   ⚠ 这些**不是语料噪音**，是本轮新语料暴露的**宿主/API 缺口**（本轮只改 tests/**，未动产品代码）：
- *     · `0923/2887099508`：`thisLayer.getAnimationLayer()`、`thisScene.destroyLayer()` 未实现；
- *     · `0923/3122339805`：文本层缺 `.text` 属性面（`thisLayer.text.toString()` ⇒ undefined）；
- *     · `0923/3521337568`、`0923/3653641024`：作者把 `shared.offsetedStartAni` 挂在**脚本模块顶层**，
- *       调用方是更早的节点 ⇒ 惰性编译（首次使用时才求值模块顶层）导致更早的 init 看不到该键；
- *     · `0923/3662790108`：effect pass 的 constants 脚本里**没有 `shared`**（读到 undefined ⇒ reading 'p1_longNode'）；
- *     · `wallpaperE/佩丽卡/佩丽卡1_03.mpkg`：生产者在 `init` 里写 `shared.jpc_clockPosition`，消费者是
- *       **只有 update 的**脚本，而宿主在 init 趟里也会调用 update（`elysia/scene-scripts.js:1815-1816` 两趟
- *       + `runScriptValueCached` 的 update 调用不受 `phase` 约束）⇒ 消费者在生产者 init 之前先跑了一趟。
- *       与 `scene-script-api-gaps` 的 S4c 同源 —— 这两处是本轮**唯一**判定为"真缺陷"的东西。
- *   产品侧修好后请**从清单里删条目**（清单只允许变短；每轮会打印"清单里已消失"的条目）。 */
+ *   ③(P-142 2026-09-23 产品侧已修，清单 6 → 1)：`elysia/scene-scripts.js` 修了**跑序**（新增 prepare 趟
+ *   "先建全图"，init 趟只跑 init、update 趟只跑 update）与**四类成员/作用域缺口**，下面 5 条已消失：
+ *     · `0923/2887099508`（getAnimationLayer / destroyLayer）、`0923/3122339805`（ITextLayer.text）、
+ *     · `0923/3521337568`、`0923/3653641024`（模块顶层挂 shared 的 NSL 主脚本）、
+ *     · `wallpaperE/佩丽卡/佩丽卡1_03.mpkg`（生产者在 init 写 shared、消费者只有 update 且排在前面）。
+ *   ⚠ 仍留的**唯一**一条是**作者笔误**（不是宿主缺口）：`0923/3662790108` 的常量脚本把
+ *     `shared.p1_longNode` 写成了 `shared.shared.p1_longNode`（同组另一个常量脚本读 `shared.p1_longNode`
+ *     却 0 错 ⇒ 证明 constants 脚本**拿得到** shared；全语料 206 容器里 `shared.shared` 只有这一个包在读、
+ *     零个包在写）。宿主不伪造 `shared.shared`，逐条证据见 `tests/script-phase-order-test.mjs` 的 S3d/S5。 */
 const KNOWN_GAPS = new Set([
-  'init:shared.offsetedStartAni is not a function',
-  'init:thisScene[_0x3fc6(...)](...).getAnimationLayer is not a function',
-  'update:thisScene.destroyLayer is not a function',
-  'update:Cannot read properties of undefined (reading \'toString\')',
   'update:Cannot read properties of undefined (reading \'p1_longNode\')',
-  'update:Cannot read properties of undefined (reading \'x\')',
 ])
 /** 逐包清单：rel → 该包允许出现的**归一化**错误串集合（同包新串同样红）。 */
 const KNOWN_GAP_PKGS = new Map([
-  ['0923/2887099508/scene.pkg', ['init:thisScene[_0x3fc6(...)](...).getAnimationLayer is not a function', 'update:thisScene.destroyLayer is not a function']],
-  ['0923/3122339805/scene.pkg', ['update:Cannot read properties of undefined (reading \'toString\')']],
-  ['0923/3521337568/scene.pkg', ['init:shared.offsetedStartAni is not a function']],
-  ['0923/3653641024/scene.pkg', ['init:shared.offsetedStartAni is not a function']],
   ['0923/3662790108/scene.pkg', ['update:Cannot read properties of undefined (reading \'p1_longNode\')']],
-  ['wallpaperE/佩丽卡/佩丽卡1_03.mpkg', ['update:Cannot read properties of undefined (reading \'x\')']],
 ])
-/** `reading 'x'`（P-137 同一类）的已知包：只有它 —— 别处再出现即红。 */
-const KNOWN_X_PKGS = new Set(['wallpaperE/佩丽卡/佩丽卡1_03.mpkg'])
+/** `reading 'x'`（P-137 同一类）的已知包：**已清空**（P-142 修好 `wallpaperE/佩丽卡/佩丽卡1_03.mpkg` 后
+ *  全语料 0 个包抛这一类）—— 白名单空 = 硬判据：再出现任何一个包即红。 */
+const KNOWN_X_PKGS = new Set()
 const normMsg = (m) => String(m).replace(/×\d+/g, '').replace(/\b\d+(\.\d+)?\b/g, 'N')
 
 if (QUICK) skipItem('S5 同族扫描', '--quick（变异子进程）跳过')

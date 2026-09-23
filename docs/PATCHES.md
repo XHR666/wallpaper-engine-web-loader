@@ -12956,3 +12956,64 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
   即 62 层可逐层走、可隔离；`Z5` 截图 1046 B JPEG（本仓画布）、`Z9` 指针转发生效。
 * 仍**没接**的（诚实清单）：`#open`「新窗口」按钮走的还是产物页路径（`installOpenRemap` 在本机形态下
   按 `local-bench` 原样放行，且 `demo-check` D12 钉住"改写必须走同一个真源函数"这条链）——本批不动它。
+
+## P-172（2026-09-24 · 渲染器侧 + `elysia` 侧 · 一夜七项收口）视频底层两个因、静默成员缺口、跑序、变长骨布局，以及三处"门禁自己过期"
+
+**一句话**：本轮把"扫面看到的现象"逐条追到**可判定的因**（本项目缺陷 / 上游浏览器回归 / 语料漂移 / 套件负载时序刀口），
+每一条都落成"改前改后读数 + 离线判据 + 变异自证"，并把三处**会随环境自然过期**的门禁改成可重定基或自推导。
+
+### P-172.0 视频底层（`__videoBase`）**两个因**：一个是我们的，一个是 Firefox 的
+
+| 因 | 性质 | 落点 | 判据 |
+|---|---|---|---|
+| **① 顺序**：块写在 `scene = lib.parseScene(...)` 之前 ⇒ `scene` 恒 null ⇒ 必抛、被 `catch` 吞成一行 ⇒ 视频底层**从未加入**（60 个 PKGM0014 = 视频 + `scene.json`） | 本项目缺陷 | `demo.html` 的 `MPW-VIDEOBASE-BEGIN/END` 段（紧接 `parseScene`、早于层循环/首帧/`__sceneLayers` 发布） | `tests/demo-videobase-order-test.mjs`（13 断言：源码序 + 按源码序执行**原文** + mock-GL 首帧绘制序；变异=搬回原处 ⇒ 6 条精确变红） |
+| **② 首次 load 挂住**：`blob:` 喂 `<video>` 在 **Firefox 152 ~ 153.0.2** 上 `rs=0 / ns=1 / 无 error / play() 永不 settle` | **上游回归**（Bug 2056444，由 Bug 2005247 引入；>1MB 走 IPC 异步流、首读同步挂住；已在 153.0.3+/154/155/ESR153 修） | `demo.html` 的 `mpwBlobMediaRetry()`（`MPW-BLOBRETRY-BEGIN/END`，≤2 次 × 1.5s，`rs≥1`/`error` 即停，健康浏览器零打扰）接到**每一处** blob 喂媒体（视频纹理 / 视频底层 / 声音层 ×2 / 音频面板） | `tests/blob-media-retry-test.mjs`（46 项：站点**自推导** + 行为 + 两组变异）；真机 AUTO 读数 `reports/mpkg-videobase-autoretry.json` |
+
+* 同机同字节对照（`tests/mpkg-video-decode-probe.mjs`）：HTTP 直供 `rs=4`（0.4s）/ blob 22MB `rs=0` / blob 14KB `rs=4`；
+  `new Blob` · `new File` · `new Response().blob()` · `data:` URL **四种页内写法全部挂住** ⇒ 页内只能靠"补一次 load()"。
+* 端到端：补一次 `load()` ⇒ `rs=4 / 1636x1156 / dur=30 / paused=false`（`ct` 从 2.02 走到 4.99），画布 `meanL 94.408 → 8.901`。
+* 完整取证与边界：`docs/VIDEOBASE-20260924.md`（含"本机 Chromium 在 PRoot 下跑不起来 ⇒ 没有第二个浏览器的同机对照"这条如实边界）。
+
+### P-172.1 `[TRANSPARENT_FALLBACK] 纯色`：显式纯色层模型不该被判成"作者占位层"
+
+`core/we-scene-bundle.js` 的 `__solidColored` 加一条 `if (__solidModel) return true`（`layer.image` 前缀 `models/util/solidlayer`），
+仍受两条既有守卫约束：`layer.solid`（parse 段对同一前缀置 true）与 `!effTex`（真给了纹理时以真纹理为准）。
+真包 A/B：`?pkg` 档的 dd/3554161528/scene.pkg（容器文件，不在仓库内，故不写成反引号路径）的 `TRANSPARENT_FALLBACK` 误报 **1 → 0**；`package-matrix` 全语料里 3 个包少报该条（是改善）。
+判据：`tests/solidlayer-fallback-test.mjs`（13 断言，五层合成夹具走**真 parseScene + 真 renderScene**，双口径打标；两组变异）。
+影响面（离线有界扫描）：121 个带 `scene.json` 的容器里 solidlayer 模型层 383 个，"无 color 或白 color" 201 层，其中无 parent（不被 hideBars 隐藏）46 层/22 包。
+
+### P-172.2 `elysia` 脚本三趟跑序：`prepare` / `update` / 引用面
+
+`applySceneScripts` 改成三趟（原实现把 update 混在加载趟里），新增 `prepare` 相位；`ownerRef.setOwner` 提前到编译前；
+`.initialized` 即使没有 init 导出也置位；`applyUserProperties` 的闸门与 `initialized` 解耦。
+语料首帧读数：**报错包 6 → 1**、去重后错误串 **7 → 1**；3 个真包 0 错误。判据：`tests/script-phase-order-test.mjs`（37 断言 + 4 组变异，已登记 `script-phase-order`）。
+
+### P-172.3 四类静默成员缺口（P-143）＋ 嵌套 owner 绑定
+
+`ITextLayer` 的 `pointsize/font/horizontalalign/verticalalign`（缺省 32/`''`/left/top，依据=官方 d.ts + 逐位对齐本仓渲染器）挂到**五个层引用面**；
+`originalOrigin`（脚本跑之前的 WeakMap 快照）；`getEffect/getEffectCount`（含 `effects[]/passes[]/animationlayers[]` 上的 **owner 必须是那一层**）；
+`debug`（布尔缺省 false，依据低、如实标注）；另修 `Vec3/Vec2` 单参数构造与"显式属性写优先于返回值"（保作者节点）。
+真包读数：`佩丽卡1_03` 的 `origin.y` **NaN → 2952.965060**（逐位= 2881.60986 + 184.32×0.36 + 5）；`3122339805` **1 错 → 0**；`2887099508` **5 错 → 0**；NSL 三包 `resetPosition()` 静默 no-op → 真复位。
+全语料静默 NaN 包数 **17 → 7**（无新包）。判据：`tests/script-member-gaps-test.mjs`（60 项含 6 组变异，已登记 `script-member-gaps`）。
+
+### P-172.4 MDL 变长骨布局（B/C）救回：真语料骨数 821 → 885
+
+`core/attach-transform.mjs` 新增 `rescanMdlsNameFrontedBones()`：布局 = `[骨名 cstr][id][parent][len=64][64B 矩阵][槽 cstr]`，
+判据全是可判定的合取（固定起点 `mdls+17`、`len===64`、骨名/槽 ≤4096 可打印 UTF-8、`parent∈[-1,骨数)` 且 `parent<骨序号`、
+矩阵三行单位长两两正交、不越段界、带槽/不带槽恰好一种成立），任一不满足 ⇒ 如实拒绝；**闸门只在 A 定步真失步时重扫**。
+真语料：172 行里 118 逐字段相同 + 51 两档都 null + 差异仅 3 个（`asuna body bottom` 0→7、`人物` 0→55、`deimos.fbx` 0→2）；legacy 档逐位不变。
+判据：`tests/mdl-bone-layout-test.mjs`（断言 72 → 139，6 组变异）。未救回：`0923/2887099508` 的 5 个 `MDLV0016` 网格容器（`parseMdl` 顶点块扫描即返回 null ⇒ 重扫无入口）。
+
+### P-172.5 三处"门禁自己过期"（都不是产品缺陷）
+
+| 门禁 | 现象 | 处理 |
+|---|---|---|
+| `data-limits` B12/B13 | 固定等 300ms，满载时早于"启动清理"（HTTP 先 listen、清理在其后）⇒ 假红 `n=20` | 改成**有界轮询**（≤8s，读到限内即走，读数里带 `waitedMs`） |
+| `font-gap-audit` F4a–F4d | 语料从 98 容器长到 206、文本层引用 1050 条 ⇒ 冻结 CENSUS 必然过期（且 F4c/F4d 把数字写死在断言里） | 新增 `--write-census` **重定基入口**（生成物落在 `CENSUS-BEGIN/END` 之间，打印增/删/改）；F4c 改成只断言语义结论、F4d 改成当前成立的那条（`summer85` 0 引用、`kust` ≤1 层） |
+| `package-matrix --check` | 去重收口把 7 个重复包按同盘 rename 移入 `allwallpaper/delete/` ⇒ 基线 path 消失，`--absorb-new` 按设计拒绝 | **就地重定基**（只改这 7 行 path + 3 行因 §P-172.1 少报的门禁字段；其余 203 行与**全部 timing 基线一字未动**，并在基线里加 `note` 说明），`--check` 恢复"无退化" |
+
+### P-172.6 本轮新增/登记的判据
+
+`blob-media-retry`（46）· `video-base-order`（13）· `solidlayer-fallback`（13）· `script-phase-order`（37）· `script-member-gaps`（60）· `mdl-bone-layout`（139）；
+四个探针的落盘读数（reports/ 目录被 .gitignore 忽略，属本机读数，不进仓库）：
+reports/mpkg-video-codec.json · reports/mpkg-video-decode.json · reports/mpkg-videobase-live.json · reports/mpkg-videobase-autoretry.json。

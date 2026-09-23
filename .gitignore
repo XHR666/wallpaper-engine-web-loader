@@ -84,3 +84,9 @@ lwe-ref/
 dsbw-ref/
 vendor-ref/
 reference/
+
+# 探针的**落盘读数**（`tests/mpkg-sweep-*.json` 等）含本机绝对路径，属本机证据、不进仓库：
+# 报告与结论写在 docs/（VIDEOBASE-20260924.md、MPKG-SWEEP 系列），读数用对应探针可随时复算。
+tests/mpkg-sweep-*.json
+tests/mpkg-videobase-*.json
+tests/mpkg-solidlayer-fallback.json

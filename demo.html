@@ -1169,6 +1169,99 @@ const logf = (m) => { log.textContent += m + '\n'; console.log(m); mpwDiagMirror
   console.error = (...a) => { try { logf('❌ ' + a.map((x) => (x && x.message) || x).join(' ').slice(0, 300)); } catch {} oe(...a); };
   window.addEventListener('error', (e) => { try { logf('❌ 页面错误: ' + e.message); } catch {} });
 }
+// ═══ MPW-BLOBRETRY-BEGIN ═══
+/* ①(2026-09-24 上游 Firefox 回归 Bug 2056444 · blob 喂媒体的**有界重试**兜底看门狗)
+   为什么会有这一条：上游 Bug 2005247（Firefox 152 起）把 blob 数据改成**内容进程经 IPC 读**
+   （`RemoteLazyInputStream`），流不再同步报长度 ⇒ `BaseMediaResource::Create` 落到
+   `CloneableWithRangeMediaResource`；那个资源类在**异步 IPC 流上做同步读** ⇒ 首次元数据读
+   （MP4 的 moov 常在同一文件尾部 = 远端 seek）**挂住**：`readyState` 恒 0、`networkState` 恒 1、
+   **不触发 error**、`play()` 的 promise 永不 settle。触发体积 = blob 数据 > **1MB 的 IPC 内联上限**。
+   上游已修：155 nightly → beta 154 → release 153（153.0.3）/ ESR153。
+   四条实测证据（同机同字节，均可独立复算）：
+     · tests/mpkg-video-codec-probe.mjs       —— 先排除"编解码器/容器罕见"（h264/yuv420p/30s，canPlayType=probably）
+     · tests/mpkg-video-decode-probe.mjs      —— 最小页面：HTTP 直供 rs=4（约 0.4s）；22MB blob 恒 rs=0；
+                                                 14KB blob rs=4；new Blob / new File / new Response().blob() / data:
+                                                 四种写法**全部**复现挂住
+     · tests/mpkg-videobase-live-probe.mjs    —— 真页面：`__videoBase` 元素 rs=0 ns=1 err=null；
+                                                 同一个 blob URL 换新元素、或原元素再 `load()` 一次，都能出数据
+     · tests/mpkg-videobase-recovery-probe.mjs —— 收尾：**只补一次 `load()`** 就恢复（rs=4 / 1636x1156 /
+                                                 dur=30 / buffered=30），画布真的画出视频底层
+                                                 （截图亮度 meanL 94.408 → 8.901）
+   结论：**再补一次 `load()`** 是页内可用的兜底；**健康浏览器上永不触发**（rs≥1 早在 1.5s 内到达
+   ⇒ 本看门狗一次 `load()` 都不调）。判据：tests/blob-media-retry-test.mjs（结构自推导 + 行为 + 变异自证）。
+   调用点一律写成 `try { mpwBlobMediaRetry(el, '…') } catch (e) {}`：本文件有若干**切片 harness**
+   （把某段原文丢进 `new Function` 跑的离线测试）拿不到这个模块内符号 ⇒ 那里的 ReferenceError 必须被
+   吞掉，否则会打挂既有判据；真页面里它永远定义在调用点之前（紧跟 `logf` 之后）。
+   计数钩子 `window.__mpwBlobMediaRetry`（只在 window 存在时写，**不引入别的全局**）：
+     · calls    = 本看门狗挂到媒体元素上的次数（同一元素换曲再挂一次 = 再 +1）
+     · retries  = 累计真的补出去的 `load()` 次数
+     · gaveUp   = 2 次用尽仍 rs=0（没出元数据）的元素数
+     · byLabel  = { [label]: { calls, retries, gaveUp } }，label = 各接线点给的短中文名 */
+function mpwBlobMediaRetry(el, label) {
+  try {
+    if (!el) return
+    const GAP = 1500, MAX = 2, tag = label || '?'
+    let H = null
+    try {
+      if (typeof window !== 'undefined' && window) {
+        H = window.__mpwBlobMediaRetry || (window.__mpwBlobMediaRetry = { calls: 0, retries: 0, gaveUp: 0, byLabel: {} })
+        if (!H.byLabel || typeof H.byLabel !== 'object') H.byLabel = {}
+      }
+    } catch (e) { H = null }
+    // 计数一律走这里：外部若动过钩子对象（缺字段/被替换）也只当没记账，绝不把看门狗打挂
+    const bump = (k) => {
+      try {
+        if (!H) return
+        H[k] = (H[k] || 0) + 1
+        const b = H.byLabel[tag] || (H.byLabel[tag] = { calls: 0, retries: 0, gaveUp: 0 })
+        b[k] = (b[k] || 0) + 1
+      } catch (e) { /* ignore */ }
+    }
+    bump('calls')
+    const state = () => {
+      let rs = 0, err = null
+      try { rs = el.readyState || 0 } catch (e) { rs = 0 }
+      try { err = el.error || null } catch (e) { err = null }
+      return { rs, err }
+    }
+    let tries = 0, done = false
+    const tick = () => {
+      if (done) return
+      const s = state()
+      // 拿到元数据（rs≥1）或已报错 ⇒ **立刻停**：不再重试、不再计时（后续 tick 直接返回）
+      if (s.err || s.rs >= 1) { done = true; return }
+      if (tries >= MAX) {
+        done = true
+        bump('gaveUp')
+        try { logf('⚠ ' + tag + '：始终未出元数据 rs=0，已重试 2 次（上游 Firefox Bug 2056444：blob >1MB 走 IPC 异步流、首次元数据同步读挂住；升级到 153.0.3+/154/155/ESR153 即恢复）') } catch (e) {}
+        return
+      }
+      tries++
+      bump('retries')
+      try { logf('🔁 ' + tag + '：blob 首次 load 挂住（rs=0），第 ' + tries + '/' + MAX + ' 次补 load()（上游 Firefox Bug 2056444）') } catch (e) {}
+      // 这次 `load()` 会**主动中断**上一发尚未 settle 的 `play()` —— 它的 reject 是**预期内**的，
+      //   不是"自动播放被拒"。在元素上记一笔"预期中断数"，调用点的 `play().catch` 消费它，
+      //   免得日志里冒出一行与事实相反的"自动播放失败"（真机实测过：视频其实在放，日志却在报失败）。
+      try { el.__mpwBlobRetryAborts = (el.__mpwBlobRetryAborts || 0) + 1 } catch (e) {}
+      try { el.load() } catch (e) { /* load() 抛错（元素已摘除等）一律吞掉 */ }
+      try {
+        const p = el.play()
+        if (p && typeof p.catch === 'function') {
+          p.catch((e) => {
+            // 补 load() 之后的播放若真被拒（自动播放策略等），如实报一次（每个元素只报一次，不刷屏）
+            try { if (!el.__mpwBlobRetryPlayWarned) { el.__mpwBlobRetryPlayWarned = 1; logf('⚠ ' + tag + '：补 load() 后自动播放被拒（' + ((e && e.name) || '?') + '），画面会停在首帧') } } catch (e2) {}
+          })
+        }
+      } catch (e) { /* play() 同步抛错同样不外泄 */ }
+      try { setTimeout(tick, GAP) } catch (e) { done = true }
+    }
+    const s0 = state()
+    // 首次检查不打扰健康浏览器：rs≥1 / error 非空 ⇒ 一次 `load()` 都不调、也不计时
+    if (s0.err || s0.rs >= 1) return
+    try { setTimeout(tick, GAP) } catch (e) { /* 无 setTimeout：不打扰，也不抛 */ }
+  } catch (e) { /* 绝不外泄：元素已从 DOM 摘掉 / load() 抛错 / window 不存在……全部吞掉 */ }
+}
+// ═══ MPW-BLOBRETRY-END ═══
 // ①(B6 渲染器沙箱) module 脚本已启动（上面的静态 import 全部成功 = 渲染管线代码已就位）：
 //   告诉经典脚本里的看门狗不要再判失败，并补发一次"脚本初始化完成"的 mpw-cap
 //   （与经典块的 init 同内容 → 去重后不会重复发）。
@@ -2123,7 +2216,10 @@ async function loadTex(name, opts = {}) {
     document.body.appendChild(videoEl);
     videoEl.src = url; videoEl.loop = true; videoEl.muted = true; videoEl.playsInline = true;
     videoEl.load();
-    videoEl.play().catch((e) => logf('  ⚠ 视频自动播放失败: ' + e.message));
+    // ①(2026-09-24 上游 Bug 2056444) 看门狗补 load() 会主动中断这一发 play() ⇒ 消费掉"预期中断"，
+    //   只有**不是**被我们自己中断的拒绝才当成真的自动播放失败（否则日志会出现与事实相反的一行）。
+    videoEl.play().catch((e) => { if (videoEl.__mpwBlobRetryAborts) videoEl.__mpwBlobRetryAborts--; else logf('  ⚠ 视频自动播放失败: ' + e.message) });
+    try { mpwBlobMediaRetry(videoEl, '视频纹理') } catch (e) {}   // ①(2026-09-24 上游 Bug 2056444) blob 喂 <video> 首次 load 静默挂住的兜底
     videoEl.addEventListener('error', (e) => logf('  ⚠ 视频解码错误 code=' + (videoEl.error ? videoEl.error.code : '?')));
     videoEl.addEventListener('loadeddata', () => logf('  ✅ 视频已加载 ' + videoEl.videoWidth + 'x' + videoEl.videoHeight));
     const ve = wrapTex({ video: videoEl, glTex: lib.makeTexture(gl, new Uint8Array([0,0,0,0]), 1, 1), width: m.width, height: m.height, rg88: false, lastUploaded: -1, sprite }, name);
@@ -2832,41 +2928,13 @@ function loadScene() {
   // ①(P-21-ATTACH 2026-09-13) 附件锚点默认走移植自 elysia 的实现（bundle parseScene 的 opts.attachCtx，
   //   MDAT0001 锚点表 + MDLA 帧0 骨骼世界位姿；POSITION-FINDINGS.md §4）。?att=legacy 回退旧
   //   anchorsOf/mkOff/piv 自算路径（下面的 legacy 块）。两套互斥，避免叠加。
-  // ①(2026-09-12 用户批准)"**视频作最底层 + 场景层按序叠加**"：容器里同时有 scene.json 与
-  //   project.json.file 指向的视频（mp4/webm）时，把视频作为**最底层**合成 —— 官方这类作品
-  //   （砂狼白子/伊蕾娜相框等）= 视频背景 + 场景里的文本/UI/图层叠加；我们此前只播视频、丢掉场景层。
-  //   逐帧上传复用既有 video 纹理路径（renderLayer 内按 readyState 上传，约 1/30s 一次）。
-  //   `?novideo=1` 可关掉该底层做对照。放在 parseScene 之后、applyRenderConfig 之前，
-  //   名字 `__videoBase` 不命中任何隐藏规则（UI/提示框/纯色条），层序 0 = 最先绘制。
-  try {
-    if (!new URLSearchParams(location.search).has('novideo')) {
-      let vfile = ''
-      try {
-        const pe = lib.getEntry(pkg, 'project.json')
-        if (pe) { const pj = JSON.parse(rd(pe)); vfile = pj.file || (pj.general && pj.general.file) || '' }
-      } catch {}
-      if (vfile && /\.(mp4|webm|mov)$/i.test(vfile) && lib.getEntry(pkg, vfile)) {
-        const bytes = lib.getEntry(pkg, vfile)
-        const blob = new Blob([bytes], { type: /webm$/i.test(vfile) ? 'video/webm' : 'video/mp4' })
-        const url = URL.createObjectURL(blob)
-        const ve = document.createElement('video')
-        ve.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1'
-        ve.setAttribute('playsinline', ''); ve.setAttribute('webkit-playsinline', '')
-        document.body.appendChild(ve)
-        ve.src = url; ve.loop = true; ve.muted = true; ve.playsInline = true; ve.load()
-        ve.play().catch((e) => logf('  ⚠ 视频底层自动播放失败: ' + e.message))
-        const entry = { video: ve, glTex: lib.makeTexture(gl, new Uint8Array([0, 0, 0, 0]), 1, 1), width: 3840, height: 2160, rg88: false, lastUploaded: -1, sprite: null }
-        textures.set('__videoBase', entry)
-        const g0 = scene.general || {}
-        const PW = (g0.orthogonalprojection && g0.orthogonalprojection.width) || 3840
-        const PH = (g0.orthogonalprojection && g0.orthogonalprojection.height) || 2160
-        scene.layers.unshift({ id: -10001, name: '__videoBase', textureName: '__videoBase',
-          origin: [PW / 2, PH / 2, 0], size: [PW, PH], scale: [1, 1, 1], angles: [0, 0, 0],
-          color: [1, 1, 1], alpha: 1, visible: true, alignment: 'center', effects: [] })
-        logf('🎬 视频底层已加入（最底层叠加）：' + vfile)
-      }
-    }
-  } catch (e) { logf('⚠ 视频底层失败: ' + e.message) }
+  // ①(MPKG-SWEEP 2026-09-23 §3 修) "**视频作最底层 + 场景层按序叠加**"块（原 2026-09-12 用户批准的特性）
+  //   **已下移到 `scene = lib.parseScene(...)` 之后**（见下方标着 `MPW-VIDEOBASE` 的那一段，
+  //   位置紧接 parseScene、早于 `window.__sceneLayers` 发布与首帧）。此前该块物理位置就在这里，
+  //   而 `scene` 到约 580 行后才由 parseScene 赋值 ⇒ `scene` 恒为 null ⇒ 整块必抛
+  //   `can't access property "general", scene is null`，被 catch 吞成一行
+  //   `⚠ 视频底层失败: …` ⇒ 这条特性**从未生效**（真机 60 个 PKGM0014 只画出清屏色）。
+  //   ⚠ 不要把这段搬回 parseScene 之前；判据见 tests/demo-videobase-order-test.mjs。
   const ATT_LEGACY = new URLSearchParams(location.search).get('att') === 'legacy'
   // ①(P-110 2026-09-17) `?bindorder=legacy`：bind 世界链序回退（与既有 `?att=legacy`/`?parspace=legacy` 同形）。
   //   缺省 = 子先乘修正序（唯一实现处 `core/puppet-skin.js::bindWorldChain`）；`legacy` = P-110 之前的
@@ -3441,6 +3509,50 @@ function loadScene() {
   scene = ATT_LEGACY
     ? lib.parseScene(sceneObj, null, { attachmentOffsets, uniformFlipY: attachmentOffsets.size > 0, legacyAnimY: true, readParticleDef })
     : lib.parseScene(sceneObj, null, { attachCtx: { readEntry: (n) => lib.getEntry(pkg, n), time: () => skinAnimTime, bindOrder: BIND_ORDER_LEGACY ? 'legacy' : undefined }, readParticleDef })
+  // ═══ MPW-VIDEOBASE-BEGIN ═══
+  // ①(2026-09-12 用户批准)"**视频作最底层 + 场景层按序叠加**"：容器里同时有 scene.json 与
+  //   project.json.file 指向的视频（mp4/webm）时，把视频作为**最底层**合成 —— 官方这类作品
+  //   （砂狼白子/伊蕾娜相框等）= 视频背景 + 场景里的文本/UI/图层叠加；我们此前只播视频、丢掉场景层。
+  //   逐帧上传复用既有 video 纹理路径（renderLayer 内按 readyState 上传，约 1/30s 一次）。
+  //   `?novideo=1` 可关掉该底层做对照。名字 `__videoBase` 不命中任何隐藏规则（UI/提示框/纯色条），
+  //   层序 0 = 最先绘制。
+  //   ①(MPKG-SWEEP 2026-09-23 §3 修) **位置就是这条特性的全部**：本块原在 `let scene = null` 下方
+  //   约 580 行处（parseScene 之前）⇒ `scene` 恒为 null ⇒ `scene.general` 必抛、被 catch 吞成
+  //   `⚠ 视频底层失败: can't access property "general", scene is null` ⇒ 视频底层从未被加入。
+  //   现在紧接上面的 `scene = lib.parseScene(...)`（**必须在层循环/首帧/`applyRenderConfig` 之前**，
+  //   且早于下面 `window.__sceneLayers` 的发布，否则测试台拿到的数组不含视频层）。
+  //   判据：tests/demo-videobase-order-test.mjs（离线源码序 + mock 环境执行 + mock-GL 绘制序）。
+  try {
+    if (!new URLSearchParams(location.search).has('novideo')) {
+      let vfile = ''
+      try {
+        const pe = lib.getEntry(pkg, 'project.json')
+        if (pe) { const pj = JSON.parse(rd(pe)); vfile = pj.file || (pj.general && pj.general.file) || '' }
+      } catch {}
+      if (vfile && /\.(mp4|webm|mov)$/i.test(vfile) && lib.getEntry(pkg, vfile)) {
+        const bytes = lib.getEntry(pkg, vfile)
+        const blob = new Blob([bytes], { type: /webm$/i.test(vfile) ? 'video/webm' : 'video/mp4' })
+        const url = URL.createObjectURL(blob)
+        const ve = document.createElement('video')
+        ve.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1'
+        ve.setAttribute('playsinline', ''); ve.setAttribute('webkit-playsinline', '')
+        document.body.appendChild(ve)
+        ve.src = url; ve.loop = true; ve.muted = true; ve.playsInline = true; ve.load()
+        ve.play().catch((e) => { if (ve.__mpwBlobRetryAborts) ve.__mpwBlobRetryAborts--; else logf('  ⚠ 视频底层自动播放失败: ' + e.message) })
+        try { mpwBlobMediaRetry(ve, '视频底层') } catch (e) {}   // ①(2026-09-24 上游 Bug 2056444) 真机实测：只补一次 load() 即恢复（rs=4 / 1636x1156 / dur=30）
+        const entry = { video: ve, glTex: lib.makeTexture(gl, new Uint8Array([0, 0, 0, 0]), 1, 1), width: 3840, height: 2160, rg88: false, lastUploaded: -1, sprite: null }
+        textures.set('__videoBase', entry)
+        const g0 = scene.general || {}
+        const PW = (g0.orthogonalprojection && g0.orthogonalprojection.width) || 3840
+        const PH = (g0.orthogonalprojection && g0.orthogonalprojection.height) || 2160
+        scene.layers.unshift({ id: -10001, name: '__videoBase', textureName: '__videoBase',
+          origin: [PW / 2, PH / 2, 0], size: [PW, PH], scale: [1, 1, 1], angles: [0, 0, 0],
+          color: [1, 1, 1], alpha: 1, visible: true, alignment: 'center', effects: [] })
+        logf('🎬 视频底层已加入（最底层叠加）：' + vfile)
+      }
+    }
+  } catch (e) { logf('⚠ 视频底层失败: ' + e.message) }
+  // ═══ MPW-VIDEOBASE-END ═══
   // ①(2026-09-21 宿主调试面) 把图层数组发布到 `window.__sceneLayers`：测试台（`:8902`）「调试模式」页签的
   //   逐层隔离**只认这个全局**（`demo/bench-patch.js` 的 `sceneLayerList()`），没有它面板会如实写
   //   "没有可逐层查看的场景"。本仓 core 的渲染循环**逐帧**读 `layer.visible`（`render()` 里
@@ -3604,6 +3716,7 @@ function loadScene() {
     el.src = url
     el.crossOrigin = 'anonymous'
     el.preload = 'auto'
+    try { mpwBlobMediaRetry(el, '声音层') } catch (e) {}   // ①(2026-09-24 上游 Bug 2056444) 包内音轨（常 >1MB）blob 喂 <audio> 的兜底
     const binding = soundLayerVolumeBinding(layer)
     el.volume = currentAudioVolume(layer, binding) * 0.5
     sceneAudio.vols.push({ el, binding })
@@ -3628,6 +3741,7 @@ function loadScene() {
                 if (b2) {
                   el.src = URL.createObjectURL(new Blob([b2], { type: next.endsWith('.flac') ? 'audio/flac' : (next.endsWith('.wav') ? 'audio/wav' : (next.endsWith('.ogg') ? 'audio/ogg' : 'audio/mpeg')) }))
                   el.play().catch(() => {})
+                  try { mpwBlobMediaRetry(el, '声音层') } catch (e) {}   // ①(2026-09-24 上游 Bug 2056444) 换曲重新赋 src ⇒ 重新武装看门狗（同一个元素第二次挂）
                 }
               } catch (e2) { /* ignore */ }
             }, delayMs)
@@ -7443,6 +7557,7 @@ function loadScene() {
       el.src = url
       el.preload = 'metadata'
       el.loop = false
+      try { mpwBlobMediaRetry(el, '音频面板') } catch (e) {}   // ①(2026-09-24 上游 Bug 2056444) 面板预览同样走 blob 喂 <audio>
       el.addEventListener('loadedmetadata', () => {
         try {
           const d = el.duration
