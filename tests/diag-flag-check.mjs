@@ -2,8 +2,11 @@
 // diag-flag-check.mjs — 诊断开关抓取 + 文档双向比对（ZCODE-MERGED-3 第 2 项 2.2 / 1.3 数据源）
 //
 // 做什么：
-//   1. 从真实代码抓"诊断/控制开关"（URL query 参数），来源四类（--source 可单独跑）：
-//        core/we-scene-bundle.js / demo.html / elysia/**/*.js / dsh-mpkg-wallpaper/lib/client.js
+//   1. 从真实代码抓"诊断/控制开关"（URL query 参数），来源五类（--source 可单独跑）：
+//        core/we-scene-bundle.js / demo.html / demo/bench-patch.js / elysia/**/*.js / dsh-mpkg-wallpaper/lib/client.js
+//      ①(2026-09-24 任务 B) 新增 `demo/bench-patch.js` 一个抓取源：测试台（bench）页的开关
+//        （propimg/online/sample/shell/… 见 `demo/bench-patch.js`）此前只能登记在 docs 的"补丁层开关"附录里，
+//        进不了主表 ⇒ 主表与代码不同步。抓取**规则**未动（仍是下面 a/b/c/d 四条），只多喂一个文件。
 //      判定"开关存在"的口径（代码里真实解析，注释/字符串链接不算）：
 //        a) URLSearchParams（绑定 location.* 的标识符或链式调用）上的 .get/.has/.getAll
 //        b) new URL(location.*).searchParams 上的 .get/.has/.getAll
@@ -119,6 +122,10 @@ function collect() {
   }
   absorb('core/we-scene-bundle.js', fs.readFileSync(path.join(ROOT, 'core', 'we-scene-bundle.js'), 'utf8'))   // ①(P-101) 内核在 core/
   absorb('demo.html', fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8'))
+  // ①(2026-09-24 任务 B) 测试台补丁层：`demo/bench-patch.js`（bench 页在 demo.html 之后注入的开关都在这）。
+  //   为什么必须收：这些开关**真实解析 URL**（`new URLSearchParams(location.search)`），是用户可用的诊断开关，
+  //   但它们不在 demo.html 里 ⇒ 以前主表只能靠人工"补丁层开关"附录记，双向比对看不见 ⇒ 漂移。
+  absorb('demo/bench-patch.js', fs.readFileSync(path.join(ROOT, 'demo', 'bench-patch.js'), 'utf8'))
   const elysiaDir = path.join(ROOT, 'elysia')
   const walk = (dir) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

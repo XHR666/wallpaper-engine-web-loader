@@ -1,11 +1,16 @@
 # README-DIAGNOSTICS.md — we-scene 渲染器诊断/控制开关总表（2026-09-14，P-109 追加 `submesh`/`subtri` 两行）
 
 > **本表由代码确认，非手抄**：开关全集由 `node diag-flag-check.mjs`（MERGED-3 2.2）从
-> `core/we-scene-bundle.js` / `demo.html` / `elysia/**/*.js` / `dsh-mpkg-wallpaper/lib/client.js`
+> `core/we-scene-bundle.js` / `demo.html` / `demo/bench-patch.js` / `elysia/**/*.js` / `dsh-mpkg-wallpaper/lib/client.js`
 > 的 `URLSearchParams` / `new URL(...).searchParams` / 正则 `[?&]name=` / 白名单 localStorage
-> 解析点抓取（当前 **173** 个：含 P-112-BANDGEOM 的 `bandfeed`/`framegeom`、P-131 批D 的 `audioemit` 与插件侧 `lgcss`）。本表主表与其双向比对，任何一侧多出/缺失都会非零退出。
+> 解析点抓取（当前 **183** 个：含 P-112-BANDGEOM 的 `bandfeed`/`framegeom`、P-131 批D 的 `audioemit` 与插件侧 `lgcss`）。本表主表与其双向比对，任何一侧多出/缺失都会非零退出。
 > ①(2026-09-19) 本行计数以 `node tests/diag-flag-check.mjs` 的实际输出为准；批 D 之前本行写 149、实测 152（陈旧 3），本批一并更正并 +1（`audioemit`）。
 > ②(2026-09-19) P-153 追加 `scriptstore` 时复核实测：P-144（`children`）之后真实值是 **155**（**本行当时仍写 153 —— 陈旧 2**），本条 +1 ⇒ **156**。陈旧数字一律以脚本输出回填，不手改。
+> ③(2026-09-24 任务 B) 抓取源**新增一个文件** `demo/bench-patch.js`（测试台补丁层；抓取规则 a/b/c/d 一条没动）⇒
+> 新增 `shell`/`online`/`sample`/`propimg` 4 个开关、实测总数 **183**（脚本原话：`代码 183 个开关 == README 主表 183 行，0 差异`）。
+> 它们进主表第 ⑧ 节；本节上方那句"当前 173"是加源之前的陈旧值，本批一并回填。`openrewrite` 等**不经
+> URLSearchParams/正则**读取的补丁开关（走 `readPatchFlags` 的 `on('name', true)` 辅助函数）**抓不到** ⇒ 仍留在
+> 表区之外的「补丁层开关」附录，**不要**手写进主表（会立刻变成"文档有·代码无"⇒ 退出码 1，实测见该节）。
 > **插件侧开关也在本表**：扫描面含 `dsh-mpkg-wallpaper/lib/client.js`，所以插件新增的开关（如 `hdrfrostwatch`）同样必须登记 —— 缺一条 `diag-flag-check` 就会报红。
 >
 > - 用法：把开关拼到渲染器页 URL，如 `http://127.0.0.1:8899/?id=3719111841&audit=3&showui`。
@@ -234,25 +239,43 @@
 | `satur` | 数（0–2） | `1` | 颜色项之一：`saturate(s)`（0 = 灰度、1 = 不变） | 同上 | 同 `bright` | core/we-scene-bundle.js:80、core/we-scene-bundle.js:213 / demo.html:109 |
 | `hue` | 数（−180…180，度） | `0` | 颜色项之一：`hue-rotate(hdeg)`（色相环偏移） | 同上（注意：它同时会改变整幅画面的色调） | 越界钳位到 [−180,180]；CSS `hue-rotate` 对灰阶像素无效（不是 bug） | core/we-scene-bundle.js:80、core/we-scene-bundle.js:213 / demo.html:109 |
 | `display` | `legacy`（`off`/`0`/`no`/`false`） | 无（正常生效） | **总回退开关**：忽略本组**全部**开关（含 `localStorage['mpw-display']` 里的持久化 UI 状态），并且 `__wp.setDisplay` / `__wp.setPlaybackRate` 变成**只读**（返回中性状态、不写任何属性） | 怀疑"画面/指针/速度不对是这组选项引起的"时一键排除；插件侧也用它做"渲染器内部不加任何滤镜"的逃生口 | 回退档 = 画布 style 一字不写、场景时钟与 frametime 逐位回到改动前、控件在工具条里被置灰 | core/we-scene-bundle.js:132 / demo.html:980 |
+
+## ⑧ 测试台补丁层（`demo/bench-patch.js`）
+
+> **①(2026-09-24 任务 B) 本节是本轮新并入主表的**：`tests/diag-flag-check.mjs` 的抓取源原先只有
+> `core/we-scene-bundle.js` / `demo.html` / `elysia/**/*.js` / 插件 `dsh-mpkg-wallpaper/lib/client.js` 四类，**不含测试台补丁层**
+> ⇒ 这些开关只登记在下方「补丁层开关」附录里，**主表的双向比对看不见它们**，代码与文档会各自漂移。
+> 本批把 `demo/bench-patch.js` 加进抓取源（**抓取规则 a/b/c/d 一条没动**，只多喂一个文件），
+> 于是补丁层里**真解析 URL** 的开关（`online`/`propimg`/`sample`/`shell`）必须进主表。
+> 判据：`node tests/diag-flag-check.mjs` 双向 0 差异 + `node tests/docs-check.mjs` 全绿。
+
+| 开关 | 取值 | 默认 | 作用（一句话） | 什么时候用 | 回退/风险 | 解析位置 |
+|---|---|---|---|---|---|---|
+| `shell` | `off` / `0` / `false` / `no` | 开（新样式外壳：静态 `<style id="bench-shell-static">` + `#pages-track` 站点布局 + 外壳初始化） | **测试台新样式外壳的总回退**（P-129 前后那批站点改版）：`?shell=off` = 既不注入站点外壳 CSS、也不初始化外壳（回到旧 DOM 的朴素页面）。同一名字还有第二个消费点：**换包黑幕兜底**只对"带 `shell=0` 的本仓入口 URL"（正则 `/[?&]shell=0(& 或串尾)/` + 路径含 `webloader/`）武装黑幕，其它档一律 `skip-not-shell-url` 不动 | 怀疑"舞台被站点布局挤爆 / 控制台跑到左上角 / 右边闪出 README"是新外壳引起时做单变量 A/B；或要复现旧 DOM 画面 | 关掉 = 旧样式（没有 `#pages-track` ⇒ 窄屏 `@media` 自适应与站点布局都没有）；黑幕兜底在 `shell!=0` 的 URL 上**不挂**（挂错了会盖住正常页面）；⚠ 与「缓存里的旧 HTML + 新补丁」那条自愈路径同源：插件先认 DOM 版本（无 `#pages-track` 就不注入布局 CSS，并用带 cache-buster 的规范 URL 重取一次文档，`sessionStorage` 守卫只重取一次） | demo/bench-patch.js:6977（`SHELL_OFF`）、demo/bench-patch.js:8395（黑幕 `arm()` 的 `shell=0` 判定） |
+| `online` | `0` / `false` / `off` / `no`（强制本机口径）；其余值（含裸 `?online`、缺省 `1`）= 按 host 自动判定 | 自动（`*.github.io` 或任何非本机 host ⇒ **在线版**；`127.0.0.1`/`localhost`/`::1`/`0.0.0.0`/`*.local`/`10.`/`192.168.`/`172.16-31.` 与 `file://` ⇒ 本机口径） | **"在线静态托管形态"判定**（P-93）：在线 ⇒ 后端状态区说"线上版就是没有后端"、**不**打作者本机那行"本机依赖不全（离线 + 依赖不全）"；本机 ⇒ 保留"去跑 pnpm dev"这条对开发有意义的文案 | 在线上域名上想看本机口径的文案（或反过来在本机预演线上文案、给访客视角截图）时做单变量对照 | **只改文案与上报值**（`demoEnv.online`），不改渲染、不改任何 GL/层属性：`?online=0` 下页面像素与 `?online=1` 逐位相同。判定式唯一实现在 `onlineDemoEnv()`（host 白/黑名单都在那里） | demo/bench-patch.js:6101（`onlineFlag` = `/[?&]online=([^&]*)/` 的读取点）→ `onlineDemoEnv`（demo/bench-patch.js:610） |
+| `sample` | `0` / `false` / `off` / `no` = 不自动挂；显式 `<url>` = 换包源（**仅产物页档支持**）；缺省/空 = 自动挂合成样例 | 自动挂（"打开就有画面"） | **默认壁纸（合成样例）的自动载入与关闭**：本仓不分发任何真实壁纸 ⇒ 缺省挂自造的 `samples/sample-synthetic/scene.pkg`（带 `project.json` 一并喂给 `loadSceneFile`，属性面板/品牌才有名字）。本仓渲染器档（`loadRepoDefaultSample`）把 `?id=sample-synthetic` **导航**过去（与产物页 `loadSceneFile(blob)` 同一份字节），产物档（`loadDefaultSample`）才走 fetch+Blob | 想从**空舞台**开始（`?sample=0`，例如自带 `?pkg=`/`?id=` 挂别的包）；或产物页想换包源 | 关掉后舞台保持空（`sample-flag-off`，不再自动挂样例）；⚠ 显式 `?sample=<url>` 在**本仓渲染器档不支持**（那条是产物页契约）⇒ 如实返回 `reason:'explicit-url-unsupported-in-repo'` 并写一行日志，**不假装成功**；plan 唯一实现在 `defaultSamplePlan()`（`0/false/off/no` 大小写不敏感） | demo/bench-patch.js:9471（产物档 `loadDefaultSample`）、demo/bench-patch.js:9515（本仓档 `loadRepoDefaultSample`）；计划函数 demo/bench-patch.js:720 |
+| `propimg` | `once`（缺省）/ `row` / `all` | `once` | **属性面板富文本图片去重档**（用户 2026-09-24 第 3 档「同一张画面在整个面板里只画一次」）：`once` = ① 逐字节同一 URL **无条件**只画一遍（真语料 `dd/3660962877` 里那条 URL 出现 33 次 ⇒ 1 张）+ ② 只差**处理类**参数或后缀（`wx_fmt`/`wxfrom`/`wx_lazy`/`wx_co`/`tp`/`bo`/`rf`/`x-oss-process=`/`imageView2`/`imageMogr2`/`@100w…`/`_!web-…`）的算**候选**（图片 id 一个字节都不动）+ ③ 候选要**尺寸证据**：两张都 load 成功且 `naturalWidth`/`naturalHeight` **完全相同**才归并（不同 ⇒ 一定不归并；拿不到 ⇒ 不归并）；`row` = 第一版语义（只在单行内按整条 URL 去重）；`all` = 完全不去重（改动前行为） | 怀疑"某张图被误压成一张"或要做改前/改后 A/B 时；本地语料实测（**任意深度**：`3660962877` 39 个 img token / 7 个身份；`3326873240` 14 / 7；各含 1 行 `condition` 隐藏行 ⇒ 真机面板 38 / 13 个 token）：`once` 各画 **6** 张、`all` 38 / 13 张、`row` 与 `all` 同（这些包每条属性行本来就只有一张图）——**改前/改后逐数字吻合**；新规则相对旧规则**多压 0 张**（本地 20 个含图包里没有任何"只差处理参数"的对子，反例护栏见下） | `all` = 回到改动前（同一张图会出现很多遍）；`row` = 旧语义；⚠ **URL 档优先于面板里那个可见开关**（`#bench-imgmode` 三档，记 `localStorage['bench-props-imgmode']`，带 `?propimg=` 时控件标 `data-bench-imgmode-source="url"`）—— 带参数的链接在任何机器/任何本地偏好下都可复现；⚠ 静态**不能**判定"同一画面但图片 id 完全不同（作者重传）"那一类，本档**不合并**它们（判据在 `tests/bench-props-text-test.mjs` §5c/§5r） | demo/bench-patch.js:4511、demo/bench-patch.js:4517（`richImageModePlan()` 的 URL 读点）+ `planRichImageMode()`（URL > 面板开关 > 缺省）+ `richImageKey()`/`makeRichImagePass()` |
 <!-- FLAG-TABLE-END -->
 
-## 补丁层开关（`demo/bench-patch.js`；**刻意放在表区之外**，不参与 `diag-flag-check` 双向比对）
+## 补丁层开关（`demo/bench-patch.js`；**抓不到的**那些，刻意放在表区之外，不参与 `diag-flag-check` 双向比对）
 
-> **为什么不登记进上面主表**（与下一节「上游有、我们没有的档位」同一处纪律）：
-> `tests/diag-flag-check.mjs` 的抓取源**只有四类** —— `core/we-scene-bundle.js`、`demo.html`、
-> `elysia/**/*.js`、`dsh-mpkg-wallpaper/lib/client.js` —— **不含 `demo/bench-patch.js`**
-> （补丁是站点侧独立文件，`tools/` 与测试都不进产物，见该文件头注）。所以补丁层的 URL 开关
-> 一旦写进 `FLAG-TABLE-BEGIN/END` 之内，立刻变成"文档有·代码无（陈旧）"⇒ 退出码 1。
+> **①(2026-09-24 任务 B 改写) 本节的范围变了**：`demo/bench-patch.js` 现在**已是** `tests/diag-flag-check.mjs`
+> 的抓取源之一（与 `core/we-scene-bundle.js`、`demo.html`、`elysia/**/*.js`、插件 `dsh-mpkg-wallpaper/lib/client.js` 并列），
+> 所以补丁层里**真解析 URL** 的那些开关（`shell`/`online`/`sample`/`propimg`）已经**搬进主表第 ⑧ 节**，
+> 由脚本做双向比对 —— 别再往本节重复登记它们（重复登记不会报错，但会让"哪份是权威"变模糊）。
+> 本节只留**抓取规则看不见**的补丁开关：它们走补丁自己的辅助函数
+> `readPatchFlags()` 里的 `on('name', true)`（= `new URLSearchParams(location.search).has(name)` 的包装），
+> 抓取规则 a)~d) 只认 `.get/.has/.getAll('字面名')`／正则 `[?&]name=`／白名单 localStorage 键 ⇒ **抓不到**。
+> 这类名字（`openrewrite`/`ppark`/`clocklock`/`clockdrag`/`brand`…）仍按老纪律：写进
+> `FLAG-TABLE-BEGIN/END` 之内立刻变成"文档有·代码无（陈旧）"⇒ 退出码 1。
 > **实测（2026-09-19，P-129；/tmp 镜像副本 + 同一份脚本，不动真树）**：
 > 把 `openrewrite` 一行插进表区之内 ⇒ `✗ 文档有·代码无（陈旧 1 个）: openrewrite`（exit 1）；
 > 插到 `FLAG-TABLE-END` 之后 ⇒ `✓ 代码 151 个开关 == README 主表 151 行，0 差异`（exit 0）。
-> 补丁层开关的权威清单在 `demo/bench-patch.js` 文件头的「第五批/第六批/第八批/第九批开关」注释段
-> （`?ppark` / `?clocklock` / `?clockdrag` / `?brand` / `?appname` / `?online` / `?sample` / `?openrewrite`…）。
+> 补丁层开关的权威清单仍在 `demo/bench-patch.js` 文件头的批次注释段。
 
 | 开关 | 取值 | 默认 | 作用（一句话） | 什么时候用 | 回退/风险 | 解析位置 |
 |---|---|---|---|---|---|---|
 | `openrewrite` | `off`（`0` / `false` / `no` 同义） | 开（且**只在线上形态**生效） | **「新窗口」按钮的 `window.open` 前缀改写**（P-129）：产物（minified、不可重建）里 `#open` 的处理器写死 `window.open("/wallpaper-engine-webgl/renderer/index.html?…","_blank")` —— 绝对旧路径，线上子路径部署（Pages 根 = `/wallpaper-engine-web-loader/`）会指到**域名根** ⇒ 404。补丁包一层 `window.open`，把**本站前缀**（旧名 + 新名）改写成相对本页；外链 / `blob:` / `data:` / `about:blank` / 相对路径 / 空串一律原样透传，`target`/`features` 三参照传 | 线上点「新窗口」404 时做单变量 A/B（对照"是不是这条改写"）；或给排查者一个"关掉它"的逃生口 | 关掉 = 回到上游原行为（照旧打开那条绝对旧路径 ⇒ 线上 404）；本机 :8901 不改写（旧路径是软链、原样可用，与 iframe 那条同口径）；任何一步失败只打 `console.warn`，绝不影响按钮本身 | `demo/bench-patch.js` 的 `readPatchFlags`（`openrewrite:`）+ `installOpenRemap` 调用点 |
-| `propimg` | `once` / `row` / `all` | `once` | **属性面板富文本图片去重档**（用户 2026-09-24 第 3 档「同一张画面在整个面板里只画一次」）：`once` = ① 逐字节同一 URL **无条件**只画一遍（真语料 `dd/3660962877` 里那条 URL 出现 33 次 ⇒ 1 张）+ ② 只差**处理类**参数或后缀（`wx_fmt`/`wxfrom`/`wx_lazy`/`wx_co`/`tp`/`bo`/`rf`/`x-oss-process=`/`imageView2`/`imageMogr2`/`@100w…`/`_!web-…`）的算**候选**（图片 id 一个字节都不动）+ ③ 候选要**尺寸证据**：两张都 load 成功且 `naturalWidth`/`naturalHeight` **完全相同**才归并（不同 ⇒ 一定不归并；拿不到 ⇒ 不归并）；`row` = 第一版语义（只在单行内按整条 URL 去重）；`all` = 完全不去重（改动前行为） | 怀疑"某张图被误压成一张"或要做改前/改后 A/B 时；本地语料实测（**任意深度**：`3660962877` 39 个 img token / 7 个身份；`3326873240` 14 / 7；各含 1 行 `condition` 隐藏行 ⇒ 真机面板 38 / 13 个 token）：`once` 各画 **6** 张、`all` 38 / 13 张、`row` 与 `all` 同（这些包每条属性行本来就只有一张图）——**改前/改后逐数字吻合**；新规则相对旧规则**多压 0 张**（本地 20 个含图包里没有任何"只差处理参数"的对子，反例护栏见下） | `all` = 回到改动前（同一张图会出现很多遍）；`row` = 旧语义；⚠ **URL 档优先于面板里那个可见开关**（`#bench-imgmode` 三档，记 `localStorage['bench-props-imgmode']`，带 `?propimg=` 时控件标 `data-bench-imgmode-source="url"`）—— 带参数的链接在任何机器/任何本地偏好下都可复现；⚠ 静态**不能**判定"同一画面但图片 id 完全不同（作者重传）"那一类，本档**不合并**它们（静态不可判定的那一类**不合并**：判据在 `tests/bench-props-text-test.mjs` §5c/§5r） | `demo/bench-patch.js` 的 `richImageModePlan()`（`new URLSearchParams(location.search).get('propimg')`）+ `planRichImageMode()`（URL > 面板开关 > 缺省）+ `richImageKey()`/`makeRichImagePass()` |
 
 ### 上游有、我们**没有**的档位：`pq`（只记语义结论，不是开关）
 

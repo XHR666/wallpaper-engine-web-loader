@@ -11394,7 +11394,27 @@ export function createRenderer(canvas, opts = {}) {
     // 修复(2026-09-10)：此处此前声明 const parEnabled 遮蔽了闭包外层 let parEnabled（compositeLayer
     // 读外层恒 false）→ 对象级视差（layer.parallaxDepth）永不生效。改为赋值外层变量。
     parEnabled = parRaw === true || (parRaw !== null && typeof parRaw === 'object' && parRaw.value === true)
-    parAmount = typeof general.cameraparallaxamount === 'number' ? general.cameraparallaxamount : 0
+    // ①(官方默认值对齐 2026-09-24) **视差启用时，三个参数缺属性用什么值** —— 官方 = amount 0.5 / delay 0.1 /
+    //   influence 0.0（本行只管"缺属性兜底"，**不动** `?parallax` 缺省关那条产品决定，也不动官方算式）：
+    //   · 官方默认值的确切出处（file:offset）：官方随包发布的 44 个
+    //     `wallpaper_engine/assets/effects/*/preview/scene.json` **全部**写
+    //     `"cameraparallaxamount": 0.5`(44/44)、`"cameraparallaxdelay": 0.100000001490116…`(44/44，= float32 0.1)、
+    //     `"cameraparallaxmouseinfluence": 0`(43/44，另 1 个 `1.0`) —— 例 `assets/effects/blend/preview/scene.json`
+    //     字节偏移 **307 / 340 / 388**（本仓报告 reports/parallax-defaults-20260924.md §1 有复算读数；
+    //     转储 docs/_official-extract/parallax/A18_official_assets_depthparallax_and_defaults.txt:35-41）。
+    //     补充事实：官方**二进制里没有**这三个值的硬编码 —— arm64 `Scene::InitProps` 只注册属性槽位描述符
+    //     `{4,692}`/`{4,696}`/`{4,700}`，桌面 `{4,0x314}`/`{4,0x318}`/`{4,0x31c}`（`A13`/`B-4c`）
+    //     ⇒ "官方默认值"就是官方场景 JSON 的一致取值。
+    //   · 本仓**旧**默认（改前）：amount `0` / delay `1` / influence `1` ⇒ `cameraparallax=true` 但作者没写
+    //     amount 的场景，官方有视差、本仓**一点都没有**（`amount=0` 把每层位移整项乘成 0；实测差 21px）。
+    //   · 回退口（逐条保留）：`?parallax=legacy`（`opts.parallaxLegacy`）**逐位**回旧三默认 + 旧算式 ——
+    //     判据 `DEF-LEGACY-MISSING-BITEXACT` 拿 `git show HEAD:` 的改前构建逐位对拍；`?parallax` 缺省关
+    //     （`opts.parallaxOff`）是本仓产品开关，仍按下方「两个"关"必须分开」那段的门走，与这里的三默认无关。
+    //   ⚠ 作者**显式**给的值（含 `0`）一律优先 —— `0` 是"显式 0"，不是缺省（判据 `DEF-EXPLICIT-ZERO-IS-EXPLICIT`）。
+    const parDefaultAmount = opts.parallaxLegacy ? 0 : 0.5        // 官方 0.5（44/44）；本仓旧 0
+    const parDefaultDelay = opts.parallaxLegacy ? 1 : 0.1         // 官方 0.1（44/44）；本仓旧 1
+    const parDefaultInfluence = opts.parallaxLegacy ? 1 : 0       // 官方 0.0（43/44，另 1 个 1.0）；本仓旧 1
+    parAmount = typeof general.cameraparallaxamount === 'number' ? general.cameraparallaxamount : parDefaultAmount
     // ①(RE-24 官方 #3 配套) 父链解析用的 id→层 表：按**场景对象**缓存，换场景才重建（不在每层每帧建 Map）。
     if (parLayerByIdScene !== scene) {
       parLayerByIdScene = scene
@@ -11413,8 +11433,12 @@ export function createRenderer(canvas, opts = {}) {
       lastParallaxTime = time
       if (parEnabled) {
         attachParallaxListener()
-        const influence = typeof general.cameraparallaxmouseinfluence === 'number' ? general.cameraparallaxmouseinfluence : 1
-        const delay = typeof general.cameraparallaxdelay === 'number' ? general.cameraparallaxdelay : 1
+        // ①(官方默认值对齐 2026-09-24) 缺属性 ⇒ **官方默认** `influence = 0.0` / `delay = 0.1`（出处与回退口见
+        //   上面 `parDefaultAmount` 那段注释）；`?parallax=legacy` 档逐位回旧默认 `influence = 1` / `delay = 1`。
+        //   为什么 influence 默认 0 也不会"没视差"：鼠标项为 0，但每层还有官方 `(rootPos − S) ∘ depth × amount`
+        //   那一项（`amount` 默认 0.5）⇒ 离画布中心的层照旧有位移（判据 `DEF-MISSING-AMOUNT-OFFICIAL`）。
+        const influence = typeof general.cameraparallaxmouseinfluence === 'number' ? general.cameraparallaxmouseinfluence : parDefaultInfluence
+        const delay = typeof general.cameraparallaxdelay === 'number' ? general.cameraparallaxdelay : parDefaultDelay
         // ①(RE-24 官方 #5 2026-09-24) 平滑改用**桌面官方闭式**（本批唯一有 bit 级可比闭式的一条）：
         //     `k = min(1.0, (1 − delay/3.0) × 10.0 × dt)`；`delay <= dt` 时**直接吸附**（不平滑）；
         //     **只封顶、不夹下界**（delay>3 时 k<0 = 官方会反向外插）。

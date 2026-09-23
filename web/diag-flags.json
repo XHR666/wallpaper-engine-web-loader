@@ -1,9 +1,10 @@
 {
-  "generatedAt": "2026-09-23T19:45:37.480Z",
+  "generatedAt": "2026-09-23T22:12:56.741Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
     "demo.html",
+    "demo/bench-patch.js",
     "elysia/buffer.js",
     "elysia/demo-elysia.js",
     "elysia/font-render.js",
@@ -413,7 +414,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 13877,
+          "line": 13901,
           "pattern": "searchParams.get('bloomcap')"
         }
       ]
@@ -760,7 +761,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11754,
+          "line": 11778,
           "pattern": "searchParams.get('fx')"
         }
       ]
@@ -1287,7 +1288,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11753,
+          "line": 11777,
           "pattern": "searchParams.has('nofx')"
         }
       ]
@@ -1298,7 +1299,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11768,
+          "line": 11792,
           "pattern": "searchParams.has('nofxfb')"
         }
       ]
@@ -1409,6 +1410,17 @@
           "file": "dsh-mpkg-wallpaper/lib/client.js",
           "line": 8107,
           "pattern": "searchParams.get('npvoice')"
+        }
+      ]
+    },
+    {
+      "name": "online",
+      "common": false,
+      "sites": [
+        {
+          "file": "demo/bench-patch.js",
+          "line": 6101,
+          "pattern": "regex [?&]online="
         }
       ]
     },
@@ -1684,6 +1696,22 @@
       ]
     },
     {
+      "name": "propimg",
+      "common": false,
+      "sites": [
+        {
+          "file": "demo/bench-patch.js",
+          "line": 4511,
+          "pattern": "searchParams.get('propimg')"
+        },
+        {
+          "file": "demo/bench-patch.js",
+          "line": 4517,
+          "pattern": "searchParams.get('propimg')"
+        }
+      ]
+    },
+    {
       "name": "props",
       "common": false,
       "sites": [
@@ -1721,7 +1749,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 12613,
+          "line": 12637,
           "pattern": "searchParams.get('psim')"
         }
       ]
@@ -1896,6 +1924,22 @@
       ]
     },
     {
+      "name": "sample",
+      "common": false,
+      "sites": [
+        {
+          "file": "demo/bench-patch.js",
+          "line": 9471,
+          "pattern": "regex [?&]sample="
+        },
+        {
+          "file": "demo/bench-patch.js",
+          "line": 9515,
+          "pattern": "regex [?&]sample="
+        }
+      ]
+    },
+    {
       "name": "sandbox",
       "common": false,
       "sites": [
@@ -1974,6 +2018,22 @@
           "file": "demo.html",
           "line": 7549,
           "pattern": "searchParams.has('selfcheck')"
+        }
+      ]
+    },
+    {
+      "name": "shell",
+      "common": false,
+      "sites": [
+        {
+          "file": "demo/bench-patch.js",
+          "line": 6977,
+          "pattern": "regex [?&]shell="
+        },
+        {
+          "file": "demo/bench-patch.js",
+          "line": 8395,
+          "pattern": "regex [?&]shell="
         }
       ]
     },
@@ -2151,7 +2211,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 13852,
+          "line": 13876,
           "pattern": "searchParams.get('texmip')"
         }
       ]
@@ -2162,7 +2222,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 13701,
+          "line": 13725,
           "pattern": "searchParams.get('texwrap')"
         }
       ]
@@ -2200,7 +2260,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11739,
+          "line": 11763,
           "pattern": "searchParams.has('trace')"
         },
         {

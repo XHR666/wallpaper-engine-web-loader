@@ -39,6 +39,16 @@
 //
 // 用法：`node tests/official-parallax-formula-test.mjs`（纯 Node + mock-GL，**不需要浏览器**）
 // 退出码：0 全绿 / 1 有断言失败。
+//
+// ── ①(官方默认值对齐 2026-09-24) 本档新增 §F/§G（**上一轮只对齐了公式，没对齐默认值**）──────────
+//   官方默认（缺属性兜底）：`cameraparallaxamount = 0.5`(44/44)、`cameraparallaxdelay = 0.1`(44/44)、
+//   `cameraparallaxmouseinfluence = 0.0`(43/44，另 1 个 1.0) —— 出处 = 44 个官方
+//   `wallpaper_engine/assets/effects/*/preview/scene.json`（例 `effects/blend/preview/scene.json`
+//   字节偏移 307/340/388）；统计见 `docs/_official-extract/parallax/A18_...txt:35-41` 与
+//   `reports/parallax-defaults-20260924.md` §1。本仓旧默认 = amount 0 / delay 1 / influence 1。
+//   §F = 缺属性必须用官方默认（含"非零位移"与手算常数）；§G = `?parallax=legacy` 缺属性逐位回旧默认
+//   （与 `git show HEAD:` 的改前构建对拍）。变异新增 M7（默认值改回旧的）/ M8（显式 0 当缺省）/
+//   M9（legacy 档也换新默认）/ M10（只把 amount 默认改回 0）。
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -335,6 +345,21 @@ async function runSuite(lib) {
     { cameraparallax: true, cameraparallaxamount: f.amount, cameraparallaxmouseinfluence: f.influence, cameraparallaxdelay: f.delay })
   const runFixture = async (l, f, legacy) => (await probe(l, mkFixtureScene(f), f.cursor,
     { dt: f.dt, frames: f.frames, rendererOpts: legacy ? { parallaxLegacy: true } : undefined })).readings.leg
+  /**
+   * ①(2026-09-24) **缺属性**的 legacy 夹具：`?parallax=legacy` 必须逐位回**旧默认**
+   * （amount 0 / delay 1 / influence 1），不是官方默认。
+   *  · LM1 三个全缺（旧默认 amount=0 ⇒ 位移 0；新默认若漏进 legacy 也不会变，见报告 §判据）
+   *  · LM2 只写 amount=0.5（旧默认 delay=1 / influence=1 ⇒ **非零**鼠标位移；最能区分新旧默认）
+   *  · LM3 只缺 delay（旧默认 delay=1 ⇒ k=0.1111…；旧式指数平滑）
+   *  层居中 ⇒ 读数就是纯位移（`(ox−camCx)=0`）。
+   */
+  const LEGACY_MISSING_FIXTURES = [
+    { tag: 'LM1', depth: D007, general: { cameraparallax: true }, cursor: [0.9, 0.5], dt: 1 / 60, frames: 3 },
+    { tag: 'LM2', depth: D007, general: { cameraparallax: true, cameraparallaxamount: 0.5 }, cursor: [0.9, 0.5], dt: 1 / 60, frames: 5 },
+    { tag: 'LM3', depth: D007, general: { cameraparallax: true, cameraparallaxamount: 0.5, cameraparallaxmouseinfluence: 1 }, cursor: [0.7, 0.5], dt: 1 / 60, frames: 1 },
+  ]
+  const runMissingFixture = async (l, f, legacy) => (await probe(l, mkScene([L(1, 'leg', f.depth)], f.general), f.cursor,
+    { dt: f.dt, frames: f.frames, rendererOpts: legacy ? { parallaxLegacy: true } : undefined })).readings.leg
   const OLD_SRC = (() => {
     try { return execFileSync('git', ['show', 'HEAD:core/we-scene-bundle.js'], { cwd: ROOT, maxBuffer: 128 * 1024 * 1024 }).toString('utf8') }
     catch (e) { return null }
@@ -349,7 +374,8 @@ async function runSuite(lib) {
     finally { if (tmpOld) fs.rmSync(tmpOld, { force: true }); tmpOld = null }
   }
   if (!oldLib) {
-    for (const id of ['LEGACY-BITEXACT-VS-PREV', 'LEGACY-KEEPS-OLD-INFLUENCE', 'DEFAULT-DIFFERS-FROM-PREV']) {
+    for (const id of ['LEGACY-BITEXACT-VS-PREV', 'LEGACY-KEEPS-OLD-INFLUENCE', 'DEFAULT-EXPLICIT-BITEXACT-VS-PREV',
+      'DEF-MISSING-DIFFERS-FROM-PREV', 'DEF-LEGACY-MISSING-BITEXACT', 'DEF-LEGACY-MISSING-NONZERO']) {
       checks[id] = 'skip'; show[id] = '拿不到改前构建（git show HEAD:core/we-scene-bundle.js 失败）'
     }
   } else {
@@ -367,11 +393,50 @@ async function runSuite(lib) {
     const a2 = await runFixture(oldLib, f2, true), b2 = await runFixture(lib, f2, true)
     C('LEGACY-KEEPS-OLD-INFLUENCE', a2[0] === b2[0] && a2[1] === b2[1],
       'legacy 档 influence=2 **不截断**（旧口径）：prev=' + pxOf(a2[0]).toFixed(6) + 'px now=' + pxOf(b2[0]).toFixed(6) + 'px')
-    // 非空性（反假绿）：缺省档必须**与改前不同**（否则"逐位相同"可能只是"两档都没动"）
-    const fk = { depth: D007, amount: 0.5, influence: 1, delay: 0.1, cursor: [0.7, 0.5], dt: 1 / 60, frames: 1 }
-    const pv = await runFixture(oldLib, fk, false), nv = await runFixture(lib, fk, false)
-    C('DEFAULT-DIFFERS-FROM-PREV', pv[0] !== nv[0],
-      '缺省档 1 帧：改前 x=' + pxOf(pv[0]).toFixed(6) + 'px ⇒ 改后 x=' + pxOf(nv[0]).toFixed(6) + 'px（旧 k=0.5358 / 官方 k=0.1611）')
+    // ①(2026-09-24 **口径更新**：HEAD 已经是上一轮"公式对齐"后的构建) 缺省档 + **显式给值**的读数必须与
+    //   HEAD **逐位相同** —— 本轮的授权面只有"缺属性兜底用什么值"，公式/显式值路径一个字都不许动。
+    //   （上一轮那条 `DEFAULT-DIFFERS-FROM-PREV`（缺省档必须与改前不同）是**上一轮**的反假绿，HEAD 换了之后
+    //   它按设计不再成立 ⇒ 换成这条方向相反的护栏 + 下面 `DEF-MISSING-DIFFERS-FROM-PREV`。）
+    const diffs = []
+    for (const f of LEGACY_FIXTURES) {
+      const a = await runFixture(oldLib, f, false), b = await runFixture(lib, f, false)
+      if (!(a[0] === b[0] && a[1] === b[1])) diffs.push(f.tag + ' prev=' + V(a) + ' now=' + V(b))
+    }
+    C('DEFAULT-EXPLICIT-BITEXACT-VS-PREV', diffs.length === 0,
+      '缺省档 + 显式给值（L1/L2/L3 三个夹具）与 HEAD 构建**逐位相同**（本轮只动缺属性兜底）' +
+      (diffs.length ? ' 差异：' + diffs.join('; ') : ''))
+    // 反假绿（本轮方向）：**缺属性**夹具在 HEAD 与新构建之间**必须不同**（否则"旧默认没生效"或"新默认没生效"）
+    const prF = await probe(oldLib, mkScene([L(30, 'f1', D007, [CAM_CX + 600, CAM_CY])], { cameraparallax: true }), [0.5, 0.5])
+    const nrF = await probe(lib, mkScene([L(30, 'f1', D007, [CAM_CX + 600, CAM_CY])], { cameraparallax: true }), [0.5, 0.5])
+    C('DEF-MISSING-DIFFERS-FROM-PREV', prF.readings.f1[0] !== nrF.readings.f1[0],
+      '缺三个属性的夹具：HEAD 读数 x=' + pxOf(prF.readings.f1[0]).toFixed(6) + 'px（旧默认 amount=0，零位移）⇒ 新构建 x=' +
+      pxOf(nrF.readings.f1[0]).toFixed(6) + 'px（官方默认 amount=0.5 ⇒ +21px）—— 本轮改动真的生效（反假绿）')
+
+    // ①(2026-09-24) **缺属性**夹具：legacy 档必须逐位回旧默认（amount 0 / delay 1 / influence 1）
+    const sameM = [], diffM = []
+    for (const f of LEGACY_MISSING_FIXTURES) {
+      const a = await runMissingFixture(oldLib, f, true), b = await runMissingFixture(lib, f, true)
+      const eq = a[0] === b[0] && a[1] === b[1]
+      sameM.push(f.tag + ':' + eq)
+      if (!eq) diffM.push(f.tag + ' prev=' + V(a) + ' now=' + V(b))
+    }
+    C('DEF-LEGACY-MISSING-BITEXACT', diffM.length === 0,
+      '缺属性夹具（LM1 三个全缺 / LM2 缺 delay+influence / LM3 只缺 delay）legacy 档与改前构建**逐位相同** [' +
+      sameM.join(' ') + ']' + (diffM.length ? ' 差异：' + diffM.join('; ') : ''))
+    const lm2Old = await runMissingFixture(oldLib, LEGACY_MISSING_FIXTURES[1], true)
+    C('DEF-LEGACY-MISSING-NONZERO', Math.abs(pxOf(lm2Old[0])) > 1 && Math.abs(pxOf(lm2Old[1])) < 1e-3,
+      'LM2（显式 amount=0.5、**缺** delay+influence）改前构建 legacy 档 x=' + pxOf(lm2Old[0]).toFixed(6) +
+      'px y=' + pxOf(lm2Old[1]).toExponential(3) + 'px（旧默认 delay=1/influence=1 ⇒ 旧指数 k=0.0739/帧、5 帧后非零）' +
+      ' —— 反假绿：否则"逐位相同"可能只是两边都 0')
+  }
+
+  // ①(2026-09-24) 缺省档 vs legacy 档在**同一缺属性场景**上必须不同（证明 legacy 真用旧默认，不是"两档一起换了"）
+  {
+    const lm2Legacy = await runMissingFixture(lib, LEGACY_MISSING_FIXTURES[1], true)
+    const lm2Default = await runMissingFixture(lib, LEGACY_MISSING_FIXTURES[1], false)
+    C('LEGACY-DEFAULTS-DIFFER-FROM-OFFICIAL', lm2Legacy[0] !== lm2Default[0],
+      'LM2 同场景：legacy（旧默认 delay=1/influence=1）x=' + pxOf(lm2Legacy[0]).toFixed(6) +
+      'px ≠ 缺省档（官方默认 influence=0 ⇒ 鼠标项恒 0）x=' + pxOf(lm2Default[0]).toFixed(6) + 'px')
   }
 
   // ── §E #6 冻结 vs 归零（用"冻结窗口之后**恢复帧**的读数"判别）───────────────────────────
@@ -401,13 +466,99 @@ async function runSuite(lib) {
         'px；冻结期望=' + frozen + '；归零会得到=' + zeroed)
     } finally { run.restore() }
   }
+
+  // ── §F 官方默认值（缺属性兜底）：amount 0.5 / delay 0.1 / influence 0.0（A18：44/44）──────────────
+  //   官方算式（**写死在断言里**，不是抄实现；与 §A~§C 同一套，只是参数取默认值）：
+  //     (o1) 归一化位置 `S = 0.5 − p · min(influence, 1)`；鼠标居中 ⇒ p = 0 ⇒ S = 0.5
+  //     (o2) 每层位移 `offset = (rootPos − S) ∘ depth × amount`（设计像素）
+  //     (o4) 平滑 `k = min(1, (1 − delay/3) · 10 · dt)`；delay = 0.1、dt = 1/60 ⇒ k = 29/180 = 0.1611111…
+  //   ⇒ "场景开了视差、属性缺失"的读数 = 把下面 DEF 这三个**官方默认值**代进 (o1)(o2)(o4)。
+  //   层心离画布中心 600px（`(ox−camCx) = 600`）、depth 0.07 ⇒ 缺 amount 时官方位移 = 600×0.07×0.5 = **21px**（非零）。
+  {
+    const DEF = { amount: 0.5, delay: 0.1, influence: 0.0 }   // 官方默认（44/44 官方 preview scene.json）
+    // F0 手算自检（纯算术，不依赖被测实现；防止我把公式抄错）
+    const kDef = (1 - DEF.delay / 3) * 10 * (1 / 60)
+    C('DEF-OFFICIAL-DEFAULTS-HAND-MATH',
+      Math.abs(600 * 0.07 * DEF.amount - 21) < 1e-9
+      && Math.abs(600 + 600 * 0.07 * DEF.amount - 621) < 1e-9
+      && Math.abs(kDef - 29 / 180) < 1e-15,
+      '手算：位移 600×0.07×0.5=21px ⇒ 读数 600+21=621px（float64 实测 ' + (600 * 0.07 * DEF.amount) +
+      '）；k=(1−0.1/3)×10×(1/60)=' + kDef + ' == 29/180=' + (29 / 180))
+
+    // F1 三个属性**全缺** ⇒ 用官方默认 ⇒ **非零**位移，且与手算 621px 一致（float32 通路末位以内）
+    const scF = mkScene([L(30, 'f1', D007, [CAM_CX + 600, CAM_CY])], { cameraparallax: true })
+    const rF = await probe(lib, scF, [0.5, 0.5])
+    const wantF1 = officialReadingX(CAM_CX + 600, officialS(0.5, DEF.influence), 0.07, DEF.amount)
+    const oldF1 = officialReadingX(CAM_CX + 600, officialS(0.5, DEF.influence), 0.07, 0)   // 旧默认 amount=0
+    const pxF1 = pxOf(rF.readings.f1[0])
+    C('DEF-MISSING-AMOUNT-OFFICIAL',
+      nearNdc(rF.readings.f1[0], wantF1) && !nearNdc(rF.readings.f1[0], oldF1)
+      && Math.abs(pxF1 - 621) <= 1e-3 && Math.abs(pxF1 - 600) > 1,
+      '缺三个属性（general 只有 cameraparallax=true）⇒ 读数 x=' + pxF1.toFixed(6) + 'px；官方默认 amount=0.5 ⇒ ' +
+      '手算 600×0.07×0.5=21px 位移 ⇒ 621px（公式值 ' + wantF1 + '）；本仓旧默认 amount=0 ⇒ ' + oldF1 + 'px（零位移）')
+
+    // F2 缺 influence ⇒ 官方默认 0.0 ⇒ **鼠标一点都推不动**（但视差链路真的挂着：hasListener）
+    //    正对照（同场景显式 influence=1）必须动 —— 否则"读数不变"可能只是"视差没启用"。
+    //   （amount 显式给 0.5 ⇒ 这条夹具只考 influence 一个默认值，不被 amount 默认值污染）
+    const scF2 = mkScene([L(31, 'f2', D007, [CAM_CX + 600, CAM_CY])],
+      { cameraparallax: true, cameraparallaxamount: 0.5 })
+    const rF2a = await probe(lib, scF2, [0.5, 0.5], { frames: 5 })
+    const rF2b = await probe(lib, scF2, [0.95, 0.5], { frames: 5 })
+    //   （正对照显式给 amount ⇒ "动没动"只反映鼠标项，不被 amount 默认值污染）
+    const scF2c = mkScene([L(32, 'f2c', D007, [CAM_CX + 600, CAM_CY])],
+      { cameraparallax: true, cameraparallaxamount: 0.5, cameraparallaxmouseinfluence: 1 })
+    const cA = await probe(lib, scF2c, [0.5, 0.5], { frames: 5 })
+    const cB = await probe(lib, scF2c, [0.95, 0.5], { frames: 5 })
+    C('DEF-MISSING-INFLUENCE-ZERO',
+      rF2a.readings.f2[0] === rF2b.readings.f2[0] && rF2a.hasListener && rF2b.hasListener
+      && cA.readings.f2c[0] !== cB.readings.f2c[0],
+      '缺 mouseinfluence ⇒ 官方默认 0.0：鼠标 0.5→0.95 读数**逐位不变**（' + pxOf(rF2a.readings.f2[0]).toFixed(6) +
+      'px，mousemove 监听=' + rF2a.hasListener + '）；正对照显式 influence=1 同动作 Δ=' +
+      pxOf(cB.readings.f2c[0] - cA.readings.f2c[0]).toFixed(6) + 'px ≠ 0')
+
+    // F3 缺 delay ⇒ 官方默认 0.1（不是旧默认 1）：显式 influence=1、鼠标 0.5→0.7 后**1 帧**
+    //    ⇒ k = (1−0.1/3)×10×(1/60) = 29/180；旧默认 delay=1 ⇒ k = 0.1111…
+    const txF3 = (0.5 - 0.7) * PROJ_W * Math.min(1, 1)
+    const kF3old = (1 - 1 / 3) * 10 * (1 / 60)
+    //   （amount 显式给 0.5 ⇒ 这条夹具只考 delay 一个默认值，不被 amount 默认值污染）
+    const scF3 = mkScene([L(33, 'f3', D007)], { cameraparallax: true, cameraparallaxamount: 0.5,
+      cameraparallaxmouseinfluence: 1 })
+    const rF3 = await probe(lib, scF3, [0.7, 0.5], { dt: 1 / 60, frames: 1 })
+    const wantF3 = txF3 * kDef * 0.07 * DEF.amount
+    const oldF3 = txF3 * kF3old * 0.07 * DEF.amount
+    C('DEF-MISSING-DELAY-OFFICIAL',
+      nearNdc(rF3.readings.f3[0], wantF3) && !nearNdc(rF3.readings.f3[0], oldF3),
+      '缺 delay ⇒ 官方默认 0.1 ⇒ k=' + kDef + '（手算 ' + wantF3 + '）；本仓旧默认 delay=1 ⇒ k=' + kF3old +
+      '（' + oldF3 + '）；实测 x=' + pxOf(rF3.readings.f3[0]).toFixed(6) + 'px')
+
+    // F4 作者**显式**给值 ⇒ 以作者值为准（amount 0.25 / delay 0 = 吸附 / influence 1）
+    const scF4 = mkScene([L(34, 'f4', D007)], { cameraparallax: true, cameraparallaxamount: 0.25,
+      cameraparallaxmouseinfluence: 1, cameraparallaxdelay: 0 })
+    const rF4 = await probe(lib, scF4, [0.9, 0.5])
+    const txF4 = (0.5 - 0.9) * PROJ_W * Math.min(1, 1)   // −1536
+    const wantF4 = txF4 * 0.07 * 0.25                 // ⇒ −26.88px
+    const wrongF4 = txF4 * kDef * 0.07 * 0.25         // 若把"显式 delay=0"当缺省（0.1）会得到这个
+    C('DEF-EXPLICIT-VALUES-WIN',
+      nearNdc(rF4.readings.f4[0], wantF4) && !nearNdc(rF4.readings.f4[0], wrongF4),
+      '作者值 amount=0.25/delay=0(吸附)/influence=1 ⇒ x=' + pxOf(rF4.readings.f4[0]).toFixed(6) + 'px 手算=' + wantF4 +
+      '；若 delay 被当缺省（0.1）会是 ' + wrongF4)
+
+    // F5 显式 amount=0 ⇒ **零位移**（"显式 0"不是"缺省"）：层心 600px、depth 0.07 ⇒ 读数回到层位 600px
+    const scF5 = mkScene([L(35, 'f5', D007, [CAM_CX + 600, CAM_CY])],
+      { cameraparallax: true, cameraparallaxamount: 0 })
+    const rF5 = await probe(lib, scF5, [0.9, 0.5])
+    C('DEF-EXPLICIT-ZERO-IS-EXPLICIT',
+      nearNdc(rF5.readings.f5[0], 600) && !nearNdc(rF5.readings.f5[0], wantF1),
+      '显式 cameraparallaxamount=0 ⇒ x=' + pxOf(rF5.readings.f5[0]).toFixed(6) + 'px（= 层位 600px，零位移）；' +
+      '若把 0 当缺省 ⇒ 官方默认 0.5 ⇒ ' + wantF1 + 'px（差 ' + (wantF1 - 600).toFixed(3) + 'px）')
+  }
   return { checks, show }
 }
 
 // ═════════════════════════ 跑真树 ═════════════════════════════════════════════════════════
 const CORE_FILE = path.join(ROOT, 'core', 'we-scene-bundle.js')
 const srcShaBefore = sha256(fs.readFileSync(CORE_FILE))
-console.log('[A/B/C/D/E] 官方公式判据（离线 mock-GL；真树只读）')
+console.log('[A/B/C/D/E/F] 官方公式判据 + 官方默认值判据（离线 mock-GL；真树只读）')
 const lib = await import('../core/we-scene-bundle.js')
 const base = await runSuite(lib)
 console.log('── 官方算式判据 ──')
@@ -423,16 +574,19 @@ const MUTANTS = [
     label: 'M1(influence 回旧式：不再 min(·,1) 截断)',
     from: '        const inflClamped = opts.parallaxLegacy ? influence : Math.min(influence, 1)',
     to: '        const inflClamped = influence',
-    expectRed: ['OFF-INFLUENCE-CLAMP'],
-    why: '只有 influence>1 那一档（B3）会变；其余档 influence<=1 时 min 是恒等 ⇒ 不红',
+    expectRed: ['OFF-INFLUENCE-CLAMP', 'DEFAULT-EXPLICIT-BITEXACT-VS-PREV'],
+    why: '只有 influence>1 那一档（B3、以及 L3 夹具的 influence=2）会变；其余档 influence<=1 时 min 是恒等 ⇒ 不红。'
+      + 'L3 是"显式给值"夹具，公式一改它就与 HEAD 不同 ⇒ 本轮那条"显式值逐位不变"的护栏也红（正确）',
   },
   {
     label: 'M2(平滑回旧指数式 1−exp(−dt·ln100/delay))',
     from: '        } else if (delay <= parDt) {\n          k = 1                                          // 官方：delay <= dt ⇒ 吸附到目标（不平滑）\n        } else {\n          k = Math.min(1, (1 - delay / 3) * 10 * parDt)   // 官方：只封顶 1.0，**不夹下界**\n        }',
     to: '        } else {\n          const LN100 = Math.log(100)\n          k = 1\n          if (delay > 0) k = 1 - Math.exp(-(Math.max(0, parDt) * LN100) / delay)\n          k = Math.min(1, Math.max(0, k))\n        }',
-    expectRed: ['OFF-K-CLOSED-FORM', 'OFF-K-CAP-ONLY', 'OFF-K-NO-LOWER-CLAMP', 'DEFAULT-DIFFERS-FROM-PREV'],
+    expectRed: ['OFF-K-CLOSED-FORM', 'OFF-K-CAP-ONLY', 'OFF-K-NO-LOWER-CLAMP',
+      'DEFAULT-EXPLICIT-BITEXACT-VS-PREV', 'DEF-MISSING-DELAY-OFFICIAL'],
     why: 'delay=0（吸附）与冻结恢复档在两式下同值 ⇒ 不红；其余 k 档全红。'
-      + '另外：改回旧 k 后缺省档与改前构建**读数重合** ⇒ 反假绿的 DEFAULT-DIFFERS-FROM-PREV 也红（正确：缺省档与改前的差异只剩 k 这一条）',
+      + '①(2026-09-24 口径更新) DEFAULT-EXPLICIT-BITEXACT-VS-PREV 红 = 改回旧 k 后"显式给值"的读数与 HEAD 不再逐位相同（正确）；'
+      + 'DEF-MISSING-DELAY-OFFICIAL 红 = 缺 delay 用官方默认 0.1，旧指数式下 k 不是 29/180（正确）',
   },
   {
     label: 'M3(每层回旧加法式 (depth+amount)×disp)',
@@ -440,8 +594,11 @@ const MUTANTS = [
     to: '          parOffX = (dpx + parAmount) * parDispX\n          parOffY = (dpy + parAmount) * parDispY',
     expectRed: ['OFF-PRODUCT-NOT-SUM', 'OFF-HALF-NOT-SCALED', 'OFF-INFLUENCE-CLAMP', 'OFF-K-CLOSED-FORM',
       'OFF-K-SNAP-DELAY0', 'OFF-K-CAP-ONLY', 'OFF-K-NO-LOWER-CLAMP', 'OFF-ROOT-ANCESTOR-DEPTH',
-      'OFF-MOUSE-ONCE', 'OFF-TWO-TERMS-KEPT', 'OFF-FREEZE-NOT-ZERO'],
-    why: '所有用缺省每层式的读数都变（influence=0 档 parDisp 恒 0 ⇒ 加法式也得 0 ⇒ 不红）',
+      'OFF-MOUSE-ONCE', 'OFF-TWO-TERMS-KEPT', 'OFF-FREEZE-NOT-ZERO',
+      'DEFAULT-EXPLICIT-BITEXACT-VS-PREV', 'DEF-MISSING-AMOUNT-OFFICIAL', 'DEF-MISSING-DELAY-OFFICIAL',
+      'DEF-MISSING-DIFFERS-FROM-PREV', 'DEF-EXPLICIT-VALUES-WIN'],
+    why: '所有用缺省每层式的读数都变（influence=0 档 parDisp 恒 0 ⇒ 加法式也得 0 ⇒ ①DEF-MISSING-INFLUENCE-ZERO'
+      + ' 与 ②DEF-EXPLICIT-ZERO-IS-EXPLICIT 不红：前者只比较"鼠标动不动"、后者读数是零位移，两档都 0）',
   },
   {
     label: 'M4(depth 取本层，不回顶层祖先)',
@@ -461,19 +618,82 @@ const MUTANTS = [
     label: 'M6(#4 机械"只保留 Scene[704..708] 那一项"，删掉 (ox−camCx))',
     from: '          parOffX = ((ox - camCx) + parDispX) * dpx * parAmount',
     to: '          parOffX = (parDispX) * dpx * parAmount',
-    expectRed: ['OFF-TWO-TERMS-KEPT'],
-    why: '只有"两层 origin 不同 + 鼠标不在中心"的判据能看见 root 参考点项；居中夹具 (ox−camCx)=0 ⇒ 不红',
+    expectRed: ['OFF-TWO-TERMS-KEPT', 'DEF-MISSING-AMOUNT-OFFICIAL', 'DEF-MISSING-DIFFERS-FROM-PREV'],
+    why: '只有"层 origin 不在画布中心"的判据能看见 root 参考点项（居中夹具 (ox−camCx)=0 ⇒ 不红）；'
+      + '本轮 F1 夹具特意把层心放在 +600px ⇒ DEF-MISSING-AMOUNT-OFFICIAL 也红（正确）。'
+      + '①实测修正：DEF-MISSING-DIFFERS-FROM-PREV 也红 —— 删掉 `(ox−camCx)` 后新构建的 F1 读数回到层位 600px，'
+      + '正是 HEAD（旧默认 amount=0）的读数 ⇒ "本轮改动生效"这一判据为假（正确：这条变异抹掉了本轮改动的可观测性）。'
+      + 'DEF-MISSING-INFLUENCE-ZERO 不红：它只比较"鼠标动不动"，F1/F2 的鼠标项在缺 influence 时恒 0',
+  },
+  // ── ①(2026-09-24 本轮新增) 官方默认值对齐的变异：M7 默认值改回旧的 / M8 显式 0 当缺省 /
+  //    M9 legacy 档也换新默认 / M10 只把 amount 默认改回 0 ──────────────────────────────────────
+  {
+    label: 'M7(三个默认值全改回旧的 amount=0/delay=1/influence=1)',
+    from: '    const parDefaultAmount = opts.parallaxLegacy ? 0 : 0.5        // 官方 0.5（44/44）；本仓旧 0\n'
+      + '    const parDefaultDelay = opts.parallaxLegacy ? 1 : 0.1         // 官方 0.1（44/44）；本仓旧 1\n'
+      + '    const parDefaultInfluence = opts.parallaxLegacy ? 1 : 0       // 官方 0.0（43/44，另 1 个 1.0）；本仓旧 1',
+    to: '    const parDefaultAmount = 0\n    const parDefaultDelay = 1\n    const parDefaultInfluence = 1',
+    expectRed: ['DEF-MISSING-AMOUNT-OFFICIAL', 'DEF-MISSING-INFLUENCE-ZERO', 'DEF-MISSING-DELAY-OFFICIAL',
+      'DEF-MISSING-DIFFERS-FROM-PREV'],
+    why: '缺属性三条全回旧 ⇒ 三个 DEF-MISSING-* 判据全红（F2 夹具显式给了 amount ⇒ 默认 influence 变 1 就真能推动鼠标项）。'
+      + '缺属性夹具与 HEAD 读数重合 ⇒ DEF-MISSING-DIFFERS-FROM-PREV 红。'
+      + '显式给值的判据（DEF-EXPLICIT-*/DEFAULT-EXPLICIT-BITEXACT-VS-PREV）与 legacy 逐位判据不红：它们不吃缺省常量。'
+      + '①实测修正：LEGACY-DEFAULTS-DIFFER-FROM-OFFICIAL **不红** —— LM2 有**显式** amount、两档的 k 算式不同'
+      + '（缺省档官方闭式 k=0.1111 / legacy 旧指数式 k=0.0739）⇒ 即便默认值全一样，两档读数仍不同（该判据要 M9 才红）',
+  },
+  {
+    label: 'M8(把"显式 0"当缺省：三处 typeof 判定改成真值判定)',
+    edits: [
+      ["typeof general.cameraparallaxamount === 'number' ? general.cameraparallaxamount : parDefaultAmount",
+        'general.cameraparallaxamount ? general.cameraparallaxamount : parDefaultAmount'],
+      ["typeof general.cameraparallaxmouseinfluence === 'number' ? general.cameraparallaxmouseinfluence : parDefaultInfluence",
+        'general.cameraparallaxmouseinfluence ? general.cameraparallaxmouseinfluence : parDefaultInfluence'],
+      ["typeof general.cameraparallaxdelay === 'number' ? general.cameraparallaxdelay : parDefaultDelay",
+        'general.cameraparallaxdelay ? general.cameraparallaxdelay : parDefaultDelay'],
+    ],
+    expectRed: ['OFF-PRODUCT-NOT-SUM', 'OFF-HALF-NOT-SCALED', 'OFF-INFLUENCE-CLAMP', 'OFF-K-SNAP-DELAY0',
+      'OFF-ROOT-ANCESTOR-DEPTH', 'OFF-MOUSE-ONCE', 'OFF-TWO-TERMS-KEPT', 'OFF-FREEZE-NOT-ZERO',
+      'DEF-EXPLICIT-ZERO-IS-EXPLICIT', 'DEF-EXPLICIT-VALUES-WIN'],
+    why: '存量夹具里有 6 处**显式 delay=0**（吸附档）被当成缺省 ⇒ k 变成 0.1611（B1/B2/B3/C3/C4/冻结档全红）；'
+      + '本轮两条"显式 0"判据（amount=0 / delay=0）也红。'
+      + '§A 的 influence=0.0 与官方默认 0 同值 ⇒ 不红；缺属性夹具（MISSING 系列）本来就走缺省 ⇒ 不红；legacy 档不吃这条 ⇒ 不红',
+  },
+  {
+    label: 'M9(legacy 档也换新默认：parDefault* 去掉 parallaxLegacy 判断)',
+    edits: [
+      ['const parDefaultAmount = opts.parallaxLegacy ? 0 : 0.5', 'const parDefaultAmount = 0.5'],
+      ['const parDefaultDelay = opts.parallaxLegacy ? 1 : 0.1', 'const parDefaultDelay = 0.1'],
+      ['const parDefaultInfluence = opts.parallaxLegacy ? 1 : 0', 'const parDefaultInfluence = 0'],
+    ],
+    expectRed: ['DEF-LEGACY-MISSING-BITEXACT', 'LEGACY-DEFAULTS-DIFFER-FROM-OFFICIAL'],
+    why: '缺属性的 legacy 夹具（LM2 缺 delay+influence / LM3 缺 delay）与 HEAD 不再逐位相同；'
+      + '两档默认改成同一套 ⇒ "缺省档 ≠ legacy 档"不再成立。'
+      + 'LM1 三个全缺且层居中 ⇒ 两档都得 0 ⇒ 单独看 LM1 不红（这也正是要三个夹具一起判的原因）；'
+      + 'DEF-LEGACY-MISSING-NONZERO 用的是 HEAD 构建读数 ⇒ 不受变异影响',
+  },
+  {
+    label: 'M10(只把 amount 默认改回 0)',
+    from: '    const parDefaultAmount = opts.parallaxLegacy ? 0 : 0.5        // 官方 0.5（44/44）；本仓旧 0',
+    to: '    const parDefaultAmount = opts.parallaxLegacy ? 0 : 0        // MUTANT：旧默认',
+    expectRed: ['DEF-MISSING-AMOUNT-OFFICIAL', 'DEF-MISSING-DIFFERS-FROM-PREV'],
+    why: '只有"缺 amount"的读数变（F1 位移归零、与 HEAD 重合）；'
+      + 'F2 只看"鼠标动不动"（缺 influence=0 ⇒ 两档都 0）⇒ 不红；F3/legacy 夹具都显式写了 amount ⇒ 不红',
   },
 ]
 let mutRedOk = 0
 for (const mu of MUTANTS) {
   const body0 = fs.readFileSync(CORE_FILE, 'utf8')
-  if (!body0.includes(mu.from)) {
-    failN++; console.log('  ✗ ' + mu.label + ' 变异锚点不在源码里：' + V(mu.from.slice(0, 60)))
+  // ①(2026-09-24) 支持 `edits: [[from,to],…]`（多处单变量同改，如"三处真值判定"）；老的 from/to 单点形态不变。
+  const edits = mu.edits || [[mu.from, mu.to]]
+  const badAnchor = edits.find(([f]) => !body0.includes(f))
+  if (badAnchor) {
+    failN++; console.log('  ✗ ' + mu.label + ' 变异锚点不在源码里：' + V(String(badAnchor[0]).slice(0, 60)))
     continue
   }
+  let mutated = body0
+  for (const [f, t] of edits) mutated = mutated.replace(f, t)
   const tmp = path.join(os.tmpdir(), 'offpar-mut-' + mu.label.replace(/[^A-Za-z0-9]/g, '') + '-' + Math.random().toString(36).slice(2) + '.mjs')
-  fs.writeFileSync(tmp, body0.replace(mu.from, mu.to).replace(/from '\.\//g, "from '" + path.join(ROOT, 'core') + '/'))
+  fs.writeFileSync(tmp, mutated.replace(/from '\.\//g, "from '" + path.join(ROOT, 'core') + '/'))
   let res = null, err = null
   try {
     const mm = await import(pathToFileURL(tmp).href + '?v=' + Date.now() + Math.random())
