@@ -62,21 +62,49 @@ async function runOneAttempt(name, args) {
     await page.waitForTimeout(Number(process.env.SHOT_WAIT || 6000))
     const pageLog = await page.evaluate(() => (document.getElementById('log') ? document.getElementById('log').textContent : '(无 #log)'))
     await page.screenshot({ path: process.env.SHOT_OUT })
-    const stats = await page.evaluate(() => {
+    /*  ①(2026-09-25 P-182 同类普查) **读像素这一步绝不许成为第一个 getContext 的调用者**：
+        同一个 canvas 只有第一次 getContext 的参数生效，而 `#sc` 在 `?mode=elysia` 档走 **2d**
+        （`elysia/demo-elysia.js` 的 `canvas.getContext('2d')`，且在它之前还有两个真实 await）——
+        原来这里无条件 `cv.getContext('webgl2')`：轻则拿到 null（那页已是 2d）⇒ `readPixels` 抛错，
+        重则**抢在 elysia 前面**把画布锁成 webgl2 ⇒ 它自己的 `getContext('2d')` 返回 null、那条路直接死。
+        现在的口径：WebGL 档先等**渲染器自己回报出过帧**（`__mpwFirstFrame` / `__mpwFrameNo>0`，
+        帧本身就是"上下文已存在"的证据）再读；elysia 档按它自己的 2d 读；等不到就**如实写明 why 不读**。 */
+    const MODE = await page.evaluate(() => { try { return String(new URLSearchParams(location.search).get('mode') || '') } catch { return '' } })
+    let frameSeen = false
+    if (MODE !== 'elysia') {
+      try {
+        await page.waitForFunction(() => !!(window.__mpwFirstFrame || (window.__mpwFrameNo || 0) > 0), null, { timeout: 20000 })
+        frameSeen = true
+      } catch { frameSeen = false }
+    }
+    const stats = await page.evaluate((o) => {
       const cv = document.getElementById('sc')
       if (!cv) return null
-      const gl = cv.getContext('webgl2')
       const w = cv.width, h = cv.height
+      const pct = (t, n) => ({ w, h, opaquePct: +(t.o / n * 100).toFixed(1), whitePct: +(t.w / n * 100).toFixed(1), nonblackPct: +(t.nb / n * 100).toFixed(1) })
+      const tally = (px, stride) => {
+        let o = 0, wh = 0, nb = 0
+        for (let i = 0; i < px.length; i += stride) {
+          if (px[i + 3] > 16) o++
+          if (px[i] > 240 && px[i + 1] > 240 && px[i + 2] > 240 && px[i + 3] > 200) wh++
+          if (px[i] > 8 || px[i + 1] > 8 || px[i + 2] > 8) nb++
+        }
+        return { o, w: wh, nb }
+      }
+      if (o.elysia) {
+        /*  elysia 档：**只读它自己的 2d**（`getContext('2d')` 返回它建好的那一个；即使它还没建，
+            无参 2d 的属性与它随后要的完全相同 ⇒ 不改变行为）。 */
+        const ctx = cv.getContext('2d')
+        if (!ctx) return { w, h, why: 'elysia 档：拿不到 2d 上下文（页面可能还没走到那一步）' }
+        try { return Object.assign({ mode: 'elysia' }, pct(tally(ctx.getImageData(0, 0, w, h).data, 4), w * h)) } catch (e) { return { w, h, why: 'elysia 档：getImageData 失败 ' + String(e && e.message) } }
+      }
+      if (!o.frameSeen) return { w, h, why: '没等到首帧信号（`__mpwFirstFrame`/`__mpwFrameNo>0`）⇒ 不读像素：读就会抢在渲染器前面建上下文（同一 canvas 只有第一次 getContext 生效）' }
+      const gl = cv.getContext('webgl2')
+      if (!gl) return { w, h, why: '拿不到 webgl2 上下文（首帧信号有了却读不到上下文：可能已被别的东西先占了）' }
       const px = new Uint8Array(w * h * 4)
       gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px)
-      let opaque = 0, white = 0, nonblack = 0
-      for (let i = 0; i < px.length; i += 4) {
-        if (px[i + 3] > 16) opaque++
-        if (px[i] > 240 && px[i + 1] > 240 && px[i + 2] > 240 && px[i + 3] > 200) white++
-        if (px[i] > 8 || px[i + 1] > 8 || px[i + 2] > 8) nonblack++
-      }
-      return { w, h, opaquePct: +(opaque / (w * h) * 100).toFixed(1), whitePct: +(white / (w * h) * 100).toFixed(1), nonblackPct: +(nonblack / (w * h) * 100).toFixed(1) }
-    })
+      return Object.assign({ mode: 'webgl2' }, pct(tally(px, 4), w * h))
+    }, { elysia: MODE === 'elysia', frameSeen })
     await browser.close()
     // 输出协议（父进程解析）：行前缀 RESULT/LOGS/STATS
     console.log('RESULT ' + JSON.stringify({ ok: true, mode: 'headless-' + name, ms: Date.now() - t0 }))
