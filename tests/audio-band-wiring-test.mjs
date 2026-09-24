@@ -66,7 +66,7 @@ function makeEnv(opts = {}) {
   }
   const body = BAND_BLOCK + '\n' + BUF_BLOCK + `
 return { BANDFEED, bandArrayNow, bandPublish, bandFrameTick, audioBuffers, last: () => bandLast, clock: () => bandClock,
-         band16: () => bandView16, mic: () => bandMic, viewFor: bandViewFor, silentLogged: () => bandSilentLogged }`
+         band16: () => bandView16, mic: () => bandMic, viewFor: bandViewFor, silentLogged: () => bandSilentLogged, placeholderLogged: () => bandPlaceholderLogged }`
   const fn = new Function(
     'packBands', 'simulatedBandArray', 'bandStats', 'shapeBand', 'AUDIO_BAND_LEN', 'AUDIO_BAND_HALF',
     'createLiveBands', 'writeLiveBands', 'AUDIO_RESPONSE_BANDS', 'lib',
@@ -171,17 +171,25 @@ console.log('\n== T3 真实源：只钳位（不套 γ）+ 不伪造立体声 ==
   ok(bandStats(e4.win.__mpwAudioBands).silent === true && e4.api.last().source === 'analyser',
     'T3g 真实源在场但很安静 ⇒ silent=true 且 source=analyser（"没数据源"与"数据源很安静"可区分）')
 
-  // ①(P-131 批D) **缺省档（auto）没有数据源 ⇒ 全 0**（不回落模拟源、不假装有声音），且**可观测**：
-  //   source='silent' / `__mpwAudioBandSource` / reason / 一次性日志
+  /* ★2026-09-24 任务 ⑫ **契约变更（auto 无源）**：旧语义（钉死提交 151ce0a 的 `git show 151ce0a:demo.html`）
+     是"全 0 + source='silent' + 一次性静音日志"；现改为**按时间驱动的占位频谱**
+     （source=simulated / placeholder=true / 一次性**占位**日志），理由 = 用户「没有数据源但音条确实是在动的」
+     + 上游 oneincase/webwallgl 的 `createSimulatedAudio` 同款做法 + 全 0 会让作者 shader 的音条高度退化
+     （`smoothstep(0,0,0)` 除零：本机不画 / 部分驱动整层白色实心块）。"如实全 0"改由 `?bandfeed=real` 承担。 */
   const e5 = makeEnv({})
   e5.api.bandFrameTick(0.5); e5.api.bandFrameTick(0.6); e5.api.bandFrameTick(0.7)
   const e5s = bandStats(e5.win.__mpwAudioBands)
-  ok(e5.api.last().source === 'silent' && e5s.silent === true && e5s.peak === 0 && e5.win.__mpwAudioBandSource === 'silent',
-    'T3h auto 无源 ⇒ 128 元全 0 + source=silent（不静默：字段可查）',
+  ok(e5.api.last().source === 'simulated' && e5.api.last().placeholder === true && e5s.silent === false && e5s.peak > 0 && e5.win.__mpwAudioBandSource === 'simulated',
+    'T3h auto 无源 ⇒ **时间驱动占位频谱**（非全 0 / source=simulated / placeholder=true；不冒充真实源）',
     'source=' + e5.api.last().source + ' peak=' + e5s.peak + ' reason=' + e5.api.last().reason)
-  ok(e5.logs.filter((m) => /频段数据源/.test(m)).length === 1 && e5.api.silentLogged() === true,
-    'T3h 无源只留**一条**一次性日志（多帧不刷屏；这就是"明确可观测，不要静默"的落点）',
+  ok(e5.logs.filter((m) => /频段数据源/.test(m)).length === 1 && e5.api.placeholderLogged() === true,
+    'T3h 占位只留**一条**一次性日志（多帧不刷屏；"明确可观测、不静默"的落点）',
     'logs=' + e5.logs.length)
+  const e5r = makeEnv({ search: '?bandfeed=real' })
+  e5r.api.bandFrameTick(0.5); e5r.api.bandFrameTick(0.6)
+  ok(e5r.api.last().source === 'silent' && bandStats(e5r.win.__mpwAudioBands).peak === 0 && e5r.api.silentLogged() === true,
+    'T3h2 `?bandfeed=real` 无源 ⇒ 仍是**全 0 + silent + 一次性静音日志**（旧语义原样保留在这条档上）',
+    'source=' + e5r.api.last().source)
   const e6 = makeEnv({ search: '?bandfeed=mic' })
   e6.api.bandFrameTick(0.5)
   ok(e6.api.last().source === 'silent' && /^mic-/.test(String(e6.api.last().reason)),
@@ -263,12 +271,17 @@ console.log('\n== T5 宿主桥 + 诊断 + 落点 + 反向变异 ==')
   const e3 = makeEnv({ search: '?bandfeed=off', embedded: true })
   e3.api.bandFrameTick(3.0)
   ok(e3.posted.length === 0, 'T5d `?bandfeed=off` 时零 postMessage')
-  // ①(P-131 批D) 缺省档（auto）没有数据源也照发一帧 —— 载荷里 `source:'silent'` 就是"我没数据"的
-  //   诚实标注（宿主据此决定要不要显示"无音频"提示），而不是静默不发。
+  /* ★2026-09-24 任务 ⑫：缺省档（auto）没有数据源也照发一帧；载荷里的 `source` 从 `'silent'` 变成
+     `'simulated'`（占位频谱）—— 宿主仍能区分三种态：`silent`（?bandfeed=real 无真实源）/ `simulated`
+     （占位或显式 sim）/ `analyser|mic`（真实源）。**不静默不发**这条口径不变。 */
   const e4 = makeEnv({ embedded: true })
   e4.api.bandFrameTick(3.0)
-  ok(e4.posted.length === 1 && e4.posted[0].source === 'silent' && e4.posted[0].bands.every((v) => v === 0),
-    'T5d auto 无源：照发一帧但 `source=silent` + 全 0（宿主能区分"没数据"与"有数据但安静"）')
+  ok(e4.posted.length === 1 && e4.posted[0].source === 'simulated' && e4.posted[0].bands.some((v) => v > 0),
+    'T5d auto 无源：照发一帧、`source=simulated`（占位）+ 非全 0（宿主可区分"没数据/占位/真实源"三态）')
+  const e4r = makeEnv({ search: '?bandfeed=real', embedded: true })
+  e4r.api.bandFrameTick(3.0)
+  ok(e4r.posted.length === 1 && e4r.posted[0].source === 'silent' && e4r.posted[0].bands.every((v) => v === 0),
+    'T5d2 `?bandfeed=real` 无源：照发一帧但 `source=silent` + 全 0（"我没数据"的诚实标注仍是可达态）')
 
   const stats = e.api.last().stats
   ok(stats && stats.length === 128 && typeof stats.silent === 'boolean', 'T5e `bandStats` 摘要进状态（诊断口径）')
@@ -355,12 +368,19 @@ console.log('\n== T6 (P-131 批D) 16 段活视图 → 渲染器 / 麦克风源 /
     ok(bad === 0, 'T6c 16 段的 left/right/average 与"128 元 4:1 折叠 + 逐段左右均值"独立复算一致', '坏 ' + bad + ' 段')
     ok(v16.hasSource === true && v16.kind === 'simulated', 'T6c 活视图标注数据源（渲染器的"无源豁免"判据）', v16.kind + '/' + v16.hasSource)
   }
-  // 无源：auto ⇒ 注入的活视图全 0、hasSource=false（渲染器据此走"保持旧行为 + 可观测"分支）
+  /* ★2026-09-24 任务 ⑫ **契约变更（auto 无源）**：旧语义（151ce0a）"全 0 + hasSource=false"；
+     现为**时间驱动的占位频谱**（source=simulated / placeholder=true），理由见 demo.html 该分支的注释
+     与 tests/bench-bandfeed-switch-test.mjs A1。"只认真实源"的 `?bandfeed=real|mic` 仍是全 0 + silent。 */
   const e2 = makeEnv({})
   e2.api.bandFrameTick(0.5)
   const v2 = e2.api.band16()
-  ok(e2.bandCalls.length === 1 && v2.hasSource === false && v2.kind === 'silent' && Array.from(v2.left).every((x) => x === 0),
-    'T6d auto 无源 ⇒ 交给渲染器的活视图是全 0 + hasSource=false（**不静默**：渲染器侧会记账+打一条日志）')
+  ok(e2.bandCalls.length === 1 && v2.hasSource === true && v2.kind === 'simulated' && Array.from(v2.left).some((x) => x > 0),
+    'T6d auto 无源 ⇒ 交给渲染器的活视图是**按时间驱动的占位频谱**（非全 0 / hasSource=true / placeholder 档；**不冒充真实源**）')
+  const e2r = makeEnv({ search: '?bandfeed=real' })
+  e2r.api.bandFrameTick(0.5)
+  const v2r = e2r.api.band16()
+  ok(e2r.bandCalls.length === 1 && v2r.hasSource === false && v2r.kind === 'silent' && Array.from(v2r.left).every((x) => x === 0),
+    'T6d2 `?bandfeed=real` 无源 ⇒ 仍是全 0 + hasSource=false（"如实静音"这条旧语义原样保留）')
   // legacy 关档：**不注入**（渲染器侧与批 D 之前逐位一致）
   const e3 = makeEnv({ search: '?bandfeed=off' })
   e3.api.bandFrameTick(0.5)

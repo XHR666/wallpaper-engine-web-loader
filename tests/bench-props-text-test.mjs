@@ -236,30 +236,34 @@ console.log('\n== 5 图片去重（用户第 3 档「任何一张图在整个面
   /* ── 三层回退的**存在性/接线**（源码级；DOM 夹具另见 §D 的源码变异自证）──────────────────── */
   ok('5u 第一层（URL 档）仍在：`?propimg=once|row|all` + 权威读点 `new URLSearchParams(location.search).get(\'propimg\')`',
     /new URLSearchParams\(location\.search\)\.get\('propimg'\)/.test(SRC) && /RICH_IMAGE_MODES = \['once', 'row', 'all'\]/.test(SRC))
-  ok('5v 第二层（面板可见开关）：`#bench-imgmode` 三档 + 中英 i18n 键 + 提示；第三层（缺省 once）在 `planRichImageMode`',
-    /sel\.id = 'bench-imgmode'/.test(SRC) && /RICH_IMAGE_MODES/.test(SRC) &&
-    /IMG_MODE_LABEL_KEYS = \{ once: 'props\.imgDedupOnce', row: 'props\.imgDedupRow', all: 'props\.imgDedupAll' \}/.test(SRC) &&
-    /data-i18n', 'props\.imgDedup'/.test(SRC) && /setAttribute\('data-i18n-title', 'props\.imgDedupTip'\)/.test(SRC) &&
-    /"props\.imgDedup":"图片去重"/.test(SRC) && /"props\.imgDedup":"Image dedup"/.test(SRC) &&
-    /RICH_IMAGE_MODE_DEFAULT = 'once'/.test(SRC))
+  /* ⚠③(2026-09-24 用户第 3 条 · **契约变更**，本条判据随之更新，并写明理由)：
+     用户原话「图片去重默认**全部都去重**，并把壁纸配置页面上方那个**图片去重下拉栏连同描述文字一起删掉**
+     （描述文字本身也超出去了）」⇒ 旧判据 5v/5v2/5w/5x 盯的那个"第二层可见开关"**整层被删**，
+     再断言它存在就是让门禁守住一个用户明令删掉的东西。新判据（**更严**，不是放宽）：
+       · 控件与它的描述、以及 localStorage 偏好层**必须不存在**（源码 0 处）；
+       · 缺省仍是 `once`（= 整面板去重 = 用户说的"全部都去重"），URL 对照档仍在。
+     §D 的源码变异自证（S2/S5）同步换成"控件不许回来"这两条。 */
+  ok('5v 【契约已更新】第二层"面板可见开关"已按用户第 3 条删除：源码 0 处 `#bench-imgmode` / 偏好键；缺省仍是 `once`',
+    /* 扫的是**去掉注释后**的源码：本文件与实现里的注释会引用被删掉的控件当"改前读数"。 */
+    !/bench-imgmode/.test(SRC.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ')) &&
+    !/IMG_MODE_PREF_LS/.test(SRC) && /RICH_IMAGE_MODE_DEFAULT = 'once'/.test(SRC) &&
+    /"props\.imgDedup":"图片去重"/.test(SRC) && /"props\.imgDedup":"Image dedup"/.test(SRC))
   /* 真机实测的假绿坑：控件是外壳起来后才建的，`applyStaticI18n` 那趟早跑完了 ⇒ 只挂 `data-i18n`
      会得到**空标签**的下拉框（`options` 实测 `once=`/`row=`/`all=`）。判据：文案必须显式写。 */
-  ok('5v2 控件的文案**显式写**（不靠已经跑过的那趟 i18n）：caption/三档 option/title 三处都要有 `t(curLang(), …)` 赋值',
-    /cap\.textContent = t\(curLang\(\), 'props\.imgDedup'\)/.test(SRC) &&
-    /sel\.title = t\(curLang\(\), 'props\.imgDedupTip'\)/.test(SRC) &&
-    /op\.textContent = t\(curLang\(\), IMG_MODE_LABEL_KEYS\[m\]/.test(SRC) &&
-    /if \(op\.textContent !== want\) op\.textContent = want/.test(SRC) &&
-    /if \(capEl && capEl\.textContent !== t\(curLang\(\), 'props\.imgDedup'\)\) capEl\.textContent = t\(curLang\(\), 'props\.imgDedup'\)/.test(SRC))
-  ok('5w 立即生效：开关 `change` ⇒ 记 localStorage（19 字符键）+ **原地重画** `redrawPropsRich()` + 状态重画',
-    /localStorage\.setItem\(IMG_MODE_PREF_LS, v\)/.test(SRC) && /redrawPropsRich\(\)/.test(SRC) &&
+  ok('5v2 【契约已更新】控件没了 ⇒ 不再有"空标签下拉框"这一整类事故；`paintImgModeControl()` 保留为**只读档位**入口（无 DOM 写入）',
+    /function paintImgModeControl\(\) \{ return richImageModePlan\(\) \}/.test(SRC) &&
+    !/buildImgModeControl/.test(SRC))
+  ok('5w 【契约已更新】"换档立即生效"的能力仍在，但触发者只剩 URL 档/换壁纸：`redrawPropsRich()` 与作者原文表 `RICH_TEXT_SRC` 原样保留',
     /function redrawPropsRich\(\)/.test(SRC) && /RICH_TEXT_SRC\.set\(el, raw\)/.test(SRC) &&
-    /IMG_MODE_PREF_LS = 'bench-props-imgmode'/.test(SRC))
-  ok('5x URL 档 vs UI 档的**优先关系**只在一处解析：`planRichImageMode({ url, stored })`（URL > 面板开关 > 缺省）',
-    /return planRichImageMode\(\{ url, stored \}\)/.test(SRC) &&
-    planRichImageMode({ url: 'all', stored: 'row' }).mode === 'all' && planRichImageMode({ url: 'all', stored: 'row' }).forced === true &&
-    planRichImageMode({ stored: 'row' }).mode === 'row' && planRichImageMode({ stored: 'row' }).source === 'stored' &&
-    planRichImageMode({}).mode === 'once' && planRichImageMode({ url: 'bogus', stored: 'bogus' }).mode === 'once',
-    JSON.stringify([planRichImageMode({ url: 'all', stored: 'row' }), planRichImageMode({ stored: 'row' }), planRichImageMode({})]))
+    /function redrawPropsRich\(\)[\s\S]{0,400}?newRichImagePassFor\(plan\.mode/.test(SRC))
+  ok('5x 【契约已更新】档位解析只剩两层（URL 档 > 缺省 `once`）：`planRichImageMode({ url })`，且**不读** localStorage',
+    /return planRichImageMode\(\{ url \}\)/.test(SRC) && !/planRichImageMode\(\{ url, stored \}\)/.test(SRC) &&
+    planRichImageMode({ url: 'all' }).mode === 'all' && planRichImageMode({ url: 'all' }).forced === true &&
+    planRichImageMode({}).mode === 'once' && planRichImageMode({}).source === 'default' &&
+    planRichImageMode({ url: 'bogus' }).mode === 'once' &&
+    /* 纯函数本身仍保留 `stored` 形参（外部/历史调用面不破），但**运行期不再传它** —— 上面那条正是这个意思 */
+    planRichImageMode({ stored: 'row' }).mode === 'row',
+    JSON.stringify([planRichImageMode({ url: 'all' }), planRichImageMode({}), planRichImageMode({ stored: 'row' })]))
   ok('5y 规则 ⓒ 的 DOM 接线：候选先建节点但**藏起来**（`data-bench-img-variant`）、`load`/`error` 都结算、超时兜底放行',
     /im\.hidden = true; im\.dataset\.benchImgVariant = '1'/.test(SRC) &&
     /function settleRichImageEvidence\(url, size\)/.test(SRC) && /addEventListener\('load', onEvidence\)/.test(SRC) &&
@@ -272,9 +276,9 @@ console.log('\n== 5 图片去重（用户第 3 档「任何一张图在整个面
     const j = s.indexOf("].join('')", i)
     return j < 0 ? s.slice(i) : s.slice(i, j)
   }
-  ok('5z 新样式只进运行期注入的 `BENCH_PICK_CSS`（**不进** `SITE_LAYOUT_CSS`：那张表要与 demo/index.html 逐条等价，D8 会红）',
-    /'#bench-imgmode-wrap\{display:flex/.test(SRC) && !/bench-imgmode/.test(siteLayoutBlock(SRC)) &&
-    /'#bench-imgmode\{flex:none/.test(SRC) && /'#bench-imgmode-note\{/.test(SRC))
+  ok('5z 【契约已更新】控件那 5 条样式已从 `BENCH_PICK_CSS` 一起删除；`SITE_LAYOUT_CSS` 里当然也没有（D8 逐条等价不受影响）',
+    !/bench-imgmode/.test(siteLayoutBlock(SRC)) && !/'#bench-imgmode/.test(SRC) &&
+    /'\.bench-prop-img\[data-bench-img-unmerged="1"\]\{outline:1px dashed var\(--border\)\}'/.test(SRC))
   ok('5za 探针入口扩了读数：`propsImages()` 给 rendered/probes/unmerged/modeSource/natural（旧字段一个没删）',
     /function propsImages\(\)/.test(SRC) && /probes: imgs\.length - visible\.length/.test(SRC) &&
     /modeSource: richImageModePlan\(\)\.source/.test(SRC) && /propsImages: \(\) => propsImages\(\)/.test(SRC))
@@ -407,12 +411,15 @@ console.log('\n== D 分辨力自证 / 变异自证（改回去/改错必红；�
     }
     const IMG_RULE = "    '#bench-imgmode-wrap{display:flex;align-items:center;gap:6px;flex:1 1 100%;min-width:0;margin-top:4px}',\n"
     const SRC_CLAIMS = [
-      { id: 'S1-URL 档优先的接线', re: /planRichImageMode\(\{ url, stored \}\)/, mutate: (s) => s.replace('planRichImageMode({ url, stored })', 'planRichImageMode({ url: "", stored: stored })') },
-      { id: 'S2-面板开关 id + 三档', re: /sel\.id = 'bench-imgmode'[\s\S]{0,400}?for \(const m of RICH_IMAGE_MODES\)/, mutate: (s) => s.replace("sel.id = 'bench-imgmode'", "sel.id = 'bench-imgmode-dead'") },
+      { id: 'S1-URL 档优先的接线', re: /planRichImageMode\(\{ url \}\)/, mutate: (s) => s.replace('planRichImageMode({ url })', 'planRichImageMode({ url: "" })') },
+      /* S2/S5 同步契约变更：旧 claim 盯"开关 id + 三档"，现改为**"控件不许回来"** —— 变异 = 把开关构造塞回去。 */
+      { id: 'S2-面板开关不许回来（第 3 条）', claim: (s) => !/buildImgModeControl/.test(s), mutate: (s) => s.replace('  function paintImgModeControl() { return richImageModePlan() }', '  function buildImgModeControl() { return null }\n  function paintImgModeControl() { return richImageModePlan() }') },
       { id: 'S3-变体探针藏起来 + 结算', re: /im\.hidden = true; im\.dataset\.benchImgVariant = '1'/, mutate: (s) => s.replace("im.hidden = true; im.dataset.benchImgVariant = '1'", "im.hidden = false") },
-      { id: 'S4-换档立即生效（原地重画）', re: /redrawPropsRich\(\)\s*\/\/ 立刻生效/, mutate: (s) => s.replace('redrawPropsRich()                                   // 立刻生效', 'void 0') },
+      /* S4【契约已更新】：旧的触发者（面板开关的 change）已删，但"原地重画"这条**能力**必须还在 ——
+         claim = `redrawPropsRich()` 真的重建账本并重画（变异 = 把账本重建那行拆掉）。 */
+      { id: 'S4-原地重画（账本重建 + 重画）仍接线', claim: (s) => /function redrawPropsRich\(\)[\s\S]{0,400}?newRichImagePassFor\(plan\.mode, richImagePassItem\)/.test(s), mutate: (s) => s.replace('newRichImagePassFor(plan.mode, richImagePassItem)', 'void 0') },
       /* 样式通道：claim = "规则在文件里，且 `SITE_LAYOUT_CSS` 数组块里**没有**它"；变异 = 把它搬进 SITE_LAYOUT_CSS。 */
-      { id: 'S5-新样式走 BENCH_PICK_CSS 而不是 SITE_LAYOUT_CSS', claim: (s) => /'#bench-imgmode-wrap\{display:flex/.test(s) && !/bench-imgmode/.test(siteBlock(s)), mutate: (s) => s.replace(IMG_RULE, '').replace('  const SITE_LAYOUT_CSS = [\n', '  const SITE_LAYOUT_CSS = [\n' + IMG_RULE) },
+      { id: 'S5-删掉的面板样式不许回来（也不许搬进 SITE_LAYOUT_CSS）', claim: (s) => !/bench-imgmode/.test(siteBlock(s)) && !/'#bench-imgmode/.test(s), mutate: (s) => s.replace('  const SITE_LAYOUT_CSS = [\n', "  const SITE_LAYOUT_CSS = [\n    '#bench-imgmode-wrap{display:flex}',\n") },
     ]
     let srcOk = 0
     for (const c of SRC_CLAIMS) {

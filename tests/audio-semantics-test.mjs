@@ -46,6 +46,12 @@ function makeEnv(filesMap, userProps) {
     pkg: {},
     logf: () => {},
     sceneAudio: { els: [], vols: [], started: true },
+    /* ①(2026-09-24 任务 ⑱) 切片新增依赖：台账 / 宿主静音位 / document（`makeSoundElement` 现在把
+       `<audio>` 挂进文档树并跟随宿主静音位）—— 与 P-131 给 `mpwHostVolume` 加桩同一口径。 */
+    audioLedger: { elsCreated: 0, elsReleased: 0, ctxCreated: 0, ctxClosed: 0, volumeWrites: 0, muteWrites: 0, attaches: 0, lastAt: null },
+    audioLedgerTick: () => {},
+    hostEmbedMuted: () => false,
+    document: { body: { appendChild: () => { state.attaches = (state.attaches || 0) + 1 } } },
     window: { addEventListener: () => {}, removeEventListener: () => {}, __mpwUserProps: userProps || {} },
     Math, setTimeout: (fn, ms) => { state.timers.push({ fn, ms }); return state.timers.length },
     Blob: class { constructor(parts, o) { state.blobs.push(o && o.type) } },
@@ -82,6 +88,23 @@ chk(Math.abs(el1.volume - 0.1) < 1e-9, '① 用户属性 bgm=0.2 → 音量 0.1�
 // 数值型 volume（无绑定）
 const el1b = api1.makeSoundElement({ sound: ['a.mp3'], volume: 0.5, playbackmode: 'loop' }, 'a.mp3', false)
 chk(Math.abs(el1b.volume - 0.25) < 1e-9, '① 数值 volume=0.5 → 0.25', String(el1b.volume))
+
+// ①(2026-09-24 任务 ⑱) **新判据**：元素必须挂进文档树（宿主静音走 querySelectorAll('video,audio')），
+//   且音量写幂等、muted 不由音量路径写（判据来源：真机"偶发漏音"+ 插件 applyWebMute 的实现口径）。
+chk(e1.state.attaches === 2, '⑱a 每个 `<audio>` 都挂进文档树（本夹具建了 2 个 ⇒ 挂 2 次；宿主 querySelectorAll 才看得到）', String(e1.state.attaches))
+chk(e1.sandbox.audioLedger.elsCreated === 2 && e1.sandbox.audioLedger.attaches === 2,
+  '⑱b 台账：建 N 个 ⇒ 挂 N 次（建与挂一一对应，不静默漏挂）', JSON.stringify(e1.sandbox.audioLedger))
+{
+  const before = e1.sandbox.audioLedger.volumeWrites
+  vm.runInContext('updateSceneAudioVolume(); updateSceneAudioVolume(); updateSceneAudioVolume()', e1.sandbox)
+  chk(e1.sandbox.audioLedger.volumeWrites - before === 0,
+    '⑱c 音量**幂等写**：值没变时一次都不写（4Hz 节拍上不制造可听见的打断）', String(e1.sandbox.audioLedger.volumeWrites))
+  vm.runInContext('window.__mpwUserProps = { bgm: 0.4 }; updateSceneAudioVolume()', e1.sandbox)
+  chk(e1.sandbox.audioLedger.volumeWrites - before === 1 && Math.abs(el1.volume - 0.2) < 1e-9,
+    '⑱c 值真的变了才写一次（0.9→0.4 ⇒ 音量 0.2，写入计数 +1）', el1.volume + ' / writes=' + e1.sandbox.audioLedger.volumeWrites)
+  chk(e1.sandbox.audioLedger.muteWrites === 0,
+    '⑱d 音量路径**从不写 muted**（宿主静音位是宿主的事；避免后写覆盖）', String(e1.sandbox.audioLedger.muteWrites))
+}
 
 // ── ② autoplay 门控：startsilent / visible=false 不播放 ──
 const e2 = makeEnv(FILES, {})

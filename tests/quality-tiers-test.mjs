@@ -709,12 +709,25 @@ section('⑥ 与既有开关（`?res` / `?nofx` / `?perf` / `?ln`）组合不冲
   check('`?aa=msaa4` ⇒ antialias:true（档位真的传到上下文）', lib.glCanvasAttrs('?aa=msaa4').antialias === true)
   check('`?aa=off` / `?aa=fxaa` ⇒ antialias:false', lib.glCanvasAttrs('?aa=off').antialias === false && lib.glCanvasAttrs('?aa=fxaa').antialias === false)
   check('URLSearchParams 与字符串两种入参等价', lib.glCanvasAttrs(new URLSearchParams('aa=msaa2')).antialias === lib.glCanvasAttrs('?aa=msaa2').antialias)
-  /* 源码级：页面两处上下文创建都必须走这个唯一来源（写死属性 = 又把渲染器顶掉） */
+  /* 源码级：页面**每一处**上下文创建都必须走这个唯一来源（写死属性 = 又把渲染器顶掉）。
+     ①(2026-09-24 任务 ⑭) 单实例那处不再直接调用：改成 `await mpwAcquireWebGL2(cv, lib.glCanvasAttrs(location.search))`
+     （带 webglcontextcreationerror 归因 + 退避重试）。判据随之改成"**更强**的等价式"：
+       · 不允许任何写死属性对象（hard = 0，不变）；
+       · `getContext('webgl2'` 的每一处，要么直接带 `lib.glCanvasAttrs(location.search)`，
+         要么是那个 helper 的**唯一**创建点（形参 `attrs`）；
+       · 该 helper 全页只被调用一次，且实参就是 `lib.glCanvasAttrs(location.search)`（属性的唯一来源没变）。 */
   const html = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'demo.html'), 'utf8')
   const hard = html.match(/getContext\('webgl2', \{/g) || []
+  const sites = html.match(/getContext\('webgl2'/g) || []
   const viaHelper = html.match(/getContext\('webgl2', lib\.glCanvasAttrs\(location\.search\)\)/g) || []
-  check('demo.html 的每一处 getContext(webgl2, …) 都走 lib.glCanvasAttrs()（没有写死的属性对象）',
-    hard.length === 0 && viaHelper.length >= 2, '写死=' + hard.length + ' 走统一来源=' + viaHelper.length)
+  const viaParam = html.match(/getContext\('webgl2', attrs\)/g) || []
+  const helperCalls = html.match(/mpwAcquireWebGL2\(cv, lib\.glCanvasAttrs\(location\.search\)\)/g) || []
+  // 唯一豁免：`mpwAcquireWebGL2` 里对**一次性 throwaway canvas** 的能力探针（它要的正是"浏览器能不能
+  // 建 WebGL2"这个事实，不能带渲染器的属性 —— 带了就把探针变成第二个属性来源）。
+  const probeSites = html.match(/createElement\('canvas'\)\.getContext\('webgl2'\)/g) || []
+  check('demo.html 的每一处 getContext(webgl2, …) 都走 lib.glCanvasAttrs()（写死对象 0；重试 helper 的形参来自同一来源；探针是 throwaway canvas）',
+    hard.length === 0 && viaHelper.length + viaParam.length + probeSites.length === sites.length && viaParam.length === 1 && helperCalls.length === 1 && probeSites.length <= 1,
+    '写死=' + hard.length + ' 直接=' + viaHelper.length + ' helper形参=' + viaParam.length + ' 探针=' + probeSites.length + ' helper调用=' + helperCalls.length + ' 总创建点=' + sites.length)
 }
 
 console.log('\n' + '─'.repeat(72))

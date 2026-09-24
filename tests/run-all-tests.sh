@@ -71,6 +71,19 @@ declare -a NAMES CMDS SLOWPAT SKIPPAT
 #   slow=slow       → --fast 跳过
 #   skip-pattern    → 退出 0 且输出匹配该模式时按 SKIP 计（条件项"无数据不红"）
 add() { NAMES+=("$1"); CMDS+=("$2"); SLOWPAT+=("${3:-}"); SKIPPAT+=("${4:-}"); }
+#  ③(2026-09-25 门禁隔离) 测试台的**库根**（`:8902` 的运行期状态）是**跨测试项共享**的宿主状态：
+#    实测有项会把它切走而后续项因此假红（`bench-ui-headless` / `bench-renderer-source` 单独跑都绿，
+#    在套件里连跑就红；现象同"面板一行属性都没有 / 预览 iframe 里那个包不在当前库"）。
+#    对策：**每项跑前尽力复位**一次 + 把前后库根写进该项日志 ⇒ 既免疫又**可归因**。
+#    服务没起时 curl 两次都快速失败，不阻塞门禁。
+bench_lib_root() {
+  curl -s --max-time 2 "http://127.0.0.1:${MPW_BENCH_PORT:-8902}/api/library-source" 2>/dev/null \
+    | sed -n 's/.*"dir": *"\([^"]*\)".*/\1/p' | head -1
+}
+bench_lib_reset() {
+  curl -s --max-time 2 -X POST "http://127.0.0.1:${MPW_BENCH_PORT:-8902}/api/library-dir" \
+    -H 'content-type: application/json' -d '{"reset":true}' >/dev/null 2>&1 || true
+}
 
 # —— 语法/静态 ——
 add "bundle-syntax"      "node --check core/we-scene-bundle.js"
@@ -149,6 +162,11 @@ add "clean-room-alpha"   "node tests/clean-room-alpha-align-test.mjs" "" "^SKIP 
 add "clean-room-effects-blend" "node tests/clean-room-effects-blend-test.mjs" "" "^SKIP clean-room-effects-blend"
 add "attach-transform"   "node tests/attach-transform-test.mjs"
 add "multi-sprite"       "node tests/multi-sprite-test.mjs"
+#  ①(2026-09-25 去重口径) 库重复项改成"移入 `allwallpaper/delete/<原相对路径>` + 写清单"之后的对账门禁：
+#   磁盘 ↔ `delete/MANIFEST.json` **双向一致** + 逐对 sha256 与"库内保留的孪生副本"相同 + 6 组变异自证
+#   （篡改 sha / 换孪生 / 少登记 / 多登记 / 改大小 / 删 kept 字段）。缺语料时整项 SKIP（语料属本机资产），
+#   但夹具段照跑 ⇒ 覆盖率不因"这台机器没语料"变成零。~10-20s（默认含 1.7GB 哈希；`--no-hash` 可秒级快跑）。
+add "library-delete-manifest" "node tests/library-delete-manifest-test.mjs" "" "^SKIP library-delete-manifest"
 add "audio-semantics"    "node tests/audio-semantics-test.mjs"
 add "camera-fillmode"    "node tests/camera-fillmode-test.mjs"
 add "camera-node"        "node tests/camera-node-test.mjs"
@@ -925,11 +943,22 @@ for i in "${!NAMES[@]}"; do
   # 同时给单项加超时（timeout 默认按进程组回收），把"挂死"降级为"该项 FAIL + 明确报超时"。
   ITEMLOG=$(mktemp)
   rc=0
+  LIBROOT_BEFORE="$(bench_lib_root)"; bench_lib_reset
   timeout -k 5 "$ITEM_TIMEOUT" bash -c "$cmd" > "$ITEMLOG" 2>&1 || rc=$?
+  LIBROOT_AFTER="$(bench_lib_root)"
+  if [ -n "$LIBROOT_BEFORE" ] && [ "$LIBROOT_BEFORE" != "$LIBROOT_AFTER" ]; then
+    echo "[gate] ⚠ 库根被本项改动：${LIBROOT_BEFORE:-?} → ${LIBROOT_AFTER:-?}（已在下项跑前复位）" >> "$ITEMLOG"
+  fi
   t1=$(date +%s.%N); ms=$(echo "($t1-$t0)*1000" | bc 2>/dev/null | cut -d. -f1)
   if [ "$rc" -eq 0 ]; then
     # 条件项：退出 0 但输出匹配 SKIP 模式 → 计 SKIP（无数据不红）
-    if [ -n "${SKIPPAT[$i]}" ] && head -3 "$ITEMLOG" | grep -qE "${SKIPPAT[$i]}"; then
+    #  ②(2026-09-25 门禁完整性) 加一条**通用口径**（本文件第 10 行早就承诺的那条）：工具自己打印
+    #    `SKIP <本项名>` 且退出 0 ⇒ 按 SKIP 计。此前只认**注册过的** SKIPPAT ⇒ 11 个没登记模式的项
+    #    自跳时被记成 PASS（实证：`/tmp/mpw-gate-23305-*/last.log` 里同一项同时有
+    #    `== PASS multi-sprite` 与 `SKIP multi-sprite —— 回归资产定位不到`）—— 覆盖悄悄消失而门禁全绿。
+    #    只认"行首 SKIP + **本项名**"，不认子段跳过（`logGLSkip` 打的是 `SKIP <段名>`）⇒ 不误伤。
+    if { [ -n "${SKIPPAT[$i]}" ] && head -3 "$ITEMLOG" | grep -qE "${SKIPPAT[$i]}"; } \
+       || head -3 "$ITEMLOG" | grep -qE "^SKIP[[:space:]]+${name}([[:space:]]|$)"; then
       echo "SKIP $name (无数据，条件项)"
       RESULTS+=("SKIP"); SKIP=$((SKIP+1))
       echo "== SKIP $name" >> "$LASTLOG"; tail -3 "$ITEMLOG" >> "$LASTLOG"

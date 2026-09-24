@@ -116,8 +116,18 @@ console.log('[T1] 无 ?ids= ⇒ 单实例路径（红线）')
     /if \(MPW_MULTI_IDS\) \{[\s\S]{0,900}?createMultiInstanceHost\(/.test(HTML))
   check('T1e 单实例 descriptor 的字段就是原来的模块级常量（canvas=cv / gl / id / logEl=log / fpsEl / logf / primary:true）',
     /const MPW_PRIMARY_INST = \{ canvas: cv, gl, id, logEl: log, fpsEl, logf, primary: true \};/.test(HTML))
+  /*  ①(2026-09-25 ISSUE0924A ⑭) **判据按语义更新**：取的上下文这件事没变（无 `?ids=` ⇒ 模块级在 `#sc` 上
+      取 webgl2；多实例 ⇒ 每格自建），变的是"怎么取"——旧写法是一行裸 `cv.getContext('webgl2', …)`
+      （一次定生死，把瞬时/资源性失败报成"当前浏览器不支持 WebGL2"），现在是 `await mpwAcquireWebGL2(cv, attrs)`
+      （挂 `webglcontextcreationerror` 收 statusMessage + 150/400/900ms 退避重试 + 三分归因台账，见 P-187 ⑭）。
+      所以这里钉**三条**：①分支仍在（`MPW_MULTI_IDS ? null :`）；②单实例路径取的就是 `cv`（`#sc`）；
+      ③那个 helper 拿得到画布与 attrs；④**裸 getContext 已经不在模块级那一行了**（防退回去）。 */
+  const acqLine = (HTML.match(/const gl = MPW_MULTI_IDS \? null : ([^;]+);/) || [])[1] || ''
   check('T1f 没有 ?ids= 时模块级仍照旧在 #sc 上取 webgl2 上下文（多实例时才跳过）',
-    /const gl = MPW_MULTI_IDS \? null : cv\.getContext\('webgl2'/.test(HTML))
+    /^await mpwAcquireWebGL2\(cv, lib\.glCanvasAttrs\(location\.search\)\)$/.test(acqLine.trim()) &&
+    /async function mpwAcquireWebGL2\(cvEl, attrs\)/.test(HTML) &&
+    !/cv\.getContext\('webgl2'/.test(acqLine),
+    '取上下文那一行 = ' + JSON.stringify(acqLine.trim().slice(0, 100)))
   check('T1g 装载核心搬进 bootInstance（loadTex/loadScene 现在是实例作用域内的函数，在 bootInstance 之后）',
     HTML.indexOf('async function bootInstance(inst) {') > 0 &&
     HTML.indexOf('async function bootInstance(inst) {') < HTML.indexOf('async function loadTex(name, opts = {}) {') &&

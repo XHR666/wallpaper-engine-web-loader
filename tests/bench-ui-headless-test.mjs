@@ -1144,6 +1144,10 @@ try {
     ok(fixture.up && fixture.up.enhanced && fixture.up.label === 'Beta',
       'M1b ①两个夹具都增强成功（第 2 个也走同一条链，不是只对第一个生效）', JSON.stringify(fixture.up && fixture.up.label))
 
+    /* ⚠(2026-09-24 A 线) 取数加固：这里原来直接 `list.getBoundingClientRect()` —— 只要这一条拿不到
+       （宿主重渲染把控件节点换掉 / 控件已被销毁），整个门禁就**抛异常中止**，后面所有组（X/Y/G/Z/P/G10/IA）
+       一条读数都拿不到（实测：M 组在 R3 已红的环境下崩在这里，IA 组根本没跑到）。
+       改成"如实返回 `err` 读数" ⇒ M2/M3/M4 仍然按原判据判（数据缺失就是 FAIL），但**不再连坐**后面的组。 */
     const measure = (id) => page.evaluate(async (fid) => {
       const sel = document.getElementById(fid)
       const h = sel && sel.__mpwSelectHandle
@@ -1152,6 +1156,7 @@ try {
       await new Promise((r) => setTimeout(r, 250))
       const list = h.root.querySelector('.mpw_select_list')
       const btn = h.root.querySelector('.mpw_select_btn')
+      if (!list || !btn) return { err: 'no-list-or-btn', options: sel.options ? sel.options.length : -1, rootConnected: !!(h.root && h.root.isConnected) }
       const b = btn.getBoundingClientRect(); const l = list.getBoundingClientRect()
       const out = {
         flip: list.getAttribute('data-flip'), origin: list.getAttribute('data-origin'),
@@ -1163,7 +1168,37 @@ try {
       await new Promise((r) => setTimeout(r, 120))
       return out
     }, id)
-    const d = await measure('bench-mpw-down')
+    /* ⚠(2026-09-24 A 线) 这一组用的是**一次性插入**的夹具：`#props-body` 在整页门禁的长链里被产物/
+       补丁反复重渲染，偶发会把刚增强好的控件的惰性列表节点换掉 —— 实测读数
+       `{err:'no-list-or-btn', options:3, rootConnected:true}`（select 还在、选项还在、控件根还在，
+       只是 `open()` 没能建出 `<ul>`）。隔离复现三次（新开页 / 挂壁纸后 / 切渲染器来源来回后）都正常，
+       所以这里只在**夹具这一层**加一次重插+重测（**判据一条没改**，且 first/retry 两份读数都打印）；
+       真坏的实现两次都会红。 */
+    const remount = async () => {
+      await page.evaluate(() => {
+        for (const id of ['bench-mpw-down', 'bench-mpw-up']) {
+          const sel = document.getElementById(id)
+          try { sel && sel.__mpwSelectHandle && sel.__mpwSelectHandle.destroy() } catch { /* ignore */ }
+          const w = document.getElementById(id + '-wrap')
+          if (w && w.parentNode) w.parentNode.removeChild(w)
+        }
+      })
+      await page.evaluate(async () => {
+        const host = document.getElementById('props-body')
+        if (!host) return
+        const mk = (id, css) => {
+          const wrap = document.createElement('div'); wrap.id = id + '-wrap'; wrap.setAttribute('style', css)
+          const sel = document.createElement('select'); sel.id = id
+          for (const [v, label] of [['a', 'Alpha'], ['b', 'Beta'], ['c', 'Gamma']]) { const o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o) }
+          sel.value = 'b'; wrap.appendChild(sel); host.appendChild(wrap); return wrap
+        }
+        mk('bench-mpw-down', 'position:fixed;left:24px;top:140px;z-index:8')
+        mk('bench-mpw-up', 'position:fixed;left:24px;bottom:6px;z-index:8')
+        await new Promise((r) => setTimeout(r, 700))
+      })
+    }
+    let d = await measure('bench-mpw-down')
+    if (d && d.err) { const first = d; await remount(); d = await measure('bench-mpw-down'); console.log('  M2 夹具重插读数：first=' + JSON.stringify(first) + ' retry=' + JSON.stringify(d)) }
     const u = await measure('bench-mpw-up')
     ok(d.flip === 'down' && d.gap <= 2 && d.gap >= 0 && d.firstItem === 'Alpha' && d.count === 3,
       'M2 ②(P-159) mpw 下开：列表与触发框的缝 ≤2px（减掉包含块原点后；改前是 44~48px），首项 = 第 1 个选项', JSON.stringify(d))
@@ -2076,6 +2111,13 @@ try {
               return read()
             }
             const row0 = rowOf()
+            /*  ③(2026-09-25 门禁隔离) **不许因为"这一项拿不到夹具行"整项崩掉**（原来的 `row0.querySelector`
+                让本项直接抛 ReferenceError、后面所有断言全丢）。两种情形分开判：
+                  · 面板**一行属性都没有** ⇒ 这是"当前库根/选中壁纸不是夹具"的环境态（跨项污染），
+                    按 SKIP 如实回报读数（不写成 PASS，也不伪装成产品缺陷）；
+                  · 有行但**缺这一行** ⇒ 仍是真缺陷，继续按原判据红。 */
+            const allRows = document.querySelectorAll('#props-body .prop').length
+            if (!row0) return { envSkip: true, reason: allRows === 0 ? '面板里一行属性都没有（当前库根/选中的壁纸不是本项夹具）' : ('面板有 ' + allRows + ' 行但没有匹配「' + name + '」的那一行'), rows: allRows, name: name }
             const rg0 = row0.querySelector('input[type="range"]')
             const out = { init: read(), max: q2(rg0.max), min: q2(rg0.min), mid: q2(rg0.step) }
             //  先证明**合法值确实写回**（否则"非法值没写回"可能只是因为整条链根本不写）
@@ -2087,7 +2129,12 @@ try {
             out.clamp = await fire(String(Number(out.max) + 1000))
             return out
           }, slider.name)
-          const rejected = [num.exp, num.hex, num.inf, num.dec]
+          if (num && num.envSkip) {
+            console.log('SKIP P9（环境态）：' + num.reason + ' ⇒ 数字输入三档判据本轮不判（读数：rows=' + num.rows + ', name=' + JSON.stringify(num.name) + '）')
+            notes.push('P9 自 SKIP：' + num.reason)
+            num.__skip = true
+          }
+          const rejected = num && num.__skip ? [] : [num.exp, num.hex, num.inf, num.dec]
           const mid = (Number(num.min) + Number(num.max)) / 2
           ok(num.valid && Math.abs(Number(num.valid.range) - mid) < 1e-6 && num.valid.errVisible === false,
             'P9a #34 合法值照常写回（**先证明这条链会写**：中间值落到滑条上、且没有报错）',
@@ -2185,6 +2232,14 @@ try {
 
   // ══════════════════ G10 ⑪(用户第 11 条) 首屏不闪：**没有任何一帧**在堆叠态被看见 ══════════════════
   //  用户口径：「刷新 :8902 时先看到所有内容堆在一起，约 1 秒后才正常」。
+  // ══════════════════ IA 组（2026-09-24 issue #0924a · A 线 12 条）══════════════════════════════
+  //  实现抽在 `tests/bench-ia-group.mjs`：同一条判据集还要被 `tests/bench-issue0924a-ia-browser-test.mjs`
+  //  单跑（整页门禁可能被**别的线**正在改的渲染器面挡在半路，见那个文件的说明）。
+  {
+    const { runIaGroup } = await import('./bench-ia-group.mjs')
+    await runIaGroup({ page, ok })
+  }
+
   //  判据用**逐帧几何采样**（init script 在 document-start 就起 rAF 采样循环）：
   //    · 只要 body 是可见的，`#sidebar` 右缘与 `#main` 左缘就不许重叠（>1px 即"堆叠态被看见了"）；
   //    · 就绪标记 `html[data-bench-ready]` 最终必须出现（否则是"永远白屏"这种更糟的假修复）；

@@ -13440,3 +13440,234 @@ P-152b 之后**仍**解析为 `null` —— 它们在**MDLS 解析之前**的"�
   本轮全量套件跑完后 `pgrep -af mutant-` 为空（改前会留下进程）。
 * **未验证**：这条是"收尾路径"的修复，没有做成常驻断言（断言只可能测到"本轮没留下遗孤"，
   而那正是它要修的东西 —— 自证价值低）；下一轮真机跑完顺手 `pgrep` 复核即可。
+
+## P-184（2026-09-25 · 渲染器侧）issue #2「偶发两个时钟」**实现侧收口**：两条路径收敛到一个可见性 helper + 台账 + bool 多变体警告
+
+**一句话**：`evalVisibleWithProps` 的 `if (!has) return true` 把"没有属性表"与"表在但缺这个键"混成一条，
+而 RE-06（装载路径）里还有**同一规则的第二份复制**（`if (user && user.name) return true`），面板路径又是
+第三种写法（`stats.missing++` 跳过不写）⇒ 同一场景同屏几个时钟取决于"最后一次是谁写的"。本轮把三条合成
+**一个 helper**（`evalVisibleOutcome`），三态显式区分、两条路径同源，并落台账 `scene.__visStats`。
+
+### ① 单一口径（`core/we-scene-bundle.js`）
+
+| 状态 | 判定 | 台账 reason / 计数 |
+|---|---|---|
+| **(a) 没有属性表**（容器没有 project.json、`?proj=off`、空表、调用方不传 schema） | 保持"未知 → 可见"（legacy 灾难规避：多显示一层无害，藏掉主体是灾难） | `noTable` / `unknownNoTable` |
+| **(b) 表在、但这次求值的 props 缺这个键** | 回落**作者默认值**：表里定义了这个键 ⇒ 属性组默认值 `schema[name].value`（按 type 规范化）当取值走同一套匹配（= "属性停在默认值时该显示哪个变体"）；表里没这个键（改名/跨包引用）⇒ 本层 authored value | `tableDefault` / `authoredDefault` + `defaultsUsed` |
+| **(c) bool 值撞上 ≥3 个 condition** | 一行中文警告（层名 + 属性 + 变体数）+ 回落作者默认值 + **组级收口**（同组最多留 1 个可见） | `boolMulti` + `warns` / `boolTieBreak` |
+| 门控关闭（属性自身 condition 为假） | 绑定不生效、回落 authored（P-61 既有口径，**不变**） | `gatedDefault` / `defaultsUsed` |
+
+* 属性表解析两条路径共用 `visTableOf(scene, schema)`：显式 schema 优先，否则回落 `scene.properties`
+  （`parseScene` 把 project.json 的属性表存在场景上）—— "有没有表"不再一个路径一个说法。
+* 面板路径（`applyUserProperties`）现在**对缺键/门控层也写可见性**（改前是 `continue`，保留装载路径
+  写下的值 ⇒ `[11,12,13]` 永远回不到 `[11]`）；新增 `cascadeBoundParents()`：**只**沿"自带可见性绑定的
+  祖先"传播（宿主隐藏类祖先不在此列 —— 那条链 RE-06 在 hideUI 之前就算过了，面板路径照抄会算错）。
+* `writeBindField` 的 `visible` 分支删除（可见性不再从第二条路写）；`resolveUserBinding` 保持不变
+  （它是 alpha/color/... 与粒子覆写的绑定解析器，不是可见性口径）。
+* 台账 `scene.__visStats = { kept, hidden, unknownNoTable, defaultsUsed, warns, bound, boundMatched,
+  cascaded, boolTieBreak, path, reasons, notes }`，同时发一份 `window.__mpwVisStats`；
+  `demo/bench-patch.js` 的探针面新增 `__benchPatch.visStats()`（读 iframe 里的 `__scene.__visStats`）。
+
+### ② 读数（合成场景 + 真语料，改前 = 钉死提交 `6102c1c`）
+
+| 断言 | 输入 | 改前 | 改后 |
+|---|---|---|---|
+| **C2** 表在、props 缺 `clockstyle`（默认值 "2"、authored true 在第 1 档） | 装载路径 / 面板路径 | **`[11,12,13]` / `[11]`**（两条路径分叉） | `[12]` / `[12]`（都 = 默认值那一档） |
+| **C2b** 无表 / 空表（状态 a） | 两条路径 | 3 个变体全可见 | 3 个变体全可见 + `unknownNoTable=3`（**与 (b) 可区分**） |
+| **C4 / C4b** bool 值 + 3 个 condition（含"同 condition 两层 authored true"） | 装载 / 面板 | **2 个**（`pv===true` 兜底除 "1" 外全命中） | **恰好 1 个** + 1 行警告（层「Clock 2」condition "2"）+ `warns=1` |
+| **C9** 台账五字段 | 有表缺键 / 无表 | （无台账） | `{kept:1,hidden:2,unknownNoTable:0,defaultsUsed:3,warns:0}` / `{kept:3,hidden:0,unknownNoTable:3,defaultsUsed:0}`；`window.__mpwVisStats` 同源 |
+| **C12** 父容器被**绑定**关掉 | 装载 / 面板 / 装载后再面板 | 装载 0 个 / 面板 **1 个**（分叉） | 三条都是 0 个 |
+| **C8e** 真语料"表在、缺键" | 32 组里**有包内属性表**的 15 组 | **12 组同屏 ≥2**（旧口径每条 condition 全命中） | **0 组**（最典型的 `newproperty` 8→1、`b1` 5→1；`newproperty3` 默认 "0" 而层是 1..8 ⇒ 0 个，这是"属性停在默认值"的忠实读数） |
+| **C8b/状态 (a)** 没有属性表的 17 组 | 无表 | 17 组 ≥2 | **17 组仍 ≥2**（按设计保持"未知 → 可见"，台账记 `unknownNoTable`）—— 这是本轮**没有**修的那一半 |
+
+真包逐取值读数（真语料 `0917/3448877775` 的 `b1` 组 = 5 变体时钟，属性组默认值 `"5"`，`/tmp/final-readings.mjs`）：
+
+| 输入 | 改前 装载 / 面板 | 改后 装载 / 面板 |
+|---|---|---|
+| 完整 props `b1=1 / 3 / 5` | 1 / 1（各自命中那一档） | 1 / 1（逐位不变，正常路径零回归） |
+| **缺 `b1` 键** | **5 / 1**（装载全可见 vs 面板保 authored） | **1 / 1**（都 = 默认值 `"5"` 那一档，id 1591） |
+| **无属性表**（`?proj=off`） | **5 / 1**（同一个分叉） | **5 / 5**（状态 (a) 保持"未知 → 可见"，但**两条路径终于一致**） |
+
+真语料"两条路径分叉"的独立读数（`/tmp/vis-paths.mjs`，206 容器 / 32 组，逐组 fresh parse）：
+**改前 10 组装载≠面板 → 改后 0 组**；其中 `dd/3660962877:b1` 装载 1 个 / 面板 **2 个** → 改后 1/1
+（= 用户报的"偶发两个时钟"在该包上的直接机制：面板路径没有父链收口，改任何一个属性都会把被隐藏父层
+下面的子时钟层写回可见）。旁证：`0917/3299228616:clocklocation1` 等 9 组"装载 0 个 / 面板 1 个"也归零
+（那 1 个是"被关掉的整块里冒出来的幽灵时钟"）。
+
+### ③ 更正 `docs/ISSUES-ROOTCAUSE-20260924.md` 的两条读数
+
+* 该档 C8b 把 `dd/3660962877` 的"每个字体取值 2 个时钟"归因于"整张属性表缺失"——那只在**读包内**
+  `project.json` 时成立；容器目录里**另有同级** `project.json`（官方工坊布局，demo 的 `/project/<id>`
+  找的就是它，本机 32 组里 17 组有同级表）⇒ 真机上该包的表是在的，2 个时钟来自：`b1` 被 `time.value`
+  **门控关闭**（作者在两个父分支下各存了一层 cond "6" 的 true）+ **面板路径没有父链收口**。
+* 因此本轮修的是"两条路径分叉 + 缺键口径 + bool 多变体"，**不是**"没有 project.json 就全可见"那条
+  （按任务口径保持 legacy，只做成显式计数）。数据层同 condition 重复（1 组）照旧不动。
+
+### ④ 门禁与变异自证
+
+* `tests/clock-combo-visible-test.mjs` 17 → **28 断言**（新增 C2b/C4b/C9/C10/C11/C12/C8e/C2-pre），
+  8 个变异体全部 `MUTANT-RED-OK`（期望红集 == 实际红集；N1 缺键退回"未知即全可见"、N2 面板路径不写
+  缺键/门控、N3 bool 全命中、N4 去掉组级收口、N5 门控层按可见、N6 去掉 RE-06 级联、N7 去掉面板路径
+  父链收口、N8 不发布台账）。改前读数取自**钉死提交** `PRE_CHANGE_COMMIT = '6102c1c'`，
+  **没有**用 `git show HEAD:`（P-181 ⑥ 的教训；提交落地后 HEAD 就是"改后"）。
+* 全量套件（本条目的**诊断轮**，基线重定基之前）：`PASS=162 FAIL=2 SKIP=2 / 总 166`（`/tmp/full-suite-p184.log`）。
+  两红都不是实现缺陷：`package-matrix` 的唯一退化是本条 ⑥ 的基线重定基（判为**修正**）；
+  `camera-origin-script` 的 m12「跑前跑后 `git status --porcelain` 逐字一致」是**编排者在本轮跑动期间做了一次提交**
+  （`151ce0a`）触发的守卫，与本线改动无关（编排者已在静默窗口自行取证）。
+* 改动文件：`core/we-scene-bundle.js`、`demo/bench-patch.js`（只加探针）、
+  `tests/clock-combo-visible-test.mjs`、`docs/PATCHES.md`、工作区 `docs/ISSUES-ROOTCAUSE-20260924.md`（更正）。
+  `demo.html` / `server/**` / `elysia/**` / `package.json` 一字未动；语料只读。
+
+### ⑤ 未验证 / 诚实的边界
+
+* **没有**跑真机浏览器档：全部读数来自 Node（mock-GL 只用于 C5 的逐帧台账）。"面板改动后画面真的只剩
+  一个时钟"这条只有层级 `visible` 读数与真语料序列复算，没有像素/截图证据。
+* `?proj=off` / 无 `project.json` 的 51 个容器**仍然**会把绑定层全部显示（状态 (a) 的 legacy 口径）；
+  台账能读出这是 `unknownNoTable` 而不是"解析对了"，但同屏两个时钟的观感在这类容器上依旧存在。
+* "缺键 ⇒ 用属性组默认值"在默认值选不中任何层时给出 **0 个可见**（如 `newproperty3` 默认 "0"、层是
+  1..8）。这是"属性停在默认值时"的忠实读数，但它比改前的"全可见"更接近"没有时钟"，需要用户拍板；
+  本条目按任务口径（回落作者默认值）实现，**没有**加"一个都不留就把 authored 救回来"的兜底。
+* `scene.__visStats` 是**最近一次 apply** 的快照（装载后被面板路径覆盖），不含历史；多条路径交错时
+  以最后一次为准（`path` 字段标明是 `load` 还是 `panel`）。
+* 本轮没有改 `tests/run-all-tests.sh`（该项 P-181 已登记 `clock-combo-visible`）。
+
+### ⑥ 基线就地重定基（`package-baseline.json`；**不是** `--write-baseline` 整表重写）
+
+全量套件的 `package-matrix` 只报一处退化：`3544152633 drawnLayers: 27 → 26`。**判性质：修正，不是回归** ——
+两处读数变化都是"旧判据把本该隐藏的层画出来了"，根因是**旧调用点不带属性表时会忽略"字符串形态"可见性绑定**
+`{"user":"x"}`（旧 RE-06 把这条求值挂在 `__schema` 门控后面）：
+
+| 包 | 层 | 绑定原文 | 旧读数（无 schema / 有 schema） | 新读数 | 为什么新读数才对 |
+|---|---|---|---|---|---|
+| `dd/3544152633` | id=404（空名、无 image/particle） | `{"user":"a1","value":true}`；`a1` 是**无 type 的 HTML 营销块**、没有 `value`（props 里是 `undefined`） | 无 schema：**可见**（visible 35 / drawn 27 / draws 58）；**有 schema：隐藏**（34 / 26 / 57） | 隐藏（34 / 26 / 57） | 同一个包在**带属性表**的旧实现下（= `demo.html` 真路径：`propertiesSchema` 只要拿得到 project.json 就恒传）本来就是隐藏的；无 schema 分支只是"漏求值"⇒ 把营销层画了出来。HTML 营销块按本仓既定口径不渲染（`propsPanelModel` 里 `skipped` 的 **html 档**计数） |
+| 「夜莺night——【time_variation_时间变化】alone_孤独の少女」（`wallpaperE/other` 与 `delete/wallpapertest1` 两个副本） | id=1775「雪景远景」 | `{"user":"hrbigb","value":true}`；`hrbigb` 是 **bool 属性、值 false** | 无 schema：**可见**（visible 31）；有 schema：隐藏 | 隐藏（visible 30） | 属性说"关"，旧判据仍画它；该层不产生 draw ⇒ `drawnLayers` 20→20 不变 |
+
+* 复核读数（**两条都实测**）：
+  `node tests/package-matrix.mjs --pkg <dd/3544152633/scene.pkg> --check` ⇒ `✓ --check：与基线逐包比对无退化`；
+  同一命令对「夜莺…alone_孤独の少女.mpkg」同样 `✓`。
+  另有一条直接对照（钉死提交 `6102c1c` 的模块 + 同一份 props）：`schema=无 → id404=true / visible=35`，
+  `schema=有 → id404=false / visible=34` ⇒ **旧实现的 demo 真路径与现在的读数逐位相同**。
+* 改的是**数据不是判据**：`package-baseline.json` 是**未跟踪**的生成物（`.gitignore:22`），本轮只改上面 3 行的
+  `scene.visible`（各 −1）与 `3544152633` 的 `audit.drawnLayers/draws/skippedLayers`，
+  **全部 timing 与其余 207 行一字未动**，并在文件的 `note` 里写明理由、层号与证据（沿用 2026-09-24 那条既有的
+  "就地重定基"做法）。没有跑 `--write-baseline`（那会把 210 行的本机负载 timing 一起重写，P-75f 明确反对）。
+* **否掉的另一条路（留给出题方）**：`tests/package-matrix.mjs` 的 `EXPLAINED_BASE_DROPS`（P-75f 的"已解释的基线下降"：
+  基线不写、每次照旧打印 + 必填 reason/证据）更符合"判据不许静默"的口径，但该文件**不在本线可写范围内**。
+  若改用那条路，把上表的 reason/证据按 `{id, field, base, now, reason}` 逐字搬进去即可（本节的证据形态就是照它写的）。
+
+### ③ 基线口径（收尾，2026-09-25 · 由编排者补）
+
+* 本节把上表里"`3544152633` id404"那条**接进 `EXPLAINED_BASE_DROPS`**（P-75f 的"已解释的基线下降"：
+  基线**不写**、每次跑都**照旧打印** + 必填 reason/证据），而不是把本地 `package-baseline.json` 就地改掉
+  （本线自己也推荐这条，只是当时不在可写范围内）。读数（实跑）：
+  ```
+  node tests/package-matrix.mjs --check
+    ⇒ 已解释的基线变化 1 项（非退化，带依据）：
+        · 3544152633 drawnLayers: 27 → 26
+           依据：… 浏览器侧逐层可见性 70/70 不变、文本层光栅化两版都是 4 层 ⇒ 无用户可见回归 …
+    ⇒ ✓ --check：与基线逐包比对无退化
+  ```
+* 另两条本地基线改动（`scene.visible` 35→34）**保留**：那是"少算一层"的修正，方向是改善，矩阵不按退化判。
+* 浏览器 A/B 的原始读数（两版各一次真机）：`[首帧] #69 … vis=0`（两版相同）、`① 文本层已光栅化: 4 层`（两版相同）、
+  逐层可见性 70/70 逐字相同 ⇒ 这条基线变化**只影响 Node 审计环境**，不影响真实出画。
+
+## P-185（2026-09-25 · 门禁线）门禁的两个"静默"缺陷：自跳被记成 PASS（11 项）+ 语料去重把两处夹具打成静默 SKIP
+
+**一句话**：`run-all-tests.sh` 的 SKIP 判定只认**注册过的** `SKIPPAT`，而文件头承诺的是"工具打印 `SKIP <项名>`
+且 rc=0 ⇒ 按 SKIP 计" ⇒ **11 个没登记模式的项**自跳时被记成 **PASS**（覆盖悄悄消失而门禁全绿）；
+同时 ①（库去重改成"移进 `delete/`"）让两处"按内容特征定位"的夹具恒不命中，其中 `multi-sprite` **整项**
+静默 SKIP、`scene-script-api-gaps` 的 S3 真包判据 SKIP。
+
+### ① 证据（不是推断）
+* 同一份日志里同时出现 `== PASS multi-sprite` 与 `SKIP multi-sprite —— 回归资产定位不到（同名候选 2 个）`
+  （`/tmp/mpw-gate-23305-1790212700/last.log`）——"跑了 470ms 的 PASS"其实是自跳。
+* 静态清点：166 个注册项里 **133 项没登记 SKIP 模式**，其中 **11 项**的测试文件里会打印 `SKIP <项名>`：
+  `script-owner-live / multi-sprite / p76-parallax-eye / meshsize / projection-y / baseline / pointer-leave /
+  script-phase-order / bench-dbg-dpr-probe / bench-log-clip-probe / cover-ab-probe`。
+* 夹具漂移：`allwallpaper/delete/<root>/…` 的首段是 `delete`，而两处 resolver 用"首段 == 语料根"收窄 ⇒ 恒空。
+
+### ② 改法
+* `run-all-tests.sh` 分类处加**通用口径**：`head -3 "$ITEMLOG" | grep -qE "^SKIP[[:space:]]+${name}([[:space:]]|$)"`
+  （与注册模式并集）。只认"行首 SKIP + **本项名**" ⇒ **不误伤** `logGLSkip` 打出的子段 SKIP
+  （那些是 `SKIP <段名>`，例如 `SKIP B 段（预览外壳/首帧）`）。
+* 两处 resolver 加 `rootOf()`：`delete/<root>/…` 视作**同一个语料根**（`delete/` 是同盘暂存区，内容逐字节相同）。
+* 新增门禁 `library-delete-manifest`（登记进套件）：磁盘 ↔ `allwallpaper/delete/MANIFEST.json` 双向对账 +
+  逐对 sha256 与"库内保留的孪生副本"相同 + 6 组变异自证（篡改 sha / 换孪生 / 少登记 / 多登记 / 改大小 / 删 `kept`）。
+* `mpkg-sweep-test` 新增 `--batch ALL [--offset/--limit] [--enum-only]` 与"已有 Firefox 就 SKIP"的预检；
+  新增 `--abort-free-mb/--min-free-mb` 之外的"单 Firefox"纪律落点（见 P-186）。
+
+### ③ 读数（区分力自证：同一输入，旧/新 runner 各跑一次）
+```
+MPW_ROOT=/tmp/emptyroot bash tests/run-all-tests.sh          --only multi-sprite
+  ⇒ SKIP multi-sprite (无数据，条件项)     汇总：PASS=0 FAIL=0 SKIP=1 / 总 1 项
+MPW_ROOT=/tmp/emptyroot bash tests/run-all-tests.sh.old      --only multi-sprite   # 改前副本（同一目录，避免 dirname 偏移）
+  ⇒ PASS multi-sprite (333ms)              汇总：PASS=1 FAIL=0 SKIP=0 / 总 1 项
+```
+* 夹具修好后：`multi-sprite` **28/28**（耗时从 0.47s（=自跳）变成 ~9.8s 真跑）、
+  `scene-script-api-gaps` **38 pass / 0 skip**（原 37+1 skip）。
+* 新增门禁读数：`library-delete-manifest` **9 通过 / 0 失败**（7 条 · 855.66 MiB · 真语料全文件 sha256 复核）。
+
+### ④ 未验证 / 边界
+* 通用 SKIP 口径只覆盖"行首 + 本项名"这一种自跳写法；若某个测试用别的措辞自跳（例如 `SKIP（无数据）<项名>`），
+  仍会被记成 PASS —— 本轮按"测试文件里实际出现的写法"清点（11/11 都是 `SKIP <项名>`）。
+* `library-delete-manifest` 依赖**本机语料**（`allwallpaper/delete/`）⇒ 缺语料时整项 SKIP（夹具段仍跑）；
+  默认含 1.7GB 全文件哈希（~4s，页缓存命中时更快），`--no-hash` 可只对路径+大小。
+
+## P-186（2026-09-25 · 测试台 UI 线）ISSUE0924A 的 12 条 UI 缺陷：快捷根 / 音量入 NP / 去重栏删除 / 溢出自检 / 换库即刷新 / 调试页签三态 / 输出配色 / 中英文档 / 日志不再自动滚底 / 原生下拉 / 释放停干净
+
+**一句话**：12 条 + 第 20 点的文案收尾全部落地，每条都给"源码级/纯函数级判据 + `__benchPatch` 探针"两道可机读证据；
+新增门禁 `tests/bench-issue0924a-line-A-test.mjs`（**59 断言**）与浏览器窄入口 `tests/bench-issue0924a-ia-browser-test.mjs`（**PASS=23**）。
+
+| # | 现象 | 落点 | 关键读数（改前 → 改后） |
+|---|---|---|---|
+| ① | 选择文件夹/文件对话框**快捷根太多 ⇒ 溢出**，"当前库目录"被压成一字一行、后面的根看不见 | `server/we-scene-demo-server-8902.mjs`（`MAX_FS_ROOTS=6` + 候选表去冗余）、`demo/bench-patch.js`（`.bench-dirbox-roots{flex-wrap:wrap;max-height:112px;overflow:auto}` + chip `nowrap/ellipsis`） | `GET /api/fs/roots` **7 → 6** 条；chips 行 `overflow=true` → **false**，`lineChars=[]`（不再有竖排一字一行） |
+| ② | 音量条要在 **NP 条**里，不在壁纸配置最下面 | `demo/bench-patch.js`（`#np-volume` 移入 NP 条；属性面板里的音量控件删除） | `volumeInNpBar=true`、`stripHasVolume=false`；既有 A9/B5（滑条不越容器）逐字保留 |
+| ③ | 图片去重默认"全部去重" + **删掉下拉栏与描述文字** | 同上（删 `#bench-imgmode` 与提示行；缺省仍 `once` = 整面板只画一遍；`?propimg=` 仍可覆盖） | 面板里 `#bench-imgmode` **有 → 无**；`planRichImageMode({})={mode:'once',source:'default'}`；`bench-dsh-libroot B7/B7a`（once 少画 / all 多画）保持 |
+| ④ | 有范围的显示要**检测溢出** | 新增通用探针 `propsOverflow()`（在场容器逐个量盒宽） | 改前 0 个探针 → 改后一次量 12–14 个容器，宽/窄两档 0 处裁剪式溢出；可滚容器**不误报** |
+| ⑤ | 换文件夹后列表不刷新（旧缩略图 404） | `demo/bench-patch.js`（借产物自己的重载链 + `_r=` 击穿） | `#list` 行集合不变 → `libRefreshProbe()` 换库即刷新（`IA9` 3 条） |
+| ⑦⑧ | 调试页签无选中框；文案要随勾选 `调试模式·ON/OFF`（绿/红不刺眼） | 同上（`.active` + 灰框 + `dbgTabState()`） | 改前无 `.active`/无颜色 → `aria-selected=true` + 灰框；`OFF→ON→OFF` 三态、G 通道最大（绿）/R 通道最大（红） |
+| ⑨ | "输出"淡灰字看不清 | 同上（日志面板字色 = `--fg`） | 浅色主题 **1.63:1 → 10.4:1**；与 `#diag-body` 字色逐字相同（两主题） |
+| ⑪ | 说明/壁纸设置中英同屏；API 表不全、中英不同步 | `demo/index.html` + `demo/bench-patch.js`（按当前语言只渲染一份 + API 表补齐 + 中英同源） | 两方向语言过滤各一次；中英 API 行数相等（`sameRows=true`，≥20 行） |
+| ⑯ | 输出来新消息**不要自动滚到底** | 同上（仅"追加前已在底部"才跟随） | 滚在上面时来消息 `scrollTop` **不动**；贴底时继续跟随 |
+| ⑰ | 同类自检：壁纸配置里原生 `<select>` | 同上（换成 `demo/mpw-select.js` 自绘；去重那条按③删除） | `propsSelectProbe().native` **>0 → 0** |
+| ⑲ | 清空壁纸 + 点"释放"后日志仍刷"无 web GL2" | 同上（释放加门闩：停轮询/清 iframe/停自愈） | 释放后 1.2s 输出区**一行都没多**；门闩在位、轮询已停、iframe 已清空 |
+| ⑳（文案） | 测试台文案仍把 8899 当"渲染器页" | 同上（中英 i18n 两份） | 面向用户文案里不再出现"渲染器页在 :8899"（改写为"同源 `/webloader/`，8902 自己直供"） |
+
+* **契约变更 2 处**（不是放宽）：③ 删掉 `#bench-imgmode` 后，引用它的旧判据按"契约变了就显式更新 + 写明理由"处理；
+  ⑤ 换库重画需借产物自己的重载链。逐条见 `docs/reports-issue0924a-line-A.md` §3。
+* **验收读数**：`demo-syntax-check` 11/11、`demo-check` **132/0**、`docs-check` ✓、`secret-scan` 0 命中、
+  新门禁 **59/0**、`bench-props-text` 48/0（含 10 组变异）、`bench-ui-headless` 与 `bench-dsh-libroot --no-mutant` 全绿。
+* **未验证**：Windows 盘符分支（`process.platform==='win32'`）本机跑不到 ⇒ 只做源码级判据。
+* 详细报告（逐条 file:line + 改前/改后读数 + 新增断言名）：`docs/reports-issue0924a-line-A.md`。
+
+## P-187（2026-09-25 · 渲染器线）ISSUE0924A 的 5 条渲染缺陷：videoStats 降噪 · 音频条无数据占位 · **0x502 真因（RG8 奇数宽 × UNPACK_ALIGNMENT）** · 不静默黑屏 · 漏音两条机制
+
+**一句话**：5 条都有根因/判据/读数；其中 ⑭ 是**实锤根因**（不是"纹理太大"），⑫ 与 ⑮ 的"白块/黑屏"在本机（llvmpipe）**未复现**，
+报告里如实标注为"机制候选/未证实"，没有谎称已确认修复。新增 7 个测试；5 个既有渲染门禁按契约显式更新（旧语义一律锚 `git show 151ce0a:`）。
+
+| # | 现象 | 根因 / 改法 | 读数与判据 |
+|---|---|---|---|
+| ⑬ | 输出里 `[we-scene][P-68] videoStats{…MBps 154.7}` 每 5s 无条件一条 | 改成"首条 + 有意义异常（upErr/err/档位/上传尺寸/直传↔中转/上传 fps 掉档/带宽突变/perfLevel）+ **60s 心跳**"；异常 1s 地板限流但**不吞**（suppressed 计数+原因在下一条真行里报出）；另修**真缺陷**：失败路径此前根本不调日志函数 | 600s 稳态 **11 条** vs 反例（拨回 5000ms）**121 条**；台账 `renderer.videoStatsLog`（`videoStats` 33 字段契约冻结）。`render-vstats-log-noise` **21/0** |
+| ⑫ | `3327063360` 等：中间偏左**白色矩形**遮挡（疑似音频条没渲染） | 无数据源时该层**什么都不画**（算术模型覆盖=0）。现按上游 oneincase **时间驱动**占位 + 渲染器侧 **0.012 静音地板**（绝不喂全 0 频谱）；首版"除零铺白"假设被自己的算术模型**否证**（AA 两边是 -0.05k 与 0，不相等）。白色矩形本机任何档**未复现** ⇒ 只把唯一自洽机制写成具名告警 + `isWhite` 判据 | `render-audio-bar-nodata` **20/0** + 浏览器 `render-audio-bar-motion` **4/0** |
+| ⑭ | 真机（Adreno 830）`纹理上传报错 0x502`（1245x433 / 1169x726 / 263x124 / 365x251 / 767x786）+ 同页 sample-synthetic 报"❌ 无 WebGL2" | **0x502 = 格式 8（RG88）路径 + 宽为奇数 + 缺省 `UNPACK_ALIGNMENT=4`**：缓冲是 w*h*2 紧密行距，驱动按 4 字节对齐算 ⇒ 每行差 2 字节 ⇒ `INVALID_OPERATION`（"降到 1024 就好了"只因 1024 是偶数）；语料里"格式8 ∧ 宽奇数"恰好 **15 张**、真机报错名单是其**子集**。修法：仅当行距不 4 对齐时临时 `pixelStorei(UNPACK_ALIGNMENT,1)` 再恢复（偶数宽零变化）。样例的"无 WebGL2"= **瞬时/资源性失败被报成能力缺失**（同 canvas getContext 之争与上下文上限都已被实测排除）：加 `webglcontextcreationerror` 归因 + 150/400/900ms 退避重试 + 三分归因台账 + `pagehide` 释放 + core 误归因文案改对 | 活体：`1169x726 @align4 → 0x502` / `@align1 → 0x0` / `1168x726 @4 → 0x0`。`render-tex-align-odd` **26/0**、`render-ctx-acquire` **12/0**（浏览器） |
+| ⑮ | `2902406982` 渲染出来是黑屏（真机日志与本机首帧审计逐行吻合，都打 `[hdr] …RGBA16F FBO`） | 本机（llvmpipe，**非 Adreno**）读数 `meanLum 105.74 / 黑像素 0.16%` ⇒ **未复现黑屏**，真因不猜。新增"**不静默黑屏**"防线：HDR 帧呈现后 3×3 采样，全黑 ⇒ 当场按 LDR 重渲对照；LDR 非黑 ⇒ 本会话退 LDR 并记 `hdrFallback{path:'black-first-frame'}`；LDR 也黑 ⇒ 判"场景本身黑"并恢复 HDR（不误伤）；`?hdr=1` 强制档只大声记账不退回 | `render-hdr-black-guard` **16/0** |
+| ⑱ | 仍偶发漏音 | ①帧内 `<audio>` 是**游离元素**（`new Audio()` 未挂树）⇒ 插件 `applyWebMute` 的 `querySelectorAll('video,audio')` 永远扫不到 ⇒ 宿主静音了 BGM 照响；②`dispose()` 旧实现**不回收音频链**（元素/blob/MediaElementSource/AudioContext 全留着）⇒ 释放后照响、同文档重挂载接不上。修法：挂树 + 建元素时跟随 `frameElement.muted` + 幂等音量写 + **绝不写 `muted`** + `mpwReleaseSceneAudio()` + `window.__mpwAudioLedger` 台账 | 改后 `document.querySelectorAll('audio').length` **0 → 1**，宿主静音等价动作后 `muted=true` 且保持；4 轮挂载-释放计数不增长。`render-audio-leak` **15/0** |
+* **语义变更台账**：5 个既有门禁按契约显式更新（`effects-degenerate-fbo` ③f/③g 旧"一个都不写"→写地板并另留 ③f-legacy 钉旧行为；`audio-band-wiring` T3h/T5d/T6d auto 无源语义 + 新增 T3h2/T5d2/T6d2 保留 real 档旧语义；`bench-bandfeed-switch` A1 + A1b；`audio-semantics` +4 条；`quality-tiers` 的 getContext 唯一来源判据**收紧**）。
+* **边界（重要）**：所有"驱动相关"结论都来自**有头 Firefox + llvmpipe，不是 Adreno 830**；⑫ 的白色矩形真因与 ⑮ 的黑屏真因**都没有在本机复现**，报告里明确标注"未证实/未验证"。
+* 详细报告：`docs/reports-issue0924a-line-B.md`。
+
+## P-188（2026-09-25 · 合并线）8899 → 8902 收口：合并方案成文 + "8899 停掉也全绿"实测 + 插件默认渲染器地址改到 `:8902/webloader/`
+
+**一句话**：测试台早已不需要 8899（本轮**真的把 8899 停掉**逐路由复核），方案文档补齐；插件（DSH 壁纸宿主）的默认渲染器地址从 `http://127.0.0.1:8899/`
+改成 `http://127.0.0.1:8902/webloader/`（仍可在设置里覆盖），于是"只启 8902"成立。
+
+* **方案文档**：`docs/RENDERER-MERGE-PLAN.md`（现状：谁服务什么 / 已做完的本地直供与"上游显式才生效" / 本轮实测 / 剩余两件收尾 / 风险与回退 / 验收清单）。
+* **实测（8899 真停）**：`/` 200 113,976B · `/api/library` 200 247,059B · `/webloader/` 200 604,277B · `/bundle.js` 200 903,481B ·
+  `/core/we-scene-bundle.js` 200 903,481B · `/wallpaper-engine-webgl/renderer/index.html` 200 1,814B · `/diag-flags.json` 200 51,219B ·
+  `/project/sample-synthetic` 200 1,125B · `/pkg/sample-synthetic` 200 33,299B；响应头 `X-Bench-Served: local`。验证后**已把 8899 拉起**
+  （插件旧默认还指着它；本轮改完默认后才真正不依赖）。
+* **插件 3.13.7**（`5544f55`，已推送 / 已发 npm / 已部署 15 文件 md5 一致）：`lib/client.js` 默认值 + 4 处注释 + 中英各 2 处占位示例；
+  插件仓的 dist 单文件 bundle 重新构建（`../dsh-mpkg-wallpaper/dist/dsh-mpkg-wallpaper.bundle.mjs`）（bundle-equivalence **38/0**，sha256 `170cfec08e5c4948…`）；
+  `tools/check.sh` 全 12 步通过、`integrity-check` 72/0、`secret-scan` 0 命中。
+  **尾斜杠必须留**（`fetch(base + "diag-flags.json")` 是字符串拼接，8902 的 `/webloader/diag-flags.json` 实测 200）。
+* **未做（待确认）**：插件侧"只启 8902"还要求用户那边确实跑着 8902（配置项可改回 8899）；`start-demo.sh` 仍默认双端口起（历史口径，未动）。

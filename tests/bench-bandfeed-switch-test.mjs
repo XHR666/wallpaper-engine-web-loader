@@ -128,18 +128,31 @@ const viewZero = (v) => !!v && allZero(v.left) && allZero(v.right) && allZero(v.
 console.log('\n== A 真源码切片：四条判据（?bandfeed= 四档）==')
 {
   // ── 判据① 静音 / 无源档 ⇒ silent 且全 0（auto 缺省档；渲染器既有口径） ──
+  /* ★2026-09-24 任务 ⑫ **契约变更（auto 无源）**：旧语义（钉死提交 151ce0a 的 demo.html 同一分支，
+     见 `git show 151ce0a:demo.html` 的 `bandArrayNow`）是"全 0 + source='silent'"；现改为
+     **按时间驱动的占位频谱**（上游 oneincase/webwallgl 的 `createSimulatedAudio` 同款），
+     理由 = 用户「没有数据源但音条确实是在动的」+ 全 0 会让作者 shader 的音条高度退化
+     （`smoothstep(0,0,0)` 除零 ⇒ 本机不画 / 部分驱动整层白色实心块）。"只要真实源"的档
+     （`?bandfeed=real|mic`）仍保持"全 0 + silent"，见下面 A1b。 */
   const eAuto = makeEnv({})
   eAuto.api.bandFrameTick(0.5); eAuto.api.bandFrameTick(0.6)
   const autoStats = bandStats(eAuto.api.last().bands)
-  ok(eAuto.api.BANDFEED === 'auto' && eAuto.api.last().source === 'silent' && autoStats.silent === true,
-    'A1 ①缺省档 auto 且没有数据源 ⇒ `source=silent`（如实：不回落模拟源、不假装有声音）',
+  ok(eAuto.api.BANDFEED === 'auto' && eAuto.api.last().source === 'simulated' && autoStats.silent === false,
+    'A1 ①缺省档 auto 且没有数据源 ⇒ `source=simulated`（**占位**：按时间驱动的频谱，不是真实音频）',
     `feed=${eAuto.api.BANDFEED} source=${eAuto.api.last().source} reason=${eAuto.api.last().reason}`)
-  ok(allZero(eAuto.api.last().bands) && eAuto.win.__mpwAudioBandSource === 'silent',
-    'A1 ①静音档的 128 元数组**全 0**（可观测面 `__mpwAudioBandSource="silent"` 与数组一致）',
-    `peak=${autoStats.peak}`)
-  ok(viewZero(eAuto.api.band16()) && eAuto.api.band16().hasSource === false,
-    'A1 ①喂给音条层顶点色的 16 段活视图**全 0 + hasSource=false**（顶点色 = 0 的输入；屏幕像素不在此项测）',
+  ok(allZero(eAuto.api.last().bands) === false && eAuto.win.__mpwAudioBandSource === 'simulated' && eAuto.api.last().placeholder === true,
+    'A1 ①占位频谱**非全 0** 且 `placeholder=true`（可观测面 `__mpwAudioBandSource="simulated"`；不冒充真实源）',
+    `peak=${autoStats.peak} reason=${eAuto.api.last().reason}`)
+  ok(viewZero(eAuto.api.band16()) === false && eAuto.api.band16().hasSource === true,
+    'A1 ①喂给音条层的 16 段活视图**非 0 + hasSource=true**（顶点色的输入真的在动；屏幕像素不在此项测）',
     `kind=${eAuto.api.band16().kind}`)
+  // A1b「只要真实源」档仍是"如实全 0"（占位不会污染它）
+  const eReal = makeEnv({ search: '?bandfeed=real' })
+  eReal.api.bandFrameTick(0.5)
+  const realStats = bandStats(eReal.api.last().bands)
+  ok(eReal.api.last().source === 'silent' && allZero(eReal.api.last().bands) && realStats.silent === true,
+    'A1b `?bandfeed=real`（只认真实源）无源 ⇒ **仍是全 0 + silent**（占位不越权；旧语义在这条档上原样保留）',
+    `source=${eReal.api.last().source} peak=${realStats.peak}`)
   const eOff = makeEnv({ search: '?bandfeed=off' })
   eOff.api.bandFrameTick(0.5)
   ok(eOff.api.last().source === 'off' && allZero(eOff.api.last().bands) && eOff.bandCalls.length === 0,

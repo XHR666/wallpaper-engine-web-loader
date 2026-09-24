@@ -199,6 +199,13 @@ try {
   ok(kinds.some((k) => k === 'mount' || k === 'drive'),
     'A1d 快捷根含**跨平台**候选：POSIX 挂载点（/media、/mnt、/run/media）或 Windows 盘符',
     'kinds=' + JSON.stringify(kinds))
+  /* ①(2026-09-24 issue0924a 用户第 1 条)「你搞这么多快捷根干嘛 你就留几个，所有电脑都可能有的几个就行了」：
+     改前真机 **8–9 条**（当前库目录 / 配置库根 / 库根的上一级 / 配置库根的上一级 / home / cwd / 工作区根 /
+     挂载点×2）⇒ 一行放不下 ⇒ 溢出 + "当前库目录"竖排成一字一行。改后上限 6 条、冗余候选删掉。
+     本条与 A1（≥5 条）**一起**成立才是"少而够用"：既不是一两条写死的，也不再把一行撑爆。 */
+  ok(roots.length <= 6 && !kinds.includes('library-configured'),
+    'A1j ★快捷根**上限 6 条**且冗余候选（配置库根 / 配置库根的上一级）已删 —— 改前 8–9 条',
+    `n=${roots.length} kinds=${JSON.stringify(kinds)}`)
   /* 三条"这台机器的事实"必须来自**推导**：库里给的路径要与 /api/library 的 dir 一致（同一个真源） */
   const libSrc = J(await request(P, 'GET', '/api/library-source'))
   ok(libSrc.dir === F.libA && paths[0] === F.libA,
@@ -868,6 +875,41 @@ async function browserStage() {
     ok(!!w1280.before && w1280.before.sliderW === 64 && !!w1280.afterNarrow && w1280.afterNarrow.sliderW !== 64,
       'B5a 对照读数（**同一 200px 窄容器**）：注入旧固定宽规则后滑条 = 64px（旧）、当前实现 = 可伸缩；两边的 overflow 原样见读数',
       JSON.stringify({ before: w1280.before, afterNarrow: w1280.afterNarrow }))
+
+    /* ── B5b(2026-09-24 issue0924a 用户第 2 条) 音量条**搬进 NP 块**：`#np-volume` 在 `#np-volbar` 里、
+       传输条 `#np-audio`（= 壁纸配置**最下面**那一行）里没有它；窄容器下音量条自身也不越界。
+       读数与实现同一个入口（`npGeometry()`），不靠 CSS 文本猜。 ───────────────────────────────── */
+    {
+      const place = await page.evaluate(() => {
+        const props = document.querySelector('#props')
+        if (props) { props.hidden = false; props.removeAttribute('hidden') }
+        const host = document.querySelector('#np-host')
+        if (host) host.style.display = ''
+        const api = window.__benchPatch
+        const g = api && api.npGeometry ? api.npGeometry() : null
+        const near200 = (() => {
+          const p2 = document.querySelector('#props')
+          if (p2) { p2.style.width = '200px'; p2.style.maxWidth = '200px' }
+          const bar = document.querySelector('#np-volbar')
+          if (bar) bar.style.width = '200px'
+          const g2 = api && api.npGeometry ? api.npGeometry() : null
+          if (p2) { p2.style.width = ''; p2.style.maxWidth = '' }
+          if (bar) bar.style.width = ''
+          return g2
+        })()
+        return { g, near200 }
+      })
+      console.log('  B5b 读数（音量条落点）=' + JSON.stringify({ g: place.g, near200: place.near200 }))
+      ok(!!place.g && place.g.volumeInStrip === false && place.g.stripHasVolume === false,
+        'B5b ★音量条**不在** `#np-audio`（壁纸配置最下面那条传输条）里 —— 用户第 2 条"不要再显示在壁纸配置最下面"',
+        JSON.stringify({ volumeInStrip: place.g && place.g.volumeInStrip, stripHasVolume: place.g && place.g.stripHasVolume }))
+      ok(!!place.g && place.g.volumeInNpBar === true,
+        'B5b1 ★音量条挂在 **NP 块**里（`#np-volbar` 在 NP 卡片正下方 —— 几何判据 `volbar.top >= card.bottom`）',
+        JSON.stringify(place.g && { volbar: place.g.volbar, card: place.g.card }))
+      ok(!!place.near200 && place.near200.volbarOverflow === false && place.near200.slider && place.near200.slider.width > 0,
+        'B5b2 200px 窄容器下音量条自身也不越界（`volbarOverflow === false`，滑条仍有实际宽度）',
+        JSON.stringify(place.near200 && { volbarOverflow: place.near200.volbarOverflow, slider: place.near200.slider }))
+    }
 
     /* ── B6(用户 A3) 半成品清点：`#page-wpset` 的过期结论已被就地改正 + 控件清单读数 ────────────────── */
     /* ⚠ 判据为什么用"页面内夹具"而不是直接量真表格：真页面里 `tbody tr` 有 99 行（表格很多），

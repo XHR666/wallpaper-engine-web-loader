@@ -1920,6 +1920,47 @@ mpwDisplayUiInit()
 mpwDisplaySyncUI()
 if (MPW_DISPLAY_URL.present.length || !lib.displayStateEquals(MPW_DISPLAY, lib.defaultDisplayState())) mpwDisplayLog()
 // ═══ MPW-DISPLAY-END ═══
+// ═══ ①(2026-09-24 任务 ⑭) WebGL2 上下文获取：带重试 + 诚实归因（模块级函数，下面的调用点 await 它） ═══
+//   纯函数式取值流程（不读全局渲染状态），便于测试台/门禁按"注入一个前 N 次返回 null 的 canvas"复现。
+//   返回 null 时**不**在此处打日志/报能力错（调用点统一报：能力缺失还是资源失败由 rec.reason 决定）。
+async function mpwAcquireWebGL2(cvEl, attrs) {
+  const rec = { attempts: 0, nullReturns: 0, retries: 0, creationErrors: [], lastStatus: null, probe: null, reason: null, at: null, released: 0 }
+  try { window.__mpwCtxAcquire = rec } catch (e) { /* 无 window：忽略 */ }
+  const onCreationError = (e) => {
+    try { const s = String((e && e.statusMessage) || ''); if (s) rec.creationErrors.push(s); if (s) rec.lastStatus = s } catch (e2) {}
+  }
+  /** 新 canvas 能力探针：把"这台浏览器不支持 WebGL"与"本画布/资源此刻拿不到"分开（不猜）。 */
+  const probe = () => {
+    const out = { webgl2: false, webgl1: false }
+    try { out.webgl2 = !!document.createElement('canvas').getContext('webgl2') } catch (e) {}
+    try { const c = document.createElement('canvas'); out.webgl1 = !!(c.getContext('webgl') || c.getContext('experimental-webgl')) } catch (e) {}
+    return out
+  }
+  const delays = [0, 150, 400, 900]
+  for (let i = 0; i < delays.length; i++) {
+    if (delays[i]) await new Promise((r) => setTimeout(r, delays[i]))
+    rec.attempts++
+    let g = null
+    try { cvEl.addEventListener('webglcontextcreationerror', onCreationError) } catch (e) {}
+    try { g = cvEl.getContext('webgl2', attrs) } catch (e) { rec.creationErrors.push('throw:' + ((e && e.message) || e)) }
+    if (g) {
+      try { cvEl.removeEventListener('webglcontextcreationerror', onCreationError) } catch (e) {}
+      rec.reason = 'ok'; rec.at = Date.now(); rec.retries = i
+      if (i) logf('① WebGL2 上下文第 ' + (i + 1) + ' 次尝试才拿到（前 ' + i + ' 次返回 null'
+        + (rec.lastStatus ? '，驱动/浏览器原话：' + rec.lastStatus : '') + '）—— 属**瞬时/资源性**失败，'
+        + '不是"浏览器不支持 WebGL2"（台账 window.__mpwCtxAcquire）')
+      return g
+    }
+    rec.nullReturns++
+  }
+  const p = probe(); rec.probe = p
+  // 归因口径（三种，互不冒充）：
+  //   no-webgl2              = 新 canvas 两个都建不出来 ⇒ 真的不支持（旧实现的唯一分支）
+  //   no-webgl2-but-webgl1   = webgl2 建不出、webgl1 可以 ⇒ 支持但不满足 WebGL2 前提（驱动/黑名单）
+  //   canvas-context-failed  = 新 canvas 能建 webgl2、只有本画布建不出 ⇒ 本画布/资源问题（**不是**能力缺失）
+  rec.reason = (!p.webgl2 && !p.webgl1) ? 'no-webgl2' : (p.webgl2 ? 'canvas-context-failed' : 'no-webgl2-but-webgl1')
+  return null
+}
 if (MODE === 'elysia') {
   const _id = new URL(location.href).searchParams.get('id') || '3719111841';
   import('./elysia/demo-elysia.js')
@@ -1932,13 +1973,49 @@ if (MODE === 'elysia') {
    这里创建的上下文会被渲染器复用（同一个 canvas 只有一次 getContext 生效），属性必须与渲染器
    `createRenderer` 请求的一致 —— 此前写死 `{antialias:true, alpha:true}`，把渲染器要的
    `alpha:false / premultipliedAlpha:false` 静默顶掉了（真机对照：本仓 alpha:true vs 上游 alpha:false）。 */
-const gl = MPW_MULTI_IDS ? null : cv.getContext('webgl2', lib.glCanvasAttrs(location.search));
+/* ①(2026-09-24 任务 ⑭「合成样例误报无 WebGL2」) **取上下文：带重试 + 诚实归因**。
+   现场：同一页里主包已出画，切到合成样例（测试台预览的第二次挂载）却打
+   `❌ 无 WebGL2！` 与 `❌ 启动失败: 当前浏览器不支持 WebGL2`。改动前这里**一次 `getContext` 定生死**：
+   返回 null 就直接宣称"浏览器不支持 WebGL2" —— 把**瞬时/资源性失败**（上一个文档的上下文尚未释放、
+   GPU 进程正在复位、上下文数达到上限）说成了能力缺失，用户读到的是"这台机器不行"。
+   规范只保证 `getContext` 返回 null，**原因要自己问**：先挂 `webglcontextcreationerror` 收
+   `statusMessage`（驱动/浏览器给的原话），再按 150/400/900ms 退避重试（共 4 次，首次尝试与改动前逐字相同
+   ⇒ 成功路径零变化），仍失败时才用**新 canvas** 探一次 webgl2/webgl1 把"真不支持"与"本画布/资源拿不到"
+   分开。台账 `window.__mpwCtxAcquire`（attempts/nullReturns/creationErrors/lastStatus/probe/reason）。
+   为什么重试真的可能成功（本机实测，`tests/render-ctx-acquire-test.mjs` 的读数为证）：
+   丢上下文的旧文档若不显式释放，新文档的第一次 `getContext` 就可能拿不到；下面的 `pagehide` 释放
+   + 这里的退避重试是**一对**，缺一不可。 */
+const gl = MPW_MULTI_IDS ? null : await mpwAcquireWebGL2(cv, lib.glCanvasAttrs(location.search));
 if (!MPW_MULTI_IDS) {
-if (!gl) { logf('❌ 无 WebGL2！'); try { window.__mpwCapErr && window.__mpwCapErr('no-webgl2') } catch (e) {} }
+if (!gl) {
+  // ①(2026-09-24 任务 ⑭) 归因分支**逐字不同**：把"真不支持"与"资源/本画布问题"分开说，
+  //   不再让后者冒充前者（真机现场就是后者被报成了"当前浏览器不支持 WebGL2"）。
+  const __ca = (window.__mpwCtxAcquire || {})
+  const __why = __ca.reason === 'no-webgl2'
+    ? '❌ 无 WebGL2：本浏览器/设备**确实不支持**（新 canvas 也建不出 webgl2/webgl1）'
+    : __ca.reason === 'no-webgl2-but-webgl1'
+      ? '❌ 拿不到 WebGL2 上下文：本浏览器**能建 WebGL1 但不给 WebGL2**（驱动/黑名单）—— 不是"没有 WebGL"'
+      : '❌ 拿不到 WebGL2 上下文：新 canvas 能建、**本画布建不出**（瞬时/资源性失败，不是"浏览器不支持"）'
+  logf(__why + '（' + (__ca.attempts || 1) + ' 次尝试' + (__ca.retries ? '，重试 ' + __ca.retries + ' 次' : '')
+    + (__ca.lastStatus ? '；驱动/浏览器原话：' + __ca.lastStatus : '') + '；台账 window.__mpwCtxAcquire=' + JSON.stringify(__ca) + '）')
+  try { window.__mpwCapErr && window.__mpwCapErr(__ca.reason || 'no-webgl2') } catch (e) {}
+}
 else {
   logf('✅ WebGL2: ' + gl.getParameter(gl.VERSION));
   const dbg = gl.getExtension('WEBGL_debug_renderer_info');
   if (dbg) logf('GPU: ' + gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL));
+  // ①(2026-09-24 任务 ⑭/⑱) **文档离开时显式释放本上下文**：反复挂载（测试台切换预览 / 宿主重挂 iframe）
+  //   时，旧文档的上下文若只等 GC，下一份文档的 `getContext` 就可能撞上"没有可用上下文"（正是上面
+  //   要重试的那种瞬时失败），也是"来回切 = 显存只涨不落"的另一半。这里只做**离开时**的释放，
+  //   不影响任何在跑路径；`?ids=` 多实例走各自的 dispose（elysia/multi-instance.js 的 loseContext）。
+  try {
+    addEventListener('pagehide', () => {
+      try {
+        const ext = gl.getExtension('WEBGL_lose_context')
+        if (ext && typeof ext.loseContext === 'function') { ext.loseContext(); window.__mpwCtxReleased = (window.__mpwCtxReleased || 0) + 1 }
+      } catch (e) { /* 环境不支持该扩展：保持既有行为 */ }
+    })
+  } catch (e) { /* 无 window.addEventListener（测试夹具）：跳过 */ }
 }
 }
 // ①(W1① P-36) 设备纹理上限：降采样触发阈值 = min(4096, 设备 MAX_TEXTURE_SIZE)。
@@ -4248,6 +4325,23 @@ function loadScene() {
   //   首次用户手势时再尝试 play）。**每层一条流**（官方各层独立 SoundStream），不再只播第一条。
   const AUDIO_ENABLED = /[?&]audio=1/.test(location.search)
   const sceneAudio = { ctx: null, analyser: null, els: [], freq: null, started: false, vols: [] }
+  /* ①(2026-09-24 任务 ⑱「偶发漏音」) **音频生命周期台账**（可机读判据）：创建/释放的 `<audio>` 与
+     AudioContext 计数、音量写入次数、muted 写入次数。用途见 tests/render-audio-leak-test.mjs：
+     "重复挂载后音频元素/上下文计数不增长"「muted 幂等」「音量写入有台账」三条判据都读它。
+     为什么要有：宿主（插件 `lib/client.js` 的 `applyWebMute`）是**按 `frame.contentDocument` 里
+     `querySelectorAll('video,audio')`** 来静音的 —— 渲染器建的元素必须在文档树里、且自己不许反复
+     重写 `muted`/`volume`（值没变的重写对正在播放的音频就是一次可听见的打断，见插件侧同一注释）。 */
+  const audioLedger = { elsCreated: 0, elsReleased: 0, ctxCreated: 0, ctxClosed: 0, volumeWrites: 0, muteWrites: 0, attaches: 0, lastAt: null }
+  try { window.__mpwAudioLedger = audioLedger } catch (e) { /* ignore */ }
+  const audioLedgerTick = () => { audioLedger.lastAt = Date.now() }
+  /** 宿主（嵌入方 iframe）当前的静音位：同源时读 `frameElement.muted`，跨源/顶层读不到 ⇒ false。
+   *  用途：**建元素时就跟随宿主静音位**，把"元素先出声、宿主的静音趟下一次才轮到它"那条窗口关掉。 */
+  function hostEmbedMuted() {
+    try {
+      const fe = (typeof window !== 'undefined') ? window.frameElement : null
+      return !!(fe && fe.muted === true)
+    } catch (e) { return false }   // 跨源读 frameElement.muted 抛异常 ⇒ 不猜
+  }
   function collectSoundLayers() {
     const out = []
     try {
@@ -4280,9 +4374,25 @@ function loadScene() {
     const url = URL.createObjectURL(blob)
     const el = new Audio()
     el.src = url
+    try { el.__mpwBlobUrl = url } catch (e) {}   // 释放时按同一份 URL 撤销（重复挂载不泄漏 blob）
     el.crossOrigin = 'anonymous'
     el.preload = 'auto'
+    /* ①(2026-09-24 任务 ⑱) **必须挂进文档树**：宿主静音走 `frame.contentDocument.querySelectorAll('video,audio')`，
+       而 `new Audio()` 出来的是**游离元素**（不在树里 ⇒ 那趟扫描永远看不到它）⇒ 宿主静音了、帧内 BGM
+       照响（真机"偶发漏音"的机制之一；音频路径与视频路径不一致：视频路径一直有 appendChild）。
+       挂法与视频元素同款（2×2、透明、不挡指针）。 */
+    try {
+      if (el.style) el.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1'
+      if (el.setAttribute) el.setAttribute('playsinline', '')
+      if (typeof document !== 'undefined' && document.body && document.body.appendChild) document.body.appendChild(el)
+      if (typeof audioLedger !== 'undefined') audioLedger.attaches++
+    } catch (e) { /* 无 DOM（测试夹具/极简实现）⇒ 保持游离，但已计入台账（判据能看出"没挂上"） */ }
+    // ①(2026-09-24 任务 ⑱) 建元素时**跟随宿主静音位**（同源 iframe）：把"先出声、下一趟静音才轮到"关掉
+    try { if (hostEmbedMuted()) { el.muted = true; audioLedger.muteWrites++ } } catch (e) {}
     try { mpwBlobMediaRetry(el, '声音层') } catch (e) {}   // ①(2026-09-24 上游 Bug 2056444) 包内音轨（常 >1MB）blob 喂 <audio> 的兜底
+    // ①(2026-09-24 任务 ⑱) 台账：本函数被 tests/audio-semantics-test.mjs **整段切片**到 VM 里单跑
+    //   ⇒ 与既有 `mpwHostVolume` 同一口径，用 `typeof` 兜底（切片环境没有它时静默跳过，不抛）。
+    try { if (typeof audioLedger !== 'undefined') { audioLedger.elsCreated++; audioLedgerTick() } } catch (e) {}
     const binding = soundLayerVolumeBinding(layer)
     el.volume = currentAudioVolume(layer, binding) * 0.5
     sceneAudio.vols.push({ el, binding })
@@ -4331,6 +4441,7 @@ function loadScene() {
       if (!layers.length) { logf('① sound 层：无（场景未声明音轨）'); return }
       const AC = window.AudioContext || window.webkitAudioContext
       sceneAudio.ctx = new AC()
+      audioLedger.ctxCreated++; audioLedgerTick()
       const analyser = sceneAudio.ctx.createAnalyser()
       analyser.fftSize = 4096
       analyser.smoothingTimeConstant = 0.6
@@ -4346,6 +4457,7 @@ function loadScene() {
         try {
           const src = sceneAudio.ctx.createMediaElementSource(el)
           src.connect(analyser)
+          try { el.__mpwMediaSource = src } catch (e3) {}   // ①(2026-09-24 任务 ⑱) 释放时好 disconnect
         } catch (e2) { /* 已连接过或格式不支持 → 直出 */ el.connect ? null : null }
         if (!analyser._mpwDest) { analyser.connect(sceneAudio.ctx.destination); analyser._mpwDest = true }
         sceneAudio.els.push(el)
@@ -4358,6 +4470,32 @@ function loadScene() {
       logf('① sound 层已接入（' + layers.length + ' 条，启动 ' + started + ' 条；?audio=1 模式）')
     } catch (e) { logf('⚠ 音频初始化失败: ' + e.message) }
   }
+  /* ①(2026-09-24 任务 ⑱「偶发漏音 / 重复挂载」) **释放本页音频链**（dispose 调用；单独成函数是为了
+     能被 tests/render-audio-leak-test.mjs 整段切片单跑）。
+     旧实现（钉死提交 151ce0a 的 demo.html，`mpwHandle.dispose()` 内的视频清理段）只暂停/撤销**视频**
+     元素与清纹理，`sceneAudio` 的 `<audio>` 元素、它们的 blob URL、MediaElementSource 与那个
+     AudioContext **一个都不动** ⇒ `__wp.release()`（测试台/宿主的显式释放路径）之后声音照放；
+     同一文档里再挂载时 `sceneAudio.started` 仍是 true ⇒ 新实例接不上音频、旧元素继续响 = 用户报的
+     "偶发漏音 / 声音对不上画面"。这里按"谁建谁释放"收干净，并记台账（`window.__mpwAudioLedger`）。
+     幂等：连调两次不会重复计数（vols/els 已清空）。 */
+  function mpwReleaseSceneAudio() {
+    try {
+      for (const v of sceneAudio.vols) {
+        try { v.el.pause() } catch (e) {}
+        try { if (v.el.__mpwBlobUrl) URL.revokeObjectURL(v.el.__mpwBlobUrl) } catch (e) {}
+        try { if (v.el.parentNode) v.el.parentNode.removeChild(v.el) } catch (e) {}
+        try { if (v.el.__mpwMediaSource && v.el.__mpwMediaSource.disconnect) v.el.__mpwMediaSource.disconnect() } catch (e) {}
+        try { if (typeof audioLedger !== 'undefined') audioLedger.elsReleased++ } catch (e) {}
+      }
+    } catch (e) {}
+    try { sceneAudio.vols.length = 0; sceneAudio.els.length = 0 } catch (e) {}
+    try { if (sceneAudio.analyser) sceneAudio.analyser.disconnect() } catch (e) {}
+    try {
+      if (sceneAudio.ctx && typeof sceneAudio.ctx.close === 'function') { const p = sceneAudio.ctx.close(); if (p && p.catch) p.catch(() => {}); if (typeof audioLedger !== 'undefined') audioLedger.ctxClosed++ }
+    } catch (e) {}
+    try { sceneAudio.ctx = null; sceneAudio.analyser = null; sceneAudio.freq = null; sceneAudio.started = false } catch (e) {}
+    try { if (typeof audioLedgerTick === 'function') audioLedgerTick() } catch (e) {}
+  }
   // 音量绑定的实时更新（官方声明式绑定：用户改属性 → SetStreamVolume；挂在 4Hz 脚本节拍上足够）
   function updateSceneAudioVolume() {
     if (!sceneAudio.started) return
@@ -4368,7 +4506,14 @@ function loadScene() {
     //   下面那个 `catch` 吞掉，表现为"用户属性改了音量不动"（真机踩到：该测试的 ① 变红）。
     const __hostGain = (typeof mpwHostVolume === 'number' && isFinite(mpwHostVolume) && mpwHostVolume >= 0) ? mpwHostVolume : 1
     for (const v of sceneAudio.vols) {
-      try { v.el.volume = currentAudioVolume(null, v.binding) * 0.5 * __hostGain } catch (e) { /* ignore */ }
+      try {
+        const want = currentAudioVolume(null, v.binding) * 0.5 * __hostGain
+        /* ①(2026-09-24 任务 ⑱) **幂等写**：值没变就不写。对正在播放的 `<audio>`，一次"没变的重写"
+           在某些实现上就是一次可听见的打断（插件侧 2026-09-23 对 `muted` 踩过同一个坑）；
+           4Hz 的节拍上每次都写 = 每秒 4 次潜在打断。台账记"真正写入"的次数（判据读它）。 */
+        if (v.el.volume !== want) { v.el.volume = want; audioLedger.volumeWrites++; audioLedgerTick() }
+        // `muted` **不在**这里写（宿主静音位是宿主的事：本函数只管音量）——判据断言 muted 写入次数 = 0
+      } catch (e) { /* ignore */ }
     }
   }
   // ═══ MPW-BANDFEED-BEGIN ①(P-112-BANDGEOM 2026-09-17；P-131 批D 2026-09-19 改缺省+加麦克风源) 128 元频段数组接线 ═══
@@ -4408,6 +4553,7 @@ function loadScene() {
   const bandView16 = createLiveBands(AUDIO_RESPONSE_BANDS)
   const bandViews = new Map()
   let bandSilentLogged = false
+  let bandPlaceholderLogged = false   // ①(2026-09-24 任务 ⑫) 占位源说明只打一次
   const bandMic = { status: 'idle', err: null, analyser: null, ctx: null, freq: null, stream: null, pending: false }
   function bandViewFor(n) {
     const len = Math.max(1, Math.min(1024, Math.trunc(Number(n)) || 64))
@@ -4502,11 +4648,24 @@ function loadScene() {
       const bands = simulatedBandArray(t)                                             // 确定性模拟源（γ/gain 曲线）
       bandLast = { bands, source: 'simulated', stats: bandStats(bands), t }
     } else {
-      // ①(P-131 批D) **缺省档（auto）无数据源 ⇒ 全 0**（不再自动回落模拟源：不假装有声音）。
-      //   `?bandfeed=sim` 才用模拟源。这一段同时是"没有麦克风/没有 <audio> 源时保持全 0"的落点。
-      const bands = packBands(null, null, bandReuse, { clampOnly: true })
-      bandLast = { bands, source: 'silent', stats: bandStats(bands), t,
-        reason: 'no-source（?audio=1 的包内音轨 / ?bandfeed=mic 的麦克风都没有）' }
+      /* ①(2026-09-24 任务 ⑫「音条无数据时不画/白块」) **缺省档（auto）无数据源 ⇒ 时间驱动的占位源**。
+         语义变更：旧语义（钉死提交 151ce0a 的 `git show 151ce0a:demo.html` 同一分支）是"全 0 +
+         `source='silent'`"；改动原因 = 用户原话「原本的渲染是可以将音频条渲染出来的，虽然它没有数据源，
+         但是音频条确实是在动的」+ 上游行为：oneincase/webwallgl（MIT，本仓 vendored 参考
+         `references/vendor-ref/webwallgl/renderer/vendor/we-scene/render/audio.js` 的
+         `createSimulatedAudio()`）在没有系统音频的独立测试台里就是**纯时间驱动**合成一段仿音乐频谱
+         （底鼓/军鼓/踩镲 + 和弦游走 + 静音段 0.012 底噪）。本仓 `?bandfeed=sim` 已是同款确定性模拟源
+         （`core/audio-band-array.mjs:simulatedBands`）⇒ 这里把它接成 auto 档的**占位**：
+         `source='simulated'` + `placeholder=true`（诚实标注：不是真实音频）+ 一条说明日志。
+         为什么"必须动"不只是观感问题：全 0 频谱会让作者 shader 的音条高度退化为 0
+         （`enhanced_simple_audio_bars`：`barHeight = mix(max(u_BarBoundsX, minBarHeight), …, 0) = 0`
+         ⇒ 零尺寸 SDF + 零宽 AA 过渡带 ⇒ `smoothstep(0,0,0)` 在部分驱动上求值成 1 ⇒ 整层被
+         `Bar Color`(1 1 1) 以 alpha=1 铺满 = 用户看到的**白色实心块**，把后面的层全挡掉）。
+         渲染器侧另有 `AUDIO_SILENCE_FLOOR` 兜底（显式静音/宿主不注入时也不把全 0 喂给 shader）。
+         `?bandfeed=real|mic`（只要真实源）与 `?bandfeed=off`（不接源）的语义**不变**。 */
+      const bands = simulatedBandArray(t)
+      bandLast = { bands, source: 'simulated', placeholder: true, stats: bandStats(bands), t,
+        reason: 'placeholder-no-source（无数据源 ⇒ 与上游 webwallgl 同款**按时间驱动**的占位频谱，不是真实音频）' }
     }
     try {
       window.__mpwAudioBands = bandLast.bands
@@ -4516,6 +4675,13 @@ function loadScene() {
         bandSilentLogged = true
         logf('① 频段数据源：**无**（' + (bandLast.reason || '') + '）⇒ 128 元全 0（可观测：__mpwAudioBandSource="silent"、'
           + '__mpwAudioBandStats().silent=true）。要数据源：`?audio=1`（包内音轨）或 `?bandfeed=mic`（麦克风，会请求权限）或 `?bandfeed=sim`（确定性模拟）')
+      }
+      // ①(2026-09-24 任务 ⑫) 占位源的一条说明（只打一次，不刷屏）：**不与真实源混淆**
+      if (bandLast.placeholder && !bandPlaceholderLogged) {
+        bandPlaceholderLogged = true
+        logf('① 频段数据源：**无真实源** ⇒ 用**按时间驱动的占位频谱**（source=simulated / placeholder=true）'
+          + '—— 与上游 webwallgl 同款做法，音条不再是一块白色实心矩形、而是照常有节奏地动；'
+          + '要真实源：`?audio=1`（包内音轨）或 `?bandfeed=mic`（麦克风）；要"如实全 0"：`?bandfeed=real`（只认真实源）')
       }
     } catch (e) { /* ignore */ }
     // ①(P-131 批D) 16 段活视图：**原地**写（引用恒定）⇒ 渲染器 `audioprocessing*` 与脚本侧同源同曲线。
@@ -4564,6 +4730,8 @@ function loadScene() {
       let emit = null
       try { emit = lib.audioBandsInfo() } catch (e) { emit = null }
       return { feed: BANDFEED, source: bandLast.source, hasSource: bandLast.source === 'analyser' || bandLast.source === 'mic' || bandLast.source === 'simulated',
+        // ①(2026-09-24 任务 ⑫) `placeholder=true` = 这一帧是**无数据源时的按时间驱动占位**（不是真实音频）
+        placeholder: !!bandLast.placeholder,
         reason: bandLast.reason || null, mic: bandMic.status, gamma: 1.8, gain: 1.8, len: AUDIO_BAND_LEN,
         resolution16: AUDIO_RESPONSE_BANDS, emit }
     }
@@ -6856,9 +7024,25 @@ function loadScene() {
       if (MPW_WRITE_GLOBALS) { window.__mpwCtx.lost++; window.__mpwCtx.at = __ctxRec.at }
       try { logf('❌ WebGL 上下文丢失（第 ' + __ctxRec.lost + ' 次）——大纹理 OOM/GPU 复位；尝试恢复') } catch {}
       try {
-        const c2 = cvEl.getContext('2d')
-        if (c2) { c2.fillStyle = '#222'; c2.fillRect(0, 0, cvEl.width, cvEl.height); c2.fillStyle = '#bbb'; c2.font = '28px sans-serif'; c2.fillText('渲染上下文丢失（显存不足），正在恢复…', 40, 60) }
-      } catch {}
+        /* ①(2026-09-24 任务 ⑭) **不要在这个 canvas 上再要 2d 上下文**：同一个 canvas 只有第一次
+           `getContext` 的类型生效（本机实测：webgl2 之后 `getContext('2d')` 恒 null ⇒ 这行是死代码，
+           提示从来没画出来过；而**反过来**先拿到 2d 再要 webgl2 会永久返回 null，实测 `2d → webgl2 = null`）。
+           今天它无害，但"丢上下文后在同一 canvas 上试别的类型"是同类事故的温床（真机上若某实现允许
+           切换/释放，画布就被永久锁死成 2d，后面所有重挂载都会走到"无 WebGL2"）。改成**独立浮层**：
+           只画提示、绝不碰 #sc 的上下文类型；拿不到 DOM 就只留日志（不静默）。 */
+        let ov = document.getElementById('mpw-ctxlost-hint')
+        if (!ov) {
+          ov = document.createElement('canvas')
+          ov.id = 'mpw-ctxlost-hint'
+          ov.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;z-index:9;pointer-events:none'
+          document.body.appendChild(ov)
+        }
+        ov.width = cvEl.width || 1280
+        ov.height = cvEl.height || 720
+        const c2 = ov.getContext('2d')
+        if (c2) { c2.fillStyle = '#222'; c2.fillRect(0, 0, ov.width, ov.height); c2.fillStyle = '#bbb'; c2.font = '28px sans-serif'; c2.fillText('渲染上下文丢失（显存不足），正在恢复…', 40, 60) }
+        window.__mpwCtxLostHint = { drawn: !!c2, at: Date.now() }
+      } catch (e) { try { window.__mpwCtxLostHint = { drawn: false, err: (e && e.message) || String(e) } } catch (e2) {} }
     })
     cvEl.addEventListener('webglcontextrestored', () => {
       __ctxRec.restored++
@@ -8472,6 +8656,8 @@ function loadScene() {
       //   （多实例来回切时不留悬挂监听；`inst` 是本实例记录，装载时就写好的那个对象）
       try { if (typeof inst.liveResDispose === 'function') inst.liveResDispose() } catch (e) {}
       try { mpwLoseContext(gl) } catch (e) { logf('⚠ loseContext 失败: ' + ((e && e.message) || e)) }
+      // ①(2026-09-24 任务 ⑱) 释放实例时把音频链一起收掉（实现与判据见 mpwReleaseSceneAudio）
+      try { mpwReleaseSceneAudio() } catch (e) {}
       try {
         for (const t of textures.values()) {
           if (!t) continue;

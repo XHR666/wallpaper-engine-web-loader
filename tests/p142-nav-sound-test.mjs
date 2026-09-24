@@ -317,8 +317,13 @@ function reserveModel(htmlSrc) {
   const has = /#props-body\{padding-bottom:calc\(20px \+ var\(--mpw-np-cover\)\)\}/.test(htmlSrc)
   const card = Number((htmlSrc.match(/--mpw-np-card:(\d+)px/) || [])[1] || 0)
   const strip = Number((htmlSrc.match(/--mpw-np-strip:(\d+)px/) || [])[1] || 0)
-  const coverRule = /--mpw-np-cover:calc\(var\(--mpw-np-card\) \+ var\(--mpw-np-strip\)\)/.test(htmlSrc)
-  return { has, card, strip, coverRule, cover: card + strip, pad: has ? 20 + card + strip : 20 }
+  /*  ①(2026-09-25 ISSUE0924A 第 ② 条) NP 栈从"卡片 + 传输条"变成"卡片 + **音量条** + 传输条"：
+      音量条（`--mpw-np-vol`）搬进了 NP 卡片正下方 ⇒ `--mpw-np-cover` 必须把它一起算进去
+      （否则展开态又会遮住属性项 —— 也就是这条判据要保护的那件事）。判据按**新契约**钉：
+      cover = card + vol + strip；`vol` 缺失时按 0 处理（老树仍能被读出来，但下面的期望值会立刻红）。 */
+  const vol = Number((htmlSrc.match(/--mpw-np-vol:(\d+)px/) || [])[1] || 0)
+  const coverRule = /--mpw-np-cover:calc\(var\(--mpw-np-card\) \+ var\(--mpw-np-vol\) \+ var\(--mpw-np-strip\)\)/.test(htmlSrc)
+  return { has, card, vol, strip, coverRule, cover: card + vol + strip, pad: has ? 20 + card + vol + strip : 20 }
 }
 /** HTML 里每个 id 的**嵌套深度**（去注释/脚本后按标签栈算）——用来断言 DOM 归属关系。 */
 function idDepths(html) {
@@ -369,8 +374,8 @@ function staticFacts(patchSrc, htmlSrc, mod) {
     depths['np-host'] !== undefined && depths['np-host'] === depths['props-body'] && depths['np-mount'] === depths['np-host'] + 1)
   push('A11 `#np-host` 排在 `#props-body` **之后**（= 壁纸配置栏的下半部分）',
     htmlSrc.indexOf('id="props-body"') < htmlSrc.indexOf('id="np-host"'))
-  push('A12 卡片高/传输条高来自 P-138 的算式：`--mpw-np-card:189px` = `now-playing-math.OPEN`，`--mpw-np-strip:30px`，`--mpw-np-cover = card + strip`',
-    res.card === 189 && res.strip === 30 && res.coverRule && res.cover === 219)
+  push('A12 卡片高/传输条高来自 P-138 的算式：`--mpw-np-card:189px` = `now-playing-math.OPEN`，`--mpw-np-vol:26px`（第 ② 条搬进来的音量条），`--mpw-np-strip:30px`，`--mpw-np-cover = card + vol + strip`',
+    res.card === 189 && res.vol === 26 && res.strip === 30 && res.coverRule && res.cover === 245)
   push('A13 「不许永久遮住」的兑现方式：`#props-body{padding-bottom:calc(20px + var(--mpw-np-cover))}`（把**展开态**高度也算进滚动容器）',
     res.has)
   push('A14 传输条是补丁自己的容器（`#np-audio` 是 `#np-host` 的子节点）；组件挂点 `#np-mount` 不被补丁写 DOM（无 innerHTML/appendChild/textContent 赋值）',
@@ -524,9 +529,11 @@ async function domFacts(mod, htmlSrc) {
   }
 
   /* ── ② 声音控件 + 遮挡 ── */
-  const CARD_MOUNT = 189, SHUT = 78, STRIP = 30
+  /*  ①(2026-09-25 ISSUE0924A 第 ② 条) NP 栈多了 26px 的**音量条**（`--mpw-np-vol`，在卡片与传输条之间）
+      ⇒ 卡片挂点的顶边要再上移 VOL；否则模型与实现（按真实 rect 算的 `npOcclusion()`）对不上。 */
+  const CARD_MOUNT = 189, SHUT = 78, STRIP = 30, VOL = res.vol
   {
-    const cardTop = VIEW.propsBottom - STRIP - CARD_MOUNT
+    const cardTop = VIEW.propsBottom - STRIP - VOL - CARD_MOUNT
     const rt = await mkRuntime(mod, { pad: res.pad, cardRect: { left: 1330, right: 1590, top: cardTop + (CARD_MOUNT - SHUT) / 2, bottom: cardTop + (CARD_MOUNT - SHUT) / 2 + SHUT, width: 260, height: SHUT } })
     const p = rt.__page
     push('B12 挂载走的是 P-138 的真实 API：`mountNowPlaying(#np-mount, {corner:16, stroke:false})`，且 `#props[data-np="mounted"]`',
@@ -534,22 +541,22 @@ async function domFacts(mod, htmlSrc) {
       p.props.getAttribute('data-np') === 'mounted', JSON.stringify(rt.__mounts.map((m) => m.opts)))
     const collapsedPlan = rt.npOcclusion()
     // 收起态遮挡：那一条 78px 的窄条（卡片居中于 189 的挂点里 ⇒ 上下各 55.5px 透明）+ 30px 传输条
-    push('B13 收起态：遮挡矩形 = 78px 卡片 + 30px 传输条；`cover`（属性表要预留的底高）= 底边到卡片顶边 = 164px',
-      collapsedPlan.cover === 164 && collapsedPlan.items === 30, JSON.stringify({ cover: collapsedPlan.cover, items: collapsedPlan.items }))
+    push('B13 收起态：遮挡矩形 = 78px 卡片 + 26px 音量条 + 30px 传输条；`cover`（属性表要预留的底高）= 底边到卡片顶边 = 190px',
+      collapsedPlan.cover === 190 && collapsedPlan.items === 30, JSON.stringify({ cover: collapsedPlan.cover, items: collapsedPlan.items }))
     push('B14 收起态实测：被遮挡的属性项 = **3** 项（卡片压住 2 项 + 传输条压住 1 项），遮挡透明空隙不计数',
       collapsedPlan.coveredCount === 3, 'covered=' + JSON.stringify(collapsedPlan.covered))
     // 展开态：卡片 = 189（组件自己 morph）
     rt.__snd.box._rect = { left: 1330, right: 1590, top: cardTop, bottom: cardTop + CARD_MOUNT, width: 260, height: CARD_MOUNT }
     rt.__snd.tap.setAttribute('aria-expanded', 'true')
     const expandedPlan = rt.npOcclusion()
-    push('B15 展开态：`cover` = 189 + 30 = 219px（= 静态表的 `--mpw-np-cover`）', expandedPlan.cover === 219 && expandedPlan.cover === res.cover)
-    push('B16 展开态实测：被遮挡的属性项 = **4** 项（比收起态多一项 —— 卡片长大的那一截）',
-      expandedPlan.coveredCount === 4, 'covered=' + JSON.stringify(expandedPlan.covered))
+    push('B15 展开态：`cover` = 189 + 26 + 30 = 245px（= 静态表的 `--mpw-np-cover`）', expandedPlan.cover === 245 && expandedPlan.cover === res.cover)
+    push('B16 展开态实测：被遮挡的属性项 = **5** 项（比收起态多两项：卡片长大的那一截 + 音量条这一段）',
+      expandedPlan.coveredCount === 5, 'covered=' + JSON.stringify(expandedPlan.covered))
     push('B17 「不许永久遮住」：展开态下 30 项**全部**滚得到（`unreachable=0`）—— 因为滚动容器把展开态高度算进了 padding（`scrollKnown=true` ⇒ 这条不是"口径缺失换来的假绿"）',
       expandedPlan.unreachableCount === 0 && expandedPlan.items === 30 && expandedPlan.scrollKnown === true)
     push('B18 收起态同样 0 项不可达（两个状态都断言，不只看展开）', collapsedPlan.unreachableCount === 0 && collapsedPlan.scrollKnown === true)
     push('B19 实测数字写进了 DOM：`#np-host[data-cover|data-covered|data-unreachable|data-items]`（真机/X11 直接读）',
-      p.host.getAttribute('data-cover') === '219' && p.host.getAttribute('data-covered') === '4' &&
+      p.host.getAttribute('data-cover') === '245' && p.host.getAttribute('data-covered') === '5' &&
       p.host.getAttribute('data-unreachable') === '0' && p.host.getAttribute('data-items') === '30')
     // 判别力自证（把预留拿掉 ⇒ 同一批项里有 4 项永远滚不到）
     const noReserve = mod.npOcclusionPlan({
@@ -560,8 +567,8 @@ async function domFacts(mod, htmlSrc) {
     })
     push('B20 判别力：把 `#props-body` 的底高预留拿掉（模拟改回产物默认 20px）⇒ 立刻出现 4 项"滚到底也看不到" ⇒ B17/B18 不是恒真',
       noReserve.unreachableCount === 4, 'unreachable=' + JSON.stringify(noReserve.unreachable))
-    push('B21 遮挡计数与"透明空隙"分辨得开（空隙不遮任何项）：收起/展开的 coveredCount 差 = 1',
-      expandedPlan.coveredCount - collapsedPlan.coveredCount === 1)
+    push('B21 遮挡计数与"透明空隙"分辨得开（空隙不遮任何项）：收起/展开的 coveredCount 差 = 2（卡片长大 111px + 音量条 26px）',
+      expandedPlan.coveredCount - collapsedPlan.coveredCount === 2)
     // 「按它当前的范围大小算」：属性表滚动 ⇒ 被压住的是哪几项会变 ⇒ 去抖后重算（data-* 跟着更新）
     const idsBefore = p.host.getAttribute('data-covered-ids')
     p.propsBody.scrollTop = 200
@@ -745,7 +752,7 @@ group('D 变异自证（RED-IF-REVERTED；副本在 os.tmpdir()）')
 group('实测读数（几何模型：`#props` 832 高 / `#props-body` 756 高 / `.prop` 行高 65px（= 产物 CSS 8+name+6+24+8+1）/ 30 项）')
 {
   const res = reserveModel(htmlSrc)
-  const cardTop = VIEW.propsBottom - res.strip - res.card
+  const cardTop = VIEW.propsBottom - res.strip - res.vol - res.card    // ①(第 ② 条) 减去音量条高度
   const items = []
   for (let i = 0; i < 30; i++) { const top = VIEW.bodyTop + 4 + 65 * i; items.push({ id: 'p' + i, rect: { left: 1280, right: 1600, top, bottom: top + 65 } }) }
   const bodyBase = { top: VIEW.bodyTop, bottom: VIEW.propsBottom, scrollTop: 0, scrollHeight: 4 + 65 * 30 + res.pad }
@@ -758,8 +765,8 @@ group('实测读数（几何模型：`#props` 832 高 / `#props-body` 756 高 / 
   line(`  · 展开态：卡片 ${res.card}px ⇒ cover **${expanded.cover}px**（= 静态表 --mpw-np-cover），遮挡 **${expanded.coveredCount} 项**（${expanded.covered.join(',')}），滚不到 ${expanded.unreachableCount} 项`)
   line(`  · 判别力：把 \`#props-body\` 的底高预留拿掉（改回产物默认 20px）⇒ 立刻 **${noReserve.unreachableCount} 项**滚到底也看不到（${noReserve.unreachable.slice(0, 4).join(',')}…）`)
   line(`  · 收纳：导轨 ${mod.NAV_RAIL_W}px；`+'`#main`'+` 宽度增量 = 300−26 = 274px（mid 档 240−26 = 214px）；键名 \`${mod.NAV_COLLAPSED_STORE}\``)
-  check('E1 读数自洽：收起/展开的 cover 与遮挡计数就是 B13–B16 断言的那四个数（164/3 与 219/4），且判别力非零（4）',
-    collapsed.cover === 164 && collapsed.coveredCount === 3 && expanded.cover === 219 && expanded.coveredCount === 4 && noReserve.unreachableCount === 4,
+  check('E1 读数自洽：收起/展开的 cover 与遮挡计数就是 B13–B16 断言的那四个数（190/3 与 245/5），且判别力非零（4）',
+    collapsed.cover === 190 && collapsed.coveredCount === 3 && expanded.cover === 245 && expanded.coveredCount === 5 && noReserve.unreachableCount === 4,
     JSON.stringify({ collapsed: [collapsed.cover, collapsed.coveredCount], expanded: [expanded.cover, expanded.coveredCount], noReserve: noReserve.unreachableCount }))
 }
 /* ═══════════════════════════ 汇总 ═══════════════════════════ */

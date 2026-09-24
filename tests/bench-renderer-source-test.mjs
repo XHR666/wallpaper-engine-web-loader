@@ -307,6 +307,10 @@ if (!pwPath) {
           attrSrc: st ? st.getAttribute('data-mpw-renderer-src') : null,
           dpr: window.devicePixelRatio,
           frameBox: fr ? (fr.clientWidth + 'x' + fr.clientHeight) : '',   // 面板盒（画布定尺的输入，取证用）
+          /*  ①(2026-09-25 ISSUE0924A 收尾) 面板**列**几何（与渲染器档无关的那部分）：
+              换档时它必须逐字不变；真正会跳的是舞台行高（见 D3 的说明）。 */
+          panelBox: (() => { const m = document.getElementById('main'); return m ? (m.clientWidth + 'x' + m.clientHeight) : '' })(),
+          propsBox: (() => { const m = document.getElementById('props'); return m ? (m.clientWidth + 'x' + m.clientHeight) : '' })(),
         }
         try {
           const w = fr.contentWindow
@@ -470,11 +474,22 @@ if (!pwPath) {
      WebGL2」），把它当红了就是**把环境缺能力说成产品坏** ⇒ 这几条打 SKIP 并**把读数原样打出来**，
      既不谎报成红、也不静默通过（要跑满就起 X 显示，见打印的两条出路）。 */
   if (webgl2) {
-    ok(up.canvas && repo.canvas && near(up.canvas.cssW, repo.canvas.cssW, 2) &&
+    /*  ①(2026-09-25 ISSUE0924A 收尾) **判据按语义重写**（不是放宽）：
+        D3 的真主张 = "分辨率乘数"——上游画布 = 面板 CSS × **1**（`renderDpr=1` 上限）、本仓 = 面板 CSS × **设备 DPR**
+        （"预览糊"的根因与修法）。旧版还顺手钉了"两条路径的画布 CSS 宽相同（±2px）"，那是**当时的巧合**：
+        换档会让**本服务自己的控制台行数**变化（上游档产物刷更多行）⇒ `#logs` 行高变化 ⇒ 舞台行高在
+        **364↔321** 之间跳（实测 `frameBox` 604x340 ↔ 529x297），而两条路径的**面板列**几何
+        （`#main` 740x838 / `#props` 320x838）逐字不变 —— 那才是"同一块面板"该钉的东西。
+        所以现在钉三条**稳定不变量**：①面板列几何跨档逐字相同；②每块画布**铺满自己的 iframe 盒**；
+        ③乘数语义不变。舞台盒差如实打印在读数里（不再拿它当判据）。
+        ⚠ 舞台行高会跳这件事本身已记进 `docs/ISSUE0924A-PLAN.md` 的"已知遗留"（换档时预览框尺寸变化）。 */
+    const fillsOwnFrame = (r) => !!r.canvas && r.frameBox === (r.canvas.cssW + 'x' + r.canvas.cssH)
+    ok(up.canvas && repo.canvas && up.panelBox && up.panelBox === repo.panelBox && up.propsBox === repo.propsBox &&
+      fillsOwnFrame(up) && fillsOwnFrame(repo) &&
       near(upScale, 1, 0.05) && near(repoScale, repo.dpr, 0.05),
-      'D3 ★画质判据（同一块面板、同一张包）：上游画布 = 面板 CSS 像素 × **1**（`renderDpr=1` 上限），' +
-      '本仓画布 = 面板 CSS 像素 × **设备 DPR** —— 这就是"预览糊"的根因与修法',
-      JSON.stringify({ panelUp: up.canvas && up.canvas.cssW, panelRepo: repo.canvas && repo.canvas.cssW, upScale, repoScale, dpr: repo.dpr }))
+      'D3 ★画质判据（**同一条面板列**、同一张包）：上游画布 = 面板 CSS 像素 × **1**（`renderDpr=1` 上限），' +
+      '本仓画布 = 面板 CSS 像素 × **设备 DPR**；且每块画布都铺满自己的 iframe 盒（换档时本服务控制台行数变化 ⇒ 舞台盒会跳，不是画质语义）',
+      JSON.stringify({ panelUp: up.canvas && up.canvas.cssW, panelRepo: repo.canvas && repo.canvas.cssW, upFrame: up.frameBox, repoFrame: repo.frameBox, panelCol: [up.panelBox, repo.panelBox], propsCol: [up.propsBox, repo.propsBox], upScale, repoScale, dpr: repo.dpr }))
     ok(repo.live && repo.canvas && repo.live.width === repo.canvas.w && repo.live.height === repo.canvas.h && repo.live.dpr === repo.dpr && repo.live.updates >= 1,
       'D4 活档位读数自洽（`window.__mpwLiveRes`）：canvas 尺寸 == live.width/height、dpr == devicePixelRatio、重算计数 ≥1',
       JSON.stringify(repo.live))

@@ -166,9 +166,12 @@ const SOLID = () => mkLayer({ id: 935, name: '纯色', solid: true, textureName:
 const TEXTURED = () => mkLayer({ id: 937, name: '贴图层', solid: false, textureName: 'tex_a', size: [400, 400], scale: [1, 1, 1], effects: [mkEffect('fx_stub')] })
 const byName = (fx, n) => Object.values(fx.perLayer).find((v) => String(v.name).startsWith(n + '#')) || null
 // 16 段活视图（确定性值）：left[i]=(i+1)/16、right[i]=(16−i)/16 ⇒ 32 段 = 每段复制（floor(i/2)）
-const bandView = (hasSource) => {
+const bandView = (hasSource, kind) => {
   const v = { resolution: 16, left: new Float32Array(16), right: new Float32Array(16), average: new Float32Array(16), kind: 'test', hasSource: !!hasSource, revision: 1 }
   for (let i = 0; i < 16; i++) { v.left[i] = (i + 1) / 16; v.right[i] = (16 - i) / 16; v.average[i] = (v.left[i] + v.right[i]) / 2 }
+  // ①(2026-09-24 任务 ⑫) 两个特例视图：真实源但**恰好全 0**（音乐暂停）/ 真实源但极小（1e-4）
+  if (kind === 'zero-source') { v.hasSource = true; v.kind = 'analyser'; v.left.fill(0); v.right.fill(0); v.average.fill(0) }
+  if (kind === 'tiny') { v.hasSource = true; v.kind = 'analyser'; v.left.fill(1e-4); v.right.fill(1e-4); v.average.fill(1e-4) }
   return v
 }
 const expUpsampled = (src, n) => Array.from({ length: n }, (_, i) => src[Math.floor(i * src.length / n)])
@@ -178,10 +181,10 @@ const expUpsampled = (src, n) => Array.from({ length: n }, (_, i) => src[Math.fl
 async function suite(m, tag) {
   const res = []
   const push = (name, cond, detail) => res.push({ name: tag + '｜' + name, ok: !!cond, detail })
-  const render = async (layers, frag, view, onDraw) => {
+  const render = async (layers, frag, view, onDraw, opts) => {
     const { gl, rec } = mkGL()
     const r = m.createRenderer({ getContext: () => gl, width: 3840, height: 2160 },
-      { shaderResolver: typeof frag === 'function' ? frag : resolverFor(frag), onLog: () => {}, onLayerDraw: onDraw })
+      Object.assign({ shaderResolver: typeof frag === 'function' ? frag : resolverFor(frag), onLog: () => {}, onLayerDraw: onDraw }, opts || {}))
     try { m.setAudioBands(view || null) } catch { /* 变异副本可能没有这个导出 */ }
     await r.render(mkScene(layers), TEX_MAP, 3840, 2160, 1.0)
     return { r, rec }
@@ -247,13 +250,42 @@ async function suite(m, tag) {
     const aw16 = audioWrites(rec16).map((w) => w.name)
     push('③e 程序只声明 16 段 ⇒ 只写 16 段（存在才设；不写 32/64）',
       aw16.includes('g_AudioSpectrum16Left') && aw16.includes('g_AudioSpectrum16Right') && !aw16.some((n) => /32|64/.test(n)), aw16.join(','))
-    // ③-3 无数据源 ⇒ 一个都不写（= 与接线前逐位相同：uniform 保持 GL 初值 0）
+    /* ③-3（★2026-09-24 任务 ⑫ **契约变更**）无数据源 ⇒ 写 **0.012 静音地板**，不再"一个都不写"。
+       旧契约（钉死提交 151ce0a 的 `git show 151ce0a:core/we-scene-bundle.js`：
+       `if (!v || !v.hasSource …) return 0`）会让作者 shader 拿到全 0 频谱 ⇒
+       `enhanced_simple_audio_bars` 的 `barHeight = mix(max(u_BarBoundsX, minBarHeight), …, 0) = 0`
+       ⇒ 零尺寸圆角盒 + 零宽 AA 过渡带 ⇒ `smoothstep(0,0,0)` 除零：本机 llvmpipe 判 0（整层不画）、
+       部分驱动判 1（整层被 Bar Color(1 1 1) 以 alpha=1 铺满 = 用户报的白色实心块）。
+       变更理由与上游依据（oneincase webwallgl 静音段 floorV=0.012）见 `AUDIO_SILENCE_FLOOR` 的注释。
+       **旧行为没被删**：`opts.audioFloor=0` 分支仍逐位回到"一个都不写"（③f-legacy），可 A/B。 */
+    const FLOOR = m.AUDIO_SILENCE_FLOOR
     const { rec: rec0 } = await render([SOLID()], FRAG_AUDIO32, null)
-    push('③f ★ 没有活视图（`?bandfeed=off` 宿主不注入）⇒ `g_AudioSpectrum*` **一个都不写**', audioWrites(rec0).length === 0, String(audioWrites(rec0).length))
+    const aw0 = audioWrites(rec0)
+    push('③f ★ 没有活视图（`?bandfeed=off` 宿主不注入）⇒ 写**非退化**频谱（全部 = 静音地板 ' + FLOOR + '，不是全 0）',
+      aw0.length > 0 && aw0.every((w) => w.v.length === 32 && w.v.every((x) => Math.abs(x - FLOOR) < 1e-9)),
+      aw0.length + ' 次写入 / 首值 ' + (aw0[0] && aw0[0].v[0]))
     const { rec: recNS } = await render([SOLID()], FRAG_AUDIO32, bandView(false))
-    push('③g 活视图在但 `hasSource=false`（auto 档无音轨无麦克风）⇒ 同样一个都不写', audioWrites(recNS).length === 0, String(audioWrites(recNS).length))
-    push('③h 该程序**确实声明**了音频 uniform（⇒ "不写"= GL 初值 0，而不是 uniform 不存在）',
+    const awNS = audioWrites(recNS)
+    push('③g ★ 活视图在但 `hasSource=false`（auto 档无音轨无麦克风）⇒ 同样写静音地板（不喂全 0）',
+      awNS.length > 0 && awNS.every((w) => w.v.every((x) => Math.abs(x - FLOOR) < 1e-9)), String(awNS.length))
+    const { rec: recLegacy } = await render([SOLID()], FRAG_AUDIO32, null, null, { audioFloor: 0 })
+    push('③f-legacy `opts.audioFloor=0` ⇒ **逐位回到旧契约**："没有活视图就一个都不写"（旧行为仍可测，未被删除）',
+      audioWrites(recLegacy).length === 0, String(audioWrites(recLegacy).length))
+    // 真实源**恰好全 0**（音乐暂停）也是退化输入 ⇒ 同样兜底；非零（哪怕极小）一律原样上传
+    const { rec: recZeroSrc } = await render([SOLID()], FRAG_AUDIO32, bandView(true, 'zero-source'))
+    const awZS = audioWrites(recZeroSrc)
+    push('③g2 真实源但**恰好全 0**（音乐暂停/静音）⇒ 同样落地板（退化输入防线对真实源也生效）',
+      awZS.length > 0 && awZS.every((w) => w.v.every((x) => Math.abs(x - FLOOR) < 1e-9)), String(awZS.length))
+    const { rec: recTiny } = await render([SOLID()], FRAG_AUDIO32, bandView(true, 'tiny'))
+    const awT = audioWrites(recTiny)
+    push('③g3 真实源**非零但很小**（1e-4）⇒ 原样上传（不夹取作者的低音量输入）',
+      awT.length > 0 && awT.every((w) => w.v.every((x) => Math.abs(x - 1e-4) < 1e-9)), awT[0] && String(awT[0].v[0]))
+    push('③h 该程序**确实声明**了音频 uniform（⇒ 写/不写都作用在真实存在的 uniform 上）',
       rec0.glsl.some((s) => /uniform float g_AudioSpectrum32Left/.test(s)), rec0.glsl.length + ' 段 GLSL')
+    const fi = m.audioBandsInfo()
+    push('③i 地板写入进诊断面（`audioBandsInfo().floor`：值 + 写入次数 + 档位个数）',
+      !!fi.floor && fi.floor.floor === FLOOR && fi.floor.writes > 0 && fi.floor.floorBands >= 1 && fi.floor.floorBands <= 3,
+      JSON.stringify(fi.floor))
   }
   // ── ④ vert/frag 的 [COMBO] 默认值取并集（纯函数层，用合成源码，不依赖真包） ──
   {

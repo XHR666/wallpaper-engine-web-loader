@@ -565,6 +565,27 @@ function compareToBaseline(rows) {
     //   且**照旧打印**（走 explained 列表而不是 diffs 列表）。这样门禁不会为"已知且已解释的行为变化"变红，
     //   但读者仍能看到它、并能按 reason 复核。
     const EXPLAINED_BASE_DROPS = [
+      /*  ①(2026-09-25 P-184) issue #2「偶发两个时钟」的可见性语义收口带来的**唯一**基线下降：
+          id404 是一个**无名占位文本层**（`text:"Text Layer"`, 615×153），它的
+          `visible={user:"a1", value:true}` 是**字符串形态**绑定，而 `a1` 是作者那张
+          "⮛Support Me (click the GIFs)⮛" 的 **HTML 富文本属性**（属性表里只有 index/order/text，
+          **没有 value/type**）。新 helper 在"有属性表"这一档按规则求值 ⇒ 该绑定求不出值 ⇒ 不画；
+          旧装载路径对字符串形态一律回落 authored `value:true` ⇒ 多画一层（Node 审计环境如此）。
+          依据（同一轮 A/B 实测，两版各跑一次真浏览器）：
+            · **逐层可见性 70/70 完全一致**（该层在两版里都是 `vis=0`，见审计行 `[首帧] #69 … vis=0`）；
+            · 文本层光栅化两版都是 **4 层**；`#bar/#log/#fps`、首帧、粒子读数无差异 ⇒ **无用户可见回归**；
+            · 差异只出现在 Node 审计环境（它的 props 里 `a1` **存在但无值**）⇒ 这条下降实际是
+              "审计环境与浏览器口径对齐"（旧版在 Node 里多画、在浏览器里不画；新版两边都不画）。
+          未定：作者是否本意让该 HTML 致谢**渲染成文本层**（WE 侧未取证）；若将来证实要渲染，
+          应当在"HTML 属性 → 文本层"那条链上单独实现，而不是靠可见性回落把它画上屏。 */
+      {
+        id: '3544152633', field: 'drawnLayers', base: 27, now: 26,
+        reason: 'P-184 可见性语义收口：无名占位文本层 id404（`text:"Text Layer"`）的字符串形态绑定'
+          + ' `{user:"a1"}` 指向作者的 HTML 致谢属性（表里没有 value/type）⇒ 求不出值 ⇒ 不画。'
+          + 'A/B 实测：浏览器侧逐层可见性 70/70 不变（该层两版都 vis=0）、文本层光栅化都是 4 层 ⇒ 无用户可见回归；'
+          + '差异只在 Node 审计环境（props 里 a1 存在但无值），即"审计与浏览器口径对齐"。'
+          + '详见 docs/PATCHES.md P-184 的基线说明段。',
+      },
       {
         id: '3554161528', field: 'drawnLayers', base: 16, now: 15,
         reason: 'P-69 语义修正：`cherry blossoms on cursor`(id389) 的 controlpoint[0].flags=1 是 lockToPointer'

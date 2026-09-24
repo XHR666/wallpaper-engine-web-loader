@@ -2262,26 +2262,213 @@ export function resolveUserBinding(bind, props) {
   }
   return null
 }
-// 层可见性：**与 RE-06 原实现逐字等价**（含"属性表缺失 → 带 user 的层按可见"这条灾难规避），
-// 仅多一条：属性被门控关闭 → 绑定不生效、回落 authored value（P-61「父项关掉 → 子项不生效」）。
-export function evalVisibleWithProps(raw, props, gated) {
-  if (raw === undefined || raw === null) return true
-  if (typeof raw !== 'object') return !!raw
-  const u = raw.user
-  if (u === undefined || u === null) return raw.value === undefined ? true : !!raw.value
-  const name = typeof u === 'string' ? u : (u && u.name)
-  const has = !!(props && name && Object.prototype.hasOwnProperty.call(props, name))
-  if (!has) return true                                   // 未知（拿不到 project.json）→ 可见
-  if (gated && gated.has(name)) return raw.value === undefined ? true : !!raw.value
-  const r = resolveUserBinding(raw, props)
-  if (!r) return raw.value === undefined ? true : !!raw.value
-  if (r.combo) return r.matched
-  const pv = r.value
+// ══ 层可见性：**唯一一份口径**（WEBWALLGL issue #2「偶发两个时钟」；四条成因与读数见 PATCHES P-184）══
+// 装载路径（RE-06 / applyRenderConfig）与面板路径（applyUserProperties）**必须**走这里的同一份实现：
+// 改前同一场景同屏几个时钟取决于"最后一次是谁写的"（实测：装载路径 `[11,12,13]` vs 面板路径 `[11]`）。
+//
+// 三种状态**显式区分**（改前 `if (!has) return true` 把 (a)(b) 混成一条，"偶发"就是这么来的）：
+//   (a) **没有属性表**（容器没有 project.json / `?proj=off` / 调用方不传 schema）⇒ 保持"未知 → 可见"
+//       （legacy 灾难规避：宁可多显示一层，也不把主体藏掉）⇒ 台账记 `unknownNoTable`。
+//       逐字保留改前 RE-06 的两条 legacy 分支：**对象形态**（带 condition）→ 可见；**字符串形态**
+//       `{"user":"x"}`（无 condition 的开关）→ 回落 authored value。
+//   (b) **有属性表、但本次求值的 props 里没有这个键** ⇒ 回落**作者默认值**：
+//       · 表里定义了这个键 ⇒ 用该属性组的默认值（`schema[name].value`，按 type 规范化）当取值，
+//         再走同一套匹配规则（= "属性停在默认值时该显示哪个变体"）。真语料 `0917/3233141951`
+//         的 `newproperty` 组因此从 8 个同屏降到 1 个。
+//       · 表里没有这个键（改名 / 跨包引用）⇒ 用**本层 authored value**。
+//   (c) **bool 值撞上 ≥3 个 condition**（bool 只有 0/1 两态）⇒ 一句中文警告 + 回落作者默认值 +
+//       **组级收口**（`settleVisGroups`：同组最多留 1 个可见）。改前 `pv === true` 兜底让除 "1" 以外的
+//       condition 全命中 ⇒ 同屏 ≥2（合成复现 C4）。
+// 门控关闭（属性自身 condition 为假）⇒ 绑定不生效、回落 authored（P-61 既有口径，不变）。
+//
+// `scene.__visStats` = 机器可读台账 `{ kept, hidden, unknownNoTable, defaultsUsed, warns, … }`：
+// 真机/门禁/探针读它就能回答"这一层为什么可见"（`window.__scene.__visStats` 同源）。
+/** 属性表存在性：**非空对象**才算"有表"。空表/undefined = 没拿到 project.json / `?proj=off`。 */
+export function hasPropsTable(schema) {
+  return !!(schema && typeof schema === 'object' && !Array.isArray(schema) && Object.keys(schema).length > 0)
+}
+/** **两条路径共用的属性表解析**：显式 schema 优先；调用方没给但场景是带 project.json 解析出来的，
+ *  用 `scene.properties`（parseScene 把属性表存在场景上）。都没有 ⇒ null = 状态 (a) 没有属性表。
+ *  ⚠ 两条路径必须用**同一个**解析结果，否则"有没有表"又会变成一个路径一个说法。 */
+export function visTableOf(scene, schema) {
+  if (hasPropsTable(schema)) return schema
+  return hasPropsTable(scene && scene.properties) ? scene.properties : null
+}
+/** condition 与属性值的匹配规则（**唯一一份**）：
+ *   · bool 值：condition "0" = 勾选时匹配、"1" = 未勾时匹配（官方两态口径）；无 condition
+ *     （`{"user":"x"}` 纯开关形态）⇒ 勾选即匹配；**其它 condition ⇒ null = 类型不匹配**
+ *     （bool 只有两态，选不出 ≥3 个变体里的一个 ⇒ 交给作者默认值兜底，见 (c)）。
+ *   · 其它值：`String(值) === String(condition)`。 */
+export function condMatchesPropValue(pv, cond) {
+  const c = String(cond === undefined || cond === null ? '' : cond)
   if (typeof pv === 'boolean') {
-    const cond = String(u.condition === undefined ? '' : u.condition)
-    return cond === '0' ? pv === true : (cond === '1' ? pv === false : pv === true)
+    if (c === '0') return pv === true
+    if (c === '1') return pv === false
+    if (c === '') return pv === true
+    return null
   }
-  return String(pv) === String(u.condition === undefined ? '' : u.condition)
+  return String(pv) === c
+}
+/** 作者默认值（**唯一一份**）：表里有这个键 ⇒ 属性组默认值；否则 ⇒ 本层 authored value。 */
+function authorDefaultVisible(schema, name, cond, raw) {
+  const def = schema && name ? schema[name] : null
+  if (def) {
+    const dv = normalizePropValue(def.type, def.value, def.value)
+    if (dv !== undefined && dv !== null) {
+      const m = condMatchesPropValue(dv, cond)
+      if (m !== null) return { visible: m, from: 'table' }
+    }
+  }
+  return { visible: raw.value === undefined ? true : !!raw.value, from: 'authored' }
+}
+/** 一个 `visible` 绑定原文里的属性名（没有则 null）。 */
+export function visBindName(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const u = raw.user
+  if (typeof u === 'string' && u) return u
+  if (u && typeof u === 'object' && u.name) return String(u.name)
+  return null
+}
+/** condition 原文（没有则空串）。 */
+export function visBindCond(raw) {
+  if (!raw || typeof raw !== 'object') return ''
+  const u = raw.user
+  if (!u || typeof u !== 'object' || u.condition === undefined || u.condition === null) return ''
+  return String(u.condition)
+}
+/**
+ * 层可见性判定（**两条路径共用的唯一 helper**）。
+ * @returns {{visible:boolean, reason:'static'|'bound'|'noTable'|'tableDefault'|'authoredDefault'|'gatedDefault'|'boolMulti',
+ *            name?:string, cond?:string, warn?:object}}
+ *   reason 语义：(a) noTable；(b) tableDefault / authoredDefault；(c) boolMulti；(门控) gatedDefault；
+ *   有值且能求值 ⇒ bound；无绑定 ⇒ static。
+ * @param opts { schema?, scene?, hasTable? } —— `hasTable` 显式给出时优先；否则 = schema 非空，
+ *   或（schema 缺席时）scene.properties 非空（parseScene 把 project.json 的属性表存在 scene.properties 上）。
+ */
+export function evalVisibleOutcome(raw, props, gated, opts = {}) {
+  if (raw === undefined || raw === null) return { visible: true, reason: 'static' }
+  if (typeof raw !== 'object') return { visible: !!raw, reason: 'static' }
+  const u = raw.user
+  if (u === undefined || u === null) return { visible: raw.value === undefined ? true : !!raw.value, reason: 'static' }
+  const name = visBindName(raw)
+  const cond = visBindCond(raw)
+  const authored = raw.value === undefined ? true : !!raw.value
+  if (!name) return { visible: authored, reason: 'static' }
+  const schema = opts.schema || null
+  const hasTable = (opts.hasTable !== undefined) ? !!opts.hasTable
+    : (hasPropsTable(schema) || hasPropsTable(opts.scene && opts.scene.properties))
+  // 门控关闭 ⇒ 绑定不生效、回落 authored（P-61；两条路径同序：门控先于"缺键"判定）
+  if (gated && gated.has(name)) return { visible: authored, reason: 'gatedDefault', name, cond }
+  const has = !!(props && Object.prototype.hasOwnProperty.call(props, name))
+  if (!has) {
+    if (!hasTable) {
+      // (a) 没有属性表：条件绑定按"未知 → 可见"，开关形态（字符串 `{"user":"x"}`）回落 authored
+      //     —— 与改前 RE-06:2826/2827 逐字同口径（legacy 调用点的可见集逐位不变）。
+      return { visible: (typeof u === 'string') ? authored : true, reason: 'noTable', name, cond }
+    }
+    // (b) 有表但缺这个键 ⇒ 作者默认值
+    const d = authorDefaultVisible(schema, name, cond, raw)
+    return { visible: d.visible, reason: d.from === 'table' ? 'tableDefault' : 'authoredDefault', name, cond }
+  }
+  const m = condMatchesPropValue(props[name], cond)
+  if (m !== null) return { visible: m, reason: 'bound', name, cond }
+  // (c) bool 值 + 非两态 condition：类型不匹配 ⇒ 警告 + 作者默认值（组级收口保证同组 ≤1）
+  const d = authorDefaultVisible(schema, name, cond, raw)
+  return { visible: d.visible, reason: 'boolMulti', name, cond, warn: { prop: name, cond, from: d.from, value: props[name] } }
+}
+// 兼容入口（旧签名；只取布尔值）。第 4 参可选 —— 不传 = 改前口径（无表 ⇒ 未知 → 可见）。
+export function evalVisibleWithProps(raw, props, gated, opts) {
+  return evalVisibleOutcome(raw, props, gated, opts).visible
+}
+/** 可见性台账（内部账本；发布快照见 `publishVisStats`）。 */
+export function makeVisTally(path) {
+  return { path: path || 'load', unknownNoTable: 0, defaultsUsed: 0, warns: 0, boundMatched: 0, cascaded: 0,
+    boolTieBreak: 0, reasons: {}, notes: [], boolMulti: {}, bound: [], boundIds: new Set(), layerReason: new Map() }
+}
+/** 记一层的结果（只对"带属性名的可见性绑定"记账）。 */
+function tallyVisOutcome(t, l, o) {
+  if (!t || !o || !o.name) return
+  t.bound.push(l); t.boundIds.add(l.id); t.layerReason.set(l.id, o.reason)
+  t.reasons[o.reason] = (t.reasons[o.reason] || 0) + 1
+  if (o.reason === 'noTable') t.unknownNoTable++
+  else if (o.reason === 'tableDefault' || o.reason === 'authoredDefault' || o.reason === 'gatedDefault') t.defaultsUsed++
+  else if (o.reason === 'boolMulti') {
+    t.defaultsUsed++
+    if (!t.boolMulti[o.name]) t.boolMulti[o.name] = { layer: String(l.name || l.id), cond: o.cond, value: (o.warn ? o.warn.value : undefined) }
+  } else if (o.reason === 'bound') t.boundMatched++
+  if (o.reason !== 'bound' && t.notes.length < 16) t.notes.push({ id: l.id, name: String(l.name || l.id), reason: o.reason, prop: o.name, cond: o.cond })
+}
+/** 组级收口 + 警告（**两条路径共用**）：bool 值撞上多 condition 的变体组 ⇒ 该组**最多留一个**可见。
+ *  选取顺序（全部确定性）：① 官方两态能命中就用它（bool true ⇒ condition "0"、bool false ⇒ "1"）；
+ *  ② 命中不了（≥3 变体里没有 0/1 那一档）⇒ 回落作者默认值：authored true 的第一个；
+ *  ③ 连作者都没存 true ⇒ 组内第一个（一个都不留会让整个时钟消失，那比多显示一个更糟）。
+ *  同组其余层一律 visible=false —— 这条是"绝不出现两个变体同屏"的**兜底**，不依赖上层数据。
+ *  警告一行中文（层名 + 属性 + 变体数）。 */
+function settleVisGroups(scene, t, log) {
+  const props = Object.keys(t.boolMulti)
+  if (!props.length) return
+  const layers = (scene && scene.layers) || []
+  const byId = new Map(layers.map((l) => [l.id, l]))
+  // 命中的那层若在**不可见的祖先**下面，就不能被本函数"救回可见"（那会绕过父链级联）⇒ 整组按级联隐藏
+  const parentVisible = (l) => {
+    let q = l.parent, guard = 0
+    while (q !== undefined && q !== null && guard++ < 64) { const p = byId.get(q); if (!p) return true; if (!p.visible) return false; q = p.parent }
+    return true
+  }
+  for (const prop of props) {
+    const info = t.boolMulti[prop]
+    // 变体组 = 绑到同一个属性、且带 condition 的层（无 condition 的纯开关形态不算变体）
+    const group = layers.filter((l) => {
+      const raw = (l.__visibleRaw !== undefined) ? l.__visibleRaw : l.visible
+      return visBindName(raw) === prop && visBindCond(raw) !== ''
+    })
+    if (group.length < 2) continue                       // 只有一个变体层：不存在"同屏两个"的形态
+    const conds = []
+    for (const l of group) { const c = visBindCond((l.__visibleRaw !== undefined) ? l.__visibleRaw : l.visible); if (conds.indexOf(c) < 0) conds.push(c) }
+    const pair = (l) => ((l.__visibleRaw !== undefined) ? l.__visibleRaw : l.visible)
+    const hit = group.find((l) => condMatchesPropValue(info.value, visBindCond(pair(l))) === true)
+      || group.find((l) => !!pair(l).value)
+      || group[0]
+    if (hit && parentVisible(hit)) {
+      for (const l of group) { const want = (l === hit); if (l.visible !== want) { l.visible = want; t.boolTieBreak++ } }
+    } else {
+      for (const l of group) if (l.visible) { l.visible = false; t.boolTieBreak++ }
+    }
+    t.warns++
+    if (log) log('⚠ 可见性：bool 值落在属性「' + prop + '」的 ' + conds.length + ' 个 condition 上（层「' + info.layer + '」condition "'
+      + info.cond + '"）—— bool 只有 0/1 两态，改按作者默认值回落、同组只保留 1 个变体（P-184）')
+  }
+}
+/** 面板路径的父链收口：**只**沿"自带可见性绑定的祖先"传播。
+ *  为什么只认这种祖先：装载路径 RE-06 的级联发生在宿主隐藏（hideUI/N5/粒子）**之前**，面板路径若照抄
+ *  全量级联会把"被宿主隐藏的容器"的子层也一起藏掉（那是另一条链，不归本 helper）。而"祖先可见性由
+ *  绑定决定"这一档正是本 helper 决定的 ⇒ 两条路径必须一致。真语料 `dd/3660962877`：父层 498 的
+ *  `{"user":"time"}` 绑定算出 false，它下面 6 个时钟子层在装载路径被级联隐藏；改前面板路径没有这一步，
+ *  于是"改任何一个属性"都会把子层重新写成可见 ⇒ 冒出第二个时钟。 */
+export function cascadeBoundParents(scene, layerList, t) {
+  const byId = new Map(((scene && scene.layers) || []).map((l) => [l.id, l]))
+  for (const l of layerList) {
+    if (!l || !l.visible) continue
+    let q = l.parent, guard = 0
+    while (q !== undefined && q !== null && guard++ < 64) {
+      const p = byId.get(q)
+      if (!p) break
+      if (p.__bindRaw && p.__bindRaw.visible && p.visible === false) { l.visible = false; if (t) t.cascaded++; break }
+      q = p.parent
+    }
+  }
+}
+/** 发布台账：`scene.__visStats`（+ 浏览器里的 `window.__mpwVisStats`）。五个契约字段是
+ *  `kept / hidden / unknownNoTable / defaultsUsed / warns`（其余为可读补充）。 */
+export function publishVisStats(scene, t) {
+  let kept = 0, hidden = 0
+  for (const l of t.bound) { if (l && l.visible) kept++; else hidden++ }
+  const snap = { kept, hidden, unknownNoTable: t.unknownNoTable, defaultsUsed: t.defaultsUsed, warns: t.warns,
+    bound: t.bound.length, boundMatched: t.boundMatched, cascaded: t.cascaded, boolTieBreak: t.boolTieBreak,
+    path: t.path, reasons: Object.assign({}, t.reasons), notes: t.notes.slice(0, 16) }
+  try { scene.__visStats = snap } catch (e) { /* 冻结场景对象：忽略 */ }
+  if (typeof window !== 'undefined') { try { window.__mpwVisStats = snap } catch (e) { /* 无 window */ } }
+  return snap
 }
 
 // ── 面板模型（纯数据，demo 的 DOM 层与测试共用）────────────────────────────
@@ -2422,14 +2609,11 @@ function strictVec(v, n) {
   return p.slice(0, n)
 }
 // 写一个绑定字段；返回是否真的写入了（诊断计数用）
+// ①(P-184) `visible` **不在这里写**：可见性走 `evalVisibleOutcome` 的完整口径（(a)/(b)/(c) 三态 +
+//   台账），由 `applyUserProperties` 直接落盘 —— 否则又会变成"同一规则两处实现"。
 function writeBindField(l, key, r, projH, props, gated) {
   const v = r.value
   switch (key) {
-    case 'visible': {
-      const b = evalVisibleWithProps(l.__bindRaw && l.__bindRaw.visible, props, gated)
-      if (l.visible !== b) { l.visible = b; return true }
-      return false
-    }
     case 'alpha': {
       const n = numOf(v); if (n === null) return false
       l.alpha = coerceImageAlphaMode(n)
@@ -2490,9 +2674,17 @@ function writeBindField(l, key, r, projH, props, gated) {
 // opts: { schema, gated, log }
 export function applyUserProperties(scene, props, opts = {}) {
   const schema = opts.schema || null
-  const gated = (opts.gated instanceof Set) ? opts.gated : (schema ? gatedOffNames(schema, props) : new Set())
+  /* ①(P-184) 属性表解析与装载路径**同一个**：显式 schema 优先，否则回落 `scene.properties`
+     （场景是带 project.json 解析出来的就有）。`table` 同时用于门控与缺键回落，避免"有没有表"
+     两条路径各说各话。 */
+  const table = visTableOf(scene, schema)
+  const gated = (opts.gated instanceof Set) ? opts.gated : (table ? gatedOffNames(table, props) : new Set())
   const projH = finiteNum(scene && scene.projH) || 1080
   const stats = { layers: 0, bound: 0, applied: 0, gated: 0, missing: 0, fields: {}, unhandled: {} }
+  /* ①(P-184 issue #2) 可见性走**唯一一份** helper（`evalVisibleOutcome`），并把结果记进台账；
+     容器没有属性表时同样如此（"未知 → 可见"是显式分支 + 计数，不再是缺一个 else 的副作用）。 */
+  const vis = makeVisTally('panel')
+  const boundVis = []
   for (const l of ((scene && scene.layers) || [])) {
     // ①(P-74) instanceoverride 的 `{user:...}` 绑定：与可见性/文本同一条通道（面板改动即刻生效）
     if (l.__ioRaw) { try { l.instanceoverride = resolveParticleOverride(l.__ioRaw, props, gated) } catch (e) { /* 保持旧值 */ } }
@@ -2503,8 +2695,24 @@ export function applyUserProperties(scene, props, opts = {}) {
     for (const key of Object.keys(binds)) {
       const bind = binds[key]
       const name = typeof bind.user === 'string' ? bind.user : (bind.user && bind.user.name)
-      if (name && gated.has(name)) { stats.gated++; stats.fields[key + ':gated'] = (stats.fields[key + ':gated'] || 0) + 1; continue }
-      if (!name || !props || !Object.prototype.hasOwnProperty.call(props, name)) { stats.missing++; continue }
+      if (name && gated.has(name)) {
+        stats.gated++; stats.fields[key + ':gated'] = (stats.fields[key + ':gated'] || 0) + 1
+        // ①(P-184) 门控关闭 ⇒ 可见性回落 authored（改前这里是 `continue`，等于"面板路径不写"⇒ 与装载
+        //   路径的 RE-06 分叉：装载回落 authored、面板保留上一次装载写下的值）
+        if (key !== 'visible') continue
+      } else if (!name || !props || !Object.prototype.hasOwnProperty.call(props, name)) {
+        stats.missing++
+        // ①(P-184) 键缺失 ⇒ 可见性也**必须写**（回落作者默认值 / 无表按"未知 → 可见"），
+        //   改前这里 `continue` 保留旧值 ⇒ 装载路径写下的 `[11,12,13]` 永远回不到 `[11]`
+        if (key !== 'visible') continue
+      }
+      if (key === 'visible') {
+        const o = evalVisibleOutcome(bind, props, gated, { schema: table, scene })
+        boundVis.push(l)
+        tallyVisOutcome(vis, l, o)
+        if (l.visible !== o.visible) { l.visible = o.visible; wrote++; stats.applied++; stats.fields.visible = (stats.fields.visible || 0) + 1 }
+        continue
+      }
       const r = resolveUserBinding(bind, props)
       if (!r) continue
       let ok = false
@@ -2512,6 +2720,18 @@ export function applyUserProperties(scene, props, opts = {}) {
       if (ok) { wrote++; stats.applied++; stats.fields[key] = (stats.fields[key] || 0) + 1 }
     }
     if (wrote) stats.layers++
+  }
+  /* ①(P-184) 父链收口（只沿"自带可见性绑定的祖先"）+ 组级收口（bool 多 condition ⇒ 同组 ≤1 个）
+     + 台账发布。装载路径在 RE-06 里调同一份 `settleVisGroups` / `publishVisStats`。 */
+  cascadeBoundParents(scene, boundVis, vis)
+  // `visWarn:false` = 调用方（RE-06 的 2.4 步）后面**还会**跑一次完整可见性求值 ⇒ 警告只由那一次发，
+  // 否则同一次装载会因为"面板那半 + RE-06 那半"各发一行（重复告警会淹没真日志）。
+  settleVisGroups(scene, vis, opts.visWarn === false ? null : opts.log)
+  stats.vis = publishVisStats(scene, vis)
+  if (opts.log && (stats.vis.unknownNoTable || stats.vis.defaultsUsed)) {
+    opts.log('P-184 可见性台账（面板）：同屏保留 ' + stats.vis.kept + ' / 隐藏 ' + stats.vis.hidden
+      + '（无属性表按"未知 → 可见" ' + stats.vis.unknownNoTable + ' 层，按作者默认值回落 ' + stats.vis.defaultsUsed + ' 层'
+      + (stats.vis.cascaded ? '，父链收口 ' + stats.vis.cascaded + ' 层' : '') + '）')
   }
   // ①(P-76) **相机层 `zoom` 的 `{user:…}` 绑定**：官方说"Camera zoom/fov 不是普通可绘层属性，
   //   只对相机层扫描、走 camera target kind 路由"（wer-ref `WPSceneParser.cpp:7345-7355` 给 `zoom`
@@ -2792,7 +3012,7 @@ export function applyRenderConfig(scene, opts = {}) {
   const __gated = (opts.properties && __schema) ? gatedOffNames(__schema, opts.properties) : null
   if (__schema && opts.properties && scene && Array.isArray(scene.layers)) {
     try {
-      applyUserProperties(scene, opts.properties, { schema: __schema, gated: __gated || undefined, log: opts.log })
+      applyUserProperties(scene, opts.properties, { schema: __schema, gated: __gated || undefined, log: opts.log, visWarn: false })
     } catch (e) { if (opts.log) opts.log('⚠ P-61 用户属性绑定失败: ' + (e && e.message)) }
   }
   // 2.5) ①(RE-06 官方语义 2026-09-12) 层可见性：**可见性 = 条件匹配结果本身**，authored `value` 仅兜底。
@@ -2803,28 +3023,24 @@ export function applyRenderConfig(scene, opts = {}) {
   //   随后做**父链级联**：任一祖先不可见 → 本层不可见。
   //   ①(P-61) 求值收敛到 evalVisibleWithProps()（口径逐字不变；新增"属性被 condition 门控关闭 →
   //   绑定不生效"一条，见 PATCHES P-61）。
+  //   ①(P-184 issue #2) **求值收敛到 `evalVisibleOutcome`（与面板路径同一份 helper）**，三态显式区分：
+  //     没有属性表 ⇒ "未知 → 可见"（legacy 灾难规避，记台账 `unknownNoTable`）；
+  //     有表但缺这个键 ⇒ 回落作者默认值（属性组默认值 / 本层 authored，记 `defaultsUsed`）。
+  //   ⚠ 改前这里是**同一规则的第二份复制**（`if (user && user.name) return true`），与
+  //   `evalVisibleWithProps` 的 `if (!has) return true` 会各自漂移 ⇒ 两条路径读数不一致（装载
+  //   `[11,12,13]` vs 面板 `[11]`）。现在两处都只调 helper，没有第二份口径。
   try {
     const props = opts.properties || null
+    // 属性表的取值口径：显式 schema 优先；调用方没给但场景是带 project.json 解析出来的 ⇒ 用
+    // `scene.properties`（parseScene 存在场景上）。两者都没有 = 没有属性表（状态 (a)）。
+    const __table = visTableOf(scene, __schema)
+    const __vis = makeVisTally('load')
     const byId = new Map(scene.layers.map((l) => [l.id, l]))
     const evalOne = (l) => {
       const v = (l.__visibleRaw !== undefined) ? l.__visibleRaw : l.visible
-      if (v === undefined || v === null) return true
-      if (typeof v !== 'object') return !!v
-      const user = v.user
-      if (props && user && user.name && Object.prototype.hasOwnProperty.call(props, user.name)) {
-        return evalVisibleWithProps(v, props, __gated)
-      }
-      // ①(P-61) **字符串形态**绑定 `{"user":"clock", value:true}`（hina 时钟层 id398 就是这个）：
-      //   旧实现只认 user.name（对象形态），字符串形态一律落回 authored value → 面板开关不动层。
-      //   只有拿到官方属性表（propertiesSchema）时才启用，旧调用点逐位不变。
-      if (__schema && props && typeof user === 'string' && user && Object.prototype.hasOwnProperty.call(props, user)) {
-        return evalVisibleWithProps(v, props, __gated)
-      }
-      // ①(修正) 没有属性表时**不能**按 value 兜底：官方 value 只是"属性缺失时"的兜底，
-      //   而我们拿不到 project.json 时属于"未知"——按 value:false 会直接隐藏主体（伊蕾娜实测）。
-      //   未知 → 带 user 条件的层按可见（legacy 行为，多显示一层无害，隐藏主体是灾难）。
-      if (user && user.name) return true
-      return v.value === undefined ? true : !!v.value
+      const o = evalVisibleOutcome(v, props, __gated, { schema: __table, scene })
+      if (visBindName(v)) tallyVisOutcome(__vis, l, o)
+      return o.visible
     }
     const cache = new Map()
     const visibleOf = (l) => {
@@ -2840,7 +3056,14 @@ export function applyRenderConfig(scene, opts = {}) {
     }
     let n = 0
     for (const l of scene.layers) { const vis = visibleOf(l); if (l.visible !== vis) { l.visible = vis; n++ } }
+    // 组级收口（bool + 多 condition 同组 ≤1 个）+ 台账发布（与面板路径同一份实现）
+    settleVisGroups(scene, __vis, opts.log)
+    scene.__visStats = publishVisStats(scene, __vis)
     if (n && opts.log) opts.log('RE-06 可见性：按条件匹配/父链级联调整了 ' + n + ' 层')
+    if (opts.log && (__vis.unknownNoTable || __vis.defaultsUsed)) {
+      opts.log('P-184 可见性台账（装载）：保留 ' + scene.__visStats.kept + ' / 隐藏 ' + scene.__visStats.hidden
+        + '（无属性表按"未知 → 可见" ' + __vis.unknownNoTable + ' 层，按作者默认值回落 ' + __vis.defaultsUsed + ' 层）')
+    }
   } catch (e) { console.error('[RE06-DEBUG]', e && e.message) }
   // 3) 粒子默认关
   if (hideParticles) for (const l of scene.layers) if (l.particle) l.visible = false
@@ -3526,6 +3749,15 @@ const AUDIO_SILENT_VIEW = (() => {
 /** 是否已经有层因为"有音频响应但无采集源"被豁免过（只记一次日志用） */
 let AUDIO_NO_SOURCE_LOGGED = false
 let AUDIO_NO_SOURCE_HITS = 0
+/* ①(2026-09-24 任务 ⑫) **静音地板**（默认值，可用 `opts.audioFloor` 覆盖，0 = 关）。
+ *   为什么是 0.012：上游 oneincase/webwallgl（MIT）模拟音频源的静音段底噪就是 `floorV = 0.012`
+ *   （`references/vendor-ref/webwallgl/renderer/vendor/we-scene/render/audio.js`：注释写"静音段不完全为
+ *   零（底噪 -60dB 级），更接近真实频谱仪的观感"）。用途见 `bindAudioSpectrum` 上方的整段说明：
+ *   全 0 频谱会让作者 shader 的音条高度退化为 0、`smoothstep(0,0,·)` 除零 ⇒ 有的驱动把整层铺成
+ *   不透明白块（用户报的"音频条是白色实心块"），有的驱动什么都不画。 */
+export const AUDIO_SILENCE_FLOOR = 0.012
+/** 静音地板的写入台账（诊断面：`audioBandsInfo().floor`；`writes` = 有地板写入的 pass 次数） */
+const AUDIO_FLOOR_STAT = { writes: 0, floorBands: 0, lastAt: null, floor: AUDIO_SILENCE_FLOOR }
 
 /** 注入音频频段活视图（幂等：宿主每帧只写数组内容，不必重复调用）。返回被接受的视图或 null。 */
 export function setAudioBands(view) {
@@ -3539,6 +3771,9 @@ export function audioBandsInfo() {
     mode: AUDIO_EMIT_MODE, hasView: !!v, resolution: v ? v.left.length : 0,
     kind: v ? v.kind : null, hasSource: v ? !!v.hasSource : false, revision: v ? (v.revision | 0) : 0,
     noSourceHits: AUDIO_NO_SOURCE_HITS,
+    // ①(2026-09-24 任务 ⑫) 静音地板台账：floor=地板值（0=关）/ writes=发生过地板写入的 pass 次数 /
+    //   floorBands=最近一次写了几个分辨率档（16/32/64 命中几个）
+    floor: Object.assign({}, AUDIO_FLOOR_STAT),
   }
 }
 /**
@@ -8042,7 +8277,15 @@ export function createRenderer(canvas, opts = {}) {
   // ⇒ 默认路径的 context 创建逐位不变（`?aa=off` 与不加开关同一份实参）。
   const AA_WANT_NATIVE = AA_MSAA_SAMPLES[TIERS.aa] > 0
   const gl = canvas.getContext('webgl2', { premultipliedAlpha: false, antialias: AA_WANT_NATIVE, alpha: false, preserveDrawingBuffer: true })
-  if (!gl) throw new Error('当前浏览器不支持 WebGL2')
+  /* ①(2026-09-24 任务 ⑭ 第 2 半) 这里拿到 null 时**不许**宣称"当前浏览器不支持 WebGL2"
+   *   （旧文案，见 docs/CANVAS-CONTEXT-AUDIT-20260925.md §①/§315 对它的点名："归因错误"）：
+   *   `getContext` 返回 null 有三种完全不同的原因 —— ① 浏览器真不支持 WebGL2；② 该 canvas 已被**别的
+   *   context 类型**占用（同一个 canvas 只有第一次 `getContext` 生效，实测"先 2d 再 webgl2"永久 null）；
+   *   ③ 瞬时/资源性失败（上下文数上限、GPU 进程复位、上一个文档的上下文尚未释放）。渲染器**看不到**
+   *   宿主那一侧的证据（探针/退避重试/creationerror 的 statusMessage 都在宿主），所以这里只如实报
+   *   "本画布拿不到上下文"并给出调用方契约，能力判断交给宿主（demo.html 的 mpwAcquireWebGL2 台账）。 */
+  if (!gl) throw new Error('本画布拿不到 WebGL2 上下文（canvas.getContext 返回 null）—— 宿主应先按 glCanvasAttrs() 取到上下文并传 opts.gl；'
+    + '真因（不支持 / 已被别的 context 类型占用 / 瞬时资源失败）见宿主侧探针与重试台账，渲染器不在此臆断')
   // 实测采样数（`antialias:true` 只是**请求**；驱动可静默给 0）。
   let aaCtxSamples = 0
   try { aaCtxSamples = Math.max(0, Number(gl.getParameter(gl.SAMPLES)) || 0) } catch (e) { aaCtxSamples = 0 }
@@ -8225,11 +8468,86 @@ export function createRenderer(canvas, opts = {}) {
       ent.direct = e.direct; ent.upFps = e.upFps; ent.viaCanvas = e.viaCanvas
     } catch (err) {}
   }
+  /* ①(2026-09-24 任务 ⑬「videoStats 太吵」) **按"有意义才打"降噪**（改动前的语义 = 每 5s 无条件一条，
+   *   见 `git show 151ce0a:core/we-scene-bundle.js` 的 `maybeLogVideoStats`：真机 11:56:30 / 11:56:35
+   *   两条连续读数即此 5s 心跳，字段全同也照打 ⇒ 上报的 log 环被它挤掉真正有用的行）。
+   *   触发条件（**只多不少**：异常一条都不许被吞）：
+   *     · `first`     首次上传那条（改动前也一定有；`tests/video-quality-test.mjs` C4 依赖它进日志）；
+   *     · `anomaly`   `upErr/err` 增长、档位/上传尺寸/直传↔中转变化、上传 fps 掉档、带宽突变、
+   *                   `perfLevel` 变化 —— 用**上一份快照**逐字段对拍得出（见 `vstatAnomalyReasons`）；
+   *     · `heartbeat` 正常情况下每 `vstatLogEveryMs`（缺省 **60s**，`opts.vstatLogMs` 可覆盖；0 = 只打首条+异常）。
+   *   异常行另有 1s 最小间隔：异常洪峰（每帧都错）时不被刷屏，但**被限流的条数 + 原因不丢**——累计进
+   *   `pending`，在下一条真正打出的行里以 `suppressed=…` 一并报出；计数同时进 `renderer.videoStatsLog`
+   *   台账（lines/first/heartbeat/anomaly/suppressed 各计数/lastWhy）。 */
   let __vstatLogAt = 0
+  const VSTAT_LOG_EVERY_MS = (() => {
+    const n = Number(opts.vstatLogMs)
+    return Number.isFinite(n) && n >= 0 ? n : 60000
+  })()
+  const VSTAT_ANOMALY_FLOOR_MS = 1000
+  const vstatLogLedger = {
+    lines: 0, first: 0, heartbeat: 0, anomaly: 0,
+    suppressedAnomaly: 0, suppressedHeartbeat: 0,
+    lastWhy: null, lastAt: null, everyMs: VSTAT_LOG_EVERY_MS,
+  }
+  let __vstatPending = []
+  let __vstatPrev = null
+  const vstatSnapshot = () => ({
+    upErr: videoStat.upErr, err: videoStat.err, tier: videoStat.tier, up: videoStat.up,
+    direct: videoStat.direct, upFps: videoStat.upFps, MBps: videoStat.MBps,
+    perfLevel: videoStat.perfLevel, uploads: videoStat.uploads,
+  })
+  /** 两份快照之间的**有意义变化**（返回人类可读原因数组；空 = 健康稳态）。纯函数式，便于单测。 */
+  const vstatAnomalyReasons = (p, c) => {
+    const a = []
+    if (!p) return a
+    if (c.upErr > p.upErr) a.push('upErr+' + (c.upErr - p.upErr))
+    if (c.err > p.err) a.push('err+' + (c.err - p.err))
+    if (c.tier !== p.tier) a.push('tier=' + p.tier + '→' + c.tier)
+    if (c.up !== p.up) a.push('up=' + p.up + '→' + c.up)
+    if (c.direct !== p.direct) a.push(c.direct ? 'direct' : 'viaCanvas')
+    if (p.upFps > 0 && c.upFps === 0) a.push('upFps→0')
+    else if (p.upFps >= 10 && c.upFps < p.upFps * 0.5) a.push('upFps↓' + p.upFps + '→' + c.upFps)
+    // 带宽/上传量突变：相对 2 倍 **且** 绝对 ≥2 MBps（避免抖动误报；任一侧为 0 = 还没测到，
+    // 不算突变 —— 首个上传 tick 的 upFps=0 ⇒ MBps=0，若比就会把"开始上传"误报成带宽暴涨）
+    if (p.MBps > 0 && c.MBps > 0) {
+      if (c.MBps > p.MBps * 2 && c.MBps - p.MBps >= 2) a.push('MBps↑' + p.MBps + '→' + c.MBps)
+      else if (p.MBps > c.MBps * 2 && p.MBps - c.MBps >= 2) a.push('MBps↓' + p.MBps + '→' + c.MBps)
+    }
+    if (c.perfLevel !== p.perfLevel) a.push('perfLevel=' + p.perfLevel + '→' + c.perfLevel)
+    return a
+  }
   const maybeLogVideoStats = (now) => {
-    if (now - __vstatLogAt < 5000) return
+    const cur = vstatSnapshot()
+    const first = vstatLogLedger.first === 0
+    const anoms = first ? [] : vstatAnomalyReasons(__vstatPrev, cur)
+    const dueHeartbeat = VSTAT_LOG_EVERY_MS > 0 && (now - __vstatLogAt) >= VSTAT_LOG_EVERY_MS
+    let why = first ? 'first' : (anoms.length ? 'anomaly:' + anoms.join(',') : (dueHeartbeat ? 'heartbeat' : null))
+    __vstatPrev = cur
+    if (!why) { vstatLogLedger.suppressedHeartbeat++; return false }
+    // 异常洪峰限流：**连续**异常行之间至少隔 1s（第一条异常永远可见），不刷屏但**不丢**
+    //（被限流的原因进 pending，下一条真行里报 suppressed）。心跳行不受该地板影响。
+    if (anoms.length && vstatLogLedger.lastWhy && vstatLogLedger.lastWhy.indexOf('anomaly') === 0
+      && (now - __vstatLogAt) < VSTAT_ANOMALY_FLOOR_MS) {
+      vstatLogLedger.suppressedAnomaly++
+      __vstatPending.push(...anoms)
+      return false
+    }
+    if (why === 'heartbeat' && (now - __vstatLogAt) < VSTAT_ANOMALY_FLOOR_MS) { vstatLogLedger.suppressedHeartbeat++; return false }
+    const pending = __vstatPending
+    __vstatPending = []
+    const tail = '（why=' + why + (vstatLogLedger.lines ? '' : ' · 首条') + '；累计 lines=' + (vstatLogLedger.lines + 1)
+      + (pending.length ? '；限流期异常 ' + vstatLogLedger.suppressedAnomaly + ' 次：' + pending.slice(0, 6).join(',') : '')
+      + '；心跳间隔 ' + VSTAT_LOG_EVERY_MS + 'ms）'
     __vstatLogAt = now
-    try { onLog('[we-scene][P-68] videoStats ' + JSON.stringify(videoStat)) } catch (e) {}
+    vstatLogLedger.lines++
+    if (first) vstatLogLedger.first++
+    else if (anoms.length) vstatLogLedger.anomaly++
+    else vstatLogLedger.heartbeat++
+    vstatLogLedger.lastWhy = why
+    vstatLogLedger.lastAt = +Number(now).toFixed(1)
+    try { onLog('[we-scene][P-68] videoStats ' + JSON.stringify(videoStat) + tail) } catch (e) {}
+    return true
   }
   if (RES_TIER.requested !== null || RES_TIER.invalid) {
     // 注意：`onLog` 在本函数稍后才声明（TDZ）→ 启动期这条日志直接用 opts.onLog
@@ -9203,6 +9521,31 @@ export function createRenderer(canvas, opts = {}) {
   //   只把"本层绘制后新出现"的错误归因），命中即本会话禁用自动 HDR 并**当场按 LDR 重渲本帧**
   //   （首帧/缩略图即正确）。?hdr=1 显式强制时不熔断（用户在诊断）；状态经 renderer.hdrFallback 进上报。
   let hdrForceLdrSession = null
+  /* ①(2026-09-24 任务 ⑮) **HDR 黑屏探针**台账：`hdrBlackSeen` = 见过"HDR 帧采样全黑"这件事（含被强制档
+     忽略的那次）；`hdrBlackProbe` = 每次采样的读数（点数/是否全黑/已采次数）。诊断面 `renderer.hdrBlack`。 */
+  let hdrBlackSeen = null
+  let hdrBlackProbe = { probes: 0, last: null, retried: 0 }
+  /** 默认帧缓冲（或 q 档的内部目标）3×3 采样：回答"HDR 呈现之后画布上到底有没有东西"。
+   *  只读、不改任何 GL 状态（不重绑 FBO：呈现函数离开时绑的就是本帧目标）；失败返回 null（不臆断）。 */
+  function hdrSampleCanvas() {
+    try {
+      if (typeof gl.readPixels !== 'function') return null
+      const w = gl.drawingBufferWidth || 0, h = gl.drawingBufferHeight || 0
+      if (!(w > 2 && h > 2)) return null
+      const buf = new Uint8Array(4)
+      let n = 0, allBlack = true
+      for (const [fx, fy] of [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75], [0.1, 0.5], [0.9, 0.5], [0.5, 0.1], [0.5, 0.9]]) {
+        const x = Math.max(0, Math.min(w - 1, Math.round(fx * w))), y = Math.max(0, Math.min(h - 1, Math.round(fy * h)))
+        buf[0] = buf[1] = buf[2] = buf[3] = 0
+        gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+        n++
+        if (buf[0] !== 0 || buf[1] !== 0 || buf[2] !== 0) allBlack = false
+      }
+      hdrBlackProbe.probes++
+      hdrBlackProbe.last = { allBlack, n, at: Date.now() }
+      return { allBlack, n }
+    } catch (e) { return null }
+  }
   let hdrBlackTex = null
   function ensureHdrBlackTex() {
     if (hdrBlackTex) return hdrBlackTex
@@ -9763,6 +10106,8 @@ export function createRenderer(canvas, opts = {}) {
   const transparentTex = makeTexture(gl, new Uint8Array([0, 0, 0, 0]), 1, 1)
   // 失败层/失败 pass 去重日志（每帧都可能重试，只报一次避免刷屏）
   const layerErrorLogged = new Set()
+  // ①(2026-09-24 任务 ⑫) "纯白兜底内容整块合成"告警的**每层一次**去重（见 compositeLayer 末尾）
+  const __whiteBlockLogged = new Set()
   const passErrorLogged = new Set()
 
   // ---- 视差（cameraparallax + 对象 parallaxDepth）----
@@ -10076,22 +10421,58 @@ export function createRenderer(canvas, opts = {}) {
     [64, 'g_AudioSpectrum64Left', 'g_AudioSpectrum64Right'],
   ]
   const AUDIO_SPECTRUM_BUF = new Map()
-  /** 按活视图写入存在的音频频谱 uniform；返回写入的 uniform 个数（0 = 无数据源 ⇒ 一个都没写）。 */
+  /* ①(2026-09-24 任务 ⑫「音条无数据时是白色实心块」) **静音地板**：绝不把"全 0 频谱"喂给作者 shader。
+   *   现场：`enhanced_simple_audio_bars`（`effects/workshop/3082978660/…/Simple_Audio_Bars.frag`，
+   *   本仓语料 `dd/3327063360` 的 `纯色` 层 1000×1000 / `Audio Bars` 层 512×512 都用它）在
+   *   `barVolume = 0` 时算 `barHeight = mix(max(u_BarBoundsX, minBarHeight), u_BarBoundsY, 0)` = `u_BarBounds.x`
+   *   （作者值 0 / 0.22 两种语料里都是 0）⇒ 圆角条 SDF 的 Size.y = 0（零尺寸盒）+ `rAASmoothnessY`
+   *   = `u_rAASmoothness.y(0.00)` ⇒ `smoothstep(edge0, 0, d)` 的**两条边相等**（除零）。
+   *   除零结果按驱动而异：`clamp(NaN)` 一边给出 1 ⇒ `bar = 1 - 1 = 0`（本机 llvmpipe 实测：整层
+   *   **什么都不画**，见报告 §⑫ 的像素读数），另一边给出 0 ⇒ `bar = 1` ⇒ **整层被 `Bar Color`(1 1 1)
+   *   以 alpha=1 铺满 = 用户报的白色矩形（把后面的层完全遮挡）。所以"无数据"既不该是白块、也不该
+   *   让作者 shader 进入退化输入。
+   *   做法：`hasSource=false`（没有活视图 / 显式 `?bandfeed=real|mic` 无源 / `?bandfeed=off`）时写入
+   *   **0.012 的静音地板**；真实源**恰好全 0**（音乐暂停/静音、analyser 全 0）时同样兜底；
+   *   真实源只要有任何非零分量就**原样**上传（低音量是作者的合法输入，不夹取）。
+   *   0.012 的来历：上游 oneincase/webwallgl（MIT）模拟音频源的静音段底噪就是 `floorV = 0.012`
+   *   （`references/vendor-ref/webwallgl/renderer/vendor/we-scene/render/audio.js` 的注释
+   *   "静音段不完全为零（底噪 -60dB 级），更接近真实频谱仪的观感"）⇒ 视觉上是"整条落下"而不是"消失/白块"。
+   *   回退：`opts.audioFloor = 0` ⇒ 逐位回到"没有活视图就一个 uniform 都不写"的旧行为（可 A/B）。 */
+  const AUDIO_FLOOR = (() => {
+    const n = Number(opts.audioFloor)
+    if (opts.audioFloor !== undefined && Number.isFinite(n) && n >= 0) return n
+    return AUDIO_SILENCE_FLOOR
+  })()
+  AUDIO_FLOOR_STAT.floor = AUDIO_FLOOR   // 台账里的地板值可被 opts 覆盖（0 = 关）
+  /** 整条（左右各 n 段）是否全 0 —— 只有全 0 才是"退化输入"，非零（哪怕很小）一律原样上传。 */
+  function bandsAllZero(a, b) {
+    for (let i = 0; i < a.length; i++) if (a[i] !== 0) return false
+    for (let i = 0; i < b.length; i++) if (b[i] !== 0) return false
+    return true
+  }
+  /** 按活视图写入存在的音频频谱 uniform；返回写入的 uniform 个数（0 = 没有 uniform 可写/地板关闭）。 */
   function bindAudioSpectrum(uni) {
     const v = AUDIO_BANDS_VIEW
-    if (!v || !v.hasSource || !v.left || !v.left.length) return 0
-    const right = v.right && v.right.length ? v.right : v.left
-    let wrote = 0
+    const hasSource = !!(v && v.hasSource && v.left && v.left.length)
+    if (!hasSource && !(AUDIO_FLOOR > 0)) return 0   // 旧行为（opts.audioFloor=0）：无源 ⇒ 一个都不写
+    const right = (hasSource && v.right && v.right.length) ? v.right : (hasSource ? v.left : null)
+    let wrote = 0, floored = 0
     for (const [n, lName, rName] of AUDIO_SPECTRUM_UNIFORMS) {
       let buf = AUDIO_SPECTRUM_BUF.get(n)
       if (!buf) { buf = { left: new Float32Array(n), right: new Float32Array(n) }; AUDIO_SPECTRUM_BUF.set(n, buf) }
-      resampleBands(v.left, n, buf.left)
-      resampleBands(right, n, buf.right)
+      if (hasSource) {
+        resampleBands(v.left, n, buf.left)
+        resampleBands(right, n, buf.right)
+        if (AUDIO_FLOOR > 0 && bandsAllZero(buf.left, buf.right)) { buf.left.fill(AUDIO_FLOOR); buf.right.fill(AUDIO_FLOOR); floored++ }
+      } else {
+        buf.left.fill(AUDIO_FLOOR); buf.right.fill(AUDIO_FLOOR); floored++
+      }
       for (const [name, arr] of [[lName, buf.left], [rName, buf.right]]) {
         const u = uni.get(name)
         if (u && u.loc !== null) { gl.uniform1fv(u.loc, arr); wrote++ }
       }
     }
+    if (floored) { AUDIO_FLOOR_STAT.writes++; AUDIO_FLOOR_STAT.floorBands = floored; AUDIO_FLOOR_STAT.lastAt = Date.now() }
     return wrote
   }
 
@@ -10479,6 +10860,22 @@ export function createRenderer(canvas, opts = {}) {
           isWhite: inputTex === whiteTex, isTransparent: inputTex === transparentTex })
       }
     } catch (e) { /* 台账失败不影响渲染 */ }
+    /* ①(2026-09-24 任务 ⑫「白色矩形把后面完全遮挡」) **纯白兜底内容整块合成**的一次性告警。
+     *   本层有特效链，但合成本层时用的输入仍是 1×1 白兜底（`inputTex === whiteTex`）⇒ 链没有产出内容，
+     *   画面上就是**一块不透明的白矩形**（`?whitefallback=1` 的官方兜底视觉），会把后面的层全挡掉。
+     *   语料实例：`dd/3327063360` 的 `纯色`（1000×1000 @ 设计坐标 1499.8,1061 = 画面中央偏左）与
+     *   `Audio Bars` 都是 **solid 层 + 音频条特效链**（`tex=-`）—— 它们的可见内容**全部**来自特效链，
+     *   所以"链没跑/没产出"与"白色实心块"是同一件事。此前这种情形**没有任何日志**（用户只能看到白块、
+     *   无从判断是哪一层/为什么）。这里每个层名只报一次（不刷屏），并把层名/尺寸/特效 pass 数写进去。 */
+    try {
+      if (inputTex === whiteTex && layer && layer.effects && layer.effects.length && !__whiteBlockLogged.has(String(layer.name || layer.id))) {
+        __whiteBlockLogged.add(String(layer.name || layer.id))
+        onLog('⚠ 层 "' + (layer.name || layer.id) + '" 的效果链**没有产出内容** ⇒ 以 1×1 白兜底内容整块合成'
+          + '（' + Math.round(w) + '×' + Math.round(h) + ' @ ' + Math.round(layer.origin ? layer.origin[0] : 0) + ',' + Math.round(layer.origin ? layer.origin[1] : 0)
+          + '，特效 pass=' + layer.effects.length + '）—— 纯色层（tex=-）会表现为**遮挡后面所有层的白色实心块**；'
+          + '排查方向：该层 shader 是否编译失败 / 效果链是否被丢弃（fxStats 有逐层台账）')
+      }
+    } catch (e) { /* 告警失败不影响渲染 */ }
   }
 
   // ①(P-109) 子网格隔离探针的实现（只在 `?submesh=` 非空时被调用；语义见 SUB_WANT 注释）。
@@ -11637,6 +12034,32 @@ export function createRenderer(canvas, opts = {}) {
       return renderScene(scene, textures, __qOutW, __qOutH, time, true)
     }
     if (hdrSceneState && hdrSceneState.active) presentHdrScene(hdrSceneState)
+    /* ①(2026-09-24 任务 ⑮「HDR 路径黑屏」) **不静默黑屏**：HDR 帧呈现之后采样画布（3×3，仅一次/帧、只读）。
+       真机现场：`[hdr] 场景渲进 RGBA16F FBO 1540x866` 之后整幅是黑的（层都"画过"、GL 一个错都没报）。
+       可能的原因在渲染器这一侧无法区分：① 扩展在但浮点 RT **实际存不住内容**（Adreno 上见过的形态）；
+       ② 呈现 pass 在该驱动上没落到画布；③ 场景/效果链真的输出黑。**判据不猜**：把同一帧按 LDR 重渲一次
+       做对照 —— LDR 非黑 ⇒ 确认是 HDR 管线的问题 ⇒ 本会话退回 LDR（`renderer.hdrFallback` 留台账）；
+       LDR 也黑 ⇒ 场景本身就是黑的 ⇒ **恢复 HDR**（不误伤）。`?hdr=1` 显式强制时只如实记账/告警，
+       不改变档位（诊断口径与既有"逐层错误熔断"一致）。 */
+    if (__hdrActive && !__hdrRetry) {
+      const __probe = hdrSampleCanvas()
+      if (__probe && __probe.allBlack) {
+        if (!hdrBlackSeen) {
+          hdrBlackSeen = { at: new Date().toISOString(), samples: __probe.n, retried: false }
+          try { onLog('[hdr] ⚠ HDR 帧呈现后画布 3×3 采样**全黑**（' + width + 'x' + height + '，' + __probe.n + ' 点）') } catch (e) {}
+        }
+        const __forced = (opts.hdr === 1 || opts.hdr === true || opts.hdr === '1')
+        if (!hdrForceLdrSession && !__forced) {
+          hdrForceLdrSession = { at: new Date().toISOString(), path: 'black-first-frame', code: 'black', layer: null, reason: 'HDR 帧呈现后画布采样全黑（' + __probe.n + ' 点）' }
+          hdrSceneState = { active: false, fbo: null, width, height }
+          hdrBlackProbe.retried++
+          hdrBlackSeen.retried = true
+          try { onLog('[hdr] HDR 首帧全黑 → 本会话退回 LDR 并**当场按 LDR 重渲本帧**做对照；若 LDR 也全黑则判定场景本身是黑的并恢复 HDR（?hdr=1 可强制 HDR）') } catch (e) {}
+          return renderScene(scene, textures, __qOutW, __qOutH, time, true)
+        }
+        if (__forced) { try { onLog('[hdr] ⚠ ?hdr=1 强制 HDR：画布全黑也**不**自动退回（诊断档）；去掉 ?hdr=1 即按能力降级') } catch (e) {} }
+      }
+    }
     // ①(P-90) `?q=` 帧末上采样：内部离屏 FBO → 默认帧缓冲（把 width/height 的遮蔽还回去）。
     //   **必须在 runBloom 之前**（bloom 从默认帧缓冲 copyTexSubImage2D 取场景色），
     //   也必须在 FXAA 之前（FXAA 采样的就是上采样后的画布）。
@@ -11649,6 +12072,18 @@ export function createRenderer(canvas, opts = {}) {
           onLog('[P-90] q=' + quality.q + ' 内部渲染 ' + qfbo.w + 'x' + qfbo.h + ' → 画布 ' + qfbo.outW + 'x' + qfbo.outH
             + '（双线性上采样，1 次全屏 draw；?q=off 时不建 FBO、不加上采样）')
         } catch (e) {}
+      }
+    }
+    /* ①(2026-09-24 任务 ⑮) LDR 对照帧的收尾判定：HDR 全黑触发的重渲走这里。
+       LDR 非黑 ⇒ 确认 HDR 管线在该设备上不可用（保持本会话 LDR，台账 `renderer.hdrFallback`）；
+       LDR 也全黑 ⇒ **场景本身就是黑的**，恢复 HDR（不误伤 —— 否则"夜里本来就是黑的"壁纸会被永久降级）。 */
+    if (__hdrRetry && hdrForceLdrSession && hdrForceLdrSession.path === 'black-first-frame') {
+      const __p2 = hdrSampleCanvas()
+      if (__p2 && __p2.allBlack) {
+        hdrForceLdrSession = null
+        try { onLog('[hdr] LDR 对照帧同样全黑 ⇒ **场景本身就是黑的**（不是 HDR 管线的问题），HDR 已恢复') } catch (e) {}
+      } else if (__p2) {
+        try { onLog('[hdr] LDR 对照帧非黑 ⇒ 确认 HDR 管线在本设备不可用，本会话保持 LDR（renderer.hdrFallback 有台账；?hdr=1 可强制重试）') } catch (e) {}
       }
     }
     frameTarget = null
@@ -11919,6 +12354,10 @@ export function createRenderer(canvas, opts = {}) {
                 texObj.uploadErr = true
                 try { onLog('[we-scene] 视频帧上传 GL 错误 0x' + __upErr.toString(16) + '（' + (texObj.width || 0) + 'x' + (texObj.height || 0) + '，画面停留在上一帧；本次不计入上传台账）') } catch {}
               }
+              // ①(2026-09-24 任务 ⑬) **失败路径也要走日志判定**：改动前 `maybeLogVideoStats` 只在
+              //   成功分支里调 ⇒ 持续失败时 `videoStats` 一行都不打（异常反而被"降噪"掉了）。
+              //   这里与成功分支共用同一套"首条/异常/心跳 + 1s 地板"逻辑（异常不吞、不刷屏）。
+              maybeLogVideoStats(now)
             } else {
               texObj.lastUploaded = v.currentTime
               texObj.lastUploadAt = now
@@ -11960,6 +12399,8 @@ export function createRenderer(canvas, opts = {}) {
               texObj.uploadErr = true
               try { onLog('[we-scene] 视频帧上传失败: ' + (e && e.message)) } catch {}
             }
+            // ①(2026-09-24 任务 ⑬) 同"上传 GL 错误"分支：异常也要能被 videoStats 行看见（不吞）
+            maybeLogVideoStats(now)
           }
         }
       } else {
@@ -13545,6 +13986,8 @@ export function createRenderer(canvas, opts = {}) {
     render: renderScene,
     // ①(P-41 A1) HDR 会话熔断状态（上报取证：{at,layer,code,path} 或 null）
     get hdrFallback() { return hdrForceLdrSession },
+    // ①(2026-09-24 任务 ⑮) HDR 黑屏探针台账（`seen` = 见过画布全黑这件事；`probe` = 采样读数）
+    get hdrBlack() { return { seen: hdrBlackSeen, probe: Object.assign({}, hdrBlackProbe) } },
     runBloom,
     runPostFrameHooks,
     renderMeshLayer,
@@ -13653,6 +14096,10 @@ export function createRenderer(canvas, opts = {}) {
     // ①(P-68) 视频档位/上传台账只读快照（档位、源 vs 实际上传尺寸、上传 fps、节流命中、
     //   直传/2D 中转、?perf=auto 是否降级过）。字段口径见 README-DIAGNOSTICS.md「videoStats」。
     get videoStats() { return Object.assign({}, videoStat, { tex: videoStat.tex.map((t) => Object.assign({}, t)), play: Object.assign({}, videoStat.play) }) },
+    // ①(2026-09-24 任务 ⑬) 视频台账**日志**台账：打了几条、为什么打（first/anomaly/heartbeat）、
+    //   被心跳限流丢掉多少条（suppressed*）。**刻意不塞进 `videoStats`**：那个对象的字段表
+    //   （29 项）是文档化的上报契约，加了字段就要动 docs/README-DIAGNOSTICS.md。
+    get videoStatsLog() { return Object.assign({}, vstatLogLedger) },
     get resTier() { return Object.assign({}, RES_TIER) },
   }
 }
@@ -13962,7 +14409,24 @@ export function makeTextureMip(gl, levels, rg88 = false, where = null) {
     }
     // ①(W1② P-36) WebGL1 无 RG8/RG 常量 → 展开回 RGBA（r=g=R, a=G 保 shader 语义）
     if (gl.RG8 !== undefined && gl.RG !== undefined) {
+      /* ①(2026-09-24 任务 ⑭ 真机 0x502 根因) **RG8 的紧密行距不是 4 字节对齐的**：
+       *   `rg` 是 `w*h*2` 的紧密缓冲，而 WebGL 的缺省 `UNPACK_ALIGNMENT = 4` ⇒ 每行必须补齐到 4 的倍数。
+       *   宽为**奇数**时 `w*2 ≡ 2 (mod 4)`（每行差 2 字节）⇒ 提供的缓冲比驱动按对齐算出的需求**少 2 字节/行**
+       *   ⇒ `texImage2D` 抛 `INVALID_OPERATION (0x502)`（规范行为，与尺寸上限/显存无关）。
+       *   真机读数正是这条：`0923/2887099508` 里报错的 `waterflow_mask_ddad9b3a 1245x433`、
+       *   `shake_mask_557be9a9 1169x726`（还有 263x124 / 365x251 / 767x786）**全部**是该包里
+       *   格式 8（RG88）且**宽为奇数**的 15 张 mask 的子集；同尺寸的格式 9 走 RGBA 路径（`w*4` 恒 4 对齐）
+       *   与偶数宽的格式 8（316x133 / 500x143…）都上传正常 —— 逐张对上，说明根因不是"太大了"。
+       *   实测取证（本机唯一 WebGL2：有头 Firefox + llvmpipe，见 tests/render-tex-align-odd-test.mjs 的读数）：
+       *   1169x726 RG8 @ alignment 4 → 0x502，@ alignment 1 → 0x0；1168x726 RG8 @ 4 → 0x0。
+       *   修法：只在**行距真的不 4 对齐**时把 `UNPACK_ALIGNMENT` 临时置 1（有效值，RG8 紧密行即 2 字节
+       *   步长），上传后**恢复**为 4 —— 对齐的行（宽为偶数）一次 pixelStorei 都不发 ⇒ 零错路径的 GL
+       *   调用序列与改动前**逐位相同**（`tests/tex-upload-guard-test.mjs` 的冻结基线不受影响）。 */
+      const __oddRow = ((lv.width | 0) * 2) % 4 !== 0
+      const __canStore = typeof gl.pixelStorei === 'function' && gl.UNPACK_ALIGNMENT !== undefined
+      if (__oddRow && __canStore) { try { gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1) } catch (e) {} }
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, lv.width, lv.height, 0, gl.RG, gl.UNSIGNED_BYTE, rg)
+      if (__oddRow && __canStore) { try { gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4) } catch (e) {} }
       texUploadProbe(gl, tex, lv.width | 0, lv.height | 0, __upWhere)
     } else {
       const rgba = new Uint8Array(n * 4)

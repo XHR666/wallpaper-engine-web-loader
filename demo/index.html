@@ -165,7 +165,7 @@ html.bench-shell #logs[hidden]{display:flex!important}
 html.bench-shell #editor-chrome[hidden]{display:block!important}
 html.bench-shell #stage-slot[hidden]{display:flex!important}
 html[lang="en"] .lang-zh{display:none}
-html.bench-shell html:not([lang="en"]) .lang-en{display:none}
+html[lang]:not([lang="en"]) .lang-en{display:none}
 @media (prefers-reduced-motion: reduce){html.bench-shell #pages-track,#site-tab-ink{transition:none!important}}
     
 /* ── ⑦(2026-09-20 用户第 7 条)：滚动条一处定义、两处引用 ──────────────────────────────────
@@ -179,6 +179,7 @@ html.bench-shell{--bench-sb-size:8px;--bench-sb-thumb:rgba(255,255,255,.5);--ben
 html.bench-shell[data-theme="light"]{--bench-sb-thumb:rgba(0,0,0,.28);--bench-sb-thumb-hover:rgba(0,0,0,.42)}
 /* ②(P-166 第 23 条) 输出区行首永远可见（与补丁 SITE_LAYOUT_CSS 逐条同文，D8 守）：长行折行、不横滚。 */
 html.bench-shell #logbody{white-space:pre-wrap;overflow-wrap:anywhere}
+html.bench-shell #logbody{color:var(--fg)}
 html.bench-shell #list, html.bench-shell .bench-dirbox-list, html.bench-shell #logbody, html.bench-shell #diag-body, html.bench-shell .dbg-log{scrollbar-width:thin;scrollbar-color:var(--bench-sb-thumb) var(--bench-sb-track)}
 html.bench-shell #list::-webkit-scrollbar, html.bench-shell .bench-dirbox-list::-webkit-scrollbar, html.bench-shell #logbody::-webkit-scrollbar, html.bench-shell #diag-body::-webkit-scrollbar, html.bench-shell .dbg-log::-webkit-scrollbar{width:var(--bench-sb-size);height:var(--bench-sb-size)}
 html.bench-shell #list::-webkit-scrollbar-track, html.bench-shell .bench-dirbox-list::-webkit-scrollbar-track, html.bench-shell #logbody::-webkit-scrollbar-track, html.bench-shell #diag-body::-webkit-scrollbar-track, html.bench-shell .dbg-log::-webkit-scrollbar-track{background:var(--bench-sb-track)}
@@ -229,6 +230,11 @@ html.bench-shell:not([data-bench-ready]) body{visibility:hidden}
 html.bench-shell[data-bench-ready] body{visibility:visible}
 /* ②(2026-09-20 用户第 3 条) 调试模式开关搬进页签内部后的那一行（与补丁 SITE_LAYOUT_CSS 逐字同文）。 */
 html.bench-shell .dbg-mode-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border)}
+/* ⑦⑧(2026-09-24 用户第 7/8 条) 三个日志页签共用一个灰框选中态；调试页签文案 `调试模式·ON / OFF`
+   由 bench-patch.js 的 paintDbgTab() 写 `data-dbg=on|off`，颜色只看这个属性（ON 正常绿 / OFF 正常红）。 */
+html.bench-shell #logs .logs-tab.active[aria-selected="true"]{box-shadow:inset 0 0 0 1px var(--border)}
+html.bench-shell #logs #tab-debug[data-dbg="on"]{color:var(--bench-dbg-on,#3fb950)}
+html.bench-shell #logs #tab-debug[data-dbg="off"]{color:var(--bench-dbg-off,#e5534b)}
 /* ── 窄屏/堆叠布局（2026-09-18 真机：安卓手机 412px + 平板"桌面版网站" 980px）──────────
    桌面宽窗口正常、窄视口错乱的真因：三列是固定 300+320+其余 ⇒ 980px 内容塞进 412px 视口，
    横向溢出 + 舞台那条 `minmax(140px,1fr)` 与产物 `#stage-scale` 的容器查询单位形成循环依赖
@@ -279,8 +285,12 @@ html.bench-shell body.bench-nav-collapsed #sidebar-toggle svg{transform:rotate(1
    （"展开后属性项被永久遮住且滚不到"是不变量上被禁掉的，门禁逐项断言）。
    `#np-mount` 归 React 独占；`#np-mount > *{pointer-events:none}` + `.snd button{pointer-events:auto}`
    让卡片四周那圈透明区**不吃点击**（收起时上下各 55.5px 的空隙照常点得到后面的属性项）。 */
-html.bench-shell #props{position:relative;--mpw-np-card:189px;--mpw-np-strip:30px;--mpw-np-cover:calc(var(--mpw-np-card) + var(--mpw-np-strip))}
-html.bench-shell #np-host{position:absolute;left:0;right:0;bottom:0;height:calc(var(--mpw-np-card) + var(--mpw-np-strip));display:flex;flex-direction:column;justify-content:flex-end;pointer-events:none;z-index:5}
+html.bench-shell #props{position:relative;--mpw-np-card:189px;--mpw-np-vol:26px;--mpw-np-strip:30px;--mpw-np-cover:calc(var(--mpw-np-card) + var(--mpw-np-vol) + var(--mpw-np-strip))}
+html.bench-shell #np-host{position:absolute;left:0;right:0;bottom:0;height:calc(var(--mpw-np-card) + var(--mpw-np-vol) + var(--mpw-np-strip));display:flex;flex-direction:column;justify-content:flex-end;pointer-events:none;z-index:5}
+html.bench-shell #np-volbar{height:var(--mpw-np-vol);display:flex;align-items:center;gap:6px;padding:0 8px;background:color-mix(in srgb,var(--panel) 92%,transparent);border-top:1px solid var(--border);font-size:11px;color:var(--fg-dim);min-width:0;max-width:100%;box-sizing:border-box;overflow:hidden}
+html.bench-shell #np-volbar .np-volico{flex:none;display:flex;align-items:center;color:var(--fg-dim)}
+html.bench-shell #np-volcap{flex:none;white-space:nowrap}
+html.bench-shell #np-volnum{flex:none;min-width:32px;text-align:right;font-variant-numeric:tabular-nums;color:var(--fg-mute)}
 html.bench-shell #np-host > *{pointer-events:auto}
 html.bench-shell #np-mount{height:var(--mpw-np-card);display:flex;justify-content:center;align-items:flex-start;pointer-events:none}
 html.bench-shell #np-mount > *{pointer-events:none}
@@ -451,6 +461,15 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
   html.bench-shell #stage-frame{container-type:normal!important;padding:8px;min-height:48vh}
   html.bench-shell #stage-scale{width:min(100%,calc(46vh * 16 / 9))!important;height:auto!important;aspect-ratio:16/9;margin:0 auto}
   html.bench-shell #main:not(.logs-collapsed) #logs{min-height:clamp(180px,38vh,320px)}
+  /* ④(2026-09-24 用户第 4 条 · 实测补口)：上面那条"窄屏面板限高 + 自身可滚"原来**只**写在
+     `.bench-narrow` 类块里（首屏同步脚本加的类），而安全网只搬了 7 条 ⇒ **加载后把窗口拉窄**
+     （类没被重新加上）时左栏/属性面板仍吃产物的 `overflow:hidden`，被 `#workbench` 的 flex 列一挤
+     就只剩几十像素、内容**直接被裁掉**（浏览器实测读数：`#sidebar` clientH=55 / scrollH=195，
+     子节点 `sidebar-section-head`/`libpath`/`sidebar-tools` 全在框外）。
+     修法：把类块里那条逐字搬进安全网（`.bench-narrow` 类块里仍有同款 —— D9 的"零漂移"判据照旧成立，
+     方向是"安全网的每条都要有类块同款"，这条本来就满足）。 */
+  html.bench-shell #sidebar,
+  html.bench-shell #props{width:auto!important;max-height:clamp(140px,22vh,320px);overflow:auto;border-right:0;border-bottom:1px solid var(--border)}
   html.bench-shell #stage,
   html.bench-shell #frame{height:100%!important;width:100%!important}
 }
@@ -650,6 +669,18 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
                  `#props-body` 的 `padding-bottom` 预留（展开态高度也算了 ⇒ 每一项都滚得到）。 -->
             <div id="np-host" role="group" aria-label="声音控件 / Sound control">
               <div id="np-mount"></div>
+              <!-- ②(2026-09-24 用户第 2 条) **NP 音量条**：音量从"壁纸配置最下面那条传输条"搬进 NP 块
+                   （卡片正下方这一行，`#np-host` 的第 2 个子节点）。它自带图标 + 「音量」标签 + 百分数读数；
+                   下面的 `#np-audio` 只留静音/进度/时间/曲目名 ⇒ 配置栏最下面**不再有**音量条。
+                   落点仍是同一个 `#np-volume`（`applyAudio()` 是音量的唯一真源，见 bench-patch.js ⑭）。 -->
+              <div id="np-volbar" role="group" aria-label="壁纸音量 / Wallpaper volume">
+                <span class="np-volico" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" width="13" height="13"><path d="M2.6 6h2.1L7.8 3.4v9.2L4.7 10H2.6z" fill="currentColor" /><path d="M10.1 6.2a2.6 2.6 0 0 1 0 3.6M11.9 4.6a4.9 4.9 0 0 1 0 6.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" /></svg>
+                </span>
+                <span id="np-volcap" data-i18n="toolbar.volume">音量</span>
+                <input id="np-volume" type="range" min="0" max="1" step="0.05" value="0" aria-label="壁纸音量 / Wallpaper volume" title="壁纸音量（video 壁纸的声音） / Wallpaper volume" />
+                <span id="np-volnum" aria-hidden="true">0%</span>
+              </div>
               <div id="np-audio">
                 <button type="button" id="np-mute" aria-pressed="true" title="静音 / Mute" aria-label="静音 / Mute">
                   <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -658,7 +689,6 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
                     <path id="np-mute-slash" d="M10 5.4l3.9 5.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
                   </svg>
                 </button>
-                <input id="np-volume" type="range" min="0" max="1" step="0.05" value="0" aria-label="壁纸音量 / Wallpaper volume" title="壁纸音量（video 壁纸的声音） / Wallpaper volume" />
                 <button type="button" id="np-seek" title="跳转 / Seek" aria-label="进度 / Progress"><span id="np-run"></span></button>
                 <span id="np-time">0:00 / 0:00</span>
                 <span id="np-stage">未发现视频壁纸 / no video</span>
@@ -1043,6 +1073,16 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
               <tr><td>系统实况（歌名 / 频谱）</td><td><code>#live-system</code>；本机后端读 media-control，频谱走麦克风</td></tr>
               <tr><td>指针注入 / 鼠标尾迹</td><td><code>#pointer-push</code> · <code>#trail-on</code>；坐标通道 <code>__wp.pushPointer(x,y)</code></td></tr>
               <tr><td>质量档位 / AA / 滤镜</td><td><code>?q=low|mid|high</code> · <code>?aa=fxaa|msaa4</code> · <code>#fx</code></td></tr>
+              <!-- ⑪(2026-09-24 用户第 11 条)「壁纸设置里的 **API 列表不全**、中英不同步 ⇒ 补齐并让中英同源」：
+                   下面这 7 行 = 本页**真实存在**、但原表漏掉的实现面（中英两表逐行同键，判据见
+                   `tests/bench-issue0924a-line-A-test.mjs` 的 A11 与浏览器探针 `docBilingualProbe()`）。 -->
+              <tr><td>音量 / 静音（NP 条里那条）</td><td><code>#np-volume</code> · <code>#np-mute</code> · 工具条 <code>#volume</code>；API <code>__wp.setVolume(0.5)</code></td></tr>
+              <tr><td>启用麦克风（闸门）</td><td><code>#mic-enable</code>（默认关：关着时 <code>getUserMedia</code> 一次都不调）</td></tr>
+              <tr><td>音条源</td><td><code>#bandfeed</code> · 查询参数 <code>?bandfeed=auto|mic|sim|off</code></td></tr>
+              <tr><td>渲染器来源</td><td><code>#renderer-src</code> · 同源 <code>/webloader/</code>（:8902 自己直供，不需要 :8899）/ 上游产物</td></tr>
+              <tr><td>暂停 / 重挂载 / 释放 / 新窗口</td><td><code>#pause</code> · <code>#reload</code> · <code>#release</code> · <code>#open</code>（释放 = 真停：停渲染器 + 清 iframe + 停轮询，且不再自愈重挂）</td></tr>
+              <tr><td>图片去重（属性面板富文本）</td><td>缺省 = 整面板去重（同一张只画一遍）；对照档 <code>?propimg=once|row|all</code></td></tr>
+              <tr><td>输出 / 诊断 / 调试页签</td><td><code>#tab-logs</code> · <code>#tab-diag</code> · <code>#tab-debug</code>；诊断流 <code>/api/diag-stream</code>；调试模式开关 <code>#dbg-mode</code></td></tr>
             </tbody>
           </table>
 
@@ -1073,7 +1113,7 @@ wp.pushPointer(0.5, 0.5)                                                      //
               <tr><td>Alignment / zoom</td><td><code>ui_browse_properties_alignment</code> · <code>…_alignment_zoom</code></td><td>Implemented: toolbar “Resolution / fit” (<code>#fit</code>) and <code>?fit=cover|contain|stretch</code>; zoom follows <code>project.json → general.zoom</code> and camera-layer zoom</td><td><span class="tag tag-ok">implemented</span></td></tr>
               <tr><td>Playback rate 0.5–2×</td><td><code>ui_browse_properties_playback_rate</code></td><td>Global time multiplier: <code>__wp.setPlaybackRate(1.5)</code> / <code>?rate=1.5</code> (multiplies animation dt and <code>video.playbackRate</code>)</td><td><span class="tag tag-todo">to implement</span></td></tr>
               <tr><td>Show colour options (master)</td><td><code>ui_browse_properties_show_color_options</code></td><td>When off, the four below are excluded from the filter chain: <code>__wp.setDisplay({colorOptions:false})</code></td><td><span class="tag tag-todo">to implement</span></td></tr>
-              <tr><td>Brightness / contrast / saturation / hue shift</td><td><code>…_brightness</code> · <code>…_contrast</code> · <code>…_saturation</code> · <code>…_hue_shift</code></td><td>One CSS filter on the render output: <code>brightness() contrast() saturate() hue-rotate()</code>; <code>__wp.setDisplay({brightness:1.1,contrast:1.05,saturation:1.2,hue:15})</code>, query <code>?bright=…&amp;contrast=…&amp;satur=…&amp;hue=…</code>. Same approach the DSH plugin already uses (CSS filter — see its “screen brightness” section)</td><td><span class="tag tag-todo">to implement</span></td></tr>
+              <tr><td>Brightness / contrast / saturation / hue shift</td><td><code>ui_browse_properties_brightness</code> · <code>_contrast</code> · <code>_saturation</code> · <code>_hue_shift</code></td><td>One CSS filter on the render output: <code>brightness() contrast() saturate() hue-rotate()</code>; <code>__wp.setDisplay({brightness:1.1,contrast:1.05,saturation:1.2,hue:15})</code>, query <code>?bright=…&amp;contrast=…&amp;satur=…&amp;hue=…</code>. Same approach the DSH plugin already uses (CSS filter — see its “screen brightness” section)</td><td><span class="tag tag-todo">to implement</span></td></tr>
               <tr><td>Volume / mute</td><td><code>ui_browse_monitors_mute</code> · WE global volume</td><td>Implemented: toolbar “Volume” slider <code>#volume</code>; in-page <code>__wp.setVolume(0.5)</code></td><td><span class="tag tag-ok">implemented</span></td></tr>
               <tr><td>React to motion (parallax / gyroscope)</td><td><code>ui_browse_properties_parallax</code></td><td><strong>Not doing</strong> (no gyroscope); the pointer channel <code>__wp.pushPointer(x,y)</code> already exists if wanted later</td><td><span class="tag tag-we">N/A</span></td></tr>
               <tr><td>Recording (WE recorder / recording volume)</td><td><code>ui_settings_hotkeys_action_recording</code> · <code>ui_settings_recording_volume</code></td><td>Owned by the WE client; not implemented in-page (system/browser recording is the alternative)</td><td><span class="tag tag-we">built-in</span></td></tr>
@@ -1098,6 +1138,16 @@ wp.pushPointer(0.5, 0.5)                                                      //
               <tr><td>Live system (title / spectrum)</td><td><code>#live-system</code>; the local backend reads media-control, the spectrum comes from the microphone</td></tr>
               <tr><td>Pointer injection / mouse trail</td><td><code>#pointer-push</code> · <code>#trail-on</code>; coordinate channel <code>__wp.pushPointer(x,y)</code></td></tr>
               <tr><td>Quality tiers / AA / filter</td><td><code>?q=low|mid|high</code> · <code>?aa=fxaa|msaa4</code> · <code>#fx</code></td></tr>
+              <!-- ⑪(issue 11) The rows below are real implementation surfaces that the original table missed;
+                   the zh and en tables are kept row-for-row identical (gate: A11 in
+                   `tests/bench-issue0924a-line-A-test.mjs`, plus the browser probe `docBilingualProbe()`). -->
+              <tr><td>Volume / mute (the NP bar one)</td><td><code>#np-volume</code> · <code>#np-mute</code> · toolbar <code>#volume</code>; API <code>__wp.setVolume(0.5)</code></td></tr>
+              <tr><td>Enable microphone (gate)</td><td><code>#mic-enable</code> (off by default: while off <code>getUserMedia</code> is never called)</td></tr>
+              <tr><td>Audio bar source</td><td><code>#bandfeed</code> · query param <code>?bandfeed=auto|mic|sim|off</code></td></tr>
+              <tr><td>Renderer source</td><td><code>#renderer-src</code> · same-origin <code>/webloader/</code> (served by :8902 itself, no :8899 needed) / upstream product</td></tr>
+              <tr><td>Pause / remount / release / new window</td><td><code>#pause</code> · <code>#reload</code> · <code>#release</code> · <code>#open</code> (release really stops: renderer stopped + iframe cleared + polling stopped, and no self-healing remount)</td></tr>
+              <tr><td>Image dedup (rich property panel)</td><td>Default = whole-panel dedup (each picture drawn once); A/B gear <code>?propimg=once|row|all</code></td></tr>
+              <tr><td>Output / diagnostics / debug tabs</td><td><code>#tab-logs</code> · <code>#tab-diag</code> · <code>#tab-debug</code>; diagnostics stream <code>/api/diag-stream</code>; debug switch <code>#dbg-mode</code></td></tr>
             </tbody>
           </table>
 

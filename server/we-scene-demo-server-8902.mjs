@@ -479,7 +479,6 @@ function fsRoots() {
   const home = os.homedir() || '/'
   const lib = activeRoot
   const libParent = path.dirname(lib)
-  const configuredParent = path.dirname(LIBRARY_ROOT_CONFIG)
   /** 跨平台通用候选：POSIX 的挂载点目录 + Windows 盘符（都是"这台机器上可能存在的根"，不是写死的路径）。 */
   const platformRoots = []
   if (process.platform === 'win32') {
@@ -490,19 +489,28 @@ function fsRoots() {
   } else {
     for (const m of ['/media', '/mnt', '/run/media']) if (statSafe(m)) platformRoots.push({ label: '挂载点 ' + m, path: m, kind: 'mount' })
   }
+  /* ②(2026-09-24 用户第 1 条「你搞这么多快捷根干嘛 你就留几个，所有电脑都可能有的几个就行了」)
+     改前读数（真机 :8902 的选择器）：候选 **8–9 条**（当前库目录 / 配置库根 / 库根的上一级 /
+     配置库根的上一级 / 宿主 home / 当前工作目录 / 工作区根 / 挂载点×2）⇒ 一行放不下 ⇒ 溢出，
+     且"当前库目录"被竖排成一字一行、后面几条根本显示不出来。
+     改后口径（**只减不增**，每条仍然是推导出来的，见 ①）：只留"任何一台电脑上都成立"的五类 ——
+       ① 当前库目录（用户真正要选的）；② 库根的上一级（能退回上一层挑别的库）；
+       ③ 宿主 home；④ 当前工作目录；⑤ 工作区根（= MPW_ROOT，与 ④ 同路径时自动合并成一条）；
+       ⑥ 平台挂载点/盘符（POSIX /media·/mnt·/run/media 或 Windows 盘符，**最多留 2 条**）。
+     删掉的三条：`配置库根`（与 ① 常同路径，纯重复）、`配置库根的上一级`（与 ② 同义）、
+     多余的第 3+ 个挂载点 —— 它们都不是"用户会去点的根"，只是把一行撑爆。
+     总条数上限 `MAX_FS_ROOTS`（含去重后）：保证一行 + 折行一定放得下（判据见
+     `tests/bench-dsh-libroot-test.mjs` A1 与 `tests/bench-issue0924a-line-A-test.mjs` 的溢出自检）。 */
+  const MAX_FS_ROOTS = 6
   // 顺序即去重优先级（同路径只留先出现的那条 ⇒ "当前库目录"永远在列表最前）
   const cands = [
     { label: '当前库目录', path: lib, kind: 'library', role: 'library' },
-    { label: '配置库根', path: LIBRARY_ROOT_CONFIG, kind: 'library-configured', role: 'configured' },
     // ①(用户第 1 条) 库根的**上一级**：从库根推导，跨机器成立（作者机上是 …/allwallpaper，别人机上是别的）
     { label: '库根的上一级（' + path.basename(libParent) + '）', path: libParent, kind: 'library-parent', role: 'library-parent' },
     { label: '宿主 home', path: home, kind: 'home', role: 'home' },
     { label: '当前工作目录（' + path.basename(process.cwd()) + '）', path: process.cwd(), kind: 'cwd', role: 'cwd' },
     { label: '工作区根（' + path.basename(MPW_ROOT) + '）', path: MPW_ROOT, kind: 'workspace', role: 'workspace' },
-    ...(configuredParent !== libParent && configuredParent !== lib && configuredParent !== MPW_ROOT
-      ? [{ label: '配置库根的上一级（' + path.basename(configuredParent) + '）', path: configuredParent, kind: 'library-parent-configured', role: 'library-parent' }]
-      : []),
-    ...platformRoots.map((r) => Object.assign({ role: r.kind }, r)),
+    ...platformRoots.slice(0, 2).map((r) => Object.assign({ role: r.kind }, r)),
   ]
   const out = []
   const byPath = new Map()
@@ -517,6 +525,7 @@ function fsRoots() {
       reason: inside ? (exists ? null : '路径不存在') : `不在只读浏览边界内（当前边界：${PICK_ROOT_REAL}）`,
       enableHint: inside ? null : `把浏览边界放宽到它（或它的上层）即可：MPW_PICK_ROOT=${path.resolve(c.path)}`,
     })
+    if (out.length >= MAX_FS_ROOTS) break                // ② 上限：多出来的候选直接不进列表（见上）
     byPath.set(p, row)
     out.push(row)
   }
