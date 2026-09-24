@@ -59,10 +59,16 @@ const PRIM_HEADS = [
   'function withTimeout(p, ms, label) {', 'function fetchT(url, opts, ms, label) {', 'function jsonT(r, url, ms, label) {',
   'function bufT(r, url, ms, label) {', 'function textT(r, url, ms, label) {', 'function bitmapT(blob, label, ms) {',
 ]
-const HEADER_HEAD = 'async function fetchHeader(name) {'
+/*  ①(2026-09-25 ISSUE0924A2) `fetchHeader` 现在依赖同模块的 `HEADER_FAIL_RETRY_MS` 与 `headerUrls()`
+    （D 线把"取不到被当成功缓存"改成"成功才缓存 + 失败退避重试 + 三候选 URL"）⇒ 切片必须**连带**把这两个
+    定义切进来，否则 eval 出来就是 `ReferenceError: headerUrls is not defined`（本轮实测的真实回归形态）。
+    口径：从 `const HEADER_FAIL_RETRY_MS` 切到 `fetchHeader` 结束（`sliceFn` 会把这段的前缀一起带上）。 */
+const HEADER_HELPER_HEAD = 'const HEADER_FAIL_RETRY_MS = '   // 退避重试常量 + 三候选 URL 的 headerUrls()
 const LOADTEX_HEAD = 'async function loadTex(name, opts = {}) {'
 const sliceAll = (s) => PRIM_HEADS.map((h) => sliceFn(s, h)).join('\n')
-const sliceHeader = (s) => sliceFn(s, HEADER_HEAD)
+/*  ①(2026-09-25 ISSUE0924A2) `sliceFn` 只会取"从起点到第一个配平花括号"那一段 ⇒ 对 `fetchHeader` 的新依赖
+    （`HEADER_FAIL_RETRY_MS` + `headerUrls()`）必须**分两段**切：先切常量+helper 那段，再切 `fetchHeader` 本体，拼起来。 */
+const sliceHeader = (s) => sliceFn(s, HEADER_HELPER_HEAD) + '\n' + sliceFn(s, 'async function fetchHeader(name) {')
 const sliceLoadTex = (s) => sliceFn(s, LOADTEX_HEAD)
 
 /** 超时原语切片：桩 fetch / 桩 createImageBitmap / 收集日志（超时上限压到 300ms 便于秒级自证） */
@@ -76,9 +82,10 @@ function makePrims(logs, fetchStub, src, createImageBitmapStub) {
 }
 function makeFetchHeader(prims, logs, fetchStub, src) {
   const headerCache = new Map()
-  const fn = new Function('fetch', 'headerCache', 'logf', 'withTimeout', 'textT', 'fetchT', 'NET_TIMEOUT_MS', 'DECODE_TIMEOUT_MS',
+  const fn = new Function('fetch', 'headerCache', 'logf', 'withTimeout', 'textT', 'fetchT', 'NET_TIMEOUT_MS', 'DECODE_TIMEOUT_MS', 'mpwNowMs',
     src + '\nreturn fetchHeader')
-  return fn(fetchStub, headerCache, (m) => logs.push(String(m)), prims.withTimeout, prims.textT, prims.fetchT, LIMIT, LIMIT)
+  return fn(fetchStub, headerCache, (m) => logs.push(String(m)), prims.withTimeout, prims.textT, prims.fetchT, LIMIT, LIMIT,
+    (typeof performance !== 'undefined' && performance.now) ? () => performance.now() : () => Date.now())
 }
 function makeLoadTex(prims, logs, stubs, src) {
   const textures = new Map()

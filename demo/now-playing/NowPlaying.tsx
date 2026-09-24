@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Heart, SkipBack, SkipForward } from "lucide-react";
+import { Heart, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
 
 /* ①(P-138 2026-09-19 移植 · Bencho「Now playing」→ 本仓库)
    本文件是原件的移植副本，注释逐字保留。与原件的差异只有四处，逐条写在
@@ -339,6 +339,19 @@ export function NowPlaying({
     }
   };
 
+  /*  ③(2026-09-25 issue0924a2 用户第 3 条) **音量控件进卡片内部**（用户原话："我说的把音量的按钮
+      集成到 NP 的卡片里面，你还是没有做好"）。
+      口径照 DSH 插件（`dsh-mpkg-wallpaper/lib/now-playing.js` 的 `showVolume = late > 0`）：
+        · 卡片**展开态**才存在（`late` 是"深半程"的补间值，与时钟/传输行同一条约定）—— 收起成胶囊时
+          一个像素都不占（用户原话里的"不要再多一条独立的条"就是这条）；
+        · 一条**音量轨**在时钟行的中间（左时刻 / 音量 / 右剩余），**不是**卡片下面再加一行；
+        · 传输行里多一个**第四键**（音量/静音），与播放/上一首/下一首同形同尺寸；
+        · 能不能动跟 `data.canVolume` 走（联动关/没有媒体 ⇒ 明确 disabled，不假装可点）。
+      读数：`data-mpw-np-vol` / `data-mpw-np-vol-range`（轨道）+ `data-mpw-np-mute`（第四键）。 */
+  const volPct = Math.round(clamp(controlled ? (Number(data?.volume) || 0) : 0, 0, 1) * 100);
+  const shownMuted = controlled ? (!!data?.muted || !(Number(data?.volume) > 0)) : false;
+  const canVolume = controlled ? data?.canVolume !== false : false;
+
   const dur = BASE * rate(clamp(morph, 0, 100));
 
   /* the sleeve's corner at each end, and the box's from it.
@@ -544,6 +557,11 @@ export function NowPlaying({
      sliding about inside one that has not. */
   const late = clamp((p - 0.6) / 0.4, 0, 1);
 
+  /*  ③(用户第 3 条) 音量行/第四键的**存在条件**：受控档 + 卡片已展开（`late > 0`，与 DSH 插件逐字同款）。
+      为什么带 `controlled`：装饰态（不传 `data`）是"原件那套装饰态"，一个字节都不该多
+      （独立演示页与既有 SSR 基线断言都靠这条）—— 音量控件属于**受控数据面**。 */
+  const showVolume = controlled && late > 0;
+
   const flip = () => {
     setOpen((v) => !v);
   };
@@ -692,6 +710,36 @@ export function NowPlaying({
           </span>
           <span className="snd-clock" style={{ opacity: late }}>
             <span>{timelineKnown ? clock(atSec) : "--:--"}</span>
+            {/*  ③ 音量轨：**卡片内部**时钟行的中间那一段（与 DSH 插件同构）。
+                收起态整行随 `late` 淡出，`late === 0` 时这一整块**根本不渲染** ⇒ 胶囊不多一行。 */}
+            {showVolume ? (
+              <>
+                {/*  ⚠**不加新类名**：样式落在 `.snd-clock input[type="range"][data-mpw-np-vol-range]`
+                    与 `.snd-clock [data-mpw-np-volnum]`（都是既有类 + 属性选择器）。理由有两条：
+                      ① 组件的 CSS↔DOM「一一对应」判据（tests/now-playing-test.mjs 第 ⑦ 组）拿的是
+                         **装饰档**的 SSR 产物 —— 音量行只在受控档展开时存在，新类名在那边必然算"孤儿规则"；
+                      ② 这个组件本来就用 `data-mpw-np-*` 标记受控面（scrub/link/noseek 都是），
+                         音量沿用同一套词汇，不发明第二套。 */}
+                <input
+                  id="np-volume"
+                  data-mpw-np-vol="1"
+                  data-mpw-np-vol-range="1"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={controlled ? clamp(Number(data?.volume) || 0, 0, 1) : 0}
+                  disabled={!canVolume}
+                  onChange={(e) => { if (canVolume) send("volume", Number(e.currentTarget.value)); }}
+                  aria-label="Wallpaper volume"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={volPct}
+                  title={`Volume ${volPct}%`}
+                />
+                <span data-mpw-np-volnum="1">{volPct}%</span>
+              </>
+            ) : null}
             <span>{timelineKnown ? "−" + clock(Math.max(0, totalSec - atSec)) : "--:--"}</span>
           </span>
         </span>
@@ -822,6 +870,26 @@ export function NowPlaying({
           >
             <SkipForward size={mix(13, 16, p)} strokeWidth={2} />
           </button>
+
+          {/*  ③(用户第 3 条) **音量的按钮在卡片里**：传输行第四键（音量/静音），与另外三个键同形同尺寸。
+              照 DSH 插件的做法：它**只在卡片里**存在（`showVolume`）—— 收起态的行宽仍按三键算，
+              所以胶囊的几何一个像素都不动。 */}
+          {showVolume ? (
+            <button
+              className="snd-op"
+              type="button"
+              data-mpw-np-mute={controlled ? (shownMuted ? "1" : "0") : undefined}
+              disabled={!canVolume}
+              style={{ width: side, height: side, opacity: canVolume ? 1 : 0.4 }}
+              onClick={() => { if (!canVolume) return; if (controlled) send("mute"); }}
+              aria-label={shownMuted ? "Unmute the wallpaper" : "Mute the wallpaper"}
+              aria-pressed={!shownMuted}
+            >
+              {shownMuted
+                ? <VolumeX size={mix(13, 16, p)} strokeWidth={2} />
+                : <Volume2 size={mix(13, 16, p)} strokeWidth={2} />}
+            </button>
+          ) : null}
         </span>
 
       </div>

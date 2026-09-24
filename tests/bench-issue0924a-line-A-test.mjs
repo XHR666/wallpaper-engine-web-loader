@@ -1,4 +1,15 @@
 // bench-issue0924a-line-A-test.mjs —— issue #0924a **A 线（:8902 测试台 UI）** 12 条 + 收尾第 20 条的判据集
+//   + issue #0924a2（用户复测后重做的 4 条：①输出面板滚动 / ②图片强制去重 / ③音量控件进卡片 / ⑦切档不凭空挂壁纸）
+//
+// ②③⑦ 的**契约更新**（每处都写清了理由，见对应断言上方注释）：
+//   · ③ A2a–A2e：音量控件从"卡片下面那条独立 `#np-volbar`"改成**组件在卡片内部**画（`.snd-clock` 里的
+//     音量轨 + 传输行第四键 `data-mpw-np-mute`）⇒ 页面里**不再有** `#np-volbar`/`#np-volnum`/`--mpw-np-vol`；
+//     几何判据从 `volumeInNpBar`（volbar.top ≥ card.bottom）改成 `volumeInCard`/`volumeOverflow`。
+//   · ① A16a–A16e：跟随口径从"追加前贴底才跟随（24px 容差）"改成"**用户滚到哪就停在哪**"（2px 容差 +
+//     `#logbody` 上的影子 `scrollTop` 守卫：产物那条无条件 `scrollTop=scrollHeight` 被丢弃并计数）。
+//   · ② A3g–A3k：去重从"候选要尺寸证据"改成**强制归并**（键相等即同一张画面），并且把**产物自己渲染的
+//     `.prop-media` 图**也拉进同一本账（真机读数：同一张画面 10 遍）；"图没显示出来就显示它的链接"这条兜底删除。
+//   · ⑦ A21a–A21e：换档前先判"是不是真的没选壁纸"，并且把**产物那侧的当前项**（`w`）用产物自己的 `ht()` 清掉。
 //
 // 为什么要独立一份：这 12 条改的都是**呈现层**（快捷根行 / NP 音量条 / 图片去重控件 / 溢出自检 /
 // 换库后侧栏重画 / 调试页签 / 输出配色 / 中英单显 / 跟随式滚动 / 原生 select / 释放停干净），
@@ -109,26 +120,47 @@ section('① 选择文件夹对话框的快捷根')
   }
 }
 
-/* ══════════════════ ② 音量条搬进 NP 条 ══════════════════ */
-section('② 音量条：壁纸配置最下面 → NP 条')
+/* ══════════════════ ②③ 音量控件：进 **NP 卡片内部** ══════════════════ */
+section('②③ 音量控件在 NP 卡片内部（不再是卡片下面那条独立条）')
 {
+  /*  ③(2026-09-25 issue0924a2 用户第 3 条原话)「我说的把音量的按钮集成到 NP 的卡片里面，你还是没有做好」。
+      上一轮把 `#np-volume` 搬进了**卡片下面**的 `#np-volbar` —— 那仍然不是"卡片里面"。
+      本轮的落点：**组件自己在卡片内部**画（`demo/now-playing/NowPlaying.tsx`）：
+        · 音量轨 = `.snd-clock` 行中间那个 `<input id="np-volume" data-mpw-np-vol-range>`；
+        · 音量的按钮 = 传输行第四键 `<button class="snd-op" data-mpw-np-mute>`（点它静音/取消静音）；
+        · 两样都只在**受控档 + 卡片展开**（`late > 0`）时渲染 ⇒ 收起成胶囊时一个像素都不多。 */
+  const NP_TSX = fs.readFileSync(path.join(DEMO, 'now-playing', 'NowPlaying.tsx'), 'utf8')
+  const NP_CSS = fs.readFileSync(path.join(DEMO, 'now-playing', 'now-playing.css'), 'utf8')
+  const DIST = fs.readFileSync(path.join(DEMO, 'now-playing', 'dist', 'now-playing.js'), 'utf8')
   const npHost = HTML_SRC.slice(HTML_SRC.indexOf('id="np-host"'), HTML_SRC.indexOf('</aside>', HTML_SRC.indexOf('id="np-host"')))
-  const volbar = npHost.indexOf('id="np-volbar"')
   const audioIdx = npHost.indexOf('id="np-audio"')
-  const volIdx = npHost.indexOf('id="np-volume"')
-  ok(volbar > 0 && volIdx > volbar && audioIdx > volIdx,
-    'A2a `#np-volume` 在 `#np-volbar`（NP 块，卡片正下方那一行）里，且**在 `#np-audio` 之前**',
-    JSON.stringify({ volbar, volume: volIdx, audio: audioIdx }))
-  const audioBlock = npHost.slice(audioIdx)
-  ok(!/id="np-volume"/.test(audioBlock),
-    'A2b ★改后：传输条 `#np-audio`（= 壁纸配置**最下面**那一行）里**没有**音量条了（用户："不要再显示在壁纸配置最下面"）')
-  ok(/--mpw-np-vol:26px/.test(HTML_SRC) && /--mpw-np-cover:calc\(var\(--mpw-np-card\) \+ var\(--mpw-np-vol\) \+ var\(--mpw-np-strip\)\)/.test(HTML_SRC) &&
-    /'#np-host\{position:absolute;[^']*--mpw-np-card\) \+ var\(--mpw-np-vol\) \+ var\(--mpw-np-strip\)\)/.test(PATCH_SRC),
-    'A2c 浮层高度与 `padding-bottom` 都算上了新那一行（属性项仍然每一项都滚得到）')
-  ok(/volumeInNpBar:/.test(PATCH_SRC) && /volumeInStrip:/.test(PATCH_SRC) && /stripHasVolume:/.test(PATCH_SRC),
-    'A2d 探针 `npGeometry()` 增读 `volumeInNpBar / volumeInStrip / stripHasVolume`（落点可机读）')
-  ok(/'#np-volume\{flex:1 1 48px;width:auto;min-width:34px;max-width:96px/.test(PATCH_SRC) && !/'#np-volume\{flex:none;width:64px/.test(PATCH_SRC),
-    'A2e 既有"不越容器"判据（A9/A9b）逐字保留：滑条仍可伸缩、旧的固定宽规则不在')
+  ok(!/id="np-volbar"/.test(HTML_SRC) && !/id="np-volnum"/.test(HTML_SRC) && !/--mpw-np-vol:/.test(HTML_SRC) && !/--mpw-np-vol:/.test(PATCH_SRC),
+    'A2a ★★用户第 3 条：卡片下面那条独立条（`#np-volbar` + `#np-volnum` + `--mpw-np-vol`）**整块撤掉**（页面与本补丁两张 CSS 表里都不再有它）',
+    JSON.stringify({ html: /np-volbar/.test(HTML_SRC), patch: /np-volbar/.test(PATCH_SRC), varHtml: /--mpw-np-vol:/.test(HTML_SRC) }))
+  ok(!/id="np-volume"/.test(HTML_SRC) && /id="np-volume"/.test(NP_TSX) && /data-mpw-np-vol-range="1"/.test(NP_TSX) && /data-mpw-np-mute=/.test(NP_TSX),
+    'A2b ★★音量控件的**唯一渲染者**是组件本身（`NowPlaying.tsx` 里 `id="np-volume"` + `data-mpw-np-vol-range` 音量轨 + `data-mpw-np-mute` 第四键）；演示页 `index.html` 里不再有它（改前：`#np-volume` 是页面上的 `<input>`）')
+  ok(/\.snd-clock/.test(NP_TSX) && /snd-clock/.test(NP_TSX) && /showVolume/.test(NP_TSX) && /const showVolume = controlled && late > 0/.test(NP_TSX),
+    'A2c 音量轨画在**时钟行内部**（`.snd-clock` 的中间那一段，与 DSH 插件的 `.mpw_np_vol` 同位置），且存在条件是 `controlled && late > 0`（照插件 `showVolume = late > 0`）')
+  ok(/\.snd-clock input\[type="range"\]\[data-mpw-np-vol-range\]/.test(NP_CSS) && /data-mpw-np-volnum/.test(NP_CSS) && /flex: 1 1 auto/.test(NP_CSS),
+    'A2d 组件 CSS 只给**既有类 + 属性选择器**（`.snd-clock input[type="range"][data-mpw-np-vol-range]` / `.snd-clock [data-mpw-np-volnum]`）：不新增 `.snd-*` 类 ⇒ 组件那条"CSS 类名与 DOM 一一对应"的判据在**装饰档** SSR 上仍成立（音量行只在受控档展开时存在）')
+  ok(/mpw-np-vol-range/.test(DIST) && /mpw-np-mute/.test(DIST),
+    'A2e `demo/now-playing/dist/now-playing.js` 是**重新构建过**的产物（新音量标记在里面；dist 没重建 ⇒ 页面还是旧组件）')
+  ok(audioIdx > 0 && !/id="np-volume"/.test(npHost.slice(audioIdx)),
+    'A2f 传输条 `#np-audio`（= 壁纸配置**最下面**那一行）里**没有**音量控件（用户第 2 条的要求继续成立）',
+    JSON.stringify({ audioIdx, tail: npHost.slice(audioIdx, audioIdx + 60) }))
+  ok(/--mpw-np-cover:calc\(var\(--mpw-np-card\) \+ var\(--mpw-np-strip\)\)/.test(HTML_SRC) &&
+    /--mpw-np-cover:calc\(var\(--mpw-np-card\) \+ var\(--mpw-np-strip\)\)/.test(PATCH_SRC),
+    'A2g 浮层高度与属性表预留都按**新契约**算：`cover = card + strip`（撤掉的那 26px 不再计入 —— 音量行现在在卡片**内部**，不额外占高；两张表逐字同款）')
+  /*  ⚠负向断言扫的是**去注释**源码：实现里那段注释专门写了"`volumeInNpBar`：已撤"（改前读数），
+      扫带注释的源码会把"注释里提到它"误判成"实现里还有它"（本轮实测踩到）。 */
+  ok(/volumeInCard:/.test(PATCH_SRC) && /volumeInCardX:/.test(PATCH_SRC) && /volumeOverflow\b/.test(PATCH_SRC) &&
+    /volumeInStrip:/.test(PATCH_SRC) && /stripHasVolume:/.test(PATCH_SRC) && !/volumeInNpBar\s*[:,]/.test(NO_COMMENT),
+    'A2h 探针 `npGeometry()` 按新契约读数：`volumeInCard / volumeInCardX / volumeOverflow / volumeInStrip / stripHasVolume`（`volumeInNpBar` 已随那条独立条一起删除）')
+  ok(/npVolumeSlider:/.test(PATCH_SRC) && /npMuteKey:/.test(PATCH_SRC),
+    'A2i 探针 `npVolumeSlider()` / `npMuteKey()`（组件那个滑条的值/禁用/在不在卡片里 + 第四键的静音态）')
+  ok(/try \{ pumpNp\(\) \} catch/.test(PATCH_SRC) && !/volEl\.value = String\(vol\)/.test(PATCH_SRC) && !/volNumEl/.test(PATCH_SRC) &&
+    /'#np-mount \.snd \[data-mpw-np-vol-range\], #np-mount \.snd \[data-mpw-np-volnum\]\{pointer-events:auto\}'/.test(PATCH_SRC),
+    'A2j 接线按新契约：`applyAudio()` 不再直接写滑条（React 受控 ⇒ 会被下一次 render 覆盖），改成 `pumpNp()` 把 `data.volume` 推给组件；滑条**不越界**的既有口径（可压 + 不溢出）继续成立（`#np-mount` 透明区照旧不吃点击，只放行音量轨）')
 }
 
 /* ══════════════════ ③ 图片去重：缺省"全部都去重" + 控件删除 ══════════════════ */
@@ -151,6 +183,73 @@ section('③ 图片去重控件删除 / 缺省整面板去重')
     'A3e URL 对照档仍在（`?propimg=all` 走 URL 档；非法值回落缺省）—— 既有门禁 B7 的对照档不受影响', JSON.stringify([dUrl, dBad]))
   ok(/"props\.imgDedup":"图片去重"/.test(PATCH_SRC) && /"props\.imgDedup":"Image dedup"/.test(PATCH_SRC),
     'A3f 词典两侧都还在（键数对称，见 A20a）')
+
+  /*  ②(2026-09-25 issue0924a2 用户第 2 条复测)「我说的壁纸配置里面重复的图片只显示一次，你把它**强制**成为
+      只显示一次的，你现在还是没有弄好，现在还是有重复的图片。」+「把链接也去掉」。
+      ── 两条真因（都有真机读数）──────────────────────────────────────────────────────────
+      ⓐ 面板里的图有**两个来源**，旧账本只去了一个：产物自己渲染的 `div.prop-media > img`（`St()`）
+         与我们从属性文案 tokenize 出来的 `img.bench-prop-img`。真机读数（dd/3660962877）：同一张画面
+         `ours 6 + media 38 = 44 张`，且旧账本 `report.images` 只数我们的 token ⇒ 一直"显示去重成功"。
+      ⓑ 变体（同一张画面的不同参数/尺寸/重传）旧规则要"两张都 load 成功且宽高完全相同"才归并
+         ⇒ 尺寸不同或拿不到证据就画两张。 */
+  const v1 = 'https://i.example/v/pic.jpg?w=800&q=90'
+  const v2 = 'https://i.example/v/pic_1600x1200.jpg'
+  const forced = P.makeRichImagePass({ mode: 'once' })
+  const t1 = forced.take(v1, 0), t2 = forced.take(v2, 0)
+  ok(t1.draw === true && t2.draw === false && t2.merged === true && t2.reason === 'variant-key-equal',
+    'A3g ★★**强制只显示一次**（用户第 2 条）：身份键相同（只差尺寸/质量参数、或文件名里的尺寸标记）⇒ **无条件归并**，不再要尺寸证据',
+    JSON.stringify({ v1: t1, v2: t2, evidence: t2.evidence }))
+  const noEvidence = P.makeRichImagePass({ mode: 'once' })
+  noEvidence.take('https://i.example/n/a.png', 0)
+  const second = noEvidence.take('https://i.example/n/a.png_!web-article-pic', 0)
+  ok(second.draw === false && second.merged === true && second.evidence === 'unknown',
+    'A3h ★"尺寸未知"也照样归并（改前：证据拿不到 ⇒ 不归并 ⇒ 真机就是"还是有重复的图片"）；台账把"当时尺寸未知"如实记下来',
+    JSON.stringify(noEvidence.report().variants))
+  const rep = (() => { const q = P.makeRichImagePass({ mode: 'once', sizes: { 'https://i.example/z/a.jpg': { w: 100, h: 50, ok: true }, 'https://i.example/z/a.jpg?w=900': { w: 400, h: 200, ok: true } } }); q.take('https://i.example/z/a.jpg', 0); q.take('https://i.example/z/a.jpg?w=900', 0); return q.report() })()
+  ok(rep.variants.merged === 1 && rep.variants.mergedWithDifferentSize === 1 && rep.variants.evidence.different === 1 && rep.variants.unmerged === 0,
+    'A3i 台账**如实计数**：合并了几张、其中"尺寸不同/未知"各几张（用户：把放弃归并的原因如实计数进台账/提示，不许静默）',
+    JSON.stringify(rep.variants))
+  ok(/function sweepPanelImages\(\)/.test(PATCH_SRC) && /propsBody\.querySelectorAll\('img'\)/.test(PATCH_SRC) &&
+    /im\.dataset\.benchImgDup = '1'/.test(PATCH_SRC) && /try \{ sweepPanelImages\(\) \} catch/.test(PATCH_SRC),
+    'A3j ★★**产物的 `.prop-media` 图也进同一本账**（`sweepPanelImages()`：按 **DOM 顺序**扫全面板的所有 `<img>`、两个来源一起算，重复的当场藏掉并标 `data-bench-img-dup`）—— 真机那条"同一张画面 44 张"就压在这一档')
+  ok(/function sweepPanelImages\(\)/.test(PATCH_SRC) && /newRichImagePassFor\(richImageMode\(\)/.test(PATCH_SRC) &&
+    /for \(const im of propsBody\.querySelectorAll\('img\[data-bench-img-dup\]'\)\)/.test(PATCH_SRC) && /rowVisible\(row\)/.test(PATCH_SRC),
+    'A3k ★★账本**幂等且从 DOM 重建**（先把上一趟藏掉的恢复可见、再按 DOM 顺序重算；只吃可见行）—— 真机踩过"产物局部重画 ⇒ 留第一份的节点没了、其余副本全被藏掉 ⇒ 面板一张图都没有"（`imgs: [] / dupSuppressed: 13`）')
+  ok(/a\.dataset\.benchLinkDup = '1'/.test(PATCH_SRC) && /a\.dataset\.benchLinkEmpty = '1'/.test(PATCH_SRC) && /richImagePass\.shouldSuppressLink\(href\)/.test(PATCH_SRC),
+    'A3k2 ★"把链接也去掉"：目标就是已画成图的那条链接被藏掉（`data-bench-link-dup`）、图片被压掉后**空壳链接**也不画（`data-bench-link-empty`）—— 改前那条"图没显示出来就把它的链接显示出来"的兜底删除')
+  ok(/function paintImgDedupNote\(\)/.test(PATCH_SRC) && /props\.imgDedupForcedNote/.test(PATCH_SRC) && /#props-imgdedup-note/.test(PATCH_SRC),
+    'A3l 面板末尾有一行**人看得见的台账**（`#props-imgdedup-note`：已压掉 N 张 + 其中 M 张靠身份键强制归并、尺寸不同/未知各几张）')
+  ok(!/候选要两张都载入成功且原始宽高完全相同才归并/.test(PATCH_SRC) && !/a candidate merges only when both images load with identical natural width/.test(PATCH_SRC),
+    'A3m 面向用户的文案与实现**同源**：`props.imgDedupTip` 里"候选要两张都载入成功且宽高完全相同才归并"这条旧说法已删（否则文案在骗人）')
+  ok(/groups\.length/.test(PATCH_SRC) && /rendered: visible\.length/.test(PATCH_SRC) && /media: media\.filter/.test(PATCH_SRC),
+    'A3n 探针 `propsImages()` 现在**两个来源都数**（`rendered/ours/media/hiddenDup/links/linksHiddenDup`），`once` 档不变式 `rendered === groups.length` 继续成立')
+}
+
+/* ══════════════════ ⑦ 换渲染器档：未选择壁纸 ⇒ 不许凭空挂壁纸 ══════════════════ */
+section('⑦ 换渲染器档不再把叉掉的那张挂回来')
+{
+  /*  ⑦(2026-09-25 issue0924a2 用户第 7 条原话)「渲染器使用我的渲染器的时候（这时候我已经把上面选过的所有壁纸
+      都叉掉了，是未选择壁纸的状态）我把渲染器切成上游产物，它就加载了一个我最后加载的一个壁纸……为什么切渲染器
+      会突然加载出来壁纸。」
+      ── 真因（minified 产物 + 真机读数）──────────────────────────────────────────────────
+      产物的"当前壁纸"是它模块作用域里的 `w`：`Ue(e)` 写、`Ae(){if(!w)return;…k.src=…}` 读它重挂载、
+      **只有** `ht(){w=null;…}` 会清；而产物自己那个「释放」(`E()?.release()`) **只释放舞台、不动 `w`**。
+      ⇒ 用户叉掉壁纸之后 `w` 还挂着最后那张，切档会点产物的「重挂载」⇒ `Ae()` 判真 ⇒ 又挂回来。
+      改前真机读数：`#frame.src` 从 `about:blank` → `…&src=2887099508…`、`#current` 从"未选择壁纸"变回标题。 */
+  const ARTIFACT = fs.readFileSync(path.join(DEMO, 'assets', 'bench-DSKWIqmS.js'), 'utf8')
+  ok(/function ht\(\)\{w=null/.test(ARTIFACT) && /function Ae\(\)\{if\(!w\)return/.test(ARTIFACT) && /l\("#release"\)\.onclick=\(\)=>E\(\)\?\.release\(\)/.test(ARTIFACT),
+    'A21a **根因证据**（产物源码三处）：`ht(){w=null…}` 是唯一清空入口、`Ae(){if(!w)return…}` 读它重挂载、`#release` 只调 `release()` 不动 `w`')
+  ok(/function clearArtifactSelection\(reason\)/.test(PATCH_SRC) && /window\.__benchClearArtifactSelection = clearArtifactSelection/.test(PATCH_SRC) &&
+    /typeof window\.__benchClearArtifactSelection === 'function'/.test(PATCH_SRC),
+    'A21b ★★真因修法：借产物**自己的**清理入口（`#pick-lib` 链里的 `ht()`，我们接管时存下的 `artifactPickChain`）把 `w` 清成 null；跨作用域走显式 window 桥（`initSiteShell` 够不着 `init()` 内部函数 —— 裸引用会被 try/catch 吞成"改了没生效"）')
+  ok(/function nothingSelectedNow\(\)/.test(PATCH_SRC) && /const st = nothingSelectedNow\(\)\s*\n\s*if \(st\.empty\) return false/.test(PATCH_SRC),
+    'A21c ★换档前先判"是不是真的没选壁纸"（`nothingSelectedNow()`：列表无 `.active` + `curId` 空 + `#frame` 空/about:blank）；没选就**一次都不点**产物的「重挂载」',
+    JSON.stringify({ has: /nothingSelectedNow/.test(PATCH_SRC) }))
+  ok(/empty\.empty \? 'log\.rendererSrcEmpty'/.test(PATCH_SRC) && /"log\.rendererSrcEmpty":/.test(PATCH_SRC) &&
+    Boolean(P.DICT.zh['log.rendererSrcEmpty']) && Boolean(P.DICT.en['log.rendererSrcEmpty']),
+    'A21d 空选择换档时写一行**如实**的日志（`log.rendererSrcEmpty`：只切档位、预览保持空态、不挂载任何壁纸），中英各一份 —— 不再谎报"已把预览 URL 按新档位重写一次"')
+  ok(/artifactClearProbe: \(\) => artifactClearProbe\(\)/.test(PATCH_SRC) && /nothingSelected: \(\) => nothingSelectedNow\(\)/.test(PATCH_SRC),
+    'A21e 探针 `artifactClearProbe()`（ran/cleared/srcBefore/srcAfter/curAfter）+ `nothingSelected()`（门禁可断言"那一刻真的是未选择态"）')
 }
 
 /* ══════════════════ ④ 通用溢出自检 ══════════════════ */
@@ -260,16 +359,40 @@ section('⑪ 说明 / 壁纸设置：只显示一种语言 + API 列表同源')
     JSON.stringify({ zh: zh[2] && zh[2].length, en: en[2] && en[2].length }))
 }
 
-/* ══════════════════ ⑯ 输出不自动切底 ══════════════════ */
-section('⑯ 输出面板：跟随式滚动')
+/* ══════════════════ ⑯b 输出面板："我滚到哪就停在哪" ══════════════════ */
+section('⑯b 输出面板：用户滚到哪就停在哪（产物那条无条件跳底也要挡住）')
 {
-  ok(/const LOG_STICK_PX = 24/.test(PATCH_SRC) && /function logScrollState\(\)/.test(PATCH_SRC) && /const logScrollNow = \(\)/.test(PATCH_SRC),
-    'A16a 跟随式滚动的三个件都在（`LOG_STICK_PX` / `logScrollNow()` / `logScrollState()`）')
-  const logLineSrc = PATCH_SRC.slice(PATCH_SRC.indexOf('function logLine(msg, isErr)'), PATCH_SRC.indexOf('function logLine(msg, isErr)') + 900)
-  ok(/const stick = /.test(logLineSrc) && /if \(stick\) \{ try \{ body\.scrollTop = body\.scrollHeight \}/.test(logLineSrc),
-    'A16b ★`logLine()` 只在"追加前已经在底部"时才跟随（改前是无条件 `scrollTop = scrollHeight` ⇒ 用户看上面时被拽到底）')
-  ok(/logScrollState: \(\) => logScrollState\(\)/.test(PATCH_SRC) && /logAppend: \(m, e\) =>/.test(PATCH_SRC),
-    'A16c 探针 `logScrollState()` + 追加入口 `logAppend()`（门禁可复现"滚上去 ⇒ 再来一条 ⇒ 位置不动"）')
+  /*  ①(2026-09-25 issue0924a2 用户复测原话)「我需要的是**我鼠标滚轮滑到哪里，它就停到哪里**，无论下面刷不刷新
+      都是一样的，都是我滑到哪里，他停到哪里，而不是出现一条新消息就往最下面跳。」
+      ── 上一版为什么不管用（源码级根因，一行）────────────────────────────────────────────
+      `#logbody` 有**两个写入者**：本补丁的 `logLine()`，与**上游产物自己**的日志函数
+      `demo/assets/bench-DSKWIqmS.js` 里的 `X.appendChild(a),X.scrollTop=X.scrollHeight`（挂 `/api/diag-stream`）。
+      上一版只改了前者 ⇒ 渲染器诊断/挂载日志一来（走产物那条），`scrollTop` 照样被写到底。
+      ── 本版契约 ────────────────────────────────────────────────────────────────────────
+      ① 位置归用户：非贴底的定位之后，**任何**追加都不许改 `scrollTop`（产物那条被影子 setter 丢弃并计数）；
+      ② 贴底才跟随，且容差从 24px 收紧到 2px（24px 内仍会把用户往下拽）；
+      ③ 只有用户自己滚回底部才恢复跟随。 */
+  const ARTIFACT = fs.readFileSync(path.join(DEMO, 'assets', 'bench-DSKWIqmS.js'), 'utf8')
+  ok(/const LOG_STICK_PX = 2/.test(PATCH_SRC),
+    'A16a ★贴底容差收紧到 **2px**（改前 24px："离底 24px 以内"仍会被拽到底；用户的判据是"我停在哪就停在哪"）',
+    (PATCH_SRC.match(/const LOG_STICK_PX = \d+/) || [''])[0])
+  ok(/function makeScrollKeeper\(el, key\)/.test(PATCH_SRC) && /k\.installGuard = \(\) => \{/.test(PATCH_SRC) &&
+    /Object\.defineProperty\(el, 'scrollTop', \{/.test(PATCH_SRC) && /dropped-auto-bottom/.test(PATCH_SRC) && /k\.installAppendHook/.test(PATCH_SRC),
+    'A16b ★★根因修法：`#logbody` 上装**影子 `scrollTop` 访问器** + 追加钩子 ⇒ "刚追加完就往底部写"的那一写被判成**自动跟随**、在用户掌着位置时**丢弃并计数**（`dropped-auto-bottom`）')
+  ok(/X\.appendChild\(a\),X\.scrollTop=X\.scrollHeight/.test(ARTIFACT),
+    'A16c **根因证据**（产物 minified 不可改，所以修在补丁层）：产物日志函数里确实是无条件 `X.appendChild(a),X.scrollTop=X.scrollHeight` —— 上一版只改本补丁那一条，所以"还是会往下跳"',
+    'artifact: ' + (ARTIFACT.match(/X\.appendChild\(a\),X\.scrollTop=X\.scrollHeight/) || [''])[0])
+  const logLineSrc = PATCH_SRC.slice(PATCH_SRC.indexOf('function logLine(msg, isErr)'), PATCH_SRC.indexOf('function logLine(msg, isErr)') + 700)
+  /*  允许的兜底只有一条：**拿不到守卫/容器口径**时（桩 DOM、`#logbody` 还没建）退回写到底 ——
+      它必须写成 `else { … }`，不许再回到"无条件写"。 */
+  ok(/const k = logKeeper\(\)/.test(logLineSrc) && /if \(k\) k\.followNow\(\)/.test(logLineSrc) &&
+    /else \{ try \{ body\.scrollTop = body\.scrollHeight \} catch/.test(logLineSrc),
+    'A16d `logLine()` 自己也不再写无条件跳底：追加后走 `k.followNow()`（贴底才跟随，否则一个字都不写）；直接写到底只剩"守卫不可用"那一条 `else` 兜底')
+  ok(/function logScrollState\(\)/.test(PATCH_SRC) && /function logScrollProbe\(\)/.test(PATCH_SRC) && /function logScrollGuardSet\(on\)/.test(PATCH_SRC) &&
+    /logScrollProbe: \(\) => logScrollProbe\(\)/.test(PATCH_SRC) && /logScrollGuardSet: \(on\) => logScrollGuardSet\(on\)/.test(PATCH_SRC),
+    'A16e 探针三件套：`logScrollState()`（兼容旧读数）+ `logScrollProbe()`（guard/follow/anchor/droppedWrites/appendSeq）+ `logScrollGuardSet(on)`（**A/B**：关掉守卫就能当场复现改前那一跳 ⇒ 判据不恒真）')
+  ok(/scrollKeeper\('#diag-body', 'diag'\)/.test(PATCH_SRC) && /scrollKeeper\('#dbg-log', 'dbg'\)/.test(PATCH_SRC),
+    'A16f 同一条口径也套在**渲染器诊断**与**调试日志**两条流上（用户第 7 条里"诊断只有 24 条"要看得清，同样不许被新消息拽走）')
 }
 
 /* ══════════════════ ⑰ 壁纸配置里的下拉栏 ══════════════════ */

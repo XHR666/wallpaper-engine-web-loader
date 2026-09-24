@@ -1154,3 +1154,58 @@ commit：**`19c5fab`**（上游 1.3.x 的 overbright 修复提交；行号用 `g
 2. **`instanceoverride.brightness` 未接**：上游 `:1300` 是 `brightness × overbright` 两个因子相乘，
    本仓库 `instanceoverride` 没有 `brightness` 字段 ⇒ 本项只落 `overbright`，**未**顺手扩字段。
 3. **脏值口径**：上游 `Number.isFinite(ob) ? Math.max(0, ob) : 1` 与我们逐字同义（`"2"` 这类数值字符串两边都吃）。
+
+## 6C. `wangkaxds/we-scene`  (MIT © 2026 aurora-wallpaper contributors) — **上游祖先补齐署名**（2026-09-25）
+
+> 这一条不是"新借了代码"，而是**补一条我们本来就该写、却漏了的 MIT 声明**：本仓 §6/§14 里那些标着
+> `renderer/vendor/we-scene/…` 的文件，其**版权方不是** `oneincase/webwallgl`，而是被它整目录 vendored 进来的
+> 第三方子树。事实链（可复现，逐条给证据）：
+
+| # | 事实 | 证据 |
+|---|---|---|
+| 1 | `oneincase/webwallgl` 内部有一个 **vendored 子树** `renderer/vendor/we-scene/**`（34 个 js/ts + 自带 LICENSE） | 本机检出 `references/vendor-ref/webwallgl/renderer/vendor/we-scene/`（含 `LICENSE`、`render/`、`pkg/`、`scene/`） |
+| 2 | 该子树的 `LICENSE` = **MIT © 2026 aurora-wallpaper contributors**，**不是** oneincase | `references/vendor-ref/webwallgl/renderer/vendor/we-scene/LICENSE` 全文见下 |
+| 3 | 该 LICENSE 逐字节等于 `wangkaxds/we-scene` 仓库的 `LICENSE` | 研究线 fetch 上游 raw 比对：同文本同长度（1085 B） |
+| 4 | 时间线：`wangkaxds/we-scene` 与 `wangkaxds/dsh-aurora-wallpaper` 均 created **2026-08-15**（MIT）；`oneincase/webwallgl` created **2026-09-04** | 各自仓库元数据；webwallgl 的改动以 `// [we-scene patch]` 标记（本仓 `vendor/hlsl2glsl/hlsl2glsl.js:22` 就有这行） |
+| 5 | 我们的 `core/we-scene-bundle.js` 里有**大段逐字相同**的代码，且命中集中在那个 vendored 子树 | 与 webwallgl 全仓 92 个 js/ts 做">40 字符整行逐字相同"比对：**前 15 名全部落在 `renderer/vendor/we-scene/**`**（`render/renderer.js` 145 行、`render/hlsl2glsl.js` 69 行、`pkg/tex-codecs.js` 41/66=62%、`pkg/container.js` 15/18=83%、`render/noise.js` 10/10=100%）；最长逐字块 **512–2048+ 字符**（对照：`elysia/**` 那段我们已署名的上游最长逐字只有 24–64 字符） |
+| 6 | 本仓**直接引用了那个路径**，但此前只署名 oneincase；全仓 `grep -rni aurora` = **0 命中** | `demo.html:4938` 引用 `renderer/vendor-ref/webwallgl/renderer/vendor/we-scene/render/audio.js`；`THIRD-PARTY.md` §14 表里多行是 `renderer/vendor/we-scene/…` |
+
+### 6C.1 处置（按 `docs/COPYING-RULES.md` §2.1「原 MIT 声明必须保留」+ §4 台账）
+
+- **不删代码、不改行为**：只是把缺的声明补齐（本文件 = 发行物的一部分，声明随之分发）。
+- §14 表里所有上游路径写成 `renderer/vendor/we-scene/…` 的行，其**来源仓库**应理解为
+  `oneincase/webwallgl`（我们实际取用的那一份）**且**其**版权方**为 `wangkaxds/we-scene`
+  （MIT © 2026 aurora-wallpaper contributors）——两份声明都保留，**不是**二选一。
+- 台账行见 `docs/COPYING-RULES.md` §4（新增一条把这条血缘写清；旧的 webwallgl 行**不改**，因为取用路径确实经过它）。
+
+### 6C.2 上游 MIT 全文（逐字，来自那个 vendored 子树的 `LICENSE`，1085 B）
+
+```
+MIT License
+
+Copyright (c) 2026 aurora-wallpaper contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### 6C.3 这条对"能不能从 aurora 借更多"的回答
+
+`wangkaxds/we-scene` / `wangkaxds/dsh-aurora-wallpaper`（均 MIT）**是我们的上游祖先，不是独立第三方**：
+从它"再借一次"在法律上可行（MIT），但**必须走同一条署名**（本节的声明 + 台账），
+并且**不能**把它当成"另一个可自由复制的实现"来回避本仓既有的洁净室/许可纪律（见 `docs/COPYING-RULES.md` §5/§5.1）。

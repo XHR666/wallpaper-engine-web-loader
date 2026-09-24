@@ -911,6 +911,48 @@ try {
       const v4 = pick()
       out.volume = { op: rVol, volume: v4 ? Math.round(v4.volume * 100) / 100 : null, muted: v4 ? v4.muted : null }
       window.__benchPatch.npTransport('volume', 0)
+      /*  ③(2026-09-25 issue0924a2 用户第 3 条) **卡片内部的音量轨**：直接拖那个 `<input id="np-volume">`
+          （它现在由组件渲染；拖它走的是组件 `onChange` → `send("volume")` → `onTransport` 这条链，
+          与上面 `npTransport('volume', …)` 那条**不是同一条入口**）⇒ 媒体元素音量必须跟着走。
+          同时量"静音第四键"（传输行里那一颗）⇒ muted=true 且音量值保住。 */
+      /*  ⚠音量轨只在**卡片展开**（组件 `showVolume = controlled && late > 0`）时存在 ⇒ 先把它点开
+          （`#np-host .snd-tap` 是组件自己的展开键；最多试 4 次，每次等补间跑完）。 */
+      for (let i = 0; i < 4; i++) {
+        const g0 = window.__benchPatch.npGeometry ? window.__benchPatch.npGeometry() : null
+        if (g0 && g0.volumeVisible) break
+        const tap = document.querySelector('#np-host .snd-tap')
+        if (tap) tap.click()
+        await new Promise((r) => setTimeout(r, 900))
+      }
+      const volEl = document.querySelector('#np-volume')
+      out.volSlider = (() => {
+        const api = window.__benchPatch
+        const g = api.npGeometry ? api.npGeometry() : null
+        const mkEl = document.querySelector('#np-mount [data-mpw-np-mute]')
+        return {
+          present: !!volEl, disabled: volEl ? !!volEl.disabled : null, value: volEl ? String(volEl.value) : null,
+          inCard: !!(g && g.volumeInCard), inStrip: !!(g && g.volumeInStrip), volumeOverflow: !!(g && g.volumeOverflow),
+          keyPresent: !!mkEl, keyDisabled: mkEl ? !!mkEl.disabled : null,
+        }
+      })()
+      if (volEl && !volEl.disabled) {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+        setter.call(volEl, '0.35')   // ⚠滑条 step=0.05：写 0.31 会被浏览器按步长吸附到 0.3（实测踩到）
+        volEl.dispatchEvent(new Event('input', { bubbles: true }))
+        await new Promise((r) => setTimeout(r, 800))
+        const v5 = pick()
+        out.volSlider.after = { value: String(volEl.value), video: v5 ? Math.round(v5.volume * 100) / 100 : null, muted: v5 ? v5.muted : null }
+        const mk = document.querySelector('#np-mount [data-mpw-np-mute]')
+        if (mk && !mk.disabled) {
+          mk.click()
+          await new Promise((r) => setTimeout(r, 700))
+          const v6 = pick()
+          const mk2 = document.querySelector('#np-mount [data-mpw-np-mute]')
+          out.muteKey = { pressed: mk2 ? mk2.getAttribute('aria-pressed') : null, muted: v6 ? v6.muted : null, volKept: v6 ? Math.round(v6.volume * 100) / 100 : null }
+          if (mk2) mk2.click()      // 收尾：恢复可听（后面的组还要用媒体）
+          await new Promise((r) => setTimeout(r, 600))
+        }
+      }
       await new Promise((r) => setTimeout(r, 300))
       // ④ 联动开关：点心形 ⇒ link=0、所有键置灰、再点播放**不动作**
       const heart = document.querySelector('#np-mount [data-mpw-np-link]')
@@ -973,6 +1015,16 @@ try {
     ok(t && t.volume && t.volume.op === 'volume' && t.volume.volume === 0.42 && t.volume.muted === false,
       'T5 【真控·音量】经卡片 op 设 0.42 ⇒ 元素的 `volume === 0.42` 且解除静音',
       JSON.stringify(t && t.volume))
+    /*  ③(2026-09-25 issue0924a2 用户第 3 条) 两条新判据：**卡片内部的音量轨**真的能拖（组件那条入口）、
+        传输行第四键（静音）真的作用到媒体。改前：音量滑条在卡片**下面**一条独立的 `#np-volbar` 里。 */
+    ok(t && t.volSlider && t.volSlider.present === true && t.volSlider.disabled === false && t.volSlider.inCard === true &&
+      t.volSlider.inStrip === false && t.volSlider.volumeOverflow === false && t.volSlider.keyPresent === true &&
+      t.volSlider.after && t.volSlider.after.video === 0.35 && t.volSlider.after.value === '0.35',
+      'T5b ★★用户第 3 条：**卡片内部**的音量轨（`#np-volume`）能拖（`inCard=true / inStrip=false`、不越界），拖到 0.35 ⇒ 媒体元素 `volume=0.35`（走组件 `onChange → send("volume")`，不是宿主的 npTransport 入口）',
+      JSON.stringify(t && t.volSlider))
+    ok(t && t.muteKey && t.muteKey.pressed === 'false' && t.muteKey.muted === true && t.muteKey.volKept === 0.35,
+      'T5c ★用户第 3 条：卡片传输行的**静音第四键**（`data-mpw-np-mute`）点一下 ⇒ 元素 `muted=true` 且音量值保住 0.35（不把用户设的音量清零）',
+      JSON.stringify(t && t.muteKey))
     ok(t && t.link && t.link.canPlay === false && t.link.disabled === true && t.link.pausedBefore === t.link.pausedAfter && t.linkBack === true,
       'T6 【联动开关】关掉联动 ⇒ 所有键置灰、点播放**不动作**（paused 不变）；再点回来恢复',
       JSON.stringify(t && t.link))
@@ -1968,7 +2020,14 @@ try {
             color: getComputedStyle(el).color, inlineSize: el.style.fontSize, inlineWeight: el.style.fontWeight,
             parentSize: getComputedStyle(el.parentNode).fontSize, parentWeight: getComputedStyle(el.parentNode).fontWeight,
             selfSize: getComputedStyle(el).fontSize, selfWeight: getComputedStyle(el).fontWeight }))
-          const imgs = [...body.querySelectorAll('.bench-prop-img')].map((i) => ({ src: String(i.getAttribute('src') || ''), w: Math.round(i.getBoundingClientRect().width) }))
+          /*  ②(2026-09-25 issue0924a2 用户第 2 条)**契约更新**：面板里的图有**两个来源**
+              （产物自己解析的 `.prop-media img` + 属性文案 tokenize 出来的 `.bench-prop-img`），
+              两级共用一本账、先到先得 ⇒ "真的画出图了"要**两个来源一起数**（只数我们那份会假红）。
+              同时如实记下两个来源各自的可见张数与被压掉的重复张数。 */
+          const visibleRow = (im) => { let p = im.closest('.prop, .prop-text') || im.parentNode; while (p && p !== body) { if (p.hidden) return false; p = p.parentNode } return true }
+          const allImgs = [...body.querySelectorAll('.bench-prop-img, .prop-media img')].filter((i) => !i.hidden && visibleRow(i))
+          const imgs = allImgs.map((i) => ({ src: String(i.getAttribute('src') || ''), w: Math.round(i.getBoundingClientRect().width), from: i.classList.contains('bench-prop-img') ? 'ours' : 'media' }))
+          const dupImgs = [...body.querySelectorAll('img[data-bench-img-dup]')].length
           const brRows = [...body.querySelectorAll('.prop, .prop-text')].filter((r) => r.querySelector('.prop-name > br, .prop-text-cap > br'))
           const brGeom = brRows.slice(0, 3).map((r) => {
             const el = r.querySelector('.prop-name, .prop-text-cap') || r
@@ -1978,7 +2037,7 @@ try {
           })
           const dangerous = [...body.querySelectorAll('script, iframe, object, embed')].length +
             [...body.querySelectorAll('*')].filter((el) => [...el.attributes].some((a) => /^on/i.test(a.name))).length
-          return { raw, fg, imgs, brGeom, dangerous, links: [...body.querySelectorAll('a.bench-prop-link')].length }
+          return { raw, fg, imgs, dupImgs, brGeom, dangerous, links: [...body.querySelectorAll('a.bench-prop-link')].length }
         })
         const sizesOk = rich.fg.every((f) => f.inlineSize === '' && f.inlineWeight === '' && f.selfSize === f.parentSize && f.selfWeight === f.parentWeight)
         ok(rich.raw.length === 0 && rich.dangerous === 0,
@@ -1988,8 +2047,9 @@ try {
           'P5b #28 只保留**颜色**语义：`<font color>` 落到 `style.color`，字号/字重与父节点**逐值相同**（不实现 `<big>/<b>` 的字号字重）',
           JSON.stringify({ n: rich.fg.length, sample: rich.fg.slice(0, 2), sizesOk }))
         ok(rich.imgs.length > 0 && rich.imgs.every((i) => /^https?:\/\//i.test(i.src)),
-          'P5c #26 `<img src>` **只渲染图**（http(s) 图片真出现在面板里），标签文字不再重复显示',
-          JSON.stringify({ imgs: rich.imgs.slice(0, 3) }))
+          'P5c【契约已更新：②】#26 `<img src>` **只渲染图**（http(s) 图片真出现在面板里），标签文字不再重复显示 —— ' +
+          '两个来源（产物 `.prop-media` + 本文案的 `.bench-prop-img`）一起数，且`once` 档下同一张画面只留一份',
+          JSON.stringify({ imgs: rich.imgs.slice(0, 3), dupSuppressed: rich.dupImgs }))
         ok(rich.brGeom.length > 0 && rich.brGeom.every((g) => g.lines >= 2),
           'P5d #28 `<br>` 真的换行（含 `<br>` 的属性文案在面板里占 ≥2 行 —— 几何量，不是看字符串）',
           JSON.stringify(rich.brGeom))

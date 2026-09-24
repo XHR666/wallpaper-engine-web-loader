@@ -13671,3 +13671,257 @@ MPW_ROOT=/tmp/emptyroot bash tests/run-all-tests.sh.old      --only multi-sprite
   `tools/check.sh` 全 12 步通过、`integrity-check` 72/0、`secret-scan` 0 命中。
   **尾斜杠必须留**（`fetch(base + "diag-flags.json")` 是字符串拼接，8902 的 `/webloader/diag-flags.json` 实测 200）。
 * **未做（待确认）**：插件侧"只启 8902"还要求用户那边确实跑着 8902（配置项可改回 8899）；`start-demo.sh` 仍默认双端口起（历史口径，未动）。
+
+## P-189（2026-09-25 · 渲染器线 D）「效果链编译失败 ⇒ 只画背景」的真根因：`common.h` 的 include **从未被拼进去过**（URL 拼错 + 空串当成功缓存）
+
+**一句话**：`#include "common.h"` 在整条链上有**三处**把"没取到"伪装成"取到了"：页面把 URL 拼成 `/common.h`（宿主静态面 404）、
+失败的空响应被 `headerCache.set(name, txt || '')` 永久缓存、`preprocess()` 又把**空串**判为"包含成功"（连 `// [include 缺失: …]` 都不写）
+⇒ 生成的 GLSL 缺 `M_PI_2`/`rotateVec2` 整批符号 ⇒ 到 GL 编译期才炸成 `跳过编译失败的 pass` ⇒ **整条效果链 `break`** ⇒ 该层退化成背景拷贝
+（真机日志里那批 `[copybg] … COPYBG=1 + 链输入=背景拷贝`）—— 用户看到的就是"**只有背景**，没有实质性的东西"。
+
+| # | 根因（改前 = 钉死 `a3bb009`） | 改法 |
+|---|---|---|
+| ① | `demo.html` 的 `fetchHeader()`：`'/' + name.replace('shaders/','')` ⇒ **`/common.h`**。而 `:8902` 的**静态面先命中**该路径（404「静态文件不存在：/common.h」）⇒ 渲染器的 `HEADER_FILES` 分支根本到不了。**长期没被发现的原因**：`:8899`（旧渲染器服务器）上 `/common.h` 是 **200**，只有一站式 `:8902` 上才 404 | 三个候选 URL 依次试：`/shaders/<base>`（本仓自研头，**优先**）→ `/weassist/shaders/<base>`（官方 WE 资产）→ 旧拼法兜底 |
+| ② | 失败被当成功缓存：`headerCache.set(name, txt \|\| '')` + `catch {}` 全静默（真机日志因此没有任何线索） | **成功才缓存正文**；失败退避 3s 后仍可重试 + **显式告警一次**（不永久污染、不静默） |
+| ③ | `core/we-scene-bundle.js` 的 `preprocess()`：`inc !== null` ⇒ **空串 = 包含成功** ⇒ 符号整批消失且无痕迹；`getEffectProgram` 里 `includeCache.set(f, (await shaderResolver(…)) \|\| '')` 同一个模式 | 空/纯空白一律**判缺失并留痕**（`// [include 缺失: xxx]`）；新增**内置 `common.h` 等价头**（与官方逐值一致，**`M_PI_2 = 6.28318530718` = 2π**）+ include 三态解析（服务器正文优先 / 空 ⇒ 内置兜底 / 未取过 ⇒ 记 missing） |
+| ④ | 顺带发现的**真 h2g 缺陷（规则 9-S）**：采样坐标实参的 HLSL 隐式截断（`vec4 → vec2`），真包 `clipping_mask.frag:52` 实证 | 落地规则 9-S（新分桶计数）；`foliagesway` 的 `rotateVec2` **不是**独立缺陷（实参本就 vec2/float；空 include 时编译器错误恢复把它当 float 才有 `cannot convert`） |
+
+* **判据**：新增 `tests/effect-prelude-common-test.mjs` ⇒ **ALL PASS 92 项**（**真编译器档**：本机 `/usr/bin/glslangValidator`）：
+  E1 官方逐值 / `M_PI_2 = 2π`、E2 与自研头 token 级防漂移、E3 三态解析、E4 空串留痕、E5 官方 + **真包** `shake`/`foliagesway` 走生产拼装**真编译 0 error**、
+  E6 变异"恒空解析" ⇒ 6 个含 include 的 stage 全部按预期报错、E7 URL 接线 + 两宿主 HTTP 实测。
+  **变异必红已实跑**：拿掉内置头 ⇒ **31 项红**；URL 拼回 `/common.h` ⇒ **2 项红**（均已还原 + md5 校验）。
+* **契约变更（显式，未放宽）**：`tests/hlsl2glsl-width-table-test.mjs` 的 `EXPECT_CHANGED` **4 → 5**（新增规则 9-S 的 `clipping_mask.frag`，附理由）；
+  B3 仍**精确相等**、B2「移植前能编译的输出逐位不变」仍 **0 回归**。
+* **读数（改前 → 改后；本机 llvmpipe，编译期与驱动无关）**：
+  `404 /common.h` + `404 /common_perspective.h` → **`200 /shaders/common.h`**；`跳过编译失败的 pass` **4 条 → 0 条**；
+  `fxStats`：19 个带效果层里 16 个 `passes≥1`、**0 个 `fxFail`**（余 3 个是 `degenerateFbo`/`bypassAll` 的既有解释）。
+  **/0923 全语料对拍：含 include 的 shader stage 编译失败 151（23/30 包）→ 11 → 10（9/30 包）**。
+* **门禁汇总**：demo-syntax 11/11 · 新判据 92 · width-table 44（变异 3/3）· wiring 13 · coverage 46/46 · **glsl-validate 128/128** ·
+  degenerate-fbo 40/0（M3 变异重新变红）· clean-room-effects-blend 312/0 · hdr-predicate 21/0 · hdr-black-guard 16/0 · video-quality 144/0 · quality-tiers 42/0。
+* **未修（如实，已交接）**：`2902406982` 的 `三角1..6/12/13` **10 个层**的 `clipping_mask` 仍报 `:472 '-' : vec4 … vec2`
+  （源 `:53` 的**二元运算**隐式截断 ⇒ 需表达式级宽度推断，交转译线 G）与 `fmod()` 重写（GLSL ES 无 `fmod`，须 `x − y·trunc(x/y)`，**不能**直接换 `mod`）；
+  `前景效果#410` 编译失败已消失但仍 `passes=0`（原因未证实）；25 个 `弹幕*` 层 `passes=0` 是 `materialPasses` 为空（效果定义没解析出材质 pass，与编译无关）；
+  `common_vertex.h` 本仓/内置都缺（/0923 有 5 个包引用；装 WE 的机器两条路由都 200，公开副本会退化成"缺失"）。
+* 详细报告：`docs/reports-issue0924a2-line-D.md`（含复现命令、逐号行号、真编译对拍）。
+
+## P-190（2026-09-25 · 测试台 UI 线 E）复测后的 4 条：输出面板**滚到哪停哪** · 图片**强制只显示一次**（并把链接兜底删掉）· 音量控件进 **NP 卡片内部** · 切渲染器档**不再凭空挂壁纸**
+
+**一句话**：上一轮四条"看着做了"的改动在用户真机上都没达到效果；本轮每条都先找出**真根因**（三条都指向"产物自己的那份实现完全没被改到"），
+再修 + 给成对读数与"改回去必红"的判据。改动集中在 `demo/bench-patch.js`、`demo/index.html`、`demo/now-playing/**`。
+
+| # | 用户原话 | 真根因（file:line） | 改法 | 改前 → 改后读数 |
+|---|---|---|---|---|
+| ① | "我鼠标滚轮滑到哪里，它就停到哪里…出现一条新消息就往最下面跳" | `#logbody` 有**两个写入者**：产物自己的 minified 日志函数（`demo/assets/bench-DSKWIqmS.js` 偏移 87276）`X.appendChild(a),X.scrollTop=X.scrollHeight` **无条件跳底**；上一轮只改了补丁那条 `logLine` | 在 `#logbody` 上装**影子 `scrollTop`** + 追加钩子（"追加后同一拍的跳底"丢弃并计 `dropped-auto-bottom`），容差 24→**2px**；同口径套 `#diag-body`/`#dbg-log`；探针 `logScrollProbe()` | 真路径（`POST /diag` → SSE → 产物写底）：**改前 top 0→5526（slack 5508→0）；改后 top 0→0（slack 5712）+ droppedWrites+1**；关掉守卫复刻同一跳（A/B 证不恒真） |
+| ② | "重复的图片只显示一次…把链接也去掉" | (a) 面板里图有**两个来源**，旧账本只去了我们的 token，产物 `.prop-media > img` **完全不进账**（真机 `dd/3660962877` 同一张画面 **44 张全可见**）；(b) 变体归并旧规则要求"两张都载入成功且宽高完全相同" | 身份键放宽（尺寸/质量参数、`_800x600`、http↔https、`www.`）+ **键相等无条件归并**（尺寸证据只进台账）；`sweepPanelImages()` **按 DOM 顺序扫面板全部 `<img>`（两来源一本账、幂等、账本从 DOM 重建）**；隐藏行不参与；**空壳/重复链接一并藏掉**；面板末尾台账提示行 | **44 张可见（同一张画面 33 遍）→ 6 张**（`hiddenDup=70`；`?propimg=all` 对照仍 26 张）；夹具（同一张画面 4 种 URL 形态）**10 → 2 张**。边界：真语料没有"重传且尺寸不同"的样本 ⇒ `different` 分支只有纯函数判据 |
+| ③ | "把音量的按钮集成到 NP 的卡片里面" | 上一轮落点是卡片**下面**那条独立 `#np-volbar`（真机：滑条 y=838–842 在卡 693–771 **之外**） | 组件自己在卡片**内部**画音量轨（`NowPlaying.tsx` 时钟行中间）+ 传输行加**静音第四键**（照 DSH 插件 `showVolume = controlled && late > 0`）；CSS 只用既有类/属性选择器（**不新增 `.snd-*` 类** ⇒ `now-playing-test` 219/0 一行未改）；`index.html` 撤掉独立那条与 `--mpw-np-vol`（`cover` 回到 card+strip） | `volumeInCard` **false → true**；1280/390/320 三档 `overflow=false`（滑条 166px）；强撑 400px 对照 ⇒ `volumeOverflow=true`；真媒体拖到 0.35 ⇒ `video.volume=0.35`、静音键 ⇒ `muted=true` 且值保住；p142 `cover` **245 → 219**、展开被遮挡项 **5 → 4** |
+| ⑦ | "未选择壁纸的状态下切成上游产物，它就加载了最后一个壁纸…新窗口还不能叉掉" | 产物模块作用域的 `w`（`Ae(){if(!w)return; …k.src=…}` 读它重挂载）只有 `ht(){w=null}` 会清，而产物「释放」`E()?.release()` **只释放舞台不动 `w`** ⇒ 叉空后切档点「重挂载」又把最后那张挂回来 | `clearArtifactSelection()` 借产物自己的 `ht()` 清 `w`（跨作用域走 `window.__benchClearArtifactSelection` 桥）+ 换档前判 `nothingSelectedNow()`、没选就**不点**「重挂载」+ 空选择写实话 `log.rendererSrcEmpty`（中英） | **改前**：src → 那张壁纸 URL、`#current` 变回标题、canvas 1、新窗口 1 条；**改后**：src `''`、`#current=未选择壁纸`、canvas 0、openUrls `[]`；产物自己的「重挂载」也不动；切回本仓档再选一张照常挂载 |
+
+* **顺手查清**（不是缺陷）："诊断只有 24 条"不是我们截断 —— 面板上限 400，服务端 `/api/diag-stream` 新连接回放最近 **50** 条；同会话实测上游档 **50** 条、本仓档 **80–104** 条（该档本来就报得少）。**未改**回放上限（提到 200 会把每次开页的诊断灌进输出区，与 ① 相反）——留作待拍板。
+* **判据**：`bench-issue0924a-line-A-test` **86/0（64→86）** · `bench-ui-headless` **192/0（174→192）** · `bench-dsh-libroot --no-mutant` **69/0** ·
+  `bench-issue0924a-ia-browser-test` **39/0（23→39）** · `p142-nav-sound` **93/93** · `bench-props-text` 48/0 · `now-playing` 219/0（未改） ·
+  `demo-check` 132/0 · `demo-syntax` 11/11 · `docs-check` ✓；回归另跑 `bench-shell-fixes` 277/0、`bench-renderer-source` 37/0、`bench-bandfeed-switch` 55、`bench-mpkg-items` 54/0、`bench-server` 全绿。
+* **未验证/边界**：① 只挡 `scrollTop` 属性写，`innerHTML` 整块重写可绕过（产物不这么做，`A16c` 把"那一行"钉成根因证据）；② 真语料没有"重传且尺寸不同"的样本；
+  ③ 200px 面板下**卡片自身**（固定 260px）溢出面板是改动前就有的；未挂媒体时滑条/第四键按 `canVolume` 明确置灰。
+* 详细报告：`docs/reports-issue0924a2-line-E.md`（352 行，含 A/B 成对读数与复现命令）。
+
+* **集成期复核（编排者，2026-09-25）**：本线交付后在**全量套件**里 `bench-ui-headless` 一次红（`P2 #23` 收起期间切壁纸那条），
+  同一份代码**单独复跑 192/0 全绿**（读数 `{"collapsed":true,"during":{"state":"ok"…}`）⇒ 判为**负载下的既有偶发**（与本线报告里 S2a/S2b 同类；
+  套件里该项跑了 241s，独占时约 200s）。另：本线手工验证用的夹具目录 `allwallpaper/variantfix/`（47KB）**遗留在语料根里**，
+  被 `package-matrix` 判成"新包"而红 ⇒ 已删除（夹具请一律放 `/tmp`，语料根只放真壁纸）。
+
+## P-191（2026-09-25 · 转译线 G）h2g **宽度推断族（规则 9-W 七条）+ `fmod` 重写**：`/0923` 语料编译失败 10 → 1，`2902406982` 的 `三角*` 层真的跑起来了
+
+**一句话**：D 线把"效果链编译失败"的头号根因（`common.h` include 从未拼进去）修掉后，`/0923` 还剩 10 条真编译失败；
+本轮把其中 **9 条**归成 7 类并各落一条规则（新规则族 **9-W**）+ 把 GLSL ES 没有的 `fmod` 按
+`x − y·trunc(x/y)` 重写（**不是**换成 `mod`：负数语义不同，有数值实证），剩 1 条属另一族（顶点写 `attribute`）已定性未修。
+
+| 类 | 真编译器报文 | 真包 file:line | 新规则 | 桶 |
+|---|---|---|---|---|
+| ① | `'-' wrong operand types vec4…vec2` | `0923/2902406982 shaders/workshop/2800594362/effects/clipping_mask.frag:53` | **9-W①**（宽侧截到窄侧） | `rule9Wbin`=8 |
+| ② | `'-' vec3…vec2` | `cutout_vignette.frag:79`（2981249186 / 3690417937） | 同① | 同① |
+| ③ | `'*' vec4…vec2` | `iris_movement__.vert:167`（3448290956） | 同① | 同① |
+| ④ | `'/' vec2…vec4`（**右宽左窄**：两个方向都治） | `____________________.frag:159`（3653641024） | 同① | 同① |
+| ⑤ | `'+' int…vec2` + 声明截断 + 标量广播 | `shadow.vert:37`（3479521040） | **9-W②③⑤** | `rule9Wdecl`=1 / `rule9Wint`=9 / `rule9Wbcast`=1 |
+| ⑥ | `'const' non-convertible` + `int/float` 标量混合 | `godrays_cast.frag:46`/`:53`（3582367840 / 3605722997 / 3653641024 / 3662790108） | **9-W④⑥** | `rule9Wconst`=3 |
+| ⑦ | `'mix' no matching overloaded`（修完前六类才暴露） | `shift_hue.frag:132`（0917/3233141951）、`hue_shift.frag`（dd/3327063360） | **9-W⑦**（分量式内建向量实参宽度不同） | `rule9Warg`=2 |
+| ⑧ | GLSL ES 无 `fmod` | `chromatic_aberration.frag:42` | `((x) − (y)·trunc((x)/(y)))`，**每个代入点自带括号** | `ruleFmod`=1 / `ruleFmodDupArgs`=0 |
+
+* **读数**：`/0923` 含 include 的 shader stage 真编译失败 **151（D 线改前）→ 11 → 10（D 线末态）→ 1（本轮）**；
+  端到端 `2902406982`：`跳过编译失败的 pass` **1 → 0**、`wrong operand types` 日志 **9 → 0**、
+  fx 43 层里"真的跑了 pass 的层" **5 → 12**、`三角*` 层 **7 层 `passes` 0 → 1**。
+* **判据**：`hlsl2glsl-width-table-test` **77 项 ALL PASS**（变异自证 3/3；B2「移植前能编译的输出逐位不变」**0 回归**；
+  B3 变化集 5 → 16 条**精确相等**，新增 11 条全部来自"改前编不过"那批）+ 新增 `hlsl2glsl-width-9w-test` **68 项 ALL PASS**
+  （W2 = 6 个真包真 shader 走生产拼装真编译 0 error；W3 = **关掉 9-W/fmod 后原来那 5 条错必须重现**（实测重现）；W6 = 全语料台账 10 → 1）。
+  既有门禁：wiring 13/13 · coverage 46/46 · **glsl-validate 128/128** · demo-syntax 11/11 · D 线 `effect-prelude-common` 92 项仍全绿。
+  本线抓到自己唯一一处回归（include 里的 `float c` 污染本文件 `vec3 c` ⇒ 假阳性）并由 B2 挡下，已加"同名 float 与 vecN 并存 ⇒ 不猜"的夹具（A36）。
+* **未做（已定性 + 写了怎么做）**：① `3479521040 shadow.vert:152` 顶点阶段写 `attribute`（GLSL `in` 只读；既有规则 2i 只对 frag 的 varying 生效）——
+  全语料剩的那 1 条；② 既有规则 `2d` 把 `uint x = int % int` 改写成返回 float 的 `mod(...)`（不看目标类型，`Simple_Audio_Bars.frag:492` 暴露）；
+  ③ `common_vertex.h` 自研等价头（/0923 有 5 个包引用；装 WE 的机器两条路由都 200，公开副本会退化成"缺失"）；
+  ④ `fmod` 实参文本代入的重复求值（语料 0 条，计数可见）；⑤ 9-W 三个已量化边界（宽度表闸门 276/276 都含 vecN ⇒ 现网无影响；右值解析放弃 23 条、矩阵/未声明宽度记 0 —— 都不静默，桶可读）。
+* 详细报告：`docs/reports-issue0924a2-line-G.md`。
+
+---
+
+## P-192（2026-09-25 · 音频线）静音**真的没声**：场景帧新增 master 总闸 + "收起来就停源"，并查清**本次现场的真因是我们的探针写坏了宿主档**
+
+**一句话**：用户报"刷新后壁纸没自动播放、NP 暂停、静音已开，仍有声音；**而且这声音不是当前壁纸的音频**"。
+拆成三条独立机制，全部有本机实测或**真机信标**：
+
+1. **图级无落点 + 跨源通道全断**：场景渲染器帧在 `:8902`、插件页在 `:3080` ⇒
+   `frame.contentDocument` 为 null、`window.frameElement` 为 null（宿主写的 `frame.muted` expando 读不到）、
+   shim policy 只对 `?mpwshim=1` 帧发。改前实测（静音=开 + 场景档 + 刷新）：帧内 4 条 `<audio>` 全
+   `muted:false / volume:0.25 / paused:false`、`AudioContext: running`、接 destination 那条边的抽头
+   **0.0134 → 0.0189**、帧内 `msgs: []`。**同时推翻**初始猜测"`muted` 压不住 `MediaElementSource`"：
+   逐个 `el.muted=true` ⇒ 抽头 **0**。
+2. **"藏起来的帧"不停源**：看门狗兜底 `sceneFallbackActivate()`（插件 `lib/client.js:3992`）+ CSS
+   `.mpw-bgWrap.mpw-scene-fallback iframe.mpw-webFrame{display:none!important}`（`:14599`）把渲染器 iframe
+   **隐藏但保留 src**，而**隐藏的 iframe 不会停媒体** —— 实测加类后帧内峰值 **0.027（在放）**。
+   同类落点：总开关关掉（只 `display:none`）、省电/切后台 `pauseWebFrame()`（跨源下旧两条通道等于没停、
+   返回值还是 0）、`teardownWebFrame()`。
+3. **★真机现场的真因（我方事故）**：音频探针 `tools/audio-leak-frame-probe.mjs --mount-scene` 把
+   "探针场景 + `webUrl…&audio=1`"写进浏览器 localStorage，插件随即把整档 **PUT 到宿主端**
+   （`mpwPersistSection`：去重后写 host）；**探针只复原了 localStorage**，宿主那份的 `__mpwHostAt` 更新
+   ⇒ 下次加载按"谁新用谁"裁决时**宿主（探针档）赢** ⇒ 用户壁纸被探针场景顶掉
+   （宿主档实测 `mpkgName="探针场景（凯尔希 4 音轨）"`、`sceneKey="scene|probe|…"`、
+   `webUrl` 带 `&audio=1`；与用户 09-20 备份逐键 diff **只差 6 个源字段** + 后的 `npPaused/srcRoot`）。
+   用户侧表现逐条对上：画面是静态帧（"没自动播放"）+ 声音是那个场景的 4 条 BGM（"不是当前壁纸的音频"）
+   + 点 NP 换 src ⇒ 旧文档销毁/新文档加载（"才开始重新加载"）+ 静音到不了跨源帧（第 1 条）。
+
+**改法**：渲染器 `demo.html` 新增 master GainNode 总闸（声源 → analyser → master → destination，全页唯一出口边）、
+`mpwAudioPark(on,reason)`（**收起来就停源**：逐个 `pause()` + `ctx.suspend()`，台账 `parks/resumes`）、
+三条可达通道（URL 复用已登记 `audio=0` / `postMessage{mpw-audio-policy|park}` / 同源 `__wp.setMuted|setAudioPolicy`）、
+`?embed=1` 嵌入帧**宿主未表态先静音**（fail-safe）、`release` 回收 master；
+插件 `lib/client.js` 新增 `sendRendererAudioPolicy(frame, mute, park, why)`（跨源唯一可达；幂等 +
+**帧重载即使值没变也重发**），并在每个"隐藏/切走"落点下发 park（`:3165` teardown、`:4366` np-owns、`:9292` pause-frame），
+`npFrameSoundBlocked()` 口径改成"**真的在出声**"（`paused ∧ !muted ∧ volume>0`）。
+**处置现场**：向宿主 API PUT 回用户真档并逐键复核（`converted=mp4`、`mpkgKey`（值为 `custommpkg|` + 用户那个 mpkg 文件名）、
+`source=bgcs_abydos03.mp4`、`webUrl=""`、删 `sceneKey`、`image` 保持、`mute=true`、`npPaused=true`）。
+**防复发**：探针改为两处存储**都存档/都复原/逐键复核**，不一致判红（`tools/audio-leak-frame-probe.mjs:222` 存档、`:401-418` 复原复核）。
+
+* **关键语义**：`silent = muted===true ∨ 宿主停渲染 ∨ 音量==0 ∨ (muted===null ∧ ?embed=1 嵌入帧 ∧ 无手势)`；
+  `masterGain = silent ? 0 : 1`；`parked` ⇒ 停源（不只是压增益）。
+* **判据**：渲染器 `tests/render-audio-leak-test.mjs` **47/0**（变异：删 `mg.value=want` ⇒ [E3] 红、
+  声源退回直连 ⇒ [E1] 红、删 park 的 pause 循环 ⇒ [G1] 红、删探测 ⇒ [G6] 红）；
+  插件 `tools/np-media-test.mjs` **117/0**（21 组变异，含 `scene-fallback-does-not-park-frame-audio`、
+  `cross-origin-frame-pause-does-nothing`）；`bash tools/check.sh` 12 步全绿。
+* **成对读数**：路径 B（测试台 `?shell=0`）基线峰值 0.0159 → `postMessage muted:true` **0（masterGain 0）**
+  → `muted:false` 0.0192 → 再静音 **0**（节点 2→2 幂等）；路径 A（插件 + 场景帧）**改前帧内 0.0134–0.0189
+  / 改后同一场景 0**，宿主放行时 0.0424（证明 0 不是"本来就没在放"），帧内自己 `play()` 4 条全 ok 后仍 0。
+* **真机证据（第三方出口，别误判成壁纸）**：插件自带的音频审计（`window.__mpwAudioAudit`，包装
+  `play`/`volume`/`muted` setter/`Audio` 构造，带调用栈与归属指纹 `owner`）在真机留下 8 条信标，
+  其中 4 条 `trigger=mute-on-but-audible` **全部**指向**第三方鲸鱼挂件**的 UI 音效
+  （`owner=whale-widget`、`src=/dsh-whale/sound/press.mp3?set=fx1|duck`、元素已脱离 DOM 仍在 `play`；
+  该挂件 `onended` 还会自动续播 `release.mp3` ⇒ 一次交互两段声 = 用户说的"响几声"）。**未修**（不在本仓写权内）。
+* **未验证**：① 本机是桌面 Firefox+llvmpipe，不是用户的 Android WebView/Adreno；量的是"到 destination 那条边的电平"
+  而非"声卡真的响"；② 桌面缺省策略不给手势就不出声 ⇒ 用 `media.autoplay.*` 复刻 WebView 免手势口径，
+  真机需复核这一点；③ **插件客户端在 DSH 里是加载期缓存** ⇒ 修法要等插件重载/宿主重启才进用户浏览器；
+  ④ 跨进程（系统壁纸服务/独立 WebView）与"另一个标签页"本机观测不到；⑤ NP 预览弹窗是否有带声音的播放路径未验证。
+* **连带修掉的判据漂移（本线自己撞的）**：本线在 `demo.html` 新增了**第二个**
+  `window.addEventListener('message', …)`（音频策略/停源，行 ~4739），而 `tests/time-variation-test.mjs` 的
+  `MSG_SRC` 切片从**第一个**匹配点切起 ⇒ 片段含音频监听整段 + 两段之间的边界 ⇒ `new Function`
+  直接 `SyntaxError: Unexpected token 'catch'` ⇒ 整套 `time-variation` 判红（全量套件 `PASS=164 FAIL=1`）。
+  已改成"**先定位结束标记、再向前找最近的起点**"（`tests/time-variation-test.mjs:172` 起），意图不变
+  （仍跑 `demo.html` 真源码、仍钉 `mpw-ln-key` 入站监听）⇒ **70 通过 / 0 失败**。
+  这是"判据锚在实现文本上"的老病，修法是让切片对"前面又多了同形代码"免疫。
+* **外部判定已回执**（材料 `docs/reports-issue0924a3-audio-leak-external.md` §0 / §3.1a / §10）：判定结论采纳为
+  **09-24 现场 = H3+H2+H1 复合、长期偶发 = H4**（不要把用户的一次抱怨归给单条机制）；**E8 从"未验证"升级为
+  "用户设备（Android）高概率已知出口"**并补 E10–E12（系统 TTS / MediaSession 触发的系统级恢复 / 蓝牙 A2DP 路由瞬态）；
+  **审计三盲区**（跨源帧内音源看不见 ⇒ 这正是 H3 现场"无信标却有声"的原因；跨进程音源；被
+  `createMediaElementSource` 接管后元素 `muted/volume` 只影响输入源、不能当出声证据）。
+  **宿主层三件待办**（全局音频总线 / 全局静音契约 `__dshAudioPolicy` / 跨进程钩子）**不在本仓写权内**，
+  是"整机按下静音不该响"这个诉求的真正落点；本线只治本于壁纸插件自身产生的音频。
+* 详细报告：`docs/reports-issue0924a3-audio-leak.md`（修法与成对读数）、
+  `docs/reports-issue0924a3-audio-leak-external.md`（**交给外部 AI 判定**的现场材料：全部候选机制 +
+  真机信标 + 判别实验 + 判定回执）。
+
+---
+
+## P-193（2026-09-25 · 粒子算子语义线 C4）`controlpointattract` 门限**无条件 ×0.5 是错的**：改回官方的"门限 = `threshold` 原值"，回退口 `?pforce=legacy`
+
+**一句话**：`core/we-scene-bundle.js` 的 Control point force 门限写成 `pGetVal(pr,'threshold',512) * 0.5`，
+依据是两条第三方参考实现（`lwe-ref` GPL-3.0-only / `wer-ref` GPL-2.0-only）。本轮按**官方三方一致**的文本推翻它：
+① 官方文档 [docs.wallpaperengine.io › scene › particles › component › operator](https://docs.wallpaperengine.io/en/scene/particles/component/operator.html) §"Control point force" 逐字
+**"Distance: The maximum distance of the force."**（全文无 diameter/radius/half），同节 "when near a control point"
+佐证判据方向 `d < 门限`（这一条我们本来就对）；② 官方 `assets/**` 全部 35 个 `controlpointattract` 实例键直方图
+`threshold` **33** 次、`distance` **0** 次；官方元素预览 `{threshold:1000}` 配 `distancemax:500` ⇒ 整 2× 余量；
+③ 官方编辑器键表（`bin/wallpaperui.exe` @11348344，**只 strings、未反汇编**）里 `threshold` 与 `deletethreshold`
+是**两个键** ⇒ 排除"`threshold` 是删除门限"这一解释。⇒ 门限 = `threshold` **原值**。
+
+**改法**：`core/we-scene-bundle.js:5201-5202` → `const __thrRaw = pGetVal(pr,'threshold',512); const thr = sys.pforceLegacy ? __thrRaw * 0.5 : __thrRaw`；
+档位解析 `:9438`（缺省 `official`）、接线 `:4145/:9438/:9582/:13836/:13882`。
+**与 `?pops=legacy` 正交**：`pops` 管判据方向（`d<t` vs `d>t`），`pforce` 只管门限数值；只开 `pforce=legacy`
+⇒ 与改动前默认档**逐位相同**。README-DIAGNOSTICS 主表已补 `pforce` 行（184 == 184）。
+
+* **语料读数**（29 条真包粒子资产、60 步 @30fps、固定种子）：**存活数 29 层全不变**（只改"谁受力"、不改生死）；
+  **17/29** 层受力读数变化，集中在门限大/缺省处：`0923/3479521040` Bird.json **0→2**、`0923/3696234311` Bird.json **0→6**、
+  `dd/3544152633` birds.json 56→60、`0923/3151551777` birds.json 55→60；门限小（32/50/64/70/100）的层粒子平均距离
+  远大于门限 ⇒ 两档都不受力 ⇒ 逐位不变。
+* **判据**：新增 `tests/particle-force-distance-test.mjs` **33 通过 / 0 失败**。核心 F2 = **二分实测作用半径**：
+  official `threshold=400/1000` ⇒ **400.000000/1000.000000**；legacy ⇒ **200.000000/500.000000**；**半径比 = 2.000000000**
+  （两个 threshold 各一次，防拟合魔数）。F3 = 把 bundle **文本还原**成改动前、在 `/tmp` 临时目录 import 出"改前构建"，
+  与"改后 + `?pforce=legacy`"逐位比对全粒子状态 IEEE754 位串 ⇒ 合成档 ✓ + 真包 **29/29** ✓。
+  **变异（把 `0.5` 加回 official 路径）套件级必红：19 通过 / 8 失败、exit 1**（F2a 半径 400→200、F2c 比 →1.0、F3e 10/29），
+  还原后 sha256 `df453fcb…` 逐位相同、回 33/0。另按新结论改写 `tests/particle-render-correctness-test.mjs` ⑦F #6 段
+  （原断言"显式 threshold 仍按 `/2` 生效"是旧结论的化石）⇒ 121 通过 / 0 失败。
+* **C3（vortex 手性）= 未定案**：官方 **S0 沉默**（§"Vortex" 只给字段集，无方向/手性定义）、**S1 沉默**
+  （缺省 `axis` 不序列化；方向只由 `speedinner` **符号**表达），旁证是官方两根绳子着色器 cross 次序**自相矛盾**
+  （`genericropeparticle.geom:58` vs `.vert:151`）；本机无 ghidra/r2/jadx ⇒ 不做反编译。`?pvortex=legacy` **仍在且有实际效果**
+  （新判据实测两档环量**严格反号**、`|L_o+L_l| = 0`）。⚠ 现行 vortex **默认** `(dy,−dx)` 是上一轮按"2 票"理由翻的，
+  而该理由**已被研究线推翻** ⇒ 该默认处于"依据已被削弱、方向仍未被证伪"状态，**本轮按纪律不翻默认**，留待真机出帧对拍。
+* **许可**：C4 依据全为官方文档 + 官方资产字段名/数值 + 官方编辑器字符串表；对 `lwe-ref`/`wer-ref` **只读语义与结论**，
+  未复制/改写/逐行翻译任何 GPL 代码，未随仓分发任何官方 WE 资产。
+* **未验证**：① `?pforce=legacy` 的"浏览器 URL → 档位"一跳未端到端实测（F1c/F1f 钉的是源码切片 + 与既有 8 个档位
+  逐字同形的接线形状）；② `threshold` **缺省 512** 仍来自第三方（官方资产不写该键、官方文档不写缺省）⇒ 未动；
+  ③ "键 `threshold` ⇔ UI 标签 Distance"的直接指针绑定未取到；④ 非指针路径的力中心/y 口径是**既有未决问题**
+  （见工作区另一份未决问题记录 `PARTICLE-FIREFLY-INVESTIGATION` §215 第 4 条），本次一字未改。
+* 详细报告：`docs/reports-particle-force-c3c4-verdict.md`（460 行）。
+
+---
+
+## P-194（2026-09-25 · 借用线）效果链**输入槽**强制 REPEAT：`waterripple` 这类"随时钟无界增长 uv"的效果不再在 ~44 s 后退化成固定偏移（借用上游 `oneincase/webwallgl` PR #6，MIT）
+
+**一句话**：官方效果 shader 普遍用 `uv + g_Time * g_AnimationSpeed² + scroll` 采样**效果链输入槽**（槽 1+）；
+而本仓 `makeTexture*` 的缺省是 `CLAMP_TO_EDGE`，P-168 只给**名单内**的可平铺贴图（`util/clouds_256`）在**创建期**改成 REPEAT
+⇒ 名单外的（本仓语料实测 `waterripplenormal`、`waterripple_mask_96ccef38`）留在 CLAMP：uv 一旦离开 `[0,1]` 就被钉在边缘纹素、
+法线退化成常量、涟漪先变形后**彻底停住**（画面不再变化）。
+**本仓语料实证**：`allwallpaper/dd/3721991999/scene.pkg`（`project.json` 属性 `waterripple=true`）包内
+`animationspeed = 0.15000001` ⇒ 越界速度 `0.15² = 0.0225 UV/s` ⇒ 约 **1/0.0225 ≈ 44 s** 全域越界；
+包内 shader 逐字有 `g_Time * g_AnimationSpeed * g_AnimationSpeed + scroll`（与上游 PR #6 的症状与数值一致）。
+**官方语义依据**：`tex-json` 的 `clampuvs` 缺省 `false` = REPEAT，而槽 1+ 就是效果输入。
+
+**改法（17 行，逐行对照上游 diff 的同形实现）**：
+
+* 新增具名导出 `fxSlotWrap(gl, entry, ti, tex, search)`（`core/we-scene-bundle.js`）：`ti>=1` 且**非 FBO**（`!entry.fbo`）且**具名贴图**
+  ⇒ 置 `WRAP_S/T = REPEAT`，并用 `entry.samplerWrapRepeat`（与上游**同名字段**，便于对拍）只设一次；
+* 新增 `texWrapForced(search)`：把"**显式** `?texwrap=`"与"名字不在名单里 ⇒ 缺省 clamp"分开（否则无法只关掉槽位规则）；
+* 接线：效果 pass 绑定循环里 `gl.bindTexture(gl.TEXTURE_2D, t.tex)` 之后**一处**调用（判据 G11 断言只有一处）；
+* **边界（照抄上游，不扩大）**：**槽 0（层内容）与 `passInput`/`effectFBOs`（渲染目标）保持 CLAMP** ——
+  那正是本文件 `waterwaves` 注释要的语义（uv 位移后采样到 quad 之外要**贴边**而不是回绕）；
+* **回退口**：显式 `?texwrap=clamp` ⇒ 名单与槽位规则**都不生效**（与 P-168 共用同一个开关，**不新增旗标名**）。
+
+**判据（改回去必红）**：`tests/tex-wrap-repeat-test.mjs` 由 18 项扩到 **31 通过 / 0 失败**（新增 G0–G11）：
+
+* G1 槽 1 具名贴图 ⇒ **两轴**都写 REPEAT + 打标记；G2 同一 entry 第二次 ⇒ **零写入**（贴图对象跨 pass/帧共享）；
+* G3 槽 0 ⇒ 不动；G4 `entry.fbo`（渲染目标）⇒ 不动；G5 显式 `?texwrap=clamp` ⇒ 不生效；G6 `?texwrap=repeat` 不冲突；
+* G7 `texWrapForced` 只认显式参数；**G8 = 本仓语料实测**（`waterripplenormal`/`waterripple_mask_*` 都不在名单里 ⇒ 创建期是 CLAMP）；
+* G10/G11 = 接线位置与唯一性。
+* **变异②（F3）**：把 `fxSlotWrap` 里两轴 REPEAT 的写入删掉 ⇒ **G 组必红**（实测 `exit=1 命中G=true`）；
+  原**变异①（F1）**删名单分支仍让 A 组必红；真树 sha256 跑前跑后逐字相同。
+
+**真 GL 取证**（新增探针 `tests/fx-slot-wrap-live-probe.mjs`，取证不判红；真 WebGL2 里包 `activeTexture`/`bindTexture`/`texParameteri`，
+同一张包跑两档）：
+
+| 档 | 槽位 >=1 的 REPEAT 写入 | 槽 0 的 CLAMP 写入 | wrap 写入总计 |
+|---|---|---|---|
+| 默认（P-194 生效） | **1326 条**（覆盖槽 1–7 / 20 个纹理对象） | 76 | 1402 |
+| `?texwrap=clamp`（= 改动前） | **0** | 76 | 76 |
+
+⇒ 规则在真上下文里确实生效、回退开关确实能关掉它（`slot1Repeat 1326 → 0`）；`GL 前置: 有头 DISPLAY=:0, webgl2=true, llvmpipe`。
+
+**未验证**：① **画面级**"60 秒后涟漪是否还活着"的对拍**未做**（上游 PR 给了它的读数：帧间平均 |Δ| 从
+`7.62/6.55/1.97/0.000/…` 变成 `8.12/7.93/7.78/8.07/…`；本机要做需每档 60+ s 连续采样，登记为待做）；
+② 本机是 llvmpipe（软渲染），不是用户的 Adreno 830；③ `?texwrap=clamp` 的"逐位等于改动前"是**语义上**成立
+（整条规则不生效、代码路径不写任何 wrap），未做像素级逐位对拍。
+
+**许可**：借用上游 `oneincase/webwallgl`（**MIT**）PR #6（head `5c5a6aa5e7`，作者 **yuxilao**，merged 2026-09-23）的
+**判定口径与字段名**，**未 vendored 上游文件**；台账见 `docs/COPYING-RULES.md` 第 17 条，旗标说明见 `docs/README-DIAGNOSTICS.md` 的 `texwrap` 行。

@@ -169,7 +169,21 @@ function slice(html, startMarker, endMarker, label) {
   return html.slice(i, j + endMarker.length)
 }
 const R2_SRC = slice(HTML, '// ── TIME-VARIATION（2026-09-14 第5项）', "logf('⚠ TIME-VARIATION 初始化失败: ' + e.message) }", 'R2 ?time/?hour 解析')
-const MSG_SRC = slice(HTML, "window.addEventListener('message', (ev) => {", '} catch (e) { /* 桥接失败不影响渲染 */ }\n    })', 'mpw-ln-key 入站监听')
+// ①(2026-09-25 音频线后修复) `demo.html` 现在有**两个** `window.addEventListener('message', (ev) => {`：
+//   先是音频策略/停源监听（`mpw-audio-policy` / park，行 ~4739），后才是本判据要钉的 `mpw-ln-key` 入站监听（行 ~6471）。
+//   旧写法从**第一个**匹配点切起 ⇒ 片子里含音频监听整段 + 两段之间的边界 ⇒ `new Function` 直接
+//   SyntaxError（Unexpected token 'catch'），整套 `time-variation` 判红 —— 这是"判据锚在实现文本上"的老病。
+//   现改为：**先定位结束标记，再向前找最近的那个起点** ⇒ 永远只切 `mpw-ln-key` 那一个监听，
+//   以后往前面再加多少个 message 监听都不会再弄坏这条判据（意图不变：仍是"跑 demo.html 的真源码"）。
+const MSG_SRC = (() => {
+  const START = "window.addEventListener('message', (ev) => {"
+  const END = '} catch (e) { /* 桥接失败不影响渲染 */ }\n    })'
+  const j = HTML.indexOf(END)
+  if (j < 0) throw new Error('切片终点未找到（demo.html 结构变了？）: mpw-ln-key 入站监听')
+  const i = HTML.lastIndexOf(START, j)
+  if (i < 0) throw new Error('切片起点未找到（demo.html 结构变了？）: mpw-ln-key 入站监听')
+  return HTML.slice(i, j + END.length)
+})()
 const CTRL_SRC = slice(HTML, 'const ctrlAction = () => {', "if (cur.__lnNoSubMesh) { cur.__lnNoSubMesh = false; return }   // 停在别的层上也能退出该模式\n      enterGroup()\n    }", 'Q7 Ctrl 统一处理')
 const BTN_SRC = slice(HTML, '// ②(2026-09-14 用户第 2 项)', "tag.__tvBtn.textContent = (isT && window.__mpwTime.pinned) ? '恢复时钟' : '加载此层'", '逐层调试角标/加载此层按钮')
 // ②(P-64-MEDIA 轮顺带) 逐层调试的"移动语义"两处真源码：

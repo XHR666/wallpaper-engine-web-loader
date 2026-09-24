@@ -2092,16 +2092,38 @@ function meshCenterOf(buf) {
   return null
 }
 // WE 公共头文件缓存（common.h 等：waterwaves/shake 等效果 #include 依赖）
-const headerCache = new Map();
+// ①(ISSUE0924A2 2026-09-24 "效果链编译失败"线) 三处真 bug 一并修（真因见 docs/reports-issue0924a2-line-D.md）：
+//   ① **URL 拼错**：旧写法 `'/' + name.replace('shaders/','')` ⇒ `/common.h`。渲染器页宿主的**静态面
+//      先命中这条路径**（:8902 实测 404「静态文件不存在：/common.h」），⇒ 每次都要不到头文件。
+//      实测两处宿主都 200 的拼法是 `/shaders/<base>`（本仓自研头）与 `/weassist/shaders/<base>`（官方头）；
+//      旧拼法只在渲染器服务器（:8899，`server/we-scene-demo-server.mjs` 的 HEADER_FILES 分支）有效 ⇒ 留作最后兜底。
+//   ② **失败被当成功缓存**：`headerCache.set(name, txt || '')` 把 404 的空响应用久记住 ⇒ 之后每次都拿到 `''`，
+//      而 `#include` 展开空串会被当成"包含成功" ⇒ M_PI_2/rotateVec2 整批符号消失 ⇒ 编译期才炸。
+//      现在：成功才缓存正文；失败**退避 3s** 后仍可重试（不永久污染，也不至于每帧重发三连请求）。
+//   ③ **静默失败**：旧实现 `catch {}` 一行日志都不留（真机日志里因此看不到任何线索）。现在失败**显式告警一次**。
+const headerCache = new Map();      // name → { txt, at }（txt 为 '' = 这次没取到，at = 时刻，用于退避重试）
+const HEADER_FAIL_RETRY_MS = 3000;
+const headerUrls = (name) => {
+  const base = String(name).replace(/^.*\//, '');
+  return ['/shaders/' + base, '/weassist/shaders/' + base, '/' + String(name).replace('shaders/', '')];
+};
 async function fetchHeader(name) {
-  if (headerCache.has(name)) return headerCache.get(name);
+  const hit = headerCache.get(name);
+  if (hit && hit.txt) return hit.txt;
+  if (hit && !hit.txt && (mpwNowMs() - hit.at) < HEADER_FAIL_RETRY_MS) return '';
   let txt = null;
-  try {
-    // ①(P-135 乙) 首帧着色器编译期等它；无超时挂住 = 整帧定格（原报告 §1.3 #10）
-    const url = '/' + name.replace('shaders/', '');
-    txt = await textT(await fetchT(url, null, NET_TIMEOUT_MS, '公共头文件'), url, NET_TIMEOUT_MS, '公共头文件正文');
-  } catch {}
-  headerCache.set(name, txt || '');
+  for (const url of headerUrls(name)) {
+    try {
+      // ①(P-135 乙) 首帧着色器编译期等它；无超时挂住 = 整帧定格（原报告 §1.3 #10）
+      txt = await textT(await fetchT(url, null, NET_TIMEOUT_MS, '公共头文件'), url, NET_TIMEOUT_MS, '公共头文件正文');
+    } catch {}
+    if (txt) break;
+  }
+  if (!txt && !hit) {
+    // 只告警一次（每个头名）：三连 404 是真机日志里此前**完全不可见**的那条线索
+    try { logf('⚠ 公共头文件取不到 ' + name + '（已试 ' + headerUrls(name).join(' / ') + '）⇒ 该 include 由渲染器内置等价头兜底；未收录的头会退化成「缺失」并在 GLSL 里留痕'); } catch {}
+  }
+  headerCache.set(name, { txt: txt || '', at: mpwNowMs() });
   return txt || '';
 }
 
@@ -2276,10 +2298,11 @@ async function bootInstance(inst) {
         ? window.__mpwPointer
         : (window.__mpwPointer = { x: 0, y: 0, inside: false })
       // ① 真能力：暂停 / 恢复（冻结渲染循环；恢复走同一处既有重排）
-      put('pause', () => { if (mpwHostPaused) return true; mpwHostPaused = true; try { if (rafId != null) cancelAnimationFrame(rafId) } catch (e) {} rafId = null; note('pause', '渲染循环已冻结（画面停在最后一帧）'); return true })
+      put('pause', () => { if (mpwHostPaused) return true; mpwHostPaused = true; try { if (rafId != null) cancelAnimationFrame(rafId) } catch (e) {} rafId = null; /* ①(2026-09-25 任务 ㉑) 画面停 ⇒ 声音停（用户："壁纸没在放，却还有声音"） */ try { audioGate.hostPaused = true; if (typeof mpwAudioApply === 'function') mpwAudioApply('wp.pause') } catch (e) {} note('pause', '渲染循环已冻结（画面停在最后一帧；图内音频一并静音）'); return true })
       put('resume', () => {
         if (!mpwHostPaused) return true
         mpwHostPaused = false
+        try { audioGate.hostPaused = false; if (typeof mpwAudioApply === 'function') mpwAudioApply('wp.resume') } catch (e) { /* ignore */ }
         try { last = performance.now(); lastFrameNow = 0 } catch (e) { /* 装载期还没这些绑定 */ }
         if (typeof mpwHostFrameFn !== 'function') { note('resume', '⚠ 帧循环还没就绪（页面还在装载）⇒ 恢复位已清，出帧由装载完成后的自排接管'); return true }
         note('resume', '渲染循环已恢复')
@@ -2327,6 +2350,19 @@ async function bootInstance(inst) {
         note('setVolume', '宿主音量 = ' + mpwHostVolume + (els === 0 ? '（本页当前没有音轨元素：`?audio=1` 才建）' : (els < 0 ? '（音轨模块还没接上：装载期调用只记档，接上后按 4Hz 生效）' : '（' + els + ' 条音轨元素已按新音量重算）')))
         return true
       })
+      /* ①(2026-09-25 任务 ㉑) 真能力：**图级静音**（宿主唯一能压住 WebAudio 的那条同源通道；
+         跨源宿主用 postMessage `mpw-audio-policy`；URL 侧复用已登记的 `audio=0`）。幂等：值没变不写图。 */
+      put('setMuted', (v) => {
+        try { mpwAudioSetPolicy({ muted: !!v }, 'wp.setMuted') } catch (e) { note('setMuted', '⚠ 总闸不可用: ' + ((e && e.message) || e)); return false }
+        note('setMuted', '图级静音 = ' + !!v + '（master.gain = ' + (audioGate.master ? Number(audioGate.master.gain.value) : '(还没建图)') + '）')
+        return true
+      })
+      put('setAudioPolicy', (p) => {
+        try { mpwAudioSetPolicy(p || {}, 'wp.setAudioPolicy') } catch (e) { note('setAudioPolicy', '⚠ 总闸不可用: ' + ((e && e.message) || e)); return false }
+        note('setAudioPolicy', '策略已下发：' + JSON.stringify({ muted: audioGate.muted, volume: Number(audioGate.volume), silent: mpwAudioSilent() }))
+        return true
+      })
+      put('audioPolicy', () => { try { return mpwAudioGraphInfo() } catch (e) { return null } })
       // ① 真能力：指针注入（归一坐标 → 设计坐标；注入通道是 core 的既有宿主契约）
       put('pushPointer', (u, v, buttons) => {
         const [pw, ph] = projSize()
@@ -4331,7 +4367,7 @@ function loadScene() {
      为什么要有：宿主（插件 `lib/client.js` 的 `applyWebMute`）是**按 `frame.contentDocument` 里
      `querySelectorAll('video,audio')`** 来静音的 —— 渲染器建的元素必须在文档树里、且自己不许反复
      重写 `muted`/`volume`（值没变的重写对正在播放的音频就是一次可听见的打断，见插件侧同一注释）。 */
-  const audioLedger = { elsCreated: 0, elsReleased: 0, ctxCreated: 0, ctxClosed: 0, volumeWrites: 0, muteWrites: 0, attaches: 0, lastAt: null }
+  const audioLedger = { elsCreated: 0, elsReleased: 0, ctxCreated: 0, ctxClosed: 0, volumeWrites: 0, muteWrites: 0, attaches: 0, gateWrites: 0, gateNodes: 0, playSkips: 0, parks: 0, resumes: 0, lastAt: null }
   try { window.__mpwAudioLedger = audioLedger } catch (e) { /* ignore */ }
   const audioLedgerTick = () => { audioLedger.lastAt = Date.now() }
   /** 宿主（嵌入方 iframe）当前的静音位：同源时读 `frameElement.muted`，跨源/顶层读不到 ⇒ false。
@@ -4429,7 +4465,12 @@ function loadScene() {
     // 官方 autoplay 门控完整式（WPSoundParser/WPSceneParser.cpp:7693）：visible && !startsilent —— 在此统一封装
     if (autoplay && layer.visible !== false && !layer.startsilent) {
       const tryPlay = () => { el.play().then(() => logf('① sound 层播放中[' + mode + ']: ' + rel.split('/').pop().slice(0, 40))).catch((e) => logf('⚠ 音频自动播放被拦截（需用户交互）: ' + e.message)) }
-      tryPlay()
+      /* ①(2026-09-25 任务 ㉑) 总闸静音时**不自动起播**：读数要能分开"元素没在放"与"图级 0 增益"。
+         切片环境没有总闸函数 ⇒ 照旧起播（audio-semantics 的既有断言逐位不变）。 */
+      let gateOk = true
+      try { gateOk = (typeof mpwAudioAllowsAutoplay === 'function') ? !!mpwAudioAllowsAutoplay() : true } catch (e4) { gateOk = true }
+      if (gateOk) tryPlay()
+      else { try { audioLedger.playSkips++ } catch (e5) {} ; logf('① sound 层静音中（宿主/URL 未允许）⇒ 不自动起播: ' + rel.split('/').pop().slice(0, 40)) }
     }
     return el
   }
@@ -4459,14 +4500,21 @@ function loadScene() {
           src.connect(analyser)
           try { el.__mpwMediaSource = src } catch (e3) {}   // ①(2026-09-24 任务 ⑱) 释放时好 disconnect
         } catch (e2) { /* 已连接过或格式不支持 → 直出 */ el.connect ? null : null }
-        if (!analyser._mpwDest) { analyser.connect(sceneAudio.ctx.destination); analyser._mpwDest = true }
+        /* ①(2026-09-25 任务 ㉑) 声源**不直连 destination**：一律经总闸（图级静音的唯一落点）。
+           切片环境（audio-semantics-test / 极简实现）没有总闸函数 ⇒ 保持旧写法（逐位不变）。 */
+        try {
+          if (typeof mpwAudioConnectMaster === 'function') { if (!analyser._mpwDest) mpwAudioConnectMaster(analyser) }
+          else if (!analyser._mpwDest) { analyser.connect(sceneAudio.ctx.destination); analyser._mpwDest = true }
+        } catch (e3) { logf('⚠ 音频总闸接线失败: ' + ((e3 && e3.message) || e3)) }
         sceneAudio.els.push(el)
         started++
       }
       const kick = () => { try { if (sceneAudio.ctx.state === 'suspended') sceneAudio.ctx.resume() } catch {}
+        try { if (typeof mpwAudioGesture === 'function') mpwAudioGesture() } catch (e) {}
         for (const el of sceneAudio.els) { try { el.play().catch(() => {}) } catch {} }
         window.removeEventListener('pointerdown', kick) }
       window.addEventListener('pointerdown', kick, { once: true })
+      try { if (typeof mpwAudioApply === 'function') mpwAudioApply('startSceneAudio') } catch (e) {}
       logf('① sound 层已接入（' + layers.length + ' 条，启动 ' + started + ' 条；?audio=1 模式）')
     } catch (e) { logf('⚠ 音频初始化失败: ' + e.message) }
   }
@@ -4490,12 +4538,256 @@ function loadScene() {
     } catch (e) {}
     try { sceneAudio.vols.length = 0; sceneAudio.els.length = 0 } catch (e) {}
     try { if (sceneAudio.analyser) sceneAudio.analyser.disconnect() } catch (e) {}
+    /* ①(2026-09-25 任务 ㉑) 总闸一并收掉（谁建谁释放）：不 disconnect 的话，master→destination 那条边
+       会跟着已 close 的 ctx 一起消失，但"我们以为它还活着"的状态（gain/elMuted）会带到下一轮挂载。 */
+    try { if (audioGate.master && audioGate.master.disconnect) audioGate.master.disconnect() } catch (e) {}
+    try { audioGate.master = null; audioGate.gain = null; audioGate.elMuted.length = 0 } catch (e) {}
     try {
       if (sceneAudio.ctx && typeof sceneAudio.ctx.close === 'function') { const p = sceneAudio.ctx.close(); if (p && p.catch) p.catch(() => {}); if (typeof audioLedger !== 'undefined') audioLedger.ctxClosed++ }
     } catch (e) {}
     try { sceneAudio.ctx = null; sceneAudio.analyser = null; sceneAudio.freq = null; sceneAudio.started = false } catch (e) {}
     try { if (typeof audioLedgerTick === 'function') audioLedgerTick() } catch (e) {}
   }
+  /* ①(2026-09-25 任务 ㉑「静音了还有声音」) **音频总闸（图级静音）** ═══════════════════════════════
+     为什么必须有它（真机读数，判据见 tests/audio-leak-graph-probe.mjs 与插件仓 tools/audio-leak-frame-probe.mjs）：
+       宿主的静音通道只有三条，**跨源帧一条都到不了**（场景渲染器帧在 `127.0.0.1:8902`、插件页在
+       `127.0.0.1:3080` ⇒ 不同源）：`frame.contentDocument` 为 null（逐元素写 muted 扫不到）、
+       `window.frameElement` 为 null（`frame.muted` 那个 expando 读不到）、shim policy 只对
+       `?mpwshim=1` 的网页壁纸帧生效。实测（插件档 + 场景渲染器 + **静音=开** + 刷新，不点任何东西）：
+       帧内 4 条 `<audio>` 全是 `muted:false / volume:0.25 / paused:false`、AudioContext `running`、
+       接 destination 那条边的抽头 rms≈0.013→0.019 ⇒ **静音开着，声音照样从图里出去**。
+     口径：
+       · 所有声源（sound 层 / 音频面板 / 以后新增的）都汇到**一个** GainNode（master）再到 destination；
+       · `muted` ⇒ `master.gain = 0`（**图级归零**）；元素 `muted` 只作双保险（它只管元素路径）；
+       · **没被宿主允许、也没有用户手势**时不出声：**嵌入帧里"宿主机还没表态"按静音处理**
+         （fail-safe —— 宿主通道再怎么坏也不会漏音）；**顶层页**（测试台预览/本仓 demo）按 `?audio=1`
+         的既有显式意图照常出声（回归红线）。
+       · 宿主通道三条，任意一条到达即生效：① URL（复用已登记的 `audio=0` ⇒ 显式静音）；
+         ② `postMessage({type:'mpw-audio-policy', muted, volume})`（**跨源唯一可达**，插件侧走这条）；
+         ③ 同源 `__wp.setMuted/setAudioPolicy/setVolume` 与 `frameElement.muted`（同源帧/测试台）。
+     可机读：`window.__mpwAudioPolicy`（当前策略）/ `window.__mpwAudioGraph()`（图读数）/
+     `__mpwAudioLedger.gateWrites`（真写入次数 ⇒ 幂等判据读它）。 */
+  const audioGate = {
+    master: null,      // GainNode 总闸（懒建：第一个声源接进来时建）
+    gain: null,        // 我们上次写下去的值（null = 还没写过；幂等判据读它）
+    muted: null,       // 宿主/URL 的静音位：true / false / **null = 还没表态**
+    volume: 1,         // 宿主音量档（0 也按静音处理；其余值仍由元素 volume 承担，避免乘两次）
+    src: 'init',       // 最近一次策略来源（"谁说的"可查）
+    allow: false,      // 显式允许（宿主策略 muted:false / 本帧用户手势）
+    gesture: false,    // 本帧内已出现过用户手势
+    parked: false,     // 被“收起来”了（宿主把帧藏起来 / 省电暂停 / 看门狗兜底）⇒ 停源 + suspend
+    parkReason: '',    // 上一次 park 的原因（'raf-stall'/'scene-fallback'/… 可查）
+    rafSeen: 0,        // 帧自己的 rAF 最近一次回调时刻（停摆 ⇒ 被隐藏/后台化）
+    hostPaused: false, // 宿主把渲染停住了（`__wp.pause()`）⇒ 声音一并停（"没画面却在响"）
+    elMuted: [],       // 由**本闸**按下 muted 的元素（只撤自己按下的 —— 与 audio-bus 同款纪律）
+    msgs: 0,           // 收到的策略消息条数（探针/判据读它证明"通道到了"）
+  }
+  function mpwAudioEmbedded() { try { return window.self !== window.top } catch (e) { return true } }
+  /* `?embed=1`（**插件挂场景渲染器时恒带**）才是"我是被当成壁纸嵌进来的"这一事实的显式标记；
+     `?shell=0` 的测试台预览框不带它 ⇒ 预览行为逐位不变（回归红线：只有壁纸帧走 fail-safe）。 */
+  const __mpwAudioEmbedFlag = (() => { try { const q = new URLSearchParams(location.search); return q.has('embed') && q.get('embed') !== '0' } catch (e) { return false } })()
+  /** 当前是否**必须静音**：宿主说静音 ∨ 宿主把渲染停住了 ∨ 音量 0 ∨（宿主还没表态 ∧ 壁纸帧 ∧ 没被显式允许）。 */
+  function mpwAudioSilent() {
+    if (audioGate.muted === true) return true
+    if (audioGate.hostPaused === true) return true      // 画面被宿主停住 ⇒ 不许"只有声音没有画面"
+    if (audioGate.parked === true) return true          // 被收起来（隐藏/兜底/省电）⇒ 停源（不只是压增益）
+    if (Number(audioGate.volume) === 0) return true
+    if (audioGate.muted === null && __mpwAudioEmbedFlag && mpwAudioEmbedded() && !audioGate.allow && !audioGate.gesture) return true
+    return false
+  }
+  /** 现在允许自动起播吗：静音中**不** `play()` —— "元素在放但图级 0 增益"与"元素根本没起播"
+      在读数上必须能分开（判据读元素的 `paused`）。 */
+  function mpwAudioAllowsAutoplay() { return !mpwAudioSilent() }
+  /** 状态发布（探针/门禁读它，不读闭包变量）。 */
+  function mpwAudioPublish() {
+    try {
+      window.__mpwAudioPolicy = {
+        muted: audioGate.muted, volume: Number(audioGate.volume), silent: mpwAudioSilent(),
+        src: audioGate.src, allow: !!audioGate.allow, gesture: !!audioGate.gesture,
+        embedded: mpwAudioEmbedded(), msgs: audioGate.msgs, at: Date.now(),
+      }
+    } catch (e) { /* ignore */ }
+  }
+  /** 图读数：判据要能回答"总闸在不在、值多少、几个声源"。 */
+  function mpwAudioGraphInfo() {
+    let g = null
+    try { g = audioGate.master ? Number(audioGate.master.gain.value) : null } catch (e) { g = null }
+    return {
+      hasMaster: !!audioGate.master, masterGain: g, gainWrite: audioGate.gain,
+      nodes: (audioGate.master ? 1 : 0) + (sceneAudio.ctx ? 1 : 0), sources: sceneAudio.els.length,
+      ctx: sceneAudio.ctx ? String(sceneAudio.ctx.state) : null, silent: mpwAudioSilent(),
+      muted: audioGate.muted, volume: Number(audioGate.volume), src: audioGate.src,
+      allow: !!audioGate.allow, gesture: !!audioGate.gesture, hostPaused: !!audioGate.hostPaused,
+      parked: !!audioGate.parked, parkReason: audioGate.parkReason,
+    }
+  }
+  /** 把当前策略写进图（**幂等**：值没变一个字节都不写）与元素（只写我们自己按下的）。 */
+  function mpwAudioApply(reason) {
+    const silent = mpwAudioSilent()
+    const want = silent ? 0 : 1
+    try {
+      if (reason) audioGate.src = String(reason)
+      const mg = audioGate.master && audioGate.master.gain
+      if (mg && audioGate.gain !== want) {
+        /* 与插件侧 audio-bus 同款：先取消已排的自动化再写 —— 否则作者包在 master 上排的包络
+           （或第三方"把静音抬回来"的写入）会在我们写完之后覆盖掉 0。 */
+        try { if (mg.cancelScheduledValues) mg.cancelScheduledValues(0) } catch (e) {}
+        mg.value = want
+        audioGate.gain = want
+        try { audioLedger.gateWrites++; audioLedgerTick() } catch (e) {}
+      }
+    } catch (e) { /* ignore */ }
+    /* 元素路径**双保险**：静音时把我们知道的元素逐个 `muted`（**只撤自己按下的**，不抬别人的）。 */
+    try {
+      const els = sceneAudio.els.concat(sceneAudio.vols.map((v) => v.el)).filter(Boolean)
+      for (const el of els) {
+        try {
+          if (silent) {
+            if (el.muted !== true) { el.muted = true; audioLedger.muteWrites++; if (audioGate.elMuted.indexOf(el) < 0) audioGate.elMuted.push(el) }
+          } else if (audioGate.elMuted.indexOf(el) >= 0) {
+            if (el.muted !== false) { el.muted = false; audioLedger.muteWrites++ }
+            const i = audioGate.elMuted.indexOf(el); if (i >= 0) audioGate.elMuted.splice(i, 1)
+          }
+        } catch (e) { /* ignore */ }
+      }
+    } catch (e) { /* ignore */ }
+    mpwAudioPublish()
+  }
+  /** 懒建总闸并把一个声源接进来：`from → master → destination`（**声源永不直连 destination**）。 */
+  function mpwAudioConnectMaster(from) {
+    const ctx = sceneAudio.ctx
+    if (!ctx || !from) return false
+    try {
+      if (!audioGate.master) {
+        if (typeof ctx.createGain !== 'function') return false
+        const g = ctx.createGain()
+        if (!g) return false
+        audioGate.master = g
+        try { audioLedger.gateNodes++ } catch (e) {}
+        g.connect(ctx.destination)                      // 总闸 → destination：**全页只有这一条边**
+      }
+      from.connect(audioGate.master)
+      try { from._mpwDest = true } catch (e) {}         // 兼容既有 `_mpwDest` 一次性接线标记
+      mpwAudioApply('connect')
+      return true
+    } catch (e) { return false }
+  }
+  /** 宿主/URL 下发的策略（三条通道最终都汇到这里）。**幂等**：值没变不写图、不写元素。 */
+  function mpwAudioSetPolicy(patch, src) {
+    let changed = false
+    try {
+      const p = patch || {}
+      if (p.muted !== undefined) { const v = !!p.muted; if (audioGate.muted !== v) { audioGate.muted = v; changed = true } }
+      if (p.volume !== undefined && isFinite(Number(p.volume))) { const v = Math.max(0, Math.min(1, Number(p.volume))); if (audioGate.volume !== v) { audioGate.volume = v; changed = true } }
+      if (p.allow !== undefined) { const v = !!p.allow; if (audioGate.allow !== v) { audioGate.allow = v; changed = true } }
+    } catch (e) { /* ignore */ }
+    mpwAudioApply(String(src || 'policy'))
+    return changed
+  }
+  /** ①(2026-09-25 任务 ㉑ 追加：「响的不是当前壁纸的音频」) **把这一页收起来 / 放回去**。
+  现场：场景看门狗兜底（插件的 `sceneFallbackActivate`）把渲染器 iframe **藏起来但保留 src**（等迟到首帧
+  恢复），宿主把壁纸总开关关掉、省电/切后台时也只隐藏不卸载 —— 而**隐藏的 iframe 里音频照样在放**
+  （`display:none` 不停媒体），宿主又没有任何通道能压住这个跨源帧 ⇒ 用户听到“**不是当前壁纸的**那段声音”。
+  所以“收起来”必须是**停源**，不只是压增益：
+    · 逐个 pause() 帧内媒体元素（currentTime 停住 ⇒ 读数可分）；
+    · ctx.suspend() —— 图里**别人建的节点**（作者自己 new AudioContext() 的那些）也一起停；
+    · 台账 parks/resumes 可机读。
+  放回去时按**当前策略**恢复（静音中就算放回去也不出声 ⇒ 不会把静音绕过去）。 */
+  function mpwAudioPark(on, reason) {
+    const want = !!on
+    if (audioGate.parked === want) { mpwAudioPublish(); return false }
+    audioGate.parked = want
+    audioGate.parkReason = String(reason || audioGate.parkReason || '')
+    audioGate.src = String(reason || audioGate.src)
+    if (want) {
+      for (const el of sceneAudio.els) { try { el.pause() } catch (e) { /* ignore */ } }
+      try {
+        if (sceneAudio.ctx && sceneAudio.ctx.state === 'running' && typeof sceneAudio.ctx.suspend === 'function') {
+          const p = sceneAudio.ctx.suspend(); if (p && p.catch) p.catch(() => {})
+          audioLedger.parks++; audioLedgerTick()
+        }
+      } catch (e) { /* ignore */ }
+    } else {
+      try {
+        if (sceneAudio.ctx && sceneAudio.ctx.state === 'suspended' && typeof sceneAudio.ctx.resume === 'function') {
+          const p = sceneAudio.ctx.resume(); if (p && p.catch) p.catch(() => {})
+          audioLedger.resumes++; audioLedgerTick()
+        }
+      } catch (e) { /* ignore */ }
+      if (!mpwAudioSilent()) for (const el of sceneAudio.els) { try { el.play().catch(() => {}) } catch (e) { /* ignore */ } }
+    }
+    mpwAudioApply('park:' + (want ? 'on' : 'off'))
+    return true
+  }
+  /** 用户手势：把"宿主还没表态"那一档解开（顶层页/Android WebView 里点一下就该有声）。 */
+  function mpwAudioGesture() {
+    if (audioGate.gesture) return
+    audioGate.gesture = true
+    if (!mpwAudioSilent()) for (const el of sceneAudio.els) { try { el.play().catch(() => {}) } catch (e) {} }
+    mpwAudioApply('gesture')
+  }
+  /* 通道① URL：`?audio=` 是**已登记**的那个开关名（不再新增旗标 ⇒ 诊断旗标文档口径不漂移）；
+     `?audio=0/off/false` = 显式静音。**不**用 URL 开"允许"：嵌入帧里"宿主没表态 ⇒ 先静音"这条
+     fail-safe 才是防漏音的关键，能被 URL 一句话绕开就不算防线（宿主表态走通道②/③）。 */
+  try {
+    const q0 = new URLSearchParams(location.search)
+    const qaudio = q0.get('audio')
+    if (qaudio === '0' || qaudio === 'false' || qaudio === 'off' || qaudio === 'no') { audioGate.muted = true; audioGate.src = 'url:audio=0' }
+  } catch (e) { /* 无 location（切片夹具）⇒ 保持"还没表态" */ }
+  /* 通道② postMessage：**跨源唯一可达**（插件侧 `sendRendererAudioPolicy` 走这条）。只认父页/自己。 */
+  try {
+    window.addEventListener('message', (ev) => {
+      try {
+        const d = ev && ev.data
+        if (!d || typeof d !== 'object') return
+        let fromParent = false
+        try { fromParent = (ev.source === window.parent) } catch (e) { fromParent = false }
+        if (!fromParent && ev.source !== window && ev.source != null) return
+        if (d.type !== 'mpw-audio-policy' && d.type !== 'mpw:audio-bus' && d.type !== 'mpw-audio-mute' && d.type !== 'mpw-audio-stop') return
+        audioGate.msgs++
+        /* park/stop/mpw-audio-stop = 宿主“把这一页收起来”（隐藏/兜底/省电）⇒ **停源**（见 mpwAudioPark）。 */
+        if (d.park !== undefined || d.stop !== undefined || d.type === 'mpw-audio-stop') {
+          const parkOn = !!(d.park || d.stop || d.type === 'mpw-audio-stop')
+          mpwAudioPark(parkOn, 'postMessage:' + d.type + (parkOn ? ':park' : ':unpark'))
+        }
+        mpwAudioSetPolicy({ muted: d.muted, volume: d.volume, allow: (d.allow !== undefined ? d.allow : undefined) }, 'postMessage:' + d.type)
+      } catch (e) { /* ignore */ }
+    }, false)
+  } catch (e) { /* ignore */ }
+  try { window.addEventListener('pointerdown', () => { try { mpwAudioGesture() } catch (e) {} }, { once: true, capture: true }) } catch (e) { /* ignore */ }
+  /* ①(2026-09-25 任务 ㉑ 追加) **“我被藏起来了吗”只剩这一条可量** ——
+     实测（tests/audio-leak-graph-probe.mjs / 插件 tools/audio-leak-frame-probe.mjs `--fallback`）：
+     宿主把 iframe `display:none` 之后，帧内 `IntersectionObserver` **照旧报 isIntersecting:true**
+     （帧内 documentElement 的交叉对象是**帧自己的视口**，宿主那边的隐藏它看不见）⇒ 那条路是死的，
+     留着只会给人“已经防住了”的错觉，已删除。
+     真正可量的是**帧自己的 rAF 停摆**：隐藏 / 后台化的 iframe 不再跑渲染步骤 ⇒ rAF 回调停；
+     重新可见 ⇒ 立刻恢复。于是"画面不动了"与"还在出声"不可能同时成立 —— 这正是用户现场
+     （看门狗兜底把渲染器帧藏了等迟到首帧，声音却从被藏起来的帧里出来）的那条缝。
+     只在**壁纸帧**（`?embed=1` 且真在 iframe 里）生效；阈值 2.5s（渲染卡顿不误伤）。
+     ⚠ 诚实边界：宿主**正常显示**这一页时它不产生任何副作用（回调每帧刷新时间戳）。 */
+  let mpwAudioRafAt = 0
+  try {
+    if (__mpwAudioEmbedFlag && mpwAudioEmbedded() && typeof window.requestAnimationFrame === 'function') {
+      const rafTick = () => {
+        mpwAudioRafAt = Date.now()
+        audioGate.rafSeen = mpwAudioRafAt
+        try { if (audioGate.parked && audioGate.parkReason === 'raf-stall') mpwAudioPark(false, 'raf-resumed') } catch (e) { /* ignore */ }
+        try { window.requestAnimationFrame(rafTick) } catch (e) { /* ignore */ }
+      }
+      window.requestAnimationFrame(rafTick)
+      audioGate.rafTimer = setInterval(() => {
+        try {
+          if (!mpwAudioRafAt) return
+          if (Date.now() - mpwAudioRafAt > 2500 && !audioGate.parked) mpwAudioPark(true, 'raf-stall')
+        } catch (e) { /* ignore */ }
+      }, 1000)
+    }
+  } catch (e) { /* ignore */ }
+  try { if (hostEmbedMuted()) mpwAudioSetPolicy({ muted: true }, 'frameElement.muted') } catch (e) { /* ignore */ }
+  try { window.__mpwAudioGraph = () => mpwAudioGraphInfo() } catch (e) { /* ignore */ }
+  /* 只读引用：取证探针要能在页内**拆掉**新增的两道防线、做“改前等价”读数（`window.__mpwAudioGateRef.io.disconnect()`）。 */
+  try { window.__mpwAudioGateRef = audioGate } catch (e) { /* ignore */ }
+  try { mpwAudioPublish() } catch (e) { /* ignore */ }
   // 音量绑定的实时更新（官方声明式绑定：用户改属性 → SetStreamVolume；挂在 4Hz 脚本节拍上足够）
   function updateSceneAudioVolume() {
     if (!sceneAudio.started) return
@@ -4505,6 +4797,9 @@ function loadScene() {
     //   单跑（切片约定见该测试头部），那里没有 `mpwHostVolume` 绑定 —— 裸引用会 ReferenceError 并被
     //   下面那个 `catch` 吞掉，表现为"用户属性改了音量不动"（真机踩到：该测试的 ① 变红）。
     const __hostGain = (typeof mpwHostVolume === 'number' && isFinite(mpwHostVolume) && mpwHostVolume >= 0) ? mpwHostVolume : 1
+    /* ①(2026-09-25 任务 ㉑) 宿主音量档同时进**总闸**（只用来判"音量 0 = 静音"这一档）：
+       `setVolume(0)` 不再只写元素 volume —— 图级也归零（元素 volume 在别的实现里对 WebAudio 未必有效）。 */
+    try { if (typeof mpwAudioSetPolicy === 'function' && audioGate.volume !== __hostGain) mpwAudioSetPolicy({ volume: __hostGain }, 'host-volume') } catch (e) { /* ignore */ }
     for (const v of sceneAudio.vols) {
       try {
         const want = currentAudioVolume(null, v.binding) * 0.5 * __hostGain
@@ -6712,6 +7007,11 @@ function loadScene() {
     //   `window.__mpwCameraScript='off'` 可实时回退到"不跑脚本"。
     cameraScriptHost: { applySceneScripts, createScriptCache },
   });
+  // ①(ISSUE0924A2 2026-09-24) 效果链逐层台账的**只读**快照（`renderer.fxStats`，定义见 bundle
+  //   `:14219`）：门禁/真机诊断要靠它回答"fx>0 的层到底跑没跑材质 pass"
+  //   （`passes ≥ 1` 且 `fallback !== 'fxFail'`）—— 此前浏览器侧**没有**这个口径的入口，
+  //   只能靠"日志里没有报错"倒推（正是这条 bug 藏了这么久的条件之一）。只暴露读接口，不参与渲染决策。
+  try { window.__mpwFxStats = () => renderer.fxStats } catch (e) { /* 无 window：忽略 */ }
   textures.set('util/white', { glTex: lib.makeTexture(gl, new Uint8Array([255,255,255,255]), 1, 1), width: 1, height: 1, rg88: false });
   textures.set('util/noflow', { glTex: lib.makeTexture(gl, new Uint8Array([127,127,127,255]), 1, 1), width: 1, height: 1, rg88: false });
   const noise = lib.generateNoiseTexture();
@@ -8241,7 +8541,11 @@ function loadScene() {
       analyser.smoothingTimeConstant = 0.6
       sceneAudio.analyser = analyser
       sceneAudio.freq = new Uint8Array(analyser.frequencyBinCount)
-      analyser.connect(sceneAudio.ctx.destination)
+      /* ①(2026-09-25 任务 ㉑) 分析器**经总闸**再到 destination（旧写法直连 ⇒ 面板播放绕开图级静音）。 */
+      try {
+        if (typeof mpwAudioConnectMaster === 'function') mpwAudioConnectMaster(analyser)
+        else analyser.connect(sceneAudio.ctx.destination)
+      } catch (e2) { analyser.connect(sceneAudio.ctx.destination) }
       return sceneAudio.ctx
     } catch (e) { return null }
   }
@@ -8367,6 +8671,9 @@ function loadScene() {
           const el = bindEl(rec)
           if (!el) return
           ensureAudioCtx()
+          /* ①(2026-09-25 任务 ㉑) 点播放**就是用户手势**：解开"宿主还没表态"那一档（顶层页/测试台用），
+             但**不覆盖**宿主的显式静音（`mpwAudioSilent()` 里 muted===true 优先）。 */
+          try { if (typeof mpwAudioGesture === 'function') mpwAudioGesture() } catch (e4) { /* ignore */ }
           // 复用同一个 analyser：面板播放也进反应数据通道（window.__mpwAudioFrame 能拿到）
           if (sceneAudio.ctx && sceneAudio.analyser && !rec.wired) {
             try {

@@ -4134,6 +4134,15 @@ export function buildParticleSystem(def, ctx = {}) {
     vyLegacy: !!ctx.vyLegacy,
     // ①(P-126 C/D/F) 粒子算子口径（oscillatealpha 乘性 / oscillateposition 增量 / attract 判据 / turbulence mask）
     popsLegacy: !!ctx.popsLegacy,
+    // ①(C4 定案 2026-09-24) **`controlpointattract`（Control point force）门限口径**（`?pforce=legacy`）：
+    //   official（默认）= 门限 = 官方字段 `threshold` **原值**（= 官方文档 §"Control point force" 的
+    //     "Distance: The maximum distance of the force"）。
+    //   `?pforce=legacy` = **改动前**：门限 = `threshold × 0.5`（第三方 lwe-ref / wer-ref 的口径，
+    //     见 OPENSOURCE-BORROW-PLAN §④-C4：lwe 无条件硬编码 /2、wer-ref 自述是 Cherry_Blossoms_2 的
+    //     逐壁纸经验补偿，均非官方语义主张）。
+    //   ⚠ 与 `?pops=legacy` **正交**：pops 管**判据方向**（`d < t` vs `d > t`），pforce 只管**门限数值**。
+    //     只开 `pforce=legacy` 而 pops 保持 official ⇒ 与改动前的默认档**逐位相同**（乘数/次序都没动）。
+    pforceLegacy: !!ctx.pforceLegacy,
     // ①(P-130 批A 跨批) **A 类颜色口径**档位（`?pcolor=legacy`）：回到 P-126 的颜色计算口径
     //   （`colorrandom` 缺 `max` 用旧归一化缺省 `[1,1,1]`、`colorchange` 用旧的"赋值"式）。
     //   颜色**照常上屏**（绘制通路不变）—— 否则 legacy 侧与 official 侧都是白点，真机无法对拍。
@@ -5163,7 +5172,7 @@ export function applyOperator(sys, op, dt, t) {
         }
         break
       }
-      // controlpointattract（35 次）：朝控制点加速；scale<0 = 排斥（官方 threshold×0.5 + Accelerate(dir×scale)）
+      // controlpointattract（35 次）：朝控制点加速；scale<0 = 排斥（官方 `Accelerate(dir×scale)`）
       case 'controlpointattract': {
         const cpIdx = pGetVal(pr, 'controlpoint', 0)
         const cp = (sys.controlPoints || [])[cpIdx]
@@ -5172,8 +5181,25 @@ export function applyOperator(sys, op, dt, t) {
         // ①(P-130 批A #6) `threshold` 缺省 = **512**（官方 ControlPointForce 的 `threshold {512.0f}`，
         //   行为对照取自第三方参考实现，未反汇编官方二进制）。我们旧缺省 0 ⇒ `thr = 0` ⇒ 判据 `d < 0`
         //   **恒假** ⇒ 整条算子从不生效（语料 2 层：`0917/3351163962` ln=12/13，scale=-1001000 的排斥）。
-        //   官方此处 `threshold × 0.5` 的用法不变（P-126 已按官方口径改成 `d < threshold/2`）。
-        const thr = pGetVal(pr, 'threshold', 512) * 0.5
+        //
+        // ①(2026-09-24 **C4 定案**：无条件 `× 0.5` 与官方文本不符，已去掉) —— 官方口径 = **门限就是最大作用距离**：
+        //   · **S0 官方文档**（`https://docs.wallpaperengine.io/en/scene/particles/component/operator.html`
+        //     §"Control point force"）逐字：**"Distance: The maximum distance of the force."** ——
+        //     该字段**就是**最大作用距离，文档没有任何"直径/半径"换算的暗示 ⇒ 再除 2 会把作用半径砍半。
+        //   · **S1 官方资产**：该字段的序列化键名就是 `threshold`（`assets/**` 的 35 个 controlpointattract
+        //     实例里 `threshold` 33 次、`distance` **0** 次）；且官方为这个算子做的元素预览
+        //     `assets/scenes/particleelementpreviews/controlpointattract/particles/new_particle_system.json`
+        //     是 `{scale:2000, threshold:1000}` 配 `sphererandom distance 300..500` ⇒ 作用半径要**包住**整条
+        //     发射行程；除 2 后只剩 500 = 发射外壳的最外沿。官方这条自证性数据也站在"不除 2"一边。
+        //   · **S2 官方编辑器字符串表**（`bin/wallpaperui.exe` 的粒子属性键表 @11348344）里 `threshold` 与
+        //     `deletethreshold` 是**两个不同的键** ⇒ `threshold` **不是**文档 §"Delete particles in center"
+        //     的子项 "Deletion threshold"（那个另名 `deletethreshold`）⇒ 它只能对应 §"Distance"。
+        //   · 旧"除 2"的两条依据**全是第三方且都不是引擎语义主张**：lwe-ref 是无条件 `/ 2.0f` 硬编码，
+        //     wer-ref 的自述是**逐壁纸经验补偿**（点名 `Cherry_Blossoms_2.json`，见 OPENSOURCE-BORROW-PLAN §④-C4）。
+        //   · 回退：`?pforce=legacy` ⇒ **逐位**回到改动前（下面那条 `× 0.5` 表达式原样求值，乘数/次序不变）。
+        //   语料可见影响：见 `docs/reports/particle-force-c3c4-verdict.md` §2.4（真包读数；29 层里 17 层有变化）。
+        const __thrRaw = pGetVal(pr, 'threshold', 512)
+        const thr = sys.pforceLegacy ? __thrRaw * 0.5 : __thrRaw
         // ①(P-69 第 6 项) 控制点是 lockToPointer 且有指针 → 目标 = 指针（世界设计坐标，已是 y-down，
         //   不能再做下面那次 y 取反）；否则沿用层空间 target 的旧算法（本次不改其语义）。
         const __cpPtr = __cpWorldLocked(sys, cpIdx) || ((sys.pointer && cpIdx === sys.pointerCp) ? sys.pointer : null)
@@ -5190,9 +5216,11 @@ export function applyOperator(sys, op, dt, t) {
         const dx = __cpPtr ? (__cpPtr[0] - p.pos[0]) : (target[0] - p.pos[0])
         const dy = __cpPtr ? (__cpPtr[1] - p.pos[1]) : -(target[1] - p.pos[1])
         const d = Math.hypot(dx, dy) || 1
-        // ①(P-126 D 用户第 8 项) **判据方向**：官方是 `d < threshold/2` 才施力（近距才吸引/排斥），
-        //   旧实现写成 `d > threshold/2`（**正好反了**）⇒ 无指针时全体萤火虫被一个恒定力推离
+        // ①(P-126 D 用户第 8 项) **判据方向**：官方是 `d < 门限` 才施力（近距才吸引/排斥；文档 §"Control
+        //   point force" 开头逐字 "Either pulls or pushes particles when **near** a control point"），
+        //   旧实现写成 `d > 门限`（**正好反了**）⇒ 无指针时全体萤火虫被一个恒定力推离
         //   退化目标（层空间 offset 当世界坐标用 ⇒ 世界 (0,0)=画布左上角）。
+        //   （P-126 时门限本身还带着 C4 的 `× 0.5`，故当时写作 `threshold/2`；该乘数已于 2026-09-24 去掉。）
         //   ⚠ 这一条与上面的 oscillateposition 必须同批改：只改 oscillateposition 会让粒子
         //   真的被这个反判据推走（实测 x≈9700px，画布宽 3840）。目标空间的换算仍未定（见
         //   docs/PARTICLE-FIREFLY-INVESTIGATION.md §5.4），本批只纠正判据方向。
@@ -5716,7 +5744,10 @@ function preprocess(src, combos, includeResolver, depth) {
         const m = /^#include[ \t]+"([^"]+)"|^#include[ \t]+<([^>]+)>/.exec(t)
         const file = m && (m[1] || m[2])
         const inc = file && includeResolver ? includeResolver(file) : null
-        if (inc !== null && inc !== undefined) {
+        // ①(ISSUE0924A2) **空串 = 缺失**：宿主把 404 的空响应当"取到了"缓存时，原实现走的是
+        //   `inc !== null` 分支 ⇒ 展开成空、连痕迹都不留（静默产出缺符号的 GLSL，要到 GL 编译期才炸）。
+        //   现在空/纯空白也按缺失处理 ⇒ 生成物里一定留得下 `// [include 缺失: xxx]` 这条可查痕迹。
+        if (inc !== null && inc !== undefined && String(inc).trim() !== '') {
           out.push(preprocess(inc, combos, includeResolver, depth + 1))
         } else {
           out.push('// [include 缺失: ' + file + ']')
@@ -5899,15 +5930,156 @@ export function withSiblingComboDefaults(srcText, siblingText) {
 //   · widthDecls / rule9 / rule93 / rule9a2 = 宽度表规模与三条规则各自的**实际改写条数**（按上游规则号分桶）
 //   · unresolved                            = 命中规则**形态**但宽度不可确证 ⇒ **原样保留**的条数
 //   · unresolvedReasons                     = 上面那些条数的原因分桶（可复核，不是黑盒数字）
-export const h2gWidthStats = { widthDecls: 0, rule9: 0, rule93: 0, rule9a2: 0, unresolved: 0, unresolvedReasons: {} }
+//   · 规则 9-W 一族（G 段 2026-09-25 新增，**表达式级宽度推断**）各自**独立分桶**，不动上面三条
+//     规则的 `unresolved` 口径：rule9Wbin=二元运算两侧宽度不同被截、rule9Wdecl=声明/赋值两侧宽度
+//     不同被截、rule9Wint=int 字面量在浮点向量上下文补 `.0`、rule9Wconst=`const float = <int 表达式>`；
+//     `rule9Wunresolved(+Reasons)` = 命中形态但宽度**不可确证** ⇒ 原样保留的条数（与既有 `unresolved`
+//     分开，免得把"新规则没覆盖"混进"老规则推不出"）。
+//   · ruleFmod = `fmod(x, y) → x - y*trunc(x/y)` 的改写条数（GLSL ES 无 fmod；**不能**换 `mod`：负数语义
+//     不同）；ruleFmodDupArgs = 其中实参含函数调用（文本代入 ⇒ 求值次数由 1 变 2）的条数，单独可见。
+export const h2gWidthStats = {
+  widthDecls: 0, rule9: 0, rule93: 0, rule9a2: 0, ruleSample2D: 0,
+  rule9Wbin: 0, rule9Wdecl: 0, rule9Wint: 0, rule9Wconst: 0, rule9Wbcast: 0, rule9Warg: 0, rule9Wunresolved: 0, rule9WunresolvedReasons: {},
+  ruleFmod: 0, ruleFmodDupArgs: 0,
+  unresolved: 0, unresolvedReasons: {},
+}
 export function h2gWidthStatsReset() {
   h2gWidthStats.widthDecls = 0
   h2gWidthStats.rule9 = 0
   h2gWidthStats.rule93 = 0
   h2gWidthStats.rule9a2 = 0
+  h2gWidthStats.ruleSample2D = 0
+  h2gWidthStats.rule9Wbin = 0
+  h2gWidthStats.rule9Wdecl = 0
+  h2gWidthStats.rule9Wint = 0
+  h2gWidthStats.rule9Wconst = 0
+  h2gWidthStats.rule9Wbcast = 0
+  h2gWidthStats.rule9Warg = 0
+  h2gWidthStats.rule9Wunresolved = 0
+  h2gWidthStats.rule9WunresolvedReasons = {}
+  h2gWidthStats.ruleFmod = 0
+  h2gWidthStats.ruleFmodDupArgs = 0
   h2gWidthStats.unresolved = 0
   h2gWidthStats.unresolvedReasons = {}
   return h2gWidthStats
+}
+
+// ═══ ①(ISSUE0924A2 渲染器"效果链编译失败"线 2026-09-24) WE 公共 shader 头：**内置等价实现** ═══
+// 为什么必须有这一层（真因与逐行证据见 docs/reports-issue0924a2-line-D.md）：
+//   官方效果 shader 头部写 `#include "common.h"`（常量 + rotateVec2/greyscale/hsv2rgb… 全在里面）。
+//   宿主装载层取头文件的 URL 是老写法 `'/' + name.replace('shaders/','')` ⇒ **`/common.h`**，而
+//   渲染器页宿主的**静态面先命中**这条路径（:8902 实测 404「静态文件不存在：/common.h」）⇒ 取回的空串
+//   又被 `headerCache.set(name, txt || '')` 永久记成"取到了" ⇒ 本文件 `preprocess()`（:5719）把
+//   `#include "common.h"` 展开成**空**（空串不是 null ⇒ 原实现连 `// [include 缺失: …]` 都不写）⇒
+//   M_PI_2 / rotateVec2 等符号整批消失 ⇒ GLSL 编译期 `undeclared identifier` ⇒
+//   `getEffectProgram()` 抛错 ⇒ `:12798`「跳过编译失败的 pass」⇒ 整条效果链 break ⇒ 该层退化成
+//   "背景拷贝"（用户日志里那批 `COPYBG=1 + 链输入=背景拷贝`）。
+// 口径（两条都要）：
+//   ① **服务器正文优先**：只要能拿到头文件就逐字用它 —— 有头文件的宿主行为与改动前逐位一致；
+//      只有"取过但为空/没取到"才落到这里（三态见 `makeEffectIncludeResolver()`）。
+//   ② 数值与官方 `wallpaper_engine/assets/shaders/common.h` **逐值一致**：`M_PI_2` = 6.28318530718
+//      = **2π**（官方这个宏名是"整圈"，不是 π/2；`elysia/we-renderer/effects/shake.js` 里的
+//      `Math.PI / 2` 是错的 —— 那条 JS 重实现路径不在本文件，只报告不改）。
+// 函数体与本仓自研 `shaders/common.h` **同源**（该文件头写明"自有实现、无第三方代码"）；
+// tests/effect-prelude-common-test.mjs 对两份做 **token 级比对**防漂移，并对官方文件做数值比对。
+export const WE_BUILTIN_SHADER_HEADERS = Object.freeze({
+  'common.h': `#define M_PI 3.14159265359
+#define M_PI_HALF 1.57079632679
+#define M_PI_2 6.28318530718
+#define SQRT_2 1.41421356237
+#define SQRT_3 1.73205080756
+vec2 rotateVec2(vec2 v, float angle)
+{
+	float s = sin(angle);
+	float c = cos(angle);
+	return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+}
+vec2 rotateVec2(vec4 v, float angle)
+{
+	return rotateVec2(v.xy, angle);
+}
+float greyscale(vec3 color)
+{
+	return dot(color, vec3(0.11, 0.59, 0.30));
+}
+vec3 rgb2hsv(vec3 rgb)
+{
+	float hi = max(rgb.r, max(rgb.g, rgb.b));
+	float lo = min(rgb.r, min(rgb.g, rgb.b));
+	float chroma = hi - lo;
+	float hue = 0.0;
+	if (chroma > 0.0)
+	{
+		if (hi == rgb.r)
+			hue = (rgb.g - rgb.b) / chroma;
+		else if (hi == rgb.g)
+			hue = (rgb.b - rgb.r) / chroma + 2.0;
+		else
+			hue = (rgb.r - rgb.g) / chroma + 4.0;
+		hue = fract(hue / 6.0);
+	}
+	float sat = hi > 0.0 ? chroma / hi : 0.0;
+	return vec3(hue, sat, hi);
+}
+vec3 hsv2rgb(vec3 hsv)
+{
+	float sector = fract(hsv.x) * 6.0;
+	float idx = floor(sector);
+	float f = sector - idx;
+	float p = hsv.z * (1.0 - hsv.y);
+	float q = hsv.z * (1.0 - hsv.y * f);
+	float t = hsv.z * (1.0 - hsv.y * (1.0 - f));
+	if (idx < 1.0)
+		return vec3(hsv.z, t, p);
+	if (idx < 2.0)
+		return vec3(q, hsv.z, p);
+	if (idx < 3.0)
+		return vec3(p, hsv.z, t);
+	if (idx < 4.0)
+		return vec3(p, q, hsv.z);
+	if (idx < 5.0)
+		return vec3(t, p, hsv.z);
+	return vec3(hsv.z, p, q);
+}`,
+})
+
+/** include 名归一化：去引号、去目录，只看 basename（`shaders/common.h` 与 `common.h` 同键）。 */
+function normalizeHeaderName(name) {
+  return String(name === null || name === undefined ? '' : name)
+    .trim().replace(/^["']|["']$/g, '').replace(/\\/g, '/').split('/').pop().toLowerCase()
+}
+
+/** 内置等价头：命中 → 正文；未收录 → null（**纯函数**，Node 里可直测）。 */
+export function builtinShaderHeader(name) {
+  const key = normalizeHeaderName(name)
+  return Object.prototype.hasOwnProperty.call(WE_BUILTIN_SHADER_HEADERS, key) ? WE_BUILTIN_SHADER_HEADERS[key] : null
+}
+
+/** include 解析（**纯函数**，三态）：`fetched` 非空 = 服务器正文（权威，逐字用）；
+ *  空串/null = 取过但没拿到 ⇒ 内置等价头兜底；未收录 ⇒ null（"缺失"语义由调用方决定）。 */
+export function resolveEffectInclude(name, fetched) {
+  if (fetched) return fetched
+  return builtinShaderHeader(name)
+}
+
+/** 效果 pass 的 include 解析器（**生产路径与测试同一份**）：
+ *  cache 没有这个键        ⇒ 还没取过：记进 `missing` 并回 null（由调用方统一去取一次）
+ *  cache 值是空串/null     ⇒ 取过但 404/超时/空 ⇒ 内置等价头兜底（**不再当成"空包含"静默放行**）
+ *  cache 值非空            ⇒ 服务器正文，逐字用。 */
+export function makeEffectIncludeResolver(cache, missing) {
+  return (file) => {
+    if (!cache.has(file)) { if (missing) missing.add(file); return null }
+    return resolveEffectInclude(file, cache.get(file))
+  }
+}
+
+/** 效果 pass 的 GLSL 拼装（**生产路径与测试同一份**，纯函数）：兄弟 stage combo 补默认 → 逐 stage 转译。
+ *  纹理关联 combo（`parseTextureCombos`）仍由调用方从**原始** frag 解析（它依赖 createRenderer 作用域）。 */
+export function assembleEffectShaderSources({ fragSrc, vertSrc, combos = {}, resolveInclude = null }) {
+  return {
+    frag: hlsl2glsl(withSiblingComboDefaults(fragSrc, vertSrc), 'frag', combos, resolveInclude),
+    vert: hlsl2glsl(withSiblingComboDefaults(vertSrc, fragSrc), 'vert', combos, resolveInclude),
+  }
 }
 
 export function hlsl2glsl(src, stage, combos, includeResolver) {
@@ -5959,6 +6131,31 @@ export function hlsl2glsl(src, stage, combos, includeResolver) {
   code = rewriteCall(code, 'saturate', (inner) => 'clamp(' + inner + ', 0.0, 1.0)')
   // HLSL atan2(y, x) → GLSL atan(y, x)
   code = rewriteCall(code, 'atan2', (inner) => 'atan(' + inner + ')')
+  // HLSL fmod(x, y) → GLSL 等价 `x - y * trunc(x / y)`（**不能**换成 `mod`！）
+  //   两者对**负数**语义不同：fmod 向**零**取整（fmod(-1.5, 1) = -0.5），GLSL `mod` 向**负无穷**取整
+  //   （mod(-1.5, 1.0) = 0.5）⇒ 直接把 fmod 换成 mod 是**改语义**，不是移植。GLSL ES 3.0 根本没有
+  //   fmod 这个名字 ⇒ 原样留着必然编不过（真包 0923/2902403877 workshop/2423877731/effects/
+  //   chromatic_aberration.frag:42 `fmod(g_Time, M_PI_F / 10)`，AUDIOPROCESSING=0 那一支）。
+  //   实参是**文本代入**（与既有 saturate/atan2/mul 同一手法），因此**每个代入点都必须自带括号**：
+  //   实参可能是 `M_PI_F / 10` 这种复合表达式，写成 `trunc(x / <实参>)` 会变成 `trunc(x / A / B)`
+  //   （左结合 ⇒ 语义错），G 段实测踩过。实参含函数调用时求值次数会由 1 变 2，这种条数单独计进
+  //   `ruleFmodDupArgs`（可读、可断言，不假装没有）；WE 效果 shader 里的 fmod 实参实测都是
+  //   "变量 / 常量表达式"，本机语料 0 条 dup。
+  //   多趟：rewriteCall 一次只处理最外层调用（嵌套实参里的 fmod 由下一趟接手），最多 5 趟。
+  for (let fx = 0; fx < 5; fx++) {
+    let hitX = 0
+    code = rewriteCall(code, 'fmod', (inner) => {
+      const fxArgs = splitArgs(inner)
+      if (fxArgs.length !== 2) return 'fmod(' + inner + ')'   // 形态不明（非两参）⇒ 原样，交给真编译暴露
+      const xa = fxArgs[0].trim()
+      const ya = fxArgs[1].trim()
+      h2gWidthStats.ruleFmod++
+      if (/\w\s*\(/.test(xa) || /\w\s*\(/.test(ya)) h2gWidthStats.ruleFmodDupArgs++
+      hitX++
+      return '((' + xa + ') - (' + ya + ') * trunc((' + xa + ') / (' + ya + ')))'
+    })
+    if (!hitX) break
+  }
   // 矩阵 CAST（WE HLSL 的 CAST3X3 等 → GLSL matN 构造；参数多为 mat4/mat3，ES 3.0 支持取左上子阵）
   code = rewriteCall(code, 'CAST3X3', (inner) => 'mat3(' + inner + ')')
   code = rewriteCall(code, 'CAST2X2', (inner) => 'mat2(' + inner + ')')
@@ -6266,6 +6463,471 @@ export function hlsl2glsl(src, stage, combos, includeResolver) {
         h2gWidthStats.rule9a2++
         return pre + 'vec' + dim + ' ' + name + ' = (' + rhs.trim() + ').' + W9_SWN[lw] + ';'
       })
+      // ── 规则 9-S（ISSUE0924A2 2026-09-24，本仓新增）：**采样坐标实参的 HLSL 隐式截断** ──
+      //   真因（真包 0923/2902406982 的 `workshop/2800594362/effects/clipping_mask.frag:471` 实测）：
+      //   官方/工坊效果里坐标常写成 `vec4 v_TexCoord`（WE 约定前两维是 uv），调用写成
+      //   `texSample2D(g_Texture0, v_TexCoord)`。HLSL 允许"实参隐式截断 float4→float2"，
+      //   GLSL ES 3.0 没有这种转换 ⇒ 真编译只报
+      //   `'texture' : no matching overloaded function found` + `cannot convert from ' const float' to
+      //   ' temp highp 4-component vector of float'` ⇒ 该 pass 被跳过 ⇒ **整条效果链 break**
+      //   （`2902406982` 的「前景效果」4 个 pass 因此一个都没跑）。
+      //   口径与规则 9/9-3/9a-2 **逐条相同**：只在宽度**可确证 ≥3** 时补 `.xy`（标识符 ∈ 宽度表，或
+      //   已知宽度的 swizzle）；推不出来的一律原样保留（不猜），也不计入 unresolved（本规则是**新增**
+      //   能力，不改既有三条规则的计数口径 —— 单独一个 `ruleSample2D` 计数器）。
+      //   位置放在本块**最后**：既有三条规则的输入/行为逐字节不变（tests/hlsl2glsl-width-table-test 的
+      //   B2「移植前能编译的 shader 输出逐位不变」正是这条不变量的守门人）。
+      {
+        const re = /\b(texture|textureLod)\s*\(/g
+        let out = ''
+        let last = 0
+        let hit = 0
+        let sm
+        while ((sm = re.exec(code)) !== null) {
+          const open = sm.index + sm[0].length - 1
+          const close = matchParen(code, open)
+          if (close < 0) continue
+          const inner = code.slice(open + 1, close)
+          const args = []
+          let depth9 = 0
+          let start9 = 0
+          for (let i = 0; i < inner.length; i++) {
+            const ch = inner[i]
+            if (ch === '(') depth9++
+            else if (ch === ')') depth9--
+            else if (ch === ',' && depth9 === 0) { args.push(inner.slice(start9, i)); start9 = i + 1 }
+          }
+          args.push(inner.slice(start9))
+          if (args.length < 2) continue
+          // 只认"单一标识符（可带 swizzle）"这种宽度可确证的实参形态
+          const cm = /^\s*([A-Za-z_]\w*)\s*(?:\.\s*([xyzwrgba]{1,4})\s*)?$/.exec(args[1])
+          if (!cm) continue
+          const cw = cm[2] ? cm[2].length : (w9Float.has(cm[1]) ? 1 : (w9Width.get(cm[1]) || 0))
+          if (cw < 3) continue
+          args[1] = args[1].replace(/\s*$/, '') + '.xy'
+          out += code.slice(last, open + 1) + args.join(',') + ')'
+          last = close + 1
+          hit++
+        }
+        if (hit) {
+          h2gWidthStats.ruleSample2D += hit
+          code = out + code.slice(last)
+        }
+      }
+      // ── 规则 9-W（ISSUE0924A2 2026-09-25「效果链编译失败」线 G 段，本仓新增）：**表达式级宽度推断** ──
+      //   治"HLSL 隐式截断"家族的另一半（9 / 9-3 / 9a-2 只看单标识符与简单形态，9-S 只看采样实参）：
+      //   ① **二元运算两侧宽度不同**：HLSL 把更宽的一侧截到更窄的一侧（fxc 仅告警 X3206
+      //      "implicit truncation of vector type"），GLSL ES 3.0 直接报
+      //      `'-' : wrong operand types: … 4-component vector … 2-component vector` ⇒ 驱动拒绝整条
+      //      pass ⇒ 渲染器「跳过编译失败的 pass」⇒ 效果静默消失。真包现场（0917/0923 语料，逐条见
+      //      docs/reports-issue0924a2-line-G.md §2）：
+      //        · 0923/2902406982 workshop/2800594362/effects/clipping_mask.frag:53 ——
+      //          `v_TexCoord*2.0 - 1.0 - texScaleCenter`：左 vec4、右展开成 vec2 ⇒ 截左为 `.xy`
+      //        · 0923/2981249186+3690417937 cutout_vignette.frag:79 —— vec3 `v_TexCoord` - `vec2(u_offset)`
+      //        · 0923/3448290956 iris_movement__.vert:167 —— `transformedCursorPosition * g_CursorScale`
+      //          （vec4 * vec2）
+      //        · 0923/3653641024 ____________________.frag:159 —— `vec2(500) / g_Texture0Resolution`
+      //          （**右侧**更宽 ⇒ 截右边为 `.xy`；两个方向都要治）
+      //   ② **声明/赋值两侧宽度不同**（右值比左值宽，HLSL 隐式取前几维）：`float atFactor =
+      //      (1 + <vec2 表达式>) * max(1, abs(v2));`（0923/3479521040 shadow.vert:37，取 `.x`）。
+      //   ③ 同一条里的 **int 字面量 ⊗ 浮点向量**：`1 + <vec2>`（GLSL ES 无 int→float 隐式转换，HLSL 有）。
+      //   ④ **`const float x = <int 表达式>`**：`const float sampleDrop = sampleCount - 1;`
+      //      （0923/3582367840 shaders/effects/godrays_cast.frag:46，GLSL ES 报
+      //      `'const' : non-matching or non-convertible constant type for const initializer`）。
+      //   口径（与既有五条规则同源，一条都不放宽）：
+      //     · **只认可确证的宽度**：本文件（`#include` 已展开 ⇒ 公共头里的函数声明也在册）的
+      //       `vecN <名>` / `float <名>` / `int <名>` 声明、`vecN(...)` 构造、`texture|textureLod`
+      //       （GLSL 规范：4 分量）、分量式内建、**本文件声明的函数返回类型**，以及它们的算术组合；
+      //       绝不给"名字在册但本文件没声明"的内建猜宽度（与 9a-2 的 F8/F10 口径一致）。
+      //     · **标量（宽 1）永不参与截断**：`标量 ⊗ 向量` 在 GLSL 与 HLSL 两侧都合法，动它就是改语义。
+      //     · 推不出来 ⇒ **原样保留** + 计进本规则**自己的**桶（`rule9Wunresolved` /
+      //       `rule9WunresolvedReasons`）；既有三条规则的 `unresolved` 口径一个数都不动。
+      //     · 只在**声明/赋值语句的右值**上动手；词法/语法遇到未建模的 token（数组下标、比较、三元、
+      //       位运算、`%`、未知函数…）⇒ **整条语句放弃**（原样保留 + 计数），不做任何猜测。
+      //     · 位置在本块**最后**：9 / 9-3 / 9a-2 / 9-S 四条规则的输入与行为**逐字节不变**
+      //       （守门人 = tests/hlsl2glsl-width-table-test.mjs 的 B2「移植前能编译的输出逐位不变」）。
+      {
+        // 分量式内建（结果宽 = 实参里最宽的向量；全标量 ⇒ 1）；返回标量的单独列
+        const W9_CWISE = new Set(['abs', 'sign', 'floor', 'trunc', 'round', 'roundEven', 'ceil', 'fract', 'mod',
+          'min', 'max', 'clamp', 'mix', 'step', 'smoothstep', 'radians', 'degrees', 'sin', 'cos', 'tan', 'asin',
+          'acos', 'atan', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh', 'pow', 'exp', 'log', 'exp2', 'log2',
+          'sqrt', 'inversesqrt', 'normalize', 'reflect', 'refract', 'faceforward', 'dFdx', 'dFdy', 'fwidth',
+          'saturate', 'lerp'])
+        const W9_SCALARFN = new Set(['length', 'dot', 'distance', 'determinant'])
+        const w9Src2 = w9Mask(code)   // 与输出**同长**的注释挖空副本：位置一一对应，只用来读 token
+        // 宽度来源 ①：**本文件声明的函数返回类型**（include 已展开 ⇒ rotateVec2/hsv2rgb 等都在册）
+        const w9FnRet = new Map()
+        {
+          const fre = /(?:^|[;{}\n])[ \t]*(?:(?:highp|mediump|lowp)[ \t]+)?(vec([234])|float|int|uint)[ \t]+([A-Za-z_]\w*)[ \t]*\(/g
+          let fm
+          while ((fm = fre.exec(w9Src2)) !== null) {
+            if (fm[3] === 'main') continue
+            w9FnRet.set(fm[3], /^vec/.test(fm[1]) ? Number(fm[2]) : (fm[1] === 'float' ? 1 : 0))
+          }
+        }
+        // 宽度来源 ②：`int/uint <名>` 声明（只用于"右值是不是 int 表达式"这一个判定）
+        const w9IntDecl = new Set()
+        {
+          const ire = /\b(?:const[ \t]+)?(?:highp|mediump|lowp[ \t]+)?(?:int|uint)[ \t]+([A-Za-z_]\w*)/g
+          let im2
+          while ((im2 = ire.exec(w9Src2)) !== null) w9IntDecl.add(im2[1])
+        }
+        const w9Wmiss = (reason) => {
+          h2gWidthStats.rule9Wunresolved++
+          h2gWidthStats.rule9WunresolvedReasons[reason] = (h2gWidthStats.rule9WunresolvedReasons[reason] || 0) + 1
+        }
+        // 截断用的 swizzle 表：**含 1 维**（`float x = <vec2>` ⇒ `.x`）。既有 W9_SW 只有 2/3/4 维
+        // （那三条规则都不做"向量→标量"之外的一维截断），本规则要 1 维，所以自带一份，不动 W9_SW。
+        const W9_SW1 = { 1: 'x', 2: 'xy', 3: 'xyz', 4: 'xyzw' }
+        const wIntLit = (n) => !!(n && (n.k === 'num' ? n.isInt : (n.k === 'un' && (n.op === '-' || n.op === '+') && wIntLit(n.x))))
+        const wIsIntExpr = (n) => {
+          if (!n) return false
+          if (n.k === 'num') return !!n.isInt
+          if (n.k === 'un') return wIsIntExpr(n.x)
+          if (n.k === 'paren') return wIsIntExpr(n.x)
+          // **同名并存 ⇒ 不猜**：同一个文件里既有 `float bar` 又有 `int bar`（真包 0923/3653641024
+          // Simple_Audio_Bars.frag 的 `:209 float bar` 与 `:226 int bar` 是两个作用域）时，名字本身
+          // 不携带确定类型 —— 这时给它套 `float(...)` 是**猜测**（虽然对 float 是无害的恒等包装，
+          // 但按本规则的纪律：不确定就不动）。判据 A36 钉的就是这一类。
+          if (n.k === 'id') return w9IntDecl.has(n.name) && !w9Float.has(n.name) && !w9Width.has(n.name)
+          if (n.k === 'call') return n.name === 'int' || n.name === 'uint'
+          if (n.k === 'bin') return wIsIntExpr(n.l) && wIsIntExpr(n.r)
+          return false
+        }
+        // 词法：只认 标识符 / 数字 / `( ) , . + - * / %`；碰到别的字符 ⇒ 整式放弃（返回 null）
+        const wLex = (a, b) => {
+          const t = []
+          let i = a
+          while (i < b) {
+            const c = w9Src2[i]
+            if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v') { i++; continue }
+            if (/[A-Za-z_]/.test(c)) {
+              const s0 = i
+              while (i < b && /[A-Za-z0-9_]/.test(w9Src2[i])) i++
+              t.push({ k: 'id', v: w9Src2.slice(s0, i), s: s0, e: i })
+              continue
+            }
+            if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(w9Src2[i + 1] || ''))) {
+              const s0 = i
+              while (i < b && /[0-9.]/.test(w9Src2[i])) i++
+              if (w9Src2[i] === 'e' || w9Src2[i] === 'E') {
+                i++
+                if (w9Src2[i] === '+' || w9Src2[i] === '-') i++
+                while (i < b && /[0-9]/.test(w9Src2[i])) i++
+              }
+              if (/[fFhH]/.test(w9Src2[i] || '')) i++
+              t.push({ k: 'num', v: w9Src2.slice(s0, i), s: s0, e: i })
+              continue
+            }
+            if (c === '(' || c === ')' || c === ',' || c === '.' || c === '+' || c === '-' || c === '*' || c === '/' || c === '%') {
+              t.push({ k: c, v: c, s: i, e: i + 1 })
+              i++
+              continue
+            }
+            return null
+          }
+          return t
+        }
+        // 递归下降（Pratt；`* / %` > `+ -`；一元 ±；后缀 swizzle；调用实参逗号分隔）
+        const wParse = (t) => {
+          let p = 0
+          const at = (k) => !!t[p] && t[p].k === k
+          const eat = (k) => { if (at(k)) { p++; return true } return false }
+          function postfix(node) {
+            while (at('.') && t[p + 1] && t[p + 1].k === 'id' && /^[xyzwrgba]{1,4}$/.test(t[p + 1].v)) {
+              node = { k: 'sw', x: node, sw: t[p + 1].v, swS: t[p + 1].s, swE: t[p + 1].e, s: node.s, e: t[p + 1].e }
+              p += 2
+            }
+            return node
+          }
+          function primary() {
+            const tk = t[p]
+            if (!tk) return null
+            if (tk.k === '(') {
+              p++
+              const x = expr(0)
+              if (!x || !eat(')')) return null
+              return postfix({ k: 'paren', x, s: tk.s, e: t[p - 1].e })
+            }
+            if (tk.k === 'num') { p++; return postfix({ k: 'num', s: tk.s, e: tk.e, isInt: !/[.eE]/.test(tk.v) }) }
+            if (tk.k === 'id') {
+              p++
+              if (at('(')) {
+                p++
+                const args = []
+                if (!at(')')) {
+                  for (;;) {
+                    const a = expr(0)
+                    if (!a) return null
+                    args.push(a)
+                    if (eat(',')) continue
+                    break
+                  }
+                }
+                if (!eat(')')) return null
+                return postfix({ k: 'call', name: tk.v, args, s: tk.s, e: t[p - 1].e })
+              }
+              return postfix({ k: 'id', name: tk.v, s: tk.s, e: tk.e })
+            }
+            return null
+          }
+          function unary() {
+            if (at('-') || at('+')) {
+              const o = t[p]
+              p++
+              const x = unary()
+              return x ? { k: 'un', op: o.k, x, s: o.s, e: x.e } : null
+            }
+            return primary()
+          }
+          function expr(min) {
+            let l = unary()
+            if (!l) return null
+            for (;;) {
+              const o = t[p]
+              if (!o) break
+              const prec = (o.k === '*' || o.k === '/' || o.k === '%') ? 2 : ((o.k === '+' || o.k === '-') ? 1 : 0)
+              if (!prec || prec < min) break
+              p++
+              const r = expr(prec + 1)
+              if (!r) return null
+              l = { k: 'bin', op: o.k, l, r, s: l.s, e: r.e }
+            }
+            return l
+          }
+          const root = expr(0)
+          if (!root || p !== t.length) return null   // 有剩余 token（逗号表达式/未建模语法）⇒ 放弃
+          return root
+        }
+        const wCallW = (name, aw) => {
+          if (W9_CWISE.has(name)) { let w = 0; for (const x of aw) if (x > w) w = x; return w }
+          if (W9_SCALARFN.has(name)) return 1
+          if (name === 'texture' || name === 'textureLod' || name === 'textureProj') return 4
+          const vc = /^vec([234])$/.exec(name)
+          if (vc) return Number(vc[1])
+          if (name === 'float') return 1
+          if (name === 'int' || name === 'uint' || name === 'bool') return 0
+          const fr = w9FnRet.get(name)
+          return fr === undefined ? 0 : fr
+        }
+        // ⑤ HLSL **标量广播**（分量式内建）：`max(1.0, <vec2>)` / `pow(<vec3>, 2.0)` 这类形态 GLSL 里
+        //   **没有**对应重载（glslang 实测 `'max' : no matching overloaded function found`；GLSL ES 3.0
+        //   只有 `max(genType, genType)` 与 `max(genType, float)` 两种）。本表按 GLSL 规范的重载表标注
+        //   每个实参位置的合法性：'v' 必须向量 / 's' 该位置允许标量 / 'b' 只有**全部 b 位置都是标量**才合法。
+        //   只在"GLSL 确实没有重载"时才给标量实参套 `vecN(...)`（等价于 HLSL 的广播，语义不变）。
+        //   每个实参位置的合法性：'v' 必须向量 / 's' 该位置允许标量（全向量形态也合法）/
+        //   'S' 该位置**只能**是标量（GLSL 没有全向量重载，如 refract 的 eta）/ 'b' 只有**全部 b
+        //   位置都是标量**才合法（clamp(v, float, float) / smoothstep(float, float, v)）。
+        const W9_BCAST = {
+          min: 'vs', max: 'vs', mod: 'vs',
+          pow: 'vv', atan: 'vv', reflect: 'vv', faceforward: 'vvv',
+          mix: 'vvs', step: 'sv', smoothstep: 'bbv', clamp: 'vbb', refract: 'vvS',
+        }
+        const wTruncAt = (n, txt, tw) => {
+          const sw = W9_SW1[tw]
+          if (n.k === 'sw') return txt.slice(0, txt.length - (n.e - n.swS)) + sw
+          if (n.k === 'id' || n.k === 'paren') return txt + '.' + sw
+          return '(' + txt + ').' + sw
+        }
+        // 自底向上：先修孩子，再用**修好后的宽度**决定本层要不要截断
+        //   ⚠ 每个节点都必须**从孩子的 txt 重新拼**（哪怕本层不动）—— 否则孩子那一层的修正在父层被
+        //   `code.slice(n.s, n.e)` 原文覆盖掉（G 段实测踩过：`1 + <vec2>` 的 `.0` 在上一层的 `*`
+        //   节点被吃掉）。拼法与原文**逐字节等价**：`code.slice(l.s,l.e) + code.slice(l.e,r.s) + code.slice(r.s,r.e)`
+        //   ≡ `code.slice(n.s,n.e)`（相邻切片拼接，空白/注释/运算符全保留）。
+        //   ⚠ **同名 float 与 vecN 并存 ⇒ 不猜**：`#include` 展开后公共头里的形参/局部（如 `float c`）会
+        //   污染本文件真声明为 `vec3 c` 的局部变量 —— 真包 0923/3479521040 lens_flare_sun.frag:98 实测：
+        //   本规则的**假阳性**把本来**编得过**的 `c += vec3(0,0,0) + f0 / 1.0;` 截成了 `.x`，被宽度表
+        //   判据的 B2「移植前能编译的输出逐位不变」当场抓住。既有 9-3 对同一情形用 `9-3-rhs-type-ambiguous`
+        //   **不猜**，本规则同口径：宽度记 0（推不出 ⇒ 原样保留 + 计进本规则自己的桶）。
+        const wLeafW = (nm) => {
+          const hasF = w9Float.has(nm)
+          const vw = w9Width.get(nm) || 0
+          if (hasF && vw) return 0
+          if (hasF) return 1
+          if (vw) return vw
+          return w9IntDecl.has(nm) ? 1 : 0
+        }
+        const wFix = (n) => {
+          if (n.k === 'num' || n.k === 'id') {
+            return { txt: code.slice(n.s, n.e), w: n.k === 'num' ? 1 : wLeafW(n.name) }
+          }
+          if (n.k === 'sw') {
+            const X = wFix(n.x)
+            return { txt: X.txt + code.slice(n.x.e, n.e), w: n.sw.length }
+          }
+          if (n.k === 'paren') {
+            const X = wFix(n.x)
+            return { txt: code.slice(n.s, n.x.s) + X.txt + code.slice(n.x.e, n.e), w: X.w }
+          }
+          if (n.k === 'un') {
+            const X = wFix(n.x)
+            return { txt: code.slice(n.s, n.x.s) + X.txt, w: X.w }
+          }
+          if (n.k === 'call') {
+            if (!n.args.length) return { txt: code.slice(n.s, n.e), w: wCallW(n.name, []) }
+            const aw = []
+            const atxt = []
+            const seps = []
+            let txt = code.slice(n.s, n.args[0].s)
+            for (let i = 0; i < n.args.length; i++) {
+              const A = wFix(n.args[i])
+              aw.push(A.w)
+              atxt.push(A.txt)
+              seps.push(i + 1 < n.args.length ? code.slice(n.args[i].e, n.args[i + 1].s) : code.slice(n.args[i].e, n.e))
+            }
+            // ⑤ 分量式内建的**向量实参**宽度不同 ⇒ HLSL 把更宽的截到最窄的那个（与二元运算同一条规则）。
+            //   真包现场：0917/3233141951 shift_hue.frag:132 `albedo.rgb = mix(albedo, newAlbedo, mask);`
+            //   （`albedo` 是 vec4、`newAlbedo` 是 vec3）⇒ GLSL 报 `'mix' : no matching overloaded function
+            //   found`（GLSL 只有 mix(genType,genType,genType) 与 mix(genType,genType,float)）⇒ 取最小宽度
+            //   为目标，把更宽的实参截掉。**同类实测**：`mix(vec4,vec3,float)` 在 glslang 上必红。
+            let W = 0
+            if (W9_CWISE.has(n.name) && n.args.length >= 2) {
+              let tw = 0
+              for (const x of aw) if (x >= 2 && (tw === 0 || x < tw)) tw = x
+              if (tw >= 2 && aw.some((x) => x > tw)) {
+                for (let i = 0; i < aw.length; i++) {
+                  if (aw[i] > tw) { atxt[i] = wTruncAt(n.args[i], atxt[i], tw); aw[i] = tw }
+                }
+                h2gWidthStats.rule9Warg++
+              }
+            }
+            // ⑥ 标量广播：只在 GLSL 没有对应重载的位置上补 `vecN(<标量>)`
+            const spec = W9_BCAST[n.name]
+            if (spec) {
+              W = 0
+              for (const x of aw) if (x > W) W = x
+              if (W >= 2 && !aw.some((x) => x === 0)) {
+                const bAllScalar = spec.split('').every((c, i) => c !== 'b' || aw[i] === 1)
+                const wrap = []
+                for (let i = 0; i < aw.length; i++) {
+                  const c = spec[i] || 'v'
+                  if (aw[i] === 1) {
+                    if (c === 's' || c === 'S') continue            // GLSL 本来就有 (genType, float) 这类重载 ⇒ 不动
+                    if (c === 'b' && bAllScalar) continue           // clamp(v, float, float) / smoothstep(float, float, v)
+                    if (wIsIntExpr(n.args[i])) { w9Wmiss('9W-int-operand-not-literal'); continue }
+                    wrap.push(i)
+                  } else if (c === 'S') {
+                    w9Wmiss('9W-builtin-shape-unmodelled')          // 本该只能是标量的位置来了向量 ⇒ 不认识，不动
+                  }
+                }
+                if (wrap.length) {
+                  for (const i of wrap) {
+                    atxt[i] = 'vec' + W + '(' + (wIntLit(n.args[i]) ? atxt[i] + '.0' : atxt[i]) + ')'
+                    aw[i] = W
+                  }
+                  h2gWidthStats.rule9Wbcast++
+                }
+              }
+            }
+            txt += atxt.map((s, i) => s + seps[i]).join('')
+            return { txt, w: wCallW(n.name, aw) }
+          }
+          if (n.k === 'bin') {
+            const L = wFix(n.l)
+            const R = wFix(n.r)
+            let lw = L.w
+            let rw = R.w
+            let lt = L.txt
+            let rt = R.txt
+            if (n.op !== '%') {   // `%` 是整数取模（GLSL ES 仅整型）⇒ 本规则不碰，交给既有的 mod 重写
+              // ③ int 字面量 ⊗ 浮点向量：`1 + <vec2>` ⇒ `1.0 + <vec2>`（GLSL ES 无 int→float 隐式转换）
+              if (wIntLit(n.l) && rw >= 2) { lt = lt + '.0'; lw = 1; h2gWidthStats.rule9Wint++ }
+              else if (wIntLit(n.r) && lw >= 2) { rt = rt + '.0'; rw = 1; h2gWidthStats.rule9Wint++ }
+              if (lw >= 2 && rw >= 2) {
+                // ① 两侧都是向量且宽度不同 ⇒ 截更宽的那一侧（同宽合法，不动）
+                if (lw !== rw) {
+                  const tw = Math.min(lw, rw)
+                  if (lw > rw) { lt = wTruncAt(n.l, lt, tw); lw = tw } else { rt = wTruncAt(n.r, rt, tw); rw = tw }
+                  h2gWidthStats.rule9Wbin++
+                }
+              } else if ((lw >= 2 && rw === 0) || (rw >= 2 && lw === 0)) {
+                w9Wmiss('9W-operand-width-unprovable')   // 一侧可确证是向量、另一侧推不出来 ⇒ 原样保留 + 计数
+              } else if ((lw >= 2 && wIsIntExpr(n.r) && !wIntLit(n.r)) || (rw >= 2 && wIsIntExpr(n.l) && !wIntLit(n.l))) {
+                // int **变量/表达式**（不是字面量）⊗ 浮点向量：同一族，但补 `.0` 不成立 ⇒ 原样保留 + 计数
+                w9Wmiss('9W-int-operand-not-literal')
+              } else if (lw === 1 && rw === 1) {
+                // ⑥ int 表达式 ⊗ 浮点标量：GLSL ES **没有** int→float 隐式转换（glslang 实测 `int / float`
+                //    报 `no operation '/' exists`）⇒ 给 **int 那一侧**套 `float(...)`。整数字面量不在此处
+                //    处理（既有 2a-2e 规则已覆盖）；两侧都是 int ⇒ **不动**（整数语义要保住，例如
+                //    `sampleCount - 1` 由 ④ 的 `float(...)` 整体包住）。
+                const lInt = wIsIntExpr(n.l)
+                const rInt = wIsIntExpr(n.r)
+                if (lInt && !rInt && !wIntLit(n.l)) { lt = 'float(' + lt + ')'; h2gWidthStats.rule9Wint++ }
+                else if (rInt && !lInt && !wIntLit(n.r)) { rt = 'float(' + rt + ')'; h2gWidthStats.rule9Wint++ }
+              }
+            }
+            const w = (!lw || !rw) ? 0 : (lw === 1 ? rw : (rw === 1 ? lw : lw))
+            return { txt: lt + code.slice(n.l.e, n.r.s) + rt, w }
+          }
+          return { txt: code.slice(n.s, n.e), w: 0 }
+        }
+        const wStmtEnd = (from) => {
+          let d = 0
+          for (let i = from; i < code.length; i++) {
+            const c = w9Src2[i]
+            if (c === '(' || c === '[') d++
+            else if (c === ')' || c === ']') { d--; if (d < 0) return -1 }
+            else if (d === 0) {
+              if (c === ';') return i
+              if (c === '{' || c === '}' || c === '#') return -1
+            }
+          }
+          return -1
+        }
+        // 逐语句驱动：`[语句起点] (类型)? 名字 (.swizzle)? (=|*=|=|-=) <右值> ;`
+        const w9Re = /(^|[;{}\n])([ \t]*)((?:const[ \t]+)?(?:uniform[ \t]+|varying[ \t]+|attribute[ \t]+|in[ \t]+|out[ \t]+)?)(?:(vec([234])|float|int|uint)[ \t]+)?([A-Za-z_]\w*)([ \t]*\.[ \t]*([xyzwrgba]{1,4}))?[ \t]*(\*=|\/=|\+=|-=|=)(?!=)/g
+        const wEdits = []
+        let am
+        while ((am = w9Re.exec(code)) !== null) {
+          const op = am[9]
+          const declType = am[4]
+          const name = am[6]
+          let lhsW
+          if (declType) lhsW = /^vec/.test(declType) ? Number(am[5]) : 1
+          else if (am[8]) lhsW = am[8].length
+          else if (w9Float.has(name) && w9Width.has(name)) {
+            // 同名 float 与 vecN 并存（include 展开后公共头的形参污染本文件的同名局部）⇒ **不猜**：
+            // 不做外层截断（右值的内层二元改写与左值宽度无关，照常进行）+ 计进本规则自己的桶
+            lhsW = 0
+            w9Wmiss('9W-width-ambiguous-float-and-vec')
+          } else if (w9Float.has(name)) lhsW = 1
+          else lhsW = w9Width.get(name) || 0
+          if (declType === 'int' || declType === 'uint') { w9Re.lastIndex = am.index + am[0].length; continue }
+          const rhsS = am.index + am[0].length
+          const rhsE = wStmtEnd(rhsS)
+          if (rhsE < 0) {
+            if (lhsW >= 2) w9Wmiss('9W-stmt-shape-bail')
+            w9Re.lastIndex = rhsS
+            continue
+          }
+          w9Re.lastIndex = rhsE
+          if (rhsE <= rhsS) continue
+          const tk = wLex(rhsS, rhsE)
+          const root = (tk && tk.length) ? wParse(tk) : null
+          if (!root) {
+            if (lhsW >= 2) w9Wmiss('9W-rhs-parse-bail')
+            continue
+          }
+          const R = wFix(root)
+          let txt = R.txt
+          // 复合赋值的整数字面量右值（`v *= 2`）：与 ③ 同因（GLSL ES 无 int→float 隐式转换）
+          if (lhsW >= 2 && op !== '=' && R.w === 1 && wIntLit(root)) { txt = txt + '.0'; h2gWidthStats.rule9Wint++ }
+          // ② 声明/赋值两侧宽度不同（右值更宽）⇒ 截右值；`float x = <vecN>` ⇒ `.x`
+          if (lhsW >= 1 && R.w > lhsW) {
+            txt = wTruncAt(root, txt, lhsW)
+            h2gWidthStats.rule9Wdecl++
+          }
+          // ④ `const float x = <int 表达式>`：GLSL ES 要求 const 初始化式类型精确匹配（无 int→float）
+          if (declType === 'float' && /const/.test(am[3]) && R.w === 1 && wIsIntExpr(root)) {
+            txt = 'float(' + txt + ')'
+            h2gWidthStats.rule9Wconst++
+          }
+          if (txt !== code.slice(root.s, root.e)) wEdits.push({ s: root.s, e: root.e, txt })
+        }
+        if (wEdits.length) {
+          wEdits.sort((x, y) => y.s - x.s)   // 区间互不重叠（每条语句扫完直接跳过整个右值）⇒ 倒序替换安全
+          for (const ed of wEdits) code = code.slice(0, ed.s) + ed.txt + code.slice(ed.e)
+        }
+      }
     }
   }
 
@@ -8741,7 +9403,8 @@ export function createRenderer(canvas, opts = {}) {
   //     · oscillatealpha  = **乘性**：`alpha = base · mix(scalemin, scalemax, (cos(2πf·age+φ)+1)/2)`，scalemax 缺省 1；
   //     · oscillateposition = **逐轴增量**：`pos[轴] += −scale[轴]·ω·sin(ω·age+φ[轴])·dt`（三轴各自频率/幅度/相位，
   //       不再每帧覆盖位置 ⇒ movement/turbulence/attract 累积的漂移得以保留）；
-  //     · controlpointattract = 判据 `d < threshold/2` 才施力（旧实现写成 `d > threshold/2`，**正好反了**）；
+  //     · controlpointattract = 判据 `d < 门限` 才施力（旧实现写成 `d > 门限`，**正好反了**；
+  //       门限本身见下面的 `PFORCE_MODE`，本条只管**方向**）；
   //     · turbulence 的 `mask` 缺省 = (1,1,0)（旧实现 [1,0,0] ⇒ 只沿 x 推）。
   //   `?pops=legacy` = P-124 及之前：加性+clamp 的 oscillatealpha（base=0.5 时 24.8% 周期 α=0）、
   //     覆盖式 oscillateposition（同屏粒子沿固定对角线机械摆动、漂移被抹掉）、反判据 attract、mask=[1,0,0]。
@@ -8751,6 +9414,31 @@ export function createRenderer(canvas, opts = {}) {
     try {
       if (typeof location !== 'undefined' && location.search) {
         return new URLSearchParams(location.search).get('pops') === 'legacy' ? 'legacy' : 'official'
+      }
+    } catch (e) { /* 无 location → 默认 official */ }
+    return 'official'
+  })()
+  // ①(C4 定案 2026-09-24) **`controlpointattract`（Control point force）门限数值档位**（`?pforce=legacy`）：
+  //   official（默认）= 门限 = 官方字段 `threshold` 的**原值**。官方依据（三条，取证见
+  //     `docs/reports/particle-force-c3c4-verdict.md`）：
+  //       · **S0 官方文档**（`https://docs.wallpaperengine.io/en/scene/particles/component/operator.html`
+  //         §"Control point force"）逐字 **"Distance: The maximum distance of the force."**；
+  //       · **S1 官方资产**：字段序列化键名 = `threshold`（35 个实例 33 次命中、`distance` 0 次），
+  //         且官方元素预览 `scenes/particleelementpreviews/controlpointattract/…` 用
+  //         `{scale:2000, threshold:1000}` 配 `sphererandom distance 300..500`（作用半径须包住发射行程）；
+  //       · **S2 官方编辑器字符串表**：`threshold` 与 `deletethreshold` 是两个键 ⇒ `threshold` 不是
+  //         "Deletion threshold"，只能对应 "Distance"。
+  //   `?pforce=legacy` = **改动前**：门限 = `threshold × 0.5`。这条乘数来自**第三方**：lwe-ref
+  //     `CParticle.cpp` 无条件 `/ 2.0f`；wer-ref 的自述理由是**逐壁纸经验补偿**（点名
+  //     `Cherry_Blossoms_2.json`），不是引擎语义主张（见 `docs/OPENSOURCE-BORROW-PLAN.md` §④-C4）。
+  //   ⚠ 与 `?pops=legacy` 正交：pops 管判据**方向**，本档只管门限**数值**。回退档与改动前**逐位相同**
+  //     （`pGetVal(...)* 0.5` 的乘数与求值次序一字未动）。
+  //   为什么必须给回退口：语料 `controlpointattract` 命中的层里作用半径会**翻倍**（真包读数见
+  //     `docs/reports/particle-force-c3c4-verdict.md` §2.4）⇒ 真机逐包对拍之前必须能一键回到今天的画面。
+  const PFORCE_MODE = (() => {
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        return new URLSearchParams(location.search).get('pforce') === 'legacy' ? 'legacy' : 'official'
       }
     } catch (e) { /* 无 location → 默认 official */ }
     return 'official'
@@ -8890,6 +9578,8 @@ export function createRenderer(canvas, opts = {}) {
     pframeMode: PFRAME_MODE,
     // ①(P-126 C/D/F) 粒子算子口径档位（official / legacy）
     popsMode: POPS_MODE,
+    // ①(C4 定案 2026-09-24) controlpointattract 门限数值档位（official=threshold 原值 / legacy=threshold×0.5）
+    pforceMode: PFORCE_MODE,
     // ①(P-130 批A) A 类颜色口径档位（official=本批修完的口径 / legacy=P-126 的颜色计算口径）
     pcolorMode: PCOLOR_MODE,
     // ①(P-140 用户第 7 项) 湍流初速场口径档位（official=方向是位置的函数 / legacy=独立随机出生角）
@@ -10068,11 +10758,16 @@ export function createRenderer(canvas, opts = {}) {
     // include 同步缓存：miss 时记录并补拉，重试转译
     for (let attempt = 0; attempt < 4; attempt++) {
       const missing = new Set()
-      const resolver = (file) => {
-        if (includeCache.has(file)) return includeCache.get(file)
-        missing.add(file)
-        return null
-      }
+      // ①(ISSUE0924A2) include 三态解析收进 `makeEffectIncludeResolver()`（与测试同一份）：
+      //   没取过 → 记 missing（下面统一补齐后重试）；取过但 404/空 → **内置等价头兜底**（此前是并入空串，
+      //   等于静默丢掉 M_PI_2/rotateVec2/… 一整批符号 ⇒ 真机上「跳过编译失败的 pass」）。
+      //   ⚠ 这里**不**把两行 hlsl2glsl 调用换成 `assembleEffectShaderSources()`：那会改掉本仓
+      //   `hlsl2glsl-wiring-test`（探针按这两行原文注入）/`hlsl2glsl-coverage-test`（接线原文断言）/
+      //   `effects-degenerate-fbo-test`（M3 变异锚点）三个门禁赖以生效的**源码形态**。拼装口径的唯一
+      //   出处仍是「`src.frag/src.vert` 已由 `withSiblingComboDefaults` 合并兄弟 combo + 逐 stage 调
+      //   hlsl2glsl」，`assembleEffectShaderSources()` 是它的**纯函数镜像**（Node 判据用它，见
+      //   tests/effect-prelude-common-test.mjs E7f/E7g 的接线断言）。
+      const resolver = makeEffectIncludeResolver(includeCache, missing)
       const fragGlsl = hlsl2glsl(src.frag, 'frag', effectiveCombos, resolver)
       const vertGlsl = hlsl2glsl(src.vert, 'vert', effectiveCombos, resolver)
       if (missing.size === 0) {
@@ -10095,6 +10790,9 @@ export function createRenderer(canvas, opts = {}) {
         return entry
       }
       await Promise.all(Array.from(missing).map(async (f) => {
+        // ①(ISSUE0924A2) 取不到（404/超时）留**空串**：空串在 `makeEffectIncludeResolver()` 里表示
+        //   "取过但没拿到" ⇒ 能兜底就兜底（内置等价头）、不能兜底就在 GLSL 里留 `// [include 缺失: f]`
+        //   痕迹。这里仍要写进 cache：否则每个 pass 每帧都会重发同一批请求（本仓历史上就踩过请求风暴）。
         includeCache.set(f, (await shaderResolver('shaders/' + f)) || '')
       }))
     }
@@ -12888,6 +13586,10 @@ export function createRenderer(canvas, opts = {}) {
         const t = entry.fbo ? entry : { tex: entry.glTex || whiteTex, width: entry.width || 1, height: entry.height || 1 }
         gl.activeTexture(gl.TEXTURE0 + ti)
         gl.bindTexture(gl.TEXTURE_2D, t.tex)
+        /* ③(P-194 · 借用上游 `oneincase/webwallgl` PR #6) 效果链**输入槽**（ti>=1）按 WE 语义强制 REPEAT。
+           槽 0（层内容）与 `passInput`/`effectFBOs`（渲染目标）保持 CLAMP —— 见 `fxSlotWrap` 的整段说明。
+           失败只跳过这一步，绝不影响本 pass 的既有绑定/绘制。 */
+        try { fxSlotWrap(gl, entry, ti, t.tex) } catch (e) { /* 槽位 wrap 失败：保持原 wrap，不抛 */ }
         usedUnits.add(ti)
         resolutions.set(ti, [t.width, t.height, t.width, t.height])
       }
@@ -13134,6 +13836,8 @@ export function createRenderer(canvas, opts = {}) {
       'x',
       // ①(P-126 C/D/F) 算子口径进签名：`?pops=` 切换后必须重建粒子系统（算子行为不同）
       POPS_MODE,
+      // ①(C4 定案 2026-09-24) 门限口径进签名：`?pforce=` 切换后必须重建（逐帧受力半径不同）
+      PFORCE_MODE,
       // ①(P-130 批A) 颜色口径进签名：`?pcolor=` 切换后必须重建（colorrandom/colorchange 的出生与逐帧结果都变）
       PCOLOR_MODE,
       // ①(P-140 用户第 7 项) 湍流初速场口径进签名：`?pturb=` 切换后必须重建（出生速度方向整批不同）
@@ -13178,6 +13882,8 @@ export function createRenderer(canvas, opts = {}) {
         speedLegacy: PSPEED_MODE === 'legacy',
         // ①(P-126 C/D/F) 粒子算子口径档位（`?pops=legacy`）
         popsLegacy: POPS_MODE === 'legacy',
+        // ①(C4 定案 2026-09-24) controlpointattract 门限数值档位（`?pforce=legacy` ⇒ `threshold × 0.5`）
+        pforceLegacy: PFORCE_MODE === 'legacy',
         // ①(P-130 批A) A 类颜色口径档位（`?pcolor=legacy`）
         pcolorLegacy: PCOLOR_MODE === 'legacy',
         // ①(P-140 用户第 7 项) 湍流初速场口径档位（`?pturb=legacy` ⇒ 回到"每颗粒子独立随机出生角"）
@@ -14158,9 +14864,10 @@ function texNameKey(name) {
       .replace(/^materials\//, '').replace(/\.tex$/i, '').replace(/\\/g, '/').trim();
   } catch (e) { return '' }
 }
-/** 该贴图该用哪种 wrap：`'repeat'` | `'clamp'`。
- *  `search` 可显式传入（测试用；浏览器里缺省取 `location.search`）——避免判据依赖全局 location。 */
-export function texWrapMode(name, search) {
+/** `?texwrap=` 的**显式**强制口径：`'clamp'` | `'repeat'` | `null`（没写 = 按名单/槽位规则走）。
+ *  与 `texWrapMode` 分开是必要的：`texWrapMode(name)` 在"名字不在名单里"时也返回 `'clamp'`，
+ *  那是**缺省判定**而不是"用户要求全 CLAMP" —— 槽位规则（`fxSlotWrap`）只该被**显式** `?texwrap=clamp` 关掉。 */
+export function texWrapForced(search) {
   const q = (() => {
     try {
       const s = (search !== undefined && search !== null) ? String(search)
@@ -14173,6 +14880,13 @@ export function texWrapMode(name, search) {
     if (force === 'clamp') return 'clamp';
     if (force === 'repeat') return 'repeat';
   } catch (e) {}
+  return null;
+}
+/** 该贴图该用哪种 wrap：`'repeat'` | `'clamp'`。
+ *  `search` 可显式传入（测试用；浏览器里缺省取 `location.search`）——避免判据依赖全局 location。 */
+export function texWrapMode(name, search) {
+  const forced = texWrapForced(search);
+  if (forced) return forced;
   return REPEAT_TEX_NAMES.indexOf(texNameKey(name)) >= 0 ? 'repeat' : 'clamp';
 }
 /** 把 wrap 落到**已经创建好**的 GL 纹理上（`makeTexture*` 的缺省是 CLAMP，本函数只在需要时改）。
@@ -14188,6 +14902,49 @@ export function applyTexWrap(gl, tex, name, search) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, want);
   } catch (e) { /* 假 GL / 上下文丢失：保持既有 wrap，不抛 */ }
   return mode;
+}
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════
+   ③(P-194 2026-09-24 · 借用上游 `oneincase/webwallgl` PR #6（MIT，作者 yuxilao，commit `5c5a6aa5e7`）
+      "效果链输入槽强制 REPEAT"）效果输入槽（ti>=1）的 wrap 契约
+   ──────────────────────────────────────────────────────────────────────────────────────────────────
+   上游原文（`renderer/vendor/we-scene/render/renderer.js` 效果 pass 绑定循环）：
+     `if (ti >= 1 && !entry.fbo && entry.glTex && entry.samplerWrapRepeat !== true) { …REPEAT… }`
+   为什么必须做：官方效果 shader 普遍用「随 `g_Time` **无界增长**的 uv」采样**效果链输入槽**。
+   本仓语料里的实证（`allwallpaper/dd/3721991999/scene.pkg`，属性 `waterripple=true`）：
+     `effects/waterripple.vert`：`… g_Time * g_AnimationSpeed * g_AnimationSpeed + scroll`
+     包内读数 `animationspeed = 0.15000001` ⇒ 越界速度 = 0.15² = **0.0225 UV/s**
+     ⇒ 约 **1/0.0225 ≈ 44 s** 后整幅 uv 离开 [0,1]；CLAMP 下坐标被钉在边缘纹素 ⇒
+     `n1`/`n2` 退化成常量 ⇒ `normal` 恒定 ⇒ `texCoord` 只剩一个**固定偏移**（涟漪先变形、后彻底停住）。
+   而上游包装端（`gl-util` 的 `makeTexture*`）与本仓 `makeTexture*` 的缺省都是 **CLAMP_TO_EDGE**，
+   只有**名单内**的可平铺贴图（P-168 的 `REPEAT_TEX_NAMES`）才在创建时改成 REPEAT ——
+   本仓实测 `texWrapMode('waterripplenormal') === 'clamp'`、`'waterripple_mask_96ccef38' === 'clamp'`
+   ⇒ **同一个洞在本仓也存在**（P-168 只覆盖了 `util/clouds_256` 那一类系统/工具贴图）。
+   官方语义依据：`tex-json` 的 `clampuvs` 缺省 `false` = **REPEAT**，且槽 1+ 就是效果输入。
+   边界（照抄上游，别扩大）：
+     · 只对 **ti >= 1** 且**非 FBO**（`!entry.fbo`）的**具名贴图**生效；
+     · **槽 0 是层内容、`passInput`/`effectFBOs` 是渲染目标** ⇒ 保持 CLAMP —— 那正是本文件
+       `waterwaves` 注释要求的语义（uv 位移后采样到 quad 之外要**贴边**而不是回绕）；
+     · 贴图对象跨 pass / 跨帧共享 ⇒ 用 `entry.samplerWrapRepeat`（与上游**同名字段**，便于对拍）
+       只设一次，避免每帧冗余调用；
+     · 回退开关：**显式** `?texwrap=clamp` 时整条规则不生效（与 P-168 名单口径共用同一个开关）。 */
+export function fxSlotWrap(gl, entry, ti, tex, search) {
+  try {
+    if (!gl || !entry) return null;
+    if (!(ti >= 1)) return null;                 // 槽 0 = 层内容：保持 CLAMP
+    if (entry.fbo) return null;                  // 渲染目标（passInput/effectFBOs）：保持 CLAMP
+    if (entry.samplerWrapRepeat === true) return 'repeat';   // 已设过 ⇒ 零副作用
+    if (texWrapForced(search) === 'clamp') return null;      // 显式回退
+    const t = tex || entry.glTex;
+    if (!t) return null;
+    const rep = gl.REPEAT;
+    if (rep === undefined || rep === null) return null;      // 假 GL 夹具：静默跳过
+    gl.activeTexture(gl.TEXTURE0 + ti);
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, rep);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, rep);
+    entry.samplerWrapRepeat = true;
+    return 'repeat';
+  } catch (e) { return null }
 }
 /* ①(2026-09-23 静默失败审计 表 #8/A-7) `texImage2D` **不抛异常**：上传失败只置一个 GL 错误旗标 ⇒
  *   "调用过了"曾被当成"上传成功了"。同文件 `?texmip=tri`（12827-12843）与 demo.html 位图路径

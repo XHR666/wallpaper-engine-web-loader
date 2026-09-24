@@ -76,3 +76,27 @@ export const SkipForward = (props: IconProps) =>
       <path d="M6.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z" />
     </>,
   );
+
+/* lucide-react@1.47.0/icons/volume-2.mjs（③ 音量第四键用；几何逐字节照抄） */
+export const Volume2 = (props: IconProps) =>
+  base(
+    "volume-2",
+    props,
+    <>
+      <path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" />
+      <path d="M16 9a5 5 0 0 1 0 6" />
+      <path d="M19.364 18.364a9 9 0 0 0 0-12.728" />
+    </>,
+  );
+
+/* lucide-react@1.47.0/icons/volume-x.mjs（静音态；几何逐字节照抄） */
+export const VolumeX = (props: IconProps) =>
+  base(
+    "volume-x",
+    props,
+    <>
+      <path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" />
+      <path d="m16 9 6 6" />
+      <path d="m22 9-6 6" />
+    </>,
+  );

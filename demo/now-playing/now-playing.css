@@ -203,6 +203,71 @@
   letter-spacing: 0.04em;
   color: var(--ink-4);}
 
+/* ── ③(2026-09-25 issue0924a2 用户第 3 条) the volume track ────
+   「把音量的按钮集成到 NP 的卡片里面」：一条音量轨落在**时钟行**的中间
+   （左时刻 / 音量 / 百分数 / 右剩余），与 DSH 插件 `dsh-mpkg-wallpaper/lib/now-playing.js`
+   的 `.mpw_np_vol` 同一个位置；传输行里另有第四键（音量/静音，`data-mpw-np-mute`）。
+   两样都只在**受控档 + 卡片展开**（`late > 0`）时渲染 ⇒ 收起成胶囊时这里一条规则都不生效。
+
+   ⚠选择器写法：**只用既有类名 + 属性选择器**，不新增 `.snd-*` 类 ——
+   组件有一条"CSS 里的 .snd* 类名与渲染出来的 DOM 一一对应"的判据，而它拿的是
+   **装饰档**的 SSR 产物（音量行在那边根本不存在）⇒ 新类名会被算成孤儿规则。
+   `data-mpw-np-*` 也是这个组件受控面的既有词汇（scrub / link / noseek 都是这么标的）。
+
+   为什么用**原生** `input[type=range]`（DSH 插件是自绘的）：本组件"位置全由补间内联写"
+   的纪律针对的是**形状**（sleeve/box/rail/transport 那几个每帧都在动的东西）；音量轨是卡片
+   展开后才出现的静态控件，用原生控件换来键盘/无障碍/拖动手感，而它的尺寸与材料**只有这里一份**。 */
+.snd-clock input[type="range"][data-mpw-np-vol-range] {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  height: 12px;
+  margin: 0 6px;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+  /*  #np-mount > *{pointer-events:none} 是测试台预览那条纪律；音量轨要能拖 ⇒ 自己打开。 */
+  pointer-events: auto;}
+
+.snd-clock input[type="range"][data-mpw-np-vol-range]:disabled { cursor: default; opacity: 0.4; }
+
+/* the rail（未走过）与 the run（已走过）：与 .snd-rail/.snd-run 同一套颜色口径 */
+.snd-clock input[type="range"][data-mpw-np-vol-range]::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(var(--ink-rgb), 0.16);}
+.snd-clock input[type="range"][data-mpw-np-vol-range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 7px; height: 7px;
+  margin-top: -2.5px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink);}
+.snd-clock input[type="range"][data-mpw-np-vol-range]::-moz-range-track {
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(var(--ink-rgb), 0.16);}
+.snd-clock input[type="range"][data-mpw-np-vol-range]::-moz-range-progress {
+  height: 2px;
+  border-radius: 999px;
+  background: var(--ink);}
+.snd-clock input[type="range"][data-mpw-np-vol-range]::-moz-range-thumb {
+  width: 7px; height: 7px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink);}
+.snd-clock input[type="range"][data-mpw-np-vol-range]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--pane-edge);}
+
+.snd-clock [data-mpw-np-volnum] {
+  flex: none;
+  padding-right: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-4);}
+
 /* ── the transport ──────────────────────────────────────────
    Placed by its CENTRE — the row's own width changes between
    the two states, so an edge would move even when the middle

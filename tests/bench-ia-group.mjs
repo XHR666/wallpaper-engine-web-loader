@@ -186,13 +186,215 @@ export async function runIaGroup({ page, ok, VIEW = { w: 1360, h: 900 } }) {
       return { before, afterTop, afterBottom, scrollable: body.scrollHeight > body.clientHeight,
         geom: { clientH: body.clientHeight, scrollH: body.scrollHeight, bodyDisplay: getComputedStyle(body).display, view: logs ? String(logs.getAttribute('data-view') || '') : '', logsH: logs ? logs.clientHeight : -1, mainCls: main ? String(main.className || '') : '' } }
     })
-    console.log('  IA5 读数 =' + JSON.stringify({ scrollable: scrollTest.scrollable, geom: scrollTest.geom, before: scrollTest.before && scrollTest.before.scrollTop, afterTop: scrollTest.afterTop && scrollTest.afterTop.scrollTop, afterBottom: scrollTest.afterBottom && { scrollTop: scrollTest.afterBottom.scrollTop, atBottom: scrollTest.afterBottom.atBottom, slack: scanSlack(scrollTest.afterBottom) } }))
+    console.log('  IA5 读数（补丁路径）= ' + JSON.stringify({ scrollable: scrollTest.scrollable, geom: scrollTest.geom, before: scrollTest.before && scrollTest.before.scrollTop, afterTop: scrollTest.afterTop && scrollTest.afterTop.scrollTop, afterBottom: scrollTest.afterBottom && { scrollTop: scrollTest.afterBottom.scrollTop, atBottom: scrollTest.afterBottom.atBottom, slack: scanSlack(scrollTest.afterBottom) } }))
     ok(scrollTest.scrollable && scrollTest.afterTop.scrollTop === scrollTest.before.scrollTop,
-      'IA5a ★第 16 条：用户滚在上面时来新消息 ⇒ `scrollTop` **一个像素都不动**（改前无条件 `scrollTop = scrollHeight`）',
+      'IA5a ★第 16 条：用户滚在上面时来新消息（补丁路径 `logAppend`）⇒ `scrollTop` **一个像素都不动**（改前无条件 `scrollTop = scrollHeight`）',
       JSON.stringify({ before: scrollTest.before && scrollTest.before.scrollTop, after: scrollTest.afterTop && scrollTest.afterTop.scrollTop, slackBefore: scanSlack(scrollTest.before) }))
-    ok(scrollTest.afterBottom && scanSlack(scrollTest.afterBottom) <= 24,
-      'IA5b 用户本来就贴在底部 ⇒ 仍然继续跟随（不是"永远不跟随"的另一个极端）',
+    ok(scrollTest.afterBottom && scanSlack(scrollTest.afterBottom) <= 2,
+      'IA5b 用户本来就贴在底部 ⇒ 仍然继续跟随（不是"永远不跟随"的另一个极端）；容差 2px（② 起从 24px 收紧）',
       JSON.stringify({ slack: scanSlack(scrollTest.afterBottom), atBottom: scrollTest.afterBottom && scrollTest.afterBottom.atBottom }))
+
+    /*  ── IA5c–IA5g(issue0924a2 用户第 16 条复测) **真实产物路径**：`POST /diag` ⇒ 服务端 SSE ⇒
+        产物自己的日志函数 `X.appendChild(a),X.scrollTop=X.scrollHeight`（minified，改不了）
+        —— 上一版就是漏了这条路，所以"还是会往下跳"。这里用**真路径**量，并且用 `logScrollGuardSet(false)`
+        当场 A/B（关掉守卫 = 改前行为 ⇒ 必须复现那一跳），证明判据不恒真。 ───────────────────── */
+    const art = await page.evaluate(async () => {
+      const api = window.__benchPatch
+      const wait = (n) => new Promise((r) => setTimeout(r, n))
+      const body = document.getElementById('logbody')
+      const ping = async (msg) => {
+        try { await fetch('/diag', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ msg, source: 'ia5' }) }) } catch { /* 服务端没起：下面按读数判 */ }
+        await wait(700)
+      }
+      const read = () => { const g = api.logScrollProbe(); return { top: body.scrollTop, slack: body.scrollHeight - body.clientHeight - body.scrollTop, probe: g } }
+      for (let i = 0; i < 40; i++) api.logAppend('IA5-填充 ' + i)
+      await wait(120)
+      body.scrollTop = 0
+      await wait(200)
+      const beforeUp = read()
+      await ping('IA5-ARTIFACT-UP')
+      const afterArtifactUp = read()
+      //  用户滚回底部（真实手势 + 定位）⇒ 跟随恢复
+      body.dispatchEvent(new WheelEvent('wheel', { deltaY: 240, bubbles: true }))
+      body.scrollTop = body.scrollHeight
+      await wait(200)
+      await ping('IA5-ARTIFACT-BOTTOM')
+      const atBottom = read()
+      /*  A/B（**确定性**，不靠 SSE 时机）：逐字复刻产物那两下 —— `appendChild(x); scrollTop = scrollHeight`
+          在**同一拍**里，守卫开/关各来一次。为什么不用真 SSE 做 A/B：守卫一关，**任何**晚到的行都会把
+          视图拉到底，量"用户滚上去"的前置状态会被它抢掉（本轮实测假红/假绿都出现过）。 */
+      const fire = () => { const s = document.createElement('span'); s.textContent = 'IA5-AB-LINE'; body.appendChild(s); body.scrollTop = body.scrollHeight }
+      body.scrollTop = 0
+      await wait(250)
+      const onBefore = read()
+      fire()
+      await wait(250)
+      const onAfter = read()
+      const guardOff = api.logScrollGuardSet(false)
+      body.scrollTop = 0
+      await wait(250)
+      const offBefore = read()
+      fire()
+      await wait(250)
+      const offAfter = read()
+      const guardOn = api.logScrollGuardSet(true)
+      body.scrollTop = 0
+      await wait(250)
+      const onBefore2 = read()
+      fire()
+      await wait(250)
+      const onAfter2 = read()
+      return { beforeUp, afterArtifactUp, atBottom, guardOff, onBefore, onAfter, offBefore, offAfter, guardOn, onBefore2, onAfter2 }
+    })
+    console.log('  IA5c 读数（真实产物路径 POST /diag）=' + JSON.stringify(art))
+    ok(art.beforeUp.slack > 100 && art.afterArtifactUp.top === art.beforeUp.top && art.afterArtifactUp.probe && art.afterArtifactUp.probe.droppedWrites > 0,
+      'IA5c ★★用户复测的主判据：用户滚在上面时，**产物那条**（`/api/diag-stream` → `X.scrollTop=X.scrollHeight`）新消息到来 ⇒ `scrollTop` 一个像素都不动（守卫丢弃它并计数 `droppedWrites`）',
+      JSON.stringify({ before: art.beforeUp.top, after: art.afterArtifactUp.top, dropped: art.afterArtifactUp.probe && art.afterArtifactUp.probe.droppedWrites }))
+    ok(scanSlack(art.atBottom) <= 2,
+      'IA5d 用户自己滚回底部之后 ⇒ 跟随恢复（新消息继续贴底）',
+      JSON.stringify({ slack: scanSlack(art.atBottom), reason: art.atBottom.probe && art.atBottom.probe.lastReason }))
+    ok(art.onBefore.slack > 100 && art.onAfter.top === art.onBefore.top && art.onAfter.probe.droppedWrites > art.onBefore.probe.droppedWrites,
+      'IA5e ★守卫在位：复刻产物那一拍（`appendChild` + `scrollTop = scrollHeight` **同一拍**）⇒ `scrollTop` 一个像素都不动，且丢弃计数 +1',
+      JSON.stringify({ before: art.onBefore.top, after: art.onAfter.top, dropped: [art.onBefore.probe.droppedWrites, art.onAfter.probe.droppedWrites] }))
+    ok(art.guardOff && art.guardOff.guard === false && art.offBefore.slack > 100 && scanSlack(art.offAfter) <= 2,
+      'IA5f ★★A/B 对照（同一入口 `logScrollGuardSet(false)` = 改前行为）：守卫一关，**同样两下**当场把视图拉到底（slack → 0）⇒ IA5c/IA5e 的绿灯不是恒真',
+      JSON.stringify({ guardOff: art.guardOff && { guard: art.guardOff.guard, follow: art.guardOff.follow }, before: scanSlack(art.offBefore), after: scanSlack(art.offAfter) }))
+    ok(art.guardOn && art.guardOn.guard === true && art.onBefore2.slack > 100 && art.onAfter2.top === art.onBefore2.top,
+      'IA5g 重新打开守卫 ⇒ 同一条件下不再跳（对照可逆）',
+      JSON.stringify({ top: art.onAfter2.top, guard: art.guardOn && art.guardOn.guard }))
+
+    /*  ── IA10(用户第 3 条) 音量控件在 **NP 卡片内部**（滑条 + 静音第四键）＋ 那条独立音量行已撤 ──── */
+    const vol10 = await page.evaluate(async () => {
+      const api = window.__benchPatch
+      const wait = (n) => new Promise((r) => setTimeout(r, n))
+      const props = document.querySelector('#props')
+      if (props) { props.hidden = false; props.removeAttribute('hidden') }
+      const host = document.querySelector('#np-host')
+      if (host) host.style.display = ''
+      const collapsed = { hasVolume: !!document.querySelector('#np-volume'), bar: !!document.querySelector('#np-volbar') }
+      let geo = null
+      for (let i = 0; i < 6; i++) {
+        geo = api.npGeometry ? api.npGeometry() : null
+        if (geo && geo.volumeVisible) break
+        const tap = document.querySelector('#np-host .snd-tap')
+        if (tap) tap.click()
+        await wait(900)
+      }
+      return {
+        collapsed,
+        geo,
+        slider: api.npVolumeSlider ? api.npVolumeSlider() : null,
+        mute: api.npMuteKey ? api.npMuteKey() : null,
+        volbarGone: !document.querySelector('#np-volbar') && !document.querySelector('#np-volnum'),
+        clockSpans: [...document.querySelectorAll('#np-mount .snd-clock span')].map((x) => String(x.textContent || '')),
+      }
+    })
+    console.log('  IA10 读数 =' + JSON.stringify(vol10))
+    ok(vol10.volbarGone && vol10.collapsed.bar === false,
+      'IA10a ★★用户第 3 条：卡片下面那条独立音量行（`#np-volbar` / `#np-volnum`）**不存在**（改前：它就在 NP 卡片正下方）',
+      JSON.stringify({ volbarGone: vol10.volbarGone, bar: vol10.collapsed.bar }))
+    ok(!!vol10.geo && vol10.geo.volumeVisible === true && vol10.geo.volumeInCard === true && vol10.geo.volumeInCardX === true &&
+      vol10.geo.volumeOverflow === false && vol10.geo.muteInCard === true && vol10.geo.volKeyPresent === true,
+      'IA10b ★★音量控件（滑条 + 静音第四键）在 **NP 卡片内部**：`volumeInCard/volumeInCardX/muteInCard` 为真、`volumeOverflow` 为假（几何判据：滑条矩形 ⊆ `.snd-box` 矩形）',
+      JSON.stringify(vol10.geo && { v: vol10.geo.volumeVisible, inCard: vol10.geo.volumeInCard, inX: vol10.geo.volumeInCardX, ovf: vol10.geo.volumeOverflow, mute: vol10.geo.muteInCard, slider: vol10.geo.slider, card: vol10.geo.card }))
+    ok(!!vol10.geo && vol10.geo.volumeInStrip === false && vol10.geo.stripHasVolume === false,
+      'IA10c 传输条 `#np-audio`（壁纸配置**最下面**那一行）里没有音量控件 —— 用户第 2 条的要求继续成立',
+      JSON.stringify({ inStrip: vol10.geo && vol10.geo.volumeInStrip, stripHas: vol10.geo && vol10.geo.stripHasVolume }))
+    ok(!!vol10.slider && vol10.slider.present === true && vol10.slider.inCard === true && !!vol10.mute && vol10.mute.present === true,
+      'IA10d 探针读数（门禁与真机同一入口）：`npVolumeSlider()` 给出 `#np-volume`（present/inCard/value/disabled/pct）+ `npMuteKey()` 给出第四键（pressed/muted/disabled）',
+      JSON.stringify({ slider: vol10.slider, mute: vol10.mute }))
+    ok(vol10.collapsed.hasVolume === false,
+      'IA10e 收起态（胶囊）里**没有**音量滑条节点（组件只在卡片展开时渲染它 —— 胶囊的几何一个像素都不多）',
+      JSON.stringify(vol10.collapsed))
+
+    /*  ── IA11(用户第 7 条) 换渲染器档：未选择壁纸 ⇒ **不许**凭空加载上一次那张 ─────────────────── */
+    const tier11 = await page.evaluate(async () => {
+      const api = window.__benchPatch
+      const wait = (n) => new Promise((r) => setTimeout(r, n))
+      const frameSrc = () => String((document.getElementById('frame') || {}).getAttribute?.('src') || '')
+      const curText = () => String((document.getElementById('current') || {}).textContent || '')
+      const pick = async (id) => {
+        let li = null
+        for (let i = 0; i < 40; i++) {
+          li = [...document.querySelectorAll('#list li[data-id]')].find((x) => !id || x.dataset.id === id) || [...document.querySelectorAll('#list li[data-id]')][0]
+          if (li) break
+          await wait(250)
+        }
+        if (!li) return null
+        li.click(); await wait(3200)
+        return String(li.dataset.id || '')
+      }
+      const picked = await pick('')
+      const afterPick = { src: frameSrc().slice(0, 60), cur: curText().slice(0, 24), active: document.querySelectorAll('#list li.active').length }
+      /*  ⚠前面的组可能已经固定了好几张（`#editor-tabs` 里一串标签）⇒ 只点一次 `×` 会**回落到相邻那张**。
+          用户的场景是"我把上面选过的所有壁纸都叉掉了" ⇒ 这里也一直叉到空为止（最多 8 次，防御性上限）。 */
+      const closedTabs = []
+      for (let i = 0; i < 8; i++) {
+        const x = document.querySelector('.wp-x-cur') || document.querySelector('#editor-tabs .wp-x')
+        if (!x) break
+        closedTabs.push(String(x.dataset.id || ''))
+        x.click()
+        await wait(2600)
+        if (document.querySelectorAll('#list li.active').length === 0 && !frameSrc()) break
+      }
+      const clear = api.artifactClearProbe ? api.artifactClearProbe() : null
+      const afterClose = { src: frameSrc(), cur: curText().slice(0, 24), active: document.querySelectorAll('#list li.active').length, clear, nothing: api.nothingSelected ? api.nothingSelected() : null, closedTabs }
+      const sel = document.getElementById('renderer-src')
+      const mode0 = sel ? sel.value : ''
+      if (sel) { sel.value = 'upstream'; sel.dispatchEvent(new Event('change', { bubbles: true })) }
+      await wait(2600)
+      let canvas = null
+      try { const d = document.getElementById('frame').contentDocument; canvas = d ? d.querySelectorAll('canvas').length : null } catch (e) { canvas = 'err' }
+      const afterSwitch = { src: frameSrc(), cur: curText().slice(0, 24), active: document.querySelectorAll('#list li.active').length, empty: (document.getElementById('empty') || {}).style?.display, canvas }
+      //  产物自己那个「重挂载」按钮（不经过补丁的守卫）：`w` 已清 ⇒ 应当什么都不做
+      const reload = document.getElementById('reload')
+      if (reload) reload.click()
+      await wait(2200)
+      const afterArtifactReload = { src: frameSrc(), cur: curText().slice(0, 24), active: document.querySelectorAll('#list li.active').length }
+      //  「新窗口」这一下现在应该什么都不开
+      const opened = []
+      const orig = window.open
+      window.open = (...a) => { opened.push(String(a[0] || '')); return null }
+      const ob = document.getElementById('open')
+      if (ob) ob.click()
+      await wait(300)
+      window.open = orig
+      //  收尾：切回本仓档 + 重新选一张（证明守卫不会误伤正常选择）
+      if (sel) { sel.value = 'repo'; sel.dispatchEvent(new Event('change', { bubbles: true })) }
+      await wait(1200)
+      const reselect = await pick('')
+      await wait(2500)
+      const afterReselect = { id: reselect, src: frameSrc().slice(0, 60), active: document.querySelectorAll('#list li.active').length, cur: curText().slice(0, 24) }
+      //  回到"未选择"（后面各组按空态走；IA8 之前也已经把舞台释放过）
+      for (let i = 0; i < 8; i++) {
+        const x2 = document.querySelector('.wp-x-cur') || document.querySelector('#editor-tabs .wp-x')
+        if (!x2) break
+        x2.click()
+        await wait(2200)
+        if (document.querySelectorAll('#list li.active').length === 0 && !frameSrc()) break
+      }
+      return { picked, afterPick, afterClose, mode0, afterSwitch, afterArtifactReload, opened, afterReselect, final: { src: frameSrc(), cur: curText().slice(0, 24) } }
+    })
+    console.log('  IA11 读数 =' + JSON.stringify(tier11))
+    ok(tier11.afterClose.active === 0 && /未选择壁纸|No wallpaper/i.test(tier11.afterClose.cur) && !tier11.afterClose.src,
+      'IA11a 前提成立：叉掉最后一张壁纸之后确实是"未选择壁纸"态（`#current` 文案 + 0 个 `.active` + `#frame` 无 src）',
+      JSON.stringify({ cur: tier11.afterClose.cur, active: tier11.afterClose.active, src: tier11.afterClose.src }))
+    ok(!!tier11.afterClose.clear && tier11.afterClose.clear.ran === true && tier11.afterClose.clear.cleared === true,
+      'IA11b ★★真因修法：借产物自己的 `ht()` 把它的"当前项"（`w`）清成 null（`artifactClearProbe().cleared === true`）—— 只有这样 `Ae()` 才会在第一行 `if(!w)return` 收手',
+      JSON.stringify(tier11.afterClose.clear))
+    ok(!tier11.afterSwitch.src && /未选择壁纸|No wallpaper/i.test(tier11.afterSwitch.cur) && tier11.afterSwitch.active === 0 &&
+      (tier11.afterSwitch.canvas === 0 || tier11.afterSwitch.canvas === null),
+      'IA11c ★★用户第 7 条主判据：切到「上游产物」档**没有加载任何壁纸**（`#frame` 仍无 src、`#current` 还是"未选择壁纸"、预览里没有 canvas、列表 0 个 `.active`）—— 改前：src 变成 `…&src=<最后那张>…` 且 canvas = 1',
+      JSON.stringify(tier11.afterSwitch))
+    ok(!tier11.afterArtifactReload.src && tier11.afterArtifactReload.active === 0,
+      'IA11d 产物自己那个「重挂载」按钮也不再凭空挂壁纸（`w` 已清 ⇒ `Ae()` 直接返回）',
+      JSON.stringify(tier11.afterArtifactReload))
+    ok(tier11.opened.length === 0,
+      'IA11e 「新窗口」在未选择壁纸时**什么都不打开**（改前：`w && window.open(…)` 会打开叉掉的那张；用户报的"新窗口"就是这一下）',
+      JSON.stringify(tier11.opened))
+    ok(tier11.afterReselect.active === 1 && !!tier11.afterReselect.src && String(tier11.afterReselect.src).length > 0,
+      'IA11f 守卫**不误伤**：切回本仓档后重新选一张壁纸，预览照常挂载（`#frame` 有 src + 1 个 `.active`）',
+      JSON.stringify(tier11.afterReselect))
 
     /* ── IA6 第 11 条：说明/壁纸设置只显示一种语言 + 两语 API 列表同源 ─────────────────── */
     const bil = await page.evaluate(() => {

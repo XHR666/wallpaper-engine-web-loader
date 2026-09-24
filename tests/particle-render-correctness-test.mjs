@@ -878,24 +878,31 @@ const maxima10s = (def, sig, popsLegacy, ctx) => {
 }
 
 // ── ⑦F #6 `controlpointattract.threshold` 缺省 = 512（旧 0 ⇒ 判据恒假 ⇒ 整条算子从不生效）──
+// ①(C4 定案 2026-09-24) 门限 = `threshold` **原值**（官方文档 §"Control point force" 逐字
+//   "Distance: The maximum distance of the force."）——**不再无条件除 2**；改动前那条"除 2"口径
+//   保留在 `?pforce=legacy` 档（半径比 = 2 的锐利判据见 `tests/particle-force-distance-test.mjs`）。
 {
   const def = (thr) => ({ maxcount: 2, emitter: [{ rate: 0.0001, instantaneous: 1, distancemax: '0 0 0' }],
     initializer: RNG_LIFE, operator: [Object.assign({ name: 'controlpointattract', controlpoint: 1, scale: -1000 },
       thr == null ? {} : { threshold: thr })],
     controlpoint: [{ flags: 0 }, { flags: 1, offset: '0 0 0' }] })
-  const dv = (dist, thr) => {
-    const s = lib.buildParticleSystem(def(thr), { origin: [0, 0, 0], seedStr: 'p127att', maxCount: 2 })
+  const dv = (dist, thr, pforceLegacy) => {
+    const s = lib.buildParticleSystem(def(thr), { origin: [0, 0, 0], seedStr: 'p127att', maxCount: 2, pforceLegacy })
     s.pointer = null
     lib.stepParticles(s, 1 / 60, 0)
     const p = s.particles[0]; p.pos = [dist, 0, 0]; p.vel = [0, 0, 0]
     lib.stepParticles(s, 1 / 60, 1 / 60)
     return Math.hypot(p.vel[0], p.vel[1])
   }
-  push('⑦F #6 缺 threshold ⇒ 官方缺省 512（thr=256）：d=100px 施力 |Δv| = |scale|·dt = 16.667（旧：两条都 0）',
-    near(dv(100, null), 1000 / 60, 1e-6) && dv(300, null) === 0,
-    `d=100 ⇒ ${dv(100, null).toFixed(4)}；d=300 ⇒ ${dv(300, null).toFixed(4)}（旧 0.0000 / 0.0000）`)
-  push('⑦F #6 显式 threshold 仍按 `threshold/2` 生效（d=10 施力、d=100 不施力）',
-    near(dv(10, 70), 1000 / 60, 1e-6) && dv(100, 70) === 0, `d=10 ⇒ ${dv(10, 70).toFixed(4)}；d=100 ⇒ ${dv(100, 70).toFixed(4)}`)
+  push('⑦F #6 缺 threshold ⇒ 官方缺省 512（门限即半径）：d=100/300 施力 |Δv| = |scale|·dt = 16.667、d=600 不施力（旧：两条都 0）',
+    near(dv(100, null), 1000 / 60, 1e-6) && near(dv(300, null), 1000 / 60, 1e-6) && dv(600, null) === 0,
+    `d=100 ⇒ ${dv(100, null).toFixed(4)}；d=300 ⇒ ${dv(300, null).toFixed(4)}；d=600 ⇒ ${dv(600, null).toFixed(4)}`)
+  push('⑦F #6 显式 threshold=70 ⇒ 作用半径就是 **70**（d=10 与 d=50 都施力、d=100 不施力）',
+    near(dv(10, 70), 1000 / 60, 1e-6) && near(dv(50, 70), 1000 / 60, 1e-6) && dv(100, 70) === 0,
+    `d=10 ⇒ ${dv(10, 70).toFixed(4)}；d=50 ⇒ ${dv(50, 70).toFixed(4)}；d=100 ⇒ ${dv(100, 70).toFixed(4)}`)
+  push('⑦F #6 `?pforce=legacy` ⇒ 回到改动前的 `threshold/2`（threshold=70 ⇒ 半径 35：d=10 施力、d=50 不施力）',
+    near(dv(10, 70, true), 1000 / 60, 1e-6) && dv(50, 70, true) === 0,
+    `d=10 ⇒ ${dv(10, 70, true).toFixed(4)}；d=50 ⇒ ${dv(50, 70, true).toFixed(4)}`)
 }
 
 // ── ⑦G #7 `colorchange` 官方是**乘**（MutiplyColor）；旧实现是赋值 ⇒ 末段逐粒子色被抹平 ──

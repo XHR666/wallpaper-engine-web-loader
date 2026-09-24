@@ -75,7 +75,7 @@
 //   原生 select 留在 DOM 里当值容器 ⇒ 上游 bundle 读 `.value` / 监听 `change` 的链路一行不改。
 import { enhanceSelect, layerFixedOffset } from './mpw-select.js'
 
-export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","pick.count":"{n} 项","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 WEwebLoader 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.mic":"启用麦克风","toolbar.micTip":"默认关：关着时页面一次都不会请求麦克风（getUserMedia 不调用），「系统实况」只保留歌名与进度；开着时才在壁纸/功能声明需要时请求，不在页面加载时预请求","dbg.switch":"开启调试模式","dbg.switchTip":"逐层查看（左右键）+ 隔离图层；只在调试视图打开期间接管键盘，Alt 退出","logs.cleared":"已清空（{view}）","log.micOn":"已启用麦克风：壁纸/功能声明需要时才会请求（不再有页面加载时的预请求）","log.micOff":"已关闭麦克风：不再发出任何 mic 请求","log.micNeeded":"「系统实况」的麦克风部分需要先勾「启用麦克风」—— 现在只保留歌名/进度","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.weGroup":"渲染器设置（WE 自带）","props.imgDedup":"图片去重","props.imgDedupOnce":"一次（整面板）","props.imgDedupRow":"每行一次","props.imgDedupAll":"全部（不去重）","props.imgDedupNote":"已压掉 {n} 张重复图","props.imgDedupForced":"本次由 URL 档 {flag} 决定","props.imgDedupTip":"同一张画面只画一次：① 逐字节相同的 URL 无条件只画一遍；② 只差尺寸/格式/水印参数或后缀（wx_fmt、bo、rf、@100w、_!web-…、x-oss-process=…）的算同一张的候选；③ 候选要两张都载入成功且原始宽高完全相同才归并（不同或拿不到尺寸 ⇒ 不归并）。「全部」= 完全不去重（对照/排障）；「每行一次」= 旧的按行去重。带 ?propimg= 的链接优先（见提示行）","props.imgDedupLog":"图片去重档：{mode}","props.imgDedupForcedLog":"（URL 参数 {flag} 优先：这次改面板开关只记下偏好，要去掉 URL 参数才由它生效）","wpset.done":"已实现","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录","nav.console":"控制台","nav.docs":"说明","nav.wpset":"壁纸设置","nav.settings":"设置","nav.settingsTip":"语言 / 主题 / 归属与许可","nav.lang":"语言","nav.theme":"主题","nav.backend":"后台","nav.backendUnknown":"未知","nav.backendNote":"静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。","wp.add":"＋","wp.addTitle":"添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸","logs.expandTip":"展开输出（控制台）","logs.collapseTip":"收起输出（控制台）","props.emptyState":"还没有选择壁纸","props.emptyHint":"从左侧「选择壁纸」里点一张，这里就会显示它 project.json 声明的可调项。",
+export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","pick.count":"{n} 项","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 WEwebLoader 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.mic":"启用麦克风","toolbar.micTip":"默认关：关着时页面一次都不会请求麦克风（getUserMedia 不调用），「系统实况」只保留歌名与进度；开着时才在壁纸/功能声明需要时请求，不在页面加载时预请求","dbg.switch":"开启调试模式","dbg.switchTip":"逐层查看（左右键）+ 隔离图层；只在调试视图打开期间接管键盘，Alt 退出","logs.cleared":"已清空（{view}）","log.micOn":"已启用麦克风：壁纸/功能声明需要时才会请求（不再有页面加载时的预请求）","log.micOff":"已关闭麦克风：不再发出任何 mic 请求","log.micNeeded":"「系统实况」的麦克风部分需要先勾「启用麦克风」—— 现在只保留歌名/进度","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.weGroup":"渲染器设置（WE 自带）","props.imgDedup":"图片去重","props.imgDedupOnce":"一次（整面板）","props.imgDedupRow":"每行一次","props.imgDedupAll":"全部（不去重）","props.imgDedupNote":"已压掉 {n} 张重复图","props.imgDedupForced":"本次由 URL 档 {flag} 决定","props.imgDedupTip":"同一张画面只画一次（强制）：① 逐字节相同的 URL 只画一遍；② 只差尺寸/格式/水印类参数与后缀（wx_fmt、bo、rf、@100w、800x600、_!web-…、x-oss-process=…）或 http/https、www. 前缀的，算同一张画面 ⇒ 无条件归并（不再要求载入尺寸一致）；③ 面板里两个来源（渲染器自己解析出的图 + 属性文案里的图）共用同一本账；④ 已经画成图的那条链接、以及被压掉后变成空壳的链接都不再单独显示。「全部」= 完全不去重（对照/排障）；「每行一次」= 只在单行内去重。带 ?propimg= 的链接优先","props.imgDedupLog":"图片去重档：{mode}","props.imgDedupForcedNote":"（其中 {m} 张是靠「同一张画面」的身份键**强制归并**的：尺寸不同 {diff} 张 / 尺寸未知 {unk} 张 —— 已按用户口径「只显示一次」）","props.imgDedupForcedLog":"（URL 参数 {flag} 优先：这次改面板开关只记下偏好，要去掉 URL 参数才由它生效）","wpset.done":"已实现","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录","nav.console":"控制台","nav.docs":"说明","nav.wpset":"壁纸设置","nav.settings":"设置","nav.settingsTip":"语言 / 主题 / 归属与许可","nav.lang":"语言","nav.theme":"主题","nav.backend":"后台","nav.backendUnknown":"未知","nav.backendNote":"静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。","wp.add":"＋","wp.addTitle":"添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸","logs.expandTip":"展开输出（控制台）","logs.collapseTip":"收起输出（控制台）","props.emptyState":"还没有选择壁纸","props.emptyHint":"从左侧「选择壁纸」里点一张，这里就会显示它 project.json 声明的可调项。",
 "libsrc.default":"库来源：本机默认目录（服务端内置，你还没有选择）","libsrc.default.hint":"这个目录是服务端启动时的默认值，不代表你已经选过；点「选择文件夹」在应用内浏览并指定一个目录","libsrc.default.path":"（默认库目录不可用）",
 "libsrc.user":"库来源：你选择的目录","libsrc.user.hint":"由你通过「选择文件夹」指定（服务端 /api/library-dir 已接受并落库）","libsrc.user.path":"（已选目录为空）",
 "libsrc.empty":"库来源：空（服务端没有返回库目录）","libsrc.empty.hint":"服务端返回的库目录为空；点「选择文件夹」选一个装壁纸的目录","libsrc.empty.path":"（空）",
@@ -94,8 +94,8 @@ export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"
 "pickd.selected":"已选择：{path}","pickd.applying":"正在切换库目录…","pickd.done":"库目录已切换：{path}（重新载入中…）","pickd.fail":"切换失败：{msg}","pickd.relisted":"已重新拉取壁纸库列表（{n} 项）","log.listRefreshDone":"换库后重画侧栏：{n} 项（当前壁纸 {id}）","log.releaseQuiet":"已释放：渲染器已停（{why}）—— iframe 已清空、轮询已停，不会再自己重挂","log.listRefreshDropped":"换库后重画侧栏：当前壁纸 {id} 在新库里没有 ⇒ 如实切回「未选择壁纸」（不假装还在渲染）","pickd.noStart":"服务端没有给出可浏览的快捷根（GET /api/fs/roots 的 roots 为空）","pickd.listFail":"读取目录失败：{path} —— {msg}",
 "pickd.frontend":"纯前端扫描（文件不离开浏览器）","pickd.system":"系统选择器（可能选不到环境内目录）","pickd.systemHint":"服务端打开的原生对话框；容器/安卓环境下常常看不到或选不到环境内目录 ⇒ 仅作兜底",
 "pickd.dirTag":"目录","pickd.fileTag":"文件","pickd.rootLocked":"服务端默认不允许列出这个根（只读边界）；可用 MPW_PICK_ROOT 放宽",
-"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）","props.hiddenNote":"已隐藏 {n} 项内部/占位属性（在地址后加 {flag} 显示全部原始项）","props.placeholderNote":"占位属性（文案里没有可读内容）⇒ 不显示控件","props.emptyShownNote":"该壁纸没有可显示的可调项","props.ext.title":"打开外部链接？","props.ext.host":"目标域名：{host}","props.ext.warn":"这条链接来自壁纸作者的属性文案，不是本页生成的。确认域名可信再继续：只会以新标签打开，并带 noopener / noreferrer。","props.ext.cancel":"取消","props.ext.open":"打开","props.ext.wait":"请稍候（{n}s）","props.ext.opening":"已打开外部链接：{host}","props.ext.cancelled":"已取消：没有打开外部链接","props.linkBlocked":"已拒绝该链接：只放行 http(s)","props.num.invalid":"非法输入（{why}）：未写回，已恢复原值","props.num.clamped":"已按属性范围调整：{v}（{why}）","num.why.empty":"空值","num.why.too-long":"位数过多","num.why.not-finite":"不是有限数（Infinity / NaN）","num.why.radix-prefix":"不支持十六/八/二进制前缀","num.why.exponent":"不支持科学计数法（1e9）","num.why.not-a-number":"不是数字","num.why.too-many-decimals":"小数位过多","num.why.min":"低于下界","num.why.max":"高于上界","num.why.step":"按步长对齐","num.why.precision":"按精度取整","toolbar.bandfeed":"音条源","toolbar.bandfeedTip":"音条（音频条）的数据源：壁纸 = 只用包内音轨，没有就如实全 0；麦克风 = 显式请求麦克风（还要勾「启用麦克风」）；模拟 = 确定性模拟源（只看形态）；关 = 不接任何源。换档会重挂载渲染器","bandfeed.wallpaper":"壁纸","bandfeed.mic":"麦克风","bandfeed.sim":"模拟","bandfeed.off":"关","bandfeed.idle":"音条状态：等待渲染器回报…","bandfeed.noReport":"音条状态：这个渲染器没有回报音条数据源（该版本不认「?bandfeed=」）—— 档位已写进 URL：{mode}（这个渲染器档不认「?bandfeed=」：档位已写进 URL，切到「本仓渲染器」档即生效 —— 它由 :8902 **自己直供** /webloader/，不依赖 :8899）","bandfeed.srcWallpaper":"音条数据源：包内音轨（?audio=1 的 sound 层）","bandfeed.srcMic":"音条数据源：麦克风","bandfeed.srcSim":"音条数据源：模拟（形态可见，不是真实频谱）","bandfeed.silent":"音条无数据：该壁纸没有音源或已静音 —— 可切「麦克风」或「模拟」看形态","bandfeed.offNote":"音条源：关 —— 渲染器不接任何数据源（脚本侧退回旧 audioBuffers 路径）","bandfeed.whyNoSource":"没有数据源：?audio=1 的包内音轨与麦克风都没有","bandfeed.whyNoTrack":"包内没有可用的音轨分析器（需要 ?audio=1 且包里真有 sound 层在播）","bandfeed.whyMicGate":"测试台「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）","bandfeed.whyMicDenied":"麦克风授权被拒绝或未启用（不会再请求第二次）","bandfeed.whyMicWait":"麦克风还在等待授权 / 初始化","bandfeed.whyMicUnsupported":"这个浏览器没有 navigator.mediaDevices（拿不到麦克风）","bandfeed.whyMicError":"麦克风初始化失败","bandfeed.whyMicGeneric":"麦克风不可用","log.bandfeedSwitch":"音条源：{mode} —— {status}","log.bandfeedMicGated":"音条源选了「麦克风」，但「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）⇒ 音条保持全 0；要真接麦克风请先勾「启用麦克风」（勾上会自动重挂载一次）","log.bandfeedNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 音条档位在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可","toolbar.rendererSrc":"渲染器","toolbar.rendererSrcTip":"预览用哪个渲染器：上游产物 = demo/renderer/index.html（不可重建的 minified 包，画布乘数被「DPR」档上限夹住、上下文 alpha:false）；本仓渲染器 = 同源 /webloader/（:8902 自己直供的 demo.html + 本仓 core，**不需要 :8899 在跑**，含 ?res=dpr 画布活档位与透明/粒子修复）。换档会重挂载预览","rendererSrc.upstream":"上游产物","rendererSrc.repo":"本仓渲染器","rendererSrc.loading":"渲染器来源：本仓渲染器正在加载…","rendererSrc.repoOn":"渲染器来源：本仓渲染器（{label}）· 画布 {res}","rendererSrc.repoDegraded":"渲染器来源：本仓渲染器（{label}）· 画布 {res} —— 明确降级的能力：{caps}","rendererSrc.notRepo":"渲染器来源：本仓渲染器 —— ⚠ 但当前文档看着不像本仓渲染器（{url}）","rendererSrc.unreachable":"渲染器来源：本仓渲染器 —— ⚠ 打不开（{why}）：同源 /webloader/ 没起来（这条路由由 :8902 自己直供，不需要 :8899）？回退请选「上游产物」","rendererSrc.upstreamOn":"渲染器来源：上游产物（{label}）—— minified 包，画质与透明按上游口径","log.rendererSrcSwitch":"渲染器来源：{mode}（{detail}）","log.rendererSrcNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 渲染器来源在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可","log.rendererSrcRewrote":"「重挂载」这次没有重设渲染器（没有已挂载的壁纸 / 走的是合成样例那条路径）⇒ 已把**当前预览 URL 按新档位重写一次**（同一条改写链），立即生效","log.rendererSrcSampleSkipped":"合成样例：本仓渲染器档不载它（本仓按 ?id= 取包挂载；那条 __wp.loadSceneFile 契约本仓明确降级）—— 上游产物档行为不变","log.rendererSrcSampleRepo":"合成样例：本仓渲染器档按 `?id=sample-synthetic` 挂载（与产物档同一个样例、同一份字节；取包走本仓 `/pkg/<id>`）：{url}","log.rendererSrcSampleExplicit":"合成样例：本仓渲染器档不认 `?sample=<url>`（那是产物页 `loadSceneFile(blob)` 的调试档）—— 已忽略，仍用自带样例"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the WEwebLoader source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.mic":"Enable microphone","toolbar.micTip":"Off by default: while off the page never requests the microphone (getUserMedia is not called) and “Live system” keeps title/progress only; when on it is requested only if a wallpaper/feature declares the need, never pre-requested at load","dbg.switch":"Enable debug mode","dbg.switchTip":"Step through layers (left/right) and isolate them; the keyboard is captured only while the debug view is open, Alt exits","logs.cleared":"Cleared ({view})","log.micOn":"Microphone enabled: requested only when a wallpaper/feature declares the need (no pre-request at load)","log.micOff":"Microphone disabled: no mic request is issued at all","log.micNeeded":"The microphone half of “Live system” needs “Enable microphone” first — title/progress only for now","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","logs.debug":"Debug mode","logs.debugOn":"Debug mode·ON","logs.debugOff":"Debug mode·OFF","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
-"dbg.report":"Report now","dbg.reportTip":"Post the current diagnostics immediately (/report, then /baseline, then /diag)","dbg.shot":"Screenshot","dbg.shotTip":"Download the preview canvas as JPEG","dbg.reporting":"Reporting…","dbg.reported":"Reported: {where} ({bytes} B)","dbg.reportFail":"Report failed: {msg}","dbg.shotOk":"Screenshot saved: {name} ({kb} KB)","dbg.shotFail":"Screenshot failed: {why}","dbg.on":"Debug mode: on (left/right steps layers; Alt exits)","dbg.off":"Debug mode: off","dbg.layerNone":"No scene to inspect layer by layer","dbg.layerLine":"Layer {i}/{n} · {name}","dbg.noScene":"No scene layers right now (not mounted / failed to load)","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.weGroup":"Renderer settings (built into WE)","props.imgDedup":"Image dedup","props.imgDedupOnce":"Once (whole panel)","props.imgDedupRow":"Once per row","props.imgDedupAll":"All (no dedup)","props.imgDedupNote":"{n} duplicate image(s) suppressed","props.imgDedupForced":"Decided by the URL gear {flag}","props.imgDedupTip":"Draw each picture once per panel: (1) a byte-identical URL is always drawn once; (2) URLs differing only in size/format/watermark params or suffixes (wx_fmt, bo, rf, @100w, _!web-…, x-oss-process=…) are merge candidates; (3) a candidate merges only when both images load with identical natural width/height (different or unknown size ⇒ no merge). “All” = no dedup (A/B); “Once per row” = the old per-row dedup. A link carrying ?propimg= wins (see the note)","props.imgDedupLog":"Image dedup gear: {mode}","props.imgDedupForcedLog":"(the URL param {flag} wins: this click only stores the preference; drop the param for it to take effect)","wpset.done":"Implemented","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory","nav.console":"Console","nav.docs":"Guide","nav.wpset":"Wallpaper settings","nav.settings":"Settings","nav.settingsTip":"Language / theme / attribution & licences","nav.lang":"Language","nav.theme":"Theme","nav.backend":"Backend","nav.backendUnknown":"unknown","nav.backendNote":"Static hosting (GitHub Pages) has no local Node backend: library listing / property saving / deleting / the diagnostics stream are unavailable online — by design, not a failure. “Choose folder” (in-browser scan) still works.","wp.add":"＋","wp.addTitle":"Add / switch wallpaper: open the left list filtered to hide the current one","logs.expandTip":"Expand the output (console)","logs.collapseTip":"Collapse the output (console)","props.emptyState":"No wallpaper picked yet","props.emptyHint":"Pick one in “Choose wallpaper” on the left; the options declared in its project.json show up here.",
+"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）","props.hiddenNote":"已隐藏 {n} 项内部/占位属性（在地址后加 {flag} 显示全部原始项）","props.placeholderNote":"占位属性（文案里没有可读内容）⇒ 不显示控件","props.emptyShownNote":"该壁纸没有可显示的可调项","props.ext.title":"打开外部链接？","props.ext.host":"目标域名：{host}","props.ext.warn":"这条链接来自壁纸作者的属性文案，不是本页生成的。确认域名可信再继续：只会以新标签打开，并带 noopener / noreferrer。","props.ext.cancel":"取消","props.ext.open":"打开","props.ext.wait":"请稍候（{n}s）","props.ext.opening":"已打开外部链接：{host}","props.ext.cancelled":"已取消：没有打开外部链接","props.linkBlocked":"已拒绝该链接：只放行 http(s)","props.num.invalid":"非法输入（{why}）：未写回，已恢复原值","props.num.clamped":"已按属性范围调整：{v}（{why}）","num.why.empty":"空值","num.why.too-long":"位数过多","num.why.not-finite":"不是有限数（Infinity / NaN）","num.why.radix-prefix":"不支持十六/八/二进制前缀","num.why.exponent":"不支持科学计数法（1e9）","num.why.not-a-number":"不是数字","num.why.too-many-decimals":"小数位过多","num.why.min":"低于下界","num.why.max":"高于上界","num.why.step":"按步长对齐","num.why.precision":"按精度取整","toolbar.bandfeed":"音条源","toolbar.bandfeedTip":"音条（音频条）的数据源：壁纸 = 只用包内音轨，没有就如实全 0；麦克风 = 显式请求麦克风（还要勾「启用麦克风」）；模拟 = 确定性模拟源（只看形态）；关 = 不接任何源。换档会重挂载渲染器","bandfeed.wallpaper":"壁纸","bandfeed.mic":"麦克风","bandfeed.sim":"模拟","bandfeed.off":"关","bandfeed.idle":"音条状态：等待渲染器回报…","bandfeed.noReport":"音条状态：这个渲染器没有回报音条数据源（该版本不认「?bandfeed=」）—— 档位已写进 URL：{mode}（这个渲染器档不认「?bandfeed=」：档位已写进 URL，切到「本仓渲染器」档即生效 —— 它由 :8902 **自己直供** /webloader/，不依赖 :8899）","bandfeed.srcWallpaper":"音条数据源：包内音轨（?audio=1 的 sound 层）","bandfeed.srcMic":"音条数据源：麦克风","bandfeed.srcSim":"音条数据源：模拟（形态可见，不是真实频谱）","bandfeed.silent":"音条无数据：该壁纸没有音源或已静音 —— 可切「麦克风」或「模拟」看形态","bandfeed.offNote":"音条源：关 —— 渲染器不接任何数据源（脚本侧退回旧 audioBuffers 路径）","bandfeed.whyNoSource":"没有数据源：?audio=1 的包内音轨与麦克风都没有","bandfeed.whyNoTrack":"包内没有可用的音轨分析器（需要 ?audio=1 且包里真有 sound 层在播）","bandfeed.whyMicGate":"测试台「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）","bandfeed.whyMicDenied":"麦克风授权被拒绝或未启用（不会再请求第二次）","bandfeed.whyMicWait":"麦克风还在等待授权 / 初始化","bandfeed.whyMicUnsupported":"这个浏览器没有 navigator.mediaDevices（拿不到麦克风）","bandfeed.whyMicError":"麦克风初始化失败","bandfeed.whyMicGeneric":"麦克风不可用","log.bandfeedSwitch":"音条源：{mode} —— {status}","log.bandfeedMicGated":"音条源选了「麦克风」，但「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）⇒ 音条保持全 0；要真接麦克风请先勾「启用麦克风」（勾上会自动重挂载一次）","log.bandfeedNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 音条档位在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可","toolbar.rendererSrc":"渲染器","toolbar.rendererSrcTip":"预览用哪个渲染器：上游产物 = demo/renderer/index.html（不可重建的 minified 包，画布乘数被「DPR」档上限夹住、上下文 alpha:false）；本仓渲染器 = 同源 /webloader/（:8902 自己直供的 demo.html + 本仓 core，**不需要 :8899 在跑**，含 ?res=dpr 画布活档位与透明/粒子修复）。换档会重挂载预览","rendererSrc.upstream":"上游产物","rendererSrc.repo":"本仓渲染器","rendererSrc.loading":"渲染器来源：本仓渲染器正在加载…","rendererSrc.repoOn":"渲染器来源：本仓渲染器（{label}）· 画布 {res}","rendererSrc.repoDegraded":"渲染器来源：本仓渲染器（{label}）· 画布 {res} —— 明确降级的能力：{caps}","rendererSrc.notRepo":"渲染器来源：本仓渲染器 —— ⚠ 但当前文档看着不像本仓渲染器（{url}）","rendererSrc.unreachable":"渲染器来源：本仓渲染器 —— ⚠ 打不开（{why}）：同源 /webloader/ 没起来（这条路由由 :8902 自己直供，不需要 :8899）？回退请选「上游产物」","rendererSrc.upstreamOn":"渲染器来源：上游产物（{label}）—— minified 包，画质与透明按上游口径","log.rendererSrcSwitch":"渲染器来源：{mode}（{detail}）","log.rendererSrcNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 渲染器来源在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可","log.rendererSrcEmpty":"渲染器来源：{mode} —— 当前**未选择壁纸**：预览保持空态，这次**不挂载任何壁纸**（档位已记住，下次挂载生效）","log.rendererSrcRewrote":"「重挂载」这次没有重设渲染器（没有已挂载的壁纸 / 走的是合成样例那条路径）⇒ 已把**当前预览 URL 按新档位重写一次**（同一条改写链），立即生效","log.rendererSrcSampleSkipped":"合成样例：本仓渲染器档不载它（本仓按 ?id= 取包挂载；那条 __wp.loadSceneFile 契约本仓明确降级）—— 上游产物档行为不变","log.rendererSrcSampleRepo":"合成样例：本仓渲染器档按 `?id=sample-synthetic` 挂载（与产物档同一个样例、同一份字节；取包走本仓 `/pkg/<id>`）：{url}","log.rendererSrcSampleExplicit":"合成样例：本仓渲染器档不认 `?sample=<url>`（那是产物页 `loadSceneFile(blob)` 的调试档）—— 已忽略，仍用自带样例"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the WEwebLoader source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.mic":"Enable microphone","toolbar.micTip":"Off by default: while off the page never requests the microphone (getUserMedia is not called) and “Live system” keeps title/progress only; when on it is requested only if a wallpaper/feature declares the need, never pre-requested at load","dbg.switch":"Enable debug mode","dbg.switchTip":"Step through layers (left/right) and isolate them; the keyboard is captured only while the debug view is open, Alt exits","logs.cleared":"Cleared ({view})","log.micOn":"Microphone enabled: requested only when a wallpaper/feature declares the need (no pre-request at load)","log.micOff":"Microphone disabled: no mic request is issued at all","log.micNeeded":"The microphone half of “Live system” needs “Enable microphone” first — title/progress only for now","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","logs.debug":"Debug mode","logs.debugOn":"Debug mode·ON","logs.debugOff":"Debug mode·OFF","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
+"dbg.report":"Report now","dbg.reportTip":"Post the current diagnostics immediately (/report, then /baseline, then /diag)","dbg.shot":"Screenshot","dbg.shotTip":"Download the preview canvas as JPEG","dbg.reporting":"Reporting…","dbg.reported":"Reported: {where} ({bytes} B)","dbg.reportFail":"Report failed: {msg}","dbg.shotOk":"Screenshot saved: {name} ({kb} KB)","dbg.shotFail":"Screenshot failed: {why}","dbg.on":"Debug mode: on (left/right steps layers; Alt exits)","dbg.off":"Debug mode: off","dbg.layerNone":"No scene to inspect layer by layer","dbg.layerLine":"Layer {i}/{n} · {name}","dbg.noScene":"No scene layers right now (not mounted / failed to load)","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.weGroup":"Renderer settings (built into WE)","props.imgDedup":"Image dedup","props.imgDedupOnce":"Once (whole panel)","props.imgDedupRow":"Once per row","props.imgDedupAll":"All (no dedup)","props.imgDedupNote":"{n} duplicate image(s) suppressed","props.imgDedupForced":"Decided by the URL gear {flag}","props.imgDedupTip":"Draw each picture once per panel (enforced): (1) a byte-identical URL is drawn once; (2) URLs differing only in size/format/watermark params or suffixes (wx_fmt, bo, rf, @100w, 800x600, _!web-…, x-oss-process=…) or in an http/https or www. prefix count as the SAME picture and are merged unconditionally (no size match required any more); (3) both sources in the panel — the images the renderer parsed and those in the property text — share one ledger; (4) a link to an already-drawn picture, and a link left empty after its image was suppressed, are no longer drawn on their own. “All” = no dedup (A/B); “Once per row” = per-row dedup only. A link carrying ?propimg= wins","props.imgDedupLog":"Image dedup gear: {mode}","props.imgDedupForcedNote":"({m} of them were **force-merged** by picture identity: {diff} with a different size, {unk} with unknown size — “show it once” is enforced as requested)","props.imgDedupForcedLog":"(the URL param {flag} wins: this click only stores the preference; drop the param for it to take effect)","wpset.done":"Implemented","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory","nav.console":"Console","nav.docs":"Guide","nav.wpset":"Wallpaper settings","nav.settings":"Settings","nav.settingsTip":"Language / theme / attribution & licences","nav.lang":"Language","nav.theme":"Theme","nav.backend":"Backend","nav.backendUnknown":"unknown","nav.backendNote":"Static hosting (GitHub Pages) has no local Node backend: library listing / property saving / deleting / the diagnostics stream are unavailable online — by design, not a failure. “Choose folder” (in-browser scan) still works.","wp.add":"＋","wp.addTitle":"Add / switch wallpaper: open the left list filtered to hide the current one","logs.expandTip":"Expand the output (console)","logs.collapseTip":"Collapse the output (console)","props.emptyState":"No wallpaper picked yet","props.emptyHint":"Pick one in “Choose wallpaper” on the left; the options declared in its project.json show up here.",
 "libsrc.default":"Library source: machine default directory (server built-in — you have not chosen one)","libsrc.default.hint":"This is the server's start-up default, not a choice you made; click “Choose folder” to browse in-app and pick one","libsrc.default.path":"(default library directory unavailable)",
 "libsrc.user":"Library source: the directory you chose","libsrc.user.hint":"Chosen by you via “Choose folder” (accepted by the server's /api/library-dir)","libsrc.user.path":"(chosen directory is empty)",
 "libsrc.empty":"Library source: empty (the server returned no library directory)","libsrc.empty.hint":"The server reports an empty library; click “Choose folder” and pick a directory holding wallpapers","libsrc.empty.path":"(empty)",
@@ -113,7 +113,7 @@ export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"
 "pickd.selected":"Selected: {path}","pickd.applying":"Switching the library directory…","pickd.done":"Library directory switched: {path} (reloading…)","pickd.fail":"Switch failed: {msg}","pickd.relisted":"library list re-fetched ({n} items)","log.listRefreshDone":"Sidebar re-rendered after the library switch: {n} items (current wallpaper {id})","log.releaseQuiet":"Released: the renderer is stopped ({why}) — iframe cleared, polling stopped, no self-healing remount","log.listRefreshDropped":"Sidebar re-rendered after the library switch: the previous wallpaper {id} does not exist in the new library, so it was released honestly","pickd.noStart":"The server exposed no browsable root (GET /api/fs/roots returned an empty roots array)","pickd.listFail":"Listing failed: {path} — {msg}",
 "pickd.frontend":"In-browser scan (files never leave the browser)","pickd.system":"System picker (may not reach directories inside this environment)","pickd.systemHint":"The native dialog opened by the server; in containers/Android it is often invisible or cannot reach the environment's directories — fallback only",
 "pickd.dirTag":"dir","pickd.fileTag":"file","pickd.rootLocked":"The server does not allow listing this root by default (read-only boundary); relax it with MPW_PICK_ROOT",
-"credit.link":"README · License & credits (GPL-3.0-or-later + upstream MIT)","props.hiddenNote":"Hid {n} internal/placeholder item(s) (append {flag} to show every raw item)","props.placeholderNote":"Placeholder property (no readable text) — colour control hidden","props.emptyShownNote":"This wallpaper has no adjustable items to show","props.ext.title":"Open external link?","props.ext.host":"Target domain: {host}","props.ext.warn":"This link comes from the wallpaper author\u2019s property text, not from this page. Continue only if you trust the domain: it opens in a new tab with noopener / noreferrer.","props.ext.cancel":"Cancel","props.ext.open":"Open","props.ext.wait":"Wait ({n}s)","props.ext.opening":"Opened external link: {host}","props.ext.cancelled":"Cancelled: no external link opened","props.linkBlocked":"Link refused: only http(s) is allowed","props.num.invalid":"Invalid input ({why}): not saved, original value restored","props.num.clamped":"Adjusted to the property range: {v} ({why})","num.why.empty":"empty","num.why.too-long":"too many characters","num.why.not-finite":"not a finite number (Infinity / NaN)","num.why.radix-prefix":"hex/octal/binary prefixes are unsupported","num.why.exponent":"scientific notation (1e9) is unsupported","num.why.not-a-number":"not a number","num.why.too-many-decimals":"too many decimals","num.why.min":"below the minimum","num.why.max":"above the maximum","num.why.step":"snapped to the step","num.why.precision":"rounded to the precision","toolbar.bandfeed":"Audio bar source","toolbar.bandfeedTip":"Audio bar (visualizer) data source: Wallpaper = the in-package track only (honestly all-zero when there is none); Microphone = explicitly request the mic (also needs “Enable microphone”); Simulated = deterministic simulated source (shape only); Off = no source at all. Switching remounts the renderer","bandfeed.wallpaper":"Wallpaper","bandfeed.mic":"Microphone","bandfeed.sim":"Simulated","bandfeed.off":"Off","bandfeed.idle":"Audio bar: waiting for the renderer to report…","bandfeed.noReport":"Audio bar: this renderer reports no audio-bar source (this build ignores “?bandfeed=”) — the mode is in the URL: {mode} (this renderer build ignores “?bandfeed=”: the mode is in the URL — switch to the “This repo” renderer tier to make it take effect, since it is served by :8902 itself at /webloader/ and needs no :8899)","bandfeed.srcWallpaper":"Audio bar source: in-package track (the ?audio=1 sound layer)","bandfeed.srcMic":"Audio bar source: microphone","bandfeed.srcSim":"Audio bar source: simulated (shape only, not a real spectrum)","bandfeed.silent":"No audio-bar data: this wallpaper has no audio source or is muted — switch to “Microphone” or “Simulated” to see the shape","bandfeed.offNote":"Audio bar source: Off — the renderer takes no data source (the script side falls back to the legacy audioBuffers path)","bandfeed.whyNoSource":"No data source: neither the ?audio=1 in-package track nor the microphone is available","bandfeed.whyNoTrack":"No usable track analyser in the package (needs ?audio=1 with a sound layer actually playing)","bandfeed.whyMicGate":"“Enable microphone” is off in the bench: no mic request is issued (getUserMedia is never called)","bandfeed.whyMicDenied":"Microphone permission was denied or not enabled (it will not be requested a second time)","bandfeed.whyMicWait":"The microphone is still waiting for permission / initialisation","bandfeed.whyMicUnsupported":"This browser has no navigator.mediaDevices (the microphone is unavailable)","bandfeed.whyMicError":"Microphone initialisation failed","bandfeed.whyMicGeneric":"The microphone is unavailable","log.bandfeedSwitch":"Audio bar source: {mode} — {status}","log.bandfeedMicGated":"Audio bar source set to “Microphone” but “Enable microphone” is off: no mic request is issued (getUserMedia is never called), so the bars stay all-zero; tick “Enable microphone” first to really attach the mic (ticking it remounts once)","log.bandfeedNoMount":"“Remount” did not reset the renderer this time (no wallpaper is mounted, or the synthetic-sample path is active), so the audio-bar mode takes effect on the **next mount**; switch wallpaper or press “Remount” once","toolbar.rendererSrc":"Renderer","toolbar.rendererSrcTip":"Which renderer the preview uses: Upstream product = demo/renderer/index.html (the unrebuildable minified bundle: its canvas multiplier is capped by the toolbar DPR value and its context is alpha:false); This repo = same-origin /webloader/ (demo.html served by :8902 itself + this repo’s core — no :8899 required — with the ?res=dpr live canvas tier and the transparency/particle fixes). Switching remounts the preview","rendererSrc.upstream":"Upstream product","rendererSrc.repo":"This repo","rendererSrc.loading":"Renderer source: this repo’s renderer is loading…","rendererSrc.repoOn":"Renderer source: this repo’s renderer ({label}) · canvas {res}","rendererSrc.repoDegraded":"Renderer source: this repo’s renderer ({label}) · canvas {res} — explicitly degraded: {caps}","rendererSrc.notRepo":"Renderer source: this repo’s renderer — ⚠ but the current document does not look like this repo’s renderer ({url})","rendererSrc.unreachable":"Renderer source: this repo’s renderer — ⚠ cannot open ({why}): is the same-origin /webloader/ route up (served by :8902 itself, no :8899 required)? Pick “Upstream product” to fall back","rendererSrc.upstreamOn":"Renderer source: upstream product ({label}) — the minified bundle: image quality and transparency follow upstream","log.rendererSrcSwitch":"Renderer source: {mode} ({detail})","log.rendererSrcNoMount":"“Remount” did not reset the renderer this time (no wallpaper is mounted, or the synthetic-sample path is active), so the renderer source takes effect on the **next mount**; switch wallpaper or press “Remount” once","log.rendererSrcRewrote":"“Remount” did not reset the renderer this time (no mounted wallpaper / synthetic-sample path) — the current preview URL was rewritten for the new source through the same rewrite chain, so it takes effect immediately","log.rendererSrcSampleSkipped":"Synthetic sample: not loaded in this-repo mode (this repo mounts by ?id=; the __wp.loadSceneFile contract is explicitly degraded here) — upstream mode is unchanged","log.rendererSrcSampleRepo":"Synthetic sample: mounted in this-repo mode via `?id=sample-synthetic` (same sample, same bytes; the package is fetched through this repo’s `/pkg/<id>`): {url}","log.rendererSrcSampleExplicit":"Synthetic sample: this-repo mode does not accept `?sample=<url>` (that is the product page’s loadSceneFile(blob) debug hook) — ignored, the bundled sample is used"}}
+"credit.link":"README · License & credits (GPL-3.0-or-later + upstream MIT)","props.hiddenNote":"Hid {n} internal/placeholder item(s) (append {flag} to show every raw item)","props.placeholderNote":"Placeholder property (no readable text) — colour control hidden","props.emptyShownNote":"This wallpaper has no adjustable items to show","props.ext.title":"Open external link?","props.ext.host":"Target domain: {host}","props.ext.warn":"This link comes from the wallpaper author\u2019s property text, not from this page. Continue only if you trust the domain: it opens in a new tab with noopener / noreferrer.","props.ext.cancel":"Cancel","props.ext.open":"Open","props.ext.wait":"Wait ({n}s)","props.ext.opening":"Opened external link: {host}","props.ext.cancelled":"Cancelled: no external link opened","props.linkBlocked":"Link refused: only http(s) is allowed","props.num.invalid":"Invalid input ({why}): not saved, original value restored","props.num.clamped":"Adjusted to the property range: {v} ({why})","num.why.empty":"empty","num.why.too-long":"too many characters","num.why.not-finite":"not a finite number (Infinity / NaN)","num.why.radix-prefix":"hex/octal/binary prefixes are unsupported","num.why.exponent":"scientific notation (1e9) is unsupported","num.why.not-a-number":"not a number","num.why.too-many-decimals":"too many decimals","num.why.min":"below the minimum","num.why.max":"above the maximum","num.why.step":"snapped to the step","num.why.precision":"rounded to the precision","toolbar.bandfeed":"Audio bar source","toolbar.bandfeedTip":"Audio bar (visualizer) data source: Wallpaper = the in-package track only (honestly all-zero when there is none); Microphone = explicitly request the mic (also needs “Enable microphone”); Simulated = deterministic simulated source (shape only); Off = no source at all. Switching remounts the renderer","bandfeed.wallpaper":"Wallpaper","bandfeed.mic":"Microphone","bandfeed.sim":"Simulated","bandfeed.off":"Off","bandfeed.idle":"Audio bar: waiting for the renderer to report…","bandfeed.noReport":"Audio bar: this renderer reports no audio-bar source (this build ignores “?bandfeed=”) — the mode is in the URL: {mode} (this renderer build ignores “?bandfeed=”: the mode is in the URL — switch to the “This repo” renderer tier to make it take effect, since it is served by :8902 itself at /webloader/ and needs no :8899)","bandfeed.srcWallpaper":"Audio bar source: in-package track (the ?audio=1 sound layer)","bandfeed.srcMic":"Audio bar source: microphone","bandfeed.srcSim":"Audio bar source: simulated (shape only, not a real spectrum)","bandfeed.silent":"No audio-bar data: this wallpaper has no audio source or is muted — switch to “Microphone” or “Simulated” to see the shape","bandfeed.offNote":"Audio bar source: Off — the renderer takes no data source (the script side falls back to the legacy audioBuffers path)","bandfeed.whyNoSource":"No data source: neither the ?audio=1 in-package track nor the microphone is available","bandfeed.whyNoTrack":"No usable track analyser in the package (needs ?audio=1 with a sound layer actually playing)","bandfeed.whyMicGate":"“Enable microphone” is off in the bench: no mic request is issued (getUserMedia is never called)","bandfeed.whyMicDenied":"Microphone permission was denied or not enabled (it will not be requested a second time)","bandfeed.whyMicWait":"The microphone is still waiting for permission / initialisation","bandfeed.whyMicUnsupported":"This browser has no navigator.mediaDevices (the microphone is unavailable)","bandfeed.whyMicError":"Microphone initialisation failed","bandfeed.whyMicGeneric":"The microphone is unavailable","log.bandfeedSwitch":"Audio bar source: {mode} — {status}","log.bandfeedMicGated":"Audio bar source set to “Microphone” but “Enable microphone” is off: no mic request is issued (getUserMedia is never called), so the bars stay all-zero; tick “Enable microphone” first to really attach the mic (ticking it remounts once)","log.bandfeedNoMount":"“Remount” did not reset the renderer this time (no wallpaper is mounted, or the synthetic-sample path is active), so the audio-bar mode takes effect on the **next mount**; switch wallpaper or press “Remount” once","toolbar.rendererSrc":"Renderer","toolbar.rendererSrcTip":"Which renderer the preview uses: Upstream product = demo/renderer/index.html (the unrebuildable minified bundle: its canvas multiplier is capped by the toolbar DPR value and its context is alpha:false); This repo = same-origin /webloader/ (demo.html served by :8902 itself + this repo’s core — no :8899 required — with the ?res=dpr live canvas tier and the transparency/particle fixes). Switching remounts the preview","rendererSrc.upstream":"Upstream product","rendererSrc.repo":"This repo","rendererSrc.loading":"Renderer source: this repo’s renderer is loading…","rendererSrc.repoOn":"Renderer source: this repo’s renderer ({label}) · canvas {res}","rendererSrc.repoDegraded":"Renderer source: this repo’s renderer ({label}) · canvas {res} — explicitly degraded: {caps}","rendererSrc.notRepo":"Renderer source: this repo’s renderer — ⚠ but the current document does not look like this repo’s renderer ({url})","rendererSrc.unreachable":"Renderer source: this repo’s renderer — ⚠ cannot open ({why}): is the same-origin /webloader/ route up (served by :8902 itself, no :8899 required)? Pick “Upstream product” to fall back","rendererSrc.upstreamOn":"Renderer source: upstream product ({label}) — the minified bundle: image quality and transparency follow upstream","log.rendererSrcSwitch":"Renderer source: {mode} ({detail})","log.rendererSrcNoMount":"“Remount” did not reset the renderer this time (no wallpaper is mounted, or the synthetic-sample path is active), so the renderer source takes effect on the **next mount**; switch wallpaper or press “Remount” once","log.rendererSrcEmpty":"Renderer source: {mode} — **no wallpaper is selected**: the preview stays empty and nothing is mounted this time (the tier is remembered and applies on the next mount)","log.rendererSrcRewrote":"“Remount” did not reset the renderer this time (no mounted wallpaper / synthetic-sample path) — the current preview URL was rewritten for the new source through the same rewrite chain, so it takes effect immediately","log.rendererSrcSampleSkipped":"Synthetic sample: not loaded in this-repo mode (this repo mounts by ?id=; the __wp.loadSceneFile contract is explicitly degraded here) — upstream mode is unchanged","log.rendererSrcSampleRepo":"Synthetic sample: mounted in this-repo mode via `?id=sample-synthetic` (same sample, same bytes; the package is fetched through this repo’s `/pkg/<id>`): {url}","log.rendererSrcSampleExplicit":"Synthetic sample: this-repo mode does not accept `?sample=<url>` (that is the product page’s loadSceneFile(blob) debug hook) — ignored, the bundled sample is used"}}
 
 /* ============================ 纯函数层 ============================ */
 export const LANGS = ['zh', 'en']
@@ -1497,11 +1497,28 @@ export function normalizeRichImageUrl(u) {
  *  · `x-oss-process`/`imageView2`/`imageMogr2`/`imageView` —— 阿里 OSS / 七牛的服务端图像处理指令。
  *  ⚠ **不在名单里的一律保留**（含 `t=`、`from=` 这类语义未确认的）：把它们删掉会把不同图压成一张。
  *  收录依据：`reports/bench-propimg-dedup-20260924.md` §3（本地语料 20 个含图包 × 逐条 URL 核对）。 */
-export const RICH_IMAGE_DROP_PARAMS = ['wx_fmt', 'wxfrom', 'wx_lazy', 'wx_co', 'tp', 'bo', 'rf', 'x-oss-process', 'imageview2', 'imagemogr2', 'imageview']
+export const RICH_IMAGE_DROP_PARAMS = [
+  /* 原白名单（真语料逐条核对过，见 reports/bench-propimg-dedup-20260924.md §3） */
+  'wx_fmt', 'wxfrom', 'wx_lazy', 'wx_co', 'tp', 'bo', 'rf', 'x-oss-process', 'imageview2', 'imagemogr2', 'imageview',
+  /* ②(2026-09-25 issue0924a2 用户第 2 条「强制只显示一次」) **尺寸/质量/格式类**参数一并去掉：
+     用户的判据是"同一张画面只显示一次"，而作者重传/换 CDN 时最常见的就是**同一张图换一组渲染参数**
+     （`?w=800` vs `?w=1600`、`?q=90` vs 默认、`?format=webp` vs `jpg`）。这些名字在 HTTP 语义上
+     只描述"怎么给我"、不描述"是哪张"；留着它们就等于把同一张画面算成两张（用户复测时看到的就是这个）。
+     ⚠ 仍然**不吃无名段**（`?/V54…/TmE…!/mnull` 那种身份段）—— 反例护栏（4 张同 path 真图）继续成立。 */
+  'w', 'h', 'width', 'height', 'size', 'quality', 'q', 'format', 'fmt', 'resize', 'crop', 'scale',
+  'thumb', 'thumbnail', 'preview', 'imageslim', 'watermark', 'dpi', 'dpr', 'interlace', 'strip', 'fit', 'compress', 'sharp', 'blur',
+]
 /** ⓑ 的**处理类后缀**（只作用于 path 末尾；每条都能举出真实形态，且删除后仍留着图片 id）。 */
 export const RICH_IMAGE_DROP_SUFFIX_RES = [
   /_!web-[A-Za-z0-9._-]*$/i,                              // 微信文章图水印后缀（`_!web-article-pic` 等）
   /@[0-9]+[wh](?:[0-9]+[wh])?(?:_[0-9a-z]+)*$/i,          // 淘宝/阿里 CDN 尺寸后缀（`@100w`、`@200w_200h_1e_1c`）
+  /* ②(2026-09-25 用户第 2 条) **文件名里的尺寸标记**：作者重传同一张图时最常见的形态是
+     `pic.jpg` / `pic_800x600.jpg` / `pic-1600x1200.jpg`（去掉尺寸段剩下的仍是同一个名字 = 同一张）。
+     只吃"下划线/短横 + 两位数以上 × 两位数以上"这一段，且**必须在扩展名之前**（`_2x.png` 这种
+     "二倍图"也一并归并：它就是同一张画面的另一份导出）。 */
+  /[_-]\d{2,4}x\d{2,4}(?=\.[A-Za-z0-9]{2,5}$)/,
+  /[_-](?:thumb|thumbnail|small|big|large|preview|compressed)(?=\.[A-Za-z0-9]{2,5}$)/i,
+  /!\d{2,4}x\d{2,4}$/,                                    // `pic.jpg!800x600`（部分 CDN 的尺寸后缀）
 ]
 /** 去重**候选**键（规则 ⓑ）：归一化 URL 再去掉处理类参数/后缀。单独成函数是为了让"改判据"只有一处。
  *  ⚠ 这个键**只用于筛候选**：真归并还要过 `makeRichImagePass` 的尺寸证据（规则 ⓒ）。 */
@@ -1510,6 +1527,8 @@ export function richImageKey(u) {
   if (!s) return ''
   let x
   try { x = new URL(s) } catch { return s }
+  /*  ②(2026-09-25 用户第 2 条) `http` 与 `https` 指向同一份资源（作者换站/换 CDN 的常见形态）：
+      身份键里把协议一起归一掉；`normalizeRichImageUrl`（严格档）**不动** —— 它仍然是"逐字节同一资源"的键。 */
   let path = x.pathname
   for (const re of RICH_IMAGE_DROP_SUFFIX_RES) path = path.replace(re, '')
   const raw = x.search === '?' ? '' : x.search
@@ -1520,10 +1539,12 @@ export function richImageKey(u) {
     if (RICH_IMAGE_DROP_PARAMS.indexOf(name) >= 0) continue       // 白名单内 ⇒ 删
     kept.push(seg)                                                // 其余（含无名段）逐字节保留
   }
-  return x.protocol.toLowerCase() + '//' + x.host.toLowerCase() + path + (kept.length ? '?' + kept.join('&') : '')
+  const host = x.host.toLowerCase().replace(/^www\./, '')     // `www.` 不是身份（同一站点同一 path）
+  return 'http//' + host + path + (kept.length ? '?' + kept.join('&') : '')
 }
 /** 两张图的关系（判据直接用，避免测试里手抄规则）：
- *  `'same-resource'`（规则 ⓐ，无条件归并）| `'variant-candidate'`（规则 ⓑ，要尺寸证据）| `'different'`。 */
+ *  `'same-resource'`（规则 ⓐ，无条件归并）| `'variant-candidate'`（规则 ⓑ，**也归并** ——
+ *  ②(2026-09-25 用户第 2 条)「强制只显示一次」：键相等就是同一张画面，不再要尺寸证据）| `'different'`。 */
 export function richImageRelation(a, b) {
   const ea = normalizeRichImageUrl(a), eb = normalizeRichImageUrl(b)
   if (!ea || !eb) return 'different'
@@ -1551,20 +1572,25 @@ export function planRichImageMode(input) {
   if (stored) return { mode: stored, source: 'stored', forced: false }
   return { mode: RICH_IMAGE_MODE_DEFAULT, source: 'default', forced: false }
 }
-/** 一趟渲染的图片去重账本（纯逻辑，不碰 DOM ⇒ Node 可测；DOM 侧只负责"照账本画/摘/藏"）。
+/** 一趟渲染的图片去重账本（纯逻辑，不碰 DOM ⇒ Node 可测；DOM 侧只负责"照账本画/藏"）。
  *  `mode='all'`（`?propimg=all`）⇒ 完全不去重（回到改动前的行为，用于对照/排障）；
  *  `mode='row'` ⇒ 只在单行内按**逐字节 URL**去重（第一版 `seenSrc` 的语义，回退档）；
- *  `mode='once'`（缺省）⇒ 规则 ⓐⓑⓒ：整面板同一张图只画一遍。
- *  `opts.sizes`：`{url: {w,h,ok}}` 预置尺寸证据（纯函数判据用；DOM 侧走 `sizeEvidence()`）。
- *  不变量（老判据 `tests/bench-dsh-libroot-test.mjs` B7 依赖）：`once` 档下
- *  `report().rendered === report().groups.length`（**只有真的画了才建组**）。 */
+ *  `mode='once'`（缺省）⇒ **同一张画面在整个面板里只出现一次**（用户第 2 条要的"强制只显示一次"）：
+ *    ⓐ 逐字节同一资源 ⇒ 只画第一张；
+ *    ⓑ 身份键（`richImageKey`）相同 = **同一张画面的不同参数/尺寸/格式/重传** ⇒ **无条件归并**
+ *       （②2026-09-25：旧版要求"两张都.load 成功且 naturalWidth/Height 完全相同"才归并，
+ *        作者重传的图尺寸不同、或图片没加载完/被墙 ⇒ 就画两张 —— 用户复测看到的"还是有重复的图片"
+ *        正是这一档。现在改成"键相等就归并"：判据从"证据"退回"身份"，因为身份键本身就是
+ *        "同一张画面"的定义，尺寸只说明导出规格不同）。
+ *  `opts.sizes`：`{url: {w,h,ok}}` 预置尺寸证据 —— **只进台账**（用来如实说明"N 张变体的尺寸当时
+ *  相同/不同/未知"），不再参与判定；DOM 侧同样走 `sizeEvidence()`。
+ *  不变量（门禁 B7 依赖）：`once` 档下 `report().rendered === report().groups.length`。 */
 export function makeRichImagePass(opts) {
   const o = opts || {}
   const mode = (o.mode === 'all' || o.mode === 'row') ? o.mode : 'once'
   const groups = new Map()      // 身份组（只有真的画了才建）→ {id,key,url,exact,count,kept,variants,reason}
-  const ident = new Map()       // 身份键 → 组 id（参考身份 = baseKey；被否归并的变体 = baseKey+'\0'+它自己）
-  const pending = new Map()     // 挂起中的变体候选：exactUrl → {base, refId, refUrl}
-  const sizes = new Map()       // exactUrl → {w,h,ok}（唯一一份尺寸证据）
+  const ident = new Map()       // 身份键 → 组 id
+  const sizes = new Map()       // exactUrl → {w,h,ok}（**只进台账**，不参与判定）
   const notes = []
   let requests = 0, mergedCount = 0, unmergedCount = 0
   const nUrl = (u) => normalizeRichImageUrl(u)
@@ -1572,113 +1598,66 @@ export function makeRichImagePass(opts) {
   const known = (s) => !!(s && s.ok && s.w > 0 && s.h > 0)
   const mk = (id, key, exact) => { const g = { id, key, url: exact, exact, count: 0, kept: 0, variants: [], reason: '' }; groups.set(id, g); ident.set(id, id); return g }
   const scoped = (k, scope) => (mode === 'row') ? (String(scope == null ? '' : scope) + '\u0000' + k) : k
-  /** 挂起的变体**结算**（证据到齐/证据是"失败"时）：返回 DOM 侧要动的清单。
-   *  `release` = 把那张被藏起来的探针**显示出来**（不归并）；`merged` = 那张确实是同一张 ⇒ 摘掉探针。 */
-  function settle() {
-    const act = { merged: [], release: [] }
-    for (const [exact, p] of [...pending]) {
-      const a = sizeOf(p.refUrl), b = sizeOf(exact)
-      if (known(a) && known(b)) {
-        if (a.w === b.w && a.h === b.h) {                      // ⓒ 真阳性：同一张 ⇒ 归并
-          pending.delete(exact)
-          const g = groups.get(p.refId)
-          if (g) { g.count++; g.variants.push(exact) }
-          mergedCount++
-          act.merged.push(exact)
-        } else {                                               // ⓒ 硬否：尺寸不同 ⇒ 一定不归并
-          pending.delete(exact)
-          const g = mk(p.base + '\u0000' + exact, p.base, exact); g.count++; g.kept++; g.reason = 'size-veto'
-          unmergedCount++
-          act.release.push(exact)
-        }
-        continue
-      }
-      if ((b && b.ok === false) || (a && a.ok === false)) {     // 证据是"加载失败" ⇒ 不归并（保守）
-        pending.delete(exact)
-        const g = mk(p.base + '\u0000' + exact, p.base, exact); g.count++; g.kept++; g.reason = 'no-size-evidence'
-        unmergedCount++
-        act.release.push(exact)
-      }
-    }
-    return act
+  /** 变体的**尺寸证据台账**（只用于 report：`equal`/`different`/`unknown` 三个计数 + 逐条明细）。
+   *  ② 为什么保留它：用户要"把放弃归并的原因如实计数进台账/提示，不许静默" —— 现在**没有放弃**，
+   *  但"这一张是靠键相等强行归并的，它当时的尺寸与参考图不同/还未知"这件事必须看得见。 */
+  function evidenceOf(refExact, exact) {
+    const a = sizeOf(refExact), b = sizeOf(exact)
+    if (!known(a) || !known(b)) return 'unknown'
+    return (a.w === b.w && a.h === b.h) ? 'equal' : 'different'
   }
   const pass = {
     mode,
-    /** 这张图该不该画？`{draw, hold, ...}`。`hold` = DOM 侧**先建节点但藏起来**（探针），
-     *  等 `sizeEvidence()` 结算（藏起来而不是直接画：归并确认时不会闪一下重复图）。
+    /** 这张图该不该画？`{draw, key, exact, reason}`（`once` 档下键相等 ⇒ `draw:false` 且 `merged:true`）。
      *  `scope`：`mode='row'` 时把去重限制在**同一条属性行**内（第一版 `seenSrc` 的语义）；`once` 忽略它。 */
     take(url, scope) {
       const exact = nUrl(url)
-      if (!exact) return { draw: false, hold: false, key: '', exact, reason: 'empty' }
+      if (!exact) return { draw: false, key: '', exact, reason: 'empty' }
       requests++
       if (mode === 'all') {
         const id = 'all\u0000' + scoped(exact, scope)
         const g = groups.get(id) || mk(id, exact, exact)
         g.count++; g.kept++
-        return { draw: true, hold: false, key: exact, exact, reason: 'all' }
+        return { draw: true, key: exact, exact, reason: 'all' }
       }
       if (mode === 'row') {
         const id = 'row\u0000' + scoped(exact, scope)
         const g = groups.get(id)
-        if (g) { g.count++; return { draw: false, hold: false, key: exact, exact, duplicate: true, reason: 'row-duplicate' } }
+        if (g) { g.count++; return { draw: false, key: exact, exact, duplicate: true, reason: 'row-duplicate' } }
         const ng = mk(id, exact, exact); ng.count++; ng.kept++
-        return { draw: true, hold: false, key: exact, exact, first: true, reason: 'row-first' }
+        return { draw: true, key: exact, exact, first: true, reason: 'row-first' }
       }
       const key = richImageKey(url)
       const refId = ident.get(key)
       if (!refId) {                                              // 这个身份第一次出现 ⇒ 画（参考图）
         const g = mk(key, key, exact); g.count++; g.kept++
-        return { draw: true, hold: false, key, exact, first: true, reason: 'first' }
+        return { draw: true, key, exact, first: true, reason: 'first' }
       }
       const ref = groups.get(refId)
-      if (ref && ref.exact === exact) {                           // ⓐ 逐字节同一资源 ⇒ 无条件不画
+      if (ref && ref.exact === exact) {                           // ⓐ 逐字节同一资源 ⇒ 只画第一张
         ref.count++
-        return { draw: false, hold: false, key, exact, duplicate: true, reason: 'same-url' }
+        return { draw: false, key, exact, duplicate: true, reason: 'same-url' }
       }
-      const vId = key + '\u0000' + exact
-      const knownV = groups.get(ident.get(vId) || '')
-      if (knownV) { knownV.count++; return { draw: false, hold: false, key, exact, duplicate: true, variant: true, reason: 'variant-known' } }
-      const refUrl = (ref && ref.exact) || exact
-      const a = sizeOf(refUrl), b = sizeOf(exact)
-      if (known(a) && known(b)) {                                 // 证据已预置（纯函数判据）
-        if (a.w === b.w && a.h === b.h) {
-          if (ref) { ref.count++; ref.variants.push(exact) }
-          mergedCount++
-          return { draw: false, hold: false, key, exact, duplicate: true, variant: true, merged: true, reason: 'variant-size-equal' }
-        }
-        const g = mk(vId, key, exact); g.count++; g.kept++; g.reason = 'size-veto'; unmergedCount++
-        return { draw: true, hold: false, key, exact, variant: true, unmerged: true, reason: 'size-veto' }
-      }
-      if ((b && b.ok === false) || (a && a.ok === false)) {
-        const g = mk(vId, key, exact); g.count++; g.kept++; g.reason = 'no-size-evidence'; unmergedCount++
-        return { draw: true, hold: false, key, exact, variant: true, unmerged: true, reason: 'no-size-evidence' }
-      }
-      pending.set(exact, { base: key, refId, refUrl })            // 证据还没到 ⇒ 挂起（DOM 侧藏起来当探针）
-      return { draw: false, hold: true, key, exact, variant: true, reason: 'await-size' }
+      /*  ⓑ **同身份 = 同一张画面**（②2026-09-25 强制档）：无条件归并，不再看尺寸证据。
+          证据只写进台账（`g.variantEvidence`）—— "尺寸不同/未知还是归并了"这件事在 report 里看得见。 */
+      const ev = evidenceOf((ref && ref.exact) || exact, exact)
+      if (ref) { ref.count++; ref.variants.push(exact); ref.variantEvidence = ref.variantEvidence || []; ref.variantEvidence.push({ url: exact, evidence: ev }) }
+      mergedCount++
+      return { draw: false, key, exact, duplicate: true, variant: true, merged: true, evidence: ev, reason: 'variant-key-equal' }
     },
-    /** 记一条尺寸证据（DOM 侧在 `load`/`error` 时调）并结算挂起项。 */
+    /** 记一条尺寸证据（DOM 侧在 `load`/`error`/首画时调）—— **只进台账**，返回值恒为空清单
+     *  （旧契约里它是"结算挂起项"的入口；② 起不再有挂起项，保留方法是为了调用面与既有判据不炸）。 */
     sizeEvidence(url, size) {
       const exact = nUrl(url)
       if (!exact) return { merged: [], release: [] }
       const w = Number(size && size.w) || 0, h = Number(size && size.h) || 0
       const ok = !!(size && size.ok) && w > 0 && h > 0
       sizes.set(exact, { w, h, ok })
-      return settle()
+      return { merged: [], release: [] }
     },
-    /** 本趟结束仍无证据 ⇒ 全部**不归并**（DOM 侧的超时/重画兜底，纯函数遍历也会用它）。 */
-    releasePending(why) {
-      const act = { merged: [], release: [] }
-      for (const [exact, p] of [...pending]) {
-        pending.delete(exact)
-        const id = p.base + '\u0000' + exact
-        const g = groups.get(id) || mk(id, p.base, exact)
-        if (!g.kept) { g.count++; g.kept++ }
-        g.reason = String(why || 'no-size-evidence'); unmergedCount++
-        act.release.push(exact)
-      }
-      return act
-    },
-    pendingCount() { return pending.size },
+    /** 旧契约的"超时兜底"：② 起没有任何挂起项 ⇒ 恒返回空清单（调用方不用改）。 */
+    releasePending() { return { merged: [], release: [] } },
+    pendingCount() { return 0 },
     /** 这条链接是不是"已经画成图的那张图"？是 ⇒ 压掉（只在 `once` 档生效）。 */
     shouldSuppressLink(href) {
       if (mode !== 'once') return false
@@ -1686,18 +1665,30 @@ export function makeRichImagePass(opts) {
       return !!key && ident.has(key)
     },
     note(why, url) { notes.push({ why, url: nUrl(url) }); if (notes.length > 60) notes.shift() },
-    reset() { groups.clear(); ident.clear(); pending.clear(); sizes.clear(); notes.length = 0; requests = 0; mergedCount = 0; unmergedCount = 0 },
+    reset() { groups.clear(); ident.clear(); sizes.clear(); notes.length = 0; requests = 0; mergedCount = 0; unmergedCount = 0 },
     report() {
       const all = [...groups.values()]
       const rendered = all.reduce((n, g) => n + g.kept, 0)
       const dup = all.filter((g) => g.count > g.kept)
+      /*  变体证据台账（**如实计数**）：合并了多少张、其中"尺寸不同/未知"各多少。 */
+      const evCount = { equal: 0, different: 0, unknown: 0 }
+      const evList = []
+      for (const g of all) for (const v of (g.variantEvidence || [])) { evCount[v.evidence] = (evCount[v.evidence] || 0) + 1; evList.push({ ref: g.url, url: v.url, evidence: v.evidence }) }
       return {
         mode, images: requests, rendered, duplicatesSkipped: Math.max(0, requests - rendered),
         linksSuppressed: notes.filter((n) => n.why === 'link-suppressed').length,
+        linksEmpty: notes.filter((n) => n.why === 'link-empty').length,
         groups: all.map((g) => ({ url: g.url, count: g.count, kept: g.kept })),
         duplicateGroups: dup.map((g) => ({ url: g.url, count: g.count, kept: g.kept })),
-        variants: { merged: mergedCount, unmerged: unmergedCount, held: pending.size },
+        variants: {
+          merged: mergedCount, unmerged: unmergedCount, held: 0,
+          evidence: evCount, list: evList.slice(0, 40),
+          /*  ⚠ 兼容旧读数：旧字段名（merged/unmerged/held）保留，另外把"合并时尺寸不同/未知"的
+              条数单独写出来 —— 门禁与报告直接断言这三个数，不需要再从 DOM 反推。 */
+          mergedWithDifferentSize: evCount.different, mergedWithUnknownSize: evCount.unknown,
+        },
         sizes: [...sizes.entries()].map(([url, s]) => ({ url, w: s.w, h: s.h, ok: s.ok })),
+        suppressed: notes.filter((n) => n.why === 'img-duplicate').length,
       }
     },
   }
@@ -2892,11 +2883,14 @@ export function initNavSound(deps = {}) {
     const vids = stageVideos()
     return vids.find((v) => v && v.paused === false) || vids.find((v) => v && Number(v.duration) > 0) || vids[0] || null
   }
-  const volEl = q('#np-volume'), muteBtn = q('#np-mute'), seekEl = q('#np-seek')
-  /* ②(2026-09-24 用户第 2 条) 音量条搬进 **NP 块**（`#np-volbar`，卡片正下方）之后多一个百分数读数。
-     它只是**呈现**：唯一真源仍是下面的 `vol`（滑块/工具条都写它，见 `applyAudio`）。 */
-  const volNumEl = q('#np-volnum')
+  /*  ③(2026-09-25 issue0924a2 用户第 3 条) `#np-volume` 现在由**组件**渲染（卡片内部的音量轨）⇒ 不再在
+      挂载时缓存它的引用（那一刻它还不存在 —— 组件只在卡片展开时才渲染它），也不由本补丁直接写 `.value`
+      （React 受控；直接写会被下一次 render 覆盖）。音量唯一真源仍是下面的 `vol`：`applyAudio()` 把它
+      经 `pumpNp()` 推给组件，滑条自己派发的 `onChange` 又回到 `npTransport('volume', v)` ⇒ 一个环、一个源。 */
+  const muteBtn = q('#np-mute'), seekEl = q('#np-seek')
   const runEl = q('#np-run'), timeEl = q('#np-time'), stageNote = q('#np-stage'), toolbarVol = q('#volume')
+  /** 组件渲染出来的那个音量滑条（懒查；卡片收起/组件没挂 ⇒ null）。 */
+  const volRangeEl = () => q('#np-volume')
   let vol = toolbarVol ? clamp01(toolbarVol.value) : 0    // 初始 = 工具条那支（挂载参数同一来源），默认 0 = 静音
   let muted = !(vol > 0)
   const paintMute = () => {
@@ -2920,14 +2914,13 @@ export function initNavSound(deps = {}) {
     for (const el of stageVideos()) {
       try { el.volume = clamp01(vol); el.muted = !(eff > 0) } catch {}
     }
-    if (volEl) { try { if (String(volEl.value) !== String(vol)) volEl.value = String(vol) } catch {} }
-    if (volNumEl) {
-      const txt = Math.round((muted || !(vol > 0) ? 0 : vol) * 100) + '%'
-      try { if (volNumEl.textContent !== txt) volNumEl.textContent = txt } catch {}
-    }
+    /*  ③ 组件的滑条/百分数是**受控**的：这里不再直接写 DOM，改由 `pumpNp()` 把 `npSnapshot()` 推过去
+        （`data.volume`/`data.muted` ⇒ React 重画滑条与第四键）。直接写 `.value` 会被下一次 render 覆盖，
+        而且会让"谁是真源"变成两处。`#volume`（工具条，本补丁自己的元素）仍直接同步。 */
     if (toolbarVol) { try { if (String(toolbarVol.value) !== String(vol)) toolbarVol.value = String(vol) } catch {} }   // 只写值、不派发事件 ⇒ 不触发重挂载、不成环
     paintMute()
-    return { vol, muted, effective: eff }
+    try { pumpNp() } catch { /* 卡片还没挂上：下一次 paintProgress 会补 */ }
+    return { vol, muted, effective: eff, slider: (() => { const el = volRangeEl(); return el ? String(el.value) : null })() }
   }
   const setVideoVolume = (v) => { vol = clamp01(v); muted = !(vol > 0); applyAudio(); return vol }
   const setVideoMuted = (m) => { muted = !!m; applyAudio(); return muted }
@@ -3272,11 +3265,10 @@ export function initNavSound(deps = {}) {
     return npState
   }
 
-  /* ── 控件事件（音量/静音/进度/跳转） ─────────────────────────────────────────── */
-  if (volEl && !volEl.__benchNpVolBound) {
-    volEl.__benchNpVolBound = true
-    volEl.addEventListener('input', () => { setVideoVolume(volEl.value) })
-  }
+  /* ── 控件事件（音量/静音/进度/跳转） ───────────────────────────────────────────
+     ③(用户第 3 条)：音量滑条**不再由本补丁绑事件** —— 它长在组件里，拖动走组件的 `onChange`
+     ⇒ `send('volume', v)` ⇒ `npTransport('volume', v)` ⇒ `setVideoVolume()`。这里一条都不重复绑：
+     两处绑同一个控件就会变成"一次拖动写两次"，而且组件重挂载后旧节点上的监听会静默失效。 */
   if (muteBtn && !muteBtn.__benchNpMuteBound) {
     muteBtn.__benchNpMuteBound = true
     muteBtn.addEventListener('click', () => { toggleMute() })
@@ -3334,22 +3326,40 @@ export function initNavSound(deps = {}) {
         }
         void D0
       } catch { /* 桩 DOM */ }
-      /* ②(2026-09-24 用户第 2 条) 音量条**落点**读数：`#np-volume` 现在必须挂在 `#np-volbar`（NP 块）里，
-         而**不在** `#np-audio`（配置栏最下面那条传输条）里 —— 门禁按这三个布尔量断言"搬进去了 + 底下没有了"。
-         `volbarOverflow` 是同一个越界判据在 `#np-volbar` 上的量法（有范围的显示不许溢出，见第 4 条自检）。 */
-      const volbar = rectOf(q('#np-volbar'))
+      /*  ③(2026-09-25 issue0924a2 用户第 3 条) 音量控件的**落点**读数（新契约）：
+          · `volumeInCard`：滑条（`#np-volume`）的矩形**完全落在卡片（`.snd-box`）内部**（±0.5px）——
+            这是用户那句"集成到 NP 的卡片里面"的可机读判据（改前：卡片下面那条独立条 ⇒ false）；
+          · `volumeInCardX`：只判水平方向（卡片横向不越界），窄容器下也有分辨力；
+          · `volumeOverflow`：滑条越出卡片任一边（有范围的显示不许溢出，见第 4 条自检）；
+          · `volumeInStrip` / `stripHasVolume`：`#np-audio`（配置栏最下面那条）里**没有**音量控件
+            —— 用户第 2 条与第 3 条都要它不在那儿（两个布尔量一正一反互为佐证）；
+          · `volumeInNpBar`：**已撤**（`#np-volbar` 那条独立行整块删除）。老门禁若还引用它会读到
+            `undefined` ⇒ 必须按新契约更新（见 tests/bench-issue0924a-line-A-test.mjs A2*）。
+          · `volumeVisible`：滑条当前是否真的可见（`late === 0` 时组件不渲染它 ⇒ 收起态量不到，属预期）。 */
+      const card = rectOf(q('#np-mount .snd-box'))
       const vol = rectOf(q('#np-volume'))
-      let volbarOverflow = false
-      try {
-        if (volbar && vol && vol.right > volbar.right + 0.5) volbarOverflow = true
-        if (volbar && vol && vol.left < volbar.left - 0.5) volbarOverflow = true
-      } catch { /* 桩 DOM */ }
+      const volR = vol || null
+      const inside = (a, b) => !!(a && b && a.top >= b.top - 0.5 && a.bottom <= b.bottom + 0.5 && a.left >= b.left - 0.5 && a.right <= b.right + 0.5)
+      const insideX = (a, b) => !!(a && b && a.left >= b.left - 0.5 && a.right <= b.right + 0.5)
+      let volumeOverflow = false
+      try { if (volR && card && !inside(volR, card)) volumeOverflow = true } catch { /* 桩 DOM */ }
       return {
-        body: rectOf(propsBody), card: rectOf(q('#np-mount .snd-box')), strip, parts, overflow, overflowParts: worst,
-        slider: vol, volbar, volbarOverflow,
-        volumeInNpBar: !!(vol && volbar && volbar.top >= (rectOf(q('#np-mount .snd-box')) || { bottom: -1e9 }).bottom - 0.5),
-        volumeInStrip: !!(vol && strip && vol.top >= strip.top - 0.5 && vol.bottom <= strip.bottom + 0.5),
+        body: rectOf(propsBody), card, strip, parts, overflow, overflowParts: worst,
+        slider: volR,
+        /* 兼容读数：老门禁的 `slider` 语义不变（就是 `#np-volume` 的盒）；`volbar` 恒 null（那条行没了）。 */
+        volbar: null,
+        volumeVisible: !!volR,
+        volumeInCard: inside(volR, card),
+        volumeInCardX: insideX(volR, card),
+        volumeOverflow,
+        volumeInStrip: !!(volR && strip && volR.top >= strip.top - 0.5 && volR.bottom <= strip.bottom + 0.5),
         stripHasVolume: (() => { try { return !!(stripEl && stripEl.querySelector && stripEl.querySelector('#np-volume')) } catch { return false } })(),
+        /*  第四键（音量/静音）也必须在卡片里 —— 它和滑条一起构成"音量的按钮在卡片内部"。
+            选它用 `[data-mpw-np-mute]`（组件受控面的既有词汇），不用新类名：组件那边有一条
+            "CSS 类名与 DOM 一一对应"的判据，而音量行只在卡片展开时存在（见 NowPlaying.tsx 的注释）。 */
+        muteInCard: inside(rectOf(q('#np-mount [data-mpw-np-mute]')), card),
+        volKeyPresent: !!q('#np-mount [data-mpw-np-mute]'),
+        cardOpen: (() => { try { const b = q('#np-mount .snd-box'); return !!(b && b.getAttribute && b.getAttribute('data-open')) } catch { return false } })(),
       }
     },
     propsGroups: () => ((typeof W !== 'undefined' && W && W.__benchShell && W.__benchShell.propsGroups) ? W.__benchShell.propsGroups() : null),
@@ -3383,6 +3393,18 @@ export function initNavSound(deps = {}) {
     toggleMute,
     audio: () => ({ vol, muted, effective: (muted || !(vol > 0)) ? 0 : vol }),
     applyAudio,
+    /*  ③(用户第 3 条) 读数：组件滑条的当前值 / 在不在卡片里 / 第四键的静音态（门禁同一入口）。 */
+    volumeSlider: () => {
+      const el = volRangeEl()
+      if (!el) return { present: false }
+      const card = q('#np-mount .snd-box')
+      return { present: true, id: String(el.id || ''), value: String(el.value), disabled: !!el.disabled, inCard: !!(card && el.closest && el.closest('#np-mount .snd-box') === card), pct: String((q('#np-mount [data-mpw-np-volnum]') || {}).textContent || '') }
+    },
+    muteKey: () => {
+      const b = q('#np-mount [data-mpw-np-mute]')
+      if (!b) return { present: false }
+      return { present: true, pressed: String(b.getAttribute('aria-pressed') || ''), muted: String(b.getAttribute('data-mpw-np-mute') || ''), disabled: !!b.disabled }
+    },
   }
   return api
 }
@@ -4098,6 +4120,16 @@ export function initSiteShell(ctx = {}) {
         } catch { /* 桩 DOM */ }
         writePinned([])
         log(t(curLang(), 'wp.closedRelease', { id: want }))
+        /*  ⑦(2026-09-25 用户第 7 条) **把产物那侧的当前项也清掉**：上面点的 `#release` 只释放舞台，
+            产物的 `w`（"最后一次挂载的那张"）还在 ⇒ 之后任何一次"重挂载"（切渲染器档/音条源/产物自己的
+            「重挂载」按钮）都会把**已经叉掉的**那张又挂回来（改前真机读数：`#frame.src` 从 `about:blank`
+            变回 `…&src=2887099508…`）。这里借产物自己的 `ht()` 清一次 —— 它是唯一会写 `w=null` 的入口。
+            异步（产物那条链要先 await 一次 fetch，垫片就地答掉）⇒ 不阻塞关闭流程，读数走
+            `artifactClearProbe()`；失败/拿不到链 ⇒ 只记读数，不假装清干净了。 */
+        try {
+          const clearFn = (typeof window !== 'undefined' && typeof window.__benchClearArtifactSelection === 'function') ? window.__benchClearArtifactSelection : null
+          if (clearFn) clearFn('close-last')
+        } catch { /* 清理失败不致命：还有换档那道守卫 */ }
       }
     } else {
       log(t(curLang(), 'wp.closed', { id: want }))
@@ -4610,11 +4642,14 @@ export function initSiteShell(ctx = {}) {
   let richImagePassItem = null
   /** 作者原文（富文本被我们换成节点后，原始字符串只在这里有一份 ⇒ 换档时能**原地重画**，立刻生效）。 */
   const RICH_TEXT_SRC = new WeakMap()
-  /** 变体探针节点：归一化 URL → [节点]。规则 ⓒ 结算时要"显示出来"或"摘掉"。 */
-  const richImageVariantNodes = new Map()
-  /** 变体探针的超时（ms）：本趟内拿不到尺寸证据 ⇒ **不归并**（把藏起来的探针显示出来）。 */
-  const RICH_IMAGE_PROBE_MS = 1500
-  let richImageProbeTimer = null
+  /** ②(2026-09-25 用户第 2 条) 尺寸证据**只进台账**：DOM 侧在首画/load/error 时把
+   *  `naturalWidth/naturalHeight` 记进账本（`report().variants.evidence`），**不再决定画不画**。 */
+  function recordImageSize(url, im) {
+    if (!richImagePass) return null
+    const w = Number(im && im.naturalWidth) || 0
+    const h = Number(im && im.naturalHeight) || 0
+    return richImagePass.sizeEvidence(url, { w, h, ok: !!(im && im.complete) && w > 0 && h > 0 })
+  }
   /** 档位解析（**唯一权威点**）：URL 档 > **缺省 `once`（= 整面板去重，也就是"全部都去重"）**。
    *  ⚠③(2026-09-24 用户第 3 条「图片去重默认**全部都去重**，并把壁纸配置页面上方那个图片去重下拉栏
    *  连同描述文字一起删掉」)：**第二层"面板开关 + localStorage 偏好"整层删掉** ——
@@ -4630,72 +4665,115 @@ export function initSiteShell(ctx = {}) {
     return planRichImageMode({ url })
   }
   function richImageMode() { return richImageModePlan().mode }
-  /** 新账本（换壁纸/换档/整面板重画时）：探针定时器与节点表一并作废（旧 DOM 里的节点已经不属于新账本）。 */
+  /** 新账本（换壁纸/换档/整面板重画时）：整面板重新算一遍"这张画面第一次出现在哪一行"。 */
   function newRichImagePassFor(mode, item) {
-    if (richImageProbeTimer) { try { clearTimeout(richImageProbeTimer) } catch { /* 桩 */ } richImageProbeTimer = null }
-    richImageVariantNodes.clear()
     richImagePass = makeRichImagePass({ mode })
     richImagePassItem = item
     return richImagePass
   }
-  /** 规则 ⓒ 的**落地点**：把一张图的尺寸证据喂给账本，并照着结算清单动 DOM。
-   *  `merged` ⇒ 那张变体确实是同一张 ⇒ **摘掉**探针；`release` ⇒ 不归并 ⇒ **显示**探针。 */
-  function settleRichImageEvidence(url, size) {
-    const out = richImagePass ? richImagePass.sizeEvidence(url, size) : null
-    if (!out) return null
-    for (const exact of out.merged) dropVariantNodes(exact)
-    for (const exact of out.release) showVariantNodes(exact)
-    return out
-  }
-  function showVariantNodes(exact) {
-    const list = richImageVariantNodes.get(exact) || []
-    for (const im of list) {
-      try {
-        im.hidden = false
-        im.dataset.benchImgUnmerged = '1'
-        /* 为什么被放行：`error`（加载失败，已在 onEvidence 里标过）不覆盖；否则就是"本趟没有尺寸证据"。 */
-        if (!im.dataset.benchImgProbe) im.dataset.benchImgProbe = 'no-size'
-      } catch { /* 桩 DOM */ }
-    }
-    return list.length
-  }
-  function dropVariantNodes(exact) {
-    const list = richImageVariantNodes.get(exact) || []
-    for (const im of list) {
-      try { if (im.parentNode) im.parentNode.removeChild(im) } catch { /* 桩 DOM */ }
-    }
-    richImageVariantNodes.delete(exact)
-    return list.length
-  }
-  /** 探针超时：本趟仍挂起的变体 ⇒ 全部**不归并**（显示出来）。只在真有挂起项时挂一个定时器（内存有界）。 */
-  function armRichImageProbeTimer() {
-    if (richImageProbeTimer || !richImagePass || !richImagePass.pendingCount()) return false
-    if (typeof setTimeout !== 'function') return false
-    richImageProbeTimer = setTimeout(() => {
-      richImageProbeTimer = null
-      if (!richImagePass) return
-      const out = richImagePass.releasePending('no-size-evidence')
-      for (const exact of out.release) showVariantNodes(exact)
-    }, RICH_IMAGE_PROBE_MS)
+  /** 一行**是不是可见行**（`#props-body` 里被我们按内部项名单藏掉的行、以及被 condition 藏掉的行）。
+   *  去重账本只吃可见行：不可见行里的图不该"占掉"这一张画面的第一次出现（否则可见行会被压掉、
+   *  用户反而看不到图 —— 真机边界，见 `sweepPanelImages()`）。 */
+  function rowVisible(row) {
+    if (!row) return false
+    if (row.hidden) return false
+    let p = row.parentNode
+    while (p && p !== propsBody) { if (p.hidden) return false; p = p.parentNode }
     return true
   }
-  /** 探针：真面板上的图片渲染读数（"实际画了几个 <img>、它们的 src/naturalWidth、去重账本"）。
-   *  ⚠ `rendered` **只数看得见的**（藏起来的变体探针不算画出来）⇒ 老判据
-   *  `bench-dsh-libroot` B7 的 `rendered === report.groups.length` 在 `once` 档继续成立。 */
+  /** ②(2026-09-25 用户第 2 条) 面板图片账的**唯一权威**：按 **DOM 顺序**扫一遍面板里所有 `<img>`
+      （两个来源：产物自己渲染的 `div.prop-media img` + 从属性文案 tokenize 出来的 `img.bench-prop-img`），
+      每张画面**只留第一份**、其余藏掉；随后处理链接（已经画成图的那条、以及被压掉后变成空壳的那条）。
+      ── 为什么是"扫一遍"而不是"边渲染边判"（真机踩过） ────────────────────────────────────
+      产物会**局部重画**面板（部分行被换掉、部分行还在）。逐行 `take()` 的账本在这种情况下会失真：
+      留"第一份"的那个节点随着旧行一起消失了，而新行里的副本按旧账被当成重复藏掉 ⇒ 面板上一张图都没有
+      （真机读数 `imgs: [] / dupSuppressed: 13`，就是 `bench-ui-headless` P5c 抓到的）。
+      ⇒ 改成：**先全部恢复可见、再按 DOM 顺序重算**。它是幂等的（可以随便重跑），
+      而且账本永远与 DOM 一致（`propsImages()` 不会再报"report 全 0 而 DOM 有图"）。
+      ── 顺带把"画面身份"放宽到用户要的程度 ────────────────────────────────────────────────
+      同一身份键（只差处理类参数/后缀/尺寸标记/http-https/www.）⇒ 无条件归并（见 `makeRichImagePass`）。 */
+  function sweepPanelImages() {
+    if (!propsBody) return { seen: 0, kept: 0, hiddenImgs: 0, hiddenLinks: 0 }
+    /*  ⓪ 账本重建（**从 DOM 重算**，不继承上一趟的任何判断）。 */
+    newRichImagePassFor(richImageMode(), propsActiveItemId() || richImagePassItem)
+    /*  ① 恢复：上一趟藏掉的图片与链接先全部放出来（幂等的前提；同一拍内完成 ⇒ 不会闪）。 */
+    for (const im of propsBody.querySelectorAll('img[data-bench-img-dup]')) {
+      try { im.hidden = false; delete im.dataset.benchImgDup; delete im.dataset.benchImgDupReason } catch { /* 桩 DOM */ }
+    }
+    for (const a of propsBody.querySelectorAll('a[data-bench-link-dup], a[data-bench-link-empty]')) {
+      try { a.hidden = false; delete a.dataset.benchLinkDup; delete a.dataset.benchLinkEmpty } catch { /* 桩 DOM */ }
+    }
+    /*  ② 图片：DOM 顺序 = 优先级（先到的那一份留下；产物的 `.prop-media` 通常排在文案前 ⇒ 留它，
+        它自带 `<a href>` 包裹）。只吃**可见行**里的图（隐藏行不参与 —— 否则"第一份"会留在看不见的行里）。 */
+    const imgs = [...propsBody.querySelectorAll('img')].filter((im) => {
+      const row = im.closest ? (im.closest('.prop, .prop-text') || im.parentNode) : null
+      return !im.hidden && rowVisible(row)
+    })
+    let hiddenImgs = 0
+    for (const im of imgs) {
+      const src = String(im.getAttribute('src') || '')
+      if (!src) continue
+      /*  尺寸证据（只进台账）：已经加载完的当场记；没加载完的挂 load/error 补记。 */
+      if (im.complete) recordImageSize(src, im)
+      else if (typeof im.addEventListener === 'function' && !im.dataset.benchImgWatch) {
+        try { im.dataset.benchImgWatch = '1'; im.addEventListener('load', () => recordImageSize(src, im)); im.addEventListener('error', () => recordImageSize(src, im)) } catch { /* 桩 DOM */ }
+      }
+      const v = richImagePass.take(src, 0)
+      if (v.draw) continue
+      try { im.hidden = true; im.dataset.benchImgDup = '1'; im.dataset.benchImgDupReason = v.reason || 'duplicate' } catch { /* 桩 DOM */ }
+      hiddenImgs++
+      richImagePass.note('img-duplicate', src)
+    }
+    /*  ③ 链接：① 目标就是"已经画成图的那张画面" ⇒ 压掉（重复展示）；
+        ② 图片被压掉之后锚内**没有别的可见内容** ⇒ 整条空壳链接也不画
+        （用户原话："那个链接已经显示出来过一遍了……不用再把那个链接展示出来了，把链接也去掉"）。 */
+    let hiddenLinks = 0
+    const anchors = [...propsBody.querySelectorAll('a')]
+    for (const a of anchors) {
+      const href = String(a.getAttribute('href') || '')
+      if (!href) continue
+      if (a.hidden) continue
+      if (richImagePass.shouldSuppressLink(href)) {
+        try { a.hidden = true; a.dataset.benchLinkDup = '1' } catch { /* 桩 DOM */ }
+        richImagePass.note('link-suppressed', href); hiddenLinks++
+        continue
+      }
+      const hasImg = [...a.querySelectorAll('img')].some((im) => !im.hidden)
+      const text = String(a.textContent || '').replace(/\s+/g, '')
+      if (!hasImg && !text) {
+        try { a.hidden = true; a.dataset.benchLinkEmpty = '1' } catch { /* 桩 DOM */ }
+        richImagePass.note('link-empty', href); hiddenLinks++
+      }
+    }
+    return { seen: imgs.length, kept: imgs.length - hiddenImgs, hiddenImgs, hiddenLinks }
+  }
+  /** 探针：真面板上的图片渲染读数（**两个来源都算**）。
+   *  · `rendered` = 面板里**看得见**的 `<img>` 总数（产物 `prop-media` + 本补丁 `bench-prop-img`）；
+   *  · `ours` / `media` = 两个来源各自的**可见**张数；`hiddenDup` = 被本账压掉的张数（两来源合计）；
+   *  · `links` = 看得见的 `a.bench-prop-link`；`linksHiddenDup` = 因空壳被藏掉的链接数；
+   *  · `report` = 账本（`variants.evidence` 是"合并时尺寸相同/不同/未知"的如实计数）。
+   *  不变量（门禁 B7）：`once` 档下 `rendered === report.groups.length`。 */
   function propsImages() {
-    const imgs = propsBody ? [...propsBody.querySelectorAll('img.bench-prop-img')] : []
-    const visible = imgs.filter((im) => !im.hidden)
+    const all = propsBody ? [...propsBody.querySelectorAll('img')] : []
+    const ours = all.filter((im) => im.classList && im.classList.contains('bench-prop-img'))
+    const media = all.filter((im) => im.closest && im.closest('div.prop-media'))
+    const inVisibleRow = (im) => { try { return rowVisible(im.closest('.prop, .prop-text') || im.parentNode) } catch { return false } }
+    const visible = all.filter((im) => !im.hidden && inVisibleRow(im))
     return {
       mode: richImageMode(),
       modeSource: richImageModePlan().source,
       modeForced: richImageModePlan().forced,
       rendered: visible.length,
-      probes: imgs.length - visible.length,
-      unmerged: imgs.filter((im) => im.dataset && im.dataset.benchImgUnmerged === '1').length,
+      ours: ours.filter((im) => !im.hidden).length,
+      media: media.filter((im) => !im.hidden).length,
+      hiddenDup: all.filter((im) => im.dataset && im.dataset.benchImgDup === '1').length,
+      probes: 0,
+      unmerged: all.filter((im) => im.dataset && im.dataset.benchImgUnmerged === '1').length,
       srcs: visible.map((im) => String(im.getAttribute('src') || '')),
-      natural: imgs.map((im) => ({ w: Number(im.naturalWidth) || 0, h: Number(im.naturalHeight) || 0, complete: !!im.complete, hidden: !!im.hidden })),
+      natural: all.map((im) => ({ w: Number(im.naturalWidth) || 0, h: Number(im.naturalHeight) || 0, complete: !!im.complete, hidden: !!im.hidden })),
       report: richImagePass ? richImagePass.report() : null,
-      links: propsBody ? propsBody.querySelectorAll('a.bench-prop-link').length : 0,
+      links: propsBody ? [...propsBody.querySelectorAll('a.bench-prop-link')].filter((a) => !a.hidden).length : 0,
+      linksHiddenDup: propsBody ? [...propsBody.querySelectorAll('a[data-bench-link-dup], a[data-bench-link-empty]')].filter((a) => a.hidden).length : 0,
     }
   }
   /* ── ③(2026-09-24 用户第 3 条) **面板上的图片去重控件已整块删除** ────────────────────────────────
@@ -4809,17 +4887,20 @@ export function initSiteShell(ctx = {}) {
   /** token → 节点（只用 createElement/textContent：**结构上**不可能把作者文本变成 HTML/脚本）。 */
   function propRichFragment(tokens) {
     /* ①E(2026-09-24 用户第 2 次提「上面已经展示过的图片，其实就是那张图片链接，再展示一遍」)
-       第一版的读数：`seenSrc` **每次调用新建** ⇒ 去重只在"这一行的 token 列表"里生效，**跨属性行完全不生效**
-       ⇒ 真语料 `allwallpaper/dd/3660962877` 的面板里同一张图被画 **33 遍**（33 个属性的文案里是逐字节
-       相同的 URL）。第一版已修成"一趟渲染共用一份账本"。
-       本版按用户第 3 档把账本升级成**三条可判定规则**（见模块顶部 `richImageKey` / `makeRichImagePass`）：
-         ⓐ 逐字节同一资源 ⇒ 无条件只画一遍（真语料的 33 遍就是这一档）；
-         ⓑ 只差**处理类参数/后缀**（`wx_fmt`/`bo`/`rf`/`@100w`/`_!web-…`/`x-oss-process=…`）⇒ 候选；
-         ⓒ 候选要尺寸证据：`load` 后 `naturalWidth/naturalHeight` 相同才归并（不同 ⇒ 一定不归并，
-            拿不到证据 ⇒ 也不归并）。证据没到之前，候选节点**先建但藏起来**（`data-bench-img-variant`），
-            结算时"确认同一张"就摘掉、"否归并"就显示出来 —— 这样归并成功的路径不会闪一下重复图。 */
+       + ②(2026-09-25 issue0924a2 用户第 2 条复测「还是有重复的图片」)
+       ── 账本口径（见模块顶部的 `richImageKey` / `makeRichImagePass`）──────────────────────
+         ⓐ 逐字节同一资源 ⇒ 只画第一张；
+         ⓑ **身份键相同**（只差处理类参数/尺寸/格式/后缀/重传的尺寸标记）⇒ **无条件归并**（强制档）；
+         ⓒ 尺寸证据只进台账（`report().variants.evidence`），不再决定画不画。
+       ── 这里还做两件"用户点名"的事 ─────────────────────────────────────────────────────
+         · **同一个 URL 已经画成图了 ⇒ 那条链接不再单画一遍**（`shouldSuppressLink`，记账可核对）；
+         · **空壳链接**：一条 `<a>` 里的图被压掉、且锚内没有别的可见内容 ⇒ 整条链接不画
+           （用户原话："那个链接已经显示出来过一遍了……不用再把那个链接展示出来了，把链接也去掉"）。
+           判据：先把 kids 走成临时 fragment，**有可见内容（文字/图/换行）才建 `<a>`**。 */
     if (!tokens || !tokens.length) return null
-    const pass = richImagePass
+    /*  ⚠(2026-09-25) 这里**不做**去重判定：一律先画出来，可见性由 `sweepPanelImages()` 按 DOM 顺序统一裁定。
+        为什么（真机踩过）：产物会**局部重画**面板，边渲染边判的账本会与 DOM 失配（留下"第一份"的节点
+        随旧行消失、新行的副本又被当成重复藏掉 ⇒ 一张图都没有）。sweep 是幂等的，账本永远 == DOM。 */
     const frag = D.createDocumentFragment()
     const walk = (list, host) => {
       for (const tok of list || []) {
@@ -4832,8 +4913,8 @@ export function initSiteShell(ctx = {}) {
           walk(tok.kids, sp); host.appendChild(sp); continue
         }
         if (tok.k === 'link') {
-          /* ①E 同一个 URL 已经作为**图片**画过了 ⇒ 这条链接就是那张图的重复展示 ⇒ 压掉（记数，可核对） */
-          if (pass && pass.shouldSuppressLink(tok.href, richImageScope)) { pass.note('link-suppressed', tok.href); continue }
+          /*  链接一律先画出来：①"目标就是已经画成图的那张画面"与 ②"锚内没有可见内容（空壳）"
+              两种情形都由 `sweepPanelImages()` 事后裁定并藏掉（它能看到全面板的图片归属）。 */
           const a = D.createElement('a')
           a.className = 'bench-prop-link'
           a.href = tok.href; a.target = '_blank'; a.rel = 'noopener noreferrer'
@@ -4843,39 +4924,15 @@ export function initSiteShell(ctx = {}) {
         if (tok.k === 'img') {
           const info = externalLinkInfo(tok.src)      // 只渲染 http(s) 图：面板里没有可靠的相对基址
           if (!info.ok) continue
-          /* ①E 去重判定走账本（不是"键相等就不画"）：
-             ⚠ 刻意**不**按 `host+path` 归并：真语料 `dd/3660962877`/`dd/3326873240` 里 `m.qpic.cn/psc`
-             这一个 path 下挂着 **4 张不同**的图（身份在 query 的第一个无名段里）⇒ 按 host+path 归并会把
-             4 张压成 1 张（比原 bug 更糟）。`richImageKey` 因此**只删白名单里的具名参数**。 */
-          const verdict = pass ? pass.take(info.href, richImageScope) : { draw: true, hold: false, key: richImageKey(info.href), exact: normalizeRichImageUrl(info.href) }
-          if (!verdict.draw && !verdict.hold) { if (pass) pass.note('img-duplicate', info.href); continue }
+          /* ② 去重判定走账本（键相等 = 同一张画面；**不再**按 `host+path` 归并 —— 真语料
+             `dd/3660962877`/`dd/3326873240` 里 `m.qpic.cn/psc` 一个 path 下挂着 4 张**不同**的图，
+             身份在 query 的无名段里 ⇒ 那个反例护栏继续成立）。 */
           const wrap = D.createElement('span'); wrap.className = 'bench-prop-imgwrap'
           const im = D.createElement('img'); im.className = 'bench-prop-img'
           im.src = info.href; im.alt = ''; im.referrerPolicy = 'no-referrer'
-          const probe = !!verdict.hold                       // 变体候选：先藏起来当探针（等尺寸证据）
-          im.loading = probe ? 'eager' : 'lazy'
-          if (pass) { try { im.dataset.benchImgKey = verdict.key } catch { /* 桩 DOM */ } }
-          if (probe) { try { im.hidden = true; im.dataset.benchImgVariant = '1' } catch { /* 桩 DOM */ } }
-          /** 规则 ⓒ 的 DOM 入口：`load` 给尺寸证据、`error` 给"拿不到尺寸"的证据（两者都结算）。 */
-          const onEvidence = () => {
-            if (!pass) return
-            const w = Number(im.naturalWidth) || 0, h = Number(im.naturalHeight) || 0
-            const ok = !!im.complete && w > 0 && h > 0
-            if (probe && !ok) { try { im.dataset.benchImgProbe = 'error' } catch { /* 桩 DOM */ } }
-            settleRichImageEvidence(info.href, { w, h, ok })
-            armRichImageProbeTimer()
-          }
-          if (pass && typeof im.addEventListener === 'function') {
-            im.addEventListener('load', onEvidence)
-            im.addEventListener('error', onEvidence)
-          }
+          im.loading = 'lazy'
+          try { im.dataset.benchImgKey = richImageKey(info.href) } catch { /* 桩 DOM */ }
           wrap.appendChild(im); host.appendChild(wrap)
-          if (probe) {
-            const exact = normalizeRichImageUrl(info.href)
-            const list = richImageVariantNodes.get(exact) || []
-            list.push(im); richImageVariantNodes.set(exact, list)
-            armRichImageProbeTimer()
-          }
           continue
         }
       }
@@ -4884,7 +4941,7 @@ export function initSiteShell(ctx = {}) {
     return frag.childNodes.length ? frag : null
   }
   function decoratePropRow(row) {
-    if (!row || !row.dataset || row.dataset.benchPropsRow === 'done') return false
+    if (!row || !row.dataset) return false
     const isGroup = !!(row.classList && row.classList.contains('prop-group'))
     const meta = propRowMeta(row)
     //  组容器：只认它自己的 `summary`（`querySelectorAll` 会把组内每一项的文案也串进来 ⇒ 判据会被污染）
@@ -4892,11 +4949,16 @@ export function initSiteShell(ctx = {}) {
     const labelEls = propLabelEls(row)
     const plain = labelEls.map((e) => e.textContent).join('\n')
     const groupName = summary ? String(summary.getAttribute('title') || '') : ''
-    //  ① #18 内置/编辑器内部属性：数据驱动隐藏（`ui_` 前缀 + 明确集合；`?rawprops=1` 全显）
+    /*  ① #18 内置/编辑器内部属性：数据驱动隐藏（`ui_` 前缀 + 明确集合；`?rawprops=1` 全显）
+        ⚠(2026-09-25 真机踩到)**必须先判隐藏、再做图片账**：被隐藏的行如果先"抢"走某张画面的
+        第一次出现，那张图就留在一个看不见的行里，而所有可见行的同名副本都被压掉 ⇒ 面板上一张图都没有
+        （真机读数：`imgs: []` 而 `dupSuppressed: 13`）。隐藏行不参与账本（见 `sweepPanelImages()`
+        里的 `rowVisible()`）。 */
     if (!PROPS_RAW) {
       const why = propsHiddenReason({ name: meta.name || groupName, text: plain })
       if (why) { row.hidden = true; row.dataset.benchPropsRow = 'hidden-' + why; return true }
     }
+    if (row.dataset.benchPropsRow === 'done') return false
     //  ② #26/#28 富文本：`<img>` 只渲染图、`<font color>` 只给颜色、`<br>` 换行，其余标签剥掉留文字
     for (const el of labelEls) {
       if (el.dataset.benchRich === '1') continue
@@ -4963,19 +5025,37 @@ export function initSiteShell(ctx = {}) {
     if (note.textContent !== txt) note.textContent = txt
     return 1
   }
+  /** ②(2026-09-25 用户第 2 条) 图片去重的**台账提示行**（面板末尾，人读与机读同一份数据）。
+   *  读的是真账本 `propsImages().report`；`rendered`/`duplicatesSkipped`/`variants.evidence` 三个数
+   *  与门禁断言的是同一份。文案两语都从词典来（键数对称由 A20c 守着）。 */
+  function paintImgDedupNote() {
+    if (!propsBody) return 0
+    const rep = richImagePass ? richImagePass.report() : null
+    /*  只在**真的压掉过**东西时出现（没重复就不占地方）；`all` 对照档自然不出现（压掉 0 张）。 */
+    const n = rep ? rep.duplicatesSkipped : 0
+    let note = propsBody.querySelector('#props-imgdedup-note')
+    if (!n) { if (note) note.remove(); return 0 }
+    if (!note) {
+      note = D.createElement('div'); note.id = 'props-imgdedup-note'
+      note.className = 'prop-hint bench-props-imgdedup-note'
+      propsBody.appendChild(note)
+    }
+    const ev = (rep.variants && rep.variants.evidence) || { equal: 0, different: 0, unknown: 0 }
+    const forced = (rep.variants && rep.variants.merged) || 0
+    /*  ⚠`tr(lang,key)` 只取两条参数（本作用域的约定，见 `paintPropsHiddenNote`）⇒ 占位在这里替换。 */
+    const txt = tr(curLang(), 'props.imgDedupNote').replace('{n}', String(n)) + ' ' +
+      tr(curLang(), 'props.imgDedupForcedNote')
+        .replace('{m}', String(forced)).replace('{diff}', String(ev.different || 0)).replace('{unk}', String(ev.unknown || 0))
+    if (note.textContent !== txt) note.textContent = txt
+    try { note.setAttribute('data-mpw-imgdedup', JSON.stringify({ n, forced, evidence: ev })) } catch { /* 桩 DOM */ }
+    return n
+  }
   function decoratePropsBody() {
     if (!propsBody) return 0
     /* ①E 一趟装饰 = 一次"整面板只画一遍同一张图"的作用域（跨属性行生效；换壁纸/重渲染时自然重来）。
        档位（三层回退，见 `richImageModePlan`）：`?propimg=all` 完全不去重（对照/排障）、`=row` 退回旧语义
        （只在行内去重）、面板开关三档、缺省 `once` = 用户要的"同一张画面只画一次"。 */
-    {
-      const mode = richImageMode()
-      const item = propsActiveItemId()
-      const rowsNow = propsRows()
-      //  面板被整体重渲染（没有任何行带我们的 'done' 标记）⇒ 上一次的账本作废（新 DOM 里还没画过任何图）
-      const freshPanel = !rowsNow.some((r) => r && r.dataset && r.dataset.benchPropsRow === 'done')
-      if (freshPanel || richImagePassItem !== item || richImagePass.mode !== mode) newRichImagePassFor(mode, item)
-    }
+    /*  ② 账本由 `sweepPanelImages()` **从 DOM 重建**（幂等、永远与 DOM 一致）⇒ 这里不再预判"要不要换账本"。 */
     let n = 0
     let rowIdx = 0
     for (const row of propsRows()) { richImageScope = rowIdx++; try { if (decoratePropRow(row)) n++ } catch { /* 单行失败不影响别的行 */ } }
@@ -4989,8 +5069,13 @@ export function initSiteShell(ctx = {}) {
         else if (String(g.dataset.benchPropsRow || '') === 'hidden-empty-group') { g.hidden = false; g.dataset.benchPropsRow = 'done' }
       } catch { /* ignore */ }
     }
-    try { armRichImageProbeTimer() } catch { /* 桩 DOM */ }
+    /*  ② 图片账的**唯一权威**：按 DOM 顺序扫一遍（两个来源一起算）—— 必须在所有行都画完之后跑。 */
+    try { sweepPanelImages() } catch { /* 单次失败不影响面板 */ }
     try { paintImgModeControl() } catch { /* 控件失败不影响面板 */ }
+    /*  ②(2026-09-25 用户第 2 条) **把账本写成人看得见的一行**（"已压掉 N 张重复图，其中 M 张靠键相等
+        强制归并、当时尺寸不同/未知 x 张"）：用户明确要求"把放弃归并的原因如实计数进台账/提示，不许静默"。
+        位置与另外两条 note 同款（面板末尾，不抢产物自己的行）。 */
+    try { paintImgDedupNote() } catch { /* 提示失败不影响面板 */ }
     paintPropsHiddenNote()
     paintPropsShownNote()
     /* ①A1(2026-09-24 用户「WE 自带的那几个选项永远在壁纸配置最上面 ⇒ 做成可折叠」)：
@@ -5666,6 +5751,11 @@ export function initSiteShell(ctx = {}) {
     npAudio: () => (navSound ? navSound.audio() : null),
     setVideoVolume: (v) => (navSound ? navSound.setVideoVolume(v) : null),
     videoStage: () => (navSound ? { videos: navSound.stageVideos().length, api: !!navSound.stageApi(), state: navSound.paintProgress() } : null),
+    /*  ③(用户第 3 条) 音量控件的落点/状态读数（门禁与真机同一入口）：
+        `npVolumeSlider()` = 组件渲染的 `#np-volume`（值/禁用/在不在卡片里/百分数）；
+        `npMuteKey()` = 传输行第四键（音量/静音）的 `aria-pressed` / `data-mpw-np-mute`。 */
+    npVolumeSlider: () => (navSound && typeof navSound.volumeSlider === 'function' ? navSound.volumeSlider() : null),
+    npMuteKey: () => (navSound && typeof navSound.muteKey === 'function' ? navSound.muteKey() : null),
   }
 }
 
@@ -5675,6 +5765,240 @@ export function init() {
   const $ = (sel) => doc.querySelector(sel)
   const langOf = () => (String(doc.documentElement.lang || '').toLowerCase().startsWith('zh') ? 'zh' : 'en')
   let curLang = langOf()
+
+  /* ⑯(2026-09-24 用户第 16 条；⑯b 2026-09-25 **用户复测：还是被往下拽**)
+     ── 用户原话（本轮）────────────────────────────────────────────────────────────
+     「我说的输出里面输出新消息的时候，不要把我默认跳到最新的消息的地方，这个还是没有实现。下面如果有新消息，
+       还是会把我往下面跳。我需要的是**我鼠标滚轮滑到哪里，它就停到哪里**，无论下面刷不刷新都是一样的，
+       都是我滑到哪里，他停到哪里，而不是出现一条新消息就往最下面跳。」
+     ── 上一版为什么不管用（**真机机制证据**，不是推测）────────────────────────────
+     `#logbody` 有**两个写入者**：本补丁的 `logLine()`，以及**上游产物自己**那条日志函数
+     `demo/assets/bench-DSKWIqmS.js:87276` 里的 `X.appendChild(a),X.scrollTop=X.scrollHeight`
+     —— 它挂在产物自己的 `/api/diag-stream`（EventSource）上，**每一行都无条件跳到最底**。
+     上一版只把**本补丁**那条改成"贴底才跟随"，所以渲染器诊断/挂载日志一来（走产物那条路），
+     `scrollTop` 照样被写成 `scrollHeight`。改前真机读数（tests 探针，POST /diag 走真实路径）：
+     `scrollTop 0 → 2980`（slack 2459 → 0）—— 用户报的"还是会往下跳"就是这一行。
+     ── 本版口径（**用户滚到哪就永远停在哪**）────────────────────────────────────
+     1) **位置归用户**：只要用户把视口停在不贴底的地方（滚轮/拖动/键盘/显式定位），
+        此后**任何**追加都不许改变 `scrollTop` —— 包括产物那条无条件写（在 `#logbody` 实例上
+        影子掉 `scrollTop` 访问器：非本补丁写的"跳到底"一律丢弃，并计数）。
+     2) **贴底才跟随**：视口真的贴着底（`slack ≤ LOG_STICK_PX`，本轮从 24px **收紧到 2px** ——
+        24px 容差内仍会把用户往下拽）时，新行继续跟随。
+     3) **只有用户能重新开启跟随**：追加之后紧接着的那次"跳到底"是**自动写**（同一拍里刚 append 过）
+        ⇒ 在用户自己滚回底部之前一律丢掉；用户自己滚回底部（`wheel`/拖动/键盘 ⇒ scroll 事件）才恢复跟随。
+        测试要模拟"用户滚回底部"时派发一次真实 `wheel` 再定位（见 tests 的 IA5b）。
+     4) 判据只看容器自己的三个数（scrollTop/scrollHeight/clientHeight）+ 追加序号，可机读、可复现。
+     读数：`__benchPatch.logScrollState()`（`follow/anchor/droppedWrites/guard/appendSeq/lines`）。 */
+  const LOG_STICK_PX = 2
+  const LOG_GESTURE_MS = 600          // 用户手势（wheel/拖动/键盘）后这段时间内的定位算"用户自己的位置"
+  /*  "刚追加完的那一下跳到底"最多算到多久：产物是 `appendChild(a); scrollTop = scrollHeight` **同一拍**，
+      所以 50ms 足够识别它；再晚的显式定位（探针/其它代码/用户拖滚动条）就算"有人要把视图放到底"。
+      为什么需要这个时间窗：只按"append 序号"判会把**追加之后隔了一拍**的显式写底也当成自动跟随丢掉
+      （本轮真机实测：门禁里"用户滚回底部再跟随"那条就是这样被丢的）。 */
+  const LOG_AUTO_WRITE_MS = 50
+  /** 一个滚动容器的"位置归谁"状态机（`#logbody` 走影子访问器；`#diag-body`/`#dbg-log` 只由本补丁写）。 */
+  function makeScrollKeeper(el, key) {
+    const k = {
+      el, key, follow: true, anchor: 0, dropped: 0, gestures: 0, appends: 0, consumed: 0,
+      gestureAt: -1e9, lastAppendAt: -1e9, guardDisabled: false, guard: false, watcher: false, appendHook: false, droppedLines: 0, dropFilter: null,
+      nativeSet: null, nativeGet: null, nativeAppend: null, lastReason: 'init',
+    }
+    const geom = () => {
+      const st = Number(el.scrollTop) || 0
+      const sh = Number(el.scrollHeight) || 0
+      const ch = Number(el.clientHeight) || 0
+      return { scrollTop: st, scrollHeight: sh, clientHeight: ch, slack: Math.max(0, sh - ch - st) }
+    }
+    k.geom = geom
+    const bottom = () => { const g = geom(); return g.slack <= LOG_STICK_PX }
+    /** 我们自己的写（跟随/定位）：走原生 setter，绕过影子守卫。 */
+    const write = (v) => {
+      try {
+        if (k.nativeSet) k.nativeSet.call(el, v)
+        else el.scrollTop = v
+      } catch { /* 桩 DOM */ }
+    }
+    k.write = write
+    /** 跟随（贴底时）—— 本补丁自己的追加都走它；不贴底 ⇒ 一个字都不写。 */
+    k.followNow = () => {
+      if (!k.follow) { k.lastReason = 'user-owned'; return false }
+      write(Number(el.scrollHeight) || 0)
+      k.lastReason = 'follow'
+      return true
+    }
+    /** 内容被**清空**（清空按钮/换页签）⇒ 旧位置不再有意义：跟随复位（否则清完就永远不跟随了）。 */
+    k.resetFollow = () => { k.follow = true; k.anchor = 0; k.consumed = k.appends; k.lastReason = 'reset' }
+    /** 追加一拍：记 append 序号与**时刻**（"紧接着的那次跳到底"= 自动写；见 `LOG_AUTO_WRITE_MS`）。 */
+    k.noteAppend = () => {
+      k.appends++
+      k.lastAppendAt = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now())
+    }
+    /** 影子 `appendChild`：① 记 append 序号（**产物的追加也要记**，否则"追加后自动跳到底"识别不出来）；
+     *  ② 给上层一个"这一行要不要写进去"的过滤器（⑦ 用它拦掉产物那句假的"挂载 X"日志）。
+     *  返回 true = 已按过滤器丢弃。 */
+    k.installAppendHook = () => {
+      if (k.appendHook) return true
+      try {
+        let proto = el
+        while (proto && typeof proto.appendChild !== 'function') proto = Object.getPrototypeOf(proto)
+        if (!proto) return false
+        const native = proto.appendChild
+        k.nativeAppend = native
+        Object.defineProperty(el, 'appendChild', {
+          configurable: true, writable: true,
+          value(node) {
+            try { if (typeof k.dropFilter === 'function' && k.dropFilter(node)) { k.droppedLines++; return node } } catch { /* 过滤器自己坏 ⇒ 照常追加 */ }
+            k.noteAppend()
+            return native.call(el, node)
+          },
+        })
+        k.appendHook = true
+        return true
+      } catch (e) { k.appendHook = false; return false }
+    }
+    /** 位置观察者：手势计数 + scroll 事件判定"位置归谁"（`#diag-body`/`#dbg-log` 只装这一层）。 */
+    k.installWatcher = () => {
+      if (k.watcher) return true
+      const now = () => ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now())
+      const mark = () => { k.gestureAt = now(); k.gestures++ }
+      const opts = { passive: true }
+      try {
+        for (const ev of ['wheel', 'mousewheel', 'pointerdown', 'mousedown', 'touchstart', 'touchmove', 'keydown']) {
+          try { el.addEventListener(ev, mark, opts) } catch { /* 桩 DOM */ }
+        }
+        /* 原生滚动（用户拖动滚动条/滚轮）不会走 setter ⇒ 位置变化只在这里被看见。 */
+        el.addEventListener('scroll', () => {
+          const g2 = geom()
+          if (g2.slack <= LOG_STICK_PX) { k.follow = true; k.anchor = g2.scrollTop; k.lastReason = 'scroll-bottom' }
+          else { k.follow = false; k.anchor = g2.scrollTop; k.lastReason = 'scroll-user' }
+        }, opts)
+        k.watcher = true
+        return true
+      } catch (e) { k.watcher = false; return false }
+    }
+    /** 影子 `scrollTop`：只有"合法"的写才落到原生 setter。 */
+    k.installGuard = () => {
+      if (k.guard) return true
+      k.installWatcher()
+      k.installAppendHook()
+      try {
+        let proto = el
+        while (proto && !Object.getOwnPropertyDescriptor(proto, 'scrollTop')) proto = Object.getPrototypeOf(proto)
+        const desc = proto ? Object.getOwnPropertyDescriptor(proto, 'scrollTop') : null
+        if (!desc || typeof desc.set !== 'function' || typeof desc.get !== 'function') return false
+        k.nativeSet = desc.set
+        k.nativeGet = desc.get
+        const now = () => ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now())
+        Object.defineProperty(el, 'scrollTop', {
+          configurable: true, enumerable: true,
+          get() { return desc.get.call(el) },
+          set(v) {
+            const want = Number(v) || 0
+            const g = geom()
+            const isBottomWrite = want >= (g.scrollHeight - g.clientHeight) - 0.5
+            const afterAppend = k.appends > k.consumed
+            /*  "自动跟随"的判据 = 追加之后**紧接着（同一拍内）**的跳到底；只按序号判会把隔了一拍的
+                显式写底也算进来（真机踩过：门禁"用户滚回底部"那条被丢掉）。 */
+            const autoFollow = afterAppend && ((now() - k.lastAppendAt) <= LOG_AUTO_WRITE_MS)
+            const userish = (now() - k.gestureAt) <= LOG_GESTURE_MS
+            k.consumed = k.appends
+            if (isBottomWrite) {
+              /* 追加之后紧接着的"跳到底" = 写入者（产物/别人）想自动跟随：
+                 位置在用户手里时**丢掉这一写**（这就是用户报的那一跳）。 */
+              if (!userish && autoFollow && !k.follow) { k.dropped++; k.lastReason = 'dropped-auto-bottom'; return }
+              if (userish) { k.follow = true; k.anchor = want }
+              write(v)                                  // `k.write` 走原生 setter（不经过本影子访问器 ⇒ 不递归）
+              k.lastReason = userish ? 'user-bottom' : 'explicit-bottom'
+              return
+            }
+            /* 非底部的定位（滚轮拖动之外的显式定位：探针/代码）⇒ 这个位置归用户，之后不再动。 */
+            k.follow = false; k.anchor = want; k.lastReason = 'explicit-position'
+            desc.set.call(el, v)
+          },
+        })
+        k.guard = true
+        return true
+      } catch (e) { k.guard = false; return false }
+    }
+    k.state = () => {
+      const g = geom()
+      return {
+        container: key, guard: k.guard, appendHook: !!k.appendHook, follow: k.follow, anchor: Math.round(k.anchor),
+        droppedWrites: k.dropped, droppedLines: k.droppedLines, gestures: k.gestures, appendSeq: k.appends,
+        stickThreshold: LOG_STICK_PX, atBottom: g.slack <= LOG_STICK_PX, lastReason: k.lastReason,
+        scrollTop: g.scrollTop, scrollHeight: g.scrollHeight, clientHeight: g.clientHeight, slack: g.slack,
+      }
+    }
+    return k
+  }
+  const scrollKeepers = new Map()      // key → keeper（`#logbody` 装影子守卫；另两个只借"贴底才跟随"）
+  function scrollKeeper(sel, key) {
+    const el = $(sel)
+    if (!el) return null
+    let k = scrollKeepers.get(key)
+    if (k && k.el === el) { if (!k.watcher) k.installWatcher(); return k }
+    k = makeScrollKeeper(el, key)
+    k.installWatcher()
+    scrollKeepers.set(key, k)
+    return k
+  }
+  /** ⑯ 输出区：容器 + 影子守卫（幂等；`#logbody` 是产物与本补丁共用元素，必须装）。 */
+  function logKeeper() {
+    const k = scrollKeeper('#logbody', 'logbody')
+    if (!k) return null
+    /*  自愈式补装；但**用户显式关掉**（`logScrollGuardSet(false)`，门禁 A/B 用）时不补装。 */
+    if (!k.guard && !k.guardDisabled) k.installGuard()
+    return k
+  }
+  const logScrollNow = () => {
+    const k = logKeeper()
+    if (k) return k.state()
+    const body = $('#logbody')
+    if (!body) return null
+    const st = Number(body.scrollTop) || 0
+    const sh = Number(body.scrollHeight) || 0
+    const ch = Number(body.clientHeight) || 0
+    return { scrollTop: st, scrollHeight: sh, clientHeight: ch, atBottom: (sh - ch - st) <= LOG_STICK_PX, slack: sh - ch - st }
+  }
+  function logScrollState() {
+    const g = logScrollNow()
+    const body = $('#logbody')
+    return Object.assign({ stickThreshold: LOG_STICK_PX, lines: body && body.children ? body.children.length : -1, autoScrolls: !!(g && g.atBottom) }, g || {})
+  }
+  /** ⑯b 供门禁做 A/B：临时关掉影子守卫（= 回到"产物无条件跳到底"的改前行为）⇒ 复现那一跳。 */
+  function logScrollGuardSet(on) {
+    const k = logKeeper()
+    if (!k) return null
+    const want = on !== false
+    if (want === k.guard && want !== false) return k.state()
+    if (!want) {
+      /*  关掉守卫必须**留住**这个状态：`logKeeper()` 每次调用都会补装（元素被换掉时自愈），
+          所以另设一个"用户显式关掉"的闩 —— 否则探针下一次读数就把守卫装回来，
+          A/B 对照量到的还是"守卫在位"（本轮真机实测踩到，IA5e 假绿）。 */
+      k.guardDisabled = true
+      try { delete k.el.scrollTop } catch { /* 桩 DOM */ }
+      k.guard = false
+      k.lastReason = 'guard-off'
+    } else { k.guardDisabled = false; k.installGuard() }
+    return k.state()
+  }
+  /** ⑯b 产物那条"自动跳到底"的计数器（门禁断言"拦下的正是产物那一写"）。 */
+  function logScrollProbe() {
+    const k = logKeeper()
+    return k ? k.state() : null
+  }
+  function logLine(msg, isErr) {
+    const body = $('#logbody')
+    if (!body) { console.log('[bench-patch] ' + msg); return }
+    const k = logKeeper()
+    if (k) k.noteAppend()
+    const line = doc.createElement('div')
+    if (isErr) line.className = 'err'
+    line.textContent = msg
+    body.appendChild(line)
+    if (k) k.followNow()
+    else { try { body.scrollTop = body.scrollHeight } catch { /* 桩 DOM */ } }
+  }
 
   // ①(用户第 6 项 2026-09-19) 工具条 6 个下拉 + 属性面板里的 combo：统一换自绘下拉（幂等；失败逐个退回原生）
   try { enhanceBenchSelects(document); watchBenchPropsSelects(document); scheduleBenchSelects(document) } catch (e) { /* 补丁层不让整页崩 */ }
@@ -5811,7 +6135,7 @@ export function init() {
     div.textContent = entry.line
     dbgLog.appendChild(div)
     while (dbgLog.children.length > DBG_MAX_LINES) dbgLog.removeChild(dbgLog.firstChild)
-    try { dbgLog.scrollTop = dbgLog.scrollHeight } catch { /* 桩 DOM */ }
+    { const k = scrollKeeper('#dbg-log', 'dbg'); if (k) { k.noteAppend(); k.followNow() } }
     return entry
   }
   function pushDiagEntry(raw) {
@@ -5828,7 +6152,8 @@ export function init() {
     diagBody.appendChild(line)
     diagCount++
     while (diagBody.children.length > DIAG_MAX_LINES) diagBody.removeChild(diagBody.firstChild)
-    try { diagBody.scrollTop = diagBody.scrollHeight } catch {}
+    /* ⑯b 同一条口径：诊断栏也**只在贴底时**跟随（用户滚上去看上面那几条时，新消息不许把它拽回来）。 */
+    { const k = scrollKeeper('#diag-body', 'diag'); if (k) { k.noteAppend(); k.followNow() } }
     try { diagBody.setAttribute('data-count', String(diagCount)) } catch {}
     try { diagBody.setAttribute('data-state', 'has') } catch {}
     paintLogsTabs()
@@ -5907,7 +6232,7 @@ export function init() {
     div.textContent = line
     dbgLog.appendChild(div)
     while (dbgLog.children.length > DBG_MAX_LINES) dbgLog.removeChild(dbgLog.firstChild)
-    try { dbgLog.scrollTop = dbgLog.scrollHeight } catch { /* 桩 DOM */ }
+    { const k = scrollKeeper('#dbg-log', 'dbg'); if (k) { k.noteAppend(); k.followNow() } }
   }
   /** 把"只留第 i 层可见"落到渲染器（数组为空 ⇒ 全部恢复）。
       ⚠ **必须走 `__lnHidden`**（真机取证 2026-09-23，无头 Firefox + WebGL2 预置项）：本仓 core 每帧按自己的
@@ -6626,37 +6951,6 @@ export function init() {
       fr.src = '/' + SITE_MOUNT + '/renderer/index.html?_t=' + Date.now()
     })
   }
-  /* ⑯(2026-09-24 用户第 16 条)「输出面板来新消息时**不要**自动切到页面底部（用户正在看上面的日志）」：
-     改前：每写一行都 `scrollTop = scrollHeight` —— 长跑的诊断/渲染器日志一来就把人从上面拽回底部。
-     改后（跟随式滚动，与终端的"贴在底部才跟随"同一口径）：
-       · 追加**之前**先看用户在不在底部（`距离底部 ≤ LOG_STICK_PX`）；
-       · 在底部 ⇒ 继续跟随（写到底）；**不在** ⇒ 一个字都不动 scrollTop（用户的位置优先）；
-       · 位置判据只看滚动容器自己的三个数（scrollTop/scrollHeight/clientHeight），可机读、可复现。
-     读数：`__benchPatch.logScrollState()`（`stick/atBottom/autoScrolls/lines`）。 */
-  const LOG_STICK_PX = 24
-  const logScrollNow = () => {
-    const body = $('#logbody')
-    if (!body) return null
-    const st = Number(body.scrollTop) || 0
-    const sh = Number(body.scrollHeight) || 0
-    const ch = Number(body.clientHeight) || 0
-    return { scrollTop: st, scrollHeight: sh, clientHeight: ch, atBottom: (sh - ch - st) <= LOG_STICK_PX, slack: sh - ch - st }
-  }
-  function logScrollState() {
-    const g = logScrollNow()
-    const body = $('#logbody')
-    return Object.assign({ stickThreshold: LOG_STICK_PX, lines: body && body.children ? body.children.length : -1, autoScrolls: !!(g && g.atBottom) }, g || {})
-  }
-  function logLine(msg, isErr) {
-    const body = $('#logbody')
-    if (!body) { console.log('[bench-patch] ' + msg); return }
-    const stick = (() => { const g = logScrollNow(); return !g || g.atBottom })()   // ⑯ 追加前判一次（没有容器口径 ⇒ 按跟随）
-    const line = doc.createElement('div')
-    if (isErr) line.className = 'err'
-    line.textContent = msg
-    body.appendChild(line)
-    if (stick) { try { body.scrollTop = body.scrollHeight } catch { /* 桩 DOM */ } }   // ⑯ 用户在上面 ⇒ 不切底
-  }
   // ⑹ 目录选择能力：webkitdirectory 是唯一跨 Chrome/Edge/Firefox/Safari 的目录 API（且可被自动化验证）；
   //    只有在它缺席时才退回新的 showDirectoryPicker（Chromium 系）。两者都没有 ⇒ 明确置灰 + 说明原因。
   const canPickViaInput = () => {
@@ -6985,21 +7279,22 @@ export function init() {
        `--mpw-np-cover` = **展开态**遮住的高度（卡片 189 + 传输条 30，189 由 P-138 的
        `now-playing-math.mjs` 的 `OPEN` 给出，门禁逐值对账）⇒ `#props-body` 的 padding-bottom 把它算进去，
        两个状态下每个属性项都滚得到（"永久遮住"在门禁里是不变量）。 */
-    '#props{position:relative;--mpw-np-card:189px;--mpw-np-vol:26px;--mpw-np-strip:30px;--mpw-np-cover:calc(var(--mpw-np-card) + var(--mpw-np-vol) + var(--mpw-np-strip))}',
-    '#np-host{position:absolute;left:0;right:0;bottom:0;height:calc(var(--mpw-np-card) + var(--mpw-np-vol) + var(--mpw-np-strip));display:flex;flex-direction:column;justify-content:flex-end;pointer-events:none;z-index:5}',
-    /* ②(2026-09-24 用户第 2 条「把壁纸配置里的调整音量搬进 NP 条，不要再显示在壁纸配置最下面」)
-       容器 `#np-volbar` 是 NP 卡片的**下一行**（`#np-host` 的第 2 个子节点，夹在卡片与传输条之间）⇒
-       视觉上属于 NP 块；传输条 `#np-audio` 从此**只有**静音/进度/时间/曲目，最下面不再有音量条。
-       仍然可压：`flex:1 1 48px;min-width:34px;max-width:96px`（A9 判据逐字保留，见那一条的注释）。 */
-    '#np-volbar{height:var(--mpw-np-vol);display:flex;align-items:center;gap:6px;padding:0 8px;background:color-mix(in srgb,var(--panel) 92%,transparent);border-top:1px solid var(--border);font-size:11px;color:var(--fg-dim);min-width:0;max-width:100%;box-sizing:border-box;overflow:hidden}',
-    '#np-volbar .np-volico{flex:none;display:flex;align-items:center;color:var(--fg-dim)}',
-    '#np-volcap{flex:none;white-space:nowrap}',
-    '#np-volnum{flex:none;min-width:32px;text-align:right;font-variant-numeric:tabular-nums;color:var(--fg-mute)}',
+    '#props{position:relative;--mpw-np-card:189px;--mpw-np-strip:30px;--mpw-np-cover:calc(var(--mpw-np-card) + var(--mpw-np-strip))}',
+    '#np-host{position:absolute;left:0;right:0;bottom:0;height:calc(var(--mpw-np-card) + var(--mpw-np-strip));display:flex;flex-direction:column;justify-content:flex-end;pointer-events:none;z-index:5}',
+    /* ③(2026-09-25 issue0924a2 用户第 3 条「我说的把音量的按钮集成到 NP 的卡片里面，你还是没有做好」)
+       上一轮的做法（`#np-volbar` = 卡片**下面**再加一条独立行）已**整块撤掉**：真源不再是"补丁在卡片外
+       造一条"，而是**组件自己**在卡片内部画一条音量轨（时钟行中间）+ 传输行第四键（音量/静音）
+       —— 与下游 DSH 插件 `dsh-mpkg-wallpaper/lib/now-playing.js` 的 `showVolume = late > 0` 同一套。
+       所以这里的 CSS 只留两件事：① 让 `#np-mount` 那圈透明区照旧不吃点击；② 把**音量轨**放行
+       （`#np-mount > *{pointer-events:none}` 会让整棵子树都不吃事件）。滑条自身的形状/颜色在
+       `demo/now-playing/now-playing.css` 的 `.snd-clock input[type="range"][data-mpw-np-vol-range]`
+       （组件自己的作用域、只用既有类 + 属性选择器，与本表零重叠）。 */
     '#np-host > *{pointer-events:auto}',
     '#np-mount{height:var(--mpw-np-card);display:flex;justify-content:center;align-items:flex-start;pointer-events:none}',
     '#np-mount > *{pointer-events:none}',
     /* 卡片四周那圈透明区不吃点击（收起时上下各 55.5px），只有真控件吃 ⇒ 后面的属性项照常点得到 */
     '#np-mount .snd button{pointer-events:auto}',
+    '#np-mount .snd [data-mpw-np-vol-range], #np-mount .snd [data-mpw-np-volnum]{pointer-events:auto}',
     '#props-body{padding-bottom:calc(20px + var(--mpw-np-cover))}',
     '#props[data-np="missing"] #props-body{padding-bottom:20px}',
     '#props[data-np="missing"] #np-host{display:none}',
@@ -7013,7 +7308,6 @@ export function init() {
        改后：整条 `overflow:hidden` + 可压项 `min-width:0`，**滑条**改成可伸缩（`flex:1 1 48px;width:auto` ——
        `input[type=range]` 固有宽度 129px，必须显式压掉），进度条/曲目名让位 ⇒ 任何宽度下滑条都在容器内。
        读数（改前/改后）由 `__benchPatch.npGeometry()` 给出：`slider.right <= strip.right`。 */
-    '#np-volume{flex:1 1 48px;width:auto;min-width:34px;max-width:96px;height:16px;margin:0}',
     '#np-seek{position:relative;flex:2 1 32px;min-width:24px;height:14px;padding:0;border:0;background:transparent;cursor:pointer}',
     '#np-seek::before{content:"";position:absolute;left:0;right:0;top:6px;height:3px;border-radius:2px;background:var(--input)}',
     '#np-run{position:absolute;left:0;top:6px;height:3px;width:0;border-radius:2px;background:var(--accent,#0078d4)}',
@@ -7968,6 +8262,78 @@ export function init() {
     libRefreshLast = read
     return read
   }
+  /* ⑦(2026-09-25 issue0924a2 用户第 7 条) 把**产物那侧**的"当前壁纸"也清掉（`w = null`）。
+     ── 用户原话 ─────────────────────────────────────────────────────────────────────
+     「渲染器使用我的渲染器的时候（这时候我已经把上面选过的所有壁纸都叉掉了，是未选择壁纸的状态）
+       我把渲染器切成上游产物，它就加载了一个我最后加载的一个壁纸……这个 bug 你修一下，
+       为什么切渲染器会突然加载出来壁纸。」
+     ── 真因（minified 产物，源码级 + 真机读数双向取证）──────────────────────────────
+     产物的"当前壁纸"是它模块作用域里的 `w`：`demo/assets/bench-DSKWIqmS.js:94129` 的
+     `function Ue(e){w=e,…}` 写入、`:94186` 的 `function Ae(){if(!w)return;…k.src=…}` **读它重挂载**、
+     只有 `:88075` 的 `function ht(){w=null,…}` 会清它。而产物自己那个「释放」按钮是
+     `l("#release").onclick=()=>E()?.release()`（:95493）—— **只释放舞台，不动 `w`**。
+     ⇒ 用户「叉掉已选壁纸」之后（我们这条关闭链也点过 `#release`），`w` 仍指着最后挂载的那张；
+     切渲染器档会点产物的「重挂载」（`#reload` → `Ae()`），`Ae()` 的 `if(!w)` 判真 ⇒ **又挂回来**。
+     改前真机读数：`#frame.src` 从 `about:blank` 变回 `…&src=2887099508…`，`#current` 也从
+     "未选择壁纸/No wallpaper"变回那张壁纸的标题，`#empty` 又被藏起来（= 用户看到的"凭空加载"）。
+     ── 改法 ─────────────────────────────────────────────────────────────────────────
+     借产物**自己的**清理入口：`#pick-lib` 原处理器（我们接管时摘下来存的 `artifactPickChain`，
+     A5「换库后重画侧栏」已经在用同一条链）里，`ut()` 拿到目录后会调 `ht(), await Te()` ——
+     `ht()` 就是那个"把 `w` 置空 + 清 `#current` + 摘掉 `#frame.src` + 显示空态"的唯一入口。
+     这里用一次性 fetch 垫片把"开原生对话框"那一问就地答掉（与 `refreshSidebarList` 同一个办法），
+     清完**不复原**任何壁纸（本轮的目标就是"未选择壁纸"状态）。
+     读数：`__benchPatch.artifactClearProbe()`。 */
+  let artifactClearLast = null
+  /*  ⚠作用域纪律（本文件踩过两次同类事故）：关闭链在**模块级** `initSiteShell()` 里，
+      够不着 `init()` 内部的这个函数 —— 所以走一个显式的 window 桥（与 `window.__benchShell`
+      同一套做法），调用方一律用 `typeof === 'function'` 判存在，不许裸引用（裸引用 = ReferenceError
+      被 try/catch 吞掉 ⇒ 看起来"改了但没生效"，本轮第一次实现就是这么假绿的）。 */
+  try { if (typeof window !== 'undefined') window.__benchClearArtifactSelection = clearArtifactSelection } catch { /* 桩环境 */ }
+  async function clearArtifactSelection(reason) {
+    const read = { ran: false, reason: String(reason || ''), srcBefore: '', srcAfter: '', curAfter: '', cleared: false, error: '' }
+    const fn = artifactPickChain
+    const frameOf = () => { try { return doc.getElementById('frame') } catch { return null } }
+    const srcOf = () => { try { const f = frameOf(); return f ? String(f.getAttribute('src') || '') : '' } catch { return '' } }
+    read.srcBefore = srcOf()
+    if (typeof fn !== 'function' || !pickLibBtn) { read.error = 'no-artifact-chain'; artifactClearLast = read; return read }
+    const nativeFetch = (typeof window !== 'undefined' && typeof window.fetch === 'function') ? window.fetch : (typeof fetch === 'function' ? fetch : null)
+    if (typeof nativeFetch !== 'function') { read.error = 'no-fetch'; artifactClearLast = read; return read }
+    const target = String(libRootSignature || '')
+    const stub = async function (url, init) {
+      try {
+        const u = String((url && url.url) || url || '')
+        const method = String((init && init.method) || (url && url.method) || 'GET').toUpperCase()
+        if (method === 'POST' && /\/api\/library-dir(\?|$)/.test(u)) {
+          const body = String((init && init.body) || '')
+          if (!body || !/"dir"\s*:/.test(body)) {
+            return { ok: true, status: 200, json: async () => ({ ok: true, dir: target, source: 'user', stub: 'bench-clear-shim' }), text: async () => '' }
+          }
+        }
+      } catch { /* 垫片自己出错 ⇒ 走真 fetch */ }
+      return nativeFetch.apply(this, arguments)
+    }
+    try { if (typeof window !== 'undefined') window.fetch = stub } catch { /* 桩环境 */ }
+    try {
+      fn.call(pickLibBtn)                       // 产物那条链：切目录 ⇒ ht()（w=null）⇒ Te()（重画 #list）
+      read.ran = true
+      /*  `ht()` 在 `await fetch(...)` 之后同步跑 ⇒ 等几拍再看读数（这里是"清干净了没有"，不涉及列表内容）。 */
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 100))
+        if (!srcOf()) break
+      }
+    } catch (e) { read.error = String((e && e.message) || e) } finally {
+      try { if (typeof window !== 'undefined' && window.fetch === stub) window.fetch = nativeFetch } catch { /* 桩环境 */ }
+      detachArtifactPickChain()
+    }
+    read.srcAfter = srcOf()
+    try { read.curAfter = String((doc.querySelector('#current') || {}).textContent || '') } catch { read.curAfter = '' }
+    try { read.emptyShown = !!(doc.querySelector('#empty') && doc.querySelector('#empty').style && doc.querySelector('#empty').style.display !== 'none') } catch { read.emptyShown = null }
+    /*  "清干净"的判据 = `#frame` 不再挂着任何 URL（产物 `ht()` 写的就是 `removeAttribute('src')`）。 */
+    read.cleared = !read.srcAfter
+    artifactClearLast = read
+    return read
+  }
+  const artifactClearProbe = () => artifactClearLast
   /** ④ 缩略图/预览**缓存击穿**：凡是"按 itemId 从服务端取字节"的 URL，换根之后加一个 `_r=` 版本号。
    *  为什么必须有：`<img src="/api/thumb?item=X&w=320">` 在切根前后**逐字相同**，浏览器会直接拿旧根的图
    *  （服务端 no-store 也救不了"URL 没变"这条），用户看到的就是"缩略图还是老根的那几张"。
@@ -8622,6 +8988,8 @@ export function init() {
       line.dataset.sys = 'cleared'
       line.textContent = clearNoticeText()
       body.appendChild(line)
+      /* ⑯b 清空 = 内容重来 ⇒ 跟随复位（不然清完那一刻的"不跟随"会一直留着，新消息全在视野外）。 */
+      const k = logKeeper(); if (k) k.resetFollow()
       body.scrollTop = body.scrollHeight
     }
     return body ? body.children.length : 0
@@ -9617,9 +9985,33 @@ export function init() {
   /** 换档重挂载：**沿用**产物自己的「重挂载」（`#reload` 的 `onclick = Ae()`），不写第二套。
    *  返回值 = **iframe src 是否真的被重设**（`Ae()` 同步写 src）：没有选中壁纸 / 当前是合成样例那条
    *  路径时 `Ae()` 会直接返回 ⇒ 档位只在**下次挂载**时生效，这一点由调用方如实写进输出区。 */
+  /** 「未选择壁纸」的**唯一判据**（⑦ 用来挡"重挂载把叉掉的那张挂回来"）：
+   *  列表里没有 `.active`、外壳的 `curId` 为空、`#frame` 也没有挂任何 URL。三者都空才算"没选"，
+   *  只有其一为空就**不挡**（宁可放过，也不许误挡用户真的在预览的那张）。 */
+  function nothingSelectedNow() {
+    try {
+      const active = doc.querySelector('#list li[data-id].active')
+      const sh = (typeof window !== 'undefined' && window.__benchShell) ? window.__benchShell : null
+      const id = (sh && typeof sh.currentId === 'function') ? String(sh.currentId() || '') : ''
+      const f = frameEl || $('#frame')
+      const src = f ? String(f.getAttribute('src') || '') : ''
+      /*  ⚠`#release` 这条链会把 iframe 导航到 `about:blank`（⑲ 的"停干净"），所以"没挂壁纸"的
+          判据不是"src 为空"，而是"src 为空 **或** 已经停在 about:blank"（真机踩过：只判空串 ⇒
+          释放之后 `empty` 恒 false ⇒ 守卫等于没装）。 */
+      const blank = !src || /^about:blank([?#]|$)/i.test(src)
+      return { empty: !active && !id && blank, active: !!active, id, src: src.slice(0, 60), blank }
+    } catch (e) { return { empty: false, error: String((e && e.message) || e) } }
+  }
   function remountRendererForBandFeed() {
     const btn = $('#reload')
     if (!btn || typeof btn.click !== 'function') return false
+    /*  ⑦(2026-09-25 用户第 7 条) **未选择壁纸 ⇒ 一次都不点产物的「重挂载」**。
+        为什么：产物的 `#reload` → `Ae()` 读的是它自己的 `w`（"最后一次挂载的那张"），
+        用户叉掉壁纸之后 `w` 还挂着旧的 ⇒ 换档这一下就把叉掉的那张挂回来了（真机读数见
+        `clearArtifactSelection` 的注释）。这里先从源头不触发；`clearArtifactSelection()` 再把 `w` 清成 null
+        （两道互不依赖：一道挡入口，一道清状态）。 */
+    const st = nothingSelectedNow()
+    if (st.empty) return false
     const srcOf = () => { try { return String((frameEl && frameEl.getAttribute('src')) || '') } catch (e) { return '' } }
     const before = srcOf()
     try { btn.click() } catch (e) { return false }
@@ -9718,7 +10110,13 @@ export function init() {
         try { if (sel.value !== mode) sel.value = mode } catch (e) { /* ignore */ }
         const remounted = remountRendererForBandFeed()
         let rewritten = false
-        if (!remounted && frameEl) {
+        /*  ⑦(2026-09-25 用户第 7 条) 「未选择壁纸」这一档：**只切档位，不重挂任何壁纸**。
+            改前这条链会走到产物「重挂载」(`Ae()`)，而 `Ae()` 读的是产物自己的 `w`（最后一次挂载的那张）
+            ⇒ 把用户已经叉掉的那张又挂回来（`#frame.src` 从 `about:blank` 变回 `…&src=<id>…`）。
+            现在：换档那一刻先判"是不是真的没选" —— 没选就一个字都不写进预览、也不谎报"已重写 URL"，
+            只如实说"档位已记住，下次挂载生效"。 */
+        const empty = nothingSelectedNow()
+        if (!remounted && frameEl && !empty.empty) {
           //  产物自己的「重挂载」只在"已有已挂载壁纸"时重设 src；本仓档下预览可能是**导航到样例**
           //  （没有产物那侧的 `w`）⇒ 换档后 src 会停在旧渲染器上（真机实测：切回上游后 iframe 还是
           //  `/webloader/`）。这条兜底把**当前 URL 按新档位重写一次**，走的还是同一条改写链（幂等）。
@@ -9729,7 +10127,11 @@ export function init() {
         }
         const plan = paintRendererSrcStatus()
         logLine(t(curLang, 'log.rendererSrcSwitch', { mode: rendererSourceLabel(curLang, mode), detail: plan.text }))
-        if (!remounted) logLine(t(curLang, rewritten ? 'log.rendererSrcRewrote' : 'log.rendererSrcNoMount'), true)
+        if (!remounted) {
+          logLine(t(curLang,
+            empty.empty ? 'log.rendererSrcEmpty' : (rewritten ? 'log.rendererSrcRewrote' : 'log.rendererSrcNoMount'),
+            empty.empty ? { mode: rendererSourceLabel(curLang, mode) } : undefined), !empty.empty)
+        }
       })
     }
     const dprEl = (() => { try { return $('#dpr') } catch (e) { return null } })()
@@ -10226,10 +10628,15 @@ export function init() {
     overflowSelectors: () => OVERFLOW_PROBE_SELECTORS.slice(),
     //  ⑤(用户第 5 条) 换库后侧栏重画的读数
     libRefreshProbe: () => libRefreshLast,
-    //  ⑯(用户第 16 条) 输出面板的跟随式滚动读数 + ⑲(用户第 19 条) 释放"停干净"读数
+    //  ⑯(用户第 16 条) 输出面板的跟随式滚动读数 + ⑯b("我滑到哪就停在哪"的守卫读数) + ⑲ 释放"停干净"读数
     logScrollState: () => logScrollState(),
+    logScrollProbe: () => logScrollProbe(),
+    logScrollGuardSet: (on) => logScrollGuardSet(on),
     logAppend: (m, e) => { try { logLine(String(m), !!e); return logScrollState() } catch (err) { return { error: String((err && err.message) || err) } } },
     releaseQuietProbe: () => releaseQuietProbe(),
+    //  ⑦(用户第 7 条) "产物那侧的当前项清掉了没有" + "现在是不是真的没选壁纸"（换档不许凭空挂壁纸的判据）
+    artifactClearProbe: () => artifactClearProbe(),
+    nothingSelected: () => nothingSelectedNow(),
     //  ⑲ 产物无条件调用、而当前渲染器档缺失的方法（如实登记；渲染器一旦补齐 ⇒ 这个数组自动变空）
     apiFallbacks: () => { try { const w = rendererWin(); return (w && Array.isArray(w.__benchApiFallbacks)) ? w.__benchApiFallbacks.slice() : [] } catch { return [] } },
     releaseQuietNow: (w) => releaseQuietNow(w || 'probe'),
@@ -10364,6 +10771,8 @@ export function init() {
     },
     npOcclusion: () => (window.__benchShell ? window.__benchShell.npOcclusion() : null),
     npAudio: () => (window.__benchShell ? window.__benchShell.npAudio() : null),
+    npVolumeSlider: () => (window.__benchShell && window.__benchShell.npVolumeSlider ? window.__benchShell.npVolumeSlider() : null),
+    npMuteKey: () => (window.__benchShell && window.__benchShell.npMuteKey ? window.__benchShell.npMuteKey() : null),
     setVideoVolume: (v) => (window.__benchShell ? window.__benchShell.setVideoVolume(v) : null),
     videoStage: () => (window.__benchShell ? window.__benchShell.videoStage() : null),
     setThemeMode: (m) => applyThemeMode(m),

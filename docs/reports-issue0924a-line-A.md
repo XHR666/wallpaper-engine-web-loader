@@ -1,6 +1,6 @@
 # issue #0924a · A 线（`:8902` 测试台 UI）实现报告
 
-- 仓库：`/root/Desktop/DSHarea/we-scene-demo`（GPL-3.0-or-later）；本报告 = `docs/reports-issue0924a-line-A.md`
+- 仓库：渲染器仓 `we-scene-demo/`（GPL-3.0-or-later；工作区根 = 仓库的上一级）；本报告 = `docs/reports-issue0924a-line-A.md`
 - 线别：A 线 = 测试台 UI（`demo/index.html` 静态外壳 + `demo/bench-patch.js` 运行期补丁 + `server/*-8902.mjs` 的 `fsRoots()`）
 - 本轮改动的文件（全部在写权范围内）：
   - `server/we-scene-demo-server-8902.mjs`（**只**动 `fsRoots()` 一块：候选表 + 上限）

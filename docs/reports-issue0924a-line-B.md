@@ -1,6 +1,6 @@
 # 渲染器线 B 报告（issue0924a）—— ⑫ / ⑬ / ⑭ / ⑮ / ⑱
 
-- 仓库：`/root/Desktop/DSHarea/we-scene-demo`（GPL-3.0-or-later）
+- 仓库：渲染器仓 `we-scene-demo/`（GPL-3.0-or-later；工作区根 = 仓库的上一级）
 - 本线写权范围：`core/**`、`demo.html`、`tests/*`（渲染类新增/修改）、本报告。
 - **"改前"一律指钉死提交 `151ce0a`**（本线开工时的 HEAD）：引用旧行为时同时给 `git show 151ce0a:<path>` 的路径，
   不用 `HEAD:`（本仓踩过"提交一落地 HEAD 就变成改后"的坑）。

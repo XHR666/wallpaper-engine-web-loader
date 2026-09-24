@@ -24,9 +24,13 @@
 //     已声明 float 的标量右值、同名 float 与 vecN 并存、等宽/更宽左值、带 swizzle 出形态、
 //     **缺 resolution uniform 声明**、多个内建、非采样器上下文、**sibling 源缺失**（内联实现 arity=4）。
 //     每个真阳性夹具都做 `glslangValidator` **真编译**（缺席则 SKIP-视作-PASS）。
+//   A′(G 线 2026-09-25 新增，A27-A35)：规则 **9-W「表达式级宽度推断」**（ISSUE0924A2「效果链编译失败」
+//     线的第三段）—— 二元两侧宽度不同（两个方向）/ 声明截断 / int 字面量与 int 表达式 ⊗ 浮点向量 /
+//     `const float = <int 表达式>` / 分量式内建的标量广播；每条都配真编译与**独立分桶计数**断言，
+//     外加两条边界（"一条都不许动"与"推不出 ⇒ 原样保留 + 只计自己的桶"）。
 //   B 真语料对拍（条件项：真壁纸不随仓库分发）：全语料去重后每个 `shaders/*.frag|vert` 的
 //     **移植前/后 sha256 逐条比对**，"before" 参考实现 = 当前源码**单切片关掉宽度表**的临时副本；
-//     断言：① 变化集 == 预期集（4 条，语料摘要一致时按**精确相等**判；摘要变了则打印 DRIFT 并退到
+//     断言：① 变化集 == 预期集（G 线后 **16 条**，语料摘要一致时按**精确相等**判；摘要变了则打印 DRIFT 并退到
 //     "新增变化项必须本来编不过"）；② **任何移植前能编译的 shader 输出逐位不变**（0 回归）；
 //     ③ 预期新增可编译的 2 条真编译过；④ `unresolved`（宽度推不出、原样保留）的现场逐条打印。
 //   C 分辨力自证（RED-IF-REVERTED，内建，不依赖改回文件）：3 组变异落在 `os.tmpdir()` 副本上 ——
@@ -209,6 +213,106 @@ const F93_MULTI = [
   '',
 ].join('\n')
 
+// ── F9W_* 夹具（G 线 2026-09-25 新增）：规则 9-W「表达式级宽度推断」────────────────────────
+//   每条夹具的形态与**真包现场**一一对应（出处写在名字里；逐条见 docs/reports-issue0924a2-line-G.md）：
+//   二元两侧宽度不同（真包 clipping_mask.frag:53 / ____________________.frag:159 / iris_movement__.vert:167）、
+//   声明截断 + int 字面量 ⊗ 浮点向量（shadow.vert:37）、`const float = <int 表达式>`
+//   （godrays_cast.frag:46）、标量广播（shadow.vert 同一行的 `max(1.0, <vec2>)`）、
+//   int 变量 ⊗ 浮点标量（godrays_cast.frag:53 `i / sampleDrop`）。
+const F9W_BIN_L = [
+  'uniform sampler2D g_Texture0;',
+  'uniform vec2 u_scaleCenter;',
+  'uniform float u_scale;',
+  'varying vec4 v_TexCoord;',
+  'void main() {',
+  '\tvec2 uv = (v_TexCoord * 2.0 - 1.0 - (u_scaleCenter * 2.0 - 1.0)) / u_scale;',
+  '\tgl_FragColor = texSample2D(g_Texture0, uv);',
+  '}',
+  '',
+].join('\n')
+const F9W_BIN_R = [
+  'uniform vec4 g_Texture0Resolution;',
+  'uniform float g_Strength;',
+  'void main() {',
+  '\tvec2 strength = (vec2(500) / g_Texture0Resolution) * g_Strength;',
+  '\tgl_FragColor = vec4(strength, 0.0, 1.0);',
+  '}',
+  '',
+].join('\n')
+const F9W_INT_DECL = [
+  'uniform vec2 u_offset;',
+  'void main() {',
+  '\tfloat atFactor = (1 + abs(u_offset) * 2.0) * 1.0;',
+  '\tgl_FragColor = vec4(atFactor);',
+  '}',
+  '',
+].join('\n')
+const F9W_CONST_INT = [
+  'uniform vec4 g_Tex;',
+  'void main() {',
+  '\tconst int sampleCount = 30;',
+  '\tconst float sampleDrop = sampleCount - 1;',
+  '\tgl_FragColor = g_Tex * sampleDrop;',
+  '}',
+  '',
+].join('\n')
+const F9W_BCAST = [
+  'uniform vec2 u_scale;',
+  'void main() {',
+  '\tvec2 v = max(1.0, abs(u_scale));',
+  '\tgl_FragColor = vec4(v, 0.0, 1.0);',
+  '}',
+  '',
+].join('\n')
+const F9W_INT_VAR = [
+  'uniform vec4 g_Tex;',
+  'void main() {',
+  '\tconst int n = 30;',
+  '\tfloat drop = n - 1.0;',
+  '\tgl_FragColor = g_Tex * (n / 30.0) + drop;',
+  '}',
+  '',
+].join('\n')
+// 边界：等宽 / 标量 ⊗ 向量 / 矩阵 / 整数算术 —— **一条都不许动**，且 9-W 五个计数器全 0
+//   （`int k = i + 1;` 是"整数算术保持整数语义"的判别位：谁把它浮点化，A34 必红）
+const F9W_KEEP = [
+  'uniform sampler2D g_Tex;',
+  'uniform vec2 u_a;',
+  'mat4 m;',
+  'void main() {',
+  '\tvec2 v = u_a * 2.0 / 3.0;',
+  '\tvec2 w = u_a + u_a;',
+  '\tvec4 c = texture(g_Tex, u_a);',
+  '\tvec4 x = c * m;',
+  '\tint i = 3;',
+  '\tint k = i + 1;',
+  '\tgl_FragColor = vec4(v + w, 0.0, 1.0) * x * float(k);',
+  '}',
+  '',
+].join('\n')
+// 宽度推不出来的形态（未声明的名字）⇒ 原样保留 + 只计进**本规则自己的**桶（不动既有 unresolved）
+const F9W_UNPROVABLE = [
+  'uniform sampler2D g_Tex;',
+  'void main() {',
+  '\tvec4 c = texture(g_Tex, vec2(0.5));',
+  '\tgl_FragColor = c * u_undeclaredVec;',
+  '}',
+  '',
+].join('\n')
+// **同名 float 与 vecN 并存 ⇒ 不猜**：`#include` 展开后公共头里的 `float c`（形参/局部）会污染本文件
+//   真声明为 `vec3 c` 的局部 —— 真包 0923/3479521040 `lens_flare_sun.frag:98` 实测：本规则的**假阳性**
+//   把本来**编得过**的 `c += vec3(0,0,0) + f0 / 1.0;` 截成 `.x`（被 B2「移植前能编译的输出逐位不变」抓住）。
+const F9W_AMBIG = [
+  'uniform float f0;',
+  'float c;',
+  'void main() {',
+  '\tvec3 c = vec3(0, 0, 0);',
+  '\tc += vec3(0, 0, 0) + f0 / 1.0;',
+  '\tgl_FragColor = vec4(c, 1.0);',
+  '}',
+  '',
+].join('\n')
+
 // ── A 段 ─────────────────────────────────────────────────────────────────────────────────
 C('A1 规则 9 真阳性：`v_NoiseCoord = v_TexCoord;` ⇒ 右值补 `.xy`', ({ hlsl2glsl }) => {
   const out = hlsl2glsl(F9, 'vert', {}, null)
@@ -336,6 +440,88 @@ C('A26 规则 9 宽度推不出：如实计数（unresolved=1 / 9-rhs-width-unkn
   return { pass, detail: JSON.stringify(stats) }
 })
 
+// ── A 段（G 线 2026-09-25 新增）：规则 9-W「表达式级宽度推断」的真阳性 + 边界 ──────────────
+//   `stats.rule9W*` 是**独立分桶**：既有 9 / 9-3 / 9a-2 的计数口径在下面每条里都一并钉住（必须为 0），
+//   免得"新规则顺手改了老规则的账"。
+C('A27 规则 9-W 二元两侧宽度不同（左宽右窄）：`(vec4 表达式 - vec2)` ⇒ 左边补 `.xy`', ({ hlsl2glsl, stats, reset }) => {
+  reset()
+  const out = hlsl2glsl(F9W_BIN_L, 'frag', {}, null)
+  const hit = /vec2 uv = \(\(v_TexCoord \* 2\.0 - 1\.0\)\.xy - \(u_scaleCenter \* 2\.0 - 1\.0\)\) \/ u_scale;/.test(out)
+  const st = { bin: stats.rule9Wbin, decl: stats.rule9Wdecl, int: stats.rule9Wint, konst: stats.rule9Wconst, bcast: stats.rule9Wbcast, old: stats.rule9 + stats.rule93 + stats.rule9a2 }
+  return { pass: hit && stats.rule9Wbin === 1 && st.old === 0, detail: (out.split('\n').find((l) => /vec2 uv/.test(l)) || '(未找到)').trim() + ' :: ' + JSON.stringify(st) }
+})
+C('A28 规则 9-W 二元两侧宽度不同：产物过 glslangValidator（GLSL ES 300）', ({ hlsl2glsl }) => {
+  const c = compiles(hlsl2glsl(F9W_BIN_L, 'frag', {}, null), 'frag')
+  return { pass: c.ok !== false, detail: c.ok === null ? 'SKIP（无 glslangValidator）' : (c.ok ? 'OK' : c.err) }
+})
+C('A29 规则 9-W 二元两侧宽度不同（右宽左窄）：`(vec2 / vec4)` ⇒ 右边补 `.xy`', ({ hlsl2glsl, stats, reset }) => {
+  reset()
+  const out = hlsl2glsl(F9W_BIN_R, 'frag', {}, null)
+  const hit = /vec2 strength = \(vec2\(500\) \/ g_Texture0Resolution\.xy\) \* g_Strength;/.test(out)
+  const c = compiles(out, 'frag')
+  return { pass: hit && stats.rule9Wbin === 1 && c.ok !== false, detail: (out.split('\n').find((l) => /vec2 strength/.test(l)) || '(未找到)').trim() + ' :: ' + (c.ok === null ? 'SKIP' : c.err || 'OK') }
+})
+C('A30 规则 9-W int 字面量 ⊗ 浮点向量 + 声明截断：`float x = (1 + <vec2>) * 1.0` ⇒ `1.0` + `.x`', ({ hlsl2glsl, stats, reset }) => {
+  reset()
+  const out = hlsl2glsl(F9W_INT_DECL, 'frag', {}, null)
+  const hit = /float atFactor = \(\(1\.0 \+ abs\(u_offset\) \* 2\.0\) \* 1\.0\)\.x;/.test(out)
+  const c = compiles(out, 'frag')
+  const st = { decl: stats.rule9Wdecl, int: stats.rule9Wint, unres: stats.rule9Wunresolved }
+  return { pass: hit && stats.rule9Wdecl === 1 && stats.rule9Wint === 1 && stats.rule9Wunresolved === 0 && c.ok !== false,
+    detail: (out.split('\n').find((l) => /float atFactor/.test(l)) || '(未找到)').trim() + ' :: ' + JSON.stringify(st) + ' ' + (c.ok === null ? 'SKIP' : c.err || 'OK') }
+})
+C('A31 规则 9-W `const float x = <int 表达式>` ⇒ `float(<int 表达式>)`（GLSL ES const 初始化不容 int）', ({ hlsl2glsl, stats, reset }) => {
+  reset()
+  const out = hlsl2glsl(F9W_CONST_INT, 'frag', {}, null)
+  const hit = /const float sampleDrop = float\(sampleCount - 1\);/.test(out)
+  const c = compiles(out, 'frag')
+  return { pass: hit && stats.rule9Wconst === 1 && stats.rule9Wint === 0 && c.ok !== false,
+    detail: (out.split('\n').find((l) => /sampleDrop/.test(l)) || '(未找到)').trim() + ' :: ' + (c.ok === null ? 'SKIP' : c.err || 'OK') }
+})
+C('A32 规则 9-W 标量广播：`max(1.0, <vec2>)` ⇒ `max(vec2(1.0), <vec2>)`（GLSL 无此重载）', ({ hlsl2glsl, stats, reset }) => {
+  reset()
+  const out = hlsl2glsl(F9W_BCAST, 'frag', {}, null)
+  const hit = /vec2 v = max\(vec2\(1\.0\), abs\(u_scale\)\);/.test(out)
+  const c = compiles(out, 'frag')
+  return { pass: hit && stats.rule9Wbcast === 1 && stats.rule9Wunresolved === 0, detail: (out.split('\n').find((l) => /vec2 v/.test(l)) || '(未找到)').trim() + ' :: ' + (c.ok === null ? 'SKIP' : c.err || 'OK') }
+})
+C('A33 规则 9-W int 表达式 ⊗ 浮点标量：`n - 1.0` / `n / 30.0` ⇒ 给 int 一侧套 `float(...)`', ({ hlsl2glsl, stats, reset }) => {
+  reset()
+  const out = hlsl2glsl(F9W_INT_VAR, 'frag', {}, null)
+  const hit = /float drop = float\(n\) - 1\.0;/.test(out) && /\(float\(n\) \/ 30\.0\)/.test(out)
+  const c = compiles(out, 'frag')
+  const keep = /const int n = 30;/.test(out)     // 整数声明本身不许被"浮点化"
+  return { pass: hit && keep && stats.rule9Wint === 2 && c.ok !== false,
+    detail: out.split('\n').map((l) => l.trim()).filter((l) => /float drop|g_Tex \*|const int/.test(l)).join(' | ') + ' :: ' + (c.ok === null ? 'SKIP' : c.err || 'OK') }
+})
+C('A34 规则 9-W 边界：等宽 / 标量⊗向量 / 矩阵 / 整数算术 —— 逐字不变且五个计数器全 0', ({ hlsl2glsl, stats, reset }) => {
+  reset()
+  const out = hlsl2glsl(F9W_KEEP, 'frag', {}, null)
+  const keep = ['vec2 v = u_a * 2.0 / 3.0;', 'vec2 w = u_a + u_a;', 'vec4 c = texture(g_Tex, u_a);', 'vec4 x = c * m;', 'int k = i + 1;']
+  const miss = keep.filter((k) => !out.includes(k))
+  const zero = stats.rule9Wbin === 0 && stats.rule9Wdecl === 0 && stats.rule9Wint === 0 && stats.rule9Wconst === 0 && stats.rule9Wbcast === 0
+  const c = compiles(out, 'frag')
+  return { pass: miss.length === 0 && zero && c.ok !== false,
+    detail: (miss.length ? '被改了：' + miss.join(' ') : keep.length + ' 条逐字保留') + ' · ' + JSON.stringify({ bin: stats.rule9Wbin, decl: stats.rule9Wdecl, int: stats.rule9Wint, konst: stats.rule9Wconst, bcast: stats.rule9Wbcast, unres: stats.rule9Wunresolved, old: stats.rule9 + stats.rule93 + stats.rule9a2 }) }
+})
+C('A35 规则 9-W 宽度推不出（未声明的名字）：逐字保留 + 只计本规则自己的桶', ({ hlsl2glsl, stats, reset }) => {
+  reset()
+  const out = hlsl2glsl(F9W_UNPROVABLE, 'frag', {}, null)
+  const kept = out.includes('fragColor = c * u_undeclaredVec;')
+  const pass = kept && stats.rule9Wunresolved === 1 && stats.rule9WunresolvedReasons['9W-operand-width-unprovable'] === 1 &&
+    stats.rule9Wbin === 0 && stats.unresolved === 0 && Object.keys(stats.unresolvedReasons).length === 0
+  return { pass, detail: (out.split('\n').find((l) => /u_undeclaredVec/.test(l)) || '(未找到)').trim() + ' :: ' + JSON.stringify({ w: stats.rule9WunresolvedReasons, old: stats.unresolved }) }
+})
+C('A36 ★ 同名 float 与 vecN 并存 ⇒ 不猜（真包 lens_flare_sun.frag:98 的假阳性回归守门人）', ({ hlsl2glsl, stats, reset }) => {
+  reset()
+  const out = hlsl2glsl(F9W_AMBIG, 'frag', {}, null)
+  const kept = out.includes('c += vec3(0, 0, 0) + f0 / 1.0;')
+  const c = compiles(out, 'frag')
+  const zero = stats.rule9Wbin === 0 && stats.rule9Wdecl === 0 && stats.rule9Wint === 0 && stats.rule9Wconst === 0 && stats.rule9Wbcast === 0
+  return { pass: kept && zero && stats.rule9WunresolvedReasons['9W-width-ambiguous-float-and-vec'] === 1 && c.ok !== false,
+    detail: (out.split('\n').find((l) => /c \+=/.test(l)) || '(未找到)').trim() + ' :: ' + JSON.stringify({ zero, w: stats.rule9WunresolvedReasons }) + ' ' + (c.ok === null ? 'SKIP' : c.err || 'OK') }
+})
+
 // ── 变异工具：把**真源码**定点切片改写后落到 os.tmpdir()，只用于自证（真树不动）────────────
 const toTempModule = (src) => src.replace(/from '\.\/([^']+)'/g, (all, f) => 'from ' + JSON.stringify(path.join(ROOT, 'core', f)))
 function loadMutant(src, slices, tag) {
@@ -384,8 +570,27 @@ const PKG_EXTRACT = process.env.MPW_PKG_EXTRACT
 const EXPECT_CHANGED = [
   { id: 'allwallpaper/0923/3278399262/scene.pkg::shaders/effects/cloudmotion.vert', why: '规则 9：`varying vec2 v_NoiseCoord; v_NoiseCoord = v_TexCoord;`（v_TexCoord=vec4）', must: /v_NoiseCoord = v_TexCoord\.xy;/, compiles: true },
   { id: 'allwallpaper/0923/3582367840/scene.pkg::shaders/effects/shimmer.frag', why: '规则 9a-2：`vec3 shimmerColor = texSample2D(g_Texture3, …)`（返回 vec4）', must: /vec3 shimmerColor = \(texture\(g_Texture3,[^\n]*\)\)\.xyz;/, compiles: true },
-  { id: 'allwallpaper/0923/3690417937/scene.pkg::shaders/workshop/2138904733/effects/cutout_vignette.frag', why: '规则 9a-2：`vec3 albedo = texSample2D(g_Texture0, …)`（返回 vec4）', must: /vec3 albedo = \(texture\(g_Texture0,[^\n]*\)\)\.xyz;/, compiles: false },
-  { id: 'allwallpaper/0923/2902406982/scene.pkg::shaders/workshop/2423877731/effects/chromatic_aberration.frag', why: '规则 9a-2：`float pointer = g_PointerPosition * u_pointerSpeed;` + `vec3 finalColor = vec4(…)`', must: /float pointer = \(g_PointerPosition \* u_pointerSpeed\)\.x;/, compiles: false },
+  { id: 'allwallpaper/0923/3690417937/scene.pkg::shaders/workshop/2138904733/effects/cutout_vignette.frag', why: '规则 9a-2：`vec3 albedo = texSample2D(g_Texture0, …)`（返回 vec4）+ ②(G 线) 9-W 二元截断 `v_TexCoord`(vec3) - `vec2(u_offset)` ⇒ `.xy`', must: /length\(abs\(v_TexCoord\.xy - vec2\(u_offset\)\)/, compiles: true },
+  { id: 'allwallpaper/0923/2902406982/scene.pkg::shaders/workshop/2423877731/effects/chromatic_aberration.frag', why: '规则 9a-2：`float pointer = g_PointerPosition * u_pointerSpeed;` + `vec3 finalColor = vec4(…)` + ②(G 线) 9-W 二元截断 `(u_rOffset * timer + pointer).xy` + **fmod 重写**', must: /\(u_rOffset \* timer \+ pointer\)\.xy\)/, compiles: true },
+  // ①(ISSUE0924A2 2026-09-24 渲染器"效果链编译失败"线) **变化集从 4 条变 5 条是新增规则 9-S 造成的**，
+  //   不是回归（明细见 docs/reports-issue0924a2-line-D.md §3）。同文件里另有"二元运算两侧宽度不同"的
+  //   形态（`v_TexCoord * 2.0 - vec2(...)`）⇒ ②(G 线)规则 9-W 接着把它治了，故本条 `compiles` 由
+  //   `false` **显式改为 `true`**（真编译口径见 §4.3；不是放宽语义，是"旧输出本来就编不过"）。
+  { id: 'allwallpaper/0923/2902406982/scene.pkg::shaders/workshop/2800594362/effects/clipping_mask.frag', why: '规则 9-S + **9-W**：采样坐标 `.xy` + 二元截断 `(v_TexCoord * 2.0 - 1.0).xy`', must: /\(\(v_TexCoord \* 2\.0 - 1\.0\)\.xy - \(u_texScaleCenter \* 2\.0 - 1\.0\)\)/, compiles: true },
+  // ── ②(G 线 2026-09-25) 规则 9-W（表达式级宽度推断）+ `fmod` 重写带来的**新增**变化项 ──────────────
+  //   **每一条都先经 B2 验过"改前编不过"**（否则就是回归，不许进这个白名单）：真编译器档逐条读数见
+  //   docs/reports-issue0924a2-line-G.md §4.3。`why` 写清是哪条子规则、认哪个声明。
+  { id: 'allwallpaper/0917/3588181703/scene.pkg::shaders/workshop/2973943998/effects/iris_movement__.vert', why: '9-W 二元截断：`transformedCursorPosition`(vec4) * `g_CursorScale`(vec2) ⇒ `.xy`', must: /vec2 da = transformedCursorPosition\.xy \* g_CursorScale/, compiles: true },
+  { id: 'allwallpaper/0923/3653641024/scene.pkg::shaders/workshop/3221939295/effects/____________________.frag', why: '9-W 二元截断（**截右侧**）：`vec2(500) / g_Texture0Resolution`(vec4) ⇒ `.xy`', must: /\(vec2\(500\) \/ g_Texture0Resolution\.xy\)/, compiles: true },
+  { id: 'allwallpaper/0923/3653641024/scene.pkg::shaders/effects/godrays_cast.frag', why: '9-W `const float = <int 表达式>` ⇒ `float(sampleCount - 1)` + int 表达式 ⊗ 浮点标量 ⇒ `float(i)`', must: /const float sampleDrop = float\(sampleCount - 1\);/, compiles: true },
+  { id: 'allwallpaper/0923/3479521040/scene.pkg::shaders/workshop/3088030303/effects/shadow.vert', why: '9-W int 字面量 ⊗ 浮点向量（`1` ⇒ `1.0`）+ 声明截断（`.x`）+ 标量广播（`max(vec2(1.0), …)`）；**该 shader 仍编不过**，卡在另一族（顶点写 attribute）', must: /float atFactor = \(\(1\.0 \+ \(abs\(u_shadowOffset\) \+ abs\(g_ParallaxPosition \* u_ParallaxScale\)\) \* 2\.0\) \* max\(vec2\(1\.0\), abs\(u_ShadowScale\)\)\)\.x;/, compiles: false },
+  { id: 'allwallpaper/0923/3521337568/scene.pkg::shaders/effects/shine_cast.frag', why: '9-W `const float = <int 表达式>` + `i / sampleDrop` ⇒ `float(...)`（effects/ 与 workshop/ 两份同名源各一条）', must: /const float sampleDrop = float\(sampleCount - 1\);/, compiles: true },
+  { id: 'allwallpaper/0923/3521337568/scene.pkg::shaders/workshop/2865559209/effects/shine_cast.frag', why: '9-W 同上（工坊副本）', must: /const float sampleDrop = float\(sampleCount - 1\);/, compiles: true },
+  { id: 'allwallpaper/0917/3233141951/scene.pkg::shaders/workshop/2114826643/effects/shift_hue.frag', why: '9-W 分量式内建**向量实参**截断：`mix(albedo`(vec4)`, newAlbedo`(vec3)`, mask)` ⇒ `albedo.xyz`（GLSL 无此重载）', must: /albedo\.rgb = mix\(albedo\.xyz, newAlbedo, mask\);/, compiles: true },
+  { id: 'allwallpaper/dd/3327063360/scene.pkg::shaders/workshop/2193274282/effects/hue_shift.frag', why: '9-W 同上（另一份同名源：`mix(vec4, vec3, float)` ⇒ `albedo.xyz`）', must: /albedo\.rgb = mix\(albedo\.xyz, newAlbedo, mask\);/, compiles: true },
+  { id: 'allwallpaper/0923/3653641024/scene.pkg::shaders/workshop/3021673417/effects/Simple_Audio_Bars.frag', why: '9-W int 表达式 ⊗ 浮点标量：`bar * u_BarOpacity` ⇒ `float(bar) * …`（两处，现用分支里 `bar` 是 `int`）；**该 shader 仍编不过**，卡在另一族：既有 `%`→`mod` 重写不看目标类型（`uint barFreq1 = mod(frequency, 32.0);` ⇒ float→uint）', must: /float\(bar\) \* u_BarOpacity/, compiles: false },
+  { id: 'allwallpaper/0923/3690417937/scene.pkg::shaders/effects/glitter_prepare.vert', why: '9-W int 字面量 ⊗ 浮点向量：`vec2(…) * 5` ⇒ `* 5.0`', must: /vec2\(a_TexCoord\.x, a_TexCoord\.y\) \* 5\.0;/, compiles: true },
+  { id: 'allwallpaper/dd/3544152633/scene.pkg::shaders/workshop/3200298808/effects/edgedetection.frag', why: '9-W int 字面量 ⊗ 浮点向量：`(sample21 - sample01) * 2` ⇒ `* 2.0`（两处；同文件另有 9 条右值解析放弃 = 原样保留）', must: /\(sample21 - sample01\) \* 2\.0/, compiles: true },
 ]
 // 语料快照（2026-09-23 本机全量跑出来的真值，钉住"变化集精确相等"的判定口径）：
 //   `shaders` = 去重后的 shader 文件数；`sourceDigest` = 全部 shader **源** sha256 排序后拼接的 sha256。
@@ -424,8 +629,9 @@ async function runCorpus(api, beforeApi, headApi) {
   const { parsePkg, readPkgEntry } = await import(pathToFileURL(PKG_EXTRACT).href)
   const seen = new Set()
   const rows = []
-  const totals = { widthDecls: 0, rule9: 0, rule93: 0, rule9a2: 0, unresolved: 0 }
+  const totals = { widthDecls: 0, rule9: 0, rule93: 0, rule9a2: 0, ruleSample2D: 0, rule9Wbin: 0, rule9Wdecl: 0, rule9Wint: 0, rule9Wconst: 0, rule9Wbcast: 0, rule9Warg: 0, rule9Wunresolved: 0, ruleFmod: 0, unresolved: 0 }
   const reasons = {}
+  const reasons9W = {}
   const srcShas = []
   const headDiff = []
   let headCompared = 0
@@ -453,9 +659,10 @@ async function runCorpus(api, beforeApi, headApi) {
         try { head = headApi.hlsl2glsl(src, stage, {}, includeResolver) } catch (ex) { head = 'THREW:' + String(ex && ex.message) }
         if (head !== before) { headDiff.push(path.relative(MPW_ROOT, p.fp) + '::' + e.path) }
       }
-      const st = { ...api.stats, unresolvedReasons: { ...api.stats.unresolvedReasons } }
-      for (const k of ['widthDecls', 'rule9', 'rule93', 'rule9a2', 'unresolved']) totals[k] += st[k]
+      const st = { ...api.stats, unresolvedReasons: { ...api.stats.unresolvedReasons }, rule9WunresolvedReasons: { ...api.stats.rule9WunresolvedReasons } }
+      for (const k of ['widthDecls', 'rule9', 'rule93', 'rule9a2', 'ruleSample2D', 'rule9Wbin', 'rule9Wdecl', 'rule9Wint', 'rule9Wconst', 'rule9Wbcast', 'rule9Warg', 'rule9Wunresolved', 'ruleFmod', 'unresolved']) totals[k] += st[k]
       for (const [k, v] of Object.entries(st.unresolvedReasons)) reasons[k] = (reasons[k] || 0) + v
+      for (const [k, v] of Object.entries(st.rule9WunresolvedReasons)) reasons9W[k] = (reasons9W[k] || 0) + v
       rows.push({
         id: path.relative(MPW_ROOT, p.fp) + '::' + e.path,
         stage, sSha,
@@ -470,7 +677,7 @@ async function runCorpus(api, beforeApi, headApi) {
   }
   srcShas.sort()
   return {
-    rows, totals, reasons,
+    rows, totals, reasons, reasons9W,
     digest: sha256(srcShas.join('\n')),
     pkgs: picked.length, pkgsAll: pkgs.length, oneMb: ONE_MB, headDiff, headCompared,
   }
@@ -499,11 +706,20 @@ async function redSetOf(src, mutate, tag) {
 //       · A14 / A16（边界形态"不计数"= 全 0）—— 规则没跑，计数器当然是 0；
 //       · A17 / A25（宽度推不出 ⇒ 逐字保留）—— 规则没跑，当然逐字保留。
 //     它们的"另一半"（A3/A6/A21/A26/A18 的**计数**、A1/A4/A7/A9/A11/A12 的**改写**）才是判别位。
-const EXPECT_RED_NO_TABLE = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10', 'A11', 'A12', 'A18', 'A20', 'A21', 'A23', 'A24', 'A26']
-//   ②9-3 比较方向写反（`rw >= lw ⇒ 不动`）⇒ 真阳性 A4/A5/A6/A20/A21/A23 不再补 swizzle ⇒ 红；
+const EXPECT_RED_NO_TABLE = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10', 'A11', 'A12', 'A18', 'A20', 'A21', 'A23', 'A24', 'A26',
+  // ②(G 线 2026-09-25) 规则 9-W 的真阳性/计数断言：9-W 也在这个 `if (w9Width.size > 0)` 闸门内
+  //   ⇒ 关掉宽度表时**一条都不跑** ⇒ 凡断言"改写了/计数了"的 A27-A33、A35 全红。
+  //   A34 不在期望红集里：它断言的是"不许动 + 计数为 0"这种**单向**结论 —— 规则没跑当然仍成立
+  //   （与 A13/A15 同类，是分辨力方向性的证据，不是漏洞）。
+  'A27', 'A28', 'A29', 'A30', 'A31', 'A32', 'A33', 'A35', 'A36']
+//   ②9-3 比较方向写反（`rw >= lw ⇒ 不动`）⇒ 真阳性 A4/A6/A20/A21/A23 不再补 swizzle ⇒ 红；
 //     A16 因为"纯标量右值"也会掉进 `rw=0 ⇒ 继续` 而多计一次 rule93 ⇒ 红；
-//     规则 9 与 9a-2 的断言、以及"逐字不变"类（A13/A15/A17/A25）不受影响 ⇒ 绿。
-const EXPECT_RED_FLIP_93 = ['A4', 'A5', 'A6', 'A16', 'A20', 'A21', 'A23']
+//     规则 9 与 9a-2 的断言、以及"逐字不变"类（A13/A15/A17/A25/A34）不受影响 ⇒ 绿。
+//     **A5 从期望红集里移出（G 线 2026-09-25）**：A5 断言的是 F93 产物的**真编译**结果，而 G 段新增的
+//     规则 9-W 是 9-3 的超集 —— 9-3 方向写反后，9-W 仍然会兜住 `s *= 500.0 / g_Texture0Resolution`
+//     （截右为 `(500.0 / g_Texture0Resolution).xy`，写法不同但同样合法）⇒ 产物**仍然编得过** ⇒ A5 变绿。
+//     这不是"判据失效"：同一形态的**文本精确**断言 A4 仍红，而 A5 的语义从此由 A29 那一族接棒。
+const EXPECT_RED_FLIP_93 = ['A4', 'A6', 'A16', 'A20', 'A21', 'A23']
 //   ③"推不出 ⇒ 原样保留 + 计数"改成静默处理 ⇒ 规则 9 的 A25（逐字保留）/A26（计数）红；
 //     9-3 那一半只红 A18（**计数**）—— 实测发现它**红不了 A17**：静默分支即便走到最后，
 //     补 swizzle 的那一步也是按宽度表找标识符的，未声明的 `g_Texture0Resolution` 不在表里 ⇒
@@ -566,6 +782,7 @@ else {
       ' · 变化集 ' + changed.length + ' 条')
     console.log('  sourceDigest = ' + R.digest)
     console.log('  计数器: ' + JSON.stringify(R.totals) + ' · unresolved 原因: ' + JSON.stringify(R.reasons))
+    console.log('  9-W 自己的 unresolved 原因: ' + JSON.stringify(R.reasons9W))
     console.log('  变化明细（逐条列出）：')
     for (const r of changed) console.log('    · ' + r.id + '  [' + r.stage + '] ' + JSON.stringify(r.stats))
     // 逐条 sha256 口径：before/after 各自 sha256（未变的条目 before===after ⇒ sha 相同）
@@ -586,7 +803,7 @@ else {
     const snapshotMatch = R.digest === CORPUS_SNAPSHOT.sourceDigest && R.rows.length === CORPUS_SNAPSHOT.shaders
     if (snapshotMatch) {
       line(changedIds.slice().sort().join('\n') === expectIds.slice().sort().join('\n'),
-        'B3 变化集 == 预期集（精确相等，4 条）',
+        'B3 变化集 == 预期集（精确相等，' + expectIds.length + ' 条）',
         changedIds.length === expectIds.length ? '逐条一致' : '多/少：' + JSON.stringify({ 实际: changedIds, 预期: expectIds }))
     } else {
       console.log('  DRIFT 语料与记录快照不同（记录 ' + CORPUS_SNAPSHOT.shaders + '/' + String(CORPUS_SNAPSHOT.sourceDigest).slice(0, 16) +
@@ -611,6 +828,11 @@ else {
     const knownReasons = new Set(['9-rhs-width-unknown', '9-3-rhs-type-unknown', '9-3-rhs-type-ambiguous', '9-3-rhs-width-conflict', '9a2-float-head-vector-but-width-unprovable', '9a2-vec-head-wider-but-width-unprovable'])
     line(Object.keys(R.reasons).every((k) => knownReasons.has(k)), 'B6 unresolved（宽度推不出、原样保留）的原因都在已知词表内、且逐条打印',
       JSON.stringify(R.reasons))
+    // B7（G 线 2026-09-25）：9-W 一族**自己的** unresolved 桶也必须可读、且在已知词表内 ——
+    //   与既有 `unresolved` 分开是硬要求（"新规则要有自己的分桶计数，别把旧桶搅乱"）。
+    const known9W = new Set(['9W-operand-width-unprovable', '9W-int-operand-not-literal', '9W-builtin-shape-unmodelled', '9W-width-ambiguous-float-and-vec', '9W-rhs-parse-bail', '9W-stmt-shape-bail'])
+    line(Object.keys(R.reasons9W).every((k) => known9W.has(k)), 'B7 9-W 自己的 unresolved 原因都在已知词表内、且逐条打印（不动既有 unresolved 桶）',
+      JSON.stringify(R.reasons9W) + ' · 既有桶=' + JSON.stringify(R.reasons))
   }
 }
 

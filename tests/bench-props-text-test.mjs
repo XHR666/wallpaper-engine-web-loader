@@ -4,6 +4,13 @@
 //   6  文案里残留字面量 `&nbsp;` ⇒ 解码收口（双重编码 `&amp;nbsp;` + 无分号 `&nbsp`）
 //   7  `BV1xzpee9EAF(点击跳转)` ⇒ 变成 B 站链接 `https://b23.tv/BV1xzpee9EAF`（**走既有 link 通道**）
 //
+// ②(2026-09-25 issue0924a2 用户第 2 条复测)**契约更新**：
+//   · 归并规则从"候选要尺寸证据（两张都 load 成功且宽高完全相同）"改成**强制归并**（身份键相等 = 同一张画面）；
+//     尺寸证据降级为**只进台账**（`report().variants.evidence`：相同/不同/未知各几张）；
+//   · 面板里的图有**两个来源**（产物自己渲染的 `div.prop-media img` + 属性文案 tokenize 出来的
+//     `img.bench-prop-img`）⇒ 现在共用同一本账（`dedupeRowMediaImages`），真机读数从 44 张压到 7 张；
+//   · "图没显示出来就把它的链接显示出来"这条兜底删除：锚内没有可见内容的链接整条不画。
+//
 // 判据优先用**纯函数**（`decodePropEntities` / `parsePropRichText` 都是导出的），DOM 那一半（图片去重）
 // 用源码级接线 + 既有 `bench-ui-headless` 的 P 组端到端兜住。含分辨力自证。
 //
@@ -99,17 +106,17 @@ console.log('\n== 5 图片去重（用户第 3 档「任何一张图在整个面
     normalizeRichImageUrl('https://photg.example:443/psc?/U/A') === 'https://photg.example/psc?/U/A' &&
     normalizeRichImageUrl('http://photg.example/psc?/U/A?x=1') === 'http://photg.example/psc?/U/A?x=1',
     JSON.stringify(normalizeRichImageUrl('HTTP://Photg.Example:80/psc?/U/A#frag')))
-  ok('5b 规则 ⓑ 只删**白名单**参数：`wx_fmt`/`wxfrom`/`wx_lazy`/`wx_co`/`bo`/`rf`/`x-oss-process=`/`@100w…`/`_!web-…`',
+  ok('5b 规则 ⓑ 删**处理类参数/后缀**（白名单，② 起含尺寸/质量类：`wx_fmt`/`wxfrom`/`wx_lazy`/`wx_co`/`bo`/`rf`/`x-oss-process=`/`@100w…`/`_!web-…`）',
     richImageKey(F1) === richImageKey(F2) && richImageKey(W1) === richImageKey(W2) &&
     richImageKey('https://i.example/d/p.jpg?x-oss-process=image/resize,w_200') === richImageKey('https://i.example/d/p.jpg') &&
     richImageKey(B1) === richImageKey('https://i.example/b/pic.jpg'),
     JSON.stringify([richImageKey(F1), richImageKey(W1)]))
-  ok('5c ★**不在白名单里的一律保留**（`t=`、无名段、图片 id 段）：删了它们会把不同图压成一张',
+  ok('5c ★**身份段一律保留**（无名段 / 图片 id 段 / 不在处理类名单里的具名参数）：删了它们会把不同图压成一张',
     richImageKey(QPIC4[0]) !== richImageKey(QPIC4[1]) &&
     richImageKey(QPIC4[1]) !== richImageKey(QPIC4[2]) &&
     richImageRelation(QPIC4[0], QPIC4[1]) === 'different' &&
     richImageKey(QPIC4[1]).indexOf('/V54UQdlK3naUxA4J47wN15WVMc4bjxtJ/') > 0)
-  ok('5d `richImageRelation`：同一资源 = `same-resource`（规则 ⓐ，无条件）；变体 = `variant-candidate`（要证据）',
+  ok('5d `richImageRelation`：同一资源 = `same-resource`（规则 ⓐ）；变体 = `variant-candidate`（规则 ⓑ，② 起**也归并**）',
     richImageRelation(U, U) === 'same-resource' && richImageRelation(S1, S2) === 'variant-candidate' &&
     richImageRelation(F1, F2) === 'variant-candidate' && richImageRelation(U, V) === 'different',
     JSON.stringify([richImageRelation(U, U), richImageRelation(S1, S2), richImageRelation(U, V)]))
@@ -160,17 +167,22 @@ console.log('\n== 5 图片去重（用户第 3 档「任何一张图在整个面
     JSON.stringify(runOne([S1, S2], { sizes: { [S1]: SZ(200, 112), [S2]: SZ(200, 112) } }).report.duplicateGroups))
   ok('5n ★真阳性②（规则 ⓑ+ⓒ）：格式/水印类后缀（`wx_fmt` 族 / `_!web-…`）尺寸相同 ⇒ 各压成 1 张',
     runOne([F1, F2, W1, W2], { sizes: { [F1]: SZ(640, 360), [F2]: SZ(640, 360), [W1]: SZ(800, 450), [W2]: SZ(800, 450) } }).drawn.length === 2)
-  ok('5o ★真阴性①（规则 ⓒ **硬否决**）：同 id 两种尺寸后缀但载入尺寸**不同**（100×56 vs 600×338）⇒ 一定不归并',
+  /*  ②(2026-09-25 用户第 2 条) **契约翻转**：旧版"尺寸不同 ⇒ 一定不归并"（5o）/ "证据缺失 ⇒ 不归并"（5p）
+      正是用户复测看到的"还是有重复的图片"（作者重传的图尺寸就是不一样；远程图在无网/被墙时也永远拿不到尺寸）。
+      现在：身份键相等 ⇒ **无条件归并**，证据只进台账。这两条断言因此从"真阴性"翻成"强制阳性"，
+      并且**同时**断言台账里如实写着"当时尺寸不同/未知"（不是静默）。 */
+  ok('5o ★★强制归并（用户第 2 条）：同 id 两种尺寸后缀、载入尺寸**不同**（100×56 vs 600×338）⇒ **仍然只画一遍**，台账写明 `different`',
     (() => {
       const r = runOne([B1, B2], { sizes: { [B1]: SZ(100, 56), [B2]: SZ(600, 338) } })
-      return r.drawn.length === 2 && r.report.variants.unmerged === 1 && r.report.variants.merged === 0
+      return r.drawn.length === 1 && r.report.variants.merged === 1 && r.report.variants.mergedWithDifferentSize === 1 && r.report.variants.unmerged === 0
     })(),
     JSON.stringify(runOne([B1, B2], { sizes: { [B1]: SZ(100, 56), [B2]: SZ(600, 338) } }).report.variants))
-  ok('5p ★真阴性②（规则 ⓒ 证据缺失）：只加载成功一张 / 两张都失败 ⇒ **不归并**（保守），超时兜底要放它们出来',
+  ok('5p ★★强制归并（用户第 2 条）：证据缺失（只加载成功一张 / 两张都失败）⇒ **仍然只画一遍**，台账写明 `unknown`',
     (() => {
       const a = runOne([W1, W2], { sizes: { [W1]: SZ(800, 450), [W2]: { w: 0, h: 0, ok: false } } })
-      const b = runOne([W1, W2])                                   // 两张都没有证据（超时前没 load）
-      return a.drawn.length === 2 && a.report.variants.unmerged === 1 && b.drawn.length === 2 && b.released.length === 1
+      const b = runOne([W1, W2])                                   // 两张都没有证据（还没 load）
+      return a.drawn.length === 1 && a.report.variants.mergedWithUnknownSize === 1 &&
+        b.drawn.length === 1 && b.report.variants.merged === 1 && b.released.length === 0
     })(),
     JSON.stringify(runOne([W1, W2], { sizes: { [W1]: SZ(800, 450), [W2]: { w: 0, h: 0, ok: false } } }).report.variants))
   ok('5q ★同一变体出现两次也只剩一遍（归并确认后按"参考身份"继续记账）',
@@ -264,11 +276,12 @@ console.log('\n== 5 图片去重（用户第 3 档「任何一张图在整个面
     /* 纯函数本身仍保留 `stored` 形参（外部/历史调用面不破），但**运行期不再传它** —— 上面那条正是这个意思 */
     planRichImageMode({ stored: 'row' }).mode === 'row',
     JSON.stringify([planRichImageMode({ url: 'all' }), planRichImageMode({}), planRichImageMode({ stored: 'row' })]))
-  ok('5y 规则 ⓒ 的 DOM 接线：候选先建节点但**藏起来**（`data-bench-img-variant`）、`load`/`error` 都结算、超时兜底放行',
-    /im\.hidden = true; im\.dataset\.benchImgVariant = '1'/.test(SRC) &&
-    /function settleRichImageEvidence\(url, size\)/.test(SRC) && /addEventListener\('load', onEvidence\)/.test(SRC) &&
-    /addEventListener\('error', onEvidence\)/.test(SRC) && /function armRichImageProbeTimer\(\)/.test(SRC) &&
-    /releasePending\('no-size-evidence'\)/.test(SRC) && /RICH_IMAGE_PROBE_MS = 1500/.test(SRC))
+  ok('5y【契约已更新】DOM 接线：① 产物 `.prop-media` 图与文案图由**同一次 DOM 顺序扫**裁定（`sweepPanelImages()`，幂等 + 账本从 DOM 重建）；② 重复的当场藏掉（`data-bench-img-dup`）；③ 尺寸证据只进台账（`recordImageSize`，load/error 都记）',
+    /function sweepPanelImages\(\)/.test(SRC) && /propsBody\.querySelectorAll\('img'\)/.test(SRC) &&
+    /im\.dataset\.benchImgDup = '1'/.test(SRC) && /function recordImageSize\(url, im\)/.test(SRC) &&
+    /addEventListener\('load', \(\) => recordImageSize/.test(SRC) && /addEventListener\('error', \(\) => recordImageSize/.test(SRC) &&
+    /a\.dataset\.benchLinkDup = '1'/.test(SRC) && /a\.dataset\.benchLinkEmpty = '1'/.test(SRC) &&
+    !/RICH_IMAGE_PROBE_MS/.test(SRC) && !/settleRichImageEvidence/.test(SRC))
   /** `SITE_LAYOUT_CSS` 数组块的**切片**（不含后面运行期注入的 `BENCH_PICK_CSS`）：样式通道的判据要用它。 */
   const siteLayoutBlock = (s) => {
     const i = s.indexOf('const SITE_LAYOUT_CSS = [')
@@ -279,8 +292,9 @@ console.log('\n== 5 图片去重（用户第 3 档「任何一张图在整个面
   ok('5z 【契约已更新】控件那 5 条样式已从 `BENCH_PICK_CSS` 一起删除；`SITE_LAYOUT_CSS` 里当然也没有（D8 逐条等价不受影响）',
     !/bench-imgmode/.test(siteLayoutBlock(SRC)) && !/'#bench-imgmode/.test(SRC) &&
     /'\.bench-prop-img\[data-bench-img-unmerged="1"\]\{outline:1px dashed var\(--border\)\}'/.test(SRC))
-  ok('5za 探针入口扩了读数：`propsImages()` 给 rendered/probes/unmerged/modeSource/natural（旧字段一个没删）',
-    /function propsImages\(\)/.test(SRC) && /probes: imgs\.length - visible\.length/.test(SRC) &&
+  ok('5za【契约已更新】探针入口扩了读数：`propsImages()` 现在**两个来源都算**（rendered/ours/media/hiddenDup/links/linksHiddenDup/modeSource/natural/report）',
+    /function propsImages\(\)/.test(SRC) && /media: media\.filter\(\(im\) => !im\.hidden\)\.length/.test(SRC) &&
+    /hiddenDup: all\.filter/.test(SRC) && /linksHiddenDup:/.test(SRC) &&
     /modeSource: richImageModePlan\(\)\.source/.test(SRC) && /propsImages: \(\) => propsImages\(\)/.test(SRC))
   /* 改名**只改一半**是这类改动的经典事故（真发生过：声明与 get 改了、`setItem` 里还是旧名 ⇒
      `ReferenceError` 被 try/catch 吞掉 ⇒ "折叠状态记不住"这种静默失效）。判据：三处同一新名 + 全文 0 处旧名。 */
@@ -299,10 +313,10 @@ console.log('\n== D 分辨力自证 / 变异自证（改回去/改错必红；�
   ok('D2 没有 BV 分支时 `BV1xzpee9EAF` 只会是纯文本 ⇒ 7a 必红（裸 BV 现在也是链接：它就是 B 站 id）',
     parsePropRichText('BV1xzpee9EAF').filter((x) => x.k === 'link').length === 1
     && parsePropRichText('随便一句话，没有视频号').filter((x) => x.k === 'link').length === 0)
-  ok('D3 源码级：去重收口在**渲染期**（tokenizer 之后），且判定走账本 `pass.take(...)` 而不是"键相等就跳过"',
-    /const verdict = pass \? pass\.take\(info\.href, richImageScope\)/.test(SRC) &&
-    /if \(!verdict\.draw && !verdict\.hold\)/.test(SRC) && /const pass = richImagePass/.test(SRC) &&
-    !/const seenSrc = new Set\(\)/.test(SRC))
+  ok('D3 源码级：去重收口在**渲染之后的一次 DOM 顺序扫**（tokenizer 语义不动），判定走账本 `richImagePass.take(...)` 而不是"键相等就跳过"',
+    /function sweepPanelImages\(\)/.test(SRC) && /const v = richImagePass\.take\(src, 0\)/.test(SRC) &&
+    /if \(v\.draw\) continue/.test(SRC) && !/const seenSrc = new Set\(\)/.test(SRC) &&
+    /propsBody\.querySelectorAll\('img'\)/.test(SRC))
 
   /* ── 变异自证（**纯函数层**）：同一批 claim 跑"真实现"与"被变异实现"，期望红集 == 实际红集 ──────
      为什么这样做：claim 是**真断言**（改坏了哪条会红，是算出来的，不是我声明的）。 */
@@ -366,18 +380,21 @@ console.log('\n== D 分辨力自证 / 变异自证（改回去/改错必红；�
       { id: 'C4-row 档跨行重复重现', sc: { urls: [U2, U2, U2], mode: 'row', scope: (i) => i }, want: (r) => r.drawn.length === 3 },
       { id: 'C5-尺寸后缀等价 ⇒ 归并', sc: { urls: [S1, S2], sizes: { [S1]: SZ(200, 112), [S2]: SZ(200, 112) } }, want: (r) => r.drawn.length === 1 },
       { id: 'C6-格式/水印类 ⇒ 归并', sc: { urls: [F1, F2, W1, W2], sizes: { [F1]: SZ(640, 360), [F2]: SZ(640, 360), [W1]: SZ(800, 450), [W2]: SZ(800, 450) } }, want: (r) => r.drawn.length === 2 },
-      { id: 'C7-尺寸不同 ⇒ 一定不归并', sc: { urls: [B1, B2], sizes: { [B1]: SZ(100, 56), [B2]: SZ(600, 338) } }, want: (r) => r.drawn.length === 2 },
-      { id: 'C8-证据缺失 ⇒ 不归并', sc: { urls: [W1, W2] }, want: (r) => r.drawn.length === 2 },
+      /* ②(2026-09-25 用户第 2 条) 这两条 claim 从"真阴性"翻成"强制归并"：键相等就是同一张画面。 */
+      { id: 'C7-尺寸不同 ⇒ 仍然归并（强制档）', sc: { urls: [B1, B2], sizes: { [B1]: SZ(100, 56), [B2]: SZ(600, 338) } }, want: (r) => r.drawn.length === 1 },
+      { id: 'C8-证据缺失 ⇒ 仍然归并（强制档）', sc: { urls: [W1, W2] }, want: (r) => r.drawn.length === 1 },
       { id: 'C9-反例护栏 qpic 4 张真图', sc: { urls: QPIC4 }, want: (r) => r.drawn.length === 4 },
       { id: 'C10-分隔图保留', sc: { urls: SEP }, want: (r) => r.drawn.length === 3 },
       { id: 'C11-同一变体两次 ⇒ 一遍', sc: { urls: [S1, S2, S2], sizes: { [S1]: SZ(200, 112), [S2]: SZ(200, 112) } }, want: (r) => r.drawn.length === 1 },
     ]
     const MUTANTS = [
-      { id: 'M1-去掉尺寸护栏', why: '同候选键就归并（不看尺寸、不等证据）', impl: (sc) => mergeByKey(sc, richImageKey), expect: ['C7-尺寸不同 ⇒ 一定不归并', 'C8-证据缺失 ⇒ 不归并'] },
-      { id: 'M2-丢掉图片 id', why: '归并键 = host+path（query 整个丢掉）', impl: (sc) => mergeByKey(sc, hostPath), expect: ['C2-跨行同一 URL 只画一遍', 'C5-尺寸后缀等价 ⇒ 归并', 'C6-格式/水印类 ⇒ 归并', 'C9-反例护栏 qpic 4 张真图', 'C11-同一变体两次 ⇒ 一遍'] },
+      /*  ② 新契约下的变异体：旧 M1（"去掉尺寸护栏"）现在**就是实现**，不再是变异；
+          换成的两组变异体各自打掉"身份键"的一半能力（整条归并 / 只按 host）。 */
+      { id: 'M1-只按逐字节 URL 归并（身份归并整条失效）', why: '把规则 ⓑ 拿掉（回到"同一 URL 才去重"）', impl: (sc) => mergeByKey(sc, (u) => normalizeRichImageUrl(u)), expect: ['C5-尺寸后缀等价 ⇒ 归并', 'C6-格式/水印类 ⇒ 归并', 'C7-尺寸不同 ⇒ 仍然归并（强制档）', 'C8-证据缺失 ⇒ 仍然归并（强制档）', 'C11-同一变体两次 ⇒ 一遍'] },
+      { id: 'M2-丢掉图片 id', why: '归并键 = host+path（query 整个丢掉）—— 它压不掉 path 上的尺寸后缀，也放过不了 qpic 那 4 张同 path 真图', impl: (sc) => mergeByKey(sc, hostPath), expect: ['C2-跨行同一 URL 只画一遍', 'C5-尺寸后缀等价 ⇒ 归并', 'C6-格式/水印类 ⇒ 归并', 'C7-尺寸不同 ⇒ 仍然归并（强制档）', 'C8-证据缺失 ⇒ 仍然归并（强制档）', 'C9-反例护栏 qpic 4 张真图', 'C11-同一变体两次 ⇒ 一遍'] },
       { id: 'M3-all 档失效', why: '`?propimg=all` 按 once 跑（其余档不动）', impl: (sc) => runPass2(sc.mode === 'all' ? Object.assign({}, sc, { mode: 'once' }) : sc), expect: ['C3-all 档完全不去重'] },
       { id: 'M4-账本退回每行一个', why: '第一版 `seenSrc` 的忠实复刻（每条属性行一份账本）', impl: perRowLedger, expect: ['C2-跨行同一 URL 只画一遍'] },
-      { id: 'M5-证据缺失即归并', why: '把"拿不到尺寸"当成"同一张"（与规则 ⓒ 相反）', impl: (sc) => { const r = runPass2(sc); return { drawn: r.drawn.filter((u, i) => !r.verdicts[i].hold) } }, expect: ['C8-证据缺失 ⇒ 不归并'] },
+      { id: 'M5-只按 host 归并（丢 path）', why: '归并键过宽 ⇒ 不同图被压成一张（反例护栏必须红）', impl: (sc) => mergeByKey(sc, (u) => { const x = new URL(u); return x.host }), expect: ['C2-跨行同一 URL 只画一遍', 'C9-反例护栏 qpic 4 张真图', 'C10-分隔图保留'] },
     ]
     const realOf = {}
     for (const c of CLAIMS) realOf[c.id] = !!c.want(runPass2(c.sc))
@@ -395,7 +412,7 @@ console.log('\n== D 分辨力自证 / 变异自证（改回去/改错必红；�
       if (same) mutOk++
       console.log((same ? '  MUTANT-RED-OK ' : '  MUTANT-RED-MISMATCH ') + m.id + '（' + m.why + '） 期望红集=' + JSON.stringify(exp) + ' 实际红集=' + JSON.stringify(act))
     }
-    ok('D4 ★变异自证 ≥3 组：期望红集 == 实际红集（' + mutOk + '/' + MUTANTS.length + ' 组；含"去掉尺寸护栏""丢掉图片 id""all 档失效""账本退回每行一个""证据缺失即归并"）',
+    ok('D4 ★变异自证 ≥3 组：期望红集 == 实际红集（' + mutOk + '/' + MUTANTS.length + ' 组；含"身份归并整条失效""丢掉图片 id""all 档失效""账本退回每行一个""只按 host 归并"）',
       mutOk === MUTANTS.length && MUTANTS.length >= 3 && Object.values(realOf).every(Boolean),
       JSON.stringify({ mutants: MUTANTS.length, redOk: mutOk, realClaims: Object.values(realOf).filter(Boolean).length + '/' + CLAIMS.length }))
   }
@@ -414,7 +431,11 @@ console.log('\n== D 分辨力自证 / 变异自证（改回去/改错必红；�
       { id: 'S1-URL 档优先的接线', re: /planRichImageMode\(\{ url \}\)/, mutate: (s) => s.replace('planRichImageMode({ url })', 'planRichImageMode({ url: "" })') },
       /* S2/S5 同步契约变更：旧 claim 盯"开关 id + 三档"，现改为**"控件不许回来"** —— 变异 = 把开关构造塞回去。 */
       { id: 'S2-面板开关不许回来（第 3 条）', claim: (s) => !/buildImgModeControl/.test(s), mutate: (s) => s.replace('  function paintImgModeControl() { return richImageModePlan() }', '  function buildImgModeControl() { return null }\n  function paintImgModeControl() { return richImageModePlan() }') },
-      { id: 'S3-变体探针藏起来 + 结算', re: /im\.hidden = true; im\.dataset\.benchImgVariant = '1'/, mutate: (s) => s.replace("im.hidden = true; im.dataset.benchImgVariant = '1'", "im.hidden = false") },
+      /*  ②(2026-09-25 用户第 2 条) S3【契约已更新】：旧 claim 盯"变体探针藏起来"（那套探针已随强制档删除）；
+          新 claim 盯**真机那条重复的来源**：产物自己渲染的 `.prop-media` 图必须进同一本账
+          （变异 = 把 `dedupeRowMediaImages` 的调用拆掉 ⇒ 真机上同一张画面又会画 44 遍）。 */
+      /*  claim 盯的是**调用点**（`try { sweepPanelImages() } catch`），不是函数定义 —— 盯定义会恒真。 */
+      { id: 'S3-产物 .prop-media 图进同一本账（DOM 顺序扫，调用点）', re: /try \{ sweepPanelImages\(\) \} catch/, mutate: (s) => s.replace('try { sweepPanelImages() } catch', 'try { void 0 } catch') },
       /* S4【契约已更新】：旧的触发者（面板开关的 change）已删，但"原地重画"这条**能力**必须还在 ——
          claim = `redrawPropsRich()` 真的重建账本并重画（变异 = 把账本重建那行拆掉）。 */
       { id: 'S4-原地重画（账本重建 + 重画）仍接线', claim: (s) => /function redrawPropsRich\(\)[\s\S]{0,400}?newRichImagePassFor\(plan\.mode, richImagePassItem\)/.test(s), mutate: (s) => s.replace('newRichImagePassFor(plan.mode, richImagePassItem)', 'void 0') },
@@ -441,5 +462,5 @@ console.log('\n== D 分辨力自证 / 变异自证（改回去/改错必红；�
 }
 
 console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败')
-if (fail === 0) console.log('✓ 属性面板富文本通过：nbsp 收口（含双重/无分号、不过度解码）/ BV 转链接走既有白名单通道 / 图片去重三规则（①逐字节同一资源无条件一遍 ②只差尺寸·格式·水印类参数或后缀的算候选 ③候选要两张都 load 成功且原始宽高相同才归并）+ 反例护栏 + 三层回退（URL 档 > 面板开关 > 缺省）+ 10 组变异自证')
+if (fail === 0) console.log('✓ 属性面板富文本通过：nbsp 收口（含双重/无分号、不过度解码）/ BV 转链接走既有白名单通道 / 图片去重**强制档**（①逐字节同一资源一遍 ②身份键相等 —— 只差处理类参数/后缀/尺寸标记/http-https/www. —— **无条件归并**，尺寸证据只进台账 ③两个来源共用一本账 ④空壳链接不画）+ 反例护栏 + 两层回退（URL 档 > 缺省 once）+ 10 组变异自证')
 process.exit(fail > 0 ? 1 : 0)

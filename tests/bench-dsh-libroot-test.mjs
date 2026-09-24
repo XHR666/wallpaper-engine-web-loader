@@ -421,16 +421,22 @@ try {
     'A8b 分组标题中英双语都在 DICT 里（不靠硬编码中文）')
   ok(/function propsGroups\(\)/.test(PATCH) && /wePresent|firstChildIsWeGroup/.test(PATCH),
     'A8c 探针 `propsGroups()`（wePresent/weCount/weNames/collapsed/firstChildIsWeGroup/authorRows）—— 门禁与真机读同一入口')
-  /* A9：音量条/传输条的窄宽自适应（改前是固定宽 ⇒ 最小内容宽 ≈326px） */
-  ok(/'#np-volume\{flex:1 1 48px;width:auto;min-width:34px;max-width:96px/.test(PATCH) &&
-    /'#np-audio\{[^']*min-width:0;max-width:100%;box-sizing:border-box;overflow:hidden\}/.test(PATCH) &&
-    /'#np-seek\{position:relative;flex:2 1 32px;min-width:24px/.test(PATCH),
-    'A9 传输条可压缩：`#np-audio` 不越容器（`min-width:0;max-width:100%;overflow:hidden`）+' +
-    '`#np-volume` 从固定 64px 改成可伸缩（`flex:1 1 48px;width:auto;min-width:34px`）')
-  ok(/npGeometry: \(\) => \{/.test(PATCH) && /overflowParts: worst/.test(PATCH) && /parts\[key\] = r/.test(PATCH),
-    'A9a 探针 `npGeometry()` 给出逐元素盒宽 + `overflow/overflowParts` 判据（"滑条不超出容器"可机读）')
-  ok(!/'#np-volume\{flex:none;width:64px/.test(PATCH),
-    'A9b 旧的固定宽规则已删（没有"改一半"：新规则在、旧规则不在）')
+  /*  A9【契约已更新：issue0924a2 用户第 3 条】音量控件搬进**卡片内部**（组件渲染）⇒ 判据拆成两半：
+        · 传输条 `#np-audio` 仍然可压（它还是"壁纸配置最下面那一行"，窄容器下不许溢出）；
+        · 音量滑条本身的可压性现在归**组件 CSS**（`.snd-clock input[type="range"][data-mpw-np-vol-range]`
+          的 `flex: 1 1 auto; min-width: 0`），补丁表里**不再**有 `#np-volume` 的任何形状规则
+          （页面里已经没有那个元素了 —— 有规则没人穿就是孤儿规则）。 */
+  const NP_CSS = fs.readFileSync(path.join(DEMO_DIR, 'now-playing', 'now-playing.css'), 'utf8')
+  ok(/'#np-audio\{[^']*min-width:0;max-width:100%;box-sizing:border-box;overflow:hidden\}/.test(PATCH) &&
+    /'#np-seek\{position:relative;flex:2 1 32px;min-width:24px/.test(PATCH) &&
+    /\.snd-clock input\[type="range"\]\[data-mpw-np-vol-range\] \{[^}]*flex: 1 1 auto;[^}]*min-width: 0;/.test(NP_CSS),
+    'A9 音量/进度都"可压"：`#np-audio` 不越容器（`min-width:0;max-width:100%;overflow:hidden`）+' +
+    '`#np-seek` 可伸缩 + **组件里那条音量轨** `flex:1 1 auto;min-width:0`（③ 起滑条的宽度归组件 CSS）')
+  ok(/npGeometry: \(\) => \{/.test(PATCH) && /overflowParts: worst/.test(PATCH) && /parts\[key\] = r/.test(PATCH) &&
+    /volumeInCard: inside\(volR, card\)/.test(PATCH) && /volumeOverflow\b/.test(PATCH),
+    'A9a 探针 `npGeometry()` 给出逐元素盒宽 + `overflow/overflowParts`（传输条）+ `volumeInCard/volumeOverflow`（卡片里的滑条）—— 两处"不越界"都可机读')
+  ok(!/'#np-volume\{flex:none;width:64px/.test(PATCH) && !/'#np-volume\{/.test(PATCH),
+    'A9b 旧的固定宽规则已删，且补丁表里**不再有任何** `#np-volume{…}` 规则（③ 起它不是页面元素 —— 有规则没人穿 = 孤儿规则）')
 }
 
 /* ═══════════════════════════ 变异自证（MUTANT-RED-OK：改回去必须红）═══════════════════════════
@@ -810,106 +816,96 @@ async function browserStage() {
     })
     ok(g3.collapsed === false, 'B4b 再点一次展开（两态可逆，不是单向开关）', JSON.stringify(g3))
 
-    /* ── B5(用户 A2) 音量条不越容器：窄视口下量盒宽，并**当场复现改前**（注入旧规则）做对照读数 ──────── */
-    const widthRead = async (w) => {
-      await page.setViewportSize({ width: w, height: 720 })
-      await sleep(400)
-      return await page.evaluate((vw) => {
+    /* ── B5(用户 A2 + issue0924a2 用户第 3 条) "滑条不越出容器"：传输条逐元素 + 卡片里的音量轨
+       两级都要量；并**当场做对照**（把滑条强行撑到 400px ⇒ `volumeOverflow` 必须变 true）证明判据不恒真。 ── */
+    const openNpCard = async () => {
+      /*  ③ 起音量轨只在**卡片展开**时存在 ⇒ 量它之前先展开（组件自己的 `.snd-tap`，真点击）。 */
+      await page.evaluate(() => {
         const props = document.querySelector('#props')
         if (props) { props.hidden = false; props.removeAttribute('hidden') }
         const host = document.querySelector('#np-host')
         if (host) host.style.display = ''
+      })
+      for (let i = 0; i < 4; i++) {
+        const g = await page.evaluate(() => (window.__benchPatch && window.__benchPatch.npGeometry ? window.__benchPatch.npGeometry() : null))
+        if (g && g.volumeVisible) return g
+        const tap = await page.$('#np-host .snd-tap')
+        if (tap) { try { await tap.click() } catch { /* 重试 */ } }
+        await sleep(700)
+      }
+      return await page.evaluate(() => (window.__benchPatch && window.__benchPatch.npGeometry ? window.__benchPatch.npGeometry() : null))
+    }
+    const widthRead = async (w) => {
+      await page.setViewportSize({ width: w, height: 720 })
+      await sleep(400)
+      await openNpCard()
+      return await page.evaluate((vw) => {
         const strip = document.querySelector('#np-audio')
         if (strip) strip.style.display = ''
         const api = window.__benchPatch
         const after = api.npGeometry ? api.npGeometry() : null
-        //  改前复现：把旧规则（`#np-volume{flex:none;width:64px}` 等）临时注进去量一次，量完立刻移除
-        //  把容器**限制到 300px**（= 用户机型上「壁纸配置」栏的窄档；自然视口下窄档是全宽、量不出越界）
-        let before = null
+        /*  对照（**同一把尺子**）：把卡片里的滑条强行撑到 400px ⇒ `volumeOverflow` 必须变 true；
+            撤掉注入立刻回 false。改前那套 `#np-volume{flex:none;width:64px}` 复现已退休 ——
+            那个元素现在不在传输条里，量它等于量一条不存在的路径。 */
+        let forced = null
         try {
-          const NARROW = 200      // 旧规则的最小内容宽 ≈ 22(静音)+64(音量)+40(进度)+55(时间)+24(gap)+16(padding) ≈ 221px
-          const props2 = document.querySelector('#props')
-          if (props2) { props2.style.width = NARROW + 'px'; props2.style.maxWidth = NARROW + 'px' }
-          const strip2 = document.querySelector('#np-audio')
-          if (strip2) { strip2.style.width = NARROW + 'px' }
           const st = document.createElement('style')
-          st.id = 'bench-a2-before'
-          st.textContent = '#np-volume{flex:none!important;width:64px!important;min-width:64px!important;max-width:64px!important}'
-            + '#np-seek{flex:1 1 auto!important;min-width:40px!important}'
-            + '#np-time{flex:none!important}#np-stage{flex:0 1 auto!important;max-width:110px!important}'
-            + '#np-audio{overflow:visible!important}'
+          st.id = 'bench-a2-forced'
+          st.textContent = '#np-volume{flex:none!important;width:400px!important;min-width:400px!important;max-width:400px!important}'
           document.head.appendChild(st)
-          before = api.npGeometry ? api.npGeometry() : null
+          forced = api.npGeometry ? api.npGeometry() : null
           st.remove()
-          if (props2) { props2.style.width = ''; props2.style.maxWidth = '' }
-          if (strip2) { strip2.style.width = '' }
-        } catch (e) { before = { error: String(e && e.message) } }
-        const brief = (g) => (g ? { overflow: !!g.overflow, parts: Object.keys(g.parts || {}).length, partRects: Object.fromEntries(Object.entries(g.parts || {}).map(([k, r]) => [k, [Math.round(r.left), Math.round(r.right)]])), stripW: g.strip ? Math.round(g.strip.width) : null, sliderW: g.slider ? Math.round(g.slider.width) : null, sliderRight: g.slider ? Math.round(g.slider.right) : null, stripRight: g.strip ? Math.round(g.strip.right) : null, parts_: g.overflowParts } : null)
-        //  after 也在**同一个 300px 容器**下量一次（这样 before/after 才是同一条件下的对照）
+        } catch (e) { forced = { error: String(e && e.message) } }
+        //  after 也在**同一个 200px 容器**下量一次（这样 after/afterNarrow 才是同一条件下的对照）
         let afterNarrow = null
         try {
           const props3 = document.querySelector('#props')
           if (props3) { props3.style.width = '200px'; props3.style.maxWidth = '200px' }
-          const strip3 = document.querySelector('#np-audio')
-          if (strip3) { strip3.style.width = '200px' }
           afterNarrow = api.npGeometry ? api.npGeometry() : null
           if (props3) { props3.style.width = ''; props3.style.maxWidth = '' }
-          if (strip3) { strip3.style.width = '' }
         } catch (e) { afterNarrow = { error: String(e && e.message) } }
-        return { viewport: vw, before: brief(before), after: brief(after), afterNarrow: brief(afterNarrow) }
+        const brief = (g) => (g ? {
+          overflow: !!g.overflow, parts: Object.keys(g.parts || {}).length,
+          stripW: g.strip ? Math.round(g.strip.width) : null,
+          cardW: g.card ? Math.round(g.card.width) : null,
+          volumeVisible: !!g.volumeVisible,
+          volumeInCard: !!g.volumeInCard, volumeInCardX: !!g.volumeInCardX, volumeOverflow: !!g.volumeOverflow,
+          volumeInStrip: !!g.volumeInStrip, stripHasVolume: !!g.stripHasVolume, muteInCard: !!g.muteInCard,
+          sliderW: g.slider ? Math.round(g.slider.width) : null,
+          sliders: g.slider ? [Math.round(g.slider.left), Math.round(g.slider.right)] : null,
+          cards: g.card ? [Math.round(g.card.left), Math.round(g.card.right)] : null,
+          parts_: g.overflowParts,
+        } : null)
+        return { viewport: vw, after: brief(after), afterNarrow: brief(afterNarrow), forced: brief(forced) }
       }, w)
     }
-    /* ⚠ 视口要覆盖**两种布局**：`bench-narrow`（≤1180，面板全宽）与桌面档（`#props` = 320px 的右栏）。
-       只在窄档量是量不出越界的（全宽 389px 塞得下旧规则）—— 这正是"对照读数"要证明的事。 */
+    /* ⚠ 视口要覆盖**两种布局**：`bench-narrow`（≤1180，面板全宽）与桌面档（`#props` = 320px 的右栏）。 */
     const w1280 = await widthRead(1280)
     const w390 = await widthRead(390)
     const w320 = await widthRead(320)
-    console.log('  B5 读数（改前=注入旧固定宽规则复现 / 改后=当前实现）：\n    ' + JSON.stringify(w1280) + '\n    ' + JSON.stringify(w390) + '\n    ' + JSON.stringify(w320))
+    console.log('  B5 读数（改后=当前实现 / 对照=把滑条强行撑到 400px）：\n    ' + JSON.stringify(w1280) + '\n    ' + JSON.stringify(w390) + '\n    ' + JSON.stringify(w320))
     ok([w1280, w390, w320].every((x) => x.after && x.after.overflow === false && x.afterNarrow && x.afterNarrow.overflow === false),
-      'B5 ★音量条**不越出「壁纸配置」栏**：1280（桌面档，右栏 320px）/ 390 / 320 三种宽度下 `npGeometry().overflow === false`',
+      'B5 ★传输条**不越出「壁纸配置」栏**：1280（桌面档，右栏 320px）/ 390 / 320 三种宽度下 `npGeometry().overflow === false`',
       JSON.stringify({ w1280: w1280.after, w390: w390.after, w320: w320.after }))
-    /* B5a：对照读数。注意**如实报告**：本机 Firefox 在 200px 容器下会把 `#np-time` 也压下去，
-       `before.overflow` 量到的是 **false**（不是我们希望的 true）⇒ 这条**不做"必须为 true"的断言**，
-       改成断言"注入的旧规则确实生效了"（`before.sliderW === 64` = 旧的固定宽；`after` 不是 64），
-       并把两边的 overflow 原样打出来。真正"改回去必红"的那条判据在纯源码层：A9b（旧固定宽规则回来 ⇒ A9 红）。 */
-    ok(!!w1280.before && w1280.before.sliderW === 64 && !!w1280.afterNarrow && w1280.afterNarrow.sliderW !== 64,
-      'B5a 对照读数（**同一 200px 窄容器**）：注入旧固定宽规则后滑条 = 64px（旧）、当前实现 = 可伸缩；两边的 overflow 原样见读数',
-      JSON.stringify({ before: w1280.before, afterNarrow: w1280.afterNarrow }))
-
-    /* ── B5b(2026-09-24 issue0924a 用户第 2 条) 音量条**搬进 NP 块**：`#np-volume` 在 `#np-volbar` 里、
-       传输条 `#np-audio`（= 壁纸配置**最下面**那一行）里没有它；窄容器下音量条自身也不越界。
-       读数与实现同一个入口（`npGeometry()`），不靠 CSS 文本猜。 ───────────────────────────────── */
-    {
-      const place = await page.evaluate(() => {
-        const props = document.querySelector('#props')
-        if (props) { props.hidden = false; props.removeAttribute('hidden') }
-        const host = document.querySelector('#np-host')
-        if (host) host.style.display = ''
-        const api = window.__benchPatch
-        const g = api && api.npGeometry ? api.npGeometry() : null
-        const near200 = (() => {
-          const p2 = document.querySelector('#props')
-          if (p2) { p2.style.width = '200px'; p2.style.maxWidth = '200px' }
-          const bar = document.querySelector('#np-volbar')
-          if (bar) bar.style.width = '200px'
-          const g2 = api && api.npGeometry ? api.npGeometry() : null
-          if (p2) { p2.style.width = ''; p2.style.maxWidth = '' }
-          if (bar) bar.style.width = ''
-          return g2
-        })()
-        return { g, near200 }
-      })
-      console.log('  B5b 读数（音量条落点）=' + JSON.stringify({ g: place.g, near200: place.near200 }))
-      ok(!!place.g && place.g.volumeInStrip === false && place.g.stripHasVolume === false,
-        'B5b ★音量条**不在** `#np-audio`（壁纸配置最下面那条传输条）里 —— 用户第 2 条"不要再显示在壁纸配置最下面"',
-        JSON.stringify({ volumeInStrip: place.g && place.g.volumeInStrip, stripHasVolume: place.g && place.g.stripHasVolume }))
-      ok(!!place.g && place.g.volumeInNpBar === true,
-        'B5b1 ★音量条挂在 **NP 块**里（`#np-volbar` 在 NP 卡片正下方 —— 几何判据 `volbar.top >= card.bottom`）',
-        JSON.stringify(place.g && { volbar: place.g.volbar, card: place.g.card }))
-      ok(!!place.near200 && place.near200.volbarOverflow === false && place.near200.slider && place.near200.slider.width > 0,
-        'B5b2 200px 窄容器下音量条自身也不越界（`volbarOverflow === false`，滑条仍有实际宽度）',
-        JSON.stringify(place.near200 && { volbarOverflow: place.near200.volbarOverflow, slider: place.near200.slider }))
-    }
+    /*  ③ 新契约的主判据：音量滑条在**卡片内部**、且自身不越出卡片 —— 三种宽度各量一次（都要求卡片已展开）。 */
+    ok([w1280, w390, w320].every((x) => x.after && x.after.volumeVisible === true && x.after.volumeInCard === true &&
+      x.after.volumeInCardX === true && x.after.volumeOverflow === false && x.after.muteInCard === true &&
+      x.after.volumeInStrip === false && x.after.stripHasVolume === false),
+      'B5b1 ★★用户第 3 条：音量控件（滑条 + 静音第四键）在 **NP 卡片内部**（`volumeInCard/volumeInCardX/muteInCard` 为真、`volumeOverflow` 为假），' +
+      '传输条 `#np-audio` 里没有它（`volumeInStrip/stripHasVolume` 为假）',
+      JSON.stringify([w1280.after, w390.after, w320.after].map((g) => g && { v: g.volumeVisible, inCard: g.volumeInCard, inCardX: g.volumeInCardX, ovf: g.volumeOverflow, mute: g.muteInCard, inStrip: g.volumeInStrip, stripHas: g.stripHasVolume, w: g.sliderW })))
+    /*  对照（不恒真的证据）：同一把尺子，把滑条撑到 400px ⇒ `volumeOverflow` 必须变 true；撤掉立刻回 false。 */
+    ok(!!w1280.forced && w1280.forced.volumeOverflow === true && w1280.forced.sliderW === 400 && w1280.after.volumeOverflow === false,
+      'B5b ★对照读数（同一入口 `npGeometry()`）：把卡片里的滑条强行撑到 400px ⇒ `volumeOverflow` 当场变 true；当前实现为 false —— 判据有分辨力，不是恒真',
+      JSON.stringify({ forced: w1280.forced, after: w1280.after }))
+    /*  窄容器（200px 的「壁纸配置」栏）下：滑条**在卡片里也不越出卡片**。如实记录：卡片自身是 260px 固定宽
+        （组件设计如此、本轮没动），在 200px 的面板里会横向溢出 —— 这是**改动前就存在**的状态，
+        不是本轮引入的（旧实现的 `#np-volbar` 是块级行所以能缩到 200px，而卡片一直缩不了）。 */
+    ok(!!w1280.afterNarrow && w1280.afterNarrow.volumeInCard === true && w1280.afterNarrow.volumeOverflow === false &&
+      w1280.afterNarrow.sliderW > 0,
+      'B5b2 200px 窄容器下：滑条**仍然在卡片内部**且自身不越界（`volumeInCard===true` / `volumeOverflow===false` / 有实际宽度）—— "滑条不越出容器"这条判据按新契约继续成立',
+      JSON.stringify({ afterNarrow: w1280.afterNarrow }))
+    console.log('  B5b2 说明：200px 面板下**卡片本身**（260px 固定宽）会溢出面板，这是组件设计（本轮未改）；判据量的是"滑条 vs 卡片"。')
 
     /* ── B6(用户 A3) 半成品清点：`#page-wpset` 的过期结论已被就地改正 + 控件清单读数 ────────────────── */
     /* ⚠ 判据为什么用"页面内夹具"而不是直接量真表格：真页面里 `tbody tr` 有 99 行（表格很多），
@@ -964,9 +960,13 @@ async function browserStage() {
     ok(audit.controls > 30 && audit.visible > 10,
       'B6a 交互控件清点：页面里可见控件都能量到盒宽（`看不到/量不到`的控件会被这条暴露出来）',
       JSON.stringify({ controls: audit.controls, visible: audit.visible }))
-    /* ── B7(用户 E) 真语料复现：同一张图在**真面板**里到底画了几遍（含 `?propimg=all` 对照档）───────
-       真语料读数（纯函数层，`allwallpaper/dd/3660962877/project.json`）：img token 39 个，唯一 URL 7 个，
-       其中一条 URL 出现 **33 次**（33 个属性名的文案里逐字节相同）。改前 = 33 张同一张图；改后 = 1 张。 */
+    /* ── B7(用户 E + issue0924a2 用户第 2 条) 真语料复现：同一张图在**真面板**里到底画了几遍 ────────
+       真语料读数（`allwallpaper/dd/3660962877/project.json`）：img token 39 个，唯一 URL 7 个，
+       其中一条 URL 出现 **33 次**（33 个属性名的文案里逐字节相同）。
+       **②(2026-09-25) 补上的那一半根因**：面板里还有一份**产物自己渲染**的图
+       （`div.prop-media > img`，来自渲染器解析出的 media 列表），旧账本**完全没管它**。
+       真机读数（dd/3660962877，改前）：`ours 6 + media 38 = 44 张`，同一张画面 33 遍；
+       改后：`rendered = 7`（每个身份一条），`hiddenDup ≈ 37`。 */
     /* 选一张"多图"的壁纸：列表里逐项点过去，直到 `propsImages().report.images > 5`（真语料里
        3660962877 有 38 个 img token；不同库根/类型过滤下列表顺序会变，所以**按读数挑**，不按 id 挑）。 */
     const pickAndRead = async (url) => {
@@ -995,15 +995,21 @@ async function browserStage() {
     const imgAll = await pickAndRead(BASE + '/?propimg=all&benchimg=' + Date.now())
     const brief = (x) => (x && x.r) ? {
       item: x.picked, mode: x.r.mode, rendered: x.r.rendered, links: x.r.links,
+      ours: x.r.ours, media: x.r.media, hiddenDup: x.r.hiddenDup,
       tokens: x.r.report && x.r.report.images, dupSkipped: x.r.report && x.r.report.duplicatesSkipped,
+      variants: x.r.report && x.r.report.variants && x.r.report.variants.evidence,
       dupGroups: x.r.report && (x.r.report.duplicateGroups || []).map((g) => ({ count: g.count, kept: g.kept })),
       loadedImgs: (x.r.natural || []).filter((n) => n.w > 0).length, tried: (x.tried || []).slice(-4),
     } : null
     console.log('  B7 读数（真面板）：once=' + JSON.stringify(brief(imgOnce)) + '\n              all =' + JSON.stringify(brief(imgAll)))
     ok(!!imgOnce.r && imgOnce.r.mode === 'once' && imgOnce.r.rendered > 0 && imgOnce.r.report &&
       imgOnce.r.rendered === (imgOnce.r.report.groups.length || -1) && imgOnce.r.report.duplicatesSkipped > 0,
-      'B7 ★真语料：`once`（缺省）档下**同一张图只画一遍**（rendered == 唯一 URL 数，且 duplicatesSkipped > 0）',
+      'B7 ★真语料：`once`（缺省）档下**同一张画面只画一遍**（`rendered == 身份组数`，且 duplicatesSkipped > 0）',
       JSON.stringify(brief(imgOnce)))
+    ok(!!imgOnce.r && (imgOnce.r.media || 0) + (imgOnce.r.ours || 0) === imgOnce.r.rendered && (imgOnce.r.hiddenDup || 0) > 0,
+      'B7b ★★用户第 2 条：**产物自己渲染的 `.prop-media` 图也在同一本账里**（`media + ours = rendered`，且 `hiddenDup > 0` 说明真的压掉了重复）—— ' +
+      '改前这一份完全不进账（真机读数：同一张画面 33 遍）',
+      JSON.stringify({ rendered: imgOnce.r && imgOnce.r.rendered, ours: imgOnce.r && imgOnce.r.ours, media: imgOnce.r && imgOnce.r.media, hiddenDup: imgOnce.r && imgOnce.r.hiddenDup }))
     ok(!!imgAll.r && imgAll.r.mode === 'all' && !!imgOnce.r && imgAll.r.rendered > imgOnce.r.rendered,
       'B7a 对照档 `?propimg=all`（改前行为）在同一张壁纸上画得**更多** —— 改前/改后读数成对，不是恒绿',
       JSON.stringify({ once: brief(imgOnce), all: brief(imgAll) }))
