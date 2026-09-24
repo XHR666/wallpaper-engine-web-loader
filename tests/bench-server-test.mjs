@@ -973,11 +973,15 @@ const MUTATIONS = [
 
 function runChild(serverPath, args, ms) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [HERE_TEST, `--server=${serverPath}`, '--json', '--no-mutant', ...args], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] })
+    /*  ⚠(2026-09-25) `detached: true` + 超时杀**整组**：子套件自己会 `startServer()` spawn 被测服务，
+        只杀子进程会把孙进程遗弃（实测两次跑完留下 `mutant-7.mjs` 服务进程：ppid=1、抱着端口与内存）。
+        同一个进程组一次收干净（正常退出仍走子套件自己的 `stop()`）。 */
+    const child = spawn(process.execPath, [HERE_TEST, `--server=${serverPath}`, '--json', '--no-mutant', ...args], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
     let out = ''
     child.stdout.on('data', (c) => { out += c.toString() })
     child.stderr.on('data', (c) => { out += c.toString() })
-    const t = setTimeout(() => { try { child.kill('SIGKILL') } catch { /* 已退 */ } }, ms || 120000)
+    const killGroup = (sig) => { try { process.kill(-child.pid, sig) } catch { try { child.kill(sig) } catch { /* 已退 */ } } }
+    const t = setTimeout(() => killGroup('SIGKILL'), ms || 120000)
     child.on('close', (code) => { clearTimeout(t); resolve({ code, out }) })
   })
 }

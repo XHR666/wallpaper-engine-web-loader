@@ -342,6 +342,20 @@ try {
   ok(/id="mpw-noshell"/.test(shimmed) && /body>\*:not\(canvas\)/.test(shimmed) && /data-mpw-frame/.test(shimmed) &&
     /mpw-first-frame/.test(shimmed) && shimmed.indexOf('</body>') > shimmed.indexOf('mpw-noshell'),
     'A6a `?shell=0` 注入：藏外壳的样式（在 `</body>` 之前）+ 首帧握手（`data-mpw-frame` + `postMessage mpw-first-frame`）')
+  /*  ①(2026-09-25) 首帧判据**必须只读渲染器自己的"真出画"标记**，而且**一个字节都不许碰画布上下文**：
+      真机读数（有头 Firefox + llvmpipe，`?shell=0&id=3326873240`）：旧探针在 t≈141ms 对 `#sc`
+      `getContext('webgl2')`（沙箱里是唯一那次"第一次 getContext"，参数=浏览器默认）⇒ 渲染器 t≈544ms
+      的 `lib.glCanvasAttrs()` 被静默顶掉（真读数 `alpha:true/antialias:true/premultipliedAlpha:true/
+      preserveDrawingBuffer:false`，应为 `false/false/false/true`），并在 t≈151ms 就置位 `data-mpw-frame=1`
+      （真首帧在 12s 之后）⇒ 黑幕形同虚设。两条钉子：不许 `getContext`；必须读那三个被动信号。 */
+  const shimScript = typeof mod.shellShimScript === 'function' ? mod.shellShimScript() : ''
+  ok(shimScript && !/getContext/.test(shimScript),
+    'A6a1 ★shim 首帧探针**绝不**碰画布上下文（`getContext` 一个都不许有：同一个 canvas 只有第一次的参数生效，' +
+    '裸调会把渲染器要的 `alpha:false/premultipliedAlpha:false` 静默顶掉）', shimScript ? `shim ${shimScript.length}B 里 getContext 命中 ${(shimScript.match(/getContext/g) || []).length} 次` : '（没有 shellShimScript）')
+  ok(/__mpwFirstFrame/.test(shimScript) && /__mpwFrameNo/.test(shimScript) && /__mpwWebFrame/.test(shimScript),
+    'A6a2 shim 首帧判据 = 渲染器自己写的三个**被动**信号（`__mpwFirstFrame` 真首帧/视频首解码帧 · ' +
+    '`__mpwFrameNo>0` 任一实例真画过帧 · `__mpwWebFrame.ready` web 壁纸就绪）—— 等不到就**不置位**，' +
+    '由父页 12s 兜底如实计 `timeouts`（不假装出了帧）')
   ok(shimFn && shimFn('') === '' && shimFn(null) === null,
     'A6b 坏输入原样返回（不把空/非字符串变成"注入了一半"的页面）')
   const srv2 = await startServer(F)
@@ -502,13 +516,17 @@ const MUTATIONS = [
 
 function runChild(args, ms) {
   return new Promise((resolve) => {
+    /*  ⚠(2026-09-25) `detached: true` + 超时杀**整组**：子进程自己会 spawn 镜像服务
+        （`startServer`），只杀子进程会把这些孙进程**遗弃**（实测 /tmp 下留下
+        `mutant-N.mjs` 服务进程，ppid=1、抱着端口与内存不放）。同一个进程组一次收干净。 */
     const child = spawn(process.execPath, [path.resolve(import.meta.dirname, 'bench-dsh-libroot-test.mjs'), ...args], {
-      cwd: ROOT, env: Object.assign({}, process.env), stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: ROOT, env: Object.assign({}, process.env), stdio: ['ignore', 'pipe', 'pipe'], detached: true,
     })
     let out = ''
     child.stdout.on('data', (c) => { out += c.toString() })
     child.stderr.on('data', (c) => { out += c.toString() })
-    const t = setTimeout(() => { try { child.kill('SIGKILL') } catch { /* 已退 */ } }, ms || 240000)
+    const killGroup = (sig) => { try { process.kill(-child.pid, sig) } catch { try { child.kill(sig) } catch { /* 已退 */ } } }
+    const t = setTimeout(() => killGroup('SIGKILL'), ms || 240000)
     child.on('close', (code) => { clearTimeout(t); resolve({ code, out }) })
   })
 }
@@ -632,6 +650,27 @@ async function browserStage() {
     const pageLogs = []
     page.on('pageerror', (e) => pageErrs.push(String((e && e.message) || e)))
     page.on('console', (m) => { try { pageLogs.push(m.type() + ': ' + String(m.text()).slice(0, 200)) } catch { /* ignore */ } })
+    /*  B2d 的记录器：**在开页之前**装（`addInitScript` 对页面本身与后续每个 iframe 都生效）。
+        只记录、只透传 —— 探针自己绝不建上下文（否则探针就成了"抢在渲染器前面 getContext"的那个）。 */
+    await page.addInitScript(() => {
+      try {
+        const rec = []
+        const orig = HTMLCanvasElement.prototype.getContext
+        HTMLCanvasElement.prototype.getContext = function (type, attrs) {
+          try {
+            if (this && this.id === 'sc') {
+              rec.push({
+                t: Math.round(performance.now()), type, hasAttrs: !!attrs,
+                alpha: attrs ? attrs.alpha : null, premultipliedAlpha: attrs ? attrs.premultipliedAlpha : null,
+                antialias: attrs ? attrs.antialias : null, preserveDrawingBuffer: attrs ? attrs.preserveDrawingBuffer : null,
+              })
+            }
+          } catch (e) { /* 只记录，失败不影响页面 */ }
+          return orig.call(this, type, attrs)
+        }
+        window.__ctxSc = rec
+      } catch (e) { /* 桩环境 */ }
+    })
     await page.goto(BASE + '/?benchlib=' + Date.now(), { waitUntil: 'domcontentloaded', timeout: 45000 })
     try { await page.waitForFunction(() => !!(window.__benchPatch && window.__benchShell), null, { timeout: 30000 }) } catch { /* 下面按读数判 */ }
     /* B1 ③①：`paintLibSource` 是模块作用域的真函数（改前 `typeof` 在 init 里是 undefined + ReferenceError） */
@@ -663,19 +702,80 @@ async function browserStage() {
       return null
     })
     const timeline = [first]
+    /*  ⚠(2026-09-25) 黑幕判据不能只靠"固定时间点碰运气"：黑幕的生命期 = `arm(src 变) → 渲染器真首帧`
+        （真机是**秒级**：取包+建纹理），但旧实现里 shim 用"canvas 取得到上下文"当首帧 ⇒ 生命期只有 ~10ms，
+        固定采样点靠运气命中，这条判据因此假过也假红过。现在改成**密采样**（≈12ms 一次，全程 2.6s）：
+        只要黑幕真的存在，就必然被抓到；再逐条断言"**首帧之前黑幕一定在**（不许提前揭开）"。 */
+    const fast = []
+    for (let i = 0; i < 180; i++) {
+      fast.push(await page.evaluate(() => {
+        const p = (window.__benchPatch && window.__benchPatch.frameProbe) ? window.__benchPatch.frameProbe() : null
+        let shellVis = false
+        try {
+          const fr = document.querySelector('#frame')
+          const d = fr && fr.contentDocument
+          if (d) { for (const sel of ['#bar', '#log', '#fps']) { const el = d.querySelector(sel); if (el) { const cs = d.defaultView.getComputedStyle(el); if (cs.display !== 'none' && cs.visibility !== 'hidden') { shellVis = true; break } } } }
+        } catch (e) { /* 跨源/无文档 */ }
+        return p ? { armed: p.armed, veil: p.veilVisible, ff: p.firstFrameAt, shellVis } : null
+      }))
+      await sleep(12)
+    }
     for (const ms of [60, 160, 400, 900, 1600, 2600]) { await sleep(ms === 60 ? 60 : ms - timeline[timeline.length - 1].t + timeline[0].t || ms); timeline.push(await sample('t+' + ms)) }
     console.log('  B 段读数（切壁纸过程采样，clicked=' + clicked + '）：\n' + timeline.map((s) => '    ' + JSON.stringify({ at: s.label, veil: s.probe && s.probe.veilVisible, armed: s.probe && s.probe.armed, firstFrameAt: s.probe && s.probe.firstFrameAt, shell: s.shell, canvas: s.shell && s.shell.canvas })).join('\n'))
+    console.log('  B 段读数（黑幕密采样 ' + fast.length + ' 次，≈12ms 间隔）：' + JSON.stringify({
+      armedSamples: fast.filter((x) => x && x.armed).length,
+      armVeilPairs: fast.filter((x) => x && x.armed && x.veil && !x.ff).length,
+      earlyReveal: fast.filter((x) => x && x.armed && !x.veil && !x.ff).length,
+      maxVeilRun: (() => { let m = 0, c = 0; for (const x of fast) { if (x && x.armed && x.veil && !x.ff) { c++; m = Math.max(m, c) } else c = 0 } return m })(),
+      firstFrameSeen: fast.some((x) => x && x.ff),
+      shellVisibleSamples: fast.filter((x) => x && x.shellVis).length,
+    }))
+    const shellVisibleFast = fast.filter((x) => x && x.shellVis)
     const shellVisible = timeline.filter((s) => s.shell && ['bar', 'log', 'fps'].some((k) => s.shell[k] === 'VISIBLE'))
-    ok(shellVisible.length === 0, 'B2 ★切壁纸全过程中预览框里**没有**出现渲染器页外壳（#bar/#log/#fps 恒为 hidden/absent）',
-      shellVisible.length ? JSON.stringify(shellVisible.map((s) => ({ at: s.label, shell: s.shell }))).slice(0, 400) : '0 个可见采样')
+    ok(shellVisible.length === 0 && shellVisibleFast.length === 0,
+      'B2 ★切壁纸全过程中预览框里**没有**出现渲染器页外壳（#bar/#log/#fps 恒为 hidden/absent；' +
+      '粗采样 ' + timeline.length + ' 次 + 密采样 ' + fast.length + ' 次都算）',
+      `粗采样可见=${shellVisible.length} 密采样可见=${shellVisibleFast.length}` +
+      (shellVisible.length ? ' ' + JSON.stringify(shellVisible.map((s) => ({ at: s.label, shell: s.shell }))).slice(0, 300) : ''))
     const noshellSeen = timeline.some((s) => s.shell && s.shell.noshellStyle === true)
     ok(noshellSeen, 'B2a 预览的渲染器文档里能看到服务端注入的 `#mpw-noshell`（证明 `?shell=0` 真的生效）', String(noshellSeen))
-    const armedSeen = timeline.some((s) => s.probe && s.probe.armed === true)
-    const veilSeen = timeline.some((s) => s.probe && s.probe.veilVisible === true)
-    ok(armedSeen && veilSeen, 'B2b 首帧之前的**黑幕**真的挂上了（`frameProbe().armed/veilVisible`，客户端第二道防线）',
-      JSON.stringify(timeline.map((s) => ({ at: s.label, armed: s.probe && s.probe.armed, veil: s.probe && s.probe.veilVisible }))))
+    const armedSeen = fast.some((x) => x && x.armed)
+    const veilSeen = fast.some((x) => x && x.armed && x.veil && !x.ff)
+    ok(armedSeen && veilSeen, 'B2b 首帧之前的**黑幕**真的挂上了（密采样里至少一次 `armed && veilVisible && !firstFrameAt`）',
+      JSON.stringify({ armedSamples: fast.filter((x) => x && x.armed).length, veilBeforeFrame: fast.filter((x) => x && x.armed && x.veil && !x.ff).length }))
+    const earlyReveal = fast.filter((x) => x && x.armed && !x.veil && !x.ff)
+    ok(earlyReveal.length === 0,
+      'B2b1 ★黑幕**不许在首帧之前被揭开**（`armed && !veilVisible && !firstFrameAt` 的采样数必须为 0 —— ' +
+      '旧 shim 用"canvas 取得到上下文"当首帧，真机 t≈151ms 就揭幕而真首帧在 12s 之后，正是这条抓的）',
+      `提前揭幕采样=${earlyReveal.length}`)
     const shellFlag = timeline.map((s) => s.probe && s.probe.shellUrl).filter(Boolean)
     ok(shellFlag.length > 0, 'B2c 预览 iframe 的 URL 带 `shell=0`（无外壳形态是本仓档的缺省，不是手工加的）', String(shellFlag.length))
+    /*  B2d(2026-09-25) **同一 canvas 只有第一次 getContext 的参数生效** ⇒ 端到端钉住"没人抢在渲染器前面
+        取上下文"。做法：开页**之前**在**所有帧**（`addInitScript` 对后续 iframe 同样生效）里给
+        `HTMLCanvasElement.prototype.getContext` 套一层**透传**记录器（只记 `#sc` 上每次调用的参数，
+        然后原样 call through ⇒ 探针自己不建上下文、不改任何行为）。旧 shim 在这里留下的第一条是
+        `attrs:null`（浏览器默认 ⇒ `alpha:true/antialias:true/premultipliedAlpha:true`），
+        新实现的第一条必然是渲染器那份 `lib.glCanvasAttrs()`。 */
+    {
+      const rec = await page.evaluate(() => {
+        try {
+          const fr = document.querySelector('#frame')
+          const w = fr && fr.contentWindow
+          return {
+            rec: (w && w.__ctxSc) || null,
+            url: (w && w.location) ? String(w.location.href) : null,
+            noshell: !!(fr && fr.contentDocument && fr.contentDocument.getElementById('mpw-noshell')),
+          }
+        } catch (e) { return { err: String(e && e.message) } }
+      })
+      const first = rec.rec && rec.rec[0]
+      const want = { alpha: false, premultipliedAlpha: false, antialias: false, preserveDrawingBuffer: true }
+      const same = !!first && Object.keys(want).every((k) => first[k] === want[k])
+      console.log(`  B2d 读数（预览 iframe 里 #sc 上的 getContext 记录）：${JSON.stringify(rec)}`)
+      ok(same, 'B2d ★预览页 `#sc` 上**第一次** `getContext` 的参数 = 渲染器要的那份（`alpha:false / ' +
+        'premultipliedAlpha:false / antialias:false / preserveDrawingBuffer:true`）—— 证明确实没人抢在渲染器前面取上下文',
+        JSON.stringify(first || null))
+    }
     ok(!pageErrs.some((e) => /is not defined/.test(e)), 'B3 整轮顶层页 0 个 "is not defined" 脚本错（第 3 条①的真修读数）', JSON.stringify(pageErrs.slice(0, 4)))
 
     /* ── B4(用户 A1) 「渲染器设置（WE 自带）」分组：存在、在最前、可折叠且折叠状态会被记住 ─────────── */

@@ -539,9 +539,20 @@ function sendFileStream(req, res, full, size, contentType) {
    只有请求显式带 `?shell=0` 时才注入（不带 ⇒ 响应逐字节等于改动前，既有两个端口行为不变）：
      · 样式：把外壳元素藏掉、页面转黑（画布 `canvas{position:fixed;inset:0}` 本来就铺满视口，
        藏掉兄弟节点不影响它 —— 见 demo.html 顶部 style 的 `canvas{position:fixed;inset:0;…}`）；
-     · 脚本：看门狗 + 首帧探测（`canvas` 有绘制尺寸 / 有 WebGL 上下文即认为"渲染器已经出帧"），
-       给 `<html data-mpw-frame="1">` 置位并把这一帧 `postMessage` 给父窗口（父窗口据此才显示预览框）。
-   `shellShim()` 是纯函数（同样输入同样输出）⇒ `tests/bench-*` 可直接断言，不需要浏览器。 */
+     · 脚本：**只读**渲染器自己的"真出画"标记（见 `honestFrame`），给 `<html data-mpw-frame="1">`
+       置位并把这一帧 `postMessage` 给父窗口（父窗口据此才显示预览框）。
+   ⚠ 首帧判据**绝不**可以是"canvas 取得到上下文"（旧写法）：那段探针在 t≈141ms 对 `#sc`
+     `getContext('webgl2')`，而**同一个 canvas 只有第一次 getContext 的参数生效** —— 真机读数：
+     探针留下了浏览器默认的 `alpha:true/antialias:true/premultipliedAlpha:true/preserveDrawingBuffer:false`，
+     渲染器 t≈544ms 的 `lib.glCanvasAttrs()`（`alpha:false/premultipliedAlpha:false/preserveDrawingBuffer:true`）
+     被静默顶掉；同一探针还在 t≈151ms 就置了 `data-mpw-frame=1`（真首帧在 12s 之后）⇒ 黑幕提前揭开。
+     现在判据只读三个**渲染器自己写的**被动信号（缺一个就继续等，永远不产生副作用）：
+       · `window.__mpwFirstFrame`：单实例真首帧出画 / 视频首个解码帧（demo.html 写）；
+       · `window.__mpwFrameNo > 0`：任一实例**真的画过一帧**（帧循环里自增）；
+       · `window.__mpwWebFrame.ready`：web 壁纸帧的就绪回报（`mountWebFrame` 写）。
+     等不到就**不置位**：父页自己有 12s 兜底揭幕（`frameGate` 的 `timeouts` 如实计数），
+     宁可让父页说"我没等到首帧"，也不假装出了帧。
+   `shellShimScript()` 是纯函数（同样输入同样输出）⇒ `tests/bench-*` 可直接断言，不需要浏览器。 */
 export function shellShimScript() {
   return '<style id="mpw-noshell">'
     + 'html,body{background:#000!important;overflow:hidden!important}'
@@ -550,14 +561,19 @@ export function shellShimScript() {
     + '#mpw-noshell{display:none!important}'
     + '</style>'
     + '<script id="mpw-noshell-frame">(function(){'
-    + 'try{var d=document;var put=function(){try{if(d.documentElement.getAttribute("data-mpw-frame")==="1")return true;'
-    + 'var c=d.querySelector("canvas");var ok=false;'
-    + 'if(c&&c.width>0&&c.height>0){try{ok=!!(c.getContext("webgl2")||c.getContext("webgl")||c.getContext("2d"))}catch(e){ok=true}}'
-    + 'if(ok){d.documentElement.setAttribute("data-mpw-frame","1");'
+    + 'try{var d=document;'
+    + 'var honest=function(){try{if(window.__mpwFirstFrame)return true;'
+    + 'if((window.__mpwFrameNo||0)>0)return true;'
+    + 'var w=window.__mpwWebFrame;if(w&&(w.ready||w.readyMs>0))return true;'
+    + 'return false}catch(e){return false}};'
+    + 'var put=function(){try{if(d.documentElement.getAttribute("data-mpw-frame")==="1")return true;'
+    + 'if(!honest())return false;'
+    + 'd.documentElement.setAttribute("data-mpw-frame","1");'
     + 'try{if(window.parent&&window.parent!==window)window.parent.postMessage({type:"mpw-first-frame",ts:Date.now()},"*")}catch(e){}'
-    + 'return true}}catch(e){}return false};'
+    + 'return true}catch(e){return false}};'
     + 'var raf=window.requestAnimationFrame||function(f){return setTimeout(f,16)};'
-    + 'var tick=function(){if(!put())raf(tick)};raf(tick);'
+    + 'var t0=Date.now();'
+    + 'var tick=function(){if(put())return;if(Date.now()-t0>60000)return;raf(tick)};raf(tick);'
     + '}catch(e){}})();</script>';
 }
 /** 把 `shell=0` 的外壳样式/握手脚本插到 `</body>` 前（没有 `</body>` 就追加到末尾）。

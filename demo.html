@@ -2129,6 +2129,17 @@ async function bootInstance(inst) {
   //    用 `new Function` 单独执行，那里没有 PAGE 绑定 ⇒ 兜底为 true，切片行为与改动前一致）。
   const SCHEDULED = !!inst.scheduled
   const MPW_WRITE_GLOBALS = PAGE
+  /* ①(2026-09-25) **纯视频壁纸的"首帧" = 第一个解码帧**（三个视频入口共用这一处写入）：
+       · `?video=<rel>`（库内原始 mp4）、`?type=video`（`/type` 判据认出来的视频壁纸）、
+         `MPW-NOSCENE`（容器里没有 scene.json ⇒ 按纯视频播放）；
+       · 为什么必须置位：7s 看门狗、`mpw-cap{firstFrame}`、以及 `?shell=0` 预览的
+         `data-mpw-frame` 首帧握手**都只认这一位** —— 不置位就会打一句与事实相反的
+         "7s 内没有首帧"，预览的黑幕也只能等父页 12s 兜底才揭开；
+       · 口径与场景路径一致（见帧循环里 `if (__first)` 那处）：**只由 primary 实例写全局**。 */
+  const mpwMarkVideoFirstFrame = () => {
+    if (!MPW_WRITE_GLOBALS) return
+    try { window.__mpwFirstFrame = 1; window.__mpwCapMarkFrame && window.__mpwCapMarkFrame() } catch (e) { /* 忽略 */ }
+  }
   /* ①(2026-09-22) **首个错误捕获**（可观测性）：嵌入路径下"活档位块没跑到"只能靠猜，这条把它变成读数。
      只记第一条（含 message/stack/时间），不改变任何行为；宿主/探针读 `window.__mpwBootError`。 */
   try {
@@ -3316,7 +3327,7 @@ function loadScene() {
         v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true
         document.body.appendChild(v)
         v.addEventListener('error', () => logf('视频加载失败: ' + mp4))
-        v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, 'type=video'); try { mpwSyncVideoRates() } catch (e) {} })
+        v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, 'type=video'); try { mpwSyncVideoRates() } catch (e) {} mpwMarkVideoFirstFrame() })
         return
       }
     }
@@ -3338,7 +3349,7 @@ function loadScene() {
     v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true
     document.body.appendChild(v)
     v.addEventListener('error', () => logf('视频加载失败: ' + videoRel))
-    v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, '?video=1'); try { mpwSyncVideoRates() } catch (e) {} })
+    v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, '?video=1'); try { mpwSyncVideoRates() } catch (e) {} mpwMarkVideoFirstFrame() })
     return
   }
   logf('加载场景 ' + id + '…');
@@ -3472,10 +3483,7 @@ function loadScene() {
     nsV.addEventListener('error', () => logf('视频加载失败: ' + nsEnt + '（code=' + (nsV.error ? nsV.error.code : '?') + '）'))
     nsV.addEventListener('loadeddata', () => {
       logf('视频已加载 ' + (nsV.videoWidth || '?') + 'x' + (nsV.videoHeight || '?'))
-      /* ①(2026-09-24) 纯视频壁纸的"首帧"= 第一个解码帧：本分支在 `加载场景 …` **之后**才接管，
-         而 7s 看门狗只看 `window.__mpwFirstFrame`（纯视频两档因为发生在该日志之前才被豁免）
-         ⇒ 不置位就会打一句与事实相反的"7s 内没有首帧"。与场景路径同一套写入口径（只由 primary 写）。 */
-      if (MPW_WRITE_GLOBALS) { try { window.__mpwFirstFrame = 1; window.__mpwCapMarkFrame && window.__mpwCapMarkFrame() } catch (e) {} }
+      mpwMarkVideoFirstFrame()
       try { applyVideoFrameBox(nsV, 'mpkg-video') } catch (e) {}; try { mpwSyncVideoRates() } catch (e) {}
     })
     try { mpwBlobMediaRetry(nsV, '视频壁纸包') } catch (e) {}

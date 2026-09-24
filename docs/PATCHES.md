@@ -13361,3 +13361,82 @@ P-152b 之后**仍**解析为 `null` —— 它们在**MDLS 解析之前**的"�
 * 本轮只动 `demo/bench-patch.js` 的两处实现、6 条门禁的断言/登记与 `docs/PATCHES.md`；
   `core/we-scene-bundle.js`、`demo.html`、`elysia/**`、`server/we-scene-demo-server.mjs` 一字未改
   （③ 的变异自证里那份临时回退已按哈希复原）。
+
+## P-182（2026-09-25 · 渲染器侧）`?shell=0` 预览的两处真缺陷：shim 的"首帧"是假信号，而且**抢走了画布上下文**
+
+**一句话**：`?shell=0` 注入的首帧探针用"canvas 取得到上下文"当"渲染器已出帧"，而在 t≈141ms 对 `#sc` 裸调
+`getContext('webgl2')`（无参数）—— **同一个 canvas 只有第一次调用的参数生效** ⇒ 渲染器 t≈544ms 的
+`lib.glCanvasAttrs()` 被静默顶掉；同一段探针 t≈151ms 就置了 `data-mpw-frame=1`（真首帧在 12s 之后）
+⇒ 父页那层"首帧之前不显示"的黑幕形同虚设。两条都是**结果面**缺陷（预览的画质/合成与"黑幕"承诺）。
+
+### ① 取证：透传记录器 + 有头 Firefox（读数，不猜）
+* 工具：在**页面任何脚本之前**（playwright `addInitScript`，对后续 iframe 同样生效）把
+  `HTMLCanvasElement.prototype.getContext` 套一层**只记录、原样 call through** 的包装
+  ⇒ 能读到 `#sc` 上每一次调用的 `type/attrs/时刻`，而探针自己绝不创建上下文。
+* `?shell=0&id=<真壁纸>`，URL = `http://127.0.0.1:8902/webloader/…`：
+  | 时刻 | 事件 | 读数 |
+  |---|---|---|
+  | t≈141ms | 注入的 shim（`#mpw-noshell-frame`）调 `#sc.getContext('webgl2')` | `attrs=null`（浏览器默认） |
+  | t≈151ms | 同一段探针置 `data-mpw-frame=1`（判据 = canvas 有上下文） | 真首帧那时还没来 |
+  | t≈544ms | 渲染器 `cv.getContext('webgl2', lib.glCanvasAttrs(...))` | 返回的**还是那个**上下文 ⇒ 最终属性 `alpha:true / antialias:true / premultipliedAlpha:true / preserveDrawingBuffer:false`（应为 `false/false/false/true`） |
+* 为什么"canvas 有上下文"必然在首帧 rAF 就成立：`#sc` 是**静态** `<canvas id=sc>`（无宽高属性 ⇒ 默认
+  300×150，`width/height>0` 恒真），而画布是渲染器**第一个**模块任务里才去建上下文的。
+* 对照组（**不带** `shell=0`，没有 shim）：`#sc` 上只有渲染器那一次调用，`getContextAttributes()` 正是
+  `{alpha:false, premultipliedAlpha:false, antialias:false, preserveDrawingBuffer:true, depth:true, stencil:false}`
+  ⇒ 缺陷是 `?shell=0` 这条路独有的（也正是测试台预览用的那条）。
+
+### ② 改法
+1. **shim 首帧判据只读渲染器自己写的被动标记**（`server/we-scene-demo-server.mjs` → `shellShimScript()`）：
+   `window.__mpwFirstFrame`（单实例真首帧出画 / 视频首个解码帧）· `window.__mpwFrameNo>0`（任一实例真画过帧）·
+   `window.__mpwWebFrame.ready`（web 壁纸就绪回报）。**一个 `getContext` 都不调**（连 `2d` 也不调）。
+   等不到就**不置位**：父页自己的 12s 兜底会揭幕并如实计 `timeouts`，宁可让父页说"没等到首帧"，也不假装出了帧。
+   轮询**有上限**（60s 后停），不留常驻 rAF。
+2. **同类收尾（"首帧标记"这一类的其它入口）**：`?video=`、`?type=video` 两条纯视频入口此前**只有
+   `MPW-NOSCENE` 那条**会置 `__mpwFirstFrame` ⇒ 7s 看门狗 / `mpw-cap{firstFrame}` / `?shell=0` 的首帧握手
+   在两条路上都看到"没有首帧"。三处现共用 `demo.html` 的 `mpwMarkVideoFirstFrame()`
+   （口径与场景路径一致：**只由 primary 实例写全局**；纯视频的"首帧"= 第一个 `loadeddata`）。
+3. **门禁**（`tests/bench-dsh-libroot-test.mjs`）：
+   * `A6a1`：`shellShimScript()` 里 `getContext` 命中数**必须为 0**（源码级钉子，不需要浏览器）；
+   * `A6a2`：三个被动信号都在（防"把判据删空"式假修）；
+   * `B2b` 改成 **≈12ms 密采样**（180 次）：黑幕的生命期 = `arm(src 变) → 真首帧`，真机是**秒级**，
+     而旧实现的假信号把它压到 ~10ms ⇒ 旧的"固定时间点采样"既假过也假红过；
+   * `B2b1`（新）：`armed && !veilVisible && !firstFrameAt` 的采样数必须为 **0** —— 专抓"提前揭幕"；
+   * `B2d`（新）：端到端钉住"没人抢在渲染器前面取上下文"——在预览 iframe 里读 `#sc` 上**第一次**
+     `getContext` 的参数，必须逐字段等于 `lib.glCanvasAttrs()` 那份。
+     探针用"开页前装透传记录器"实现，**自己不建上下文**（否则探针就成了那个抢跑的）。
+
+### ③ 改后读数（2026-09-25 实跑，有头 Firefox + llvmpipe）
+* 密采样 180 次：`{"armedSamples":180,"armVeilPairs":39,"earlyReveal":0,"maxVeilRun":39,"shellVisibleSamples":0}`
+  （黑幕在首帧前连续 39 个采样 ≈470ms 可见；提前揭幕 0 次；外壳可见 0 次）。
+* `B2d` 记录：`[{"t":616,"type":"webgl2","hasAttrs":true,"alpha":false,"premultipliedAlpha":false,
+  "antialias":false,"preserveDrawingBuffer":true}, …]`（预览 URL 带 `shell=0`，文档里有 `#mpw-noshell`）。
+* `node tests/bench-dsh-libroot-test.mjs --no-mutant`：`PASS=65 FAIL=0`；门禁
+  `bash tests/run-all-tests.sh --only bench-dsh-libroot`：`PASS=1 FAIL=0`。
+
+### ④ 边界与未验证
+* **同类普查（同一天，另一条线）**：`docs/CANVAS-CONTEXT-AUDIT-20260925.md` —— 全仓 `getContext` 逐处分类
+  （A 可抢跑 / B 同画布但只可能在 owner 之后 / C 不同画布 / D 只读探针）：渲染器、服务器、插件三处的**产品代码 0 处 A**，
+  仅剩 2 处取证/测试侧 A（`tests/headless-shot.mjs`、`archive/local/hina-probe.mjs`）；
+  同时清点出"上下文存在/canvas 有尺寸 = 已出帧"这类**假信号**（插件 `lib/client.js` 有一处**真缺陷**，另有 9 处取证侧），
+  以及一个反向缺口（`elysia` 不发布任何首帧信号 ⇒ 它的 `?shell=0` 黑幕只能等父页 12s 兜底）。
+* `B2d` 的可用前提是**预览 iframe 真的建了 WebGL 上下文**（GL 前置本来就整档 SKIP）；`mode=elysia`（CPU 路径）
+  不用 WebGL，这条对它无意义 —— 本档的预览默认是本仓 WebGL 档。
+* shim 的"等不到就不置位"意味着：**上游产物页**（不写 `__mpwFirstFrame/__mpwFrameNo`）若被塞进 `?shell=0`，
+  黑幕只由父页 12s 兜底揭开 ⇒ 观感与"外壳藏掉、画面黑着"一致，但 `frameProbe().timeouts` 会计数 1。
+  设计上 `shell=0` 只给本仓渲染器档用（`demo/bench-patch.js` 只在本仓档补这个参数）。
+* 只改了 `server/we-scene-demo-server.mjs`、`demo.html`（三处视频入口 + 一个共用写入函数）、
+  `tests/bench-dsh-libroot-test.mjs`、本文件与相关报告；`core/**`、`elysia/**` 一字未动。
+
+## P-183（2026-09-25 · 门禁线）变异子进程的**孙进程**被遗弃：`runChild` 只杀子进程，镜像服务抱着端口与内存不放
+
+**一句话**：`tests/bench-server-test.mjs` 与 `tests/bench-dsh-libroot-test.mjs` 的 `runChild` 在超时/收尾时只
+`child.kill()` —— 而子进程自己会 `startServer()` spawn 被测服务（变异副本），于是那些**孙进程**被遗弃
+（实测：跑完在 `/tmp` 留下两个 mutant-7.mjs 服务进程（变异副本，跑完即随临时目录删除），`ppid=1`，各自抱着端口与内存）。
+
+* **改法**：两处 `runChild` 都改成 `detached: true`（子进程自成进程组）+ 超时时
+  `process.kill(-child.pid, 'SIGKILL')`（整组收干净，杀不到再回落 `child.kill()`）；正常退出仍走子套件自己的
+  `stop()`（`SIGTERM` → 120ms → `SIGKILL`）。
+* **判据**：`bench-server-test` 的变异段与 `bench-dsh-libroot` 的变异段照常全 `MUTANT-RED-OK`；
+  本轮全量套件跑完后 `pgrep -af mutant-` 为空（改前会留下进程）。
+* **未验证**：这条是"收尾路径"的修复，没有做成常驻断言（断言只可能测到"本轮没留下遗孤"，
+  而那正是它要修的东西 —— 自证价值低）；下一轮真机跑完顺手 `pgrep` 复核即可。

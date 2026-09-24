@@ -1,5 +1,7 @@
 # WEwebLoader (浏览器端Wallpaper Engine壁纸渲染器)
 
+**[中文](README-PUBLIC.md)** | [English](README-PUBLIC.en.md)
+
 在浏览器里**实时渲染 Wallpaper Engine 的场景壁纸**（`scene.pkg` / 本项目的 `.mpkg` 容器 / workshop 源目录），
 不需要 Wallpaper Engine、不需要 Windows、不需要 GPU 专用驱动 —— 一个本地 Node 静态服务器 + 支持 WebGL2 的浏览器即可。
 
@@ -66,7 +68,7 @@ python3 -m http.server 8899            # 或 npx serve -l 8899
 | 变量 | 默认 | 用途 |
 |---|---|---|
 | `PORT` | `8899` | 监听端口 |
-| `MPW_ROOT` | 作者机工作区（公开副本请设成你的仓库父目录） | 其它路径的基准 |
+| `MPW_ROOT` | **本仓库的父目录**（按脚本位置推导，不再写死作者机路径） | 其它路径的基准 |
 | `MPW_SCENE_ROOT` | 存在的第一个：`$MPW_ROOT/allwallpaper/dd` → `<repo>/samples`；都不存在则是一个**明确不存在**的占位路径（启动日志会写明，`?id=` 一律 404） | `?id=` 的包目录根 |
 | `MPW_REPORTS_DIR` | `$MPW_ROOT/reports` | `/report` 上报落盘目录（只保留最新 60 份） |
 | `MPW_WE_ASSETS` | 自动探测本机 Steam/WE 安装目录 | WE 官方资产兜底（着色器/粒子预设/材质）；**不随仓库分发**，找不到就跳过 |
