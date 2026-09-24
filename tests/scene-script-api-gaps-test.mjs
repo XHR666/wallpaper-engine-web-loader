@@ -482,7 +482,11 @@ function resolvePkg(rel) {
   const all = CORPUS_FILES.filter((f) => path.basename(f) === base || path.basename(f).endsWith('_' + base))
   // 同名文件可能同时存在于多个语料根（`wallpaperE/other/x.mpkg` 与 `wallpapertest1/wallpapertest1_x.mpkg`）
   //   ⇒ 先按**同一个语料根**收窄；仍不唯一就如实算"定位不到"（SKIP），不猜。
-  const same = all.filter((f) => path.relative(ALLWALLPAPER, f).split('/')[0] === root)
+  /*  ①(2026-09-25 语料漂移修复·第二例) 去重把文件移进 `delete/<原相对路径>` 之后，按首段比 root 的收窄
+      恒不命中（`delete/wallpapertest1/…` 的首段是 `delete`）⇒ S3 真包判据静默 SKIP。把 `delete/<root>/…`
+      视作**同一个语料根**（`delete/` 是同盘暂存区，内容逐字节相同）。 */
+  const rootOf = (r) => { const seg = r.split('/'); return seg[0] === 'delete' ? (seg[1] || '') : seg[0] }
+  const same = all.filter((f) => rootOf(path.relative(ALLWALLPAPER, f)) === root)
   const pick = same.length === 1 ? same[0] : (all.length === 1 ? all[0] : null)
   return pick ? { file: pick, rel: path.relative(ALLWALLPAPER, pick) } : null
 }

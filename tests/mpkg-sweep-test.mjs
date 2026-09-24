@@ -23,6 +23,7 @@
 //   + 拿不到 WebGL2 ⇒ **SKIP + 原样读数**（不假红/不假绿）。
 //
 // 用法（**一次一批，跑完整批自己关浏览器**）：
+//   node tests/mpkg-sweep-test.mjs --batch ALL [--offset N --limit M]   # 全语料（含 scene.json 的 .mpkg），分块跑
 //   node tests/mpkg-sweep-test.mjs --batch A          # 7 个（3×wallpapertest1 + 4×wallpaperE）
 //   node tests/mpkg-sweep-test.mjs --batch B          # 6 个
 //   node tests/mpkg-sweep-test.mjs --batch C          # 3 个对照（**不含** scene.json）
@@ -31,6 +32,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { execSync } from 'node:child_process'
 import { ROOT, WS, TESTS } from './_root.mjs'
 /* 口径唯一实现（有头优先 + 能力前置 + 无 GL 打 SKIP）：见 `tests/_gl-browser.mjs` 文件头 */
 import { launchGLBrowser, glCapability, glReading, logGLSkip, glSkipWhy, closeQuiet, findPlaywright } from './_gl-browser.mjs'
@@ -108,9 +110,31 @@ const SAMPLE = {
     { rel: 'delete/wallpapertest1/wallpapertest1_夜莺Night——Honkai Star Rail Castorice 遐蝶 冥河永渡 崩坏星穹铁道The Etern.mpkg', why: 'wallpapertest1_*（78.0MB/PKGM0018，49 条目）' },
   ],
 }
+/*  ⓐ(2026-09-25 任务④收口) `--batch ALL`：**全语料枚举**（不再靠手写抽样表）——
+    从语料根递归找 `*.mpkg`/`*.pkg`，用离线目录表判 `hasScene`（只读目录表 + 一条 scene.json，不占内存），
+    只保留**含 scene.json** 的包（= 真场景工程；不含的就是纯视频档，不属本项）。
+    · `delete/` 下的副本**排除**（它们与库内保留副本逐字节相同，扫了等于重复劳动；读数里明说排除数）；
+    · `--offset/--limit` 分块 ⇒ 每块一次独立浏览器生命周期（内存优先：不为了一轮扫完把 RSS 堆上去）。 */
+const SCENE_ALL = (() => {
+  if (BATCH !== 'ALL') return null
+  const OFFSET = Number(argVal('--offset') || 0)
+  const LIMIT = Number(argVal('--limit') || 0)
+  const all = walkContainers(CORPUS).map((p) => path.relative(CORPUS, p)).sort()
+  const INCLUDE_PKG = argv.includes('--include-pkg')
+  const kept = all.filter((r) => (!r.startsWith('delete' + path.sep) && !r.startsWith('delete/'))
+    && (INCLUDE_PKG || /\.mpkg$/i.test(r)))
+  const scene = []
+  for (const r of kept) {
+    try { if (readIndexHead(path.join(CORPUS, r)).entries.some((x) => /(^|\/)scene\.json$/i.test(x.name))) scene.push({ rel: r, why: 'ALL：含 scene.json（离线判据）' }) } catch { /* 读不动就在下面按"跳过"如实记 */ }
+  }
+  const slice = scene.slice(OFFSET, LIMIT > 0 ? OFFSET + LIMIT : undefined)
+  console.log('   --batch ALL：语料 ' + all.length + ' 个容器（排除 delete/ 副本与 ' + (INCLUDE_PKG ? '0' : '非 .mpkg') + ' 后 ' + kept.length + '）· 含 scene.json ' + scene.length +
+    ' · 本块 offset=' + OFFSET + ' limit=' + (LIMIT || '不限') + ' ⇒ ' + slice.length + ' 个')
+  return slice
+})()
 const rows = ONLY
   ? Object.values(SAMPLE).flat().filter((r) => r.rel.includes(ONLY))
-  : (SAMPLE[BATCH] || [])
+  : (SCENE_ALL || SAMPLE[BATCH] || [])
 if (!rows.length) { console.log('SKIP mpkg-sweep —— 抽样表里没有匹配项（--batch ' + BATCH + (ONLY ? ' --only ' + ONLY : '') + '）'); process.exit(0) }
 
 /* ── 离线读数（不占内存：只读目录表 + 那一条 scene.json）──────────────────────────────────── */
@@ -144,6 +168,23 @@ console.log('   挂载路径 : ' + (ROUTE === 'pkgpath' ? '/webloader/?pkgpath=<
 console.log('   可用内存 : ' + freeDiskNote())
 
 /* ── 浏览器阶段 ─────────────────────────────────────────────────────────────────────────── */
+/*  ⓑ(2026-09-25) 本机纪律：**同一时刻只允许一个 Firefox**（15GB 机器，曾 OOM；多开既互相抢内存，
+    也会让"画布/像素读数"互相干扰）。启动前先看一眼有没有别人在跑 —— 有就 SKIP 并打印 PID，
+    不硬闯；确实要并发（例如专门的对照实验）用 `--force` 显式越过。 */
+{
+  const others = (() => { try { return execSync("pgrep -af firefox | grep -v pgrep", { encoding: 'utf8' }).trim() } catch { return '' } })()
+  if (others && !argv.includes('--force')) {
+    console.log('SKIP mpkg-sweep —— 已有 Firefox 在跑（本机纪律：同一时刻只允许一个）：\n' + others.split('\n').map((l) => '    ' + l.slice(0, 140)).join('\n') + '\n    等它跑完再跑本档，或显式 --force')
+    process.exit(0)
+  }
+}
+/*  `--enum-only`：只做离线枚举/判据（不启动浏览器）—— 用来核"这一批到底选了哪些包"、
+    也用来在机器忙（已有 Firefox / 内存紧张）时先取清单，真正的出画扫描留给空闲时段。 */
+if (argv.includes('--enum-only')) {
+  for (const r of rows) { const o = offline(r.rel); console.log('  ' + r.rel + '  → ' + (o.mb || '?') + 'MB · 条目 ' + (o.entries == null ? '?' : o.entries) + ' · scene 层 ' + (o.sceneLayers == null ? '-' : o.sceneLayers) + (o.pkgError ? ' · ⚠ ' + o.pkgError : '')) }
+  console.log('\n--enum-only：共 ' + rows.length + ' 个（未启动浏览器）')
+  process.exit(0)
+}
 const pwPath = findPlaywright()
 if (!pwPath) { console.log('SKIP mpkg-sweep —— 找不到 playwright（可用 MPW_PLAYWRIGHT=<path> 指定）'); process.exit(0) }
 const pw = createRequire(import.meta.url)(pwPath)

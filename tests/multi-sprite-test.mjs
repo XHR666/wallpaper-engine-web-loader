@@ -29,8 +29,13 @@ function resolvePkg(rel) {
   const exact = path.join(ALL, rel)
   if (fs.existsSync(exact)) return exact
   const base = path.basename(rel), root = rel.split('/')[0]
+  /*  ①(2026-09-25 语料漂移修复·第二例) 去重口径改成"移进 `allwallpaper/delete/<原相对路径>`"之后，
+      原路径 `wallpapertest1/x.mpkg` 变成 `delete/wallpapertest1/wallpapertest1_x.mpkg` ⇒ 旧收窄
+      （按首段比 root）恒不命中，"同名候选 2 个"⇒ **整项静默 SKIP**（本机实测）。这里把
+      `delete/<root>/…` 视作**同一个语料根**（`delete/` 只是同盘暂存区，内容逐字节相同）。 */
+  const rootOf = (r) => { const seg = r.split('/'); return seg[0] === 'delete' ? (seg[1] || '') : seg[0] }
   const all = walkContainers(ALL).filter((f) => path.basename(f) === base || path.basename(f).endsWith('_' + base))
-  const same = all.filter((f) => path.relative(ALL, f).split('/')[0] === root)
+  const same = all.filter((f) => rootOf(path.relative(ALL, f)) === root)
   const pick = same.length === 1 ? same[0] : (all.length === 1 ? all[0] : null)
   if (!pick) {
     console.log('SKIP multi-sprite —— 回归资产定位不到（同名候选 ' + all.length + ' 个）：' + rel)
