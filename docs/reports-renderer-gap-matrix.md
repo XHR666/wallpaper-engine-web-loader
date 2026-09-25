@@ -313,7 +313,7 @@ Playwright 的 `console` 事件只给 `scene render failed: Error`；在页面�
 ## 8. 复现命令（本轮实际跑过的）
 
 ```bash
-cd /root/Desktop/DSHarea/we-scene-demo
+cd <工作区>/we-scene-demo
 
 # ① 离线枚举（不起浏览器）：看口径与选中了哪些包
 node tests/renderer-gap-matrix.mjs --enum-only
@@ -329,7 +329,7 @@ flock /tmp/.mpw-firefox.lock -c 'node tests/renderer-gap-matrix.mjs --force --up
 
 # ⑤ 产物侧判据探测（§2 的①②③④⑤；探测脚本在 /tmp，不属于交付物）
 flock /tmp/.mpw-firefox.lock -c 'node /tmp/probe-upstream.mjs up'
-flock /tmp/.mpw-firefox.lock -c 'node /tmp/probe-stack.mjs "/root/Desktop/DSHarea/allwallpaper/wallpaperE/佩丽卡/佩丽卡1_10.mpkg"'
+flock /tmp/.mpw-firefox.lock -c 'node /tmp/probe-stack.mjs "<工作区>/allwallpaper/wallpaperE/佩丽卡/佩丽卡1_10.mpkg"'
 ```
 
 本轮实跑规模（JSON `runs[]` 逐条可查）：**语料 116 个包 × 两档 = 232 次挂载**，分 18 批主跑

@@ -16,7 +16,7 @@
 命令（**同一把文件锁**，跑完 `reset` 库根）：
 
 ```bash
-curl -s -X POST http://127.0.0.1:8902/api/library-dir -H 'content-type: application/json' -d '{"dir":"/root/Desktop/DSHarea/allwallpaper/0923"}'
+curl -s -X POST http://127.0.0.1:8902/api/library-dir -H 'content-type: application/json' -d '{"dir":"<工作区>/allwallpaper/0923"}'
 flock /tmp/.mpw-firefox.lock -c 'node /tmp/mpw-e2e-net.mjs 2887099508'      # 探针：请求台账 + #log 里的失败行
 curl -s -X POST http://127.0.0.1:8902/api/library-dir -H 'content-type: application/json' -d '{"reset":true}'
 ```
@@ -242,7 +242,7 @@ include 名清单（`/0923` 全语料）：`common.h` 22 包、`common_perspecti
 
 ```bash
 # 复现/端到端（全部在 flock 内，跑完 reset 库根）
-curl -s -X POST http://127.0.0.1:8902/api/library-dir -H 'content-type: application/json' -d '{"dir":"/root/Desktop/DSHarea/allwallpaper/0923"}'
+curl -s -X POST http://127.0.0.1:8902/api/library-dir -H 'content-type: application/json' -d '{"dir":"<工作区>/allwallpaper/0923"}'
 flock /tmp/.mpw-firefox.lock -c 'node /tmp/mpw-e2e-net.mjs 2887099508'        # 改前：404 /common.h + 4 条跳过；改后：200 /shaders/common.h + 0 条
 flock /tmp/.mpw-firefox.lock -c 'node /tmp/mpw-e2e-fxchain.mjs 2887099508 2902406982 3278399262 3648434762 3668498439'
 curl -s -X POST http://127.0.0.1:8902/api/library-dir -H 'content-type: application/json' -d '{"reset":true}'

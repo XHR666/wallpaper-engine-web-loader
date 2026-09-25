@@ -70,7 +70,7 @@
 
 ⇒ 第二页同样只讲"近距施力"，**不讲**门限减半；对 vortex 同样**只讲"绕轴转"，不讲绕哪一边**。
 
-### 1.2 S1 官方资产（`/root/Desktop/DSHarea/wallpaper_engine/assets/**`）
+### 1.2 S1 官方资产（本机 WE 安装目录的 `wallpaper_engine/assets/**`，**不随仓分发**）
 
 **① C4：该字段的序列化键名 = `threshold`，且它就是文档的 "Distance"**
 

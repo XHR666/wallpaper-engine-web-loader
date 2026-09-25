@@ -3271,6 +3271,12 @@ export const BUILTIN_MODELS = {
   // 提供内置 material 避免“缺 model/material”报错；内容透明，效果仍会执行
   'models/util/composelayer.json': { material: 'materials/util/composelayer.json' },
   'models/util/fullscreenlayer.json': { material: 'materials/util/fullscreenlayer.json' },
+  // ①(FIX-2887099508) `models/util/projectlayer.json` 与 fullscreenlayer 同属 WE 的**整屏后处理层**，
+  //   pkg 一样不打包（本机语料实测：容器目录表里没有 `models/util/*` 任何条目）。此前只登记了
+  //   fullscreenlayer ⇒ 真包 `0923/2887099508` 第 61 层 `ldfk`（image=models/util/projectlayer.json、
+  //   size=6080×3420 = 整幅投影、visible=true）解析成 MISSING-MODEL：拿不到 material ⇒ 拿不到
+  //   passes/shader ⇒ 该层（以及它将来挂的效果链）整层失效。内容透明、效果照跑，与 fullscreenlayer 同款。
+  'models/util/projectlayer.json': { material: 'materials/util/projectlayer.json' },
 }
 
 // 内置 material（pkg 内没有 materials/util/*）：返回 passes 定义或 null
@@ -3283,6 +3289,10 @@ export const BUILTIN_MATERIALS = {
     passes: [{ shader: 'flat', blending: 'translucent', cullmode: 'nocull', depthtest: 'disabled', depthwrite: 'disabled', textures: [], combos: {} }],
   },
   'materials/util/fullscreenlayer.json': {
+    passes: [{ shader: 'flat', blending: 'translucent', cullmode: 'nocull', depthtest: 'disabled', depthwrite: 'disabled', textures: [], combos: {} }],
+  },
+  // ①(FIX-2887099508) 与 BUILTIN_MODELS 的 projectlayer 配对（同 fullscreenlayer：无纹理是设计）
+  'materials/util/projectlayer.json': {
     passes: [{ shader: 'flat', blending: 'translucent', cullmode: 'nocull', depthtest: 'disabled', depthwrite: 'disabled', textures: [], combos: {} }],
   },
 }
@@ -5506,6 +5516,49 @@ export function applyOperator(sys, op, dt, t) {
 
 // ---------- 预处理 ----------
 
+/* ②(P-198 2026-09-25 转译线) `#define` 行里的注释**不属于宏体**。
+ *
+ * 现象（真包可复现）：`allwallpaper/0917/3600630828` 的 `Simple_Audio_Bars` 整条效果 pass 被跳过，
+ *   真编译器原样报文 `ERROR: 0:488: 'float' : syntax error`（本仓独有，产物侧不失败）。
+ * 根因：源里写的是
+ *     #define DEG2PCT 0.0027777777777777777777777777777 // 1 / 360
+ *   而本文件此前的宏登记把**行尾注释一起**当成宏体（`(.*)$` 吃到行尾），于是 `float a = x * DEG2PCT;`
+ *   展开成 `float a = x * 0.0027777777777777777777777777777 // 1 / 360;` —— **分号被注释吃掉**。
+ *   C/C++ 预处理语义里注释在**翻译阶段 3**就被替换成空白，早于指令解析 ⇒ 宏体是 `0.00277…`，不含注释。
+ * 语料实测（2026-09-25，四个语料根 51 个 `scene.pkg`、全部 shader 条目）：
+ *   `#define <名> <非空体> // 注释` **73 处 / 去重后 18 个 shader**；反斜杠续行的 `#define` **0 处**
+ *   （所以逐行剥离不丢东西；真出现续行会走下面的 `unresolved` 计数，不静默）。
+ * 回退口：`?macrocomment=legacy`（= 改动前：注释留在宏体里）。 */
+function stripDirectiveComment(body) {
+  const s = String(body == null ? '' : body)
+  let out = ''
+  let quote = ''
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (quote) {                                  // 字符串字面量里的 `//` 不是注释
+      out += c
+      if (c === '\\' && i + 1 < s.length) { out += s[i + 1]; i++ } else if (c === quote) quote = ''
+      continue
+    }
+    if (c === '"' || c === "'") { quote = c; out += c; continue }
+    if (c === '/' && s[i + 1] === '/') break                                  // 行注释：其后全部丢弃
+    if (c === '/' && s[i + 1] === '*') {                                      // 块注释：整体丢弃
+      const e = s.indexOf('*/', i + 2)
+      if (e === -1) break
+      i = e + 1
+      continue
+    }
+    out += c
+  }
+  return out
+}
+
+/* ②④(P-198) 这两条新规则的**本次调用**有效开关。默认全开；由 `hlsl2glsl()` 的第 5 参 `search`
+ *  （Node 判据/工具用）或浏览器 `location.search` 决定，见 `macroCommentLegacy()`/`constGlobalLegacy()`。
+ * 逐层显式传参（不做模块级可变状态）：`preprocess()`/`expandMacrosIn()` 是**导出**的，隐藏状态会让
+ * 直接调用它们的判据读到上一次 `hlsl2glsl()` 的开关。 */
+const H2G_FIXES_DEFAULT = Object.freeze({ macroComment: true, constGlobal: true })
+
 // 收集宏定义（对象宏 + 函数宏）
 function collectMacros(src) {
   const defs = new Map()
@@ -5514,16 +5567,16 @@ function collectMacros(src) {
   let m
   while ((m = re.exec(src)) !== null) {
     if (m[2] !== undefined) {
-      fns.set(m[1], { args: m[2].split(',').map((s) => s.trim()).filter(Boolean), body: m[3].trim() })
+      fns.set(m[1], { args: m[2].split(',').map((s) => s.trim()).filter(Boolean), body: stripDirectiveComment(m[3]).trim() })
     } else {
-      defs.set(m[1], m[3].trim())
+      defs.set(m[1], stripDirectiveComment(m[3]).trim())
     }
   }
   return { defs, fns }
 }
 
 // 函数宏展开（平衡括号取参，递归深度限制）
-function expandFunctionMacro(text, name, info, depth) {
+function expandFunctionMacro(text, name, info, depth, flags) {
   const out = []
   let i = 0
   while (i < text.length) {
@@ -5563,7 +5616,7 @@ function expandFunctionMacro(text, name, info, depth) {
       const val = args[k] !== undefined ? args[k].trim() : ''
       body = replaceWord(body, name, val)
     })
-    if (depth > 0) body = expandMacrosIn(body, depth - 1)
+    if (depth > 0) body = expandMacrosIn(body, depth - 1, flags)
     out.push('(' + body + ')')
     i = end + 1
   }
@@ -5595,7 +5648,8 @@ function splitArgs(s) {
 
 // 展开宏（对象宏 + 函数宏），多轮迭代直到无宏残留（宏可互相引用）。
 // 预处理行（# 开头）不展开，避免 #define 行自身被误当作调用。
-function expandMacrosIn(text, depth) {
+function expandMacrosIn(text, depth, flags) {
+  const fx = flags || H2G_FIXES_DEFAULT
   // 按行序展开：HLSL 预处理语义 = #define 只影响定义之后的行。
   // （WE shader 存在先声明同名变量、后 #define 覆盖用的写法，全局展开会破坏声明行，
   //   例如 light_map.frag: `vec3 lightMap = CAST3(0.0), emitters;` + 后面 `#define emitters 1.0`）
@@ -5610,10 +5664,12 @@ function expandMacrosIn(text, depth) {
       const dm = /^#define[ \t]+([A-Za-z_][A-Za-z0-9_]*)(?:\(([^)]*)\))?[ \t]*(.*)$/.exec(t)
       if (dm) {
         // 本行注册宏（不展开本行；#define 行随后由调用方剥离）
+        // ②(P-198) 宏体**不含行尾注释**（`?macrocomment=legacy` ⇒ 回到"注释一起进宏体"的旧行为）
+        const body = fx.macroComment ? stripDirectiveComment(dm[3]).trim() : dm[3].trim()
         if (dm[2] !== undefined) {
-          fns.set(dm[1], { args: dm[2].split(',').map((x) => x.trim()).filter(Boolean), body: dm[3].trim() })
+          fns.set(dm[1], { args: dm[2].split(',').map((x) => x.trim()).filter(Boolean), body })
         } else {
-          defs.set(dm[1], dm[3].trim() === '' ? '1' : dm[3].trim())
+          defs.set(dm[1], body === '' ? '1' : body)
         }
         continue
       }
@@ -5625,7 +5681,7 @@ function expandMacrosIn(text, depth) {
       }
       for (const [name, info] of fns) {
         if (l.includes(name)) {
-          l = expandFunctionMacro(l, name, info, depth)
+          l = expandFunctionMacro(l, name, info, depth, fx)
           changed = true
         }
       }
@@ -5731,7 +5787,8 @@ function evalIfExpr(expr, combos, defs) {
 }
 
 // 行级预处理：展开 #include、按 combo 裁剪 #if 块
-function preprocess(src, combos, includeResolver, depth) {
+function preprocess(src, combos, includeResolver, depth, flags) {
+  const fx = flags || H2G_FIXES_DEFAULT
   const lines = src.split('\n')
   const out = []
   const stack = [] // { parent, hit }（不支持 #elif；#else 取反 hit）
@@ -5748,7 +5805,7 @@ function preprocess(src, combos, includeResolver, depth) {
         //   `inc !== null` 分支 ⇒ 展开成空、连痕迹都不留（静默产出缺符号的 GLSL，要到 GL 编译期才炸）。
         //   现在空/纯空白也按缺失处理 ⇒ 生成物里一定留得下 `// [include 缺失: xxx]` 这条可查痕迹。
         if (inc !== null && inc !== undefined && String(inc).trim() !== '') {
-          out.push(preprocess(inc, combos, includeResolver, depth + 1))
+          out.push(preprocess(inc, combos, includeResolver, depth + 1, fx))
         } else {
           out.push('// [include 缺失: ' + file + ']')
         }
@@ -5759,7 +5816,9 @@ function preprocess(src, combos, includeResolver, depth) {
       if (allActive(stack)) {
         out.push(line)
         const m = /^#define[ \t]+([A-Za-z_][A-Za-z0-9_]*)(?:\([^)]*\))?[ \t]*(.*)$/.exec(t)
-        if (m) defs.set(m[1], m[2].trim())
+        // ②(P-198) 这里的 `defs` 只喂 `#if` 求值器；行尾注释同样不属于宏体（否则
+        //   `#define FOO 1 // x` + `#if FOO == 1` 会算出 `(1 // x) == 1` ⇒ 表达式解析失败 ⇒ 恒 0）。
+        if (m) defs.set(m[1], (fx.macroComment ? stripDirectiveComment(m[2]) : m[2]).trim())
       }
       continue
     }
@@ -5886,6 +5945,89 @@ function floatifyIntArgs(text) {
 
 export { preprocess }
 
+/* ④(P-198 2026-09-25 转译线) **文件级 `const` 的初值依赖 uniform ⇒ 内联**。
+ *
+ * 现象（真包可复现）：`allwallpaper/0923/3653641024` 的 `phantomtransitionfx` 整条效果 pass 被跳过，
+ *   真编译器原样报文 `ERROR: 0:24: '=' : assigning non-constant to 'const highp float'`（产物侧同样失败）。
+ * 根因：`shaders/workshop/3485726739/effects/phantomtransitionfx.frag:109` 写的是
+ *     const float FEATHER = u_Feather * 0.5;          // u_Feather 是 uniform
+ *   GLSL ES 3.0 要求**文件级** `const` 的初值是常量表达式（uniform 读永不满足）；
+ *   连"去掉 const"也救不了（非 const 全局初值同样要求常量表达式：
+ *   `'non-constant global initializer (needs GL_EXT_shader_non_constant_global_initializers)'`）
+ *   ⇒ 只能把初值搬到**使用点**（HLSL 侧这类全局 const 被当作只读全局，语义上就是每次读同一个表达式）。
+ * 判据（为什么可以放心改）：初值依赖 uniform ⇒ 该 shader **当下必然编不过** ⇒ 本规则只可能把红变绿，
+ *   不可能改坏现在能编过的产物。语料实测（2026-09-25 四根 51 包全 shader 条目）：命中 **1 处**（即上面那个）。
+ * 边界（都不静默，逐条计进 `h2gPassFixStats.constGlobalKeep`）：
+ *   ① 名字在本文件里**另有声明**（形参/局部/二次声明）⇒ 不动（可能被改写，内联会改语义）；
+ *   ② 名字被当**成员名**用（`x.FEATHER`）⇒ 不动；
+ *   ③ 初值里有**顶层逗号**（`const float a = 1, b = 2;` 多声明符）⇒ 不动；
+ *   ④ 只处理**同一行**的声明（跨行初值不动，语料 0 处）；花括号深度必须为 0。
+ * 行号：声明行**保留行数**，替换成一条 `// [P-198 ④ …]` 痕迹（不删行 ⇒ 其余报错行号不漂移）。
+ * 回退口：`?constglobal=legacy`（= 原样保留，回到改动前的报文）。 */
+function blankComments(s) {
+  let out = ''
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '/' && s[i + 1] === '/') { while (i < s.length && s[i] !== '\n') { out += ' '; i++ } out += '\n'; continue }
+    if (s[i] === '/' && s[i + 1] === '*') {
+      out += '  '; i += 2
+      while (i < s.length && !(s[i] === '*' && s[i + 1] === '/')) { out += (s[i] === '\n' ? '\n' : ' '); i++ }
+      out += '  '; i++
+      continue
+    }
+    out += s[i]
+  }
+  return out
+}
+function inlineNonConstGlobals(code, stats) {
+  const st = stats || h2gPassFixStats
+  const mask = blankComments(code)
+  const uni = new Set()
+  for (const m of mask.matchAll(/\buniform\s+(?:(?:highp|mediump|lowp)\s+)?[A-Za-z_]\w*\s+([A-Za-z_]\w*)/g)) uni.add(m[1])
+  if (!uni.size) return code
+  const uniRe = [...uni].map((u) => new RegExp('\\b' + u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b'))
+  // 花括号深度（只看挖空注释后的副本）：文件级 = 深度 0
+  const depthAt = new Int32Array(mask.length + 1)
+  {
+    let d = 0
+    for (let i = 0; i < mask.length; i++) {
+      depthAt[i] = d
+      if (mask[i] === '{') d++
+      else if (mask[i] === '}') d = Math.max(0, d - 1)
+    }
+    depthAt[mask.length] = d
+  }
+  const declRe = /(^|\n)([ \t]*)const[ \t]+(?:(?:highp|mediump|lowp)[ \t]+)?([A-Za-z_]\w*)[ \t]+([A-Za-z_]\w*)[ \t]*=[ \t]*([^;\n]*);/g
+  const jobs = []
+  let m
+  while ((m = declRe.exec(mask)) !== null) {
+    const lead = m[1].length          // 前导换行（0 = 文件首行）
+    const declStart = m.index + lead
+    if (depthAt[declStart] !== 0) continue
+    const name = m[4]
+    const init = m[5]
+    if (!uniRe.some((r) => r.test(init))) continue
+    const bail = (why) => { st.constGlobalKeep++; st.constGlobalKeepReasons[why] = (st.constGlobalKeepReasons[why] || 0) + 1 }
+    if (/,(?![^()]*\))/.test(init)) { bail('多声明符'); continue }
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const declCount = (mask.match(new RegExp('\\b(?:const[ \\t]+)?(?:(?:highp|mediump|lowp)[ \\t]+)?(?:float|vec[234]|mat[234]|int|uint|bool|sampler2D|sampler3D|samplerCube)[ \\t]+' + esc + '\\b', 'g')) || []).length
+    if (declCount !== 1) { bail('名字另有声明'); continue }
+    if (new RegExp('\\.\\s*' + esc + '\\b').test(mask)) { bail('被当成员名'); continue }
+    jobs.push({ start: declStart, end: m.index + m[0].length, name, init })
+  }
+  if (!jobs.length) return code
+  // 从后往前替换（位置不漂移）。**声明前后都替换**：`declCount === 1` 已保证全文只有这一处声明 ⇒
+  // 其余出现都是"使用"（含"写在声明之前的函数体里"这种顺序，GLSL 本来也不允许，内联后反而成立）。
+  for (const j of jobs.reverse()) {
+    const head = code.slice(0, j.start)
+    const tail = code.slice(j.end)
+    const useRe = new RegExp('\\b' + j.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g')
+    const trace = '// [P-198 ④ 内联非常量全局 const：' + j.name + ' = ' + j.init.trim() + ']'
+    code = head.replace(useRe, '(' + j.init.trim() + ')') + trace + tail.replace(useRe, '(' + j.init.trim() + ')')
+    st.constGlobal++
+  }
+  return code
+}
+
 /** ①(P-134 ⑥ 第三处) 从一段 shader 源码里取 `// [COMBO] {…}` 声明的默认值（无 `default` 的项不产出）。 */
 export function parseComboDefaults(text) {
   const defaults = {}
@@ -5962,6 +6104,32 @@ export function h2gWidthStatsReset() {
   h2gWidthStats.unresolved = 0
   h2gWidthStats.unresolvedReasons = {}
   return h2gWidthStats
+}
+
+/* ②④①③(P-198 2026-09-25 转译线) 三条新规则的可观测计数器（与 `h2gWidthStats` **分开**：那三个对象
+ * 是 P-115/P-134 的既有台账，判据按字段取值；新规则各自的命中/放弃条数必须**读得到**，
+ * 否则"翻译不过来就原样保留"会退化成另一种静默跳过）。
+ *   · macroComment   = 本次转译里**带行尾注释的 `#define` 条数**（②；宏体已按 C 语义剥离注释）
+ *   · constGlobal    = 文件级 `const T x = <依赖 uniform 的初值>;` 被**内联**的条数（④）
+ *   · constGlobalKeep= 命中形态但判定为**可确证常量**（或名字另有声明）⇒ 原样保留的条数（④）
+ *   · varyingWiden   = 片元 `in` 按顶点侧**加宽**的条数（①）
+ *   · varyingNarrow  = 片元 `in` 按顶点侧**收窄**的条数（③）
+ *   · varyingUnresolved(+Reasons) = 宽度冲突命中但**不敢动**（片元读了超出顶点宽度的分量 /
+ *     存在裸引用 / 兄弟侧无同名声明）⇒ 原样保留的条数（真编译会把它们暴露出来）。 */
+export const h2gPassFixStats = {
+  macroComment: 0, constGlobal: 0, constGlobalKeep: 0, constGlobalKeepReasons: {},
+  varyingWiden: 0, varyingNarrow: 0, varyingUnresolved: 0, varyingUnresolvedReasons: {},
+}
+export function h2gPassFixStatsReset() {
+  h2gPassFixStats.macroComment = 0
+  h2gPassFixStats.constGlobal = 0
+  h2gPassFixStats.constGlobalKeep = 0
+  h2gPassFixStats.constGlobalKeepReasons = {}
+  h2gPassFixStats.varyingWiden = 0
+  h2gPassFixStats.varyingNarrow = 0
+  h2gPassFixStats.varyingUnresolved = 0
+  h2gPassFixStats.varyingUnresolvedReasons = {}
+  return h2gPassFixStats
 }
 
 // ═══ ①(ISSUE0924A2 渲染器"效果链编译失败"线 2026-09-24) WE 公共 shader 头：**内置等价实现** ═══
@@ -6075,14 +6243,179 @@ export function makeEffectIncludeResolver(cache, missing) {
 
 /** 效果 pass 的 GLSL 拼装（**生产路径与测试同一份**，纯函数）：兄弟 stage combo 补默认 → 逐 stage 转译。
  *  纹理关联 combo（`parseTextureCombos`）仍由调用方从**原始** frag 解析（它依赖 createRenderer 作用域）。 */
-export function assembleEffectShaderSources({ fragSrc, vertSrc, combos = {}, resolveInclude = null }) {
-  return {
-    frag: hlsl2glsl(withSiblingComboDefaults(fragSrc, vertSrc), 'frag', combos, resolveInclude),
-    vert: hlsl2glsl(withSiblingComboDefaults(vertSrc, fragSrc), 'vert', combos, resolveInclude),
-  }
+export function assembleEffectShaderSources({ fragSrc, vertSrc, combos = {}, resolveInclude = null, search = null }) {
+  const frag = hlsl2glsl(withSiblingComboDefaults(fragSrc, vertSrc), 'frag', combos, resolveInclude, search)
+  const vert = hlsl2glsl(withSiblingComboDefaults(vertSrc, fragSrc), 'vert', combos, resolveInclude, search)
+  // ①③(P-198) 跨 stage varying 宽度对账（链接期规则，见 `reconcileStageVaryings()`）。
+  const rec = reconcileStageVaryings(vert, frag, search)
+  return { frag: rec.frag, vert: rec.vert }
 }
 
-export function hlsl2glsl(src, stage, combos, includeResolver) {
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════
+   ③(P-195 2026-09-24 · 承接 WE-FULL-REV §5-P0-2/P1-12 的逐条核实结论) shader 里的 material 注解扫描
+   ──────────────────────────────────────────────────────────────────────────────────────────────────
+   现象/根因：材质 uniform 的缺省值与场景 `constantshadervalues` 全靠 `uniform …; // {"material":"x","default":…}`
+   这条注解建立映射，而**官方一整批注解写在 include 头里**（`shaders/common_composite.h` 的
+   `g_CompositeAlpha`/`g_CompositeOffset`/`g_CompositeColor`、`common_particles.h` 等）。旧实现只扫
+   `.vert`/`.frag` **原文** ⇒ 这些键在 matMeta 里根本不存在 ⇒ `bindConstants()` 既拿不到场景值、
+   也写不出缺省值；例：`COMPOSITE==1` 的 pass 里 `g_CompositeAlpha` 停在 GL 缺省 **0**
+   ⇒ 该 pass 实际成 no-op（真包 `3544152633` 就有
+   `{"combos":{"COMPOSITE":1},"constantshadervalues":{"compositealpha":1.2,…}}`）。
+   改法：把**本次已解析到的 include 正文**一并喂给同一个扫描器（纯函数，导出给判据）。
+   边界（都不静默）：① 头里声明、本 program 没引用的 uniform 会被 `bindConstants` 经**真实 uniform 表**
+   （`uni.get(name)` 为 null）自然跳过，不会写到不存在的地址；② 同名 material 出现在多个头里 ⇒
+   按传入顺序**后者胜**（与"后包含覆盖先包含"的直觉一致）；③ 回退口 `?fxcomposite=legacy` = 旧行为。
+   ⚠ 扫描只认 `uniform …; // {…}` 形态；本文件既有的拼装（`withSiblingComboDefaults`/`hlsl2glsl`）
+   **不动行号**，所以"声明后紧跟注解"这条性质不被破坏（见 `assembleEffectShaderSources` 上方的说明）。 */
+/* ③(P-199 2026-09-25) `?copybginput=legacy`：`copybackground` 层**总是**把效果链输入换成背景拷贝
+   （= 改动前的行为）。缺省（新）= **只有这一层自己没有内容（无纹理）时**才换，有纹理的层保持"层自己的内容"
+   作链输入、背景只经 COPYBG 槽（`_rt_FullFrameBuffer`）进入 shader —— 依据三条一致的来源：
+   ①第三方参考实现（WER-ALIGN G2）："solid 层用 composelayer_clearalpha 材质采样主帧缓冲；**效果层材质注入
+   COPYBG combo**"（效果层只注入 combo，不换内容）；②官方 shader 里 `#if COPYBG` 采的是 `g_Texture2 =
+   _rt_FullFrameBuffer`（背景走**独立纹理槽**，与槽 0 无关）；③本文件 RE-23 的注释本身写的就是"注入 combos.COPYBG=1"。
+   现场：壁纸 `0923/2887099508` 有 **64 层 `copybackground:true`**（语料 77 true / 44 false），其中 28 层
+   既有自己的贴图又有 fx ⇒ 旧行为下这些层的内容被背景顶掉（"渲染不出来有用的内容"）。 */
+export function copyBgInputLegacy(search) {
+  try {
+    if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('copybginput') === 'legacy'
+  } catch (e) { /* 落到按 location 判 */ }
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('copybginput') === 'legacy'
+    }
+  } catch (e) { /* 无 location ⇒ 非 legacy */ }
+  return false
+}
+export function fboDescLegacy(search) {
+  try {
+    if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('fbodesc') === 'legacy'
+  } catch (e) { /* 落到按 location 判 */ }
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('fbodesc') === 'legacy'
+    }
+  } catch (e) { /* 无 location（Node 判据 / 切片夹具）⇒ 非 legacy */ }
+  return false
+}
+export function fxCompositeLegacy(search) {
+  try {
+    if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('fxcomposite') === 'legacy'
+  } catch (e) { /* 落到按 location 判 */ }
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('fxcomposite') === 'legacy'
+    }
+  } catch (e) { /* 无 location（Node 判据 / 切片夹具）⇒ 非 legacy */ }
+  return false
+}
+/* ②④①③(P-198 2026-09-25 转译线) 三条新转译规则的回退口（口径与 `fboDescLegacy`/`fxCompositeLegacy` 同款：
+ * 显式 `search` 优先 → 否则读 `location.search` → Node/切片夹具无 location ⇒ 缺省档）。
+ *   macrocomment = ② `#define` 行尾注释不算宏体（`legacy` = 改动前：注释进宏体 ⇒ 展开吃掉行尾 `;`）
+ *   constglobal  = ④ 文件级 `const` 依赖 uniform 时内联初值（`legacy` = 原样留着 ⇒ GLSL ES 编译期
+ *                  `global const initializers must be constant`，ANGLE 写作 `assigning non-constant to …`）
+ *   cmpint       = ④-b 标量 float 与裸整数字面量比较时把字面量浮点化（`legacy` = 原样 ⇒
+ *                  `'==' : wrong operand types … 'highp float' and 'const int'`；const 那条修好后才会浮出来）
+ *   varyinglink  = ①③ 跨 stage 同名 varying 宽度对齐（`legacy` = 不动 ⇒ 链接期 `Types must match`）
+ * ⚠ 四个函数**故意各写一遍字面开关名**（不抽"传 name 的公共 helper"）：`tests/diag-flag-check.mjs` 只认
+ *   `.get('字面量')` 这一形态，抽成变量会让这四个开关在"代码 ↔ 文档主表"的双向核对里变成"文档有·代码无"。 */
+export function macroCommentLegacy(search) {
+  try {
+    if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('macrocomment') === 'legacy'
+  } catch (e) { /* 落到按 location 判 */ }
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('macrocomment') === 'legacy'
+    }
+  } catch (e) { /* 无 location（Node 判据 / 切片夹具）⇒ 非 legacy */ }
+  return false
+}
+export function constGlobalLegacy(search) {
+  try {
+    if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('constglobal') === 'legacy'
+  } catch (e) { /* 落到按 location 判 */ }
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('constglobal') === 'legacy'
+    }
+  } catch (e) { /* 无 location（Node 判据 / 切片夹具）⇒ 非 legacy */ }
+  return false
+}
+export function cmpIntLegacy(search) {
+  try {
+    if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('cmpint') === 'legacy'
+  } catch (e) { /* 落到按 location 判 */ }
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('cmpint') === 'legacy'
+    }
+  } catch (e) { /* 无 location（Node 判据 / 切片夹具）⇒ 非 legacy */ }
+  return false
+}
+export function varyingLinkLegacy(search) {
+  try {
+    if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('varyinglink') === 'legacy'
+  } catch (e) { /* 落到按 location 判 */ }
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('varyinglink') === 'legacy'
+    }
+  } catch (e) { /* 无 location（Node 判据 / 切片夹具）⇒ 非 legacy */ }
+  return false
+}
+/** 纯函数：把若干段源码（stage 原文 + include 正文）扫成 `material 名 → {uniform, default}`。
+ *  多段合并的口径见上方 ② ；同一 material 键后出现者覆盖先出现者。 */
+export function parseMaterialMeta(...sources) {
+  const meta = {}
+  for (const src of sources) {
+    if (!src) continue
+    const re = /uniform\s+[A-Za-z0-9_]+\s+([A-Za-z_][A-Za-z0-9_]*)[^;]*;\s*\/\/([^\n]*)/g
+    let m
+    while ((m = re.exec(String(src))) !== null) {
+      const uniformName = m[1]
+      const mat = /"material"\s*:\s*"([^"]+)"/.exec(m[2])
+      if (!mat) continue
+      const def = /"default"\s*:\s*("(?:[^"]*)"|-?\d+(?:\.\d+)?)/.exec(m[2])
+      meta[mat[1]] = { uniform: uniformName, default: def ? parseDefaultValue(def[1]) : undefined }
+    }
+  }
+  return meta
+}
+/** 纹理关联 combo：sampler uniform 注释声明 combo，且该槽提供了纹理 → combo = 1（ShaderUnit.cpp:545-617） */
+export function parseTextureCombos(src) {
+  const out = []
+  const re = /uniform\s+sampler2D\s+(g_Texture(\d+))[^;]*;\s*\/\/([^\n]*)/g
+  let m
+  while ((m = re.exec(String(src))) !== null) {
+    const combo = /"combo"\s*:\s*"([^"]+)"/.exec(m[3])
+    if (combo) out.push({ slot: Number(m[2]), name: m[1], combo: combo[1] })
+  }
+  return out
+}
+export function parseDefaultValue(s) {
+  if (String(s).startsWith('"')) return String(s).slice(1, -1)
+  const n = Number(s)
+  return Number.isFinite(n) ? n : undefined
+}
+/** 生产路径口径：**vert + frag + （非 legacy 时）include 正文** 一起扫。 */
+export function materialMetaFor({ vert, frag, includeBodies = [], search } = {}) {
+  const extra = fxCompositeLegacy(search) ? [] : (includeBodies || [])
+  return Object.assign(parseMaterialMeta(vert, ...extra), parseMaterialMeta(frag, ...extra))
+}
+
+/** 转译一个 stage 的 WE shader 源到 GLSL ES 3.0。
+ *  第 5 参 `search`（可选）= URL 查询串：只用于 ②④ 两条新规则的回退口
+ *  （`?macrocomment=legacy` / `?constglobal=legacy`，见 `macroCommentLegacy`/`constGlobalLegacy`；
+ *  不传则按浏览器 `location.search`，Node 判据里即"缺省档 = 两条规则都开"）。
+ *  ⚠ 第 5 参**不是** vendored 上游那份的 `siblingSrc`：本仓的跨 stage 信息一律走
+ *  `withSiblingComboDefaults()`（combo 默认值）与 `reconcileStageVaryings()`（varying 宽度），
+ *  转译函数本身只看得见**一个** stage。 */
+export function hlsl2glsl(src, stage, combos, includeResolver, search) {
+  // ②④(P-198) 本次调用的有效开关：显式 `search` 优先，其次 `location.search`，都没有 ⇒ 缺省（规则开）。
+  const fixes = Object.freeze({
+    macroComment: !macroCommentLegacy(search),
+    constGlobal: !constGlobalLegacy(search),
+    cmpInt: !cmpIntLegacy(search),
+  })
   // combo 默认值：WE 语义 = 未显式提供时用声明里的 default（无声明 → 0）
   // （依据 linux-wallpaperengine ShaderUnit.cpp:442-477 parseComboConfiguration）
   // ①(P-134 ⑥ 第三处)：渲染路径交给本函数的 `src` 已由 `withSiblingComboDefaults()` 补过对方 stage
@@ -6090,9 +6423,15 @@ export function hlsl2glsl(src, stage, combos, includeResolver) {
   //   仍只按传入的这一个文件解析，行为一字不变。
   const defaults = parseComboDefaults(src)
   const effective = { ...defaults, ...(combos || {}) }
-  let code = preprocess(src, effective, includeResolver, 0)  // 展开本文件保留的宏（#define 行仍在，GLSL 预处理器会展开；但函数宏在 GLSL ES 也支持，
+  // ②(P-198) 本条规则的**可观测读数**：本次转译里带行尾注释的 `#define` 条数（口径见 stripDirectiveComment）
+  if (fixes.macroComment) {
+    const mcRe = /^[ \t]*#define[ \t]+[A-Za-z_]\w*(?:\([^)]*\))?[ \t]+[^/\n]*\/\//gm
+    let mcm
+    while ((mcm = mcRe.exec(String(src))) !== null) h2gPassFixStats.macroComment++
+  }
+  let code = preprocess(src, effective, includeResolver, 0, fixes)  // 展开本文件保留的宏（#define 行仍在，GLSL 预处理器会展开；但函数宏在 GLSL ES 也支持，
   // 为稳妥起见用 JS 预展开，然后移除 #define 行）
-  code = expandMacrosIn(code, 20)
+  code = expandMacrosIn(code, 20, fixes)
   code = code.replace(/^[ \t]*#define[^\n]*\n?/gm, '')
 
   // 代码中作为标识符使用的 combo（如 ApplyBlending(BLENDMODE, ...)）替换为数值；未定义 combo 用声明 default，无声明 = 0
@@ -6220,6 +6559,13 @@ export function hlsl2glsl(src, stage, combos, includeResolver) {
     let dm
     while ((dm = dr.exec(code)) !== null) floatNames2.add(dm[1])
   }
+  // ④-b(P-198) **标量** float 变量名（比较运算的 2e3 规则只认它：向量不能与标量字面量比大小）
+  const floatScalarNames = new Set()
+  {
+    const sr = /\b(?:const\s+)?(?:uniform\s+)?(?:highp|mediump|lowp\s+)?float\s+([A-Za-z_][A-Za-z0-9_]*)/g
+    let sm
+    while ((sm = sr.exec(code)) !== null) floatScalarNames.add(sm[1])
+  }
   const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const intNamesRe2 = intNames2.size ? new RegExp('\\b(?:' + [...intNames2].map(escRe).join('|') + ')\\b') : null
   // 2a. 声明初始化：float x = 1; / vec3 y = 2;
@@ -6254,6 +6600,34 @@ export function hlsl2glsl(src, stage, combos, includeResolver) {
       const fixedRest = rest.replace(/\b(\d+)\.0+\b/g, '$1')
       return fn + '(' + nm + ',' + fixedRest + ')'
     })
+  }
+  // 2e3(P-198④ 2026-09-25 转译线) HLSL 的 `float == int` 隐式提升：GLSL ES 3.0 的
+  //      `== != < > <= >=` **没有** int↔float 重载，两侧类型必须一致 ⇒ 这类写法当下必然编不过
+  //      ⇒ 把右侧裸整数字面量补 `.0` **只可能把红变绿**，不可能改坏现在能编过的产物。
+  //      现场：`0923/3653641024` 的 `phantomtransitionfx.frag:346`
+  //      `gl_FragColor = pixelMask == 1 ? t1 : pixelColor;`（`float pixelMask = step(...) * alpha;`）
+  //      —— 这是该 pass 在 ④（文件级 const，报 `0:24` / `0:35`）之后的**第二个**独立错误
+  //      （只修 const 时它才浮出来，离原始报错 60 行远），整条 pass 仍会被跳过。
+  //      只在**左侧可确证是标量 float** 时动手：本文件里 `float <名>` 声明的变量、或单分量 swizzle
+  //      （`.x/.y/.z/.w/.r/.g/.b/.a`）；左侧是 int/uint 变量时不碰（那是整数比较，语义不同）。
+  if (floatScalarNames.size && fixes.cmpInt) {
+    const alt = [...floatScalarNames].sort((a, b) => b.length - a.length).map(escRe).join('|')
+    const cmp = '==|!=|<=|>=|<|>'
+    // 只改**注释之外**的正文：`blankComments()` 保持长度与换行 ⇒ 在挖空副本上定位、回到原文改写。
+    // （全语料实测过：直接在原文上改会把注释散文里的 `sat == 0` 改成 `sat == 0.0` —— 无害但属于
+    //   "改了不该改的地方"；注释里还可能出现 material/combo 注解，必须一个字符都不碰。）
+    const masked = blankComments(code)
+    const cmpRe = new RegExp('\\b(' + alt + ')(\\.[xyzwrgba])?\\s*(' + cmp + ')\\s*(-?\\d+)(?![.\\deE])', 'g')
+    let out = ''
+    let last = 0
+    let cm
+    while ((cm = cmpRe.exec(masked)) !== null) {
+      const nm = cm[1]
+      if (intNames2.has(nm)) continue
+      out += code.slice(last, cm.index) + nm + (cm[2] || '') + ' ' + cm[3] + ' ' + cm[4] + '.0'
+      last = cm.index + cm[0].length
+    }
+    if (last) code = out + code.slice(last)
   }
 
   // 2f. HLSL 向量→标量隐式转换：float x = <vec表达式>;（无函数调用时安全标量化取 .x）
@@ -7027,6 +7401,11 @@ export function hlsl2glsl(src, stage, combos, includeResolver) {
     })
   }
 
+  // ④(P-198 2026-09-25 转译线) 文件级 `const T x = <依赖 uniform 的初值>;` ⇒ 初值内联到使用点。
+  //   放在**所有既有规则之后**：此刻表达式文本已是最终形态（整数字面量、类型名、swizzle 都改完了），
+  //   内联不会把"还没处理的形态"搬得到处都是。判据/边界/回退口见 `inlineNonConstGlobals()` 上方整段说明。
+  if (fixes.constGlobal) code = inlineNonConstGlobals(code, h2gPassFixStats)
+
   // 3a. uniform 声明提前：公共头函数（common_blur.h 等）可能先于 uniform 声明引用 g_Texture0，
   //     GLSL ES 要求先声明后使用（WE 桌面端拼接头文件位置不同无此问题）
   {
@@ -7049,6 +7428,95 @@ export function hlsl2glsl(src, stage, combos, includeResolver) {
     }
   }
   return prologue + code
+}
+
+/* ①③(P-198 2026-09-25 转译线) **跨 stage 同名 varying 的宽度对齐**（这是**链接期**规则：单看一个 stage
+ * 永远编得过，两张 GLSL 一起 link 才报错 —— 所以本函数收**两张已转译的 GLSL**，不是收源文本）。
+ *
+ * 现象（真包可复现，都是整条效果 pass 被跳过、画面少一层）：
+ *   ① `allwallpaper/0923/3602673806` 的 `workshop/2795521260/effects/color_grading`
+ *      · **本仓独有**（产物侧无跳过记录）；真编译器链接报文
+ *        `Varying 'v_TexCoord' is not linkable between attached shaders`（ANGLE 措辞；
+ *        glslang 同题报文 = `Linking vertex and fragment stages: Types must match: vertex stage " vec4
+ *        v_TexCoord" / fragment stage " vec2 v_TexCoord"`）。
+ *      源：`.vert:6 varying vec4 v_TexCoord` / `.frag:70 varying vec2 v_TexCoord`。
+ *   ③ `allwallpaper/0923/3690417937` 的 `effects/glitter_prepare`（两边都跳）：
+ *      `.vert:5 varying vec2 v_TexCoord` / `.frag:10 varying vec4 v_TexCoord`（片元只在声明行提到它，
+ *      一处都没读）。
+ * 根因（file:line）：转译链在 `hlsl2glsl()` 结尾把 `varying` 一律换成 `in`/`out`
+ *   （本文件「`// varying/attribute → in/out`」那一步），**逐 stage 各转各的**，从不比较两张表的类型；
+ *   而 D3D 的 varying 走寄存器语义、宽度不同照样能连（WE 桌面端因此容忍这种写法），GLSL ES 链接器不容忍。
+ *   ⇒ 缺的是"转译后的跨 stage 对账"这一步，不是某条正则。
+ * 改法（**顶点侧为准**，两条方向都收）：
+ *   · 顶点更宽 ⇒ **加宽片元 `in`**，并把片元里**裸引用**该名的位置补上 `.xy`/`.xyz`（多出来的分量片元不读，
+ *     语义不变；不加 swizzle 会把 `texture(s, v_TexCoord)` 变成 sampler2D+vec4 ⇒ 另一个编译错）。
+ *   · 片元更宽 ⇒ **收窄片元 `in`**（顶点只写了那么多分量，多出来的分量在 GLSL 里本就没有定义）。
+ *   · 反过来收窄顶点是错的（会丢掉顶点确实写入的分量），所以顶点侧**永不改写**。
+ * 边界（都不静默，逐条计进 `h2gPassFixStats.varyingUnresolved(+Reasons)`，真编译仍会把它们暴露出来）：
+ *   · 片元里出现**超出顶点宽度**的分量读取（`v_TexCoord.zw` 这类）⇒ 收窄会让它编不过 ⇒ 不动；
+ *   · 收窄方向上片元还有**裸引用**（`v_TexCoord` 单独成项，可能被当整条 vec4 用）⇒ 不动（宽度语义不可确证）；
+ *   · 兄弟 stage 没有同名声明、或本 stage 不是 `in`（片元）/不是 `out`（顶点）⇒ 不动。
+ * 回退口：`?varyinglink=legacy`（= 不动 ⇒ 回到改动前的链接失败报文）。
+ * 语料实测（2026-09-25 四根 51 包全 shader 条目）：跨 stage 宽度冲突 **3 处 / 3 个 shader**
+ *   （另有 `0923/3662790108` 引用了同一个 `workshop/3637654840/effects/color_grading`，也一并修好）。 */
+export function reconcileStageVaryings(vertGlsl, fragGlsl, search) {
+  const st = h2gPassFixStats
+  const out = { vert: vertGlsl, frag: fragGlsl, changed: false }
+  if (varyingLinkLegacy(search)) return out
+  if (typeof vertGlsl !== 'string' || typeof fragGlsl !== 'string' || !vertGlsl || !fragGlsl) return out
+  const RANK = { float: 1, vec2: 2, vec3: 3, vec4: 4 }
+  const QUAL = '(?:flat[ \\t]+|smooth[ \\t]+|noperspective[ \\t]+)?'
+  const TYPE = '(vec[234]|float)'
+  const NAME = '([A-Za-z_]\\w*)'
+  const vertRe = new RegExp('^[ \\t]*' + QUAL + 'out[ \\t]+(?:(?:highp|mediump|lowp)[ \\t]+)?' + TYPE + '[ \\t]+' + NAME + '[ \\t]*;', 'gm')
+  const fragRe = new RegExp('^[ \\t]*' + QUAL + 'in[ \\t]+(?:(?:highp|mediump|lowp)[ \\t]+)?' + TYPE + '[ \\t]+' + NAME + '[ \\t]*;', 'gm')
+  const vertType = new Map()
+  let m
+  while ((m = vertRe.exec(vertGlsl)) !== null) vertType.set(m[2], m[1])
+  if (!vertType.size) return out
+  const widened = new Map()
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const unresolved = (name, why) => {
+    st.varyingUnresolved++
+    const k = name + ':' + why
+    st.varyingUnresolvedReasons[k] = (st.varyingUnresolvedReasons[k] || 0) + 1
+  }
+  let next = fragGlsl.replace(
+    new RegExp('^([ \\t]*' + QUAL + 'in[ \\t]+(?:(?:highp|mediump|lowp)[ \\t]+)?)' + TYPE + '([ \\t]+)' + NAME + '([ \\t]*;)', 'gm'),
+    (all, pre, ty, sp, name, tail) => {
+      const vt = vertType.get(name)
+      if (!vt || vt === ty) return all
+      if (RANK[vt] > RANK[ty]) { widened.set(name, RANK[ty]); st.varyingWiden++; return pre + vt + sp + name + tail }
+      // 收窄方向：片元读了超出顶点宽度的分量 ⇒ 不动（扫描用**原**片元 GLSL：改写只动声明行，
+      // 不会增删对名字的引用，所以用原文判定与用改写中间态判定等价，且不受 TDZ 影响）
+      const CH = 'xyzw'; const RG = 'rgba'
+      const over = new RegExp('\\b' + esc(name) + '\\s*\\.\\s*[' + CH + RG + ']*[' + CH.slice(RANK[vt]) + RG.slice(RANK[vt]) + ']')
+      if (over.test(fragGlsl)) { unresolved(name, '片元读了超出顶点宽度的分量'); return all }
+      // 收窄方向：片元还有裸引用（宽度语义不可确证）⇒ 不动
+      const bareRe = new RegExp('\\b' + esc(name) + '\\b(?![ \\t]*[.\\[\\w])')
+      const bareLines = fragGlsl.split('\n').filter((ln) => !/^[ \t]*(?:flat[ \t]+|smooth[ \t]+|noperspective[ \t]+)?in[ \t]/.test(ln) && bareRe.test(ln))
+      if (bareLines.length) { unresolved(name, '收窄方向片元仍有裸引用'); return all }
+      st.varyingNarrow++
+      return pre + vt + sp + name + tail
+    })
+  if (next !== fragGlsl) {
+    next = next.split('\n').map((line) => {
+      if (/^[ \t]*(?:flat[ \t]+|smooth[ \t]+|noperspective[ \t]+)?in[ \t]/.test(line)) return line
+      // 只改注释之外的正文（GLSL 无字符串字面量 ⇒ 第一个 `//` 或 `/*` 就是注释起点）
+      const cut = (() => { const a = line.indexOf('//'); const b = line.indexOf('/*'); return a === -1 ? b : (b === -1 ? a : Math.min(a, b)) })()
+      const head = cut === -1 ? line : line.slice(0, cut)
+      const rest = cut === -1 ? '' : line.slice(cut)
+      let l = head
+      for (const [name, origRank] of widened) {
+        const sw = origRank === 1 ? 'x' : origRank === 2 ? 'xy' : 'xyz'
+        l = l.replace(new RegExp('\\b' + esc(name) + '\\b(?![ \\t]*[.\\[\\w])', 'g'), name + '.' + sw)
+      }
+      return l + rest
+    }).join('\n')
+    out.frag = next
+    out.changed = true
+  }
+  return out
 }
 
 // ===== src/render/effects.js =====
@@ -8091,16 +8559,21 @@ out vec4 fragColor;
 vec3 bDarken(vec3 b, vec3 s){ return min(b, s); }
 vec3 bMultiply(vec3 b, vec3 s){ return b * s; }
 vec3 bColorBurn(vec3 b, vec3 s){ return 1.0 - min(vec3(1.0), (1.0 - b) / max(s, vec3(1e-4))); }
-vec3 bSubstract(vec3 b, vec3 s){ return max(vec3(0.0), b - s); }
+/* ①(P-195 · WE-FULL-REV §4 逐式核对) 官方 mode 4/20 = wscBlendLinearBurn = max(A+B-1, 0)；
+   旧内联副本写成 max(0, b - s)（那是 Subtract，语义不同）⇒ 按官方改写，函数名一并对齐。 */
+vec3 bLinearBurn(vec3 b, vec3 s){ return max(b + s - vec3(1.0), vec3(0.0)); }
 vec3 bLighten(vec3 b, vec3 s){ return max(b, s); }
 vec3 bScreen(vec3 b, vec3 s){ return 1.0 - (1.0 - b) * (1.0 - s); }
 vec3 bColorDodge(vec3 b, vec3 s){ return min(vec3(1.0), b / max(1.0 - s, vec3(1e-4))); }
 vec3 bAdd(vec3 b, vec3 s){ return min(vec3(1.0), b + s); }
 vec3 bOverlay(vec3 b, vec3 s){ return mix(2.0 * b * s, 1.0 - 2.0 * (1.0 - b) * (1.0 - s), step(0.5, b)); }
-vec3 bSoftLight(vec3 b, vec3 s){
-  vec3 d = mix(sqrt(b), ((16.0 * b - 12.0) * b + 4.0) * b, step(0.25, b));
-  return mix(b - (1.0 - 2.0 * s) * b * (1.0 - b), b + (2.0 * s - 1.0) * (d - b), step(0.5, s));
+/* ①(P-195 · WE-FULL-REV §4) 官方 mode 12 = wscSoftLightChannel 分段式（blend<0.5 / 否则 sqrt 支）；
+   旧内联副本是 W3C 三段多项式（在 A≥0.25 处一律 sqrt 的近亲，数值不同）⇒ 按官方改写。 */
+float bSoftLightChannel(float b, float s){
+  if (s < 0.5) return 2.0 * b * s + b * b * (1.0 - 2.0 * s);
+  return sqrt(b) * (2.0 * s - 1.0) + 2.0 * b * (1.0 - s);
 }
+vec3 bSoftLight(vec3 b, vec3 s){ return vec3(bSoftLightChannel(b.r, s.r), bSoftLightChannel(b.g, s.g), bSoftLightChannel(b.b, s.b)); }
 vec3 bHardLight(vec3 b, vec3 s){ return bOverlay(s, b); }
 vec3 bVividLight(vec3 b, vec3 s){ return mix(bColorBurn(b, 2.0 * s), bColorDodge(b, 2.0 * (s - 0.5)), step(0.5, s)); }
 vec3 bLinearLight(vec3 b, vec3 s){ return clamp(b + 2.0 * s - 1.0, 0.0, 1.0); }
@@ -8111,6 +8584,7 @@ vec3 bExclusion(vec3 b, vec3 s){ return b + s - 2.0 * b * s; }
 vec3 bReflect(vec3 b, vec3 s){ return mix(min(b * b / max(1.0 - s, vec3(1e-4)), vec3(1.0)), s, step(0.999, s)); }
 vec3 bGlow(vec3 b, vec3 s){ return mix(min(s * s / max(1.0 - b, vec3(1e-4)), vec3(1.0)), b, step(0.999, b)); }
 vec3 bAverage(vec3 b, vec3 s){ return (b + s) * 0.5; }
+vec3 bTint(vec3 b, vec3 s){ return vec3(max(b.r, max(b.g, b.b))) * s; }
 vec3 bNegation(vec3 b, vec3 s){ return 1.0 - abs(1.0 - b - s); }
 vec3 bPhoenix(vec3 b, vec3 s){ return min(b, s) - max(b, s) + vec3(1.0); }
 // ①(RE-38) HSL 系（26-30）逐字取自官方 common_blending.h（实测 60 个语料包 0 次使用，完整性补齐）
@@ -8146,7 +8620,7 @@ vec3 applyBlend(int m, vec3 A, vec3 B, float o) {
   if (m == 1)  return mix(A, bDarken(A, B), o);
   if (m == 2)  return mix(A, bMultiply(A, B), o);
   if (m == 3)  return mix(A, bColorBurn(A, B), o);
-  if (m == 4 || m == 20) return mix(A, bSubstract(A, B), o);
+  if (m == 4 || m == 20) return mix(A, bLinearBurn(A, B), o);
   if (m == 5)  return min(A, B);
   if (m == 6)  return mix(A, bLighten(A, B), o);
   if (m == 7)  return mix(A, bScreen(A, B), o);
@@ -8171,7 +8645,8 @@ vec3 applyBlend(int m, vec3 A, vec3 B, float o) {
   if (m == 27) return mix(A, bSaturation(A, B), o);
   if (m == 28) return mix(A, bColor(A, B), o);
   if (m == 29) return mix(A, bLuminosity(A, B), o);
-  if (m == 30) return mix(A, B, o);   // 30 未见官方定义（保留 Normal）
+  /* ①(P-195 · WE-FULL-REV §4) mode 30 官方定义存在：Tint = max(A.r,A.g,A.b) * B（原注释"未见官方定义"已过期）。 */
+  if (m == 30) return mix(A, bTint(A, B), o);
   if (m == 31) return A + B * o;
   return mix(A, B, o);   // 越界值(如 32) → 官方 Normal 兜底
 }
@@ -10642,17 +11117,23 @@ export function createRenderer(canvas, opts = {}) {
     // ①(MERGED-1 C HDR 2026-09-12) fopts.float='half'|'full' → RGBA16F/RGBA32F 浮点 RT
     //   （half 优先：可混合无需 EXT_float_blend；完整性检查沿用，不完整回退 1x1 并清掉 .hdr 标记）
     const floatMode = fopts && (fopts.float === 'half' || fopts.float === 'full') ? fopts.float : null
-    const key = (tag || '') + '|' + w + 'x' + h + (floatMode ? '|' + floatMode : '')
+    /* ③(P-196) fbo 描述符的 `format`/`uvs` 也进缓存键：同一个 (tag,w,h) 用不同格式/包裹必须是不同 GL 纹理。 */
+    const fmtMode = fopts && (fopts.format === 'r8' || fopts.format === 'rg8') ? fopts.format : null
+    const wrapMode = fopts && fopts.wrap === 'repeat' ? 'repeat' : null
+    const key = (tag || '') + '|' + w + 'x' + h + (floatMode ? '|' + floatMode : '') + (fmtMode ? '|' + fmtMode : '') + (wrapMode ? '|repeat' : '')
     if (fboCache.has(key)) return fboCache.get(key)
     const mkTex = (tw, th, fl) => {
       const tex = gl.createTexture()
       gl.bindTexture(gl.TEXTURE_2D, tex)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+      const wrapEnum = wrapMode === 'repeat' ? gl.REPEAT : gl.CLAMP_TO_EDGE
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapEnum)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapEnum)
       if (fl === 'half') gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, tw, th, 0, gl.RGBA, gl.HALF_FLOAT, null)
       else if (fl === 'full') gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, tw, th, 0, gl.RGBA, gl.FLOAT, null)
+      else if (fmtMode === 'r8' && gl.R8) gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, tw, th, 0, gl.RED, gl.UNSIGNED_BYTE, null)
+      else if (fmtMode === 'rg8' && gl.RG8) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, tw, th, 0, gl.RG, gl.UNSIGNED_BYTE, null)
       else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, tw, th, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
       return tex
     }
@@ -10702,37 +11183,8 @@ export function createRenderer(canvas, opts = {}) {
   const progCache = new Map()
   const includeCache = new Map()
   const shaderSrcCache = new Map()
-  // 解析 material 元数据：uniform 声明行注释里的 {"material":"speedx","default":1} → { speedx: { uniform, default } }
-  function parseMaterialMeta(src) {
-    const meta = {}
-    const re = /uniform\s+[A-Za-z0-9_]+\s+([A-Za-z_][A-Za-z0-9_]*)[^;]*;\s*\/\/([^\n]*)/g
-    let m
-    while ((m = re.exec(src)) !== null) {
-      const uniformName = m[1]
-      const comment = m[2]
-      const mat = /"material"\s*:\s*"([^"]+)"/.exec(comment)
-      if (!mat) continue
-      const def = /"default"\s*:\s*("(?:[^"]*)"|-?\d+(?:\.\d+)?)/.exec(comment)
-      meta[mat[1]] = { uniform: uniformName, default: def ? parseDefaultValue(def[1]) : undefined }
-    }
-    return meta
-  }
-  // 纹理关联 combo：sampler uniform 注释声明 combo，且该槽提供了纹理 → combo = 1（ShaderUnit.cpp:545-617）
-  function parseTextureCombos(src) {
-    const out = []
-    const re = /uniform\s+sampler2D\s+(g_Texture(\d+))[^;]*;\s*\/\/([^\n]*)/g
-    let m
-    while ((m = re.exec(src)) !== null) {
-      const combo = /"combo"\s*:\s*"([^"]+)"/.exec(m[3])
-      if (combo) out.push({ slot: Number(m[2]), name: m[1], combo: combo[1] })
-    }
-    return out
-  }
-  function parseDefaultValue(s) {
-    if (s.startsWith('"')) return s.slice(1, -1)
-    const n = Number(s)
-    return Number.isFinite(n) ? n : undefined
-  }
+  // ①(P-195) `parseMaterialMeta`/`parseTextureCombos`/`parseDefaultValue` 已提到**模块作用域**并导出
+  //   （判据要直接驱动它们；生产路径用 `materialMetaFor()` 把 include 正文一起扫，见该函数上方整段说明）。
   async function getEffectProgram(shaderName, combos, providedTextures) {
     // shader 源与纹理 combo 按名缓存：避免每帧每 pass 重新 fetch/正则
     let src = shaderSrcCache.get(shaderName)
@@ -10770,10 +11222,20 @@ export function createRenderer(canvas, opts = {}) {
       const resolver = makeEffectIncludeResolver(includeCache, missing)
       const fragGlsl = hlsl2glsl(src.frag, 'frag', effectiveCombos, resolver)
       const vertGlsl = hlsl2glsl(src.vert, 'vert', effectiveCombos, resolver)
+      // ①③(P-198 2026-09-25 转译线) 跨 stage varying 宽度对账：单 stage 各自都编得过，**链接期**才报
+      //   `Types must match` / `Varying … is not linkable`（两个真包整条 pass 因此被跳过）。
+      //   这一步是**链接前**的最后一道改写，顶点侧永不改（只改片元 `in` 的声明宽度 + 裸引用补 swizzle）；
+      //   口径/边界/回退口（`?varyinglink=legacy`）见 `reconcileStageVaryings()` 上方整段说明。
+      //   ⚠ 上面两行 `const …Glsl = hlsl2glsl(src.frag/src.vert, …)` 的**原文形态必须原样保留**：
+      //   `tests/hlsl2glsl-wiring-test.mjs:250-251` 按这两行原文插探针、`effect-prelude-common-test` E7g 按
+      //   原文断言 ⇒ 对账结果落在**新变量**上，不把这两行改成 `let`（本轮实测踩到过）。
+      const rec = reconcileStageVaryings(vertGlsl, fragGlsl)
+      const fragLinked = rec.changed ? rec.frag : fragGlsl
+      const vertLinked = rec.changed ? rec.vert : vertGlsl
       if (missing.size === 0) {
         let prog
         try {
-          prog = linkProgram(gl, vertGlsl, fragGlsl)
+          prog = linkProgram(gl, vertLinked, fragLinked)
         } catch (e) {
           throw new Error('shader=' + shaderName + ' ' + (e && e.message))
         }
@@ -10784,8 +11246,10 @@ export function createRenderer(canvas, opts = {}) {
           const base = info.name.replace(/\[0\]$/, '')
           uni.set(base, { loc: gl.getUniformLocation(prog, info.name), type: GL_TYPES[info.type] || 'unknown' })
         }
-        const matMeta = { ...parseMaterialMeta(src.vert), ...parseMaterialMeta(src.frag) }
-        const entry = { prog, uni, matMeta, fragGlsl, vertGlsl }
+        /* ③(P-195 2026-09-24) include 头里的 material 注解一并扫（`?fxcomposite=legacy` ⇒ 只扫 stage 原文）。
+           此处 includeCache 已含本 shader 用到的全部头正文（`missing.size === 0` 才走到这里）。 */
+        const matMeta = materialMetaFor({ vert: src.vert, frag: src.frag, includeBodies: Array.from(includeCache.values()) })
+        const entry = { prog, uni, matMeta, fragGlsl: fragLinked, vertGlsl: vertLinked }
         progCache.set(key, entry)
         return entry
       }
@@ -13276,14 +13740,20 @@ export function createRenderer(canvas, opts = {}) {
           gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, rt.fbo)
           gl.blitFramebuffer(0, 0, width, height, 0, 0, width, height, gl.COLOR_BUFFER_BIT, gl.NEAREST)
           gl.bindFramebuffer(gl.FRAMEBUFFER, sceneTargetFbo())
-          srcTex = rt.tex
+          /* ③(P-199) 链输入换不换：**有自己纹理的层不换**（背景只走 COPYBG 槽）。
+             `?copybginput=legacy` ⇒ 回到改动前"总是换"的行为（逐位对照用）。 */
+          if (!effTex || copyBgInputLegacy()) srcTex = rt.tex
           copyBgEntry = rt
           // ①(RE-23 官方) 层 copybackground=true → 该层**每个**效果材质注入 combos.COPYBG=1
           //   （shader 端 `#if COPYBG` 才会去采 `g_Texture2 = _rt_FullFrameBuffer`；组合进程序缓存 key）
           for (const e2 of effects) for (const mp2 of (e2.materialPasses || [])) {
             mp2.combos = Object.assign({}, mp2.combos || {}, { COPYBG: 1 })
           }
-          if (__auditNow) { try { onLog('[copybg] ' + (layer.name || layer.id) + ' COPYBG=1 + 链输入=背景拷贝 ' + width + 'x' + height) } catch {} }
+          // ②(FIX-2887099508) 台账说实话：P-199 起"链输入换不换"由 `!effTex || copyBgInputLegacy()` 决定，
+          //   而这一行**一直**只印"链输入=背景拷贝" ⇒ 有自有贴图的层（真包 0923/2887099508 里 28/28 有贴图的
+          //   层都勾了 copybackground）会被误读成"内容仍被背景顶掉"。改成印实际结果，对照 `?copybginput`
+          //   两档时不必再靠 fxStats（那份 `inputKind` 是在换之前采的，看不见这次替换）。
+          if (__auditNow) { try { onLog('[copybg] ' + (layer.name || layer.id) + ' COPYBG=1 + 链输入=' + ((!effTex || copyBgInputLegacy()) ? '背景拷贝' : '自有贴图') + ' ' + width + 'x' + height) } catch {} }
         }
       } catch (e) { try { onLog('[we-scene] copybackground blit 失败: ' + e.message) } catch {} }
     }
@@ -13376,8 +13846,37 @@ export function createRenderer(canvas, opts = {}) {
     const effectFBOs = new Map()
     // WER-ALIGN C7：fit>0 的 FBO 按官方 ResolveSize 取"最长边=fit 像素"缩放（WPEffect.cpp:61-79）；
     // 否则 size/scale（scale=0 视为 1，WPEffect.cpp:54-57）
+    /* ③(P-196 · 承接 WE-FULL-REV §5-P0-6/P1-8) fbo 描述符里此前被忽略的三个键：
+       `format`（官方词表；本仓语料实测 `rgba_backbuffer` 94 / `rgba8888` 8 / `rg88` 6 / `r8` 1）、
+       `width`/`height`（见 fboSizeOf）、`uvs:"repeat"`（该 FBO 被采样时要平铺）。
+       落点只在**分配**这一处：`r8`/`rg88` 用 WebGL2 的 R8/RG8（都是 color-renderable），
+       `*_backbuffer` 与 `rgba8888` 在本仓缺省就是 RGBA8（HDR 档由既有 float 路径决定）⇒ 显式记下不改分配。
+       回退口 `?fbodesc=legacy`：三个键全部按旧行为忽略（逐位回到改动前）。 */
+    const fboDescOpts = (f) => {
+      if (fboDescLegacy()) return null
+      const o = {}
+      const fmt = String(f.format || '').toLowerCase()
+      if (fmt === 'r8') o.format = 'r8'
+      else if (fmt === 'rg88' || fmt === 'rg8') o.format = 'rg8'
+      else if (fmt) o.declaredFormat = fmt
+      if (String(f.uvs || '').toLowerCase() === 'repeat') o.wrap = 'repeat'
+      return (o.format || o.wrap) ? o : null
+    }
     const fboSizeOf = (f) => {
       const sw = Math.max(1, fboW), sh = Math.max(1, fboH)
+      /* ③(P-196 2026-09-24 · 承接 WE-FULL-REV §5-P1-8 的核实结论) 官方 fbo 描述符的 `width`/`height`
+         是**显式像素**（u16，缺省 0xFFFF = 自适应）；旧实现只认 `scale`/`fit`。真实用例：
+         `effects/glitter` 的 `_rt_GlitterTiles` = `width/height 256×256` + `format:"r8"` + `uvs:"repeat"`，
+         我们此前按层尺寸建 ⇒ 图案频率错。回退口 `?fbodesc=legacy`（三个键全不生效）。 */
+      if (!fboDescLegacy()) {
+        const wRaw = Number(f.width), hRaw = Number(f.height)
+        const wOK = Number.isFinite(wRaw) && wRaw > 0 && wRaw < 65535
+        const hOK = Number.isFinite(hRaw) && hRaw > 0 && hRaw < 65535
+        if (wOK || hOK) {
+          const div = Math.max(1, f.scale || 1)
+          return [Math.max(1, Math.round(wOK ? wRaw : sw / div)), Math.max(1, Math.round(hOK ? hRaw : sh / div))]
+        }
+      }
       if (f.fit > 0) {
         const longest = Math.max(sw, sh)
         const k = f.fit / longest
@@ -13393,7 +13892,7 @@ export function createRenderer(canvas, opts = {}) {
           // WER-ALIGN C6（wer-ref WPSceneParser.cpp:5086）：命名 FBO 的真实名 = fbo.name + "_" + effaddr，
           // 每效果独立命名空间；tag 带效果序号避免跨效果同名 FBO 共享同一 GL 实例
           const [fw, fh] = fboSizeOf(f)
-          effectFBOs.set(f.name, getFBO(fw, fh, ei + '|' + f.name))
+          effectFBOs.set(f.name, getFBO(fw, fh, ei + '|' + f.name, fboDescOpts(f)))
         }
       }
       const passes = eff.materialPasses || []

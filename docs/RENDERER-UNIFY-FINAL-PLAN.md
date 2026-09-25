@@ -2,7 +2,7 @@
 
 > 目标（用户原话）：**"现在就是两个渲染器，各有各的好处，有的我能加载，上游加载不了，有的上游加载不了，我能加载，那现在我想要出一个最终的一个渲染器，把这两个它能加载的东西都一起用出来"**
 > 本文是**执行版方案**（做什么/什么顺序/什么判据/怎么回退）；分析底稿见 `we-scene-demo/docs/RENDERER-UNIFY-PLAN.md`（F 线）与 `we-scene-demo/docs/reports-issue0924a2-line-{D,E,G}.md`。
-> 路径一律从**仓库名**写起（`we-scene-demo/...`），工作区根 = `/root/Desktop/DSHarea`。
+> 路径一律从**仓库名**写起（`we-scene-demo/...`），工作区根 = `<工作区>`。
 
 ## 0. 一句话方案
 
@@ -45,9 +45,9 @@
 ## 3. 冲突定案阶梯（用户第 4 点：以官方为准）
 
 两个上游对同一处写法冲突时，按**这个顺序**取证（高者胜）：
-1. **官方资产里的 HLSL/定义本身**：`/root/Desktop/DSHarea/wallpaper_engine/assets/{shaders,effects,particles,models,scenes}/**`（这是官方客户端随包资产，权威且本机就有）；
-2. **官方类型/接口声明**：`/root/Desktop/DSHarea/wallpaper_engine/ui/dist/monaco/autocomplete/lib.sceneScript.d.ts`（2.8 的 d.ts 在 `/root/Desktop/DSHarea/Steam/steamapps/common/wallpaper_engine/ui/dist/monaco/autocomplete/lib.sceneScript.d.ts`）；
-3. **官方二进制反汇编/反编译片段**：`/root/Desktop/DSHarea/wallpaper_engine/wallpaper64.exe`（x86-64，用 `llvm-objdump`）与 `/root/Desktop/DSHarea/Androidapk/壁纸引擎_2.8.8.apk` 里的 `lib*.so`（aarch64，`objdump` 可读）—— 已有取数先例：`we-scene-demo/docs/OFFICIAL-PARALLAX-RE-20260924.md`、`we-scene-demo/docs/OFFICIAL-WE-ARTIFACTS-20260924.md`、`we-scene-demo/docs/_official-extract/**`；
+1. **官方资产里的 HLSL/定义本身**：`<工作区>/wallpaper_engine/assets/{shaders,effects,particles,models,scenes}/**`（这是官方客户端随包资产，权威且本机就有）；
+2. **官方类型/接口声明**：`<工作区>/wallpaper_engine/ui/dist/monaco/autocomplete/lib.sceneScript.d.ts`（2.8 的 d.ts 在 `<工作区>/Steam/steamapps/common/wallpaper_engine/ui/dist/monaco/autocomplete/lib.sceneScript.d.ts`）；
+3. **官方二进制反汇编/反编译片段**：`<工作区>/wallpaper_engine/wallpaper64.exe`（x86-64，用 `llvm-objdump`）与 `<工作区>/Androidapk/壁纸引擎_2.8.8.apk` 里的 `lib*.so`（aarch64，`objdump` 可读）—— 已有取数先例：`we-scene-demo/docs/OFFICIAL-PARALLAX-RE-20260924.md`、`we-scene-demo/docs/OFFICIAL-WE-ARTIFACTS-20260924.md`、`we-scene-demo/docs/_official-extract/**`；
 4. **可借用的 GPL/MIT 开源实现**（见 `we-scene-demo/docs/OPENSOURCE-BORROW-PLAN.md`，研究线在写）；
 5. 产物（MIT，参考）；
 6. 我们自己的实现。

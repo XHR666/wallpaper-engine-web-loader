@@ -416,8 +416,18 @@ C('A21 多个内建：计数器 rule93=2', ({ hlsl2glsl, stats, reset }) => {
   reset(); hlsl2glsl(F93_MULTI, 'frag', {}, null)
   return { pass: stats.rule93 === 2, detail: JSON.stringify(stats) }
 })
-C('A22 sibling 源缺失：内联实现 arity=4（渲染路径 `:9586-9587` 也是 4 参调用）', ({ hlsl2glsl }) => {
-  return { pass: hlsl2glsl.length === 4, detail: 'arity=' + hlsl2glsl.length }
+C('A22 sibling 源缺失：内联实现**不接收 sibling 源**（P-198 起第 5 参是 `search` 回退口，不是 `siblingSrc`）', ({ hlsl2glsl }) => {
+  // ①(P-198 2026-09-25) 断言的**意图**没变（P-114：转译函数只看得见一个 stage，跨 stage 信息走
+  //   `withSiblingComboDefaults()` / `reconcileStageVaryings()`），改的是判定方式：原来按 `arity === 4`，
+  //   而 P-198 给同一个函数加了第 5 个可选参 `search`（`?macrocomment=`/`?constglobal=`/`?cmpint=` 回退口，
+  //   见 `tests/hlsl2glsl-passfix-test.mjs`）⇒ 改成**看形参表**里有没有 `siblingSrc`。
+  //   `arity === 4` 这个旧口径已不可能成立（HTML 之外的调用方也要能传回退口），把它钉住等于禁止加参数。
+  const fnSrc = String(hlsl2glsl)
+  const params = fnSrc.slice(fnSrc.indexOf('(') + 1, fnSrc.indexOf(')')).split(',').map((s) => s.trim())
+  return {
+    pass: params.length >= 4 && !params.includes('siblingSrc') && params[0] === 'src' && params[1] === 'stage',
+    detail: 'arity=' + hlsl2glsl.length + ' params=[' + params.join(', ') + ']',
+  }
 })
 C('A23 sibling 源缺失：多传第 5 参不改变产物（本族只读**本文件**的声明，不需要兄弟 stage）', ({ hlsl2glsl }) => {
   const a = hlsl2glsl(F93, 'frag', {}, null)

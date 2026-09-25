@@ -1071,7 +1071,7 @@ import { packBands, simulatedBandArray, bandStats, AUDIO_BAND_LEN, AUDIO_BAND_HA
 // ①(P-112-BANDGEOM 2026-09-17 帧几何接线) 帧内坐标契约（规格 docs/WEB-FRAME-GEOMETRY-SPEC.md）：video 壁纸的
 //   帧盒按"内容比例 ≠ 舞台比例 ⇒ 覆盖式视口（居中裁切）"算（`?framegeom=cover|contain|stretch`；
 //   缺省 legacy = 一行都不动）。渲染器侧的指针口径接线在 `core/we-scene-bundle.js`。
-import { coverViewport, contentAspectOf, frameVisibleRect, normalizeFrameFit, sceneFitPlan } from './web-frame-geometry.mjs';
+import { coverViewport, contentAspectOf, frameVisibleRect, normalizeFrameFit, sceneFitPlan, frameClientPoint, frameGeomModeFromQuery } from './web-frame-geometry.mjs';
 /* ⑥(2026-09-23) web 壁纸宿主：档位/入口/降档/失败态的契约在 core/web-frame-host.mjs（纯函数，被门禁逐条钉住），
    注入器在 core/we-web-shim.mjs（跨源 `?webshim=blob` 时才在页内用）。 */
 import { resolveWebFrameMode, webFrameSandboxAttr, webEntryPlan, webShimDowngradePlan, webFrameStatus, webFitPlan, WEB_SHIM_READY_TIMEOUT_MS } from './web-frame-host.mjs';
@@ -1133,6 +1133,184 @@ let webFitScale = 1
    把 `ready:false` / `state:'mounting'` / `framefit:null` 这类字面量留在默认值里，后续任何一条回报
    （framefit / paused / interaction）都会把它们重置回去（日志写着「已报到」、状态面却是 ready:false）。 */
 let webState = 'idle', webReadyMs = null, webShimVersion = null, webFitState = null
+
+/* ═══ ①(2026-09-25 任务「把所有没接线的东西都接上」) 宿主 API 的**真送达**通路 ═══════════════════════════
+   背景（用户原话：`updateWebProps` 那句「网页壁纸属性推送未接线 ⇒ 本次调用被忽略」"搞得我都不好测试了"）：
+   桩改成真做事，目的地按**当前档位**选，两条都不可达时如实降级（原因 + 替代 API，不再用"未接线"这种含糊词）。
+     · `updateWebProps`：web 帧 ⇒ `props` op（同源直调帧内 shim `__mpwWebControl`，否则既有 postMessage+队列
+       `mpwWebSend`）；场景档 ⇒ 写 `window.__mpwUserProps` + 面板同一条应用链 `__mpwPropsApplyHost`。
+     · `pushWheel`：同一个控制通路（web 帧收到合成 wheel；场景档没有滚轮注入契约，如实说清）。
+   为什么三种"没生效"必须能分开读：`__mpwHostCalls`（谁被调过）/ `__mpwHostLast`（最近一次的 ok+why）/
+   `__mpwWebFrame.props`（推送侧）/ `__mpwWebFrame.propsApplied`（**帧内回执**，shim 应用后回报）。 */
+/** web 帧元素/档位/同源位：`mountWebFrame` 挂帧时写，宿主 API 在**另一个函数**（bootInstance）里读
+    ⇒ 模块级单一来源（其它 web 帧状态同款，见上面 `webReady`/`webState` 那两行）。 */
+let webFrameEl = null, webFrameMode = '', webFrameSameOrigin = false
+/** 最近一次宿主属性推送（`__mpwWebFrame.props`）与**帧内回执**（`.propsApplied`，判据读它）。 */
+let webPropsLast = null, webPropsApplied = null, webWheelLast = null
+/** 帧几何模块接线后的丢弃计数（量不到帧盒时**不把 NaN 投给帧**，见规格 §1.4 第 6 条）。 */
+let webGeomDropped = 0
+/** 把一次宿主→帧的动作写进 `window.__mpwWebFrame`（`pub()` 的默认值里也带上这两个字段，免得被后续回报覆盖）。 */
+function mpwWebFrameNote(extra) {
+  try { window.__mpwWebFrame = Object.assign({}, window.__mpwWebFrame || {}, { at: Date.now() }, extra || {}) } catch (e) { /* 无 window */ }
+}
+/** 属性表归一：产品档契约为 `{名:{value}}`；也接受 `{名:裸值}`（宿主手写更省事）。空/非对象 ⇒ 空表。 */
+function mpwWebNormalizeProps(raw) {
+  const out = {}, keys = []
+  if (!raw || typeof raw !== 'object') return { props: out, keys }
+  for (const k of Object.keys(raw)) {
+    const v = raw[k]
+    out[k] = (v && typeof v === 'object' && 'value' in v) ? { value: v.value } : { value: v }
+    keys.push(k)
+  }
+  return { props: out, keys }
+}
+/**
+ * 宿主 → web 帧的控制 op 送达（`updateWebProps` / `pushWheel` 共用同一条路由）。
+ * 顺序：① 同源且帧内 shim 已就位 ⇒ **直调** `__mpwWebControl`（同步，op 的结果能读回来）；
+ *      ② 否则走既有 `mpwWebSend`（postMessage；shim 未报到时**排队**到 ready 后重放）；
+ *      ③ 两条都不可达 ⇒ `via:'none'` + 写明原因，调用方**如实降级**（不假装成功）。
+ * @returns {{via:'direct'|'shim'|'queued'|'none', ok:boolean, why:string, result?:object}}
+ */
+function mpwWebControlSend(op, payload) {
+  const msg = Object.assign({ mpw: 'mpw:web', op }, payload || {})
+  let direct = null
+  try { direct = (webFrameEl && webFrameSameOrigin && webFrameEl.contentWindow) ? webFrameEl.contentWindow.__mpwWebControl : null } catch (e) { direct = null }
+  if (typeof direct === 'function') {
+    try { const r = direct(msg); return { via: 'direct', ok: true, why: '同源直调帧内 shim（__mpwWebControl）', result: r } } catch (e) { /* 直调抛 ⇒ 退 postMessage */ }
+  }
+  if (typeof mpwWebSend === 'function') {
+    const queued = !webReady
+    try {
+      mpwWebSend(op, payload || {})
+      return { via: queued ? 'queued' : 'shim', ok: true, why: queued ? 'shim 未报到 ⇒ 已排队（ready 后按序重放）' : 'postMessage(mpw:web) ⇒ 帧内 shim' }
+    } catch (e) { return { via: 'none', ok: false, why: 'postMessage 发送失败：' + ((e && e.message) || e) } }
+  }
+  const why = !webFrameEl
+    ? '本页当前不是 web 档（没有 web 帧：`?type=web&src=…` 才有）'
+    : (webFrameSameOrigin ? 'web 帧内没有 WE shim（宿主未注入；本服务 `/web/**` 会自动注入，见 `X-Mpw-Shim`）'
+      : '跨源 web 帧且宿主没注入 shim（替代：`?webshim=blob` 走 fetch→注入→blob，见 README-DIAGNOSTICS 的 `webshim` 行）')
+  return { via: 'none', ok: false, why }
+}
+/**
+ * `__wp.updateWebProps` 的真实现（测试台属性面板/插件的属性热推送都走这条）。
+ * web 帧 ⇒ `props` op；场景档 ⇒ `window.__mpwUserProps`（脚本宿主与面板读同一引用）+ `__mpwPropsApplyHost`。
+ * 记账：`window.__mpwWebFrame.props`（推送侧）+ `.propsApplied`（**帧内回执**）。
+ * @returns {{ok:boolean, dest:'web-frame'|'scene-props'|'none', via:string, keys:string[], count:number, why:string, at:number}}
+ */
+function mpwWebApplyProps(raw) {
+  const { props, keys } = mpwWebNormalizeProps(raw)
+  const at = Date.now()
+  if (!keys.length) {
+    const rec = { at, dest: 'none', via: 'none', ok: false, keys, count: 0, why: '入参里没有任何可推的属性（期望 `{名:{value}}` 或 `{名:值}`）' }
+    webPropsLast = rec
+    return rec
+  }
+  if (webFrameEl) {
+    const sent = mpwWebControlSend('props', { props })
+    const rec = { at, dest: 'web-frame', via: sent.via, ok: !!sent.ok, keys, count: keys.length, why: sent.why }
+    webPropsLast = rec
+    mpwWebFrameNote({ props: rec })
+    return rec
+  }
+  /* 场景档：写进**活对象**（`{user:…}` 绑定与脚本宿主读的就是它）后走面板同一条应用链。 */
+  const map = (() => { try { return window.__mpwUserProps || (window.__mpwPropsCtx && window.__mpwPropsCtx.map) || null } catch (e) { return null } })()
+  const apply = (() => { try { return window.__mpwPropsApplyHost || null } catch (e) { return null } })()
+  const schema = (() => { try { return (window.__mpwPropsCtx && window.__mpwPropsCtx.schema) || null } catch (e) { return null } })()
+  if (map && typeof apply === 'function') {
+    let n = 0
+    for (const k of keys) {
+      const t = (schema && schema[k]) ? schema[k].type : undefined
+      let v = props[k].value
+      try { if (typeof lib.normalizePropValue === 'function') v = lib.normalizePropValue(t, v, map[k]) } catch (e) { /* 归一失败就用原值 */ }
+      map[k] = v; n++
+    }
+    let result = null
+    try { result = apply('host-updateWebProps', keys) || null } catch (e) { result = { error: (e && e.message) || String(e) } }
+    const rec = { at, dest: 'scene-props', via: 'scene-apply', ok: true, keys, count: n, why: '场景档：已写入 window.__mpwUserProps 并走面板同一条应用链（applyUserProperties + 脚本属性 + 脚本缓存复位）', result }
+    webPropsLast = rec
+    return rec
+  }
+  const why = !map
+    ? '本档没有用户属性表（包内 `project.json` 的 `general.properties` 缺失，或 `?proj=off` 把它关了）'
+    : '本档有属性表但没有运行期应用链（属性面板被 `?nopanel` 关掉，或面板装载失败）'
+  const rec = { at, dest: 'scene-props', via: 'none', ok: false, keys, count: 0, why }
+  webPropsLast = rec
+  return rec
+}
+
+/* ①(P-112-BANDGEOM 后续 2026-09-25) **帧几何模块接进 web 帧路径**（规格 §5 的回退开关在这里落地）：
+   web 帧的指针换算（sandbox 档的透明遮罩 / 宿主 `pushWheel` 的落点）以前是页面里的内联算式，
+   现在按 `?frame=` 分流：缺省/其它 ⇒ 模块的 `frameClientPoint`（= 帧内 client 像素契约的**唯一实现**，
+   量不到帧盒时**丢弃**而不是把 NaN 投给帧）；`legacy`/`off`/`0` ⇒ 旧内联式（含 NaN 透传，做 A/B 对照）。
+   ⚠ 本页**显式读一次原始值**再交给模块归一：`frameGeomModeFromQuery` 的解析点在模块内部，
+   `tests/diag-flag-check.mjs` 的四个扫描源看不到它 ⇒ 读一次让门禁能双向核对（主表已登记 `frame` 行）。 */
+const MPW_WEB_FRAME_RAW = (() => { try { return new URLSearchParams(location.search).get('frame') } catch (e) { return null } })()
+const MPW_WEB_FRAME_GEOM = frameGeomModeFromQuery(MPW_WEB_FRAME_RAW == null ? '' : ('?frame=' + MPW_WEB_FRAME_RAW))
+/** 客户端坐标 → 帧内 client 像素（web 帧路径唯一换算点）。legacy = 旧内联式；模块档量不到 ⇒ null。 */
+function mpwWebFramePoint(clientX, clientY) {
+  const el = webFrameEl
+  if (!el || typeof el.getBoundingClientRect !== 'function') return null
+  const r = el.getBoundingClientRect()
+  if (MPW_WEB_FRAME_GEOM === 'cover') {
+    const p = frameClientPoint({ clientX, clientY }, r, { width: el.clientWidth, height: el.clientHeight })
+    if (!p) { webGeomDropped++; return null }
+    return { x: p.x, y: p.y, scaleX: p.scaleX, scaleY: p.scaleY, inside: !!p.inside, mode: 'cover' }
+  }
+  const sx = (r.width > 0) ? (el.clientWidth / r.width) : 1
+  const sy = (r.height > 0) ? (el.clientHeight / r.height) : 1
+  return { x: (clientX - r.left) * sx, y: (clientY - r.top) * sy, scaleX: sx, scaleY: sy, inside: true, mode: 'legacy' }
+}
+
+/* ①(2026-09-25) 渲染循环的**帧间隔抽稀**（`?fps=` / `__wp.setSceneFps`）。三条纪律：
+   ① `?fps=` 缺省/`legacy`/`off`/`0`/`vsync` = **legacy**：每 rAF 一帧，与改动前逐位一致（一个判断都不多）；
+   ② 抽稀只**降**不升：距上一次**提交帧**不足 `1000/fps × 0.85` 的 rAF 直接跳过（跳过帧照旧自排下一帧
+      ⇒ 节奏由时间戳决定，不依赖显示器刷新率：90Hz 屏上要 30fps 仍落在 ~33ms，而不是 22ms 的倍数）；
+   ③ 计数即判据：`window.__mpwSceneFps.{submitted,skipped,effective}`（tests/host-api-wiring-test.mjs 直读）。
+   为什么 ×0.85：与产物档音频泵同款容差（vsync 的 16.67ms 抖动不该把 60fps 目标判成"该跳"）。 */
+const MPW_FPS_TOLERANCE = 0.85
+const MPW_FPS_MAX = 240
+const mpwSceneFps = {
+  mode: 'legacy', want: null, intervalMs: 0, source: 'default',
+  submitted: 0, skipped: 0, effective: 0, lastSubmitAt: 0, winStart: 0, winFrames: 0,
+}
+function mpwSceneFpsConfigure(raw, source) {
+  const s = String(raw == null ? '' : raw).trim().toLowerCase()
+  if (s === '' || s === 'legacy' || s === 'off' || s === '0' || s === 'false' || s === 'vsync' || s === 'native') {
+    mpwSceneFps.mode = 'legacy'; mpwSceneFps.want = null; mpwSceneFps.intervalMs = 0; mpwSceneFps.source = source || 'legacy'
+    return { ok: true, mode: 'legacy', want: null, intervalMs: 0, clamped: false }
+  }
+  const n = Number(s)
+  if (!Number.isFinite(n) || n <= 0) return { ok: false, mode: mpwSceneFps.mode, want: mpwSceneFps.want, intervalMs: mpwSceneFps.intervalMs, why: '取值不可用（' + s + '）' }
+  const clamped = n > MPW_FPS_MAX
+  const want = Math.max(1, Math.min(MPW_FPS_MAX, Math.round(n)))
+  mpwSceneFps.mode = 'throttle'; mpwSceneFps.want = want; mpwSceneFps.intervalMs = 1000 / want; mpwSceneFps.source = source || 'query'
+  return { ok: true, mode: 'throttle', want, intervalMs: mpwSceneFps.intervalMs, clamped }
+}
+/** 本帧该跳过吗（true = 不渲染、直接自排下一帧）。legacy / 时间戳不可用 / 还没出过帧 ⇒ 一律 false（必出）。 */
+function mpwSceneFpsShouldSkip(now) {
+  const s = mpwSceneFps
+  if (s.mode !== 'throttle' || !(s.intervalMs > 0)) return false
+  const t = Number(now)
+  if (!Number.isFinite(t)) return false
+  if (!(s.lastSubmitAt > 0)) return false
+  if ((t - s.lastSubmitAt) < s.intervalMs * MPW_FPS_TOLERANCE) { s.skipped++; return true }
+  return false
+}
+/** 提交帧记账（渲染循环里每出一帧调一次；`effective` = 1s 滚动窗的**实测提交帧率**）。 */
+function mpwSceneFpsSubmit(now) {
+  const s = mpwSceneFps
+  s.submitted++
+  const t = Number(now)
+  if (!Number.isFinite(t)) return
+  s.lastSubmitAt = t
+  if (!(s.winStart > 0)) { s.winStart = t; s.winFrames = 0 }
+  s.winFrames++
+  const dt = t - s.winStart
+  if (dt >= 1000) { s.effective = Math.round(s.winFrames * 1000 / dt); s.winStart = t; s.winFrames = 0 }
+}
+/* `?fps=` 的唯一权威解析点（模块级一次；缺省 = legacy）。日志不在这里打：`log` 这个 const 还在后面声明。 */
+const MPW_SCENE_FPS_BOOT = (() => { try { const q = new URLSearchParams(location.search); return q.has('fps') ? String(q.get('fps') == null ? '' : q.get('fps')) : '' } catch (e) { return '' } })()
+mpwSceneFpsConfigure(MPW_SCENE_FPS_BOOT, MPW_SCENE_FPS_BOOT ? 'query-fps' : 'default')
 /* ⑥ 宿主可据此**让位**：本页自己会挂 web 帧，而且 shim 由**服务端**在 `/web/**` 的 HTML 里注入
    ⇒ 宿主（测试台）那条「包 iframe.src 改成 blob 再注入」的旧通路不要再插一手（真机实测：它会与
    服务端注入叠加，并计一次注入失败）。上游渲染器没有这个标记 ⇒ 旧的 blob 通路对它照旧生效。 */
@@ -2386,10 +2564,42 @@ async function bootInstance(inst) {
       })
       // ② 明确降级（有日志、有 caps 位，不假装成功）：本页的场景路径没有这三样语义
       put('setFit', (v) => { note('setFit', '⚠ 本仓渲染器的场景路径没有"舞台适配档"（cover/contain/stretch 是上游产物页给 iframe 视口用的）⇒ 本档位在预览里不生效：' + String(v)); return false }, false)
-      put('setSceneFps', (v) => { note('setSceneFps', '⚠ 运行期改帧率未接线（本页渲染循环按 vsync；`?fps=` 也未实现）⇒ 本档位在预览里不生效：' + String(v)); return false }, false)
-      put('updateWebProps', (v) => { note('updateWebProps', '⚠ 网页壁纸属性推送未接线（本仓渲染器的 web 档走宿主注入面）⇒ 本次调用被忽略'); return false }, false)
+      /* ①(2026-09-25 「把所有没接线的东西都接上」) 这两条**真接线**（用户原话：'你这怎么还有没接线的东西'）：
+         · `setSceneFps`：走 `mpwSceneFpsConfigure()` —— 抽稀只降不升；`legacy/off/0/vsync` = 每 rAF 一帧
+           = **改动前行为**；实测提交帧率读 `window.__mpwSceneFps.effective`。`?fps=` 是同一个解析点。
+         · `updateWebProps`：web 帧 ⇒ `mpwWebControlSend('props')`（同源直调帧内 shim `__mpwWebControl`，
+           否则既有 postMessage 通路 + 排队重放）；场景档 ⇒ 写 `window.__mpwUserProps` 并走面板同一条
+           应用链。三种"没生效"（没有 web 帧 / 帧内没 shim / 本档没有属性表）都能从返回值与
+           `window.__mpwWebFrame.props|propsApplied` 分开读 —— **不再有"被忽略"这种含糊话**。 */
+      put('setSceneFps', (v) => {
+        const r = mpwSceneFpsConfigure(v, 'host')
+        note('setSceneFps', r.ok
+          ? ('已生效：' + (r.mode === 'legacy' ? 'legacy（每 rAF 一帧，与改动前一致）' : (r.want + ' fps（抽稀只降不升，实测见 __mpwSceneFps.effective）')))
+          : ('未生效：' + (r.why || '取值不可用')))
+        return !!r.ok
+      })
+      put('updateWebProps', (v) => {
+        const r = mpwWebApplyProps(v)
+        note('updateWebProps', r.ok
+          ? ('已送达 ' + r.dest + '（via=' + r.via + '，' + r.count + ' 项：' + r.keys.join(',') + '）')
+          : ('未送达：' + r.why))
+        return !!r.ok
+      })
       put('loadSceneFile', () => { note('loadSceneFile', '⚠ 本仓渲染器不从 Blob 挂载（请用 `?id=` / `?pkgurl=` / `?pkgpath=` 指定包）⇒ 本次调用被忽略'); return false }, false)
-      put('pushWheel', (dx, dy) => { note('pushWheel', '⚠ 本仓的注入通道只有位置/按键（`window.__mpwPointer`：x/y/inside/buttons），没有滚轮通道 ⇒ 本次滚轮（' + String(dx) + ',' + String(dy) + '）被忽略'); return false }, false)
+      /* ①(2026-09-25 接线) web 帧的滚轮**真的能到**：帧内 shim 的 `control()` 明确支持 `op:'wheel'`
+         （`core/we-web-shim.mjs` 的 `case 'wheel': dispatchWheel`），落点用 `mpwWebFramePoint()` 换算；
+         场景档没有滚轮注入契约（`window.__mpwPointer` 只有位置/按键）⇒ 按"不支持 + 替代"如实回报。 */
+      put('pushWheel', (dx, dy, mode, mods) => {
+        const el = webFrameEl
+        if (el) {
+          const p = mpwWebFramePoint(-1, -1)
+          const r = mpwWebControlSend('wheel', { x: p ? p.x : 0, y: p ? p.y : 0, deltaX: Number(dx) || 0, deltaY: Number(dy) || 0, deltaMode: Number(mode) || 0, mods: Number(mods) || 0 })
+          note('pushWheel', r.ok ? ('已送达 web 帧（via=' + r.via + '）：' + Number(dx) + ',' + Number(dy)) : ('未送达：' + r.why))
+          return !!r.ok
+        }
+        note('pushWheel', '本档是场景档：渲染器**不支持**滚轮注入（注入面只有位置/按键 `window.__mpwPointer`）；网页壁纸档才消费滚轮 ⇒ 本次（' + Number(dx) + ',' + Number(dy) + '）未送达')
+        return false
+      }, false)
       put('restore', () => { note('restore', '⚠ 释放后"恢复"需要重新挂载：本仓渲染器的装载在本页导航时一次完成 ⇒ 请重新选一次壁纸（或点「重挂载」）'); return false }, false)
       put('setWallpaper', () => { note('setWallpaper', '⚠ 本仓渲染器按 `?id=` 挂载（不接宿主传入的壁纸对象）⇒ 本次调用被忽略'); return false }, false)
       //  真能力：音频桥（本页既有的 `window.__mpwAudioFrame(freqBytes)` 就是同一个钩子 —— 只在
@@ -3257,6 +3467,12 @@ function loadScene() {
     box.style.height = (vp ? vp.h : (window.innerHeight || 0)) + 'px'
     const fr = document.createElement('iframe')
     fr.id = 'mpw-web-frame'
+    /* ①(2026-09-25 接线补完) 宿主 API 的送达路由要**知道当前这一帧**：`updateWebProps`/`pushWheel`
+       走 `mpwWebControlSend()`，它按 `webFrameEl` + `webFrameSameOrigin` 决定"同源直调 / postMessage"。
+       `plan.mode==='compat'` = 同源可读（`contentDocument` 可用）⇒ 直调帧内 `__mpwWebControl`。 */
+    webFrameEl = fr
+    webFrameMode = plan.mode
+    webFrameSameOrigin = (plan.mode === 'compat')
     fr.setAttribute('title', 'web wallpaper')
     fr.setAttribute('sandbox', webFrameSandboxAttr(plan.mode))
     fr.setAttribute('allow', 'autoplay')     // 只给播放；指针锁/弹窗/表单/下载/top-navigation 一律不给
@@ -3311,15 +3527,18 @@ function loadScene() {
       veil.setAttribute('aria-hidden', 'true')
       veil.style.cssText = 'position:absolute;inset:0;z-index:1;background:transparent;cursor:default'
       box.appendChild(veil)
+      /* ①(2026-09-25 「把所有没接线的东西都接上」) 帧盒换算的**唯一实现**收进 `mpwWebFramePoint()`：
+         模块档走 `core/web-frame-geometry.mjs` 的 `frameClientPoint`（`?frame=cover`），旧式内联式保留为
+         `?frame=legacy` 的 A/B 对照；模块档量不到帧盒 ⇒ 返回 null ⇒ **丢弃这一次注入**
+         （计数 `webGeomDropped`，绝不把 NaN 投给帧 —— 规格 §1.4 第 6 条）。 */
       const toFrame = (ev) => {
-        const r = fr.getBoundingClientRect()
-        const sx = r.width > 0 ? (fr.clientWidth / r.width) : 1
-        const sy = r.height > 0 ? (fr.clientHeight / r.height) : 1
-        return { x: (ev.clientX - r.left) * sx, y: (ev.clientY - r.top) * sy }
+        const p = mpwWebFramePoint(ev.clientX, ev.clientY)
+        return p ? { x: p.x, y: p.y } : null
       }
       const fwd = (op, ev, extra) => {
         if (typeof mpwWebSend !== 'function') return
         const p = toFrame(ev)
+        if (!p) return
         mpwWebSend(op, Object.assign({ x: p.x, y: p.y, buttons: ev.buttons || 0, button: ev.button || 0,
           pointerId: ev.pointerId, pointerType: ev.pointerType }, extra || {}))
       }
@@ -3339,6 +3558,12 @@ function loadScene() {
       const d = ev && ev.data
       if (!d || d.mpw !== 'mpw:web') return
       try { if (ev.source && fr.contentWindow && ev.source !== fr.contentWindow) return } catch (e) { /* 跨源比较失败就按协议走 */ }
+      /* ①(2026-09-25 接线补完) **帧内回执**：shim 应用属性后回报 `props-applied`
+         ⇒ `updateWebProps` "到没到"有两端证据（推送侧 `.props` + 帧内 `.propsApplied`）。 */
+      if (d.op === 'props-applied') {
+        try { webPropsApplied = { at: Date.now(), keys: Array.isArray(d.keys) ? d.keys : [], count: Number(d.count) || 0, via: d.via || 'shim' } } catch (e) { /* ignore */ }
+        try { mpwWebFrameNote({ propsApplied: webPropsApplied }) } catch (e) { /* ignore */ }
+      }
       if (d.op === 'ready') {
         webReady = true
         pub({ state: 'ok', ready: true, readyMs: Date.now() - t0, shimVersion: d.version || null })
@@ -8221,6 +8446,13 @@ function loadScene() {
     //   诚实边界：暂停期间画布保持最后一帧（与上游 `paused` 一致），sound 层仍按自己的 `<audio>` 播放
     //   —— 本页没有把音轨接进暂停语义（`?audio=1` 才建音轨元素，缺省一个都没有）。
     if (mpwHostPaused) return;
+    /* ①(2026-09-25 宿主 API 接线) `?fps=` / `__wp.setSceneFps()` 的帧间隔抽稀。legacy（缺省）时这里只是
+       一次 mode 判断 ⇒ 与改动前逐位一致；跳过 = **不渲染、照旧自排下一帧**（节奏由时间戳决定，
+       不依赖刷新率），且跳过帧不进 fps 计数（下面那两行之前就返回）。 */
+    if (mpwSceneFpsShouldSkip(now)) {
+      if (!SCHEDULED) rafId = requestAnimationFrame(frame)
+      return
+    }
     frames++; ft += (now - last); last = now;
     // ①(N7 2026-09-14) 上一帧真实秒数（官方 engine.frametime 语义；首帧为 0）
     const frameDt = (typeof now === 'number' && isFinite(now) && lastFrameNow) ? Math.max(0, (now - lastFrameNow) / 1000) : 0;
@@ -8440,6 +8672,9 @@ function loadScene() {
     // ①(§5-⑨ 真机基线快照) 帧循环里的**唯一**调用点：喂 rAF 时间戳 + 帧号（算术全在纯模块里）。
     //   默认关时 MPW_BASELINE === null ⇒ 这一行只是一次 null 判断（零计时器、零 GL 包装、零记账）。
     if (MPW_BASELINE) MPW_BASELINE.onFrame(now, window.__mpwFrameNo || 0)
+    // ①(2026-09-25 宿主 API 接线) 提交帧记账（`__mpwSceneFps.effective` = 1s 滚动窗实测提交帧率）：
+    //   legacy 档下只做几次自增/比较，不改任何渲染行为。
+    mpwSceneFpsSubmit(now)
     // ①(P-77) 单实例：本帧结束后自排下一帧（与改动前逐位一致）；
     //   多实例：**不自排** —— 由外层唯一的调度器（multi-instance.js）决定这一帧给谁跑（设计文档 §2.3）。
     if (!SCHEDULED) rafId = requestAnimationFrame(frame);

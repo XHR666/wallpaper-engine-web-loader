@@ -47,7 +47,15 @@ import { ROOT } from './_root.mjs'   // ①(2026-09-16 目录整理) 仓库根�
 const IMPL_NAME = process.env.MPW_H2G_IMPL === 'vendor' ? 'vendor' : 'wired'
 const hlsl2glsl = IMPL_NAME === 'vendor' ? VENDORED : WIRED_LIB.hlsl2glsl
 // 自研那份不收第 5 参 siblingSrc（跨 stage 合并 [COMBO] 默认值是 vendored 的能力）；多传的实参被忽略。
-const WIRED_TAKES_SIBLING = hlsl2glsl.length >= 5
+// ①(P-114 / P-198 2026-09-25) "第 5 参 = siblingSrc" 按**形参名**判，不按 arity：P-198 给内联实现加了
+//   第 5 个可选参 `search`（三条新转译规则的回退口，见 tests/hlsl2glsl-passfix-test.mjs），arity 从 4 变 5
+//   —— 但那个参数**不是** siblingSrc，P-114 的结论（内联实现不合并跨 stage 的 [COMBO] 默认值）一字不变。
+const WIRED_TAKES_SIBLING = IMPL_NAME === 'vendor'
+  ? VENDORED.length >= 5
+  : (() => {
+    const s = String(WIRED_LIB.hlsl2glsl)
+    return s.slice(s.indexOf('(') + 1, s.indexOf(')')).split(',').map((x) => x.trim()).includes('siblingSrc')
+  })()
 
 const HERE = ROOT
 const JSON_OUT = process.argv.includes('--json')

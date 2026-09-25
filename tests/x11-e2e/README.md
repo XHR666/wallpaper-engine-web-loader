@@ -67,8 +67,8 @@ $ npm install -g @agent-sh/computer-use-linux        # 0.7.0：wrapper 装上了
                                                      # allow-scripts 策略拦住 ⇒ **二进制没下载**
 $ curl -L .../releases/latest/download/computer-use-linux-aarch64-unknown-linux-gnu   # 7.3 MB，sha256 校验"成功"
 $ ~/.local/bin/computer-use-linux --version
-/root/.local/bin/computer-use-linux: /lib/aarch64-linux-gnu/libc.so.6:
-  version `GLIBC_2.39' not found (required by /root/.local/bin/computer-use-linux)
+~/.local/bin/computer-use-linux: /lib/aarch64-linux-gnu/libc.so.6:
+  version `GLIBC_2.39' not found (required by ~/.local/bin/computer-use-linux)
 $ ldd --version | head -1
 ldd (Ubuntu GLIBC 2.35-0ubuntu3.13) 2.35
 ```

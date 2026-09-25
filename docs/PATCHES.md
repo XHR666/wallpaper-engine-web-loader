@@ -5381,7 +5381,7 @@ npm publish --registry=https://registry.npmjs.org --access public
 - `node publish-check.mjs` → **0 阻塞、0 隐私告警**（唯一提示是"未提供 WE 资产根 ⇒ 跳过专有文件比对"，属 informational）
 - `node demo-syntax-check.mjs` → **8/8**
 - `node clean-room-alpha-align-test.mjs` → **1008 pass / 0 fail**
-- 真打包扫描：tarball **132 文件**；`/root/` 个人路径 **0**；真实壁纸包 **0**（唯一 scene.pkg 是 `samples/sample-synthetic/scene.pkg` 33 KB）；`node_modules` **0**
+- 真打包扫描：tarball **132 文件**；`~/` 个人路径 **0**；真实壁纸包 **0**（唯一 scene.pkg 是 `samples/sample-synthetic/scene.pkg` 33 KB）；`node_modules` **0**
 - 体积：仓库内 **>5 MB 文件 0 个**，最大 1.4 MB（OFL 字体）
 
 ### P-97.3 隐私处置（本轮）
@@ -5393,7 +5393,7 @@ npm publish --registry=https://registry.npmjs.org --access public
   `demo.html` 调试字符串、`pwa-test.mjs` 占位路径（改 `USER`）、`docs/ONLINE-DEMO.md` 命令、
   `PATCHES.md` 一行 DSH profile 路径同步清理。
 - **Pages 产物零个人路径**：工作流剔除 `server/we-scene-demo-server.mjs` / `core/scene-project-json.mjs`
-  （服务端/工具源码，静态 demo 用不到）后，`_site` 内任意 `/root/` 为 **0**；
+  （服务端/工具源码，静态 demo 用不到）后，`_site` 内任意 `~/` 为 **0**；
   线上 `/we-scene-demo-server.mjs` 实测 **404**。
 
 ### P-97.4 Pages 形态：为什么不是"直接从仓库根发布"
@@ -5567,7 +5567,7 @@ grep -rIl --exclude='*.map' "$MPW_ROOT/" _site
 | 7 | 服务端类用例（`sandbox-cors` / `shot-upload` / `text-font-fallback`）超时 | `server/we-scene-demo-server.mjs` import 的 `server/pack-dir.mjs` / `core/scene-project-json.mjs` 被误移进 `tests/`（服务器起不来） | 两者移回仓库根（**服务端运行时依赖**；`build-pages.mjs` 仍按需排除 `core/scene-project-json.mjs` 不发布） |
 | 8 | `hlsl2glsl-coverage` 覆盖率崩到 69.6% | include 解析器只扫"脚本目录"找 `common*.h`；6 个头已移入 `shaders/` | 扫描面 `shaders/` + 旧落点兼容 |
 | 9 | `p74-*` / `audio-panel` / `props-panel` / `visual-diff` / `project-json` 读文档失败 | `new URL('./README-DIAGNOSTICS.md', import.meta.url)` 等指向根文档（已移入 `docs/`）；`project-json-test` 指向已回根的 `core/scene-project-json.mjs` | 逐处改成 `../docs/...`；`project-json-test` 的模块引用改指该模块的当时落点（①P-101 起为 `core/scene-project-json.mjs`） |
-| 10 | `demo-check` 29→28 | ①我自己的注释里写了**字面** `/root/...`（D3 按任意 `/root/` 判红）；②`demo-check` 自身路径随移动要同步 | 注释改为不写字面路径；新增面扫描清单里的自身路径改 `tests/demo-check.mjs` |
+| 10 | `demo-check` 29→28 | ①我自己的注释里写了**字面** `~/...`（D3 按任意 `~/` 判红）；②`demo-check` 自身路径随移动要同步 | 注释改为不写字面路径；新增面扫描清单里的自身路径改 `tests/demo-check.mjs` |
 
 **基线对照（证明"不是所有红都是我的，也不是所有绿都是天生"）**：
 把 HEAD（`f0abb1d`）checkout 到独立 worktree 跑同一命令：
@@ -5579,7 +5579,7 @@ cd /tmp/we-head && node visual-diff-kal.mjs ; echo rc=$?   → rc=0（基线此�
 ### P-98.6 未定 / 待用户决定
 
 1. **`docs/` 是否该进站点产物**：本轮改为**不发**（收拢前也只是 11 份具名 md）。若希望线上提供文档，
-   应在 `PAGES_KEEP_DIRS` 里按**具名白名单**加回，而不是整目录（`docs/PATCHES.md` 含描述闸门自身的 `/root/` 字样，
+   应在 `PAGES_KEEP_DIRS` 里按**具名白名单**加回，而不是整目录（`docs/PATCHES.md` 含描述闸门自身的 `~/` 字样，
    会让 demo-check D6 与 workflow 的 grep 判红）。
 2. **`tools/make-sample.mjs` 留在根**（`samples/README.md` 与 pages 白名单都按根引用它）—— 若希望它也进 `tests/`，
    需同步 `samples/README.md` 的 5 处命令与 `build-pages.mjs` 的白名单。
@@ -6064,7 +6064,7 @@ $ node tests/data-limits-test.mjs
    `make-sample.mjs` 发布（`samples/**` 等按**相对说明符**引用它）—— 若将来要让包内路径与仓库路径同形
    （`tools/…`），要同步 `samples/` 的引用与 `build-pages.mjs` 的映射，属**会改包结构**的改动（用户约束②下先不动）。
 2. **`docs/` 是否进站点产物**：本轮口径仍是"**不发**"（只发具名白名单 `docs/COPYING-RULES.md` 一份）。
-   要发须按**具名白名单**加回，整目录会让 `demo-check` 的 D6 判红（`docs/PATCHES.md` 含描述闸门自身的 `/root/` 字样）。
+   要发须按**具名白名单**加回，整目录会让 `demo-check` 的 D6 判红（`docs/PATCHES.md` 含描述闸门自身的 `~/` 字样）。
    同一未定项在 §P-98.6 第 1 条、§P-105.6 亦有记录，**本节不重复关闭**。
 3. **`we-scene-bundle.js` 根软链**：P-105.1 立的（`elysia/we-renderer/textures.js` 必须用站点根的**扁平**说明符，
    而 Node 只按真实相对路径解析）。软链在 `npm pack` / `Pages` 产物里的**打包器支持面**未被逐个验证过
@@ -6361,9 +6361,9 @@ gh repo edit XHR666/wallpaper-engine-web-loader \
 
 - 随包新增 **`docs/DATA-LIMITS.md`**（补进 `package.json` `files`）：README 的"数据上限"一节按仓内相对路径指向它，
   npm 包内也必须能找到（README 永远随包分发，指针不能悬空）。
-- **隐私修一处**：该文件第 39 行的插件 diag 目录原写作作者机**家目录绝对路径**（`/root/.dsh/…`）⇒ 改为 `~/.dsh/…`
+- **隐私修一处**：该文件第 39 行的插件 diag 目录原写作作者机**家目录绝对路径**（`~/.dsh/…`）⇒ 改为 `~/.dsh/…`
   （`~` = 插件宿主端 home）。**这条是 `tests/packaging-test.mjs` 的 D 段（真打包 → 解包 → grep 家目录前缀）抓到的**：
-  `tests/publish-check.mjs` 的 `PATH_RE` 只认三种形态（作者工作区前缀 / `home` 家目录 / Windows 用户目录），认不出 `/root/.dsh/`
+  `tests/publish-check.mjs` 的 `PATH_RE` 只认三种形态（作者工作区前缀 / `home` 家目录 / Windows 用户目录），认不出 `~/.dsh/`
   ⇒ **两套隐私判据覆盖面不一致**（口径债，见 P-105.6 第 3 条）。修后 `packaging-test` **133 通过 / 0 失败**。
 
 ### P-105.5 发布前闸门（以最终工作树重跑，逐条实测）
@@ -6406,7 +6406,7 @@ gh repo edit XHR666/wallpaper-engine-web-loader \
    **P-106**（并移到 P-105 之后），标题序为 P-100-R1 / P-100 / P-105 / P-106 ⇒ **P-102 现在唯一归帧几何，冲突消除**
    （那 5 处引用一字未改）。
 3. **两套隐私判据覆盖面不一致**（见 P-105.4）：`publish-check` 的 `PATH_RE` 认不出"家目录下的点目录"
-   （`/root/.dsh/…`）一类路径，而 `packaging-test` 认家目录前缀 ⇒ 建议把 `PATH_RE` 放宽为家目录前缀一条判据。
+   （`~/.dsh/…`）一类路径，而 `packaging-test` 认家目录前缀 ⇒ 建议把 `PATH_RE` 放宽为家目录前缀一条判据。
    **本轮未改判据**（不为凑绿掩盖发现），仅把被抓到的那一处改成 `~`。
 4. **`tests/particle-render-correctness-test.mjs` 未注册进门禁**（自述 P-103 粒子渲染正确性，38+ 断言），
    且无任何文件引用它 ⇒ 属**粒子线的在途夹具**，本次**未纳入提交**（保持 untracked）。
@@ -12651,7 +12651,7 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
 * 静态扫描器本身也修了两个坑（都是**假红**来源，写在这里免得下次再踩）：
   ① 注释剥离改用**状态机**（原来的正则把字符串里的 `/*` 当块注释起点，会把后面的真代码整段吃掉 —— 实测
      `server/we-scene-demo-server.mjs` 的 `await import('./pkg-entry-index.mjs')` 因此消失，被误报成"死文件"）；
-  ② 绝对 URL 扫描跳过 `/tmp/`、`/root/`、`/home/` 这类**宿主运行期路径**（服务端会拼 `os.tmpdir()` 下的脚本路径）。
+  ② 绝对 URL 扫描跳过 `/tmp/`、`~/`、`/home/` 这类**宿主运行期路径**（服务端会拼 `os.tmpdir()` 下的脚本路径）。
 
 ### P-167.3 发布纪律：0.2.0 → 0.2.1（修前进）
 
@@ -12731,7 +12731,7 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
 
 ### P-169.1 判据（A–F + G 分辨力自证）
 
-* **A/B 路径可覆盖性**：代码里的 `/root/…`、`/home/<user>/…`、`/storage/` + `emulated`、Termux 私有目录、`C:\Users\…`
+* **A/B 路径可覆盖性**：代码里的 `~/…`、`/home/<user>/…`、`/storage/` + `emulated`、Termux 私有目录、`C:\Users\…`
   必须**当场给出覆盖口**（同行有 `process.env` / `os.homedir()` / `os.tmpdir()`）；写死的 `'/tmp/…'` 一律判红
   （Windows 没有 `/tmp`；macOS 的 `/tmp` 是 `/private/tmp` 软链）。白名单 6 条逐条写理由，并**反查每条仍然命中**
   （条目失效 ⇒ 判红，防白名单变遮羞布）。注释行不参与 A/B（注释不执行；示例的跨平台性是风格问题）。
@@ -13329,8 +13329,8 @@ P-152b 之后**仍**解析为 `null` —— 它们在**MDLS 解析之前**的"�
   `[server/we-scene-demo-server-8902.mjs → /diag-flags.json]`（期望红集 `{C2}` == 实际红集 `{C2}`）；恢复后 13/0。
 
 ### ⑤ `cross-platform`（24/1 → **25/0**）三处新写的裸本机路径片段
-* **根因**：门禁 A/B 段的判据是**裸片段**（A 段 `/root/`、B 段 `/tmp/`；`tests/cross-platform-gate-test.mjs:55,66`），
-  而三处新写的字符串只把后半截拼起来了：`tests/bench-dsh-libroot-test.mjs:157`（`'/root/Desktop/' + 'DSHarea'`）、
+* **根因**：门禁 A/B 段的判据是**裸片段**（A 段 `~/`、B 段 `/tmp/`；`tests/cross-platform-gate-test.mjs:55,66`），
+  而三处新写的字符串只把后半截拼起来了：`tests/bench-dsh-libroot-test.mjs:157`（`'~/Desktop/' + 'DSHarea'`）、
   `:418`（变异载荷里同形）、`tests/portability-audit-fix-test.mjs:384`（`console.log` 文案里的 `/tmp/`）。
 * **改法（拼接，不往白名单加）**：本机工作区前缀收成一处 `const WS_ABS = '/' + 'root' + '/Desktop/' + 'DSHarea'`
   （连 `root` 段一起拆），变异载荷按 `'" + WS_ABS + "'` 拼；文案里那段写成 `'/' + 'tmp/'`。白名单是给
@@ -13925,3 +13925,254 @@ MPW_ROOT=/tmp/emptyroot bash tests/run-all-tests.sh.old      --only multi-sprite
 
 **许可**：借用上游 `oneincase/webwallgl`（**MIT**）PR #6（head `5c5a6aa5e7`，作者 **yuxilao**，merged 2026-09-23）的
 **判定口径与字段名**，**未 vendored 上游文件**；台账见 `docs/COPYING-RULES.md` 第 17 条，旗标说明见 `docs/README-DIAGNOSTICS.md` 的 `texwrap` 行。
+
+---
+
+## P-195（2026-09-25 · 逐条核实 WE-FULL-REV §5 后的第一批落地）include 头里的 material 注解**并入 matMeta**：`g_CompositeAlpha` 不再停在 0，`COMPOSITE==1` 的 pass 不再是 no-op
+
+**一句话**：材质 uniform 的**缺省值**与场景 `constantshadervalues` 全靠 `uniform …; // {"material":"x","default":…}`
+这条注解建映射，而**官方一整批注解写在 include 头里**（`shaders/common_composite.h` 的
+`g_CompositeAlpha`/`g_CompositeOffset`/`g_CompositeColor`、`common_particles.h` 等）。
+旧实现只扫 `.vert`/`.frag` **原文** ⇒ 这些键在 `matMeta` 里根本不存在 ⇒ `bindConstants()` 既拿不到场景值、
+也写不出缺省值 ⇒ 例：`COMPOSITE==1` 的 pass 里 `g_CompositeAlpha` 停在 GL 缺省 **0**，该 pass 实际成 no-op。
+**真语料证据**：`allwallpaper/dd/3544152633/scene.pkg` 就有
+`{"combos":{"COMPOSITE":1},"constantshadervalues":{"compositealpha":1.2,…}}`。
+
+**改法**：`parseMaterialMeta`/`parseTextureCombos`/`parseDefaultValue` 提到**模块作用域并导出**；
+新增 `materialMetaFor({vert, frag, includeBodies, search})` = stage 原文 + **本次已解析到的 include 正文**一起扫；
+`getEffectProgram` 里 `includeCache` 已含本 shader 用到的全部头（`missing.size === 0` 才走到那里）⇒ 直接喂进去。
+**边界**：① 头里声明、本 program 没引用的 uniform 会被 `bindConstants` 经**真实 uniform 表**（`uni.get()` 为 null）
+自然跳过；② 同名 material 多段出现 ⇒ 后者胜；③ 头内注解是**后写**的默认值，`bindConstants` 的默认值那趟
+跑在 `bindSystemUniforms` 之后 ⇒ `g_CompositeColor` 不再被 `layer.color` 顶掉（场景值仍优先）。
+
+**判据**：新增 `tests/fx-desc-meta-test.mjs` **22 通过 / 0 失败**（A 组 = 行为：只扫 stage ⇒ 无 `compositealpha`；
+并入头 ⇒ 三个键都进表且 default 解析正确；`?fxcomposite=legacy` ⇒ 回到旧行为；同名后者胜。
+C 组 = **真语料证据**（扫语料确认 `compositealpha` 真的被声明）。E 组 = 两个变异：
+**删 includeBodies ⇒ D 组必红**、**删 R8 分支 ⇒ D 组必红**，真树 sha256 逐字不变）。
+回退口 `?fxcomposite=legacy`（已登记 `docs/README-DIAGNOSTICS.md` 主表，187 == 187）。
+
+* **未验证**：① `COMPOSITE==1` 且**可见**的真包画面级对拍未做（本仓语料里那个效果条目 `visible:false`）；
+  ② 头内注解与 program 实际 uniform 的**一一对应**只按"真实 uniform 表跳过"保证，未逐头清点。
+* 出处：`docs/PATCHES.md` 本条；核实清单见工作区 `<工作区>/WE-FULL-REV.md` §5-P0-2/P1-12（该文 §5 部分条目已过期，见 P-197 的更正节）。
+
+---
+
+## P-196（2026-09-25 · 同上批）fbo 描述符的 `width`/`height`/`format`/`uvs` **真的进分配**：`effects/glitter` 的 256×256+r8+repeat 不再按层尺寸建
+
+**一句话**：官方 fbo 描述符里 `width`/`height`（u16 显式像素，缺省 65535 = 自适应）、`format`（词表）、
+`uvs:"repeat"` 三个键**从未被消费**（旧 `fboSizeOf` 只认 `scale`/`fit`）。语料实测取值：
+`format` = `rgba_backbuffer` 106 / `r8` 15 / `rgba8888` 8 / `rg88` 6；`unique` 17 处**全是 `true`**
+（= 每实例独立，与本仓"每效果命名空间"等价 ⇒ 无需改）；真实用例
+`0923/3690417937`（与 `effects/glitter` 同族）的 `_rt_GlitterTiles` = **256×256 + `format:"r8"` + `uvs:"repeat"`**，
+我们此前按层尺寸建 ⇒ 图案频率与回卷都错。
+
+**改法**：`fboDescOpts(f)` 只挑**真会改分配**的两个键（`r8`/`rg88`；`uvs:"repeat"`），其余词表值记进
+`declaredFormat` 不改分配（`rgba8888`/`*_backbuffer` 与本仓缺省 RGBA8 等价，HDR 档由既有 float 路径决定）；
+`fboSizeOf` 支持显式 `width`/`height`（**优先于 scale/fit**；65535 视为"没写"）；`getFBO` 的缓存键加上
+`format`/`wrap`（同 (tag,w,h) 不同格式必须是不同 GL 纹理），`mkTex` 里 `r8` ⇒ `gl.R8`+`gl.RED`、
+`rg88` ⇒ `gl.RG8`+`gl.RG`、`uvs:"repeat"` ⇒ `WRAP_S/T = REPEAT`。
+回退口 `?fbodesc=legacy`（三个键全部忽略，逐位回到改动前；主表 187 行内）。
+
+**判据**：同 `tests/fx-desc-meta-test.mjs`（D 组 = 源码接线：`fboDescOpts(f)` 真的传进 `getFBO`、
+显式宽高真的被读、`gl.R8`/`gl.RG8` 分支真的存在、两个回退开关都在生产路径上被读；
+变异：删 R8 分支 ⇒ D 组必红）。
+
+* **未验证**：① `format` 词表里 **HDR 变体（0xE/0xF）** 未实现（HDR 档仍走既有 float 路径，未对齐官方语义）；
+  ② `rgb8888` 类"丢 alpha"的语义未做（WebGL2 的 RGB8 不可作渲染目标 ⇒ 需要 colorMask，见 P1-9 的待办）；
+  ③ 画面级对拍（glitter 图案频率）未做，只做了分配层与源码层判据。
+* 出处：工作区 `<工作区>/WE-FULL-REV.md` §5-P0-6/P1-8（该文 §5-P0-7 的"链缓冲每帧 clear"判定已过期，见 P-197）。
+
+---
+
+## P-197（2026-09-25 · 台账更正）两份老逆向/对照文档的**过期判定**逐条更正（只增不改，历史留痕）
+
+`<工作区>/WE-FULL-REV.md` 与 `<工作区>/WER-ALIGN.md` 都成文于 bundle 约 3.7k～11k 行时
+（现 **15.6k** 行，行号全部漂移）。逐条按**符号**重核后的更正（详见两文各自的「复核更正」节）：
+
+| 老文档的判定 | 现在的事实 | 证据 |
+|---|---|---|
+| WE-FULL-REV §5-P0-1「copybackground 全链缺失」 | **已实现** | 链输入=本帧场景拷贝 + 注入 `mp2.combos.COPYBG=1`；`?copybg` 缺省关 |
+| WE-FULL-REV §5-P0-7「我们链缓冲每帧 clear(0,0,0,0)」 | **过期**：全文只有 1 处 `gl.clear`（场景目标）；链 FBO 从不清 = 官方缺省语义 ✓ | `grep -n 'gl.clear('` |
+| WE-FULL-REV §5-P1-10「attachment=-1 独立绘制」 | **已实现**（不按 attachment 剔除；锚点找不到 ⇒ 偏移 [0,0]，层照画） | `core/attach-transform.mjs` + `tests/attach-transform-test.mjs` T3/T5c |
+| WE-FULL-REV §3「waterwaves 手写实现未走官方链」 | **过期**：主路径走包内官方 material chain | `getEffectProgram` 直接编译包内 shader |
+| WER-ALIGN C10（fullscreen/passthrough 效果层）| **不适用**（语料 0 命中，已留别名回退） | `tests/render-closeout-test.mjs` ② |
+| RE-27 台账「`g_TextureReductionScale` 官方 0 命中」 | **证据错误**：exe 内该串各出现 1 次；官方 `chroma4/foliage4/fur4/generic3/4` 真的声明 `g_TextureNMipMapInfo` ⇒ "无需实现"不成立，应重估 | `grep -a -o … | wc -l`（本轮核实） |
+
+* 本轮**已修**的老文档条目：`g_CompositeAlpha`（P-195）、fbo `width/height/format/uvs`（P-196）；
+  其余"部分"仍待办，清单见工作区 `docs/` 下的状态汇总文档（`STATUS-ALL-ITEMS`，全部条目的单一入口）。
+* **未验证**：老文档 §1–§4 的反汇编结论（VA/结构偏移/公式）本轮**未逐条重验**（需 `llvm-objdump` 定点反汇编同一二进制）。
+
+---
+
+## P-198（2026-09-25 · 转译线）差距矩阵 §6.2 剩下的 **4 条"整条效果 pass 被静默跳过"** 全部落地：varying 跨 stage 对账 · `#define` 行尾注释 · 文件级非常量 `const` · `float == int`
+
+**一句话**：`docs/reports-renderer-gap-matrix.md` §6.2（= 工作区 `docs/` 下状态汇总文档的 `STATUS-ALL-ITEMS` 第 1.1 节第 13 条）列的 4 条缺口
+当时只有"现象 + 推测落点"，本轮**逐条定位到源里的哪一行、转译器哪一步产生它**，四条全修，并各配一个 `?xxx=legacy` 回退口。
+全语料对拍（51 包 / 894 个 shader stage）**基线绿 848 个一个不掉**，**修好 18 个 stage**（含矩阵里没登记的 `0923/3662790108`）。
+
+| # | 包 · shader | 归属 | 真编译器报文（改前 → 改后） | 源里哪一行 | 转译器哪一步产生它 |
+|---|---|---|---|---|---|
+| ① | `0923/3602673806` · `workshop/2795521260/effects/color_grading` | 本仓独有 | 链接 `Varying 'v_TexCoord' is not linkable`（glslang：`Types must match: vertex " vec4 v_TexCoord" / fragment " vec2 v_TexCoord"`）→ **stage 编译 0 error + link 0 error** | `.vert:6 varying vec4 v_TexCoord` / `.frag:70 varying vec2 v_TexCoord` | 转译函数结尾的 `varying → in/out` 那一步**逐 stage 各转各的**，从不比较两张表的类型（D3D 按寄存器语义容忍宽度差，GLSL ES 链接器不容忍） |
+| ② | `0917/3600630828` · `workshop/2084198056/effects/Simple_Audio_Bars` | 本仓独有 | `ERROR: 0:488: 'float' : syntax error` → **0 error** | `.frag:16 #define DEG2PCT 0.00277… // 1 / 360`（用在 `:129`/`:130`） | 宏登记用 `(.*)$` **把行尾注释一起当宏体** ⇒ `float a = x * DEG2PCT;` 展开成 `… * 0.00277… // 1 / 360;`，**分号被注释吃掉** |
+| ③ | `0923/3690417937` · `effects/glitter_prepare` | 两边都跳 | 同①（vert vec2 / frag vec4）→ **link 0 error** | `.vert:5` / `.frag:10`（片元只在声明行提到它，一处没读） | 同①的**收窄**方向 |
+| ④ | `0923/3653641024` · `workshop/3485726739/effects/phantomtransitionfx` | 两边都跳 | 4a `0:24 '=' assigning non-constant to 'const highp float'`；**修掉 4a 才浮出** 4b `0:86 '==' wrong operand types … 'highp float' and 'const int'` → **两条都 0 error** | 4a `.frag:109 const float FEATHER = u_Feather * 0.5;`（依赖 uniform）；4b `.frag:346 gl_FragColor = pixelMask == 1 ? t1 : pixelColor;`（`float pixelMask`） | 4a GLSL ES 3.0 要求**文件级** `const` 初值是常量表达式（去掉 `const` 也没用：非 const 全局初值同样要求常量表达式）⇒ 本仓原样输出；4b GLSL ES 没有 `float == int` 重载 ⇒ 本仓原样输出 |
+
+**改法**（全部在 `core/we-scene-bundle.js`，**未改 vendored 上游原文**）：
+
+* **①③ `reconcileStageVaryings(vertGlsl, fragGlsl, search)`**（`:7462` 定义；`assembleEffectShaderSources()` `:6250` 与渲染路径 `getEffectProgram()` 链接前 `:11232` 各调一次）。
+  收的是**两张已转译的 GLSL**（链接期规则，单看一个 stage 永远编得过）：**顶点侧为准** —— 顶点更宽 ⇒ 加宽片元 `in`
+  并把裸引用补 `.xy`/`.xyz`（多出来的分量片元不读）；片元更宽 ⇒ 收窄片元 `in`。顶点侧**永不改写**。
+  三条边界**不动 + 计数**（`h2gPassFixStats.varyingUnresolved(+Reasons)` `:6119`）：片元读了超出顶点宽度的分量、
+  收窄方向仍有裸引用、兄弟 stage 无同名声明。**为什么不搬 vendored 那份的 `vertConflicts`**：P-114 已定
+  "渲染路径跑自研实现"，而 vendored 的手法是"在 GLSL 上按行改写"，与本仓"逐 stage 纯函数 + 显式对账"结构不同；
+  这里只取它的**行为结论**（顶点侧为准、两个方向都收、补 swizzle），实现与分桶计数全部自写。
+* **② `stripDirectiveComment()`**（`:5532`）：登记宏体前剥掉行尾注释（C 预处理的注释在翻译阶段 3 就换成空白）。
+  三处登记点同改：`expandMacrosIn`（`:5668`）、`preprocess` 的 `#if` 求值用 `defs`、`collectMacros`（死代码但同族，一起收口）。
+* **④a `inlineNonConstGlobals()`**（`:5981`，`:7407` 调用）：把"文件级 `const` 且初值依赖 uniform"的初值**内联到使用点**，
+  声明行原地留 `// [P-198 ④ 内联非常量全局 const：…]` 痕迹（**不删行** ⇒ 其余报错行号不漂移）。
+  四条边界不内联且计数（`constGlobalKeep(+Reasons)`）：名字另有声明 / 被当成员名 / 多声明符（顶层逗号）/ 跨行初值。
+* **④b 2e3 规则**（`:6604`）：左侧**可确证是标量 float**（本文件里 `float <名>` 声明的变量、或单分量 swizzle）时，
+  把 `== != < > <= >=` 右侧的裸整数字面量补 `.0`；只在**注释之外**的正文上改（`blankComments()` 定位、
+  回原文改写 —— 全语料实测过：不挖注释会把注释散文里的 `sat == 0` 也改掉）。左侧是 int/uint 变量时不动。
+* **判据（为什么可以放心改）**：④a/④b 命中的写法在 GLSL ES 3.0 下**必然编不过** ⇒ 这两条只可能把红变绿；
+  ②同理（注释吃掉行尾 `;` 后一定编不过）。③ 的收窄方向另加了"裸引用 ⇒ 不动"的保守闸门。
+* **回退口**（4 个，缺省全开；README-DIAGNOSTICS 主表已加 4 行，`diag-flag-check` 192 == 192 0 差异）：
+  `?varyinglink=legacy` / `?macrocomment=legacy` / `?constglobal=legacy` / `?cmpint=legacy`。
+  ⚠ 四个 helper **故意各写一遍字面开关名**：`diag-flag-check` 只认 `.get('字面量')`，抽成传 `name` 的公共 helper
+  会让这四个开关在"代码 ↔ 文档主表"的双向核对里变成"文档有·代码无"（本轮实测踩到，已回改）。
+
+**读数**（`tests/hlsl2glsl-passfix-test.mjs`，真 `glslangValidator`）：
+
+| 段 | 改前（四条 legacy） | 改后（缺省） |
+|---|---|---|
+| B① `3602673806 color_grading` | link `Types must match`（vert vec4 / frag vec2） | stage 0 error **+ link 0 error** |
+| B② `3600630828 Simple_Audio_Bars` combos `{CLIP_LOW:1,SHAPE:4}` | `0:488 syntax error, unexpected FLOAT` | **0 error** |
+| B③ `3690417937 glitter_prepare` | link `Types must match`（vert vec2 / frag vec4） | **link 0 error** |
+| B④ `3653641024 phantomtransitionfx` combos `{STYLE:12}` | `0:35 global const initializers must be constant`（单独关 ④a 时才是 `0:86 '==' wrong operand types`） | **0 error**（4a+4b 两条都消） |
+| B⑤ `3662790108` · `workshop/3637654840/effects/color_grading`（**矩阵没登记**，真机档里它是"等满 8s 仍 `meanL=0`"的两行之一） | link `Types must match` | **link 0 error** |
+| C 全语料（`MPW_P198_CORPUS=1`，**51/51 包 · 894 个 stage**） | 848 过 / 28 不过 / 11 个 stage 逐字节有变 | **866 过**（**修好 18 个 stage，0 回归**）；C1「legacy 能编译+链接的 848 个基线绿一个不掉」+ C2「legacy 能编过的产物剥注释后逐字节不变」双绿 |
+
+* 语料计数（规则自身台账）：`#define <名> <体> // 注释` **73 处 / 18 个 shader**、反斜杠续行 `#define` **0 处**；
+  文件级 const 依赖 uniform **1 处**；跨 stage varying 宽度冲突 **3 个 shader**（另 1 个同 shader 被 `3662790108` 引用）。
+* 修好的效果（测试输出前 10 个 stage）：`color_grading`×2 · `Simple_Audio_Bars` · `glitter_prepare` ·
+  `phantomtransitionfx` · `procedural_noise` · `____________________` · `audio_responsive_oscilloscope`。
+* **全语料前后对拍**（同一批 51 包，按"包 × shader × combos"计 **447 个作业**）：改前过 **424** → 改后过 **433**
+  （**修好 9 个作业 / 0 回归 / 14 个仍不过**；仍不过的都是别的族：`uint` 赋值、`--` 改 const、`attribute` 只读等）。
+  **产物逐字节有变 10 个作业，其中"改前也能编过"的 = 0** —— 改动对**任何现在能编过的产物零影响**
+  （比 C2 的"剥注释后相同"更强）。修好的 9 个（`包 · 效果`）：`dd/3544152633 · procedural_noise` ·
+  `0923/3582367840 · ____________________` · `0923/3602673806 · color_grading`① · `0923/3653641024 · phantomtransitionfx`④ ·
+  `0923/3662790108 · color_grading`（**矩阵没登记**）· `0923/3690417937 · glitter_prepare`③ ·
+  `0917/3351163962 · Simple_Audio_Bars` · `0917/3462491575 · audio_responsive_oscilloscope` · `0917/3600630828 · Simple_Audio_Bars`②。
+* **判据**：新增 `tests/hlsl2glsl-passfix-test.mjs`（**42 项 ALL PASS**，实测 ~12s，无浏览器/无网络/无 GPU）：
+  A 合成夹具（四条规则各自 legacy 报文复现 / 缺省 0 error + 5 条反向护栏：片元读 `.zw` ⇒ 不收窄 · 收窄方向有裸引用 ⇒ 不收窄 ·
+  同宽幂等逐字节不变 · 多声明符 const 不内联 · 注释里的 `==` 不被改）+ B 五个真包逐条对拍 +
+  C 语料 **0 回归** + D 变异自证（**4 个回退口 + 4 组真源码切片变异 `MUTANT-RED-OK` 4/4**：宏体不剥注释 / 不内联 const /
+  比不补 `.0` / 不对账 varying，各自让对应夹具回到改动前形态；真树 sha256 跑前跑后相同）+
+  E **mock-GL 端到端**：真渲染路径 `getEffectProgram()` 送进 `gl.shaderSource()` 的 frag 是 `in vec4 v_TexCoord;`
+  （对过账），把渲染路径那两行删掉的切片副本 ⇒ 变回 `in vec2`（E1 的绿不是白来的）。
+* **既有回归护栏读数（跑前 → 跑后，全绿）**：`hlsl2glsl-width-table` **77 项 ALL PASS**（变异自证 3/3 组，真树 sha256
+  `ed9e629d9e66cad7` → `9567bffb6eb1f454`）· `hlsl2glsl-width-9w` **68 项 ALL PASS** · `hlsl2glsl-coverage` **46/46 = 100.0%**
+  （`arity=5`；A/B 对照 `wired 46 vs vendored 45` 未变）· `effect-prelude-common` **92 项 ALL PASS**。
+  另跑了三条**会被这次改动碰到**的既有判据（都绿）：`hlsl2glsl-wiring` **13 项 ALL PASS**（W2 探针仍捕到自研输出、
+  W3 RED 变异仍翻转）· `effects-degenerate-fbo` **40 通过 / 0 失败**（M1/M2/M3 三组变异锚点全在位）·
+  `hlsl2glsl-3351179520` **19 通过 / 0 失败**（vendored `vertConflicts` 那族）。
+  全局检查：`docs-check` ✓ · `secret-scan` ✓（凭据 0 · 本机路径 0）· `demo-syntax` 11/11 ✓ · `diag-flag-check` ✓（192 == 192）。
+* **动了三条既有判据的"怎么判"（不是判定内容）**：① `hlsl2glsl-width-table` A22 原来断言 `hlsl2glsl.length === 4`，
+  本轮给同一个函数加了第 5 个可选参 `search`（四条回退口的总入口）⇒ 改成**看形参表里有没有 `siblingSrc`**
+  （P-114 的结论"转译函数不接 sibling 源"一字不变）；② `hlsl2glsl-coverage` 的 `WIRED_TAKES_SIBLING` 同步改成按形参名判；
+  ③ `hlsl2glsl-wiring` 的 `mutateToVendored()` 里那条"找自研函数声明"的正则允许尾随可选参（**改名时原样保留形参表**）。
+  三处都保留了原意：谁把渲染路径换成 vendored 那份，这些断言仍会红。
+  另：渲染路径的两行 `const fragGlsl/vertGlsl = hlsl2glsl(...)` **原文形态刻意不动**（wiring 探针 + prelude E7g 按原文锚定），
+  对账结果落在新变量 `fragLinked`/`vertLinked` 上（本轮先踩到"改成 `let` 让探针失配"，已回改）。
+* **未做 / 未验证边界（如实）**：
+  1. **③ 的收窄方向仍是保守判定**（"片元有裸引用 ⇒ 不动"）。语料里 ③ 的片元只有声明、0 引用所以能收窄；
+     若将来出现"片元裸引用 vec4 `v_TexCoord` 而顶点只声明 vec2"的包，本仓**仍会链接失败**（会进 `varyingUnresolved` 计数）。
+     要放宽需要真正的类型推断（现在只有宽度表），**不猜**。
+  2. **④a 只处理同行声明**；跨行初值（语料 0 处）原样保留并计数。
+  3. **② 不处理反斜杠续行的 `#define`**（语料 0 处）：真出现时行尾注释仍会留在宏体里 ⇒ 走原报文，不静默。
+  4. **`reconcileStageVaryings` 不改顶点侧**：若顶点声明 vec2 却写了 `.zw`（作者错），本仓不会替它"修宽"，
+     链接失败照旧暴露（属资产错，不是转译缺口）。
+  5. **画面收益未做像素级 A/B**：本轮的判据是"真编译器 stage 0 error + link 0 error + 全语料 0 回归"，
+     **没有**跑 `?varyinglink=legacy` 的画面对拍（软件 GL 下这 5 个包的观感差异需真机复核）。
+  6. **产物侧（上游 web 渲染器）**：① ② 在产物侧**不失败**（矩阵原文"本仓独有"），也就是说这两条修的是
+     "我们比上游差"的一半；③ ④ 两边都跳，本轮本仓先跑通 —— **没有**去验证产物侧是否也修（不在本仓范围）。
+* 依据（只读行为结论，未复制代码/注释/文案）：`docs/reports-renderer-gap-matrix.md` §6.2 的**原样报文与包名**、
+  工作区 `docs/` 下状态汇总文档（`STATUS-ALL-ITEMS`）第 1.1 节第 13 条、以及本仓 `vendor/hlsl2glsl/`（MIT）里
+  `vertConflicts` 的**行为结论**（顶点侧为准 / 两个方向都收 / 加宽后补 swizzle）。官方 WE 资产只引用字段名与数值。
+
+---
+
+## P-199（2026-09-25 · `copybackground` 链输入）有自己纹理的 copybg 层不再被背景顶掉：`0923/2887099508` 这类"整屏只剩背景"的现场的主嫌疑
+
+**一句话**：`copybackground:true` 的层，旧实现**无条件**把效果链输入换成"本帧背景拷贝"（`srcTex = rt.tex`）。
+但官方语义是"背景经 **`COPYBG` combo** 走**独立纹理槽**（`_rt_FullFrameBuffer`），层自己的内容仍在槽 0"。
+⇒ 有自己贴图的 copybg 层内容被背景顶掉，画面上就是"这一层变成了背景的一块"。
+
+**成立依据（三条互相独立且一致）**：
+1. 第三方参考对照（`WER-ALIGN.md` G2）逐字："copybackground：**solid 层**用 `composelayer_clearalpha` 材质采样主帧缓冲；
+   **效果层材质注入 COPYBG combo**" ⇒ 效果层只注入 combo，**不换内容**。
+2. 官方 shader 里 `#if COPYBG` 采的是 `g_Texture2 = _rt_FullFrameBuffer` ⇒ 背景走**独立纹理槽**，与槽 0 无关。
+3. 本文件 RE-23 自己的注释写的就是"注入 `combos.COPYBG=1`"（背景 blit + `copyBgEntry` 那条路本来就够用）。
+
+**语料读数（2026-09-25 全量 grep）**：`"copybackground"` = **true 77 / false 44**；其中
+`allwallpaper/0923/2887099508/scene.pkg`（用户点名"渲染不出来有用的内容"的那张）**64 层 true**，
+而该包 45 个 image 层里 **28 层既有自己的贴图又有 fx** ⇒ 旧行为下这 28 层的内容全被背景拷贝顶掉。
+
+**改法**：`if (!effTex || copyBgInputLegacy()) srcTex = rt.tex` —— 只有**这一层自己没有内容（无纹理）**时才换链输入
+（近似官方的 `composelayer_clearalpha` 路径）；有纹理的层保持"层自己的内容"作链输入，背景照旧 blit 进 `rt`
+并作为 `_rt_FullFrameBuffer` 槽绑定 + 逐材质注入 `COPYBG=1`（这两条一字未改）。
+回退口 **`?copybginput=legacy`** = 改动前行为（所有 copybg 层一律换），已登记 README-DIAGNOSTICS 主表（188 == 188）。
+
+* **判据**：新增 `tests/copybg-input-test.mjs` **11 通过 / 0 失败**（A 开关真值表 / B 源码接线三条 /
+  C **真语料读数**（该包 64 层 copybg）/ D 变异：改回"总是换" ⇒ B 组必红，真树 sha256 逐字不变）。
+* **画面级对拍（2026-09-25 诊断线补，settle=18s，llvmpipe）**—— 同一 URL 两档：
+
+  | 档 | meanL | stdL | uniqueBuckets | `【DIAG】` 29 个逐层采样点 | 肉眼 |
+  |---|---|---|---|---|---|
+  | `?copybginput=legacy`（改前） | 247.81 | 14.11 | **29** | **29/29 全 = `47,114,164`** | 几乎纯色，**无任何可辨内容** |
+  | 缺省（P-199 改后） | 234.56 | **36.66** | **444** | 29 点**互不相同** | 可辨：蓝天/云、白色长袜+肤色、书页 |
+  | 上游产物档（参照） | 157.77 | 63.55 | 4678 | — | 完整壁纸 |
+
+  恒等式铁证：`Solid.color(0.26667/0.62745/0.89804) × clearcolor(0.7) × 255 = 47.6/112.0/160.3` = 旧档实测值
+  ⇒ 旧档整屏就是"背景常量色"；`?ln=3`（只画第 3 层 `Solid`）也是 `stdL=0 / uniq=1`。本包 28 个有贴图的 image 层
+  **28/28 都是 `copybackground=true`**，而全库 116 个容器只有 **9 个**有任何 `copybackground=true` ⇒ 只有本包会整屏塌。
+* **⚠ 方法学更正（别再用错相位的读数）**：本包 `general.zoom` 是**关键帧动画** `{frame0:3, frame300:3, frame450:1}`@30fps
+  ⇒ **前 10 秒画面被放大 3×**，settle 必须 **≥16s** 才是公平相位；既有台账
+  `reports/renderer-gap-matrix.json` 里那一行的 `meanL=228.979` 就是 3× 相位读数，引用时必须带相位说明。
+* **两个"看起来能区分两档、其实不能"的读数（别用）**：① `[copybg]` 审计行两档都印 47 行（文案在 P-199 后没随之更新，
+  已单独修，见 P-200）；② `fxStats.perLayer[*].inputKind` 两档都是 `{layer:16,white:2,transparent:1}` ——
+  因为它在 copybackground 段**之前**采样，看不见这次替换。**有效判据 = `【DIAG】` 逐层采样 + `【帧N】` + 像素桶数**。
+* **本包内两档逐位相同的层**（P-199 不可能让它们变糟）：`#40 黑底 / #52 mkj / #53 右-菜单-底色 / #54–56 纯色 /
+  #61 ldfk(100%) / #72 中-菜单-浮动` —— 它们都无自有贴图，走 `!effTex` 那条原行为。日后若按 `models/util/*`
+  细分判据，这 7 组是唯一需要复核的对象。
+* **残留差距（未修，根因未定）**：改后 `234.6 / uniq 444` vs 上游 `157.8 / uniq 4678`，**仍偏亮、细节偏少**。
+  已排除"效果链"（关掉只降 23 个 meanL、uniq 基本不变）与"bloom"（`?nofx=1` 与 `?nofx=1&bloomcap=skip` 逐位相同）；
+  候选但未证实：119% 覆盖的 `cloud` 层单层即 `meanL 199 / uniq 169`，`new background1` 单独渲染时中央仍是清屏色
+  `178,178,178` ⇒ 属更普遍的合成/亮度口径差，需要单独一轮逐层亮度对拍。
+* **未验证**：① 无纹理的 copybg 层仍走"换链输入"这条近似（官方是换材质 `composelayer_clearalpha`，我们没建）；
+  ② 语料里 `copybackground:true` 的 77 层是否全部受益未逐包点验；③ 上游是否应用 `general.zoom` 未查证；
+  ④ 本机 llvmpipe（GL 侧结论），像素统计与 DIAG 采样与驱动无关（最硬的部分）。
+
+---
+
+## P-200（2026-09-25 · 同一条诊断线）`models/util/projectlayer.json` 补进内置表 + `[copybg]` 审计行改印**实际结果**
+
+**一句话**：诊断 2887099508 时发现两个小口子，都只改 `core/we-scene-bundle.js`（+15/−1）：
+
+1. **内置模型 `models/util/projectlayer` 未登记**（`BUILTIN_MODELS`/`BUILTIN_MATERIALS` 只有 `fullscreenlayer`）。
+   真包 `0923/2887099508` 第 61 层 `ldfk`（`image` 指向内置模型 `models/util/projectlayer`（pkg 不打包该文件，只能靠内置表）、size 6080×3420 = 整幅投影、
+   `visible=true`、屏占比 100%）因此解析成 **MISSING-MODEL**：拿不到 material ⇒ 拿不到 passes/shader ⇒
+   该层（以及它将来挂的效果链）整层失效。**pkg 里不打包 `models/util/*`** ⇒ 只能靠内置表兜底（与 `fullscreenlayer` 同款：
+   内容透明、效果照跑）。**本包该层无 effects ⇒ 画面应逐位不变**（这条收益未实测，属同族包兜底）。
+2. **`[copybg]` 审计行在说谎**：P-199 之后它仍硬编码印"链输入=背景拷贝"，而 `cloud` 这类有贴图的层其实**没换**。
+   同一行改为按实际结果印 `背景拷贝` / `自有贴图`（判"链输入到底换没换"从此有这个读数；不过要记住
+   `fxStats.perLayer[*].inputKind` 那条**在替换之前采样**，不能用来判 P-199）。
+* 补丁来源：`/tmp/wp288-fix.patch`（诊断线产出，`git apply --check` exit 0 后应用）；回退 `git apply -R`。
+* **未验证**：R2 的画面收益未实测（第 61 层无 effects）；若门禁按子串 `链输入=背景拷贝` 断言需同步更新（本轮已跑
+  `copybg-input-test` / `fx-desc-meta-test` 全绿）。
+* 同轮**排除的两个假线索**（省得别人再查）：① `GL 0x502 / bloom` 对画面**无可测影响**（`?nofx=1` 与
+  `?nofx=1&bloomcap=skip` 逐位相同）；② `/tmp/h2gwork/failsrc/0923__2887099508__*` 那 9 个 shader 在**生产档并不失败**
+  （用宿主真实返回的头文件拼装后 `glslangValidator` 9/9 0 error、页面 `passSkip=0`）—— 那是"取不到头文件的宿主"才有的缺口
+  （`WE_BUILTIN_SHADER_HEADERS` 目前只有 `common.h`，登记 `common_blending.h`/`common_perspective.h` 是候选修法，本轮未做）。
+
+---

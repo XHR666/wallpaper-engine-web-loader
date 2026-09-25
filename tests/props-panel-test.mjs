@@ -1321,11 +1321,17 @@ console.log('[T17] P-68 交接 ⑤.2（P-64-MEDIA 轮顺带）：上报 videoSta
   const RING_AT = HTML.indexOf('frameDeltaRing.push(now - last)')
   const FRAME_FN = HTML.indexOf('const frame = (now) => {')
   const RAF_AFTER = HTML.indexOf('rafId = requestAnimationFrame(frame);', FRAME_FN)
-  check('T17g `frameMs` 复用已有帧循环时间戳：`frameDeltaRing.push` 只有一处、位于 `frame(now)` 内（**不新起 rAF/计时器**），中位在既有 `ft > 500` 分支里刷新',
+  /* ①(2026-09-25 宿主 API 接线) 帧率抽稀（`?fps=`/`__wp.setSceneFps`）的**跳帧**分支也必须自排下一帧
+     （否则单实例下一次跳帧就把循环弄死）⇒ `requestAnimationFrame(frame)` 从 2 处变 3 处。判据意图不变：
+     **不新起循环/计时器**、`frameDeltaRing.push` 仍只有一处、中位仍在既有 `ft > 500` 分支里刷新；
+     新增的第 3 处必须落在 `mpwSceneFpsShouldSkip` 的跳帧分支内（不是另起一条循环）。 */
+  const rafSites = (HTML.match(/requestAnimationFrame\(frame\)/g) || []).length
+  const skipRearm = /if \(mpwSceneFpsShouldSkip\(now\)\) \{[\s\S]{0,220}?requestAnimationFrame\(frame\)/.test(HTML)
+  check('T17g `frameMs` 复用已有帧循环时间戳：`frameDeltaRing.push` 只有一处、位于 `frame(now)` 内（**不新起 rAF/计时器**），中位在既有 `ft > 500` 分支里刷新；帧率抽稀的跳帧分支只在同一条循环上自排',
     RING_AT > FRAME_FN && RING_AT < RAF_AFTER && (HTML.match(/frameDeltaRing\.push\(/g) || []).length === 1
     && /if \(ft > 500\) \{[\s\S]{0,700}?window\.__mpwFrameMsP50 = s2\[/.test(HTML)
-    && (HTML.match(/requestAnimationFrame\(frame\)/g) || []).length === 2,
-    'push@' + RING_AT + ' frame@' + FRAME_FN + ' raf=' + (HTML.match(/requestAnimationFrame\(frame\)/g) || []).length + ' 处')
+    && rafSites === 3 && skipRearm,
+    'push@' + RING_AT + ' frame@' + FRAME_FN + ' raf=' + rafSites + ' 处 skipRearm=' + skipRearm)
   {
     // 三字段真值表（切真源码 IIFE，喂假 document/window）
     const i = HTML.indexOf('fps: (() => {')

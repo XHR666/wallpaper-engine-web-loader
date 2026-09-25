@@ -270,7 +270,7 @@ tests/effect-prelude-common-test.mjs       ALL PASS（92 项断言）［真编�
 ## 7. 跑过的命令与汇总行
 
 ```bash
-cd /root/Desktop/DSHarea/we-scene-demo
+cd <工作区>/we-scene-demo
 # 开工基线（钉死提交）
 git rev-parse HEAD            # a3bb009d2b567dcbd080c67f516432c783e196f3
 

@@ -443,8 +443,13 @@ console.log('== Y 页面交互桥接线（静态判据）==')
     && !/box\.addEventListener\('pointerdown'/.test(html))
   ok('Y3 指针/滚轮/触摸三种都转发（op 名与 shim 的 control() 同源）',
     /fwd\('pointer'/.test(html) && /fwd\('wheel'/.test(html) && /fwd\('touch'/.test(html))
-  ok('Y4 坐标换算补偿祖先缩放（帧内 client 像素 = 显示盒坐标 × clientWidth/rect.width）',
-    /fr\.clientWidth \/ r\.width/.test(html) && /fr\.clientHeight \/ r\.height/.test(html))
+  /* ①(2026-09-25 帧几何接线) 换算收进 `mpwWebFramePoint()`：legacy 档仍用 clientWidth/rect.width 补偿祖先缩放，
+     模块档走 `core/web-frame-geometry.mjs` 的 `frameClientPoint`，且**量不到帧盒就丢弃**（不把 NaN 投给帧）。
+     契约一字不变，只换落点。 */
+  ok('Y4 坐标换算补偿祖先缩放（帧内 client 像素 = 显示盒坐标 × clientWidth/rect.width；缺帧盒 ⇒ 丢弃不投 NaN）',
+    /el\.clientWidth \/ r\.width/.test(html) && /el\.clientHeight \/ r\.height/.test(html)
+    && /frameClientPoint\(/.test(html) && /const p = mpwWebFramePoint\(ev\.clientX, ev\.clientY\)/.test(html)
+    && /if \(!p\) return/.test(html))
   ok('Y5 `pub()` 与已有状态**合并**（重建会把 interactions/ready/lastByKind 清成默认值 —— 真机踩过）',
     /window\.__mpwWebFrame = Object\.assign\(\{\}, window\.__mpwWebFrame \|\| \{\}, \{/.test(html))
   /* ⚠ 这一类踩了三次：合并还不够 —— 默认值里残留 `ready:false` / `state:'mounting'` / `framefit:null`

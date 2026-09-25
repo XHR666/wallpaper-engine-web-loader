@@ -233,6 +233,12 @@ post('interaction', { kind: 'pointer', type: t, x: Number(msg.x) || 0, y: Number
         snapProps = (msg.props && typeof msg.props === 'object') ? msg.props : null;
         STATE.user = snapProps;
         replayTo(listener);
+        /* ①(2026-09-25) 帧内回执：宿主 updateWebProps 要能证明"真的到了帧里并被应用"，
+           所以这里回报一条，形状与其它上报一致（宿主侧记进 __mpwWebFrame.propsApplied）。
+           只在真应用之后发；snapProps 为空也照发（宿主能区分"到了但空表"与"根本没到"）。
+           ⚠ 本文件整体是**模板字符串**（注入到帧里的脚本正文）⇒ 注释里**不许出现反引号**，
+           否则字符串就地截断、整份 shim 语法错误（2026-09-25 实测踩到：页面直接"渲染器 module 未启动"）。 */
+        post('props-applied', { keys: snapProps ? Object.keys(snapProps) : [], count: snapProps ? Object.keys(snapProps).length : 0, via: 'shim' });
         return { ok: true };
       case 'general':
         snapGeneral = (msg.general && typeof msg.general === 'object') ? msg.general : null;

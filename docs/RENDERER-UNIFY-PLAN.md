@@ -41,7 +41,7 @@
 | 许可 | **GPL-3.0-or-later**（`THIRD-PARTY.md:527-537`；`LICENSE` = GPL v3 原文） | **MIT © oneincase**（`THIRD-PARTY.md:599-605`、`:6.4`；`demo/LICENSE-webwallgl-MIT.txt` + `demo/LICENSE-webwallgl` **两份声明随目录分发**） |
 | 出处 / 版本 | 自研；借鉴台账 15 条在 `docs/COPYING-RULES.md:75-99` | 上游 `oneincase/webwallgl` 的**再分发预构建物**（`THIRD-PARTY.md:607-640`）；`docs/PATCHES.md:4969` 记"单提交引入（`987d9b3`, 2026-09-16）、此后未动、**仓库内不可重建**" |
 | 版本口径（**仓库内不一致，需修正**） | — | `docs/PATCHES.md:4969` 写"1.3.23 的 minified 产物"；但产物自己往 `#app-version` 写的是 **`v1.3.16`**，仓库三处都在描述它（`demo/bench-patch.js:53`、`:274`、`:9766`），`docs/WEBWALLGL-UPSTREAM-STUDY.md:70,251` 也按"1.3.16 产物"论证（例如"1.3.16 产物没有 `setQuality`"）。⇒ **以"产物自报 v1.3.16"为证据面**，`PATCHES.md:4969` 的版本标签应更正 |
-| 仓外参考源（**未 vendored**） | — | `/root/Desktop/DSHarea/vendor-ref/webwallgl`，本机 checkout HEAD = `b61e891`（1.3.16 期）；`vendor/we-scene/**` 16,570 行 + `renderer/src/*.ts` 8,224 行。**它不等于产物**：`THIRD-PARTY.md:607-613` 明写上游源码树"lives **outside** the repository and is excluded from the published tree"，且已 vendored 的转译器追的是更晚的 `9531aaf`（v1.4.1，`THIRD-PARTY.md:712-713`） |
+| 仓外参考源（**未 vendored**） | — | `<工作区>/vendor-ref/webwallgl`，本机 checkout HEAD = `b61e891`（1.3.16 期）；`vendor/we-scene/**` 16,570 行 + `renderer/src/*.ts` 8,224 行。**它不等于产物**：`THIRD-PARTY.md:607-613` 明写上游源码树"lives **outside** the repository and is excluded from the published tree"，且已 vendored 的转译器追的是更晚的 `9531aaf`（v1.4.1，`THIRD-PARTY.md:712-713`） |
 
 ### 1.2 模块划分
 
@@ -333,7 +333,7 @@ A 不是被否决，而是**必须先满足 A-1…A-9**（其中 A-6 的 4 项�
 **复现本文数字的只读命令（本轮全部实际执行过，未起浏览器、未改文件）**
 
 ```bash
-cd /root/Desktop/DSHarea/we-scene-demo
+cd <工作区>/we-scene-demo
 sha256sum demo/assets/renderer-BOSoB05I.js demo/renderer/index.html      # 产物指纹
 node tests/diag-flag-check.mjs                                            # 183 == 183，0 差异
 bash tests/run-all-tests.sh --list | head -2                              # 167 项

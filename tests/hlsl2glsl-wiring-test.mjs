@@ -262,11 +262,13 @@ function instrument(src) {
 // 反向变异（改的是 bundle 的**真源码切片**）：注入 vendored import + 把自研函数声明改名 ⇒
 // 渲染路径里 `hlsl2glsl(...)` 这个模块内绑定就落到 vendored 那份上（= "把 vendored 接进去"的样子）。
 function mutateToVendored(src) {
-  const declRe = /export function hlsl2glsl\(src, stage, combos, includeResolver\) \{/
+  // ①(P-198 2026-09-25) 形参表允许尾随可选参（P-198 给自研实现加了第 5 个可选参 `search` = 三条新转译规则的
+  //   回退口，**不是** siblingSrc）；改名时**原样保留形参表**，变异语义（"把 vendored 接进去"）一字不变。
+  const declRe = /export function hlsl2glsl\(src, stage, combos, includeResolver(?:, [A-Za-z_$][\w$]*)?\) \{/
   if (!declRe.test(src)) return { changed: false, note: '找不到自研函数声明（源码已变）' }
   const vendorAbs = path.join(ROOT, 'vendor', 'hlsl2glsl', 'hlsl2glsl.js')
   let out = "import { hlsl2glsl as __vendoredH2G } from " + JSON.stringify(vendorAbs) + "\nconst hlsl2glsl = __vendoredH2G\n" + src
-  out = out.replace(declRe, 'export function hlsl2glslInRepoSrcText(src, stage, combos, includeResolver) {')
+  out = out.replace(declRe, (all) => all.replace('export function hlsl2glsl(', 'export function hlsl2glslInRepoSrcText('))
   return { changed: true, src: out, note: 'in-repo 声明改名 + vendored 注入' }
 }
 // mock-GL：只做"能被 createRenderer 跑起来 + 捕获 shaderSource"的最小面（与 tests/mock-gl-test.mjs 同源写法）

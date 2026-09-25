@@ -247,6 +247,20 @@ add "upload-policy"      "node tests/upload-policy-test.mjs"
 #   （`?texwrap=clamp|repeat`）/ 真写进 GL（假 GL 记录 WRAP_S+WRAP_T）/ demo.html 三个创建点都接线 /
 #   缺省仍是 CLAMP（无全局行为变化）/ 变异自证（删掉 REPEAT 分支必须红）。~0.4s
 add "tex-wrap-repeat"    "node tests/tex-wrap-repeat-test.mjs"
+# ①(2026-09-25 用户「把所有没接线的东西都接上」) `host-api-wiring`：宿主 API 的**真送达**判据 ——
+#   `updateWebProps`/`setSceneFps`/`pushWheel` 接到实现（不再有"被忽略"的桩）、帧率抽稀的真行为
+#   （legacy 恒不跳 / 30fps 跳帧窗口 / 只降不升 / 上限钳制 / 非法值不生效 / 提交帧率记账）、
+#   帧循环接线位置（跳帧在 fps 计数前、记账在渲染后）、web 帧盒走唯一换算点且量不到就丢弃、
+#   其余降级项必须写清"不支持 + 替代"、变异自证（换回桩 ⇒ A 组必红）。~0.5s
+add "host-api-wiring"    "node tests/host-api-wiring-test.mjs"
+# ①(2026-09-25 P-195/P-196) `fx-desc-meta`：include 头里的 material 注解要进 matMeta（否则
+#   `g_CompositeAlpha` 停在 0 ⇒ `COMPOSITE==1` 的 pass 成 no-op）+ fbo 描述符的 format/width/height/uvs
+#   真落地（`effects/glitter` 真用例）+ 两个回退口 + 真语料证据 + 变异自证（删 includeBodies / 删 R8 分支必红）。~0.6s
+add "fx-desc-meta"       "node tests/fx-desc-meta-test.mjs"
+# ①(2026-09-25 P-199) `copybg-input`：`copybackground` 层的**效果链输入**契约 —— 有自己纹理的层不许被背景
+#   顶掉（官方语义：背景走 COPYBG 独立纹理槽）；`?copybginput=legacy` 回退；语料读数（2887099508 有 64 层
+#   copybg）；变异自证（改回"总是换"⇒ B 组必红）。~0.3s
+add "copybg-input"       "node tests/copybg-input-test.mjs"
 add "hlsl2glsl-coverage" "node tests/hlsl2glsl-coverage-test.mjs" "" "^SKIP hlsl2glsl-coverage"  # P-93：把 `docs/HLSL2GLSL-COVERAGE.md` §0 的 98.2% 变成**会变红的断言**（vendored 上游 MIT 转译器逐文件过语料：0 抛错 + 覆盖率下限 + 每个"可疑"都带原因；本机实测 45/46=97.8%，语料被裁剪时按子集下限并在输出里标明；`MPW_H2G_MIN_RATIO=0.999` 可自证会红）；~3s；无语料/无包解析器时 SKIP，门禁不红
 
 # ——— ①(P-104 2026-09-17 发布纪律①②：**自动上报默认关** + 一切"自动落盘"都要有上限） ———
@@ -833,6 +847,13 @@ add "mpkg-noscene"       "node tests/mpkg-noscene-test.mjs"
 #   + `ISoundLayer.volume`（落点 soundprops.volume、保作者节点、非有限值不落盘、五面同源=函数身份相等）+ byId/getParent 修复。
 add "script-layer-ref-audit" "node tests/script-layer-ref-audit-test.mjs" "" "^SKIP script-layer-ref-audit"
 add "hlsl2glsl-width-table" "node tests/hlsl2glsl-width-table-test.mjs"  # ①(P-115 2026-09-23) 上游**宽度表整族**（`vendor/hlsl2glsl/hlsl2glsl.js` 的 9 :644-673 / 9-3 :674-697 / 9a-2 :699-779，MIT）移植到**在跑的内联实现**（`core/we-scene-bundle.js:5687-5888`）的判据：A 10 组夹具（三条规则真阳性 + 缺 resolution uniform / 多内建 / 非采样器上下文 / 同名 float / 等宽边界 / **sibling 缺失**；真阳性都过 glslangValidator）+ B **真语料逐 shader sha256 对拍**（全语料 199 包 / 276 去重 shader；before 参考实现 = 单切片关掉宽度表的副本，并与 `git show HEAD:` 的移植前真源码**逐字节自证等价**；变化集 == 预期 4 条、0 回归、2 条新可编译）+ C 3 组变异自证（`MUTANT-RED-OK`，"期望红集 == 实际红集"）；43 断言、实测 ~34s、PeakRSS ~1.4GB（单包上限默认 1024MB，可用 `MPW_W9_MAX_MB` 收窄）、无浏览器 / 无网络 / 无 GPU；无语料 / 无包解析器时只有 B 段 SKIP、A+C 照判
+# ①(P-198 2026-09-25 转译线) `hlsl2glsl-passfix`：差距矩阵 §6.2 四条"有画但整条效果 pass 被静默跳过"的缺口
+#   （① color_grading varying 链接、② Simple_Audio_Bars `#define` 行尾注释、③ glitter_prepare 同①、④ phantomtransitionfx
+#   文件级 const + `float == int`）。A 合成夹具（四条规则各自 legacy 报文复现 / 缺省 0 error + 5 条反向护栏）、
+#   B 五个真包逐条对拍、C 语料对拍（**0 回归** + legacy 能编过的产物剥注释逐字节不变）、
+#   D 变异自证（4 个回退口 + 4 组真源码切片变异 `MUTANT-RED-OK` 4/4）、E mock-GL 证明**渲染路径**真的对过账。
+#   42 断言、实测 ~12s、无浏览器 / 无网络 / 无 GPU；无语料/无 glslangValidator 时对应段 SKIP 不红。
+add "hlsl2glsl-passfix" "node tests/hlsl2glsl-passfix-test.mjs"
 add "gyro-parallax"        "node tests/gyro-parallax-test.mjs"  # ①(用户 2026-09-24「移动端以陀螺仪实现鼠标视差」) demo.html 的 MPW-GYRO 段**真源码切片** + mock `window/deviceorientation` + 真 bundle/mock-GL 的视差读数（姿态 Δu=0.4 ⇒ 正深度层 Δx=−204.288px = 官方公式）+ 4 组变异自证 `MUTANT-RED-OK`；30 断言、实测 ~0.4s、无浏览器 / 无网络 / 无 GPU
 
 # ①(P-179 2026-09-24 主对话补登记) issue #2/#3/#4 的根因判据（官方定义 + 合成场景，不等样本）：
