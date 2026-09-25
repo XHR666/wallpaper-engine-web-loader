@@ -408,19 +408,30 @@ try {
 /* ── A8/A9 追加两条（用户 A1「WE 自带设置做成可折叠」/ A2「音量条超出宽度」）的源码级钉子 ────────── */
 {
   const PATCH = fs.readFileSync(path.join(DEMO_DIR, 'bench-patch.js'), 'utf8')
-  /* A8：WE 自带项的可折叠分组（数据驱动判据 + 排在作者项之前 + 折叠状态持久化） */
-  ok(/const WE_BUILTIN_PROP_NAMES = new Set\(\['schemecolor'\]\)/.test(PATCH) &&
-    /function isWeBuiltinPropRow\(row\)/.test(PATCH) && /function groupWeBuiltinProps\(\)/.test(PATCH) &&
+  /* A8【P-201 起判据已换代】改前这一条盯的是"从属性行里分类出 WE 自带项"的实现（`isWeBuiltinPropRow`
+     采集 + 收进组）——**那正是用户报的 bug**：真语料 22/22 包只有 `schemecolor` 会被命中，而它同时
+     在隐藏名单里 ⇒ 表头报「1 项」、点开是空的（`propsGroups()` 实测 `{"weCount":1,"weNames":["schemecolor"]}`）。
+     现在这一组是**补丁自己画的固定清单**（`WE_RENDERER_ITEMS`），源码面判据换成"清单是固定的 +
+     计数只算可见项 + 缺省展开"；"可点/可用/能驱动"在 B4/B4c（真页面读数）。 */
+  ok(/export const WE_RENDERER_ITEMS = \[/.test(PATCH) && /function groupWeBuiltinProps\(\)/.test(PATCH) &&
     /propsBody\.insertBefore\(group, propsBody\.firstChild\)/.test(PATCH),
-    'A8 「渲染器设置（WE 自带）」分组：判据（schemecolor / visual_bar* / `ui_browse_properties_*` 文案）' +
-    '+ 收进 `.bench-props-group` + **插到 `#props-body` 最前**（用户原话"它上面永远有这几个选项"）')
+    'A8 「渲染器设置（WE 自带）」= **固定清单** `WE_RENDERER_ITEMS`（与 `project.json` 无关）画进 ' +
+    '`.bench-props-group` + **插到 `#props-body` 最前**（用户原话"它上面永远有这几个选项"）')
+  ok(!/const we = rows\.filter\(isWeBuiltinPropRow\)/.test(PATCH) &&
+    /function weVisibleItems\(group\)/.test(PATCH) &&
+    /return \[\.\.\.group\.querySelectorAll\('\[data-we-item\]'\)\]\.filter\(\(el\) => !el\.hidden\)/.test(PATCH),
+    'A8a ★不再从属性行"分类"（旧的未过滤采集表达式已删）+ 计数只算**可见项**（`weVisibleItems`；' +
+    '隐藏的内部行绝不计数 —— 改前"表头报 1 项、点开是空的"就是拿未过滤行数当计数）')
   ok(/const WE_GROUP_COLLAPSED_LS = 'bench-props-we-collapsed'/.test(PATCH) && /localStorage\.setItem\(WE_GROUP_COLLAPSED_LS/.test(PATCH) &&
+    /String\(localStorage\.getItem\(WE_GROUP_COLLAPSED_LS\) \|\| ''\) === '1'/.test(PATCH) &&
     /head\.addEventListener\('click', toggle\)/.test(PATCH) && /'aria-expanded'/.test(PATCH),
-    'A8a 折叠：标题行可点/可键盘操作、状态记 `bench-props-we-collapsed`（缺省展开），并如实写 `aria-expanded`')
+    'A8b 折叠：标题行可点/可键盘操作、状态记 `bench-props-we-collapsed`（缺省**展开**），并如实写 `aria-expanded`')
   ok(/"props\.weGroup":"渲染器设置（WE 自带）"/.test(PATCH) && /"props\.weGroup":"Renderer settings \(built into WE\)"/.test(PATCH),
-    'A8b 分组标题中英双语都在 DICT 里（不靠硬编码中文）')
-  ok(/function propsGroups\(\)/.test(PATCH) && /wePresent|firstChildIsWeGroup/.test(PATCH),
-    'A8c 探针 `propsGroups()`（wePresent/weCount/weNames/collapsed/firstChildIsWeGroup/authorRows）—— 门禁与真机读同一入口')
+    'A8c 分组标题中英双语都在 DICT 里（不靠硬编码中文）')
+  ok(/function propsGroups\(\)/.test(PATCH) && /wePresent|firstChildIsWeGroup/.test(PATCH) &&
+    /weDrawn: group \? items\.filter\(h\)\.length : 0/.test(PATCH),
+    'A8d 探针 `propsGroups()`（wePresent/weCount/weNames/collapsed/firstChildIsWeGroup/authorRows/' +
+    '**weDrawn + weHiddenAdopted**）—— 门禁与真机读同一入口')
   /*  A9【契约已更新：issue0924a2 用户第 3 条】音量控件搬进**卡片内部**（组件渲染）⇒ 判据拆成两半：
         · 传输条 `#np-audio` 仍然可压（它还是"壁纸配置最下面那一行"，窄容器下不许溢出）；
         · 音量滑条本身的可压性现在归**组件 CSS**（`.snd-clock input[type="range"][data-mpw-np-vol-range]`
@@ -791,15 +802,51 @@ async function browserStage() {
     }
     ok(!pageErrs.some((e) => /is not defined/.test(e)), 'B3 整轮顶层页 0 个 "is not defined" 脚本错（第 3 条①的真修读数）', JSON.stringify(pageErrs.slice(0, 4)))
 
-    /* ── B4(用户 A1) 「渲染器设置（WE 自带）」分组：存在、在最前、可折叠且折叠状态会被记住 ─────────── */
+    /* ── B4(用户 A1 + P-201) 「渲染器设置（WE 自带）」分组：**组里的项可见、可用、能驱动 API** ─────────
+       改前这一条只断言"组在不在 + 有没有收进 schemecolor"——**这个 bug 存在时照样绿**：
+       那一行同时在隐藏名单里（`hidden=""`），表头报「1 项」、点开是空的。现在改成盯
+       "项与固定清单逐项相等 + 几何上看得见 + 控件能用 + 改一项渲染器侧读数真的变"。 */
     await page.evaluate(() => { const li = document.querySelector('#list li[data-id]'); if (li) li.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
-    await sleep(2600)
+    await sleep(3400)
+    /*  固定清单（与 `demo/bench-patch.js` 的 `WE_RENDERER_ITEMS` 逐项对应；**手写在这里** ⇒ 实现少一项即红）。
+        判据只认清单里的 8 个"本页已实现"项的名字。 */
+    const WE_IMPL = ['flipH', 'colorOptions', 'brightness', 'contrast', 'saturation', 'hue', 'playbackRate', 'volume']
     const g0 = await page.evaluate(() => (window.__benchPatch.propsGroups ? window.__benchPatch.propsGroups() : null))
     console.log('  B4 读数 propsGroups=' + JSON.stringify(g0))
-    ok(!!g0 && g0.wePresent === true && g0.firstChildIsWeGroup === true && g0.weCount > 0 &&
-      g0.weNames.some((n) => /^schemecolor$/i.test(n)),
-      'B4 ★「渲染器设置（WE 自带）」分组存在、**排在 `#props-body` 最前**、且真的收进了 WE 自带项（schemecolor）',
-      JSON.stringify(g0))
+    const names0 = (g0 && g0.weNames) || []
+    ok(!!g0 && g0.wePresent === true && g0.firstChildIsWeGroup === true &&
+      WE_IMPL.every((n) => names0.includes(n)) && names0.length >= WE_IMPL.length &&
+      g0.weCount === names0.length && g0.weDrawn === g0.weCount && g0.collapsed === false &&
+      String(g0.weHeaderCount || '').includes(String(g0.weCount)) && !names0.some((n) => /^schemecolor$|^ui_/i.test(n)),
+      'B4 ★★「渲染器设置（WE 自带）」分组：**排在 `#props-body` 最前**、**项与固定清单逐项相等**' +
+      '（用户点名的那 5 组 8 项一个不漏）、**表头计数 = 看得见的行数**（`weCount === weDrawn`，' +
+      '不再把隐藏的内部行算进去）、缺省展开、名称里没有 `schemecolor`/`ui_*`',
+      JSON.stringify({ names: names0, count: g0 && g0.weCount, drawn: g0 && g0.weDrawn, header: g0 && g0.weHeaderCount, adopted: g0 && g0.weHiddenAdopted }))
+    ok(!!g0 && g0.weAvail && WE_IMPL.every((n, i) => g0.weAvail[names0.indexOf(n)] === true),
+      'B4c 这 8 项在本仓渲染器档下都**真的可用**（`weAvail=true`，即 `__wp` 已发布且控件没被置灰）',
+      JSON.stringify({ names: names0, avail: g0 && g0.weAvail }))
+    /*  **能用**：真点一下「水平翻转」，`__wp` 侧读数必须真的变（改前这一组一个能驱动渲染器的控件都没有）。 */
+    const drive = await page.evaluate(async () => {
+      const el = document.getElementById('bench-we-flipH')
+      if (!el) return { ok: false, why: 'no-control' }
+      const before = (() => { try { return document.querySelector('#frame').contentWindow.__wp.displayState().flipH } catch (e) { return null } })()
+      el.checked = true
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+      await new Promise((r) => setTimeout(r, 260))
+      let after = null, tf = null
+      try {
+        const fr = document.querySelector('#frame')
+        after = fr.contentWindow.__wp.displayState().flipH
+        tf = fr.contentDocument.getElementById('sc').style.transform
+      } catch (e) { /* 跨源 */ }
+      el.checked = false
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+      return { ok: true, before, after, tf }
+    })
+    ok(drive.ok === true && drive.before === false && drive.after === true && String(drive.tf).includes('scaleX(-1)'),
+      'B4d 组里的项**真的驱动渲染器**：勾一下「水平翻转」⇒ `__wp.displayState().flipH` 从 false 变 true，' +
+      '且 `#sc` 内联样式出现 `transform: scaleX(-1)`（改完已还原）',
+      JSON.stringify(drive))
     const g1 = await page.evaluate(() => {
       const head = document.querySelector('.bench-props-group[data-group="we"] .bench-props-group-head')
       if (head) head.click()
@@ -807,7 +854,7 @@ async function browserStage() {
     })
     const g2 = await page.evaluate(() => window.__benchPatch.propsGroups())
     ok(g1.collapsed === true && g2.collapsed === true && g1.weCount === g2.weCount,
-      'B4a 标题行点击 ⇒ 折叠（`data-collapsed=1`），重画后状态还在；行数不变（只是 display:none，不是删掉）',
+      'B4a 标题行点击 ⇒ 折叠（`data-collapsed=1`），重画后状态还在；项数不变（只是 display:none，不是删掉）',
       JSON.stringify({ after: g1, again: g2 }))
     const g3 = await page.evaluate(() => {
       const head = document.querySelector('.bench-props-group[data-group="we"] .bench-props-group-head')

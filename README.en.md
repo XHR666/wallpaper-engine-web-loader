@@ -5,7 +5,7 @@
 **Render Wallpaper Engine scene wallpapers in the browser, live** (`scene.pkg` / this project's `.mpkg` container / a Workshop source folder) —
 no Wallpaper Engine, no Windows, no GPU-specific driver required: a local Node static server plus a WebGL2-capable browser is all it takes.
 
-- Published on npm: [wallpaper-engine-web-loader@0.5.10](https://www.npmjs.com/package/wallpaper-engine-web-loader)
+- Published on npm: [wallpaper-engine-web-loader@0.5.11](https://www.npmjs.com/package/wallpaper-engine-web-loader)
 - [Online demo](https://xhr666.github.io/wallpaper-engine-web-loader/)
 - [Disclaimer](#disclaimer)
 - [References & credits](#7-references--credits)
@@ -65,7 +65,7 @@ The online version is exactly this shape: <https://xhr666.github.io/wallpaper-en
 
 ### A. Install from npm (embed the renderer as a dependency in your own site/app)
 ```bash
-npm i wallpaper-engine-web-loader@0.5.10     # pin the published version; or npm i wallpaper-engine-web-loader to follow latest
+npm i wallpaper-engine-web-loader@0.5.11     # pin the published version; or npm i wallpaper-engine-web-loader to follow latest
 ```
 Minimal usage (the snippet below is measured to work: `parsePkg` 8 entries, `parseScene` 5 layers):
 ```js
@@ -106,8 +106,8 @@ node build-pages.mjs && python3 -m http.server 8899 -d _site   # or any static s
 ```
 You can also use only the `npm pack` artefacts (unpacked, they are a directory you can host statically):
 ```bash
-npm pack wallpaper-engine-web-loader@0.5.10     # produces wallpaper-engine-web-loader-0.5.10.tgz
-tar -xzf wallpaper-engine-web-loader-0.5.10.tgz   # unpacks to package/ (containing demo.html / elysia/ / samples/ etc.)
+npm pack wallpaper-engine-web-loader@0.5.11     # produces wallpaper-engine-web-loader-0.5.11.tgz
+tar -xzf wallpaper-engine-web-loader-0.5.11.tgz   # unpacks to package/ (containing demo.html / elysia/ / samples/ etc.)
 ```
 - **Limitations (the price of read-only mode)**: with no server endpoints ⇒ the package proxy, `/report` persistence, the WE-asset fallback and folder packing (`/pkgdir`) are all unavailable;
   you can only use packages the **browser can fetch directly** (the bundled sample, or a `scene.pkg` same-origin with the page).

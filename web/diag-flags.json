@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-25T07:07:02.290Z",
+  "generatedAt": "2026-09-25T10:50:14.324Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -376,7 +376,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4159,
+          "line": 4169,
           "pattern": "searchParams.get('bgwrapfix')"
         }
       ]
@@ -901,17 +901,17 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 6624,
+          "line": 6822,
           "pattern": "searchParams.get('hdrblur')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7301,
+          "line": 7499,
           "pattern": "searchParams.get('hdrblur')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7488,
+          "line": 7686,
           "pattern": "searchParams.get('hdrblur')"
         }
       ]
@@ -922,7 +922,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 6543,
+          "line": 6741,
           "pattern": "searchParams.get('hdrfrost')"
         }
       ]
@@ -933,8 +933,19 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 6400,
+          "line": 6598,
           "pattern": "searchParams.get('hdrfrostwatch')"
+        }
+      ]
+    },
+    {
+      "name": "hiddengate",
+      "common": false,
+      "sites": [
+        {
+          "file": "dsh-mpkg-wallpaper/lib/client.js",
+          "line": 4876,
+          "pattern": "searchParams.get('hiddengate')"
         }
       ]
     },
@@ -1035,7 +1046,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8077,
+          "line": 8275,
           "pattern": "regex [?&]inlinefrost="
         }
       ]
@@ -1101,7 +1112,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 15018,
+          "line": 15332,
           "pattern": "searchParams.get('lgcss')"
         }
       ]
@@ -1259,12 +1270,12 @@
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7897,
+          "line": 8095,
           "pattern": "localStorage('mpwdiag')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7918,
+          "line": 8116,
           "pattern": "localStorage('mpwdiag')"
         }
       ]
@@ -1275,7 +1286,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 11677,
+          "line": 11963,
           "pattern": "regex [?&]mpwhardmute="
         }
       ]
@@ -1286,12 +1297,12 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 5304,
+          "line": 5499,
           "pattern": "searchParams.get('mpwinteract')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 5503,
+          "line": 5698,
           "pattern": "searchParams.get('mpwinteract')"
         }
       ]
@@ -1302,7 +1313,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 291,
+          "line": 297,
           "pattern": "regex [?&]mpwpersist="
         }
       ]
@@ -1313,7 +1324,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4031,
+          "line": 4041,
           "pattern": "searchParams.get('mpwsandbox')"
         }
       ]
@@ -1324,7 +1335,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 3745,
+          "line": 3755,
           "pattern": "regex [?&]mpwshim="
         }
       ]
@@ -1335,7 +1346,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 3264,
+          "line": 3272,
           "pattern": "searchParams.get('mpwtranscode')"
         }
       ]
@@ -1346,7 +1357,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 22582,
+          "line": 22896,
           "pattern": "searchParams.get('navicon')"
         }
       ]
@@ -1499,7 +1510,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 10389,
+          "line": 10658,
           "pattern": "searchParams.get('npaudit')"
         }
       ]
@@ -1510,7 +1521,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8475,
+          "line": 8673,
           "pattern": "searchParams.get('npvoice')"
         }
       ]
@@ -1521,7 +1532,7 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 6539,
+          "line": 6893,
           "pattern": "regex [?&]online="
         }
       ]
@@ -1814,12 +1825,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 4660,
+          "line": 4714,
           "pattern": "searchParams.get('propimg')"
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 4664,
+          "line": 4718,
           "pattern": "searchParams.get('propimg')"
         }
       ]
@@ -1977,7 +1988,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 9913,
+          "line": 10177,
           "pattern": "searchParams.get('railink')"
         }
       ]
@@ -2042,12 +2053,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 10431,
+          "line": 10803,
           "pattern": "regex [?&]sample="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 10478,
+          "line": 10850,
           "pattern": "regex [?&]sample="
         }
       ]
@@ -2058,12 +2069,12 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 3910,
+          "line": 3920,
           "pattern": "regex [?&]sandbox="
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4475,
+          "line": 4485,
           "pattern": "regex [?&]sandbox="
         }
       ]
@@ -2085,7 +2096,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 14587,
+          "line": 14901,
           "pattern": "searchParams.get('sbfill')"
         }
       ]
@@ -2140,12 +2151,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 7535,
+          "line": 7907,
           "pattern": "regex [?&]shell="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 9184,
+          "line": 9556,
           "pattern": "regex [?&]shell="
         }
       ]

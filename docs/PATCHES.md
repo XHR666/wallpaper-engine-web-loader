@@ -14176,3 +14176,108 @@ C 组 = **真语料证据**（扫语料确认 `compositealpha` 真的被声明�
   （`WE_BUILTIN_SHADER_HEADERS` 目前只有 `common.h`，登记 `common_blending.h`/`common_perspective.h` 是候选修法，本轮未做）。
 
 ---
+
+---
+
+## P-201（2026-09-25 · 壁纸配置面板）「渲染器设置（WE 自带）」组从"分类属性行"改成"固定清单 + 真驱动"
+
+**一句话**：这一组改前是把**当前壁纸的属性行**里"像 WE 内置项"的挑出来收进一个可折叠壳，而用户要的
+Flip / Show color options / 亮度·对比度·饱和度·色调偏移 / 播放速度**根本不在 `project.json` 里** ⇒ 天生列不出来；
+唯一被收进来的 `schemecolor` 又同时在隐藏名单里 ⇒ 表头报「1 项」、点开一行都看不见。
+现在这一组由补丁**自己画固定清单**（`WE_RENDERER_ITEMS`，每张壁纸一样），每一项**直接驱动渲染器 API**。
+
+**用户原话**：「壁纸配置里面 we 自带选项，它是打不开的……他这里只显示了有一项，而且展不开。他那个自带的一些设置，
+是针对每一个壁纸都有的。」澄清：「we 自带选项 = 我向你提出的那几个选项（Flip 和 Show color options 什么什么的）」；
+「we 的自带选项是针对**所有**壁纸都有的；壁纸自带的选项是他壁纸自带的」。
+
+**改前真机读数**（`:8902` 真页面 + 真语料根，探针 `window.__benchPatch.propsGroups()`）：
+
+```json
+{"wePresent":true,"weCount":1,"weNames":["schemecolor"],"collapsed":false,"firstChildIsWeGroup":true,"authorRows":93,"totalRows":94}
+```
+
+组体里唯一一行的 HTML 是 `<div class="prop" title="schemecolor · color" hidden="" data-bench-props-row="hidden-internal-name">`
+—— 折叠属性与 `aria-expanded` 其实在翻转（点两次的读数表见 `/tmp/we-group-bug.md`），只是**里面没有内容可看**。
+
+**根因（两条，都在 `demo/bench-patch.js`）**：
+
+1. **「只剩一项」= 采集口径错**：旧谓词 `isWeBuiltinPropRow()`（`:4669`，`WE_BUILTIN_PROP_NAMES = Set(['schemecolor'])`
+   + `visual_bar*`/`audio_bar*` 正则 + `ui_browse_properties_*` 文案正则）从 `propsRows()` 里挑行。真语料
+   **22/22 包**里命中该谓词的恰好 1 行（就是 `schemecolor`；`visual_bar*`/`audio_bar*` **0 命中**），而 WE 自带项在
+   本仓的实现面是 `demo.html` 的 MPW-DISPLAY 段（`__wp.setDisplay` / `__wp.setPlaybackRate`）——**不是属性行**。
+2. **「展不开」= 计数没过滤隐藏行**：采集时没滤 `hidden`，表头计数用的是未过滤的 `we.length`；而那一行被
+   `decoratePropRow` 按 `PROPS_HIDDEN_NAMES` 打了 `hidden=""` ⇒ 表头「1 项」+ 展开后空白。
+
+**改法**（`demo/bench-patch.js`；`demo/index.html` 只同步静态外壳 CSS）：
+
+* **固定清单**（模块级纯数据 + 纯函数，Node 侧可逐项对账）：`WE_RENDERER_ITEMS`（`:3521`，13 项）+
+  `weRendererImplItems()`（`:3538`）+ `weRendererApiRoute()`（`:3543`）。
+* **取渲染器 API**：`rendererWp()`（`:4882`）现查 `#frame` 的 `contentWindow.__wp`（跨作用域纪律：`initNavSound`
+  的 `stageEl` 在这里不存在；跨源/未挂载 ⇒ 如实返回 null）；`weRendererState()`（`:4897`）读 `__wp.displayState()`
+  与音频唯一真源（`navSound.audio()`/`setVideoVolume`）。
+* **唯一驱动点**：`weApplyItem()`（`:4930`）—— `setDisplay` 项走 `wp.setDisplay({ [arg]: val })`、
+  `setPlaybackRate` 走 `wp.setPlaybackRate(val)`、音量走 `setVideoVolume(v)`（它落到 `__wp.setVolume`，
+  顺带同步工具条与 NP 卡片，**不新增第二处音量真源**）。控件事件 → `weItemChanged()`（`:5087`）→ 立即驱动。
+* **计数只算可见项**：`weVisibleItems()`（`:4962`）= `[data-we-item]` 里 `!el.hidden` 的那些；
+  表头文案与探针 `weCount` **共用它**（隐藏的内部行绝不计数 —— 那正是用户报的读数面）。
+* **隐藏的内部行**：`weAdoptHiddenRows()`（`:4969`）把它们**搬进组体尾部并保持 `hidden`**（不再与作者项混在一列），
+  `weReleaseAdopted()`（`:4982`）保证组重建/撤掉时**先把它们放回 `#props-body`**（不丢作者的行）。
+* **默认展开 + 可收起**：`weGroupCollapsed()` 仍是"存了 `'1'` 才收起"（localStorage `bench-props-we-collapsed`），
+  `aria-expanded` 与 `data-collapsed` 同步；组壳仍插在 `#props-body` 最前（`weGroupBuild()` `:4992`）。
+* **面板/语言/渲染器就绪**：`groupWeBuiltinProps()`（`:5151`）在每次面板settle 时对账（**值没变一个字节都不写**）；
+  语言切换走 `paintLangExtras()`；预览 iframe `load` ⇒ 重画一次；渲染器没就绪 ⇒ `weArmReadyRetry()`（自停、有上限）。
+* **不做/自带项照实写一行**：`flipV` / `alignment` / `parallaxReaction` / `recording` / `perMonitor` 五行只读说明
+  （状态标签 + 一句原因 + 行级 tooltip），**不静默少项**。
+* **不可用时的状态行**：渲染器还没发布 `__wp`（换壁纸/重挂载那一拍）或跑在 `?display=legacy` 总回退档时，
+  组体顶部出一条只读说明（`.bench-we-status`，文案 `props.we.notReady` / `props.we.legacy`）⇒ 用户看得到
+  "为什么这些控件是灰的"；正常档下它 `hidden` 且清空（不对正常状态误报）。它**不是** `[data-we-item]`
+  ⇒ 不进 `weCount`/`weNames`。
+* **文档**：`demo/index.html` 的 `#page-wpset` §1 那四行由 `wpsetDocFix()` 就地改成「已实现」的**说明文本**
+  现在同时点名「壁纸配置 → 渲染器设置（WE 自带）」这个落点（`WPSET_DONE`，两种语言各一条）。
+* **CSS**：`.bench-we-*` 规则加进 `SITE_LAYOUT_CSS`（`demo/bench-patch.js:7674-7686`）+ **逐条镜像**到
+  `demo/index.html` 的 `<style id="bench-shell-static">`（`:317-329`）—— 不镜像就撞 `tests/demo-check.mjs` 的 D8。
+
+**这一组现在的完整项清单**（`WE_RENDERER_ITEMS`，顺序 = 面板顺序；`impl` 项都真驱动并即时生效）：
+
+| # | id | 面板名称（zh / en） | 控件 | 状态 | 驱动的渲染器 API |
+|---|---|---|---|---|---|
+| 1 | `flipH` | 水平翻转 / Flip (horizontal) | 勾选 | 可用 | `__wp.setDisplay({flipH})` |
+| 2 | `colorOptions` | 显示颜色选项（总开关） / Show colour options (master) | 勾选 | 可用 | `__wp.setDisplay({colorOptions})` |
+| 3 | `brightness` | 亮度 / Brightness | 滑条 0–2 | 可用 | `__wp.setDisplay({brightness})` |
+| 4 | `contrast` | 对比度 / Contrast | 滑条 0–2 | 可用 | `__wp.setDisplay({contrast})` |
+| 5 | `saturation` | 饱和度 / Saturation | 滑条 0–2 | 可用 | `__wp.setDisplay({saturation})` |
+| 6 | `hue` | 色调偏移 / Hue shift | 滑条 −180…180 | 可用 | `__wp.setDisplay({hue})` |
+| 7 | `playbackRate` | 播放速度 / Playback rate | 滑条 0.5–2× | 可用 | `__wp.setPlaybackRate(r)` |
+| 8 | `volume` | 音量 / Volume | 滑条 0–1 | 可用 | `__wp.setVolume(v)`（经音量唯一真源 → 工具条/NP 卡同步） |
+| 9 | `flipV` | 垂直翻转 / Flip (vertical) | 只读 | **未实现**（本仓没有 `flipV`，只有 `flipH`） | — |
+| 10 | `alignment` | 对齐方式 / 缩放 / Alignment / zoom | 只读 | 本页已实现（在工具条 `#fit` / `?fit=`，不在渲染器 API） | — |
+| 11 | `parallaxReaction` | 对动作做出反应（视差 / 陀螺仪） / React to motion | 只读 | **不做**（用户口径；将来走 `__wp.pushPointer`） | — |
+| 12 | `recording` | 录音（WE 录屏 / 录音音量） / Recording | 只读 | **WE 客户端自带**（页面内没有实现面） | — |
+| 13 | `perMonitor` | 按显示器（每屏各自设置） / Per monitor | 只读 | **WE 客户端自带**（本页单实例） | — |
+
+**判据**：新增 `tests/bench-props-we-group-test.mjs`（A 段纯 Node + B 段真浏览器 + 变异自证）**42 通过 / 0 失败**：
+
+* A 段：清单与**手写判据清单**逐项相等（顺序在内）、用户点名的 5 组一个不漏、每项 API 落点逐字相等、
+  中英标签/原因齐、旧采集表达式已删、计数只算可见项、缺省展开、唯一驱动点、组内无裸 `<select>`。
+* B 段（真页面，有头 Firefox + llvmpipe）：项与清单逐项相等（名称/状态/API/几何高度）、表头计数 = 看得见的行数、
+  默认展开（`data-collapsed=0` + `aria-expanded=true` + 组体可见 + `weDrawn=13`）、状态行在就绪档下**不显示也不占位**、
+  点表头收起→再展开（两态可逆）、
+  **逐项即时生效**（`__wp.displayState()` + `#sc` 内联 `filter`/`transform` + 音量的 `__mpwHostCalls.setVolume` 计数）、
+  总开关关掉后四项**完全不进 filter 串**、隐藏行不计入计数（`weHiddenAdopted=1` 时 `weCount` 仍 13）、
+  8 项都可用、空闲 3s 组内 0 变更（不自激）、控件写回中性后渲染器侧回中性、0 脚本错。
+* **变异必红**（镜像静态面 + 另一个端口，真树一字不动）：①缺省展开改回收起 ⇒ `A6`/`B3` 红；②播放速度的驱动改空实现
+  ⇒ `B5-playbackRate` 红；③把隐藏行/面板里别的行重新算进计数 ⇒ `A5`/`B2` 红。
+* **既有门禁同步换眼**：`tests/bench-dsh-libroot-test.mjs` 的 A8（改前钉的是"从属性行分类"的实现）与 **B4**
+  （改前只断言"组在不在 + 有没有收进 `schemecolor`" —— **这个 bug 存在时照样绿**）改成"项与固定清单逐项相等 +
+  `weCount === weDrawn` + 项真的能用、能驱动 `__wp`"。
+
+**未验证**：① 上游产物档（`#renderer-src=upstream`，`__wp` 没有 `setDisplay`）下这一组会**如实置灰**
+（`data-we-avail=0`，控件 `disabled`，状态行给"渲染器未就绪"）—— 这条降级路径**只有反向判据**
+（就绪档下状态行不显示、不误报；`tests/bench-props-we-group-test.mjs` 的 B2c），**没有正向门禁**
+（没在 upstream 档/`?display=legacy` 档上真跑一遍"灰 + 一行原因"）；② `?display=legacy` 总回退档同理；
+③ 换壁纸后这一组仍在只验了**两张**（B10），没做 22 包全量；④ 窄视口（≤240px 面板）下两段式行的
+换行只做了 `:1360` 视口 + D8 的 CSS 逐条比对，没有像素级量宽；⑤ 只在 Firefox 上跑过（Chromium 未跑）；
+⑥ 音量项**没有 getter**：即时生效的判据是"`__mpwHostCalls.setVolume` 计数增加 + `navSound.audio().vol` 与面板一致"
+（不是读渲染器内部的 `mpwHostVolume`）；⑦ 门禁的变异阶段用**硬链接镜像**（`MPW_BENCH_STATIC_DIR` + 另一个端口）：
+本机文件系统对**软链**调 `link(2)` 会写坏源软链（实测 `demo/samples` 被追加成 `../samples000100010001`，
+已还原）⇒ 镜像里**一律跳过软链**（见 `buildMirrorDemo` 的注释）；这条环境缺陷与产品无关，但换机器跑门禁时要记得。

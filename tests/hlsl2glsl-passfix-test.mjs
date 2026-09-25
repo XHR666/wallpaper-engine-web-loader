@@ -2,7 +2,7 @@
 //   的判据：每条都做到"**改前报文能复现 → 改后 0 error**"，并且**修法关掉必须变红**。
 //
 // 缺口出处：`docs/reports-renderer-gap-matrix.md` §6.2（同一份清单也登记在
-//   `/root/Desktop/DSHarea/docs/STATUS-ALL-ITEMS.md` 第 1.1 节第 13 条），四条 = 四个真包：
+//   `工作区 `docs/` 下的状态汇总文档（`STATUS-ALL-ITEMS`）` 第 1.1 节第 13 条），四条 = 四个真包：
 //
 //   ① `allwallpaper/0923/3602673806` · `workshop/2795521260/effects/color_grading`
 //      链接失败 `Varying 'v_TexCoord' is not linkable between attached shaders`（**本仓独有**）。

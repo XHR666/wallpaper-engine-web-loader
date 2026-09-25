@@ -311,6 +311,22 @@ html.bench-shell .bench-props-group[data-collapsed="1"] > .bench-props-group-hea
 html.bench-shell .bench-props-group[data-collapsed="1"] > .bench-props-group-body{display:none}
 html.bench-shell .bench-props-group > .bench-props-group-body{padding:2px 6px 4px}
 html.bench-shell .bench-props-group .prop, html.bench-shell .bench-props-group .prop-text{margin-top:2px}
+/* ①B(P-201 2026-09-25) 「渲染器设置（WE 自带）」= 补丁自己画的固定清单（`.bench-we-*`）。
+   与 demo/bench-patch.js 的 SITE_LAYOUT_CSS 逐条等价（D8 会逐条比对，改一处必须改两处）。 */
+html.bench-shell .bench-we-group > .bench-props-group-body{padding:4px 8px 6px}
+html.bench-shell .bench-we-row{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;padding:3px 0;font-size:12.5px;color:var(--fg);min-width:0}
+html.bench-shell .bench-we-status{margin:0 0 4px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;color:var(--fg-mute);font-size:11.5px;line-height:1.6;background:color-mix(in srgb,var(--panel) 60%,transparent)}
+html.bench-shell .bench-we-row > .bench-we-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html.bench-shell .bench-we-row > .bench-we-ctl{flex:none;display:flex;align-items:center;gap:6px;min-width:0}
+html.bench-shell .bench-we-row > .bench-we-ctl input[type="range"]{width:104px;min-width:0;max-width:100%}
+html.bench-shell .bench-we-row > .bench-we-ctl input[type="checkbox"]{margin:0}
+html.bench-shell .bench-we-row > .bench-we-val{flex:none;min-width:36px;text-align:right;font-variant-numeric:tabular-nums;color:var(--fg-dim)}
+html.bench-shell .bench-we-row > .bench-we-api{flex:1 1 100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono,ui-monospace,SFMono-Regular,monospace);font-size:10.5px;color:var(--fg-mute)}
+html.bench-shell .bench-we-row > .bench-we-why{flex:1 1 100%;min-width:0;color:var(--fg-mute);font-size:11.5px;line-height:1.6}
+html.bench-shell .bench-we-row > .bench-we-tag{flex:none;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:10.5px;color:var(--fg-dim)}
+html.bench-shell .bench-we-row[data-we-avail="0"] > .bench-we-ctl{opacity:.55}
+html.bench-shell .bench-we-row[data-we-avail="0"] > .bench-we-val{opacity:.55}
+html.bench-shell .bench-we-hint{margin-top:4px;padding-top:4px;border-top:1px dashed var(--border);color:var(--fg-mute);font-size:11.5px;line-height:1.6}
 /* ⚠ 这一整块**没有 @media 包裹**（2026-09-18 修）：原来那次"去掉媒体查询依赖"的编辑把 `@media(…){`
    这一行删掉了，却留下了块内的规则和末尾那个 `}` ⇒ ①多出一个孤立的大括号；②末尾 4 条本该"只在窄屏生效"
    的规则（工具栏字号 / site-tab / 设置弹层宽度）**泄漏到所有桌面宽度**；③其中一条选择器写成了
