@@ -59,7 +59,7 @@
 node report-audit.mjs <报告.json>   # 单份：①origin ②DIAG ③layerLedger ④texStats ⑤层健康
 node report-audit.mjs --trend [N]   # 每场景最近 N 份跨报告趋势：稳定错 / 抽动 / 时有无
 ```
-⑤ 层健康表：优先读上报的 `layerHealth[]`（A 会话约定字段，见 `TASK-A-RENDERER.md` §4），
+⑤ 层健康表：优先读上报的 `layerHealth[]`（A 会话约定字段，见 `<工作区>/docs/tasks/TASK-A-RENDERER.md` §4），
 无该字段时回退由 `layers[]`+`layerLedger[]` 推导，输出一句话汇总（正常/跳过/GPU错/清屏灰计数）。
 ⑥ 趋势：同场景多份上报逐层矩形对比——"稳定错"（各份一致但偏离期望→改渲染语义可修）vs
 "抽动"（各份之间在变→查脚本/动画/坏帧）。注意台账每份截 60 条、部分上报只含 1 层，

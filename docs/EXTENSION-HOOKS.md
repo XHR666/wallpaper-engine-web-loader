@@ -65,4 +65,4 @@ export default {
 | 逐壁纸实绘矩形标定表（替代 `refrender-*.json` 硬编码） | `layerRect` | 位置校正可以做成外部数据，不动渲染器 |
 | 外部 shader 库 / 自定义后处理 | `shaderSource` + `postFrame` | 例如用户自定义泛光、色调映射 |
 | 截图/录屏/性能面板 | `postFrame` / `stats` | 面板侧可开一个"开发者"开关读取 |
-| A/B 诊断（如 `?mcc`、`?piv`、`?whitefallback`） | 直接用 URL 参数 | 已内建，见 `nightwork-report-20260913.md` |
+| A/B 诊断（如 `?mcc`、`?piv`、`?whitefallback`） | 直接用 URL 参数 | 已内建，见 `<工作区>/docs/status/` |

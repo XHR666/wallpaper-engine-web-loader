@@ -2,7 +2,7 @@
 
 > 审计范围：`core/we-scene-bundle.js`（3697 行，parseScene / renderScene / 效果链 / 粒子 / MDLA / autofit）+ `demo.html`（981 行）。
 > 对照基准：
-> - `REVERSE-FINDINGS.md`（附件矩阵/相机/合成顺序与 blend 枚举）、`REVERSE-FINDINGS-2.md`（autofit 正交窗口 / CreateBlendState 二进制提取表 / MDLA 帧布局）、`REVERSE-FINDINGS-3.md`（效果链 FBO / clear / copybackground / a=max 公式）；
+> - `<工作区>/docs/reverse/`（附件矩阵/相机/合成顺序与 blend 枚举）、`<工作区>/docs/reverse/`（autofit 正交窗口 / CreateBlendState 二进制提取表 / MDLA 帧布局）、`<工作区>/docs/reverse/`（效果链 FBO / clear / copybackground / a=max 公式）；
 > - 官方着色器与材质：`wallpaper_engine/assets/shaders/common_{composite,blending,fragment,vertex,perspective,blur}.h`、`composelayer.frag`、`assets/materials/util/{composelayer,solidlayer,fullscreenlayer}.json`；
 > - 真实数据回归：`allwallpaper/dd/*` 11 个场景 307 条效果链的结构扫描（fbos/bind/target/multi-pass 统计）。
 > 方法：逐段通读 + 官方语义逐条比对 + pkg 实测数据验证。每条给出：问题 / 位置 / 证据 / 建议改法 / 风险。

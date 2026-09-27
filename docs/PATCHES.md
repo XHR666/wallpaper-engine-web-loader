@@ -583,7 +583,7 @@ CPU 预览 4 包（3719111841/3544152633/3660962877/3326873240）出图正常，
    clipboard API + execCommand 兜底）。数据源三重保障：渲染器在线 `GET /diag-flags.json`（demo server 新增静态路由）→
    离线用 client.js 内置副本 `MPW_DIAG_FLAGS_FALLBACK` → panel-smoke 断言「字典 zh/en 集合 == JSON common == 内置副本」。
 4. **收口**：`TESTING.md` 建最小版（含 `node diag-flag-check.mjs` 行）；`PATCHES.md` 本节；nightwork-report 追加；
-   `PLUGIN-BUGS-TRACKER.md` 新批次一行。
+   `<工作区>/docs/status/PLUGIN-BUGS-TRACKER.md` 新批次一行。
 
 ### 验收（全绿）
 
@@ -1362,7 +1362,7 @@ spriteFrames 3 种已识别，帧推进待带 A5 字段的上报确认；④`?te
 | `run-all-tests.sh` 重构（C5.1） | `--list`（36 项）、`--only <name>`、**条件项机制**（工具输出 SKIP+退出 0 → 门禁计 SKIP 不红）；注册 `mesh-badframe`（A 的新测试，22/22）+ `docs-check` + `parity-check`（条件项，--fast 跳） | `--list` 输出 36 项；`--only docs-check mesh-badframe parity-check` 单跑验证 |
 | `docs-check.mjs` 扩展（C5.2） | ①PATCHES P-编号唯一+顺序非降（发现并容忍既有 P-22-ATTACH/P-22 后缀共存）②任务书/TASKS-INDEX 引用文件存在（elysia 裸文件名、容器内条目、~/.dsh mpkg 三类解析规则）③diag-flag-check 归并 | 15 文档/241 引用/3 类检查全过（exit 0） |
 | `report-audit.mjs` 增强（C5.3） | ⑤层健康表（优先 `layerHealth[]`，回退 layers+ledger 推导，一句话汇总）⑥`--trend [N]` 跨报告趋势（稳定错/抽动/时有无——直接回答"是稳定错还是抽动"） | 单份六段 + 5 场景 trend 输出验证；当前数据无稳定错/抽动 |
-| `TASKS-INDEX.md`（C5.4） | 三会话任务书/交付物/状态/验收证据索引（放 DSHarea 根） | 本文件即进度登记处 |
+| `<工作区>/docs/tasks/TASKS-INDEX.md`（C5.4） | 三会话任务书/交付物/状态/验收证据索引（放 DSHarea 根） | 本文件即进度登记处 |
 | `TESTING.md` 更新（C5.5） | 平价基线/六段对账/条件项语义/新测试行写全 | 表格与门禁一致 |
 | `perf-profile.mjs --texreport`（C6） | 单场景纹理总量/大纹理清单/预计上传显存（w×h×4）→ `reports/perf-tex-<id>.json`，标 P0 超 4096 必降 / P1 低内存档候选 | GirlCat 38 张 289.6MB（housebasic 4948×2935=55.4MB P0）；凯尔希 46 张（长发2/衣摆/左侧发1 为降采样候选） |
 
@@ -1795,7 +1795,7 @@ pkg `3326873240`「夜莺Night Day Night Gradient」的 5 个时段层不再是"
      "不透明像素落在网格 UV 框外"计数 = **0**（主体不透明 34.8%、长发3 14.6%、左耳朵1 9.7%、眼睛组合 8.2%、右眼上眼睑 5.3%）；
      且凯尔希网格坐标与 mip0 纹素 **1:1**（实测 `u = 0.5 + x/size`，`size` = `autosize` 的 mip0 尺寸）
      ⇒ "bbox 框"与"size 框"的**可见像素相同**，比值差是台账/基线口径，不是错位。
-  3. **`cropoffset` 运行时不消费**：`REVERSE-FINDINGS-4.md` RE-02（wallpaper64/32 双 exe 字节级 0 命中、对象解析器逐键核对、
+  3. **`cropoffset` 运行时不消费**：`<工作区>/docs/reverse/` RE-02（wallpaper64/32 双 exe 字节级 0 命中、对象解析器逐键核对、
      wer-ref（GPL-2.0-only）/lwe-ref（GPL-3.0）/we-layerd-ref（**无许可**＝保留所有权利）三者零实现；三者均**仅行为对照、未取代码**）；elysia 侧同名结论（`puppet.js:21`），且其"用 cropoffset 偏移网格"的 commit 已被官方 revert。
 - **落地（用户口径：默认零变化 + 真机 A/B）**：
   - `mesh.__bbox = [x0,y0,x1,y1]`（min/max，与 demo 台账既有同名键同形）在 `__center` 计算处一并留存；
@@ -4454,7 +4454,7 @@ we-workshop(`<Steam 工坊 431960 目录>/<id>`) → allwallpaper-flat；命中�
 
 ### 触发
 作者口径：`samples/wallpapers/` 里的是第三方 Steam 创意工坊作品，**不允许打包进仓库**（"不要把我的测试壁纸打包进仓库"）。
-同一件事一直挂在 `RELEASE-PLAN.md` §9 **D1（哪些壁纸随仓库发布）** 上未决 —— 本轮按 **option A：只发程序化生成的合成样例** 结案。
+同一件事一直挂在 `<工作区>/docs/releases/RELEASE-PLAN.md` §9 **D1（哪些壁纸随仓库发布）** 上未决 —— 本轮按 **option A：只发程序化生成的合成样例** 结案。
 
 ### 删了什么（体积前后）
 | 指标 | 前 | 后 |
@@ -4488,10 +4488,10 @@ MANIFEST.md 里**有价值的两块**（①怎么把服务器指向自己的语�
 | `TASK-RENDERER-QUEUE.md` | 验收命令里的 hina 路径改为 `allwallpaper/dd/3554161528`，并注明该包不再随仓库分发。 |
 | `docs/QODER-REVIEW-BRIEF.md`（DSHarea 根） | 工作树指纹命令去掉 `-not -path './samples/wallpapers/*'`（目录已不存在）并注明原因。 |
 | `docs/HLSL2GLSL-COVERAGE.md` | §1.1 的候选包数标注为"当时快照"（15 → 今天 11）；§2.3 说明带 `s:` 前缀的行是当时的证据、已无法在无语料副本上复现。 |
-| `PLUGIN-RELEASE-CHECKLIST.md` | 发布闸门表那行（254MB 样例壁纸）标注"该目录已整体删除（实际落地 4 包 / 198MB）"。 |
-| `RESUME-PROMPT.md` | 必读清单里的 samples/wallpapers/MANIFEST.md → `we-scene-demo/samples/README.md`；要点②"样例壁纸已选 7 个（254MB）"整条作废并写明新口径（超限包不必再考虑 LFS/Release/网盘）。 |
-| `RELEASE-PLAN.md` | §9 **D1 标注 RESOLVED（取 option A）**；§1B 目录树里 `samples/` 注明"不再包含任何真实壁纸"。 |
-| `NIGHTLY-REPORT-20260914.md` | 那一行加"当时快照"标注（历史报告不改事实，只标注后续变更）。 |
+| `<工作区>/docs/releases/PLUGIN-RELEASE-CHECKLIST.md` | 发布闸门表那行（254MB 样例壁纸）标注"该目录已整体删除（实际落地 4 包 / 198MB）"。 |
+| `<工作区>/docs/tasks/RESUME-PROMPT.md` | 必读清单里的 samples/wallpapers/MANIFEST.md → `we-scene-demo/samples/README.md`；要点②"样例壁纸已选 7 个（254MB）"整条作废并写明新口径（超限包不必再考虑 LFS/Release/网盘）。 |
+| `<工作区>/docs/releases/RELEASE-PLAN.md` | §9 **D1 标注 RESOLVED（取 option A）**；§1B 目录树里 `samples/` 注明"不再包含任何真实壁纸"。 |
+| `<工作区>/docs/status/` | 那一行加"当时快照"标注（历史报告不改事实，只标注后续变更）。 |
 | 本文件（`PATCHES.md`） | 三处历史记录追加"该路径已于 P-87 移除"标记（历史事实原样保留）：:1768 的 `MPW_SCENE_ROOT=samples/wallpapers` 验证命令、:2291 的回退顺序、:4310 的"服务端兜底语义不动"。 |
 
 ### 门禁
@@ -5604,7 +5604,7 @@ cd /tmp/we-head && node visual-diff-kal.mjs ; echo rc=$?   → rc=0（基线此�
 ### 1. 符号改名（脚本建议执行，11 处）
 
 在役名统一为 `alignmentOffsetForToken`（旧标识符在全仓**0 处使用**）。11 处盲替换逐处重写为**不含旧字面量且为真**的表述
-（"alignment 偏移旧标识符（逐字引文见 `docs/WER-REF-LICENSE-AUDIT.md` §3.4）"）：`NIGHTLY-REPORT-20260916.md` ×2、
+（"alignment 偏移旧标识符（逐字引文见 `docs/WER-REF-LICENSE-AUDIT.md` §3.4）"）：`<工作区>/docs/status/` ×2、
 `docs/RENDERER-OPTIMIZATION-REPORT.md` ×4、`we-scene-demo/README.md`、`we-scene-demo/THIRD-PARTY.md`、`docs/PATCHES.md` ×2。
 
 **其中一处是功能性的**：`tools/wer-ref-lineage-retest.py` 用 `audit_old_block('export function <旧标识符>')` 从审计文档
@@ -5632,7 +5632,7 @@ cd /tmp/we-head && node visual-diff-kal.mjs ; echo rc=$?   → rc=0（基线此�
 - **22 行**（`官方` → `第三方参考实现 wer-ref`）：`core/we-scene-bundle.js` 5（`CustomShaderPass.cpp` ×2、`WPTexHeaderParser.cpp`、`WPParticleRawGener.cpp`、`WPSceneParser.cpp`）·
   `docs/PATCHES.md` 5（`WPNodeTransformResolver.cpp`、`WPSoundParser.cpp`、`WPScriptRuntime.cpp`、`WPPuppet.cpp`、`SceneCamera.cpp`）·
   `tests/p74-instanceoverride-test.mjs` 4 · `tests/multi-sprite-test.mjs` 2 · `elysia/scene-scripts.js` 1（`WPSceneScriptHost.cpp`）·
-  `core/attach-transform.mjs` 1（`WPPuppet.cpp`）· `docs/README-DIAGNOSTICS.md` 1 · `tests/audio-semantics-test.mjs` 1 · `tests/mock-gl-test.mjs` 1 · `../NIGHTLY-REPORT-20260915.md` 1。
+  `core/attach-transform.mjs` 1（`WPPuppet.cpp`）· `docs/README-DIAGNOSTICS.md` 1 · `tests/audio-semantics-test.mjs` 1 · `tests/mock-gl-test.mjs` 1 · `<工作区>/docs/../NIGHTLY-REPORT-20260915.md` 1。
 - **7 行**同型（`官方` 直接修饰第三方符号，逐个核过"只在 `wer-ref/**`、不在官方资产"）：`core/we-scene-bundle.js` 2
   （`UpdateActiveCameraLayer`、`SetCamera("global_perspective")`）· `docs/PATCHES.md:684` · `tests/camera-node-test.mjs` 2
   （`UpdateActiveCameraLayer:99`、`SceneCamera:88`，均为断言标签文本）· `tests/p74-instanceoverride-test.mjs:82`（`InitColor`，断言标签文本）·
@@ -5644,9 +5644,9 @@ cd /tmp/we-head && node visual-diff-kal.mjs ; echo rc=$?   → rc=0（基线此�
 
 - 脚本按契约注入 3 个：`docs/COPYING-RULES.md`、`tools/wer-ref-lineage-retest.py`、`we-scene-demo/docs/COPYING-RULES.md`；
 - 同类改动连带 5 个（改后文件提到 `wer-ref`）：`tests/mock-gl-test.mjs`、`tests/multi-sprite-test.mjs`、`tests/p74-instanceoverride-test.mjs`、
-  `tests/camera-node-test.mjs`（mjs 首行同排，**0 行位移**）、`../NIGHTLY-REPORT-20260915.md`、`docs/README-DIAGNOSTICS.md`；
+  `tests/camera-node-test.mjs`（mjs 首行同排，**0 行位移**）、`<工作区>/docs/../NIGHTLY-REPORT-20260915.md`、`docs/README-DIAGNOSTICS.md`；
 - **措辞逐字取自脚本 `MD_NOTE` / `PLAIN_NOTE` 常量，不自创第二种说法**；**位置对 4 个 markdown 文件做了例外**：
-  `docs/COPYING-RULES.md`、`we-scene-demo/docs/COPYING-RULES.md`、`docs/README-DIAGNOSTICS.md`、`../NIGHTLY-REPORT-20260915.md`
+  `docs/COPYING-RULES.md`、`we-scene-demo/docs/COPYING-RULES.md`、`docs/README-DIAGNOSTICS.md`、`<工作区>/docs/../NIGHTLY-REPORT-20260915.md`
   改为**文件末尾追加**（措辞不变）——它们在别处被按行号引用（审计 `docs/COPYING-RULES.md:33-34/39-47`、报告 `:42`/`:8`/`:26-60` 等），
   H1 后插 8 行会造成**行号漂移**并让豁免改名的取证文档指向错行；这与脚本对 js/mjs 文件用"单行块注释 0 位移"的理由一致。
 
@@ -10753,7 +10753,7 @@ diag-flag-check 154==154（**未新增任何 URL 开关**）、docs-check ✓。
 ### P-140.0 层身份（只读取证已定案，坐标更正见报告 §0.1）
 
 用户口语的「第 2 个壁纸第 26 层 vapor」= **`dd/3544152633`（Girl and cat）`objects[25]`「Vapor (double)」id=206100**（`?ln=25`）。
-任务书最初给的 `dd/3327063360` 全包 `/vapor/i` **零命中**（它是 `WALLPAPER-INDEX.md` 第 3 项）。
+任务书最初给的 `dd/3327063360` 全包 `/vapor/i` **零命中**（它是 `<工作区>/docs/status/WALLPAPER-INDEX.md` 第 3 项）。
 该层 `renderer=rope`（把存活粒子按**发射序**连成 ribbon），初速**唯一**来源 = 初始化器
 `turbulentvelocityrandom{speedmin=speedmax=250, scale:0.1, timescale:0.5, phasemax:0}`（= WE stock 预设 smoke/vapor1）。
 
@@ -14109,7 +14109,7 @@ C 组 = **真语料证据**（扫语料确认 `compositealpha` 真的被声明�
 ⇒ 有自己贴图的 copybg 层内容被背景顶掉，画面上就是"这一层变成了背景的一块"。
 
 **成立依据（三条互相独立且一致）**：
-1. 第三方参考对照（`WER-ALIGN.md` G2）逐字："copybackground：**solid 层**用 `composelayer_clearalpha` 材质采样主帧缓冲；
+1. 第三方参考对照（`<工作区>/docs/reverse/WER-ALIGN.md` G2）逐字："copybackground：**solid 层**用 `composelayer_clearalpha` 材质采样主帧缓冲；
    **效果层材质注入 COPYBG combo**" ⇒ 效果层只注入 combo，**不换内容**。
 2. 官方 shader 里 `#if COPYBG` 采的是 `g_Texture2 = _rt_FullFrameBuffer` ⇒ 背景走**独立纹理槽**，与槽 0 无关。
 3. 本文件 RE-23 自己的注释写的就是"注入 `combos.COPYBG=1`"（背景 blit + `copyBgEntry` 那条路本来就够用）。
