@@ -67,3 +67,36 @@ export function readSceneJsonText(file) {
   if (!e) return null
   return readEntryBytes(file, idx, e).toString('utf8')
 }
+
+/** 按绝对偏移读一段字节（`openPkgLazy` 用）。 */
+export function readSlice(file, off, len) {
+  const fd = fs.openSync(file, 'r')
+  try {
+    const buf = Buffer.alloc(len)
+    fs.readSync(fd, buf, 0, len, off)
+    return buf
+  } finally { fs.closeSync(fd) }
+}
+
+/**
+ * 造一个**惰性 `pkg`**：形状与 `core/we-scene-bundle.js::getEntry` 需要的完全一致，但**不把整包读进内存**。
+ *
+ * 为什么要有它：真包最大 543MB，而判据只需要 `scene.json` + 少量 JSON/`effect.json`。
+ * `getEntry(pkg, name)` 的实现是 `pkg.buf.subarray(start, end).slice()` ⇒ 这里给一个同形状的惰性
+ * `buf`，要哪一段才从文件读哪一段。于是判据可以走**生产解析器原文**
+ * （`parseScene` / `resolveEffectChain` / `parseWeJson`）而不付整包内存/时间的代价。
+ *
+ * ⚠ 只实现 `getEntry` 用到的成员（`entries` / `dataStart` / `fileSize` / `buf.subarray(...).slice()`）；
+ *   需要整包字节的路径（`parsePkg`、纹理上传）**不要**用这个对象。
+ */
+export function openPkgLazy(file) {
+  const idx = readIndexHead(file)
+  return {
+    magic: idx.magic,
+    count: idx.count,
+    entries: idx.entries.map((e) => ({ name: e.name, offset: e.off, size: e.size })),
+    dataStart: idx.dataStart,
+    fileSize: fs.statSync(file).size,
+    buf: { subarray: (s, e) => ({ slice: () => readSlice(file, s, e - s) }) },
+  }
+}

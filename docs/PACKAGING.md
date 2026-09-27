@@ -1,6 +1,6 @@
 # PACKAGING —— 分发形态、离线 PWA、一键启动与自检入口（P-91 / P-92 / P-93）
 
-> 依据：`docs/SIMILAR-PROJECTS-RESEARCH.md` **§6.1 第 1 条**（"分发形态：单文件 ESM + 打开即玩的静态 Demo
+> 依据：`<工作区>/docs/reverse/SIMILAR-PROJECTS-RESEARCH.md` **§6.1 第 1 条**（"分发形态：单文件 ESM + 打开即玩的静态 Demo
 > —— 这是**唯一**能让我们 §5.1 的护城河被人看见的动作"）与 **§4.3**（分发与可见性：我们的结构性劣势）。
 > 本文件是这些动作的**唯一的操作与自证手册**；渲染能力本身见 `docs/RENDERER-ARCHITECTURE.md`，逐层调试开关见
 > `README-DIAGNOSTICS.md`，对外介绍见 `docs/README-PUBLIC.md`。

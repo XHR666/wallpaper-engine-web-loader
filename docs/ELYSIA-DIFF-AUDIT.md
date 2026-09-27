@@ -6,7 +6,7 @@
 > 与本项目渲染器（GPL-3.0-or-later）**许可不兼容**：仅用于**行为对照**，
 > **不得复制、改写、逐行翻译其代码、注释、常量组织或错误文案**。
 > `we-layerd-ref/`（`Aromatic05/we-layerd`）**无任何许可**（保留所有权利），同样只可读行为结论。
-> 血缘自查结论见 `docs/WER-REF-LICENSE-AUDIT.md`。
+> 血缘自查结论见 `<工作区>/docs/reverse/WER-REF-LICENSE-AUDIT.md`。
 
 > 任务书：`$MPW_ROOT/docs/archive/ZCODE-PROMPT-ELYSIA-DIFF.md` 第 1 步产出。
 > 判定口径：**谁与 WE 官方行为一致**。行为对照依据 = 第三方参考实现 wer-ref（`Aromatic05/wallpaper-engine-renderer`，**GPL-2.0-only**，**仅行为对照、未取代码**）行号 / WE 官方资产原文 / WE 官方截图对照 /

@@ -1200,21 +1200,39 @@ try {
        （宿主重渲染把控件节点换掉 / 控件已被销毁），整个门禁就**抛异常中止**，后面所有组（X/Y/G/Z/P/G10/IA）
        一条读数都拿不到（实测：M 组在 R3 已红的环境下崩在这里，IA 组根本没跑到）。
        改成"如实返回 `err` 读数" ⇒ M2/M3/M4 仍然按原判据判（数据缺失就是 FAIL），但**不再连坐**后面的组。 */
+    /* ⚠(2026-09-25 ⑦) 诊断加固：`measure()` 现在**顺带记录**这 250ms 里发生过的 scroll/resize 事件
+       （以及被滚动的是谁），并如实回报 `isOpen`。为什么：这条判据曾经红过两次，读数只有
+       `{err:'no-list-or-btn', options:3, rootConnected:true}` —— 看的人只能猜。现在同一个读数会带上
+       "期间有谁滚过"（真因就是日志窗 `#logbody` 在捕获阶段被听到 ⇒ 下拉被自己的监听关掉）。
+       判据一条没改：拿不到列表/触发框照样 FAIL。 */
     const measure = (id) => page.evaluate(async (fid) => {
       const sel = document.getElementById(fid)
       const h = sel && sel.__mpwSelectHandle
       if (!h) return { err: 'not enhanced' }
+      const evs = []
+      const onScroll = (ev) => {
+        const t = ev.target
+        const btn0 = h.root.querySelector('.mpw_select_btn')
+        let anc = false
+        for (let n = btn0; n; n = n.parentElement) if (n === t) { anc = true; break }
+        if (t === document || t === document.documentElement || t === document.body) anc = true
+        evs.push({ k: 'scroll', tgt: (t === document ? 'document' : (t && (t.id || t.className || t.tagName))) || null, anc, top: t && t.scrollTop })
+      }
+      window.addEventListener('scroll', onScroll, true)
+      window.addEventListener('resize', () => evs.push({ k: 'resize' }))
       h.open()
       await new Promise((r) => setTimeout(r, 250))
       const list = h.root.querySelector('.mpw_select_list')
       const btn = h.root.querySelector('.mpw_select_btn')
-      if (!list || !btn) return { err: 'no-list-or-btn', options: sel.options ? sel.options.length : -1, rootConnected: !!(h.root && h.root.isConnected) }
+      window.removeEventListener('scroll', onScroll, true)
+      if (!list || !btn) return { err: 'no-list-or-btn', options: sel.options ? sel.options.length : -1, rootConnected: !!(h.root && h.root.isConnected), isOpen: h.isOpen(), events: evs }
       const b = btn.getBoundingClientRect(); const l = list.getBoundingClientRect()
       const out = {
         flip: list.getAttribute('data-flip'), origin: list.getAttribute('data-origin'),
         gap: Math.round(((l.top >= b.top ? l.top - b.bottom : b.top - l.bottom)) * 10) / 10,
         firstItem: (list.firstElementChild || {}).textContent, count: list.children.length,
         btn: { top: Math.round(b.top), bottom: Math.round(b.bottom) }, list: { top: Math.round(l.top), bottom: Math.round(l.bottom) },
+        events: evs,
       }
       h.close()
       await new Promise((r) => setTimeout(r, 120))
@@ -1258,14 +1276,143 @@ try {
       'M3 ③(P-159) mpw 上翻：同样贴合（列表**下边缘**距触发框上边缘 ≤2px；上翻按底边锚定，内容矮也不留缝）', JSON.stringify(u))
     ok(d.origin === 'containing-block' && u.origin === 'containing-block',
       'M4 ②(P-159) 两处都如实标了 `data-origin=containing-block`（证明走的是"减掉 `#pages-track` 原点"那条路）', JSON.stringify({ down: d.origin, up: u.origin }))
-    // 夹具清理：别给后面的断言留脏 DOM
+
+    /* ── M5~M7 ⑦(2026-09-25) 真机"下拉点开就没了"：只对**会移动锚点**的滚动源收起 ─────────────────────
+       真因（`:8902` 实测）：展开期间挂的是捕获阶段 scroll 监听，日志窗 `#logbody` 在场景加载时自己往下跟
+       （250ms 内滚了 4 次），刚展开的下拉被自己的监听关掉 ⇒ 同一次展开的读数从"列表在"变成"列表没了"。
+       这三条判据都在**真浏览器**里用**真滚动**（改 `scrollTop` ⇒ 浏览器自己派发 scroll 事件）测，
+       不靠合成事件：M5 = 无关容器滚动**不关**；M6 = 锚点祖先滚动**照样关**（原意没被放宽）；
+       M7 = 展开动作本身**不许**滚动任何祖先（旧实现 `scrollIntoView` 会滚祖先，既跳页又把自己关掉）。 */
+    {
+      const scrollGates = await page.evaluate(async () => {
+        const host = document.getElementById('props-body')
+        if (!host) return { err: 'no #props-body' }
+        const mkSel = (id) => {
+          const sel = document.createElement('select'); sel.id = id
+          for (const [v, label] of [['a', 'Alpha'], ['b', 'Beta'], ['c', 'Gamma']]) { const o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o) }
+          sel.value = 'b'; return sel
+        }
+        //  (a) 无关容器：**不是**锚点的祖先（能滚、滚得动）
+        const alien = document.createElement('div'); alien.id = 'bench-mpw-alien'
+        alien.setAttribute('style', 'position:fixed;left:420px;top:120px;width:180px;height:120px;overflow:auto;z-index:8')
+        const alienInner = document.createElement('div'); alienInner.setAttribute('style', 'height:600px')
+        alienInner.textContent = 'x'; alien.appendChild(alienInner); host.appendChild(alien)
+        //  (b) 锚点祖先链上的滚动盒：触发框在它里面
+        const chain = document.createElement('div'); chain.id = 'bench-mpw-chainbox'
+        chain.setAttribute('style', 'position:fixed;left:640px;top:120px;width:200px;height:130px;overflow:auto;z-index:8')
+        const chainWrap = document.createElement('div'); chainWrap.id = 'bench-mpw-chain-wrap'
+        chainWrap.setAttribute('style', 'padding:140px 0 240px')          // 让 select 一开始就在盒子里、且盒能滚
+        chainWrap.appendChild(mkSel('bench-mpw-chain')); chain.appendChild(chainWrap); host.appendChild(chain)
+        await new Promise((r) => setTimeout(r, 700))
+        const out = {}
+        for (const id of ['bench-mpw-down', 'bench-mpw-chain']) {
+          const s = document.getElementById(id); out[id] = { enhanced: !!(s && s.__mpwSelectHandle), options: s && s.options ? s.options.length : -1 }
+        }
+        const evs = []
+        const onScroll = (ev) => evs.push({ tgt: (ev.target === document ? 'document' : (ev.target && (ev.target.id || ev.target.className || ev.target.tagName))) || null })
+        window.addEventListener('scroll', onScroll, true)
+        const openState = (id) => {
+          const h = document.getElementById(id).__mpwSelectHandle
+          h.open()
+          return !!h.root.querySelector('.mpw_select_list')
+        }
+        const alive = (id) => {
+          const h = document.getElementById(id).__mpwSelectHandle
+          return { inDom: !!h.root.querySelector('.mpw_select_list'), isOpen: h.isOpen() }
+        }
+        const closeAll = () => { for (const id of ['bench-mpw-down', 'bench-mpw-alien', 'bench-mpw-chain']) { const h = document.getElementById(id).__mpwSelectHandle; try { h.close() } catch { /* ignore */ } } }
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+        //  M5：无关容器滚动（真滚动：改 scrollTop ⇒ 浏览器自己派发 scroll）⇒ 列表必须还在
+        closeAll(); openState('bench-mpw-down')
+        document.getElementById('bench-mpw-alien').scrollTop = 220
+        const logbody = document.getElementById('logbody')
+        if (logbody) { logbody.scrollTop = 0; logbody.scrollTop = 99999 }   // 真凶就是它：场景加载时自己往下跟
+        await sleep(250)
+        out.m5 = { ...alive('bench-mpw-down'), alienTop: document.getElementById('bench-mpw-alien').scrollTop, logTop: logbody ? logbody.scrollTop : null, events: evs.slice() }
+        //  M6：锚点**祖先**滚动（真滚动）⇒ 必须收起（原意：浮层会与锚点脱开）
+        evs.length = 0
+        closeAll(); const chainBox = document.getElementById('bench-mpw-chainbox')
+        const chainShown = openState('bench-mpw-chain')
+        chainBox.scrollTop = 90
+        await sleep(250)
+        out.m6 = { ...alive('bench-mpw-chain'), opened: chainShown, chainTop: chainBox.scrollTop, events: evs.slice() }
+        //  M7：展开动作本身**不许**滚动任何祖先（旧实现 `scrollIntoView` 会滚祖先：既跳页又把自己关掉）。
+        //  拿 chain 夹具测最有分辨力：触发框在一个真能滚的盒子里，旧实现几乎必然把它滚起来。
+        closeAll(); evs.length = 0; chainBox.scrollTop = 0
+        const track = () => {
+          const o = { chainbox: chainBox.scrollTop, winY: window.scrollY }
+          for (const el of [document.getElementById('pages-track'), document.getElementById('props-body')]) if (el) o[el.id] = el.scrollTop
+          return o
+        }
+        const t0 = track()
+        const openedChain = openState('bench-mpw-chain')
+        await sleep(250)
+        const aliveChain = alive('bench-mpw-chain')
+        const t1 = track()
+        closeAll(); evs.length = 0
+        const openedDown = openState('bench-mpw-down')
+        await sleep(250)
+        const aliveDown = alive('bench-mpw-down')
+        const t2 = track()
+        //  M8：`.bench-rd`（工具条那套自绘下拉）走同一份判据 —— 用**真点击**打开，再让无关容器滚 ⇒ 不许关
+        closeAll(); evs.length = 0
+        const rdBtn = document.querySelector('#toolbar .bench-rd .bench-rd-btn')
+        let rd = { found: !!rdBtn }
+        if (rdBtn) {
+          rdBtn.click()
+          await sleep(120)
+          rd.opened = !!document.querySelector('#toolbar .bench-rd.open')
+          document.getElementById('bench-mpw-alien').scrollTop = 40
+          if (logbody) { logbody.scrollTop = 400; logbody.scrollTop = 99999 }
+          await sleep(250)
+          rd.stillOpen = !!document.querySelector('#toolbar .bench-rd.open')
+          rd.events = evs.slice()
+          const b2 = document.querySelector('#toolbar .bench-rd.open .bench-rd-btn')
+          if (b2) b2.click()
+          await sleep(80)
+        }
+        out.m8 = rd
+        out.m7 = {
+          opened: openedChain === true && openedDown === true, aliveChain, aliveDown,
+          movedChain: Object.keys(t0).filter((k) => t0[k] !== t1[k]).map((k) => ({ k, from: t0[k], to: t1[k] })),
+          movedDown: Object.keys(t1).filter((k) => t1[k] !== t2[k]).map((k) => ({ k, from: t1[k], to: t2[k] })),
+          ancestorScrolls: evs.filter((e) => ['pages-track', 'props-body', 'html', 'document'].includes(e.tgt)),
+        }
+        closeAll()
+        return out
+      })
+      const g5 = scrollGates.m5 || {}
+      ok(scrollGates['bench-mpw-down'] && scrollGates['bench-mpw-down'].enhanced
+        && scrollGates['bench-mpw-chain'] && scrollGates['bench-mpw-chain'].enhanced,
+        'M5a ⑦两个滚动夹具都增强成功（下开夹具 / 锚点祖先滚动盒）', JSON.stringify({ down: scrollGates['bench-mpw-down'], chain: scrollGates['bench-mpw-chain'] }))
+      ok(g5.alienTop > 0 && g5.inDom === true && g5.isOpen === true,
+        'M5 ★ ⑦**与锚点无关**的容器真的滚了（含日志窗）⇒ 打开的下拉**不许**被关掉（改前：捕获监听收到就 close，日志窗一滚就"点开没了"）',
+        JSON.stringify(g5))
+      const g6 = scrollGates.m6 || {}
+      ok(g6.opened === true && g6.chainTop > 0 && g6.inDom === false && g6.isOpen === false,
+        'M6 ★ ⑦锚点**祖先**滚动 ⇒ 仍然收起（原意没被放宽：浮层坐标是展开那刻算的，跟锚点脱开就得收）',
+        JSON.stringify(g6))
+      const g7 = scrollGates.m7 || {}
+      ok(g7.opened === true && g7.aliveChain && g7.aliveChain.inDom === true && g7.aliveDown && g7.aliveDown.inDom === true
+        && (g7.movedChain || []).length === 0 && (g7.movedDown || []).length === 0 && (g7.ancestorScrolls || []).length === 0,
+        'M7 ★ ⑦展开下拉**自己不许滚动任何祖先**（旧实现 `scrollIntoView` 会滚祖先：页面自己跳一下，且那次滚动会把自己的下拉关掉）；"先滚动后展开"的异步时序也不许误关',
+        JSON.stringify(g7))
+      const g8 = scrollGates.m8 || {}
+      ok(g8.found === true && g8.opened === true && g8.stillOpen === true,
+        'M8 ★ ⑦工具条那套 `.bench-rd` 自绘下拉同样受益（真点击打开 ⇒ 无关容器滚动 ⇒ 仍然开着；改前是 `closeAll(null)` 一刀切）',
+        JSON.stringify(g8))
+    }
+    // 夹具清理：别给后面的断言留脏 DOM（先 destroy 控件，再按**最外层**夹具节点摘）
     await page.evaluate(() => {
-      for (const id of ['bench-mpw-down', 'bench-mpw-up']) {
+      for (const id of ['bench-mpw-down', 'bench-mpw-up', 'bench-mpw-chain']) {
         const sel = document.getElementById(id)
         try { sel && sel.__mpwSelectHandle && sel.__mpwSelectHandle.destroy() } catch { /* ignore */ }
-        const w = document.getElementById(id + '-wrap')
-        if (w && w.parentNode) w.parentNode.removeChild(w)
       }
+      const kill = (el) => { try { if (el && el.parentNode) el.parentNode.removeChild(el) } catch { /* ignore */ } }
+      kill(document.getElementById('bench-mpw-down-wrap'))
+      kill(document.getElementById('bench-mpw-up-wrap'))
+      kill(document.getElementById('bench-mpw-chainbox'))    // 连同里面的 chain-wrap / select 一起
+      kill(document.getElementById('bench-mpw-alien'))
     })
   }
 

@@ -6,7 +6,7 @@
 > 与本项目渲染器（GPL-3.0-or-later）**许可不兼容**：仅用于**行为对照**，
 > **不得复制、改写、逐行翻译其代码、注释、常量组织或错误文案**。
 > `we-layerd-ref/`（`Aromatic05/we-layerd`）**无任何许可**（保留所有权利），同样只可读行为结论。
-> 血缘自查结论见 `docs/WER-REF-LICENSE-AUDIT.md`。
+> 血缘自查结论见 `<工作区>/docs/reverse/WER-REF-LICENSE-AUDIT.md`。
 
 > 目的：**防第四次"CPU 预览对、真机 GL 错"事故**。三次事故（附件锚点整体偏移 / 脚本 origin 覆盖 /
 > ownSizes 拉伸 1/1.9）的共同点：改动只落在浏览器路径、没有机器验收。本文给新会话三样东西：

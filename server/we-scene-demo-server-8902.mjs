@@ -137,6 +137,11 @@ const flagVal = (name) => {
 }
 const positional = argv.filter((a) => !a.startsWith('--'))
 const PORT = Number(process.env.PORT || positional[0] || 8902)
+/* ⓪③(2026-09-27 P-204 安全审计 F8) **绑定地址：默认只回环**（改前 `server.listen(PORT)` 无 host 参数
+   ⇒ Node 默认全网卡，而启动日志只打印 `127.0.0.1` —— 用户以为只有本机能连，实际同网段都能连）。
+   回退口：`MPW_BIND=0.0.0.0`（局域网测试台/真机联调显式放开）。 */
+const BIND_HOST = String(process.env.MPW_BIND || '').trim() || '127.0.0.1'
+const BIND_IS_LOOPBACK = /^(127\.|::1$|\[::1\]$|localhost$)/i.test(BIND_HOST)
 /* ①(用户报「3669681034 在 :8902 打开全黑」的根因与修法) **渲染器页反向代理**：
    `:8902` 的预览 iframe 原来只指向上游**产物页**（`demo/renderer/index.html` → `assets/renderer-*.js`），
    而那份产物是"先解码整张图再缩放上传"——对 `3669681034` 那张 **7680×4320 / 43.8MB / 5 级 mip** 的贴图，
@@ -155,7 +160,25 @@ const RENDERER_UPSTREAM = (() => {
   const raw = String(process.env.MPW_RENDERER_UPSTREAM || process.env.MPW_RENDERER_8899 || '').trim()
   if (!raw) return null
   const norm = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : ('http://' + raw)
-  try { const u = new URL(norm); return { raw, host: u.hostname, port: Number(u.port || (u.protocol === 'https:' ? 443 : 80)), secure: u.protocol === 'https:', path: u.pathname.replace(/\/$/, ''), bad: false, from: process.env.MPW_RENDERER_UPSTREAM ? 'env MPW_RENDERER_UPSTREAM' : 'env MPW_RENDERER_8899（旧名）' } } catch { /* 配错**不静默**：health 如实回报，服务照常本地直供 */ return { raw, host: null, port: null, path: '', bad: true, from: process.env.MPW_RENDERER_UPSTREAM ? 'env MPW_RENDERER_UPSTREAM' : 'env MPW_RENDERER_8899（旧名）' } }
+  try {
+    const u = new URL(norm)
+    const host = String(u.hostname || '').toLowerCase().replace(/^\[|\]$/g, '')
+    /* ⓪③(P-204 F8) **上游必须是回环**（改前只判"能不能解析"）：配成任意外部地址时，本服务会把
+       调用方的 `Cookie` / `Authorization`（旧实现**全量转发请求头**）送到那台机器上。
+       显式外发联调（例如上游跑在另一台机器）走 `MPW_ALLOW_REMOTE_UPSTREAM=1`，
+       此时仍会按下面的 `MPW_PROXY_FORWARD_AUTH` 口径剥掉凭据头（默认剥）。 */
+    const loopback = /^(127\.|::1$|localhost$)/i.test(host)
+    const allowRemote = String(process.env.MPW_ALLOW_REMOTE_UPSTREAM || '').trim() === '1'
+    if (!loopback && !allowRemote) {
+      return {
+        raw, host: null, port: null, path: '', bad: true,
+        badReason: '上游 ' + host + ' 不是回环地址：本服务会（默认）把调用方请求头转发过去，拒绝启用。'
+          + '确要指向远程/局域网上游请显式设 MPW_ALLOW_REMOTE_UPSTREAM=1',
+        from: process.env.MPW_RENDERER_UPSTREAM ? 'env MPW_RENDERER_UPSTREAM' : 'env MPW_RENDERER_8899（旧名）',
+      }
+    }
+    return { raw, host, port: Number(u.port || (u.protocol === 'https:' ? 443 : 80)), secure: u.protocol === 'https:', path: u.pathname.replace(/\/$/, ''), bad: false, from: process.env.MPW_RENDERER_UPSTREAM ? 'env MPW_RENDERER_UPSTREAM' : 'env MPW_RENDERER_8899（旧名）' }
+  } catch { /* 配错**不静默**：health 如实回报，服务照常本地直供 */ return { raw, host: null, port: null, path: '', bad: true, from: process.env.MPW_RENDERER_UPSTREAM ? 'env MPW_RENDERER_UPSTREAM' : 'env MPW_RENDERER_8899（旧名）' } }
 })()
 const MPW_ROOT = path.resolve(process.env.MPW_ROOT || path.resolve(REPO_ROOT, '..'))
 /* 库根**来源**（显式记录，`/api/library`、`/api/library-source` 与 `/__health` 都如实回报 ——
@@ -1752,6 +1775,31 @@ function thumbPlan(item) {
 // ── 渲染器页反向代理：`/webloader/**` → 上游（默认 http://127.0.0.1:8899）─────────────────────────
 /** 逐跳头不该转发（RFC 7230 §6.1）：转发它们会让两端连接语义串味。 */
 const HOP_HEADERS = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length'])
+/* ⓪③(2026-09-27 P-204 安全审计 F8) **转发到上游前要剥掉的凭据头**。
+   改前 `proxyRenderer` 把入站请求头**逐条全量**转给 `RENDERER_UPSTREAM`（只滤逐跳头）⇒ 只要有请求打到
+   `/webloader/**`，调用方的 DSH `Cookie`（会话）/`Authorization` 就被送到上游那台机器；
+   上游地址是 env 配的（非请求可控），但"配错/上游被换掉"就是一次静默的凭据外带。
+   现在默认剥（`MPW_PROXY_FORWARD_AUTH=1` 恢复旧行为）。判据：tests/sec-route-guard-test.mjs。 */
+const CREDENTIAL_HEADERS = new Set(['cookie', 'authorization', 'proxy-authorization', 'referer', 'origin'])
+export function isCredentialHeader(name) {
+  const k = String(name == null ? '' : name).toLowerCase()
+  if (CREDENTIAL_HEADERS.has(k)) return true
+  if (/^x-.*(token|auth|secret|apikey|api-key|session)/.test(k)) return true
+  if (/(^|[-_])(token|secret|apikey|password)$/.test(k)) return true
+  return false
+}
+/** 入站头 → 上游头（纯函数；`opts.forwardAuth=true` 时恢复旧的全量转发口径）。 */
+export function filterUpstreamHeaders(headers, opts) {
+  const forwardAuth = !!(opts && opts.forwardAuth)
+  const out = {}
+  for (const [k, v] of Object.entries(headers || {})) {
+    const lk = String(k).toLowerCase()
+    if (HOP_HEADERS.has(lk)) continue
+    if (!forwardAuth && isCredentialHeader(lk)) continue
+    out[k] = v
+  }
+  return out
+}
 /** ②(2026-09-21 渲染器来源=本仓) 渲染器页**自己的只读路由**（它写在根上，见 §1.1 的同一条事实）。
  *  为什么需要这份名单：`demo.html` 取包用的是**根绝对路径** `/pkg/<id>`（`demo.html:2265`），
  *  挂在 `/webloader/` 下时这个请求会落到本服务根 ⇒ 实测 404、页面日志写 `pkg HTTP 404`、
@@ -1819,8 +1867,7 @@ function proxyRenderer(req, res, url, relOverride) {
   }
   const rel = (typeof relOverride === 'string') ? relOverride : url.pathname.replace(/^\/webloader\/?/, '')
   const targetPath = (RENDERER_UPSTREAM.path ? RENDERER_UPSTREAM.path + '/' : '/') + rel + (url.search || '')
-  const headers = {}
-  for (const [k, v] of Object.entries(req.headers)) if (!HOP_HEADERS.has(String(k).toLowerCase())) headers[k] = v
+  const headers = filterUpstreamHeaders(req.headers, { forwardAuth: String(process.env.MPW_PROXY_FORWARD_AUTH || '').trim() === '1' })
   headers.host = RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port
   const up = httpRequest({
     host: RENDERER_UPSTREAM.host, port: RENDERER_UPSTREAM.port, method: req.method, path: targetPath,
@@ -2672,7 +2719,11 @@ function health() {
     rendererProxy: RENDERER_UPSTREAM ? {
       path: '/webloader/**', upstream: RENDERER_UPSTREAM.bad ? null : (RENDERER_UPSTREAM.host + ':' + RENDERER_UPSTREAM.port),
       from: RENDERER_UPSTREAM.from,
-      mode: RENDERER_UPSTREAM.bad ? 'configured-but-invalid（本地直供，上游值无法解析）' : 'upstream-first（连接层失败 ⇒ 本地直供回退）',
+      mode: RENDERER_UPSTREAM.bad
+        ? (RENDERER_UPSTREAM.badReason ? 'configured-but-refused（本地直供；上游被安全闸门拒绝：' + RENDERER_UPSTREAM.badReason + '）' : 'configured-but-invalid（本地直供，上游值无法解析）')
+        : 'upstream-first（连接层失败 ⇒ 本地直供回退）',
+      /* ⓪③(P-204 F8) 转发口径如实自述：默认**剥掉** Cookie/Authorization 等凭据头。 */
+      forwardAuth: String(process.env.MPW_PROXY_FORWARD_AUTH || '').trim() === '1' ? 'on（MPW_PROXY_FORWARD_AUTH=1：**连凭据头一起转发**）' : 'off（默认：cookie/authorization/referer/x-*token* 一律不转发；要旧行为设 MPW_PROXY_FORWARD_AUTH=1）',
       purpose: '让测试台用**本仓渲染器页**预览（带 P-163 的"先选级再解码"；超大贴图不再黑屏）',
       localFallback: 'GET/HEAD：上游连不上 ⇒ 本地直供（响应头 X-Bench-Served: local + X-Bench-Upstream-Error）',
       fallback: '/wallpaper-engine-webgl/renderer/index.html（上游产物页）',
@@ -3048,16 +3099,17 @@ server.on('clientError', (err, socket) => {
   try { socket.end('HTTP/1.1 400 Bad Request\r\n\r\n') } catch { /* 已断开 */ }
   void err
 })
-server.listen(PORT, () => {
+server.listen(PORT, BIND_HOST, () => {
   const opener = findOpener()
   const healthSnap = health()
   const line = (s) => console.log(`[8902] ${s}`)
-  line(`一站式测试台服务已启动：http://127.0.0.1:${PORT}/`)
+  line(`一站式测试台服务已启动：http://${BIND_HOST}:${PORT}/`
+    + (BIND_IS_LOOPBACK ? '（只回环；要局域网访问请显式 MPW_BIND=0.0.0.0）' : '（**非回环绑定**：同网段可直连，请确认这是你要的）'))
   line(`  静态测试台     : ${STATIC_ROOT} 挂载在 / 、/demo/ 、/WEwebLoader/ 、/wallpaper-engine-webgl/（${STORE ? 'cache' : 'no-store'}）`)
   line(`  渲染器 iframe  : http://127.0.0.1:${PORT}/wallpaper-engine-webgl/renderer/index.html?type=scene&src=<itemId>（产物写死的路径）`)
   line(`  渲染器面(本地) : /webloader/** 与渲染器根路由（/bundle.js /core/** /elysia/** /pkg/<id> /project/<id> …）` +
     `由本服务**本地直供**（同一份 rendererRequestHandler；响应头 X-Bench-Served: local）` +
-    (RENDERER_UPSTREAM ? `；上游=可选（${RENDERER_UPSTREAM.raw}${RENDERER_UPSTREAM.bad ? ' ← **解析不了**，按本地直供' : '，连不上则回退本地'}）` : '；上游=未配置（不需要 :8899）'))
+    (RENDERER_UPSTREAM ? `；上游=可选（${RENDERER_UPSTREAM.raw}${RENDERER_UPSTREAM.bad ? ' ← **拒绝/解析不了**（' + (RENDERER_UPSTREAM.badReason || '值无法解析') + '），按本地直供' : '，连不上则回退本地'}）` : '；上游=未配置（不需要 :8899）'))
   line(`  壁纸库根(只读) : ${activeRoot}${statSafe(activeRoot) ? '' : '  ← **不存在**（/api/library 会返回 missing+error）'}`)
   const lib = healthSnap.library
   line(`  库来源(显式)   : source=${lib.source} selected=${lib.selected}（${lib.reason}）`)

@@ -29,16 +29,21 @@ const check = (name, cond, detail) => { if (cond) { pass++; console.log('  ✓ '
 
 const headerTokens = (v) => String(v || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
 const wantMethods = ['get', 'head', 'post', 'options']
-// 返回 '' = 三头齐全；否则返回人类可读的缺失说明
-const corsProblem = (h) => {
+/* ⓪③(2026-09-27 P-204) **口径变更**：CORS 头不再无条件 `*`（那是审计 F7③ 的漏洞：任意网页都能跨源读回），
+   改成**按 Origin 白名单回显**。不透明源（去 allow-same-origin 的 sandbox iframe）发的是 `Origin: null`
+   ⇒ 浏览器端收到的仍是"恰好自己那个源"的 ACAO，渲染器自身 fetch 行为**逐条不变**。
+   `expectOrigin` = 该用例请求头里那个 Origin（'null' / 白名单源）。 */
+const corsProblem = (h, expectOrigin = 'null') => {
   const bad = []
-  if (h['access-control-allow-origin'] !== '*') bad.push('allow-origin=' + JSON.stringify(h['access-control-allow-origin']))
+  if (h['access-control-allow-origin'] !== expectOrigin) bad.push('allow-origin=' + JSON.stringify(h['access-control-allow-origin']) + '（期望 ' + JSON.stringify(expectOrigin) + '）')
   if (!headerTokens(h['access-control-allow-headers']).includes('content-type')) bad.push('allow-headers=' + JSON.stringify(h['access-control-allow-headers']))
   const ms = headerTokens(h['access-control-allow-methods'])
   const miss = wantMethods.filter((m) => !ms.includes(m))
   if (miss.length) bad.push('allow-methods 缺 ' + miss.join('/') + '（' + JSON.stringify(h['access-control-allow-methods']) + '）')
   return bad.join('; ')
 }
+/** 不透明源（= 渲染器自己的 sandbox 帧）请求头。 */
+const OPAQUE = { origin: 'null' }
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -92,23 +97,23 @@ try {
   console.log('server/we-scene-demo-server.mjs @ ' + port + '（PORT 环境变量）')
 
   // (a) 200 静态路由
-  const r1 = await request(port, { path: '/' })
-  check('GET / → 200 + CORS 三头（allow-origin: * / allow-headers: content-type / allow-methods: GET, HEAD, POST, OPTIONS）',
+  const r1 = await request(port, { path: '/', headers: OPAQUE })
+  check('GET / （Origin: null）→ 200 + CORS 三头（allow-origin 回显 null / allow-headers: content-type / allow-methods: GET, HEAD, POST, OPTIONS）',
     r1.status === 200 && !corsProblem(r1.headers), 'status=' + r1.status + (corsProblem(r1.headers) ? ' ' + corsProblem(r1.headers) : ''))
 
   // (b) 404 错误路径
-  const r2 = await request(port, { path: '/__mpw-b6-no-such-route__' })
+  const r2 = await request(port, { path: '/__mpw-b6-no-such-route__', headers: OPAQUE })
   check('GET 不存在路由 → 404 + CORS 三头',
     r2.status === 404 && !corsProblem(r2.headers), 'status=' + r2.status + (corsProblem(r2.headers) ? ' ' + corsProblem(r2.headers) : ''))
 
   // (c) 预检（POST 路由）
-  const r3 = await request(port, { method: 'OPTIONS', path: '/report' })
+  const r3 = await request(port, { method: 'OPTIONS', path: '/report', headers: OPAQUE })
   check('OPTIONS /report（POST 路由）→ 204 + allow-headers 含 content-type（CORS 三头齐全、空 body）',
     r3.status === 204 && r3.body.length === 0 && headerTokens(r3.headers['access-control-allow-headers']).includes('content-type') && !corsProblem(r3.headers),
     'status=' + r3.status + ' body=' + r3.body.length + 'B ' + corsProblem(r3.headers))
 
   // (d) 206 范围响应（服务端 parseSingleRange/sendBuffer）
-  const r4 = await request(port, { path: '/bundle.js', headers: { Range: 'bytes=0-10' } })
+  const r4 = await request(port, { path: '/bundle.js', headers: Object.assign({ Range: 'bytes=0-10' }, OPAQUE) })
   const bundle = fs.readFileSync(path.join(ROOT, 'core/we-scene-bundle.js'))
   const cr = String(r4.headers['content-range'] || '')
   check('GET /bundle.js + Range: bytes=0-10 → 206 + content-range: bytes 0-10/<size> + 11 字节切片 + CORS 三头',
@@ -116,10 +121,26 @@ try {
     'status=' + r4.status + ' content-range=' + JSON.stringify(cr) + ' len=' + r4.body.length + ' ' + corsProblem(r4.headers))
 
   // (e) 不带 Range 的普通客户端行为保持 200 全量
-  const r5 = await request(port, { path: '/bundle.js' })
+  const r5 = await request(port, { path: '/bundle.js', headers: OPAQUE })
   check('GET /bundle.js（无 Range）→ 200 全量 + CORS 三头（范围支持不改普通客户端行为）',
     r5.status === 200 && r5.body.length === bundle.length && !corsProblem(r5.headers),
     'status=' + r5.status + ' len=' + r5.body.length + '/' + bundle.length + ' ' + corsProblem(r5.headers))
+  // ⓪③(P-204 F7③) Origin 矩阵：非白名单源**一个 CORS 头都不给**（审计里"任意网页跨源读回"的那条路）
+  const r6 = await request(port, { path: '/bundle.js', headers: { origin: 'https://evil.example' } })
+  check('GET /bundle.js（Origin: https://evil.example）→ 200 但**无** access-control-allow-origin（跨源读被浏览器挡住）',
+    r6.status === 200 && !r6.headers['access-control-allow-origin'] && !r6.headers['access-control-allow-credentials'],
+    'acao=' + JSON.stringify(r6.headers['access-control-allow-origin'] || null) + ' acac=' + JSON.stringify(r6.headers['access-control-allow-credentials'] || null))
+  // 白名单源（8902 测试台）⇒ 回显该源（合法跨源链路仍通）
+  const r7 = await request(port, { path: '/bundle.js', headers: { origin: 'http://127.0.0.1:8902' } })
+  check('GET /bundle.js（Origin: http://127.0.0.1:8902，白名单）→ 回显该源 + Vary: Origin',
+    r7.status === 200 && r7.headers['access-control-allow-origin'] === 'http://127.0.0.1:8902' && String(r7.headers.vary || '').includes('Origin'),
+    'acao=' + JSON.stringify(r7.headers['access-control-allow-origin'] || null) + ' vary=' + JSON.stringify(r7.headers.vary || null))
+  // 攻击预检：非白名单源的 OPTIONS 也拿不到 allow 头
+  const r8 = await request(port, { method: 'OPTIONS', path: '/report', headers: { origin: 'https://evil.example', 'access-control-request-method': 'POST' } })
+  check('OPTIONS /report（Origin: https://evil.example）→ 204 但无 access-control-allow-origin（预检不过 ⇒ 跨源写请求发不出去）',
+    r8.status === 204 && !r8.headers['access-control-allow-origin'],
+    'acao=' + JSON.stringify(r8.headers['access-control-allow-origin'] || null))
+
 } catch (e) {
   fail++
   console.log('  ✗ 测试执行异常 — ' + ((e && e.message) || e))

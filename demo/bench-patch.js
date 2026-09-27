@@ -73,7 +73,7 @@
 // 的 T1 会把本块与源码 DICT 逐键比对，任何漂移都会红。
 // ①(用户第 6 项 2026-09-19) 自绘下拉（与 8899 渲染器页**同一个实现**）：增强而不是替换，
 //   原生 select 留在 DOM 里当值容器 ⇒ 上游 bundle 读 `.value` / 监听 `change` 的链路一行不改。
-import { enhanceSelect, layerFixedOffset } from './mpw-select.js'
+import { enhanceSelect, layerFixedOffset, scrollAffectsAnchor } from './mpw-select.js'
 
 export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","pick.count":"{n} 项","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 WEwebLoader 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.mic":"启用麦克风","toolbar.micTip":"默认关：关着时页面一次都不会请求麦克风（getUserMedia 不调用），「系统实况」只保留歌名与进度；开着时才在壁纸/功能声明需要时请求，不在页面加载时预请求","dbg.switch":"开启调试模式","dbg.switchTip":"逐层查看（左右键）+ 隔离图层；只在调试视图打开期间接管键盘，Alt 退出","logs.cleared":"已清空（{view}）","log.micOn":"已启用麦克风：壁纸/功能声明需要时才会请求（不再有页面加载时的预请求）","log.micOff":"已关闭麦克风：不再发出任何 mic 请求","log.micNeeded":"「系统实况」的麦克风部分需要先勾「启用麦克风」—— 现在只保留歌名/进度","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.weGroup":"渲染器设置（WE 自带）","props.we.flipH":"水平翻转","props.we.colorOptions":"显示颜色选项（总开关）","props.we.brightness":"亮度","props.we.contrast":"对比度","props.we.saturation":"饱和度","props.we.hue":"色调偏移","props.we.playbackRate":"播放速度","props.we.volume":"音量","props.we.flipV":"垂直翻转","props.we.alignment":"对齐方式 / 缩放","props.we.parallaxReaction":"对动作做出反应（视差 / 陀螺仪）","props.we.recording":"录音（WE 录屏 / 录音音量）","props.we.perMonitor":"按显示器（每屏各自设置）","props.we.status.other":"本页已实现（在别处）","props.we.status.no":"未实现","props.we.status.we":"WE 自带","props.we.why.flipV":"本仓渲染器没有 `flipV`（`__wp.setDisplay` 只有 `flipH`）⇒ 不做；要垂直镜像得宿主自己写 CSS `scaleY(-1)`。","props.we.why.alignment":"本页已实现，落点在工具条「适应方式」（`#fit` / `?fit=`），不在渲染器 API 上。","props.we.why.parallaxReaction":"用户口径不做（本机没有陀螺仪）；将来若做走既有的 `__wp.pushPointer(x,y)`。","props.we.why.recording":"Wallpaper Engine 客户端自带（录屏 / 录音音量），页面内没有实现面。","props.we.why.perMonitor":"WE 客户端自带（壁纸与音量按显示器分别保存）；本页是单实例预览，没有这个概念。","props.we.notReady":"渲染器还没发布 `__wp`（换壁纸 / 重挂载期间会短暂如此）：这一组会在渲染器就绪后自动可用，控件先置灰。","props.we.legacy":"渲染器当前跑在 `?display=legacy` 总回退档：显示选项整组被忽略（`__wp.setDisplay` 只读）⇒ 控件已置灰。","props.we.hint":"这几项每一张壁纸都有（WE 自带），直接驱动渲染器 API、改完立刻生效；壁纸自己的可调项在下面。","props.imgDedup":"图片去重","props.imgDedupOnce":"一次（整面板）","props.imgDedupRow":"每行一次","props.imgDedupAll":"全部（不去重）","props.imgDedupNote":"已压掉 {n} 张重复图","props.imgDedupForced":"本次由 URL 档 {flag} 决定","props.imgDedupTip":"同一张画面只画一次（强制）：① 逐字节相同的 URL 只画一遍；② 只差尺寸/格式/水印类参数与后缀（wx_fmt、bo、rf、@100w、800x600、_!web-…、x-oss-process=…）或 http/https、www. 前缀的，算同一张画面 ⇒ 无条件归并（不再要求载入尺寸一致）；③ 面板里两个来源（渲染器自己解析出的图 + 属性文案里的图）共用同一本账；④ 已经画成图的那条链接、以及被压掉后变成空壳的链接都不再单独显示。「全部」= 完全不去重（对照/排障）；「每行一次」= 只在单行内去重。带 ?propimg= 的链接优先","props.imgDedupLog":"图片去重档：{mode}","props.imgDedupForcedNote":"（其中 {m} 张是靠「同一张画面」的身份键**强制归并**的：尺寸不同 {diff} 张 / 尺寸未知 {unk} 张 —— 已按用户口径「只显示一次」）","props.imgDedupForcedLog":"（URL 参数 {flag} 优先：这次改面板开关只记下偏好，要去掉 URL 参数才由它生效）","wpset.done":"已实现","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录","nav.console":"控制台","nav.docs":"说明","nav.wpset":"壁纸设置","nav.settings":"设置","nav.settingsTip":"语言 / 主题 / 归属与许可","nav.lang":"语言","nav.theme":"主题","nav.backend":"后台","nav.backendUnknown":"未知","nav.backendNote":"静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。","wp.add":"＋","wp.addTitle":"添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸","logs.expandTip":"展开输出（控制台）","logs.collapseTip":"收起输出（控制台）","props.emptyState":"还没有选择壁纸","props.emptyHint":"从左侧「选择壁纸」里点一张，这里就会显示它 project.json 声明的可调项。",
 "libsrc.default":"库来源：本机默认目录（服务端内置，你还没有选择）","libsrc.default.hint":"这个目录是服务端启动时的默认值，不代表你已经选过；点「选择文件夹」在应用内浏览并指定一个目录","libsrc.default.path":"（默认库目录不可用）",
@@ -2007,7 +2007,21 @@ export function bindDropdown(doc, sel, registry) {
     btn.textContent = o ? o.textContent : sel.value
     btn.disabled = !!sel.disabled
   }
-  const close = () => { wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false') }
+  const close = () => { wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); anchorRect = null }
+  /** ⑦(2026-09-25) 展开那一刻的触发框 rect + "自那以后真的动过没有"。
+   *  为什么要 rect 而不是只看滚动源：滚动事件是**异步派发**的（改 `scrollTop` 之后下一帧才收到），
+   *  "先滚动、后展开"会让**已经滚完**的那次滚动在展开之后才到达 ⇒ 只看源的话，刚打开的下拉会被一次
+   *  其实已经过去的滚动收掉。浮层坐标本来就是按这张 rect 算的 ⇒ 只有 rect 变了才真的脱开。
+   *  返回 `true`/`false`；**无法判定**（没量到 rect / 桩 DOM 无布局）返回 `null`，由调用方退回事件源判据。 */
+  let anchorRect = null
+  const anchorMoved = () => {
+    if (!anchorRect || typeof btn.getBoundingClientRect !== 'function') return null
+    try {
+      const r = btn.getBoundingClientRect()
+      return Math.abs(r.left - anchorRect.left) > 0.5 || Math.abs(r.top - anchorRect.top) > 0.5
+        || Math.abs(r.width - anchorRect.width) > 0.5 || Math.abs(r.height - anchorRect.height) > 0.5
+    } catch { return null }
+  }
   /** 浮层坐标（fixed 坐标系 = 视口）—— 只在展开时算一次；滚动/改尺寸由调用方关掉重开。
    *  ⚠ 写内联坐标时**必须减掉包含块原点**：`#pages-track{contain:paint}` 是这些 fixed 后代的包含块，
    *    不减就会整体下移一个 header 的高度（正是"下拉与触发框之间有缝"的真因，见 layerFixedOffset）。 */
@@ -2015,6 +2029,7 @@ export function bindDropdown(doc, sel, registry) {
     try {
       if (typeof btn.getBoundingClientRect !== 'function') return null
       const rect = btn.getBoundingClientRect()
+      anchorRect = { left: rect.left, top: rect.top, width: rect.width, height: rect.height }   // ⑦浮层坐标的锚定依据
       const clipEl = (typeof document !== 'undefined' && doc.querySelector) ? doc.querySelector('#pages-track') : null
       const clip = (clipEl && typeof clipEl.getBoundingClientRect === 'function') ? clipEl.getBoundingClientRect() : null
       const inside = !!(clipEl && typeof clipEl.contains === 'function' && clipEl.contains(btn))
@@ -2068,7 +2083,7 @@ export function bindDropdown(doc, sel, registry) {
     wrap.classList.contains('open') ? close() : open()      // A6 点触发器可收回
   })
   sel.addEventListener('change', label)
-  const api = { sel, wrap, btn, list, label, open, close, position, isOpen: () => wrap.classList.contains('open') }
+  const api = { sel, wrap, btn, list, label, open, close, position, anchorMoved, isOpen: () => wrap.classList.contains('open') }
   if (registry) registry.push(api)
   label()
   return api
@@ -6940,7 +6955,20 @@ export function init() {
            用已登记的 dropdown 句柄判包含关系（不写死类名，目录选择器/其它浮层一并受益）。 */
         const t = e && e.target
         if (t) { for (const d of dropdowns) { try { if (d.wrap && d.wrap.contains(t)) return } catch { /* 桩 DOM */ } } }
-        closeAll(null)
+        /* ⑦(2026-09-25) 与 `mpw_select` 同一类问题（同一份判据 `scrollAffectsAnchor`）：滚动源**与锚点无关**
+           时不该收起 —— 改前这里是 `closeAll(null)`，于是日志窗 `#logbody` 自己往下跟、库列表自动滚到选中项
+           这类滚动会把刚展开的下拉收掉（用户看到的是"点开就没了"；测试台实测 250ms 内日志窗滚了 4 次）。
+           两道判据先严后宽：① **锚点 rect 真的变了**（浮层坐标就是按它算的，最准，且吃掉"先滚动后展开"的
+           异步时序坑）⇒ 收；② 拿不到 rect（桩 DOM）⇒ 退回"视口/文档滚动、或锚点祖先滚动" ⇒ 收。 */
+        for (const d of dropdowns) {
+          let moved = null
+          try { moved = typeof d.anchorMoved === 'function' ? d.anchorMoved() : null } catch { moved = null }
+          if (moved === null) {
+            let affected = false
+            try { affected = scrollAffectsAnchor(t, d.btn, doc) } catch { affected = false }
+            if (affected) d.close()
+          } else if (moved) d.close()
+        }
       }, true)
       addEventListener('resize', () => closeAll(null))
     }

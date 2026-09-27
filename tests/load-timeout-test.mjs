@@ -243,7 +243,15 @@ const SITES = [
   ['/type/<id> 路由判据', "fetchT('/type/' + id, null, NET_TIMEOUT_MS, '路由判据')"],
   ['/ddlist/<id>', "fetchT('/ddlist/' + id, null, NET_TIMEOUT_MS, '视频文件表')"],
   ['/pkgpath 本地容器', "fetchT(url, null, NET_TIMEOUT_MS, '本地容器')"],
-  ['宿主 /raw 直连', "fetchT(pkgUrlQ, { credentials: 'include' }, NET_TIMEOUT_MS, '直连宿主')"],
+  /*  ①(2026-09-28 锚点重定基) 本条的判据是"**这个站点在超时包装里**"，不是"creds 选项恒为 include"。
+      P-204 F7⑦ 把 `?pkgurl=` 直连的凭据口径改成 `credentials: mpwCredentialMode(pkgUrlQ)`
+      （同源才 include、跨源 omit，见 demo.html:4163 的注释），旧锚点 `{ credentials: 'include' }`
+      因此全文不命中 ⇒ T4d/T4e 假红（本轮实测：sites=23 missing=1）。
+      这里按**现源码逐字**重定基（不是放宽：仍然要求 `fetchT(` 包装 + NET_TIMEOUT_MS + 同一标签，
+      所以 T5c 的 `fetchT(`→`fetch(` 变异照旧把它判红）；凭据口径本身由
+      tests/sec-route-guard-test.mjs B6–B8 独立断言 ⇒ 两处职责不重叠。
+      ⚠ 下次再动这行的选项时，改这里就行：这是"形状钉住"的既定代价（其余 22 条同源写法一致）。 */
+  ['宿主 /raw 直连', "fetchT(pkgUrlQ, { credentials: mpwCredentialMode(pkgUrlQ) }, NET_TIMEOUT_MS, '直连宿主')"],
   ['/pkgurl 服务端代理', "fetchT(url, null, NET_TIMEOUT_MS, '服务端代理')"],
   ['/pkg/<id> 场景包', "fetchT(url, null, NET_TIMEOUT_MS, '场景包')"],
   ['Q5 粒子定义兜底（切片内联）', 'defFetchJson(cands[i], 8000)'],

@@ -25,6 +25,10 @@ const eq = (a, b, label) => ok(Object.is(a, b) || JSON.stringify(a) === JSON.str
 const SRC = path.join(ROOT, 'demo/mpw-select.js')
 const MATH = path.join(ROOT, 'demo/mpw-select-math.mjs')
 const src = fs.readFileSync(SRC, 'utf8')
+/** 只看**代码**的视图：本次修复的注释里逐字写了旧写法（`win.addEventListener('scroll', close, true)` /
+ *  `scrollIntoView`），拿带注释的原文判"旧写法还在不在"会变成自指假红（house style，见
+ *  `tests/bench-dropdown-theme-test.mjs` 的 `stripComments`）。 */
+const srcCode = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 const mathSrc = fs.readFileSync(MATH, 'utf8')
 
 // ── A 纯决策逻辑 ────────────────────────────────────────────────────────────
@@ -109,7 +113,12 @@ ok(/padding:\s*4px 0/.test(css), 'B6 列表内边距与 `LIST_PAD=8`（4+4）一
 ok(!/\.innerHTML\s*=/.test(src), 'B7 不用 `innerHTML` 拼文案（只用 textContent ⇒ 选项文本不会被当 HTML）')
 ok(/textContent\s*=/.test(src), 'B8 用 textContent 写文案')
 ok(/let openRoot = null/.test(src), 'B9 有**模块级单开注册表**（结构上不可能"点几次重复打开"）')
-ok(/if \(list\) close\(true\); else open\(\)/.test(src), 'B10 触发按钮是 **toggle**（再点即关，不是又开一个）')
+/* ⚠⑦(2026-09-25) 契约加严（判据意图不变：**再点即关，不是又开一个**）：
+   改前判的是裸 `if (list)` —— 宿主整块换节点把 `<ul>` 摘掉后 `list` 仍非空（空气列表），
+   toggle 会走 close() ⇒ 用户"点一下没反应"。现在判的是 `isOpen()`（= 列表**真的还在文档里**），
+   所以判据跟着改成 `if (isOpen()) close(true); else open()`；下面的 E12 另判其余几处状态判断同口径。 */
+ok(/const toggle = \(\) => \{ if \(isOpen\(\)\) close\(true\); else open\(\) \}/.test(srcCode),
+  'B10 触发按钮是 **toggle**（再点即关，不是又开一个；判"开着没有"走 `isOpen()` 而不是裸 `list`）')
 
 const addCount = (src.match(/addEventListener\(/g) || []).length
 const rmCount = (src.match(/removeEventListener\(/g) || []).length
@@ -160,6 +169,53 @@ ok(/list\.setAttribute\('data-origin'/.test(src) && /list\.setAttribute\('data-f
 ok(/setAttribute\('data-mpw-label'/.test(src),
   'D9 按钮根上留 `data-mpw-label`（探针/门禁不必读子节点的 textContent）')
 
+console.log('\n== E ⑦(2026-09-25) 控制被**无关滚动**收掉 / 自愈（真机"点开就没了"）==')
+{
+  /* 判据层：这一次滚动**该不该**把打开的下拉收起来（纯函数，节点当数据传）。 */
+  const doc = { documentElement: { name: 'html' }, body: { name: 'body' } }
+  const outer = { name: 'outer', parentElement: null }
+  const mid = { name: 'mid', parentElement: outer }
+  const btn = { name: 'btn', parentElement: mid }
+  const logbody = { name: 'logbody', parentElement: doc.body }         // 兄弟容器（日志窗就是这一类）
+  const btn2 = { name: 'btn2', parentElement: null, ownerDocument: doc }
+  ok(m.scrollAffectsAnchor(doc, btn, doc) && m.scrollAffectsAnchor(doc.documentElement, btn, doc) && m.scrollAffectsAnchor(doc.body, btn, doc),
+    'E1 视口/文档滚动 ⇒ 收起（`document`/`documentElement`/`body` 三种事件目标都算 —— Firefox 与 Chromium 不一致，这里都收）')
+  ok(m.scrollAffectsAnchor(outer, btn, doc) && m.scrollAffectsAnchor(mid, btn, doc) && m.scrollAffectsAnchor(btn, btn, doc),
+    'E2 锚点祖先（含锚点自己）滚动 ⇒ 收起（原意：fixed 浮层会与锚点脱开）')
+  ok(!m.scrollAffectsAnchor(logbody, btn, doc) && !m.scrollAffectsAnchor({ name: 'list' }, btn, doc),
+    'E3 ★ **与锚点无关**的容器滚动 ⇒ 不收（这就是"点开就没了"的真因：日志窗 250ms 内自滚 4 次）')
+  ok(!m.scrollAffectsAnchor(null, btn, doc) && !m.scrollAffectsAnchor(undefined, null, null),
+    'E4 空事件目标/没有锚点 ⇒ 一律不收（防御：拿不到信息时不做破坏性动作）')
+  ok(m.scrollAffectsAnchor(doc.body, btn2, null) === true && m.scrollAffectsAnchor({ name: 'x' }, btn2, null) === false,
+    'E5 文档缺省从 `anchorEl.ownerDocument` 推（调用方可以只传两个参数）')
+}
+ok(/const onWinScroll = \(ev\) => \{[\s\S]{0,200}?const moved = anchorMoved\(\)[\s\S]{0,220}?scrollAffectsAnchor\(ev && ev\.target, btn, doc\)/.test(srcCode),
+  'E6 展开期间的 scroll 处理走**过滤后**的 `onWinScroll`：先判"锚点真的动了吗"，无法判定才退回同一份纯函数')
+ok(/win\.addEventListener\('scroll', onWinScroll, true\)/.test(srcCode) && !/win\.addEventListener\('scroll', close, true\)/.test(srcCode),
+  'E7 ★ 挂的是 `onWinScroll`、不是裸的 `close`（改前裸挂 ⇒ 页面上任何容器滚动都把下拉关掉）')
+ok(/let anchorRect = null/.test(srcCode) && /anchorRect = \{ left: br\.left, top: br\.top, width: br\.width, height: br\.height \}/.test(srcCode)
+  && /const anchorMoved = \(\) => \{[\s\S]{0,420}?!anchorRect \|\| typeof btn\.getBoundingClientRect !== 'function'[\s\S]{0,120}?return null[\s\S]{0,220}?> 0\.5/.test(srcCode),
+  'E11 ★ ⑦`anchorMoved()`：展开时记下触发框 rect、比较容差 0.5px、**无法判定返回 `null`**（浮层坐标是按这张 rect 算的 ⇒ 只有它变了才真脱开；这也吃掉"先滚动后展开"的异步时序坑）')
+ok(/win\.removeEventListener\('scroll', onWinScroll, true\)/.test(srcCode),
+  'E8 close() 里卸的是同一个具名处理器（装卸配对，没留常驻监听）')
+ok(!/scrollIntoView/.test(srcCode) && /scrollItemInside\(items\[active\]\)/.test(srcCode) && /list\.scrollTop = it \+ ih - ch/.test(srcCode),
+  'E9 ★ 把高亮项滚进列表**自己的滚动盒**（改前 `scrollIntoView` 会滚**祖先** ⇒ 页面自己跳 + 被自己的 scroll 监听收到而自闭）')
+ok(/if \(list && list\.isConnected === false\) close\(false\)/.test(srcCode) && /const isOpen = \(\) => !!list && list\.isConnected !== false/.test(srcCode),
+  'E10 ★ 自愈：宿主整块换节点把 `<ul>` 连根摘掉（没走 close）时，`open()` 先归一成"已关"、`isOpen()` 如实为 false（否则会"自称展开却是空气列表"）')
+{
+  /* ⑦"开着没有"的状态判断全部走 `isOpen()`：裸 `list` 只该出现在"操作那个节点"的地方
+     （close/onDocDown/onWinScroll/applyActive 内部）与 `open()` 里**归一之后**的那一处 return。
+     判据用**去掉注释 + 去掉按节点早退**后的代码扫，并额外要求 `open()` 里那处前面紧跟自愈行（E10）。 */
+  const lines = srcCode.split('\n')
+  const stateCode = lines.filter((l) => !/if \(!list\) return|if \(!item \|\| !list\) return|if \(list\) return/.test(l)).join('\n')
+  const badState = stateCode.match(/[^.\w]if \(!?list\)/g) || []
+  const healIdx = lines.findIndex((l) => /if \(list && list\.isConnected === false\) close\(false\)/.test(l))
+  const healThenReturn = healIdx >= 0 && /if \(list\) return/.test(lines[healIdx + 1] || '')
+  ok(badState.length === 0 && healThenReturn,
+    'E12 ★ ⑦键盘（Enter/Esc/方向键）/ MutationObserver 补画 / `refresh()` 的状态判断都走 `isOpen()`（裸 `list` 只用于操作节点本身，或 `open()` 里自愈之后的 return）',
+    JSON.stringify({ bad: badState, healThenReturn }))
+}
+
 console.log('\n== C RED-IF-REVERTED（真树只读，变异在 /tmp 副本） ==')
 const shaBefore = (() => { const c = fs.readFileSync(MATH); return c.length + ':' + c.subarray(0, 32).toString('hex') })()
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mpw-sel-'))
@@ -198,6 +254,32 @@ ok(shaBefore === shaAfter, 'C3 真树 `demo/mpw-select-math.mjs` 跑前跑后一
   ok(!mutD4 && !mutD5, 'C5 ★ 变异④生效：D4/D5（"每次现读 options"）在变异体里必红', `D4=${mutD4} D5=${mutD5}`)
   const shaSrcAfter = (() => { const c = fs.readFileSync(SRC); return c.length + ':' + c.subarray(0, 32).toString('hex') })()
   ok(shaSrcBefore === shaSrcAfter, 'C6 真树 `demo/mpw-select.js` 跑前跑后一致（变异只落 /tmp）', shaSrcAfter.slice(0, 20))
+}
+
+// 变异⑦（2026-09-25）：把展开期间的 scroll 监听改回**裸 close**（任何容器滚动都关）⇒ E7 必红。
+//   为什么单独来做：这条判据的全部价值就在"挂的是过滤后的处理器"这一处，变异必须能把它判红。
+{
+  const mutScroll = src.replace("win.addEventListener('scroll', onWinScroll, true)", "win.addEventListener('scroll', close, true)")
+  ok(mutScroll !== src, 'C7 变异⑦锚点命中（`scroll` 监听改回裸 `close`）')
+  ok(!/win\.addEventListener\('scroll', onWinScroll, true\)/.test(mutScroll) && /win\.addEventListener\('scroll', close, true\)/.test(mutScroll),
+    'C8 ★ 变异⑦生效：E7（"挂的是过滤后的 onWinScroll"）在变异体里必红')
+}
+// 变异⑧（2026-09-25）：把纯判据改成"恒 true"（任何滚动都收）与"恒 false"（永不收）——
+//   两个方向都要被 E1~E4 判红，否则那组判据只是"写了个函数名"。
+{
+  const mutPath = path.join(tmp, 'mpw-select-math.scroll.mjs')
+  fs.writeFileSync(mutPath, mathSrc.replace(/(export function scrollAffectsAnchor\(scrolledEl, anchorEl, doc\) \{)[\s\S]*?\n\}/,
+    '$1\n  return true\n}'))
+  const always = await import(pathToFileURL(mutPath).href)
+  fs.writeFileSync(mutPath, mathSrc.replace(/(export function scrollAffectsAnchor\(scrolledEl, anchorEl, doc\) \{)[\s\S]*?\n\}/,
+    '$1\n  return false\n}'))
+  const never = await import(pathToFileURL(mutPath).href + '?v=2')
+  const doc = { documentElement: { name: 'html' }, body: { name: 'body' } }
+  const btn = { name: 'btn', parentElement: { name: 'mid', parentElement: null } }
+  ok(always.scrollAffectsAnchor({ name: 'logbody' }, btn, doc) === true && m.scrollAffectsAnchor({ name: 'logbody' }, btn, doc) === false,
+    'C9 ★ 变异"恒 true"（无关滚动也收）被 E3 判红：真树对兄弟容器返回 false')
+  ok(never.scrollAffectsAnchor(doc.body, btn, doc) === false && m.scrollAffectsAnchor(doc.body, btn, doc) === true,
+    'C10 ★ 变异"恒 false"（永不收）被 E1/E2 判红：真树对视口滚动返回 true')
 }
 fs.rmSync(tmp, { recursive: true, force: true })
 

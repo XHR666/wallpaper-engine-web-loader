@@ -176,6 +176,12 @@ add "render-closeout"    "node tests/render-closeout-test.mjs"
 add "tex-upload-guard"   "node tests/tex-upload-guard-test.mjs"
 add "mesh-badframe"      "node tests/mesh-badframe-test.mjs"      # A 会话新增（W6 帧采样守卫），C 注册
 add "sandbox-cors"       "node tests/sandbox-cors-test.mjs"       # B6：:8899 的 CORS/预检（不透明源下渲染器自身 fetch 也变跨源）
+# ⓪③(2026-09-27 P-204 安全审计 F7/F8) 渲染器侧**目标闸门**：:8899 的 CORS 白名单（改前无条件 ACAO:* ⇒ 任意网页
+#   跨源读回）+ `/pkgurl?u=` 只许回环/白名单（改前只判 ^https?:// ⇒ SSRF 取回器）+ 不跟随重定向 + 默认只绑回环
+#   （MPW_BIND 回退口）+ demo.html 的 `?thumbpost=`/`?extbase=` 闸门与"跨源不带凭据" + :8902 上游代理剥凭据头。
+#   判据含**改前读数复现**（MPW_CORS=legacy ⇒ ACAO:* / MPW_PKGURL_ANY=1 ⇒ 不再 403）与 3 组源码级变异必红。
+#   73 断言；~20s（真起 8899/8902 子进程，全部 127.0.0.1 + 临时目录，无浏览器、不读语料）。规格见 docs/PATCHES.md P-204。
+add "sec-route-guard"    "node tests/sec-route-guard-test.mjs"
 # ①(P-88 2026-09-15 用户点名「一键连拍上报截图」)：真子进程服务收**原始图片字节**（真 JPEG 向量往返：字节逐字节相同
 #   /index.jsonl 台账字段/415·413·400 三条反面用例 + shots 每 id 400 帧滚动与 /report 60 份互不影响）+
 #   📸 连拍按钮/j·J 快捷键源码守卫（挂 #bar、__mpwSafeDataURL 读回、原分辨率仅 >1920 缩、进度文案、
@@ -253,6 +259,13 @@ add "tex-wrap-repeat"    "node tests/tex-wrap-repeat-test.mjs"
 #   帧循环接线位置（跳帧在 fps 计数前、记账在渲染后）、web 帧盒走唯一换算点且量不到就丢弃、
 #   其余降级项必须写清"不支持 + 替代"、变异自证（换回桩 ⇒ A 组必红）。~0.5s
 add "host-api-wiring"    "node tests/host-api-wiring-test.mjs"
+# ①(2026-09-25 P-203) `prop-push`：**场景帧属性下发通道**（跨源 3080 → 8902 那一跳）—— 渲染器侧认
+#   `{type:'mpw-user-props'}` ⇒ 真写用户属性表 + 走面板同一条应用链 + **回执** `mpw-props-applied`；
+#   只认父页/自己的来源纪律、空表【零改动但如实回执】、"根本没到"与"到了但空"分得开、`?proppush=legacy`
+#   回退口、`window.__mpwPropsApplyHost` 那个"读了却从没人写"的契约点（+ 时段键按数组判）。
+#   行为用真源码切片驱动（不靠浏览器）；变异自证 6 组（删回执/删来源纪律/空表提前返回/legacy 失效/
+#   删 applyHost 赋值/删数组键时段判定 ⇒ 各自必红）。~0.4s
+add "prop-push"          "node tests/prop-push-test.mjs"
 # ①(2026-09-25 P-195/P-196) `fx-desc-meta`：include 头里的 material 注解要进 matMeta（否则
 #   `g_CompositeAlpha` 停在 0 ⇒ `COMPOSITE==1` 的 pass 成 no-op）+ fbo 描述符的 format/width/height/uvs
 #   真落地（`effects/glitter` 真用例）+ 两个回退口 + 真语料证据 + 变异自证（删 includeBodies / 删 R8 分支必红）。~0.6s
@@ -495,6 +508,20 @@ add "particle-frame-uv-and-pointer" "node tests/particle-frame-uv-and-pointer-te
 #   无源一个都不写（`?bandfeed=off` 逐位不变），以及同一材质 vert/frag 的 `[COMBO]` 默认值**取并集**。
 #   36 断言 + 3 组变异自证；~2.7s，无浏览器/无网络（真包缺失 SKIP+exit 0）。
 add "effects-degenerate-fbo" "node tests/effects-degenerate-fbo-test.mjs"
+# ①(P-205 2026-09-25 缺口 1/2 补登记) 两条（离线真包判据，无浏览器；需要 `$MPW_ROOT/allwallpaper` 语料）：
+#   `effect-json-fallback` —— `effects/**/effect.json` 的 `/weassist` 候选链（包内 → `/weassist/<rel>`
+#     → 官方效果自带子树 `<效果目录>/materials|shaders/effects/…`）：45 包 / 427 个层-效果实例此前**静默丢弃**。
+#     26 断言 + 3 组变异自证；含"7 个含包内效果的真包 × 732 实例的链摘要与改动前逐位相同"的冻结回归；~40s。
+#   `model-key` —— 层级 `model` 键（老式模型层）：3 包 / 105 层此前整层消失、且被 `solid` 口径吞成"纯色层"。
+#     16 断言 + 3 组变异自证；含"真·纯色层数两档相同、model 层单列"的口径分离读数、以及"新台账与
+#     package-baseline.json 的独立读数逐位相同"；~30s（读 3 个大包的 MDL 头）。
+add "effect-json-fallback" "node tests/effect-json-fallback-test.mjs"
+add "model-key"           "node tests/model-key-fallback-test.mjs"
+# ①(P-206 2026-09-28 补登记) `weassist-prefetch`：P-205 的**宿主侧接线**（`demo.html` 的效果资产预取 +
+#   同步 `setWeAssetReader` 注册 + `?weassist=legacy` 回退）：3 个 PKGM0014 真包挂上的效果实例 0 → 22/37/25
+#   （pass 30/47/25）。32 断言（S1 结构 / S2 合成行为含三档触顶 + 失败不阻塞 / S3 真语料含链摘要冻结）
+#   + 4 组变异自证（删注册调用 ⇒ S1+S2+S3 红）；~50s，无浏览器（真包 + 真 core，纯 Node）。
+add "weassist-prefetch"   "node tests/weassist-prefetch-test.mjs"
 add "clearfx-narrow"      "node tests/clearfx-narrow-test.mjs"
 # ①(P-135 2026-09-19 主对话补登记) 两条：
 #   `load-timeout` —— 用户第 ④ 项（"整面板只有 loading…" = module 从未执行）：看门狗必须把失败原因**写进 `#log`**、

@@ -1111,6 +1111,111 @@ try {
   window.__mpwEnhancePanelSelects = enhancePanelSelects   // 诊断/测试入口（与 __mpwProps 同精神）
 } catch (e) { /* 无 DOM（Node 侧语法检查）⇒ 忽略 */ }
 // ═══ MPW-SELECT-WIRING-END ═══
+// ═══ MPW-SEC-GUARD-BEGIN ⓪③(2026-09-27 P-204 安全审计 F7②/⑦) ═══
+/* 页面上"目标地址能不能去 / 要不要带凭据"的**唯一一处判断**（tests/sec-route-guard-test.mjs 按本对标记
+   切片在 Node 里直接跑这几个纯函数 —— 所以它们只吃参数，不闭包页面状态）。
+   改前的三处漏洞（审计报告 §F7）：
+     · `?thumbpost=` 接受**任意地址**：渲染器把「480×270 截图 + `pkgurl`（含宿主签发的 `st` 令牌）+
+       `pkgpath`（本地绝对路径）」POST 过去，legacy 分支还带 `credentials:'include'`；
+     · `?pkgurl=` 直连分支恒带 `credentials:'include'`（跨源时等于把 DSH 会话 cookie 指向目标源）；
+     · `?extbase=`/`?exthooks=` 的 `import()` 连 scheme 都不校验 ⇒ 第三方 JS 直接跑在渲染器源里
+       （能读 `/pkgpath` / `/pkgdir`）。
+   现在的口径：
+     · `mpwSameOriginTarget()`：目标必须与页面**同源**（相对路径/同源绝对 URL 都算），scheme 只许 http(s)；
+     · `mpwThumbPostTarget()`：缩略图上报目标 —— 同源任意路径，跨源只认「回环/同主机名 + `/api/mpkg-wallpaper/`
+       前缀」（合法链路本来就是跨源：渲染器 :8899/:8902 → 插件 :3080）；
+     · `mpwCredentialMode()`：同源 ⇒ `include`（DSH 宿主鉴权靠 cookie，只有同源才可能有效）；
+       跨源 ⇒ `omit` —— **回退档也不带凭据**；
+     · `mpwExtUrlAllowed()`：只许同源 `/ext/**`（渲染器自己的扩展目录）；
+     · `mpwMsgFromHost()`：入站 postMessage 同时校验**窗口身份**与**来源主机在回环内/同源**。
+   回退口（**显式**才生效；与 8899 侧 env 一一对应，见 server/we-scene-demo-server.mjs 的 injectSecFlags）：
+     · 页面 URL 加 `?thumbpostany=1` / `?extany=1`（免重启）；
+     · 或由宿主注入 `window.__MPW_THUMBPOST_ANY` / `window.__MPW_EXT_ANY`
+       （env：`MPW_THUMBPOST_ANY=1` / `MPW_EXTBASE_ANY=1`）。 */
+function mpwUrlBase(base) {
+  try { return new URL(base || (typeof location !== 'undefined' ? location.href : '')) } catch (e) { return null }
+}
+function mpwSameOriginTarget(raw, base) {
+  const b = mpwUrlBase(base)
+  const s = String(raw == null ? '' : raw).trim()
+  if (!b || !s) return { ok: false, reason: b ? 'empty' : 'no-base', url: '' }
+  let u = null
+  try { u = new URL(s, b) } catch (e) { return { ok: false, reason: 'bad-url', url: '' } }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false, reason: 'bad-scheme', url: u.href }
+  if (u.origin !== b.origin) return { ok: false, reason: 'cross-origin', url: u.href }
+  if (u.username || u.password) return { ok: false, reason: 'userinfo', url: u.href }
+  return { ok: true, reason: 'same-origin', url: u.href }
+}
+/** fetch 的 credentials 档：只有同源目标才允许带凭据（跨源一律 omit）。 */
+function mpwCredentialMode(raw, base) {
+  return mpwSameOriginTarget(raw, base).ok ? 'include' : 'omit'
+}
+/** 缩略图上传目标的**白名单**（比"同源"宽一档，因为合法链路本来就是跨源：渲染器 :8899/:8902 → 插件 :3080）：
+     · 同源：任意路径（渲染器自己托管的上报端）；
+     · 跨源：只认「主机是回环、或与页面同主机名」**且** 路径落在插件的宿主契约前缀
+       `/api/mpkg-wallpaper/` 下（`?thumbpost=` 的合法取值形状）。
+     ⇒ 公网/任意第三方地址（改前唯一的形态）一律拒绝；本地另一个进程冒名收件仍是**未验证边界**
+       （要收件得先在本机起进程；`st` 令牌本身绑定了宿主签发的身份）。 */
+const MPW_THUMBPOST_PATH_PREFIX = '/api/mpkg-wallpaper/'
+function mpwThumbPostTarget(raw, base) {
+  const b = mpwUrlBase(base)
+  const s = String(raw == null ? '' : raw).trim()
+  if (!b || !s) return { ok: false, reason: b ? 'empty' : 'no-base', url: '', sameOrigin: false }
+  let u = null
+  try { u = new URL(s, b) } catch (e) { return { ok: false, reason: 'bad-url', url: '', sameOrigin: false } }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false, reason: 'bad-scheme', url: u.href, sameOrigin: false }
+  if (u.username || u.password) return { ok: false, reason: 'userinfo', url: u.href, sameOrigin: false }
+  if (u.origin === b.origin) return { ok: true, reason: 'same-origin', url: u.href, sameOrigin: true }
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  const loopback = h === 'localhost' || h === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)
+  if (!loopback && h !== b.hostname.toLowerCase()) return { ok: false, reason: 'cross-origin-host', url: u.href, sameOrigin: false }
+  if (u.pathname !== MPW_THUMBPOST_PATH_PREFIX.slice(0, -1) && !u.pathname.startsWith(MPW_THUMBPOST_PATH_PREFIX)) {
+    return { ok: false, reason: 'not-plugin-path', url: u.href, sameOrigin: false }
+  }
+  return { ok: true, reason: 'loopback-plugin-route', url: u.href, sameOrigin: false }
+}
+/** `?extbase=` / `?exthooks=` 的目标：同源 + 路径在 `/ext/` 下（同源 `/ext/<name>` 由 8899 提供）。 */
+function mpwExtUrlAllowed(raw, base) {
+  const b = mpwUrlBase(base)
+  const s = String(raw == null ? '' : raw).trim()
+  if (!b || !s) return { ok: false, reason: b ? 'empty' : 'no-base', url: '' }
+  let u = null
+  try { u = new URL(s.replace(/\/+$/, '') + '/', b) } catch (e) { return { ok: false, reason: 'bad-url', url: '' } }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false, reason: 'bad-scheme', url: u.href }
+  if (u.username || u.password) return { ok: false, reason: 'userinfo', url: u.href }
+  if (u.origin !== b.origin) return { ok: false, reason: 'cross-origin', url: u.href }
+  if (u.pathname !== '/ext/' && !u.pathname.startsWith('/ext/')) return { ok: false, reason: 'not-ext-path', url: u.href }
+  return { ok: true, reason: 'same-origin-ext', url: u.href }
+}
+/** 入站 postMessage 的窗口身份 + 来源校验（`ev.origin` 为 'null'/空 = 不透明源或无该字段的旧实现，放行）。 */
+function mpwMsgFromHost(ev) {
+  try {
+    if (!ev) return false
+    const src = ev.source
+    let ok = false
+    try { ok = (src === window.parent) || (src === window) || src == null } catch (e) { ok = false }
+    if (!ok) return false
+    const o = String(ev.origin == null ? '' : ev.origin).trim()
+    if (!o || o === 'null') return true
+    let u = null
+    try { u = new URL(o) } catch (e) { return false }
+    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+    if (h === 'localhost' || h === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true
+    try { return u.origin === location.origin } catch (e) { return false }
+  } catch (e) { return false }
+}
+const MPW_SEC_ANY = (() => {
+  const q = (() => { try { return new URLSearchParams(location.search) } catch (e) { return null } })()
+  /* 两个回退口**在这里各读一次字面量**：`tests/diag-flag-check.mjs` 的扫描源就是这些 `.get('<名>')`
+     （动态 `q.get(name)` 它看不见）⇒ 主表与代码才能双向核对（与 `frame` 那条同款做法）。 */
+  let thumbpost = false; let ext = false
+  try { thumbpost = !!(q && q.get('thumbpostany') === '1') } catch (e) { thumbpost = false }
+  try { ext = !!(q && q.get('extany') === '1') } catch (e) { ext = false }
+  try { if (typeof window !== 'undefined' && window.__MPW_THUMBPOST_ANY === true) thumbpost = true } catch (e) { /* ignore */ }
+  try { if (typeof window !== 'undefined' && window.__MPW_EXT_ANY === true) ext = true } catch (e) { /* ignore */ }
+  return { thumbpost, ext }
+})()
+// ═══ MPW-SEC-GUARD-END ═══
 const cv = document.getElementById('sc');
 /* ⑥ web 帧的页级状态：`webReady`（shim 报到）/ `webReloads`（降档次数，防来回抖）/ `mpwWebSend`（宿主→帧控制面） */
 /** ⑥ web 帧的 128 元频段泵（节流 30Hz；暂停期间**不发**；没有帧时是空操作）。
@@ -1236,6 +1341,97 @@ function mpwWebApplyProps(raw) {
   const rec = { at, dest: 'scene-props', via: 'none', ok: false, keys, count: 0, why }
   webPropsLast = rec
   return rec
+}
+
+/* ═══ ①(P-203 2026-09-25) **场景帧的属性下发通道**（跨源 3080 → 8902 的那一跳）════════════════════
+   现场：改「WE 自带选项 / 包内 `general.properties`」的属性**只持久化**，要下次应用壁纸才生效。
+   核实过的缺口：插件把改动写进 `propEdits` 并落盘，但**场景帧没有属性下发通道** —— 插件侧只有给
+   web 帧的 `{op:"props"}`（同源/shim 那条）；场景渲染器帧在 `127.0.0.1:8902`、插件页在 `3080`
+   ⇒ 不同源，`contentDocument` / `__wp` 都够不着。而本页上面那个 `mpwWebApplyProps`（`updateWebProps`
+   的真实现）**场景档分支早就接好了**（写 `window.__mpwUserProps` + 面板同一条应用链）⇒ 缺的只是
+   这一跳：一条 postMessage op。口径与既有 `mpw-audio-policy` 通道**同一套纪律**：
+     · op 名 `mpw-user-props`（**不**沿用任何已登记旗标/通道名）；载荷 `{props:{名:{value}}|{名:裸值}}`；
+     · **只认父页/自己**（`ev.source === window.parent` 或 `window`，或来源不可查）——其余来源
+       **不认、也不回执**（回执等于把信道借给不明来源）；
+     · 非法/空表 ⇒ **零改动但如实回执**（`count:0, ok:false, why:…`）："到了但空"与"根本没到"
+       在读数上必须能分开；
+     · 认下来就回一条 `{type:'mpw-props-applied', keys, count, ok, dest, via, why, at, n}` 给父页；
+       发起方不可回（无 `postMessage`）⇒ 记 `receiptFails`，**不假装发过**；
+     · 幂等/重试由调用方（插件）保证，本页只如实回报一次。
+   可机读：`window.__mpwUserPropsPush = {n, last, msgs, receipts, receiptFails, rejected, lastReceipt, legacy}`。
+   回退口：`?proppush=legacy`（`off`/`0`/`false` 同义）= 回到改动前：**不认这个 op**、不回执、
+   一个字段都不碰；插件侧读同一个旗标、同一语义。
+   判据：`tests/prop-push-test.mjs`（离线切片 + 变异自证，不靠浏览器）。 */
+const MPW_PROP_PUSH_OP = 'mpw-user-props'
+const MPW_PROP_PUSH_ACK = 'mpw-props-applied'
+/* `?proppush=` 必须**显式读一次**：`tests/diag-flag-check.mjs` 的四个扫描源只认
+   `URLSearchParams(location…).get/has` 与正则字面量（同 `frame`/`MPW_WEB_FRAME_RAW` 那条的写法），
+   藏在辅助函数里的解析点它看不见 ⇒ 主表会「代码有·文档无」/反向也核不上。 */
+const MPW_PROP_PUSH_RAW = (() => { try { return new URLSearchParams(location.search).get('proppush') } catch (e) { return null } })()
+/** `?proppush=legacy`（`off`/`0`/`false` 同义）= 回到改动前（P-203 之前没有这条通道）。 */
+function mpwPropPushLegacyOf(raw) {
+  const v = String(raw == null ? '' : raw).trim().toLowerCase()
+  return v === 'legacy' || v === 'off' || v === '0' || v === 'false'
+}
+const MPW_PROP_PUSH_LEGACY = mpwPropPushLegacyOf(MPW_PROP_PUSH_RAW)
+/** 记账面（判据/探针读它，不读闭包变量）：`n` = 认下来的属性 op 条数；`last` = 最近一条的读数。 */
+const mpwUserPropsPush = {
+  n: 0, last: null, msgs: 0, receipts: 0, receiptFails: 0, rejected: 0,
+  lastRejected: null, lastReceipt: null, legacy: MPW_PROP_PUSH_LEGACY, op: MPW_PROP_PUSH_OP, ack: MPW_PROP_PUSH_ACK,
+}
+try { window.__mpwUserPropsPush = mpwUserPropsPush } catch (e) { /* 无 window */ }
+/** 来源纪律：**只认父页或自己**（与 `mpw-audio-policy` 通道逐字同款判断；`ev.source == null` 放行）。 */
+function mpwPropPushFromParent(ev) {
+  let fromParent = false
+  try { fromParent = (ev.source === window.parent) } catch (e) { fromParent = false }
+  if (!fromParent && ev.source !== window && ev.source != null) return false
+  return true
+}
+/** 回执：postMessage 给**发起方**（跨源唯一可达）；发起方不可回 ⇒ 记 `receiptFails`，不假装发过。 */
+function mpwPropPushReceipt(ev, rec) {
+  const msg = {
+    type: MPW_PROP_PUSH_ACK, keys: (rec && rec.keys) || [], count: (rec && rec.count) || 0,
+    ok: !!(rec && rec.ok), dest: (rec && rec.dest) || 'none', via: (rec && rec.via) || 'none',
+    why: String((rec && rec.why) || ''), at: Date.now(), n: mpwUserPropsPush.n,
+  }
+  let target = null
+  try { target = (ev && ev.source && typeof ev.source.postMessage === 'function') ? ev.source : null } catch (e) { target = null }
+  if (!target) { try { target = (window.parent && window.parent !== window && typeof window.parent.postMessage === 'function') ? window.parent : null } catch (e) { target = null } }
+  if (!target) { mpwUserPropsPush.receiptFails++; return false }
+  try { target.postMessage(msg, '*'); mpwUserPropsPush.receipts++; mpwUserPropsPush.lastReceipt = msg; return true } catch (e) { mpwUserPropsPush.receiptFails++; return false }
+}
+/**
+ * 一条入站 message 的属性 op 处置（**切片区**：`tests/prop-push-test.mjs` 用 `new Function` 驱动真源码）。
+ * 依赖只允许是本块内的东西 + 顶层 `mpwWebApplyProps`（切片时按形参 `deps.apply` 注入 ⇒ 判据不碰真页面）。
+ * @returns {object|null} 回执体；没认下来（不是这个 op / 来源不对 / legacy）⇒ null 且**一个字段都不碰**。
+ */
+function mpwUserPropsPushHandle(ev, deps) {
+  if (MPW_PROP_PUSH_LEGACY) return null                       // 回退口：回到改动前（不认这个 op）
+  const D = deps || {}
+  const apply = D.apply || mpwWebApplyProps
+  const reply = D.reply || mpwPropPushReceipt
+  const led = D.ledger || mpwUserPropsPush
+  let d = null
+  try { d = ev && ev.data } catch (e) { d = null }
+  if (!d || typeof d !== 'object' || d.type !== MPW_PROP_PUSH_OP) return null   // 不是这个 op ⇒ 不记数、不动作
+  if (!mpwPropPushFromParent(ev)) {                            // 来源不对 ⇒ 不认也不回执（只留痕）
+    led.rejected++
+    led.lastRejected = { at: Date.now(), origin: (() => { try { return String(ev.origin || '') } catch (e) { return '' } })(), why: '来源既不是父页也不是自己' }
+    return null
+  }
+  led.msgs++
+  const rec = apply(d.props)                                   // 真实现：空/非法 ⇒ 零改动（下面如实回执）
+  led.n++
+  led.last = {
+    at: Date.now(), keys: (rec && rec.keys) || [], count: (rec && rec.count) || 0, ok: !!(rec && rec.ok),
+    dest: (rec && rec.dest) || 'none', via: (rec && rec.via) || 'none', why: String((rec && rec.why) || ''), n: led.n,
+  }
+  try { reply(ev, led.last) } catch (e) { led.receiptFails++ }
+  return led.last
+}
+/* 接线（legacy 档**不挂**监听器：与"改动前"逐位一致 —— 那时这条 op 不存在）。 */
+if (!MPW_PROP_PUSH_LEGACY) {
+  try { window.addEventListener('message', (ev) => { try { mpwUserPropsPushHandle(ev) } catch (e) { /* ignore */ } }, false) } catch (e) { /* ignore */ }
 }
 
 /* ①(P-112-BANDGEOM 后续 2026-09-25) **帧几何模块接进 web 帧路径**（规格 §5 的回退开关在这里落地）：
@@ -3163,8 +3359,259 @@ function particleMaterialCandidates(layer) {
   return out
 }
 
+// ═══ MPW-FX-PREFETCH-BEGIN ①(P-206 2026-09-28) 效果链 `/weassist` 资产的**预取 + 同步 reader 注册** ═══
+// 病（P-205 的缺口在宿主侧）：core 侧已把三级候选链（① 包内 → ② `/weassist/<rel>` → ③ `/weassist/<效果目录><rel>`）
+//   接进 `effect.json` / material / shader 三处，并留了宿主注入口 `setWeAssetReader(fn)`；但**页面从没注册过
+//   reader**（`lib.resolveEffectChain(pkg, ef, rd)` 只有三个实参）⇒ 线上仍只有"包内优先 + 缺件记账"，
+//   3 个 `PKGM0014` 真包（砂狼白子11_03 / 佩丽卡1_03 / 陈千语_03）在离线端到端已从 0 变成 22/37/25 个挂上
+//   的效果实例，**浏览器里还是 0**。
+// core 是纯模块（不 import node:fs、也不该自己发 fetch）⇒ **取件是宿主的事**：本块在 `loadScene()` 之前
+//   把"这次要用的 WE 资产正文"预取进一张 `Map<资产相对路径, 正文>`，再注册**同步** reader
+//   `rel => map.get(rel) ?? null`（**miss 返回 null**，绝不发请求、绝不抛）。此后 core 的三处候选链在内存里
+//   命中，一次网络请求都不由 core 发。
+// 预取清单（与 core 的候选链**逐级同序、命中即停** —— 与 `readWeAssetText` 逐字同口径）：
+//   ① 效果定义：场景里每个 `layer.effects[].file`（去重）→ 按 `weAssetCandidates(rel)` 逐个试 `/weassist/<候选>`；
+//   ② material：命中档的相对目录 = 效果自带子树（`effectAssetDirOf(命中候选)`）→ 按 `weAssetCandidates(mat, dir)` 试；
+//   ③ shader 源：material 的 `passes[0].shader` → `shaders/<名>.frag|.vert`，同一条链（带 dir）。
+//   ⚠ 只有 ①②③ 三类 rel 会进 `Map`；其它 rel 一律 miss 返回 null（core 不会向 reader 问别的）。
+//   ③ 为什么必须一起预取：`resolveEffectShaderSource` 也接在同一条链上，不给它正文 ⇒ 每条 pass 编译不出
+//   内容，页面上只剩"空 pass"（层照旧没效果），而且会往 P-205 台账里堆 `kind:'shader'` 缺件。
+//   **包内优先（快路径）**：调用方给了 `opts.readPkgText`（包内那一条的正文）时，包内已有的件**一次网络
+//   请求都不发**（core 先查包内、根本不会问 reader）；包内 effect.json 照样**就地解析**，以便发现它引用的
+//   外部 material（那些仍要去 `/weassist` 取）。这与 core 的解析顺序逐字同序，也把请求数压到"真正缺的件"。
+// 同源：URL 一律是**相对** `/weassist/<逐段 encodeURIComponent 的 rel>`（服务端 `decodeURIComponent` 后落到
+//   本机 WE 安装的 `assets/**`）—— 页面自己的 origin，**绝不**用绝对/跨源地址，也不带凭据。
+// 有界（常量即台账 `__mpwFxPrefetch.limits`；任何一档到顶都**不阻塞挂载**，缺的照旧由 core 记账 + 日志）：
+//   · 候选请求数 ≤ `FX_PREFETCH_MAX_REQ`（每个候选一次 GET；命中即停 ⇒ 健康路径远小于它）
+//   · 收进 Map 的正文总字节 ≤ `FX_PREFETCH_MAX_BYTES`（超了停止预取，已收的照用）
+//   · 整段墙钟 ≤ `FX_PREFETCH_BUDGET_MS`；单请求（含正文）≤ `FX_PREFETCH_TIMEOUT_MS`；并发 ≤ `FX_PREFETCH_CONC`
+//   · 失败/超时/异常一律吞掉并记台账，`loadScene` 一步都不会因此 reject（缺件照旧记账 + 日志，不静默）
+// 回退口：`?weassist=legacy` ⇒ **不预取、不注册**（逐位回到改动前：只有包内 + 缺件记账）。开关名同步登记在
+//   `docs/README-DIAGNOSTICS.md` 主表（`node tests/diag-flag-check.mjs` 双向比对，0 差异）。
+// 台账：`globalThis.__mpwFxPrefetch`（enabled/legacy/effects/materials/shaders/requests/hits/inPkg/miss/bytes/
+//   mapSize/truncated/ms/limits/registered）与 `globalThis.__mpwFxResolve`（loadScene 实际解析出的实例/挂上/pass 数
+//   + 来源分布 + 链摘要 `digest`）。
+// 开关名登记给 diag-flag-check.mjs（真解析在下面的纯函数 `mpwWeassistLegacyFrom` 里 —— 与 MPW_MULTI_FLAGS /
+//   MPW_BASELINE_FLAGS 同款约定：纯函数好单测，正则字面量只负责让门禁抓得到名字）。
+const MPW_WEASSIST_FLAGS = [/[?&]weassist=/];
+/** `?weassist=legacy` ⇒ 关掉本块（不预取、不注册）。纯函数：判据直接喂字符串。 */
+function mpwWeassistLegacyFrom(search) {
+  try { return new URLSearchParams(String(search == null ? '' : search)).get('weassist') === 'legacy' } catch (e) { return false }
+}
+const MPW_WEASSIST_LEGACY = mpwWeassistLegacyFrom((typeof location !== 'undefined' && location) ? location.search : '');
+const FX_PREFETCH_MAX_REQ = 600;         // 候选请求数上限
+const FX_PREFETCH_MAX_BYTES = 6 << 20;   // 收进 Map 的正文总字节上限（6 MiB：效果 json + shader 源本来就是 KB 级）
+const FX_PREFETCH_TIMEOUT_MS = 3000;     // 单请求（含正文）上限（比 NET_TIMEOUT_MS 短：预取慢不该拖住挂载）
+const FX_PREFETCH_BUDGET_MS = 10000;     // 整段预取墙钟上限（超了就用手上已有的那部分）
+const FX_PREFETCH_CONC = 8;              // 并发候选数
+/** 页面级共享资产表（rel → 正文）。多实例（`?ids=`）同页共享：同一个 rel 的正文来自**同一个**
+    `/weassist/<rel>`（本机 WE 资产），与是哪个包在问无关 ⇒ 各实例累积合并是安全的（同键同内容）。 */
+let __mpwFxAssetMap = null;
+/** 同步查表：miss / 未初始化 / 任何异常 ⇒ null。 */
+function mpwWeAssetReader(rel) {
+  try {
+    const m = __mpwFxAssetMap;
+    if (!m) return null;
+    const v = m.get(String(rel == null ? '' : rel).replace(/^\/+/, ''));
+    return (v === undefined || v === null) ? null : v;
+  } catch (e) { return null }
+}
+/** `/weassist/<rel>` —— **相对 URL**（页面同源）+ 逐段编码（服务端 `decodeURIComponent` 还原）。 */
+function weAssistUrl(rel) {
+  const clean = String(rel == null ? '' : rel).replace(/^\/+/, '');
+  return '/weassist/' + clean.split('/').map((s) => encodeURIComponent(s)).join('/');
+}
+/** 取一个候选的正文（同源 GET + 正文超时）；触顶/404/超时/异常 ⇒ null（**不抛**）。 */
+async function fetchWeAssetText(rel, led) {
+  if (led.requests >= FX_PREFETCH_MAX_REQ) { led.truncated = led.truncated || 'max-req'; return null }
+  if (led.bytes >= FX_PREFETCH_MAX_BYTES) { led.truncated = led.truncated || 'max-bytes'; return null }
+  if (mpwNowMs() - led.t0 > FX_PREFETCH_BUDGET_MS) { led.truncated = led.truncated || 'budget-ms'; return null }
+  led.requests++;
+  const url = weAssistUrl(rel);
+  try {
+    const r = await fetchT(url, null, FX_PREFETCH_TIMEOUT_MS, '效果资产预取');
+    if (!r || !r.ok) return null;              // 404 = 这一级没有（core 的候选链本来就要逐级试）
+    const txt = await textT(r, url, FX_PREFETCH_TIMEOUT_MS, '效果资产正文');
+    if (!txt) return null;
+    if (led.bytes + txt.length > FX_PREFETCH_MAX_BYTES) { led.truncated = led.truncated || 'max-bytes'; return null }
+    led.bytes += txt.length;
+    return txt;
+  } catch (e) { return null }
+}
+/**
+ * 预取 + 注册（口径见本块顶部整段说明）。**永不抛**；返回台账对象（原样发布到 `globalThis.__mpwFxPrefetch`）。
+ * @param {{layers?:Array}} sc 已解析的 scene（只读 `layers[].effects[].file`）
+ * @param {{readPkgText?:(rel:string)=>string|null}} [opts] `readPkgText` = **包内**那一条的正文（可选）。
+ *   给了它才做"包内优先"的快路径：包内已有的件**一次网络请求都不发**（core 先查包内、根本不会问 reader）；
+ *   包内 effect.json 照样**就地解析**以发现它引用的外部 material（那些仍要去 `/weassist` 取）。
+ *   没给 ⇒ 一律按候选链去 `/weassist` 试（离线判据的合成档就是这条路）。
+ */
+async function prefetchWeEffectAssets(sc, opts) {
+  const led = {
+    enabled: false, legacy: !!MPW_WEASSIST_LEGACY, registered: false, hasPkgReader: !!(opts && typeof opts.readPkgText === 'function'),
+    effects: 0, materials: 0, shaders: 0, candidates: 0, requests: 0, hits: 0, inPkg: { effect: 0, material: 0, shader: 0 }, miss: 0,
+    bytes: 0, mapSize: 0, truncated: false, byKind: { effect: 0, material: 0, shader: 0 }, ms: 0,
+    limits: { maxReq: FX_PREFETCH_MAX_REQ, maxBytes: FX_PREFETCH_MAX_BYTES, timeoutMs: FX_PREFETCH_TIMEOUT_MS, budgetMs: FX_PREFETCH_BUDGET_MS, conc: FX_PREFETCH_CONC },
+  };
+  const t0 = mpwNowMs();
+  led.t0 = t0;
+  const pub = () => { try { globalThis.__mpwFxPrefetch = led } catch (e) { /* 诊断面写失败不影响装载 */ } };
+  try {
+    if (MPW_WEASSIST_LEGACY) {
+      logf('① P-206 ?weassist=legacy ⇒ 不预取、不注册 weAssetReader（效果链逐位回到"只有包内 + 缺件记账"）');
+      return led;
+    }
+    // ① 效果定义清单（按场景层序去重）
+    const effRels = [];
+    const seenEff = new Set();
+    for (const l of ((sc && sc.layers) || [])) for (const ef of (l.effects || [])) {
+      const rel = String((ef && ef.file) || '').replace(/^\/+/, '');
+      if (rel && !seenEff.has(rel)) { seenEff.add(rel); effRels.push(rel) }
+    }
+    led.effects = effRels.length;
+    if (!effRels.length) { led.ms = Math.round(mpwNowMs() - t0); return led }   // 无效果链：一次请求都不发、不注册、不刷日志
+    const map = __mpwFxAssetMap = __mpwFxAssetMap || new Map();
+    /** 包内那一条的正文（**同步**、失败/没有 ⇒ null）。core 先查包内 ⇒ 这一档永远不该问 reader。 */
+    const pkgText = (rel) => {
+      if (!led.hasPkgReader) return null;
+      try { const t = opts.readPkgText(rel); return (typeof t === 'string' && t) ? t : null } catch (e) { return null }
+    };
+    /** 依次试候选链（**命中即停**）；命中返回 `{ rel, text }`，全 miss ⇒ null。 */
+    const tryCandidates = async (rel, effectDir, kind) => {
+      const local = pkgText(rel);          // 包内优先：这一档 core 不会问 reader ⇒ 不预取、不发请求
+      if (local) { led.inPkg[kind] = (led.inPkg[kind] || 0) + 1; return { rel: rel, text: local, pkg: true } }
+      const cands = lib.weAssetCandidates(rel, effectDir);
+      led.candidates += cands.length;
+      for (const c of cands) {
+        if (map.has(c)) { led.hits++; led.byKind[kind] = (led.byKind[kind] || 0) + 1; return { rel: c, text: map.get(c) } }
+        const txt = await fetchWeAssetText(c, led);
+        if (txt) {
+          map.set(c, txt);
+          led.hits++; led.byKind[kind] = (led.byKind[kind] || 0) + 1;
+          return { rel: c, text: txt };
+        }
+      }
+      led.miss++;
+      return null;
+    };
+    const chunksOf = (arr) => { const out = []; for (let i = 0; i < arr.length; i += FX_PREFETCH_CONC) out.push(arr.slice(i, i + FX_PREFETCH_CONC)); return out };
+    // ② 效果定义（并发分批；每批一个 `Promise.all`，批次之间顺序执行 ⇒ 请求数/内存都有界）
+    const effHits = [];
+    for (const chunk of chunksOf(effRels)) {
+      const got = await Promise.all(chunk.map((rel) => tryCandidates(rel, null, 'effect')));
+      for (const g of got) if (g) effHits.push(g);
+    }
+    // ③ material：目录 = 命中档的相对目录（**效果自带子树**，官方资产的真实落点）
+    const matJobs = [];
+    const seenMat = new Set();
+    for (const e of effHits) {
+      let ej = null;
+      try { ej = lib.parseWeJson(e.text) } catch (err) { ej = null }
+      if (!ej) continue;
+      const dir = lib.effectAssetDirOf(e.rel);
+      for (const p of (ej.passes || [])) {
+        const m = String((p && p.material) || '').replace(/^\/+/, '');
+        const key = String(dir || '') + '|' + m;
+        if (!m || seenMat.has(key)) continue;
+        seenMat.add(key); matJobs.push({ mat: m, dir: dir });
+      }
+    }
+    led.materials = matJobs.length;
+    const matHits = [];
+    for (const chunk of chunksOf(matJobs)) {
+      const got = await Promise.all(chunk.map((j) => tryCandidates(j.mat, j.dir, 'material')));
+      for (let i = 0; i < got.length; i++) if (got[i]) matHits.push({ hit: got[i], dir: chunk[i].dir });
+    }
+    // ④ shader 源（frag + vert）：同一条链、同一个 dir
+    const shaderJobs = [];
+    const seenShader = new Set();
+    for (const m of matHits) {
+      let mj = null;
+      try { mj = lib.parseWeJson(m.hit.text) } catch (err) { mj = null }
+      const name = mj && mj.passes && mj.passes[0] && mj.passes[0].shader;
+      if (!name) continue;
+      for (const stage of ['frag', 'vert']) {
+        const rel = 'shaders/' + String(name) + '.' + stage;
+        const key = String(m.dir || '') + '|' + rel;
+        if (seenShader.has(key)) continue;
+        seenShader.add(key); shaderJobs.push({ rel: rel, dir: m.dir });
+      }
+    }
+    led.shaders = shaderJobs.length;
+    for (const chunk of chunksOf(shaderJobs)) await Promise.all(chunk.map((j) => tryCandidates(j.rel, j.dir, 'shader')));
+    // ⑤ 注册（**同步** reader）。表为空 ⇒ **不注册**，保持"没有 reader"那条路径逐位不变。
+    led.mapSize = map.size;
+    led.enabled = true;
+    if (map.size > 0) led.registered = !!lib.setWeAssetReader(mpwWeAssetReader);
+    logf('① P-206 效果资产预取：' + led.effects + ' 个效果定义 / ' + led.materials + ' 个 material / ' + led.shaders + ' 条 shader 源'
+      + ' ⇒ 命中 ' + led.hits + ' ' + JSON.stringify(led.byKind) + '，包内优先 ' + JSON.stringify(led.inPkg) + '，miss ' + led.miss
+      + '；入表 ' + map.size + ' 条 ' + Math.round(led.bytes / 1024) + 'KB，候选 ' + led.candidates + ' 次试 / 实发 ' + led.requests + ' 次请求，'
+      + Math.round(mpwNowMs() - t0) + 'ms' + (led.truncated ? '（**触顶 ' + led.truncated + '**，未取到的照旧由 core 记账）' : '')
+      + (led.registered ? '；已注册同步 weAssetReader（miss 返回 null）' : '；表空 ⇒ 不注册'));
+  } catch (e) {
+    led.error = String((e && e.message) || e).slice(0, 160);
+    logf('⚠ P-206 效果资产预取异常（**不阻塞挂载**，缺件仍由 core 记账 + 日志）: ' + led.error);
+  } finally {
+    led.ms = Math.round(mpwNowMs() - t0);
+    pub();
+  }
+  return led;
+}
+// ═══ MPW-FX-PREFETCH-END ═══
+
 function loadScene() {
   const jobs = [];
+  // ①(P-206) 效果链解析**对所有层**（不再嵌在 `layer.image` 分支里）：改前 `lib.resolveEffectChain(pkg, ef, rd)`
+  //   那句在 `if (!layer.image) return` **之后** ⇒ 没有 `image` 的层（粒子/文本/视频/纯色…）的效果链
+  //   **从不解析**（真包读数：砂狼白子11_03 的 50 个层-效果实例里有 20 个落在无 image 的层上 ⇒ 浏览器侧
+  //   最多只可能挂上 10 个，而离线端到端是 22 个）。解析与 `ef.passes[].textures` 接线一并前移；实测这三个包
+  //   的目标贴图本来全在 image 层上 ⇒ 这一移**不新增**任何纹理请求（全语料口径见 tests/weassist-prefetch-test.mjs）。
+  const fxStat = { instances: 0, attached: 0, passes: 0, realShaders: 0, effectsWithChain: 0, sources: {}, matSources: {}, texJobs: 0, digest: '' };
+  const fxTexByLayer = [];
+  // 链摘要（**逐位不回归**的机器可判形式，与离线 `tests/weassist-prefetch-test.mjs` 的 `chainDigest` 同一算式）：
+  //   FNV-1a 32（`Math.imul` 真 32 位）over 每个实例一行 JSON：`{f,fbos,mp:[{s,b,t,binds,tx,c,k}]}`，
+  //   行间 '\n'、行尾无。改前/改后（`?weassist=legacy` 对照）这个 8 位十六进制串必须逐字相同。
+  let fxHash = 0x811c9dc5;
+  const fxHashAdd = (s) => { for (let i = 0; i < s.length; i++) { fxHash ^= s.charCodeAt(i); fxHash = Math.imul(fxHash, 0x01000193) >>> 0 } };
+  scene.layers.forEach((layer) => {
+    const texs = [];
+    (layer.effects || []).forEach((ef) => {
+      // `opts.onLog` ⇒ core 的 P-205 缺件台账（`noteFxMiss`）**进页面日志**（每文件一次；改前这条链在页面上完全静默）。
+      // reader 走模块级注册（见上面 MPW-FX-PREFETCH 块），这里不逐调用传 `weAssetReader`。
+      const r = lib.resolveEffectChain(pkg, ef, rd, { onLog: (m) => logf('⚠ ' + m) });
+      fxStat.instances++;
+      if (fxStat.instances > 1) fxHashAdd('\n');
+      const mps = ef.materialPasses || [];
+      if (mps.length) { fxStat.attached++; fxStat.passes += mps.length; fxStat.effectsWithChain++; }
+      const src = (r && r.source) || 'miss';
+      fxStat.sources[src] = (fxStat.sources[src] || 0) + 1;
+      for (const mp of mps) {
+        const ms = mp.__matSource || 'none';
+        fxStat.matSources[ms] = (fxStat.matSources[ms] || 0) + 1;
+        if (mp.shader) fxStat.realShaders++;
+      }
+      fxHashAdd(JSON.stringify({ f: String((ef && ef.file) || ''), fbos: ef.fbos || null,
+        mp: mps.map((m) => ({ s: m.shader, b: m.blending, t: m.target, binds: m.binds, tx: m.textures, c: m.combos, k: m.constants })) }));
+      (ef.passes || []).forEach((p) => {
+        (p.textures || []).forEach((tn) => {
+          if (typeof tn === "string" && tn !== "" && tn.indexOf("util/") !== 0 && tn.indexOf("_rt_") !== 0) texs.push(tn);
+        });
+      });
+    });
+    if (texs.length) fxTexByLayer.push(texs);
+  });
+  fxStat.digest = fxHash.toString(16).padStart(8, '0');
+  // 每个层内**串行**（与改动前 `chain = chain.then(() => loadTex(tn))` 同序），层之间照旧并发
+  for (const texs of fxTexByLayer) {
+    fxStat.texJobs += texs.length;
+    jobs.push(texs.reduce((ch, tn) => ch.then(() => loadTex(tn)), Promise.resolve()));
+  }
+  try { (window.__mpwFxResolve = window.__mpwFxResolve || []).push(Object.assign({ id: String(id || ''), at: Math.round(mpwNowMs()) }, fxStat)) } catch (e) { /* 诊断面写失败不影响装载 */ }
+  if (fxStat.instances) {
+    logf('① P-206 效果链解析：' + fxStat.instances + ' 个实例 / 挂上 ' + fxStat.attached + ' / pass ' + fxStat.passes
+      + '（真 shader ' + fxStat.realShaders + '）· 定义来源 ' + JSON.stringify(fxStat.sources)
+      + ' · material 来源 ' + JSON.stringify(fxStat.matSources) + ' · 链摘要 ' + fxStat.digest);
+  }
   scene.layers.forEach((layer) => {
     if (!layer.image) return;
     jobs.push((() => {
@@ -3197,16 +3644,8 @@ function loadScene() {
       if (texName) {
         chain = chain.then(() => loadTex(texName, { nonCritical: isNonCriticalLayer(layer) })).then((e) => { if (e) layer.textureName = texName; });
       }
-      (layer.effects || []).forEach((ef) => {
-        lib.resolveEffectChain(pkg, ef, rd);
-        (ef.passes || []).forEach((p) => {
-          (p.textures || []).forEach((tn) => {
-            if (typeof tn === "string" && tn !== "" && tn.indexOf("util/") !== 0 && tn.indexOf("_rt_") !== 0) {
-              chain = chain.then(() => loadTex(tn));
-            }
-          });
-        });
-      });
+      // ①(P-206) 效果链解析与 `ef.passes[].textures` 接线已前移到本函数**开头**的"所有层"循环
+      //   （口径见那里的整段说明：不再只对 `layer.image` 的层生效）。这里只留模型/材质/纹理那条链。
       return chain;
     })());
   });
@@ -3716,9 +4155,12 @@ function loadScene() {
   } else if (pkgUrlQ) {
     logf('加载远程容器: ' + pkgUrlQ)
     // ①(RE-25) 优先**浏览器直连**（带 cookie，可过 DSH 宿主鉴权）；失败再退服务端代理
+    // ⓪③(P-204 F7⑦) 凭据只在**同源**目标上带：跨源（例如渲染器页在 8899、包在 3080）
+    //   过去恒 `credentials:'include'` ⇒ 等于把 DSH 会话 cookie 指向任意 `?pkgurl=` 目标。
+    //   跨源时改 `omit`（宿主鉴权那条路本来也走不通，代理 `/pkgurl?u=` 才是正解）。
     let okDirect = false
     try {
-      const rd = await fetchT(pkgUrlQ, { credentials: 'include' }, NET_TIMEOUT_MS, '直连宿主')
+      const rd = await fetchT(pkgUrlQ, { credentials: mpwCredentialMode(pkgUrlQ) }, NET_TIMEOUT_MS, '直连宿主')
       if (!rd) logf('直连失败（超时或网络异常），改用服务端代理')
       else if (rd.ok) {
         const b = await bufT(rd, pkgUrlQ, NET_TIMEOUT_MS, '直连宿主正文')
@@ -4552,9 +4994,23 @@ function loadScene() {
   ;(async () => {
     try {
       const q = new URLSearchParams(location.search)
-      const base = q.get('extbase')
+      /* ⓪③(P-204 F7④) `?extbase=` / `?exthooks=` 的**目标闸门**：默认只认同源 `/ext/**`
+         （回退口 `?extany=1` / `window.__MPW_EXT_ANY`）。改前这里是零校验的 `import(url)`：
+         第三方 JS 直接跑在渲染器源里，可读 `/pkgpath`、`/pkgdir`。 */
+      const baseRaw = q.get('extbase')
+      const baseGate = baseRaw ? mpwExtUrlAllowed(baseRaw) : { ok: false, reason: 'empty', url: '' }
+      const base = (baseRaw && (baseGate.ok || MPW_SEC_ANY.ext)) ? baseRaw : null
+      if (baseRaw && !base) logf('⚠ 扩展钩子 base 被拒（' + baseGate.reason + '）: ' + String(baseRaw).slice(0, 120))
+      const allowHook = (u) => {
+        const g = mpwExtUrlAllowed(u)
+        if (!g.ok && !MPW_SEC_ANY.ext) {
+          logf('⚠ 扩展钩子地址被拒（' + g.reason + '）: ' + String(u).slice(0, 120))
+          return false
+        }
+        return true
+      }
       const list = []
-      if (q.get('exthooks')) list.push(...q.get('exthooks').split(',').map((x) => x.trim()).filter(Boolean))
+      if (q.get('exthooks')) list.push(...q.get('exthooks').split(',').map((x) => x.trim()).filter(Boolean).filter(allowHook))
       if (base) {
         try {
           // ①(P-135 乙) ?extbase 索引（可选的第三方扩展点）：超时后按"没有扩展"继续（不挡住装载）
@@ -4968,6 +5424,8 @@ function loadScene() {
         let fromParent = false
         try { fromParent = (ev.source === window.parent) } catch (e) { fromParent = false }
         if (!fromParent && ev.source !== window && ev.source != null) return
+        /* ⓪③(P-204 F7⑤) 原有 source 校验之外再验来源（回环源/同源/不透明源；公网页面被挡）。 */
+        if (typeof mpwMsgFromHost === 'function' && !mpwMsgFromHost(ev)) return
         if (d.type !== 'mpw-audio-policy' && d.type !== 'mpw:audio-bus' && d.type !== 'mpw-audio-mute' && d.type !== 'mpw-audio-stop') return
         audioGate.msgs++
         /* park/stop/mpw-audio-stop = 宿主“把这一页收起来”（隐藏/兜底/省电）⇒ **停源**（见 mpwAudioPark）。 */
@@ -6443,7 +6901,12 @@ function loadScene() {
       const st = lib.applyUserProperties(scene, propsMap, { schema: propsSchema, gated })
       try { lib.applyScriptProps(sceneObj, propsMap, { schema: propsSchema, gated }) } catch (e) { /* 脚本属性失败不影响渲染层 */ }
       const invalidated = invalidateScriptPropsCache()
+      /* ②(P-203 2026-09-25) `key` 也可能是**键数组**：宿主属性通道（`mpwWebApplyProps` 场景档）
+         一次推整张表，调的是 `apply('host-updateWebProps', keys)` ⇒ 只判字符串会把
+         `timevarying`/`display`/`morningtime`… 这批**时段属性**漏掉（画面按旧时段选层，
+         表现为"面板/插件改了时段属性画面不动"）。数组里**任一**是时段键就重算 —— 与面板逐键改动同义。 */
       const retimed = (why === 'reset') || (typeof key === 'string' && TIME_PROP_KEYS.has(key))
+        || (Array.isArray(key) && key.some((k) => TIME_PROP_KEYS.has(k)))
       let timePicked = null
       if (retimed) {
         try {
@@ -6457,6 +6920,11 @@ function loadScene() {
       try { window.__mpwProps = propsDiagPayload() } catch (e) { /* ignore */ }
       return { why, stats: st, gated: [...gated], invalidated, retimed, timePicked }
     }
+    /* ①(P-203 2026-09-25) **把面板同一条应用链交给宿主属性通道**：`window.__mpwPropsApplyHost`
+       是 `mpwWebApplyProps` 场景档分支按名字读的契约点（见该函数头部注释），但此前**全仓 0 处赋值**
+       ⇒ 宿主/插件推属性恒落"本档有属性表但没有运行期应用链"（`ok:false`），属性只在**下次应用壁纸**
+       时才生效 —— 这正是用户报的那个现象的那一半。这里补上交接（对象引用同一份，无拷贝）。 */
+    try { window.__mpwPropsApplyHost = applyAll } catch (e) { /* 无 window */ }
     let api = null
     const hooks = {
       colorToHex: API.colorToHex,
@@ -6697,6 +7165,8 @@ function loadScene() {
       try {
         const d = ev && ev.data
         if (!d || typeof d.type !== 'string') return
+        // ⓪③(P-204 F7⑤) 改前这条**既无 source 也无 origin 校验**（任意页面/兄弟帧都能改时间轴钉住与逐层切换）。
+        if (typeof mpwMsgFromHost === 'function' && !mpwMsgFromHost(ev)) return
         if (d.type === 'mpw-time-set') {
           if (!window.__mpwTime) return
           if (!d.name || d.name === 'auto' || d.name === 'clock') window.__mpwTime.clearPin()
@@ -7282,6 +7752,14 @@ function loadScene() {
   // ①(Q5 2026-09-14 用户第 17 项) 官方预设兜底：必须在**纹理接线之前**跑完（loadScene 里那条
   //   "def.material → passes[0].textures[0] → loadTex" 只对已有 def 的层生效）。
   try { await resolveParticleDefs() } catch (e) { logf('⚠ Q5 粒子定义兜底失败: ' + e.message) }
+  // ①(P-206) 效果资产预取 + 同步 reader 注册：**必须在 `await loadScene()` 之前** —— loadScene 里**同步**
+  //   走完每条效果链的候选表（reader 未注册 ⇒ 全部退化成"只有包内"）；shader 源要到首帧编译才问 reader，
+  //   所以注册后**不再撤销**（阅读器读的是内存表，miss 返回 null）。回退口 `?weassist=legacy`（不预取、不注册）。
+  //   `readPkgText` 让预取做**包内优先**的快路径（包内已有的件一次网络请求都不发；包内 effect.json 照就地
+  //   解析以发现它引用的外部 material）——与 core 的解析顺序逐字同序。
+  await prefetchWeEffectAssets(scene, {
+    readPkgText: (rel) => { const e = lib.getEntry(pkg, rel); return e ? rd(e) : null },
+  });
   logf('加载图层纹理（model→material→texture 链路）…');
   // ①(P-64-MEDIA 轮顺带，用户第 1 条"第 1 个壁纸的音频要过两三秒才扫出来") **音轨列表与画面解耦**：
   //   真根因不是扫描慢（枚举只读容器目录表 `pkg.entries` + 候选条目头 12 字节），而是**排期** ——
@@ -8600,6 +9078,14 @@ function loadScene() {
             // ①(P-77) 缩略图回传是宿主契约（一张图）⇒ 页级单例：多实例时只有 primary 实例 post
             const __thumbPost = (typeof PAGE === 'undefined' || PAGE) ? new URLSearchParams(location.search).get('thumbpost') : null
             if (__thumbPost) {
+              /* ⓪③(P-204 F7②) **目标闸门**：默认只认同源（`?thumbpostany=1` / `window.__MPW_THUMBPOST_ANY`
+                 是显式回退口）。改前任意地址都收：截图 + `pkgurl`（含 `st` 令牌）+ `pkgpath`（本地绝对路径）
+                 会被 POST 到攻击者页，legacy 分支还带 cookie。 */
+              const __thumbTarget = mpwThumbPostTarget(__thumbPost)
+              if (!__thumbTarget.ok && !MPW_SEC_ANY.thumbpost) {
+                logf('⚠ 缩略图上报目标被拒（' + __thumbTarget.reason + '，非回环/非同源）: ' + String(__thumbPost).slice(0, 120))
+                window.__mpwThumbTargetDenied = (window.__mpwThumbTargetDenied || 0) + 1
+              } else {
               const postThumb = (tag) => {
                 try {
                   const TW = 480, TH = 270
@@ -8627,7 +9113,9 @@ function loadScene() {
                   })
                   const init = __thumbTok
                     ? { method: 'POST', credentials: 'omit', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body }
-                    : { method: 'POST', credentials: 'include', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body }
+                    /* ⓪③(P-204 F7⑦) 无 token（旧插件）档：**只有同源才带凭据**；回退档（thumbpostany）
+                       里跑到跨源目标时 `mpwCredentialMode` 仍返回 'omit' ⇒ 绝不外带 cookie。 */
+                    : { method: 'POST', credentials: mpwCredentialMode(__thumbPost), headers: { 'content-type': 'text/plain;charset=UTF-8' }, body }
                   fetch(__thumbPost, init)
                     .then((r) => logf((r.ok ? '🖼 缩略图已上报(' + tag + ')' : '⚠ 缩略图上报失败(' + tag + ') HTTP ' + r.status)))
                     .catch((e) => logf('⚠ 缩略图上报异常(' + tag + '): ' + e.message))
@@ -8637,6 +9125,7 @@ function loadScene() {
               if (!window.__mpwThumbRefreshHook) {
                 window.__mpwThumbRefreshHook = 1
                 window.__mpwThumbPostFn = postThumb
+              }
               }
             }
           } catch (e) { /* 缩略图失败不影响渲染 */ }

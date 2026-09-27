@@ -594,6 +594,28 @@ function compareToBaseline(rows) {
           + '注入指针后实测该层 +103 粒（`--import` 注入 `__mpwPointer` 对比：alive 91→194 @t=1.03s）。'
           + '**未定**：注入指针后该层已发射却仍未产生 GL draw（见 PATCHES P-75f 的待查项）。',
       },
+      /*  ①(2026-09-25 P-205 缺口 2) `model` 键（老式模型层）接上后**唯一**的基线下降，逐层取证如下：
+          · 全包只差**一层**：`导航盘 赤道`（id 436，`model:"models/Hollow Cylinder/Hollow Cylinder.mdl"`、
+            `solid:true`、**没有 `size` 字段 ⇒ size=[0,0]**、`color="1 1 1"`、`colorBlendMode:0`、fx=0）。
+          · 旧行为：`solid=true` ⇒ `renderLayer` 的 "size 为 0 回退" 把绘制尺寸改成**整屏**，
+            绑 `transparentTex` 画一个**全屏全透明** quad（1 次 draw，画面上什么都没有）。
+          · 新行为：它是模型层（`__imageKey='model'`）⇒ `solid=false`；它的材质纹理是
+            `_rt_imageLayerComposite_433_a`（**运行时 FBO 名**，不是包内纹理）⇒ `texObj=null`
+            ⇒ 命中既有的"零面积 + 无纹理" 早退 ⇒ 不产生 draw。**像素差 = 0**（旧的那张是全透明）。
+          · 其余 7 个模型层（Star1/2/3 model1、Earth4 model2、自制天空盒00、…）从"透明兜底"变成
+            **用真纹理画出**（`textures.pkgHit` 41→47、纹理名多 6 条）；同包 `whiteFallback` 0→0、
+            `transparentFallback` 12→12、`layerErrors` 0→0、`decodeFail` 0→0 全部不变。
+          · 复核命令：`node tests/package-matrix.mjs --pkg <该包> --json`
+            （逐层名单见 PATCHES.md P-205 缺口 2 的读数表）。 */
+      {
+        id: '3509243656', field: 'drawnLayers', base: 36, now: 35,
+        reason: 'P-205 缺口 2：`model` 键接上后，模型层不再被判成纯色层（`solid` 口径分离）。'
+          + '唯一下降的是 `导航盘 赤道`(id436)：旧 `solid=true` + `size=[0,0]` 让它按"整屏回退"画一个'
+          + '**全透明** quad（1 draw、0 像素）；新口径下它是模型层且材质纹理是运行时 FBO 名'
+          + '`_rt_imageLayerComposite_433_a`（无 texObj）⇒ 走"零面积+无纹理"早退、不再 draw。'
+          + '像素差为 0；同包另 7 个模型层由"透明兜底"变成真纹理画出，'
+          + 'whiteFallback/transparentFallback/layerErrors/decodeFail 四项均不变。详见 docs/PATCHES.md P-205。',
+      },
     ]
     for (const [k, v, bv, dir] of cmp) {
       const regressed = dir === 'lt' ? v < bv : v > bv

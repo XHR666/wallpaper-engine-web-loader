@@ -36,6 +36,13 @@ const CORE_DIR = path.join(REPO_ROOT, 'core');
 const SHADERS_DIR = path.join(REPO_ROOT, 'shaders');
 // ①(B6 2026-09-14) 端口来源：PORT 环境变量（测试用）> CLI 第 1 个参数（旧用法不变）> 8899
 const port = Number(process.env.PORT || process.argv[2] || 8899);
+/* ⓪③(2026-09-27 P-204 安全审计 F7/F8，docs/PATCHES.md P-204) **绑定地址：默认只回环**。
+   改前是显式 `server.listen(port, '0.0.0.0')` —— 渲染器连同 `/pkgpath`（读白名单根任意文件）、
+   `/pkgdir`（打包任意白名单目录）、`/pkgurl`（任意 URL 取回）一起暴露给同网段所有人，且启动日志
+   还把本机所有非内网 IPv4 打印出来当"访问地址"。
+   回退口：`MPW_BIND=0.0.0.0`（局域网测试台/真机联调显式放开；此时启动日志会如实播报"全网卡"）。 */
+const BIND_HOST = String(process.env.MPW_BIND || '').trim() || '127.0.0.1'
+const BIND_IS_LOOPBACK = /^(127\.|::1$|\[::1\]$|localhost$)/i.test(BIND_HOST)
 // ═══ ①(第16项 发布去个人化 2026-09-14；P-91 2026-09-16 收尾) 所有个人绝对路径改为**环境变量可覆盖** ═══
 //   默认值：`MPW_ROOT` 不再写死作者机绝对路径，改为**本仓库的父目录**（= "渲染器与语料放在同一父目录"
 //   这个已经写进 README-PUBLIC §4 的约定布局）。作者机上 `__dirname/..` 与旧默认值**是同一个目录**
@@ -469,16 +476,75 @@ const rePkgRoute = () => /^\/pkg\/(.+)$/
 //   含 res.writeHead(200); res.end('ok') 这类无显式 content-type 的健康路由、createReadStream 管道流、
 //   206 分支、404/500 的 catch 兜底）——所以路由内一个都不用各写一遍。
 //   本机渲染器只服务自己的静态资源与包数据（无凭据/无秘密），`*` 是开发场景口径；插件宿主路由不加。
+/* ⓪③(2026-09-27 P-204 安全审计 F7③) **`ACAO:*` 收成白名单**（改动前：任何网页都能跨源读回
+   `/pkgpath`、`/pkgdir`、`/pkgurl` 的响应 ⇒ 渲染器 = 任意网页的"内网取回器"）。
+   口径（与插件宿主侧 `lib/index.js` 的 `corsForOrigin()` 同款，两边别各写一套）：
+     · 请求**不带 Origin**（同源导航/curl/插件宿主服务端）⇒ 不发任何 CORS 头（同源本来就不看它）；
+     · `Origin: null`（strict 沙箱 iframe = 不透明源，渲染器自身 fetch 走这条）⇒ 回显 `null`；
+     · 显式白名单（本机 3080 插件页 / 8899 自身 / 8902 测试台，`localhost` 同义）⇒ 回显该源 + `Vary: Origin`；
+     · 其它源 ⇒ **一个 `Access-Control-Allow-*` 都不发** ⇒ 浏览器挡住跨源读（写请求仍可到达，
+       所以"写"类的闸门另有其人：渲染器本页不产生宿主状态变更）。
+   回退口：`MPW_CORS=legacy`（恢复旧的无条件 `*`；`MPW_CORS_ORIGINS=a,b` 追加白名单）。 */
+const CORS_ALLOW_EXPLICIT = [
+  'http://127.0.0.1:3080', 'http://127.0.0.1:8899', 'http://127.0.0.1:8902',
+  'http://localhost:3080', 'http://localhost:8899', 'http://localhost:8902',
+];
+const CORS_ORIGINS_EXTRA = String(process.env.MPW_CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const CORS_LEGACY = String(process.env.MPW_CORS || '').trim().toLowerCase() === 'legacy';
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-headers': 'content-type',
   'access-control-allow-methods': 'GET, HEAD, POST, OPTIONS',
 };
+/** 这个 `Origin` 请求头值可否回显 CORS 头？导出供离线判据直接调（tests/sec-route-guard-test.mjs）。 */
+export function corsOriginAllowed(origin, extra) {
+  const o = String(origin == null ? '' : origin).trim();
+  if (!o) return false;                                   // 无 Origin：同源语义，不发头
+  if (o === 'null') return true;                          // 不透明源（sandbox iframe）
+  const list = [...CORS_ALLOW_EXPLICIT, ...CORS_ORIGINS_EXTRA, ...(Array.isArray(extra) ? extra : [])];
+  return list.includes(o);
+}
 const PKGDIR_CACHE = new Map(); // ①(第22项) /pkgdir 打包缓存（键=目录+mtime，最多 4 份）
-function applyCors(res) {
-  for (const k of Object.keys(CORS_HEADERS)) {
-    try { if (!res.hasHeader(k)) res.setHeader(k, CORS_HEADERS[k]) } catch {}
-  }
+function applyCors(req, res) {
+  try {
+    if (CORS_LEGACY) {
+      for (const k of Object.keys(CORS_HEADERS)) if (!res.hasHeader(k)) res.setHeader(k, CORS_HEADERS[k]);
+      return;
+    }
+    const origin = req && req.headers ? req.headers.origin : '';
+    if (!corsOriginAllowed(origin)) return;               // 非白名单/无 Origin ⇒ 不发任何 CORS 头
+    res.setHeader('access-control-allow-origin', String(origin).trim());
+    res.setHeader('access-control-allow-headers', 'content-type');
+    res.setHeader('access-control-allow-methods', 'GET, HEAD, POST, OPTIONS');
+    res.setHeader('vary', 'Origin');
+  } catch { /* 头已发/异常：CORS 失败只影响跨源读，绝不让它把请求打崩 */ }
+}
+/* ⓪③(P-204 F7③) `/pkgurl?u=` 的目标闸门：**只许回环 + 显式白名单**（改动前只校验 `^https?://`）。
+   为什么必须：任意网页（或本机任何进程）都能借 `/pkgurl` 当代理读内网/本机任意 HTTP 服务，
+   而响应过去还挂着 `ACAO:*` ⇒ 跨源读回。回退口 `MPW_PKGURL_ANY=1`（真机联调）、
+   `MPW_PKGURL_ALLOW_HOSTS=a,b`（显式放行若干主机名）。
+   注意：这里按**主机名字面量**判定；白名单域名的 DNS 重绑定仍是未验证边界（见 docs/PATCHES.md P-204）。 */
+export function isLoopbackHostname(host) {
+  const h = String(host == null ? '' : host).trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return false;
+  if (h === 'localhost' || h === '::1' || h === '0:0:0:0:0:0:0:1') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+}
+const PKGURL_ALLOW_HOSTS = String(process.env.MPW_PKGURL_ALLOW_HOSTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+const PKGURL_ANY = String(process.env.MPW_PKGURL_ANY || '').trim() === '1';
+/** `/pkgurl?u=` 的目标可否取回：{ok, reason, host, via}。导出供离线判据直接调。 */
+export function pkgurlTargetAllowed(raw, opts) {
+  const o = opts || {};
+  let u = null;
+  try { u = new URL(String(raw == null ? '' : raw)) } catch { return { ok: false, reason: 'bad-url', host: '' } }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false, reason: 'bad-scheme', host: u.hostname };
+  if (u.username || u.password) return { ok: false, reason: 'userinfo', host: u.hostname };   // URL 里塞凭据 ⇒ 拒绝（防顺手外带）
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (o.any === true) return { ok: true, reason: 'any', host, via: 'MPW_PKGURL_ANY=1' };
+  if (isLoopbackHostname(host)) return { ok: true, reason: 'loopback', host, via: 'loopback' };
+  const allowExtra = Array.isArray(o.allowHosts) ? o.allowHosts.map((s) => String(s).trim().toLowerCase()) : [];
+  if (PKGURL_ALLOW_HOSTS.includes(host) || allowExtra.includes(host)) return { ok: true, reason: 'allowlist', host, via: 'MPW_PKGURL_ALLOW_HOSTS' };
+  return { ok: false, reason: 'host-not-allowed', host };
 }
 
 // ①(B6) 单区间 Range（RFC 7233：bytes=start-end / start- / -suffix）集中实现。
@@ -585,9 +651,26 @@ export function injectShellShim(html) {
   if (i < 0) return html + shim;
   return html.slice(0, i) + shim + html.slice(i);
 }
+/* ⓪③(2026-09-27 P-204 安全审计 F7⑦) **两个"恢复旧口径"的回退旗标注入**（默认都不注入 ⇒ 响应
+   与改动前逐字节相同，除下面 `MPW_*` 显式打开时）：
+     · `MPW_THUMBPOST_ANY=1` ⇒ `window.__MPW_THUMBPOST_ANY=true`：`?thumbpost=` 恢复"接受任意地址"；
+     · `MPW_EXTBASE_ANY=1`   ⇒ `window.__MPW_EXT_ANY=true`：`?extbase=/?exthooks=` 恢复"接受任意 URL"。
+   页面侧还有两个**免重启**的等价物（`?thumbpostany=1` / `?extany=1`，见 demo.html 的 MPW-SEC-GUARD 块）。
+   注入落点与 PWA/shell 一致（`</head>` 前；没有 `</head>` 就追加到末尾），注入失败绝不改页面其余字节。 */
+export function injectSecFlags(html) {
+  if (typeof html !== 'string' || !html) return html;
+  const flags = [];
+  if (String(process.env.MPW_THUMBPOST_ANY || '').trim() === '1') flags.push('window.__MPW_THUMBPOST_ANY=true;');
+  if (String(process.env.MPW_EXTBASE_ANY || '').trim() === '1') flags.push('window.__MPW_EXT_ANY=true;');
+  if (!flags.length) return html;
+  const tag = '<script>/* P-204 回退口（MPW_THUMBPOST_ANY / MPW_EXTBASE_ANY）*/' + flags.join('') + '</script>';
+  const i = html.toLowerCase().lastIndexOf('</head>');
+  if (i < 0) return html + tag;
+  return html.slice(0, i) + tag + html.slice(i);
+}
 
 const serverHandler = async (req, res) => {
-  applyCors(res);
+  applyCors(req, res);   // ⓪③(P-204) 现在是**按 Origin 白名单**回显（改前无条件 `*`）
   try {
     // ①(B6) 预检：不透明源下渲染器带 content-type 的 POST（/report、/diag）会触发预检请求。
     //   集中应答 204 + 上面三头（allow-headers: content-type），与具体路由无关。
@@ -615,6 +698,8 @@ const serverHandler = async (req, res) => {
       if (url.searchParams.get('shell') === '0') {
         buf = Buffer.from(injectShellShim(buf.toString('utf8')), 'utf8');
       }
+      /* ⓪③(P-204) 回退旗标注入（默认关闭 ⇒ 不注入、字节流不变）。 */
+      buf = Buffer.from(injectSecFlags(buf.toString('utf8')), 'utf8');
       sendBuffer(req, res, buf, 'text/html; charset=utf-8');
       return;
     }
@@ -1043,8 +1128,22 @@ const serverHandler = async (req, res) => {
     if (m) {
       try {
         const u = new URL(req.url || '', 'http://localhost').searchParams.get('u') || '';
-        if (!/^https?:\/\//i.test(u)) { res.writeHead(400); res.end('bad url'); return }
-        fetch(u).then(async (r) => {
+        /* ⓪③(P-204 F7③) 目标闸门：回环 / 显式白名单（改前只判 `^https?://` ⇒ 任意 URL SSRF）。
+           拒绝理由逐字进响应体（便于现场定位"为什么我的渲染器链接被挡"）。 */
+        const gate = pkgurlTargetAllowed(u, { any: PKGURL_ANY });
+        if (!gate.ok) {
+          res.writeHead(gate.reason === 'bad-url' || gate.reason === 'bad-scheme' || gate.reason === 'userinfo' ? 400 : 403,
+            { 'content-type': 'text/plain; charset=utf-8' })
+          res.end('pkgurl denied: ' + gate.reason + (gate.host ? ' (host=' + gate.host + ')' : '')
+            + '；只允许回环地址（127.0.0.1/localhost/::1）或 MPW_PKGURL_ALLOW_HOSTS 白名单；'
+            + '要放开请显式设 MPW_PKGURL_ANY=1')
+          return
+        }
+        // ⓪③(P-204) **不跟随重定向**：302 到别处等于绕过上面的目标闸门（旧实现 redirect:'follow'）。
+        fetch(u, { redirect: 'manual' }).then(async (r) => {
+          if (r.status >= 300 && r.status < 400) {
+            res.writeHead(502); res.end('upstream redirect blocked (' + r.status + ',' + (r.headers.get('location') || '-') + ')'); return
+          }
           if (!r.ok) { res.writeHead(r.status); res.end('upstream ' + r.status); return }
           const buf = Buffer.from(await r.arrayBuffer())
           res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': buf.length, 'cache-control': 'no-cache' })
@@ -1513,7 +1612,7 @@ const osInfo = await import('node:os')
 /* ⓪② `server` 只在本文件是入口时创建（`:8902` 复用处理器时不该在这里开监听）。 */
 export const server = isMainModule ? http.createServer(serverHandler) : null
 
-if (isMainModule) server.listen(port, '0.0.0.0', () => {
+if (isMainModule) server.listen(port, BIND_HOST, () => {
   // ①(P-104 2026-09-17 用户发布纪律②) **启动清理一次**：把上次遗留的超限上报目录收回限内，
   //   并在 stdout 打出"删了几个 / 释放多少 MB / 当前上限"（清理动作必须留痕）。
   try { pruneAllOnStartup() } catch (e) { console.warn('[limits] 启动清理失败（不影响服务）：' + (e && e.message)) }
@@ -1531,6 +1630,14 @@ if (isMainModule) server.listen(port, '0.0.0.0', () => {
       if (net.family === 'IPv4' && !net.internal) ips.push(net.address)
     }
   }
-  console.log('we-scene 验证服务器 v2: http://0.0.0.0:' + port)
-  console.log('  访问地址:', ips.map((i) => 'http://' + i + ':' + port).join('   ') || 'http://127.0.0.1:' + port)
+  /* ⓪③(P-204) 启动日志**如实播报生效的绑定**（改前恒打印 "http://0.0.0.0:port" 并把所有非内网 IPv4
+     列成"访问地址" —— 等于把"全网卡可达"当卖点）。只有显式 `MPW_BIND` 放开到非回环时，
+     才列局域网地址，并附带一句风险提示。 */
+  console.log('we-scene 验证服务器 v2: http://' + BIND_HOST + ':' + port
+    + (BIND_IS_LOOPBACK ? '（只回环；要局域网访问请显式 MPW_BIND=0.0.0.0）' : '（**非回环绑定**：同网段可直连，请确认这是你要的）'))
+  if (BIND_IS_LOOPBACK) {
+    console.log('  访问地址: http://127.0.0.1:' + port)
+  } else {
+    console.log('  访问地址:', ips.map((i) => 'http://' + i + ':' + port).join('   ') || 'http://127.0.0.1:' + port)
+  }
 })

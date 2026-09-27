@@ -18,8 +18,12 @@
 //      `style-scope-guard` 那套纪律，这里按同一精神做）。
 import {
   ITEM_H, LIST_PAD, MIN_H, planList, nextIndex, isCommitKey, isCancelKey, isOutside,
-  optionsOf, selectedIndex,
+  optionsOf, selectedIndex, scrollAffectsAnchor,
 } from './mpw-select-math.mjs'
+
+/* ⑦(2026-09-25) `scrollAffectsAnchor` 的**唯一实现**在 `mpw-select-math.mjs`；这里 re-export 一份，
+   让 `bench-patch.js` 的 `.bench-rd` 下拉走同一条判据（那套自绘下拉有一模一样的"被无关滚动收掉"问题）。 */
+export { scrollAffectsAnchor }
 
 /** `position:fixed` 后代的**包含块原点**（视口坐标里要减掉的那一份）。
  *
@@ -146,8 +150,20 @@ export function enhanceSelect(selectEl, opt = {}) {
   let list = null
   let active = -1
   let model = []
+  /** 展开那一刻的触发框 rect（`open()` 里写）：浮层坐标就是按它算的 ⇒ 它变了才算"脱开"。 */
+  let anchorRect = null
+  /** 锚点自展开以来是否**真的移动了**（⑦）。返回 `true`/`false`；**无法判定**时返回 `null`
+   *  （没记下 rect，或桩 DOM 没有布局）⇒ 调用方退回事件源判据。 */
+  const anchorMoved = () => {
+    if (!anchorRect || typeof btn.getBoundingClientRect !== 'function') return null
+    try {
+      const r = btn.getBoundingClientRect()
+      return Math.abs(r.left - anchorRect.left) > 0.5 || Math.abs(r.top - anchorRect.top) > 0.5
+        || Math.abs(r.width - anchorRect.width) > 0.5 || Math.abs(r.height - anchorRect.height) > 0.5
+    } catch { return null }
+  }
 
-  const isOpen = () => !!list
+  const isOpen = () => !!list && list.isConnected !== false
   /** 当前选中项：**每次现读** `selectEl`（不是闭包里的 `model`）。
    *  ①(P-159) 旧实现读的是 `model`，而 `model` 只在 `open()` 里赋值 ⇒ **首次展开之前** `currentOption()`
    *  恒为 null ⇒ 按钮一直写「（空）」（选项明明在 select 里）；展开一次之后才对上。
@@ -171,11 +187,12 @@ export function enhanceSelect(selectEl, opt = {}) {
     list.remove()
     list = null
     active = -1
+    anchorRect = null
     root.removeAttribute('data-open')
     btn.setAttribute('aria-expanded', 'false')
     doc.removeEventListener('pointerdown', onDocDown, true)
     win.removeEventListener('resize', close)
-    win.removeEventListener('scroll', close, true)
+    win.removeEventListener('scroll', onWinScroll, true)
     if (openRoot === root) openRoot = null
     if (focusBack) { try { btn.focus() } catch { /* ignore */ } }
   }
@@ -183,15 +200,46 @@ export function enhanceSelect(selectEl, opt = {}) {
     // ①点"外面"才关；点自己（按钮或列表）交给各自的处理器（按钮 = toggle，项 = 选中后关）
     if (isOutside(ev.target, root) && !(list && list.contains(ev.target))) close(false)
   }
+  /* ⑦(2026-09-25) 展开期间窗口的 `scroll`（**捕获**阶段，连不冒泡的容器滚动也收得到）只在
+     "这次滚动**真的动到了锚点**"时才收起来。两道判据，先严后宽：
+       ① **锚点矩形变了没有**（`anchorMoved()`）：浮层的坐标是展开那一刻按锚点 rect 算的 ⇒
+          只有 rect 变了才真的"脱开"。这条最准，而且能吃掉一个时序坑：滚动事件是**异步派发**的
+          （改 `scrollTop` 之后要到下一帧才收到），所以"先滚动、后展开"这件事会让**已经滚完**的那次
+          滚动在展开之后才到达 —— 只看事件源的话，刚打开的下拉会被一次"其实已经过去了"的滚动收掉
+          （门禁 M7 实测：`chainbox.scrollTop = 0` 之后立刻 `open()` ⇒ 旧写法必红）。
+       ② 拿不到 rect（桩 DOM 无布局）时退回纯函数 `scrollAffectsAnchor()`：视口/文档滚动、
+          锚点的祖先滚动 ⇒ 收起；**与锚点无关**的容器滚动（日志窗 `#logbody` 自己往下跟这类）⇒ 不收。
+     改前是 `win.addEventListener('scroll', close, true)`：任何容器滚动都把下拉收掉（实测 250ms 内
+     日志窗滚 4 次 ⇒ 用户看到"点开就没了"）。 */
+  const onWinScroll = (ev) => {
+    if (!list) return
+    const moved = anchorMoved()
+    if (moved === null) { if (scrollAffectsAnchor(ev && ev.target, btn, doc)) close(false) } else if (moved) close(false)
+  }
   const applyActive = () => {
     if (!list) return
     const items = list.children
     for (let i = 0; i < items.length; i++) {
       items[i].setAttribute('data-active', i === active ? '1' : '0')
     }
-    if (active >= 0 && items[active] && items[active].scrollIntoView) {
-      try { items[active].scrollIntoView({ block: 'nearest' }) } catch { /* ignore */ }
-    }
+    scrollItemInside(items[active])
+  }
+  /** 把高亮项滚进**列表自己的滚动盒**（只改 `list.scrollTop`，绝不动任何祖先）。
+   *
+   *  ⑦(2026-09-25) 改前这里是 `items[active].scrollIntoView({ block: 'nearest' })`，两个后果都实测到了：
+   *   ① 按规范 `scrollIntoView` 会滚动**所有**祖先滚动容器 ⇒ 打开下拉/按方向键时页面或属性面板自己跳一下；
+   *   ② 那次滚动被本控件的 scroll 监听收到 ⇒ **刚展开就把自己关掉**（"点开闪一下没了"的另一条路径）。
+   *  度量拿不到时（桩 DOM 没有布局）什么都不做 —— 列表本来就全部可见。 */
+  const scrollItemInside = (item) => {
+    if (!item || !list) return
+    const it = Number(item.offsetTop)
+    const ih = Number(item.offsetHeight)
+    const st = Number(list.scrollTop) || 0
+    const ch = Number(list.clientHeight)
+    if (!Number.isFinite(it) || !Number.isFinite(ih) || !Number.isFinite(ch) || ch <= 0 || ih <= 0) return
+    const padTop = LIST_PAD / 2                       // 列表上内边距：offsetTop 从 padding box 起算
+    if (it - padTop < st) list.scrollTop = Math.max(0, it - padTop)
+    else if (it + ih > st + ch) list.scrollTop = it + ih - ch
   }
   const commit = (i) => {
     const o = model[i]
@@ -206,6 +254,11 @@ export function enhanceSelect(selectEl, opt = {}) {
   }
   /** 展开：单开注册表 + 自动翻转 + 只在展开期间挂监听。 */
   const open = () => {
+    /* ⑦(2026-09-25) 闭包里的 `list` 若已经不在文档里（宿主整块换节点时 `<ul>` 被连根摘掉、却没走
+       `close()`）⇒ 先按"已关"归一，否则下面 `if (list) return` 会**拿着一个空气列表**直接返回：
+       控件自称展开、DOM 里却什么都没有（门禁实测读数 `{err:'no-list-or-btn', options:3, rootConnected:true}`）。
+       `isConnected === false` 只在**明确不在文档**时成立（桩 DOM 没有该属性 ⇒ 视为在）。 */
+    if (list && list.isConnected === false) close(false)
     if (list) return
     if (openRoot && openRoot !== root) {
       //  ①上一个控件若已被宿主从 DOM 里摘掉（属性面板整块重渲染就是这样），它的 close() 没被调过
@@ -218,6 +271,7 @@ export function enhanceSelect(selectEl, opt = {}) {
     if (!model.length) return
     const winRect = visibleWindow(btn, win)
     const br = btn.getBoundingClientRect()
+    anchorRect = { left: br.left, top: br.top, width: br.width, height: br.height }   // ⑦浮层坐标的锚定依据
     const plan = planList({
       anchorTop: br.top, anchorBottom: br.bottom,
       viewportTop: winRect.top, viewportBottom: winRect.bottom,
@@ -263,19 +317,21 @@ export function enhanceSelect(selectEl, opt = {}) {
     //  ①监听只在展开期间存在（close 里全部卸掉）
     doc.addEventListener('pointerdown', onDocDown, true)
     win.addEventListener('resize', close)
-    win.addEventListener('scroll', close, true)
+    win.addEventListener('scroll', onWinScroll, true)
   }
-  const toggle = () => { if (list) close(true); else open() }
+  /* ⑦(2026-09-25) 判"开着还是关着"用 `isOpen()`（= 列表**真的还在文档里**），不用闭包里的裸 `list`：
+     宿主整块重渲染把 `<ul>` 连根摘掉时 `list` 仍非空，用裸变量会走 close() ⇒ 用户"点一下没反应"（要点两下）。 */
+  const toggle = () => { if (isOpen()) close(true); else open() }
 
   const onBtnDown = (ev) => { ev.preventDefault(); ev.stopPropagation() }
   const onClick = (ev) => { ev.preventDefault(); ev.stopPropagation(); if (!selectEl.disabled) toggle() }
   const onKey = (ev) => {
     const k = ev.key
-    if (isCancelKey(k)) { if (list) { ev.preventDefault(); close(true) } return }
-    if (isCommitKey(k)) { ev.preventDefault(); if (!list) open(); else if (active >= 0) commit(active); return }
+    if (isCancelKey(k)) { if (isOpen()) { ev.preventDefault(); close(true) } return }
+    if (isCommitKey(k)) { ev.preventDefault(); if (!isOpen()) open(); else if (active >= 0) commit(active); return }
     if (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Home' || k === 'End' || k === 'PageDown' || k === 'PageUp') {
       ev.preventDefault()
-      if (!list) { open(); return }
+      if (!isOpen()) { open(); return }
       active = nextIndex(k, active, model.length)
       applyActive()
       return
@@ -286,7 +342,7 @@ export function enhanceSelect(selectEl, opt = {}) {
   btn.addEventListener('click', onClick)
   btn.addEventListener('keydown', onKey)
   //  ①原生 select 被程序改动（既有代码 setValue）后按钮要跟上；选项变了也要重建
-  const mo = win.MutationObserver ? new win.MutationObserver(() => { if (!list) paintButton() }) : null
+  const mo = win.MutationObserver ? new win.MutationObserver(() => { if (!isOpen()) paintButton() }) : null
   if (mo) mo.observe(selectEl, { childList: true, subtree: true, attributes: true })
   // ①(P-159) 宿主程序化改值（`sel.value = x`）或用户用键盘改原生 select 时也要跟上：
   //   这条监听挂在 **select 自己**身上（与 `.bench-rd` 的 `sel.addEventListener('change', label)` 同形），
@@ -297,7 +353,7 @@ export function enhanceSelect(selectEl, opt = {}) {
 
   const handle = {
     root, isOpen, open, close,
-    refresh: () => { if (list) { close(false); open() } else paintButton() },
+    refresh: () => { if (isOpen()) { close(false); open() } else paintButton() },
     destroy: () => {
       close(false)
       if (mo) mo.disconnect()

@@ -106,6 +106,33 @@ export function isOutside(target, root) {
 }
 
 /**
+ * 这次滚动**是否可能移动锚点**（= 打开的下拉该不该因此收起）。
+ *
+ * 为什么需要它（⑦2026-09-25 实测）：展开期间挂的是**捕获阶段**的 `scroll` 监听 —— 页面上**任何**
+ * 容器滚动都会收到（不冒泡的容器滚动也收得到，这正是当初要捕获的原因）。改前只要收到就 `close()`，
+ * 于是与锚点无关的滚动也会把刚展开的下拉收掉：测试台日志窗 `#logbody` 在场景加载时自己往下跟、
+ * 库列表自动滚到选中项……用户看到的就是「**点开就没了**」。实测复现：`#logbody` 在 250ms 里滚了 4 次，
+ * 同一次展开的读数从"列表在"变成"列表没了"。
+ *
+ * 判据（保留原意图，只是把范围收窄到"真会动到锚点"的那些滚动源）：
+ *   · 视口/文档滚动（`document` / `documentElement` / `body`）⇒ 会动 ⇒ 收起；
+ *   · 滚动源是**锚点的祖先**（含锚点自己）⇒ 会动 ⇒ 收起；
+ *   · 其余（兄弟容器、日志窗、列表自己内部等）⇒ 与锚点无关 ⇒ **不收**。
+ *
+ * 纯函数：只走 `parentElement` 链、只读传入对象的属性，零副作用（调用方把节点当数据传进来）。
+ * @param {object|null} scrolledEl 事件目标（被滚动的那个元素/文档）
+ * @param {object|null} anchorEl   锚点（触发按钮）
+ * @param {object|null} [doc]      文档（缺省从 anchorEl.ownerDocument 推）
+ */
+export function scrollAffectsAnchor(scrolledEl, anchorEl, doc) {
+  if (!scrolledEl) return false
+  const d = doc || (anchorEl && anchorEl.ownerDocument) || null
+  if (d && (scrolledEl === d || scrolledEl === d.documentElement || scrolledEl === d.body)) return true
+  for (let n = anchorEl; n; n = n.parentElement) if (n === scrolledEl) return true
+  return false
+}
+
+/**
  * 从 `<select>` 的 options 生成内部模型（值与文案）。
  * 只读 DOM 的 `options`/`value`，不碰别的。
  */

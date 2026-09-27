@@ -1607,6 +1607,11 @@ export function parseScene(sceneJson, project, opts = {}) {
     if (!changed) break
   }
 
+  // ①(P-205 缺口 2) 层来源台账（`scene.__srcStats`）：把"模型层（`model` 键）"从
+  //   `solid` 口径里**分出来**（旧实现把这 105 层判成纯色层，见报告 §5#7）。口径：
+  //     image/model/modelDrawn/modelDropped = 层来源键与可用性；solid = **修好之后**
+  //     仍判定为纯色/占位层的层数（模型层不再计入）；particle/text/sound/container 各一档。
+  const __srcStats = { image: 0, model: 0, modelDrawn: 0, modelDropped: 0, modelDropReasons: {}, solid: 0, solidNonModel: 0, modelKeyedSolidDropped: 0, particle: 0, text: 0, sound: 0, container: 0, none: 0 }
   const layers = objects.map((o, i) => {
     const world = local[i]
     // 编辑器 y-up → 渲染 y-down：**所有层统一翻转一次**（官方语义；elysia 绘制端 H−y 同款）。
@@ -1621,6 +1626,48 @@ export function parseScene(sceneJson, project, opts = {}) {
       const kf = animProp(o[pk])
       if (kf) layerAnim[pk] = kf
     }
+    // ①(P-205 缺口 2 2026-09-25) **老式模型层：`model` 键与 `image` 等价**（elysia 侧 `_classify` 就是
+    //   并列的两条：`if (o.image) … if (o.model) …`）。语料读数：3 包 / 105 层只写 `model`
+    //   （`0917/3509243656` 8、`0923/3662790108` 73、`0923/3589454154` 24），引用的 84 个 `.mdl`
+    //   **全在包内**；旧实现只读 `o.image` ⇒ 这 105 层被丢，而且其中 **92 层带 `solid:true`** 被
+    //   `solid` 判定吞成"纯色层"（诊断口径被掩盖，见报告 §5#7）。
+    //   `image` 优先于 `model`（两者都在时以官方 `image` 为准，`o.image ?? o.model` 语义）。
+    //   ⚠ **安全性**：`.mdl` 是二进制（`MDLV0023…`），宿主拿到 `layer.image` 后的第一条链是
+    //   `resolveBuiltin` → `getEntry` + `parseWeJson`，而 `parseWeJson` 对它会 throw；demo 的
+    //   loadScene 是 `Promise.all(jobs)` ⇒ 一个 throw 会让**整页** `❌ 启动失败`。所以：
+    //     · `.json` 模型 / 已在解析期登记成功的 `.mdl` ⇒ 正常写进 `image`（走既有链，真画出来）；
+    //     · 登记不了（没有 `opts.attachCtx.readEntry`，或 MDL 头不是 `materials/…`）⇒ `image` **不写**
+    //       （宿主照旧跳过这一层 = 与改动前逐位相同），但如实标 `__imageKey/__modelDropped`
+    //       并进 `scene.__srcStats`（**不再混进 solid 口径**）。
+    const __imageKey = (typeof o.image === 'string') ? 'image' : ((typeof o.model === 'string') ? 'model' : null)
+    const __imgRaw = (__imageKey === 'image') ? o.image : (__imageKey === 'model' ? o.model : null)
+    let __modelDropped = null
+    if (__imageKey === 'model') {
+      if (/\.json$/i.test(__imgRaw)) { __srcStats.model++; __srcStats.modelDrawn++ }
+      else {
+        __srcStats.model++
+        const src = registerModelSource(__imgRaw, (opts && opts.attachCtx) ? opts.attachCtx.readEntry : null)
+        if (src) __srcStats.modelDrawn++
+        else {
+          __modelDropped = (opts && opts.attachCtx && typeof opts.attachCtx.readEntry === 'function') ? 'mdl-material-unreadable' : 'no-entry-reader'
+          __srcStats.modelDropped++
+          __srcStats.modelDropReasons[__modelDropped] = (__srcStats.modelDropReasons[__modelDropped] || 0) + 1
+        }
+      }
+    } else if (__imageKey === 'image') __srcStats.image++
+    else if (!(typeof o.particle === 'string') && !(typeof o.text === 'string' || (o.text && typeof o.text === 'object')) && o.sound == null) __srcStats.none++
+    if (typeof o.particle === 'string') __srcStats.particle++
+    if (typeof o.text === 'string' || (o.text && typeof o.text === 'object')) __srcStats.text++
+    // ①(P-205) 口径与 `tests/package-matrix.mjs` 的 `soundN` 对齐（`o.sound != null`）：语料里
+    //   `sound` 是**数组**（`["sounds/x.flac"]`，真包 3509243656 实测），不是字符串。
+    if (o.sound !== undefined && o.sound !== null) __srcStats.sound++
+    // 只有"真能交给宿主既有链"的来源才写进 `image`（见上）；`model` 键的来源路径另存 `__imageSrc`
+    const __imgUsable = (__modelDropped === null)
+    const __img = __imgUsable ? __imgRaw : null
+    // `solid` / `isContainer` 的判据来源：来源可用时用**有效模型来源**（`model` 层不再是纯色层）；
+    // 来源不可用时**逐字回到旧判据**（只看 `o.image`）—— 这样"宿主链读不了的模型层"渲染行为与改动前
+    // 逐位相同（它带 `solid:true` + 非白 color 时照旧画 color 块），不会被这次改动顺手改掉画面。
+    const __solidImg = __imgUsable ? __img : ((typeof o.image === 'string') ? o.image : null)
     return {
       id: o.id !== undefined ? o.id : i,
       name: o.name || '',
@@ -1649,7 +1696,14 @@ export function parseScene(sceneJson, project, opts = {}) {
         : undefined,
       visible: parseBool(o.visible, true),
       __visibleRaw: o.visible,
-      image: typeof o.image === 'string' ? o.image : null,
+      // ①(P-205 缺口 2) `model` 键与 `image` 等价（见本函数上方整段说明）：
+      //   `__imageKey` = 来源键（'image' | 'model'，null = 两者都没有）—— 诊断口径据此把
+      //   "老式模型层"与"纯色/占位层"分开；`__imageSrc` = 作者写的原始路径（即使 `image` 没写也保留）；
+      //   `__modelDropped` = 因宿主链读不了而**如实标注**的丢弃原因（不是静默丢）。
+      image: __img,
+      __imageKey,
+      __imageSrc: __imgRaw,
+      __modelDropped,
       particle: typeof o.particle === 'string' ? o.particle : null,
       // ①(RE-19 官方文本层 2026-09-12) text 对象：字段表见 RE-19（pointsize/horizontalalign/
       //   verticalalign/maxwidth/padding/limitrows/... 为真实键；无描边/阴影路径）。
@@ -1687,13 +1741,19 @@ export function parseScene(sceneJson, project, opts = {}) {
       __ioRaw: (o.instanceoverride && typeof o.instanceoverride === 'object') ? o.instanceoverride : null,
       instanceoverride: resolveParticleOverride(o.instanceoverride, (opts && opts.properties) || null),
       // WE 的 solid 层：无 image/particle，或 image 指向内置 models/util/solidlayer*（纯色层，无纹理，用 layer.color 渲染）
+      // ①(P-205 缺口 2) 判据改成看**有效模型来源** `__img`（image 或 model）：
+      //   · 旧写法 `typeof o.image !== 'string'` 对 105 个只写 `model` 的层返回 true ⇒ 它们被标成纯色层，
+      //     "丢层"被掩盖（报告 §5#7）。现在 `model` 层按真实来源判定 ⇒ 92 个 `solid:true` 的模型层
+      //     不再计入 solid 口径（`scene.__srcStats` 里另立 model 档）。
+      //   · 逐位不回归：`image` 存在时 `__img === o.image`，三个分支与旧写法逐字等价
+      //     （`o.image === ''` 这类边角也一致：空串仍是 string，`''.indexOf(...) !== 0`）。
       solid:
         typeof o.particle !== 'string' &&
-        (typeof o.image === 'string' && o.image.indexOf('models/util/solidlayer') === 0
+        (__solidImg !== null && __solidImg.indexOf('models/util/solidlayer') === 0
           ? true
-          : !!o.solid && (typeof o.image !== 'string' || o.image.indexOf('models/util/') === 0)),
+          : !!o.solid && (__solidImg === null || __solidImg.indexOf('models/util/') === 0)),
       // composelayer 是分组容器（子层已合并为世界坐标），容器自身不渲染
-      isContainer: typeof o.image === 'string' && o.image.indexOf('models/util/composelayer') === 0,
+      isContainer: __solidImg !== null && __solidImg.indexOf('models/util/composelayer') === 0,
       origin: [world.origin[0], wy, world.origin[2]],
       scale: world.scale,
       angles: world.angles,
@@ -1719,11 +1779,26 @@ export function parseScene(sceneJson, project, opts = {}) {
       })),
     }
   })
+  // ①(P-205 缺口 2) 层来源台账收口（口径分离的读数就在这里）：
+  //   `solid` = 修好后仍判成纯色/占位层的层数；其中
+  //   `solidNonModel` = 真·纯色/占位层（**不是** model 键），
+  //   `modelKeyedSolidDropped` = model 键、但来源不可用而按旧判据仍落在 solid 档的层数
+  //   （`solidNonModel + modelKeyedSolidDropped === solid`）。模型层单列在 `model*` 档，绝不混进来。
+  for (const l of layers) {
+    if (l.solid) {
+      __srcStats.solid++
+      if (l.__imageKey === 'model') __srcStats.modelKeyedSolidDropped++
+      else __srcStats.solidNonModel++
+    }
+    if (l.isContainer) __srcStats.container++
+  }
   return {
     camera: sceneJson.camera || null,
     general: sceneJson.general || {},
     layers,
     properties,
+    // ①(P-205 缺口 2) `{ image, model, modelDrawn, modelDropped, modelDropReasons, solid, particle, text, sound, container, none }`
+    __srcStats,
     // ①(P-139) 锚点烘入信息（`attachCtx` 生效时有值；宿主逐帧跟随锚点用它做增量，见该处注释）。
     //   无 attachCtx / 无锚点层 = null ⇒ 既有消费方逐位不变（只多一个字段）。
     __attachInfo: attachInfo,
@@ -3197,20 +3272,179 @@ export function resolveMaterial(modelJson) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ①(P-205 缺口 1 2026-09-25) **效果链的 WE 资产（`/weassist`）候选链**
+//
+// 病（离线实测，见 `docs/reverse/RENDERER-UNSUPPORTED-EFFECTS.md` §4#1）：`effects/**/effect.json`
+//   只有"包内"这一级 ⇒ **45 包 / 427 个层-效果实例（17.6%）整条效果链被丢弃**，而且旧实现
+//   `return` 得干干净净（`fbos`/`materialPasses` 一个字段不写、一行日志没有 ⇒ 现场无法归因）。
+//   典型样本 = 60 个 `PKGM0014`"视频底场景"包：只打包 `scene.json` + `wallpaper.mp4`，
+//   效果定义全在用户本机 WE 安装的 `assets/**` 里。
+// material / particle / 贴图三条链**早就有**同款兜底（`/weassist/<包内相对路径>`），唯独 effect 没有。
+// 本段按同一口径补齐，候选顺序 **包内 → `/weassist` 直读 → 效果自带子树**：
+//   ① 包内 `<rel>`
+//   ② `/weassist/<rel>`（服务端把 `/weassist/` 映射到 WE 安装的 `assets/`）—— 与那三条链的第一级同款
+//   ③ `/weassist/<effectDir><rel>`（**效果自带子树**）：WE 安装把 `effect.json` 的依赖放在
+//      `assets/effects/<名>/materials/effects/<名>.json` 与 `assets/effects/<名>/shaders/effects/<名>.{vert,frag}`，
+//      **不在** `assets/materials|shaders/effects/…`；少了这一级，effect.json 即使取回来了，
+//      它的 material 仍然取不到 ⇒ 只有"空 pass"（层照旧没效果）。
+//   `effectDir` = 实际取到 `effect.json` 的那个**资产相对目录**（如 `effects/shake/`），③ 只对
+//   `materials/**`、`shaders/**` 两类依赖生效（effect.json 自己重定基只会产生必 miss 的探测）。
+//
+// 宿主注入口（为什么必须有）：core 是浏览器/Node 共用的**纯模块**（不 import node:fs、也不该自己发
+//   fetch）；`/weassist` 在页面里是一次 fetch、在离线判据里是一次磁盘读 —— 两者都是宿主的事。
+//   与既有 `setCameraScriptHost()` 同款：模块级注册口 + 逐调用 `opts.weAssetReader` 覆盖。
+//   `reader(relPath)` 收的是**资产相对路径**（不含 `/weassist/` 前缀），返回文本/字节，取不到返回 null。
+//   没有注册读取器时：行为与改动前**逐位相同**（只走包内），但缺 effect.json 时**如实记账**（不再静默）。
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let __weAssetReader = null
+/** 注册"WE 安装 assets/**"读取器：`fn(relPath) → string | Uint8Array | null`（传非函数 = 撤销）。 */
+export function setWeAssetReader(fn) { __weAssetReader = (typeof fn === 'function') ? fn : null; return __weAssetReader !== null }
+export function getWeAssetReader() { return __weAssetReader }
+
+/** 纯函数：一个资产相对路径的**外部**候选链（不含包内那一级；判据直接驱动它）。 */
+export function weAssetCandidates(rel, effectDir) {
+  const r = String(rel === undefined || rel === null ? '' : rel).replace(/^\/+/, '')
+  if (!r) return []
+  const out = [r]
+  if (effectDir) {
+    const d = String(effectDir).replace(/^\/+/, '').replace(/\/*$/, '/')
+    // ③ 只对效果自带依赖（materials/shaders）重定基
+    if (d && r.indexOf(d) !== 0 && (r.indexOf('materials/') === 0 || r.indexOf('shaders/') === 0)) out.push(d + r)
+  }
+  return out
+}
+
+/** 效果自带子树的目录：`effects/shake/effect.json` → `effects/shake/`（从**实际取到**的相对路径算）。 */
+export function effectAssetDirOf(rel) {
+  const r = String(rel === undefined || rel === null ? '' : rel).replace(/^\/+/, '')
+  const i = r.lastIndexOf('/')
+  return i > 0 ? r.slice(0, i + 1) : null
+}
+
+let __weAssetDec = null
+/** 依次试候选链（外部读取器）。命中返回 `{ text, rel, source }`；没有读取器/全 miss ⇒ null。 */
+export function readWeAssetText(rel, effectDir, opts) {
+  const reader = (opts && typeof opts.weAssetReader === 'function') ? opts.weAssetReader : __weAssetReader
+  if (typeof reader !== 'function') return null
+  const cands = weAssetCandidates(rel, effectDir)
+  for (let i = 0; i < cands.length; i++) {
+    let v = null
+    try { v = reader(cands[i]) } catch (e) { v = null }
+    if (v === null || v === undefined) continue
+    let text = null
+    try {
+      if (typeof v === 'string') text = v
+      else { if (!__weAssetDec) __weAssetDec = new TextDecoder(); text = __weAssetDec.decode(v) }
+    } catch (e) { text = null }
+    if (!text) continue
+    return { text, rel: cands[i], source: i === 0 ? 'weassist' : 'weassist-effect-subtree' }
+  }
+  return null
+}
+
+// 效果链缺失台账（模块级只读发布；与 `__mpwSubMesh`/`__mpwMipStats` 同款诊断面）。
+// 为什么要有它：旧实现在"取不到 effect.json"这条路上**什么都不留**（无字段、无日志）——
+// 报告 §4#1 的 427 个实例就是这么消失的。现在：每层效果对象上留 `__fxMiss`（机器可读），
+// 进程级再汇总一份 `globalThis.__mpwFxMiss`（浏览器/Node 同一个口）。
+const __fxMiss = { eff: 0, mat: 0, shader: 0, byFile: Object.create(null), last: [] }
+const __fxMissLogged = new Set()
+export function effectAssetLedger() {
+  return { eff: __fxMiss.eff, mat: __fxMiss.mat, shader: __fxMiss.shader, byFile: { ...__fxMiss.byFile }, last: __fxMiss.last.slice() }
+}
+/** 判据用：清台账（同一进程里反复跑真包时避免累计）。 */
+export function resetEffectAssetLedger() {
+  __fxMiss.eff = 0; __fxMiss.mat = 0; __fxMiss.shader = 0
+  __fxMiss.byFile = Object.create(null); __fxMiss.last.length = 0; __fxMissLogged.clear()
+}
+function publishFxLedger() {
+  const g = (typeof globalThis !== 'undefined') ? globalThis : null
+  if (!g) return
+  try { g.__mpwFxMiss = { eff: __fxMiss.eff, mat: __fxMiss.mat, shader: __fxMiss.shader, byFile: { ...__fxMiss.byFile }, last: __fxMiss.last.slice(-8) } } catch (e) { /* 诊断面写失败不影响解析 */ }
+}
+/** 记一条效果链缺失（台账 + 每个文件**一次**的日志；`opts.onLog`/`opts.log` 是宿主日志通道）。 */
+function noteFxMiss(kind, rel, tried, opts) {
+  if (kind === 'material') __fxMiss.mat++
+  else if (kind === 'shader') __fxMiss.shader++
+  else __fxMiss.eff++
+  const key = kind + ':' + rel
+  __fxMiss.byFile[key] = (__fxMiss.byFile[key] || 0) + 1
+  if (__fxMiss.last.length < 64) __fxMiss.last.push({ kind, file: String(rel || ''), tried: tried || [] })
+  publishFxLedger()
+  const logKey = kind + '|' + rel
+  if (!__fxMissLogged.has(logKey)) {
+    __fxMissLogged.add(logKey)
+    const sink = (opts && typeof opts.onLog === 'function') ? opts.onLog : ((opts && typeof opts.log === 'function') ? opts.log : null)
+    if (sink) {
+      try {
+        const what = kind === 'material' ? 'material（该 pass 退化成空 pass，shader=null）'
+          : kind === 'shader' ? 'shader 源（该 pass 编译不出内容）'
+            : 'effect.json（本层该效果整条不生效）'
+        sink('[we-scene] P-205 效果链缺 ' + what + ' "' + rel + '"（包内 + /weassist 候选 '
+          + JSON.stringify(tried || []) + ' 都没命中）')
+      } catch (e) { /* 日志通道异常不影响解析 */ }
+    }
+  }
+}
+
 // ===== src/scene/effects-parse.js =====
 // 解析效果的 material 链：effects/<name>/effect.json → materials/effects/*.json 的 passes
 // 产出 layer.effects[i] 的 { materialPasses, fbos, binds }，供通用 pass 管线使用。
 
 // pkg: parsePkg 结果；effect: scene.json 的效果条目（file/passes/visible）
-export function resolveEffectChain(pkg, effect, readText) {
-  const entry = getEntry(pkg, effect.file)
-  if (entry === null) return
-  let ej
-  try {
-    ej = parseWeJson(readText(entry))
-  } catch (e) {
-    return
+// opts: { weAssetReader?, onLog? }（见上面 P-205 段；不传 = 只走包内，但缺件仍记账）
+// 返回：`{ ok, source, rel, dir, miss }`（诊断读数；既有调用方忽略返回值即可）
+export function resolveEffectChain(pkg, effect, readText, opts) {
+  const file = String(effect && effect.file ? effect.file : '')
+  const tried = weAssetCandidates(file, null)
+  const entry = file ? getEntry(pkg, file) : null
+  let ej = null
+  let fxSrc = null, fxRel = file
+  if (entry !== null) {
+    try {
+      ej = parseWeJson(readText(entry))
+      fxSrc = 'pkg'
+    } catch (e) {
+      ej = null
+      noteFxMiss('effect-parse', file, tried, opts)
+      effect.fbos = effect.fbos || []
+      effect.commands = effect.commands || []
+      effect.materialPasses = effect.materialPasses || []
+      effect.__fxMiss = { kind: 'effect-parse', file, tried, err: (e && e.message) || String(e) }
+      return { ok: false, source: null, rel: file, dir: null, miss: 'effect-parse' }
+    }
+  } else {
+    // ①(P-205) 包内没有 ⇒ 走 `/weassist` 候选链（改动前在这里**直接 return**，什么都不留）
+    const ext = readWeAssetText(file, null, opts)
+    if (ext) {
+      try {
+        ej = parseWeJson(ext.text)
+        fxSrc = ext.source; fxRel = ext.rel
+      } catch (e) {
+        ej = null
+        noteFxMiss('effect-parse', file, tried.concat([ext.rel]), opts)
+        effect.fbos = effect.fbos || []
+        effect.commands = effect.commands || []
+        effect.materialPasses = effect.materialPasses || []
+        effect.__fxMiss = { kind: 'effect-parse', file, tried, err: (e && e.message) || String(e) }
+        return { ok: false, source: ext.source, rel: ext.rel, dir: effectAssetDirOf(ext.rel), miss: 'effect-parse' }
+      }
+    }
   }
+  if (ej === null) {
+    // 包内 + /weassist 全 miss：**如实记账**（字段照写，形状统一；__fxMiss 区分"解析过但缺件"）
+    noteFxMiss('effect', file, tried, opts)
+    effect.fbos = effect.fbos || []
+    effect.commands = effect.commands || []
+    effect.materialPasses = effect.materialPasses || []
+    effect.__fxMiss = { kind: 'effect', file, tried }
+    return { ok: false, source: null, rel: file, dir: null, miss: 'effect' }
+  }
+  const fxDir = effectAssetDirOf(fxRel)
+  effect.__fxSource = fxSrc
+  effect.__fxRel = fxRel
+  effect.__fxDir = fxDir
+  delete effect.__fxMiss
   effect.fbos = ej.fbos || []
   effect.commands = []
   let compose = false
@@ -3232,12 +3466,29 @@ export function resolveEffectChain(pkg, effect, readText) {
       continue // 既无 material 又无 command：官方 LOG_ERROR 并失败（WPEffect.cpp:209-210）
     }
     if (p.compose) compose = true
+    // ①(P-205) material 也走同一条候选链（包内 → `/weassist/<rel>` → `/weassist/<effectDir><rel>`）。
+    //   最后一级是**必需**的：官方资产的 `materials/effects/<名>.json` 实际放在
+    //   `assets/effects/<名>/materials/effects/<名>.json`；少了它，从 `/weassist` 取回的 effect.json
+    //   只会得到"空 pass"（层照旧没效果）——判据 ② 正是钉这一条。
+    let mj = null
+    let matSrc = 'pkg'
     const me = getEntry(pkg, p.material)
-    if (me === null) {
-      effect.materialPasses.push({ shader: null, copyCommand: false, target: p.target || null, binds: p.bind || [], blending: 'normal', textures: [], combos: {}, constants: {} })
-      continue
+    if (me !== null) {
+      try { mj = parseWeJson(readText(me)) } catch (e) { mj = null }
     }
-    const mj = parseWeJson(readText(me))
+    if (mj === null) {
+      const matTried = weAssetCandidates(p.material, fxDir)
+      const ext = readWeAssetText(p.material, fxDir, opts)
+      if (ext) {
+        try { mj = parseWeJson(ext.text); matSrc = ext.source } catch (e) { mj = null }
+      }
+      if (mj === null) {
+        // 包内 + /weassist 全 miss：**如实记账**（旧实现是静默 push 一个空 pass）
+        noteFxMiss('material', p.material, matTried, opts)
+        effect.materialPasses.push({ shader: null, copyCommand: false, target: p.target || null, binds: p.bind || [], blending: 'normal', textures: [], combos: {}, constants: {}, __materialMiss: matTried })
+        continue
+      }
+    }
     const mp = (mj.passes && mj.passes[0]) || {}
     effect.materialPasses.push({
       shader: mp.shader || null,
@@ -3248,6 +3499,10 @@ export function resolveEffectChain(pkg, effect, readText) {
       textures: mp.textures || [],
       combos: mp.combos || {},
       constants: mp.constantshadervalues || {},
+      // ①(P-205) 这条 pass 的 material 从哪一级取到的（'pkg' / 'weassist' / 'weassist-effect-subtree'）——
+      //   判据 ② 靠它证明"官方效果自带子树"那一级真的被用上了（真机上 `/weassist/materials/effects/<名>.json`
+      //   根本不存在，只有 `<效果目录>/materials/effects/<名>.json` 存在）。
+      __matSource: matSrc,
     })
   }
   // WER-ALIGN C9（wer-ref WPEffect.cpp:222-236）：compose:true → 自动追加
@@ -3262,6 +3517,68 @@ export function resolveEffectChain(pkg, effect, readText) {
     p0.target = '_rt_FullCompoBuffer1'
     p1.binds = (p1.binds || []).concat([{ index: 0, name: '_rt_FullCompoBuffer1' }])
   }
+  return { ok: true, source: fxSrc, rel: fxRel, dir: fxDir, miss: null }
+}
+
+// ①(P-205 缺口 2) **`.mdl` 模型来源登记表**（解析期写、`resolveBuiltin` 读）。
+//
+// 为什么必须由 core 登记、而不是让宿主自己读：宿主（demo.html loadScene / tests/package-matrix.mjs）
+// 拿到 `layer.image` 后的第一条链是 `lib.resolveBuiltin(layer.image)` → 命中即用，**不再**
+// `getEntry` + `parseWeJson`。而 `.mdl` 是二进制（`MDLV0023…`），`parseWeJson` 对它 throw，
+// demo 的 `Promise.all(jobs)` 会把整页打成 `❌ 启动失败`。所以 `.mdl` 的 material 路径只能在
+// 解析期从 MDL 头里读出来，再作为"内置模型"交给宿主走既有 model→material 链。
+//
+// 口径出处：`core/attach-transform.mjs` 的 MDLV0016 段 ③ 与 `MDL_MATERIAL_PATH_OFFSET`（**同一条规则**：
+// `MDLV*` 魔数 + 13 字节固定头之后、第 21 字节起是 `materials/…` cstr，语料 172/172 成立）。
+// 那边服务"解析网格时顺带校验"，这边服务"只要 material 路径"；两处都在本仓，改动要同步 ——
+// 判据 `tests/model-key-fallback-test.mjs` 用真包把"读出的路径必须真的在包内"钉住（读错必红）。
+const MDL_MATERIAL_PATH_OFFSET = 21
+const MDL_MATERIAL_PATH_MAX = 512
+let __mdlDec = null
+/** 从 `.mdl` 字节里读 material 路径（资产相对）。不是 `MDLV*` / 头里不是 `materials/…json` ⇒ null。 */
+export function readMdlMaterialPath(buf) {
+  if (!buf || buf.length === undefined || buf.length < MDL_MATERIAL_PATH_OFFSET + 8) return null
+  if (!(buf[0] === 0x4d && buf[1] === 0x44 && buf[2] === 0x4c && buf[3] === 0x56)) return null // 'MDLV'
+  const max = Math.min(buf.length, MDL_MATERIAL_PATH_OFFSET + MDL_MATERIAL_PATH_MAX)
+  let end = MDL_MATERIAL_PATH_OFFSET
+  while (end < max && buf[end] !== 0) end++
+  if (end >= max || end === MDL_MATERIAL_PATH_OFFSET) return null
+  let s = null
+  try {
+    if (!__mdlDec) __mdlDec = new TextDecoder()
+    s = __mdlDec.decode(buf.subarray ? buf.subarray(MDL_MATERIAL_PATH_OFFSET, end) : buf.slice(MDL_MATERIAL_PATH_OFFSET, end))
+  } catch (e) { s = null }
+  if (!s || !/^materials\/.+\.json$/i.test(s)) return null
+  return s
+}
+
+/** 路径 → 已登记的模型对象（`~/.json` 之外的二进制模型用）。未登记返回 null。 */
+const __parsedModels = new Map()
+const __modelLedger = { registered: 0, read: 0, readBytes: 0, miss: 0 }
+export function parsedModelSource(path) { return __parsedModels.get(path) || null }
+export function modelSourceLedger() { return { registered: __modelLedger.registered, read: __modelLedger.read, readBytes: __modelLedger.readBytes, miss: __modelLedger.miss, entries: __parsedModels.size } }
+/** 判据用：清单（同名 `.mdl` 跨包时后写者胜 —— 见 PATCHES.md P-205 的未验证边界）。 */
+export function resetModelSources() { __parsedModels.clear(); __modelLedger.registered = 0; __modelLedger.read = 0; __modelLedger.readBytes = 0; __modelLedger.miss = 0 }
+/**
+ * 解析期登记一个二进制模型来源：读一次 MDL 字节 → 取 material 路径 → 存进 `__parsedModels`。
+ * ⚠ 成本（如实记在 `modelSourceLedger().readBytes`）：宿主给的 `readEntry` 契约是"整条"，
+ *   所以这一步是**一次整条读**（语料最坏 `0923/3589454154` 的 156MB `.mdl`）。每个路径只读一次。
+ */
+export function registerModelSource(path, readEntry) {
+  if (!path) return null
+  if (__parsedModels.has(path)) return __parsedModels.get(path)
+  if (typeof readEntry !== 'function') return null
+  let bytes = null
+  try { bytes = readEntry(path) } catch (e) { bytes = null }
+  if (!bytes) { __modelLedger.miss++; return null }
+  __modelLedger.read++
+  __modelLedger.readBytes += (bytes.length || 0)
+  const mat = readMdlMaterialPath(bytes)
+  if (!mat) { __modelLedger.miss++; return null }
+  const v = { material: mat, __mdl: path }
+  __parsedModels.set(path, v)
+  __modelLedger.registered++
+  return v
 }
 
 // 内置模型（pkg 内没有 models/util/*）：返回内置 material 路径或 null
@@ -3300,6 +3617,10 @@ export function resolveBuiltin(path) {
   if (!path) return null
   if (BUILTIN_MODELS[path]) return { kind: 'model', value: BUILTIN_MODELS[path] }
   if (BUILTIN_MATERIALS[path]) return { kind: 'material', value: BUILTIN_MATERIALS[path] }
+  // ①(P-205 缺口 2) 解析期登记的**二进制模型**（`.mdl`）优先于下面的前缀匹配：命中即用
+  //   ⇒ 宿主不需要把 MDL 字节喂给 `parseWeJson`（那会 throw）。未登记时这一行是恒 null 查表。
+  const __pm = __parsedModels.get(path)
+  if (__pm) return { kind: 'model', value: __pm }
   for (const k of Object.keys(BUILTIN_MODELS)) {
     const base = k.slice(0, -'.json'.length)
     if (path.startsWith(base) && path.endsWith('.json')) return { kind: 'model', value: BUILTIN_MODELS[k] }
@@ -11185,12 +11506,30 @@ export function createRenderer(canvas, opts = {}) {
   const shaderSrcCache = new Map()
   // ①(P-195) `parseMaterialMeta`/`parseTextureCombos`/`parseDefaultValue` 已提到**模块作用域**并导出
   //   （判据要直接驱动它们；生产路径用 `materialMetaFor()` 把 include 正文一起扫，见该函数上方整段说明）。
-  async function getEffectProgram(shaderName, combos, providedTextures) {
+  // ①(P-205 缺口 1 第三级 2026-09-25) **效果 shader 的 WE 资产兜底**：宿主 `shaderResolver` 拿不到
+  //   源时，按与 effect.json/material 同一条候选链再试 `/weassist/<rel>` → `/weassist/<effectDir><rel>`
+  //   （官方效果的 `.vert/.frag` 在 `assets/effects/<名>/shaders/effects/<名>.{vert,frag}`，**不在**
+  //   `assets/shaders/effects/`）。`fxDir` 由 `resolveEffectChain` 填在 `effect.__fxDir` 上（没走那条链
+  //   的合成效果 = undefined ⇒ 退化成只有第二级）。没有注册读取器时**一次调用都不多发**、返回值与
+  //   改动前逐位相同（`''`），并如实记一条 shader 缺失台账。
+  async function resolveEffectShaderSource(shaderName, stage, fxDir) {
+    // `shader: null`（material 缺失的退化 pass）**不**进候选链：没有名字就没有可查的资产，
+    // 旧路径也是直接拿到空源（`shaders/null.frag` 不可能命中）——这里只是不让它污染台账。
+    if (!shaderName) return ''
+    const rel = 'shaders/' + shaderName + '.' + stage
+    const s = (await shaderResolver(rel)) || ''
+    if (s) return s
+    const ext = readWeAssetText(rel, fxDir, opts)
+    if (ext && ext.text) return ext.text
+    noteFxMiss('shader', rel, weAssetCandidates(rel, fxDir), opts)
+    return ''
+  }
+  async function getEffectProgram(shaderName, combos, providedTextures, fxDir) {
     // shader 源与纹理 combo 按名缓存：避免每帧每 pass 重新 fetch/正则
     let src = shaderSrcCache.get(shaderName)
     if (src === undefined) {
-      const fragSrc = (await shaderResolver('shaders/' + shaderName + '.frag')) || ''
-      const vertSrc = (await shaderResolver('shaders/' + shaderName + '.vert')) || ''
+      const fragSrc = await resolveEffectShaderSource(shaderName, 'frag', fxDir)
+      const vertSrc = await resolveEffectShaderSource(shaderName, 'vert', fxDir)
       // ①(P-134 ⑥ 第三处) 同一材质 pass 的 vert/frag = **一张** combo 表（官方语义，见
       //   `withSiblingComboDefaults` 的注释）：各自补上对方独有的 `[COMBO]` 声明再编译，
       //   否则只在 .vert 里声明的 combo（如 `Simple_Audio_Bars` 的 `BAR_STYLE`）在 frag 里按 0 编译，
@@ -13987,7 +14326,7 @@ export function createRenderer(canvas, opts = {}) {
         if (ovT[i] !== undefined && ovT[i] !== null) mergedTex[i] = ovT[i]
         else mergedTex[i] = mpT[i] !== undefined ? mpT[i] : null
       }
-      const progEntry = await getEffectProgram(mp.shader, combos, mergedTex).catch((e) => {
+      const progEntry = await getEffectProgram(mp.shader, combos, mergedTex, eff.__fxDir).catch((e) => {
         // 单个 pass 编译失败：记录一次并中断该层剩余效果链（保留已完成的 pass 结果继续合成）
         const msg = (e && e.message) || String(e)
         if (!passErrorLogged.has(mp.shader + ' :: ' + msg)) {
