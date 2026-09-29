@@ -132,7 +132,7 @@ function runBlock(src, pkg, lib, { location = undefined, projectJson } = {}) {
 const FIX_DIRS = [
   process.env.MPW_APK_WALLPAPERS,
   path.join(WS, 'wallpaper_engine', 'apk', 'assets', 'wallpapers'),
-  '/tmp/re5/assets/wallpapers',
+  path.join(os.tmpdir(), 're5', 'assets', 'wallpapers'),   // ②(2026-09-29) 不用 /tmp 字面量：cross-platform 门禁 A/B 段会抓（os.tmpdir() 写法合规，见该门禁 G3b）
 ].filter(Boolean)
 const fixOf = (name) => {
   for (const d of FIX_DIRS) { const p = path.join(d, name); if (fs.existsSync(p)) return p }
