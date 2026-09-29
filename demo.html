@@ -3566,7 +3566,11 @@ function loadScene() {
   //   **从不解析**（真包读数：砂狼白子11_03 的 50 个层-效果实例里有 20 个落在无 image 的层上 ⇒ 浏览器侧
   //   最多只可能挂上 10 个，而离线端到端是 22 个）。解析与 `ef.passes[].textures` 接线一并前移；实测这三个包
   //   的目标贴图本来全在 image 层上 ⇒ 这一移**不新增**任何纹理请求（全语料口径见 tests/weassist-prefetch-test.mjs）。
-  const fxStat = { instances: 0, attached: 0, passes: 0, realShaders: 0, effectsWithChain: 0, sources: {}, matSources: {}, texJobs: 0, digest: '' };
+  const fxStat = { instances: 0, attached: 0, passes: 0, realShaders: 0, effectsWithChain: 0, sources: {}, matSources: {}, passthrough: 0, texJobs: 0, digest: '' };
+  // ①(P-208 A1) `?fxpassthrough=legacy`：关掉"缺件效果 ⇒ 官方 passthrough 回落"的显式语义
+  //  （`__fxPassthrough` 标记 + passthrough 日志措辞 + 台账 `passthrough` 计数），如实回到 P-205 的
+  //  "字段照写 + 缺件记账"状态。链行为两档等价（C13 bypass 哨兵 = 恒等 blit），差异在**可观测面**。
+  const FX_PASSTHROUGH_LEGACY = (() => { try { return new URLSearchParams(location.search).get('fxpassthrough') === 'legacy' } catch (e) { return false } })();
   const fxTexByLayer = [];
   // 链摘要（**逐位不回归**的机器可判形式，与离线 `tests/weassist-prefetch-test.mjs` 的 `chainDigest` 同一算式）：
   //   FNV-1a 32（`Math.imul` 真 32 位）over 每个实例一行 JSON：`{f,fbos,mp:[{s,b,t,binds,tx,c,k}]}`，
@@ -3578,11 +3582,14 @@ function loadScene() {
     (layer.effects || []).forEach((ef) => {
       // `opts.onLog` ⇒ core 的 P-205 缺件台账（`noteFxMiss`）**进页面日志**（每文件一次；改前这条链在页面上完全静默）。
       // reader 走模块级注册（见上面 MPW-FX-PREFETCH 块），这里不逐调用传 `weAssetReader`。
-      const r = lib.resolveEffectChain(pkg, ef, rd, { onLog: (m) => logf('⚠ ' + m) });
+      // ①(P-208 A1) `fxPassthrough`：缺省挂官方 passthrough 回落语义；`?fxpassthrough=legacy` 传 'legacy' 关掉。
+      const r = lib.resolveEffectChain(pkg, ef, rd, { onLog: (m) => logf('⚠ ' + m), fxPassthrough: FX_PASSTHROUGH_LEGACY ? 'legacy' : undefined });
       fxStat.instances++;
       if (fxStat.instances > 1) fxHashAdd('\n');
       const mps = ef.materialPasses || [];
       if (mps.length) { fxStat.attached++; fxStat.passes += mps.length; fxStat.effectsWithChain++; }
+      // ①(P-208 A1) 缺件但被显式标记为 passthrough 的实例数（进 `__mpwFxResolve` 台账，现场一眼看到"多少效果是恒等 blit 顶着"）
+      if (ef.__fxPassthrough) fxStat.passthrough++;
       const src = (r && r.source) || 'miss';
       fxStat.sources[src] = (fxStat.sources[src] || 0) + 1;
       for (const mp of mps) {
@@ -3610,7 +3617,9 @@ function loadScene() {
   if (fxStat.instances) {
     logf('① P-206 效果链解析：' + fxStat.instances + ' 个实例 / 挂上 ' + fxStat.attached + ' / pass ' + fxStat.passes
       + '（真 shader ' + fxStat.realShaders + '）· 定义来源 ' + JSON.stringify(fxStat.sources)
-      + ' · material 来源 ' + JSON.stringify(fxStat.matSources) + ' · 链摘要 ' + fxStat.digest);
+      + ' · material 来源 ' + JSON.stringify(fxStat.matSources)
+      + (fxStat.passthrough ? ' · passthrough ' + fxStat.passthrough + '（缺件恒等 blit 顶着）' : '')
+      + ' · 链摘要 ' + fxStat.digest);
   }
   scene.layers.forEach((layer) => {
     if (!layer.image) return;
@@ -4203,6 +4212,46 @@ function loadScene() {
   }
   pkg = lib.parsePkg(buf)
   logf('容器: ' + pkg.magic + ' 条目 ' + pkg.entries.length + ' 个')
+  // ═══ MPW-OLDSCENE-BEGIN ═══
+  /* ①(P-208 A11 2026-09-29) **老式布局**：场景定义条目名不一定是 `scene.json`。
+     官方 APK 样例 `techno.mpkg`（PKGM0012）/`fantastic_car.mpkg`（PKGM0014）没有 scene.json，
+     场景定义是 `project.json.file` 指向的 `techno.json` / `fantasticcar.json`（RE-61"老式布局"行）。
+     旧实现只认 `scene.json` ⇒ 这些包落进下面的 MPW-NOSCENE 被判成"纯视频壁纸"
+     —— 更糟的是 `project.json.file` 指向的 **JSON** 条目会被 `nsEnt` 选中、按 `video/mp4` 建 blob
+     （有视频后缀兜底之前的那条 `(nsFile && lib.getEntry(pkg, nsFile))` 不看后缀）。
+     优先级（RE-61 / RE-46 官方 Android 端 OpenFile 整体小写化 ⇒ 查找大小写不敏感）：
+       ① `scene.json` 存在就用它；② 否则 `project.json.file` 指向的条目；
+       ③ 都没有 ⇒ null（下面的 MPW-NOSCENE 纯视频路径接管，行为不变）。
+     `project.json.file` 指向的条目不存在时**如实记一行日志**并列出容器内 JSON 条目名（沿用"列条目名"风格）。
+     回退口：`?oldschool=legacy`（只认 scene.json 的旧行为）。
+     判据：tests/mpkg-oldschool-scene-test.mjs（真包 3 件套）+ tests/mpkg-noscene-test.mjs（纯视频回归）。 */
+  let sceneEntryName = null
+  {
+    const OLDSCENE_LEGACY = (() => {
+      try { if (typeof URLSearchParams === 'function' && typeof location !== 'undefined') return new URLSearchParams(location.search).get('oldschool') === 'legacy' } catch (e) {}
+      return false
+    })()
+    if (lib.getEntry(pkg, 'scene.json')) sceneEntryName = 'scene.json'
+    else if (!OLDSCENE_LEGACY) {
+      const __oldWarn = []
+      try {
+        const __pjE = lib.getEntry(pkg, 'project.json')
+        const __pj = __pjE ? lib.parseWeJson(rd(__pjE)) : null
+        const __pf = __pj ? String(__pj.file || (__pj.general && __pj.general.file) || '') : ''
+        if (__pf && /\.json$/i.test(__pf)) {
+          const __hit = (pkg.entries || []).find((e) => String(e.name).toLowerCase() === __pf.toLowerCase())
+          if (__hit) {
+            sceneEntryName = __hit.name
+            try { if (typeof window !== 'undefined') window.__mpwOldScene = { entry: __hit.name, file: __pf, at: Date.now() } } catch (e) {}
+          } else __oldWarn.push('project.json.file 指向的条目不存在：' + __pf)
+        }
+      } catch (e) { /* project.json 缺失/坏：NOSCENE 路径按视频条目后缀兜底，不抛 */ }
+      if (__oldWarn.length) logf('⚠ ' + __oldWarn.join('; ') + '（容器内 JSON 条目：'
+        + (pkg.entries || []).filter((e) => /\.json$/i.test(String(e.name))).map((e) => String(e.name)).join(', ') + '）')
+    }
+  }
+  // ═══ MPW-OLDSCENE-END ═══
+
   // ═══ MPW-NOSCENE-BEGIN ═══
   /* ①(2026-09-24 MPKG 抽扫) **没有 `scene.json` 的容器不再抛看不懂的 TypeError**：全库 155 个 `.mpkg`
      里 85 个没有 `scene.json`（其中约 75 个是"视频壁纸"打包），此前一律落到下一行的
@@ -4213,7 +4262,7 @@ function loadScene() {
      （与既有 `?video=` / `type=video` 两档同形：DOM 覆盖层 + blob 源 + 上面那个 blob 媒体看门狗）；
      ② 连视频也没有 ⇒ **如实报错并列出条目名**，不再是一句 TypeError。
      判据：tests/mpkg-noscene-test.mjs（源码序 + 按源码序执行原文 + 变异自证）。 */
-  if (!lib.getEntry(pkg, 'scene.json')) {
+  if (!sceneEntryName) {
     const nsNames = (pkg.entries || []).map((e) => String(e.name)).join(', ')
     let nsFile = ''
     try {
@@ -4270,7 +4319,9 @@ function loadScene() {
     return
   }
   // ═══ MPW-NOSCENE-END ═══
-  const sceneJson = rd(lib.getEntry(pkg, 'scene.json'));
+  // ①(P-208 A11) sceneEntryName 由上面的 MPW-OLDSCENE 块解析（scene.json 优先，否则 project.json.file）；
+  //   走到这里必然非 null（NOSCENE 路径已 return/throw）⇒ `|| 'scene.json'` 只是防御。
+  const sceneJson = rd(lib.getEntry(pkg, sceneEntryName || 'scene.json'));
   // ①(P-21-ATTACH 2026-09-13) 附件锚点默认走移植自 elysia 的实现（bundle parseScene 的 opts.attachCtx，
   //   MDAT0001 锚点表 + MDLA 帧0 骨骼世界位姿；POSITION-FINDINGS.md §4）。?att=legacy 回退旧
   //   anchorsOf/mkOff/piv 自算路径（下面的 legacy 块）。两套互斥，避免叠加。
@@ -6327,10 +6378,36 @@ function loadScene() {
     let inkTop = va === 'top' ? pad[0] : (va === 'bottom' ? (h - pad[2] - drawH) : ((h - drawH) / 2))
     inkTop = Math.max(0, Math.min(Math.max(0, h - drawH), inkTop))
     const ha = t.horizontalalign === 'center' ? 'center' : (t.horizontalalign === 'right' ? 'right' : 'left')
+    // ①(P-219 F2 2026-09-29 · RE-49) 文本 `spacing`（"x y" 两分量）：**官方语义未证实**（RE-49：两份
+    //   二进制键表都没读到该键，可能 SSO 内联；语料 139 层全 "0.00000 0.00000"）⇒ 按规则 B"接口先行、
+    //   行为默认关"：**缺省（?spacing=legacy）与改动前逐位一致**；只有 `?spacing=on` 才启用
+    //   "x=字符间距、y=行距增量"的解释（注释与判据都写明"语义按此假设，未定案"）。台账
+    //   `window.__mpwTextSpacing = {layers, applied}`（0 命中也保留落点）。addText 动态文本与静态
+    //   文本共用同一条光栅化路径（都走本函数）⇒ 该字段对动态文本同样可读。
+    const SPACING_ON = (() => { try { return new URLSearchParams(location.search).get('spacing') === 'on' } catch (e) { return false } })()
+    let __spX = 0, __spY = 0
+    if (SPACING_ON && typeof t.spacing === 'string') {
+      const sp = t.spacing.trim().split(/\s+/).map(Number)
+      if (sp.length >= 2 && sp.every(isFinite)) { __spX = sp[0]; __spY = sp[1] }
+    }
+    try {
+      const TSW = (typeof window !== 'undefined') ? (window.__mpwTextSpacing = window.__mpwTextSpacing || { layers: 0, applied: 0 }) : null
+      if (TSW && SPACING_ON && (__spX !== 0 || __spY !== 0)) TSW.applied++
+    } catch (e) {}
     for (let i = 0; i < metrics.length; i++) {
       const m = metrics[i]
       const x = ha === 'center' ? ((w - m.adv) / 2) : (ha === 'right' ? (w - pad[3] - m.adv) : pad[1])
-      ctx.fillText(m.line, x, inkTop + maxIa + i * lineH)
+      const lineY = inkTop + maxIa + i * (lineH + __spY)
+      if (__spX !== 0) {
+        // 字符间距：逐字符推进（ctx.measureText 每字符一次；仅实验档走这条路）
+        let cx = x
+        for (const ch of m.line) {
+          ctx.fillText(ch, cx, lineY)
+          cx += ctx.measureText(ch).width + __spX
+        }
+      } else {
+        ctx.fillText(m.line, x, lineY)
+      }
     }
     const rgba = ctx.getImageData(0, 0, cw, ch).data
     return { w: cw, h: ch, boxW: w, boxH: h, rgba: new Uint8Array(rgba.buffer.slice(0)) }

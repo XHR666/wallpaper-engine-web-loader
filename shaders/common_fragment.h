@@ -55,3 +55,56 @@ vec4 ConvertTextureFormat(const int format, vec4 texel)
 		return vec4(1.0, 1.0, 1.0, texel.r);
 	return texel;
 }
+
+// ---------------------------------------------------------------------------
+// 2D point-light helpers (P-208 B1, 2026-09-29). Own implementation for this
+// project; the per-light terms match the renderer's CPU-side 2D light model:
+//   * attenuation  a = saturate((radius - dist) / radius), applied SQUARED;
+//   * diffuse term mixed between raw lambert and half-lambert by g_Light;
+//   * rim term driven by the un-mixed half-lambert value and metallic*2;
+//   * contribution = color * (saturate(lightDot) + rim) * a * a.
+// These functions are only pulled in by shaders that declare the light
+// uniforms themselves (g_LightsColorRadius / g_LightsPosition / g_Light...);
+// shaders that never reference them are unaffected.
+// ---------------------------------------------------------------------------
+
+float LightSaturate1(float x)
+{
+	return clamp(x, 0.0, 1.0);
+}
+
+// Diffuse-only per-light contribution (no specular/rim branch).
+vec3 ComputeLight2D(vec3 lightDelta, vec3 normal, vec3 color, float radius)
+{
+	float dist = length(lightDelta);
+	float attn = radius > 0.0 ? LightSaturate1((radius - dist) / radius) : 0.0;
+	vec3 dir = dist > 0.0 ? lightDelta / dist : vec3(0.0);
+	float ndl = dot(dir, normal);
+	return color * LightSaturate1(ndl) * attn * attn;
+}
+
+// Full per-light contribution. `specAccum` receives this light's specular
+// increment; the return value is the diffuse+rim term.
+vec3 ComputeLightSpecular2D(vec3 normal, vec3 lightDelta, vec3 color, float radius,
+                            vec3 viewDir, float specularPower, float specularStrength,
+                            float gLight, float metallic, inout vec3 specAccum)
+{
+	float dist = length(lightDelta);
+	float attn = radius > 0.0 ? LightSaturate1((radius - dist) / radius) : 0.0;
+	vec3 dir = dist > 0.0 ? lightDelta / dist : vec3(0.0);
+	vec3 halfVec = normalize(viewDir + dir);
+	float spec = max(0.0, dot(halfVec, normal));
+	specAccum += pow(spec, specularPower) * specularStrength * attn * color;
+	float lightDot = dot(dir, normal);
+	float halfLambertLight = lightDot * 0.5 + 0.5;
+	lightDot = mix(lightDot, halfLambertLight, clamp(gLight, 0.0, 1.0));
+	float rimTerm = metallic * 2.0;
+	float rim = pow((1.0 - LightSaturate1(dot(normal, viewDir))) * pow(halfLambertLight, 0.25), 6.0 - rimTerm) * rimTerm;
+	return color * (LightSaturate1(lightDot) + rim) * attn * attn;
+}
+
+// Ambient term: skylight on the floor-facing hemisphere, ambient elsewhere.
+vec3 AmbientMix2D(vec3 skylight, vec3 ambient, float normalY)
+{
+	return mix(skylight, ambient, clamp(normalY * 0.5 + 0.5, 0.0, 1.0));
+}

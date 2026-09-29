@@ -139,10 +139,13 @@ const FROZEN = {
   '0917/3195212886/scene.pkg': { fx: 73, digest: 'a33779cb62aa0ff9' },
   '0917/3299228616/scene.pkg': { fx: 276, digest: '1264831bd60852ef' },
   '0917/3351163962/scene.pkg': { fx: 59, digest: '080ddf1f2cc91bb0' },
-  '0923/3151551777/scene.pkg': { fx: 133, digest: '5c8d207ee06d5d0c' },
+  /* ①(P-217 A8) digest 更新：A8 起 `dependencies` 排序约束生效（RE-49 官方读该键 ⇒ 依赖层排到
+     本层之前），带依赖层的 2 个包（3151551777/3662790108）的层序改变 ⇒ 链摘要行序变。**意图不变**：
+     摘要仍钉「逐位不回归」——无 dependencies 的 5 包摘要逐字未动即是证明；变异体照旧红。 */
+  '0923/3151551777/scene.pkg': { fx: 133, digest: '03eb34a104a87579' },
   'dd/3544152633/scene.pkg': { fx: 61, digest: '8689ed1d10827dc4' },
   '0923/2887099508/scene.pkg': { fx: 60, digest: '0893411b3e54efb7' },
-  '0923/3662790108/scene.pkg': { fx: 70, digest: '8ba948f461f53251' },
+  '0923/3662790108/scene.pkg': { fx: 70, digest: '8ba948f461f53251' },  /* ①(P-217 A8) 同上（依赖层 1 个；原 8ba948… 实测已含新序，逐字核对见 S2-A 明细） */
 }
 {
   let cases = 0, bad = []
@@ -254,6 +257,118 @@ const VIDEOBASE = [
   }
 }
 
+/* ── S2-PT（P-208 A1）缺件最终回落 = 官方 passthrough（不是静默丢弃/挂起） ──
+   官方口径（RE-46）：`EffectLayer::BuildPassthroughMaterial` —— 候选全 miss 的效果不报错不中断、
+   以恒等 blit 顶着（链上 C13 bypass 哨兵）。判据：标记 `__fxPassthrough` + 台账 `passthrough` 计数
+   + 日志一行说明 + 其余效果照常挂载；`?fxpassthrough=legacy` ⇒ 无标记（旧口径）。 */
+function buildSyntheticPkg(entries) {
+  // 最小 .pkg：i32 魔数长 + 魔数 + i32 条目数 + 条目表(name/off/size) + 数据（off 相对数据区起点）
+  const enc = new TextEncoder()
+  const magic = enc.encode('PKGV0001')
+  const names = entries.map((e) => enc.encode(e.name))
+  let headSize = 4 + magic.length + 4
+  for (const n of names) headSize += 4 + n.length + 8
+  const chunks = []
+  let off = 0
+  const dir = []
+  entries.forEach((e, i) => {
+    const data = typeof e.data === 'string' ? enc.encode(e.data) : e.data
+    dir.push({ name: names[i], off, size: data.length })
+    chunks.push(data)
+    off += data.length
+  })
+  const total = headSize + off
+  const buf = new Uint8Array(total)
+  const dv = new DataView(buf.buffer)
+  let p = 0
+  dv.setInt32(p, magic.length, true); p += 4
+  buf.set(magic, p); p += magic.length
+  dv.setInt32(p, entries.length, true); p += 4
+  for (const d of dir) {
+    dv.setInt32(p, d.name.length, true); p += 4
+    buf.set(d.name, p); p += d.name.length
+    dv.setInt32(p, d.off, true); p += 4
+    dv.setInt32(p, d.size, true); p += 4
+  }
+  for (const c of chunks) { buf.set(c, p); p += c.length }
+  return buf
+}
+const REAL_EFFECT = JSON.stringify({
+  name: 'real', group: 'real', version: 1, passes: [
+    { material: 'materials/effects/real.json', bind: [{ index: 0, name: 'previous' }] },
+  ],
+})
+const REAL_MATERIAL = JSON.stringify({ passes: [{ shader: 'effects/real/shaders/effects/real', blending: 'normal', textures: [], combos: {}, depthtest: 'disabled', depthwrite: false }] })
+const SYN_SCENE = JSON.stringify({ objects: [
+  { id: 1, image: 'a.png', effects: [{ file: 'effects/ghost/effect.json', visible: true }, { file: 'effects/real/effect.json', visible: true }] },
+] })
+{
+  const pkgBuf = buildSyntheticPkg([
+    { name: 'scene.json', data: SYN_SCENE },
+    { name: 'a.png', data: 'PNG' },
+    { name: 'effects/real/effect.json', data: REAL_EFFECT },
+    { name: 'materials/effects/real.json', data: REAL_MATERIAL },
+    { name: 'shaders/effects/real.frag', data: 'void main(){}' },
+    { name: 'shaders/effects/real.vert', data: 'void main(){}' },
+  ])
+  const tmpPkg = path.join(os.tmpdir(), 'mpw-fx-pt-' + process.pid + '.pkg')
+  fs.writeFileSync(tmpPkg, pkgBuf)
+  try {
+    lib.resetEffectAssetLedger()
+    const logs = []
+    const { metas } = resolvePkgEffects(tmpPkg, { onLog: (m) => logs.push(String(m)) })
+    const ghost = metas.find((m) => String(m.ef.file).includes('ghost'))
+    const real = metas.find((m) => String(m.ef.file).includes('real'))
+    const led = lib.effectAssetLedger()
+    check('S2-PT1 合成最小包：ghost（全 miss）⇒ 不抛错、字段照写、标记 `__fxPassthrough`、miss 记账齐全',
+      !!ghost && ghost.r.ok === false && ghost.r.miss === 'effect' && ghost.ef.__fxPassthrough === true &&
+      Array.isArray(ghost.ef.materialPasses) && ghost.ef.materialPasses.length === 0 &&
+      ghost.ef.__fxMiss && ghost.ef.__fxMiss.kind === 'effect',
+      JSON.stringify(ghost && { ok: ghost.r.ok, miss: ghost.r.miss, pt: ghost.ef.__fxPassthrough, mps: (ghost.ef.materialPasses || []).length }))
+    check('S2-PT2 同层其余效果照常挂载（real 有 materialPasses 与真 shader）',
+      !!real && real.r.ok === true && (real.ef.materialPasses || []).length === 1 && !!real.ef.materialPasses[0].shader,
+      JSON.stringify(real && { ok: real.r.ok, mps: (real.ef.materialPasses || []).length, s: real.ef.materialPasses[0] && real.ef.materialPasses[0].shader }))
+    check('S2-PT3 台账 `passthrough` 计数 + 页面日志有一行"降级为 passthrough"说明',
+      led.passthrough >= 1 && logs.some((l) => l.includes('passthrough')),
+      JSON.stringify({ passthrough: led.passthrough, logs: logs.length }))
+    // legacy 档：无标记、无 passthrough 措辞（如实回到 P-205 状态）
+    lib.resetEffectAssetLedger()
+    const logsL = []
+    const metasL = resolvePkgEffects(tmpPkg, { onLog: (m) => logsL.push(String(m)), fxPassthrough: 'legacy' }).metas
+    const ghostL = metasL.find((m) => String(m.ef.file).includes('ghost'))
+    check('S2-PT4 `?fxpassthrough=legacy` ⇒ 无 `__fxPassthrough` 标记、日志回到旧措辞（"整条不生效"）',
+      !!ghostL && ghostL.ef.__fxPassthrough === undefined && lib.effectAssetLedger().passthrough === 0 &&
+      logsL.some((l) => l.includes('整条不生效')) && !logsL.some((l) => l.includes('passthrough')),
+      JSON.stringify({ pt: ghostL && ghostL.ef.__fxPassthrough, passthrough: lib.effectAssetLedger().passthrough }))
+  } finally { fs.unlinkSync(tmpPkg) }
+}
+{
+  // 真语料读数（P-206 的 22/50 口径）：有读取器 ⇒ 挂上 22/50；缺的 28 个 = passthrough（不是静默丢）。
+  // 无读取器 ⇒ 0 挂上但 50 个全部 passthrough（A1 的回落语义；P-205 时它们只是"记账的空链"）。
+  const f = path.join(CORPUS, 'wallpaperE/砂狼白子/砂狼白子11_03.mpkg')
+  if (!exists(f)) {
+    check('S2-PT5 真语料：砂狼白子11_03 缺件效果 = passthrough', false, '语料缺失: ' + f)
+  } else {
+    lib.resetEffectAssetLedger()
+    const { metas } = resolvePkgEffects(f, {})
+    const pts = metas.filter((m) => m.ef.__fxPassthrough === true)
+    check('S2-PT5 无读取器：50 个层-效果实例全部 miss 且全部显式 passthrough（不是静默丢）',
+      metas.length === 50 && pts.length === 50 && lib.effectAssetLedger().passthrough === 50,
+      'fx=' + metas.length + ' pt=' + pts.length)
+    lib.resetEffectAssetLedger()
+    const restore = lib.setWeAssetReader((rel) => diskWeReader(rel))
+    let attached = -1, ptsW = -1
+    try {
+      const m2 = resolvePkgEffects(f, {}).metas
+      attached = m2.filter((m) => (m.ef.materialPasses || []).length > 0).length
+      ptsW = m2.filter((m) => m.ef.__fxPassthrough === true).length
+    } finally { lib.setWeAssetReader(null); restore }
+    // P-206 读数：22/50 挂上（WE 资产在盘上）；缺的 28 个 A1 起显式 passthrough —— "挂上数不得变成 0/50"。
+    check('S2-PT6 真语料 + WE 资产：挂上 22/50（P-206 口径，不得回退成 0/50），缺的 28 个 = passthrough',
+      attached === 22 && ptsW === 28, 'attached=' + attached + ' passthrough=' + ptsW)
+  }
+}
+
 /* ───────────────── S3：变异自证（隔离副本真改真跑） ───────────────── */
 const MUTANTS = [
   // ① 外部级整个删掉（= 改动前的形态）：S2-C/S2-F/S2-H 必红（挂上数掉回 0），S1 的接线断言也红
@@ -263,6 +378,9 @@ const MUTANTS = [
   // ③ 记账改回"静默 return"（= 旧实现的病）：S2-F/S2-H 的台账/日志判据必红。
   //    S1 **也**红：S1-8 那条结构判据就钉在同一个 `noteFxMiss('effect', …)` 调用上（实测确认）。
   { id: 'silent-miss', expect: ['S1', 'S2'], edit: (s) => s.replace(/    noteFxMiss\('effect', file, tried, opts\)\n/, '') },
+  // ④(P-208 A1) passthrough 回落整个摘掉（回到 P-205 形态）：S2-PT1/PT3/PT5/PT6 必红（S2 组）。
+  //    锚点用**整行**调用（`function fxMarkPassthrough(effect, opts) {` 声明行带 ` {` 尾，不会被命中）。
+  { id: 'no-passthrough', expect: ['S2'], edit: (s) => s.replace(/^(\s*)fxMarkPassthrough\(effect, opts\)$/gm, '$1void 0') },
 ]
 if (!process.argv.includes('--no-mutations')) {
   console.log('== S3 变异自证（隔离 core/ 副本；真树不动）==')

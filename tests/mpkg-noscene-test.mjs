@@ -36,22 +36,42 @@ const check = (name, cond, detail) => {
 const BEGIN = '// ═══ MPW-NOSCENE-BEGIN ═══'
 const END = '// ═══ MPW-NOSCENE-END ═══'
 const iBegin = html.indexOf(BEGIN), iEnd = html.indexOf(END)
-const SRC = (iBegin >= 0 && iEnd > iBegin) ? html.slice(iBegin, iEnd) : ''
+/* ①(P-208 A11 2026-09-29) 判据更新（加严，不放宽）：NOSCENE 块的入口条件从
+   `!lib.getEntry(pkg,'scene.json')` 换成了 `!sceneEntryName`（由其前面的 MPW-OLDSCENE 块解析：
+   scene.json 优先，否则 project.json.file 指向的 JSON 条目 —— 官方老式布局，RE-61）。
+   ⇒ ① 锚点随实现漂移：`DECODE_ANCHOR` 与 S1-3 的锚文本换成新写法（意图不变：
+   "块在无条件 decode 之前""先判存在"——只是"存在"的口径升级成"解析出场景条目"）；
+   ② S2 桩必须把 OLDSCENE 块一起拼进来跑（`sceneEntryName` 声明在那里），否则 ReferenceError；
+   ③ 新增 S2-OS：老式布局（project.file 指 JSON 条目）⇒ NOSCENE **不介入**（回归：
+   techno.mpkg 这类包不再被当纯视频；不再把 JSON 条目按 video/mp4 建 blob）。
+   判据只收紧没放松：纯视频路径（S2-B/C/E/F/G/H）与"没有 scene.json 也没有视频"的如实报错（S2-D）全部保留。 */
+const OS_BEGIN = '// ═══ MPW-OLDSCENE-BEGIN ═══'
+const OS_END = '// ═══ MPW-OLDSCENE-END ═══'
+const iOsBegin = html.indexOf(OS_BEGIN), iOsEnd = html.indexOf(OS_END)
+const OS_SRC = (iOsBegin >= 0 && iOsEnd > iOsBegin) ? html.slice(iOsBegin, iOsEnd) : ''
+const SRC = (iBegin >= 0 && iEnd > iBegin) ? OS_SRC + '\n' + html.slice(iBegin, iEnd) : ''
 const lineOf = (idx) => (idx < 0 ? -1 : html.slice(0, idx).split('\n').length)
-const DECODE_ANCHOR = "const sceneJson = rd(lib.getEntry(pkg, 'scene.json'));"
+/* ①(P-208 A11) 锚点随实现漂移：decode 站点现在用解析出的条目名（见上方判据更新说明）。 */
+const DECODE_ANCHOR = "rd(lib.getEntry(pkg, sceneEntryName || 'scene.json'))"
 const iDecode = html.indexOf(DECODE_ANCHOR)
 
 console.log('== 没有 scene.json 的容器：不是场景包也要有出路 ==')
-console.log('   demo.html: 块 ' + lineOf(iBegin) + '…' + lineOf(iEnd) + ' 行（无条件 decode 在 ' + lineOf(iDecode) + ' 行）')
+console.log('   demo.html: 块 ' + lineOf(iBegin) + '…' + lineOf(iEnd) + ' 行（OLDSCENE ' + lineOf(iOsBegin) + '…' + lineOf(iOsEnd) + '；无条件 decode 在 ' + lineOf(iDecode) + ' 行）')
 
 /* ───────────────── S1：结构 ───────────────── */
 check('S1-1 MPW-NOSCENE-BEGIN/END 各恰好一次且顺序正确',
   html.split(BEGIN).length - 1 === 1 && html.split(END).length - 1 === 1 && iBegin < iEnd,
   JSON.stringify({ BEGIN: lineOf(iBegin), END: lineOf(iEnd) }))
-check('S1-2 块在**无条件的** `rd(lib.getEntry(pkg, \'scene.json\'))` 之前（否则 TypeError 照旧）',
+check('S1-2 块在**无条件的** `rd(lib.getEntry(pkg, sceneEntryName || \'scene.json\'))` 之前（否则 TypeError 照旧）',
   iBegin > 0 && iDecode > iBegin && iDecode > iEnd, '块结束 ' + lineOf(iEnd) + ' < decode ' + lineOf(iDecode))
-check('S1-3 先判存在：块内用 `!lib.getEntry(pkg, \'scene.json\')` 作为入口条件',
-  SRC.includes("if (!lib.getEntry(pkg, 'scene.json'))"))
+check('S1-3 先判存在：块入口 = OLDSCENE 解析结果 `if (!sceneEntryName)`，块内保留 scene.json 判定（P-208 A11）',
+  SRC.includes('if (!sceneEntryName) {') && /lib\.getEntry\(pkg, 'scene\.json'\)\) sceneEntryName = 'scene\.json'/.test(SRC))
+/* ①(P-208 A11) 旧锚文本 `if (!lib.getEntry(pkg, 'scene.json'))` 的"先判存在"语义收进了 MPW-OLDSCENE 块
+   （scene.json 优先、否则 project.json.file）；这条加严断言钉住"老式布局解析先于 NOSCENE 且兜住 scene.json"。 */
+check('S1-3b 老式布局解析块（MPW-OLDSCENE）存在且在 NOSCENE 之前',
+  OS_SRC.includes("if (lib.getEntry(pkg, 'scene.json')) sceneEntryName = 'scene.json'") &&
+  OS_SRC.includes("new URLSearchParams(location.search).get('oldschool') === 'legacy'"),
+  'oldschool=legacy 回退口在位')
 check('S1-4 视频选择：project.json 的 file 优先（`nsFile && lib.getEntry(pkg, nsFile)`）',
   SRC.includes('(nsFile && lib.getEntry(pkg, nsFile))'))
 check('S1-5 视频选择：条目后缀兜底 `/\.(mp4|webm|mov)$/i`',
@@ -76,7 +96,7 @@ check('S1-13 多实例网格里非主实例不铺整页视频（`typeof PAGE ===
   SRC.includes("if (!(typeof PAGE === 'undefined' || PAGE))") && SRC.includes("path: 'grid-unsupported'"))
 
 /* ───────────────── S2：行为（跑真实源码） ───────────────── */
-function runBranch({ entries, projectJson, page = true }) {
+function runBranch({ entries, projectJson, page = true, search = '' }) {
   /* entries 的值可以是 true（1 字节）或数字（该条目的字节数）—— 用来量"大小上限"那一档。 */
   const logs = [], retry = [], listeners = {}, appended = []
   const el = {
@@ -96,16 +116,19 @@ function runBranch({ entries, projectJson, page = true }) {
       if (name === 'project.json') return projectJson == null ? null : enc.encode(projectJson)
       return entries[name] ? enc.encode('BYTES') : null
     },
+    // ①(P-208 A11) OLDSCENE 块也走 lib.parseWeJson（此前桩没有它 ⇒ 老式解析恒走 catch 分支）
+    parseWeJson: (t) => JSON.parse(t),
   }
   const pkg = { magic: 'PKGM0014', entries: Object.keys(entries).map((n) => ({ name: n, size: typeof entries[n] === 'number' ? entries[n] : 1 })) }
   let outcome = 'continuation', thrown = null
   const fn = new Function('pkg', 'lib', 'rd', 'logf', 'document', 'URL', 'Blob', 'window', 'PAGE',
-    'applyVideoFrameBox', 'mpwSyncVideoRates', 'mpwBlobMediaRetry',
+    'applyVideoFrameBox', 'mpwSyncVideoRates', 'mpwBlobMediaRetry', 'location',
     SRC + '\n;return "CONTINUATION";')
   try {
     const r = fn(pkg, lib, (u8) => new TextDecoder().decode(u8), (m) => logs.push(String(m)), document,
       { createObjectURL: () => 'blob:mock' }, class { constructor() {} }, win, page,
-      () => {}, () => {}, (e, label) => retry.push({ el: e, label }))
+      () => {}, () => {}, (e, label) => retry.push({ el: e, label }),
+      search ? { search } : undefined)
     if (r === 'CONTINUATION') outcome = 'continuation'
     else if (r === undefined && win.__mpwNoScene && win.__mpwNoScene.path === 'video') outcome = 'video-return'
   } catch (e) { thrown = e; outcome = 'threw' }
@@ -116,6 +139,21 @@ function runBranch({ entries, projectJson, page = true }) {
   const a = runBranch({ entries: { 'scene.json': true, 'a.png': true } })
   check('S2-A 有 scene.json ⇒ 整块不介入（继续走场景解析，不建视频、不报错、无记账）',
     a.outcome === 'continuation' && !a.win.__mpwNoScene && a.retry.length === 0 && a.thrown === null, a.outcome)
+
+  /* ①(P-208 A11) 老式布局回归：project.file 指 **JSON** 条目 ⇒ 这是场景定义，NOSCENE 不介入
+     （旧实现会把它选中、按 video/mp4 建 blob —— techno.mpkg 实测的那条错误路径）。 */
+  const os = runBranch({ entries: { 'techno.json': true, 'project.json': true }, projectJson: '{"file":"techno.json"}' })
+  check('S2-OS project.json.file 指向 JSON 条目（老式布局）⇒ 不按视频播、不报错（继续场景解析），并记账 __mpwOldScene',
+    os.outcome === 'continuation' && !os.win.__mpwNoScene && os.appended.length === 0 && os.retry.length === 0 &&
+    os.win.__mpwOldScene && os.win.__mpwOldScene.entry === 'techno.json',
+    JSON.stringify({ outcome: os.outcome, old: os.win.__mpwOldScene, appended: os.appended.length }))
+  const osLegacy = runBranch({ entries: { 'techno.json': true, 'project.json': true }, projectJson: '{"file":"techno.json"}', search: '?oldschool=legacy' })
+  /* ①(P-208 A11) 回退口语义 = **如实回到旧行为**：legacy 下 project.file 指 JSON 条目不会被解析成场景，
+     NOSCENE 会把 `techno.json` 选中、按 video/mp4 建 blob —— 这正是 A11 修掉的旧病，回退口有意保留它
+     （A/B 用）；所以这里断言的是 video-return + entry=techno.json，不是报错。 */
+  check('S2-OS2 ?oldschool=legacy ⇒ 老式解析关闭，如实回到旧行为（JSON 条目被当视频播 = A11 之前的旧病）',
+    osLegacy.outcome === 'video-return' && osLegacy.win.__mpwNoScene && osLegacy.win.__mpwNoScene.entry === 'techno.json' && !osLegacy.win.__mpwOldScene,
+    JSON.stringify({ outcome: osLegacy.outcome, ns: osLegacy.win.__mpwNoScene }))
 
   const b = runBranch({ entries: { 'preview.jpg': true, 'project.json': true, 'wallpaper.mp4': true }, projectJson: '{"file":"wallpaper.mp4"}' })
   check('S2-B 没有 scene.json + project.json.file 指到视频 ⇒ 按纯视频壁纸播（记账 video + 接线看门狗 + return）',
@@ -164,7 +202,8 @@ function runBranch({ entries, projectJson, page = true }) {
 
 /* ───────────────── S3：变异自证（隔离副本真改真跑） ───────────────── */
 const MUTANTS = [
-  { id: 'guard-removed', expect: ['S1', 'S2'], edit: (s) => s.replace(SRC, '') },
+  /* ①(P-208 A11) SRC 现在是 OLDSCENE+NOSCENE 两段拼接（中间隔真源码），变异改为两段各自删除。 */
+  { id: 'guard-removed', expect: ['S1', 'S2'], edit: (s) => s.replace(OS_SRC, '').replace(html.slice(iBegin, iEnd), '') },
   /* 把"如实报错"换成静默 return：S1-6（恰好一处 throw）与 S2-D（抛点明原因的错）**都**该红 ——
      期望集就按这两组写死（第一版我写成只 S2，被实测纠正：结构判据本来就钉着那句 throw）。 */
   { id: 'silent-return', expect: ['S1', 'S2'], edit: (s) => s.replace(/throw new Error\('这个容器不是场景包[^\n]*\n/, "return\n") },

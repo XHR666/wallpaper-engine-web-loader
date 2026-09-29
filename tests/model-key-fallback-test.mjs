@@ -15,7 +15,7 @@
 //        `resolveBuiltin` 命中、material **真的在包内**）——旧读数是 0/0/0。
 //     ② 无读取器：`image` **不写**（宿主链照旧跳过、不抛）、`__modelDropped='no-entry-reader'`、
 //        `scene.__srcStats.modelDropped` = 层数；**这一档就是改动前的行为**，用来做口径对照。
-//     ③ 口径分离（本缺口的核心读数）：`solidNonModel`（真·纯色/占位层）**两档完全相同**（25/474/41），
+//     ③ 口径分离（本缺口的核心读数）：`solidNonModel`（真·纯色/占位层）**两档完全相同**（25/473/39；P-213 B1 起 light 层单列），
 //        而模型层单独记在 `model` 档；`modelKeyedSolidDropped` = 92 层（= 8+66+18，即"旧口径下被
 //        当纯色层"的那些），`solidNonModel + modelKeyedSolidDropped === solid`。
 //     ④ 崩溃守卫：所有 model 层写进 `image` 的路径**必须**能被 `resolveBuiltin` 命中（或本身是 `.json`）
@@ -92,8 +92,8 @@ check('S1-8 变异锚点唯一（`o.model` 判定 / `__pm` 查表 / `__solidImg`
 /* ───────────────── S2：行为（3 个真包） ───────────────── */
 const PKGS = [
   { rel: '0917/3509243656/scene.pkg', model: 8, distinctMdl: 8, matInPkg: 8, texReal: 6, solidNonModel: 25, keyedSolid: 8, audit: { imageBefore: 59, imageAfter: 67, drawnBefore: 36, drawnAfter: 35 } },
-  { rel: '0923/3662790108/scene.pkg', model: 73, distinctMdl: 69, matInPkg: 72, texReal: 50, solidNonModel: 474, keyedSolid: 66, audit: { imageBefore: 345, imageAfter: 418, drawnBefore: 449, drawnAfter: 451 } },
-  { rel: '0923/3589454154/scene.pkg', model: 24, distinctMdl: 7, matInPkg: 24, texReal: 22, solidNonModel: 41, keyedSolid: 18, audit: { imageBefore: 56, imageAfter: 80, drawnBefore: 43, drawnAfter: 46 } },
+  { rel: '0923/3662790108/scene.pkg', model: 73, distinctMdl: 69, matInPkg: 72, texReal: 50, solidNonModel: 473, keyedSolid: 66,  /* ①(P-213 B1) 474→473：1 个 light 层（id 3692）移出 solid 口径 */ audit: { imageBefore: 345, imageAfter: 418, drawnBefore: 449, drawnAfter: 451 } },
+  { rel: '0923/3589454154/scene.pkg', model: 24, distinctMdl: 7, matInPkg: 24, texReal: 22, solidNonModel: 39, keyedSolid: 18,  /* ①(P-213 B1) 41→39：2 个 light 层移出 solid 口径（见下 S2-B 注释） */ audit: { imageBefore: 56, imageAfter: 80, drawnBefore: 43, drawnAfter: 46 } },
 ]
 /** 读一个真包：`{ pkg, scene, models, resolved }`；`reader=null` ⇒ 不传 attachCtx.readEntry。 */
 function readPkg(rel, { reader = true } = {}) {
@@ -165,7 +165,12 @@ function readPkg(rel, { reader = true } = {}) {
     if (withReader.modelKeyedSolidDropped !== 0 || withReader.solid !== spec.solidNonModel) ok = false
     keyed += spec.keyedSolid
   }
-  check('S2-B 口径分离：真·纯色层数（solidNonModel）两档完全相同（25/474/41），模型层单列；旧口径下被当纯色层的 92 层记在 modelKeyedSolidDropped',
+  /* ①(P-213 B1 2026-09-29) 判据更新（绝对值随口径走，意图不变）：3589454154 的 solidNonModel 41→39 ——
+   B1 把 2 个 light 层（id 433/259，"light":"lpoint"/"ldirectional"）从 solid 口径显式排除（光源层不是
+   纯色层，srcStats 新开 light 档）。**意图哪里没变**：本条钉的是"口径分离"——① solidNonModel 在
+   有读取器/无读取器两档下逐位相同、② 模型层单列 model* 档、③ solid = solidNonModel + modelKeyedSolidDropped。
+   这三条结构约束全部保留且仍然卡死；改的只是 light 层所在的那个绝对数。 */
+check('S2-B 口径分离：真·纯色层数（solidNonModel）两档完全相同（25/473/39；P-213 B1 起 light 层单列 light 档（3589454154 ×2 + 3662790108 ×1）），模型层单列；旧口径下被当纯色层的 92 层记在 modelKeyedSolidDropped',
     ok && keyed === 92, rows.join('  |  '))
 }
 {

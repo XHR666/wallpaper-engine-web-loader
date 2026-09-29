@@ -870,6 +870,74 @@ add "mdlv0016"           "node tests/mdlv0016-test.mjs"
 #   判据：源码序 + 切真源码跑 8 个场景 + 3 组变异自证。纯 Node、不读语料、<1s。
 add "mpkg-noscene"       "node tests/mpkg-noscene-test.mjs"
 
+# ①(P-208 A11 2026-09-29) 老式布局读取：场景定义不在 scene.json 时按 project.json.file 取（大小写不敏感）。
+#   依据 REVERSE-FINDINGS-7 RE-61"老式布局"行（官方 APK 样例 techno/fantastic_car 无 scene.json）；
+#   旧实现会把它们判成"纯视频壁纸"（甚至把 JSON 条目按 video/mp4 建 blob）。
+#   判据：真包三件套（APK 官方样例，不进仓库）+ parseScene 出层 + 单元口径（大小写/缺失/legacy 回退）+ 2 变异。
+add "mpkg-oldschool-scene" "node tests/mpkg-oldschool-scene-test.mjs"
+
+# ①(P-210 A7 2026-09-29) 层级 clampuvs ⇒ 内容纹理采样器（RE-47：官方是采样器侧配置；
+#   语料 48 包 1261 层 true 1258/false 3 此前被忽略 ⇒ 视差/缩放越界时 REPEAT 花边）。
+#   判据：真包三态解析 + mock-GL 运行时（CLAMP/REPEAT/legacy/快路径）+ A13 冲突台账 + 与 P-194 共存 + 2 变异。
+add "clampuvs-wrap"       "node tests/clampuvs-wrap-test.mjs"
+
+# ①(P-211 A10 2026-09-29) 精灵帧自动推进（RE-55：官方 Texture::AdvanceSpriteSheet 在 Texture 层自动推进，
+#   脚本只读写状态；旧实现只在脚本驱动时接管 ⇒ 无脚本 sprite 层静止）。
+#   判据：纯函数（含回绕/rate=0 冻结）+ 官方 fog1 真表三点读数（周期闭合 1.0s）+ 结构锚点 + 2 变异。
+add "spritesheet-advance" "node tests/spritesheet-advance-test.mjs"
+
+# ①(P-212 A2 2026-09-29) usertextures 三形态解析 + textures[i] 回落（RE-44：两数组按 index 对应同一
+#   g_TextureN 槽，usertextures[i] 是运行时覆盖声明；无源回落 textures[i] ⇒ 不画错底色）。
+#   判据：三形态纯函数表 + 真包三件（场景级/字符串形态/system 形态）+ 合成包 resolveEffectChain + legacy + 2 变异。
+add "usertextures-fallback" "node tests/usertextures-fallback-test.mjs"
+
+# ①(P-213 B1 2026-09-29) 2D 光照模型（RE-43 路径A）：light 层 schema 解析（不参与 draw）+ 纯函数
+#   ComputeLightSpecular2D 分支表（衰减平方/intensity²/g_Light 混合/rim）+ 四灯 uniform 组（声明才上传）。
+#   判据：真包+官方样例 schema 逐项 + 分支表 + 无灯零视觉差 + legacy + 2 变异。
+add "scene-light-2d"      "node tests/scene-light-2d-test.mjs"
+
+# ①(P-214 B2 2026-09-29) 场景雾（RE-51）：10 字段 → 2×vec4 + 2×vec3（声明才上传；无雾场景零视觉差）。
+#   判据：逐分量（z/w 对调 ⇒ 红）+ ApplyFog/Alpha 数值 + 洁净室 common_fog.h + legacy + 2 变异。
+add "scene-fog"           "node tests/scene-fog-test.mjs"
+
+# ①(P-215 A3 2026-09-29) effect.json 的 command:"swap" 进枚举（RE-56；官方 fluidsimulation 尾部 swap×2）：
+#   mid = 交换效果乒乓方向；尾部（afterpos≥pass 数）在最后一 pass 后生效（旧实现永不触发）；未知命令记日志。
+#   判据：mock-GL 行为级（pass1 读 pass0 刚写出的缓冲 / 合成读 copy 缓冲 / 未知命令告警）+ 2 变异。
+add "effect-command-swap" "node tests/effect-command-swap-test.mjs"
+
+# ①(P-216 A5 2026-09-29) alphawriting ⇒ colorMask alpha 位（RE-45：enabled/default 写 alpha=现状逐位一致、
+#   disabled 关 alpha 位=词表补齐；default 457 pass 不动是红线）。判据：mock-GL 行为级（disabled 关+恢复、
+#   其余零 colorMask）+ 语料 cursorripple enabled 解析 + 2 变异（default 被改坏必红）。
+add "alphawriting-mask"   "node tests/alphawriting-mask-test.mjs"
+
+# ①(P-217 A8/A9 2026-09-29) 层级元数据按官方口径对齐（RE-49：nointerpolation⇒NEAREST、dependencies 排序
+#   +环检测、locktransforms/spacing/ledsource 解析保留不丢字段）+ instanceoverride.brightness 乘子（RE-59，
+#   0 与缺省区分）。判据：真包四件 + 合成排序/环 + mock-GL（NEAREST/乘子走效果链路径）+ 2 变异。
+add "layer-metadata"      "node tests/layer-metadata-test.mjs"
+
+# ①(P-218 F1 2026-09-29) g_MVPI / g_ModelViewProjectionMatrixInverse 按官方语义实现（RE-50"声明才赋值"；
+#   旧实现恒单位阵）。判据：mat4Invert 纯函数（M·M⁻¹=I/奇异 null）+ mock-GL 声明即上传（自洽 INV·MVP=I、
+#   真名+别名同值）+ legacy + 接线锚点 + 2 变异。
+add "matrix-uniform-inverse" "node tests/matrix-uniform-inverse-test.mjs"
+
+# ①(P-219 F2 2026-09-29) 文本 spacing：解析保留（P-217）+ 行为默认关（?spacing=on 才启用"字距/行距"，
+#   官方语义未定案 RE-49）。判据：真包描述符 + 默认路径同形 + on 档逐字符推进（切片执行）+ 台账 + 1 变异。
+add "text-spacing"        "node tests/text-spacing-test.mjs"
+
+# ①(P-220 C1 2026-09-29) 脚本 API 最小集补齐（RE-57；规则 A：官方明文存在的 API 至少留接口，
+#   别让作者脚本因 API 缺失整段崩）：addText(223 次)/changedUserProperties(233)/openUserShortcut(190)/
+#   isObjectValid/isLandscape/isPortrait/playSingleAnimation。判据：真沙箱行为级 10 条 + 变异。
+add "script-api-minimal-set" "node tests/script-api-minimal-set-test.mjs"
+
+# ①(P-221 A6 2026-09-29) g_TextureNMipMapInfo(逐槽)/g_TextureReductionScale "声明即上传"（RE-52；规则 A）。
+#   判据：纯公式（log2(max) 边界）+ mock-GL 声明即上传 + mipChainMissing 台账 + 官方 skew 声明面 + 变异。
+add "fx-uniform-values"   "node tests/fx-uniform-values-test.mjs"
+
+# ①(P-222 A12/A4/F5/F8/F9/B3① 2026-09-29) P2 接口/记账类合集：PKGM0012 魔数显式用例（mpkg-oldschool-scene
+#   内）、FBO 同层同名碰撞台账、shape 层解析保留+?shape=on 提示档、controlpoint 位表视图、conditions
+#   三态求值接口（unknown 不剔除）、级联换算+阴影分辨率纯函数。
+add "p208-p2-interfaces"  "node tests/p208-p2-interfaces-test.mjs"
+
 # ①(P-174 2026-09-24 主对话补登记) 层引用成员 × 五个面全表普查（官方 d.ts 60 成员 × 5 面 × 三档；缺一项点名成员+面）
 #   + `ISoundLayer.volume`（落点 soundprops.volume、保作者节点、非有限值不落盘、五面同源=函数身份相等）+ byId/getParent 修复。
 add "script-layer-ref-audit" "node tests/script-layer-ref-audit-test.mjs" "" "^SKIP script-layer-ref-audit"

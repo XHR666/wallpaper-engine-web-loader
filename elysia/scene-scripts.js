@@ -70,6 +70,14 @@ export function texAnimRefShared(obj) {
     },
     isPlaying: () => !!(obj && obj.__texFramePlay),
     join: () => { if (obj) { obj.__texFrameForced = false; apiBump('texAnimJoin') } },
+    // ①(P-220 C1 2026-09-29 · RE-57) 官方 `playSingleAnimation(name)`（baseclasses.js 明文；语料 70 次
+    //   getTextureAnimation 的姊妹方法）：播放**具名**动画段。本仓 TEXS 帧表无具名段概念 ⇒
+    //   语义折叠为 play()（从头自动推进）+ `__texSingleAnim=name` 留档（可观测、不丢调用），
+    //   脚本主干不因方法缺失而崩。
+    playSingleAnimation: (name) => {
+      if (obj) { obj.__texFramePlay = true; obj.__texFrameForced = false; obj.__texSingleAnim = String(name == null ? '' : name) }
+      try { apiBump('texAnimPlaySingle') } catch (e) { /* 计数失败不影响 */ }
+    },
   };
 }
 
@@ -1094,6 +1102,21 @@ export function makeSceneRef(objects, hooks) {
     // ①(2026-09-12) 上报错误 "thisScene.enumerateLayers is not a function"（3544152633 的 Clock/
     //   $mediaThumbnail/playerplay 都用它遍历层找 player/媒体层）→ 返回全部层引用。
     enumerateLayers: () => objList.map((o) => asLayer(o)),
+    /* ①(P-220 C1 2026-09-29 · RE-57) `element.addText(spec)`（语料 223 次，高频）：官方语义 = 向场景
+     *   **动态添加文本元素**（返回层引用）。本仓动态层不上屏（P-141 的既有限制：渲染器对象表载入期
+     *   烘焙）⇒ 走 createLayer 同一条管线：把 spec 归一成文本层对象（`text`/`pointsize`/`font`/…）
+     *   写进 objList（getLayer/enumerateLayers 可见、属性可读写），渲染端行为与 createLayer 一致。
+     *   spec 三形态：字符串（=text 内容）、{text,…}、{value,…}。返回层引用（同一套 layer() 面）。 */
+    addText: function (spec) {
+      apiBump('addText');
+      const cfg = (spec && typeof spec === 'object') ? { ...spec } : { text: String(spec == null ? '' : spec) };
+      if (cfg.value !== undefined && cfg.text === undefined) cfg.text = String(cfg.value);
+      if (cfg.text === undefined) cfg.text = '';
+      cfg.text = String(cfg.text);
+      // this = api（本对象）：createLayer 是同字面量方法（解构/转交场景下 this 可能丢 ⇒ 兜底走 api）
+      const impl = (this && typeof this.createLayer === 'function') ? this.createLayer : (typeof api !== 'undefined' && api && api.createLayer)
+      return impl.call(this, cfg);
+    },
     getLayer: (name) => {
       const obj = objList.find((o) => o && o.name === name);
       return obj ? asLayer(obj) : emptyLayer(name);
@@ -2171,6 +2194,33 @@ function compileScript(source, opts = {}) {
       runtime: opts.runtime || 0,
       frametime: opts.frametime || 1 / 60,
       userProperties: opts.userProps || {},
+      // ①(P-220 C1 2026-09-29 · RE-57) `engine.changedUserProperties`（语料 233 次
+      //   `changedUserProperties.hasOwnProperty(...)`）：官方语义 = **本次变更的用户属性名集合**。
+      //   本仓属性变更走 applyUserProperties 重解析（无逐帧 diff）⇒ 缺省给**空对象**（hasOwnProperty
+      //   恒 false = "本次无变更"，脚本主干照常跑）；宿主可通过 `opts.changedUserProps` 注入。
+      changedUserProperties: opts.changedUserProps || {},
+      // ①(P-220 C1 · RE-57) `engine.openUserShortcut(name)`（语料 190 次；官方 baseclasses.js 明文）：
+      //   打开用户快捷方式指向的目标（文件/目录/网址/命令）⇒ 本仓无宿主文件系统 ⇒
+      //   可调用、返回 false（可判定失败值），并记 `__mpwScriptApi.notImplemented` 台账（不抛——
+      //   让调用它的脚本主干继续跑）。
+      openUserShortcut: (name) => {
+        try {
+          const g = (typeof globalThis !== 'undefined') ? globalThis : {}
+          g.__mpwScriptApi = g.__mpwScriptApi || { notImplemented: {} }
+          g.__mpwScriptApi.notImplemented.openUserShortcut = (g.__mpwScriptApi.notImplemented.openUserShortcut || 0) + 1
+        } catch (e) { /* 台账失败不影响脚本 */ }
+        return false
+      },
+      // ①(P-220 C1 · RE-57) `engine.isObjectValid(obj)`（官方 baseclasses.js）：对象是否仍有效
+      //   （官方跨帧句柄失效探测）⇒ 本仓句柄都是当帧活对象 ⇒ 非 null/undefined 即有效。
+      isObjectValid: (o) => o != null,
+      // ①(P-220 C1 · RE-57) 方向探测（官方 IEngine；2D 正交场景画布宽高比对半分界）
+      isLandscape: () => {
+        try { const cs = (typeof canvasSize !== 'undefined') ? canvasSize : (opts.canvasSize || { x: 3840, y: 2160 }); return (cs.x >= cs.y) } catch (e) { return true }
+      },
+      isPortrait: () => {
+        try { const cs = (typeof canvasSize !== 'undefined') ? canvasSize : (opts.canvasSize || { x: 3840, y: 2160 }); return (cs.x < cs.y) } catch (e) { return false }
+      },
       // NSL 库 (Mutsumi 788 等) 依赖编辑器环境探测; 缺失此方法 → 脚本中途抛错,
       // 后续 shared 赋值全部丢失 → 整个动画框架失效
       isRunningInEditor: () => false,
@@ -2449,6 +2499,8 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
     const compiled = compileScript(src, {
       canvasSize: opts.canvasSize,
       userProps: opts.userProps,
+      // ①(P-220 C1) `engine.changedUserProperties` 的宿主注入通道（缺省 {} = 本次无变更）
+      changedUserProps: opts.changedUserProps,
       shared: opts.shared,
       thisScene: opts.thisScene,
       ownerRef: opts.ownerRef,
@@ -2711,6 +2763,8 @@ export function applySceneScripts(scene, time, opts = {}) {
     getVideoTexture: opts.getVideoTexture,
     // ①(P-153) 透传到 compileScript 的沙箱 env（`localStorage` 门面的后端；null = legacy 档）
     scriptStore,
+    // ①(P-220 C1) `engine.changedUserProperties` 的宿主注入通道（runScriptValueCached ⇒ compileScript）
+    changedUserProps: opts.changedUserProps,
     phase,
   });
   // ①(2026-09-12 官方语义) **先跑完所有 init，再跑 update**：旧实现是"每个对象 init+update 交替"，

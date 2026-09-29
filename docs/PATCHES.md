@@ -14710,3 +14710,607 @@ URL = `http://127.0.0.1:8902/webloader/?type=scene&id=<id>&pkgpath=<绝对路径
 ② `.bench-rd` 的 rect 判据只在真浏览器里跑到（M8 走的是"无关容器滚动不关"这一半），
    "锚点祖先滚动 ⇒ 收"那一半由 `mpw_select` 的 M6 + 共用判据覆盖，`.bench-rd` **没有**单独的真滚动用例；
 ③ 该修复**不涉及** `core/**`，渲染器产物行为与像素**零变化**（0.5.12 只是把这两条门禁红的真因修掉）。
+
+## P-208（2026-09-29）A11 老式布局读取器：场景定义不在 `scene.json` 时按 `project.json.file` 取（大小写不敏感）
+
+### 症状
+官方 APK 样例 `<工作区>/wallpaper_engine/apk/assets/wallpapers/` 下的 techno.mpkg（PKGM0012，27 条目）与 fantastic_car.mpkg（PKGM0014，36 条目）**没有 `scene.json`**，
+场景定义是 project.json.file 指向的 techno.json / fantasticcar.json（容器内条目名，REVERSE-FINDINGS-7 RE-61"老式布局"行）。
+加载器只认 `scene.json` ⇒ 这些容器落进 `MPW-NOSCENE` 块被判成"纯视频壁纸"；更糟的是
+`project.json.file` 指向的 **JSON** 条目会被视频兜底逻辑选中（`(nsFile && lib.getEntry(pkg, nsFile))` 不看后缀）、
+按 `video/mp4` 建 blob ⇒ 老式场景包必然黑屏/播不出画面。
+
+### 依据
+- `REVERSE-FINDINGS-7` RE-61（老式布局行：读取器只认 scene.json 会漏这 2 包）+ RE-46（官方 Android 端
+  `AndroidFileSystem::OpenFile` 把路径**整体小写化**后查 VFS ⇒ 查找大小写不敏感）。
+- 实测（本轮）：techno.mpkg 的 project.json = `{authorsteamid,file:"techno.json",…}`；fantastic_car.mpkg
+  `file:"fantasticcar.json"`；对照 earth_parallax.mpkg **有** `scene.json` 且 `file:"scene.json"`。
+
+### 改法
+`demo.html` 新增 `// ═══ MPW-OLDSCENE-BEGIN/END ═══` 块（紧贴 `MPW-NOSCENE-BEGIN` 之前）：
+`sceneEntryName` = ① `scene.json` 存在就用它 → ② 否则 `project.json.file` 指向的 JSON 条目
+（大小写不敏感按条目名查；命中时记台账 `window.__mpwOldScene={entry,file}`）→ ③ 都没有 ⇒ null（NOSCENE 纯视频路径接管，行为不变）。
+`project.json.file` 指向的条目不存在 ⇒ 如实记一行日志并列出容器内 JSON 条目名（沿用"列条目名"风格），不静默。
+NOSCENE 入口条件 `!lib.getEntry(pkg,'scene.json')` → `!sceneEntryName`；无条件 decode 行改为
+`rd(lib.getEntry(pkg, sceneEntryName || 'scene.json'))`。回退口：`?oldschool=legacy`（只认 scene.json 的旧行为，
+含"把 JSON 条目当视频播"这条被修掉的旧病——A/B 复现用）。
+
+### 读数
+- 本地语料（`allwallpaper/`，206 容器）：无 `scene.json` 的 85 个**全部**是纯视频包（`project.file` → `.mp4`），
+  老式场景包 0 个 —— **本条对本地语料是零命中**，但官方 APK 样例 2 个受影响（规则 A：官方语义已知就实现）。
+  明细：`/tmp/p208/oldschool-corpus.json`（本次运行产物，未入仓库）。
+- 官方三件套（判据实测）：techno → 场景条目 techno.json（parseScene 出 4 层）、fantastic_car → 场景条目 fantasticcar.json（4 层）、
+  earth_parallax → `scene.json`（6 层，且不写 `__mpwOldScene`）。
+
+### 判据与变异
+- `tests/mpkg-oldschool-scene-test.mjs`（23 通过 / 0 失败）：U 组 7 条单元口径（大小写不敏感命中、指向缺失 ⇒ null+日志、
+  纯视频 project.file ⇒ null、无/坏 project.json 不抛、`?oldschool=legacy` 关闭、scene.json 恒胜）+ S 组 4 条结构
+  + T 组真包三件套 ×（条目名 / parseScene 出层）+ T3/T4 台账方向 + **M 组 2 变异**（"只认 scene.json 的旧写法"⇒ T1 必红；
+  "去掉 .json 后缀守卫"⇒ 纯视频包被误判成场景 ⇒ U3 必红）。
+- `tests/mpkg-noscene-test.mjs` 扩到 31 通过 / 0 失败：锚点随实现漂移（`DECODE_ANCHOR`/S1-3 换新写法，**意图不变**、
+  判据只加严没放松），S2 桩把 OLDSCENE 块拼进来跑；新增 S2-OS（老式布局 ⇒ NOSCENE 不介入、不建视频）与
+  S2-OS2（legacy ⇒ 如实回到旧行为：JSON 条目被当视频播 = A11 之前的旧病）；S3 三个变异期望红集精确相等照旧。
+- 门禁注册：`tests/run-all-tests.sh` 新增 `mpkg-oldschool-scene`；`docs/README-DIAGNOSTICS.md` 登记 `?oldschool=legacy`
+  （`node tests/diag-flag-check.mjs` 198==198 双向一致）。
+
+### 未验证边界
+① 本地语料无老式场景包 ⇒ "真实工坊包走老式布局"的端到端只被官方 APK 样例三件套覆盖（判据在，
+  但没有本地 workshop 样本）；② `project.file` 指向的 JSON 若**不是**场景定义（官方语义上不存在这种包），
+  parseScene 会解析出 0 层并如实走后续链 —— 未做专项守卫（官方无此形态，不猜测）；③ 有头浏览器只跑了门禁
+  的无头路径，techno.mpkg 的**画面**级验收（4 个模型层真正画出来）留给后续轮（依赖 `model` 键的 MDL 链）。
+
+## P-209（2026-09-29）A1 缺件最终回落 = 官方 passthrough 材质（不是静默丢弃/挂起）
+
+### 症状
+`resolveEffectChain` 在 effect.json 候选（包内 + `/weassist`）全 miss 时，效果对象只留下"字段照写 + `__fxMiss` 记账"
+（P-205 状态），没有官方的**回落语义**：官方（RE-46 `EffectLayer::BuildPassthroughMaterial` /
+`GetPassthroughMaterialName`，回落材质键（官方 `wallpaper_engine/assets/materials/util/effectpassthrough.json` 与同目录 effectpassthrough_4.json））
+对缺件效果的口径是 **passthrough 降级——效果不改画面、不报错不中断**。
+
+### 依据
+`REVERSE-FINDINGS-7` RE-46（Android 端 `AndroidFileSystem::OpenFile` 反汇编：包即 VFS + 有序回退，
+最终回落 = passthrough 材质而不是继续搜替身）。P-205/P-206 的链序（包内 → `/weassist/<rel>` → `/weassist/<效果目录><rel>`）保持不动。
+
+### 改法
+core：三个全 miss 分支（effect-parse ×2 / effect ×1）统一调 `fxMarkPassthrough(effect, opts)` —— 挂显式标记
+`ef.__fxPassthrough = true`（`?fxpassthrough=legacy` 时不挂）；台账 `__fxMiss.passthrough` 计数
+（`effectAssetLedger()` / `globalThis.__mpwFxMiss` / `resetEffectAssetLedger()` 三处同步）；`noteFxMiss`
+的 effect 档日志措辞区分两档："降级为 passthrough（恒等 blit、不改画面不报错）" vs 旧口径"整条不生效"。
+链行为零改动：C13 bypass 哨兵本来就是"输入→输出恒等拷贝"，标记只把这件事变成**显式语义**。
+demo：`?fxpassthrough=legacy` 解析进 `loadScene`，`resolveEffectChain` 的 opts 带 `fxPassthrough`；
+`fxStat.passthrough` 计数进 `__mpwFxResolve` 台账与 P-206 汇总日志行。
+
+### 读数
+- 真语料 语料包 `砂狼白子11_03.mpkg`（50 个层-效果实例）：无读取器 = 0/50 挂上但 **50 全部显式 passthrough**；
+  有 WE 资产 = **22/50 挂上（P-206 口径，未回退）** + 28 个 passthrough —— 与既有 S2-H 的 eff=28 读数吻合。
+- 合成最小包（缺 `effects/ghost/effect.json` + 同层有完整 `effects/real`）：ghost 不抛错/字段照写/标记 passthrough，
+  real 照常挂出真 shader —— 其余效果不受缺件影响。
+
+### 判据与变异
+`tests/effect-json-fallback-test.mjs` 扩到 **33 通过 / 0 失败**：S2-PT1…6（合成包 4 条 + 真语料 2 条，
+含 legacy 档措辞与计数归零）；S3 新增变异 `no-passthrough`（摘掉三处 `fxMarkPassthrough` 调用 ⇒
+S2-PT1/PT3/PT5/PT6 红，红集 `["S2"]` 精确相等；锚点用整行调用，不误伤函数声明）。既有 3 变异红集不变。
+`docs/README-DIAGNOSTICS.md` 登记 `?fxpassthrough=legacy`（diag-flag-check 199==199）。
+
+### 未验证边界
+① 链行为与 P-205 逐位相同（哨兵恒等 blit），未做像素级 A/B（无画面对比可做——两档本来就等价）；
+② `?fxpassthrough=legacy` 的**链摘要**与缺省档逐位一致由 S2-A 冻结值背书（摘要不含 `__fxPassthrough` 诊断字段）；
+③ 官方 `effectpassthrough*.json` 材质本体没有落地（我们是"跳过该效果的合成"，官方是"用恒等材质跑一遍 pass"——
+   对画面等价，对 GL 调用序列不等价；如实记于此）。
+
+## P-210（2026-09-29）A7 层级 `clampuvs` ⇒ 该层内容纹理采样器 `CLAMP_TO_EDGE`（+ A13 冲突台账）
+
+### 症状
+层字段 `clampuvs` 在 core 只有一处注释（tex-json 缺省语义），**完全没被读**。语料 48 包 1261 层
+（true 1258 / false 3，本轮复扫一致）的视差/缩放越界时按采样器缺省走 ⇒ REPEAT 花边类伪影没有官方字段语义兜底。
+
+### 依据
+`REVERSE-FINDINGS-7` RE-47：`clampuvs` 本质是**纹理/采样器侧**配置 —— 官方 10 个 `.tex-json` 侧车
+（官方 `wallpaper_engine/assets/materials/util/noise.tex-json` 等）与官方 `wallpaper_engine/assets/shaders/declarations.json` 的 imageshaders config 都带该键；
+PC/APK shader 全树 `grep CLAMP` 0 命中 ⇒ 官方对"UV 越界"的取址完全交给采样器状态；
+层级字段（workshop 行为）若被读，效果同——作用于该层纹理的采样器。
+
+### 改法
+core：① `parseScene` 层描述符新增 **三态** `clampuvs`（true / 显式 false / null=字段缺失）；
+② 新增 `layerClampUvWrap(gl, tex, mode, name, search)`：`true` ⇒ CLAMP_TO_EDGE、显式 `false` ⇒ REPEAT
+（官方 `.tex` 头缺省）、`null` ⇒ 不动（维持 P-168 名单现状，3422 层零回归）；`?clampuvs=legacy` 整条不生效；
+③ compositeLayer 在 TEXTURE0 绑定前调用它（覆盖全部内容绘制路径；shader/UV 计算零改动）；
+④ 与 P-194 效果输入槽规则（`fxSlotWrap` 槽 1+ REPEAT）共存：wrap 是纹理对象级状态，两个绑定点
+**各自在自己 draw 前执行**（纹理对象 `__mpwWrapNow` 快路径防每帧冗余 texParameteri；`fxSlotWrap` 的
+sticky 检查改为"已设过**且**当前态仍是 repeat"——被 clamp 层改走后能重新落 REPEAT）；
+⑤ A13 兜底：同一纹理被"要求 CLAMP"与"要求 REPEAT"的口径同时引用 ⇒ 记 `__mpwTexWrapConflicts`
+（`texWrapConflictLedger()` / `globalThis.__mpwTexWrapConflicts` / reset 三件套），不静默。
+
+### 读数
+- 语料复扫：1261 层带字段（1258 true / 3 false）、3422 层无字段；false 所在包 = `0923/3572877776`、
+  `0923/3582367840`、`0923/3605722997`。
+- 判据包三态：`0923/3589454154` = 130 层（73 true + 57 null）；`0923/3572877776` = 137 层（136 true + 1 false）。
+- 既有 wrap 判据全绿：`tex-wrap-repeat-test` 31/0（P-168/P-194 契约未被本条破坏）、`render-tex-align-odd` 26/0。
+
+### 判据与变异
+`tests/clampuvs-wrap-test.mjs` **17 通过 / 0 失败**：C1 语料三态解析 ×2 + C2 运行时 ×8（mock-GL 真写 GL：
+CLAMP/REPEAT/null 不动/legacy 零调用/快路径零冗余/冲突台账 + globalThis 发布/冲突后最终态/与 P-194 共存反演）
++ C3 接线 ×4 + C4 变异 ×2（`wrap-noop` ⇒ C2 红；`parse-drop` ⇒ C1+C3 红；红集精确相等）。
+`docs/README-DIAGNOSTICS.md` 登记 `?clampuvs=legacy`（diag-flag-check 200==200）。
+
+### 未验证边界
+① 像素级 A/B 未做（llvmpipe 有头通路在本轮未跑 1258 层的可见变化——方向明确：越界采样从 REPEAT 变 CLAMP；
+   有回退口可随时逐位回到旧行为）；② 只覆盖 `compositeLayer` 内容路径（四边形/精灵 UV/长条眼窗）——
+   蒙皮模型层的纹理绑定走另一条路径，**未接** clampuvs（语料 1261 层全为 image 层，无模型层带该字段的样本）；
+   ③ `.tex` 头 wrap 位官方未定案（RE-40 头布局无 wrap 字段结论）⇒ 未从头解析，按字段语义落采样器。
+
+## P-211（2026-09-29）A10 精灵帧自动推进（不再只在脚本驱动时接管）+ `spritesheetrefreshsync` 解析
+
+### 症状
+图片层精灵帧 UV 只在**脚本宿主真的驱动过该层**时才接管（`setFrame→__texFrameForced` 钉帧 /
+`play→__texFramePlay` 按时间推进，P-36 口径）；纯 sprite 表但无脚本的层永远静止。与官方不符：
+`Texture::AdvanceSpriteSheet` 在 Texture 层**自动**推进，脚本只通过 `getTextureAnimation` /
+`playSingleAnimation` **读写**状态（RE-55）。STATUS #35（WER-ALIGN F7）的 🟡 由此而来。
+
+### 依据
+`REVERSE-FINDINGS-7` RE-55（【事实】`Texture::AdvanceSpriteSheet` 符号 + `ImageLayer::Update` 调用面；
+层键 `spritesheetrefreshsync` = 强制与刷新同步换帧；【推断→本轮落地】无脚本时也应自动推进）。
+
+### 改法
+core renderLayer 精灵帧块：门条件 `(__texFrameForced || __texFramePlay)` →
+`(__texFrameForced || __texFramePlay || spriteAuto)`，其中 `spriteAuto = !SPRITE_AUTO_LEGACY && !layer.uvRect`。
+自动分支与脚本 play **共用同一时间公式** `frame = floor(time × rate / frametime)`（无独立累加器 ⇒ 对同一
+time 逐位同值，天然无双重推进；回绕由 `spriteFrameRectUV` 取模保证）。优先级（判据 ③ 写死）：
+`__texFrameForced`（setFrame 钉帧，暂停自动）> `__texRate<=0`（脚本冻结）> `__texRate>0`（脚本倍率）> 自动（rate=1）。
+`layer.uvRect`（本仓眼窗校准窗：`眼睛组合`/`左眼皮`/`右眼上眼睑` 3 个点名层）**优先于** sprite——校准层不自动推进。
+`parseScene` 层描述符新增 `spritesheetrefreshsync` 三态字段（本仓推进按渲染时间取帧 = 天然与刷新对齐，
+两档当前收敛为同一公式；字段保留防将来拆"纹理自带时钟"档）。回退口 `?spriteauto=legacy`（逐位回 P-36）。
+
+### 读数
+- **语料影响面**：全语料 121 个含 `scene.json` 容器中，image 层材质链引用 sprite 表纹理的包 = **0**
+  （sprite 表全部落在粒子系统，P-126 已按粒子年龄推进）⇒ 本条对本地语料可见影响 = 0，按规则 A 实现。
+- 官方真表读数（`wallpaper_engine/assets/materials/particle/fog/fog1.tex`，64 帧 8×8，frametime=0.015625）：
+  无脚本时 t=0/0.5/1.0 三点帧号 = 0 → 32 → 回绕 0（周期 64×0.015625 = 1.0000s 闭合，与 P-126 官方读数一致）。
+
+### 判据与变异
+`tests/spritesheet-advance-test.mjs` **16 通过 / 0 失败**：D1 纯函数 ×4（三点帧号/回绕/rate=0 冻结=时间公式
+不参与/frametime=0 兜底防除零）+ D2 真 sprite 表 ×3 + D3 结构 ×6（自动分支、门条件、**脚本优先级锚点与
+`scene-texanim-api-test` B4/B5 共用**、legacy 回退口、refreshsync 解析、真包字段可读）+ D4 变异 ×2
+（`no-auto` ⇒ D3 红；`drop-refreshsync` ⇒ D3 红；红集精确相等）。回归：`scene-texanim-api` 19/0、
+`multi-sprite` 28/0、`sprite-sheet`、`mock-gl` 60/0 全绿。`docs/README-DIAGNOSTICS.md` 登记
+`?spriteauto=legacy`（diag-flag-check 201==201）。
+
+### 未验证边界
+① 官方"纹理自带时钟"（非 refreshsync 档：`AdvanceSpriteSheet` 的默认态按纹理自身累计时钟推进，层不可见时
+   是否继续未取证）——本仓用渲染时间近似，层不可见时帧不推进（回到可见时对齐到当前时间点）；
+   语料 0 命中 ⇒ 无对照样本，真机差异未知；② 眼窗校准层豁免是**本仓特有**优先级（官方没有 uvRect 补丁），
+   若将来校准层需要 sprite 动画需重新裁决；③ 多重 SEQUENCE 折返（`computeSpriteFrameUV` 的 frac 语义）
+   只在粒子路径实现，图片层路径用单帧矩形（与改动前一致）。
+
+## P-212（2026-09-29）A2 `usertextures` 三形态解析 + `textures[i]` 回落（像素源待宿主）
+
+### 症状
+`usertextures`（材质 pass 的用户贴图运行时覆盖声明）在 core **0 命中**（UNSUPPORTED §4#3）：
+场景级 `effects[].passes[].usertextures` 在 `parseScene` 里被丢、材质级在 `resolveEffectChain` 里被丢，
+93+ 个 pass 的槽位绑定只剩 `textures[i]`；将来接入像素源时没有任何落点。
+
+### 依据
+`REVERSE-FINDINGS-7` RE-44（【事实】`textures[]`/`usertextures[]` **按 index 对应同一 `g_TextureN` 槽**；
+三形态：①字符串=用户属性名 ②`{name,type}`（system=`$mediaThumbnail`×16/`$mediaPreviousThumbnail`×12、
+usershortcut=作者自定义槽位名×60）③null 占位；官方唯一材质样例
+（官方 videoplayer 场景的 materials/background.json，`{name:"videotex",keepaspect:true}` 无 type）；
+【强推断】源不可用 ⇒ 回落 `textures[i]`（同槽成对设计，无"跳过 pass/报错"路径））。
+
+### ⚠ 与任务书预告的数据出入（如实记录）
+任务书说 `0923/3122339805` 是 `textures:["util/white"]+$mediaThumbnail` —— **实测不符**：该包是字符串形态
+（`customimageright`/`customimageleft`/`customimagemiddle`，基纹理 `City Video`/`Nightlife Vid`/`ezgif.com-reverse`）；
+`$mediaThumbnail` 成对样本在 `0917/3351163962`（场景级，回落 `workshop/2978738836/500x500`）与
+`0923/3151551777 materials/album.json`（材质级，回落 `album2`）。判据按实测数据建。
+
+### 改法
+core：① `parseScene` 场景级 pass 增加 `usertextures` 字段（三形态**原样**保留，不 reinterpret）；
+② `resolveEffectChain` 材质 pass 增加 `userTextures`（同上）；③ 新增纯函数 `resolveUserTextureSlot(userTex, baseName, sources)`：
+null ⇒ 基名；字符串 ⇒ `sources.userProps[名]`；`{type:'system'}` ⇒ `sources.media[名]`；`{type:'usershortcut'}` ⇒
+`sources.shortcuts[名]`；无 type 对象 ⇒ `sources.media[名]`（videotex 形态）；**源不可用一律回落 baseName**
+（= 该槽的 `textures[i]`）；④ renderLayer 绑定循环改用"有效槽位表 `mpTe`"（材质级解析先于 scene override 与
+binds，优先级次序不变）；场景级 `ov.usertextures[ti]` 在 `ov.textures` 覆盖之后解析（与它成对）；
+⑤ 宿主像素源注入点 = `globalThis.__mpwUserTextures = {userProps, media, shortcuts}`（本轮无注入 ⇒ 全部回落）；
+⑥ 台账 `userTextureLedger()` / `globalThis.__mpwUserTex`（分形态计数 + fallback/hostResolved）。
+回退口 `?usertex=legacy`（绑定通道忽略 usertextures，等价旧行为；解析层照旧留档）。
+
+### 读数
+- 全语料（本轮口径：场景级+材质级、未去重 `delete/` 副本）：**26 包 / 153 pass** 带 `usertextures`；
+  形态分布 string 85 / null 60 / system 35（mediaThumbnail 16 + mediaPreviousThumbnail 19）/ usershortcut 36
+  （UNSUPPORTED §4#3 的 19 包/93 pass 是材质级口径，两者口径不同如实并列）。
+- 真包回落读数：`3351163962` 8 个场景级 pass 逐槽回落 `textures[i]`；`3151551777` album 材质
+  无媒体源 ⇒ 槽位 `album2`（不是黑纹/空槽）；`3122339805` 字符串形态无属性源 ⇒ 槽位 `City Video`。
+
+### 判据与变异
+`tests/usertextures-fallback-test.mjs` **29 通过 / 0 失败**：U1 三形态纯函数表 ×9（含空串/坏对象不算可用源、
+官方 videotex 形态）+ U2 真包 3351163962 ×3 + U3 真包 3122339805/3151551777 ×3 + U4 合成包
+resolveEffectChain ×3（材质级/场景级双路解析 + 各自回落各自的成对基名）+ U5 台账/结构/legacy ×5
++ M 变异 ×2（`no-fallback`：字符串无源改成返回属性名 ⇒ U1/U3/U4 红；`drop-parse`：材质级解析被丢 ⇒
+U4/U5 红；红集精确相等）。`docs/README-DIAGNOSTICS.md` 登记 `?usertex=legacy`（diag-flag-check 202==202）。
+
+### 未验证边界
+① **像素源未做**（媒体封面像素缓冲 `PropertySystem::ReadMediaThumbnail` / 快捷方式图标
+  `TryLockUserShortcutIcon` 的宿主接入）⇒ 缺省档画面与改动前**逐位一致**（这正是"回落链先行"的价值）；
+  ② `keepaspect`（官方 videotex 专用）只保留在原始对象里，未参与布局计算（无消费样本）；
+  ③ `usertexturereference`（RE-44 新发现的另一条引用通道，语料 0 命中）未解析——键表里有、语义未查清，
+  按规则 B 不猜测，留给后续轮；
+  ④ 绑定优先级（材质级 usertextures 先于 scene override 与 binds）是本仓推断的合成序——官方对三者同时
+  出现时的次序无样例（语料里 scene 级与材质级 usertextures 不同时出现在同一槽）。
+
+## P-213（2026-09-29）B1 2D 光照模型（RE-43 路径A）+ light 层 schema 解析
+
+### 症状
+light 层（`"light":"lpoint"|"ldirectional"`，语料 3 包 4 个）在 core **0 命中**：被 `solid` 判定吞成"纯色层"
+（P-41 起无 image 的 solid 画透明才没露馅），光源数据整条丢失；2D 四灯 uniform 组（`g_LightsColorRadius[4]`/
+`g_LightsPosition[4]`/`g_LightAmbientColor`/`g_LightSkylightColor`）不存在。
+
+### 依据
+`REVERSE-FINDINGS-7` RE-43：(1) light 层 schema（判别键 `"light"`，字段 color/intensity/radius/origin/angles
++ density/exponent/volumetricsexponent/castshadow/cascadedistance0..2）；(2) 路径A 全公式（generic.frag/generic.vert/
+common_fragment.h 明文）：衰减 `saturate((radius−dist)/radius)` **应用时平方**、漫反射 `mix(真Lambert, HalfLambert, g_Light)`、
+rim 用未混合的 halfLambertLight 与 `metallic·2`、`intensity²` 进入（路径B/C "intensity² 进 color.w"）、
+环境光 `mix(skylight, ambient, ny·0.5+0.5)`、4 盏上限。
+
+### 改法
+core：① `parseScene` light 层描述符（`layer.light`=类型 + `__light` 全字段；**solid 口径显式排除**，
+`srcStats.light` 单列）；② `scene.lights` 数组（世界坐标取父子合并后的 origin/angles，`visible:false` 保留但
+不进 uniform 组装）；③ 纯函数 `computeLight2D`（简版）/`computeLightSpecular2D`（全量：漫反射+rim+镜面增量）/
+`ambientMix2D`（本仓写法重写公式，不逐字拷官方 .h）；④ `computeLight2DUniforms(lights, general)`：可见灯取前 4、
+intensity² 预乘、ambient/skylight 缺省 **(0,0,0)**（= GL uniform 缺省 ⇒ 无光场景零视觉差）；⑤ `renderScene`
+每帧算好缓存、`bindSystemUniforms` 对声明了这些 uniform 的程序上传（RE-50"声明才赋值"）；`castshadow`/
+`castvolumetrics`/`lightsourcesize` 只记录不实现。shader 侧：`shaders/common_fragment.h` 追加洁净室
+`ComputeLight2D`/`ComputeLightSpecular2D`/`AmbientMix2D`（声明 light uniform 的 shader 才拉入）。
+回退口 `?lights=legacy`（uniform 组恒 null）。
+
+### 读数
+- 语料 light 层全清单（本轮实测）：`0923/3589454154` id433(lpoint, visible=false) + id259(ldirectional,
+  castshadow=true, cascadedistance 0.3/0.4/8)、`0923/3662790108` id3692(lpoint)、`wallpaperE/白洲梓/白洲梓1_02` id69(lpoint)
+  —— 3 包 4 层；castshadow:true 全部落在 light 层（2 包 3 层口径见 FINDINGS-7，本轮见 2 层 + 官方样例）。
+- 无光场景（206 容器中的绝大多数）：uniform 组全 0 ⇒ 与"从未上传"逐位一致，零视觉差。
+- 判据回归连带：`model-key-fallback-test` 的 solidNonModel 冻结绝对值按口径更新（3589454154 41→39、
+  3662790108 474→473），"两档相同/模型单列/solid=两档之和"三条结构约束不变、变异照旧红。
+
+### 判据与变异
+`tests/scene-light-2d-test.mjs` **31 通过 / 0 失败**：L1 schema ×7（真包 lpoint/ldirectional 全字段逐项 +
+官方 modeleditor 2 灯 + uniform 组 ambient/skylight）+ L2 分支表 ×11（dist 0⁺/半径处/超半径、g_Light 0/0.5/1、
+rim 背向视线、**intensity² 绝对值**、衰减**平方绝对值**、ambientMix 两极）+ L3 不产生 draw ×4 + L4 组装 ×6
+（invisible 跳过/4 盏上限/无灯全 0/legacy）+ L5 变异 ×2（`linear-attn` 衰减去平方 ⇒ L2 红；
+`linear-intensity` intensity 改线性 ⇒ L1/L2 红；红集精确相等）。GLSL 校验 128/128。
+
+### 未验证边界
+① 观感级验证未做：语料 4 个 light 层所在包的材质是否声明 `g_LightsColorRadius`/Light 参数未扫
+  （RE-43 边界①：多数 2D 包材质是 genericimage*，不含光照 combo ⇒ 大概率零可见变化）；
+  ② `g_Light`（材质参数 `{"material":"Light","default":0}`）走材质参数管线，本轮未单独接线
+  （无声明样本）；③ spot 内外锥（`angles` 密度/指数）在路径A无消费点（官方 spot 系列在路径B/C）；
+  ④ light 层 origin/angles 的**脚本驱动**（语料太阳方位由脚本每帧写 angles）未接——uniform 组装在
+  parseScene 的静态世界值上，动态光源留待脚本线；⑤ `castshadow`/`castvolumetrics` 只记录（B3/真机清单）。
+
+## P-214（2026-09-29）B2 雾：10 个 scene 字段 → 2×vec4 + 2×vec3 + 宏门控
+
+### 症状
+场景雾整条缺失：general 的 10 个雾键（`fogdistancestart/end/startdensity/enddensity`、`fogheight*` 同构、
+`fogdistancecolor`/`fogheightcolor`）无解析，`g_FogDistanceParams`/`g_FogDistanceColor`/`g_FogHeightParams`/
+`g_FogHeightColor` uniform 组不存在，`common_fog.h` 无洁净室等价头（STATUS §1.1#4 的 ❌）。
+
+### 依据
+`REVERSE-FINDINGS-7` RE-51（【事实】字段键表 exe strings:16371-16384；`common_fog.h` PC 全文 55 行在手、
+APK 仅 1 行字面量差异；uniform 分量语义表；combo `FOG`（材质键 `ui_editor_properties_fog`，default=1）与
+`FOG_DIST/FOG_HEIGHT/FOG_COMPUTED`；官方样例 0 个写雾参数）。
+
+### 改法
+core：① `parseFogFields(general)`：10 键 → 归一化描述符（缺省 0；`hasFog` 任一字段即 true）；
+② 纯函数 `fogDistanceParams`/`fogHeightParams`（**(start, 范围=end−start, 基础强度=startdensity, 二次系数=enddensity)**，
+判据逐分量钉死）、`calculateFogPixelState`（y=0 ⇒ 0，官方此处除零、本仓如实取 0）、`applyFog`
+（官方顺序：先 HEIGHT 后 DIST 各自 `mix(color, fogColor, z + w·t²)`）、`applyFogAlpha`（`alpha·(1−factor²)`，
+factor=saturate(max(dist,height))）；③ `computeFogUniforms(general, search)`：无雾字段或 `?fog=legacy` ⇒ null；
+④ `renderScene` 每帧组装、`bindSystemUniforms` 对**声明了这些 uniform 的程序**上传（"声明才上传"，RE-50 语义）。
+shader 侧：新增洁净室 `shaders/common_fog.h`（`CalculateFogPixelState`/`ApplyFog`/`ApplyFogAlpha`，本仓写法；
+被 `#include "common_fog.h"` 的 shader 按需取用——语料 include 目标扫描里该头 0 命中 ⇒ 零风险）。
+
+### 读数
+- 语料 121 个含 scene.json 容器：**0 个**写雾字段（与 RE-51"官方样例 0 个"一致）⇒ 本条对现有语料
+  **零视觉差**（缺省路径 = 不上传 = GL uniform 缺省 0，与改动前逐位一致）。
+- 公式数值读数（判据 F1e/F1f）：t=0.5 时 dist 因子 = 0.2+0.8·0.25 = 0.4、height 因子 = 0.1+0.9·0.25 = 0.325、
+  ApplyFogAlpha = 1·(1−0.4²) = 0.84 —— 手算与实现逐位吻合。
+
+### 判据与变异
+`tests/scene-fog-test.mjs` **18 通过 / 0 失败**：F1 纯函数 ×7（两组 vec4 逐分量、颜色解析、像素状态、
+ApplyFog 官方顺序手算、ApplyFogAlpha 数值、部分声明不 NaN）+ F2 门控 ×6（4 uniform 组齐且**逐分量到值**、
+无字段 ⇒ null、legacy、bindSystemUniforms 接线、洁净室头存在）+ F3 结构 ×2 + F4 变异 ×2
+（`zw-swap` z/w 分量对调 ⇒ F1+F2 红；`fog-dropped` hasFog 恒 false ⇒ F2 红——第一版锚点只杀 `||` 前半段
+漏红，已改整条 RHS 替换；红集精确相等）。GLSL 校验 128/128。`docs/README-DIAGNOSTICS.md` 登记
+`?fog=legacy`（diag-flag-check 204==204）。
+
+### 未验证边界
+① 数值观感未验（无任何官方/语料雾样本可对拍——RE-51 判 ③"数值观感属真机"）；
+② 本仓四边形合成路径（compProg/copyProg）**不消费**雾 uniform——雾只对声明了 g_Fog* 的包 shader 生效
+  （语料 0 个包 shader include common_fog.h ⇒ 现状零生效面，与"零视觉差"一致）；genericimage4 链的
+  雾接入留给后续轮（需要 FOGL coverage 扫描 + 像素 A/B）；
+③ `FOG_COMPUTED` 的 viewDirLength/worldPosHeight 顶点侧来源（相机距离/世界高度）未接线（依赖相机链）。
+
+## P-215（2026-09-29）A3 `command:"swap"` 进命令枚举（copy/compose 现状保留）+ 未知命令告警
+
+### 症状
+效果链 `command` 分支只认 `'copy'`，其余值一律静默 `continue`（无日志）；且**尾部命令**（`afterpos` ≥
+material pass 数，如官方 fluidsimulation 尾部 swap×2）在 pass 循环里**永不触发**（pi < pass 数）。
+
+### 依据
+`REVERSE-FINDINGS-7` RE-56（`command` 在 effect 解析键表 VA 0x372958；`"copy"`=motionblur C9、
+`"swap"`=fluidsimulation 尾部×2 C10；"swap" 无独立字面量 = SSO 内联推断，中置信）；RE-61 C10。
+
+### 改法
+core 效果链 pass 循环：① mid 位置（`afterpos === pi`）新增 `swap` 分支：交换 `effectInput ⇄ effectOutput`
+（`curInput`/`curDraw` 同步）⇒ 下一个 material pass 读到上一个 pass 刚写出的缓冲（乒乓换向）；
+② 尾部命令（`afterpos ≥ pass 数`）在 `isLastOfEffect` 的 advance 处生效：flip `effectInput/effectOutput`
+后 advance 读翻转后的 `effectOutput`（= 效果链输入）；尾部 copy 无官方样例 ⇒ 不实现 blit、如实走未知路径；
+③ 未知命令（非 copy/swap）：每命令值**记一条**`[we-scene] 效果命令 "…" 不在枚举（copy/swap）⇒ 该条跳过`
+日志再跳过（旧实现静默）。
+
+### 读数
+- 官方样例：motionblur `command:"copy"`（3 pass）、fluidsimulation `command:"swap"`×2（尾部）——语料 0 个
+  第三种取值（RE-56 口径）。
+- mock-GL 行为读数：mid-swap 后 pass1 的 T0 = pass0 刚写出的 FBO 附着纹理（无 swap 时 = 链输入）；
+  尾部 swap 后合成读 copy 写入的缓冲（无 swap 时读 effectOutput）。
+
+### 判据与变异
+`tests/effect-command-swap-test.mjs` **8 通过 / 0 失败**（mock-GL **行为级**，桩模式与 `mock-gl-test` 同族；
+`framebufferTexture2D` 追踪 fbo→附着纹理，全部**轮内断言**——跨 run 的 GL 对象 id 不可比）：W1 合成包
+parse ×1 + W2 基线/mid-swap ×2 + W3 尾部 ×1 + W4 未知命令 ×1 + W5 变异 ×2（`no-swap` 两处 swap 分支
+全删 ⇒ W2/W3 红；`silent-unknown` 告警删掉 ⇒ W4 红；红集精确相等）。
+
+### 未验证边界
+① swap 的**精确官方语义**未经二进制定案（字面量 SSO 内联，RE-56 中置信）——本实现取"乒乓换向"这一
+  与官方 JSON 用例自洽的最小语义；fluidsimulation 的 swap×2 连续两条 = 网络恒等，若官方语义实为
+  "交换 source/target 绑定"（RE-56 另一种读法），需要官方包 + 真机像素差才能区分；
+② 尾部 copy（afterpos = pass 数的 copy 命令）官方无样例，本实现不触发 blit（如实走未知路径日志）——
+  motionblur 的 copy afterpos=0（mid）不受影响。
+
+## P-216（2026-09-29）A5 `alphawriting` 落到 `gl.colorMask` 的 alpha 位
+
+### 症状
+材质 pass 键 `alphawriting` 在 core 0 命中：`default`（457 pass）≈ 现状"恒写 alpha"没错（RE-45 定案：
+改了反而错），但 `disabled`（词表里有、语料 0 例）与 `enabled`（cursorripple 力场累积 4 pass，alpha=状态）
+没有落点。
+
+### 依据
+`REVERSE-FINDINGS-7` RE-45（语义 = pass 对当前 RT 的 alpha 通道写掩码：`enabled` ⇒ 写掩码含 ALPHA；
+`default` ⇒ 引擎按 blending 历史缺省（= 写 alpha）；`disabled` ⇒ 只写 RGB。伪代码
+`writeMask = (alphawriting=='disabled') ? RGB : RGBA`）。
+
+### 改法
+core：① `resolveEffectChain` 材质 pass 新增 `__alphawriting`（`mp.alphawriting` 字符串原样，缺省 null）；
+② 效果 pass 绘制前：`__alphawriting === 'disabled'` ⇒ `gl.colorMask(true,true,true,false)`，
+绘制后立即恢复 `(T,T,T,T)`（后续 pass/合成不受污染）；**`enabled`/`default`/缺省 ⇒ 零 colorMask 调用**
+（写 alpha = 现状，457 个 default pass 逐位不动 —— P 条目红线）。
+
+### 读数
+- 语料快照（判据实测）：`0917/3299228616`（cursorripple）效果链 288 个 material pass 中 **12 个 enabled**
+  （cursorripple_apply/simulate_force 系被多层引用；RE-45 的"4 pass"是按 effect.json 计的口径，按
+  层-效果实例计为 12，如实并列）、其余 276 个无字段。
+- mock-GL 读数：disabled pass 的 colorMask 序列 = `[(T,T,T,F)@draw1, (T,T,T,T)@draw2]`；enabled/default/缺省
+  三档零 colorMask。
+
+### 判据与变异
+`tests/alphawriting-mask-test.mjs` **10 通过 / 0 失败**：A1 解析 ×2（合成包材质级 disabled + 三档保真）
++ A2 行为 ×4（disabled 关+恢复；enabled/default/缺省零 colorMask——"default 不许变成不写 alpha"钉死）
++ A3 语料快照 ×1 + A4 变异 ×2（`default-broken`：把非 enabled 一律 disabled 化 ⇒ A2 红——正是任务书
+警告的那条；`no-restore`：恢复分支删掉 ⇒ A2 红；红集精确相等）。
+
+### 未验证边界
+① `disabled` 语料 0 例 ⇒ 行为级只有 mock-GL 断言（真 GL 的 colorMask 语义由 WebGL2 规范保证）；
+② 只覆盖效果链 pass（`alphawriting` 键在语料中只出现在 effect 材质 pass）——层内容直绘路径没有该键
+  （材质键表里它在 depthtest/depthwrite 邻位，均属 effect 材质域）；
+③ alpha=状态的力场累积链（cursorripple）的**像素级**验证需要浏览器鼠标注入 A/B（留真机清单）。
+
+## P-217（2026-09-29）A8 层级元数据按官方口径对齐（nointerpolation/dependencies/locktransforms/spacing/ledsource）+ A9 `instanceoverride.brightness` 乘子
+
+### 症状
+A8：`nointerpolation`（官方 2.8.8 起**读**）、`dependencies`（官方读，绘制顺序约束）、`depthtest`（层）、
+`disablepropagation`（官方读）在层描述符里全部缺席；`locktransforms`/`spacing`/`ledsource` 被**整字段丢弃**
+（规则 B 红线：语义未定 ≠ 字段可丢）。A9：`instanceoverride.brightness`（RE-59 官方读）0 落点。
+
+### 依据
+`REVERSE-FINDINGS-7` RE-49 表（读取/未读到 + 影响判定逐条）+ RE-59（`brightness` 子键在官方键表
+`size`/`brightness` 同区；语义 = 层 HDR 亮度乘子，对齐 `g_Brightness` range [0,10]）。
+
+### 改法
+core `parseScene` 层描述符新增七字段（全部三态/原样保留）：`nointerpolation`（true ⇒ 该层内容纹理
+MIN/MAG=NEAREST，compositeLayer 绘制前设置；语料 6 层全 true）、`depthtest`（字符串原样；语料 888 层恒
+"enabled" ⇒ 与缺省一致零行为差）、`dependencies`（数值数组）+ **排序约束**（Kahn 拓扑：依赖层排到本层之前，
+稳定排序不改换；环 ⇒ 记日志按到达顺序降级，`__depStats={layersWithDeps,reordered,cycles}` 进解析结果）、
+`disablepropagation`/`locktransforms`（解析保留；行为 no-op，注释写明"官方未读到该键"）、`spacing`（字符串
+原样；行为默认关，见 F2/P-219）、`ledsource`（解析保留 + 宿主钩子 `globalThis.__mpwLedSink`，F4）。
+A9：`resolveParticleOverride` 增加 `brightness`（**null=没写 / 0=压黑** 区分；`pick()` 原值判断）；
+`bindSystemUniforms` 的 `g_Brightness` = `layer.brightness × io.brightness`（只对声明该 uniform 的效果
+shader 生效——官方 generic4.frag:38 `albedo.rgb *= g_Brightness` 同语义）。
+
+### 读数
+- 真包样本（判据定位）：`dependencies`+`ledsource:true` = `0917/3509243656`、`nointerpolation:true` =
+  `0923/3593919489`、`spacing` = `0917/3195212886`；全语料 `locktransforms` 广布（440 层）。
+- 合成读数：依赖序 1,3,2（2 依赖 [1,3]）；环 1→2→1 ⇒ cycles=1 + 日志 + 到达序降级。
+- mock-GL：nointerpolation 层 draw 前 MIN/MAG=NEAREST（9728）；普通层零设置。
+- brightness：效果 pass 的 `g_Brightness` = 1×1 / 1×2 / **1×0** / size-only ⇒ 1 —— 0 与缺省区分钉死。
+
+### 判据与变异
+`tests/layer-metadata-test.mjs` **18 通过 / 0 失败**：M1 真包四件 ×5 + M2 排序/环 ×4 + M3 NEAREST ×2
++ M4 乘子 ×4（独立 harness，g_Brightness 走**声明它的效果 shader**——"声明才赋值"语义）+ M5 变异 ×2
+（`no-nearest` ⇒ M3 红；`zero-as-default` 把 0 当缺省 ⇒ M4 红；红集精确相等）。
+
+### 未验证边界
+① `dependencies` 的排序只影响 draw 顺序（官方"构建顺序约束"可能还约束资源加载序——无证据，不猜）；
+② `disablepropagation` 的**行为**（子层传播截断）未实现——本仓父子变换合并在 parseScene 一次性完成，
+  截断语义需要逐帧传播架构，按 RE-49 保留接口；③ `depthtest` 层级语义（几何层深度测试）未实现
+  （语料恒 "enabled" = 现状一致）；④ `nointerpolation` 只覆盖内容直绘路径（效果输入槽不过滤）。
+
+## P-218（2026-09-29）F1 `g_MVPI` 按官方语义实现（`g_ModelViewProjectionMatrixInverse` 真名 + 别名）
+
+### 症状
+`g_MVPI`（wer-ref 口径）恒单位阵（STATUS §1.1#2 的 ❌）；官方真名 `g_ModelViewProjectionMatrixInverse`
+在引擎 uniform 名表里（RE-50）但本仓名表缺失。
+
+### 依据
+`REVERSE-FINDINGS-7` RE-50（官方 shader 全树无 `g_MVPI` 缩写；名表含 `g_ModelViewProjectionMatrixInverse`/
+`g_ModelMatrixInverse`；语义 = "shader 显式声明才被赋值"，按名自动绑定）。
+
+### 改法
+core：① 新增 `mat4Invert`（伴随式 4×4 求逆，列主序与 `mat4Multiply` 同布局；奇异 |det|<1e-12 / 非有限 ⇒ null）；
+② `bindSystemUniforms`：`g_ModelViewProjectionMatrixInverse` = `mat4Invert(mvp)`（旧 = 恒 IDENT_M4），
+**旧名 `g_MVPI` 作为别名保留**（同一真值同时可被声明命中——已发布的依赖不破坏）；奇异 ⇒ 回落单位阵 +
+`globalThis.__mpwMvpi.singular` 台账（不抛不 NaN）；`?mvpi=legacy` ⇒ 恒单位阵（旧口径）。
+`g_ModelMatrixInverse`（common_particles.h 在用）的声明面 = 粒子 shader，其求逆接线随粒子链（本轮未做，
+见边界）。
+
+### 读数
+- 纯函数：缩放+平移矩阵 M·M⁻¹=I（1e-6）；M⁻¹ 平移列 = −S⁻¹t（-5/-13.33/-10）；奇异/NaN ⇒ null。
+- mock-GL（效果链路径）：声明 4 槽的 shader 同时收到 MVP/真名/别名三 uniform；INV·MVP=I 自洽（1e-6）；
+  别名与真名逐元素相等。
+- ⚠ **效果 pass 的 MVP 恒等**（PASS_QUAD 直接 clip 空间，WER-ALIGN C 系列链语义）⇒ 当前所有效果 pass
+  上传的逆 = 单位阵 —— 这是该链语义下的**正确值**（非旧 bug 的"恒单位阵"：现在是"算出来等于单位阵"，
+  将来任何 mvp≠恒等的路径自动正确）。
+
+### 判据与变异
+`tests/matrix-uniform-inverse-test.mjs` **15 通过 / 0 失败**：V1 纯函数 ×5 + V2 声明即上传自洽 ×1 +
+V3 别名同值/三 uniform 全到/legacy/台账/接线锚点 ×6 + V4 变异 ×2（`identity-mvpi` 摘掉 mat4Invert 调用 ⇒
+V3 接线锚点红；`no-alias` 删别名 ⇒ V3a 红；红集精确相等）。回归：`mock-gl` 60/0。
+
+### 未验证边界
+① 语料 0 个 shader 声明 g_MVPI/g_ModelViewProjectionMatrixInverse（RE-50 复核）⇒ 行为级只有 mock 断言；
+② **效果链 MVP 恒等语义**与官方"层 MVP"的差异（官方 parallax 类 pass 用 MVP 逆做屏幕反投影——本仓
+  效果链把 MVP 定为恒等是 WER-ALIGN 时代的链语义定案，改它超出 F1 范围）；
+③ `g_ModelMatrixInverse` 未接线（粒子 shader 声明面，语料 0 命中）。
+
+## P-219（2026-09-29）F2 文本 `spacing`：解析保留（P-217）+ 行为默认关（`?spacing=on`）
+
+### 依据
+`REVERSE-FINDINGS-7` RE-49：`spacing` 两份官方二进制键表**都没读到**（可能 TextLayer 属性走 SSO 内联）
+⇒ **官方语义未定案**；语料 139 层全 `"0.00000 0.00000"`。任务书 §0.1 规则 B：接口先行、行为默认关。
+
+### 改法
+解析侧（P-217 已落）：`spacing` 字符串原样进层描述符（三态保留）。
+行为侧（本条）：`demo.html` 文本光栅化函数——`SPACING_ON = ?spacing=on`（**缺省 legacy = 与改动前逐位
+一致**）；启用时按"x=字符间距、y=行距增量"解释：非零 x ⇒ 逐字符 `fillText`（每字符
+`measureText().width + x` 推进）、y ⇒ `lineH + y`；x=0 时保持整行一次 fillText（与旧行为同形）。
+台账 `window.__mpwTextSpacing = {layers, applied}`。注释与判据都写明"语义按此假设、未定案"。
+
+### 读数
+真包 `0917/3195212886` 的 spacing 层进描述符（判据 T1）；缺省档绘制调用序列与改动前逐位同形（T2b）。
+
+### 判据与变异
+`tests/text-spacing-test.mjs` **13 通过 / 0 失败**：T1 真包解析 ×2 + T2 源码序 ×6 + T3 行为切片 ×2
+（on 档逐字符推进 +5、行距 +20）+ T4 addText 共用路径 ×1 + T5 变异 ×1（`always-on` 把门控改恒 on ⇒
+T1/T2 红；红集精确相等）。回归：`text-layout` 29/29、`demo-syntax-check` 11/11。
+
+### 未验证边界
+① "x=字距、y=行距"是**假设**（键表未读到 ⇒ 无官方反汇编依据），等真机/官方样例确认后决定默认值；
+② `?spacing=on` 档不重算布局盒（w/h 不变，长行可能画出盒外——实验档可接受）；
+③ addText 动态文本的行为档与静态同路径（判据为源码锚点级，行为切片只覆盖静态路径）。
+
+## P-220（2026-09-29）C1 脚本 API「不实现必画错的最小集」补齐（RE-57 + 规则 A）
+
+### 症状
+官方 baseclasses.js（APK assets/scripts/jsclasses）明文存在、语料高频调用的 API 在沙箱缺失：`element.addText`（语料 223 次）、
+`engine.changedUserProperties`（233 次 `hasOwnProperty` 探测）、`engine.openUserShortcut`（190 次）、
+`engine.isObjectValid`/`isLandscape`/`isPortrait`、`getTextureAnimation().playSingleAnimation(name)`。
+缺失 = 作者脚本在主干上抛 TypeError → 整段动画/音频逻辑失效（本仓历史上 RE-35 系列同类病的续集）。
+
+### 依据
+`REVERSE-FINDINGS-7` RE-57（频次表 + 官方 API 面；任务书 §0.1 规则 A：语料频次只排优先级，
+官方明文存在的 API 都要至少留接口——能调用、语义正确、缺实现明确抛/返回可判定值并记台账）。
+
+### 改法（elysia/scene-scripts.js）
+① `thisScene.addText(spec)`：三形态归一（字符串 = text / `{text,…}` / `{value,…}`）⇒ 走 **createLayer
+同一条管线**（同 layer() 面、objList 可见；动态层不上屏 = P-141 既有限制，如实保留）；
+② `engine.changedUserProperties`：缺省 `{}`（hasOwnProperty 恒 false = "本次无变更"），
+宿主注入通道 `opts.changedUserProps`（applySceneScripts → runScriptValueCached → compileScript 三跳全转发）；
+③ engine.openUserShortcut(name)：可调用、返回 **false**（可判定失败值）+ globalThis.__mpwScriptApi.notImplemented
+台账（不抛）；④ `engine.isObjectValid(o)` = `o != null`；`isLandscape/isPortrait` 按画布宽高比；
+⑤ `getTextureAnimation().playSingleAnimation(name)` = play 语义（`__texFramePlay=true`、清钉帧）+
+段名 `__texSingleAnim` 留档 + `texAnimPlaySingle` 计数（本仓 TEXS 帧表无具名段概念，语义折叠如实记录）。
+
+### 读数
+判据 A1 三形态（t1=hello / t2=world+p2=48 / t3=valued）、enumerateLayers 4 层、A2 默认
+`hasOwnProperty('x')===false` + 注入 `slider1===true`、A3b notImplemented 台账 ≥1、A5 diag 计数 ≥1。
+
+### 判据与变异
+`tests/script-api-minimal-set-test.mjs` **13 通过 / 0 失败**（真沙箱 `applySceneScripts` 行为级；
+结果通道 = `export let out` 经 `__exports` 读回——vm 全局 var 不同步到宿主侧 context 对象，实测）。
+A6 变异：addText 破坏 ⇒ A1 组 4 项红（红项=4；变异夹具需带 elysia 兄弟模块——只拷单文件会加载失败
+给出 0 红假阴性，判据注释写明）。回归：`scene-script-api-gaps` 38 项全过、`scene-texanim-api` 19/0、
+`script-tick` 16/0。
+
+### 未验证边界
+① addText 的动态层**不上屏**（渲染器对象表载入期烘焙；宿主侧重建层表 = 后续轮）；
+② `openUserShortcut` 无宿主文件系统 ⇒ 恒 false（真机的 Open File/Website 语义需插件宿主接线）；
+③ `changedUserProperties` 的"变更集合"语义按 hasOwnProperty 用法推断；官方 diff 粒度（每帧/每次面板提交）未定；
+④ `playSingleAnimation` 折叠为 play（官方具名段 = TEXS 之外的动画段概念，本仓无数据源）。
+
+## P-221（2026-09-29）A6 `g_TextureNMipMapInfo`(逐槽) / `g_TextureReductionScale` "声明即上传"
+
+### 依据
+`REVERSE-FINDINGS-7` RE-52（逐槽具名 uniform N=0..9，唯一用法 `texSample2DLod(g_Texture3, …, roughness *
+g_Texture3MipMapInfo)` ⇒ 值 = 该 RT 最大可用 LOD ≈ log2(max(w,h))；`g_TextureReductionScale` 唯一消费者 =
+官方 skew 效果，值 = "世界 quad 大小 × 分辨率"【推断，强】）。规则 A：语料 0 声明 ≠ 不做。
+
+### 改法
+core 效果 pass 的 system-uniforms 之后：逐槽扫 `uni.get('g_Texture' + N + 'MipMapInfo')`（N=0..9），
+槽分辨率已知 ⇒ `uniform1f(log2(max(w,h)))`；`g_TextureReductionScale` ⇒ `worldMax × slot0max`
+（两个标量 max 轴相乘 = RE-52 字面读法；量纲未定案，见边界）。本仓无 `_rt_MipMappedFrameBuffer`
+等价 mip 链 ⇒ `globalThis.__mpwMip.mipChainMissing` 台账（值能给、链还没有），不写成"无消费点 ⇒ 不做"。
+
+### 读数
+mock-GL：声明两 uniform 的效果 shader 在 draw 收到 `log2(400)≈8.644`（槽 0=[400,300]）与 `160000`
+（400×400）；`mipChainMissing≥1`；未绑定槽（1×1 兜底）值 0 = 正确行为。
+
+### 判据与变异
+`tests/fx-uniform-values-test.mjs` **9 通过 / 0 失败**：W1 纯公式 ×2（非 2 幂/宽高不等/尺寸 1 边界）
++ W2 声明即上传 ×3 + W3 官方 skew.vert 声明面读数 ×2（官方资产事实）+ W4 变异 ×1（上传分支摘掉 ⇒
+W2 红，红集精确相等）。
+
+### 未验证边界
+① **ReductionScale 数值语义未定案**：RE-52 写"×"（世界尺寸×分辨率），skew 的量纲推理指向"/"（世界/纹素）
+—— 本仓按任务书字面读法落地（两个 max 轴相乘），判据钉的是"声明即上传 + 公式一致性"，等官方包像素
+A/B 才能定案；② MipMapInfo 的"RT 最大可用 LOD"在无 mip 链时按整图 log2 给值（官方有链时是链深）；
+③ 语料 0 个 shader 声明这两个 uniform ⇒ 行为级只有 mock 断言。
+
+## P-222（2026-09-29）A12 / A4 / F4 / F5 / F8 / F9 / B3① —— P2 接口与记账类合集
+
+### 依据与改法（逐条）
+- **A12（RE-61）**：PKGM0012 官方魔数显式用例——`tests/mpkg-oldschool-scene-test.mjs` A12 组断言
+  techno/earth_parallax 的 `magic === 'PKGM0012'` 且条目 >0（防以后收窄 `/PKGM/i` 魔数正则）。
+  解析逻辑**零改动**（`/^PKGM/i` 本来就能读）。
+- **A4（RE-48）**：FBO 同层同名碰撞诊断——渲染期对每层建 `name → 效果下标` 表，两个效果声明同名 FBO
+  且都无 `unique` ⇒ `globalThis.__mpwFboCollisions = {collisions, names[]}`；**隔离口径不变**
+  （按效果下标前缀 = unique:true 的"每实例独立分配"等价实现，RE-48 判 ①）。
+- **F4（RE-49）**：`ledsource` 宿主钩子——`renderLayer` 对 `ledsource:true` 的层，在注册了
+  `globalThis.__mpwLedSink` 时每帧发布 `{id,name,color,alpha,rect,time}`（层描述符级数据源）；
+  **无 sink 时零开销零行为**（`?led=off` 语义即缺省）。
+- **F5（RE-43 (5)）**：`shape` 层解析保留——`parseScene` 新增 `shape` 字符串字段（未知取值原样）+
+  `srcStats.shape` 单列（语料 11 包 20 层 shape:"quad" 全部"层数守恒"，不再被当 none 静默吞）；
+  行为默认 no-op（ShapeLayer VBO 重建未做），`?shape=on` 时记一次 notImplemented 日志 +
+  `globalThis.__mpwShape = {layers, notImplemented}`。
+- **F8（RE-53）**：`controlpointFlagView(cp)` 位表视图——`{raw, bits:{lockToPointer: raw&1}, unknownBits: raw&~1}`；
+  raw 原样保留不 reinterpret（粒子的 `def.controlpoint` raw 数组本来就是原样传递，本批补"有名字的
+  位表结构"给 D1 填）；flags 缺失/坏值 ⇒ raw=0 不 NaN。
+- **F9（RE-08/RE-46）**：`evaluateConditions(conditions, combos, userProps)` 三态求值接口——已知子集
+  （`{combo, equals}` / 键对 combos 直写 / 数组 AND）返回 true/false；**任何未识别形态返回 'unknown'**
+  （调用方按"不剔除该 pass"处理——绝不猜 true/false，判据钉死）；null ⇒ 'none'（零变化）。
+  effect.json 的 `passes[].conditions` 解析保留（原样），本批不改 pass 过滤行为（语料 0 命中）。
+- **B3①（RE-43 (3)）**：`lightCascadeConfigs(d0,d1,d2)` = `{d0, d1*4, d1, d1*4, d2, max(d1*4, d2*1.5)}`
+  （官方 GetCascadeConfigs 6 浮点，arm64 RVA 0x25cf95c）+ `shadowResolutionFor(q)` = 256/512/1024
+  （官方 GetShadowResolution）。纯函数可测；**阴影图集/投影/采样未做**（缺真机 `_rt_shadowAtlas`
+  帧数据）——`castshadow`/`cascadedistance*` 只记录（P-213 的 light 描述符 + castShadowLights 计数），
+  不丢不写死。
+
+### 读数
+- shape 层全语料清单（本轮实测）：11 包 20 层（0917/3299228616 ×6、0923/3690417937 ×3、
+  dd/3719111841 ×2 等），全部 `shape:"quad"`、无 image。
+- 级联换算：语料值 (0.3, 0.4, 8) ⇒ (0.3, 1.6, 0.4, 1.6, 8, 12)——与 FINDINGS-7 的"边界 (0.3→1.6)(0.4→1.6)(8→12)"一致。
+
+### 判据与变异
+`tests/p208-p2-interfaces-test.mjs` **18 通过 / 0 失败**（F5 ×2 / F8 ×4 / F9 ×6 / B3 ×3 / A4 ×2 / F4 ×1）；
+A12 并入 `mpkg-oldschool-scene-test`（25 通过 / 0 失败，其中 A12 组 2 条）。
+
+### 未验证边界
+① A4 的碰撞计数只在**同层两个效果**的口径上（官方沿父链向上比对——父子跨层的同名 FBO 检测未做）；
+② F5 的 `?shape=on` 只给 notImplemented 提示（VBO 重建 = D 级工程）；③ F9 的"已知子集"是从 combos
+宏比较推的最小面，官方求值器的完整表达式语法未定案；④ B3 的接口判据只到"纯函数 + 解析 + 台账"，
+数据通路（uniform 名表生成/绑定）未搭。

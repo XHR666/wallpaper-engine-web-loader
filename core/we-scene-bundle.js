@@ -1611,7 +1611,7 @@ export function parseScene(sceneJson, project, opts = {}) {
   //   `solid` 口径里**分出来**（旧实现把这 105 层判成纯色层，见报告 §5#7）。口径：
   //     image/model/modelDrawn/modelDropped = 层来源键与可用性；solid = **修好之后**
   //     仍判定为纯色/占位层的层数（模型层不再计入）；particle/text/sound/container 各一档。
-  const __srcStats = { image: 0, model: 0, modelDrawn: 0, modelDropped: 0, modelDropReasons: {}, solid: 0, solidNonModel: 0, modelKeyedSolidDropped: 0, particle: 0, text: 0, sound: 0, container: 0, none: 0 }
+  const __srcStats = { image: 0, model: 0, modelDrawn: 0, modelDropped: 0, modelDropReasons: {}, solid: 0, solidNonModel: 0, modelKeyedSolidDropped: 0, particle: 0, text: 0, sound: 0, container: 0, light: 0, none: 0 }
   const layers = objects.map((o, i) => {
     const world = local[i]
     // 编辑器 y-up → 渲染 y-down：**所有层统一翻转一次**（官方语义；elysia 绘制端 H−y 同款）。
@@ -1661,6 +1661,12 @@ export function parseScene(sceneJson, project, opts = {}) {
     // ①(P-205) 口径与 `tests/package-matrix.mjs` 的 `soundN` 对齐（`o.sound != null`）：语料里
     //   `sound` 是**数组**（`["sounds/x.flac"]`，真包 3509243656 实测），不是字符串。
     if (o.sound !== undefined && o.sound !== null) __srcStats.sound++
+    // ①(P-213 B1 2026-09-29 · RE-43) light 层（判别键 `"light":"lpoint"|"ldirectional"`，`lighttype` 官方
+    //   0 命中）：光源层**不参与 draw**，只提供数据（进 `scene.lights`，消费端 = 2D 四灯 uniform 组）。
+    //   旧实现把它判成 `solid:true`（P-41 起 solid 无 image ⇒ 画透明，无观感差但口径是错的）；
+    //   现在 light 层显式排除出 solid 口径（`__srcStats.light` 单列）。
+    const __lightType = (typeof o.light === 'string' && o.light) ? o.light : null
+    if (__lightType) __srcStats.light++
     // 只有"真能交给宿主既有链"的来源才写进 `image`（见上）；`model` 键的来源路径另存 `__imageSrc`
     const __imgUsable = (__modelDropped === null)
     const __img = __imgUsable ? __imgRaw : null
@@ -1749,9 +1755,30 @@ export function parseScene(sceneJson, project, opts = {}) {
       //     （`o.image === ''` 这类边角也一致：空串仍是 string，`''.indexOf(...) !== 0`）。
       solid:
         typeof o.particle !== 'string' &&
+        !__lightType && // ①(P-213 B1) light 层不是纯色层（旧口径把它们算进 solid，P-41 起画透明才没露馅）
         (__solidImg !== null && __solidImg.indexOf('models/util/solidlayer') === 0
           ? true
           : !!o.solid && (__solidImg === null || __solidImg.indexOf('models/util/') === 0)),
+      // ①(P-213 B1 · RE-43 (1)) light 层 schema：字段集 = color/intensity/radius/origin/angles
+      //   (+density/exponent/volumetricsexponent/castshadow/cascadedistance0..2/lightsourcesize/castvolumetrics)。
+      //   origin/angles 的世界值在下方 `scene.lights` 收集时取**父子合并后**的层值（语料里太阳方位由
+      //   脚本写进 angles，绑定对象已由层变换链解析）。castshadow/castvolumetrics 本轮只记录不实现
+      //   （castshadow 依赖阴影图集 = B3；castvolumetrics 语料/官方样例 0）。
+      light: __lightType,
+      __light: __lightType ? {
+        type: __lightType,
+        intensity: typeof o.intensity === 'number' ? o.intensity : 1,
+        radius: typeof o.radius === 'number' ? o.radius : 0,
+        density: typeof o.density === 'number' ? o.density : null,
+        exponent: typeof o.exponent === 'number' ? o.exponent : null,
+        volumetricsexponent: typeof o.volumetricsexponent === 'number' ? o.volumetricsexponent : null,
+        castshadow: o.castshadow === true,
+        castvolumetrics: o.castvolumetrics === true,
+        lightsourcesize: typeof o.lightsourcesize === 'number' ? o.lightsourcesize : null,
+        cascadedistance0: typeof o.cascadedistance0 === 'number' ? o.cascadedistance0 : null,
+        cascadedistance1: typeof o.cascadedistance1 === 'number' ? o.cascadedistance1 : null,
+        cascadedistance2: typeof o.cascadedistance2 === 'number' ? o.cascadedistance2 : null,
+      } : null,
       // composelayer 是分组容器（子层已合并为世界坐标），容器自身不渲染
       isContainer: __solidImg !== null && __solidImg.indexOf('models/util/composelayer') === 0,
       origin: [world.origin[0], wy, world.origin[2]],
@@ -1766,8 +1793,43 @@ export function parseScene(sceneJson, project, opts = {}) {
       brightness: typeof o.brightness === 'number' ? o.brightness : 1,
       copybackground: !!o.copybackground,
       colorBlendMode: o.colorBlendMode || 0,
+      // ═══ ①(P-217 A8 2026-09-29 · RE-49 表) 层级元数据字段 —— **全部解析进描述符，不丢** ═══
+      //   `nointerpolation`（官方 2.8.8 起**读**）：纹理取整/NEAREST ⇒ 渲染层按它把该层内容纹理
+      //   过滤改 NEAREST（消费端 = drawLayer 前的 setLayerTexFilter）。语料 6 层全 true（音频可视化容器）。
+      //   `depthtest`（层，官方读）：几何层深度测试；语料 888 层恒 "enabled" ⇒ 与缺省一致（零行为差）。
+      //   `dependencies`（官方读）：依赖的层 id 数组 ⇒ 与 parent 并存的**排序约束**（只影响顺序，
+      //   不改变换；依赖环检测见下）。语料 22 层/8 包。
+      //   `disablepropagation`（官方读）：子层传播截断。语料 true 34 / false 2351。
+      //   `locktransforms`（官方键表未读到 = 编辑器元数据，RE-49）：解析保留 no-op（规则 B：不丢字段）。
+      //   `spacing`（文本布局字段，键表未读到 = 语义未证实，RE-49）：解析保留（两分量原样）；
+      //   行为默认关（`?spacing=on` 才启用字距/行距推进，F2）。语料 139 层全 "0.00000 0.00000"。
+      //   `ledsource`（官方**读**，RE-49：LED 硬件输出插件的数据源，对画面无影响）：解析保留 +
+      //   宿主钩子 `globalThis.__mpwLedSink`（无 sink 时零开销，F4）。
+      nointerpolation: o.nointerpolation === true ? true : (o.nointerpolation == null ? null : parseBool(o.nointerpolation, null)),
+      depthtest: typeof o.depthtest === 'string' ? o.depthtest : null,
+      dependencies: Array.isArray(o.dependencies) ? o.dependencies.map((x) => (typeof x === 'number' ? x : Number(x))).filter((x) => isFinite(x)) : null,
+      disablepropagation: o.disablepropagation === true ? true : (o.disablepropagation == null ? null : parseBool(o.disablepropagation, null)),
+      locktransforms: o.locktransforms === true ? true : (o.locktransforms == null ? null : parseBool(o.locktransforms, null)),
+      spacing: typeof o.spacing === 'string' ? o.spacing : (o.spacing != null ? String(o.spacing) : null),
+      ledsource: o.ledsource === true ? true : (o.ledsource == null ? null : parseBool(o.ledsource, null)),
+      // ①(P-222 F5 · RE-43 (5)) `shape` 层（ShapeLayer = 用材质图元重建 VBO 的几何层；arm64 22 符号）。
+      //   语料 20 层全部 shape:"quad" 且无 image ⇒ 旧实现整层当 none 跳过。本批：**解析保留**（未知取值
+      //   原样字符串），`srcStats.shape` 单列（层数守恒可核对），行为默认 no-op（VBO 重建未做，
+      //   `?shape=on` 时记一条 notImplemented 日志 —— 不把 shape 层当"没有 image ⇒ 丢掉"处理）。
+      shape: typeof o.shape === 'string' ? o.shape : null,
       // 视差深度（vec2：x/y 方向分量；近景正值位移大、远景负值反向）
       parallaxDepth: o.parallaxDepth !== undefined ? parseVec2(o.parallaxDepth) : null,
+      // ①(P-211 A10 2026-09-29 · RE-55) 层键 `spritesheetrefreshsync`（官方场景键表：强制与刷新同步换帧）。
+      //   本仓的精灵帧推进按**渲染时间**取帧（floor(time*rate/ft)）—— 天然与刷新对齐 ⇒ 该字段当前与
+      //   缺省推进**收敛为同一公式**；仍解析进描述符（不丢字段），将来若拆出"纹理自带时钟"档（官方
+      //   `Texture::AdvanceSpriteSheet` 的默认态）用它分流。消费端见 renderLayer 的精灵帧块。
+      spritesheetrefreshsync: o.spritesheetrefreshsync === true ? true : (o.spritesheetrefreshsync === false ? false : (o.spritesheetrefreshsync == null ? null : parseBool(o.spritesheetrefreshsync, null))),
+      // ①(P-210 A7 2026-09-29) 层级 `clampuvs`（RE-47：官方本质是纹理/采样器侧配置，shader 无感知；
+      //   语料 48 包 1261 层 = true 1258 / false 3，此前 core 完全没读）。**三态**保真：
+      //   `true` ⇒ 该层内容纹理采样器 CLAMP_TO_EDGE；显式 `false` ⇒ 官方 .tex 头缺省 REPEAT；
+      //   `null`（字段缺失）⇒ 维持本仓现状（P-168 名单口径），零回归。消费端 = `layerClampUvWrap`
+      //   （compositeLayer 绘制期执行；`?clampuvs=legacy` 关掉）。
+      clampuvs: o.clampuvs === true ? true : (o.clampuvs === false ? false : (o.clampuvs == null ? null : parseBool(o.clampuvs, null))),
       effects: (o.effects || []).map((e) => ({
         file: e.file || '',
         visible: parseBool(e.visible, true),
@@ -1775,6 +1837,11 @@ export function parseScene(sceneJson, project, opts = {}) {
           combos: p.combos || {},
           constantshadervalues: p.constantshadervalues || {},
           textures: p.textures || [],
+          // ①(P-212 A2 · RE-44) 场景级 `usertextures[]`（RE-44 实测样本：
+          //   `0917/3351163962/scene.pkg objects[119].effects[0].passes[0]`
+          //   textures:[null,"workshop/2978738836/500x500"] + usertextures:[null,{"name":"$mediaThumbnail","type":"system"}]）
+          //   原样保留三形态；槽位解析同上（绑定回落 textures[i]）。
+          usertextures: Array.isArray(p.usertextures) ? p.usertextures : null,
         })),
       })),
     }
@@ -1792,13 +1859,86 @@ export function parseScene(sceneJson, project, opts = {}) {
     }
     if (l.isContainer) __srcStats.container++
   }
+  // ①(P-217 A8 · RE-49) `dependencies` 排序约束：把被依赖的层排到本层**之前**（稳定排序，只影响
+  //   绘制顺序、不改变换——层级 id 无依存的层保持原相对次序）。依赖环：检测到环时**记日志并按
+  //   到达顺序降级**（环上的 dependencies 约束忽略），不抛错。
+  const __depStats = { layersWithDeps: 0, reordered: 0, cycles: 0 }
+  {
+    const idSet = new Set(layers.map((l) => l.id))
+    const depsOf = new Map()
+    for (const l of layers) {
+      if (Array.isArray(l.dependencies) && l.dependencies.length) { depsOf.set(l.id, l.dependencies.filter((d) => idSet.has(d))); __depStats.layersWithDeps++ }
+    }
+    if (depsOf.size) {
+      // Kahn 拓扑（依赖→被依赖边方向：dep 必须先于 dependent）
+      const indeg = new Map(layers.map((l) => [l.id, 0]))
+      const adj = new Map()
+      for (const [lid, deps] of depsOf) {
+        for (const d of deps) {
+          if (!adj.has(d)) adj.set(d, [])
+          adj.get(d).push(lid)
+          indeg.set(lid, (indeg.get(lid) || 0) + 1)
+        }
+      }
+      const pos = new Map(layers.map((l, i) => [l.id, i]))
+      const ready = layers.filter((l) => (indeg.get(l.id) || 0) === 0).sort((a, b) => pos.get(a.id) - pos.get(b.id))
+      const order = []
+      const inDeg2 = new Map(indeg)
+      while (ready.length) {
+        const n = ready.shift()
+        order.push(n.id)
+        for (const m of (adj.get(n.id) || [])) {
+          inDeg2.set(m, inDeg2.get(m) - 1)
+          if (inDeg2.get(m) === 0) { ready.push(layers.find((l) => l.id === m)); ready.sort((a, b) => pos.get(a.id) - pos.get(b.id)) }
+        }
+      }
+      if (order.length < layers.length) {
+        // 环：剩余层按原到达顺序排（dependencies 约束忽略），如实记数
+        const placed = new Set(order)
+        for (const l of layers) if (!placed.has(l.id)) order.push(l.id)
+        __depStats.cycles++
+        const sink = (opts && typeof opts.onLog === 'function') ? opts.onLog : null
+        try { if (sink) sink('[we-scene] dependencies 依赖环（层 ' + layers.filter((l) => !placed.has(l.id)).map((l) => l.id).join(',') + '）⇒ 按到达顺序降级（约束忽略）') } catch (e) {}
+      }
+      const rank = new Map(order.map((id, i) => [id, i]))
+      let prevPos = -1
+      for (let i = 1; i < order.length; i++) {
+        if (rank.get(order[i]) < rank.get(order[i - 1])) { __depStats.reordered++; break }
+      }
+      void prevPos
+      layers.sort((a, b) => (rank.get(a.id) - rank.get(b.id)))
+    }
+  }
+  // ①(P-217 A8 · RE-49) `nointerpolation` 层级台账（渲染端 NEAREST 消费；语料 6 层全 true）。
+  __srcStats.nointerpolation = layers.filter((l) => l.nointerpolation === true).length
+  __srcStats.ledsource = layers.filter((l) => l.ledsource === true).length
+  // ①(P-222 F5) shape 层单列（语料 11 包 20 层 shape:"quad"；层数守恒 = 不再被当 none 静默吞掉）
+  __srcStats.shape = layers.filter((l) => typeof l.shape === 'string').length
+  // ①(P-213 B1 · RE-43) light 层描述符 → `scene.lights`（世界坐标取父子合并后的层 origin/angles；
+  //   `visible:false` 的灯保留在表里但不参与 uniform 组装（见 computeLight2DUniforms））。
+  const lights = []
+  for (const l of layers) {
+    if (!l.__light) continue
+    lights.push(Object.assign({
+      id: l.id,
+      name: l.name,
+      visible: l.visible,
+      origin: l.origin.slice(),
+      angles: l.angles.slice(),
+      color: l.color,
+    }, l.__light))
+  }
   return {
     camera: sceneJson.camera || null,
     general: sceneJson.general || {},
     layers,
+    // ①(P-213 B1) 光源描述符（RE-43：light 层不进 draw，数据在这里；空数组 = 无光场景，既有消费方零影响）
+    lights,
     properties,
     // ①(P-205 缺口 2) `{ image, model, modelDrawn, modelDropped, modelDropReasons, solid, particle, text, sound, container, none }`
     __srcStats,
+    // ①(P-217 A8) dependencies 排序约束的读数（layersWithDeps/reordered/cycles）
+    __depStats,
     // ①(P-139) 锚点烘入信息（`attachCtx` 生效时有值；宿主逐帧跟随锚点用它做增量，见该处注释）。
     //   无 attachCtx / 无锚点层 = null ⇒ 既有消费方逐位不变（只多一个字段）。
     __attachInfo: attachInfo,
@@ -3347,20 +3487,20 @@ export function readWeAssetText(rel, effectDir, opts) {
 // 为什么要有它：旧实现在"取不到 effect.json"这条路上**什么都不留**（无字段、无日志）——
 // 报告 §4#1 的 427 个实例就是这么消失的。现在：每层效果对象上留 `__fxMiss`（机器可读），
 // 进程级再汇总一份 `globalThis.__mpwFxMiss`（浏览器/Node 同一个口）。
-const __fxMiss = { eff: 0, mat: 0, shader: 0, byFile: Object.create(null), last: [] }
+const __fxMiss = { eff: 0, mat: 0, shader: 0, passthrough: 0, byFile: Object.create(null), last: [] }
 const __fxMissLogged = new Set()
 export function effectAssetLedger() {
-  return { eff: __fxMiss.eff, mat: __fxMiss.mat, shader: __fxMiss.shader, byFile: { ...__fxMiss.byFile }, last: __fxMiss.last.slice() }
+  return { eff: __fxMiss.eff, mat: __fxMiss.mat, shader: __fxMiss.shader, passthrough: __fxMiss.passthrough, byFile: { ...__fxMiss.byFile }, last: __fxMiss.last.slice() }
 }
 /** 判据用：清台账（同一进程里反复跑真包时避免累计）。 */
 export function resetEffectAssetLedger() {
-  __fxMiss.eff = 0; __fxMiss.mat = 0; __fxMiss.shader = 0
+  __fxMiss.eff = 0; __fxMiss.mat = 0; __fxMiss.shader = 0; __fxMiss.passthrough = 0
   __fxMiss.byFile = Object.create(null); __fxMiss.last.length = 0; __fxMissLogged.clear()
 }
 function publishFxLedger() {
   const g = (typeof globalThis !== 'undefined') ? globalThis : null
   if (!g) return
-  try { g.__mpwFxMiss = { eff: __fxMiss.eff, mat: __fxMiss.mat, shader: __fxMiss.shader, byFile: { ...__fxMiss.byFile }, last: __fxMiss.last.slice(-8) } } catch (e) { /* 诊断面写失败不影响解析 */ }
+  try { g.__mpwFxMiss = { eff: __fxMiss.eff, mat: __fxMiss.mat, shader: __fxMiss.shader, passthrough: __fxMiss.passthrough, byFile: { ...__fxMiss.byFile }, last: __fxMiss.last.slice(-8) } } catch (e) { /* 诊断面写失败不影响解析 */ }
 }
 /** 记一条效果链缺失（台账 + 每个文件**一次**的日志；`opts.onLog`/`opts.log` 是宿主日志通道）。 */
 function noteFxMiss(kind, rel, tried, opts) {
@@ -3377,9 +3517,15 @@ function noteFxMiss(kind, rel, tried, opts) {
     const sink = (opts && typeof opts.onLog === 'function') ? opts.onLog : ((opts && typeof opts.log === 'function') ? opts.log : null)
     if (sink) {
       try {
+        // ①(P-208 A1) `effect`/`effect-parse` 两档的措辞区分"回落语义"：
+        //   `opts.fxPassthrough !== 'legacy'`（缺省）⇒ 官方 passthrough 回落（RE-46
+        //   `EffectLayer::BuildPassthroughMaterial`：效果不改画面、不报错不中断）；
+        //   `?fxpassthrough=legacy` ⇒ 如实说 P-205 之前的旧口径"整条不生效"。
+        const pt = !(opts && opts.fxPassthrough === 'legacy')
         const what = kind === 'material' ? 'material（该 pass 退化成空 pass，shader=null）'
           : kind === 'shader' ? 'shader 源（该 pass 编译不出内容）'
-            : 'effect.json（本层该效果整条不生效）'
+            : pt ? 'effect.json（本层该效果降级为 passthrough：恒等 blit、不改画面不报错）'
+              : 'effect.json（本层该效果整条不生效）'
         sink('[we-scene] P-205 效果链缺 ' + what + ' "' + rel + '"（包内 + /weassist 候选 '
           + JSON.stringify(tried || []) + ' 都没命中）')
       } catch (e) { /* 日志通道异常不影响解析 */ }
@@ -3394,6 +3540,20 @@ function noteFxMiss(kind, rel, tried, opts) {
 // pkg: parsePkg 结果；effect: scene.json 的效果条目（file/passes/visible）
 // opts: { weAssetReader?, onLog? }（见上面 P-205 段；不传 = 只走包内，但缺件仍记账）
 // 返回：`{ ok, source, rel, dir, miss }`（诊断读数；既有调用方忽略返回值即可）
+/** ①(P-208 A1 2026-09-29) 官方回落语义（RE-46：`EffectLayer::BuildPassthroughMaterial` /
+ *  `GetPassthroughMaterialName`，回落材质 `materials/util/effectpassthrough.json`）：effect.json 候选全 miss 的
+ *  效果**不中断不报错**，整体降级为 passthrough（= 恒等 blit，不改画面）。链执行端的 C13 bypass 哨兵
+ *  已经是"输入→输出恒等拷贝"⇒ 这里只负责**显式标记 + 台账计数**（可观测），不改链行为。
+ *  `?fxpassthrough=legacy` ⇒ 不标（如实回到 P-205 的"字段照写 + 缺件记账"状态，无 passthrough 语义）。 */
+function fxMarkPassthrough(effect, opts) {
+  if (opts && opts.fxPassthrough === 'legacy') return
+  if (effect && !effect.__fxPassthrough) {
+    effect.__fxPassthrough = true
+    __fxMiss.passthrough++
+    publishFxLedger()
+  }
+}
+
 export function resolveEffectChain(pkg, effect, readText, opts) {
   const file = String(effect && effect.file ? effect.file : '')
   const tried = weAssetCandidates(file, null)
@@ -3407,6 +3567,7 @@ export function resolveEffectChain(pkg, effect, readText, opts) {
     } catch (e) {
       ej = null
       noteFxMiss('effect-parse', file, tried, opts)
+      fxMarkPassthrough(effect, opts)
       effect.fbos = effect.fbos || []
       effect.commands = effect.commands || []
       effect.materialPasses = effect.materialPasses || []
@@ -3423,6 +3584,7 @@ export function resolveEffectChain(pkg, effect, readText, opts) {
       } catch (e) {
         ej = null
         noteFxMiss('effect-parse', file, tried.concat([ext.rel]), opts)
+        fxMarkPassthrough(effect, opts)
         effect.fbos = effect.fbos || []
         effect.commands = effect.commands || []
         effect.materialPasses = effect.materialPasses || []
@@ -3433,7 +3595,9 @@ export function resolveEffectChain(pkg, effect, readText, opts) {
   }
   if (ej === null) {
     // 包内 + /weassist 全 miss：**如实记账**（字段照写，形状统一；__fxMiss 区分"解析过但缺件"）
+    // ①(P-208 A1) 并挂官方 passthrough 回落语义（见 fxMarkPassthrough 注释）：不报错不中断、不改画面。
     noteFxMiss('effect', file, tried, opts)
+    fxMarkPassthrough(effect, opts)
     effect.fbos = effect.fbos || []
     effect.commands = effect.commands || []
     effect.materialPasses = effect.materialPasses || []
@@ -3466,6 +3630,9 @@ export function resolveEffectChain(pkg, effect, readText, opts) {
       continue // 既无 material 又无 command：官方 LOG_ERROR 并失败（WPEffect.cpp:209-210）
     }
     if (p.compose) compose = true
+    // ①(P-222 F9 · RE-08/RE-46) `passes[].conditions`（语料 456 effect.json / 2210 pass 0 命中，
+    //   官方有 combos 宏求值器）⇒ **原样解析保留**（数组/对象形态都不 reinterpret），求值接口见
+    //   `evaluateConditions`（unknown ⇒ 不剔除 + 台账，绝不猜 true/false）。
     // ①(P-205) material 也走同一条候选链（包内 → `/weassist/<rel>` → `/weassist/<effectDir><rel>`）。
     //   最后一级是**必需**的：官方资产的 `materials/effects/<名>.json` 实际放在
     //   `assets/effects/<名>/materials/effects/<名>.json`；少了它，从 `/weassist` 取回的 effect.json
@@ -3496,7 +3663,17 @@ export function resolveEffectChain(pkg, effect, readText, opts) {
       target: p.target || null,
       binds: p.bind || [],
       blending: mp.blending || 'normal',
+      // ①(P-216 A5 · RE-45) `alphawriting`（材质 pass 键，词表与 depthtest/depthwrite 共用）：
+      //   'enabled'/'default' ⇒ 写 alpha（缺省档 = 改动前逐位一致，457 个 default pass 不动）；
+      //   'disabled' ⇒ colorMask 关 alpha 位（RE-45 伪代码；语料 0 例、词表在 ⇒ 按官方语义补齐）。
+      __alphawriting: typeof mp.alphawriting === 'string' ? mp.alphawriting : null,
       textures: mp.textures || [],
+      // ①(P-212 A2 2026-09-29 · RE-44) `usertextures[]` 与 `textures[]` 按 index 对应同一 `g_TextureN` 槽，
+      //   是"运行时覆盖声明"。**原样**存进 pass 描述（字符串=用户属性名 / {name,type} / null 占位 ——
+      //   三形态不 reinterpret 不丢），绑定期的槽位解析在 renderLayer（`resolveUserTextureSlot`：
+      //   源可用 ⇒ 用之；不可用 ⇒ 回落 `textures[i]`，不会画错底色）。官方样例：
+      //   `assets/scenes/videoplayer/materials/background.json:10`（`{name:"videotex",keepaspect:true}`）。
+      userTextures: Array.isArray(mp.usertextures) ? mp.usertextures : null,
       combos: mp.combos || {},
       constants: mp.constantshadervalues || {},
       // ①(P-205) 这条 pass 的 material 从哪一级取到的（'pkg' / 'weassist' / 'weassist-effect-subtree'）——
@@ -3636,6 +3813,48 @@ export function resolveBuiltin(path) {
 // 最小 4x4 矩阵库（列主序，与 WebGL 一致）
 export function mat4Identity() {
   return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+}
+
+// ①(P-218 F1 2026-09-29 · RE-50) 4×4 矩阵求逆（伴随式/行列式法；列主序与 mat4Multiply 同布局）。
+//   奇异（|det| < 1e-12）⇒ 返回 null（调用方回落单位阵并记台账——不抛、不 NaN）。
+export function mat4Invert(m) {
+  const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3]
+  const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7]
+  const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11]
+  const a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15]
+  const b00 = a00 * a11 - a01 * a10
+  const b01 = a00 * a12 - a02 * a10
+  const b02 = a00 * a13 - a03 * a10
+  const b03 = a01 * a12 - a02 * a11
+  const b04 = a01 * a13 - a03 * a11
+  const b05 = a02 * a13 - a03 * a12
+  const b06 = a20 * a31 - a21 * a30
+  const b07 = a20 * a32 - a22 * a30
+  const b08 = a20 * a33 - a23 * a30
+  const b09 = a21 * a32 - a22 * a31
+  const b10 = a21 * a33 - a23 * a31
+  const b11 = a22 * a33 - a23 * a32
+  const det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06
+  if (!isFinite(det) || Math.abs(det) < 1e-12) return null
+  const inv = 1 / det
+  const out = new Float32Array(16)
+  out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * inv
+  out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * inv
+  out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * inv
+  out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * inv
+  out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * inv
+  out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * inv
+  out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * inv
+  out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * inv
+  out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * inv
+  out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * inv
+  out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * inv
+  out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * inv
+  out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * inv
+  out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * inv
+  out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * inv
+  out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * inv
+  return out
 }
 
 export function mat4Multiply(a, b) {
@@ -4354,6 +4573,10 @@ export function resolveParticleOverride(raw, props, gated) {
     // 是否"替换颜色"：官方在解析期**跳过作者 colorrandom**（WPSceneParser.cpp:1419-1424）
     replacesColor: !!(colorn || color),
     controlpoints: cps.length ? cps : null,
+    // ①(P-217 A9 2026-09-29 · RE-59) `instanceoverride.brightness`：层 HDR 亮度乘子（对齐 g_Brightness
+    //   `{"material":"brightness","default":1,"range":[0,10]}`）。**0 与缺省必须区分**（`?? 1` 语义）：
+    //   作者显式写 0 = 压黑，不是"没写"。语料 brightness 0 命中（size 249 层）⇒ 现状零影响。
+    brightness: (pick('brightness') === undefined) ? null : num('brightness', 1),
   }
   return out
 }
@@ -11827,14 +12050,63 @@ export function createRenderer(canvas, opts = {}) {
   }
   const mat3Identity = () => new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1])
 
+  // ①(P-213 B1) 每帧由 renderScene 写入的 2D 四灯 uniform 组缓存（bindSystemUniforms 读；null = 关闭）
+  let __light2DUniforms = null
+  // ①(P-214 B2) 每帧由 renderScene 写入的雾 uniform 组缓存（同上；null = 无雾/legacy）
+  let __fogUniforms = null
+  // ①(P-218 F1) `?mvpi=legacy` 解析 + 奇异矩阵台账（bindSystemUniforms 读）
+  const __mpwMvpi = { singular: 0 }
+  // ①(P-222 F5) shape notImplemented 日志（每进程一次）
+  let __shapeLogged = false
+  function mvpiLegacy() {
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        return new URLSearchParams(location.search).get('mvpi') === 'legacy'
+      }
+    } catch (e) { /* 无 location（Node 判据）⇒ 非 legacy */ }
+    return false
+  }
   function bindSystemUniforms(uni, layer, time, projW, projH, mvp, modelM, viewProjM, resolutions, outW, outH, cam) {
     setVal(uni, 'g_Time', (l) => gl.uniform1f(l, time))
     setVal(uni, 'g_Daytime', (l) => gl.uniform1f(l, 0))
     setVal(uni, 'g_ModelViewProjectionMatrix', (l) => gl.uniformMatrix4fv(l, false, mvp))
     setVal(uni, 'g_ModelMatrix', (l) => gl.uniformMatrix4fv(l, false, modelM))
     setVal(uni, 'g_ViewProjectionMatrix', (l) => gl.uniformMatrix4fv(l, false, viewProjM))
-    setVal(uni, 'g_ModelViewProjectionMatrixInverse', (l) => gl.uniformMatrix4fv(l, false, IDENT_M4))
-    setVal(uni, 'g_Brightness', (l) => gl.uniform1f(l, layer.brightness))
+    // ①(P-218 F1 2026-09-29 · RE-50) `g_ModelViewProjectionMatrixInverse`（wer-ref 口径的 g_MVPI）：
+    //   按官方语义实现 = **MVP 的逆**（旧实现恒单位阵 ⇒ 屏幕反投影类 pass 结果错）。"声明才赋值"
+    //   （RE-50：官方引擎名表里有该名，shader 显式声明才被赋值）⇒ 只对声明它的程序上传；
+    //   旧名 `g_MVPI` 作为**别名保留**（同一真值，旧依赖不破坏）。奇异矩阵（|det|<1e-12）⇒
+    //   回落单位阵 + `__mpwMvpi` 台账记 singular（不抛、不 NaN）。`?mvpi=legacy` ⇒ 恒单位阵（旧口径）。
+    {
+      const __mvpInv = (mvpiLegacy()) ? null : mat4Invert(mvp)
+      if (!__mvpInv) { try { __mpwMvpi.singular = ((__mpwMvpi.singular || 0) + (mvpiLegacy() ? 0 : 1)); if (typeof globalThis !== 'undefined') globalThis.__mpwMvpi = __mpwMvpi } catch (e) {} }
+      const INV = __mvpInv || IDENT_M4
+      setVal(uni, 'g_ModelViewProjectionMatrixInverse', (l) => gl.uniformMatrix4fv(l, false, INV))
+      setVal(uni, 'g_MVPI', (l) => gl.uniformMatrix4fv(l, false, INV))
+    }
+    // ①(P-213 B1 · RE-43 路径A) 2D 四灯 uniforms：**声明才上传**（RE-50 自动绑定语义）；
+    //   无 light 层的场景 `__light2DUniforms.count===0` 且 ambient/skylight 缺省 (0,0,0) ⇒
+    //   与"从未上传"（GL uniform 缺省 0）逐位一致 ⇒ 无光场景零视觉差。`?lights=legacy` ⇒ 整条不传。
+    if (__light2DUniforms) {
+      const lu = __light2DUniforms
+      setVal(uni, 'g_LightsColorRadius', (l) => gl.uniform4fv(l, lu.colorRadius))
+      setVal(uni, 'g_LightsPosition', (l) => gl.uniform3fv(l, lu.position))
+      setVal(uni, 'g_LightAmbientColor', (l) => gl.uniform3f(l, lu.ambientColor[0], lu.ambientColor[1], lu.ambientColor[2]))
+      setVal(uni, 'g_LightSkylightColor', (l) => gl.uniform3f(l, lu.skylightColor[0], lu.skylightColor[1], lu.skylightColor[2]))
+    }
+    // ①(P-214 B2 · RE-51) 雾 uniforms：声明才上传；分量口径 (start, 范围, 基础强度, 二次系数)。
+    //   场景没写雾字段 ⇒ __fogUniforms=null ⇒ 不上传（= GL uniform 缺省 0，与改动前逐位一致）。
+    if (__fogUniforms) {
+      const fu = __fogUniforms
+      setVal(uni, 'g_FogDistanceParams', (l) => gl.uniform4f(l, fu.distanceParams[0], fu.distanceParams[1], fu.distanceParams[2], fu.distanceParams[3]))
+      setVal(uni, 'g_FogDistanceColor', (l) => gl.uniform3f(l, fu.distanceColor[0], fu.distanceColor[1], fu.distanceColor[2]))
+      setVal(uni, 'g_FogHeightParams', (l) => gl.uniform4f(l, fu.heightParams[0], fu.heightParams[1], fu.heightParams[2], fu.heightParams[3]))
+      setVal(uni, 'g_FogHeightColor', (l) => gl.uniform3f(l, fu.heightColor[0], fu.heightColor[1], fu.heightColor[2]))
+    }
+    // ①(P-217 A9 · RE-59) `instanceoverride.brightness` 乘子：`g_Brightness = layer.brightness ×
+    //   instanceoverride.brightness`（官方语义 = 层 HDR 亮度乘子，对齐 g_Brightness range [0,10]）。
+    //   `null`（字段没写）⇒ 乘子恒 1（逐位 = 改动前）；作者显式写 0 ⇒ 压黑（与缺省区分）。
+    setVal(uni, 'g_Brightness', (l) => gl.uniform1f(l, layer.brightness * ((layer.instanceoverride && typeof layer.instanceoverride.brightness === 'number' && isFinite(layer.instanceoverride.brightness)) ? layer.instanceoverride.brightness : 1)))
     setVal(uni, 'g_UserAlpha', (l) => gl.uniform1f(l, layer.alpha))
     setVal(uni, 'g_Alpha', (l) => gl.uniform1f(l, layer.alpha))
     setVal(uni, 'g_Color', (l) => gl.uniform3f(l, layer.color[0], layer.color[1], layer.color[2]))
@@ -12333,6 +12605,53 @@ export function createRenderer(canvas, opts = {}) {
     } else if (layer.uvRect) {
       uploadQuad('localuv' + layer.uvRect.map((v) => +v.toFixed(4)).join(','), localQuadVertsUV(layer.uvRect))
     } else uploadQuad('local', LOCAL_QUAD)
+    // ①(P-210 A7) 层级 `clampuvs` ⇒ 内容纹理采样器（true=CLAMP / 显式 false=REPEAT / null=维持现状；
+    //   `?clampuvs=legacy` 整条不生效）。放在 TEXTURE0 绑定之前：所有走 compositeLayer 的内容绘制都被覆盖，
+    //   且与 P-194 的效果输入槽规则（fxSlotWrap，槽 1+）按"各自 draw 前各自设置"共存，冲突进台账不静默。
+    try { layerClampUvWrap(gl, inputTex, layer.clampuvs, layer.textureName) } catch (e) { /* wrap 失败不影响绘制 */ }
+    // ①(P-217 A8 · RE-49) `nointerpolation:true` ⇒ 该层内容纹理过滤 NEAREST（官方 2.8.8 起读该键；
+    //   语料 6 层全是音频可视化容器——放大时的取整观感）。MIN/MAG 都设；纹理对象级状态与 wrap 同理，
+    //   只对该层自己的 draw 生效（本层每次绘制前设置；其它层不读该字段 ⇒ 不受影响）。
+    if (layer.nointerpolation === true && inputTex) {
+      try {
+        gl.activeTexture(gl.TEXTURE0)
+        gl.bindTexture(gl.TEXTURE_2D, inputTex)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+      } catch (e) { /* 假 GL / 上下文丢失：保持既有过滤，不抛 */ }
+    }
+    // ①(P-222 F5) `?shape=on`：shape 层走"材质图元重建 VBO"的官方路径**未实现** —— 如实记一条
+    //   notImplemented（每层一次），缺省（legacy）零日志零行为（层保持 no-op，与改动前逐位一致）。
+    if (typeof layer.shape === 'string') {
+      try {
+        const g = (typeof globalThis !== 'undefined') ? globalThis : null
+        if (g) {
+          g.__mpwShape = Object.assign({ layers: 0, notImplemented: 0 }, g.__mpwShape)
+          g.__mpwShape.layers++
+          const onShape = (() => { try { return new URLSearchParams(location.search).get('shape') === 'on' } catch (e) { return false } })()
+          if (onShape) {
+            g.__mpwShape.notImplemented++
+            if (!__shapeLogged) { __shapeLogged = true; onLog('[we-scene] shape:"' + layer.shape + '" 层（ShapeLayer VBO 重建）未实现 ⇒ no-op（?shape=on 提示档）') }
+          }
+        }
+      } catch (e) { /* 台账失败不影响 */ }
+    }
+    // ①(P-222 F4 · RE-49) `ledsource` 宿主钩子：**无 sink 时零开销零行为**（LED 输出插件的数据源，
+    //   官方语义对画面无影响）；注册了 `globalThis.__mpwLedSink` ⇒ 每帧发布该层的颜色/alpha/矩形
+    //   （像素级数据待渲染目标读回，本批发布的是层描述符级——够 LED 插件做"数据源"订阅的最小面）。
+    if (layer.ledsource === true) {
+      try {
+        const g = (typeof globalThis !== 'undefined') ? globalThis : null
+        if (g && typeof g.__mpwLedSink === 'function') {
+          g.__mpwLedSink({
+            id: layer.id, name: layer.name,
+            color: layer.color, alpha: layer.alpha,
+            rect: [layer.origin[0], layer.origin[1], layer.size[0], layer.size[1]],
+            time,
+          })
+        }
+      } catch (e) { /* sink 异常不影响绘制 */ }
+    }
     if (__useScreen) {
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, inputTex)
@@ -13052,6 +13371,15 @@ export function createRenderer(canvas, opts = {}) {
 
   // ---------- 渲染入口 ----------
   async function renderScene(scene, textures, width, height, time, __hdrRetry) {
+    // ①(P-213 B1 · RE-43 路径A) 每帧把场景光源折算成 2D 四灯 uniform 组（声明才上传；
+    //   `?lights=legacy` ⇒ null = 整条关闭）。bindSystemUniforms 读这个闭包缓存。
+    try {
+      __light2DUniforms = computeLight2DUniforms(scene.lights, scene.general)
+    } catch (e) { __light2DUniforms = null }
+    // ①(P-214 B2 · RE-51) 场景雾 uniform 组（声明才上传；场景没写雾字段 ⇒ null = GL 缺省，零视觉差）。
+    try {
+      __fogUniforms = computeFogUniforms(scene.general)
+    } catch (e) { __fogUniforms = null }
     // ①(P-90) `?q=` **内部渲染档位**：把整场景画进 `内部尺寸` 的离屏 FBO，帧末上采样到画布。
     //   `q=off`（默认）⇒ `frameTarget=null`、`qfbo=null`、**width/height 原样** ⇒ 与改动前逐位相同。
     //   `q=low|medium|high` ⇒ 把 `width/height` **就地遮蔽**成内部尺寸：下游所有
@@ -13711,6 +14039,19 @@ export function createRenderer(canvas, opts = {}) {
     } catch {}
   }
   const FX_DISABLED = (() => { try { return new URLSearchParams(location.search).has('nofx') } catch { return false } })()
+  // ①(P-211 A10) `?spriteauto=legacy`：关掉精灵帧自动推进，回到"只在脚本宿主驱动过该层时才接管 UV"的旧行为
+  //  （P-36 口径；凯尔希眼睛等无脚本 sprite 层恢复静止）。
+  const SPRITE_AUTO_LEGACY = (() => { try { return new URLSearchParams(location.search).get('spriteauto') === 'legacy' } catch { return false } })()
+  // ①(P-212 A2) `?usertex=legacy`：忽略 `usertextures` 通道（等价旧"完全没解析"行为；解析层照旧留档）。
+  const USERTEX_LEGACY = (() => { try { return new URLSearchParams(location.search).get('usertex') === 'legacy' } catch { return false } })()
+  // ①(P-212 A2) 宿主像素源注入点（本轮无源 ⇒ 全部回落 textures[i]）：
+  //  `globalThis.__mpwUserTextures = { userProps?:{名:纹理名|{texture,…}}, media?:{…}, shortcuts?:{…} }`
+  const hostUserTexSources = () => {
+    try {
+      const s = (typeof globalThis !== 'undefined') ? globalThis.__mpwUserTextures : null
+      return (s && typeof s === 'object') ? s : null
+    } catch (e) { return null }
+  }
   const FX_FILTER = (() => { try { return new URLSearchParams(location.search).get('fx') || '' } catch { return '' } })()
   function fxAllowed(effectName) {
     if (FX_DISABLED) return false
@@ -13751,6 +14092,16 @@ export function createRenderer(canvas, opts = {}) {
     // ①(W4 P-36) 图片层精灵帧 UV：仅当脚本宿主真的驱动过该层（setFrame→__texFrameForced
     //   钉帧 / play→__texFramePlay 按时间×frametime 自动推进）才接管 UV；否则清掉，
     //   保持 uvRect/整图旧行为（凯尔希眼睛等无脚本 sprite 层零影响）。
+    // ①(P-211 A10 2026-09-29 · RE-55) **精灵帧自动推进**：官方 `Texture::AdvanceSpriteSheet` 在 Texture
+    //   层**自动**推进，脚本只通过 getTextureAnimation/playSingleAnimation 读写状态（不是唯一驱动）
+    //   ⇒ 无脚本的 sprite 层也按官方公式推进：`frame = floor(time × rate / frametime)`（回绕由
+    //   `spriteFrameRectUV` 的取模保证）。优先级（防双重推进，判据 ③）：
+    //     `__texFrameForced`（setFrame 钉帧，暂停自动）> `__texRate<=0`（脚本冻结）>
+    //     `__texRate>0`（脚本倍率）> 自动（rate=1，本条新增）。
+    //   自动分支与脚本 play 分支共用**同一**时间公式（对同一 time 逐位同值）⇒ 脚本 play 不叠加任何
+    //   累加器，天然无双重推进。`layer.uvRect`（本仓眼窗校准窗，仅 3 个点名层）**优先于** sprite：
+    //   校准层不自动推进（`__spriteUV` 不设 ⇒ compositeLayer 走 uvRect 分支）。
+    //   回退口：`?spriteauto=legacy`（整条自动分支摘掉，逐位回到 P-36 行为）。
     try {
       if (texObj && texObj.sprite) {
         // ①(2026-09-21 官方 ITextureAnimation) 帧元数据**盖章**到图层：`frameCount`/`duration` 的真值
@@ -13760,7 +14111,8 @@ export function createRenderer(canvas, opts = {}) {
         if (typeof layer.__texFrameCount !== 'number') layer.__texFrameCount = Number(texObj.sprite.numFrames) || 0
         if (typeof layer.__texFrameDuration !== 'number') layer.__texFrameDuration = Number(texObj.sprite.duration) || 0
       }
-      if (texObj && texObj.sprite && (layer.__texFrameForced || layer.__texFramePlay)) {
+      const spriteAuto = !SPRITE_AUTO_LEGACY && !layer.uvRect
+      if (texObj && texObj.sprite && (layer.__texFrameForced || layer.__texFramePlay || spriteAuto)) {
         const ft = (texObj.sprite.frametime > 0) ? texObj.sprite.frametime : 0.1
         // ①(2026-09-21 官方 ITextureAnimation.rate) 速度倍率（默认 1）：
         //   · 未写过 `rate` ⇒ 算式与改动前**逐位相同**（`floor(time/ft)`）；
@@ -14225,6 +14577,28 @@ export function createRenderer(canvas, opts = {}) {
       return [Math.max(1, Math.round(sw / div)), Math.max(1, Math.round(sh / div))]
     }
     const flatPasses = []
+    // ①(P-222 A4 · RE-48) 同层同名 FBO 碰撞检测（官方 `EffectLayer::FindSharedFBOHierarchyCollisions`
+    //   的本仓等价诊断）：同一层内两个效果声明了同名 FBO 且**都没 unique** ⇒ 记一条（`__mpwFboCollisions`）。
+    //   隔离口径不变（按效果下标前缀 = unique:true 的"每实例独立分配"等价，RE-48 ①）；这里只是**可观测**。
+    {
+      const __fboOwner = new Map()
+      effects.forEach((eff, fei) => {
+        for (const f of eff.fbos || []) {
+          const prev = __fboOwner.get(f.name)
+          if (prev === undefined) { __fboOwner.set(f.name, fei); continue }
+          if (prev !== fei && !f.unique && !((effects[prev].fbos || []).find((x) => x.name === f.name && x.unique))) {
+            try {
+              const g = (typeof globalThis !== 'undefined') ? globalThis : null
+              if (g) {
+                g.__mpwFboCollisions = Object.assign({ collisions: 0, names: [] }, g.__mpwFboCollisions)
+                g.__mpwFboCollisions.collisions++
+                if (!g.__mpwFboCollisions.names.includes(f.name)) g.__mpwFboCollisions.names.push(f.name)
+              }
+            } catch (e) {}
+          }
+        }
+      })
+    }
     effects.forEach((eff, ei) => {
       for (const f of eff.fbos || []) {
         if (!effectFBOs.has(f.name)) {
@@ -14289,7 +14663,28 @@ export function createRenderer(canvas, opts = {}) {
       // WER-ALIGN C8（wer-ref WPEffect.cpp:40-45,200-208 + WESceneRenderPlanBuilder.cpp:216-233）：
       // 本效果的 copy 命令在第 afterpos 个 material pass 之前执行（blit source→target，替换写入）
       for (const cmd of (eff.commands || [])) {
-        if (cmd.afterpos !== pi || cmd.command !== 'copy') continue
+        if (cmd.afterpos !== pi) continue
+        // ①(P-215 A3 2026-09-29 · RE-56) `command:"swap"`：交换本效果的乒乓方向（effectInput ⇄
+        //   effectOutput，curInput/curDraw 同步）⇒ 下一个 material pass 读到的是上一个 pass 刚写出的
+        //   缓冲。官方样例 fluidsimulation 尾部 swap×2（RE-61 C10）；"swap" 字面量在官方两份二进制
+        //   无独立字面量（SSO 内联推断，RE-56 中置信）⇒ 语义按"乒乓换向"落地，copy/compose 保留。
+        if (cmd.command === 'swap') {
+          const tSwap = effectInput
+          effectInput = effectOutput
+          effectOutput = tSwap
+          curInput = effectInput
+          curDraw = effectOutput
+          continue
+        }
+        if (cmd.command !== 'copy') {
+          // ①(P-215 A3) 未知命令：如实记一条（每命令值一次）再跳过——旧实现静默 continue。
+          const uKey = 'fxcmd:' + String(cmd.command)
+          if (!passErrorLogged.has(uKey)) {
+            passErrorLogged.add(uKey)
+            try { onLog('[we-scene] 效果命令 "' + String(cmd.command) + '" 不在枚举（copy/swap）⇒ 该条跳过（' + String(eff.file || eff.__fxRel || '?') + '）') } catch {}
+          }
+          continue
+        }
         const cmdRes = (name) => {
           if (!name) return null
           if (name === 'previous') return effectInput
@@ -14319,12 +14714,21 @@ export function createRenderer(canvas, opts = {}) {
       if (fxChainGpuErr !== gl.NO_ERROR) { fxFail(fxChainGpuErr, 'command-copy'); break }
       const combos = { ...(mp.combos || {}), ...((ov && ov.combos) || {}) }
       // 本 pass 提供的纹理（material + scene override 合并，用于纹理关联 combo）
+      // ①(P-212 A2 · RE-44) material 级 `usertextures[i]` 先解析：源可用 ⇒ 覆盖该槽；不可用 ⇒ 回落 `textures[i]`
+      //  （resolved 与否都进 `__mpwUserTex` 台账）。无 usertextures 的 pass 与旧算式逐位一致。
       const mpT = mp.textures || []
       const ovT = (ov && ov.textures) || []
+      const mpUserT = (!USERTEX_LEGACY && Array.isArray(mp.userTextures)) ? mp.userTextures : null
+      const mpTe = mpUserT
+        ? mpT.map((nm, i) => {
+            if (mpUserT[i] == null) return nm !== undefined ? nm : null
+            return resolveUserTextureSlot(mpUserT[i], nm !== undefined ? nm : null, hostUserTexSources()).name
+          })
+        : mpT.map((nm) => (nm !== undefined ? nm : null))
       const mergedTex = []
-      for (let i = 0; i < Math.max(mpT.length, ovT.length); i++) {
+      for (let i = 0; i < Math.max(mpTe.length, ovT.length); i++) {
         if (ovT[i] !== undefined && ovT[i] !== null) mergedTex[i] = ovT[i]
-        else mergedTex[i] = mpT[i] !== undefined ? mpT[i] : null
+        else mergedTex[i] = mpTe[i] !== undefined ? mpTe[i] : null
       }
       const progEntry = await getEffectProgram(mp.shader, combos, mergedTex, eff.__fxDir).catch((e) => {
         // 单个 pass 编译失败：记录一次并中断该层剩余效果链（保留已完成的 pass 结果继续合成）
@@ -14363,6 +14767,13 @@ export function createRenderer(canvas, opts = {}) {
       //   链内 pass 写的是私有 pingpong FBO，材质声明的 translucent/additive 只属于
       //   "层→屏幕"合成；照抄会导致半透明层在链内叠出鬼影/alpha 累积错误。
       setBlend('normal')
+      // ①(P-216 A5 2026-09-29 · RE-45) `alphawriting` ⇒ colorMask 的 alpha 位：`enabled`/`default`（缺省）
+      //   ⇒ 写 alpha（RGBA 全开，与改动前逐位一致）；`disabled` ⇒ 只写 RGB（alpha 位关）。
+      //   依据 RE-45：语料 default 457 / enabled 仅 cursorripple 力场累积 4 pass（alpha=状态）；disabled 0 例
+      //   （词表里有 ⇒ 按 RE-45 伪代码补齐）。每 pass 绘制前设置、绘制后恢复全开（下一 pass/合成不受污染）。
+      const __aw = mp.__alphawriting
+      const __awOff = (__aw === 'disabled')
+      if (__awOff) { try { gl.colorMask(true, true, true, false) } catch (e) {} }
       gl.bindFramebuffer(gl.FRAMEBUFFER, outFBO.fbo)
       await passTagErr('use-blend-fbo', mp.shader)
       // 方案B：效果链 GPU 错误（0x501/0x502）→ 本层直接回退画 base 纹理
@@ -14378,13 +14789,19 @@ export function createRenderer(canvas, opts = {}) {
       uploadQuad('pass', PASS_QUAD) // 维持 currentQuadKey 状态一致（绘制实际读 fxVao→quadVBO）
       await passTagErr('quad-upload', mp.shader)
       // 纹理绑定
-      const texNames = mp.textures || []
+      // ①(P-212 A2) 槽位名用 mpTe（material textures 经 usertextures 解析后的有效槽位表）。
+      const texNames = mpTe
       const maxTex = Math.max(texNames.length, 8)
       const resolutions = new Map()
       const usedUnits = new Set()
       for (let ti = 0; ti < maxTex; ti++) {
         let name = ti < texNames.length ? texNames[ti] : null
         if (ov && ov.textures && ov.textures[ti] !== undefined && ov.textures[ti] !== null) name = ov.textures[ti]
+        // ①(P-212 A2 · RE-44) 场景级 `usertextures[ti]`（与场景级 textures 成对，RE-44 语料样本
+        //  `0917/3351163962 objects[119]`）：源可用 ⇒ 覆盖；不可用 ⇒ 保持当前槽位名（回落）。
+        if (!USERTEX_LEGACY && ov && Array.isArray(ov.usertextures) && ov.usertextures[ti] != null) {
+          name = resolveUserTextureSlot(ov.usertextures[ti], name, hostUserTexSources()).name
+        }
         // binds 覆盖（官方语义：effect.json pass.bind 强制把槽 index 绑到指定资源，
         // previous=链输入、_rt_*=命名 FBO；scene 端 ov.bind 可再覆盖）。
         // 修复：此前读 eff.binds（scene 效果条目无此字段，恒 undefined）→ bind 从未生效。
@@ -14434,6 +14851,37 @@ export function createRenderer(canvas, opts = {}) {
       // 系统 uniform
       // ①(WEBWALLGL #4/#5 P0) 末参 `cam`：效果链的指针 uniform 要换算到**本层 UV 空间**（见 `__fxPointerToLayerUV`）
       bindSystemUniforms(uni, layer, time, cam.projW, cam.projH, IDENT_M4, layerOrtho, IDENT_M4, resolutions, width, height, cam)
+      // ①(P-221 A6 2026-09-29 · RE-52) `g_TextureNMipMapInfo`(逐槽 N=0..9) / `g_TextureReductionScale`
+      //   "声明即上传"（官方语义：shader 声明才被赋值；语料 0 声明 ≠ 不做——规则 A）。
+      //   MipMapInfo = log2(max(w,h))（该槽纹理的最大可用 LOD；含非 2 幂/宽高不等/尺寸 1 边界）。
+      //   ReductionScale = "世界 quad 大小 × 分辨率"（RE-52【推断，强】的字面读法：两个标量 max 轴相乘；
+      //   skew.vert 的 `Resolution.zw * ReductionScale` 量纲与本读法未定案 —— 见 P-221 边界）。
+      //   本仓无 `_rt_MipMappedFrameBuffer` 等价 mip 链 ⇒ mipChainMissing 台账（值能给、链还没有）。
+      {
+        let __mipMissing = false
+        for (let ni = 0; ni <= 9; ni++) {
+          const mu = uni.get('g_Texture' + ni + 'MipMapInfo')
+          if (!mu || mu.loc === null || mu.loc === undefined) continue
+          const r = resolutions.get(ni)
+          if (!r) continue
+          const dim = Math.max(1, r[0] | 0, r[1] | 0)
+          gl.uniform1f(mu.loc, Math.log2(dim))
+          __mipMissing = true   // 本仓 RT 无 mip 链 ⇒ 值按最大 LOD 给，链缺如
+        }
+        const ru = uni.get('g_TextureReductionScale')
+        if (ru && ru.loc !== null && ru.loc !== undefined) {
+          const r0 = resolutions.get(0)
+          const texDim = r0 ? Math.max(1, r0[0], r0[1]) : 1
+          const worldDim = Math.max(1e-6, Math.abs(layer.size[0] || 0), Math.abs(layer.size[1] || 0))
+          gl.uniform1f(ru.loc, worldDim * texDim)
+        }
+        if (__mipMissing) {
+          try {
+            const g = (typeof globalThis !== 'undefined') ? globalThis : null
+            if (g) { g.__mpwMip = Object.assign(g.__mpwMip || {}, { mipChainMissing: ((g.__mpwMip && g.__mpwMip.mipChainMissing) || 0) + 1 }) }
+          } catch (e) { /* 台账失败不影响绘制 */ }
+        }
+      }
       await passTagErr('system-uniforms', mp.shader)
       // 常量（material 名 → uniform 映射）
       bindConstants(uni, { ...(mp.constants || {}), ...((ov && ov.constantshadervalues) || {}) }, progEntry.matMeta)
@@ -14459,6 +14907,8 @@ export function createRenderer(canvas, opts = {}) {
         }
       } catch {}
       gl.drawArrays(gl.TRIANGLES, 0, 6)
+      // ①(P-216 A5) alphawriting=disabled 的 pass 画完立即恢复全开（后续 pass/合成不受污染）
+      if (__awOff) { try { gl.colorMask(true, true, true, true) } catch (e) {} }
       if (fxRec) fxRec.passes++
       await passTagErr('draw', mp.shader)
       if (fxChainGpuErr !== gl.NO_ERROR) { fxFail(fxChainGpuErr, 'pass-draw'); break }
@@ -14476,6 +14926,24 @@ export function createRenderer(canvas, opts = {}) {
       // 更新乒乓（WER-ALIGN C3：以效果为单位——本效果最后一个 pass 完成后交换一次）
       const isLastOfEffect = (fi + 1 >= flatPasses.length) || (flatPasses[fi + 1].ei !== ei)
       if (isLastOfEffect) {
+        // ①(P-215 A3 · RE-56) 尾部命令（afterpos ≥ material pass 数 = "最后一个 pass 之后"）：
+        //   官方 fluidsimulation 尾部 swap×2 的落点。旧实现这些命令**永不触发**（pass 循环里
+        //   pi < pass 数）。只处理 swap（copy 的 blit 需要 source/target，此处仅换向；
+        //   尾部 copy 无官方样例，遇如实记日志）。
+        for (const cmd of (eff.commands || [])) {
+          if (!(cmd.afterpos >= (eff.materialPasses || []).length)) continue
+          if (cmd.command === 'swap') {
+            const tSwap = effectInput
+            effectInput = effectOutput
+            effectOutput = tSwap
+          } else if (cmd.command !== 'copy') {
+            const uKey = 'fxcmd:' + String(cmd.command)
+            if (!passErrorLogged.has(uKey)) {
+              passErrorLogged.add(uKey)
+              try { onLog('[we-scene] 效果命令 "' + String(cmd.command) + '" 不在枚举（copy/swap）⇒ 该条跳过（' + String(eff.file || eff.__fxRel || '?') + '）') } catch {}
+            }
+          }
+        }
         curInput = effectOutput
         curDraw = (curInput === fboA) ? fboB : fboA
       }
@@ -15770,7 +16238,7 @@ export function fxSlotWrap(gl, entry, ti, tex, search) {
     if (!gl || !entry) return null;
     if (!(ti >= 1)) return null;                 // 槽 0 = 层内容：保持 CLAMP
     if (entry.fbo) return null;                  // 渲染目标（passInput/effectFBOs）：保持 CLAMP
-    if (entry.samplerWrapRepeat === true) return 'repeat';   // 已设过 ⇒ 零副作用
+    if (entry.samplerWrapRepeat === true && (!tex || tex.__mpwWrapNow === 'repeat')) return 'repeat';   // 已设过且没被层内容路径改走 ⇒ 零副作用
     if (texWrapForced(search) === 'clamp') return null;      // 显式回退
     const t = tex || entry.glTex;
     if (!t) return null;
@@ -15781,8 +16249,422 @@ export function fxSlotWrap(gl, entry, ti, tex, search) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, rep);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, rep);
     entry.samplerWrapRepeat = true;
+    /* ①(P-210 A7) 记账到纹理对象的"当前 wrap"与"首个显式请求"，供层内容路径（layerClampUvWrap）
+       的快路径/冲突台账使用：同一纹理既当层内容（clampuvs:true ⇒ CLAMP）又当效果输入槽
+       （P-194 ⇒ REPEAT）时，两个绑定点各管各的 draw（按当前 draw 前的最后一次设置生效），
+       冲突本身进 `__mpwTexWrapConflicts` 台账（见下）。 */
+    try {
+      if (t.__mpwWrapReq && t.__mpwWrapReq !== 'repeat') noteWrapConflict(t, 'repeat', 'fxSlotWrap');
+      t.__mpwWrapReq = t.__mpwWrapReq || 'repeat';
+      t.__mpwWrapNow = 'repeat';
+    } catch (e) { /* 记账失败不影响绘制 */ }
     return 'repeat';
   } catch (e) { return null }
+}
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════
+   ①(P-210 A7 2026-09-29 · REVERSE-FINDINGS-7 RE-47) 层级 `clampuvs` ⇒ 该层内容纹理采样器
+   ──────────────────────────────────────────────────────────────────────────────────────────────────
+   官方语义（RE-47，高置信）：`clampuvs` 是**纹理/采样器侧**配置，不是 shader 概念 ——
+   PC/APK 全树 `grep CLAMP` 0 命中、官方 10 个 `.tex-json` 侧车与 declarations.json 的 imageshaders
+   config 都带这个键；层级字段是 workshop 行为（48 包 1261 层 = true 1258 / false 3），官方没理由不读。
+   本仓口径（与 P-168/P-194 共存，逐条写明优先级）：
+     · `layer.clampuvs === true`  ⇒ 该层内容纹理 CLAMP_TO_EDGE（官方字段语义；视差/缩放越界不再出 REPEAT 花边）；
+     · `layer.clampuvs === false` ⇒ 该层内容纹理 REPEAT（官方 `.tex` 头缺省；语料仅 3 层，低风险）；
+     · `null`（字段缺失）         ⇒ **维持现状**（P-168 名单口径），其余 3422 层零回归；
+     · 同一纹理被 clamp 层与效果输入槽（P-194）/名单贴图共用时：wrap 是纹理对象级状态，
+       两个绑定点**各自在自己 draw 前执行**（`__mpwWrapNow` 快路径避免每帧冗余 texParameteri），
+       冲突如实记 `__mpwTexWrapConflicts`（A13 的兜底台账），**不静默**。
+   回退口：`?clampuvs=legacy` ⇒ 整条规则不生效（逐位回到改动前）。
+   判据：tests/clampuvs-wrap-test.mjs（真包三态 + mock-GL 运行时断言 + 冲突台账 + 变异）。 */
+const __wrapConflicts = []
+function noteWrapConflict(tex, want, by) {
+  try {
+    __wrapConflicts.push({ name: String(tex && tex.__mpwName || ''), prev: String(tex && tex.__mpwWrapReq || ''), want: String(want), by: String(by || ''), at: __wrapConflicts.length })
+    const g = (typeof globalThis !== 'undefined') ? globalThis : null
+    if (g) g.__mpwTexWrapConflicts = __wrapConflicts.slice(-64)
+  } catch (e) { /* 诊断面写失败不影响解析 */ }
+}
+/** 判据/诊断用：wrap 冲突台账（A13）。 */
+export function texWrapConflictLedger() { return { conflicts: __wrapConflicts.length, last: __wrapConflicts.slice(-16) } }
+export function resetTexWrapConflictLedger() { __wrapConflicts.length = 0; try { const g = (typeof globalThis !== 'undefined') ? globalThis : null; if (g) g.__mpwTexWrapConflicts = [] } catch (e) {} }
+/** `?clampuvs=legacy` 的显式强制口径（与 `texWrapForced` 同形；判据可直接喂字符串）。 */
+export function clampuvsForced(search) {
+  const q = (() => {
+    try {
+      const s = (search !== undefined && search !== null) ? String(search)
+        : (typeof location !== 'undefined' && location && location.search ? String(location.search) : '');
+      return new URLSearchParams(s);
+    } catch (e) { return null }
+  })();
+  try { if (q && q.get('clampuvs') === 'legacy') return 'legacy' } catch (e) {}
+  return null;
+}
+/** 层内容绘制前的 wrap 执行器：`mode` = `layer.clampuvs`（true/false/null）。
+ *  返回实际落到的模式（'clamp'/'repeat'/null = 没动）；假 GL / 缺常量时静默跳过不抛。 */
+export function layerClampUvWrap(gl, tex, mode, name, search) {
+  try {
+    if (mode !== true && mode !== false) return null;        // 缺省/绑定对象 ⇒ 维持现状（P-168 口径）
+    if (clampuvsForced(search) === 'legacy') return null;    // 回退口
+    if (!gl || !tex) return mode === true ? 'clamp' : 'repeat';
+    const want = (mode === true) ? gl.CLAMP_TO_EDGE : gl.REPEAT;
+    if (want === undefined || want === null) return null;    // 假 GL 夹具
+    if (tex.__mpwWrapNow === (mode === true ? 'clamp' : 'repeat')) return (mode === true ? 'clamp' : 'repeat');  // 快路径：已是目标态
+    // 冲突台账：该纹理此前被**另一个**显式口径要求过（P-194 槽位 REPEAT / 名单 REPEAT / 相反 clampuvs）
+    if (tex.__mpwWrapReq && tex.__mpwWrapReq !== (mode === true ? 'clamp' : 'repeat')) noteWrapConflict(tex, mode === true ? 'clamp' : 'repeat', 'layerClampUvWrap');
+    tex.__mpwWrapReq = mode === true ? 'clamp' : 'repeat';
+    try {
+      if (name && !tex.__mpwName) tex.__mpwName = String(name);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, want);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, want);
+      tex.__mpwWrapNow = (mode === true) ? 'clamp' : 'repeat';
+    } catch (e) { /* 假 GL / 上下文丢失：保持既有 wrap，不抛 */ }
+    return (mode === true) ? 'clamp' : 'repeat';
+  } catch (e) { return null }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════
+   ①(P-212 A2 2026-09-29 · REVERSE-FINDINGS-7 RE-44) `usertextures[]` 三形态解析 + `textures[i]` 回落
+   ──────────────────────────────────────────────────────────────────────────────────────────────────
+   官方绑定模型（RE-44【事实】）：材质/场景 pass 的 `textures[]` 与 `usertextures[]` **按数组 index
+   对应同一 `g_TextureN` 槽位**；`usertextures[i]` 是"运行时覆盖"声明，三形态：
+     ① 字符串 = 用户属性名（语料 81 处；`newproperty*`/`customicon*`/`launcher` 系…）；
+     ② `{name,type}`（88 处）—— `type:"system"` = `$mediaThumbnail`(16)/`$mediaPreviousThumbnail`(12)
+        （运行相册封面像素，`PropertySystem::ReadMediaThumbnail`）；`type:"usershortcut"`(60) =
+        作者自定义快捷方式槽位名（图标经 `TryLockUserShortcutIcon` 按需取像素）；
+     ③ `null` 占位（41 处）。官方唯一材质样例 `videoplayer/materials/background.json:10`
+        `{name:"videotex",keepaspect:true}`（视频帧注入，无 type）。
+   回落（RE-44【强推断】）：运行时源不可用 ⇒ **回落 `textures[i]`**（官方把两者设计成同槽成对数组；
+   未发现"跳过 pass/报错"路径）⇒ 本仓无像素源时槽位仍是 `textures[i]`（如 `util/white`），
+   **不画错底色** —— 这正是"解析与回落链先行、像素源待宿主"的价值。
+   宿主注入点：`globalThis.__mpwUserTextures` = `{ userProps?, media?, shortcuts? }`
+   （键=属性/槽位名，值=纹理名或 {texture, width, height}）；本轮无注入 ⇒ 全部回落（零行为差）。
+   回退口：`?usertex=legacy` ⇒ 整条 usertextures 通道忽略（等价旧"完全没解析"行为）。
+   判据：tests/usertextures-fallback-test.mjs（真包两件 + 三形态表 + legacy + 变异）。 */
+const __userTexLedger = { passes: 0, forms: {}, fallback: 0, hostResolved: 0 }
+export function userTextureLedger() {
+  return { passes: __userTexLedger.passes, forms: { ...__userTexLedger.forms }, fallback: __userTexLedger.fallback, hostResolved: __userTexLedger.hostResolved }
+}
+export function resetUserTextureLedger() {
+  __userTexLedger.passes = 0; __userTexLedger.forms = {}; __userTexLedger.fallback = 0; __userTexLedger.hostResolved = 0
+  try { const g = (typeof globalThis !== 'undefined') ? globalThis : null; if (g) g.__mpwUserTex = userTextureLedger() } catch (e) {}
+}
+function publishUserTexLedger() {
+  try { const g = (typeof globalThis !== 'undefined') ? globalThis : null; if (g) g.__mpwUserTex = userTextureLedger() } catch (e) {}
+}
+function noteUserTex(form, resolved) {
+  __userTexLedger.forms[form] = (__userTexLedger.forms[form] || 0) + 1
+  if (resolved) __userTexLedger.hostResolved++; else __userTexLedger.fallback++
+  publishUserTexLedger()
+}
+/** 解析一个槽位的 usertextures 覆盖声明（纯函数，不改 GL）。
+ *  返回 `{ form, name, resolved }`：resolved=true ⇒ name 来自宿主源；false ⇒ name = 回落值（= 传入 base）。
+ *  `userTex` 为 null/undefined（③ 占位）⇒ `{ form:'none', name: base, resolved:false }`。 */
+export function resolveUserTextureSlot(userTex, baseName, sources) {
+  const src = (sources && typeof sources === 'object') ? sources : {}
+  const pick = (v) => {
+    // 宿主源值可以是纹理名字符串，或 {texture,width,height}；能取出非空纹理名才算"源可用"
+    if (typeof v === 'string' && v) return v
+    if (v && typeof v === 'object' && typeof v.texture === 'string' && v.texture) return v.texture
+    return null
+  }
+  try {
+    if (userTex == null) { noteUserTex('none', false); return { form: 'none', name: baseName != null ? baseName : null, resolved: false } }
+    if (typeof userTex === 'string') {
+      const v = pick(src.userProps && src.userProps[userTex])
+      if (v != null) { noteUserTex('string', true); return { form: 'string', name: v, resolved: true } }
+      noteUserTex('string', false); return { form: 'string', name: baseName != null ? baseName : null, resolved: false }
+    }
+    if (typeof userTex === 'object') {
+      const type = String(userTex.type || '')
+      const nm = userTex.name != null ? String(userTex.name) : ''
+      if (type === 'system') {
+        const v = pick(src.media && src.media[nm])
+        if (v != null) { noteUserTex('system', true); return { form: 'system', name: v, resolved: true } }
+        noteUserTex('system', false); return { form: 'system', name: baseName != null ? baseName : null, resolved: false }
+      }
+      if (type === 'usershortcut') {
+        const v = pick(src.shortcuts && src.shortcuts[nm])
+        if (v != null) { noteUserTex('usershortcut', true); return { form: 'usershortcut', name: v, resolved: true } }
+        noteUserTex('usershortcut', false); return { form: 'usershortcut', name: baseName != null ? baseName : null, resolved: false }
+      }
+      // 无 type（官方 videotex 形态 = 视频帧注入）⇒ 按名字查 media 注入源；无源回落
+      const v = pick(src.media && src.media[nm])
+      if (v != null) { noteUserTex('object', true); return { form: 'object', name: v, resolved: true } }
+      noteUserTex('object', false); return { form: 'object', name: baseName != null ? baseName : null, resolved: false }
+    }
+  } catch (e) { /* 解析失败 ⇒ 回落，不抛 */ }
+  noteUserTex('unknown', false)
+  return { form: 'unknown', name: baseName != null ? baseName : null, resolved: false }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════
+   ①(P-213 B1 2026-09-29 · REVERSE-FINDINGS-7 RE-43 路径A) 2D 四灯模型 —— 洁净室等价实现
+   ──────────────────────────────────────────────────────────────────────────────────────────────────
+   官方公式（RE-43 (2)A 引自 generic.frag / common_fragment.h 的明文【事实】，此处按本仓写法重写，
+   不逐字拷官方 .h —— 许可红线 §5.2）：
+     · 衰减：`lightAttn = saturate((radius − dist) / radius)`，**应用时平方**（`attn²`）；
+       "衰减改线性（去平方）" ⇒ 判据 L2 红。
+     · 漫反射：`lightDot = mix(真Lambert, HalfLambert, g_Light)`（g_Light∈[0,1] 是材质参数
+       `{"material":"Light","default":0}`）；HalfLambert = lightDot·0.5+0.5。
+     · rim：`pow((1−saturate(dot(n,view))) · pow(halfLambertLight,0.25), 6−metallic·2) · metallic·2`
+       （rim 输入用**未混合**的 halfLambertLight）。
+     · 返回：`color · (saturate(lightDot) + rim) · attn²`；镜面：`pow(spec,shininess)·strength·attn·color`。
+     · 环境光：`mix(skylight, ambient, dot(n,(0,1,0))·0.5+0.5)`（generic.vert:77）。
+     · intensity 语义：**平方进入**（RE-43 路径B/C "intensity² 进 color.w"、"color.rgb·color.w·color.w"）
+       ⇒ CPU 侧预乘 `rgb × intensity²`；"intensity 直接当 radiance（线性）" ⇒ 判据 L2 红。
+   uniform 组（声明才上传，RE-50 语义；`?lights=legacy` 整条关闭）：`g_LightsColorRadius[4]`(vec4：rgb+radius)、
+   `g_LightsPosition[4]`(vec3)、`g_LightAmbientColor`(vec3)、`g_LightSkylightColor`(vec3)；
+   general.ambientcolor/skylightcolor 缺省 ⇒ 上传 **(0,0,0)**（= GL uniform 缺省，零视觉差，不猜官方缺省观感）。
+   语料影响面（本轮实测）：3 包 4 个 light 层 / 2 包 3 层 castshadow:true / 11 包 20 层 shape:"quad"。
+   判据：tests/scene-light-2d-test.mjs（schema 逐项 + 分支表 + 不产生 draw + 变异）。 */
+export function lightsLegacy(search) {
+  try {
+    if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('lights') === 'legacy'
+  } catch (e) { /* 落到按 location 判 */ }
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('lights') === 'legacy'
+    }
+  } catch (e) { /* 无 location（Node 判据）⇒ 非 legacy */ }
+  return false
+}
+const __lsat = (x) => (x < 0 ? 0 : x > 1 ? 1 : x)
+/** 简版逐光模型（官方 `ComputeLight` 同式）：`color·saturate(dot(lightDir,normal))·attn²`。 */
+export function computeLight2D(lightDelta, normal, color, radius) {
+  const d = Math.hypot(lightDelta[0], lightDelta[1], lightDelta[2] || 0)
+  const attn = radius > 0 ? __lsat((radius - d) / radius) : 0
+  const inv = d > 0 ? 1 / d : 0
+  const nd = (lightDelta[0] * inv) * normal[0] + (lightDelta[1] * inv) * normal[1] + (lightDelta[2] || 0) * inv * (normal[2] || 0)
+  const k = __lsat(nd) * attn * attn
+  return [color[0] * k, color[1] * k, color[2] * k]
+}
+/** 全量逐光模型（官方 `ComputeLightSpecular` 同式）。返回 `{ light:[rgb], specular:[rgb] }`
+ *  （specular 是该灯对 specularResult 的**增量**，调用方自行累加）。`d===0` 守卫：方向取零向量
+ *  （官方 GLSL 此处会 NaN；本仓如实取 0，不假装有方向）。 */
+export function computeLightSpecular2D(normal, lightDelta, color, radius, viewDir, specularPower, specularStrength, gLight, metallic) {
+  const d = Math.hypot(lightDelta[0], lightDelta[1], lightDelta[2] || 0)
+  const attn = radius > 0 ? __lsat((radius - d) / radius) : 0
+  const inv = d > 0 ? 1 / d : 0
+  const ldir = [(lightDelta[0] || 0) * inv, (lightDelta[1] || 0) * inv, (lightDelta[2] || 0) * inv]
+  // 镜面：spec = max(0, dot(normalize(view+light), normal))
+  let hx = (viewDir[0] || 0) + ldir[0], hy = (viewDir[1] || 0) + ldir[1], hz = (viewDir[2] || 0) + ldir[2]
+  const hl = Math.hypot(hx, hy, hz) || 1
+  hx /= hl; hy /= hl; hz /= hl
+  const spec = Math.max(0, hx * (normal[0] || 0) + hy * (normal[1] || 0) + hz * (normal[2] || 0))
+  const specAdd = Math.pow(spec, specularPower) * specularStrength * attn
+  const lightDotRaw = ldir[0] * (normal[0] || 0) + ldir[1] * (normal[1] || 0) + ldir[2] * (normal[2] || 0)
+  const halfLambertLight = lightDotRaw * 0.5 + 0.5
+  const lightDot = lightDotRaw + (halfLambertLight - lightDotRaw) * __lsat(gLight)   // mix(lightDot, halfLambert, g_Light)
+  const rimBase = (1 - __lsat((normal[0] || 0) * (viewDir[0] || 0) + (normal[1] || 0) * (viewDir[1] || 0) + (normal[2] || 0) * (viewDir[2] || 0))) * Math.pow(halfLambertLight, 0.25)
+  const rimTerm = (metallic || 0) * 2
+  const rim = Math.pow(rimBase, 6.0 - rimTerm) * rimTerm
+  const k = (__lsat(lightDot) + rim) * attn * attn
+  return {
+    light: [color[0] * k, color[1] * k, color[2] * k],
+    specular: [color[0] * specAdd, color[1] * specAdd, color[2] * specAdd],
+  }
+}
+/** 环境光（官方 generic.vert:77 同式）：`mix(skylight, ambient, ny·0.5+0.5)`。 */
+export function ambientMix2D(skylight, ambient, ny) {
+  const t = __lsat((ny || 0) * 0.5 + 0.5)
+  return [skylight[0] + (ambient[0] - skylight[0]) * t, skylight[1] + (ambient[1] - skylight[1]) * t, skylight[2] + (ambient[2] - skylight[2]) * t]
+}
+const __parseColor3 = (v, dflt) => {
+  if (typeof v === 'string') {
+    const p = String(v).trim().split(/\s+/).map(Number)
+    if (p.length >= 3 && p.every((x) => isFinite(x))) return [p[0], p[1], p[2]]
+  }
+  if (Array.isArray(v) && v.length >= 3 && v.slice(0, 3).every((x) => isFinite(x))) return [v[0], v[1], v[2]]
+  return dflt
+}
+const __fogNum = (v) => (typeof v === 'number' && isFinite(v)) ? v : 0
+/** ①(P-214 B2 · RE-51) 场景 general 的 10 个雾字段 → 归一化描述符（原样数值；缺省 0）。
+ *  键表（exe strings:16371-16384，RE-51【事实】）：fogdistancestart/end/startdensity/enddensity、
+ *  fogheightstart/end/startdensity/enddensity、fogdistancecolor、fogheightcolor。
+ *  官方样例与语料（本轮实测 121 容器）均 0 命中 ⇒ hasFog=false（缺省行为 = 改动前逐位一致）。 */
+export function parseFogFields(general) {
+  const g = (general && typeof general === 'object') ? general : {}
+  const f = {
+    fogdistancestart: __fogNum(g.fogdistancestart),
+    fogdistanceend: __fogNum(g.fogdistanceend),
+    fogdistancestartdensity: __fogNum(g.fogdistancestartdensity),
+    fogdistanceenddensity: __fogNum(g.fogdistanceenddensity),
+    fogheightstart: __fogNum(g.fogheightstart),
+    fogheightend: __fogNum(g.fogheightend),
+    fogheightstartdensity: __fogNum(g.fogheightstartdensity),
+    fogheightenddensity: __fogNum(g.fogheightenddensity),
+    distanceColor: __parseColor3(g.fogdistancecolor, null),
+    heightColor: __parseColor3(g.fogheightcolor, null),
+  }
+  f.hasFog = ['fogdistancestart', 'fogdistanceend', 'fogdistancestartdensity', 'fogdistanceenddensity',
+    'fogheightstart', 'fogheightend', 'fogheightstartdensity', 'fogheightenddensity'].some((k) => g[k] !== undefined) ||
+    f.distanceColor !== null || f.heightColor !== null
+  return f
+}
+/** `?fog=legacy`（与 `lightsLegacy` 同形）：雾 uniform 整条不上传。 */
+export function fogLegacy(search) {
+  try {
+    if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('fog') === 'legacy'
+  } catch (e) { /* 落到按 location 判 */ }
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('fog') === 'legacy'
+    }
+  } catch (e) { /* 无 location（Node 判据）⇒ 非 legacy */ }
+  return false
+}
+/* ①(P-214 B2 · RE-51) 雾公式 —— 洁净室等价实现（common_fog.h PC 全文在手，APK 仅 1 行字面量差异；
+   本仓写法重写，不逐字拷官方 .h）。分量口径（RE-51 语义表，判据钉死）：
+   `g_FogDistanceParams` = (x: 起始距离, y: 范围 = end−start, z: 基础强度 = startdensity, w: 二次系数 = enddensity)；
+   `g_FogHeightParams` 同构。`CalculateFogPixelState(dist,h) = ((dist−x)/y, (h−x)/y)`；
+   `ApplyFog`：先 HEIGHT 后 DIST 各自 `mix(color, fogColor, z + w·t²)`（官方顺序）；
+   `ApplyFogAlpha`：`alpha·(1−factor²)`，factor = saturate(max(dist因子, height因子))，因子 = z + w·t²。
+   z/w 分量对调 ⇒ 判据 F1 红。组合门控：`FOG`（材质键 ui_editor_properties_fog，default=1）与
+   `FOG_DIST/FOG_HEIGHT/FOG_COMPUTED` 是**材质 combo**（shader 编译期）；本仓运行时按"声明才上传"对接，
+   且**场景没写雾字段 ⇒ 不上传**（= GL uniform 缺省 0，与改动前逐位一致）。 */
+export function fogDistanceParams(f) {
+  return [__fogNum(f && f.fogdistancestart), __fogNum(f && f.fogdistanceend) - __fogNum(f && f.fogdistancestart),
+    __fogNum(f && f.fogdistancestartdensity), __fogNum(f && f.fogdistanceenddensity)]
+}
+export function fogHeightParams(f) {
+  return [__fogNum(f && f.fogheightstart), __fogNum(f && f.fogheightend) - __fogNum(f && f.fogheightstart),
+    __fogNum(f && f.fogheightstartdensity), __fogNum(f && f.fogheightenddensity)]
+}
+/** 像素雾状态：`(dist−x)/y` 与 `(height−x)/y`（y=0 ⇒ 0，防 NaN——官方此处会除零，本仓如实取 0）。 */
+export function calculateFogPixelState(viewDirLength, worldPosHeight, distParams, heightParams) {
+  const dx = (distParams && distParams[1] !== 0) ? (viewDirLength - distParams[0]) / distParams[1] : 0
+  const dy = (heightParams && heightParams[1] !== 0) ? (worldPosHeight - heightParams[0]) / heightParams[1] : 0
+  return [dx, dy]
+}
+const __fogFactor = (t, params) => {
+  const s = __lsat(t)
+  return params[2] + params[3] * s * s
+}
+/** ApplyFog（官方顺序：先 HEIGHT 后 DIST）；rgb 三分量。 */
+export function applyFog(rgb, state, distParams, distColor, heightParams, heightColor) {
+  let out = [rgb[0], rgb[1], rgb[2]]
+  if (heightParams && heightColor) {
+    const k = __fogFactor(state[1], heightParams)
+    out = [out[0] + (heightColor[0] - out[0]) * k, out[1] + (heightColor[1] - out[1]) * k, out[2] + (heightColor[2] - out[2]) * k]
+  }
+  if (distParams && distColor) {
+    const k = __fogFactor(state[0], distParams)
+    out = [out[0] + (distColor[0] - out[0]) * k, out[1] + (distColor[1] - out[1]) * k, out[2] + (distColor[2] - out[2]) * k]
+  }
+  return out
+}
+/** ApplyFogAlpha：`alpha·(1−factor²)`，factor = saturate(max(dist, height))。 */
+export function applyFogAlpha(alpha, state, distParams, heightParams) {
+  const fd = distParams ? __fogFactor(state[0], distParams) : 0
+  const fh = heightParams ? __fogFactor(state[1], heightParams) : 0
+  const factor = __lsat(Math.max(fd, fh))
+  return alpha * (1 - factor * factor)
+}
+/** 场景雾字段 → 运行时 uniform 组（声明才上传；无雾字段或 `?fog=legacy` ⇒ null）。
+ *  `search` 可显式传入（测试用；缺省按 location 判，与 `lightsLegacy` 同口径）。 */
+export function computeFogUniforms(general, search) {
+  if (fogLegacy(search)) return null
+  const f = parseFogFields(general)
+  if (!f.hasFog) return null
+  const dp = fogDistanceParams(f)
+  const hp = fogHeightParams(f)
+  return {
+    distanceParams: dp,
+    heightParams: hp,
+    distanceColor: f.distanceColor || [0, 0, 0],
+    heightColor: f.heightColor || [0, 0, 0],
+  }
+}
+/** 场景光源 → 2D 四灯 uniform 组（路径A；可见灯取前 4 盏，官方 4 盏上限）。
+ *  `intensity²` 预乘进 rgb；ambient/skylight 缺省 (0,0,0)（= GL uniform 缺省，无灯场景零视觉差）。 */
+export function computeLight2DUniforms(lights, general) {
+  if (lightsLegacy()) return null
+  const colorRadius = new Float32Array(16)
+  const position = new Float32Array(12)
+  let count = 0
+  for (const li of (lights || [])) {
+    if (count >= 4) break
+    if (!li || li.visible === false) continue
+    const it = (typeof li.intensity === 'number' && isFinite(li.intensity)) ? li.intensity : 1
+    const it2 = it * it   // intensity²（线性 ⇒ 判据红）
+    const c = (li.color && li.color.length >= 3) ? li.color : [1, 1, 1]
+    colorRadius[count * 4 + 0] = (c[0] || 0) * it2
+    colorRadius[count * 4 + 1] = (c[1] || 0) * it2
+    colorRadius[count * 4 + 2] = (c[2] || 0) * it2
+    colorRadius[count * 4 + 3] = (typeof li.radius === 'number' && li.radius > 0) ? li.radius : 0
+    position[count * 3 + 0] = li.origin ? (li.origin[0] || 0) : 0
+    position[count * 3 + 1] = li.origin ? (li.origin[1] || 0) : 0
+    position[count * 3 + 2] = li.origin ? (li.origin[2] || 0) : 0
+    count++
+  }
+  const g = (general && typeof general === 'object') ? general : {}
+  return {
+    count,
+    colorRadius,
+    position,
+    ambientColor: __parseColor3(g.ambientcolor, [0, 0, 0]),
+    skylightColor: __parseColor3(g.skylightcolor, [0, 0, 0]),
+    castShadowLights: (lights || []).filter((li) => li && li.castshadow === true).length,
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════
+   ①(P-222 F9 2026-09-29 · RE-08/RE-46) 效果 pass `conditions` 求值接口（语料 0 命中、官方有求值器）
+   ──────────────────────────────────────────────────────────────────────────────────────────────────
+   已知子集：{combo: 名, equals/value} 或 {key: 期望} 的对象 / 其数组（AND）。**任何未识别形态返回
+   'unknown'** ⇒ 调用方按"不剔除该 pass"处理并记台账 —— 绝不静默猜 true/false（判据钉死）。
+   缺省（无 conditions 字段）⇒ 'none'（零变化）。本批只落接口与解析保留，**不改 pass 过滤行为**。 */
+export function evaluateConditions(conditions, combos, userProps) {
+  const known = (c) => {
+    if (c == null || typeof c !== 'object' || Array.isArray(c)) return false
+    const keys = Object.keys(c)
+    if (keys.length === 0) return false
+    return keys.every((k) => {
+      if (k === 'combo') return true
+      if (k === 'equals' || k === 'value' || k === 'op') return true
+      return combos != null && Object.prototype.hasOwnProperty.call(combos, k)
+    })
+  }
+  try {
+    if (conditions == null) return 'none'
+    const evalOne = (c) => {
+      if (!known(c)) return 'unknown'
+      if (c.combo != null) {
+        const cur = (combos || {})[String(c.combo)]
+        const want = c.equals !== undefined ? c.equals : (c.value !== undefined ? c.value : true)
+        return String(cur) === String(want)
+      }
+      return Object.keys(c).every((k) => String((combos || {})[k]) === String(c[k]))
+    }
+    const arr = Array.isArray(conditions) ? conditions : [conditions]
+    const rs = arr.map(evalOne)
+    if (rs.some((r) => r === 'unknown')) return 'unknown'
+    return rs.every((r) => r === true)
+  } catch (e) { return 'unknown' }
+}
+
+/* ①(P-222 F8 · RE-53) 粒子 controlpoint flags 的"位表"视图：raw 原样保留（不 reinterpret），
+   已知位 bit0 = lockToPointer（P-69 第 6 项官方截图推断，仍标未定）；未知位原样透传给 D1 填表。 */
+export function controlpointFlagView(cp) {
+  const raw = (cp && typeof cp.flags === 'number' && isFinite(cp.flags)) ? cp.flags : (cp && cp.flags != null ? Number(cp.flags) || 0 : 0)
+  return { raw, bits: { lockToPointer: (raw & 1) !== 0 }, unknownBits: raw & ~1 }
+}
+
+/* ①(P-222 B3-① · RE-43 (3)) 级联距离换算（官方 Light::GetCascadeConfigs，arm64 RVA 0x25cf95c 的
+   6 浮点返回 {d0, d1*4, d1, d1*4, d2, max(d1*4, d2*1.5)}【推断：3 级联的 (near,far) 对】——
+   纯函数可测；真投影与采样未做（缺真机 _rt_shadowAtlas 帧数据）。 */
+export function lightCascadeConfigs(d0, d1, d2) {
+  const a = (typeof d0 === 'number' && isFinite(d0)) ? d0 : 0
+  const b = (typeof d1 === 'number' && isFinite(d1)) ? d1 : 0
+  const c = (typeof d2 === 'number' && isFinite(d2)) ? d2 : 0
+  return [a, b * 4, b, b * 4, c, Math.max(b * 4, c * 1.5)]
+}
+/* ①(P-222 B3-① · RE-43 (3)) 场景质量档 → 阴影分辨率（官方 Light::GetShadowResolution：256/512/1024）。 */
+export function shadowResolutionFor(qualityByte) {
+  const q = (typeof qualityByte === 'number' && isFinite(qualityByte)) ? qualityByte : 2
+  return q >= 3 ? 1024 : (q === 2 ? 512 : 256)
 }
 /* ①(2026-09-23 静默失败审计 表 #8/A-7) `texImage2D` **不抛异常**：上传失败只置一个 GL 错误旗标 ⇒
  *   "调用过了"曾被当成"上传成功了"。同文件 `?texmip=tri`（12827-12843）与 demo.html 位图路径
