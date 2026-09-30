@@ -22,6 +22,7 @@
 //
 // 环境前提（本机实测）：`scrot` + `xdotool` 在 PATH；`:8899` 在跑；Playwright firefox 在姊妹仓
 //   `dsh-mpkg-wallpaper/node_modules`。任一不满足 ⇒ **SKIP（退出码 0）并写明缺什么**，不假装通过。
+import { AUDIO_MUTE_PREFS } from '../_audio-mute.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -88,7 +89,7 @@ const browser = await firefox.launch({
     ...process.env, DISPLAY: cua.DISPLAY,
     MOZ_WEBGL_FORCE_SOFTWARE: '1', LIBGL_ALWAYS_SOFTWARE: '1', MOZ_ENABLE_WAYLAND: '0',
   },
-  firefoxUserPrefs: {
+  firefoxUserPrefs: { ...AUDIO_MUTE_PREFS,
     /* ⚠ WebGL 预置项走共用口径（`_gl-browser.mjs`）：默认显式开；`MPW_GL_FORCE_OFF=1` 时关掉
        —— 用它在有 GL 的机器上自证"无 GL ⇒ SKIP + 原样读数"这条路真的会走。 */
     ...glPrefs(),

@@ -14,6 +14,7 @@
 // 用法（必须包文件锁，全机同时只允许一个 Firefox）：
 //   flock /tmp/.mpw-firefox.lock -c 'node tests/bench-issue0924a-ia-browser-test.mjs'
 // 参数：--url=<测试台地址，默认 http://127.0.0.1:8902/>
+import { AUDIO_MUTE_PREFS } from './_audio-mute.mjs'
 import { pathToFileURL } from 'node:url'
 import { findPlaywright } from './_gl-browser.mjs'
 
@@ -37,7 +38,7 @@ let up = false
 try { const r = await fetch(URL_BASE, { signal: AbortSignal.timeout(5000) }); up = r.ok } catch { up = false }
 if (!up) skip(`测试台不可达：${URL_BASE}（起服务：node server/we-scene-demo-server-8902.mjs 8902）`)
 
-const browser = await firefox.launch({ headless: true, env: { ...process.env, MOZ_WEBGL_FORCE_SOFTWARE: '1', LIBGL_ALWAYS_SOFTWARE: '1' } })
+const browser = await firefox.launch({ firefoxUserPrefs: { ...AUDIO_MUTE_PREFS }, headless: true, env: { ...process.env, MOZ_WEBGL_FORCE_SOFTWARE: '1', LIBGL_ALWAYS_SOFTWARE: '1' } })
 try {
   const page = await browser.newPage()
   page.on('pageerror', (e) => console.log('  note: pageerror ' + String((e && e.message) || e).slice(0, 140)))

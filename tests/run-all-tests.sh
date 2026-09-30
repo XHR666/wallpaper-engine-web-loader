@@ -457,6 +457,7 @@ add "secret-scan"        "node tests/secret-scan-test.mjs"
 #   本轮由它揪出并修掉 20 处真问题（`server/we-scene-demo-server.mjs` 11 处 `/tmp` 字面量、tests 里 13 处、
 #   `:8902` 打开器缺 Windows 分支）。~0.3s，无网络无浏览器。
 add "cross-platform"     "node tests/cross-platform-gate-test.mjs"
+add "gate-audio-mute"    "node tests/gate-audio-mute-test.mjs"   # ①(2026-09-29 用户报"幽灵声音") 所有 firefox.launch 必须带静音 prefs（_audio-mute.mjs）：无头门禁跑测试台/渲染器页时真的会出声（Volume Control 里可见 Nightly: WEwebLoader / we-scene 验证 / 壁纸名，最多 5 路）
 # ①(P2-2 2026-09-18) `bench-8902`：一站式测试台服务（`server/we-scene-demo-server-8902.mjs`）的端到端自证 ——
 #   临时端口 + 夹具库真起服务：8 个 `/api/*` 的状态码与 JSON 形状、静态面 no-store、`/media/dev/**` Range 206、
 #   **路径逃逸**（`..`/绝对/符号链接）400/403、删除**默认 dryRun 不移文件**、`?confirm=1` 才进可回滚 trash、

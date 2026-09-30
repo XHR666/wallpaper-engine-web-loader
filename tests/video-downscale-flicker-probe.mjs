@@ -29,6 +29,7 @@
 // 用法：
 //   node tests/video-downscale-flicker-probe.mjs --selftest
 //   node tests/video-downscale-flicker-probe.mjs --frames /tmp/vid19 [--limit 16] [--sizes 1280x720,900x506,624x351]
+import { AUDIO_MUTE_PREFS } from './_audio-mute.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -133,7 +134,7 @@ if (!firefox) { skip('video-downscale-flicker', 'playwright 没有 firefox 导�
 const targets = SIZES.split(',').map((s) => { const m = /^(\d{2,5})x(\d{2,5})$/.exec(s.trim()); return m ? { w: +m[1], h: +m[2] } : null }).filter(Boolean)
 console.log(`帧：${files.length} 张（上限 ${LIMIT}）${native.w}x${native.h}；被测尺寸：${targets.map((t) => t.w + 'x' + t.h).join(' / ')}`)
 
-const browser = await firefox.launch({ headless: true, firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
+const browser = await firefox.launch({ headless: true, firefoxUserPrefs: { ...AUDIO_MUTE_PREFS, 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
 try {
   const page = await (await browser.newContext({ viewport: { width: 400, height: 300 } })).newPage()
   // 帧按需从磁盘读（不进 Node 内存）；页内只解一张图。ACAO 让画布可读回。

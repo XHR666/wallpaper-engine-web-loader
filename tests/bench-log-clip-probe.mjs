@@ -6,6 +6,7 @@
 // 判据（几何量，不是观感）：在三种状态下（默认 / 展开壁纸配置 / 收起资源管理器）采样输出区里
 // **每一行**的左缘，要求 `line.left >= sidebar.right - tol`（tol=1px）。CLIPPED = 有任意一行越界。
 // 纯判据 `--selftest` 常驻门禁；`--live` 需要 :8902 + playwright（缺则 SKIP）。
+import { AUDIO_MUTE_PREFS } from './_audio-mute.mjs'
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -64,7 +65,7 @@ if (!firefox) { console.log('SKIP bench-log-clip-probe — playwright 没有 fir
 /* ⚠ 必须显式开 WebGL2：无头 Firefox 默认**没有** WebGL2，页面会停在「启动失败: 当前浏览器不支持
    WebGL2」——此时 `__mpwLiveRes` 一类活档位读数永远缺失。本探针第一版就是漏了这行，把"环境缺能力"
    读成了"产品没跑到"，必须靠预置项把环境补齐。 */
-const browser = await firefox.launch({ headless: true, firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
+const browser = await firefox.launch({ headless: true, firefoxUserPrefs: { ...AUDIO_MUTE_PREFS, 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
 try {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   const page = await ctx.newPage()

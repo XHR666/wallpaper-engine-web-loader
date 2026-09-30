@@ -36,6 +36,7 @@
 //   node tests/real-machine-check.mjs --require       # 「无浏览器/无服务」也判 FAIL（默认按条件项 SKIP）
 // 退出码：0 = 全绿（含条件项 SKIP）；1 = 有断言失败；2 = 用法错误。
 // 条件项约定（与 `jpeg-decode` 同口径）：不可用时**第一行**打印 `SKIP real-machine-check …` 并退出 0。
+import { AUDIO_MUTE_PREFS } from './_audio-mute.mjs'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -193,7 +194,7 @@ let webgl2 = null, ua = '', deviceInfo = {}, surfaces = null, surfacesB = null, 
 const allow = [], deny = []
 
 try {
-  try { browser = await pw.firefox.launch({ headless: true }) } catch (e) {
+  try { browser = await pw.firefox.launch({ firefoxUserPrefs: { ...AUDIO_MUTE_PREFS }, headless: true }) } catch (e) {
     const why = 'Firefox 启动失败：' + ((e && e.message) || e)
     if (REQUIRE) { push('precondition', 'firefox', false, why); console.log('✗ ' + why); finish(null, 1) }
     console.log('SKIP ' + NAME + '（' + why + '）')

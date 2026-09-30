@@ -13,6 +13,7 @@
 //   N6 打开状态下点页面空白 ⇒ 收起（`.snd-box` 内部 `data-open` 消失）
 //
 // 用法：`node tests/x11-e2e/now-playing-live-test.mjs [--url …]`；缺 X 显示/scrot/8902/Playwright ⇒ **SKIP（退出码 0）**。
+import { AUDIO_MUTE_PREFS } from '../_audio-mute.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -49,7 +50,7 @@ if (!firefox) skip('playwright 没有 firefox 导出')
 const browser = await firefox.launch({
   headless: false,
   env: { ...process.env, DISPLAY: cua.DISPLAY, MOZ_WEBGL_FORCE_SOFTWARE: '1', LIBGL_ALWAYS_SOFTWARE: '1', MOZ_ENABLE_WAYLAND: '0' },
-  firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false },
+  firefoxUserPrefs: { ...AUDIO_MUTE_PREFS, 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false },
 })
 try {
   const ctx = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h } })

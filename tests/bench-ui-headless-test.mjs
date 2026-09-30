@@ -18,6 +18,7 @@
 //   N6 整轮 0 个 pageerror（真机脚本错要能看见）
 //
 // 用法: node tests/bench-ui-headless-test.mjs [--url http://127.0.0.1:8902/] [--w 1360] [--h 900] [--keep-going]
+import { AUDIO_MUTE_PREFS } from './_audio-mute.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -47,7 +48,7 @@ const firefox = (pw.default && pw.default.firefox) || pw.firefox
 if (!firefox) skip('playwright 没有 firefox 导出')
 
 const browser = await firefox.launch({ headless: true, env: { ...process.env, MOZ_WEBGL_FORCE_SOFTWARE: '1', LIBGL_ALWAYS_SOFTWARE: '1' },
-  firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
+  firefoxUserPrefs: { ...AUDIO_MUTE_PREFS, 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false } })
 try {
   const ctx = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h } })
   const page = await ctx.newPage()

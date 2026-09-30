@@ -24,6 +24,7 @@
  * 无 :8902 / 无 Playwright / 无 firefox ⇒ D 段整体 SKIP（A/B/C 段照跑，门禁不红）。
  * 纪律：真树只读（所有改写都在内存对象/假原型上做）；不启新服务；浏览器用完必关。
  */
+import { AUDIO_MUTE_PREFS } from './_audio-mute.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -244,7 +245,7 @@ if (!pwPath) {
       ...process.env, MOZ_WEBGL_FORCE_SOFTWARE: '1', LIBGL_ALWAYS_SOFTWARE: '1',
       ...(headless ? {} : { DISPLAY: XDISPLAY }),
     },
-    firefoxUserPrefs: { 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false },
+    firefoxUserPrefs: { ...AUDIO_MUTE_PREFS, 'webgl.force-enabled': true, 'gfx.webrender.software': true, 'webgl.out-of-process': false },
   })
   /** 起浏览器：有头优先（本机唯一能出 WebGL2 的组合），起不来回落无头（那时 D3–D5 会显式 SKIP）。 */
   const launchBrowser = async () => {

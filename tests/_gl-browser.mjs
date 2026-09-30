@@ -20,6 +20,7 @@
 //   const gl = await glCapability(browser)                        // { webgl2, webgl1, ver2, ver1, renderer, err }
 //   if (!gl.webgl2) { await closeQuiet(browser); skipGL('本档名', launchNote, gl) }   // 整档 GL 前置
 // 多判据组（有非 GL 判据照跑的那种）不要 exit，改用 `logGLSkip(label, launchNote, gl)` 打一条 SKIP 继续跑。
+import { AUDIO_MUTE_PREFS } from './_audio-mute.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ROOT } from './_root.mjs'
@@ -48,7 +49,7 @@ export const launchOpts = (headless, extra = {}) => ({
     ...(headless ? {} : { DISPLAY: XDISPLAY }),
     ...(extra.env || {}),
   },
-  firefoxUserPrefs: {
+  firefoxUserPrefs: { ...AUDIO_MUTE_PREFS,
     ...glPrefs(), 'gfx.webrender.software': true, 'webgl.out-of-process': false,
     ...(extra.firefoxUserPrefs || {}),
   },

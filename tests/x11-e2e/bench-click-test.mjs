@@ -35,6 +35,7 @@
 //   前提：X 显示（DISPLAY）+ xdotool + scrot + :8902 在跑 + Playwright。任一缺 ⇒ **SKIP（退出码 0）**。
 //   为什么窗口开 1880 宽：实测 1280 宽时工具栏（Pause/Remount/…/Mouse trail）在 **x≈1700–2540**，
 //   整条被挤出视口右侧 ⇒ 那不是 bug 而是"窗口太窄"，测试必须开够宽才有意义（见 README §2）。
+import { AUDIO_MUTE_PREFS } from '../_audio-mute.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -83,7 +84,7 @@ const browser = await firefox.launch({
   env: { ...process.env, DISPLAY: cua.DISPLAY, MOZ_WEBGL_FORCE_SOFTWARE: '1', LIBGL_ALWAYS_SOFTWARE: '1', MOZ_ENABLE_WAYLAND: '0' },
   /* ⚠ WebGL 预置项走共用口径（`_gl-browser.mjs`）：默认显式开；`MPW_GL_FORCE_OFF=1` 时关掉
      —— 用它在有 GL 的机器上自证"无 GL ⇒ SKIP + 原样读数"这条路真的会走。 */
-  firefoxUserPrefs: { ...glPrefs(), 'gfx.webrender.software': true, 'webgl.out-of-process': false },
+  firefoxUserPrefs: { ...AUDIO_MUTE_PREFS, ...glPrefs(), 'gfx.webrender.software': true, 'webgl.out-of-process': false },
 })
 try {
   /* 能力前置探针（读一次，不猜）：只决定下面 B4 那条**像素级**判据是断言还是 SKIP（其余判据照跑）。 */

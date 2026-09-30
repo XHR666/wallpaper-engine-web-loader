@@ -25,6 +25,7 @@
 //   driver options (FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS)`（无 `/dev/dri`、PRoot 容器）；
 //   Chromium+SwiftShader 在本机 PRoot 下 newPage 挂起（`tests/headless-shot.mjs` 档位表已记）。
 //   ⇒ 本工具默认走 ②（Node 探针），台账与"哪些顶点/三角形属于哪根骨"全部可得，**像素级对比不做**。
+import { AUDIO_MUTE_PREFS } from './_audio-mute.mjs'
 import { WS } from './_root.mjs'   // ①(2026-09-19 敏感信息加固) 工作区根/仓库根：由**脚本自身位置**推导，不再写作者本机绝对路径
 import fs from 'node:fs'
 import path from 'node:path'
@@ -74,7 +75,7 @@ if (argv.includes('--browser')) {
   const PW = process.env.MPW_PLAYWRIGHT || path.join(MPW_WS, 'dsh-mpkg-wallpaper', 'node_modules', 'playwright', 'index.mjs')
   const { firefox } = await import(pathToFileURL(PW).href)
   console.log('▶ 浏览器通路：无头 Firefox（软件光栅）→ ' + URL_BASE)
-  const browser = await firefox.launch({ timeout: 60_000, firefoxUserPrefs: { 'webgl.force-enabled': true, 'webgl.disabled': false, 'gfx.webrender.software': true } })
+  const browser = await firefox.launch({ timeout: 60_000, firefoxUserPrefs: { ...AUDIO_MUTE_PREFS, 'webgl.force-enabled': true, 'webgl.disabled': false, 'gfx.webrender.software': true } })
   const page = await browser.newPage({ viewport: { width: 960, height: 540 } })
   page.on('console', (m) => { const t = m.text(); if (/\[submesh\]|WebGL|restricts|Exhausted/i.test(t)) logLines.push(t) })
   await page.goto(URL_BASE + '/?id=' + ID + '&nodebug&submesh=all', { waitUntil: 'domcontentloaded', timeout: 60_000 })
