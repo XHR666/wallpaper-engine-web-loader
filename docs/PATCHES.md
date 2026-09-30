@@ -15314,3 +15314,67 @@ A12 并入 `mpkg-oldschool-scene-test`（25 通过 / 0 失败，其中 A12 组 2
 ② F5 的 `?shape=on` 只给 notImplemented 提示（VBO 重建 = D 级工程）；③ F9 的"已知子集"是从 combos
 宏比较推的最小面，官方求值器的完整表达式语法未定案；④ B3 的接口判据只到"纯函数 + 解析 + 台账"，
 数据通路（uniform 名表生成/绑定）未搭。
+
+## P-223（2026-09-30）`g_TextureNResolution.zw` = 内容（unpadded）尺寸
+
+### 症状
+`resolutions.set(ti, [w,h,w,h])` 恒把 .zw 填物理尺寸。官方 shader 三处明文消费 `.zw = 内容尺寸`：
+`common_particles.h:69`（`unpaddedWidth = g_Texture0Resolution.z / g_Texture0Resolution.x`）、
+`genericimage2/3/4.vert`（`v_TexCoord.zw = a_TexCoord.x * g_Texture2Resolution.z / .x`）、
+`puppettexturechannels.vert:16` ⇒ 在内容≠物理的纹理（.tex format 5 半清晰度、降档上传）上官方 sprite/texcoord 数学错。
+
+### 依据（规则 A）
+RE-REMAINING-6 §0 表 + 官方 shader 明文（上列 file:line 均为本轮复验）。
+
+### 改法
+demo 三处纹理条目登记 `contentWidth/contentHeight`（.tex 头声明的 `textureWidth/textureHeight`、
+位图解码原尺寸；降档只改物理）；core `resolutions.set` 拆四分量 `(物理.x, 物理.y, 内容.z, 内容.w)`——
+**无差异 ⇒ .zw=.xy ⇒ 与改动前逐位一致**（本仓不做 POT padding，绝大多数纹理恒等）；
+`?reszw=legacy` 回退；台账 `globalThis.__mpwResZW={paddedSlots,last}` 只计 .zw≠.xy 的槽。
+
+### 读数
+mock-GL：bind slot0→tex_a（物理 1844×524、内容 3689×1049 = 刀.tex 的 format 5 真实形状）⇒
+`g_Texture0Resolution` 上传 `[1844,524,3689,1049]`、`unpaddedWidth = .z/.x ≈ 2.0`、paddedSlots=1；
+无 content 字段条目 ⇒ `[400,300,400,300]` 逐位。
+
+### 判据与变异
+`tests/texture-resolution-zw-test.mjs` **14 通过 / 0 失败**：T1 官方数学读数 ×4 + T2 源码锚点 ×4 +
+T3 mock-GL 真值/台账/legacy/逐位 ×4 + T4 变异 ×1（`.zw` 改回物理 ⇒ T2/T3 红，红集精确相等）。
+回归：`tex-wrap-repeat`、`mock-gl` 60/0。
+
+### 未验证边界
+① 官方 format 5 上 unpaddejWidth=2.0 的**观感**未真机验证（本仓 UV 归一化已按逻辑尺寸走，预期零差）；
+② POT-padded NPOT（.xy>padded）在语料/本仓不存在（无 padding 上传路径）——判据用合成形状覆盖；
+③ 降档上传（`up.w < m.width`）时 .zw 用头声明尺寸而非 m.width——两者在 format≠5 时相等，format 5 时
+头声明才是官方 UV 空间。
+
+## P-224（2026-09-30）`camerashake*` 接口 + 默认关（规则 B）
+
+### 症状
+4 键（camerashake/speed/amplitude/roughness）core 0 命中。**RE-36 更正版口径**（上一轮回填笔误已改）：
+xref 只在 general 相机属性注册函数内、渲染管线内消费点 0 ⇒ **噪声公式未解析**，valueNoise2D 只是近似
+建议（原文明示"勿当官方语义"）。
+
+### 改法（规则 B 五步）
+①解析 4 键进闭包级 `cameraShake` 结构（`{enabled,speed,amplitude,roughness,mode,noiseModel,offset}`）；
+②注释标 RE-36 未定案；③台账 `globalThis.__mpwCameraShake`（noiseModel + camerashakeLayers 计数，
+语料 true 3 层照记）；④`?camerashake=off`（默认）/`approx`（近似噪声：offset = amplitude ×
+valueNoise2D(t×speed)、roughness 频率倍增、逐轴相位去相关，台账强制 `noiseModel:'approx-not-official'`；
+scene `camerashake:false` ⇒ `approx-disabled-by-scene` 不抖）；⑤不写死：位移注入 = 视差 `parDispX/Y`
+同一合成点（只影响带 `parallaxDepth` 且 `cameraparallax:true` 的层），缺省 [0,0] ⇒ **逐位 = 改动前**；
+general 原样透传（未来键不丢）。
+
+### 读数
+默认档：GEN_SHAKE（true/4/30/2）场景的相机矩阵 hash 与无 shake 场景逐位一致、noiseModel='none'；
+approx 档：不同 t 的 MVP hash 不同（在抖）、noiseModel='approx-not-official'。
+
+### 判据与变异
+`tests/camerashake-iface-test.mjs` **13 通过 / 0 失败**：C1 解析面 ×4 + C2 默认快照 ×3（MVP hash 通道
+= compUni 的 `u_MVP`——合成层 MVP 不走 g_ 系名字，判据注释写明）+ C3 approx ×3（抖动非零/强制标注/
+enabled 门控）+ C4 语料读数 ×1 + C5 变异 ×1（默认翻成 approx ⇒ C2 红）。回归：`camera-pose` 48/0、
+`official-parallax-formula` 37/0、`gyro-parallax` 33/0。
+
+### 未验证边界
+① approx 噪声是**观感近似**（非官方），真机对照等官方公式定案；② 抖动的官方消费点经属性存储间接
+访问（RE-36），字符串 xref 不可达——定点反汇编属性槽位 `{4,692..700}` 系列是下一轮锚点；
+③ 位移只进视差合成点（相机矩阵本体未动）——官方若是相机矩阵级抖动，观感会差一个 parallaxDepth 因子。

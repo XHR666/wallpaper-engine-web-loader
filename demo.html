@@ -3209,7 +3209,11 @@ async function loadTex(name, opts = {}) {
          云/神光那类 uv 随 `g_Time` 无界增长的贴图必须 REPEAT（CLAMP 会把天空拉成静止伪影），
          其余一律 CLAMP（默认不变）。名单与回退开关都在 `core/we-scene-bundle.js` 的 `REPEAT_TEX_NAMES`
          / `?texwrap=clamp|repeat`，这里只负责"按名字问一次"。 */
-      const entry = wrapTex({ glTex: lib.makeTexture(gl, dst, nw, nh, null, null, 'materials/' + name + '.tex'), width: nw, height: nh, rg88: tex.format === 8, sprite }, name)
+      /* ①(P-223 2026-09-29) 纹理条目新增 contentWidth/contentHeight（内容/逻辑尺寸）：
+         物理上传 = nw/nh（降采样后），内容 = .tex 头声明的 textureWidth/Height（官方
+         `g_TextureNResolution.zw = 内容(unpadded)尺寸` 的数据源；common_particles.h:69 的
+         `unpaddedWidth = .z/.x` 消费它）。无声明/相等 ⇒ 与 width 相同 ⇒ .zw=.xy（逐位 = 改动前）。 */
+      const entry = wrapTex({ glTex: lib.makeTexture(gl, dst, nw, nh, null, null, 'materials/' + name + '.tex'), width: nw, height: nh, contentWidth: tex.textureWidth || nw, contentHeight: tex.textureHeight || nh, rg88: tex.format === 8, sprite }, name)
       // ①(2026-09-23 静默失败审计 A-7) `makeTexture` 现在**自己**在 texImage2D 之后查一次错
       //   （记账进 `__mpwTexUploadErrs`）⇒ 这里不能再靠 `gl.getError()` 读（旗标已被它取走，恒 0），
       //   改读同一份判定值；万一跑的是旧 bundle（无该字段）则回退到原来的 getError。
@@ -3255,7 +3259,8 @@ async function loadTex(name, opts = {}) {
       //   纹理静默为黑（效果链把黑底+光斑一起输出=用户看到的"全黑只剩窗帘/光斑"）。
       //   现在：超 min(4096, 设备上限) 先 canvas 缩图；上传后查错，失败按 2048→1024 阶梯
       //   重试并逐级记日志（下一份上报能直接回答"为什么黑"）。
-      const mkEntry = (src, w, h) => wrapTex({ glTex: lib.makeTexture(gl, null, 0, 0, src, null, 'materials/' + name + '.tex'), width: w, height: h, rg88: rg88, sprite }, name)
+      /* ①(P-223) contentWidth/Height = 解码位图原尺寸（降档重试只改物理上传尺寸） */
+      const mkEntry = (src, w, h) => wrapTex({ glTex: lib.makeTexture(gl, null, 0, 0, src, null, 'materials/' + name + '.tex'), width: w, height: h, contentWidth: bmp.width, contentHeight: bmp.height, rg88: rg88, sprite }, name)
       const uploadWithCheck = (src, w, h) => {
         try { gl.getError() } catch (e) {}   // 清掉历史错误，只看本次上传
         const e = mkEntry(src, w, h)
@@ -3337,7 +3342,9 @@ async function loadTex(name, opts = {}) {
     if (__texStatEnt) __texStatEnt.upSize = up.w + 'x' + up.h
   }
   texStatUp(0, up.attempts.length)
-  const e = { glTex: up.tex, width: up.w, height: up.h, rg88: rg88, sprite };
+  /* ①(P-223) contentWidth/Height = .tex 头声明的逻辑尺寸（format 5 半清晰度时 = 2×物理；
+     降档上传时 = 原始尺寸）；无差异 ⇒ 与 width/height 相同（.zw=.xy 逐位 = 改动前）。 */
+  const e = { glTex: up.tex, width: up.w, height: up.h, contentWidth: tex.textureWidth || up.w, contentHeight: tex.textureHeight || up.h, rg88: rg88, sprite };
   textures.set(name, e);
   return Promise.resolve(e);
 }

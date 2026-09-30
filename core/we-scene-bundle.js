@@ -11843,6 +11843,9 @@ export function createRenderer(canvas, opts = {}) {
   //   y 分量符号由本项目的 y-down 约定决定（parseScene 期已做 PROJ_H−y 翻转）。
   //   此前 bug：状态存 (client/size−0.5) 且未乘 ortho（3840 倍量级差）→ 鼠标视差几乎不可见。
   const parallaxState = { x: 0.5, y: 0.5 }
+  // ①(P-224 · RE-36) `camerashake*` 的归一化结构（官方噪声语义未定，见 RE-36 与下方 renderScene 注释）：
+  //   {enabled, speed, amplitude, roughness, mode, noiseModel, offset:[x,y]}；默认 off/0/0/1 ⇒ offset 恒 [0,0]。
+  const cameraShake = { enabled: false, speed: 0, amplitude: 0, roughness: 1, mode: 'off', noiseModel: 'none', offset: [0, 0] }
   let lastParallaxTime = 0
   let parDispX = 0
   let parDispY = 0
@@ -13724,6 +13727,59 @@ export function createRenderer(canvas, opts = {}) {
       parDispX = 0; parDispY = 0
     }
 
+    // ═══ ①(P-224 2026-09-30 · RE-36 规则 B) `camerashake*` —— 接口先行、行为默认关 ═══
+    //   官方语义未定（RE-36：四键 xref 只在 general 相机属性注册函数里，渲染管线内消费点 0；
+    //   给出的 valueNoise2D 只是近似建议、"勿当官方语义"）。按规则 B 五步：
+    //   ①解析 4 键进 cameraShake 结构；②注释标 RE-36；③`__mpwCameraShake` 台账（noiseModel 可断言）；
+    //   ④`?camerashake=off`（默认）/`?camerashake=approx`（近似噪声：offset = amplitude ×
+    //     valueNoise2D(t×speed)，roughness 作频率倍增、逐轴相位去相关——**非官方**，台账标
+    //     `noiseModel:'approx-not-official'`）；⑤不写死：语料多为 false 不构成删路径的理由，
+    //   未知/未来键由 general 透传（general 本体原样保存在 scene 上）。
+    {
+      const csRaw = general.camerashake
+      const enabledRaw = csRaw === true || (csRaw !== null && typeof csRaw === 'object' && csRaw.value === true)
+      cameraShake.enabled = enabledRaw
+      cameraShake.speed = typeof general.camerashakespeed === 'number' ? general.camerashakespeed : 0
+      cameraShake.amplitude = typeof general.camerashakeamplitude === 'number' ? general.camerashakeamplitude : 0
+      cameraShake.roughness = typeof general.camerashakeroughness === 'number' ? general.camerashakeroughness : 1
+      cameraShake.noiseModel = 'none'
+      cameraShake.offset = [0, 0]
+      const csMode = (() => { try { return new URLSearchParams(location.search).get('camerashake') || 'off' } catch (e) { return 'off' } })()
+      if (csMode === 'approx' && enabledRaw) {
+        // 近似噪声（非官方）：valueNoise2D = 两次 lerp 的格子噪声；x/y 用不同相位去相关
+        const vt = (time || 0) * cameraShake.speed
+        const rg = cameraShake.roughness > 0 ? cameraShake.roughness : 1
+        const h = (n) => { const s = Math.sin(n) * 43758.5453; return s - Math.floor(s) }
+        const noise1 = (x) => { const i = Math.floor(x), f = x - i; const u = f * f * (3 - 2 * f); return (h(i) * (1 - u) + h(i + 1) * u) * 2 - 1 }
+        const noise2 = (x, y) => { const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy; const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy)
+          return (h(ix + iy * 57.31) * (1 - ux) + h(ix + 1 + iy * 57.31) * ux) * (1 - uy) + (h(ix + (iy + 1) * 57.31) * (1 - ux) + h(ix + 1 + (iy + 1) * 57.31) * ux) * uy }
+        cameraShake.offset = [
+          cameraShake.amplitude * noise2(vt, 0.137) * rg,
+          cameraShake.amplitude * noise2(vt + 913.7, 5.823) * rg,
+        ]
+        cameraShake.noiseModel = 'approx-not-official'
+      } else if (csMode === 'approx' && !enabledRaw) {
+        cameraShake.noiseModel = 'approx-disabled-by-scene'
+      }
+      cameraShake.mode = csMode
+      try {
+        const g = (typeof globalThis !== 'undefined') ? globalThis : null
+        if (g) {
+          g.__mpwCameraShake = Object.assign({ camerashakeLayers: 0 }, g.__mpwCameraShake || {})
+          g.__mpwCameraShake.enabled = cameraShake.enabled
+          g.__mpwCameraShake.speed = cameraShake.speed
+          g.__mpwCameraShake.amplitude = cameraShake.amplitude
+          g.__mpwCameraShake.roughness = cameraShake.roughness
+          g.__mpwCameraShake.noiseModel = cameraShake.noiseModel
+          g.__mpwCameraShake.mode = cameraShake.mode
+          if (enabledRaw) g.__mpwCameraShake.camerashakeLayers++
+        }
+      } catch (e) { /* 台账失败不影响 */ }
+      // 位移注入：加进全局相机偏移（与视差 parDisp 同一合成点；默认 off/无 shake ⇒ [0,0] ⇒ 零变化）
+      parDispX += cameraShake.offset[0]
+      parDispY += cameraShake.offset[1]
+    }
+
     __renderSeq++
     const __audit = __renderSeq <= Number(opts.auditFrames || 1)
     __auditNow = __audit
@@ -14044,6 +14100,9 @@ export function createRenderer(canvas, opts = {}) {
   const SPRITE_AUTO_LEGACY = (() => { try { return new URLSearchParams(location.search).get('spriteauto') === 'legacy' } catch { return false } })()
   // ①(P-212 A2) `?usertex=legacy`：忽略 `usertextures` 通道（等价旧"完全没解析"行为；解析层照旧留档）。
   const USERTEX_LEGACY = (() => { try { return new URLSearchParams(location.search).get('usertex') === 'legacy' } catch { return false } })()
+  // ①(P-223) `?reszw=legacy`：g_TextureNResolution.zw 回到物理尺寸 (w,h,w,h)（旧口径）。
+  const RESZW_LEGACY = (() => { try { return new URLSearchParams(location.search).get('reszw') === 'legacy' } catch { return false } })()
+  function reszwLegacy() { return RESZW_LEGACY }
   // ①(P-212 A2) 宿主像素源注入点（本轮无源 ⇒ 全部回落 textures[i]）：
   //  `globalThis.__mpwUserTextures = { userProps?:{名:纹理名|{texture,…}}, media?:{…}, shortcuts?:{…} }`
   const hostUserTexSources = () => {
@@ -14846,7 +14905,28 @@ export function createRenderer(canvas, opts = {}) {
            失败只跳过这一步，绝不影响本 pass 的既有绑定/绘制。 */
         try { fxSlotWrap(gl, entry, ti, t.tex) } catch (e) { /* 槽位 wrap 失败：保持原 wrap，不抛 */ }
         usedUnits.add(ti)
-        resolutions.set(ti, [t.width, t.height, t.width, t.height])
+        // ①(P-223 2026-09-29) `g_TextureNResolution = (物理.x, 物理.y, 内容.z, 内容.w)`：
+        //   官方 shader 明文消费 `.zw = 内容(unpadded)尺寸`（common_particles.h:69
+        //   `unpaddedWidth = .z/.x`；genericimage2/3/4.vert 的 texcoord 换算；puppettexturechannels.vert:16）。
+        //   纹理条目的 `contentWidth/contentHeight` 由宿主登记（.tex 头声明尺寸 / 位图原尺寸）；
+        //   **无差异 ⇒ .zw=.xy ⇒ 与改动前逐位一致**（本仓不做 POT padding，绝大多数纹理恒等）。
+        //   `?reszw=legacy` ⇒ 恒 (w,h,w,h)（旧口径）。paddedSlots 计数进 `__mpwResZW`。
+        {
+          const __cw = reszwLegacy() ? null : (entry.contentWidth || null)
+          const __ch = reszwLegacy() ? null : (entry.contentHeight || null)
+          const __padded = (__cw && __cw !== t.width) || (__ch && __ch !== t.height)
+          resolutions.set(ti, [t.width, t.height, __padded ? __cw : t.width, __padded ? __ch : t.height])
+          if (__padded) {
+            try {
+              const g = (typeof globalThis !== 'undefined') ? globalThis : null
+              if (g) {
+                g.__mpwResZW = Object.assign({ paddedSlots: 0 }, g.__mpwResZW)
+                g.__mpwResZW.paddedSlots++
+                g.__mpwResZW.last = { slot: ti, physical: [t.width, t.height], content: [__cw, __ch] }
+              }
+            } catch (e) { /* 台账失败不影响绘制 */ }
+          }
+        }
       }
       // 系统 uniform
       // ①(WEBWALLGL #4/#5 P0) 末参 `cam`：效果链的指针 uniform 要换算到**本层 UV 空间**（见 `__fxPointerToLayerUV`）

@@ -938,6 +938,16 @@ add "fx-uniform-values"   "node tests/fx-uniform-values-test.mjs"
 #   三态求值接口（unknown 不剔除）、级联换算+阴影分辨率纯函数。
 add "p208-p2-interfaces"  "node tests/p208-p2-interfaces-test.mjs"
 
+# ①(P-223 2026-09-30) g_TextureNResolution.zw = 内容（unpadded）尺寸（规则 A：官方 shader 明文消费
+#   common_particles.h:69 `unpaddedWidth = .z/.x` 等 3 处；旧实现恒 (w,h,w,h)）。判据：官方数学读数
+#   （format5 比率≈2.0）+ mock-GL 真值（4f 上传）+ 台账 paddedSlots + legacy 回退 + 逐位快照 + 变异。
+add "texture-resolution-zw" "node tests/texture-resolution-zw-test.mjs"
+
+# ①(P-224 2026-09-30) camerashake* 接口 + 默认关（规则 B：RE-36 更正版——噪声公式未解析，
+#   valueNoise2D 只是近似建议）。判据：解析面台账 + 默认逐位快照（MVP hash）+ approx 档抖动非零 +
+#   noiseModel='approx-not-official' 强制标注 + enabled 门控 + 变异（默认翻成开必红）。
+add "camerashake-iface"   "node tests/camerashake-iface-test.mjs"
+
 # ①(P-174 2026-09-24 主对话补登记) 层引用成员 × 五个面全表普查（官方 d.ts 60 成员 × 5 面 × 三档；缺一项点名成员+面）
 #   + `ISoundLayer.volume`（落点 soundprops.volume、保作者节点、非有限值不落盘、五面同源=函数身份相等）+ byId/getParent 修复。
 add "script-layer-ref-audit" "node tests/script-layer-ref-audit-test.mjs" "" "^SKIP script-layer-ref-audit"
