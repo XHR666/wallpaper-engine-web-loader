@@ -5250,9 +5250,55 @@ function loadScene() {
       }
       const kick = () => { try { if (sceneAudio.ctx.state === 'suspended') sceneAudio.ctx.resume() } catch {}
         try { if (typeof mpwAudioGesture === 'function') mpwAudioGesture() } catch (e) {}
-        for (const el of sceneAudio.els) { try { el.play().catch(() => {}) } catch {} }
+        if (typeof mpwAudioAllowsAutoplay === 'function' && mpwAudioAllowsAutoplay()) for (const el of sceneAudio.els) { try { el.play().catch(() => {}) } catch {} }
         window.removeEventListener('pointerdown', kick) }
       window.addEventListener('pointerdown', kick, { once: true })
+      /* ①(P-225) 顶层手势：keydown 也算一次解锁（与 pointerdown 并联，先到先得）；两通道都 once。 */
+      { const kg = () => { try { if (typeof mpwAudioGesture === 'function') mpwAudioGesture() } catch (e) {} }; window.addEventListener('keydown', kg, { once: true }); window.addEventListener('pointerdown', kg, { once: true }) }
+      /* ①(P-225) **后台不出声**：document.hidden ⇒ 静音（走 mpwAudioApply 同一闸）；恢复可见 ⇒
+         按用户原意图重算（静音不自动抬回，除非用户没静音过）。台账 `__mpwAudioVis={hidden,pausedByVis,resumed}`。 */
+      try {
+        document.addEventListener('visibilitychange', () => {
+          try {
+            const vis = { hidden: !!document.hidden, pausedByVis: false, resumed: false, at: Date.now() }
+            const prev = window.__mpwAudioVis
+            if (document.hidden) { vis.pausedByVis = true; mpwAudioApply('vis-hidden') }
+            else if (prev && prev.pausedByVis) { vis.resumed = true; mpwAudioApply('vis-visible') }
+            window.__mpwAudioVis = vis
+          } catch (e) { /* 可见性失败不影响渲染 */ }
+        })
+      } catch (e) {}
+      /* ①(P-225) **多实例单例仲裁**：BroadcastChannel('mpw-audio-owner') 心跳——"前台可见 + 有手势/被显式取消静音"
+         的实例当 owner；非 owner 且被压制 ⇒ mpwAudioSilent() 返回 true（suppressed-by-owner）。
+         无 BroadcastChannel ⇒ 退化各自决定，台账记 degraded（不静默）。 */
+      try {
+        const __owner = { id: Math.random().toString(36).slice(2), has: false, suppressedBy: null }
+        window.__mpwAudioOwner = __owner
+        const claim = () => {
+          try {
+            __owner.want = !document.hidden && (audioGate.gesture || audioGate.allow || audioGate.muted === false)
+            if (bc) bc.postMessage({ kind: 'claim', id: __owner.id, want: __owner.want, at: Date.now() })
+            if (!__owner.want) { __owner.has = false; __owner.suppressedBy = __owner.want ? null : null }
+          } catch (e) {}
+        }
+        let bc = null
+        try { bc = new BroadcastChannel('mpw-audio-owner') } catch (e) { bc = null }
+        if (bc) {
+          bc.onmessage = (ev) => {
+            try {
+              const m = ev && ev.data
+              if (!m || m.kind !== 'claim' || m.id === __owner.id) return
+              if (m.want && !__owner.want) { __owner.has = false; __owner.suppressedBy = 'other-instance' }
+              else if (!m.want && __owner.want) { __owner.has = true; __owner.suppressedBy = null }
+              mpwAudioApply('owner-arbitration')
+            } catch (e) {}
+          }
+          setInterval(() => { claim(); try { mpwAudioApply('owner-heartbeat') } catch (e) {} }, 2000)
+          claim()
+        } else {
+          try { window.__mpwAudioOwner.degraded = true } catch (e2) {}
+        }
+      } catch (e) { /* 仲裁失败 ⇒ 各自决定（mpwAudioSilent 不受影响），台账不静默 */ }
       try { if (typeof mpwAudioApply === 'function') mpwAudioApply('startSceneAudio') } catch (e) {}
       logf('① sound 层已接入（' + layers.length + ' 条，启动 ' + started + ' 条；?audio=1 模式）')
     } catch (e) { logf('⚠ 音频初始化失败: ' + e.message) }
@@ -5325,13 +5371,27 @@ function loadScene() {
   /* `?embed=1`（**插件挂场景渲染器时恒带**）才是"我是被当成壁纸嵌进来的"这一事实的显式标记；
      `?shell=0` 的测试台预览框不带它 ⇒ 预览行为逐位不变（回归红线：只有壁纸帧走 fail-safe）。 */
   const __mpwAudioEmbedFlag = (() => { try { const q = new URLSearchParams(location.search); return q.has('embed') && q.get('embed') !== '0' } catch (e) { return false } })()
-  /** 当前是否**必须静音**：宿主说静音 ∨ 宿主把渲染停住了 ∨ 音量 0 ∨（宿主还没表态 ∧ 壁纸帧 ∧ 没被显式允许）。 */
+  /** 当前是否**必须静音**：宿主说静音 ∨ 宿主把渲染停住了 ∨ 音量 0 ∨（宿主还没表态 ∧ 壁纸帧 ∧ 没被显式允许）
+   *  ∨（P-225：顶层直接打开 ∧ 没手势 ∧ 没被显式取消静音）∨（P-225：后台标签页）∨（P-225：被单例仲裁压制）。
+   *  每档都能从 `__mpwAudioSilentReason` 读出"为什么静音"（探针/判据不靠猜）。 */
   function mpwAudioSilent() {
-    if (audioGate.muted === true) return true
-    if (audioGate.hostPaused === true) return true      // 画面被宿主停住 ⇒ 不许"只有声音没有画面"
-    if (audioGate.parked === true) return true          // 被收起来（隐藏/兜底/省电）⇒ 停源（不只是压增益）
-    if (Number(audioGate.volume) === 0) return true
-    if (audioGate.muted === null && __mpwAudioEmbedFlag && mpwAudioEmbedded() && !audioGate.allow && !audioGate.gesture) return true
+    if (audioGate.muted === true) { try { window.__mpwAudioSilentReason = 'host-iframe-muted' } catch (e) {} return true }
+    if (audioGate.hostPaused === true) { try { window.__mpwAudioSilentReason = 'host-paused' } catch (e) {} return true }      // 画面被宿主停住 ⇒ 不许"只有声音没有画面"
+    if (audioGate.parked === true) { try { window.__mpwAudioSilentReason = 'parked' } catch (e) {} return true }          // 被收起来（隐藏/兜底/省电）⇒ 停源（不只是压增益）
+    if (Number(audioGate.volume) === 0) { try { window.__mpwAudioSilentReason = 'volume-zero' } catch (e) {} return true }
+    if (audioGate.muted === null && __mpwAudioEmbedFlag && mpwAudioEmbedded() && !audioGate.allow && !audioGate.gesture) { try { window.__mpwAudioSilentReason = 'host-iframe-unstated' } catch (e) {} return true }
+    /* ①(P-225 2026-09-30) **顶层直接打开 ≠ 自动外放**：用户报的幽灵声音就是门禁无头浏览器顶层
+       打开渲染器页（`mpwAudioSilent()` 只读宿主 iframe 的 muted ⇒ 顶层恒 false）⇒ BGM 真放。
+       现在：顶层（window===top）默认静音，直到 **用户手势**（pointerdown/keydown 一次即可）
+       或显式 `?muted=0` / `_wp.setMuted(false)`。iframe 内保持现行为（宿主 muted 说了算，不许改坏）。 */
+    try { if (window.self === window.top && !audioGate.gesture && !audioGate.allow && audioGate.muted !== false) { window.__mpwAudioSilentReason = 'top-level-awaiting-gesture'; return true } } catch (e) {}
+    /* ①(P-225) **后台不出声**：`document.hidden` ⇒ 静音（visibilitychange 驱动，恢复按原意图）。
+       真机/多标签页用户报过"切走还在响"。 */
+    try { if (typeof document !== 'undefined' && document.hidden) { window.__mpwAudioSilentReason = 'hidden'; return true } } catch (e) {}
+    /* ①(P-225) **多实例只准一个出声**：BroadcastChannel 单例仲裁——非 owner 且被压制 ⇒ 静音。
+       仲裁失败（无 BroadcastChannel）⇒ 退化为"各自决定"，但台账记 degraded（不静默）。 */
+    try { if (__mpwAudioOwner.suppressedBy === 'other-instance') { window.__mpwAudioSilentReason = 'suppressed-by-owner'; return true } } catch (e) {}
+    try { window.__mpwAudioSilentReason = audioGate.muted === false ? 'user-unmuted' : 'audible' } catch (e) {}
     return false
   }
   /** 现在允许自动起播吗：静音中**不** `play()` —— "元素在放但图级 0 增益"与"元素根本没起播"

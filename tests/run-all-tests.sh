@@ -949,6 +949,11 @@ add "texture-resolution-zw" "node tests/texture-resolution-zw-test.mjs"
 #   noiseModel='approx-not-official' 强制标注 + enabled 门控 + 变异（默认翻成开必红）。
 add "camerashake-iface"   "node tests/camerashake-iface-test.mjs"
 
+# ①(P-225 2026-09-30) 行为级"幽灵声音"收口（可 SKIP：无 pactl/Pulse 桥不建流 ⇒ 打印原因以 0 退出）：
+#   无头 Firefox+真包（库通道 /pkg/<id>，gesture 轮询解锁）跑起来后 pactl sink-inputs 里 Nightly
+#   的流必须不存在或全 0%/mute；反例臂（无三件套+同手势）有可听流 ⇒ 证判据分辨力，反例也无流 ⇒ SKIP。
+add "gate-audio-silence"  "node tests/gate-audio-silence-test.mjs"
+
 # ①(P-174 2026-09-24 主对话补登记) 层引用成员 × 五个面全表普查（官方 d.ts 60 成员 × 5 面 × 三档；缺一项点名成员+面）
 #   + `ISoundLayer.volume`（落点 soundprops.volume、保作者节点、非有限值不落盘、五面同源=函数身份相等）+ byId/getParent 修复。
 add "script-layer-ref-audit" "node tests/script-layer-ref-audit-test.mjs" "" "^SKIP script-layer-ref-audit"

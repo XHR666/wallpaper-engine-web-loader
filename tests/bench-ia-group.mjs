@@ -224,8 +224,16 @@ export async function runIaGroup({ page, ok, VIEW = { w: 1360, h: 900 } }) {
           在**同一拍**里，守卫开/关各来一次。为什么不用真 SSE 做 A/B：守卫一关，**任何**晚到的行都会把
           视图拉到底，量"用户滚上去"的前置状态会被它抢掉（本轮实测假红/假绿都出现过）。 */
       const fire = () => { const s = document.createElement('span'); s.textContent = 'IA5-AB-LINE'; body.appendChild(s); body.scrollTop = body.scrollHeight }
+      /* ①(P-225 附) **IA5f 竞态修复**：首跑该判据读 `before:0`（scrollTop=0 一拍后日志体的
+         scrollHeight 还没长出来 ⇒ slack=0 的竞态）⇒ FAIL；单独重跑 PASS（before:13211）。
+         改法：`scrollTop=0` 后用**有界等待**等 `slack > 0`（≤2s，25ms 一拍）再读前置状态——
+         **判据意图不变**：日志滚动守卫仍然必须被验证（A/B 两侧的前置状态都等到位才比，
+         不比"还没长出内容"的空表）；变异体（守卫改回无条件滚动）照旧必红（IA5f/IA5g 两侧
+         的对照语义没有放松）。 */
+      const waitSlack = async () => { for (let i = 0; i < 80; i++) { if (body.scrollHeight - body.clientHeight - body.scrollTop > 100) break; await wait(25) } }
       body.scrollTop = 0
       await wait(250)
+      await waitSlack()
       const onBefore = read()
       fire()
       await wait(250)
@@ -233,6 +241,7 @@ export async function runIaGroup({ page, ok, VIEW = { w: 1360, h: 900 } }) {
       const guardOff = api.logScrollGuardSet(false)
       body.scrollTop = 0
       await wait(250)
+      await waitSlack()
       const offBefore = read()
       fire()
       await wait(250)
@@ -240,6 +249,7 @@ export async function runIaGroup({ page, ok, VIEW = { w: 1360, h: 900 } }) {
       const guardOn = api.logScrollGuardSet(true)
       body.scrollTop = 0
       await wait(250)
+      await waitSlack()
       const onBefore2 = read()
       fire()
       await wait(250)

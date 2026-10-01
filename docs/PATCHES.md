@@ -15378,3 +15378,70 @@ enabled 门控）+ C4 语料读数 ×1 + C5 变异 ×1（默认翻成 approx ⇒
 ① approx 噪声是**观感近似**（非官方），真机对照等官方公式定案；② 抖动的官方消费点经属性存储间接
 访问（RE-36），字符串 xref 不可达——定点反汇编属性槽位 `{4,692..700}` 系列是下一轮锚点；
 ③ 位移只进视差合成点（相机矩阵本体未动）——官方若是相机矩阵级抖动，观感会差一个 parallaxDepth 因子。
+
+## P-225（2026-09-30）幽灵声音收口：页面侧"不该出声时不出声" + 探针侧静音纪律 + 行为级判据
+
+### 症状（用户 2026-09-29 实测）
+Termux:X11 的 Volume Control(Playback) 里出现最多 5 路 `Nightly: …` 流（有响有不响、会自己消失），
+出现时用户并没有开图形浏览器——都是**门禁/探针自己启动的无头 Firefox**（Playwright 品牌名 = Nightly）。
+父代理 pactl 定案：顶层直接打开渲染器页时 `mpwAudioSilent()` 恒 false（只读宿主 iframe 的 muted）⇒
+场景 sound 层的 BGM 真放；Playwright 放开自动播放 ⇒ 浏览器策略挡不住。门禁侧 14 个 `firefox.launch`
+调用点已由父代理修完（commit `3caa786`，三件套 prefs + `gate-audio-mute-test`）——本轮做剩下的。
+
+### 改法
+**页面侧（demo.html，P-225 产品语义）**：`mpwAudioSilent()` 增四档并逐档写 `__mpwAudioSilentReason`：
+①**顶层直接打开默认静音**（`window.self === window.top` ∧ 无手势 ∧ 未显式 unmute ⇒
+`top-level-awaiting-gesture`；手势 = pointerdown/keydown 一次即可，两条通道都 once；
+iframe 内保持现行为——宿主 muted 说了算，不许改坏）；②**后台不出声**（`document.hidden` ⇒
+`hidden`，visibilitychange 驱动，恢复按原意图重算，台账 `__mpwAudioVis={hidden,pausedByVis,resumed}`）；
+③**多实例单例仲裁**（BroadcastChannel `mpw-audio-owner` 心跳：非 owner 且被压制 ⇒
+`suppressed-by-owner`；无 BroadcastChannel ⇒ 退化各自决定并记台账，不静默）；
+④`?muted=0`/`_wp.setMuted(false)` 显式解锁（走既有 audioGate.muted=false 通道，reason=`user-unmuted`）。
+startSceneAudio 的 `kick` 补 `mpwAudioAllowsAutoplay()` 门（静音中不 `play()`——与既有契约同形）。
+
+**探针侧（dsh-mpkg-wallpaper，只动 tools/**）**：新增 `tools/_audio-mute.mjs`（三件套 +
+`withAudioMute` + `withAudioMuteIfAllowed`——音频观测类探针的 `MPW_PROBE_AUDIO=1` 逃生门，
+默认恒静音）；20 个 `firefox.launch` 调用点全部带上（audio-leak-frame-probe 用 IfAllowed——
+它就是观测音频链的用例）；静态判据 `tools/audio-mute-discipline-test.mjs`（A1 全调用点扫 +
+A2 三件套逐键钉值 + A3 反例自证（隔离副本 + `AUDIO_DISC_TOOLS` env 指向）+ A4 逃生门行为级）
+登记进 `tools/check.sh` 音频步骤区（不新增 step）。插件 `lib/**` 零改动、不 bump 版本。
+
+**行为级判据（we-scene-demo，可 SKIP）**：`tests/gate-audio-silence-test.mjs`——无头 Firefox
+（三件套 + `media.cubeb.backend=pulse` + `PULSE_SERVER=tcp:127.0.0.1:4713`）经库通道
+（`/api/library` → `/pkg/<id>`）顶层开渲染器页真包（`audio=1` + `muted=0`），**轮询点击**等
+P-225 手势解锁（页面 `__mpwAudioPolicy.gesture===true`），然后 `pactl list sink-inputs`：
+Nightly 的流必须不存在或全 0%/mute。反例臂（无三件套 + 同手势）出现 100%/0.00dB 流 ⇒ 证分辨力。
+
+### 读数
+- 页面侧（判据 S1/S3 实测）：渲染器页顶层 `reason:"top-level-awaiting-gesture"` → 手势后
+  `reason:"audible"`（页内策略面成立）；插件侧判据 20 个 launch 用户点全部带静音。
+- **环境限制（如实）**：本会话 cubeb→Pulse 桥不产出 sink-input（两臂都 0 流——页面 audible 但
+  Firefox 不建流）⇒ 反例自证无法端到端成立，判据按 SKIP 纪律以 0 退出（页内策略面成立 +
+  pactl 读数保留），待能产出流的会话启用。父代理的历史读数（100%/0.00dB vs 0%）写在判据文件头。
+
+### 判据与变异
+`gate-audio-silence`（SKIP 路径实测；S2 断言在位：流不存在或全 0%/mute）+
+`audio-mute-discipline`（插件仓 11/0：A3 反例红项=2）+ `gate-audio-mute`（父代理，193 项时已绿）。
+IA5f 竞态修复（见下条）。
+
+### 未验证边界
+① 行为级判据的 **pactl 读数面**在本会话未端到端跑通（环境限制如上），页内策略面已实测；
+② `?muted=0` 不是 audioGate 的 URL 通道（audioGate.muted 只来自宿主三通道）——URL 显式解锁
+实际由 `_wp.setMuted(false)` 承担（任务书原文的两条路径之一），`?muted=0` 只保证不被当静音；
+③ 单例仲裁的 claim 心跳 2s——多实例切换的最坏静音延迟 ~2s（观感待真机）。
+
+## P-225b（2026-09-30）IA5f 竞态修复：`scrollTop=0` 后日志体 slack 未长出的有界等待
+
+### 症状
+`bench-ui-headless` 首跑 IA5f 读 `before:0`（FAIL），单独重跑 PASS（`before:13211→after:0`）——
+`body.scrollTop = 0` 一拍后日志体的 `scrollHeight` 还没长出来 ⇒ slack=0 的竞态。
+
+### 改法
+`tests/bench-ia-group.mjs` 加 `waitSlack()`（≤2s、25ms 一拍等 `scrollHeight − clientHeight −
+scrollTop > 100`），IA5 的三处前置状态（onBefore / offBefore / onBefore2）在 `scrollTop=0` 后
+都先等到位再读。**判据意图不变**：日志滚动守卫仍必须被验证——A/B 两侧的前置状态都等到位才比，
+不比"还没长出内容"的空表；IA5f（守卫关 ⇒ 拉到底）与 IA5g（守卫开 ⇒ 不跳）的对照语义没有放松。
+
+### 判据与变异
+`bench-ui-headless` IA5c/IA5e/IA5f/IA5g 照旧（守卫改回无条件滚动的既有变异体仍必红——对照语义没动）。
+单跑 PASS（本条修复后整轮实测见提交说明）。
