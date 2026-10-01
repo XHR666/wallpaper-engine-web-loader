@@ -963,6 +963,11 @@ add "status-consistency"  "node tests/status-consistency-test.mjs"
 #   判据：官方 14 份侧车逐字段 + 优先级三组 case + format 词表 + legacy/零变化 + 变异（侧车盖层必红）。
 add "tex-json-sidecar"    "node tests/tex-json-sidecar-test.mjs"
 
+# ①(S4 2026-10-01) B3② 阴影矩阵接口（规则 B：接口先行默认关）：castshadow 层 ⇒ 点光 6/方向 3 矩阵
+#   数组 + uniform 名表 + _rt_shadowAtlas RT 描述 + 级联换算/分辨率档；?shadows=force 走通路
+#   （投影/采样未做，notImplemented 台账）。判据：真包 3589454154 双灯 + legacy null + 变异。
+add "shadow-interface"    "node tests/shadow-interface-test.mjs"
+
 # ①(P-174 2026-09-24 主对话补登记) 层引用成员 × 五个面全表普查（官方 d.ts 60 成员 × 5 面 × 三档；缺一项点名成员+面）
 #   + `ISoundLayer.volume`（落点 soundprops.volume、保作者节点、非有限值不落盘、五面同源=函数身份相等）+ byId/getParent 修复。
 add "script-layer-ref-audit" "node tests/script-layer-ref-audit-test.mjs" "" "^SKIP script-layer-ref-audit"

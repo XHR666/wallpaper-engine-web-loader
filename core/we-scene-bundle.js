@@ -12057,6 +12057,8 @@ export function createRenderer(canvas, opts = {}) {
   let __light2DUniforms = null
   // ①(P-214 B2) 每帧由 renderScene 写入的雾 uniform 组缓存（同上；null = 无雾/legacy）
   let __fogUniforms = null
+  // ①(S4) 每帧阴影接口缓存（force 才非 null）
+  let __shadowIface = null
   // ①(P-218 F1) `?mvpi=legacy` 解析 + 奇异矩阵台账（bindSystemUniforms 读）
   const __mpwMvpi = { singular: 0 }
   // ①(P-222 F5) shape notImplemented 日志（每进程一次）
@@ -13396,6 +13398,12 @@ export function createRenderer(canvas, opts = {}) {
     try {
       __fogUniforms = computeFogUniforms(scene.general)
     } catch (e) { __fogUniforms = null }
+    // ①(S4 · RE-43 (3)) 阴影接口（B3②）：force 时建矩阵通路 + `__mpwShadows.notImplemented` 台账；
+    //   legacy（默认）null = 零开销零行为。投影/采样未做（缺真机帧）——通路与台账先行（规则 B）。
+    try {
+      __shadowIface = buildShadowInterface(scene.lights)
+      noteShadowFrame(__shadowIface)
+    } catch (e) { __shadowIface = null }
     // ①(P-90) `?q=` **内部渲染档位**：把整场景画进 `内部尺寸` 的离屏 FBO，帧末上采样到画布。
     //   `q=off`（默认）⇒ `frameTarget=null`、`qfbo=null`、**width/height 原样** ⇒ 与改动前逐位相同。
     //   `q=low|medium|high` ⇒ 把 `width/height` **就地遮蔽**成内部尺寸：下游所有
@@ -16742,6 +16750,51 @@ export function computeFogUniforms(general, search) {
     distanceColor: f.distanceColor || [0, 0, 0],
     heightColor: f.heightColor || [0, 0, 0],
   }
+}
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════
+   ①(S4 2026-10-01 · RE-43 (3) B3②) 阴影接口：矩阵数组 + uniform 名表 + `_rt_shadowAtlas` RT 描述
+   ──────────────────────────────────────────────────────────────────────────────────────────────────
+   `?shadows=legacy`（默认）⇒ null（不生成、不上传，与改动前逐位一致）；`force` ⇒ 走新分支——
+   **投影/采样未做**（缺真机帧数据），只建通路 + 台账 `__mpwShadows.notImplemented`（规则 B：接口先行）。
+   矩阵口径（RE-43 (3)【事实】）：点光 = cube 6 面（`_rt_shadowAtlas` 2×3 图集、每灯一格）；方向光 = 3 级级联
+   （`GetCascadeConfigs` 换算 = P-222 B3① 的 `lightCascadeConfigs`）；`shadowcaster.vert` 用
+   `gl_InstanceID` 索引 `g_ViewportViewProjectionMatrices[6]` ⇒ 统一上限 6。 */
+export function shadowsLegacy(search) {
+  try { if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('shadows') !== 'force' } catch (e) {}
+  try { if (typeof location !== 'undefined' && location.search) return new URLSearchParams(location.search).get('shadows') !== 'force' } catch (e) {}
+  return true
+}
+export function buildShadowInterface(lights, search) {
+  if (shadowsLegacy(search)) return null
+  // 数据通路桩：`castshadow:true` 即算 caster（`visible:false` 的灯是否投影未定案——语料样本
+  // 3589454154 的 id433 恰是 invisible+castshadow，接口层先全收，真投影阶段再裁）。
+  const casters = (lights || []).filter((li) => li && li.castshadow === true)
+  if (!casters.length) return null
+  const out = { lights: [], uniformNames: ['g_ViewportViewProjectionMatrices'], rt: '_rt_shadowAtlas', matricesPerLight: 0, notImplemented: true }
+  for (const li of casters) {
+    const isDir = li.type === 'ldirectional'
+    const n = isDir ? 3 : 6
+    out.matricesPerLight = Math.max(out.matricesPerLight, n)
+    const casc = isDir ? lightCascadeConfigs(li.cascadedistance0 || 0, li.cascadedistance1 || 0, li.cascadedistance2 || 0) : null
+    out.lights.push({
+      id: li.id, type: li.type, visible: true,
+      matrixCount: n,
+      matrices: Array.from({ length: n }, () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),  // 单位占位（投影未做）
+      cascade: casc,
+      resolution: shadowResolutionFor(2),
+      uniformNames: isDir
+        ? ['g_LFeature_ShadowProjection', 'g_LFeature_ShadowProjectionTransform']
+        : ['g_LFeature_ShadowPointProjection', 'g_LFeature_ShadowPointProjectionTransform'],
+    })
+  }
+  return out
+}
+const __shadowLedger = { notImplemented: 0, frames: 0, lights: 0 }
+export function shadowLedger() { return { ...__shadowLedger } }
+export function noteShadowFrame(iface) {
+  __shadowLedger.frames++
+  if (iface) { __shadowLedger.lights = iface.lights.length; __shadowLedger.notImplemented++ }
+  try { const g = (typeof globalThis !== 'undefined') ? globalThis : null; if (g) g.__mpwShadows = shadowLedger() } catch (e) {}
 }
 /** 场景光源 → 2D 四灯 uniform 组（路径A；可见灯取前 4 盏，官方 4 盏上限）。
  *  `intensity²` 预乘进 rgb；ambient/skylight 缺省 (0,0,0)（= GL uniform 缺省，无灯场景零视觉差）。 */
