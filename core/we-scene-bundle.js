@@ -12612,6 +12612,19 @@ export function createRenderer(canvas, opts = {}) {
     //   `?clampuvs=legacy` 整条不生效）。放在 TEXTURE0 绑定之前：所有走 compositeLayer 的内容绘制都被覆盖，
     //   且与 P-194 的效果输入槽规则（fxSlotWrap，槽 1+）按"各自 draw 前各自设置"共存，冲突进台账不静默。
     try { layerClampUvWrap(gl, inputTex, layer.clampuvs, layer.textureName) } catch (e) { /* wrap 失败不影响绘制 */ }
+    /* ①(S3 2026-10-01 · RE-47) `.tex-json` 侧车接管：层字段（clampuvs/nointerpolation）为 null 时，
+       侧车优先级生效（层 > 侧车 > 头缺省；`?texjson=legacy` 整条忽略）。侧车对象由宿主在
+       loadTex 里贴到纹理对象 `__mpwTexJson`（包内条目 / `/weassist/` 两路都试）。 */
+    if (inputTex && inputTex.__mpwTexJson && !texjsonLegacy()) {
+      const __prio = texSamplePriority(layer.clampuvs, layer.nointerpolation, inputTex.__mpwTexJson)
+      if (__prio.src === 'sidecar') {
+        try { applyTexJsonSampleState(gl, inputTex, __prio, { wrapNow: inputTex.__mpwWrapNow, filterNow: inputTex.__mpwFilterNow }) } catch (e) {}
+        try {
+          const g = (typeof globalThis !== 'undefined') ? globalThis : null
+          if (g) { g.__mpwTexWrap = Object.assign({ src: null }, g.__mpwTexWrap || {}); g.__mpwTexWrap.src = 'sidecar:' + (layer.textureName || '?') }
+        } catch (e) {}
+      }
+    }
     // ①(P-217 A8 · RE-49) `nointerpolation:true` ⇒ 该层内容纹理过滤 NEAREST（官方 2.8.8 起读该键；
     //   语料 6 层全是音频可视化容器——放大时的取整观感）。MIN/MAG 都设；纹理对象级状态与 wrap 同理，
     //   只对该层自己的 draw 生效（本层每次绘制前设置；其它层不读该字段 ⇒ 不受影响）。
@@ -14103,6 +14116,9 @@ export function createRenderer(canvas, opts = {}) {
   // ①(P-223) `?reszw=legacy`：g_TextureNResolution.zw 回到物理尺寸 (w,h,w,h)（旧口径）。
   const RESZW_LEGACY = (() => { try { return new URLSearchParams(location.search).get('reszw') === 'legacy' } catch { return false } })()
   function reszwLegacy() { return RESZW_LEGACY }
+  // ①(S3) `?texjson=legacy`：.tex-json 侧车字段整条忽略（回到只读 .tex 头的旧口径）。
+  const TEXJSON_LEGACY = (() => { try { return new URLSearchParams(location.search).get('texjson') === 'legacy' } catch { return false } })()
+  function texjsonLegacy() { return TEXJSON_LEGACY }
   // ①(P-212 A2) 宿主像素源注入点（本轮无源 ⇒ 全部回落 textures[i]）：
   //  `globalThis.__mpwUserTextures = { userProps?:{名:纹理名|{texture,…}}, media?:{…}, shortcuts?:{…} }`
   const hostUserTexSources = () => {
@@ -16378,6 +16394,76 @@ export function clampuvsForced(search) {
   })();
   try { if (q && q.get('clampuvs') === 'legacy') return 'legacy' } catch (e) {}
   return null;
+}
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════
+   ①(S3 2026-10-01 · RE-47) `.tex-json` 侧车字段（官方 10+ 份：`assets/materials/util/noise.tex-json` 等）
+   ──────────────────────────────────────────────────────────────────────────────────────────────────
+   官方字段集 = {clampuvs, format, nointerpolation, nomip, forcerawcompression}（RE-47【事实】；
+   declarations.json 的 imageshaders config 同形）。本仓此前只读 `.tex` 头 ⇒ 侧车完全没读。
+   优先级（S3 定案）：**层字段 > 侧车 > `.tex` 头缺省**；`?texjson=legacy` ⇒ 侧车整条忽略。
+   `nomip` / `forcerawcompression` / `format`：解析 + 台账（行为未定案按规则 B 留接口，不许丢）。 */
+export function parseTexJsonSidecar(obj) {
+  const boolv = (v) => (v === true ? true : (v === false ? false : null))
+  if (!obj || typeof obj !== 'object') return null
+  return {
+    clampuvs: boolv(obj.clampuvs),
+    nointerpolation: boolv(obj.nointerpolation),
+    nomip: boolv(obj.nomip),
+    forcerawcompression: boolv(obj.forcerawcompression),
+    format: typeof obj.format === 'string' ? obj.format : null,
+  }
+}
+/** 官方/RE-40 已知的 format 词（侧车 `format` 字段的值域；unknown ⇒ 台账记账，不猜）。 */
+export const TEX_JSON_FORMATS = ['rgba8888', 'rgb888', 'dxt5n', 'dxt3', 'dxt1', 'r8', 'rg88', 'bc7', 'rgba16161616f']
+export function texJsonFormatKnown(fmt) { return TEX_JSON_FORMATS.indexOf(String(fmt || '').toLowerCase()) >= 0 }
+/** 采样器优先级（纯函数）：层字段 > 侧车 > 头缺省。`src` 记录来自哪一级（台账 `__mpwTexWrap.src`）。 */
+export function texSamplePriority(layerClampuvs, layerNointerpolation, sidecar) {
+  const out = { wrap: null, filter: null, src: 'default' }
+  const sc = sidecar || {}
+  if (layerClampuvs === true || layerClampuvs === false) { out.wrap = layerClampuvs ? 'clamp' : 'repeat'; out.src = 'layer' }
+  else if (sc.clampuvs === true || sc.clampuvs === false) { out.wrap = sc.clampuvs ? 'clamp' : 'repeat'; out.src = 'sidecar' }
+  if (layerNointerpolation === true) { out.filter = 'nearest'; if (out.src === 'default') out.src = 'layer' }
+  else if (layerNointerpolation === false) { out.filter = 'linear'; if (out.src === 'default') out.src = 'layer' }
+  else if (sc.nointerpolation === true) { out.filter = 'nearest'; if (out.src === 'default') out.src = 'sidecar' }
+  else if (sc.nointerpolation === false) { out.filter = 'linear'; if (out.src === 'default') out.src = 'sidecar' }
+  return out
+}
+const __texJsonLedger = { loaded: 0, applied: 0, unknownFormat: 0, formats: {} }
+export function texJsonLedger() { return { loaded: __texJsonLedger.loaded, applied: __texJsonLedger.applied, unknownFormat: __texJsonLedger.unknownFormat, formats: { ...__texJsonLedger.formats } } }
+export function noteTexJson(sidecar) {
+  __texJsonLedger.loaded++
+  if (!sidecar) return
+  if (sidecar.format) {
+    const k = String(sidecar.format).toLowerCase()
+    __texJsonLedger.formats[k] = (__texJsonLedger.formats[k] || 0) + 1
+    if (!texJsonFormatKnown(k)) __texJsonLedger.unknownFormat++
+  }
+  try { const g = (typeof globalThis !== 'undefined') ? globalThis : null; if (g) g.__mpwTexJson = texJsonLedger() } catch (e) {}
+}
+/** 侧车应用到采样器（wrap/filter；`src` 记台账）。层字段已表达（mode/filter 已定）⇒ 不覆盖。 */
+export function applyTexJsonSampleState(gl, tex, prio, cur) {
+  try {
+    if (!gl || !tex || !prio) return null
+    let applied = 0
+    if (prio.wrap && prio.src === 'sidecar' && cur.wrapNow !== prio.wrap) {
+      const want = prio.wrap === 'clamp' ? gl.CLAMP_TO_EDGE : gl.REPEAT
+      if (want !== undefined && want !== null) {
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, want)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, want)
+        tex.__mpwWrapNow = prio.wrap; tex.__mpwWrapReq = tex.__mpwWrapReq || prio.wrap
+        applied++
+      }
+    }
+    if (prio.filter === 'nearest' && prio.src === 'sidecar' && cur.filterNow !== 'nearest') {
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+      tex.__mpwFilterNow = 'nearest'; applied++
+    }
+    if (applied) { __texJsonLedger.applied++; try { const g = (typeof globalThis !== 'undefined') ? globalThis : null; if (g) g.__mpwTexJson = texJsonLedger() } catch (e) {} }
+    return applied
+  } catch (e) { return null }
 }
 /** 层内容绘制前的 wrap 执行器：`mode` = `layer.clampuvs`（true/false/null）。
  *  返回实际落到的模式（'clamp'/'repeat'/null = 没动）；假 GL / 缺常量时静默跳过不抛。 */

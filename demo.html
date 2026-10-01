@@ -3213,7 +3213,7 @@ async function loadTex(name, opts = {}) {
          物理上传 = nw/nh（降采样后），内容 = .tex 头声明的 textureWidth/Height（官方
          `g_TextureNResolution.zw = 内容(unpadded)尺寸` 的数据源；common_particles.h:69 的
          `unpaddedWidth = .z/.x` 消费它）。无声明/相等 ⇒ 与 width 相同 ⇒ .zw=.xy（逐位 = 改动前）。 */
-      const entry = wrapTex({ glTex: lib.makeTexture(gl, dst, nw, nh, null, null, 'materials/' + name + '.tex'), width: nw, height: nh, contentWidth: tex.textureWidth || nw, contentHeight: tex.textureHeight || nh, rg88: tex.format === 8, sprite }, name)
+      const entry = __attachTexJson(wrapTex({ glTex: lib.makeTexture(gl, dst, nw, nh, null, null, 'materials/' + name + '.tex'), width: nw, height: nh, contentWidth: tex.textureWidth || nw, contentHeight: tex.textureHeight || nh, rg88: tex.format === 8, sprite }, name))
       // ①(2026-09-23 静默失败审计 A-7) `makeTexture` 现在**自己**在 texImage2D 之后查一次错
       //   （记账进 `__mpwTexUploadErrs`）⇒ 这里不能再靠 `gl.getError()` 读（旗标已被它取走，恒 0），
       //   改读同一份判定值；万一跑的是旧 bundle（无该字段）则回退到原来的 getError。
@@ -3225,6 +3225,29 @@ async function loadTex(name, opts = {}) {
       textures.set(name, entry)
       return entry
     } catch (e) { logf('  ⚠ JS降采样失败 ' + name + ': ' + e.message) }
+  }
+  /* ①(S3 2026-10-01 · RE-47) `.tex-json` 侧车登记：`<同名>.tex-json`（包内条目或 /weassist/ 路由）。
+     解析走 core 的 parseTexJsonSidecar；对象贴在纹理条目与 GL 纹理对象（`__mpwTexJson`）上，
+     compositeLayer 绘制期按"层 > 侧车 > 头"优先级消费。`?texjson=legacy` ⇒ 不取不贴。
+     官方资产侧车（util/pattern/cookie 三族 14 份）判据逐字段断言；`nomip`/`forcerawcompression`/
+     `format` 只解析+台账（行为未定案，规则 B）。 */
+  const __attachTexJson = (entry) => {
+    try {
+      const rel = String(name).replace(/^materials\//, '')
+      const sideName = rel.replace(/\.tex\$/i, '.tex-json')
+      const apply = (obj) => {
+        const sc = lib.parseTexJsonSidecar(obj)
+        if (!sc) return
+        entry.texJson = sc
+        if (entry.glTex) entry.glTex.__mpwTexJson = sc
+        lib.noteTexJson(sc)
+        try { if (typeof mpwAudioApply === 'function') {} } catch (e) {}
+      }
+      const pe = typeof pkg !== 'undefined' && pkg && lib.getEntry ? lib.getEntry(pkg, 'materials/' + sideName) : null
+      if (pe) { apply(lib.parseWeJson(rd(pe))); return entry }
+      fetch('/weassist/materials/' + sideName, { cache: 'force-cache' }).then((r) => (r.ok ? r.text() : '')).then((t) => { if (t) { try { apply(JSON.parse(t)) } catch (e) {} } }).catch(() => {})
+      return entry
+    } catch (e) { return entry }
   }
   const rg88 = tex.format === 8;
   if (m.video !== undefined) {
@@ -3244,7 +3267,7 @@ async function loadTex(name, opts = {}) {
     try { mpwBlobMediaRetry(videoEl, '视频纹理') } catch (e) {}   // ①(2026-09-24 上游 Bug 2056444) blob 喂 <video> 首次 load 静默挂住的兜底
     videoEl.addEventListener('error', (e) => logf('  ⚠ 视频解码错误 code=' + (videoEl.error ? videoEl.error.code : '?')));
     videoEl.addEventListener('loadeddata', () => logf('  ✅ 视频已加载 ' + videoEl.videoWidth + 'x' + videoEl.videoHeight));
-    const ve = wrapTex({ video: videoEl, glTex: lib.makeTexture(gl, new Uint8Array([0,0,0,0]), 1, 1), width: m.width, height: m.height, rg88: false, lastUploaded: -1, sprite }, name);
+    const ve = __attachTexJson(wrapTex({ video: videoEl, glTex: lib.makeTexture(gl, new Uint8Array([0,0,0,0]), 1, 1), width: m.width, height: m.height, rg88: false, lastUploaded: -1, sprite }, name));
     textures.set(name, ve);
     return Promise.resolve(ve);
   }
@@ -3260,7 +3283,7 @@ async function loadTex(name, opts = {}) {
       //   现在：超 min(4096, 设备上限) 先 canvas 缩图；上传后查错，失败按 2048→1024 阶梯
       //   重试并逐级记日志（下一份上报能直接回答"为什么黑"）。
       /* ①(P-223) contentWidth/Height = 解码位图原尺寸（降档重试只改物理上传尺寸） */
-      const mkEntry = (src, w, h) => wrapTex({ glTex: lib.makeTexture(gl, null, 0, 0, src, null, 'materials/' + name + '.tex'), width: w, height: h, contentWidth: bmp.width, contentHeight: bmp.height, rg88: rg88, sprite }, name)
+      const mkEntry = (src, w, h) => __attachTexJson(wrapTex({ glTex: lib.makeTexture(gl, null, 0, 0, src, null, 'materials/' + name + '.tex'), width: w, height: h, contentWidth: bmp.width, contentHeight: bmp.height, rg88: rg88, sprite }, name))
       const uploadWithCheck = (src, w, h) => {
         try { gl.getError() } catch (e) {}   // 清掉历史错误，只看本次上传
         const e = mkEntry(src, w, h)
@@ -3344,7 +3367,7 @@ async function loadTex(name, opts = {}) {
   texStatUp(0, up.attempts.length)
   /* ①(P-223) contentWidth/Height = .tex 头声明的逻辑尺寸（format 5 半清晰度时 = 2×物理；
      降档上传时 = 原始尺寸）；无差异 ⇒ 与 width/height 相同（.zw=.xy 逐位 = 改动前）。 */
-  const e = { glTex: up.tex, width: up.w, height: up.h, contentWidth: tex.textureWidth || up.w, contentHeight: tex.textureHeight || up.h, rg88: rg88, sprite };
+  const e = __attachTexJson({ glTex: up.tex, width: up.w, height: up.h, contentWidth: tex.textureWidth || up.w, contentHeight: tex.textureHeight || up.h, rg88: rg88, sprite });
   textures.set(name, e);
   return Promise.resolve(e);
 }
