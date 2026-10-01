@@ -968,6 +968,11 @@ add "tex-json-sidecar"    "node tests/tex-json-sidecar-test.mjs"
 #   （投影/采样未做，notImplemented 台账）。判据：真包 3589454154 双灯 + legacy null + 变异。
 add "shadow-interface"    "node tests/shadow-interface-test.mjs"
 
+# ①(S5 2026-10-01) F9 过滤接线：conditions 求值 false ⇒ 剔除 pass（官方宏求值器语义）、
+#   unknown ⇒ 保留 + conditionsUnknown 台账（不猜）；无 conditions ⇒ 逐位 = 改动前（语料 0 命中）。
+#   判据：合成包 3 pass（true/false/unknown）+ 台账 + 零变化快照 + 变异（unknown 当 false 必红）。
+add "fx-conditions-filter" "node tests/fx-conditions-filter-test.mjs"
+
 # ①(P-174 2026-09-24 主对话补登记) 层引用成员 × 五个面全表普查（官方 d.ts 60 成员 × 5 面 × 三档；缺一项点名成员+面）
 #   + `ISoundLayer.volume`（落点 soundprops.volume、保作者节点、非有限值不落盘、五面同源=函数身份相等）+ byId/getParent 修复。
 add "script-layer-ref-audit" "node tests/script-layer-ref-audit-test.mjs" "" "^SKIP script-layer-ref-audit"

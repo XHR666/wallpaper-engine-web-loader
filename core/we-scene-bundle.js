@@ -3613,7 +3613,10 @@ export function resolveEffectChain(pkg, effect, readText, opts) {
   effect.commands = []
   let compose = false
   effect.materialPasses = []
-  for (const p of (ej.passes || [])) {
+  const __ejPasses = ej.passes || []
+  let ejPassIdx = -1
+  for (const p of __ejPasses) {
+    ejPassIdx++
     if (!p.material) {
       // WER-ALIGN C8（wer-ref WPEffect.cpp:200-208）：无 material 的 command pass
       // 不进 materialPasses，单独存 commands，afterpos=当前 material pass 数（官方语义：
@@ -3633,6 +3636,16 @@ export function resolveEffectChain(pkg, effect, readText, opts) {
     // ①(P-222 F9 · RE-08/RE-46) `passes[].conditions`（语料 456 effect.json / 2210 pass 0 命中，
     //   官方有 combos 宏求值器）⇒ **原样解析保留**（数组/对象形态都不 reinterpret），求值接口见
     //   `evaluateConditions`（unknown ⇒ 不剔除 + 台账，绝不猜 true/false）。
+    // ①(S5 2026-10-01) **过滤接线**：`evaluateConditions` 算出 `false` ⇒ 剔除该 pass（官方宏求值器
+    //   语义：假 ⇒ 不执行）；`true`/`unknown` ⇒ 保留（unknown 记台账 `conditionsUnknown`，不猜）。
+    //   无 conditions ⇒ 'none' ⇒ 零变化（语料 0 命中 ⇒ 默认路径逐位 = 改动前）。
+    if (p.conditions != null) {
+      // combos 上下文 = effect.json pass 自身 + 场景级同下标 pass 的 combos（场景覆盖官方语义）
+      const scPass = (effect.passes && effect.passes[ejPassIdx]) || {}
+      const condRes = evaluateConditions(p.conditions, { ...(scPass.combos || {}), ...(p.combos || {}) }, null)
+      if (condRes === false) continue
+      if (condRes === 'unknown') { try { condUnknown() } catch (e) {} }
+    }
     // ①(P-205) material 也走同一条候选链（包内 → `/weassist/<rel>` → `/weassist/<effectDir><rel>`）。
     //   最后一级是**必需**的：官方资产的 `materials/effects/<名>.json` 实际放在
     //   `assets/effects/<名>/materials/effects/<名>.json`；少了它，从 `/weassist` 取回的 effect.json
@@ -16835,6 +16848,12 @@ export function computeLight2DUniforms(lights, general) {
    已知子集：{combo: 名, equals/value} 或 {key: 期望} 的对象 / 其数组（AND）。**任何未识别形态返回
    'unknown'** ⇒ 调用方按"不剔除该 pass"处理并记台账 —— 绝不静默猜 true/false（判据钉死）。
    缺省（无 conditions 字段）⇒ 'none'（零变化）。本批只落接口与解析保留，**不改 pass 过滤行为**。 */
+const __condLedger = { unknown: 0, filtered: 0 }
+export function conditionsLedger() { return { ...__condLedger } }
+function condUnknown() {
+  __condLedger.unknown++
+  try { const g = (typeof globalThis !== 'undefined') ? globalThis : null; if (g) g.__mpwConditions = conditionsLedger() } catch (e) {}
+}
 export function evaluateConditions(conditions, combos, userProps) {
   const known = (c) => {
     if (c == null || typeof c !== 'object' || Array.isArray(c)) return false
