@@ -46,126 +46,126 @@ if (!itemId) skipAll('测试台 /api/library 没有 hasScene 的项（8902 在�
 const FF = [process.env.MPW_FIREFOX || '/opt/firefox/firefox', 'firefox'].find((p) => { try { fs.accessSync(p, fs.constants.X_OK); return true } catch { return false } })
 if (!FF) skipAll('Firefox 不在（找过 /opt/firefox/firefox 与 PATH）')
 
-/* S1 起无头 Firefox（静音三件套 + PULSE_SERVER 桥），顶层开渲染器页装真包 */
-// playwright 引入走 _gl-browser 的既有候选顺序（环境变量 → 本仓 → 插件仓 → 全局）
+/* playwright 引入走 _gl-browser 的既有候选顺序（环境变量 → 本仓 → 插件仓 → 全局） */
 import { findPlaywright } from './_gl-browser.mjs'
 const PW = findPlaywright()
 if (!PW) skipAll('playwright 不可用（候选：MPW_PLAYWRIGHT / 本仓 / 插件仓 / /opt/node 全局）')
 const pwMod = await import(pathToFileURL(PW).href)
 const pwDefault = pwMod.default || pwMod
-const firefox = pwDefault.firefox || (pwMod.firefox)
+const firefox = pwDefault.firefox || pwMod.firefox
 const projSize = 1920
-// 顶层渲染器页（shell=0 去外壳）+ 真包：src 走绝对路径（demo 的加载器直接吃本地路径；
-//   服务器另有 /api/fs/file 只读兜底）。sceneFps=10 压 CPU；muted=0 是"用户显式开声"的模拟
-//   —— 但门禁侧 prefs 三件套是硬保证（页面怎么设都不出声），这正是本判据要证的。
-// 渲染器页 = 同源 /webloader/（:8902 直供的 demo.html + 本仓 core；bench 根页是测试台外壳，
-//   没有 __mpwAudioPolicy —— 首跑读数全 null 就是开错了页）。顶层直接打开 = P-225 要管的那个场景。
+/* 顶层渲染器页（真包臂用；`muted=0` 模拟"用户显式开声"，页面语义见 P-225） */
 const url = 'http://127.0.0.1:8902/webloader/?id=' + itemId + '&sceneFps=10&muted=0&audio=1'
-const prof = fs.mkdtempSync(path.join(os.tmpdir(), 'mpw-audio-silence-'))
-const browser = await firefox.launch({
-  headless: true,
-  env: { ...process.env, PULSE_SERVER: 'tcp:127.0.0.1:4713' },
-  firefoxUserPrefs: withAudioMute({ 'media.cubeb.backend': 'pulse', 'media.cubeb.sandbox': false }),
-})
-let passStreams = 0, mutedStreams = 0, audible = []
-try {
-  const page = await browser.newPage({ viewport: { width: projSize, height: 1080 } })
-  await page.goto(url, { timeout: 60000, waitUntil: 'domcontentloaded' }).catch(() => {})
-  /* 用户手势（与 P-225 页面语义同形）：**轮询点击**直到页面解锁或超时——startSceneAudio 要等
-     包装载完（/pkg/<id> 大包几十秒）才注册 pointerdown/keydown 监听 ⇒ 定时点击 + 轮询读
-     `__mpwAudioPolicy.gesture`。prefs 三件套是硬保证：即便手势到位、即便页面 unmute，
-     volume_scale=0 也让它不出声（父代理实测：流可出现但 0%/-inf）。 */
-  for (let i = 0; i < 30; i++) {
-    await page.mouse.click(320, 240).catch(() => {})
-    const st = await page.evaluate(() => JSON.stringify({
-      g: window.__mpwAudioPolicy ? window.__mpwAudioPolicy.gesture : null,
-      s: window.__mpwAudioPolicy ? window.__mpwAudioPolicy.silent : null,
-    })).catch(() => '{}')
-    let j = {}; try { j = JSON.parse(st) } catch (e2) {}
-    if (j.g === true) break
-    await page.waitForTimeout(2000)
-  }
-  await page.waitForTimeout(8000)
+
+/* ── ①(2026-10-01 父代理重做为"确定性两臂") ─────────────────────────────────────────
+   口径（判据一条没松）：**同一个必然出声的页面**，两臂只差"有没有静音三件套"：
+     · 静音臂  ⇒ 流不存在，或存在时全 0%/-inf dB（=> S2）
+     · 反例臂  ⇒ 出现 ≥1 条 100%/0.00 dB 的流（=> S3，判据有分辨力的证明）
+   为什么不用真包页当读数面：实测真包臂常常**压根没有音频流**（`graph:null`），拿它当断言面会让判据永远 SKIP；
+   而"桥是否建流"这件事必须确定 ⇒ 用内联 WAV data URI + autoplay（父代理实测：无静音 100%、带三件套 0%）。
+   两臂**各自单独起浏览器**：实测上一臂关闭后仍可能残留 0% 流，会把反例臂误判成"静音"。
+   真包页（`/webloader/?id=…` + 手势轮询）保留为**信息读数**（页面策略面：`__mpwAudioSilentReason` 等），不参与 pactl 断言。 */
+
+/** 内联一段会**必然出声**的页面（8s 440Hz WAV data URI + autoplay loop）。 */
+function loudPageHtml () {
+  const sr = 8000, n = sr * 8
+  const buf = Buffer.alloc(44 + n * 2)
+  buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVE', 8); buf.write('fmt ', 12)
+  buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22); buf.writeUInt32LE(sr, 24)
+  buf.writeUInt32LE(sr * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34)
+  buf.write('data', 36); buf.writeUInt32LE(n * 2, 40)
+  for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round(Math.sin(i / 20) * 12000), 44 + i * 2)
+  return '<!doctype html><title>MPW-AUDIO-SILENCE-PROBE</title>' +
+    '<audio id=a autoplay loop src="data:audio/wav;base64,' + buf.toString('base64') + '"></audio>'
+}
+
+/** 读一次 PulseAudio，按 "Sink Input #" 分块；只算 application.name 含 Nightly 的（= 门禁自己的浏览器）。 */
+function readNightlyStreams () {
   const si = spawnSync('pactl', ['list', 'sink-inputs'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
   const out = si.stdout || ''
-  // 以 "Sink Input #" 分块；块里 application.name 含 Nightly 的算本浏览器
-  const blocks = out.split(/Sink Input #\d+/).slice(1)
-  for (const b of blocks) {
+  const res = { ok: si.status === 0, bytes: out.length, total: 0, muted: 0, audible: [] }
+  for (const b of out.split(/Sink Input #\d+/).slice(1)) {
     if (!/Nightly/i.test(b)) continue
-    passStreams++
-    const vol0 = /Volume: [^\n]*0%/.test(b) || /-inf dB/.test(b)
+    res.total++
+    /* ⚠(2026-10-01 父代理修)：旧写法 `/Volume: [^\n]*0%/` 会把 **100%** 判成 0%（"100%" 以 "0%" 结尾）⇒
+       反例臂的 100% 流被误判成"静音"，判据永远红。改成**取百分数再比数值**。 */
+    const vm = b.match(/Volume:[^\n]*?(\d+)%/)
+    const vol0 = (vm ? Number(vm[1]) === 0 : false) || /-inf dB/.test(b)
     const mute = /Mute: yes/.test(b)
-    if (vol0 || mute) mutedStreams++
-    else audible.push(b.split('\n').filter((l) => /Volume:|Mute:|application.name/.test(l)).join(' | ').slice(0, 160))
+    if (vol0 || mute) res.muted++
+    else res.audible.push(b.split('\n').filter((l) => /Volume:|Mute:|application.name/.test(l)).join(' | ').slice(0, 160))
   }
-  const pol = await page.evaluate(() => JSON.stringify({
-    policy: window.__mpwAudioPolicy || null, reason: window.__mpwAudioSilentReason || null,
-    graph: window.__mpwAudioGraphInfo ? window.__mpwAudioGraphInfo() : null, log: (window.__mpwLogTail || '').slice(-200),
-  })).catch((e) => 'eval-fail: ' + String(e).slice(0, 60))
-  console.log('  S1 页面侧读数: ' + pol)
-  check('S1 浏览器起来了并读了 pactl（sink-inputs 输出 ' + out.length + 'B）', out.length > 0, '')
-} catch (e) {
-  check('S1 浏览器流程异常（如实红）', false, String(e && e.message).slice(0, 120))
-} finally {
-  try { await browser.close() } catch (e) {}
-  try { fs.rmSync(prof, { recursive: true, force: true }) } catch (e) {}
+  return res
 }
 
-/* S2 判据：不存在流，或存在时全 0%/mute */
-check('S2 静音三件套下：Nightly 的流不存在或全部 0%/mute（passStreams=' + passStreams + ' mutedStreams=' + mutedStreams + '）',
-  passStreams === 0 || mutedStreams === passStreams, audible.length ? '可听读数：' + audible.join(' ;; ') : '无可听流')
+/** 等上一臂的流彻底消失（拿干净基线；超时也如实返回 left>0）。 */
+async function waitNoNightlyStreams (maxMs = 20000) {
+  const t0 = Date.now()
+  for (;;) {
+    const r = readNightlyStreams()
+    if (r.total === 0) return { waited: Date.now() - t0, left: 0 }
+    if (Date.now() - t0 > maxMs) return { waited: Date.now() - t0, left: r.total }
+    await new Promise((res) => setTimeout(res, 500))
+  }
+}
 
-/* S3 反例自证：去掉静音 prefs ⇒ 同一判据必须红（判据有分辨力的证明） */
-if (!process.argv.includes('--no-mutations')) {
-  console.log('== S3 反例自证（去掉三件套 ⇒ 判据变红；读数打印作为分辨力证明）==')
-  const prof2 = fs.mkdtempSync(path.join(os.tmpdir(), 'mpw-audio-silence-c-'))
-  const browser2 = await firefox.launch({
-    headless: true,
-    env: { ...process.env, PULSE_SERVER: 'tcp:127.0.0.1:4713' },
-    firefoxUserPrefs: { 'media.cubeb.backend': 'pulse', 'media.cubeb.sandbox': false, 'media.autoplay.default': 0 },
-  })
+/** 一臂：可选先开真包页做手势（信息读数），再换"必出声"页读 pactl。 */
+async function probeArm ({ mute, realPack = false, tag = '' }) {
+  const prefs = mute
+    ? withAudioMute({ 'media.cubeb.backend': 'pulse', 'media.cubeb.sandbox': false })
+    : { 'media.cubeb.backend': 'pulse', 'media.cubeb.sandbox': false, 'media.autoplay.default': 0 }
+  const browser = await firefox.launch({ headless: true, env: { ...process.env, PULSE_SERVER: 'tcp:127.0.0.1:4713' }, firefoxUserPrefs: prefs })
+  const out = { tag, mute, realPolicy: null, policy: null, streams: null }
   try {
-    const page = await browser2.newPage({ viewport: { width: projSize, height: 1080 } })
-    await page.goto(url, { timeout: 60000, waitUntil: 'domcontentloaded' }).catch(() => {})
-    // 同一手势轮询（反例臂）：无静音 prefs + 手势 ⇒ 声音真放（100%/0.00dB 的流出现）
-    for (let i = 0; i < 30; i++) {
-      await page.mouse.click(320, 240).catch(() => {})
-      const st = await page.evaluate(() => JSON.stringify({
-        g: window.__mpwAudioPolicy ? window.__mpwAudioPolicy.gesture : null,
-        s: window.__mpwAudioPolicy ? window.__mpwAudioPolicy.silent : null,
-      })).catch(() => '{}')
-      let j = {}; try { j = JSON.parse(st) } catch (e2) {}
-      if (j.g === true && j.s === false) break
-      await page.waitForTimeout(2000)
+    const page = await browser.newPage({ viewport: { width: projSize, height: 1080 } })
+    if (realPack) {
+      await page.goto(url, { timeout: 60000, waitUntil: 'domcontentloaded' }).catch(() => {})
+      for (let i = 0; i < 20; i++) {                       // 手势轮询（页面语义：顶层要手势才解锁）
+        await page.mouse.click(320, 240).catch(() => {})
+        const st = await page.evaluate(() => JSON.stringify({ g: window.__mpwAudioPolicy ? window.__mpwAudioPolicy.gesture : null })).catch(() => '{}')
+        let j = {}; try { j = JSON.parse(st) } catch (e2) {}
+        if (j.g === true) break
+        await page.waitForTimeout(1500)
+      }
+      out.realPolicy = await page.evaluate(() => JSON.stringify({ policy: window.__mpwAudioPolicy || null, reason: window.__mpwAudioSilentReason || null })).catch(() => 'eval-fail')
     }
-    await page.waitForTimeout(8000)
-    const si = spawnSync('pactl', ['list', 'sink-inputs'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
-    const blocks = (si.stdout || '').split(/Sink Input #\d+/).slice(1)
-    var audNTotal = 0
-    let audN = 0, readout = ''
-    for (const b of blocks) {
-      if (!/Nightly/i.test(b)) continue
-      const vol0 = /Volume: [^\n]*0%/.test(b) || /-inf dB/.test(b)
-      const mute = /Mute: yes/.test(b)
-      if (!(vol0 || mute)) { audN++; audNTotal = audN; readout = b.split('\n').filter((l) => /Volume:|Mute:|application.name/.test(l)).join(' | ').slice(0, 160) }
-    }
-    const pol2 = await page.evaluate(() => JSON.stringify({
-      policy: window.__mpwAudioPolicy || null, reason: window.__mpwAudioSilentReason || null,
-      graph: window.__mpwAudioGraphInfo ? window.__mpwAudioGraphInfo() : null,
-    })).catch((e) => 'eval-fail: ' + String(e).slice(0, 60))
-    console.log('  S3 页面侧读数: ' + pol2)
-    check('S3 无静音 prefs ⇒ 出现 100%/0.00dB 的可听流（判据有分辨力；读数：' + readout + '）',
-      audN >= 1, 'audN=' + audN)
+    await page.setContent(loudPageHtml())                  // ← 确定性读数面
+    await page.waitForTimeout(4500)
+    out.policy = await page.evaluate(() => JSON.stringify({ paused: document.getElementById('a') ? document.getElementById('a').paused : null })).catch(() => '{}')
+    out.streams = readNightlyStreams()
   } catch (e) {
-    check('S3 反例流程异常', false, String(e && e.message).slice(0, 120))
+    out.err = String((e && e.message) || e).slice(0, 140)
+    out.streams = out.streams || readNightlyStreams()
   } finally {
-    try { await browser2.close() } catch (e) {}
-    try { fs.rmSync(prof2, { recursive: true, force: true }) } catch (e) {}
+    try { await browser.close() } catch (e) {}
+    await waitNoNightlyStreams()                           // 给下一臂干净基线
   }
-  if (passStreams === 0 && audNTotal === 0) {
-    skipAll('反例臂也未产出 sink-input（页面已 audible/手势已到位——页内策略面成立；cubeb→Pulse 桥在本会话不建流）。判据保留，待可产出流的会话启用')
+  return out
+}
+
+/* S1（信息）：真包页 + 手势 ⇒ 页面策略面读数（不参与 pactl 断言） */
+const armMute = await probeArm({ mute: true, realPack: true, tag: '静音臂' })
+console.log('  S1 真包页策略读数: ' + (armMute.realPolicy || '(未取到)'))
+console.log('  S1b 静音臂 · 必出声页: streams total=' + armMute.streams.total + ' muted=' + armMute.streams.muted + ' audible=' + armMute.streams.audible.length + ' bytes=' + armMute.streams.bytes + (armMute.err ? ' err=' + armMute.err : ''))
+check('S1 pactl 读成功 + 静音臂跑完（bytes=' + armMute.streams.bytes + '）', armMute.streams.ok === true && !armMute.err, '')
+
+/* S2 判据：静音臂 ⇒ 无流，或流全 0%/-inf */
+check('S2 静音三件套下：Nightly 的流不存在或全部 0%/mute（total=' + armMute.streams.total + ' muted=' + armMute.streams.muted + '）',
+  armMute.streams.total === 0 || armMute.streams.muted === armMute.streams.total,
+  armMute.streams.audible.length ? '可听读数：' + armMute.streams.audible.join(' ;; ') : '无可听流')
+
+/* S3 反例自证：去掉三件套 ⇒ 必须出现可听流（否则判据没有分辨力，如实红） */
+let armLoud = null
+if (!process.argv.includes('--no-mutations')) {
+  console.log('== S3 反例自证（去掉三件套 ⇒ 出现 100%/0.00dB 的流；判据有分辨力的证明）==')
+  armLoud = await probeArm({ mute: false, realPack: false, tag: '反例臂' })
+  console.log('  S3b 反例臂 · 必出声页: streams total=' + armLoud.streams.total + ' muted=' + armLoud.streams.muted + ' audible=' + armLoud.streams.audible.length + ' bytes=' + armLoud.streams.bytes + (armLoud.err ? ' err=' + armLoud.err : ''))
+  if (armLoud.streams.audible.length) console.log('  S3b 可听流读数: ' + armLoud.streams.audible[0])
+  check('S3 无静音 prefs ⇒ 出现 100%/0.00dB 的可听流', armLoud.streams.audible.length >= 1, 'audible=' + armLoud.streams.audible.length)
+  if (armMute.streams.total === 0 && armLoud.streams.total === 0) {
+    skipAll('连「必出声」页也没建出 sink-input（cubeb→Pulse 桥在本会话不可用；页面策略面读数已打印）⇒ 按纪律 SKIP，待可产出流的会话自动启用')
   }
 }
 
-console.log('\n===== gate-audio-silence: ' + pass + ' 通过 / ' + fail + ' 失败' + (skipped ? ' / SKIP' : '') + ' =====')
+console.log('\n===== gate-audio-silence: ' + pass + ' 通过 / ' + fail + ' 失败 =====')
 process.exit(fail ? 1 : 0)
