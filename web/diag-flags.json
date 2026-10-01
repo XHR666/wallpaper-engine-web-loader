@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-01T16:16:59.231Z",
+  "generatedAt": "2026-10-01T18:44:30.885Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -132,7 +132,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 9946,
+          "line": 9959,
           "pattern": "searchParams.get('aa')"
         }
       ]
@@ -143,17 +143,17 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7510,
+          "line": 7533,
           "pattern": "searchParams.get('align')"
         },
         {
           "file": "demo.html",
-          "line": 7675,
+          "line": 7698,
           "pattern": "searchParams.get('align')"
         },
         {
           "file": "demo.html",
-          "line": 7800,
+          "line": 7823,
           "pattern": "searchParams.get('align')"
         }
       ]
@@ -164,12 +164,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4357,
+          "line": 4380,
           "pattern": "searchParams.get('anim')"
         },
         {
           "file": "demo.html",
-          "line": 4366,
+          "line": 4389,
           "pattern": "searchParams.has('anim')"
         }
       ]
@@ -180,7 +180,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4360,
+          "line": 4383,
           "pattern": "searchParams.get('animloop')"
         }
       ]
@@ -191,7 +191,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4356,
+          "line": 4379,
           "pattern": "searchParams.has('animoff')"
         }
       ]
@@ -202,7 +202,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4342,
+          "line": 4365,
           "pattern": "searchParams.get('att')"
         }
       ]
@@ -213,12 +213,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 5101,
+          "line": 5124,
           "pattern": "regex [?&]audio="
         },
         {
           "file": "demo.html",
-          "line": 5533,
+          "line": 5556,
           "pattern": "searchParams.get('audio')"
         }
       ]
@@ -229,7 +229,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6841,
+          "line": 6864,
           "pattern": "searchParams.get('audioart')"
         }
       ]
@@ -240,7 +240,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 4285,
+          "line": 4298,
           "pattern": "searchParams.get('audioemit')"
         }
       ]
@@ -251,7 +251,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7838,
+          "line": 7861,
           "pattern": "searchParams.get('audit')"
         }
       ]
@@ -273,7 +273,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 3765,
+          "line": 3788,
           "pattern": "searchParams.has('autorundone')"
         }
       ]
@@ -284,12 +284,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4550,
+          "line": 4573,
           "pattern": "searchParams.has('ay')"
         },
         {
           "file": "demo.html",
-          "line": 7611,
+          "line": 7634,
           "pattern": "searchParams.has('ay')"
         }
       ]
@@ -300,7 +300,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 5634,
+          "line": 5657,
           "pattern": "searchParams.get('bandfeed')"
         }
       ]
@@ -311,12 +311,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6837,
+          "line": 6860,
           "pattern": "searchParams.has('bars')"
         },
         {
           "file": "demo.html",
-          "line": 7876,
+          "line": 7899,
           "pattern": "searchParams.has('bars')"
         }
       ]
@@ -360,12 +360,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6836,
+          "line": 6859,
           "pattern": "searchParams.has('bgfx')"
         },
         {
           "file": "demo.html",
-          "line": 7817,
+          "line": 7840,
           "pattern": "searchParams.has('bgfx')"
         }
       ]
@@ -376,7 +376,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4520,
+          "line": 4534,
           "pattern": "searchParams.get('bgwrapfix')"
         }
       ]
@@ -387,17 +387,17 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11086,
+          "line": 11099,
           "pattern": "searchParams.get('bindorder')"
         },
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11091,
+          "line": 11104,
           "pattern": "searchParams.get('bindorder')"
         },
         {
           "file": "demo.html",
-          "line": 4348,
+          "line": 4371,
           "pattern": "searchParams.get('bindorder')"
         }
       ]
@@ -408,7 +408,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11050,
+          "line": 11063,
           "pattern": "searchParams.get('blinkty')"
         }
       ]
@@ -419,7 +419,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 16905,
+          "line": 17063,
           "pattern": "searchParams.get('bloomcap')"
         }
       ]
@@ -430,7 +430,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11075,
+          "line": 11088,
           "pattern": "searchParams.get('bones')"
         }
       ]
@@ -452,7 +452,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7803,
+          "line": 7826,
           "pattern": "searchParams.get('cam')"
         }
       ]
@@ -463,7 +463,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7351,
+          "line": 7374,
           "pattern": "searchParams.get('camera')"
         }
       ]
@@ -474,7 +474,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 13747,
+          "line": 13781,
           "pattern": "searchParams.get('camerashake')"
         }
       ]
@@ -485,12 +485,12 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8162,
+          "line": 8175,
           "pattern": "searchParams.get('campose')"
         },
         {
           "file": "demo.html",
-          "line": 8621,
+          "line": 8644,
           "pattern": "searchParams.get('campose')"
         }
       ]
@@ -501,7 +501,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8200,
+          "line": 8213,
           "pattern": "searchParams.get('charfit')"
         }
       ]
@@ -512,7 +512,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10554,
+          "line": 10567,
           "pattern": "searchParams.get('children')"
         }
       ]
@@ -523,7 +523,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 16379,
+          "line": 16416,
           "pattern": "searchParams.get('clampuvs')"
         }
       ]
@@ -545,7 +545,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6893,
+          "line": 6906,
           "pattern": "searchParams.get('cmpint')"
         }
       ]
@@ -567,7 +567,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6882,
+          "line": 6895,
           "pattern": "searchParams.get('constglobal')"
         }
       ]
@@ -589,7 +589,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7811,
+          "line": 7834,
           "pattern": "searchParams.has('copybg')"
         }
       ]
@@ -600,7 +600,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6828,
+          "line": 6841,
           "pattern": "searchParams.get('copybginput')"
         }
       ]
@@ -611,7 +611,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 5012,
+          "line": 5035,
           "pattern": "searchParams.get('csz')"
         }
       ]
@@ -622,7 +622,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10797,
+          "line": 10810,
           "pattern": "searchParams.get('cursor')"
         }
       ]
@@ -633,12 +633,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6646,
+          "line": 6669,
           "pattern": "searchParams.has('dbgred')"
         },
         {
           "file": "demo.html",
-          "line": 6835,
+          "line": 6858,
           "pattern": "searchParams.has('dbgred')"
         }
       ]
@@ -675,32 +675,32 @@
         },
         {
           "file": "demo.html",
-          "line": 3851,
+          "line": 3874,
           "pattern": "searchParams.has('embed')"
         },
         {
           "file": "demo.html",
-          "line": 3851,
+          "line": 3874,
           "pattern": "searchParams.get('embed')"
         },
         {
           "file": "demo.html",
-          "line": 5373,
+          "line": 5396,
           "pattern": "searchParams.has('embed')"
         },
         {
           "file": "demo.html",
-          "line": 5373,
+          "line": 5396,
           "pattern": "searchParams.get('embed')"
         },
         {
           "file": "demo.html",
-          "line": 7103,
+          "line": 7126,
           "pattern": "searchParams.has('embed')"
         },
         {
           "file": "demo.html",
-          "line": 7103,
+          "line": 7126,
           "pattern": "searchParams.get('embed')"
         }
       ]
@@ -722,7 +722,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 5058,
+          "line": 5081,
           "pattern": "searchParams.get('extbase')"
         }
       ]
@@ -733,7 +733,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 5071,
+          "line": 5094,
           "pattern": "searchParams.get('exthooks')"
         }
       ]
@@ -744,7 +744,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7338,
+          "line": 7361,
           "pattern": "searchParams.get('eyedy')"
         }
       ]
@@ -760,7 +760,7 @@
         },
         {
           "file": "demo.html",
-          "line": 6822,
+          "line": 6845,
           "pattern": "searchParams.get('eyehack')"
         }
       ]
@@ -771,7 +771,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10060,
+          "line": 10073,
           "pattern": "searchParams.get('fbocap')"
         }
       ]
@@ -782,7 +782,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6839,
+          "line": 6852,
           "pattern": "searchParams.get('fbodesc')"
         }
       ]
@@ -793,7 +793,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7435,
+          "line": 7458,
           "pattern": "searchParams.get('fit')"
         }
       ]
@@ -815,7 +815,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 16593,
+          "line": 16700,
           "pattern": "searchParams.get('fog')"
         }
       ]
@@ -858,7 +858,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 3896,
+          "line": 3919,
           "pattern": "searchParams.get('framefit')"
         }
       ]
@@ -874,7 +874,7 @@
         },
         {
           "file": "demo.html",
-          "line": 3797,
+          "line": 3820,
           "pattern": "searchParams.get('framegeom')"
         }
       ]
@@ -885,7 +885,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14114,
+          "line": 14151,
           "pattern": "searchParams.get('fx')"
         }
       ]
@@ -896,7 +896,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6850,
+          "line": 6863,
           "pattern": "searchParams.get('fxcomposite')"
         }
       ]
@@ -907,7 +907,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 3580,
+          "line": 3603,
           "pattern": "searchParams.get('fxpassthrough')"
         }
       ]
@@ -945,7 +945,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7808,
+          "line": 7831,
           "pattern": "searchParams.get('hdr')"
         }
       ]
@@ -956,17 +956,17 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7565,
+          "line": 7579,
           "pattern": "searchParams.get('hdrblur')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8238,
+          "line": 8252,
           "pattern": "searchParams.get('hdrblur')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8425,
+          "line": 8440,
           "pattern": "searchParams.get('hdrblur')"
         }
       ]
@@ -977,7 +977,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7484,
+          "line": 7498,
           "pattern": "searchParams.get('hdrfrost')"
         }
       ]
@@ -988,7 +988,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7341,
+          "line": 7355,
           "pattern": "searchParams.get('hdrfrostwatch')"
         }
       ]
@@ -999,7 +999,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 5421,
+          "line": 5435,
           "pattern": "searchParams.get('hiddengate')"
         }
       ]
@@ -1010,12 +1010,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4862,
+          "line": 4885,
           "pattern": "searchParams.get('hier')"
         },
         {
           "file": "demo.html",
-          "line": 6667,
+          "line": 6690,
           "pattern": "searchParams.get('hier')"
         }
       ]
@@ -1026,12 +1026,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6850,
+          "line": 6873,
           "pattern": "searchParams.get('hour')"
         },
         {
           "file": "demo.html",
-          "line": 6888,
+          "line": 6911,
           "pattern": "searchParams.get('hour')"
         }
       ]
@@ -1063,12 +1063,12 @@
         },
         {
           "file": "demo.html",
-          "line": 4204,
+          "line": 4227,
           "pattern": "searchParams.has('id')"
         },
         {
           "file": "demo.html",
-          "line": 9254,
+          "line": 9277,
           "pattern": "searchParams.get('id')"
         }
       ]
@@ -1101,7 +1101,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 9014,
+          "line": 9029,
           "pattern": "regex [?&]inlinefrost="
         }
       ]
@@ -1134,7 +1134,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10310,
+          "line": 10323,
           "pattern": "searchParams.get('io')"
         }
       ]
@@ -1145,7 +1145,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7140,
+          "line": 7163,
           "pattern": "searchParams.get('isolate')"
         }
       ]
@@ -1167,7 +1167,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 16071,
+          "line": 16253,
           "pattern": "searchParams.get('lgcss')"
         }
       ]
@@ -1178,7 +1178,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 16508,
+          "line": 16615,
           "pattern": "searchParams.get('lights')"
         }
       ]
@@ -1189,7 +1189,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7165,
+          "line": 7188,
           "pattern": "searchParams.get('ln')"
         }
       ]
@@ -1200,12 +1200,12 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10263,
+          "line": 10276,
           "pattern": "searchParams.has('lowmem')"
         },
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10263,
+          "line": 10276,
           "pattern": "searchParams.get('lowmem')"
         }
       ]
@@ -1227,7 +1227,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6871,
+          "line": 6884,
           "pattern": "searchParams.get('macrocomment')"
         }
       ]
@@ -1249,7 +1249,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10321,
+          "line": 10334,
           "pattern": "searchParams.get('maxtex')"
         }
       ]
@@ -1260,7 +1260,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8140,
+          "line": 8153,
           "pattern": "regex [?&]mcc="
         }
       ]
@@ -1282,7 +1282,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9625,
+          "line": 9648,
           "pattern": "regex [?&]media="
         }
       ]
@@ -1293,7 +1293,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7407,
+          "line": 7430,
           "pattern": "searchParams.get('meshsize')"
         }
       ]
@@ -1336,12 +1336,12 @@
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8834,
+          "line": 8849,
           "pattern": "localStorage('mpwdiag')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8855,
+          "line": 8870,
           "pattern": "localStorage('mpwdiag')"
         }
       ]
@@ -1352,7 +1352,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 12702,
+          "line": 12717,
           "pattern": "regex [?&]mpwhardmute="
         }
       ]
@@ -1363,12 +1363,12 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 6044,
+          "line": 6058,
           "pattern": "searchParams.get('mpwinteract')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 6243,
+          "line": 6257,
           "pattern": "searchParams.get('mpwinteract')"
         }
       ]
@@ -1390,7 +1390,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4318,
+          "line": 4332,
           "pattern": "searchParams.get('mpwsandbox')"
         }
       ]
@@ -1401,7 +1401,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 3930,
+          "line": 3944,
           "pattern": "regex [?&]mpwshim="
         }
       ]
@@ -1412,7 +1412,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 3420,
+          "line": 3434,
           "pattern": "searchParams.get('mpwtranscode')"
         }
       ]
@@ -1423,7 +1423,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 12067,
+          "line": 12082,
           "pattern": "searchParams.get('mvpi')"
         }
       ]
@@ -1434,7 +1434,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 23700,
+          "line": 23894,
           "pattern": "searchParams.get('navicon')"
         }
       ]
@@ -1445,7 +1445,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7154,
+          "line": 7177,
           "pattern": "searchParams.has('nobg')"
         }
       ]
@@ -1456,7 +1456,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9047,
+          "line": 9070,
           "pattern": "searchParams.has('nodebug')"
         }
       ]
@@ -1467,7 +1467,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 8125,
+          "line": 8148,
           "pattern": "searchParams.has('nodiag')"
         }
       ]
@@ -1478,7 +1478,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14097,
+          "line": 14131,
           "pattern": "searchParams.has('nofx')"
         }
       ]
@@ -1489,7 +1489,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14128,
+          "line": 14165,
           "pattern": "searchParams.has('nofxfb')"
         }
       ]
@@ -1500,7 +1500,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6993,
+          "line": 7016,
           "pattern": "searchParams.has('nopanel')"
         }
       ]
@@ -1511,12 +1511,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6834,
+          "line": 6857,
           "pattern": "searchParams.has('noparticles')"
         },
         {
           "file": "demo.html",
-          "line": 7822,
+          "line": 7845,
           "pattern": "searchParams.has('noparticles')"
         }
       ]
@@ -1527,7 +1527,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 8207,
+          "line": 8230,
           "pattern": "searchParams.has('noreport')"
         }
       ]
@@ -1538,7 +1538,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 5875,
+          "line": 5898,
           "pattern": "searchParams.has('noscript')"
         }
       ]
@@ -1549,7 +1549,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 5895,
+          "line": 5918,
           "pattern": "searchParams.has('nouserprops')"
         }
       ]
@@ -1560,7 +1560,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4930,
+          "line": 4953,
           "pattern": "searchParams.has('novideo')"
         }
       ]
@@ -1571,12 +1571,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6834,
+          "line": 6857,
           "pattern": "searchParams.has('np')"
         },
         {
           "file": "demo.html",
-          "line": 7822,
+          "line": 7845,
           "pattern": "searchParams.has('np')"
         }
       ]
@@ -1587,7 +1587,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 11397,
+          "line": 11412,
           "pattern": "searchParams.get('npaudit')"
         }
       ]
@@ -1598,7 +1598,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 9412,
+          "line": 9427,
           "pattern": "searchParams.get('npvoice')"
         }
       ]
@@ -1609,7 +1609,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4238,
+          "line": 4261,
           "pattern": "searchParams.get('oldschool')"
         }
       ]
@@ -1631,7 +1631,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10570,
+          "line": 10583,
           "pattern": "regex [?&]overbright="
         }
       ]
@@ -1642,7 +1642,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7381,
+          "line": 7404,
           "pattern": "searchParams.get('ownsize')"
         }
       ]
@@ -1653,12 +1653,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7790,
+          "line": 7813,
           "pattern": "searchParams.get('parallax')"
         },
         {
           "file": "demo.html",
-          "line": 7798,
+          "line": 7821,
           "pattern": "searchParams.get('parallax')"
         }
       ]
@@ -1669,7 +1669,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 3952,
+          "line": 3965,
           "pattern": "searchParams.get('parenty')"
         }
       ]
@@ -1680,7 +1680,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8366,
+          "line": 8379,
           "pattern": "regex [?&]paroff="
         }
       ]
@@ -1691,7 +1691,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8356,
+          "line": 8369,
           "pattern": "regex [?&]parspace="
         }
       ]
@@ -1702,7 +1702,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10478,
+          "line": 10491,
           "pattern": "searchParams.get('pcolor')"
         }
       ]
@@ -1713,7 +1713,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10027,
+          "line": 10040,
           "pattern": "searchParams.get('perf')"
         },
         {
@@ -1728,7 +1728,7 @@
         },
         {
           "file": "demo.html",
-          "line": 8948,
+          "line": 8971,
           "pattern": "searchParams.get('perf')"
         }
       ]
@@ -1739,7 +1739,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 8995,
+          "line": 9018,
           "pattern": "searchParams.has('perfreport')"
         }
       ]
@@ -1750,7 +1750,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10383,
+          "line": 10396,
           "pattern": "searchParams.get('pexp')"
         }
       ]
@@ -1761,7 +1761,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10460,
+          "line": 10473,
           "pattern": "searchParams.get('pforce')"
         }
       ]
@@ -1772,7 +1772,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10415,
+          "line": 10428,
           "pattern": "searchParams.get('pframe')"
         }
       ]
@@ -1783,7 +1783,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4555,
+          "line": 4578,
           "pattern": "searchParams.get('piv')"
         }
       ]
@@ -1794,12 +1794,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4157,
+          "line": 4180,
           "pattern": "searchParams.get('pkgpath')"
         },
         {
           "file": "demo.html",
-          "line": 9254,
+          "line": 9277,
           "pattern": "searchParams.get('pkgpath')"
         }
       ]
@@ -1810,12 +1810,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4157,
+          "line": 4180,
           "pattern": "searchParams.get('pkgurl')"
         },
         {
           "file": "demo.html",
-          "line": 9254,
+          "line": 9277,
           "pattern": "searchParams.get('pkgurl')"
         }
       ]
@@ -1826,7 +1826,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10264,
+          "line": 10277,
           "pattern": "searchParams.get('pmax')"
         }
       ]
@@ -1837,7 +1837,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10435,
+          "line": 10448,
           "pattern": "searchParams.get('pops')"
         }
       ]
@@ -1848,17 +1848,17 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8374,
+          "line": 8387,
           "pattern": "regex [?&]pp="
         },
         {
           "file": "core/we-scene-bundle.js",
-          "line": 9787,
+          "line": 9800,
           "pattern": "regex [?&]pp="
         },
         {
           "file": "core/we-scene-bundle.js",
-          "line": 9947,
+          "line": 9960,
           "pattern": "searchParams.get('pp')"
         }
       ]
@@ -1869,7 +1869,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10367,
+          "line": 10380,
           "pattern": "searchParams.get('pquad')"
         }
       ]
@@ -1880,7 +1880,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6735,
+          "line": 6758,
           "pattern": "searchParams.get('proj')"
         }
       ]
@@ -1891,7 +1891,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8232,
+          "line": 8245,
           "pattern": "searchParams.get('projmode')"
         }
       ]
@@ -1902,7 +1902,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 3952,
+          "line": 3965,
           "pattern": "searchParams.get('projy')"
         }
       ]
@@ -1940,17 +1940,17 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6766,
+          "line": 6789,
           "pattern": "searchParams.get('props')"
         },
         {
           "file": "demo.html",
-          "line": 6775,
+          "line": 6798,
           "pattern": "searchParams.get('props')"
         },
         {
           "file": "demo.html",
-          "line": 6967,
+          "line": 6990,
           "pattern": "searchParams.get('props')"
         }
       ]
@@ -1961,7 +1961,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10350,
+          "line": 10363,
           "pattern": "searchParams.get('prot')"
         }
       ]
@@ -1972,7 +1972,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15166,
+          "line": 15203,
           "pattern": "searchParams.get('psim')"
         }
       ]
@@ -1983,7 +1983,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10298,
+          "line": 10311,
           "pattern": "searchParams.get('psize')"
         }
       ]
@@ -1994,7 +1994,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10397,
+          "line": 10410,
           "pattern": "searchParams.get('pspeed')"
         }
       ]
@@ -2005,7 +2005,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10515,
+          "line": 10528,
           "pattern": "searchParams.get('psph')"
         }
       ]
@@ -2016,7 +2016,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11915,
+          "line": 11928,
           "pattern": "searchParams.get('ptrfx')"
         }
       ]
@@ -2027,12 +2027,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6207,
+          "line": 6230,
           "pattern": "searchParams.get('pts')"
         },
         {
           "file": "demo.html",
-          "line": 6345,
+          "line": 6368,
           "pattern": "searchParams.get('pts')"
         }
       ]
@@ -2043,7 +2043,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10497,
+          "line": 10510,
           "pattern": "searchParams.get('pturb')"
         }
       ]
@@ -2054,7 +2054,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10537,
+          "line": 10550,
           "pattern": "searchParams.get('pvortex')"
         }
       ]
@@ -2065,7 +2065,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 9945,
+          "line": 9958,
           "pattern": "searchParams.get('q')"
         }
       ]
@@ -2076,7 +2076,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10756,
+          "line": 10769,
           "pattern": "searchParams.get('qflip')"
         }
       ]
@@ -2087,7 +2087,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 10916,
+          "line": 10931,
           "pattern": "searchParams.get('railink')"
         }
       ]
@@ -2109,7 +2109,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6236,
+          "line": 6259,
           "pattern": "searchParams.get('repofonts')"
         }
       ]
@@ -2120,7 +2120,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 8208,
+          "line": 8231,
           "pattern": "searchParams.get('report')"
         }
       ]
@@ -2131,17 +2131,17 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10056,
+          "line": 10069,
           "pattern": "searchParams.get('res')"
         },
         {
           "file": "demo.html",
-          "line": 7966,
+          "line": 7989,
           "pattern": "searchParams.get('res')"
         },
         {
           "file": "demo.html",
-          "line": 7975,
+          "line": 7998,
           "pattern": "searchParams.get('res')"
         }
       ]
@@ -2152,7 +2152,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14104,
+          "line": 14138,
           "pattern": "searchParams.get('reszw')"
         }
       ]
@@ -2179,12 +2179,12 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4126,
+          "line": 4140,
           "pattern": "regex [?&]sandbox="
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4860,
+          "line": 4874,
           "pattern": "regex [?&]sandbox="
         }
       ]
@@ -2206,7 +2206,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 15640,
+          "line": 15822,
           "pattern": "searchParams.get('sbfill')"
         }
       ]
@@ -2217,7 +2217,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4983,
+          "line": 5006,
           "pattern": "searchParams.get('scriptcache')"
         }
       ]
@@ -2228,7 +2228,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 5034,
+          "line": 5057,
           "pattern": "searchParams.get('scripthz')"
         }
       ]
@@ -2250,8 +2250,19 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 8888,
+          "line": 8911,
           "pattern": "searchParams.has('selfcheck')"
+        }
+      ]
+    },
+    {
+      "name": "shadows",
+      "common": false,
+      "sites": [
+        {
+          "file": "core/we-scene-bundle.js",
+          "line": 16777,
+          "pattern": "searchParams.get('shadows')"
         }
       ]
     },
@@ -2261,7 +2272,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 12634,
+          "line": 12662,
           "pattern": "searchParams.get('shape')"
         }
       ]
@@ -2288,12 +2299,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6826,
+          "line": 6849,
           "pattern": "searchParams.get('showclock')"
         },
         {
           "file": "demo.html",
-          "line": 8240,
+          "line": 8263,
           "pattern": "searchParams.get('showclock')"
         }
       ]
@@ -2304,12 +2315,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6827,
+          "line": 6850,
           "pattern": "searchParams.get('showdate')"
         },
         {
           "file": "demo.html",
-          "line": 8241,
+          "line": 8264,
           "pattern": "searchParams.get('showdate')"
         }
       ]
@@ -2320,12 +2331,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6829,
+          "line": 6852,
           "pattern": "searchParams.get('showfps')"
         },
         {
           "file": "demo.html",
-          "line": 8243,
+          "line": 8266,
           "pattern": "searchParams.get('showfps')"
         }
       ]
@@ -2336,7 +2347,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6825,
+          "line": 6848,
           "pattern": "searchParams.has('showui')"
         }
       ]
@@ -2347,12 +2358,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6828,
+          "line": 6851,
           "pattern": "searchParams.get('showweekday')"
         },
         {
           "file": "demo.html",
-          "line": 8242,
+          "line": 8265,
           "pattern": "searchParams.get('showweekday')"
         }
       ]
@@ -2363,7 +2374,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6641,
+          "line": 6664,
           "pattern": "searchParams.has('simplefx')"
         }
       ]
@@ -2374,7 +2385,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6006,
+          "line": 6029,
           "pattern": "searchParams.has('skin0')"
         }
       ]
@@ -2390,7 +2401,7 @@
         },
         {
           "file": "demo.html",
-          "line": 7665,
+          "line": 7688,
           "pattern": "searchParams.get('skiny')"
         }
       ]
@@ -2401,7 +2412,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6454,
+          "line": 6477,
           "pattern": "searchParams.get('spacing')"
         }
       ]
@@ -2412,7 +2423,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14100,
+          "line": 14134,
           "pattern": "searchParams.get('spriteauto')"
         }
       ]
@@ -2423,7 +2434,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 3843,
+          "line": 3866,
           "pattern": "searchParams.get('src')"
         }
       ]
@@ -2434,7 +2445,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11146,
+          "line": 11159,
           "pattern": "regex [?&]subbase="
         }
       ]
@@ -2445,7 +2456,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11123,
+          "line": 11136,
           "pattern": "searchParams.get('submesh')"
         }
       ]
@@ -2456,7 +2467,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 11131,
+          "line": 11144,
           "pattern": "searchParams.get('subtri')"
         }
       ]
@@ -2473,12 +2484,23 @@
       ]
     },
     {
+      "name": "texjson",
+      "common": false,
+      "sites": [
+        {
+          "file": "core/we-scene-bundle.js",
+          "line": 14141,
+          "pattern": "searchParams.get('texjson')"
+        }
+      ]
+    },
+    {
       "name": "texmip",
       "common": false,
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 16880,
+          "line": 17038,
           "pattern": "searchParams.get('texmip')"
         }
       ]
@@ -2489,7 +2511,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 16265,
+          "line": 16302,
           "pattern": "searchParams.get('texwrap')"
         }
       ]
@@ -2500,7 +2522,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9223,
+          "line": 9246,
           "pattern": "searchParams.get('thumbpost')"
         }
       ]
@@ -2522,12 +2544,12 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 6853,
+          "line": 6876,
           "pattern": "searchParams.get('time')"
         },
         {
           "file": "demo.html",
-          "line": 6889,
+          "line": 6912,
           "pattern": "searchParams.get('time')"
         }
       ]
@@ -2538,12 +2560,12 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14083,
+          "line": 14117,
           "pattern": "searchParams.has('trace')"
         },
         {
           "file": "demo.html",
-          "line": 7786,
+          "line": 7809,
           "pattern": "searchParams.has('trace')"
         }
       ]
@@ -2554,7 +2576,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10281,
+          "line": 10294,
           "pattern": "searchParams.get('trail')"
         }
       ]
@@ -2565,7 +2587,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4130,
+          "line": 4153,
           "pattern": "searchParams.get('type')"
         }
       ]
@@ -2576,7 +2598,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14102,
+          "line": 14136,
           "pattern": "searchParams.get('usertex')"
         }
       ]
@@ -2587,7 +2609,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 6904,
+          "line": 6917,
           "pattern": "searchParams.get('varyinglink')"
         }
       ]
@@ -2598,7 +2620,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10742,
+          "line": 10755,
           "pattern": "searchParams.has('vflip')"
         }
       ]
@@ -2609,7 +2631,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4135,
+          "line": 4158,
           "pattern": "searchParams.get('video')"
         }
       ]
@@ -2620,7 +2642,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 7413,
+          "line": 7436,
           "pattern": "searchParams.get('view')"
         }
       ]
@@ -2631,7 +2653,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10058,
+          "line": 10071,
           "pattern": "searchParams.get('vthrottle')"
         }
       ]
@@ -2642,7 +2664,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 10331,
+          "line": 10344,
           "pattern": "searchParams.get('vy')"
         }
       ]
@@ -2664,7 +2686,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 3403,
+          "line": 3426,
           "pattern": "regex [?&]weassist="
         }
       ]
@@ -2675,7 +2697,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 3843,
+          "line": 3866,
           "pattern": "searchParams.get('web')"
         }
       ]
@@ -2686,7 +2708,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 3852,
+          "line": 3875,
           "pattern": "searchParams.get('webframe')"
         }
       ]
@@ -2697,7 +2719,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 4074,
+          "line": 4097,
           "pattern": "searchParams.get('webpause')"
         }
       ]
@@ -2708,7 +2730,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 3920,
+          "line": 3943,
           "pattern": "searchParams.get('webres')"
         }
       ]
@@ -2719,7 +2741,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 3853,
+          "line": 3876,
           "pattern": "searchParams.get('webshim')"
         }
       ]
@@ -2730,7 +2752,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 8385,
+          "line": 8398,
           "pattern": "regex [?&]whitefallback="
         }
       ]

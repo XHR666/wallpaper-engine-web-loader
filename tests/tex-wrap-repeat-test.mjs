@@ -88,10 +88,12 @@ console.log('\n== D 接线（demo.html 的 loadTex 每个创建点都要过）==
   // ①(2026-09-23 静默失败审计 A-7)：两处 `makeTexture*` 调用各多了一个"上传诊断标签"实参
   //   （`where` = `'materials/<名>.tex'`，只用于日志/台账）⇒ 正则放宽到"前缀仍在 wrapTex({ … } 里"，
   //   判据本身不变：三个创建点都必须过 wrapTex。
-  ok(/const entry = wrapTex\(\{ glTex: lib\.makeTexture\(gl, dst, nw, nh[,)]/.test(src)
-    && /const ve = wrapTex\(\{ video: videoEl/.test(src)
-    && /const mkEntry = \(src, w, h\) => wrapTex\(/.test(src),
-    'D3 三个创建点（普通/视频占位/位图路径）都接上了')
+  // ①(S3 2026-10-01) 锚点随 __attachTexJson 包裹漂移（P-225 批新增的 .tex-json 侧车登记层，
+  //   包在 wrapTex 外面）——判据意图不变：三个创建点都必须过 wrapTex。
+  ok(/const entry = __attachTexJson\(wrapTex\(\{ glTex: lib\.makeTexture\(gl, dst, nw, nh[,)]/.test(src)
+    && /const ve = __attachTexJson\(wrapTex\(\{ video: videoEl/.test(src)
+    && /const mkEntry = \(src, w, h\) => __attachTexJson\(wrapTex\(/.test(src),
+    'D3 三个创建点（普通/视频占位/位图路径）都接上了（S3 起经 __attachTexJson 包裹）')
 }
 
 /* ── E 默认不变 ── */
