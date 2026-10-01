@@ -954,6 +954,10 @@ add "camerashake-iface"   "node tests/camerashake-iface-test.mjs"
 #   的流必须不存在或全 0%/mute；反例臂（无三件套+同手势）有可听流 ⇒ 证判据分辨力，反例也无流 ⇒ SKIP。
 add "gate-audio-silence"  "node tests/gate-audio-silence-test.mjs"
 
+# ①(S1 2026-10-01) STATUS-ALL-ITEMS 唯一索引一致性（纯 Node <1s）：V1 每个 P-2xx 引用都有台账头
+#   （插件侧编号按行内提交号判定）· V2 ✅ 行必须带判据文件/提交号 · V3 同物两态行 = 0 · V0 基线数字对仓。
+add "status-consistency"  "node tests/status-consistency-test.mjs"
+
 # ①(P-174 2026-09-24 主对话补登记) 层引用成员 × 五个面全表普查（官方 d.ts 60 成员 × 5 面 × 三档；缺一项点名成员+面）
 #   + `ISoundLayer.volume`（落点 soundprops.volume、保作者节点、非有限值不落盘、五面同源=函数身份相等）+ byId/getParent 修复。
 add "script-layer-ref-audit" "node tests/script-layer-ref-audit-test.mjs" "" "^SKIP script-layer-ref-audit"
