@@ -103,6 +103,7 @@
 | `perf` | `1` / `auto` | 关 | 性能计时：GPU 计时优先（EXT_disjoint_timer_query_webgl2）缺扩展退 CPU；`auto` 另开自适应降级（粒子×1/2→×1/4 不停发、fboCap 0.75/0.5/0.35、解码超 220MB 非关键层 1/2 上传） | 帧时间画像/低端设备 | 关闭路径零额外 GL 调用；auto 会降画质（有 [perf] 日志） | core/we-scene-bundle.js:3634、demo.html:186 |
 | `perfreport` | 存在即开 | 关 | `?perf=1&perfreport=1`：12s 起每 30s POST 一份 perf 摘要到 /diag（回退 /report） | 真机帧时间样本采集 | 需与 `perf` 同用 | demo.html:2059 |
 | `hdrblur` | 存在即开 | 关 | 插件侧 HDR 模糊开关（面板透传） | 插件面板调试 | 插件侧行为，非渲染器 | dsh-mpkg-wallpaper/lib/client.js:2075 |
+| `autocap` | `off` | 自动降档开 | **插件侧**：≥4K（3840×2160+）源在「统一虚化/壁纸层开着」时**静默临时降 1080p 播放**（不写设置、每次加载一次、转码不可用则不动）；`off` = 完全不自动降（行为同 3.15.0 之前，一次性建议提示照旧） | 4K 源 + 虚化卡顿，A/B「降档 vs 不降」的实况差异；或质疑自动降档降错了画质 | 插件侧行为，非渲染器；与 `/probe` 可播性闸门独立 | dsh-mpkg-wallpaper/lib/client.js 的 `mpwAutocapDisabled()`（`searchParams.get('autocap')`） |
 | `trace` | 存在即开 | 关 | 渲染器 trace 日志（bundle 层） | 深度排查渲染内部 | 日志噪音 | core/we-scene-bundle.js:4379、demo.html:1713 |
 | `isolate` | 层名(逗号分隔) | 全可见 | 只保留名字含关键词的层可见（容器保留） | 判定"某层是否真的画了" | 无 | demo.html:1552 |
 | `showui` | 存在即开 | 隐藏 | 显示 UI/音频层 | 检查 UI 层是否被误画/误藏 | UI 大层会遮挡画面 | demo.html:1542 |
