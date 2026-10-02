@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-01T18:44:30.885Z",
+  "generatedAt": "2026-10-01T19:16:58.194Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -376,7 +376,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4534,
+          "line": 4595,
           "pattern": "searchParams.get('bgwrapfix')"
         }
       ]
@@ -956,17 +956,17 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7579,
+          "line": 7640,
           "pattern": "searchParams.get('hdrblur')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8252,
+          "line": 8313,
           "pattern": "searchParams.get('hdrblur')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8440,
+          "line": 8501,
           "pattern": "searchParams.get('hdrblur')"
         }
       ]
@@ -977,7 +977,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7498,
+          "line": 7559,
           "pattern": "searchParams.get('hdrfrost')"
         }
       ]
@@ -988,7 +988,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7355,
+          "line": 7416,
           "pattern": "searchParams.get('hdrfrostwatch')"
         }
       ]
@@ -999,7 +999,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 5435,
+          "line": 5496,
           "pattern": "searchParams.get('hiddengate')"
         }
       ]
@@ -1101,7 +1101,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 9029,
+          "line": 9090,
           "pattern": "regex [?&]inlinefrost="
         }
       ]
@@ -1167,7 +1167,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 16253,
+          "line": 16314,
           "pattern": "searchParams.get('lgcss')"
         }
       ]
@@ -1336,12 +1336,12 @@
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8849,
+          "line": 8910,
           "pattern": "localStorage('mpwdiag')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8870,
+          "line": 8931,
           "pattern": "localStorage('mpwdiag')"
         }
       ]
@@ -1352,7 +1352,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 12717,
+          "line": 12778,
           "pattern": "regex [?&]mpwhardmute="
         }
       ]
@@ -1363,12 +1363,12 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 6058,
+          "line": 6119,
           "pattern": "searchParams.get('mpwinteract')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 6257,
+          "line": 6318,
           "pattern": "searchParams.get('mpwinteract')"
         }
       ]
@@ -1390,7 +1390,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4332,
+          "line": 4393,
           "pattern": "searchParams.get('mpwsandbox')"
         }
       ]
@@ -1401,7 +1401,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 3944,
+          "line": 4005,
           "pattern": "regex [?&]mpwshim="
         }
       ]
@@ -1412,7 +1412,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 3434,
+          "line": 3495,
           "pattern": "searchParams.get('mpwtranscode')"
         }
       ]
@@ -1434,7 +1434,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 23894,
+          "line": 23955,
           "pattern": "searchParams.get('navicon')"
         }
       ]
@@ -1587,7 +1587,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 11412,
+          "line": 11473,
           "pattern": "searchParams.get('npaudit')"
         }
       ]
@@ -1598,7 +1598,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 9427,
+          "line": 9488,
           "pattern": "searchParams.get('npvoice')"
         }
       ]
@@ -2087,7 +2087,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 10931,
+          "line": 10992,
           "pattern": "searchParams.get('railink')"
         }
       ]
@@ -2179,12 +2179,12 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4140,
+          "line": 4201,
           "pattern": "regex [?&]sandbox="
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 4874,
+          "line": 4935,
           "pattern": "regex [?&]sandbox="
         }
       ]
@@ -2206,7 +2206,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 15822,
+          "line": 15883,
           "pattern": "searchParams.get('sbfill')"
         }
       ]
