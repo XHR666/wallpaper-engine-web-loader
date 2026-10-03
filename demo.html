@@ -7635,7 +7635,12 @@ function loadScene() {
     } else logf('⚠ MDLA 动画: 无附件层命中');
   }
   logf('scene.json 解析: ' + scene.layers.length + ' layers');
-  renderer = lib.createRenderer(cv, {
+  /* ①(P-227 2026-10-03) **同一个画布只建一次渲染器**：本块原来直接 `renderer = lib.createRenderer(cv, {onMeshLayer…})`，
+   紧接着下面又 `renderer = lib.createRenderer(cv, {onLog, onLayerDraw…})` 把前者**整个覆盖** ⇒
+   `onMeshLayer` 永远不被调用 = **蒙皮层一层都不画**（真机 0923/2887099508：人物是 5 个蒙皮网格，
+   画面上只剩背景/云 ⇒ 观感就是"画面被莫名放大了"；台账 `__mpwLayerLedger` 也恒空 = 诊断失明）。
+   这里改成只收集选项，由下面那次调用 Object.assign 合并后建。 */
+  const __mpwMeshOpts = {
     // ①(2026-09-12) 蒙皮层绘制回调：在层序位置画 GPU 蒙皮 mesh（见 PATCHES.md）
     // ①(P-100 根因) 第二个实参 `camInfo` = 本帧相机取景（`{view:[vx,vy], framed:[fw,fh]}`，
     //   由 `renderScene` 用**与四边形层同一份** `cam` 算好；无相机姿态 / `?charfit=legacy` 时是 null）。
@@ -7676,7 +7681,7 @@ function loadScene() {
         mountAndDrawMesh(layer, sk, texObj, camInfo)
       } catch (e) { try { window.__mpwMeshErr = window.__mpwMeshErr || []; if (window.__mpwMeshErr.length < 8) window.__mpwMeshErr.push(String((e && e.message) || e)) } catch (e2) {} }
     },
-  })
+  };
   // ①(P-139) 网格层"定位 + 上传 + 绘制 + 台账"（从 `onMeshLayer` 内联体原样提出，见上面的
   //   defer 逻辑：同纹理的睑层延后到眼球之后 ⇒ 眼球层的绘制要由睑层的到达点**补画**）。
   function mountAndDrawMesh(layer, sk, texObj, camInfo) {
@@ -7744,7 +7749,7 @@ function loadScene() {
         try { const a = window.__mpwMeshDraws = window.__mpwMeshDraws || []; if (a.length < 200) a.push(layer.name || layer.id) } catch {}
       } catch (e) { if (!window.__skinErrLogged) { window.__skinErrLogged = 1; logf('蒙皮绘制失败: ' + e.message) } }
   }
-  renderer = lib.createRenderer(cv, {
+  renderer = lib.createRenderer(cv, Object.assign({}, __mpwMeshOpts, {
     onLog: (m) => {
       // ①(P-41 A5) glErr 捕获：'层 "X" GPU 错误 0x502' → layerHealth[].glErr（每层一条）
       try {
@@ -7868,7 +7873,7 @@ function loadScene() {
     //   （= 本文件的 `mpwEngineCanvasSize()` 缺省口径）；`opts.cameraScript='off'` 或
     //   `window.__mpwCameraScript='off'` 可实时回退到"不跑脚本"。
     cameraScriptHost: { applySceneScripts, createScriptCache },
-  });
+  }));
   // ①(ISSUE0924A2 2026-09-24) 效果链逐层台账的**只读**快照（`renderer.fxStats`，定义见 bundle
   //   `:14219`）：门禁/真机诊断要靠它回答"fx>0 的层到底跑没跑材质 pass"
   //   （`passes ≥ 1` 且 `fallback !== 'fxFail'`）—— 此前浏览器侧**没有**这个口径的入口，

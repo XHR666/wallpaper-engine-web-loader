@@ -1342,6 +1342,33 @@ export function animValueAt(ch, t) {
 // 与 extractAnimKf/animValueAt 的差异：读 **options.fps/length/mode**（语料相机动画 fps=18、mode=single，
 // 硬编码 30+恒循环会把入场运镜播成 1.67 倍速且首尾循环）；关键帧带 back/front 贝塞尔切线时按官方
 // Tween 语义解 x(u)=frame（牛顿迭代），无切线回退线性。返回 [x,y,z]（单通道 → [v,0,0]）或 null。
+/* ①(P-226 2026-10-03 用户真机 2887099508「开场画面被放大 / 开场运镜不播」)
+ * `general.zoom` 是**场景级默认镜头大小**，官方支持三种形态：数字 / `{value}` / `{value, animation}`。
+ * 本仓此前只认数字（`typeof general.zoom === 'number'`）⇒ 对象形态**整条被忽略**（恒按 1 倍取景），
+ * 而"开场运镜"恰恰就写在这种对象里（真机包 0923/2887099508：`value:3` + `c0: 0→3, 300→3, 450→1`
+ * `@30fps mode:single` = 前 10s 三倍镜、10–15s 拉回一倍）。
+ * `sceneZoomScale()` = 静态取值（数字 → `value` → 兜底 1）；`evalSceneZoom()` = 动画在 t 秒处的取值
+ * （`mode:'single'` ⇒ 末帧后保持；无动画/取不到 ⇒ null，调用方保持旧行为）。两者都是**纯函数**，
+ * 供 buildCamera 与判据共用（唯一真值表）。 */
+export function sceneZoomScale(general) {
+  const z = general ? general.zoom : null
+  if (typeof z === 'number' && isFinite(z) && z > 0.0001) return z
+  if (z && typeof z === 'object') {
+    const v = Number(z.value)
+    if (isFinite(v) && v > 0.0001) return v
+  }
+  return 1
+}
+export function evalSceneZoom(general, t) {
+  const z = general ? general.zoom : null
+  if (!z || typeof z !== 'object' || !z.animation) return null
+  /* ⚠ `evalPropAnimation` 的返回是**三分量数组**（与相机节点 zoom 的消费口径一致：`z[0]`）——
+     上一版按标量判 `typeof === 'number'` ⇒ 真包上恒得 null、静默退回静态值（真机实测：
+     3 倍镜施加上去了但 10–15s 的拉远不动）。 */
+  const v = evalPropAnimation(z, t)
+  const n = Array.isArray(v) ? Number(v[0]) : Number(v)
+  return (isFinite(n) && n > 0.0001) ? n : null
+}
 export function evalPropAnimation(propObj, t) {
   if (!propObj || typeof propObj !== 'object' || !propObj.animation) return null
   const a = propObj.animation
@@ -13616,11 +13643,25 @@ export function createRenderer(canvas, opts = {}) {
     //   `opts.cameraPose`（全仓库只有 `camera-node-test.mjs` 传它，demo.html 不传）⇒ 相机层的
     //   origin/zoom 关键帧动画在真实渲染路径里**从未生效**。P-81 起 `full` 档把它交过去
     //   （`legacy` 档仍只交"用户绑定的 zoom"，`off` 档两条都不交）。
+    /* ①(P-226 2026-10-03) **场景级 `general.zoom` 动画**（官方默认镜头大小的关键帧）：
+       真机 0923/2887099508 的开场运镜就写在这里（`value:3` + `0→3, 300→3, 450→1 @30fps single`）。
+       取值优先级与官方一致：**相机层 zoom（camPose）> 场景 zoom 动画 > 静态 `general.zoom`**；
+       `?campose=legacy|off` 时**不接**（那两档的语义就是"回到 P-76 行为"，本包因此仍能一键 A/B 回旧画面）；
+       `?cam=0`（关节点相机）不影响它 —— 这不是相机节点，是场景自己声明的默认取景。 */
+    const sceneZoom = (() => {
+      if (__camposeMode !== 'full' || camPose) return null                  // legacy/off：保持改动前的画面（逐位回退）
+      const g = scene.general
+      if (!g || typeof g.zoom !== 'object' || !g.zoom) return null          // 数字形态由 buildCamera 照旧消费
+      const anim = evalSceneZoom(g, time)                                   // 有动画 ⇒ 逐帧求值（mode:'single' 末帧后保持）
+      return (anim !== null) ? anim : sceneZoomScale(g)                     // 无动画 ⇒ 静态 .value
+    })()
     const cam = camPoseFull
       ? buildCamera(scene, width, height, Object.assign({}, opts, { cameraPose: { x: camPose.x, y: camPose.y, z: camPose.z, zoom: camPose.zoom, fov: camPose.fov } }))
       : ((camPose && camPose.__zoomOnly)
         ? buildCamera(scene, width, height, Object.assign({}, opts, { cameraPose: { x: 0, y: 0, zoom: camPose.zoom } }))
-        : buildCamera(scene, width, height, opts))
+        : (sceneZoom !== null
+          ? buildCamera(scene, width, height, Object.assign({}, opts, { cameraPose: { x: 0, y: 0, zoom: sceneZoom } }))
+          : buildCamera(scene, width, height, opts)))
     // ①(WEBWALLGL #4/#5 P0) 每帧**一次**的指针/帧时间快照（效果链 uniform 用）——
     //   必须在建好 `cam` 之后（指针 → 设计坐标要用相机的 framed 窗口）、任何层渲染之前
     //   （同一帧内所有 pass 共用同一份 ⇒ 不会逐 pass 漂移）。

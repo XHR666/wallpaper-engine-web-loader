@@ -15445,3 +15445,70 @@ scrollTop > 100`），IA5 的三处前置状态（onBefore / offBefore / onBefor
 ### 判据与变异
 `bench-ui-headless` IA5c/IA5e/IA5f/IA5g 照旧（守卫改回无条件滚动的既有变异体仍必红——对照语义没动）。
 单跑 PASS（本条修复后整轮实测见提交说明）。
+
+## P-226（2026-10-03）场景级 `general.zoom` 的对象形态（`{value}` / `{value,animation}`）此前整条被忽略 —— 开场运镜不播
+
+### 症状（用户真机 0923/2887099508「猫猫的耳朵可以摸吗？｜Ever touch ear？【TIM】」）
+"一开始好像是画面被莫名其妙的放大了，不知道是开场动画一直没有开始播放还是怎么的。"
+离线实绘矩形读数（修前）：t=0.5s 与 t=20s **逐位相同**（恒一倍取景）⇒ 既没有开场三倍镜、也没有拉远。
+
+### 根因
+`scene.json` 里这个包唯一的动画就在 `general.zoom`：
+`{ value: 3, animation: { c0: [f0→3, f300→3, f450→1], options: { fps: 30, length: 450, mode: 'single' } } }`
+= 作者的开场运镜（**前 10s 三倍镜、10–15s 拉回一倍并保持**）。而 `buildCamera` 只认数字
+（`typeof general.zoom === 'number'`）⇒ 对象形态**整条被忽略**。
+语料普查（41 包：`0923` + `dd`）：**37 个数字 / 3 个对象 / 1 个缺失**；3 个对象包里只有本包带动画
+（另两个是 `{value:1.01}` 与 `{value:1}`）。官方产物（`demo/assets/renderer-*.js`，webwallgl 系）里能找到
+`zoom.value` / `typeof …zoom == 'object'` 的处理 ⇒ 这是本仓的缺口，不是作者的怪写法。
+
+### 改法（`core/we-scene-bundle.js`）
+1. 新增两个**纯函数**（唯一真值表）：`sceneZoomScale(general)`（数字 → 直接用；对象 → `.value`；否则 1）
+   与 `evalSceneZoom(general, t)`（有动画 ⇒ `evalPropAnimation` 在 t 秒处求值、`mode:'single'` 末帧后保持；
+   无动画/取不到 ⇒ null）。
+   ⚠ `evalPropAnimation` 的返回是**三分量数组**（与相机节点 zoom 的消费口径一致：取 `[0]`）——第一版按标量判
+   `typeof === 'number'` ⇒ 真包上恒得 null、静默退回静态值（三倍镜施加上去了，但 10–15s 的拉远不动）。
+2. `renderScene`：取值序与官方一致 —— **相机层 zoom（camPose）> 场景 zoom 动画 > 静态 `general.zoom`**；
+   且对象形态**只在 `campose=full`（缺省）**下接 ⇒ `legacy` / `off` 逐位回到改动前
+   （`?campose=` 与页面右下角 🎥 按钮就是这条的一键 A/B）。
+3. `buildCamera` 两处取值**保持只认数字**（37 个数字包行为逐位不变；对象形态由上面那条显式传 pose）。
+
+### 判据与变异
+`tests/scene-zoom-test.mjs`（**15 断言 / 0 失败**，已注册进 `run-all-tests.sh`）：
+① 纯函数真值表（数字/对象/字符串数字/非法/保持段/中间段/末帧后/零值）；
+② 真包实绘矩形（离线 mock-GL，同 `camera-pose-test` 口径）：full 档 t=0.5s、5s 与 t=20s 的宽度比
+**3.0005**、t=12s = **2.2014**（逐帧求值，不是首末帧）；legacy/off 两档与 t 无关、彼此逐位相同；
+③ **变异自证**：去掉 `campose=full` 门控后，用**同一套量法**重跑 ⇒ legacy 档也被三倍镜带走（比 = 3.0005），
+即 ② 的"回退逐位有效"必红。
+
+### 未验证边界
+① 真机观感（三倍镜→拉远的顺滑度、与官方产物的逐帧对拍）仍需人眼；本轮的证据是实绘矩形 + 单帧真机截图；
+② `general.zoom` 的**用户属性绑定**形态（`{user:…}`）在本渲染器没有落点 —— 语料 0 例，遇到再加；
+③ 透视档（`?projmode=persp`）的节点锚定分支与正交档共用 `sceneZoomScale`，语料无"透视 + 对象 zoom"组合，未实测。
+
+## P-227（2026-10-03）演示页重复建渲染器 ⇒ `onMeshLayer` 被覆盖：蒙皮层一层都不画
+
+### 症状
+真机页（`:8899`，包 0923/2887099508）画面上只剩背景/云，**人物完全不出现**（用户读成"画面被莫名其妙的放大了"）；
+逐层诊断台账 `window.__mpwLayerLedger` 恒空（诊断失明），而日志里 `scene.json 解析: 82 layers` 正常。
+
+### 根因（`demo.html`）
+同一个画布建了**两次**渲染器：第一处 `renderer = lib.createRenderer(cv, { onMeshLayer: … })`（含蒙皮绘制回调 +
+网格台账），紧接着第二处 `renderer = lib.createRenderer(cv, { onLog, onLayerDraw … })` 把前者**整个覆盖**
+⇒ 全局 `renderer` 上再没有 `onMeshLayer` ⇒ **蒙皮层一次都不画**；四边形层不受影响，所以只有"人物是网格"的包暴露。
+真机读数（修前）：`window.__mpwMeshDraws` = **0 条**、`__mpwLayerLedger` = **0 条**。
+
+### 改法
+第一处不再建渲染器，只把选项攒成 `const __mpwMeshOpts = {…}`；第二处
+`lib.createRenderer(cv, Object.assign({}, __mpwMeshOpts, {…}))` —— 合并后**只建一次**。
+
+### 判据与变异
+真机读数（有头 GL + `?pkgpath=` 直挂真包）：修后 `window.__mpwMeshDraws` 是 5 个网格名循环
+（`r ear1` / `back leg body` / `l ear1` / `hand book` / `front leg`），每帧绘制调用 ~4 → ~6.5；
+`node --check`（抽出的 module 脚本）+ `bash check.sh` 全量 199 项绿（含既有 `layer-rect-kal` / `skin-order-kal`
+等网格判据）。⚠ 这条是**页面上没有任何判据盯着**的盲区：既有网格测试都走 Node 侧 mock-GL，不经 `demo.html`
+的装配 ⇒ 页面的装配错误不会被它们抓到。
+
+### 未验证边界
+① 页面上仍缺"蒙皮层真的画了"的**常驻**判据（本轮证据 = 一次性真机读数 + `__mpwMeshDraws` 台账）；
+   下一轮可把 `__mpwMeshDraws` 接进 `bench-ui-headless` 的断言面；
+② 两次建渲染器的资源代价（各建一套 GL 资源）只在句柄/内存层面，未量化泄漏。
