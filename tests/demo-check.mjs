@@ -814,8 +814,13 @@ const landing = path.join(ROOT, 'index.html')
   const lostKeys = keySpec.filter(([k, src]) => !src.includes(k)).map(([k, src]) => k + '@' + (src === bundle ? '产物' : '补丁'))
   check('D12 ③ localStorage 键一个都没改（webwallgl-theme ×2 落点 + -lang / -fx / we-bench-pointer-push / bench-props-collapsed）',
     lostKeys.length === 0, lostKeys.join(', '))
+  /* ①(P-228 2026-10-03) 上游产物升到 2.0.2（文件名带构建哈希，会随每次上游构建变）⇒ 这里按**前缀**找那一份
+     minified 产物（断言"有且仅有一份"），契约钉子本身不变：产物里写死的 DOM 属性名不许被改。 */
+  const rendererAssets = fs.readdirSync(path.join(ROOT, DEMO, 'assets')).filter((n) => /^renderer-.*\.js$/.test(n))
+  check('D12 ③ 上游产物有且仅有一份 renderer-*.js（升版时只换这一份，不留旧包）', rendererAssets.length === 1, rendererAssets.join(', '))
   check('D12 ③ DOM 属性名 data-webwallgl-gl 没被改（产物 minified 里写死的契约）',
-    read('demo/assets/renderer-BOSoB05I.js').includes('"data-webwallgl-gl"'))
+    rendererAssets.length === 1 && read('demo/assets/' + rendererAssets[0]).includes('"data-webwallgl-gl"'),
+    rendererAssets.length === 1 ? rendererAssets[0] : '产物份数异常')
 
   // ③-2 反向钉子：上游归属 / 许可文件名 / 静态品牌钉子都没动
   check('D12 ③ 上游归属与许可文件没被"顺手改名"（oneincase/webwallgl 外链 + 两份 LICENSE-webwallgl*）',

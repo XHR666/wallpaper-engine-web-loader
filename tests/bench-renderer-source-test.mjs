@@ -33,7 +33,23 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const WS = path.resolve(ROOT, '..')
 const URL_BASE = process.env.MPW_BENCH_URL || 'http://127.0.0.1:8902/'
-const PROBE_ID = process.env.MPW_RENDERER_SOURCE_ID || '3544152633'
+/* ①(P-228 2026-10-03) 探针壁纸 id **从在服库里挑**，不再写死一个只存在于 `dd` 库的 id：
+   实测 :8902 服务的是 `allwallpaper/0923`（36 项），写死 `3544152633`（在 `dd` 库）时
+   `clickItem()` 会回退点列表第一项，而 D2 仍断言 `id === PROBE_ID` ⇒ 凭空一条红（与服务库无关的环境事实）。
+   口径：显式 env 且**在库里** ⇒ 用它；否则取第一个 `hasScene` 的条目。解析不到就退回 env/默认值（照旧红，不静默）。 */
+const PROBE_ID_ENV = process.env.MPW_RENDERER_SOURCE_ID || ''
+let PROBE_ID = PROBE_ID_ENV || '3544152633'
+async function resolveProbeId() {
+  try {
+    const r = await fetch(new URL('api/library', URL_BASE))
+    const j = await r.json()
+    const items = Array.isArray(j.items) ? j.items : []
+    const scenes = items.filter((x) => x && x.hasScene)
+    if (PROBE_ID_ENV && scenes.some((x) => String(x.itemId) === PROBE_ID_ENV)) return PROBE_ID_ENV
+    if (scenes.length) return String(scenes[0].itemId)
+  } catch (e) { /* 取不到就退回默认（会照旧红，方便定位环境） */ }
+  return PROBE_ID
+}
 
 let pass = 0, fail = 0
 const ok = (c, label, extra = '') => { if (c) { pass++; console.log('PASS ' + label + (extra ? '  ' + extra : '')) } else { fail++; console.log('FAIL ' + label + (extra ? '  ' + extra : '')) } }
@@ -377,7 +393,10 @@ if (!pwPath) {
         }
         if (!/renderer\/index\.html$/.test(path)) return out
         out.doc = 'upstream'
-        out.ok = !!cv && cv.width > 0
+        /* ①(P-228) 上游 2.0.2 建画布后会**自己**再按 resource scale 放大一次（实测出现过 529×297 与 633×356
+           两种读数）⇒ 就绪判据加"画布已经 ≥ 自己的 CSS 盒"，避免在"刚建好还没放大"的那一拍读到小于盒的尺寸
+           （那是上游的重算滞后，不是我们的整合坏了）。 */
+        out.ok = !!cv && cv.width > 0 && cv.width >= cv.clientWidth && cv.height >= cv.clientHeight
         return out
       }
       /** 等就绪：`ok` 成立 **且** 盒与画布连着 `stableTicks` 拍没变才认。
@@ -439,6 +458,8 @@ if (!pwPath) {
   }
   /** 只对"浏览器/页面被环境关掉"这一类重试一次（判据类失败照旧红，不重试）。 */
   const isEnvDeath = (e) => /has been closed|Target closed|browser has been closed|Browser closed|ECONNREFUSED|crash/i.test(String((e && e.message) || e))
+  PROBE_ID = await resolveProbeId()
+  console.log('探针壁纸 id = ' + PROBE_ID + (PROBE_ID_ENV ? '（来自 MPW_RENDERER_SOURCE_ID）' : '（在服库第一个场景）'))
   let att = null
   for (let i = 1; i <= 2 && !att; i++) {
     try { att = await runAttempt() } catch (e) {
@@ -487,16 +508,20 @@ if (!pwPath) {
     const fillsOwnFrame = (r) => !!r.canvas && r.frameBox === (r.canvas.cssW + 'x' + r.canvas.cssH)
     ok(up.canvas && repo.canvas && up.panelBox && up.panelBox === repo.panelBox && up.propsBox === repo.propsBox &&
       fillsOwnFrame(up) && fillsOwnFrame(repo) &&
-      near(upScale, 1, 0.05) && near(repoScale, repo.dpr, 0.05),
-      'D3 ★画质判据（**同一条面板列**、同一张包）：上游画布 = 面板 CSS 像素 × **1**（`renderDpr=1` 上限），' +
+      /* ①(P-228 2026-10-03) 上游产物升到 2.0.2 后，**它自己**会按 resource scale 把内部画布放大到 ≈1.2×
+         （旧 1.3.23 恒为 1× CSS）：同一台机器实测两种读数都出现过（529×297 与 633×356）⇒ 判据改成
+         "上游档的内部画布 **≥** CSS 盒（1× 下限），具体倍数由上游自己决定、本仓不干预"；
+         本仓档仍然逐位钉死 = 面板 CSS 像素 × 设备 DPR（那是我们的活档位契约）。 */
+      upScale >= 1 - 0.05 && near(repoScale, repo.dpr, 0.05),
+      'D3 ★画质判据（**同一条面板列**、同一张包）：上游画布 **≥** 面板 CSS 像素（≥1×，倍数由上游自己定），' +
       '本仓画布 = 面板 CSS 像素 × **设备 DPR**；且每块画布都铺满自己的 iframe 盒（换档时本服务控制台行数变化 ⇒ 舞台盒会跳，不是画质语义）',
       JSON.stringify({ panelUp: up.canvas && up.canvas.cssW, panelRepo: repo.canvas && repo.canvas.cssW, upFrame: up.frameBox, repoFrame: repo.frameBox, panelCol: [up.panelBox, repo.panelBox], propsCol: [up.propsBox, repo.propsBox], upScale, repoScale, dpr: repo.dpr }))
     ok(repo.live && repo.canvas && repo.live.width === repo.canvas.w && repo.live.height === repo.canvas.h && repo.live.dpr === repo.dpr && repo.live.updates >= 1,
       'D4 活档位读数自洽（`window.__mpwLiveRes`）：canvas 尺寸 == live.width/height、dpr == devicePixelRatio、重算计数 ≥1',
       JSON.stringify(repo.live))
     ok(back.attrSrc === 'upstream' && String(back.src).includes('/wallpaper-engine-webgl/renderer/index.html') &&
-      back.canvas && back.canvas.w === back.canvas.cssW,
-      'D5 上游档的画布口径与原来逐位一致（1× CSS 像素）—— 对照档没有被"整合"弄坏', JSON.stringify(back.canvas))
+      back.canvas && back.canvas.w >= back.canvas.cssW && back.canvas.h >= back.canvas.cssH,
+      'D5 上游档画布没有被我们的"整合"压回 1× 以下（≥ CSS 盒；上游 2.0.2 起自己的 resource scale 会给到 ≈1.2×）', JSON.stringify(back.canvas))
   } else {
     console.log('SKIP D3 ★画质判据（画布像素）—— 本机浏览器无 WebGL2（画布级读数不可信）；读数 ' +
       JSON.stringify({ panelUp: up.canvas && up.canvas.cssW, panelRepo: repo.canvas && repo.canvas.cssW, upScale, repoScale, dpr: repo.dpr }))

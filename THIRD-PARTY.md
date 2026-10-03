@@ -625,6 +625,13 @@ Two different things, both stated here so the record is unambiguous:
   and neither file may be deleted). `demo/` contains no wallpaper package, preview image, audio,
   video or Workshop content — its default scene is this repository's own synthetic sample
   (`samples/sample-synthetic/`), and the page states that on screen.
+  **Current artifact version (2026-10-03, P-228)**: a `vite build` of upstream tag **`2.0.2`**
+  (commit `22721fd`), i.e. `demo/renderer/index.html` + `demo/assets/renderer-BwesiXUP.js`
+  (1,003,255 B, sha256 `cd63b714c805440b8c91dc5052205050…`), replacing the previous 1.3.23 drop. The build is
+  reproducible from the upstream tag with `pnpm install --frozen-lockfile && pnpm build`;
+  this repository then applies exactly two documented transformations to the renderer page
+  (product brand title, and absolute `/assets/…` → relative `../assets/…`) plus the P-93 note —
+  no byte of the minified bundle itself is touched.
   The redistributed build is also reachable online as the Pages demo: `/demo/` is the canonical
   entry, and the build additionally stages the same files under `/WEwebLoader/` (the site path name,
   P-127) because the minified bundle hard-codes that prefix (`build-pages.mjs`, `docs/ONLINE-DEMO.md` §2.1).

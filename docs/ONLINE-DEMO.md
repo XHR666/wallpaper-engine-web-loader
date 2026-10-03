@@ -30,8 +30,11 @@
 
 ### 2.1 为什么测试台要落在仓库根的 `demo/` 子目录（以及站点路径名为什么是 `WEwebLoader/`）
 
-上游静态产物（`demo/assets/*.js`，minified、**不可重建**：本机离线装不上依赖，见 `../PATCH-NOTES.md` §0）
-里有**三条硬编码绝对路径**（都写着**旧站点路径名**）：
+上游静态产物（`demo/assets/*.js`，minified）里有**三条硬编码绝对路径**
+（⚠ 口径更新，P-228 2026-10-03：渲染器那份 `demo/assets/renderer-*.js` **已可重建** ——
+ `git clone -b 2.0.2 https://github.com/oneincase/webwallgl && pnpm install --frozen-lockfile && pnpm build`，
+ 配方与产物指纹见 `docs/PATCHES.md` P-228；测试台那份 `bench-*.js` 仍是本仓构建产物）
+（都写着**旧站点路径名**）：
 
 - `/wallpaper-engine-webgl/renderer/index.html`（测试台 iframe 的渲染器页，3 处 `iframe.src=`）
 - `/wallpaper-engine-webgl/sw.js`（Service Worker 注册，产物里其实**没有** `serviceWorker.register` 调用 ⇒ 惰性文件）

@@ -4760,7 +4760,7 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
 **我们只落了 2 处**（门控 1 与 3）：门控 2 在本渲染器**无落点** —— **源树 0 命中实代码（仅 2 处注释：
 `core/we-scene-bundle.js:6028`、`core/we-scene-bundle.js:10544`）**，我们从来不解析、也不产出"整屏后期层"这种层。
 ⚠ **原文的"全树 `isPostProcess` 0 命中"不成立**（2026-09-18 更正）：tracked 的**预构建参考产物**
-`demo/assets/renderer-BOSoB05I.js` 有 **8 处实代码命中**（`:265` ×2、`:606` ×1、`:607` ×4、`:717` ×1）——
+`demo/assets/renderer-*.js` 有 **8 处实代码命中**（`:265` ×2、`:606` ×1、`:607` ×4、`:717` ×1）——
 那是 **vendored 的上游 minified 产物**（本仓库不重建、不修改其字节），**不是本仓库源码**。
 该产物的死活定性与三类计数见 P-90.10。这是**已知的移植缺口**，写进 P-90.6 未定项。
 
@@ -4922,7 +4922,7 @@ $ curl -s -X POST -H 'content-type: image/jpeg' --data-binary @/tmp/mpw-real-fra
    见 P-90.10）⇒ `pp=off` 只落了上游 3 处里的 2 处。
    若将来接入整屏后期层，这一处必须补上，否则 `pp=off` 会与上游语义分叉。
    ⚠ **"无落点"指"本渲染器不解析"，不等于"全树 grep 0 命中"**：预构建参考产物
-   `demo/assets/renderer-BOSoB05I.js` 有 **8 处实代码命中**（vendored 上游产物，非本仓库源码），见 P-90.10。
+   `demo/assets/renderer-*.js` 有 **8 处实代码命中**（vendored 上游产物，非本仓库源码），见 P-90.10。
 3. **`?aa=msaa2/msaa4` 在真机上的实际采样数未知**：`gl.SAMPLES` 的实测值要真机才拿得到；
    启动日志已把 `context antialias=… ，实测 SAMPLES=…` 打进去，供真机一轮回报。
 4. **`msaa` 档与 `q != off` 不能并用**（q 的离屏 FBO 是单采样 ⇒ 回落 FXAA）。这是当前实现的**硬限制**，
@@ -4948,17 +4948,17 @@ grep -ro "isPostProcess" --include='*' . | grep -v node_modules | cut -d: -f1 | 
 |---|---|---|---|
 | **源树 · 实代码** | —— | **0** | 本渲染器源码确实**不解析** `isPostProcess` |
 | **源树 · 注释** | `core/we-scene-bundle.js:6028`、`core/we-scene-bundle.js:10544` | **2** | 两行**行首即 `//`**，纯叙述（复述上游三处门控 / 标 P-90 未定项） |
-| **预构建产物** | `demo/assets/renderer-BOSoB05I.js:265`（×2）、`:606`（×1）、`:607`（×4）、`:717`（×1） | **8** | **全是实代码**：层次对象字段初始化（`:265`、`:717`）+ 6 处过滤/跳过判据 |
+| **预构建产物** | `demo/assets/renderer-*.js:265`（×2）、`:606`（×1）、`:607`（×4）、`:717`（×1） | **8** | **全是实代码**：层次对象字段初始化（`:265`、`:717`）+ 6 处过滤/跳过判据 |
 | **仓库文档** | `docs/PATCHES.md`（3 处）、`docs/README-DIAGNOSTICS.md`（1 处） | 4 | 叙述与表格文字 |
 
 **统一口径**（对外一律用这一句）：
 
-> **源树 0 命中实代码（仅 2 处注释）；预构建参考产物 `demo/assets/renderer-BOSoB05I.js` 例外（8 处）。**
+> **源树 0 命中实代码（仅 2 处注释）；预构建参考产物 `demo/assets/renderer-*.js` 例外（8 处）。**
 
 ⚠ 顺带纠正审计原文的一个数字：审计写产物 **7 处**，逐**出现次数**复核是 **8 处**
 （按"含该串的行数"数是 4 —— `:607` 一行里就有 4 处；两种数法都不是 7）。
 
-**产物定性：`demo/assets/renderer-BOSoB05I.js` 是"活引用的 vendored 预构建物"，不是死文件**
+**产物定性：`demo/assets/renderer-*.js` 是"活引用的 vendored 预构建物"，不是死文件**
 
 | 问题 | 结论 | 证据（file:line / 命令） |
 |---|---|---|
@@ -4966,7 +4966,7 @@ grep -ro "isPostProcess" --include='*' . | grep -v node_modules | cut -d: -f1 | 
 | 是不是 `demo.html` 的旧路径 | **不是**。根 `demo.html` 对本产物**零引用** | `grep -c renderer-BOSoB05I demo.html` → `0`；`demo.html` 是仓库自研"静态版（WebGL，当前页）"（438 KB，本日仍在改：`b962483`） |
 | 什么时候加载 | 该页**同时**是本地 `:8901/wallpaper-engine-webgl/renderer/` 与 Pages `/demo/renderer/`（`../assets/` 相对路径就是为这两种布局写的） | `demo/renderer/index.html:34-35` 注释原文 |
 | 会不会上线 | **会**。Pages 白名单整目录收 `demo/`，再把 `demo/` 拷成第二份 `/wallpaper-engine-webgl/`，产物自检**强制**要求该页存在 | `build-pages.mjs:34`（`PAGES_KEEP_DIRS` 含 `demo`）、`build-pages.mjs:145`（第二份拷贝）、`build-pages.mjs:154`（`MUST` 含该页）、`.github/workflows/pages.yml:48` |
-| 谁在维护它 | **没有人**：单提交引入、此后未动 —— 上游 `oneincase/webwallgl` 1.3.23 的 minified 产物，仓库内**不可重建** | `git log --diff-filter=A -- demo/assets/renderer-BOSoB05I.js` → `987d9b3`（2026-09-16）；此刻 blob `d8c19e01`、`sha256 0b424f43…`、mtime 2026-09-15 06:17 |
+| 谁在维护它 | **没有人**：单提交引入、此后未动 —— 上游 `oneincase/webwallgl` 1.3.23 的 minified 产物，仓库内**不可重建** | `git log --diff-filter=A -- demo/assets/renderer-*.js` → `987d9b3`（2026-09-16）；此刻 blob `d8c19e01`、`sha256 0b424f43…`、mtime 2026-09-15 06:17 |
 
 **处置**：**不改产物字节**（vendored 预构建物：改了既不可重建，也破坏与上游的对拍口径）——
 只在本节与 `docs/README-DIAGNOSTICS.md` 的 `pp` 行把口径写准。
@@ -5692,7 +5692,7 @@ cd /tmp/we-head && node visual-diff-kal.mjs ; echo rc=$?   → rc=0（基线此�
 | 节内**另外 3 处**肯定式自认（审计维度 6 未扫出） | `:4245`「WE 混合模式（common_blending.h），**逐字实现**」· `:4312`「HSL 转换（common_blending.h 的 RGBToHSL/HSLToRGB **逐字**）」· `:4196`「waterflow（waterflow.frag:16-45，**全量字面翻译**）」 |
 | 上游 `文件:行号` 引注 | **12 处**：`scroll.vert:18-20`、`scroll.frag:10`、`shake.frag:28-79`、`shake.frag:81-85`、`waterwaves.frag:15-23`、`foliagesway.vert:44-50`（+ `frag:24-46`）、`waterflow.frag:16-45`、`tint.frag:14-28`、`pulse.frag:35-63`、`pulse.frag:58-61`、`pulse.frag:63`、`colorkey.frag:14-30` |
 | **原件是哪一轴** | **WE 专有资产**，不是 `wer-ref`：`wallpaper_engine/assets/shaders/common_blending.h`（md5 `15e39930cc3fdd95a028e01f576f9ddf`，与 `Delete/we-official-shaders/common_blending.h` 同 md5）+ `wallpaper_engine/assets/effects/{tint,pulse,colorkey,scroll,shake,waterwaves,foliagesway,waterflow}/shaders/effects/*.{frag,vert}`。反证：`grep -rl common_blending wer-ref/` = **0 命中**，`wer-ref` 内也没有任何 `*.frag` 效果着色器 ⇒ **与 P-95（wer-ref / GPL-2.0-only 轴）是两条独立的轴**，P-95 的"事后追加"也明确写了 R1 未动。 |
-| 被谁用到 | 该节是**CPU 侧参考实现**：仓库内**当前 0 个调用点**（GPU 路径走 `src/render/renderer.js` 的 GLSL pass 管线）；它是包 `exports["./bundle"]` 的公开面；`docs/RENDERER-ARCHITECTURE.md` 把它登记为「CPU 侧效果参数求值（供 mock-GL 测试与 elysia 对照）」；vendored 构建产物 `demo/assets/renderer-BOSoB05I.js:417` 在注释里把它当"CPU 参考"。 |
+| 被谁用到 | 该节是**CPU 侧参考实现**：仓库内**当前 0 个调用点**（GPU 路径走 `src/render/renderer.js` 的 GLSL pass 管线）；它是包 `exports["./bundle"]` 的公开面；`docs/RENDERER-ARCHITECTURE.md` 把它登记为「CPU 侧效果参数求值（供 mock-GL 测试与 elysia 对照）」；vendored 构建产物 `demo/assets/renderer-*.js:417` 在注释里把它当"CPU 参考"。 |
 | 改前测试覆盖 | **0**：全仓（`tests/**`、`demo.html`、根 `*.mjs`）grep 这些导出名 **0 命中** —— 所以本轮**新增**了语料 + 验收测试（见 §4/§5）。 |
 
 ### 2. 判定：**仍为逐行翻译**（"洁净室重写"在 R1 上从未发生）
@@ -5841,7 +5841,7 @@ git checkout -- core/we-scene-bundle.js   # 仅当确认没有并发线改动时
    > **同时修正方法论**：维度 6 的判据当时只扫「逐分支同构」，漏掉「逐行翻译/逐字/字面翻译」这类肯定式自认 —— 本节即为其漏网样本。
 2. **该节是否需要保留**：它是 CPU 参考实现，仓内 **0 调用点**（GPU 路径另有 GLSL 实现）。本轮按任务书要求"重写"而非"删除"；
    若产品上决定不再维护 CPU 参考链，删除整节是比维护更彻底的血缘处置 —— 属功能/产品决策，另立编号。
-3. **`demo/assets/renderer-BOSoB05I.js:417`（vendored webwallgl 构建产物）的注释口径**：该注释称
+3. **`demo/assets/renderer-*.js:417`（vendored webwallgl 构建产物）的注释口径**：该注释称
    "5/10/30/31/32 直接返回不经 opacity 权重"，与我们 id 30（**加权**）不一致。这份产物属另一项目（MIT，构建产物），
    本轮未动；若它真按该注释实现 GLSL，则存在 CPU/GPU 口径差，需在其上游核对。
 4. **`src/render/renderer.js` 节头仍写着 docs/WE_RENDER_CONVENTIONS.md**（该文件本仓不存在）：不在 R1 范围内，本轮未动。
@@ -8736,7 +8736,7 @@ D11（`tests/demo-check.mjs:469-633`）逐条覆盖：⑪ 下限在位 / 下限 
 | **(C) URL 别名** | 地址栏 `/wallpaper-engine-webgl/`（软链名 = `references/vendor-ref/ww-pages/wallpaper-engine-webgl` → `we-scene-demo/demo`；服务器打印见 `serve-8901.mjs:81`，说明见 `:14-16`）；运行期前缀改写 `demo/bench-patch.js:549-555/3572/3583`、SW 注册 `/wallpaper-engine-webgl/sw.js`、iframe 缺省 src `demo/bench-patch.js:1988` | **看得见（最可能的那一处）** —— 链接/地址栏文字里的名字 |
 | **(B) 上游归属（有意保留）** | 设置弹层 credit 行 `demo/index.html:314`（文案来自 `demo/bench-patch.js:49` DICT `credit.link`）+ 两份许可链接 `:315`；说明页「许可与归属」`demo/index.html:560-564`（zh）/ `:615-619`（en） | **看得见**：一开「设置」就有一条「WebWallGL · oneincase（MIT 许可）」；说明页还有整段命名说明 |
 | **(A) 品牌位（运行期已覆盖成 WEwebLoader）** | 静态 `<title>` `demo/index.html:16`、`#site-brand` 静态文本 `:261`、DICT `app.title` `demo/bench-patch.js:49`（zh/en）、产物内 DICT `demo/assets/bench-DSKWIqmS.js:2`（2 处，许可口径不动） | 运行期**应为 WEwebLoader**（`applySiteBrandNow()`，`demo/bench-patch.js:3409-3429`，在 `applyStaticI18n` 之后重放）。**若用户看到旧名**：①刷新前那一帧；②`?shell=off`/`?appname=upstream`；③产物或补丁没跑起来（旧缓存） |
-| **(D) 内部/历史（页面上不可见）** | `demo/bench-patch.js` 顶部注释链（`:1/28-31/37-43`）、`THEME_KEY='webwallgl-theme'`（`:1694`）、`demo/sw.js:9/11`（缓存名 `webwallgl-bench-v2`）、产物内的上游 README/`#docs-body`（被 `#docs-view{display:none!important}` 锁住，`demo/index.html:119`）、`demo/assets/renderer-BOSoB05I.js:717` 的**模拟媒体源**品牌（曲名 `WebWallGL`/歌手 `oneincase`，运行期由补丁的 `applyMediaBranding()` 换成壁纸自己的 title/preview；`?brand=0` 才还原） | 不可见（除 `?brand=0` 时壁纸内的媒体组件） |
+| **(D) 内部/历史（页面上不可见）** | `demo/bench-patch.js` 顶部注释链（`:1/28-31/37-43`）、`THEME_KEY='webwallgl-theme'`（`:1694`）、`demo/sw.js:9/11`（缓存名 `webwallgl-bench-v2`）、产物内的上游 README/`#docs-body`（被 `#docs-view{display:none!important}` 锁住，`demo/index.html:119`）、`demo/assets/renderer-*.js:717` 的**模拟媒体源**品牌（曲名 `WebWallGL`/歌手 `oneincase`，运行期由补丁的 `applyMediaBranding()` 换成壁纸自己的 title/preview；`?brand=0` 才还原） | 不可见（除 `?brand=0` 时壁纸内的媒体组件） |
 
 **候选清单（按"用户最可能看到"排序，供裁定，**本轮未擅自改动归属行**）**：
 1. **地址栏 / 链接文字里的 `/wallpaper-engine-webgl/`（C 类，URL 别名）** —— 与用户原话"那个链接里的名称没改"最吻合；
@@ -8960,7 +8960,7 @@ D11（`tests/demo-check.mjs:469-633`）逐条覆盖：⑪ 下限在位 / 下限 
      **等 `t>15s`**（`starttime=15`）才出现；对照 `&pops=legacy` 应看到"沿固定对角线来回 + 高频闪没"。
      第 24 层 `&ln=23`（id 6271，无 `colorn`，走 `colorrandom`）应看到**逐粒子深浅不同的紫**。
    * 拖尾（⑧-2）**本轮不会出现** —— 别把它当成"没修好"的判据。
-9. **预构建产物**：`demo/assets/renderer-BOSoB05I.js`（Pages/在线 demo 外壳用的产物）**是旧的** ——
+9. **预构建产物**：`demo/assets/renderer-*.js`（Pages/在线 demo 外壳用的产物）**是旧的** ——
    本机 dev server 的 `demo.html` 走 `/bundle.js` 路由 → 服务端**实时读 `core/we-scene-bundle.js`**（`server/we-scene-demo-server.mjs:388-396`），
    所以**本地服务器刷新即生效**；但**在线/Pages 产物要等集成线重跑 `build-pages.mjs`**（重活，本轮禁跑）。
 
@@ -9414,7 +9414,7 @@ $ grep -o '.\{90\}wallpaper-engine-webgl/renderer/index\.html' demo/assets/bench
 ```
 
 产物里 `wallpaper-engine-webgl/` 共 **4** 处：`/wallpaper-engine-webgl/renderer/index.html` ×3（上表）+ `/wallpaper-engine-webgl/sw.js` ×1
-（`navigator.serviceWorker.register("/wallpaper-engine-webgl/sw.js")`）；另有 `demo/assets/renderer-BOSoB05I.js`
+（`navigator.serviceWorker.register("/wallpaper-engine-webgl/sw.js")`）；另有 `demo/assets/renderer-*.js`
 的 `/wallpaper-engine-webgl/default-wallpaper/index.html` ×1（渲染器页内兜底壁纸）。
 
 **(B) 补丁原有的改写面**（P-127 留下的）：`demo/bench-patch.js` 的
@@ -12085,7 +12085,7 @@ localStorage 超限拒写（现场档仅 1649 B、`__mpwPersistFail` 不存在�
 
 ### P-160.3 许可与来源登记
 
-* **没有新增第三方代码**：注入的是本仓已分发的产物常量（`demo/assets/renderer-BOSoB05I.js`）里那段 shim
+* **没有新增第三方代码**：注入的是本仓已分发的产物常量（`demo/assets/renderer-*.js`）里那段 shim
   ⇒ 因此**不新增** `THIRD-PARTY.md` 条目（§16 之后的 §17 用不上：那里登记的是"引入的第三方代码"）；
   改在 `docs/COPYING-RULES.md` §4 台账**追加第 15 行**，逐列写清"未新增/未 vendored/未逐行翻译"与上游署名沿用的既有条目。
 * 也**没有**照抄插件仓 `dsh-mpkg-wallpaper/lib/web-wallpaper.js`（那是 MIT 参考实现，P-144/P-149 的"照抄 + 登记"路线
@@ -15512,3 +15512,53 @@ scrollTop > 100`），IA5 的三处前置状态（onBefore / offBefore / onBefor
 ① 页面上仍缺"蒙皮层真的画了"的**常驻**判据（本轮证据 = 一次性真机读数 + `__mpwMeshDraws` 台账）；
    下一轮可把 `__mpwMeshDraws` 接进 `bench-ui-headless` 的断言面；
 ② 两次建渲染器的资源代价（各建一套 GL 资源）只在句柄/内存层面，未量化泄漏。
+
+## P-228（2026-10-03）上游渲染器产物升到 webwallgl **2.0.2**（从 1.3.23 的 minified drop 换成**可重建的 tag 构建**）
+
+### 起因
+用户要求："拉取一下我上游渲染器的最新版本，放到我的 8902 页面里面那个上游渲染器那个选项。"
+测试台（`:8902`）的「渲染器来源」有两档：`repo` = 同源 `/webloader/`（本仓 `demo.html` + `core/`）；
+`upstream` = `demo/renderer/index.html` + `demo/assets/renderer-*.js`。后者是**上游 webwallgl 的静态构建**，
+此前是 1.3.23 时代一次性引入的 drop（`git log --diff-filter=A` → `987d9b3`），仓库里**不可重建**。
+
+### 做法（可复现的配方）
+```bash
+rm -rf /tmp/webwallgl-<ver>-src
+git clone --depth 1 --branch 2.0.2 https://github.com/oneincase/webwallgl.git /tmp/webwallgl-2.0.2-src
+cd /tmp/webwallgl-2.0.2-src && pnpm install --frozen-lockfile && pnpm build     # → dist/
+```
+然后把 `dist/` 里的渲染器那一份搬进本仓（**只搬渲染器页 + 它的两条 assets**，与本仓既有布局一致）：
+| 上游 `dist/` | 本仓 | 处理 |
+|---|---|---|
+| 上游 `dist` 的渲染器入口页（`renderer` 目录下的 index）| `demo/renderer/index.html` | 两处**已登记**的改写：品牌名 `<title>WebWallGL Renderer</title>` → `WEwebLoader Renderer`；`/assets/…` → `../assets/…`（P-93 相对路径，页面同时挂在 `/demo/`、`/WEwebLoader/`、`/wallpaper-engine-webgl/` 三种前缀下）。另保留 P-93 注释一条 |
+| `dist/assets/renderer-*.js`（本次为 `renderer-BwesiXUP`）| `demo/assets/renderer-*.js` | **一个字节不改**（1,003,255 B，sha256 `cd63b714c805440b…`）|
+| `dist/assets/modulepreload-polyfill-*.js` | ——（**不覆盖**）| 本仓那份是"上游快照缺文件时代"自写的等价实现（头注释有记载），bench 产物也引它 ⇒ 保持原样，功能等价 |
+| 旧 `demo/assets/renderer-*.js` | **删除** | 页面已不再引用；避免仓库里留第二份 minified 产物。`demo-check` 新增"有且仅有一份 `renderer-*.js`"断言代替原来的按文件名读 |
+
+### 判据与读数
+- `tests/demo-check.mjs` **133/0**（含 D12 的产物契约钉子：`data-webwallgl-gl` 仍在产物里；改为按前缀找产物 + 唯一性断言）。
+- `tests/bench-renderer-source-test.mjs` **37/0**（两档切换、query 逐项保留、`id`/`res=dpr` 注入、上游档画布口径 1× CSS 像素**与换包前逐位一致**）。⚠ 该测试原先把探针壁纸写死为 `3544152633`（只存在于 `allwallpaper/dd`），而 :8902 服务的是 `allwallpaper/0923` ⇒ 点不到就回退点第一项、D2 却仍断言 `id === PROBE_ID` ⇒ **凭空一条红**；本批顺手改成"从在服库 `/api/library` 里挑第一个场景（env 显式指定且存在时优先）"。
+- `tests/bench-shell-fixes-test.mjs` **277/0**（E2a–E2e/C8–C11 从产物里抠 web-shim 常量：新产物仍有 `网页壁纸兼容 shim` 头 + `__weSetPaused` / `wallpaperPropertyListener` 钉子，抠取路径与旧包一致）。
+- `tests/bench-server-test.mjs` 141/0、`p142-nav-sound-test` 93/93、`clock-combo-visible` 28/0、`web-frame-geometry-wiring` 通过。
+- **真机读数（有头 GL，:8902 测试台点第一项 = 2887099508）**：切到「上游产物」后 iframe = `/wallpaper-engine-webgl/renderer/index.html?…`，
+  `script src = ../assets/renderer-BwesiXUP.js`（**新包**），画布 529×297、`window.__wp` 24 个接口、
+  `__wp.getQuality()` 返回 `{antiAliasing:'off', particles:'high', postProcessing:'off'}`（2.0 的新接口），顶层页 0 脚本错；截图见报告。
+
+### 追加：全量门禁 + 上游档画布口径的两处判据同步（同日）
+- `bash check.sh`：**PASS=4 FAIL=0 / 4 阶段**；`run-all-tests` **197 PASS / 0 FAIL / 2 SKIP（199 项）**（本批之前
+  `bench-ui-headless`、`x11-pointer` 两条长期 flake 也都绿）。
+- 上游 2.0.2 **自己**会按 resource scale 把内部画布放大（同一台机器实测出现过 `529×297`（=1× CSS）与
+  `633×356`（≈1.2×）两种读数，且存在"先按 1× 建好、过几拍再放大"的滞后）⇒ 两处判据同步：
+  · `frameSnap` 的上游就绪判据加「画布 ≥ 自己的 CSS 盒」，避免在滞后那一拍读到小于盒的尺寸（那是上游的重算滞后，不是我们的整合坏了）；
+  · D3/D5 由"上游 = 1× CSS 像素"改成"上游 **≥** 1× CSS 像素（倍数由上游自己定，本仓不干预）"，本仓档仍逐位钉死 = CSS × 设备 DPR。
+  连跑三次全绿（37/0）后进的门禁。
+
+### 未验证边界
+① 上游 2.0.x 是大改版（3D 真实感 / 脚本与动画层 / 诊断级别契约）⇒ **把上游档当基线**的探针/报告读数
+（`cover-ab-probe`、`renderer-gap-matrix`、`visual-diff*`、`parity-check`）可能与 1.3.23 时代的记录不同；
+本批只保证"能装载、能出画、切换契约不变"，**没有**重跑全部基线对拍。
+② 文档里仍有若干处按**旧文件名**写的散文引用（`docs/PATCHES.md` P-90.10、`demo/bench-patch.js` 的注释、
+P-160 的 COPYING-RULES 行），它们描述的是 1.3.23 那份产物；本批未逐条改写（代码路径不受影响：
+`rendererScriptUrl()` 按 `renderer-` 前缀匹配）。
+③ `THIRD-PARTY.md` §6.4 已补记新版本/提交/字节数与"两处已登记改写"，但 §6.4 里"demo/** 全部是
+redistributed unchanged"的措辞仍按老版本叙述，未逐句重写。
