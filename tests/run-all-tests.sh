@@ -1056,6 +1056,12 @@ add "builtin-model-semantics" "node tests/builtin-model-semantics-test.mjs"
 #   产物 = webwallgl 2.1.0 renderer-n-Rw_ZVc.js）+ C 段变异自证（URL 缺 mediaBase => 画布不出）。
 #   13 断言、~40s、需 headed firefox。
 add "upstream-direct-mount" "node tests/upstream-direct-mount-test.mjs"
+# ①(C5 批次3 2026-10-04) **MDLA 坏帧审计**：生产解析+生产检测器的**独立重实现**逐位复现坏帧集合
+#   （尾切∪精修 = detectBadAnimFrames 的分布规则：尾切 maxStep>30 连续尾缀 ≤17 帧 = 官方"结尾导出垃圾"；
+#   精修 = sig 二阶差分 dev>max(10×dev中位,5) 的分布阈值——"阈值 5.0" 是下限档求值结果不是常量）。
+#   探针包定案（左下1 bad=[0,1,2,3,25,26,27,28,29]、thr=5.00、回绕 184.7 vs 内部 12.3）+ fps 全 30
+#   + 桩件（合成尾部垃圾+孤立尖峰仍被识别）+ 变异自证（中性化检测器 ⇒ 空）。10 断言、~5s、纯 Node。
+add "mdla-corpus-audit" "node tests/mdla-corpus-audit-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then
