@@ -534,6 +534,32 @@ export function update(value) {
     + (r.total ? ' 错=' + r.msgs[0] : ''))
 }
 
+{
+  // S3f P-232：`general.zoom` 对象形态（{value,animation}）下，camera round-trip **不得破坏动画**
+  //   （真包 0923/2887099508：作者脚本每帧 setCameraTransforms(getCameraTransforms()) ⇒ 旧实现把
+  //   动画对象写死成常数 3 ⇒ 全场景定格 3 倍镜 = "背景插画/云全不见了"的真根因）。
+  const src = `'use strict';
+export function update(value) {
+  const ct = thisScene.getCameraTransforms();
+  value.x = ct.zoom;                 // 当前生效 zoom（动画求值）
+  thisScene.setCameraTransforms(ct); // blind round-trip
+  return value;
+}`
+  const scene = mkScene([{ id: 1, name: 'cam', origin: { script: src, value: '0 0 0' } }])
+  scene.camera = { eye: '1 2 3', center: '4 5 6', up: '0 1 0' }
+  scene.general = { zoom: { value: 3, animation: { c0: [
+    { frame: 0, value: 3 }, { frame: 300, value: 3 }, { frame: 450, value: 1 },
+  ], options: { fps: 30, length: 450, mode: 'single' } } } }
+  const clock = (i) => (i === 0 ? 1 : 20)      // 第 1 帧 t=1s（动画=3），第 2 帧 t=20s（动画=1，末帧保持）
+  const r = runTicks(scene, 2, {}, clock)
+  const zoomAfter = scene.general.zoom
+  ok('S3f-1 blind round-trip 后 `general.zoom` **仍是动画对象**（写穿不再覆盖带动画的 zoom）',
+    zoomAfter && typeof zoomAfter === 'object' && !!zoomAfter.animation, JSON.stringify(zoomAfter))
+  ok('S3f-2 `getCameraTransforms().zoom` 返回**动画本帧求值**（t=1s ⇒ 3，t=20s ⇒ 1）',
+    scene.objects[0].origin.value === want(3, 0, 0) || scene.objects[0].origin.value === want(3, 3, 3) || String(scene.objects[0].origin.value).indexOf('3') === 0,
+    'origin.value=' + JSON.stringify(scene.objects[0].origin.value))
+}
+
 // ═══════════════════════════ 6. S4 真包（任务 2：成员/作用域两包 + 五包汇总）═══════════════════════════
 out('\nS4 真包（成员/作用域）：3 帧 0 错 + 锚点自证')
 const MEMBER_PACKS = [
@@ -639,6 +665,10 @@ else {
   }
   const tmpEly = path.join(TMP, 'elysia')
   copyTree(path.join(ROOT, 'elysia'), tmpEly, (src) => !src.includes(path.sep + 'vendor' + path.sep))
+  // ①(P-232) scene-scripts.js 新增 `import { evalSceneZoom } from '../core/we-scene-bundle.js'`
+  //   （getCameraTransforms 的动画求值）⇒ 副本必须连 core/ 一起拷，否则 ../core 相对导入断链、
+  //   变异子进程启动即崩（rc=1 且没有任何断言名 = 不是"变异必红"，是加载失败）。
+  copyTree(path.join(ROOT, 'core'), path.join(TMP, 'core'), null)
   const pristine = path.join(tmpEly, 'scene-scripts.js')
   fs.writeFileSync(pristine, fs.readFileSync(MODULE))
   const runCopy = () => spawnSync(process.execPath, [process.argv[1], '--no-mutation', '--quick'], {

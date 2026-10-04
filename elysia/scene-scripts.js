@@ -16,6 +16,11 @@
 //   - engine API 补全 (isRunningInEditor 等) — NSL 库 (如 Mutsumi 788) 缺失
 //     方法时中途抛错 → 后续 shared 赋值全部丢失 → 整个动画框架失效
 import vm from './nsl.js';
+/* ①(P-232) `evalSceneZoom` 用**动态导入**取（变异夹具会把本文件拷到 /tmp，`../core` 相对导入
+   在副本里断链——静态 import 会让整个模块加载失败）；失败 ⇒ null ⇒ getCameraTransforms 的 zoom
+   退回静态值（= P-232 前行为，对那些夹具等价）。真实树（demo/tests 从仓库内加载）恒走动画求值。 */
+let _evalSceneZoom = null;
+try { _evalSceneZoom = (await import('../core/we-scene-bundle.js')).evalSceneZoom } catch (e) { _evalSceneZoom = null }
 import { WEColor, Vec2, Vec3, ScriptPropertiesBuilder, WEVector, DEG2RAD, RAD2DEG } from './scene-script-apis.js';
 
 // NSL thisScene: getLayer(name) → 图层包装, 读写真实场景对象属性
@@ -973,6 +978,10 @@ function clearEngineTimer(engine, handle) {
 
 export function makeSceneRef(objects, hooks) {
   const hk = hooks || {};
+  /* ①(P-232 2026-10-04) 当前帧时间（`applySceneScripts(scene, time)` 每帧刷新）：`getCameraTransforms`
+   *   的 zoom 要返回**当前生效值**（官方语义 "current"——含 `general.zoom` 动画的本帧求值），
+   *   没有时间就退回静态值。 */
+  const frameTimeRef = hk.frameTimeRef || { current: null };
   const rawVal = (v) => (v && typeof v === 'object' && 'value' in v ? v.value : v);
   const parseV = (s, def) => {
     const v = rawVal(s);
@@ -1296,7 +1305,18 @@ export function makeSceneRef(objects, hooks) {
   api.getCameraTransforms = () => {
     apiBump('getCameraTransforms');
     const cam = camNode();
-    const zoom = Number(rawVal(genNode().zoom));
+    // ①(P-232 官方语义) zoom 返回**当前生效值**：`general.zoom` 是 {value,animation} 对象时取
+    //   动画在本帧的求值（evalSceneZoom，mode:'single' 末帧后保持）；否则静态值。
+    //   为什么要动画值：作者脚本的典型形态是 `ct = getCameraTransforms(); ct.eye…; setCameraTransforms(ct)`
+    //   —— blind round-trip。官方管线里动画每帧重估、脚本写入是**帧内瞬态**，round-trip 等价 no-op；
+    //   若这里返回静态 `.value`（rawVal 拍平），round-trip 会把动画对象写死成常数（真包
+    //   0923/2887099508 实测：开场运镜 3→1 被定格成恒 3 倍镜 = "背景插画/云全不见了"的真根因）。
+    const zRaw = genNode().zoom;
+    let zoom = null;
+    if (zRaw && typeof zRaw === 'object' && zRaw.animation) {
+      try { zoom = _evalSceneZoom ? _evalSceneZoom(genNode(), frameTimeRef.current) : null } catch (e) { zoom = null }
+    }
+    if (zoom === null || !isFinite(zoom) || zoom <= 0) zoom = Number(rawVal(zRaw));
     return {
       eye: v3of(cam.eye, [0, 0, 0]),
       center: v3of(cam.center, [0, 0, 0]),
@@ -1312,7 +1332,13 @@ export function makeSceneRef(objects, hooks) {
     if (t.center !== undefined) cam.center = fmt3(t.center);
     if (t.up !== undefined) cam.up = fmt3(t.up);
     const z = Number(t.zoom);
-    if (isFinite(z) && z > 0) genNode().zoom = z;
+    // ①(P-232) zoom **不覆盖带动画的 `general.zoom`**：写穿会把作者的运镜动画对象替换成常数
+    //   （脚本 round-trip 每帧都写 ⇒ 动画永久死亡）。动画每帧重估（官方管线语义），帧内瞬态写入
+    //   让位于它；静态数字形态照旧写穿（S3e 契约不变）。
+    if (isFinite(z) && z > 0) {
+      const g = genNode();
+      if (!(g.zoom && typeof g.zoom === 'object' && g.zoom.animation)) g.zoom = z;
+    }
   };
   // ①(P-142) 帧末落地（`applySceneScripts` 调用）：把本帧排队删掉的层真从 `objList` 摘掉。
   //   非枚举（脚本 `Object.keys(thisScene)`/for-in 看不到它，不污染作者可见的对象面）。
@@ -2716,12 +2742,16 @@ export function applySceneScripts(scene, time, opts = {}) {
   const scriptStore = scriptStoreFor(cache || shared, opts);
   // ①(P-141) `IScene.getLayerIndex(thisLayer)` 必须能把 ownerRef 的那个层引用实例还原成场景对象
   //   （ownerRef 的引用是惰性读 ref.current 的，所以两条缝都要给：实例身份 + 当前对象）。
+  // ①(P-232) 当前帧时间（getCameraTransforms().zoom 的动画求值用）；帧外/测试直读 = null ⇒ 静态值。
+  const frameTimeRef = { current: (typeof time === 'number' && isFinite(time)) ? time : null };
   const thisScene = opts.thisScene || makeSceneRef(sceneObjects, {
     ownerLayerRef: () => ownerRef.layerRefObj(),
     ownerObj: () => ownerRef.ref.current,
     // ①(P-142) `thisScene.getCameraTransforms()` 的真值来源：scene.json 根的 `camera`/`general`
     //   （不是 objects 的一部分 ⇒ 必须单独给钩子；理由与字段出处见 makeSceneRef 里的实现注释）。
     camera: () => scene,
+    // ①(P-232) 当前帧时间：getCameraTransforms().zoom 的动画求值要用（applySceneScripts 的 time）。
+    frameTimeRef,
   });
   /* ①(P-143) `originalOrigin` 的 authored 快照**必须在任何脚本跑之前**抓（含 prepare 趟的模块顶层代码
    *   —— 作者完全可以在顶层写 `thisLayer.origin = …`）。`makeSceneRef()` 那条路径已经在工厂里抓过

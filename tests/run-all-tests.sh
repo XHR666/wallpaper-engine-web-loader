@@ -1050,6 +1050,12 @@ add "copybg-semantics"   "node tests/copybg-semantics-test.mjs"
 #   官方 RegisterLogicalImageLayer）。A 段桩件 4 类 + B 段四根语料扫描（594 个内置层，154 个受益面，
 #   读数落 reports/builtin-models-audit.json）+ C 段变异自证。9 断言、~10s、纯 Node 无浏览器。
 add "builtin-model-semantics" "node tests/builtin-model-semantics-test.mjs"
+# ①(C10 批次3 2026-10-04) **上游产物直挂契约**（读数=直挂 mediaBase+src，非工具条档）：A 段静态契约
+#   （产物 index.html 引用 renderer-*.js + bundle 含 11 个公开参数名 + /media/dev 双 200）+ B 段真机
+#   参数表（fit x renderDpr => 画布口径/getQuality()/媒体请求，读数落 reports/upstream-params-2.1.0.json，
+#   产物 = webwallgl 2.1.0 renderer-n-Rw_ZVc.js）+ C 段变异自证（URL 缺 mediaBase => 画布不出）。
+#   13 断言、~40s、需 headed firefox。
+add "upstream-direct-mount" "node tests/upstream-direct-mount-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

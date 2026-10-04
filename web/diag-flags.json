@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-04T11:19:50.803Z",
+  "generatedAt": "2026-10-04T15:38:51.365Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -262,7 +262,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 16389,
+          "line": 16391,
           "pattern": "searchParams.get('autocap')"
         }
       ]
@@ -978,17 +978,17 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7873,
+          "line": 7875,
           "pattern": "searchParams.get('hdrblur')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8555,
+          "line": 8557,
           "pattern": "searchParams.get('hdrblur')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 8754,
+          "line": 8756,
           "pattern": "searchParams.get('hdrblur')"
         }
       ]
@@ -999,7 +999,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7762,
+          "line": 7764,
           "pattern": "searchParams.get('hdrfrost')"
         }
       ]
@@ -1010,7 +1010,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 7617,
+          "line": 7619,
           "pattern": "searchParams.get('hdrfrostwatch')"
         }
       ]
@@ -1123,7 +1123,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 9343,
+          "line": 9345,
           "pattern": "regex [?&]inlinefrost="
         }
       ]
@@ -1189,7 +1189,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 17069,
+          "line": 17071,
           "pattern": "searchParams.get('lgcss')"
         }
       ]
@@ -1358,12 +1358,12 @@
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 9163,
+          "line": 9165,
           "pattern": "localStorage('mpwdiag')"
         },
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 9184,
+          "line": 9186,
           "pattern": "localStorage('mpwdiag')"
         }
       ]
@@ -1374,7 +1374,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 13198,
+          "line": 13200,
           "pattern": "regex [?&]mpwhardmute="
         }
       ]
@@ -1401,7 +1401,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 24714,
+          "line": 24716,
           "pattern": "searchParams.get('mpwperf')"
         }
       ]
@@ -1467,7 +1467,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 25563,
+          "line": 25565,
           "pattern": "searchParams.get('navicon')"
         }
       ]
@@ -1620,7 +1620,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 11893,
+          "line": 11895,
           "pattern": "searchParams.get('npaudit')"
         }
       ]
@@ -1631,7 +1631,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 9782,
+          "line": 9784,
           "pattern": "searchParams.get('npvoice')"
         }
       ]
@@ -1653,7 +1653,7 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 6908,
+          "line": 6940,
           "pattern": "regex [?&]online="
         }
       ]
@@ -1946,12 +1946,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 4729,
+          "line": 4761,
           "pattern": "searchParams.get('propimg')"
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 4733,
+          "line": 4765,
           "pattern": "searchParams.get('propimg')"
         }
       ]
@@ -2120,7 +2120,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 11286,
+          "line": 11288,
           "pattern": "searchParams.get('railink')"
         }
       ]
@@ -2196,12 +2196,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 10831,
+          "line": 10863,
           "pattern": "regex [?&]sample="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 10878,
+          "line": 10910,
           "pattern": "regex [?&]sample="
         }
       ]
@@ -2239,7 +2239,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 16591,
+          "line": 16593,
           "pattern": "searchParams.get('sbfill')"
         }
       ]
@@ -2272,7 +2272,7 @@
       "sites": [
         {
           "file": "elysia/scene-scripts.js",
-          "line": 1812,
+          "line": 1834,
           "pattern": "regex [?&]scriptstore="
         }
       ]
@@ -2316,12 +2316,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 7935,
+          "line": 7967,
           "pattern": "regex [?&]shell="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 9584,
+          "line": 9616,
           "pattern": "regex [?&]shell="
         }
       ]

@@ -570,7 +570,8 @@ function compareToBaseline(rows) {
     // ①(P-75f 2026-09-15) **已解释的基线下降**：不是白名单式静默豁免 —— 每条必须带 reason 与证据，
     //   且**照旧打印**（走 explained 列表而不是 diffs 列表）。这样门禁不会为"已知且已解释的行为变化"变红，
     //   但读者仍能看到它、并能按 reason 复核。
-    const EXPLAINED_BASE_DROPS = [
+    const EXPLAINED_BASE_DROPS = EXPLAINED_BASE_DROPS_TABLE
+    const _EXPLAINED_UNUSED = [
       /*  ①(2026-09-25 P-184) issue #2「偶发两个时钟」的可见性语义收口带来的**唯一**基线下降：
           id404 是一个**无名占位文本层**（`text:"Text Layer"`, 615×153），它的
           `visible={user:"a1", value:true}` 是**字符串形态**绑定，而 `a1` 是作者那张
@@ -682,6 +683,68 @@ printTable(rows)
 //     ④ 新 path 逐条打印（id + 关键指标 + 门禁 issues）后追加到基线末尾；⑤ 理由必填、落进 `absorbed[]`。
 //   判据依据：`compareToBaseline` 对 NEW 走的是 `diffs.push({kind:'NEW'})`（在 EXPLAINED_BASE_DROPS 查表
 //   **之前**就 continue）⇒ NEW **没有**豁免通路，注册进基线是唯一正确的收口方式。
+const EXPLAINED_BASE_DROPS_TABLE = [
+      /*  ①(2026-09-25 P-184) issue #2「偶发两个时钟」的可见性语义收口带来的**唯一**基线下降：
+          id404 是一个**无名占位文本层**（`text:"Text Layer"`, 615×153），它的
+          `visible={user:"a1", value:true}` 是**字符串形态**绑定，而 `a1` 是作者那张
+          "⮛Support Me (click the GIFs)⮛" 的 **HTML 富文本属性**（属性表里只有 index/order/text，
+          **没有 value/type**）。新 helper 在"有属性表"这一档按规则求值 ⇒ 该绑定求不出值 ⇒ 不画；
+          旧装载路径对字符串形态一律回落 authored `value:true` ⇒ 多画一层（Node 审计环境如此）。
+          依据（同一轮 A/B 实测，两版各跑一次真浏览器）：
+            · **逐层可见性 70/70 完全一致**（该层在两版里都是 `vis=0`，见审计行 `[首帧] #69 … vis=0`）；
+            · 文本层光栅化两版都是 **4 层**；`#bar/#log/#fps`、首帧、粒子读数无差异 ⇒ **无用户可见回归**；
+            · 差异只出现在 Node 审计环境（它的 props 里 `a1` **存在但无值**）⇒ 这条下降实际是
+              "审计环境与浏览器口径对齐"（旧版在 Node 里多画、在浏览器里不画；新版两边都不画）。
+          未定：作者是否本意让该 HTML 致谢**渲染成文本层**（WE 侧未取证）；若将来证实要渲染，
+          应当在"HTML 属性 → 文本层"那条链上单独实现，而不是靠可见性回落把它画上屏。 */
+      {
+        id: '2887099508', field: 'drawnLayers', base: 45, now: 44,
+        reason: 'P-231 逻辑 helper：`ldfk`（models/util/projectlayer.json，fx=0，copybg=1）此前被画成'
+          + '透明 quad（transparentFallback 记账来源）；官方 wer-ref "no-effect compose/project = 逻辑'
+          + ' framebuffer helper（RegisterLogicalImageLayer）" ⇒ 不产生绘制。像素差为 0（透明 quad 本就'
+          + '无观感）；whiteFallback/transparentFallback/layerErrors/decodeFail 均不变。'
+          + '详见 docs/PATCHES.md P-231。',
+      },
+      {
+        id: '3544152633', field: 'drawnLayers', base: 27, now: 26,
+        reason: 'P-184 可见性语义收口：无名占位文本层 id404（`text:"Text Layer"`）的字符串形态绑定'
+          + ' `{user:"a1"}` 指向作者的 HTML 致谢属性（表里没有 value/type）⇒ 求不出值 ⇒ 不画。'
+          + 'A/B 实测：浏览器侧逐层可见性 70/70 不变（该层两版都 vis=0）、文本层光栅化都是 4 层 ⇒ 无用户可见回归；'
+          + '差异只在 Node 审计环境（props 里 a1 存在但无值），即"审计与浏览器口径对齐"。'
+          + '详见 docs/PATCHES.md P-184 的基线说明段。',
+      },
+      {
+        id: '3554161528', field: 'drawnLayers', base: 16, now: 15,
+        reason: 'P-69 语义修正：`cherry blossoms on cursor`(id389) 的 controlpoint[0].flags=1 是 lockToPointer'
+          + '（发射器锁定鼠标指针）⇒ **没有指针信息时不发射**，该层不再产生 GL draw。'
+          + '依据：官方 WE 渲染 Testphoto/TP11/W1.jpg 画面正中没有任何放射花瓣爆（用户第 2 项即为此）；'
+          + '注入指针后实测该层 +103 粒（`--import` 注入 `__mpwPointer` 对比：alive 91→194 @t=1.03s）。'
+          + '**未定**：注入指针后该层已发射却仍未产生 GL draw（见 PATCHES P-75f 的待查项）。',
+      },
+      /*  ①(2026-09-25 P-205 缺口 2) `model` 键（老式模型层）接上后**唯一**的基线下降，逐层取证如下：
+          · 全包只差**一层**：`导航盘 赤道`（id 436，`model:"models/Hollow Cylinder/Hollow Cylinder.mdl"`、
+            `solid:true`、**没有 `size` 字段 ⇒ size=[0,0]**、`color="1 1 1"`、`colorBlendMode:0`、fx=0）。
+          · 旧行为：`solid=true` ⇒ `renderLayer` 的 "size 为 0 回退" 把绘制尺寸改成**整屏**，
+            绑 `transparentTex` 画一个**全屏全透明** quad（1 次 draw，画面上什么都没有）。
+          · 新行为：它是模型层（`__imageKey='model'`）⇒ `solid=false`；它的材质纹理是
+            `_rt_imageLayerComposite_433_a`（**运行时 FBO 名**，不是包内纹理）⇒ `texObj=null`
+            ⇒ 命中既有的"零面积 + 无纹理" 早退 ⇒ 不产生 draw。**像素差 = 0**（旧的那张是全透明）。
+          · 其余 7 个模型层（Star1/2/3 model1、Earth4 model2、自制天空盒00、…）从"透明兜底"变成
+            **用真纹理画出**（`textures.pkgHit` 41→47、纹理名多 6 条）；同包 `whiteFallback` 0→0、
+            `transparentFallback` 12→12、`layerErrors` 0→0、`decodeFail` 0→0 全部不变。
+          · 复核命令：`node tests/package-matrix.mjs --pkg <该包> --json`
+            （逐层名单见 PATCHES.md P-205 缺口 2 的读数表）。 */
+      {
+        id: '3509243656', field: 'drawnLayers', base: 36, now: 35,
+        reason: 'P-205 缺口 2：`model` 键接上后，模型层不再被判成纯色层（`solid` 口径分离）。'
+          + '唯一下降的是 `导航盘 赤道`(id436)：旧 `solid=true` + `size=[0,0]` 让它按"整屏回退"画一个'
+          + '**全透明** quad（1 draw、0 像素）；新口径下它是模型层且材质纹理是运行时 FBO 名'
+          + '`_rt_imageLayerComposite_433_a`（无 texObj）⇒ 走"零面积+无纹理"早退、不再 draw。'
+          + '像素差为 0；同包另 7 个模型层由"透明兜底"变成真纹理画出，'
+          + 'whiteFallback/transparentFallback/layerErrors/decodeFail 四项均不变。详见 docs/PATCHES.md P-205。',
+      },
+    ]
+
 function absorbNew(rows, reason) {
   let base
   try { base = JSON.parse(fs.readFileSync(BASELINE, 'utf8')) } catch { console.error(`✗ ${path.basename(BASELINE)} 不存在或不可读：先跑一次 node tests/package-matrix.mjs 生成基线`); process.exit(2) }
@@ -701,18 +764,33 @@ function absorbNew(rows, reason) {
       ['decodeFail', (r.textures && r.textures.decodeFail) || 0, (b.textures && b.textures.decodeFail) || 0, 'gt'],
       ['layerErrors', (a.layerErrors || []).length, (ab.layerErrors || []).length, 'gt'],
     ]
-    for (const [k, v, bv, dir] of cmp) if (dir === 'lt' ? v < bv : v > bv) regressed.push(`${r.id} ${k}: 基线 ${bv} → 现在 ${v}`)
+    // ①(批次3 2026-10-04) 与 --check 同谓词：**已解释的基线变化**（EXPLAINED_BASE_DROPS，每条都有
+    //   PATCHES 依据）不阻断吸收 —— 否则一次已解释的 drawnLayers 下降会永久卡死新包登记。
+    for (const [k, v, bv, dir] of cmp) {
+      if (dir === 'lt' ? v < bv : v > bv) {
+        const ex = EXPLAINED_BASE_DROPS_TABLE.find((e) => e.id === r.id && e.field === k && e.base === bv && e.now === v)
+        if (!ex) regressed.push(`${r.id} ${k}: 基线 ${bv} → 现在 ${v}`)
+      }
+    }
   }
   const shared = rows.filter((r) => baseByPath.has(r.path)).length
   console.log(`  既有 path 复核：${shared} 行 · 5 项门禁字段退化 ${regressed.length} 项 · 语料中消失 ${gone.length} 项`)
-  if (regressed.length || gone.length) {
-    console.error('✗ 拒绝登记：本次扫描里既有包出现退化/消失 —— 先按 --check 查明，别用本档位掩盖')
-    for (const g of gone) console.error(`  ✗ 消失 ${g.id} ${g.path}`)
+  if (regressed.length) {
+    console.error('✗ 拒绝登记：本次扫描里既有包出现**未解释**退化 —— 先按 --check 查明，别用本档位掩盖')
     for (const r of regressed) console.error(`  ✗ 退化 ${r}`)
     process.exit(2)
   }
+  if (gone.length) {
+    // ①(批次3 2026-10-04) 语料中消失 = 包离开了扫描根集（主线语料整理，如 wallpapertest1 → delete/）：
+    //   基线里留着一行永不在扫描集里的行只会让 --check/吸收永久卡死。这里在 --reason 显式记录的前提下
+    //   把消失行**移出基线**并逐条打印（不是静默——台账进 --absorb-new 的输出与 package-baseline.note）。
+    console.log(`  语料中消失 ${gone.length} 项，随本次 --absorb-new 一并移出基线（理由已记录）：`)
+    for (const g of gone) console.log(`    - ${g.id} ${g.path}`)
+  }
   const fresh = rows.filter((r) => !baseByPath.has(r.path))
-  if (!fresh.length) { console.log('✓ 无新包：基线未改动'); process.exit(0) }
+  const gonePaths = new Set(gone.map((g) => g.path))
+  for (const b of baseRows) if (gonePaths.has(b.path)) { base.rows = base.rows.filter((x) => x !== b) }
+  if (!fresh.length && !gone.length) { console.log('✓ 无新包：基线未改动'); process.exit(0) }
   console.log(`  ✚ 新包 ${fresh.length} 个（逐条打印，不静默）：`)
   for (const r of fresh) {
     const a = r.audit || {}, p = r.particles || {}, t = r.textures || {}

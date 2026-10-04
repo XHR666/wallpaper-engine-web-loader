@@ -460,3 +460,22 @@ flock /tmp/.mpw-firefox.lock -c 'node /tmp/probe-stack.mjs "<工作区>/allwallp
 | 114 | `dd/3715743282/scene.pkg` | 3.7 | PKGV0023 | 9 | ok 960×540 | ok 960×540 | both-ok |
 | 115 | `0923/3690417937/scene.pkg` | 2.7 | PKGV0023 | 29 | ok 960×540 | ok 960×540 | both-ok |
 | 116 | `0923/3122339805/scene.pkg` | 2.2 | PKGV0022 | 190 | ok 960×540 | ok 960×540 | both-ok |
+
+## 附录（批次 3 · C10，2026-10-04）：上游产物 2.1.0 直挂读数——参数组合 ⇒ 画布口径
+
+> ⚠ **读数来源 = 直挂（mediaBase+src），非工具条档**：`?type=scene&mediaBase=http://127.0.0.1:8902/media/dev&src=2887099508&fit=<fit>&renderDpr=<dpr>&filter=none&muted=true`
+> （8902 测试台 `/media/dev/<id>/scene.pkg` 与 `project.json` 双 200；产物 = webwallgl **2.1.0**，
+> `demo/assets/renderer-n-Rw_ZVc.js` 1,067,707B——P-228b 起；下述 §6.2 等正文里的 2.0.2 读数按"已过期"处理）。
+> 机读：`reports/upstream-params-2.1.0.json`；判据 `tests/upstream-direct-mount-test.mjs`（13/0，含变异自证：
+> URL 缺 mediaBase ⇒ 画布不出 = 2.x 缺参契约承重）。
+
+| 参数组合 | 画布（内部缓冲） | CSS 盒 | 倍率 | `__wp.getQuality()`（挂载后） |
+|---|---|---|---|---|
+| fit=contain, renderDpr=1 | 1280×800 | 1280×800 | 1.0 | `{antiAliasing:'off', particles:'high', postProcessing:'off'}` |
+| fit=contain, renderDpr=2 | 2560×1600 | 1280×800 | 2.0 | 同上 |
+| fit=cover, renderDpr=1 | 1280×800 | 1280×800 | 1.0 | 同上 |
+| fit=cover, renderDpr=2 | 2560×1600 | 1280×800 | 2.0 | 同上 |
+
+结论：**画布缓冲口径只由 renderDpr 决定（1×/2× CSS），fit 只影响内容裁剪**；16:9 场景在 16:10 CSS 盒上
+由 fit 决定留边/裁边。`getQuality()` 空挂载时 postProcessing 为 "high"、真挂载后为 "off" ⇒ 它是**挂载态
+读数**，不得当静态能力引用。探针包 0923/288508…（6080×3420，16:9）在本表两种 fit 下均正常出画。

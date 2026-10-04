@@ -255,6 +255,10 @@ export async function attributeScene(sceneObj, deps = {}, opts = {}) {
       if (idx >= 0) meshDrawn.set(idx, true)
     },
     shaderResolver, trace: false, auditFrames: 1, copyBackground: false, hideParticles: false, align: true,
+    // ①(C0 对齐 2026-10-04) demo 缺省**关视差**（`?parallax=` 不带时 parallaxOff=true，"先把视差关掉，
+    //   不然有些壁纸不好测试"）—— 离线归因必须与生产同态，否则带 parallaxDepth 的层两边矩形差一个
+    //   视差位移（真包 0923/2887099508 的 16 条 y 向失配就是它：cameraparallax=true）。
+    parallaxOff: true,
     campose: opts.campose || 'legacy',
   })
   try { globalThis.__mpwPointer = { x: projW / 2, y: projH / 2, inside: true } } catch (e2) {}

