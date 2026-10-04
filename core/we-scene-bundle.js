@@ -3020,6 +3020,24 @@ export function applyUserProperties(scene, props, opts = {}) {
     opts.log('P-61 用户属性绑定：' + stats.applied + ' 处写入 / ' + stats.bound + ' 个绑定层'
       + (stats.gated ? '（门控未生效 ' + stats.gated + ' 处）' : ''))
   }
+  // ①(P-234 批次3 C7 2026-10-04) **场景级 {user:…} 绑定落点**：general.bloom = {user: 属性名, value: 缺省}
+  //   —— 官方语义 = 用户属性直接控制后处理开关（真包 0923/2887099508：bloom={user:
+  //   "highlightneedpostprocessinginset", value:true}，属性表里同名 bool）。此前 applyUserProperties
+  //   只走层绑定（l.__bindRaw）⇒ 场景级绑定没有落点，面板/插件改属性 bloom 纹丝不动。
+  //   写法：value 跟随属性值（布尔直取；{value} 包装取 .value），**保留 user 引用**（回溯可查）；
+  //   门控（gated，?props= 钉死的键）不写；非对象形态（bloom:true）照旧。
+  {
+    const g = scene && scene.general
+    if (g && g.bloom && typeof g.bloom === 'object' && !Array.isArray(g.bloom)) {
+      const name = typeof g.bloom.user === 'string' ? g.bloom.user : (g.bloom.user && g.bloom.user.name)
+      if (name && props && Object.prototype.hasOwnProperty.call(props, name) && !gated.has(name)) {
+        const v = props[name]
+        const eff = (typeof v === 'boolean') ? v : (v && typeof v === 'object' && 'value' in v ? !!v.value : !!g.bloom.value)
+        if (g.bloom.value !== eff) g.bloom = Object.assign({}, g.bloom, { value: eff })
+        stats.applied++; stats.fields['bloom:user'] = (stats.fields['bloom:user'] || 0) + 1
+      }
+    }
+  }
   return stats
 }
 

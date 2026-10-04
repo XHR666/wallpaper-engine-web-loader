@@ -9233,6 +9233,10 @@ function loadScene() {
             const g = (scene && scene.general) || {}
             if ((g.bloom === true || (g.bloom && g.bloom.value === true)) && renderer.runBloom) {
               renderer.runBloom(g, cv.width, cv.height)
+            } else {
+              // ①(P-234) 关闭态也要可解释（runBloom 只在开启时被调 ⇒ 台账停在旧值会误导）：
+              //   enabled:0 + 来源（场景声明 false / 用户属性关）如实覆盖。
+              try { window.__mpwBloomInfo = Object.assign({}, window.__mpwBloomInfo || {}, { enabled: 0, offBecause: (g.bloom && g.bloom.value === false) ? 'value-false' : 'not-enabled' }) } catch (e) {}
             }
           } catch (e) { /* bloom 失败不影响主画面 */ }
           // ①(P-90 2026-09-16) `?aa=fxaa` 帧末 FXAA pass：**排在 bloom 之后**（后处理链的最后一段）。

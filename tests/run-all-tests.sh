@@ -1068,6 +1068,13 @@ add "mdla-corpus-audit" "node tests/mdla-corpus-audit-test.mjs"
 #   派发；台账 __mpwCursorDispatch）。A 桩件（ownerFilter 单投 + 事件值流经 Vec3.subtract + 无过滤全体投递）
 #   + B 探针包真机点击（命中含耳朵 + 脚本调用 ≥1）+ C 变异自证。6 断言、~1.5min、需 headed firefox。
 add "cursor-dispatch" "node tests/cursor-dispatch-test.mjs"
+# ①(C7 批次3 2026-10-04) **场景级 {user:…} 绑定落点**（P-234）：general.bloom={user:名,value:缺省}
+#   ⇒ 用户属性直控后处理开关（此前 applyUserProperties 只走层绑定，场景级绑定无落点：面板/插件改属性
+#   bloom 纹丝不动——真包 0923/2887099508 的 4 处场景级绑定之一）。A 桩件 5 断言（翻转/幂等/缺名/gated/
+#   非对象形态）+ B 语料扫描（general 层级 {user:…} 绑定 28 处，落 reports/scene-user-bindings.json）
+#   + B2 真机（属性翻 false ⇒ __mpwBloomInfo 变关闭态 offBecause=value-false）+ C 变异自证。
+#   8 断言、~1.5min（真机腿需 headed firefox）、离线段纯 Node。
+add "scene-user-bindings" "node tests/scene-user-bindings-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

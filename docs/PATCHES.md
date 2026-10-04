@@ -15785,7 +15785,7 @@ cursorHitTest 也都没有落点。
 - dll-api 提取（`docs/extracts/official-extract/dll-api/Q8-SCENESCRIPT-DLL-API.txt`）的事件名序：
   **cursorHitTest → cursorEnter → cursorLeave → cursorMove → cursorClick → cursorDown → cursorUp**
   （另有 animationEvent/resizeScreen/media*Changed），事件对象字段 = **worldPosition / localPosition / hitBox**。
-- 作者脚本实证（`hongluan-mpkg/scene.json`）：`export function cursorClick/cursorDown/cursorUp(event)`，
+- 作者脚本实证（官方提取的 hongluan-mpkg（红鸾樱落）作者脚本）：`export function cursorClick/cursorDown/cursorUp(event)`，
   `event.worldPosition` 是 Vec3（`thisLayer.origin.subtract(event.worldPosition)`、`.add(...)`）。
 
 ### 改法
@@ -15810,3 +15810,35 @@ cursorHitTest 也都没有落点。
 ① cursorMove/Enter/Leave 的派发只留了管线（未接 move 监听——拖拽类脚本需要，语料 15 处 cursorClick
 里拖拽族在 hongluan 不在本包）；② cursorHitTest 的脚本自答只支持"返回 false 拒绝"，返回矩形/路径的
 精确命中未实现；③ 命中测试用轴对齐矩形近似（旋转层的精确多边形命中未做）。
+
+## P-234（2026-10-04）场景级 `{user:…}` 绑定没有落点——`general.bloom={user:…, value}` 对用户属性无响应
+
+### 症状
+真包 0923/2887099508：`general.bloom = {user:"highlightneedpostprocessinginset", value:true}`（属性表里
+同名 bool）——面板/插件把该属性改 false，bloom 后处理纹丝不动（`runBloom` 的门读 `g.bloom.value`，
+而 value 从未随属性翻转）。
+
+### 根因
+`applyUserProperties` 只走**层绑定**（`l.__bindRaw`）与相机 zoom/fov 绑定（P-76/P-107），**场景级**
+`general.*` 上的 `{user:…}` 绑定没有任何消费点——落点缺失，不是阈值/观感问题。
+语料扫描（四根 209 容器）：general 层级 `{user:…}` 绑定 **28 处**（bloom 4 处、cameraparallax /
+cameraparallaxmouseinfluence / camerashake / display 等其余 24 处，清单
+`reports/scene-user-bindings.json`）。
+
+### 改法（`core/we-scene-bundle.js` applyUserProperties 尾部）
+场景级 pass：`general.bloom` 为 `{user: 名, value: 缺省}` 对象时，属性表含该名且未被 gated 钉死 ⇒
+`value` 跟随属性值（布尔直取、{value} 包装取 .value），**保留 user 引用**；门控不写；非对象形态
+（`bloom:true`/数字）照旧（buildCamera 侧既有消费不变）。配套：demo 的 runBloom 触发处补**关闭态
+台账**（`__mpwBloomInfo.enabled:0 + offBecause`——runBloom 只在开启时被调，关闭态此前停在旧值会误导）。
+
+### 判据与读数
+`tests/scene-user-bindings-test.mjs` **8/0**（门禁 `scene-user-bindings`）：A1 属性 false ⇒
+`bloom.value=false`（user 引用保留）；A2 true 幂等；A3 属性表缺名 ⇒ 原值；A4 gated ⇒ 不写；
+A5 非对象形态原样；B 语料清单落盘；**B2 真机**（§9.6 属性通道翻 false ⇒ `__mpwBloomInfo.enabled:0 /
+offBecause:"value-false"`）；C 变异自证（摘掉场景级 pass ⇒ A1 必红）。`bloom-ldr-black` 不退化。
+
+### 未验证边界
+① 场景级绑定本次只落 `general.bloom`（语料 4 处）——其余 24 处（cameraparallax/camerashake/display…）
+仍无落点，按字段语义逐个取证后再接（同一 pass 里扩字段即可）；② `general.bloom` 的
+`{user:{condition}}` 组合互斥形态语料 0 例，遇到再补；③ runBloom 的 `capture-fail` 慢机降级链路
+（P-90）未动。
