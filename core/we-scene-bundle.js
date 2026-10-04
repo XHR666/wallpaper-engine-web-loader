@@ -3157,6 +3157,17 @@ const CLEARFX_MODE = (() => {
   return 'narrow'
 })()
 
+// ①(P-231 2026-10-04) `?composfx=legacy`：composelayer 容器**一律跳过**（改动前行为）；缺省 = 带
+//   效果链的 composelayer 参与渲染（效果载体），无效果链的照旧跳（逻辑 helper）。
+const CONTAINERFX_MODE = (() => {
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('composfx') === 'legacy' ? 'legacy' : 'default'
+    }
+  } catch (e) { /* 无 location → 缺省 */ }
+  return 'default'
+})()
+
 export function applyRenderConfig(scene, opts = {}) {
   const refrender = opts.refrender || null
   const anchor = opts.anchor || 'refcenter'
@@ -13907,7 +13918,22 @@ export function createRenderer(canvas, opts = {}) {
       }
       // ①(2026-09-12) `?ln=N` 逐层调试：demo 给非目标层打 __lnHidden（容器保留，父链/定位不变）
       if (layer.__lnHidden) { if (__audit) { try { onLog('[首帧] . #' + __li + ' 跳过(逐层调试)') } catch {} } continue }
-      if (!__layerVis || layer.isContainer) { if (__audit) { try { onLog('[首帧] . #' + __li + ' 跳过(不可见/容器)') } catch {} } continue }
+      // ①(P-231 官方语义 2026-10-04) 容器跳层的边界收紧：composelayer **带效果链**时是"效果载体"
+      //   （wer-ref ResolveImageEffectSourcePolicy：compose 层走 ProxyChildrenOnly /
+      //   OwnerNodeAndProxyChildren 的效果源路由，效果链要跑——真包 0923/2887099508 的 `sound line`
+      //   = composelayer + Simple_Audio_Bars，此前被这里整层吞掉）；**无效果链**的 composelayer
+      //   维持跳过（wer-ref：no-effect compose = 逻辑 framebuffer helper，RegisterLogicalImageLayer，
+      //   不画）。`?composfx=legacy` ⇒ 逐位回到改动前（容器一律跳）。
+      if (!__layerVis || (layer.isContainer && (!(layer.effects && layer.effects.length) || CONTAINERFX_MODE === 'legacy'))) {
+        if (__audit) { try { onLog('[首帧] . #' + __li + ' 跳过(不可见/容器)') } catch {} } continue }
+      // ①(P-231 官方) 无效果链的 project/fullscreen 层 = **逻辑 helper**（wer-ref：no-effect
+      //   compose/project "RegisterLogicalImageLayer"、`skip no effect fullscreen layer`——都不产生
+      //   绘制；此前我们画成透明 quad，正是 package-matrix 的 transparentFallback 记账来源
+      //   （真包 0923/2887099508 的 `ldfk`）。solid 层不受影响（纯色卡是 G3 的正式绘制）。
+      if (!(layer.effects && layer.effects.length) && typeof layer.image === 'string' &&
+          (layer.image.indexOf('models/util/projectlayer') === 0 || layer.image.indexOf('models/util/fullscreenlayer') === 0)) {
+        if (__audit) { try { onLog('[首帧] . #' + __li + ' 跳过(逻辑helper)') } catch {} } continue
+      }
       // ①(2026-09-12) 蒙皮层：在**其原层序位置**回调外部绘制 GPU mesh（而不是全部画在最后）。
       // 之前"全部最后画"会覆盖本该在它前面的层（用户实测：飘带跑到身后、头发/眼睛错位）。
       if (opts.onMeshLayer && layer.__skinReady) {
@@ -14559,7 +14585,16 @@ export function createRenderer(canvas, opts = {}) {
     //   composelayer_clearalpha 采主帧缓冲并注入 COPYBG combo）。此前我们只解析该键、渲染时忽略，
     //   导致"水面/反射/波纹"类效果只能扭曲自身贴图（视觉明显不对）。
     let copyBgEntry = null
-    if (layer.copybackground || opts.copyBackground) {
+    // ①(P-230 官方语义 2026-10-04) copybackground 的 **helper 语义只对有效果链的层存在**：
+    //   第三方参考（wer-ref WPSceneParser.cpp `ShouldUseCopyBackgroundSourceHelper`）= `has_effect &&
+    //   !is_compose && is_solid && copybackground` ⇒ 用 composelayer_clearalpha 材质（采主帧缓冲、
+    //   CLEARALPHA=1 ⇒ alpha=0）当**效果源**；无效果链的 copybg 层没有任何 helper —— solid 层就是
+    //   solidlayer 纯色卡（g_Color4 调色），图像/文本层画自己的内容。"换链输入"只有在**有链**时才有
+    //   语义（链输入是喂给效果的）；对 fx=0 的层换入 = 把"该层的合成内容"整个换成背景拷贝 —— 真包
+    //   0923/2887099508 的 25 个 fx=0 copybg 层（Solid/纯色×3/mkj/ldfk…）因此全被画成"背景拷贝叠加"
+    //   （首层时 blit 源是未渲染的空帧 ⇒ 恰好近似纯色卡，是**巧合不是语义**）。`?copybginput=legacy`
+    //   ⇒ 逐位回到 P-199 行为（fx=0 也换；一键 A/B 保留，判据 tests/copybg-semantics-test.mjs）。
+    if ((layer.copybackground || opts.copyBackground) && (effects.length > 0 || copyBgInputLegacy())) {
       try {
         const rt = getFBO(width, height, 'copybackground')
         if (rt && rt.fbo && rt.tex) {

@@ -17,9 +17,11 @@
 //     vis,                            // parseScene 后的静态 visible（已含 applyRenderConfig 的 UI 隐藏）
 //     texture, textureHit,            // 内容纹理名（材质 pass0.textures[0]）+ 包内命中（解码成功才算命中）
 //     passes, fxFiles,                // 效果 pass 总数 / 效果文件名（去重）
-//     copybg, chainInput,             // layer.copybackground + 当前实现的链输入 ∈ own|rt|none
-//                                     //   own=有自有内容走自有贴图（P-199）；rt=无自有内容 ⇒ 背景拷贝；
-//                                     //   none=无效果链。`?copybginput=legacy` 时 own 档也换 rt（另行 A/B）。
+//     copybg, chainInput,             // layer.copybackground + 链输入语义 ∈ own|rt|none
+//                                     //   own=有自有内容走自有贴图（P-199）；rt=无自有内容**且有效果链** ⇒
+//                                     //   背景拷贝（P-230：fx=0 的 copybg 层不换入，画自己的纯色/内容，
+//                                     //     此时 bind=solidcolor/white 而不是 rtcopy）；none=无效果链。
+//                                     //   `?copybginput=legacy` 时 fx=0 也换（bind 变 rtcopy）。
 //     blend,                          // layer.colorBlendMode（RE-18 官方层混合模式）
 //     animGeom (可选),                // origin/scale 有关键帧 ⇒ 矩形随时间变（一致性对账容相位差）
 //     rectDesign {x,y,w,h},           // 设计坐标 = origin±size/2（alignment=center 口径；父子合并后的 world.origin）
@@ -35,6 +37,8 @@
 //   particle-no-def     — 声明了 particle 但 def 未解析（core 渲染循环的 `particle && !particleDef` continue）
 //   particle-tex-missing — 粒子层贴图未装载 ⇒ P-59 跳过（`[粒子] 跳过无贴图层` 日志）
 //   particle-budget     — 粒子层超预算跳过（`[粒子预算] … 超预算跳过` 日志）
+//   logical-helper      — 无效果链的 projectlayer/fullscreenlayer = 逻辑 framebuffer helper（P-231，
+//                         wer-ref RegisterLogicalImageLayer / "skip no effect fullscreen layer" ⇒ 不画）
 //   particle-idle       — 粒子层在采样时刻存活 0（CPU 模拟复核；未到发射窗/已消亡）
 //   degenerate-geometry — size×scale ≤0 且无内容（非 solid、无纹理）⇒ renderLayer 静默早退
 //                         （sound 层 `scale=0 0 0` = 官方"只出声不出画"；compositeLayer drawGuard 同判据）
@@ -51,7 +55,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { ROOT } from './_root.mjs'
+import { ROOT, WS } from './_root.mjs'
 
 const argv = process.argv.slice(2)
 const argVal = (k) => { const i = argv.indexOf(k); return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null }
@@ -62,8 +66,10 @@ const dec = new TextDecoder()
    改坏后以独立模块再导入，主库零污染（solidlayer-fallback / scene-zoom 同款）。 */
 const REPO = process.env.MPW_REPO_ROOT || ROOT
 const lib = await import(pathToFileURL(path.join(REPO, 'core', 'we-scene-bundle.js')).href)
+// WE 资产兜底：显式 MPW_ROOT > 工作区根推导（_root.mjs 的 WS 口径；不写死本机绝对路径——
+//   publish-check/secret-scan/cross-platform 三条门禁都会抓）
 const WE_ASSETS = process.env.MPW_ROOT ? path.join(process.env.MPW_ROOT, 'wallpaper_engine', 'assets')
-  : '/root/Desktop/DSHarea/wallpaper_engine/assets'
+  : path.join(WS, 'wallpaper_engine', 'assets')
 
 /* ── mock GL（口径 = scene-zoom-test.mjs 的 makeMockGL + solidlayer-fallback-test.mjs 的 1×1 打标）────── */
 const CONST = { LINK_STATUS: 0x8B82, COMPILE_STATUS: 0x8B81, ACTIVE_UNIFORMS: 0x8B86, ACTIVE_ATTRIBUTES: 0x8B85,
@@ -325,6 +331,8 @@ export async function attributeScene(sceneObj, deps = {}, opts = {}) {
       else if (visAnim === false) skipReason = 'invisible-anim'
       else if (l.isContainer) skipReason = 'container'
       else if (l.particle && !l.particleDef) skipReason = 'particle-no-def'
+      else if (typeof l.image === 'string' && !passCount &&
+               (l.image.indexOf('models/util/projectlayer') === 0 || l.image.indexOf('models/util/fullscreenlayer') === 0)) skipReason = 'logical-helper'
       else if (particleSkip.has(i)) skipReason = particleSkip.get(i)
       else if (l.particleDef && particleIdle.has(i)) skipReason = 'particle-idle'
       // 退化几何（renderLayer 静默早退判据的镜像：lw0/lh0≤0 且非 solid 且无纹理）
@@ -391,13 +399,19 @@ async function attributePkg(pkgPath, opts = {}) {
 const STUB_FILES = {
   'models/pic.json': { material: 'materials/picmat.json' },
   'materials/picmat.json': { passes: [{ textures: ['images/pic'] }] },
+  'effects/pt/effect.json': { passes: [], fbos: [] },
+  'materials/pt.json': { passes: [{ shader: 'effects/pt.frag', textures: [] }] },
 }
 const STUB = () => ({
   general: { orthogonalprojection: { width: 1920, height: 1080 } },
   objects: [
     { id: 1, name: 'vis-image', image: 'models/pic.json', size: '800 600', origin: '960 540 0' },      // 模型链声明纹理但包里没有 ⇒ 透明兜底，但**会画**
     { id: 2, name: 'hidden-layer', image: 'models/pic.json', size: '400 300', origin: '300 300 0', visible: false }, // invisible
-    { id: 3, name: 'container', image: 'models/util/composelayer.json', size: '100 100', origin: '100 100 0' },   // container（现状口径；C3 改行为时同步断言）
+    { id: 3, name: 'container', image: 'models/util/composelayer.json', size: '100 100', origin: '100 100 0' },   // 无 fx ⇒ container（官方逻辑 helper，C3 后仍跳）
+    { id: 9, name: 'carrier', image: 'models/util/composelayer.json', size: '200 200', origin: '900 200 0', copybackground: true,
+      effects: [{ file: 'effects/pt/effect.json', passes: [{ material: 'materials/pt.json' }] }] },  // 有 fx ⇒ 效果载体（P-231：参与渲染）
+    { id: 10, name: 'proj-logical', image: 'models/util/projectlayer.json', size: '1920 1080', origin: '960 540 0' }, // 无 fx ⇒ logical-helper
+    { id: 11, name: 'full-logical', image: 'models/util/fullscreenlayer.json', size: '1920 1080', origin: '960 540 0' }, // 无 fx ⇒ logical-helper
     { id: 4, name: 'beep', sound: ['sounds/a.mp3'], size: '100 100', origin: '500 500 0' },                       // 声音层，名字不在 UI 名单 ⇒ 透明兜底上屏
     { id: 5, name: 'wind.mp3', sound: ['sounds/b.mp3'], size: '100 100', origin: '700 700 0' },                   // 名字命中 UI 名单 ⇒ invisible-config
     { id: 6, name: 'particle-nodef', particle: 'particles/missing.json', size: '100 100', origin: '900 900 0' },  // particle-no-def
@@ -412,7 +426,7 @@ async function runSelftest() {
   let pass = 0, fail = 0, skip = 0
   const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ✓ ' + name) } else { fail++; console.log('  ✗ ' + name + (detail ? ' — ' + detail : '')) } }
   const sk = (name, why) => { skip++; console.log('  ~ SKIP ' + name + '（' + why + '）') }
-  const ENUM = ['invisible', 'invisible-config', 'invisible-anim', 'container', 'particle-no-def', 'particle-tex-missing', 'particle-budget', 'particle-idle', 'degenerate-geometry', 'draw-failed', 'not-drawn']
+  const ENUM = ['invisible', 'invisible-config', 'invisible-anim', 'container', 'particle-no-def', 'particle-tex-missing', 'particle-budget', 'particle-idle', 'degenerate-geometry', 'logical-helper', 'draw-failed', 'not-drawn']
   const BIND = ['texture', 'rtcopy', 'white', 'transparent', 'solidcolor', 'particle', 'mesh', 'gl-draw-nocallback']
   const IS_MUTANT = (process.argv.find((a) => a.startsWith('--mutant=')) || '').slice('--mutant='.length) || null
 
@@ -422,7 +436,7 @@ async function runSelftest() {
   if (IS_MUTANT) console.log('   ⚠ 变异模式：' + IS_MUTANT + '（隔离副本 root=' + REPO + '）')
 
   // A 段：schema 完备 —— 每行都有固定字段、枚举不出界
-  ok('A1 桩件 8 层全归因', rows.length === 8, 'rows=' + rows.length)
+  ok('A1 桩件 11 层全归因', rows.length === 11, 'rows=' + rows.length)
   ok('A2 每行 schema 固定字段齐全（idx/id/name/type/vis/texture/passes/chainInput/blend/rectDesign/rectDrawn）',
     rows.every((r) => ['idx', 'id', 'name', 'type', 'vis', 'texture', 'passes', 'chainInput', 'blend', 'rectDesign', 'rectDrawn'].every((k) => k in r)),
     JSON.stringify(rows.find((r) => !('chainInput' in r)) || null))
@@ -435,7 +449,10 @@ async function runSelftest() {
   // B 段：逐层机制断言（跳过判定/绑定）
   const byName = Object.fromEntries(rows.map((r) => [r.name, r]))
   ok('B1 hidden-layer ⇒ skipReason=invisible', byName['hidden-layer'] && byName['hidden-layer'].skipReason === 'invisible', JSON.stringify(byName['hidden-layer']))
-  ok('B2 container ⇒ skipReason=container（现状口径；C3 改行为时同步本断言）', byName['container'] && byName['container'].skipReason === 'container', JSON.stringify(byName['container']))
+  ok('B2 container（无 fx composelayer）⇒ skipReason=container（P-231 后仍跳 = 官方逻辑 helper）', byName['container'] && byName['container'].skipReason === 'container', JSON.stringify(byName['container']))
+  ok('B2b carrier（composelayer+fx）⇒ 上屏（bind=rtcopy，效果载体参与渲染）', byName['carrier'] && byName['carrier'].bind === 'rtcopy', JSON.stringify(byName['carrier']))
+  ok('B2c proj-logical / full-logical（无 fx）⇒ skipReason=logical-helper', byName['proj-logical'] && byName['proj-logical'].skipReason === 'logical-helper' && byName['full-logical'] && byName['full-logical'].skipReason === 'logical-helper',
+    JSON.stringify([byName['proj-logical'], byName['full-logical']]))
   ok('B3 particle-nodef ⇒ skipReason=particle-no-def', byName['particle-nodef'] && byName['particle-nodef'].skipReason === 'particle-no-def', JSON.stringify(byName['particle-nodef']))
   ok('B4 beep（声音层，名字不在 UI 名单）上屏且 bind=transparent（无图像内容是设计）', byName['beep'] && byName['beep'].bind === 'transparent', JSON.stringify(byName['beep']))
   ok('B5 wind.mp3（名字命中 UI 名单）⇒ skipReason=invisible-config（配置关的，不是作者）', byName['wind.mp3'] && byName['wind.mp3'].skipReason === 'invisible-config', JSON.stringify(byName['wind.mp3']))
@@ -462,12 +479,12 @@ async function runSelftest() {
   if (!IS_MUTANT) {
     const CORE = path.join(ROOT, 'core')
     const src = fs.readFileSync(path.join(CORE, 'we-scene-bundle.js'), 'utf8')
-    const anchor = '      if (!__layerVis || layer.isContainer) {'
-    if (!src.includes(anchor)) ok('D0 变异锚点存在', false, '不可见/容器跳层行没找到')
+    const anchor = "      if (!__layerVis || (layer.isContainer && (!(layer.effects && layer.effects.length) || CONTAINERFX_MODE === 'legacy'))) {"
+    if (!src.includes(anchor)) ok('D0 变异锚点存在', false, '不可见/容器跳层行没找到（P-231 门控形态）')
     else {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mpw-layerattr-'))
       for (const f of fs.readdirSync(CORE)) { if (/\.(mjs|js)$/.test(f)) fs.copyFileSync(path.join(CORE, f), path.join(dir, f)) }
-      fs.writeFileSync(path.join(dir, 'we-scene-bundle.js'), src.replace(anchor, '      if (layer.isContainer) {'))
+      fs.writeFileSync(path.join(dir, 'we-scene-bundle.js'), src.replace(anchor, '      if (layer.isContainer && (!(layer.effects && layer.effects.length) || CONTAINERFX_MODE === \'legacy\')) {'))
       const mlib = await import(pathToFileURL(path.join(dir, 'we-scene-bundle.js')).href + '?t=' + Date.now())
       const mres = await attributeScene(STUB(), { id: 'stub', readEntry: STUB_READ, readParticleDef: () => null }, { time: 1.0, lib: mlib })
       const mhidden = mres.layers.find((r) => r.name === 'hidden-layer')

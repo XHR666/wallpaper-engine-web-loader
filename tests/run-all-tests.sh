@@ -1039,6 +1039,16 @@ add "ln-consistency"     "node tests/layer-attribution-consistency.mjs" "" "^SKI
 #   探针包 2887099508 的 24 条非 ASCII 条目必须全绿；miss/字体引用落 reports/nonascii-names-audit.json 登记）；
 #   C 段变异自证（getEntry 改 NFKC 双侧规范化 ⇒ 变体被错误命中）。12 断言、实测 ~30s、纯 Node 无浏览器。
 add "nonascii-names"     "node tests/nonascii-name-consistency-test.mjs"
+# ①(C2 批次3 2026-10-04) **copybackground 语义**（P-230）：合成容器 + 真 parseScene/renderScene + mock GL +
+#   真效果链——fx=0 的 copybg 层不换入（bind=solidcolor 纯色卡，官方 helper 语义只对有效果链的层存在）；
+#   fx>0 换入喂链保留；探针包 #3 Solid rtcopy→solidcolor 交叉验证；变异自证（去掉 fx 门 ⇒ 必红）。
+#   6 断言、~1s、纯 Node 无浏览器。真机 A/B 读数落 reports/copybg-ab.json。
+add "copybg-semantics"   "node tests/copybg-semantics-test.mjs"
+# ①(C3 批次3 2026-10-04) **内置 models/util/* 层语义**（P-231）：composelayer+fx = 效果载体（参与渲染，
+#   `?composfx=legacy` 回退）；无 fx 的 composelayer/projectlayer/fullscreenlayer = 逻辑 helper（不画，
+#   官方 RegisterLogicalImageLayer）。A 段桩件 4 类 + B 段四根语料扫描（594 个内置层，154 个受益面，
+#   读数落 reports/builtin-models-audit.json）+ C 段变异自证。9 断言、~10s、纯 Node 无浏览器。
+add "builtin-model-semantics" "node tests/builtin-model-semantics-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

@@ -505,8 +505,14 @@ async function auditPkg(pkg, scene, texRecs, row) {
   //   重名时，`scene.layers.find(name===n)` 会命中另一个（非文本）层 → 文本层的透明回退被误计成异常
   //   （P-57 N5 让时钟/日期文本默认可见后实测 9 个包各 +2：`纯色,Clock,Date` 全是重名误判）。
   //   文本层恒被排除（Node 侧没有文本光栅器，'text:*' 纹理必缺），与上面的注释口径一致。
+  // ①(P-231 2026-10-04) composelayer **效果载体**（isContainer + fx>0，P-231 起参与渲染）同样豁免：
+  //   载体的内容来自效果链，链输入用 1×1 透明兜底是**中性源**（官方语义：compose 层的效果源路由 =
+  //   children 代理，Node 审计没有 children 渲染，透明输入是等价的中性占位）；链失败走 layerErrors /
+  //   fxStats 记账，不该在这里按"透明异常"误报。真包样例：3544152633 `Audio bar`、0923/2887099508
+  //   `sound line`（154 个同类层见 reports/builtin-models-audit.json）。
   const transparentFallback = [...new Set([...transparentDrawn]
-    .filter((li) => { const l = scene.layers[li]; return !(l && l.__text) && !staticWhite.has(nameOf(li)) })
+    .filter((li) => { const l = scene.layers[li]; return !(l && l.__text) && !staticWhite.has(nameOf(li)) &&
+      !(l && l.isContainer && (l.effects || []).length) })
     .map(nameOf))]
   const skipped = []
   for (const m of logs) { const mm = /^\[首帧\] \. #(\d+) 跳过/.exec(m); if (mm) skipped.push(nameOf(Number(mm[1]))) }
@@ -578,6 +584,14 @@ function compareToBaseline(rows) {
               "审计环境与浏览器口径对齐"（旧版在 Node 里多画、在浏览器里不画；新版两边都不画）。
           未定：作者是否本意让该 HTML 致谢**渲染成文本层**（WE 侧未取证）；若将来证实要渲染，
           应当在"HTML 属性 → 文本层"那条链上单独实现，而不是靠可见性回落把它画上屏。 */
+      {
+        id: '2887099508', field: 'drawnLayers', base: 45, now: 44,
+        reason: 'P-231 逻辑 helper：`ldfk`（models/util/projectlayer.json，fx=0，copybg=1）此前被画成'
+          + '透明 quad（transparentFallback 记账来源）；官方 wer-ref "no-effect compose/project = 逻辑'
+          + ' framebuffer helper（RegisterLogicalImageLayer）" ⇒ 不产生绘制。像素差为 0（透明 quad 本就'
+          + '无观感）；whiteFallback/transparentFallback/layerErrors/decodeFail 均不变。'
+          + '详见 docs/PATCHES.md P-231。',
+      },
       {
         id: '3544152633', field: 'drawnLayers', base: 27, now: 26,
         reason: 'P-184 可见性语义收口：无名占位文本层 id404（`text:"Text Layer"`）的字符串形态绑定'

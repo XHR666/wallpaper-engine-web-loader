@@ -41,6 +41,8 @@ console.log('== A 回退开关真值表 ==')
 console.log('\n== B 源码接线：有自己纹理的层**不**换链输入 ==')
 {
   const src = fs.readFileSync(CORE_UNDER_TEST, 'utf8')
+  ok(/if \(\(layer\.copybackground \|\| opts\.copyBackground\) && \(effects\.length > 0 \|\| copyBgInputLegacy\(\)\)\)/.test(src),
+    'B0 生产路径的换入门 = `(copybg) && (effects.length > 0 || legacy)`（P-230：**没有效果链的 copybg 层不换入**，画自己的纯色/内容——官方 helper 语义只对有效果链的层存在）')
   ok(/if \(!effTex \|\| copyBgInputLegacy\(\)\) srcTex = rt\.tex/.test(src),
     'B1 生产路径是 `if (!effTex || copyBgInputLegacy()) srcTex = rt.tex`（有纹理 ⇒ 保持层自己的内容）')
   ok(/copyBgEntry = rt/.test(src), 'B2 背景拷贝仍然准备着（COPYBG 槽 / `_rt_FullFrameBuffer` 要它）')

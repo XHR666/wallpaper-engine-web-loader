@@ -15599,3 +15599,84 @@ demo 回调进入 287 次、过 FBO 守卫 164 次、**push 0 次**，回调最�
 parity-check 历史）没有回溯重跑的价值（它们的判定本就只对蒙皮层有效）；
 ② `mpwLayerHealth` 的 `drawn/rect` 列在真机上从此开始有 composite 数据，上报 consumers 若按旧数据形态
 写死"只有 mesh"会看到新行——检查过 `mpwLayerHealth` 与 parity-check 的消费端，均按台账条目动态消费，无此假设。
+
+## P-230（2026-10-04）`copybackground` 的"换链输入"被推广到 fx=0 的层 —— 官方 helper 语义只对有效果链的层存在
+
+### 症状（C0 层归因读数 + 真机 A/B）
+真包 `0923/2887099508` 有 25 个 `copybackground:true` 且 **无自有贴图、fx=0** 的层（Solid/纯色×3/mkj/
+右-菜单-底色/ldfk…）。P-199 的换入条件 `!effTex || copyBgInputLegacy()` 对它们全部生效 ⇒ 这些层的
+**合成内容**被换成"背景帧缓冲拷贝"——首层时 blit 源是未渲染的空帧（恰好白）⇒ 视觉近似纯色卡；
+其余则是"把自己下方的画面再叠一遍" = 无效 overlay，作者写的 `layer.color` 纯色永远出不来。
+
+### 根因（真值源逐条）
+- wer-ref `WPSceneParser.cpp::ShouldUseCopyBackgroundSourceHelper` = `has_effect && !is_compose &&
+  is_solid && copybackground` ⇒ copybackground 的 **helper**（`composelayer_clearalpha`：采主帧缓冲、
+  CLEARALPHA=1 ⇒ alpha=0，官方资产 `materials/util/composelayer_clearalpha.json` + `shaders/composelayer.frag`
+  屏幕坐标采样）只是"**效果源替换**"，且只发生在 `has_effect` 的层上。
+- 无效果链的 copybg 层走普通 `LoadMaterial` ⇒ solid 层 = solidlayer 纯色卡（WER-ALIGN G3 的
+  g_Color4 调色），图像/文本层画自己的内容——**没有任何换入**。"换链输入"只有在有链时才有语义。
+- P-199 的条件 `!effTex`（无自有内容）没有看 `effects.length` ⇒ 把 helper 语义推广到了 fx=0 的层。
+
+### 改法（`core/we-scene-bundle.js`）
+换入/背景 blit/COPYBG 注入整段加门：`(layer.copybackground || opts.copyBackground) && (effects.length > 0
+|| copyBgInputLegacy())` —— 缺省下 fx=0 的 copybg 层画自己的内容（solid=whiteTex×color4 纯色卡）；
+`?copybginput=legacy` 逐位回到 P-199（fx=0 也换，一键 A/B）。COPYBG combo 注入本来只对 `effects` 循环，
+无效果时天然无操作，行为一致。
+
+### 判据与读数
+- `tests/copybg-semantics-test.mjs` **6/0**（门禁 `copybg-semantics`）：A1 solid+copybg+fx=0 ⇒
+  bind=solidcolor、chainInput=none；A2 solid+copybg+fx>0（真效果链）⇒ chainInput=rt；B 探针包交叉验证
+  （#3 Solid rtcopy→solidcolor、#40 黑底 fx=1 保持 rt；binds 修前 `rtcopy:25` → 修后 `rtcopy:4 + solidcolor:7 + transparent:14`）；C 变异自证（去掉 fx 门 ⇒ A1 必红）。
+- `tests/copybg-input-test.mjs` **12/0**（P-199 判据同步 B0 锚点 + 变异仍红）。
+- 真机 A/B（`reports/copybg-ab.json`，1280×720、campose=legacy、settle 6s，三包）：
+  `2887099508` default meanL **164.82** / uniq **66199** vs legacy 128.05 / 30257（fx=0 层出真内容 ⇒
+  uniq 2.2×）；`3327063360` 82.98↔85.64、`3326873240` 88.09↔89.34（copybg fx=0 面小，变化微小）。
+  `ln-consistency` 12/0、`visual-diff-kal` 通过（像素传感器不退化）。
+
+### 未验证边界
+① clearalpha 的两个细节仍未实现：**按屏幕坐标采样**（我们用层 UV 采样整幅 blit）与 **alpha=0**
+（我们换入的 rt 内容 alpha=1）——对"效果源"语义有差（读 alpha 的效果会不同）⇒ 属"重写材质路径"量级，
+按任务书 §13 先在最小切片（fx=0 不换入）落地，下一步最小实验 = 给 fx>0 无自有内容的 copybg 层加
+CLEARALPHA 组合的程序变体并 A/B；② compose/project 的"逻辑 helper 不画"（wer-ref
+RegisterLogicalImageLayer）归 C3 处理，本条未动。
+
+## P-231（2026-10-04）内置 `models/util/*` 层语义：容器跳层吞掉"效果载体"，无 fx 的 project/fullscreen 又画成透明 quad
+
+### 症状（C0 层归因 + 语料扫描）
+- 真包 `0923/2887099508` 的 `sound line`（#5）= `models/util/composelayer.json` + Simple_Audio_Bars
+  效果链——**音频条的载体**，被渲染循环的"容器一律跳过"整层吞掉（`[首帧] . #5 跳过(不可见/容器)`）
+  ⇒ C9 的音频条永远出不来。语料扫描（四根 199 容器）：**154 个 "composelayer+fx 且无子层"的效果载体**
+  同类（`reports/builtin-models-audit.json`；3544152633 的 `Audio bar`/`Clouds` 等）。
+- 反向：无 fx 的 projectlayer/fullscreenlayer 被画成**透明 quad**（真包 `ldfk`）——正是
+  package-matrix 的 transparentFallback 记账来源；官方语义它们是"逻辑 framebuffer helper"不画。
+
+### 根因（真值源）
+- wer-ref `ResolveImageEffectSourcePolicy`：compose 层走**效果源路由**（copybg ⇒
+  OwnerNodeAndProxyChildren；否则 ProxyChildrenOnly）——**带效果链的 composelayer 是效果载体**，
+  效果链要跑；wer-ref `:4606` no-effect compose/project = `RegisterLogicalImageLayer`（不画）、
+  `:4614` `skip no effect fullscreen layer`。`core/we-scene-bundle.js:1810` 的
+  `isContainer`（composelayer 前缀无条件置位）只应约束"分组容器"语义（父子合并/ln 保留），
+  渲染循环把它当"一律不画"用，两个语义被混在一起。
+
+### 改法（`core/we-scene-bundle.js`）
+渲染循环：容器跳层加门 `layer.isContainer && (!(layer.effects && layer.effects.length) ||
+CONTAINERFX_MODE === 'legacy')`（带链 ⇒ 参与渲染，链输入按既有规则：copybg+无自有内容 ⇒ 背景拷贝
+[P-230]，否则透明兜底=中性源）；新增：无 fx 的 `models/util/projectlayer*` / `models/util/fullscreenlayer*`
+= 逻辑 helper 跳层（审计行 `跳过(逻辑helper)`）。`?composfx=legacy` ⇒ 容器一律跳（逐位回退），
+README-DIAGNOSTICS 已登记（diag-flag-check 213 行同步）。solid 层不受影响（纯色卡是 G3 正式绘制）。
+
+### 判据与读数
+- `tests/builtin-model-semantics-test.mjs` **9/0**（门禁 `builtin-model-semantics`）：A 段桩件 4 类
+  （carrier 上屏 / 无 fx compose=container / 无 fx project、fullscreen=logical-helper / project+fx 上屏）；
+  B 段四根语料扫描（199 容器 / 594 个内置层：solidlayer 361、composelayer 198、fullscreenlayer 28、
+  projectlayer 7；154 个受益面；真容器+fx 22 个=边界）；C 段变异自证（容器门去掉 fx 分支 ⇒ carrier 必红）。
+- `tests/layer-attribution.mjs` 自测 **22/0**（B2/B2b/B2c：container/carrier/logical-helper 三态）；
+  `tests/package-matrix.mjs --check` 绿（EXPLAINED：探针包 drawnLayers 45→44 = ldfk 逻辑化，像素差 0）；
+  `ln-consistency` 12/0。
+- 语料边界：**真容器（被 parent 引用）且带 fx 有 22 个**——P-231 让它们的效果链也跑起来
+  （官方 ProxyChildrenOnly 的 children 代理未实现，链输入=透明兜底/背景拷贝），登记为后续边界。
+
+### 未验证边界
+① compose 层的 children 代理链输入（官方 ProxyChildrenOnly：链源=子层渲染结果）未实现——生成器类
+效果（音频条）不受影响，采样型效果（拖影/模糊子层）会不同；② 真容器+fx 的 22 个层默认行为变化只有
+mock-GL 审计读数（drawnLayers/transparentFallback），无像素级 A/B（它们的观感影响待 B1 矩阵量化）。
