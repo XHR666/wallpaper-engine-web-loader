@@ -13591,7 +13591,7 @@ P-152b 之后**仍**解析为 `null` —— 它们在**MDLS 解析之前**的"�
   （与注册模式并集）。只认"行首 SKIP + **本项名**" ⇒ **不误伤** `logGLSkip` 打出的子段 SKIP
   （那些是 `SKIP <段名>`，例如 `SKIP B 段（预览外壳/首帧）`）。
 * 两处 resolver 加 `rootOf()`：`delete/<root>/…` 视作**同一个语料根**（`delete/` 是同盘暂存区，内容逐字节相同）。
-* 新增门禁 `library-delete-manifest`（登记进套件）：磁盘 ↔ `allwallpaper/delete/MANIFEST.json` 双向对账 +
+* 新增门禁 `library-delete-manifest`（登记进套件）：磁盘 ↔ `<工作区>/Delete/MANIFEST.md` 双向对账 +
   逐对 sha256 与"库内保留的孪生副本"相同 + 6 组变异自证（篡改 sha / 换孪生 / 少登记 / 多登记 / 改大小 / 删 `kept`）。
 * `mpkg-sweep-test` 新增 `--batch ALL [--offset/--limit] [--enum-only]` 与"已有 Firefox 就 SKIP"的预检；
   新增 `--abort-free-mb/--min-free-mb` 之外的"单 Firefox"纪律落点（见 P-186）。
@@ -15562,6 +15562,54 @@ P-160 的 COPYING-RULES 行），它们描述的是 1.3.23 那份产物；本批
 `rendererScriptUrl()` 按 `renderer-` 前缀匹配）。
 ③ `THIRD-PARTY.md` §6.4 已补记新版本/提交/字节数与"两处已登记改写"，但 §6.4 里"demo/** 全部是
 redistributed unchanged"的措辞仍按老版本叙述，未逐句重写。
+
+## P-228b（2026-10-04）上游渲染器产物升到 webwallgl **2.1.0**（从 2.0.2 的 tag 构建换到 2.1.0 的 tag 构建）
+
+### 做法（与 P-228 同一配方，可复现）
+```bash
+rm -rf /tmp/webwallgl-2.1.0-src && git clone --depth 1 --branch 2.1.0 https://github.com/oneincase/webwallgl.git /tmp/webwallgl-2.1.0-src
+cd /tmp/webwallgl-2.1.0-src && pnpm install --frozen-lockfile && pnpm build
+```
+搬进本仓的仍是**只搬渲染器页 + 它的两条 assets**，两处已登记改写（`<title>` → `WEwebLoader Renderer`；`/assets/` → `../assets/`）+ P-93 注释：
+
+| 上游 `dist/` | 本仓 | 字节 / sha256 |
+|---|---|---|
+| 渲染器入口页 | `demo/renderer/index.html` | 1,732 B（改写后） |
+| 上游 dist 的渲染器 JS（本次 renderer-n-Rw_ZVc.js） | `demo/assets/renderer-n-Rw_ZVc.js` | **1,067,707 B** / `167d87f8a2239d5d82db2aae7d9ebe9952a947cc2e88f8aa4ac3a4654a1308e1` |
+| 上游 dist 的 modulepreload-polyfill（同名同尺寸） | ——（不覆盖，保持本仓等价实现） | 711 B |
+| 旧 `demo/assets/renderer-*.js`（旧 2.0.2 产物，已删） | 删除（页面不再引用；D12 断言"有且仅有一份 `renderer-*.js`"） | —— |
+
+### 判据与读数
+- 渲染器页与 2.0.2 版本**逐行只差** title 与资源路径（`diff` 已核）⇒ 切换面无结构性改动。
+- 契约核对（产物内 grep）：`mediaBase`(8)/`loadSceneFile`(1)/`getQuality`(1) 均在，错误串 `场景壁纸缺少 mediaBase/src` **仍在** ⇒ URL 模式依然要求 `mediaBase` + `src` 同时给（见 P-228c）。
+- 服务端实测：`/wallpaper-engine-webgl/assets/renderer-n-Rw_ZVc.js` = **200 / 1,067,707 B**，旧包 404，页面标题与 `demo/assets/renderer-n-Rw_ZVc.js` 引用均正确。
+- `tests/demo-check.mjs`（D12 产物唯一性）、`tests/bench-renderer-source-test.mjs`、`tests/bench-shell-fixes-test.mjs` 全绿（见提交说明）。
+
+### 未验证边界
+1. 上游 2.1.0 的行为差异（画布倍率 / 就绪时机 / `getQuality()` 口径）仍需按 P-228 的未验证边界①重跑基线探针（`cover-ab-probe`、`renderer-gap-matrix`、`visual-diff*`、`parity-check`）；
+2. 本批只保证"能装载、能出画、切换契约不变"。
+
+## P-228c（2026-10-04）测试台「上游产物」档的**包交接**：`mediaBase` 在往返改写里被洗掉 ⇒ 上游挂不上任何语料包
+
+### 症状（客观）
+测试台切到「上游产物」档后 iframe 里的 `canvases: []`、控制台 `scene render failed: Error`，**一个包请求都不发**。直开 `…/renderer/index.html?type=scene&src=<itemId>&…` 同样如此。
+
+### 根因
+上游在 `type=scene` 下要求 **`mediaBase` 与 `src` 同时存在**（内部拼 `${mediaBase}/${src}`，再取 `${base}/scene.pkg` 与 `${base}/project.json`；缺则抛 `场景壁纸缺少 mediaBase/src`）。而 `demo/bench-patch.js` 的 `rendererSourceUrl()` 在**本仓档**用白名单重建查询串时丢掉了 `mediaBase`；它又是**往返**改写（本仓 URL 会被再切回上游档）⇒ 该参数永远补不回来。缺省档就是本仓档 ⇒ **第一次挂载就丢**。
+
+### 改法
+1. 本仓档：`type=scene` 且有 `src` 时，若查询串里没有 `mediaBase`（**大小写不敏感**地判存在性）就补 `mediaBase=<origin>/media/dev`（写入用规范名，上游是精确匹配读取）；
+2. 上游档反向映射：把本仓 URL 换回产物页路径时，同样按需补 `mediaBase`（相对 URL 用 `location.origin` 补全）；
+3. 非 scene 档（web/video）不加该参数；已带 `mediaBase` 的产物 URL 上游档**逐字返回**。
+
+### 判据与读数
+- 新增 `tests/bench-upstream-handoff-test.mjs`（注册进 `run-all-tests.sh`）**11 通过 / 0 失败**：
+  A1 产物→本仓 `mediaBase` 恰好一次且保留原值；A2 缺则补；A3 本仓→上游路径换回且 `mediaBase`+`src` 都在；A4 已正确的产物 URL 逐字不变；A5 非 scene 不加；**B 变异自证**（删两处守卫 ⇒ A2/A3 必红）；C 真机：页面内改写链 + 直挂上游档后 **`200 /media/dev/2887099508/scene.pkg` + `200 …/project.json`**、iframe 出画布（381×214）。
+- 服务端面已具备该目录形状（`/media/dev/<id>/scene.pkg` = 200、`/media/dev/<id>/project.json` = 200），**不需要新增路由**。
+
+### 未验证边界
+1. 测试台自带的合成样例（`src=sample-synthetic`）不在 `/media/dev/` 下 ⇒ 上游档挂它仍会失败（真库条目不受影响）；
+2. 自动轮播 / 跨标签页继承等路径未覆盖。
 
 ## P-229（2026-10-04）演示页逐层台账的 composite 条目自 P-64-MEDIA 起全灭（`mpwLedgerYDown` 块级作用域错位）—— C0② 受控实验定位
 

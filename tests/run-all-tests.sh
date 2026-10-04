@@ -481,6 +481,7 @@ add "bench-ui-headless"  "node tests/bench-ui-headless-test.mjs" "" "^SKIP bench
 #     原样读数（不谎报成红、也不静默通过）；`MPW_BENCH_HEADLESS=1` 强制无头。
 #   无 :8902 / 无 Playwright / 无 firefox ⇒ **只有 D 段 SKIP**（A/B/C 段照跑，门禁不红）。
 add "bench-renderer-source" "node tests/bench-renderer-source-test.mjs" "" "^SKIP bench-renderer-source"
+add "bench-upstream-handoff" "node tests/bench-upstream-handoff-test.mjs" "" "^SKIP bench-upstream-handoff"   # P-228c：8902「上游产物」档的包交接（mediaBase+src）。纯函数段（往返改写：恰好一次/缺则补/不变式/非 scene 不加）+ 变异自证（删守卫必红）+ 真机段（页面改写链 + 直挂后 200 取到 scene.pkg/project.json、iframe 出画布）；缺 GL/测试台 ⇒ SKIP 不假红。11/0。
 # ①(2026-09-21) `scene-texanim`：官方 `ITextureAnimation` 面（真机语料 3544152633 逐字用到
 #   `getTextureAnimation().rate / getFrame() / frameCount`）——旧实现缺 `rate/frameCount/duration/
 #   isPlaying/join` ⇒ **静默错分支**（`getFrame()==frameCount-1` 恒假、`rate=9` 没人读）。

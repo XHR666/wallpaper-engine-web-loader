@@ -1798,13 +1798,28 @@ export function rendererSourceUrl(url, mode, opts) {
   //      src 不会重设 ⇒ 需要这条反向映射兜底）。查询串原样带走（多出来的 `id`/`res` 对产物页是无害的
   //      未知参数：它只读 type/src/fit/renderDpr/sceneFps/muted/loop/filter/mediaBase/liveSystem/opaque）。
   if (rendererSourceMode(mode) !== 'repo') {
+    /* ①(2026-10-04 P-228c) 上游档：**保证 scene 档带 `mediaBase`**（同上面本仓档的理由）。
+       分三种输入：① 已是产物页 URL（`Ae()` 建的，本来就带 mediaBase）⇒ 原样返回；
+       ② 本仓 URL ⇒ 换回产物页路径，并按需补 `mediaBase`；③ 其它 ⇒ 原样返回。 */
     if (!isLoader) return raw
     const hashAt = raw.indexOf('#')
     const head = hashAt >= 0 ? raw.slice(0, hashAt) : raw
     const hash = hashAt >= 0 ? raw.slice(hashAt) : ''
     const qAt = head.indexOf('?')
     const originPrefix = (/^https?:\/\/[^/]+/i.exec(raw) || [''])[0]
-    return originPrefix + '/wallpaper-engine-webgl/renderer/index.html' + (qAt >= 0 ? head.slice(qAt) : '') + hash
+    let query = qAt >= 0 ? head.slice(qAt + 1) : ''
+    const qget = (k) => {
+      const hit = query.split('&').find((s) => s.split('=')[0].toLowerCase() === k)
+      if (hit === undefined) return null
+      try { return decodeURIComponent(hit.slice(hit.indexOf('=') + 1)) } catch (e) { return hit.slice(hit.indexOf('=') + 1) }
+    }
+    const qhasCI = (name) => query.split('&').some((x) => x && x.split('=')[0].toLowerCase() === name.toLowerCase())
+    if (String(qget('type') || 'scene').toLowerCase() === 'scene' && qget('src') && !qhasCI('mediaBase')) {
+      const originNow = originPrefix || (typeof location !== 'undefined' ? location.origin : '')
+      const mb = 'mediaBase=' + encodeURIComponent(originNow + '/media/dev')
+      query = query ? (query + '&' + mb) : mb
+    }
+    return originPrefix + '/wallpaper-engine-webgl/renderer/index.html' + (query ? '?' + query : '') + hash
   }
   if (!isProduct && !isLoader) return raw
   const originPrefix = (/^https?:\/\/[^/]+/i.exec(raw) || [''])[0]
@@ -1836,6 +1851,23 @@ export function rendererSourceUrl(url, mode, opts) {
      隐藏外壳的样式 + 首帧握手脚本；这里把它写进 URL ⇒ 预览从**第一帧**起就是黑底画布。
      纪律：只在**本仓档**补（上游产物页没有这条约定，一个字符都不动它）；已有 `shell=` 的显式调试档不覆盖。 */
   if (get('shell') === null) upsert('shell', '0')
+  /* ①(2026-10-04 P-228c) **`mediaBase` 不许在本仓档被洗掉**：上游产物页的 scene 档要求
+     `mediaBase` 与 `src` **同时存在**（内部拼 `${mediaBase}/${src}` 再取 `${base}/scene.pkg`
+     + `${base}/project.json`，缺失时抛「场景壁纸缺少 mediaBase/src」）。本仓档不需要它，但
+     `rendererSourceUrl()` 是**往返**改写：本仓 URL 被再切回上游档时会带回同一条查询串 ⇒ 这里若
+     丢掉它，工具条上游档就会挂成空（实测 `canvases: []`、无任何包请求）。
+     值 = 站点同款 `${origin}/media/dev`（scenepkg/project.json 就在该目录下，服务端已实测 200）。 */
+  const srcParam = get('src')
+  const typeParam = String(get('type') || 'scene').toLowerCase()
+  const hasCI = (name) => kept.some((x) => x.split('=')[0].toLowerCase() === name.toLowerCase())
+  const upsertCI = (name, v) => {
+    const i = kept.findIndex((x) => x.split('=')[0].toLowerCase() === name.toLowerCase())
+    if (i >= 0) kept[i] = name + '=' + v
+    else kept.push(name + '=' + v)
+  }
+  if (typeParam === 'scene' && srcParam && !hasCI('mediaBase')) {
+    upsertCI('mediaBase', encodeURIComponent((originPrefix || (typeof location !== 'undefined' ? location.origin : '')) + '/media/dev'))
+  }
   return originPrefix + RENDERER_SOURCE_REPO_PATH + '?' + kept.join('&') + hash
 }
 /** 在 `HTMLIFrameElement.prototype` 的 `src` 访问器上**再包一层**（与 `installBandFeedSrcHook` 同构、
