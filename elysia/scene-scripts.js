@@ -2900,6 +2900,9 @@ export function dispatchScriptEvent(cache, name, payload, opts = {}) {
   const out = { entries: 0, calls: 0, errors: 0 };
   if (!map || typeof name !== 'string' || !name) return out;
   const onError = typeof opts.onError === 'function' ? opts.onError : null;
+  // ①(P-233 批次3 C6) `ownerFilter(obj)`：指针类事件（cursorClick/Down/Up）只投给**命中层**的脚本
+  //   实例（官方 cursorHitTest 语义 = 命中判定先行）。不传 = 全体投递（媒体事件旧语义不变）。
+  const ownerFilter = typeof opts.ownerFilter === 'function' ? opts.ownerFilter : null;
   for (const entry of map.values()) {
     if (!entry || !entry.exports) continue;
     const fn = entry.exports[name];
@@ -2909,6 +2912,7 @@ export function dispatchScriptEvent(cache, name, payload, opts = {}) {
     try { owners = (entry.owners && entry.owners.size) ? Array.from(entry.owners) : [entry.lastOwner || null]; }
     catch { owners = [entry.lastOwner || null]; }
     for (const obj of owners) {
+      if (ownerFilter && !ownerFilter(obj)) continue
       if (entry.ownerRef && entry.ownerRef.setOwner) { try { entry.ownerRef.setOwner(obj) } catch { /* ignore */ } }
       try { fn(payload); out.calls++; }
       catch (e) {

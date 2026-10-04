@@ -15773,3 +15773,40 @@ mock-GL 审计读数（drawnLayers/transparentFallback），无像素级 A/B（�
 ① 若存在**有意**用 setCameraTransforms 改 zoom 的脚本（非 round-trip），P-232 会忽略其对动画包的
 zoom 写入（语料 0 例；遇到时按"运行时 override + 优先级"单独设计）；② `getCameraTransforms` 在帧外
 （测试直读）返回静态值——与官方"current"语义的偏差只在无宿主帧循环的场合。
+
+## P-233（2026-10-04）脚本宿主指针事件管线：`cursorClick/cursorDown/cursorUp` 从"全仓 0 命中"到端到端派发
+
+### 症状
+真包 0923/2887099508 的作者脚本导出 15 处 `cursorClick`（耳朵层点击切换弹跳动画层、点击播放动画等），
+`grep -rn cursorClick demo.html core elysia` 全仓 **0 命中** ⇒ 点耳朵无任何反应；同类 cursorDown/Up/
+cursorHitTest 也都没有落点。
+
+### 官方契约（真值源）
+- dll-api 提取（`docs/extracts/official-extract/dll-api/Q8-SCENESCRIPT-DLL-API.txt`）的事件名序：
+  **cursorHitTest → cursorEnter → cursorLeave → cursorMove → cursorClick → cursorDown → cursorUp**
+  （另有 animationEvent/resizeScreen/media*Changed），事件对象字段 = **worldPosition / localPosition / hitBox**。
+- 作者脚本实证（`hongluan-mpkg/scene.json`）：`export function cursorClick/cursorDown/cursorUp(event)`，
+  `event.worldPosition` 是 Vec3（`thisLayer.origin.subtract(event.worldPosition)`、`.add(...)`）。
+
+### 改法
+① `elysia/scene-scripts.js`：`dispatchScriptEvent` 增 `opts.ownerFilter(obj)`（只投命中层的脚本实例；
+   不传 = 旧的全员投递，媒体事件语义不变）。
+② `demo.html`（MPW-CURSOR 段）：canvas `pointerdown/pointerup/click` → 设计坐标（画布盒 × 正交投影）
+   → 命中测试（可见非容器层、origin±size×scale/2、自上而下；脚本导出 `cursorHitTest` 时可自答）→
+   事件 `{worldPosition: Vec3, localPosition: Vec3, hitBox: null}` → `dispatchScriptEvent` + ownerFilter
+   （owner 身份 = **原始 scene.json 的 objects 条目**——脚本 ownerRef 绑定的就是它，解析层按 id 映射）。
+   台账 `window.__mpwCursorDispatch`（down/up/clicks/hits/lastDispatch{calls,errors,entries}）。
+
+### 判据与读数
+- `tests/cursor-dispatch-test.mjs` **6/0**（门禁 `cursor-dispatch`）：A 桩件（ownerFilter 单投：layerA
+  alpha=|0−100|/400=0.25 而 B 不变；第二次派发 x=−300 ⇒ 0.75 = 事件值真流经 Vec3.subtract；无过滤 =
+  全员投递）；B 探针包真机点击（命中含耳朵 + cursorClick 脚本调用 ≥1）；C 变异自证（摘 ownerFilter
+  分支 ⇒ 双实例都收到，A1 必红）。
+- 调试中钉死的身份规则：脚本 ownerRef 绑定的是**原始 sceneObj.objects**（applySceneScripts 的入参），
+  不是解析后的 scene.layers —— ownerFilter 必须按 id 映射到 objects，否则命中了也 0 调用
+  （首版实测：hits 含 r ear1 但 calls=0）。
+
+### 未验证边界
+① cursorMove/Enter/Leave 的派发只留了管线（未接 move 监听——拖拽类脚本需要，语料 15 处 cursorClick
+里拖拽族在 hongluan 不在本包）；② cursorHitTest 的脚本自答只支持"返回 false 拒绝"，返回矩形/路径的
+精确命中未实现；③ 命中测试用轴对齐矩形近似（旋转层的精确多边形命中未做）。

@@ -1062,6 +1062,12 @@ add "upstream-direct-mount" "node tests/upstream-direct-mount-test.mjs"
 #   探针包定案（左下1 bad=[0,1,2,3,25,26,27,28,29]、thr=5.00、回绕 184.7 vs 内部 12.3）+ fps 全 30
 #   + 桩件（合成尾部垃圾+孤立尖峰仍被识别）+ 变异自证（中性化检测器 ⇒ 空）。10 断言、~5s、纯 Node。
 add "mdla-corpus-audit" "node tests/mdla-corpus-audit-test.mjs"
+# ①(C6 批次3 2026-10-04) **指针事件管线**（P-233）：官方 cursorHitTest → Enter/Leave/Move/Click/Down/Up
+#   的落地——elysia dispatchScriptEvent 增 ownerFilter（只投命中层）；demo MPW-CURSOR 管线（canvas
+#   pointerdown/up/click → 设计坐标 → 层矩形命中 → Vec3 事件 {worldPosition,localPosition,hitBox} →
+#   派发；台账 __mpwCursorDispatch）。A 桩件（ownerFilter 单投 + 事件值流经 Vec3.subtract + 无过滤全体投递）
+#   + B 探针包真机点击（命中含耳朵 + 脚本调用 ≥1）+ C 变异自证。6 断言、~1.5min、需 headed firefox。
+add "cursor-dispatch" "node tests/cursor-dispatch-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then
