@@ -1023,6 +1023,22 @@ add "bench-mpkg-items"   "node tests/bench-mpkg-items-test.mjs"
 #   · J13 断言语义化 · EYE_HACK 依据强度登记+可注入+记账。**每条都有 MUTANT-RED-OK 变异自证**（回退用
 #   `git show HEAD:` 的真版本，不是手搓近似）；46 断言、~15s、纯 Node（无浏览器/无网络/无 GPU），不写仓库文件。
 add "portability-fix"    "node tests/portability-audit-fix-test.mjs"
+# ①(C0 批次3 2026-10-04) **层归因基建**：离线工具（合成桩件 + 真 parseScene/renderScene + mock GL，
+#   schema 固定 + skipReason 枚举 + 设计/实绘矩形自洽 + 变异自证）20 断言、~3s、无浏览器/网络/GPU。
+add "layer-attribution"  "node tests/layer-attribution.mjs --selftest"
+# ①(C0 批次3 2026-10-04) **?ln=N 第二量法一致性**：真机 __mpwLayerLedger（实绘矩形台账）× 离线 mock-GL
+#   归因，3 包对账（P1 台账⊆归因含 script-state 解释 / P1b composite 条目存在（C0 修复回归守卫：
+#   mpwLedgerYDown 作用域错位曾让 composite 全灭）/ P2 矩形失配逐条归类 text-metrics|anim-phase|
+#   mesh-pose|camera-scale|transparent-content，未解释才红 / P3 隔离=清屏色签名）。18 断言；
+#   实测 ~3.5min、需 headed firefox（llvmpipe ~1fps，台账窗口 4s）；无 GL ⇒ 整档 SKIP + 原样读数。
+#   产物读数落 reports/layer-attribution-consistency.json（§8 基线腿另用 --baseline，手动跑）。
+add "ln-consistency"     "node tests/layer-attribution-consistency.mjs" "" "^SKIP "
+# ①(C1 批次3 2026-10-04) **非 ASCII/非 UTF-8 资产名"引用↔索引"一致性**：A 段合成容器（生产 parsePkg/getEntry，
+#   条目名含非法 UTF-8 字节走 decodeName 的 Latin-1 兜底）同形引用必命中、NFKC/大小写/U+FFFD 变体必不命中
+#   （查找零规范化）+ demo 侧"缺 model/缺纹理"日志原文钉死；B 段四根语料对账（非 ASCII 引用 ~1418 条，
+#   探针包 2887099508 的 24 条非 ASCII 条目必须全绿；miss/字体引用落 reports/nonascii-names-audit.json 登记）；
+#   C 段变异自证（getEntry 改 NFKC 双侧规范化 ⇒ 变体被错误命中）。12 断言、实测 ~30s、纯 Node 无浏览器。
+add "nonascii-names"     "node tests/nonascii-name-consistency-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

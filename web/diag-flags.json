@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-03T15:42:54.879Z",
+  "generatedAt": "2026-10-03T23:12:28.818Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -501,7 +501,7 @@
         },
         {
           "file": "demo.html",
-          "line": 8649,
+          "line": 8655,
           "pattern": "searchParams.get('campose')"
         }
       ]
@@ -1079,7 +1079,7 @@
         },
         {
           "file": "demo.html",
-          "line": 9282,
+          "line": 9288,
           "pattern": "searchParams.get('id')"
         }
       ]
@@ -1293,7 +1293,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9653,
+          "line": 9659,
           "pattern": "regex [?&]media="
         }
       ]
@@ -1478,7 +1478,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9075,
+          "line": 9081,
           "pattern": "searchParams.has('nodebug')"
         }
       ]
@@ -1489,7 +1489,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 8153,
+          "line": 8169,
           "pattern": "searchParams.has('nodiag')"
         }
       ]
@@ -1549,7 +1549,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 8235,
+          "line": 8251,
           "pattern": "searchParams.has('noreport')"
         }
       ]
@@ -1750,7 +1750,7 @@
         },
         {
           "file": "demo.html",
-          "line": 8976,
+          "line": 8982,
           "pattern": "searchParams.get('perf')"
         }
       ]
@@ -1761,7 +1761,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9023,
+          "line": 9029,
           "pattern": "searchParams.has('perfreport')"
         }
       ]
@@ -1821,7 +1821,7 @@
         },
         {
           "file": "demo.html",
-          "line": 9282,
+          "line": 9288,
           "pattern": "searchParams.get('pkgpath')"
         }
       ]
@@ -1837,7 +1837,7 @@
         },
         {
           "file": "demo.html",
-          "line": 9282,
+          "line": 9288,
           "pattern": "searchParams.get('pkgurl')"
         }
       ]
@@ -2142,7 +2142,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 8236,
+          "line": 8252,
           "pattern": "searchParams.get('report')"
         }
       ]
@@ -2272,7 +2272,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 8916,
+          "line": 8922,
           "pattern": "searchParams.has('selfcheck')"
         }
       ]
@@ -2326,7 +2326,7 @@
         },
         {
           "file": "demo.html",
-          "line": 8268,
+          "line": 8274,
           "pattern": "searchParams.get('showclock')"
         }
       ]
@@ -2342,7 +2342,7 @@
         },
         {
           "file": "demo.html",
-          "line": 8269,
+          "line": 8275,
           "pattern": "searchParams.get('showdate')"
         }
       ]
@@ -2358,7 +2358,7 @@
         },
         {
           "file": "demo.html",
-          "line": 8271,
+          "line": 8277,
           "pattern": "searchParams.get('showfps')"
         }
       ]
@@ -2385,7 +2385,7 @@
         },
         {
           "file": "demo.html",
-          "line": 8270,
+          "line": 8276,
           "pattern": "searchParams.get('showweekday')"
         }
       ]
@@ -2544,7 +2544,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9251,
+          "line": 9257,
           "pattern": "searchParams.get('thumbpost')"
         }
       ]

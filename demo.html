@@ -8148,6 +8148,22 @@ function loadScene() {
       return [b[0], b[1], b[2]]
     } catch (e) { return null }
   }
+  // ②(P-64-MEDIA 轮顺带，侦察报告) 台账 y 口径统一：把 `scr()` 给的 **GL 窗口 y（底左原点）**
+  //   换算成**上报口径 y-down（顶左原点，与 `layers[].origin` 同空间）**。
+  //   符号用 `layer.origin` 当锚自动定（oyPx = origin 换算到画布像素；取不到 → 按 GL 底左换算）。
+  //   返回 {y0, y1, flipped}；纯函数，props-panel-test T21 直接断言两种约定都能自洽。
+  function mpwLedgerYDown(yA, yB, H, oyPx) {
+    const h = (Number(H) > 0) ? Number(H) : 1080
+    const a = Number(yA), b = Number(yB)
+    const lo = Math.min(a, b), hi = Math.max(a, b)
+    const flipped = (() => {
+      if (oyPx === null || oyPx === undefined || !isFinite(Number(oyPx))) return true   // 默认语义：GL 底左 → 取反
+      const c = (lo + hi) / 2
+      return Math.abs((h - c) - Number(oyPx)) < Math.abs(c - Number(oyPx))
+    })()
+    const conv = (v) => (flipped ? (h - v) : v)
+    return { y0: Math.round(Math.min(conv(lo), conv(hi))), y1: Math.round(Math.max(conv(lo), conv(hi))), flipped }
+  }
   // ①(诊断) ?diag=1：渲染后逐层 quad 中心 readPixels 采样（真机"长发/背景层是否上屏"差异定位）
   // ①(2026-09-12) 默认开启（逐层中心 9 像素采样，30 次 readPixels，开销可忽略）
   const diagMode = !new URLSearchParams(location.search).has('nodiag')
@@ -8242,22 +8258,12 @@ function loadScene() {
   if (typeof PAGE === 'undefined' || PAGE)
   {
   // ═══ MPW-HEALTH-BEGIN ②(P-64-MEDIA 轮顺带) 层健康归因：纯函数（切片可单测）═══
-  // ②(P-64-MEDIA 轮顺带，侦察报告) 台账 y 口径统一：把 `scr()` 给的 **GL 窗口 y（底左原点）**
-  //   换算成**上报口径 y-down（顶左原点，与 `layers[].origin` 同空间）**。
-  //   符号用 `layer.origin` 当锚自动定（oyPx = origin 换算到画布像素；取不到 → 按 GL 底左换算）。
-  //   返回 {y0, y1, flipped}；纯函数，props-panel-test T21 直接断言两种约定都能自洽。
-  function mpwLedgerYDown(yA, yB, H, oyPx) {
-    const h = (Number(H) > 0) ? Number(H) : 1080
-    const a = Number(yA), b = Number(yB)
-    const lo = Math.min(a, b), hi = Math.max(a, b)
-    const flipped = (() => {
-      if (oyPx === null || oyPx === undefined || !isFinite(Number(oyPx))) return true   // 默认语义：GL 底左 → 取反
-      const c = (lo + hi) / 2
-      return Math.abs((h - c) - Number(oyPx)) < Math.abs(c - Number(oyPx))
-    })()
-    const conv = (v) => (flipped ? (h - v) : v)
-    return { y0: Math.round(Math.min(conv(lo), conv(hi))), y1: Math.round(Math.max(conv(lo), conv(hi))), flipped }
-  }
+  // ①(C0 2026-10-04) `mpwLedgerYDown` 原先**误被裹进本页级单例块**：module（严格模式）里块内
+  //   function 声明是块级作用域 ⇒ composite 的 onLayerDraw 回调（定义在块外）引用它 = ReferenceError，
+  //   被回调最外层 catch 静默吞掉 ⇒ **真机台账的 composite 条目自 P-64-MEDIA 起一直全灭**（只剩 mesh 条目，
+  //   `__mpwLayerLedger`/上报 payload/parity-check 对非蒙皮层全部失明——C0② 受控实验抓到：
+  //   287 次 fire / 164 次过 FBO 守卫 / 0 次 push，err=`mpwLedgerYDown is not defined`）。
+  //   纯函数与页级单例无关 ⇒ 搬到 module 层（`mpwSamplePixel` 同层），两处调用点不变。
   // 用户原话："有些层应该渲染出来，却没标不可见、也看不到" —— 上报里必须能分开
   //   「不可见（谁关的）」与「可见、有几何、却没画（missing）」。
   //   判据镜像 = bundle 里决定"谁关掉层"的两个谓词（`core/we-scene-bundle.js:2004` uiRe、`:2006-2011` catRe+catOn）。

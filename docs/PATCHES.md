@@ -15562,3 +15562,40 @@ P-160 的 COPYING-RULES 行），它们描述的是 1.3.23 那份产物；本批
 `rendererScriptUrl()` 按 `renderer-` 前缀匹配）。
 ③ `THIRD-PARTY.md` §6.4 已补记新版本/提交/字节数与"两处已登记改写"，但 §6.4 里"demo/** 全部是
 redistributed unchanged"的措辞仍按老版本叙述，未逐句重写。
+
+## P-229（2026-10-04）演示页逐层台账的 composite 条目自 P-64-MEDIA 起全灭（`mpwLedgerYDown` 块级作用域错位）—— C0② 受控实验定位
+
+### 症状
+真机 `window.__mpwLayerLedger`（demo.html 装配的 `opts.onLayerDraw` 台账，上报 payload 的 `layerLedger[]`、
+parity-check 的对账输入）里**只有 `t:'mesh'` 条目**，所有四边形层（composite 路径）一条都没有。
+受控实验（包装 `arr.push` 计数 + 给 bundle/demo 各插一针计数器）：bundle `onLayerDraw` 触发 287 次、
+demo 回调进入 287 次、过 FBO 守卫 164 次、**push 0 次**，回调最外层 catch 捕获
+`ReferenceError: mpwLedgerYDown is not defined`（164 次）。
+
+### 根因
+`demo.html` 是 `<script type="module">`（严格模式）。P-64-MEDIA 轮把 `mpwLedgerYDown`（台账 y 向定符的
+纯函数）与 `mpwLayerHealth` 一起裹进了 `if (typeof PAGE === 'undefined' || PAGE) { … }`（"页级单例"块，
+在 `mpwSamplePixel` 定义之后）。严格模式下**块内 function 声明是块级作用域** ⇒ composite 的 `onLayerDraw`
+回调（定义在块外、`createRenderer` 装配处）引用它 = ReferenceError，被回调自身的
+`catch { /* 台账失败不影响渲染 */ }` 吞掉 ⇒ **每一条 composite 台账条目从落笔起就被静默丢弃**。
+蒙皮层台账（`onMeshLayer` 路径）不做这一步换算，所以幸存——这正是"只剩 mesh 条目"的原因。
+副作用面：上报 payload 的 `layerLedger[]`、`mpwLayerHealth` 的 `drawn/rect/px` 列、parity-check 的
+真机对账输入，对全部非蒙皮层失明。
+
+### 改法（`demo.html`）
+把 `function mpwLedgerYDown(…)`（连同它的三行注释）从页级单例块搬到 module 层——`mpwSamplePixel`
+（8130/8145 一带）之后、`?diag=1` 诊断块之前，与两处调用点（composite 回调、T21 切片断言）的可见性
+契约一致；`mpwLayerHealth` 留在原块（它的调用点在块内，且不是纯函数）。无行为面变化：渲染像素零改动，
+只恢复"测量仪表"本身。
+
+### 判据与变异
+① `tests/layer-attribution-consistency.mjs` **P1b**（已注册门禁 `ln-consistency`）："台账有 composite 条目"
+——本修复的回归守卫（修前 composite=0 / 修后 38–42 条）；
+② 受控实验的复现路径写在 `tests/layer-attribution-consistency.mjs` 文件头（push 计数 + 两针计数器）；
+③ `tests/props-panel-test.mjs` T21（`mpwLedgerYDown` 纯函数真值表 + 调用点接线）保持全绿。
+
+### 未验证边界
+① 本修复只恢复**读数面**；此前基于"台账只有 mesh"的历史读数（reports/r*.json 的 layerLedger、
+parity-check 历史）没有回溯重跑的价值（它们的判定本就只对蒙皮层有效）；
+② `mpwLayerHealth` 的 `drawn/rect` 列在真机上从此开始有 composite 数据，上报 consumers 若按旧数据形态
+写死"只有 mesh"会看到新行——检查过 `mpwLayerHealth` 与 parity-check 的消费端，均按台账条目动态消费，无此假设。
