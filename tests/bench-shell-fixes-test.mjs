@@ -389,9 +389,27 @@ console.log('== I 标签关闭 / 幂等 / 指针转发 / 调试模式（P-164）
   ok(P.debugKeyPlan('ArrowRight', { active: true }).op === 'next' && P.debugKeyPlan('ArrowLeft', { active: true }).op === 'prev' &&
     P.debugKeyPlan('ArrowUp', { active: true }).op === 'next10' && P.debugKeyPlan('ArrowDown', { active: true }).op === 'prev10',
     'I6 激活时 ←/→/↑/↓ 分别路由到 prev/next/prev10/next10（与 :8899 同一语义）')
-  ok(P.debugKeyPlan('Alt', { active: true }).op === 'exit' && P.debugKeyPlan('Control', { active: true }).op === 'all' &&
+  //  ①(2026-10-04) **Ctrl 语义改为"进/出组合层"**（与 :8899 的逐层调试对齐：←/→ ±1、↑/↓ ±10、Ctrl 进/出组合、Alt 退出）；
+  //  恢复全部可见仍由 Home 承担 ⇒ 本断言按新语义同步（旧文案与旧语义一并作废）。
+  ok(P.debugKeyPlan('Alt', { active: true }).op === 'exit' && P.debugKeyPlan('Control', { active: true }).op === 'toggleGroup' &&
     P.debugKeyPlan('Alt', { active: true }).swallowModifier === true && P.debugKeyPlan('Control', { active: true }).swallowModifier === true,
-    'I7 Alt=退出、Ctrl=恢复全部可见，且两个**修饰键本身**也要吞（用户明确要求拦默认行为）')
+    'I7 Alt=退出、Ctrl=进/出组合层，且两个**修饰键本身**也要吞（拦默认行为）')
+  //  I7b–I7g：组合层树 / 层级列表 / Ctrl 进出（纯函数，合成层表：grp→[子,子]，子→[孙]，另有独立层）
+  {
+    const L = [{ id: 10, name: 'grp' }, { id: 11, parent: 10 }, { id: 12, parent: 10 }, { id: 13, parent: 11 }, { id: 20 }]
+    const kids = P.layerTreeOf(L)
+    ok(kids.get(0).join(',') === '1,2' && kids.get(1).join(',') === '3' && kids.size === 2,
+      'I7b 层树：`parent` 口径推出 grp→[1,2] · 子层1→[3]', JSON.stringify([...kids]))
+    ok(P.layerLevelOf(L, []).list.join(',') === '0,4' && P.layerLevelOf(L, [0]).list.join(',') === '1,2' && P.layerLevelOf(L, [0, 1]).list.join(',') === '3',
+      'I7c 层级列表：顶层 [0,4] · 组内 [1,2] · 孙层 [3]')
+    const enter = P.debugGroupPlan(L, 0, [])
+    ok(enter.op === 'enter' && enter.path.join(',') === '0' && enter.index === 1, 'I7d 组合层上 Ctrl ⇒ 进入（默认选第一个子层）', JSON.stringify(enter))
+    const deeper = P.debugGroupPlan(L, 1, [0])
+    ok(deeper.op === 'enter' && deeper.path.join(',') === '0,1' && deeper.index === 3, 'I7e 子层自己还有子层 ⇒ 继续下钻', JSON.stringify(deeper))
+    const exit = P.debugGroupPlan(L, 3, [0, 1])
+    ok(exit.op === 'exit' && exit.path.join(',') === '0' && exit.index === 1, 'I7f 组内 Ctrl ⇒ 上浮一级（选回父层）', JSON.stringify(exit))
+    ok(P.debugGroupPlan(L, 4, []).op === 'none', 'I7g 顶层非组合层上 Ctrl ⇒ 不动（如实提示没有子层）')
+  }
   ok(P.debugKeyPlan('a', { active: true }).capture === false && P.debugKeyPlan('Tab', { active: true }).capture === false,
     'I8 调试模式不碰其它键（普通字符/Tab 照常走默认行为）')
 

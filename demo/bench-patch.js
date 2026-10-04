@@ -1179,12 +1179,63 @@ export function debugKeyPlan(key, state) {
   if (!on) return { capture: false, op: null, key: k }
   const map = {
     ArrowRight: 'next', ArrowLeft: 'prev', ArrowUp: 'next10', ArrowDown: 'prev10',
-    Control: 'all', Alt: 'exit', Home: 'reset', Escape: 'exit',
+    Control: 'toggleGroup', Alt: 'exit', Home: 'reset', Escape: 'exit',
   }
   const op = map[k]
   if (!op) return { capture: false, op: null, key: k }
   //  Alt/Ctrl 是**组合键修饰位**：调试期间连它们自己按下也要吞（否则浏览器的默认行为会漏出去）
   return { capture: true, op, key: k, swallowModifier: k === 'Alt' || k === 'Control' }
+}
+
+/** 组合层树：由渲染器层表的 `children`（下标数组）或 `parent`（对象 id）推出"父下标 → 孩子下标[]"。
+ *  两种口径都兼容（WE scene.json 原生是 `parent`）；推不出层级 ⇒ 空树（Ctrl 只会如实提示"没有子层"）。 */
+export function layerTreeOf(layers) {
+  const L = Array.isArray(layers) ? layers : []
+  const kids = new Map()
+  const byId = new Map()
+  for (let i = 0; i < L.length; i++) { const id = L[i] && L[i].id; if (id !== undefined && id !== null) byId.set(String(id), i) }
+  for (let i = 0; i < L.length; i++) {
+    const l = L[i] || {}
+    if (Array.isArray(l.children) && l.children.length) {
+      const arr = l.children
+        .map((c) => (typeof c === 'number' ? c : (c && c.id !== undefined ? byId.get(String(c.id)) : null)))
+        .filter((x) => Number.isInteger(x) && x >= 0 && x < L.length && x !== i)
+      if (arr.length) { kids.set(i, arr); continue }
+    }
+    const p = l.parent
+    if (p === undefined || p === null || p === -1) continue
+    let pi = -1
+    if (byId.has(String(p))) pi = byId.get(String(p))
+    else if (Number.isInteger(p) && p >= 0 && p < L.length) pi = p
+    if (pi >= 0 && pi !== i) { if (!kids.has(pi)) kids.set(pi, []); kids.get(pi).push(i) }
+  }
+  return kids
+}
+/** 当前层级上下文：path 空 ⇒ 顶层（不属于任何父层）；否则 ⇒ path 末端那层的子层。 */
+export function layerLevelOf(layers, path) {
+  const L = Array.isArray(layers) ? layers : []
+  const kids = layerTreeOf(L)
+  const child = new Set()
+  for (const arr of kids.values()) for (const i of arr) child.add(i)
+  if (!Array.isArray(path) || !path.length) {
+    const list = []
+    for (let i = 0; i < L.length; i++) if (!child.has(i)) list.push(i)
+    return { kids, list, group: -1 }
+  }
+  const g = path[path.length - 1]
+  return { kids, list: (kids.get(g) || []).slice(), group: g }
+}
+/** Ctrl 的**唯一**判定：进入（当前层有子层）还是退出（在组内）还是不动。纯函数，可 Node 断言。 */
+export function debugGroupPlan(layers, index, path) {
+  const L = Array.isArray(layers) ? layers : []
+  const p = Array.isArray(path) ? path.slice() : []
+  const lv = layerLevelOf(L, p)
+  const inner = index >= 0 && lv.list.indexOf(index) >= 0
+  if (inner && (lv.kids.get(index) || []).length) {
+    return { op: 'enter', path: p.concat([index]), index: (lv.kids.get(index) || [])[0] }
+  }
+  if (p.length) return { op: 'exit', path: p.slice(0, -1), index: p[p.length - 1] }
+  return { op: 'none', path: p, index }
 }
 
 /** 图层步进：只返回**新索引**（数组长度与当前索引都越界安全）；`null` = 没有图层可切。 */
@@ -6610,6 +6661,7 @@ export function init() {
   let dbgKeyHandler = null
   let dbgTimer = null
   let dbgIndex = -1
+  let dbgPath = []   // ①(2026-10-04) Ctrl 进/出组合层的层级栈（存父层下标）
   let dbgLines = []
   const DBG_MAX_LINES = 300
   //  ⚠ 定时器必须**自带一份**：`every`/`stopEvery` 只存在于 `initSiteShell(deps)` 的作用域（本函数的兄弟），
@@ -6729,17 +6781,36 @@ export function init() {
       rect: (() => { try { const r = btn && btn.getBoundingClientRect ? btn.getBoundingClientRect() : null; return r ? { w: Math.round(r.width), h: Math.round(r.height) } : null } catch { return null } })(),
     }
   }
-  /** 一层一层看：dir=±1 步进、±10 跳、0 表示"恢复全部可见"（index=-1）。 */
+  /** 一层一层看：dir=±1 步进、±10 跳、0 表示"恢复全部可见"（index=-1）。
+   *  ①(2026-10-04) **在"当前层级"内步进**：顶层 = 无父层的层；进了组合层（Ctrl）后 = 那一层的子层，
+   *  与 :8899 的 `?ln=` 逐层调试同语义（`demo.html` 的 `←/→ ±1、↑/↓ ±10、Ctrl 进/出组合`）。 */
   function dbgStep(dir) {
     const L = sceneLayerList()
-    if (!L) { dbgPush(t(curLang, 'dbg.noScene'), true); dbgIndex = -1; dbgPaint(); return null }
-    const next = (dir === 0) ? { index: -1 } : layerStepPlan(L.length, dbgIndex, dir)
-    dbgIndex = next.index
+    if (!L) { dbgPush(t(curLang, 'dbg.noScene'), true); dbgIndex = -1; dbgPath = []; dbgPaint(); return null }
+    if (dir === 0) { dbgPath = []; dbgIndex = -1 }
+    const level = layerLevelOf(L, dbgPath).list
+    const pos = level.indexOf(dbgIndex)
+    const next = (dir === 0) ? { index: -1 } : layerStepPlan(level.length, pos, dir)
+    dbgIndex = (next.index < 0) ? -1 : level[next.index]
     const n = dbgApplyIsolation(L, dbgIndex)
     const info = layerInfoPlan(L, dbgIndex)
-    dbgPush(dbgIndex < 0 ? ('恢复全部图层可见（' + n + ' 层）') : info.text)
+    dbgPush(dbgIndex < 0 ? ('恢复全部图层可见（' + n + ' 层）') : (info.text + (dbgPath.length ? '   [组内 ' + dbgPath.length + ' 级，Ctrl 退出]' : '')))
     dbgPaint()
-    return { index: dbgIndex, count: L.length, applied: n }
+    return { index: dbgIndex, count: level.length, applied: n, path: dbgPath.slice() }
+  }
+  /** ①(2026-10-04) **Ctrl = 进/出组合层**：当前层有子层 ⇒ 下钻（子层内继续用 ←/→）；在组内 ⇒ 上浮。 */
+  function dbgToggleGroup() {
+    const L = sceneLayerList()
+    if (!L) { dbgPush(t(curLang, 'dbg.noScene'), true); return null }
+    const plan = debugGroupPlan(L, dbgIndex, dbgPath)
+    dbgPath = plan.path
+    dbgIndex = plan.index
+    const n = plan.op === 'none' ? 0 : dbgApplyIsolation(L, dbgIndex)
+    dbgPaint()
+    dbgPush(plan.op === 'enter'
+      ? ('进入组合层 #' + dbgIndex + '（子层 ' + layerLevelOf(L, dbgPath).list.length + ' 个：←/→ 组内步进，Ctrl 退出）')
+      : (plan.op === 'exit' ? ('退出组合层（回到 ' + (dbgPath.length ? '上一级' : '顶层') + '）') : '这一层没有子层（Ctrl 只对组合层生效）'))
+    return { op: plan.op, index: dbgIndex, path: dbgPath.slice(), applied: n }
   }
   function dbgOnKey(ev) {
     const plan = debugKeyPlan(ev && ev.key, { active: dbgActive })
@@ -6751,7 +6822,8 @@ export function init() {
     if (plan.op === 'prev') return dbgStep(-1)
     if (plan.op === 'next10') return dbgStep(10)
     if (plan.op === 'prev10') return dbgStep(-10)
-    if (plan.op === 'all' || plan.op === 'reset') return dbgStep(0)
+    if (plan.op === 'reset') return dbgStep(0)
+    if (plan.op === 'toggleGroup') return dbgToggleGroup()
     //  Alt = **显式退出调试模式**（用户动作，不是"切页签"）：模式关 + 视图回输出一起收尾。
     if (plan.op === 'exit') { setDebugMode(false); setLogsView('logs'); return null }
     return null
