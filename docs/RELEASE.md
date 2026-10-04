@@ -56,6 +56,20 @@ npm publish --registry=https://registry.npmjs.org/
   `npm whoami --registry=https://registry.npmjs.org/` ⇒ `xferoni66`。
 - `files` 白名单是**唯一**发布面（`package.json.files`）；`demo/`（测试台）**不在**白名单里 —— 见第 5 节。
 
+### 2.1 发布文字纪律（**硬约束**，与 commit 同族）
+
+`gh release create` 的**标题与描述**、`git tag -a` 的说明、npm 说明、本文件里对外可见的段落，**只写客观技术描述**：
+
+- ❌ 不写「用户说 / 用户要求 / 用户实测 / 用户真机 / 用户反馈 / 用户原话 / 用户点名 / 您 / 你报的 / 你正在看的」这类表述，**不引用用户原话**，也不转述其主观描述。
+- ✅ 现象用**客观读数 + 可复现条件**表述。反例 → 正例：
+  `（用户真机 0923/2887099508「…」：一开始画面像是被莫名其妙的放大了 / 开场动画好像没播）`
+  → `（探针包 0923/2887099508：开场取景被放大 / 开场运镜未生效）`。
+- ✅ 证据出处写文件/判据/提交号（`docs/PATCHES.md` P-xxx、`tests/xxx-test.mjs`、提交哈希）。
+- 内部证据链（`docs/PATCHES.md` / `docs/reverse/**` / 工作区 `STATUS-ALL-ITEMS.md`）不受此限，可保留必要的原始记录。
+
+> 附：本机 `gh` 是 2.4.0，**没有 `gh release edit`** ⇒ 改已发布说明走 REST：
+> `gh api -X PATCH repos/<owner>/<repo>/releases/<id> --input payload.json`（`payload.json` = `{"body":"<全文>"}`；`<id>` 由 `gh api repos/<owner>/<repo>/releases/tags/<tag> -q .id` 取）。
+
 ## 3. 发布后验证（逐条跑，别只看"发布成功"那一行）
 
 ```bash
