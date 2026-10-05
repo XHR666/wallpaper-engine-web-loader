@@ -779,6 +779,20 @@ export const LAYER_REF_FACE_NAMES = ['F1_getLayer', 'F2_emptyLayerRef', 'F3_laye
 /** ③(P-228k) 层引用 `origin` 写入的**只读**环形账（≤20 条）：`globalThis.__mpwVecWrites`。
  *  记录 `{name, value, kind}` —— `value=null` 表示**这次写入被丢弃**（旧行为下标量会走这里；
  *  `?scriptvec=legacy` 下仍然如此）⇒ "分支没走到"与"写被丢了"从此可区分。 */
+/** ③(P-228l 2026-10-05) **属性写入轨迹**（只读环形 40 条）：`globalThis.__mpwPropWrites`。
+ *  记 `{who, target, field, value, at}` —— `who` = 当前脚本所属层名（宿主 `ownerObj()` 能拿到就记，
+ *  拿不到记 `'?'`）。为什么需要：同一个字段被多个脚本每帧写（本包 `健康壁纸.visible` 就是），
+ *  只有"最后一次是谁写的"这一格读数**判不出竞争**；有了轨迹就能看出"谁在把它按回去"。 */
+const PROP_WRITES = [];
+let PROP_WRITE_OWNER = '?'          // 由 `setOwner()` 更新（**不依赖 hk**：层引用的 setter 在 hk 作用域之外）
+function propWriteNote(obj, field, value) {
+  try {
+    const who = PROP_WRITE_OWNER
+    PROP_WRITES.push({ who, target: String((obj && obj.name) || ''), field: String(field), value, at: Date.now() })
+    if (PROP_WRITES.length > 40) PROP_WRITES.shift()
+    globalThis.__mpwPropWrites = PROP_WRITES
+  } catch (e) { /* 诊断面失败不影响写入 */ }
+}
 const VEC_WRITES = [];
 function vecWriteNote(obj, value, raw) {
   try {
@@ -1528,12 +1542,13 @@ function makeOwnerRef() {
       originalOrigin: { get: () => authoredOriginOf(obj), set: () => { /* 只读虚拟成员：静默丢弃不抛错 */ } },
       debug: { get: () => debugFlagOf(obj), set: (v) => writeDebugFlag(obj, v) },
       // ①(P-174) 见上面"从字面量里挪过来"的说明（这六项原来会被摊平成快照数据属性）
-      visible: { get: () => obj.visible !== false, set: (v) => { obj.visible = !!v } },
+      visible: { get: () => obj.visible !== false, set: (v) => { obj.visible = !!v; propWriteNote(obj, 'visible', !!v) } },
       origin: {
         get: () => parseV(obj.origin, [0, 0, 0]),
         // ③(P-228k) 走共享归一化：字符串/标量不再写 NaN（旧实现在这两类输入下都写 "NaN NaN NaN"）
         set: (v) => {
           const s2 = vec3WriteString(v)
+          propWriteNote(obj, 'origin', s2 == null ? '(dropped)' : s2)
           if (s2 == null) { vecWriteNote(obj, null); return }
           obj.origin = s2
           /* ③(P-228k 取证面) 只读环形账：最近 20 次层引用 `origin` 写入（层名 + 归一化后的串 + 原始值类型）。
@@ -1760,7 +1775,7 @@ function makeOwnerRef() {
     makeLayer: () => (layerRefInstance || (layerRefInstance = layerRef())),
     makeObject: objectRef,
     layerRefObj: () => layerRefInstance,
-    setOwner(o) { ref.current = o; },
+    setOwner(o) { ref.current = o; try { PROP_WRITE_OWNER = o ? String(o.name || o.id || '?') : '?' } catch (e) { PROP_WRITE_OWNER = '?' } },
   };
 }
 

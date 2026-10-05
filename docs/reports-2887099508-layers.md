@@ -241,6 +241,26 @@ Solid           | id 174 | 脚本字段: —             | 无
 `设置*`/`安全模式` 的 `adad()` 每帧写），单看这一格读数判不出是谁把它按回去的 —— 下一步需要**每帧写入轨迹**
 （把 `visible` 的写入点连脚本名一起记账，工具已具备同一套 Proxy 能力）。
 
+## 2i. 机制定案（2026-10-05）：这些层是**脚本属性逐帧重算**，一次性写入是瞬态
+
+本轮给宿主加了**属性写入轨迹**（`globalThis.__mpwPropWrites`，环形 40 条：`{who, target, field, value, at}`，
+`who` 由 `setOwner()` 维护）并做了两组真机读数：
+
+1. **原生双击屏内 `tim logo`**（`page.mouse.dblclick`，命中含它）⇒ 台账 `clicks` 0→4（= 2 次物理点击 × 2 个导出者），
+   `__mpwPropWrites` **仍为空**；
+2. 离线对账发现：`getLayer(name)` 返回的引用走的是 **`layer()`**（`elysia/scene-scripts.js:1049`）那条构造，
+   它的 `visible` 是**普通 getter/setter**（:1059-1060），而我上一步只把 `layerRefFor()`（:1545）那条接进了轨迹
+   ⇒ **轨迹对 `getLayer(...)` 这条路径是盲的**（这是本轮的工具缺口，不是宿主缺陷）。
+3. 同时解释了"双击后 `健康壁纸.visible` 仍是 false"：该字段是 **`{script: …}` 脚本属性**，
+   宿主**每帧**求值并写回 ⇒ `cursorClick` 里那次一次性 `visible = true` 会被下一帧的重算覆盖
+   （作者的 `visible` 脚本自身 `update()` 调 `mimi()`，条件不满足时写 `thisLayer.visible = false`）。
+   在 WE 里同样是"逐帧求值"语义 ⇒ **一次性写入本来就是瞬态**；真正的开关是脚本之间的 `shared` 状态
+   （例如 `设置2` 的 `cursorClick` 先写 `shared[0x10]=1` 再改可见性）。
+
+⇒ 结论（本包）：**菜单/设置这一族不是"点一下就一直显示"**，而是"脚本属性按 `shared`/属性状态逐帧决定"；
+要把它们端到端跑通，下一步必须**同时**：① 把轨迹接到 `layer()` 的 setter 上；② 追踪 `shared` 键的变化
+（哪个点击/属性把它写成什么），再验证脚本属性求值的净结果。
+
 ## 3. 已知与本包相关的既有修复（回归背景）
 
 - **P-229**：`demo.html` 台账 composite 条目全灭（`mpwLedgerYDown` 块级作用域）——量法已恢复；
