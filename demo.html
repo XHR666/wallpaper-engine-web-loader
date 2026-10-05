@@ -5060,7 +5060,27 @@ function loadScene() {
   //   旧实现把 raw.origin 直接写进 l.origin，而 l.origin 已被 parseScene 加上附件锚点偏移
   //   → 所有带 attachment 的层（头发/衣袖/发片…）被"打回"未加锚点的 authored 位置，飞出画面。
   const scriptOriginBase = (() => { try { return lib.snapshotAuthoredOrigins(scriptRawObjects) } catch { return new Map() } })()
-  const scriptShared = {}
+  /* ③(P-228l 2026-10-05) **`shared` 写入轨迹**（只读环形 60 条，`window.__mpwSharedWrites`）：
+     作者脚本之间的"开关"就写在这本账上（本包 `设置2.cursorClick` 先写 `shared[0x10]=1` 再改可见性），
+     而脚本属性又是**每帧求值**的 ⇒ 只看"最终可见性"永远判不出"谁在什么时候把它按回去"。
+     包一层 Proxy 只记账、语义不改（读仍返回原值、写仍写原对象）。 */
+  const scriptShared = (() => {
+    const raw = {}
+    try {
+      const ring = []
+      window.__mpwSharedWrites = ring
+      return new Proxy(raw, {
+        set(t, k, v) {
+          try {
+            ring.push({ key: String(k), value: (v && typeof v === 'object') ? '[obj]' : v, at: Date.now() })
+            if (ring.length > 60) ring.shift()
+          } catch (e) { /* 诊断面失败不影响写入 */ }
+          t[k] = v
+          return true
+        },
+      })
+    } catch (e) { return raw }
+  })()
   // ②(P-64 用户第 15 项 + ③P-64-MEDIA 裁定 1) 脚本缓存开关：官方语义是"同一源码只编译一次、
   //   init 一次、applyUserProperties 只在用户属性变化时再跑一次"。
   //   **默认开**（父 agent 裁定）：用户第 15 项的诉求就是"要实时生效"，而媒体集成（歌名/歌手/封面/

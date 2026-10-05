@@ -1057,7 +1057,8 @@ export function makeSceneRef(objects, hooks) {
       return p ? layer(p) : layer({ name: '', origin: '0 0 0', scale: '1 1 1', size: '0 0 0', visible: true, id: -1 })
     },
     get visible() { return obj.visible !== false; },
-    set visible(v) { obj.visible = !!v; },
+    // ③(P-228l) 与 `layerRefFor()` 那条同口径记账（`getLayer()` 走的是本构造 ⇒ 只接一条会漏）
+    set visible(v) { obj.visible = !!v; propWriteNote(obj, 'visible', !!v) },
     get size() { return parseV(obj.size, [0, 0, 0]); },
     set size(v) { /* 官方 IEffectLayer.size readonly：与 thisLayer 同一口径（P-137），静默丢弃不抛错 */ },
     get scale() { return parseV(obj.scale, [1, 1, 1]); },

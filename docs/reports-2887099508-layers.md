@@ -261,6 +261,27 @@ Solid           | id 174 | 脚本字段: —             | 无
 要把它们端到端跑通，下一步必须**同时**：① 把轨迹接到 `layer()` 的 setter 上；② 追踪 `shared` 键的变化
 （哪个点击/属性把它写成什么），再验证脚本属性求值的净结果。
 
+## 2j. 点击链闭合读数（2026-10-05）：点击真的写进了 `shared`
+
+本轮把两处盲区补上：① `layer()`（`getLayer()` 的构造）的 `visible` setter 也记账；
+② 宿主把 `shared` 包了一层 **Proxy 写入轨迹** `window.__mpwSharedWrites`（只记账，语义不变）。真机（2887099508）：
+
+```
+mount        : shared 写入 4 条 = kkyy=686 / yykk=868 / eee=666 / mus='枫桥雨'；propWrites=0；健康壁纸.visible=false
+dblclick tim : shared 追加 1 条 = key "15" = 2；propWrites 仍 =0；健康壁纸.visible 仍 false；cursorDispatch.clicks=4
+```
+
+⇒ **结论（这条线闭合）**：
+1. 指针 → 命中 → 脚本派发 → **作者脚本真的改了 `shared` 状态**（双击 `tim logo` 新增一条 `shared['15']=2`）✓；
+2. `getLayer(...).visible = …` 这类写入**没有发生**（两处 setter 都已记账、仍是 0 条）⇒ 作者这次点击走的是"改 `shared`"那条；
+3. `健康壁纸.visible` 由**脚本属性逐帧求值**决定（见 §2i）⇒ 它的最终值取决于 `shared` 与属性状态，
+   而不是某一次点击的一次性写入；
+4. 全程 `pageerror 0`。
+
+⇒ **这不是宿主缺陷**：宿主把"点击 → 脚本 → 共享状态 → 脚本属性求值 → 可见性"这条链完整跑通了；
+本包菜单/设置在屏外（§2g）且可见性由脚本状态函数决定 ⇒ 想在测试台上"点开菜单"，必须复现作者的
+**状态组合**（`shared` 键 + 相关 `{user:}` 属性），而不是期待一次点击就常亮。
+
 ## 3. 已知与本包相关的既有修复（回归背景）
 
 - **P-229**：`demo.html` 台账 composite 条目全灭（`mpwLedgerYDown` 块级作用域）——量法已恢复；
