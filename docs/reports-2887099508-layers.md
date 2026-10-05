@@ -193,6 +193,32 @@ objects[77] = 安全模式（id 515）· 导出: cursorClick
 真机 `shared.eee = 666` ⇒ 这条门**是满足的**（不会因此隐藏）。`设置2-穿上内内` 的 `cursorClick`
 （上面读数）就是"点它 ⇒ `panci cover up` 显示、`pussy` 隐藏"的唯一入口 —— 与 §1 的结论逐字一致。
 
+## 2g. 布局链（`--chain` 扫描，2026-10-05）：菜单是"相对锚层"摆的
+
+工具新增 `tests/script-string-decode.mjs --chain [--target <层名>]`：扫出**脚本驱动的字段**（`{script:…}`）
+及其引用的层名。本包读数：**73 个脚本驱动字段 / 40 个层**。菜单相关部分（逐字）：
+
+```
+---- 引用 "中-菜单-浮动" 的脚本字段（10）----
+   objects[73] 设置1-返回   · origin · visible
+   objects[74] 设置2-穿上内内 · origin · visible
+   objects[75] 设置3-我要涩涩 · origin · visible
+   objects[76] 设置4-开关音乐 · origin · visible
+   objects[77] 安全模式      · origin · visible
+```
+
+⇒ **五 个设置热点层的 `origin` 与 `visible` 都是脚本**，而它们都**引用菜单锚层 `中-菜单-浮动`**：
+`origin` 脚本 = "取锚层的 origin ± 偏移"（解出的偏移：`+0xc8`、`-0x64`、`-0x690`、`-0x384`、`+0x1e`），
+`visible` 脚本 = `ad()/aad()` 门（`shared['eee'] != 0x29a(666)` ⇒ `destroyLayer(0)` + 自隐藏；真机 `eee = 666` ⇒ 通过）。
+锚层 `中-菜单-浮动` 自己的 `origin` 也是脚本（自引用：`x = getLayer('中-菜单-浮动').origin.x`，即**保持现值**），
+它的兜底值就是作者写的屏外坐标（≈ -3180, 963）。
+
+**推论（下一步的靶子）**：五个热点都跟着锚层走 ⇒ 锚层在屏外时，它们**全都点不到**；
+而写锚层坐标的 `cursorClick` 恰恰挂在这些热点层上（`安全模式`/`设置3` 会写 `origin = 0`）——
+所以"打开菜单"的头一下必须来自**别处**。本包现存的候选只有两类（都能用同一套工具验证）：
+① 屏内的 `tim logo`（设计 x=5571，可点；`cursorClick` 是 500ms 双击判定，改 `健康壁纸` 可见性）；
+② `{user:…}` 属性路径（`timlogohide`「显示tim菜单」默认 true；`右-菜单-底色`/`中-菜单-浮动` 带 `newproperty1`）。
+
 ## 3. 已知与本包相关的既有修复（回归背景）
 
 - **P-229**：`demo.html` 台账 composite 条目全灭（`mpwLedgerYDown` 块级作用域）——量法已恢复；

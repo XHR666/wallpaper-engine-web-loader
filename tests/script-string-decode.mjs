@@ -78,6 +78,56 @@ if (argv.includes('--sweep')) {
   for (const r of rows.slice(0, 30)) console.log(`   objects[${r.i}] ${r.name}（id ${r.id}）· ${r.calls} 调用点 · ${r.uniq} 条${r.target ? '  ← 引用目标' : ''}`)
   process.exit(0)
 }
+/* ── --chain：扫"脚本驱动的字段"（`{script: …}`）与它们引用的层名 ⇒ 看清一张壁纸的**布局链**
+   （谁按谁的位置 ± 偏移摆放）。用法：--chain [--target <层名>] ── */
+if (argv.includes('--chain')) {
+  const decodeAny = (text) => {
+    if (!text) return []
+    const calls = [...text.matchAll(/(_0x[0-9a-f]+)\(\s*'(0x[0-9a-f]+)'\s*,\s*'([^']*)'\s*\)/g)].map((m) => ({ fn: m[1], idx: m[2], key: m[3] }))
+    const fns = [...new Set(calls.map((c) => c.fn))]
+    let code = text.replace(/\bexport\s+/g, '')
+    code += '\n;globalThis.__dec = {' + fns.map((f) => f + ':' + f).join(',') + '};\n'
+    const sb = {
+      console: { log: () => {}, warn: () => {}, error: () => {} },
+      Math, Date, JSON, Number, String, Boolean, Array, Object, RegExp, Error, isFinite, isNaN, parseInt, parseFloat,
+      atob: (v) => Buffer.from(String(v), 'base64').toString('binary'),
+      Function, setTimeout: () => 0, setInterval: () => 0, clearTimeout: () => {}, clearInterval: () => {},
+      localStorage: { getItem: () => null, setItem: () => {} },
+      shared: {}, engine: {}, thisScene: {}, thisLayer: {}, parent: {}, window: null, globalThis: null, self: null,
+    }
+    sb.window = sb; sb.globalThis = sb; sb.self = sb
+    try { vm.runInContext(code, vm.createContext(sb), { timeout: 5000 }) } catch (e) { /* 顶层中断不影响解码 */ }
+    const dec = sb.__dec || {}
+    const out = new Map()
+    for (const c of calls) { const fn = dec[c.fn]; if (typeof fn !== 'function') continue; try { const v = fn(c.idx, c.key); if (typeof v === 'string') out.set(c.idx + '|' + c.key, v) } catch (e) { /* 跳过 */ } }
+    return [...new Set(out.values())]
+  }
+  const names = new Set(objects.map((o) => String(o && o.name || '')))
+  const rows = []
+  for (let i = 0; i < objects.length; i++) {
+    const o = objects[i] || {}
+    for (const k of Object.keys(o)) {
+      const v = o[k]
+      if (!v || typeof v !== 'object' || typeof v.script !== 'string') continue
+      const strs = decodeAny(v.script)
+      const refs = strs.filter((x) => names.has(x))
+      const nums = [...new Set([...v.script.matchAll(/[-+]?0x[0-9a-f]+|\b\d{2,5}\b/gi)].map((m) => m[0]))].slice(0, 8)
+      rows.push({ i, name: String(o.name || ''), id: o.id, field: k, refs, nums, fallback: v.value })
+    }
+  }
+  console.log(`脚本驱动字段 ${rows.length} 个（分布在 ${new Set(rows.map((r) => r.i)).size} 个层）：`)
+  for (const r of rows) {
+    console.log(`   objects[${r.i}] ${r.name}（id ${r.id}）· ${r.field} · 引用层: ${r.refs.join(',') || '—'} · 失败兜底值: ${String(r.fallback).slice(0, 40)}`)
+  }
+  const target = val('--target')
+  if (target) {
+    const hits = rows.filter((r) => r.refs.includes(target))
+    console.log(`---- 引用 "${target}" 的脚本字段（${hits.length}）----`)
+    for (const r of hits) console.log(`   objects[${r.i}] ${r.name} · ${r.field}`)
+  }
+  process.exit(0)
+}
+
 let idx = -1
 if (WANT_OBJ != null) idx = Number(WANT_OBJ)
 else if (WANT_NAME != null) idx = objects.findIndex((o) => String(o.name || '') === WANT_NAME)
@@ -171,3 +221,4 @@ if (val('--call')) {
     if (trace.get.length) console.log('      读取: ' + trace.get.slice(0, 40).join(' | '))
   }
 }
+
