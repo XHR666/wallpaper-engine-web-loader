@@ -15866,6 +15866,52 @@ P-233 的 `dispatchCursor()`（`demo.html` MPW-CURSOR 段）把聚合量 `const 
 `设置2-穿上内内` 的 `cursorClick` 经 `--call` 复现为"`panci cover up`.visible=true / `pussy`.visible=false"，
 与 §1 的脚本语义逐字一致。⇒ 这类"点菜单出内容"的路径要端到端验，必须先让**菜单布局脚本**把热点层摆到屏内。
 
+## P-228m（2026-10-05）粒子 `instanceoverride.count` 只缩了发射率、**没缩池上限** ⇒ "池被打满"的层密度不跟随滑块（语料 8 层被打满 / 7 层两档差 1.22×–2.64×）
+
+### 口径（对照实现的语料实测结论）
+
+`instanceoverride.count` 是**粒子数量倍率**：既缩**池上限**（`round(maxcount × count)`）也按同比例缩**发射率**。
+对照实现 `references/vendor-ref/webwallgl/renderer/vendor/we-scene/render/particles.js:249-267` 把这条写成显式结论 ——
+"只缩 maxcount 是错的（全库 91 个带 count override 的层实测：46% 的层稳态超出上限被硬截断，表现为
+'画面正中一块过密的长方形雨'）"，并给出同时缩发射率后降到 13% 的复核。本仓 P-74 起发射率吃倍率（`sys.countMul`），
+**上限一直没吃** ⇒ 对"稳态存活 ≈ Σrate×lifetime 已经超过 authored maxcount"的层，
+`count<1` 时实际存活 = 上限（比作者意图高 `1/count` 倍），"数量"滑块在饱和区完全失效。
+
+### 语料量化（`/tmp/count-override-audit.mjs` 口径，51 包 / 97 个带 `count` override 的粒子层）
+
+| 读数 | 数量 |
+|---|---|
+| 带 `count` override 的粒子层 | **97** |
+| 池会被打满（Σrate×lifetime > authored maxcount） | **8** |
+| 两档存活数不同（本仓 vs 上游口径） | **7** |
+| 零影响（未打满 ⇒ 本改动对它们是 no-op） | **89** |
+
+最大差异：`3544152633::Star Reactive`（count 0.37、cap 75、稳态 200）本仓 74 vs 上游 28 = **2.64×**；
+`3554161528::落花` 1.5×、`3509243656::star1` 1.5×、`3653641024::Rain perspective` 1.24×、
+`2887099508::赞助闪心` 1.22×。
+
+### 修法（唯一实现处 + 两处接线 + 一个回退档）
+
+- `core/we-scene-bundle.js::particleCountMul(io)`（纯函数，缺省/0/负/非法 ⇒ 1）与 `particleCapMul(io, mode)`
+  （`mode==='rateonly'` ⇒ 恒 1）是**唯一判定处**；
+- 接线两处：`buildParticleSystem()` 的 `maxCount`（覆盖子系与直调路径）与渲染循环里**逐帧覆盖 `sys.maxCount`**
+  的 `__capNow`（不在这里吃倍率的话 build 期算对了也会被本帧写回 authored 值）；`?perf=auto` 的降级倍率与
+  粒子预算 `budgetCap` 仍然**最后**夹一层（只降上限、不停发）；
+- 缓存签名加 `__countMul`（面板改 `count` ⇒ 重建池，而不是沿用旧池）；
+- 回退档 `?iocount=rateonly` = 改动前行为（上限不吃倍率；发射率照旧吃）；`?io=off`（P-74）仍是整个
+  `instanceoverride` 的总开关。
+
+### 判据与读数
+
+- `tests/p74-instanceoverride-test.mjs` **60 → 69 断言 / 0 失败**（新增 ②：倍率真值表 / `buildParticleSystem`
+  上限 = `round(maxcount×count)`（50×0.5=25、50×2=100、无 override=50）/ 发射率与上限同一判定 /
+  `ctx.maxCount` 最后夹（100→60）/ 逐帧上限源码钉 / 缓存签名钉 / 档位真值表 / README 登记钉）。
+- 同批回归：`particle-children` 67/0、`particle-render-correctness` 121/0（含 2 组变异自证）、
+  `p74-instanceoverride-audit`（离线归因腿）通过；`diag-flag-check` **218 == 218**（新开关已登记主表）。
+- **未做**：真机像素密度 A/B —— 差异最大的饱和层（`dd/3544152633::Star Reactive`）不在本轮测试台库根
+  （`0923`）内，改库根要连带重置；机制面由"上游语义 + 语料量化 + 导出函数/源码双钉"覆盖，
+  需要观感对拍时用 `?iocount=rateonly` 直接 A/B（同一个包前后各挂一次即可）。
+
 ## P-228l（2026-10-05）图层**属性动画**只有半套语义：帧率硬编码 30 + 恒定循环 + `alpha` 载体整条没接 —— 按上游移植 `core/we-animation.mjs`（唯一实现处）
 
 ### 现象与口径（三条，全部有语料读数或真机读数）

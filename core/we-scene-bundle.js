@@ -3286,6 +3286,18 @@ const ANIM_MODE = (() => {
   } catch (e) { /* 无 location → 缺省 we */ }
   return 'we'
 })()
+/* ②(P-228m 2026-10-05) `?iocount=rateonly`：粒子池上限回到"不吃 `instanceoverride.count` 倍率"的
+   改动前行为（发射率照旧吃倍率）。缺省 `upstream` = 上限与发射率一起缩（对照实现由全库实测反推的口径）。
+   模块级声明：`buildParticleSystem`（模块导出）与渲染闭包**两处**都要读它。 */
+const IOCOUNT_MODE = (() => {
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('iocount') === 'rateonly' ? 'rateonly' : 'upstream'
+    }
+  } catch (e) { /* 无 location → 缺省 upstream */ }
+  return 'upstream'
+})()
+
 /** 宿主可用 `?anim=legacy` 之外的方式设档（宿主解析 query 后调 `setAnimMode`；Node 测试同款）。 */
 let ANIM_MODE_RUNTIME = ANIM_MODE
 export function setAnimMode(mode) { ANIM_MODE_RUNTIME = mode === 'legacy' ? 'legacy' : 'we'; return ANIM_MODE_RUNTIME }
@@ -4860,6 +4872,30 @@ export function spriteTrailStretch(speed, cfg) {
 export const PTURB_K = 0.002
 
 // ctx: { origin, scale, angle, alphaMul, rateMul, maxCount, seedStr }
+/**
+ * ②(P-228m 2026-10-05) **粒子数量倍率**（`instanceoverride.count`）的唯一判定处。
+ *
+ * 官方语义（对照实现的语料实测结论）：`count` 是**倍率**，既缩**池上限**也按同比例缩**发射率** ——
+ * 只缩其中一边都会让"数量"滑块的语义反过来。本仓此前只缩了发射率（`sys.countMul`），
+ * 上限没缩 ⇒ 对"池会被打满"的层（稳态存活 ≈ Σrate×lifetime 超过 authored maxcount）
+ * 实际存活数比作者意图高 `1/count` 倍。语料实测（51 包 / 97 个带 count override 的粒子层）：
+ * **8 层池被打满、7 层两档存活数不同（差 1.22×–2.64×）**，其余 89 层零影响。
+ * @param {object|null} io `resolveParticleOverride()` 的返回
+ * @returns {number} > 0 的倍率（缺省/非法 ⇒ 1）
+ */
+export function particleCountMul(io) {
+  const c = io && io.count
+  return (typeof c === 'number' && isFinite(c) && c > 0) ? c : 1
+}
+
+/**
+ * ②(P-228m) **池上限**吃不吃数量倍率（`?iocount=rateonly` ⇒ 恒 1 = 改动前"只缩发射率"的行为）。
+ * 发射率那一侧**永远**吃倍率（那是改动前就有的 `sys.countMul`，与档位无关）。
+ * @param {object|null} io `resolveParticleOverride()` 的返回
+ * @param {'upstream'|'rateonly'} mode
+ */
+export function particleCapMul(io, mode) { return mode === 'rateonly' ? 1 : particleCountMul(io) }
+
 export function buildParticleSystem(def, ctx = {}) {
   const scale = ctx.scale || [1, 1, 1]
   const angle = ctx.angle || 0
@@ -4892,7 +4928,10 @@ export function buildParticleSystem(def, ctx = {}) {
     // ①(RE-42) 第三方参考/wer-ref 守卫：maxcount 上限 20000（超出部分丢弃，而不是停止发射）
     // ①(MERGED-2 B) ctx.maxCount（?perf=auto 降级）优先于 def.maxcount —— 只降上限、发射器不停发；
     //   ctx 不传时与旧行为逐位一致。
-    maxCount: Math.max(1, Math.min(ctx.maxCount != null ? ctx.maxCount : ((def && def.maxcount) || 100), 20000)),
+    // ②(P-228m) 上限吃 `count` 倍率（与发射率同一个倍率；见 `particleCountMul`）。
+    //   `ctx.maxCount`（?perf=auto 降级 / 子系并发上限）仍然**最后**夹一层：它只降上限、不停发。
+    /* ②(P-228m) 缓存签名不含它 ⇒ 上一行的 `__countMul` 已进签名（见该处），面板改 count 会重建。 */
+    maxCount: Math.max(1, Math.min(ctx.maxCount != null ? ctx.maxCount : Math.round(((def && def.maxcount) || 100) * particleCapMul(ctx.instanceoverride, IOCOUNT_MODE)), 20000)),
     emitters: emittersOf(),
     initializers: parseParticleInitializers(def && def.initializer).filter((it) => !(ctx.instanceoverride && ctx.instanceoverride.replacesColor && it.name === 'colorrandom')),
     operators: parseParticleOperators(def && def.operator),
@@ -4932,7 +4971,7 @@ export function buildParticleSystem(def, ctx = {}) {
     // ①(vortex-chirality 2026-09-23) `?pvortex=legacy`：`vortex` 切向回到 `(−dy,+dx)` 旧手性
     //   （档位随 ctx 进 sys，再由算子层转成 `vortexSwirl` 的 `tangentSign`）
     vortexLegacy: !!ctx.vortexLegacy,
-    countMul: (() => { const c = ctx.instanceoverride && ctx.instanceoverride.count; return (typeof c === 'number' && isFinite(c) && c >= 0) ? c : 1 })(),
+    countMul: particleCountMul(ctx.instanceoverride),   // ②(P-228m) 与池上限同一个判定（唯一实现处）
     // ①(WEBWALLGL-ELYSIA 2026-09-23) 未知/未实现算子台账（`noteUnknownParticleOp` 写、渲染器逐帧汇总）：
     //   `unknownOps` = {名字: 作用次数}、`unknownOpNames` = 去重名字（保首次出现序）、`unknownOpHits` = 总次数。
     //   本批之前这类算子**静默消失**（switch 无 default）⇒ 现在至少"看得见"。
@@ -15497,8 +15536,12 @@ export function createRenderer(canvas, opts = {}) {
       } catch (e) { return false }
     }
     // 本帧该层的存活上限（与旧实现逐位同式；perf 倍率 × def.maxcount 再与预算取 min）
+    /* ②(P-228m) 这一处**逐帧覆盖** `sys.maxCount`（见下），所以 `count` 倍率必须在这里也吃到；
+       否则 build 期算对了也会被本帧写回 authored 值。口径 = `def.maxcount × ?perf 降级 × count`，
+       预算 `budgetCap` 最后夹（只降上限、不停发）。 */
+    const __countMul = particleCapMul(layer.instanceoverride, IOCOUNT_MODE)
     const __capNow = (def && def.maxcount > 0)
-      ? Math.max(1, Math.min(budgetCap, Math.floor(def.maxcount * (perfState.partMul || 1)))) : budgetCap
+      ? Math.max(1, Math.min(budgetCap, Math.floor(def.maxcount * (perfState.partMul || 1) * __countMul))) : budgetCap
     // ①(P-144 子系) 子系 authored `maxcount`（官方 = **并发实例上限**，缺省 20）折算成"本系统的
     //   存活粒子上限"：`static` 只有一个实例 ⇒ 不缩（上限就是子系 def 的 maxcount）；
     //   `eventfollow` 一个实例 ≈ 一粒拖尾粒子 ⇒ `min(def.maxcount, spec.maxCount)`；
@@ -15516,7 +15559,7 @@ export function createRenderer(canvas, opts = {}) {
       layer.id, layer.origin && layer.origin[0], layer.origin && layer.origin[1], layer.origin && layer.origin[2],
       layer.scale && layer.scale[0], layer.scale && layer.scale[1],
       layer.angles && layer.angles[2], layer.alpha, rateMul,
-      (def && def.maxcount) || 0, perfState.partMul || 1, texName || '',
+      (def && def.maxcount) || 0, perfState.partMul || 1, __countMul, texName || '',
       // ①(P-74 ①) instanceoverride 进签名：面板改 size/count/alpha/speed/lifetime/color 后必须重建
       //   （RNG 流与出生状态都变）；无 override 的层恒 'x' ⇒ 缓存行为与改动前一致。
       (layer.instanceoverride ? JSON.stringify([layer.instanceoverride.size, layer.instanceoverride.count,

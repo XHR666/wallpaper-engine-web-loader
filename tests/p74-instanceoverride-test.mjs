@@ -67,6 +67,43 @@ push('① applyInstanceOverride 导出', typeof lib.applyInstanceOverride === 'f
   push('① 非数值不写坏（回落 1.0）', dbad.size === 1 && dbad.count === 1 && dbad.alpha === 1)
 }
 
+// ───────────────────────── ② P-228m：`count` 是**倍率**，池上限与发射率一起缩 ─────────────────────────
+//   上游口径（对照实现 `particles.js:249-267`，由全库实测反推）：只缩上限或只缩发射率都会让"数量"滑块的
+//   语义反过来。本仓此前只缩了发射率（`sys.countMul`），上限没缩 ⇒ **池被打满的层**实际存活比作者意图高
+//   `1/count` 倍。语料量化（51 包 / 97 个带 count override 的粒子层）：**8 层池被打满、7 层两档存活数不同
+//   （差 1.22×–2.64×）**，其余 89 层零影响（= 本次改动对它们是 no-op）。
+{
+  push('② particleCountMul 导出', typeof lib.particleCountMul === 'function')
+  push('② 倍率真值表（缺省/0/负/非法 ⇒ 1，>0 原样）',
+    lib.particleCountMul(null) === 1 && lib.particleCountMul({ count: 1 }) === 1 &&
+    lib.particleCountMul({ count: 0.57 }) === 0.57 && lib.particleCountMul({ count: 2 }) === 2 &&
+    lib.particleCountMul({ count: 0 }) === 1 && lib.particleCountMul({ count: -3 }) === 1 &&
+    lib.particleCountMul({ count: 'x' }) === 1,
+    JSON.stringify([lib.particleCountMul(null), lib.particleCountMul({ count: 0.57 }), lib.particleCountMul({ count: 0 })]))
+  const def = { maxcount: 50, emitter: [{ name: 'sphererandom', rate: 20 }], initializer: [], operator: [], renderer: ['0'] }
+  const sysHalf = lib.buildParticleSystem(def, { instanceoverride: lib.resolveParticleOverride({ count: 0.5 }) })
+  const sysTwo = lib.buildParticleSystem(def, { instanceoverride: lib.resolveParticleOverride({ count: 2 }) })
+  const sysNone = lib.buildParticleSystem(def, { instanceoverride: lib.resolveParticleOverride({ id: 1 }) })
+  push('② build 期上限 = round(maxcount × count)：50×0.5=25 / 50×2=100 / 无 override=50',
+    sysHalf.maxCount === 25 && sysTwo.maxCount === 100 && sysNone.maxCount === 50,
+    JSON.stringify({ half: sysHalf.maxCount, two: sysTwo.maxCount, none: sysNone.maxCount }))
+  push('② 发射率倍率与上限倍率**同一个判定**（sys.countMul === 0.5）', sysHalf.countMul === 0.5 && sysTwo.countMul === 2)
+  const sysPerf = lib.buildParticleSystem(def, { instanceoverride: lib.resolveParticleOverride({ count: 2 }), maxCount: 60 })
+  push('② `ctx.maxCount`（?perf 降级 / 子系并发上限）仍然**最后**夹一层（100 → 60）', sysPerf.maxCount === 60, 'maxCount=' + sysPerf.maxCount)
+  const src = fs.readFileSync(new URL('../core/we-scene-bundle.js', import.meta.url), 'utf8')
+  push('② 逐帧上限（覆盖 sys.maxCount 的那一处）也吃倍率',
+    /const __capNow = \(def && def.maxcount > 0\)[\s\S]{0,220}__countMul/.test(src) &&
+    /const __countMul = particleCapMul\(layer\.instanceoverride, IOCOUNT_MODE\)/.test(src))
+  push('② `particleCapMul` 档位：upstream 吃倍率 / `?iocount=rateonly` 恒 1（改动前行为）',
+    lib.particleCapMul(lib.resolveParticleOverride({ count: 0.5 }), 'upstream') === 0.5 &&
+    lib.particleCapMul(lib.resolveParticleOverride({ count: 0.5 }), 'rateonly') === 1 &&
+    lib.particleCapMul(lib.resolveParticleOverride({ count: 2 }), 'rateonly') === 1)
+  push('② README 主表登记 `iocount`（新开关必须登记，diag-flag-check 双向对账）',
+    /\|\s*`iocount`\s*\|/.test(fs.readFileSync(new URL('../docs/README-DIAGNOSTICS.md', import.meta.url), 'utf8')))
+  push('② 缓存签名含 __countMul（面板改 count ⇒ 重建，而不是沿用旧池）',
+    /\(def && def\.maxcount\) \|\| 0, perfState\.partMul \|\| 1, __countMul,/.test(src))
+}
+
 // ───────────────────────── ① 生效点：applyInstanceOverride 逐字段 ─────────────────────────
 {
   const mk = () => ({ pos: [0, 0, 0], vel: [0, 0, 0], alpha: 1, size: 20, color: [1, 1, 1], life: 1, age: 0 })
