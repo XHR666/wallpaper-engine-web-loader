@@ -2031,6 +2031,32 @@ export function rendererSourceStatusPlan(lang, mode, probe) {
  *  幂等：`proto.__benchBandFeedSrc` 标记防重复包装（重复 init 不会套两层 ⇒ 不会出现两个参数）。
  *  返回 true = 已装/本来就在；false = 没有可包装的访问器（桩环境 / 冻结原型）—— **静默降级**，
  *  绝不把页面弄坏。 */
+/** ②(P-228f 2026-10-05) **包内音轨 opt-in**：渲染器只在 `?audio=1` 时给 sound 层建 `<audio>` 元素
+ *  （见 `demo.html` 的 `AUDIO_ENABLED`）。而工具条「音条源 = 壁纸」的语义就是"用包内音轨"
+ *  ⇒ 这条参数得跟着一起写，否则真机永远是"当前壁纸没有可播放的媒体"（媒体元素根本不存在，
+ *  测试台的媒体扫描自然扫不到，NP 卡片也就没有进度/时长可接）。
+ *  只对 **scene** 档生效（web/video 档自己的 `<video>`/`<audio>` 不归这条管）。
+ *  `want=false` ⇒ 把已有的 `audio=` 去掉（切「关」/「麦克风」/「模拟」时不建元素、不漏音）。 */
+export function audioOptInUrl(url, want) {
+  const raw = String(url == null ? '' : url)
+  if (!/(^|\/)(renderer\/index\.html|webloader\/?)([?#]|$)/.test(raw)) return raw
+  const hashAt = raw.indexOf('#')
+  const head = hashAt >= 0 ? raw.slice(0, hashAt) : raw
+  const hash = hashAt >= 0 ? raw.slice(hashAt) : ''
+  const qAt = head.indexOf('?')
+  if (qAt < 0) return raw
+  const base = head.slice(0, qAt)
+  const kept = head.slice(qAt + 1).split('&').filter((x) => x !== '' && !/^audio=/i.test(x))
+  const get = (k) => { const hit = kept.find((x) => x.split('=')[0].toLowerCase() === k); return hit === undefined ? null : decodeURIComponent(hit.slice(hit.indexOf('=') + 1)) }
+  if (String(get('type') || 'scene').toLowerCase() !== 'scene') return raw
+  if (want && !kept.some((x) => /^audio=/i.test(x))) kept.push('audio=1')
+  return base + '?' + kept.join('&') + hash
+}
+/** 「当前音条档」是否要用包内音轨：壁纸档（auto / real）要；麦克风 / 模拟 / 关都不要。 */
+export function bandFeedWantsPackageAudio(mode) {
+  const m = bandFeedMode(mode)
+  return m === 'auto' || m === 'real'
+}
 export function installBandFeedSrcHook(proto, modeOf) {
   try {
     if (!proto) return false
@@ -2044,7 +2070,7 @@ export function installBandFeedSrcHook(proto, modeOf) {
       configurable: true,
       enumerable: true,
       get() { return getter.call(this) },
-      set(v) { setter.call(this, bandFeedUrl(v, modeOfNow())) },
+      set(v) { setter.call(this, audioOptInUrl(bandFeedUrl(v, modeOfNow()), bandFeedWantsPackageAudio(modeOfNow()))) },
     })
     Object.defineProperty(proto, '__benchBandFeedSrc', { value: 1, configurable: true })
     return true
@@ -3283,6 +3309,15 @@ export function initNavSound(deps = {}) {
     for (const el of mediaList().all) {
       if (!el || el.__benchNpBound) continue
       el.__benchNpBound = true                       // 幂等：重挂载/重复探测不会叠加监听器
+      /* ②(P-228f) 拿到媒体元素时**主动要一次元数据**：渲染器建的 `<audio>` 缺省 preload 可能是 none，
+         而自动播放策略下（还没有手势）元素不会自己加载 ⇒ `duration` 一直是 NaN、NP 卡片只能显示
+         `--:-- / --:--`。这里只补 preload=metadata + load()（不 play、不破坏"不自动出声"的纪律）。 */
+      try {
+        if (!(typeof el.duration === 'number' && isFinite(el.duration) && el.duration > 0)) {
+          el.preload = 'metadata'
+          if (typeof el.load === 'function') el.load()
+        }
+      } catch (e) { /* 桩/跨源 */ }
       // 需求③：进度与 <video> 的 currentTime/duration 同步（订阅 timeupdate/durationchange…）
       for (const ev of VIDEO_EVENTS) el.addEventListener(ev, () => paintProgress())
     }

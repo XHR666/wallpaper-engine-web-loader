@@ -216,6 +216,24 @@ console.log('\n== B 接线：工具条四档 → 渲染器 URL / 默认档 / 闸
   ok(bad.length === 0, 'B1 四个档位各自映射到 `?bandfeed=<mode>`，且原有查询串一字不动', bad.join(' | ') || P.BAND_FEED_MODES.map((m) => P.bandFeedUrl(base, m).split('&').pop()).join(' '))
   ok(P.bandFeedUrl(base + '&bandfeed=sim', 'off') === base + '&bandfeed=off',
     'B1 换档**替换**同名参数（不叠加成两个 bandfeed）', P.bandFeedUrl(base + '&bandfeed=sim', 'off'))
+  /* ②(P-228f 2026-10-05) 包内音轨 opt-in：scene 档 + 壁纸档（auto/real）才写 `?audio=1`；
+     麦克风/模拟/关都不写（不建媒体元素、不漏音）；web/video 档一个字都不动。 */
+  {
+    const scene = '/webloader/?type=scene&src=abc&_t=1'
+    const hasAudio = (u) => /[?&]audio=1/i.test(u)
+    ok(hasAudio(P.audioOptInUrl(scene, P.bandFeedWantsPackageAudio('auto'))) &&
+      hasAudio(P.audioOptInUrl(scene, P.bandFeedWantsPackageAudio('real'))) &&
+      !hasAudio(P.audioOptInUrl(scene, P.bandFeedWantsPackageAudio('mic'))) &&
+      !hasAudio(P.audioOptInUrl(scene, P.bandFeedWantsPackageAudio('sim'))) &&
+      !hasAudio(P.audioOptInUrl(scene, P.bandFeedWantsPackageAudio('off'))),
+      'B1b ② 包内音轨 opt-in：壁纸档（auto/real）写 `?audio=1`，麦克风/模拟/关不写')
+    ok(P.audioOptInUrl('/webloader/?type=web&src=x', true) === '/webloader/?type=web&src=x' &&
+      P.audioOptInUrl('https://example.com/x.html?type=scene', true) === 'https://example.com/x.html?type=scene',
+      'B1b ② 只对 scene 档 + 两种渲染器入口生效（web 档与外链原样返回）')
+    ok(!/[?&]audio=/i.test(P.audioOptInUrl(scene + '&audio=1', false)) &&
+      /[?&]audio=1/i.test(P.audioOptInUrl(scene + '&audio=0', true)),
+      'B1b ② 换档**替换**同名参数（不叠加、不留旧值）')
+  }
   const foreign = 'https://example.com/rendererless/page.html?a=1'
   ok(P.bandFeedUrl(foreign, 'mic') === foreign && P.bandFeedUrl('', 'mic') === '',
     'B1 非渲染器入口 URL（外链 / 空串）原样返回 —— 这条改写碰不到别的东西')
@@ -442,8 +460,8 @@ console.log('\n== C 分辨力自证：改回旧写法 / 改坏 ⇒ 对应断言�
   }
   // 变异⑤：iframe src 包装层退回"原样透传"（档位再也拼不进 URL = 下拉变成摆设）
   {
-    const mutPatch = PATCH.replace('set(v) { setter.call(this, bandFeedUrl(v, modeOfNow())) }',
-      'set(v) { setter.call(this, v) }')
+    const mutPatch = PATCH.replace('set(v) { setter.call(this, audioOptInUrl(bandFeedUrl(v, modeOfNow()), bandFeedWantsPackageAudio(modeOfNow()))) },',
+      'set(v) { setter.call(this, v) },')
     ok(mutPatch !== PATCH, 'C5 变异⑤锚点命中（把 src 包装层的 bandfeed 拼接摘掉）')
     const MP = await importMutant('bench-bandfeed-m5.mjs', mutPatch)
     const r = cHook(MP)
