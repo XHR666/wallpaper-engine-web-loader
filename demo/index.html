@@ -110,21 +110,24 @@ html.bench-shell #toolbar{max-height:30vh;overflow-y:auto;flex-wrap:wrap;max-wid
    260px 的格子，短按钮也占满一格 ⇒ 大片留白 + 行数变多（工具条反而更高）。
    现在：flex 换行 + **控件按内容宽**、标签不固定占位；状态行独占整行且**行高固定**（超长省略）
    ⇒ 既紧凑整齐，也不会因为状态文案变长而顶高工具条/挪动预览区。 */
-html.bench-shell #toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;max-height:none;overflow:visible;width:100%}
-html.bench-shell #toolbar > label{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0}
-html.bench-shell #toolbar > label > span:first-child{flex:0 0 auto;white-space:nowrap}
-html.bench-shell #toolbar select,html.bench-shell #toolbar input[type="search"]{width:auto;min-width:6.6em;max-width:13em}
-html.bench-shell #toolbar > button,html.bench-shell #toolbar > .mpw-select{flex:0 0 auto;width:auto;padding-left:8px;padding-right:8px}
+html.bench-shell #toolbar{display:flex;flex-direction:column;align-items:stretch;gap:4px 0;max-height:none;overflow:visible;width:100%}
+/* ⑩(P-228f 2026-10-05) **四行**：行容器显式（`.tb-row`），每行自己 flex 换行 ⇒ 行内容与窗口宽度无关。 */
+html.bench-shell #toolbar .tb-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
+html.bench-shell #toolbar .tb-row > label{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0}
+html.bench-shell #toolbar .tb-row > label > span:first-child{flex:0 0 auto;white-space:nowrap}
+html.bench-shell #toolbar .tb-row select,html.bench-shell #toolbar .tb-row input[type="search"]{width:auto;min-width:6.6em;max-width:13em}
+html.bench-shell #toolbar .tb-row > button,html.bench-shell #toolbar .tb-row > .mpw-select{flex:0 0 auto;width:auto;padding-left:8px;padding-right:8px}
 /* ①(P-228e 四改 2026-10-04) 复选框命中区统一：`.check` 原来跟着上面那条一起吃 `padding-left:8px`，
    而 label 的 padding 也算可点区 ⇒ 看上去"框的左边还多出一截能点到"，并且各行的观感不一致。
    这里把左内边距清零、间距交给 input 自己的 margin ⇒ **可点区 = 框 + 文字**，四行完全一致。 */
-html.bench-shell #toolbar > .check{flex:0 0 auto;width:auto;padding-left:0;padding-right:8px}
-html.bench-shell #toolbar > .check > input[type="checkbox"]{margin:0 6px 0 0}
-html.bench-shell #bar-row{flex:1 1 100%;display:flex;align-items:center;gap:8px;height:1.6em;min-width:0}
+html.bench-shell #toolbar .tb-row > .check{flex:0 0 auto;width:auto;padding-left:0;padding-right:8px}
+html.bench-shell #toolbar .tb-row > .check > input[type="checkbox"]{margin:0 6px 0 0}
+html.bench-shell #bar-row{flex:0 0 auto;display:flex;align-items:center;gap:8px;height:1.6em;min-width:0}
 html.bench-shell #bar-row button{flex:0 0 auto}
-html.bench-shell #bar-row #bar-hint{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.75}
-html.bench-shell #status-renderer-src,html.bench-shell #toolbar > #status-bandfeed,html.bench-shell #toolbar > #status-dpr{flex:1 1 100%;display:block;height:1.6em;line-height:1.6em;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-html.bench-shell #toolbar.bar-off > *:not(#bar-row){display:none}
+/* ⑧(P-228f) 状态片：诊断区（输出面板页签行尾）里的紧凑读数 —— 单行、可省略、悬停看全文。 */
+html.bench-shell .bench-status-chip{flex:0 1 auto;min-width:0;max-width:22em;display:inline-block;height:1.6em;line-height:1.6em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg-dim);font-size:12px;padding:0 6px;border:1px solid var(--bench-input-border,#3c3c3c);border-radius:6px;cursor:help}
+/* 收起态：只收第 1~3 行（参数）；第 4 行的动作按钮与新档位保持可用。 */
+html.bench-shell #toolbar.bar-off .tb-row:not(#tb-row4){display:none}
 /* ⑩(2026-09-21 台账 §5.3) 「音条源」状态行：诚实原因可能是一整句（"该壁纸没有音源或已静音 ——
    可切「麦克风」或「模拟」看形态"），所以让它**换行**（`flex-wrap` 优先）而不是 `nowrap` +
    `text-overflow:ellipsis` —— 截断会把"可切麦克风/模拟"这条出路吃掉。*/
@@ -304,14 +307,20 @@ html.bench-shell body.bench-nav-collapsed #sidebar-toggle svg{transform:rotate(1
    （"展开后属性项被永久遮住且滚不到"是不变量上被禁掉的，门禁逐项断言）。
    `#np-mount` 归 React 独占；`#np-mount > *{pointer-events:none}` + `.snd button{pointer-events:auto}`
    让卡片四周那圈透明区**不吃点击**（收起时上下各 55.5px 的空隙照常点得到后面的属性项）。 */
-html.bench-shell #props{position:relative;--mpw-np-card:189px;--mpw-np-strip:30px;--mpw-np-cover:calc(var(--mpw-np-card) + var(--mpw-np-strip))}
-html.bench-shell #np-host{position:absolute;left:0;right:0;bottom:0;height:calc(var(--mpw-np-card) + var(--mpw-np-strip));display:flex;flex-direction:column;justify-content:flex-end;pointer-events:none;z-index:5}
+html.bench-shell #props{position:relative;--mpw-np-card:189px;--mpw-np-strip:0px;--mpw-np-cover:var(--mpw-np-card)}
+html.bench-shell #np-audio{display:none!important}
+html.bench-shell #np-host{position:absolute;left:0;right:0;bottom:0;height:var(--mpw-np-cover);display:flex;flex-direction:column;justify-content:flex-end;pointer-events:none;z-index:5}
 html.bench-shell #np-host > *{pointer-events:auto}
 html.bench-shell #np-mount{height:var(--mpw-np-card);display:flex;justify-content:center;align-items:flex-start;pointer-events:none}
 html.bench-shell #np-mount > *{pointer-events:none}
 html.bench-shell #np-mount .snd button{pointer-events:auto}
 html.bench-shell #np-mount .snd [data-mpw-np-vol-range], html.bench-shell #np-mount .snd [data-mpw-np-volnum]{pointer-events:auto}
 html.bench-shell #props-body{padding-bottom:calc(20px + var(--mpw-np-cover))}
+html.bench-shell #props, html.bench-shell #props-body{scrollbar-width:thin;scrollbar-color:var(--widget-border,#3c3c3c) transparent}
+html.bench-shell #props-body::-webkit-scrollbar{width:10px;height:10px}
+html.bench-shell #props-body::-webkit-scrollbar-track{background:transparent}
+html.bench-shell #props-body::-webkit-scrollbar-thumb{background:var(--widget-border,#3c3c3c);border-radius:6px;border:2px solid transparent;background-clip:content-box}
+html.bench-shell #props-body::-webkit-scrollbar-thumb:hover{background:var(--accent,#0078d4);background-clip:content-box}
 html.bench-shell #props[data-np="missing"] #props-body{padding-bottom:20px}
 html.bench-shell #props[data-np="missing"] #np-host{display:none}
 html.bench-shell #np-mute{flex:none;width:22px;height:22px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:4px;background:transparent;color:var(--fg);cursor:pointer}
@@ -737,133 +746,147 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
             </div>
           </div>
           <div id="toolbar">
-            <label data-i18n-title="toolbar.resolutionTip" title="舞台逻辑分辨率（iframe 视口）"><span data-i18n="toolbar.resolution">分辨率</span>
-              <span class="bench-rd">
-                <button type="button" id="bench-rd-btn" class="bench-rd-btn" aria-haspopup="listbox" aria-expanded="false" data-i18n-title="res.pick" title="选择分辨率">自适应 16:9</button>
-                <ul id="bench-rd-list" class="bench-rd-list" role="listbox" aria-label="分辨率"></ul>
-                <select id="resolution">
-                <option value="fit" data-i18n="res.fit">自适应 16:9</option>
-                <option value="1280x720">1280 × 720 · HD</option>
-                <option value="1366x768">1366 × 768</option>
-                <option value="1440x900">1440 × 900</option>
-                <option value="1600x900">1600 × 900</option>
-                <option value="1680x1050">1680 × 1050</option>
-                <option value="1920x1080">1920 × 1080 · FHD</option>
-                <option value="1920x1200">1920 × 1200 · 16:10</option>
-                <option value="2560x1080">2560 × 1080 · 超宽</option>
-                <option value="2560x1440">2560 × 1440 · QHD</option>
-                <option value="2560x1600">2560 × 1600</option>
-                <option value="3440x1440">3440 × 1440 · 超宽</option>
-                <option value="3840x2160">3840 × 2160 · 4K</option>
-                <option value="1080x1920">1080 × 1920 · 竖屏</option>
-                <option value="1440x2560">1440 × 2560 · 竖屏</option>
+            <!-- ⑩(P-228f 2026-10-05) 参数栏按**四行**重排（用户给的顺序）：行容器是显式 `.tb-row`，
+                 不靠 flex 自动换行碰运气 ⇒ 每行内容固定、与窗口宽度无关。
+                   第 1 行：分辨率 / Fit / DPR / FPS / 滤镜
+                   第 2 行：音量 / 系统实况 / 启用麦克风 / 音条源
+                   第 3 行：渲染器 / 指针注入 / 鼠标尾迹 / 长度·粗细·颜色
+                   第 4 行：收起参数栏 + 暂停 / 重挂载 / 释放 / 新窗口 / 壁纸配置 + 三个新档位
+                          （去除开屏动画 / Web 渲染模式 / 流式播放）
+                 两条状态行（音条状态、渲染器来源）**搬出参数栏**：它们是一整句如实原因，
+                 留在参数栏里既占地方又把行数顶乱；现在作为紧凑状态片放在输出面板的页签行尾，
+                 全部取值与含义写在第 3 个页签「对应API」里（页签已按此改名）。 -->
+            <div class="tb-row" id="tb-row1">
+              <label data-i18n-title="toolbar.resolutionTip" title="舞台逻辑分辨率（iframe 视口）"><span data-i18n="toolbar.resolution">分辨率</span>
+                <span class="bench-rd">
+                  <button type="button" id="bench-rd-btn" class="bench-rd-btn" aria-haspopup="listbox" aria-expanded="false" data-i18n-title="res.pick" title="选择分辨率">自适应 16:9</button>
+                  <ul id="bench-rd-list" class="bench-rd-list" role="listbox" aria-label="分辨率"></ul>
+                  <select id="resolution">
+                  <option value="fit" data-i18n="res.fit">自适应 16:9</option>
+                  <option value="1280x720">1280 × 720 · HD</option>
+                  <option value="1366x768">1366 × 768</option>
+                  <option value="1440x900">1440 × 900</option>
+                  <option value="1600x900">1600 × 900</option>
+                  <option value="1680x1050">1680 × 1050</option>
+                  <option value="1920x1080">1920 × 1080 · FHD</option>
+                  <option value="1920x1200">1920 × 1200 · 16:10</option>
+                  <option value="2560x1080">2560 × 1080 · 超宽</option>
+                  <option value="2560x1440">2560 × 1440 · QHD</option>
+                  <option value="2560x1600">2560 × 1600</option>
+                  <option value="3440x1440">3440 × 1440 · 超宽</option>
+                  <option value="3840x2160">3840 × 2160 · 4K</option>
+                  <option value="1080x1920">1080 × 1920 · 竖屏</option>
+                  <option value="1440x2560">1440 × 2560 · 竖屏</option>
+                  </select>
+                </span>
+              </label>
+              <label>fit
+                <select id="fit">
+                  <option value="cover">cover</option>
+                  <option value="contain">contain</option>
+                  <option value="stretch">stretch</option>
                 </select>
-              </span>
-            </label>
-            <label>fit
-              <select id="fit">
-                <option value="cover">cover</option>
-                <option value="contain">contain</option>
-                <option value="stretch">stretch</option>
-              </select>
-            </label>
-            <label id="lab-dpr">DPR
-              <select id="dpr">
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-                <option value="5">5</option>
-              </select>
-            </label>
-            <label id="lab-fps" data-i18n-title="fps.uncappedTitle" title="不加帧率上限（按显示器刷新率出帧）">FPS
-              <select id="fps">
-                <option value="30">30</option>
-                <option value="60" selected>60</option>
-                <option value="120">120</option>
-                <option value="1000" data-i18n="fps.uncapped">无上限</option>
-              </select>
-            </label>
-            <label class="vol"><span data-i18n="toolbar.volume">音量</span>
-              <input id="volume" type="range" min="0" max="1" step="0.05" value="0" />
-            </label>
-            <label class="check" data-i18n-title="toolbar.liveTip" title="歌名走 Node/media-control；音频可视化走麦克风（测试台无系统声卡环回）">
-              <input id="live-system" type="checkbox" checked />
-              <span data-i18n="toolbar.live">系统实况</span>
-            </label>
-            <!-- ⑤(2026-09-20 用户第 5 条) 「启用麦克风」：**默认关**，关着时任何 mic 请求都不发
-                 （`getUserMedia` 一次都不调；「系统实况」只保留歌名/进度那一半）。
-                 开着且**壁纸/功能声明需要**时才请求（勾了「系统实况」+ 挂载了壁纸 ⇒ 才把
-                 `liveSystem=1` 交给渲染器），页面加载时绝不预请求。运行期闸门见
-                 bench-patch.js 的 `initMicGate()`（顶层 + 同源渲染器 iframe 各一道）。 -->
-            <label class="check" id="mic-box" data-i18n-title="toolbar.micTip" title="默认关：关着时页面一次都不会请求麦克风；开着时才在壁纸/功能声明需要时请求">
-              <input id="mic-enable" type="checkbox" />
-              <span data-i18n="toolbar.mic">启用麦克风</span>
-            </label>
-            <!-- ⑩(2026-09-21 · 台账 §5.3) 「音条源」四档：工具条 → 渲染器 `?bandfeed=`（同一时刻只有一个源）。
-                 缺省「壁纸」= 渲染器现有**诚实缺省** `auto`：包内音轨（`?audio=1` 且真有 sound 层在播）
-                 或已授权的麦克风，两者都没有就**如实全 0**（`source='silent'`）。
-                 **不许**默认「麦克风」：那是显式选择，且还要过 `#mic-enable` 闸门（默认关 ⇒ 一次都不请求）。
-                 换档会重挂载渲染器（走产物自己的「重挂载」路径 `#reload`）；状态行 `#status-bandfeed`
-                 写出渲染器回报的源类型 / 静音原因。判据见 tests/bench-bandfeed-switch-test.mjs。 -->
-            <label data-i18n-title="toolbar.bandfeedTip" title="音条（音频条）的数据源：壁纸 = 只用包内音轨，没有就如实全 0；麦克风 = 显式请求麦克风（还要勾「启用麦克风」）；模拟 = 确定性模拟源（只看形态）；关 = 不接任何源。换档会重挂载渲染器">
-              <span data-i18n="toolbar.bandfeed">音条源</span>
-              <select id="bandfeed">
-                <option value="auto" selected data-i18n="bandfeed.wallpaper">壁纸</option>
-                <option value="mic" data-i18n="bandfeed.mic">麦克风</option>
-                <option value="sim" data-i18n="bandfeed.sim">模拟</option>
-                <option value="off" data-i18n="bandfeed.off">关</option>
-              </select>
-            </label>
-            <!-- 状态行（诚实原因）：渲染器 `window.__mpwAudioBandSource` / `__mpwAudioBandReason` 的原话，
-                 随语言与档位重画；`data-mpw-bandfeed-status` = 状态种类（idle/live/silent/off），
-                 `data-mpw-bandfeed-source` = 源类型。判据读这两个属性 + 文本。 -->
-            <span id="status-bandfeed" data-mpw-bandfeed-status="idle" data-mpw-bandfeed-source="none" data-mpw-bandfeed-mode="auto" data-i18n-title="toolbar.bandfeedTip" title="音条（音频条）的数据源：壁纸 = 只用包内音轨，没有就如实全 0；麦克风 = 显式请求麦克风（还要勾「启用麦克风」）；模拟 = 确定性模拟源（只看形态）；关 = 不接任何源">音条状态：等待渲染器回报…</span>
-            <!-- ⑪(2026-09-21) 「渲染器来源」两档：预览 iframe 到底跑哪一个渲染器。
-                 上游产物 = `demo/renderer/index.html`（minified、不可重建、`alpha:false` 且画布乘数被
-                 `renderDpr` 上限 1 夹住）；本仓渲染器 = 同源 `/webloader/` 代理到 `:8899` 的 `demo.html`
-                 （含本仓 core 的透明/粒子/画质修复与 `?res=dpr` 活档位）。
-                 换档**只改写 iframe src 的路径与补充参数**，原有 query 一个不丢（`bandfeed`、调试档都在），
-                 然后走产物自己的「重挂载」`#reload` 重设 src。判据见 tests/bench-renderer-source-test.mjs。 -->
-            <label data-i18n-title="toolbar.rendererSrcTip" title="预览用哪个渲染器：上游产物页 = demo/renderer/index.html（不可重建的 minified 包）；本仓渲染器 = 同源 /webloader/（:8899 的 demo.html + 本仓 core）。换档会重挂载预览">
-              <span data-i18n="toolbar.rendererSrc">渲染器</span>
-              <select id="renderer-src">
-                <option value="repo" selected data-i18n="rendererSrc.repo">本仓渲染器</option>
-                <option value="upstream" data-i18n="rendererSrc.upstream">上游产物</option>
-              </select>
-            </label>
-            <span id="status-renderer-src" data-mpw-renderer-src="repo" data-mpw-renderer-ready="0" data-i18n-title="toolbar.rendererSrcTip" title="预览用哪个渲染器：上游产物页 = demo/renderer/index.html（不可重建的 minified 包）；本仓渲染器 = 同源 /webloader/（:8899 的 demo.html + 本仓 core）。换档会重挂载预览">渲染器来源：等待挂载…</span>
-            <label class="check" data-i18n-title="toolbar.pointerPushTip" title="模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，改用 __wp.pushPointer 推送坐标 —— 与宿主对接的是同一条通道">
-              <input id="pointer-push" type="checkbox" />
-              <span data-i18n="toolbar.pointerPush">指针注入</span>
-            </label>
-            <label class="check" id="trail-box" data-i18n-title="trail.tip" title="仅在开启「指针注入」后可用">
-              <input type="checkbox" id="trail-on" disabled />
-              <span data-i18n="trail.on">鼠标尾迹</span>
-            </label>
-            <label class="mini"><span data-i18n="trail.len">长度</span><input type="number" id="trail-len" min="2" max="120" value="24" disabled /></label>
-            <label class="mini"><span data-i18n="trail.width">粗细</span><input type="number" id="trail-w" min="1" max="10" value="2" disabled /></label>
-            <label class="mini"><span data-i18n="trail.color">颜色</span><input type="color" id="trail-color" value="#7dd3fc" disabled /></label>
-            <button type="button" id="pause" data-i18n="toolbar.pause">暂停</button>
-            <button type="button" id="reload" data-i18n="toolbar.reload">重挂载</button>
-            <button type="button" id="release" data-i18n="toolbar.release">释放</button>
-            <button type="button" id="open" data-i18n="toolbar.open">新窗口</button>
-            <button type="button" id="toggle-props" data-i18n="toolbar.props">壁纸配置</button>
-            <label class="fx"><span data-i18n="toolbar.filter">滤镜</span>
-              <select id="fx" data-i18n-title="toolbar.filterTip">
-                <option value="none" selected data-i18n="filter.none">无</option>
-                <option value="blur" data-i18n="filter.blur">高斯模糊</option>
-                <option value="grayscale" data-i18n="filter.grayscale">黑白</option>
-                <option value="sepia" data-i18n="filter.sepia">怀旧</option>
-                <option value="vivid" data-i18n="filter.vivid">鲜艳</option>
-                <option value="warm" data-i18n="filter.warm">暖色</option>
-                <option value="cool" data-i18n="filter.cool">冷色</option>
-                <option value="invert" data-i18n="filter.invert">反色</option>
-                <option value="brighten" data-i18n="filter.brighten">提亮</option>
-                <option value="darken" data-i18n="filter.darken">压暗</option>
-                <option value="contrast" data-i18n="filter.contrast">高对比</option>
-              </select>
-            </label>
+              </label>
+              <label id="lab-dpr">DPR
+                <select id="dpr">
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                </select>
+              </label>
+              <label id="lab-fps" data-i18n-title="fps.uncappedTitle" title="不加帧率上限（按显示器刷新率出帧）">FPS
+                <select id="fps">
+                  <option value="30">30</option>
+                  <option value="60" selected>60</option>
+                  <option value="120">120</option>
+                  <option value="1000" data-i18n="fps.uncapped">无上限</option>
+                </select>
+              </label>
+              <label class="fx"><span data-i18n="toolbar.filter">滤镜</span>
+                <select id="fx" data-i18n-title="toolbar.filterTip">
+                  <option value="none" selected data-i18n="filter.none">无</option>
+                  <option value="blur" data-i18n="filter.blur">高斯模糊</option>
+                  <option value="grayscale" data-i18n="filter.grayscale">黑白</option>
+                  <option value="sepia" data-i18n="filter.sepia">怀旧</option>
+                  <option value="vivid" data-i18n="filter.vivid">鲜艳</option>
+                  <option value="warm" data-i18n="filter.warm">暖色</option>
+                  <option value="cool" data-i18n="filter.cool">冷色</option>
+                  <option value="invert" data-i18n="filter.invert">反色</option>
+                  <option value="brighten" data-i18n="filter.brighten">提亮</option>
+                  <option value="darken" data-i18n="filter.darken">压暗</option>
+                  <option value="contrast" data-i18n="filter.contrast">高对比</option>
+                </select>
+              </label>
+            </div>
+            <div class="tb-row" id="tb-row2">
+              <label class="vol"><span data-i18n="toolbar.volume">音量</span>
+                <input id="volume" type="range" min="0" max="1" step="0.05" value="0" />
+              </label>
+              <label class="check" data-i18n-title="toolbar.liveTip" title="歌名走 Node/media-control；音频可视化走麦克风（测试台无系统声卡环回）">
+                <input id="live-system" type="checkbox" checked />
+                <span data-i18n="toolbar.live">系统实况</span>
+              </label>
+              <label class="check" id="mic-box" data-i18n-title="toolbar.micTip" title="默认关：关着时页面一次都不会请求麦克风；开着时才在壁纸/功能声明需要时请求">
+                <input id="mic-enable" type="checkbox" />
+                <span data-i18n="toolbar.mic">启用麦克风</span>
+              </label>
+              <label data-i18n-title="toolbar.bandfeedTip" title="音条（音频条）的数据源：壁纸 = 只用包内音轨，没有就如实全 0；麦克风 = 显式请求麦克风（还要勾「启用麦克风」）；模拟 = 确定性模拟源（只看形态）；关 = 不接任何源。换档会重挂载渲染器">
+                <span data-i18n="toolbar.bandfeed">音条源</span>
+                <select id="bandfeed">
+                  <option value="auto" selected data-i18n="bandfeed.wallpaper">壁纸</option>
+                  <option value="mic" data-i18n="bandfeed.mic">麦克风</option>
+                  <option value="sim" data-i18n="bandfeed.sim">模拟</option>
+                  <option value="off" data-i18n="bandfeed.off">关</option>
+                </select>
+              </label>
+            </div>
+            <div class="tb-row" id="tb-row3">
+              <label data-i18n-title="toolbar.rendererSrcTip" title="预览用哪个渲染器：上游产物页 = demo/renderer/index.html（不可重建的 minified 包）；本仓渲染器 = 同源 /webloader/（本仓 core）。换档会重挂载预览">
+                <span data-i18n="toolbar.rendererSrc">渲染器</span>
+                <select id="renderer-src">
+                  <option value="repo" selected data-i18n="rendererSrc.repo">本仓渲染器</option>
+                  <option value="upstream" data-i18n="rendererSrc.upstream">上游产物</option>
+                </select>
+              </label>
+              <label class="check" data-i18n-title="toolbar.pointerPushTip" title="模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，改用 __wp.pushPointer 推送坐标 —— 与宿主对接的是同一条通道">
+                <input id="pointer-push" type="checkbox" />
+                <span data-i18n="toolbar.pointerPush">指针注入</span>
+              </label>
+              <label class="check" id="trail-box" data-i18n-title="trail.tip" title="仅在开启「指针注入」后可用">
+                <input type="checkbox" id="trail-on" disabled />
+                <span data-i18n="trail.on">鼠标尾迹</span>
+              </label>
+              <label class="mini"><span data-i18n="trail.len">长度</span><input type="number" id="trail-len" min="2" max="120" value="24" disabled /></label>
+              <label class="mini"><span data-i18n="trail.width">粗细</span><input type="number" id="trail-w" min="1" max="10" value="2" disabled /></label>
+              <label class="mini"><span data-i18n="trail.color">颜色</span><input type="color" id="trail-color" value="#7dd3fc" disabled /></label>
+            </div>
+            <div class="tb-row" id="tb-row4">
+              <button type="button" id="pause" data-i18n="toolbar.pause">暂停</button>
+              <button type="button" id="reload" data-i18n="toolbar.reload">重挂载</button>
+              <button type="button" id="release" data-i18n="toolbar.release">释放</button>
+              <button type="button" id="open" data-i18n="toolbar.open">新窗口</button>
+              <button type="button" id="toggle-props" data-i18n="toolbar.props">壁纸配置</button>
+              <!-- ②1) 去除开屏动画：直接从开屏动画之后开始播放（渲染器档位 `?skipintro=1`）。 -->
+              <label class="check" id="intro-box" data-i18n-title="toolbar.introSkipTip" title="跳过壁纸开屏动画（开头那段放大/运镜），直接从开屏之后开始播放">
+                <input type="checkbox" id="intro-skip" />
+                <span data-i18n="toolbar.introSkip">去除开屏动画</span>
+              </label>
+              <!-- ②2) Web 壁纸渲染模式：沙箱（默认，独立作用域）/ 兼容（同页直跑）。渲染器档位 `?webmode=`。 -->
+              <label data-i18n-title="toolbar.webModeTip" title="Web 壁纸的执行方式：沙箱 = 隔离作用域（安全，个别壁纸跑不起来）；兼容 = 同页直跑（兼容性最好）">
+                <span data-i18n="toolbar.webMode">Web 渲染</span>
+                <select id="web-mode">
+                  <option value="sandbox" selected data-i18n="webMode.sandbox">沙箱</option>
+                  <option value="compat" data-i18n="webMode.compat">兼容</option>
+                </select>
+              </label>
+              <!-- ③ DSH 进程流式播放（hybrid）：默认开；关掉即退回"整包先落盘再播"。渲染器档位 `?hybrid=`。 -->
+              <label class="check" id="hybrid-box" data-i18n-title="toolbar.hybridTip" title="DSH 进程流式播放（hybrid）：边取边播，不等整包落盘；关掉则先取完整包再播">
+                <input type="checkbox" id="hybrid" checked />
+                <span data-i18n="toolbar.hybrid">流式播放</span>
+              </label>
+            </div>
           </div>
         </div>
 
@@ -911,6 +934,12 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
             <!-- ②(P-164) 「调试模式」页签：逐层查看（左右键，与 :8899 同一效果）+ 立即上报 + 截图 + 当前层信息/日志。
                  键盘只在本页签激活期间被接管，退出即恢复默认（不留全局拦截）。 -->
             <button type="button" id="tab-debug" class="logs-tab" role="tab" aria-selected="false" aria-controls="debug-body" data-i18n="logs.debug">调试模式</button>
+            <!-- ⑧(P-228f 2026-10-05) 两条**如实状态**从参数栏搬到这里（输出面板的页签行尾）：
+                 它们在参数栏里是一整句原因，会把四行排版顶乱；放在诊断区一侧既保留读数又不占参数栏。
+                 全部取值与含义见第 3 个页签「对应API」的状态表。取整行不换行 + 省略号，
+                 悬停看全文（`title` 由 bench-patch.js 每次重画时写）。 -->
+            <span id="status-renderer-src" class="bench-status-chip" data-mpw-renderer-src="repo" data-mpw-renderer-ready="0">渲染器来源：等待挂载…</span>
+            <span id="status-bandfeed" class="bench-status-chip" data-mpw-bandfeed-status="idle" data-mpw-bandfeed-source="none" data-mpw-bandfeed-mode="auto">音条状态：等待渲染器回报…</span>
             <span class="spacer"></span>
             <button type="button" id="clear-logs" data-i18n="logs.clear">清空</button>
             <button type="button" id="copy-logs" data-i18n="copy.logs" data-i18n-title="copy.logs" title="复制输出">复制输出</button>

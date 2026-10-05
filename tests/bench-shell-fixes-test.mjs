@@ -1004,11 +1004,11 @@ console.log('== K 属性面板批（#18/#23/#25/#26/#27/#28/#30/#34 + #14） =='
 {
   const css = (s) => norm(staticCss).includes(norm(s))
   /* ① 命中区 = "框 + 文字"，不再有 label 左内边距那条看不见的可点带 */
-  ok(css('#toolbar > .check{flex:0 0 auto;width:auto;padding-left:0;padding-right:8px}'),
+  ok(css('#toolbar .tb-row > .check{flex:0 0 auto;width:auto;padding-left:0;padding-right:8px}'),
     'M1 ① `.check` 左内边距清零（label 的 padding 也算可点区 ⇒ 旧值 8px 就是"框左边多出来的一截"）')
   ok(!norm(htmlCode).includes('#toolbar > button,html.bench-shell #toolbar > .mpw-select,html.bench-shell #toolbar > .check{'),
     'M2 ① 旧的三合一规则里不再带 `.check`（否则 .check 又吃回 padding-left:8px，M1 白改）')
-  ok(css('#toolbar > .check > input[type="checkbox"]{margin:0 6px 0 0}'),
+  ok(css('#toolbar .tb-row > .check > input[type="checkbox"]{margin:0 6px 0 0}'),
     'M3 ① 框与文字的间距交给 input 自己的 margin（四行几何一致：可点区 == 框 + 文字）')
   /* ② 点文字 = 原生 label 激活（浏览器把它转发给行内第一个可标记控件）；外部点击关闭必须把整行当"内部" */
   const labelGuard = (src) => /d\.wrap\.closest\('label'\)/.test(src) && /lab\.contains\(t\)\) continue/.test(src)
@@ -1023,10 +1023,12 @@ console.log('== K 属性面板批（#18/#23/#25/#26/#27/#28/#30/#34 + #14） =='
     return j < 0 ? '' : patchCode.slice(i, j)
   })()
   ok(handler.length > 0, 'M6 ② 工具条那条 capture 委托还在（取到处理器正文，供 M7/M8 判）')
-  ok(!/preventDefault/.test(handler),
-    'M7 ② 委托里**不许** preventDefault：那会取消浏览器对 label 的原生激活（点文字就彻底没反应了）')
-  ok(/const ctl = label\.querySelector\('button, select, input, textarea'\)/.test(handler) && /if \(ctl\) return/.test(handler),
-    'M8 ② 行内有可标记控件时一律交回原生激活（只有行内根本没有控件才手动兜底点自绘按钮）')
+  /* ⑥(P-228f 2026-10-05) 口径更新：**带框控件的行文字不再是热区**（放在「分辨率」三个字上不许打开下拉、
+     也不许让框吃灰底）⇒ 委托对这类行主动 preventDefault；勾选框行不在此列（`.check` 的文字仍是标准热区）。 */
+  ok(/const boxed = label\.querySelector\('\.bench-rd, \.mpw_select, select/.test(handler) && /if \(boxed && !isCheckRow\)/.test(handler),
+    'M7 ⑥ 带框控件的行：点文字一律取消原生激活（文字不是热区）')
+  ok(/const isCheckRow = !!label\.querySelector\('input\[type="checkbox"\], input\[type="radio"\]'\)/.test(handler),
+    'M8 ⑥ 勾选框行不受影响（它的文字仍是热区，命中区口径见 P-228e 四改）')
   ok(/sel\.closest\('\.bench-rd'\)/.test(patchCode),
     'M9 ② 增强循环跳过 `.bench-rd` 里的原生 select（它是值容器；增强它会多出一个隐藏控件抢点击）')
 }
