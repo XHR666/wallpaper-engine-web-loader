@@ -16,6 +16,26 @@
 > 行号会漂移，**以函数名/section 注释为准**（bundle 内有 `// ===== src/... =====` 分节标记）。
 > 开关全集以 `node diag-flag-check.mjs` 抓取为准（当前 62 个，主表 `README-DIAGNOSTICS.md`）。
 
+## 两个渲染器表面（2026-10-05 补，P1）
+
+本仓有**两份**渲染实现同时在跑，工具条「渲染器」档决定预览用哪一份；口径差异的唯一真源是
+`demo/bench-patch.js` 的 `RENDERER_SOURCE_CAPS`（差异由 `rendererCapDifferences()` 现算，
+`tests/bench-renderer-source-test.mjs` 的 A21–A27 逐键点名）。要点：
+
+| | 本仓渲染器（缺省档） | 上游产物 |
+|---|---|---|
+| 入口 | 同源 `/webloader/`（`:8902` 直供 `demo.html` + 本仓 `core/`） | `/wallpaper-engine-webgl/renderer/index.html` |
+| 画布口径 | `?res=dpr` 活档位：显示尺寸 × 设备 DPR（上限 3840×2160 / 单边 4096，随尺寸重算） | `clientWidth × min(devicePixelRatio, renderDpr)`；DPR 档缺省 1 ⇒ 1× CSS 像素出图 |
+| MSAA | 原生 `antialias`（与 `q!=off` 互斥） | 离屏多重采样 FBO/RBO + 帧末 resolve |
+| 音条 | `?bandfeed=wallpaper|mic|sim|off` + `__mpwAudioBand*` | 不认该参数 |
+| URL 开关 | 215 个（`tests/diag-flag-check.mjs` 双向 0 差异） | 11 个（`type/src/fit/renderDpr/sceneFps/muted/loop/filter/mediaBase/liveSystem/opaque`） |
+| 宿主 API | `__wp` + `__mpw*` 诊断全局 | `__wp`（14 个方法、无几何 setter）+ `__we*` 家族 |
+| web 壁纸 | **有**：`?type=web` + 原始 URL + 服务端注入 shim | 有：产物自己的 `video|gif|image|scene|web|canvas` 分派 |
+| 场景包交接 | 按 `?id=` 取包（同源 `/pkg/<id>`） | 必须 `mediaBase` + `src` 同时给（否则 `canvases: []`） |
+
+⚠ 纪律：产物**不是本仓源码**（minified、不可重建、字节不可改），只能在行为面参照与吸收；
+合并路线与分阶段清单见 `docs/RENDERER-UNIFY-PLAN.md`。
+
 ## 0. 文件所有权（三会话并行约定）
 
 | 文件 | 归属 | 内容 |

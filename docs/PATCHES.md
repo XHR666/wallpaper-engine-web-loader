@@ -4966,7 +4966,7 @@ grep -ro "isPostProcess" --include='*' . | grep -v node_modules | cut -d: -f1 | 
 | 是不是 `demo.html` 的旧路径 | **不是**。根 `demo.html` 对本产物**零引用** | `grep -c renderer-BOSoB05I demo.html` → `0`；`demo.html` 是仓库自研"静态版（WebGL，当前页）"（438 KB，本日仍在改：`b962483`） |
 | 什么时候加载 | 该页**同时**是本地 `:8901/wallpaper-engine-webgl/renderer/` 与 Pages `/demo/renderer/`（`../assets/` 相对路径就是为这两种布局写的） | `demo/renderer/index.html:34-35` 注释原文 |
 | 会不会上线 | **会**。Pages 白名单整目录收 `demo/`，再把 `demo/` 拷成第二份 `/wallpaper-engine-webgl/`，产物自检**强制**要求该页存在 | `build-pages.mjs:34`（`PAGES_KEEP_DIRS` 含 `demo`）、`build-pages.mjs:145`（第二份拷贝）、`build-pages.mjs:154`（`MUST` 含该页）、`.github/workflows/pages.yml:48` |
-| 谁在维护它 | **没有人**：单提交引入、此后未动 —— 上游 `oneincase/webwallgl` 1.3.23 的 minified 产物，仓库内**不可重建** | `git log --diff-filter=A -- demo/assets/renderer-*.js` → `987d9b3`（2026-09-16）；此刻 blob `d8c19e01`、`sha256 0b424f43…`、mtime 2026-09-15 06:17 |
+| 谁在维护它 | **没有人**：单提交引入、此后未动 —— 上游 `oneincase/webwallgl` 的 minified 产物（产物自报 `v1.3.16`，见 `demo/bench-patch.js` 的版本探针；"1.3.23"是**转译器**那边的 vendored 口径，两件事分开记），仓库内**不可重建** | `git log --diff-filter=A -- demo/assets/renderer-*.js` → `987d9b3`（2026-09-16）；此刻 blob `d8c19e01`、`sha256 0b424f43…`、mtime 2026-09-15 06:17 |
 
 **处置**：**不改产物字节**（vendored 预构建物：改了既不可重建，也破坏与上游的对拍口径）——
 只在本节与 `docs/README-DIAGNOSTICS.md` 的 `pp` 行把口径写准。

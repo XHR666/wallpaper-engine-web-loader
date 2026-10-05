@@ -239,9 +239,11 @@ export async function runIaGroup({ page, ok, VIEW = { w: 1360, h: 900 } }) {
       await wait(250)
       const onAfter = read()
       const guardOff = api.logScrollGuardSet(false)
+      /* 守卫关着时**任何**晚到的行都会把视图拉到底 ⇒ 先 `scrollTop=0` 再等 slack 的前置根本不成立
+         （真机实测 `offBefore.slack` 恒 0，判据因此假红）。改成**同一拍**的确定性对照：
+         手动置顶后立刻 `fire()`（= 产物那两下：appendChild + scrollTop=scrollHeight），
+         守卫关 ⇒ 当场到底（slack≈0）；守卫开（IA5e）⇒ scrollTop 一个像素都不动。意图不变、去竞态。 */
       body.scrollTop = 0
-      await wait(250)
-      await waitSlack()
       const offBefore = read()
       fire()
       await wait(250)
@@ -266,7 +268,7 @@ export async function runIaGroup({ page, ok, VIEW = { w: 1360, h: 900 } }) {
     ok(art.onBefore.slack > 100 && art.onAfter.top === art.onBefore.top && art.onAfter.probe.droppedWrites > art.onBefore.probe.droppedWrites,
       'IA5e ★守卫在位：复刻产物那一拍（`appendChild` + `scrollTop = scrollHeight` **同一拍**）⇒ `scrollTop` 一个像素都不动，且丢弃计数 +1',
       JSON.stringify({ before: art.onBefore.top, after: art.onAfter.top, dropped: [art.onBefore.probe.droppedWrites, art.onAfter.probe.droppedWrites] }))
-    ok(art.guardOff && art.guardOff.guard === false && art.offBefore.slack > 100 && scanSlack(art.offAfter) <= 2,
+    ok(art.guardOff && art.guardOff.guard === false && scanSlack(art.offAfter) <= 2 && art.offBefore.top === 0,
       'IA5f ★★A/B 对照（同一入口 `logScrollGuardSet(false)` = 改前行为）：守卫一关，**同样两下**当场把视图拉到底（slack → 0）⇒ IA5c/IA5e 的绿灯不是恒真',
       JSON.stringify({ guardOff: art.guardOff && { guard: art.guardOff.guard, follow: art.guardOff.follow }, before: scanSlack(art.offBefore), after: scanSlack(art.offAfter) }))
     ok(art.guardOn && art.guardOn.guard === true && art.onBefore2.slack > 100 && art.onAfter2.top === art.onBefore2.top,
