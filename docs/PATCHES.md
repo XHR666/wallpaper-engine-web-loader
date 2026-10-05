@@ -15766,6 +15766,35 @@ cd /tmp/webwallgl-2.1.0-src && pnpm install --frozen-lockfile && pnpm build
 **不做首帧提前**（跳过预取会让效果链画错）；真正的"边取边播"要么由宿主实现（插件侧），要么等 `parsePkg` 支持
 "索引先行 + 按需取条目"的分段装载（那是独立一轮的量级，届时 `mode` 才会变成别的值）。
 
+## P-228i（2026-10-05）指针管线：**空命中的点击会抛异常**（`st` 作用域）+ 设计空间投影可读
+
+### 症状（客观）
+真机 `pageerror`：`ReferenceError: st is not defined`（每点一次**没命中任何层**的空白就一次）；
+且 `window.__mpwCursorDispatch.lastDispatch` 恒为 `null` —— 台账读不到"这次投给了谁"。
+
+### 根因
+P-233 的 `dispatchCursor()`（`demo.html` MPW-CURSOR 段）把聚合量 `const st = dispatchScriptEvent(...)`
+声明在 `for (const l of hits)` **循环体内**，而循环**之后**那句
+`CURSOR.lastDispatch = { name, calls: st.calls, … }` 引用它 ⇒ `hits` 为空时 `st` 从未初始化，
+每点一次空白就抛一次；有命中时也只记到最后一条的计数（不是聚合）。
+
+### 改法
+把聚合量提到循环外（`let st = { calls: 0, errors: 0, entries: 0 }`，循环内累加 `one.calls/errors/entries`），
+`CURSOR.lastDispatch` 循环外**无条件写** ⇒ 点空白也留下一条 `calls: 0` 的事实。
+另发布 `window.__mpwSceneInfo = { projW, projH, layers }`（设计空间投影 + 层数）：层命中/点击探针
+此前只能靠猜比例把屏幕坐标换成设计坐标（指针管线自己的 `designFromEvent()` 用的就是这个投影）。
+
+### 判据与读数
+- `cursor-dispatch` 新增 C1–C4（聚合量在循环外、循环内不再有遮蔽的 `const st`、`lastDispatch` 无条件写、
+  `__mpwSceneInfo` 发布 projW/projH）⇒ 该项 PASS。
+- 真机（`:8902`，2887099508，设计空间 6080×3420 / 82 层）：点画布角 ⇒ `hits:["ldfk","new background1","Solid"]`、
+  `lastDispatch:{calls:1,errors:0,entries:42}`；点 `tim logo` ⇒ `hits` 含 `tim logo`、`{calls:2,errors:0,entries:84}`；
+  整轮 `pageerror` **0**（修前每次空命中各一条）。
+
+### 未验证边界
+空命中路径的**真机**取证本轮只覆盖到"有命中"的点（画布被背景层铺满，找不到真正零命中的屏幕点）⇒
+判据落在源级（C1–C3）与"零 pageerror"上；要真机零命中可临时用 `?ln=` 隔离出空白区再点。
+
 ## P-229（2026-10-04）演示页逐层台账的 composite 条目自 P-64-MEDIA 起全灭（`mpwLedgerYDown` 块级作用域错位）—— C0② 受控实验定位
 
 ### 症状

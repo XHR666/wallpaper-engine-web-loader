@@ -5039,6 +5039,19 @@ function loadScene() {
   //   `let __layerVis = layer.visible`）⇒ 宿主改写 `.visible` 当场生效，不需要额外的 recompute 调用。
   //   只由 primary 实例写（多实例时全局只该反映被点中的那一格），与既有 `__mpwRawObjects` 同一种写法。
   if (MPW_WRITE_GLOBALS) { try { window.__sceneLayers = scene.layers } catch (e) { /* 无 window */ } }
+  /* ③(P-228i 2026-10-05) 设计空间投影一起发布：**层命中测试/点击探针**要用它把屏幕坐标换成设计坐标
+     （指针管线自己的 `designFromEvent()` 用的就是 `general.orthogonalprojection`，此前没有对外读数 ⇒
+     探针只能靠猜比例）。读数 `window.__mpwSceneInfo = {projW, projH, layers}`（写不到就静默）。 */
+  if (MPW_WRITE_GLOBALS) {
+    try {
+      const __op = (scene && scene.general && scene.general.orthogonalprojection) || {}
+      window.__mpwSceneInfo = {
+        projW: Number(__op.width) > 0 ? Number(__op.width) : null,
+        projH: Number(__op.height) > 0 ? Number(__op.height) : null,
+        layers: (scene && scene.layers ? scene.layers.length : 0),
+      }
+    } catch (e) { /* 无 window */ }
+  }
   // ①(RE-28) 脚本运行时上下文：脚本写 raw 对象（sceneObj.objects），我们把变化同步回 scene.layers
   const scriptRawObjects = (sceneObj && sceneObj.objects) || []
   window.__mpwRawObjects = scriptRawObjects // ①(P-41 A1-c) 上报 rawOrigin 探针用
@@ -9945,6 +9958,13 @@ function loadScene() {
       const [wx, wy] = designFromEvent(e)
       const hits = hitLayers(wx, wy)
       CURSOR.hits = hits.map((l) => String(l.name || l.id)).slice(0, 8)
+      /*  ③(P-228i 2026-10-05 修) **空命中会抛异常**：`st` 原来声明在循环体内，而下面那句
+          `CURSOR.lastDispatch = { …, calls: st.calls, … }` 在循环**外**读它 —— 点到空白处
+          （hits 为空）时 `st` 从未初始化 ⇒ 每点一次空白就抛 `ReferenceError: st is not defined`
+          （真机 `pageerror` 实测），而且 `CURSOR.lastDispatch` 永远停在 null、台账读不到"这次投给了谁"。
+          改法：把聚合量提到循环外（`let st = { calls: 0, errors: 0, entries: 0 }`，循环里累加），
+          空命中 ⇒ calls=0 也照常写一条台账（"点了，但没命中任何层"本身就是要能读到的事实）。 */
+      let st = { calls: 0, errors: 0, entries: 0 }
       for (const l of hits) {
         const payload = {
           worldPosition: new MpwVec3(wx, wy, 0),
@@ -9954,8 +9974,12 @@ function loadScene() {
         // owner 身份 = **原始 scene.json 的 objects 条目**（脚本 ownerRef 绑定的对象，applySceneScripts
         //   收的就是它）；scene.layers 的解析层按 id 映射过去（同 id = 同层）。
         const ownerObj = ((sceneObj && sceneObj.objects) || []).find((x) => x && l.id !== undefined && x.id === l.id) || null
-        const st = dispatchScriptEvent(sceneScriptCache, name, payload, { ownerFilter: (obj) => obj === (ownerObj || l) })
-        CURSOR[name === 'cursorClick' ? 'clicks' : name === 'cursorDown' ? 'down' : 'up'] = (CURSOR[name === 'cursorClick' ? 'clicks' : name === 'cursorDown' ? 'down' : 'up'] || 0) + st.calls
+        const one = dispatchScriptEvent(sceneScriptCache, name, payload, { ownerFilter: (obj) => obj === (ownerObj || l) })
+        st.calls += one.calls || 0
+        st.errors += one.errors || 0
+        st.entries += one.entries || 0
+        const key = name === 'cursorClick' ? 'clicks' : name === 'cursorDown' ? 'down' : 'up'
+        CURSOR[key] = (CURSOR[key] || 0) + (one.calls || 0)
       }
       CURSOR.last = { name, wx: Math.round(wx), wy: Math.round(wy), hits: CURSOR.hits.slice(), at: Date.now() }
       // ①(P-233 诊断) entries = 缓存里**有该导出**的脚本实例数（区分"没导出"vs"owner 映射断"）
