@@ -15611,6 +15611,55 @@ cd /tmp/webwallgl-2.1.0-src && pnpm install --frozen-lockfile && pnpm build
 1. 测试台自带的合成样例（`src=sample-synthetic`）不在 `/media/dev/` 下 ⇒ 上游档挂它仍会失败（真库条目不受影响）；
 2. 自动轮播 / 跨标签页继承等路径未覆盖。
 
+## P-228d（2026-10-04）调试模式的组合层进出改成**键盘**：Ctrl 进/出组合层，←/→ 在**当前层级**内步进
+
+### 症状（客观）
+调试模式（`#dbg-mode`）里逐层查看只能靠鼠标点层列表；组合层（`parent` 口径的父子层）进出没有按键路径，←/→ 也只在**顶层**列表里走，进组以后就再也走不到子层。
+
+### 改法（`demo/bench-patch.js`）
+1. 纯函数（导出、可单测）：`layerTreeOf(layers)`（按 `parent` 推 `父下标 → [子下标]`）、`layerLevelOf(layers, path)`（当前层级栈 ⇒ 该层列表 + 该层的下标映射）、`debugGroupPlan(layers, index, path)`（`enter`/`exit`/`none` + 新 path + 默认选中下标）。
+2. 页面侧：`debugKeyPlan` 的按键表加 `Control → 'toggleGroup'`；`dbgPath`（父层下标栈）随 `dbgToggleGroup()` 进出；`←/→` 的步进列表改为 `layerLevelOf(L, dbgPath).list`（组内步进，不再回到顶层）；层信息行在组内追加 `[组内 N 级，Ctrl 退出]`。
+3. 语义：组合层上 Ctrl 进入（默认选第一个子层）、子层自己还有子层可继续下钻、组内 Ctrl 上浮一级（选回父层）、非组合层上 Ctrl **不动**并如实提示"这一层没有子层"；`Alt`/`Escape` 仍是退出重置。
+
+### 判据与读数
+- `tests/bench-shell-fixes-test.mjs` I7（`Control → 'toggleGroup'`，且 `Ctrl`/`Alt` 两个修饰键本身也要吞）+ I7b–I7g（层树 `grp→[1,2]`、层级列表 顶层`[0,4]`/组内`[1,2]`/孙层`[3]`、进入、下钻、上浮、非组合层不动）**全部通过**；该文件本批合计 292 通过 / 0 失败。
+
+### 未验证边界
+① 只覆盖调试模式自身的按键路径（宿主对接层的 Ctrl 组合键语义未动）；② 深层嵌套（>2 级）只有合成层表判据，真机语料里暂无 3 级组合层。
+
+## P-228e（2026-10-04）测试台工具条的**布局/命中区**一批：折叠行、紧凑流式、状态行定高、复选框可点区、"点文字"开关下拉
+
+### 症状（客观）
+1. 工具条占高过大且**越排越多**：换成网格排版后每个控件被撑成一格、右侧空一大片，比原版还高；
+2. 「音条源」「渲染器来源」两条状态行一长（如切「上游产物」档后的如实原因）就把工具条从 303px 撑到 417px；
+3. 复选框可点区各行不一致：有的"在画出来的框左边还有一截能点到"，有的点不了；
+4. 下拉菜单把鼠标放到**行文字**上时触发框会出现灰底（看着可点），但点文字开/关不对称（有的点一下没反应，有的开了关不掉）。
+
+### 根因
+1. 网格把 `#toolbar` 的直接子元素都排成等宽格子，控件自身 `width` 被拉伸（观感"空一大片"）；
+2. 状态行是普通行内元素，长文本会**换行** ⇒ 行高 ×2；
+3. `.check` 跟着工具条按钮那条规则一起吃 `padding-left:8px`，而 `<label>` 的 padding 也算可点区 ⇒ 框左侧多出一条看不见的热区（各行的相邻元素不同，观感还不一致）；
+4. 两处叠加：① `.bench-rd` 自绘下拉的"点空白收起"监听把**同一行 label 里的文字**判成外部 ⇒ 先收起；② `demo/bench-patch.js` 的 capture 委托又 `preventDefault()` 并在同一拍里再 toggle 一次 —— 而 `<label>` 的**原生激活**（把点击转发给行内第一个可标记控件）就发生在本次事件冒泡结束之后 ⇒ 三者互相抵消，净效果就是"点文字没反应 / 开了关不掉"。事件顺序实测：`doc-capture click(span) → doc-capture click(button)[原生激活，控件打开] → 委托(toggle 又关回去)`。
+
+### 改法（`demo/index.html` 的 `<style id="bench-shell-static">` + `demo/bench-patch.js`）
+1. 折叠行 `#bar-row`（`setBarCollapsed`/`paintBarRow`，状态存 localStorage；`#toolbar.bar-off > *:not(#bar-row){display:none}`），折叠后工具条 233px → 33px；
+2. 排版改成**紧凑流式**（`display:flex;flex-wrap:wrap;gap:6px 12px`，`#toolbar > label{display:inline-flex;flex:0 0 auto}`，`select{width:auto;min-width:6.6em;max-width:13em}`）；工具条实测 **233px**（网格版 320px、原版 417px）；
+3. 状态行定高 + 省略号（`#status-bandfeed,#status-renderer-src,#status-dpr{flex:1 1 100%;height:1.6em;…text-overflow:ellipsis}`）⇒ 切档不再撑高（三次切「上游产物」稳定 233px）；
+4. 复选框：`#toolbar > .check{padding-left:0}` + `input[type=checkbox]{margin:0 6px 0 0}` ⇒ **可点区 = 框 + 文字**，四行几何一致；
+5. 下拉"点文字"：撤掉委托里的 `preventDefault()`，行内有可标记控件时一律**交回浏览器原生激活**（按钮自己就是 toggle，开/关对称）；"点空白收起"把**同一行 label 内的文字**视作内部；`enhanceSelect` 循环跳过 `.bench-rd` 里的原生 select（它是值容器，增强它只会多出一个隐藏控件抢点击）。
+
+### 判据与读数
+- `tests/bench-shell-fixes-test.mjs` M1–M9（静态不漂移：`.check` 左内边距为零、旧三合一规则不再带 `.check`、委托里不许再出现 `preventDefault`、行内有控件时早退、`.bench-rd` 内的 select 被跳过；M5 为**变异自证**：去掉 label 兜底后 M4 必红）；该文件本批 292 通过 / 0 失败。
+- 真机（Firefox + llvmpipe，`:8902`，`page.mouse` 真鼠标）：复选框 `mic-enable`/`pointer-push` **框左 6px 不切换 → 框中心切换 → 文字切回**；六个下拉（分辨率/fit/DPR/FPS/滤镜/渲染器）**点行文字 开 → 再点 关**全部对称。
+- 布局/切档读数见上面第 2、3 条；`tests/demo-check.mjs` D8（`SITE_LAYOUT_CSS` ⊆ 静态块）133 通过 / 0 失败。
+- `tests/bench-renderer-source-test.mjs` **38 通过 / 0 失败**（改前 35/2）。两条旧判据按新契约更新，都不是"放水"：
+  ① **A11b**：以前要求反向映射"逐字相等"，P-228c 起 scene 档必须**按需补 `mediaBase`** ⇒ 改成"路径换回产物入口 + 原有查询逐参一字不差 + `mediaBase` 恰好一次"（新增 A11b2 钉住"恰好一次"）；
+  ② **D4**：`重算计数 ≥ 1` 以前是**靠切档时布局抖动碰巧成立**（控制台行数变化 ⇒ 舞台行高 364↔321 跳 ⇒ 活档位块收到一次真 resize）；本批把工具条/状态行定高后抖动消失（那正是要的结果）⇒ 判据改为**自己制造一次真实尺寸变化**：全部主读数读完、几何不动之后，在**本仓档**上用「分辨率」档 自适应→1280×720 触发一次重算并读自洽读数（`__mpwLiveRes` 只有本仓渲染器发，切上游档探测会恒 0），随后切回自适应。
+- 同批门禁读数：`bench-dropdown-theme` / `bench-dbg-dpr-probe` / `bench-bandfeed-switch` 全绿；`bench-ui-headless` 本机 **190/6** 为**既存状态**（T1/T2/P5d/P7/P9a/P9b 六条在 2026-10-04 19:48、10-05 00:03、01:32 三次读数里逐条一致，均早于本批改动，属共享库根状态类条件项）。
+
+### 未验证边界
+① 「系统实况」「鼠标尾迹」两行在缺省语料下 `disabled`（页面按能力/前置条件如实禁用），命中区的静态形态统一但"点不动"是禁用语义而非热区问题；② 触屏/触控板的 tap 语义未单独取证（复用同一套原生 label 激活）。
+
 ## P-229（2026-10-04）演示页逐层台账的 composite 条目自 P-64-MEDIA 起全灭（`mpwLedgerYDown` 块级作用域错位）—— C0② 受控实验定位
 
 ### 症状

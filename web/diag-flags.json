@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-04T19:51:19.369Z",
+  "generatedAt": "2026-10-05T08:18:39.737Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -2196,12 +2196,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 10935,
+          "line": 11035,
           "pattern": "regex [?&]sample="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 10982,
+          "line": 11082,
           "pattern": "regex [?&]sample="
         }
       ]
@@ -2316,12 +2316,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 8039,
+          "line": 8053,
           "pattern": "regex [?&]shell="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 9688,
+          "line": 9702,
           "pattern": "regex [?&]shell="
         }
       ]

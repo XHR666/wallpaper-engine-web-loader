@@ -111,9 +111,16 @@ const CORE = await import(pathToFileURL(path.join(ROOT, 'core', 'we-scene-bundle
   ok(P.rendererSourceUrl('/webloader/?type=scene&src=9&id=9&res=dpr', 'repo', {}).startsWith('/webloader/?'),
     'A11 已经是 `/webloader/` 的 URL 再改写一次仍是 `/webloader/`（幂等：重复写 src 不会套两层路径）')
   const back2 = P.rendererSourceUrl('/webloader/?type=scene&src=9&id=9&res=dpr&_t=1', 'upstream', {})
-  ok(back2 === '/wallpaper-engine-webgl/renderer/index.html?type=scene&src=9&id=9&res=dpr&_t=1',
-    'A11b ★反向映射：`/webloader/` 的 URL 在 `upstream` 档下把**路径换回产物入口**、查询串原样带走' +
+  /* ①(P-228c 2026-10-04) 这条以前是"逐字相等"：反向映射只换路径、查询串原样。P-228c 起 scene 档还要
+     **按需补 `mediaBase`**（上游 URL 模式要求 `mediaBase`+`src` 同时存在，缺则 iframe 里 `canvases: []`）
+     ⇒ 判据改成"路径换回产物入口 + 原有查询逐参一字不差 + `mediaBase` 恰好补一次"，逐字相等不再是契约。 */
+  const b2 = new URLSearchParams(back2.slice(back2.indexOf('?') + 1))
+  ok(back2.startsWith('/wallpaper-engine-webgl/renderer/index.html?') &&
+    b2.get('type') === 'scene' && b2.get('src') === '9' && b2.get('id') === '9' && b2.get('res') === 'dpr' && b2.get('_t') === '1',
+    'A11b ★反向映射：`/webloader/` 的 URL 在 `upstream` 档下把**路径换回产物入口**、原有查询逐参一字不差' +
     '（没有已挂载壁纸时产物自己的重挂载会直接返回 ⇒ 没有这条反向映射，换档会把 iframe 留在旧渲染器上）', back2)
+  ok([...b2.keys()].filter((k) => k.toLowerCase() === 'mediabase').length === 1,
+    'A11b2 ★P-228c 追加契约：scene 档反向映射**按需补 `mediaBase` 且恰好一次**（已带则原样保留，见 handoff 判据 A1/A4）', back2)
 
   const planUp = P.rendererSourceStatusPlan('zh', 'upstream', { loaded: true })
   const planLoad = P.rendererSourceStatusPlan('zh', 'repo', { loaded: false })
@@ -451,7 +458,57 @@ if (!pwPath) {
       await selectSource('upstream')
       await waitReady('upstream', READY_MS, UP_STABLE_TICKS)
       const back = await readLive()
-      return { launchNote, webgl2, glNote, read: { repo0, up, repo, back, pageErrs } }
+      /* ①(P-228e 2026-10-05) D4 的「重算计数 ≥ 1」以前是**靠布局抖动碰巧成立**的：切档会让本服务控制台
+         行数变化 ⇒ 舞台行高在 364↔321 之间跳 ⇒ 活档位块收到一次 resize 且尺寸真变了。
+         P-228e 把工具条/状态行做成定高（那正是"切档不跳"这条口径要的结果）之后抖动没了，
+         判据就该**自己制造一次真实尺寸变化**，而不是继续依赖别人的 bug：
+         主读数（repo0/up/repo/back）全部读完并且**几何不动**之后，用工具条上「分辨率」档
+         自适应 16:9 → 1280×720 制造一次真实尺寸变化，读这次变化后的自洽读数（`liveProvoked`），
+         再把档位切回自适应。为什么先等 6s：活档位块的画布补跑在 1.2s / 3.5s 各一次 ⇒ 块安装前
+         改尺寸那次变化不会被计入（本条以前就这么假红过）。 */
+      const readLiveLight = () => page.evaluate(() => {
+        const fr = document.getElementById('frame')
+        const out = { dpr: window.devicePixelRatio }
+        try {
+          const w = fr.contentWindow
+          const cv = w.document.querySelector('canvas')
+          if (cv) {
+            const b = cv.getBoundingClientRect()
+            out.canvas = { w: cv.width, h: cv.height, cssW: Math.round(b.width), cssH: Math.round(b.height) }
+            out.live = w.__mpwLiveRes || null
+          }
+        } catch (e) { out.err = String(e && e.message || e) }
+        return out
+      })
+      const applyRes = (v) => page.evaluate((v) => {
+        const s = document.getElementById('resolution')
+        if (s) { s.value = v; s.dispatchEvent(new Event('change', { bubbles: true })) }
+      }, v)
+      const canvasCssW = () => page.evaluate(() => {
+        const fr = document.getElementById('frame')
+        try { const cv = fr.contentDocument.querySelector('canvas'); return cv ? cv.clientWidth : null } catch (e) { return null }
+      })
+      /* 探测必须在**本仓档**上做：`__mpwLiveRes` 只有本仓渲染器会发（上游产物页没有这个读数，
+         而上面最后一步刚切回上游当对照）⇒ 先切回本仓再制造尺寸变化。 */
+      await selectSource('repo')
+      await waitReady('repo', READY_MS, REPO_STABLE_TICKS)
+      await page.waitForTimeout(6000)
+      const fitW = await canvasCssW()
+      await applyRes('1280x720')
+      let liveProvoked = null
+      for (let i = 0; i < 20; i++) {
+        await page.waitForTimeout(400)
+        const r = await readLiveLight()
+        if (r.live && r.live.updates >= 1) { liveProvoked = r; break }
+      }
+      if (!liveProvoked) console.log('  ⚠ D4 前置：改分辨率后 8s 内活档位重算计数仍为 0 —— 读数照打印（D4 会红，不掩盖）')
+      await applyRes('fit')
+      for (let i = 0; i < 12; i++) {
+        await page.waitForTimeout(400)
+        const w = await canvasCssW()
+        if (w != null && fitW != null && Math.abs(w - fitW) <= 2) break
+      }
+      return { launchNote, webgl2, glNote, read: { repo0, up, repo, back, pageErrs, liveProvoked } }
     } finally {
       try { await browser.close() } catch { /* 已关 */ }
     }
@@ -471,7 +528,7 @@ if (!pwPath) {
     }
   }
   const { launchNote, webgl2, glNote } = att
-  const { repo0, up, repo, back, pageErrs } = att.read
+  const { repo0, up, repo, back, pageErrs, liveProvoked } = att.read
   fs.writeFileSync(path.join(os.tmpdir(), 'bench-renderer-source-readings.json'),
     JSON.stringify({ launch: { mode: launchNote, webgl2, gl: glNote }, ...att.read }, null, 1))
   console.log('读数 ' + JSON.stringify({ launch: launchNote, webgl2, defaultCanvas: repo0.canvas, upstream: up.canvas, repo: repo.canvas, back: back.canvas, dpr: repo.dpr, repoLive: repo.live, repoAlpha: repo.alpha }))
@@ -516,9 +573,15 @@ if (!pwPath) {
       'D3 ★画质判据（**同一条面板列**、同一张包）：上游画布 **≥** 面板 CSS 像素（≥1×，倍数由上游自己定），' +
       '本仓画布 = 面板 CSS 像素 × **设备 DPR**；且每块画布都铺满自己的 iframe 盒（换档时本服务控制台行数变化 ⇒ 舞台盒会跳，不是画质语义）',
       JSON.stringify({ panelUp: up.canvas && up.canvas.cssW, panelRepo: repo.canvas && repo.canvas.cssW, upFrame: up.frameBox, repoFrame: repo.frameBox, panelCol: [up.panelBox, repo.panelBox], propsCol: [up.propsBox, repo.propsBox], upScale, repoScale, dpr: repo.dpr }))
-    ok(repo.live && repo.canvas && repo.live.width === repo.canvas.w && repo.live.height === repo.canvas.h && repo.live.dpr === repo.dpr && repo.live.updates >= 1,
-      'D4 活档位读数自洽（`window.__mpwLiveRes`）：canvas 尺寸 == live.width/height、dpr == devicePixelRatio、重算计数 ≥1',
-      JSON.stringify(repo.live))
+    /* ①(P-228e 2026-10-05) 判据取的这条读数来自**本测试自己制造的那次真实尺寸变化**（改「分辨率」档），
+       不再依赖"切档时布局抖动顺带触发一次"（P-228e 把工具条定高之后那个抖动没了，那是要的结果）。 */
+    const liveTarget = (repo.live && repo.live.updates >= 1) ? repo : liveProvoked
+    ok(liveTarget && liveTarget.live && liveTarget.canvas &&
+      liveTarget.live.width === liveTarget.canvas.w && liveTarget.live.height === liveTarget.canvas.h &&
+      liveTarget.live.dpr === liveTarget.dpr && liveTarget.live.updates >= 1,
+      'D4 活档位读数自洽（`window.__mpwLiveRes`）：canvas 尺寸 == live.width/height、dpr == devicePixelRatio、重算计数 ≥1' +
+      '（读数取"改分辨率制造的那次真实尺寸变化"；未取到则红，不掩盖）',
+      JSON.stringify({ used: liveTarget === repo ? 'repo' : 'provoked', live: liveTarget && liveTarget.live, canvas: liveTarget && liveTarget.canvas }))
     ok(back.attrSrc === 'upstream' && String(back.src).includes('/wallpaper-engine-webgl/renderer/index.html') &&
       back.canvas && back.canvas.w >= back.canvas.cssW && back.canvas.h >= back.canvas.cssH,
       'D5 上游档画布没有被我们的"整合"压回 1× 以下（≥ CSS 盒；上游 2.0.2 起自己的 resource scale 会给到 ≈1.2×）', JSON.stringify(back.canvas))
