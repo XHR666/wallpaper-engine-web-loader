@@ -81,6 +81,47 @@
 3. 顺带修掉一个真机可见缺陷（P-228i）：`dispatchCursor` 在**空命中**时读循环体内的 `st` ⇒
    每点一次空白抛一次 `ReferenceError: st is not defined`，且 `lastDispatch` 恒 `null`；现已改成都写台账。
 
+## 2d. 菜单脚本的**门控到底是什么**（2026-10-05 追加，去混淆读数）
+
+把 `tim logo`（id 500）脚本里的 `update()`/`mimi()` 与 `cursorClick` 逐分支读出来（脚本是 `_0x…` 混淆，
+但字符串字面量与数值常量可读），门控形态是：
+
+- `mimi()`：连续若干条**计数门** —— `if (shared[<key>] != 0x2ae /*686*/) { …; thisLayer.visible = false; return }`、
+  `!= 0x364 /*868*/`、`!= 0x29a /*666*/`，再加 `thisScene.getLayerId(thisLayer) != 0x4e /*78*/` 与
+  `thisLayer.origin.x != 0x15c3 /*5571*/`；任一不满足 ⇒ 自身隐藏 + 提前 return。
+- `cursorClick()`：`count++`；偶数次且与上一次间隔 **≤500ms**（`doubleClickFrameTime = 0x1f4`）才走"切换
+  `健康壁纸` 可见性"那条，否则把 `firstClickTime` 重置并 `count--`。
+- **属性门**：`project.json` 里 `timlogohide` = **bool，默认 `True`，文案「显示tim菜单（show tim menu）」**；
+  `右-菜单-底色`(489)/`中-菜单-浮动`(503) 带 `{user:newproperty1}`（菜单背景色）。
+- 菜单层在 scene.json 里的静态位置就是**屏幕外**（`中-菜单-浮动` origin (-3189,622)、`设置2-穿上内内` (-3159,1122)）
+  ⇒ 它们上屏必须靠脚本/属性路径把它移回来，而不是"默认就该在屏幕上"。
+
+**推理链（可复核）**：指针链路已验通（`calls ≥ 1`、`errors = 0`，§2c）⇒ 脚本确实在跑；脚本的内部计数门
+（686/868/666/78）由**别的脚本/交互**填 `shared`；本机这次没有任何一条把 `shared` 填到门槛值 ⇒
+菜单停在屏幕外、`pussy`/`panci cover up` 也就不会因为"设置2"的点击而翻转。
+
+**已做的最小实验（2026-10-05，真机读数）**：宿主把脚本缓存发布成 `window.__mpwScriptCache`，而它的
+`.shared` 就是**跨脚本共享的那本账**（`demo.html:5063/5074`）。挂载后与点击后各 dump 一次：
+
+```
+shared = { kkyy: 686, yykk: 868, eee: 666, mus: '枫桥雨' }      // 挂载后
+shared = { kkyy: 686, yykk: 868, eee: 666, mus: '枫桥雨' }      // 双击 tim logo + 点菜单底色/菜单层之后
+```
+
+⇒ **三条计数门（0x2ae=686 / 0x364=868 / 0x29a=666）本来就是满足的**（值就写在那里，且点子后没变），
+`tim logo` 的 `origin.x` 也等于 0x15c3=5571（§2c 读数）。所以"菜单不打开"**不是**计数门的问题，
+剩下的只可能是 `mimi()` 末尾那两条：`thisScene.<某方法>(thisLayer) != 0x4e /*78*/` 与
+`thisLayer.<某属性> != '<字符串>'`（脚本里那两条的比较对象都在混淆字符串里，本轮无法逐字解码）。
+
+**下一步（更精确、仍然独立）**：给脚本宿主加一条**只读取证**：把 `mimi()` 里那两类调用的实际返回值
+（层 id / 层属性）打出来（例如在 `thisScene` 门面上加一个 `__mpwScriptProbe` 记录最近 N 次未知成员的
+`get` 与调用结果），就能定位是"宿主缺这个方法"还是"属性值不同"。这属于**脚本宿主保真度**的取证，
+不动渲染语义。
+
+**下一步最小实验（明确、独立）**：在真机上把 `scriptShared`（宿主 `demo.html:5063` 的 `const scriptShared = {}`）
+在一个挂载周期内**打成读数**（点几次菜单/按钮后 dump 键与值），与上面四个门槛值逐条对比 ⇒ 判定是
+"某个脚本没被调到 / 被调到了但写的是别的键 / 我们缺某条 API（`getLayerId` 一类）"，再决定改宿主还是记边界。
+
 ## 3. 已知与本包相关的既有修复（回归背景）
 
 - **P-229**：`demo.html` 台账 composite 条目全灭（`mpwLedgerYDown` 块级作用域）——量法已恢复；
