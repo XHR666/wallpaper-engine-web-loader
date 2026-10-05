@@ -38,7 +38,7 @@
 |---|---|---|---|
 | 1 | 播放速度较快（像倍速） | 本仓渲染器的场景时钟缺省 = `(now - last0)/1000`（墙钟 1:1）；`MPW_SCENE_CLOCK.rate` 只有被 `setPlaybackRate` 碰过才不是 1。P-232 修的是**相机 3× 定格**（`general.zoom` 被脚本 round-trip 写穿），与播放倍率是两件事 | **待真机 A/B**：同一段墙钟内对比本仓与上游产物档的骨骼/粒子推进（离线无脚本相位可对） |
 | 2 | 层 21 `pussy` 先出现后消失 | 离线：`visible:false`（作者声明隐藏）+ `fx=2 effects/shake`；真机 `__sceneLayers` 两个时刻都是 `visible:false` | **机制已定位为脚本驱动**（`设置2-穿上内内` 的 `cursorClick` 会写它）：需要「点一次设置菜单」的 A/B 才能判"我们的脚本宿主是否按 WE 的时序写」——见 §4 最小实验 |
-| 3 | 26/27 层 `Light shafts 0` 渲染有问题 | 两层都是**粒子层**（id 243/137），预设都在包内（`particles/presets/light_shafts_0.json`、`particles/workshop/2628698137/presets/light_shafts_0.json`）；`instanceoverride` 显式给 `alpha 0.24/0.35、rate 0.79、speed 0.47/0.65、size 0.71、lifetime 1.14`。**新增读数**：① 离线 CPU 模拟按 t=1/3/6/12/20 五点采样 ⇒ 前四点两层**存活 0 粒**（`particle-idle`），t=20 时 #26 `bind=particle`（出粒并上屏）、#25 仍 `not-drawn`；② 真机逐层隔离（`?ln=25`/`?ln=26`，同帧统计画布像素）：正常帧 mean 168.35，`ln=25` 在 t≈14s/26s 分别 181.0/178.2，`ln=26` 分别 178.0/**193.9** ⇒ 两层**都真的在画**，且 #26 随时间变亮（粒子在累积） | **判定：不是"没画"，是"发射率极低"** —— `rate 0.79/s × lifetime 1.14s ⇒ 期望存活 ≈0.9 粒`，所以大部分时刻只有 0–1 粒、光束很淡；与"渲染错了"的观感差别需要一次**上游产物档对照**（同 t 同层）才能定案，见 §4-2 |
+| 3 | 26/27 层 `Light shafts 0` 渲染有问题（**§2k 跨档实测已更正方向：确实"画大了"**） | 两层都是**粒子层**（id 243/137），预设都在包内（`particles/presets/light_shafts_0.json`、`particles/workshop/2628698137/presets/light_shafts_0.json`）；`instanceoverride` 显式给 `alpha 0.24/0.35、rate 0.79、speed 0.47/0.65、size 0.71、lifetime 1.14`。**新增读数**：① 离线 CPU 模拟按 t=1/3/6/12/20 五点采样 ⇒ 前四点两层**存活 0 粒**（`particle-idle`），t=20 时 #26 `bind=particle`（出粒并上屏）、#25 仍 `not-drawn`；② 真机逐层隔离（`?ln=25`/`?ln=26`，同帧统计画布像素）：正常帧 mean 168.35，`ln=25` 在 t≈14s/26s 分别 181.0/178.2，`ln=26` 分别 178.0/**193.9** ⇒ 两层**都真的在画**，且 #26 随时间变亮（粒子在累积） | **判定：不是"没画"，是"发射率极低"** —— `rate 0.79/s × lifetime 1.14s ⇒ 期望存活 ≈0.9 粒`，所以大部分时刻只有 0–1 粒、光束很淡；与"渲染错了"的观感差别需要一次**上游产物档对照**（同 t 同层）才能定案，见 §4-2 |
 | 4 | 叠层失效（单层能看、叠起来看不见） | 离线归因整帧无 `__lnHidden` 时，`bind=rtcopy` 的层有 6 个（`支持 Tim`/`记事本`/`中-菜单-浮动` 等，fx>0 + copybackground）；P-230/P-231 已把「无 fx 的 copybg 不换入」「composelayer+fx 才是效果载体」分开 | **待复现**：需要用户指明"哪一层 + 与哪一层叠加"——离线只能对静态帧，叠层顺序/混合模式需要真机逐步开关 |
 
 ## 2b. 两档对照与"首帧偏慢"读数（2026-10-05 追加）
@@ -307,3 +307,65 @@ dblclick tim : shared 追加 1 条 = key "15" = 2；propWrites 仍 =0；健康�
 - `pussy` 是先出现后消失的**脚本写可见性**层；`Light shafts 0` 两层**确实在画**，只是发射率极低
   （`rate 0.79 × lifetime 1.14 ⇒ 期望存活 ≈0.9 粒`；真机隔离统计 mean 168→181/194 证明有内容）；
   倍速与 3× 定格是两件事（后者 P-232 已修）；叠层失效需要具体层对才能定位。
+4. **光轴（§2k，2026-10-05 追加）**：跨档同 t 已证「本仓整屏白洗 vs 上游正常曝光」（p50 **249** vs **174.67**、
+   `>220` 占比 **69.4%** vs **17.7%**）。下一步按候选 A（精灵尺寸基准 = `min(|scaleX|,|scaleY|)` + 另一轴当拉伸；
+   对照实现 `particles.js:660-683`）做逐式对照与 A/B；候选 B 是 `alphafade` 的出生相位（加色材质下
+   「出生即全亮」会整屏泛白）。
+
+## 2k. 两档同 t 对照（2026-10-05·第 46 轮）：26/27 层 **真的画大了** —— 光轴层在两档之间是本仓"整屏白洗"vs 上游"正常曝光"
+
+§2 表格第 3 行的判定（"不是没画，是发射率极低"）**只对"有没有粒子"这一半成立**；
+本轮做了此前一直缺的**跨档同 t 对照**，结论要更正：粒子一旦存在，本仓把它画成了**近乎整屏的加色白洗**。
+
+### 方法与读数（同一台机、同一次会话、1280×720、挂载后 ≈25s、每档 6 帧取均值）
+
+| 档位 | p50 | p95 | p99 | `>220` 占比 | 色数(uniq) |
+|---|---|---|---|---|---|
+| 上游产物档（`/wallpaper-engine-webgl/renderer/index.html` + 页面内 `__wp.loadSceneFile`） | **174.67** | 239.17 | 252.33 | **17.72%** | 4342 |
+| 本仓档（`/webloader/?…&res=dpr&shell=0&campose=legacy`） | **249** | 255 | 255 | **69.43%** | 2442 |
+
+逐层隔离（本仓档 `?ln=`，每档 4 帧）：
+
+| 隔离 | p50 | `>220` | uniq | 观感 |
+|---|---|---|---|---|
+| `ln=25`（`Light shafts 0` #1） | 214 | 44.6% | **10** | 一条**斜向近乎平的白色宽带**盖住大半屏（见 `reports/2887099508-shafu-ab/repo-ln25-lightshaft.jpg`） |
+| `ln=26`（`Light shafts 0` #2） | 185.75 | 26.6% | 29 | 同类、稍暗（`repo-ln26-lightshaft.jpg`） |
+| `ln=49`（`Sakura` 粒子） | 178 | 0% | 74 | = 清屏色（那一刻无粒子，与"发射率极低"一致） |
+| `ln=58`（`赞助闪心`，作者 `visible:false`） | 178 | 0% | 1 | = 清屏色 ✓ |
+
+两档整帧截图：`repo-full.jpg`（人物被冲成纯白、左下还有一块**不稳定的灰矩形**——见下）与
+`upstream-full.jpg`（人物/天空正常曝光、光轴是**弱**效果）。
+
+### 层的原始数据（离线，`objects[25]/[26]`）
+
+- 键集：`angles,id,instanceoverride,locktransforms,name,origin,parallaxDepth,particle,scale,visible` —— **没有 `size`/`alpha`/`color`/`effects`**；
+- `particle` = 包内预设 `particles/…/light_shafts_0.json`：`maxcount 16`、`emitter sphererandom rate 0.2/s`、
+  **`sizerandom 850–1000`**、`liferandom 8–20`、`velocityrandom 20 10`、`colorrandom 110..170`、
+  `renderer sprite`、`operators movement/alphafade/angularmovement`；
+- 材质（包内）：`passes[0] = {blending:"additive", shader:"genericparticle", textures:["particle/light/light_shafts_0"]}`；
+- `instanceoverride`：#25 `{size .71, count .55, alpha .35, rate .79, speed .47, lifetime 1.14, colorn 1 1 1}`；
+- **`scale = 31.26545 / 10.26845 / 7.74031`**（#26 为 25.0 / 8.27 / 4.80）—— 精灵尺寸基准与图层 scale 同量级。
+
+### 已排除 / 仍成立的机制候选
+
+- **纹理解析是通的**（排除"没贴图 ⇒ 白块"）：真机请求日志 `200 /weassist/materials/particle/light/light_shafts_0.tex`，
+  `__sceneLayers[25].particleTexName = "particle/light/light_shafts_0"`、`particleBlending = "additive"`、
+  `__particleOverbright = 1`。（同批还能看到后续两次 `404 …/light_shafts_0`（无扩展名）与 `404 …/rosepetals`，
+  但成功的那一次已经落到 `particleTexName` 上。）
+- **候选 A（首选）—— 尺寸基准**：对照实现 `particles.js:660-683` 明确把图层非等比 scale 拆成
+  "位置用 `scaleX/scaleY` 各自缩放 + 精灵尺寸取**较小轴** `sysScale = min(|sx|,|sy|)`、较大轴当**拉伸比**"，
+  并注明"若只取平均值做等比缩放，这些系统会变成**巨大的圆斑糊住半个屏幕**"。本层 `min = 10.27` ×
+  `size 850–1000` × `override .71` ≈ **6200–7300 设计像素**（设计宽 6080）⇒ 单颗粒子就覆盖整屏。
+  下一步：把本仓的实例尺寸/拉伸口径与 `sysScale + spriteStretchX/Y` 逐式对照（`?psize=`/新档位做 A/B）。
+- **候选 B —— `alphafade` 的出生相位**：材质是 `additive`，若本仓 `alphafade` 在出生时不从 0 起（少了淡入段），
+  新生的那颗粒子就是**全亮**加色；上游同一颗是渐亮的。判据：取 `p.age`=0 与 `life/2` 两点的实例 alpha 对照。
+- **候选 C —— 只是"同一颗粒子 + 加色"**：`rate 0.2/s × .79 × 1.14s` ⇒ 期望存活 ≈0.18 颗，两档都稀疏；
+  若 A/B 都成立而观感仍差，则说明"作者本来就要一条极淡的弱光柱"，差额全在 A/B 上。
+
+### 顺带记录：整帧截图里那块**灰矩形**不是稳定缺陷
+
+第一次整帧截图（`repo-full.jpg` 的左下）有一块灰矩形；复测（`?ln` 前后各一次 + 区域取样）
+读到该处是 **RGB(255,255,255)**（不是灰）而"块外"是 (253,229,214)/(209,255,255) ⇒ 那一块更像是
+**llvmpipe ≈1fps 下截到未画完的中间帧**（同一现象在 §2b"单帧判读会误判"里已记过一次）。
+⇒ 立论要**多帧取样**（本轮 4–6 帧/档），不要用单帧截图判"某处渲染坏了"。
+
