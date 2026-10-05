@@ -8,14 +8,21 @@
 
 ## 1. 机制类聚合（187 容器 / 3872 个解析层）
 
-### 1.1 未上屏（skipReason，共 1982 层）
+### 1.1 未上屏（skipReason，共 1990 层；2026-10-04 二扫修正口径）
+
+> **二扫修正**（B1 遗留"not-drawn 逐条查清"）：初版 `degenerate-geometry` 判据（≤0）与 core
+> `compositeLayer` drawGuard（实绘 ≤0.5 设计px，P-21）**不同口径** ⇒ 0917/3509243656 的
+> scale=0.001 微缩层族（118 层）漏进 not-drawn。判据对齐 drawGuard 后重扫：
+> degenerate-geometry 204 → **263**、not-drawn 137 → **78**。
+
+### 1.1 未上屏（skipReason，共 1990 层）
 
 | 机制类 | 层数 | 语义（出处） | 样例包 |
 |---|---|---|---|
 | invisible | 887 | 作者原文 visible=false | 2887099508（in heart 1-3 / pussy / ey00000） |
 | invisible-config | 599 | applyRenderConfig 关的（UI 名单正则 / 类别开关 / 音频美术豁免 / 时段变体）——工具以 parse 前后 visible 差分归因 | 3326873240（Media Info (ROUND)）、2887099508（wind.mp3） |
-| degenerate-geometry | 204 | size×scale≤0 且无内容（sound 层 `scale=0 0 0`"只出声不出画"为最大族） | 2887099508（11 个 sound 层） |
-| not-drawn | 137 | **兜底枚举**：走了已登记枚举之外的未上屏路径（每条都须查清后立新枚举） | 2887099508（#25 Light shafts，粒子种子相位残差） |
+| degenerate-geometry | 263 | 实绘 ≤0.5 设计px（drawGuard 同口径）：sound 层 `scale=0 0 0` 族 + 3509243656 的 scale=0.001 微缩族 | 2887099508（11 个 sound 层）、3509243656（text/image 微缩 118 层） |
+| not-drawn | 78 | **兜底枚举**，已分族：**particle 19**（Trails/Shooting star 族——def/贴图在、无跳过日志、0 draw，= 渲染器粒子相位 vs 离线模拟的分歧族，渲染器侧待查）；**59 集中在 3509243656**（唯一 3D 透视包的 LOAD*/kk/tt* 加载屏族，候选 = 透视后裁剪/起始门控，逐层明细在矩阵 JSON `notDrawn[]`）；零星 | 2887099508（#25 Light shafts）、3509243656（LOAD1/LOAD2/kk） |
 | particle-no-def | 112 | 声明了 particle 但 def 未解析（渲染循环 `particle && !particleDef` continue） | 1004/夜莺night 系 |
 | container | 25 | composelayer 无 fx（官方逻辑 helper）+ 真容器 | 2887099508（可调整组合层） |
 | particle-idle | 9 | 采样时刻存活 0（CPU 模拟复核：未到发射窗/已消亡） | 2981249186、3521337568 |

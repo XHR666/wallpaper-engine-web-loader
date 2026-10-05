@@ -73,10 +73,19 @@ for (const file of findPkgs()) {
     if (!m) { fails.push(`${path.basename(file)}:${e.name} 无 mip0`); continue }
     const tag = `${path.basename(file)}:${e.name} 声明${tex.width}x${tex.height} 载荷${m.width}x${m.height}`
     if (m.data.length !== bc3(m.width, m.height)) fails.push(`${tag} 载荷长度 ${m.data.length} != BC3 ${bc3(m.width, m.height)}`)
-    // 声明尺寸是载荷尺寸的 2 倍或 4 倍（编辑器降分辨率存法；实测 2× 与 4× 都存在）
+    // 声明/载荷尺寸关系，三个**合法族**（2026-10-04 扩：前两族是既有实测，新增两族来自语料
+    //   1004/夜莺night 与 藤田ことね/逆流茶会 的逐字节证据——载荷长度严格等于 BC3(载荷尺寸)，
+    //   解码成功且内容非空 ⇒ 合法存法，不是损坏）：
+    //   ① 降分辨率：载荷 = 声明的 2× 或 4×（编辑器半分辨率存法，formatName "DXT5（半分辨率）"）；
+    //   ② 1:1：载荷 == 声明（两轴都是 4 的倍数 ⇒ 无 padding）；
+    //   ③ 块对齐：载荷 = ceil(声明/4)×4（BC3 按 4×4 块存储，非整块尺寸向上补齐；如 15×15→16×16）。
+    const ceil4 = (v) => Math.ceil(v / 4) * 4
     const rw = tex.width / m.width, rh = tex.height / m.height
     ratioBuckets[Math.round(rw) + 'x' + Math.round(rh)] = (ratioBuckets[Math.round(rw) + 'x' + Math.round(rh)] || 0) + 1
-    if (!(rw > 1.5 && rh > 1.5 && rw < 4.6 && rh < 4.6 && Math.abs(rw - rh) < 0.25)) fails.push(`${tag} 声明/载荷比例异常 ${rw.toFixed(2)}x${rh.toFixed(2)}`)
+    const downscaled = rw > 1.5 && rh > 1.5 && rw < 4.6 && rh < 4.6 && Math.abs(rw - rh) < 0.25
+    const one2one = m.width === tex.width && m.height === tex.height
+    const blockPadded = m.width === ceil4(tex.width) && m.height === ceil4(tex.height)
+    if (!(downscaled || one2one || blockPadded)) fails.push(`${tag} 声明/载荷比例异常 ${rw.toFixed(2)}x${rh.toFixed(2)}`)
     if (tex.formatName !== 'DXT5（半分辨率）') push('formatName', false, `format5 name=${tex.formatName}`)
     let d0, dm
     try {
@@ -84,9 +93,12 @@ for (const file of findPkgs()) {
       dm = lib.decodeMips(tex)
     } catch (err) { fails.push(`${tag} 解码异常: ${err.message}`); continue }
     decoded++
-    if (d0.width !== m.width || d0.height !== m.height) fails.push(`${tag} decodeMip0 尺寸 ${d0.width}x${d0.height} 应为载荷尺寸`)
+    // decodeMip0 的合法尺寸 = min(声明, 载荷)：降分辨率族取载荷（半分辨率）、1:1 族两者相等、
+    //   块对齐族取声明（15×15 内容装在 16×16 块载荷里，解码后裁回声明尺寸）
+    const cw = Math.min(tex.width, m.width), ch = Math.min(tex.height, m.height)
+    if (d0.width !== cw || d0.height !== ch) fails.push(`${tag} decodeMip0 尺寸 ${d0.width}x${d0.height} 应为内容尺寸 ${cw}x${ch}（min(声明,载荷)）`)
     if (!d0.rgba || d0.rgba.length !== d0.width * d0.height * 4) fails.push(`${tag} decodeMip0 rgba 长度异常`)
-    if (dm[0].width !== m.width || dm[0].height !== m.height) fails.push(`${tag} decodeMips[0] 尺寸 ${dm[0].width}x${dm[0].height} 应为载荷尺寸`)
+    if (dm[0].width !== cw || dm[0].height !== ch) fails.push(`${tag} decodeMips[0] 尺寸 ${dm[0].width}x${dm[0].height} 应为内容尺寸 ${cw}x${ch}`)
     // 图像非空白：统计非零像素比例
     let nz = 0
     const px = d0.rgba.length / 4

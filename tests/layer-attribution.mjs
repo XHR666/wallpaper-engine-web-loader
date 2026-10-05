@@ -339,8 +339,12 @@ export async function attributeScene(sceneObj, deps = {}, opts = {}) {
                (l.image.indexOf('models/util/projectlayer') === 0 || l.image.indexOf('models/util/fullscreenlayer') === 0)) skipReason = 'logical-helper'
       else if (particleSkip.has(i)) skipReason = particleSkip.get(i)
       else if (l.particleDef && particleIdle.has(i)) skipReason = 'particle-idle'
-      // 退化几何（renderLayer 静默早退判据的镜像：lw0/lh0≤0 且非 solid 且无纹理）
-      else if (l.size && l.scale && (!(Math.abs(l.size[0] * l.scale[0]) > 0) || !(Math.abs(l.size[1] * l.scale[1]) > 0)) && !l.solid && !texKey) skipReason = 'degenerate-geometry'
+      // 退化几何（2026-10-04 B1 对齐 drawGuard 口径）：core 的静默跳过有两道——renderLayer 早退
+      //   （lw0≤0）与 compositeLayer drawGuard（实绘 ≤0.5 设计px，P-21"退化层不发绘制"）。
+      //   实测语料 0917/3509243656 的 text/image/solid 层 scale=0.001 族（size×scale=0.18）被
+      //   drawGuard 拦截 ⇒ 此前只判 ≤0 时这批漏进 not-drawn。判据 = 实绘尺寸 ≤0.5（与 drawGuard
+      //   同数）且非 solid（solid 的 size=0 在 parse 侧已整屏回退）、无纹理、非粒子。
+      else if (l.size && l.scale && (!(Math.abs(l.size[0] * l.scale[0]) > 0.5) || !(Math.abs(l.size[1] * l.scale[1]) > 0.5)) && !l.solid && !texKey) skipReason = 'degenerate-geometry'
       else if (layerErrors.has(i)) skipReason = 'draw-failed'
       else skipReason = 'not-drawn'
     }

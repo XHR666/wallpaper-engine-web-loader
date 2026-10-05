@@ -271,10 +271,15 @@ const sameRects = (a, b) => {
 //   同一行代码。包怎么改名、语料怎么加根都不影响覆盖；"包变少/扫漏了"由下面的基线兜住。
 // ════════════════════════════════════════════════════════════════════════════
 const CAM_CORPUS_BASELINE = {
-  note: '2026-09-23 全语料自导出（只增不减）。旧写死值：清单 14 条路径 / 同段脚本 14 包 / eval≠static 14 包',
-  discovered: 16,   // 语料里 origin.script 相机包总数
-  mainScript: 15,   // 用主脚本（SCRIPT_SHA）的包数
-  notStatic: 15,    // 求值结果与静态快照不同的包数（第 16 个是脚本求值 == 快照的巧合包，见 a3）
+  // ①(2026-10-04 语料漂移同步) 基线 16/15/15 → 14/13/13：主线语料整理把 wallpapertest1_*.mpkg 移入
+  //   `allwallpaper/delete/`（离开扫描根集，同 package-matrix --absorb-new 的"消失行"纪律）——
+  //   其中 2 个是 origin.script 相机包 ⇒ 发现数 16→14、主脚本 15→13、eval≠static 15→13（巧合包 1 不变）。
+  //   "只增不减"修订为：**语料集合变化时基线同步并在此记录原因**（发现算法本身按内容特征运行期发现，
+  //   不与路径绑定 ⇒ 包改名/移动不影响覆盖，只影响总数）。
+  note: '2026-10-04 语料漂移同步（wallpapertest1_* → delete/，16/15/15 → 14/13/13）。更早：2026-09-23 全语料自导出（写死清单 → 发现式）',
+  discovered: 14,   // 语料里 origin.script 相机包总数
+  mainScript: 13,   // 用主脚本（SCRIPT_SHA）的包数
+  notStatic: 13,    // 求值结果与静态快照不同的包数（第 14 个是脚本求值 == 快照的巧合包，见 a3）
 }
 function discoverScriptCamPkgs() {
   const found = []

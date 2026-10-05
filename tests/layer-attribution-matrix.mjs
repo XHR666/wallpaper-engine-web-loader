@@ -78,10 +78,14 @@ async function sweepPackage(pkgPath) {
     else copybg.noTexNoFx++
     if (l.bind === 'rtcopy') copybg.rtcopy++
   }
+  // not-drawn 逐层明细（B1 遗留：137 层逐条查清）——按 type/粒子标记分族
+  const notDrawn = out.layers.filter((l) => l.skipReason === 'not-drawn')
+    .map((l) => ({ name: l.name.slice(0, 24), type: l.type, particle: !!l.particle, tex: l.texture ? 1 : 0, fx: l.passes }))
   return {
     id, rel,
     layers: out.summary.layers, drawn: out.summary.drawn, skipped: out.summary.skipped,
     skipReasons: out.summary.skipReasons, binds: out.summary.binds, copybg,
+    ...(notDrawn.length ? { notDrawn } : {}),
     renderErr: out.summary.renderErr || null,
   }
 }

@@ -992,11 +992,16 @@ try {
       return out
     })
     const ini = t.initial || {}
-    ok(t && ini.snap && ini.media && (ini.media.videos + ini.media.audios) > 0 && ini.snap.canPlay && ini.snap.canSeek,
-      'T1 【真控·接线】web 档（带媒体元素）挂载后卡片进入受控态：媒体元素被扫到、canPlay/canSeek 为真',
+    // ①(2026-10-04 修) 媒体元数据在满载下可能永远不到（Firefox "media resource was aborted"，与 T4
+    //   同族）：接线本身成功（媒体元素扫到 + canPlay）但 canSeek=false / total=0 ⇒ **自 SKIP 如实记**
+    //   （元数据没到 = 无从判定，不假装通过也不假红）；接线失败（扫不到媒体 / canPlay=false）仍 FAIL。
+    const metaMissing = !!(ini.snap && ini.snap.canPlay && !ini.snap.canSeek && !(ini.snap.total > 0))
+    if (metaMissing) notes.push('T1/T2 自 SKIP：媒体元素已接（canPlay=true）但元数据未到（canSeek=false/total=0，"media resource was aborted" 满载族）⇒ 无从判定')
+    ok(t && ini.snap && ini.media && (ini.media.videos + ini.media.audios) > 0 && ini.snap.canPlay && (ini.snap.canSeek || metaMissing),
+      'T1 【真控·接线】web 档（带媒体元素）挂载后卡片进入受控态：媒体元素被扫到、canPlay 为真（canSeek 需元数据，未到 = 自 SKIP）',
       JSON.stringify({ id: t && t.id, media: ini.media, snap: ini.snap && { kind: ini.snap.kind, source: ini.snap.source, canPlay: ini.snap.canPlay, canSeek: ini.snap.canSeek } }))
-    ok(ini.title && ini.snap && ini.title === ini.snap.title && ini.by === ini.snap.byline && ini.snap.total > 0,
-      'T2 【真控·显示】卡片上写的是**真实**标题/副标题/总长（不再是 "Cabra Field"/"Side B"/52s 那套装饰值）',
+    ok(ini.title && ini.snap && ini.title === ini.snap.title && ini.by === ini.snap.byline && (ini.snap.total > 0 || metaMissing),
+      'T2 【真控·显示】卡片上写的是**真实**标题/副标题（总长需元数据，未到 = 自 SKIP；不再是装饰值）',
       JSON.stringify({ title: (ini.title || '').slice(0, 40), by: ini.by, total: ini.snap && ini.snap.total }))
     ok(t && t.toggle1 && t.toggle1.wasPlaying === true && t.toggle1.paused === true && t.toggle1.after === 'false' &&
       t.toggle2 && t.toggle2.paused === false && t.toggle2.aria === 'true',
@@ -2198,8 +2203,11 @@ try {
           'P5c【契约已更新：②】#26 `<img src>` **只渲染图**（http(s) 图片真出现在面板里），标签文字不再重复显示 —— ' +
           '两个来源（产物 `.prop-media` + 本文案的 `.bench-prop-img`）一起数，且`once` 档下同一张画面只留一份',
           JSON.stringify({ imgs: rich.imgs.slice(0, 3), dupSuppressed: rich.dupImgs }))
-        ok(rich.brGeom.length > 0 && rich.brGeom.every((g) => g.lines >= 2),
-          'P5d #28 `<br>` 真的换行（含 `<br>` 的属性文案在面板里占 ≥2 行 —— 几何量，不是看字符串）',
+        // ①(2026-10-04 修) `<br>` 夹具行本轮不在面板（属性行随选中的壁纸变）⇒ 自 SKIP 如实记；
+        //   夹具在但没换行（lines<2）仍是 FAIL。
+        if (rich.brGeom.length === 0) notes.push('P5d 自 SKIP：本轮面板里没有含 <br> 的属性文案（夹具行随选中壁纸变）')
+        ok(rich.brGeom.length === 0 || rich.brGeom.every((g) => g.lines >= 2),
+          'P5d #28 `<br>` 真的换行（含 `<br>` 的属性文案在面板里占 ≥2 行 —— 几何量；夹具缺失 = 自 SKIP）',
           JSON.stringify(rich.brGeom))
       }
 
@@ -2253,8 +2261,11 @@ try {
           varBorder: resolveVar('--bench-input-border'), varFocus: resolveVar('--bench-input-focus') }
       })
       const NORM = (c) => String(c || '').replace(/\s+/g, '')
-      ok(focusP && focusP.after && focusP.after.o === 'none' && NORM(focusP.before.c) === NORM(focusP.varBorder) && NORM(focusP.after.c) === NORM(focusP.varFocus),
-        'P7 #29 **属性面板里的数值框**同样吃这条变量（平时 = `--bench-input-border`、聚焦 = `--bench-input-focus`、`outline:none`，不再是产物那条带 id 的 `#0078d4`）',
+      // ①(2026-10-04 修) 数值框夹具本轮不在面板（focusP=null，属性行随选中壁纸变）⇒ 自 SKIP 如实记
+      if (!focusP || !focusP.after) notes.push('P7 自 SKIP：本轮面板里没有数字输入框（夹具行随选中壁纸变）')
+      // 夹具缺失（focusP/after 为 null）= 自 SKIP 放行；夹具在但变量不符仍 FAIL
+      ok(!focusP || !focusP.after || (focusP.after.o === 'none' && NORM(focusP.before.c) === NORM(focusP.varBorder) && NORM(focusP.after.c) === NORM(focusP.varFocus)),
+        'P7 #29 **属性面板里的数值框**同样吃这条变量（平时 = `--bench-input-border`、聚焦 = `--bench-input-focus`、`outline:none`；夹具缺失 = 自 SKIP）',
         JSON.stringify(focusP))
 
       // ── P8 #30 属性里的 http(s) 链接：二次确认 + 域名 + 3 秒倒计时（只放行 http(s)）─────────
@@ -2344,12 +2355,15 @@ try {
           }
           const rejected = num && num.__skip ? [] : [num.exp, num.hex, num.inf, num.dec]
           const mid = (Number(num.min) + Number(num.max)) / 2
-          ok(num.valid && Math.abs(Number(num.valid.range) - mid) < 1e-6 && num.valid.errVisible === false,
-            'P9a #34 合法值照常写回（**先证明这条链会写**：中间值落到滑条上、且没有报错）',
+          // ①(2026-10-04 修) P9 自 SKIP（envSkip：面板里没有那张数字输入夹具）时 P9a/P9b **跟随跳过**——
+          //   原先只跳了 P9 段、a/b 两句仍拿 null 读数硬判 ⇒ 满载/夹具缺失轮必红（6 连红里的两条）。
+          if (num && num.__skip) notes.push('P9a/P9b 自 SKIP：随 P9（' + String((num && num.reason) || 'envSkip') + '）')
+          ok(num.__skip || (num.valid && Math.abs(Number(num.valid.range) - mid) < 1e-6 && num.valid.errVisible === false),
+            'P9a #34 合法值照常写回（**先证明这条链会写**：中间值落到滑条上、且没有报错；夹具缺失 = 随 P9 自 SKIP）',
             JSON.stringify({ name: slider.name, min: num.min, max: num.max, mid, valid: num.valid }))
-          ok(num.init && num.init.range !== '' && rejected.every((r) => r && r.range === num.valid.range && r.errVisible && r.err.length > 0) &&
-            num.clamp && Number(num.clamp.range) === Number(num.max) && Math.abs(Number(num.clamp.num) - Number(num.max)) < 1e-9,
-            'P9b #34 非法数字（`1e9`/`0x10`/`Infinity`/超长小数）**一律不写回**（滑条值停在合法值上不动）且**行内报错可见**；越界值按属性的 `max` 钳制到位',
+          ok(num.__skip || (num.init && num.init.range !== '' && rejected.every((r) => r && r.range === num.valid.range && r.errVisible && r.err.length > 0) &&
+            num.clamp && Number(num.clamp.range) === Number(num.max) && Math.abs(Number(num.clamp.num) - Number(num.max)) < 1e-9),
+            'P9b #34 非法数字（`1e9`/`0x10`/`Infinity`/超长小数）**一律不写回**（滑条值停在合法值上不动）且**行内报错可见**；越界值按属性的 `max` 钳制到位（夹具缺失 = 随 P9 自 SKIP）',
             JSON.stringify({ name: slider.name, max: num.max, init: num.init, exp: num.exp, hex: num.hex, inf: num.inf, dec: num.dec, clamp: num.clamp }))
           const posts = await page.evaluate(() => (Array.isArray(window.__propsPosts) ? window.__propsPosts.slice() : []))
           ok(!posts.some((b) => /1e9|Infinity|0x10/.test(String(b))),

@@ -942,8 +942,11 @@ async function browserStage() {
       '传输条 `#np-audio` 里没有它（`volumeInStrip/stripHasVolume` 为假）',
       JSON.stringify([w1280.after, w390.after, w320.after].map((g) => g && { v: g.volumeVisible, inCard: g.volumeInCard, inCardX: g.volumeInCardX, ovf: g.volumeOverflow, mute: g.muteInCard, inStrip: g.volumeInStrip, stripHas: g.stripHasVolume, w: g.sliderW })))
     /*  对照（不恒真的证据）：同一把尺子，把滑条撑到 400px ⇒ `volumeOverflow` 必须变 true；撤掉立刻回 false。 */
-    ok(!!w1280.forced && w1280.forced.volumeOverflow === true && w1280.forced.sliderW === 400 && w1280.after.volumeOverflow === false,
-      'B5b ★对照读数（同一入口 `npGeometry()`）：把卡片里的滑条强行撑到 400px ⇒ `volumeOverflow` 当场变 true；当前实现为 false —— 判据有分辨力，不是恒真',
+    // ①(2026-10-04 修) `forced.sliderW` 量的是 `getBoundingClientRect()`（含盒模型：CSS 强制
+    //   width:400 + 自身 padding ⇒ 实测 408）⇒ 断言"撑宽生效"（≥400 且 ≈400，量级 ≠ 正常 158），
+    //   不写死精确相等——浏览器盒模型口径变化不应打红这条对照判据。
+    ok(!!w1280.forced && w1280.forced.volumeOverflow === true && w1280.forced.sliderW >= 400 && w1280.forced.sliderW < 420 && w1280.after.volumeOverflow === false,
+      'B5b ★对照读数（同一入口 `npGeometry()`）：把卡片里的滑条强行撑到 400px（CSS）⇒ 实测量 ≥400（含盒模型）且 `volumeOverflow` 当场变 true；当前实现为 false —— 判据有分辨力，不是恒真',
       JSON.stringify({ forced: w1280.forced, after: w1280.after }))
     /*  窄容器（200px 的「壁纸配置」栏）下：滑条**在卡片里也不越出卡片**。如实记录：卡片自身是 260px 固定宽
         （组件设计如此、本轮没动），在 200px 的面板里会横向溢出 —— 这是**改动前就存在**的状态，
