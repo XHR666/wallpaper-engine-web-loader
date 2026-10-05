@@ -769,6 +769,31 @@ export const LAYER_REF_FACE_NAMES = ['F1_getLayer', 'F2_emptyLayerRef', 'F3_laye
  *   NSL 把这一族当成图片层的判据。）缺了它就是 `is not a function`、整段动画初始化死掉。
  *   口径与 `getAnimationLayer()` 返回的句柄上的同名成员**完全一致**（同一份 `animRefShared`，含
  *   "没有 `animationlayers` 字段 ⇒ 1"的既有口径）⇒ 一个 ILayer 概念不会出现两套数。 */
+/** ③(P-228k 2026-10-05) **Vec3 写入归一化的唯一实现处**：Vec3（`.x/.y/.z` 或 `[0]/[1]/[2]`）、
+ *  `"x y z"` 字符串、**标量**（广播到三分量；`0` ⇒ 原点）⇒ 返回 `"x y z"`（6 位小数）；写不了返回 null。
+ *  为什么要有它：`thisScene.getLayer(...)`/`getParent()` 那条**层引用**的 `origin` setter 此前自己写了一遍
+ *  `Number(v.x != null ? v.x : v[0])` —— 对**字符串**与**标量**都得 `NaN` ⇒ 往 raw 对象里写
+ *  `"NaN NaN NaN"`（静默把坐标写坏）。语料实证：`0923/2887099508` 的 `安全模式` 脚本写
+ *  `getLayer('中-菜单-浮动').origin = (-0x3e8,-0x3e8,0x0)`（逗号表达式 **= 0**）⇒ 菜单本该挪到原点，
+ *  实际写进 NaN。"`?scriptvec=legacy`" 时标量仍按旧行为丢弃（字符串/Vec3 行为不变）。 */
+function vec3WriteString(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return (SCALAR_VEC_BROADCAST && isFinite(v)) ? [v, v, v].map((n) => n.toFixed(6)).join(' ') : null;
+  if (typeof v === 'string') {
+    const p = v.trim().split(/\s+/).map(Number);
+    if (!p.length || !isFinite(p[0])) return null;
+    return [p[0], isFinite(p[1]) ? p[1] : 0, isFinite(p[2]) ? p[2] : 0].map((n) => n.toFixed(6)).join(' ');
+  }
+  const x = v.x != null ? v.x : v[0];
+  const y = v.y != null ? v.y : v[1];
+  const z = v.z != null ? v.z : (v[2] != null ? v[2] : 0);
+  if (x == null || !isFinite(Number(x))) return null;
+  return [Number(x), isFinite(Number(y)) ? Number(y) : 0, isFinite(Number(z)) ? Number(z) : 0].map((n) => n.toFixed(6)).join(' ');
+}
+/* `?scriptvec=legacy` 的开关读一次（模块级，两个 setter 共用同一取值）。 */
+const SCALAR_VEC_BROADCAST = (() => {
+  try { return String(new URLSearchParams(location.search).get('scriptvec') || '').toLowerCase() !== 'legacy' } catch (e) { return true }
+})();
 const animLayerCountOf = (obj) => animRefShared(obj).getAnimationLayerCount();
 
 /* ①(P-141) 层引用 → 场景对象的**身份表**。
@@ -1371,8 +1396,18 @@ function makeOwnerRef() {
   // ①(P-60) 写入归一化：脚本可以给 origin/scale 赋 Vec3，也可以赋 "x y z" 字符串。
   //   旧 setter 用 `v.x != null ? v.x : v[0]` 取分量 → 字符串会按**字符下标**取值
   //   （'4242 2424 0' → x='4', y='2', z='4' → 静默写成 "4 2 4"，坐标被写坏且无报错）。
+  /* ③(P-228k 2026-10-05) **标量写广播到三分量**：语料里存在 `thisScene.getLayer('中-菜单-浮动').origin = 0`
+     这种写法（`0923/2887099508` 的 `安全模式` 脚本；混淆源码里是 `= (-0x3e8,-0x3e8,0x0)`，逗号表达式
+     **求值为 0**）。旧实现只认 Vec3/字符串 ⇒ 标量被 `toXYZ` 判成 null、**写入被静默丢弃** ⇒
+     菜单永远停在作者声明的屏外坐标（`origin.x = -3189`），"打开菜单"整条路径表现不出来。
+     WE 的绑定把标量当 `(v, v, v)`（0 ⇒ 左上角原点，正好是"菜单挪到 0,0 显示"的作者意图）。
+     回退口 `?scriptvec=legacy`（= 旧行为：标量写入丢弃），缺省新语义。 */
   const toXYZ = (v) => {
     if (v == null) return null;
+    if (typeof v === 'number') {
+      if (!SCALAR_VEC_BROADCAST || !isFinite(v)) return null;
+      return [v, v, v];
+    }
     if (typeof v === 'string') {
       const p = v.trim().split(/\s+/).map(Number);
       if (!p.length || !isFinite(p[0])) return null;
@@ -1480,7 +1515,8 @@ function makeOwnerRef() {
       visible: { get: () => obj.visible !== false, set: (v) => { obj.visible = !!v } },
       origin: {
         get: () => parseV(obj.origin, [0, 0, 0]),
-        set: (v) => { if (v == null) return; obj.origin = `${Number(v.x != null ? v.x : v[0]).toFixed(6)} ${Number(v.y != null ? v.y : v[1]).toFixed(6)} ${Number(v.z != null ? v.z : v[2] || 0).toFixed(6)}` },
+        // ③(P-228k) 走共享归一化：字符串/标量不再写 NaN（旧实现在这两类输入下都写 "NaN NaN NaN"）
+        set: (v) => { const s2 = vec3WriteString(v); if (s2 != null) obj.origin = s2 },
       },
       scale: {
         get: () => parseV(obj.scale, [1, 1, 1]),

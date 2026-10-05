@@ -15835,6 +15835,34 @@ P-233 的 `dispatchCursor()`（`demo.html` MPW-CURSOR 段）把聚合量 `const 
 ⇒ 鼠标到不了它们，悬浮路径本轮**无法**在本包上端到端验收；要验需要用一张菜单在屏内的包，或先让"打开菜单"
 那条脚本路径生效（下一步：带修好的管线重跑 `tim logo` 双击路径，看菜单是否被移上屏）。
 
+## P-228k（2026-10-05）层引用的 `origin` 写字符串/标量会写进 `NaN`（`vec3WriteString` 唯一实现处）
+
+### 症状（客观）
+`thisScene.getLayer('…').origin = …` 这类**层引用**写入，只要右边是**字符串**（`"3040 1710 0"`，语料常见写法）
+或**标量**（`0`），就会往 raw 对象里写 `"NaN NaN NaN"` —— 坐标被静默写坏，作者脚本"挪层"的意图完全丢。
+根因：层引用的 setter（`elysia/scene-scripts.js` 的 `layer()` 里 `origin: { set }`）自己又写了一遍
+`Number(v.x != null ? v.x : v[0])` —— 字符串与标量在这条式子上都取不到分量。P-60 只修了 `thisLayer` 那条
+（`toXYZ`），**层引用那条一直没跟上**。
+
+### 改法
+1. 模块级新增 `vec3WriteString(v)`：Vec3（`.x/.y/.z` 或 `[0]/[1]/[2]`）/ `"x y z"` 字符串 / **标量**
+   （广播到三分量，`0` ⇒ 原点）⇒ 返回 `"x y z"`（6 位小数）；写不了返回 `null`（不写，不再写 NaN）。
+2. 层引用的 `origin` setter 改用它；`?scriptvec=legacy`（缺省新语义）= 标量仍按旧行为丢弃，
+   字符串/Vec3 行为不变 ⇒ 单变量 A/B 可用。
+
+### 判据与读数
+- 脚本面门禁全绿：`script-origin-sync` / `text-script-props` / `script-owner-live` / `script-api-corpus` /
+  `script-tolerance` / `script-frametime-cap` / `script-tick` / `cursor-dispatch` **8/0**；
+  `README-DIAGNOSTICS` 主表登记 `scriptvec`（**217 == 217**）。
+- 语料实证（`0923/2887099508` 的 `安全模式` 脚本，用新增的 `tests/script-string-decode.mjs` 解码）：
+  `= (-0x3e8,-0x3e8,0x0)` 是**逗号表达式 ⇒ 求值为 0**（标量），正是这条路径。
+
+### 未验证边界
+本轮真机点 `安全模式`（先把它 raw `origin` 挪进屏内以便点得到）时该脚本的 `cursorClick` 确实被调到
+（`calls: 1`、`pageerror 0`），但菜单 `中-菜单-浮动` 的 origin **仍未变化** ⇒ **写入没落地的原因还没定案**
+（候选：该分支未走到 / `getLayer()` 返回的层引用与渲染同步的那个 raw 对象不是同一个 / 还有别的门）。
+⇒ 下一步用同一套工具把「点一次 → 读 raw 对象的 origin」打成前后读数，逐层定位。
+
 ## P-229（2026-10-04）演示页逐层台账的 composite 条目自 P-64-MEDIA 起全灭（`mpwLedgerYDown` 块级作用域错位）—— C0② 受控实验定位
 
 ### 症状

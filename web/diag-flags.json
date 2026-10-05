@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-05T15:37:38.702Z",
+  "generatedAt": "2026-10-05T15:56:04.330Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -2288,8 +2288,19 @@
       "sites": [
         {
           "file": "elysia/scene-scripts.js",
-          "line": 1838,
+          "line": 1874,
           "pattern": "regex [?&]scriptstore="
+        }
+      ]
+    },
+    {
+      "name": "scriptvec",
+      "common": false,
+      "sites": [
+        {
+          "file": "elysia/scene-scripts.js",
+          "line": 795,
+          "pattern": "searchParams.get('scriptvec')"
         }
       ]
     },
