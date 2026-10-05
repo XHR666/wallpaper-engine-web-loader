@@ -186,7 +186,7 @@ A 不是被否决，而是**必须先满足 A-1…A-9**（其中 A-6 的 4 项�
 **进度（2026-10-05）**：第 1 条的能力表已落地 —— `demo/bench-patch.js` 的 `RENDERER_SOURCE_CAPS` +
 `rendererCapDifferences()`（差异**现算**），并把它钉进 `tests/bench-renderer-source-test.mjs` 的 A21–A27
 （差异集合逐键点名、入口与代码常量一致、`webPath` 两档都为真、陈旧口径"本仓没有 web 路径"不许再出现）；
-`RENDERER_SOURCE_DEFAULT` 上方那段旧注释同步更正。第 2–6 条**已完成**：`bench-ui-headless` 两处旧口径注释更正；`README-DIAGNOSTICS` 的 `framegeom` 行改成「上游产物的 web 帧私有函数不可注入 / 本仓 web 路径已接指针那一半」；`RENDERER-ARCHITECTURE` 新增「两个渲染器表面」一节（表 + 纪律）；`PATCHES` 那条版本口径更正为「产物自报 v1.3.16、1.3.23 是转译器 vendored 口径」。**仅剩**第 1 条后半：`rendererSourceStatusPlan` 的降级名单改为**按表渲染** —— 注意静态表（档位口径）与运行时 `__mpwHostCaps`（挂载期真实降级）语义不同，改的时候要分开写，别把运行时读数换成静态表。
+`RENDERER_SOURCE_DEFAULT` 上方那段旧注释同步更正。第 2–6 条**已完成**：`bench-ui-headless` 两处旧口径注释更正；`README-DIAGNOSTICS` 的 `framegeom` 行改成「上游产物的 web 帧私有函数不可注入 / 本仓 web 路径已接指针那一半」；`RENDERER-ARCHITECTURE` 新增「两个渲染器表面」一节（表 + 纪律）；`PATCHES` 那条版本口径更正为「产物自报 v1.3.16、1.3.23 是转译器 vendored 口径」。**P1 全部完成**：`rendererSourceStatusPlan` 的档位注记改为**按表渲染**（`rendererTierNote()` 只从 `RENDERER_SOURCE_CAPS` 取值，喂自定义表文案就跟着变 ⇒ 判据 A28–A31 直接钉住这条）；运行时的降级名单仍来自 `__mpwHostCaps`（"这次挂载真实降级了什么"），两者语义不同、**刻意不合并**。
 `README-DIAGNOSTICS` 的 `framegeom` 行、`RENDERER-ARCHITECTURE` 新增一节、`PATCHES:4969` 更正）尚未做。
 
 **改什么文件**

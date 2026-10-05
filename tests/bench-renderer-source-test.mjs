@@ -148,6 +148,21 @@ const CORE = await import(pathToFileURL(path.join(ROOT, 'core', 'we-scene-bundle
       'A27 P1 陈旧口径已清：补丁源码里不再有"web 壁纸路径本仓渲染器还没有"（与 R3/R3b 实测相反）')
   }
   }
+  /* P1 最后半条：**状态行按表渲染**（档位注记从表里取值；运行时 caps 仍是另一条） */
+  {
+    const noteUp = P.rendererTierNote('upstream')
+    const noteRepo = P.rendererTierNote('repo')
+    ok(noteUp.includes(P.RENDERER_SOURCE_CAPS.upstream.canvasFormula) && noteUp.includes(P.RENDERER_SOURCE_CAPS.upstream.dprCap) && /bandfeed/.test(noteUp),
+      'A28 P1 上游档注记**从表里取值**（画布算式 + DPR 上限 + 不认 ?bandfeed=），不是手写文案', noteUp)
+    ok(noteRepo.includes(P.RENDERER_SOURCE_CAPS.repo.canvasFormula) && noteRepo.includes(P.RENDERER_SOURCE_CAPS.repo.msaa),
+      'A29 P1 本仓档注记同样从表里取值（画布算式 + MSAA 路线）', noteRepo)
+    const custom = P.rendererTierNote('upstream', { upstream: { canvasFormula: 'CANVAS-X', dprCap: 'CAP-Y' } })
+    ok(/CANVAS-X/.test(custom) && /CAP-Y/.test(custom),
+      'A30 P1 喂一张自定义表 ⇒ 注记跟着变（证明它是数据驱动，不是把文案抄进函数）', custom)
+    const upText = P.rendererSourceStatusPlan('zh', 'upstream', { loaded: true }).text
+    ok(upText.includes(P.RENDERER_SOURCE_CAPS.upstream.canvasFormula),
+      'A31 P1 上游档状态文案里真的带上了这条注记（计划函数接上了，不是只导出了个函数）', upText.slice(0, 120))
+  }
   const planUp = P.rendererSourceStatusPlan('zh', 'upstream', { loaded: true })
   const planLoad = P.rendererSourceStatusPlan('zh', 'repo', { loaded: false })
   const planDead = P.rendererSourceStatusPlan('zh', 'repo', { loaded: true, error: '渲染器上游不可达' })

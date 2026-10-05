@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-05T14:59:26.686Z",
+  "generatedAt": "2026-10-05T15:29:02.299Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -316,7 +316,7 @@
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 10678,
+          "line": 10694,
           "pattern": "regex [?&]bandfeed="
         }
       ]
@@ -1658,7 +1658,7 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 7175,
+          "line": 7191,
           "pattern": "regex [?&]online="
         }
       ]
@@ -1951,12 +1951,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 4970,
+          "line": 4986,
           "pattern": "searchParams.get('propimg')"
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 4974,
+          "line": 4990,
           "pattern": "searchParams.get('propimg')"
         }
       ]
@@ -2201,12 +2201,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 11378,
+          "line": 11394,
           "pattern": "regex [?&]sample="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 11425,
+          "line": 11441,
           "pattern": "regex [?&]sample="
         }
       ]
@@ -2321,12 +2321,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 8227,
+          "line": 8243,
           "pattern": "regex [?&]shell="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 9876,
+          "line": 9892,
           "pattern": "regex [?&]shell="
         }
       ]
