@@ -15891,3 +15891,27 @@ offBecause:"value-false"`）；C 变异自证（摘掉场景级 pass ⇒ A1 必�
 仍无落点，按字段语义逐个取证后再接（同一 pass 里扩字段即可）；② `general.bloom` 的
 `{user:{condition}}` 组合互斥形态语料 0 例，遇到再补；③ runBloom 的 `capture-fail` 慢机降级链路
 （P-90）未动。
+
+## P-235（2026-10-04）音频面生产行为钉死：opt-in + 手势门控 + 0 尺寸层不剪枝 + volume 三形态——`audio-scene-players` 判据
+
+### 定位（本条是**审计与钉死**，不是新机制；零产品代码变更）
+真包 0923/2887099508 的 13 个 sound 层（7 个数字 volume + 6 个对象绑定；11 个 `scale=0 0 0` =
+官方"只出声不出画"）在真机的完整生命周期读数：
+- **opt-in**：场景音频需要显式 `?audio=1`（demo.html `AUDIO_ENABLED`，音频泄漏纪律）——缺省
+  `elsCreated=0`（A 段钉死）；
+- **手势门控**（自动播放合规）：手势前 `__mpwAudioSilentReason='top-level-awaiting-gesture'`、
+  `policy.silent=true`；真手势（click）后 `'audible'`（E 段钉死：?audio=1 无手势 ⇒ 元素全暂停）；
+- **0 尺寸层不剪枝**：手势后 `elsCreated=13 / attaches=13`、`<audio>` 元素 13 个全部未暂停——
+  11 个 scale=0 层的播放器都活着（C 段；视觉侧的退化跳层是 C0 归因 `degenerate-geometry`，
+  音频侧必须独立存活）；
+- **volume 三形态取值序**（`soundLayerVolumeBinding`：数字缺省 1 / {user} 从用户属性活表 /
+  {script} 经 LAYER_REF 写入器驱动 `<audio>.volume`）产出全部合法（D 段：∈(0,1]，样例 0.4/0.5）。
+
+### 判据
+`tests/audio-scene-players-test.mjs` **6/0**（门禁 `audio-scene-players`）：A 缺省 0 播放器 /
+E 无手势 silent / B1 13-13 / B2 出声中 / C 0 尺寸不剪枝 / D 音量合法。
+
+### 未验证边界（下批最小实验）
+C9④ 音频条（`sound line` composelayer + Simple_Audio_Bars，P-231 已让它可参与渲染）随
+`audioline` 属性切换的响应：帧差探针读到的是动画噪声量级（时钟/粒子每帧都变），且该层作者原文
+`visible:false` ⇒ 台账无条目——需要**读层可见性状态**（属性绑定翻转）而非像素差的精确量法。

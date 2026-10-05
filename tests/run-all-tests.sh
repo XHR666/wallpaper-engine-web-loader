@@ -1075,6 +1075,12 @@ add "cursor-dispatch" "node tests/cursor-dispatch-test.mjs"
 #   + B2 真机（属性翻 false ⇒ __mpwBloomInfo 变关闭态 offBecause=value-false）+ C 变异自证。
 #   8 断言、~1.5min（真机腿需 headed firefox）、离线段纯 Node。
 add "scene-user-bindings" "node tests/scene-user-bindings-test.mjs"
+# ①(C9 批次3 2026-10-04) **音频面钉死**：场景音频 opt-in（?audio=1）+ 手势门控 + 0 尺寸层不剪枝 +
+#   volume 三形态取值序——真机探针（探针包 13 个 sound 层）：A 缺省 ⇒ 播放器 0（opt-in）；E ?audio=1
+#   无手势 ⇒ silent=true 元素全暂停（门控承重）；B 手势后 elsCreated=13/attaches=13/<audio> 13 个全
+#   出声中（13/13，含 11 个 scale=0 的"只出声不出画"层）；D 音量全合法。6 断言、~2.5min、需 headed
+#   firefox。C9④ 音频条属性响应（帧差=动画噪声，需读层可见性状态的精确量法）登记下批。
+add "audio-scene-players" "node tests/audio-scene-players-test.mjs"
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then
