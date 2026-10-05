@@ -621,9 +621,12 @@ function runCorpus() {
    *     · §1.3 的旧键**一个都不许消失**（老壁纸的层还在）；⑥-g 的点名极值仍在。
    *   基线由本扫描器自导出（`P149_SCAN_UPDATE=1` 打印可粘贴值）。 */
   const OVERBRIGHT_CORPUS_BASELINE = {
-    note: '2026-09-23 全语料自导出（含 0923/；只增不减）。旧写死值（0923 之前）：scenePkgs=56 / overMats=38 / overMatPkgs=15 / overLayers=54 / overLayerPkgs=15 / overJoin=238 / nonOneLayers=25 / oneLayers=29 / nonOneMats=25 / 取值 11 种',
-    scenePkgs: 123, overMats: 70, overMatPkgs: 29, overLayers: 112, overLayerPkgs: 29, overJoin: 463,
-    nonOneLayers: 41, oneLayers: 71, nonOneMats: 37, nonOneLayerDirs: 21, multiValueLayers: 2, maxDepth: 2,
+    // ①(2026-10-04 语料漂移同步) 70/29/112/463/41/71/37/21/2 → 65/28/106/442/38/68/33/20/1：
+    //   wallpapertest1_*.mpkg 被主线移入 allwallpaper/delete/（离开扫描根集）——"只增不减"修订为
+    //   语料集合变化时同步并记录原因（发现算法按内容特征运行期扫，不与路径绑定）。
+    note: '2026-10-04 语料漂移同步（wallpapertest1_* → delete/：overMats 70→65 等）。更早：2026-09-23 全语料自导出（含 0923/）',
+    scenePkgs: 123, overMats: 65, overMatPkgs: 28, overLayers: 106, overLayerPkgs: 28, overJoin: 442,
+    nonOneLayers: 38, oneLayers: 68, nonOneMats: 33, nonOneLayerDirs: 20, multiValueLayers: 1, maxDepth: 2,
     vals: ['0.17', '0.25', '0.33', '0.66', '0.75', '0.98', '1.01', '1.1', '1.2', '1.2000000476837158', '1.21', '1.33', '1.46', '1.47', '1.77', '1.8', '2', '2.61', '5'],
   }
   /** §1.3 实测过的 12 个键（老语料的面）：只要求"还在"，不再要求计数逐键相等（新包会让计数变大）。 */

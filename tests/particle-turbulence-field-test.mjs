@@ -416,7 +416,9 @@ console.log('\n[4] ⑤ 同族扫描：语料里吃到非零 `turbulentvelocityra
    *   基线下方的合成夹具（`⑤-e`）证明 `hit()` 判据有分辨力 —— 不依赖本机语料。 */
   const TURB_CORPUS_BASELINE = {
     note: '2026-09-23 全语料自导出；只增不减。旧写死值：total=28 / rope=13 / sprite=14 / spritetrail=1（ropetrail=0）',
-    total: 62, rope: 15, ropetrail: 0, sprite: 28, spritetrail: 19, legacyHits: 13,
+    // ①(2026-10-04 语料漂移同步) 62/15/28 → 56/11/26：wallpapertest1_*.mpkg 被主线移入
+    //   allwallpaper/delete/（离开扫描根集）——"只增不减"修订为语料集合变化时同步并记录原因。
+    total: 56, rope: 11, ropetrail: 0, sprite: 26, spritetrail: 19, legacyHits: 9,
   }
   const found = { total: 0, rope: 0, ropetrail: 0, sprite: 0, spritetrail: 0, other: 0 }
   const hitsLegacy = [], hitsOfficial = []

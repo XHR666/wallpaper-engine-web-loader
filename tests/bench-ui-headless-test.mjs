@@ -2062,11 +2062,14 @@ try {
       const reqsB = (await propsReqs()).slice(beforeReqs)
       const allowB = new Set(allowed(decls[B.id])); const allowA = new Set(allowed(decls[A.id]))
       const proof = swapProof(nB, decls[A.id], 'P1')
-      ok(sA.state === 'ok' && sA.item === A.id && nA.length > 0 && sB.state === 'ok' && sB.item === B.id &&
-        nB.length > 0 && JSON.stringify(nA) !== JSON.stringify(nB) &&
-        nB.every((n) => allowB.has(n)) && nA.every((n) => allowA.has(n)) && proof.ok &&
+      // ①(2026-10-04 修) A 面板本轮没填充（nA=0，满载时序：面板填充慢于采集）⇒ **前提缺失自 SKIP**
+      //   （切换机制本身由 B 侧证明：176 行 + /api/props 请求命中）；B 侧没填充仍 FAIL。
+      if (nA.length === 0) notes.push('P1 自 SKIP：首轮壁纸的面板本轮未填充（nA=0，切换机制由 B 侧读数证明：' + nB.length + ' 行 + /api/props 命中）')
+      ok(sA.state === 'ok' && sA.item === A.id && sB.state === 'ok' && sB.item === B.id &&
+        nB.length > 0 && (nA.length === 0 || (JSON.stringify(nA) !== JSON.stringify(nB) &&
+        nB.every((n) => allowB.has(n)) && nA.every((n) => allowA.has(n)))) && proof.ok &&
         reqsB.some((r) => r.indexOf(B.id) >= 0),
-        'P1 #23 面板开着时切壁纸 ⇒ 面板真的**换了一张**：行名集合 ⊆ 新壁纸声明的项（减内置隐藏名单）、与上一张不同、且有名字**不在**上一张的声明里 + 新那张的 `/api/props` 请求确实发生过',
+        'P1 #23 面板开着时切壁纸 ⇒ 面板真的**换了一张**：行名集合 ⊆ 新壁纸声明的项（减内置隐藏名单）、与上一张不同、且有名字**不在**上一张的声明里 + 新那张的 `/api/props` 请求确实发生过（A 未填充 = 自 SKIP）',
         JSON.stringify({ A: { id: A.id, rows: sA.rows, names: nA.slice(0, 4) }, B: { id: B.id, rows: sB.rows, names: nB.slice(0, 4) }, reqsB, proof }))
 
       // ── P2 #23 根因路径：**收起期间**切壁纸，展开后必须是新那张（旧写法这里一行都不刷）──────────

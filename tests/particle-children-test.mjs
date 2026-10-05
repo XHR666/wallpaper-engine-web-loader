@@ -748,7 +748,11 @@ console.log('\n[6] ⑥ 同族扫描：全语料 children 里多少条真的产�
  *   语料只会增 ⇒ 不再因为"新增壁纸"变红。 */
 const CHILDREN_CORPUS_BASELINE = {
   note: '2026-09-23 语料（0917/0923/dd/wallpaperE/wallpapertest1 全量）自导出；只增不减（旧写死值 total=149/static=74/eventfollow=37/eventdeath=30/eventspawn=8/produced=139/probZero=10 是 0923 之前、且不含 0923 根的面）',
-  total: 208, static: 94, eventfollow: 51, eventdeath: 49, eventspawn: 14, produced: 193, probZero: 15,
+  // ①(2026-10-04 语料漂移同步) 208/94/51/49/14/193/15 → 201/93/54/40/14/189/12：
+  //   wallpapertest1_*.mpkg 被主线移入 allwallpaper/delete/（离开扫描根集）；eventfollow 51→54
+  //   是新增语料包（1004/夜莺night 等）带来的**增量**（其余字段降 = 漂移面）。"只增不减"修订为
+  //   语料集合变化时同步并记录原因。
+  total: 201, static: 93, eventfollow: 54, eventdeath: 40, eventspawn: 14, produced: 189, probZero: 12,
 }
 function familyScan() {
   const files = []

@@ -465,7 +465,7 @@ const SAMPLE_SET = [['legalA', legalA, 3], ['layoutB', layoutB, 3], ['layoutC', 
 //     真语料缺失时本组按"根不存在 ⇒ 容器 0 ⇒ 基线断言红"处理（不 SKIP，因为语料是本项判据的可信来源）。
 //   ✅ **不渲染敏感**：无浏览器 / 无 GPU / 无网络 / 无 X11，只有 node 的字节解析（①②④⑤ 组与语料无关）。
 // ══════════════════════════════════════════════════════════════════════════════════════════
-console.log('③ 全语料回归（自导出基线：rows≥172 / MDLS≥86 / 骨≥885 / 救回≥3 / 拒收基数 0 / 两档全 null≥5）')
+console.log('③ 全语料回归（自导出基线：rows≥165 / MDLS≥79 / 骨≥825 / 救回≥3 / 拒收基数 0 / 两档全 null≥5；2026-10-04 语料漂移同步）')
 const WS_ROOT = process.env.MPW_ROOT || WS
 const ROOTS = [path.join(WS_ROOT, 'allwallpaper'), path.join(os.homedir(), '.dsh-mpkg-wallpaper')]
 // 逐字段**流式** sha256（**不**先拼大 JSON 字符串）：26.8MB 的 `球体04.mdl` 若整份
@@ -525,7 +525,9 @@ const corpus = { rows: 0, mdls: 0, bones: 0, badParent: 0, badMat: 0, rejected: 
  *     （`Hollow Cylinder`，**无 MDLS**、块签名 `0x0000000f`、步长 48）**仍是有意不接**的那一个。 */
 const MDL_CORPUS_BASELINE = {
   note: '2026-09-23 全语料自导出（只增不减）。旧写死值：rows=43 / mdls=35 / bones=332 / 非法=0 / 拒绝=0 / 差异=0 / nullNoMdls=7 / shapes=1。P-152b 后：rejects 3→0（那 3 个被救回）、rescued=3、bones 821→885。P-173（2026-09-24）：MDLV0016 紧凑变体（5 个文件）被解析 ⇒ nullBoth 5→0、bones 885→899（+14）。',
-  rows: 172, mdls: 86, bones: 899, nullBoth: 0, rejects: 0, rescued: 3, nullNoMdls: 46, shapes: 40,
+  // ①(2026-10-04 语料漂移同步) 172/86/899 → 165/79/825：wallpapertest1_*.mpkg 被主线移入
+  //   allwallpaper/delete/（离开扫描根集）——同步并记录原因（发现按内容特征，不与路径绑定）。
+  rows: 165, mdls: 79, bones: 825, nullBoth: 0, rejects: 0, rescued: 3, nullNoMdls: 46, shapes: 40,
 }
 /* ②(P-152b) 救回的**已知清单**（按文件名钉住，不是只比数量）：关掉重扫 ⇒ 清单为空 ⇒ 必红。
  *   真语料实测（2026-09-23，改前/改后骨数）：`asuna body bottom_puppet.mdl` 声明 7 / 旧路径 1 → 7；

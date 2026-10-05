@@ -11,7 +11,7 @@
 //   ① **逐字节取证 + 判据复算**（真语料 5/5）：文件头 / 固定头 / 材质路径锚点 / 0 填充 / 块签名 / 顶点字节数 /
 //      步长 52 / 索引块 / "索引数据写到 MDLS 起点" / 顶点数与索引域互证 / 全量索引界内 / 权重和 / 混合索引 /
 //      uv / `z ≡ 0` / 三角形退化数 —— 每条都当场算出来并打印读数。
-//   ② **改前 / 改后全语料对拍**：把"新分支关掉"的 core 副本（= 改动前的行为）与真模块各自跑**全语料 172 行**，
+//   ② **改前 / 改后全语料对拍**：把"新分支关掉"的 core 副本（= 改动前的行为）与真模块各自跑**全语料行**（漂移同步后 165），
 //      逐字段流式 sha256 对拍 ⇒ **除这 5 个之外逐字段不变**（改了哪几行、变成什么，逐条打印）。
 //   ③ **改后骨架 + 台账**：5/5 骨数 == 声明骨数（2/5/2/2/3）、`mdlDiag.layout = 'mdlv0016-compact'`、
 //      `mesh.variant = 'mdlv0016-compact-52'`、`?mdls=legacy` 档**逐字段相同**、elysia 侧与 core **逐位相同**、
@@ -161,7 +161,7 @@ for (const f of PKGS) {
   for (const e of idx.entries.filter((x) => /\.mdl$/i.test(x.name))) ROWS.push({ pkg: f, idx, entry: e })
 }
 check('⓪ 语料', '语料根存在且容器数 > 0', PKGS.length > 0, 'containers=' + PKGS.length)
-check('⓪ 语料', '`.mdl` 行数 ≥ 172（自导出基线，只增不减）', ROWS.length >= 172, 'rows=' + ROWS.length)
+check('⓪ 语料', '`.mdl` 行数 ≥ 165（自导出基线；2026-10-04 语料漂移同步：wallpapertest1_* → delete/，172→165）', ROWS.length >= 165, 'rows=' + ROWS.length)
 
 // 5 个救回目标：`0923/2887099508` 的 `MDLV0016` + 有 MDLS
 const V16 = []
@@ -274,7 +274,7 @@ check('② 对拍', '变异 M1（关掉新分支）已构造且可 import（= �
   console.log('  · 语料行数 = ' + rows + '；逐字段指纹不同的行 = ' + changed.length + '；改前 null → 改后有网格 = ' + newMesh.length + '；反向 = ' + lostMesh.length + '；两侧都不为 null 但字段不同 = ' + becameNull.length)
   console.log('  · 对拍期间两个模块共打 warn ' + corpusWarns + ' 行（既有 P-152b 救回文件 × 两份模块，与本项无关）')
   for (const c of changed) console.log('    - ' + c.key + ' [' + c.magic + '] 改前=' + (c.hP ? c.hP.slice(0, 12) : 'null') + ' 改后=' + (c.hA ? c.hA.slice(0, 12) : 'null') + ' vc=' + c.vc + ' ic=' + c.ic + ' bones=' + c.bones)
-  check('② 对拍', '全语料行数 ≥ 172', rows >= 172, 'rows=' + rows)
+  check('② 对拍', '全语料行数 ≥ 165（2026-10-04 语料漂移同步：wallpapertest1_* → delete/）', rows >= 165, 'rows=' + rows)
   check('② 对拍', '**除这 5 个之外逐字段不变**（指纹不同的行 == 5，且全部是"改前 null → 改后有网格"）',
     changed.length === 5 && newMesh.length === 5 && lostMesh.length === 0 && becameNull.length === 0,
     'changed=' + changed.length + ' newMesh=' + newMesh.length + ' lost=' + lostMesh.length + ' sameNonNullDiff=' + becameNull.length)
