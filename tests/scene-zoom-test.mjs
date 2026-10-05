@@ -158,5 +158,26 @@ console.log('\n── ③ 变异自证（真源零改动）──')
     try { fs.rmSync(dir, { recursive: true, force: true }) } catch (e) {}
   }
 }
+/* ── ②(P-228f 2026-10-05) 「去除开屏动画」档位解析：`resolveIntroSkip()` 逐值对账 ── */
+{
+  const Z2 = (opts) => ({ zoom: { animation: { options: opts, keyframes: [] } } })
+  const intro = lib.resolveIntroSkip
+  ok(intro('', Z2({ fps: 30, length: 450 })).seconds === 0 && intro('0', Z2({ fps: 30, length: 450 })).why === 'off' &&
+    intro('off', null).seconds === 0 && intro(undefined, null).seconds === 0,
+    'S1 缺省/`0`/`off` ⇒ 不跳过（缺省路径零改动）', JSON.stringify([intro('', Z2({ fps: 30, length: 450 })), intro('off', null)]))
+  const auto = intro('auto', Z2({ fps: 30, length: 450 }))
+  ok(auto.seconds === 15 && auto.why === 'auto:general.zoom',
+    'S2 `auto`（以及 `1`/`on`/`yes`/`true`）⇒ 取开场动画本身的长度：450 帧 / 30fps = 15s', JSON.stringify(auto))
+  ok(intro('1', Z2({ fps: 30, length: 450 })).why === 'auto:general.zoom' && intro('on', Z2({ fps: 30, length: 450 })).seconds === 15,
+    'S3 `1` 在 URL 惯例里是"开"而不是"1 秒"（`1`/`on` 都走 auto）', JSON.stringify(intro('1', Z2({ fps: 30, length: 450 }))))
+  ok(intro('3', Z2({ fps: 30, length: 450 })).seconds === 3 && intro('3', null).why === 'explicit' &&
+    intro('0.5', null).seconds === 0.5 && intro('999', null).seconds === 120,
+    'S4 `>=2` 的数字 ⇒ 显式秒数（小数照收、上限 120s）', JSON.stringify([intro('3', null), intro('0.5', null), intro('999', null)]))
+  ok(intro('auto', null).seconds === 0 && intro('auto', null).why === 'auto:none' &&
+    intro('auto', Z2({ fps: 30, length: 0 })).why === 'auto:none' && intro('auto', Z2({ fps: 0, length: 450 })).why === 'auto:none',
+    'S5 取不到开场动画 ⇒ 0 + `auto:none`（不编造一个秒数）', JSON.stringify([intro('auto', null), intro('auto', Z2({ fps: 30, length: 0 }))]))
+  ok(intro('banana', null).seconds === 0 && intro('banana', null).why === 'auto:none',
+    'S6 非法值退回 auto 语义（与 `?bandfeed=` 的"非法值不静默变关"同口径）', JSON.stringify(intro('banana', null)))
+}
 console.log('\n===== scene-zoom: ' + pass + ' 通过 / ' + fail + ' 失败' + (skip ? ' / ' + skip + ' SKIP' : '') + ' =====')
 process.exit(fail ? 1 : 0)

@@ -1926,7 +1926,8 @@ export function rendererSourceUrl(url, mode, opts) {
       `webmode`（Web 壁纸渲染模式：sandbox/compat）、`hybrid`（DSH 进程流式播放）。
       **只在 opts 明确给出时才写**（缺省 undefined ⇒ 一个字符都不动）⇒ 既有 A 组判据与产物档行为不变。 */
   const optBool = (v) => (v === true ? '1' : (v === false ? '0' : (v === undefined || v === null || v === '' ? null : String(v))))
-  const optIntro = optBool(opts && opts.skipIntro)
+  /*  `skipintro`：开 ⇒ `auto`（渲染器按开场动画长度自动前推），关 ⇒ `0`；缺省不写。 */
+  const optIntro = (opts && opts.skipIntro === true) ? 'auto' : ((opts && opts.skipIntro === false) ? '0' : null)
   if (optIntro !== null) upsertCI('skipintro', optIntro)
   /*  ②(P-228f) Web 壁纸执行方式用的是**渲染器自己的档位名** `?webframe=auto|compat|sandbox`
       （`core/web-frame-host.mjs` 的 `resolveWebFrameMode`）：被宿主嵌入时 `auto` 解析成 **sandbox**

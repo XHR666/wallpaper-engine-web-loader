@@ -1369,6 +1369,32 @@ export function evalSceneZoom(general, t) {
   const n = Array.isArray(v) ? Number(v[0]) : Number(v)
   return (isFinite(n) && n > 0.0001) ? n : null
 }
+/**
+ * ②(P-228f 2026-10-05) 「去除开屏动画」的档位解析（唯一实现处；`demo.html` 与 Node 判据共用）。
+ *   `?skipintro=` 的口径：`1` / `on` / `yes` / `true` / `auto` ⇒ **自动**（取开场动画本身的长度）；
+ *   `>=2` 的数字 ⇒ 显式秒数（上限 120s）；`0` / `off` / `no` / `false` / 缺省 ⇒ 不跳过。
+ *   开场动画 = `general.zoom.animation`（P-226 的开场运镜就是它：3× → 1×）。
+ *   @param {unknown} raw `?skipintro=` 原值
+ *   @param {object|null} general 场景的 `general` 段（可为空 ⇒ auto 解析成 0 = 无可跳过）
+ *   @returns {{seconds:number, why:'off'|'explicit'|'auto:general.zoom'|'auto:none'}}
+ */
+export function resolveIntroSkip(raw, general) {
+  const v = String(raw == null ? '' : raw).trim().toLowerCase()
+  if (!v || v === '0' || v === 'off' || v === 'no' || v === 'false') return { seconds: 0, why: 'off' }
+  const isAuto = v === '1' || v === 'on' || v === 'yes' || v === 'true' || v === 'auto'
+  if (!isAuto) {
+    const n = Number(v)
+    if (isFinite(n) && n >= 0) return { seconds: Math.min(n, 120), why: 'explicit' }
+  }
+  try {
+    const anim = general && general.zoom && general.zoom.animation
+    const o = (anim && anim.options) || null
+    const fps = Number(o && o.fps) || 30
+    const len = Number(o && o.length) || 0
+    if (len > 0 && fps > 0) return { seconds: Math.min(len / fps, 120), why: 'auto:general.zoom' }
+  } catch (e) { /* 读不到就当没有 */ }
+  return { seconds: 0, why: 'auto:none' }
+}
 export function evalPropAnimation(propObj, t) {
   if (!propObj || typeof propObj !== 'object' || !propObj.animation) return null
   const a = propObj.animation
