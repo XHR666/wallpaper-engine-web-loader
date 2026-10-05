@@ -3286,7 +3286,18 @@ async function loadTex(name, opts = {}) {
      compositeLayer 绘制期按"层 > 侧车 > 头"优先级消费。`?texjson=legacy` ⇒ 不取不贴。
      官方资产侧车（util/pattern/cookie 三族 14 份）判据逐字段断言；`nomip`/`forcerawcompression`/
      `format` 只解析+台账（行为未定案，规则 B）。 */
-  const __attachTexJson = (entry) => {
+  /* ②(P-228n 2026-10-05) **必须是函数声明（提升），不能写成 `const` 箭头函数**：
+     同一次 `loadTex()` 调用里，**3271 行**（JS 降采样分支）会先执行，而 `const __attachTexJson` 的声明
+     语句在它**后面**（原 3289 行）⇒ 命中 **TDZ**：`can't access lexical declaration '__attachTexJson'
+     before initialization`（不是模块顺序问题，是函数体内"先用后声明"）。
+     实测后果（真包 0923/2887099508，渲染器自己的日志）：
+       `⚠ JS降采样失败 1234: can't access lexical declaration '__attachTexJson' before initialization`
+       `⚠ JS降采样失败 ¦¦¥¦12: …`（`¦¦¥¦12` = `new background1` 的非 ASCII 贴图名）
+     两张**超限大图**（`cloud` 的 1234 = 4982×1733、`new background1` 的 6480×3420）因此整条降采样分支抛错、
+     纹理没被登记 ⇒ 这两层**画了但一个像素都没有**（隔离 `?ln=4`/`?ln=14` 全帧 = 清屏色、`uniq=1`），
+     背景 scenery 整块消失。`wrapTex`（3107 行）本来就是函数声明，所以只有它没踩到。
+     修后同一处日志：`✅ 降采样纹理已上传 1234 2048x712（5.6MB, glErr=0, tex=ok）`。 */
+  function __attachTexJson(entry) {
     try {
       const rel = String(name).replace(/^materials\//, '')
       const sideName = rel.replace(/\.tex\$/i, '.tex-json')

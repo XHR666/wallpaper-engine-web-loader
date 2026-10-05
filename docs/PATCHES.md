@@ -15866,6 +15866,53 @@ P-233 的 `dispatchCursor()`（`demo.html` MPW-CURSOR 段）把聚合量 `const 
 `设置2-穿上内内` 的 `cursorClick` 经 `--call` 复现为"`panci cover up`.visible=true / `pussy`.visible=false"，
 与 §1 的脚本语义逐字一致。⇒ 这类"点菜单出内容"的路径要端到端验，必须先让**菜单布局脚本**把热点层摆到屏内。
 
+## P-228n（2026-10-05）超限大图的 JS 降采样分支命中 **TDZ**：`__attachTexJson` 先用后声明 ⇒ 纹理不登记 ⇒ 该层**画了但一个像素都没有**
+
+### 现象（真包 0923/2887099508：整块背景 scenery 消失）
+
+- 整帧（粒子层隐藏）p50 **145** / `>220` **4.86%**，上游产物档同相位 **174.2** / **17.9%**；
+- 逐层隔离：`?ln=4`（`cloud`，贴图 `1234` = 4982×1733）与 `?ln=14`（`new background1` = 6480×3420）
+  隔离帧 = **清屏色、`uniq=1`**（一个像素都没画）；隐藏它们对整帧**零影响**（网格差分 ≈ 0）；
+- 离线归因与真机台账却都记它们"`bind=texture`、`chain=own`、整屏矩形"⇒ **台账与像素矛盾**
+  （此前登记为 `layer-attribution-consistency` 的 "ln=4 分歧" C4 输入，本轮结案）。
+
+### 根因（渲染器自己的日志）
+
+```
+⚠ JS降采样失败 1234: can't access lexical declaration '__attachTexJson' before initialization
+⚠ JS降采样失败 ¦¦¥¦12: can't access lexical declaration '__attachTexJson' before initialization
+```
+
+`loadTex()` 里 **超限大图**（`lib.texDownsampleCap()` 返回非 0）走的那条 JS 降采样分支在 **3271 行**调用
+`__attachTexJson(...)`，而 `__attachTexJson` 原本写成 **`const` 箭头函数**、声明语句在同一次调用的**更后面**
+（原 3289 行）⇒ 命中 **TDZ**（函数体内"先用后声明"，与模块求值顺序无关）。
+分支抛错被 `catch` 吞掉 ⇒ 纹理**没有被 `textures.set()` 登记** ⇒ 该层后续取不到纹理 ⇒ 不绘制任何像素。
+`wrapTex`（3107 行）本来就是函数声明（提升），所以只有 `__attachTexJson` 踩到。
+
+### 修法（一处，最小）
+
+`demo.html`：把 `const __attachTexJson = (entry) => {…}` 改成 **`function __attachTexJson(entry) {…}`**
+（函数声明提升到函数作用域顶部，与 `wrapTex` 同形），函数体一字未改。
+
+### 判据与读数
+
+- `tests/load-timeout-test.mjs` 新增 **T3d / T3d2**（用 2500×1200 假位图 + `cap=2048` 走**这条**分支）：
+  要求不抛、登记进 `textures`、尺寸 = 2048×983、日志无"降采样失败"与 TDZ 文案。
+  同批把切片夹具的 `wrapTex` 改成**注入参数**（切片只带 `loadTex` 本体，否则该腿会 `wrapTex is not defined`）。
+  断言 **68 → 70 通过 / 0 失败**；**变异自证**：把该函数改回 `const` ⇒ T3d/T3d2 立刻变红
+  （`Cannot access '__attachTexJson' before initialization`），改回即 70/0。
+- 真机（同一台机、同相位、粒子层隐藏）：
+  - 日志由 `⚠ JS降采样失败 1234: …` 变为 **`✅ 降采样纹理已上传 1234 2048x712（5.6MB, glErr=0, tex=ok）`**；
+  - `?ln=4` 隔离帧 `uniq` **1 → 202**、`?ln=14` **1 → 2638**（有内容了）；
+  - 整帧（粒子隐藏）`>220` **4.86% → 10.55%**（上游 17.9%），p50 145 → 148，截图里背景 scenery
+    （阳台/房间/云/水面/MED 招牌/招牌群）全部回来，与上游产物档观感一致。
+
+### 影响面与未做
+
+- 触发条件 = **贴图长边超 `min(4096, 设备上限)`**（`texDownsampleCap`），即所有 4K/6K 背景类贴图
+  ⇒ 凡有这类贴图的壁纸，那一层都会整块消失（本包 `cloud` / `new background1` 两块）。
+  跨包影响面（多少包有多少张超限贴图）**未量化**，下一轮补一条离线扫描。
+- 该分支只修 TDZ；`?mipsel=0` 等既有回退开关与行为一字未动。
 ## P-228m（2026-10-05）粒子 `instanceoverride.count` 只缩了发射率、**没缩池上限** ⇒ "池被打满"的层密度不跟随滑块（语料 8 层被打满 / 7 层两档差 1.22×–2.64×）
 
 ### 口径（对照实现的语料实测结论）

@@ -89,11 +89,16 @@ function makeFetchHeader(prims, logs, fetchStub, src) {
 }
 function makeLoadTex(prims, logs, stubs, src) {
   const textures = new Map()
-  const fn = new Function('fetch', 'lib', 'pkg', 'textures', 'logf', 'window', 'document', 'gl',
+  /*  ②(P-228n 2026-10-05) 切片里 `loadTex` 引用了两个**同模块外层**的 helper：`wrapTex`（函数声明）与
+      `__attachTexJson`（P-228n 从 `const` 改成函数声明，见 demo.html 的注释）。切片只带 `loadTex` 本体
+      ⇒ 必须把这两个当**参数**注入，否则走 JS 降采样分支的腿会得到 `wrapTex is not defined`（本轮实测：
+      T3d 首版就红在这条）。健康路径不碰这条分支，注入是恒等桩 ⇒ 既有 T3a/T3b/T3c 逐位不变。 */
+  const fn = new Function('fetch', 'lib', 'pkg', 'textures', 'logf', 'window', 'document', 'gl', 'wrapTex',
     'withTimeout', 'fetchT', 'jsonT', 'bufT', 'textT', 'bitmapT',
     'NET_TIMEOUT_MS', 'DECODE_TIMEOUT_MS', 'perfAutoQ', 'TEX_BUDGET', '__texBytesTotal', 'DEV_MAX_TEX',
     src + '\nreturn loadTex')
   const loadTex = fn(stubs.fetch, stubs.lib, stubs.pkg, textures, (m) => logs.push(String(m)), {}, {}, stubs.gl,
+    stubs.wrapTex || ((e) => e),
     prims.withTimeout, prims.fetchT, prims.jsonT, prims.bufT, prims.textT, prims.bitmapT,
     LIMIT, LIMIT, false, 220 * 1048576, 0, 4096)
   return { loadTex, textures }
@@ -229,6 +234,33 @@ async function runSuite(source, tag, pSrc, hSrc, full) {
     const lt = makeLoadTex(prims, logs, { fetch: healthy, lib: mkLibStub(), pkg: {}, gl: mkGlStub() }, loadTexSrc)
     const r = await lt.loadTex('halo_4')
     P('T3c loadTex 健康路径：纹理登记进 textures、无任何 ⚠ 行（逐位不变）', !!r && !!r.glTex && lt.textures.get('halo_4') === r && !logs.some((l) => /⚠/.test(l)), JSON.stringify(logs))
+  }
+  {
+    /* ②(P-228n 2026-10-05) **超限大图的 JS 降采样分支**：这条分支此前在 `__attachTexJson`（同一函数体内
+       更靠后的 `const` 声明）上命中 TDZ ⇒ 抛 `can't access lexical declaration '__attachTexJson' before
+       initialization`（真机日志 `⚠ JS降采样失败 1234: …`）⇒ 该纹理**不登记** ⇒ 该层画了但一个像素都没有
+       （真包 0923/2887099508 的 `cloud`/`new background1` 两块背景 scenery 整块消失）。
+       本腿用 2500×1200 的假位图 + cap=2048 走**这条**分支：要求 (a) 不抛、(b) 登记进 textures、
+       (c) 尺寸是降采样后的 2048×983、(d) 日志里没有"降采样失败"、也没有 TDZ 文案。 */
+    const logs = []
+    const healthy = async () => ({ ok: true, status: 200, arrayBuffer: async () => TEX_BYTES.buffer.slice(0) })
+    const prims = makePrims(logs, healthy, primSrc)
+    const BIG_W = 2500, BIG_H = 1200
+    const libStub = mkLibStub({
+      parseTex: () => ({ format: 0, textureWidth: BIG_W, textureHeight: BIG_H, images: [[{ width: BIG_W, height: BIG_H }]] }),
+      decodeMip0: () => ({ width: BIG_W, height: BIG_H, rgba: new Uint8Array(BIG_W * BIG_H * 4) }),
+      texDownsampleCap: () => 2048,
+    })
+    const lt = makeLoadTex(prims, logs, { fetch: healthy, lib: libStub, pkg: {}, gl: mkGlStub() }, loadTexSrc)
+    const r = await lt.loadTex('bigbg')
+    const k = 2048 / BIG_W
+    const wantH = Math.max(2, Math.round(BIG_H * k))
+    P('T3d 超限大图走 JS 降采样：不抛、登记进 textures、尺寸=' + 2048 + 'x' + wantH,
+      !!r && !!r.glTex && lt.textures.get('bigbg') === r && r.width === 2048 && r.height === wantH,
+      JSON.stringify({ w: r && r.width, h: r && r.height, reg: lt.textures.get('bigbg') === r }))
+    P('T3d2 降采样分支无 "降采样失败"、无 TDZ 文案（P-228n 回归守卫）',
+      !logs.some((l) => /降采样失败/.test(l)) && !logs.some((l) => /before initialization/.test(l)),
+      JSON.stringify(logs.slice(0, 3)))
   }
   return local
 }
