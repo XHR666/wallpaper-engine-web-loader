@@ -113,6 +113,21 @@ shared = { kkyy: 686, yykk: 868, eee: 666, mus: '枫桥雨' }      // 双击 tim
 剩下的只可能是 `mimi()` 末尾那两条：`thisScene.<某方法>(thisLayer) != 0x4e /*78*/` 与
 `thisLayer.<某属性> != '<字符串>'`（脚本里那两条的比较对象都在混淆字符串里，本轮无法逐字解码）。
 
+**再往下的两条硬读数（2026-10-05 追加）**：
+
+- 第四条门（`thisScene.<方法>(thisLayer) != 0x4e /*78*/`）**很可能是满足的**：
+  `tim logo` 在 `scene.json.objects` 里就是 **index 78**（0-based，实测 `objects[78].id = 500`）；
+  而宿主的 `getLayerIndex()`（`elysia/scene-scripts.js:1137-1151`）**专门为 `thisLayer` 留了
+  `hooks.ownerLayerRef()/ownerObj()` 这条缝**（源码注释里写明语料就是传 `thisLayer` 的）⇒ 解析得出 78。
+  要 100% 确认只需读它的诊断计数（`SCENE_SCRIPT_API_DIAG.getLayerIndex / getLayerIndexUnresolved`）。
+- 第五条门里的字符串常量 `'sitFK'` **在整个 scene.json 里只出现在 object 78（`tim logo`）自己的脚本正文里**
+  （全库 grep：仅此一处）⇒ 它是**脚本的反混淆字符串表里的成员名**（属性/方法名），不是壁纸数据字段
+  （对照：`tim logo` 的数据字段只有 alignment/alpha/angles/brightness/color/colorBlendMode/
+  copybackground/id/image/ledsource/locktransforms/name/origin/parallaxDepth/perspective/scale/size/solid/visible）。
+
+⇒ **结论**：五条门里三条（686/868/666）已确证满足、一条（78）结构上满足、**只剩一条**用的是反混淆成员名
+（`sitFK` 一类），必须靠"记录脚本宿主上未知成员的访问"来定位 —— 也就是下一步的只读探针。
+
 **下一步（更精确、仍然独立）**：给脚本宿主加一条**只读取证**：把 `mimi()` 里那两类调用的实际返回值
 （层 id / 层属性）打出来（例如在 `thisScene` 门面上加一个 `__mpwScriptProbe` 记录最近 N 次未知成员的
 `get` 与调用结果），就能定位是"宿主缺这个方法"还是"属性值不同"。这属于**脚本宿主保真度**的取证，
