@@ -149,12 +149,16 @@ export function cursorClick(event) {
 /* ── C 源级钉子（P-228i 2026-10-05）：空命中不许抛异常 + 台账每次都要写 ── */
 {
   const src = fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8')
-  ok('C1 `dispatchCursor` 的聚合量声明在循环**外**（`let st = { calls: 0, errors: 0, entries: 0 }` 先于 `for (const l of hits)`）',
-    /let st = \{ calls: 0, errors: 0, entries: 0 \}\s*\n\s*for \(const l of hits\)/.test(src))
+  ok('C1 派发聚合量声明在循环**外**（`dispatchCursorTo` 里 `let st = { calls: 0, errors: 0, entries: 0 }` 先于 `for (const l of list)`）',
+    /let st = \{ calls: 0, errors: 0, entries: 0 \}\s*\n\s*for \(const l of list\)/.test(src))
   ok('C2 循环内不再声明遮蔽的 `const st`（空命中时那句 `CURSOR.lastDispatch` 曾抛 `ReferenceError: st is not defined`）',
-    !/for \(const l of hits\) \{[\s\S]{0,400}?const st = dispatchScriptEvent\(/.test(src))
-  ok('C3 `CURSOR.lastDispatch` 在循环外无条件写（点空白也要留下"点了、没命中"的事实）',
+    !/for \(const l of (hits|list)\) \{[\s\S]{0,400}?const st = dispatchScriptEvent\(/.test(src))
+  ok('C3 `CURSOR.lastDispatch` 在派发函数里无条件写（点空白也要留下"点了、没命中"的事实）',
     /CURSOR\.lastDispatch = \{ name, calls: st\.calls, errors: st\.errors, entries: st\.entries \}/.test(src))
+  ok('C5 P-228j 悬浮三态也派发：`pointermove` → `cursorEnter` / `cursorLeave` / `cursorMove`（作者"悬浮才出现"的一整类靠它）',
+    /addEventListener\('pointermove'/.test(src) && /dispatchCursorTo\('cursorLeave'/.test(src) && /dispatchCursorTo\('cursorEnter'/.test(src) && /dispatchCursorTo\('cursorMove'/.test(src))
+  ok('C6 悬浮三态的台账字段在读数对象里（enters/leaves/moves）',
+    /enters: 0, leaves: 0, moves: 0/.test(src))
   ok('C4 设计空间投影可读（探针把屏幕坐标换成设计坐标用）：`window.__mpwSceneInfo` 发布 projW/projH/layers',
     /window\.__mpwSceneInfo = \{/.test(src) && /projW:/.test(src) && /projH:/.test(src))
 }

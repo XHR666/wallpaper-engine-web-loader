@@ -15795,6 +15795,41 @@ P-233 的 `dispatchCursor()`（`demo.html` MPW-CURSOR 段）把聚合量 `const 
 空命中路径的**真机**取证本轮只覆盖到"有命中"的点（画布被背景层铺满，找不到真正零命中的屏幕点）⇒
 判据落在源级（C1–C3）与"零 pageerror"上；要真机零命中可临时用 `?ln=` 隔离出空白区再点。
 
+## P-228j（2026-10-05）指针管线补 `cursorEnter/Leave/Move` + 反混淆字符串解码工具
+
+### 症状（客观）
+作者脚本里"**鼠标悬浮才出现**"的一整类在预览里从不生效。本包（`2887099508`）实证：
+`设置1-返回`（objects[73]，id 514）的脚本解码后是
+`getLayer('中-菜单-浮动').getEffect('阴影-设置1').visible = true/false`，分别挂在 **`cursorEnter` / `cursorLeave`** 上；
+而 P-233 只接了 `cursorDown/Up/Click` ⇒ 这两个导出**一次都收不到**，菜单效果永远不出现。
+
+### 改法
+1. `demo.html` MPW-CURSOR 段：把派发拆成 `hitsOf(e)` + `dispatchCursorTo(name, e, list)`（台账同一本账，
+   聚合量在循环外），新增 `pointermove` 处理：比对"这一帧命中的层"与"上一帧" ⇒ 新命中 `cursorEnter`、
+   不再命中 `cursorLeave`、仍在命中 `cursorMove`（都只投命中层，`ownerFilter` 与 click 同一套）；
+   台账新增 `enters/leaves/moves` 字段。
+2. 新增离线工具 `tests/script-string-decode.mjs`：在 `node:vm` 沙箱里跑到**解码器初始化**为止，捕获
+   `_0x…` 解码函数，再把每个调用点 `(idx,key)` 逐个解码 ⇒ 把"作者脚本为什么走了这条分支"变成可读文本
+   （本包 `tim logo` 115 个调用点解出 111 条）。
+3. 用该工具把 `tim logo`（objects[78]）的五条门**逐条解码对账**（写进
+   `docs/reports-2887099508-layers.md` §2d）：`shared.kkyy=686` / `shared.yykky=868` / `shared.eee=666`
+   （三条计数门，真机 dump 已确证满足）、`getLayerIndex(thisLayer) === 78`（该对象正是 objects[78]，
+   宿主 `getLayerIndex` 专为 `thisLayer` 留了 `ownerLayerRef/ownerObj` 缝）、
+   `thisLayer.name === 'tim logo'`、`thisLayer.origin.x === 5571` ⇒ **五条都具备满足条件**。
+
+### 判据与读数
+- `cursor-dispatch` 新增/更新 C1–C6（聚合量在循环外、无遮蔽 `const st`、台账无条件写、悬浮三态真的派发、
+  台账字段在位）⇒ 该项 PASS；`demo-syntax` / `demo-check` ✓。
+- 真机（`:8902`）：`pointermove` 命中背景层时台账 `lastDispatch.name = 'cursorMove'`、`hits` 正常；
+  整轮 `pageerror` **0**。
+- 反混淆工具读数：`设置1-返回` 解出 `getLayer | 中-菜单-浮动 | getEffect | 阴影-设置1 | visible`（16 条去重），
+  与 §2d 的推断逐条吻合。
+
+### 未验证边界
+本包菜单层在 scene.json 里就是**屏幕外**（`中-菜单-浮动` x=-3189、`设置1-返回` x=-2989、`设置2-穿上内内` x=-3159）
+⇒ 鼠标到不了它们，悬浮路径本轮**无法**在本包上端到端验收；要验需要用一张菜单在屏内的包，或先让"打开菜单"
+那条脚本路径生效（下一步：带修好的管线重跑 `tim logo` 双击路径，看菜单是否被移上屏）。
+
 ## P-229（2026-10-04）演示页逐层台账的 composite 条目自 P-64-MEDIA 起全灭（`mpwLedgerYDown` 块级作用域错位）—— C0② 受控实验定位
 
 ### 症状

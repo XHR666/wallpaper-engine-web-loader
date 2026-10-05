@@ -9929,7 +9929,7 @@ function loadScene() {
   //   脚本可导出 cursorHitTest(event) 自答（false = 未命中；undefined = 走引擎缺省）。
   //   派发 = dispatchScriptEvent + ownerFilter（只投命中层）；台账 window.__mpwCursorDispatch。
   if (typeof PAGE === 'undefined' || PAGE) (function () {
-    const CURSOR = (window.__mpwCursorDispatch = { down: 0, up: 0, clicks: 0, hits: [], last: null })
+    const CURSOR = (window.__mpwCursorDispatch = { down: 0, up: 0, clicks: 0, enters: 0, leaves: 0, moves: 0, hits: [], last: null })
     if (!sceneScriptCache || !cv) return
     const designFromEvent = (e) => {
       let r = null
@@ -9954,41 +9954,58 @@ function loadScene() {
       }
       return hits
     }
-    const dispatchCursor = (name, e) => {
+    /* ③(P-228j 2026-10-05) **Enter/Leave/Move 也要派发**：作者脚本里"鼠标悬浮才出现"的一整类
+       （本包 `设置1-返回` 的 `cursorEnter → getLayer('中-菜单-浮动').getEffect('阴影-设置1').visible = true`、
+       `cursorLeave → false`）此前**一次都收不到**（P-233 只接了 down/up/click），于是菜单永远不出现。
+       口径：`pointermove` 时比对"这一帧命中的层"与"上一帧命中的层" —— 新命中 ⇒ `cursorEnter`、
+       不再命中 ⇒ `cursorLeave`、仍在命中 ⇒ `cursorMove`（都只投给命中的那一层，与 click 同一套 ownerFilter）。 */
+    let __prevHits = []
+    const dispatchCursorTo = (name, e, list) => {
       const [wx, wy] = designFromEvent(e)
-      const hits = hitLayers(wx, wy)
-      CURSOR.hits = hits.map((l) => String(l.name || l.id)).slice(0, 8)
-      /*  ③(P-228i 2026-10-05 修) **空命中会抛异常**：`st` 原来声明在循环体内，而下面那句
-          `CURSOR.lastDispatch = { …, calls: st.calls, … }` 在循环**外**读它 —— 点到空白处
-          （hits 为空）时 `st` 从未初始化 ⇒ 每点一次空白就抛 `ReferenceError: st is not defined`
-          （真机 `pageerror` 实测），而且 `CURSOR.lastDispatch` 永远停在 null、台账读不到"这次投给了谁"。
-          改法：把聚合量提到循环外（`let st = { calls: 0, errors: 0, entries: 0 }`，循环里累加），
-          空命中 ⇒ calls=0 也照常写一条台账（"点了，但没命中任何层"本身就是要能读到的事实）。 */
       let st = { calls: 0, errors: 0, entries: 0 }
-      for (const l of hits) {
+      for (const l of list) {
         const payload = {
           worldPosition: new MpwVec3(wx, wy, 0),
           localPosition: new MpwVec3(wx - (l.origin ? l.origin[0] : 0), wy - (l.origin ? l.origin[1] : 0), 0),
           hitBox: null,
         }
-        // owner 身份 = **原始 scene.json 的 objects 条目**（脚本 ownerRef 绑定的对象，applySceneScripts
-        //   收的就是它）；scene.layers 的解析层按 id 映射过去（同 id = 同层）。
         const ownerObj = ((sceneObj && sceneObj.objects) || []).find((x) => x && l.id !== undefined && x.id === l.id) || null
         const one = dispatchScriptEvent(sceneScriptCache, name, payload, { ownerFilter: (obj) => obj === (ownerObj || l) })
         st.calls += one.calls || 0
         st.errors += one.errors || 0
         st.entries += one.entries || 0
-        const key = name === 'cursorClick' ? 'clicks' : name === 'cursorDown' ? 'down' : 'up'
-        CURSOR[key] = (CURSOR[key] || 0) + (one.calls || 0)
       }
-      CURSOR.last = { name, wx: Math.round(wx), wy: Math.round(wy), hits: CURSOR.hits.slice(), at: Date.now() }
-      // ①(P-233 诊断) entries = 缓存里**有该导出**的脚本实例数（区分"没导出"vs"owner 映射断"）
+      const key = name === 'cursorClick' ? 'clicks' : name === 'cursorDown' ? 'down' : name === 'cursorUp' ? 'up' : name === 'cursorEnter' ? 'enters' : name === 'cursorLeave' ? 'leaves' : 'moves'
+      CURSOR[key] = (CURSOR[key] || 0) + st.calls
       CURSOR.lastDispatch = { name, calls: st.calls, errors: st.errors, entries: st.entries }
+      CURSOR.last = { name, wx: Math.round(wx), wy: Math.round(wy), hits: list.map((l) => String(l.name || l.id)).slice(0, 8), at: Date.now() }
+      return st
     }
+    const dispatchMove = (e) => {
+      const [wx, wy] = designFromEvent(e)
+      const hits = hitLayers(wx, wy)
+      const prev = __prevHits
+      __prevHits = hits
+      const gone = prev.filter((l) => hits.indexOf(l) < 0)
+      const fresh = hits.filter((l) => prev.indexOf(l) < 0)
+      if (gone.length) dispatchCursorTo('cursorLeave', e, gone)
+      if (fresh.length) dispatchCursorTo('cursorEnter', e, fresh)
+      if (hits.length) dispatchCursorTo('cursorMove', e, hits)
+      CURSOR.hits = hits.map((l) => String(l.name || l.id)).slice(0, 8)
+    }
+    /* 点击/按下/抬起：命中层**各投一遍**（与悬浮三态共用 `dispatchCursorTo`，台账同一本账）。
+       聚合量在 `dispatchCursorTo` 里初始化于循环外 ⇒ 空命中不再抛 `st is not defined`（P-228i）。 */
+    const dispatchCursor = (name, e) => {
+      const [wx, wy] = designFromEvent(e)
+      const hits = hitLayers(wx, wy)
+      CURSOR.hits = hits.map((l) => String(l.name || l.id)).slice(0, 8)
+      return dispatchCursorTo(name, e, hits)
+    }
+    cv.addEventListener('pointermove', (e) => { try { dispatchMove(e) } catch (e2) { /* 悬浮派发失败不影响其它 */ } })
     cv.addEventListener('pointerdown', (e) => { CURSOR.down++; dispatchCursor('cursorDown', e) })
     cv.addEventListener('pointerup', (e) => { CURSOR.up++; dispatchCursor('cursorUp', e) })
     cv.addEventListener('click', (e) => { dispatchCursor('cursorClick', e) })
-    logf('① P-233 指针事件管线已接线（cursorDown/Up/Click → 命中层脚本；命中台账 __mpwCursorDispatch）')
+    logf('① P-233/P-228j 指针事件管线已接线（cursorDown/Up/Click + cursorEnter/Leave/Move → 命中层脚本；命中台账 __mpwCursorDispatch）')
   })()
   // ═══ MPW-CURSOR-END ═══
   // ═══ ①(P-77 一页多实例·第 5 步) 实例句柄：调度器驱动 or 单实例自驱 + **显式释放路径** ═══
