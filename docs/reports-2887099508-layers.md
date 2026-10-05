@@ -61,6 +61,26 @@
 - 真机叠加读数（`__sceneLayers`）：82 层、可见 **63→64**、`__mpwLayerErrors` **0** —— 与离线归因一致
   （不可见层都是作者 `visible:false` / 属性门控 / 脚本门控，见 §1）。
 
+## 2c. 指针管线实测：脚本**被调到**了，但作者菜单没打开（2026-10-05 追加）
+
+方法：真机点预览画布（设计空间 6080×3420，82 层），位置由 `window.__mpwSceneInfo` 的设计投影换算，
+读数取 `window.__mpwCursorDispatch`（P-233 台账）与 `__sceneLayers` 的可见性/origin。
+
+| 动作 | 台账读数 | 层状态变化 |
+|---|---|---|
+| 点画布角（设计 ≈ (18,16)） | `hits:["ldfk","new background1","Solid"]`；`lastDispatch:{calls:1,errors:0,entries:42}` | 无 |
+| 点 `tim logo`（设计 (5571,234)） | `hits` 含 `tim logo`；`{calls:2,errors:0,entries:84}` | 无 |
+| **双击** `tim logo`（间隔 200ms，脚本是"500ms 内第二次点击"判定） | `clicks:4`、`{calls:2,errors:0,entries:84}` | **菜单 `中-菜单-浮动` 的 origin 仍是 (-3189,622)、`设置2-穿上内内` 仍在 (-3159,1122)** ⇒ 菜单没打开 |
+
+结论（本次能确定的部分）：
+1. **指针管线是通的**：命中测试、owner 映射、脚本派发都成功（`calls ≥ 1`、`errors=0`、`entries` 42/84）；
+2. **分歧在脚本宿主语义里**，不在指针层：`tim logo` 的 `cursorClick` 是"点击计数 + 500ms 窗口"的判定，
+   它内部还读 `shared[...]` 计数与 `thisScene.getLayer(...).visible`（去混淆后的分支），
+   本次两支都没落到"移动菜单"的那条 ⇒ 需要下一步把 `thisScene.getLayer/getEffect` 的调用序列打成读数，
+   与 WE 的期望序列逐条对比（这是脚本宿主保真度问题，独立于本包的层数据）。
+3. 顺带修掉一个真机可见缺陷（P-228i）：`dispatchCursor` 在**空命中**时读循环体内的 `st` ⇒
+   每点一次空白抛一次 `ReferenceError: st is not defined`，且 `lastDispatch` 恒 `null`；现已改成都写台账。
+
 ## 3. 已知与本包相关的既有修复（回归背景）
 
 - **P-229**：`demo.html` 台账 composite 条目全灭（`mpwLedgerYDown` 块级作用域）——量法已恢复；
