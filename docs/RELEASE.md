@@ -265,3 +265,30 @@ SKIP 的那一项是 `scene-layer-baseline` 里**本机没有语料**时的显�
 3. `x11-pointer` 在一次全量门禁里出现过一次"首段 0 条 pointermove"的假红，同一命令单独复跑即绿（7/0）；
    本次全量门禁唯一 FAIL 是 `bench-ui-headless`（IA5f 的 scroll slack 前置读数 + IA8a 的"释放后日志不再增长"，
    都是滚动/日志时序类断言；同一条命令单跑 **197/0 全绿**）。两条都记为满载下的 flake，判据本身未改。
+
+## 发布记录：0.5.17（2026-10-04 · 批次 3：测量基建 + 机制修复 P-229…P-235 + 语料漂移基线同步）
+
+**为什么是 minor（0.5.x 内按 minor 记）**：新增 6 个判据文件与 3 个报告工具（对外 npm 包面不变，
+`files` 不含 tests/reports），渲染器行为修复 5 处、演示页测量面修复 1 处；全量门禁 199 → 210 项。
+
+| 面 | 内容 | 判据读数 |
+| --- | --- | --- |
+| **P-229 演示页台账** | `mpwLedgerYDown` 被裹进页级单例块（module 严格模式块级作用域）⇒ composite 台账自 P-64-MEDIA 起全灭；搬到 module 层 | 受控实验 287 fire / 0 push → 修后 composite 38–42 条/帧；`ln-consistency` **12/0** |
+| **P-230 copybg** | 换入条件收窄到「有效果链」的层（官方 helper 语义，wer-ref `ShouldUseCopyBackgroundSourceHelper`）；fx=0 层画自己的内容 | 真机 A/B uniq 66199 vs 30257；`copybg-semantics` **6/0**、`copybg-input` 12/0 |
+| **P-231 内置模型层** | composelayer+fx = 效果载体（参与渲染，`?composfx=legacy` 回退）；无 fx 的 project/fullscreen = 逻辑 helper（不画） | `builtin-model-semantics` **9/0**（187 容器 594 个内置层扫描） |
+| **P-232 相机 round-trip** | `getCameraTransforms()` 拍平动画对象 + `setCameraTransforms` 写穿 `general.zoom` ⇒ 作者脚本 round-trip 把运镜动画写死成常数（全场景恒 3 倍镜的真根因） | 真机 Solid/cloud 台账矩形与离线归因逐位吻合、全帧 uniq 14776 → 92230；`script-phase-order` S3f + S6 全绿 |
+| **P-233 指针事件管线** | `cursorClick/Down/Up` 端到端派发（`dispatchScriptEvent` 增 `ownerFilter`；demo MPW-CURSOR 段：命中层 → Vec3 事件） | `cursor-dispatch` **6/0**（含真机点击命中耳朵 + 脚本调用 ≥1） |
+| **P-234 场景级 {user} 绑定** | `general.bloom={user:…}` 此前无落点 ⇒ applyUserProperties 尾部场景级 pass + 关闭态台账 | `scene-user-bindings` **8/0**（含真机属性翻转腿） |
+| **P-235 音频面钉死** | opt-in（?audio=1）+ 手势门控 + 0 尺寸层不剪枝 + volume 三形态 + 音频条 audioline 状态量法（F 组） | `audio-scene-players` **10/0** |
+| **测量基建（C0/B1）** | 离线层归因工具 + `?ln=N` 第二量法一致性 + 全库矩阵（187 容器 / 3872 层按机制类聚合）+ 文本层扫描（929 层）+ 非 ASCII 资产名对账（1418 条引用） | `layer-attribution` 22/0、`nonascii-names` 12/0；报告 `reports/layer-attribution-{2887099508,consistency,matrix}.json` |
+| **语料漂移基线同步** | wallpapertest1_* 移入 `delete/` 打穿 7 处"只增不减"基线（相机脚本 16/15/15→14/13/13、overbright/turbulence/children/mdl-bone/mdlv0016、package-baseline 210→216 行）；**tex-fmt5 审计扩三个合法族**（降分辨率 / 1:1 / BC3 块对齐 padding） | 五项单跑全绿；`tex-fmt5` **4/4**（95/95 解码） |
+| **bench-ui-headless 夹具守卫** | 六条环境依赖断言接"前提缺失 ⇒ 自 SKIP"口径（媒体元数据未到 / 属性行缺失 / P9a/P9b 随 envSkip / P1 首轮未填充）；B5b 断言改"撑宽生效"（rect 含盒模型） | 单跑 **196/0** |
+
+**发布前门禁**：`bash check.sh` **PASS=4 FAIL=0 / 4 阶段**；`run-all-tests` **205 PASS / 0 FAIL / 5 SKIP（210 项，SKIP=条件项如实跳过）**。
+
+**诚实清单**
+1. 离线归因不跑场景脚本：脚本驱动的可见性/取景差异按 `script-state`/`camera-scale` 登记（离线跑脚本是 C6 边界）；
+2. not-drawn 78 层已分族（particle 19 = 渲染器粒子相位与离线模拟的分歧族；3509243656 透视包 LOAD* 族 59），
+   渲染器侧根因待下批；3. clearalpha 的"屏幕坐标采样 + alpha=0"两细节未实现（P-230 边界）；
+4. cursorMove/Enter/Leave 只留管线、cursorHitTest 只支持 false 拒绝、命中为轴对齐矩形近似（P-233 边界）；
+5. 场景级 {user:…} 绑定本次只落 `general.bloom`（其余 24 处待逐字段取证，P-234 边界）。
