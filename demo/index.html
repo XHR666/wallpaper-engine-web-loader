@@ -106,24 +106,20 @@ html.bench-shell .props-empty strong{display:block;color:var(--fg-dim);margin-bo
    换行零结构改动、键盘 Tab 顺序天然正确；②"更多"菜单要把控件搬进浮层，控件 id 与产物绑定会断；
    ③横向滚动在触控笔电上会把"看不到"变成"要横划才找到"，而用户的诉求正是"完整可达"。 */
 html.bench-shell #toolbar{max-height:30vh;overflow-y:auto;flex-wrap:wrap;max-width:100%;overflow-x:hidden}
-/* ①(P-228e 2026-10-04) 参数栏：**可收起** + **排版稳定**（切渲染器/状态文字变长都不动高度与位置）。
-   为什么这样做：`#toolbar` 原来是 wrap 流式布局，`#status-renderer-src` 的文案随档位/能力/画布读数变长
-   ⇒ 挤走邻居、整条高度变化、`#main` 网格跟着重算（预览区尺寸在切换那一瞬变化）。
-   改法：网格 + 固定标签列宽 + 状态行独占整行且**行高固定**（超长省略），收起态只留开关行。 */
-html.bench-shell #toolbar{display:grid;grid-template-columns:repeat(auto-fill,minmax(196px,1fr));gap:6px 10px;align-items:center;max-height:none;overflow:visible}
-html.bench-shell #toolbar > label{display:flex;align-items:center;gap:6px;min-width:0}
-html.bench-shell #toolbar > label > span:first-child{flex:0 0 4.8em;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-html.bench-shell #toolbar select,html.bench-shell #toolbar input[type="search"],html.bench-shell #toolbar .mini{min-width:0;flex:1 1 auto}
-html.bench-shell #bar-row{grid-column:1/-1;display:flex;align-items:center;gap:8px;height:1.6em;min-width:0}
+/* ①(P-228e 2026-10-04，2026-10-04 二改：从"网格格子"改回**紧凑流式**——网格把每个控件撑成
+   260px 的格子，短按钮也占满一格 ⇒ 大片留白 + 行数变多（工具条反而更高）。
+   现在：flex 换行 + **控件按内容宽**、标签不固定占位；状态行独占整行且**行高固定**（超长省略）
+   ⇒ 既紧凑整齐，也不会因为状态文案变长而顶高工具条/挪动预览区。 */
+html.bench-shell #toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;max-height:none;overflow:visible;width:100%}
+html.bench-shell #toolbar > label{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0}
+html.bench-shell #toolbar > label > span:first-child{flex:0 0 auto;white-space:nowrap}
+html.bench-shell #toolbar select,html.bench-shell #toolbar input[type="search"]{width:auto;min-width:6.6em;max-width:13em}
+html.bench-shell #toolbar > button,html.bench-shell #toolbar > .mpw-select,html.bench-shell #toolbar > .check{flex:0 0 auto;width:auto;padding-left:8px;padding-right:8px}
+html.bench-shell #bar-row{flex:1 1 100%;display:flex;align-items:center;gap:8px;height:1.6em;min-width:0}
 html.bench-shell #bar-row button{flex:0 0 auto}
 html.bench-shell #bar-row #bar-hint{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.75}
-html.bench-shell #status-renderer-src{grid-column:1/-1;display:block;height:1.6em;line-height:1.6em;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* ①(P-228e 续) 工具条里**所有状态文本**都按"独占整行 + 行高固定 + 超长省略"处理：
-   否则像 `#status-bandfeed`（音条状态在切上游档时会换成一段长文案）会折行把整条顶高，
-   连带 `#main` 网格重算、预览区在切换那一瞬变尺寸。 */
-html.bench-shell #toolbar > #status-bandfeed,html.bench-shell #toolbar > #status-dpr,html.bench-shell #toolbar > .status{grid-column:1/-1;display:block;height:1.6em;line-height:1.6em;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html.bench-shell #status-renderer-src,html.bench-shell #toolbar > #status-bandfeed,html.bench-shell #toolbar > #status-dpr{flex:1 1 100%;display:block;height:1.6em;line-height:1.6em;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 html.bench-shell #toolbar.bar-off > *:not(#bar-row){display:none}
-html.bench-shell #toolbar.bar-off{grid-template-columns:1fr}
 /* ⑩(2026-09-21 台账 §5.3) 「音条源」状态行：诚实原因可能是一整句（"该壁纸没有音源或已静音 ——
    可切「麦克风」或「模拟」看形态"），所以让它**换行**（`flex-wrap` 优先）而不是 `nowrap` +
    `text-overflow:ellipsis` —— 截断会把"可切麦克风/模拟"这条出路吃掉。*/
