@@ -122,6 +122,32 @@ const CORE = await import(pathToFileURL(path.join(ROOT, 'core', 'we-scene-bundle
   ok([...b2.keys()].filter((k) => k.toLowerCase() === 'mediabase').length === 1,
     'A11b2 ★P-228c 追加契约：scene 档反向映射**按需补 `mediaBase` 且恰好一次**（已带则原样保留，见 handoff 判据 A1/A4）', back2)
 
+  /* ── P1（RENDERER-UNIFY-PLAN §3 P1）**两档能力表**：数据 = 唯一真源，差异集合被断言点名 ── */
+  {
+    const caps = P.RENDERER_SOURCE_CAPS
+    const diff = P.rendererCapDifferences()
+    const WANT = ['bandfeed', 'canvasFormula', 'diagFlags', 'dprCap', 'entry', 'hostApi', 'liveRes', 'msaa', 'msaaTierFlag', 'scenePackHandoff']
+    ok(!!caps && !!caps.upstream && !!caps.repo && typeof P.rendererCapDifferences === 'function',
+      'A21 P1 能力表在位且可现算差异（`RENDERER_SOURCE_CAPS` + `rendererCapDifferences()`）')
+    ok(diff.keys.join(',') === WANT.join(','),
+      'A22 P1 **差异集合逐键点名**：新增/消失一条差异都必须改这条断言（防止"悄悄分叉"）', diff.keys.join(','))
+    ok(Object.keys(caps.upstream).length === Object.keys(caps.repo).length &&
+      Object.keys(caps.upstream).every((k) => k in caps.repo) &&
+      diff.keys.every((k) => caps.upstream[k] !== undefined && caps.repo[k] !== undefined),
+      'A23 P1 两档同键集、差异键两边都有值（不出现 `undefined` 口径）', JSON.stringify(Object.keys(caps.upstream).length))
+    ok(caps.repo.entry === P.RENDERER_SOURCE_REPO_PATH && /renderer\/index\.html$/.test(caps.upstream.entry),
+      'A24 P1 表里的入口与代码常量一致（`entry` ↔ `RENDERER_SOURCE_REPO_PATH`，不是另一份手抄）', caps.repo.entry + ' | ' + caps.upstream.entry)
+    ok(caps.repo.liveRes === true && caps.upstream.liveRes === false && caps.repo.bandfeed === true && caps.upstream.bandfeed === false,
+      'A25 P1 两条用户可见差异在表里是**布尔真值**：活档位 `?res=dpr` 只有本仓有；`?bandfeed=` 只有本仓认')
+    ok(caps.repo.webPath === true && caps.upstream.webPath === true,
+      'A26 P1 `webPath` 两档**都为真**（本仓 `?type=web` 路径已落地 ⇒ 旧口径"本仓没有 web 路径"不再成立）')
+  /* P1：陈旧口径钉子 —— 源码里不许再出现"本仓没有 web 路径"这类与实测相反的表述 */
+  {
+    const patchSrcA = PATCH_TEXT
+    ok(!/web 壁纸路径本仓渲染器还没有/.test(patchSrcA),
+      'A27 P1 陈旧口径已清：补丁源码里不再有"web 壁纸路径本仓渲染器还没有"（与 R3/R3b 实测相反）')
+  }
+  }
   const planUp = P.rendererSourceStatusPlan('zh', 'upstream', { loaded: true })
   const planLoad = P.rendererSourceStatusPlan('zh', 'repo', { loaded: false })
   const planDead = P.rendererSourceStatusPlan('zh', 'repo', { loaded: true, error: '渲染器上游不可达' })

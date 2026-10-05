@@ -183,6 +183,12 @@ A 不是被否决，而是**必须先满足 A-1…A-9**（其中 A-6 的 4 项�
 
 ### P1 —— 能力面统一 + 陈旧口径修正（本轮之后可立即开工）
 
+**进度（2026-10-05）**：第 1 条的能力表已落地 —— `demo/bench-patch.js` 的 `RENDERER_SOURCE_CAPS` +
+`rendererCapDifferences()`（差异**现算**），并把它钉进 `tests/bench-renderer-source-test.mjs` 的 A21–A27
+（差异集合逐键点名、入口与代码常量一致、`webPath` 两档都为真、陈旧口径"本仓没有 web 路径"不许再出现）；
+`RENDERER_SOURCE_DEFAULT` 上方那段旧注释同步更正。第 2–6 条（状态行按表渲染、`bench-ui-headless:803` 旧口径、
+`README-DIAGNOSTICS` 的 `framegeom` 行、`RENDERER-ARCHITECTURE` 新增一节、`PATCHES:4969` 更正）尚未做。
+
 **改什么文件**
 1. `demo/bench-patch.js`：新增**纯函数能力表**（建议 `RENDERER_SOURCE_CAPS = { upstream: {...}, repo: {...} }`，紧邻 `demo/bench-patch.js:1734` 的 `RENDERER_SOURCES`），
    把 A-1…A-9、C 的 7 条变成**数据**；`rendererSourceStatusPlan`（`:1884`）改为**按表渲染**降级名单（不再手写文案）。

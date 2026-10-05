@@ -1785,8 +1785,55 @@ export const RENDERER_SOURCES = ['upstream', 'repo']
 // 翻转默认带来的一次性断言改动（**旧契约 → 新契约**，逐条写在提交信息与 `docs/PATCHES.md` P-171.6 里）：
 //   · `bench-ui-headless` S4a/S4b：旧"静态台在 1.2s 用产物页的 `__wp.loadSceneFile(blob)` 挂合成样例"
 //     → 新"本仓档按 `?id=sample-synthetic` 导航预览"（同样"打开就有画面"，判据口径不动）；
-//   · 同文件 T1–T5 / W1–W6（web 档 11 条）：旧"默认 iframe 就是产物页" → 新"这两组**显式切到上游档**再测
-//     （web 壁纸路径本仓渲染器还没有，见 §11.4），断言口径一条不动"。
+//   · 同文件 T1–T5 / W1–W6（web 档 11 条）：旧"默认 iframe 就是产物页" → 新"这两组**显式切到上游档**再测，
+//     断言口径一条不动"。⚠ 更正（P1 2026-10-05）：这两组以产物档为夹具是**历史夹具选择**，不是能力缺失 ——
+//     本仓渲染器页自己的 web 路径后来已落地（`demo.html` 的 `?type=web` + 原始 URL + 服务端注入 shim，
+//     判据 `bench-ui-headless` 的 R3/R3b/R3c），"本仓没有 web 路径"这句旧口径与实测相反。
+/* ══════════ P1（RENDERER-UNIFY-PLAN §3 P1）**两档能力表**：数据 = 唯一真源 ══════════
+   为什么要有它：两档的差异此前散在状态行文案、注释与测试断言三处（"手写文案"），改一处就会与实测漂移。
+   这里把差异写成**数据**（每项带一句为什么 + 证据指向），差异集合由 `rendererCapDifferences()` 现算 ——
+   测试断言的正是这张表本身（新增差异必须进表、表的差异必须被断言点名）。
+   `same: true` = 两档口径相同（写出来是为了防止"以为不同"的错觉被反复讨论）。
+   取值只写**可复核的口径**，不写评价词。 */
+export const RENDERER_SOURCE_CAPS = {
+  upstream: {
+    entry: '/wallpaper-engine-webgl/renderer/index.html',
+    liveRes: false,              // 无 ?res=dpr 活档位
+    canvasFormula: 'clientWidth*min(devicePixelRatio,renderDpr)',
+    dprCap: 'renderDpr（工具条 DPR 档；缺省 1 ⇒ 1× CSS 像素出图）',
+    contextAlpha: false,
+    msaa: '离屏多重采样 FBO/RBO + 帧末 resolve（其 antialias 恒 false）',
+    bandfeed: false,             // 不认 ?bandfeed=
+    diagFlags: 11,               // type/src/fit/renderDpr/sceneFps/muted/loop/filter/mediaBase/liveSystem/opaque
+    hostApi: '__wp（14 个方法，无几何 setter）+ __we* 家族',
+    webPath: true,               // 产物自己的 video|gif|image|scene|web|canvas 分派
+    scenePackHandoff: 'mediaBase+src 同时给（否则 canvases: []）',
+    msaaTierFlag: false,
+  },
+  repo: {
+    entry: '/webloader/',
+    liveRes: true,               // ?res=dpr：显示尺寸 × 设备 DPR，带上限与重算
+    canvasFormula: 'displaySize*devicePixelRatio（?res=dpr 活档位，上限 3840*2160 / 单边 4096）',
+    dprCap: '无（DPR 档只决定?res=dprN 的上限）',
+    contextAlpha: false,         // premultipliedAlpha:false + alpha:false（glCanvasAttrs 唯一来源）
+    msaa: '原生 antialias（msaa 档与 q!=off 不能并用）',
+    bandfeed: true,              // ?bandfeed=wallpaper|mic|sim|off + __mpwAudioBand*
+    diagFlags: 215,              // 本仓 URL 开关数（diag-flag-check 双向 0 差异）
+    hostApi: '__wp + __mpw*（LiveRes/WebFrame/Pointer/Audio…）',
+    webPath: true,               // ?type=web + 原始 URL + 服务端注入 shim（R3/R3b/R3c）
+    scenePackHandoff: '按 ?id= 取包（同源 /pkg/<id>）',
+    msaaTierFlag: true,
+  },
+}
+/** 两档差异集合（现算：键序稳定、只列 `same` 之外的项）。`keys` = 差异键；`table` = 每键的 `{upstream,repo}`。 */
+export function rendererCapDifferences(caps) {
+  const t = caps || RENDERER_SOURCE_CAPS
+  const up = t.upstream || {}, rp = t.repo || {}
+  const keys = Object.keys(up).filter((k) => JSON.stringify(up[k]) !== JSON.stringify(rp[k])).sort()
+  const table = {}
+  for (const k of keys) table[k] = { upstream: up[k], repo: rp[k] }
+  return { keys, table }
+}
 export const RENDERER_SOURCE_DEFAULT = 'repo'
 /** 档位 → i18n 键（选项文案、换档日志、状态行共用一份，避免三处漂移）。 */
 export const RENDERER_SOURCE_LABEL_KEYS = { upstream: 'rendererSrc.upstream', repo: 'rendererSrc.repo' }
