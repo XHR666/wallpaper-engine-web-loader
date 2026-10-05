@@ -250,6 +250,11 @@ console.log('── ⑥ bundle 接线（解析注册表 + `?anim=` 档位 + 源�
     src.indexOf('if (ANIM_MODE_RUNTIME !== \'legacy\') applyLayerAnims(layer)') < src.indexOf('let __layerVis = layer.visible'))
   ok('F10 宿主每帧推进一次，且排在 `renderer.render(` 之前',
     host.indexOf('lib.advanceSceneAnimations(scene,') > 0 && host.indexOf('lib.advanceSceneAnimations(scene,') < host.indexOf('renderer.render(scene, textures'))
+  ok('F15 宿主给动画的 dt = **场景时钟差**（不吃 `mpwCapScriptDt` 的单帧 0.05s 封顶）',
+    /const dtAnim = Math\.max\(0, tSec - lastAnimClock\)/.test(host) &&
+    /lib\.advanceSceneAnimations\(scene, dtAnim\)/.test(host) &&
+    !/lib\.advanceSceneAnimations\(scene, mpwSceneDt\(mpwCapScriptDt\(frameDt\)\)\)/.test(host),
+    '（低于 20fps 时沿用封顶会让动画变慢动作：llvmpipe 实测 13s 轨道走 60s+）')
   ok('F11 宿主把控制器注册给脚本门面（`setAnimationResolver`，重挂载重建）',
     /setAnimationResolver\(\(raw\) => \(scene && scene\.__animByRaw/.test(host))
   // ②(P-228l) 帧事件：`advanceSceneAnimations` 必须**取走**队列（否则 loop 轨道越帧会让队列无界增长），

@@ -9206,6 +9206,8 @@ function loadScene() {
   }
   let last0 = performance.now();
   let lastFrameNow = last0;      // ①(N7) 真实 frametime 取样点（上一帧的 performance.now）
+  /* ②(P-228l 修正，2026-10-05) 属性动画的**上一帧场景时钟**：动画 dt = 场景时钟差（见下方注释）。 */
+  let lastAnimClock = 0;
   const frame = (now) => {
     if (mpwDisposed) return;   // ①(P-77) dispose 之后即使被误调也不再出帧（引用已清空）
     // ①(2026-09-21 宿主 API) `__wp.pause()` 冻结：本帧不出、也**不自排**下一帧（`resume()` 直接调
@@ -9250,6 +9252,14 @@ function loadScene() {
     //   改动前的 `(now - last0) / 1000` ⇒ 逐位不变；被碰过后按"墙上时间 × rate"推进（动画 dt 同步倍率）。
     /* ②(P-228f) 「去除开屏动画」：offset=0 时与旧算式**逐位相同**（`x + 0 === x`）。 */
     const tSec = mpwSceneClockAt(now, (now - last0) / 1000) + mpwIntroSkipEnsure(sceneObj);
+    /* ②(P-228l 修正) **属性动画的 dt 不吃单帧封顶**：`mpwCapScriptDt` 把一帧的 dt 封到 0.05s（防卡顿/切档后
+       跳变，脚本 `engine.frametime` 用它是对的），但动画是**按时间轴播的** ⇒ 低于 20fps 的机器上沿用封顶会让
+       动画变**慢动作**（本机 llvmpipe ≈2–4fps 实测：`mkj` 那条 390 帧/13s 的淡入从"约 3–5s 入黑"漂到
+       16–20s，整帧亮度剖面因此出现上游没有的"迟到振荡"）。legacy 路径本来就是"把场景时钟钉进求值"
+       （= 实时），这里改成 advance 之后用**同一条时钟的差**，口径不变；`?skipintro` 的前推量照旧计入
+       （文档口径："效果链/粒子/脚本都跟着快进"）。 */
+    const dtAnim = Math.max(0, tSec - lastAnimClock);
+    lastAnimClock = tSec;
     if (attachAnimActive.size) {
       // ①(P1-MDLA 采样口径, 第三方参考 wer-ref WPPuppet.cpp:210-260)：
       //   rate = (t*fps)；loop: a=floor(rate)%len, b=(a+1)%len, tt=frac(rate)
@@ -9330,7 +9340,7 @@ function loadScene() {
 		//   位置就固定在这一处：脚本同步（`syncScriptOrigins`）**之后**、`renderer.render` **之前**
 		//   —— 动画写回发生在渲染循环内，天然晚于"脚本写 raw"；dt 与脚本 frametime 同一口径
 		//   （吃播放倍率 + 单帧封顶），所以播放倍率与动画推进不会分叉成两个速度。
-		{ try { lib.advanceSceneAnimations(scene, mpwSceneDt(mpwCapScriptDt(frameDt))) } catch (e) { /* 动画推进失败不影响出帧 */ } }
+		{ try { lib.advanceSceneAnimations(scene, dtAnim) } catch (e) { /* 动画推进失败不影响出帧 */ } }
 		const __t0 = Date.now()
 		const __first = !mpwFirstFrameDone
 		try { if (!sceneAudio.started && mpwFirstFrameDone) startSceneAudio() } catch (e) { /* ignore */ }

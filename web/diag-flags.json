@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-05T17:44:17.500Z",
+  "generatedAt": "2026-10-05T19:55:57.284Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -1111,7 +1111,7 @@
         },
         {
           "file": "demo.html",
-          "line": 9409,
+          "line": 9419,
           "pattern": "searchParams.get('id')"
         }
       ]
@@ -1336,7 +1336,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9780,
+          "line": 9790,
           "pattern": "regex [?&]media="
         }
       ]
@@ -1864,7 +1864,7 @@
         },
         {
           "file": "demo.html",
-          "line": 9409,
+          "line": 9419,
           "pattern": "searchParams.get('pkgpath')"
         }
       ]
@@ -1880,7 +1880,7 @@
         },
         {
           "file": "demo.html",
-          "line": 9409,
+          "line": 9419,
           "pattern": "searchParams.get('pkgurl')"
         }
       ]
@@ -2609,7 +2609,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9378,
+          "line": 9388,
           "pattern": "searchParams.get('thumbpost')"
         }
       ]
