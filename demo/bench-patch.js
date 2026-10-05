@@ -10688,6 +10688,17 @@ export function init() {
       let saved = null
       try { saved = localStorage.getItem(barCollapseKey) } catch (e) { /* 无存储 */ }
       if (saved === 'off') setBarCollapsed(true); else paintBarRow()
+      /* ④(2026-10-04) 先把工具条里的 `<select>` **逐个增强**（`mpw-select.js` 的 `enhanceSelect`：
+         根 `span.mpw_select` + 可切换按钮 + `data-open`/`aria-expanded` 状态）。
+         为什么必须增强：**原生 select 的下拉无法程序化关闭** ⇒ "点 label 文字能开、却关不掉"（只有点原框才行）；
+         增强控件是普通 DOM + 可切换按钮 ⇒ 同一个热区开/关都成立。已经增强过的（有 `__mpwSelectHandle`）跳过。 */
+      try {
+        const sels = tb.querySelectorAll ? tb.querySelectorAll('select') : []
+        for (const sel of sels) {
+          if (!sel || sel.__mpwSelectHandle) continue
+          try { enhanceSelect(sel) } catch (e) { /* 单只失败不影响其它 */ }
+        }
+      } catch (e) { /* 桩 DOM */ }
       tb.addEventListener('click', (ev) => {
         try {
           const el = ev.target
@@ -10695,12 +10706,22 @@ export function init() {
           if (el.closest('button, select, input, textarea')) return          // 控件自己处理
           const label = el.closest('label')
           if (!label || !label.querySelector) return
+          /* ④(2026-10-04 三改) 热区判定**不要求 label 里有 `<select>`**：测试台「分辨率」这类是自绘选择器
+             （`button[aria-expanded]` + 自己的浮层），旧条件会让它在"点文字"这条路上直接早退 ⇒ 开得了、关不了。
+             现在的口径：label 里只要有"可切换的按钮"（`button[aria-expanded]` / `.mpw_select_btn` / 任意 button），
+             点文字就转发给它（有 handle 的走 handle 的 open/close，保证对称）。 */
+          const toggle = label.querySelector('button[aria-expanded], .mpw_select_btn, button')
+          if (!toggle) return
           const sel = label.querySelector('select')
-          if (!sel) return
-          const btn = label.querySelector('button, .mpw-select, [role="button"]')
-          if (!btn || btn === el) return
           ev.preventDefault()
-          try { btn.click() } catch (e) { /* 合成事件 */ }
+          //  ④a 有 handle 的（增强后）：**显式 toggle**（open/close 对称，最稳）
+          const h = sel && sel.__mpwSelectHandle
+          if (h && typeof h.isOpen === 'function') {
+            try { h.isOpen() ? h.close() : h.open() } catch (e) { /* 回落按钮 */ }
+            return
+          }
+          //  ④b 没有 handle 的（增强失败 / 桩 DOM）：退回"转发给按钮"
+          if (toggle !== el) { try { toggle.click() } catch (e) { /* 合成事件 */ } }
         } catch (e) { /* 命中区转发失败不影响默认行为 */ }
       }, true)
     }
