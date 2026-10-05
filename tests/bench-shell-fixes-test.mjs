@@ -1031,6 +1031,10 @@ console.log('== K 属性面板批（#18/#23/#25/#26/#27/#28/#30/#34 + #14） =='
     'M8 ⑥ 勾选框行不受影响（它的文字仍是热区，命中区口径见 P-228e 四改）')
   ok(/sel\.closest\('\.bench-rd'\)/.test(patchCode),
     'M9 ② 增强循环跳过 `.bench-rd` 里的原生 select（它是值容器；增强它会多出一个隐藏控件抢点击）')
+  /* ③(P-228f 2026-10-05) 产物自己渲染的图片链接（`.prop-media` 里 `<a href><img></a>`）也要过确认窗：
+     旧口径只拦我们自己的 `a.bench-prop-link` ⇒ 点作者图片直接开新标签、确认弹层被绕开。 */
+  ok(/t0\.closest\('a\.bench-prop-link'\) \|\| t0\.closest\('#props-body a\[href\]'\)\)/.test(patchCode),
+    'M10 ③ 属性面板里**任何** `a[href]`（含产物渲染的图片链接）都走 `openExternalConfirm`（确认弹层不再被绕开）')
 }
 
 console.log(`\n── 汇总：PASS=${pass} FAIL=${fail}`)

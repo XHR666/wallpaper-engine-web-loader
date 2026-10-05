@@ -5895,7 +5895,12 @@ export function initSiteShell(ctx = {}) {
       propsBody.addEventListener('change', onPropNumChange, true)
       propsBody.addEventListener('click', (ev) => {
         const t0 = ev && ev.target
-        const a = t0 && t0.closest ? t0.closest('a.bench-prop-link') : null
+        /* ③(P-228f 2026-10-05) **产物自己渲染的图片链接也要过确认窗**：产物面板把带 `href` 的图片包成
+           `<a href target=_blank>`（`prop-media` 那条渲染路径），点它浏览器直接开新标签、
+           我们的确认弹层（`#bench-ext-confirm`，倒计时 3s + 明确目标域名）完全被绕开。
+           这里把口径从"只认我们自己的 `a.bench-prop-link`"放宽到"`#props-body` 里**任何** `a[href]`"：
+           两类链接走同一条确认链，`javascript:`/`data:` 仍被 `externalLinkInfo` 拒掉。 */
+        const a = t0 && t0.closest ? (t0.closest('a.bench-prop-link') || t0.closest('#props-body a[href]')) : null
         if (!a) return
         try { ev.preventDefault() } catch { /* 合成事件 */ }
         try { ev.stopImmediatePropagation() } catch { /* 合成事件 */ }
