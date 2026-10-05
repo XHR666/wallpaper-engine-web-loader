@@ -219,6 +219,28 @@ objects[77] = 安全模式（id 515）· 导出: cursorClick
 ① 屏内的 `tim logo`（设计 x=5571，可点；`cursorClick` 是 500ms 双击判定，改 `健康壁纸` 可见性）；
 ② `{user:…}` 属性路径（`timlogohide`「显示tim菜单」默认 true；`右-菜单-底色`/`中-菜单-浮动` 带 `newproperty1`）。
 
+## 2h. 点击链的最后一格读数（2026-10-05）：谁导出了 `cursorClick`
+
+真机双击屏内的 `tim logo`（设计 (5571,234)，hits 含它）⇒ 台账 `clicks` 0→4、`hits` 含 6 层、
+`__mpwVecWrites` 空、`健康壁纸.visible` **仍是 false**、`pageerror 0`。
+
+离线对账（哪几个命中层真的导出 `cursorClick`）：
+
+```
+tim logo        | id 500 | 脚本字段: alpha,visible | 导出 cursorClick: visible
+ldfk            | id 541 | 脚本字段: visible       | 导出 cursorClick: visible
+右-菜单-底色     | id 489 | 脚本字段: origin        | 导出 cursorClick: 无
+new background1 | id 222 | 脚本字段: —             | 无
+cloud           | id 76  | 脚本字段: —             | 无
+Solid           | id 174 | 脚本字段: —             | 无
+```
+
+⇒ **`CURSOR.clicks` 统计的是"脚本调用数"，不是"点击次数"**（一下点击命中 2 个导出者 ⇒ +2），
+所以"0→4 = 两次物理点击"自洽，`tim logo` 的 `cursorClick` 每次点击**恰好被调到一次** ✓。
+但它"双击切换 `健康壁纸`"的净结果仍是 false ⇒ **`健康壁纸.visible` 被多个脚本写**（它自己的脚本 +
+`设置*`/`安全模式` 的 `adad()` 每帧写），单看这一格读数判不出是谁把它按回去的 —— 下一步需要**每帧写入轨迹**
+（把 `visible` 的写入点连脚本名一起记账，工具已具备同一套 Proxy 能力）。
+
 ## 3. 已知与本包相关的既有修复（回归背景）
 
 - **P-229**：`demo.html` 台账 composite 条目全灭（`mpwLedgerYDown` 块级作用域）——量法已恢复；
