@@ -118,3 +118,56 @@ if (argv.includes('--all')) {
   console.log('---- 去重（' + new Set(out.values()).size + ' 条）----')
   console.log([...new Set(out.values())].join(' | '))
 }
+
+/* ── --call <导出名>[,…]：在**同一个 vm 沙箱**里用**桩门面**真的调一次导出，把"脚本为什么没走到某条分支"
+   变成可复核读数（离线、无浏览器）：用 Proxy 记录成员访问 / 赋值 / 调用，桩返回值可继续链式取成员。
+   读数：`toplevel`（顶层是否抛）+ `call`（调用是否抛）+ 访问/赋值/调用轨迹（前 40 条）。 ── */
+if (val('--call')) {
+  const names = String(val('--call')).split(',').map((x) => x.trim()).filter(Boolean)
+  const trace = { get: [], set: [], call: [], err: [] }
+  const mkStub = (label) => new Proxy(function () {}, {
+    get(_t, k) {
+      if (typeof k === 'symbol' || k === 'then' || k === 'inspect') return undefined
+      trace.get.push(label + '.' + String(k))
+      return mkStub(label + '.' + String(k))
+    },
+    set(_t, k, v) {
+      trace.set.push(label + '.' + String(k) + ' = ' + (v && typeof v === 'object' ? '[obj]' : JSON.stringify(v)))
+      return true
+    },
+    apply(_t, _this, args) {
+      const a = args.map((x) => (typeof x === 'string' ? JSON.stringify(x) : typeof x === 'number' ? String(x) : '[obj]')).join(', ')
+      trace.call.push(label + '(' + a + ')')
+      return mkStub(label + '()')
+    },
+  })
+  const shared = new Proxy({}, { get: (t, k) => (k in t ? t[k] : 0), set: (t, k, v) => { t[k] = v; return true } })
+  const sb = {
+    console: { log: () => {}, warn: () => {}, error: () => {} },
+    Math, Date, JSON, Number, String, Boolean, Array, Object, RegExp, Error, isFinite, isNaN, parseInt, parseFloat,
+    atob: (v) => Buffer.from(String(v), 'base64').toString('binary'),
+    Function, setTimeout: () => 0, setInterval: () => 0, clearTimeout: () => {}, clearInterval: () => {},
+    localStorage: { getItem: () => null, setItem: () => {} },
+    shared, engine: mkStub('engine'), thisScene: mkStub('thisScene'), thisLayer: mkStub('thisLayer'), parent: mkStub('parent'),
+    window: null, globalThis: null, self: null,
+  }
+  sb.window = sb; sb.globalThis = sb; sb.self = sb
+  const exportsList = [...new Set([...text.matchAll(/export\s+function\s+([A-Za-z_$][\w$]*)/g)].map((m) => m[1]))]
+  let code2 = text.replace(/\bexport\s+/g, '')
+  code2 += '\n;globalThis.__exp = {' + exportsList.map((n) => n + ':' + n).join(',') + '};\n'
+  const ctx2 = vm.createContext(sb)
+  try { vm.runInContext(code2, ctx2, { timeout: 5000 }) } catch (e) { trace.err.push('toplevel: ' + String(e && e.message || e).slice(0, 140)) }
+  console.log(`objects[${idx}] = ${obj.name}（id ${obj.id}）· 导出: ${exportsList.join(',') || '(无)'}`)
+  for (const n of names) {
+    const fn = sb.__exp && sb.__exp[n]
+    if (typeof fn !== 'function') { console.log(`   --call ${n}: **没有这个导出**`); continue }
+    trace.get.length = 0; trace.set.length = 0; trace.call.length = 0
+    let ret = null
+    try { ret = fn(mkStub('event')) } catch (e) { trace.err.push(n + ': ' + String(e && e.message || e).slice(0, 160)) }
+    console.log(`   --call ${n}: ${ret === undefined ? 'undefined' : (ret && typeof ret === 'object' ? '[obj]' : JSON.stringify(ret))}`)
+    if (trace.err.length) console.log('      errors: ' + JSON.stringify(trace.err))
+    if (trace.call.length) console.log('      调用: ' + trace.call.slice(0, 12).join(' | '))
+    if (trace.set.length) console.log('      赋值: ' + trace.set.slice(0, 12).join(' | '))
+    if (trace.get.length) console.log('      读取: ' + trace.get.slice(0, 40).join(' | '))
+  }
+}

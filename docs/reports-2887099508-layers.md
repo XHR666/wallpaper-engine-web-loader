@@ -167,6 +167,32 @@ shared = { kkyy: 686, yykk: 868, eee: 666, mus: '枫桥雨' }      // 双击 tim
 把"抛在哪 / 访问了哪些成员 / 哪条门先 return"打成读数（本轮已写出该模式但改坏了文件位置，
 最后选择**回退到已提交的可用版本**，把这件事留给下一轮用 20 行补上 —— 见提交 `b36739b` 之后的记录）。
 
+## 2f. 更正与收口（2026-10-05·新工具 `--call`）
+
+**新增离线复现能力**：`tests/script-string-decode.mjs --call <导出名>` —— 在同一个 `node:vm` 沙箱里用
+**桩门面**（Proxy 记录成员读取/赋值/调用）真的调一次导出。读数示例（本包两条，逐字可复核）：
+
+```
+objects[74] = 设置2-穿上内内（id 562）· 导出: cursorEnter,cursorLeave,cursorClick
+   --call cursorClick: undefined
+      调用: thisScene.getLayer("panci cover up") | thisScene.getLayer("pussy")
+      赋值: thisScene.getLayer().visible = true | thisScene.getLayer().visible = false
+objects[77] = 安全模式（id 515）· 导出: cursorClick
+   --call cursorClick: null
+      调用: thisScene.destroyLayer(1) | thisScene.getLayer("中-菜单-浮动") | thisScene.getLayer("健康壁纸") …
+      赋值: thisScene.getLayer().origin = 0
+```
+
+**⚠ 上一节的结论要更正一处**：`安全模式` 的 `origin` 字段是 **`{script: …}` 脚本属性**（每帧被脚本求值写回），
+所以探针"把它的 raw `origin.value` 挪进屏内"会被下一帧覆盖 ⇒ **它根本没被挪动、那一下点击也没命中它**
+（证据：点击后台账 `hits` 里没有 `安全模式`，只有背景层）—— **"分支没走到"的推断作废**，
+真正的原因是"点击没打到它"。要打到这类 UI 热点层，得先让**菜单布局脚本**把它摆到屏内
+（本包多个菜单层的 `origin`/`scale` 都是脚本属性，按 `中-菜单-浮动` 的位置 ± 偏移摆放）。
+
+**同时确定为"宿主无关"的部分**：`aad()`/`ad()` 的门是 `shared['eee'] != 0x29a(666)` ⇒ `destroyLayer(0)` + 自隐藏；
+真机 `shared.eee = 666` ⇒ 这条门**是满足的**（不会因此隐藏）。`设置2-穿上内内` 的 `cursorClick`
+（上面读数）就是"点它 ⇒ `panci cover up` 显示、`pussy` 隐藏"的唯一入口 —— 与 §1 的结论逐字一致。
+
 ## 3. 已知与本包相关的既有修复（回归背景）
 
 - **P-229**：`demo.html` 台账 composite 条目全灭（`mpwLedgerYDown` 块级作用域）——量法已恢复；

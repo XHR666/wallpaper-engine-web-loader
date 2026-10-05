@@ -15857,15 +15857,14 @@ P-233 的 `dispatchCursor()`（`demo.html` MPW-CURSOR 段）把聚合量 `const 
 - 语料实证（`0923/2887099508` 的 `安全模式` 脚本，用新增的 `tests/script-string-decode.mjs` 解码）：
   `= (-0x3e8,-0x3e8,0x0)` 是**逗号表达式 ⇒ 求值为 0**（标量），正是这条路径。
 
-### 未验证边界（已定案一半）
-真机点 `安全模式`（先把它的 raw `origin` 挪进屏内才点得到）时该脚本的 `cursorClick` **确实被调到**
-（`calls: 1`、`pageerror 0`），但菜单 `中-菜单-浮动` 的 origin 未变。为区分"分支没走到"与"写入被丢"，
-本轮又加了**只读环形账** `globalThis.__mpwVecWrites`（层引用 `origin` 写入 ≤20 条：层名 + 归一化串 + 原始值类型；
-`value:null` = 这次写入被丢弃）⇒ 真机读数 **`vec: []`（空）** —— **层引用 `origin` 的 setter 一次都没被调用**，
-即**候选①成立：该脚本这次点击走的是别的分支**，不是"写丢了"、也不是"写到别的对象上"。
-⇒ 下一步：把 `安全模式` 的 `cursorClick` 分支（`adad()` 的门 + `健康壁纸.visible` 判定 + `destroyLayer` 分支）
-逐条打成读数，找出它为什么没走到写 `中-菜单-浮动.origin` 那条（这已属**该包脚本逻辑**层面，
-与宿主无关的候选②③已被这次读数排除）。
+### 未验证边界（已定案，含一处更正）
+真机点 `安全模式` 时脚本被调到（`calls: 1`、`pageerror 0`）但菜单 origin 未变；`__mpwVecWrites` 为空。
+本轮加了离线复现工具 `tests/script-string-decode.mjs --call <导出名>`（vm 沙箱 + 桩门面，记录成员读取/赋值/调用）
+后**更正**了推断：`安全模式` 的 `origin` 是 **`{script: …}` 脚本属性**，探针把 raw `origin.value` 挪进屏内会被
+下一帧覆盖 ⇒ **那一下点击根本没命中它**（台账 `hits` 里只有背景层）——"分支没走到"作废。
+宿主无关的部分同时确定：`aad()`/`ad()` 的门 `shared['eee'] != 666` 在真机上**是满足的**；
+`设置2-穿上内内` 的 `cursorClick` 经 `--call` 复现为"`panci cover up`.visible=true / `pussy`.visible=false"，
+与 §1 的脚本语义逐字一致。⇒ 这类"点菜单出内容"的路径要端到端验，必须先让**菜单布局脚本**把热点层摆到屏内。
 
 ## P-229（2026-10-04）演示页逐层台账的 composite 条目自 P-64-MEDIA 起全灭（`mpwLedgerYDown` 块级作用域错位）—— C0② 受控实验定位
 
