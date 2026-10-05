@@ -997,5 +997,39 @@ console.log('== K 属性面板批（#18/#23/#25/#26/#27/#28/#30/#34 + #14） =='
     'K59 ★ 变异⑤生效：K33（占位颜色必须被认出来）在变异体里必红')
 }
 
+// ══════════════════ M 组（2026-10-04 · 工具条命中区两处：复选框与下拉"点文字"） ══════════════════
+//  用户第 46 条：① 复选框可点区各行不一致（有的"框左边还能点到"，有的点不了）；
+//                ② 悬停下拉的**行文字**会给触发框加灰底（看着像可点），但点文字开/关不对称。
+//  判据放这里（静态不漂移）；真机鼠标行为已用带浏览器探针实测（docs/PATCHES.md P-228e 四~六改）。
+{
+  const css = (s) => norm(staticCss).includes(norm(s))
+  /* ① 命中区 = "框 + 文字"，不再有 label 左内边距那条看不见的可点带 */
+  ok(css('#toolbar > .check{flex:0 0 auto;width:auto;padding-left:0;padding-right:8px}'),
+    'M1 ① `.check` 左内边距清零（label 的 padding 也算可点区 ⇒ 旧值 8px 就是"框左边多出来的一截"）')
+  ok(!norm(htmlCode).includes('#toolbar > button,html.bench-shell #toolbar > .mpw-select,html.bench-shell #toolbar > .check{'),
+    'M2 ① 旧的三合一规则里不再带 `.check`（否则 .check 又吃回 padding-left:8px，M1 白改）')
+  ok(css('#toolbar > .check > input[type="checkbox"]{margin:0 6px 0 0}'),
+    'M3 ① 框与文字的间距交给 input 自己的 margin（四行几何一致：可点区 == 框 + 文字）')
+  /* ② 点文字 = 原生 label 激活（浏览器把它转发给行内第一个可标记控件）；外部点击关闭必须把整行当"内部" */
+  const labelGuard = (src) => /d\.wrap\.closest\('label'\)/.test(src) && /lab\.contains\(t\)\) continue/.test(src)
+  ok(labelGuard(patchCode),
+    'M4 ② 全局"点空白收起"把**同一行 label 内的文字**视作内部（否则：先收起 → 随后原生激活又打开 ⇒ 点第二下关不掉）')
+  ok(!labelGuard(patchCode.replace(/lab\.contains\(t\)\) continue/, 'false) break')),
+    'M5 ★ 变异生效：M4 的判据不是恒真（去掉 label 兜底后必红）')
+  const handler = (() => {
+    const i = patchCode.indexOf("tb.addEventListener('click'")
+    if (i < 0) return ''
+    const j = patchCode.indexOf('}, true)', i)
+    return j < 0 ? '' : patchCode.slice(i, j)
+  })()
+  ok(handler.length > 0, 'M6 ② 工具条那条 capture 委托还在（取到处理器正文，供 M7/M8 判）')
+  ok(!/preventDefault/.test(handler),
+    'M7 ② 委托里**不许** preventDefault：那会取消浏览器对 label 的原生激活（点文字就彻底没反应了）')
+  ok(/const ctl = label\.querySelector\('button, select, input, textarea'\)/.test(handler) && /if \(ctl\) return/.test(handler),
+    'M8 ② 行内有可标记控件时一律交回原生激活（只有行内根本没有控件才手动兜底点自绘按钮）')
+  ok(/sel\.closest\('\.bench-rd'\)/.test(patchCode),
+    'M9 ② 增强循环跳过 `.bench-rd` 里的原生 select（它是值容器；增强它会多出一个隐藏控件抢点击）')
+}
+
 console.log(`\n── 汇总：PASS=${pass} FAIL=${fail}`)
 process.exitCode = fail ? 1 : 0

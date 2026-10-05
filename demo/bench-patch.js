@@ -7045,7 +7045,21 @@ export function init() {
   const dropdowns = []
   const closeAll = (except) => { for (const d of dropdowns) if (d !== except) d.close() }
   for (const sel of doc.querySelectorAll('select')) bindDropdown(doc, sel, dropdowns)
-  doc.addEventListener('click', (e) => { for (const d of dropdowns) if (!d.wrap.contains(e.target)) d.close() })
+  /*  ④(2026-10-04 六改 · 根因) 「点这一行的文字」必须算**这一行内部**：`<label>` 会把这次点击
+      **原生激活**到控件上，而那次激活发生在本次事件冒泡**结束之后** ⇒ 这里先把浮层收掉的话，
+      随后那次激活又把它打开，净效果正是用户报的"文字上点一下能开、再点一下关不掉"。
+      判据从"点是否落在 wrap 里"放成"点是否落在 wrap 或它所在的 label 里"：文字与触发框同一热区，
+      开/关才对得上（hover 时给触发框加灰底的那条样式，本来也是按整行做的）。 */
+  doc.addEventListener('click', (e) => {
+    for (const d of dropdowns) {
+      const t = e.target
+      if (d.wrap.contains(t)) continue
+      let lab = null
+      try { lab = (d.wrap.closest && d.wrap.closest('label')) || null } catch { /* 桩 DOM */ }
+      if (lab && lab.contains && lab.contains(t)) continue
+      d.close()
+    }
+  })
   doc.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(null) })
   // ⑬(2026-09-19) 浮层坐标是**展开那一刻**算的（fixed 坐标系）：一旦页面/面板滚动或窗口改尺寸，
   //   它就跟锚点脱开了 —— 与其追着改坐标，不如直接收起（"不会被滚走"的最简可靠实现）。
@@ -10696,6 +10710,11 @@ export function init() {
         const sels = tb.querySelectorAll ? tb.querySelectorAll('select') : []
         for (const sel of sels) {
           if (!sel || sel.__mpwSelectHandle) continue
+          /*  ④(2026-10-04 四改) **跳过"已经有可见按钮的自绘控件里的 select"**：测试台「分辨率」是
+              `.bench-rd`（自己的 `button[aria-expanded]` + 浮层），里面的 `#resolution` 只是值容器。
+              增强它只会多出一个隐藏 widget，并让 `__mpwSelectHandle` 在"点文字"这条路上抢走本该给
+              可见按钮的点击 ⇒ 观感就是"文字能开、关不掉"。 */
+          try { if (sel.closest && (sel.closest('.bench-rd') || sel.closest('.mpw_select'))) continue } catch (e) { /* 桩 DOM */ }
           try { enhanceSelect(sel) } catch (e) { /* 单只失败不影响其它 */ }
         }
       } catch (e) { /* 桩 DOM */ }
@@ -10706,22 +10725,18 @@ export function init() {
           if (el.closest('button, select, input, textarea')) return          // 控件自己处理
           const label = el.closest('label')
           if (!label || !label.querySelector) return
-          /* ④(2026-10-04 三改) 热区判定**不要求 label 里有 `<select>`**：测试台「分辨率」这类是自绘选择器
-             （`button[aria-expanded]` + 自己的浮层），旧条件会让它在"点文字"这条路上直接早退 ⇒ 开得了、关不了。
-             现在的口径：label 里只要有"可切换的按钮"（`button[aria-expanded]` / `.mpw_select_btn` / 任意 button），
-             点文字就转发给它（有 handle 的走 handle 的 open/close，保证对称）。 */
-          const toggle = label.querySelector('button[aria-expanded], .mpw_select_btn, button')
-          if (!toggle) return
-          const sel = label.querySelector('select')
-          ev.preventDefault()
-          //  ④a 有 handle 的（增强后）：**显式 toggle**（open/close 对称，最稳）
-          const h = sel && sel.__mpwSelectHandle
-          if (h && typeof h.isOpen === 'function') {
-            try { h.isOpen() ? h.close() : h.open() } catch (e) { /* 回落按钮 */ }
-            return
-          }
-          //  ④b 没有 handle 的（增强失败 / 桩 DOM）：退回"转发给按钮"
-          if (toggle !== el) { try { toggle.click() } catch (e) { /* 合成事件 */ } }
+          /*  ④(2026-10-04 五改 · 根因) **点文字这条路本来就由浏览器负责**：`<label>` 会把点击
+              "激活"到它内部第一个可标记元素（工具条里就是自绘控件的 `button.bench-rd-btn`，
+              即 `.bench-rd` 的切换按钮）。实测事件顺序是：
+                doc-capture click(span) → doc-capture click(button)[原生激活 ⇒ 控件打开]
+                → 我们这条 capture 监听(此时已 aria=true，于是 toggle 又把它关回去) ⇒ 净效果"点了没反应"。
+              所以这里**不再抢事件**：只要 label 里有可用的可标记控件，就原样交给原生激活
+              （开/关都对称，因为按钮自己就是 toggle）；`preventDefault` 会**取消**原生激活，一律不调。
+              只有 label 里根本没有可标记控件时，才手动兜底点一下自绘按钮。 */
+          const ctl = label.querySelector('button, select, input, textarea')
+          if (ctl) return                                   // 原生激活（disabled 控件即"这行本来就不可用"）
+          const btn = label.querySelector('.bench-rd-btn, .mpw_select_btn, [aria-haspopup], [aria-expanded]')
+          if (btn && btn !== el) { try { btn.click() } catch (e) { /* 合成事件 */ } }
         } catch (e) { /* 命中区转发失败不影响默认行为 */ }
       }, true)
     }
