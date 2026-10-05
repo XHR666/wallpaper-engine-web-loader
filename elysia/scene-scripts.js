@@ -776,6 +776,22 @@ export const LAYER_REF_FACE_NAMES = ['F1_getLayer', 'F2_emptyLayerRef', 'F3_laye
  *  `"NaN NaN NaN"`（静默把坐标写坏）。语料实证：`0923/2887099508` 的 `安全模式` 脚本写
  *  `getLayer('中-菜单-浮动').origin = (-0x3e8,-0x3e8,0x0)`（逗号表达式 **= 0**）⇒ 菜单本该挪到原点，
  *  实际写进 NaN。"`?scriptvec=legacy`" 时标量仍按旧行为丢弃（字符串/Vec3 行为不变）。 */
+/** ③(P-228k) 层引用 `origin` 写入的**只读**环形账（≤20 条）：`globalThis.__mpwVecWrites`。
+ *  记录 `{name, value, kind}` —— `value=null` 表示**这次写入被丢弃**（旧行为下标量会走这里；
+ *  `?scriptvec=legacy` 下仍然如此）⇒ "分支没走到"与"写被丢了"从此可区分。 */
+const VEC_WRITES = [];
+function vecWriteNote(obj, value, raw) {
+  try {
+    VEC_WRITES.push({
+      name: String((obj && obj.name) || ''),
+      value: value == null ? null : String(value),
+      kind: raw === undefined ? 'dropped' : (typeof raw === 'number' ? 'number' : typeof raw === 'string' ? 'string' : 'vec'),
+      at: Date.now(),
+    })
+    if (VEC_WRITES.length > 20) VEC_WRITES.shift()
+    globalThis.__mpwVecWrites = VEC_WRITES
+  } catch (e) { /* 诊断面失败不影响写入 */ }
+}
 function vec3WriteString(v) {
   if (v == null) return null;
   if (typeof v === 'number') return (SCALAR_VEC_BROADCAST && isFinite(v)) ? [v, v, v].map((n) => n.toFixed(6)).join(' ') : null;
@@ -1516,7 +1532,14 @@ function makeOwnerRef() {
       origin: {
         get: () => parseV(obj.origin, [0, 0, 0]),
         // ③(P-228k) 走共享归一化：字符串/标量不再写 NaN（旧实现在这两类输入下都写 "NaN NaN NaN"）
-        set: (v) => { const s2 = vec3WriteString(v); if (s2 != null) obj.origin = s2 },
+        set: (v) => {
+          const s2 = vec3WriteString(v)
+          if (s2 == null) { vecWriteNote(obj, null); return }
+          obj.origin = s2
+          /* ③(P-228k 取证面) 只读环形账：最近 20 次层引用 `origin` 写入（层名 + 归一化后的串 + 原始值类型）。
+             为什么留常驻：这类"脚本写坐标没生效"的定位此前只能靠猜（写丢/写偏/分支没走到三种原因读数一样）。 */
+          vecWriteNote(obj, s2, v)
+        },
       },
       scale: {
         get: () => parseV(obj.scale, [1, 1, 1]),
