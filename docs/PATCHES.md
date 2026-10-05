@@ -15822,6 +15822,11 @@ P-233 的 `dispatchCursor()`（`demo.html` MPW-CURSOR 段）把聚合量 `const 
   台账字段在位）⇒ 该项 PASS；`demo-syntax` / `demo-check` ✓。
 - 真机（`:8902`）：`pointermove` 命中背景层时台账 `lastDispatch.name = 'cursorMove'`、`hits` 正常；
   整轮 `pageerror` **0**。
+- **端到端验收（本包菜单层原本在屏幕外，探针把它挪进屏内）**：把 `设置1-返回` 的 **raw 对象**
+  `origin` 写成设计坐标中心（`__mpwRawObjects`，因为渲染循环每帧从 raw 同步到 `scene.layers` ⇒ 直接写
+  `scene.layers[i].origin` 会被覆盖）⇒ 真鼠标移到该点：`hits` 含 `设置1-返回`、台账 **`enters: 1`**；
+  移开 ⇒ **`leaves: 1`**、`pageerror 0` ⇒ 作者挂在 `cursorEnter/Leave` 上的那条路径（`阴影-设置1` 效果可见性）
+  从此真的会被调到。
 - 反混淆工具读数：`设置1-返回` 解出 `getLayer | 中-菜单-浮动 | getEffect | 阴影-设置1 | visible`（16 条去重），
   与 §2d 的推断逐条吻合。
 

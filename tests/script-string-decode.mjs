@@ -30,6 +30,54 @@ if (PKG) {
   const js = JSON.parse(fs.readFileSync(SCENE, 'utf8'))
   objects = js.objects || []
 }
+/** 解码一个脚本对象：返回 {ok, fns, calls, map:Map, uniq:string[]}（沙箱只跑到解码器初始化）。 */
+function decodeScript(obj) {
+  const raw = obj && obj.visible
+  const text = typeof raw === 'string' ? raw : String((raw && raw.script) || '')
+  if (!text) return { ok: false, text: '', map: new Map(), uniq: [], calls: 0, fns: [] }
+  const calls = [...text.matchAll(/(_0x[0-9a-f]+)\(\s*'(0x[0-9a-f]+)'\s*,\s*'([^']*)'\s*\)/g)].map((m) => ({ fn: m[1], idx: m[2], key: m[3] }))
+  const fns = [...new Set(calls.map((c) => c.fn))]
+  let code = text.replace(/\bexport\s+/g, '')
+  code += '\n;globalThis.__dec = {' + fns.map((f) => f + ':' + f).join(',') + '};\n'
+  const sandbox = {
+    console: { log: () => {}, warn: () => {}, error: () => {} },
+    Math, Date, JSON, Number, String, Boolean, Array, Object, RegExp, Error, isFinite, isNaN, parseInt, parseFloat,
+    atob: (v) => Buffer.from(String(v), 'base64').toString('binary'),
+    btoa: (v) => Buffer.from(String(v), 'binary').toString('base64'),
+    Function, setTimeout: () => 0, setInterval: () => 0, clearTimeout: () => {}, clearInterval: () => {},
+    localStorage: { getItem: () => null, setItem: () => {} },
+    shared: {}, engine: {}, thisScene: {}, thisLayer: {}, parent: {}, window: null, globalThis: null, self: null,
+  }
+  sandbox.window = sandbox; sandbox.globalThis = sandbox; sandbox.self = sandbox
+  const ctx = vm.createContext(sandbox)
+  try { vm.runInContext(code, ctx, { timeout: 5000 }) } catch (e) { /* 顶层中断不影响已捕获的解码器 */ }
+  const dec = sandbox.__dec || {}
+  const map = new Map()
+  for (const c of calls) {
+    const fn = dec[c.fn]
+    if (typeof fn !== 'function') continue
+    try { const v = fn(c.idx, c.key); if (typeof v === 'string') map.set(c.idx + '|' + c.key, v) } catch (e) { /* 单点失败跳过 */ }
+  }
+  return { ok: true, text, map, uniq: [...new Set(map.values())], calls: calls.length, fns }
+}
+
+/* ── --sweep：扫"哪些脚本引用了某个层名 / 写了哪些成员"（默认目标 = 中-菜单-浮动） ── */
+if (argv.includes('--sweep')) {
+  const target = val('--target', '中-菜单-浮动')
+  const rows = []
+  for (let i = 0; i < objects.length; i++) {
+    const d = decodeScript(objects[i])
+    if (!d.ok) continue
+    const members = d.uniq.filter((x) => /^[a-zA-Z_][a-zA-Z0-9_]{2,24}$/.test(x))
+    rows.push({ i, name: String(objects[i].name || ''), id: objects[i].id, calls: d.calls, uniq: d.uniq.length, target: d.uniq.includes(target), members })
+  }
+  const hit = rows.filter((r) => r.target)
+  console.log(`扫到带脚本对象 ${rows.length} 个；引用 "${target}" 的 ${hit.length} 个：`)
+  for (const r of hit) console.log(`   objects[${r.i}] ${r.name}（id ${r.id}）· 解码 ${r.uniq} 条 · 成员: ${r.members.join(',')}`)
+  console.log('---- 全部带脚本对象（前 30）----')
+  for (const r of rows.slice(0, 30)) console.log(`   objects[${r.i}] ${r.name}（id ${r.id}）· ${r.calls} 调用点 · ${r.uniq} 条${r.target ? '  ← 引用目标' : ''}`)
+  process.exit(0)
+}
 let idx = -1
 if (WANT_OBJ != null) idx = Number(WANT_OBJ)
 else if (WANT_NAME != null) idx = objects.findIndex((o) => String(o.name || '') === WANT_NAME)
