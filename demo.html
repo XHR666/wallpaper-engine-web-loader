@@ -2201,6 +2201,27 @@ function mpwDisplayApplyAll() {
    取值：`?skipintro=1|on|auto` ⇒ 自动取**开场动画本身的长度**（`general.zoom.animation.options` 的
    `length/fps`，取不到就是 0 = 无可跳过）；`?skipintro=<秒>` ⇒ 显式秒数（上限 120s）；
    `0|off|no|false`/缺省 ⇒ 不跳过。读数：`window.__mpwIntroSkip = {requested, seconds, why}`。 */
+/* ═══ ③(P-228h 2026-10-05) `?hybrid=`（DSH 进程流式播放）在**渲染器侧**的诚实边界 ═══
+   口径（测试台工具条第 4 行的 checkbox，默认开）：宿主要"边取边播、不等整包落盘"。
+   **渲染器侧今天做不到**，而且不能假装做到 —— `loadScene()` 之前有两道必须先跑完的整包步骤：
+     · `parsePkg`（索引在包头/条目按偏移读，必须有完整字节）；
+     · `prefetchWeEffectAssets()`（P-206）**必须在 `loadScene()` 之前 await 完**：loadScene 里是**同步**走
+       每条效果链的候选表，reader 未注册 ⇒ 整条链退化成"只有包内"（真机表现 = 效果缺失/画错）。
+   ⇒ 本档位在渲染器侧只做两件事：① **如实发布**宿主声明的档位（`window.__mpwHybrid`，供测试台/宿主读）；
+     ② 把"流式"这一半明确指回**宿主**（插件侧的 hybrid = 宿主边取边喂；渲染器侧仍是整包 fetch→parse→首帧）。
+   读数：`{requested, mode:'full-fetch', hostStream:false, note}`（`mode` 写成 `full-fetch` 是**事实**，不是缺省值）。 */
+const MPW_HYBRID_RAW = (() => {
+  try { return String(new URLSearchParams(location.search).get('hybrid') || '').trim().toLowerCase() } catch (e) { return '' }
+})()
+const MPW_HYBRID_REQ = MPW_HYBRID_RAW === '' ? null : !(MPW_HYBRID_RAW === '0' || MPW_HYBRID_RAW === 'off' || MPW_HYBRID_RAW === 'no' || MPW_HYBRID_RAW === 'false')
+try {
+  window.__mpwHybrid = {
+    requested: MPW_HYBRID_REQ,
+    mode: 'full-fetch',
+    hostStream: false,
+    note: '渲染器侧首帧前必须整包（parsePkg + 效果资产预取 P-206）⇒ 流式那一半在宿主侧（插件 hybrid 边取边喂）',
+  }
+} catch (e) { /* 无 window */ }
 const MPW_INTRO_SKIP_RAW = (() => {
   try { return String(new URLSearchParams(location.search).get('skipintro') || '').trim().toLowerCase() } catch (e) { return '' }
 })()

@@ -1031,6 +1031,18 @@ console.log('== K 属性面板批（#18/#23/#25/#26/#27/#28/#30/#34 + #14） =='
     'M8 ⑥ 勾选框行不受影响（它的文字仍是热区，命中区口径见 P-228e 四改）')
   ok(/sel\.closest\('\.bench-rd'\)/.test(patchCode),
     'M9 ② 增强循环跳过 `.bench-rd` 里的原生 select（它是值容器；增强它会多出一个隐藏控件抢点击）')
+  /* ③(P-228h 2026-10-05) 流式播放档的**诚实边界**：补丁把 `?hybrid=` 写进预览 URL（三档位之一），
+     渲染器侧只如实发布 `__mpwHybrid`（`mode:'full-fetch'` = 事实：首帧前必须整包 + 效果资产预取），
+     不许把它写成"已流式"。 */
+  {
+    const rendererSrc = fs.readFileSync(path.join(ROOT, 'demo.html'), 'utf8')
+    ok(/upsertCI\('hybrid'/.test(patchCode) && /opts\.hybrid/.test(patchCode),
+      'M11 ③ 补丁把 `?hybrid=` 写进预览 URL（缺省开）')
+    ok(/window\.__mpwHybrid\s*=/.test(rendererSrc) && /mode:\s*'full-fetch'/.test(rendererSrc),
+      'M12 ③ 渲染器如实发布 `__mpwHybrid`，且 `mode` 是事实值 `full-fetch`（不是"已流式"的假读数）')
+    ok(/prefetchWeEffectAssets/.test(rendererSrc) && /await prefetchWeEffectAssets\(/.test(rendererSrc),
+      'M13 ③ 边界有依据：`prefetchWeEffectAssets()` 仍是首帧前的 await（跳过它会让效果链画错）')
+  }
   /* ③(P-228f 2026-10-05) 产物自己渲染的图片链接（`.prop-media` 里 `<a href><img></a>`）也要过确认窗：
      旧口径只拦我们自己的 `a.bench-prop-link` ⇒ 点作者图片直接开新标签、确认弹层被绕开。 */
   ok(/t0\.closest\('a\.bench-prop-link'\) \|\| t0\.closest\('#props-body a\[href\]'\)\)/.test(patchCode),

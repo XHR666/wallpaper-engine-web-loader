@@ -15743,6 +15743,29 @@ cd /tmp/webwallgl-2.1.0-src && pnpm install --frozen-lockfile && pnpm build
 ① 只判"重动画 / 需外网"两项（与插件侧同口径）；② 静态托管（GitHub Pages）下 `/api/web-probe` 不存在 ⇒ 静默不报（与其它后端能力同处理）；
 ③ `heavy` 的资产后缀/名字规则照抄插件侧，未新增语料实测（本机 0923 的 3 个 web 项都是 `heavy:false`）。
 
+## P-228h（2026-10-05）`?hybrid=`（DSH 进程流式播放）在渲染器侧的**诚实边界**
+
+### 背景
+工具条第 4 行新增「流式播放」档（缺省开），语义照 DSH 插件的 hybrid：**边取边播、不等整包落盘**。
+本仓渲染器侧今天做不到 —— 而且不能假装做到：首帧前有两道**必须先跑完**的整包步骤：
+`parsePkg`（索引在包头、条目按偏移读，需完整字节）与 `prefetchWeEffectAssets()`（P-206，
+**必须**在 `loadScene()` 之前 await 完：loadScene 里是**同步**走每条效果链的候选表，reader 未注册
+⇒ 整条链退化成"只有包内"，真机表现就是效果缺失/画错）。
+
+### 改法
+渲染器侧只做两件事：① 如实发布 `window.__mpwHybrid = {requested, mode:'full-fetch', hostStream:false, note}`
+（`mode` 是**事实**值，不是缺省值）；② 把"流式"那一半明确指回宿主（插件 hybrid = 宿主边取边喂）。
+`README-DIAGNOSTICS` 主表登记 `hybrid`（216 == 216），第 3 个页签「对应API」的中英两张表同步写上这条边界。
+
+### 判据与读数
+- `bench-shell-fixes` **296/0**：新增 M11–M13（补丁把 `?hybrid=` 写进 URL、渲染器发布 `mode:'full-fetch'`、
+  边界有依据 = `prefetchWeEffectAssets()` 仍是首帧前的 await）。
+- 真机（`:8902`）：挂载 URL 带 `hybrid=1`，iframe 里读数 `{requested:true, mode:'full-fetch', hostStream:false, note:…}`。
+
+### 未验证边界
+**不做首帧提前**（跳过预取会让效果链画错）；真正的"边取边播"要么由宿主实现（插件侧），要么等 `parsePkg` 支持
+"索引先行 + 按需取条目"的分段装载（那是独立一轮的量级，届时 `mode` 才会变成别的值）。
+
 ## P-229（2026-10-04）演示页逐层台账的 composite 条目自 P-64-MEDIA 起全灭（`mpwLedgerYDown` 块级作用域错位）—— C0② 受控实验定位
 
 ### 症状
