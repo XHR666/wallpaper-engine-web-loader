@@ -1083,6 +1083,14 @@ add "scene-user-bindings" "node tests/scene-user-bindings-test.mjs"
 #   firefox。C9④ 音频条属性响应（帧差=动画噪声，需读层可见性状态的精确量法）登记下批。
 add "audio-scene-players" "node tests/audio-scene-players-test.mjs"
 
+# ②(P-228l 2026-10-05) **属性动画语义**：`core/we-animation.mjs`（唯一实现处）+ 渲染写回 + 脚本门面。
+#   改动前只有"半套"语义：`extractAnimKf(fps=30)` 帧率硬编码 + `animValueAt()` 恒定循环，且只接了
+#   origin/scale/visible —— `alpha`（语料最常见载体）一格没接（带 alpha 动画的层一律按静态 1 画 =
+#   永久可见）。现按官方语义：options.{fps,length,mode,startpaused} + relative + 联动组 + alpha 载体；
+#   `?anim=legacy` 逐位回退。语料读数：213 条轨道（startpaused 90、fps≠30 56；65 条 alpha 里 46 条
+#   挂载瞬间的值会变）。72 断言、~25s、纯 Node（真包/语料缺席时对应组 SKIP）。
+add "anim-semantics" "node tests/anim-semantics-test.mjs"
+
 # —— --list ——
 if [ "$LIST" = 1 ]; then
   echo "共 ${#NAMES[@]} 项（slow=--fast 跳过；条件项=无数据自动 SKIP）："

@@ -81,6 +81,9 @@ const PAGES_KEEP_FILES = [
   //   防复发：`tests/core-module-wiring-test.mjs`（逐条解析浏览器会加载的相对 import，断言三处在位）。
   ['core/we-pointer-source.mjs', 'we-pointer-source.mjs'],
   ['core/we-particle-pointer.mjs', 'we-particle-pointer.mjs'],
+  // ②(P-228l 2026-10-05) `core/we-scene-bundle.js` 的又一个同目录 import（`./we-animation.mjs` = 属性动画运行时）
+  //   ⇒ 产物根同样必须有同名文件（漏了就是同一场"整条 module 图断掉"事故）。
+  ['core/we-animation.mjs', 'we-animation.mjs'],
   ['tools/make-sample.mjs', 'make-sample.mjs'],
   ['server/pack-dir.mjs', 'pack-dir.mjs'],
   // 法律文本按根发布（README/落地页都按根链接）
@@ -194,7 +197,7 @@ const MUST = ['index.html', 'demo.html', 'bundle.js', 'we-scene-bundle.js', 'sw.
   // ①(P-136/P-139 2026-09-19 补) 四个"浏览器按相对说明符去取"的内核文件：漏一个 = 整条 module 图断掉。
   //   `we-pointer-source.mjs`/`we-particle-pointer.mjs` 由**产物根的** bundle 取（同目录 import）；
   //   `core/attach-transform.mjs` 由 `elysia/we-renderer/puppet.js` 以 `../../core/...` 取。
-  'we-pointer-source.mjs', 'we-particle-pointer.mjs', 'core/attach-transform.mjs',
+  'we-pointer-source.mjs', 'we-particle-pointer.mjs', 'core/attach-transform.mjs', 'we-animation.mjs',
   `${SITE_MOUNT}/index.html`, `${SITE_MOUNT}/bench-patch.js`,
   `${SITE_MOUNT}/renderer/index.html`, 'samples/sample-synthetic/scene.pkg',
   'samples/sample-synthetic/project.json', 'THIRD-PARTY.md', 'LICENSE', '.nojekyll',

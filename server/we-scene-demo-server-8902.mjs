@@ -1830,6 +1830,11 @@ const RENDERER_LOCAL_EXACT = new Set([
   '/bundle.js', '/we-scene-bundle.js', '/puppet-skin.js', '/diag-flags.json',
   '/baseline-metrics.mjs', '/attach-transform.mjs', '/web-frame-geometry.mjs', '/web-frame-host.mjs',
   '/we-web-shim.mjs', '/audio-band-array.mjs', '/we-pointer-source.mjs', '/we-particle-pointer.mjs',
+  // ②(P-228l 2026-10-05) `./we-animation.mjs`（属性动画运行时）：bundle 的同目录 import ⇒ 浏览器解析成
+  //   `/we-animation.mjs`。8902 的渲染器处理器**不在** `core-module-wiring-test` 的三处清单里（那条只查
+  //   8899/产物/sw），所以这里必须单独登记 —— 漏了就是 404 + 整条 module 图断掉（本轮实测：页面全黑、
+  //   台账空、`__mpwAnims` 不存在）。
+  '/we-animation.mjs',
   '/ext', '/noise', '/pkgpath', '/pkgurl', '/pkgdir', '/probe', '/shot',
 ])
 const RENDERER_LOCAL_DIRS = ['web', 'core', 'shaders'].map((d) => path.join(REPO_ROOT, d))

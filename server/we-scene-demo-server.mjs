@@ -777,7 +777,8 @@ const serverHandler = async (req, res) => {
     //   `/we-pointer-source.mjs` → 404 → 浏览器按"模块 MIME 类型不合法"拒绝 → **整条 module 图断掉**：
     //   `window.__mpwModuleStarted` 永远 false、页面停在 `loading…`（看门狗只会说"脚本资源加载失败：(inline module)"）。
     //   与上面五条同形：产物根文件名 = 仓库内 `core/` 下的文件。防复发见 `tests/core-module-wiring-test.mjs`。
-    if (p === '/we-pointer-source.mjs' || p === '/we-particle-pointer.mjs') {
+    // ②(P-228l 2026-10-05) 同一形态再添一名：bundle 新增同目录 import `./we-animation.mjs`（属性动画运行时）。
+    if (p === '/we-pointer-source.mjs' || p === '/we-particle-pointer.mjs' || p === '/we-animation.mjs') {
       sendBuffer(req, res, fs.readFileSync(path.join(CORE_DIR, p.slice(1))), 'text/javascript');
       return;
     }

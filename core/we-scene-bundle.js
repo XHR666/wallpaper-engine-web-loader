@@ -27,6 +27,14 @@ import { frameClientPoint, frameGeomModeFromQuery } from './web-frame-geometry.m
 //   登记见 THIRD-PARTY.md §15。
 import { syncLayerTransform, setPointer, cpPos, cpWorld, localToWorld, mapSequenceAroundControlPoint, vortexSwirl, pushPointerFrame, attachFollow, leaderParticle, syncFollowOrigin, shadowCpWorld, finishTrailInPlace, pointerShadowWorld } from './we-particle-pointer.mjs'
 import { createPointerSource } from './we-pointer-source.mjs'
+// ②(P-228l 2026-10-05) **属性动画运行时**（唯一实现处 `core/we-animation.mjs`）：
+//   此前 `alpha` 载体一格没接（语料 65 条 alpha 轨道：46 条在挂载瞬间的值与"静态 1"不同 ⇒ 那些层
+//   在我们这里**永久可见**，官方是"停帧 0 = 隐藏，等脚本 play()"），且已接的 origin/scale/visible
+//   走的是 `extractAnimKf(fps=30)` + `animValueAt()`（帧率硬编码 + 恒定循环，忽略 `options.mode/
+//   startpaused/length/relative`）。语义、来源、判据见 `core/we-animation.mjs` 头注释与 PATCHES P-228l。
+//   缺省 `?anim=we`（官方语义）；`?anim=legacy` = 逐位回到改动前的"钉场景时钟"路径。
+import { readAnimDef, createAnimation, linkAnimations, advanceAnimations, animDiag, applyAnimsToLayer } from './we-animation.mjs'
+export { readAnimDef, createAnimation, linkAnimations, advanceAnimations, animDiag, applyAnimsToLayer } from './we-animation.mjs'
 // ①(P-131 批 D 2026-09-19 音频驱动发射) 粒子 `audioprocessing*`（官方编辑器里叫 **Audio response**）
 //   的包络与频段口径在**唯一实现处** `core/audio-band-array.mjs`（纯函数、无 DOM）：
 //   本文件只做接线（把 16 段活视图喂进去 + 按官方语义作用到发射率/相位/速度）。
@@ -1565,6 +1573,10 @@ export function parseScene(sceneJson, project, opts = {}) {
   const PROJ_H = (sceneJson.general && sceneJson.general.orthogonalprojection && sceneJson.general.orthogonalprojection.height) || 1080
   const properties = (project && project.general && project.general.properties) || {}
   const objects = sceneJson.objects || []
+  /** ②(P-228l) 动画联动组接线的诊断（悬空 parent / 多级 parent；语料实读 0 处，留读数以防作者数据踩到） */
+  const animLinkDiag = []
+  /** ②(P-228l) raw scene.json 对象 → 该层的 `{field: ctrl}`（脚本门面 `getAnimation()` 用；WeakMap 不进 JSON） */
+  const animByRaw = new WeakMap()
 
   // ①(P-21-ATTACH 2026-09-13) 附件锚点偏移：默认走移植自 elysia 的实现（core/attach-transform.mjs）。
   //   opts.attachCtx = { readEntry(name)->Uint8Array, time?, fps?, bindOrder? } → 对所有带 attachment 的子层
@@ -1679,6 +1691,35 @@ export function parseScene(sceneJson, project, opts = {}) {
       const kf = animProp(o[pk])
       if (kf) layerAnim[pk] = kf
     }
+    /* ②(P-228l 2026-10-05) **WE 属性动画运行时**（唯一实现处 `core/we-animation.mjs`）。
+       与上面那套 legacy 关键帧并存：`?anim=legacy` 只消费上面那套（逐位回到改动前），
+       缺省 `we` 只消费这一套（legacy 那套建了也不读 ⇒ 两套永不同时施加）。
+       基准值必须是**冻结快照**：`applyTo(base)` 对 `relative:true` 的动画做「基准 + 动画值」，
+       把逐帧写回后的 `layer.origin` 当基准会变成逐帧积分（对照实现同款告诫）。 */
+    const __animDefs = {}
+    for (const pk of ['origin', 'scale', 'angles', 'alpha', 'visible']) {
+      const d = readAnimDef(o[pk])
+      if (d) __animDefs[pk] = d
+    }
+    // alpha 的静态基准：数字 → 用它；对象形态（`{value}` / `{user}` 绑定）→ 取 `value`（官方默认值口径，
+    // 与 pointsize/maxwidth 的 `textNum` 同款）；缺省 1。改动前对象形态恒按 1 处理 ⇒ 语料里
+    // `alpha:{value:0.5}` 这类层此前是"全不透明"。
+    const __alphaBase = coerceImageAlphaMode(typeof (o.alpha && typeof o.alpha === 'object' ? o.alpha.value : o.alpha) === 'number'
+      ? (o.alpha && typeof o.alpha === 'object' ? o.alpha.value : o.alpha) : 1)
+    const __animCtrls = {}
+    const __animBase = {}
+    if (Object.keys(__animDefs).length) {
+      __animBase.alpha = __alphaBase
+      __animBase.visible = parseBool(o.visible, true)
+      __animBase.origin = [world.origin[0], wy, world.origin[2]]
+      __animBase.scale = [world.scale[0], world.scale[1], world.scale[2]]
+      __animBase.angles = [world.angles[0], world.angles[1], world.angles[2]]
+      for (const pk of Object.keys(__animDefs)) __animCtrls[pk] = createAnimation(__animDefs[pk], { base: __animBase[pk] })
+      // 联动组：`options.parent.key` / `children[].key` 的取值就是**同作用域的属性名**
+      //（语料实读：origin 15 / angles 6 / alpha 5 / scale 2 / point0..3 9 —— 后者是效果常量作用域，本批不接）。
+      linkAnimations(__animCtrls, (msg) => { animLinkDiag.push(String(o.name || o.id) + ' ' + msg) })
+      animByRaw.set(o, __animCtrls)
+    }
     // ①(P-205 缺口 2 2026-09-25) **老式模型层：`model` 键与 `image` 等价**（elysia 侧 `_classify` 就是
     //   并列的两条：`if (o.image) … if (o.model) …`）。语料读数：3 包 / 105 层只写 `model`
     //   （`0917/3509243656` 8、`0923/3662790108` 73、`0923/3589454154` 24），引用的 84 个 `.mdl`
@@ -1739,6 +1780,10 @@ export function parseScene(sceneJson, project, opts = {}) {
       __parentXf: parentXf.get(o.id) || null,
       __parentScale: parentXf.has(o.id) ? [parentXf.get(o.id).sx, parentXf.get(o.id).sy, parentXf.get(o.id).pz] : null,
       anim: Object.keys(layerAnim).length ? layerAnim : undefined,
+      // ②(P-228l) 属性动画运行时（`?anim=we` 消费；legacy 档下建了也不读 —— 见 ANIM_MODE_RUNTIME）
+      __animCtrls: Object.keys(__animCtrls).length ? __animCtrls : undefined,
+      __animBase: Object.keys(__animCtrls).length ? __animBase : undefined,
+      __animProjH: PROJ_H,
       animLayers: Array.isArray(o.animationlayers) && o.animationlayers.length > 0,
       // ①(RE-22) 动画层原始数组：{ animation(id), blend, rate, additive, visible }。
       //   第三方参考实现实测：additive/blendin/blendout/blendtime 在 wer-ref 是**未实现字段**；
@@ -1842,7 +1887,7 @@ export function parseScene(sceneJson, project, opts = {}) {
       color: parseColor(o.color),
       // 见上 `coerceImageAlphaMode`：编辑器允许 alpha 以百分数(≤100)存储 → 归一化后再 clamp[0,1]；
       // 字段不是数值（缺省/属性绑定对象/关键帧对象）时用 1（完全不透明），不交给本函数。
-      alpha: coerceImageAlphaMode(typeof o.alpha === 'number' ? o.alpha : 1),
+      alpha: __alphaBase,
       brightness: typeof o.brightness === 'number' ? o.brightness : 1,
       copybackground: !!o.copybackground,
       colorBlendMode: o.colorBlendMode || 0,
@@ -1967,6 +2012,16 @@ export function parseScene(sceneJson, project, opts = {}) {
   __srcStats.ledsource = layers.filter((l) => l.ledsource === true).length
   // ①(P-222 F5) shape 层单列（语料 11 包 20 层 shape:"quad"；层数守恒 = 不再被当 none 静默吞掉）
   __srcStats.shape = layers.filter((l) => typeof l.shape === 'string').length
+  /* ②(P-228l) 属性动画的扁平推进表（层序 + 属性序，稳定）：联动组的 child 无需单独推进
+     （`advanceAnimations` 会跳过 `parent` 非空的），但放进表里无害且让读数看得见每一档。 */
+  const animCtrlsFlat = []
+  for (const l of layers) {
+    if (!l.__animCtrls) continue
+    for (const pk of Object.keys(l.__animCtrls)) animCtrlsFlat.push(l.__animCtrls[pk])
+  }
+  __srcStats.animLayers = layers.filter((l) => !!l.__animCtrls).length
+  __srcStats.animTracks = animCtrlsFlat.length
+
   // ①(P-213 B1 · RE-43) light 层描述符 → `scene.lights`（世界坐标取父子合并后的层 origin/angles；
   //   `visible:false` 的灯保留在表里但不参与 uniform 组装（见 computeLight2DUniforms））。
   const lights = []
@@ -1985,6 +2040,14 @@ export function parseScene(sceneJson, project, opts = {}) {
     camera: sceneJson.camera || null,
     general: sceneJson.general || {},
     layers,
+    // ②(P-228l) 属性动画运行时的宿主面：
+    //   · `__animCtrls` —— 扁平表（宿主每帧一次 `advanceSceneAnimations(scene, dt)`；无动画场景 = 空数组 ⇒ 零开销）
+    //   · `__animByRaw` —— **WeakMap**（raw scene.json 对象 → 该层的 `{field: ctrl}`）：脚本门面
+    //     `thisLayer.getAnimation()` 靠它拿到真控制器；WeakMap 不进 JSON、不产生环、不阻止 GC。
+    //   · `__animLinkDiag` —— 联动组接线诊断（悬空/多级 parent）。
+    __animCtrls: animCtrlsFlat,
+    __animByRaw: animByRaw,
+    __animLinkDiag: animLinkDiag,
     // ①(P-213 B1) 光源描述符（RE-43：light 层不进 draw，数据在这里；空数组 = 无光场景，既有消费方零影响）
     lights,
     properties,
@@ -3211,6 +3274,67 @@ const CONTAINERFX_MODE = (() => {
   } catch (e) { /* 无 location → 缺省 */ }
   return 'default'
 })()
+
+// ②(P-228l 2026-10-05) 属性动画语义档：`?anim=legacy` ⇒ 逐位回到改动前（`extractAnimKf(fps=30)` +
+//   `animValueAt()` 钉场景时钟、只接 origin/scale/visible）；缺省 `we` = 官方语义运行时
+//   （`core/we-animation.mjs`：options.fps/length/mode/startpaused/relative + 联动组 + alpha 载体）。
+const ANIM_MODE = (() => {
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('anim') === 'legacy' ? 'legacy' : 'we'
+    }
+  } catch (e) { /* 无 location → 缺省 we */ }
+  return 'we'
+})()
+/** 宿主可用 `?anim=legacy` 之外的方式设档（宿主解析 query 后调 `setAnimMode`；Node 测试同款）。 */
+let ANIM_MODE_RUNTIME = ANIM_MODE
+export function setAnimMode(mode) { ANIM_MODE_RUNTIME = mode === 'legacy' ? 'legacy' : 'we'; return ANIM_MODE_RUNTIME }
+export function animMode() { return ANIM_MODE_RUNTIME }
+
+/**
+ * ②(P-228l 2026-10-05) 宿主**每帧调用一次**：推进该场景所有属性动画的播放头（dt 单位秒）。
+ * 为什么是 advance 而不是"把场景时钟钉进求值"（legacy 路径的做法）：钉时间会每帧把播放头拉回场景时钟，
+ * 脚本的 `play()/rate/setFrame` 永远跑不起来（对照实现同款结论）；advance 在 rate=1 且自动播放时
+ * 与钉时间等价（Σdt = 经过的秒数）。
+ * `?anim=legacy` ⇒ 直接返回 0（legacy 路径没有播放头，值由场景时钟直接采样）。
+ */
+export function advanceSceneAnimations(scene, dt) {
+  if (ANIM_MODE_RUNTIME === 'legacy') return 0
+  const list = scene && scene.__animCtrls
+  if (!list || !list.length) return 0
+  const moved = advanceAnimations(list, Number(dt) || 0)
+  /* ②(P-228l) 关键帧事件（`options.events`）本批**只收集、不派发**（派发要一个双参宿主入口，
+   *   `animationEvent(event, value)` 登记为下一步）。但这里必须**取走**：没人取的队列会随播放头
+   *   反复越帧而无界增长（loop 轨道尤其）。取走的条目进有界环 `scene.__animEvents`（上限 60），
+   *   宿主以 `window.__mpwAnimEvents()` 暴露成读数（语料 1 个包 4 条，全部落在末帧）。 */
+  for (const l of scene.layers || []) {
+    if (!l.__animCtrls) continue
+    for (const pk of Object.keys(l.__animCtrls)) {
+      const c = l.__animCtrls[pk]
+      if (c.parent) continue
+      const evs = c.takeEvents()
+      if (!evs.length) continue
+      const ring = scene.__animEvents || (scene.__animEvents = [])
+      for (const e of evs) {
+        ring.push({ layer: l.name, field: pk, event: e.name, frame: e.frame })
+        if (ring.length > 60) ring.shift()
+      }
+    }
+  }
+  return moved
+}
+/** ②(P-228l) 逐条动画的只读台账（诊断/判据用；机读形状见 `animDiag`）。 */
+export function sceneAnimDiag(scene, limit = 200) {
+  const out = []
+  for (const l of ((scene && scene.layers) || [])) {
+    if (!l.__animCtrls) continue
+    for (const pk of Object.keys(l.__animCtrls)) {
+      if (out.length >= limit) return out
+      out.push(Object.assign({ layer: l.name, id: l.id, field: pk, animMode: ANIM_MODE_RUNTIME, visible: l.visible, alpha: l.alpha }, animDiag(l.__animCtrls[pk])))
+    }
+  }
+  return out
+}
 
 export function applyRenderConfig(scene, opts = {}) {
   const refrender = opts.refrender || null
@@ -12538,6 +12662,31 @@ export function createRenderer(canvas, opts = {}) {
     }
     return true
   }
+  /**
+   * ②(P-228l 2026-10-05) 逐帧把**属性动画**写回 layer（`?anim=we` 档；`?anim=legacy` 不调用本函数）。
+   *
+   * 为什么"写回 layer"而不是在每个采样点各算一遍：这五个载体的消费点分散在多处 ——
+   *   `alpha`   → `compositeLayer` 的 color4、`g_UserAlpha`/`g_Alpha` uniform、粒子 `alphaMul`、文本层；
+   *   `visible` → 本函数下方的绘制门 + 容器跳层；
+   *   `origin/scale` → `compositeLayer` 的四边形顶点、蒙皮 mesh 世界矩阵、命中矩形；
+   *   `angles`  → `mat4RotateZ`。
+   * 写回 layer 与"脚本属性写回"（`syncScriptOrigins`）同口径 ⇒ 所有消费点自动一致，不再出现
+   * "某处接了、某处没接"的半套语义。
+   *
+   * 三条硬约束：
+   *   1. 基准永远取 `layer.__animBase`（解析期冻结快照）⇒ `relative:true` 的动画不会逐帧积分
+   *      （拿写回后的 `layer.origin` 当基准 = 每帧再加一次增量，层会飞走）；
+   *   2. y 翻转：scene.json 的 origin 是编辑器 y-up，渲染层是 y-down（`PROJ_H − y`）⇒
+   *      绝对关键帧的 y 要翻转，`relative` 增量要**取负**（否则动画方向上下颠倒）；
+   *   3. 单通道动画只写它对应的那一个分量（c0→x、c1→y、c2→z），其余分量保持基准 —— 与 legacy
+   *      路径 `ox = animValueAt(c0) ?? ox` 同口径（语料 origin/scale/angles 全部 3 通道，
+   *      单通道只出现在 alpha 这类标量载体上）。
+   */
+  /** ②(P-228l) 渲染期接线：唯一实现在 `core/we-animation.mjs::applyAnimsToLayer`（纯函数，可离线判据）。 */
+  function applyLayerAnims(layer) {
+    if (!layer || !layer.__animCtrls) return
+    try { applyAnimsToLayer(layer, layer.__animCtrls, layer.__animBase, { projH: layer.__animProjH }) } catch (e) { /* 动画异常 → 保持上一帧值 */ }
+  }
   function compositeLayer(prog, inputTex, color4, layer, cam, viewProj, width, height, time) {
     // ①(2026-09-12 用户："hina 空白 + GPU错误0x502"）**退化层不发绘制**：
     //   真机上 `层 "79"`（无纹理、size=0x0、origin 有效）与 `层 "背景"` 各抛一次
@@ -12552,9 +12701,12 @@ export function createRenderer(canvas, opts = {}) {
     // P-21 A3：?align=0（opts.align === false）→ 视作 center，复现旧"origin 恒几何中心"行为
     const a = opts.align === false ? [0.5, 0.5] : (ALIGN[layer.alignment] || [0.5, 0.5])
     // 动画属性：origin/scale 每帧按关键帧插值（WE 动画壁纸核心）
+    // ②(P-228l) **只在 `?anim=legacy` 档走这条**：缺省档的五个载体已由 `applyLayerAnims()` 在进入
+    //   本函数前写回 `layer`（官方语义：fps/length/mode/startpaused/relative + 联动组），
+    //   两套语义不同时施加，否则会互相覆盖成"半套"。
     let ox = layer.origin[0], oy = layer.origin[1]
     let sx = layer.scale[0], sy = layer.scale[1]
-    if (layer.anim && time !== undefined) {
+    if (ANIM_MODE_RUNTIME === 'legacy' && layer.anim && time !== undefined) {
       const okf = layer.anim.origin
       if (okf) {
         const c0 = okf.get('c0'), c1 = okf.get('c1'), c2 = okf.get('c2')
@@ -13949,11 +14101,15 @@ export function createRenderer(canvas, opts = {}) {
       if (__audit) { try { onLog('[首帧] #' + __li + ' ' + (layer.name || layer.id) + ' vis=' + (layer.visible ? 1 : 0) +
         ' tex=' + (layer.textureName || '-') + ' skin=' + (layer.__skinReady ? 1 : 0) +
         ' fx=' + ((layer.effects && layer.effects.length) || 0) + ' part=' + (layer.particleDef ? 1 : 0)) } catch {} }
+      // ②(P-228l) 属性动画（五个载体）逐帧写回 —— 必须在可见性判定**之前**（visible 动画也走这条）。
+      if (ANIM_MODE_RUNTIME !== 'legacy') applyLayerAnims(layer)
       // ①(P1-9 官方 2026-09-14) 动画驱动的 visible：parseScene 已把 visible 关键帧收进 layer.anim.visible
       //   （extractAnimKf）；官方 ApplyLayerVisibility 每帧求值（WPSceneScriptHost.cpp:5452-5481 同层每帧）。
       //   阶跃语义：关键帧插值 >0.5 即可见。
+      //   ②(P-228l) 这条是 **legacy 档**的路径（帧率硬编码 30 + 恒定循环）；缺省档由上面
+      //   `applyLayerAnims()` 按官方语义（fps/mode/startpaused/relative + 联动组）写回 `layer.visible`。
       let __layerVis = layer.visible
-      if (layer.anim && layer.anim.visible && time !== undefined) {
+      if (ANIM_MODE_RUNTIME === 'legacy' && layer.anim && layer.anim.visible && time !== undefined) {
         try {
           const ch = layer.anim.visible.get ? layer.anim.visible.get('c0') : layer.anim.visible
           const vv = animValueAt(ch, time)

@@ -168,6 +168,12 @@ export const SCENE_SCRIPT_API_DIAG = {
   emitParticles: 0,       // IParticleSystem.emitParticles（本机无粒子发射注入点 ⇒ no-op + 计数）
   particleInstanceWrite: 0,   // IParticleSystemInstance 字段**写穿** obj.instanceoverride 的次数
   animationWrite: 0,      // IAnimation 的 rate/setFrame 等可写字段被写次数
+  // ②(P-228l 2026-10-05) `getAnimation()` 的两条落点分开计数：真控制器（宿主注册了属性动画）/
+  //   中性桩（层无属性动画、owner 未解析、或场景级·效果常量作用域尚未接线）。
+  //   `animationEnded` = 真控制器 `mode:"single"` 播到末尾时作者 `addEndedCallback` 回调的触发次数。
+  animationReal: 0,       // getAnimation() 命中**真控制器**（play/rate/setFrame 真的驱动渲染）
+  animationStub: 0,       // getAnimation() 命中中性桩（脚本可见状态机 + 计数，不改渲染）
+  animationEnded: 0,      // 真控制器 ended 回调触发次数
   texAnimRateWrite: 0,    // ①(2026-09-21) ITextureAnimation.rate 写次数（官方可写字段，来自真机语料）
   texAnimJoin: 0,         // ①(2026-09-21) ITextureAnimation.join() 命中次数（回到共享动画状态）
   timerScheduled: 0, timerFired: 0, timerCleared: 0,  // engine.setInterval 家族
@@ -938,7 +944,15 @@ function particleRefFor(obj) {
  *   推进），所以 `play/pause/stop/setFrame/getFrame` 是脚本可见的状态机 + 计数，**不改渲染**。
  *   `rate` 可写（官方非 readonly），记进状态并计数。
  *   返回值**永远是真值句柄**（官方在"该层没有该动画"时返回 undefined；我们无从判断作者的绑定，
- *   给句柄能让作者脚本的 `animation.rate = …` 有着落，并且是可观测的记账而不是静默丢弃）。 */
+ *   给句柄能让作者脚本的 `animation.rate = …` 有着落，并且是可观测的记账而不是静默丢弃）。
+ *
+ * ②(P-228l 2026-10-05) **上面那段"不改渲染"的边界被本条收窄**：宿主现在把解析期建好的属性动画
+ *   控制器注册进来（`setAnimationResolver`），`getAnimation()` 命中**真控制器**时返回的是真句柄 ——
+ *   `play()/pause()/stop()/setFrame()/rate` 直接驱动 `core/we-animation.mjs` 的播放头，渲染逐帧
+ *   按它求值（语料 21 包 / 172 处调用，其中 162 处无参；`mediaThumbnailChanged(){ thisObject.
+ *   getAnimation().play() }` 是主要用法 ⇒ 媒体事件 → play() → 动画真的走起来）。
+ *   没有真控制器（层无属性动画 / owner 未解析 / 场景级与效果常量作用域尚未接线）⇒ 仍然给中性桩，
+ *   行为与改动前逐位相同（只多两个可观测计数 animationReal/animationStub）。 */
 const ANIM_STATE = new WeakMap();
 const ANIM_NULL_KEY = {};
 function animStateOf(obj) {
@@ -947,7 +961,60 @@ function animStateOf(obj) {
   if (!s) { s = { frame: 0, rate: 1, playing: false, name: '' }; ANIM_STATE.set(key, s); }
   return s;
 }
+/** ②(P-228l) 宿主注入的"真控制器"解析器：`(rawObj) => {field: ctrl} | null`。缺省 null（= 旧行为）。 */
+let ANIM_RESOLVER = null;
+export function setAnimationResolver(fn) { ANIM_RESOLVER = typeof fn === 'function' ? fn : null; return !!ANIM_RESOLVER; }
+/** ②(P-228l) 真句柄的稳定身份：同一个控制器每次 `getAnimation()` 返回**同一对象**（作者会缓存它）。 */
+const ANIM_REF_OF = new WeakMap();
+/** 无参 `getAnimation()` 取哪一条：**载体优先级**（语料最常见的媒体/图标动画都是 alpha；
+ *  origin/scale 次之）。命名查找优先精确匹配 `options.name`（语料 10 处命名调用）。 */
+const ANIM_FIELD_PRIORITY = ['alpha', 'origin', 'scale', 'angles', 'visible'];
+function pickAnimationCtrl(ctrls, name) {
+  if (!ctrls) return null;
+  const fields = ANIM_FIELD_PRIORITY.filter((f) => ctrls[f]);
+  if (typeof name === 'string' && name) {
+    for (const f of fields) if (ctrls[f] && ctrls[f].name === name) return ctrls[f];
+    for (const f of fields) if (ctrls[f] && ctrls[f].name && ctrls[f].name.indexOf(name) >= 0) return ctrls[f];
+    return null;
+  }
+  return fields.length ? ctrls[fields[0]] : null;
+}
+/** ②(P-228l) 真 `IAnimation` 句柄（包住 `core/we-animation.mjs` 的控制器）。 */
+function makeRealAnimationRef(ctrl) {
+  const cached = ANIM_REF_OF.get(ctrl);
+  if (cached) return cached;
+  const ref = animRefShared(null);
+  defineAccessors(ref, {
+    fps: { get: () => ctrl.fps, set: () => { /* readonly ⇒ 静默丢弃 */ } },
+    frameCount: { get: () => ctrl.frameCount, set: () => { /* readonly */ } },
+    duration: { get: () => ctrl.duration, set: () => { /* readonly */ } },
+    name: { get: () => ctrl.name, set: () => { /* readonly */ } },
+    // ②(P-228l) `rate` 与 `playing` 在官方也是可写访问器（`playing` 来自 d.ts 的 `isPlaying()` 家族；
+    //   语料直接写 `ani.rate = 2`）⇒ 走真控制器，不落第二份状态。
+    rate: { get: () => ctrl.rate, set: (v) => { ctrl.setRate(v); apiBump('animationWrite') } },
+    playing: { get: () => ctrl.isPlaying(), set: (v) => { if (v) ctrl.play(); else ctrl.pause(); apiBump('animationWrite') } },
+  });
+  Object.assign(ref, {
+    play() { ctrl.play(); apiBump('animationWrite') },
+    pause() { ctrl.pause(); apiBump('animationWrite') },
+    stop() { ctrl.stop(); apiBump('animationWrite') },
+    isPlaying() { return ctrl.isPlaying() },
+    getFrame() { return ctrl.getFrame() },
+    setFrame(f) { ctrl.setFrame(f); apiBump('animationWrite') },
+    setRate(r) { ctrl.setRate(r); apiBump('animationWrite') },
+    addEndedCallback(fn) { ctrl.addEndedCallback(() => { apiBump('animationEnded'); try { fn() } catch (e) { /* 作者回调抛错不拖垮渲染 */ } }); },
+  });
+  ANIM_REF_OF.set(ctrl, ref);
+  return ref;
+}
 function makeAnimationRef(obj, name) {
+  // ②(P-228l) 先试真控制器（宿主注册的解析器 + 该层的属性动画表）
+  try {
+    const ctrls = ANIM_RESOLVER && obj ? ANIM_RESOLVER(obj) : null;
+    const ctrl = pickAnimationCtrl(ctrls, name);
+    if (ctrl) { apiBump('animationReal'); return makeRealAnimationRef(ctrl); }
+  } catch (e) { /* 解析器异常 → 回落到中性桩 */ }
+  apiBump('animationStub');
   const s = animStateOf(obj);
   if (typeof name === 'string' && name) s.name = name;
   const ref = animRefShared(obj);

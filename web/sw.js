@@ -35,6 +35,7 @@ const PRECACHE = [
   // ①(P-136 2026-09-19) bundle 新增的两个同目录 import：预缓存漏了它们 = 离线首屏整图断掉（同 8899 路由那次事故）
   '/we-pointer-source.mjs',
   '/we-particle-pointer.mjs',
+  '/we-animation.mjs',   // ②(P-228l) bundle 的 ./we-animation.mjs（属性动画运行时）
   '/web-frame-geometry.mjs',
   '/audio-band-array.mjs',
   /* ①(2026-09-23 第 ⑥ 条) web 帧宿主契约 + shim（首屏 module 图的一部分） */

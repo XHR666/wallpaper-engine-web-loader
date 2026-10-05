@@ -1217,3 +1217,63 @@ SOFTWARE.
 `wangkaxds/we-scene` / `wangkaxds/dsh-aurora-wallpaper`（均 MIT）**是我们的上游祖先，不是独立第三方**：
 从它"再借一次"在法律上可行（MIT），但**必须走同一条署名**（本节的声明 + 台账），
 并且**不能**把它当成"另一个可自由复制的实现"来回避本仓既有的洁净室/许可纪律（见 `docs/COPYING-RULES.md` §5/§5.1）。
+
+---
+
+## 17. webwallgl  (MIT © oneincase) — **P-228l: 图层属性动画运行时按上游移植进 `core/we-animation.mjs`**
+
+  Upstream:  https://github.com/oneincase/webwallgl
+  Licence:   MIT
+  Copyright: Copyright (c) 2026 oneincase <462534624@qq.com>
+  Commit:    `b61e8910ae0a176288aed99ce9a93a13ea07df57` —— 本机 checkout
+             `references/vendor-ref/webwallgl`（仓库外）的 HEAD，**与 §14/§15/§16 同一个 commit**，
+             本节所有 `file:line` 都以它为准（写本节时已逐条 `grep -n` 回读核对）。
+  SPDX:      MIT
+  Local copy: `demo/LICENSE-webwallgl-MIT.txt`（MIT 全文，随仓库；与 §6.2/§14 逐字相同）
+  Ledger:    `docs/COPYING-RULES.md` §4, entry **#18**（2026-10-05）
+  门禁:      `tests/anim-semantics-test.mjs`（72 断言：纯函数真值表 / 控制器模式 / 基准与联动组 /
+             渲染写回 / bundle 与宿主接线钉 / 真包读数 / 语料普查 + 3 组变异自证）
+
+### 17.1 这一节为什么存在
+
+`§4` 台账原来把"属性动画"记在**只读对照**档（row 5 的"仅研读对照"）：本仓此前的实现
+（`extractAnimKf` + `animValueAt`）是**自写**的，只覆盖了官方的半套语义（origin/scale/visible、
+帧率硬编码 30、恒定循环）。P-228l 起改为**按上游移植**：函数分解（`sampleChannel`/`wrapFrame`/
+`crossedEvents`/`linkAnimations`/`createAnimation`）、播放头推进语义（"播放中才 advance、求值每帧照做"）、
+以及关键帧手柄的求值公式都以上游为据 ⇒ 必须按 §4 升级为正式条目并在此登记。
+
+### 17.2 移植了哪些单元（依赖无关移植，**非逐字**）
+
+| # | 上游 `file:line` | 上游单元 | 落到我们的 | 处置 |
+|---|---|---|---|---|
+| 1 | `renderer/vendor/we-scene/render/animation.js:103-174` | `sampleChannel(keys, frame, wrap)`（含手柄语义：`front.x/back.x` = **段长比例**×span/3、`front.y/back.y` = 相对端点的**绝对增量**；`enabled:false` 落回三等分点） | `core/we-animation.mjs` → `sampleAnimChannel()` | **移植**：公式与分支逐条一致；`this.` 无关（纯函数），二分查找与 `solveT`（Newton 主 + 二分兜底）按上游同形；上游那段"由全库 630 个段反推手柄语义"的论证**摘要保留**在本文件头注释里 |
+| 2 | `animation.js:64-97` | `bez1()` / `solveT()` | 同上（模块私有） | **移植**（同形，参数名一致） |
+| 3 | `animation.js:177-193` | `wrapFrame(frame, length, mode)` | → `wrapAnimFrame()` | **移植**：loop 环绕 / mirror 折返（周期 2·length）/ single 夹取三分支同形；负帧处理一致 |
+| 4 | `animation.js:212-247` | `crossedEvents(events, prev, cur, length, mode)`（半开区间、loop 逐周期展开、mirror 双周期） | → `crossedEvents()` | **移植**（同形，含"同刻多事件保数组序"的稳定排序） |
+| 5 | `animation.js:260-276` | `linkAnimations(siblings, onDiag)`（`options.parent.key` 把 child 挂到同作用域 leader；悬空/自指/多级不链接） | → `linkAnimations()` | **移植**：三条守卫与诊断文案同义（文案为本仓措辞） |
+| 6 | `animation.js:282-440` | `createAnimation(def)`（fps/length/mode/startpaused/wraploop/relative 解析；`frame/playing/rate/ended/play/pause/stop/setFrame/getFrame/setRate/isPlaying/addEndedCallback`；`value()` 用 leader 播放头采样 child；`applyTo(base)` = relative ? 基准+值 : 值；`advance(dt)` 按 `dt·fps·rate` 推进、single 到 length 停机并触发 ended 回调） | → `createAnimation()` | **移植**：成员与语义逐条对应；闭包式（上游 `this.` → 模块内闭包），`get frameCount()`/`duration` 是访问器 |
+| 7 | `animation.js:195-200` | `coerceBase(base)`（数组 / `"x y z"` 字符串 / 标量） | → `animBaseNumeric()` | **移植**（返回值形态一致） |
+| 8 | `renderer/vendor/we-scene/render/renderer.js:1100-1125` | 每帧"`if (rec.ctrl.playing) rec.ctrl.advance(dt)`，然后无条件 `out[key] = rec.ctrl.applyTo(rec.ctrl.baseNumeric)`" | `core/we-scene-bundle.js::applyLayerAnims()` + `advanceSceneAnimations()`、`demo.html` 帧循环 | **结构/语义移植**（**未复制代码**）：接线为本仓自写；"停帧 0 的值照常施加"这一条按上游注释与代码照做 |
+| 9 | `renderer/src/scene-mount.ts:3090-3140` | 层载体写回（数组逐分量写 `layer[slot]`、`visible` 阶跃重算子孙、`angles` 用度数↔弧度换算） | `core/we-animation.mjs::applyAnimsToLayer()` | **语义移植**（**未复制代码**，实现自写）：本仓 `angles` 在 scene.json 里已是弧度（P-21-ATTACH 实测），故不做度数换算；`visible` 走绘制门的 `> 0.5` 阶跃 |
+
+### 17.3 与上游**不同**的地方（四处，全部是有据的适配）
+
+| # | 差异 | 为什么 |
+|---|---|---|
+| A-1 | `relative` 从 `animation.relative` 读（上游读 `def.relative`，即 `animation` 的**兄弟键**） | 语料实测（213 条轨道）：`animation.relative=true` **55 条**、属性外层 `relative=true` **0 条** ⇒ 上游读的位置在真实数据里恒为 false |
+| A-2 | 渲染写回对 `origin` 的 y 做**编辑器 y-up → 渲染 y-down** 适配：绝对关键帧 `projH − y`、`relative` 增量**取负** | 本仓渲染空间是 y-down（`parseScene` 对所有层做一次 `PROJ_H − y`）；上游是 y-up ⇒ 这条适配是本仓特有的 |
+| A-3 | 单通道动画只写对应的那一个分量（c0→x / c1→y / c2→z），其余保持基准 | 与 legacy 路径 `ox = animValueAt(c0) ?? ox` 同口径（语料 origin/scale/angles 全 3 通道，单通道只出现在 alpha 这类标量载体） |
+| A-4 | 通道 = `c0..cN` 的**连续前缀**（不"过滤缺失项再压紧"） | 压紧会把「只缺 c1」的轨道错位成 x=c0 / y=c2（静默画错轴）；上游同款取法，此处显式写进注释与判据 |
+
+### 17.4 **没有**移植的东西（诚实边界）
+
+- **帧事件派发**：`options.events` 的**收集**按上游做了（`crossedEvents` + `takeEvents()`，语料 1 个包
+  `0923/2887099508` 共 4 条）；但"越过帧时调用同层脚本的 `animationEvent(event, value)`"**未接线**
+  （本仓 `dispatchScriptEvent` 是单参签名，需要一个双参变体；`__mpwAnimEvents` 读数与派发登记为下一步）。
+- **骨骼（`animationlayers`）播放头**：本仓的骨骼动画走 `skinAnimTime`（P-139 既有实现），不经本模块。
+- **场景级命名动画**（`thisScene.getAnimation("ckk")`）与**效果常量**（`constantshadervalues.*`）、
+  文本 `Opacity`/`maxwidth`、音频 `volume` 等载体：本批只接**层载体**五种
+  （`alpha`/`origin`/`scale`/`angles`/`visible`）；其余载体的联动键（`point0..3` 等）属效果常量作用域，
+  登记为下一批。
+- **`setBlend()/setVisible()`**：`IAnimation` 上这两个成员在上游 `createAnimation` 里也没有真实语义
+  （本仓 `animRefShared()` 继续给中性 no-op，保持"超集不抛错"）。

@@ -15866,6 +15866,78 @@ P-233 的 `dispatchCursor()`（`demo.html` MPW-CURSOR 段）把聚合量 `const 
 `设置2-穿上内内` 的 `cursorClick` 经 `--call` 复现为"`panci cover up`.visible=true / `pussy`.visible=false"，
 与 §1 的脚本语义逐字一致。⇒ 这类"点菜单出内容"的路径要端到端验，必须先让**菜单布局脚本**把热点层摆到屏内。
 
+## P-228l（2026-10-05）图层**属性动画**只有半套语义：帧率硬编码 30 + 恒定循环 + `alpha` 载体整条没接 —— 按上游移植 `core/we-animation.mjs`（唯一实现处）
+
+### 现象与口径（三条，全部有语料读数或真机读数）
+
+| # | 改动前 | 语料读数（116 个可解析 scene.json / 199 个容器） | 官方语义（改动后） |
+|---|---|---|---|
+| 1 | `parseScene` 用 `extractAnimKf(propObj, fps = 30)` 收关键帧，**帧率硬编码 30**；渲染期 `animValueAt()` 求值 | **213 条轨道里 56 条 `options.fps ≠ 30`**（60 共 34、15 共 7、12 共 4、20 共 3、18 共 2、10 共 2、22.5 共 2、120/7.5 各 1）⇒ fps=60 的轨道被播成 **2 倍速**（"倍速"观感的成类根因） | `options.fps` 逐条生效（`advance = dt·fps·rate`） |
+| 2 | `animValueAt()` 的周期恒 = 末关键帧、**恒定循环**；`options.mode`/`length`/`startpaused` 全被忽略 | mode 分布 single **155** / loop **53** / mirror **5**；`startpaused:true` **90 条** | `single` 到 `length` 停机（+`ended` 回调）、`loop` 环绕（`wraploop` 才尾接头）、`mirror` 折返；`startpaused` ⇒ 初始不播、**值按帧 0 施加** |
+| 3 | 只接了 `origin`/`scale`/`visible` 三个载体，**`alpha` 一格没接**（对象形态一律按静态 1 画） | `alpha` 载体 **65 条**，其中 **46 条"挂载瞬间的值 ≠ 静态 1"**（26 条是 `startpaused`）⇒ 这些层在我们这里是**永久可见**，官方是"停帧 0 = 隐藏，等脚本 `getAnimation().play()`" | `alpha`/`visible`/`origin`/`scale`/`angles` 五载体统一按运行时写回 |
+
+另有两条同源缺口：`relative`（语料 55 条）此前不生效（相关层会绕基准漂移/回弹）、
+`options.parent/children` 联动组（语料 key 取值 = `origin` 15 / `angles` 6 / `alpha` 5 / `scale` 2）
+此前不存在 ⇒ `0923/2887099508` 的 `mkj`（origin leader + alpha child，child 末关键帧 164 而 `length=390`）
+只能各算各的。
+
+### 修法（唯一实现处 + 五个接线点）
+
+- **新模块** `core/we-animation.mjs`（纯函数、无 DOM/GL）：`readAnimDef` / `wrapAnimFrame` / `sampleAnimChannel`
+  （手柄语义 = 上游由全库 630 段反推的那套：`front.x/back.x` 是段长比例×span/3、`front.y/back.y` 是绝对增量）/
+  `crossedEvents` / `createAnimation`（播放头 + 模式 + `relative` + 联动组 + `ended` 回调）/
+  `linkAnimations` / `animBaseNumeric` / `advanceAnimations` / `applyAnimsToLayer`。来源与逐函数对照见
+  `THIRD-PARTY.md` §17、台账 `docs/COPYING-RULES.md` §4 **#18**。
+- **解析期**（`core/we-scene-bundle.js::parseScene`）：五个载体各建一条控制器，基淮取**冻结快照**
+  （`origin` 用 `[world.origin[0], wy, world.origin[2]]`）；`relative` 从 `animation.relative` 读（语料 55 内 / 0 外）；
+  通道取 `c0..cN` **连续前缀**；§4 之外的读数：`__srcStats.animLayers/animTracks`、`scene.__animLinkDiag`。
+- **渲染期**：`applyLayerAnims()` 在绘制循环**进入可见性判定之前**逐帧写回五载体
+  （`alpha` 夹 [0,1]、`visible` 取 `>0.5`、`origin` 的 y 做 y-up→y-down 适配：绝对键帧 `projH − y`、
+  `relative` 增量**取负**）；`?anim=legacy` 时两处 legacy 采样点（`compositeLayer` 的 origin/scale +
+  绘制门的 visible）照旧生效 ⇒ **两套语义永不同时施加**。
+- **宿主**（`demo.html`）：`lib.advanceSceneAnimations(scene, mpwSceneDt(mpwCapScriptDt(frameDt)))` 排在
+  `renderer.render()` 之前、脚本同步之后（dt 与 `engine.frametime` 同一口径 ⇒ 播放倍率不会分叉）；
+  读数 `window.__mpwAnims(limit?, 层名?)` 与 `window.__mpwAnimEvents(limit?)`（越帧事件**只收集不派发**，有界 60）。
+- **脚本门面**（`elysia/scene-scripts.js`）：新增 `setAnimationResolver()`，`getAnimation(name?)`
+  命中真控制器时返回**真句柄**（`play/pause/stop/setFrame/setRate/rate/playing/fps/frameCount/duration/
+  isPlaying/addEndedCallback`，同一控制器稳定同一对象），未命中仍是原来的中性桩；两条落点分别计数
+  `sceneScriptApiDiag().animationReal / animationStub`（语料 21 包 / 172 处 `getAnimation(`，其中 162 处无参，
+  主要用法是 `mediaThumbnailChanged(event){ thisObject.getAnimation().play() }` ⇒ 媒体五回调 → play() → 动画真的走）。
+
+### 判据与读数
+
+- 门禁 `tests/anim-semantics-test.mjs`：**74 断言 / 0 失败**（纯函数真值表 A/B、控制器模式 C、基准与联动组 D、
+  渲染写回 E、bundle 与宿主接线钉 F（含事件环有界 F14）、脚本门面 G、真包 H、语料普查 I；变异自证 3 组：
+  C1b 把 fps 抹成 30 / E5 不传 `projH` / B8 手柄读数与线性读法必须可区分）。`run-all-tests.sh` 211 → **212 项**。
+- 真机 A/B（探针包 `0923/2887099508`，`/webloader/?…&res=dpr&shell=0&campose=legacy`，同一次会话内换档）：
+  | 读数 | 缺省（新语义） | `?anim=legacy` |
+  |---|---|---|
+  | `__mpwAnims()` 条数 | 8（7 层） | 8（建表但不推进、不施加） |
+  | `1语言`/`2语言`/`3语言`/`凯尔希`/`黑底` 的 `layer.alpha` | **0**（`playing:false, frame:0, value:0` = 停帧 0） | 0 / 1 / 1 / 1 / 1（`value` 静态值；`1语言` 的 `value` 本来就是 0） |
+  | `heart 1`（自动播放，1→1→0，240 帧） | `frame:12→22.5`、`alpha:1` | `frame:0`、`alpha:1`（legacy 不推进播放头） |
+  | `mkj` origin（relative leader） | 播放头 `frame:12`、`origin` = 基准 + 增量（2902.59, 1819.12） | `frame:0`、`origin` = 基准（3040, 1710） |
+  | 页内 `getAnimation().play()` 后 1.5s | `1语言` `ctrl.frame:3`、`value:0.028`、`layer.alpha:0.028`（脚本→播放头→渲染写回整条通） | — |
+  | `pageerror` | **0** | **0** |
+- 回归：`layer-attribution-consistency`（`ln-consistency`）**12 通过 / 0 失败**（P1 台账 41/10/15 条对上离线归因）；
+  `demo-check` 133/0、`core-module-wiring` 126/0、`package-matrix`/`camera-origin-script`/`render-closeout`/
+  `mesh-badframe`/`mdla-corpus-audit` 全绿；`diag-flag-check` 217 == 217。
+
+### 本轮踩到并修掉的接线事故（给后来者）
+
+`core/we-scene-bundle.js` 新增同目录 `import './we-animation.mjs'` 后，**浏览器按说明符解析**：
+bundle 在 `/bundle.js` 下被取 ⇒ 解析成 `/we-animation.mjs`，而三处登记表都没它 ⇒ 404 ⇒
+**整条 module 图断掉**（页面全黑、`__mpwLayerLedger` 空、`__mpwAnims` 不存在，`pageerror` 却是 0）。
+`tests/core-module-wiring-test.mjs` 正是为这类事故设的（8899 路由 + `build-pages.mjs` 产物根 +
+`web/sw.js` 预缓存），本轮它先红；**另外 8902 的渲染器路由表（`RENDERER_LOCAL_EXACT`）不在它的三处清单内**，
+必须单独登记 —— 四处均已补齐（`/we-animation.mjs`），实测 `/we-animation.mjs` 200。
+
+### 未做（诚实边界）
+
+`tests/anim-semantics-test.mjs#G3` 只覆盖"脚本 → 播放头 → 渲染"；**关键帧事件派发**
+（`animationEvent(event, value)`，需要一个双参宿主入口）**未接线**（事件只进有界环读数）；
+效果常量（`constantshadervalues.*`）、文本 `Opacity`/`maxwidth`、音频 `volume`、
+骨骼 `animationlayers` 播放头、场景级命名动画（`thisScene.getAnimation("ckk")`）**本批不接**。
+
 ## P-229（2026-10-04）演示页逐层台账的 composite 条目自 P-64-MEDIA 起全灭（`mpwLedgerYDown` 块级作用域错位）—— C0② 受控实验定位
 
 ### 症状

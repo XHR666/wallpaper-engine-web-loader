@@ -1049,6 +1049,8 @@ import * as lib from './bundle.js';   // ①(P-101) 相对说明符：Pages 项�
 import { installPuppet } from './elysia/we-renderer/puppet.js'
 // ①(RE-28 场景脚本 2026-09-12) 复用 elysia 移植的 NSL 运行时：脚本驱动的文本/颜色/位置等
 import { applySceneScripts, createScriptCache, invalidateUserProps, dispatchScriptEvent } from './elysia/scene-scripts.js';
+// ②(P-228l) 属性动画：脚本门面 `getAnimation()` 的**真控制器**解析器（宿主侧注入；不注入 = 旧的中性桩）
+import { setAnimationResolver } from './elysia/scene-scripts.js';
 import { Vec3 as MpwVec3 } from './elysia/scene-script-apis.js';  // ①(P-233) 指针事件的 event.worldPosition/localPosition 要真 Vec3（脚本调 .subtract/.add）  // ①(新) 复用其 MDL 解析/骨骼动画采样（非渲染器）；②(P-64 第15项) 脚本缓存 + 面板改值后复位 applyUserProperties；③(P-64-MEDIA 第9④项) 媒体事件派发进脚本
 // ③(P-64-MEDIA 用户第 9④ 项) 媒体集成宿主（P-62）：媒体状态机 → 官方五回调；歌词只在**包内自带**时使用（不联网）
 import { createMediaHost } from './elysia/media-host.js';
@@ -4989,6 +4991,10 @@ function loadScene() {
   scene = ATT_LEGACY
     ? lib.parseScene(sceneObj, null, { attachmentOffsets, uniformFlipY: attachmentOffsets.size > 0, legacyAnimY: true, readParticleDef })
     : lib.parseScene(sceneObj, null, { attachCtx: { readEntry: (n) => lib.getEntry(pkg, n), time: () => skinAnimTime, bindOrder: BIND_ORDER_LEGACY ? 'legacy' : undefined }, readParticleDef })
+  /* ②(P-228l 2026-10-05) 把**属性动画控制器**注册给脚本门面：`thisLayer/thisObject.getAnimation()`
+     由此拿到真句柄（`play()/pause()/stop()/setFrame()/rate` 直接驱动播放头；渲染逐帧求值）。
+     闭包读的是**当前** `scene`（重挂载会重建），WeakMap 查不到时门面自动回落到中性桩 ⇒ 零行为变化。 */
+  try { setAnimationResolver((raw) => (scene && scene.__animByRaw ? scene.__animByRaw.get(raw) : null)) } catch (e) { /* 无 window/未解析 → 桩 */ }
   // ═══ MPW-VIDEOBASE-BEGIN ═══
   // ①(2026-09-12 用户批准)"**视频作最底层 + 场景层按序叠加**"：容器里同时有 scene.json 与
   //   project.json.file 指向的视频（mp4/webm）时，把视频作为**最底层**合成 —— 官方这类作品
@@ -5050,8 +5056,27 @@ function loadScene() {
         projH: Number(__op.height) > 0 ? Number(__op.height) : null,
         layers: (scene && scene.layers ? scene.layers.length : 0),
       }
+      /* ②(P-228l) 属性动画台账：**函数**（每次调用现算，不占内存、不随帧增长）。
+         每条 = 层名/属性/档位 + `animDiag`（mode/fps/length/duration/frame/playing/rate/ended/linked/value/base）。
+         用法：`__mpwAnims()` 全量、`__mpwAnims(20)` 前 20 条、`__mpwAnims(1e9, '1语言')` 只看某层。 */
+      window.__mpwAnims = (limit, layerName) => {
+        try {
+          const all = lib.sceneAnimDiag(scene, 100000)
+          const filt = layerName ? all.filter((x) => String(x.layer) === String(layerName)) : all
+          return typeof limit === 'number' && limit > 0 ? filt.slice(0, limit) : filt
+        } catch (e) { return { error: String(e && e.message || e) } }
+      }
+      /* ②(P-228l) 关键帧事件环（`options.events` 越帧；**只收集不派发**，见 `advanceSceneAnimations` 注释）。
+         有界 60 条，逐帧由库侧维护 ⇒ 这里只是读数口（`__mpwAnimEvents()` 取全量、给数字取末尾 N 条）。 */
+      window.__mpwAnimEvents = (limit) => {
+        try {
+          const ring = (scene && scene.__animEvents) || []
+          return typeof limit === 'number' && limit > 0 ? ring.slice(-limit) : ring.slice()
+        } catch (e) { return { error: String(e && e.message || e) } }
+      }
     } catch (e) { /* 无 window */ }
   }
+
   // ①(RE-28) 脚本运行时上下文：脚本写 raw 对象（sceneObj.objects），我们把变化同步回 scene.layers
   const scriptRawObjects = (sceneObj && sceneObj.objects) || []
   window.__mpwRawObjects = scriptRawObjects // ①(P-41 A1-c) 上报 rawOrigin 探针用
@@ -9301,6 +9326,11 @@ function loadScene() {
 		{ try { mpwMediaTick() } catch (e) {} }
 		// ①(RE-19) 文本层：确保纹理就绪（字体未加载时本帧跳过，下一帧自动补）
 		{ let n = 0; for (const l of scene.layers) if (l.__text && l.visible && ensureTextTexture(l)) n++; if (n && !window.__mpwTextLogged) { window.__mpwTextLogged = 1; logf('① 文本层已光栅化: ' + n + ' 层') } }
+		// ②(P-228l) **属性动画播放头推进**（缺省档；`?anim=legacy` ⇒ 库内首行直接返回 0）。
+		//   位置就固定在这一处：脚本同步（`syncScriptOrigins`）**之后**、`renderer.render` **之前**
+		//   —— 动画写回发生在渲染循环内，天然晚于"脚本写 raw"；dt 与脚本 frametime 同一口径
+		//   （吃播放倍率 + 单帧封顶），所以播放倍率与动画推进不会分叉成两个速度。
+		{ try { lib.advanceSceneAnimations(scene, mpwSceneDt(mpwCapScriptDt(frameDt))) } catch (e) { /* 动画推进失败不影响出帧 */ } }
 		const __t0 = Date.now()
 		const __first = !mpwFirstFrameDone
 		try { if (!sceneAudio.started && mpwFirstFrameDone) startSceneAudio() } catch (e) { /* ignore */ }
