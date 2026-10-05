@@ -15660,6 +15660,57 @@ cd /tmp/webwallgl-2.1.0-src && pnpm install --frozen-lockfile && pnpm build
 ### 未验证边界
 ① 「系统实况」「鼠标尾迹」两行在缺省语料下 `disabled`（页面按能力/前置条件如实禁用），命中区的静态形态统一但"点不动"是禁用语义而非热区问题；② 触屏/触控板的 tap 语义未单独取证（复用同一套原生 label 激活）。
 
+## P-228f（2026-10-05）测试台参数栏四行重排 + 命中区/属性面板/链接确认/音条档位一批
+
+### 症状（客观）
+1. 参数栏排版不按指定顺序，状态行整句文字占两整行；「收起参数栏」旁边挂着一句提示文字；
+2. 带框控件（分辨率/滤镜/音条源/渲染器…）**把鼠标放到旁边的文字上**也会让触发框吃到灰底、点文字还能开合下拉（期望：只有框本身是热区）；
+3. 叉掉壁纸后「壁纸配置」右上角仍显示上一张的项数（如「37 items」）；勾选框关→开把面板滚回顶部（有的行跳、有的不跳）；
+   面板右侧滚动条是浏览器默认的黑矩形；面板底部还有一条与 NP 卡片重复的播放进度条（`#np-audio`）；
+4. 「滤镜」下拉只有选项、**没有任何消费者**（改了不生效）；
+5. 预览 URL 里**没有** `bandfeed=`（改写链在 `/webloader/` 路径上丢参）⇒ 音条状态只能报「这个渲染器不回报」、切音条源没效果；
+6. 点作者设置的**图片链接**（产物面板把带 `href` 的图片包成 `<a target=_blank>`）直接开新标签，倒计时确认弹层被绕开；
+7. scene 包内明明有音轨（如 `3554161528` 的 `sounds/…mp3`），NP 卡却写「未发现视频壁纸 / no video」。
+
+### 根因
+1. 工具条是"一个 flex 换行容器"，顺序靠 DOM 先后 + 自动换行；两条状态行是整句文本（`flex:1 1 100%`）；
+2. `<label>` 会把点在自己文字上的点击**原生激活**到行内第一个可标记控件（叠加提示性 hover 灰底 ⇒ 观感"文字也是热区"）；
+3. `#props-state` 由产物在"读属性"时写、叉掉那条路没人回头清；产物在属性变化后整块重画 `#props-body`（`innerHTML` 一换 `scrollTop` 归零）；
+   滚动条与底部传输条都是产物缺省样式/结构；
+4. `#fx` 只有 markup，没有映射表也没有落点；
+5. `bandFeedUrl()` 的入口正则只认 产物页入口（`…/renderer/` 下的 `index.html`），而工具条缺省档是 `/webloader/`（本仓渲染器）⇒ 缺省档下参数一个字都不加；
+6. 确认弹层的点击委托只拦本补丁自己的 `a.bench-prop-link`，产物渲染的图片链接不在其中；
+7. 渲染器的媒体元素是 **opt-in**（`?audio=1` 才给 sound 层建 `<audio>`），而工具条缺省「音条源 = 壁纸」的语义就是"用包内音轨"，那条参数一直没写进 URL。
+
+### 改法
+1. 参数栏拆成四个显式行容器 `.tb-row#tb-row1..4`（分辨率 Fit DPR FPS 滤镜 / 音量 系统实况 启用麦克风 音条源 /
+   渲染器 指针注入 鼠标尾迹 长度·粗细·颜色 / 收起 + 暂停 重挂载 释放 新窗口 壁纸配置 + 三个新档位）；
+   `#bar-row` 移进第 4 行、去掉旁白文字（提示改挂按钮 `title`）；`.bar-off` 只收第 1~3 行；
+2. `#toolbar` 捕获期 click：带框控件的行**点文字一律取消原生激活**（`.check` 勾选框行的文字仍是标准热区）；
+3. 叉掉时清 `#props-state`；`change` 后 600ms 内写回 `#props-body.scrollTop`；`#props`/`#props-body` 加主题色细滚动条
+   （Firefox `scrollbar-color` + WebKit `::-webkit-scrollbar-thumb`）；`#np-audio` 整条 `display:none` 且不再预留 `--mpw-np-strip` 高度；
+4. 新增纯函数 `filterPlan(value)`（唯一映射处）+ `#fx` 接线：把档位落到预览舞台 `#stage` 的 CSS filter（存 `bench-filter`）；
+5. `bandFeedUrl()` 两种入口都认（产物页入口与 `/webloader/` 入口）；状态行新增诚实态 `bandfeed.notInUrl`；
+   两条状态行加"文档年龄 <4s"宽限期（`rendererSrc.loading` / `bandfeed.idle`），不再把"还没跑到"写成"不认/不像"；
+6. 属性面板的点击委托放宽到 `#props-body` 里**任何** `a[href]` ⇒ 图片链接也走 `openExternalConfirm`（倒计时 + 目标域名，仍只放行 http(s)）；
+7. 新增 `audioOptInUrl(url, want)`：scene 档 + 壁纸档（auto/real）写 `?audio=1`，与 `bandfeed` 同一条 src 改写链；
+   媒体扫描拿到元素时补 `preload=metadata` + `load()`（不自动出声，但 duration 不再恒为 `--:--`）。
+
+### 判据与读数
+- `bench-shell-fixes` **293/0**（M1–M3 复选框命中区、M4–M9 文字热区与 `.bench-rd` 跳过、M10 图片链接确认路由）；
+- `bench-bandfeed-switch` **58/58**（新增 B1b：`?audio=1` opt-in 三态 + 只对 scene 档生效 + 替换同名参数；A4「不许自动播放包内音频」不退化）；
+- `demo-check` **133/0**（D8 静态 CSS 与补丁 `SITE_LAYOUT_CSS` 逐条等价仍成立）、`docs-check` ✓、`bench-dropdown-theme` ✓；
+- 真机读数（Firefox + llvmpipe，`:8902`）：四行结构就位（toolbar 180px）；分辨率/滤镜/音条源/渲染器/Web 渲染五行**点文字不打开、点框开→关**；
+  勾选框文字仍可切换；`#np-audio` = `display:none`、`--mpw-np-strip:0px`；`#props-body` 滚到 1574 勾选后**停在 1574**；
+  叉掉壁纸（`.wp-x-cur`）后 `#props-state` 清空、面板 `state=unselected`；点图片链接弹出「Target domain: space.bilibili.com」+ 倒计时且不开新标签；
+  `3554161528`（库根 dd，用完已 reset）挂载 URL 带 `audio=1`、iframe 建出 1 个 `<audio>`、`#np-stage` = 「媒体已连接 / media linked」。
+
+### 未验证边界
+① `3554161528` 的包内媒体是 **MP3 音轨**（134 条目全扫 + 内嵌视频判定 `has:false`），没有 MP4；"有 mp4" 若要指别的壁纸/id 需另给一个；
+② 「Web 渲染」档位默认取**兼容**（被宿主嵌入时渲染器的 `auto` 解析成 sandbox，正是真机 web 壁纸加载不出来的那条），渲染器侧的预检（预检 = 挂载前先判能不能跑）本轮未做；
+③ `?skipintro=` / `?hybrid=`（流式播放）已打通到预览 URL 并有工具条档位，渲染器侧对这两个参数的**消费**尚未实现（下一轮）；
+④ 参数栏折叠态在窄窗口下的换行未单独取证。
+
 ## P-229（2026-10-04）演示页逐层台账的 composite 条目自 P-64-MEDIA 起全灭（`mpwLedgerYDown` 块级作用域错位）—— C0② 受控实验定位
 
 ### 症状

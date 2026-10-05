@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-05T08:18:39.737Z",
+  "generatedAt": "2026-10-05T14:11:26.340Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -313,6 +313,11 @@
           "file": "demo.html",
           "line": 5658,
           "pattern": "searchParams.get('bandfeed')"
+        },
+        {
+          "file": "demo/bench-patch.js",
+          "line": 10630,
+          "pattern": "regex [?&]bandfeed="
         }
       ]
     },
@@ -1653,7 +1658,7 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 7012,
+          "line": 7127,
           "pattern": "regex [?&]online="
         }
       ]
@@ -1946,12 +1951,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 4812,
+          "line": 4922,
           "pattern": "searchParams.get('propimg')"
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 4816,
+          "line": 4926,
           "pattern": "searchParams.get('propimg')"
         }
       ]
@@ -2196,12 +2201,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 11035,
+          "line": 11262,
           "pattern": "regex [?&]sample="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 11082,
+          "line": 11309,
           "pattern": "regex [?&]sample="
         }
       ]
@@ -2316,12 +2321,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 8053,
+          "line": 8179,
           "pattern": "regex [?&]shell="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 9702,
+          "line": 9828,
           "pattern": "regex [?&]shell="
         }
       ]
