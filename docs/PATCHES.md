@@ -15711,6 +15711,38 @@ cd /tmp/webwallgl-2.1.0-src && pnpm install --frozen-lockfile && pnpm build
 ③ `?skipintro=` / `?hybrid=`（流式播放）已打通到预览 URL 并有工具条档位，渲染器侧对这两个参数的**消费**尚未实现（下一轮）；
 ④ 参数栏折叠态在窄窗口下的换行未单独取证。
 
+## P-228g（2026-10-05）Web 壁纸**挂载前预检**（插件侧 `probeWebWallpaper()` 的消费侧那一半）
+
+### 症状（客观）
+渲染器/测试台加载 web 壁纸前看不到任何风险提示；插件侧 `dsh-mpkg-wallpaper` 的 `GET /web-probe` 早就给出
+`heavy`（Spine/Live2D 骨骼资产 ⇒ 低配卡顿）与 `external`（入口 HTML 引外网 ⇒ 断网/被墙可能失败）两个标记，
+其文档（插件仓的 WEB-WALLPAPER 说明）§3.4 明确写着"**消费侧（测试台 / 渲染器侧那一半）**：直接读这两个布尔画标记即可"
+—— 本仓这一半一直没接。
+
+### 改法
+1. **判定核心（纯函数，唯一实现处）** `core/web-precheck.mjs`：`webPrecheckPlan()` / `isSkeletonAssetName()` /
+   `externalRefsInHtml()`；阈值与插件侧逐条一致（递归 ≤3 层、入口 HTML 只读前 256 KB、外链排除
+   `localhost`/`127.0.0.1`/`[::1]`、证据各≤8 条），`reasons` 沿用插件同款文案结构（可直接当悬停说明）。
+2. **服务端** `GET /api/web-probe?item=<id>`：用列表同一套 `libraryItemFromDir()` 判类型 ⇒ **非 web 项早退**
+   （`probe:null`，不遍历目录不读入口），web 项递归列目录 + 读入口 HTML 前 256 KB 后交给纯函数；安全面照旧
+   （`itemLocate()` 的 `..`/符号链接越界校验）。
+3. **补丁侧消费**：选中项变化时请求该路由，把标记画进舞台右下角状态片（机读 `data-mpw-webprobe` = 稳定 token
+   `heavy`/`external`/`ok`，人读文案进 text/title）+ 写输出区一行；机读读数 `window.__benchWebProbe = {item, probe}`。
+   两条触发路径都要（真机踩到）：**捕获期 click**（产物列表委托在冒泡里可能 `stopImmediatePropagation`；捕获期还能在
+   `.active` 生效前拿到被点项）+ **带 `childList` 的 MutationObserver**（产物换选中项常是重建 li，只盯 class 属性收不到）。
+
+### 判据与读数
+- 新增门禁项 `web-precheck`（注册进 `tests/run-all-tests.sh`）**18 通过 / 0 失败**：A 纯函数逐值对账（heavy 只算 ≤3 层、
+  外链排除本机地址、去重保序、上限 8 条、空输入不编造）；B 接线静态钉 + **真库扫描**（每个 web 项 `external⇔refs>0`、
+  `heavy⇔hits>0`、有标记必有 reasons）；C 两个变异自证（去掉本机地址排除 / 递归上限失效 ⇒ 对应判据必红）。
+- 真机（`:8902`，库根 `allwallpaper/0923`）：选中 `1748506393`（web）⇒ 请求 `/api/web-probe`、状态片
+  `data-mpw-webprobe="external"`、文案「Precheck: Needs network」、悬停写出「入口 HTML 引用外网资源 1 处 ⇒ 断网/被墙时可能加载失败」、
+  输出区同一行；同一次挂载 URL 里 `skipintro=0&webframe=compat&hybrid=1&bandfeed=auto` 均在位。场景项（如 `2887099508`）⇒ `probe:null` 早退。
+
+### 未验证边界
+① 只判"重动画 / 需外网"两项（与插件侧同口径）；② 静态托管（GitHub Pages）下 `/api/web-probe` 不存在 ⇒ 静默不报（与其它后端能力同处理）；
+③ `heavy` 的资产后缀/名字规则照抄插件侧，未新增语料实测（本机 0923 的 3 个 web 项都是 `heavy:false`）。
+
 ## P-229（2026-10-04）演示页逐层台账的 composite 条目自 P-64-MEDIA 起全灭（`mpwLedgerYDown` 块级作用域错位）—— C0② 受控实验定位
 
 ### 症状

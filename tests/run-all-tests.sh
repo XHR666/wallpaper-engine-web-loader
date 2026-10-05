@@ -89,6 +89,7 @@ bench_lib_reset() {
 add "bundle-syntax"      "node --check core/we-scene-bundle.js"
 add "demo-syntax"        "node tests/demo-syntax-check.mjs"
 add "demo-check"         "node tests/demo-check.mjs"   # ①E(2026-09-24) 补登记（132 断言：首屏静态外壳 CSS 与补丁 SITE_LAYOUT_CSS 逐条等价 D8 / 品牌钉子 D10 / 显示选项 D11 / 新窗口改写 D12 …）。此前只在文档与手工命令里被引用（`--only demo-check` 会报"未知测试项"exit 2），本表一直没有它 ⇒ 默认门禁不会跑；纯 Node、~5s、无浏览器/网络。
+add "web-precheck"       "node tests/web-precheck-test.mjs"   # ③(P-228g) Web 壁纸**挂载前预检**（服务端 /api/web-probe + 补丁侧消费）：纯函数逐值对账 + 接线钉 + 真语料扫描 + 两个变异自证。需要测试台在跑（不在则 B4/B5 如实 SKIP）。
 # ①(P-70b 2026-09-15) **把它排到重项之前**：单独跑 4.9s，但排在 `tex-fmt5`(45s)/`package-matrix`(38–52s)
 #   之后时会因内存压力（本机 15G、free 0）换页抖动到 >600s 被超时中止 —— 实测 120× 慢、
 #   单独复跑永远绿、`--out` 换新目录也绿（所以**不是** P-70 的唯一临时目录导致的）。

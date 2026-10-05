@@ -31,6 +31,7 @@
 //   ③ 8 个 `/api/*`（形状以调用方为准，逐条证据见 docs/BENCH-8902.md §2）：
 //      GET  /api/library     列表：{dir, items:[{itemId,title,type,hasScene,file,preview,properties,dir,kind}]}
 //      POST /api/library-dir 选择/收窄库根：{pick:true}⇒降级（见下）；{dir}⇒库根内的子目录；GET ⇒ 枚举子目录
+//      GET  /api/web-probe  Web 壁纸**挂载前预检**：?item=<id> ⇒ {type, probe:{isWeb,heavy,external,heavyHits,externalRefs,htmlFile,reasons}}（判定核心 core/web-precheck.mjs；非 web 项 probe:null）
 //      GET  /api/props       属性表：?item=<id> ⇒ {props:[描述子…]}（描述子字段=调用方读的那些）
 //      POST /api/props       保存覆盖：?item=<id>，body={属性名:值} ⇒ 落 <reports>/bench-props/<id>.json（**不写进壁纸包**）
 //      POST /api/props-dir   目录型属性：{pick:true}⇒降级；GET 枚举 / POST {dir} 取库根内的绝对目录
@@ -113,6 +114,7 @@ import { WEB_STORE_LIMITS, normalizeWallId, wallIdFor, storePath, mergeStore, ev
    代价与副作用：本模块无顶层 DOM/IO（Node 里 import 实测 ~90ms、不写盘不联网），且 `:8899` 的
    `/transpiled/*` 早就在动态 import 同一个文件 ⇒ 不是新增一类依赖，只是提前到加载期。 */
 import { parseWeJson, weJsonStats } from '../core/we-scene-bundle.js'
+import { webPrecheckPlan, WEB_PRECHECK_LIMITS } from '../core/web-precheck.mjs'
 /* ⓐ(2026-09-24 · 用户第 5 条「直接把 8899 集成到 8902，我以后拿 8902 测试」)
    **同一份实现复用**，不是复制一份：`:8899` 的服务器把请求处理器导出成 `rendererRequestHandler`，
    本服务把它挂到自己的 origin 上（`/webloader/**` 与渲染器自己的根路由）。
@@ -2314,6 +2316,54 @@ async function handleApi(req, res, url) {
       return jsonOk(res, { ok: true, wallId, data: readWebStore(wallId) })
     }
     throw bad('只支持 GET/POST /api/web-store')
+  }
+
+  // ③ GET /api/web-probe?item=<id> —— **Web 壁纸挂载前预检**（插件侧 `probeWebWallpaper()` 的消费侧那一半）
+  //   判定核心在 `core/web-precheck.mjs`（纯函数，与插件 `docs/WEB-WALLPAPER.md` §3.4 同语义）：
+  //   · heavy    = 目录里（递归 ≤3 层）有 Spine/Live2D 骨骼资产；
+  //   · external = 入口 HTML（只读前 256 KB）里有外链（排除 localhost / 127.0.0.1 / [::1]）。
+  //   为什么放在服务端：库根解析、`..`/符号链接越界校验、文件读取都已有唯一实现，客户端不必再拼路径。
+  if (p === '/api/web-probe') {
+    if (req.method !== 'GET' && req.method !== 'HEAD') throw bad('只支持 GET /api/web-probe')
+    const loc = itemLocate(q.get('item') || '')
+    /* 只对 **web** 项做预检：类型由列表同一套判定给出（`libraryItemFromDir`，与 `/api/library` 逐字同源）
+       ⇒ 场景/视频项一次早退，不做无谓的目录遍历与入口读取。 */
+    let kind = 'unknown'
+    try { const d = libraryItemFromDir(loc.id, loc.isDir ? loc.dir : path.dirname(loc.abs), undefined); kind = String((d && d.type) || 'unknown').toLowerCase() } catch (e) { kind = 'unknown' }
+    if (kind !== 'web') return jsonOk(res, { item: loc.id, type: kind, probe: null })
+    const files = []
+    const walk = (dir, depth) => {
+      if (depth > WEB_PRECHECK_LIMITS.depth) return
+      let ents = []
+      try { ents = fs.readdirSync(dir, { withFileTypes: true }) } catch (e) { return }
+      for (const e of ents) {
+        const abs = path.join(dir, e.name)
+        const relPath = path.relative(loc.dir, abs).split(path.sep).join('/')
+        if (e.isDirectory()) { files.push({ name: e.name, path: relPath + '/', depth }); walk(abs, depth + 1) } else if (e.isFile()) {
+          let size = 0
+          try { size = fs.statSync(abs).size } catch (err) { size = 0 }
+          files.push({ name: e.name, path: relPath, depth, size })
+        }
+      }
+    }
+    if (loc.isDir) walk(loc.dir, 0)
+    else files.push({ name: loc.base, path: loc.base, depth: 0 })
+    // 入口：目录里的 index.html（大小写不敏感）；单文件项就是它自己
+    let entryRel = loc.isDir ? (files.find((f) => /^index\.html?$/i.test(String(f.name))) || null) : { name: loc.base, path: loc.base }
+    let entryHtml = null
+    if (entryRel) {
+      const absEntry = path.join(loc.dir, entryRel.path)
+      try {
+        const st = fs.statSync(absEntry)
+        const fd = fs.openSync(absEntry, 'r')
+        const buf = Buffer.alloc(Math.min(WEB_PRECHECK_LIMITS.bytes, st.size))
+        const read = fs.readSync(fd, buf, 0, buf.length, 0)
+        fs.closeSync(fd)
+        entryHtml = buf.slice(0, read).toString('utf8')
+      } catch (e) { entryHtml = null }
+    }
+    const probe = webPrecheckPlan({ files, entryHtml, entryFile: entryRel ? entryRel.path : null })
+    return jsonOk(res, { item: loc.id, type: 'web', probe })
   }
 
   // ③ GET/POST /api/props —— 读属性表 / 保存覆盖（覆盖落在 reports，**不写进壁纸包**）
