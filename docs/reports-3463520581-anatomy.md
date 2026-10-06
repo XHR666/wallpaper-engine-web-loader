@@ -226,3 +226,27 @@ Kirito 侧也有一块橙色发饰漂在他背后；而**角色本体的脸/身�
    写回 **origin（必要时 scale）**（沿用 `syncScriptOrigins` 同款"增量叠加"口径，避免抹掉 parseScene 的锚点结果）。
 3. 判据：同包同相位（`campose=legacy`，t≈26 s）与"只画部件"的隔离档 —— 头发包围盒应与所在角色的头/背对上；
    并加一条合成场景断言（一个 1 骨 puppet + 一个静态附件层，动画推进后附件层的 origin 必须随时间变化）。
+
+## 第 71 轮：根因**落到代码行** —— 逐帧附件跟随的表根本没建起来（`attachAnchorAnim` 空）
+
+三组读数把链路钉死：
+
+| 读数 | 值 | 含义 |
+|---|---|---|
+| 离线 `attachOffsetDeltas(objects, readEntry, {time})` | **条目 58**，t=3 s 时 **20 条非零**、最大 `|Δ| = 18.52`；t=8 s 最大 14.76 | 增量机制**本身是好的**（锚点确实随动画动） |
+| 真机 `origin`（`hair kirito front/back`、`main hair back c2`、`hair extra`、`kirito face`）t0/t1/t2 各隔 4 s | 位移 **0.00 / 0.00** | **逐帧跟随没有生效** |
+| 真机页面日志 | **没有** `①(P-139) 附件锚点逐帧: N 层` 这一行（只有 `附件锚点 = elysia 移植实现…`） | 建表那段（`if (!ATT_LEGACY) { scene.layers.forEach(...) }`）**没有往表里放进任何层** |
+
+⇒ 结论：`demo.html` 里 `attachAnchorAnim` 的**填充发生在模块初始化期**（那段是顶层代码，紧跟在
+`applyScriptedFullscreenFallback` 等 init 调用之后），此时 `scene.layers` 还是空的 / 场景尚未装载
+（页面不报错、应用照常，说明 `scene` 存在但层表为空）⇒ 表恒空 ⇒ `applyAttachAnchorDelta()` 首行
+`if (!attachAnchorAnim.size) return` 直接返回 ⇒ **所有挂 puppet 的静态部件（含头发）停在 parse 时烘进去的
+"动画帧 0" 位姿**，角色本体（蒙皮网格）却一直在动 ⇒ 用户看到的"头发位置完全错了"。
+
+### 下一轮修法（很小，且可判定）
+1. 把建表那段抽成一个函数（`buildAttachAnchorAnim()`），在**挂载/解析完成后**调用一次（`scene.layers.length > 0` 且
+   `objById.size > 0` 时），并**无条件打一行** `①(P-139) 附件锚点逐帧: N 层`（便于以后一眼看出有没有建表）；
+   为稳妥起见可在 `applyAttachAnchorDelta()` 里做一次惰性补建（表空 + 场景就绪 ⇒ 建）。
+2. 判据：真机同包 `campose=legacy` 下，`hair kirito front/back` 的 `origin` 在 8 s 内**必须变化**（对比两组采样）；
+   再叠加视觉验收（t≈26 s 截图里 Asuna/Kirito 的头发应与头部对齐）。
+3. `?att=legacy` 保持旧行为（那条路径走 `attachAnim`，与本条无关）。
