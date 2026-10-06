@@ -1045,6 +1045,8 @@ fitCanvas();
 // ═══ MPW-PROPS-PANEL-END ═══
 </script>
 <script type="module">
+/* ①(P-240 诊断探针：文件↔页面一致性；HTML 里能 grep 到 ≠ 会执行，这个标记一读便知） */
+try { window.__mpwTopTag = 'top:' + (window.__mpwTopTag || 0) } catch (e) {}
 import * as lib from './bundle.js';   // ①(P-101) 相对说明符：Pages 项目站点（/<repo>/）下 `/bundle.js` 会解析到域名根 ⇒ 在线 demo 一直 404；相对后「自带服务器路由 /bundle.js」与「Pages 产物 /<repo>/bundle.js」两边都命中
 import { installPuppet } from './elysia/we-renderer/puppet.js'
 // ①(RE-28 场景脚本 2026-09-12) 复用 elysia 移植的 NSL 运行时：脚本驱动的文本/颜色/位置等
@@ -7692,34 +7694,48 @@ function loadScene() {
   //   `attachAnchorAnim` 为空时逐帧函数首行直接返回（零开销）。
   let attachAnchorAnim = new Map()
   let attachFrozenAnchor = [0, 0]
-  if (!ATT_LEGACY) {
+  /* ①(P-240 2026-10-06) **建表必须等场景就绪**：原来这段是顶层 init 代码，跑的时候 `scene.layers` 还是空的
+     （`3463520581` 实测：页面日志里没有『①(P-139) 附件锚点逐帧: N 层』、真机所有挂 puppet 的静态部件
+     origin 8s 内位移 0.00，而离线 `attachOffsetDeltas` 有 20 条非零。）⇒ 表恒空 ⇒ `applyAttachAnchorDelta()`
+     首行 early-return ⇒ 部件停在 parse 烘进去的『动画帧 0』位姿、蒙皮本体却在动 = 头发位置错。
+     现在抽成函数：挂载点先试一次（场景空则无操作），`applyAttachAnchorDelta()` 里再做惰性补建（零开销：
+     表非空或场景未就绪时都是一次布尔判断）；层数日志**无条件**打，便于一眼看出有没有建起来。 */
+  function buildAttachAnchorAnim() {
+    const mark = (x) => { try { window.__mpwAttachStage = x } catch (e) {} }
+    if (attachAnchorAnim.size) { mark('skip-nonempty:' + attachAnchorAnim.size); return attachAnchorAnim.size }
+    if (!scene || !Array.isArray(scene.layers) || !scene.layers.length) { mark('guard-scene:' + ((scene && scene.layers) ? scene.layers.length : 'none')); return 0 }
+    /* ①(P-240 2026-10-06) **不要再引用本作用域没有的变量**：上一版用 `sceneRaw` ⇒ 每帧
+       `ReferenceError: sceneRaw is not defined` 被外层 catch 吞掉（真机 `window.__mpwAttachErr` 实锤）。
+       这里改用宿主**已经发布**的原始对象数组 `window.__mpwRawObjects`（demo.html:5093 同源发布，
+       `{script,value}` 脚本宿主也读它）；外层 `objById` 有表则优先复用。 */
+    const __rawObjs = (typeof window !== 'undefined' && Array.isArray(window.__mpwRawObjects)) ? window.__mpwRawObjects : []
+    const byId = (objById && objById.size) ? objById : new Map(__rawObjs.map((o) => [o.id, o]))
+    mark('byId:' + byId.size)
+    if (!byId.size) { mark('guard-byId:0'); return 0 }
     const ai = scene && scene.__attachInfo
     if (ai && ai.frozenAnchor) attachFrozenAnchor = ai.frozenAnchor
-    scene.layers.forEach((l) => {
-      const raw0 = objById ? objById.get(l.id) : null
-      if (!raw0 || raw0.attachment == null || raw0.parent == null || !l.origin) return
-      // 锚点 Δ → **世界** Δ 的换算：parseScene 把锚点并入**父局部**坐标，再乘父链累积 scale、
-      //   吃父链累积旋转（本包父链 主体←长发3 的 angles.z = π ⇒ y 取反），最后 `y = PROJ_H − y`。
-      //   三者都可由数据推出，不写死常数：
-      //     · 父链累积 scale 比 = |本层世界 scale| / |作者 scale|（parseScene 逐级相乘的结果 ÷ 作者值）
-      //     · y 符号 = 父链累积角度是否含 π（本包 = π ⇒ Δy 取反）
-      const pRaw = objById ? objById.get(raw0.parent) : null
-      const pRot = lib.parseVec3(pRaw ? (pRaw.angles || '0 0 0') : '0 0 0')[2]
-      // y 符号：parseScene 合并末尾对**无 animationlayers** 的层做 `y = PROJ_H − y`，
-      //   带 animationlayers 的层保持 y-up（docs/CALIBRATION-3719111841.md §0 的历史例外）。
-      //   锚点 Δ 走同一次合并 ⇒ 该层 y 分量的符号 = 是否被翻转。
-      const flipY = !(l.animLayers && l.animLayers.length)
-      attachAnchorAnim.set(l.id, {
-        layer: l, baseOrigin: [l.origin[0], l.origin[1], l.origin[2] || 0],
-        ca: Math.cos(isFinite(pRot) ? pRot : 0), sa: Math.sin(isFinite(pRot) ? pRot : 0),
-        fy: flipY ? -1 : 1,
+    try {
+      scene.layers.forEach((l) => {
+        const raw0 = byId.get(l.id)
+        if (!raw0 || raw0.attachment == null || raw0.parent == null || !l.origin) return
+        const pRaw = byId.get(raw0.parent)
+        const pRot = lib.parseVec3(pRaw ? (pRaw.angles || '0 0 0') : '0 0 0')[2]
+        const flipY = !(l.animLayers && l.animLayers.length)
+        attachAnchorAnim.set(l.id, {
+          layer: l, baseOrigin: [l.origin[0], l.origin[1], l.origin[2] || 0],
+          ca: Math.cos(isFinite(pRot) ? pRot : 0), sa: Math.sin(isFinite(pRot) ? pRot : 0),
+          fy: flipY ? -1 : 1,
+        })
       })
-    })
+    } catch (e) { mark('loop-throw:' + (e && e.message)) }
+    mark('built:' + attachAnchorAnim.size)
     if (attachAnchorAnim.size) {
       logf('①(P-139) 附件锚点逐帧: ' + attachAnchorAnim.size + ' 层（跟随父骨骼动画；frozen anchor ' +
         (+attachFrozenAnchor[0].toFixed(1)) + ',' + (+attachFrozenAnchor[1].toFixed(1)) + '）')
     }
+    return attachAnchorAnim.size
   }
+  if (!ATT_LEGACY) { try { buildAttachAnchorAnim() } catch (e) { /* 场景未就绪 → 逐帧惰性补建 */ } }
   // 逐帧把附件锚点从 parse 时刻搬到当前动画时间（增量差；t=0 时首帧逐位等于 parse 结果）
   // ①(P-139 性能) 缓存策略（唯一实现处 `lib.attachOffsetDeltas` 自己每次调用都新建 ctx 缓存）：
   //   逐帧版实测 **4.6ms/动画帧**（19 层 × 每层重解 model.json + parseMdl + bind 世界链），
@@ -7730,7 +7746,10 @@ function loadScene() {
   //   `_mdlCache` 口径分叉（实测差 1.9e3），必须复用 `buildAttachOffsets` 的共享缓存口径。
   let __attMemoFrame = -1, __attMemo = null
   function applyAttachAnchorDelta() {
-    if (!attachAnchorAnim.size) return
+    if (!attachAnchorAnim.size) {
+      if (!ATT_LEGACY) buildAttachAnchorAnim()   // ①(P-240) 惰性补建（场景/objById 就绪后建一次）
+      if (!attachAnchorAnim.size) { try { window.__mpwAttachWhy = 'delta-empty:' + (window.__mpwAttachStage || '?') } catch (e) {} return }
+    }
     // `skinAnimTime` 按 1/30s 步进；`Math.round(t*30)` 是**帧号**，同一帧不重复算
     const __frNo = Math.round(skinAnimTime * 30)
     let deltas = null
@@ -7744,9 +7763,11 @@ function loadScene() {
       __attMemoFrame = __frNo; __attMemo = deltas
     }
     if (!deltas) return
+    let __applied = 0, __miss = 0
     attachAnchorAnim.forEach((a, id) => {
       const d = deltas.get(id)
-      if (!d) { a.layer.origin[0] = a.baseOrigin[0]; a.layer.origin[1] = a.baseOrigin[1]; a.layer.origin[2] = a.baseOrigin[2]; return }
+      if (!d) { __miss++; a.layer.origin[0] = a.baseOrigin[0]; a.layer.origin[1] = a.baseOrigin[1]; a.layer.origin[2] = a.baseOrigin[2]; return }
+      __applied++
       // 锚点 Δ（父局部空间）→ 世界 Δ：× 父链累积 scale（本包 0.693）、经父链旋转（本包 π ⇒ y 取反）。
       //   `d.delta` 已经是**相对 t=0** 的增量（与 parseScene 烘进去的那个时刻同基准）⇒ 直接加到
       //   parse 结果上就是"当前帧应有的 origin"，不需再减任何东西（`frozenAnchor` 只用于日志自证）。
@@ -7755,6 +7776,7 @@ function loadScene() {
       a.layer.origin[1] = a.baseOrigin[1] + a.fy * (x * a.sa + y * a.ca)
       a.layer.origin[2] = a.baseOrigin[2]
     })
+    try { window.__mpwAttachDelta = { anim: attachAnchorAnim.size, deltas: deltas.size, applied: __applied, miss: __miss, t: +skinAnimTime.toFixed(2) } } catch (e) {}
   }
   const attachAnimActive = new Map()
   if (ATT_LEGACY && !animOff && attachAnim.size) {
@@ -9467,6 +9489,11 @@ function loadScene() {
           //   纹理是否还活着。采样画布左侧 2% 处（只有背景层覆盖那里）。
           try {
             window.__mpwFrameNo = (window.__mpwFrameNo || 0) + 1
+            /* ①(P-240 2026-10-06) **挂到已验证必跑的渲染循环上**：本包实测挂载点那句与
+               `applyAttachAnchorDelta()` 的既有调用点都没执行（`window.__mpwAttachStage/__mpwAttachWhy`
+               恒 null，而 `__mpwFrameNo` 在涨）⇒ 这里补一次（幂等：origin = base + Δ(t)，重复调用无副作用）。 */
+            if (!ATT_LEGACY) { try { buildAttachAnchorAnim() } catch (e) { try { window.__mpwAttachErr = 'build:' + String(e && e.message || e) } catch (e2) {} } }
+            { try { applyAttachAnchorDelta() } catch (e) { try { window.__mpwAttachErr2 = 'apply:' + String(e && e.message || e) } catch (e2) {} } }
             // ①(MERGED-3 1.1) 第 90 帧纹理已齐全 → 二次上报覆盖首帧缩略图（观感更接近稳定画面）
             if (window.__mpwFrameNo === 90 && window.__mpwThumbPostFn) { try { window.__mpwThumbPostFn('t90') } catch (e) {} }
             if (window.__mpwFrameNo <= 40) {

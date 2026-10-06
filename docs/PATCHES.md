@@ -16517,3 +16517,29 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 在调试模式有当前层时可用（`layers.needDebug` 说明原因），调试没开时它没有"当前层"语义 —— 若后续要
 "非调试态的当前层"概念（比如最近点过的行），另立条目；③ `?hide=` 只在本页 URL（测试台）—— 渲染器侧
 （demo.html/core）不读它（本批铁律：不改渲染器代码），单层隔离的渲染器侧 URL 档仍是既有 `?ln=`。
+
+## P-240（2026-10-06）附件锚点逐帧跟随的**建表从没跑起来**：`objById` 为 null + 一版补丁踩 `sceneRaw` 未定义（3463520581 头发错位的根因）
+
+### 现象与链路（报告 `docs/reports-3463520581-anatomy.md` 第 70–75 轮）
+真机：挂 puppet 的**静态部件**（`hair kirito front/back`、Asuna 全部头发等）`origin` 在 8 s 内**位移 0.00**，
+而离线 `attachOffsetDeltas` 同包有 **58 条目 / 20 条非零（最大 |Δ| 18.5）**⇒ 增量机制本身正常，**宿主没在跑它**。
+
+### 根因（两处，都已实证）
+1. 建表段（`demo.html` 顶层 `if (!ATT_LEGACY) { scene.layers.forEach(...) }`）依赖外层 `objById`，而该作用域里
+   **`objById` 是 null**（真机诊断 `window.__mpwAttachBuild = {layers:74, objById:-1}`）⇒ 表恒空 ⇒
+   `applyAttachAnchorDelta()` 首行 early-return。
+2. 本轮首版补丁又把就地建表写成引用 **`sceneRaw`**（该作用域没有这个绑定）⇒ 每帧
+   `ReferenceError: sceneRaw is not defined` 被 `catch` 吞掉（真机 `window.__mpwAttachErr = 'build:sceneRaw is not defined'`）。
+
+### 修法（本版）
+- 建表抽成 `buildAttachAnchorAnim()`：挂载点先试一次 + `applyAttachAnchorDelta()` 首行**惰性补建** +
+  渲染循环里（`window.__mpwFrameNo++` 正下方）再补一次（**幂等**：`origin = base + Δ(t)` 重复调用无副作用）。
+- id 表改从**已发布的** `window.__mpwRawObjects` 就地构建（`objById` 有表则优先复用），不再引用 `sceneRaw`。
+- 三条诊断面（以后一眼可判）：`window.__mpwAttachStage`（建表阶段/表大小）、`window.__mpwAttachErr/__mpwAttachErr2`
+  （被吞的异常）、`window.__mpwAttachDelta`（delta 表大小/命中/未命中）+ `window.__mpwTopTag`（文件↔页面一致性）。
+
+### 读数与判据
+真机（`:8899` 直连渲染器页，绕开测试台）：修前 `stage=null`；修后 **`stage=skip-nonempty:58`** ⇒ **表已建成（58 层）**。
+**仍未通过的部分**：四个采样层的 `origin` 位移仍 0.00、`__mpwAttachDelta` 仍 null ⇒ 下一轮查
+`skinAnimTime` 是否为 0/不推进（若如此则 delta 恒 0），并把"当前帧时间"接进 `attachOffsetDeltas` 的调用；
+判据 = 真机 `hair kirito front/back` 的 `origin` 在 8 s 内必须变化 + t≈26 s 截图头发与头对齐。
