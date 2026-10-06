@@ -80,9 +80,22 @@ await page.waitForTimeout(3000)
     JSON.stringify({ elsCreated: r.ledger.elsCreated, attaches: r.ledger.attaches, els: r.els.length }))
   // ①(2026-10-04 修) 单个媒体资源可能被 UA abort（"media resource was aborted" 满载族，pageerror
   //   已记录）⇒ 出声判定放宽到 ≥12/13（创建数 13/13 仍是 B1 的硬断言），暂停者如实记录。
-  const playing = r.els.filter((e) => !e.paused).length
-  ok('B2 <audio> 13 个中 ≥12 在出声（个别媒体资源可被 UA abort，如实记录）',
-    r.els.length === 13 && playing >= 12, JSON.stringify({ playing, paused: r.els.map((e) => e.paused) }))
+  /* ①(P-238 2026-10-06 判据加固) 出声判定改成**短窗重试**：两次全量门禁连跑（机器满载）时观测到
+     第 4/5 个 `<audio>` 在**一次采样瞬间**仍 paused（`{"playing":11,...}`）⇒ 失败，而单独连跑三次
+     都是 12-13/13（含 B2）。单次读数对负载敏感 ⇒ 这里在 ≤3s 内轮询到"≥12 出声"即通过，
+     并把实际等待时长写进读数；**超时后仍不足才红**（判定强度不变，只是不再被采样时刻决定）。 */
+  const deadline = Date.now() + 3000
+  let playing = r.els.filter((e) => !e.paused).length
+  let waitedMs = 0
+  while (playing < 12 && Date.now() < deadline) {
+    await page.waitForTimeout(250)
+    const again = await READ()
+    playing = again.els.filter((e) => !e.paused).length
+    waitedMs = 3000 - Math.max(0, deadline - Date.now())
+    if (playing >= 12) { r.els = again.els; break }
+  }
+  ok('B2 <audio> 13 个中 ≥12 在出声（个别媒体资源可被 UA abort，如实记录；≤3s 短窗重试）',
+    r.els.length === 13 && playing >= 12, JSON.stringify({ playing, waitedMs, paused: r.els.map((e) => e.paused) }))
   ok('C 0 尺寸（scale=0）sound 层不被音频侧剪枝（13 个播放器覆盖全部 sound 层，含 11 个 scale=0）',
     r.ledger.elsCreated === 13, JSON.stringify({ els: r.els.length }))
   const badVol = r.els.filter((e) => !(e.volume > 0 && e.volume <= 1))
