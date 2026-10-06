@@ -269,6 +269,21 @@ Playwright 的 `console` 事件只给 `scene render failed: Error`；在页面�
 2. 这些 pass 失败**都不改变"能不能加载"**（两侧都出画），所以不进表 1/表 2/表 3，只在这里排序。
 3. 第 4 行与方案 §2 Phase 1 的「hlsl2glsl 规则族（`9/9a-2/9-3` 向量宽度 + `vertConflicts`）」是同一族的现场证据 —— 本矩阵给的是**包名/effect 名/原样错误行**，可直接当 Phase 1 的夹具来源。
 
+### 6.2.1 复核（2026-10-07）：本表第 **1** 与第 **3** 行**已由 P-198 ①③ 关闭**（本矩阵早于该补丁）
+P-198 ①③（2026-09-25）落了**跨 stage 同名 varying 的宽度对账** `reconcileStageVaryings()`（片元 `in` 按顶点侧加宽/收窄 + 裸引用补 swizzle；
+回退口 `?varyinglink=legacy`），它文档里举的第一个例子正是 `3602673806` 的 `.vert:6 varying vec4 v_TexCoord` / `.frag:70 varying vec2 v_TexCoord`。
+本轮在真机（`:8902` + Firefox）对**本表第 1/3 行的两个包**做了同包同时序 A/B（每档挂载后 12 s，读页面 `#log`）：
+
+| 包 | 缺省档 | `?varyinglink=legacy` |
+|---|---|---|
+| `0923/3602673806`（`workshop/2795521260/effects/color_grading`，本表第 1 行） | **无跳过行**（pass 正常链接） | `⚠ 跳过编译失败的 pass "…color_grading": … Varying \`v_TexCoord\`is not linkable between attached shaders.` |
+| `0923/3690417937`（`effects/glitter_prepare`，本表第 3 行） | **无跳过行** | 同一报文（`"effects/glitter_prepare"`） |
+
+⇒ 第 1 行"本仓独有"与第 3 行"两边都跳"的 varying 链接失败**都已不再发生**；legacy 档逐字复现旧报文 ⇒ 归因确定。
+（同批离线 `glslangValidator -l` 复核：缺省档片元 `in` 被加宽到 `vec4` 与顶点一致、legacy 档仍是 `vec2`。
+真机上读 `import('/bundle.js')` 的 `h2gPassFixStats` 恒 0 是**模块实例不同**所致 —— 页面自身的 specifier 是
+`./bundle.js`（= `/webloader/bundle.js`），与 `/bundle.js` 是两个 URL/两份实例；判据只看 `#log`，不看那份读数。）
+
 ### 6.3 §2 Phase 1 的 4 个已知候选（**本矩阵测不到**，需像素/A-B 判据）
 
 `usertextures`/`$mediaThumbnail` 槽 · `instanceoverride.brightness` · `copybackground` 的 z 序 · web 帧盒几何。
