@@ -132,3 +132,21 @@
 2. **层 `alpha` 与网格**：判据化 —— `alpha: 0` 的 puppet 层在整帧里应贡献 0 像素还是照画（要按官方语义定）。
 3. 白方块残片：在网格路径里找"退化 quad / 未蒙皮顶点"的来源（可与 1 一起修）。
 4. 复验口径：本包逐层隔离必须用 `__lnHidden`，且"只留一层"要保留祖先链（否则 puppet 部件整组消失 —— 已记）。
+
+## 第 67 轮：puppet 网格是"**1 骨蒙皮 + 1 段骨骼动画**"，且本仓网格路径确实消费 animations
+
+| 读数（`models/puppet - Copy_puppet.mdl`，MDLV0023，17 503 B） | 值 |
+|---|---|
+| 网格 | 顶点 **163** / 索引 **882**；每顶点都有 `blendIndices`(163) 与 `blendWeights`(163) ⇒ **是蒙皮网格** |
+| 骨骼 | **bones = 1**、anchors = 0 |
+| 动画 | `animations = 1`；`animation[0] = {id, name, frameCount, boneCount, segBytes, segs:[15271], fps}` ⇒ 一段骨骼动画（首段起始 15 271 B） |
+
+本仓网格路径的消费点（`core/we-scene-bundle.js`）：`mesh.animations[spec.animIdx]`（`bindWorldChain`/`skinPuppet` 家族，
+`analyzeAnimGoodFrames` 建"好帧表"，`animSpec` 带 `blend/rate/additive`）⇒ **不是"完全不消费动画"**；
+`kirito face` 层真机读数也确实拿到了 `__skin = {mesh, nb, bindInv, bindRT, animIdx, fps}` + `__skinReady:true`。
+
+⇒ 本轮无法支持"网格只做骨骼蒙皮、不吃顶点动画"这一条（该假设**待定**，不作为结论）；
+真正需要的是**真机读 `__skin` 的实际取值**：`nb`（骨数）、`animIdx`、`fps`，以及该网格画出来的**实际落点**
+（与相邻静态部件对比）——下一轮按这个做。
+
+> 操作教训：本轮第一次尝试把 `blendIndices` 整个数组打进了日志（14 KB+ 刷屏）⇒ 以后打印只给**长度与首元素**。
