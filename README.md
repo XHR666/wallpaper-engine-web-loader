@@ -128,7 +128,7 @@ tar -xzf wallpaper-engine-web-loader-0.5.18.tgz   # 解开得到 package/（含 
 | `core/` | **解析与渲染内核**：`we-scene.mjs`（库入口 `mount()`）、`we-scene-bundle.js`（PKG/TEX/MDL 解析 + WebGL2 渲染器）、`scene-project-json.mjs`（project.json 查找链）、`attach-transform.mjs`（附件锚点）、`puppet-skin.js`（蒙皮） |
 | `server/` | **本机服务端与打包 IO**：`we-scene-demo-server.mjs`（`:8899` 渲染器页：静态服务 + `/report` `/baseline` `/weassist` `/pkgdir` 等路由）、`we-scene-demo-server-8902.mjs`（`:8902` 一站式测试台：静态面 + `/api/*` + 渲染器 iframe + 媒体面 + `/diag` 流 + `/report` `/baseline` 落盘）、`pack-dir.mjs`（源目录 → `.mpkg` 容器） |
 | `web/` | **站点外壳与离线资产**：`sw.js` + `sw-policy.mjs`（SW 与缓存判据）、`pwa-inject.mjs`（首页注入）、`manifest.webmanifest`、`icons/`（页面与安装图标：`brand-*` 为仓库所有者提供的图，`icon-*` 为脚本生成且 URL 仍 200）、`diag.html` / `probe.html`（诊断页）、`diag-flags.json`（面板开关数据源，脚本生成） |
-| `tools/` | **生成器**：`make-sample.mjs`（合成样例，确定性）、`make-icons.mjs`（PWA 图标，确定性） |
+| `tools/` | **生成器与取证工具**：`make-sample.mjs`（合成样例，确定性）、`make-icons.mjs`（PWA 图标，确定性）、`pkg-patch.mjs`（PKG 容器读写：改 `scene.json` 后重打包 ⇒ "同一份输入喂两档"的受控 A/B；`--self-test` 自检往返逐字节相同） |
 | `tests/` | 全量回归与闸门（`run-all-tests.sh` 一键；`docs-check` / `publish-check` / `diag-flag-check` 三项静态闸门） |
 | `docs/` | 说明与审计文档（`PACKAGING.md`、`RELEASE.md`（发布前置/命令/验证/回滚）、`README-PUBLIC.md`、`RENDERER-ARCHITECTURE.md`、`PATCHES.md`、`COPYING-RULES.md`…） |
 | `elysia/` `vendor/` `shaders/` | CPU 渲染器移植（MIT，见 §7.1(1)）、vendored 第三方（MIT/ISC）、6 个自研 API 兼容 shader 头 |

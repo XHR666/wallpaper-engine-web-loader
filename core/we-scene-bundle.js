@@ -5523,6 +5523,21 @@ export function applyInstanceOverride(p, io) {
   p.vel[0] *= sp; p.vel[1] *= sp; p.vel[2] *= sp
   if (io.overColor && io.color) p.color = [io.color[0] / 255, io.color[1] / 255, io.color[2] / 255]
   else if (io.overColorn && io.colorn) p.color = [io.colorn[0], io.colorn[1], io.colorn[2]]
+  // ①(P-236 2026-10-06 「光轴层比上游亮 8 倍」) **算子基线同步**：
+  //   `alphafade` / `alphachange` 每帧都是 `p.alpha = (p._initAlpha ?? 1) × 系数`（`sizechange` 同款
+  //   `p._initSize ?? 20`），而这两个基线缓存**只有** `alpharandom`/`sizerandom` 会写。于是
+  //   "写了 instanceoverride.alpha/size、但预设没有 alpharandom/sizerandom"的层，覆写值**每帧被
+  //   还原**——实测 `2887099508` 的两条光轴层（preset 只有 lifetimerandom/sizerandom/…，
+  //   operator 有 alphafade，instanceoverride.alpha=0.35/0.24）在本仓档把改过的包
+  //   `instanceoverride.alpha=0` 换成 0 之后整帧读数**一动不动**（mean 243.47 → 243.49），
+  //   而上游产物档同一份包是 184.09 → 178.00（两条光轴层整层消失）。
+  //   官方语义（wer-ref WPSceneParser.cpp:1427 + ParticleModify.h:127/165/169/173）：override 是
+  //   **追加在作者 initializer 之后的最后一条 initializer**——它改的就是"基线"本身，后续算子在这条
+  //   基线上做乘性变化。所以这里把覆写后的值同步进基线缓存。
+  //   零回归面：没有 `alpharandom`/`sizerandom` 时 `?? 1` / `?? 20` 的兜底值恒等于 `p.alpha`/`p.size`
+  //   在无覆写时的取值（出生默认 alpha=1 / size=20），io 字段缺省时 `m()` 恒 1 ⇒ 无覆写层的顶点流逐位不变。
+  p._initAlpha = p.alpha
+  p._initSize = p.size
   // 官方此处不做 clamp；alpha 越界（语料 max 1.4）由渲染端的 `Math.max(0,p.alpha)*alphaMul` 兜住
   return p
 }

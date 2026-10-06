@@ -16316,3 +16316,55 @@ E 无手势 silent / B1 13-13 / B2 出声中 / C 0 尺寸不剪枝 / D 音量合
 C9④ 音频条（`sound line` composelayer + Simple_Audio_Bars，P-231 已让它可参与渲染）随
 `audioline` 属性切换的响应：帧差探针读到的是动画噪声量级（时钟/粒子每帧都变），且该层作者原文
 `visible:false` ⇒ 台账无条目——需要**读层可见性状态**（属性绑定翻转）而非像素差的精确量法。
+
+## P-236（2026-10-06）`instanceoverride.alpha/size` **每帧被算子基线还原**：`alphafade`/`alphachange`/`sizechange` 重建用的 `_initAlpha`/`_initSize` 只有 `alpharandom`/`sizerandom` 会写 ⇒ "预设没那个 initializer"的层覆写值等于没写（语料 72 层 / 51 包）
+
+### 现象（用户第 ④ 项「光轴 26/27」的**主因**）
+`0923/2887099508` 的两条 `Light shafts 0`（`instanceoverride.alpha` = 0.35 / 0.24）在本仓档把整屏洗到
+p50 **252.5** / mean 219.6；同相位上游产物档是 p50 176 / mean 163.1。
+
+### 判据（本轮新增的"改包"对照组）
+包文件（`<语料根>/<id>/scene.pkg`）是无压缩容器（`[u32 strlen][magic][u32 count]{nameLen,name,offset,size}` + 数据段），所以可以
+**改包**后同时喂两档（本仓 `?pkgpath=` / 上游 `window.__wp.loadSceneFile(blob, projectJson)`）——"同一份输入、
+两个渲染器"从此可判。四例（1280×720，装载后 26s 起各采 4 帧）：
+
+| 用例 | 上游产物档 | 本仓（修前） | 本仓（修后） |
+|---|---|---|---|
+| 原始 | p50 176 / mean 163.1 | p50 252.5 / mean 219.6 | **p50 174.8 / mean 179.9** |
+| 抽掉两条光轴层 | p50 159 / mean 154.0 | p50 147.3 / mean 148.2 | p50 147.3 / mean 148.2 |
+| 光轴 `instanceoverride.alpha = 0` | p50 **159** / mean **154.0**（与"抽掉"逐位相同） | p50 **250.8** / mean **218.7**（**没变**） | **p50 147.8 / mean 148.6**（= 抽掉） |
+| 光轴 `scale × 8` | p50 172.8 / mean 167.0 | p50 253.8 / mean 245.6 | p50 205 / mean 200.4 |
+
+上游档 `alpha=0` 与"删层"三项读数一字不差 ⇒ 官方确实读这个覆写；修前本仓档同一份包 mean 只动 **0.02**
+（243.47 → 243.49）⇒ 覆写被逐帧吃掉。
+
+### 根因 / 修法（`core/we-scene-bundle.js` `applyInstanceOverride` 末尾两行）
+`alphafade` / `alphachange` 每帧 `p.alpha = (p._initAlpha ?? 1) × 系数`、`sizechange` 每帧
+`p.size = (p._initSize ?? 20) × 系数`，而这两个基线缓存**只有** `alpharandom` / `sizerandom` 写；
+`applyInstanceOverride` 只改了 `p.alpha`/`p.size` 本体（P-74 验的是出生值，算子跑过之后没人回头验）。
+修法 = 覆写同时落进基线（`p._initAlpha = p.alpha` / `p._initSize = p.size`）。语义依据：官方把 override 当
+**追加在作者 initializer 之后的最后一条 initializer**（wer-ref `WPSceneParser.cpp:1427` +
+`ParticleModify.h:127/165/169/173`）——它改的就是基线本身。零回归面：`io` 缺省时 `m()` 恒 1 且函数提前返回；
+`?? 1` / `?? 20` 的兜底值恒等于出生默认（alpha=1 / size=20）⇒ 无覆写层顶点流逐位不变。
+
+### 影响面（离线扫 51 包 / 278 粒子层 / 245 个带 override 的粒子层）
+| 类别 | 层数 |
+|---|---|
+| `alpha` 覆写（≠1）+ 算子含 `alphafade`/`alphachange` | **72**（其中预设无 `alpharandom` 的 58） |
+| `size` 覆写（≠1）+ 算子含 `sizechange` | **31**（其中预设无 `sizerandom` 的 0） |
+
+覆写值以"调暗"为主（0.17–0.99）⇒ 修前这些层普遍偏亮 1.1×–5×。样例：本包 `Light shafts 0` 0.35/0.24、
+`Sakura` 0.87、`雪景远景` 0.63、`光束 1 (旧)` 0.17、`Dust motes` 0.80、`Glowing Stars_02` 0.19。
+
+### 判据
+`tests/p74-instanceoverride-test.mjs` **76/0**（原 69 + 新增 7）：基线缓存同步 / 作者值×覆写=新基线 /
+无覆写不写缓存（零回归面）/ **端到端**——合成 def（只有 `alphafade`、无 `alpharandom`）下
+`instanceoverride.alpha=0` ⇒ 全粒子 alpha 恒 0（修前必红）、`0.25` ⇒ max≈0.25×基线、有 `alpharandom` 的层不受影响、
+`sizechange` 吃 `instanceoverride.size`。变异自证：删掉那两行 ⇒ 新增 4 条必红。
+
+### 未验证边界
+① 只画光轴层的受控对照里，`scale ÷ 8` 档两档**单颗粒子亮度已一致**（覆盖处增量 12.1 vs 12.5），但 ×1 档仍有
+约 1.3–1.6× 的**几何**系统差（覆盖 2.2×/增量 2×）——与 alpha 无关，下一轮用"内容一致"的素材查（两档截图的
+人物姿势/相位本就不同，整帧百分位不能直接对拍）；② `alphafade.fadeouttime` 缺省我们写 0.5，官方缺省按响应曲线
+（`0.5`→+2.8 / 缺省→+4.4 / `0.99`→+5.4）落在 0.5–0.99 之间，本轮数据不足以定值，保留 0.5 并登记；
+③ 官方缺省 `fadeintime` 同款未定值（本包作者写了 0.1）。

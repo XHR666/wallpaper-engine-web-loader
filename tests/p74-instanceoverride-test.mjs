@@ -121,6 +121,71 @@ push('① applyInstanceOverride 导出', typeof lib.applyInstanceOverride === 'f
   const pn = mk(); pn.size = 7; pn.alpha = 0.3
   lib.applyInstanceOverride(pn, null)
   push('① 无 override 时零副作用', pn.size === 7 && pn.alpha === 0.3)
+  // ①(P-236 2026-10-06) **算子基线同步**：覆写必须同时落进 `_initAlpha`/`_initSize`
+  //   —— `alphafade`/`alphachange`/`sizechange` 每帧都从这两个缓存重建（`?? 1` / `?? 20`），
+  //   而它们只有 `alpharandom`/`sizerandom` 会写 ⇒ 预设没有那个 initializer 时覆写值被整帧还原。
+  //   实测取证：`2887099508` 光轴层把 `instanceoverride.alpha` 改成 0，本仓档整帧读数不变
+  //   （mean 243.47 → 243.49），上游产物档同包 184.09 → 178.00。
+  {
+    const p2 = mk()
+    lib.applyInstanceOverride(p2, io)
+    push('①[P-236] 覆写同步基线缓存（_initAlpha/_initSize）',
+      p2._initAlpha === 0.25 && p2._initSize === 10, '_initAlpha=' + p2._initAlpha + ' _initSize=' + p2._initSize)
+    const p3 = mk(); p3.alpha = 0.5; p3.size = 40
+    lib.applyInstanceOverride(p3, lib.resolveParticleOverride({ alpha: 0.2, size: 0.5 }))
+    push('①[P-236] 作者值 × 覆写 = 新基线（0.5×0.2 / 40×0.5）', p3._initAlpha === 0.1 && p3._initSize === 20,
+      JSON.stringify([p3._initAlpha, p3._initSize]))
+    const p4 = mk()
+    lib.applyInstanceOverride(p4, null)
+    push('①[P-236] 无 override 不写基线缓存（零回归面）', p4._initAlpha === undefined && p4._initSize === undefined)
+  }
+  // ①[P-236] 端到端：预设"只有 alphafade、没有 alpharandom"时必须吃 instanceoverride.alpha
+  {
+    const def = {
+      maxcount: 64, starttime: 0,
+      emitter: [{ name: 'boxrandom', rate: 40, distancemax: '0 0 0', distancemin: '0 0 0' }],
+      initializer: [{ name: 'lifetimerandom', min: 4, max: 4 }],
+      operator: [{ name: 'alphafade', fadeintime: 0.1 }],
+    }
+    const run = (ov) => {
+      const s = lib.buildParticleSystem(def, { maxCount: 64, instanceoverride: ov ? lib.resolveParticleOverride(ov) : null })
+      lib.simulateParticleSystem(s, 1.0)
+      return s.particles.map((p) => p.alpha)
+    }
+    const base = run(null), half = run({ alpha: 0.25 }), zero = run({ alpha: 0 })
+    const mx = (a) => (a.length ? Math.max(...a) : -1)
+    push('①[P-236] alphafade 不再吞掉 instanceoverride.alpha（0.25× 后 max≈0.25）',
+      base.length > 0 && half.length > 0 && near(mx(half), mx(base) * 0.25, 0.02),
+      'base max=' + mx(base).toFixed(4) + ' io=0.25 max=' + mx(half).toFixed(4))
+    push('①[P-236] instanceoverride.alpha=0 ⇒ 全粒子 alpha 恒 0（上游同包整层消失）',
+      zero.length > 0 && zero.every((a) => a === 0) && base.some((a) => a > 0),
+      'n=' + zero.length + ' max=' + mx(zero))
+    // 对照组：有 alpharandom 时（基线缓存本来就写）行为不变
+    const def2 = JSON.parse(JSON.stringify(def))
+    def2.initializer.push({ name: 'alpharandom', min: 1, max: 1 })
+    const s1 = lib.buildParticleSystem(def2, { maxCount: 64 })
+    lib.simulateParticleSystem(s1, 1.0)
+    push('①[P-236] 有 alpharandom 的层不受影响（alpha 仍由作者值给出）',
+      s1.particles.length > 0 && s1.particles.every((p) => p.alpha > 0 && p.alpha <= 1.0001),
+      'n=' + s1.particles.length)
+  }
+  // ①[P-236] sizechange 同款：没有 sizerandom 时 `?? 20` 会吞掉 instanceoverride.size
+  {
+    const def = {
+      maxcount: 16, starttime: 0,
+      emitter: [{ name: 'boxrandom', rate: 40, distancemax: '0 0 0', distancemin: '0 0 0' }],
+      initializer: [{ name: 'lifetimerandom', min: 4, max: 4 }],
+      operator: [{ name: 'sizechange', starttime: 0, endtime: 1, startvalue: 1, endvalue: 1 }],
+    }
+    const run = (ov) => {
+      const s = lib.buildParticleSystem(def, { maxCount: 16, instanceoverride: ov ? lib.resolveParticleOverride(ov) : null })
+      lib.simulateParticleSystem(s, 1.0)
+      return s.particles.length ? s.particles[0].size : -1
+    }
+    const off = run(null), on = run({ size: 0.5 })
+    push('①[P-236] sizechange 吃 instanceoverride.size（倍率 0.5，且 sizechange 系数=1 时等于出生尺寸）',
+      off > 0 && on > 0 && near(on, off * 0.5, 0.01), 'off=' + off + ' on=' + on)
+  }
 }
 
 // ───────────────────────── 真包骨架（mock-GL + 真实 renderScene） ─────────────────────────
