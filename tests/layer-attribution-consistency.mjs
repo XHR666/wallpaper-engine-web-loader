@@ -72,10 +72,20 @@ async function attributePkg(pkgPath) {
   // 脚本化场景（author 脚本含混淆形态 ⇒ 静态扫不可靠）：真机的可见性/取景可能被脚本改写，
   //   离线归因（不跑脚本）与之对账时，"真机画了、离线没画"的条目按 script-state 解释（C6 的边界）。
   const scripted = /"script"\s*:/.test(JSON.stringify(sceneObj))
+  /* ①(P-237 2026-10-06) **脚本可见性层名单**：`visible` 是 `{script,value}` 节点的层 —— 它的显隐由作者脚本
+     逐帧决定，而离线归因（不跑脚本）只看解析期可见性。P-237 之前这类节点的值同步不进渲染层（真机与离线
+     "一致地都不显示"），P-237 之后真机按脚本 `value` 显示 ⇒ 真机台账会出现离线表里没有/被标 skip 的层。
+     这是**机制类**差异（真机侧才是对的），用这份精确名单解释，而不是放宽整个 P1。 */
+  const scriptVisible = new Set()
+  for (const o of (sceneObj.objects || [])) {
+    const v = o && o.visible
+    if (v && typeof v === 'object' && typeof v.script === 'string' && 'value' in v) scriptVisible.add(String(o.name || o.id))
+  }
   const out = await attributeScene(sceneObj, { id: path.basename(path.dirname(pkgPath)), propsMap, propertiesSchema, pkg, readEntry: entry,
     readParticleDef: (p) => { try { const e = entry(p); return e ? JSON.parse(dec.decode(e)) : null } catch (e2) { return null } } }, { time: TIME, campose: 'legacy' })
   out.scriptCamera = scriptCamera
   out.scripted = scripted
+  out.scriptVisible = scriptVisible
   out.clearColor = (() => { const cc = sceneObj.general && sceneObj.general.clearcolor; const ce = sceneObj.general && sceneObj.general.clearenabled
     const v = typeof cc === 'string' ? cc.split(/\s+/).map(Number) : (Array.isArray(cc) ? cc : [0.7, 0.7, 0.7])
     return { enabled: ce !== false, l: v.length >= 3 ? +(0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]).toFixed(3) : 0.7, rgb: v } })()
@@ -253,7 +263,9 @@ try {
     let p1Unexplained = 0
     for (const d of results.divergences.filter((x) => x.pkg === id && x.kind === 'ledger-not-in-attribution')) {
       const anyRow = byNameAny.get(d.name)
-      if (P.attr.scripted && anyRow && anyRow.skipReason) { d.explained = 'script-state' } else { p1Unexplained++ }
+      if (P.attr.scriptVisible && P.attr.scriptVisible.has(String(d.name))) { d.explained = 'script-visible-state' }
+      else if (P.attr.scripted && ((anyRow && anyRow.skipReason) || !anyRow)) { d.explained = 'script-state' }
+      else { p1Unexplained++ }
     }
     ok('P1 [' + id + '] 真机台账每条都能对上离线归因的"已上屏"层（' + checked + ' 条）', miss === 0 && checked > 0 || (miss > 0 && p1Unexplained === 0),
       miss + ' 条对不上（其中未解释 ' + p1Unexplained + '）: ' + JSON.stringify(results.divergences.filter((d) => d.pkg === id && d.kind === 'ledger-not-in-attribution' && !d.explained).slice(0, 4)))
