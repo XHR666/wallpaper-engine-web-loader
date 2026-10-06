@@ -538,3 +538,31 @@ max 228），`/weassist/materials/particle/light/light_shafts_0.tex` = 200 直�
 **仍登记待定的读数**：`alphafade.fadeouttime` 缺省值我们写的是 `0.5`；上游档响应曲线（显式 `0.5`→+2.8、
 缺省→+4.4、显式 `0.99`→+5.4）说明官方缺省落在 **0.5 与 0.99 之间**，但这条曲线的**基准贴图也是替身**
 （见上）⇒ 数值只能作"量级"参考，本轮不足以为缺省值定案 —— 保留 `0.5`。
+
+---
+
+## 2m. 「图层被隐藏（如层21）」的取证（2026-10-06·第 47 轮）：不是我们多隐藏
+
+三条读数（同一份包，本仓档）：
+
+**① 可见性普查（离线：原始 `visible` vs `parseScene` 后的 `layer.visible`）**：82 层里
+**原始 true 却被我们隐藏的 = 0 层**；原始 false 却被我们显示的 = 1 层 —— `Clock`
+（`{user:{condition:"3",name:"time"}, value:false}`，属性表缺失时按"组内绝不空手"的兜底留一个变体，
+P-231 已写进判据）；另有 **3 层挂载瞬间 `alpha = 0`**（`options.startpaused` + `alpha` 轨道第 0 帧，
+官方语义"停帧 0 = 隐藏，等脚本 `getAnimation().play()`"，见 P-228l）⇒ 没有任何"作者要显示、我们藏起来"的层。
+
+**② 真机基线与 `pussy`（censorship 层）**：挂载后 `pussy.visible=false`（作者原文就是 `false`）、
+`panci cover up.visible=true`、`eyelids1`（`__sceneLayers` 下标 **21**，即"层21"若按 0 基编号就是它）
+`visible=true`。按 1 基编号"层21"= 下标 20 = `pussy`（作者原文 false）⇒ **两种编号下都不是我们藏错**。
+
+**③ 菜单项为什么点不到（这一条才是真问题）**：`设置2-穿上内内` / `设置3-我要涩涩` 的 `origin` 在
+`scene.json` 里是 **`{script:…}`**（不是静态串），运行期由脚本逐帧重算 ⇒ 真机上读到
+`origin=(-3159, 1712)/(−3159, 1312)`：**停在画布左侧外面**，只有作者的"打开菜单"脚本把整组菜单挪进来之后
+才可能被命中。所以"点菜单 ⇒ pussy 显/隐"这条链**不是脚本没跑，而是菜单没开时点不到**（§2i 的"一次性写入是瞬态"
+同因）。两个 `cursorClick` 的语义已离线复核（`--call`）：`穿上内内` ⇒ `panci.visible=true` + `pussy.visible=false`；
+`我要涩涩` ⇒ `panci=false` + `pussy=true`；两者都只写在 `cursorClick` 里，**没有任何 load-time 写入**
+（全包 4 处 `pussy` 引用：1 处层定义 + 1 处 `model` 名 + 2 处就是这两条 `cursorClick`）。
+
+**下一步（越小越好）**：真机导航一轮 —— 先点"打开菜单"的锚层（`中-菜单-浮动`/设置图标），再点 `设置3-我要涩涩`，
+读 `pussy/panci` 的翻转与 `__mpwCursorDispatch.hits`；这条链要在**同一次挂载**内连点两步，
+用 `layers[i].origin` 逐帧读数确认菜单真的移进来了再点，否则就是本轮这种"点在画布外"的假阴性。
