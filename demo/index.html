@@ -514,6 +514,41 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
   html.bench-shell #frame{height:100%!important;width:100%!important}
 }
 </style>
+    <!-- P-240（2026-10-06 任务书 §2.1）「图层开关」弹层的专用样式。
+         为什么独立成块、不进上面的 bench-shell-static：D8 门禁要求静态块与 bench-patch.js 的
+         SITE_LAYOUT_CSS 逐条等价 —— 那份常量只管**首屏布局**（防"一帧全屏放大"回归）；本块全是
+         弹层细节（首屏时面板 hidden，不影响首帧），收进来反而破坏 D8 的比对口径。
+         定位照抄 #wp-panel 这条已被验证的同款弹层模式（position:absolute + z-index:60）：
+         #pages-track 有 contain:paint（fixed 定位会被它当包含块并裁剪），absolute 挂在
+         #layer-switch（position:relative）上从按钮正下方展开，不受影响。 -->
+    <style id="layer-switch-css">
+/* 容器：占位与工具条其它控件同高（按钮吃产物 `#toolbar button` 的 24px 基础样式） */
+html.bench-shell #layer-switch{position:relative;flex:0 0 auto;min-width:0}
+html.bench-shell #layer-switch-btn[disabled]{opacity:.45;cursor:not-allowed}
+/* 弹层本体：锚在按钮正下方；列表内部滚动（任务书：面板内部滚动、限高） */
+html.bench-shell #layer-switch-panel{position:absolute;left:0;top:calc(100% + 4px);z-index:60;width:360px;max-width:min(92vw,560px);background:var(--panel);border:1px solid var(--border);border-radius:0 0 8px 8px;box-shadow:0 14px 40px rgba(0,0,0,.38);padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--fg)}
+html.bench-shell #layer-switch-panel[hidden]{display:none!important}
+/* 顶栏三键：全选 / 全不选 / 只留当前层 */
+html.bench-shell #layer-switch .lsw-bar{display:flex;gap:6px}
+html.bench-shell #layer-switch .lsw-bar button{flex:0 0 auto}
+html.bench-shell #layer-switch .lsw-bar button[disabled]{opacity:.45;cursor:not-allowed}
+/* 层行列表：内部滚动（限高）+ 行内省略；容器层 checkbox 置灰 */
+html.bench-shell #layer-switch .lsw-list{max-height:34vh;overflow-y:auto;min-width:0;display:flex;flex-direction:column;gap:1px;border:1px solid var(--border);border-radius:6px;padding:2px}
+html.bench-shell #layer-switch .lsw-row{display:flex;align-items:center;gap:6px;padding:1px 4px;border-radius:4px;min-width:0}
+html.bench-shell #layer-switch .lsw-row:hover{background:var(--btn-hover)}
+html.bench-shell #layer-switch .lsw-row[data-dbg-current="1"]{background:var(--active-sel,#0078d4);color:var(--list-active-fg,#fff)}
+html.bench-shell #layer-switch .lsw-row input[type="checkbox"]{margin:0;flex:0 0 auto}
+html.bench-shell #layer-switch .lsw-row input[type="checkbox"]:disabled{opacity:.4;cursor:not-allowed}
+html.bench-shell #layer-switch .lsw-idx{flex:0 0 auto;color:var(--fg-mute);font-size:11px;font-variant-numeric:tabular-nums}
+html.bench-shell #layer-switch .lsw-row[data-dbg-current="1"] .lsw-idx{color:inherit}
+html.bench-shell #layer-switch .lsw-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+/* 「只留」小按钮：悬停/当前行才出现（不占额外宽度常态） */
+html.bench-shell #layer-switch .lsw-keep{flex:0 0 auto;visibility:hidden;font-size:11px;height:18px;padding:0 6px}
+html.bench-shell #layer-switch .lsw-row:hover .lsw-keep,html.bench-shell #layer-switch .lsw-row[data-dbg-current="1"] .lsw-keep{visibility:visible}
+/* 底栏：状态行（隐藏 n/m 层）+ 复制当前状态 */
+html.bench-shell #layer-switch .lsw-foot{display:flex;align-items:center;gap:8px}
+html.bench-shell #layer-switch-status{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-mute);font-size:11.5px}
+    </style>
     <script>
       // 首屏前加类（在 <head> 里同步执行 ⇒ 第一帧就按新布局渲染）；?shell=off = 新样式总回退
       (function () {
@@ -887,6 +922,27 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
                 <input type="checkbox" id="hybrid" checked />
                 <span data-i18n="toolbar.hybrid">流式播放</span>
               </label>
+              <!-- P-240（2026-10-06 任务书 §2.1）「图层开关」：逐层诊断台 —— 不开控制台、不改代码，
+                   逐层开关 / 单层隔离 / 一键复制可复现状态。DOM 位置硬要求：**紧随「流式播放」之后**
+                   （判据 bench-ui-headless LS1 用相邻兄弟判定）。隐藏集合写进本页 URL 的 `?hide=`
+                   （登记 docs/README-DIAGNOSTICS.md 主表，diag-flag-check 双向对账）。 -->
+              <div class="layer-switch" id="layer-switch">
+                <button type="button" id="layer-switch-btn" aria-expanded="false" aria-controls="layer-switch-panel"
+                        data-i18n="toolbar.layerSwitch" data-i18n-title="toolbar.layerSwitchTip"
+                        title="取消勾选 = 该层不参与渲染（逐层排查用）；只在「本仓渲染器」档生效">图层开关</button>
+                <div id="layer-switch-panel" hidden>
+                  <div class="lsw-bar">
+                    <button type="button" id="layer-all" data-i18n="layers.all">全选</button>
+                    <button type="button" id="layer-none" data-i18n="layers.none">全不选</button>
+                    <button type="button" id="layer-only-cur" data-i18n="layers.onlyCurrent" data-i18n-title="layers.keepCurrentTip">只留当前层</button>
+                  </div>
+                  <div id="layer-switch-list" class="lsw-list"></div>
+                  <div class="lsw-foot">
+                    <span id="layer-switch-status"></span>
+                    <button type="button" id="layer-copy-state" data-i18n="layers.copyState">复制当前状态</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T13:47:03.860Z",
+  "generatedAt": "2026-10-06T17:23:03.415Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -321,7 +321,7 @@
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 10694,
+          "line": 11097,
           "pattern": "regex [?&]bandfeed="
         }
       ]
@@ -1037,6 +1037,27 @@
       ]
     },
     {
+      "name": "hide",
+      "common": false,
+      "sites": [
+        {
+          "file": "demo/bench-patch.js",
+          "line": 7240,
+          "pattern": "searchParams.get('hide')"
+        },
+        {
+          "file": "demo/bench-patch.js",
+          "line": 7258,
+          "pattern": "searchParams.get('hide')"
+        },
+        {
+          "file": "demo/bench-patch.js",
+          "line": 7532,
+          "pattern": "searchParams.get('hide')"
+        }
+      ]
+    },
+    {
       "name": "hier",
       "common": true,
       "sites": [
@@ -1685,7 +1706,7 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 7191,
+          "line": 7594,
           "pattern": "regex [?&]online="
         }
       ]
@@ -1978,12 +1999,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 4986,
+          "line": 5081,
           "pattern": "searchParams.get('propimg')"
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 4990,
+          "line": 5085,
           "pattern": "searchParams.get('propimg')"
         }
       ]
@@ -2228,12 +2249,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 11394,
+          "line": 11798,
           "pattern": "regex [?&]sample="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 11441,
+          "line": 11845,
           "pattern": "regex [?&]sample="
         }
       ]
@@ -2370,12 +2391,12 @@
       "sites": [
         {
           "file": "demo/bench-patch.js",
-          "line": 8243,
+          "line": 8646,
           "pattern": "regex [?&]shell="
         },
         {
           "file": "demo/bench-patch.js",
-          "line": 9892,
+          "line": 10295,
           "pattern": "regex [?&]shell="
         }
       ]
