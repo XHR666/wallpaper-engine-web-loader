@@ -16482,6 +16482,10 @@ parse error`；修复后全部 `exported: ["update"] / error: null / initialized
   `dbgApplyIsolation(null,-1)` 之后补一次 `lswApply()` ⇒ 调试退出**恢复用户自己的隐藏集**，绝不顺手清掉。
 - **定时器纪律**（P-164 用户第 19 条"释放后彻底安静"）：挂载探测**无常驻 interval** —— 订阅 iframe
   `load` + 渲染器 `mpw-first-frame` 消息，各带一串**有界**迟到检查（400/1600/4000/8000ms），跑完即静默。
+  ⚠ 首轮实测：`load` 监听**不能**引用本作用域后面的 `const frameEl`（`:9849` 才初始化 ⇒ 段落初始化时
+  TDZ，addEventListener 抛错被 try/catch 吞掉 ⇒ 监听从未装上、切渲染器档后无人重画、上游档禁用判据
+  假红；首帧消息走全局 `addEventListener` 所以初始挂载链是好的）—— 修法 = 事件挂载时现查
+  `doc.getElementById('frame')`（静态 HTML 里此刻必已存在）。
 - **纯函数层**（Node 门禁直跑真代码）：`parseHideParam` / `formatHideParam` / `layerSwitchEntries` /
   `rematchHiddenIndices` / `layerHidePlan` / `layerSwitchCopyPlan` / `layerDisplayName`（demo/bench-patch.js，
   `layerInfoPlan` 之后）。探针入口 `__benchPatch.layerSwitch / layerSwitchOpen / layerSwitchSet /
