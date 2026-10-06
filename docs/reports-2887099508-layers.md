@@ -566,3 +566,68 @@ P-231 已写进判据）；另有 **3 层挂载瞬间 `alpha = 0`**（`options.s
 **下一步（越小越好）**：真机导航一轮 —— 先点"打开菜单"的锚层（`中-菜单-浮动`/设置图标），再点 `设置3-我要涩涩`，
 读 `pussy/panci` 的翻转与 `__mpwCursorDispatch.hits`；这条链要在**同一次挂载**内连点两步，
 用 `layers[i].origin` 逐帧读数确认菜单真的移进来了再点，否则就是本轮这种"点在画布外"的假阴性。
+
+---
+
+## 2n. 菜单链第二轮（2026-10-06·第 48 轮）：**触发条件是"900ms 内连点 4 次"**，且脚本驱动的 `visible/alpha` 到不了渲染层
+
+### 2n.1 触发条件（离线去混淆：`tests/script-string-decode.mjs` ＋ 本轮入库的 `tools/script-deobfuscate.mjs`）
+
+`ldfk`（id 541）是**整画布命中层**（`models/util/projectlayer.json`，size 6080×3420、origin=画布中心）。它的
+`visible` 脚本（`tests/script-string-decode.mjs --chain` 列出本包 **73 个脚本驱动字段 / 40 层**：`visible` 27、`origin` 19、
+`text` 11、`alpha` 11、`scale` 4、`volume` 1）逻辑为：
+
+```js
+let count = 0; var pos = new Vec3();
+function cursorClick(e) { count++ }
+function update(v) {
+  if (thisScene.getLayerIndex(thisLayer) != 0x3d) { … }
+  count = Math.max(count, 0)
+  if (count >= 4) {                       // ← 900ms 内连点 4 次
+    shared[0x10] = 2                      // 菜单打开标志（shared[16]）
+    count = 0
+    pos.x = input.cursorWorldPosition.x; pos.y = input.cursorWorldPosition.y
+    thisScene.getLayer('中-菜单-浮动').origin = pos   // 菜单锚点**移到光标**
+  }
+  return v
+}
+function init() { engine.…(() => { count-- }, 0x384) }   // 0x384 = 900ms 的计数衰减
+```
+
+菜单项那一族：`设置1-返回`/`设置2-穿上内内`/`设置3-我要涩涩`/`设置4-开关音乐`/`安全模式` 的 **`alpha`、`visible`、
+`origin` 三者都是脚本**，读同一个 `shared[16]` 与锚点位置：
+
+```js
+// alpha 脚本（设置3）：shared[16] == 2 ⇒ 淡入；否则淡出
+function update(t) { return shared[0x10] == 2 ? WEMath.mix(t, 1, 0.03) : WEMath.mix(t, 0, 0.08) }
+// cursorClick（穿上内内）：shared[16] = 1; panci cover up.visible = true;  pussy.visible = false
+// cursorClick（我要涩涩）：shared[16] = 1; panci cover up.visible = false; pussy.visible = true
+```
+
+⇒ **本包 UI 的完整触发链**：① 画布上 900ms 内连点 4 次 → 菜单锚点移到光标 + `shared[16]=2`；
+② 菜单项淡入（`alpha` 脚本）；③ 点条目 → `shared[16]=1`（菜单收起）+ 该条目的副作用（pussy/panci 翻转、音乐、返回…）。
+
+### 2n.2 真机读数（本仓档，`?shell=0`，1280×720）
+
+连点 5 次（每次间隔 110ms）后：`__mpwCursorDispatch.clicks=5`、`hits` 首位 = **`ldfk`**（命中链端到端通）；
+把缓存里 `ldfk` 的 `update`/`cursorClick` 包一层计数（`window.__mpwScriptCache.map`，`owners` 含 `ldfk`）：
+**`update` 19 次（≈4Hz，回报 `in:true → out:true`）、`cursorClick` 5 次、`updateErrors 0`、`initError null`**。
+但 **`__mpwSharedWrites` 里始终没有 `shared[16]` 这一笔**，`中-菜单-浮动.origin` 不动、`设置*` 的 `alpha` 也不动
+⇒ 作者的"开门"分支在本仓档**没有走到**（脚本确实被调用，卡在它自己的判定/状态共享上）。
+
+### 2n.3 顺带查出的**类别级缺口**：`{script,value}` 节点的值到不了渲染层
+
+`demo.html` 的每帧同步循环里两条门是这样的（`MPW-P64-TEXT-SYNC` 段之后）：
+
+```js
+if (typeof raw.alpha === 'number' && Math.abs((l.alpha||1) - raw.alpha) > 1e-4) { l.alpha = raw.alpha; synced++ }
+if (typeof raw.visible === 'boolean' && l.visible !== raw.visible) { l.visible = raw.visible; synced++ }
+```
+
+而脚本宿主是把结果写进 **节点对象** 的 `value`（`applySceneScripts`：`scriptVal.value = formatResult(result)`）——
+节点仍是 `{script, value}` 形态 ⇒ **两条 `typeof` 门恒不成立**。真机对照：`设置3-我要涩涩` 的 `raw.alpha` 读数一直是
+`{val:1, script:true}`、`layer.alpha` 也一直 1（作者的淡出逻辑本该把它推向 0）；`raw.visible` 同理。
+`origin` 有专门的 `lib.syncScriptOrigins()`（读 `raw.origin.value`）所以只有它通。
+⇒ **凡"靠脚本改 `visible`/`alpha`/`scale`/`angles`"的层（本包 27/11/4 个字段），在本仓档都不会有动态变化**：
+这正是"菜单/心跳/翻页/耳朵悬浮"这类交互在本仓档看不到的**类别级**原因；下一步按 `syncScriptOrigins` 同款补一条
+`{script,value}` 同步（按载体重算，`?scriptsync=legacy` 回退），再用本包的连点 4 次重新验收。
