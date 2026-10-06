@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T18:59:27.771Z",
+  "generatedAt": "2026-10-06T19:17:31.996Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -1357,7 +1357,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9849,
+          "line": 9862,
           "pattern": "regex [?&]media="
         }
       ]

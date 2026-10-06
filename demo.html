@@ -1050,7 +1050,7 @@ try { window.__mpwTopTag = 'top:' + (window.__mpwTopTag || 0) } catch (e) {}
 import * as lib from './bundle.js';   // ①(P-101) 相对说明符：Pages 项目站点（/<repo>/）下 `/bundle.js` 会解析到域名根 ⇒ 在线 demo 一直 404；相对后「自带服务器路由 /bundle.js」与「Pages 产物 /<repo>/bundle.js」两边都命中
 import { installPuppet } from './elysia/we-renderer/puppet.js'
 // ①(RE-28 场景脚本 2026-09-12) 复用 elysia 移植的 NSL 运行时：脚本驱动的文本/颜色/位置等
-import { applySceneScripts, createScriptCache, invalidateUserProps, dispatchScriptEvent } from './elysia/scene-scripts.js';
+import { applySceneScripts, createScriptCache, invalidateUserProps, dispatchScriptEvent, syncScriptInput } from './elysia/scene-scripts.js';
 // ②(P-228l) 属性动画：脚本门面 `getAnimation()` 的**真控制器**解析器（宿主侧注入；不注入 = 旧的中性桩）
 import { setAnimationResolver } from './elysia/scene-scripts.js';
 import { Vec3 as MpwVec3 } from './elysia/scene-script-apis.js';  // ①(P-233) 指针事件的 event.worldPosition/localPosition 要真 Vec3（脚本调 .subtract/.add）  // ①(新) 复用其 MDL 解析/骨骼动画采样（非渲染器）；②(P-64 第15项) 脚本缓存 + 面板改值后复位 applyUserProperties；③(P-64-MEDIA 第9④项) 媒体事件派发进脚本
@@ -9501,6 +9501,19 @@ function loadScene() {
                恒 null，而 `__mpwFrameNo` 在涨）⇒ 这里补一次（幂等：origin = base + Δ(t)，重复调用无副作用）。 */
             if (!ATT_LEGACY) { try { buildAttachAnchorAnim() } catch (e) { try { window.__mpwAttachErr = 'build:' + String(e && e.message || e) } catch (e2) {} } }
             { try { applyAttachAnchorDelta() } catch (e) { try { window.__mpwAttachErr2 = 'apply:' + String(e && e.message || e) } catch (e2) {} } }
+            /* ①(P-243 2026-10-06) **把设计坐标指针喂进脚本 `input`**：此前 `input.cursorWorldPosition`
+               恒为画布中心（`elysia/scene-scripts.js` 里就是常量）⇒ 作者脚本里"眼睛跟指针/嘴巴随距离缩放"
+               这类互动从不生效。来源优先级：注入通道 `window.__mpwPointer`（设计坐标，宿主/DSH 用）>
+               渲染器暴露的 `renderer.pointerDesign`（DOM 指针换算，若有）。 */
+            try {
+              const __ip = (typeof window !== 'undefined' && window.__mpwPointer && Number.isFinite(window.__mpwPointer.x) && Number.isFinite(window.__mpwPointer.y) && window.__mpwPointer.inside !== false)
+                ? window.__mpwPointer
+                : ((renderer && renderer.pointerDesign && Number.isFinite(renderer.pointerDesign.x)) ? renderer.pointerDesign : null)
+              if (__ip && sceneScriptCache && sceneScriptCache.map) {
+                const __meta = { dx: __ip.dx, dy: __ip.dy, leftDown: !!__ip.buttons && (__ip.buttons & 1) === 1 }
+                for (const __e of sceneScriptCache.map.values()) { try { syncScriptInput(__e && __e.context && __e.context.input, __ip, __meta) } catch (e) {} }
+              }
+            } catch (e) { /* 注入失败保持既有值 */ }
             // ①(MERGED-3 1.1) 第 90 帧纹理已齐全 → 二次上报覆盖首帧缩略图（观感更接近稳定画面）
             if (window.__mpwFrameNo === 90 && window.__mpwThumbPostFn) { try { window.__mpwThumbPostFn('t90') } catch (e) {} }
             if (window.__mpwFrameNo <= 40) {

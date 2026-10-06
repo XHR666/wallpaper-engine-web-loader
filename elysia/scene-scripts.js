@@ -3088,6 +3088,34 @@ export function dispatchScriptEvent(cache, name, payload, opts = {}) {
 //   本函数把该标志清掉 → 下一帧 `applyUserProperties(opts.userProps)` 重新收到**当前**属性表，
 //   语义与旧行为（每帧都跑）等价，是接入缓存时的安全阀。
 // 用法：P-61 属性面板 / `?props=` 变更后调一次（幂等，返回被重置的 entry 数）。
+/* ①(P-243 2026-10-06) **`input.cursorWorldPosition` 此前恒为画布中心、没有任何更新入口**
+ *   ⇒ 作者脚本里所有"跟随鼠标"的互动（眼睛跟指针、嘴巴随指针距离缩放、NSL Dock…）在本仓**永远不动**。
+ *   这里提供唯一更新处：宿主每帧把**设计坐标**指针喂进来（就地改 Vec3，脚本持有的引用有效）。
+ *   读数口径：`input.cursorWorldPosition`（设计坐标，y 向下）、`cursorScreenPosition`（屏幕像素，可选）、
+ *   `cursorDelta`（本帧位移，可选）、`cursorLeftDown`（可选）。缺项一律保持原值（零回归）。 */
+export function syncScriptInput(input, p, meta = {}) {
+  if (!input || !p) return 0
+  const x = Number(p.x), y = Number(p.y)
+  if (!isFinite(x) || !isFinite(y)) return 0
+  let wrote = 0
+  const cw = input.cursorWorldPosition
+  if (cw && typeof cw === 'object') {
+    if (cw.x !== x || cw.y !== y || cw.z !== 0) { cw.x = x; cw.y = y; cw.z = 0; wrote++ }
+  }
+  const cd = input.cursorDelta
+  if (cd && typeof cd === 'object') {
+    const dx = Number.isFinite(meta.dx) ? meta.dx : 0
+    const dy = Number.isFinite(meta.dy) ? meta.dy : 0
+    if (cd.x !== dx || cd.y !== dy || cd.z !== 0) { cd.x = dx; cd.y = dy; cd.z = 0; wrote++ }
+  }
+  const cs = input.cursorScreenPosition
+  if (cs && typeof cs === 'object' && Array.isArray(meta.screen) && isFinite(meta.screen[0]) && isFinite(meta.screen[1])) {
+    if (cs.x !== meta.screen[0] || cs.y !== meta.screen[1]) { cs.x = meta.screen[0]; cs.y = meta.screen[1]; wrote++ }
+  }
+  if (typeof meta.leftDown === 'boolean' && input.cursorLeftDown !== meta.leftDown) { input.cursorLeftDown = meta.leftDown; wrote++ }
+  return wrote
+}
+
 export function invalidateUserProps(cache) {
   const map = cache && cache.map instanceof Map ? cache.map : (cache instanceof Map ? cache : null);
   if (!map) return 0;

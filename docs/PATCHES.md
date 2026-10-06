@@ -16587,3 +16587,31 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 `嘴巴.scale` Δ=0 ⇒ **下一步**（下一轮）：用 `tools/script-deobfuscate.mjs` 读这几个字段的脚本正文，
 确认它们是否真的读指针（还是读 `engine.runtime`/其它入口），据此判断是"作者逻辑如此"还是我们的
 `origin` 同步/指针管线还缺一环。
+
+## P-243（2026-10-06）`input.cursorWorldPosition` **恒为画布中心、没有任何更新入口** ⇒ 作者脚本里"眼睛跟指针 / 嘴巴随指针距离缩放 / NSL Dock"这类互动在本仓永远不动（3448290956「多种互动」的核心缺口）
+
+### 现象与定位
+`3448290956` 的 14 个脚本字段里有 3 个读指针（`tools/script-deobfuscate.mjs` 去混淆后逐字可见）：
+- `左眼球.origin`：`cursorDelta = input.cursorWorldPosition.subtract(value)` → 归一化 × `min(maxDistance, dist·distanceScale)`；
+- `嘴巴.scale`：`dist = input.cursorWorldPosition.subtract(thisLayer.origin).length()` → `value.y = minY + clamp(dist·ratio·0.01, 0, maxY)`；
+- （另 `头位置.origin` 读的是 `scriptProperties.x * engine.canvasSize.x`，与指针无关 ⇒ 不动是对的。）
+而 `elysia/scene-scripts.js` 里 `input.cursorWorldPosition` 是**一个常量 Vec3（画布中心）**，全仓**没有任何写入点**
+⇒ 这些脚本每帧算出来的都是"指针在正中"，肉眼就是"互动完全不响应"。真机（注入 `window.__mpwPointer`
+(900,500)→(3000,1500)）读数：修前四层 `origin` 位移 **0.0**、`头.angles` Δ0.0037。
+
+### 修法
+1. `elysia/scene-scripts.js` 新增 **唯一更新处** `syncScriptInput(input, p, meta)`：**就地**改
+   `cursorWorldPosition`（设计坐标 y 向下）/ `cursorDelta`（`meta.dx/dy`）/ `cursorScreenPosition`（`meta.screen`）/
+   `cursorLeftDown`（`meta.leftDown`）；任一缺项**保持原值**、无 `input`/无 `p` 直接 0 返回（零回归）。
+   就地改而非替换对象 ⇒ 脚本在 `update()` 里持有的引用始终有效。
+2. `demo.html` 每帧（`applyAttachAnchorDelta` 之后、脚本运行之前）把设计坐标指针喂进所有已编译脚本：
+   来源优先级 = 注入通道 `window.__mpwPointer`（`inside !== false`）> 渲染器暴露的 `renderer.pointerDesign`。
+
+### 判据与读数
+`tests/script-origin-sync-test.mjs`（门禁 `script-origin-sync`）**30 → 35 通过 0 失败**，新增 T7 五条：
+就地写入生效 / **同一个对象引用**（脚本持引用仍有效）/ `cursorDelta` 按 dx,dy 写 / 无指针或无 input ⇒ 0 副作用 /
+未给 screen ⇒ 保持原值（零回归）。
+**真机（3448290956，注入指针 (900,500)→(3000,1500)）**：**`左眼球` 位移 99.7、`右眼球` 100.2**
+（修前 0.0）、**`头.angles` Δ 5.9625**（修前 0.0037）⇒ **互动链路通了**；`头位置` 位移 0.0（作者写的是脚本属性，
+本来就与指针无关）、`嘴巴.scale` Δ0（该脚本把距离夹在上限，离得远时已饱和）。
+`demo-check` / `script-api-corpus --strict` / `docs-check` 全绿。

@@ -242,5 +242,23 @@ console.log(`\n[T6] P-239 压缩 import 形态（\`import*as X from'WEMath'\`）
   ok('T6 双引号 + 无分号形态同样可用', Math.abs(dq.value - 0.6591) < 0.005 && dq.error === null, JSON.stringify(dq))
 }
 
+console.log(`\n[T7] P-243 脚本 input 指针（syncScriptInput）：就地改、缺项不动、无参零副作用`)
+{
+  const { syncScriptInput } = await import(new URL('../elysia/scene-scripts.js', import.meta.url).href)
+  const input = { cursorWorldPosition: { x: 1920, y: 1080, z: 0 }, cursorDelta: { x: 0, y: 0, z: 0 }, cursorScreenPosition: { x: 640, y: 360 }, cursorLeftDown: false }
+  const ref = input.cursorWorldPosition
+  const n1 = syncScriptInput(input, { x: 900, y: 500 }, { dx: 5, dy: -7 })
+  ok(n1 > 0 && input.cursorWorldPosition.x === 900 && input.cursorWorldPosition.y === 500,
+    'T7 指针就地写入 cursorWorldPosition（x/y 生效）', JSON.stringify(input.cursorWorldPosition))
+  ok(input.cursorWorldPosition === ref, 'T7 **同一个对象**（脚本在 update 里持有的引用仍有效）', 'same=' + (input.cursorWorldPosition === ref))
+  ok(input.cursorDelta.x === 5 && input.cursorDelta.y === -7, 'T7 cursorDelta 按传入 dx/dy 写', JSON.stringify(input.cursorDelta))
+  const n2 = syncScriptInput(input, null)
+  const n3 = syncScriptInput(null, { x: 1, y: 1 })
+  ok(n2 === 0 && n3 === 0, 'T7 无指针/无 input ⇒ 0 副作用', 'n2=' + n2 + ' n3=' + n3)
+  const before = JSON.stringify(input.cursorScreenPosition)
+  syncScriptInput(input, { x: 901, y: 501 })
+  ok(JSON.stringify(input.cursorScreenPosition) === before, 'T7 未给 screen ⇒ cursorScreenPosition 保持原值（零回归）', before)
+}
+
 console.log(`\nscript-origin-sync-test：${pass} pass / ${fail} fail`)
 if (fail > 0) process.exit(1)
