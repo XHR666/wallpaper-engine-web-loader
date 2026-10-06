@@ -2458,6 +2458,307 @@ try {
     }
   }
 
+  // ══════════════════ LS 组（P-240 2026-10-06 任务书 §2）图层开关：逐层诊断台 ══════════════════
+  //  目标复述（任务书原话）：不开控制台、不改代码，就能逐层开关、单层隔离、一键复制可复现状态。
+  //  夹具：本组**自己重新导航**到干净 URL（前面各组会切壁纸/切渲染器档，状态不可信），等测试台
+  //  自动挂上合成样例（`?id=sample-synthetic`，本仓自造、随仓分发），以它的 `__sceneLayers` 为准。
+  //  像素判据走渲染器自己的 `__wp.capture()`（= 画布 JPEG data URL）：先 `__wp.pause()` 冻结渲染
+  //  循环 ⇒ 两次抓帧逐像素稳定 ⇒ 隐藏某层后同相位抓帧必须可测地变化，勾回去必须回到基线
+  //  （容差显式写死：任一通道 |Δ|≤8/255 的像素不计差；基线差必须 = 0，回基线差 ≤ 总像素 0.1%）。
+  {
+    const PATCH_URL = pathToFileURL(path.join(ROOT, 'demo/bench-patch.js')).href   // LS8 词典判据用（Node 侧直读真模块）
+    await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 90000 })
+    await page.waitForFunction(() => !!document.getElementById('frame'), null, { timeout: 60000 })
+    //  等合成样例挂载完成（iframe 导航 + scene 解析 + `__sceneLayers` 发布；给足但**有界**）
+    let mounted = false
+    for (let i = 0; i < 40 && !mounted; i++) {
+      mounted = await page.evaluate(() => {
+        try { const L = document.getElementById('frame').contentWindow.__sceneLayers; return !!(L && L.length) } catch { return false }
+      })
+      if (!mounted) await page.waitForTimeout(500)
+    }
+    ok(mounted, 'LS0 夹具：测试台默认挂上了合成样例（`__sceneLayers` 非空；等不到说明挂载链断了）',
+      mounted ? '' : '40×500ms 内未发布 __sceneLayers')
+    if (mounted) {
+      //  ── LS1 DOM 位置：紧随「流式播放」之后 ─────────────────────────────────────────
+      const pos = await page.evaluate(() => {
+        const hybrid = document.getElementById('hybrid-box')
+        const lsw = document.getElementById('layer-switch')
+        if (!hybrid || !lsw) return { present: false }
+        return {
+          present: true,
+          nextSibling: hybrid.nextElementSibling === lsw,
+          docPos: !!(lsw.compareDocumentPosition(hybrid) & Node.DOCUMENT_POSITION_PRECEDING), // hybrid 在 lsw 之前
+          btnText: String(document.getElementById('layer-switch-btn')?.textContent || ''),
+          disabled: !!document.getElementById('layer-switch-btn')?.disabled,
+        }
+      })
+      ok(pos.present && pos.nextSibling && pos.docPos, 'LS1 「图层开关」DOM 位置在「流式播放」之后（相邻兄弟 + compareDocumentPosition 双判）',
+        JSON.stringify(pos))
+      ok(!pos.disabled, 'LS1b 本仓渲染器档 + 已挂载 ⇒ 「图层开关」按钮可用（未禁用）', `disabled=${pos.disabled}`)
+      //  ── LS2 打开面板：条目数 == __sceneLayers.length ──────────────────────────────
+      await page.click('#layer-switch-btn')
+      await page.waitForTimeout(300)
+      const open = await page.evaluate(() => {
+        const L = document.getElementById('frame').contentWindow.__sceneLayers || []
+        const rows = [...document.querySelectorAll('#layer-switch-list .lsw-row')]
+        return {
+          total: L.length, rows: rows.length,
+          panelHidden: document.getElementById('layer-switch-panel').hasAttribute('hidden'),
+          aria: document.getElementById('layer-switch-btn').getAttribute('aria-expanded'),
+          names: rows.map((r) => String(r.querySelector('.lsw-name')?.textContent || '')),
+          checks: rows.map((r) => !!r.querySelector('input[type="checkbox"]')?.checked),
+          containers: rows.map((r) => r.hasAttribute('data-container')),
+        }
+      })
+      ok(open.panelHidden === false && open.aria === 'true', 'LS2a 点开「图层开关」⇒ 面板展开（aria-expanded=true）', JSON.stringify({ aria: open.aria, panelHidden: open.panelHidden }))
+      ok(open.rows === open.total, 'LS2b 打开后条目数 == `__sceneLayers.length`（探针包真实层数）', `rows=${open.rows} total=${open.total} names=${open.names.join('/')}`)
+      ok(open.checks.every(Boolean), 'LS2c 缺省全勾（每层默认参与渲染）', JSON.stringify(open.checks))
+      //  ── 选一个"像素可测"的目标层：先暂停渲染循环，再逐候选试 ─────────────────────
+      const pauseRes = await page.evaluate(() => {
+        try { const api = document.getElementById('frame').contentWindow.__wp; return { ok: !!(api && api.pause && api.pause()) } } catch (e) { return { ok: false, err: String(e) } }
+      })
+      await page.waitForTimeout(600)
+      const capStable = await page.evaluate(async () => {
+        const api = document.getElementById('frame').contentWindow.__wp
+        const a = api.capture(0.9), b = api.capture(0.9)
+        if (!a || !b) return { ok: false, why: 'capture 不可用' }
+        const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src })
+        const [ia, ib] = await Promise.all([load(a), load(b)])
+        const w = Math.min(ia.width, ib.width), h = Math.min(ia.height, ib.height)
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h
+        const g = cv.getContext('2d', { willReadFrequently: true })
+        const grab = (im) => { g.clearRect(0, 0, w, h); g.drawImage(im, 0, 0, w, h); return g.getImageData(0, 0, w, h).data }
+        const da = grab(ia), db = grab(ib)
+        let diff = 0
+        for (let i = 0; i < da.length; i += 4) {
+          if (Math.abs(da[i] - db[i]) > 8 || Math.abs(da[i + 1] - db[i + 1]) > 8 || Math.abs(da[i + 2] - db[i + 2]) > 8) diff++
+        }
+        return { ok: true, diff, px: w * h }
+      })
+      ok(pauseRes.ok && capStable.ok && capStable.diff === 0, 'LS4a 像素基线：暂停后两次抓帧**逐像素相同**（同相位比较的前提；JPEG 对同一画布是确定性的）',
+        JSON.stringify({ paused: pauseRes.ok, ...capStable }))
+      const pick = await page.evaluate(async () => {
+        //  逐候选：取消勾选 → 抓帧对比 → 勾回；返回第一个"隐藏后画面确实变了"的层
+        const L = document.getElementById('frame').contentWindow.__sceneLayers
+        const api = document.getElementById('frame').contentWindow.__wp
+        const rows = [...document.querySelectorAll('#layer-switch-list .lsw-row')]
+        const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src })
+        const grab = async (src) => {
+          const im = await load(src)
+          const w = im.width, h = im.height
+          const cv = document.createElement('canvas'); cv.width = w; cv.height = h
+          const g = cv.getContext('2d', { willReadFrequently: true })
+          g.drawImage(im, 0, 0)
+          return g.getImageData(0, 0, w, h).data
+        }
+        const diffRatio = async (a, b) => {
+          const da = await grab(a), db = await grab(b)
+          const n = Math.min(da.length, db.length)
+          let diff = 0, total = n / 4
+          for (let i = 0; i < n; i += 4) {
+            if (Math.abs(da[i] - db[i]) > 8 || Math.abs(da[i + 1] - db[i + 1]) > 8 || Math.abs(da[i + 2] - db[i + 2]) > 8) diff++
+          }
+          return { diff, total, ratio: diff / total }
+        }
+        const base = api.capture(0.9)
+        for (const row of rows) {
+          const i = Number(row.getAttribute('data-ln'))
+          const cb = row.querySelector('input[type="checkbox"]')
+          if (!cb || cb.disabled) continue
+          cb.click()
+          await new Promise((r) => setTimeout(r, 250))
+          const hiddenNow = L[i] && L[i].__lnHidden === true
+          const shot = api.capture(0.9)
+          const d = shot ? await diffRatio(base, shot) : { diff: -1, ratio: -1 }
+          cb.click()                                   // 勾回（下一个候选从干净状态开始）
+          await new Promise((r) => setTimeout(r, 250))
+          if (hiddenNow && d.diff > 0 && d.ratio > 0.005) return { i, name: String(row.querySelector('.lsw-name').textContent), ...d }
+        }
+        return null
+      })
+      ok(!!pick, 'LS4b **像素可测**：取消勾选某层 ⇒ 同相位抓帧该层覆盖区域可测地变化（差异像素 > 总像素 0.5%）',
+        pick ? `layer=${pick.i}(${pick.name}) diff=${pick.diff}/${pick.total} (${(pick.ratio * 100).toFixed(2)}%)` : '5 层合成样例里没有任何一层的隐藏能改变画面（异常：至少 background/label 必须可见）')
+      if (!pick) { notes.push('LS 组后续判据未跑：找不到像素可测的目标层') } else {
+        const li = pick.i
+        //  ── LS3 取消勾选 ⇒ __lnHidden === true ──────────────────────────────────────
+        await page.evaluate((i) => {
+          const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
+          row.querySelector('input[type="checkbox"]').click()
+        }, li)
+        await page.waitForTimeout(300)
+        const l3 = await page.evaluate((i) => {
+          const L = document.getElementById('frame').contentWindow.__sceneLayers
+          const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
+          const status = String(document.getElementById('layer-switch-status')?.textContent || '')
+          return { lnHidden: L[i].__lnHidden === true, checked: !!row.querySelector('input[type="checkbox"]').checked, status }
+        }, li)
+        ok(l3.lnHidden && !l3.checked, `LS3 取消勾选第 ${li} 层 ⇒ \`__sceneLayers[${li}].__lnHidden === true\`（checkbox 同步为不勾）`,
+          JSON.stringify(l3))
+        ok(/隐藏 1\/\d+ 层/.test(l3.status), 'LS3b 底部状态行显示「隐藏 1/共 N 层」', `status="${l3.status}"`)
+        //  ── LS4c 隐藏后画面确实变了（与基线比） ─────────────────────────────────────
+        const after = await page.evaluate(async (i) => {
+          const api = document.getElementById('frame').contentWindow.__wp
+          return { shot: api.capture(0.9), base2: api.capture(0.9) }
+        }, li)
+        const dAfter = await page.evaluate(async ({ a, b }) => {
+          const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src })
+          const grab = async (src) => { const im = await load(src); const cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height; const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0); return g.getImageData(0, 0, im.width, im.height).data }
+          const da = await grab(a), db = await grab(b)
+          let diff = 0; const total = da.length / 4
+          for (let i = 0; i < da.length; i += 4) if (Math.abs(da[i] - db[i]) > 8 || Math.abs(da[i + 1] - db[i + 1]) > 8 || Math.abs(da[i + 2] - db[i + 2]) > 8) diff++
+          return { diff, total }
+        }, { a: after.base2, b: after.shot })
+        ok(dAfter.diff > 0 && dAfter.diff / dAfter.total > 0.005, `LS4c 隐藏第 ${li} 层后**同一相位**画面与自身基线可测地不同（重取基线再对比，排除抓帧时序假差）`,
+          `diff=${dAfter.diff}/${dAfter.total} (${((dAfter.diff / dAfter.total) * 100).toFixed(2)}%)`)
+        //  ── LS5 重新勾上 ⇒ __lnHidden === false 且像素回基线 ─────────────────────────
+        await page.evaluate((i) => {
+          const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
+          row.querySelector('input[type="checkbox"]').click()
+        }, li)
+        await page.waitForTimeout(300)
+        const back = await page.evaluate(async (i) => {
+          const L = document.getElementById('frame').contentWindow.__sceneLayers
+          const api = document.getElementById('frame').contentWindow.__wp
+          const shot = api.capture(0.9)
+          return { lnHidden: L[i].__lnHidden === false, shot }
+        }, li)
+        //  简化：基线就是"全部层可见 + 暂停"的画布 —— 再抓一张全可见帧当基线（渲染循环已冻结，稳定）
+        const baseline = await page.evaluate(async () => {
+          const api = document.getElementById('frame').contentWindow.__wp
+          await new Promise((r) => setTimeout(r, 150))
+          return api.capture(0.9)
+        })
+        const dBack = await page.evaluate(async ({ a, b }) => {
+          const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src })
+          const grab = async (src) => { const im = await load(src); const cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height; const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0); return g.getImageData(0, 0, im.width, im.height).data }
+          const da = await grab(a), db = await grab(b)
+          let diff = 0; const total = Math.min(da.length, db.length) / 4
+          for (let i = 0; i < Math.min(da.length, db.length); i += 4) if (Math.abs(da[i] - db[i]) > 8 || Math.abs(da[i + 1] - db[i + 1]) > 8 || Math.abs(da[i + 2] - db[i + 2]) > 8) diff++
+          return { diff, total }
+        }, { a: baseline, b: back ? back.shot : baseline })
+        ok(back && back.lnHidden, `LS5a 重新勾上第 ${li} 层 ⇒ \`__lnHidden === false\``, back ? JSON.stringify(back.lnHidden) : 'evaluate 失败')
+        ok(dBack.diff / Math.max(1, dBack.total) <= 0.001, `LS5b 像素回基线（容差：任一通道 |Δ|≤8/255 不计差，且差像素 ≤ 总像素 0.1% —— 暂停态下两次 JPEG 编码应逐位一致）`,
+          `diff=${dBack.diff}/${dBack.total} (${((dBack.diff / Math.max(1, dBack.total)) * 100).toFixed(4)}%)`)
+        //  ── LS6 URL ?hide= + 带参重载恢复 ───────────────────────────────────────────
+        await page.evaluate((i) => {
+          const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
+          row.querySelector('input[type="checkbox"]').click()
+        }, li)
+        await page.waitForTimeout(300)
+        const urlNow = page.url()
+        ok(new RegExp(`[?&]hide=${li}(?!\\d)`).test(urlNow), `LS6a 隐藏集写进 URL：出现 \`hide=${li}\`（history.replaceState，无导航）`, urlNow)
+        await page.reload({ waitUntil: 'domcontentloaded' })
+        await page.waitForFunction(() => {
+          try { const L = document.getElementById('frame').contentWindow.__sceneLayers; return !!(L && L.length) } catch { return false }
+        }, null, { timeout: 60000 })
+        await page.waitForTimeout(2500)                 // 迟到检查链（400/1600ms）跑完 + 层稳定
+        await page.click('#layer-switch-btn'); await page.waitForTimeout(300)
+        const restored = await page.evaluate((i) => {
+          const L = document.getElementById('frame').contentWindow.__sceneLayers
+          const rows = [...document.querySelectorAll('#layer-switch-list .lsw-row')]
+          const checks = rows.map((r) => !!r.querySelector('input[type="checkbox"]').checked)
+          return {
+            url: String(location.href), lnHidden: L[i].__lnHidden === true,
+            checks, rows: rows.length,
+            status: String(document.getElementById('layer-switch-status')?.textContent || ''),
+          }
+        }, li)
+        ok(/[?&]hide=/.test(restored.url) && restored.checks.length === restored.rows,
+          'LS6b 带 `?hide=` 重新加载 ⇒ 页面 URL 仍带该参数（参数是**本页**状态，不是 iframe 私有）', restored.url)
+        ok(restored.checks.length > li && restored.checks[li] === false && restored.checks.filter((c) => !c).length === 1,
+          `LS6c 带参重载后勾选状态一致：第 ${li} 层不勾、其余全勾（重挂载按"下标+层名"恢复隐藏集）`,
+          JSON.stringify({ checks: restored.checks, status: restored.status }))
+        ok(restored.lnHidden, `LS6d 恢复不只停留在勾选框：\`__sceneLayers[${li}].__lnHidden === true\` 真的落到了渲染层`, String(restored.lnHidden))
+        //  ── LS7 上游产物档：禁用 + 原因非空 ──────────────────────────────────────────
+        await page.evaluate(() => { const s = document.getElementById('renderer-src'); s.value = 'upstream'; s.dispatchEvent(new Event('change')) })
+        await page.waitForTimeout(2500)
+        const up = await page.evaluate(() => {
+          const btn = document.getElementById('layer-switch-btn')
+          const panel = document.getElementById('layer-switch-panel')
+          return { disabled: !!btn.disabled, title: String(btn.getAttribute('title') || ''), panelHidden: panel.hasAttribute('hidden'), src: document.getElementById('frame').getAttribute('src') }
+        })
+        ok(up.disabled && up.title.length > 0 && /__lnHidden|本仓渲染器/.test(up.title),
+          'LS7a 上游产物档 ⇒ 「图层开关」禁用，且 title 里的禁用原因**非空且点名了原因**（__lnHidden / 本仓渲染器）',
+          JSON.stringify({ disabled: up.disabled, title: up.title.slice(0, 60) }))
+        await page.click('#layer-switch-btn', { timeout: 2000 }).catch(() => {})
+        await page.waitForTimeout(200)
+        const stillHidden = await page.evaluate(() => document.getElementById('layer-switch-panel').hasAttribute('hidden'))
+        ok(stillHidden, 'LS7b 禁用态点按钮 ⇒ 面板**不**展开（不是"看着能点"）', `panelHidden=${stillHidden}`)
+        await page.evaluate(() => { const s = document.getElementById('renderer-src'); s.value = 'repo'; s.dispatchEvent(new Event('change')) })
+        await page.waitForTimeout(2000)
+        const reEnabled = await page.evaluate(() => ({ disabled: !!document.getElementById('layer-switch-btn').disabled }))
+        ok(!reEnabled.disabled, 'LS7c 切回本仓渲染器档 ⇒ 控件恢复可用', JSON.stringify(reEnabled))
+        //  ── LS8 词典两表同步（照 B20 的写法：键集合相等 + 新键两表齐全） ────────────────
+        {
+          const P = await import(PATCH_URL)
+          const zh = Object.keys(P.DICT.zh), en = Object.keys(P.DICT.en)
+          const missEn = zh.filter((k) => !en.includes(k)), missZh = en.filter((k) => !zh.includes(k))
+          ok(missEn.length === 0 && missZh.length === 0, 'LS8a `DICT.zh` 与 `DICT.en` 键集合**完全相等**（B20 同款判据，本批新文案一起被查）',
+            JSON.stringify({ zh: zh.length, en: en.length, missEn: missEn.slice(0, 3), missZh: missZh.slice(0, 3) }))
+          const newKeys = ['toolbar.layerSwitch', 'toolbar.layerSwitchTip', 'layers.all', 'layers.none', 'layers.onlyCurrent', 'layers.keepCurrentTip', 'layers.needDebug', 'layers.copyState', 'layers.hiddenCount', 'layers.container', 'layers.keepRow', 'layers.keepOne', 'layers.disabledUpstream', 'layers.disabledNoMount', 'layers.dbgDeferred', 'log.lswKeepOnly', 'log.lswCopied', 'log.lswRematch']
+          const bad = newKeys.filter((k) => !P.DICT.zh[k] || !P.DICT.en[k])
+          ok(bad.length === 0, 'LS8b 图层开关的 18 条新文案键**两表齐全且非空**（任务书 §2.4 第 8 条）',
+            bad.length ? ('缺: ' + bad.join(',')) : `${newKeys.length} 键 × 2 表`)
+        }
+        //  ── LS9/LS10（任务书 §2.2）与调试模式联动：高亮 + 只留这一层 + 退出不清状态 ────
+        await page.evaluate(() => { window.__benchPatch.setDebugMode(true); window.__benchPatch.dbgStep(1) })
+        await page.waitForTimeout(500)
+        const dbg = await page.evaluate(() => {
+          const cur = window.__benchPatch.dbgIndex()
+          const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${cur}"]`)
+          return { cur, highlighted: !!(row && row.getAttribute('data-dbg-current') === '1'), rows: document.querySelectorAll('#layer-switch-list .lsw-row').length }
+        })
+        ok(dbg.cur >= 0 && dbg.highlighted, `LS9a 调试模式翻到第 ${dbg.cur} 层 ⇒ 面板对应条目**高亮**（data-dbg-current="1"）`,
+          JSON.stringify({ cur: dbg.cur, highlighted: dbg.highlighted, rows: dbg.rows }))
+        //  「只留当前层」= 只勾选它：隐藏集变成"除它以外全部"
+        const onlyState = await page.evaluate(async () => {
+          const cur = window.__benchPatch.dbgIndex()
+          const before = window.__benchPatch.layerSwitch()
+          window.__benchPatch.layerSwitchOnly(cur)
+          await new Promise((r) => setTimeout(r, 300))
+          const after = window.__benchPatch.layerSwitch()
+          const L = document.getElementById('frame').contentWindow.__sceneLayers
+          return { cur, hiddenBefore: before.hidden.length, hiddenAfter: after.hidden.length,
+            onlyCurHidden: after.hidden.includes(cur), othersHidden: L.every((l, i) => i === cur ? l.__lnHidden !== true : l.__lnHidden === true || (l.isContainer === true)) }
+        })
+        ok(onlyState.onlyCurHidden && onlyState.othersHidden && onlyState.hiddenAfter > onlyState.hiddenBefore,
+          `LS9b 一键「只留这一层」（第 ${onlyState.cur} 层）⇒ 隐藏集 = 除它以外全部，且 \`__lnHidden\` 逐层如实（容器层除外）`,
+          JSON.stringify(onlyState))
+        //  退出调试：勾选状态**不被清掉**（恢复 = 用户自己的隐藏集）
+        const afterExit = await page.evaluate(async () => {
+          const before = window.__benchPatch.layerSwitch()
+          window.__benchPatch.setDebugMode(false)
+          await new Promise((r) => setTimeout(r, 300))
+          const after = window.__benchPatch.layerSwitch()
+          const L = document.getElementById('frame').contentWindow.__sceneLayers
+          const hiddenCount = L.filter((l) => l.__lnHidden === true).length
+          return { urlHide: after.urlHide, hiddenSet: after.hidden.length, hiddenSetBefore: before.hidden.length, lnHiddenCount: hiddenCount, total: L.length }
+        })
+        ok(afterExit.hiddenSet === afterExit.hiddenSetBefore && afterExit.hiddenSet > 0,
+          'LS10a 调试模式退出 ⇒ 勾选状态**不被清掉**（隐藏集与退出前一致、且非空）',
+          JSON.stringify({ hiddenSet: afterExit.hiddenSet, hiddenSetBefore: afterExit.hiddenSetBefore }))
+        ok(afterExit.lnHiddenCount === afterExit.hiddenSet,
+          'LS10b 退出调试后渲染层恢复的是**用户隐藏集**（逐层 `__lnHidden` 与隐藏集一致），不是"全部可见"',
+          JSON.stringify({ lnHiddenCount: afterExit.lnHiddenCount, hiddenSet: afterExit.hiddenSet, total: afterExit.total }))
+        //  ── LS11「复制当前状态」：剪贴板文案 = 带 hide 的 URL + 隐藏层清单 ───────────────
+        await page.evaluate(() => {
+          //  真按钮路径（copyText 的剪贴板在无头下可能走 manual 兜底，但**输出区日志**必须打出来）
+          document.getElementById('layer-copy-state').click()
+        })
+        await page.waitForTimeout(400)
+        const copyLog = await page.evaluate(() => {
+          const lines = [...document.getElementById('logbody').children]
+          return lines.map((l) => String(l.textContent || '')).filter((t) => t.includes('hide=')).slice(-1)[0] || ''
+        })
+        ok(copyLog.includes('hide=') && copyLog.includes('#'), 'LS11 「复制当前状态」在输出区打出一行同内容日志（含 ?hide= 与"下标+层名"清单）',
+          copyLog.slice(0, 160))
+      }
+      //  恢复现场：解除暂停（渲染循环冻结会拖累后面的 G10 采样组），回到干净 URL
+      await page.evaluate(() => { try { document.getElementById('frame').contentWindow.__wp.resume() } catch { /* 已释放 */ } })
+    }
+  }
+
   // ══════════════════ G10 ⑪(用户第 11 条) 首屏不闪：**没有任何一帧**在堆叠态被看见 ══════════════════
   //  用户口径：「刷新 :8902 时先看到所有内容堆在一起，约 1 秒后才正常」。
   // ══════════════════ IA 组（2026-09-24 issue #0924a · A 线 12 条）══════════════════════════════

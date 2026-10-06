@@ -16447,3 +16447,65 @@ parse error`；修复后全部 `exported: ["update"] / error: null / initialized
 （每帧 pump 一次？）有关，留下一轮用"临时打印 count 的探针"定位；② 本批只修 `import * as` 一条正则，
 `import {a,b} from'X'` 形态本来就带 `\s*`（未动），`export` 家族的正则同样保持原样（只要有空格就工作，
 压缩到 `export function` 仍是带空格的写法）。
+
+## P-240（2026-10-06）**图层开关**：8902 测试台 → 逐层诊断台（逐层开关 / 单层隔离 / `?hide=` 可复现 / 一键交接）
+
+> **入库位置备忘（如实记录）**：本批实现侧文件（`demo/index.html`、`demo/bench-patch.js`、
+> `docs/README-DIAGNOSTICS.md` 的 `hide` 行、`web/diag-flags.json`）在**尚未由本批提交**时，被另一条
+> 工作线的整树暂存提交 `a56556c`（其信息只写了 2887099508 归因报告，未提及本批）一并带入并已推送。
+> 本批自己的提交补齐其余两件（`tests/bench-ui-headless-test.mjs` LS 组判据 + 本条目）；逐件归属以
+> 本条目为准，`a56556c` 的提交信息**不构成**对本批内容的描述。
+
+### 现象与目标（任务书 §2 原话）
+排障"到底哪个图层渲染有问题"要开控制台手写 `__lnHidden`、口口相传状态：**不开控制台、不改代码**就做不到。
+本批把 8902 测试台做成逐层诊断台：页面上逐层开关、单层隔离、把状态一键复制出来贴给别人。
+
+### 实现（全部在 `demo/**` + `tests/bench-ui-headless-test.mjs` + `docs/**`；`core/**`、`elysia/**` 一个字节没动）
+- **「图层开关」下拉**（`demo/index.html` tb-row4，DOM 位置**紧随「流式播放」**，判据 LS1 用相邻兄弟 +
+  `compareDocumentPosition` 双判）：列出当前已挂载壁纸的全部层（`#<下标> 层名`，层名空则 `id` 再空 `#下标`），
+  每层一个 checkbox：勾 = 参与合成渲染，取消 = 不渲染。顶部 `全选 / 全不选 / 只留当前层`，列表内部滚动
+  （`max-height:34vh`），底部状态行 `隐藏 n/m 层` + `复制当前状态`。容器层照列出但 checkbox 置灰
+  （容器不参与绘制，`__lnHidden` 对它无意义）。
+- **写入通道 = `layer.__lnHidden`**（绘制期判据，core 每帧 `if (layer.__lnHidden) continue`，与 `?ln=`
+  同一条约定）。⚠ 不写 `layer.visible` —— 逐帧 raw→layer 同步会把它扳回去（P-164 已取证）。
+- **禁用态**：上游产物档（不认 `__lnHidden`）与未挂载壁纸时整控件 `[disabled]`，title 写明原因
+  （照 `toolbar.*` 控件的禁用样式）。
+- **`?hide=1,4,7`**（下标 = `__sceneLayers` 下标；登记 `docs/README-DIAGNOSTICS.md` 主表 ⑧ 组，
+  读点 = `new URLSearchParams(location.search).get('hide')`，`diag-flag-check` 双向对账 220 == 220 0 差异）：
+  每次勾选变化 `history.replaceState` 同步进本页 URL（空集 = 删除参数）；带参打开/重挂载都恢复。
+  「复制当前状态」= 剪贴板写入"带 `?hide=` 的完整 URL + 隐藏层清单（下标+层名）"，输出区打同一行日志。
+- **重挂载对账**：`__sceneLayers` 换新数组 ⇒ 按"**下标 + 层名**"重新对上（`rematchHiddenIndices`：
+  下标存在且层名与隐藏时记下的一致才保留；宁可少隐藏，不能藏错层），保留用户勾选状态。
+- **与调试模式联动（不打架）**：调试隔离临时覆盖 `__lnHidden`；翻层时面板对应条目 `data-dbg-current="1"`
+  高亮（挂在 `dbgPaint()` 里）；行上「只留」一键 = 只勾选它（调试开着时同时把隔离跳过去，立即见效）；
+  **隔离生效期间勾选改动只记账**（checkbox title 如实写"退出调试后生效"），`setDebugMode(false)` 收尾在
+  `dbgApplyIsolation(null,-1)` 之后补一次 `lswApply()` ⇒ 调试退出**恢复用户自己的隐藏集**，绝不顺手清掉。
+- **定时器纪律**（P-164 用户第 19 条"释放后彻底安静"）：挂载探测**无常驻 interval** —— 订阅 iframe
+  `load` + 渲染器 `mpw-first-frame` 消息，各带一串**有界**迟到检查（400/1600/4000/8000ms），跑完即静默。
+- **纯函数层**（Node 门禁直跑真代码）：`parseHideParam` / `formatHideParam` / `layerSwitchEntries` /
+  `rematchHiddenIndices` / `layerHidePlan` / `layerSwitchCopyPlan` / `layerDisplayName`（demo/bench-patch.js，
+  `layerInfoPlan` 之后）。探针入口 `__benchPatch.layerSwitch / layerSwitchOpen / layerSwitchSet /
+  layerSwitchOnly / layerSwitchApply` 与真点击同一条动作链。
+- i18n：`toolbar.layerSwitch(Tip)`、`layers.*` 8 键、`log.lsw*` 3 键共 18 条，`DICT.zh`/`DICT.en` 两表各 433 键
+  键集合相等。
+
+### 判据与读数
+`tests/bench-ui-headless-test.mjs` 新增 **LS 组 13 条**（门禁 `bench-ui-headless`）：
+LS1 DOM 位置（相邻兄弟 + docPosition 双判）/ LS1b 可用态 / LS2a-c 面板展开 + 条目数 == `__sceneLayers.length`
++ 缺省全勾 / LS3 取消勾选 ⇒ `__lnHidden === true` + 状态行读数 / LS4a **像素基线**（`__wp.pause()` 冻结渲染循环
+⇒ 两次抓帧逐像素相同，JPEG 对同一画布确定性）/ LS4b-c 隐藏某层 ⇒ 同相位抓帧差异像素 > 总像素 0.5%
+（逐候选试探，选出真的"隐藏即变画面"的层）/ LS5 勾回 ⇒ `__lnHidden === false` + 像素回基线（容差显式写死：
+任一通道 |Δ|≤8/255 不计差，差像素 ≤ 总像素 0.1%）/ LS6a-d `?hide=N` 进 URL + **带参重载**勾选状态一致 +
+`__lnHidden` 真落渲染层 / LS7a-c 上游档禁用 + 原因非空 + 禁用态点不开 + 切回可用 / LS8a-b `DICT.zh`/`DICT.en`
+键集合相等 + 18 条新键两表齐全 / LS9a-b 调试高亮 + 一键只留 / LS10a-b 调试退出不清勾选状态（渲染层恢复 =
+用户隐藏集）/ LS11 复制状态打输出区日志。
+既有静态门禁复核：`demo-check` 133/0（D8/D9 CSS 防漂移不受影响 —— 弹层样式独立成
+`<style id="layer-switch-css">`，不进 `bench-shell-static`）、`bench-shell-fixes` 296/0（B20 词典同步）、
+`diag-flag-check` 220 == 220。
+
+### 未验证边界
+① LS 组的像素判据跑在**合成样例**（5 层：background/motion/accent/orb/label）上 —— 真实大包（几十层、
+容器嵌套）的"隐藏某层"行为同一条代码路径，但**逐层像素**只对样例做了断言；② 「只留当前层」顶栏按钮只
+在调试模式有当前层时可用（`layers.needDebug` 说明原因），调试没开时它没有"当前层"语义 —— 若后续要
+"非调试态的当前层"概念（比如最近点过的行），另立条目；③ `?hide=` 只在本页 URL（测试台）—— 渲染器侧
+（demo.html/core）不读它（本批铁律：不改渲染器代码），单层隔离的渲染器侧 URL 档仍是既有 `?ln=`。
