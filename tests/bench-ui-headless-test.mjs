@@ -2625,7 +2625,8 @@ try {
         }, li)
         ok(l3.lnHidden && !l3.checked, `LS3 取消勾选第 ${li} 层 ⇒ \`__sceneLayers[${li}].__lnHidden === true\`（checkbox 同步为不勾）`,
           JSON.stringify(l3))
-        ok(/隐藏 1\/\d+ 层/.test(l3.status), 'LS3b 底部状态行显示「隐藏 1/共 N 层」', `status="${l3.status}"`)
+        //  ①(首轮实测) 无头 Firefox 语言协商取了 en ⇒ 状态行是"1/5 layers hidden"；判据两语都认
+        ok(/隐藏 1\/\d+ 层|1\/\d+ layers hidden/.test(l3.status), 'LS3b 底部状态行显示「隐藏 1/共 N 层」（中英双语任一）', `status="${l3.status}"`)
         //  ── LS4c 隐藏态单帧重绘 ⇒ 与基线差分可测 ────────────────────────────────────
         await oneFrame()
         const hiddenShot = await shot()
@@ -2681,24 +2682,43 @@ try {
           JSON.stringify({ checks: restored.checks, status: restored.status }))
         ok(restored.lnHidden, `LS6d 恢复不只停留在勾选框：\`__sceneLayers[${li}].__lnHidden === true\` 真的落到了渲染层`, String(restored.lnHidden))
         //  ── LS7 上游产物档：禁用 + 原因非空 ──────────────────────────────────────────
-        await page.evaluate(() => { const s = document.getElementById('renderer-src'); s.value = 'upstream'; s.dispatchEvent(new Event('change')) })
-        await page.waitForTimeout(2500)
-        const up = await page.evaluate(() => {
-          const btn = document.getElementById('layer-switch-btn')
-          const panel = document.getElementById('layer-switch-panel')
-          return { disabled: !!btn.disabled, title: String(btn.getAttribute('title') || ''), panelHidden: panel.hasAttribute('hidden'), src: document.getElementById('frame').getAttribute('src') }
+        //  先收起面板（LS6c 打开过）⇒ LS7b 的"禁用态点不开"不会污染成"点击=收起"的假绿
+        await page.evaluate(() => {
+          const b = document.getElementById('layer-switch-btn')
+          if (b.getAttribute('aria-expanded') === 'true') b.click()
         })
-        ok(up.disabled && up.title.length > 0 && /__lnHidden|本仓渲染器/.test(up.title),
+        await page.waitForTimeout(200)
+        await page.evaluate(() => { const s = document.getElementById('renderer-src'); s.value = 'upstream'; s.dispatchEvent(new Event('change')) })
+        //  ①(首轮实测) 上游产物页在软 WebGL 下装载 >2.5s ⇒ 固定等待会读不到"禁用重画"；
+        //  改为**有界轮询真实状态**（30×500ms），轮询完仍是可用态才如实红。
+        let upState = null
+        for (let i = 0; i < 30; i++) {
+          upState = await page.evaluate(() => {
+            const btn = document.getElementById('layer-switch-btn')
+            return {
+              disabled: !!btn.disabled, title: String(btn.getAttribute('title') || ''),
+              panelHidden: document.getElementById('layer-switch-panel').hasAttribute('hidden'),
+              sel: document.getElementById('renderer-src').value,
+            }
+          })
+          if (upState.disabled) break
+          await page.waitForTimeout(500)
+        }
+        ok(upState && upState.disabled && upState.title.length > 0 && /__lnHidden|本仓渲染器/.test(upState.title),
           'LS7a 上游产物档 ⇒ 「图层开关」禁用，且 title 里的禁用原因**非空且点名了原因**（__lnHidden / 本仓渲染器）',
-          JSON.stringify({ disabled: up.disabled, title: up.title.slice(0, 60) }))
+          JSON.stringify({ disabled: upState.disabled, sel: upState.sel, title: upState.title.slice(0, 60) }))
         await page.click('#layer-switch-btn', { timeout: 2000 }).catch(() => {})
         await page.waitForTimeout(200)
         const stillHidden = await page.evaluate(() => document.getElementById('layer-switch-panel').hasAttribute('hidden'))
         ok(stillHidden, 'LS7b 禁用态点按钮 ⇒ 面板**不**展开（不是"看着能点"）', `panelHidden=${stillHidden}`)
         await page.evaluate(() => { const s = document.getElementById('renderer-src'); s.value = 'repo'; s.dispatchEvent(new Event('change')) })
-        await page.waitForTimeout(4500)      // 覆盖挂载探测迟到检查链的 4000ms 档（样例重新解析 + 重画可用态）
-        const reEnabled = await page.evaluate(() => ({ disabled: !!document.getElementById('layer-switch-btn').disabled }))
-        ok(!reEnabled.disabled, 'LS7c 切回本仓渲染器档 ⇒ 控件恢复可用', JSON.stringify(reEnabled))
+        let reEnabled = null
+        for (let i = 0; i < 30; i++) {
+          reEnabled = await page.evaluate(() => ({ disabled: !!document.getElementById('layer-switch-btn').disabled }))
+          if (!reEnabled.disabled) break
+          await page.waitForTimeout(500)
+        }
+        ok(reEnabled && !reEnabled.disabled, 'LS7c 切回本仓渲染器档 ⇒ 控件恢复可用（有界轮询：样例重新解析 + 重画可用态）', JSON.stringify(reEnabled))
         //  ── LS8 词典两表同步（照 B20 的写法：键集合相等 + 新键两表齐全） ────────────────
         {
           const P = await import(PATCH_URL)
@@ -2722,6 +2742,8 @@ try {
         ok(dbg.cur >= 0 && dbg.highlighted, `LS9a 调试模式翻到第 ${dbg.cur} 层 ⇒ 面板对应条目**高亮**（data-dbg-current="1"）`,
           JSON.stringify({ cur: dbg.cur, highlighted: dbg.highlighted, rows: dbg.rows }))
         //  「只留当前层」= 只勾选它：隐藏集变成"除它以外全部"
+        //  ①(首轮实测) 断言口径更正：cur 在隐藏集里**应该不出现**（它保持勾选/可见）——
+        //  首轮把 includes(cur) 当成了通过条件，写反了 ⇒ 假红（实现本身读数全对）。
         const onlyState = await page.evaluate(async () => {
           const cur = window.__benchPatch.dbgIndex()
           const before = window.__benchPatch.layerSwitch()
@@ -2730,10 +2752,10 @@ try {
           const after = window.__benchPatch.layerSwitch()
           const L = document.getElementById('frame').contentWindow.__sceneLayers
           return { cur, hiddenBefore: before.hidden.length, hiddenAfter: after.hidden.length,
-            onlyCurHidden: after.hidden.includes(cur), othersHidden: L.every((l, i) => i === cur ? l.__lnHidden !== true : l.__lnHidden === true || (l.isContainer === true)) }
+            curKeptVisible: !after.hidden.includes(cur), othersHidden: L.every((l, i) => i === cur ? l.__lnHidden !== true : l.__lnHidden === true || (l.isContainer === true)) }
         })
-        ok(onlyState.onlyCurHidden && onlyState.othersHidden && onlyState.hiddenAfter > onlyState.hiddenBefore,
-          `LS9b 一键「只留这一层」（第 ${onlyState.cur} 层）⇒ 隐藏集 = 除它以外全部，且 \`__lnHidden\` 逐层如实（容器层除外）`,
+        ok(onlyState.curKeptVisible && onlyState.othersHidden && onlyState.hiddenAfter > onlyState.hiddenBefore,
+          `LS9b 一键「只留这一层」（第 ${onlyState.cur} 层）⇒ 隐藏集 = 除它以外全部（它自己保持勾选），且 \`__lnHidden\` 逐层如实（容器层除外）`,
           JSON.stringify(onlyState))
         //  退出调试：勾选状态**不被清掉**（恢复 = 用户自己的隐藏集）
         const afterExit = await page.evaluate(async () => {
