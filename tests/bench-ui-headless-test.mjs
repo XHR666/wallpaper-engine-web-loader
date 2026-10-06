@@ -2696,7 +2696,7 @@ try {
         const stillHidden = await page.evaluate(() => document.getElementById('layer-switch-panel').hasAttribute('hidden'))
         ok(stillHidden, 'LS7b 禁用态点按钮 ⇒ 面板**不**展开（不是"看着能点"）', `panelHidden=${stillHidden}`)
         await page.evaluate(() => { const s = document.getElementById('renderer-src'); s.value = 'repo'; s.dispatchEvent(new Event('change')) })
-        await page.waitForTimeout(2000)
+        await page.waitForTimeout(4500)      // 覆盖挂载探测迟到检查链的 4000ms 档（样例重新解析 + 重画可用态）
         const reEnabled = await page.evaluate(() => ({ disabled: !!document.getElementById('layer-switch-btn').disabled }))
         ok(!reEnabled.disabled, 'LS7c 切回本仓渲染器档 ⇒ 控件恢复可用', JSON.stringify(reEnabled))
         //  ── LS8 词典两表同步（照 B20 的写法：键集合相等 + 新键两表齐全） ────────────────

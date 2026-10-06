@@ -150,3 +150,28 @@
 （与相邻静态部件对比）——下一轮按这个做。
 
 > 操作教训：本轮第一次尝试把 `blendIndices` 整个数组打进了日志（14 KB+ 刷屏）⇒ 以后打印只给**长度与首元素**。
+
+## 第 68 轮：真机 `__skin` 读数（puppet = **两个网格 + 若干静态层**）
+
+| 层 | 层 alpha / 可见 | `__skin` | 网格 |
+|---|---|---|---|
+| `KIRITO PUPPET`（下标 52，id34，**当前生效的那个变体**） | **alpha 0**、vis true、origin (2577.98, 1047.09)、scale 1.04 | `nb=1`、`animIdx=0`、`fps=12`、`bindInv[1]`、`bindRT` 有、`frameCount/good/animGood/animSpec` 齐 | **163 顶点 / 882 索引**、`center=(-0.5,-0.5)` |
+| `KIRITO PUPPET lil`（下标 60，id360） | alpha 0、**vis false**（另一变体，用户属性 `characterssize` 条件 '1'） | `nb=1`、fps 12 | 163 / 882（同一模型） |
+| `kirito face`（下标 55） | alpha **1** | **`nb=7`**、fps 15、`bindInv[7]` | **487 顶点 / 2541 索引**、`center=(31.3, 82.6)` |
+| `hair kirito front`（下标 57） | alpha 1 | **无 `__skin`**（纯静态图像层） | — |
+
+要点：
+1. **`[P-152] MDLS bone layout rescued … declared=7 parsed=7` 对应的是 `kirito face`**（`nb=7`）——骨架解析在这条上是对的；
+   根层那个 `puppet - Copy_puppet.mdl` 就是**只有 1 根骨**（`nb=1`）的简单网格。
+2. **根层 `alpha: 0` 仍然在画**（第 66 轮：隐藏它整帧变 38%）⇒ 需要按官方语义核对"puppet/网格层的 `alpha` 是否生效"；
+   两种可能：(a) 官方也把 puppet 容器层的 `alpha` 当无效（网格用材质 alpha）⇒ 我们的行为正确；
+   (b) 官方按 alpha 0 不画 ⇒ 我们多画了一个网格（角色身上会多一层深色覆盖）。
+3. `hair kirito front/back` 是**静态图像层**（无 skin），所以它们**不会跟随 puppet 的骨骼动画**——如果官方让它们跟着
+   父级/锚点动，那"头发位置错"的机制就在这里；若官方也不动，则问题在别处（例如上游产物档对比下看不出差异）。
+
+## 下一轮（两步，都很小）
+
+1. **同相位对照上游产物档**：同一包（本仓档 vs `/wallpaper-engine-webgl/renderer/index.html` + `loadSceneFile`），
+   两边各截一张 ⇒ 直接看"官方画出来的角色/头发 vs 我们的"差在哪（body/hair/位置/多余层）。
+2. **离线查网格路径是否消费层 `alpha`**（`core/we-scene-bundle.js` 的 `onMeshLayer`/`skinPuppet` 家族），
+   并按官方 d.ts/参考实现判定 puppet 容器层 `alpha` 的语义，写成判据（`alpha:0` 的网格层应贡献 0 像素或照画，二者取官方口径）。

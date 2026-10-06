@@ -16490,15 +16490,19 @@ parse error`；修复后全部 `exported: ["update"] / error: null / initialized
   键集合相等。
 
 ### 判据与读数
-`tests/bench-ui-headless-test.mjs` 新增 **LS 组 13 条**（门禁 `bench-ui-headless`）：
-LS1 DOM 位置（相邻兄弟 + docPosition 双判）/ LS1b 可用态 / LS2a-c 面板展开 + 条目数 == `__sceneLayers.length`
-+ 缺省全勾 / LS3 取消勾选 ⇒ `__lnHidden === true` + 状态行读数 / LS4a **像素基线**（`__wp.pause()` 冻结渲染循环
-⇒ 两次抓帧逐像素相同，JPEG 对同一画布确定性）/ LS4b-c 隐藏某层 ⇒ 同相位抓帧差异像素 > 总像素 0.5%
-（逐候选试探，选出真的"隐藏即变画面"的层）/ LS5 勾回 ⇒ `__lnHidden === false` + 像素回基线（容差显式写死：
-任一通道 |Δ|≤8/255 不计差，差像素 ≤ 总像素 0.1%）/ LS6a-d `?hide=N` 进 URL + **带参重载**勾选状态一致 +
+`tests/bench-ui-headless-test.mjs` 新增 **LS 组 28 条**（门禁 `bench-ui-headless`）：
+LS0 夹具（测试台默认挂合成样例）/ LS1 DOM 位置（相邻兄弟 + `compareDocumentPosition` 双判）/
+LS1b 挂载探测重画后可用 / LS2a-c 面板展开 + 条目数 == `__sceneLayers.length` + 缺省全勾 /
+LS4-前置 + LS4a **像素基线** / LS4b-c **像素可测** / LS5a-b 勾回 `__lnHidden === false` + 像素回基线 /
+LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进 URL + **带参重载**勾选状态一致 +
 `__lnHidden` 真落渲染层 / LS7a-c 上游档禁用 + 原因非空 + 禁用态点不开 + 切回可用 / LS8a-b `DICT.zh`/`DICT.en`
 键集合相等 + 18 条新键两表齐全 / LS9a-b 调试高亮 + 一键只留 / LS10a-b 调试退出不清勾选状态（渲染层恢复 =
 用户隐藏集）/ LS11 复制状态打输出区日志。
+**像素判据的"同相位"夹具**（全部测试侧插桩，渲染器代码零改动）：`__wp.pause()` 冻结画布后改 `__lnHidden`
+**不会重绘**（首轮实测就是这样整组假红的）⇒ 测试把**同源 iframe** 的 `performance.now` 桩成固定值 ⇒
+`resume()` 的同步单帧重绘（`mpwHostFrameFn(performance.now())`）永远画同一动画相位，紧随的 `pause()` 取消
+再排的 rAF ⇒ 每次"舞步"恰好画一帧、相位一致；隐藏前/后/恢复三次重绘的差分**只能**来自被隐藏的层。
+容差显式写死：任一通道 |Δ|≤8/255 不计差；基线两次重绘必须逐位为 0；隐藏差 > 总像素 0.5%；回基线 ≤ 0.1%。
 既有静态门禁复核：`demo-check` 133/0（D8/D9 CSS 防漂移不受影响 —— 弹层样式独立成
 `<style id="layer-switch-css">`，不进 `bench-shell-static`）、`bench-shell-fixes` 296/0（B20 词典同步）、
 `diag-flag-check` 220 == 220。
