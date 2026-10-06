@@ -70,3 +70,20 @@
 **下一轮第一步**：读官方 `genericimage4.vert/.frag` 与本仓现有图像路径逐条对照（重点：它比 `genericimage2` 多了什么——
 顶点动画/`VERTEXCOLOR`/多 pass/`combos`），把 `genericimage4` 接进材质→shader 选择表；
 判据：本包"只留 Kirito 头发"档不再出现孤立白方块，且隐藏/显示两条头发层对头部黑发的影响与全画档一致。
+
+## 第 64 轮：`genericimage4` 组合位对照 + 白方块定位（未收口）
+
+- **组合位对照**：官方 `genericimage3.vert` 与 `genericimage4.vert` 的 `#if` 组合**完全一致**（SKINNING / MORPHING /
+  VERTEXCOLOR 等）；差异只在 `.frag`：v4 用 `LIGHTS_SHADOW_MAPPING`/`LIGHTS_COOKIE` 取代 v3 的
+  `LIGHTS_POINT/SPOT/TUBE/DIRECTIONAL`，并多一个 `FOG_COMPUTED`。v4 的 `[COMBO]` 默认值：
+  `LIGHTING=0`、`REFLECTION=0`、**`FOG=1`**。而两条头发层材质的 `combos` 是**空表** ⇒ 顶点/片元路径等同"普通图像 +
+  场景雾"，不是 SKINNING/VERTEXCOLOR 之类会搬动顶点的组合。
+  ⇒ **修正上一条的力度**：`genericimage4` 未接这条**不足以**单独解释"头发整体错位"（空 combos 下它与普通图像路径等价）；
+  它仍是"该包 65/67 pass 的主 shader 家族没被显式认领"这条事实，但要先排掉更直接的解释。
+- **cropoffset**：两条头发模型的 `autosize:true` + `cropoffset:"783.5 841"`（face 是 "863 717"）；本仓 `cropoffset`
+  只在 **网格层** 且 `?meshsize=crop`（研究稿提案，RE-02 判定官方运行时不消费该字段）里生效 ⇒ 默认档不消费，
+  头发（非网格层）不受它影响 ⇒ **排除**。
+- **白方块仍未定位**：把两条 `hair kirito *` 同时显示时，除顶部黑发外还有一块孤立白色方块（≈屏 (715,290)，设计
+  ≈(3405,1381)），而两层的解析 origin 分别是 (2790,210)/(2737,199)（屏 ≈(586,44)/(575,42)）⇒ **白方块不是这两层的
+  起点位置**，来源待定。下一轮第一步：**分别**只留 `hair kirito back`(下标 56) 与只留 `hair kirito front`(下标 57)
+  各截一张（`__lnHidden`，保父链），看白方块属于哪一层、还是来自第三层（如 `hair extra` / `HAIR BACK (BIG)`）。

@@ -2506,6 +2506,8 @@ try {
       }
       ok(enabledAt >= 0, 'LS1b 本仓渲染器档 + 已挂载 ⇒ 「图层开关」按钮**在挂载探测重画后**变为可用（未禁用）',
         enabledAt >= 0 ? `enabled after ${(enabledAt * 500).toFixed(0)}ms 等待` : '12s 内仍是禁用态（禁用原因见 title）')
+    if (enabledAt < 0) notes.push('LS2~LS11 未跑：控件在 12s 后仍是禁用态（见 LS1b；title 里有禁用原因）')
+    if (enabledAt >= 0) {
       //  ── LS2 打开面板：条目数 == __sceneLayers.length ──────────────────────────────
       await page.click('#layer-switch-btn')
       await page.waitForTimeout(300)
