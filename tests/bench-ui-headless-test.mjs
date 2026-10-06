@@ -2766,9 +2766,11 @@ try {
       }
       //  恢复现场：解除暂停（渲染循环冻结会拖累后面的 G10 采样组），回到干净 URL
       await page.evaluate(() => { try { document.getElementById('frame').contentWindow.__wp.resume() } catch { /* 已释放 */ } })
-    }
+      }
     }
   }
+  //  （上面四层闭合依次 = pick-else / fixture-else / enabledAt≥0 / mounted；LS 组最外层的裸块在此闭合）
+}
 
   // ══════════════════ G10 ⑪(用户第 11 条) 首屏不闪：**没有任何一帧**在堆叠态被看见 ══════════════════
   //  用户口径：「刷新 :8902 时先看到所有内容堆在一起，约 1 秒后才正常」。
