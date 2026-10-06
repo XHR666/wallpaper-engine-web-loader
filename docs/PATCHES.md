@@ -15907,12 +15907,42 @@ P-233 的 `dispatchCursor()`（`demo.html` MPW-CURSOR 段）把聚合量 `const 
   - 整帧（粒子隐藏）`>220` **4.86% → 10.55%**（上游 17.9%），p50 145 → 148，截图里背景 scenery
     （阳台/房间/云/水面/MED 招牌/招牌群）全部回来，与上游产物档观感一致。
 
-### 影响面与未做
+### 影响面（已量化）
 
-- 触发条件 = **贴图长边超 `min(4096, 设备上限)`**（`texDownsampleCap`），即所有 4K/6K 背景类贴图
-  ⇒ 凡有这类贴图的壁纸，那一层都会整块消失（本包 `cloud` / `new background1` 两块）。
-  跨包影响面（多少包有多少张超限贴图）**未量化**，下一轮补一条离线扫描。
+触发条件 = **贴图长边超 `min(4096, 设备上限)`**（`texDownsampleCap`），即所有 4K/6K 背景类贴图 ⇒
+凡有这类贴图的层在 `c62baaa`（2026-10-02，"S3：`.tex-json` 侧车字段支持"）把它包进 `__attachTexJson`
+之后**一律加载失败**（该提交之前这段是内联 `wrapTex(...)` + `textures.set(...)`，正常工作）。
+离线扫描（链路：层 `image`/`model` → `models/*.json` → `material` → `materials/*.json` →
+`passes[0].textures[0]` → `.tex` 头尺寸）：
+
+| 读数 | 值 |
+|---|---|
+| 可解析 scene.json 的包 | 51 |
+| 含"长边 > 2048"贴图的包 | **45（88%）** |
+| 涉及层 / 不同贴图 | **169 层 / 142 张** |
+| 最多者 | `0917/3448877775` 17 层（星空 3398×1460）、`0917/3299228616` 12 层（LonelyCAT 3840×2160）、`dd/3719111841` 9 层（背景 6000×3600） |
+
+跨包真机复核（`0923/3479521040`）：修后日志 `✅ 降采样纹理已上传 背景 2048x952` + `✅ 原 2048x948`、
+`降采样失败` **0 条**，15 层有纹理。
+
+**npm 面实测**：`npm pack wallpaper-engine-web-loader@0.5.17` 解包后 `package/demo.html:3235` 仍是
+`const __attachTexJson = (entry) => {` ⇒ **已发布的 0.5.17 带此缺陷**（外部使用者会整块丢大贴图层）；
+已在 **0.5.18** 一并修出。
+
+### 同批门禁面修复（都不是渲染行为改动，但会挡住发布）
+
+- `package.json.files` 补 **`core/we-animation.mjs`**（P-228l 新增，漏登记 ⇒ `pack-closure`
+  B1/B2/C1/C2 五条红：解包后 `import('wallpaper-engine-web-loader')` 报 `ERR_MODULE_NOT_FOUND`）
+  与 **`core/web-precheck.mjs`**（上一批 Web 预检新增，同样漏登记）。修后 `pack-closure` **13/0**。
+- `tests/clean-room-alpha-align-test.mjs`：P-228l 让 `parseScene` 对**对象形态** `alpha` 取 `value`
+  （官方默认值口径，此前一律按 1）⇒ 冻结真值表的"输入集"与接线断言要跟着改（新增
+  `alphaBaseOf()` 与三条 `alpha.value` 冻结行）。修后 **1007 pass / 11 fail → 1014 pass / 0 fail**。
+
+### 未做
+
 - 该分支只修 TDZ；`?mipsel=0` 等既有回退开关与行为一字未动。
+- 剩余未量化项：**free-image（PNG/JPEG）超限贴图**走的是 `pickMipForTarget` 选级路径（另一条），
+  本批未扫；`mipsel=0` 强制回退时是否也受影响未验。
 ## P-228m（2026-10-05）粒子 `instanceoverride.count` 只缩了发射率、**没缩池上限** ⇒ "池被打满"的层密度不跟随滑块（语料 8 层被打满 / 7 层两档差 1.22×–2.64×）
 
 ### 口径（对照实现的语料实测结论）

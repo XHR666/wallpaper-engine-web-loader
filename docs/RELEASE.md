@@ -266,6 +266,30 @@ SKIP 的那一项是 `scene-layer-baseline` 里**本机没有语料**时的显�
    本次全量门禁唯一 FAIL 是 `bench-ui-headless`（IA5f 的 scroll slack 前置读数 + IA8a 的"释放后日志不再增长"，
    都是滚动/日志时序类断言；同一条命令单跑 **197/0 全绿**）。两条都记为满载下的 flake，判据本身未改。
 
+## 发布记录：0.5.18（2026-10-05 · 渲染器保真度四修：属性动画语义 / 粒子数量倍率 / 动画时钟 / 超限贴图 TDZ）
+
+**版本号对齐**：`package.json` 0.5.18 = `core/we-scene.mjs` 的 `VERSION` = `README.md` / `README.en.md` 的安装与打包示例（0.5.17 曾出现"只 bump package.json"的发布缺陷，本版四处一次改齐，`mount` 判据盖章）。
+
+### 修了什么
+
+| # | 缺陷 | 读数（可复现） | 修法 |
+|---|---|---|---|
+| P-228l | **图层属性动画只有半套语义**：`extractAnimKf` 帧率硬编码 30 + `animValueAt` 恒定循环，只接 `origin/scale/visible`，`alpha` 载体一格没接 | 语料 213 条轨道：`fps≠30` **56**（60fps 34 条 ⇒ 播成 2 倍速）、`startpaused` **90**、`alpha` 载体 **65**（其中 **46** 条挂载瞬间的值 ≠ 静态 1 ⇒ 那些层此前永久可见） | 新增唯一实现处 `core/we-animation.mjs`（官方语义：`options.{fps,length,mode,startpaused}` + `relative` + `options.parent/children` 联动组 + 五载体逐帧写回）；脚本 `getAnimation()` 首次**真的驱动渲染**；`?anim=legacy` 逐位回退 |
+| P-228l 修正 | 属性动画沿用脚本的**单帧封顶 dt**（0.05s）⇒ 低于 20fps 的机器上动画变慢动作 | llvmpipe ≈2–4fps：`mkj` 的 390 帧/13s 淡入从 3–5s 漂到 16–20s，整帧 p50 在 147–255 摆动 | 动画 dt 改用**场景时钟差**（脚本 `engine.frametime` 仍吃封顶） |
+| P-228m | 粒子 `instanceoverride.count` 只缩了发射率、**没缩池上限** | 语料 97 个带 `count` override 的粒子层：**8 层池被打满、7 层两档存活数差 1.22×–2.64×**（最大 `dd/3544152633::Star Reactive` 74 vs 28），89 层零影响 | 池上限与发射率用**同一个倍率判定**（`particleCountMul`/`particleCapMul`），`?iocount=rateonly` 回退 |
+| P-228n | **超限贴图的 JS 降采样分支命中 TDZ**（`__attachTexJson` 先用后声明）⇒ 纹理不登记 ⇒ 该层"画了但一个像素都没有" | 真包 0923/2887099508：日志 `⚠ JS降采样失败 1234: can't access lexical declaration '__attachTexJson' before initialization`；隔离 `?ln=4`/`?ln=14` 全帧 = 清屏色 `uniq=1`；整帧（粒子隐藏）`>220` 4.86% vs 上游产物档 17.9%。**影响面：51 个可解析包中 45 个（88%）含长边 > 2048 的贴图，涉及 169 层 / 142 张贴图** | 改成函数声明（提升）；函数体一字未改 |
+
+### 判据与门禁
+
+- 新增 `tests/anim-semantics-test.mjs`（**75 断言**：纯函数真值表 / 控制器模式 / 基准与联动组 / 渲染写回 / bundle 与宿主接线钉 / 脚本门面 / 真包读数 / 语料普查 + 3 组变异自证）⇒ `run-all-tests` **211 → 212 项**。
+- `tests/load-timeout-test.mjs` 新增 **T3d / T3d2**（2500×1200 假位图 + `cap=2048` 走降采样分支：不抛 / 登记进 `textures` / 尺寸 2048×983 / 日志无"降采样失败"与 TDZ 文案）+ 切片夹具注入 `wrapTex` ⇒ **68 → 70 通过 / 0 失败**；变异自证：把 `__attachTexJson` 改回 `const` ⇒ 该腿立刻红。
+- `tests/p74-instanceoverride-test.mjs` **60 → 69 断言**（倍率真值表 / 上限公式 / 同一判定 / `ctx.maxCount` 夹层 / 逐帧上限源码钉 / 缓存签名钉 / 档位 / README 登记）。
+- 真机复核（同一台机、相位对齐）：2887099508 修后日志 `✅ 降采样纹理已上传 1234 2048x712`、隔离帧 `uniq` 1→202 / 1→2638、整帧（粒子隐藏）`>220` 4.86%→10.55%（背景 scenery 全部回来）；跨包 `0923/3479521040` 两行 `✅ 降采样纹理已上传`、`降采样失败` 0 条。
+
+### 兼容性与回退开关
+
+`?anim=legacy`、`?iocount=rateonly` 两个新档位（均登记 `docs/README-DIAGNOSTICS.md` 主表，`diag-flag-check` 计数 **217 → 218**）；P-228n 无开关（纯缺陷修复）。`?pquad=legacy` 仍是"粒子 quad 不吃图层 scale"的对照档。
+
 ## 发布记录：0.5.17（2026-10-04 · 批次 3：测量基建 + 机制修复 P-229…P-235 + 语料漂移基线同步）
 
 **为什么是 minor（0.5.x 内按 minor 记）**：新增 6 个判据文件与 3 个报告工具（对外 npm 包面不变，

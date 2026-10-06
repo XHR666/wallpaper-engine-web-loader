@@ -54,6 +54,11 @@ const FROZEN_ALPHA = [
   [1, 1], [0, 0], [0.5, 0.5], [0.13, 0.13], [0.11, 0.11], [0.19, 0.19],
   [0.47999999, 0.47999999], [0.69999999, 0.69999999], [0.79000002, 0.79000002],
   [0.88, 0.88], [0.93000001, 0.93000001], [0.090000004, 0.090000004],
+  // ②(P-228l 2026-10-05) 新增的一类输入：**对象形态 `alpha` 的 `value`**。`parseScene` 此前对
+  //   `alpha:{value:X}` 一律按 1 处理（那些层被画成全不透明），P-228l 起改取 `value`（与
+  //   pointsize/maxwidth 的 `textNum` 同款官方默认值口径）⇒ 冻结表要覆盖这批输入（值来自真包
+  //   3327063360 / 3660962877 / 3326873240 的 `alpha.value`）。函数本身未变，故期望值同式可推。
+  [0.56999999, 0.56999999], [0.82999998, 0.82999998], [0.89999998, 0.89999998],
 ]
 
 // [token, w, h, [期望 ox, 期望 oy]] —— 覆盖规格 §2.3/§2.4 的每一行
@@ -276,7 +281,13 @@ for (const id of found) {
   const objects = json.objects || []
   // ① 函数级：全部原始输入逐个与冻结真值（= 改前实现输出）比对
   for (const o of objects) {
-    const aIn = typeof o.alpha === 'number' ? o.alpha : 1
+    /* ②(P-228l 2026-10-05) **口径变更（有意）**：对象形态的 `alpha`（`{value}` / `{user}` 绑定）
+       在 `parseScene` 里改为取 **`value`（官方默认值）**，不再一律按 1 —— 与 pointsize/maxwidth 的
+       `textNum` 同款口径（语料里 `alpha:{value:0.57}` 这类层此前被画成全不透明）。本判据跟着改成
+       同一条取值序（否则冻结真值表会把它判成'接线不一致'）。 */
+    const alphaBaseOf = (o) => (typeof o.alpha === 'number' ? o.alpha
+      : (o.alpha && typeof o.alpha === 'object' && typeof o.alpha.value === 'number' ? o.alpha.value : 1))
+    const aIn = alphaBaseOf(o)
     realAlpha.set(aIn, (realAlpha.get(aIn) || 0) + 1)
     const aWant = frozenAlpha.get(aIn)
     if (aWant === undefined) chk(false, `④ ${id} 出现未冻结的 alpha 输入`, show(aIn))
@@ -294,7 +305,13 @@ for (const id of found) {
   for (const l of scene.layers) {
     const o = byId.get(l.id)
     if (!o) continue
-    const aIn = typeof o.alpha === 'number' ? o.alpha : 1
+    /* ②(P-228l 2026-10-05) **口径变更（有意）**：对象形态的 `alpha`（`{value}` / `{user}` 绑定）
+       在 `parseScene` 里改为取 **`value`（官方默认值）**，不再一律按 1 —— 与 pointsize/maxwidth 的
+       `textNum` 同款口径（语料里 `alpha:{value:0.57}` 这类层此前被画成全不透明）。本判据跟着改成
+       同一条取值序（否则冻结真值表会把它判成'接线不一致'）。 */
+    const alphaBaseOf = (o) => (typeof o.alpha === 'number' ? o.alpha
+      : (o.alpha && typeof o.alpha === 'object' && typeof o.alpha.value === 'number' ? o.alpha.value : 1))
+    const aIn = alphaBaseOf(o)
     if (same(l.alpha, lib.coerceImageAlphaMode(aIn))) wireHit++
     else { wireMiss++; chk(false, `④ ${id} 层 ${l.id} 接线：layer.alpha=${show(l.alpha)} ≠ 新函数(${show(aIn)})=${show(lib.coerceImageAlphaMode(aIn))}`) }
   }
