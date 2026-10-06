@@ -266,6 +266,28 @@ SKIP 的那一项是 `scene-layer-baseline` 里**本机没有语料**时的显�
    本次全量门禁唯一 FAIL 是 `bench-ui-headless`（IA5f 的 scroll slack 前置读数 + IA8a 的"释放后日志不再增长"，
    都是滚动/日志时序类断言；同一条命令单跑 **197/0 全绿**）。两条都记为满载下的 flake，判据本身未改。
 
+## 发布记录：0.5.19（2026-10-06 · 脚本面两修 + 光轴泛白主因：压缩 import / 脚本节点同步 / 粒子 instanceoverride 基线）
+
+**版本号对齐**：`package.json` 0.5.19 = `core/we-scene.mjs` 的 `VERSION` = `README.md` / `README.en.md` 的安装与打包示例（四处一次改齐，`mount` 判据盖章）。
+
+**本版内容**（逐条见 `docs/PATCHES.md`）：
+- **P-236** 粒子 `instanceoverride.alpha/size` 每帧被算子基线还原（`alphafade`/`alphachange`/`sizechange` 从
+  `_initAlpha`/`_initSize` 重建，而这两个缓存只有 `alpharandom`/`sizerandom` 会写）⇒ 语料 51 包 / 72 层偏亮
+  （本包 `2887099508` 光轴泛白主因）：整帧 p50 **252.5 → 174.8**（上游产物档同相位 172.8）。
+- **P-237** 脚本节点 `{script,value}` 的 `visible`/`alpha` **同步不到渲染层**（宿主两条 `typeof` 门只覆盖
+  被脚本展平的裸值）⇒ 本包 **27 个 `visible` / 11 个 `alpha`** 脚本字段没有动态变化；新增
+  `syncScriptValues()` + `elysia` 三个 setter 改走 `nodeWrite`（保住作者的脚本节点），回退开关 `?scriptsync=legacy`。
+- **P-239** **压缩 import 形态** `import*as X from'WEMath'` 让整条作者脚本编译失败（`vm shim parse error`）
+  ⇒ 本包 11 个 `alpha` 载体（含五层共享的设置菜单）**永不运行**；`compileScript` 的 `import * as` 正则四处
+  `\s+ → \s*`。真机复核：11 条条目 `exported:[] → ["update"]`、`error:null`。
+
+**发布前门禁**：`bash check.sh` 四阶段（docs-check / publish-check / diag-flag-check / run-all-tests）全绿；
+`run-all-tests` 212 项（本轮新增判据：`script-origin-sync` 26/0 含 T6 压缩 import 四条；`p74-particles` 76/0；
+`ln-consistency` 13/0（P-237 口径和解）；`audio-scene-players` B2 短窗重试消抖）。
+
+**发布命令**（与 0.5.18 同流程）：`bash check.sh` → `npm publish` → `git tag v0.5.19` + `git push --tags`
+→ `gh release create v0.5.19` → 核对 npm 版本页与 Pages 线路。
+
 ## 发布记录：0.5.18（2026-10-05 · 渲染器保真度四修：属性动画语义 / 粒子数量倍率 / 动画时钟 / 超限贴图 TDZ）
 
 **版本号对齐**：`package.json` 0.5.18 = `core/we-scene.mjs` 的 `VERSION` = `README.md` / `README.en.md` 的安装与打包示例（0.5.17 曾出现"只 bump package.json"的发布缺陷，本版四处一次改齐，`mount` 判据盖章）。
