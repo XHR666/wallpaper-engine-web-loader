@@ -873,19 +873,23 @@ async function browserStage() {
         const host = document.querySelector('#np-host')
         if (host) host.style.display = ''
       })
-      for (let i = 0; i < 4; i++) {
+      /* ①(2026-10-07 消抖) 整轮门禁里软件渲染的页面更慢 ⇒ 卡片展开/音量轨出现的等待要有余量：
+         4 次 ×700ms 在满载时会量到"还没展开"（B5b1/B5b/B5b2 假红，单跑 87/0 复现不了）。改 8 次 ×900ms。 */
+      for (let i = 0; i < 8; i++) {
         const g = await page.evaluate(() => (window.__benchPatch && window.__benchPatch.npGeometry ? window.__benchPatch.npGeometry() : null))
         if (g && g.volumeVisible) return g
         const tap = await page.$('#np-host .snd-tap')
         if (tap) { try { await tap.click() } catch { /* 重试 */ } }
-        await sleep(700)
+        await sleep(900)
       }
       return await page.evaluate(() => (window.__benchPatch && window.__benchPatch.npGeometry ? window.__benchPatch.npGeometry() : null))
     }
     const widthRead = async (w) => {
       await page.setViewportSize({ width: w, height: 720 })
       await sleep(400)
-      await openNpCard()
+      const pre = await openNpCard()
+      // ①(2026-10-07 消抖) 仍没展开 ⇒ 再给一轮（换视口后布局/媒体态会重排，满载时第一轮常常落空）
+      if (!pre || !pre.volumeVisible) { await sleep(1500); await openNpCard() }
       return await page.evaluate((vw) => {
         const strip = document.querySelector('#np-audio')
         if (strip) strip.style.display = ''
