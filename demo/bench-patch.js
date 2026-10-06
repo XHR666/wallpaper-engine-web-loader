@@ -7504,8 +7504,12 @@ export function init() {
   if (lswCopyBtn) lswCopyBtn.addEventListener('click', () => { try { lswCopyState() } catch { /* 桩 DOM */ } })
   //  挂载探测的两条入口：iframe `load`（每次换 src/换档都会触发）+ 渲染器首帧消息（__sceneLayers 在
   //  首帧前发布 ⇒ 消息到达时必然可取；500ms 那一下兜"消息比首屏补丁先发"的时序）。
+  //  ⚠(run3 实测) 这里**不能用本作用域后面的 `const frameEl`**（:9849 才初始化 ⇒ 此刻 TDZ，
+  //  addEventListener 抛 ReferenceError 被 try/catch 吞掉 ⇒ load 监听从未装上、切渲染器档后无人重画）
+  //  —— 事件挂载时现查 DOM（#frame 在静态 HTML 里，此刻必已存在）。
   try {
-    if (frameEl && frameEl.addEventListener) frameEl.addEventListener('load', () => lswCheckSoon([400, 1600, 4000, 8000]))
+    const frNow = (doc && doc.getElementById) ? doc.getElementById('frame') : null
+    if (frNow && frNow.addEventListener) frNow.addEventListener('load', () => lswCheckSoon([400, 1600, 4000, 8000]))
   } catch { /* 桩 DOM */ }
   try {
     addEventListener('message', (ev) => {

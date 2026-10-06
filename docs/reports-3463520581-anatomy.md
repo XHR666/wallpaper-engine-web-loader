@@ -199,3 +199,30 @@
 按时间序列与相机档各截几张，逐张比对"谁在哪、头发在哪"：`t≈5s / 15s / 30s` × `campose=full / legacy`，
 外加开场动画期（`?skipintro=0`）；重点看 **Asuna 的长发**与 **Kirito 的前/后发**两条 `hair kirito *`
 （它们是静态层、不吃骨骼；若某相位下它们停在 rest pose 而角色其它部分动了，就会看到"头发漂在别处"）。
+
+## 第 70 轮：**机制定案** —— 挂在 puppet 上的**静态部件（含头发）没有跟随"动画后的附件骨骼"**，只吃了静态偏移
+
+同一相位截图（`/tmp/kp-legacy-t26000.png` 等四张）里能直接看到症状：**Asuna 的长发/发饰整体偏到头部右下方**、
+Kirito 侧也有一块橙色发饰漂在他背后；而**角色本体的脸/身体是对的**（不是光头、位置正常）。
+
+真机层表（`3463520581`，可见层）：
+
+| 角色 | 根层（puppet） | 蒙皮部件 | **静态部件** |
+|---|---|---|---|
+| Asuna | `ASUNA PUPPET`(id30) `__skin nb=1`、`models/puppet.json` | `asuna body`(id22) **`nb=15`**（父 = `asuna body bottom`） | `asuna body bottom`(id16)、以及**全部头发**（`main hair back c2`(id134)… 父链 `HAIR BACK (BIG)`(id70)→`ASUNA PUPPET`），`skin: null`、`att:"hair back"` |
+| Kirito | `KIRITO PUPPET`(id34) `nb=1` | `kirito face`(id55) **`nb=7`** | `kirito body`(id58)、`hair kirito front/back`(id102/98)，`skin: null`、`att:"Attachment"` |
+
+⇒ **这些部件的模型 JSON 里没有 `puppet` 键**（数据上确实是静态图像层），但它们 `parent` 是 puppet、带 `attachment`
+⇒ 官方语义下它们要**跟着附件点所在的那根骨骼动**；本仓只给了它们一个**静态偏移**（第 61 轮实测：所有部件同一个
+`"Attachment"` 锚点、偏移仅 `[0.04, −6.97]`，因为锚点表为空 ⇒ 实质等于没有变换）。
+**动画一跑起来，角色本体（蒙皮网格）动、头发（静态层）不动 ⇒ "头发位置完全错了"**；
+而且这与"某些相位看起来正常、某些相位错得离谱"完全吻合（rest pose 相位对上、动画拉开就错开）。
+
+### 下一轮：实现"附件跟随动画骨骼"（这条是**产品代码修复**，不再是取证）
+1. 在 `core/attach-transform.mjs`：把现有 `attachmentOffset(child, parent, ctx)`（静态）扩展/新增一个
+   **按时间 t 求附件世界变换**的口径（官方 `_attachmentOffset` + `puppetBoneFinal`：用父级骨骼链在 t 的姿势），
+   已有 `bindWorldChain`/`sampleAnimRT`/`puppetBoneFinal` 可复用；`?att=legacy` 保留旧静态偏移做 A/B。
+2. 在 `core/we-scene-bundle.js` 的每帧脚本/变换同步处：对 `attachment != null && parent 是 puppet` 的层，
+   写回 **origin（必要时 scale）**（沿用 `syncScriptOrigins` 同款"增量叠加"口径，避免抹掉 parseScene 的锚点结果）。
+3. 判据：同包同相位（`campose=legacy`，t≈26 s）与"只画部件"的隔离档 —— 头发包围盒应与所在角色的头/背对上；
+   并加一条合成场景断言（一个 1 骨 puppet + 一个静态附件层，动画推进后附件层的 origin 必须随时间变化）。
