@@ -7694,7 +7694,7 @@ function loadScene() {
   //   `attachAnchorAnim` 为空时逐帧函数首行直接返回（零开销）。
   let attachAnchorAnim = new Map()
   let attachFrozenAnchor = [0, 0]
-  /* ①(P-240 2026-10-06) **建表必须等场景就绪**：原来这段是顶层 init 代码，跑的时候 `scene.layers` 还是空的
+  /* ①(P-241 2026-10-06) **建表必须等场景就绪**：原来这段是顶层 init 代码，跑的时候 `scene.layers` 还是空的
      （`3463520581` 实测：页面日志里没有『①(P-139) 附件锚点逐帧: N 层』、真机所有挂 puppet 的静态部件
      origin 8s 内位移 0.00，而离线 `attachOffsetDeltas` 有 20 条非零。）⇒ 表恒空 ⇒ `applyAttachAnchorDelta()`
      首行 early-return ⇒ 部件停在 parse 烘进去的『动画帧 0』位姿、蒙皮本体却在动 = 头发位置错。
@@ -7704,7 +7704,7 @@ function loadScene() {
     const mark = (x) => { try { window.__mpwAttachStage = x } catch (e) {} }
     if (attachAnchorAnim.size) { mark('skip-nonempty:' + attachAnchorAnim.size); return attachAnchorAnim.size }
     if (!scene || !Array.isArray(scene.layers) || !scene.layers.length) { mark('guard-scene:' + ((scene && scene.layers) ? scene.layers.length : 'none')); return 0 }
-    /* ①(P-240 2026-10-06) **不要再引用本作用域没有的变量**：上一版用 `sceneRaw` ⇒ 每帧
+    /* ①(P-241 2026-10-06) **不要再引用本作用域没有的变量**：上一版用 `sceneRaw` ⇒ 每帧
        `ReferenceError: sceneRaw is not defined` 被外层 catch 吞掉（真机 `window.__mpwAttachErr` 实锤）。
        这里改用宿主**已经发布**的原始对象数组 `window.__mpwRawObjects`（demo.html:5093 同源发布，
        `{script,value}` 脚本宿主也读它）；外层 `objById` 有表则优先复用。 */
@@ -7747,7 +7747,7 @@ function loadScene() {
   let __attMemoFrame = -1, __attMemo = null
   function applyAttachAnchorDelta() {
     if (!attachAnchorAnim.size) {
-      if (!ATT_LEGACY) buildAttachAnchorAnim()   // ①(P-240) 惰性补建（场景/objById 就绪后建一次）
+      if (!ATT_LEGACY) buildAttachAnchorAnim()   // ①(P-241) 惰性补建（场景/objById 就绪后建一次）
       if (!attachAnchorAnim.size) { try { window.__mpwAttachWhy = 'delta-empty:' + (window.__mpwAttachStage || '?') } catch (e) {} return }
     }
     // `skinAnimTime` 按 1/30s 步进；`Math.round(t*30)` 是**帧号**，同一帧不重复算
@@ -9489,7 +9489,7 @@ function loadScene() {
           //   纹理是否还活着。采样画布左侧 2% 处（只有背景层覆盖那里）。
           try {
             window.__mpwFrameNo = (window.__mpwFrameNo || 0) + 1
-            /* ①(P-240 2026-10-06) **挂到已验证必跑的渲染循环上**：本包实测挂载点那句与
+            /* ①(P-241 2026-10-06) **挂到已验证必跑的渲染循环上**：本包实测挂载点那句与
                `applyAttachAnchorDelta()` 的既有调用点都没执行（`window.__mpwAttachStage/__mpwAttachWhy`
                恒 null，而 `__mpwFrameNo` 在涨）⇒ 这里补一次（幂等：origin = base + Δ(t)，重复调用无副作用）。 */
             if (!ATT_LEGACY) { try { buildAttachAnchorAnim() } catch (e) { try { window.__mpwAttachErr = 'build:' + String(e && e.message || e) } catch (e2) {} } }
