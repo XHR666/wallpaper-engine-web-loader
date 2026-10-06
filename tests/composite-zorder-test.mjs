@@ -178,6 +178,24 @@ const mkRenderer = () => createRenderer(canvas, { shaderResolver, onLog: () => {
 }
 
 {
+  // ①(P-247) 层内容槽 = 保留名（老式模型层：材质槽 0 直接写合成源名）⇒ 也要进扫描集合、并在层内容路径命中
+  lib.resetCompositeSourceStats()
+  draws.length = 0; blits.length = 0
+  const r5 = mkRenderer()
+  const sc5 = mkScene([
+    mkLayer({ id: 331, name: '模型层(内容=合成源)', visible: true, textureName: '_rt_imageLayerComposite_589_a', size: [0, 0], effects: [] }),
+    srcLayer(),
+  ])
+  await r5.render(sc5, mkTextures(), 640, 360, 0.016)
+  const m1 = lib.compositeSourceStats()
+  await r5.render(sc5, mkTextures(), 640, 360, 0.032)
+  const m2 = lib.compositeSourceStats()
+  check('B11 层内容 = 保留名：扫描到引用（refs≥1）且首帧未命中记账', m1.refs >= 1 && m1.misses >= 1, JSON.stringify({ refs: m1.refs, misses: m1.misses, lastRefs: m1.lastRefs }))
+  check('B12 第二帧：层内容命中合成源（`layerContentHits>0`）—— 老式模型层的槽 0 因此真的能画出来',
+    m2.layerContentHits > 0 && m2.hits > 0, JSON.stringify({ hits: m2.hits, layerContentHits: m2.layerContentHits }))
+}
+
+{
   // `dependencies` 诊断通道：声明了依赖但名字不在可见材质链里（= 引用方被丢弃）⇒ 只记诊断、不捕获
   lib.resetCompositeSourceStats()
   draws.length = 0; blits.length = 0

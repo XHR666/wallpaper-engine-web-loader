@@ -16717,3 +16717,42 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 几何判据）；**单跑 87/0**（连跑两次）⇒ 满载下"卡片展开/音量轨出现"的等待不够。已把 `openNpCard()` 的重试
 从 4×700ms 提到 **8×900ms**，并在 `widthRead()` 里加"换视口后仍没展开 ⇒ 再给一轮"（判据本身一字未改）。
 同一族的还有 `bench-ui-headless` 的 LS4 像素夹具（见上面第 3 节）—— 两者都是"软件渲染满载下量得太早"。
+
+## P-247（2026-10-07）**老式模型层（`model: models/…/*.mdl`）**：纹理 job 对二进制调 `parseWeJson` 必抛 ⇒ `textureName` 永不赋值 ⇒ 整层不画（语料 105 层 / 3 包）；补"材质槽 0 当层内容"+ 层内容保留名解析
+
+### 现象与定位
+- 语料扫描：`objects[].model` 结尾 `.mdl` 的层共 **105 个 / 3 包**（`0923/3662790108` 73、`0923/3589454154` 24、`0917/3509243656` 8）。
+- 真机（`:8902`，`?id=3509243656`）：8 个模型层 `image = models/…/*.mdl`、`__modelDropped = null`（解析期
+  `registerModelSource()` **已**把 mdl→material 登记好），但 `textureName = null`、`size [0,0]` ⇒ 不画。
+- 根因（`demo.html` 的 model→material→texture 链路）：`lib.getEntry(pkg, layer.image)` 拿到的是**二进制 mdl**，
+  紧接着的 `lib.parseWeJson(rd(me))` 对它必抛（P-205 注释里也写着"`parseWeJson` 对它会 throw"）⇒ 该层的 job
+  异常 ⇒ 后面那句 `.then((e) => { if (e) layer.textureName = texName })` 永不执行。
+
+### 修法
+1. **宿主（`demo.html`，`?modellayer=1|on` 打开）**：`.mdl` 层改走 `lib.parsedModelSource(mdl)` → 读
+   `materials/…json` → 取 `passes[0].textures[0]` 赋给 `layer.textureName`；`_rt_imageLayerComposite_*` /
+   `$*` 保留名**不做 `loadTex`**（渲染器逐帧解析），其余名字照旧 `loadTex`。台账 `window.__mpwModelLayer`。
+2. **core（`renderLayer` 层内容路径）**：`texObj` 取不到且 `layer.textureName` 是 `_rt_*` / `$*` 时，按**与 pass 槽
+   同一口径**解析一次（`resolveTextureName`：合成源命名表 → `$` 宿主钩子）；命中即当层内容（下游 `size`
+   回退/绘制原样走），未命中仍走原兜底 ⇒ 默认路径逐位不变。台账 `compositeSourceStats().layerContentHits`。
+3. **core（`scanCompositeRefs`）**：扫描集合**加上层内容名本身**（`l.textureName`）—— 老式模型层的材质槽 0
+   直接写合成源名，它同样是"本帧被引用"的合成源（否则 P-246 的捕获不会发生，`refs` 恒 0）。
+
+### 判据（`tests/composite-zorder-test.mjs` 扩到 **21/0**）
+- B11/B12：层内容 = `_rt_imageLayerComposite_589_a`、源层不可见、引用方在前 ⇒ 首帧未命中记账；**第二帧层内容命中**
+  （`layerContentHits > 0`，`hits > 0`）。其余 19 条（P-246）未动，`demo-check` 133/0、`mock-gl` 60/0、
+  `copybg-semantics` 6/0、`load-timeout` 70/0、`docs-check` ✓、`diag-flag-check` **223==223**。
+
+### 真机读数与**如实登记**（`:8902`，`?id=3509243656&modellayer=1`）
+- 宿主台账 `__mpwModelLayer = {seen:8, bound:8, reserved:2, dropped:0}`；两层模型层
+  `textureName = _rt_imageLayerComposite_589_a / _…_433_a`、`size` 由 `[0,0]` 回退成 `[1280,720]`。
+- 合成台账（缺省档）：`{frames:80, refs:2, captures:160, hits:160, misses:0, layerContentHits:160, errors:0,
+  lastRefs:["589:_rt_imageLayerComposite_589_a","433:_rt_imageLayerComposite_433_a"]}` ⇒ **端到端通了**；
+  `?composite=legacy` 档台账 `null`、`size` 保持 `[0,0]`（旧行为）。
+- **但像素结果仍未验证**：该包在**开/关两档都是黑帧**（`mean 0 / uniq 1`，`campose=legacy` 与缺省相机相同）；
+  **改动前基线复测**（core+demo 双 stash）同样是黑帧 ⇒ 黑帧**不是**本补丁引入，但本补丁也**没有**把它变好。
+- **上游真值取不到**：官方 web 产物（`/wallpaper-engine-webgl/renderer/index.html` + 页面内 `__wp.loadSceneFile`）
+  对本包报 `scene render failed: JSHandle@object` + `WebGL context was lost`，无 canvas 可采样。
+- ⇒ 结论：本项按"**通路 + 台账 + 可选开关**"收口（默认关，逐位等于改动前）；翻默认的前置条件 =
+  拿到可用参考（或 3D 几何支持）后做像素 A/B。**三条 mdl 层的包需要单独一轮**：`3662790108`（73 层，太空球）
+  与 `3589454154`（24 层，土星环/天空盒）这次没有逐包验证。

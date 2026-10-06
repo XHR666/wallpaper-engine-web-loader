@@ -3719,10 +3719,43 @@ function loadScene() {
       + (fxStat.passthrough ? ' · passthrough ' + fxStat.passthrough + '（缺件恒等 blit 顶着）' : '')
       + ' · 链摘要 ' + fxStat.digest);
   }
+  // ①(P-247) 老式模型层接线开关（默认关；`?modellayer=1|on` 打开，见下方整段说明）
+  const MODELLAYER_ON = (() => { try { const v = new URLSearchParams(location.search).get('modellayer'); return v === '1' || v === 'on' } catch (e) { return false } })()
   scene.layers.forEach((layer) => {
     if (!layer.image) return;
     jobs.push((() => {
       let model;
+      /* ①(P-247 2026-10-07) **老式模型层**（`model: models/…/*.mdl`）：`.mdl` 是二进制，`parseWeJson` 对它
+         必抛（此前这一层的 job 直接异常 ⇒ `textureName` 永不赋值 ⇒ 整层不画）。解析期
+         `registerModelSource()` 已把 mdl → material 记进 `parsedModelSource()`，这里直接读材质、取槽 0 纹理
+         当层内容；`_rt_*` / `$` 保留名（合成源/系统纹理）**不做 loadTex**（渲染器逐帧解析，见 P-246/P-247），
+         其余名字照旧走 `loadTex`。台账 `window.__mpwModelLayer`（seen/bound/reserved/dropped）。 */
+      /* ①(P-247) **默认关**：`?modellayer=1|on` 才启用。理由（如实）：本项把"老式模型层"接成
+         "材质槽 0 当层内容"，机制/台账已在真机验证（8/8 绑定、合成源命中），但**像素结果尚未与可用参考
+         对照**（官方 web 产物对本包 `scene render failed` + WebGL context lost ⇒ 无真值），且这类层会画出
+         整屏四边形 ⇒ 存在"盖住原本可见内容"的风险 ⇒ 先做成**可选通路**，对照通过后再翻默认。 */
+      if (MODELLAYER_ON && /\.mdl$/i.test(String(layer.image))) {
+        try {
+          window.__mpwModelLayer = Object.assign({ seen: 0, bound: 0, reserved: 0, dropped: 0 }, window.__mpwModelLayer)
+          window.__mpwModelLayer.seen++
+        } catch (e) { /* 诊断失败不影响接线 */ }
+        const src = (typeof lib.parsedModelSource === 'function') ? lib.parsedModelSource(layer.image) : null
+        if (!src || !src.material) {
+          try { window.__mpwModelLayer.dropped++ } catch (e) { /* ignore */ }
+          return Promise.resolve();
+        }
+        const matEntry = lib.getEntry(pkg, src.material)
+        const mdlMaterial = matEntry ? lib.parseWeJson(rd(matEntry)) : null
+        const mdlPass = mdlMaterial && mdlMaterial.passes && mdlMaterial.passes[0]
+        const mdlTex = mdlPass && mdlPass.textures && mdlPass.textures[0]
+        if (!mdlTex) { try { window.__mpwModelLayer.dropped++ } catch (e) { /* ignore */ } return Promise.resolve(); }
+        try {
+          window.__mpwModelLayer.bound++
+          if (/^(_rt_|\$)/.test(String(mdlTex))) window.__mpwModelLayer.reserved++
+        } catch (e) { /* ignore */ }
+        if (/^(_rt_|\$)/.test(String(mdlTex))) { layer.textureName = String(mdlTex); return Promise.resolve(); }
+        return loadTex(mdlTex, { nonCritical: isNonCriticalLayer(layer) }).then((e) => { if (e) layer.textureName = mdlTex; });
+      }
       const biModel = lib.resolveBuiltin(layer.image);
       if (biModel && biModel.kind === 'model') model = biModel.value;
       else {

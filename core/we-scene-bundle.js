@@ -12582,6 +12582,9 @@ export function createRenderer(canvas, opts = {}) {
         const dep = Array.isArray(l.dependencies) ? l.dependencies : [l.dependencies]
         for (const d of dep) { const n = Number(d); if (Number.isFinite(n)) depIds.add(n) }
       }
+      // ①(P-247) **层内容本身**也可能是保留名：老式模型层的材质槽 0 直接写 `_rt_imageLayerComposite_*`
+      //   （宿主 P-247 把它赋给 `layer.textureName`）⇒ 它同样是"本帧被引用"的合成源，必须进扫描集合。
+      if (l && typeof l.textureName === 'string') add(l.textureName)
       for (const e of (l.effects || [])) {
         if (!e || e.visible === false) continue
         for (const p of (e.passes || [])) {
@@ -14660,7 +14663,20 @@ export function createRenderer(canvas, opts = {}) {
       compositeLayer(copyProg, whiteTex, [1, 0, 0, 1], layer, cam, viewProj, width, height, time)
       return
     }
-    const texObj = !layer.solid && layer.textureName ? textures.get(layer.textureName) : null
+    let texObj = !layer.solid && layer.textureName ? textures.get(layer.textureName) : null
+    /* ①(P-247 2026-10-07) **层内容槽也能是"保留名"**：老式模型层（`model: models/…/*.mdl`）的材质槽 0 常常
+       直接写 `_rt_imageLayerComposite_<源层id>_<后缀>`（合成源）或 `$mediaThumbnail`（系统纹理）—— 这类名字
+       在 `textures` 里**永远查不到**（它们是渲染期资源），旧路径于是把该层当"缺纹理"处理（透明/白块兜底）。
+       这里补一次**与 pass 槽同一口径**的解析（`resolveTextureName`：合成源命名表 → `$` 宿主钩子），
+       命中即当层内容用（下游 size 回退/绘制原样走）；未命中仍走原兜底（逐位不变）。
+       台账：`compositeSourceStats().layerContentHits`。 */
+    if (!texObj && !layer.solid && typeof layer.textureName === 'string' && layer.textureName) {
+      const nm0 = layer.textureName
+      if (!COMPOSITE_LEGACY && (nm0.startsWith('_rt_') || nm0.charCodeAt(0) === 0x24)) {
+        const hit = resolveTextureName(nm0, null, new Map(), textures)
+        if (hit) { texObj = hit; __compositeLedger.layerContentHits++; publishCompositeLedger() }
+      }
+    }
     // ①(W4 P-36) 图片层精灵帧 UV：仅当脚本宿主真的驱动过该层（setFrame→__texFrameForced
     //   钉帧 / play→__texFramePlay 按时间×frametime 自动推进）才接管 UV；否则清掉，
     //   保持 uvRect/整图旧行为（凯尔希眼睛等无脚本 sprite 层零影响）。
@@ -17047,12 +17063,12 @@ export function resetSystemTextureLedger() {
    `frames` = 走过扫描的帧数、`refs` = 本帧被引用的源层数、`captures` = 源层 z 序捕获次数、
    `hits/misses` = 引用方解析命中/未命中（未命中 = 引用方排在源之前且还没有上一帧成品 ⇒ 退回旧口径）、
    `gc` = 引用消失被清掉的条目数、`lastRefs` = 最近一次扫描到的 `<id>:<名字…>`（最多 8 条）、`errors` = 捕获异常。 */
-const __compositeLedger = { frames: 0, refs: 0, captures: 0, hits: 0, misses: 0, gc: 0, errors: 0, depIds: 0, depList: [], lastRefs: [], lastAt: 0 }
+const __compositeLedger = { frames: 0, refs: 0, captures: 0, hits: 0, misses: 0, gc: 0, errors: 0, depIds: 0, depList: [], lastRefs: [], lastAt: 0, layerContentHits: 0 }
 export function compositeSourceStats() {
-  return { frames: __compositeLedger.frames, refs: __compositeLedger.refs, captures: __compositeLedger.captures, hits: __compositeLedger.hits, misses: __compositeLedger.misses, gc: __compositeLedger.gc, errors: __compositeLedger.errors, depIds: __compositeLedger.depIds, depList: __compositeLedger.depList.slice(), lastRefs: __compositeLedger.lastRefs.slice(), lastAt: __compositeLedger.lastAt }
+  return { frames: __compositeLedger.frames, refs: __compositeLedger.refs, captures: __compositeLedger.captures, hits: __compositeLedger.hits, misses: __compositeLedger.misses, gc: __compositeLedger.gc, errors: __compositeLedger.errors, depIds: __compositeLedger.depIds, depList: __compositeLedger.depList.slice(), lastRefs: __compositeLedger.lastRefs.slice(), lastAt: __compositeLedger.lastAt, layerContentHits: __compositeLedger.layerContentHits }
 }
 export function resetCompositeSourceStats() {
-  __compositeLedger.frames = 0; __compositeLedger.refs = 0; __compositeLedger.captures = 0; __compositeLedger.hits = 0; __compositeLedger.misses = 0; __compositeLedger.gc = 0; __compositeLedger.errors = 0; __compositeLedger.depIds = 0; __compositeLedger.depList = []; __compositeLedger.lastRefs = []; __compositeLedger.lastAt = 0
+  __compositeLedger.frames = 0; __compositeLedger.refs = 0; __compositeLedger.captures = 0; __compositeLedger.hits = 0; __compositeLedger.misses = 0; __compositeLedger.gc = 0; __compositeLedger.errors = 0; __compositeLedger.depIds = 0; __compositeLedger.depList = []; __compositeLedger.lastRefs = []; __compositeLedger.lastAt = 0; __compositeLedger.layerContentHits = 0
   try { const g = (typeof globalThis !== 'undefined') ? globalThis : null; if (g) g.__mpwComposite = compositeSourceStats() } catch (e) {}
   return true
 }
