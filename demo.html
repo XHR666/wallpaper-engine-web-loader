@@ -10100,19 +10100,23 @@ function loadScene() {
       let bmp = null
       try {
         if (src.kind === 'bytes' && src.bytes) {
-          const blob = new Blob([src.bytes], { type: src.mime || 'image/png' })
-          bmp = await createImageBitmap(blob)
+          // ①(纪律：`load-timeout` T4a/T4c) 解码一律走 `bitmapT`（有上限、不 settle 不拖死整包）
+          bmp = await bitmapT(new Blob([src.bytes], { type: src.mime || 'image/png' }), '曲目封面解码', DECODE_TIMEOUT_MS)
         } else if (src.kind === 'url' && src.url) {
-          bmp = await createImageBitmap(await (await fetch(src.url)).blob())
+          // ①(纪律) 取字节走 `fetchT` + `bufT`（与包内资产同一条超时口径），再交给 `bitmapT`
+          const r = await fetchT(src.url, null, NET_TIMEOUT_MS, '曲目封面')
+          const ab = await bufT(r, src.url, NET_TIMEOUT_MS, '曲目封面 arrayBuffer')
+          if (ab) bmp = await bitmapT(new Blob([ab], { type: (r && r.headers && r.headers.get && r.headers.get('content-type')) || 'image/png' }), '曲目封面解码', DECODE_TIMEOUT_MS)
         }
       } catch (e) { try { SYSTEX.lastErr = 'decode:' + String((e && e.message) || e).slice(0, 80) } catch (e2) {} }
       if (!bmp) {
-        // fetch/CORS 失败的回退：`<img>` + 直接画（不取像素 ⇒ 不污染也能上传，取像素失败才记账）
+        // fetch/CORS 失败的回退：`<img>` + 直接画（不取像素 ⇒ 不污染也能上传，取像素失败才记账）；
+        //   同样走 `withTimeout`（无上限的图片等待会把这一帧的解码挂死）
         try {
           if (src.kind === 'url' && src.url) {
             const img = new Image()
             img.crossOrigin = 'anonymous'
-            await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src.url })
+            await withTimeout(new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src.url }), DECODE_TIMEOUT_MS, '曲目封面 <img>')
             const c = document.createElement('canvas')
             c.width = img.naturalWidth || img.width; c.height = img.naturalHeight || img.height
             const g2 = c.getContext('2d'); g2.drawImage(img, 0, 0)

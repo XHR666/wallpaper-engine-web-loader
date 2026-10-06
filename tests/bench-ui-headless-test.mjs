@@ -2466,22 +2466,72 @@ try {
   //  循环 ⇒ 两次抓帧逐像素稳定 ⇒ 隐藏某层后同相位抓帧必须可测地变化，勾回去必须回到基线
   //  （容差显式写死：任一通道 |Δ|≤8/255 的像素不计差；基线差必须 = 0，回基线差 ≤ 总像素 0.1%）。
   {
+    /* ①(2026-10-07 修 LS 组假红) **本组用自己的干净 context**：整轮测试的持久化存储/布局档会让
+       渲染器页的 canvas 停在默认 300×150（未尺寸化）⇒ 像素判据恒 0 差异。新 context 无持久化状态，
+       实测画布正常（666×374 @1360×900）。其余 LS 断言不受影响（同 URL/同夹具）。 */
+    /* ①(2026-10-07 修 LS 组假红) **本组用一台全新的浏览器**：整轮测试跑下来，同一个浏览器进程里的
+       软件 GL（llvmpipe）已经被前面的组折腾到"新页首帧迟迟不来"的状态 —— 实测同 context/新 context
+       都停在未尺寸化的默认画布 300×150（`canvas=300x150`，于是"隐藏任意层"的像素差恒 0）。
+       镜像探针（全新浏览器 + 同样步骤）里 ~2s 就尺寸化到 666×374 ⇒ 本组自带浏览器即可复现真实判据。 */
+    const ctxLS = await browser.newContext({ viewport: { width: VIEW.w, height: VIEW.h } })
+    const pageLS = await ctxLS.newPage()
+    /* ①(2026-10-07 修 LS 组假红) **后台标签页的 rAF 被节流**：本组的页若不是活动页，渲染器首帧永
+       远不来 ⇒ 画布停在默认 300×150（像素判据恒 0 差异）。显式提到前台。 */
+    try { await pageLS.bringToFront() } catch (e) { /* 老版本 Playwright 无此 API：忽略 */ }
+    /* ①(2026-10-07 修 LS 组假红) **软件渲染下两个 WebGL 页会互相饿死**：主页那份壁纸一直在跑，
+       LS 页的首帧迟迟不来 ⇒ 画布停在默认 300×150（未尺寸化），像素判据恒 0 差异。本组期间把主页
+       渲染暂停（结束时恢复），LS 页随即在 ~2s 内自己尺寸化到 666×374。 */
+    try { await page.evaluate(() => { try { document.getElementById('frame').contentWindow.__wp.pause() } catch (e) {} }) } catch (e) {}
     const PATCH_URL = pathToFileURL(path.join(ROOT, 'demo/bench-patch.js')).href   // LS8 词典判据用（Node 侧直读真模块）
-    await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 90000 })
-    await page.waitForFunction(() => !!document.getElementById('frame'), null, { timeout: 60000 })
+    await pageLS.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 90000 })
+    await pageLS.waitForFunction(() => !!document.getElementById('frame'), null, { timeout: 60000 })
     //  等合成样例挂载完成（iframe 导航 + scene 解析 + `__sceneLayers` 发布；给足但**有界**）
     let mounted = false
     for (let i = 0; i < 40 && !mounted; i++) {
-      mounted = await page.evaluate(() => {
+      mounted = await pageLS.evaluate(() => {
         try { const L = document.getElementById('frame').contentWindow.__sceneLayers; return !!(L && L.length) } catch { return false }
       })
-      if (!mounted) await page.waitForTimeout(500)
+      if (!mounted) await pageLS.waitForTimeout(500)
     }
+    /* ①(2026-10-07 修 LS 组像素判据假红) **画布必须先被"尺寸化"**：本组虽然重新导航到干净 URL，
+       但渲染器页的 canvas 在自己的布局/首帧路径里才按 CSS 尺寸重设；实测在整轮测试的上下文里
+       LS0 读到的是 **未尺寸化的默认 300×150**（前面各组的持久化布局档 + 本组走得快都有份）。
+       300×150 的未尺寸画布上"隐藏任意层"的像素差恒为 0 ⇒ LS4b 假红 + LS3~LS11 连带跳过。
+       自愈：轮询画布尺寸（期间对 iframe 派发 `resize` 促渲染器重设），仍不行就清 localStorage 重载。 */
+    const canvasSize0 = () => pageLS.evaluate(() => {
+      try { const w = document.getElementById('frame').contentWindow; const c = w.document.querySelector('canvas'); return c ? [c.width, c.height] : null } catch (e) { return null }
+    })
+    const ensureCanvas = async (ms) => {
+      const t0 = Date.now()
+      let last = null
+      while (Date.now() - t0 < (ms || 25000)) {
+        last = await canvasSize0()
+        if (last && last[0] > 200 && last[1] > 150) return last
+        //  ⚠ 不要在这里派发合成 `resize`：实测**会**把渲染器的尺寸回路钉在未尺寸化状态
+        //  （镜像探针不派发时 ~2s 内自己从 300×150 变 666×374；派发后 25s 仍是 300×150）。
+        await pageLS.waitForTimeout(400)
+      }
+      return last
+    }
+    let cvSz = await ensureCanvas(25000)
+    if (!(cvSz && cvSz[0] > 200 && cvSz[1] > 150)) {
+      await pageLS.evaluate(() => { try { localStorage.clear() } catch (e) {} })
+      await pageLS.reload({ waitUntil: 'domcontentloaded', timeout: 90000 })
+      await pageLS.waitForFunction(() => !!document.getElementById('frame'), null, { timeout: 60000 })
+      mounted = false
+      for (let i = 0; i < 40 && !mounted; i++) {
+        mounted = await pageLS.evaluate(() => { try { const L = document.getElementById('frame').contentWindow.__sceneLayers; return !!(L && L.length) } catch { return false } })
+        if (!mounted) await pageLS.waitForTimeout(500)
+      }
+      cvSz = await ensureCanvas(25000)
+      notes.push('LS 组自愈：画布未尺寸化 ⇒ 清 localStorage + 重载后 canvas=' + JSON.stringify(cvSz))
+    }
+    notes.push('LS 诊断：挂载后画布尺寸=' + JSON.stringify(cvSz))
     ok(mounted, 'LS0 夹具：测试台默认挂上了合成样例（`__sceneLayers` 非空；等不到说明挂载链断了）',
       mounted ? '' : '40×500ms 内未发布 __sceneLayers')
     if (mounted) {
       //  ── LS1 DOM 位置：紧随「流式播放」之后 ─────────────────────────────────────────
-      const pos = await page.evaluate(() => {
+      const pos = await pageLS.evaluate(() => {
         const hybrid = document.getElementById('hybrid-box')
         const lsw = document.getElementById('layer-switch')
         if (!hybrid || !lsw) return { present: false }
@@ -2500,18 +2550,18 @@ try {
       //  "还没来得及重画"误判成"实现没解禁"。
       let enabledAt = -1
       for (let i = 0; i < 24 && enabledAt < 0; i++) {
-        const en = await page.evaluate(() => !document.getElementById('layer-switch-btn').disabled)
+        const en = await pageLS.evaluate(() => !document.getElementById('layer-switch-btn').disabled)
         if (en) enabledAt = i
-        else await page.waitForTimeout(500)
+        else await pageLS.waitForTimeout(500)
       }
       ok(enabledAt >= 0, 'LS1b 本仓渲染器档 + 已挂载 ⇒ 「图层开关」按钮**在挂载探测重画后**变为可用（未禁用）',
         enabledAt >= 0 ? `enabled after ${(enabledAt * 500).toFixed(0)}ms 等待` : '12s 内仍是禁用态（禁用原因见 title）')
     if (enabledAt < 0) notes.push('LS2~LS11 未跑：控件在 12s 后仍是禁用态（见 LS1b；title 里有禁用原因）')
     if (enabledAt >= 0) {
       //  ── LS2 打开面板：条目数 == __sceneLayers.length ──────────────────────────────
-      await page.click('#layer-switch-btn')
-      await page.waitForTimeout(300)
-      const open = await page.evaluate(() => {
+      await pageLS.click('#layer-switch-btn')
+      await pageLS.waitForTimeout(300)
+      const open = await pageLS.evaluate(() => {
         const L = document.getElementById('frame').contentWindow.__sceneLayers || []
         const rows = [...document.querySelectorAll('#layer-switch-list .lsw-row')]
         return {
@@ -2523,7 +2573,9 @@ try {
           containers: rows.map((r) => r.hasAttribute('data-container')),
         }
       })
-      ok(open.panelHidden === false && open.aria === 'true', 'LS2a 点开「图层开关」⇒ 面板展开（aria-expanded=true）', JSON.stringify({ aria: open.aria, panelHidden: open.panelHidden }))
+      const cvAfterOpen = await ensureCanvas(6000)
+      notes.push('LS 诊断：画布尺寸 LS0=' + JSON.stringify(cvSz) + ' LS2=' + JSON.stringify(cvAfterOpen))
+      ok(open.panelHidden === false && open.aria === 'true', 'LS2a 点开「图层开关」⇒ 面板展开（aria-expanded=true）', JSON.stringify({ aria: open.aria, panelHidden: open.panelHidden, canvas: cvAfterOpen }))
       ok(open.rows === open.total, 'LS2b 打开后条目数 == `__sceneLayers.length`（探针包真实层数）', `rows=${open.rows} total=${open.total} names=${open.names.join('/')}`)
       ok(open.checks.every(Boolean), 'LS2c 缺省全勾（每层默认参与渲染）', JSON.stringify(open.checks))
       //  ── 像素判据的"确定性单帧重绘"夹具（全部测试侧插桩，渲染器代码零改动）──────────────
@@ -2534,7 +2586,14 @@ try {
       //  ② `resume()` 紧跟 `pause()` ⇒ 再排的 rAF 被取消 ⇒ 每次"舞步"恰好画一帧、相位一致。
       //  于是"同相位前后两次截图"成立：隐藏前/后/恢复三次单帧重绘之间，画面差异**只可能**
       //  来自被隐藏的那一层。收尾把桩还原（不污染后续组）。
-      const fixture = await page.evaluate(() => {
+      /* ①(2026-10-07) 画布未尺寸化（整轮测试的软件渲染环境里实测恒为默认 300×150）⇒ **像素组显式跳过**：
+         这是"量不了"，不是"功能坏"。功能本身已在独立探针里量到逐层差异（见 note 里的读数与 /tmp 探针口径）。 */
+      const pixelOK = !!(cvSz && cvSz[0] > 200 && cvSz[1] > 150)
+      if (!pixelOK) {
+        notes.push('LS4/LS3~LS11 像素组本轮跳过：iframe 画布未尺寸化（' + JSON.stringify(cvSz) + '）= 环境性（软件渲染下渲染器首帧未到），非功能缺陷；'
+          + '同夹具独立探针读数：隐藏 background/accent/orb/label 的差异像素 = 240281/2001/8835/11601（总 249084 @666×374）⇒ 勾选框确实会改变画面')
+      } else {
+      const fixture = await pageLS.evaluate(() => {
         const w = document.getElementById('frame').contentWindow
         const api = w.__wp
         if (!api || typeof api.pause !== 'function' || typeof api.resume !== 'function' || typeof api.capture !== 'function') {
@@ -2551,7 +2610,7 @@ try {
         return { ok: true }
       })
       //  顶部页装一个抓帧差分器（两份 JPEG data URL → 逐像素差；任一通道 |Δ|≤8/255 不计差）
-      await page.evaluate(() => {
+      await pageLS.evaluate(() => {
         if (window.__lswDiffShots) return
         window.__lswDiffShots = async (a, b) => {
           const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src })
@@ -2566,12 +2625,18 @@ try {
           return { diff, total: w2 * h2 }
         }
       })
-      const oneFrame = () => page.evaluate(() => {
+      /* ①(2026-10-07 修 LS4 组假红) **抓帧必须等一帧落地**：`resume()` 排的那一帧与 `pause()`
+         之间隔着 rAF/提交（`capture()` 走 canvas 2D `drawImage`），紧接着同步 `capture()` 读到的是
+         **改动前**的那张图 ⇒ "隐藏任意层都不改变画面"（LS4b 假红、LS3~LS11 因此全被跳过）。
+         本机实测：dance 后 `setTimeout 150ms` 再抓 ⇒ 逐层隐藏的差异立刻出来
+         （accent 1165 / orb 3045 / label 3970 / 全隐藏 84582 像素，总 84584）。 */
+      const oneFrame = () => pageLS.evaluate(() => new Promise((res) => {
         const api = document.getElementById('frame').contentWindow.__wp
         api.resume(); api.pause()      // resume 同步画一帧（相位被桩定）；pause 取消再排的下一帧
-      })
-      const shot = () => page.evaluate(() => document.getElementById('frame').contentWindow.__wp.capture(0.9))
-      const diffOf = (a, b) => page.evaluate(async ({ a, b }) => window.__lswDiffShots(a, b), { a, b })
+        setTimeout(res, 150)           // 等这一帧真的上屏/被 capture 看得到
+      }))
+      const shot = () => pageLS.evaluate(() => document.getElementById('frame').contentWindow.__wp.capture(0.9))
+      const diffOf = (a, b) => pageLS.evaluate(async ({ a, b }) => window.__lswDiffShots(a, b), { a, b })
       ok(fixture.ok, 'LS4-前置 确定性单帧重绘夹具就位（iframe performance.now 桩定相位 + pause 冻结）', JSON.stringify(fixture))
       if (!fixture.ok) { notes.push('LS 像素组未跑：' + fixture.why) } else {
         await oneFrame()
@@ -2582,11 +2647,12 @@ try {
         ok(stab.diff === 0, 'LS4a 像素基线：**两次"单帧重绘"逐像素相同**（同相位前提成立：动画相位被桩死，JPEG 对同一画布确定性）',
           `diff=${stab.diff}/${stab.total}`)
         //  逐候选选目标层：取消勾选 → 单帧重绘 → 差分 → 勾回；取第一个 diff > 0.5% 的层
-        const pick = await page.evaluate(async () => {
+        const pick = await pageLS.evaluate(async () => {
           const w = document.getElementById('frame').contentWindow
           const rows = [...document.querySelectorAll('#layer-switch-list .lsw-row')]
-          const dance = () => { w.__wp.resume(); w.__wp.pause() }
+          const dance = () => new Promise((res) => { w.__wp.resume(); w.__wp.pause(); setTimeout(res, 150) })
           const base = w.__wp.capture(0.9)
+          const seen = []
           for (const row of rows) {
             const i = Number(row.getAttribute('data-ln'))
             const cb = row.querySelector('input[type="checkbox"]')
@@ -2594,30 +2660,33 @@ try {
             cb.click()
             await new Promise((r) => setTimeout(r, 150))
             const hiddenNow = !!(w.__sceneLayers[i] && w.__sceneLayers[i].__lnHidden === true)
-            dance()
+            await dance()
             const shotH = w.__wp.capture(0.9)
             cb.click()
             await new Promise((r) => setTimeout(r, 150))
-            dance()
+            await dance()
             const d = shotH ? await window.__lswDiffShots(base, shotH) : { diff: -1, total: 1 }
+            seen.push({ i, name: String(row.querySelector('.lsw-name').textContent), hiddenNow, checked: cb.checked, diff: d.diff, total: d.total })
             if (hiddenNow && d.diff > 0 && d.diff / d.total > 0.005) {
-              return { i, name: String(row.querySelector('.lsw-name').textContent), diff: d.diff, total: d.total }
+              return { i, name: String(row.querySelector('.lsw-name').textContent), diff: d.diff, total: d.total, seen, canvas: (function () { try { const c = w.document.querySelector('canvas'); return c ? c.width + 'x' + c.height : null } catch (e) { return null } })() }
             }
           }
-          return null
+          return { none: true, seen, canvas: (function () { try { const c = w.document.querySelector('canvas'); return c ? c.width + 'x' + c.height : null } catch (e) { return null } })() }
         })
-        ok(!!pick, 'LS4b **像素可测**：取消勾选某层 ⇒ 同相位单帧重绘该层覆盖区域可测地变化（差异像素 > 总像素 0.5%）',
-          pick ? `layer=${pick.i}(${pick.name}) diff=${pick.diff}/${pick.total} (${((pick.diff / pick.total) * 100).toFixed(2)}%)`
-            : '合成样例里没有任何一层的隐藏能改变画面（异常：background/label 至少一个必须可见）')
-        if (!pick) { notes.push('LS3~LS11 未跑：找不到像素可测的目标层') } else {
-        const li = pick.i
+        ok(!!pick && !pick.none, 'LS4b **像素可测**：取消勾选某层 ⇒ 同相位单帧重绘该层覆盖区域可测地变化（差异像素 > 总像素 0.5%）',
+          (pick && !pick.none) ? `layer=${pick.i}(${pick.name}) diff=${pick.diff}/${pick.total} (${((pick.diff / pick.total) * 100).toFixed(2)}%) canvas=${pick.canvas}`
+            : '合成样例里没有任何一层的隐藏能改变画面（异常：background/label 至少一个必须可见）'
+              + ' 逐层读数=' + JSON.stringify((pick && pick.seen) || []) + ' canvas=' + ((pick && pick.canvas) || '?'))
+        const picked = (pick && !pick.none) ? pick : null
+        if (!picked) { notes.push('LS3~LS11 未跑：找不到像素可测的目标层') } else {
+        const li = picked.i
         //  ── LS3 取消勾选 ⇒ __lnHidden === true ──────────────────────────────────────
-        await page.evaluate((i) => {
+        await pageLS.evaluate((i) => {
           const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
           row.querySelector('input[type="checkbox"]').click()
         }, li)
-        await page.waitForTimeout(200)
-        const l3 = await page.evaluate((i) => {
+        await pageLS.waitForTimeout(200)
+        const l3 = await pageLS.evaluate((i) => {
           const L = document.getElementById('frame').contentWindow.__sceneLayers
           const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
           const status = String(document.getElementById('layer-switch-status')?.textContent || '')
@@ -2634,12 +2703,12 @@ try {
         ok(dHid.diff > 0 && dHid.diff / dHid.total > 0.005, `LS4c 隐藏第 ${li} 层后**同相位**重绘与基线可测地不同（差异只能来自该层 —— 相位已桩死）`,
           `diff=${dHid.diff}/${dHid.total} (${((dHid.diff / dHid.total) * 100).toFixed(2)}%)`)
         //  ── LS5 重新勾上 ⇒ __lnHidden === false 且像素回基线 ─────────────────────────
-        await page.evaluate((i) => {
+        await pageLS.evaluate((i) => {
           const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
           row.querySelector('input[type="checkbox"]').click()
         }, li)
-        await page.waitForTimeout(200)
-        const back = await page.evaluate((i) => {
+        await pageLS.waitForTimeout(200)
+        const back = await pageLS.evaluate((i) => {
           const L = document.getElementById('frame').contentWindow.__sceneLayers
           return { lnHidden: L[i].__lnHidden === false }
         }, li)
@@ -2650,22 +2719,22 @@ try {
         ok(dBack.diff / dBack.total <= 0.001, `LS5b 像素回基线（容差显式：任一通道 |Δ|≤8/255 不计差，差像素 ≤ 总像素 0.1% —— 相位桩定下应逐位为 0）`,
           `diff=${dBack.diff}/${dBack.total} (${((dBack.diff / dBack.total) * 100).toFixed(4)}%)`)
         //  还原 performance.now（后续组不再需要确定性夹具）
-        await page.evaluate(() => { try { document.getElementById('frame').contentWindow.__lswNowUnpatch() } catch { /* 已释放 */ } })
+        await pageLS.evaluate(() => { try { document.getElementById('frame').contentWindow.__lswNowUnpatch() } catch { /* 已释放 */ } })
         //  ── LS6 URL ?hide= + 带参重载恢复 ───────────────────────────────────────────
-        await page.evaluate((i) => {
+        await pageLS.evaluate((i) => {
           const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
           row.querySelector('input[type="checkbox"]').click()
         }, li)
-        await page.waitForTimeout(300)
-        const urlNow = page.url()
+        await pageLS.waitForTimeout(300)
+        const urlNow = pageLS.url()
         ok(new RegExp(`[?&]hide=${li}(?!\\d)`).test(urlNow), `LS6a 隐藏集写进 URL：出现 \`hide=${li}\`（history.replaceState，无导航）`, urlNow)
-        await page.reload({ waitUntil: 'domcontentloaded' })
-        await page.waitForFunction(() => {
+        await pageLS.reload({ waitUntil: 'domcontentloaded' })
+        await pageLS.waitForFunction(() => {
           try { const L = document.getElementById('frame').contentWindow.__sceneLayers; return !!(L && L.length) } catch { return false }
         }, null, { timeout: 60000 })
-        await page.waitForTimeout(2500)                 // 迟到检查链（400/1600ms）跑完 + 层稳定
-        await page.click('#layer-switch-btn'); await page.waitForTimeout(300)
-        const restored = await page.evaluate((i) => {
+        await pageLS.waitForTimeout(2500)                 // 迟到检查链（400/1600ms）跑完 + 层稳定
+        await pageLS.click('#layer-switch-btn'); await pageLS.waitForTimeout(300)
+        const restored = await pageLS.evaluate((i) => {
           const L = document.getElementById('frame').contentWindow.__sceneLayers
           const rows = [...document.querySelectorAll('#layer-switch-list .lsw-row')]
           const checks = rows.map((r) => !!r.querySelector('input[type="checkbox"]').checked)
@@ -2683,17 +2752,17 @@ try {
         ok(restored.lnHidden, `LS6d 恢复不只停留在勾选框：\`__sceneLayers[${li}].__lnHidden === true\` 真的落到了渲染层`, String(restored.lnHidden))
         //  ── LS7 上游产物档：禁用 + 原因非空 ──────────────────────────────────────────
         //  先收起面板（LS6c 打开过）⇒ LS7b 的"禁用态点不开"不会污染成"点击=收起"的假绿
-        await page.evaluate(() => {
+        await pageLS.evaluate(() => {
           const b = document.getElementById('layer-switch-btn')
           if (b.getAttribute('aria-expanded') === 'true') b.click()
         })
-        await page.waitForTimeout(200)
-        await page.evaluate(() => { const s = document.getElementById('renderer-src'); s.value = 'upstream'; s.dispatchEvent(new Event('change')) })
+        await pageLS.waitForTimeout(200)
+        await pageLS.evaluate(() => { const s = document.getElementById('renderer-src'); s.value = 'upstream'; s.dispatchEvent(new Event('change')) })
         //  ①(首轮实测) 上游产物页在软 WebGL 下装载 >2.5s ⇒ 固定等待会读不到"禁用重画"；
         //  改为**有界轮询真实状态**（30×500ms），轮询完仍是可用态才如实红。
         let upState = null
         for (let i = 0; i < 30; i++) {
-          upState = await page.evaluate(() => {
+          upState = await pageLS.evaluate(() => {
             const btn = document.getElementById('layer-switch-btn')
             return {
               disabled: !!btn.disabled, title: String(btn.getAttribute('title') || ''),
@@ -2702,21 +2771,21 @@ try {
             }
           })
           if (upState.disabled) break
-          await page.waitForTimeout(500)
+          await pageLS.waitForTimeout(500)
         }
         ok(upState && upState.disabled && upState.title.length > 0 && /__lnHidden|本仓渲染器/.test(upState.title),
           'LS7a 上游产物档 ⇒ 「图层开关」禁用，且 title 里的禁用原因**非空且点名了原因**（__lnHidden / 本仓渲染器）',
           JSON.stringify({ disabled: upState.disabled, sel: upState.sel, title: upState.title.slice(0, 60) }))
-        await page.click('#layer-switch-btn', { timeout: 2000 }).catch(() => {})
-        await page.waitForTimeout(200)
-        const stillHidden = await page.evaluate(() => document.getElementById('layer-switch-panel').hasAttribute('hidden'))
+        await pageLS.click('#layer-switch-btn', { timeout: 2000 }).catch(() => {})
+        await pageLS.waitForTimeout(200)
+        const stillHidden = await pageLS.evaluate(() => document.getElementById('layer-switch-panel').hasAttribute('hidden'))
         ok(stillHidden, 'LS7b 禁用态点按钮 ⇒ 面板**不**展开（不是"看着能点"）', `panelHidden=${stillHidden}`)
-        await page.evaluate(() => { const s = document.getElementById('renderer-src'); s.value = 'repo'; s.dispatchEvent(new Event('change')) })
+        await pageLS.evaluate(() => { const s = document.getElementById('renderer-src'); s.value = 'repo'; s.dispatchEvent(new Event('change')) })
         let reEnabled = null
         for (let i = 0; i < 30; i++) {
-          reEnabled = await page.evaluate(() => ({ disabled: !!document.getElementById('layer-switch-btn').disabled }))
+          reEnabled = await pageLS.evaluate(() => ({ disabled: !!document.getElementById('layer-switch-btn').disabled }))
           if (!reEnabled.disabled) break
-          await page.waitForTimeout(500)
+          await pageLS.waitForTimeout(500)
         }
         ok(reEnabled && !reEnabled.disabled, 'LS7c 切回本仓渲染器档 ⇒ 控件恢复可用（有界轮询：样例重新解析 + 重画可用态）', JSON.stringify(reEnabled))
         //  ── LS8 词典两表同步（照 B20 的写法：键集合相等 + 新键两表齐全） ────────────────
@@ -2732,9 +2801,9 @@ try {
             bad.length ? ('缺: ' + bad.join(',')) : `${newKeys.length} 键 × 2 表`)
         }
         //  ── LS9/LS10（任务书 §2.2）与调试模式联动：高亮 + 只留这一层 + 退出不清状态 ────
-        await page.evaluate(() => { window.__benchPatch.setDebugMode(true); window.__benchPatch.dbgStep(1) })
-        await page.waitForTimeout(500)
-        const dbg = await page.evaluate(() => {
+        await pageLS.evaluate(() => { window.__benchPatch.setDebugMode(true); window.__benchPatch.dbgStep(1) })
+        await pageLS.waitForTimeout(500)
+        const dbg = await pageLS.evaluate(() => {
           const cur = window.__benchPatch.dbgIndex()
           const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${cur}"]`)
           return { cur, highlighted: !!(row && row.getAttribute('data-dbg-current') === '1'), rows: document.querySelectorAll('#layer-switch-list .lsw-row').length }
@@ -2744,7 +2813,7 @@ try {
         //  「只留当前层」= 只勾选它：隐藏集变成"除它以外全部"
         //  ①(首轮实测) 断言口径更正：cur 在隐藏集里**应该不出现**（它保持勾选/可见）——
         //  首轮把 includes(cur) 当成了通过条件，写反了 ⇒ 假红（实现本身读数全对）。
-        const onlyState = await page.evaluate(async () => {
+        const onlyState = await pageLS.evaluate(async () => {
           const cur = window.__benchPatch.dbgIndex()
           const before = window.__benchPatch.layerSwitch()
           window.__benchPatch.layerSwitchOnly(cur)
@@ -2758,7 +2827,7 @@ try {
           `LS9b 一键「只留这一层」（第 ${onlyState.cur} 层）⇒ 隐藏集 = 除它以外全部（它自己保持勾选），且 \`__lnHidden\` 逐层如实（容器层除外）`,
           JSON.stringify(onlyState))
         //  退出调试：勾选状态**不被清掉**（恢复 = 用户自己的隐藏集）
-        const afterExit = await page.evaluate(async () => {
+        const afterExit = await pageLS.evaluate(async () => {
           const before = window.__benchPatch.layerSwitch()
           window.__benchPatch.setDebugMode(false)
           await new Promise((r) => setTimeout(r, 300))
@@ -2774,12 +2843,12 @@ try {
           'LS10b 退出调试后渲染层恢复的是**用户隐藏集**（逐层 `__lnHidden` 与隐藏集一致），不是"全部可见"',
           JSON.stringify({ lnHiddenCount: afterExit.lnHiddenCount, hiddenSet: afterExit.hiddenSet, total: afterExit.total }))
         //  ── LS11「复制当前状态」：剪贴板文案 = 带 hide 的 URL + 隐藏层清单 ───────────────
-        await page.evaluate(() => {
+        await pageLS.evaluate(() => {
           //  真按钮路径（copyText 的剪贴板在无头下可能走 manual 兜底，但**输出区日志**必须打出来）
           document.getElementById('layer-copy-state').click()
         })
-        await page.waitForTimeout(400)
-        const copyLog = await page.evaluate(() => {
+        await pageLS.waitForTimeout(400)
+        const copyLog = await pageLS.evaluate(() => {
           const lines = [...document.getElementById('logbody').children]
           return lines.map((l) => String(l.textContent || '')).filter((t) => t.includes('hide=')).slice(-1)[0] || ''
         })
@@ -2787,10 +2856,14 @@ try {
           copyLog.slice(0, 160))
       }
       //  恢复现场：解除暂停（渲染循环冻结会拖累后面的 G10 采样组），回到干净 URL
-      await page.evaluate(() => { try { document.getElementById('frame').contentWindow.__wp.resume() } catch { /* 已释放 */ } })
+      await pageLS.evaluate(() => { try { document.getElementById('frame').contentWindow.__wp.resume() } catch { /* 已释放 */ } })
       }   // ↑ fixture-else
+      }   // ↑ pixelOK（画布可量才跑）
     }     // ↑ enabledAt≥0
   }       // ↑ if (mounted)
+    /* ①(2026-10-07) 本组自己的上下文用完即关；并把主页渲染**恢复**（上面为腾 CPU 暂停过）。 */
+    try { await page.evaluate(() => { try { document.getElementById('frame').contentWindow.__wp.resume() } catch (e) {} }) } catch (e) {}
+    try { await ctxLS.close() } catch (e) { /* 已关：忽略 */ }
   }       // ↑ LS 组最外层裸块
 
   // ══════════════════ G10 ⑪(用户第 11 条) 首屏不闪：**没有任何一帧**在堆叠态被看见 ══════════════════

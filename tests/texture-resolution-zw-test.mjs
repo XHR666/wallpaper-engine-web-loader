@@ -58,7 +58,9 @@ console.log('== P-223 g_TextureNResolution.zw = 内容尺寸 ==')
     /resolutions\.set\(ti, \[t\.width, t\.height, __padded \? __cw : t\.width, __padded \? __ch : t\.height\]\)/.test(CORE_SRC), '')
   check('T2b `?reszw=legacy` 回退口（reszwLegacy）', /get\('reszw'\) === 'legacy'/.test(CORE_SRC), '')
   check('T2c 台账 `__mpwResZW.paddedSlots`', CORE_SRC.includes('__mpwResZW'), '')
-  check('T2d demo 三处登记（contentWidth: 出现 3 次）', (DEMO_SRC.match(/contentWidth:/g) || []).length === 3, '')
+  // ①(P-244 2026-10-07) 从 3 处变 5 处：新增的两处是**媒体封面**纹理条目（`$mediaThumbnail` 解出来的
+  //   RGBA 上传）—— 封面的内容尺寸 = 物理尺寸 ⇒ 同样要登记 `contentWidth/Height`（.zw 才等于 .xy）。
+  check('T2d demo 五处登记（contentWidth: 出现 5 次 = 3 处资产 + 2 处 P-244 封面）', (DEMO_SRC.match(/contentWidth:/g) || []).length === 5, '')
 }
 
 /* T3 mock-GL 行为（真值断言：g_Texture0Resolution 的 4f 上传） */

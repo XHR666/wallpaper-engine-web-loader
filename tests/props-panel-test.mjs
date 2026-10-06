@@ -1069,7 +1069,9 @@ console.log('[T15] P-64 用户第 5/15 项：改文本/属性即时生效（文�
       bn.has('display') && bn.has('morningtime') && !bn.has('opacity'), [...bn].join(','))
   }
   check('T15q 脚本缓存接线（裁定 1 后 = 默认开、`?scriptcache=0` 关）：createScriptCache/invalidateUserProps 从 scene-scripts.js 导入并挂 window',
-    /import \{ applySceneScripts, createScriptCache, invalidateUserProps, dispatchScriptEvent \}/.test(HTML)
+    // ①(P-243 起) 该 import 行还会带别的运行时入口（`syncScriptInput` 等）⇒ 收尾用 `[^}]*}` 容错，
+    //   判据仍是"这四个名字同一条 import + 两条 window 挂载 + 默认开"。
+    /import \{ applySceneScripts, createScriptCache, invalidateUserProps, dispatchScriptEvent[^}]*\}/.test(HTML)
     && /window\.__mpwScriptCache = sceneScriptCache/.test(HTML) && /window\.__mpwInvalidateUserProps = invalidateUserProps/.test(HTML)
     && /get\('scriptcache'\) !== '0'/.test(HTML))
 }
