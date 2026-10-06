@@ -901,6 +901,12 @@ add "usertextures-fallback" "node tests/usertextures-fallback-test.mjs"
 #   判据：源码 6 条 + mock-GL 端到端 8 条（无源回落 / 有源绑上封面 / 换封面即换 / 宿主撤源不抛 / legacy 不问钩子）。
 add "system-texture-slot" "node tests/system-texture-slot-test.mjs"
 
+# ①(P-246 2026-10-07) 合成源命名捕获（上游接入 P2 第 3 项 / 计划书 P-151）：`_rt_imageLayerComposite_<id>_<后缀>`
+#   此前恒返回引用方自己的链输入 ⇒ 引用"某层 z 序成品"的材质（0917/3509243656 的天空盒/罗盘）拿到错内容。
+#   判据 = 源码/离线 8 条（真包 2 材质 / 源层 589·433 不可见 / 引用方排在源之前）+ mock-GL 两帧 9 条
+#   （源层不可见也捕获 / 引用方命中捕获 RT / legacy 逐位回旧 / 无引用零开销）。
+add "composite-zorder" "node tests/composite-zorder-test.mjs"
+
 # ①(P-213 B1 2026-09-29) 2D 光照模型（RE-43 路径A）：light 层 schema 解析（不参与 draw）+ 纯函数
 #   ComputeLightSpecular2D 分支表（衰减平方/intensity²/g_Light 混合/rim）+ 四灯 uniform 组（声明才上传）。
 #   判据：真包+官方样例 schema 逐项 + 分支表 + 无灯零视觉差 + legacy + 2 变异。

@@ -12534,10 +12534,107 @@ export function createRenderer(canvas, opts = {}) {
           命中即用（**不写回 `textures` 缓存** —— 封面会换，缓存会把旧封面钉死），并记台账；
        ③ 未命中 / 无钩子 / 非 `$` 名 ⇒ `null`（= 改动前行为，调用点各自的兜底照旧）。
      回退口：`?mediaslot=legacy` ⇒ ② 整条不生效。台账：`systemTextureLedger()`。 */
+  /* ══ ①(P-246 2026-10-07) 合成源命名捕获（上游接入 P2 第 3 项 / 计划书 P-151）══════════════════════
+     现象：材质/pass 的 `textures[]` 里可以出现 `_rt_imageLayerComposite_<源层id>_<后缀>` —— 官方"**每层
+     合成纹理**"的命名槽（语料实测 2 材质 / 1 包：`0917/3509243656` 的 `自制天空盒02` 采 `…_589_a`、
+     `Hollow Cylinder` 采 `…_433_a`）。官方语义 = 源层在**这一帧 z 序上的成品**（画到它那一刻的帧缓冲），
+     且允许"引用方排在源之前"⇒ 消费**上一帧**的成品。本仓此前 `resolveTextureName` 对它恒返回
+     **引用方自己的 `inputFBO`**（= 官方修此问题**之前**的行为）⇒ 画面错但不是黑屏（错的是 AO/遮挡内容）。
+     修法（三步，全部默认开、`?composite=legacy` 逐位回旧口径）：
+       ① 每帧扫一遍被引用的 `<id>` 集合（层 effects 的 pass.textures / textureFallbacks /
+          materialPasses.textures / binds；材质链是挂载期解析好的，遍历很便宜）；
+       ② 层循环走到**源层的 z 序**时捕获 —— 位置在"可见性/容器跳过"**之前**：源层常被作者写成
+          `visible:false`（拿它当"背景快照"载体），但"画到它这一刻的帧缓冲"照样要发布；
+          捕获 = `getFBO(w,h,'composite_<id>')` + 从当前帧目标 blit（与 copybackground 同款原语）；
+       ③ `resolveTextureName` 先查 `compositeSources`（精确名），未命中再退回 `inputFBO`（旧行为）。
+     为什么"上一帧成品"不用额外机制：同一个 tag ⇒ **同一张 RT 跨帧存活**（`getFBO` 按 `tag|WxH` 缓存），
+     排在源之前的引用方读到的自然是上一帧写进去的内容；排在源之后的引用方读到的是本帧新写的。
+     生命周期：`fboCache` 按 tag 持有 RT（不参与别的用途的回收），引用消失时只清 `compositeSources` 条目。
+     台账：`compositeSourceStats()`；宿主可读 `globalThis.__mpwComposite`。 */
+  const COMPOSITE_LEGACY = (() => { try { return new URLSearchParams(location.search).get('composite') === 'legacy' } catch { return false } })()
+  const compositeSources = new Map()   // 精确名 → {glTex,tex,fbo,width,height,frame,id}
+  const compositeRefById = new Map()   // 源层 id → [精确名]（每帧重建）
+  const compositeDepIds = new Set()    // 作者声明的 `dependencies` 源层 id（诊断：引用方可能是被丢弃的模型层）
+  let compositeFrameNo = 0
+
+  /** ①(P-246) 台账发布（宿主/判据可读 `globalThis.__mpwComposite`；命中/捕获/GC 时刷新）。 */
+  function publishCompositeLedger() {
+    try { const g = (typeof globalThis !== 'undefined') ? globalThis : null; if (g) g.__mpwComposite = compositeSourceStats() } catch (e) { /* 发布失败不影响渲染 */ }
+  }
+
+  /** ①(P-246) 扫出本帧被引用的合成源（纯遍历，不改 GL）。返回 `Map<id, string[]>`。 */
+  function scanCompositeRefs(scene, depIds) {
+    const out = new Map()
+    const re = /^_rt_imageLayerComposite_(\d+)_[a-z]$/
+    const add = (v) => {
+      if (typeof v !== 'string') return
+      const m = re.exec(v)
+      if (!m) return
+      const id = Number(m[1])
+      let list = out.get(id)
+      if (!list) { list = []; out.set(id, list) }
+      if (list.indexOf(v) < 0) list.push(v)
+    }
+    for (const l of (scene && scene.layers) || []) {
+      // ①(P-246) 作者声明的 `dependencies:[<源层id>]` 一并登记**诊断**（大多数情况下它就是"本层材质采了
+      //   某层的合成纹理"的声明；名字在材质链里，见下面的 textures/binds 扫描）。
+      if (l && l.dependencies) {
+        const dep = Array.isArray(l.dependencies) ? l.dependencies : [l.dependencies]
+        for (const d of dep) { const n = Number(d); if (Number.isFinite(n)) depIds.add(n) }
+      }
+      for (const e of (l.effects || [])) {
+        if (!e || e.visible === false) continue
+        for (const p of (e.passes || [])) {
+          if (!p) continue
+          if (Array.isArray(p.textures)) for (const t of p.textures) add(t)
+          if (Array.isArray(p.textureFallbacks)) for (const t of p.textureFallbacks) add(t)
+        }
+        for (const mp of (e.materialPasses || [])) {
+          if (!mp) continue
+          if (Array.isArray(mp.textures)) for (const t of mp.textures) add(t)
+          if (Array.isArray(mp.binds)) for (const b of mp.binds) add(b && b.name)
+        }
+      }
+    }
+    return out
+  }
+
+  /** ①(P-246) 源层 z 序捕获：把当前帧目标 blit 进该源层的命名 RT 并发布到 `compositeSources`。 */
+  function captureCompositeAtZOrder(layer, width, height) {
+    const names = compositeRefById.get(layer && layer.id)
+    if (!names || !names.length || !(width > 0) || !(height > 0)) return 0
+    try {
+      const rt = getFBO(width, height, 'composite_' + layer.id)
+      if (!rt || !rt.fbo || !rt.tex) return 0
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, sceneTargetFbo())
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, rt.fbo)
+      gl.blitFramebuffer(0, 0, width, height, 0, 0, width, height, gl.COLOR_BUFFER_BIT, gl.NEAREST)
+      gl.bindFramebuffer(gl.FRAMEBUFFER, sceneTargetFbo())
+      const w = rt.width || width, h = rt.height || height
+      for (const nm of names) compositeSources.set(nm, { glTex: rt.tex, tex: rt.tex, fbo: rt.fbo, width: w, height: h, frame: compositeFrameNo, id: layer.id })
+      __compositeLedger.captures++
+      __compositeLedger.lastAt = Date.now()
+      publishCompositeLedger()
+      return names.length
+    } catch (e) {
+      __compositeLedger.errors++
+      return 0
+    }
+  }
+
   function resolveTextureName(name, inputFBO, effectFBOs, textures) {
     if (name === null || name === undefined || name === '') return null
     if (name.startsWith('_rt_')) {
-      if (name.startsWith('_rt_imageLayerComposite')) return inputFBO
+      if (name.startsWith('_rt_imageLayerComposite')) {
+        // ①(P-246) 命名合成源：命中即用（含"上一帧成品"），未命中/legacy ⇒ 旧口径（引用方自己的链输入）
+        if (!COMPOSITE_LEGACY) {
+          const hit = compositeSources.get(name)
+          if (hit) { __compositeLedger.hits++; publishCompositeLedger(); return hit }
+          __compositeLedger.misses++
+          publishCompositeLedger()
+        }
+        return inputFBO
+      }
       if (effectFBOs.has(name)) return effectFBOs.get(name)
       return null
     }
@@ -13725,6 +13822,32 @@ export function createRenderer(canvas, opts = {}) {
     try {
       __fogUniforms = computeFogUniforms(scene.general)
     } catch (e) { __fogUniforms = null }
+    /* ①(P-246 2026-10-07) 合成源命名捕获 —— 每帧重扫引用集合（材质链在挂载期已解析好，遍历很便宜），
+       并按新集合 GC 掉消失的名字。`?composite=legacy` ⇒ 整条不跑（逐位回旧口径）。
+       捕获本身发生在层循环里"源层的 z 序"处（见 `captureCompositeAtZOrder` 的调用点）。 */
+    if (!COMPOSITE_LEGACY) {
+      compositeFrameNo++
+      try {
+        compositeDepIds.clear()
+        const refs = scanCompositeRefs(scene, compositeDepIds)
+        compositeRefById.clear()
+        for (const [id, names] of refs) compositeRefById.set(id, names)
+        __compositeLedger.frames++
+        __compositeLedger.refs = refs.size
+        __compositeLedger.depIds = compositeDepIds.size
+        __compositeLedger.depList = [...compositeDepIds].slice(0, 8)
+        if (refs.size || compositeDepIds.size) {
+          // 有"可见材质引用"或"作者声明的依赖"任一 ⇒ 发布台账（后者用于诊断"引用方被丢弃"这类情况）
+          __compositeLedger.lastRefs = [...refs.entries()].map(([id, ns]) => id + ':' + ns.join('|')).slice(0, 8)
+          publishCompositeLedger()
+        }
+        if (compositeSources.size) {
+          const alive = new Set()
+          for (const ns of refs.values()) for (const n of ns) alive.add(n)
+          for (const k of [...compositeSources.keys()]) if (!alive.has(k)) { compositeSources.delete(k); __compositeLedger.gc++ }
+        }
+      } catch (e) { /* 扫描失败 ⇒ 本帧不捕获（引用方退回 inputFBO），不抛 */ }
+    }
     // ①(S4 · RE-43 (3)) 阴影接口（B3②）：force 时建矩阵通路 + `__mpwShadows.notImplemented` 台账；
     //   legacy（默认）null = 零开销零行为。投影/采样未做（缺真机帧）——通路与台账先行（规则 B）。
     try {
@@ -14178,6 +14301,9 @@ export function createRenderer(canvas, opts = {}) {
     const __hdrActive = !!(hdrSceneState && hdrSceneState.active)
     for (const layer of scene.layers) {
       __li++
+      /* ①(P-246 2026-10-07) 合成源捕获：**在本层被"可见性/容器"跳过之前**（源层常是 `visible:false`
+         的"背景快照"载体，但"画到它这一刻的帧缓冲"照样要发布）。不在引用集合里 ⇒ 一次 Map 查询返回。 */
+      if (!COMPOSITE_LEGACY && compositeRefById.size) captureCompositeAtZOrder(layer, width, height)
       if (__audit) { try { onLog('[首帧] #' + __li + ' ' + (layer.name || layer.id) + ' vis=' + (layer.visible ? 1 : 0) +
         ' tex=' + (layer.textureName || '-') + ' skin=' + (layer.__skinReady ? 1 : 0) +
         ' fx=' + ((layer.effects && layer.effects.length) || 0) + ' part=' + (layer.particleDef ? 1 : 0)) } catch {} }
@@ -16915,6 +17041,19 @@ export function systemTextureLedger() {
 }
 export function resetSystemTextureLedger() {
   __sysTexLedger.lookups = 0; __sysTexLedger.hits = 0; __sysTexLedger.misses = 0; __sysTexLedger.layerLookups = 0; __sysTexLedger.names = {}; __sysTexLedger.last = null
+  return true
+}
+/* ①(P-246 2026-10-07) 合成源命名捕获台账：`_rt_imageLayerComposite_<源层id>_<后缀>`（官方"每层合成纹理"槽）。
+   `frames` = 走过扫描的帧数、`refs` = 本帧被引用的源层数、`captures` = 源层 z 序捕获次数、
+   `hits/misses` = 引用方解析命中/未命中（未命中 = 引用方排在源之前且还没有上一帧成品 ⇒ 退回旧口径）、
+   `gc` = 引用消失被清掉的条目数、`lastRefs` = 最近一次扫描到的 `<id>:<名字…>`（最多 8 条）、`errors` = 捕获异常。 */
+const __compositeLedger = { frames: 0, refs: 0, captures: 0, hits: 0, misses: 0, gc: 0, errors: 0, depIds: 0, depList: [], lastRefs: [], lastAt: 0 }
+export function compositeSourceStats() {
+  return { frames: __compositeLedger.frames, refs: __compositeLedger.refs, captures: __compositeLedger.captures, hits: __compositeLedger.hits, misses: __compositeLedger.misses, gc: __compositeLedger.gc, errors: __compositeLedger.errors, depIds: __compositeLedger.depIds, depList: __compositeLedger.depList.slice(), lastRefs: __compositeLedger.lastRefs.slice(), lastAt: __compositeLedger.lastAt }
+}
+export function resetCompositeSourceStats() {
+  __compositeLedger.frames = 0; __compositeLedger.refs = 0; __compositeLedger.captures = 0; __compositeLedger.hits = 0; __compositeLedger.misses = 0; __compositeLedger.gc = 0; __compositeLedger.errors = 0; __compositeLedger.depIds = 0; __compositeLedger.depList = []; __compositeLedger.lastRefs = []; __compositeLedger.lastAt = 0
+  try { const g = (typeof globalThis !== 'undefined') ? globalThis : null; if (g) g.__mpwComposite = compositeSourceStats() } catch (e) {}
   return true
 }
 export function resetUserTextureLedger() {

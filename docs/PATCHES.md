@@ -16699,3 +16699,15 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 
 ### 4. 本轮门禁
 `bash check.sh` **4/4 阶段 PASS**；`run-all-tests` **208 PASS / 0 FAIL / 5 SKIP（213 项）**，耗时 ≈33 min。
+
+### 真机取证与**影响面如实登记**（2026-10-07，`:8902` + Firefox，`?id=3509243656&props=newproperty17=3`）
+- 缺省档 `globalThis.__mpwComposite = {frames:96, refs:0, captures:0, hits:0, misses:0, depIds:2, depList:[589,433]}`：
+  扫描到**作者声明的 2 个依赖**（`objects[331].dependencies=[589]` / `objects[436].dependencies=[433]`），
+  但**零条名字级引用** —— 因为两个引用方都是 **3D 模型层**（`model: models/自制天空盒02/自制天空盒02.mdl` /
+  `models/Hollow Cylinder/Hollow Cylinder.mdl`），本仓当前把它们丢弃（`parseScene` 后 `__modelDropped: true`，
+  语料该包 8/142 层）⇒ 它们的材质**不会**走到 `resolveTextureName`。
+- `&composite=legacy` 同挂载：台账 `null`（通道整条关）；两档帧**逐像素相同**（全帧 diff 0/921600，罗盘矩形内 0）
+  ⇒ **本项在本包的用户可见收益为 0**，这是**如实登记**而不是"修好了"。
+- 结论：机制（扫描/捕获/解析/GC/回退口/台账）已按官方语义落地并有判据（19/0，含 mock-GL 两帧"留一帧"命中），
+  但语料里唯一的使用点位于**本仓尚未支持的模型层**内部 ⇒ 收益待**模型层（`.mdl` 3D model layer）支持**落地后自动生效
+  （名字来自材质链，届时无需再改本机制）。这与 P-151 计划书"收益最低 × 风险最高"的排序一致，本项按"通路先行"收口。
