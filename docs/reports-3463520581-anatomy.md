@@ -23,3 +23,33 @@
 2. 逐层隔离要用 **`__lnHidden`**（保留父链）而不是 `?ln=`：本包 `?ln=<任意>` 会让整帧变黑（隔离档在这里不可用，
    实测 `?ln=999` 空帧 mean=0 而基线 mean≈137），原因待查（很可能是隔离档下 puppet 根/蒙皮输入缺失）。
 3. 真值对照：上游**桌面 WE** 截图（网页产物档对 puppet 的支持也不同源，只能看"大致相对位置"）。
+
+## 真机看到的现象与机制（第 62 轮，HEAD 0.5.19，`/tmp/kirito-live.png`）
+
+**现象**：整场景渲染出来了（云、草原、远景城、女孩 Asuna 有头发），但**男孩 Kirito 是"光头"** ——
+他的 `hair kirito front` / `hair kirito back` 两层没有画在头上（画面里能看到的少量错位发丝落在女孩一侧）。
+这正是"人物头发的位置完全错了"。
+
+**机制（本轮量到的链路）**：
+
+| 事实 | 读数 |
+|---|---|
+| 可见 puppet 部件的蒙皮状态 | `kirito face`(层 55) 有 `__skin={mesh,nb,bindInv,bindRT,animIdx,fps}` + `__skinReady:true`；**`hair kirito front`(57) / `hair kirito back`(56) / `kirito body`(58) 完全没有 skin 字段** |
+| 部件模型 | `models/hair kirito front.json` 键 = `autosize, cropoffset, material` ⇒ **没有 `puppet` 键**（数据上确实不是蒙皮层）；`models/puppet - Copy.json` 才有 `puppet` |
+| puppet 文件解析 | `models/puppet - Copy_puppet.mdl`（MDLV0023，17 503 B）经 `parseMdl` 得到 **bones=1、anchors=0**（`parseMdatAnchors` 也是 0） |
+| 附件偏移 | `buildAttachOffsets` 给所有部件都是 `[0.04, −6.97]`（同一 `"Attachment"` 锚点；锚点表为空 ⇒ 实质等于"没有偏移"） |
+| 第二条 puppet（层 63–66） | 同样只有 `kirito face` 有 skin；该组 `visible:false`（另一姿态变体） |
+
+⇒ 结论：**这些"挂在 puppet 上的静态部件"应该跟随父级 puppet 的骨骼/锚点变换（官方语义），而我们把它们当纯静态贴图**，
+位置停在 rest pose；同一个 puppet 的 `kirito face` 是蒙皮的、跟着动画走 ⇒ 脸动了、头发没动 ⇒ 光头/错位。
+根因落在 **puppet `.mdl` 的骨骼/锚点解析**（本文件解析出 bones=1、anchors=0，明显偏少；同包另有
+`[P-152] MDLS bone layout rescued … declared=7 parsed=7` 说明骨架解析本身有已知的脆弱点）。
+
+## 下一步（最小实验，按顺序）
+
+1. 把 `models/puppet - Copy_puppet.mdl`（17 503 B）与"解析正常"的 puppet 逐块对比（`MDLV0023` 头 + 各 chunk），
+   确认 bones=1/anchors=0 是**解析缺口**还是文件本身如此；若是缺口 ⇒ 修 `parseMdl`（有判据可加：
+   该文件应解析出 ≥7 骨骼 / 命名锚点）。
+2. 若文件本身没有锚点 ⇒ 按官方语义补"**被 attach 的静态层跟随父级骨骼变换**"这条链路（当前只有
+   `kirito face` 走了蒙皮），判据用本包：Kirito 头部区域应出现黑发（与 `hair kirito front` 的贴图内容相符）。
+3. 复验时逐层隔离**必须用 `__lnHidden`**（本包 `?ln=` 会让整帧变黑，已记在上面）。
