@@ -16557,3 +16557,33 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 判据（已可判定）：① `__mpwAttachDelta.applied > 0` 且 `miss = 0`；② 采样层 `origin` 随 `t` 变化
 （本机在 t=0.25 s 时约 1 px，方向与离线同号）；③ `kaltsit-puppet-anchor-test` / `script-origin-sync` /
 `demo-check` 全绿（已跑）。
+
+## P-242（2026-10-06）脚本载体扩到 `scale`/`angles`（按"首帧基线的比值/差"写，父链合成不被覆盖）——3448290956「多种互动」的 3/14 个脚本字段由此可用
+
+### 背景
+`3448290956`（标题含 interactions）共 **14 个脚本驱动字段**：`头位置.origin`、`头.angles`、`可调整组合层.angles`、
+`左眼球.origin`、`右眼球.origin`、`嘴巴.scale`、`主发.visible`×2、`左眼白2.origin`、`闹钟.origin`、
+`时间.text`、`Date.text`、`D a y.text`、`.origin`。P-237 只接了 `visible`/`alpha`，`origin` 走
+`syncScriptOrigins`，`text` 早已有同步 ⇒ **`scale`/`angles` 三类字段（`嘴巴.scale`、`头.angles`、
+`可调整组合层.angles`）此前没有任何动态变化**。
+
+### 修法（`core/we-scene-bundle.js::syncScriptValues`）
+- 默认载体从 `['visible','alpha']` 扩到 `['visible','alpha','scale','angles']`（`opts.carriers` 仍可缩回，
+  回退面保留）；
+- **口径与 origin 同源**：`parseScene` 已把父链合成进 `layer.scale`（乘积）与 `layer.angles`（求和），
+  直接写脚本绝对值会把父链结果覆盖掉 ⇒ 按"相对**首帧基线**的增量"写：`scale` 用**比值**、`angles` 用**差**；
+  首帧 `value === base.raw` ⇒ 比值 1 / 差 0 ⇒ **逐位不变**（零回归）；
+- 新增三元素解析 `pTriple()`：`"x y z"` 字符串 / 数组 / `{x,y,z}` 三种形态，NaN 或缺项一律丢弃（保持既有值）。
+
+### 判据与读数
+`tests/script-origin-sync-test.mjs`（门禁 `script-origin-sync`）**26 → 30 通过 0 失败**，T5d 重写为：
+首帧基线逐位不变；脚本把 raw `2→4` 时层 `scale` 由 `0.5 → 1.0` 而**未变轴保持 0.5**（比值口径，父链合成不被覆盖）；
+`angles` 由父链 π 加上 `(20−10)`（差口径）；变化处数 = 2；`opts.carriers:['visible']` 可缩回（回退面）。
+`demo-check` / `script-owner-live` / `script-layer-ref-audit` / `docs-check` 全绿。
+
+**真机（3448290956）**：注入指针（`window.__mpwPointer = {x,y,inside:true}` —— 宿主注入通道）从 (900,500)
+换到 (3000,1500)，`__mpwPointer` 读数随之更新 ✓，**`头.angles` 的 z 出现非零变化（Δ0.0037）** ⇒
+`angles` 载体确实在跟着脚本走；而 `头位置/左眼球/右眼球/闹钟` 的 `origin` 位移仍 0.0、
+`嘴巴.scale` Δ=0 ⇒ **下一步**（下一轮）：用 `tools/script-deobfuscate.mjs` 读这几个字段的脚本正文，
+确认它们是否真的读指针（还是读 `engine.runtime`/其它入口），据此判断是"作者逻辑如此"还是我们的
+`origin` 同步/指针管线还缺一环。

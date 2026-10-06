@@ -192,12 +192,24 @@ console.log(`\n[T5] P-237 脚本节点值同步（visible/alpha）：只碰 {scr
     const n = lib.syncScriptValues(sc, raw, { skip })
     ok(Math.abs(sc.layers[2].alpha - 0.25) < 1e-6 && n === 0, 'T5c skip 集合里的层不写（让位给属性动画）', 'alpha=' + sc.layers[2].alpha + ' n=' + n)
   }
-  // T5d 载体可扩：opts.carriers 传 scale/angles 时按串解析（默认不含，零回归）
+  // T5d 载体 scale/angles（P-242 起默认包含）：按"首帧基线"的**比值/差**写，首帧逐位不变
   {
-    const raw = [{ id: 9, name: 'e', scale: { script: 's', value: '2.00000 3.00000 1.00000' } }]
-    const sc = { layers: [{ id: 9, name: 'e', visible: true, alpha: 1, scale: [1, 1, 1] }] }
+    // 父链已把 scale 合成 0.5（layer 值）而作者 raw 是 2 ⇒ 首帧基线 = {layer:[0.5..], raw:[2..]}，
+    //   脚本把 raw 改成 4 ⇒ 层 scale 应为 0.5×(4/2)=1.0（而不是直接写 4）。
+    const raw = [{ id: 9, name: 'e', scale: { script: 's', value: '2.00000 2.00000 2.00000' }, angles: { script: 'a', value: '0 0 10' } }]
+    const sc = { layers: [{ id: 9, name: 'e', visible: true, alpha: 1, scale: [0.5, 0.5, 0.5], angles: [0, 0, 3.14159] }] }
     const n0 = lib.syncScriptValues(sc, raw, {})
-    ok(n0 === 0 && sc.layers[0].scale[0] === 1, 'T5d 默认载体不含 scale（本批只接 visible/alpha）', 'n=' + n0)
+    ok(n0 === 0 && Math.abs(sc.layers[0].scale[0] - 0.5) < 1e-6, 'T5d 首帧基线：脚本值 == 作者值 ⇒ 层 scale 逐位不变（零回归）', 'n=' + n0 + ' scale=' + sc.layers[0].scale[0])
+    raw[0].scale.value = '4.00000 2.00000 2.00000'
+    raw[0].angles.value = '0 0 20'
+    const n1 = lib.syncScriptValues(sc, raw, {})
+    ok(Math.abs(sc.layers[0].scale[0] - 1.0) < 1e-6 && Math.abs(sc.layers[0].scale[1] - 0.5) < 1e-6,
+      'T5d scale 用**比值**（0.5×(4/2)=1.0；未变轴保持 0.5）⇒ 父链合成不被覆盖', JSON.stringify(sc.layers[0].scale))
+    ok(Math.abs(sc.layers[0].angles[2] - (3.14159 + 10)) < 1e-4,
+      'T5d angles 用**差**（父链 π + (20−10)）⇒ 父链求和不被覆盖', 'angles[2]=' + sc.layers[0].angles[2])
+    ok(n1 === 2, 'T5d 变化处数 = 2（scale 与 angles 各 1）', 'n=' + n1)
+    const onlyVisible = lib.syncScriptValues(sc, raw, { carriers: ['visible'] })
+    ok(onlyVisible === 0, 'T5d 显式 carriers 可把载体缩回（回退面）', 'n=' + onlyVisible)
   }
   // T5e 接线：demo.html 有开关与调用点，README 主表登记
   {

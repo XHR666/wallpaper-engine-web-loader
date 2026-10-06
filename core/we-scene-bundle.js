@@ -17669,9 +17669,24 @@ export function syncScriptOrigins(scene, rawObjects, base, skip = null) {
 //     动画载体的写回在渲染循环里（`applyLayerAnims`），同步这一步让位，避免两边互相打架；
 //   · `l.__skin` 层跳过（蒙皮层的变换由骨骼驱动，与 origin 同步同款）。
 // 返回本次真正写进渲染层的处数（宿主用它决定是否打"脚本已生效"日志）。
+/** ①(P-242) 三元素取值：`"x y z"` 字符串 / 数组 / `{x,y,z}` 三种形态 ⇒ [x,y,z] 或 null（NaN/缺项一律丢弃）。 */
+function pTriple(v) {
+  try {
+    if (typeof v === 'string') { const p = v.trim().split(/\s+/).map(Number); return (p.length >= 2 && p.every(isFinite)) ? [p[0], p[1], p[2] || 0] : null }
+    if (Array.isArray(v)) { const p = v.map(Number); return (p.length >= 2 && p.every(isFinite)) ? [p[0], p[1], p[2] || 0] : null }
+    if (v && typeof v === 'object') { const p = [Number(v.x), Number(v.y), Number(v.z || 0)]; return p.every(isFinite) ? p : null }
+  } catch (e) { /* 落 null */ }
+  return null
+}
+
 export function syncScriptValues(scene, rawObjects, opts = {}) {
   if (!scene || !Array.isArray(scene.layers)) return 0
-  const carriers = Array.isArray(opts.carriers) && opts.carriers.length ? opts.carriers : ['visible', 'alpha']
+  // ①(P-242 2026-10-06) 载体扩到 `scale`/`angles`（3448290956 的 14 个脚本字段里 3 个是这两种：
+  //   `嘴毛.scale`/`头.angles`/`可调整组合层.angles`）。**口径与 origin 同源**：
+  //   parseScene 已经把父链合成进 `layer.scale`（乘积）与 `layer.angles`（求和）⇒ 直接写脚本绝对值会把
+  //   父链结果覆盖掉。这里按"相对**首帧基线**的增量"写：`scale` 用**比值**（乘法可交换）、
+  //   `angles` 用**差**（加法可交换）。首帧 `value === base.raw` ⇒ 比值 1 / 差 0 ⇒ **逐位不变**（零回归）。
+  const carriers = Array.isArray(opts.carriers) && opts.carriers.length ? opts.carriers : ['visible', 'alpha', 'scale', 'angles']
   const skip = opts.skip || null
   const rawById = new Map()
   for (const o of rawObjects || []) if (o && o.id !== undefined) rawById.set(o.id, o)
@@ -17693,6 +17708,22 @@ export function syncScriptValues(scene, rawObjects, opts = {}) {
         if (!isFinite(a)) continue
         const cur = (typeof l.alpha === 'number' && isFinite(l.alpha)) ? l.alpha : 1
         if (Math.abs(cur - a) > 1e-4) { l.alpha = a; synced++ }
+      } else if (k === 'scale' || k === 'angles') {
+        const p3 = pTriple(v)
+        if (!p3) continue
+        let bases = l.__scriptCarrierBase
+        if (!bases) { bases = {}; try { l.__scriptCarrierBase = bases } catch (e) { continue } }
+        let base = bases[k]
+        if (!base) {
+          const cur = Array.isArray(l[k]) ? l[k].slice(0, 3).map(Number) : (k === 'scale' ? [1, 1, 1] : [0, 0, 0])
+          base = bases[k] = { layer: cur, raw: p3.slice() }
+        }
+        const out = [0, 1, 2].map((i) => (k === 'scale')
+          ? base.layer[i] * (Math.abs(base.raw[i]) > 1e-9 ? p3[i] / base.raw[i] : 1)
+          : base.layer[i] + (p3[i] - base.raw[i]))
+        const cur3 = Array.isArray(l[k]) ? l[k] : null
+        const same = cur3 && Math.abs(cur3[0] - out[0]) <= 1e-4 && Math.abs(cur3[1] - out[1]) <= 1e-4 && Math.abs((cur3[2] || 0) - out[2]) <= 1e-4
+        if (!same) { l[k] = out; synced++ }
       }
     }
   }
