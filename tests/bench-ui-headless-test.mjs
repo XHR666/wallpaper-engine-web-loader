@@ -2526,79 +2526,97 @@ try {
       ok(open.panelHidden === false && open.aria === 'true', 'LS2a 点开「图层开关」⇒ 面板展开（aria-expanded=true）', JSON.stringify({ aria: open.aria, panelHidden: open.panelHidden }))
       ok(open.rows === open.total, 'LS2b 打开后条目数 == `__sceneLayers.length`（探针包真实层数）', `rows=${open.rows} total=${open.total} names=${open.names.join('/')}`)
       ok(open.checks.every(Boolean), 'LS2c 缺省全勾（每层默认参与渲染）', JSON.stringify(open.checks))
-      //  ── 选一个"像素可测"的目标层：先暂停渲染循环，再逐候选试 ─────────────────────
-      const pauseRes = await page.evaluate(() => {
-        try { const api = document.getElementById('frame').contentWindow.__wp; return { ok: !!(api && api.pause && api.pause()) } } catch (e) { return { ok: false, err: String(e) } }
-      })
-      await page.waitForTimeout(600)
-      const capStable = await page.evaluate(async () => {
-        const api = document.getElementById('frame').contentWindow.__wp
-        const a = api.capture(0.9), b = api.capture(0.9)
-        if (!a || !b) return { ok: false, why: 'capture 不可用' }
-        const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src })
-        const [ia, ib] = await Promise.all([load(a), load(b)])
-        const w = Math.min(ia.width, ib.width), h = Math.min(ia.height, ib.height)
-        const cv = document.createElement('canvas'); cv.width = w; cv.height = h
-        const g = cv.getContext('2d', { willReadFrequently: true })
-        const grab = (im) => { g.clearRect(0, 0, w, h); g.drawImage(im, 0, 0, w, h); return g.getImageData(0, 0, w, h).data }
-        const da = grab(ia), db = grab(ib)
-        let diff = 0
-        for (let i = 0; i < da.length; i += 4) {
-          if (Math.abs(da[i] - db[i]) > 8 || Math.abs(da[i + 1] - db[i + 1]) > 8 || Math.abs(da[i + 2] - db[i + 2]) > 8) diff++
+      //  ── 像素判据的"确定性单帧重绘"夹具（全部测试侧插桩，渲染器代码零改动）──────────────
+      //  首轮实测教训：`__wp.pause()` 冻结画布后改 `__lnHidden` **不会重绘**（绘制循环停了）
+      //  ⇒ 隐藏前后的抓帧逐位相同，LS4 整组假红。解法：本页与渲染器 iframe **同源** ⇒
+      //  ① 把 iframe 的 `performance.now` 桩成固定值 ⇒ `resume()` 的**同步单帧重绘**
+      //  （`mpwHostFrameFn(performance.now())`）永远画同一动画相位（tSec = (桩值−last0)/1000 恒定）；
+      //  ② `resume()` 紧跟 `pause()` ⇒ 再排的 rAF 被取消 ⇒ 每次"舞步"恰好画一帧、相位一致。
+      //  于是"同相位前后两次截图"成立：隐藏前/后/恢复三次单帧重绘之间，画面差异**只可能**
+      //  来自被隐藏的那一层。收尾把桩还原（不污染后续组）。
+      const fixture = await page.evaluate(() => {
+        const w = document.getElementById('frame').contentWindow
+        const api = w.__wp
+        if (!api || typeof api.pause !== 'function' || typeof api.resume !== 'function' || typeof api.capture !== 'function') {
+          return { ok: false, why: '__wp 的 pause/resume/capture 不可用' }
         }
-        return { ok: true, diff, px: w * h }
+        if (!w.__lswNowPatched) {
+          const orig = w.performance.now.bind(w.performance)
+          const fixed = orig()
+          w.performance.now = () => fixed
+          w.__lswNowUnpatch = () => { w.performance.now = orig; delete w.__lswNowPatched }
+          w.__lswNowPatched = true
+        }
+        api.pause()
+        return { ok: true }
       })
-      ok(pauseRes.ok && capStable.ok && capStable.diff === 0, 'LS4a 像素基线：暂停后两次抓帧**逐像素相同**（同相位比较的前提；JPEG 对同一画布是确定性的）',
-        JSON.stringify({ paused: pauseRes.ok, ...capStable }))
-      const pick = await page.evaluate(async () => {
-        //  逐候选：取消勾选 → 抓帧对比 → 勾回；返回第一个"隐藏后画面确实变了"的层
-        const L = document.getElementById('frame').contentWindow.__sceneLayers
-        const api = document.getElementById('frame').contentWindow.__wp
-        const rows = [...document.querySelectorAll('#layer-switch-list .lsw-row')]
-        const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src })
-        const grab = async (src) => {
-          const im = await load(src)
-          const w = im.width, h = im.height
-          const cv = document.createElement('canvas'); cv.width = w; cv.height = h
+      //  顶部页装一个抓帧差分器（两份 JPEG data URL → 逐像素差；任一通道 |Δ|≤8/255 不计差）
+      await page.evaluate(() => {
+        if (window.__lswDiffShots) return
+        window.__lswDiffShots = async (a, b) => {
+          const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src })
+          const [ia, ib] = await Promise.all([load(a), load(b)])
+          const w2 = Math.min(ia.width, ib.width), h2 = Math.min(ia.height, ib.height)
+          const cv = document.createElement('canvas'); cv.width = w2; cv.height = h2
           const g = cv.getContext('2d', { willReadFrequently: true })
-          g.drawImage(im, 0, 0)
-          return g.getImageData(0, 0, w, h).data
+          const grab = (im) => { g.clearRect(0, 0, w2, h2); g.drawImage(im, 0, 0, w2, h2); return g.getImageData(0, 0, w2, h2).data }
+          const da = grab(ia), db = grab(ib)
+          let diff = 0
+          for (let i = 0; i < da.length; i += 4) if (Math.abs(da[i] - db[i]) > 8 || Math.abs(da[i + 1] - db[i + 1]) > 8 || Math.abs(da[i + 2] - db[i + 2]) > 8) diff++
+          return { diff, total: w2 * h2 }
         }
-        const diffRatio = async (a, b) => {
-          const da = await grab(a), db = await grab(b)
-          const n = Math.min(da.length, db.length)
-          let diff = 0, total = n / 4
-          for (let i = 0; i < n; i += 4) {
-            if (Math.abs(da[i] - db[i]) > 8 || Math.abs(da[i + 1] - db[i + 1]) > 8 || Math.abs(da[i + 2] - db[i + 2]) > 8) diff++
-          }
-          return { diff, total, ratio: diff / total }
-        }
-        const base = api.capture(0.9)
-        for (const row of rows) {
-          const i = Number(row.getAttribute('data-ln'))
-          const cb = row.querySelector('input[type="checkbox"]')
-          if (!cb || cb.disabled) continue
-          cb.click()
-          await new Promise((r) => setTimeout(r, 250))
-          const hiddenNow = L[i] && L[i].__lnHidden === true
-          const shot = api.capture(0.9)
-          const d = shot ? await diffRatio(base, shot) : { diff: -1, ratio: -1 }
-          cb.click()                                   // 勾回（下一个候选从干净状态开始）
-          await new Promise((r) => setTimeout(r, 250))
-          if (hiddenNow && d.diff > 0 && d.ratio > 0.005) return { i, name: String(row.querySelector('.lsw-name').textContent), ...d }
-        }
-        return null
       })
-      ok(!!pick, 'LS4b **像素可测**：取消勾选某层 ⇒ 同相位抓帧该层覆盖区域可测地变化（差异像素 > 总像素 0.5%）',
-        pick ? `layer=${pick.i}(${pick.name}) diff=${pick.diff}/${pick.total} (${(pick.ratio * 100).toFixed(2)}%)` : '5 层合成样例里没有任何一层的隐藏能改变画面（异常：至少 background/label 必须可见）')
-      if (!pick) { notes.push('LS 组后续判据未跑：找不到像素可测的目标层') } else {
+      const oneFrame = () => page.evaluate(() => {
+        const api = document.getElementById('frame').contentWindow.__wp
+        api.resume(); api.pause()      // resume 同步画一帧（相位被桩定）；pause 取消再排的下一帧
+      })
+      const shot = () => page.evaluate(() => document.getElementById('frame').contentWindow.__wp.capture(0.9))
+      const diffOf = (a, b) => page.evaluate(async ({ a, b }) => window.__lswDiffShots(a, b), { a, b })
+      ok(fixture.ok, 'LS4-前置 确定性单帧重绘夹具就位（iframe performance.now 桩定相位 + pause 冻结）', JSON.stringify(fixture))
+      if (!fixture.ok) { notes.push('LS 像素组未跑：' + fixture.why) } else {
+        await oneFrame()
+        const baseA = await shot()
+        await oneFrame()
+        const baseB = await shot()
+        const stab = await diffOf(baseA, baseB)
+        ok(stab.diff === 0, 'LS4a 像素基线：**两次"单帧重绘"逐像素相同**（同相位前提成立：动画相位被桩死，JPEG 对同一画布确定性）',
+          `diff=${stab.diff}/${stab.total}`)
+        //  逐候选选目标层：取消勾选 → 单帧重绘 → 差分 → 勾回；取第一个 diff > 0.5% 的层
+        const pick = await page.evaluate(async () => {
+          const w = document.getElementById('frame').contentWindow
+          const rows = [...document.querySelectorAll('#layer-switch-list .lsw-row')]
+          const dance = () => { w.__wp.resume(); w.__wp.pause() }
+          const base = w.__wp.capture(0.9)
+          for (const row of rows) {
+            const i = Number(row.getAttribute('data-ln'))
+            const cb = row.querySelector('input[type="checkbox"]')
+            if (!cb || cb.disabled) continue
+            cb.click()
+            await new Promise((r) => setTimeout(r, 150))
+            const hiddenNow = !!(w.__sceneLayers[i] && w.__sceneLayers[i].__lnHidden === true)
+            dance()
+            const shotH = w.__wp.capture(0.9)
+            cb.click()
+            await new Promise((r) => setTimeout(r, 150))
+            dance()
+            const d = shotH ? await window.__lswDiffShots(base, shotH) : { diff: -1, total: 1 }
+            if (hiddenNow && d.diff > 0 && d.diff / d.total > 0.005) {
+              return { i, name: String(row.querySelector('.lsw-name').textContent), diff: d.diff, total: d.total }
+            }
+          }
+          return null
+        })
+        ok(!!pick, 'LS4b **像素可测**：取消勾选某层 ⇒ 同相位单帧重绘该层覆盖区域可测地变化（差异像素 > 总像素 0.5%）',
+          pick ? `layer=${pick.i}(${pick.name}) diff=${pick.diff}/${pick.total} (${((pick.diff / pick.total) * 100).toFixed(2)}%)`
+            : '合成样例里没有任何一层的隐藏能改变画面（异常：background/label 至少一个必须可见）')
+        if (!pick) { notes.push('LS3~LS11 未跑：找不到像素可测的目标层') } else {
         const li = pick.i
         //  ── LS3 取消勾选 ⇒ __lnHidden === true ──────────────────────────────────────
         await page.evaluate((i) => {
           const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
           row.querySelector('input[type="checkbox"]').click()
         }, li)
-        await page.waitForTimeout(300)
+        await page.waitForTimeout(200)
         const l3 = await page.evaluate((i) => {
           const L = document.getElementById('frame').contentWindow.__sceneLayers
           const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
@@ -2608,50 +2626,30 @@ try {
         ok(l3.lnHidden && !l3.checked, `LS3 取消勾选第 ${li} 层 ⇒ \`__sceneLayers[${li}].__lnHidden === true\`（checkbox 同步为不勾）`,
           JSON.stringify(l3))
         ok(/隐藏 1\/\d+ 层/.test(l3.status), 'LS3b 底部状态行显示「隐藏 1/共 N 层」', `status="${l3.status}"`)
-        //  ── LS4c 隐藏后画面确实变了（与基线比） ─────────────────────────────────────
-        const after = await page.evaluate(async (i) => {
-          const api = document.getElementById('frame').contentWindow.__wp
-          return { shot: api.capture(0.9), base2: api.capture(0.9) }
-        }, li)
-        const dAfter = await page.evaluate(async ({ a, b }) => {
-          const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src })
-          const grab = async (src) => { const im = await load(src); const cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height; const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0); return g.getImageData(0, 0, im.width, im.height).data }
-          const da = await grab(a), db = await grab(b)
-          let diff = 0; const total = da.length / 4
-          for (let i = 0; i < da.length; i += 4) if (Math.abs(da[i] - db[i]) > 8 || Math.abs(da[i + 1] - db[i + 1]) > 8 || Math.abs(da[i + 2] - db[i + 2]) > 8) diff++
-          return { diff, total }
-        }, { a: after.base2, b: after.shot })
-        ok(dAfter.diff > 0 && dAfter.diff / dAfter.total > 0.005, `LS4c 隐藏第 ${li} 层后**同一相位**画面与自身基线可测地不同（重取基线再对比，排除抓帧时序假差）`,
-          `diff=${dAfter.diff}/${dAfter.total} (${((dAfter.diff / dAfter.total) * 100).toFixed(2)}%)`)
+        //  ── LS4c 隐藏态单帧重绘 ⇒ 与基线差分可测 ────────────────────────────────────
+        await oneFrame()
+        const hiddenShot = await shot()
+        const dHid = await diffOf(baseB, hiddenShot)
+        ok(dHid.diff > 0 && dHid.diff / dHid.total > 0.005, `LS4c 隐藏第 ${li} 层后**同相位**重绘与基线可测地不同（差异只能来自该层 —— 相位已桩死）`,
+          `diff=${dHid.diff}/${dHid.total} (${((dHid.diff / dHid.total) * 100).toFixed(2)}%)`)
         //  ── LS5 重新勾上 ⇒ __lnHidden === false 且像素回基线 ─────────────────────────
         await page.evaluate((i) => {
           const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
           row.querySelector('input[type="checkbox"]').click()
         }, li)
-        await page.waitForTimeout(300)
-        const back = await page.evaluate(async (i) => {
+        await page.waitForTimeout(200)
+        const back = await page.evaluate((i) => {
           const L = document.getElementById('frame').contentWindow.__sceneLayers
-          const api = document.getElementById('frame').contentWindow.__wp
-          const shot = api.capture(0.9)
-          return { lnHidden: L[i].__lnHidden === false, shot }
+          return { lnHidden: L[i].__lnHidden === false }
         }, li)
-        //  简化：基线就是"全部层可见 + 暂停"的画布 —— 再抓一张全可见帧当基线（渲染循环已冻结，稳定）
-        const baseline = await page.evaluate(async () => {
-          const api = document.getElementById('frame').contentWindow.__wp
-          await new Promise((r) => setTimeout(r, 150))
-          return api.capture(0.9)
-        })
-        const dBack = await page.evaluate(async ({ a, b }) => {
-          const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src })
-          const grab = async (src) => { const im = await load(src); const cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height; const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0); return g.getImageData(0, 0, im.width, im.height).data }
-          const da = await grab(a), db = await grab(b)
-          let diff = 0; const total = Math.min(da.length, db.length) / 4
-          for (let i = 0; i < Math.min(da.length, db.length); i += 4) if (Math.abs(da[i] - db[i]) > 8 || Math.abs(da[i + 1] - db[i + 1]) > 8 || Math.abs(da[i + 2] - db[i + 2]) > 8) diff++
-          return { diff, total }
-        }, { a: baseline, b: back ? back.shot : baseline })
-        ok(back && back.lnHidden, `LS5a 重新勾上第 ${li} 层 ⇒ \`__lnHidden === false\``, back ? JSON.stringify(back.lnHidden) : 'evaluate 失败')
-        ok(dBack.diff / Math.max(1, dBack.total) <= 0.001, `LS5b 像素回基线（容差：任一通道 |Δ|≤8/255 不计差，且差像素 ≤ 总像素 0.1% —— 暂停态下两次 JPEG 编码应逐位一致）`,
-          `diff=${dBack.diff}/${dBack.total} (${((dBack.diff / Math.max(1, dBack.total)) * 100).toFixed(4)}%)`)
+        await oneFrame()
+        const backShot = await shot()
+        const dBack = await diffOf(baseA, backShot)
+        ok(back.lnHidden, `LS5a 重新勾上第 ${li} 层 ⇒ \`__lnHidden === false\``, JSON.stringify(back))
+        ok(dBack.diff / dBack.total <= 0.001, `LS5b 像素回基线（容差显式：任一通道 |Δ|≤8/255 不计差，差像素 ≤ 总像素 0.1% —— 相位桩定下应逐位为 0）`,
+          `diff=${dBack.diff}/${dBack.total} (${((dBack.diff / dBack.total) * 100).toFixed(4)}%)`)
+        //  还原 performance.now（后续组不再需要确定性夹具）
+        await page.evaluate(() => { try { document.getElementById('frame').contentWindow.__lswNowUnpatch() } catch { /* 已释放 */ } })
         //  ── LS6 URL ?hide= + 带参重载恢复 ───────────────────────────────────────────
         await page.evaluate((i) => {
           const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
@@ -2768,6 +2766,7 @@ try {
       }
       //  恢复现场：解除暂停（渲染循环冻结会拖累后面的 G10 采样组），回到干净 URL
       await page.evaluate(() => { try { document.getElementById('frame').contentWindow.__wp.resume() } catch { /* 已释放 */ } })
+    }
     }
   }
 
