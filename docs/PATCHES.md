@@ -16615,3 +16615,56 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 （修前 0.0）、**`头.angles` Δ 5.9625**（修前 0.0037）⇒ **互动链路通了**；`头位置` 位移 0.0（作者写的是脚本属性，
 本来就与指针无关）、`嘴巴.scale` Δ0（该脚本把距离夹在上限，离得远时已饱和）。
 `demo-check` / `script-api-corpus --strict` / `docs-check` 全绿。
+
+## P-244（2026-10-07）官方**系统纹理槽** `$mediaThumbnail` / `$mediaPreviousThumbnail` 的像素通路：解析链早就在（P-212 A2），但系统名落在 `textures.get(name) || null` ⇒ 槽恒空
+
+### 现象与定位
+上游接入 P2 第 2 项（`UPSTREAM-PORT-PLAN-20260919.md` §2）。P-212 A2 已经把 `usertextures[]` 三形态
+（字符串=用户属性名 / `{name,type}` / null 占位）与 `textures[i]` 回落链做完，并留下宿主注入点
+`globalThis.__mpwUserTextures={userProps,media,shortcuts}` —— 但**系统名的像素**从来没有解析路径：
+`resolveTextureName(name, …)` 只认 `_rt_*` 与 `textures.get(name)`，`$mediaThumbnail` 既不是 `_rt_` 也没人
+注册过 ⇒ 恒 `null` ⇒ pass 槽落 1×1 透明、层内容槽（材质级 `$mediaThumbnail`）落白块/透明档。
+语料读数（本轮 51 包扫描）：`usertextures` 里 `type:"system"` 的 pass **21 个**；材质级样本
+`dd/3544152633`、`dd/3660962877` 的 placeholder.json（包内材质文件）（相框/TV 屏那类"占位图"层）。
+
+### 修法
+1. **core（`resolveTextureName`）**：`textures` 未命中且名字首字符是 `$`（`0x24`）⇒ 问宿主
+   `resolveTexture` 钩子（`lib.registerMpwHook('resolveTexture', fn)`；载荷 `{textures, systemTexture:true, where:'pass'|'layer'}`），
+   命中即用；**不写回 `textures` 缓存**（封面会换，缓存会把第一张钉死）。非 `$` 名与改动前逐位相同。
+   统一入口 `resolveSystemTexture()`（pass 槽与层内容槽共用，纯查表 + 台账，不改 GL）。
+2. **core（层内容槽）**：`missingTex` 分支里 `$` 名走上面的解析器（同样不缓存）；其余名字（远程资源服务
+   那条链）保持既有"钩子 + 写回缓存"语义。
+3. **回退口**：`?mediaslot=legacy` ⇒ `$` 分支整条不生效（只查 `textures`，查不到为 null = 旧行为）。
+   与 `?usertex=legacy` 独立：后者关的是**槽位声明**通道，本开关关的是**系统名解析**通道。
+4. **台账**：`systemTextureLedger()` / `resetSystemTextureLedger()`（`lookups/hits/misses/layerLookups/names/last`）。
+5. **宿主（`demo.html` 的 `MPW-SYSTEMTEX` 块）**：`getCoverForTexture()` → `createImageBitmap`/`<img>` 解码 →
+   canvas 取 RGBA → `lib.makeTexture(gl, rgba, w, h)` → `window.__mpwUserTextures.media`（`$mediaThumbnail` /
+   `$mediaPreviousThumbnail` 两张，切换时旧封面顺位）+ 单一 `resolveTexture` 钩子读"当前封面"变量。
+   封面指纹去重（同 key 不重复解码）、异步解好才发布、失败记 `failed/lastErr` 不重试风暴；
+   控制台入口 `__mpwSystemTex.set({url|bytes})/.clear()/.resume()/.state()`。**没有封面 ⇒ 删键回落**，不新增可见变化。
+
+### 判据
+`tests/system-texture-slot-test.mjs`（已登记 `run-all-tests.sh`）：**14/0**。
+- A 源码/纯函数 6 条：台账形状与复位、`$` 分支按首字符判定（不是硬编码两个名字）、`?mediaslot=legacy` 在位、
+  层内容槽共用解析器、`$` 名不写回缓存、钩子载荷带 `systemTexture/where`。
+- B mock-GL 端到端 8 条（真跑 `createRenderer().render()`，断言**真的绑上了宿主纹理**）：
+  B1/B2 无媒体源 ⇒ 槽位回落 `util/white`（不是透明/黑）且**不**问钩子；
+  B3/B4 有源 ⇒ 槽位解析成系统名、钩子被问（`systemTexture:true`）、台账 `hits>0/last=$mediaThumbnail`；
+  **B5 换封面后同一次挂载内即换**（`cover_v1`→`cover_v2`，证明没被缓存钉死）；
+  B6 宿主撤源（声明还在）⇒ 回落且不抛错；B7/B8 `?mediaslot=legacy` ⇒ 不问钩子（`lookups=0`）且渲染照常。
+
+### 真机取证（2026-10-07，`:8902` + Firefox，`?id=2902406982` 的「音频封面」层）
+- 该层 `models/音频封面.json` 的效果链槽 1 声明 `{name:"$mediaThumbnail",type:"system"}`，层可见（设计 1000×1000 @ (1218,770)）。
+- **修前（钩子返回裸 GL 纹理）**：`systemTextureLedger = {lookups:198, hits:0, misses:198, last:null}` —— 解析链在跑，
+  但 `resolveSystemTexture` 的判据是 `tex.glTex`，而 `lib.makeTexture()` 返回的是**裸 GL 纹理对象**
+  ⇒ 每帧都判成"宿主没给"。这一条是真机抓到的（mock 判据当时喂的是 `{glTex,...}` 条目形状，掩盖了它）。
+- **修后**（`demo.html` 把 `makeTexture` 结果包成渲染器条目 `{glTex,tex,width,height,contentWidth,contentHeight}`）：
+  `{lookups:198, hits:198, misses:0, last:"$mediaThumbnail"}`；宿主侧 `__mpwSystemTex.state()` = `{cur:true, decoded:1, failed:0, w:512, h:512}`、
+  `__mpwUserTextures.media = {"$mediaThumbnail":"$mediaThumbnail"}`、脚本错误台账 `null`。
+- **像素级 A/B（同包同时序，两档都注入同一张 512×512 封面）**：
+  - 缺省档：`lookups=7, hits=7`（该相位只有 7 次解析）；
+  - `&mediaslot=legacy`：`lookups=0`（`$` 分支整条关）；
+  - **两档帧对比，裁到该层矩形 [315,157,497,357]：差异 834 px（2.29%）、平均差 29、最大差 76、包围盒 159×102 @(332,255)** ⇒ 封面**确实上了屏**，
+    且差异只在层内 ⇒ 不是"媒体事件驱动脚本"的副作用（那部分两档都有：整帧各自前后 ≈0.95%/0.79%，量级同阶）。
+- 另一类样本（`0917/3351163962` 的 `Vinyl Disc`/`Vinyl Cover`）运行期 `vis:false` ⇒ 其效果链不跑、台账恒 0 —— 属"作者的媒体层默认隐藏"，
+  与本补丁无关（登记以免后来者误判）。

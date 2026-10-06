@@ -9852,8 +9852,10 @@ function loadScene() {
   //   **没有媒体时什么都不派发**（P-62 §5.4）：作者层停在 authored 占位文本/可见性，不新增报错。
   //   歌词：只在**包内自带** `.lrc` 时使用（P-62 §6 语料 0 命中 → 通常直接跳过，**不联网抓**）；
   //        `?lyrics=<包内路径>` 手工覆盖、`?lyrics=0`/`off` 显式关闭。
-  //   注：封面进画面走官方材质纹理槽 `$mediaThumbnail`（`effects[].passes[].usertextures`）——
-  //        那一段解析在 `core/we-scene-bundle.js` 里（本文件无权改），本块只把封面数据备好（`getCoverForTexture`）。
+  //   注：封面进画面走官方材质纹理槽 `$mediaThumbnail`（`effects[].passes[].usertextures`）。
+  //        槽位**声明**的解析在 `core/we-scene-bundle.js`（P-212 A2 `usertextures` 三形态）；
+  //        **像素**由本文件下面的 `MPW-SYSTEMTEX` 块（①P-244）解码封面 → `resolveTexture` 钩子供给；
+  //        本块负责的是"封面数据备好"（`getCoverForTexture`）。
 
   // `?media=k=v,k=v` → 对象（值内不出现逗号）。用**字面量正则**解析（与 `?lyrics=` 同款）：
   //   ① 只吃 query 串、不碰 location → Node 里可直接单测；② diag-flag-check 的 (c) 规则能抓到该开关
@@ -9997,6 +9999,8 @@ function loadScene() {
       } catch (e) { /* ignore */ }
     }
     try { mpwMediaHost.tick(t) } catch (e) { /* ignore */ }
+    // ①(P-244) 封面 → 系统纹理槽（`$mediaThumbnail`）：和解码都在这里推进；无媒体/无封面 ⇒ 槽位回落
+    try { if (window.__mpwSystemTexSync) window.__mpwSystemTexSync() } catch (e) { /* ignore */ }
     try { window.__mpwMediaState = mpwMediaHost.getState() } catch (e) { /* ignore */ }
   }
   ;(function initMediaHost() {
@@ -10054,6 +10058,150 @@ function loadScene() {
       + (injKeys ? ' / ?media= 已注入 ' + JSON.stringify(injKeys) + '（首帧投递）' : '') + '；歌词只在包内自带时使用）')
   })()
   // ═══ MPW-MEDIA-END ═══
+  // ═══ MPW-SYSTEMTEX-BEGIN ①(P-244 2026-10-07) 官方**系统纹理槽** `$mediaThumbnail` / `$mediaPreviousThumbnail` ═══
+  //   官方语义（RE-44 语料实证 + d.ts）：材质/场景 pass 的 `usertextures[i]` 写 `{name:"$mediaThumbnail",type:"system"}`
+  //   时，该槽的像素 = **正在播放的曲目封面**；`$mediaPreviousThumbnail` = 上一张封面。渲染器侧
+  //   （`core/we-scene-bundle.js` P-212 A2 + P-244）只做"槽位声明 → 系统名 → 问宿主"，**没有内置替身图**：
+  //   宿主不给 ⇒ 回落 `textures[i]`（作者的占位图），与"今天槽是空的"一致但不画错。
+  //   本块的职责就一件事：把 `getCoverForTexture()` 的封面**解码成 GL 纹理**并挂到系统名上：
+  //     · 钩子 `resolveTexture`（`lib.registerMpwHook`）按名字发纹理 —— pass 槽（`resolveTextureName`）
+  //       与层内容槽（材质级 `$mediaThumbnail`：`3544152633`/`3660962877` 的 placeholder.json）共用；
+  //     · `window.__mpwUserTextures.media` 给出"系统名 → 纹理名"的**可用性声明**（渲染器据此把槽从
+  //       回落值切到系统名；没有封面时删键 ⇒ 回落，不新增任何可见变化）。
+  //   动态性：封面会换 ⇒ **不写回渲染器的 textures 缓存**（P-244 在 core 侧对 `$` 名禁了缓存）；
+  //   解码是异步的（`createImageBitmap`/`Image`），同一 key 只解一次，失败记台账不重试风暴。
+  //   回退口：`?mediaslot=legacy`（渲染器侧整条关）；控制台 `__mpwSystemTex.set({bytes|url})` / `.clear()` 手工验。
+  if (typeof PAGE === 'undefined' || PAGE) (function () {
+    const SYSTEX = (window.__mpwSystemTex = {
+      cur: null, prev: null, curKey: '', pendingKey: '', decoded: 0, failed: 0, lastAt: 0, lastErr: '',
+      maxSide: 0, w: 0, h: 0, published: false,
+    })
+    const NAME_CUR = '$mediaThumbnail'
+    const NAME_PREV = '$mediaPreviousThumbnail'
+    // 封面指纹：同一张封面不重复解码（url 直接当 key；字节用 mime+长度+首尾各 16B 拼）
+    function coverKey(src) {
+      if (!src) return ''
+      if (src.kind === 'url') return 'u:' + String(src.url || '')
+      if (src.kind === 'bytes' && src.bytes) {
+        const b = src.bytes
+        const n = b.length
+        let h = 0
+        for (let i = 0; i < n && i < 16; i++) h = (h * 31 + b[i]) >>> 0
+        for (let i = Math.max(0, n - 16); i < n; i++) h = (h * 31 + b[i]) >>> 0
+        return 'b:' + String(src.mime || '') + ':' + n + ':' + h
+      }
+      return ''
+    }
+    // 解码 → GL 纹理对象（`{glTex,width,height,…}`，与渲染器内部纹理对象同形）。
+    //   走 canvas 取 RGBA（`makeTexture` 只吃 RGBA 字节）；跨域图会污染画布 ⇒ 记账失败并保持上一张。
+    async function decodeCover(src) {
+      const gl = (renderer && renderer.gl) || null
+      if (!gl) return null
+      let bmp = null
+      try {
+        if (src.kind === 'bytes' && src.bytes) {
+          const blob = new Blob([src.bytes], { type: src.mime || 'image/png' })
+          bmp = await createImageBitmap(blob)
+        } else if (src.kind === 'url' && src.url) {
+          bmp = await createImageBitmap(await (await fetch(src.url)).blob())
+        }
+      } catch (e) { try { SYSTEX.lastErr = 'decode:' + String((e && e.message) || e).slice(0, 80) } catch (e2) {} }
+      if (!bmp) {
+        // fetch/CORS 失败的回退：`<img>` + 直接画（不取像素 ⇒ 不污染也能上传，取像素失败才记账）
+        try {
+          if (src.kind === 'url' && src.url) {
+            const img = new Image()
+            img.crossOrigin = 'anonymous'
+            await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src.url })
+            const c = document.createElement('canvas')
+            c.width = img.naturalWidth || img.width; c.height = img.naturalHeight || img.height
+            const g2 = c.getContext('2d'); g2.drawImage(img, 0, 0)
+            const rgba = g2.getImageData(0, 0, c.width, c.height).data
+            // ⚠ 渲染器要的是**纹理条目** `{glTex,width,height}`（`makeTexture` 返回的是裸 GL 纹理）
+            const raw = lib.makeTexture(gl, new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength), c.width, c.height, null, null, 'mediaThumbnail')
+            try { SYSTEX.w = c.width; SYSTEX.h = c.height } catch (e3) {}
+            return { glTex: raw, tex: raw, width: c.width, height: c.height, contentWidth: c.width, contentHeight: c.height, __mpwSystemTex: src.kind }
+          }
+        } catch (e) { try { SYSTEX.lastErr = 'img:' + String((e && e.message) || e).slice(0, 80) } catch (e2) {} }
+        return null
+      }
+      try {
+        const w = bmp.width || 0, h = bmp.height || 0
+        if (!(w > 0 && h > 0)) { try { bmp.close && bmp.close() } catch (e) {} ; return null }
+        const c = document.createElement('canvas')
+        c.width = w; c.height = h
+        const g2 = c.getContext('2d')
+        g2.drawImage(bmp, 0, 0)
+        const rgba = g2.getImageData(0, 0, w, h).data
+        try { bmp.close && bmp.close() } catch (e) {}
+        const raw = lib.makeTexture(gl, new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength), w, h, null, null, 'mediaThumbnail')
+        SYSTEX.w = w; SYSTEX.h = h
+        return { glTex: raw, tex: raw, width: w, height: h, contentWidth: w, contentHeight: h, __mpwSystemTex: 'cover' }
+      } catch (e) {
+        try { SYSTEX.lastErr = 'canvas:' + String((e && e.message) || e).slice(0, 80) } catch (e2) {}
+        return null
+      }
+    }
+    // 把当前封面写进宿主注入点（**只动 media 两个键**，不碰别的宿主已写的 userProps/shortcuts）
+    function publish() {
+      try {
+        const bag = (window.__mpwUserTextures && typeof window.__mpwUserTextures === 'object') ? window.__mpwUserTextures : (window.__mpwUserTextures = {})
+        const media = (bag.media && typeof bag.media === 'object') ? bag.media : (bag.media = {})
+        if (SYSTEX.cur) media[NAME_CUR] = NAME_CUR; else delete media[NAME_CUR]
+        if (SYSTEX.prev) media[NAME_PREV] = NAME_PREV; else delete media[NAME_PREV]
+        SYSTEX.published = true
+      } catch (e) { /* 注入点写失败不影响渲染（回落 textures[i]） */ }
+    }
+    // 每帧（排在媒体 tick 之后）：封面变了就异步解码，解好换上去（旧的顺位成"上一张"）
+    function sync() {
+      let src = null
+      try { src = mpwMediaHost && mpwMediaHost.getCoverForTexture() } catch (e) { src = null }
+      if (SYSTEX.manual) return                       // 控制台手工注入优先（调 .set() 期间不吃媒体源）
+      if (!src) {
+        if (SYSTEX.cur || SYSTEX.prev) { SYSTEX.cur = null; SYSTEX.prev = null; SYSTEX.curKey = ''; publish() }
+        return
+      }
+      const key = coverKey(src)
+      if (!key || key === SYSTEX.curKey || key === SYSTEX.pendingKey) return
+      SYSTEX.pendingKey = key
+      Promise.resolve().then(() => decodeCover(src)).then((tex) => {
+        if (SYSTEX.pendingKey !== key) return        // 期间又换了封面 ⇒ 丢弃这次结果
+        SYSTEX.pendingKey = ''
+        if (!tex) { SYSTEX.failed++; SYSTEX.lastAt = Date.now(); publish(); return }
+        if (SYSTEX.cur) SYSTEX.prev = SYSTEX.cur
+        SYSTEX.cur = tex; SYSTEX.curKey = key
+        SYSTEX.decoded++; SYSTEX.lastAt = Date.now()
+        publish()
+        if (SYSTEX.decoded === 1) logf('① P-244 封面已进系统纹理槽 ' + NAME_CUR + '（' + SYSTEX.w + 'x' + SYSTEX.h
+          + '；槽位声明来自 scene.json 的 usertextures，见 __mpwUserTextures.media）')
+      }).catch((e) => { SYSTEX.pendingKey = ''; SYSTEX.failed++; SYSTEX.lastErr = String((e && e.message) || e).slice(0, 80) })
+    }
+    // 渲染器侧解析器：`resolveTexture` 钩子（按名字发纹理；**不缓存** ⇒ 每次都是当前封面）
+    try {
+      const ok = lib.registerMpwHook('resolveTexture', (name) => {
+        if (name === NAME_CUR) return SYSTEX.cur
+        if (name === NAME_PREV) return SYSTEX.prev
+        return null
+      })
+      if (!ok) logf('⚠ P-244 系统纹理钩子注册失败（resolveTexture 槽不可用）⇒ 封面槽维持回落')
+    } catch (e) { logf('⚠ P-244 系统纹理钩子注册异常: ' + ((e && e.message) || e)) }
+    // 控制台入口：`__mpwSystemTex.set({bytes|url}) / .clear() / .ledger() / .state()`
+    SYSTEX.set = function (src) {
+      SYSTEX.manual = true
+      return Promise.resolve().then(() => decodeCover(src || {})).then((tex) => {
+        if (!tex) { SYSTEX.failed++; return null }
+        if (SYSTEX.cur) SYSTEX.prev = SYSTEX.cur
+        SYSTEX.cur = tex; SYSTEX.curKey = coverKey(src || {}) || 'manual'
+        SYSTEX.decoded++; SYSTEX.lastAt = Date.now(); publish()
+        return tex
+      })
+    }
+    SYSTEX.clear = function () { SYSTEX.manual = true; SYSTEX.cur = null; SYSTEX.prev = null; SYSTEX.curKey = ''; publish(); return true }
+    SYSTEX.resume = function () { SYSTEX.manual = false; return true }
+    SYSTEX.state = function () { return { cur: !!SYSTEX.cur, prev: !!SYSTEX.prev, curKey: SYSTEX.curKey, decoded: SYSTEX.decoded, failed: SYSTEX.failed, w: SYSTEX.w, h: SYSTEX.h, lastErr: SYSTEX.lastErr, lastAt: SYSTEX.lastAt, ledge: lib.systemTextureLedger() } }
+    if (typeof window !== 'undefined') window.__mpwSystemTexSync = sync
+  })()
+  // ═══ MPW-SYSTEMTEX-END ═══
   // ═══ MPW-CURSOR-BEGIN ①(P-233 批次3 C6) 官方指针事件管线：cursorHitTest → Enter/Leave/Move/Click/Down/Up ═══
   //   契约（dll-api Q8 提取的事件名序 + hongluan-mpkg 作者脚本实证）：作者脚本
   //   `export function cursorClick/cursorDown/cursorUp/cursorMove(event)`；event = { worldPosition: Vec3（设计坐标）,

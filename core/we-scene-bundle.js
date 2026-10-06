@@ -12527,6 +12527,13 @@ export function createRenderer(canvas, opts = {}) {
     return wrote
   }
 
+  /* ①(P-244 2026-10-07) `$` 保留名（官方**系统纹理槽**：`$mediaThumbnail` / `$mediaPreviousThumbnail`）：
+     像素由**宿主**注入（相册封面等），渲染器不内置替身、也不猜缺省图。解析顺序：
+       ① `textures` 里已有同名（宿主/场景显式注册）⇒ 直接命中（与改动前逐位相同）；
+       ② 否则名字以 `$` 开头 ⇒ 问 `resolveTexture` 钩子（宿主返回 `{glTex,width,height,…}`）；
+          命中即用（**不写回 `textures` 缓存** —— 封面会换，缓存会把旧封面钉死），并记台账；
+       ③ 未命中 / 无钩子 / 非 `$` 名 ⇒ `null`（= 改动前行为，调用点各自的兜底照旧）。
+     回退口：`?mediaslot=legacy` ⇒ ② 整条不生效。台账：`systemTextureLedger()`。 */
   function resolveTextureName(name, inputFBO, effectFBOs, textures) {
     if (name === null || name === undefined || name === '') return null
     if (name.startsWith('_rt_')) {
@@ -12534,7 +12541,26 @@ export function createRenderer(canvas, opts = {}) {
       if (effectFBOs.has(name)) return effectFBOs.get(name)
       return null
     }
-    return textures.get(name) || null
+    const direct = textures.get(name)
+    if (direct) return direct
+    if (!MEDIASLOT_LEGACY && name.charCodeAt(0) === 0x24 /* '$' */) {
+      const hit = resolveSystemTexture(name, textures, 'pass')
+      if (hit) return hit
+    }
+    return null
+  }
+
+  /** ①(P-244) 系统纹理槽的唯一解析处（pass 槽与层内容槽共用；纯查表 + 台账，不改 GL）。 */
+  function resolveSystemTexture(name, textures, where, extra) {
+    __sysTexLedger.lookups++
+    if (where === 'layer') __sysTexLedger.layerLookups++
+    __sysTexLedger.names[name] = (__sysTexLedger.names[name] || 0) + 1
+    let tex = null
+    const payload = Object.assign({ textures, systemTexture: true, where: where || 'pass' }, extra || null)
+    try { tex = runMpwHook('resolveTexture', [name, payload]) } catch (e) { tex = null }
+    if (tex && tex.glTex) { __sysTexLedger.hits++; __sysTexLedger.last = name; return tex }
+    __sysTexLedger.misses++
+    return null
   }
 
 
@@ -14455,6 +14481,9 @@ export function createRenderer(canvas, opts = {}) {
   const SPRITE_AUTO_LEGACY = (() => { try { return new URLSearchParams(location.search).get('spriteauto') === 'legacy' } catch { return false } })()
   // ①(P-212 A2) `?usertex=legacy`：忽略 `usertextures` 通道（等价旧"完全没解析"行为；解析层照旧留档）。
   const USERTEX_LEGACY = (() => { try { return new URLSearchParams(location.search).get('usertex') === 'legacy' } catch { return false } })()
+  // ①(P-244) `?mediaslot=legacy`：`$` 保留名（系统纹理槽）的宿主解析整条关掉 ⇒ 回到"只查 textures，
+  //   查不到为 null"的旧行为（与 `?usertex=legacy` 独立：那是**槽位声明**通道，这是**系统名解析**通道）。
+  const MEDIASLOT_LEGACY = (() => { try { return new URLSearchParams(location.search).get('mediaslot') === 'legacy' } catch { return false } })()
   // ①(P-223) `?reszw=legacy`：g_TextureNResolution.zw 回到物理尺寸 (w,h,w,h)（旧口径）。
   const RESZW_LEGACY = (() => { try { return new URLSearchParams(location.search).get('reszw') === 'legacy' } catch { return false } })()
   function reszwLegacy() { return RESZW_LEGACY }
@@ -14687,8 +14716,16 @@ export function createRenderer(canvas, opts = {}) {
     // ①(预留接口) 纹理缺失时先问外部钩子（远程资源服务），未命中再走官方白块/透明回退
     let hookTexObj = null
     if (missingTex) {
-      hookTexObj = runMpwHook('resolveTexture', [layer.textureName, { layer, textures }])
-      if (hookTexObj && hookTexObj.glTex) { try { textures.set(layer.textureName, hookTexObj) } catch {} }
+      const dynName = String(layer.textureName || '').charCodeAt(0) === 0x24 /* '$' */
+      if (dynName && !MEDIASLOT_LEGACY) {
+        // ①(P-244) `$` 保留名（系统纹理槽）= **动态**纹理（相册封面会换）⇒ 走系统槽解析器：
+        //   记账 + **不**写回 `textures` 缓存（写回会把第一张封面钉死）。
+        hookTexObj = resolveSystemTexture(layer.textureName, textures, 'layer', { layer })
+      } else {
+        // 非 `$` 名（远程资源服务那条链）/ `?mediaslot=legacy` ⇒ 保持既有钩子语义（含缓存）。
+        hookTexObj = runMpwHook('resolveTexture', [layer.textureName, { layer, textures }])
+        if (hookTexObj && hookTexObj.glTex) { try { textures.set(layer.textureName, hookTexObj) } catch {} }
+      }
     }
     const effTex = (texObj && texObj.glTex) ? texObj : (hookTexObj && hookTexObj.glTex ? hookTexObj : null)
     // ①(2026-09-12 用户实测回归："背景本来做好了，现在不见了，只显示成灰色") —— 兜底分档：
@@ -16866,6 +16903,19 @@ export function layerClampUvWrap(gl, tex, mode, name, search) {
 const __userTexLedger = { passes: 0, forms: {}, fallback: 0, hostResolved: 0 }
 export function userTextureLedger() {
   return { passes: __userTexLedger.passes, forms: { ...__userTexLedger.forms }, fallback: __userTexLedger.fallback, hostResolved: __userTexLedger.hostResolved }
+}
+/* ①(P-244 2026-10-07) `$` 保留名（**系统纹理槽**）解析台账：`$mediaThumbnail` / `$mediaPreviousThumbnail`
+   这类名字的像素来自宿主（相册封面 → `__mpwUserTextures` + `resolveTexture` 钩子），渲染器无内置替身。
+   `lookups` = 解析次数（pass 槽 + 层内容槽；每帧每槽都会问 ⇒ 只作"有没有在问"的读数）、
+   `hits/misses` = 宿主给没给纹理、`layerLookups` = 其中来自层内容槽的次数、`names` = 逐名次数、
+   `last` = 最近一次命中的名字。判据 tests/system-texture-slot-test.mjs。 */
+const __sysTexLedger = { lookups: 0, hits: 0, misses: 0, layerLookups: 0, names: {}, last: null }
+export function systemTextureLedger() {
+  return { lookups: __sysTexLedger.lookups, hits: __sysTexLedger.hits, misses: __sysTexLedger.misses, layerLookups: __sysTexLedger.layerLookups, names: { ...__sysTexLedger.names }, last: __sysTexLedger.last }
+}
+export function resetSystemTextureLedger() {
+  __sysTexLedger.lookups = 0; __sysTexLedger.hits = 0; __sysTexLedger.misses = 0; __sysTexLedger.layerLookups = 0; __sysTexLedger.names = {}; __sysTexLedger.last = null
+  return true
 }
 export function resetUserTextureLedger() {
   __userTexLedger.passes = 0; __userTexLedger.forms = {}; __userTexLedger.fallback = 0; __userTexLedger.hostResolved = 0

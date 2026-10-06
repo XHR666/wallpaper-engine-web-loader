@@ -895,6 +895,12 @@ add "spritesheet-advance" "node tests/spritesheet-advance-test.mjs"
 #   判据：三形态纯函数表 + 真包三件（场景级/字符串形态/system 形态）+ 合成包 resolveEffectChain + legacy + 2 变异。
 add "usertextures-fallback" "node tests/usertextures-fallback-test.mjs"
 
+# ①(P-244 2026-10-07) `$` 保留名（官方**系统纹理槽** `$mediaThumbnail` / `$mediaPreviousThumbnail`）的宿主解析：
+#   P-212 A2 只做完了槽位声明链，系统名的像素解析此前落到 `textures.get(name) || null` ⇒ 槽恒空；
+#   P-244 补 `$` 名 ⇒ `resolveTexture` 钩子（命中即用、**不缓存**：封面会换），回退口 `?mediaslot=legacy`。
+#   判据：源码 6 条 + mock-GL 端到端 8 条（无源回落 / 有源绑上封面 / 换封面即换 / 宿主撤源不抛 / legacy 不问钩子）。
+add "system-texture-slot" "node tests/system-texture-slot-test.mjs"
+
 # ①(P-213 B1 2026-09-29) 2D 光照模型（RE-43 路径A）：light 层 schema 解析（不参与 draw）+ 纯函数
 #   ComputeLightSpecular2D 分支表（衰减平方/intensity²/g_Light 混合/rim）+ 四灯 uniform 组（声明才上传）。
 #   判据：真包+官方样例 schema 逐项 + 分支表 + 无灯零视觉差 + legacy + 2 变异。
