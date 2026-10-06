@@ -2495,7 +2495,17 @@ try {
       })
       ok(pos.present && pos.nextSibling && pos.docPos, 'LS1 「图层开关」DOM 位置在「流式播放」之后（相邻兄弟 + compareDocumentPosition 双判）',
         JSON.stringify(pos))
-      ok(!pos.disabled, 'LS1b 本仓渲染器档 + 已挂载 ⇒ 「图层开关」按钮可用（未禁用）', `disabled=${pos.disabled}`)
+      //  ①(首轮实测) 按钮的禁用态由挂载探测重画：`__sceneLayers` 发布（LS0 的判据）**早于**首帧消息
+      //  到达 ⇒ 这里**有界等待**探测链跑完（首帧消息 → 迟到检查 → lswPoll 重画），不等就读会把
+      //  "还没来得及重画"误判成"实现没解禁"。
+      let enabledAt = -1
+      for (let i = 0; i < 24 && enabledAt < 0; i++) {
+        const en = await page.evaluate(() => !document.getElementById('layer-switch-btn').disabled)
+        if (en) enabledAt = i
+        else await page.waitForTimeout(500)
+      }
+      ok(enabledAt >= 0, 'LS1b 本仓渲染器档 + 已挂载 ⇒ 「图层开关」按钮**在挂载探测重画后**变为可用（未禁用）',
+        enabledAt >= 0 ? `enabled after ${(enabledAt * 500).toFixed(0)}ms 等待` : '12s 内仍是禁用态（禁用原因见 title）')
       //  ── LS2 打开面板：条目数 == __sceneLayers.length ──────────────────────────────
       await page.click('#layer-switch-btn')
       await page.waitForTimeout(300)

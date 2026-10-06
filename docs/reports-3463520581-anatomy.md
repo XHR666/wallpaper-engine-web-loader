@@ -53,3 +53,20 @@
 2. 若文件本身没有锚点 ⇒ 按官方语义补"**被 attach 的静态层跟随父级骨骼变换**"这条链路（当前只有
    `kirito face` 走了蒙皮），判据用本包：Kirito 头部区域应出现黑发（与 `hair kirito front` 的贴图内容相符）。
 3. 复验时逐层隔离**必须用 `__lnHidden`**（本包 `?ln=` 会让整帧变黑，已记在上面）。
+
+## 第 63 轮：**该包 65/67 个材质 pass 用的是 `genericimage4`，而本仓 bundle 里 0 处引用** ⇒ 主因方向
+
+| 读数 | 值 |
+|---|---|
+| 全包材质 pass 的 shader 分布 | **`genericimage4`: 65**、`genericimage2`: 2（共 67） |
+| 本仓 `core/we-scene-bundle.js` 里 `genericimage4` 出现次数 | **0**（⇒ 没有专门分支，走的是某个兜底图像路径） |
+| 两条头发层的材质 | `materials/hair kirito front.json` / `hair kirito back.json`：`shader: "genericimage4"`、`blending: translucent`、`combos: {}`、贴图**在包内**（`materials/hair kirito *.tex` 都存在；不是缺纹理） |
+| 官方 shader 源（本机 WE 安装，可直接读） | `/root/Desktop/DSHarea/wallpaper_engine/assets/shaders/genericimage4.{vert,frag}`（`genericimage{,2,3,4}` 都在同一目录） |
+
+**现象对照**（截图已存）：全画档 Kirito 头上有黑发（隐藏两条 `hair kirito *` 后变光头 ⇒ 这两层确实在画、位置大体在头上）；
+但"只留 Kirito 头发"档里除了顶部那块黑发，还出现一个**孤立的小白方块**（≈ 屏 (715,290)）
+——正是"不认识的 shader 走了兜底、某些 pass 画成白片/漏采样"的典型症状。
+
+**下一轮第一步**：读官方 `genericimage4.vert/.frag` 与本仓现有图像路径逐条对照（重点：它比 `genericimage2` 多了什么——
+顶点动画/`VERTEXCOLOR`/多 pass/`combos`），把 `genericimage4` 接进材质→shader 选择表；
+判据：本包"只留 Kirito 头发"档不再出现孤立白方块，且隐藏/显示两条头发层对头部黑发的影响与全画档一致。
