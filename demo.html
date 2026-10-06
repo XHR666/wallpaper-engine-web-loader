@@ -7756,10 +7756,17 @@ function loadScene() {
     if (__frNo === __attMemoFrame && __attMemo) deltas = __attMemo
     else {
       try {
-        deltas = lib.attachOffsetDeltas(sceneRaw.objects, (n) => lib.getEntry(pkg, n), {
+        /* ①(P-241 2026-10-06) **`sceneRaw` 在本作用域取不到**（真机 `ReferenceError: sceneRaw is not defined`，
+           被这里的 `catch { return }` 吞掉 ⇒ 逐帧跟随对这些包从未生效）。原始对象数组改用宿主已发布的
+           `window.__mpwRawObjects`（`objById` 空表时的同一份兜底），`sceneRaw` 在作用域里则优先用它。 */
+        const __rawForDelta = (typeof window !== 'undefined' && Array.isArray(window.__mpwRawObjects) && window.__mpwRawObjects.length)
+          ? window.__mpwRawObjects
+          : ((typeof sceneRaw !== 'undefined' && sceneRaw && Array.isArray(sceneRaw.objects)) ? sceneRaw.objects : [])
+        try { window.__mpwAttachDeltaIn = { raw: __rawForDelta.length, t: +skinAnimTime.toFixed(3) } } catch (e) {}
+        deltas = lib.attachOffsetDeltas(__rawForDelta, (n) => lib.getEntry(pkg, n), {
           time: skinAnimTime, bindOrder: BIND_ORDER_LEGACY ? 'legacy' : undefined,
         })
-      } catch (e) { return }
+      } catch (e) { try { window.__mpwAttachErr3 = String(e && e.message || e) } catch (e2) {} return }
       __attMemoFrame = __frNo; __attMemo = deltas
     }
     if (!deltas) return

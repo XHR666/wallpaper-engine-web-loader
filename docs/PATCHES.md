@@ -16538,8 +16538,22 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 - 三条诊断面（以后一眼可判）：`window.__mpwAttachStage`（建表阶段/表大小）、`window.__mpwAttachErr/__mpwAttachErr2`
   （被吞的异常）、`window.__mpwAttachDelta`（delta 表大小/命中/未命中）+ `window.__mpwTopTag`（文件↔页面一致性）。
 
-### 读数与判据
-真机（`:8899` 直连渲染器页，绕开测试台）：修前 `stage=null`；修后 **`stage=skip-nonempty:58`** ⇒ **表已建成（58 层）**。
-**仍未通过的部分**：四个采样层的 `origin` 位移仍 0.00、`__mpwAttachDelta` 仍 null ⇒ 下一轮查
-`skinAnimTime` 是否为 0/不推进（若如此则 delta 恒 0），并把"当前帧时间"接进 `attachOffsetDeltas` 的调用；
-判据 = 真机 `hair kirito front/back` 的 `origin` 在 8 s 内必须变化 + t≈26 s 截图头发与头对齐。
+### 第三处（同一族的最后一个）：逐帧调用里也引用了 `sceneRaw`
+`applyAttachAnchorDelta()` 里那句 `lib.attachOffsetDeltas(sceneRaw.objects, …)` 同样取不到 `sceneRaw`
+（`try { … } catch (e) { return }` ⇒ **每帧静默返回**）⇒ delta 表永远算不出来、`__mpwAttachDelta` 恒 null。
+修法：原始对象数组改用宿主已发布的 `window.__mpwRawObjects`（`sceneRaw` 在作用域里则优先），
+并把这条 catch 记进 `window.__mpwAttachErr3`（以后不再静默）。
+
+### 读数与判据（修完三处之后）
+真机（`:8899` 直连渲染器页，绕开测试台；llvmpipe 下 ≈0.5 fps）：
+- 修前：`stage=null`、`__mpwAttachDelta` 恒 null、四个采样层 `origin` 位移 0.00；
+- 修后：**`stage=skip-nonempty:58`**（表建成 58 层）、**`delta={anim:58, deltas:58, applied:58, miss:0, t:0.25}`**
+  （delta 表算出并**逐层应用**）、`__mpwAttachErr3=null`；
+- **位移出现**：`hair kirito front` 2737 → 2736、`hair kirito back` 2790 → 2789（t=0.25 s 时约 1 px）。
+  量级与离线一致（离线同包 t=3 s 最大 |Δ|=18.5 ⇒ t=0.25 s ≈1.5 px）⇒ **链路正确**；
+  慢的只是**动画时钟**：`t` 在 ~16 s 墙钟里只走到 0.25 s（llvmpipe ≈0.5 fps × 1/30 s/帧），
+  所以"肉眼可见的大位移"要在动画时钟走起来之后（真机 GPU / 更长的采样窗）才看得到。
+
+判据（已可判定）：① `__mpwAttachDelta.applied > 0` 且 `miss = 0`；② 采样层 `origin` 随 `t` 变化
+（本机在 t=0.25 s 时约 1 px，方向与离线同号）；③ `kaltsit-puppet-anchor-test` / `script-origin-sync` /
+`demo-check` 全绿（已跑）。
