@@ -61,7 +61,7 @@
 | 全包材质 pass 的 shader 分布 | **`genericimage4`: 65**、`genericimage2`: 2（共 67） |
 | 本仓 `core/we-scene-bundle.js` 里 `genericimage4` 出现次数 | **0**（⇒ 没有专门分支，走的是某个兜底图像路径） |
 | 两条头发层的材质 | `materials/hair kirito front.json` / `hair kirito back.json`：`shader: "genericimage4"`、`blending: translucent`、`combos: {}`、贴图**在包内**（`materials/hair kirito *.tex` 都存在；不是缺纹理） |
-| 官方 shader 源（本机 WE 安装，可直接读） | `/root/Desktop/DSHarea/wallpaper_engine/assets/shaders/genericimage4.{vert,frag}`（`genericimage{,2,3,4}` 都在同一目录） |
+| 官方 shader 源（本机 WE 安装，可直接读） | `<WE 安装目录>/assets/shaders/genericimage4.{vert,frag}`（`genericimage{,2,3,4}` 都在同一目录） |
 
 **现象对照**（截图已存）：全画档 Kirito 头上有黑发（隐藏两条 `hair kirito *` 后变光头 ⇒ 这两层确实在画、位置大体在头上）；
 但"只留 Kirito 头发"档里除了顶部那块黑发，还出现一个**孤立的小白方块**（≈ 屏 (715,290)）
