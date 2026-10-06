@@ -5126,6 +5126,12 @@ function loadScene() {
   //     ② 媒体事件走 `dispatchScriptEvent(sceneScriptCache, …)`（不依赖 applyUserProperties）
   //   `?scriptcache=0` 回到旧的"逐帧重编译"路径（A/B 逃生口，行为逐位等于改动前）。
   const scriptCacheOn = (() => { try { return new URLSearchParams(location.search).get('scriptcache') !== '0' } catch (e) { return true } })()
+  /* ①②(P-237 2026-10-06) `?scriptsync=legacy`：脚本节点（`{script,value}`）的 `visible`/`alpha` **同步**
+     回退到改动前（只有既有两条 `typeof` 裸值门）。默认 official = 每帧把节点 `value` 按载体重算进渲染层
+     —— 报告 §2n.3：回退前这两类脚本字段在本仓档没有任何动态变化（菜单淡入淡出/心跳/悬浮都看不到）。 */
+  const SCRIPT_SYNC_MODE = (() => {
+    try { return new URLSearchParams(location.search).get('scriptsync') === 'legacy' ? 'legacy' : 'official' } catch (e) { return 'official' }
+  })()
   const sceneScriptCache = scriptCacheOn ? createScriptCache() : null
   if (sceneScriptCache) sceneScriptCache.shared = scriptShared   // ②(P-62 陷阱 C) 与旧路径共用同一个 shared 对象
   if (sceneScriptCache) {
@@ -6142,6 +6148,14 @@ function loadScene() {
     // TIME-VARIATION: "加载此层"的钉层优先于脚本（脚本 4Hz 会抢，这里在同一帧内扳回，无闪烁）
     if (window.__mpwTime) { try { if (window.__mpwTime.reassert()) synced++ } catch (e) {} }
     try { synced += lib.syncScriptOrigins(scene, scriptRawObjects, scriptOriginBase, attachAnimActive) } catch (e) { /* 同步失败保持 authored 值 */ }
+    // ①②(P-237 2026-10-06) **脚本节点值同步**（`visible`/`alpha`）：上面那两条 `typeof raw.alpha === 'number'`
+    //   / `typeof raw.visible === 'boolean'` 只覆盖"被脚本展平成裸值"的情形；作者写的是 `{script,value}` 节点，
+    //   脚本宿主把结果写进节点的 `value`、节点仍是**对象** ⇒ 恒不过门（报告 §2n.3 实测：本包 `设置3-我要涩涩`
+    //   的 `raw.alpha` 一直 `{val:1,script:true}`，作者脚本本该把它推向 0）。这条同步只碰**脚本节点**，
+    //   裸值路径一字不动（零回归）；`?scriptsync=legacy` 回退到改动前（只有上面两条门）。
+    if (SCRIPT_SYNC_MODE !== 'legacy') {
+      try { synced += lib.syncScriptValues(scene, scriptRawObjects, { skip: attachAnimActive }) } catch (e) { /* 失败保持既有值 */ }
+    }
     if (synced && !window.__mpwScriptSyncLogged) { window.__mpwScriptSyncLogged = 1; logf('① 场景脚本已生效（同步字段 ' + synced + ' 处）') }
   }
   // ①(新 2026-09-12) puppet mesh 蒙皮准备：对"自带 puppet"的层解析 mesh（骨骼/权重/动画），

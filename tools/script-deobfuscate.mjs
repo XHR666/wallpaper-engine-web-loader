@@ -7,7 +7,7 @@
 // 读数用途：判断"某条分支为什么没走到"（§2n 的 ldfl 连点 4 次、设置族 alpha 的 shared[16] 门都是这么读出来的）。
 import fs from 'node:fs'
 import vm from 'node:vm'
-import * as lib from '/root/Desktop/DSHarea/we-scene-demo/core/we-scene-bundle.js'
+import * as lib from '../core/we-scene-bundle.js'   // 相对脚本自身位置（公开仓库不得带本机绝对路径）
 const [pkgPath, wantName, wantField] = process.argv.slice(2)
 if (!pkgPath || !wantName) { console.error('用法: node tools/script-deobfuscate.mjs <scene.pkg> <层名> [字段名]'); process.exit(2) }
 const pkg = lib.parsePkg(new Uint8Array(fs.readFileSync(pkgPath)))

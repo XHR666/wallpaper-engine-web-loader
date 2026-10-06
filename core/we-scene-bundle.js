@@ -17649,6 +17649,56 @@ export function syncScriptOrigins(scene, rawObjects, base, skip = null) {
   return synced
 }
 
+// ①②(P-237 2026-10-06) **脚本节点值的按载体重算同步**：`visible` / `alpha`（可扩到 scale/angles）。
+//
+// 为什么需要（报告 §2n.3 的实测）：脚本宿主 `applySceneScripts` 把 `update()` 的返回值写进
+//   `{script, value}` 节点的 **`value`**（`scriptVal.value = formatResult(result)`，见
+//   `elysia/scene-scripts.js`），节点**仍是对象**；而 `demo.html` 每帧同步的两条门写的是
+//   `typeof raw.alpha === 'number'` / `typeof raw.visible === 'boolean'` ⇒ **对象形态恒不过门**。
+//   只有 `origin` 因为另有本文件里的 `syncScriptOrigins()`（读 `raw.origin.value`）才通。
+//   语料后果（本包 0923/2887099508）：`visible` 27 个 / `alpha` 11 个脚本字段全部没有动态变化 ——
+//   设置菜单的淡入淡出（`shared[16]==2 ? mix(t,1,.03) : mix(t,0,.08)`）、心跳、耳朵悬浮、
+//   翻页这类"脚本改可见性/透明度"的交互在本仓档看不到。真机对照：`设置3-我要涩涩` 的
+//   `raw.alpha` 长期停在 `{val:1, script:true}`、`layer.alpha` 也是 1（作者脚本本该把它推向 0）。
+//
+// 口径（**只碰脚本节点**，裸值一律不碰 ⇒ 与既有两条 `typeof` 门零重叠、零回归）：
+//   · 只处理 `{script:<string>, value}` 形态（`script` 必须是字符串、且节点带 `value` 键）；
+//   · `visible`：`value !== false`（与 `layer.visible !== false` 的既有读法同口径）；
+//   · `alpha`：`Number(value)` 有限才写（对象/NaN 丢弃，保持既有值）；
+//   · `skip`（有属性动画的层）：与 `syncScriptOrigins` 同一个 `attachAnimActive` 集合 ——
+//     动画载体的写回在渲染循环里（`applyLayerAnims`），同步这一步让位，避免两边互相打架；
+//   · `l.__skin` 层跳过（蒙皮层的变换由骨骼驱动，与 origin 同步同款）。
+// 返回本次真正写进渲染层的处数（宿主用它决定是否打"脚本已生效"日志）。
+export function syncScriptValues(scene, rawObjects, opts = {}) {
+  if (!scene || !Array.isArray(scene.layers)) return 0
+  const carriers = Array.isArray(opts.carriers) && opts.carriers.length ? opts.carriers : ['visible', 'alpha']
+  const skip = opts.skip || null
+  const rawById = new Map()
+  for (const o of rawObjects || []) if (o && o.id !== undefined) rawById.set(o.id, o)
+  let synced = 0
+  for (const l of scene.layers) {
+    if (l.__skin) continue
+    if (skip && skip.has(l.id)) continue
+    const raw = rawById.get(l.id)
+    if (!raw) continue
+    for (const k of carriers) {
+      const node = raw[k]
+      if (!node || typeof node !== 'object' || typeof node.script !== 'string' || !('value' in node)) continue
+      const v = node.value
+      if (k === 'visible') {
+        const b = v !== false && v !== 0 && v !== 'false'
+        if ((l.visible !== false) !== b) { l.visible = b; synced++ }
+      } else if (k === 'alpha') {
+        const a = Number(v)
+        if (!isFinite(a)) continue
+        const cur = (typeof l.alpha === 'number' && isFinite(l.alpha)) ? l.alpha : 1
+        if (Math.abs(cur - a) > 1e-4) { l.alpha = a; synced++ }
+      }
+    }
+  }
+  return synced
+}
+
 // ①(P-41 A1-b 2026-09-13) 网格动画坏帧检测 v3（demo.html 蒙皮层用；抽成纯函数可测）。
 //   真机+语料实锤（hina 3554161528 人物 75 帧、凯尔希 主体/眼睛组合/左耳朵1、girl——
 //   设备日志 r1789233100291 + 2026-09-12 demo 注释"每条轨道存 length+1 帧，结尾 1~17 帧是导出垃圾"）：

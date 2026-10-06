@@ -1125,7 +1125,10 @@ export function makeSceneRef(objects, hooks) {
     },
     get visible() { return obj.visible !== false; },
     // ③(P-228l) 与 `layerRefFor()` 那条同口径记账（`getLayer()` 走的是本构造 ⇒ 只接一条会漏）
-    set visible(v) { obj.visible = !!v; propWriteNote(obj, 'visible', !!v) },
+    // ①②(P-237 2026-10-06) 写回**不破坏节点**（与 origin/scale 的 nodeWrite 同口径）：作者的
+    //   `visible` 常是 `{script,value}` 节点，整只替换会让该脚本永久停摆（P-143 的同类缺陷，
+    //   本包 ldfl/设置族的 visible 都是脚本节点）。
+    set visible(v) { nodeWrite(obj, 'visible', !!v); propWriteNote(obj, 'visible', !!v) },
     get size() { return parseV(obj.size, [0, 0, 0]); },
     set size(v) { /* 官方 IEffectLayer.size readonly：与 thisLayer 同一口径（P-137），静默丢弃不抛错 */ },
     get scale() { return parseV(obj.scale, [1, 1, 1]); },
@@ -1610,7 +1613,7 @@ function makeOwnerRef() {
       originalOrigin: { get: () => authoredOriginOf(obj), set: () => { /* 只读虚拟成员：静默丢弃不抛错 */ } },
       debug: { get: () => debugFlagOf(obj), set: (v) => writeDebugFlag(obj, v) },
       // ①(P-174) 见上面"从字面量里挪过来"的说明（这六项原来会被摊平成快照数据属性）
-      visible: { get: () => obj.visible !== false, set: (v) => { obj.visible = !!v; propWriteNote(obj, 'visible', !!v) } },
+      visible: { get: () => obj.visible !== false, set: (v) => { nodeWrite(obj, 'visible', !!v); propWriteNote(obj, 'visible', !!v) } },   // ②(P-237) nodeWrite：保住作者的 {script,value} 节点
       origin: {
         get: () => parseV(obj.origin, [0, 0, 0]),
         // ③(P-228k) 走共享归一化：字符串/标量不再写 NaN（旧实现在这两类输入下都写 "NaN NaN NaN"）
@@ -1626,7 +1629,7 @@ function makeOwnerRef() {
       },
       scale: {
         get: () => parseV(obj.scale, [1, 1, 1]),
-        set: (v) => { if (v == null) return; obj.scale = `${Number(v.x != null ? v.x : v[0]).toFixed(6)} ${Number(v.y != null ? v.y : v[1]).toFixed(6)} ${Number(v.z != null ? v.z : v[2] || 0).toFixed(6)}` },
+        set: (v) => { if (v == null) return; nodeWrite(obj, 'scale', `${Number(v.x != null ? v.x : v[0]).toFixed(6)} ${Number(v.y != null ? v.y : v[1]).toFixed(6)} ${Number(v.z != null ? v.z : v[2] || 0).toFixed(6)}`) },   // ②(P-237) 同上
       },
       size: {
         get: () => parseV(obj.size, [0, 0, 0]),

@@ -149,5 +149,64 @@ console.log(`\n[T4] 无锚点层：新旧实现逐位等价（零行为差异）
   ok(err < 1e-6, `T4 无锚点层结果 == 旧实现（逐位）`, `${target.name} 新=(${target.origin[0].toFixed(1)},${target.origin[1].toFixed(1)}) 旧=(${oldResult[0].toFixed(1)},${oldResult[1].toFixed(1)})`)
 }
 
+console.log(`\n[T5] P-237 脚本节点值同步（visible/alpha）：只碰 {script,value}，裸值零回归`)
+{
+  const mk = () => {
+    const raw = [
+      { id: 1, name: 'a', visible: { script: 'x', value: true }, alpha: { script: 'y', value: 1 } },
+      { id: 2, name: 'b', visible: true, alpha: 1 },                       // 裸值：本函数**不碰**
+      { id: 3, name: 'c', visible: { script: 'z', value: false }, alpha: { script: 'w', value: 0.25 } },
+      { id: 4, name: 'd', visible: { script: 'q', value: true }, alpha: { script: 'r', value: 'abc' } },   // alpha 非法 ⇒ 丢弃
+    ]
+    const sc = { layers: raw.map((o) => ({ id: o.id, name: o.name, visible: true, alpha: 1, origin: [0, 0, 0] })) }
+    return { raw, sc }
+  }
+  // T5a 初值：脚本节点把可见性/透明度按 value 写进层
+  {
+    const { raw, sc } = mk()
+    const n = lib.syncScriptValues(sc, raw, {})
+    ok(sc.layers[0].visible === true && sc.layers[0].alpha === 1, 'T5a 脚本 value=true/1 ⇒ 层 vis/alpha 保持', JSON.stringify(sc.layers[0]))
+    ok(sc.layers[2].visible === false && Math.abs(sc.layers[2].alpha - 0.25) < 1e-6, 'T5a 脚本 value=false/0.25 ⇒ 层 vis=false alpha=0.25', JSON.stringify(sc.layers[2]))
+    ok(sc.layers[1].visible === true && sc.layers[1].alpha === 1, 'T5a 裸值层不被本函数改写（零回归面）', JSON.stringify(sc.layers[1]))
+    ok(n === 2, 'T5a 只对真正变化的 2 处计数（c 的 visible+alpha 各 1？⇒ 实测 ' + n + '）', 'n=' + n)
+  }
+  // T5b 脚本改值 ⇒ 层跟着变（改动前：节点是对象 ⇒ 恒不同步）
+  {
+    const { raw, sc } = mk()
+    lib.syncScriptValues(sc, raw, {})
+    raw[2].visible.value = true; raw[2].alpha.value = 0.9; raw[0].alpha.value = 0.4
+    const n = lib.syncScriptValues(sc, raw, {})
+    ok(sc.layers[2].visible === true && Math.abs(sc.layers[2].alpha - 0.9) < 1e-6, 'T5b visible false→true / alpha 0.25→0.9 同步进层', JSON.stringify(sc.layers[2]))
+    ok(Math.abs(sc.layers[0].alpha - 0.4) < 1e-6, 'T5b alpha 1→0.4 同步进层', 'alpha=' + sc.layers[0].alpha)
+    ok(n === 3, 'T5b 变化处数 = 3', 'n=' + n)
+    const again = lib.syncScriptValues(sc, raw, {})
+    ok(again === 0, 'T5b 幂等：再同步一次 0 处', 'again=' + again)
+  }
+  // T5c alpha 非法值丢弃；skip 集合让位给属性动画
+  {
+    const { raw, sc } = mk()
+    lib.syncScriptValues(sc, raw, {})
+    ok(sc.layers[3].alpha === 1, 'T5c alpha="abc" ⇒ 保持既有值（不写 NaN）', 'alpha=' + sc.layers[3].alpha)
+    const skip = new Set([3])
+    raw[2].alpha.value = 0.1
+    const n = lib.syncScriptValues(sc, raw, { skip })
+    ok(Math.abs(sc.layers[2].alpha - 0.25) < 1e-6 && n === 0, 'T5c skip 集合里的层不写（让位给属性动画）', 'alpha=' + sc.layers[2].alpha + ' n=' + n)
+  }
+  // T5d 载体可扩：opts.carriers 传 scale/angles 时按串解析（默认不含，零回归）
+  {
+    const raw = [{ id: 9, name: 'e', scale: { script: 's', value: '2.00000 3.00000 1.00000' } }]
+    const sc = { layers: [{ id: 9, name: 'e', visible: true, alpha: 1, scale: [1, 1, 1] }] }
+    const n0 = lib.syncScriptValues(sc, raw, {})
+    ok(n0 === 0 && sc.layers[0].scale[0] === 1, 'T5d 默认载体不含 scale（本批只接 visible/alpha）', 'n=' + n0)
+  }
+  // T5e 接线：demo.html 有开关与调用点，README 主表登记
+  {
+    const demo = fs.readFileSync(new URL('../demo.html', import.meta.url), 'utf8')
+    const readme = fs.readFileSync(new URL('../docs/README-DIAGNOSTICS.md', import.meta.url), 'utf8')
+    ok(/SCRIPT_SYNC_MODE/.test(demo) && /syncScriptValues\(scene, scriptRawObjects/.test(demo), 'T5e demo.html 有 SCRIPT_SYNC_MODE 与 syncScriptValues 调用点')
+    ok(/\|\s*`scriptsync`\s*\|/.test(readme), 'T5e README-DIAGNOSTICS 主表登记 scriptsync')
+  }
+}
+
 console.log(`\nscript-origin-sync-test：${pass} pass / ${fail} fail`)
 if (fail > 0) process.exit(1)

@@ -16371,3 +16371,38 @@ p50 **252.5** / mean 219.6；同相位上游产物档是 p50 176 / mean 163.1。
 里"上游 `≥250` 1.71% ⇒ 光轴该缩到 1/3"这条推断已作废（基准贴图不同）。② `alphafade.fadeouttime` 缺省我们写 0.5，
 官方缺省按响应曲线（`0.5`→+2.8 / 缺省→+4.4 / `0.99`→+5.4）落在 0.5–0.99 之间，但该曲线的基准贴图也是替身
 ⇒ 只能作量级参考，保留 0.5 并登记；③ 官方缺省 `fadeintime` 同款未定值（本包作者写了 0.1）。
+
+## P-237（2026-10-06）脚本节点（`{script,value}`）的 `visible`/`alpha` **同步不到渲染层**：宿主两条 `typeof` 门只覆盖"被脚本展平的裸值" ⇒ 语料 27 个 `visible` / 11 个 `alpha` 脚本字段没有动态变化（本包 0923/2887099508）
+
+### 现象与定位（报告 §2n.3 的实测）
+作者把 `visible`/`alpha`/`origin`/`scale` 写成 `{script, value}` 节点；脚本宿主 `applySceneScripts` 每帧把
+`update()` 的返回值写进 **节点的 `value`**（`scriptVal.value = formatResult(result)`），节点**仍是对象**。
+而 `demo.html` 每帧同步的两条门写的是 `typeof raw.alpha === 'number'` / `typeof raw.visible === 'boolean'`
+⇒ **对象形态恒不过门**；只有 `origin` 因为另有 `lib.syncScriptOrigins()`（读 `raw.origin.value`）而通。
+真机对照（本仓档，挂载后 t≈6/10/16s）：`设置3-我要涩涩` 的 `raw.alpha` 一直是 `{value:1, script:true}`、
+`layer.alpha` 也一直 1 —— 作者的淡出逻辑本该把它推向 0。本包脚本驱动字段 **73 个 / 40 层**
+（`visible` 27 / `origin` 19 / `text` 11 / `alpha` 11 / `scale` 4 / `volume` 1）。
+
+### 修法（两条，均带回退开关）
+1. **新增 `core/we-scene-bundle.js::syncScriptValues(scene, rawObjects, opts)`**：只处理
+   `{script:<string>, value}` 形态的节点（裸值一律不碰 ⇒ 与既有两条门零重叠、零回归），载体默认
+   `['visible','alpha']`：`visible = value !== false`、`alpha = Number(value)`（非有限值丢弃）；
+   `l.__skin` 与 `opts.skip`（有属性动画的层，宿主传 `attachAnimActive`）跳过 —— 与 `syncScriptOrigins`
+   同一套"让位给动画"口径。宿主侧接线在 `syncScriptOrigins` 之后，`?scriptsync=legacy` 回退到改动前。
+2. **`elysia/scene-scripts.js` 三个 setter 改走 `nodeWrite`**（`thisLayer/层引用` 的 `visible`、共享访问器的
+   `visible`/`scale`）：旧实现 `obj.visible = !!v` / `obj.scale = 串` 会把作者的 `{script,value}` 节点
+   **整只换掉** ⇒ 该脚本永久停摆（P-143 对 `origin` 修过的同类缺陷，`visible`/`scale` 当时漏了）。
+
+### 判据与影响面
+`tests/script-origin-sync-test.mjs`（门禁 `script-origin-sync`）**9 → 22 通过 0 失败**，新增 T5a–T5e：
+脚本 `value` 写入层 / 脚本改值后层跟着变 / 幂等（再同步 0 处）/ `alpha="abc"` 不写 NaN /
+`skip` 集合不写 / 默认载体不含 `scale`（本批只接两个载体）/ 接线与 `README-DIAGNOSTICS` 登记。
+`diag-flag-check` **218 → 219 == 219**（`?scriptsync` 双向登记）；`demo-check`、`script-owner-live`、
+`script-layer-ref-audit`、`cursor-dispatch`、`script-corpus-audit --strict`、`publish-check`、
+`packaging`（147/0）、`docs-check` 全绿。
+
+### 未验证边界（下一轮）
+① **本包菜单链仍未走通**：`ldfk.update`（19 次/0 错误）与 `设置3` 的两个 `update`（3s 内各 3 次）都确实被调到，
+但 `设置3` 的节点 `value` 与层 `alpha` 都停在 1 ⇒ 该 alpha 脚本在自己的门（`shared[16]==2` 的取值来源 /
+prepare 趟回写）上没有产出，属**同步之外**的另一处；② `scale`/`angles` 两个载体本批**未接**（需要先确认
+父链/附件合成口径，避免把 parseScene 的结果覆盖掉）；③ 未跑全量 `run-all-tests`（本轮只跑了上述相关门禁）。
