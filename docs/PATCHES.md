@@ -16406,3 +16406,44 @@ p50 **252.5** / mean 219.6；同相位上游产物档是 p50 176 / mean 163.1。
 但 `设置3` 的节点 `value` 与层 `alpha` 都停在 1 ⇒ 该 alpha 脚本在自己的门（`shared[16]==2` 的取值来源 /
 prepare 趟回写）上没有产出，属**同步之外**的另一处；② `scale`/`angles` 两个载体本批**未接**（需要先确认
 父链/附件合成口径，避免把 parseScene 的结果覆盖掉）；③ 未跑全量 `run-all-tests`（本轮只跑了上述相关门禁）。
+
+## P-239（2026-10-06）**压缩 import 形态**（`import*as X from'WEMath'`）让整条作者脚本无法编译 ⇒ 语料 11 个 `alpha` 载体（本包全部）永不运行
+
+### 怎么发现的（P-237 之后的追查链）
+P-237 修好"脚本节点 `{script,value}` 的 `visible`/`alpha` 同步不到渲染层"之后，真机上"设置菜单"的
+`alpha` 仍然恒 1。用 Node 最小复现（同一条源码、五个共享节点、真 `applySceneScripts` + `createScriptCache`）
+却**正常衰减**（0.92⁵ ≈ 0.659）⇒ 说明运行时逻辑没问题、是**真机路径里那条脚本根本没跑**。再按
+**源码前缀全量**扫真机缓存（第 57 轮按 `owners` 过滤得出过错误结论，教训已入台账）：
+11 条含 `WEMath`+`mix` 的条目全部是
+`error: "vm shim parse error: import declarations may only appear at top level of a module"`、
+`exported: []`、`owners: []`、`initialized: false` —— **整条脚本编译失败，`update` 永不被调用**。
+
+### 根因与修法（`elysia/scene-scripts.js::compileScript`）
+把 ESM 转 CJS 的第一条正则写的是
+
+```js
+code.replace(/import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g, …)
+```
+
+—— `import` 后/`*` 后/`as` 后/`from` 后都**要求至少一个空白**。而作者压缩器的产出是
+`import*as _0x1b8735 from'WEMath';`（实测本包 11 处**全是**这个写法）⇒ 替换不生效 ⇒ 原始 `import`
+留在代码里 ⇒ `new Function` 抛 parse error ⇒ 该脚本的 `exports` 为空 ⇒ `runScriptValueCached` 直接
+`return`（"编译失败且无可用导出 → 保持静态 value"）⇒ 载体永远停在静态值。修法：把该正则的四处
+`\s+` 改成 `\s*`（带空格的规范写法与双引号/无分号形态一并覆盖）。
+
+### 判据与读数
+`tests/script-origin-sync-test.mjs`（门禁 `script-origin-sync`）**22 → 26 通过 0 失败**，新增 T6 四条：
+压缩形态 `import*as X from'WEMath'` ⇒ `update` 被导出且 `error === null`、载体真的被驱动（`0.92⁵≈0.6591`）、
+规范形态不回归、双引号+无分号形态同样可用。
+**真机复核**（同一条 `?pkgpath=` 挂载）：修复前 11 条 `WEMath` 条目 `exported: [] / owners: [] / error: 上面的
+parse error`；修复后全部 `exported: ["update"] / error: null / initialized: true`，共享五层那条的
+`owners = 设置1-返回, 设置2-穿上内内, 设置3-我要涩涩, 设置4-开关音乐, 安全模式`。
+**观感面**：设置菜单项的 `layer.alpha` 从"恒 1"变成**真的在动**（同一次挂载内 0.558 → 0.16 → 0.124 → 0.039，
+即 `shared[16] != 2` 时的淡出逻辑生效）。
+
+### 未验证边界
+① 本包菜单**仍未被点开**（`ldfk` 的 `count>=4` 分支：连点 4 次后 `shared[16]` 仍无写入）——`ldfk.update`
+经包装计数确认被调用（≈4-7Hz、0 错误），怀疑与 `engine.setInterval(() => count--, 900)` 的驱动节拍
+（每帧 pump 一次？）有关，留下一轮用"临时打印 count 的探针"定位；② 本批只修 `import * as` 一条正则，
+`import {a,b} from'X'` 形态本来就带 `\s*`（未动），`export` 家族的正则同样保持原样（只要有空格就工作，
+压缩到 `export function` 仍是带空格的写法）。

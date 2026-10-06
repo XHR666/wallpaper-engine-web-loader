@@ -2192,7 +2192,14 @@ export function scriptStoreFor(container, opts = {}) {
 function compileScript(source, opts = {}) {
   // 转译 ESM 导入/导出为 CommonJS
   let code = source;
-  code = code.replace(/import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g, (m, name, mod) => {
+  /* ①(P-239 2026-10-06) **两个 `\s*` 是必需的**：作者脚本是压缩过的，导入写法可能一个空格都没有
+   *   （实测 `0923/2887099508` 的 11 个 `alpha` 载体全是 `import*as _0x1b8735 from'WEMath';`）。
+   *   旧正则要求 `import\s+\*\s+as\s+` / `\s+from\s+` ⇒ 压缩形态**替换失败** ⇒ 原始 `import`
+   *   留在代码里 ⇒ `new Function` 抛 "import declarations may only appear at top level of a module"
+   *   ⇒ 整条脚本的 `exports` 为空、`initialized:false` ⇒ **该脚本永不运行**（真机读数：这 11 个条目的
+   *   `error` 就是这个 parse error、`owners:[]`、`exported:[]`）⇒ 设置菜单的淡入淡出/心跳这类
+   *   "只在 update 里改 alpha"的层全部哑火（报告 §2n 的菜单链就是这条）。 */
+  code = code.replace(/import\s*\*\s*as\s*([\w$]+)\s*from\s*['"]([^'"]+)['"]/g, (m, name, mod) => {
     return `const ${name} = ${moduleGlobalFor(mod)};`;
   });
   code = code.replace(/import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g, (m, names, mod) => {

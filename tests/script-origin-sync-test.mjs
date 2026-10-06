@@ -208,5 +208,27 @@ console.log(`\n[T5] P-237 脚本节点值同步（visible/alpha）：只碰 {scr
   }
 }
 
+console.log(`\n[T6] P-239 压缩 import 形态（\`import*as X from'WEMath'\`）必须能编译并驱动载体`)
+{
+  const { applySceneScripts, createScriptCache } = await import(new URL('../elysia/scene-scripts.js', import.meta.url).href)
+  const run = (src, frames = 5) => {
+    const scene = { objects: [{ id: 1, name: 'alphaCarrier', alpha: { script: src, value: 1 } }] }
+    const cache = createScriptCache()
+    for (let f = 0; f < frames; f++) applySceneScripts(scene, f * 0.25, { scriptCache: cache, renderObjects: scene.objects, shared: {}, canvasSize: { x: 6080, y: 3420 } })
+    const e = [...cache.map.values()][0] || {}
+    return { value: scene.objects[0].alpha.value, exported: Object.keys(e.exports || {}), error: e.error || null }
+  }
+  // 压缩形态（实测 0923/2887099508 的 11 个 alpha 载体全是这个写法）：旧正则漏替换 ⇒ 整条脚本 parse error
+  const minified = run("var _0x5a8a=['x'];(function(){})();import*as _0x1b8735 from'WEMath';export function update(t){ return _0x1b8735.mix(t, 0, 0.08) }")
+  ok('T6 压缩 import ⇒ update 被导出且无 parse error', minified.exported.includes('update') && minified.error === null, JSON.stringify(minified))
+  ok('T6 压缩 import ⇒ 载体真的被驱动（0.92^5≈0.659）', Math.abs(minified.value - 0.6591) < 0.005, 'value=' + minified.value)
+  // 带空格的规范形态（回归面：改动前就能用的写法必须一字不变）
+  const spaced = run("import * as WEMath from 'WEMath';\nexport function update(t){ return WEMath.mix(t, 0, 0.08) }")
+  ok('T6 规范 import 形态不回归（同样 0.659）', Math.abs(spaced.value - 0.6591) < 0.005 && spaced.error === null, JSON.stringify(spaced))
+  // 单行无分号 + 双引号模块名（作者压缩器的另一种产出）
+  const dq = run('import*as W from "WEMath"\nexport function update(t){ return W.mix(t, 0, 0.08) }')
+  ok('T6 双引号 + 无分号形态同样可用', Math.abs(dq.value - 0.6591) < 0.005 && dq.error === null, JSON.stringify(dq))
+}
+
 console.log(`\nscript-origin-sync-test：${pass} pass / ${fail} fail`)
 if (fail > 0) process.exit(1)
