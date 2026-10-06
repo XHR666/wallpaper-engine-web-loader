@@ -1277,3 +1277,24 @@ SOFTWARE.
   登记为下一批。
 - **`setBlend()/setVisible()`**：`IAnimation` 上这两个成员在上游 `createAnimation` 里也没有真实语义
   （本仓 `animRefShared()` 继续给中性 no-op，保持"超集不抛错"）。
+
+---
+
+## 18. Wallpaper Engine 的**内置资产**（`particle/*`、`util/*`、`masks/*`…）：本仓运行期读用户本机安装，**不随仓库分发**；上游 web 产物档对同一批资产发的是**程序化替身**（P-236 取证，2026-10-06）
+
+语料里大量粒子层的贴图**不在 `scene.pkg` 内**（本包 `2887099508` 的两条 `Light shafts 0` 就是：
+`materials/presets/light_shafts_0.json` 指向 `particle/light/light_shafts_0`，而包里只有材质/预设 JSON）。
+两档对这类名字的处理**根本不同**：
+
+| | 贴图来源 | 结果形态 |
+|---|---|---|
+| 本仓（`demo.html` `loadTex`） | 包内找不到时走 `/weassist/materials/<名>.tex` ⇒ **读用户本机 WE 安装的真字节**（运行期读、**从不复制进仓库/发行包**，与 §4 字体的第 3 档同一策略） | 真实贴图的细节（光轴 = 一条条斜向条纹；RG88 256×512，R 恒 255、形状在 G） |
+| 上游 web 产物档 | `demo/assets/renderer-n-Rw_ZVc.js` 里是**生成函数**：`"particle/light/light_shafts_0":()=>ws(0)`、`"particle/beam/beam_0":()=>Nc(128,512,.46,!0)`… `ws()` 由小控制网格双线性插值 + 幂曲线**现算** `rgb=alpha=灰度` 的贴图 | 平滑软斑（没有条纹） |
+
+**结论（写进判据纪律）**：
+1. 凡用到内置资产的层，**"与上游 web 产物档对拍像素"不成立**（基准内容不同）；像素级真值只能来自桌面 WE
+   截图或作者提供的全景素材。可用的跨档判据是**不依赖贴图内容**的那类：某层有/无、某字段是否被响应
+   （P-236 用的就是后者：`instanceoverride.alpha=0` ⇒ 与"删掉该层"逐位相同，两档都成立）。
+2. 本仓的这条读法也解释了为什么**仓库与 npm 包里都没有** WE 的 `assets/materials/**`：与 §4 的字体同一条
+   单向流动规则 —— Steam 分发不授予再分发权，只能在用户自己的机器上**运行期读**。
+3. 报告 `docs/reports-2887099508-layers.md` §2k.2/§2k.5 里据此基准得出的"光轴该缩到 1/3"已作废（见 §2l.5）。
