@@ -494,6 +494,25 @@ export function parsePkg(buf) {
   }
 }
 
+/* ①(P-248 2026-10-07) 取入口的**区间副本**（不整条拷贝）：只给"读头部几十~几百字节"的消费者用
+   （典型 = `registerModelSource` 从 `.mdl` 头部取 material 路径：`MDL_MATERIAL_PATH_OFFSET=21` 起、
+   至多 `MDL_MATERIAL_PATH_MAX=512` 字节）。为什么必须存在：`getEntry()` 是**整条 `.slice()`**，
+   而语料里有 `models/陨石/陨石.mdl` = **156 MB**、`models/球体01/球体01.mdl` = 51 MB —— 为读 300 字节
+   头把整条拷进内存，是 256 MB 包（`0923/3589454154`）在浏览器里 OOM 的直接原因之一
+   （Node 实测：`modelSourceLedger().readBytes = 222 299 693` ≈ **212 MB**，仅此一步）。
+   越界/入口不存在 ⇒ null（与 `getEntry` 同契约，不抛）。 */
+export function getEntryRange(pkg, name, off, len) {
+  const e = pkg.entries.find((x) => x.name === name)
+  if (e === undefined) return null
+  const o = Math.max(0, off | 0)
+  const l = Math.max(0, len | 0)
+  if (l === 0 || o >= e.size) return new Uint8Array(0)
+  const start = pkg.dataStart + e.offset + o
+  const end = Math.min(pkg.dataStart + e.offset + e.size, start + l)
+  if (start < 0 || end > pkg.fileSize) throw new Error('入口 ' + name + ' 越界')
+  return pkg.buf.subarray(start, end).slice()
+}
+
 // 取指定路径的入口数据（副本）
 export function getEntry(pkg, name) {
   const e = pkg.entries.find((x) => x.name === name)
@@ -1740,7 +1759,8 @@ export function parseScene(sceneJson, project, opts = {}) {
       if (/\.json$/i.test(__imgRaw)) { __srcStats.model++; __srcStats.modelDrawn++ }
       else {
         __srcStats.model++
-        const src = registerModelSource(__imgRaw, (opts && opts.attachCtx) ? opts.attachCtx.readEntry : null)
+        const src = registerModelSource(__imgRaw, (opts && opts.attachCtx) ? opts.attachCtx.readEntry : null,
+          (opts && opts.attachCtx) ? opts.attachCtx.readEntryRange : null)
         if (src) __srcStats.modelDrawn++
         else {
           __modelDropped = (opts && opts.attachCtx && typeof opts.attachCtx.readEntry === 'function') ? 'mdl-material-unreadable' : 'no-entry-reader'
@@ -3972,12 +3992,19 @@ export function resetModelSources() { __parsedModels.clear(); __modelLedger.regi
  * ⚠ 成本（如实记在 `modelSourceLedger().readBytes`）：宿主给的 `readEntry` 契约是"整条"，
  *   所以这一步是**一次整条读**（语料最坏 `0923/3589454154` 的 156MB `.mdl`）。每个路径只读一次。
  */
-export function registerModelSource(path, readEntry) {
+export function registerModelSource(path, readEntry, readEntryRange) {
   if (!path) return null
   if (__parsedModels.has(path)) return __parsedModels.get(path)
-  if (typeof readEntry !== 'function') return null
+  if (typeof readEntry !== 'function' && typeof readEntryRange !== 'function') return null
   let bytes = null
-  try { bytes = readEntry(path) } catch (e) { bytes = null }
+  /* ①(P-248) 优先进**区间读**（只要头部 `MDL_MATERIAL_PATH_MAX` 字节）：`.mdl` 头里 material 路径固定在
+     偏移 21 起 ⇒ 整条读（语料最坏 156 MB）纯属浪费，也是 256 MB 包 OOM 的直接原因之一。 */
+  if (typeof readEntryRange === 'function') {
+    try { bytes = readEntryRange(path, 0, MDL_MATERIAL_PATH_MAX) } catch (e) { bytes = null }
+  }
+  if ((!bytes || bytes.length < MDL_MATERIAL_PATH_OFFSET + 8) && typeof readEntry === 'function') {
+    try { bytes = readEntry(path) } catch (e) { bytes = null }
+  }
   if (!bytes) { __modelLedger.miss++; return null }
   __modelLedger.read++
   __modelLedger.readBytes += (bytes.length || 0)

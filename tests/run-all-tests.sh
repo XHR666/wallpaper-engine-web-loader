@@ -907,6 +907,11 @@ add "system-texture-slot" "node tests/system-texture-slot-test.mjs"
 #   （源层不可见也捕获 / 引用方命中捕获 RT / legacy 逐位回旧 / 无引用零开销）。
 add "composite-zorder" "node tests/composite-zorder-test.mjs"
 
+# ①(P-248 2026-10-07) 模型来源**区间读**：`registerModelSource` 只为读 `.mdl` 头部 512 B 的 material 路径，
+#   旧路径 `getEntry()` 整条拷贝 ⇒ 245 MB 包里 156 MB/51 MB 的 mdl 一步就拷 212 MB（浏览器 OOM 直接原因之一）。
+#   判据：合成包（2 MB 假 mdl）整条读=0 / 区间读=512 B；只有整条读的老宿主契约逐位不变；真包 8 mdls 共 4096 B。
+add "model-source-range" "node tests/model-source-range-test.mjs"
+
 # ①(P-213 B1 2026-09-29) 2D 光照模型（RE-43 路径A）：light 层 schema 解析（不参与 draw）+ 纯函数
 #   ComputeLightSpecular2D 分支表（衰减平方/intensity²/g_Light 混合/rim）+ 四灯 uniform 组（声明才上传）。
 #   判据：真包+官方样例 schema 逐项 + 分支表 + 无灯零视觉差 + legacy + 2 变异。

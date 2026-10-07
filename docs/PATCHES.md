@@ -16766,3 +16766,38 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 
 ⇒ **默认档维持 `modellayer` 关**（`?modellayer=1` 可选打开）：三包里没有一包因它变好，也没有一包因它变坏；
 "正确接线"（不再对二进制 mdl 调 `parseWeJson`）已经在位，等有可用参考（或几何/流式支持）再谈翻默认。
+
+## P-248（2026-10-07）老式模型层的**整条读**：为读 `.mdl` 头部 512 B 的 material 路径把整条（语料最坏 156 MB）拷进内存 —— 256 MB 包 OOM 的直接原因之一
+
+### 现象与定位
+- `0923/3589454154`（**245 MB** 容器、130 对象、24 个 mdl 层）在真机里**加载即崩**：页面 `uncaught exception:
+  out of memory`（更早一轮）/ 之后表现为 `Execution context was destroyed`（tab 崩，无首帧）。
+- Node 内存画像（同一份代码路径、无 GL）：
+  | 步骤 | 读数 |
+  |---|---|
+  | 读整包 | `245 MB`（Node 侧 rss 536 MB = 容器 + `readFileSync` 副本） |
+  | `parsePkg` | rss 536 MB（容器常驻） |
+  | `parseScene`（**整条读** 7 个 mdl） | **`modelSourceLedger().readBytes = 222 299 693`（≈212 MB）** |
+  | 最大 `.tex` 解码 | materials/Saturn6k.tex 6480×3240 → **80 MB** RGBA；sun.tex 3000×3000 → 34 MB |
+- 根因：`registerModelSource()` 只需要 `.mdl` **头部**（material 路径固定在偏移 21 起、至多 512 B），
+  而它调用的 `getEntry()` 是**整条 `.slice()`** ⇒ 语料里 `models/陨石/陨石.mdl`(156 MB)、`球体01.mdl`(51 MB)
+  被整条拷进内存，只为读 300 字节。
+
+### 修法
+1. **core**：新增 `getEntryRange(pkg, name, off, len)`（只拷区间、越界/缺入口返回 null，与 `getEntry` 同契约）；
+   `registerModelSource(path, readEntry, readEntryRange)` **优先区间读**（`MDL_MATERIAL_PATH_MAX = 512` 字节），
+   区间读不可用或太短时回退整条读（老宿主契约逐位不变）；`parseScene` 透传 `attachCtx.readEntryRange`。
+2. **宿主（`demo.html`）**：`attachCtx` 增加 `readEntryRange: (n, off, len) => lib.getEntryRange(pkg, n, off, len)`。
+
+### 判据（`tests/model-source-range-test.mjs`，已登记 `run-all-tests.sh`，**9/0**）
+- A 合成包（2 MB 假 mdl + 合法 `MDLV0023` 头）：`wholeBytes = 0`（**整条读一个字节都没有**）、
+  `rangeBytes = led.readBytes = 512`、material 解析正确、层未被丢弃；
+- B 只有整条读（老宿主）：`readBytes = 1 MB` 且登记成功 ⇒ **契约逐位不变**；
+- C 真包 `0917/3509243656`（8 个 mdl 层）：`registered = 8 / miss = 0`、**`readBytes = 4096`（8×512 B）**，
+  最大 mdl 的 material 仍解析正确（改前该步 = 该包全部 mdl 字节数）。
+
+### 结果与**如实登记**
+- 峰值收益：该包这一步从 **212 MB → 3.5 KB**（Node 实测）；其它包按 mdl 体量等比下降。
+- **但该包在本机 headless 环境仍然加载不了**：`Execution context was destroyed`（tab 崩、无首帧），
+  未再出现 `out of memory` 报文；剩余候选原因 = **245 MB 容器本身** + 8k 贴图解码（80 MB+34 MB RGBA）+
+  llvmpipe/容器内存上限 ⇒ 下一步是**容器流式/惰性读取**（或按内存预算跳过大贴图），单列一项。

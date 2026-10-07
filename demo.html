@@ -5036,7 +5036,11 @@ function loadScene() {
   //   逐帧偏移的**应用**在 `updateSkinBones` 里做增量（见那里的 ①(P-139) 段），本行只负责取值。
   scene = ATT_LEGACY
     ? lib.parseScene(sceneObj, null, { attachmentOffsets, uniformFlipY: attachmentOffsets.size > 0, legacyAnimY: true, readParticleDef })
-    : lib.parseScene(sceneObj, null, { attachCtx: { readEntry: (n) => lib.getEntry(pkg, n), time: () => skinAnimTime, bindOrder: BIND_ORDER_LEGACY ? 'legacy' : undefined }, readParticleDef })
+    : lib.parseScene(sceneObj, null, { attachCtx: { readEntry: (n) => lib.getEntry(pkg, n),
+        // ①(P-248 2026-10-07) 老式模型层的 **material 路径只在 `.mdl` 头部 512 字节内** ⇒ 走区间读，
+        //   不再为读 300 字节把整条（语料最坏 156 MB）拷进内存（256 MB 包 OOM 的直接原因之一）。
+        readEntryRange: (n, off, len) => lib.getEntryRange(pkg, n, off, len),
+        time: () => skinAnimTime, bindOrder: BIND_ORDER_LEGACY ? 'legacy' : undefined }, readParticleDef })
   /* ②(P-228l 2026-10-05) 把**属性动画控制器**注册给脚本门面：`thisLayer/thisObject.getAnimation()`
      由此拿到真句柄（`play()/pause()/stop()/setFrame()/rate` 直接驱动播放头；渲染逐帧求值）。
      闭包读的是**当前** `scene`（重挂载会重建），WeakMap 查不到时门面自动回落到中性桩 ⇒ 零行为变化。 */
