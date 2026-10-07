@@ -8115,13 +8115,31 @@ function loadScene() {
         }
         const sk = layer.__skin
         if (!sk || !sk.gBones) { try { (window.__mpwMeshSkip = window.__mpwMeshSkip || []).push((layer.name || layer.id) + '(noBones)') } catch {} ; mesh3dTick('skip', layer, false); return }
-        const texObj = layer.textureName ? textures.get(layer.textureName) : null
+        let texObj = layer.textureName ? textures.get(layer.textureName) : null
+        /* ①(P-260 2026-10-07) **保留名材质槽**（`_rt_imageLayerComposite_*` / `$*`）在几何档也要能拿到纹理：
+           它们在 `textures` 里永远查不到（渲染期资源），此前这类层一律 `(noTex)` 不画。这里在直接查表
+           miss 时问渲染器要一次（`resolveLayerTexture` = 与四边形层内容槽同一条解析链：合成源命名表 →
+           `$` 宿主钩子），命中即画。台账 `__mpwMeshReserved`。 */
+        let reservedHit = false
+        if ((!texObj || !texObj.glTex) && layer.textureName && renderer && typeof renderer.resolveLayerTexture === 'function') {
+          try {
+            const hit = renderer.resolveLayerTexture(layer.textureName, textures, layer)
+            if (hit && hit.glTex) {
+              texObj = hit
+              reservedHit = true
+              window.__mpwMeshReserved = Object.assign({ hits: 0, names: [] }, window.__mpwMeshReserved)
+              window.__mpwMeshReserved.hits++
+              if (window.__mpwMeshReserved.names.length < 8) window.__mpwMeshReserved.names.push(String(layer.name || layer.id) + ':' + String(layer.textureName).slice(0, 34))
+            }
+          } catch (e) { /* 解析失败走原 (noTex) 分支 */ }
+        }
         if (!texObj || !texObj.glTex) {
           try { (window.__mpwMeshSkip = window.__mpwMeshSkip || []).push((layer.name || layer.id) + '(noTex)') } catch {}
           // ①(P-257) 台账：几何档里"有网格但材质槽是保留名/未解析"的层（3D 包里卫星/探测器常走这条）
           mesh3dTick('noTex', layer, false)
           return
         }
+        if (reservedHit) mesh3dTick('drawn', layer, false)
         mountAndDrawMesh(layer, sk, texObj, camInfo)
       } catch (e) { try { window.__mpwMeshErr = window.__mpwMeshErr || []; if (window.__mpwMeshErr.length < 8) window.__mpwMeshErr.push(String((e && e.message) || e)) } catch (e2) {} }
     },

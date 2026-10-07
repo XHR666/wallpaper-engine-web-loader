@@ -207,5 +207,30 @@ const mkRenderer = () => createRenderer(canvas, { shaderResolver, onLog: () => {
     JSON.stringify({ depIds: l5.depIds, depList: l5.depList, refs: l5.refs, captures: l5.captures }))
 }
 
+{
+  /* ①(P-260 2026-10-07) **网格路径的保留名解析口** `renderer.resolveLayerTexture(name, textures, layer)`：
+     几何档（`?modellayer=mesh`/auto）的层内容纹理此前只有 `textures.get(textureName)` 一条路 ⇒ 材质槽写着
+     `_rt_imageLayerComposite_*`（合成源）或 `$*`（系统纹理）的层**恒 miss**、`(noTex)` 不画。
+     这里验证：同一张捕获 RT 能被这个口子拿到（= 几何档的保留名层真的能画），且普通名走直接查表、
+     未命中返回 null（调用方走原兜底）。 */
+  lib.resetCompositeSourceStats()
+  draws.length = 0; blits.length = 0
+  const r6 = mkRenderer()
+  const sc6 = mkScene([
+    mkLayer({ id: 331, name: '模型层(内容=合成源)', visible: true, textureName: '_rt_imageLayerComposite_589_a', size: [0, 0], effects: [refEffect('_rt_imageLayerComposite_589_a')] }),
+    srcLayer(),
+  ])
+  await r6.render(sc6, mkTextures(), 640, 360, 0.016)
+  await r6.render(sc6, mkTextures(), 640, 360, 0.032)
+  const meshHit = (typeof r6.resolveLayerTexture === 'function') ? r6.resolveLayerTexture('_rt_imageLayerComposite_589_a', mkTextures(), { clampuvs: null }) : null
+  check('B13 `resolveLayerTexture` 命中捕获到的合成源 RT（几何档的保留名层因此能画）',
+    !!meshHit && !!meshHit.glTex && meshHit.width > 0, JSON.stringify({ hit: !!meshHit, glTex: !!(meshHit && meshHit.glTex), w: meshHit && meshHit.width }))
+  const missHit = (typeof r6.resolveLayerTexture === 'function') ? r6.resolveLayerTexture('materials/不存在.tex', mkTextures(), {}) : null
+  check('B14 普通名走直接查表、未命中返回 null（调用方仍走原 `(noTex)` 兜底，不猜）',
+    missHit === null && (() => { const d = r6.resolveLayerTexture('tex_a', mkTextures(), {}); return !!d && !!d.glTex && d.glTex.__mpwId === 'layer_base' })())
+  const stat6 = lib.compositeSourceStats()
+  check('B15 该口的命中进 `compositeSourceStats().meshHits` 台账', stat6.meshHits >= 1, 'meshHits=' + stat6.meshHits)
+}
+
 console.log('\n' + pass + ' 通过 / ' + fail + ' 失败（P-246 合成源命名捕获）')
 process.exit(fail === 0 ? 0 : 1)

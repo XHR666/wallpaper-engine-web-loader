@@ -4492,6 +4492,12 @@ export function buildMesh3dCamera(scene, width, height, opts = null) {
     })
     .filter(Boolean)
   const camPick = camLayers.filter((c) => c.layer.visible).pop() || camLayers[0] || null
+  /* ①(P-260 2026-10-07) **`cameraNode` 回退**：`cameraLayers` 是 P-257 新加的**场景级**字段，但宿主/测试
+     传进来的 scene 对象不一定有它（合成场景、旧解析结果、或只建了 2D 口径的 `cameraNode` 的路径）。
+     官方 `runtimeCamera` 本来就只有"相机层"这一个来源 ⇒ 这里在 `cameraLayers` 缺席时用 `cameraNode` 顶上：
+     `originRaw` 是**作者空间**原文（`'0 0 6'` 或 `{script,value}`，P-120 的宿主求值会就地改写 `.value`）
+     ⇒ **直接**当 eye 用（不走 `projH − y`，那个翻转只发生在本仓解析出的 layer 上）。 */
+  const cn = (scene && scene.cameraNode) ? scene.cameraNode : null
   let eye, up, center, fov
   if (!ov && camPick) {
     const lo = Array.isArray(camPick.layer.origin) ? camPick.layer.origin : [0, 0, 0]
@@ -4501,6 +4507,13 @@ export function buildMesh3dCamera(scene, width, height, opts = null) {
     const f = (Number(a[0]) || Number(a[1])) ? cameraForwardFromAngles(a[0], a[1]) : [0, 0, -1]
     center = [eye[0] + f[0], eye[1] + f[1], eye[2] + f[2]]
     fov = (Number(camPick.fov) > 0) ? Number(camPick.fov) : ((Number(g.fov) > 0) ? Number(g.fov) : 50)
+  } else if (!ov && cn) {
+    eye = p3(cn.originRaw && cn.originRaw.value !== undefined ? cn.originRaw.value : cn.originRaw, [0, 0, 0])
+    up = p3(cam && cam.up, [0, 1, 0])
+    const a = Array.isArray(cn.angles) ? cn.angles : [0, 0, 0]
+    const f = (Number(a[0]) || Number(a[1])) ? cameraForwardFromAngles(a[0], a[1]) : [0, 0, -1]
+    center = [eye[0] + f[0], eye[1] + f[1], eye[2] + f[2]]
+    fov = (Number(cn.fov) > 0) ? Number(cn.fov) : ((Number(g.fov) > 0) ? Number(g.fov) : 50)
   } else {
     eye = p3(ov && ov.eye, p3(cam && cam.eye, [0, 0, 0]))
     up = p3(ov && ov.up, p3(cam && cam.up, [0, 1, 0]))
@@ -4522,7 +4535,7 @@ export function buildMesh3dCamera(scene, width, height, opts = null) {
   return {
     view, projection, viewProj: mat4Multiply(projection, view),
     eye, center, up, fov, near, far, aspect, perspective: true,
-    cameraLayer: camPick ? String(camPick.layer.name || camPick.layer.id) : null,
+    cameraLayer: camPick ? String(camPick.layer.name || camPick.layer.id) : (cn ? String(cn.name || cn.camera || cn.id || 'cameraNode') : null),
   }
 }
 
@@ -12882,14 +12895,14 @@ export function createRenderer(canvas, opts = {}) {
      （**世界单位**，不是设计像素）缩放；天空盒层平移取相机 `eye`。旧口径（`legacy`）= 把 3D 层当 2D 层画
      （origin/尺寸按设计像素、只吃 `angles[2]`、用 `scene.json` 快照相机的投影）—— 在 3D 包上表现为
      "一张贴图铺满全屏的灰屏"。缺省关**只对真透视场景生效** ⇒ 2D 语料一位不变。 */
-  /* ⚠ **默认 `legacy`（= 通路实现但缺省不启用）**：本轮真机 A/B 里它没有带来可见收益 ——
-     `?modellayer=mesh` 档截图与 P-257 时**逐字节相同**（sha f137deeca0a256d2…）、关档画面也仍是那张
-     "天空球当整屏四边形"的灰屏（`skybox1` size 2048×1024 × scale 10000 在两套空间里都盖满屏）。
-     唯一的机制收益（台账取证）：小的 3D 四边形（文本层 `t3zh`）从"被 2D 的 0.5px 退化门限整层跳过"
-     变成"真的发出绘制"（`__mpwLayerLedger` 条目 `rd=[1836,1080,39,9]` vs legacy 档**一条都没有**）；
-     但屏幕像素仍是空的（隔离该层后整帧 max=0）⇒ 文本位图/颜色那一段另有缺口，留待下一轮。
-     故本通路按"原型"收口：`?quad3d=m3d` 显式打开，缺省逐位回到改动前。 */
-  const QUAD3D_MODE = (() => { try { return /[?&]quad3d=m3d/.test(String((typeof location !== 'undefined' && location.search) || '')) ? 'm3d' : 'legacy' } catch (e) { return 'legacy' } })()
+  /* ①(P-260 2026-10-07) **缺省改为开（只对真透视场景）**：P-258 当初按"无可见收益"收口成原型档，
+     本轮把判据换到"作者真的会显示的层"上重测，收益明确 —— `0923/3662790108` 的**说明文本层**
+     （`t2`/`t4`/`t5`：文字 "Planetary orbit…/Note: For the…/双 击 文 本"，`color=[1,1,1]`、
+     `alpha≈0.3~1`）在 `quad3d=m3d` 下**上屏**（隔离采样：`lit=1075 px`、`max=129`、
+     包围盒 `122×107 @(440,464)`），在 `legacy` 下**一个像素都没有**（`lit=0 / max=0`）——
+     因为 2D 口径把 3D 层的 `size×scale` 当设计像素（1059 × 1.8e-5 = 0.019 px）。
+     两档的差异只在**真透视场景**（2D 语料 `cam3d=null` ⇒ 恒 legacy 分支）；回退口 `?quad3d=legacy`。 */
+  const QUAD3D_MODE = (() => { try { return /[?&]quad3d=legacy/.test(String((typeof location !== 'undefined' && location.search) || '')) ? 'legacy' : 'm3d' } catch (e) { return 'm3d' } })()
   /* ①(P-257) 3D 通路台账（`renderer.mesh3dStats()` / `globalThis.__mpw3d`）：persp=本帧真透视场景、
      mode=?sky3d 档、相机读数、depthRT=场景目标 RT 有没有挂上深度附件、skyboxFirst=排序档、
      drawn/skyboxDrawn/bytes/noTex=宿主 mesh 几何侧的计数（由 demo 的 `?modellayer=mesh` 通路填）。 */
@@ -17072,6 +17085,29 @@ export function createRenderer(canvas, opts = {}) {
     // ①(P-257) 3D 通路台账快照（只读；`?modellayer=mesh` + 3D 包取证用）：
     //   persp/mode/fov/eye/near/far/aspect/depthRT/skyboxFirst + 宿主侧的 layers/drawn/skyboxDrawn/noTex/skipped
     get mesh3dStats() { return Object.assign({}, mesh3dLedger) },
+    /* ①(P-260 2026-10-07) **网格层的"保留名"纹理解析**（只读，不改 GL 状态之外的东西）：
+       几何档的层内容纹理此前只有 `textures.get(layer.textureName)` 一条路 ⇒ 材质槽写着
+       `_rt_imageLayerComposite_<源层id>_<后缀>`（P-246 合成源）或 `$mediaThumbnail`（P-244 系统纹理）
+       的层**恒 miss** ⇒ `(noTex)` 不画（真机：`0923/3662790108` 本帧 7 层卫星/探测器、
+       `0917/3509243656` 2 层 `导航盘 赤道`/`自制天空盒02`）。这里复用**与四边形层内容槽同一条**
+       解析链（`resolveTextureName`：直接查表 → 合成源命名表 → `$` 宿主钩子），并按层的
+       `clampuvs` 口径置 wrap（与 `renderLayer` 的层内容路径同一 helper，避免平铺 uv 的天空盒被
+       CLAMP 拉花）。调用方（宿主）只在直接查表 miss 时才问它 ⇒ 已有纹理的层一位不变。 */
+    resolveLayerTexture: function (name, texMap, layer) {
+      try {
+        if (name === null || name === undefined || name === '') return null
+        const nm = String(name)
+        const map = (texMap && typeof texMap.get === 'function') ? texMap : null
+        const direct = map ? map.get(nm) : null
+        if (direct && direct.glTex) return direct
+        if (!(nm.startsWith('_rt_') || nm.charCodeAt(0) === 0x24 /* '$' */)) return null
+        const hit = resolveTextureName(nm, null, new Map(), map || new Map())
+        if (!hit || !hit.glTex) return null
+        try { layerClampUvWrap(gl, hit.tex || hit.glTex, layer ? layer.clampuvs : null, nm) } catch (e) { /* wrap 失败不影响绑定 */ }
+        try { __compositeLedger.meshHits = (__compositeLedger.meshHits || 0) + 1; publishCompositeLedger() } catch (e) { /* 台账失败不影响绘制 */ }
+        return hit
+      } catch (e) { return null }
+    },
     // ①(P-257) 宿主侧计数（demo 的 mesh 几何通路逐层累加；2D 场景/未开 mesh 档时恒 0）
     mesh3dNote: function (patch) {
       if (!patch || typeof patch !== 'object') return mesh3dLedger
@@ -17514,10 +17550,10 @@ export function resetSystemTextureLedger() {
    `gc` = 引用消失被清掉的条目数、`lastRefs` = 最近一次扫描到的 `<id>:<名字…>`（最多 8 条）、`errors` = 捕获异常。 */
 const __compositeLedger = { frames: 0, refs: 0, captures: 0, hits: 0, misses: 0, gc: 0, errors: 0, depIds: 0, depList: [], lastRefs: [], lastAt: 0, layerContentHits: 0 }
 export function compositeSourceStats() {
-  return { frames: __compositeLedger.frames, refs: __compositeLedger.refs, captures: __compositeLedger.captures, hits: __compositeLedger.hits, misses: __compositeLedger.misses, gc: __compositeLedger.gc, errors: __compositeLedger.errors, depIds: __compositeLedger.depIds, depList: __compositeLedger.depList.slice(), lastRefs: __compositeLedger.lastRefs.slice(), lastAt: __compositeLedger.lastAt, layerContentHits: __compositeLedger.layerContentHits }
+  return { frames: __compositeLedger.frames, refs: __compositeLedger.refs, captures: __compositeLedger.captures, hits: __compositeLedger.hits, misses: __compositeLedger.misses, gc: __compositeLedger.gc, errors: __compositeLedger.errors, depIds: __compositeLedger.depIds, depList: __compositeLedger.depList.slice(), lastRefs: __compositeLedger.lastRefs.slice(), lastAt: __compositeLedger.lastAt, layerContentHits: __compositeLedger.layerContentHits, meshHits: __compositeLedger.meshHits || 0 }
 }
 export function resetCompositeSourceStats() {
-  __compositeLedger.frames = 0; __compositeLedger.refs = 0; __compositeLedger.captures = 0; __compositeLedger.hits = 0; __compositeLedger.misses = 0; __compositeLedger.gc = 0; __compositeLedger.errors = 0; __compositeLedger.depIds = 0; __compositeLedger.depList = []; __compositeLedger.lastRefs = []; __compositeLedger.lastAt = 0; __compositeLedger.layerContentHits = 0
+  __compositeLedger.frames = 0; __compositeLedger.refs = 0; __compositeLedger.captures = 0; __compositeLedger.hits = 0; __compositeLedger.misses = 0; __compositeLedger.gc = 0; __compositeLedger.errors = 0; __compositeLedger.depIds = 0; __compositeLedger.depList = []; __compositeLedger.lastRefs = []; __compositeLedger.lastAt = 0; __compositeLedger.layerContentHits = 0; __compositeLedger.meshHits = 0
   try { const g = (typeof globalThis !== 'undefined') ? globalThis : null; if (g) g.__mpwComposite = compositeSourceStats() } catch (e) {}
   return true
 }

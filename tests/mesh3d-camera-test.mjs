@@ -91,6 +91,21 @@ console.log('== A 纯函数（官方逐式）==')
   check('A3f 无相机层 ⇒ 回退静态 camera 快照（center 存在就用它）',
     nearV(c3b.eye, [0.11, 2.23, -1.48]) && nearV(c3b.center, [0.24, 2.07, -0.51]) && c3b.cameraLayer === null,
     JSON.stringify({ eye: c3b.eye, center: c3b.center, layer: c3b.cameraLayer }))
+  /* ①(P-260 2026-10-07) `cameraLayers` 缺席时的 **`cameraNode` 回退**：`originRaw` 是作者空间原文
+     （`'0 0 6'` 或 `{script,value}`）⇒ 直接当 eye 用（不再做 `projH − y` 还原）；`center` 仍由 angles 推。
+     判据同时被 `camera-persp` ⑦ 交叉验证（该合成场景只有 `cameraNode`，6:3:2 透视律逐位成立）。 */
+  const scNode = {
+    projH: 1080, general: { fov: 50, nearz: 0.01, farz: 10000 }, camera: null,
+    cameraNode: { id: 443, camera: 'default', fov: 50, originRaw: '0 0 6', angles: [0, 0, 0] },
+    layers: [],
+  }
+  const c3n = lib.buildMesh3dCamera(scNode, 1280, 720)
+  check('A3h `cameraLayers` 缺席 ⇒ 用 `cameraNode` 顶上（eye = originRaw 作者空间原文、center 由 angles 推）',
+    nearV(c3n.eye, [0, 0, 6]) && nearV(c3n.center, [0, 0, 5]) && c3n.fov === 50 && c3n.cameraLayer === 'default',
+    JSON.stringify({ eye: c3n.eye, center: c3n.center, layer: c3n.cameraLayer }))
+  const c3v = lib.buildMesh3dCamera(Object.assign({}, scNode, { cameraNode: { id: 443, fov: 40, originRaw: { value: '1 2 3' } } }), 1280, 720)
+  check('A3i `originRaw` 为 `{script,value}` 形态时吃 `.value`（P-120 宿主就地求值后的结果）',
+    nearV(c3v.eye, [1, 2, 3]) && c3v.fov === 40, JSON.stringify({ eye: c3v.eye, fov: c3v.fov }))
   const scUp = {
     projH: 1080, general: { fov: 40, nearz: 0.5, farz: 5 },
     camera: null, cameraLayers: [{ id: 9, camera: 'default', fov: null }],
@@ -162,9 +177,11 @@ else {
   check('B2 **相机取相机层 #705**（eye=(0,0,0.454)、朝 −z）—— 用 scene.camera 快照 (0.11,2.23,−1.48) 会让整场跑出画面',
     nearV(cam3d.eye, [0, 0, 0.454], 1e-6) && nearV(cam3d.center, [0, 0, -0.546], 1e-6) && cam3d.cameraLayer === '705',
     JSON.stringify({ eye: cam3d.eye, center: cam3d.center, layer: cam3d.cameraLayer }))
-  const bad = lib.buildMesh3dCamera(Object.assign({}, parsed, { cameraLayers: [] }), 1280, 720)
+  // ①(P-260) 反证要把**两个相机来源都清掉**才是"只剩静态 camera 快照"（`cameraNode` 回退是 P-260 新加的：
+  //   真包有 `#705` 相机节点 ⇒ 只清 `cameraLayers` 会落到相机节点、原点投影回画面中心，反证失去意义）
+  const bad = lib.buildMesh3dCamera(Object.assign({}, parsed, { cameraLayers: [], cameraNode: null }), 1280, 720)
   const snapNdc = ndc(bad.viewProj, [0, 0, 0])
-  check('B2b 反证：静态快照相机把场景原点投到画面外（|NDC.y| > 1）',
+  check('B2b 反证：**只留静态快照**时场景原点被投到画面外（|NDC.y| > 1）—— 故"用哪台相机"是真问题',
     Math.abs(snapNdc[1]) > 1, 'snap ndc=' + JSON.stringify(snapNdc.slice(0, 3).map((v) => +v.toFixed(3))))
 
   let nan = 0, onScreen = 0, effOk = 0
@@ -236,11 +253,11 @@ console.log('== C 源码/接线保证（默认关 + 深度 + 排序 + 回退口�
      矩阵走"作者 y 还原 + Ry/Rx/Rz + 世界单位 + y 取负（本仓 LOCAL_QUAD 把 y-down 烘进几何）"，
      视图投影必须与层变换**同档**（legacy 档不许换相机，否则是"像素层坐标 + 世界相机"的错配），
      且 3D 档的退化门限按世界单位（1e-6）而不是 2D 的 0.5px。 */
-  check('C10 `?quad3d=m3d` 原型通路：默认 legacy、相机与层变换同档、作者 y 还原、Ry/Rx 参与、y 取 −h、退化门限按世界单位',
+  check('C10 四边形层的 3D 通路（缺省开、`?quad3d=legacy` 回退）：相机与层变换同档、作者 y 还原、Ry/Rx 参与、y 取 −h、退化门限按世界单位',
     /if \(__quad3d\) cam\.cam3d = __quad3d/.test(CORE_SRC) &&
     /const __quad3d = \(__cam3d && QUAD3D_MODE !== 'legacy'\) \? __cam3d : null/.test(CORE_SRC) &&
     /let viewProj = __quad3d \? __quad3d\.viewProj : mat4Multiply\(cam\.projection, cam\.view\)/.test(CORE_SRC) &&
-    /\[\?&\]quad3d=m3d\//.test(CORE_SRC) && /catch \(e\) \{ return 'legacy' \} \}\)\(\)/.test(CORE_SRC) &&
+    /\[\?&\]quad3d=legacy\//.test(CORE_SRC) && /catch \(e\) \{ return 'm3d' \} \}\)\(\)/.test(CORE_SRC) &&
     /const __c3 = \(cam && cam\.cam3d && QUAD3D_MODE !== 'legacy'\) \? cam\.cam3d : null/.test(CORE_SRC) &&
     /const __ey = __sky \? __c3\.eye\[1\] : \(__ph - oy\)/.test(CORE_SRC) &&
     /if \(Number\(layer\.angles\[1\]\)\) m = mat4RotateY\(m, Number\(layer\.angles\[1\]\)\)/.test(CORE_SRC) &&

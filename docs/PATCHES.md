@@ -17260,3 +17260,63 @@ E5 auto 判据离线复算：`3662790108` ⇒ mesh、`3463520581` ⇒ off）。
 回归：`demo-check` 133/0、`meshsize` 48/0、`kaltsit-puppet-anchor` 50/0、`load-timeout` 70/0、
 `scene-intro-black` 31/0、`props-panel` 278/0、`diag-flag-check` **230==230**（新增 `mdlquad` 行 +
 `modellayer` 行改写）。
+
+## P-260（2026-10-07）几何档的**保留名材质槽**能拿到纹理 + 四边形 3D 通路**缺省翻为开**（3D 包的文本/HUD 因此上屏）
+
+### 一、保留名材质槽（`_rt_*` / `$*`）在几何档恒 `(noTex)`
+**现象**：几何档（`?modellayer=mesh` / auto）的层内容纹理只有 `textures.get(layer.textureName)` 一条路，
+而材质槽 0 写 `_rt_imageLayerComposite_<源层id>_<后缀>`（P-246 合成源）或 `$mediaThumbnail`（P-244
+系统纹理）的层**在 `textures` 里永远查不到**（渲染期资源）⇒ 一律 `(noTex)` 不画。
+真机：`0923/3662790108` 本帧 7 层（`hubble`/`BeiDou`×2/`gps`/`GLONASS`/`p6s6a`/`NIGHT`）、
+`0917/3509243656` 2 层（`导航盘 赤道` → `…_433_a`、`自制天空盒02` → `…_589_a`）。
+
+**修法**：core 新增只读解析口
+`renderer.resolveLayerTexture(name, texMap, layer)` —— 直接查表 →（保留名）复用**与四边形层内容槽同一条**
+`resolveTextureName`（合成源命名表 → `$` 宿主钩子）→ 按层 `clampuvs` 置 wrap（同一 `layerClampUvWrap`
+helper，避免平铺 uv 的天空盒被 CLAMP 拉花）；命中进 `compositeSourceStats().meshHits`。
+宿主 `onMeshLayer` 只在直接查表 miss 时才问它（台账 `window.__mpwMeshReserved={hits,names}`），未命中仍走原
+`(noTex)` 兜底 ⇒ **已有纹理的层一位不变**。
+
+**真机读数**：`3509243656` `__mpwMeshReserved={hits:231, names:[导航盘 赤道:…_433_a, 自制天空盒02:…_589_a]}`、
+`compositeSourceStats().hits` 由 160 → 231（**但该包整帧仍是黑的** —— 上游对本包 `scene render failed`，
+本项只把"画了"这条链修对）；`3662790108` `reserved.hits=23`（`NIGHT:…_929_a`），整帧观感不变（该层很小）。
+
+**如实登记**：本项**可见收益 ≈ 0**（两包的这些层要么极小、要么所在场景本来就黑），价值在"几何档不再有
+'保留名 = 恒不画'的盲区" + 台账可对号；同时登记另外 6 个无槽 0 纹理的层（`BeiDou`×2/`gps`/`GLONASS`
+= 纯 PBR 颜色无贴图、`scale` 在起始状态为 **0**；`p6s6a` scale 0.001 ≈ 1.5px；`hubble` 的材质文件不在包内）
+⇒ 给它们做"1×1 白纹理 × 材质 color"**也不会有可见变化**，故不做。
+
+### 二、四边形层的官方 4×4 通路缺省翻为开（P-258 的"无可见收益"结论被本轮推翻）
+P-258 当时按"无可见收益"收口成 `?quad3d=m3d` 原型档，那是**判据选错了层**：当时隔离的 `t3zh` 是作者
+自己设成**纯黑 color**（`0 0 0`）的层，另几个 `t3*` 的 `alpha` 被脚本压成 0 —— 都是"作者本来就不显示"。
+本轮把判据换到作者真的会显示的层上：
+
+| 档 | 隔离 `0923/3662790108` 的说明文本层（`t2`/`t4`/`t5`：`color=[1,1,1]`、`alpha≈0.3~1`，文字
+"Planetary orbit…" / "Note: For the…" / "双 击 文 本 / 天 体 …"） |
+|---|---|
+| `?quad3d=legacy`（旧缺省） | **`lit=0 px / max=0`** —— 一个像素都没有（2D 口径把 `size×scale` 当设计像素：1059 × 1.8e-5 = **0.019 px**） |
+| 缺省（`m3d`） | **`lit=1075 px / max=129 / 包围盒 122×107 @(440,464)`** —— 文本按官方 4×4 落在作者摆的位置上 |
+
+⇒ `QUAD3D_MODE` 缺省改为 `m3d`（只对真透视场景生效；2D 语料 `cam3d=null` ⇒ 恒走 legacy 分支），
+回退口 **`?quad3d=legacy`**。默认档整帧读数（`3662790108`，auto 几何档 + quad3d 开）：
+`mean 8.8 / uniq 92`（legacy 档 `5.5 / 72`），截图里能看到整套中文 HUD/说明文本
+（`/tmp/p257c-3662790108-default.png`）—— 这把 P-258 登记的"3D 文本层画了但全黑"边界**判定为作者数据
+（黑字/alpha 0），不是渲染器缺陷**：白字层在 `m3d` 档下确实上屏。
+
+### 三、`buildMesh3dCamera` 的 `cameraNode` 回退（本补丁顺带修的一处鲁棒性缺口）
+`cameraLayers` 是 P-257 新加的**场景级**字段；宿主/测试传进来的 scene 对象不一定有它（合成场景、
+旧解析结果、只建了 2D 口径 `cameraNode` 的路径）。官方 `runtimeCamera` 本来就只有"相机层"一个来源
+⇒ 缺席时改用 `scene.cameraNode` 顶上：`originRaw` 是**作者空间原文**（`'0 0 6'` 或 `{script,value}`，
+P-120 的宿主求值会就地改写 `.value`）⇒ **直接**当 eye 用（不做 `projH − y` 还原，那个翻转只发生在
+本仓解析出的 layer 上），`center` 仍由 `angles` 推。
+交叉验证：`tests/camera-persp-test.mjs` ⑦ 的合成场景**只有 `cameraNode`**（`origin '0 0 6'`、三层
+z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w 行 `[0,0,−1,3]` **逐位成立**，
+等于用另一条独立判据复核了 P-257 的相机数学。反向判据（`mesh3d-camera` B2b）也相应收紧：
+"只剩静态 `camera` 快照"时必须**两个来源都清掉**才算隔离（真包有 `#705` 相机节点）。
+
+### 判据
+`composite-zorder` **24/0**（新增 B13/B14/B15：`resolveLayerTexture` 命中捕获 RT / 普通名直接查表且未命中
+返回 null / 命中进 `meshHits` 台账）；`mesh3d-camera` **51/0**（C10 改为"缺省开、`?quad3d=legacy` 回退"）。
+回归：`demo-check` 133/0、`mock-gl` 60/0、`meshsize` 48/0、`kaltsit-puppet-anchor` 50/0、`load-timeout` 70/0、
+`scene-intro-black` 31/0、`charfit-camera` 46/0、`system-texture-slot` 14/0、**`camera-persp` 57/0**（⑦ 独立复核 3D 相机数学）、
+`diag-flag-check` **230==230**。
