@@ -9722,6 +9722,9 @@ uniform vec2 u_Proj;     // (projW, projH) 设计画布（= 无相机时的取�
 uniform vec2 u_View;     // ①(P-100) 相机 view 平移（世界像素，= (−pose.x, +pose.y)）；无相机 (0,0)
 uniform vec2 u_Framed;   // ①(P-100) 相机取景窗口（= 设计画布 / zoom）；无相机 = u_Proj
 uniform float u_VFlip;   // 0/1：纹理 v 轴是否翻转（A/B 诊断用，?vflip=1）
+uniform float u_OriginZ; // ①(P-255) 3D 模型层：层 origin.z（设计坐标；2D 蒙皮恒 0）
+uniform float u_ScaleZ;  // ①(P-255) 3D 模型层：z 缩放（2D 蒙皮恒 1）
+uniform vec3 u_Persp;    // ①(P-255) (fovDeg, camZ, aspect)；fovDeg<=0 ⇒ 关（正交路径，2D 蒙皮默认）
 out vec2 v_TexCoord;
 void main() {
   vec4 p = vec4(a_Position, 1.0);
@@ -9741,7 +9744,23 @@ void main() {
   //   (2200.5,595.2) 在 t=0 应为 x=6719.8，绕 0 缩放会算成 10559.8 —— 与四边形层不配准）。
   vec2 c = u_Proj * 0.5;
   vec2 wpos = u_Origin + u_Scale * sk.xy + u_View;
-  gl_Position = vec4((wpos.x - c.x) * 2.0 / u_Framed.x, (c.y - wpos.y) * 2.0 / u_Framed.y, 0.0, 1.0);
+  /* ①(P-255 2026-10-07) 3D 模型层的透视投影（u_Persp.x > 0 才走）：
+     静态模型层（.mdl，P-250/P-254）的顶点是**模型空间 3D 坐标**，官方用真透视相机画；本仓 mesh 程序
+     原先是给 puppet 的 2D 正交映射（z 直接丢掉）⇒ 3D 包上画出来是黑的（P-254 真机读数）。
+     相机口径：camZ = (projH/2)/tan(fov/2)，即"设计画布平面（z=0）1:1 成像"的那台相机；+z 朝观察者。
+     与相机取景（u_View/u_Framed）的关系：先按正交路径同一套 u_Proj/u_Framed 缩放，保持两档一致。
+     u_Persp.x <= 0（缺省）⇒ 逐位回到改动前的正交公式（2D 蒙皮零回归）。 */
+  vec2 ndc;
+  if (u_Persp.x > 0.0) {
+    float t = tan(radians(u_Persp.x) * 0.5);
+    float d = u_Persp.y - (u_OriginZ + u_ScaleZ * sk.z);
+    d = (d < 1.0) ? 1.0 : d;                       // 近裁剪兜底（避免除零/背面翻面）
+    ndc = vec2((wpos.x - c.x) / (d * t * u_Persp.z), (c.y - wpos.y) / (d * t));
+    ndc *= u_Proj / u_Framed;                      // 与正交路径同一套相机取景缩放
+  } else {
+    ndc = vec2((wpos.x - c.x) * 2.0 / u_Framed.x, (c.y - wpos.y) * 2.0 / u_Framed.y);
+  }
+  gl_Position = vec4(ndc, 0.0, 1.0);
   // ?vflip=1：纹理 v 轴翻转（一次刷新即可 A/B 判定"头发/飘带倒着"是否 v 轴反）
   v_TexCoord = vec2(a_TexCoord.x, mix(a_TexCoord.y, 1.0 - a_TexCoord.y, u_VFlip));
 }`
@@ -10969,6 +10988,10 @@ export function createRenderer(canvas, opts = {}) {
       framed: gl.getUniformLocation(meshProg, 'u_Framed'),  // ①(P-100) 相机取景窗口
       tex: gl.getUniformLocation(meshProg, 'u_Tex'),
       vflip: gl.getUniformLocation(meshProg, 'u_VFlip'),
+      // ①(P-255) 3D 模型层（静态网格 + 透视）：缺省 (0,0,1)/0/1 ⇒ 正交路径逐位不变
+      originZ: gl.getUniformLocation(meshProg, 'u_OriginZ'),
+      scaleZ: gl.getUniformLocation(meshProg, 'u_ScaleZ'),
+      persp: gl.getUniformLocation(meshProg, 'u_Persp'),
     }
     return meshProg
   }
@@ -11482,6 +11505,20 @@ export function createRenderer(canvas, opts = {}) {
       gl.uniform2f(meshUni.origin, __ox, __oy)
       gl.uniform2f(meshUni.scale, scaleXY[0], scaleXY[1])
       gl.uniform2f(meshUni.proj, projWH[0], projWH[1])
+      /* ①(P-255) 3D 模型层（静态网格）的第三维与透视：`opts2.persp = {fov, camZ, aspect}` +
+         `opts2.originZ/scaleZ`。**缺省全 0/1 ⇒ u_Persp=(0,0,1) ⇒ 顶点着色器走正交分支**（2D 蒙皮零回归）。 */
+      try {
+        if (meshUni.originZ) gl.uniform1f(meshUni.originZ, Number(opts2 && opts2.originZ) || 0)
+        if (meshUni.scaleZ) gl.uniform1f(meshUni.scaleZ, (opts2 && Number.isFinite(opts2.scaleZ)) ? Number(opts2.scaleZ) : 1)
+        const __pp = (opts2 && opts2.persp) || null
+        if (meshUni.persp) {
+          const fov = __pp ? Number(__pp.fov) : 0
+          const camZ = __pp ? Number(__pp.camZ) : 0
+          const aspect = (__pp && Number.isFinite(__pp.aspect) && __pp.aspect > 0) ? Number(__pp.aspect) : 1
+          if (Number.isFinite(fov) && fov > 0 && Number.isFinite(camZ) && camZ > 0) gl.uniform3f(meshUni.persp, fov, camZ, aspect)
+          else gl.uniform3f(meshUni.persp, 0, 0, 1)
+        }
+      } catch (e) { /* 假 GL/旧程序：忽略（正交路径不受影响） */ }
       // ①(P-100 根因) 相机取景接线：`opts2.camera = { view:[vx,vy], framed:[fw,fh] }` 由
       //   `renderScene` 通过 `onMeshLayer(layer, camInfo)` 交给宿主、宿主原样转交到这里。
       //   **不传 / 非法 ⇒ u_View=(0,0)、u_Framed=projWH** ⇒ 顶点着色器与改动前**逐位相同**

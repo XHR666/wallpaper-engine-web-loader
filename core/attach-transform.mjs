@@ -454,14 +454,17 @@ const MDL_STRIDE48_ATTR = { pos: 0, normal: 12, tangent: 24, uv: 40 }
 const MDL48_NRM_MIN = 0.9
 const MDL48_TANW_MIN = 0.8
 const MDL48_UV_MIN = 0.9
+const MDL48_UV_MAX_ABS = 64      // ①(P-256) 平铺 uv 的量级闸门（天空盒 v 可到 2 量级；64 已远超真实资产）
+const MDL48_SPREAD_MIN = 0.05    // ①(P-256) uv 必须有实际变化（全 0 的那种「假 uv」不算）
 const MDL48_SAMPLE_MAX = 80
 
 /** ①(P-250) 48B 布局签名：抽样统计"法线单位率 / 切线 w≈±1 率 / uv∈[-0.05,1.05] 率"。纯读，不改任何状态。 */
 export function mdlStride48Signature(dv, verticesOffset, vertexCount) {
   const vc = Math.max(0, vertexCount | 0)
-  if (!vc) return { nrm: 0, tanw: 0, uv: 0, sample: 0 }
+  if (!vc) return { nrm: 0, tanw: 0, uv: 0, uvFin: 0, spread: 0, sample: 0 }
   const step = Math.max(1, Math.floor(vc / MDL48_SAMPLE_MAX))
-  let n = 0, nrm = 0, tanw = 0, uv = 0
+  let n = 0, nrm = 0, tanw = 0, uv = 0, uvFin = 0
+  let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity
   for (let i = 0; i < vc; i += step) {
     const b = verticesOffset + i * MDL_STRIDE48_STRIDE
     const nx = dv.getFloat32(b + 12, true), ny = dv.getFloat32(b + 16, true), nz = dv.getFloat32(b + 20, true)
@@ -470,10 +473,16 @@ export function mdlStride48Signature(dv, verticesOffset, vertexCount) {
     if (Math.abs(Math.abs(w) - 1) < 0.15) tanw++
     const u = dv.getFloat32(b + 40, true), v = dv.getFloat32(b + 44, true)
     if (u >= -0.05 && u <= 1.05 && v >= -0.05 && v <= 1.05) uv++
+    if (Number.isFinite(u) && Number.isFinite(v) && Math.abs(u) <= MDL48_UV_MAX_ABS && Math.abs(v) <= MDL48_UV_MAX_ABS) uvFin++
+    if (u < uMin) uMin = u
+    if (u > uMax) uMax = u
+    if (v < vMin) vMin = v
+    if (v > vMax) vMax = v
     n++
   }
   const d = Math.max(1, n)
-  return { nrm: nrm / d, tanw: tanw / d, uv: uv / d, sample: n }
+  const spread = Math.max(uMax - uMin, vMax - vMin)
+  return { nrm: nrm / d, tanw: tanw / d, uv: uv / d, uvFin: uvFin / d, spread: Number.isFinite(spread) ? spread : 0, sample: n }
 }
 
 /** ①(P-250) 现有 80B 候选的"uv 证据"：uv@72 落在 [0,1] 的抽样比例（判"这个 80B 解释像不像真的"）。 */
@@ -523,7 +532,10 @@ export function findMdlStride48Block(raw, dv, limit) {
     for (let k = 0; k < Math.min(ic, 400); k++) if (dv.getUint16(indicesOffset + k * 2, true) < vc) idxOk++
     if (idxOk < Math.min(ic, 400) * 0.98) continue
     const sig = mdlStride48Signature(dv, verticesOffset, vc)
-    if (!(sig.nrm >= MDL48_NRM_MIN && sig.tanw >= MDL48_TANW_MIN && sig.uv >= MDL48_UV_MIN)) continue
+    /* ①(P-256 2026-10-07) 接受判据：法线单位 + 切线 w≈±1（两条强判据）+ uv **要么**绝大多数落在 [0,1]
+       **要么**全部有限、量级合理且有实际变化（= 平铺 uv 的天空盒：真包 models/自制天空盒02 的 v 到 2.04）。 */
+    const uvOk = (sig.uv >= MDL48_UV_MIN) || (sig.uvFin >= 0.99 && sig.spread >= MDL48_SPREAD_MIN)
+    if (!(sig.nrm >= MDL48_NRM_MIN && sig.tanw >= MDL48_TANW_MIN && uvOk)) continue
     return {
       block: { verticesOffset, vertexBytes, indicesOffset, indexBytes, stride: MDL_STRIDE48_STRIDE, variant: 'stride-48', attr: MDL_STRIDE48_ATTR },
       sig,

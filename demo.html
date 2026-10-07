@@ -8040,6 +8040,20 @@ function loadScene() {
         if (camInfo && Array.isArray(camInfo.view) && Array.isArray(camInfo.framed)) {
           meshOpts = Object.assign({}, meshOpts, { camera: { view: camInfo.view, framed: camInfo.framed } })
         }
+        /* ①(P-255 2026-10-07) **静态模型层（3D 网格）走真透视**：顶点是模型空间 3D 坐标，官方用
+           `general.fov` 那台相机投影；本仓 mesh 程序原先是 2D 正交（丢掉 z）⇒ P-254 真机在 3D 包上
+           画出来是黑的。这里把 `{fov, camZ, aspect}` + 层的 `origin.z/scale.z` 交给 core 的 MESH_VS
+           （`camZ = (projH/2)/tan(fov/2)` = "设计画布平面 1:1 成像"的相机距离）。2D 场景（有 ortho 矩形）
+           或 fov 缺省 ⇒ 传 null ⇒ 正交路径逐位不变；puppet 蒙皮（非 staticModel）一律不传。 */
+        if (sk.staticModel) {
+          const fov3d = Number(scene && scene.general && scene.general.fov) || 0
+          const hasOrtho = !!(op && op.width && op.height)
+          meshOpts = Object.assign({}, meshOpts, {
+            originZ: (layer.origin && layer.origin[2]) || 0,
+            scaleZ: (layer.scale && Number.isFinite(layer.scale[2])) ? layer.scale[2] : 1,
+            persp: (!hasOrtho && fov3d > 0) ? { fov: fov3d, camZ: (projH / 2) / Math.tan(fov3d * Math.PI / 360), aspect: projW / projH } : null,
+          })
+        }
         renderer.renderMeshLayer(layer, sk.mesh, sk.gBones, sk.nb, originXY, scaleXY, [projW, projH], texObj.glTex, meshOpts)
         // ①(P-41 A5) 网格层进台账：蒙皮层走 onMeshLayer 回调、绕过 compositeLayer 的 onLayerDraw，
         //   此前 girl 型"画没画/画到哪"在报告里无证据（GirlCat 拉伸疑案）。矩形 = bind bbox 经

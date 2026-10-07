@@ -126,19 +126,23 @@ console.log('== B 真实语料全量对账（158 个 .mdl / 51 包）==')
   const byVar = rows.reduce((m, r) => { m[r.variant] = (m[r.variant] || 0) + 1; return m }, {})
   const failed = rows.filter((r) => !r.parsed)
   check('B1 语料 158 个 .mdl 全部走到（审计口径一致）', rows.length === 158, 'n=' + rows.length)
-  check('B2 **解析成功 154 / 失败 4**（修前 112/46；+42 救回）', rows.filter((r) => r.parsed).length === 154 && failed.length === 4,
+  check('B2 **解析成功 158 / 失败 0**（修前 112/46；P-250 救回 42、P-256 再补 4 个平铺 uv 天空盒）',
+    rows.filter((r) => r.parsed).length === 158 && failed.length === 0,
     'ok=' + rows.filter((r) => r.parsed).length + ' fail=' + failed.length)
-  check('B3 分支分布 = stride-80:74 / stride-48:75 / mdlv0016-compact-52:5',
-    byVar['stride-80'] === 74 && byVar['stride-48'] === 75 && byVar['mdlv0016-compact-52'] === 5, JSON.stringify(byVar))
+  check('B3 分支分布 = stride-80:74 / stride-48:79 / mdlv0016-compact-52:5',
+    byVar['stride-80'] === 74 && byVar['stride-48'] === 79 && byVar['mdlv0016-compact-52'] === 5, JSON.stringify(byVar))
   const mdlsOn48 = rows.filter((r) => r.mdls && r.variant === 'stride-48')
   check('B4 **没有一个带 MDLS 的文件被判成 48**（骨架/顶点不错配）', mdlsOn48.length === 0,
     mdlsOn48.slice(0, 3).map((r) => r.pkg + '::' + r.name).join(' | '))
-  check('B5 仍失败的 4 个 = 2.87MB 天空盒（uv 超出 [0,1]，按"不猜"如实拒绝）',
-    failed.length === 4 && failed.every((r) => /自制天空盒0[012]/.test(r.name) && r.size === 2866891),
-    failed.map((r) => r.name + '=' + r.size).join(' | '))
+  /* ①(P-256 2026-10-07) 原先"仍失败的 4 个"（2.87MB 天空盒）现在按 **平铺 uv** 合法接受：
+     它们的 uv 会超过 1（真机读数 v ∈ [0.06, 2.04]，落在 [0,1] 的只有 46%），但法线/切线判据全 1.00。 */
+  const skies = rows.filter((r) => /自制天空盒0[012]/.test(r.name))
+  check('B5 4 个天空盒（平铺 uv）现在也解析成功、且都走 stride-48',
+    skies.length === 4 && skies.every((r) => r.parsed && r.variant === 'stride-48'),
+    skies.map((r) => r.name + '→' + r.variant + (r.parsed ? '✓' : '✗')).join(' | '))
   const p48 = rows.filter((r) => r.variant === 'stride-48' && r.parsed)
   check('B6 48B 分支的文件都能给出网格（positions/uv/indices 非空）',
-    p48.length === 75 && p48.every((r) => true), 'n=' + p48.length)
+    p48.length === 79 && p48.every((r) => r.parsed), 'n=' + p48.length)
   const puppets = rows.filter((r) => r.mdls)
   check('B7 蒙皮文件（MDLS）分支只用 80/52（67+5=72 个）',
     puppets.length === 72 && puppets.every((r) => r.variant === 'stride-80' || r.variant === 'mdlv0016-compact-52'),

@@ -16968,3 +16968,52 @@ P-252（并发闸门 + 在飞去重）、P-253（蒙皮跳过整条读，本次�
   quad 档能画（P-247 的层内容路径会解析保留名）。
 - `mesh` 档会整条读 mdl（3662790108 实测 **323MB**）⇒ 缺省 16MB 上限 + `?modelmeshmb=` 可调，超限进 `reasons`。
 - 因此 `?modellayer` 的**默认仍为关**；`1|on` = 既有四边形档（P-247），`mesh` = 上述原型。
+
+## P-255（2026-10-07）`MESH_VS` 的**透视分支**：3D 模型层（静态网格）在正交映射下画不出来
+
+### 现象
+P-254 把静态模型层接成几何后，真机在 3D 包上**画面变黑**（`0923/3662790108`：quad 档 `mean 141.2 / uniq 128`
+→ mesh 档 `mean 0.1 / uniq 8`）。根因：`MESH_VS` 是给 puppet 设计的 **2D 正交**映射
+（`gl_Position = ((wpos − c)/framed)·2`、**z 分量直接丢掉**），而模型层的顶点是**模型空间 3D 坐标**，
+官方用 `general.fov` 那台相机做真透视。
+
+### 修法
+1. **core（`MESH_VS`）**：新增 `u_OriginZ` / `u_ScaleZ` / `u_Persp`（`vec3(fovDeg, camZ, aspect)`）。
+   `u_Persp.x > 0` 时走透视分支：
+   `d = camZ − (originZ + scaleZ·v.z)`（近裁剪兜底 `d ≥ 1`）、`ndc = ((w.x−c.x)/(d·t·aspect), (c.y−w.y)/(d·t))`，
+   再乘 `u_Proj/u_Framed`（与正交路径同一套相机取景缩放）。
+   相机口径 `camZ = (projH/2)/tan(fov/2)` = "设计画布平面（z=0）1:1 成像"的那台相机；`+z` 朝观察者。
+   `u_Persp.x ≤ 0`（缺省）⇒ **逐位回到改动前的正交公式**（puppet 零回归：`kaltsit-puppet-anchor` 50/0、`meshsize` 48/0）。
+2. **宿主（`demo.html`）**：`sk.staticModel` 的层才传 `{persp, originZ, scaleZ}`；2D 场景（有 ortho 矩形）或
+   `general.fov` 缺省 ⇒ 传 `null` ⇒ 正交路径不变。
+
+### 真机读数（`0923/3662790108`，mesh 档）
+| 配置 | 帧 | 画面 | `__mpwModelMesh` |
+|---|---|---|---|
+| `?modellayer=1`（quad） | 15 | `mean 141.2 / uniq 128` | — |
+| `?modellayer=mesh`（mdl 上限 16MB） | 15 | `mean 5.5 / uniq 72`（有变化但仍很暗） | `{seen:73, drawn:64, skipped:9(has-bones:1, too-large:8)}` |
+| `?modellayer=mesh&modelmeshmb=64` | 14 | **`mean 0 / uniq 6`** | `{seen:73, drawn:72, skipped:1}` |
+
+### 仍不正确（如实登记与下一步）
+透视分支**生效了**（`uniq 8 → 72`，几何确实画出东西），但**大尺度模型（天空盒/行星）把画面压成黑**：
+这些层的 `scale ≈ 10000` 且 z 向同样 ×10000，而相机距离 `camZ ≈ 772`（fov=50、projH=2160）⇒
+`d = camZ − scaleZ·v.z` 在球壳的大部分顶点上落到 ≤0、被近裁剪兜底成 `d=1` ⇒ 投影爆炸（被裁/糊满）。
+**下一步**：天空盒类"相机在其内部"的模型需要官方的**球壳/深度**处理（例如视图平移不作用于这类层、
+或强制远平面深度），而不是普通透视投影；这一步做完才谈 `?modellayer` 的默认档。
+
+## P-256（2026-10-07）**平铺 uv 的静态网格**（天空盒）：48B 接受判据里"uv 必须落在 [0,1]"过严 ⇒ 4 个天空盒被误拒
+
+### 现象
+P-250 的 48B 接受判据要求 `uv ∈ [−0.05,1.05]` 的抽样比例 ≥0.9；而 `models/自制天空盒0[012]/*.mdl`
+（2 866 891 B ×4，`vc=56142`）的 uv **是平铺的**（真机读数 `v ∈ [0.06, 2.04]`，落在 [0,1] 的只有 **46%**），
+法线/切线判据则全 1.00 ⇒ 被"不猜"策略拒掉（`parseMdl → null`），3D 包的**背景天空盒因此缺失**。
+
+### 修法
+`mdlStride48Signature` 补记 `uvFin`（有限且 `|uv| ≤ 64` 的比率）与 `spread`（uv 实际跨度）；
+接受判据改为 `uv ≥ 0.9` **或**（`uvFin ≥ 0.99` **且** `spread ≥ 0.05`）—— 即"平铺 uv"合法，
+但仍拒绝"全 0 的假 uv"与量级离谱的候选。强判据（法线单位 ≥0.9、切线 w≈±1 ≥0.8）一字未动。
+
+### 读数
+- 语料 **158/158 全部解析成功**（修前 154/4）；分支分布 **stride-80:74 / stride-48:79 / mdlv0016-compact-52:5**。
+- 判据 `tests/mdl-variant-dispatch-test.mjs` **13/0**（B2 改 158/0、B3 改 48:79、B5 改为"4 个天空盒按平铺 uv 合法接受"、B6 改 79）。
+- 回归：`demo-check` 133/0、`kaltsit-puppet-anchor` 50/0、`meshsize` 48/0。
