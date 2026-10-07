@@ -162,6 +162,9 @@ add "clean-room-alpha"   "node tests/clean-room-alpha-align-test.mjs" "" "^SKIP 
 #   语料见 `tests/effects-corpus.mjs`（全自造合成贴图，无真机壁纸数据）。
 add "clean-room-effects-blend" "node tests/clean-room-effects-blend-test.mjs" "" "^SKIP clean-room-effects-blend"
 add "attach-transform"   "node tests/attach-transform-test.mjs"
+#  P-251：「层解剖」工具的冻结值门禁 —— 3 个真包（3463520581 / 3448290956 / 2887099508）的关键字段
+#  与冻结值逐位对账；语料缺失时按既有纪律如实 SKIP（第 4 参 = SKIP 行首模式）。
+add "layer-anatomy"       "node tests/layer-anatomy-test.mjs" "" "^SKIP layer-anatomy"
 add "multi-sprite"       "node tests/multi-sprite-test.mjs"
 #  ①(2026-09-25 去重口径) 库重复项改成"移入 `allwallpaper/delete/<原相对路径>` + 写清单"之后的对账门禁：
 #   磁盘 ↔ `delete/MANIFEST.json` **双向一致** + 逐对 sha256 与"库内保留的孪生副本"相同 + 6 组变异自证

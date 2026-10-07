@@ -16860,3 +16860,41 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 - 4 个 `自制天空盒0[012].mdl`（2 866 891 B）uv 命中率仅 0.46（超出 `[0,1]`）⇒ 需其 uv 语义（平铺/立方体）才能判定，当前**拒绝**；
 - 多网格文件（KEPLER.mdl / gps.mdl 等：一个文件里多个顶点/索引块）本项只取首块（与改动前同口径），合并留后续；
 - 48B 的**几何渲染**未做（模型层仍走材质纹理路径），本项只解决"加载/判别"。
+
+## P-251（2026-10-07）**层解剖工具** `tools/layer-anatomy.mjs`：一层的"raw → parseScene 合成 → 附件锚点 → puppet 网格 → 脚本字段"全链离线读数 + 3 包冻结值门禁
+
+### 现象与目标（任务书 §3.1）
+排查"某一层为什么画在这"要横跨四个工具（`layer-rect-check` 的矩形、`script-string-decode --chain` 的清单、
+`script-deobfuscate` 的正文、`buildAttachOffsets` 的锚点），且没有一条命令能把**同一层**的全链一次看全。
+本批交付纯 Node 工具（无浏览器、不改 `core/**`）+ 冻结值门禁。
+
+### 实现（全部为**新增文件**，遵守阶段 2 铁律）
+- `tools/layer-anatomy.mjs`：`analyzeLayer({pkgPath|pkgBytes, selector:{name|index|id}, attTime})` 纯函数 +
+  CLI（`--pkg/--id-corpus/--name/--index/--id/--t/--md/--json`）。读数六段：① raw（origin/scale/angles/visible/
+  alpha/parent/attachment/image/model/size/alignment/scriptproperties，对象型字段显示 value+动画标记）；
+  ② parseScene 合成（y-down）；③ 附件锚点 = 开/关 `attachCtx` 两次 parseScene 的 **origin 差分**，与
+  `buildAttachOffsets` 直算（y-up）对账；④ 父链（合成后子父距离）；⑤ puppet 网格（parseMdl：顶点/索引/骨/动画）；
+  ⑥ 本层脚本字段（vm 沙箱解码字符串表 + 导出 + 引用层名 + 常量；**进沙箱前剥 import 行** —— P-239 同款压缩
+  `import*as X from'Y'` 会让解码整条落空）。`--json` 输出走 `##JSON##` 单行（core 解析期日志已改道 stderr）。
+  变体包同名层成对（主 + "lil"）时取 id 最小者并把全部命中列进 `nameAmbiguous`。
+- `tests/layer-anatomy-test.mjs`：**3 个真包 / 27 条冻结值判据**（3463520581×2 层、3448290956、2887099508）
+  + CLI `--json` 契约冒烟；语料不足 3 包时如实 SKIP。`tests/run-all-tests.sh` 登记 `layer-anatomy`
+  （SKIP 行首模式，与 bench-ui-headless 同款）。
+- 两份复算报告（任务书 §3.2，按护栏 (c) 做成**对既有报告的差分/补充**而非重复取证）：
+  `docs/reports-3463520581-anatomy-recheck.md`、`docs/reports-3448290956-interactions-recheck.md`。
+
+### 判据与读数
+`node tests/layer-anatomy-test.mjs`：**27/0**。冻结值与既有报告的交叉对账（全绿）：
+3463520581 `hair kirito front` raw (152.696, 815.303)、合成 (2736.825, 206.429)、无锚 (2736.782, 199.176)、
+锚点差分 (0.043, 7.253)=y-up [0.041, −6.974]、全包 58 条锚点、父网格 1 骨/163/882/1 动画（= 第 61/67/68 轮）；
+`hair extra` 无锚 (1975.233, 1522.200) → 含锚 (1999.101, 816.509)，**Δy=−705.691**（= 第 79 轮的 705）；
+3448290956 `嘴巴` 父链五级同 §5.1、无锚合成 (1921.689, 1819.366)（= §5.1 引文口径）、14 字段/14 层（= §0）；
+2887099508 `r ear1` 167/891/2 骨/4 动画、脚本 visible·11379 字符·导出 cursorClick、73 字段/40 层。
+工具 `--t` 实验：3463520581 hair front 含锚 origin x t=0→3→6.9 = 2736.83→2729.93→2730.38（与第 80 轮真机
+2737→2732→2730 逐点吻合 ⇒ P-241 逐帧跟随有了纯 Node 复算入口）；3448290956 `嘴巴` 锚点 Δx
+−16.022→+0.813→+17.672（其附件骨确实被动画驱动，主线报告未做过这一步）。
+
+### 未验证边界
+① 冻结值钉的是**当前 core 版本**口径：P-24x 线若合法改动 `parseScene`/`buildAttachOffsets`，需有意识更新
+冻结值（门禁价值在把"无意漂移"变红）；② 真机侧读数（指针注入/像素差）未复跑（护栏 (b) 不起浏览器），
+引自主线报告；③ `3448290956` 的 `project.json` 条目未被 `getEntry` 直接解码（"0 用户属性"沿用主线 §0）。
