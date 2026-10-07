@@ -64,7 +64,9 @@ const PRIM_HEADS = [
     定义切进来，否则 eval 出来就是 `ReferenceError: headerUrls is not defined`（本轮实测的真实回归形态）。
     口径：从 `const HEADER_FAIL_RETRY_MS` 切到 `fetchHeader` 结束（`sliceFn` 会把这段的前缀一起带上）。 */
 const HEADER_HELPER_HEAD = 'const HEADER_FAIL_RETRY_MS = '   // 退避重试常量 + 三候选 URL 的 headerUrls()
-const LOADTEX_HEAD = 'async function loadTex(name, opts = {}) {'
+/* ①(P-252 2026-10-07) `loadTex` 现在拆成"薄包装（并发闸门 + 在飞行去重）+ `loadTexInner`（原实现）"，
+   本组要切的是**原实现**那一段（超时/降采样/选级判据全在它里面）。 */
+const LOADTEX_HEAD = 'async function loadTexInner(name, opts = {}) {'
 const sliceAll = (s) => PRIM_HEADS.map((h) => sliceFn(s, h)).join('\n')
 /*  ①(2026-09-25 ISSUE0924A2) `sliceFn` 只会取"从起点到第一个配平花括号"那一段 ⇒ 对 `fetchHeader` 的新依赖
     （`HEADER_FAIL_RETRY_MS` + `headerUrls()`）必须**分两段**切：先切常量+helper 那段，再切 `fetchHeader` 本体，拼起来。 */
@@ -96,7 +98,7 @@ function makeLoadTex(prims, logs, stubs, src) {
   const fn = new Function('fetch', 'lib', 'pkg', 'textures', 'logf', 'window', 'document', 'gl', 'wrapTex',
     'withTimeout', 'fetchT', 'jsonT', 'bufT', 'textT', 'bitmapT',
     'NET_TIMEOUT_MS', 'DECODE_TIMEOUT_MS', 'perfAutoQ', 'TEX_BUDGET', '__texBytesTotal', 'DEV_MAX_TEX', 'HOST_TEX_MAX', 'TEX_CAP',
-    src + '\nreturn loadTex')
+    src + '\nreturn loadTexInner')
   const loadTex = fn(stubs.fetch, stubs.lib, stubs.pkg, textures, (m) => logs.push(String(m)), {}, {}, stubs.gl,
     stubs.wrapTex || ((e) => e),
     prims.withTimeout, prims.fetchT, prims.jsonT, prims.bufT, prims.textT, prims.bitmapT,

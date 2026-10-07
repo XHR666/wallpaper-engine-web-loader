@@ -254,7 +254,9 @@ function sliceFn(src, header) {
   return src.slice(i, j + 1)
 }
 const PRIM_HEADS = ['function withTimeout(p, ms, label) {', 'function fetchT(url, opts, ms, label) {', 'function jsonT(r, url, ms, label) {', 'function bufT(r, url, ms, label) {', 'function textT(r, url, ms, label) {', 'function bitmapT(blob, label, ms) {']
-const LOADTEX_HEAD = 'async function loadTex(name, opts = {}) {'
+/* ①(P-252 2026-10-07) `loadTex` 现在拆成"薄包装（并发闸门 + 在飞行去重）+ `loadTexInner`（原实现）"，
+   本组要切的是**原实现**那一段（超时/降采样/选级判据全在它里面）。 */
+const LOADTEX_HEAD = 'async function loadTexInner(name, opts = {}) {'
 const sliceLoadTex = (src) => sliceFn(src, LOADTEX_HEAD)
 /* ①(2026-09-21 全量门禁扫出来的真回归) `loadTex` 内部三处贴图创建走 `wrapTex(entry, name)`（P-168 的
    REPEAT 采样契约），而 `wrapTex` 定义在 `loadTex` **上方的模块作用域** ⇒ 只切 `loadTex` 的夹具里它是
@@ -302,7 +304,7 @@ async function runLoadTex(o = {}) {
   const fn = new Function('fetch', 'lib', 'pkg', 'textures', 'logf', 'window', 'document', 'gl',
     'withTimeout', 'fetchT', 'jsonT', 'bufT', 'textT', 'bitmapT',
     'NET_TIMEOUT_MS', 'DECODE_TIMEOUT_MS', 'perfAutoQ', 'TEX_BUDGET', '__texBytesTotal', 'DEV_MAX_TEX', 'location',
-    sliceWrapTex(src) + '\n' + sliceLoadTex(src) + '\nreturn loadTex')
+    sliceWrapTex(src) + '\n' + sliceLoadTex(src) + '\nreturn loadTexInner')
   const loadTex = fn(() => Promise.resolve(null), libStub, {}, textures, (m) => logs.push(String(m)), win, doc, gl,
     prims.withTimeout, prims.fetchT, prims.jsonT, prims.bufT, prims.textT, prims.bitmapT,
     8000, 8000, false, 220 * 1048576, 0, 16384, o.location)

@@ -16898,3 +16898,47 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 ① 冻结值钉的是**当前 core 版本**口径：P-24x 线若合法改动 `parseScene`/`buildAttachOffsets`，需有意识更新
 冻结值（门禁价值在把"无意漂移"变红）；② 真机侧读数（指针注入/像素差）未复跑（护栏 (b) 不起浏览器），
 引自主线报告；③ `3448290956` 的 `project.json` 条目未被 `getEntry` 直接解码（"0 用户属性"沿用主线 §0）。
+
+## P-252（2026-10-07）大包的**贴图并发峰值**：`Promise.all(jobs)` 让几十张大图同时解码/上传 + 同图重复解码
+
+### 现象与定位
+真包 `0923/3589454154`（245 MB 容器 / 130 对象 / 49 张 `.tex`）挂载即崩。分步台账（真机）显示
+**崩在贴图阶段之前**（`__mpwTexGate().runs === 0`），但贴图侧的两个固有问题是确定的：
+`loadScene` 把每个层的纹理链都塞进同一个 `Promise.all(jobs)` ⇒ **层与层完全并发** ⇒ 峰值 = 同时解码的
+所有大图之和（该包全分辨率 RGBA 合计 **216 MB**）；且**同一张贴图被多层请求时会并发解 N 份完全相同的位图**
+（真包里 `saturn2_A_diffuse` 被两个材质共用）。
+
+### 修法（`demo.html`）
+1. **`?texcon=N`（缺省 3，范围 1..16）并发闸门**：`loadTex` 拆成"薄包装（闸门 + 在飞去重）+ `loadTexInner`
+   （原实现）"，覆盖全部 8 个调用点；台账 `window.__mpwTexGate()` = `{limit, runs, waits, peak, inflight}`。
+2. **在飞行去重**：`texInflight: Map<名, Promise>` —— 同图复用同一次解码（口径注记：先到者的 `opts`
+   决定这次的降级策略，而该策略只在 `?perf=auto` 下生效）。
+3. 切片夹具跟随：`load-timeout` 与 `scene-intro-black` 的 `LOADTEX_HEAD`/`return` 名改指 `loadTexInner`
+   （它们切的就是"原实现"那一段）。
+
+## P-253（2026-10-07）**蒙皮准备把二进制 `.mdl` 整条读进来再 `parseWeJson`** ⇒ 245 MB 包崩在贴图阶段之前的真凶
+
+### 现象与定位（真机分步读数）
+`0923/3589454154` 挂载：`parseScene` ✓（130 层）、`__mpwTexGate().runs = 0`（贴图一张都没开始）、
+日志只剩一串 `❌ 蒙皮准备失败 <层>: JSON.parse: unexpected character at line 1 column 1`，
+随后 `uncaught exception: out of memory`。
+
+根因（`demo.html` 的蒙皮准备循环）：循环体第一句是 `const me = lib.getEntry(pkg, l.image)` —— 对**老式模型层**
+（`image` 直接是二进制 `.mdl`）这是**整条读**：该包里 `models/陨石/陨石.mdl` = **156 MB**、`球体01.mdl` = 51 MB；
+紧接着 `rd(me)` 又对它做一次 **156 MB 的 UTF-8 解码**（字符串比字节数组更贵），`parseWeJson` 才抛错被 catch
+⇒ 内存在**贴图阶段开始之前**就花光了。（这与 P-247 是同一类错误的两个落点：**把二进制 mdl 当 JSON 处理**。）
+
+### 修法
+蒙皮循环里**提前跳过** `image` 以 `.mdl` 结尾的层（puppet 层的 `image` 是 `models/*.json`，其 `puppet` 键
+指向 `*_puppet.mdl` ⇒ 跳过 `.mdl` **零损失**）；台账 `window.__mpwSkinSkip = {mdl, json}`。
+
+### 真机结果（同一台机、同一包）
+```
+[A 缺省 texcon=3]        首帧=true  frames=2→146  gate={limit:3, waits:45, peak:3, runs:48}
+                          贴图上传：space 3008x1504 / Saturn6k 3264x1632（**0→1 级选级生效**）/ sun 3000x3000 …
+                          __mpwSkinSkip={mdl:24}   画面 mean=185.5 / uniq=127（截图 /tmp/p253-3589454154.png）
+[B texcon=1&texcap=2048] 首帧=true  frames=6      gate={limit:1, waits:47, peak:1, runs:48}
+```
+⇒ **245 MB 容器现在能加载并出画**（修前：`out of memory`、无首帧）。四件套各司其职：
+P-248（模型来源区间读，去 212 MB 峰值）、P-249（大图按目标选 mip 级 + `?texcap=`）、
+P-252（并发闸门 + 在飞去重）、P-253（蒙皮跳过整条读，本次的决定性一击）。

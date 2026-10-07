@@ -3123,7 +3123,57 @@ function wrapTex(entry, name) {
   try { if (entry && entry.glTex && lib && typeof lib.applyTexWrap === 'function') lib.applyTexWrap(gl, entry.glTex, name) } catch (e) {}
   return entry
 }
+/* ①(P-252 2026-10-07) **贴图解码/上传的并发闸门 + 在飞行去重**：
+   背景（真包 `0923/3589454154`，245 MB 容器 / 49 张 `.tex`）：`loadScene` 把每个层的纹理链都塞进同一个
+   `Promise.all(jobs)` ⇒ **层与层之间完全并发**，49 张图（全分辨率 RGBA 合计 216 MB）同时解码+上传，
+   叠加 245 MB 容器与 GL 副本 ⇒ 浏览器 tab 直接崩（`Execution context was destroyed`、无首帧）。
+   两处收口（都在本函数，覆盖全部 8 个调用点）：
+     · **闸门** `?texcon=N`（缺省 3，范围 1..16）：同一时刻最多 N 次"解码+上传"在跑，其余排队 ⇒ 峰值内存
+       从"所有大图之和"降到"N 张之和"；小包（几张图）几乎无感（本来就是逐层串行）。
+     · **在飞行去重**：同一张贴图被多层同时请求时复用同一个 Promise（此前会并发解 N 份完全相同的位图；
+       真包里 `saturn2_A_diffuse` 这类被两个材质共用的贴图就是这种情形）。
+       口径注记：先到者的 `opts`（如 `nonCritical`）决定这一次的降级策略 —— 该策略只在 `?perf=auto` 下生效。 */
+const TEXCON = (() => {
+  try {
+    const v = Number(new URLSearchParams(location.search).get('texcon'))
+    return (Number.isFinite(v) && v >= 1 && v <= 16) ? Math.round(v) : 3
+  } catch (e) { return 3 }
+})()
+function mpwMakeSem(max) {
+  let active = 0
+  const q = []
+  const st = { limit: max, waits: 0, peak: 0, runs: 0 }
+  return {
+    stat: st,
+    get active() { return active },
+    run(fn) {
+      st.runs++
+      if (active >= max) st.waits++
+      return new Promise((res, rej) => {
+        const go = () => {
+          active++
+          if (active > st.peak) st.peak = active
+          Promise.resolve().then(fn).then((v) => { active--; const n = q.shift(); if (n) n(); res(v) },
+            (e) => { active--; const n = q.shift(); if (n) n(); rej(e) })
+        }
+        if (active < max) go()
+        else q.push(go)
+      })
+    },
+  }
+}
+const texGate = mpwMakeSem(TEXCON)
+const texInflight = new Map()
+try { window.__mpwTexGate = () => Object.assign({ inflight: texInflight.size }, texGate.stat) } catch (e) { /* ignore */ }
+
 async function loadTex(name, opts = {}) {
+  if (textures.has(name)) return Promise.resolve(textures.get(name));
+  if (texInflight.has(name)) { try { return await texInflight.get(name) } catch (e) { return null } }
+  const p = texGate.run(() => loadTexInner(name, opts))
+  texInflight.set(name, p)
+  try { return await p } finally { texInflight.delete(name) }
+}
+async function loadTexInner(name, opts = {}) {
   if (textures.has(name)) return Promise.resolve(textures.get(name));
   let te = lib.getEntry(pkg, 'materials/' + name + '.tex');
   if (!te) {
@@ -6226,6 +6276,17 @@ function loadScene() {
     scene.layers.forEach((l) => {
       try {
         if (!l.image) return
+        /* ①(P-253 2026-10-07) **老式模型层（`image` 直接是二进制 `.mdl`）必须在这里提前跳过**：
+           蒙皮准备的前提是"JSON 模型 + `puppet` 键"（puppet 层的 `image` 是 `models/*.json`，其 `puppet`
+           指向 `*_puppet.mdl`）；而模型层的 `image` **本身就是** `.mdl` ⇒ 下面那句 `getEntry` 会**整条读**
+           二进制（真包 `0923/3589454154` 里 `models/陨石/陨石.mdl` = **156 MB**、`球体01.mdl` = 51 MB），
+           紧接着 `rd()` 再对它做一次 156 MB 的 UTF-8 解码、`parseWeJson` 抛错被 catch —— 内存已经花掉了。
+           实测（245 MB 包）：崩在**贴图阶段之前**（`__mpwTexGate().runs === 0`），日志只留一串
+           `❌ 蒙皮准备失败 <层>: JSON.parse: unexpected character`。跳过它零损失：`.mdl` 层没有 `puppet` 键。 */
+        if (typeof l.image === 'string' && /\.mdl$/i.test(l.image)) {
+          try { window.__mpwSkinSkip = Object.assign({ mdl: 0, json: 0 }, window.__mpwSkinSkip); window.__mpwSkinSkip.mdl++ } catch (e) { /* ignore */ }
+          return
+        }
         const me = lib.getEntry(pkg, l.image)
         if (!me) return
         const mj = lib.parseWeJson(rd(me))
