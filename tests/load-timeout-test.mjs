@@ -95,12 +95,12 @@ function makeLoadTex(prims, logs, stubs, src) {
       T3d 首版就红在这条）。健康路径不碰这条分支，注入是恒等桩 ⇒ 既有 T3a/T3b/T3c 逐位不变。 */
   const fn = new Function('fetch', 'lib', 'pkg', 'textures', 'logf', 'window', 'document', 'gl', 'wrapTex',
     'withTimeout', 'fetchT', 'jsonT', 'bufT', 'textT', 'bitmapT',
-    'NET_TIMEOUT_MS', 'DECODE_TIMEOUT_MS', 'perfAutoQ', 'TEX_BUDGET', '__texBytesTotal', 'DEV_MAX_TEX',
+    'NET_TIMEOUT_MS', 'DECODE_TIMEOUT_MS', 'perfAutoQ', 'TEX_BUDGET', '__texBytesTotal', 'DEV_MAX_TEX', 'HOST_TEX_MAX', 'TEX_CAP',
     src + '\nreturn loadTex')
   const loadTex = fn(stubs.fetch, stubs.lib, stubs.pkg, textures, (m) => logs.push(String(m)), {}, {}, stubs.gl,
     stubs.wrapTex || ((e) => e),
     prims.withTimeout, prims.fetchT, prims.jsonT, prims.bufT, prims.textT, prims.bitmapT,
-    LIMIT, LIMIT, false, 220 * 1048576, 0, 4096)
+    LIMIT, LIMIT, false, 220 * 1048576, 0, 4096, 4096, null)
   return { loadTex, textures }
 }
 

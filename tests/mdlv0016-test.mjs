@@ -333,14 +333,21 @@ let coreWarns = 0, twoModeSame = 0, bothSidesSame = 0
       el ? ('elysia vc=' + el.vertexCount + ' bones=' + el.bones.length) : 'elysia=null')
     void ell
   }
-  // 无 MDLS 的第 6 个 `MDLV0016`：本分支**连试都不试** ⇒ 两侧都仍按既有口径 null（不许被顺手"救"成无骨网格）
+  /* 无 MDLS 的第 6 个 `MDLV0016`（`Hollow Cylinder`，块签名 `0x0000000f`、步长 48）：
+     P-173 当年**有意不接**（两侧都 null）。**P-250（2026-10-07）改为接**：它是 48B 静态 PBR 布局
+     （`pos3@0+normal3@12+tangent4@24+uv2@40`），语料 86 个文件命中该签名（42 个此前完全解析不了、
+     40 个被误判成 80B）⇒ 本组改为断言"两侧都给出同一份**无骨**静态网格"（本分支仍不碰它：48B 走
+     `findMdlStride48Block`，而本文件是 MDLV0016 **且无 MDLS** ⇒ 只有 48 分支认它）。 */
   {
     const nv = NO_MDLS_V16[0]
     const nb = nv ? readEntryBytes(nv.pkg, nv.idx, nv.entry) : null
     const cn = nb ? parseMdl(nb) : '缺'
     const en = nb ? H._parseMdl(new MpwBuffer(nb.buffer, nb.byteOffset, nb.byteLength)) : '缺'
-    check('③ 骨架', '无 MDLS 的第 6 个 `MDLV0016` 不受影响：`Hollow Cylinder` 两侧都仍 null',
-      cn === null && en === null, (nv ? nv.entry.name : '(缺)') + ' core=' + (cn === null ? 'null' : 'non-null') + ' elysia=' + (en === null ? 'null' : 'non-null'))
+    const same = !!cn && !!en && cn.vertexCount === en.vertexCount && cn.indexCount === en.indexCount &&
+      (cn.bones || []).length === 0 && (en.bones || []).length === 0
+    check('③ 骨架', '无 MDLS 的第 6 个 `MDLV0016`（`Hollow Cylinder`）按 **P-250 的 48B 静态布局**解析：两侧同网格 + 零骨',
+      same, (nv ? nv.entry.name : '(缺)') + ' core=' + (cn === '缺' ? '缺' : (cn ? 'vc=' + cn.vertexCount + ' bones=' + (cn.bones || []).length : 'null')) +
+        ' elysia=' + (en === '缺' ? '缺' : (en ? 'vc=' + en.vertexCount + ' bones=' + (en.bones || []).length : 'null')))
   }
   console.warn = ow
   coreWarns = warns.length
@@ -419,13 +426,20 @@ for (const fx of FIXTURES) {
   })
 }
 PROBES.push({
-  name: 'meta:无 MDLS 的第 6 个 MDLV0016 仍 null', needsBranch: false,
+  name: 'meta:无 MDLS 的第 6 个 MDLV0016 走 48B 静态布局（P-250）', needsBranch: false,
   run: () => {
     const nv = NO_MDLS_V16[0]
     if (!nv) return { ok: false, info: '缺文件' }
     const nb = readEntryBytes(nv.pkg, nv.idx, nv.entry)
+    // ①(P-250 2026-10-07) 该文件现在是 **48B 静态布局**（P-173 当年"有意不接"的立场已被取代）⇒
+    //   本探针改为断言：P-173 的紧凑分支**仍不碰它**（`diag=null`），而 `parseMdl` 经 48B 分支给出无骨网格。
     const r = readMdlv0016CompactVertexBlock(nb, dview(nb), nb.indexOf('MDLS', 0, 'latin1'))
-    return { ok: parseMdl(nb) === null && r.block === null && r.diag === null, info: 'parseMdl=null diag=' + (r.diag === null ? '未触发' : r.diag.reason) }
+    const m = parseMdl(nb)
+    return {
+      ok: r.block === null && r.diag === null && !!m && (m.bones || []).length === 0,
+      info: 'compactBranch=' + (r.block === null ? '不接' : '接了') + ' diag=' + (r.diag === null ? '未触发' : r.diag.reason) +
+        ' parseMdl=' + (m ? ('vc=' + m.vertexCount + ' bones=' + (m.bones || []).length) : 'null'),
+    }
   },
 })
 PROBES.push({
