@@ -121,7 +121,11 @@ console.log('\n== C 接线位置（帧循环 / web 帧盒）==')
 console.log('\n== D 其余宿主 API 的"如实降级"口径 ==')
 {
   const stubs = Array.from(HTML.matchAll(/put\('([A-Za-z]+)',\s*\([^)]*\)\s*=>\s*\{\s*note\('([A-Za-z]+)',\s*'([^']*)'/g))
-  ok(stubs.length >= 4, 'D1 宿主 API 表里带 `note(...)` 的降级项 ≥ 4 条（可枚举）', 'n=' + stubs.length)
+  /* ①(P-261 2026-10-07) 基线跟随：`loadSceneFile` 从"明确降级"变成**真实现**（IndexedDB 交接 +
+     `?scenefile=1` 重载）⇒ 降级项 4 → **3**（`setFit` / `restore` / `setWallpaper`）。
+     这条判据的本意是"降级项必须可枚举、且**随着能力落地而变少**"⇒ 门限跟着降，
+     真正的不变量是 D2（不许用"未接线"这种含糊词）与 D3（每条都要写清原因或替代）。 */
+  ok(stubs.length >= 3, 'D1 宿主 API 表里带 `note(...)` 的降级项 ≥ 3 条（可枚举；P-261 后 `loadSceneFile` 已转真能力）', 'n=' + stubs.length)
   const bad = stubs.filter((m) => /未接线/.test(m[3]))
   ok(bad.length === 0, 'D2 **没有任何一条**还用「未接线」这种含糊词（要么接上，要么写清不支持的原因）', bad.map((m) => m[1]).join(',') || '（无）')
   const withWhy = stubs.filter((m) => /没有|不支持|请用|需要|只能|不接/.test(m[3]))

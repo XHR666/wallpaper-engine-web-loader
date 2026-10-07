@@ -17320,3 +17320,58 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 回归：`demo-check` 133/0、`mock-gl` 60/0、`meshsize` 48/0、`kaltsit-puppet-anchor` 50/0、`load-timeout` 70/0、
 `scene-intro-black` 31/0、`charfit-camera` 46/0、`system-texture-slot` 14/0、**`camera-persp` 57/0**（⑦ 独立复核 3D 相机数学）、
 `diag-flag-check` **230==230**。
+
+## P-261（2026-10-07）8902 测试台两条 MPKG 链路：①**扫描不到 `.mpkg`**（含与 workshop 混合）②**选 `.mpkg` 文件导入后加载不出来**
+
+### 复现（真机，`:8902`）
+* 库根 = `<语料根>/allwallpaper/1004`（**顶层 6 个 `.mpkg`**）⇒ `GET /api/library`
+  **`count: 0 / items: []`** —— 左侧列表**一张都没有**；
+* 点「选择文件 → 服务端文件浏览器 → `丛雨.mpkg`」：前端确实把容器当包（`isPkg = /\.(pkg|mpkg)$/i`
+  这条**本来就认**），但本仓渲染器档的 `__wp.loadSceneFile` 是"明确降级"的 no-op
+  （`put('loadSceneFile', () => { note(…'⚠ 本仓渲染器不从 Blob 挂载') ; return false }, false)`）
+  ⇒ 日志只留一行"本次调用被忽略"，画布**仍是上一张（合成样例）**。
+
+### 根因（三处，缺一不可）
+| # | 位置 | 病灶 |
+|---|---|---|
+| (a) | `server/we-scene-demo-server-8902.mjs::listLibrary()` | 库根**顶层散文件**分支只计数（`looseFiles` / `looseMpkg` / `loosePkg`）**不进 `items`** ⇒ 顶层 `.mpkg` 全部消失；与 workshop 目录混合时更隐蔽（目录照列、容器全丢） |
+| (b) | `demo/bench-patch.js::planLocalScan()` + `detectWallpaperKind()` + `previewPickedFile()` | 纯前端「选择文件夹」的 `!pkg && !proj ⇒ continue` 把**只含容器的目录整目录丢掉**（`<角色>/<角色>_NN.mpkg` 布局与"workshop + 容器"混合形态）；`detectWallpaperKind` 不认容器 ⇒ `unknown`；浏览器「选择文件」的 `pkgEntry` 只认 `scene` 包（工坊布局的磁盘入口 scene+dot+pkg） ⇒ 选 `.mpkg` 直接落到"仅支持 scene 包预览"的报错文案 |
+| (c) | `demo.html` 的 `__wp.loadSceneFile` | no-op（明确降级）⇒ 服务端文件浏览器那条**本来能读出容器字节**的路也挂不上 |
+
+### 修法
+1. **服务端**：库根顶层散落的容器（`*.mpkg`/`*.pkg`）与视频**逐文件成条**，口径与 `libraryEntriesForDir`
+   的逐文件成项逐条对齐（真身必须在库根内、`itemRole:'file'`、`itemId` = 文件名、类型按容器内容判）；
+   `looseFiles`/`looseMpkg`/`loosePkg` 的**计数语义不变**（仍是全量读数）。
+2. **前端（`demo/bench-patch.js`）**：`planLocalScan` 对"只含容器的目录"**逐容器成条**（每条 `pkg` = 该容器
+   File，`previewLocal()` 会走 `loadSceneFile`），有 `scene` 包（工坊布局的磁盘入口 scene+dot+pkg） 的目录维持旧口径（不重复计数）；
+   `detectWallpaperKind` 认 `*.mpkg`/`*.pkg` ⇒ `scene`（内容交给渲染器按容器目录表判）；
+   `previewPickedFile` 的 `pkgEntry` 接受 `*.pkg`/`*.mpkg`。
+3. **渲染器**：`__wp.loadSceneFile(blob, project)` **真实现** —— 接 Blob → 读字节 → 存 **IndexedDB**
+   → `?scenefile=1` **同页重载** → 装载期取回（**取一次即删**）并当成包来源；交接缺失/存储被清
+   ⇒ 如实记一行日志再回落常规来源（`?id=`/`?pkgurl=`/`?pkgpath=`），不静默黑屏。
+   为什么不用更简单的两条路（都写在代码注释里）：`blob:` URL 导航后**取不到**（真机实测
+   `直连失败（超时或网络异常）` → 服务端代理 `pkgurl HTTP 400`）；`sessionStorage` 只能存字符串且
+   有 ~5MB 量级上限，装不下几十 MB 的 `.mpkg`。
+   ⚠ 自查抓到的实现 bug：首版 `mpwSceneFileTx()` 把回调返回的 **Promise** 当 `IDBRequest` 处理
+   （`resolve(out.result)` 恒 `undefined`）⇒ 交接记录读不回来、装载静默回落（真机读数
+   `__mpwSceneFileTaken=null`、挂的还是旧样例）。修法：事务 `complete` 之后再把那个 Promise 的**值**
+   透出去；判据 `bench-local-mpkg-scan` **D 段**（假 IndexedDB 跑 put→take 往返 + 一次性校验）就是为它写的。
+
+### 真机验证（`:8902`）
+| 场景 | 读数 |
+|---|---|
+| 库根 = `1004`（顶层 6 个 `.mpkg`） | `count: 6`（5 × scene + 1 × video，`itemRole:'file'`） |
+| 点条目 `丛雨.mpkg` | 首帧 ✓、`__sceneLayers.length = 4`、背景层纹理 `texOK`（真的出画） |
+| 混合库根（临时 `mixed-probe`：1 个 workshop 目录 + 1 个顶层容器） | `count: 2`（目录条 + 容器条各一；测完已删） |
+| `__wp.loadSceneFile(File 1 509 854 B)` | 返回 `true`、`__mpwSceneFile={name:'丛雨.mpkg',bytes:1509854}`、URL `?scenefile=1`、`__mpwSceneFileTaken={name:'丛雨.mpkg',bytes:1509854}`、装载后 `layers=4` + 同一张背景纹理 ✓ |
+
+### 判据
+* 新增 `tests/bench-local-mpkg-scan-test.mjs` **19/0**：A 纯前端扫描 8 条（混合形态 4 条成项、
+  `scene` 包（工坊布局的磁盘入口 scene+dot+pkg） 目录旧口径、容器目录逐容器、`*.pkg` 同样成条、资源目录仍跳过、散文件仍是 `notdir`、
+  容器 ⇒ `scene`、显式 type 优先）、B 源码接线 2 条、C 渲染器实现 7 条（含**切片段实跑**
+  `mpwSceneFileRemountUrl()`）、D 假 IndexedDB 往返 2 条。
+* `tests/bench-mpkg-items-test.mjs` **57/0**：新增 **A1m**（库根顶层散落容器成条）与**变异 M4**
+  （拆掉顶层分支 ⇒ A1m 必须变红，已自证）。
+* 登记门禁 `218 → 219` 项；`status-consistency` 6/0、`docs-check` ✓、`diag-flag-check` 230==230。
+* ⚠ 共享文件说明：`demo/bench-patch.js` 是**与另一条线（zcode）共享**的文件。改动前它与 HEAD **逐字相同**；
+  本次只动两个纯函数 + 一处 `pkgEntry` 判定（都带 P-261 注释），提交时**显式列文件**。

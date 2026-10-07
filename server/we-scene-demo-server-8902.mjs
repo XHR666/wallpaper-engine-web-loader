@@ -1296,10 +1296,47 @@ function listLibrary() {
     const st = statSafe(full)                     // follow symlink + 真身校验（Dirent.isFile 在本机有误报 ⇒ 一律 statSync）
     if (!st) { skipped.push({ name, reason: 'stat 失败（断链 / 权限不足）' }); continue }
     if (!st.isDirectory()) {
-      // 顶层**散文件**：不进列表（列表 = 目录型壁纸条目），但如实计数 + 给理由（别让用户以为"扫不出来"是 bug）
+      /* ①(P-261 2026-10-07) **顶层散落的容器/视频也逐文件成项**（此前"列表 = 目录型条目"，
+         顶层 `.mpkg` 只进 `scan.looseMpkg` 计数、**不出现在 items 里**）：
+         真机复现（库根 = `allwallpaper/1004`，顶层 6 个 `.mpkg`）⇒ `GET /api/library` **items=0**
+         —— 用户看到的就是"扫描不到 MPKG 文件"；与 workshop 混合（顶层既有 `<id>/scene.pkg` 目录、
+         又有散 `.mpkg`）时更隐蔽：目录照列、容器全丢。
+         口径与 `libraryEntriesForDir` 的逐文件成项**逐条对齐**（嵌套 id ⇒ 这里是顶层 ⇒ id = 文件名）：
+         真身必须在库根内（跟软链走的不成条）、`itemRole:'file'`、`hasScene`/`renderable` 由容器内容判。
+         `looseFiles`/`looseMpkg`/`loosePkg` 的计数语义**不变**（仍是"顶层散文件"的全量读数）。 */
       looseFiles++
       if (MPKG_COLLECTION_RE.test(name) && looseMpkg.length < 20) looseMpkg.push(name)
       if (PKG_ONLY_RE.test(name) && loosePkg.length < 20) loosePkg.push(name)
+      const looseRe = MPKG_EXT_RE.test(name) ? MPKG_EXT_RE : (VIDEO_EXT_RE.test(name) ? VIDEO_EXT_RE : null)
+      if (looseRe && items.length < LIMITS.listItems) {
+        if (!budget.op()) skipped.push({ name, reason: '扫描预算用尽（顶层散文件未成条）' })
+        else {
+          const real = realpathDeepest(full)
+          if (!isInside(activeRoot, real)) skipped.push({ name, reason: '经符号链接越出库根' })
+          else {
+            let fid = null
+            try { fid = assertItemId(name) } catch (e) { skipped.push({ name, reason: `itemId 非法：${e instanceof HttpError ? e.message : String((e && e.message) || e)}` }) }
+            if (fid) {
+              try {
+                const it = libraryItemFromFile(fid, { id: fid, abs: full, real, isDir: false, isFile: true, dir: activeRoot, base: name, st })
+                items.push(it)
+                perFile.items++
+                if (it.container) perFile.mpkg++; else perFile.video++
+                kinds[it.kind] = (kinds[it.kind] || 0) + 1
+                if (it.container) containerKinds[it.containerKind || 'unknown'] = (containerKinds[it.containerKind || 'unknown'] || 0) + 1
+                if (it.hasScene) signals.withScene++
+                if (it.hasHtml) signals.withHtml++
+                if (it.hasVideo) signals.withVideo++
+                if (it.hasPreview) signals.withPreview++; else signals.noPreview++
+                if (it.hasProject) signals.withProject++
+                if (it.mpkgFiles && it.mpkgFiles.length) signals.withMpkg++
+                if (it.mismatch) signals.mismatch++
+                if (it.renderable) signals.renderable++
+              } catch (e) { skipped.push({ name, reason: e instanceof HttpError ? e.message : String((e && e.message) || e) }) }
+            }
+          }
+        }
+      }
       continue
     }
     dirCount++
@@ -1664,9 +1701,20 @@ function scanDirForPicker(dir, budget) {
       looseFiles++
       const ext = path.extname(n).toLowerCase() || '(无扩展名)'
       looseExt[ext] = (looseExt[ext] || 0) + 1
-      if (MPKG_EXT_RE.test(n) && looseContainers.length < 12 && b.op()) {   // 散落的 .mpkg/.pkg 都报（真身是容器）
+      const __isContainer = MPKG_EXT_RE.test(n)
+      const __isVideo = VIDEO_EXT_RE.test(n)
+      if (__isContainer && looseContainers.length < 12 && b.op()) {   // 散落的 .mpkg/.pkg 都报（真身是容器）
         const sum = mpkgSummary(sub, n)
         looseContainers.push({ name: n, size: sum.size, tableOk: sum.tableOk, tableReason: sum.tableReason, entries: sum.entries, kind: sum.kind, entryNames: sum.entryNames, declared: sum.project })
+      }
+      /* ①(P-261 2026-10-07) **顶层散落容器/视频也算条目**（与 `listLibrary()` 同口径）：这份摘要是选择器
+         对话框上"这个目录里有几张壁纸"的读数 —— 只把它们算进 `looseFiles` 会让对话框说"8 张"，而
+         `/api/library` 实际列出 9 张（用户报的"扫描不到 MPKG 文件"就是这个错位的另一面）。
+         `looseFiles`/`looseExt`/`looseContainers` 仍是**全量诊断读数**（不缩水），这里只多算 item 计数。 */
+      if ((__isContainer || __isVideo) && b.op()) {
+        const ck = __isContainer ? containerKindOf(mpkgSummary(sub, n)) : 'video'
+        kinds[ck] = (kinds[ck] || 0) + 1
+        if (sample.length < 8) sample.push({ itemId: n, kind: ck, type: ck, file: n, preview: null, renderable: true, containerKind: __isContainer ? ck : null })
       }
       continue
     }

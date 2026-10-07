@@ -172,6 +172,13 @@ function makeFixture() {
     ['preview.gif', 'GIF89a-BBBB-preview-bytes'],
     ['scene.json', '{"general":{}}'],
   ]))
+  /* ①(P-261 2026-10-07) **库根顶层散落的 `.mpkg`**（真机复现：库根 `allwallpaper/1004` 顶层 6 个 `.mpkg`
+     ⇒ 修前 `GET /api/library` **items=0**，用户看到的就是"扫描不到 MPKG 文件"）。 */
+  w(path.join(lib, '丙_顶层.mpkg'), buildPkg('PKGM0018', [
+    ['preview.gif', 'GIF89a-top-preview-bytes'],
+    ['project.json', JSON.stringify({ title: '丙 顶层容器', type: 'Scene', file: 'scene.json' })],
+    ['scene.json', '{"general":{"properties":{}}}'],
+  ]))
   // ② 没有 .mpkg 的目录：仍是"目录一条"（老口径零回归）
   w(path.join(lib, '场景丙', 'scene.pkg'), 'PKGV0001-fixture-scene-bytes')
   w(path.join(lib, '场景丙', 'preview.gif'), 'GIF89a-ccc-preview')
@@ -229,13 +236,18 @@ async function scanStage(fx, srv) {
 
   // 目录条不重复计数（这条口径必须**可核对**）
   const rol = L.scan && L.scan.itemRoles
-  ok(!!rol && rol.fileItems > 0 && rol.dirItems > 0 && (rol.fileItems + rol.dirItems) === L.count && rol.mpkgFiles === 6,
-    'A1g ★**目录条不重复计数**：`scan.itemRoles.fileItems + dirItems === count`（同一批壁纸的两种表示不会各来一条）+ `mpkgFiles=6`（夹具写了 6 个 .mpkg）',
+  ok(!!rol && rol.fileItems > 0 && rol.dirItems > 0 && (rol.fileItems + rol.dirItems) === L.count && rol.mpkgFiles === 7,
+    'A1g ★**目录条不重复计数**：`scan.itemRoles.fileItems + dirItems === count`（同一批壁纸的两种表示不会各来一条）+ `mpkgFiles=7`（夹具 6 个 + P-261 的顶层那 1 个）',
     JSON.stringify({ roles: rol, count: L.count }))
   ok(!byId('角色甲').itemId && !byId('角色乙').itemId && !!byId(`角色乙/${m.B1}`).itemId &&
     items.filter((i) => i.parentDir === '角色乙').length === 1,
     'A1h 有 `.mpkg` 的目录**不再产出"目录那一条"**（`角色甲`/`角色乙` 都不在列表里）；`角色乙` 只有 1 个 `.mpkg` ⇒ 恰好 1 条文件条（既不重复也不漏）',
     JSON.stringify({ 角色甲: byId('角色甲').itemId || null, 角色乙: byId('角色乙').itemId || null, 乙条数: items.filter((i) => i.parentDir === '角色乙').map((i) => i.itemId) }))
+  /* ①(P-261) 顶层散落容器成条：`itemId` = 文件名本身、`dir=''`、`itemRole='file'`、类型按容器内容判。 */
+  const top = byId('丙_顶层.mpkg')
+  ok(!!top.itemId && top.itemRole === 'file' && top.dir === '' && top.parentDir === '' && top.kind === 'scene' && top.renderable === true,
+    'A1m ★P-261 **库根顶层散落的 `.mpkg` 也成条**（修前只进 `scan.looseMpkg` 计数、`items` 里看不到 ⇒ 用户"扫描不到 MPKG 文件"；含"与 workshop 目录混合"的库根）',
+    JSON.stringify({ id: top.itemId, role: top.itemRole, dir: top.dir, kind: top.kind, renderable: top.renderable }))
   ok(byId(`角色甲/${m.VIDEO}`).kind === 'video',
     'A1i 目录里**混的视频**也各成一条（否则"这个目录里还有一张壁纸"会看不见）', JSON.stringify(byId(`角色甲/${m.VIDEO}`) && { id: byId(`角色甲/${m.VIDEO}`).itemId, kind: byId(`角色甲/${m.VIDEO}`).kind }))
   ok(byId('场景丙').kind === 'scene' && byId('场景丙').hasScene === true && (!byId('场景丙').itemRole || byId('场景丙').itemRole === 'dir'),
@@ -419,6 +431,16 @@ const MUTATIONS = [
       const from = '  const mpkgNames = names.filter((n) => MPKG_COLLECTION_RE.test(n))\n  if (!mpkgNames.length) return [libraryItemFromDir(id, dir, budget)]'
       const to = '  const mpkgNames = names.filter((n) => MPKG_COLLECTION_RE.test(n))\n  if (true) return [libraryItemFromDir(id, dir, budget)]   // 变异：退回"目录一条"'
       if (files.main.split(from).length !== 2) return { error: '锚点未命中唯一位置：libraryEntriesForDir 的早退分支' }
+      return { main: files.main.replace(from, to) }
+    },
+  },
+  {
+    name: 'M4 拆掉"库根顶层散落容器成条"（顶层 `.mpkg` 又只进 looseMpkg 计数）',
+    expects: ['A1m'],
+    apply(files) {
+      const from = "      const looseRe = MPKG_EXT_RE.test(name) ? MPKG_EXT_RE : (VIDEO_EXT_RE.test(name) ? VIDEO_EXT_RE : null)"
+      const to = "      const looseRe = null   // 变异：顶层散落容器不成条（回到 P-261 之前的「只计数」口径）"
+      if (files.main.split(from).length !== 2) return { error: '锚点未命中唯一位置：listLibrary 顶层散落容器分支' }
       return { main: files.main.replace(from, to) }
     },
   },

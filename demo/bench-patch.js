@@ -520,6 +520,11 @@ export function detectWallpaperKind(meta, names) {
   const list = (names || []).map((x) => String(x).toLowerCase())
   const has = (rx) => list.some((x) => rx.test(x))
   if (has(/^scene\.pkg$/)) return 'scene'
+  /* ①(P-261 2026-10-07) **`.mpkg`/`.pkg` 容器族 ⇒ 'scene'**：容器里可能是 scene.json（场景）也可能是
+     纯视频（PKGM0014），客户端**不读容器目录表**（那要 ArrayBuffer + 解压），所以这里给"交给渲染器按内容判"
+     的档位 —— 渲染器侧 `demo.html` 对 PKG/PKGM 都有原生路径（scene.json → 场景；没有则 MPW-NOSCENE 纯视频）。
+     修前：容器名不在任何证据里 ⇒ `unknown`，`planLocalScan` 还会把只含容器的目录**整目录跳过**。 */
+  if (has(/\.(mpkg|pkg)$/)) return 'scene'
   if (has(/\.html?$/)) return 'web'
   if (has(/\.(mp4|webm|mov|mkv|gif)$/)) return 'video'
   return declared || null
@@ -553,6 +558,25 @@ export function planLocalScan(entries, opt) {
   for (const [dir, files] of dirs) {
     const pkg = files.find((f) => /^scene\.pkg$/i.test(f.name))
     const proj = files.find((f) => /^project\.json$/i.test(f.name))
+    /* ①(P-261 2026-10-07) **容器目录逐文件成条**（与 :8902 服务端 `libraryEntriesForDir` 的逐文件成项同口径）：
+       真机复现：`选择文件夹` 指向 `<角色>/<角色>_NN.mpkg` 这种布局（或"workshop 目录 + 容器"混合）时，
+       旧判据 `!pkg && !proj ⇒ continue` 把**每个只含容器的目录整目录丢掉** ⇒ 用户看到的就是
+       "扫描不到 MPKG 文件（包括与 workshop 混合形态下）"。这里按容器逐条成项（`pkg` = 该容器 File，
+       `previewLocal()` 会走 `__wp.loadSceneFile(blob)` 直接挂载；本仓渲染器自 P-261 起支持该契约）。
+       目录里同时有 `scene.pkg` 时维持旧口径（目录一条），不做重复计数。 */
+    const containers = pkg ? [] : files.filter((f) => /\.(mpkg|pkg)$/i.test(f.name))
+    if (containers.length) {
+      for (const c of containers) {
+        const base = c.name.replace(/\.[^.]+$/, '')
+        items.push({
+          dir: dir + '/' + c.name, dirName: base, container: true,
+          pkg: c, proj: proj || null, prev: null,
+          names: [c.name], files: [{ name: c.name, file: c.file || null }],
+        })
+        if (items.length >= o.maxItems) break
+      }
+      continue
+    }
     if (!pkg && !proj) continue                    // 不是壁纸目录（例如 materials/、shaders/）
     // 第五批③：把 preview 图也带上（品牌修复要用它当媒体组件的图标；优先 project.json 里声明的名字）
     const prev = files.find((f) => /^preview\.(gif|png|jpe?g|webp)$/i.test(f.name)) || null
@@ -9769,7 +9793,10 @@ export function init() {
   async function previewPickedFile(res) {
     const dir = res.dir || ''
     const find = (rx) => (pickIndex ? pickIndex.files.filter((f) => f.dir === dir && rx.test(f.name))[0] : null)
-    const pkgEntry = /^scene\.pkg$/i.test(res.name) ? res : find(/^scene\.pkg$/i)
+    /* ①(P-261 2026-10-07) 浏览器「选择文件」**也接受 `.mpkg`/`.pkg` 容器**（此前只认 `scene.pkg` ⇒
+       选一个 mpkg 直接落到 `local.sceneOnly`"仅支持 scene 包预览"的报错文案）。容器交给渲染器的
+       `loadSceneFile(blob)` 按内容判（scene.json → 场景；PKGM0014 → 纯视频）。 */
+    const pkgEntry = (/^scene\.pkg$/i.test(res.name) || /\.(mpkg|pkg)$/i.test(res.name)) ? res : find(/^scene\.pkg$/i)
     const projEntry = /^project\.json$/i.test(res.name) ? res : find(/^project\.json$/i)
     const pkg = await dirFileOf(pkgEntry)
     if (!pkg) { logLine(t(curLang, 'local.sceneOnly'), true); return false }

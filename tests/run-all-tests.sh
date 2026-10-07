@@ -927,6 +927,12 @@ add "mdl-variant-dispatch" "node tests/mdl-variant-dispatch-test.mjs"
 #   + 源码接线（u_MVP3D 默认关、深度 depthMask(!skybox)、天空盒优先、?sky3d/?skyfirst 回退口）+ mock-GL 4 条。
 add "mesh3d-camera" "node tests/mesh3d-camera-test.mjs"
 
+# ①(P-261 2026-10-07) 测试台两条 MPKG 链路：①**扫描**（库根顶层散落 `.mpkg` —— 服务端那一半由
+#   `bench-mpkg-items` 的 A1m + 变异 M4 端到端判；这里判纯前端 `planLocalScan`/`detectWallpaperKind`
+#   的"只含容器的目录逐容器成条"与"浏览器选文件也接受 .mpkg"）；②**装载**（`__wp.loadSceneFile(blob)`
+#   从"明确降级的 no-op"变成真实现：IndexedDB 交接 + `?scenefile=1` 重载 + 取回即删；含假 IDB 往返判据）。
+add "bench-local-mpkg-scan" "node tests/bench-local-mpkg-scan-test.mjs"
+
 # ①(P-213 B1 2026-09-29) 2D 光照模型（RE-43 路径A）：light 层 schema 解析（不参与 draw）+ 纯函数
 #   ComputeLightSpecular2D 分支表（衰减平方/intensity²/g_Light 混合/rim）+ 四灯 uniform 组（声明才上传）。
 #   判据：真包+官方样例 schema 逐项 + 分支表 + 无灯零视觉差 + legacy + 2 变异。

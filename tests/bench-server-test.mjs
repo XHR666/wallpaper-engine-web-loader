@@ -488,10 +488,10 @@ async function runSuite() {
       `${escLink.status} listed=${((J(typesList).dirs) || []).map((d) => d.name).join(',')}`)
     const pickOk = await request(P3, 'POST', '/api/dir-pick', { json: { path: fx.types } })
     check('J9 POST /api/dir-pick（就选这个目录）⇒ 200 + picked + 扫描摘要 + **不改库根**（asLibrary 默认 false）',
-      pickOk.status === 200 && J(pickOk).picked === true && J(pickOk).dir === fx.types && J(pickOk).asLibrary === false && J(pickOk).scan && J(pickOk).scan.count === 8 && J(pickOk).libraryBefore.dir === fx.dd,
+      pickOk.status === 200 && J(pickOk).picked === true && J(pickOk).dir === fx.types && J(pickOk).asLibrary === false && J(pickOk).scan && J(pickOk).scan.count === 9 && J(pickOk).libraryBefore.dir === fx.dd,
       `${pickOk.status} ${JSON.stringify({ picked: J(pickOk).picked, dir: J(pickOk).dir, asLibrary: J(pickOk).asLibrary, count: J(pickOk).scan && J(pickOk).scan.count, kinds: J(pickOk).scan && J(pickOk).scan.kinds, escaped: J(pickOk).scan && J(pickOk).scan.escaped, before: J(pickOk).libraryBefore })}`)
     check('J10 dir-pick 的扫描摘要如实分开"子目录条目"与"顶层散文件/容器"；逃逸软链只计 escaped 不算条目',
-      J(pickOk).scan.dirs === 9 && J(pickOk).scan.escaped === 1 && J(pickOk).scan.count === 8 && J(pickOk).scan.looseFiles === 1 && J(pickOk).scan.looseContainers.length === 1 && J(pickOk).scan.looseContainers[0].kind === 'scene' && J(pickOk).scan.looseContainers[0].name === fx.looseName,
+      J(pickOk).scan.dirs === 9 && J(pickOk).scan.escaped === 1 && J(pickOk).scan.count === 9 && J(pickOk).scan.looseFiles === 1 && J(pickOk).scan.looseContainers.length === 1 && J(pickOk).scan.looseContainers[0].kind === 'scene' && J(pickOk).scan.looseContainers[0].name === fx.looseName,
       JSON.stringify({ dirs: J(pickOk).scan.dirs, escaped: J(pickOk).scan.escaped, count: J(pickOk).scan.count, looseFiles: J(pickOk).scan.looseFiles, loose: J(pickOk).scan.looseContainers.map((c) => c.name + ':' + c.kind) }))
     const pickEsc = await request(P3, 'POST', '/api/dir-pick', { json: { path: '/etc' } })
     const pickEsc2 = await request(P3, 'POST', '/api/dir-pick', { json: { path: '../../' } })
@@ -556,7 +556,8 @@ async function runSuite() {
     const afterPick = await request(P3, 'GET', '/api/library')
     check('J17 POST /api/fs/pick ⇒ 200 + source:"user" 且库根真的换了（/api/library.dir + items 都是它）',
       fsPick.status === 200 && J(fsPick).source === 'user' && J(fsPick).selected === true && J(fsPick).path === fx.types &&
-      J(afterPick).dir === fx.types && J(afterPick).source === 'user' && ((J(afterPick).items) || []).length === 8,
+      // ①(P-261) 基线跟随：库根顶层散落的容器也成一等项 ⇒ `types` 根的 items 8 → 9
+      J(afterPick).dir === fx.types && J(afterPick).source === 'user' && ((J(afterPick).items) || []).length === 9,
       `${fsPick.status} ${fsPick.body.slice(0, 160)} → dir=${J(afterPick).dir} items=${((J(afterPick).items) || []).length}`)
     const resetBack = await request(P3, 'POST', '/api/library-dir', { json: { reset: true } })
     check('J18 POST /api/library-dir {reset:true} ⇒ 库根还原且 source 回到配置来源（不再假装 user）',
@@ -621,11 +622,13 @@ async function runSuite() {
          · `count` 仍是 **8**（8 个目录 ⇒ 7 个目录条 + 1 个文件条）；
          · `kinds` 由 `{scene:3,…,mpkg:1}` 变成 `{scene:4,…,mpkg:0}`（那一条从"mpkg 容器档"变成按内容判的 scene）；
          · `signals.withScene` 4 / `withPreview` 6（文件条也有 scene 信号与容器内预览）。 */
-    check('L2 逐类计数：scene 4 / video 2 / web 1 / mpkg 0 / unknown 1（fixture 8 项；`.mpkg` 目录逐文件成项后类型按容器内容判）',
-      J(lib4).count === 8 && JSON.stringify(J(lib4).scan.kinds) === JSON.stringify({ scene: 4, video: 2, web: 1, mpkg: 0, unknown: 1 }),
+    /* ①(P-261 2026-10-07) 基线跟随：库根**顶层散落的容器**现在也成一等项（`散的容器.mpkg`）⇒
+       `count` 8 → **9**、`kinds.scene` 4 → **5**（该容器只有 `scene.pkg`、没有 `scene.json` ⇒ 按内容判 scene）。 */
+    check('L2 逐类计数：scene 5 / video 2 / web 1 / mpkg 0 / unknown 1（fixture 9 项 = 7 目录条 + 2 文件条；`.mpkg` 逐文件成项 + 顶层散落容器也成条）',
+      J(lib4).count === 9 && JSON.stringify(J(lib4).scan.kinds) === JSON.stringify({ scene: 5, video: 2, web: 1, mpkg: 0, unknown: 1 }),
       `count=${J(lib4).count} kinds=${JSON.stringify(J(lib4).scan.kinds)} items=${items4.map((i) => i.itemId + ':' + i.kind).join(',')}`)
-    check('L3 容器内类型单独计数（containerKinds.scene=1）+ 信号聚合（scene/web/video/mpkg/预览 逐项计数）',
-      J(lib4).scan.containerKinds.scene === 1 && J(lib4).scan.signals.withScene === 4 && J(lib4).scan.signals.withHtml === 1 && J(lib4).scan.signals.withVideo === 2 && J(lib4).scan.signals.withMpkg === 1 && J(lib4).scan.signals.withPreview === 6,
+    check('L3 容器内类型单独计数（containerKinds.scene=2：`mpkg-scene/` 里那个 + 顶层散落那个）+ 信号聚合（逐项计数）',
+      J(lib4).scan.containerKinds.scene === 2 && J(lib4).scan.signals.withScene === 5 && J(lib4).scan.signals.withHtml === 1 && J(lib4).scan.signals.withVideo === 2 && J(lib4).scan.signals.withMpkg === 2 && J(lib4).scan.signals.withPreview === 7,
       JSON.stringify({ containerKinds: J(lib4).scan.containerKinds, signals: J(lib4).scan.signals }))
     check('L4 网页档（**没有 project.json**）：kind=web / kindSource=content / entryFile=index.html / renderable=true',
       !!it('web-noproj') && it('web-noproj').kind === 'web' && it('web-noproj').kindSource === 'content' && it('web-noproj').entryFile === 'index.html' &&
@@ -648,15 +651,19 @@ async function runSuite() {
       cItem.title === '夹具容器场景' && cItem.thumbUrl === '/api/thumb?item=' + encodeURIComponent('mpkg-scene/' + fx.containerName),
       JSON.stringify(cItem && { id: cItem.itemId, role: cItem.itemRole, kind: cItem.kind, type: cItem.type, ck: cItem.containerKind, ce: cItem.containerEntry, cp: cItem.containerPreview, renderable: cItem.renderable, thumb: cItem.thumbUrl }))
     check('L6b 逐文件成项的口径可核对：`mpkg-scene` 不再产出"目录那一条"，且 `fileItems + dirItems === count`（不重复计数）',
-      !it('mpkg-scene') && J(lib4).scan.itemRoles && J(lib4).scan.itemRoles.fileItems === 1 &&
+      !it('mpkg-scene') && J(lib4).scan.itemRoles && J(lib4).scan.itemRoles.fileItems === 2 &&
       (J(lib4).scan.itemRoles.fileItems + J(lib4).scan.itemRoles.dirItems) === J(lib4).count,
       JSON.stringify({ dirItem: !!it('mpkg-scene'), roles: J(lib4).scan.itemRoles, count: J(lib4).count }))
     check('L7 非 ASCII 目录名（中文收藏夹）照常成条目并可渲染（itemId 国际口径，不再被静默丢掉）',
       !!it('流萤') && it('流萤').kind === 'scene' && it('流萤').hasScene === true && it('流萤').renderable === true && it('流萤').type === 'scene',
       JSON.stringify(it('流萤') && { id: it('流萤').itemId, kind: it('流萤').kind, scene: it('流萤').scenePkg }))
-    check('L8 顶层散落的 .mpkg 文件：不进条目列表，但**如实计数**（scan.looseFiles/looseMpkgFiles）并给出理由',
+    /* ①(P-261 2026-10-07) **语义反转（有意）**：顶层散落的 `.mpkg` 过去"只计数、不进列表"，
+       真机表现就是用户报的"扫描不到 MPKG 文件"（库根顶层 6 个 `.mpkg` ⇒ `items=0`）⇒ 现在**既进条目列表、
+       又保留原有计数**（`looseFiles`/`looseMpkgFiles` 仍是"顶层散文件"的全量读数，诊断面不缩水）。 */
+    check('L8 顶层散落的 .mpkg：**既成一等项**（`itemId` = 文件名、`itemRole=file`），又保留 `scan.looseFiles/looseMpkgFiles` 计数',
+      !!it(fx.looseName) && it(fx.looseName).itemRole === 'file' && it(fx.looseName).dir === '' && it(fx.looseName).kind === 'scene' &&
       J(lib4).scan.looseFiles === 1 && ((J(lib4).scan.looseMpkgFiles) || []).includes(fx.looseName) && /目录型/.test(String(J(lib4).scan.looseFileNote)),
-      JSON.stringify({ looseFiles: J(lib4).scan.looseFiles, loose: J(lib4).scan.looseMpkgFiles, note: J(lib4).scan.looseFileNote }))
+      JSON.stringify({ item: it(fx.looseName) && { id: it(fx.looseName).itemId, role: it(fx.looseName).itemRole, dir: it(fx.looseName).dir, kind: it(fx.looseName).kind }, looseFiles: J(lib4).scan.looseFiles }))
     check('L9 unknown 条目带"下一层像不像壁纸"的提示（probe.subdirsWithSignals）—— 回答"为什么这层扫不出来"',
       !!it('empty-dir') && it('empty-dir').kind === 'unknown' && it('empty-dir').probe && it('empty-dir').probe.subdirs === 1 && it('empty-dir').probe.subdirsWithSignals === 1,
       JSON.stringify(it('empty-dir') && { kind: it('empty-dir').kind, probe: it('empty-dir').probe }))

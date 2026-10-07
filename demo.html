@@ -1541,6 +1541,75 @@ function mpwDiagMirror(m) {
   } catch (e) { /* 无 window / 无 Image：忽略 */ }
 }
 const logf = (m) => { log.textContent += m + '\n'; console.log(m); mpwDiagMirror(m); };
+
+// ═══ MPW-SCENEFILE-BEGIN ═══
+/* ①(P-261 2026-10-07) `__wp.loadSceneFile(blob)` 的**落地实现**（此前是"明确降级"的 no-op）：
+   测试台的「选择文件 / 选择文件夹 → 本地预览」与「服务端文件浏览器选 .mpkg」两条路都调它
+   （`demo/bench-patch.js` 的 `previewLocal()` → `api.loadSceneFile(it.pkg)`），而本仓渲染器的装载是
+   **模块顶层一次性执行**（没有页内重挂载入口）⇒ 只能"把字节先存起来 + 同页重载一次"。
+   为什么不用更简单的两条路（都实测过/有硬限制）：
+     · `blob:` URL + 导航：本页新建的 blob: URL 在导航后**取不到**（真机实测 `直连失败` → 服务端代理
+       `pkgurl HTTP 400`）；
+     · `sessionStorage`：只能存字符串、且有 ~5MB 量级上限，装不下几十 MB 的 `.mpkg`。
+   所以用 **IndexedDB** 存 ArrayBuffer（大包也能存），重载后用 `?scenefile=1` 取回并**立刻删除**
+   （不在存储里留副本）。记录格式 `{ name, bytes, project, at }`；取回失败/没有记录 ⇒ 如实记一行日志并
+   回落到常规来源（`?id=` / `?pkgurl=` / `?pkgpath=`），不静默变成黑屏。 */
+const MPW_SCENEFILE_PARAM = 'scenefile'
+const MPW_SCENEFILE_DB = 'mpw-scenefile'
+const MPW_SCENEFILE_STORE = 'handoff'
+function mpwSceneFileIdb() {
+  return new Promise((resolve, reject) => {
+    try {
+      if (typeof indexedDB === 'undefined' || !indexedDB) return reject(new Error('本浏览器没有 IndexedDB'))
+      const req = indexedDB.open(MPW_SCENEFILE_DB, 1)
+      req.onupgradeneeded = () => { try { const db = req.result; if (!db.objectStoreNames.contains(MPW_SCENEFILE_STORE)) db.createObjectStore(MPW_SCENEFILE_STORE, { keyPath: 'id' }) } catch (e) {} }
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error || new Error('IndexedDB 打不开'))
+    } catch (e) { reject(e) }
+  })
+}
+function mpwSceneFileTx(mode, fn) {
+  return mpwSceneFileIdb().then((db) => new Promise((resolve, reject) => {
+    let tx
+    try { tx = db.transaction(MPW_SCENEFILE_STORE, mode) } catch (e) { reject(e); return }
+    const store = tx.objectStore(MPW_SCENEFILE_STORE)
+    let out = null
+    try { out = fn(store) } catch (e) { reject(e); return }
+    /* ⚠ 回调返回 **Promise** 时（`mpwSceneFileTake` 就是：它要等 `get.onsuccess` 才拿得到值）必须在
+       **事务 complete 之后**再把那个 Promise 的**值**透出去 —— 首版写成 `resolve(out.result)`（永远
+       undefined）⇒ 交接记录读不到、静默回落常规来源（真机读数：`__mpwSceneFileTaken=null`、挂的还是旧样例）。
+       判据：`tests/bench-local-mpkg-scan-test.mjs` 的 D 段用假 IndexedDB 跑 put→take 往返。 */
+    const finish = () => {
+      try { db.close() } catch (e) {}
+      if (out && typeof out.then === 'function') out.then(resolve, reject)
+      else resolve(out && out.result !== undefined ? out.result : undefined)
+    }
+    tx.oncomplete = finish
+    tx.onerror = () => { try { db.close() } catch (e) {} ; reject(tx.error || new Error('IndexedDB 事务失败')) }
+    tx.onabort = () => { try { db.close() } catch (e) {} ; reject(tx.error || new Error('IndexedDB 事务中止')) }
+  }))
+}
+/** 存一份待装载记录（key 恒 `pending`：同一时刻只可能有一次"选文件"）。 */
+function mpwSceneFilePut(rec) { return mpwSceneFileTx('readwrite', (st) => st.put(Object.assign({ id: 'pending' }, rec))) }
+/** 取回并**删除**待装载记录（一次性交接）。 */
+function mpwSceneFileTake() {
+  return mpwSceneFileTx('readwrite', (st) => new Promise((resolve, reject) => {
+    const g = st.get('pending')
+    g.onsuccess = () => { const v = g.result || null; try { st.delete('pending') } catch (e) {} ; resolve(v) }
+    g.onerror = () => reject(g.error || new Error('IndexedDB 读取失败'))
+  }))
+}
+/** 重新挂载到"从本地文件装载"这一档：保留当前档位参数，去掉旧的包来源，加 `?scenefile=1`。 */
+function mpwSceneFileRemountUrl() {
+  try {
+    const q = new URLSearchParams(location.search)
+    q.delete('id'); q.delete('pkgurl'); q.delete('pkgpath'); q.delete('video')
+    q.set('type', 'scene')
+    q.set(MPW_SCENEFILE_PARAM, '1')
+    return location.pathname + '?' + q.toString()
+  } catch (e) { return location.pathname + '?' + MPW_SCENEFILE_PARAM + '=1' }
+}
+// ═══ MPW-SCENEFILE-END ═══
 // 桥接 console.warn/error 到页面日志（we-scene 的跳过/错误信息都在 console.warn，之前页面看不到！）
 {
   const ow = console.warn, oe = console.error;
@@ -2851,7 +2920,37 @@ async function bootInstance(inst) {
           : ('未送达：' + r.why))
         return !!r.ok
       })
-      put('loadSceneFile', () => { note('loadSceneFile', '⚠ 本仓渲染器不从 Blob 挂载（请用 `?id=` / `?pkgurl=` / `?pkgpath=` 指定包）⇒ 本次调用被忽略'); return false }, false)
+      /* ①(P-261 2026-10-07) **真实现**（此前是"明确降级"的 no-op ⇒ 测试台「选文件 → 导入」永远加载不出来）：
+         接 File/Blob → 字节存进 IndexedDB → 带 `?scenefile=1` 同页重载 → 装载期取回（一次性，取完即删）。
+         契约与上游产物页的 `__wp.loadSceneFile(blob, project)` 同形（本仓从容器内读 project.json，
+         第二实参只作兜底记录），返回 Promise<boolean>：true = 已接收并触发重载。 */
+      put('loadSceneFile', async (fileOrBlob, project) => {
+        if (!fileOrBlob || typeof fileOrBlob.arrayBuffer !== 'function') {
+          note('loadSceneFile', '⚠ 只接受 File/Blob（给的是 ' + (fileOrBlob === null ? 'null' : typeof fileOrBlob) + '）⇒ 本次调用被忽略')
+          return false
+        }
+        /* ⚠ 正文读取走**统一的超时包装**（与 `bufT`/`bitmapT` 同一条纪律：本仓"每个 await 都要有上限"，
+           `tests/load-timeout-test.mjs` T4b 直接盯源码里的裸 `await *.arrayBuffer()`）——本地文件通常很快，
+           但几十 MB 的 `.mpkg` 在慢盘/内存紧张时也可能长时间不返回，不能把页面钉死在这里。 */
+        let bytes = null
+        try {
+          const r = await withTimeout(fileOrBlob.arrayBuffer(), NET_TIMEOUT_MS, 'loadSceneFile：' + String(fileOrBlob.name || 'blob') + ' 正文')
+          bytes = (r === MPW_TIMED_OUT || !r) ? null : r
+        } catch (e) {
+          note('loadSceneFile', '⚠ 读 Blob 失败：' + ((e && e.message) || e)); return false
+        }
+        if (!bytes) { note('loadSceneFile', '⚠ 读 Blob 超时（上限 ' + NET_TIMEOUT_MS + 'ms）⇒ 本次调用放弃'); return false }
+        if (!bytes || !bytes.byteLength) { note('loadSceneFile', '⚠ 空文件（0 字节）⇒ 本次调用被忽略'); return false }
+        const nm = String(fileOrBlob.name || 'local-wallpaper.pkg')
+        try { await mpwSceneFilePut({ name: nm, bytes, project: project || null, at: Date.now() }) } catch (e) {
+          note('loadSceneFile', '⚠ 暂存失败（IndexedDB 不可用）：' + ((e && e.message) || e)); return false
+        }
+        const to = mpwSceneFileRemountUrl()
+        try { window.__mpwSceneFile = { ok: true, name: nm, bytes: bytes.byteLength, at: Date.now(), to } } catch (e) {}
+        note('loadSceneFile', '已接收本地文件 ' + nm + '（' + bytes.byteLength + ' 字节）⇒ 重载本页从内存装载（' + to + '）')
+        try { location.replace(to) } catch (e) { note('loadSceneFile', '⚠ 重载失败：' + ((e && e.message) || e)); return false }
+        return true
+      })
       /* ①(2026-09-25 接线) web 帧的滚轮**真的能到**：帧内 shim 的 `control()` 明确支持 `op:'wheel'`
          （`core/we-web-shim.mjs` 的 `case 'wheel': dispatchWheel`），落点用 `mpwWebFramePoint()` 换算；
          场景档没有滚轮注入契约（`window.__mpwPointer` 只有位置/按键）⇒ 按"不支持 + 替代"如实回报。 */
@@ -4488,7 +4587,23 @@ function loadScene() {
   // ①(P-135 乙) 取包阶段（`加载场景` 之后）是全链路唯一**不能跳过**的资源：超时只能如实报错，
   //   但错误必须是"看得懂的一行"（含 URL 与上限），而不是永久静默停在这一行日志。
   const pkgTimeoutErr = (what) => new Error(what + ' 取包失败或超时（上限 ' + NET_TIMEOUT_MS + 'ms）')
-  if (pkgPathQ) {
+  /* ①(P-261 2026-10-07) **本地文件交接优先**：`__wp.loadSceneFile(blob)` 把字节写进 IndexedDB 后带
+     `?scenefile=1` 重载本页 ⇒ 这里取回（并删除）当成包来源。取不到就如实记一行并回落常规来源。 */
+  let __sceneFileRec = null
+  if (qs.get(MPW_SCENEFILE_PARAM) === '1') {
+    try { __sceneFileRec = await mpwSceneFileTake() } catch (e) { logf('⚠ 本地文件交接读取失败: ' + ((e && e.message) || e)) }
+    if (!__sceneFileRec || !__sceneFileRec.bytes) {
+      __sceneFileRec = null
+      logf('⚠ ?' + MPW_SCENEFILE_PARAM + '=1 但没有待装载的本地文件（记录已被取走 / 存储被清）⇒ 按常规来源继续')
+    } else {
+      logf('装载本地文件: ' + String(__sceneFileRec.name || '(未命名)')
+        + '（' + (__sceneFileRec.bytes.byteLength || __sceneFileRec.bytes.length || 0) + ' 字节，来源 = loadSceneFile 交接）')
+      try { window.__mpwSceneFileTaken = { name: String(__sceneFileRec.name || ''), bytes: (__sceneFileRec.bytes.byteLength || 0), at: Date.now() } } catch (e) {}
+    }
+  }
+  if (__sceneFileRec && __sceneFileRec.bytes) {
+    buf = (__sceneFileRec.bytes instanceof Uint8Array) ? __sceneFileRec.bytes : new Uint8Array(__sceneFileRec.bytes)
+  } else if (pkgPathQ) {
     logf('加载本地容器: ' + pkgPathQ)
     const url = '/pkgpath?p=' + encodeURIComponent(pkgPathQ)
     const r = await fetchT(url, null, NET_TIMEOUT_MS, '本地容器')
