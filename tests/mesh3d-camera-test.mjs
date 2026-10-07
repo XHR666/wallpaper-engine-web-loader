@@ -323,5 +323,66 @@ console.log('== D mock-GL 端到端（mvp3d 通路 / 默认关 / 天空盒深度
     (uniLog.find((x) => x[0] === 'u_Use3D') || [])[1] === 0 && !uniLog.some((x) => x[0] === 'u_MVP3D') && !depthLog.some((x) => /DEPTH_TEST/.test(x)))
 }
 
+console.log('== E 老式模型层档位（P-259：auto=3D 几何档 / off 时 `.mdl` 不进通用贴图链）==')
+{
+  /* ①(P-259 2026-10-07) 档位解析在**运行时**做（`resolveModellayerMode(scene)`）：
+     `off|0|false` → off、`1|on|quad` → quad、`mesh` → mesh、缺省（auto）= 真 3D 场景 + ≥1 个 `.mdl` 层 ⇒ mesh。
+     判据盯三件：四档解析存在且显式档优先；auto 判据只看"无正交矩形 + 有 fov + mdl 层数 > 0"；
+     旧常量 `MODELLAYER_ON` / `MODELLAYER_MESH` **在所有消费点都被替换**（漏一处就会绕过档位）。 */
+  check('E1 `resolveModellayerMode` 在位且四档齐备（off/quad/mesh/auto），auto 判据 = persp + mdl>0',
+    /function resolveModellayerMode\(scene\)/.test(DEMO_SRC) &&
+    /if \(a === '0' \|\| a === 'off' \|\| a === 'false' \|\| a === 'none'\) return 'off'/.test(DEMO_SRC) &&
+    /if \(a === '1' \|\| a === 'on' \|\| a === 'quad'\) return 'quad'/.test(DEMO_SRC) &&
+    /if \(a === 'mesh'\) return 'mesh'/.test(DEMO_SRC) &&
+    /return \(persp && mdl > 0\) \? 'mesh' : 'off'/.test(DEMO_SRC))
+  check('E2 `.mdl` 层的通用贴图链门（档位 off 时跳过）+ `?mdlquad=legacy` 回退口 + 台账 `__mpwMdlQuad`',
+    /if \(MODELLAYER_MODE === 'off' && !MDLQUAD_LEGACY && \/\\.mdl\$\/i\.test\(String\(layer\.image\)\)\) \{/.test(DEMO_SRC) &&
+    /\[\?&\]mdlquad=legacy\//.test(DEMO_SRC) &&
+    /window\.__mpwMdlQuad = Object\.assign\(\{ skipped: 0, drawn: 0 \}, window\.__mpwMdlQuad\)/.test(DEMO_SRC) &&
+    /  MODELLAYER_MODE = resolveModellayerMode\(scene\)/.test(DEMO_SRC) &&
+    /window\.__mpwModellayer = \{/.test(DEMO_SRC))
+  /* ①(P-259 事故复盘) 档位变量的**作用域**是硬要求：几何注册段在另一个函数里读它 ⇒ 必须模块级
+     `let` + `loadScene` 内只赋值；写成 `const`（loadScene 内）会 `❌ 启动失败: MODELLAYER_MODE is not
+     defined`（本轮真机四档全黑），与 P-254 的 `MODELLAYER_ON` 事故同型。 */
+  check('E2b 档位变量是**模块级 let**（loadScene 内只赋值、不再声明）+ 初值按显式档解析（auto 临时 mesh）',
+    /^let MODELLAYER_MODE = \(\(\) => \{/m.test(DEMO_SRC) &&
+    /return 'mesh'   \/\/ 显式 'mesh' 与 auto 的临时值相同/.test(DEMO_SRC) &&
+    /^  MODELLAYER_MODE = resolveModellayerMode\(scene\)/m.test(DEMO_SRC) &&
+    !/^\s*const MODELLAYER_MODE\b/m.test(DEMO_SRC))
+  check('E3 旧常量在所有**消费点**都被档位替换（只剩定义/注释；漏一处 = 绕过档位）',
+    !/if \(MODELLAYER_ON && \/\\.mdl\$\/i\.test\(String\(layer\.image\)\)\)/.test(DEMO_SRC) &&
+    !/skinEnabled && MODELLAYER_ON && MODELLAYER_MESH/.test(DEMO_SRC) &&
+    /if \(MODELLAYER_MODE !== 'off' && \/\\.mdl\$\/i\.test\(String\(layer\.image\)\)\) \{/.test(DEMO_SRC) &&
+    /if \(MODELLAYER_MODE === 'mesh'\) \{/.test(DEMO_SRC))
+  check('E4 几何注册只在 `mesh` 档（`quad` 档不许注册网格：否则四边形档会被几何覆盖）',
+    /if \(MODELLAYER_MODE === 'mesh'\) \{/.test(DEMO_SRC) &&
+    /const __skinOn = !new URLSearchParams\(location\.search\)\.has\('skin0'\)/.test(DEMO_SRC) &&
+    /if \(__skinOn\) \{ try \{ registerStaticModelMeshes\(scene, pkg\) \} catch/.test(DEMO_SRC))
+  /* ①(P-259 第三处事故复盘) 注册**必须在加载期**执行、不能挂在场景脚本节拍之后：本包真机实测
+     `applySceneScripts()` 在挂载期抛错 ⇒ `runSceneScripts` 的 `catch … return` 让后面的注册永远不跑
+     （`frames` 涨到 166、`__mpwModelMesh.seen` 恒 0）。 */
+  check('E4b 注册函数是**模块级**且被 `loadScene` 就地调用（不再依赖 `runSceneScripts` 的节拍）',
+    /^function registerStaticModelMeshes\(scene, pkg\) \{/m.test(DEMO_SRC) &&
+    /const __modelMeshStat = \{ seen: 0, drawn: 0, skipped: 0, bytes: 0, reasons: \{\} \}/.test(DEMO_SRC) &&
+    /^let __modelMeshScene = null$/m.test(DEMO_SRC) &&
+    /if \(!scene \|\| !Array\.isArray\(scene\.layers\) \|\| __modelMeshScene === scene\) return stat/.test(DEMO_SRC) &&
+    !/const modelMeshStat = \{ seen: 0/.test(DEMO_SRC))
+  // E5 离线：真包按 auto 判据各命中一次（3D 包 ⇒ mesh；2D 包 ⇒ off）
+  const P3D = path.join(MPW_WS, 'allwallpaper', '0923', '3662790108', 'scene.pkg')
+  const P2D = path.join(MPW_WS, 'allwallpaper', '0923', '3463520581', 'scene.pkg')
+  const modeOf = (p) => {
+    if (!fs.existsSync(p)) return null
+    const pk = lib.parsePkg(new Uint8Array(fs.readFileSync(p)))
+    const sc = JSON.parse(Buffer.from(lib.getEntry(pk, 'scene.json')).toString('utf8'))
+    const persp = !!(sc.general && sc.general.fov) && !(sc.general.orthogonalprojection && Number(sc.general.orthogonalprojection.width) > 0)
+    const mdl = (sc.objects || []).filter((o) => typeof o.model === 'string' && /\.mdl$/i.test(o.model)).length
+    return { persp, mdl, mode: (persp && mdl > 0) ? 'mesh' : 'off' }
+  }
+  const m3 = modeOf(P3D), m2 = modeOf(P2D)
+  check('E5 auto 判据离线复算：3D 包（3662790108）⇒ mesh、2D 包（3463520581）⇒ off',
+    !!m3 && m3.persp === true && m3.mdl === 73 && m3.mode === 'mesh' && !!m2 && m2.persp === false && m2.mode === 'off',
+    JSON.stringify({ '3d': m3, '2d': m2 }))
+}
+
 console.log('\n' + pass + ' 通过 / ' + fail + ' 失败（P-257 3D 相机/模型矩阵/天空盒）')
 process.exit(fail === 0 ? 0 : 1)

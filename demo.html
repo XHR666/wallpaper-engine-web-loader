@@ -3165,8 +3165,51 @@ function mpwMakeSem(max) {
 const texGate = mpwMakeSem(TEXCON)
 /* ①(P-247/P-254) 老式模型层开关（**模块级**：`loadScene` 与蒙皮准备段都要读；
    原先声明在 `loadScene` 内 ⇒ 蒙皮段的几何注册读不到它 ⇒ `❌ 启动失败: MODELLAYER_ON is not defined`）*/
-// ①(P-247) 老式模型层接线开关（默认关；`?modellayer=1|on` 打开，见下方整段说明）
+// ①(P-247) 老式模型层接线开关（见下方整段说明）
 const MODELLAYER_ON = (() => { try { const v = new URLSearchParams(location.search).get('modellayer'); return v === '1' || v === 'on' || v === 'mesh' } catch (e) { return false } })()
+/* ①(P-259 2026-10-07) **运行时档位解析**（`?modellayer=` 四档；取代"缺省恒关"）：
+     · `off` / `0` / `false`  —— 关：`.mdl` 层不画（并且**不再**出现"材质贴图铺满全屏"那张灰屏，见 `?mdlquad=`）。
+     · `1` / `on`            —— 四边形档（P-247 的"材质槽 0 当层内容"，一键 A/B）。
+     · `mesh`                —— 几何档（P-254/P-257：真网格 + 官方 4×4 投影）。
+     · 缺省（auto）           —— **真 3D 场景且含 `.mdl` 层 ⇒ `mesh`**；其余 ⇒ `off`。
+   为什么 auto 选几何档（P-258 补记的归因 + 本轮实测）：3D 包的可见内容主要就是这些网格层，官方也是按
+   几何画；缺省关时它们会被 P-205 的 `resolveBuiltin()` 登记模型钩子接进通用 model→material→texture 链，
+   画成**一张铺满全屏的材质贴图**（`3662790108` 的灰屏 / `3589454154` 的灰噪 —— 第 90 轮起被记成
+   "该包本来就在画"的读数就是它）。auto 只对"无正交矩形 + 有 `general.fov` + 至少 1 个 `.mdl` 层"生效
+   ⇒ **2D 语料一位不变**；显式档位永远优先，回退口 `?modellayer=off`。 */
+const MODELLAYER_ARG = (() => { try { return String(new URLSearchParams(location.search).get('modellayer') || '').trim().toLowerCase() } catch (e) { return '' } })()
+/* ⚠(P-259 事故复盘，与 P-254 同型) 档位变量必须是**模块级**：解析在 `loadScene` 里做，但消费点里
+   有一个在**另一个函数**（蒙皮准备段的几何注册）—— 写成 `const MODELLAYER_MODE = …`（loadScene 内）
+   会直接 `❌ 启动失败: MODELLAYER_MODE is not defined`（本轮真机四档全黑就是这个；判据 E3 现在钉住
+   "模块级 `let` + loadScene 内只赋值不再声明"）。缺省 `'off'` = 解析前的保守值。 */
+/* ⚠(P-259 第二处事故复盘) 初值**不能是 `'off'`**：几何注册跑在 `runSceneScripts` 的**脚本节拍**里，
+   而本机（软件渲染 + 569MB 容器）实测"挂载期的节拍在 6.5s 就停了、`loadScene` 9s 才解析完档位" ——
+   初值 `'off'` 会让 auto 档位的几何注册**永远等不到那一拍**（真机读数：`frames` 涨到 166、`gate.at`
+   冻在 6559、`__mpwModelMesh.seen` 恒 0）。所以：**显式档位在模块加载期就解析**，auto 档位先取
+   临时的 `'mesh'`（auto 的目的地本来就是"3D 场景走几何"），`loadScene` 解析出真场景后再**收敛**
+   （2D / 无 `.mdl` 层 ⇒ 收敛成 `'off'`）。临时值对 2D 场景无副作用：2D 语料**没有** `.mdl` 图片层
+   （105 个 `.mdl` 层全在 3 个 3D 包里）⇒ 几何注册匹配到 0 层、P-247 分支也不触发。 */
+let MODELLAYER_MODE = (() => {
+  const a = MODELLAYER_ARG
+  if (a === '0' || a === 'off' || a === 'false' || a === 'none') return 'off'
+  if (a === '1' || a === 'on' || a === 'quad') return 'quad'
+  return 'mesh'   // 显式 'mesh' 与 auto 的临时值相同；auto 在 loadScene 里按真场景收敛
+})()
+function resolveModellayerMode(scene) {
+  const a = MODELLAYER_ARG
+  if (a === '0' || a === 'off' || a === 'false' || a === 'none') return 'off'
+  if (a === '1' || a === 'on' || a === 'quad') return 'quad'
+  if (a === 'mesh') return 'mesh'
+  const persp = !!(scene && scene.general && scene.general.fov) &&
+    !(scene.general.orthogonalprojection && Number(scene.general.orthogonalprojection.width) > 0)
+  const mdl = (scene && Array.isArray(scene.layers))
+    ? scene.layers.filter((l) => l && typeof l.image === 'string' && /\.mdl$/i.test(l.image)).length : 0
+  return (persp && mdl > 0) ? 'mesh' : 'off'
+}
+/* ①(P-259) `?mdlquad=legacy`：**关掉"`.mdl` 层不参与通用 model→material→texture 链"**这道门
+   （回到 P-258 之前的画面：`.mdl` 层被当整屏四边形画）。缺省门**开** ⇒ 档位为 `off` 时 `.mdl` 层
+   一个绘制都不发；档位为 `quad`/`mesh` 时该层由 P-247 分支接管（不受这道门影响）。 */
+const MDLQUAD_LEGACY = (() => { try { return /[?&]mdlquad=legacy/.test(String(location.search || '')) } catch (e) { return false } })()
 /* ①(P-254 2026-10-07) `?modellayer=mesh`：静态模型层**按网格几何画**（而不是把材质槽 0 的贴图当整层四边形）。
    为什么：P-250 之后 75 个 48B 静态网格已能解析（球体/天空盒/行星），而模型层的本义就是"一层网格"；
    四边形模式（`?modellayer=1`）在球体上会画成一张整屏大图。几何模式复用既有 mesh 程序
@@ -3177,6 +3220,53 @@ const MODELLAYER_ON = (() => { try { const v = new URLSearchParams(location.sear
    ③超过 `?modelmeshmb=`（缺省 **16MB**）的 mdl 不读 —— 真机实测 `?modellayer=mesh` 在 569MB 包里会读 **323MB** 的 mdl（`球体01.mdl` 一个就 51MB）而画面反而变黑（见 PATCHES P-254），故把缺省压到 16MB 并进台账。 */
 const MODELLAYER_MESH = (() => { try { return new URLSearchParams(location.search).get('modellayer') === 'mesh' } catch (e) { return false } })()
 const MODEL_MESH_MAX_MB = (() => { try { const v = Number(new URLSearchParams(location.search).get('modelmeshmb')); return (Number.isFinite(v) && v > 0) ? Math.min(1024, Math.round(v)) : 16 } catch (e) { return 16 } })()
+/* ①(P-259 2026-10-07) **静态模型层的几何注册**（原 P-254 的实现体，从 `runSceneScripts` 里提出来）：
+   为什么必须提出来：它原先挂在**场景脚本节拍**之后，而本仓真机实测 `0923/3662790108` 的
+   `applySceneScripts()` 在挂载期抛异常 ⇒ `runSceneScripts` 走 `catch { … return }` 提前返回 ⇒
+   几何注册**永远不执行**（读数：`frames` 涨到 166、`__mpwModelMesh.seen` 恒 0、`__mpwScriptTick.lastRun`
+   却在推进）。注册本来是**加载期一次性工作**，不该依赖"脚本没抛错"这条链。
+   语义与原实现逐条相同：读 mdl（单文件上限 `MODEL_MESH_MAX_MB`）→ `parseMdl` → 只收**无骨静态网格**
+   → 造单位骨骼记录 + `__skinReady`（绘制仍走渲染循环的 `onMeshLayer`，层序位置、同一套相机/材质纹理）。
+   幂等：同一个 `scene` 对象只注册一次（`stat.__scene` 认身份）；换场景会重新注册。 */
+const __modelMeshStat = { seen: 0, drawn: 0, skipped: 0, bytes: 0, reasons: {} }
+/* ⚠ 场景身份**不能**挂在台账对象上（`stat.__scene = scene` 会把整棵 scene 挂进 `window.__mpwModelMesh`
+   ⇒ 宿主/判据对它 `JSON.stringify` 直接 `RangeError: Invalid string length`，本轮真机探针就撞上这个）；
+   幂等标记放模块级闭包变量。 */
+let __modelMeshScene = null
+function registerStaticModelMeshes(scene, pkg) {
+  const stat = __modelMeshStat
+  try { window.__mpwModelMesh = stat } catch (e) { /* 无 window（切片夹具） */ }
+  if (!scene || !Array.isArray(scene.layers) || __modelMeshScene === scene) return stat
+  __modelMeshScene = scene
+  stat.seen = 0; stat.drawn = 0; stat.skipped = 0; stat.bytes = 0; stat.reasons = {}
+  scene.layers.forEach((l) => {
+    try {
+      if (!l || typeof l.image !== 'string' || !/\.mdl$/i.test(l.image)) return
+      stat.seen++
+      const bump = (why) => { stat.skipped++; stat.reasons[why] = (stat.reasons[why] || 0) + 1 }
+      const ent = ((pkg && pkg.entries) || []).find((x) => x.name === l.image)
+      const sz = ent ? ent.size : 0
+      if (sz > MODEL_MESH_MAX_MB * 1048576) { bump('too-large(' + Math.round(sz / 1048576) + 'MB)'); return }
+      const bytes = lib.getEntry(pkg, l.image)
+      if (!bytes) { bump('no-bytes'); return }
+      stat.bytes += bytes.length
+      const mm = lib.parseMdl(bytes)
+      if (!mm || !mm.positions || !mm.positions.length) { bump('parse-null'); return }
+      if ((mm.bones || []).length) { bump('has-bones'); return }
+      const gBones = new Float32Array(16)
+      gBones[0] = gBones[5] = gBones[10] = gBones[15] = 1
+      l.__skin = { mesh: mm, nb: 1, gBones, animIdx: 0, fps: 30, frameCount: 1, staticModel: true }
+      l.__skinReady = true
+      stat.drawn++
+    } catch (e) {
+      stat.skipped++
+      const k = 'err:' + String((e && e.message) || e).slice(0, 40)
+      stat.reasons[k] = (stat.reasons[k] || 0) + 1
+    }
+  })
+  try { logf('① P-259 静态模型层几何注册：' + JSON.stringify({ seen: stat.seen, drawn: stat.drawn, skipped: stat.skipped, bytes: stat.bytes, reasons: stat.reasons })) } catch (e) { /* ignore */ }
+  return stat
+}
 
 const texInflight = new Map()
 try { window.__mpwTexGate = () => Object.assign({ inflight: texInflight.size }, texGate.stat) } catch (e) { /* ignore */ }
@@ -3804,6 +3894,25 @@ function loadScene() {
       + (fxStat.passthrough ? ' · passthrough ' + fxStat.passthrough + '（缺件恒等 blit 顶着）' : '')
       + ' · 链摘要 ' + fxStat.digest);
   }
+  /* ①(P-259 2026-10-07) **本场景的老式模型层档位**（`off` / `quad` / `mesh`；见模块级 `resolveModellayerMode`
+     的整段说明）。缺省 auto：真 3D 场景且含 `.mdl` 层 ⇒ 几何档；其余 ⇒ 关。台账 `window.__mpwModellayer`。 */
+  MODELLAYER_MODE = resolveModellayerMode(scene)
+  try {
+    const mdlN = scene.layers.filter((l) => l && typeof l.image === 'string' && /\.mdl$/i.test(l.image)).length
+    window.__mpwModellayer = {
+      arg: MODELLAYER_ARG || '(auto)', mode: MODELLAYER_MODE, mdlLayers: mdlN, at: Math.round(mpwNowMs()),
+      persp: !!(scene.general && scene.general.fov) && !(scene.general.orthogonalprojection && Number(scene.general.orthogonalprojection.width) > 0),
+      mdlquadLegacy: !!MDLQUAD_LEGACY,
+    }
+  } catch (e) { /* 台账失败不影响装载 */ }
+  if (MODELLAYER_MODE === 'mesh') {
+    /* `?skin0=1`（关 GPU 蒙皮）时静态模型层同样不注册 —— 与 P-254 的口径一致（`skinEnabled` 是
+       `runSceneScripts` 作用域里的绑定，加载期读不到，这里按同一式子就地再读一次 URL）。 */
+    const __skinOn = !new URLSearchParams(location.search).has('skin0')
+    logf('① P-259 模型层档位 = mesh（几何档；auto 命中真 3D 场景 + ' + (window.__mpwModellayer ? window.__mpwModellayer.mdlLayers : '?') + ' 个 mdl 层，skin=' + (__skinOn ? 1 : 0) + '）')
+    // ①(P-259) **加载期就地注册**（不等脚本节拍：该包挂载期 `applySceneScripts` 抛错会让节拍提前返回）
+    if (__skinOn) { try { registerStaticModelMeshes(scene, pkg) } catch (e) { logf('❌ 静态模型层几何注册失败: ' + ((e && e.message) || e)) } }
+  }
   scene.layers.forEach((layer) => {
     if (!layer.image) return;
     jobs.push((() => {
@@ -3817,7 +3926,20 @@ function loadScene() {
          "材质槽 0 当层内容"，机制/台账已在真机验证（8/8 绑定、合成源命中），但**像素结果尚未与可用参考
          对照**（官方 web 产物对本包 `scene render failed` + WebGL context lost ⇒ 无真值），且这类层会画出
          整屏四边形 ⇒ 存在"盖住原本可见内容"的风险 ⇒ 先做成**可选通路**，对照通过后再翻默认。 */
-      if (MODELLAYER_ON && /\.mdl$/i.test(String(layer.image))) {
+      /* ①(P-259 2026-10-07) 档位为 `off` 时 **`.mdl` 层不参与通用 model→material→texture 链**：
+         不设这道门的话，P-205 的 `resolveBuiltin()` 登记模型钩子会把 `.mdl` 接住（**不会**走到
+         "对二进制调 parseWeJson 必抛"那条），通用链照常把材质槽 0 的贴图赋给 `layer.textureName`
+         ⇒ 该层被当**整屏四边形**画（3D 包实测：`3662790108` 灰屏 / `3589454154` 灰噪）。
+         回退口 `?mdlquad=legacy` 逐位回到改动前。档位 `quad`/`mesh` 由下面的 P-247 分支接管。 */
+      if (MODELLAYER_MODE === 'off' && !MDLQUAD_LEGACY && /\.mdl$/i.test(String(layer.image))) {
+        try {
+          window.__mpwMdlQuad = Object.assign({ skipped: 0, drawn: 0 }, window.__mpwMdlQuad)
+          window.__mpwMdlQuad.skipped++
+          if (window.__mpwMdlQuad.skipped <= 5) (window.__mpwMdlQuad.names = window.__mpwMdlQuad.names || []).push(String(layer.name || layer.id))
+        } catch (e2) { /* 台账失败不影响装载 */ }
+        return Promise.resolve()
+      }
+      if (MODELLAYER_MODE !== 'off' && /\.mdl$/i.test(String(layer.image))) {
         try {
           window.__mpwModelLayer = Object.assign({ seen: 0, bound: 0, reserved: 0, dropped: 0 }, window.__mpwModelLayer)
           window.__mpwModelLayer.seen++
@@ -6155,6 +6277,15 @@ function loadScene() {
     //   高频趟只跑"文本层子树的脚本节点"（bundle nodeFilter）且不重复触发 scene.on('update')。
     const fastDue = SCRIPT_FAST_HZ > 0 && (tSec - scriptLastFast >= 1 / SCRIPT_FAST_HZ)
     const slowDue = (tSec - scriptLastRun >= 0.25)
+    /* ①(P-259) 节拍自报（诊断）：区分"根本没轮到节拍"与"轮到了但门没开" —— 前者会让**加载完成后**
+       才解析出来的 auto 档位永远等不到几何注册（真机/软件渲染下的挂载期实测就是这个现象）。 */
+    try {
+      window.__mpwScriptTick = {
+        tSec: Math.round(tSec * 1000) / 1000, fast: !!fastDue, slow: !!slowDue,
+        lastFast: Math.round(scriptLastFast * 1000) / 1000, lastRun: Math.round(scriptLastRun * 1000) / 1000,
+        at: Math.round(mpwNowMs()),
+      }
+    } catch (e) { /* ignore */ }
     if (!fastDue && !slowDue) return
     const fastOnly = !slowDue                  // 只有高频档到期 → 只跑文本层节点
     if (fastDue) scriptLastFast = tSec
@@ -6464,63 +6595,17 @@ function loadScene() {
   //   判据（tests/kaltsit-puppet-anchor-test.mjs B-2）：本包 67 与 115 实绘矩形 x 向不重叠
   //   （间隙 82u）⇒ 重排对**今天的画面逐像素无影响**，只把"睑在眼球之后"这条语义钉正；
   //   位置一旦校准好，遮挡立刻成立，不会又冒一次同样的 bug。
-  /* ①(P-254 2026-10-07) **静态模型层的几何注册**（`?modellayer=mesh`）：
-     见上面 `MODELLAYER_MESH` 的整段说明。这里只做"解析 mdl → 造单位骨骼记录 → 标 `__skinReady`"，
-     真正的绘制仍走渲染循环的 `opts.onMeshLayer`（层序位置、同一套相机与材质纹理）。 */
-  const modelMeshStat = { seen: 0, drawn: 0, skipped: 0, bytes: 0, reasons: {} }
-  try { window.__mpwModelMesh = modelMeshStat } catch (e) { /* ignore */ }
-  /* ①(P-257 2026-10-07) **本帧**几何档计数（`__mpw3d.layers/drawn/skyboxDrawn/noTex/skipped`）：
-     与 core 的 `mesh3dLedger.frames` 对表 —— 帧号变了就把计数清零，于是台账报的是"这一帧画了几层"，
-     而不是"自加载以来累计"。三个调用点：画成（drawn，带 sky 标记）、无贴图（noTex）、无骨骼/其它（skipped）。 */
-  const __mesh3dTick = { frame: -1, layers: 0, drawn: 0, skyboxDrawn: 0, noTex: 0, skipped: 0 }
-  const mesh3dTick = (kind, layer, isSky) => {
-    try {
-      if (!renderer || !renderer.mesh3dNote) return
-      // 帧号用宿主的 `__mpwFrameNo`（2D 场景里 core 的 `mesh3dStats.frames` 恒 0 ⇒ 用它会把计数变成累计值）
-      const fr = (typeof window !== 'undefined' && typeof window.__mpwFrameNo === 'number') ? window.__mpwFrameNo : -1
-      if (__mesh3dTick.frame !== fr) {
-        __mesh3dTick.frame = fr
-        __mesh3dTick.layers = __mesh3dTick.drawn = __mesh3dTick.skyboxDrawn = __mesh3dTick.noTex = __mesh3dTick.skipped = 0
-      }
-      __mesh3dTick.layers++
-      if (kind === 'drawn') __mesh3dTick.drawn++
-      else if (kind === 'noTex') { __mesh3dTick.noTex++; __mesh3dTick.skipped++ } else __mesh3dTick.skipped++
-      if (isSky) __mesh3dTick.skyboxDrawn++
-      renderer.mesh3dNote({
-        layers: __mesh3dTick.layers, drawn: __mesh3dTick.drawn, skyboxDrawn: __mesh3dTick.skyboxDrawn,
-        noTex: __mesh3dTick.noTex, skipped: __mesh3dTick.skipped,
-        last: String((layer && (layer.name || layer.id)) || ''),
-      })
-    } catch (e) { /* 台账失败不影响绘制 */ }
-  }
-  if (typeof skinEnabled !== 'undefined' && skinEnabled && MODELLAYER_ON && MODELLAYER_MESH) {
-    scene.layers.forEach((l) => {
-      try {
-        if (typeof l.image !== 'string' || !/\.mdl$/i.test(l.image)) return
-        modelMeshStat.seen++
-        const bump = (why) => { modelMeshStat.skipped++; modelMeshStat.reasons[why] = (modelMeshStat.reasons[why] || 0) + 1 }
-        const ent = (pkg.entries || []).find((x) => x.name === l.image)
-        const sz = ent ? ent.size : 0
-        if (sz > MODEL_MESH_MAX_MB * 1048576) { bump('too-large(' + Math.round(sz / 1048576) + 'MB)'); return }
-        const bytes = lib.getEntry(pkg, l.image)
-        if (!bytes) { bump('no-bytes'); return }
-        modelMeshStat.bytes += bytes.length
-        const mm = lib.parseMdl(bytes)
-        if (!mm || !mm.positions || !mm.positions.length) { bump('parse-null'); return }
-        if ((mm.bones || []).length) { bump('has-bones'); return }
-        const gBones = new Float32Array(16)
-        gBones[0] = gBones[5] = gBones[10] = gBones[15] = 1
-        l.__skin = { mesh: mm, nb: 1, gBones, animIdx: 0, fps: 30, frameCount: 1, staticModel: true }
-        l.__skinReady = true
-        modelMeshStat.drawn++
-      } catch (e) {
-        modelMeshStat.skipped++
-        const k = 'err:' + String((e && e.message) || e).slice(0, 40)
-        modelMeshStat.reasons[k] = (modelMeshStat.reasons[k] || 0) + 1
-      }
-    })
-    try { logf('① P-254 静态模型层几何：' + JSON.stringify(modelMeshStat)) } catch (e) { /* ignore */ }
-  }
+  /* ①(P-259 2026-10-07) **几何注册已移到 `loadScene`**（`registerStaticModelMeshes`）：它原先就挂在
+     这段位置（场景脚本执行之后），而真机实测本包 `applySceneScripts()` 在挂载期抛错 ⇒ 这里走
+     `catch { … return }` 提前返回 ⇒ 注册永远不执行（`frames` 涨、`__mpwModelMesh.seen` 恒 0）。
+     注册是加载期一次性工作，不该依赖"脚本没抛错"。下面只保留**门条件自报**（诊断）。 */
+  try {
+    window.__mpwMeshGate = {
+      skin: (typeof skinEnabled !== 'undefined') ? !!skinEnabled : 'undef', mode: MODELLAYER_MODE,
+      layers: (scene && Array.isArray(scene.layers)) ? scene.layers.length : -1,
+      registered: !!__modelMeshScene && __modelMeshScene === scene, at: Math.round(mpwNowMs()),
+    }
+  } catch (e) { /* ignore */ }
 
   const P139_EYE_LID_DEFER = new Map()
   {

@@ -17193,3 +17193,63 @@ skybox1: size 2048×1024 × scale 10000                  # 2D 像素口径与 3D
 Ry/Rx 参与、`y 取 −h`、退化门限按世界单位）；判据跟随 `tests/charfit-camera-test.mjs` **46/0**
 （`meshCamInfo` 拆成 `__meshPoseInfo` + `__mesh3dCam` 两行，语义不变）。
 回归：`mock-gl` 60/0、`demo-check` 133/0、`docs-check` ✓、`diag-flag-check` **229==229**。
+
+## P-259（2026-10-07）老式模型层档位改为**运行时 auto**：真 3D 场景走几何档 + `off` 档不再画"整屏贴图"
+
+### 现象与动机（P-258 补记的延续）
+`?modellayer` 此前**缺省恒关**，而关档并不等于"模型层不画"：P-205 给 `resolveBuiltin()` 加的
+"解析期登记模型"钩子会把 `.mdl` 的 `image` 接住，通用 `model→material→texture` 链照常把材质槽 0 的贴图
+赋给 `layer.textureName` ⇒ 该层被当**整屏四边形**画。3D 包实测：`0923/3662790108` 灰屏
+（`mean 141.2`）、`0923/3589454154` 灰噪（`mean 185.5`）—— 第 90 轮起记成"该包本来就在画"的读数
+就是这个。**官方是按几何画的**（105 个 `.mdl` 层全在 3 个 3D 包里），所以缺省档应当：
+
+* 真 3D 场景（无正交矩形 + 有 `general.fov`）且含 `.mdl` 层 ⇒ **几何档（mesh）**；
+* 其余（含全部 2D 语料）⇒ **关**，且关档**不再画那张整屏贴图**。
+
+### 修法
+1. **`resolveModellayerMode(scene)`**（demo.html，运行时解析）：`off|0|false|none` → `off`、
+   `1|on|quad` → `quad`（P-247 的"材质槽 0 当层内容"）、`mesh` → `mesh`、缺省 → auto 判据
+   （`persp && mdlLayers > 0 ? 'mesh' : 'off'`）。台账 `window.__mpwModellayer`
+   （arg/mode/mdlLayers/persp/at/mdlquadLegacy）。旧常量 `MODELLAYER_ON`/`MODELLAYER_MESH` 的
+   **所有消费点**都换成档位（纹理 job / 几何注册 / 新增的通用链门）。
+2. **`.mdl` 通用链门**：档位 `off` 时 `.mdl` 层**不参与**通用 `model→material→texture` 链
+   （台账 `window.__mpwMdlQuad = {skipped, drawn, names}`），回退口 **`?mdlquad=legacy`**。
+3. **几何注册改为加载期执行**：`registerStaticModelMeshes(scene, pkg)` 提到模块级，在 `loadScene`
+   解析出档位后**就地调用**（幂等：同一 scene 只注册一次；`?skin0=1` 时不注册，与 P-254 口径一致）。
+
+### ⚠ 三处事故复盘（同一个补丁里踩到的三种"作用域/时序"坑，判据已逐条钉住）
+| # | 症状（真机读数） | 根因 | 判据 |
+|---|---|---|---|
+| 1 | `❌ 启动失败: MODELLAYER_MODE is not defined`、四档全黑 | 档位写成 `const`（`loadScene` 内），而**几何注册在另一个函数**（`runSceneScripts`）里读它 —— 与 P-254 的 `MODELLAYER_ON` 事故同型 | E2b：模块级 `let` + `loadScene` 内只赋值 |
+| 2 | 档位已解析 `mode='mesh'`，但 `__mpwModelMesh.seen` 恒 0、画面仍是灰屏 | 几何注册挂在**场景脚本节拍之后**，而本包 `applySceneScripts()` 在挂载期抛错 ⇒ `runSceneScripts` 走 `catch { … return }` 提前返回 ⇒ 注册永不执行（`frames` 涨到 166、`__mpwScriptTick.lastRun` 在推进，`__mpwMeshGate.at` 冻在 6368） | E4/E4b：模块级 `registerStaticModelMeshes` + `loadScene` 就地调用 |
+| 3 | 探针 `JSON.stringify` 抛 `RangeError: Invalid string length` | 幂等标记写成 `stat.__scene = scene` ⇒ 整棵 scene（847 层）被挂进 `window.__mpwModelMesh` | E4b：场景身份放模块级闭包变量 `__modelMeshScene` |
+
+附带：档位初值**不能**取 `'off'`（否则加载期的节拍看到的是初值）；现在模块加载期就按显式档位解析，
+auto 取临时的 `'mesh'`、`loadScene` 解析出真场景后再收敛（2D / 无 `.mdl` ⇒ `off`）。临时值对 2D 无副作用：
+2D 语料没有 `.mdl` 图片层。
+
+### 真机读数（`:8902`，`0923/3662790108`，569 MB / 847 层 / 73 个 mdl）
+| 档 | 画面 | `__mpwModelMesh` / 台账 |
+|---|---|---|
+| 缺省 **auto** | **`mean 5.5 / uniq 72`**（中心 `14.2/96`）= 真实太阳系 | `{seen:73, drawn:64, skipped:9, bytes:68.6MB}`、`reasons={has-bones:1, too-large(55/53/30/26×3/23×3/16MB):8}`、`ml.mode='mesh'`、"等几何注册=true" |
+| auto + `?modelmeshmb=64`（P-257 时的手工档） | `mean 6.3 / uniq 100` | 全部 72 个静态网格（读 329 MB） |
+| `?modellayer=off` | **`mean 0 / uniq 1`**（纯黑，灰屏消失） | `__mpwMdlQuad={skipped:73}`、`mesh=null` |
+| `?modellayer=off&mdlquad=legacy` | `mean 141.2 / uniq 128`（旧灰屏） | `__mpwMdlQuad=null`（回退口逐位复现改动前） |
+| `?modellayer=1`（quad 档） | `mean 141.2 / uniq 128` | `__mpwModelLayer={seen:73,bound:67,…}` |
+
+**语料范围核对（离线，全语料扫描）**：`allwallpaper/{0923,0917,1004,dd,wallpaperE}` 里
+"有 `.mdl` 层或有真透视为真"的场景**只有 3 个**（`0923/3662790108` 73 层、`0923/3589454154` 24 层、
+`0917/3509243656` 8 层，三者都是真透视 ⇒ 都判 `mesh`），**没有任何 2D 包带 `.mdl` 图片层**
+⇒ auto 对 2D 语料恒为 `off`、`.mdl` 通用链门在 2D 语料上匹配 0 层（全语料 2D 画面逐位不变）。
+
+缺省 16MB 上限跳过的 8 个文件全是**航天器/空间站**（`lucy` 54.8MB、`天宫空间站` 53.4、`ray` 29.9、
+`sd` 26.1、`TDRS`×3 22.7、`国际空间站` 16.3）—— 太阳/行星/天空球全在，读盘量 63.8MB（不设限时 312MB）
+⇒ 上限保持 16MB，要完整航天器用 `?modelmeshmb=64`。
+
+### 判据
+`tests/mesh3d-camera-test.mjs` **51/0**（新增 E 组 6 条：E1 四档解析 / E2 通用链门 + 回退口 + 台账 /
+E2b 模块级 let 与初值口径 / E3 旧常量零残留 / E4+E4b 几何注册只在 mesh 档且**加载期**调用 /
+E5 auto 判据离线复算：`3662790108` ⇒ mesh、`3463520581` ⇒ off）。
+回归：`demo-check` 133/0、`meshsize` 48/0、`kaltsit-puppet-anchor` 50/0、`load-timeout` 70/0、
+`scene-intro-black` 31/0、`props-panel` 278/0、`diag-flag-check` **230==230**（新增 `mdlquad` 行 +
+`modellayer` 行改写）。
