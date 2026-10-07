@@ -321,8 +321,14 @@ console.log('\n── ⑦ 源码守卫：着色器/宿主/文档三处接线 ─
     /vec2 c = u_Proj \* 0\.5;/.test(vs) && /\(wpos\.x - c\.x\)/.test(vs) && /\(c\.y - wpos\.y\)/.test(vs))
   check('⑦ renderMeshLayer 上传 u_View/u_Framed（含非法值回落）',
     /uniform2f\(meshUni\.view/.test(bundle) && /uniform2f\(meshUni\.framed/.test(bundle) && /opts2\.camera/.test(bundle))
-  check('⑦ renderScene 通过 onMeshLayer 第二实参交相机（且 legacy 档不交）',
-    /opts\.onMeshLayer\(layer, meshCamInfo\)/.test(bundle) && /const meshCamInfo = \(__charfit !== 'legacy' && cam\.cameraPose\)/.test(bundle))
+  /* ①(P-257 2026-10-07) 判据跟随：`meshCamInfo` 的构造从一行拆成"姿态信息（__meshPoseInfo）+ 3D 相机
+     （__cam3d）合并"两行（3D 场景要额外带 `cam3d`；2D 场景 `__cam3d=null` ⇒ 结果与改动前逐位相同）。
+     语义不变、仍然是"legacy 档不交相机姿态"⇒ 这里换成对新写法的断言（并额外要求合并项确实含 cam3d）。 */
+  check('⑦ renderScene 通过 onMeshLayer 第二实参交相机（且 legacy 档不交姿态）',
+    /opts\.onMeshLayer\(layer, meshCamInfo\)/.test(bundle) &&
+    /const __meshPoseInfo = \(__charfit !== 'legacy' && cam\.cameraPose\)/.test(bundle) &&
+    /const meshCamInfo = \(__meshPoseInfo \|\| __cam3d\)/.test(bundle) &&
+    /__cam3d \? \{ cam3d: __cam3d \} : null/.test(bundle))
   check('⑦ demo.html 转交 camera 进 renderMeshLayer（与 ?meshsize 的 opts2 合并、不互相覆盖）',
     /onMeshLayer: \(layer, camInfo\)/.test(demo) && /meshOpts = Object\.assign\(\{\}, meshOpts, \{ camera: \{ view: camInfo\.view, framed: camInfo\.framed \} \}\)/.test(demo))
   check('⑦ demo.html 台账 rd 走同一相机换算（不再报"世界坐标"而画面已被镜头带走）',
