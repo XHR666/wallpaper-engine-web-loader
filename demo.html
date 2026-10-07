@@ -3163,6 +3163,21 @@ function mpwMakeSem(max) {
   }
 }
 const texGate = mpwMakeSem(TEXCON)
+/* ①(P-247/P-254) 老式模型层开关（**模块级**：`loadScene` 与蒙皮准备段都要读；
+   原先声明在 `loadScene` 内 ⇒ 蒙皮段的几何注册读不到它 ⇒ `❌ 启动失败: MODELLAYER_ON is not defined`）*/
+// ①(P-247) 老式模型层接线开关（默认关；`?modellayer=1|on` 打开，见下方整段说明）
+const MODELLAYER_ON = (() => { try { const v = new URLSearchParams(location.search).get('modellayer'); return v === '1' || v === 'on' || v === 'mesh' } catch (e) { return false } })()
+/* ①(P-254 2026-10-07) `?modellayer=mesh`：静态模型层**按网格几何画**（而不是把材质槽 0 的贴图当整层四边形）。
+   为什么：P-250 之后 75 个 48B 静态网格已能解析（球体/天空盒/行星），而模型层的本义就是"一层网格"；
+   四边形模式（`?modellayer=1`）在球体上会画成一张整屏大图。几何模式复用既有 mesh 程序
+   （`renderer.renderMeshLayer`：`u_Origin/u_Scale/u_Proj/u_View/u_Framed` + 1 张纹理），静态网格给
+   **单位骨骼**（nb=1、gBones=I）即可 —— 顶点着色器本来就是"模型空间顶点 × 层变换"。
+   边界：①带 MDLS 的蒙皮 mdl 不走这里（走既有蒙皮路径）；②纹理是保留名（`_rt_*`/`$`）的层在 mesh 路径
+   拿不到 GL 纹理（`onMeshLayer` 要求 `textures.get(textureName)`）⇒ 该层在 mesh 档不画（四边形档能画）；
+   ③超过 `?modelmeshmb=`（缺省 **16MB**）的 mdl 不读 —— 真机实测 `?modellayer=mesh` 在 569MB 包里会读 **323MB** 的 mdl（`球体01.mdl` 一个就 51MB）而画面反而变黑（见 PATCHES P-254），故把缺省压到 16MB 并进台账。 */
+const MODELLAYER_MESH = (() => { try { return new URLSearchParams(location.search).get('modellayer') === 'mesh' } catch (e) { return false } })()
+const MODEL_MESH_MAX_MB = (() => { try { const v = Number(new URLSearchParams(location.search).get('modelmeshmb')); return (Number.isFinite(v) && v > 0) ? Math.min(1024, Math.round(v)) : 16 } catch (e) { return 16 } })()
+
 const texInflight = new Map()
 try { window.__mpwTexGate = () => Object.assign({ inflight: texInflight.size }, texGate.stat) } catch (e) { /* ignore */ }
 
@@ -3789,8 +3804,6 @@ function loadScene() {
       + (fxStat.passthrough ? ' · passthrough ' + fxStat.passthrough + '（缺件恒等 blit 顶着）' : '')
       + ' · 链摘要 ' + fxStat.digest);
   }
-  // ①(P-247) 老式模型层接线开关（默认关；`?modellayer=1|on` 打开，见下方整段说明）
-  const MODELLAYER_ON = (() => { try { const v = new URLSearchParams(location.search).get('modellayer'); return v === '1' || v === 'on' } catch (e) { return false } })()
   scene.layers.forEach((layer) => {
     if (!layer.image) return;
     jobs.push((() => {
@@ -6451,6 +6464,40 @@ function loadScene() {
   //   判据（tests/kaltsit-puppet-anchor-test.mjs B-2）：本包 67 与 115 实绘矩形 x 向不重叠
   //   （间隙 82u）⇒ 重排对**今天的画面逐像素无影响**，只把"睑在眼球之后"这条语义钉正；
   //   位置一旦校准好，遮挡立刻成立，不会又冒一次同样的 bug。
+  /* ①(P-254 2026-10-07) **静态模型层的几何注册**（`?modellayer=mesh`）：
+     见上面 `MODELLAYER_MESH` 的整段说明。这里只做"解析 mdl → 造单位骨骼记录 → 标 `__skinReady`"，
+     真正的绘制仍走渲染循环的 `opts.onMeshLayer`（层序位置、同一套相机与材质纹理）。 */
+  const modelMeshStat = { seen: 0, drawn: 0, skipped: 0, bytes: 0, reasons: {} }
+  try { window.__mpwModelMesh = modelMeshStat } catch (e) { /* ignore */ }
+  if (typeof skinEnabled !== 'undefined' && skinEnabled && MODELLAYER_ON && MODELLAYER_MESH) {
+    scene.layers.forEach((l) => {
+      try {
+        if (typeof l.image !== 'string' || !/\.mdl$/i.test(l.image)) return
+        modelMeshStat.seen++
+        const bump = (why) => { modelMeshStat.skipped++; modelMeshStat.reasons[why] = (modelMeshStat.reasons[why] || 0) + 1 }
+        const ent = (pkg.entries || []).find((x) => x.name === l.image)
+        const sz = ent ? ent.size : 0
+        if (sz > MODEL_MESH_MAX_MB * 1048576) { bump('too-large(' + Math.round(sz / 1048576) + 'MB)'); return }
+        const bytes = lib.getEntry(pkg, l.image)
+        if (!bytes) { bump('no-bytes'); return }
+        modelMeshStat.bytes += bytes.length
+        const mm = lib.parseMdl(bytes)
+        if (!mm || !mm.positions || !mm.positions.length) { bump('parse-null'); return }
+        if ((mm.bones || []).length) { bump('has-bones'); return }
+        const gBones = new Float32Array(16)
+        gBones[0] = gBones[5] = gBones[10] = gBones[15] = 1
+        l.__skin = { mesh: mm, nb: 1, gBones, animIdx: 0, fps: 30, frameCount: 1, staticModel: true }
+        l.__skinReady = true
+        modelMeshStat.drawn++
+      } catch (e) {
+        modelMeshStat.skipped++
+        const k = 'err:' + String((e && e.message) || e).slice(0, 40)
+        modelMeshStat.reasons[k] = (modelMeshStat.reasons[k] || 0) + 1
+      }
+    })
+    try { logf('① P-254 静态模型层几何：' + JSON.stringify(modelMeshStat)) } catch (e) { /* ignore */ }
+  }
+
   const P139_EYE_LID_DEFER = new Map()
   {
     const lids = scene.layers.filter((l) => l.__skin && /右眼上眼睑|左眼皮|上眼睑|下眼皮/.test(String(l.name || '')))

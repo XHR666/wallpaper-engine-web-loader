@@ -16942,3 +16942,29 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 ⇒ **245 MB 容器现在能加载并出画**（修前：`out of memory`、无首帧）。四件套各司其职：
 P-248（模型来源区间读，去 212 MB 峰值）、P-249（大图按目标选 mip 级 + `?texcap=`）、
 P-252（并发闸门 + 在飞去重）、P-253（蒙皮跳过整条读，本次的决定性一击）。
+
+## P-254（2026-10-07）`?modellayer=mesh`：静态模型层的**几何渲染**原型（把 P-250 解析出的 48B 网格真的画出来）+ 一个作用域事故的修复
+
+### 做了什么
+1. **几何注册**（`demo.html`）：`?modellayer=mesh` 时，对 `image` 是 `.mdl` 的层读 mdl → `parseMdl` →
+   仅取**无骨**（静态）网格 ⇒ 造 `layer.__skin = {mesh, nb:1, gBones=I, staticModel:true}` + `__skinReady=true`，
+   于是渲染循环的 `opts.onMeshLayer` 在**层序位置**用既有 mesh 程序（`u_Origin/u_Scale/u_Proj/u_View/u_Framed`
+   + 1 张材质纹理）把它画成几何；台账 `window.__mpwModelMesh = {seen, drawn, skipped, bytes, reasons}`。
+   读取上限 `?modelmeshmb=`（**缺省 16MB**：实测 mesh 档在 569MB 包里会整条读 323MB 的 mdl）。
+2. **作用域事故修复**（本轮自查抓到）：`MODELLAYER_ON` 原先声明在 `loadScene()` 内部，而几何注册段在
+   **另一个函数**（蒙皮准备那一带）⇒ `❌ 启动失败: MODELLAYER_ON is not defined`（真机日志逐字），
+   两个包都变成"无首帧"。已把 `MODELLAYER_ON / MODELLAYER_MESH / MODEL_MESH_MAX_MB` 上移到**模块级**。
+
+### 真机读数（两包，quad 档 vs mesh 档）
+| 包 | quad（`?modellayer=1`） | mesh（`?modellayer=mesh`） |
+|---|---|---|
+| `0917/3509243656`（37MB，天空盒/罗盘） | 首帧 ✓、`__mpwModelLayer={seen:8,bound:8,reserved:2}` | 首帧 ✓、`__mpwModelMesh={seen:8,drawn:5,skipped:3(parse-null)}`、层 436 `static=true` 但 `(noTex)`（材质槽是保留名 `_rt_…`）；两档画面都是黑帧（该包本身如此，上游也 `context lost`） |
+| `0923/3662790108`（569MB，太空球/星座） | 首帧 ✓、14 帧、**`mean 141.2 / uniq 128`** | 首帧 ✓、15 帧、`{seen:73,drawn:72,skipped:1(has-bones)}`、**`mean 0.1 / uniq 8`（几乎全黑）** |
+
+### 结论与边界（如实）
+- **几何档是原型、默认关**：它能正确注册 72/73 个静态网格，但在 3D 包上**画出来是黑的**（quad 档反而有内容）
+  ⇒ 缺的是"3D 相机/透视投影 + 网格变换"那一段（本仓 mesh 程序是正交 + y 翻转的 2D 映射，为 puppet 设计）。
+- 材质槽为保留名（`_rt_*` / `$*`）的层在 mesh 路径拿不到 GL 纹理（`(noTex)`）⇒ 该层在 mesh 档不画；
+  quad 档能画（P-247 的层内容路径会解析保留名）。
+- `mesh` 档会整条读 mdl（3662790108 实测 **323MB**）⇒ 缺省 16MB 上限 + `?modelmeshmb=` 可调，超限进 `reasons`。
+- 因此 `?modellayer` 的**默认仍为关**；`1|on` = 既有四边形档（P-247），`mesh` = 上述原型。
