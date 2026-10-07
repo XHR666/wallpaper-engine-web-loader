@@ -3171,7 +3171,7 @@ async function loadTex(name, opts = {}) {
         const __bites = (x) => ((x && (x.png || x.image || x.video)) ? (x.png || x.image || x.video).length : ((x && x.rgba) ? x.rgba.length : 0))
         const __fromBytes = __bites(m)
         const __toBytes = __bites(m2)
-        logf('  ℹ mip 选级 ' + name + '：目标长边 ' + __cap0 + '（生效上限 ' + (typeof HOST_TEX_MAX === 'number' ? HOST_TEX_MAX : DEV_MAX_TEX) + (TEX_CAP ? '/texcap=' + TEX_CAP : '/设备') + '）→ 用第 ' + __lv + ' 级 '
+        logf('  ℹ mip 选级 ' + name + '：目标长边 ' + __cap0 + '（生效上限 ' + (typeof HOST_TEX_MAX === 'number' ? HOST_TEX_MAX : DEV_MAX_TEX) + ((typeof TEX_CAP === 'number' && TEX_CAP) ? '/texcap=' + TEX_CAP : '/设备') + '）→ 用第 ' + __lv + ' 级 '
           + m.width + 'x' + m.height + '→' + m2.width + 'x' + m2.height
           + '（' + (__toBytes / 1048576).toFixed(1) + 'MB，省掉 ' + ((__fromBytes - __toBytes) / 1048576).toFixed(1) + 'MB 解码；上传目标仍 ' + __cap0 + '）')
         m = m2
