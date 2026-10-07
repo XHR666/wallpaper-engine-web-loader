@@ -17163,6 +17163,24 @@ P-257 让 `?modellayer=mesh` 的几何层在 3D 包上出画后，画面里**仍
 | `?quad3d=m3d` 隔离文本层 | 台账 `rd=[1836,1080,39,9]` | 文本层 `t3zh`（"系统: 太阳系"）**真的发出绘制**（legacy 档 `__mpwLayerLedger` **一条都没有**）⇒ 机制收益可取证 |
 | 同上，屏幕像素 | 整帧 `max=0`（隔离该层） | ⚠ **仍不可见**：文本位图/颜色那一段另有缺口（`__text.text` 有内容、`textureName=text:…` 已在、字体 `fonts/msjh.ttc`）⇒ 下一轮 |
 
+### 关档灰屏的**精确归因**（本轮离线+真机双向确认；更正 P-247 条目的前提）
+灰屏不是"3D 相机取错"，也不受 `?modellayer` 控制 —— 它来自 **P-205 给 `resolveBuiltin()` 加的
+"解析期登记的二进制模型"钩子**（`core/we-scene-bundle.js`: `const __pm = __parsedModels.get(path); if (__pm)
+return { kind: 'model', value: __pm }`）**与 `demo.html` 通用 model→material→texture 链的组合**：
+`.mdl` 层的 `image` 先被这个钩子接住（**不会**走到"对二进制调 `parseWeJson` 必抛"那条），于是通用链
+照常读出材质槽 0 的纹理并赋给 `layer.textureName` ⇒ 该层被当**整屏四边形**画。
+Node 复算（本次语料）：
+```
+resolveBuiltin('models/太空球/太空球.mdl') → {kind:'model', value:{material:'materials/models/太空球/DefaultMaterial.json'}}
+material 2195 B → passes[0].textures[0] = 'ggxx1_镜像'      # 与真机 layer.textureName 逐字相同
+skybox1: size 2048×1024 × scale 10000                  # 2D 像素口径与 3D 世界口径都盖满屏
+```
+⇒ **P-247 条目里"模型层的纹理 job 对二进制调 `parseWeJson` 必抛 ⇒ 整层不画"这条前提在本轮被推翻**
+（钩子把它接住了）：`?modellayer` 关档时这些层**是**在画的，只是画成了一张铺满全屏的贴图 ——
+第 90 轮起的"该包本来就在画（`mean 141.2 / 147.9`）"读到的就是这个灰屏（本轮给出层级与代码级归因）。
+**下一轮的第一件事**：给这条通用链加"`.mdl` 图片不参与"的门（`?mdlquad=legacy` 回退口）⇒ 关档不再画
+那张全屏贴图，再重测三包（`3662790108` / `3509243656` / `3589454154`）后谈 `?modellayer` 默认档。
+
 ### 判定（如实）
 **缺省 `legacy`（通路实现但不启用）**：本改动没有带来可见收益（几何档逐字节相同、关档仍是同一张灰屏），
 按"原型档"收口并保留 `?quad3d=m3d` 供继续推进。**下一轮（3D 包画面完整性的真正瓶颈）**：
