@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T07:58:59.464Z",
+  "generatedAt": "2026-10-07T09:47:55.392Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -440,7 +440,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17991,
+          "line": 18051,
           "pattern": "searchParams.get('bloomcap')"
         }
       ]
@@ -495,7 +495,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14607,
+          "line": 14667,
           "pattern": "searchParams.get('camerashake')"
         }
       ]
@@ -544,7 +544,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17318,
+          "line": 17378,
           "pattern": "searchParams.get('clampuvs')"
         }
       ]
@@ -858,7 +858,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17628,
+          "line": 17688,
           "pattern": "searchParams.get('fog')"
         }
       ]
@@ -928,7 +928,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15006,
+          "line": 15066,
           "pattern": "searchParams.get('fx')"
         }
       ]
@@ -1264,7 +1264,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17543,
+          "line": 17603,
           "pattern": "searchParams.get('lights')"
         }
       ]
@@ -1379,7 +1379,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14991,
+          "line": 15051,
           "pattern": "searchParams.get('mediaslot')"
         }
       ]
@@ -1613,7 +1613,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14983,
+          "line": 15043,
           "pattern": "searchParams.has('nofx')"
         }
       ]
@@ -1624,7 +1624,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15020,
+          "line": 15080,
           "pattern": "searchParams.has('nofxfb')"
         }
       ]
@@ -2107,7 +2107,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 16088,
+          "line": 16148,
           "pattern": "searchParams.get('psim')"
         }
       ]
@@ -2217,6 +2217,17 @@
       ]
     },
     {
+      "name": "quad3d",
+      "common": false,
+      "sites": [
+        {
+          "file": "core/we-scene-bundle.js",
+          "line": 12892,
+          "pattern": "regex [?&]quad3d="
+        }
+      ]
+    },
+    {
       "name": "railink",
       "common": false,
       "sites": [
@@ -2287,7 +2298,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14993,
+          "line": 15053,
           "pattern": "searchParams.get('reszw')"
         }
       ]
@@ -2418,7 +2429,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17705,
+          "line": 17765,
           "pattern": "searchParams.get('shadows')"
         }
       ]
@@ -2429,7 +2440,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 13407,
+          "line": 13453,
           "pattern": "searchParams.get('shape')"
         }
       ]
@@ -2618,7 +2629,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14986,
+          "line": 15046,
           "pattern": "searchParams.get('spriteauto')"
         }
       ]
@@ -2706,7 +2717,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14996,
+          "line": 15056,
           "pattern": "searchParams.get('texjson')"
         }
       ]
@@ -2717,7 +2728,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17966,
+          "line": 18026,
           "pattern": "searchParams.get('texmip')"
         }
       ]
@@ -2728,7 +2739,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17204,
+          "line": 17264,
           "pattern": "searchParams.get('texwrap')"
         }
       ]
@@ -2777,7 +2788,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14969,
+          "line": 15029,
           "pattern": "searchParams.has('trace')"
         },
         {
@@ -2815,7 +2826,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14988,
+          "line": 15048,
           "pattern": "searchParams.get('usertex')"
         }
       ]

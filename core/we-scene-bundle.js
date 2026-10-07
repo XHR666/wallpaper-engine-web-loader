@@ -12875,6 +12875,21 @@ export function createRenderer(canvas, opts = {}) {
      `legacy` 逐位回到"完全按 z 序"的旧行为做 A/B。**只在 `__perspScene` 为真时生效** ⇒ 2D 场景的
      层序、`__li` 审计编号、合成源捕获顺序**一位都不动**。 */
   const SKYFIRST_MODE = (() => { try { return /[?&]skyfirst=legacy/.test(String((typeof location !== 'undefined' && location.search) || '')) ? 'legacy' : 'first' } catch (e) { return 'first' } })()
+  /* ①(P-258 2026-10-07) `?quad3d=legacy`：**3D 场景里四边形层（贴图/文本/纯色/视频）的官方 4×4 通路**开关。
+     缺省开（= 官方口径）：`__perspScene` 时四边形层与静态几何层用**同一台相机**（相机层优先，见
+     `buildMesh3dCamera`），层的 model 矩阵按官方 `Kr` 的透视分支算 —— 平移用**作者 y**（`projH − origin.y`，
+     本仓解析期翻过）、先 `Ry(angles[1])` 再 `Rx(angles[0])` 再 `Rz(−angles[2])`、按 `size×scale`
+     （**世界单位**，不是设计像素）缩放；天空盒层平移取相机 `eye`。旧口径（`legacy`）= 把 3D 层当 2D 层画
+     （origin/尺寸按设计像素、只吃 `angles[2]`、用 `scene.json` 快照相机的投影）—— 在 3D 包上表现为
+     "一张贴图铺满全屏的灰屏"。缺省关**只对真透视场景生效** ⇒ 2D 语料一位不变。 */
+  /* ⚠ **默认 `legacy`（= 通路实现但缺省不启用）**：本轮真机 A/B 里它没有带来可见收益 ——
+     `?modellayer=mesh` 档截图与 P-257 时**逐字节相同**（sha f137deeca0a256d2…）、关档画面也仍是那张
+     "天空球当整屏四边形"的灰屏（`skybox1` size 2048×1024 × scale 10000 在两套空间里都盖满屏）。
+     唯一的机制收益（台账取证）：小的 3D 四边形（文本层 `t3zh`）从"被 2D 的 0.5px 退化门限整层跳过"
+     变成"真的发出绘制"（`__mpwLayerLedger` 条目 `rd=[1836,1080,39,9]` vs legacy 档**一条都没有**）；
+     但屏幕像素仍是空的（隔离该层后整帧 max=0）⇒ 文本位图/颜色那一段另有缺口，留待下一轮。
+     故本通路按"原型"收口：`?quad3d=m3d` 显式打开，缺省逐位回到改动前。 */
+  const QUAD3D_MODE = (() => { try { return /[?&]quad3d=m3d/.test(String((typeof location !== 'undefined' && location.search) || '')) ? 'm3d' : 'legacy' } catch (e) { return 'legacy' } })()
   /* ①(P-257) 3D 通路台账（`renderer.mesh3dStats()` / `globalThis.__mpw3d`）：persp=本帧真透视场景、
      mode=?sky3d 档、相机读数、depthRT=场景目标 RT 有没有挂上深度附件、skyboxFirst=排序档、
      drawn/skyboxDrawn/bytes/noTex=宿主 mesh 几何侧的计数（由 demo 的 `?modellayer=mesh` 通路填）。 */
@@ -13207,7 +13222,14 @@ export function createRenderer(canvas, opts = {}) {
     try {
       const __w = Math.abs((layer.size && layer.size[0] || 0) * (layer.scale && layer.scale[0] || 1))
       const __h = Math.abs((layer.size && layer.size[1] || 0) * (layer.scale && layer.scale[1] || 1))
-      if (!drawGuard('compositeLayer', inputTex, null, String(layer.name || layer.id), (!(__w > 0.5) || !(__h > 0.5)) ? 'degenerate' : null)) return
+      /* ①(P-258 2026-10-07) **3D 场景的退化判据按世界单位**：`0.5` 这个门限是"半个设计像素"的 2D 口径，
+         而 3D 层的 `size×scale` 是**世界单位**（作者就是用小数写：本包文本层 `784×190 × 2e-5`
+         = 0.0157×0.0038 世界单位 ≈ 26×6 px），照 2D 门限会被整层判成 degenerate **一个像素都不画**
+         —— 实测 `?ln=t3zh`（"系统: 太阳系"文本层）在 quad3d 两档下 `lit=0`。3D 档改成"只挡真正的
+         0/非有限尺寸"（`> 1e-6`），2D 档一位不变（`?quad3d=legacy` 或 2D 场景仍走 0.5）。 */
+      const __is3dQuad = !!((cam && cam.cam3d) && QUAD3D_MODE !== 'legacy')
+      const __eps = __is3dQuad ? 1e-6 : 0.5
+      if (!drawGuard('compositeLayer', inputTex, null, String(layer.name || layer.id), (!(__w > __eps) || !(__h > __eps)) ? 'degenerate' : null)) return
     } catch { /* 尺寸取不到 → 照常绘制 */ }
     // P-21 A3：?align=0（opts.align === false）→ 视作 center，复现旧"origin 恒几何中心"行为
     const a = opts.align === false ? [0.5, 0.5] : (ALIGN[layer.alignment] || [0.5, 0.5])
@@ -13308,12 +13330,36 @@ export function createRenderer(canvas, opts = {}) {
       }
     }
     let m = mat4Identity()
+    /* ①(P-258 2026-10-07) **3D 场景的四边形层走官方 `Kr` 透视分支**（`cam.cam3d` 存在时）：
+         世界 = **作者空间（y-up、世界单位）**，与静态几何层同一台相机 ——
+         `T(effOrigin)·Ry(angles[1])·Rx(angles[0])·Rz(−angles[2])·S(w, −h, 1)`。
+         · `effOrigin`：普通层 = `[ox, projH − oy, origin.z]`（本仓解析期把作者 y 翻成 `PROJ_H − y`
+           且 3D 场景 `PROJ_H` 默认 1080 ⇒ 这里还原）；**天空盒层 = 相机 `eye`**（官方 `W1`）。
+         · `w/h = size × scale` 本身就是**世界单位**（3D 层作者就是这么写的：文本层 scale≈1e-4、
+           贴图层 scale≈1）⇒ 不再乘画布比例，也不参与 2D 的"超屏兜底/视差像素位移"。
+         · **y 取 −h**：本仓 `LOCAL_QUAD` 把 y-down 烘进了几何（local +y 带 v=1），2D 路径靠 y-down
+           世界抵消；3D 世界是 y-up ⇒ 取负号才能让纹理正立（等价于把几何上下翻回来）。
+         `?quad3d=legacy` 或 2D 场景 ⇒ 下面那条既有像素口径**一位不变**。 */
+    const __c3 = (cam && cam.cam3d && QUAD3D_MODE !== 'legacy') ? cam.cam3d : null
+    if (__c3) {
+      const __sky = isSkyboxLayer(layer)
+      const __ph = Number.isFinite(Number(__c3.projH)) ? Number(__c3.projH) : 1080
+      const __ex = __sky ? __c3.eye[0] : ox
+      const __ey = __sky ? __c3.eye[1] : (__ph - oy)
+      const __ez = __sky ? __c3.eye[2] : (Number(layer.origin[2]) || 0)
+      m = mat4Translate(m, __ex, __ey, __ez)
+      if (Number(layer.angles[1])) m = mat4RotateY(m, Number(layer.angles[1]))
+      if (Number(layer.angles[0])) m = mat4RotateX(m, Number(layer.angles[0]))
+      m = mat4RotateZ(m, -(Number(layer.angles[2]) || 0))
+      m = mat4Scale(m, w, -h, 1)
+    } else {
     // 世界坐标 = 设计像素（y 向下，投影 mat4Ortho(0,cw,ch,0) 已 y-down 映射），origin 即图层中心。
     // ①(P-76) 视差位移是**世界像素**，与 origin 同空间 → 合并进这一次平移（旧口径见下方 legacy 分支）。
     m = mat4Translate(m, ox + (__parSpaceLegacy ? 0 : parOffX), oy + (__parSpaceLegacy ? 0 : parOffY), layer.origin[2])
     // 旋转（WE 语义：y 翻转坐标系下 rotate(-angle)；围绕图层中心）
     m = mat4RotateZ(m, -layer.angles[2])
     m = mat4Scale(m, w, h, 1)
+    }
     // 对齐偏移的消费点（生成式见 docs/IMAGE-ALPHA-ALIGN-SPEC.md §2；helper 名 alignmentOffsetForToken）：
     // origin 是 alignment 隐含的枢轴，网格中心相对枢轴平移（left→+x、right→−x、top→+y[y-down]、bottom→−y）。
     // parseScene 的 PROJ_H−y 翻转发生在解析期，这里在**翻转后的 y-down 空间**同步换算
@@ -14422,25 +14468,35 @@ export function createRenderer(canvas, opts = {}) {
     //   必须在建好 `cam` 之后（指针 → 设计坐标要用相机的 framed 窗口）、任何层渲染之前
     //   （同一帧内所有 pass 共用同一份 ⇒ 不会逐 pass 漂移）。
     __fxPtrFrame(cam, time)
-    let viewProj = mat4Multiply(cam.projection, cam.view)
-    // 满幅背景层专用（相机平移豁免；无相机姿态时与 viewProj 相同）
-    let viewProjBg = cam.viewBg ? mat4Multiply(cam.projection, cam.viewBg) : viewProj
     // ①(P-100) 角色层适配档 + 蒙皮层相机参数（每帧解析一次；`compositeLayer` 与 `onMeshLayer` 共用）。
     //   `charfit=legacy` 是"逐位回到改动前"的逃生口 ⇒ 它同时要**关掉蒙皮层的相机接线**
     //   （旧的 MESH_VS 只按设计画布 1:1 映射，角色钉在屏幕上不动）。
     const __charfit = resolveCharfitMode(opts.charfit, CHARFIT_MODE)
     charfitMode = __charfit
-    /* ①(P-257 2026-10-07) 3D 静态几何层的官方相机：**只在本帧是真透视场景**（`__perspScene`）且 4×4
-       通路没被 `?sky3d=legacy` 关掉时才算（每帧一次常数级开销）。`cam3d` 随 `meshCamInfo` 一起交给
-       宿主，宿主据此算 `model = mesh3dModelMatrix(layer, cam3d, {projH: scene.projH})` 与
-       `mvp = cam3d.viewProj · model`。2D 场景 `__perspScene=false` ⇒ `cam3d=null` ⇒ `meshCamInfo`
-       与改动前**逐位相同**（旧路径只多一次 `Object.assign({}, null, null)` = null）。 */
-    const __cam3d = (__perspScene && MESH3D_MODE !== 'legacy') ? buildMesh3dCamera(scene, width, height) : null
+    /* ①(P-257/P-258 2026-10-07) 3D 场景的官方相机：**只在本帧是真透视场景**（`__perspScene`）且
+       至少有一条 4×4 通路没被 `?sky3d=legacy` / `?quad3d=legacy` 关掉时才算（每帧一次常数级开销）。
+       · 几何层（P-257）：`cam3d` 随 `meshCamInfo` 交给宿主，宿主算 `model = mesh3dModelMatrix(...)`、
+         `mvp = viewProj · model`；`?sky3d=legacy` 时不交 ⇒ 回 P-255 标量档。
+       · 四边形层（P-258）：`cam.cam3d` 供 `compositeLayer` 走官方 `Kr`/`ps` 透视分支；
+         `?quad3d=legacy` 时不挂 ⇒ 回到"按设计像素的 2D 层变换"。
+       2D 场景 `__perspScene=false` ⇒ `cam3d=null` ⇒ `viewProj`/`meshCamInfo` 与改动前**逐位相同**。 */
+    const __cam3d = (__perspScene && (MESH3D_MODE !== 'legacy' || QUAD3D_MODE !== 'legacy'))
+      ? Object.assign(buildMesh3dCamera(scene, width, height), { projH: (Number.isFinite(Number(scene && scene.projH)) ? Number(scene.projH) : 1080) })
+      : null
+    /* ⚠ 相机与层变换必须**同档**：`?quad3d=legacy` 时既不能挂 `cam.cam3d`（层矩阵回像素口径），
+       也不能把 viewProj 换成 3D 相机 —— 否则就是"像素层坐标 + 世界相机"的错配（实测整屏黑）。 */
+    const __quad3d = (__cam3d && QUAD3D_MODE !== 'legacy') ? __cam3d : null
+    if (__quad3d) cam.cam3d = __quad3d
+    let viewProj = __quad3d ? __quad3d.viewProj : mat4Multiply(cam.projection, cam.view)
+    // 满幅背景层专用（相机平移豁免；无相机姿态时与 viewProj 相同）。3D 场景没有"满幅背景层豁免"
+    // 这一说（官方透视档对所有层同一台相机）⇒ `__quad3d` 时两者同为官方 viewProj。
+    let viewProjBg = __quad3d ? __quad3d.viewProj : (cam.viewBg ? mat4Multiply(cam.projection, cam.viewBg) : viewProj)
     const __meshPoseInfo = (__charfit !== 'legacy' && cam.cameraPose)
       ? { view: [cam.viewX, cam.viewY], framed: [cam.framedW, cam.framedH] }
       : null
-    const meshCamInfo = (__meshPoseInfo || __cam3d)
-      ? Object.assign({}, __meshPoseInfo, __cam3d ? { cam3d: __cam3d } : null)
+    const __mesh3dCam = (__cam3d && MESH3D_MODE !== 'legacy') ? __cam3d : null
+    const meshCamInfo = (__meshPoseInfo || __mesh3dCam)
+      ? Object.assign({}, __meshPoseInfo, __mesh3dCam ? { cam3d: __mesh3dCam } : null)
       : null
     /* ①(P-257) 3D 台账（`globalThis.__mpw3d` + `renderer.mesh3dStats()`）：回答"这一帧走没走 4×4
        通路、相机/近远平面是多少、深度附件挂上没有、天空盒优先排序有没有生效"。2D 场景不进这个分支
@@ -14460,6 +14516,10 @@ export function createRenderer(canvas, opts = {}) {
       // 场景画进默认帧缓冲时深度缓冲来自 canvas 属性（`glCanvasAttrs().depth = true`）⇒ 照样可测深度
       try { mesh3dLedger.canvasDepth = !!(gl.getContextAttributes && gl.getContextAttributes() && gl.getContextAttributes().depth) } catch (e) { mesh3dLedger.canvasDepth = null }
       mesh3dLedger.skyboxFirst = SKYFIRST_MODE !== 'legacy'
+      mesh3dLedger.quad3d = QUAD3D_MODE !== 'legacy' && !!__quad3d
+      // ①(P-258) 透视矩阵与解析 PROJ_H 也进台账：宿主/诊断脚本据此在页面内复算"哪些四边形层盖住全屏"
+      mesh3dLedger.projH = __cam3d ? __cam3d.projH : null
+      mesh3dLedger.viewProj = __quad3d ? Array.from(__quad3d.viewProj) : null
       try { globalThis.__mpw3d = mesh3dLedger } catch (e) {}
     }
     const isFullCanvasLayer = (layer) => {

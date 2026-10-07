@@ -226,9 +226,26 @@ console.log('== C 源码/接线保证（默认关 + 深度 + 排序 + 回退口�
   check('C6 天空盒优先排序只在 `__perspScene` + `?skyfirst=legacy` 回退口，且不改 `scene.layers`',
     /const __drawLayers = \(__perspScene && SKYFIRST_MODE !== 'legacy'\) \? sortSkyboxFirst\(scene\.layers\) : scene\.layers/.test(CORE_SRC) &&
     /for \(const layer of __drawLayers\) \{/.test(CORE_SRC))
-  check('C7 `?sky3d=legacy` 回退口在 core（MESH3D_MODE）且 `legacy` 时不出 cam3d',
+  check('C7 `?sky3d=legacy` 回退口在 core（MESH3D_MODE）且 `legacy` 时**几何层**拿不到 cam3d（回 P-255 档）',
     /if \(\/\[\?&\]sky3d=legacy\/\.test/.test(CORE_SRC) &&
-    /const __cam3d = \(__perspScene && MESH3D_MODE !== 'legacy'\) \? buildMesh3dCamera/.test(CORE_SRC))
+    /const __cam3d = \(__perspScene && \(MESH3D_MODE !== 'legacy' \|\| QUAD3D_MODE !== 'legacy'\)\)/.test(CORE_SRC) &&
+    /const __mesh3dCam = \(__cam3d && MESH3D_MODE !== 'legacy'\) \? __cam3d : null/.test(CORE_SRC))
+  /* ①(P-258 2026-10-07) 四边形层的 3D 通路（与几何层同一台相机 + 官方 Kr 透视分支）：
+     `cam.cam3d` 只在 `?quad3d=legacy` 没关时挂上；矩阵走"作者 y 还原 + Ry/Rx/Rz + 世界单位 + y 取负"。 */
+  /* ①(P-258 2026-10-07) 四边形层的 3D 通路（`?quad3d=m3d` 显式开，**缺省 legacy = 逐位回到改动前**）：
+     矩阵走"作者 y 还原 + Ry/Rx/Rz + 世界单位 + y 取负（本仓 LOCAL_QUAD 把 y-down 烘进几何）"，
+     视图投影必须与层变换**同档**（legacy 档不许换相机，否则是"像素层坐标 + 世界相机"的错配），
+     且 3D 档的退化门限按世界单位（1e-6）而不是 2D 的 0.5px。 */
+  check('C10 `?quad3d=m3d` 原型通路：默认 legacy、相机与层变换同档、作者 y 还原、Ry/Rx 参与、y 取 −h、退化门限按世界单位',
+    /if \(__quad3d\) cam\.cam3d = __quad3d/.test(CORE_SRC) &&
+    /const __quad3d = \(__cam3d && QUAD3D_MODE !== 'legacy'\) \? __cam3d : null/.test(CORE_SRC) &&
+    /let viewProj = __quad3d \? __quad3d\.viewProj : mat4Multiply\(cam\.projection, cam\.view\)/.test(CORE_SRC) &&
+    /\[\?&\]quad3d=m3d\//.test(CORE_SRC) && /catch \(e\) \{ return 'legacy' \} \}\)\(\)/.test(CORE_SRC) &&
+    /const __c3 = \(cam && cam\.cam3d && QUAD3D_MODE !== 'legacy'\) \? cam\.cam3d : null/.test(CORE_SRC) &&
+    /const __ey = __sky \? __c3\.eye\[1\] : \(__ph - oy\)/.test(CORE_SRC) &&
+    /if \(Number\(layer\.angles\[1\]\)\) m = mat4RotateY\(m, Number\(layer\.angles\[1\]\)\)/.test(CORE_SRC) &&
+    /m = mat4Scale\(m, w, -h, 1\)/.test(CORE_SRC) &&
+    /const __eps = __is3dQuad \? 1e-6 : 0\.5/.test(CORE_SRC))
   check('C8 demo 只在 `camInfo.cam3d` 存在时传 mvp3d/skybox；否则落回 P-255 标量档（两段都在）',
     /const c3 = \(camInfo && camInfo\.cam3d\) \? camInfo\.cam3d : null/.test(DEMO_SRC) &&
     /mvp3d: md3\.mvp, skybox: md3\.skybox/.test(DEMO_SRC) &&

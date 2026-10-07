@@ -17132,3 +17132,46 @@ C 源码接线 9 条（`u_MVP3D` 默认关 / 深度 `depthMask(!skybox)` + 复�
 - 相机层脚本：本包相机层 `#705` 的 origin 是**静态字符串**；脚本驱动 `eye/angles` 的相机层目前只在本仓
   脚本载体（`origin/scale/angles` 同步，P-120/P-237/P-242）写回 `scene.layers` 时才被吃到 —— 官方
   `runtimeCamera` 是脚本门面直接改相机对象，两者在本仓尚未合并（无真机反例，登记为已知边界）。
+
+## P-258（2026-10-07）3D 场景的**四边形层**：官方 `Kr`/`ps` 透视分支（原型档 `?quad3d=m3d`，缺省关）
+
+### 现象与动机
+P-257 让 `?modellayer=mesh` 的几何层在 3D 包上出画后，画面里**仍然没有 3D 场景的四边形内容**
+（文本标签、HUD、轨道示意等）：本仓四边形层一律按 2D 口径放置 —— `origin` 当设计像素、
+`w/h = size × scale` 当像素、只吃 `angles[2]`、相机用 `scene.json` 的静态快照。而 3D 场景里
+这些量都是**世界单位**（`0923/3662790108`：文本层 `784×190 × scale 2e-5` = 0.0176×0.0043 世界单位、
+贴图层 `scale ≈ 1`），两者混用必然错位。
+
+### 修法（`?quad3d=m3d`，缺省 `legacy` = 逐位回改动前）
+1. `renderScene`：`__cam3d` 现在在 **`viewProj` 之前**算好（并带 `projH` 与 `viewProj` 进台账）；
+   `?quad3d=m3d` 时 `cam.cam3d = __cam3d`、`viewProj = viewProjBg = cam3d.viewProj`
+   （官方透视档没有"满幅背景层豁免"）。**相机与层变换同档**是硬要求：只换相机不换层矩阵
+   （或反之）会得到"像素层坐标 + 世界相机" ⇒ 实测整屏黑。
+2. `compositeLayer`：新增 `__c3` 分支（`cam.cam3d` 存在时）——
+   `T(effOrigin)·Ry(angles[1])·Rx(angles[0])·Rz(−angles[2])·S(w, −h, 1)`；
+   `effOrigin` = `[ox, projH − oy, origin.z]`（还原作者 y-up）、天空盒层 = 相机 `eye`；
+   `−h` 的理由：本仓 `LOCAL_QUAD` 把 y-down（local +y ↔ v=1）烘进几何，2D 靠 y-down 世界抵消，
+   3D 世界是 y-up ⇒ 取负号才能让纹理正立。视差位移、`?meshsize`/charfit 这类 2D 兜底都不参与。
+3. 退化门限：`compositeLayer` 入口的 `w/h > 0.5`（= 半个设计像素）在 3D 档改成 `> 1e-6`
+   （只挡 0/非有限尺寸）—— 否则 0.0176 世界单位的文本层被整层判成 `degenerate`，**一个像素都不画**。
+
+### 真机读数（`:8902`，`0923/3662790108`）
+| 档 | 画面 | 说明 |
+|---|---|---|
+| `?modellayer=mesh`（P-257 时） | `mean 6.3 / uniq 100` | 与 P-257 截图**逐字节相同**（sha `f137deeca0a256d2…`）⇒ 本改动在几何档无可见变化 |
+| 关档（无 `modellayer`） | `mean 141.2 / uniq 127`（左缘 `161,161,161`） | 仍是灰屏：**根因已定位到层** —— `skybox1`（id 510） `size 2048×1024 × scale 10000` 被当**整屏四边形**画（2D 像素口径与 3D 世界口径都盖满屏），`tex = ggxx1_镜像`。**这就是第 90/97/99 轮反复记的"该包本来就在画"的灰屏**（本轮给出层级归因） |
+| `?quad3d=m3d` 隔离文本层 | 台账 `rd=[1836,1080,39,9]` | 文本层 `t3zh`（"系统: 太阳系"）**真的发出绘制**（legacy 档 `__mpwLayerLedger` **一条都没有**）⇒ 机制收益可取证 |
+| 同上，屏幕像素 | 整帧 `max=0`（隔离该层） | ⚠ **仍不可见**：文本位图/颜色那一段另有缺口（`__text.text` 有内容、`textureName=text:…` 已在、字体 `fonts/msjh.ttc`）⇒ 下一轮 |
+
+### 判定（如实）
+**缺省 `legacy`（通路实现但不启用）**：本改动没有带来可见收益（几何档逐字节相同、关档仍是同一张灰屏），
+按"原型档"收口并保留 `?quad3d=m3d` 供继续推进。**下一轮（3D 包画面完整性的真正瓶颈）**：
+① 文本层在 3D 场景里"画了但全黑/全透明"的原因（光栅化位图盒 vs 层颜色/字体）；
+② `skybox1` 这类 `.mdl` 层在**非 mesh 档**被当整屏四边形画的路径（关档灰屏的唯一来源）——
+   P-257 已证明走几何才是对的，翻 `?modellayer` 默认档的前置条件正是把这条旧路径关掉。
+
+### 判据
+`tests/mesh3d-camera-test.mjs` **44/0**（C10 覆盖：默认 legacy、相机与层变换同档、作者 y 还原、
+Ry/Rx 参与、`y 取 −h`、退化门限按世界单位）；判据跟随 `tests/charfit-camera-test.mjs` **46/0**
+（`meshCamInfo` 拆成 `__meshPoseInfo` + `__mesh3dCam` 两行，语义不变）。
+回归：`mock-gl` 60/0、`demo-check` 133/0、`docs-check` ✓、`diag-flag-check` **229==229**。
