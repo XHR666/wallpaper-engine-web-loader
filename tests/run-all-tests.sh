@@ -912,6 +912,11 @@ add "composite-zorder" "node tests/composite-zorder-test.mjs"
 #   判据：合成包（2 MB 假 mdl）整条读=0 / 区间读=512 B；只有整条读的老宿主契约逐位不变；真包 8 mdls 共 4096 B。
 add "model-source-range" "node tests/model-source-range-test.mjs"
 
+# ①(P-250 2026-10-07) MDL 变体判别：语料 158 个 .mdl 里 **86 个是 48B 静态 PBR 布局**（pos3/nrm3/tangent4/uv2），
+#   修前 42 个完全解析不了、40 个被误判成 80B 步长（垃圾网格）。判据：合成夹具（48 判定/蒙皮优先/不误报）
+#   + 真语料全量对账（154/4、分支分布 80:74 / 48:75 / 52:5、"有 MDLS 绝不走 48"）。
+add "mdl-variant-dispatch" "node tests/mdl-variant-dispatch-test.mjs"
+
 # ①(P-213 B1 2026-09-29) 2D 光照模型（RE-43 路径A）：light 层 schema 解析（不参与 draw）+ 纯函数
 #   ComputeLightSpecular2D 分支表（衰减平方/intensity²/g_Light 混合/rim）+ 四灯 uniform 组（声明才上传）。
 #   判据：真包+官方样例 schema 逐项 + 分支表 + 无灯零视觉差 + legacy + 2 变异。

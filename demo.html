@@ -2453,6 +2453,19 @@ else {
 //   旧实现写死 >4096：上限 2048/1024 的机型上超限纹理直接上传即非法（黑层/0x502 源之一）。
 //   供 loadTex 的 rgba 与位图两条上传路径共用，并进上报（maxTextureSize）。
 const DEV_MAX_TEX = (() => { try { return (gl && gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 4096 } catch { return 4096 } })()
+/* ①(P-249 2026-10-07) **贴图边长上限的可选收紧口**：`?texcap=2048`（或 1024/512…）= 单张纹理长边不超过该值。
+   为什么需要：设备上限（本机 4096/8192）只保"能不能上传"，保不了"一共占多少内存" —— 真包
+   `0923/3589454154` 有 49 张 `.tex`，全分辨率 RGBA 合计 **216 MB**（`Saturn6k` 6480×3240=80MB、
+   `space` 6000×3000=69MB、`sun` 3000×3000=34MB），叠加 245 MB 容器与 GL 上传副本会把 tab 拖崩。
+   缺省 = 设备上限（逐位等于改动前）；收紧后 `texDownsampleCap` 会返回更小的目标，并让下面的
+   **mip 选级**接手（先取"≥目标的最小一级"解码，峰值按级数下降）。 */
+const TEX_CAP = (() => {
+  try {
+    const v = (typeof location !== 'undefined' && location.search) ? Number(new URLSearchParams(location.search).get('texcap')) : NaN
+    return (Number.isFinite(v) && v >= 64) ? Math.min(8192, Math.round(v)) : null
+  } catch (e) { return null }
+})()
+const HOST_TEX_MAX = TEX_CAP ? Math.min(DEV_MAX_TEX, TEX_CAP) : DEV_MAX_TEX
 const id = new URL(location.href).searchParams.get('id') || '3554161528';
 try { mpwDiagSceneId = String(id) } catch (e) { /* ignore */ }   // ①(诊断流镜像) 行前缀用当前包 id
 // ①(新) ?autorun=1：自动轮换场景（每 20s 跳下一个，循环）——用户只开一次页面，我收全部报告
@@ -3143,15 +3156,22 @@ async function loadTex(name, opts = {}) {
   try {
     const __mipQ = (typeof location !== 'undefined' && location.search) ? new URLSearchParams(location.search).get('mipsel') : null
     const __freeImg = !!(m && (m.png !== undefined || m.image !== undefined || m.video !== undefined))
+    /* ①(P-249 2026-10-07) **本仓格式（rgba）也选级**：P-163 当时只对 free-image 开 ⇒ `Saturn6k.tex`
+       （6480×3240，0 级 **80 MB** RGBA）、`space.tex`（6000×3000，69 MB）这类**本仓格式**大贴图仍
+       "先解 0 级再降采样"，峰值白白多几十 MB（本机实测 49 张合计 216 MB ⇒ 245 MB 包把 tab 拖崩）。
+       容器有 ≥2 级 ⇒ 用 `pickMipForTarget` 取"≥目标的最小一级"（LOD 语义，画质不劣；本例 0→1 级
+       即 80→20 MB / 69→17 MB），上传尺寸仍按 mip0 算出的 `__mipTarget` 走（与改动前逐位一致）。 */
+    const __rgbaImg = !!(m && m.rgba && m.rgba.length)
     const __canSel = typeof lib.pickMipForTarget === 'function' && typeof lib.decodeImageMip === 'function'
-    if (__canSel && __freeImg && __mipQ !== '0' && tex.images && tex.images[0] && tex.images[0].length > 1) {
-      const __cap0 = lib.texDownsampleCap(tex.width || m.width, tex.height || m.height, DEV_MAX_TEX) || 0
+    if (__canSel && (__freeImg || __rgbaImg) && __mipQ !== '0' && tex.images && tex.images[0] && tex.images[0].length > 1) {
+      const __cap0 = lib.texDownsampleCap(tex.width || m.width, tex.height || m.height, HOST_TEX_MAX) || 0
       const __lv = lib.pickMipForTarget(tex, __cap0)
       if (__lv > 0) {
         const m2 = lib.decodeImageMip(tex, 0, __lv)
-        const __fromBytes = (m.png || m.image || m.video || []).length
-        const __toBytes = (m2.png || m2.image || m2.video || []).length
-        logf('  ℹ mip 选级 ' + name + '：目标长边 ' + __cap0 + '（设备上限 ' + DEV_MAX_TEX + '）→ 用第 ' + __lv + ' 级 '
+        const __bites = (x) => ((x && (x.png || x.image || x.video)) ? (x.png || x.image || x.video).length : ((x && x.rgba) ? x.rgba.length : 0))
+        const __fromBytes = __bites(m)
+        const __toBytes = __bites(m2)
+        logf('  ℹ mip 选级 ' + name + '：目标长边 ' + __cap0 + '（生效上限 ' + HOST_TEX_MAX + (TEX_CAP ? '/texcap=' + TEX_CAP : '/设备') + '）→ 用第 ' + __lv + ' 级 '
           + m.width + 'x' + m.height + '→' + m2.width + 'x' + m2.height
           + '（' + (__toBytes / 1048576).toFixed(1) + 'MB，省掉 ' + ((__fromBytes - __toBytes) / 1048576).toFixed(1) + 'MB 解码；上传目标仍 ' + __cap0 + '）')
         m = m2
@@ -3231,7 +3251,7 @@ async function loadTex(name, opts = {}) {
   //   目标边长 >5000px 源降到 2560（背景本来就要模糊/闪烁，肉眼无损），其余降到 4096。
   // ①(W1① P-36) 触发阈值改 lib.texDownsampleCap（= 超 min(4096, 设备上限) 即降，
   //   cap 策略不变），设备上限 <4096 的机型也受保护。
-  const __dsCap = (m.rgba && m.width) ? lib.texDownsampleCap(m.width, m.height, DEV_MAX_TEX) : null
+  const __dsCap = (m.rgba && m.width) ? (__mipTarget || lib.texDownsampleCap(m.width, m.height, HOST_TEX_MAX)) : null
   if (__dsCap) {
     try {
       const cap = __dsCap
@@ -3368,7 +3388,7 @@ async function loadTex(name, opts = {}) {
       // ①(P-163) `__mipTarget` = 上面按 **mip0** 尺寸算出的降采样目标（选级生效时才有值）：
       //   位图已经换成了更小的一级，若在这里按新尺寸重算 `texDownsampleCap`（3840 ≤ 4096）会得到
       //   null ⇒ 上传尺寸从 2048×1152 涨到 3840×2160。用同一个目标 ⇒ **上传尺寸与改动前逐位一致**。
-      const cap0 = __mipTarget || lib.texDownsampleCap(w, h, DEV_MAX_TEX)
+      const cap0 = __mipTarget || lib.texDownsampleCap(w, h, HOST_TEX_MAX)
       if (cap0) {
         try {
           const k = Math.min(cap0 / w, cap0 / h)

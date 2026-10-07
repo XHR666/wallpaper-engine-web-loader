@@ -16801,3 +16801,62 @@ LS3 + LS3b 取消勾选落 `__lnHidden` + 状态行读数 / LS6a-d `?hide=N` 进
 - **但该包在本机 headless 环境仍然加载不了**：`Execution context was destroyed`（tab 崩、无首帧），
   未再出现 `out of memory` 报文；剩余候选原因 = **245 MB 容器本身** + 8k 贴图解码（80 MB+34 MB RGBA）+
   llvmpipe/容器内存上限 ⇒ 下一步是**容器流式/惰性读取**（或按内存预算跳过大贴图），单列一项。
+
+## P-249（2026-10-07）大贴图的**峰值内存**：本仓格式（rgba）大贴图此前"先解 0 级再降采样" + 单张上限只跟设备
+
+### 现象与分步定位（真实浏览器内逐步写台账）
+`0923/3589454154`（**245 MB** 容器、130 对象、49 张 `.tex`）加载即崩（`Execution context was destroyed`、无首帧）：
+```
+1 fetch 245MB      ok  6698ms  bytes=256761191
+2 parsePkg         ok     0ms  entries=193
+3 parseScene       ok    21ms  layers=130  模型来源区间读 readBytes=3584（P-248）
+4 decode Saturn6k  ok   412ms  6480x3240 rgbaBytes=83980800
+5 decode 全部 .tex ok  1237ms  tex=49 rgba 合计=216MB
+      大图：Saturn6k 80MB / space 69MB / sun 34MB
+```
+⇒ **容器与解析都不是崩溃点**（这也确认了 P-248 的价值），杀手是**贴图解码/上传峰值**：
+容器 245 MB + 49 张全分辨率 RGBA 216 MB + GL 上传副本。
+
+### 修法（两处，缺一不可）
+1. **本仓格式也走 mip 选级**（`demo.html` 的 `loadTex`）：P-163 当年只对 free-image（PNG/JPEG/video）开，
+   于是 Saturn6k.tex（5 级：6480/3264/1632/816/408）仍从 0 级解成 80 MB 再降采样。
+   现在 `texDownsampleCap` 有目标 + 容器有 ≥2 级 ⇒ 用 `pickMipForTarget` 取"≥目标的最小一级"
+   （0→1 级：**80 → 20 MB**；`space`：**69 → 17 MB**），上传尺寸仍按 mip0 算出的 `__mipTarget` 走（逐位不变）。
+2. **`?texcap=<边长>`**：单张贴图长边上限的可选收紧口（缺省 = 设备上限 ⇒ 逐位旧行为）。设备上限只保
+   "能不能上传"，保不了总内存：sun.tex 3000×3000 在设备上限 4096 下**根本不会降采样**（34 MB）。
+   收紧后它与其他大图一起进入选级/降采样路径。（`?mipsel=0` 仍可整条关掉选级。）
+
+### 读数与已知边界
+- 选级效果（离线、真包）：`Saturn6k` 0→1 级 80→20 MB、`space` 69→17 MB；`sun` 在 `?texcap=2048` 下 34→17 MB。
+- **该包在本机 headless 仍不能出首帧**（本轮修后复测：仍 `context destroyed`）：剩余候选 = 245 MB 容器常驻 +
+  其余 46 张贴图与 GL 副本 + 容器内存上限 ⇒ 下一步是**容器流式/惰性读取**（按需只读用到的条目）。
+
+## P-250（2026-10-07）**MDL 变体判别**：语料 158 个 `.mdl` 里的第三种布局（48B 静态 PBR）此前既没被识别、又有 40 个被误判成 80B ⇒ 42 个解析不了 + 40 个垃圾网格
+
+### 现象与量化（语料审计，详见 `docs/reports-mdl-variants.md`）
+- 三种布局：**80B 蒙皮**（67 个，`pos3@0+blendIdx4@40+weights4@56+uv2@72`）、
+  **52B `MDLV0016` 紧凑**（5 个）、**48B 静态 PBR**（86 个，`pos3@0+normal3@12+tangent4@24(w≈±1)+uv2@40`）。
+- 修前 `findMdlVertexBlock` 只认前两种 ⇒ **42 个 48B 文件完全解析不了**（`parseMdl → null`），
+  另有 **40 个 48B 文件被误判成 80B**（`vb % 80 == 0` 巧合成立：位置过闸门、uv/蒙皮字段全是垃圾）。
+- 关键陷阱：**4 个 puppet 同时满足两套签名**（48 解释下 `blendIdx` 小整数读成 float ≈0，落进 uv 区间）
+  ⇒ 判别必须让"有 `MDLS` 的骨架"赢。
+
+### 修法（`core/attach-transform.mjs`）
+1. 新增 `MDL_STRIDE48_ATTR = { pos:0, normal:12, tangent:24, uv:40 }` + `mdlStride48Signature()`
+   （法线单位率 / 切线 w≈±1 率 / uv∈[-0.05,1.05] 率）+ `findMdlStride48Block()`（与 80B 扫描同族接受条件）。
+2. `findMdlVertexBlock` 加判别：**无 `MDLS`** 且 48 签名强（≥0.9/≥0.8/≥0.9）且现有 80B 候选 **uv 证据弱**
+   （`uv@72` 命中率 <0.9）⇒ 用 48；否则保持原判（零回归）。`mdlStride80UvEvidence()` 为判据读数。
+3. `parseMdl`：48B 布局顺带解出 `normals`/`tangents`（其余布局**零新增字段**）；蒙皮字段缺省给中性值
+   （骨 0 / 权重 1），与既有"未提供 blendIndices[i]"兜底契约一致。
+
+### 判据（`tests/mdl-variant-dispatch-test.mjs`，已登记 `run-all-tests.sh`，**13/0**）
+- A 合成夹具 6 条：48B 判定 + 解析（顶点/uv/法线/切线齐、蒙皮中性、bones=[]）+ 签名 1.00 +
+  **有 MDLS 绝不走 48** + 48 判定函数对 80B 蒙皮块不误报 + 80B uv 证据读数；
+- B 真语料 7 条：158 个全走到、**成功 154 / 失败 4**（修前 112/46）、分支分布 **80:74 / 48:75 / 52:5**、
+  **带 MDLS 判成 48 的 = 0**、仍失败 4 个 = 2.87MB 天空盒（uv 超界，按"不猜"拒绝）、
+  蒙皮文件只用 80/52（72 个）。
+
+### 已知边界（如实登记）
+- 4 个 `自制天空盒0[012].mdl`（2 866 891 B）uv 命中率仅 0.46（超出 `[0,1]`）⇒ 需其 uv 语义（平铺/立方体）才能判定，当前**拒绝**；
+- 多网格文件（KEPLER.mdl / gps.mdl 等：一个文件里多个顶点/索引块）本项只取首块（与改动前同口径），合并留后续；
+- 48B 的**几何渲染**未做（模型层仍走材质纹理路径），本项只解决"加载/判别"。

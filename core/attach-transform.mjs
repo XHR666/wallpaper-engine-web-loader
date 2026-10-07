@@ -439,6 +439,99 @@ const MDLV0016_WEIGHT_SUM_TOL = 1e-3
 const MDLV0016_WEIGHT_BAD_RATE = 0.001  // 权重和判据的例外率（语料 80/81 文件 100% 成立）
 const MDL_POS_MAX_ABS = 1e6             // 顶点量级闸门（改动前是字面量 1e6；值一字不变）
 
+/* ══ ①(P-250 2026-10-07) 静态 PBR 顶点块（步长 48）：`pos3@0 + normal3@12 + tangent4@24(w≈±1) + uv2@40` ══
+   语料审计（158 个 `.mdl`）：**86 个**命中该签名（法线单位/切线 w≈±1/uv∈[0,1] 三项抽样全 1.00），其中
+     · **42 个**在修前**完全解析不了**（`findMdlVertexBlock` 只认 80/52 两种步长）⇒ 本分支救回；
+     · **40 个**在修前被误判成 **80B 步长**（`vb % 80 == 0` 巧合成立）⇒ 拿到的是**垃圾网格**（位置能过闸门、
+       但 uv/blend 全是错的）—— 这正是"同一张壁纸该按哪版加载"的判别缺口。
+   判别规则（有实测依据，见 `tests/mdl-variant-dispatch-test.mjs`）：
+     ① **有 MDLS（蒙皮）⇒ 绝不用 48**：语料有 **4 个 puppet** 同时满足两套签名（48 签名也会"像"，因为
+        0 值 float 落在 uv 区间内）⇒ 蒙皮文件一律走 80/52（否则骨架与顶点错配）。
+     ② **无 MDLS 且 48 签名强**、且现有 80B 候选的 **uv 证据弱**（uv@72 不在 [0,1]）⇒ 用 48。
+     ③ 其余一律保持原判（零回归：63 个蒙皮 + 5 个 MDLV0016 + 已正确的文件逐位不变）。 */
+const MDL_STRIDE48_STRIDE = 48
+const MDL_STRIDE48_ATTR = { pos: 0, normal: 12, tangent: 24, uv: 40 }
+const MDL48_NRM_MIN = 0.9
+const MDL48_TANW_MIN = 0.8
+const MDL48_UV_MIN = 0.9
+const MDL48_SAMPLE_MAX = 80
+
+/** ①(P-250) 48B 布局签名：抽样统计"法线单位率 / 切线 w≈±1 率 / uv∈[-0.05,1.05] 率"。纯读，不改任何状态。 */
+export function mdlStride48Signature(dv, verticesOffset, vertexCount) {
+  const vc = Math.max(0, vertexCount | 0)
+  if (!vc) return { nrm: 0, tanw: 0, uv: 0, sample: 0 }
+  const step = Math.max(1, Math.floor(vc / MDL48_SAMPLE_MAX))
+  let n = 0, nrm = 0, tanw = 0, uv = 0
+  for (let i = 0; i < vc; i += step) {
+    const b = verticesOffset + i * MDL_STRIDE48_STRIDE
+    const nx = dv.getFloat32(b + 12, true), ny = dv.getFloat32(b + 16, true), nz = dv.getFloat32(b + 20, true)
+    if (Math.abs(Math.hypot(nx, ny, nz) - 1) < 0.1) nrm++
+    const w = dv.getFloat32(b + 36, true)
+    if (Math.abs(Math.abs(w) - 1) < 0.15) tanw++
+    const u = dv.getFloat32(b + 40, true), v = dv.getFloat32(b + 44, true)
+    if (u >= -0.05 && u <= 1.05 && v >= -0.05 && v <= 1.05) uv++
+    n++
+  }
+  const d = Math.max(1, n)
+  return { nrm: nrm / d, tanw: tanw / d, uv: uv / d, sample: n }
+}
+
+/** ①(P-250) 现有 80B 候选的"uv 证据"：uv@72 落在 [0,1] 的抽样比例（判"这个 80B 解释像不像真的"）。 */
+export function mdlStride80UvEvidence(dv, blk) {
+  try {
+    if (!blk || blk.stride !== 80) return 0
+    const vc = blk.vertexBytes / 80
+    if (!(vc > 0)) return 0
+    const step = Math.max(1, Math.floor(vc / MDL48_SAMPLE_MAX))
+    let n = 0, ok = 0
+    for (let i = 0; i < vc; i += step) {
+      const b = blk.verticesOffset + i * 80
+      const u = dv.getFloat32(b + 72, true), v = dv.getFloat32(b + 76, true)
+      if (u >= -0.05 && u <= 1.05 && v >= -0.05 && v <= 1.05) ok++
+      n++
+    }
+    return n ? ok / n : 0
+  } catch (e) { return 0 }
+}
+
+/** ①(P-250) 48B 静态顶点块定位（接受条件与 80B 扫描同族：位置闸门 + 索引 98% 合法 + **48 签名强**）。 */
+export function findMdlStride48Block(raw, dv, limit) {
+  const end = Math.min(raw.length, (limit === undefined || limit === null) ? raw.length : limit)
+  for (let offset = 9; offset + 12 < end; offset++) {
+    const vertexBytes = dv.getUint32(offset + 4, true)
+    if (vertexBytes === 0 || vertexBytes % MDL_STRIDE48_STRIDE !== 0) continue
+    const verticesOffset = offset + 8
+    const vc = vertexBytes / MDL_STRIDE48_STRIDE
+    if (vc < 3) continue
+    const indexLenOffset = verticesOffset + vertexBytes
+    if (indexLenOffset + 4 > end) continue
+    const indexBytes = dv.getUint32(indexLenOffset, true)
+    const indicesOffset = indexLenOffset + 4
+    if (indexBytes === 0 || indexBytes % 2 !== 0 || indicesOffset + indexBytes > end) continue
+    let sane = true
+    for (let i = 0; i < Math.min(vc, 64); i++) {
+      const vo = verticesOffset + i * MDL_STRIDE48_STRIDE
+      for (let k = 0; k < 3; k++) {
+        const v = dv.getFloat32(vo + k * 4, true)
+        if (!isFinite(v) || Math.abs(v) > MDL_POS_MAX_ABS) { sane = false; break }
+      }
+      if (!sane) break
+    }
+    if (!sane) continue
+    const ic = indexBytes / 2
+    let idxOk = 0
+    for (let k = 0; k < Math.min(ic, 400); k++) if (dv.getUint16(indicesOffset + k * 2, true) < vc) idxOk++
+    if (idxOk < Math.min(ic, 400) * 0.98) continue
+    const sig = mdlStride48Signature(dv, verticesOffset, vc)
+    if (!(sig.nrm >= MDL48_NRM_MIN && sig.tanw >= MDL48_TANW_MIN && sig.uv >= MDL48_UV_MIN)) continue
+    return {
+      block: { verticesOffset, vertexBytes, indicesOffset, indexBytes, stride: MDL_STRIDE48_STRIDE, variant: 'stride-48', attr: MDL_STRIDE48_ATTR },
+      sig,
+    }
+  }
+  return { block: null, sig: null }
+}
+
 /**
  * ③(P-173) `MDLV0016` 紧凑顶点块（步长 52）：**定位 + 全量校验**（唯一实现处）。
  *
@@ -568,6 +661,20 @@ export function findMdlVertexBlock(raw, dv, mdlsOffset) {
     found = { verticesOffset, vertexBytes, indicesOffset, indexBytes, stride: 80, variant: 'stride-80', attr: MDL_STRIDE80_ATTR }
     break
   }
+  /* ①(P-250 2026-10-07) **静态 48B 判别**（放在 80 候选之后、紧凑变体之前）：
+     只在"文件里没有 MDLS"时考虑；且要求 48 签名强、而现有 80B 候选的 uv 证据弱（< 0.9）。
+     两条闸门都过 ⇒ 用 48（救回 42 个完全解析不了的文件、纠正 40 个被误判成 80B 的静态网格）。
+     有任何一条不满足 ⇒ 保持原判（含 MDLS 的蒙皮文件**永不**走这里 ⇒ 63+5 个逐位不变）。 */
+  const noMdls = !(mdlsOffset >= 0 && mdlsOffset < raw.length)
+  if (noMdls) {
+    try {
+      const s48 = findMdlStride48Block(raw, dv, mdlsOffset)
+      if (s48.block) {
+        const uv80 = found ? mdlStride80UvEvidence(dv, found) : 0
+        if (!found || uv80 < 0.9) return { block: s48.block, diag: null }
+      }
+    } catch (e) { /* 48B 判别失败 ⇒ 落回原判（零行为变化） */ }
+  }
   if (found) return { block: found, diag: null }
   // ③(P-173) 紧凑变体分支（**本项唯一的入口**；关掉这一行 = 逐位回到改动前）
   return readMdlv0016CompactVertexBlock(raw, dv, mdlsOffset)
@@ -618,13 +725,23 @@ export function parseMdl(buf, opts) {
   const indexCount = found.indexBytes / 2
   // ③(P-173) 属性偏移由 finder 给出（80 步长 = 0/40/56/72，52 步长 = 0/12/28/44）⇒ 两侧不再各写一套偏移
   const attr = found.attr
-  const positions = [], uvs = [], blendIndices = [], blendWeights = []
+  const positions = [], uvs = [], blendIndices = [], blendWeights = [], normals = [], tangents = []
   for (let i = 0; i < vertexCount; i++) {
     const vo = found.verticesOffset + i * found.stride
     positions.push([dv.getFloat32(vo + attr.pos, true), dv.getFloat32(vo + attr.pos + 4, true), dv.getFloat32(vo + attr.pos + 8, true)])
     uvs.push([dv.getFloat32(vo + attr.uv, true), dv.getFloat32(vo + attr.uv + 4, true)])
-    blendIndices.push([dv.getUint32(vo + attr.blendIndices, true), dv.getUint32(vo + attr.blendIndices + 4, true), dv.getUint32(vo + attr.blendIndices + 8, true), dv.getUint32(vo + attr.blendIndices + 12, true)])
-    blendWeights.push([dv.getFloat32(vo + attr.blendWeights, true), dv.getFloat32(vo + attr.blendWeights + 4, true), dv.getFloat32(vo + attr.blendWeights + 8, true), dv.getFloat32(vo + attr.blendWeights + 12, true)])
+    /* ①(P-250) 48B 静态布局**没有**蒙皮字段 ⇒ 给中性值（骨 0 / 权重 1），与"未提供 blendIndices[i]"的
+       既有兜底契约一致；48B 有独立的 normal/tangent 槽，顺手解出来挂到网格上（几何渲染/判据可用）。 */
+    if (attr.blendIndices != null) {
+      blendIndices.push([dv.getUint32(vo + attr.blendIndices, true), dv.getUint32(vo + attr.blendIndices + 4, true), dv.getUint32(vo + attr.blendIndices + 8, true), dv.getUint32(vo + attr.blendIndices + 12, true)])
+    } else blendIndices.push([0, 0, 0, 0])
+    if (attr.blendWeights != null) {
+      blendWeights.push([dv.getFloat32(vo + attr.blendWeights, true), dv.getFloat32(vo + attr.blendWeights + 4, true), dv.getFloat32(vo + attr.blendWeights + 8, true), dv.getFloat32(vo + attr.blendWeights + 12, true)])
+    } else blendWeights.push([1, 0, 0, 0])
+    if (attr.normal != null) {
+      normals.push([dv.getFloat32(vo + attr.normal, true), dv.getFloat32(vo + attr.normal + 4, true), dv.getFloat32(vo + attr.normal + 8, true)])
+      if (attr.tangent != null) tangents.push([dv.getFloat32(vo + attr.tangent, true), dv.getFloat32(vo + attr.tangent + 4, true), dv.getFloat32(vo + attr.tangent + 8, true), dv.getFloat32(vo + attr.tangent + 12, true)])
+    }
   }
   const indices = []
   for (let i = 0; i < indexCount; i++) indices.push(dv.getUint16(found.indicesOffset + i * 2, true))
@@ -765,6 +882,9 @@ export function parseMdl(buf, opts) {
     }
   }
   const out = { positions, uvs, indices, vertexCount, indexCount, blendIndices, blendWeights, bones, animations, raw: buf }
+  // ①(P-250) 只有 48B 静态布局解出的法线/切线才挂上去（其余布局零新增字段 ⇒ 既有消费方形状不变）
+  if (normals.length) out.normals = normals
+  if (tangents.length) out.tangents = tangents
   // ③(P-173) 网格来自紧凑变体 ⇒ 记一条**机器可判**台账（这 5 个文件在本项之前是 `null`，对象形状不可能
   //   "变化"；合法 stride-80 语料一个字段都不多）。与骨骼台账（P-152/P-152b）同用一个键：网格信息落在
   //   `mdlDiag.mesh` 里，两个台账都在时字段取并集、键名不冲突。
