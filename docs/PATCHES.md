@@ -17237,6 +17237,13 @@ auto 取临时的 `'mesh'`、`loadScene` 解析出真场景后再收敛（2D / �
 | `?modellayer=off&mdlquad=legacy` | `mean 141.2 / uniq 128`（旧灰屏） | `__mpwMdlQuad=null`（回退口逐位复现改动前） |
 | `?modellayer=1`（quad 档） | `mean 141.2 / uniq 128` | `__mpwModelLayer={seen:73,bound:67,…}` |
 
+### 三个 3D 包的默认档变化（改前 = `off` 的灰屏/黑屏；改后 = auto 几何档）
+| 包 | 规模 | 旧默认（`off`） | 新默认（auto ⇒ `mesh`） |
+|---|---|---|---|
+| `0923/3662790108` | 569 MB / 847 层 / 73 mdl | 灰屏 `mean 141.2 / uniq 128`（整屏贴图） | **`mean 5.5 / uniq 72`**（真实太阳系；`{seen:73,drawn:64,skipped:9,bytes:68.6MB}`） |
+| `0923/3589454154` | 245 MB / 130 层 / 24 mdl | 灰噪 `mean 185.5 / uniq 127` | `mean 193.4 / uniq 21`（天空球 + 中心白点；`{seen:24,drawn:22,skipped:2(51MB/156MB)}`，与显式 `?modellayer=mesh` 逐位相同） |
+| `0917/3509243656` | 37 MB / 142 层 / 8 mdl | 黑帧 `mean 0 / uniq 1` | 黑帧 `mean 0 / uniq 1`（**不变**；`{seen:8,drawn:7,skipped:1(27MB)}`，两层保留名 `导航盘 赤道`/`自制天空盒02` 仍 `(noTex)`） |
+
 **语料范围核对（离线，全语料扫描）**：`allwallpaper/{0923,0917,1004,dd,wallpaperE}` 里
 "有 `.mdl` 层或有真透视为真"的场景**只有 3 个**（`0923/3662790108` 73 层、`0923/3589454154` 24 层、
 `0917/3509243656` 8 层，三者都是真透视 ⇒ 都判 `mesh`），**没有任何 2D 包带 `.mdl` 图片层**
