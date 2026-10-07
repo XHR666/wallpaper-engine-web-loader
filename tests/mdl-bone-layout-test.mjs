@@ -522,15 +522,16 @@ const corpus = { rows: 0, mdls: 0, bones: 0, badParent: 0, badMat: 0, rejected: 
  *     本组保留的谓词仍是"nullBoth ≥ 基线 ∧ 默认 null 而 legacy 非 null == 0 ∧ 默认非 null 而 legacy null == 0"
  *     —— 只是基线数字随"局限被修掉"下调（否则本组会把"修好了"记成红）。
  *     ⚠ 本组**不**声称"零 null"：`nullNoMdls` 与 `shapes` 随"局限被修掉"更新 ——
- *     **P-250（2026-10-07）补上了 48B 静态 PBR 布局**（`pos3@0+normal3@12+tangent4@24+uv2@40`，
- *     语料 86 个文件命中该签名）⇒ `nullNoMdls` **46 → 4**、`shapes` **40 → 82**；仍为 null 的 4 个
- *     是 2.87MB 天空盒（uv 超出 [0,1]，签名不过 ⇒ 按"不猜"拒绝）。本组原先写的"第 6 个 `MDLV0016`
- *     （`Hollow Cylinder`）有意不接"已被 P-250 **取代**：它现在按 48B 静态网格解析（bones=[]）。 */
+ *     **P-250（2026-10-07）补上 48B 静态 PBR 布局** ⇒ `nullNoMdls` 46 → 4、`shapes` 40 → 82；
+ *     **P-256（2026-10-07）又补上"平铺 uv"的接受判据**（`models/自制天空盒0[012]` 的 uv 超出 [0,1]、
+ *     命中率仅 0.46）⇒ `nullNoMdls` **4 → 0**、`shapes` **82 → 86**：**语料里再也没有"无 MDLS 且解析不出"的 mdl**。
+ *     本组原先写的"第 6 个 `MDLV0016`（`Hollow Cylinder`）有意不接"已被 P-250 **取代**：它现在按 48B
+ *     静态网格解析（bones=[]）。 */
 const MDL_CORPUS_BASELINE = {
   note: '2026-09-23 全语料自导出（只增不减）。旧写死值：rows=43 / mdls=35 / bones=332 / 非法=0 / 拒绝=0 / 差异=0 / nullNoMdls=7 / shapes=1。P-152b 后：rejects 3→0（那 3 个被救回）、rescued=3、bones 821→885。P-173（2026-09-24）：MDLV0016 紧凑变体（5 个文件）被解析 ⇒ nullBoth 5→0、bones 885→899（+14）。',
   // ①(2026-10-04 语料漂移同步) 172/86/899 → 165/79/825：wallpapertest1_*.mpkg 被主线移入
   //   allwallpaper/delete/（离开扫描根集）——同步并记录原因（发现按内容特征，不与路径绑定）。
-  rows: 165, mdls: 79, bones: 825, nullBoth: 0, rejects: 0, rescued: 3, nullNoMdls: 4, shapes: 82,
+  rows: 165, mdls: 79, bones: 825, nullBoth: 0, rejects: 0, rescued: 3, nullNoMdls: 0, shapes: 86,
 }
 /* ②(P-152b) 救回的**已知清单**（按文件名钉住，不是只比数量）：关掉重扫 ⇒ 清单为空 ⇒ 必红。
  *   真语料实测（2026-09-23，改前/改后骨数）：`asuna body bottom_puppet.mdl` 声明 7 / 旧路径 1 → 7；
