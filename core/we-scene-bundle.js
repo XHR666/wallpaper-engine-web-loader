@@ -2058,6 +2058,19 @@ export function parseScene(sceneJson, project, opts = {}) {
   }
   return {
     camera: sceneJson.camera || null,
+    /* ①(P-257 2026-10-07) **相机层清单**（`objects[]` 里带 `camera` 字符串的对象，含 `cameraFov`）。
+       为什么需要：官方 3D 相机（`Q1` 的 `runtimeCamera`）取的是**最后一个可见相机层**的
+       `origin/angles/fov`（`v.filter(g=>g.isCamera).pop() || v[0]`），**不是** `scene.json` 里那份
+       `camera:{eye,center,up}`（那是编辑器保存的静态快照；`0923/3662790108` 的 `camera` 层 eye=z0.454
+       与快照 eye=(0.11,2.23,-1.48) 完全不同 ⇒ 用错会让整个 3D 场景跑到画面外）。
+       只放"识别信息"（id/camera/fov），层自身的世界 origin/angles（父链合并 + 脚本同步后的）在
+       `scene.layers` 里按 id 取 —— 这样既拿到官方语义，又不给每个 layer 对象加新字段。 */
+    cameraLayers: (sceneJson.objects || []).filter((x) => x && typeof x.camera === 'string').map((x) => ({
+      id: x.id,
+      camera: x.camera,
+      fov: Number.isFinite(Number(x.fov && typeof x.fov === 'object' ? x.fov.value : x.fov))
+        ? Number(x.fov && typeof x.fov === 'object' ? x.fov.value : x.fov) : null,
+    })),
     general: sceneJson.general || {},
     layers,
     // ②(P-228l) 属性动画运行时的宿主面：
@@ -4171,6 +4184,22 @@ export function mat4RotateZ(m, rad) {
   return mat4Multiply(m, new Float32Array([c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]))
 }
 
+// ①(P-257 2026-10-07) 绕 X / 绕 Y 旋转：与官方 web 产物 `Md` / `Pd` **逐字同式**
+//   （`staging/upstream-2.1.0/assets/renderer-n-RW_ZVc.js`：`Md(t,e)` = [1,0,0,0, 0,c,s,0, 0,-s,c,0, …]、
+//   `Pd(t,e)` = [c,0,-r,0, 0,1,0,0, r,0,c,0, …]，列主序、右乘 → 与既有 `mat4RotateZ`（官方 `_d`）同族）。
+//   3D 图层变换（`Kr`）用它们；2D 路径一个调用点都没有 ⇒ 2D 逐位不变。
+export function mat4RotateX(m, rad) {
+  const c = Math.cos(rad)
+  const s = Math.sin(rad)
+  return mat4Multiply(m, new Float32Array([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]))
+}
+
+export function mat4RotateY(m, rad) {
+  const c = Math.cos(rad)
+  const s = Math.sin(rad)
+  return mat4Multiply(m, new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]))
+}
+
 export function mat4LookAt(eye, center, up) {
   const z = normalize([eye[0] - center[0], eye[1] - center[1], eye[2] - center[2]])
   const x = normalize(cross(up, z))
@@ -4378,6 +4407,155 @@ export function buildCamera(scene, width, height, opts = null) {
     framedW, framedH, hasCameraNode: !!(scene && scene.cameraNode),
     projMode, projKind, projAnchor, fovY: fovYDeg, perspDist,
   }
+}
+
+/* ===== ①(P-257 2026-10-07) 真 3D 场景的相机与图层模型矩阵（官方 web 产物逐式移植）=====
+
+背景（P-254/P-255 的"原型档"缺口，第 98 轮台账已登记）：`?modellayer=mesh` 在 3D 包
+（`0923/3662790108` 无 `orthogonalprojection` + `fov:50`、73 个 `.mdl` 层、含 scale≈10000 的天空球壳）
+上要么全黑、要么被天空球压掉 —— 因为本仓 mesh 程序原先是给 puppet 的 2D 映射
+（`u_Origin + u_Scale·v`，z 直接丢，P-255 只补了一个 `camZ` 标量透视）。官方的几何层走的是
+**完整 4×4 通路**：`mvp = viewProj · model`，其中 model = 层变换、viewProj = 真透视相机。
+
+口径来源（`staging/upstream-2.1.0/assets/renderer-n-Rw_ZVc.js`，逐函数抄录）：
+  · 相机 `Q1` 3D 分支：`eye/center/up` 取 `scene.camera`；`center` 缺失时用 `angles` 推前向
+    （`eb(forward,pitch,yaw)`）；`fov = general.fov || 50`（**度**）、`near = max(nearz,.01)`、
+    `far = max(farz,1e4)`；`view = j1(eye,center,up)`、`projection = jm(fov,aspect,near,far)`。
+  · 相机朝向 `eb`（**角度制**）：先绕 y（yaw）再绕 x（pitch）旋前向向量 `[0,0,-1]`。
+  · 图层变换 `Kr` 透视分支：`T(origin)` → `Ry(angles[1])` → `Rx(angles[0])` → `Rz(−angles[2])`；
+    **天空盒层（`W1`）的平移换成相机 `eye`** —— 这就是"相机在球壳内部"的官方处理：
+    天空盒跟着相机走，于是球壳永远把相机包在中心，不需要"远平面深度"这类特判。
+  · 网格缩放 `ps`：`S(scale[0], perspective? +scale[1] : −scale[1], (perspective && scale[2]) || 1)`
+    —— 2D 走 −y（本仓 y-down），**透视走 +y**（模型空间与相机同为 y-up）。
+  · 天空盒优先排序：`layers.slice().sort((a,b)=> +!!b.isSkybox - +!!a.isSkybox)`（稳定排序、天空盒在前）。
+  · 天空盒判定 `isSkybox`：官方是**名字**判据 `name.indexOf("天空盒") >= 0`。
+
+⚠ 本仓差异（必须显式换算，否则模型会整层飞到画面外）：
+  1. `parseScene` 在**解析期**就把作者 y 翻成 `PROJ_H − y`（2D y-down 口径），且 3D 场景没有
+     `orthogonalprojection` ⇒ `PROJ_H` 取默认 1080。官方 3D 分支用的是**作者原 y** ⇒ 这里必须
+     `authorY = scene.projH − layer.origin[1]` 还原（`scene.projH` 由 parseScene 落库）。
+  2. 本仓 layer.scale 是父链乘积后的正值数组（parse 不翻符号）⇒ 透视档直接用 `+scale[1]`。
+
+默认关：这两个函数**只被宿主（demo.html）在 `?modellayer=mesh` + 3D 场景时调用**；
+`renderScene` 的 2D/四边形路径一个调用点都没有 ⇒ 全语料 2D 画面逐位不变。 */
+
+// ①(P-257) 官方 `eb(v, pitchDeg, yawDeg)`：把前向向量按**角度制**先绕 y 再绕 x 旋转（`Q1` 的 center 推导）。
+export function cameraForwardFromAngles(pitchDeg, yawDeg, base = [0, 0, -1]) {
+  const r = Math.PI / 180
+  const i = (Number(yawDeg) || 0) * r
+  let s = base[0] * Math.cos(i) + base[2] * Math.sin(i)
+  let a = -base[0] * Math.sin(i) + base[2] * Math.cos(i)
+  const c = (Number(pitchDeg) || 0) * r
+  const o = base[1] * Math.cos(c) - a * Math.sin(c)
+  a = base[1] * Math.sin(c) + a * Math.cos(c)
+  return [s, o, a]
+}
+
+/* ①(P-257) 官方的"天空盒层判定"：`name.indexOf('天空盒') >= 0`。
+   扩展口径（本仓，`?sky3d=legacy` 关）：名字里含 `skybox`（不含 `天空盒`）的层同样按天空盒处理 ——
+   依据 `0923/3662790108` 的 4 个球壳层作者命名为 `skybox1`/`skybox2`/`星座`/`网格`（scale 9000~10000，
+   相机 eye 在球心附近），官方判据对它们不成立 ⇒ 球壳会以作者原点（≈[0,0,0.3]）为中心，
+   相机一移动就穿壳。扩展只对 `/skybox/i` 生效，仍不碰任何 2D 层。 */
+export function isSkyboxLayer(layer, opts = null) {
+  const nm = String((layer && layer.name) || '')
+  if (nm.indexOf('天空盒') >= 0) return true
+  const extended = !(opts && opts.legacyName === true)
+  return extended && /skybox/i.test(nm)
+}
+
+/* ①(P-257) 官方 `Q1` 的 3D 分支：`scene.camera` + `general.fov/nearz/farz` → 真透视相机。
+   返回 `{ view, projection, viewProj, eye, center, up, fov, near, far, aspect, perspective:true }`。
+   `opts.cameraOverride = {eye,center,up,fov}` 是给宿主/测试的注入口（官方对应 `runtimeCamera`，
+   本仓当前没有相机节点脚本→3D 的桥，留这个参数便于以后接，不传时逐字等于官方静态相机）。 */
+export function buildMesh3dCamera(scene, width, height, opts = null) {
+  const g = (scene && scene.general) || {}
+  const cam = (scene && scene.camera) || null
+  const ov = (opts && opts.cameraOverride) || null
+  const projH = (scene && Number.isFinite(Number(scene.projH))) ? Number(scene.projH) : 1080
+  const p3 = (v, d) => {
+    if (Array.isArray(v) && v.length >= 3 && v.every((x) => Number.isFinite(Number(x)))) return [Number(v[0]), Number(v[1]), Number(v[2])]
+    if (typeof v === 'string') {
+      const a = v.trim().split(/\s+/).map(Number)
+      if (a.length >= 3 && a.every((x) => Number.isFinite(x))) return a
+    }
+    return d
+  }
+  /* ①(P-257) **官方相机层优先**（`Q1` 的 `runtimeCamera`）：取"最后一个**可见**相机层"，用它父链合并后的
+     origin/angles + `cameraFov`；官方那个 `runtimeCamera` 对象**没有 center** ⇒ 朝向一律由 angles 推
+     （`center` 缺失分支）。层 origin 在本仓是 `PROJ_H − y` 的 y-down 值 ⇒ 这里还原成作者 y-up。
+     没有相机层的场景（或层被隐藏且无可见相机层时的兜底 v[0]）才用 `scene.camera` 那份静态快照。 */
+  const camLayerIds = Array.isArray(scene && scene.cameraLayers) ? scene.cameraLayers : []
+  const camLayers = camLayerIds
+    .map((cl) => {
+      const l = ((scene && scene.layers) || []).find((x) => x && x.id === cl.id)
+      return l ? { layer: l, fov: cl.fov } : null
+    })
+    .filter(Boolean)
+  const camPick = camLayers.filter((c) => c.layer.visible).pop() || camLayers[0] || null
+  let eye, up, center, fov
+  if (!ov && camPick) {
+    const lo = Array.isArray(camPick.layer.origin) ? camPick.layer.origin : [0, 0, 0]
+    eye = [Number(lo[0]) || 0, projH - (Number(lo[1]) || 0), Number(lo[2]) || 0]
+    up = p3(cam && cam.up, [0, 1, 0])
+    const a = Array.isArray(camPick.layer.angles) ? camPick.layer.angles : [0, 0, 0]
+    const f = (Number(a[0]) || Number(a[1])) ? cameraForwardFromAngles(a[0], a[1]) : [0, 0, -1]
+    center = [eye[0] + f[0], eye[1] + f[1], eye[2] + f[2]]
+    fov = (Number(camPick.fov) > 0) ? Number(camPick.fov) : ((Number(g.fov) > 0) ? Number(g.fov) : 50)
+  } else {
+    eye = p3(ov && ov.eye, p3(cam && cam.eye, [0, 0, 0]))
+    up = p3(ov && ov.up, p3(cam && cam.up, [0, 1, 0]))
+    center = p3(ov && ov.center, p3(cam && cam.center, null))
+    if (!center) {
+      // 官方：`center` 缺失 ⇒ 前向 `[0,0,-1]` 经 `angles`（度）旋转后加到 eye 上
+      const a = (cam && cam.angles) || [0, 0, 0]
+      const f = (Number(a[0]) || Number(a[1])) ? cameraForwardFromAngles(a[0], a[1]) : [0, 0, -1]
+      center = [eye[0] + f[0], eye[1] + f[1], eye[2] + f[2]]
+    }
+    fov = (ov && Number(ov.fov) > 0) ? Number(ov.fov) : ((Number(g.fov) > 0) ? Number(g.fov) : 50)
+  }
+  const near = Math.max(Number(g.nearz) || 0.01, 1e-4)
+  const far = Math.max(Number(g.farz) || 1e4, near + 1)
+  const aspect = (Number(width) > 0 && Number(height) > 0) ? (Number(width) / Number(height)) : (16 / 9)
+  const view = mat4LookAt(eye, center, up)
+  // 官方 `jm` 的 fov 是**度**；本仓 `mat4Perspective` 收弧度（列主序、其余逐项同式）
+  const projection = mat4Perspective(fov * Math.PI / 180, aspect, near, far)
+  return {
+    view, projection, viewProj: mat4Multiply(projection, view),
+    eye, center, up, fov, near, far, aspect, perspective: true,
+    cameraLayer: camPick ? String(camPick.layer.name || camPick.layer.id) : null,
+  }
+}
+
+/* ①(P-257) 官方 `Kr`（透视分支）+ `ps`：静态几何层的 model 矩阵 + 天空盒跟随相机。
+   `mvp = viewProj · model`（调用方乘）。`opts.projH` = parseScene 的 `PROJ_H`（还原作者 y 用）。 */
+export function mesh3dModelMatrix(layer, cam3d, opts = null) {
+  const projH = (opts && Number.isFinite(Number(opts.projH))) ? Number(opts.projH) : 1080
+  const org = (layer && Array.isArray(layer.origin)) ? layer.origin : [0, 0, 0]
+  const ang = (layer && Array.isArray(layer.angles)) ? layer.angles : [0, 0, 0]
+  const sc = (layer && Array.isArray(layer.scale)) ? layer.scale : [1, 1, 1]
+  const skybox = isSkyboxLayer(layer, opts)
+  // 官方 `W1`：透视场景里天空盒层的平移直接取相机 eye（其余层取自己的 origin）
+  const eff = (skybox && cam3d && Array.isArray(cam3d.eye))
+    ? cam3d.eye
+    : [Number(org[0]) || 0, projH - (Number(org[1]) || 0), Number(org[2]) || 0]
+  let m = mat4Identity()
+  m = mat4Translate(m, eff[0], eff[1], eff[2])
+  if (Number(ang[1])) m = mat4RotateY(m, Number(ang[1]))
+  if (Number(ang[0])) m = mat4RotateX(m, Number(ang[0]))
+  m = mat4RotateZ(m, -(Number(ang[2]) || 0))
+  // 官方 `ps`：透视档 y 取 **+scale[1]**（模型空间与相机同为 y-up）；z 只在透视档参与且 0 视为 1
+  const sy = Number.isFinite(Number(sc[1])) ? Number(sc[1]) : 1
+  const sz = (Number(sc[2]) || 1)
+  m = mat4Scale(m, Number.isFinite(Number(sc[0])) ? Number(sc[0]) : 1, sy, sz)
+  const mvp = (cam3d && cam3d.viewProj) ? mat4Multiply(cam3d.viewProj, m) : null
+  return { model: m, mvp, skybox, effOrigin: eff }
+}
+
+// ①(P-257) 天空盒优先排序（官方 `sort((a,b)=> +!!b.isSkybox - +!!a.isSkybox)`，稳定）：
+//   给定层数组返回**新数组**（不改原数组），天空盒层排在前面、其余保持原相对顺序。
+export function sortSkyboxFirst(layers, opts = null) {
+  const arr = Array.isArray(layers) ? layers.slice() : []
+  return arr.sort((a, b) => (+!!isSkyboxLayer(b, opts)) - (+!!isSkyboxLayer(a, opts)))
 }
 
 function parseVec(s) {
@@ -9725,6 +9903,8 @@ uniform float u_VFlip;   // 0/1：纹理 v 轴是否翻转（A/B 诊断用，?vf
 uniform float u_OriginZ; // ①(P-255) 3D 模型层：层 origin.z（设计坐标；2D 蒙皮恒 0）
 uniform float u_ScaleZ;  // ①(P-255) 3D 模型层：z 缩放（2D 蒙皮恒 1）
 uniform vec3 u_Persp;    // ①(P-255) (fovDeg, camZ, aspect)；fovDeg<=0 ⇒ 关（正交路径，2D 蒙皮默认）
+uniform mat4 u_MVP3D;    // ①(P-257) 3D 模型层：官方 mvp = viewProj × model（含 origin/angles/scale）
+uniform float u_Use3D;   // ①(P-257) 1 ⇒ 走官方 4×4 通路（u_MVP3D、保留 z）；0（缺省）⇒ 下面 2D 路径逐位不变
 out vec2 v_TexCoord;
 void main() {
   vec4 p = vec4(a_Position, 1.0);
@@ -9733,6 +9913,17 @@ void main() {
     int bi = int(a_BlendIdx[k]);
     float w = a_BlendWeight[k];
     if (w != 0.0) sk += (p * u_Bones[bi]) * w;
+  }
+  /* ①(P-257 2026-10-07) **3D 静态模型层的官方通路**：mvp = viewProj · model（model 由宿主的
+     mesh3dModelMatrix 按官方 Kr/ps 算好：T·Ry·Rx·Rz·S，天空盒层的 T 换成相机 eye）。
+     与官方 mesh 顶点着色器同式：gl_Position = u_mvp * vec4(local.xy, local.z * u_keepZ, 1.0)，
+     官方在透视场景里 keepZ = true ⇒ z 原样保留（2D 场景才把 z 压成 0）。
+     ⚠ 与下面 2D 路径的关系：u_Use3D 缺省 0 ⇒ 本分支连一次分支判断都不成立，2D 蒙皮/正交
+     通路**逐位不变**（kaltsit-puppet-anchor / meshsize 判据盯这两档）。 */
+  if (u_Use3D > 0.5) {
+    gl_Position = u_MVP3D * vec4(sk.xy, sk.z, 1.0);
+    v_TexCoord = vec2(a_TexCoord.x, mix(a_TexCoord.y, 1.0 - a_TexCoord.y, u_VFlip));
+    return;
   }
   // ①(P-100 根因) 相机取景：**与四边形层同一个变换**（compositeLayer 走 viewProj = P·V）——
   //   wpos_cam = V·wpos，再按 framed 窗口以**画布中心**为基准投影（mat4Ortho 的实参是 cx±fw/2
@@ -10992,6 +11183,9 @@ export function createRenderer(canvas, opts = {}) {
       originZ: gl.getUniformLocation(meshProg, 'u_OriginZ'),
       scaleZ: gl.getUniformLocation(meshProg, 'u_ScaleZ'),
       persp: gl.getUniformLocation(meshProg, 'u_Persp'),
+      // ①(P-257) 官方 4×4 通路（viewProj × model）：u_Use3D 缺省 0 ⇒ 2D 路径逐位不变
+      mvp3d: gl.getUniformLocation(meshProg, 'u_MVP3D'),
+      use3d: gl.getUniformLocation(meshProg, 'u_Use3D'),
     }
     return meshProg
   }
@@ -11414,6 +11608,22 @@ export function createRenderer(canvas, opts = {}) {
       return q.get('bindorder') === 'legacy'
     } catch (e) { return false }
   })()
+  /* ①(P-257 2026-10-07) `?sky3d=`：**3D 静态几何层的官方 4×4 通路**档位。三档：
+       · `mvp`（缺省，等价于不写）= 宿主给 `opts2.mvp3d` 就启用（官方 mvp = viewProj × model、保留 z、
+         DEPTH_TEST/LEQUAL + 天空盒 depthMask(false)）；
+       · `legacy` = 强制**回到 P-255 的标量透视档**（宿主也不传 mvp3d）—— 一键 A/B 第 98 轮画面；
+       · `nodepth` = 走 4×4 通路但**不开深度测试**（诊断"深度是不是元凶"用；天空盒/几何互相覆盖）。
+     缺省（mvp）时，**没有任何调用方传 `opts2.mvp3d`** ⇒ `u_Use3D=0`、深度状态一次都不改 ⇒
+     全语料 2D/puppet 画面与改动前逐位相同。判定式与既有 `?varyinglink=legacy` 等同形（正则字面量，
+     `diag-flag-check` 规则 c 抓取）。 */
+  const MESH3D_MODE = (() => {
+    try {
+      if (/[?&]sky3d=legacy/.test(String((typeof location !== 'undefined' && location.search) || ''))) return 'legacy'
+      if (/[?&]sky3d=nodepth/.test(String((typeof location !== 'undefined' && location.search) || ''))) return 'nodepth'
+    } catch (e) { /* 无 location（Node 测试） */ }
+    return 'mvp'
+  })()
+  const MESH3D_NO_DEPTH = MESH3D_MODE === 'nodepth'
   const __bonesLayers = new Map()   // layerId -> { bindWorld, buf, last, logAt }
   function __bonesWanted(layer) {
     if (!BONES_WANT) return false
@@ -11519,6 +11729,24 @@ export function createRenderer(canvas, opts = {}) {
           else gl.uniform3f(meshUni.persp, 0, 0, 1)
         }
       } catch (e) { /* 假 GL/旧程序：忽略（正交路径不受影响） */ }
+      /* ①(P-257 2026-10-07) **官方 4×4 通路**：`opts2.mvp3d` = `viewProj × model`（16 个 float，列主序，
+         由 `mesh3dModelMatrix()` 按官方 `Kr`/`ps` 算好）。给了它 ⇒ `u_Use3D=1` ⇒ 顶点着色器走
+         `gl_Position = u_MVP3D * vec4(v,1)`（z 保留）；没给/长度不对 ⇒ `u_Use3D=0` ⇒ 2D 路径**逐位不变**。
+         深度（官方 `draw` 的 `keepZ` 分支）：`enable(DEPTH_TEST)+LEQUAL`、`depthMask(!skybox)`
+         （天空盒只测不写，保证叠在它之后画的实心几何压得住）。**画完立刻复位**（disable + depthMask(true)），
+         因为本仓 2D 层序合成完全不依赖深度缓冲，不能让状态泄漏给后续层。 */
+      const __m3 = (opts2 && opts2.mvp3d && opts2.mvp3d.length === 16) ? opts2.mvp3d : null
+      let __depthTouched = false
+      try {
+        if (meshUni.use3d) gl.uniform1f(meshUni.use3d, __m3 ? 1 : 0)
+        if (__m3 && meshUni.mvp3d) gl.uniformMatrix4fv(meshUni.mvp3d, false, __m3)
+        if (__m3 && !MESH3D_NO_DEPTH) {
+          gl.enable(gl.DEPTH_TEST)
+          gl.depthFunc(gl.LEQUAL)
+          gl.depthMask(!(opts2 && opts2.skybox))
+          __depthTouched = true
+        }
+      } catch (e) { /* 假 GL：忽略 */ }
       // ①(P-100 根因) 相机取景接线：`opts2.camera = { view:[vx,vy], framed:[fw,fh] }` 由
       //   `renderScene` 通过 `onMeshLayer(layer, camInfo)` 交给宿主、宿主原样转交到这里。
       //   **不传 / 非法 ⇒ u_View=(0,0)、u_Framed=projWH** ⇒ 顶点着色器与改动前**逐位相同**
@@ -11553,6 +11781,12 @@ export function createRenderer(canvas, opts = {}) {
       } else if (__sm) gl.drawElements(gl.TRIANGLES, __sm.count, gl.UNSIGNED_SHORT, __sm.start * 2)
       else gl.drawElements(gl.TRIANGLES, rec.count, gl.UNSIGNED_SHORT, 0)
       gl.bindVertexArray(null)
+      // ①(P-257) 3D 深度状态复位（见上面 `__depthTouched` 的说明）：2D 层序合成不依赖深度缓冲，
+      //   绝不能让 DEPTH_TEST/depthMask 泄漏给后续层。
+      if (__depthTouched) {
+        try { gl.disable(gl.DEPTH_TEST); gl.depthMask(true) } catch (e) { /* 假 GL：忽略 */ }
+        __depthTouched = false
+      }
     } catch (e) { try { onLog('[mesh] 绘制失败: ' + (e && e.message || e)) } catch {} }
   }
 
@@ -12001,7 +12235,13 @@ export function createRenderer(canvas, opts = {}) {
     /* ③(P-196) fbo 描述符的 `format`/`uvs` 也进缓存键：同一个 (tag,w,h) 用不同格式/包裹必须是不同 GL 纹理。 */
     const fmtMode = fopts && (fopts.format === 'r8' || fopts.format === 'rg8') ? fopts.format : null
     const wrapMode = fopts && fopts.wrap === 'repeat' ? 'repeat' : null
-    const key = (tag || '') + '|' + w + 'x' + h + (floatMode ? '|' + floatMode : '') + (fmtMode ? '|' + fmtMode : '') + (wrapMode ? '|repeat' : '')
+    /* ①(P-257 2026-10-07) `fopts.depth = true` ⇒ 给这个 RT 挂 `DEPTH_COMPONENT24` 渲染缓冲。
+       为什么需要：3D 场景（`?modellayer=mesh` 的几何层）要靠深度测试决定天空盒/行星/陨石的遮挡
+       关系（官方就是 `enable(DEPTH_TEST)+LEQUAL` + FBO 挂 DEPTH_COMPONENT24）；而本仓此前所有
+       离屏 RT（含 `hdr-scene`、`?q=` 的场景目标）**只有颜色附件** ⇒ 深度测试静默失效。默认不挂
+       （不进 key、不建 renderbuffer）⇒ 2D 路径的 FBO 缓存与显存占用与改动前逐位相同。 */
+    const depthMode = !!(fopts && fopts.depth)
+    const key = (tag || '') + '|' + w + 'x' + h + (floatMode ? '|' + floatMode : '') + (fmtMode ? '|' + fmtMode : '') + (wrapMode ? '|repeat' : '') + (depthMode ? '|depth' : '')
     if (fboCache.has(key)) return fboCache.get(key)
     const mkTex = (tw, th, fl) => {
       const tex = gl.createTexture()
@@ -12022,6 +12262,17 @@ export function createRenderer(canvas, opts = {}) {
     const tex = mkTex(w, h, floatMode)
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0)
+    // ①(P-257) 深度附件（只在 `fopts.depth` 时；见上面的注释）
+    let depthRbo = null
+    if (depthMode) {
+      try {
+        depthRbo = gl.createRenderbuffer()
+        gl.bindRenderbuffer(gl.RENDERBUFFER, depthRbo)
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h)
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depthRbo)
+        gl.bindRenderbuffer(gl.RENDERBUFFER, null)
+      } catch (e) { depthRbo = null }
+    }
     const fboStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     if (fboStatus !== gl.FRAMEBUFFER_COMPLETE) {
@@ -12055,7 +12306,7 @@ export function createRenderer(canvas, opts = {}) {
       fboCache.set(key, entry)
       return entry
     }
-    const entry = { fbo, tex, width: w, height: h, hdr: floatMode }
+    const entry = { fbo, tex, width: w, height: h, hdr: floatMode, depthRbo }
     fboCache.set(key, entry)
     return entry
   }
@@ -12616,6 +12867,22 @@ export function createRenderer(canvas, opts = {}) {
      生命周期：`fboCache` 按 tag 持有 RT（不参与别的用途的回收），引用消失时只清 `compositeSources` 条目。
      台账：`compositeSourceStats()`；宿主可读 `globalThis.__mpwComposite`。 */
   const COMPOSITE_LEGACY = (() => { try { return new URLSearchParams(location.search).get('composite') === 'legacy' } catch { return false } })()
+  /* ①(P-257 2026-10-07) `?skyfirst=legacy`：**关掉"天空盒优先"排序**（官方在透视场景里对层数组做
+     `sort((a,b)=> +!!b.isSkybox - +!!a.isSkybox)`，稳定排序、天空盒排最前）。为什么需要它：
+     天空盒层在透视场景里"跟着相机走 + 只测深度不写深度"（`depthMask(false)`），排在最前才能保证
+     后画的实心几何（行星/陨石/飞船）在**没有深度缓冲**的现场（例如设备不支持 DEPTH24 的离屏 RT）
+     也压得住它们；若排到最后，天空球近壳的片元会盖掉已画的实心几何。缺省开（= 官方口径），
+     `legacy` 逐位回到"完全按 z 序"的旧行为做 A/B。**只在 `__perspScene` 为真时生效** ⇒ 2D 场景的
+     层序、`__li` 审计编号、合成源捕获顺序**一位都不动**。 */
+  const SKYFIRST_MODE = (() => { try { return /[?&]skyfirst=legacy/.test(String((typeof location !== 'undefined' && location.search) || '')) ? 'legacy' : 'first' } catch (e) { return 'first' } })()
+  /* ①(P-257) 3D 通路台账（`renderer.mesh3dStats()` / `globalThis.__mpw3d`）：persp=本帧真透视场景、
+     mode=?sky3d 档、相机读数、depthRT=场景目标 RT 有没有挂上深度附件、skyboxFirst=排序档、
+     drawn/skyboxDrawn/bytes/noTex=宿主 mesh 几何侧的计数（由 demo 的 `?modellayer=mesh` 通路填）。 */
+  const mesh3dLedger = {
+    persp: false, mode: null, frames: 0, fov: null, eye: null, near: null, far: null, aspect: null,
+    target: null, depthRT: false, canvasDepth: null, skyboxFirst: SKYFIRST_MODE !== 'legacy',
+    layers: 0, drawn: 0, skyboxDrawn: 0, noTex: 0, skipped: 0, last: null,
+  }
   const compositeSources = new Map()   // 精确名 → {glTex,tex,fbo,width,height,frame,id}
   const compositeRefById = new Map()   // 源层 id → [精确名]（每帧重建）
   const compositeDepIds = new Set()    // 作者声明的 `dependencies` 源层 id（诊断：引用方可能是被丢弃的模型层）
@@ -13930,7 +14197,7 @@ export function createRenderer(canvas, opts = {}) {
     const __qOutH = height
     if (qRenderScale(quality.q) > 0) {
       const sz = qInternalSize(width, height, quality.q)
-      const f = getFBO(sz[0], sz[1], 'q-scene')
+      const f = getFBO(sz[0], sz[1], 'q-scene', __perspScene ? { depth: true } : null)
       if (f && f.width === sz[0] && f.height === sz[1]) {
         // 字段口径（别混）：
         //   · `entry` = `getFBO()` 的返回体 `{fbo, tex, width, height, hdr}`
@@ -13968,6 +14235,17 @@ export function createRenderer(canvas, opts = {}) {
     }
     if (perfState.enabled) perfState.layerRoll.clear()
     const general = scene.general || {}
+    /* ①(P-257 2026-10-07) 本帧是不是**真 3D 透视场景**（与 `buildCamera` 的 `wantPersp` 同式：
+       `?projmode=persp` 强制，或 auto + 无正交矩形 + 声明了 `general.fov`）。用途只有两处：
+       ① 场景目标 RT 申请深度附件（3D 几何层要靠深度测试决定天空盒/行星的前后关系）；
+       ② 清屏时带上 `DEPTH_BUFFER_BIT`。2D 场景恒 false ⇒ FBO 缓存键、清屏位、显存逐位不变。 */
+    const __perspScene = (() => {
+      try {
+        const pm = resolveProjMode(opts.proj, (typeof window !== 'undefined' && window) ? window.__mpwProjMode : undefined, PROJMODE)
+        const orc = (general.orthogonalprojection && Number(general.orthogonalprojection.width) > 0) ? general.orthogonalprojection : null
+        return (pm === 'persp') || (pm === 'auto' && !orc && !!general.fov)
+      } catch (e) { return false }
+    })()
     // ①(MERGED-1 C HDR 2026-09-12) 绝对 HDR：general.hdr（或 ?hdr=1 强制）+ 浮点 RT 扩展（half 优先）可用时，
     //   **全部场景层渲进 RGBA16F FBO**（尺寸=输出，getFBO 完整性检查沿用），帧末经 bloom compose 程序
     //   直绘呈现（无 gamma——RE-33 全链无 pow/2.2）。扩展不可用/FBO 不完整 → 退回现有 LDR 管线并记日志。
@@ -13983,7 +14261,7 @@ export function createRenderer(canvas, opts = {}) {
     const hdrExt = !!(gl.getExtension && (gl.getExtension('EXT_color_buffer_half_float') || gl.getExtension('EXT_color_buffer_float')))
     let hdrFbo = null
     if (hdrWant && hdrExt) {
-      const f = getFBO(width, height, 'hdr-scene', { float: 'half' })
+      const f = getFBO(width, height, 'hdr-scene', __perspScene ? { float: 'half', depth: true } : { float: 'half' })
       if (f && f.hdr === 'half') hdrFbo = f
     }
     hdrSceneState = { active: !!hdrFbo, fbo: hdrFbo, width, height }
@@ -14008,7 +14286,8 @@ export function createRenderer(canvas, opts = {}) {
     } else {
       gl.clearColor(0, 0, 0, 1)
     }
-    gl.clear(gl.COLOR_BUFFER_BIT)
+    // ①(P-257) 3D 场景额外清深度位（该 RT 已挂 DEPTH_COMPONENT24；2D 场景逐位不变）
+    gl.clear(gl.COLOR_BUFFER_BIT | (__perspScene ? gl.DEPTH_BUFFER_BIT : 0))
     // ①(MERGED-1 D 相机节点 2026-09-12) 节点相机：origin/zoom 属性动画逐帧采样（evalPropAnimation，
     //   options.fps/length/mode 官方 Tween 口径）。开关：opts.cam===0/'0' 关（静态相机）；
     //   缺省=节点 origin 有动画即用（cameraNode.active）；?cam=node 强制（无动画节点时按静态基值，
@@ -14151,9 +14430,38 @@ export function createRenderer(canvas, opts = {}) {
     //   （旧的 MESH_VS 只按设计画布 1:1 映射，角色钉在屏幕上不动）。
     const __charfit = resolveCharfitMode(opts.charfit, CHARFIT_MODE)
     charfitMode = __charfit
-    const meshCamInfo = (__charfit !== 'legacy' && cam.cameraPose)
+    /* ①(P-257 2026-10-07) 3D 静态几何层的官方相机：**只在本帧是真透视场景**（`__perspScene`）且 4×4
+       通路没被 `?sky3d=legacy` 关掉时才算（每帧一次常数级开销）。`cam3d` 随 `meshCamInfo` 一起交给
+       宿主，宿主据此算 `model = mesh3dModelMatrix(layer, cam3d, {projH: scene.projH})` 与
+       `mvp = cam3d.viewProj · model`。2D 场景 `__perspScene=false` ⇒ `cam3d=null` ⇒ `meshCamInfo`
+       与改动前**逐位相同**（旧路径只多一次 `Object.assign({}, null, null)` = null）。 */
+    const __cam3d = (__perspScene && MESH3D_MODE !== 'legacy') ? buildMesh3dCamera(scene, width, height) : null
+    const __meshPoseInfo = (__charfit !== 'legacy' && cam.cameraPose)
       ? { view: [cam.viewX, cam.viewY], framed: [cam.framedW, cam.framedH] }
       : null
+    const meshCamInfo = (__meshPoseInfo || __cam3d)
+      ? Object.assign({}, __meshPoseInfo, __cam3d ? { cam3d: __cam3d } : null)
+      : null
+    /* ①(P-257) 3D 台账（`globalThis.__mpw3d` + `renderer.mesh3dStats()`）：回答"这一帧走没走 4×4
+       通路、相机/近远平面是多少、深度附件挂上没有、天空盒优先排序有没有生效"。2D 场景不进这个分支
+       ⇒ 零额外调用、台账保持 `persp:false`。 */
+    if (__perspScene) {
+      mesh3dLedger.frames++
+      mesh3dLedger.persp = true
+      mesh3dLedger.mode = MESH3D_MODE
+      mesh3dLedger.fov = __cam3d ? __cam3d.fov : null
+      mesh3dLedger.eye = __cam3d ? [__cam3d.eye[0], __cam3d.eye[1], __cam3d.eye[2]] : null
+      mesh3dLedger.near = __cam3d ? __cam3d.near : null
+      mesh3dLedger.far = __cam3d ? __cam3d.far : null
+      mesh3dLedger.aspect = __cam3d ? __cam3d.aspect : null
+      mesh3dLedger.target = hdrSceneState && hdrSceneState.active ? 'hdr' : (frameTarget ? 'q' : 'default')
+      mesh3dLedger.depthRT = !!(frameTarget && frameTarget.entry && frameTarget.entry.depthRbo) ||
+        !!(hdrSceneState && hdrSceneState.active && hdrSceneState.fbo && hdrSceneState.fbo.depthRbo)
+      // 场景画进默认帧缓冲时深度缓冲来自 canvas 属性（`glCanvasAttrs().depth = true`）⇒ 照样可测深度
+      try { mesh3dLedger.canvasDepth = !!(gl.getContextAttributes && gl.getContextAttributes() && gl.getContextAttributes().depth) } catch (e) { mesh3dLedger.canvasDepth = null }
+      mesh3dLedger.skyboxFirst = SKYFIRST_MODE !== 'legacy'
+      try { globalThis.__mpw3d = mesh3dLedger } catch (e) {}
+    }
     const isFullCanvasLayer = (layer) => {
       if (!camPose) return true // 无相机姿态 → 全层同矩阵
       const sw2 = cam.projW || width, sh2 = cam.projH || height
@@ -14366,7 +14674,11 @@ export function createRenderer(canvas, opts = {}) {
     // ①(P-41 A1) HDR 帧错误探针：本帧 HDR FBO 绑定期间"绘制后新出现"的首个 GL 错误
     let __hdrFrameErr = null
     const __hdrActive = !!(hdrSceneState && hdrSceneState.active)
-    for (const layer of scene.layers) {
+    /* ①(P-257) 天空盒优先（官方 `K.perspective ? layers.slice().sort((a,b)=> +!!b.isSkybox - +!!a.isSkybox) : layers`）：
+       只在真透视场景且 `?skyfirst=legacy` 没关时生效；`sortSkyboxFirst` 返回**新数组**、不改 `scene.layers`
+       （层序本身还被脚本/依赖重排消费）⇒ 2D 场景这一行是恒等（`__drawLayers === scene.layers`）。 */
+    const __drawLayers = (__perspScene && SKYFIRST_MODE !== 'legacy') ? sortSkyboxFirst(scene.layers) : scene.layers
+    for (const layer of __drawLayers) {
       __li++
       /* ①(P-246 2026-10-07) 合成源捕获：**在本层被"可见性/容器"跳过之前**（源层常是 `visible:false`
          的"背景快照"载体，但"画到它这一刻的帧缓冲"照样要发布）。不在引用集合里 ⇒ 一次 Map 查询返回。 */
@@ -16697,6 +17009,19 @@ export function createRenderer(canvas, opts = {}) {
     runBloom,
     runPostFrameHooks,
     renderMeshLayer,
+    // ①(P-257) 3D 通路台账快照（只读；`?modellayer=mesh` + 3D 包取证用）：
+    //   persp/mode/fov/eye/near/far/aspect/depthRT/skyboxFirst + 宿主侧的 layers/drawn/skyboxDrawn/noTex/skipped
+    get mesh3dStats() { return Object.assign({}, mesh3dLedger) },
+    // ①(P-257) 宿主侧计数（demo 的 mesh 几何通路逐层累加；2D 场景/未开 mesh 档时恒 0）
+    mesh3dNote: function (patch) {
+      if (!patch || typeof patch !== 'object') return mesh3dLedger
+      for (const k of ['layers', 'drawn', 'skyboxDrawn', 'noTex', 'skipped']) {
+        if (typeof patch[k] === 'number') mesh3dLedger[k] = patch[k]
+      }
+      if (patch.last !== undefined) mesh3dLedger.last = patch.last
+      try { globalThis.__mpw3d = Object.assign({}, mesh3dLedger) } catch (e) {}
+      return mesh3dLedger
+    },
     // ①(P-100) 当前帧生效的角色层适配档（`?charfit=` / `opts.charfit`）：demo 启动日志与上报取证用
     get charfitMode() { return charfitMode },
     // ①(P-120) 当前帧相机 origin 脚本台账（只读）：{state,value,static,why,cached,evals,fallbacks}

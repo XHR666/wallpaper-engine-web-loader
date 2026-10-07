@@ -920,6 +920,13 @@ add "model-source-range" "node tests/model-source-range-test.mjs"
 #   + 真语料全量对账（154/4、分支分布 80:74 / 48:75 / 52:5、"有 MDLS 绝不走 48"）。
 add "mdl-variant-dispatch" "node tests/mdl-variant-dispatch-test.mjs"
 
+# ①(P-257 2026-10-07) **3D 场景的真 4×4 通路**（官方相机 + 图层模型矩阵 + 天空盒跟随相机）：
+#   `?modellayer=mesh` 此前在 3D 包（0923/3662790108：无正交矩形 + fov 50 + 73 个 mdl 层）上画黑 —— 本仓
+#   mesh 程序是 puppet 的 2D 映射（P-255 只补了标量 camZ）。判据：纯函数（官方旋转/相机层优先/y 还原/
+#   天空盒跟随/稳定排序）+ 真包（相机 = 相机层 #705 而非 scene.camera 快照 / 71 层原点在视锥内 / P-255 档反证）
+#   + 源码接线（u_MVP3D 默认关、深度 depthMask(!skybox)、天空盒优先、?sky3d/?skyfirst 回退口）+ mock-GL 4 条。
+add "mesh3d-camera" "node tests/mesh3d-camera-test.mjs"
+
 # ①(P-213 B1 2026-09-29) 2D 光照模型（RE-43 路径A）：light 层 schema 解析（不参与 draw）+ 纯函数
 #   ComputeLightSpecular2D 分支表（衰减平方/intensity²/g_Light 混合/rim）+ 四灯 uniform 组（声明才上传）。
 #   判据：真包+官方样例 schema 逐项 + 分支表 + 无灯零视觉差 + legacy + 2 变异。

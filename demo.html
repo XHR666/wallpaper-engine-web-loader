@@ -6469,6 +6469,30 @@ function loadScene() {
      真正的绘制仍走渲染循环的 `opts.onMeshLayer`（层序位置、同一套相机与材质纹理）。 */
   const modelMeshStat = { seen: 0, drawn: 0, skipped: 0, bytes: 0, reasons: {} }
   try { window.__mpwModelMesh = modelMeshStat } catch (e) { /* ignore */ }
+  /* ①(P-257 2026-10-07) **本帧**几何档计数（`__mpw3d.layers/drawn/skyboxDrawn/noTex/skipped`）：
+     与 core 的 `mesh3dLedger.frames` 对表 —— 帧号变了就把计数清零，于是台账报的是"这一帧画了几层"，
+     而不是"自加载以来累计"。三个调用点：画成（drawn，带 sky 标记）、无贴图（noTex）、无骨骼/其它（skipped）。 */
+  const __mesh3dTick = { frame: -1, layers: 0, drawn: 0, skyboxDrawn: 0, noTex: 0, skipped: 0 }
+  const mesh3dTick = (kind, layer, isSky) => {
+    try {
+      if (!renderer || !renderer.mesh3dNote) return
+      // 帧号用宿主的 `__mpwFrameNo`（2D 场景里 core 的 `mesh3dStats.frames` 恒 0 ⇒ 用它会把计数变成累计值）
+      const fr = (typeof window !== 'undefined' && typeof window.__mpwFrameNo === 'number') ? window.__mpwFrameNo : -1
+      if (__mesh3dTick.frame !== fr) {
+        __mesh3dTick.frame = fr
+        __mesh3dTick.layers = __mesh3dTick.drawn = __mesh3dTick.skyboxDrawn = __mesh3dTick.noTex = __mesh3dTick.skipped = 0
+      }
+      __mesh3dTick.layers++
+      if (kind === 'drawn') __mesh3dTick.drawn++
+      else if (kind === 'noTex') { __mesh3dTick.noTex++; __mesh3dTick.skipped++ } else __mesh3dTick.skipped++
+      if (isSky) __mesh3dTick.skyboxDrawn++
+      renderer.mesh3dNote({
+        layers: __mesh3dTick.layers, drawn: __mesh3dTick.drawn, skyboxDrawn: __mesh3dTick.skyboxDrawn,
+        noTex: __mesh3dTick.noTex, skipped: __mesh3dTick.skipped,
+        last: String((layer && (layer.name || layer.id)) || ''),
+      })
+    } catch (e) { /* 台账失败不影响绘制 */ }
+  }
   if (typeof skinEnabled !== 'undefined' && skinEnabled && MODELLAYER_ON && MODELLAYER_MESH) {
     scene.layers.forEach((l) => {
       try {
@@ -8005,9 +8029,14 @@ function loadScene() {
           }
         }
         const sk = layer.__skin
-        if (!sk || !sk.gBones) { try { (window.__mpwMeshSkip = window.__mpwMeshSkip || []).push((layer.name || layer.id) + '(noBones)') } catch {} ; return }
+        if (!sk || !sk.gBones) { try { (window.__mpwMeshSkip = window.__mpwMeshSkip || []).push((layer.name || layer.id) + '(noBones)') } catch {} ; mesh3dTick('skip', layer, false); return }
         const texObj = layer.textureName ? textures.get(layer.textureName) : null
-        if (!texObj || !texObj.glTex) { try { (window.__mpwMeshSkip = window.__mpwMeshSkip || []).push((layer.name || layer.id) + '(noTex)') } catch {} ; return }
+        if (!texObj || !texObj.glTex) {
+          try { (window.__mpwMeshSkip = window.__mpwMeshSkip || []).push((layer.name || layer.id) + '(noTex)') } catch {}
+          // ①(P-257) 台账：几何档里"有网格但材质槽是保留名/未解析"的层（3D 包里卫星/探测器常走这条）
+          mesh3dTick('noTex', layer, false)
+          return
+        }
         mountAndDrawMesh(layer, sk, texObj, camInfo)
       } catch (e) { try { window.__mpwMeshErr = window.__mpwMeshErr || []; if (window.__mpwMeshErr.length < 8) window.__mpwMeshErr.push(String((e && e.message) || e)) } catch (e2) {} }
     },
@@ -8046,13 +8075,26 @@ function loadScene() {
            （`camZ = (projH/2)/tan(fov/2)` = "设计画布平面 1:1 成像"的相机距离）。2D 场景（有 ortho 矩形）
            或 fov 缺省 ⇒ 传 null ⇒ 正交路径逐位不变；puppet 蒙皮（非 staticModel）一律不传。 */
         if (sk.staticModel) {
-          const fov3d = Number(scene && scene.general && scene.general.fov) || 0
-          const hasOrtho = !!(op && op.width && op.height)
-          meshOpts = Object.assign({}, meshOpts, {
-            originZ: (layer.origin && layer.origin[2]) || 0,
-            scaleZ: (layer.scale && Number.isFinite(layer.scale[2])) ? layer.scale[2] : 1,
-            persp: (!hasOrtho && fov3d > 0) ? { fov: fov3d, camZ: (projH / 2) / Math.tan(fov3d * Math.PI / 360), aspect: projW / projH } : null,
-          })
+          /* ①(P-257 2026-10-07) **官方 4×4 通路优先**：3D 场景里 core 每帧给出 `cam3d`
+             （`buildMesh3dCamera`：eye/center/up + fov/nearz/farz → view·projection），这里按官方
+             `Kr`/`ps` 算层的 model 矩阵（T·Ry·Rx·Rz·S，**天空盒层的 T 换成相机 eye**）并交
+             `mvp = viewProj × model` 给 mesh 程序（顶点着色器 `u_Use3D>0.5` 分支、z 保留、深度
+             LEQUAL + 天空盒 `depthMask(false)`）。`?sky3d=legacy` 时 core 不建 `cam3d`
+             ⇒ 落到下面的 P-255 标量透视档（一键 A/B 第 98 轮画面）。 */
+          const c3 = (camInfo && camInfo.cam3d) ? camInfo.cam3d : null
+          if (c3 && lib.mesh3dModelMatrix) {
+            const md3 = lib.mesh3dModelMatrix(layer, c3, { projH: (scene && scene.projH) || 1080 })
+            meshOpts = Object.assign({}, meshOpts, { mvp3d: md3.mvp, skybox: md3.skybox })
+            mesh3dTick('drawn', layer, md3.skybox)
+          } else {
+            const fov3d = Number(scene && scene.general && scene.general.fov) || 0
+            const hasOrtho = !!(op && op.width && op.height)
+            meshOpts = Object.assign({}, meshOpts, {
+              originZ: (layer.origin && layer.origin[2]) || 0,
+              scaleZ: (layer.scale && Number.isFinite(layer.scale[2])) ? layer.scale[2] : 1,
+              persp: (!hasOrtho && fov3d > 0) ? { fov: fov3d, camZ: (projH / 2) / Math.tan(fov3d * Math.PI / 360), aspect: projW / projH } : null,
+            })
+          }
         }
         renderer.renderMeshLayer(layer, sk.mesh, sk.gBones, sk.nb, originXY, scaleXY, [projW, projH], texObj.glTex, meshOpts)
         // ①(P-41 A5) 网格层进台账：蒙皮层走 onMeshLayer 回调、绕过 compositeLayer 的 onLayerDraw，

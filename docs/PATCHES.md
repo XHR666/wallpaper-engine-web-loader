@@ -17017,3 +17017,118 @@ P-250 的 48B 接受判据要求 `uv ∈ [−0.05,1.05]` 的抽样比例 ≥0.9�
 - 语料 **158/158 全部解析成功**（修前 154/4）；分支分布 **stride-80:74 / stride-48:79 / mdlv0016-compact-52:5**。
 - 判据 `tests/mdl-variant-dispatch-test.mjs` **13/0**（B2 改 158/0、B3 改 48:79、B5 改为"4 个天空盒按平铺 uv 合法接受"、B6 改 79）。
 - 回归：`demo-check` 133/0、`kaltsit-puppet-anchor` 50/0、`meshsize` 48/0。
+
+## P-257（2026-10-07）3D 场景的真 4×4 通路：官方相机（**相机层优先**）+ 图层模型矩阵 + 天空盒跟随相机
+
+### 现象（P-254/P-255 的"原型档"缺口）
+`?modellayer=mesh` 在 3D 包上**画黑**：`0923/3662790108`（569 MB / 847 层 / 73 个 `.mdl` 层 / 无
+`orthogonalprojection` + `fov:50`）在 P-255 的**标量透视档**下 `mean 0 / uniq 6`（纯黑）。
+P-255 的注释已经点出根因方向（"3D 网格需要球壳/深度处理"），逐条查官方代码后确认缺口是**三个叠加**：
+
+1. **投影不是官方的**：P-255 用的是 `d = camZ − z`、`camZ = (projH/2)/tan(fov/2)` 的**单点标量透视**
+   （没有 4×4 相机矩阵、没有近/远平面、没有相机姿态），而官方几何层走 `mvp = viewProj · model`。
+2. **相机取错了**：官方的 3D 相机是 `runtimeCamera` = **最后一个可见相机层**的
+   `{eye: 层 origin, angles: 层 angles, fov: 层 cameraFov}`（`Q1`：`v.filter(isCamera).filter(visible).pop() || v[0]`），
+   **不是** `scene.json` 里的静态 `camera:{eye,center,up}` 快照。本包两者差得很远：
+   快照 `eye=(0.110,2.234,−1.483)`（编辑器最后保存的镜头）vs 相机层 `#705 origin=(0,0,0.454)`
+   ⇒ 用快照算，**整个太阳系被投到画面外**（离线复算：场景原点 NDC `(0.201,−2.325)`）。
+3. **图层 transform 没进矩阵**：模型层的 `origin/angles/scale`（父链合并后的世界值）此前只用了 `origin.xy`
+   和 `scale.xy`（P-255 只补了 z），`angles[0]/angles[1]`（3D 场景里 `rotX/rotY` 脚本驱动的重要载体）**完全没用**，
+   天空盒层也没有"跟着相机走"的处理 ⇒ scale 10000 的球壳以作者原点为中心，相机一动就穿壳。
+
+### 修法（全部官方逐式移植；缺省关，只有 `?modellayer=mesh` + 3D 场景才走到）
+1. **core 新增纯函数**（`src/render` 侧，无 GL 依赖、可离线判据）：
+   - `mat4RotateX/Y`（官方 `Md`/`Pd`，与既有 `mat4RotateZ`＝官方 `_d` 同族）；
+   - `cameraForwardFromAngles(pitchDeg, yawDeg)`（官方 `eb`：**角度制**，先绕 y 再绕 x）；
+   - `buildMesh3dCamera(scene, w, h)`（官方 `Q1` 3D 分支）：**相机层优先**（取最后一个可见相机层；
+     `origin` 按本仓解析期的 `PROJ_H − y` 还原成作者 y-up；`center` 由 `angles` 推 —— 官方 `runtimeCamera`
+     对象**没有 center**），无相机层才回退 `scene.camera` 快照；`fov = 相机层 fov || general.fov || 50`（**度**）、
+     `near = max(nearz,1e-4)`、`far = max(farz,near+1)`；`view = mat4LookAt`、`projection = mat4Perspective`
+     （本仓收弧度）。返回 `{view, projection, viewProj, eye, center, up, fov, near, far, aspect, cameraLayer}`。
+   - `mesh3dModelMatrix(layer, cam3d, {projH})`（官方 `Kr`+`ps` 透视分支）：
+     `model = T(effOrigin)·Ry(angles[1])·Rx(angles[0])·Rz(−angles[2])·S(sx, +sy, sz||1)`；
+     **`effOrigin`：天空盒层取相机 `eye`**（官方 `W1` —— 这就是"相机在球壳内部"的官方处理，不需要远平面特判）；
+     `mvp = viewProj · model`。`scale[1]` 在透视档取 **+**（模型空间与相机同为 y-up；2D 档才是 −y）。
+   - `isSkyboxLayer(layer, {legacyName})`：官方判据 = 名字含 `天空盒`；本仓**扩展** = 名字含 `skybox`
+     （依据本包作者命名 `skybox1/skybox2`；`legacyName` 可关掉扩展档）。
+   - `sortSkyboxFirst(layers)`：官方 `sort((a,b)=> +!!b.isSkybox − +!!a.isSkybox)`（**稳定排序**、天空盒在前）。
+2. **core `MESH_VS`**：新增 `u_MVP3D`(mat4) + `u_Use3D`(float)。`u_Use3D > 0.5` 时
+   `gl_Position = u_MVP3D * vec4(sk.xy, sk.z, 1.0)`（与官方 mesh 顶点着色器
+   `u_mvp * vec4(local.xy, local.z * u_keepZ, 1.0)` 同式；透视档 `keepZ=1` ⇒ z 保留）并 `return`，
+   **在 2D 数学之前**。缺省 `u_Use3D = 0` ⇒ 2D 蒙皮/正交通路逐位不变。
+3. **core `renderMeshLayer`**：`opts2.mvp3d`（长度 16 才认）⇒ 上传矩阵 + `u_Use3D=1`；同时按官方
+   `draw` 的 keepZ 分支开深度：`enable(DEPTH_TEST)` + `depthFunc(LEQUAL)` + `depthMask(!skybox)`
+   （天空盒只测不写 ⇒ 后画的实心几何压得住它）；**画完立刻复位**（`disable` + `depthMask(true)`），
+   因为本仓 2D 层序合成不依赖深度缓冲，状态不许泄漏给后续层。
+4. **core `renderScene`**：
+   - `__perspScene`（与 `buildCamera` 的 `wantPersp` 同式）为真时每帧算一次 `cam3d` 并挂进
+     `meshCamInfo.cam3d`（2D 场景 `cam3d=null` ⇒ `meshCamInfo` 与改动前逐位相同）；
+   - 场景目标 RT 申请**深度附件**（`getFBO(..., {depth:true})` → `DEPTH_COMPONENT24` 渲染缓冲：
+     默认帧缓冲本来就有深度（`glCanvasAttrs().depth=true`），但 `hdr-scene` / `?q=` 这两条离屏路此前
+     **只有颜色附件** ⇒ 深度测试静默失效）+ 清屏带上 `DEPTH_BUFFER_BIT`；
+   - 层序在透视场景用 `sortSkyboxFirst(scene.layers)`（**新数组**、不改 `scene.layers`），
+     `?skyfirst=legacy` 一键回退；
+   - 台账 `renderer.mesh3dStats()` / `window.__mpw3d`：
+     `{persp, mode, frames, fov, eye, near, far, aspect, target, depthRT, canvasDepth, skyboxFirst, layers, drawn, skyboxDrawn, noTex, skipped, last}`
+     （后 6 个由宿主逐帧填，`renderer.mesh3dNote()`）。
+5. **core `parseScene`**：新增 `scene.cameraLayers`（`objects[]` 里带 `camera` 字符串的层 + `fov`）。
+   只加场景级字段、不给 layer 对象加键（层自身的世界 `origin/angles` 按 id 去 `scene.layers` 取，
+   于是脚本/父链的每帧更新自动生效）。
+6. **宿主 `demo.html`**：`mountAndDrawMesh` 里 `sk.staticModel` 且 `camInfo.cam3d` 存在时算
+   `mesh3dModelMatrix(...)` 并传 `{mvp3d, skybox}`；`cam3d` 不存在（2D 场景，或 `?sky3d=legacy`）
+   ⇒ 落回 P-255 的标量档（一键 A/B 第 98 轮画面）。
+
+### 回退口
+| 开关 | 作用 |
+|---|---|
+| `?sky3d=legacy` | 回到 P-255 标量透视档（core 不建 `cam3d`、宿主不传 `mvp3d`） |
+| `?sky3d=nodepth` | 走 4×4 通路但**不开深度测试**（诊断"深度是不是元凶"） |
+| `?skyfirst=legacy` | 关掉天空盒优先排序（完全按 z 序） |
+
+### 真机读数（`:8902` + Firefox/llvmpipe，`0923/3662790108`，`?modellayer=mesh&modelmeshmb=64`）
+| 档 | 画面 | 说明 |
+|---|---|---|
+| 关档（无 `modellayer`） | `mean 141.2 / uniq 128`（左缘 `161,161,161`） | **灰屏**：一张行星表面贴图被铺满全屏 —— 第 90/97 轮台账里"该包本来就在画（mean 147.9）"的读数其实是这个灰屏，**不是**真实画面（本轮更正） |
+| `?modellayer=1`（quad） | `mean 141.2 / uniq 128`（同上） | 同一张全屏贴图（`(noTex)` 之外的材质槽 0 当层内容） |
+| `?modellayer=mesh&sky3d=legacy`（P-255 档） | **`mean 0 / uniq 6`** | 纯黑（P-255 登记的 `mean 0`复现） |
+| `?modellayer=mesh`（本补丁，缺省档） | **`mean 6.3 / uniq 100`**、中心区 `mean 17 / uniq 180` | **首次出真实画面**：星空 + 地球 + 经纬网格 + 土星环带（截图 `/tmp/p257-3662790108-mvp.png`）；`__mpw3d = {persp:true, mode:'mvp', fov:50, eye:[0,0,0.454], near:0.01, far:10000, aspect:1.7778, target:'default', canvasDepth:true, skyboxFirst:true, layers:42, drawn:35, skyboxDrawn:1, noTex:7, skipped:7}`、`__mpwModelMesh={seen:73, drawn:72, skipped:1(has-bones)}` |
+| `?skyfirst=legacy` | `mean 6.3 / uniq 100` | 与本档统计一致（本机默认帧缓冲有深度 ⇒ 排序不改变观感；排序仍按官方保留） |
+
+### 第二包对照（`0923/3589454154`，245 MB / 130 层 / 24 个 `.mdl`：土星/土星环/天空盒/陨石）
+| 档 | 画面 | 说明 |
+|---|---|---|
+| 关档（无 `modellayer`） | `mean 185.5 / uniq 127`（中心 `172.7/118`） | **与 P-252/P-253 登记的基线逐位相同**（`185.5/127`）⇒ 本补丁对缺省路径零回归 |
+| `?modellayer=mesh`（缺省 16MB 上限） | `mean 193.4 / uniq 21`（中心 `190.7/25`） | 一个**巨大的模糊米色天空球铺满全屏**、正中一个白色小点（土星）：球壳画出来了，但（a）材质贴图糊成一片、（b）它盖住了原本可见的内容 ⇒ **本包 mesh 档目前不如关档**（截图 `/tmp/p257c-3589454154-mesh16.png`）；`__mpwModelMesh={seen:24,drawn:22,skipped:2(too-large 51MB/156MB)}` |
+| `?modellayer=mesh&modelmeshmb=64` | `mean 193.4 / uniq 21`（同上一档） | 多画出 51MB 的 `球体01`（`drawn:23`、bytes 65 MB），观感无变化 |
+
+⇒ **`?modellayer` 默认档维持"关"**：本补丁解决了"3D 包画黑"（前置条件），但两包里只有 `3662790108` 变好，
+`3589454154` 反而被天空球壳糊住 ⇒ 翻默认前还要处理"天空盒贴图/尺寸"这一族（球壳纹理糊 + 遮盖）。
+
+### 判据
+`tests/mesh3d-camera-test.mjs` **43/0**（门禁 `217 → 218` 项）：
+A 纯函数 20 条（官方旋转矩阵手算探针 / `eb` 角度制 / **相机层优先**与快照回退 / near-far 钳制 /
+几何性质"center 在正前方且投到画面中心" / y 还原 / `+scale[1]` / 旋转顺序 / 天空盒跟随相机（官方名+扩展名+`legacyName`）/
+`mvp = viewProj·model` / 排序稳定性）；B 真包 7 条（相机 = 相机层 `#705` 而**非**快照；快照反证"场景原点在画面外"；
+73 层 mvp 全有限；**71/71 非天空盒层原点落在视锥内**；天空盒 model 平移 = eye；**P-255 档反证：73/73 层原点全在画面外**）；
+C 源码接线 9 条（`u_MVP3D` 默认关 / 深度 `depthMask(!skybox)` + 复位 / 场景 RT 深度附件 + 清深度位 /
+天空盒优先只在透视场景 / `?sky3d`、`?skyfirst` 回退口 / `center` 与 `cameraLayers` 落库）；D mock-GL 4 条
+（默认关时 `u_Use3D=0` 且一次都不碰 `DEPTH_TEST` / 传矩阵时上传 + 开深度 + **复位** / 天空盒 `depthMask(false)` /
+长度不对的矩阵被拒）。
+回归：`meshsize` 48/0、`kaltsit-puppet-anchor` 50/0、`demo-check` 133/0、`mock-gl` 60/0、`load-timeout` 70/0、
+`scene-intro-black` 31/0、`composite-zorder` 21/0、`mdl-variant-dispatch` 13/0、`model-source-range` 9/0、
+`system-texture-slot` 14/0、`docs-check` ✓、`diag-flag-check` **228==228**（新增 `sky3d`/`skyfirst` 两个开关行）、
+`status-consistency` 6/0。
+
+### 仍不正确 / 默认档判定（如实）
+- **`?modellayer` 默认档维持"关"**：本补丁让 mesh 档在 3D 包上第一次出画（这是翻默认的**前置条件**，已完成），
+  但还有两条未清：① 材质槽是保留名（`_rt_*`/`$*`）的层在几何档仍 `(noTex)`（本包本帧 7 层：`hubble`/`BeiDou`×2/
+  `gps`/`GLONASS`/`p6s6a`/`NIGHT` —— 卫星与探测器，quad 档能画），要走渲染器的合成源/系统纹理解析器才拿得到 GL 纹理；
+  ② 文本层（作者在编辑器预览里放了 `LIVE SOLAR SYSTEM`）在本机采样里没出现（`__sceneLayers` 里 text 计数 0，
+  是"文本层没被解析成 text"还是"入场动画未到时间"未定）。两条清掉再谈默认档。
+- 天空球半径恰好等于 `farz`：本包 `skybox1/2` 球半径 1.0 × scale 10000 = **10000 = `general.farz`** ⇒ 球壳正好落在
+  远平面上（GL 里 `z_ndc = −1` 的边界）。本机实测画面里背景是黑的但没有明显空洞（默认帧缓冲的深度精度足够），
+  官方同样不做特判（官方对天空盒材质另有"把几何挂在相机上、按背景处理"的专用 shader）⇒ 登记为已知边界，
+  真机上若出现"天空盒缺一块"，优先怀疑这一条。
+- 相机层脚本：本包相机层 `#705` 的 origin 是**静态字符串**；脚本驱动 `eye/angles` 的相机层目前只在本仓
+  脚本载体（`origin/scale/angles` 同步，P-120/P-237/P-242）写回 `scene.layers` 时才被吃到 —— 官方
+  `runtimeCamera` 是脚本门面直接改相机对象，两者在本仓尚未合并（无真机反例，登记为已知边界）。
