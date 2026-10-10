@@ -17430,6 +17430,11 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 （`open(w)` 先截断 + 编码异常）被清空，按会话事实**原子重建**（temp + `os.replace`）。提交 `48eb9a0`；
 判据 `tests/status-consistency-test.mjs`（V0a/V1/V1b）。
 
+## P-294（2026-10-11）补 `docs/PATCHES.md`：P-289（`status-consistency` 的 **V5** 规则）/ P-293（台账重建后的补条）
+
+背景：V5 上线后，其引用到的 P-289（V5 本身）与 P-293（工作区台账重建时的补条）缺条目头 ⇒ V1 判红 ✗ ⇒ 按升序补齐。
+提交 `cca375e`；判据 `tests/status-consistency-test.mjs`（V1/V5）。
+
 ## P-309（2026-10-11）视差**参考点**与 `parallaxDepth` **同源**（官方 A4 同一 `x22`）—— `core/we-scene-bundle.js` 新增
 `parPosSrc = __parPosLegacy ? layer : parDepthSrc`，公式改用 `pox/poy`；新增 `?parpos=legacy` 回退（照 `__parOffLegacy` 写法 ✓）。
 官方依据：`libscenejni.so` A4 `0x2557bf4-0x2557c14`（`GetParent()` 到根）+ `0x2557c28`（位置 `[x22,#248]`）与 `0x2557c30`（depth `[x22,#320]`）
