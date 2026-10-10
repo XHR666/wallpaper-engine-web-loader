@@ -9233,13 +9233,36 @@ function loadScene() {
     // ①(P-104 2026-09-17 发布纪律①) **这两条定时器就是"自动上报"本体**：只在 `?report=auto` 时启动。
     //   默认（不写参数）= 一个定时器都不建 ⇒ "不带开关跑 N 秒，reports/ 不新增文件"是**结构上**成立的，
     //   不是靠运行时判断"要不要发"。手动 `🛰 立即上报` 走下面的按钮块，与这里无关。
-    if (autoReport) {
-      setTimeout(() => { try { window.__mpwLayerLedger = []; window.__mpwLedgerWant = true; setTimeout(() => { window.__mpwLedgerWant = false }, 1500) } catch {} }, 1500)
-      setTimeout(doReport, 700)
+    /* ③(2026-10-11 · 台账 §1.1 第 19 项修) **自动上报的面板开关**：把"自动上报本体"抽成可运行时启停的
+       `startAutoReport()/stopAutoReport()`（语义与 `?report=auto` **完全一致**：首帧 700ms 一次 + 之后每 10s
+       一次 + 自动路径 4 次上限由 `mpwReportGate` 管），并在顶部工具栏加一个与「🛰 立即上报」并列的开关按钮。
+       · URL 参数 `?report=auto` 仍是开法之一（缺省关，结构上不建定时器）；
+       · 台账读数 `window.__mpwAutoReport = { on, start, stop }` 供真机核对。 */
+    const __autoReportTimeouts = []
+    let __autoReportOn = false
+    function startAutoReport(reason) {
+      if (__autoReportOn) return false
+      __autoReportOn = true
+      __autoReportTimeouts.push(setTimeout(() => { try { window.__mpwLayerLedger = []; window.__mpwLedgerWant = true; setTimeout(() => { window.__mpwLedgerWant = false }, 250) } catch (e) { /* 忽略 */ } }, 100))
+      __autoReportTimeouts.push(setTimeout(doReport, 700))
       reportTimer = setInterval(doReport, 10000)
-      logf('🛰 自动上报已启用（?report=auto）：首帧 700ms 一次，之后每 10s 一次，自动路径上限 ' + MPW_MAX_AUTO_REPORTS + ' 次')
+      logf('🛰 自动上报已启用（' + (reason || '面板开关') + '）：首帧 700ms 一次，之后每 10s 一次，自动路径上限 ' + MPW_MAX_REPORTS + ' 次/进程')
+      return true
+    }
+    function stopAutoReport(reason) {
+      if (!__autoReportOn) return false
+      __autoReportOn = false
+      try { if (reportTimer) clearInterval(reportTimer) } catch (e) { /* 忽略 */ }
+      for (const t of __autoReportTimeouts.splice(0)) { try { clearTimeout(t) } catch (e) { /* 忽略 */ } }
+      reportTimer = null
+      logf('🛰 自动上报已停（' + (reason || '面板开关') + '）；手动「🛰 立即上报」不受影响')
+      return true
+    }
+    try { window.__mpwAutoReport = { get on() { return __autoReportOn }, start: () => startAutoReport('API'), stop: () => stopAutoReport('API') } } catch (e) { /* 忽略 */ }
+    if (autoReport) {
+      startAutoReport('?report=auto')
     } else {
-      logf('🛰 自动上报=关（默认；要开加 ?report=auto）。手动入口：顶部工具栏「🛰 立即上报」按钮或 __mpwReport.now()')
+      logf('🛰 自动上报=关（默认；要开加 ?report=auto，或点顶部「🛰 自动上报」开关）。手动入口：顶部工具栏「🛰 立即上报」按钮或 __mpwReport()')
     }
     // ═══ MPW-REPORT-BTN-BEGIN ②(P-64-MEDIA 轮顺带，用户"手动上报的按钮"+他要能"检验是否真正生效") ═══
     //   语义（写明供真机核对）：
@@ -9252,6 +9275,32 @@ function loadScene() {
     //       旧版挂在 `#logbar` 行内 → 点它会**收起日志**。真因不是"重叠"：`#logbar` 的拖动/点击判定听的是
     //       **`pointerdown`**（demo.html:370，早于 `mousedown`）→ stop 掉 mousedown 已经太晚，
     //       `onUp` 里"位移 <5px 当点击"就 toggle 了日志。挪到 `#bar` 从结构上消除冲突（治因）。
+    /* ③(2026-10-11 · §1.1 第 19 项) **自动上报开关按钮**（与「🛰 立即上报」并列，同挂 `#bar`）。
+       点击 = 运行时启停自动上报（见上面的 startAutoReport/stopAutoReport）；文案随状态切换。
+       指针事件全拦（同手动按钮的理由：避免被容器当拖动/点击吞掉）。 */
+    const autoReportBtn = (() => {
+      try {
+        const bar = document.getElementById('bar')
+        if (!bar || !bar.appendChild) return null
+        const b = document.createElement('button')
+        b.id = 'mpw-autoreport-btn'
+        b.type = 'button'
+        b.textContent = '🛰 自动上报：关'
+        b.title = '自动上报开关（等价于 ?report=auto）：开 = 首帧 700ms 一次、之后每 10s 一次（自动路径 4 次上限）；关 = 立刻清掉定时器。手动「🛰 立即上报」不受影响'
+        b.style.cssText = 'margin-left:8px;padding:2px 8px;font:12px monospace;cursor:pointer;background:#240;color:#cfc;border:1px solid #7a7'
+        const stop = (ev) => { try { ev.stopPropagation(); if (ev.preventDefault) ev.preventDefault() } catch (e) { /* ignore */ } }
+        b.addEventListener('pointerdown', stop); b.addEventListener('pointerup', stop); b.addEventListener('mousedown', stop)
+        b.addEventListener('click', (ev) => {
+          stop(ev)
+          const on = !__autoReportOn
+          if (on) startAutoReport('面板开关'); else stopAutoReport('面板开关')
+          b.textContent = on ? '🛰 自动上报：开' : '🛰 自动上报：关'
+          b.style.background = on ? '#062' : '#240'
+        })
+        bar.appendChild(b)
+        return b
+      } catch (e) { return null }
+    })()
     const reportBtn = (() => {
       try {
         const bar = document.getElementById('bar')

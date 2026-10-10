@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-10T09:45:42.658Z",
+  "generatedAt": "2026-10-10T09:59:29.845Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -511,7 +511,7 @@
         },
         {
           "file": "demo.html",
-          "line": 9308,
+          "line": 9357,
           "pattern": "searchParams.get('campose')"
         }
       ]
@@ -1154,7 +1154,7 @@
         },
         {
           "file": "demo.html",
-          "line": 9961,
+          "line": 10010,
           "pattern": "searchParams.get('id')"
         }
       ]
@@ -1390,7 +1390,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 10352,
+          "line": 10401,
           "pattern": "regex [?&]media="
         }
       ]
@@ -1618,7 +1618,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9734,
+          "line": 9783,
           "pattern": "searchParams.has('nodebug')"
         }
       ]
@@ -1928,7 +1928,7 @@
         },
         {
           "file": "demo.html",
-          "line": 9635,
+          "line": 9684,
           "pattern": "searchParams.get('perf')"
         }
       ]
@@ -1939,7 +1939,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9682,
+          "line": 9731,
           "pattern": "searchParams.has('perfreport')"
         }
       ]
@@ -1999,7 +1999,7 @@
         },
         {
           "file": "demo.html",
-          "line": 9961,
+          "line": 10010,
           "pattern": "searchParams.get('pkgpath')"
         }
       ]
@@ -2015,7 +2015,7 @@
         },
         {
           "file": "demo.html",
-          "line": 9961,
+          "line": 10010,
           "pattern": "searchParams.get('pkgurl')"
         }
       ]
@@ -2483,7 +2483,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9575,
+          "line": 9624,
           "pattern": "searchParams.has('selfcheck')"
         }
       ]
@@ -2831,7 +2831,7 @@
       "sites": [
         {
           "file": "demo.html",
-          "line": 9930,
+          "line": 9979,
           "pattern": "searchParams.get('thumbpost')"
         }
       ]
