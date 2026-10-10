@@ -8918,6 +8918,16 @@ const PARALLAX_SPACE_LEGACY = (() => {
 // ①(P-76) `opts.parallaxOff` 对**对象级**视差的门控回退开关：`?paroff=legacy` → 回到"只停鼠标项、
 //   对象级 (node_pos − cam_pos) 项照旧生效"的旧口径。缺省 false = parallaxOff 时对象级视差整体停用
 //   （与 demo.html「视差整体停用」的注释契约、以及场景级视差的门控一致）。
+/** ③(2026-10-10 · §B #15) 指针归一化的**夹取时机**回退口。
+ *  官方口径（`reports/parallax-official-align-20260924.md` §5.3 第 11 行原文）：
+ *  桌面 `GetCursorPos → ScreenToClient → x/宽, y/高 → [0,1]²`，中心 0.5，**采样时不夹**。
+ *  本仓在视差链上"立即 `clamp(0,1)`"（`attachParallaxListener()` 内）⇒ 指针移出画布后视差被冻在边缘，
+ *  官方则继续推进（差异仅在鼠标越出画布边界时可见）。缺省档 = 不夹（对齐官方）；`?parclamp=legacy`
+ *  = 逐位回到改动前的 clamp。**注意**：`core/we-pointer-source.mjs` 的 `applyMove()` 本就不夹（已核实），
+ *  本条只针对视差链这条独立监听。 */
+const PARCLAMP_LEGACY = (() => {
+  try { return new URLSearchParams(location.search).get('parclamp') === 'legacy' } catch (e) { return false }
+})()
 const PARALLAX_OFF_LEGACY = (() => {
   try {
     if (typeof location === 'undefined' || !location.search) return false
@@ -12686,8 +12696,9 @@ export function createRenderer(canvas, opts = {}) {
     window.addEventListener('mousemove', (ev) => {
       const w = window.innerWidth || 1
       const h = window.innerHeight || 1
-      parallaxState.x = Math.max(0, Math.min(1, ev.clientX / w))
-      parallaxState.y = Math.max(0, Math.min(1, ev.clientY / h))
+      /* ③(§B #15) 缺省**不夹**（官方"采样时不夹"）；`?parclamp=legacy` 逐位回到改动前的 clamp(0,1)。 */
+      parallaxState.x = PARCLAMP_LEGACY ? Math.max(0, Math.min(1, ev.clientX / w)) : (ev.clientX / w)
+      parallaxState.y = PARCLAMP_LEGACY ? Math.max(0, Math.min(1, ev.clientY / h)) : (ev.clientY / h)
     })
   }
   // 层视差缩放（每帧由 renderScene 更新）

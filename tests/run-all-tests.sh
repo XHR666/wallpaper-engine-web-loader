@@ -936,6 +936,7 @@ add "tex-split-plane"    "node tests/tex-split-plane-test.mjs"   # P-264：forma
 add "fbo-format-vocab"   "node tests/fbo-format-vocabulary-test.mjs"   # §A #6：FBO `format` 词表现状基线（r8/rg88 真映射；其余只 declaredFormat 不改分配）+ ?fbodesc=legacy 回退口
 add "material-pass-sem"  "node tests/material-pass-semantics-test.mjs"   # §A #7 改判证据：effect 级 passes 逐个构造（已执行）+ material 级保持 passes[0]
 add "stage-varying"      "node tests/stage-varying-reconcile-test.mjs"   # §A #8：跨阶段 varying 对账（普通档一致 / legacy 档保持不一致 / 回退口有效）
+add "parallax-clamp"     "node tests/parallax-clamp-test.mjs"   # §B #15：指针归一化夹取时机（缺省不夹=官方 §5.3；?parclamp=legacy 回旧 clamp）
 #   的"只含容器的目录逐容器成条"与"浏览器选文件也接受 .mpkg"）；②**装载**（`__wp.loadSceneFile(blob)`
 #   从"明确降级的 no-op"变成真实现：IndexedDB 交接 + `?scenefile=1` 重载 + 取回即删；含假 IDB 往返判据）。
 add "bench-local-mpkg-scan" "node tests/bench-local-mpkg-scan-test.mjs"
