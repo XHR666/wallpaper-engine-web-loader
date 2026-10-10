@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-10T15:38:42.734Z",
+  "generatedAt": "2026-10-10T16:35:47.891Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -267,7 +267,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 16522,
+          "line": 16526,
           "pattern": "searchParams.get('autocap')"
         }
       ]
@@ -440,7 +440,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 18331,
+          "line": 18342,
           "pattern": "searchParams.get('bloomcap')"
         }
       ]
@@ -495,7 +495,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 14906,
+          "line": 14917,
           "pattern": "searchParams.get('camerashake')"
         }
       ]
@@ -544,7 +544,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17658,
+          "line": 17669,
           "pattern": "searchParams.get('clampuvs')"
         }
       ]
@@ -858,7 +858,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17968,
+          "line": 17979,
           "pattern": "searchParams.get('fog')"
         }
       ]
@@ -939,7 +939,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15305,
+          "line": 15316,
           "pattern": "searchParams.get('fx')"
         }
       ]
@@ -1264,7 +1264,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 17202,
+          "line": 17206,
           "pattern": "searchParams.get('lgcss')"
         }
       ]
@@ -1275,7 +1275,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17883,
+          "line": 17894,
           "pattern": "searchParams.get('lights')"
         }
       ]
@@ -1401,7 +1401,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15290,
+          "line": 15301,
           "pattern": "searchParams.get('mediaslot')"
         }
       ]
@@ -1530,7 +1530,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 25040,
+          "line": 25044,
           "pattern": "searchParams.get('mpwperf')"
         }
       ]
@@ -1596,7 +1596,7 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 26088,
+          "line": 26110,
           "pattern": "searchParams.get('navicon')"
         }
       ]
@@ -1640,7 +1640,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15282,
+          "line": 15293,
           "pattern": "searchParams.has('nofx')"
         }
       ]
@@ -1651,7 +1651,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15319,
+          "line": 15330,
           "pattern": "searchParams.has('nofxfb')"
         }
       ]
@@ -1882,6 +1882,17 @@
           "file": "core/we-scene-bundle.js",
           "line": 9044,
           "pattern": "regex [?&]paroff="
+        }
+      ]
+    },
+    {
+      "name": "parpos",
+      "common": false,
+      "sites": [
+        {
+          "file": "core/we-scene-bundle.js",
+          "line": 13529,
+          "pattern": "searchParams.get('parpos')"
         }
       ]
     },
@@ -2172,7 +2183,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 16405,
+          "line": 16416,
           "pattern": "searchParams.get('psim')"
         }
       ]
@@ -2363,7 +2374,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15292,
+          "line": 15303,
           "pattern": "searchParams.get('reszw')"
         }
       ]
@@ -2417,8 +2428,19 @@
       "sites": [
         {
           "file": "dsh-mpkg-wallpaper/lib/client.js",
-          "line": 16724,
+          "line": 16728,
           "pattern": "searchParams.get('sbfill')"
+        }
+      ]
+    },
+    {
+      "name": "sblurscope",
+      "common": false,
+      "sites": [
+        {
+          "file": "dsh-mpkg-wallpaper/lib/client.js",
+          "line": 25121,
+          "pattern": "regex [?&]sblurscope="
         }
       ]
     },
@@ -2494,7 +2516,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 18045,
+          "line": 18056,
           "pattern": "searchParams.get('shadows')"
         }
       ]
@@ -2505,7 +2527,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 13686,
+          "line": 13697,
           "pattern": "searchParams.get('shape')"
         }
       ]
@@ -2699,7 +2721,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15285,
+          "line": 15296,
           "pattern": "searchParams.get('spriteauto')"
         }
       ]
@@ -2787,7 +2809,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15295,
+          "line": 15306,
           "pattern": "searchParams.get('texjson')"
         }
       ]
@@ -2798,7 +2820,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 18306,
+          "line": 18317,
           "pattern": "searchParams.get('texmip')"
         }
       ]
@@ -2820,7 +2842,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17544,
+          "line": 17555,
           "pattern": "searchParams.get('texwrap')"
         }
       ]
@@ -2869,7 +2891,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15268,
+          "line": 15279,
           "pattern": "searchParams.has('trace')"
         },
         {
@@ -2907,7 +2929,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 15287,
+          "line": 15298,
           "pattern": "searchParams.get('usertex')"
         }
       ]

@@ -596,7 +596,7 @@ const MUTANTS = [
   },
   {
     label: 'M3(每层回旧加法式 (depth+amount)×disp)',
-    from: '          parOffX = ((ox - camCx) + parDispX) * dpx * parAmount\n          parOffY = ((oy - camCy) + parDispY) * dpy * parAmount',
+    from: '          parOffX = ((pox - camCx) + parDispX) * dpx * parAmount\n          parOffY = ((poy - camCy) + parDispY) * dpy * parAmount',
     to: '          parOffX = (dpx + parAmount) * parDispX\n          parOffY = (dpy + parAmount) * parDispY',
     expectRed: ['OFF-PRODUCT-NOT-SUM', 'OFF-HALF-NOT-SCALED', 'OFF-INFLUENCE-CLAMP', 'OFF-K-CLOSED-FORM',
       'OFF-K-SNAP-DELAY0', 'OFF-K-CAP-ONLY', 'OFF-K-NO-LOWER-CLAMP', 'OFF-ROOT-ANCESTOR-DEPTH',
@@ -622,7 +622,7 @@ const MUTANTS = [
   },
   {
     label: 'M6(#4 机械"只保留 Scene[704..708] 那一项"，删掉 (ox−camCx))',
-    from: '          parOffX = ((ox - camCx) + parDispX) * dpx * parAmount',
+    from: '          parOffX = ((pox - camCx) + parDispX) * dpx * parAmount',
     to: '          parOffX = (parDispX) * dpx * parAmount',
     expectRed: ['OFF-TWO-TERMS-KEPT', 'DEF-MISSING-AMOUNT-OFFICIAL', 'DEF-MISSING-DIFFERS-FROM-PREV'],
     why: '只有"层 origin 不在画布中心"的判据能看见 root 参考点项（居中夹具 (ox−camCx)=0 ⇒ 不红）；'

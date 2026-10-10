@@ -13526,6 +13526,7 @@ export function createRenderer(canvas, opts = {}) {
     const __parSpaceLegacy = (opts.parallaxSpaceLegacy !== undefined)
       ? !!opts.parallaxSpaceLegacy : PARALLAX_SPACE_LEGACY
     const __parOffLegacy = (opts.parallaxOffLegacy !== undefined)
+    const __parPosLegacy = (() => { try { return new URLSearchParams(location.search).get('parpos') === 'legacy' } catch (e) { return false } })()
       ? !!opts.parallaxOffLegacy : PARALLAX_OFF_LEGACY
     let parOffX = 0, parOffY = 0
     if (parEnabled && (opts.parallaxOff !== true || __parOffLegacy)) {
@@ -13557,8 +13558,18 @@ export function createRenderer(canvas, opts = {}) {
           //   的 ①/④ 判据（"只改鼠标 ⇒ 位移变化率"读数）。
           //   残余差异（**未改**，证据已记录）：官方 `[x22,#248]` 取的是**顶层祖先**位置，本仓这两项仍用本层的 `ox,oy`；
           //   官方语料 A20 里 40/40 的 parallaxDepth 都在顶层 ⇒ root==layer，两者在官方语料上不可分辨。
-          parOffX = ((ox - camCx) + parDispX) * dpx * parAmount
-          parOffY = ((oy - camCy) + parDispY) * dpy * parAmount
+          /* ①(2026-10-11 索引核对 + 官方 A4 再确认) **参考点与 depth 必须同源**：官方 `0x2557c28`（读 [x22,#248] 位置）
+             与 `0x2557c30`（读 [x22,#320] depth）用的是**同一个 x22**（顶层祖先）⇒ depth 早已取根（上一段 `parDepthSrc` ✓），
+             而参考点此前仍用本层 `ox,oy` ⚠ ⇒ 口径不一致。本条把它们对齐。
+             `?parpos=legacy` ⇒ 参考点回**本层**（逐位回改动前 ✓）。
+             规则表（与 depth 同源）：A 根有 depth ⇒ 根位置 ✓（官方语义；语料 **571 层**）｜B 根无 depth 而本层有 ⇒ 本层位置 ✓（防御支，12 层，不动）。
+             量化（205 容器）：根位置 ≠ 本层世界位置 = **650 层/31 容器**，Δpos p50 656px / max 4043px ⇒ 原"不可分辨"理由仅对官方 37 工程成立 ✗。
+             ⚠ 读根位置一律在**绘制期**（根层 origin 会被 `?charfit`/根动画改写 ✓；解析期快照会读到旧值 ✗）。 */
+          const parPosSrc = __parPosLegacy ? layer : parDepthSrc
+          const pox = (parPosSrc && parPosSrc !== layer && parPosSrc.origin) ? parPosSrc.origin[0] : ox
+          const poy = (parPosSrc && parPosSrc !== layer && parPosSrc.origin) ? parPosSrc.origin[1] : oy
+          parOffX = ((pox - camCx) + parDispX) * dpx * parAmount
+          parOffY = ((poy - camCy) + parDispY) * dpy * parAmount
         }
       }
     }
