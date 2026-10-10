@@ -11,7 +11,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { reorderSplitPlanes, parseTex, decodeMip0 } from '../core/we-scene-bundle.js'
-import { ROOT } from './_root.mjs'
+import { ROOT, WS } from './_root.mjs'
 
 const rows = []
 const ok = (id, why, cond, detail) => rows.push({ id, why, pass: !!cond, detail: String(detail == null ? '' : detail) })
@@ -33,7 +33,9 @@ const src = fs.readFileSync(path.join(ROOT, 'core', 'we-scene-bundle.js'), 'utf8
 ok('C1', '接线：format 5 分支调用 reorderSplitPlanes', /case 5: return decodeDXT5\(reorderSplitPlanes\(data, w, h\), w, h\)/.test(src), 'wired ok')
 
 // B 段：真语料回归（条件项）——天空/树丛1 的不透明区 RGB 相邻差必须 ≤ 阈值
-const SAMPLE = '/root/Desktop/DSHarea/allwallpaper/1004/夜莺night——【parallax_视差】blue_archive_妃咲_kisaki_月下独酌【蔚蓝档案】.mpkg'
+/* 样本路径**不得写成字面绝对路径**（publish-check 红线：公开仓库不带操作环境信息）：
+   用运行时工作区根（_root.mjs 的 WS）+ 相对语料路径拼出来。 */
+const SAMPLE = path.join(WS, 'allwallpaper', '1004', '夜莺night——【parallax_视差】blue_archive_妃咲_kisaki_月下独酌【蔚蓝档案】.mpkg')
 if (!fs.existsSync(SAMPLE)) {
   console.log('  ⏭ B 段 SKIP（样本不在本机）')
 } else {
