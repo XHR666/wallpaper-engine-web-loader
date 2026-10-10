@@ -466,6 +466,11 @@ export function parseWeJson(text) {
  *  默认关闭；是否转默认属产品决策，见台账 §E 第 32 条）。本函数只做判定，供诊断与开关使用。 */
 /** ③(2026-10-11 · 只读诊断) `?overlaybase=1`：把"全叠加层档"判定挂到 `window.__mpwOverlayBase`
  *  供真机控制台核对（**不改任何渲染语义**）。模组级读数见 `getOverlayBaseHint()`。 */
+/** ③(2026-10-11) 基底回退的**回退口**：`?overlaybase=legacy` ⇒ 回到改动前（不注入基底层，逐位不变）；
+ *  缺省 = 新语义（注入）。`?overlaybase=1` 仍是只读诊断（见 OVERLAYBASE_DIAG，两值互不冲突）。 */
+export const OVERLAYBASE_LEGACY = (() => {
+  try { return new URLSearchParams(location.search).get('overlaybase') === 'legacy' } catch (e) { return false }
+})()
 const OVERLAYBASE_DIAG = (() => {
   try { return new URLSearchParams(location.search).get('overlaybase') === '1' } catch (e) { return false }
 })()
@@ -486,6 +491,47 @@ export function overlayBaseHint(sceneJson, entryNames) {
     allOverlay,
     suggest: !!(allOverlay && hasPreview),
   }
+}
+
+/** ③(2026-10-11 · 语义修复，用户已授权"有确切语义就直接改，改完留回退空间") **基底回退**：
+ *  对"图片/模型层全部 `copybackground` + 包内只有噪声类贴图 + 有 preview 缩略图"的档（丛雨 / 逆流茶会 x-ray，
+ *  台账 §E 第 31/32 条），把包内 **preview 缩略图** 作为**基底层**垫在最下面，再叠原有层。
+ *  回退：`?overlaybase=legacy` ⇒ 完全回到改动前（不注入）；缺省 = 注入（新语义）。
+ *  实现原则（第一性原理，最小假设）：**不新造层结构**，而是**克隆场景里已有的图片层当模板**，
+ *  只替换纹理名 + 清 `copybackground`，并复用 P-263 的"合成纹理名"通路（`resolveTextureName` 会查它）。
+ *  纹理数据由宿主（具备 canvas/JPEG 解码能力）通过 `setOverlayBaseTexture(rgba,w,h)` 提供；核心保持 DOM-free。 */
+export const OVERLAY_BASE_TEX = '__overlaybase_preview'
+let __overlayBaseTex = null
+/** 宿主注入 preview 缩略图的 RGBA（w*h*4）。返回是否接受。 */
+export function setOverlayBaseTexture(rgba, width, height) {
+  if (!rgba || !(width > 0) || !(height > 0) || rgba.length < width * height * 4) return false
+  __overlayBaseTex = { rgba, width, height }
+  try { if (typeof globalThis !== 'undefined') { globalThis.__mpwBuiltinTex = globalThis.__mpwBuiltinTex || {}; globalThis.__mpwBuiltinTex[OVERLAY_BASE_TEX] = { rgba, width, height } } } catch (e) { /* 忽略 */ }
+  return true
+}
+export function hasOverlayBaseTexture() { return !!__overlayBaseTex }
+/** 是否注入基底层：需 ①判定命中（suggest）②宿主已提供纹理 ③未开 `?overlaybase=legacy`。 */
+export function shouldInjectOverlayBase(hint, opts) {
+  const legacy = !!(opts && opts.overlayBaseLegacy)
+  return !!(!legacy && hint && hint.suggest && __overlayBaseTex)
+}
+/** 注入：克隆首个"图片/模型"层当模板，纹理换成 preview 合成名、清 copybackground，**垫到最前**（最先绘制）。
+ *  返回 {injected, index, texture, layers} 供判据/台账读取。 */
+export function injectOverlayBaseLayer(scene, hint, opts) {
+  const out = { injected: false, index: -1, texture: null, layers: (scene && scene.layers && scene.layers.length) || 0 }
+  if (!shouldInjectOverlayBase(hint, opts) || !scene || !Array.isArray(scene.layers)) return out
+  const tpl = scene.layers.find((l) => l && l.image && !l.isContainer && !l.particle)
+  if (!tpl) return out
+  const base = Object.assign({}, tpl, {
+    image: OVERLAY_BASE_TEX,
+    __imageSrc: OVERLAY_BASE_TEX,
+    textureName: OVERLAY_BASE_TEX,
+    copybackground: false,
+    __overlayBase: true,
+  })
+  scene.layers.unshift(base)
+  out.injected = true; out.index = 0; out.texture = OVERLAY_BASE_TEX; out.layers = scene.layers.length
+  return out
 }
 export function parsePkg(buf) {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
@@ -13156,6 +13202,18 @@ export function createRenderer(canvas, opts = {}) {
        —— `particle/halo_6`（`effects/xray` 的圆形精灵）、`util/white`、`particle/beam/beam_1`
        在这里拿到像素源。命中/未命中都进 `__mpwBuiltinTex` 台账，便于真机诊断。 */
     try {
+      /* ③(2026-10-11) **基底回退的合成纹理**：名字固定 `OVERLAY_BASE_TEX`，像素由宿主经
+         `setOverlayBaseTexture(rgba,w,h)` 注入（preview 缩略图）。放在内置素材之前判定，命中即用。 */
+      if (name === OVERLAY_BASE_TEX) {
+        const ob = (typeof globalThis !== 'undefined' && globalThis.__mpwBuiltinTex)
+          ? globalThis.__mpwBuiltinTex[OVERLAY_BASE_TEX] : null
+        if (ob && ob.rgba) {
+          let t0 = builtinTexCache.get(name)
+          if (!t0) { t0 = makeTexture(gl, ob.rgba, ob.width, ob.height, null, null, 'overlaybase'); builtinTexCache.set(name, t0) }
+          return t0
+        }
+        return null
+      }
       const b = builtinAssetTextureRGBA(name)
       if (b) {
         let t = builtinTexCache.get(name)
