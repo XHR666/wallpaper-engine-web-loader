@@ -17384,6 +17384,8 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 
 ## P-270（2026-10-10）官方**粒子受力模型**（initializer/operator + 每发射器 `gravity`/`drag` + 场景级 gravity/wind）登记为**专项**：本仓粒子模型为简化版（无受力），实现需整套模块化架构 ⇒ 本轮不做（台账 §E 第 14 条）；语料侧 `gravity/wind` 真实存在（妃咲包 `0 -1 0` / `1.0`）。
 
+## P-274（2026-10-11）宿主接线：`demo.html` 的 `MPW-OVERLAYBASE` 段 —— 命中「全叠加层档」时用包内 preview 缩略图作**基底层**（照 `MPW-VIDEOBASE` 先例：宿主 `textures` Map + `scene.layers.unshift`），`?overlaybase=legacy`/`?nooverlaybase` 回退；解码长边封顶 2048。提交 `fa90e4d`；判据 `tests/overlay-base-host-wiring-test.mjs`（7/0）。
+
 ## P-275（2026-10-11）`pruneShotsAll()` 复杂度 O(n²) → O(n log n)：扫一次 → 全量排序一次 → 顺序删（删除阶段零 readdir/stat），**策略不变**。提交 `1104195`；判据 `tests/shots-prune-complexity-test.mjs`（用计数包装 readdirSync/statSync 实测：readdir=4）。
 
 ## P-276（2026-10-11）CPU 路（`?mode=elysia`）**首帧上报**：`window.__mpwFirstFrame = 1` + `__mpwCapMarkFrame()` 置于 `ctx.putImageData` 之后、`__elysiaFirstFrameMarked` 守卫只报一次。提交 `70f3593`；判据 `tests/elysia-firstframe-test.mjs`。
@@ -17407,3 +17409,5 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 ## P-286（2026-10-11）修 `tests/bench-mpkg-items-test.mjs` 的变异锚点：P-266 把 `/pkg` 分支的 `id` 改为 `cand` 后锚点失去唯一性 ⇒ 同步为 `cand`（变异仍只施加在镜像里）。判据 `tests/bench-mpkg-items-test.mjs`（57/0）。
 
 ## P-287（2026-10-11）判决书**入库**：把工作区 `docs/reverse/` 的 4 份判决/核验文档镜像进 `docs/`，并加 `tests/verdict-docs-test.mjs` 使其受门禁保护（同时满足 `status-consistency` 的 V2 证据要求）。
+
+## P-288（2026-10-11）修全量门禁另两项失败：① `load-timeout` T4c —— 宿主接线改走 `bitmapT`（带超时纪律，不裸调 `createImageBitmap`）；② `data-limits` A5 —— 判据更新到 `startAutoReport()` 新结构（定时器只在该函数内 + `?report=auto` 仍调它），强度不降。提交 `caa0c39`；判据 `tests/load-timeout-test.mjs`（70/0）、`tests/data-limits-test.mjs`（49/0）。
