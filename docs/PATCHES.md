@@ -17376,7 +17376,16 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 * ⚠ 共享文件说明：`demo/bench-patch.js` 是**与另一条线（zcode）共享**的文件。改动前它与 HEAD **逐字相同**；
   本次只动两个纯函数 + 一处 `pkgEntry` 判定（都带 P-261 注释），提交时**显式列文件**。
 
+## P-262（2026-10-10）`/pkg/<id>` 名字**三形态兜底**（真机 16:37 日志：id 带 `+`、磁盘名带空格）—— 服务端按
+「原样 / `+`→空格 / 空格→`+`」依次尝试；出端改为**按 `/` 分段 `encodeURIComponent`**。提交 `5d458d6`；
+判据 `tests/pkg-id-encoding-test.mjs`、`tests/pkg-name-corpus-test.mjs`（205 包名往返无损、含 `+` 的包名 0 个）。
+
 ## P-265（2026-10-10）② format 5 残余（月亮/流星等）调查记录 —— 结论：P-264 的"平面分离"重排**未证实**，已在 `80c3cd3` 降级为可选（缺省回到改动前口径）；判据 `tests/tex-split-plane-test.mjs`（钉缺省档基线带 + `?texplane=split` 对照开关）。
+
+## P-266（2026-10-10）`/pkg/<id>` **候选库根回落**：`libraryRoots()` 原只给 [生效根, SAMPLE_ROOT] ⇒ 生效根
+（`:8902` = `allwallpaper/0923`）里没有的包**无论名字怎么编码都 404**。新增 `siblingLibraryRoots()`（同级一层、
+上限 64、按 primary 缓存、仅限 mpkg 与 pkg 两种容器文件），命中标注 `from:'sibling-root'` + `globalThis.__pkgRootFallback` 计数。
+提交 `59be93d`；判据 `tests/pkg-root-fallback-test.mjs`（真 HTTP 4/0：`%2B` 200 / `+`→空格 200 / 普通包 200 / 不存在 404）。
 
 ## P-267（2026-10-10）§B #15 指针归一化**夹取时机**：官方 §5.3「采样时不夹」⇒ 视差链缺省**不夹**、`?parclamp=legacy` 逐位回旧 `clamp(0,1)`。提交 `f0ac3d3`；判据 `tests/parallax-clamp-test.mjs`；开关登记 `docs/README-DIAGNOSTICS.md`。
 
