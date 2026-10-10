@@ -4801,8 +4801,8 @@ function loadScene() {
   const attachAnim = new Map()
   const animOff = new URLSearchParams(location.search).has('animoff')
   const animFps = parseFloat(new URLSearchParams(location.search).get('anim')) || 30
-  // ①(新) 回绕模式：默认 saw(按 spec 帧=floor(t*fps)%90)；?animloop=pingpong 用 90 帧的对称回放，
-  // 消除 90 帧窗截断 180 帧呼吸半周期所致的回绕阶跃（呼吸变成 3s 吸+3s 呼的连续往复）。
+  // ①(新) 回绕模式：默认 saw(按 spec 帧=floor(t*fps)%**MDLA `length`**)；?animloop=pingpong 用该动画 `length` 帧的对称回放，
+  // 消除固定窗口截断（如 180 帧呼吸半周期）所致的回绕阶跃（呼吸变成 3s 吸+3s 呼的连续往复）。
   const animLoopPingpong = new URLSearchParams(location.search).get('animloop') !== 'saw'
   // ②(回退 2026-09-11) MDLA 逐帧动画**默认关闭**、?anim=1 显式开启。
   // 原因（用户真机实测）：在本渲染器里附件位置由"锚点偏移"决定，而 MDLA 的骨骼位移被当作
@@ -5036,7 +5036,7 @@ function loadScene() {
         }
       } catch {}
       attachmentOffsets.set(o.id, mkOff(rt))
-      // ①(新) 逐帧 MDLA：预计算 90 帧(3s) 偏移数组 per 附件 id（帧=floor(t*fps)%90）。
+      // ①(新) 逐帧 MDLA：预计算 **MDLA `length` 帧**偏移数组 per 附件 id（帧=floor(t*fps)%len；缺 `length` 时才兜底 90 帧/3s）。
       // 用与静态完全一致的公式，把 bonePose 换成 sample(anim, f) 的逐帧输出；无动画/异常则跳过。
       if (!animOff && anchors._sampleAnim && anchors._anims && anchors._anims.length) {
         try {
@@ -8235,7 +8235,7 @@ function loadScene() {
       }
     })
     if (attachAnimActive.size) {
-      logf('① MDLA 逐帧动画: ' + attachAnimActive.size + ' 个附件层 @' + animFps + 'fps/90帧 (' + (new URLSearchParams(location.search).has('ay') ? '?ay=flip' : '默认y') + ')')
+      logf('① MDLA 逐帧动画: ' + attachAnimActive.size + ' 个附件层 @' + animFps + 'fps/' + (attachAnimActive.size ? '' : '') + 'len帧 (' + (new URLSearchParams(location.search).has('ay') ? '?ay=flip' : '默认y') + ')')
     } else logf('⚠ MDLA 动画: 无附件层命中');
   }
   logf('scene.json 解析: ' + scene.layers.length + ' layers');
