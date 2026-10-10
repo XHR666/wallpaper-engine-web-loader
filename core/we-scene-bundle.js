@@ -14909,8 +14909,13 @@ export function createRenderer(canvas, opts = {}) {
          修法：三处统一走 `csNum`，**优先取绑定对象的 `value`**；非 number 且非对象 ⇒ 回默认（与旧行为逐位一致 ✓）。
          `enabled` 的判定**不动**（它已认 `value === true` ✓），`?camerashake=off` 缺省语义也**不动** ✓。 */
       const csNum = (v, dflt) => (typeof v === 'number' ? v : (v !== null && typeof v === 'object' && typeof v.value === 'number' ? v.value : dflt))
-      cameraShake.speed = csNum(general.camerashakespeed, 0)
-      cameraShake.amplitude = csNum(general.camerashakeamplitude, 0)
+      // 2026-10-11 official defaults (166/166 official sample scenes): amplitude=0.5 roughness=1 speed=3.
+      // Legacy rollback ?camerashake=legacy restores the old 0/0 defaults bit-for-bit.
+      const csLegacyDef = (function () { try { return new URLSearchParams(location.search).get('camerashake') === 'legacy' } catch (e) { return false } })()
+      const csDefSpeed = csLegacyDef ? 0 : 3
+      const csDefAmplitude = csLegacyDef ? 0 : 0.5
+      cameraShake.speed = csNum(general.camerashakespeed, csDefSpeed)
+      cameraShake.amplitude = csNum(general.camerashakeamplitude, csDefAmplitude)
       cameraShake.roughness = csNum(general.camerashakeroughness, 1)
       cameraShake.noiseModel = 'none'
       cameraShake.offset = [0, 0]

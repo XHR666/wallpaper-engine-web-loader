@@ -16,8 +16,8 @@ const ok = (why, cond, detail = '') => rows.push({ why, pass: !!cond, detail: St
 
 ok('存在取值助手 csNum（同时接受 number 与 {value:number}）',
   /const csNum = \(v, dflt\) => \(typeof v === 'number' \? v : \(v !== null && typeof v === 'object' && typeof v\.value === 'number' \? v\.value : dflt\)\)/.test(src))
-ok('speed 走 csNum', /cameraShake\.speed = csNum\(general\.camerashakespeed, 0\)/.test(src))
-ok('amplitude 走 csNum', /cameraShake\.amplitude = csNum\(general\.camerashakeamplitude, 0\)/.test(src))
+ok('speed 走 csNum', /cameraShake\.speed = csNum\(general\.camerashakespeed, csDefSpeed\)/.test(src))
+ok('amplitude 走 csNum', /cameraShake\.amplitude = csNum\(general\.camerashakeamplitude, csDefAmplitude\)/.test(src))
 ok('roughness 走 csNum', /cameraShake\.roughness = csNum\(general\.camerashakeroughness, 1\)/.test(src))
 ok('不再残留"只认 number"的旧写法（反回归 ✗）',
   !/cameraShake\.(speed|amplitude|roughness) = typeof general\.camerashake/.test(src))
@@ -25,6 +25,13 @@ ok('enabled 仍认字面 true 与绑定对象 value===true（语义不变 ✓）
   /const enabledRaw = csRaw === true \|\| \(csRaw !== null && typeof csRaw === 'object' && csRaw\.value === true\)/.test(src))
 ok('默认关的语义未被改动（`?camerashake` 缺省 off ✓）',
   /get\('camerashake'\) \|\| 'off'/.test(src))
+ok('缺省值对齐**官方**（166/166 官方工程实测：amplitude=0.5 · roughness=1 · speed=3）',
+  /csDefSpeed = csLegacyDef \? 0 : 3/.test(src) && /csDefAmplitude = csLegacyDef \? 0 : 0\.5/.test(src)
+  && /csNum\(general\.camerashakeroughness, 1\)/.test(src))
+ok('回退位 `?camerashake=legacy` ⇒ 逐位回旧缺省 0/0（本仓防御，非官方）', /get\('camerashake'\) === 'legacy'/.test(src))
+ok('不再把 speed/amplitude 缺省写死为 0（反回归 ✗）',
+  !/cameraShake\.(speed|amplitude) = csNum\(general\.camerashake[a-z]*, 0\)/.test(src))
+
 const fail = rows.filter((r) => !r.pass)
 for (const r of rows) console.log((r.pass ? '  ✓ ' : '  ✗ ') + r.why)
 console.log(`===== scene-camerashake-binding: ${rows.length - fail.length} 通过 / ${fail.length} 失败 =====`)
