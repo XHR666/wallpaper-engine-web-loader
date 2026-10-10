@@ -7528,6 +7528,10 @@ export function parseMaterialMeta(...sources) {
    语义依据（本文件 :10014 实测语料结论）：`particle/halo`、`halo_3/4/6`、`download`、`drop`
    等**全部是「RGB 恒 255 + 形状在 alpha」**；`util/white` = 1×1 不透明白。
    纯函数（不碰 GL），便于单测；GL 侧由调用方 makeTexture 落纹理。 */
+// Rollback for the _rt_MipMappedFrameBuffer slot-default binding added 2026-10-11.
+// ?miprt=legacy restores the previous behaviour (slot left unbound) bit-for-bit.
+const __mipRtLegacy = (function () { try { return new URLSearchParams(location.search).get('miprt') === 'legacy' } catch (e) { return false } })()
+
 export function builtinAssetTextureRGBA(name) {
   const n = String(name == null ? '' : name)
   if (n === 'util/white') return { width: 1, height: 1, rgba: new Uint8Array([255, 255, 255, 255]) }
@@ -16126,7 +16130,15 @@ export function createRenderer(canvas, opts = {}) {
         // WE 语义：槽 0 为空 = 当前输入 FBO（asInput）；'previous' 同义
         let entry
         // ①(RE-23) 全帧缓冲（屏幕）引用 → 层的屏幕拷贝（COPYBG 语义的 g_Texture2 来源）
-        if (copyBgEntry && (name === '_rt_FullFrameBuffer' || name === '_rt_default' || name === 'fullframebuffer')) {
+        // 2026-10-11 (official evidence, assets/shaders/generic4.frag:68 and 7 sibling shaders):
+        // _rt_MipMappedFrameBuffer is declared as a SLOT DEFAULT for reflection slots
+        // (uniform sampler2D g_Texture3; // {"hidden":true,"default":"_rt_MipMappedFrameBuffer"})
+        // with companion g_Texture3MipMapInfo. The engine binds a mip-chained copy of the
+        // frame buffer there. We have no mip chain yet (see mipChainMissing ledger below),
+        // so bind the frame copy itself: an unbound slot would sample black while the
+        // official build reflects the scene. Corpus trigger surface: 2 passes / 1 container.
+        // Rollback: ?miprt=legacy (see MIPRT_LEGACY).
+        if (copyBgEntry && !__mipRtLegacy && (name === '_rt_FullFrameBuffer' || name === '_rt_default' || name === 'fullframebuffer' || name === '_rt_MipMappedFrameBuffer')) {
           entry = copyBgEntry
           const tt = { tex: entry.glTex || entry.tex, width: entry.width || 1, height: entry.height || 1 }
           gl.activeTexture(gl.TEXTURE0 + ti)
