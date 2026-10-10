@@ -1,6 +1,11 @@
 // tex-split-plane-test.mjs —— `format 5`（DXT5 半分辨率）**平面分离载荷**的判据（P-264）
 //
-// 实测背景（统一口径三布局对照，10 张 format 5 贴图）：
+// ⚠ 2026-10-10 更正：本文件原先记录的"平面分离更好（天空 103.6→4.9）"**无法在同一进程内复现**
+//   （同配置重算：天空 407.7 / 丛雨 329.7，而 legacy 分别 113.6 / 122.0），且用户真机目视两版都错
+//   ⇒ P-264 已**降级为可选**（`?texplane=split`），**缺省回到 P-264 之前**。下面的 B 段据此改为钉住
+//   **当前发布口径**（legacy）的基线值。
+//
+// 原始记录（保留作历史，勿据此下结论）：统一口径三布局对照，10 张 format 5 贴图：
 //   · 旧口径（每 16B 块 = alpha@0..7 + color@8..15）在 **10/10** 张上都是最差的（93~137）；
 //   · 平面分离（前半 nB*8 = 全部 alpha 块，后半 = 全部 color 块）在 **10/10** 张上都更好，
 //     其中 天空 103.6→4.9、树丛1 114.6→13.8、树丛2 98.5→20.4、树丛3 93.0→22.4、纸堆 122.8→18.1。
@@ -30,10 +35,10 @@ ok('A2', '长度不匹配 ⇒ 原样返回（旧行为零风险）', (() => { co
 ok('A3', '非 4 对齐尺寸的块数按 ceil 计算', reorderSplitPlanes(new Uint8Array(2 * 16), 5, 5).length === 32, 'ceil ok')
 
 const src = fs.readFileSync(path.join(ROOT, 'core', 'we-scene-bundle.js'), 'utf8')
-ok('C1', '接线：format 5 缺省走 reorderSplitPlanes（平面分离）',
-  /case 5: return decodeDXT5\(TEXPLANE_LEGACY \? data : reorderSplitPlanes\(data, w, h\), w, h\)/.test(src), 'wired ok')
-ok('C2', 'A/B 回退口：`?texplane=legacy` 读存在且只认 legacy（真机对照用）',
-  /get\('texplane'\) === 'legacy'/.test(src) && /^\| `texplane` \|/m.test(fs.readFileSync(path.join(ROOT, 'docs', 'README-DIAGNOSTICS.md'), 'utf8')), 'legacy 开关 + 主表登记')
+ok('C1', '接线：format 5 **缺省不走**重排；`?texplane=split` 才走（P-264 已降级为可选）',
+  /case 5: return decodeDXT5\(TEXPLANE_SPLIT \? reorderSplitPlanes\(data, w, h\) : data, w, h\)/.test(src), 'wired ok')
+ok('C2', '对照开关：`?texplane=split` 读存在且只认 split（默认=改动前口径）',
+  /get\('texplane'\) === 'split'/.test(src) && /^\| `texplane` \|/m.test(fs.readFileSync(path.join(ROOT, 'docs', 'README-DIAGNOSTICS.md'), 'utf8')), 'legacy 开关 + 主表登记')
 
 // B 段：真语料回归（条件项）——天空/树丛1 的不透明区 RGB 相邻差必须 ≤ 阈值
 /* 样本路径**不得写成字面绝对路径**（publish-check 红线：公开仓库不带操作环境信息）：
@@ -48,7 +53,7 @@ if (!fs.existsSync(SAMPLE)) {
   const ents = []
   for (let i = 0; i < n; i++) { const nl = b.readUInt32LE(o); o += 4; const nm = b.toString('utf8', o, o + nl); o += nl; const off = b.readUInt32LE(o); const size = b.readUInt32LE(o + 4); o += 8; if (nm.endsWith('.tex')) ents.push({ nm, off, size }) }
   const start = o
-  for (const [want, maxMad] of [['天空.tex', 10], ['树丛1.tex', 20]]) {
+  for (const [want, lo, hi] of [['天空.tex', 98, 110], ['树丛1.tex', 108, 122]]) {   /* 当前发布口径=legacy 的基线带 */
     const hit = ents.find((e) => e.nm.endsWith(want))
     if (!hit) { ok('B' + want, '样本条目存在', false, '未找到 ' + want); continue }
     const im = decodeMip0(parseTex(b.subarray(start + hit.off, start + hit.off + hit.size)))
@@ -56,7 +61,7 @@ if (!fs.existsSync(SAMPLE)) {
     let s = 0, c = 0
     for (let y = 0; y < H; y++) for (let x = 1; x < W; x++) { const i = (y * W + x) * 4, j = i - 4; if (r[i + 3] > 200 && r[j + 3] > 200) { s += Math.abs(r[i] - r[j]) + Math.abs(r[i + 1] - r[j + 1]) + Math.abs(r[i + 2] - r[j + 2]); c++ } }
     const mad = c ? s / c : NaN
-    ok('B' + want, want + ' 不透明区 RGB 相邻差 ≤ ' + maxMad + '（修复前 103.6/114.6）', mad <= maxMad, 'MAD=' + mad.toFixed(1))
+    ok('B' + want, want + ' 缺省档（legacy）落基线带 [' + lo + ',' + hi + ']（P-264 未证实⇒缺省回退）', mad >= lo && mad <= hi, 'MAD=' + mad.toFixed(1))
   }
 }
 

@@ -1058,7 +1058,7 @@ export function decodePixels(format, data, w, h) {
     case 2: return fromRGB565(data, w, h)
     case 4: return decodeDXT5(data, w, h)
     // RE-40：格式 5 = DXT5，载荷同格式 4，仅容器声明宽高为实际尺寸 2 倍
-    case 5: return decodeDXT5(TEXPLANE_LEGACY ? data : reorderSplitPlanes(data, w, h), w, h)   /* ③(2026-10-10) 缺省=平面分离重排（P-264）；?texplane=legacy = P-264 之前的块内连续口径 */
+    case 5: return decodeDXT5(TEXPLANE_SPLIT ? reorderSplitPlanes(data, w, h) : data, w, h)   /* ③(2026-10-10 更正) 缺省=改动前口径；?texplane=split 才启用未证实的平面分离重排 */
     case 6: return decodeDXT3(data, w, h)
     case 7: return decodeDXT1(data, w, h)
     case 8: return fromRG88(data, w, h)
@@ -8942,8 +8942,16 @@ const PARALLAX_SPACE_LEGACY = (() => {
 const FOVOVERRIDE_LEGACY = (() => {
   try { return new URLSearchParams(location.search).get('fovoverride') === 'legacy' } catch (e) { return false }
 })()
-const TEXPLANE_LEGACY = (() => {
-  try { return new URLSearchParams(location.search).get('texplane') === 'legacy' } catch (e) { return false }
+/** ③(2026-10-10 更正) **默认回到 P-264 之前的口径**：`?texplane=split` 才启用"平面分离"重排。
+ *  更正原因（必须记住）：P-264 当初的依据是"10 张 format 5 贴图旧口径 10/10 最差、平面分离更好
+ *  （天空 103.6→4.9）"，但**同一进程内重算无法复现该读数**（同一配置下天空量到 407.7、丛雨 329.7，
+ *  而 legacy 分别是 113.6/122.0）；且用户真机目视两版**都是错的**（`reports/texplane-ab-congyu.png`）。
+ *  ⇒ 我此前的离线指标脚本之间存在不可复现的口径差异（临时文件中转 + 多脚本自研解码器），
+ *  **该修复属"未证实"**：不能作为默认行为上线（它确实改变了用户看到的画面 ⇒ 属回归风险）。
+ *  现在：缺省 = 改动前口径（与 P-264 之前逐位一致）；`?texplane=split` = 供后续研究/对照使用。
+ *  台账 §E 已把 P-264 标为"未证实、已降级为可选"。 */
+const TEXPLANE_SPLIT = (() => {
+  try { return new URLSearchParams(location.search).get('texplane') === 'split' } catch (e) { return false }
 })()
 const PARCLAMP_LEGACY = (() => {
   try { return new URLSearchParams(location.search).get('parclamp') === 'legacy' } catch (e) { return false }
