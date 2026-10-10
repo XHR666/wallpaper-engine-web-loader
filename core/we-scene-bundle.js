@@ -14892,9 +14892,15 @@ export function createRenderer(canvas, opts = {}) {
       const csRaw = general.camerashake
       const enabledRaw = csRaw === true || (csRaw !== null && typeof csRaw === 'object' && csRaw.value === true)
       cameraShake.enabled = enabledRaw
-      cameraShake.speed = typeof general.camerashakespeed === 'number' ? general.camerashakespeed : 0
-      cameraShake.amplitude = typeof general.camerashakeamplitude === 'number' ? general.camerashakeamplitude : 0
-      cameraShake.roughness = typeof general.camerashakeroughness === 'number' ? general.camerashakeroughness : 1
+      /* ①(2026-10-11 索引核对发现：205 容器实测 `camerashake` 8 处 enabled，其中 6 处为**属性绑定形态**
+         `{user:…, value:<number>}`，且 `camerashakeamplitude` 也有对象形态 ✗) 旧解析 `typeof … === 'number'`
+         **只认 number** ⇒ 这类档的 speed/amplitude/roughness 会**静默退化为默认值** ✗。
+         修法：三处统一走 `csNum`，**优先取绑定对象的 `value`**；非 number 且非对象 ⇒ 回默认（与旧行为逐位一致 ✓）。
+         `enabled` 的判定**不动**（它已认 `value === true` ✓），`?camerashake=off` 缺省语义也**不动** ✓。 */
+      const csNum = (v, dflt) => (typeof v === 'number' ? v : (v !== null && typeof v === 'object' && typeof v.value === 'number' ? v.value : dflt))
+      cameraShake.speed = csNum(general.camerashakespeed, 0)
+      cameraShake.amplitude = csNum(general.camerashakeamplitude, 0)
+      cameraShake.roughness = csNum(general.camerashakeroughness, 1)
       cameraShake.noiseModel = 'none'
       cameraShake.offset = [0, 0]
       const csMode = (() => { try { return new URLSearchParams(location.search).get('camerashake') || 'off' } catch (e) { return 'off' } })()
