@@ -2,7 +2,7 @@
 // 台账 §E 第 31/32 条：丛雨 / 逆流茶会(x-ray) 命中（真机表现为噪声/马赛克）；妃咲等正常档不命中。
 import fs from 'node:fs'
 import path from 'node:path'
-import { parsePkg, overlayBaseHint } from '../core/we-scene-bundle.js'
+import { parsePkg, overlayBaseHint, parseScene, getOverlayBaseHint } from '../core/we-scene-bundle.js'
 import { WS } from './_root.mjs'
 
 const rows = []
@@ -26,6 +26,10 @@ try {
   ok('A3', '无 preview 时永不命中', overlayBaseHint({ objects: [{ image: 'x', copybackground: true }] }, ['scene.json']).suggest === false, '')
   ok('A4', '有 preview 但图片层非全叠加 ⇒ 不命中', overlayBaseHint({ objects: [{ image: 'x' }, { image: 'y', copybackground: true }] }, ['preview.jpg']).suggest === false, '')
   ok('A5', '无图片层（纯粒子档）⇒ 不命中', overlayBaseHint({ objects: [{ particle: 'p' }] }, ['preview.jpg']).suggest === false, '')
+  ok('A6', '接线：`parseScene(sceneJson, project, {entryNames})` 会把判定存进模块级读数',
+    (() => { const a2 = sceneOf(A); parseScene(a2.json, null, { entryNames: a2.names }); const h = getOverlayBaseHint(); return !!(h && h.suggest === true) })(), 'overlay-base 已接入 parseScene（只读）')
+  ok('A7', '诊断开关 `?overlaybase=1` 已登记在主表（只读读数，不改渲染）',
+    /^\| `overlaybase` \|/m.test(fs.readFileSync(path.join(WS, 'we-scene-demo', 'docs', 'README-DIAGNOSTICS.md'), 'utf8')), 'docs 行存在')
 } catch (e) {
   ok('A0', '语料可读（丛雨/妃咲两档）', false, String(e.message).slice(0, 80))
 }

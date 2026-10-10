@@ -464,6 +464,14 @@ export function parseWeJson(text) {
  *      等正常档**不命中** ⇒ 判定具备区分度。
  *  因此这是一个**有真机证据支撑的类别判据**：命中 ⇒ 建议以包内 `preview.jpg` 作基底层（**开关式**，
  *  默认关闭；是否转默认属产品决策，见台账 §E 第 32 条）。本函数只做判定，供诊断与开关使用。 */
+/** ③(2026-10-11 · 只读诊断) `?overlaybase=1`：把"全叠加层档"判定挂到 `window.__mpwOverlayBase`
+ *  供真机控制台核对（**不改任何渲染语义**）。模组级读数见 `getOverlayBaseHint()`。 */
+const OVERLAYBASE_DIAG = (() => {
+  try { return new URLSearchParams(location.search).get('overlaybase') === '1' } catch (e) { return false }
+})()
+let __lastOverlayBaseHint = null
+export function getOverlayBaseHint() { return __lastOverlayBaseHint }
+
 export function overlayBaseHint(sceneJson, entryNames) {
   const names = Array.isArray(entryNames) ? entryNames : []
   const hasPreview = names.some((n) => /(^|\/)preview\.(jpe?g|png)$/i.test(String(n)))
@@ -1635,6 +1643,10 @@ export function parseScene(sceneJson, project, opts = {}) {
   const PROJ_H = (sceneJson.general && sceneJson.general.orthogonalprojection && sceneJson.general.orthogonalprojection.height) || 1080
   const properties = (project && project.general && project.general.properties) || {}
   const objects = sceneJson.objects || []
+  /* ③(2026-10-11 · 只读) 全叠加层档判定（台账 §E 第 31/32 条）：宿主用 `opts.entryNames` 传入包内条目名即可；
+     缺省不传 ⇒ 只得到"无 preview"的空判定，对渲染零影响。`?overlaybase=1` 时同时挂 window 读数。 */
+  __lastOverlayBaseHint = overlayBaseHint(sceneJson, (opts && opts.entryNames) || [])
+  if (OVERLAYBASE_DIAG && typeof window !== 'undefined') { try { window.__mpwOverlayBase = __lastOverlayBaseHint } catch (e) { /* 忽略 */ } }
   /** ②(P-228l) 动画联动组接线的诊断（悬空 parent / 多级 parent；语料实读 0 处，留读数以防作者数据踩到） */
   const animLinkDiag = []
   /** ②(P-228l) raw scene.json 对象 → 该层的 `{field: ctrl}`（脚本门面 `getAnimation()` 用；WeakMap 不进 JSON） */
