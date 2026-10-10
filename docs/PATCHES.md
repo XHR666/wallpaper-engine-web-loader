@@ -17420,3 +17420,12 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 ## P-287（2026-10-11）判决书**入库**：把工作区 `docs/reverse/` 的 4 份判决/核验文档镜像进 `docs/`，并加 `tests/verdict-docs-test.mjs` 使其受门禁保护（同时满足 `status-consistency` 的 V2 证据要求）。
 
 ## P-288（2026-10-11）修全量门禁另两项失败：① `load-timeout` T4c —— 宿主接线改走 `bitmapT`（带超时纪律，不裸调 `createImageBitmap`）；② `data-limits` A5 —— 判据更新到 `startAutoReport()` 新结构（定时器只在该函数内 + `?report=auto` 仍调它），强度不降。提交 `caa0c39`；判据 `tests/load-timeout-test.mjs`（70/0）、`tests/data-limits-test.mjs`（49/0）。
+
+## P-289（2026-10-11）`status-consistency` 新增 **V5**：工作区台账 §1.1–§1.3 的每条 `❌/🟡` 行必须带"证据或口径"
+（判据文件 / 提交号 / 判决文档 / 口径词 / 归属·处置标注），否则判红 —— 把本会话反复出现的"陈旧 ❌"（#8/#13/#15/#16/#17/#19/#20/#22/#33）
+机制化挡住。提交 `1300028`；判据 `tests/status-consistency-test.mjs`（V5）。
+
+## P-293（2026-10-11）补 `PATCHES.md`：P-262（名字三形态兜底）/ P-266（候选库根回落）+ 工作区台账 §8「基线与范围」
+（`渲染器 \`we-scene-demo\` = **0.5.19**`、`P-208…P-225` 范围引用、门禁 **236 项**）—— 背景：工作区总台账因**不安全写入**
+（`open(w)` 先截断 + 编码异常）被清空，按会话事实**原子重建**（temp + `os.replace`）。提交 `48eb9a0`；
+判据 `tests/status-consistency-test.mjs`（V0a/V1/V1b）。
