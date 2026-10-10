@@ -940,6 +940,7 @@ add "parallax-clamp"     "node tests/parallax-clamp-test.mjs"   # §B #15：指�
 add "scene-fov-override" "node tests/scene-fov-override-test.mjs"   # 官方 assets 对照：scene.json general.perspectiveoverridefov（妃咲 95.0）置 fovPick 链头；?fovoverride=legacy 回退
 add "overlay-base-hint" "node tests/overlay-base-hint-test.mjs"   # 只读：「图片层全 copybackground + 有 preview」档判定（丛雨/逆流茶会命中；妃咲不命中）
 add "overlay-base-inject" "node tests/overlay-base-inject-test.mjs"   # 语义修复：全叠加层档以包内 preview 作基底层；?overlaybase=legacy 回退（B1-B8）
+add "overlay-base-host-wiring" "node tests/overlay-base-host-wiring-test.mjs"   # 宿主接线源码序：parseScene→段→__sceneLayers，回退位/封顶/纹理注册（C1-C7）
 #   的"只含容器的目录逐容器成条"与"浏览器选文件也接受 .mpkg"）；②**装载**（`__wp.loadSceneFile(blob)`
 #   从"明确降级的 no-op"变成真实现：IndexedDB 交接 + `?scenefile=1` 重载 + 取回即删；含假 IDB 往返判据）。
 add "bench-local-mpkg-scan" "node tests/bench-local-mpkg-scan-test.mjs"

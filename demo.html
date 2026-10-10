@@ -5411,6 +5411,53 @@ function loadScene() {
     }
   } catch (e) { logf('⚠ 视频底层失败: ' + e.message) }
   // ═══ MPW-VIDEOBASE-END ═══
+  // ═══ MPW-OVERLAYBASE（③ 2026-10-11，用户授权"有确切语义就直接改，改完留回退位"）═══
+  //   语义（台账 §E 第 31–33 条）：`type:scene` 但**图片/模型层全部 `copybackground: true`**、包内唯一图像素材
+  //   是 **preview 缩略图** 的档（`丛雨.mpkg`、`逆流茶会-姐妹日常 (x-ray).mpkg`）——那张 `.tex` 是噪声叠加贴图，
+  //   官方把可见画面交给"背景输入"。本仓此前把它当画面主体 ⇒ 真机马赛克。
+  //   修法：把包内 preview 缩略图当**基底层**垫在最下（克隆/仿照 MPW-VIDEOBASE 的层描述符写法），再叠原有层。
+  //   **回退位**：`?overlaybase=legacy` ⇒ `lib.OVERLAYBASE_LEGACY` 为真 ⇒ 整段跳过（逐位回到改动前）。
+  //   内存纪律：解码尺寸**封顶**（长边 ≤ 2048，≈9.4MB RGBA），且只在该类档命中时解码一次。
+  try {
+    if (!lib.OVERLAYBASE_LEGACY && !new URLSearchParams(location.search).has('nooverlaybase')) {
+      const __names = (pkg.entries || []).map((x) => x.name)
+      const __hint = lib.overlayBaseHint(sceneObj, __names)
+      if (__hint && __hint.suggest) {
+        const __pname = __names.find((n) => /(^|\/)preview\.(jpe?g|png)$/i.test(n))
+        const __pbytes = __pname ? lib.getEntry(pkg, __pname) : null
+        if (__pbytes && typeof createImageBitmap === 'function') {
+          const __blob = new Blob([__pbytes], { type: /\.png$/i.test(__pname) ? 'image/png' : 'image/jpeg' })
+          const __bmp = await createImageBitmap(__blob)
+          const __cap = 2048
+          const __sc = Math.min(1, __cap / Math.max(__bmp.width, __bmp.height))
+          const __bw = Math.max(1, Math.round(__bmp.width * __sc)), __bh = Math.max(1, Math.round(__bmp.height * __sc))
+          const __cv = document.createElement('canvas'); __cv.width = __bw; __cv.height = __bh
+          const __cx = __cv.getContext('2d', { willReadFrequently: true })
+          __cx.drawImage(__bmp, 0, 0, __bw, __bh)
+          const __px = __cx.getImageData(0, 0, __bw, __bh).data
+          const __rgba = new Uint8Array(__px.buffer.slice(0))
+          if (lib.setOverlayBaseTexture(__rgba, __bw, __bh)) {
+            textures.set(lib.OVERLAY_BASE_TEX, {
+              glTex: lib.makeTexture(gl, __rgba, __bw, __bh, null, null, 'overlaybase'),
+              width: __bw, height: __bh,
+            })
+            const __g0 = scene.general || {}
+            const __PW = (__g0.orthogonalprojection && __g0.orthogonalprojection.width) || 3840
+            const __PH = (__g0.orthogonalprojection && __g0.orthogonalprojection.height) || 2160
+            scene.layers.unshift({ id: -10002, name: lib.OVERLAY_BASE_TEX, textureName: lib.OVERLAY_BASE_TEX,
+              origin: [__PW / 2, __PH / 2, 0], size: [__PW, __PH], scale: [1, 1, 1], angles: [0, 0, 0],
+              color: [1, 1, 1], alpha: 1, visible: true, alignment: 'center', effects: [] })
+            logf('🖼 基底回退已加入（preview 缩略图）：' + __pname + '，' + __bw + '×' + __bh)
+          }
+          try { __bmp.close && __bmp.close() } catch (e) { /* 忽略 */ }
+        } else {
+          logf('⚠ 基底回退未生效：' + (__pbytes ? '缺 createImageBitmap' : ('包内无 preview：' + __hint.hasPreview)))
+        }
+      }
+    }
+  } catch (e) { logf('⚠ 基底回退失败: ' + e.message) }
+  // ═══ MPW-OVERLAYBASE-END ═══
+
   // ①(2026-09-21 宿主调试面) 把图层数组发布到 `window.__sceneLayers`：测试台（`:8902`）「调试模式」页签的
   //   逐层隔离**只认这个全局**（`demo/bench-patch.js` 的 `sceneLayerList()`），没有它面板会如实写
   //   "没有可逐层查看的场景"。本仓 core 的渲染循环**逐帧**读 `layer.visible`（`render()` 里
