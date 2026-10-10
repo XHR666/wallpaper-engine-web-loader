@@ -68,6 +68,25 @@ console.log('== S1 STATUS 唯一索引一致性 ==')
     bad.length ? bad.map((l) => (/\d+\./.exec(l) || [''])[0]) : '')
 }
 
+/* V5 每条 ❌/🟡 编号行必须带"证据或口径"（2026-10-11 新增）
+   由来：本会话反复出现"台账写 ❌、代码其实已修"的**陈旧项**（#8/#13/#15/#16/#17/#19/#20/#22/#33 等），
+   根因是"状态行没有绑定可复核的证据"。V5 要求每条未完成/部分行至少带上下列之一：
+   · 判据文件（tests/*.mjs 或 tools/*.mjs）· 提交号（7+ hex）· 判决/核验文档（docs/*.md）
+   · 明确口径词（语料 / 扫描 / 口径 / 判决 / 核验）· 归属/处置标注（【归属…】/【处置…】）
+   否则视为"无法复核的状态声明"，直接判红。 */
+{
+  /* 边界与 V2 一致：只扫 §1.1/§1.2/§1.3 的编号行（§E 是过程记录，不是待办清单） */
+  const secStart = st.indexOf('## 1.1')
+  const secEnd = st.indexOf('## 1.4')
+  const scope = (secStart >= 0 && secEnd > secStart) ? st.slice(secStart, secEnd) : st
+  const lines = scope.split('\n')
+  const rows = lines.filter((l) => /^\d+\. (❌|🟡)/.test(l))
+  const okRe = /(tests\/[\w.-]+\.mjs|tools\/[\w.-]+\.mjs|\b[0-9a-f]{7,40}\b|docs\/[\w./-]+\.md|语料|扫描|口径|判决|核验|【归属|【处置)/
+  const bad = rows.filter((l) => !okRe.test(l))
+  check('V5 ❌/🟡 行 ' + rows.length + ' 条全部带证据/口径（缺：' + (bad.map((l) => l.slice(0, 26)).join(' | ') || '无') + '）',
+    bad.length === 0, bad.length ? bad.map((l) => (/(\d+)\./.exec(l) || [''])[0]) : '')
+}
+
 /* V3 同一 P- 编号不得有两种状态 */
 {
   const rows = st.split('\n').filter((l) => /^\d+\. (✅|🟡|❌|🚫|⏳)/.test(l) && /P-\d\d\d/.test(l))
