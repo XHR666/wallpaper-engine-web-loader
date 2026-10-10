@@ -16058,7 +16058,9 @@ export function createRenderer(canvas, opts = {}) {
       gl.useProgram(prog)
       // ①(修) 按程序属性尺寸重建 VAO（vec3/vec2 与默认 vao 指针匹配；bindVAOFor 此前零调用）
       try { bindVAOFor(prog, PASS_QUAD) } catch {}
-      // ①(WER-ALIGN C12 官方 2026-09-14) 效果链**全部中间 pass 强制 Normal（替换写）**：
+      // ①(WER-ALIGN C12（**第三方 wer-ref**）2026-09-14) 效果链**全部中间 pass 强制 Normal（替换写）**：
+      //   ⚠ 来源更正：该证据来自**第三方参考实现** `references/wer-ref/`（`SceneImageEffectLayer.cpp:331`），
+      //   **不是官方** ✗；本仓据此实现，**官方语义待官方证据确认**（来源审计见 docs/INDEX-VERIFY-index-verifier.md §2 A1）。
       //   wer-ref SceneImageEffectLayer.cpp:331（行为对照：链内 pass 的 blendmode 被就地覆盖成 Normal）——
       //   链内 pass 写的是私有 pingpong FBO，材质声明的 translucent/additive 只属于
       //   "层→屏幕"合成；照抄会导致半透明层在链内叠出鬼影/alpha 累积错误。

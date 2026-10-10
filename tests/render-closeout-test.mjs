@@ -20,9 +20,12 @@ const bundleSrc = fs.readFileSync(new URL('../core/we-scene-bundle.js', import.m
 chk(bundleSrc.includes('(WER-ALIGN C12'), '① C12 注释标记存在')
 chk(!/setBlend\(mp\.blending/.test(bundleSrc), '① 链内不再使用材质声明的 blending', 'setBlend(mp.blending) 应为 0 处')
 {
-  // 效果链 pass 调用点附近必须 setBlend('normal')（取 C12 标记后 300 字符内）
+  /* 效果链 pass 调用点附近必须 setBlend('normal')。
+     ①(2026-10-11) 窗口从 **300 加宽到 800**：原窗口把"注释的字节长度"当成了语义条件 ✗ ——
+     一次**纯注释**的来源更正（插入来源说明两行）就把 `setBlend('normal')` 挤出窗口 ⇒ **假红** ✗。
+     判据要钉的是"调用点与标记同处一段代码"，不是"注释多长" ✓（标记本身仍是 `(WER-ALIGN C12` ✓）。 */
   const i = bundleSrc.indexOf('(WER-ALIGN C12')
-  chk(i >= 0 && bundleSrc.slice(i, i + 300).includes("setBlend('normal')"), '① 链内 setBlend(\'normal\') 就位')
+  chk(i >= 0 && bundleSrc.slice(i, i + 800).includes("setBlend('normal')"), '① 链内 setBlend(\'normal\') 就位')
 }
 
 // ── ② C10：fullscreen/passthrough 语料 0 使用 → no-op 结论（防回归：别名表仍在） ──
