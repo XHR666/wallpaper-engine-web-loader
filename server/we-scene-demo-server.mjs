@@ -389,6 +389,29 @@ function libraryRoots() {
   const primary = currentLibraryRoot();
   return primary === SAMPLE_ROOT ? [primary] : [primary, SAMPLE_ROOT];
 }
+/** ①(2026-10-10) **候选库根回落**：id 不在"生效根"下时，按 basename 到**同级兄弟库根**里找一次。
+ *  真机依据：`:8902` 的生效根 = `allwallpaper/0923`，而目标包在 `allwallpaper/1004`
+ *  ⇒ 请求 `/pkg/逆流茶会-姐妹日常+(x-ray).mpkg` 无论名字怎么编码都 404（用户 2026-10-10 16:37 日志）。
+ *  有界：只扫生效根的**同级一层目录**、上限 64 个、结果按 primary 缓存；只对 `.mpkg`/`.pkg` 生效。
+ *  台账：命中时 `globalThis.__pkgRootFallback` 计数 +1（诊断用），并标注 `from:'sibling-root'`。 */
+const __siblingRootCache = new Map()
+function siblingLibraryRoots(primary) {
+  const key = String(primary || '')
+  if (!key) return []
+  if (__siblingRootCache.has(key)) return __siblingRootCache.get(key)
+  const out = []
+  try {
+    const parent = path.dirname(key)
+    for (const d of fs.readdirSync(parent, { withFileTypes: true })) {
+      if (!d.isDirectory()) continue
+      const p = path.join(parent, d.name)
+      if (p !== key && !out.includes(p)) out.push(p)
+      if (out.length >= 64) break
+    }
+  } catch { /* 读不到就当作没有兄弟根 */ }
+  __siblingRootCache.set(key, out)
+  return out
+}
 function findScene(id) {
   for (const root of libraryRoots()) {
     const dir = path.join(root, String(id));
@@ -1467,6 +1490,18 @@ const serverHandler = async (req, res) => {
           const r = libItemResolve(root, cand)
           if (r.ok) { if (r.isFile && /\.(mpkg|pkg)$/i.test(cand)) { hit = { file: r.full, size: r.st.size, from: 'container-file' }; break } }
           else if (!firstErr) firstErr = r
+        }
+        /* ①(2026-10-10) 生效根下没有 ⇒ 到**同级兄弟库根**兜底（见 siblingLibraryRoots 的注释：
+           真机 :8902 生效根 0923 / 包在 1004 ⇒ 只修名字编码不足以让包可加载）。 */
+        if (!hit && /\.(mpkg|pkg)$/i.test(cand)) {
+          for (const root of siblingLibraryRoots(currentLibraryRoot())) {
+            const r = libItemResolve(root, cand)
+            if (r.ok && r.isFile) {
+              hit = { file: r.full, size: r.st.size, from: 'sibling-root' }
+              try { globalThis.__pkgRootFallback = (globalThis.__pkgRootFallback || 0) + 1 } catch { /* 忽略 */ }
+              break
+            }
+          }
         }
         if (hit) break
       }
