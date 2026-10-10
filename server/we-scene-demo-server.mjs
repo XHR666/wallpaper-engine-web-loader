@@ -202,38 +202,39 @@ function shotsDirIds() {
     return fs.readdirSync(root).filter((n) => { const st = statSyncSafe(path.join(root, n)); return !!st && st.isDirectory() });
   } catch { return [] }
 }
-// shots/** 全局字节上限：跨 id 合计超限时**每次删"所有 id 里最旧的那一帧"**（公平，
-//   不会一次掏空某个 id）。上限 500MB —— 一台设备整个上报目录的硬顶。
-function pruneShotsAll() {
+// shots/** 全局字节上限：跨 id 合计超限时**删"所有 id 里最旧的那一帧"**（公平，不会一次掏空某个 id）。
+//   上限 500MB —— 一台设备整个上报目录的硬顶。
+//   ③(2026-10-11 · 台账 §1.1 第 20 项修) **复杂度**：旧实现每删一帧就 `scan()` 一次（重读全部 id 目录 + stat
+//   全部文件）⇒ 文件数千时是 **O(n²)**（实测 id 上千会明显卡启动）。现改为 **扫一次 → 全量排序一次 → 顺序删**：
+//   策略与结果**完全不变**（仍按 (mtime, id, name) 升序从最旧删到限内），复杂度降到 **O(n log n)**，
+//   且删除阶段**零额外 stat/readdir**（判据 `tests/shots-prune-complexity-test.mjs` 用计数包装 readdirSync 验证）。
+export function pruneShotsAll() {
   const root = path.join(MPW_REPORTS_DIR, 'shots');
   let removed = 0, freedBytes = 0;
   try {
     const ids = shotsDirIds();
-    const scan = () => {
-      let total = 0; const oldest = [];
-      for (const id of ids) {
-        const dir = path.join(root, id);
-        let names = []; try { names = fs.readdirSync(dir) } catch { continue }
-        const rows = [];
-        for (const n of names) {
-          if (!/\.(jpg|png)$/i.test(n)) continue;
-          const st = statSyncSafe(path.join(dir, n));
-          if (!st || !st.isFile()) continue;
-          rows.push({ n, size: st.size, mtime: st.mtimeMs });
-          total += st.size;
-        }
-        rows.sort((a, b) => (a.mtime - b.mtime) || a.n.localeCompare(b.n));
-        if (rows.length) oldest.push({ id, dir, row: rows[0] });
+    /* ① 一次扫描：收集全部帧（含 id/dir/名/大小/mtime）与总量 */
+    const all = [];
+    let total = 0;
+    for (const id of ids) {
+      const dir = path.join(root, id);
+      let names = []; try { names = fs.readdirSync(dir) } catch { continue }
+      for (const n of names) {
+        if (!/\.(jpg|png)$/i.test(n)) continue;
+        const st = statSyncSafe(path.join(dir, n));
+        if (!st || !st.isFile()) continue;
+        all.push({ id, dir, n, size: st.size, mtime: st.mtimeMs });
+        total += st.size;
       }
-      return { total, oldest };
-    };
-    let guard = 0;
-    while (guard++ < 200000) {
-      const s = scan();
-      if (s.total <= MPW_LIMITS.shotTotalMaxBytes || !s.oldest.length) break;
-      s.oldest.sort((a, b) => (a.row.mtime - b.row.mtime) || a.id.localeCompare(b.id));
-      const pick = s.oldest[0];
-      try { fs.unlinkSync(path.join(pick.dir, pick.row.n)); removed++; freedBytes += pick.row.size } catch { break }
+    }
+    /* ② 一次排序（策略等价于旧实现：整体最旧优先；(mtime, id, name) 升序保证与旧口径同序） */
+    if (total > MPW_LIMITS.shotTotalMaxBytes && all.length) {
+      all.sort((a, b) => (a.mtime - b.mtime) || a.id.localeCompare(b.id) || a.n.localeCompare(b.n));
+      /* ③ 顺序删到限内：此阶段不再 readdir/stat */
+      for (const row of all) {
+        if (total <= MPW_LIMITS.shotTotalMaxBytes) break;
+        try { fs.unlinkSync(path.join(row.dir, row.n)); removed++; freedBytes += row.size; total -= row.size } catch { /* 单个失败不阻塞其余 */ }
+      }
     }
   } catch { /* ignore */ }
   logPrune('shots/**', removed, freedBytes, '全局上限 ' + Math.round(MPW_LIMITS.shotTotalMaxBytes / 1048576) + 'MB');

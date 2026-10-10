@@ -931,6 +931,7 @@ add "mesh3d-camera" "node tests/mesh3d-camera-test.mjs"
 #   `bench-mpkg-items` 的 A1m + 变异 M4 端到端判；这里判纯前端 `planLocalScan`/`detectWallpaperKind`
 add "pkg-id-encoding"    "node tests/pkg-id-encoding-test.mjs"   # P-262：`/pkg/<id>` 的 `+`/`%20`/非 ASCII 三形态兜底（`+` 形态曾恒 404 ⇒ 页面 `pkg HTTP 404` + 7s 无首帧）
 add "pkg-root-fallback" "node tests/pkg-root-fallback-test.mjs"   # 真机 16:37：:8902 生效根 0923 / 包在 1004 ⇒ 库根不匹配也会 404；判候选库根回落（A1-A4）
+add "shots-prune-complexity" "node tests/shots-prune-complexity-test.mjs"   # 台账 §1.1#20：shots 全局清理 O(n²)→O(n log n)（readdir 计数验证，策略不变）
 add "builtin-asset-tex"  "node tests/builtin-asset-texture-test.mjs"   # 官方包外内置素材（particle/halo*、util/white、beam_1）的程序化像素源：语义 RGB255/形状在 alpha + resolveTextureName 回落接线
 add "tex-split-plane"    "node tests/tex-split-plane-test.mjs"   # P-264：format 5（DXT5 半分辨率）载荷是**平面分离**（前半全部 alpha 块、后半全部 color 块）⇒ 重排后天空 MAD 103.6→4.9、树丛1 114.6→13.8
 add "fbo-format-vocab"   "node tests/fbo-format-vocabulary-test.mjs"   # §A #6：FBO `format` 词表现状基线（r8/rg88 真映射；其余只 declaredFormat 不改分配）+ ?fbodesc=legacy 回退口
