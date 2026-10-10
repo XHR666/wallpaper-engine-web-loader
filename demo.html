@@ -4638,7 +4638,9 @@ function loadScene() {
       buf = new Uint8Array(b)
     }
   } else {
-    const url = '/pkg/' + id
+    /* ③(2026-10-10) 出端加固：按段 encodeURIComponent（空格恒为 %20，绝不产生裸 `+`；
+       与 server 侧的 `+`↔空格兜底互为双保险）。 */
+    const url = '/pkg/' + String(id).split('/').map(encodeURIComponent).join('/')
     const r = await fetchT(url, null, NET_TIMEOUT_MS, '场景包')
     if (!r) throw pkgTimeoutErr('pkg')
     // ①(P-87 2026-09-15 版权) 首屏默认包（3554161528）过去是**随仓库分发**的真实壁纸，已因版权移除。

@@ -1444,19 +1444,33 @@ const serverHandler = async (req, res) => {
       try { id = decodeURIComponent(id) } catch { res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }); res.end('bad id'); return }
       const relOk = !!libItemRel(id)
       if (!relOk) { res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }); res.end('bad id'); return }
-      const sc = findScene(id);
+      /* ③(2026-10-10) `+` ↔ 空格 **双形态兜底**：本路由只做 `decodeURIComponent`（不把 `+` 还原成空格），
+         而调用方可能用 `URLSearchParams` 之类的编码器把空格写成 `+` ⇒ 同一个文件 `%20` 形态 200、
+         `+` 形态恒 404（真机实测：`…姐妹日常+(x-ray).mpkg` 404 / `…姐妹日常%20(x-ray).mpkg` 200）。
+         这里按「原样 → `+`→空格 → 空格→`+`」依次解析：原样优先 ⇒ 合法含 `+` 的文件名不会被误伤；
+         三种形态都不在库里仍如实 404 `no scene`（既有客户端按这段文本判断）。 */
+      const idForms = [id]
+      const plusToSpace = id.replace(/\+/g, ' ')
+      if (plusToSpace !== id) idForms.push(plusToSpace)
+      const spaceToPlus = id.replace(/ /g, '+')
+      if (spaceToPlus !== id) idForms.push(spaceToPlus)
       let hit = null
-      if (sc) {
-        const st = statSyncSafe(sc.pkgPath)
-        if (st && st.isFile()) hit = { file: sc.pkgPath, size: st.size, from: 'scene-dir' }
-      }
-      if (!hit) {
-        let firstErr = null
+      let firstErr = null
+      for (const cand of idForms) {
+        if (!libItemRel(cand)) continue
+        const sc = findScene(cand)
+        if (sc) {
+          const st = statSyncSafe(sc.pkgPath)
+          if (st && st.isFile()) { hit = { file: sc.pkgPath, size: st.size, from: 'scene-dir' }; break }
+        }
         for (const root of libraryRoots()) {
-          const r = libItemResolve(root, id)
-          if (r.ok) { if (r.isFile && /\.(mpkg|pkg)$/i.test(id)) { hit = { file: r.full, size: r.st.size, from: 'container-file' }; break } }
+          const r = libItemResolve(root, cand)
+          if (r.ok) { if (r.isFile && /\.(mpkg|pkg)$/i.test(cand)) { hit = { file: r.full, size: r.st.size, from: 'container-file' }; break } }
           else if (!firstErr) firstErr = r
         }
+        if (hit) break
+      }
+      if (!hit) {
         /* 越界（400/403）要如实回，不能糊成 404：这是安全事件，与"这个 id 没有包"是两回事。
            合法的"不存在"仍走下面的老口径 404 `no scene`（既有客户端按这段文本判断）。 */
         if (firstErr && (firstErr.code === 400 || firstErr.code === 403)) {
