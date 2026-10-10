@@ -17429,3 +17429,21 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 （`渲染器 \`we-scene-demo\` = **0.5.19**`、`P-208…P-225` 范围引用、门禁 **236 项**）—— 背景：工作区总台账因**不安全写入**
 （`open(w)` 先截断 + 编码异常）被清空，按会话事实**原子重建**（temp + `os.replace`）。提交 `48eb9a0`；
 判据 `tests/status-consistency-test.mjs`（V0a/V1/V1b）。
+
+## P-309（2026-10-11）视差**参考点**与 `parallaxDepth` **同源**（官方 A4 同一 `x22`）—— `core/we-scene-bundle.js` 新增
+`parPosSrc = __parPosLegacy ? layer : parDepthSrc`，公式改用 `pox/poy`；新增 `?parpos=legacy` 回退（照 `__parOffLegacy` 写法 ✓）。
+官方依据：`libscenejni.so` A4 `0x2557bf4-0x2557c14`（`GetParent()` 到根）+ `0x2557c28`（位置 `[x22,#248]`）与 `0x2557c30`（depth `[x22,#320]`）
+**同一 `x22`** ✓；桌面 x86-64 独立复现。语料（205 容器）：根位置 ≠ 本层世界位置 **650 层/31 容器**，Δpos p50 656px / max 4043px。
+提交 `69db5aa`；判据 `tests/parallax-root-position-test.mjs`（7/0 ✓）；`official-parallax-formula` 34/3 → **37/0**（纯锚点维护 ✓）。
+
+## P-310（2026-10-11）附件动画**帧长来源**钉死（MDLA `length`；`90` 仅兜底）+ 清 5 处"90 帧"错述 ——
+`demo.html:4912` 的 `frameCount` 即官方 `length` ✓，`:5046` 的 `|| 90` 仅兜底 ✓，运行时真消费 `a.len`/`a.fps`（三态齐全 ✓）；
+语料 205 容器：含 MDLA 的 `.mdl` 70 / 动画 107，**`length ≠ 90` = 104/107** ✓。提交 `78c6528`；判据 `tests/mdla-attach-rhythm-test.mjs`（7/0 ✓）。
+
+## P-312（2026-10-11）`camerashake*` 缺省值对齐**官方默认**（官方 166/166 实测：`amplitude=0.5` · `roughness=1` · `speed=3`）——
+旧实现缺省 `0/0` ✗ ⇒ `camerashake=true` 而缺子键时完全不动 ✗；现改为官方缺省 ✓，回退 `?camerashake=legacy` ✓。
+官方噪声公式**静态不可得**（PE+capstone 全量扫 `.text` 引用 0；第三方 `lwe` 仅解析 / `wer-ref` 无）⇒ 判定书 `docs/reverse/CAMERASHAKE-VERDICT-20261011.md`。
+提交 `2541727`；判据 `tests/scene-camerashake-binding-test.mjs`（10/0 ✓）。
+
+## P-313（2026-10-11）同步重新生成的 `web/diag-flags.json`（P-312 改 `core/` 致行号漂移）——
+按 P-308 先例把生成物入库 ⇒ 消除"每次跑门禁都弄脏工作树"的噪声 ✗。提交 `1951b95`。
