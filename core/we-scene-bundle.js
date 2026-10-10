@@ -4377,6 +4377,10 @@ export function buildCamera(scene, width, height, opts = null) {
     const nodeAnchor = !!(!orthoRect && cn && cStat && isFinite(oz) && Math.abs(oz) > 1e-6)
     // fov 取值链：pose（关键帧动画）→ 用户属性绑定（面板"视场"滑块）→ 绑定原文静态值 → 相机节点值 → general.fov → 50
     const fovPick = [
+      /* ③(2026-10-10 · 官方 assets 对照) 场景级 `general.perspectiveoverridefov` = **透视 FOV 覆盖**，
+         官方语义优先于相机层；缺省消费、`?fovoverride=legacy` 忽略（逐位回旧行为）。 */
+      (!FOVOVERRIDE_LEGACY && Number.isFinite(Number(general.perspectiveoverridefov)) && Number(general.perspectiveoverridefov) > 0)
+        ? Number(general.perspectiveoverridefov) : null,
       (pose && typeof pose.fov === 'number' && isFinite(pose.fov) && pose.fov > 0) ? pose.fov : null,
       (cn && typeof cn.fovFromUser === 'number' && isFinite(cn.fovFromUser) && cn.fovFromUser > 0) ? cn.fovFromUser : null,
       (cn && cn.fovRaw && typeof cn.fovRaw === 'object' && cn.fovRaw.value !== undefined
@@ -8931,6 +8935,13 @@ const PARALLAX_SPACE_LEGACY = (() => {
  *  （天空 103.6→4.9 等）。但用户口述"马赛克换了样式仍在"，与三张干净截图矛盾 ⇒ 需要**真机 A/B** 定论：
  *  缺省 = 平面分离重排（P-264 口径）；`?texplane=legacy` = **逐位回到 P-264 之前**（每 16B 块连续，
  *  alpha@0..7 + color@8..15）。哪个更像官方，由用户在真机上一眼判定（不靠自造指标）。 */
+/** ③(2026-10-10 · 官方 assets 对照) 场景级**透视 FOV 覆盖**的回退口。
+ *  官方 `scene.json` 的 `general.perspectiveoverridefov`（官方 assets 里 69 处使用；妃咲包实测 `95.0`）
+ *  语义 = **覆盖**相机层的 fov（透视档专用）。本仓此前完全不解析该字段 ⇒ 透视档会用相机层 fov/缺省 50。
+ *  缺省 = 消费该字段（作为 `fovPick` 链的**最高优先级**）；`?fovoverride=legacy` = 逐位回到改动前（忽略它）。 */
+const FOVOVERRIDE_LEGACY = (() => {
+  try { return new URLSearchParams(location.search).get('fovoverride') === 'legacy' } catch (e) { return false }
+})()
 const TEXPLANE_LEGACY = (() => {
   try { return new URLSearchParams(location.search).get('texplane') === 'legacy' } catch (e) { return false }
 })()
