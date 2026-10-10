@@ -30,7 +30,10 @@ ok('A2', '长度不匹配 ⇒ 原样返回（旧行为零风险）', (() => { co
 ok('A3', '非 4 对齐尺寸的块数按 ceil 计算', reorderSplitPlanes(new Uint8Array(2 * 16), 5, 5).length === 32, 'ceil ok')
 
 const src = fs.readFileSync(path.join(ROOT, 'core', 'we-scene-bundle.js'), 'utf8')
-ok('C1', '接线：format 5 分支调用 reorderSplitPlanes', /case 5: return decodeDXT5\(reorderSplitPlanes\(data, w, h\), w, h\)/.test(src), 'wired ok')
+ok('C1', '接线：format 5 缺省走 reorderSplitPlanes（平面分离）',
+  /case 5: return decodeDXT5\(TEXPLANE_LEGACY \? data : reorderSplitPlanes\(data, w, h\), w, h\)/.test(src), 'wired ok')
+ok('C2', 'A/B 回退口：`?texplane=legacy` 读存在且只认 legacy（真机对照用）',
+  /get\('texplane'\) === 'legacy'/.test(src) && /^\| `texplane` \|/m.test(fs.readFileSync(path.join(ROOT, 'docs', 'README-DIAGNOSTICS.md'), 'utf8')), 'legacy 开关 + 主表登记')
 
 // B 段：真语料回归（条件项）——天空/树丛1 的不透明区 RGB 相邻差必须 ≤ 阈值
 /* 样本路径**不得写成字面绝对路径**（publish-check 红线：公开仓库不带操作环境信息）：

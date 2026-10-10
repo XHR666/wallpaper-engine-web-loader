@@ -1058,7 +1058,7 @@ export function decodePixels(format, data, w, h) {
     case 2: return fromRGB565(data, w, h)
     case 4: return decodeDXT5(data, w, h)
     // RE-40：格式 5 = DXT5，载荷同格式 4，仅容器声明宽高为实际尺寸 2 倍
-    case 5: return decodeDXT5(reorderSplitPlanes(data, w, h), w, h)   /* ③(2026-10-10) 平面分离重排，见 reorderSplitPlanes */
+    case 5: return decodeDXT5(TEXPLANE_LEGACY ? data : reorderSplitPlanes(data, w, h), w, h)   /* ③(2026-10-10) 缺省=平面分离重排（P-264）；?texplane=legacy = P-264 之前的块内连续口径 */
     case 6: return decodeDXT3(data, w, h)
     case 7: return decodeDXT1(data, w, h)
     case 8: return fromRG88(data, w, h)
@@ -8925,6 +8925,15 @@ const PARALLAX_SPACE_LEGACY = (() => {
  *  官方则继续推进（差异仅在鼠标越出画布边界时可见）。缺省档 = 不夹（对齐官方）；`?parclamp=legacy`
  *  = 逐位回到改动前的 clamp。**注意**：`core/we-pointer-source.mjs` 的 `applyMove()` 本就不夹（已核实），
  *  本条只针对视差链这条独立监听。 */
+/** ③(2026-10-10) `format 5`（DXT5 半分辨率）解码口径的 **A/B 回退口**。
+ *  P-264 把该格式的载荷按"**平面分离**"（前半 `nB*8` = 全部 alpha 块、后半 = 全部 color 块）重排后交给
+ *  既有 DXT5 解码器 —— 依据是 10 张 format 5 贴图上"旧口径 10/10 最差、平面分离 10/10 更好"的对照
+ *  （天空 103.6→4.9 等）。但用户口述"马赛克换了样式仍在"，与三张干净截图矛盾 ⇒ 需要**真机 A/B** 定论：
+ *  缺省 = 平面分离重排（P-264 口径）；`?texplane=legacy` = **逐位回到 P-264 之前**（每 16B 块连续，
+ *  alpha@0..7 + color@8..15）。哪个更像官方，由用户在真机上一眼判定（不靠自造指标）。 */
+const TEXPLANE_LEGACY = (() => {
+  try { return new URLSearchParams(location.search).get('texplane') === 'legacy' } catch (e) { return false }
+})()
 const PARCLAMP_LEGACY = (() => {
   try { return new URLSearchParams(location.search).get('parclamp') === 'legacy' } catch (e) { return false }
 })()
