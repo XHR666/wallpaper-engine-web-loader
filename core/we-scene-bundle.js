@@ -7416,6 +7416,54 @@ export function parseMaterialMeta(...sources) {
   return meta
 }
 /** 纹理关联 combo：sampler uniform 注释声明 combo，且该槽提供了纹理 → combo = 1（ShaderUnit.cpp:545-617） */
+/* ③(2026-10-10) 官方**包外内置素材**的**程序化像素源**（接入点见 `resolveTextureName`）。
+   为什么需要：包内纹理表查不到、又不是 `$` 开头宿主系统纹理时，老口径直接 `null`/回落 ⇒
+   `particle/halo_6`（自定义 effect 的圆形精灵，如 `effects/xray` 的 g_Texture2 默认值）、
+   `util/white`、`particle/beam/beam_1` 这类**官方内置素材名**永远没有像素源。
+   语义依据（本文件 :10014 实测语料结论）：`particle/halo`、`halo_3/4/6`、`download`、`drop`
+   等**全部是「RGB 恒 255 + 形状在 alpha」**；`util/white` = 1×1 不透明白。
+   纯函数（不碰 GL），便于单测；GL 侧由调用方 makeTexture 落纹理。 */
+export function builtinAssetTextureRGBA(name) {
+  const n = String(name == null ? '' : name)
+  if (n === 'util/white') return { width: 1, height: 1, rgba: new Uint8Array([255, 255, 255, 255]) }
+  if (n === 'util/black') return { width: 1, height: 1, rgba: new Uint8Array([0, 0, 0, 255]) }
+  const halo = /^particle\/halo(_(\d+))?$/.exec(n)
+  if (halo) {
+    /* 档位语义：`halo` 无后缀 = 1 档；数字越大环越宽、衰减越缓（官方 halo_3/4/6 为同族档位）。 */
+    const tier = halo[2] ? Math.max(1, Math.min(8, Number(halo[2]))) : 1
+    const S = 64
+    const rgba = new Uint8Array(S * S * 4)
+    const inner = 0.18 + 0.06 * (tier - 1)
+    const outer = 0.78 + 0.03 * (tier - 1)
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const dx = ((x + 0.5) / S) * 2 - 1
+        const dy = ((y + 0.5) / S) * 2 - 1
+        const r = Math.sqrt(dx * dx + dy * dy)
+        let a = r <= inner ? 1 : (r >= outer ? 0 : 1 - (r - inner) / (outer - inner))
+        a = a * a * (3 - 2 * a) // smoothstep 收边（避免硬边）
+        const i = (y * S + x) * 4
+        rgba[i] = 255; rgba[i + 1] = 255; rgba[i + 2] = 255; rgba[i + 3] = Math.round(a * 255)
+      }
+    }
+    return { width: S, height: S, rgba }
+  }
+  if (n === 'particle/beam/beam_1') {
+    const W = 8
+    const H = 64
+    const rgba = new Uint8Array(W * H * 4)
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4
+        const t = 1 - Math.abs(((x + 0.5) / W) * 2 - 1)
+        rgba[i] = 255; rgba[i + 1] = 255; rgba[i + 2] = 255; rgba[i + 3] = Math.round(t * 255)
+      }
+    }
+    return { width: W, height: H, rgba }
+  }
+  return null
+}
+
 export function parseTextureCombos(src) {
   const out = []
   const re = /uniform\s+sampler2D\s+(g_Texture(\d+))[^;]*;\s*\/\/([^\n]*)/g
@@ -12984,6 +13032,10 @@ export function createRenderer(canvas, opts = {}) {
     }
   }
 
+  /* ③(2026-10-10) 内置素材纹理缓存 + 台账（诊断用；命中说明"这个包外素材名有了像素源"）。 */
+  const builtinTexCache = new Map()
+  const __builtinTexLedger = { hits: 0, names: {} }
+  try { if (typeof globalThis !== 'undefined') globalThis.__mpwBuiltinTex = __builtinTexLedger } catch (e) { /* 忽略 */ }
   function resolveTextureName(name, inputFBO, effectFBOs, textures) {
     if (name === null || name === undefined || name === '') return null
     if (name.startsWith('_rt_')) {
@@ -13006,6 +13058,22 @@ export function createRenderer(canvas, opts = {}) {
       const hit = resolveSystemTexture(name, textures, 'pass')
       if (hit) return hit
     }
+    /* ③(2026-10-10) **官方包外内置素材回落**：包内没有、也不是 `$` 宿主系统纹理时，查内置素材表
+       —— `particle/halo_6`（`effects/xray` 的圆形精灵）、`util/white`、`particle/beam/beam_1`
+       在这里拿到像素源。命中/未命中都进 `__mpwBuiltinTex` 台账，便于真机诊断。 */
+    try {
+      const b = builtinAssetTextureRGBA(name)
+      if (b) {
+        let t = builtinTexCache.get(name)
+        if (!t) {
+          t = makeTexture(gl, b.rgba, b.width, b.height, null, null, 'builtin:' + name)
+          builtinTexCache.set(name, t)
+        }
+        __builtinTexLedger.hits++
+        __builtinTexLedger.names[name] = (__builtinTexLedger.names[name] || 0) + 1
+        return t
+      }
+    } catch (e) { /* 忽略：内置源失败仍走旧口径，不改变既有行为 */ }
     return null
   }
 
