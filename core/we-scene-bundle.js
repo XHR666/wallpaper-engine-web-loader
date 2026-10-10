@@ -455,6 +455,30 @@ export function parseWeJson(text) {
 //   随后 count 个入口：{ uint32 nameLen, name 字节, uint32 offset, uint32 size }
 //   dataStart = 入口表结束位置；入口数据 = dataStart + offset，长度 size。
 //   offset 为相对 dataStart 的偏移（首个入口 offset 恒为 0）。
+/** ③(2026-10-11 · **只读**检测，不改任何渲染语义) "全叠加层 + 有 preview" 档的判定。
+ *  台账依据（§E 第 31/32 条，来自真机取样与语料普查）：
+ *    · `丛雨.mpkg`（4 对象 / 2 tex）与 `逆流茶会-姐妹日常 (x-ray).mpkg`（2 对象 / 2 tex）——
+ *      **图片/模型层全部 `copybackground: true`** 且包内**有 `preview.jpg`** ⇒ 用户在真机上看到的
+ *      是**噪声/马赛克**（因为画面主体本应由"背景输入"提供，而那张 `.tex` 只是噪声叠加贴图）；
+ *    · `夜莺…妃咲`（46 层，cb=0/46）、`夜莺…小鸟游星野`（126 层，cb=0/126）、`藤田ことね`（cb=0/1）
+ *      等正常档**不命中** ⇒ 判定具备区分度。
+ *  因此这是一个**有真机证据支撑的类别判据**：命中 ⇒ 建议以包内 `preview.jpg` 作基底层（**开关式**，
+ *  默认关闭；是否转默认属产品决策，见台账 §E 第 32 条）。本函数只做判定，供诊断与开关使用。 */
+export function overlayBaseHint(sceneJson, entryNames) {
+  const names = Array.isArray(entryNames) ? entryNames : []
+  const hasPreview = names.some((n) => /(^|\/)preview\.(jpe?g|png)$/i.test(String(n)))
+  const objs = (sceneJson && sceneJson.objects) || []
+  const imgLayers = objs.filter((o) => o && (o.image || o.model))
+  const overlays = imgLayers.filter((o) => o.copybackground === true)
+  const allOverlay = imgLayers.length > 0 && overlays.length === imgLayers.length
+  return {
+    hasPreview,
+    imgLayers: imgLayers.length,
+    overlays: overlays.length,
+    allOverlay,
+    suggest: !!(allOverlay && hasPreview),
+  }
+}
 export function parsePkg(buf) {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
   if (buf.length < 16) throw new Error('文件太小，不是 scene.pkg')
