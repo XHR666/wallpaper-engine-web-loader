@@ -28,6 +28,19 @@ ok('A4', '回退口 `?fbodesc=legacy` 存在（三个键全部按旧行为忽略
 ok('A5', '`uvs:"repeat"` 与 `r8`/`rg8` 一样是**生效**项（唯一另一个生效键）',
   /if \(String\(f\.uvs \|\| ''\)\.toLowerCase\(\) === 'repeat'\) o\.wrap = 'repeat'/.test(src), 'uvs repeat 生效')
 // A6：语料基数记录在源码注释里（可核对，不进判据阈值）
+ok('A7', '官方 `rgba8888` / `*_backbuffer` ⇒ 显式 `o.format = "rgba8"`（与缺省等价，把官方语义写进代码）',
+  /else if \(fmt === 'rgba8888' \|\| \/_backbuffer\$\/\.test\(fmt\)\) o\.format = 'rgba8'/.test(src), 'rgba8 显式归一')
+ok('A8', '官方 **16F 家族**（rgba16161616f / rgb161616f / rg1616f / r16f）⇒ `o.float = "half"`（走既有 RGBA16F 分配）',
+  /fmt === 'rgba16161616f' \|\| fmt === 'rgb161616f' \|\| fmt === 'rg1616f' \|\| fmt === 'r16f'/.test(src)
+  && /o\.float = 'half'/.test(src), '16F → half')
+ok('A9', '32F（rgba32323232f / rgba32f）⇒ `o.float = "full"`（RGBA32F 分配）',
+  /fmt === 'rgba32323232f' \|\| fmt === 'rgba32f'/.test(src) && /o\.float = 'full'/.test(src), '32F → full')
+ok('A10', '不可渲染/压缩类（rgb565/rgb888/dxt1|3|5/bc7/rgba1010102/rgb161616/rgba16161616）**不产生** format/float 映射',
+  !/o\.format = '(rgb565|rgb888|dxt1|dxt3|dxt5|bc7|rgba1010102)'/.test(src)
+  && !/o\.float = '[^']*'.{0,40}(rgb565|rgb888|dxt1|dxt3|dxt5|bc7)/.test(src)
+  && /else if \(fmt\) o\.declaredFormat = fmt/.test(src), '只记录')
+ok('A11', '回退口覆盖新映射：`fboDescOpts` 首行即 `if (fboDescLegacy()) return null`（`?fbodesc=legacy` ⇒ 逐位回旧）',
+  /const fboDescOpts = \(f\) => \{\s*\n\s*if \(fboDescLegacy\(\)\) return null/.test(src), 'legacy 短路在函数首行')
 ok('A6', '语料基数在源码注释中留档（rgba_backbuffer 94 / rgba8888 8 / rg88 6 / r8 1）',
   /rgba_backbuffer` 94/.test(src) && /rg88` 6/.test(src), '计数注释存在')
 

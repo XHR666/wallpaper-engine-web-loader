@@ -15821,8 +15821,24 @@ export function createRenderer(canvas, opts = {}) {
       if (fboDescLegacy()) return null
       const o = {}
       const fmt = String(f.format || '').toLowerCase()
+      /* ③(2026-10-11 · 台账 §1.1 第 6 项 / docs/AUDIT.md §15) **官方词表的消费面补齐**（原只落 r8/rg8）：
+         · `r8` / `rg88`/`rg8`  ⇒ 真映射（color-renderable，已在用）；
+         · `rgba8888` / `*_backbuffer` ⇒ **显式归一 RGBA8**（与缺省分配等价 ⇒ 零行为变化，但把"官方语义=RGBA8"
+           写进代码，避免以后误判为"未处理"）；
+         · 官方 **16F 家族**（`rgba16161616f` / `rgb161616f` / `rg1616f` / `r16f`）⇒ `o.float='half'`（走既有
+           HDR 浮点 RT 分配 `:12432/12454`：`RGBA16F + HALF_FLOAT`）。官方按通道数用不同 16F 格式，本仓统一用
+           **RGBA16F 容器**（最接近的可渲染选择，多出的通道不参与采样）；**能力/健康回退**由分配处的既有
+           浮点失败处理承担（真机上 Adreno/PRoot 有"整场景 16F ⇒ 每层 0x502"的历史，见 `:11999`）——
+           失败即回落 RGBA8 并在台账记一笔，不影响既有档 ；
+         · 其余（`rgb888`/`rgb565`/`dxt1|3|5`/`bc7`/`rgba1010102`/`rgb161616`/`rgba16161616`）⇒ **只记录**
+           `declaredFormat`，不改分配（这些不是可渲染 FBO 格式或需压缩 RT 扩展；语料 0 命中）。
+         回退口：`?fbodesc=legacy` ⇒ 上述三个键全不生效（逐位回到改动前）。 */
       if (fmt === 'r8') o.format = 'r8'
       else if (fmt === 'rg88' || fmt === 'rg8') o.format = 'rg8'
+      else if (fmt === 'rgba8888' || /_backbuffer$/.test(fmt)) o.format = 'rgba8'
+      else if (fmt === 'rgba16161616f' || fmt === 'rgb161616f' || fmt === 'rg1616f' || fmt === 'r16f'
+        || fmt === 'rgba16f' || fmt === 'rgb16f' || fmt === 'rg16f' || fmt === 'r16f_half') o.float = 'half'
+      else if (fmt === 'rgba32323232f' || fmt === 'rgba32f') o.float = 'full'
       else if (fmt) o.declaredFormat = fmt
       if (String(f.uvs || '').toLowerCase() === 'repeat') o.wrap = 'repeat'
       return (o.format || o.wrap) ? o : null
