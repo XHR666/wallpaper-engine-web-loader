@@ -5425,9 +5425,10 @@ function loadScene() {
       if (__hint && __hint.suggest) {
         const __pname = __names.find((n) => /(^|\/)preview\.(jpe?g|png)$/i.test(n))
         const __pbytes = __pname ? lib.getEntry(pkg, __pname) : null
-        if (__pbytes && typeof createImageBitmap === 'function') {
+        if (__pbytes && typeof bitmapT === 'function') {
           const __blob = new Blob([__pbytes], { type: /\.png$/i.test(__pname) ? 'image/png' : 'image/jpeg' })
-          const __bmp = await createImageBitmap(__blob)
+          /* ①(纪律 `load-timeout` T4c：**解码一律走 bitmapT**，带超时上限；禁止裸 createImageBitmap) */
+          const __bmp = await bitmapT(__blob, '基底 preview 解码', DECODE_TIMEOUT_MS)
           const __cap = 2048
           const __sc = Math.min(1, __cap / Math.max(__bmp.width, __bmp.height))
           const __bw = Math.max(1, Math.round(__bmp.width * __sc)), __bh = Math.max(1, Math.round(__bmp.height * __sc))
@@ -5451,7 +5452,7 @@ function loadScene() {
           }
           try { __bmp.close && __bmp.close() } catch (e) { /* 忽略 */ }
         } else {
-          logf('⚠ 基底回退未生效：' + (__pbytes ? '缺 createImageBitmap' : ('包内无 preview：' + __hint.hasPreview)))
+          logf('⚠ 基底回退未生效：' + (__pbytes ? '缺 bitmapT 解码通路' : ('包内无 preview：' + __hint.hasPreview)))
         }
       }
     }

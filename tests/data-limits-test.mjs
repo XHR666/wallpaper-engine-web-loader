@@ -121,12 +121,13 @@ console.log('[A] 自动上报默认关（发布纪律①）')
     at('?noreport') === false && at('?noreport=1') === false && at('?report=auto&noreport=1') === false)
 
   // A5 真源码：两条定时器只在 `if (autoReport)` 门控块里，且全文各只出现一次
-  const guard = braceBlockAfter(HTML, 'if (autoReport) {')
+  const guard = braceBlockAfter(HTML, 'function startAutoReport(')
   const timerA = 'setTimeout(doReport, 700)'
   const timerB = 'setInterval(doReport, 10000)'
-  check('A5 自动路径的两条定时器（首帧 700ms / 每 10s）**只**出现在 `if (autoReport) { … }` 块内',
+  check('A5 自动路径的两条定时器（首帧 700ms / 每 10s）**只**出现在 `startAutoReport()` 块内，且 `?report=auto` 仍调它（P-277 抽函数后的等价判据）',
     guard.length > 100 && guard.includes(timerA) && guard.includes(timerB)
-    && countOf(HTML, timerA) === 1 && countOf(HTML, timerB) === 1,
+    && countOf(HTML, timerA) === 1 && countOf(HTML, timerB) === 1
+    && /if \(autoReport\) \{\s*\n\s*startAutoReport\('\?report=auto'\)/.test(HTML),
     'guard=' + guard.length + ' 次A=' + countOf(HTML, timerA) + ' 次B=' + countOf(HTML, timerB))
 
   // A6 手动上报入口不被自动开关连坐（用户显式动作必须留着）
