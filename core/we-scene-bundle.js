@@ -1058,7 +1058,7 @@ export function decodePixels(format, data, w, h) {
     case 2: return fromRGB565(data, w, h)
     case 4: return decodeDXT5(data, w, h)
     // RE-40：格式 5 = DXT5，载荷同格式 4，仅容器声明宽高为实际尺寸 2 倍
-    case 5: return decodeDXT5(data, w, h)
+    case 5: return decodeDXT5(reorderSplitPlanes(data, w, h), w, h)   /* ③(2026-10-10) 平面分离重排，见 reorderSplitPlanes */
     case 6: return decodeDXT3(data, w, h)
     case 7: return decodeDXT1(data, w, h)
     case 8: return fromRG88(data, w, h)
@@ -1134,6 +1134,25 @@ function decodeDXT3(d, w, h) {
 
 function decodeDXT5(d, w, h) {
   return decodeDxtCommon(d, w, h, false, 5)
+}
+
+/** ③(2026-10-10) `format 5`（DXT5 半分辨率）的**平面分离**载荷重排。
+ *  实测（10 张 format 5 贴图、统一口径三布局对照，`reports/tex-plane-ab.json`）：
+ *    · 本仓旧口径（每 16B 块 = alpha@0..7 + color@8..15）在 **10/10** 张上都是最差的（93~137）；
+ *    · 平面分离（载荷前半 `nB*8` = **全部 alpha 块**，后半 = **全部 color 块**）在 **10/10** 张上都更好，
+ *      其中天空 103.6→4.9、树丛1 114.6→13.8、纸堆 122.8→18.1、树丛2 98.5→20.4、树丛3 93.0→22.4。
+ *  这里把"平面分离"重排成既有解码器认识的 16B/块形态 ⇒ **解码算法一行不改**，只换数据布局。
+ *  安全条件：仅当载荷长度**精确等于** `nB*16` 时才重排（否则原样返回 = 旧行为，零风险）。
+ *  纯函数（不碰 GL），可单测。 */
+export function reorderSplitPlanes(data, width, height) {
+  const nB = Math.ceil(width / 4) * Math.ceil(height / 4)
+  if (!data || data.length !== nB * 16) return data
+  const out = new Uint8Array(data.length)
+  for (let i = 0; i < nB; i++) {
+    out.set(data.subarray(i * 8, i * 8 + 8), i * 16)               /* alpha 平面 → 块首 */
+    out.set(data.subarray(nB * 8 + i * 8, nB * 8 + i * 8 + 8), i * 16 + 8) /* color 平面 → 块后半 */
+  }
+  return out
 }
 
 function decodeDxtCommon(d, w, h, isDxt1, alphaMode) {

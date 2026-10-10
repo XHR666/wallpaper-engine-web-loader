@@ -931,6 +931,7 @@ add "mesh3d-camera" "node tests/mesh3d-camera-test.mjs"
 #   `bench-mpkg-items` 的 A1m + 变异 M4 端到端判；这里判纯前端 `planLocalScan`/`detectWallpaperKind`
 add "pkg-id-encoding"    "node tests/pkg-id-encoding-test.mjs"   # P-262：`/pkg/<id>` 的 `+`/`%20`/非 ASCII 三形态兜底（`+` 形态曾恒 404 ⇒ 页面 `pkg HTTP 404` + 7s 无首帧）
 add "builtin-asset-tex"  "node tests/builtin-asset-texture-test.mjs"   # 官方包外内置素材（particle/halo*、util/white、beam_1）的程序化像素源：语义 RGB255/形状在 alpha + resolveTextureName 回落接线
+add "tex-split-plane"    "node tests/tex-split-plane-test.mjs"   # P-264：format 5（DXT5 半分辨率）载荷是**平面分离**（前半全部 alpha 块、后半全部 color 块）⇒ 重排后天空 MAD 103.6→4.9、树丛1 114.6→13.8
 #   的"只含容器的目录逐容器成条"与"浏览器选文件也接受 .mpkg"）；②**装载**（`__wp.loadSceneFile(blob)`
 #   从"明确降级的 no-op"变成真实现：IndexedDB 交接 + `?scenefile=1` 重载 + 取回即删；含假 IDB 往返判据）。
 add "bench-local-mpkg-scan" "node tests/bench-local-mpkg-scan-test.mjs"
