@@ -127,6 +127,10 @@ export async function bootElysia({ id, canvas, log, fpsEl }) {
   const start = performance.now();
   const targetInterval = Math.round(1000 / fps);
   let frames = 0, ft = 0, last = performance.now();
+  /* ③(2026-10-11 · 台账 §1.1 第 22 项修) CPU 路**首帧上报**：与 demo.html 的 `mpwMarkVideoFirstFrame()`
+     同口径（demo.html:2753）——供 7s 看门狗、`mpw-cap{firstFrame}`、`data-mpw-frame` 握手使用。
+     此前 `elysia/*.js` 0 命中 ⇒ CPU 路永远不报首帧，宿主只能等父页 12s 兜底。 */
+  let __elysiaFirstFrameMarked = false;
   function renderOnce(now) {
     t = startNow + (now - start) / 1000; // 复用 r.time 递增 (动画/呼吸)
     if (renderer.audioSpectrum) renderer.audioSpectrum = makeSpectrum(t);
@@ -141,6 +145,10 @@ export async function bootElysia({ id, canvas, log, fpsEl }) {
     const src = cv.data;
     for (let i = 0; i < src.length; i++) dst[i] = src[i];
     ctx.putImageData(imgData, 0, 0);
+    if (!__elysiaFirstFrameMarked) {
+      __elysiaFirstFrameMarked = true
+      try { window.__mpwFirstFrame = 1; window.__mpwCapMarkFrame && window.__mpwCapMarkFrame() } catch (e) { /* 忽略 */ }
+    }
     frames++; ft += (now - last); last = now;
     if (ft > 500) { if (fpsEl) fpsEl.textContent = Math.round(frames * 1000 / ft) + ' fps'; frames = 0; ft = 0; }
     schedule();
