@@ -935,6 +935,7 @@ add "shots-prune-complexity" "node tests/shots-prune-complexity-test.mjs"   # �
 add "elysia-firstframe"    "node tests/elysia-firstframe-test.mjs"   # 台账 §1.1#22：CPU 路(elysia)首帧上报（putImageData 之后 · 只报一次 · 出错不误报）
 add "autoreport-toggle"   "node tests/autoreport-toggle-test.mjs"   # 台账 §1.1#19：?report=auto 的面板开关（运行时启停 + 读数 + 缺省不建定时器，F1-F7）
 add "verdict-docs"        "node tests/verdict-docs-test.mjs"   # 判决书/核验文档存在性 + 关键结论（使"判决"受门禁保护）
+add "pkg-name-corpus"     "node tests/pkg-name-corpus-test.mjs"   # ① 语料级：205 个真实包名分段编码往返无损（含空格 3 个、含 + 0 个）
 add "builtin-asset-tex"  "node tests/builtin-asset-texture-test.mjs"   # 官方包外内置素材（particle/halo*、util/white、beam_1）的程序化像素源：语义 RGB255/形状在 alpha + resolveTextureName 回落接线
 add "tex-split-plane"    "node tests/tex-split-plane-test.mjs"   # P-264：format 5（DXT5 半分辨率）载荷是**平面分离**（前半全部 alpha 块、后半全部 color 块）⇒ 重排后天空 MAD 103.6→4.9、树丛1 114.6→13.8
 add "fbo-format-vocab"   "node tests/fbo-format-vocabulary-test.mjs"   # §A #6：FBO `format` 词表现状基线（r8/rg88 真映射；其余只 declaredFormat 不改分配）+ ?fbodesc=legacy 回退口
