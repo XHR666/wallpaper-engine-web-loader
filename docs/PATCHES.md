@@ -17375,3 +17375,35 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 * 登记门禁 `218 → 219` 项；`status-consistency` 6/0、`docs-check` ✓、`diag-flag-check` 230==230。
 * ⚠ 共享文件说明：`demo/bench-patch.js` 是**与另一条线（zcode）共享**的文件。改动前它与 HEAD **逐字相同**；
   本次只动两个纯函数 + 一处 `pkgEntry` 判定（都带 P-261 注释），提交时**显式列文件**。
+
+## P-265（2026-10-10）② format 5 残余（月亮/流星等）调查记录 —— 结论：P-264 的"平面分离"重排**未证实**，已在 `80c3cd3` 降级为可选（缺省回到改动前口径）；判据 `tests/tex-split-plane-test.mjs`（钉缺省档基线带 + `?texplane=split` 对照开关）。
+
+## P-267（2026-10-10）§B #15 指针归一化**夹取时机**：官方 §5.3「采样时不夹」⇒ 视差链缺省**不夹**、`?parclamp=legacy` 逐位回旧 `clamp(0,1)`。提交 `f0ac3d3`；判据 `tests/parallax-clamp-test.mjs`；开关登记 `docs/README-DIAGNOSTICS.md`。
+
+## P-269（2026-10-10）官方 assets 对照：消费场景级 `general.perspectiveoverridefov`（透视 FOV 覆盖，官方 69 处；妃咲包 95.0）⇒ 置入 `fovPick` 链头；`?fovoverride=legacy` 回退。提交 `bb3f9df`；判据 `tests/scene-fov-override-test.mjs`。
+
+## P-270（2026-10-10）官方**粒子受力模型**（initializer/operator + 每发射器 `gravity`/`drag` + 场景级 gravity/wind）登记为**专项**：本仓粒子模型为简化版（无受力），实现需整套模块化架构 ⇒ 本轮不做（台账 §E 第 14 条）；语料侧 `gravity/wind` 真实存在（妃咲包 `0 -1 0` / `1.0`）。
+
+## P-275（2026-10-11）`pruneShotsAll()` 复杂度 O(n²) → O(n log n)：扫一次 → 全量排序一次 → 顺序删（删除阶段零 readdir/stat），**策略不变**。提交 `1104195`；判据 `tests/shots-prune-complexity-test.mjs`（用计数包装 readdirSync/statSync 实测：readdir=4）。
+
+## P-276（2026-10-11）CPU 路（`?mode=elysia`）**首帧上报**：`window.__mpwFirstFrame = 1` + `__mpwCapMarkFrame()` 置于 `ctx.putImageData` 之后、`__elysiaFirstFrameMarked` 守卫只报一次。提交 `70f3593`；判据 `tests/elysia-firstframe-test.mjs`。
+
+## P-277（2026-10-11）**自动上报面板开关**：抽 `startAutoReport()/stopAutoReport()`（语义与 `?report=auto` 一致；停止清 interval + 挂起 timeout）+ 顶部工具栏「🛰 自动上报：关/开」按钮 + 读数 `window.__mpwAutoReport`。提交 `dc5b14f`；判据 `tests/autoreport-toggle-test.mjs`。
+
+## P-278（2026-10-11）FBO 描述符 `format` 词表**消费面**补齐：`rgba8888`/`*_backbuffer` ⇒ 显式 `rgba8`；16F 家族 ⇒ `o.float='half'`（走既有 RGBA16F 分配）；`rgba32f` ⇒ `full`；其余仅记录。提交 `a76f15b`；判据 `tests/fbo-format-vocabulary-test.mjs`（11/0）。
+
+## P-280（2026-10-11）`MDLE0002` 判决**维持现状** + 文档对齐（`UNTOUCHED-AREAS.md` C 行标"已判"）。提交 `967d82b`；判据 `tests/verdict-docs-test.mjs`；判决书 `docs/MDLE-VERDICT.md`。
+
+## P-281（2026-10-11）材质内部多 pass 判决**维持现状**（递归全量 154 包 / 202 材质 `passes>1` = 0）。提交 `d4a670c`；判据 `tests/verdict-docs-test.mjs`；判决书 `docs/MATERIAL-PASS-VERDICT.md`。
+
+## P-282（2026-10-11）链内 alpha 写掩码判决**维持现状**（无 idx 形态请求；`alphawriting` 三态已实现；`colorBlendMode:11`=Overlay 已实现）。判决书 `docs/BLEND-WRITEMASK-VERDICT-20261011.md`；判据 `tests/verdict-docs-test.mjs`。
+
+## P-283（2026-10-11）`g_ViewportViewProjectionMatrices` 判决**维持现状**（递归 154 包命中 0）。判决书 `docs/VIEWPORT-VVPM-VERDICT-20261011.md`；判据 `tests/verdict-docs-test.mjs`。
+
+## P-284（2026-10-11）场景级 `cameraparallax:false` **核验为已实现**（两支分开：产品开关归零／官方语义冻结不归零；帧计时不冻结）；台账该条此前 ❌ 属陈旧。核验记录 `docs/CAMERAPARALLAX-OFF-VERIFY-20261011.md`；判据 `tests/verdict-docs-test.mjs`。
+
+## P-285（2026-10-11）文档卫生：纠正陈旧条目（#16/#8/#15）+ §1.4 扫描面纪律（必须递归全量；PKGM-only 边界）+ #13 免浏览器实跑复核（3/4 包 `renderError=null`，①③④ 不再复现）。判据 `tests/verdict-docs-test.mjs`。
+
+## P-286（2026-10-11）修 `tests/bench-mpkg-items-test.mjs` 的变异锚点：P-266 把 `/pkg` 分支的 `id` 改为 `cand` 后锚点失去唯一性 ⇒ 同步为 `cand`（变异仍只施加在镜像里）。判据 `tests/bench-mpkg-items-test.mjs`（57/0）。
+
+## P-287（2026-10-11）判决书**入库**：把工作区 `docs/reverse/` 的 4 份判决/核验文档镜像进 `docs/`，并加 `tests/verdict-docs-test.mjs` 使其受门禁保护（同时满足 `status-consistency` 的 V2 证据要求）。

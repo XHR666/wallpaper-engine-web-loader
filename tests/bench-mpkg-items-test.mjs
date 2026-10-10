@@ -448,7 +448,7 @@ const MUTATIONS = [
     name: 'M2 去掉 `/pkg` 的 `.mpkg` 分支（文件型 itemId 又变回 404）',
     expects: ['A2a', 'A2b', 'A2e'],
     apply(files) {
-      const from = "          if (r.ok) { if (r.isFile && /\\.(mpkg|pkg)$/i.test(id)) { hit = { file: r.full, size: r.st.size, from: 'container-file' }; break } }"
+      const from = "          if (r.ok) { if (r.isFile && /\\.(mpkg|pkg)$/i.test(cand)) { hit = { file: r.full, size: r.st.size, from: 'container-file' }; break } }"
       const to = "          if (r.ok) { if (false) { hit = { file: r.full, size: r.st.size, from: 'container-file' }; break } }   // 变异：去掉 mpkg 分支"
       if (files.renderer.split(from).length !== 2) return { error: '锚点未命中唯一位置：/pkg 的 mpkg 分支' }
       return { renderer: files.renderer.replace(from, to) }

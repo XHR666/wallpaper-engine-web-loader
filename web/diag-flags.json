@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-10T09:59:29.845Z",
+  "generatedAt": "2026-10-10T10:03:28.140Z",
   "generator": "node diag-flag-check.mjs（脚本自动生成，勿手改）",
   "codeBasis": [
     "core/we-scene-bundle.js",
@@ -440,7 +440,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 18307,
+          "line": 18323,
           "pattern": "searchParams.get('bloomcap')"
         }
       ]
@@ -544,7 +544,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17634,
+          "line": 17650,
           "pattern": "searchParams.get('clampuvs')"
         }
       ]
@@ -858,7 +858,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17944,
+          "line": 17960,
           "pattern": "searchParams.get('fog')"
         }
       ]
@@ -1275,7 +1275,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17859,
+          "line": 17875,
           "pattern": "searchParams.get('lights')"
         }
       ]
@@ -2172,7 +2172,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 16381,
+          "line": 16397,
           "pattern": "searchParams.get('psim')"
         }
       ]
@@ -2494,7 +2494,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 18021,
+          "line": 18037,
           "pattern": "searchParams.get('shadows')"
         }
       ]
@@ -2798,7 +2798,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 18282,
+          "line": 18298,
           "pattern": "searchParams.get('texmip')"
         }
       ]
@@ -2820,7 +2820,7 @@
       "sites": [
         {
           "file": "core/we-scene-bundle.js",
-          "line": 17520,
+          "line": 17536,
           "pattern": "searchParams.get('texwrap')"
         }
       ]
