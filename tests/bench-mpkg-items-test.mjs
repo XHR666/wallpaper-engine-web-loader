@@ -11,6 +11,8 @@
 //      + **目录条不重复计数**（口径写在 `scan.itemRoles.note` 里，可核对）；
 //   A2 路由：`/pkg/<嵌套 id>` 200 且与 `stat` **等长**（`.mpkg` 字节原样回）、`/project`、`/api/mpkg`、
 //      缩略图、`/media/dev/**` 的两种读法、以及"越界仍被拒"（`..`/绝对路径/符号链接逃逸）；
+//   A2o 413 门槛：超限如实 413 不截断 + **中间边界值**（恰好等于上限 ⇒ 200 且逐字节相等 / 只差 1 字节 ⇒ 413）；
+//   A2p **并发**（12 发：整包 GET ×6 + Range 206 ×3 + HEAD ×3）⇒ 无串包/无截断、跑完服务仍健康；
 //   A3 真语料（条件项）：`wallpaperE` 下每个 `.mpkg` 都在列表里成条，`dd` 仍是"目录一条"（零回归）。
 //
 // 判据分层（与 `tests/bench-dsh-libroot-test.mjs` 同款）：
@@ -345,7 +347,13 @@ async function scanStage(fx, srv) {
     `${rv.status} ${J(rv).path}`)
 }
 
-/** A2o：413 门槛（独立实例，`MPW_LIMIT_PKG_BYTES=1`）——**如实 413，绝不截断**。 */
+/** A2o：413 门槛（独立实例，`MPW_LIMIT_PKG_BYTES=1`）——**如实 413，绝不截断**。
+ *
+ *  ①(2026-10-12 台账 §1.2 第 45 项 / §1.3 第 88 项 G2h) **中间边界值**：此前只用 `MPW_LIMIT_PKG_BYTES=1`
+ *  这种"病态档"（离真实边界无穷远），判不出**恰好等于上限**这一格。补 A2o4/A2o5 两格把它钉死：
+ *    · `limit == 文件字节数` ⇒ **200 + 逐字节相等**（判定式是 `size > limit`，"等于"必须放行）；
+ *    · `limit == 文件字节数 − 1` ⇒ **413**（只差 1 字节也必须拒 ⇒ 证明这不是"恒 413/恒 200"的假判据）。
+ *  变异自证：把服务端判定改成 `>=`（一位之差）⇒ A2o4 必红（见 MUTATIONS 的 M6）。 */
 async function thresholdStage(fx) {
   section('A2o 413 门槛（MPW_LIMIT_PKG_BYTES=1 的独立实例）：超限如实 413、正文说明不截断')
   const srv = await startServer(fx, { MPW_LIMIT_PKG_BYTES: '1' })
@@ -357,6 +365,67 @@ async function thresholdStage(fx) {
     ok(r2.status === 413, 'A2o2 同一把尺子也管老口径（目录型 `scene.pkg`）⇒ 413', String(r2.status))
     const head = await request(srv.port, 'HEAD', '/pkg/' + enc(`角色甲/${fx.names.A1}`))
     ok(head.status === 413, 'A2o3 HEAD 同样如实 413（不是"HEAD 放行、GET 拒绝"的两套口径）', String(head.status))
+  } finally { stop(srv) }
+
+  /* ── A2o4/A2o5：中间边界值（恰好等于上限 / 只差 1 字节）────────────────────────────────────── */
+  const rel = `角色甲/${fx.names.A1}`
+  const abs = path.join(fx.lib, '角色甲', fx.names.A1)
+  const want = fs.readFileSync(abs)
+  const size = want.length
+  section(`A2o 中间边界值：limit == 文件大小（${size}B）⇒ 200；limit == 大小−1 ⇒ 413`)
+  const srvEq = await startServer(fx, { MPW_LIMIT_PKG_BYTES: String(size) })
+  try {
+    const g = await request(srvEq.port, 'GET', '/pkg/' + enc(rel))
+    const same = g.buf.length === want.length && Buffer.compare(g.buf, want) === 0
+    ok(g.status === 200 && same,
+      `A2o4 ★恰好等于上限（limit=${size}）⇒ **200 且逐字节相等**（判定式是 size > limit，"等于"放行；不许是截断或 413）`,
+      `${g.status} ${g.bytes}B/${size}B 逐字节相等=${same}`)
+    const h = await request(srvEq.port, 'HEAD', '/pkg/' + enc(rel))
+    ok(h.status === 200 && Number(h.headers['content-length']) === size,
+      'A2o5 同一档的 HEAD：200 且 Content-Length = stat 字节数（HEAD 与 GET 同一把尺子）',
+      `${h.status} len=${h.headers['content-length']} vs ${size}`)
+  } finally { stop(srvEq) }
+  const srvMinus = await startServer(fx, { MPW_LIMIT_PKG_BYTES: String(size - 1) })
+  try {
+    const g = await request(srvMinus.port, 'GET', '/pkg/' + enc(rel))
+    ok(g.status === 413,
+      `A2o5b **只差 1 字节**（limit=${size - 1}）⇒ 413（与 A2o4 一红一绿 ⇒ 判据真的卡在边界上，不是恒真/恒假）`,
+      `${g.status} ${g.body.slice(0, 80)}`)
+  } finally { stop(srvMinus) }
+}
+
+/** A2p：**并发**下的流式发送（G2h 的"并发未验"那一半）。
+ *
+ *  同一个进程里 12 发并发（6 整包 GET + 3 Range 206 + 3 HEAD），断言：状态码/长度/首尾字节各自正确、
+ *  **互不串包**（每发都与夹具文件逐字节/逐段相等）、以及跑完服务仍健康（没被并发拖死）。
+ *  口径：软件 GL/单线程 Node 上这条测的是**流式发送的状态隔离**（`sendFileStream` 每请求独立 fd/游标），
+ *  不是吞吐基准 ⇒ 只判正确性 + 打一条耗时读数。 */
+async function concurrencyStage(fx) {
+  const rel = `角色甲/${fx.names.A1}`
+  const abs = path.join(fx.lib, '角色甲', fx.names.A1)
+  const want = fs.readFileSync(abs)
+  const size = want.length
+  section(`A2p 并发（12 发：整包 GET ×6 + Range 206 ×3 + HEAD ×3；文件 ${size}B）`)
+  const srv = await startServer(fx, { MPW_LIMIT_PKG_BYTES: String(size) })
+  try {
+    const t0 = Date.now()
+    const full = Array.from({ length: 6 }, () => request(srv.port, 'GET', '/pkg/' + enc(rel)))
+    const range = Array.from({ length: 3 }, () => request(srv.port, 'GET', '/pkg/' + enc(rel), { headers: { Range: 'bytes=0-31' } }))
+    const heads = Array.from({ length: 3 }, () => request(srv.port, 'HEAD', '/pkg/' + enc(rel)))
+    const [F, R, H] = await Promise.all([Promise.all(full), Promise.all(range), Promise.all(heads)])
+    const ms = Date.now() - t0
+    const fOk = F.every((r) => r.status === 200 && r.buf.length === want.length && Buffer.compare(r.buf, want) === 0)
+    const rOk = R.every((r) => r.status === 206 && r.bytes === 32 && Buffer.compare(r.buf, want.subarray(0, 32)) === 0)
+    const hOk = H.every((r) => r.status === 200 && Number(r.headers['content-length']) === size)
+    ok(fOk, 'A2p1 6 发并发整包 GET：全部 200 且**逐字节等于夹具**（无串包/无截断）',
+      `状态=${F.map((r) => r.status).join(',')} 长度=${F.map((r) => r.bytes).join(',')} vs ${size}`)
+    ok(rOk, 'A2p2 3 发并发 Range（bytes=0-31）：全部 **206 + 32B + 内容等于文件前 32B**',
+      `状态=${R.map((r) => r.status).join(',')} 长度=${R.map((r) => r.bytes).join(',')}`)
+    ok(hOk, 'A2p3 3 发并发 HEAD：全部 200 且 Content-Length = stat（三种方法同一把尺子）',
+      `状态=${H.map((r) => r.status).join(',')} len=${H.map((r) => r.headers['content-length']).join(',')}`)
+    const health = await request(srv.port, 'GET', '/__health')
+    ok(health.status === 200, 'A2p4 并发跑完服务仍健康（/__health 200）：并发没有把单线程事件循环拖死', `${health.status}`)
+    console.log(`  A2p 读数：12 发并发总耗时 ${ms}ms（参考值，非断言阈值）`)
   } finally { stop(srv) }
 }
 
@@ -491,6 +560,18 @@ const MUTATIONS = [
       return { main: files.main.replace(from, to) }
     },
   },
+  {
+    /* ①(2026-10-12 §1.2 #45 / §1.3 #88 G2h) **一位之差**（`>` → `>=`）：恰好等于上限的那一格必须变红。
+       这是"边界判据真的卡在边界上"的自证 —— 若只测病态档（limit=1），这个变异**不会红**。 */
+    name: 'M6 413 判定改成 `>=`（一位之差：恰好等于上限也从 200 变 413）',
+    expects: ['A2o4'],
+    apply(files) {
+      const from = '      if (hit.size > PKG_MAX_BYTES) {'
+      const to = '      if (hit.size >= PKG_MAX_BYTES) {   // 变异：一位之差（恰好等于上限也拒）'
+      if (files.renderer.split(from).length !== 2) return { error: '锚点未命中唯一位置：/pkg 的 PKG_MAX_BYTES 判定' }
+      return { renderer: files.renderer.replace(from, to) }
+    },
+  },
 ]
 
 function runChild(args, ms) {
@@ -565,6 +646,7 @@ try {
   section('A1 扫描器：逐文件成项 + 容器内类型判定 + 目录条不重复计数（真起一份 8902）')
   await scanStage(fx, srv)
   await thresholdStage(fx)
+  await concurrencyStage(fx)
   await corpusStage()
 } finally { stop(srv) }
 
