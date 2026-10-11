@@ -164,7 +164,9 @@ const NOT_SHIPPED_OK = [
           `effects/<dir>/effect.json`（内存表生成、包内与 `/weassist` 双 miss），但它**是相对路径**，
           C2 只认以 `/` 开头的字符串 ⇒ 本来就管不着它，不需要（也不该）登记。
      变异自证（本轮实测）：把任一处改回三段拼接 ⇒ C2 立刻变红；塞一条**真**绝对 URL
-     （如 `fetch('/effects/wwgl_cuiliuti/effect.json')`）⇒ C2 也变红（证明这里不登记没有把判据放空）。 */
+     （如 `fetch('/effects/wwgl_cuiliuti/effect.json')`）⇒ C2 也变红（证明这里不登记没有把判据放空）。
+     ⭐ 上面这三条读数**已不是注释**：`MPW_PACKCLOSURE_MUTATE=1` 跑本文件末的 §M 段（M-a/M-b/M-c，
+     逐条打印"期望 == 实际"；缺省不跑、C2 读数一字不变）。 */
   { url: './demo/', in: 'index.html', why: '测试台目录（66MB，含本机构建残留）按 docs/RELEASE.md §5 不进 tarball；落地页那条链接在包里会 404，是已登记的口径' },
   /* `index.html:12-14` 三条品牌图 `<link>`（32 / 192 / apple-touch 同 192）与上面 `./demo/` **完全同类**，故同一口径登记：
      ①产物侧成立：`build-pages.mjs` 的 `['web/icons', 'icons']` 把真源 `web/icons/**` 拷成产物根的 `./icons/*`；
@@ -343,6 +345,102 @@ catch (e) { console.log('MUTANT-FAIL ' + ((e && (e.code || e.message)) || e)) }
     check('E1 把「' + victim + '」从包里删掉（模拟"新增文件忘了进白名单"）⇒ 真装载必须失败（= 这条判据有分辨力）',
       red, red ? (r.stdout || '').split('\n').filter((l) => l.startsWith('MUTANT-FAIL'))[0].slice(0, 160) : '居然还能 import ⇒ 判据没有分辨力')
   }
+}
+
+// ── M 变异自证（**可选段**：只有 `MPW_PACKCLOSURE_MUTATE=1` 才跑；缺省不进来 ⇒ 读数与耗时一字不变）──────
+/* ①(2026-10-12 收尾 P-334 留下的技术债；纪律见台账 §40.5「没有能失败的自证 ⇒ 绿不算绿」，台账 §40.6 记账)
+   上面 `NOT_SHIPPED_OK` 里那段注释写着三条**实测读数**，但注释**不是断言** —— 判据哪天悄悄退化成恒绿也没人
+   发现。本段把这三条变成**可执行**的（**只新增**：C2/C2b/其余断言的判定逻辑一行不动，`NOT_SHIPPED_OK`
+   里也不新增任何 `/effect.json` 登记）：
+     M-a `core/we-scene-bundle.js` 的 `effectPath` 改回三段拼接（= P-334 修之前的"假 URL 片段"复现；**无登记**）
+         ⇒ C2 必须**红**（红集恰好一条：`core/we-scene-bundle.js → /effect.json`）；
+     M-b `demo.html` 塞一条**真**绝对 URL `fetch('/effects/wwgl_cuiliuti/effect.json')`（包内不存在；**无登记**）
+         ⇒ C2 必须**红**；
+     M-c `demo.html` 塞**真**绝对 URL `fetch('/effect.json')` + **放回一条登记** ⇒ C2 必须**变绿**
+         ← **反向**断言：它证明"登记 = 豁免"⇒ 这正是 P-334 **只改代码侧、不登记**的理由（登记会把该文件里
+         **任何**真 `/effect.json` 引用永久放行 ⇒ 判据在这里放空）。
+   隔离口径（**绝不碰真树**）：变异只写进 `PKG` —— 本文件开头 `fs.mkdtempSync` + `npm pack` + `tar -xzf`
+   解开的**包副本**（在 `os.tmpdir()` 下、不在仓库里；E1 那份 `tmp/mutant` 是另一棵，互不影响），每条
+   变异跑完**逐字节还原**，假登记**用完即弹**（只活在运行期这一瞬间，绝不写进源码常量）。
+   为什么**原样复用** `closure()` 而不是另写一段"C2 纯文本提取"：`closure()` 只从 `PKG`（优先）与 `ROOT`
+   取文件 ⇒ 把**同一份** `shippedSet` / `entries` / `NOT_SHIPPED_OK` 喂给它，得到的红/绿**就是 C2 自己的
+   红/绿**（同一个函数、同一份入参）；另写一套必然与真判据**漂移**，那才是"永远绿的空壳"。
+   开销：开关打开时多跑 4 次 `closure()`（读 ~100 个文件，毫秒级；**不**再打一次包）；缺省下本段零开销。
+   前提：以"未变异时 C2 绿"为基准（C2 那条已断言）—— 基线本就红时下面会连带 `MUTANT-MISMATCH`，不掩盖。 */
+const MUTATE = process.env.MPW_PACKCLOSURE_MUTATE === '1'
+if (!MUTATE) {
+  console.log('  · 变异自证段 SKIP（缺省不跑；`MPW_PACKCLOSURE_MUTATE=1` 跑三条：三段拼接回退 / 真绝对 URL / 真 URL + 登记）')
+} else {
+  const BT = '`'
+  const Q = "'"
+  /** ① 本文件里**不写**那条登记的字面量（`url` + `:` + 空格 + 单引号 + `/effect.json`）：它只能在运行期
+   *  拼出来，守卫（`grep -c` 那条必须为 0）才保持 0。变异文本里的 `fetch('/effect.json')` 是**被测输入**，
+   *  不是登记 —— 两者别混（假登记对象在下面 `FAKE_REG`，用完即弹）。 */
+  const U_EFFECT = '/' + 'effect.json'
+  const U_MISS = '/effects/wwgl_cuiliuti/effect.json'
+  const fetchLine = (u) => '    void fetch(' + Q + u + Q + ')'
+  const A_EFFECTPATH = 'effectPath: ' + BT + 'effects/${d.dir}/effect.json' + BT + ','
+  const A_FILEOF = 'const fileOf = (fx) => ' + BT + 'effects/${fx.dir}/effect.json' + BT
+  const FAKE_REG = { url: U_EFFECT, in: 'demo.html', why: '② M-c 用的**假登记**（运行期 push / 用完 splice；源码 `NOT_SHIPPED_OK` 里没有它）：只为证明"登记 = 豁免真 URL"而存在' }
+  const MUTATIONS = [
+    {
+      id: 'M-a', label: '`core/we-scene-bundle.js` 的 `effectPath` 改回三段拼接（假 URL 片段复现，**无登记**）',
+      file: 'core/we-scene-bundle.js', from: A_EFFECTPATH,
+      to: "effectPath: 'effects/' + d.dir + '/effect.json',",
+      reg: null, expectGreen: false, expectRed: ['core/we-scene-bundle.js → ' + U_EFFECT],
+    },
+    {
+      id: 'M-b', label: '`demo.html` 塞**真**绝对 URL `fetch(' + Q + U_MISS + Q + ')`（包内不存在，**无登记**）',
+      file: 'demo.html', from: A_FILEOF, to: A_FILEOF + '\n' + fetchLine(U_MISS),
+      reg: null, expectGreen: false, expectRed: ['demo.html → ' + U_MISS],
+    },
+    {
+      id: 'M-c', label: '`demo.html` 塞**真**绝对 URL `fetch(' + Q + U_EFFECT + Q + ')` + **放回一条登记**（反向：登记即豁免）',
+      file: 'demo.html', from: A_FILEOF, to: A_FILEOF + '\n' + fetchLine(U_EFFECT),
+      reg: FAKE_REG, expectGreen: true, expectRed: [],
+    },
+  ]
+  /** 只判 C2：**原样**调 `closure()`（与上面 C2 那条同一个函数、同一份入参）⇒ 绿 ⟺ `missingUrls` 为空。 */
+  const runC2 = () => {
+    const c = closure(shippedSet, entries)
+    const redSet = [...new Set(c.missingUrls.map((x) => x.from + ' → ' + x.url))].sort()
+    return { green: c.missingUrls.length === 0, redSet }
+  }
+  const base = runC2()
+  console.log('  MUTANT-BASELINE 未变异时 C2 ' + (base.green ? '绿（红集 []）' : '**红**（红集 ' + JSON.stringify(base.redSet) + '）')
+    + ' —— 变异都在包副本 `' + path.relative(os.tmpdir(), PKG) + '` 上跑（与真树同源，**绝不碰真树**）')
+  let mutOk = 0
+  const mutRows = []
+  for (const m of MUTATIONS) {
+    const abs = path.join(PKG, m.file)
+    let before = null, actual = null, broke = ''
+    try {
+      before = fs.readFileSync(abs, 'utf8')
+      const n = before.split(m.from).length - 1
+      if (n !== 1) broke = '锚点在包副本里出现 ' + n + ' 次（期望恰 1 次）⇒ 源码改过？回来对锚点 ' + JSON.stringify(m.from)
+      else {
+        fs.writeFileSync(abs, before.replace(m.from, m.to))
+        if (m.reg) NOT_SHIPPED_OK.push(m.reg)
+        actual = runC2()
+      }
+    } catch (e) { broke = '隔离副本读写失败：' + ((e && e.message) || String(e)) }
+    finally {
+      if (m.reg) { const i = NOT_SHIPPED_OK.indexOf(m.reg); if (i >= 0) NOT_SHIPPED_OK.splice(i, 1) }
+      if (before !== null) { try { fs.writeFileSync(abs, before) } catch (e) { broke = broke || ('还原隔离副本失败：' + ((e && e.message) || String(e))) } }
+    }
+    const same = !broke && !!actual && actual.green === m.expectGreen && JSON.stringify(actual.redSet) === JSON.stringify(m.expectRed)
+    const expTxt = m.expectGreen ? 'C2 绿（红集 []）' : 'C2 红（红集 ' + JSON.stringify(m.expectRed) + '）'
+    const actTxt = actual ? ('C2 ' + (actual.green ? '绿' : '红') + '（红集 ' + JSON.stringify(actual.redSet) + '）') : '变异没生效'
+    console.log('  ' + (same ? (m.expectGreen ? 'MUTANT-GREEN-OK ' : 'MUTANT-RED-OK ') : 'MUTANT-MISMATCH ') + m.id
+      + ' ' + m.label + ' 期望=' + expTxt + ' 实际=' + actTxt + (broke ? ' ⚠ ' + broke : ''))
+    mutRows.push({ id: m.id, ok: same, expect: m.expectGreen ? 'green' : 'red', actual: actual ? (actual.green ? 'green' : 'red') : 'not-applied', redSet: actual ? actual.redSet : null })
+    if (same) mutOk++
+    else { fail++; results.push({ name: 'M ' + m.id + ' 变异自证（' + m.label + '）', ok: false, detail: '期望=' + expTxt + ' 实际=' + actTxt + (broke ? ' ⚠ ' + broke : '') }) }
+  }
+  console.log('  MUTANT-SUMMARY ' + mutOk + '/' + MUTATIONS.length + ' 期望 == 实际' + (mutOk === MUTATIONS.length
+    ? '（M-a/M-b 证明 C2 会红、M-c 证明"登记即豁免" ⇒ C2 不是恒绿判据；本段**不进** pass 计数 ⇒ 缺省/打开都是 13/13）'
+    : ' ⇒ 有变异没按期望走：本段**计入失败**（退出码非零）'))
+  console.log('  MUTANT-JSON ' + JSON.stringify(mutRows))
 }
 
 console.log(`\n────\npack-closure-test：${pass} 通过 / ${fail} 失败（包内 ${shipped.length} 个文件，静态可达 ${visited.size} 个模块）`)
