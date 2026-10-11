@@ -17469,3 +17469,27 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 `bench-ui-headless` 增 **LS2d/LS12×8/LS13×6/LS14×4**（**LS2c/LS6c 按新语义反向改写**，强度只增不减 ✓），实测 **PASS=218 / FAIL=0**（**LS12 `inView:true, btnHit:true`** ✓）；
 `bench-renderer-source` C1 改为"**不存在该 id** + 探针存在"（`#renderer-src` 两档断言原样保留 ✓）；`bench-bandfeed-switch` B4 改探针读点（**58/0** ✓）。
 单点回归：`demo-check` 133/0 ✓ · `bench-shell-fixes` 296/0 ✓ · `bench-props-text` 48/0 ✓ · `bench-dropdown-theme` 34/0 ✓ · `bench-dsh-libroot` 63/0 ✓ · `mpw-select` 86/0 ✓ · `status-consistency` 7/0 ✓。
+
+## P-318（2026-10-11）渲染器 README 重写（`a0412aa`）
+修 **6 处死链**（2026-09-25 工作区整理后文件已移出仓库 ⇒ 逐条改为工作区路径并注明"不随仓库分发" ✓）·
+纠正 `check.sh --json` 的**期望读数**（实测 `{"pass":2,"fail":1,"skip":1}` ⇒ 改为"四项全通过时 pass=4、任一失败退出码 1" ✓）·
+`MPW_SCENE_ROOT` 补全**三档**默认值 ✓ · 新增 §2 主要特性 / §6 开发与测试 / §8 常见问题 / §12 许可与归属 ✓ ·
+**§11 完整保留原许可台账**（只修路径 ✓）。核对：版本三处一致 ✓ · `files[]` 42/42 存在 ✓ · 全部 URL 开关有读取点 ✓。
+回归：`docs-check` PASS ✓ · `publish-check` 无新增阻塞 ✓ · `pack-closure` 13/0 ✓ · `demo-check` 133/0 ✓。
+
+## P-319（2026-10-11）纹理 format 词表补官方 5 条枚举 + 一致性判据（`05cc414`）
+官方依据：`Androidapk/壁纸引擎_2.8.8.apk` → `libscenejni.so` 的 **`TextureFormat::FromString` @ `0x256d9f8`**，
+逐条 `pair<string,TextureFormat_e>` 读出 **19 条名字→枚举** ✓（证据文档 `docs/reports/OFFICIAL-TEXTURE-FORMAT-TABLE.md` ✓）。
+补 **17/18/19/20/21** 五条（仅"识别 + 报错带名字" ✓，**不实现解码** ✗ —— 官方 19/21 的 GL 搭配可疑，见证据文档 §8.3 ✓）。
+判据 `tests/texture-format-official-vocab-test.mjs` **24/0** ✓（含"未知名报错带名字"与"证据文档在位" ✓）；
+并**从官方侧正面验证**了 `ARGB8888` 实为 RGBA 字节序（我方 `fromARGB8888` 原样拷贝 ✓，官方 GL 调用 `(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE)` ✓）⇒ **无字节序 bug** ✓。
+
+## P-320（2026-10-11）修两处 bug：判据绝对路径 + 启动横幅诊断页 URL（`5a850fb`）
+① `tests/mip-rt-slot-default-test.mjs` 的官方素材守卫**硬编码本机绝对路径** ✗（P-316 引入）⇒ 使 `publish-check` 常红、`check.sh` 退出码 1 ✗；
+改为**工作区相对定位 + 环境变量**（`DSH_WS`/`MPW_WE_ASSETS` ✓）+ **素材缺失即 SKIP**（不静默通过也不假红 ✓）⇒ 复跑 **5/0** ✓。
+② `start-demo.sh` 诊断页 URL 写 `/diag.html` ✗ 而服务端只注册 **`/diag`**（`server/we-scene-demo-server.mjs:900` ✓）⇒ 改 `/diag` ✓。
+
+## P-321（2026-10-11）8902 图层开关三处修正（P-317 的实现提交，`a73aa7a`）
+正文见 **P-317** 条目 ✓（本提交含实现 + 判据 + 登记：`core/we-scene-bundle.js` 的 `__lnShown` hunk · `demo/*` · 4 个判据文件 ·
+`tests/run-all-tests.sh`（门禁 **240 → 241**）· `docs/PATCHES.md` · `web/diag-flags.json` ✓）。
+门禁：`bash check.sh` **EXIT=0 / 4 阶段全绿（241 项）** ✓。

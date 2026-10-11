@@ -57,7 +57,9 @@ ok('格式 5 的语义注记仍在（DXT5 半分辨率，官方枚举表里无�
 
 // 证据文档在位（防"结论无出处"）
 ok('官方证据文档在位（docs/reports/OFFICIAL-TEXTURE-FORMAT-TABLE.md）',
-  fs.existsSync('/root/Desktop/DSHarea/docs/reports/OFFICIAL-TEXTURE-FORMAT-TABLE.md'))
+  (() => { const c = [path.resolve(ROOT, '..', 'docs', 'reports', 'OFFICIAL-TEXTURE-FORMAT-TABLE.md'),
+                            path.resolve(ROOT, '..', '..', 'docs', 'reports', 'OFFICIAL-TEXTURE-FORMAT-TABLE.md')]
+             return c.some((f) => fs.existsSync(f)) })())  // 证据文档是**工作区级**资源（不在仓库内）⇒ 按脚本位置推算，禁止硬编码绝对路径
 
 const fail = rows.filter((r) => !r.pass)
 for (const r of rows) if (!r.pass) console.log('  FAIL ' + r.why + (r.detail ? ' — ' + r.detail : ''))
