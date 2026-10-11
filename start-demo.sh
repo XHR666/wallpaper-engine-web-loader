@@ -96,7 +96,7 @@ say "═════════════════════════
 say "  WEwebLoader 渲染器已启动"
 say "  打开即可玩（不装 WE、不克隆别的仓库）：$URL"
 say "  自带合成样例直达：${URL}?id=sample-synthetic"
-say "  逐层调试面板：${URL}?ln=1   诊断页：${URL%/}/diag.html"
+say "  逐层调试面板：${URL}?ln=1   诊断页：${URL%/}/diag"
 say "  停止：Ctrl-C"
 say "════════════════════════════════════════════════════════════"
 

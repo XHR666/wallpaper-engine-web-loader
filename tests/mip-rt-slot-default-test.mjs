@@ -27,7 +27,10 @@ ok('binding is gated on copyBgEntry (no new binding when there is no frame copy)
   /if \(copyBgEntry && !__mipRtLegacy &&/.test(src))
 
 // official evidence must still be on disk (guards against silent asset drift)
-const off = '/root/Desktop/DSHarea/wallpaper_engine/assets/shaders'
+// 官方素材树是**工作区级**资源（不在仓库内）⇒ 用相对/环境变量定位，缺失时跳过该断言
+// （2026-10-11 修：原为硬编码绝对路径，导致 publish-check 常红、check.sh 退出码 1 ✗）
+const WSROOT = process.env.DSH_WS || path.resolve(ROOT, '..')
+const off = process.env.MPW_WE_ASSETS || path.join(WSROOT, 'wallpaper_engine', 'assets', 'shaders')
 let declaring = 0
 try {
   for (const f of fs.readdirSync(off)) {
@@ -36,7 +39,11 @@ try {
     if (t.includes('"_rt_MipMappedFrameBuffer"')) declaring++
   }
 } catch (e) { declaring = -1 }
-ok('official shaders still declare the RT as a slot default (>=8 expected)', declaring >= 8, 'declaring=' + declaring)
+if (declaring < 0) {
+  console.log('  SKIP official-asset guard: 官方素材树不在本机（' + off + '）')
+} else {
+  ok('official shaders still declare the RT as a slot default (>=8 expected)', declaring >= 8, 'declaring=' + declaring)
+}
 
 const fail = rows.filter((r) => !r.pass)
 for (const r of rows) console.log((r.pass ? '  OK  ' : '  FAIL') + ' ' + r.why + (r.detail ? ' -- ' + r.detail : ''))
