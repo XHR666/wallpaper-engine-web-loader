@@ -3,8 +3,8 @@
 > **本表由代码确认，非手抄**：开关全集由 `node diag-flag-check.mjs`（MERGED-3 2.2）从
 > `core/we-scene-bundle.js` / `demo.html` / `demo/bench-patch.js` / `elysia/**/*.js` / `dsh-mpkg-wallpaper/lib/client.js`
 > 的 `URLSearchParams` / `new URL(...).searchParams` / 正则 `[?&]name=` / 白名单 localStorage
-> 解析点抓取（当前 **197** 个：含 P-112-BANDGEOM 的 `bandfeed`/`framegeom`、P-131 批D 的 `audioemit` 与插件侧 `lgcss`）。本表主表与其双向比对，任何一侧多出/缺失都会非零退出。
-> ④(2026-09-28 P-206) 追加 `weassist`（效果链 WE 资产预取的宿主侧总闸）后复核实测：`代码 197 个开关 == README 主表 197 行，0 差异`。
+> 解析点抓取（当前 **238** 个：含 P-112-BANDGEOM 的 `bandfeed`/`framegeom`、P-131 批D 的 `audioemit` 与插件侧 `lgcss`）。本表主表与其双向比对，任何一侧多出/缺失都会非零退出。
+> ④(2026-09-28 P-206) 追加 `weassist`（效果链 WE 资产预取的宿主侧总闸）后复核实测：`代码 238 个开关 == README 主表 238 行，0 差异`。
 > 本行原写 183（**已陈旧 14** —— P-204 安全闸门、P-205 效果链候选链等批次的开关此前未回填计数）；陈旧数字一律以脚本输出回填，不手改。
 > ①(2026-09-19) 本行计数以 `node tests/diag-flag-check.mjs` 的实际输出为准；批 D 之前本行写 149、实测 152（陈旧 3），本批一并更正并 +1（`audioemit`）。
 > ②(2026-09-19) P-153 追加 `scriptstore` 时复核实测：P-144（`children`）之后真实值是 **155**（**本行当时仍写 153 —— 陈旧 2**），本条 +1 ⇒ **156**。陈旧数字一律以脚本输出回填，不手改。
