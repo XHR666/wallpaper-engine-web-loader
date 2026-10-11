@@ -382,6 +382,7 @@ if (!MUTATE) {
   const A_EFFECTPATH = 'effectPath: ' + BT + 'effects/${d.dir}/effect.json' + BT + ','
   const A_FILEOF = 'const fileOf = (fx) => ' + BT + 'effects/${fx.dir}/effect.json' + BT
   const FAKE_REG = { url: U_EFFECT, in: 'demo.html', why: '② M-c 用的**假登记**（运行期 push / 用完 splice；源码 `NOT_SHIPPED_OK` 里没有它）：只为证明"登记 = 豁免真 URL"而存在' }
+  const REG_COUNT = NOT_SHIPPED_OK.length   // 变异前的登记条数（收尾对拍"假登记已弹出"）
   const MUTATIONS = [
     {
       id: 'M-a', label: '`core/we-scene-bundle.js` 的 `effectPath` 改回三段拼接（假 URL 片段复现，**无登记**）',
@@ -411,11 +412,13 @@ if (!MUTATE) {
     + ' —— 变异都在包副本 `' + path.relative(os.tmpdir(), PKG) + '` 上跑（与真树同源，**绝不碰真树**）')
   let mutOk = 0
   const mutRows = []
+  const originals = new Map()   // 变异前的包副本内容（跑完逐字节对拍 ⇒ 证明"隔离副本用完即还原"）
   for (const m of MUTATIONS) {
     const abs = path.join(PKG, m.file)
     let before = null, actual = null, broke = ''
     try {
       before = fs.readFileSync(abs, 'utf8')
+      if (!originals.has(m.file)) originals.set(m.file, before)
       const n = before.split(m.from).length - 1
       if (n !== 1) broke = '锚点在包副本里出现 ' + n + ' 次（期望恰 1 次）⇒ 源码改过？回来对锚点 ' + JSON.stringify(m.from)
       else {
@@ -437,6 +440,14 @@ if (!MUTATE) {
     if (same) mutOk++
     else { fail++; results.push({ name: 'M ' + m.id + ' 变异自证（' + m.label + '）', ok: false, detail: '期望=' + expTxt + ' 实际=' + actTxt + (broke ? ' ⚠ ' + broke : '') }) }
   }
+  /** 收尾自证：隔离副本**逐字节还原** + 假登记**已弹出**（否则下一条变异会从脏副本出发，读数不可信）。 */
+  const dirty = [...originals.keys()].filter((rel) => fs.readFileSync(path.join(PKG, rel), 'utf8') !== originals.get(rel))
+  const regGone = !NOT_SHIPPED_OK.includes(FAKE_REG) && NOT_SHIPPED_OK.length === REG_COUNT
+  const clean = dirty.length === 0 && regGone
+  console.log('  ' + (clean ? 'MUTANT-RESTORE-OK ' : 'MUTANT-RESTORE-FAIL ') + '隔离副本已逐字节还原（' + [...originals.keys()].join(', ')
+    + '）且假登记已弹出（`NOT_SHIPPED_OK` ' + NOT_SHIPPED_OK.length + ' 条 == 变异前的 ' + REG_COUNT + ' 条）'
+    + (clean ? '' : ' —— 差异：' + (dirty.join(', ') || '无') + (regGone ? '' : ' · 登记条数/内容不对')))
+  if (!clean) { fail++; results.push({ name: 'M 隔离副本还原 + 假登记弹出', ok: false, detail: '差异：' + (dirty.join(', ') || '无') + ' regGone=' + regGone }) }
   console.log('  MUTANT-SUMMARY ' + mutOk + '/' + MUTATIONS.length + ' 期望 == 实际' + (mutOk === MUTATIONS.length
     ? '（M-a/M-b 证明 C2 会红、M-c 证明"登记即豁免" ⇒ C2 不是恒绿判据；本段**不进** pass 计数 ⇒ 缺省/打开都是 13/13）'
     : ' ⇒ 有变异没按期望走：本段**计入失败**（退出码非零）'))
