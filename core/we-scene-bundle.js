@@ -644,6 +644,17 @@ export const TEXTURE_FORMATS = {
   13: 'RGBa1010102',
   14: 'RGBA16161616f',
   15: 'RGB161616f',
+  // 2026-10-11 官方枚举补齐（来源：Android `libscenejni.so` 的 `TextureFormat::FromString` @ `0x256d9f8`，
+  // 逐条 pair 构造读出名字与枚举值 —— 见 docs/reports/OFFICIAL-TEXTURE-FORMAT-TABLE.md §4 ✓）。
+  // 说明：这 5 条目前**只用于识别与报错**（名字带进错误信息 ✓），**不实现解码** ✗：
+  //   17/18 = 16-bit unorm 族；19/20 = 带 `S` 的 16-bit 族；21 = `rgba8888s`。
+  // ⚠ 官方的 GL 上传搭配在 19/21 上**可疑**（`GL_RGBA16I`+`GL_RGBA`+`GL_SHORT` / `GL_RGB10_A2`+`GL_RGBA`+`GL_BYTE`，
+  //   严格 GL 下不合法）⇒ **不照抄官方**（该文档 §8.3 ✓）。
+  17: 'RGBA16161616',
+  18: 'RGB161616',
+  19: 'RGBA16161616S',
+  20: 'RGB161616S',
+  21: 'RGBA8888s',
 }
 
 export const FIF = { UNKNOWN: -1, JPEG: 2, PNG: 13, GIF: 25, WEBP: 35, MP4: 35 }
