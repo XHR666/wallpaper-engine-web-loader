@@ -15033,6 +15033,15 @@ export function createRenderer(canvas, opts = {}) {
       }
       // ①(2026-09-12) `?ln=N` 逐层调试：demo 给非目标层打 __lnHidden（容器保留，父链/定位不变）
       if (layer.__lnHidden) { if (__audit) { try { onLog('[首帧] . #' + __li + ' 跳过(逐层调试)') } catch {} } continue }
+      /* ①(2026-10-11 用户第 2 条「勾上某层 ⇒ 该层必须真的显示出来」) 宿主**强制显示**通道 `layer.__lnShown`
+         （唯一置位方 = :8902 测试台「图层开关」：文件里 `visible:false` 的层被用户勾上时）。
+         为什么必须是**绘制期**判据、而不是写 `layer.visible`：demo.html 每帧把 raw→layer 的 `visible`
+         同步回写（`demo.html:6533-6535`）⇒ 写 `visible` 会被下一帧扳回去（P-164 已取证）；属性覆盖链
+         （`evalVisibleOutcome`）只覆盖带 `{user:…}` 绑定的层，对字面 `visible:false` 无效。
+         语义边界：只翻**可见性**这一票（下一行的 `!__layerVis`），容器跳层 / 逻辑 helper 跳层 / 效果链
+         等其余判据逐条不动；容器层不会被置位（置位方按 `layerSwitchState()` 的计划只写可显示层）。
+         回退：注释掉这一行即回到旧行为（宿主不写 `__lnShown` 时本行恒为空操作）。 */
+      if (layer.__lnShown) __layerVis = true
       // ①(P-231 官方语义 2026-10-04) 容器跳层的边界收紧：composelayer **带效果链**时是"效果载体"
       //   （wer-ref ResolveImageEffectSourcePolicy：compose 层走 ProxyChildrenOnly /
       //   OwnerNodeAndProxyChildren 的效果源路由，效果链要跑——真包 0923/2887099508 的 `sound line`

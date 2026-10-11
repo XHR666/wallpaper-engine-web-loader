@@ -8954,6 +8954,11 @@ function loadScene() {
       const uname = bind ? (typeof bind.user === 'string' ? bind.user : (bind.user && bind.user.name)) : null
       if (l.__lnHidden) return { visible: false, visibleBy: 'ln-hidden' }
       if (l.isContainer) return { visible: l.visible !== false, visibleBy: 'container' }
+      /* ①(2026-10-11 用户第 2 条) 宿主**强制显示**（测试台「图层开关」勾上文件里 `visible:false` 的层）：
+         core 绘制期按 `__lnShown` 把可见性这一票翻过来（`core/we-scene-bundle.js` 的
+         `if (layer.__lnShown) __layerVis = true`）⇒ 这里的读数必须跟着诚实，否则"这一层为什么画出来了"
+         在报告里无从解释。只在"确实被它翻转"（`l.visible === false`）时归因，纯属不谎报。 */
+      if (l.__lnShown && l.visible === false) return { visible: true, visibleBy: 'ln-shown' }
       if (uname) return { visible: l.visible !== false, visibleBy: 'userProp:' + uname + ((gated && gated.has(uname)) ? '(gated)' : '') }
       if (l.visible !== false) {
         if (tv && tv.isTimeLayer && tv.isTimeLayer(l)) return { visible: true, visibleBy: 'timeVariant' }
@@ -8972,8 +8977,9 @@ function loadScene() {
       const entry = ledger.find((e) => e && e.n === nm)
       const sk2 = skips.find((x) => String(x).indexOf(nm + '(') === 0)
       let skipReason = null
+      //  ①(2026-10-11 用户第 2 条) `__lnShown` = 宿主强制显示 ⇒ "不可见"这条跳过理由不再成立（与绘制循环同序）。
       if (l.__lnHidden) skipReason = 'ln-hidden'
-      else if (!l.visible) skipReason = 'invisible'
+      else if (!l.visible && !l.__lnShown) skipReason = 'invisible'
       else if (l.isContainer) skipReason = 'container'
       else if (sk2) skipReason = String(sk2).slice(nm.length + 1, -1)
       const vs = visOf(l)

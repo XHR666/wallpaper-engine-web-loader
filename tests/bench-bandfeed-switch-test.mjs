@@ -338,12 +338,16 @@ console.log('\n== B 接线：工具条四档 → 渲染器 URL / 默认档 / 闸
     stNoReport.text.slice(0, 46))
   ok(/function bandRendererReady\(\)/.test(PATCH) && /rendererReady: bandRendererReady\(\)/.test(PATCH),
     'B4 "已就绪但没回报"的判定在运行期真的接上了（不是只定义了一个永不进入的分支）')
-  ok(/id="status-bandfeed"/.test(INDEX) && /data-mpw-bandfeed-status="idle"/.test(INDEX) &&
-    /data-mpw-bandfeed-source="none"/.test(INDEX),
-    'B4 状态行有**稳定 id + data-mpw-\* 属性**（判据读得到这一行）')
+  /*  ①(2026-10-11 用户第 3 条「去掉调试模式旁边的两项」) `#status-bandfeed` 这个**状态片**已从 UI 移除
+      （`demo/index.html` 里不再有它）⇒ 本判据的口径从"页面上有这一行"改成"**读数有稳定入口**"：
+      `__benchPatch.bandFeedStatus()` 返回的就是 `bandFeedStatusPlan()` 的同一个计划对象（text/kind/source/
+      mode 一个不少），门禁与真机排查读同一份 ⇒ 强度不降（原来读 DOM 的 `data-mpw-*`，现在读计划本身）。 */
+  ok(!/id="status-bandfeed"/.test(INDEX) &&
+    /bandFeedStatus: \(\) => paintBandFeedStatus\(\)/.test(PATCH),
+    'B4 ①状态片已按用户要求从 UI 移除（index.html 无 #status-bandfeed）⇒ 读数入口 = `__benchPatch.bandFeedStatus()` 探针（形状不变：text/kind/source/mode）')
   ok(/el\.textContent = plan\.text/.test(PATCH) && /data-mpw-bandfeed-status/.test(PATCH) &&
     /data-mpw-bandfeed-source/.test(PATCH),
-    'B4 运行期确实把计划写进状态行（id/属性不是静态摆设）')
+    'B4 运行期确实把计划写进状态行（逻辑保留：节点在时照写；节点不在时探针照样返回同一份计划）')
   const repaints = (PATCH.match(/paintBandFeedStatus\(\)/g) || []).length
   ok(repaints >= 4 && /frameEl\.addEventListener\('load'[\s\S]{0,400}paintBandFeedStatus\(\)/.test(PATCH) &&
     /try \{ paintBandFeedStatus\(\) \} catch \{ \/\* 状态行是只读呈现 \*\/ \}/.test(PATCH),

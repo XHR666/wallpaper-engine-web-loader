@@ -75,7 +75,7 @@
 //   原生 select 留在 DOM 里当值容器 ⇒ 上游 bundle 读 `.value` / 监听 `change` 的链路一行不改。
 import { enhanceSelect, layerFixedOffset, scrollAffectsAnchor } from './mpw-select.js'
 
-export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","pick.count":"{n} 项","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 WEwebLoader 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.mic":"启用麦克风","toolbar.micTip":"默认关：关着时页面一次都不会请求麦克风（getUserMedia 不调用），「系统实况」只保留歌名与进度；开着时才在壁纸/功能声明需要时请求，不在页面加载时预请求","dbg.switch":"开启调试模式","dbg.switchTip":"逐层查看（左右键）+ 隔离图层；只在调试视图打开期间接管键盘，Alt 退出","logs.cleared":"已清空（{view}）","log.micOn":"已启用麦克风：壁纸/功能声明需要时才会请求（不再有页面加载时的预请求）","log.micOff":"已关闭麦克风：不再发出任何 mic 请求","log.micNeeded":"「系统实况」的麦克风部分需要先勾「启用麦克风」—— 现在只保留歌名/进度","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","toolbar.introSkip":"去除开屏动画","toolbar.introSkipTip":"跳过壁纸的开屏动画（开头那段放大 / 运镜），直接从开屏之后开始播放（渲染器档位 ?skipintro=1）","toolbar.webMode":"Web 渲染","toolbar.webModeTip":"Web 壁纸的执行方式：沙箱 = 隔离作用域（更安全，个别壁纸跑不起来）；兼容 = 同页直跑（兼容性最好）。换档重挂载渲染器（?webmode=）","webMode.sandbox":"沙箱","webMode.compat":"兼容","webMode.auto":"自动","toolbar.hybrid":"流式播放","toolbar.hybridTip":"DSH 进程流式播放（hybrid）：边取边播，不等整包落盘；关掉则先取完整包再播（渲染器档位 ?hybrid=）。默认开","toolbar.layerSwitch":"图层开关","toolbar.layerSwitchTip":"取消勾选 = 该层不参与渲染（逐层排查用）；隐藏集写进本页 URL 的 ?hide=，重挂载/带参打开都会恢复。只在「本仓渲染器」档生效","layers.all":"全选","layers.none":"全不选","layers.onlyCurrent":"只留当前层","layers.keepCurrentTip":"把调试模式当前正看的这一层之外全部取消勾选（先在调试模式里翻层）","layers.needDebug":"没有「当前层」：先在调试模式里左右翻层，这里才可用","layers.copyState":"复制当前状态","layers.hiddenCount":"隐藏 {n}/{m} 层","layers.container":"容器层：只承载父子链/定位，不参与绘制（不可隐藏）","layers.keepRow":"只留","layers.keepOne":"只留这一层（= 只勾选它，其余取消勾选）","layers.disabledUpstream":"上游产物档不认 __lnHidden（逐层隐藏只在「本仓渲染器」档生效）—— 把「渲染器」切到「本仓渲染器」后可用","layers.disabledNoMount":"还没有挂载壁纸（没有 __sceneLayers 可列）：先从左侧选一张壁纸","layers.dbgDeferred":"调试隔离生效中：勾选改动已记录，退出调试模式后生效","log.lswKeepOnly":"图层开关：只留 #{n} {name}（其余取消勾选）","log.lswCopied":"已复制当前状态（可直接贴给别人复现）：{text}","log.lswRematch":"图层开关：壁纸重挂载 —— 按「下标+层名」对账，保留 {n} 层隐藏、放弃 {m} 层（下标/层名对不上）","bar.collapseTip":"收起参数栏（只收第 1~3 行的参数，动作按钮与档位保持可用）","bar.expandTip":"展开参数栏","webProbe.heavy":"重动画","webProbe.external":"需外网","webProbe.badge":"预检：{flags}","log.webProbeOk":"预检（Web 壁纸）：{id} 无风险标记","log.webProbeWarn":"预检（Web 壁纸）：{id} {flags} —— {reasons}","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","bar.collapse":"收起参数栏","bar.expand":"展开参数栏","bar.hintOn":"分辨率 / 滤镜 / 帧率等；收起后只留这一行","bar.hintOff":"参数栏已收起（点左侧按钮展开）","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.weGroup":"渲染器设置（WE 自带）","props.we.flipH":"水平翻转","props.we.colorOptions":"显示颜色选项（总开关）","props.we.brightness":"亮度","props.we.contrast":"对比度","props.we.saturation":"饱和度","props.we.hue":"色调偏移","props.we.playbackRate":"播放速度","props.we.volume":"音量","props.we.flipV":"垂直翻转","props.we.alignment":"对齐方式 / 缩放","props.we.parallaxReaction":"对动作做出反应（视差 / 陀螺仪）","props.we.recording":"录音（WE 录屏 / 录音音量）","props.we.perMonitor":"按显示器（每屏各自设置）","props.we.status.other":"本页已实现（在别处）","props.we.status.no":"未实现","props.we.status.we":"WE 自带","props.we.why.flipV":"本仓渲染器没有 `flipV`（`__wp.setDisplay` 只有 `flipH`）⇒ 不做；要垂直镜像得宿主自己写 CSS `scaleY(-1)`。","props.we.why.alignment":"本页已实现，落点在工具条「适应方式」（`#fit` / `?fit=`），不在渲染器 API 上。","props.we.why.parallaxReaction":"用户口径不做（本机没有陀螺仪）；将来若做走既有的 `__wp.pushPointer(x,y)`。","props.we.why.recording":"Wallpaper Engine 客户端自带（录屏 / 录音音量），页面内没有实现面。","props.we.why.perMonitor":"WE 客户端自带（壁纸与音量按显示器分别保存）；本页是单实例预览，没有这个概念。","props.we.notReady":"渲染器还没发布 `__wp`（换壁纸 / 重挂载期间会短暂如此）：这一组会在渲染器就绪后自动可用，控件先置灰。","props.we.legacy":"渲染器当前跑在 `?display=legacy` 总回退档：显示选项整组被忽略（`__wp.setDisplay` 只读）⇒ 控件已置灰。","props.we.hint":"这几项每一张壁纸都有（WE 自带），直接驱动渲染器 API、改完立刻生效；壁纸自己的可调项在下面。","props.imgDedup":"图片去重","props.imgDedupOnce":"一次（整面板）","props.imgDedupRow":"每行一次","props.imgDedupAll":"全部（不去重）","props.imgDedupNote":"已压掉 {n} 张重复图","props.imgDedupForced":"本次由 URL 档 {flag} 决定","props.imgDedupTip":"同一张画面只画一次（强制）：① 逐字节相同的 URL 只画一遍；② 只差尺寸/格式/水印类参数与后缀（wx_fmt、bo、rf、@100w、800x600、_!web-…、x-oss-process=…）或 http/https、www. 前缀的，算同一张画面 ⇒ 无条件归并（不再要求载入尺寸一致）；③ 面板里两个来源（渲染器自己解析出的图 + 属性文案里的图）共用同一本账；④ 已经画成图的那条链接、以及被压掉后变成空壳的链接都不再单独显示。「全部」= 完全不去重（对照/排障）；「每行一次」= 只在单行内去重。带 ?propimg= 的链接优先","props.imgDedupLog":"图片去重档：{mode}","props.imgDedupForcedNote":"（其中 {m} 张是靠「同一张画面」的身份键**强制归并**的：尺寸不同 {diff} 张 / 尺寸未知 {unk} 张 —— 已按用户口径「只显示一次」）","props.imgDedupForcedLog":"（URL 参数 {flag} 优先：这次改面板开关只记下偏好，要去掉 URL 参数才由它生效）","wpset.done":"已实现","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录","nav.console":"控制台","nav.docs":"说明","nav.wpset":"对应API","nav.settings":"设置","nav.settingsTip":"语言 / 主题 / 归属与许可","nav.lang":"语言","nav.theme":"主题","nav.backend":"后台","nav.backendUnknown":"未知","nav.backendNote":"静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。","wp.add":"＋","wp.addTitle":"添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸","logs.expandTip":"展开输出（控制台）","logs.collapseTip":"收起输出（控制台）","props.emptyState":"还没有选择壁纸","props.emptyHint":"从左侧「选择壁纸」里点一张，这里就会显示它 project.json 声明的可调项。",
+export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"自定义颜色","picker.hex":"十六进制","picker.hint":"拖动色相条与面板，或直接输入 #rrggbb","picker.ok":"确定","picker.cancel":"取消","copy.logs":"复制输出","copy.url":"复制链接","copy.ok":"已复制到剪贴板","copy.manual":"剪贴板不可用（file:// 或未授权）：请手动复制下面选中的文本","copy.fail":"复制失败：{msg}","error.title":"页面脚本出错（已兜底）","error.dismiss":"关闭","error.logged":"详情已写入输出区","fs.enter":"全屏","fs.enterTitle":"全屏预览（退出按钮在全屏内右上角）","fs.exit":"退出全屏","fs.exitTitle":"退出全屏（也可按 Esc）","fs.unsupported":"当前浏览器不支持全屏 API","local.pickTitle":"选择本地壁纸文件夹（纯前端读取，文件不离开浏览器）","local.unsupported":"当前浏览器不支持目录选择（webkitdirectory / showDirectoryPicker）—— 无法加载本地壁纸，请改用桌面版 Chrome / Edge / Firefox","local.reading":"正在读取文件夹…","local.none":"该文件夹里没有找到壁纸（壁纸目录需要 scene.pkg 或 project.json）","local.count":"本地文件夹：{n} 个壁纸","local.sceneOnly":"静态托管下仅支持 scene 包预览（web/video 需本机 Node 后端）","local.preview":"本地预览：{name}","local.clear":"清空","local.clearTitle":"清空本地库与当前选择","local.cleared":"已清空本地库与选择","local.notDir":"这不是文件夹选择：浏览器只回传了一个文件。请点「选择文件夹」并选择目录（不要选单个文件）","local.kindTitle":"扫描时自动识别的类型：{k}","btn.pickFile":"选择文件","pick.dirTitle":"浏览文件夹","pick.fileTitle":"浏览文件","pick.curDir":"当前目录","pick.up":"上一级","pick.home":"回到最上层","pick.here":"就选这个文件夹","pick.thisFile":"就选这个文件","pick.empty":"这里没有子文件夹","pick.noFile":"这里没有符合条件的文件","pick.filterPh":"筛选名称","pick.grant":"打开系统选择器","pick.needGrant":"浏览器安全限制：网页必须先由你在系统对话框里授权一个文件夹，之后才能在这里浏览（文件不离开浏览器）","pick.readNote":"纯前端读取：目录与文件都来自你授权的那棵树，不上传、不离开浏览器","pick.granted":"已授权：{name}（{n} 个文件 / {d} 个目录）","pick.cancelled":"已取消选择","pick.count":"{n} 项","local.grantScan":"从选择器载入：{name}","local.filePicked":"已选择文件：{name}","docs.readmeTitle":"本页 README · 使用说明速查","status.dpr":"DPR（设备像素比） {n}","status.dprTitle":"窗口 devicePixelRatio —— 影响渲染分辨率与性能","offline.tag":"离线","offline.diagReason":"静态托管无 /diag 后端：渲染器诊断流不可用（需本地 Node host 或 pnpm dev）","offline.diagTitle":"诊断流不可用（静态托管）","backend.node":"本机 Node 后端已连接","backend.static":"静态托管（无 /api 后端）","backend.staticTitle":"静态托管：本页由静态服务器提供，/api/* 与 /diag 全部 404 —— 壁纸库列表、属性保存、删除、打开所在文件夹、渲染器诊断流都不可用","backend.needBackend":"需要本机 Node 后端（静态托管下不可用）","backend.alt":"可用替代：点「选择文件夹」做纯前端扫描（scene 包可直接预览，文件不离开浏览器）","backend.online":"上线方法：在 WEwebLoader 源码目录运行 pnpm dev，打开它打印的地址（默认 http://localhost:1430/）—— 那是带 Node host 的完整测试台","backend.offline":"当前浏览器离线（navigator.onLine=false）：本页功能不依赖网络，缺的是本机 Node 后端","backend.blocked":"本机暂时无法启动 Node host：离线环境下依赖不全（pnpm install --offline 报 ERR_PNPM_NO_OFFLINE_TARBALL）","res.pick":"选择分辨率","res.native":"（弹层列表限高可滚动）","trail.on":"鼠标尾迹","trail.needInjection":"需先开启「指针注入」","trail.len":"长度","trail.width":"粗细","trail.color":"颜色","trail.tip":"仅在开启「指针注入」后可用：尾迹取自注入遮罩的坐标，不接管真实鼠标事件","act.explorer":"资源管理器","act.docs":"使用说明","theme.auto":"主题：跟随系统","theme.dark":"主题：深色","theme.light":"主题：浅色","lang.title":"切换语言","backend.demoNoBackend":"在线演示版（GitHub Pages）没有本机 Node 后端 —— 这不是故障，是**设计如此**：线上只有静态文件，/api/* 与 /diag 一律 404。完整测试台（壁纸库列表 / 属性保存 / 删除 / 诊断流）需要在源码目录跑 pnpm dev。","demo.onlineTitle":"在线演示版","demo.onlineBody":"本页是**在线静态演示**：没有本机 Node 后端，壁纸库列表 / 属性保存 / 删除 / 打开所在文件夹 / 渲染器诊断流（/api/* 与 /diag）在线上全部不可用 —— 这不是故障，是纯静态托管的必然结果。「选择文件夹」纯前端扫描仍然可用，默认载入的是本仓库自造的**合成样例**（不含任何真实壁纸）。","demo.onlineSample":"默认壁纸：合成样例 scene.pkg（由 tools/make-sample.mjs 生成，33 299 B，无第三方内容）—— 本仓库**不分发**任何真实壁纸包。","offline.diagReasonOnline":"在线演示版没有 /diag 后端：线上是纯静态托管，渲染器诊断流不可用（这是设计如此，不是断线）","demo.sampleMissing":"合成样例载入失败：{msg}","demo.sampleLoaded":"已载入合成样例：{name}（本仓库自造，无第三方内容）","credit.title":"渲染核心原作者","credit.link":"WebWallGL · oneincase（MIT 许可）","brand.generic":"壁纸","static.notice":"在线静态版：壁纸库列表 / 属性保存 / 删除 / 诊断流需要本机后端；可用「选择文件夹」纯前端扫描本地壁纸（scene 包可预览），完整功能请在源码目录运行 pnpm dev。","static.libPath":"静态托管 · 无本机后端","static.pickTitle":"静态托管下不可用 —— 请在本地运行（pnpm dev）","log.filePreview":"本地预览：{name}","err.filePreview":"本地预览失败：{msg}","sidebar.title":"资源管理器","sidebar.libCount":"壁纸库","sidebar.pickLib":"选择文件夹（也可继续用 WE_LIBRARY）","btn.pickLib":"选择文件夹","ph.filter":"过滤标题 / itemId","ph.propsFilter":"过滤属性名 / 文案","reveal.open":"打开所在文件夹","ctx.delete":"删除壁纸","confirm.delete":"确定删除壁纸「{title}」吗？整个目录将移入废纸篓（{id}）。","ok.delete":"已删除：{id}","err.delete":"删除失败：{msg}","tab.wallpaper":"未选择壁纸","toolbar.resolution":"分辨率","toolbar.resolutionTip":"舞台逻辑分辨率（iframe 视口）","toolbar.volume":"音量","toolbar.live":"系统实况","toolbar.liveTip":"歌名/进度：Node 读 media-control；音频条：麦克风（无系统声卡环回）。换壁纸或勾选后会重挂载","toolbar.mic":"启用麦克风","toolbar.micTip":"默认关：关着时页面一次都不会请求麦克风（getUserMedia 不调用），「系统实况」只保留歌名与进度；开着时才在壁纸/功能声明需要时请求，不在页面加载时预请求","dbg.switch":"开启调试模式","dbg.switchTip":"逐层查看（左右键）+ 隔离图层；只在调试视图打开期间接管键盘，Alt 退出","logs.cleared":"已清空（{view}）","log.micOn":"已启用麦克风：壁纸/功能声明需要时才会请求（不再有页面加载时的预请求）","log.micOff":"已关闭麦克风：不再发出任何 mic 请求","log.micNeeded":"「系统实况」的麦克风部分需要先勾「启用麦克风」—— 现在只保留歌名/进度","toolbar.pointerPush":"指针注入","toolbar.pointerPushTip":"模拟桌面壁纸窗口：遮罩挡住原生鼠标事件，坐标改经 __wp.pushPointer 推送 —— 与宿主对接的是同一条通道","toolbar.pause":"暂停","toolbar.resume":"恢复","toolbar.reload":"重挂载","toolbar.release":"释放","toolbar.open":"新窗口","toolbar.props":"壁纸配置","toolbar.filter":"滤镜","toolbar.filterTip":"滤镜（beta）：以 CSS filter 应用到渲染输出","toolbar.introSkip":"去除开屏动画","toolbar.introSkipTip":"跳过壁纸的开屏动画（开头那段放大 / 运镜），直接从开屏之后开始播放（渲染器档位 ?skipintro=1）","toolbar.webMode":"Web 渲染","toolbar.webModeTip":"Web 壁纸的执行方式：沙箱 = 隔离作用域（更安全，个别壁纸跑不起来）；兼容 = 同页直跑（兼容性最好）。换档重挂载渲染器（?webmode=）","webMode.sandbox":"沙箱","webMode.compat":"兼容","webMode.auto":"自动","toolbar.hybrid":"流式播放","toolbar.hybridTip":"DSH 进程流式播放（hybrid）：边取边播，不等整包落盘；关掉则先取完整包再播（渲染器档位 ?hybrid=）。默认开","toolbar.layerSwitch":"图层开关","toolbar.layerSwitchTip":"取消勾选 = 该层不参与渲染（逐层排查用）；隐藏集写进本页 URL 的 ?hide=，重挂载/带参打开都会恢复。只在「本仓渲染器」档生效","layers.all":"全选","layers.none":"全不选","layers.onlyCurrent":"只留当前层","layers.keepCurrentTip":"把调试模式当前正看的这一层之外全部取消勾选（先在调试模式里翻层）","layers.needDebug":"没有「当前层」：先在调试模式里左右翻层，这里才可用","layers.copyState":"复制当前状态","layers.hiddenCount":"隐藏 {n}/{m} 层","layers.container":"容器层：只承载父子链/定位，不参与绘制（不可隐藏）","layers.keepRow":"只留","layers.keepOne":"只留这一层（= 只勾选它，其余取消勾选）","layers.disabledUpstream":"上游产物档不认 __lnHidden（逐层隐藏只在「本仓渲染器」档生效）—— 把「渲染器」切到「本仓渲染器」后可用","layers.disabledNoMount":"还没有挂载壁纸（没有 __sceneLayers 可列）：先从左侧选一张壁纸","layers.dbgDeferred":"调试隔离生效中：勾选改动已记录，退出调试模式后生效","layers.fileHidden":"这一层在 scene.json 里是 visible:false（当前不参与渲染）：勾上 = 强制显示它","layers.forced":"已强制显示：文件里 visible:false，勾选覆盖了它（取消勾选 = 回到文件状态）","layers.noSource":"不可显示：这一层没有可绘制的源（音频/音效层、纯数据层）—— 勾选也不会让画面出现它","layers.allTip":"全部勾上：含文件里 visible:false 的层（= 强制显示它们）","log.lswForceShow":"图层开关：强制显示 #{n} {name}（文件里 visible:false）","log.lswKeepOnly":"图层开关：只留 #{n} {name}（其余取消勾选）","log.lswCopied":"已复制当前状态（可直接贴给别人复现）：{text}","log.lswRematch":"图层开关：壁纸重挂载 —— 按「下标+层名」对账，保留 {n} 层隐藏、放弃 {m} 层（下标/层名对不上）","bar.collapseTip":"收起参数栏（只收第 1~3 行的参数，动作按钮与档位保持可用）","bar.expandTip":"展开参数栏","webProbe.heavy":"重动画","webProbe.external":"需外网","webProbe.badge":"预检：{flags}","log.webProbeOk":"预检（Web 壁纸）：{id} 无风险标记","log.webProbeWarn":"预检（Web 壁纸）：{id} {flags} —— {reasons}","filter.none":"无","filter.blur":"高斯模糊","filter.grayscale":"黑白","filter.sepia":"怀旧","filter.vivid":"鲜艳","filter.warm":"暖色","filter.cool":"冷色","filter.invert":"反色","filter.brighten":"提亮","filter.darken":"压暗","filter.contrast":"高对比","res.fit":"自适应 16:9","stage.empty":"从左侧选择一个壁纸开始渲染","logs.head":"输出","logs.diag":"渲染器诊断（/diag）","logs.clear":"清空","logs.collapse":"折叠输出","logs.expand":"展开输出","bar.collapse":"收起参数栏","bar.expand":"展开参数栏","bar.hintOn":"分辨率 / 滤镜 / 帧率等；收起后只留这一行","bar.hintOff":"参数栏已收起（点左侧按钮展开）","status.adaptive":"自适应 16:9","status.cap":"上限 {n}","status.uncapped":"无上限","fps.uncapped":"无上限","fps.uncappedTitle":"不加帧率上限（按显示器刷新率出帧）","status.capTitle":"帧率上限（工具条 FPS）","status.liveTitle":"壁纸实测帧率（渲染循环最近 500ms）","status.items":"{n} 项","props.title":"壁纸配置","props.weGroup":"渲染器设置（WE 自带）","props.we.flipH":"水平翻转","props.we.colorOptions":"显示颜色选项（总开关）","props.we.brightness":"亮度","props.we.contrast":"对比度","props.we.saturation":"饱和度","props.we.hue":"色调偏移","props.we.playbackRate":"播放速度","props.we.volume":"音量","props.we.flipV":"垂直翻转","props.we.alignment":"对齐方式 / 缩放","props.we.parallaxReaction":"对动作做出反应（视差 / 陀螺仪）","props.we.recording":"录音（WE 录屏 / 录音音量）","props.we.perMonitor":"按显示器（每屏各自设置）","props.we.status.other":"本页已实现（在别处）","props.we.status.no":"未实现","props.we.status.we":"WE 自带","props.we.why.flipV":"本仓渲染器没有 `flipV`（`__wp.setDisplay` 只有 `flipH`）⇒ 不做；要垂直镜像得宿主自己写 CSS `scaleY(-1)`。","props.we.why.alignment":"本页已实现，落点在工具条「适应方式」（`#fit` / `?fit=`），不在渲染器 API 上。","props.we.why.parallaxReaction":"用户口径不做（本机没有陀螺仪）；将来若做走既有的 `__wp.pushPointer(x,y)`。","props.we.why.recording":"Wallpaper Engine 客户端自带（录屏 / 录音音量），页面内没有实现面。","props.we.why.perMonitor":"WE 客户端自带（壁纸与音量按显示器分别保存）；本页是单实例预览，没有这个概念。","props.we.notReady":"渲染器还没发布 `__wp`（换壁纸 / 重挂载期间会短暂如此）：这一组会在渲染器就绪后自动可用，控件先置灰。","props.we.legacy":"渲染器当前跑在 `?display=legacy` 总回退档：显示选项整组被忽略（`__wp.setDisplay` 只读）⇒ 控件已置灰。","props.we.hint":"这几项每一张壁纸都有（WE 自带），直接驱动渲染器 API、改完立刻生效；壁纸自己的可调项在下面。","props.imgDedup":"图片去重","props.imgDedupOnce":"一次（整面板）","props.imgDedupRow":"每行一次","props.imgDedupAll":"全部（不去重）","props.imgDedupNote":"已压掉 {n} 张重复图","props.imgDedupForced":"本次由 URL 档 {flag} 决定","props.imgDedupTip":"同一张画面只画一次（强制）：① 逐字节相同的 URL 只画一遍；② 只差尺寸/格式/水印类参数与后缀（wx_fmt、bo、rf、@100w、800x600、_!web-…、x-oss-process=…）或 http/https、www. 前缀的，算同一张画面 ⇒ 无条件归并（不再要求载入尺寸一致）；③ 面板里两个来源（渲染器自己解析出的图 + 属性文案里的图）共用同一本账；④ 已经画成图的那条链接、以及被压掉后变成空壳的链接都不再单独显示。「全部」= 完全不去重（对照/排障）；「每行一次」= 只在单行内去重。带 ?propimg= 的链接优先","props.imgDedupLog":"图片去重档：{mode}","props.imgDedupForcedNote":"（其中 {m} 张是靠「同一张画面」的身份键**强制归并**的：尺寸不同 {diff} 张 / 尺寸未知 {unk} 张 —— 已按用户口径「只显示一次」）","props.imgDedupForcedLog":"（URL 参数 {flag} 优先：这次改面板开关只记下偏好，要去掉 URL 参数才由它生效）","wpset.done":"已实现","props.reset":"恢复默认","props.collapse":"收起","props.showHidden":"显示条件隐藏项","props.reading":"读取中…","props.none":"该壁纸未声明可自定义项","props.count":"{n} 项","props.countOverridden":"{n} 项（{m} 项已改）","props.readFail":"读取失败：{msg}","props.saving":"保存中…","props.savedOverridden":"已保存（{n} 项已改）","props.savedAll":"已保存（全部默认）","props.saveFail":"保存失败：{msg}","props.pending":"待保存…","props.logSaved":"属性保存：{id} {n} 项覆盖","props.empty":"project.json 未声明 general.properties，无可自定义项。","props.noMatch":"无匹配属性","props.allHidden":"全部属性都被 condition 隐藏（可勾选上方开关查看）","props.filePh":"相对壁纸根的路径（{kind}）","props.dirPh":"目录绝对路径","props.pickFile":"选择文件…","props.pickDir":"选择目录…","props.fileUnset":"未设置","props.fileUploading":"正在导入…","err.wpNotReady":"__wp 尚未就绪（先选一个壁纸并等页面加载完）","err.diagStream":"诊断流断开（dev server 重启？）","err.pickLib":"选择文件夹失败：{msg}","err.pickFile":"选择文件失败：{msg}","err.pickDir":"选择目录失败：{msg}","err.reveal":"打开文件夹失败：{msg}","err.selectFirst":"先选一个壁纸再打开自定义配置","ok.reveal":"已打开文件夹：{id}","log.libLoaded":"壁纸库载入：{n} 项（scene {s} / web {w} / video {v}）","log.mount":"挂载 {id}：?{q}","log.liveOn":"已开启系统实况（麦克风频谱 + Music/Spotify + 前台窗口）","log.liveOff":"已关闭系统实况，恢复模拟源","log.pointerPushOn":"已开启指针注入：遮罩屏蔽原生鼠标事件，坐标改经 __wp.pushPointer 推送（模拟桌面壁纸窗口）","log.pointerPushOff":"已关闭指针注入，恢复原生鼠标事件","prompt.libDir":"壁纸库目录","nav.console":"控制台","nav.docs":"说明","nav.wpset":"对应API","nav.settings":"设置","nav.settingsTip":"语言 / 主题 / 归属与许可","nav.lang":"语言","nav.theme":"主题","nav.backend":"后台","nav.backendUnknown":"未知","nav.backendNote":"静态托管（GitHub Pages）没有本机 Node 后端：壁纸库列表 / 属性保存 / 删除 / 诊断流在线上不可用 —— 这是设计如此，不是故障；「选择文件夹」纯前端扫描仍可用。","wp.add":"＋","wp.addTitle":"添加 / 切换壁纸：打开左侧列表并过滤掉当前壁纸","logs.expandTip":"展开输出（控制台）","logs.collapseTip":"收起输出（控制台）","props.emptyState":"还没有选择壁纸","props.emptyHint":"从左侧「选择壁纸」里点一张，这里就会显示它 project.json 声明的可调项。",
 "libsrc.default":"库来源：本机默认目录（服务端内置，你还没有选择）","libsrc.default.hint":"这个目录是服务端启动时的默认值，不代表你已经选过；点「选择文件夹」在应用内浏览并指定一个目录","libsrc.default.path":"（默认库目录不可用）",
 "libsrc.user":"库来源：你选择的目录","libsrc.user.hint":"由你通过「选择文件夹」指定（服务端 /api/library-dir 已接受并落库）","libsrc.user.path":"（已选目录为空）",
 "libsrc.empty":"库来源：空（服务端没有返回库目录）","libsrc.empty.hint":"服务端返回的库目录为空；点「选择文件夹」选一个装壁纸的目录","libsrc.empty.path":"（空）",
@@ -94,7 +94,7 @@ export const DICT = {"zh":{"app.title":"wallpaper-engine-webgl","picker.title":"
 "pickd.selected":"已选择：{path}","pickd.applying":"正在切换库目录…","pickd.done":"库目录已切换：{path}（重新载入中…）","pickd.fail":"切换失败：{msg}","pickd.relisted":"已重新拉取壁纸库列表（{n} 项）","log.listRefreshDone":"换库后重画侧栏：{n} 项（当前壁纸 {id}）","log.releaseQuiet":"已释放：渲染器已停（{why}）—— iframe 已清空、轮询已停，不会再自己重挂","log.listRefreshDropped":"换库后重画侧栏：当前壁纸 {id} 在新库里没有 ⇒ 如实切回「未选择壁纸」（不假装还在渲染）","pickd.noStart":"服务端没有给出可浏览的快捷根（GET /api/fs/roots 的 roots 为空）","pickd.listFail":"读取目录失败：{path} —— {msg}",
 "pickd.frontend":"纯前端扫描（文件不离开浏览器）","pickd.system":"系统选择器（可能选不到环境内目录）","pickd.systemHint":"服务端打开的原生对话框；容器/安卓环境下常常看不到或选不到环境内目录 ⇒ 仅作兜底",
 "pickd.dirTag":"目录","pickd.fileTag":"文件","pickd.rootLocked":"服务端默认不允许列出这个根（只读边界）；可用 MPW_PICK_ROOT 放宽",
-"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）","props.hiddenNote":"已隐藏 {n} 项内部/占位属性（在地址后加 {flag} 显示全部原始项）","props.placeholderNote":"占位属性（文案里没有可读内容）⇒ 不显示控件","props.emptyShownNote":"该壁纸没有可显示的可调项","props.ext.title":"打开外部链接？","props.ext.host":"目标域名：{host}","props.ext.warn":"这条链接来自壁纸作者的属性文案，不是本页生成的。确认域名可信再继续：只会以新标签打开，并带 noopener / noreferrer。","props.ext.cancel":"取消","props.ext.open":"打开","props.ext.wait":"请稍候（{n}s）","props.ext.opening":"已打开外部链接：{host}","props.ext.cancelled":"已取消：没有打开外部链接","props.linkBlocked":"已拒绝该链接：只放行 http(s)","props.num.invalid":"非法输入（{why}）：未写回，已恢复原值","props.num.clamped":"已按属性范围调整：{v}（{why}）","num.why.empty":"空值","num.why.too-long":"位数过多","num.why.not-finite":"不是有限数（Infinity / NaN）","num.why.radix-prefix":"不支持十六/八/二进制前缀","num.why.exponent":"不支持科学计数法（1e9）","num.why.not-a-number":"不是数字","num.why.too-many-decimals":"小数位过多","num.why.min":"低于下界","num.why.max":"高于上界","num.why.step":"按步长对齐","num.why.precision":"按精度取整","toolbar.bandfeed":"音条源","toolbar.bandfeedTip":"音条（音频条）的数据源：壁纸 = 只用包内音轨，没有就如实全 0；麦克风 = 显式请求麦克风（还要勾「启用麦克风」）；模拟 = 确定性模拟源（只看形态）；关 = 不接任何源。换档会重挂载渲染器","bandfeed.wallpaper":"壁纸","bandfeed.mic":"麦克风","bandfeed.sim":"模拟","bandfeed.off":"关","bandfeed.idle":"音条状态：等待渲染器回报…","bandfeed.notInUrl":"音条状态：档位**没写进预览 URL**（改写链把它丢了）—— 渲染器收不到这个参数，切档自然没效果；这是本页自己的问题，不是渲染器不认。模式：{mode}","bandfeed.noReport":"音条状态：这个渲染器没有回报音条数据源（该版本不认「?bandfeed=」）—— 档位已写进 URL：{mode}（这个渲染器档不认「?bandfeed=」：档位已写进 URL，切到「本仓渲染器」档即生效 —— 它由 :8902 **自己直供** /webloader/，不依赖 :8899）","bandfeed.srcWallpaper":"音条数据源：包内音轨（?audio=1 的 sound 层）","bandfeed.srcMic":"音条数据源：麦克风","bandfeed.srcSim":"音条数据源：模拟（形态可见，不是真实频谱）","bandfeed.silent":"音条无数据：该壁纸没有音源或已静音 —— 可切「麦克风」或「模拟」看形态","bandfeed.offNote":"音条源：关 —— 渲染器不接任何数据源（脚本侧退回旧 audioBuffers 路径）","bandfeed.whyNoSource":"没有数据源：?audio=1 的包内音轨与麦克风都没有","bandfeed.whyNoTrack":"包内没有可用的音轨分析器（需要 ?audio=1 且包里真有 sound 层在播）","bandfeed.whyMicGate":"测试台「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）","bandfeed.whyMicDenied":"麦克风授权被拒绝或未启用（不会再请求第二次）","bandfeed.whyMicWait":"麦克风还在等待授权 / 初始化","bandfeed.whyMicUnsupported":"这个浏览器没有 navigator.mediaDevices（拿不到麦克风）","bandfeed.whyMicError":"麦克风初始化失败","bandfeed.whyMicGeneric":"麦克风不可用","log.bandfeedSwitch":"音条源：{mode} —— {status}","log.bandfeedMicGated":"音条源选了「麦克风」，但「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）⇒ 音条保持全 0；要真接麦克风请先勾「启用麦克风」（勾上会自动重挂载一次）","log.bandfeedNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 音条档位在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可","toolbar.rendererSrc":"渲染器","toolbar.rendererSrcTip":"预览用哪个渲染器：上游产物 = demo/renderer/index.html（不可重建的 minified 包，画布乘数被「DPR」档上限夹住、上下文 alpha:false）；本仓渲染器 = 同源 /webloader/（:8902 自己直供的 demo.html + 本仓 core，**不需要 :8899 在跑**，含 ?res=dpr 画布活档位与透明/粒子修复）。换档会重挂载预览","rendererSrc.upstream":"上游产物","rendererSrc.repo":"本仓渲染器","rendererSrc.loading":"渲染器来源：本仓渲染器正在加载…","rendererSrc.repoOn":"渲染器来源：本仓渲染器（{label}）· 画布 {res} · {note}","rendererSrc.repoDegraded":"渲染器来源：本仓渲染器（{label}）· 画布 {res} —— 明确降级的能力：{caps}","rendererSrc.notRepo":"渲染器来源：本仓渲染器 —— ⚠ 但当前文档看着不像本仓渲染器（{url}）","rendererSrc.unreachable":"渲染器来源：本仓渲染器 —— ⚠ 打不开（{why}）：同源 /webloader/ 没起来（这条路由由 :8902 自己直供，不需要 :8899）？回退请选「上游产物」","rendererSrc.upstreamOn":"渲染器来源：上游产物（{label}）—— {note}","log.rendererSrcSwitch":"渲染器来源：{mode}（{detail}）","log.rendererSrcNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 渲染器来源在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可","log.rendererSrcEmpty":"渲染器来源：{mode} —— 当前**未选择壁纸**：预览保持空态，这次**不挂载任何壁纸**（档位已记住，下次挂载生效）","log.rendererSrcRewrote":"「重挂载」这次没有重设渲染器（没有已挂载的壁纸 / 走的是合成样例那条路径）⇒ 已把**当前预览 URL 按新档位重写一次**（同一条改写链），立即生效","log.rendererSrcSampleSkipped":"合成样例：本仓渲染器档不载它（本仓按 ?id= 取包挂载；那条 __wp.loadSceneFile 契约本仓明确降级）—— 上游产物档行为不变","log.rendererSrcSampleRepo":"合成样例：本仓渲染器档按 `?id=sample-synthetic` 挂载（与产物档同一个样例、同一份字节；取包走本仓 `/pkg/<id>`）：{url}","log.rendererSrcSampleExplicit":"合成样例：本仓渲染器档不认 `?sample=<url>`（那是产物页 `loadSceneFile(blob)` 的调试档）—— 已忽略，仍用自带样例"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the WEwebLoader source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.mic":"Enable microphone","toolbar.micTip":"Off by default: while off the page never requests the microphone (getUserMedia is not called) and “Live system” keeps title/progress only; when on it is requested only if a wallpaper/feature declares the need, never pre-requested at load","dbg.switch":"Enable debug mode","dbg.switchTip":"Step through layers (left/right) and isolate them; the keyboard is captured only while the debug view is open, Alt exits","logs.cleared":"Cleared ({view})","log.micOn":"Microphone enabled: requested only when a wallpaper/feature declares the need (no pre-request at load)","log.micOff":"Microphone disabled: no mic request is issued at all","log.micNeeded":"The microphone half of “Live system” needs “Enable microphone” first — title/progress only for now","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","toolbar.introSkip":"Skip intro","toolbar.introSkipTip":"Skip the wallpaper intro (the opening zoom / camera move) and start right after it (renderer flag ?skipintro=1)","toolbar.webMode":"Web render","toolbar.webModeTip":"How web wallpapers run: sandbox = isolated scope (safer, a few wallpapers fail); compat = run in-page (best compatibility). Switching remounts the renderer (?webmode=)","webMode.sandbox":"Sandbox","webMode.compat":"Compat","webMode.auto":"Auto","toolbar.hybrid":"Streaming","toolbar.hybridTip":"DSH process streaming (hybrid): play while fetching, without waiting for the whole package; off = fetch fully first (renderer flag ?hybrid=). On by default","toolbar.layerSwitch":"Layers","toolbar.layerSwitchTip":"Unchecking hides that layer from rendering (per-layer triage); the hidden set is written into this page's URL as ?hide= and restored on remount or when opened with the parameter. Works with the “This repo” renderer only","layers.all":"All","layers.none":"None","layers.onlyCurrent":"Keep current only","layers.keepCurrentTip":"Uncheck every layer except the one debug mode is currently on (step layers in debug mode first)","layers.needDebug":"No current layer yet: step layers in debug mode first — this button needs a current layer","layers.copyState":"Copy state","layers.hiddenCount":"{n}/{m} layers hidden","layers.container":"Container layer: carries parenting/positioning only, never drawn (cannot be hidden)","layers.keepRow":"Solo","layers.keepOne":"Keep only this layer (= check only it, uncheck the rest)","layers.disabledUpstream":"The upstream build has no __lnHidden convention (per-layer hiding works with the “This repo” renderer only) — switch “Renderer” to “This repo” first","layers.disabledNoMount":"No wallpaper mounted (no __sceneLayers to list): pick a wallpaper on the left first","layers.dbgDeferred":"Debug isolation is active: checkbox changes are recorded and applied when debug mode exits","log.lswKeepOnly":"Layer switch: keep only #{n} {name} (the rest unchecked)","log.lswCopied":"Copied the current state (paste it to someone else to reproduce): {text}","log.lswRematch":"Layer switch: wallpaper remounted — re-matched by index+name, kept {n} hidden, dropped {m} (index/name no longer matching)","bar.collapseTip":"Collapse the options bar (hides rows 1-3; action buttons and flags stay available)","bar.expandTip":"Expand the options bar","webProbe.heavy":"Heavy animation","webProbe.external":"Needs network","webProbe.badge":"Precheck: {flags}","log.webProbeOk":"Precheck (web wallpaper): {id} - no risk flags","log.webProbeWarn":"Precheck (web wallpaper): {id} {flags} - {reasons}","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","bar.collapse":"Collapse options","bar.expand":"Expand options","bar.hintOn":"Resolution / filter / fps …; collapsing keeps only this row","bar.hintOff":"Options collapsed (use the button on the left)","logs.debug":"Debug mode","logs.debugOn":"Debug mode·ON","logs.debugOff":"Debug mode·OFF","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
+"credit.link":"README · 许可与归属（GPL-3.0-or-later + 上游 MIT）","props.hiddenNote":"已隐藏 {n} 项内部/占位属性（在地址后加 {flag} 显示全部原始项）","props.placeholderNote":"占位属性（文案里没有可读内容）⇒ 不显示控件","props.emptyShownNote":"该壁纸没有可显示的可调项","props.ext.title":"打开外部链接？","props.ext.host":"目标域名：{host}","props.ext.warn":"这条链接来自壁纸作者的属性文案，不是本页生成的。确认域名可信再继续：只会以新标签打开，并带 noopener / noreferrer。","props.ext.cancel":"取消","props.ext.open":"打开","props.ext.wait":"请稍候（{n}s）","props.ext.opening":"已打开外部链接：{host}","props.ext.cancelled":"已取消：没有打开外部链接","props.linkBlocked":"已拒绝该链接：只放行 http(s)","props.num.invalid":"非法输入（{why}）：未写回，已恢复原值","props.num.clamped":"已按属性范围调整：{v}（{why}）","num.why.empty":"空值","num.why.too-long":"位数过多","num.why.not-finite":"不是有限数（Infinity / NaN）","num.why.radix-prefix":"不支持十六/八/二进制前缀","num.why.exponent":"不支持科学计数法（1e9）","num.why.not-a-number":"不是数字","num.why.too-many-decimals":"小数位过多","num.why.min":"低于下界","num.why.max":"高于上界","num.why.step":"按步长对齐","num.why.precision":"按精度取整","toolbar.bandfeed":"音条源","toolbar.bandfeedTip":"音条（音频条）的数据源：壁纸 = 只用包内音轨，没有就如实全 0；麦克风 = 显式请求麦克风（还要勾「启用麦克风」）；模拟 = 确定性模拟源（只看形态）；关 = 不接任何源。换档会重挂载渲染器","bandfeed.wallpaper":"壁纸","bandfeed.mic":"麦克风","bandfeed.sim":"模拟","bandfeed.off":"关","bandfeed.idle":"音条状态：等待渲染器回报…","bandfeed.notInUrl":"音条状态：档位**没写进预览 URL**（改写链把它丢了）—— 渲染器收不到这个参数，切档自然没效果；这是本页自己的问题，不是渲染器不认。模式：{mode}","bandfeed.noReport":"音条状态：这个渲染器没有回报音条数据源（该版本不认「?bandfeed=」）—— 档位已写进 URL：{mode}（这个渲染器档不认「?bandfeed=」：档位已写进 URL，切到「本仓渲染器」档即生效 —— 它由 :8902 **自己直供** /webloader/，不依赖 :8899）","bandfeed.srcWallpaper":"音条数据源：包内音轨（?audio=1 的 sound 层）","bandfeed.srcMic":"音条数据源：麦克风","bandfeed.srcSim":"音条数据源：模拟（形态可见，不是真实频谱）","bandfeed.silent":"音条无数据：该壁纸没有音源或已静音 —— 可切「麦克风」或「模拟」看形态","bandfeed.offNote":"音条源：关 —— 渲染器不接任何数据源（脚本侧退回旧 audioBuffers 路径）","bandfeed.whyNoSource":"没有数据源：?audio=1 的包内音轨与麦克风都没有","bandfeed.whyNoTrack":"包内没有可用的音轨分析器（需要 ?audio=1 且包里真有 sound 层在播）","bandfeed.whyMicGate":"测试台「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）","bandfeed.whyMicDenied":"麦克风授权被拒绝或未启用（不会再请求第二次）","bandfeed.whyMicWait":"麦克风还在等待授权 / 初始化","bandfeed.whyMicUnsupported":"这个浏览器没有 navigator.mediaDevices（拿不到麦克风）","bandfeed.whyMicError":"麦克风初始化失败","bandfeed.whyMicGeneric":"麦克风不可用","log.bandfeedSwitch":"音条源：{mode} —— {status}","log.bandfeedMicGated":"音条源选了「麦克风」，但「启用麦克风」没勾：不会请求麦克风（getUserMedia 一次都不调）⇒ 音条保持全 0；要真接麦克风请先勾「启用麦克风」（勾上会自动重挂载一次）","log.bandfeedNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 音条档位在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可","toolbar.rendererSrc":"渲染器","toolbar.rendererSrcTip":"预览用哪个渲染器：上游产物 = demo/renderer/index.html（不可重建的 minified 包，画布乘数被「DPR」档上限夹住、上下文 alpha:false）；本仓渲染器 = 同源 /webloader/（:8902 自己直供的 demo.html + 本仓 core，**不需要 :8899 在跑**，含 ?res=dpr 画布活档位与透明/粒子修复）。换档会重挂载预览","rendererSrc.upstream":"上游产物","rendererSrc.repo":"本仓渲染器","rendererSrc.loading":"渲染器来源：本仓渲染器正在加载…","rendererSrc.repoOn":"渲染器来源：本仓渲染器（{label}）· 画布 {res} · {note}","rendererSrc.repoDegraded":"渲染器来源：本仓渲染器（{label}）· 画布 {res} —— 明确降级的能力：{caps}","rendererSrc.notRepo":"渲染器来源：本仓渲染器 —— ⚠ 但当前文档看着不像本仓渲染器（{url}）","rendererSrc.unreachable":"渲染器来源：本仓渲染器 —— ⚠ 打不开（{why}）：同源 /webloader/ 没起来（这条路由由 :8902 自己直供，不需要 :8899）？回退请选「上游产物」","rendererSrc.upstreamOn":"渲染器来源：上游产物（{label}）—— {note}","log.rendererSrcSwitch":"渲染器来源：{mode}（{detail}）","log.rendererSrcNoMount":"「重挂载」这次没有重设渲染器（当前没有已挂载的壁纸，或走的是合成样例那条路径）⇒ 渲染器来源在**下次挂载**时生效；换一张壁纸或点一次「重挂载」即可","log.rendererSrcEmpty":"渲染器来源：{mode} —— 当前**未选择壁纸**：预览保持空态，这次**不挂载任何壁纸**（档位已记住，下次挂载生效）","log.rendererSrcRewrote":"「重挂载」这次没有重设渲染器（没有已挂载的壁纸 / 走的是合成样例那条路径）⇒ 已把**当前预览 URL 按新档位重写一次**（同一条改写链），立即生效","log.rendererSrcSampleSkipped":"合成样例：本仓渲染器档不载它（本仓按 ?id= 取包挂载；那条 __wp.loadSceneFile 契约本仓明确降级）—— 上游产物档行为不变","log.rendererSrcSampleRepo":"合成样例：本仓渲染器档按 `?id=sample-synthetic` 挂载（与产物档同一个样例、同一份字节；取包走本仓 `/pkg/<id>`）：{url}","log.rendererSrcSampleExplicit":"合成样例：本仓渲染器档不认 `?sample=<url>`（那是产物页 `loadSceneFile(blob)` 的调试档）—— 已忽略，仍用自带样例"},"en":{"app.title":"wallpaper-engine-webgl","picker.title":"Custom color","picker.hex":"Hex","picker.hint":"Drag the hue bar and panel, or type #rrggbb","picker.ok":"OK","picker.cancel":"Cancel","copy.logs":"Copy output","copy.url":"Copy link","copy.ok":"Copied to clipboard","copy.manual":"Clipboard unavailable (file:// or not permitted): copy the selected text below manually","copy.fail":"Copy failed: {msg}","error.title":"Page script error (contained)","error.dismiss":"Dismiss","error.logged":"Details were written to the output panel","fs.enter":"Fullscreen","fs.enterTitle":"Fullscreen preview (the exit button is at the top-right inside fullscreen)","fs.exit":"Exit fullscreen","fs.exitTitle":"Exit fullscreen (Esc also works)","fs.unsupported":"This browser does not support the Fullscreen API","local.pickTitle":"Pick a local wallpaper folder (read in-browser; files never leave it)","local.unsupported":"This browser cannot pick directories (webkitdirectory / showDirectoryPicker) — local wallpapers cannot be loaded here; use desktop Chrome / Edge / Firefox","local.reading":"Reading folder…","local.none":"No wallpapers found in that folder (a wallpaper folder needs scene.pkg or project.json)","local.count":"Local folder: {n} wallpapers","local.sceneOnly":"Static hosting previews scene packages only (web/video need the local Node backend)","local.preview":"Local preview: {name}","local.clear":"Clear","local.clearTitle":"Clear the local library and the current selection","local.cleared":"Cleared the local library and selection","local.notDir":"That was not a folder selection: the browser returned a single file. Click “Choose folder” and pick a directory (not a single file)","local.kindTitle":"Type auto-detected while scanning: {k}","btn.pickFile":"Choose file","pick.dirTitle":"Browse folders","pick.fileTitle":"Browse files","pick.curDir":"Current folder","pick.up":"Up one level","pick.home":"Back to top","pick.here":"Use this folder","pick.thisFile":"Use this file","pick.empty":"No subfolders here","pick.noFile":"No matching files here","pick.filterPh":"Filter by name","pick.grant":"Open system picker","pick.needGrant":"Browser security: a page can only list a folder you grant through the system dialog — pick one first (files never leave the browser)","pick.readNote":"Read in-browser: folders and files come from the tree you granted; nothing is uploaded or leaves the browser","pick.granted":"Granted: {name} ({n} files / {d} folders)","pick.cancelled":"Selection cancelled","pick.count":"{n} items","local.grantScan":"Loaded from the picker: {name}","local.filePicked":"File picked: {name}","docs.readmeTitle":"This page README · quick reference","status.dpr":"DPR (devicePixelRatio) {n}","status.dprTitle":"Window devicePixelRatio — affects render resolution and performance","offline.tag":"Offline","offline.diagReason":"Static hosting has no /diag backend: the renderer diagnostics stream is unavailable (run the local Node host or pnpm dev)","offline.diagTitle":"Diagnostics stream unavailable (static hosting)","backend.node":"Local Node backend connected","backend.static":"Static hosting (no /api backend)","backend.staticTitle":"Static hosting: this page is served statically, so /api/* and /diag are all 404 — the library listing, property saving, deleting, reveal-in-folder and the diagnostics stream are unavailable","backend.needBackend":"Needs the local Node backend (unavailable under static hosting)","backend.alt":"Working alternative: “Choose folder” scans in-browser (scene packages preview directly; files never leave the browser)","backend.online":"To go online: run pnpm dev in the WEwebLoader source tree and open the address it prints (default http://localhost:1430/) — that is the full bench with the Node host","backend.offline":"The browser is offline (navigator.onLine=false): nothing here needs the network; what is missing is the local Node backend","backend.blocked":"The Node host cannot be started on this machine right now: dependencies are incomplete offline (pnpm install --offline fails with ERR_PNPM_NO_OFFLINE_TARBALL)","res.pick":"Pick resolution","res.native":"(popup list is height-limited and scrollable)","trail.on":"Mouse trail","trail.needInjection":"Enable “Pointer injection” first","trail.len":"Length","trail.width":"Width","trail.color":"Color","trail.tip":"Only available after enabling “Pointer injection”: the trail uses the injection veil coordinates and never takes over real mouse events","act.explorer":"Explorer","act.docs":"User guide","theme.auto":"Theme: system","theme.dark":"Theme: dark","theme.light":"Theme: light","lang.title":"Switch language","backend.demoNoBackend":"The online demo (GitHub Pages) has no local Node backend — this is **by design**, not a failure: online there are only static files, so /api/* and /diag are 404. The full bench (library listing, property saving, deleting, diagnostics stream) needs pnpm dev in the source tree.","demo.onlineTitle":"Online demo","demo.onlineBody":"This page is an **online static demo**: there is no local Node backend, so the library listing, property saving, deleting, reveal-in-folder and the renderer diagnostics stream (/api/* and /diag) are unavailable online — by design under plain static hosting, not a failure. “Choose folder” (fully client-side scanning) still works, and the default wallpaper is the **synthetic sample** generated by this repository (no real wallpaper is bundled).","demo.onlineSample":"Default wallpaper: the synthetic sample scene.pkg (generated by tools/make-sample.mjs, 33 299 B, no third-party content) — this repository **does not redistribute** any real wallpaper package.","offline.diagReasonOnline":"The online demo has no /diag backend: online is plain static hosting, so the renderer diagnostics stream is unavailable (by design, not a dropped connection)","demo.sampleMissing":"Loading the synthetic sample failed: {msg}","demo.sampleLoaded":"Loaded the synthetic sample: {name} (generated by this repository, no third-party content)","credit.title":"Original renderer author","credit.link":"WebWallGL · oneincase (MIT license)","brand.generic":"Wallpaper","static.notice":"Static demo: the library listing, property saving, deleting and the diagnostics stream need a local backend. Use “Choose folder” to scan local wallpapers in-browser (scene packages preview), or run pnpm dev in the source tree for the full bench.","static.libPath":"Static hosting · no local backend","static.pickTitle":"Unavailable on static hosting — run locally (pnpm dev)","log.filePreview":"Local preview: {name}","err.filePreview":"Local preview failed: {msg}","sidebar.title":"Explorer","sidebar.libCount":"Library","sidebar.pickLib":"Pick folder (or keep using WE_LIBRARY)","btn.pickLib":"Pick folder","ph.filter":"Filter title / itemId","ph.propsFilter":"Filter property name / label","reveal.open":"Open containing folder","ctx.delete":"Delete wallpaper","confirm.delete":"Delete wallpaper “{title}”? Its whole folder will be moved to the Trash ({id}).","ok.delete":"Deleted: {id}","err.delete":"Delete failed: {msg}","tab.wallpaper":"No wallpaper","toolbar.resolution":"Resolution","toolbar.resolutionTip":"Stage logical resolution (iframe viewport)","toolbar.volume":"Volume","toolbar.live":"Live system","toolbar.liveTip":"Title/progress via Node media-control; audio bars via mic (no system loopback). Remounts on toggle","toolbar.mic":"Enable microphone","toolbar.micTip":"Off by default: while off the page never requests the microphone (getUserMedia is not called) and “Live system” keeps title/progress only; when on it is requested only if a wallpaper/feature declares the need, never pre-requested at load","dbg.switch":"Enable debug mode","dbg.switchTip":"Step through layers (left/right) and isolate them; the keyboard is captured only while the debug view is open, Alt exits","logs.cleared":"Cleared ({view})","log.micOn":"Microphone enabled: requested only when a wallpaper/feature declares the need (no pre-request at load)","log.micOff":"Microphone disabled: no mic request is issued at all","log.micNeeded":"The microphone half of “Live system” needs “Enable microphone” first — title/progress only for now","toolbar.pointerPush":"Pointer inject","toolbar.pointerPushTip":"Simulates a desktop wallpaper window: a veil blocks native mouse events and coordinates are pushed via __wp.pushPointer — the same channel the native host uses","toolbar.pause":"Pause","toolbar.resume":"Resume","toolbar.reload":"Remount","toolbar.release":"Release","toolbar.open":"New window","toolbar.props":"Wallpaper config","toolbar.filter":"Filter","toolbar.filterTip":"Filter (beta): CSS filter applied to the rendered output","toolbar.introSkip":"Skip intro","toolbar.introSkipTip":"Skip the wallpaper intro (the opening zoom / camera move) and start right after it (renderer flag ?skipintro=1)","toolbar.webMode":"Web render","toolbar.webModeTip":"How web wallpapers run: sandbox = isolated scope (safer, a few wallpapers fail); compat = run in-page (best compatibility). Switching remounts the renderer (?webmode=)","webMode.sandbox":"Sandbox","webMode.compat":"Compat","webMode.auto":"Auto","toolbar.hybrid":"Streaming","toolbar.hybridTip":"DSH process streaming (hybrid): play while fetching, without waiting for the whole package; off = fetch fully first (renderer flag ?hybrid=). On by default","toolbar.layerSwitch":"Layers","toolbar.layerSwitchTip":"Unchecking hides that layer from rendering (per-layer triage); the hidden set is written into this page's URL as ?hide= and restored on remount or when opened with the parameter. Works with the “This repo” renderer only","layers.all":"All","layers.none":"None","layers.onlyCurrent":"Keep current only","layers.keepCurrentTip":"Uncheck every layer except the one debug mode is currently on (step layers in debug mode first)","layers.needDebug":"No current layer yet: step layers in debug mode first — this button needs a current layer","layers.copyState":"Copy state","layers.hiddenCount":"{n}/{m} layers hidden","layers.container":"Container layer: carries parenting/positioning only, never drawn (cannot be hidden)","layers.keepRow":"Solo","layers.keepOne":"Keep only this layer (= check only it, uncheck the rest)","layers.disabledUpstream":"The upstream build has no __lnHidden convention (per-layer hiding works with the “This repo” renderer only) — switch “Renderer” to “This repo” first","layers.disabledNoMount":"No wallpaper mounted (no __sceneLayers to list): pick a wallpaper on the left first","layers.dbgDeferred":"Debug isolation is active: checkbox changes are recorded and applied when debug mode exits","layers.fileHidden":"This layer is visible:false in scene.json (not rendered right now): tick to force it visible","layers.forced":"Forced visible: the file says visible:false and this tick overrides it (untick to go back to the file state)","layers.noSource":"Not drawable: this layer has no pixel source (audio/sound or data-only layer) - ticking it will not make it appear","layers.allTip":"Tick everything, including layers that are visible:false in the file (= force them visible)","log.lswForceShow":"Layer switch: forcing #{n} {name} visible (visible:false in the file)","log.lswKeepOnly":"Layer switch: keep only #{n} {name} (the rest unchecked)","log.lswCopied":"Copied the current state (paste it to someone else to reproduce): {text}","log.lswRematch":"Layer switch: wallpaper remounted — re-matched by index+name, kept {n} hidden, dropped {m} (index/name no longer matching)","bar.collapseTip":"Collapse the options bar (hides rows 1-3; action buttons and flags stay available)","bar.expandTip":"Expand the options bar","webProbe.heavy":"Heavy animation","webProbe.external":"Needs network","webProbe.badge":"Precheck: {flags}","log.webProbeOk":"Precheck (web wallpaper): {id} - no risk flags","log.webProbeWarn":"Precheck (web wallpaper): {id} {flags} - {reasons}","filter.none":"None","filter.blur":"Blur","filter.grayscale":"Grayscale","filter.sepia":"Sepia","filter.vivid":"Vivid","filter.warm":"Warm","filter.cool":"Cool","filter.invert":"Invert","filter.brighten":"Brighten","filter.darken":"Darken","filter.contrast":"Contrast","res.fit":"Adaptive 16:9","stage.empty":"Pick a wallpaper on the left to start rendering","logs.head":"Output","logs.diag":"Renderer diagnostics (/diag)","logs.clear":"Clear","logs.collapse":"Collapse output","logs.expand":"Expand output","bar.collapse":"Collapse options","bar.expand":"Expand options","bar.hintOn":"Resolution / filter / fps …; collapsing keeps only this row","bar.hintOff":"Options collapsed (use the button on the left)","logs.debug":"Debug mode","logs.debugOn":"Debug mode·ON","logs.debugOff":"Debug mode·OFF","logs.tabDebugHint":"Debug mode: left/right steps layers, plus report & screenshot",
 "dbg.report":"Report now","dbg.reportTip":"Post the current diagnostics immediately (/report, then /baseline, then /diag)","dbg.shot":"Screenshot","dbg.shotTip":"Download the preview canvas as JPEG","dbg.reporting":"Reporting…","dbg.reported":"Reported: {where} ({bytes} B)","dbg.reportFail":"Report failed: {msg}","dbg.shotOk":"Screenshot saved: {name} ({kb} KB)","dbg.shotFail":"Screenshot failed: {why}","dbg.on":"Debug mode: on (left/right steps layers; Alt exits)","dbg.off":"Debug mode: off","dbg.layerNone":"No scene to inspect layer by layer","dbg.layerLine":"Layer {i}/{n} · {name}","dbg.noScene":"No scene layers right now (not mounted / failed to load)","status.adaptive":"Adaptive 16:9","status.cap":"Cap {n}","status.uncapped":"Uncapped","fps.uncapped":"Uncapped","fps.uncappedTitle":"No frame-rate cap (renders as fast as the display allows)","status.capTitle":"FPS cap (toolbar FPS)","status.liveTitle":"Measured wallpaper FPS (render loop, last 500ms)","status.items":"{n} items","props.title":"Wallpaper config","props.weGroup":"Renderer settings (built into WE)","props.we.flipH":"Flip (horizontal)","props.we.colorOptions":"Show colour options (master)","props.we.brightness":"Brightness","props.we.contrast":"Contrast","props.we.saturation":"Saturation","props.we.hue":"Hue shift","props.we.playbackRate":"Playback rate","props.we.volume":"Volume","props.we.flipV":"Flip (vertical)","props.we.alignment":"Alignment / zoom","props.we.parallaxReaction":"React to motion (parallax / gyro)","props.we.recording":"Recording (WE capture / recording volume)","props.we.perMonitor":"Per monitor (per-display settings)","props.we.status.other":"implemented elsewhere","props.we.status.no":"not implemented","props.we.status.we":"built into WE","props.we.why.flipV":"No `flipV` in this repo's renderer (`__wp.setDisplay` only takes `flipH`) — not done; a vertical mirror would be the host's own CSS `scaleY(-1)`.","props.we.why.alignment":"Implemented here, but on the toolbar fit control (`#fit` / `?fit=`), not on a renderer API.","props.we.why.parallaxReaction":"Out of scope by the user's own call (no gyroscope); if ever added it uses `__wp.pushPointer(x,y)`.","props.we.why.recording":"Built into the Wallpaper Engine client (capture / recording volume); no in-page surface.","props.we.why.perMonitor":"Built into the WE client (wallpaper and volume are stored per monitor); this page is a single-instance preview.","props.we.notReady":"The renderer has not published `__wp` yet (briefly true while switching wallpaper or remounting): this group becomes usable once the renderer is up — the controls stay greyed out until then.","props.we.legacy":"The renderer is running the `?display=legacy` master fallback: the whole display-options group is ignored (`__wp.setDisplay` is read-only), so the controls are greyed out.","props.we.hint":"These items exist on every wallpaper (built into WE) and drive the renderer API directly, taking effect immediately; the wallpaper's own items are below.","props.imgDedup":"Image dedup","props.imgDedupOnce":"Once (whole panel)","props.imgDedupRow":"Once per row","props.imgDedupAll":"All (no dedup)","props.imgDedupNote":"{n} duplicate image(s) suppressed","props.imgDedupForced":"Decided by the URL gear {flag}","props.imgDedupTip":"Draw each picture once per panel (enforced): (1) a byte-identical URL is drawn once; (2) URLs differing only in size/format/watermark params or suffixes (wx_fmt, bo, rf, @100w, 800x600, _!web-…, x-oss-process=…) or in an http/https or www. prefix count as the SAME picture and are merged unconditionally (no size match required any more); (3) both sources in the panel — the images the renderer parsed and those in the property text — share one ledger; (4) a link to an already-drawn picture, and a link left empty after its image was suppressed, are no longer drawn on their own. “All” = no dedup (A/B); “Once per row” = per-row dedup only. A link carrying ?propimg= wins","props.imgDedupLog":"Image dedup gear: {mode}","props.imgDedupForcedNote":"({m} of them were **force-merged** by picture identity: {diff} with a different size, {unk} with unknown size — “show it once” is enforced as requested)","props.imgDedupForcedLog":"(the URL param {flag} wins: this click only stores the preference; drop the param for it to take effect)","wpset.done":"Implemented","props.reset":"Reset defaults","props.collapse":"Collapse","props.showHidden":"Show condition-hidden items","props.reading":"Reading…","props.none":"This wallpaper declares no custom properties","props.count":"{n} items","props.countOverridden":"{n} items ({m} overridden)","props.readFail":"Read failed: {msg}","props.saving":"Saving…","props.savedOverridden":"Saved ({n} overridden)","props.savedAll":"Saved (all defaults)","props.saveFail":"Save failed: {msg}","props.pending":"Pending save…","props.logSaved":"Properties saved: {id} ({n} overrides)","props.empty":"project.json declares no general.properties — nothing to customize.","props.noMatch":"No matching properties","props.allHidden":"All properties hidden by condition (tick the switch above to view)","props.filePh":"Path relative to wallpaper root ({kind})","props.dirPh":"Absolute directory path","props.pickFile":"Choose file…","props.pickDir":"Choose folder…","props.fileUnset":"Not set","props.fileUploading":"Importing…","err.wpNotReady":"__wp not ready (pick a wallpaper and wait for it to load)","err.diagStream":"Diagnostics stream lost (dev server restarted?)","err.pickLib":"Picking folder failed: {msg}","err.pickFile":"Choosing file failed: {msg}","err.pickDir":"Choosing folder failed: {msg}","err.reveal":"Opening folder failed: {msg}","err.selectFirst":"Pick a wallpaper before opening Properties","ok.reveal":"Opened folder: {id}","log.libLoaded":"Library loaded: {n} items (scene {s} / web {w} / video {v})","log.mount":"Mount {id}: ?{q}","log.liveOn":"Live system on (mic spectrum + Music/Spotify + front window)","log.liveOff":"Live system off; back to simulated sources","log.pointerPushOn":"Pointer injection on: veil blocks native mouse events; coordinates now pushed via __wp.pushPointer (simulates desktop wallpaper window)","log.pointerPushOff":"Pointer injection off; native mouse events restored","prompt.libDir":"Wallpaper library directory","nav.console":"Console","nav.docs":"Guide","nav.wpset":"API mapping","nav.settings":"Settings","nav.settingsTip":"Language / theme / attribution & licences","nav.lang":"Language","nav.theme":"Theme","nav.backend":"Backend","nav.backendUnknown":"unknown","nav.backendNote":"Static hosting (GitHub Pages) has no local Node backend: library listing / property saving / deleting / the diagnostics stream are unavailable online — by design, not a failure. “Choose folder” (in-browser scan) still works.","wp.add":"＋","wp.addTitle":"Add / switch wallpaper: open the left list filtered to hide the current one","logs.expandTip":"Expand the output (console)","logs.collapseTip":"Collapse the output (console)","props.emptyState":"No wallpaper picked yet","props.emptyHint":"Pick one in “Choose wallpaper” on the left; the options declared in its project.json show up here.",
 "libsrc.default":"Library source: machine default directory (server built-in — you have not chosen one)","libsrc.default.hint":"This is the server's start-up default, not a choice you made; click “Choose folder” to browse in-app and pick one","libsrc.default.path":"(default library directory unavailable)",
 "libsrc.user":"Library source: the directory you chose","libsrc.user.hint":"Chosen by you via “Choose folder” (accepted by the server's /api/library-dir)","libsrc.user.path":"(chosen directory is empty)",
@@ -1331,10 +1331,11 @@ export function formatHideParam(indices) {
 }
 
 /** 下拉的行数据：`[{i, name, isContainer}]`。容器层照样列出（逐层排查时要知道它存在），
- *  但它的 checkbox 置灰 —— 容器只承载父子链/定位，不参与绘制，`__lnHidden` 对它无意义。 */
+ *  但它的 checkbox 置灰 —— 容器只承载父子链/定位，不参与绘制，`__lnHidden` 对它无意义。
+ *  ①(2026-10-11 用户第 2 条) 实现**收敛到唯一口径 `layerSwitchState()`**（P-240 台账点名过本函数；
+ *  留作兼容壳，避免"两套行数据"漂移：可显示性/文件语义都以后者为准）。 */
 export function layerSwitchEntries(layers) {
-  const list = Array.isArray(layers) ? layers : []
-  return list.map((l, i) => ({ i, name: layerDisplayName(l, i), isContainer: !!(l && l.isContainer) }))
+  return layerSwitchState(layers, [], []).rows.map((r) => ({ i: r.i, name: r.name, isContainer: r.isContainer }))
 }
 
 /** 重挂载对账（任务书 §2.1：重挂载后 `__sceneLayers` 是**新数组** ⇒ 按"下标 + 层名"重新对上，
@@ -1355,16 +1356,19 @@ export function rematchHiddenIndices(prevIndices, prevNames, layers) {
   return [...new Set(kept)].sort((a, b) => a - b)
 }
 
-/** 隐藏集 → 逐层 `__lnHidden` 写入计划。容器层永远 `hidden:false`（绘制判据本来就不认它）。 */
+/** 隐藏集 → 逐层 `__lnHidden` 写入计划（**兼容壳**：容器层永远 `hidden:false`，绘制判据本来就不认它）。
+ *  ①(2026-10-11 用户第 2 条) 实现**收敛到唯一口径 `layerSwitchState()`** —— 旧写法只看 `isContainer`，
+ *  与"可显示性（容器/光源/无绘制源）"那套判据会各说各话；现在两者共用一份计划（P-240 台账点名过本函数）。 */
 export function layerHidePlan(layers, hiddenSet) {
-  const list = Array.isArray(layers) ? layers : []
-  const set = hiddenSet instanceof Set ? hiddenSet : new Set(hiddenSet || [])
-  return list.map((l, i) => ({ i, hidden: !!(l && !l.isContainer && set.has(i)) }))
+  return layerSwitchState(layers, hiddenSet, []).plan.map((p) => ({ i: p.i, hidden: p.hidden }))
 }
 
 /** 「复制当前状态」的文案：第一行 = 带 `?hide=` 的完整 URL（别人直接打开就能复现），
- *  第二行 = 隐藏层清单（下标 + 层名）。`url` 缺失时退化为裸 `?hide=…` 片段（判据好断言）。 */
-export function layerSwitchCopyPlan(url, hiddenIndices, names, totalLayers) {
+ *  第二行 = 隐藏层清单（下标 + 层名）。`url` 缺失时退化为裸 `?hide=…` 片段（判据好断言）。
+ *  ①(2026-10-11 用户第 2 条) 追加第三行：**强制显示**清单（`__lnShown` 的层）—— 它们由"文件里
+ *  `visible:false` + 用户勾上"产生，**写不进 URL** ⇒ 不写出来对方就复现不出同一张图（可复现承诺的
+ *  最后一块）。`forcedIndices` 缺省 = 空 ⇒ 第三行不出现，旧调用方的文案逐字不变。 */
+export function layerSwitchCopyPlan(url, hiddenIndices, names, totalLayers, forcedIndices, forcedNames) {
   const idx = [...new Set((Array.isArray(hiddenIndices) ? hiddenIndices : [])
     .map((n) => Math.trunc(Number(n)))
     .filter((n) => Number.isSafeInteger(n) && n >= 0))].sort((a, b) => a - b)
@@ -1385,7 +1389,132 @@ export function layerSwitchCopyPlan(url, hiddenIndices, names, totalLayers) {
   const items = idx.map((i) => '#' + i + ' ' + (namesMap.get(i) != null ? namesMap.get(i) : '?'))
   const total = Math.max(0, Math.trunc(Number(totalLayers)) || 0)
   const line2 = 'hide=' + v + '（隐藏 ' + idx.length + '/' + total + ' 层）: ' + (items.join('; ') || '（无）')
-  return { param: v, url: line1, list: line2, text: line1 + '\n' + line2 }
+  const fIdx = [...new Set((Array.isArray(forcedIndices) ? forcedIndices : [])
+    .map((n) => Math.trunc(Number(n)))
+    .filter((n) => Number.isSafeInteger(n) && n >= 0))].sort((a, b) => a - b)
+  const fMap = (forcedNames instanceof Map)
+    ? forcedNames
+    : new Map(Object.entries(forcedNames || {}).map(([k, w]) => [Number(k), String(w)]))
+  const fItems = fIdx.map((i) => '#' + i + ' ' + (fMap.get(i) != null ? fMap.get(i) : '?'))
+  const line3 = 'shown=' + fIdx.join(',') + '（强制显示 ' + fIdx.length + ' 层，**不在 URL 里**）: ' + (fItems.join('; ') || '（无）')
+  const text = fIdx.length ? (line1 + '\n' + line2 + '\n' + line3) : (line1 + '\n' + line2)
+  return { param: v, url: line1, list: line2, shown: fIdx.join(','), shownList: line3, text }
+}
+
+/* ── ①(2026-10-11 用户第 1/2 条) 图层开关两处修复的纯函数（Node 门禁直跑真代码）──────────────
+   背景（用户 :8902 实测）：① 勾选面板右侧有一部分**超出屏幕**；② 除 mp3 等不可显示项外**所有层都被
+   勾上**（含 `scene.json` 里 `visible:false` 的），但**勾上之后该层并没有真的显示**。
+   两条根因：勾选态**从不读** `visible`（只跟 `?hide=` 走）＋ 写入通道只有"隐藏"（`__lnHidden`）而
+   **没有"强制显示"**（新增 `__lnShown`，与 `__lnHidden` 同一处的绘制期判据）。
+   本组纯函数把"勾选态 ⇄ 渲染写入"收成**一份**口径：`layerSwitchState()` 同时产出 UI 行数据与
+   `__lnHidden`/`__lnShown` 写入计划 ⇒ 勾选态与画面不可能再各说各话。 */
+
+/** 一层的**绘制源类别**（与 core 的 `__srcStats` 分类同序：`core/we-scene-bundle.js:1873-1878`、`:2002`）：
+ *  `container` = composelayer（无效果链时不绘制；**带效果链时是效果载体、要画**，P-231）/
+ *  `particle` / `text` / `image`（含 model/solid：`__imageKey` 与 `image` 同源）/ `light`（只喂光照
+ *  uniform，**不画像素**，"light 层不进 draw"）/ `effect`（只有效果链）/ `none`。
+ *  「不可显示」= `container` / `light` / `none`。语料里的 **sound 层**（`o.sound != null`，无 image/model/
+ *  particle/text）正落在这里：`parseScene` 不把 `sound` 字段带进 `__sceneLayers` ⇒ 它在页面上表现为
+ *  "无任何绘制源"，就是用户说的「mp3 等不可显示项」。 */
+export function layerDrawKind(layer) {
+  const l = layer || {}
+  const fx = !!(l.effects && l.effects.length)
+  if (l.isContainer) return fx ? 'container-fx' : 'container'
+  if (l.particle) return 'particle'
+  if (l.__text) return 'text'
+  if (l.__imageKey || l.image) return 'image'
+  if (l.light || l.__light) return 'light'
+  if (fx) return 'effect'
+  return 'none'
+}
+
+/** 该层在当前渲染器里**可能画出像素**吗（不可显示的层：缺省不勾 + checkbox 置灰）。 */
+export function layerDrawable(layer) {
+  const k = layerDrawKind(layer)
+  return k !== 'container' && k !== 'light' && k !== 'none'
+}
+
+const lswIdxSet = (v) => (v instanceof Set ? new Set(v) : new Set(Array.isArray(v) ? v : []))
+
+/** **唯一口径**：层数组 + 用户隐藏集（= `?hide=` 那一个）+ 用户强制显示集 → 行数据 + 渲染写入计划 + 计数。
+ *   · `fileVisible` 读的是**渲染器自己算好的** `layer.visible`（core 装载时 `evalVisibleOutcome` 的落盘值，
+ *     `core/we-scene-bundle.js:3606-3625`）—— 这里**不重写**第二套可见性口径，只做 `!== false` 的读；
+ *   · `checked = 可显示 && !hidden && (fileVisible || shown)` ⇒ **缺省勾选态 = 文件语义**（文件里 false 的不勾）；
+ *   · `plan[i] = {hidden, shown}`：`hidden` 写 `__lnHidden`（绘制期跳过）、`shown` 写 `__lnShown`
+ *     （绘制期**强制显示**，覆盖 `visible:false`）。两个标记**每层都显式赋值**（不适用时写 `false`），
+ *     否则"取消勾选后标记残留"会让层永远亮着（幽灵显示）—— `lswApply()` 的消费点靠这条；
+ *   · `hiddenCount` / `drawableCount` 只数**可显示**的层（状态行的"隐藏 n/m 层"读这条）。 */
+export function layerSwitchState(layers, hiddenIndices, shownIndices) {
+  const list = Array.isArray(layers) ? layers : []
+  const hidden = lswIdxSet(hiddenIndices)
+  const shown = lswIdxSet(shownIndices)
+  const rows = []
+  const plan = []
+  let checkedCount = 0, hiddenCount = 0, forcedCount = 0, fileHiddenCount = 0, undrawableCount = 0
+  for (let i = 0; i < list.length; i++) {
+    const l = list[i] || {}
+    const kind = layerDrawKind(l)
+    const drawable = kind !== 'container' && kind !== 'light' && kind !== 'none'
+    const fileVisible = l.visible !== false
+    if (!drawable) undrawableCount++
+    if (drawable && !fileVisible) fileHiddenCount++
+    const isHidden = drawable && hidden.has(i)
+    const isForced = drawable && !fileVisible && shown.has(i)
+    const checked = drawable && !isHidden && (fileVisible || isForced)
+    if (checked) checkedCount++
+    if (drawable && !checked) hiddenCount++
+    if (isForced) forcedCount++
+    rows.push({
+      i, name: layerDisplayName(l, i), kind,
+      isContainer: !!l.isContainer, drawable,
+      fileVisible, fileHidden: drawable && !fileVisible,
+      forced: isForced, hidden: isHidden, checked,
+    })
+    plan.push({ i, hidden: isHidden, shown: isForced })
+  }
+  return {
+    rows, plan, total: list.length, drawableCount: list.length - undrawableCount,
+    checkedCount, hiddenCount, forcedCount, fileHiddenCount, undrawableCount,
+  }
+}
+
+/** 「图层开关」弹层的**响应式定位**（纯函数 ⇒ Node 门禁直接对 800×600 / 1280×720 / 1920×1080 断言不越界）。
+ *  口径：面板**右对齐到按钮右缘**（按钮在参数栏最右端 ⇒ 向左展开，右边界天然不越界），
+ *  宽度/高度再按**视口**夹取（各留 `margin`，缺省 8px）：
+ *   · `width ≤ 按钮右缘 − margin` ⇒ 左边界不会跑到视口外；
+ *   · 下方空间不足且上方更宽裕 ⇒ 翻到按钮**上方**展开（`placement:'above'`）；
+ *   · 返回 **视口坐标**的 `{left,right,top,bottom,width,maxHeight,placement}`，调用方据此写行内样式；
+ *   · 纯算式、不读 DOM ⇒ 任何输入都不会产生 NaN/负尺寸（`viewport` 缺失也能返回一个合法的兜底矩形）。 */
+export function layerPanelFit(btnRect, panel, viewport, margin = 8) {
+  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d)
+  const m = Math.max(0, Math.trunc(num(margin, 8)))
+  const vw = Math.max(1, Math.trunc(num(viewport && viewport.w, 0)))
+  const vh = Math.max(1, Math.trunc(num(viewport && viewport.h, 0)))
+  const prefW = Math.max(120, Math.trunc(num(panel && panel.prefW, 360)))
+  const minW = Math.max(120, Math.min(prefW, Math.trunc(num(panel && panel.minW, 220))))
+  const btRight = num(btnRect && btnRect.right, vw - m)
+  const btBottom = num(btnRect && btnRect.bottom, m)
+  const btTop = num(btnRect && btnRect.top, Math.max(m, btBottom - 24))
+  const right = Math.min(Math.max(m + 1, btRight), Math.max(m + 1, vw - m))
+  let width = Math.min(prefW, Math.max(minW, right - m))
+  width = Math.min(width, Math.max(1, vw - 2 * m))
+  const left = Math.max(m, right - width)
+  const belowTop = Math.min(Math.max(m, btBottom + 4), Math.max(m, vh - m - 1))
+  const belowAvail = Math.max(0, vh - m - belowTop)
+  const aboveBottom = Math.max(m, Math.min(btTop - 4, vh - m))
+  const aboveAvail = Math.max(0, aboveBottom - m)
+  let placement = 'below'
+  let avail = belowAvail
+  if (belowAvail < Math.min(200, vh * 0.35) && aboveAvail > belowAvail) { placement = 'above'; avail = aboveAvail }
+  const maxHeight = Math.max(1, Math.min(avail, vh - 2 * m))
+  const top = (placement === 'above') ? Math.max(m, aboveBottom - maxHeight) : belowTop
+  const bottom = top + maxHeight
+  return {
+    placement,
+    left: Math.floor(left), right: Math.floor(left + width),
+    top: Math.floor(top), bottom: Math.floor(bottom),
+    width: Math.floor(width), maxHeight: Math.floor(maxHeight),
+  }
 }
 
 /** 「立即上报」的载荷（与 :8899 同一份诊断内容 + 调试模式自己的读数）。
@@ -6993,7 +7122,10 @@ export function init() {
       `__lnHidden` 是**绘制期**判据（core 的 draw 循环每帧 `if (layer.__lnHidden) continue`，与 `:8899` 的
       `?ln=N` 逐层调试同一条约定），没有任何一帧会去重算它 ⇒ 宿主写进去就稳定生效。容器层不隐藏（与
       `?ln=` 同语义：容器只承载父子链/定位，本来就不参与绘制）。`visible` 仍然一并写：对只认这套的渲染器
-      （上游产物档）保持原行为。 */
+      （上游产物档）保持原行为。
+      ①(2026-10-11 用户第 2 条) 再补 `__lnShown`：**被隔离出来的那一层如果是文件里 `visible:false`
+      的层，也得真的显示**（否则"逐层查看"翻到这些层时画面永远是空的 —— 与勾选面板同一个病根）。
+      退出隔离（`index < 0`）时**显式写 false**（不 delete）：不残留"幽灵显示"。 */
   function dbgApplyIsolation(list, index) {
     const L = list || sceneLayerList()
     if (!L) return 0
@@ -7001,6 +7133,7 @@ export function init() {
     for (let i = 0; i < L.length; i++) {
       const hide = (index >= 0) && (i !== index)
       try { L[i].__lnHidden = hide && !L[i].isContainer; n++ } catch { /* 单层失败不影响其它层 */ }
+      try { L[i].__lnShown = (index >= 0) && (i === index) } catch { /* 老渲染器不认：忽略 */ }
       try { L[i].visible = (index < 0) ? true : (i === index) } catch { /* 只认一种约定的渲染器 */ }
     }
     return n
@@ -7257,15 +7390,26 @@ export function init() {
      贴给别人 —— 用来判断"到底哪个图层渲染有问题"。
      · 落点：tb-row4「流式播放」之后（bench-ui-headless LS1 用相邻兄弟钉住 DOM 位置）。
      · 写入通道：`layer.__lnHidden`（绘制期判据：core 每帧 `if (layer.__lnHidden) continue`，与
-       `?ln=` 同一条约定）。⚠ 不写 `layer.visible` —— 那会被逐帧 raw→layer 同步扳回去（P-164 取证）。
-     · 生效范围：只在「本仓渲染器」档（上游产物不认 `__lnHidden`）⇒ 那一档整控件禁用并写明原因。
-     · 状态：`lswHidden`（隐藏下标集）+ `lswNames`（隐藏时记下的层名）⇒ 重挂载后按"下标+层名"对账
-       （`rematchHiddenIndices`），保留用户勾选状态；隐藏集同步进本页 URL 的 `?hide=`
-       （读点 = `new URLSearchParams(location.search).get('hide')`，登记 docs/README-DIAGNOSTICS.md 主表）。
-     · 与调试模式（任务书 §2.2）：调试隔离临时覆盖 `__lnHidden`；面板行高亮跟随 `dbgIndex`，行上可
-       一键「只留这一层」（= 只勾选它，同时把隔离跳过去，立即见效）；调试退出后**恢复用户自己的
-       隐藏集**（`lswApply`），绝不顺手清掉。勾选改动在隔离生效期间只记账、退出调试时统一落层
-       ⇒ 不出现两套状态打架。
+       `?ln=` 同一条约定）+ ①(2026-10-11 用户第 2 条) `layer.__lnShown`（**强制显示**，绘制期判据：
+       core `if (layer.__lnShown) __layerVis = true`，与 `__lnHidden` 同一处）。
+       ⚠ 不写 `layer.visible` —— 那会被逐帧 raw→layer 同步扳回去（P-164 取证）。
+     · 生效范围：只在「本仓渲染器」档（上游产物不认 `__lnHidden`/`__lnShown`）⇒ 那一档整控件禁用并写明原因。
+     · ①(2026-10-11 用户第 2 条「勾选态与壁纸文件不一致」) 两处修复：
+       (a) **勾选态来源 = 文件语义**：缺省勾选 = `layer.visible !== false`（= 渲染器装载时按
+           `evalVisibleOutcome` 算好并落盘的值）⇒ 文件里 `visible:false` 的层缺省**不勾**；
+           容器层 / 光源层 / **无绘制源的层（语料里的 sound/mp3 层）**一律判"不可显示"⇒ 不勾且置灰
+           （`layerDrawKind()`，判据与 core 的 `__srcStats` 同序）。
+       (b) **勾上就必须真的显示**：文件里 false 的层被勾上 ⇒ 写 `layer.__lnShown = true` ⇒ 绘制期
+           强制显示。这是**唯一**能覆盖字面 `visible:false` 的通道：属性覆盖链（`POST /api/props`）
+           只覆盖带 `{user:…}` 绑定的层（`evalVisibleOutcome` 对无绑定直接 `reason:'static'`），
+           而写 `layer.visible` 会被逐帧 raw→layer 同步扳回（P-164）。
+     · 状态：`lswHidden`（用户取消勾选，**进 `?hide=`**）+ `lswShown`（文件里 false 但被用户勾上 =
+       强制显示，**不进 URL**：那一层本来就没画，写进 `?hide=` 只会把参数撑长）；两者各带"下标 → 层名"
+       凭据，重挂载后走同一套对账（`rematchHiddenIndices`）⇒ 不残留"幽灵显示"。
+     · 与调试模式（任务书 §2.2）：调试隔离临时覆盖 `__lnHidden`/`__lnShown`；面板行高亮跟随
+       `dbgIndex`，行上可一键「只留这一层」（= 只勾选它，同时把隔离跳过去，立即见效）；调试退出后
+       **恢复用户自己的勾选集**（`lswApply`），绝不顺手清掉。勾选改动在隔离生效期间只记账、退出调试
+       时统一落层 ⇒ 不出现两套状态打架。
      · 定时器纪律（P-164 用户第 19 条：外壳不能留常驻定时器）：重挂载探测**不用 interval** ——
        订阅 iframe `load` + 渲染器的 `mpw-first-frame` 消息，各带一串**有界**的迟到检查
        （`__sceneLayers` 在 parseScene 后、首帧前发布 ⇒ 首帧消息到达时必然已在；超时链只为兜住
@@ -7274,8 +7418,10 @@ export function init() {
   const lswListEl = $('#layer-switch-list'), lswStatusEl = $('#layer-switch-status')
   const lswAllBtn = $('#layer-all'), lswNoneBtn = $('#layer-none'), lswOnlyCurBtn = $('#layer-only-cur')
   const lswCopyBtn = $('#layer-copy-state')
-  let lswHidden = new Set()      // 用户取消勾选的层（__sceneLayers 下标）
+  let lswHidden = new Set()      // 用户取消勾选的层（__sceneLayers 下标）；**进 ?hide=**
   let lswNames = new Map()       // 下标 → 隐藏时记下的显示名（重挂载对账凭据）
+  let lswShown = new Set()       // ①(2026-10-11) 文件里 visible:false 但被用户勾上 = 强制显示（不进 URL）
+  let lswShownNames = new Map()  // 同上：强制显示时记下的显示名（重挂载对账凭据）
   let lswSeenArr = null          // 上次应用过的 __sceneLayers 数组本体（换成新数组 = 重挂载/新挂载）
   let lswOpen = false
   //  首屏 URL：?hide=1,4,7（diag-flag-check 对账的**读点**必须走 new URLSearchParams(location.search)）
@@ -7286,21 +7432,31 @@ export function init() {
     try { if (rendererSrcNow() !== 'repo') return { ok: false, why: 'upstream' } } catch { /* 探针缺失按可用算 */ }
     return sceneLayerList() ? { ok: true, why: '' } : { ok: false, why: 'nomount' }
   }
-  /** 把隐藏集落到渲染层（容器层跳过 —— `layerHidePlan` 里已经永远 false）。 */
+  /** 当前状态（行数据 + 渲染写入计划 + 计数）：**唯一口径** = 纯函数 `layerSwitchState()`。 */
+  function lswStateNow(L) {
+    return layerSwitchState(L || sceneLayerList() || [], lswHidden, lswShown)
+  }
+  /** 把勾选态落到渲染层：`__lnHidden`（隐藏）/ `__lnShown`（强制显示）**每层都显式赋值** ——
+      不适用时写 `false`（**不 delete**：读数看得见，且"取消勾选后标记残留"这条幽灵显示从根上不可能）。 */
   function lswApply(list) {
     const L = list || sceneLayerList()
     if (!L) return 0
     let n = 0
-    for (const { i, hidden } of layerHidePlan(L, lswHidden)) {
-      try { L[i].__lnHidden = hidden; if (hidden) n++ } catch { /* 单层失败不影响其它层 */ }
+    for (const { i, hidden, shown } of layerSwitchState(L, lswHidden, lswShown).plan) {
+      try {
+        L[i].__lnHidden = hidden
+        L[i].__lnShown = shown
+        if (hidden) n++
+      } catch { /* 单层失败不影响其它层 */ }
     }
     return n
   }
-  function lswCaptureNames(L) {
+  function lswCaptureNamesIn(L, set) {
     const m = new Map()
-    for (const i of lswHidden) { if (i < L.length) { try { m.set(i, layerDisplayName(L[i], i)) } catch { /* 桩 */ } } }
+    for (const i of set) { if (i < L.length) { try { m.set(i, layerDisplayName(L[i], i)) } catch { /* 桩 */ } } }
     return m
   }
+  function lswCaptureNames(L) { return lswCaptureNamesIn(L, lswHidden) }
   /** 隐藏集 ⇄ 本页 URL 的 `?hide=`（空集 = 删除参数）。`history.replaceState` 不留历史项。 */
   function lswSyncUrl() {
     const v = formatHideParam([...lswHidden])
@@ -7317,16 +7473,31 @@ export function init() {
   function lswRowEl(i) {
     try { return lswListEl ? lswListEl.querySelector('.lsw-row[data-ln="' + Number(i) + '"]') : null } catch { return null }
   }
-  /** 勾选框状态对账（集合是唯一依据；「只留这层」这类批量操作后把行刷回来）。
-   *  顺带写勾选框的 title：调试隔离生效期间如实说明"改动已记录、退出后生效"（§2.2 不打架）。 */
+  /** 行状态对账（**集合/文件语义是唯一依据**；「只留这层」「全选」「重挂载」这类批量操作后把行刷回来）。
+   *  ①(2026-10-11 用户第 2 条) 勾选态改由 `lswStateNow()` 给（= 文件语义 + 用户覆盖），
+   *  并把 `data-file-hidden` / `data-forced` / `data-drawable` 与 title 一起同步 —— 行是**呈现**，
+   *  不是第二份状态。顺带写 title：调试隔离期间如实说"改动已记录、退出后生效"（§2.2 不打架）。 */
   function lswSyncChecks() {
     if (!lswListEl) return
+    const L = sceneLayerList()
+    const st = L ? lswStateNow(L) : null
     for (const row of lswListEl.querySelectorAll('.lsw-row')) {
+      const i = Number(row.getAttribute('data-ln'))
       const cb = row.querySelector('input[type="checkbox"]')
-      if (!cb || cb.disabled) continue
-      const want = !lswHidden.has(Number(row.getAttribute('data-ln')))
+      if (!cb) continue
+      const r = (st && st.rows[i]) || null
+      const want = !!(r && r.checked)
       if (cb.checked !== want) cb.checked = want
-      const title = dbgActive ? t(curLang, 'layers.dbgDeferred') : ''
+      if (r) {
+        const set = (k, on) => { if (on) { if (row.getAttribute(k) !== '1') row.setAttribute(k, '1') } else if (row.hasAttribute(k)) row.removeAttribute(k) }
+        set('data-drawable', !!r.drawable)
+        set('data-file-hidden', !!r.fileHidden)
+        set('data-forced', !!r.forced)
+        cb.disabled = !r.drawable
+      }
+      const title = !r || !r.drawable ? (r && r.isContainer ? t(curLang, 'layers.container') : t(curLang, 'layers.noSource'))
+        : (dbgActive ? t(curLang, 'layers.dbgDeferred')
+          : (r.forced ? t(curLang, 'layers.forced') : (r.fileHidden ? t(curLang, 'layers.fileHidden') : '')))
       if (cb.getAttribute('title') !== title) cb.setAttribute('title', title)
     }
   }
@@ -7358,8 +7529,12 @@ export function init() {
       else lswPanel.setAttribute('hidden', '')
     }
     const L = sceneLayerList()
+    const st = (en.ok && L) ? lswStateNow(L) : null
     if (lswStatusEl) {
-      const txt = (en.ok && L) ? t(curLang, 'layers.hiddenCount', { n: lswHidden.size, m: L.length }) : ''
+      /*  ①(2026-10-11 用户第 2 条) 计数只数**可显示**的层：`n` = 未勾选的可显示层（含文件里
+          `visible:false` 的那些），`m` = 可显示层总数 —— 不可显示的层（容器/光源/无绘制源）点了也不会
+          画，计进分母会让这一行读不出意思。 */
+      const txt = st ? t(curLang, 'layers.hiddenCount', { n: st.hiddenCount, m: st.drawableCount }) : ''
       if (lswStatusEl.textContent !== txt) lswStatusEl.textContent = txt
     }
     if (lswOnlyCurBtn) {
@@ -7372,51 +7547,72 @@ export function init() {
       if (en.ok && L) lswCopyBtn.removeAttribute('disabled')
       else lswCopyBtn.setAttribute('disabled', '')
     }
+    /*  ①(2026-10-11 用户第 2 条) 「全选」现在含"强制显示文件里 false 的层" ⇒ title 如实说明
+        （字面语义变了，不能只靠 `layers.all` 三个字）。 */
+    if (lswAllBtn) {
+      const tip = t(curLang, 'layers.allTip')
+      if (lswAllBtn.getAttribute('title') !== tip) lswAllBtn.setAttribute('title', tip)
+    }
   }
   function lswPaintRows() {
     if (!lswListEl) return
     const L = sceneLayerList()
     if (!L) { lswListEl.textContent = ''; lswListEl.__lswSig = ''; return }
-    const entries = layerSwitchEntries(L)
-    //  幂等重建：层数/名字/容器标记没变就不重建（防悬停态丢失与每秒闪烁；与 paintDbgTab 同一条纪律）
-    const sig = entries.map((e) => e.i + ':' + (e.isContainer ? 'C' : 'L') + ':' + e.name).join('|')
+    const st = lswStateNow(L)
+    //  幂等重建：层数/名字/可显示性没变就不重建（防悬停态丢失与每秒闪烁；与 paintDbgTab 同一条纪律）
+    const sig = st.rows.map((r) => r.i + ':' + (r.drawable ? 'D' : 'x') + ':' + r.name).join('|')
     if (lswListEl.__lswSig === sig) { lswSyncChecks(); lswPaintHighlight(); return }
     lswListEl.__lswSig = sig
     lswListEl.textContent = ''
-    for (const e of entries) {
+    for (const r of st.rows) {
       const row = doc.createElement('div')
       row.className = 'lsw-row'
-      row.setAttribute('data-ln', String(e.i))
-      if (e.isContainer) row.setAttribute('data-container', '1')
+      row.setAttribute('data-ln', String(r.i))
+      if (r.isContainer) row.setAttribute('data-container', '1')
       const cb = doc.createElement('input')
-      cb.type = 'checkbox'; cb.checked = !lswHidden.has(e.i)
-      if (e.isContainer) { cb.disabled = true; cb.setAttribute('title', t(curLang, 'layers.container')) }
-      cb.addEventListener('change', () => { try { lswSetHidden(e.i, !cb.checked) } catch { /* 桩 DOM */ } })
-      const idx = doc.createElement('span'); idx.className = 'lsw-idx'; idx.textContent = '#' + e.i
-      const nm = doc.createElement('span'); nm.className = 'lsw-name'; nm.textContent = e.name; nm.title = e.name
+      cb.type = 'checkbox'; cb.checked = r.checked
+      /*  ①(2026-10-11 用户第 2 条) 置灰判据从"是不是容器"扩到"**可不可显示**"：容器 / 光源 /
+          无绘制源的层（语料里的 sound/mp3 层）勾了也不会画 ⇒ 不勾 + 置灰（title 写明是哪一种）。 */
+      if (!r.drawable) cb.disabled = true
+      cb.addEventListener('change', () => { try { lswSetHidden(r.i, !cb.checked) } catch { /* 桩 DOM */ } })
+      const idx = doc.createElement('span'); idx.className = 'lsw-idx'; idx.textContent = '#' + r.i
+      const nm = doc.createElement('span'); nm.className = 'lsw-name'; nm.textContent = r.name; nm.title = r.name
       const keep = doc.createElement('button')
       keep.type = 'button'; keep.className = 'lsw-keep'
       keep.textContent = t(curLang, 'layers.keepRow'); keep.setAttribute('title', t(curLang, 'layers.keepOne'))
-      keep.addEventListener('click', () => { try { lswKeepOnly(e.i) } catch { /* 桩 DOM */ } })
+      keep.addEventListener('click', () => { try { lswKeepOnly(r.i) } catch { /* 桩 DOM */ } })
       row.appendChild(cb); row.appendChild(idx); row.appendChild(nm); row.appendChild(keep)
       lswListEl.appendChild(row)
     }
     lswSyncChecks()
     lswPaintHighlight()
+    if (lswOpen) lswPlacePanel()
   }
-  /** 勾/取消第 i 层。调试隔离生效期间：**只记账**（改动在退出调试时统一落 `__lnHidden`）——
-       两套状态打架的口子就堵在这里（任务书 §2.2）。 */
+  /** 勾/取消第 i 层（**唯一动作链**，探针 `__benchPatch.layerSwitchSet` 与真点击同一条）。
+      · 勾上：清掉该层的用户隐藏；若它在**文件里** `visible:false`（且可显示）⇒ 进 `lswShown`
+        （渲染期写 `__lnShown` = 强制显示）—— 这就是用户第 2 条要的"勾上就必须真的显示"。
+      · 取消：清掉强制显示；只有**文件里本来可见**的层才进 `lswHidden`（进 `?hide=`）—— 文件里本就
+        false 的层不必再"隐藏一次"（它已经在隐藏态），URL 因此保持短、语义也不混。
+      · 不可显示的层：直接拒绝（checkbox 也置灰）。
+      调试隔离生效期间：**只记账**（改动在退出调试时统一落层）—— 两套状态打架的口子堵在这里（§2.2）。 */
   function lswSetHidden(i, hidden) {
     const L = sceneLayerList()
     if (!L) return false
     const idx = Math.trunc(Number(i))
     if (!Number.isSafeInteger(idx) || idx < 0 || idx >= L.length) return false
+    const r = lswStateNow(L).rows[idx]
+    if (!r || !r.drawable) return false
+    const name = layerDisplayName(L[idx], idx)
     if (hidden) {
-      lswHidden.add(idx)
-      lswNames.set(idx, layerDisplayName(L[idx], idx))
+      lswShown.delete(idx); lswShownNames.delete(idx)
+      if (r.fileVisible) { lswHidden.add(idx); lswNames.set(idx, name) }
+      else { lswHidden.delete(idx); lswNames.delete(idx) }
     } else {
-      lswHidden.delete(idx)
-      lswNames.delete(idx)
+      lswHidden.delete(idx); lswNames.delete(idx)
+      if (!r.fileVisible) {
+        lswShown.add(idx); lswShownNames.set(idx, name)
+        logLine(t(curLang, 'log.lswForceShow', { n: idx, name }))
+      } else { lswShown.delete(idx); lswShownNames.delete(idx) }
     }
     lswSyncUrl()
     if (!dbgActive) lswApply(L)
@@ -7424,19 +7620,28 @@ export function init() {
     return true
   }
   /** 「只留这一层」（行内小按钮）/「只留当前层」（顶栏按钮，作用对象 = 调试模式正看的那层）：
-       隐藏集 = 除它以外全部（容器层除外——它藏不掉）。调试开着 ⇒ 同时把隔离跳到这一层（立即见效）；
-       关着 ⇒ 直接落 `__lnHidden`。两种情况勾选集都同步（= 任务书说的"只勾选它"）。 */
+       隐藏集 = 除它以外全部**可显示**层；它自己在文件里 `visible:false` ⇒ 同时进强制显示集
+       （①2026-10-11：否则"只留这一层"在一张全部 `visible:false` 的图上会留出一块空白）。
+       调试开着 ⇒ 同时把隔离跳到这一层（立即见效）；关着 ⇒ 直接落 `__lnHidden`/`__lnShown`。 */
   function lswKeepOnly(i) {
     const L = sceneLayerList()
     if (!L) return 0
     const idx = Math.trunc(Number(i))
     if (!Number.isSafeInteger(idx) || idx < 0 || idx >= L.length) return 0
+    const st = lswStateNow(L)
     lswHidden = new Set()
     lswNames = new Map()
-    for (let k = 0; k < L.length; k++) {
-      if (k === idx || (L[k] && L[k].isContainer)) continue
-      lswHidden.add(k)
-      lswNames.set(k, layerDisplayName(L[k], k))
+    lswShown = new Set()
+    lswShownNames = new Map()
+    for (const r of st.rows) {
+      if (r.i === idx || !r.drawable) continue
+      lswHidden.add(r.i)
+      lswNames.set(r.i, r.name)
+    }
+    const tgt = st.rows[idx]
+    if (tgt && tgt.drawable && !tgt.fileVisible) {
+      lswShown.add(idx)
+      lswShownNames.set(idx, tgt.name)
     }
     lswSyncUrl()
     if (dbgActive) {
@@ -7450,27 +7655,36 @@ export function init() {
     lswPaintChrome(); lswPaintRows()
     return lswHidden.size
   }
-  /** 「复制当前状态」：剪贴板 = 带 `?hide=` 的完整 URL + 隐藏层清单（下标+层名）；输出区打同一行日志。 */
+  /** 「复制当前状态」：剪贴板 = 带 `?hide=` 的完整 URL + 隐藏层清单（下标+层名）+ ①2026-10-11 起
+      追加"强制显示"清单（`__lnShown` 那几层**进不了 URL**，不写出来对方就复现不出同一张图）。 */
   function lswCopyState() {
     const L = sceneLayerList()
     if (!L) return null
     const idx = [...lswHidden].filter((i) => i < L.length).sort((a, b) => a - b)
-    const plan = layerSwitchCopyPlan(String(location.href), idx, lswCaptureNames(L), L.length)
+    const forced = [...lswShown].filter((i) => i < L.length).sort((a, b) => a - b)
+    const plan = layerSwitchCopyPlan(String(location.href), idx, lswCaptureNames(L), L.length, forced, lswShownNames)
     copyText(plan.text, 'layerSwitch')
-    logLine(t(curLang, 'log.lswCopied', { text: plan.text.replace('\n', ' ｜ ') }))
+    logLine(t(curLang, 'log.lswCopied', { text: plan.text.replace(/\n/g, ' ｜ ') }))
     return plan
   }
   /** 重挂载/新挂载探测（有界，无常驻定时器）：`__sceneLayers` 换了新数组 ⇒ 按"下标+层名"对账
-       并重新落 `__lnHidden`（调试隔离生效期间跳过 —— 隔离拥有图层，退出时统一恢复）。 */
+       并重新落 `__lnHidden`/`__lnShown`（调试隔离生效期间跳过 —— 隔离拥有图层，退出时统一恢复）。
+      ①2026-10-11：**强制显示集也要对账**，且额外要求"新数组里这一层确实还是 `visible:false`"
+      —— 否则换一张壁纸后可能出现"名字碰巧对上"的幽灵显示。 */
   function lswPoll() {
     const L = sceneLayerList()
     if (L && L !== lswSeenArr) {
       const prevCount = lswHidden.size
+      const prevShown = lswShown.size
       const kept = rematchHiddenIndices([...lswHidden], lswNames, L)
+      const keptShown = rematchHiddenIndices([...lswShown], lswShownNames, L).filter((i) => L[i] && L[i].visible === false)
       const dropped = prevCount - kept.length
+      const droppedShown = prevShown - keptShown.length
       lswHidden = new Set(kept)
+      lswShown = new Set(keptShown)
       lswSeenArr = L
-      lswNames = lswCaptureNames(L)
+      lswNames = lswCaptureNamesIn(L, lswHidden)
+      lswShownNames = lswCaptureNamesIn(L, lswShown)
       const applied = dbgActive ? 0 : lswApply(L)
       if (prevCount > 0 && (kept.length > 0 || dropped > 0)) {
         logLine(t(curLang, 'log.lswRematch', { n: kept.length, m: dropped }))
@@ -7478,7 +7692,7 @@ export function init() {
       if (lswListEl) lswListEl.__lswSig = null       // 行数据按新数组重建
       lswPaintChrome()
       if (lswOpen) lswPaintRows()
-      return { remounted: true, total: L.length, kept: kept.length, dropped, applied }
+      return { remounted: true, total: L.length, kept: kept.length, dropped, applied, keptShown: keptShown.length, droppedShown }
     }
     lswPaintChrome()
     if (lswOpen) lswPaintRows()
@@ -7489,11 +7703,33 @@ export function init() {
     if (typeof setTimeout !== 'function') return
     for (const d of delays) setTimeout(() => { try { lswPoll() } catch { /* 单次失败不影响其它 */ } }, d)
   }
+  /* ── ①(2026-10-11 用户第 1 条「面板右侧有一部分超出屏幕」) 响应式定位 ────────────────────────
+     面板 CSS 已改成**右对齐**按钮右缘（`demo/index.html` 的 `<style id="layer-switch-css">`）⇒
+     右边界不会再越过视口；这里再按**视口**夹取宽度与高度（算式 = 纯函数 `layerPanelFit()`，
+     Node 门禁对 800×600 / 1280×720 / 1920×1080 断言"面板矩形完全落在视口内"）。
+     时机：打开、行重建后、窗口 resize —— 都是**事件驱动**，不加常驻定时器（P-164 用户第 19 条纪律）。 */
+  const LSW_PANEL_PREF_W = 360
+  function lswPlacePanel() {
+    if (!lswPanel || !lswBtn) return null
+    let r = null
+    try { r = lswBtn.getBoundingClientRect() } catch { r = null }
+    if (!r) return null
+    let vw = 0, vh = 0
+    try { vw = (typeof innerWidth === 'number' && innerWidth) || (doc.documentElement && doc.documentElement.clientWidth) || 0 } catch { vw = 0 }
+    try { vh = (typeof innerHeight === 'number' && innerHeight) || (doc.documentElement && doc.documentElement.clientHeight) || 0 } catch { vh = 0 }
+    const fit = layerPanelFit({ right: r.right, bottom: r.bottom, top: r.top, left: r.left }, { prefW: LSW_PANEL_PREF_W }, { w: vw, h: vh }, 8)
+    try {
+      lswPanel.style.width = fit.width + 'px'
+      lswPanel.style.maxHeight = fit.maxHeight + 'px'
+      lswPanel.setAttribute('data-lsw-placement', fit.placement)
+    } catch { /* 桩 DOM */ }
+    return fit
+  }
   function lswSetOpen(open) {
     lswOpen = !!open
     lswPoll()                       // 打开前先对一次账（拿最近挂载的层数组）
     lswPaintChrome()
-    if (lswOpen) lswPaintRows()
+    if (lswOpen) { lswPaintRows(); lswPlacePanel() }
     return lswOpen
   }
   if (lswBtn) lswBtn.addEventListener('click', () => { try { if (!lswBtn.disabled) lswSetOpen(!lswOpen) } catch { /* 桩 DOM */ } })
@@ -7510,16 +7746,28 @@ export function init() {
       }, true)
     }
   } catch { /* 桩 DOM */ }
+  /* 「全选」= **全部勾上**：清空用户隐藏，并把文件里 `visible:false` 的可显示层一并放进强制显示集
+     （①2026-10-11：否则"全选"在一张全 false 的图上与"什么都没做"没区别 —— 按勾选框的字面语义走）。 */
   if (lswAllBtn) lswAllBtn.addEventListener('click', () => {
-    try { lswHidden = new Set(); lswNames = new Map(); lswSyncUrl(); if (!dbgActive) lswApply(); lswPaintChrome(); lswPaintRows() } catch { /* 桩 DOM */ }
+    try {
+      const L = sceneLayerList()
+      lswHidden = new Set(); lswNames = new Map()
+      lswShown = new Set(); lswShownNames = new Map()
+      if (L) for (const r of layerSwitchState(L, new Set(), new Set()).rows) {
+        if (r.drawable && !r.fileVisible) { lswShown.add(r.i); lswShownNames.set(r.i, r.name) }
+      }
+      lswSyncUrl(); if (!dbgActive) lswApply(L); lswPaintChrome(); lswPaintRows()
+    } catch { /* 桩 DOM */ }
   })
+  /* 「全不选」= 全部取消：可显示层全进用户隐藏集（进 `?hide=`），强制显示清空。 */
   if (lswNoneBtn) lswNoneBtn.addEventListener('click', () => {
     try {
       const L = sceneLayerList()
       lswHidden = new Set(); lswNames = new Map()
-      if (L) for (let k = 0; k < L.length; k++) {
-        if (L[k] && L[k].isContainer) continue
-        lswHidden.add(k); lswNames.set(k, layerDisplayName(L[k], k))
+      lswShown = new Set(); lswShownNames = new Map()
+      if (L) for (const r of layerSwitchState(L, new Set(), new Set()).rows) {
+        if (!r.drawable) continue
+        lswHidden.add(r.i); lswNames.set(r.i, r.name)
       }
       lswSyncUrl(); if (!dbgActive) lswApply(L); lswPaintChrome(); lswPaintRows()
     } catch { /* 桩 DOM */ }
@@ -7544,6 +7792,17 @@ export function init() {
       } catch { /* 异常载荷：忽略 */ }
     })
   } catch { /* 无 window（桩） */ }
+  /*  ①(2026-10-11 用户第 1 条) 视口 / 滚动变化 ⇒ 重算面板尺寸与位置（只在面板开着时做事；事件驱动，无定时器）。
+      为什么还要管滚动：窄屏下 `#main` 是"文档流 + 页面内滚动"，绝对定位的面板跟着按钮走，
+      可用高度会变 ⇒ 滚动时也重算一次。`capture:true` 是必需的：**scroll 事件不冒泡**，而
+      `#toolbar`（窄屏 `max-height:30vh`）自己就是个滚动容器 ⇒ 只有捕获阶段才收得到它的滚动。
+      两个监听都 `{passive:true}`，不拦任何事件。 */
+  try {
+    addEventListener('resize', () => { try { if (lswOpen) lswPlacePanel() } catch { /* 桩 */ } })
+  } catch { /* 无 window（桩） */ }
+  try {
+    addEventListener('scroll', () => { try { if (lswOpen) lswPlacePanel() } catch { /* 桩 */ } }, { passive: true, capture: true })
+  } catch { /* 无 window（桩） */ }
   lswPaintChrome()
   /** 门禁/调试探针：与真点击同一条入口（`__benchPatch.layerSwitch*`）。 */
   function lswSnapshot() {
@@ -7551,12 +7810,25 @@ export function init() {
     const en = lswEnabledNow()
     const names = {}
     for (const [k, v] of lswNames) names[k] = v
+    const shownNames = {}
+    for (const [k, v] of lswShownNames) shownNames[k] = v
+    const st = L ? lswStateNow(L) : null
     return {
       enabled: en.ok, why: en.why, open: !!lswOpen,
       renderer: (() => { try { return rendererSrcNow() } catch { return null } })(),
       total: L ? L.length : 0,
       hidden: [...lswHidden].sort((a, b) => a - b),
       names,
+      /*  ①(2026-10-11 用户第 2 条) 新增读数：强制显示集 + 每行的"文件语义/可显示性/勾选态"。
+          门禁（bench-ui-headless LS 组）与真机排查读的是**同一份** `layerSwitchState()` 口径。 */
+      shown: [...lswShown].sort((a, b) => a - b),
+      shownNames,
+      drawable: st ? st.drawableCount : 0,
+      checkedCount: st ? st.checkedCount : 0,
+      unchecked: st ? st.hiddenCount : 0,
+      forcedCount: st ? st.forcedCount : 0,
+      fileHidden: st ? st.rows.filter((r) => r.fileHidden).map((r) => r.i) : [],
+      rows: st ? st.rows.map((r) => ({ i: r.i, name: r.name, kind: r.kind, drawable: r.drawable, fileVisible: r.fileVisible, fileHidden: r.fileHidden, forced: r.forced, checked: r.checked })) : [],
       urlHide: (() => { try { return new URLSearchParams(location.search).get('hide') } catch { return null } })(),
       dbgCurrent: dbgActive ? dbgIndex : -1,
     }
@@ -12074,6 +12346,14 @@ export function init() {
     layerSwitchSet: (i, hidden) => lswSetHidden(i, !!hidden),
     layerSwitchOnly: (i) => lswKeepOnly(i),
     layerSwitchApply: () => lswApply(),
+    /*  ①(2026-10-11 用户第 1 条) 面板定位读数（与真打开走同一条 `layerPanelFit()`）：门禁可断言
+        "面板矩形完全落在视口内"，真机排查也能一眼看到算出来的宽/高与翻上/翻下。 */
+    layerPanelFit: () => lswPlacePanel(),
+    /*  ①(2026-10-11 用户第 3 条) 两个**状态片**从 UI 移除后，读数改由探针提供：
+        `#status-renderer-src` / `#status-bandfeed` 的 `data-mpw-*` 与文案原样在这里（形状不变），
+        `paint*Status()` 的**逻辑一行没删** —— 只是不再往 DOM 里写没有的东西。 */
+    rendererSrcStatus: () => paintRendererSrcStatus(),
+    bandFeedStatus: () => paintBandFeedStatus(),
     dbgInfo: () => layerInfoPlan(sceneLayerList(), dbgIndex),
     dbgReport,
     dbgShot,

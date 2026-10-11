@@ -17452,3 +17452,20 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 
 ## P-313（2026-10-11）同步重新生成的 `web/diag-flags.json`（P-312 改 `core/` 致行号漂移）——
 按 P-308 先例把生成物入库 ⇒ 消除"每次跑门禁都弄脏工作树"的噪声 ✗。提交 `1951b95`。
+
+## P-317（2026-10-11）8902 图层开关三处修正（用户实测报告）
+① **面板右越界** ⇒ 弹层 CSS 由 `left:0` 改 **`right:0;left:auto`**（右对齐按钮右缘，天然不越右边界）+ `max-height:min(70vh,520px);overflow:auto`；
+   新增纯函数 **`layerPanelFit(btnRect,panel,viewport,margin)`** 按视口夹取 `width/maxHeight`，`lswPlacePanel()` 挂在**打开 / 行重建 / resize / scroll(capture)** 四处（事件驱动，无定时器 ✓）。
+   判据 A 段：**3 视口 × 5 按钮位置 = 15 组全部 ⊆ [8, 视口−8]**（800×600 最右端 `right:792` ✓、360px 窄屏宽收窄到 344 ✓、贴底自动 `placement:'above'` ✓、病态输入无 NaN ✓）。
+② **勾选态 ≠ 壁纸文件（核心 bug）** ⇒ 单一口径 **`layerSwitchState()`**（缺省 `checked = 可显示 ∧ layer.visible !== false`）+ **绘制期强制显示通道 `__lnShown`**
+   （`core/we-scene-bundle.js` **1 行** + 注释，紧接 `__lnHidden`，可注释掉一键回退 ✓）；`demo.html` 的可见性报告同步认 `__lnShown`（读数诚实 ✓）。
+   真语料实测（夹具 `dd/3660962877`：127 层 / 字面 `visible:false` **18 层** / sound 1 层）：装载后**文件里不显示的 112 层全部不勾** ✓、"可显示且可见 11 层全勾"（无误伤 ✓）、目标层勾上 ⇒ `plan {shown:true}` 且**不粘**（取消即回落 ✓）、sound 层 **1/1 判不可显示（0 漏判）** ✓；
+   **LS2c 新旧对比**：`旧=5（除不可显示项外全勾）→ 新=4/5（文件语义）` ✓。
+③ **按用户要求移除两个状态片**（「渲染器来源」`#status-renderer-src` + 「音条状态」`#status-bandfeed`，紧邻「调试模式」✓）：只删 DOM ✓，
+   `paintRendererSrcStatus`/`paintBandFeedStatus` 与 `data-mpw-*` 形状**全保留** ✓，读数改由 `__benchPatch.rendererSrcStatus()`/`bandFeedStatus()` 探针 ✓；
+   **工具条两个下拉（音条源 / 渲染器）未动** ✓（其 6 处门禁保护保持不变 ✓）。
+
+判据：新增 `tests/bench-layer-panel-test.mjs`（**44/0**，含 4 个变异自证 + 真语料 + 真树跑前跑后同哈希 ✓）；
+`bench-ui-headless` 增 **LS2d/LS12×8/LS13×6/LS14×4**（**LS2c/LS6c 按新语义反向改写**，强度只增不减 ✓），实测 **PASS=218 / FAIL=0**（**LS12 `inView:true, btnHit:true`** ✓）；
+`bench-renderer-source` C1 改为"**不存在该 id** + 探针存在"（`#renderer-src` 两档断言原样保留 ✓）；`bench-bandfeed-switch` B4 改探针读点（**58/0** ✓）。
+单点回归：`demo-check` 133/0 ✓ · `bench-shell-fixes` 296/0 ✓ · `bench-props-text` 48/0 ✓ · `bench-dropdown-theme` 34/0 ✓ · `bench-dsh-libroot` 63/0 ✓ · `mpw-select` 86/0 ✓ · `status-consistency` 7/0 ✓。

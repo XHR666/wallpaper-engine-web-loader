@@ -520,13 +520,20 @@ html.bench-shell .dbg-log .dbg-err{color:#f85149}
          弹层细节（首屏时面板 hidden，不影响首帧），收进来反而破坏 D8 的比对口径。
          定位照抄 #wp-panel 这条已被验证的同款弹层模式（position:absolute + z-index:60）：
          #pages-track 有 contain:paint（fixed 定位会被它当包含块并裁剪），absolute 挂在
-         #layer-switch（position:relative）上从按钮正下方展开，不受影响。 -->
+         #layer-switch（position:relative）上从按钮正下方展开，不受影响。
+         ①(2026-10-11 用户实测「面板右侧有一部分超出屏幕」) 锚点从 `left:0` 改**右对齐**：
+         按钮是 `#tb-row4` 最后一个控件、紧贴参数栏右端 ⇒ `left:0` 会让 360px 面板整体向右铺出
+         视口（`max-width` 只限宽、管不住右边界）。改 `right:0` 后面板从按钮右缘**向左**展开，
+         右边界天然落在按钮右缘以内；宽度/高度再由 bench-patch.js 的 `layerPanelFit()` 按
+         **视口**夹取（写行内 width/maxHeight），窄屏也不会压到左边或底部。 -->
     <style id="layer-switch-css">
 /* 容器：占位与工具条其它控件同高（按钮吃产物 `#toolbar button` 的 24px 基础样式） */
 html.bench-shell #layer-switch{position:relative;flex:0 0 auto;min-width:0}
 html.bench-shell #layer-switch-btn[disabled]{opacity:.45;cursor:not-allowed}
-/* 弹层本体：锚在按钮正下方；列表内部滚动（任务书：面板内部滚动、限高） */
-html.bench-shell #layer-switch-panel{position:absolute;left:0;top:calc(100% + 4px);z-index:60;width:360px;max-width:min(92vw,560px);background:var(--panel);border:1px solid var(--border);border-radius:0 0 8px 8px;box-shadow:0 14px 40px rgba(0,0,0,.38);padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--fg)}
+/* 弹层本体：**右对齐**在按钮右缘正下方；宽度/高度由 `layerPanelFit()` 按视口夹取后写行内样式，
+   这里的 width/max-width/max-height 只是**没有 JS 时**的静态兜底（防首帧一屏宽/一出屏）。
+   溢出策略：面板自身可滚动（`.lsw-list` 另有一层 max-height 内部滚动）⇒ 窄屏/矮屏不越界。 */
+html.bench-shell #layer-switch-panel{position:absolute;right:0;left:auto;top:calc(100% + 4px);z-index:60;width:360px;max-width:min(92vw,560px);max-height:min(70vh,520px);overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:0 0 8px 8px;box-shadow:0 14px 40px rgba(0,0,0,.38);padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--fg)}
 html.bench-shell #layer-switch-panel[hidden]{display:none!important}
 /* 顶栏三键：全选 / 全不选 / 只留当前层 */
 html.bench-shell #layer-switch .lsw-bar{display:flex;gap:6px}
@@ -991,12 +998,13 @@ html.bench-shell #layer-switch-status{flex:1 1 auto;min-width:0;overflow:hidden;
             <!-- ②(P-164) 「调试模式」页签：逐层查看（左右键，与 :8899 同一效果）+ 立即上报 + 截图 + 当前层信息/日志。
                  键盘只在本页签激活期间被接管，退出即恢复默认（不留全局拦截）。 -->
             <button type="button" id="tab-debug" class="logs-tab" role="tab" aria-selected="false" aria-controls="debug-body" data-i18n="logs.debug">调试模式</button>
-            <!-- ⑧(P-228f 2026-10-05) 两条**如实状态**从参数栏搬到这里（输出面板的页签行尾）：
-                 它们在参数栏里是一整句原因，会把四行排版顶乱；放在诊断区一侧既保留读数又不占参数栏。
-                 全部取值与含义见第 3 个页签「对应API」的状态表。取整行不换行 + 省略号，
-                 悬停看全文（`title` 由 bench-patch.js 每次重画时写）。 -->
-            <span id="status-renderer-src" class="bench-status-chip" data-mpw-renderer-src="repo" data-mpw-renderer-ready="0">渲染器来源：等待挂载…</span>
-            <span id="status-bandfeed" class="bench-status-chip" data-mpw-bandfeed-status="idle" data-mpw-bandfeed-source="none" data-mpw-bandfeed-mode="auto">音条状态：等待渲染器回报…</span>
+            <!-- ⑧(P-228f 2026-10-05) 这两条**如实状态**（渲染器来源 / 音条状态）原先挂在页签行尾。
+                 ①(2026-10-11 用户第 3 条：去掉「调试模式」旁边的这两项) 两个**状态片**已从 UI 移除：
+                 `#status-renderer-src` / `#status-bandfeed` 的 DOM 不再存在 ⇒ 它们的**逻辑照旧**（URL
+                 改写、`?bandfeed=` 档位、渲染器探针、图层开关的档位门控都不看 DOM），读数改由
+                 `window.__benchPatch.rendererSrcStatus()` / `bandFeedStatus()` 探针提供（门禁与真机
+                 排查走同一条入口，形状与原来的 `data-mpw-*` 一致：`{text, attrs, kind, source}`）。
+                 全部取值与含义见第 3 个页签「对应API」的状态表。 -->
             <span class="spacer"></span>
             <button type="button" id="clear-logs" data-i18n="logs.clear">清空</button>
             <button type="button" id="copy-logs" data-i18n="copy.logs" data-i18n-title="copy.logs" title="复制输出">复制输出</button>

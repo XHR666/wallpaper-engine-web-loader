@@ -939,6 +939,7 @@ add "pkg-name-corpus"     "node tests/pkg-name-corpus-test.mjs"   # ① 语料�
 add "camerashake-binding"  "node tests/scene-camerashake-binding-test.mjs"   # camerashake* 属性绑定形态 {user,value}（205 容器 8 处 enabled）
 add "parallax-root-position" "node tests/parallax-root-position-test.mjs"   # 视差参考点取顶层祖先位置（官方 A4 同一 x22；语料 650 层/31 容器）
 add "mdla-attach-rhythm"     "node tests/mdla-attach-rhythm-test.mjs"   # 附件动画帧长来自 MDLA length（90 仅兜底；语料 104/107 条 length≠90）
+add "bench-layer-panel"     "node tests/bench-layer-panel-test.mjs"   # 8902 图层开关：面板自适应 + 勾选态=文件语义 + __lnShown 强制显示（P-317）
 add "mip-rt-slot-default" "node tests/mip-rt-slot-default-test.mjs"   # _rt_MipMappedFrameBuffer 槽默认值绑定（官方 8 处声明；回退 ?miprt=legacy）
 add "builtin-asset-tex"  "node tests/builtin-asset-texture-test.mjs"   # 官方包外内置素材（particle/halo*、util/white、beam_1）的程序化像素源：语义 RGB255/形状在 alpha + resolveTextureName 回落接线
 add "tex-split-plane"    "node tests/tex-split-plane-test.mjs"   # P-264：format 5（DXT5 半分辨率）载荷是**平面分离**（前半全部 alpha 块、后半全部 color 块）⇒ 重排后天空 MAD 103.6→4.9、树丛1 114.6→13.8

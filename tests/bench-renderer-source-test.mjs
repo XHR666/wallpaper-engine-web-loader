@@ -242,9 +242,14 @@ const CORE = await import(pathToFileURL(path.join(ROOT, 'core', 'we-scene-bundle
 
 /* ═══════════════════ 静态纪律：HTML / 补丁 / 服务端 ═══════════════════ */
 {
+  /*  ①(2026-10-11 用户第 3 条「去掉调试模式旁边的两项」) 状态片 `#status-renderer-src` 已从 UI 移除
+      ⇒ 判据口径从"页面上有这一行"改成"**读数有稳定入口**"：`__benchPatch.rendererSrcStatus()` 返回
+      `rendererSourceStatusPlan()` 的同一个计划对象（text/attrs 一模一样的形状）—— 强度不降
+      （原来读 DOM 的 `data-mpw-*`，现在读计划本身），且**档位控件仍在**（本条的 R2 对照档能力不变）。 */
   ok(/<select id="renderer-src">/.test(INDEX_TEXT) && /value="repo" selected/.test(INDEX_TEXT) &&
-    /value="upstream"/.test(INDEX_TEXT) && /id="status-renderer-src"/.test(INDEX_TEXT),
-    'C1 工具条控件：`#renderer-src` 两档 + **缺省 `repo`（selected）** + 状态行 `#status-renderer-src`')
+    /value="upstream"/.test(INDEX_TEXT) && !/id="status-renderer-src"/.test(INDEX_TEXT) &&
+    /rendererSrcStatus: \(\) => paintRendererSrcStatus\(\)/.test(PATCH_TEXT),
+    'C1 工具条控件：`#renderer-src` 两档 + **缺省 `repo`（selected）**；状态片已按用户要求移除 ⇒ 读数入口 = `__benchPatch.rendererSrcStatus()` 探针')
   ok(/installRendererSourceSrcHook\(/.test(PATCH_TEXT) && /paintRendererSrcStatus\(\)/.test(PATCH_TEXT) &&
     /remountRendererForBandFeed\(\)/.test(PATCH_TEXT),
     'C2 补丁接线：src 包装层已装、状态行有重画点、换档沿用产物自己的「重挂载」（不写第二套挂载逻辑）')
@@ -365,11 +370,13 @@ if (!pwPath) {
       await page.waitForSelector('#list li[data-id]', { timeout: 30000 })
       const readLive = () => page.evaluate(async () => {
         const fr = document.getElementById('frame')
-        const st = document.getElementById('status-renderer-src')
+        /*  ①(2026-10-11 用户第 3 条) 状态片已从 UI 移除 ⇒ 读数走探针（`rendererSrcStatus()` 返回的计划
+            与原来写在 `#status-renderer-src` 上的 text / data-mpw-* **同源同形**）。 */
+        const st = (window.__benchPatch && window.__benchPatch.rendererSrcStatus) ? window.__benchPatch.rendererSrcStatus() : null
         const out = {
           src: fr ? String(fr.getAttribute('src') || '') : '',
-          status: st ? String(st.textContent || '') : '',
-          attrSrc: st ? st.getAttribute('data-mpw-renderer-src') : null,
+          status: st ? String(st.text || '') : '',
+          attrSrc: st && st.attrs ? st.attrs.src : null,
           dpr: window.devicePixelRatio,
           frameBox: fr ? (fr.clientWidth + 'x' + fr.clientHeight) : '',   // 面板盒（画布定尺的输入，取证用）
           /*  ①(2026-09-25 ISSUE0924A 收尾) 面板**列**几何（与渲染器档无关的那部分）：
@@ -414,11 +421,12 @@ if (!pwPath) {
             529×297）。⇒ 就绪 = 文档对上 **且** 盒与画布**连着几拍都没变**（`waitReady` 的稳定拍数）。 */
       const frameSnap = (a) => {
         const fr = document.getElementById('frame')
-        const st = document.getElementById('status-renderer-src')
+        //  ①(2026-10-11 用户第 3 条) 状态片已移除 ⇒ "当前档位"从探针计划里读（与原来 `data-mpw-renderer-src` 同源）。
+        const st = (window.__benchPatch && window.__benchPatch.rendererSrcStatus) ? window.__benchPatch.rendererSrcStatus() : null
         const out = { ok: false, box: '', cv: '', doc: '' }
-        if (!fr || !st) return out
+        if (!fr || !st || !st.attrs) return out
         out.box = fr.clientWidth + 'x' + fr.clientHeight
-        if (st.getAttribute('data-mpw-renderer-src') !== a.mode) return out
+        if (st.attrs.src !== a.mode) return out
         let w = null
         try { w = fr.contentWindow } catch (e) { return out }
         if (!w || !w.document) return out

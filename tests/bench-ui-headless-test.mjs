@@ -276,12 +276,15 @@ try {
   }, mode)
   const rendererSourceState = () => page.evaluate(() => {
     const sel = document.getElementById('renderer-src')
-    const st = document.getElementById('status-renderer-src')
+    /*  ①(2026-10-11 用户第 3 条) 状态片 `#status-renderer-src` 已从 UI 移除 ⇒ 读数走探针
+        `__benchPatch.rendererSrcStatus()`（返回 `rendererSourceStatusPlan()` 的同一份计划：
+        `text` / `attrs.src` / `attrs.ready` 与原 `data-mpw-*` 同源同形）。 */
+    const st = (window.__benchPatch && window.__benchPatch.rendererSrcStatus) ? window.__benchPatch.rendererSrcStatus() : null
     const fr = document.getElementById('frame')
     return {
       mode: sel ? sel.value : null,
-      attr: st ? st.getAttribute('data-mpw-renderer-src') : null,
-      text: st ? String(st.textContent || '') : '',
+      attr: st && st.attrs ? st.attrs.src : null,
+      text: st ? String(st.text || '') : '',
       src: fr ? String(fr.getAttribute('src') || '') : '',
     }
   })
@@ -321,12 +324,12 @@ try {
       const li = lis.find((x) => x.dataset.id === '3644069061') || lis[0]
       if (li) li.click()
       await new Promise((r) => setTimeout(r, 9000))
-      const st = document.getElementById('status-renderer-src')
+      const st = (window.__benchPatch && window.__benchPatch.rendererSrcStatus) ? window.__benchPatch.rendererSrcStatus() : null
       const shim = (window.__benchWebShim ? window.__benchWebShim() : null)
       const list = window.__benchShell && window.__benchShell.navSound ? window.__benchShell.navSound.mediaList() : null
       return {
         id: li ? li.dataset.id : null,
-        attr: st ? st.getAttribute('data-mpw-renderer-src') : null,
+        attr: st && st.attrs ? st.attrs.src : null,
         injected: shim ? shim.injected : null,
         skipped: shim ? shim.skipped : null,
         videos: list ? list.vids.length : null,
@@ -2564,20 +2567,39 @@ try {
       const open = await pageLS.evaluate(() => {
         const L = document.getElementById('frame').contentWindow.__sceneLayers || []
         const rows = [...document.querySelectorAll('#layer-switch-list .lsw-row')]
+        const st = (window.__benchPatch && window.__benchPatch.layerSwitch) ? window.__benchPatch.layerSwitch() : null
         return {
           total: L.length, rows: rows.length,
           panelHidden: document.getElementById('layer-switch-panel').hasAttribute('hidden'),
           aria: document.getElementById('layer-switch-btn').getAttribute('aria-expanded'),
           names: rows.map((r) => String(r.querySelector('.lsw-name')?.textContent || '')),
           checks: rows.map((r) => !!r.querySelector('input[type="checkbox"]')?.checked),
+          disabled: rows.map((r) => !!r.querySelector('input[type="checkbox"]')?.disabled),
           containers: rows.map((r) => r.hasAttribute('data-container')),
+          state: st ? st.rows.map((r) => ({ i: r.i, kind: r.kind, drawable: r.drawable, fileVisible: r.fileVisible, checked: r.checked })) : null,
+          probe: st,
         }
       })
       const cvAfterOpen = await ensureCanvas(6000)
       notes.push('LS 诊断：画布尺寸 LS0=' + JSON.stringify(cvSz) + ' LS2=' + JSON.stringify(cvAfterOpen))
       ok(open.panelHidden === false && open.aria === 'true', 'LS2a 点开「图层开关」⇒ 面板展开（aria-expanded=true）', JSON.stringify({ aria: open.aria, panelHidden: open.panelHidden, canvas: cvAfterOpen }))
       ok(open.rows === open.total, 'LS2b 打开后条目数 == `__sceneLayers.length`（探针包真实层数）', `rows=${open.rows} total=${open.total} names=${open.names.join('/')}`)
-      ok(open.checks.every(Boolean), 'LS2c 缺省全勾（每层默认参与渲染）', JSON.stringify(open.checks))
+      /*  ①(2026-10-11 用户第 2 条「勾选态与壁纸文件不一致」) **LS2c 的口径已改**：
+          旧判据 = "缺省全勾（每层默认参与渲染）"—— 那正是把 bug 钉住的断言（文件里 `visible:false` 的层
+          也被勾上）。新判据 = **缺省勾选态 == 渲染器算好的文件语义**：
+            checked ⇔ 可显示（非容器 / 非光源 / 有绘制源）∧ `layer.visible !== false`；
+          并且 DOM 勾选态必须与探针 `layerSwitch().rows[].checked` **逐行一致**（行只是呈现，不是第二份状态）。
+          两语互证 + 打印**新旧读数**（缺省勾选数）便于人工复核。 */
+      const expectChecks = (open.state || []).map((r) => !!(r.drawable && r.fileVisible))
+      const domMatchProbe = (open.state || []).every((r) => r.checked === expectChecks[r.i])
+      const oldReading = open.total   // 旧行为：除容器置灰外全部勾上（= 全部层数）
+      notes.push(`LS2c 缺省勾选数：旧=${oldReading}（除不可显示项外全勾）→ 新=${open.checks.filter(Boolean).length}/${open.total}（文件语义；不可显示 ${open.disabled.filter(Boolean).length} 项不勾且置灰）`)
+      ok(JSON.stringify(open.checks) === JSON.stringify(expectChecks) && domMatchProbe,
+        'LS2c ★缺省勾选态 = **文件语义**（`visible:false` / 不可显示的层不勾），且 DOM 与探针逐行一致',
+        `checks=${JSON.stringify(open.checks)} 期望=${JSON.stringify(expectChecks)} kinds=${JSON.stringify((open.state || []).map((r) => r.kind))}`)
+      ok(open.disabled.length === open.total && open.disabled.every((d, i) => d === !(open.state[i] || {}).drawable),
+        'LS2d 「不可显示」的层（容器 / 光源 / 无绘制源）勾选框**置灰**，可显示的层可点',
+        `disabled=${JSON.stringify(open.disabled)}`)
       //  ── 像素判据的"确定性单帧重绘"夹具（全部测试侧插桩，渲染器代码零改动）──────────────
       //  首轮实测教训：`__wp.pause()` 冻结画布后改 `__lnHidden` **不会重绘**（绘制循环停了）
       //  ⇒ 隐藏前后的抓帧逐位相同，LS4 整组假红。解法：本页与渲染器 iframe **同源** ⇒
@@ -2746,9 +2768,11 @@ try {
         }, li)
         ok(/[?&]hide=/.test(restored.url) && restored.checks.length === restored.rows,
           'LS6b 带 `?hide=` 重新加载 ⇒ 页面 URL 仍带该参数（参数是**本页**状态，不是 iframe 私有）', restored.url)
-        ok(restored.checks.length > li && restored.checks[li] === false && restored.checks.filter((c) => !c).length === 1,
-          `LS6c 带参重载后勾选状态一致：第 ${li} 层不勾、其余全勾（重挂载按"下标+层名"恢复隐藏集）`,
-          JSON.stringify({ checks: restored.checks, status: restored.status }))
+        //  ①(2026-10-11) 缺省就有若干"文件里不显示"的层不勾（LS2c）⇒ 取消 1 层可点层后，未勾数 = 缺省未勾数 + 1
+        const baseUnchecked = open.checks.filter((c) => !c).length
+        ok(restored.checks.length > li && restored.checks[li] === false && restored.checks.filter((c) => !c).length === baseUnchecked + 1,
+          `LS6c 带参重载后勾选状态一致：第 ${li} 层不勾、其余保持缺省态（未勾 ${baseUnchecked}+1；重挂载按"下标+层名"恢复隐藏集）`,
+          JSON.stringify({ checks: restored.checks, status: restored.status, baseUnchecked }))
         ok(restored.lnHidden, `LS6d 恢复不只停留在勾选框：\`__sceneLayers[${li}].__lnHidden === true\` 真的落到了渲染层`, String(restored.lnHidden))
         //  ── LS7 上游产物档：禁用 + 原因非空 ──────────────────────────────────────────
         //  先收起面板（LS6c 打开过）⇒ LS7b 的"禁用态点不开"不会污染成"点击=收起"的假绿
@@ -2854,11 +2878,231 @@ try {
         })
         ok(copyLog.includes('hide=') && copyLog.includes('#'), 'LS11 「复制当前状态」在输出区打出一行同内容日志（含 ?hide= 与"下标+层名"清单）',
           copyLog.slice(0, 160))
+        /*  ── LS14 ①(2026-10-11 用户第 2 条) **像素级**：文件里 false 的层，勾上后真的画出来 ──────────
+            用 LS4b 已证明"可量"的那一层（`li`）。变量只有一个：该层自己的可见性 —— 其它层的状态
+            在本组里保持不变。① 基线 S0（文件 true + 勾上）⇒ ② 把它写成文件 false + 不勾 ⇒ S1，应当
+            与 S0 **可测地不同**（层真的没了）⇒ ③ 勾上（`__lnShown` 强制显示）⇒ S2，应当**回到 S0**
+            （差 ≤ ②的 1/10；相位被 performance.now 桩定，理论上应为 0）。 */
+        {
+          const reArm = await pageLS.evaluate((i) => {
+            const w = document.getElementById('frame').contentWindow
+            if (!w.__wp || typeof w.__wp.pause !== 'function') return { ok: false, why: 'no __wp' }
+            if (!w.__lswNowPatched) {
+              const orig = w.performance.now.bind(w.performance)
+              const fixed = orig()
+              w.performance.now = () => fixed
+              w.__lswNowUnpatch = () => { w.performance.now = orig; delete w.__lswNowPatched }
+              w.__lswNowPatched = true
+            }
+            w.__wp.pause()
+            const L = w.__sceneLayers || []
+            const l = L[i]
+            const raw = (w.__mpwRawObjects || []).find((o) => o && l && o.id === l.id)
+            if (raw) raw.visible = true
+            if (l) l.visible = true
+            window.__benchPatch.layerSwitchSet(i, false)     // 勾上（= 文件 true 的缺省态）+ 清掉用户隐藏
+            return { ok: true, rawFound: !!raw, id: l ? l.id : null }
+          }, li)
+          ok(reArm.ok && reArm.rawFound, `LS14-前置 相位夹具重装 + 第 ${li} 层回到"文件 true + 勾上"基线态（raw 对象可写）`, JSON.stringify(reArm))
+          if (reArm.ok) {
+            await oneFrame(); const s0 = await shot()
+            const setFileFalse = await pageLS.evaluate((i) => {
+              const w = document.getElementById('frame').contentWindow
+              const L = w.__sceneLayers || []
+              const l = L[i]
+              const raw = (w.__mpwRawObjects || []).find((o) => o && l && o.id === l.id)
+              if (raw) raw.visible = false
+              if (l) l.visible = false
+              window.__benchPatch.layerSwitchSet(i, true)    // 文件 false ⇒ 不勾（= 缺省态）
+              return { rawFound: !!raw, visible: l ? l.visible : null, checked: !!(document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"] input[type="checkbox"]`) || {}).checked }
+            }, li)
+            await pageLS.waitForTimeout(150)
+            await oneFrame(); const s1 = await shot()
+            const dHid = await diffOf(s0, s1)
+            await pageLS.evaluate((i) => { window.__benchPatch.layerSwitchSet(i, false) }, li)   // 勾上 = 强制显示
+            await pageLS.waitForTimeout(150)
+            await oneFrame(); const s2 = await shot()
+            const dShown = await diffOf(s0, s2)
+            ok(setFileFalse.visible === false && setFileFalse.checked === false,
+              `LS14a 夹具：第 ${li} 层写成文件 false ⇒ 勾选框自动不勾（文件语义，端到端）`, JSON.stringify(setFileFalse))
+            ok(dHid.diff > 0 && dHid.diff / dHid.total > 0.005,
+              `LS14b ★像素级：勾选态跟随文件后，该层**真的不画了**（同相位单帧重绘与基线差异 > 0.5%）`,
+              `diff=${dHid.diff}/${dHid.total} (${((dHid.diff / dHid.total) * 100).toFixed(2)}%)`)
+            ok(dShown.diff * 10 <= Math.max(1, dHid.diff),
+              `LS14c ★★像素级：**勾上（__lnShown 强制显示）⇒ 画面回到基线**（差 ≤ 隐藏差的 1/10）—— "勾上就必须真的显示出来"`,
+              `基线差 diff=${dShown.diff}/${dShown.total} (${((dShown.diff / dShown.total) * 100).toFixed(3)}%) vs 隐藏差 ${dHid.diff}`)
+            await pageLS.evaluate((i) => {
+              const w = document.getElementById('frame').contentWindow
+              const L = w.__sceneLayers || []
+              const l = L[i]
+              const raw = (w.__mpwRawObjects || []).find((o) => o && l && o.id === l.id)
+              if (raw) raw.visible = true
+              if (l) l.visible = true
+              window.__benchPatch.layerSwitchSet(i, false)     // 回到"文件 true + 勾上"
+              try { w.__lswNowUnpatch && w.__lswNowUnpatch() } catch (e) { /* 已还原 */ }
+            }, li)
+          }
+        }
       }
       //  恢复现场：解除暂停（渲染循环冻结会拖累后面的 G10 采样组），回到干净 URL
       await pageLS.evaluate(() => { try { document.getElementById('frame').contentWindow.__wp.resume() } catch { /* 已释放 */ } })
       }   // ↑ fixture-else
       }   // ↑ pixelOK（画布可量才跑）
+
+      /*  ── LS12 ①(2026-10-11 用户第 1 条「面板右侧有一部分超出屏幕」) 真 DOM 几何：三视口不越界 ────
+          判据用 `getBoundingClientRect()`（不是 CSS 文本）：面板矩形必须完全落在视口内（各留 8px），
+          且**展开态按钮仍可点**（`elementFromPoint(按钮中心)` 命中的还是按钮 ⇒ 面板没盖住它 —— 用户
+          关不掉面板的口子）。视口切换后等 `resize` → `lswPlacePanel()` 的下一拍。 */
+      {
+        await pageLS.evaluate(() => { window.__benchPatch.layerSwitchOpen(true) })
+        await pageLS.waitForTimeout(400)
+        const VIEWS = [[800, 600], [1280, 720], [1920, 1080], [640, 480]]
+        const rects = []
+        for (let vi = 0; vi < VIEWS.length; vi++) {
+          const [w, h] = VIEWS[vi]
+          await pageLS.setViewportSize({ width: w, height: h })
+          await pageLS.waitForTimeout(300)
+          //  小视口下 `#toolbar` 自己有滚动条（窄屏 max-height:30vh）⇒ 先把按钮滚进可见区再量，
+          //  否则 `elementFromPoint` 会量到"按钮不在视口里"，那是环境不是缺陷。
+          await pageLS.evaluate(() => { try { document.getElementById('layer-switch-btn').scrollIntoView({ block: 'center' }) } catch (e) {} })
+          await pageLS.waitForTimeout(300)
+          //  滚动后必须重算位置（真实现里由捕获阶段的 scroll 监听负责；这里走**同一个入口**再算一次）
+          await pageLS.evaluate(() => { try { window.__benchPatch.layerPanelFit() } catch (e) {} })
+          await pageLS.waitForTimeout(200)
+          const r = await pageLS.evaluate(() => {
+            const p = document.getElementById('layer-switch-panel')
+            const b = document.getElementById('layer-switch-btn')
+            const pr = p.getBoundingClientRect(), br = b.getBoundingClientRect()
+            const cx = Math.round(br.left + br.width / 2), cy = Math.round(br.top + br.height / 2)
+            let hit = null
+            try { const el = document.elementFromPoint(cx, cy); hit = el ? (el.id || el.tagName) : null } catch (e) { hit = 'err' }
+            return {
+              vw: innerWidth, vh: innerHeight, hidden: p.hasAttribute('hidden'),
+              placement: p.getAttribute('data-lsw-placement'),
+              panel: { l: Math.round(pr.left), r: Math.round(pr.right), t: Math.round(pr.top), b: Math.round(pr.bottom) },
+              btn: { l: Math.round(br.left), r: Math.round(br.right), t: Math.round(br.top), b: Math.round(br.bottom) },
+              hit,
+            }
+          })
+          const inView = r.panel.l >= 7 && r.panel.r <= r.vw - 7 && r.panel.t >= 7 && r.panel.b <= r.vh - 7
+          const btnHit = r.hit === 'layer-switch-btn'
+          rects.push({ view: `${w}x${h}`, ...r.panel, placement: r.placement, inView, btnHit })
+          ok(!r.hidden && inView, `LS12${'abcd'[vi]} ${w}×${h} ⇒ 面板矩形完全落在视口内（各留 8px）`,
+            JSON.stringify({ panel: r.panel, viewport: [r.vw, r.vh], placement: r.placement }))
+          ok(btnHit, `LS12${'abcd'[vi]}b ${w}×${h} ⇒ 面板展开时**按钮仍可点**（elementFromPoint 命中它自己，没被面板盖住）`,
+            `hit=${r.hit}`)
+        }
+        notes.push('LS12 面板矩形读数：' + JSON.stringify(rects))
+        await pageLS.setViewportSize({ width: VIEW.w, height: VIEW.h })
+        await pageLS.waitForTimeout(300)
+      }
+
+      /*  ── LS13 ①(2026-10-11 用户第 2 条) 端到端：文件里 `visible:false` ⇒ 缺省不勾；勾上 ⇒ 真的显示 ──
+          怎么"造"一个文件-false 的层而不改包：写**渲染器的 raw 对象**（`window.__mpwRawObjects`，
+          就是 scene.json 里那一条）—— 这才是"文件真相"，渲染器自己的脚本同步（demo.html 的
+          raw→layer 可见性同步，≤250ms 一拍）会把它如实吃进 `layer.visible`；
+          而我们**不写 layer.visible 当手段**（写它会被下一拍扳回，P-164 取证）—— 强制显示走的是
+          `__lnShown`（core 绘制期判据）。 步骤：造 false ⇒ 行应变不勾 ⇒ 点勾 ⇒ `__lnShown===true`
+          （且 `layer.visible` 仍为 false：我们没动文件真相）⇒ 取消 ⇒ 回落 false（幽灵显示的反回归）。 */
+      {
+        //  目标层 = 第一个"**可显示且文件里可见**"的层；先把它勾上（清掉 LS9b 留下的用户隐藏/强制显示），
+        //  这样"文件改成 false 后自动变不勾"是一次**真实的状态翻转**，而不是本来就处于不勾态。
+        const target = await pageLS.evaluate(() => {
+          const st = window.__benchPatch.layerSwitch()
+          const r = st.rows.find((x) => x.drawable && x.fileVisible)
+          if (!r) return null
+          window.__benchPatch.layerSwitchSet(r.i, false)      // 勾上（= 清 __lnHidden / 清 __lnShown）
+          return { i: r.i, name: r.name, kind: r.kind }
+        })
+        await pageLS.waitForTimeout(300)
+        const setRawVisible = (i, v) => pageLS.evaluate(({ i, v }) => {
+          const w = document.getElementById('frame').contentWindow
+          const L = w.__sceneLayers || []
+          const l = L[i]
+          const raws = w.__mpwRawObjects || []
+          const raw = raws.find((o) => o && l && o.id === l.id)
+          if (raw) raw.visible = v
+          if (l) l.visible = v
+          return { rawFound: !!raw, id: l ? l.id : null }
+        }, { i, v })
+        if (!target) { notes.push('LS13 未跑：找不到可显示的层') } else {
+          const pre = await pageLS.evaluate((i) => {
+            const cb = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"] input[type="checkbox"]`)
+            const L = document.getElementById('frame').contentWindow.__sceneLayers
+            return { checked: !!cb.checked, visible: L[i].visible !== false }
+          }, target.i)
+          notes.push(`LS13 夹具：目标层 #${target.i}（${target.name}）起始态 ${JSON.stringify(pre)}`)
+          await setRawVisible(target.i, false)
+          await pageLS.waitForTimeout(600)                       // 等脚本同步一拍（≤250ms）+ 面板重画
+          await pageLS.evaluate(() => { window.__benchPatch.layerSwitchOpen(true) })
+          await pageLS.waitForTimeout(400)
+          const s1 = await pageLS.evaluate((i) => {
+            const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
+            const cb = row ? row.querySelector('input[type="checkbox"]') : null
+            const L = document.getElementById('frame').contentWindow.__sceneLayers
+            return {
+              layerVisible: L[i].visible === false, checked: !!(cb && cb.checked), disabled: !!(cb && cb.disabled),
+              fileHiddenAttr: row ? row.getAttribute('data-file-hidden') : null,
+              title: cb ? String(cb.getAttribute('title') || '') : '',
+              probe: window.__benchPatch.layerSwitch().rows[i],
+            }
+          }, target.i)
+          ok(pre.checked === true && pre.visible === true &&
+            s1.layerVisible && s1.checked === false && s1.disabled === false && s1.fileHiddenAttr === '1' &&
+            s1.probe && s1.probe.fileHidden === true,
+            `LS13a ★缺省勾选 = 文件语义（端到端）：第 ${target.i} 层从"文件 true + 勾上"翻成"文件 false" ⇒ 行**自动变不勾**且标 data-file-hidden=1（仍可点，不是置灰）`,
+            JSON.stringify({ pre, s1 }))
+          await pageLS.evaluate((i) => {
+            const cb = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"] input[type="checkbox"]`)
+            cb.click()
+          }, target.i)
+          await pageLS.waitForTimeout(300)
+          const s2 = await pageLS.evaluate((i) => {
+            const L = document.getElementById('frame').contentWindow.__sceneLayers
+            const row = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"]`)
+            const cb = row.querySelector('input[type="checkbox"]')
+            return {
+              lnShown: L[i].__lnShown === true, lnHidden: L[i].__lnHidden === true,
+              visibleStillFalse: L[i].visible === false, checked: !!cb.checked,
+              forcedAttr: row.getAttribute('data-forced'), title: String(cb.getAttribute('title') || ''),
+              probe: window.__benchPatch.layerSwitch().rows[i],
+              urlHide: (() => { try { return new URLSearchParams(location.search).get('hide') } catch (e) { return null } })(),
+            }
+          }, target.i)
+          ok(s2.lnShown && !s2.lnHidden && s2.checked && s2.forcedAttr === '1' && s2.probe.forced === true,
+            `LS13b ★★勾上第 ${target.i} 层 ⇒ \`__sceneLayers[${target.i}].__lnShown === true\`（绘制期强制显示，用户第 2 条的核心）`,
+            JSON.stringify(s2))
+          ok(s2.visibleStillFalse,
+            'LS13c 强制显示**没有**改写 `layer.visible`（文件真相保持 false）—— 走的正是"写它会被逐帧同步扳回"之外的通道',
+            `visible=${s2.visibleStillFalse}`)
+          ok(!String(s2.urlHide || '').split(',').includes(String(target.i)),
+            'LS13d 强制显示**不进 `?hide=`**（那一层本来就没画；URL 只记"用户取消勾选"）', `hide=${s2.urlHide}`)
+          await pageLS.evaluate((i) => {
+            const cb = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"] input[type="checkbox"]`)
+            cb.click()
+          }, target.i)
+          await pageLS.waitForTimeout(300)
+          const s3 = await pageLS.evaluate((i) => {
+            const L = document.getElementById('frame').contentWindow.__sceneLayers
+            const cb = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"] input[type="checkbox"]`)
+            return { lnShown: L[i].__lnShown === true, lnHidden: L[i].__lnHidden === true, checked: !!cb.checked }
+          }, target.i)
+          ok(s3.lnShown === false && s3.lnHidden === false && s3.checked === false,
+            'LS13e 取消勾选 ⇒ `__lnShown` 回落 false（"点过一次永远亮"的幽灵显示反回归）', JSON.stringify(s3))
+          //  还原现场：文件真相写回 true ⇒ 行回到勾选态（双向都跟随文件语义）
+          await setRawVisible(target.i, true)
+          await pageLS.waitForTimeout(600)
+          await pageLS.evaluate(() => { window.__benchPatch.layerSwitchOpen(true) })
+          await pageLS.waitForTimeout(300)
+          const s4 = await pageLS.evaluate((i) => {
+            const L = document.getElementById('frame').contentWindow.__sceneLayers
+            const cb = document.querySelector(`#layer-switch-list .lsw-row[data-ln="${i}"] input[type="checkbox"]`)
+            return { layerVisible: L[i].visible !== false, checked: !!cb.checked, lnShown: L[i].__lnShown === true }
+          }, target.i)
+          ok(s4.layerVisible && s4.checked === true && s4.lnShown === false,
+            'LS13f 文件真相写回 visible:true ⇒ 行自动回到勾选态（缺省态**双向**跟随文件语义）', JSON.stringify(s4))
+        }
+      }
     }     // ↑ enabledAt≥0
   }       // ↑ if (mounted)
     /* ①(2026-10-07) 本组自己的上下文用完即关；并把主页渲染**恢复**（上面为腾 CPU 暂停过）。 */
