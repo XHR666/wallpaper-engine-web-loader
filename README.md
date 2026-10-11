@@ -55,7 +55,7 @@ bash start-demo.sh                     # 预检 + 起服务（默认 8899）；�
   离线 PWA（`web/manifest.webmanifest` + `web/sw.js`，**缓存判据明确排除用户壁纸**，见 `tests/pwa-test.mjs`）。
 - 要"**带后端的测试台页面**"（壁纸库列表 / 属性保存 / 删除 / 渲染器诊断流都要能用）：那是**另一个**服务 ——
   `node server/we-scene-demo-server-8902.mjs` ⇒ 打开 `http://127.0.0.1:8902/`（一个 origin 同时提供 `demo/` 静态面 +
-  测试台要的 8 个 `/api/*` + 渲染器 iframe 页 + `/media/dev` 媒体面 + `/diag` 诊断流；见 `docs/BENCH-8902.md`）。
+  测试台要的 **≥17 个** `/api/*` + 渲染器 iframe 页 + `/media/dev` 媒体面 + `/diag` 诊断流；见 `docs/BENCH-8902.md`）。
 
 ### B. 任意静态服务器（只读模式）
 ```bash
@@ -105,8 +105,10 @@ bash start-demo.sh                    # 预检 + 起服务器（默认 8899）
 npm install                           # 可选：装了 typescript，`types-check` 那一项才会真跑（不装则该项 SKIP，不假装通过）
 bash check.sh                         # 发布/自检的唯一入口
 ```
-- **自带服务器需要一个包解析器**（MIT 插件 `dsh-mpkg-wallpaper` 的 `lib/pkg-extract.js`）：把它与渲染器放在**同一父目录**即可，
-  否则用 `MPW_PKG_EXTRACT=/绝对路径/pkg-extract.js` 指定（`start-demo.sh` 的预检会把三条修法直接打出来）。
+- **自带服务器不需要任何外部仓库**：容器解析由**本仓自带**的 `pkg-parse.mjs`（MIT，薄封装 `packages/we-core/src/pkg.js` ✓，同时导出 `parsePkg`/`readPkgEntry` ✓）提供 ⇒ 克隆本仓即可直接跑 ✓（**若装了姊妹插件则优先用它的完整能力**——含 `parsePkgIndex` 索引快路径 ✓；没装就用自带 ✓）。
+  只有需要**场景/纹理抽取**（`extractScene*` / `extractTex*`，在姊妹插件里）时才用 `MPW_PKG_EXTRACT=/绝对路径/pkg-extract.js` 指过去 ✓（可选，非必需）。
+  历史提示：旧版 README 曾要求把 MIT 插件放在同一父目录**即可，
+  —— **该要求已作废** ✗：`start-demo.sh` 的预检现在应当命中本仓根的 `pkg-parse.mjs` ✓。
 - 真实壁纸请放仓库**外**，用 `MPW_SCENE_ROOT` / `?pkgpath=` / `?pkgurl=` 指过去（见 §3/§4）。
 - 逐层调试 `/?ln=1`；诊断页 `/diag` 与 `/probe`；页内自检 `/?selfcheck=1`。
 
@@ -171,14 +173,14 @@ bash check.sh                         # 发布/自检的唯一入口
 
 | 变量 | 默认 | 用途 |
 |---|---|---|
-| `PORT` | `8899` | 监听端口 |
+| `PORT` | `8899` | 监听端口（**8899 = 本仓自带 demo 服务**，`server/we-scene-demo-server.mjs`；**8902 = 一站式测试台**，`server/we-scene-demo-server-8902.mjs`，插件默认指向它 —— 两者互不影响 ✓） |
 | `MPW_ROOT` | 本仓库的父目录 | 其它路径的基准（`$MPW_ROOT/allwallpaper`、`$MPW_ROOT/wallpaper_engine/assets`…） |
 | `MPW_SCENE_ROOT` | 存在的第一个：`$MPW_ROOT/allwallpaper/dd` → `$MPW_ROOT/allwallpaper` → `<repo>/samples`；都不存在则是一个**明确不存在**的占位路径（启动日志会写明，`?id=` 一律 404） | `?id=` 的包目录根 |
 | `MPW_REPORTS_DIR` | `$MPW_ROOT/reports` | `/report` 上报落盘目录（只保留最新 60 份） |
 | `MPW_WE_ASSETS` | 自动探测本机 Steam/WE 安装目录 | WE 官方资产兜底（着色器/粒子预设/材质）；**不随仓库分发**，找不到就跳过 |
 | `MPW_ALLOW_DIRS` | 若干本地目录 + `<repo>/samples` | `?pkgpath=`/`/pkgdir` 的路径白名单（冒号分隔，**整体覆盖**默认值） |
 | `MPW_PLUGIN_CACHE` / `MPW_SD_ROOT` | 插件下载缓存 / 备用语料根 | 语料扫描工具的额外根目录（`MPW_SD_ROOT` **只在显式设置时**才进白名单） |
-| `MPW_PKG_EXTRACT` | 先 `<repo>/pkg-extract.mjs`，否则 `<父目录>/dsh-mpkg-wallpaper/lib/pkg-extract.js` | 包解析器（公开副本请把 `pkg-extract.mjs` 放在仓库根，或用本变量指绝对路径） |
+| `MPW_PKG_EXTRACT` | 先 `<repo>/pkg-parse.mjs`，否则 `<父目录>/dsh-mpkg-wallpaper/lib/pkg-extract.js` | 包解析器（公开副本请把 `pkg-extract.mjs` 放在仓库根，或用本变量指绝对路径） |
 | `MPW_PWA` | 关 | `1` = 首页注入 PWA（manifest + SW 注册）；单次请求可用 `?pwa=1` 覆盖 |
 | `MPW_BIND` | `127.0.0.1` | 监听地址（默认只绑回环） |
 
@@ -214,7 +216,7 @@ bash check.sh --fast                   # 全量回归跳最慢项
 bash check.sh --json                   # 末尾追加机读汇总
 npm run test                           # = bash tests/run-all-tests.sh
 npm run test:fast                      # = bash tests/run-all-tests.sh --fast
-bash tests/run-all-tests.sh --list     # 列出回归项（当前 240 项；slow 项 --fast 跳过，条件项无数据自动 SKIP）
+bash tests/run-all-tests.sh --list     # 列出回归项（当前 **242** 项（新增判据会增长 ⇒ **以 `bash tests/run-all-tests.sh --list` 的输出为准**）；slow 项 --fast 跳过，条件项无数据自动 SKIP）
 node tests/docs-check.mjs              # 文档反引号引用完整性 + P-编号健康 + 开关双向一致
 node tests/publish-check.mjs           # 隐私/体积/专有文件（发布前唯一必须 0 阻塞的一项）
 node tests/diag-flag-check.mjs         # 代码开关 ↔ docs/README-DIAGNOSTICS.md 主表双向 0 差异
@@ -247,9 +249,9 @@ node tools/baseline-diff.mjs <旧.json> <新.json>   # 基线逐指标差异表�
 本仓库**不带真实壁纸**。直接开 `http://127.0.0.1:8899/?id=sample-synthetic` 看自带合成样例；
 要看自己的壁纸，用 `?pkgpath=/绝对路径/scene.pkg`（需在 `MPW_ALLOW_DIRS` 白名单内）或把目录放到 `MPW_SCENE_ROOT` 下再用 `?id=<目录名>`。
 
-**Q：`start-demo.sh` 报"找不到包解析器（pkg-extract）"？**
-自带服务器需要一个包解析器，它在**另一个 MIT 仓库**里。三选一（预检会把这三条原样打出来）：
-把 `dsh-mpkg-wallpaper` 与渲染器放在**同一父目录**、用 `MPW_PKG_EXTRACT=/绝对路径/pkg-extract.js` 指定、或把 `pkg-extract.mjs` 放到本仓库根。
+**Q：`start-demo.sh` 报"找不到包解析器（pkg-extract）"？**（**本仓自带解析器后，正常克隆不会再出现** ✓）
+原因：预检在三处找解析器，**第一处就是本仓根的 `pkg-parse.mjs`**（自带 ✓）。真报这个错，通常意味着工作副本缺了该文件或用旧版启动脚本。修法（任选）：
+本仓自带 `pkg-parse.mjs` ⇒ **正常克隆不会出现**；若仍报错：把该文件放回仓库根 ✓、或用 `MPW_PKG_EXTRACT=/绝对路径/pkg-extract.js` 指向姊妹插件（**只为场景/纹理抽取**，可选 ✓）。
 
 **Q：默认端口 8899 被占用？**
 `PORT=9000 bash start-demo.sh` 或 `bash start-demo.sh --port 9000`（`start-demo.sh` 会先探测再回退，并把最终 URL 打出来）。
@@ -291,7 +293,7 @@ node tools/baseline-diff.mjs <旧.json> <新.json>   # 基线逐指标差异表�
 > **免责声明**
 > 本项目与 Wallpaper Engine 官方**无任何关联**，不包含 Wallpaper Engine 本体、Steam 创意工坊内容或任何受版权保护的壁纸资源。本项目**不分发**任何壁纸包（scene 场景包、视频壁纸、网页壁纸）、预览图、音视频或美术素材；仓库内随附的字体仅为各自许可允许再分发的开源字体，逐条见 THIRD-PARTY。用户需自行提供**合法获得**的壁纸，并自行承担因读取、转换或播放相关内容而产生的合规责任。"Wallpaper Engine" 及其相关名称与标识为其各自权利人的商标，本项目仅出于说明兼容性之目的进行指称。本项目渲染器以 GPL-3.0-or-later 发布、插件以 MIT 发布；第三方组件与参考资料（**仅行为对照、未复制代码**）的许可与归属见 THIRD-PARTY.md 与 docs/COPYING-RULES.md。
 >
-> *（上段按项目所有者指定原文采用。须并列阅读 §11 的两条例外：`oneincase/webwallgl`（MIT）的 FXAA 片元着色器为**逐字复制**、其 HLSL→GLSL 转译器为**逐字节 vendored**（MIT 声明均已保留，§11.1(2)）；`Aromatic05/wallpaper-engine-renderer`（GPL-2.0-only）曾被审计判定有 **2 处点状同源**，**已于 2026-09-16 按书面规格洁净室重写**（`docs/PATCHES.md` **P-95**，行为逐位一致，§11.4(2)），剩余未定项只有**法律定性**（审计 U-1/U-5）。RePKG 的许可已核实为 **MIT**（§11.4(7)）。）*
+> *（上段按项目所有者指定原文采用。须并列阅读 §11 的两条例外：`oneincase/webwallgl`（MIT）的 FXAA 片元着色器为**逐字复制**、其 HLSL→GLSL 转译器为**逐字节 vendored**（MIT 声明均已保留，§11.1(2)）；`Aromatic05/wallpaper-engine-renderer`（GPL-2.0-only）曾被审计判定有 **2 处点状同源**，**已于 2026-09-16 按书面规格按规格独立实现**（`docs/PATCHES.md` **P-95**，行为逐位一致，§11.4(2)），剩余未定项只有**法律定性**（审计 U-1/U-5）。RePKG 的许可已核实为 **MIT**（§11.4(7)）。）*
 
 > **Disclaimer**
 > This project is **not affiliated with Wallpaper Engine** in any way. It does not include the Wallpaper Engine application, any Steam Workshop content, or any copyrighted wallpaper assets. It **does not redistribute** wallpaper packages (scene, video, or web), preview images, audio/video, or artwork; the fonts bundled in this repository are only those open-licensed fonts whose licences permit redistribution (see THIRD-PARTY). **Users must supply their own lawfully obtained wallpapers** and are solely responsible for compliance when reading, converting, or playing such content. "Wallpaper Engine" and related names and marks belong to their respective owners and are referenced here only to describe compatibility. The renderer is released under GPL-3.0-or-later and the plugin under MIT; see THIRD-PARTY.md and docs/COPYING-RULES.md for third-party components and reference material (used for **behavioural comparison only — no code was copied**).
@@ -302,7 +304,7 @@ node tools/baseline-diff.mjs <旧.json> <新.json>   # 基线逐指标差异表�
   （上半部分 = GNU GPL v3 条款原文，未改动；末尾附版权声明与 "either version 3 … or (at your option) any later version" 措辞）。SPDX 标识：`GPL-3.0-or-later`。
 - **本仓库不含任何 WE（Wallpaper Engine）素材**：不分发 `scene.pkg`/`.mpkg`、贴图、官方着色器头、音频、视频或任何工坊作品；
   自带样例只有程序化生成的 `samples/sample-synthetic*`。
-- **本渲染器 import 了 MIT 许可的插件 `dsh-mpkg-wallpaper`**（包解析器）。该插件**保持 MIT**；借用在 MIT → GPL 的允许方向上，
+- **容器解析不依赖任何外部仓库**：由本仓 `pkg-parse.mjs` + `packages/we-core/**`（**MIT** ✓）提供。姊妹插件 `dsh-mpkg-wallpaper`（**MIT**）**仅在需要场景/纹理抽取能力时可选使用** ✓；借用在 MIT → GPL 的允许方向上，
   **插件的 MIT 声明随之保留**，不得被本仓库的 GPL 覆盖或删除。
 - 第三方组件的逐条归属、许可全文与复制台账见 `THIRD-PARTY.md` 与 `docs/COPYING-RULES.md`；换 GPL 的决定与落地记录见 `docs/PATCHES.md` P-89。本文件不是法律意见。
 
@@ -328,20 +330,20 @@ node tools/baseline-diff.mjs <旧.json> <新.json>   # 基线逐指标差异表�
 #### (2) oneincase/webwallgl — MIT
 - 仓库：<https://github.com/oneincase/webwallgl> ｜ 许可：**MIT**（`Copyright (c) 2026 oneincase`）｜ 核对基准 commit：`fdfc578a577d0e680a9cfe2cf2e3e825d3cd2372`（v1.3.23，2026-09-15）
 - **复制了什么（到行级）**：上游 `renderer/vendor/we-scene/render/renderer-glsl.js` 里的 **`FXAA_FRAG`（452–489 行）逐字**搬进 `core/we-scene-bundle.js`，常量名 **`FXAA_FS`**（归一化后 38/38 行 GLSL 完全一致，算法常量同上游：`SPAN_MAX=8.0`、`REDUCE_MUL=1/8`、`REDUCE_MIN=1/128`、`LUMA=(.299,.587,.114)`）。
-- **整文件 vendored（P-93）**：`vendor/hlsl2glsl/` = 上游 HLSL→GLSL 转译器的**逐字节副本**（`hlsl2glsl.js` 77,953 B / 1401 行、`hlsl-preprocessor.js` 14,971 B / 423 行，加上游 `LICENSE` 1,085 B；三者 sha256 见 `THIRD-PARTY.md` §9.1，**一个字符都没改**）。未 vendored：`render/headers.ts`（本项目传自己的 `common*.h`）。当前唯一消费者是覆盖度门禁 `tests/hlsl2glsl-coverage-test.mjs`，渲染器自身着色器路径尚未接线。
+- **整文件 vendored（P-93）**：`vendor/hlsl2glsl/` = 上游 HLSL→GLSL 转译器的**逐字节副本**（`hlsl2glsl.js` 95,759 B / 1693 行、`hlsl-preprocessor.js` 14,920 B / 418 行，加上游 `LICENSE` 1,085 B；三者 sha256 见 `THIRD-PARTY.md` §9.1，**一个字符都没改**）。未 vendored：`render/headers.ts`（本项目传自己的 `common*.h`）。当前唯一消费者是覆盖度门禁 `tests/hlsl2glsl-coverage-test.mjs`，渲染器自身着色器路径尚未接线。
 - **仅行为对照（不是复制）**：`?q`/`?aa`/`?pp` 质量档位与 `setQuality` 热更新 API（AA/`pp` 的常量**取值表**按值取自 MIT 的 `quality.ts`，已致谢）、pass 编排（`runAAPass`、回读纹理、帧令牌幂等、`resolveAaMode`、MSAA 回退策略）、顶点阶段复用本仓库既有的全屏三角 `BLOOM_VS`；插件侧 `lib/web-wallpaper.js`（WE API shim）**0 行复制**。
 - **静态产物再分发**：`demo/**` 是**打过本项目补丁的 WebWallGL 在线测试台静态产物**（`demo/assets/renderer-*.js`、`demo/assets/bench-*.js`、`demo/index.html` 等上游产物**原样再分发**；`demo/bench-patch.js` 是本项目的运行期补丁，属 GPL-3.0-or-later，不改动 minified 产物）⇒ **MIT 声明随目录分发**：`demo/LICENSE-webwallgl-MIT.txt`（MIT 全文 + 署名 + 说明哪些是上游、哪些是我们的）。`demo/` 内**不含任何壁纸包、预览图、音视频或工坊内容**，默认场景是本仓库自带的合成样例。详见 `THIRD-PARTY.md` §6.4 与 `docs/ONLINE-DEMO.md`。
 - **许可声明保留在**：`core/we-scene-bundle.js` 中 `FXAA_FS` 上方的来源注释、`vendor/hlsl2glsl/LICENSE`、`THIRD-PARTY.md` **§6 与 §9**（MIT 全文）、`docs/COPYING-RULES.md` §4 台账 **#6**（FXAA）与 **#8**（转译器）。研读记录：`<工作区>/docs/reverse/WEBWALLGL-UPSTREAM-STUDY.md`、`<工作区>/docs/reverse/WEBWALLGL-DEMO-STUDY.md`。
 
 #### (3) @shaderfrog/glsl-parser 7.0.1 — ISC（Andrew Ray）
 - 仓库：<https://github.com/ShaderFrog/glsl-parser> ｜ 许可：**ISC**（依其 `package.json` 的 `"license": "ISC"`、`"author": "Andrew Ray"`）
-- **复制了什么**：整体 **vendored、未修改** —— `elysia/vendor/@shaderfrog/glsl-parser/`（18 个文件 / 685,630 B），被 `elysia/we-renderer/glsl/{executor,preprocess}.js` 使用（GLSL 解释器的解析前端）。
+- **复制了什么**：整体 **vendored、未修改** —— `elysia/vendor/@shaderfrog/glsl-parser/`（19 个文件 / 665,659 B），被 `elysia/we-renderer/glsl/{executor,preprocess}.js` 使用（GLSL 解释器的解析前端）。
 - **许可声明保留在**：`elysia/vendor/@shaderfrog/glsl-parser/LICENSE`、`elysia/LICENSE`、`THIRD-PARTY.md` §2。
 - **未定/待核（重要）**：上游仓库**没有** LICENSE 文件、README 也无许可章节（GitHub `/license` = 404，npm 包内 `/LICENSE` = 404）⇒ 那个 LICENSE 文件是**我们按包元数据补写**的；其中版权年 `2022` 是依 npm 首发日期**推定**，非上游原文。
 
 ### 11.2 随仓库分发的第三方素材 —— 必须保留其许可
 
-- **字体（7 个文件 + 12 个许可/声明文件）** —— 逐文件的**上游 URL、取得日期、字节数、sha256、版权行**见 `THIRD-PARTY.md` §4.1，许可全文随仓库放在 `assets/fonts/licenses/`：
+- **字体（8 个文件 + 13 个许可/声明文件）** —— 逐文件的**上游 URL、取得日期、字节数、sha256、版权行**见 `THIRD-PARTY.md` §4.1，许可全文随仓库放在 `assets/fonts/licenses/`：
 
 | 文件 | 许可 | 上游 |
 |---|---|---|
@@ -354,14 +356,14 @@ node tools/baseline-diff.mjs <旧.json> <新.json>   # 基线逐指标差异表�
 | spincycle_3d_ot.otf | 作者 freeware 条款（Jess Latham / bvfonts.com） | <https://www.bvfonts.com/>（逐条条件对照见 THIRD-PARTY.md §4.6.1） |
 
   **硬性 provenance 规则**：`assets/fonts/` 里**没有任何文件取自 Wallpaper Engine 安装目录**；WE 自带的字体目录只在**运行时**读取（`/weassist/fonts/<name>`），从不作为打包来源。
-  **故意不打包**（未找到再分发授权，属**未定/待核**）：Alcubierre.otf、Atami-Regular.otf、CursedTimerUlil-Aznm.ttf、Lazer84.ttf、kust.ttf、opensticks.ttf、summer85.ttf、8bitOperatorPlus8-Regular.ttf —— 见 THIRD-PARTY.md §4.7。
+  **故意不打包**（**未随仓库打包**；其中 `8bitOperatorPlus8-Regular.ttf` 的缺口已由作者后继字体 `PixelOperator8.ttf`（**CC0-1.0**，已随仓库）补齐，见 `THIRD-PARTY.md` §4.1/§4.7）：Alcubierre.otf、Atami-Regular.otf、CursedTimerUlil-Aznm.ttf、Lazer84.ttf、kust.ttf、opensticks.ttf、summer85.ttf、8bitOperatorPlus8-Regular.ttf —— 见 THIRD-PARTY.md §4.7。
 - **Peggy（MIT）** —— **仅致谢，未分发**：`elysia/vendor/@shaderfrog/glsl-parser/parser/parser.js` 是 Peggy 1.2.0 的机器生成产物（<https://peggyjs.org>）。见 `THIRD-PARTY.md` §3。
 
 ### 11.3 作为依赖 import（非复制代码）
 
 #### dsh-mpkg-wallpaper — MIT
 - 仓库：<https://github.com/XHR666/dsh-mpkg-wallpaper> ｜ 许可：**MIT**
-- **参考/使用方式**：渲染器 **import** 插件的包解析器（如 `server/we-scene-demo-server.mjs` 里的 `parsePkg` / `readPkgEntry`）。这是**依赖**，不是复制来的代码。
+- **参考/使用方式**：渲染器的 `parsePkg` / `readPkgEntry` **来自本仓 MIT 的 `we-core`**（`pkg-parse.mjs` 转出）；插件提供的**抽取**函数为可选扩展。这是**依赖**，不是复制来的代码。
 - **是否直接复制过代码**：**否**。
 - **义务**：再分发本渲染器时**必须携带插件的 MIT 声明**；插件**保持 MIT**，不得被本仓库的 GPL 覆盖（MIT → GPL 是允许的单向流动；反向禁止）。机器校验：`tests/publish-check.mjs` 断言插件包里**没有** GPL 文本。
 
@@ -373,16 +375,16 @@ node tools/baseline-diff.mjs <旧.json> <新.json>   # 基线逐指标差异表�
 - **是否直接复制过代码**：**否**（`docs/COPYING-RULES.md` §4 台账中**没有**它的条目 ⇒ 从未借用）。本机检出副本在仓库外的 `lwe-ref/`，不入库。
 - **未定/待核**：粒子 flags 的 bit 定义在 `lwe-ref` / `wer-ref` 里**都找不到权威出处** ⇒ 标注"未定"。
 
-#### (2) Aromatic05/wallpaper-engine-renderer — GPL-2.0-only ✅ 点状同源已洁净室重写
+#### (2) Aromatic05/wallpaper-engine-renderer — GPL-2.0-only ✅ 点状同源已按规格独立实现
 - 仓库：<https://github.com/Aromatic05/wallpaper-engine-renderer> ｜ 许可：**GPL-2.0-only**（为 `catsout/wallpaper-scene-renderer` 的 fork）
-- **处置结果（2026-09-16 洁净室重写）**：审计判定的 **2 处点状同源**（α 归一化、alignment 偏移）**已按 `docs/COPYING-RULES.md` §5"五步洁净室"流程重写，旧实现已从 `core/we-scene-bundle.js` 删除**；审计的原始判定（含已删除的旧标识符）保留在 `<工作区>/docs/reverse/WER-REF-LICENSE-AUDIT.md` §3.4：
+- **处置结果（2026-09-16 按规格独立实现）**：审计判定的 **2 处点状同源**（α 归一化、alignment 偏移）**已按 `docs/COPYING-RULES.md` §5"五步独立实现"流程重写，旧实现已从 `core/we-scene-bundle.js` 删除**；审计的原始判定（含已删除的旧标识符）保留在 `<工作区>/docs/reverse/WER-REF-LICENSE-AUDIT.md` §3.4：
   ①**先写行为规格** `docs/IMAGE-ALPHA-ALIGN-SPEC.md`（α 归一化真值表与"不得做什么"、alignment token 文法与优先级、验收判据）；
   ②**只依据规格实现**：`coerceImageAlphaMode` + `classifyAlphaDomain`/`saturateUnitInterval`（分类与换算分离 + 具名常量 `ALPHA_UNIT_MAX`/`ALPHA_PERCENT_MAX`），`alignmentOffsetForToken` + `readAlignmentAxisSigns` + `ALIGNMENT_HALF_SHIFTS`（**token 字形与偏移量彻底解耦成查表**，键为符号二元组）；
   ③**五维可证明不同**：命名、分支结构、常量组织、数据结构形态、注释文字（"逐分支同构"在 `core/we-scene-bundle.js` 已 0 处）；
   ④**测试不依赖上游**：`tests/clean-room-alpha-align-test.mjs` 只读规格与真语料；
-  ⑤**行为差异：无** —— 该测试 **1008 pass / 0 fail**（含"与改前实现 `Object.is` 逐位对拍"与 6 个真包 / 408 层语料回归）。
+  ⑤**行为差异：无** —— 该测试 **1014 pass / 0 fail**（含"与改前实现 `Object.is` 逐位对拍"与 6 个真包 / 408 层语料回归）。
   同类更弱的痕迹也已清零：`__makeNoopVideoTexture` 全仓 **0 命中**，视差注释里的上游表达式与 `WPNodeTransformResolver.cpp:154-156` 行号已删。
-- **登记留痕**：`docs/PATCHES.md` **P-95**（洁净室重写专条，含五维差异表与可复跑证据）；`<工作区>/docs/reverse/WER-REF-LICENSE-AUDIT.md` §3.4 已加 **"✅ 事后追加（处置结果）"**（原文判定保留不改，另附处置后对照与血缘复测）。
+- **登记留痕**：`docs/PATCHES.md` **P-95**（按规格独立实现专条，含五维差异表与可复跑证据）；`<工作区>/docs/reverse/WER-REF-LICENSE-AUDIT.md` §3.4 已加 **"✅ 事后追加（处置结果）"**（原文判定保留不改，另附处置后对照与血缘复测）。
 - **规模与结论**：曾为**点状**（约 2 个函数 / ~11 行），从不是段落级或文件级移植；全仓库对其 **0 处 import/require/readFile**；逐字层面 **0 处注释复制、0 处错误串复制、0 处常量表照抄**。
 - **未定/待核**：**法律定性** —— 审计 §7 的 **U-1**（"曾构成 GPL-2.0-only 衍生"这一判断本身仍需律师意见）与 **U-5**（清单是否穷尽）**仍未结案**；代码层的处置与留痕不替代法律意见。
 - **已收尾的一致性项**：编号统一为 **P-95**（源码注释、验收测试、`docs/RENDERER-ARCHITECTURE.md`、`THIRD-PARTY.md` 全部改为 P-95；`docs/PATCHES.md` 里的 P-91 是另一件事 = "分发形态"）。
@@ -441,7 +443,7 @@ node tools/baseline-diff.mjs <旧.json> <新.json>   # 基线逐指标差异表�
 - 本项目内部 shader 实际引用的 6 个头已全部换成**自研的 API 兼容实现**
   （`shaders/common.h` / `common_blending.h` / `common_blur.h` / `common_composite.h` / `common_fragment.h` / `common_perspective.h`），
   每个文件头注明 `Original implementation for this project; API-compatible with the shader includes used here. No third-party code.`
-- `common_vertex.h` **故意不发布**（管线零引用、`BuildTangentSpace` 零调用；重写后与 WE 原件"有效行 100% 重合"故不算洁净室产物）：
+- `common_vertex.h` **故意不发布**（管线零引用、`BuildTangentSpace` 零调用；重写后与 WE 原件"有效行 100% 重合"故不算独立实现产物）：
   留痕范围正式记为 **6 个**，原件与替换件都保留在仓库外的证据归档里；三条事实与复现命令见 `<工作区>/docs/misc/COMMON-HEADERS-REPLACEMENT.md` **§1.1**。
 
 ---

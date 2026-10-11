@@ -5488,7 +5488,7 @@ grep -rIl --exclude='*.map' "$MPW_ROOT/" _site
 | `docs/` | 说明性 markdown（AUDIT / PATCHES / TESTING / SELFCHECK / README-DIAGNOSTICS / …） | 21 |
 | `tests/` | `*-test/-check/-scan/-verify/-audit/`工具、生成器、诊断脚本（含 `run-all-tests.sh`、`docs-check.mjs`、`diag-flag-check.mjs`、`publish-check.mjs`） | 95 |
 | `shaders/` | 6 个**自研** WE-API 兼容 shader 头（**不叫 `vendor/`**：vendor 在本仓库的语义是"第三方 vendored 代码，必须带许可全文"，publish-check ④b 会按此判红 —— 放 `shaders/` 才与既有闸门口径自洽） | 6 |
-| `archive/` | `py-newblock.txt`（零引用残留）+ 本机忽略文件（`*.bak-*`、`*probe.mjs`、私有基线、标定 json）21 个 → `archive/local/`（仍被 .gitignore 忽略、不入库） | 1 + 21 |
+| `archive/` | **本地归档，被 `.gitignore` 忽略**（不在仓库内）⇒ 其中 `py-newblock.txt`（**0 字节、零引用**）已**本地删除** ✓；`docs/TESTING.md` 对该目录的引用已改为"本地归档"描述 ✓（原来带反引号的路径会让 `docs-check` 在**全新克隆**里变红 ✗，实测过）。目录本身保留在本地（`docs/TESTING.md` 提到 `perf-baseline.json` 亦属本地产物 ✓）；备份 `/tmp/archive.backup-20261011` ✓ |
 | **根（留）** | `README.md` `LICENSE` `package.json` `index.html` `.gitignore`(+`.public`) `THIRD-PARTY.md` `docs/PACKAGING.md` `docs/README-PUBLIC.md` `docs/RENDERER-ARCHITECTURE.md` + npm 白名单运行面 + `check.sh` `build-pages.mjs` `demo-check`? → `tests/` | 27 |
 
 **根上必须留的硬理由（逐条可复核）**：
