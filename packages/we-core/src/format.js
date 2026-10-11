@@ -44,7 +44,7 @@ export const TEXTURE_FORMATS = {
   1: 'RGB888',
   2: 'RGB565',
   4: 'DXT5',
-  5: 'DXT5（半分辨率）',
+  5: 'ETC2_RGBA8_EAC（半分辨率，Android 管线）',
   6: 'DXT3',
   7: 'DXT1',
   8: 'RG88',
@@ -69,7 +69,7 @@ export const BYTES_PER_PIXEL = {
 /** Block size in bytes for the block-compressed formats this module can decode. */
 export const BLOCK_BYTES = {
   4: 16, // DXT5 / BC3
-  5: 16, // DXT5, stored at half the declared resolution
+  5: 16, // ETC2_RGBA8_EAC (EAC alpha + ETC2 colour), stored at half the declared size
   6: 16, // DXT3 / BC2
   7: 8, // DXT1 / BC1
 }

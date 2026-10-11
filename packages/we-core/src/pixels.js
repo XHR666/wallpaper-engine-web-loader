@@ -6,17 +6,18 @@
 //     16-bit RGB565 endpoints, 2-bit (BC1) / 3-bit (BC2) / 8-bit (BC3) index or alpha data.
 //
 // Scope: payload -> RGBA only. No mip selection, no resize/crop, no premultiply, no
-// upload. Block-compressed textures decode at the *mip descriptor's* dimensions; a TEX
-// format of 5 ("DXT5, half resolution") has its half size inside the descriptor, and the
-// declared texture size is twice the descriptor size, so callers that want display-size
+// upload. Block-compressed textures decode at the *mip descriptor's* dimensions; TEX
+// format 5 (ETC2_RGBA8_EAC) is stored at half the declared texture size, so the mip
+// descriptor carries 1920x1080 for a 3840x2160 texture and callers that want display-size
 // pixels must scale — this module deliberately does not.
 
 import { BLOCK_BYTES, BYTES_PER_PIXEL, TEXTURE_FORMATS } from './format.js'
 import { toBytes } from './lz4.js'
+import { decodeEtc2Rgba8 } from './etc2.js'
 
 /** Formats `decodePixels` can decode. */
 export const DECODABLE_FORMATS = Object.freeze([0, 1, 2, 4, 5, 6, 7, 8, 9])
-const DXT_LIKE = new Set([4, 5, 6, 7])
+const DXT_LIKE = new Set([4, 6, 7])
 
 /**
  * Decode one mip payload to RGBA bytes (4 bytes per pixel, row-major, top-left origin).
@@ -41,8 +42,8 @@ export function decodePixels(format, width, height, payload) {
     case 2: return decodeRgb565(src, out, w * h)
     case 8: return decodeRg88(src, out, w * h)
     case 9: return decodeR8(src, out, w * h)
-    case 4:
-    case 5: return decodeBc3(src, out, w, h)
+    case 4: return decodeBc3(src, out, w, h)
+    case 5: return decodeEtc2Rgba8(w, h, src)
     case 6: return decodeBc2(src, out, w, h)
     case 7: return decodeBc1(src, out, w, h)
     default:

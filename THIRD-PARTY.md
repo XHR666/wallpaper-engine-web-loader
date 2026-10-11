@@ -1298,3 +1298,30 @@ SOFTWARE.
 2. 本仓的这条读法也解释了为什么**仓库与 npm 包里都没有** WE 的 `assets/materials/**`：与 §4 的字体同一条
    单向流动规则 —— Steam 分发不授予再分发权，只能在用户自己的机器上**运行期读**。
 3. 报告 `docs/reports-2887099508-layers.md` §2k.2/§2k.5 里据此基准得出的"光轴该缩到 1/3"已作废（见 §2l.5）。
+
+---
+
+## 19. K0lb3/texture2ddecoder 1.0.6  (MIT) — **ETC2/EAC 解码器移植进 `packages/we-core/src/etc2.js`**（2026-10-12）
+
+**为什么需要**：TEX `format 5` 是 Android 管线产出的 **ETC2_RGBA8_EAC**（官方 arm64
+`libscenejni.so` 的 `GLTexture::Init` 把 format 5 交给 `glCompressedTexImage2D`，
+internalFormat = `0x9278`），块尺寸与 DXT5 同为 16 B/4×4 ⇒ 过去按 BC3 解**长度恰好对得上**，
+但像素是**彩色噪声**（平滑度 164 vs 真图 13）。ETC2 的 T/H/planar 模式与 EAC alpha 位域
+（尤其「2-bit 索引按位平面拆成高低两半、EAC 乘数在 byte1 的 bit6..3」）无法从公开的
+ETC1 描述推出，因此移植了该 MIT 参考实现的**算法结构**，并在真实语料上验证。
+
+  Upstream:  https://github.com/K0lb3/texture2ddecoder  (sdist 1.0.6, `src/Texture2DDecoder/etc.cpp`)
+  Author:    K0lb3
+  License:   MIT
+  Copyright: Copyright (c) 2020 K0lb3
+
+本仓含移植材料的文件：
+  - `packages/we-core/src/etc2.js`   （`decode_etc1_block` / `decode_etc2_block` / `decode_eac_block`
+    三块逻辑的 JS 重写；位域常量与修饰表为 ETC2/EAC 规格常量，非上游独创表达）
+
+**验证**（不是"照抄即信"）：与上游 Python 轮子在真实语料 `丛雨.mpkg` 主纹理上**逐像素比对**，
+1,920×1,080 = 2,073,600 像素 **0 处不同**；`tests/tex-format5-etc2-test.mjs` 用 6 组
+合成块金标（individual / differential / T / H / planar / EAC alpha）+ 真实语料的
+平滑度与 FNV-1a 摘要把这条契约钉住。
+
+MIT 许可全文见本文档 §1（同一份 MIT 文本，版权行为上方的 `Copyright (c) 2020 K0lb3`）。

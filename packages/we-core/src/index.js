@@ -25,6 +25,7 @@ export {
 export { parsePkg, readPkgEntry, findEntry, hasEntry, getEntry, entryNames } from './pkg.js'
 export { parseTex, parseTexHeader, parseSprite, firstMipmap, freeImageFormatOf, isVideoFlags } from './tex.js'
 export { decodePixels, expectedPayloadSize, payloadSizeMatches, DECODABLE_FORMATS } from './pixels.js'
+export { decodeEtc2Rgba8, etc2Rgba8Size } from './etc2.js'
 export { lz4Decompress, toBytes } from './lz4.js'
 export {
   mat4Identity,
