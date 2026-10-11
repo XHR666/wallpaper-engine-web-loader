@@ -4187,6 +4187,15 @@ export function resolveEffectChain(pkg, effect, readText, opts) {
         return { ok: false, source: ext.source, rel: ext.rel, dir: effectAssetDirOf(ext.rel), miss: 'effect-parse' }
       }
     }
+    // ③(2026-10-12) **内置效果表**：包内与 `/weassist` 都 miss 时的最后一级（本仓内置效果只住在这里，
+    //   如 `effects/wwgl_cuiliuti/effect.json`）。`?cuiliuti=off` ⇒ 这一级整条不生效（逐位回到接线前）。
+    //   命中 ⇒ 与包内命中**同一条下游路径**（同一个 parseWeJson / 同一个 material 候选链）。
+    if (ej === null) {
+      const bi = builtinEffectAsset(file, opts && opts.search)
+      if (bi) {
+        try { ej = parseWeJson(bi.text); fxSrc = bi.source; fxRel = bi.rel } catch (e) { ej = null }
+      }
+    }
   }
   if (ej === null) {
     // 包内 + /weassist 全 miss：**如实记账**（字段照写，形状统一；__fxMiss 区分"解析过但缺件"）
@@ -4256,6 +4265,13 @@ export function resolveEffectChain(pkg, effect, readText, opts) {
       const ext = readWeAssetText(p.material, fxDir, opts)
       if (ext) {
         try { mj = parseWeJson(ext.text); matSrc = ext.source } catch (e) { mj = null }
+      }
+      if (mj === null) {
+        // ③(2026-10-12) 内置效果表的 material（与 effect.json 同一级、同一开关；未收录 ⇒ 恒 null 查表）
+        const biMat = builtinEffectAsset(p.material, opts && opts.search)
+        if (biMat) {
+          try { mj = parseWeJson(biMat.text); matSrc = biMat.source } catch (e) { mj = null }
+        }
       }
       if (mj === null) {
         // 包内 + /weassist 全 miss：**如实记账**（旧实现是静默 push 一个空 pass）
@@ -4422,6 +4438,469 @@ export function resolveBuiltin(path) {
     if (path.startsWith(base) && path.endsWith('.json')) return { kind: 'material', value: BUILTIN_MATERIALS[k] }
   }
   return null
+}
+
+// ═══ ①(2026-10-12) 内置效果「磁流体（cuiliuti）」：上游 `oneincase/webwallgl` 内置效果的**移植** ═══
+// 出处与许可（署名三处之一：**源码注释**；另两处 = 写进工程的 `effects/wwgl_cuiliuti/effect.json`
+//   的 `description`、demo.html 效果面板的「作者：…」行；第三方清单见 `THIRD-PARTY.md`）：
+//   · 原作作者：**Hope麻匪（HopeMafei）** —— Wallpaper Engine 社区创作者，公开分享的自定义 shader「磁流体」
+//   · 收录：**0ran**
+//   · 重写为 WebWallGL 内置效果 + 本仓移植来源：上游 `oneincase/webwallgl`（**MIT**，
+//     Copyright (c) 2026 oneincase <462534624@qq.com>），https://github.com/oneincase/webwallgl
+//     —— `editor/effects.ts` 的 `id: "cuiliuti"`（`CUILIUTI_PARAMS` / `CUILIUTI_SRC` / `author` / `note`）。
+//     **同一份素材有第二条独立取证路径**：2.2.0-beta1 发布包的 `resources/app.asar` →
+//     `site/assets/editor-*.js` 里内联着逐字节相同的 shader 与参数表。两路摘要都钉在
+//     `CUILIUTI_SRC` 上方的注释里；`tests/cuiliuti-builtin-fx-test.mjs` C1 用 sha256 当**冻结回归锁**，
+//     并支持 `MPW_WWGL_EDITOR=<上游产物路径>` 时**逐字节**对拍（产物不在场 ⇒ SKIP，不假绿）。
+//   · 本仓改动 = **只做接线**（内置素材表 + 效果链回退级 + `?cuiliuti=off`），shader 源与参数面**逐字照抄**：
+//     10 个滑杆的数量 / 名字 / 类型 / 缺省 / 范围 / 步长与上游一一对应（`CUILIUTI_PARAMS`），
+//     uniform 声明仍由参数表生成（`builtinEffectUniformDecls`）⇒ shader 与面板**同源**，不会漂移。
+// 为什么必须"内置"这一级：本效果是**上游编辑器内置**的 —— 它不在 WE 安装目录、不在任何 scene.pkg 里，
+//   本仓按同一约定认 `effects/wwgl_cuiliuti/effect.json` 这个路径 ⇒ 引用它时**包内与 `/weassist` 必然双 miss**。
+//   接线后效果链的候选链是三级：**包内 → `/weassist` → 本表**（缺省最后一级生效；`?cuiliuti=off` 逐位关掉它）。
+// 观感口径：相同参数下与原作一致（同一份 shader 源 + 同一套 uniform 名/缺省/量纲）。
+
+/** 上游内置效果 id（= `EFFECT_PREFIX`'wwgl_' + id；本仓沿用同一目录名，工程可自包含地引用它）。 */
+export const BUILTIN_EFFECT_IDS = Object.freeze(['cuiliuti'])
+export const BUILTIN_EFFECT_PREFIX = 'wwgl_'
+
+/**
+ * 磁流体（cuiliuti）的**参数面** —— 逐条照抄上游 `editor/effects.ts` 的 `CUILIUTI_PARAMS`
+ *   （key/type/default/min/max/step 六个字段一个不少；顺序即面板行序）。
+ * `label` 是**本仓面板**用的中英文案（上游把文案放在 i18n 的 `fxp.<key>`；同一个 key，同一条文案）。
+ */
+export const CUILIUTI_PARAMS = Object.freeze([
+  Object.freeze({ key: 'liquid', type: 'color', default: Object.freeze([0, 0, 0]), label: Object.freeze({ zh: '液体颜色', en: 'Liquid color' }) }),
+  Object.freeze({ key: 'alpha', type: 'float', default: 1, min: 0, max: 1, step: 0.01, label: Object.freeze({ zh: '不透明度', en: 'Opacity' }) }),
+  Object.freeze({ key: 'blobs', type: 'float', default: 80, min: 20, max: 120, step: 1, label: Object.freeze({ zh: '球体数量', en: 'Blob count' }) }),
+  Object.freeze({ key: 'speed', type: 'float', default: 1, min: 0.1, max: 3, step: 0.05, label: Object.freeze({ zh: '速度', en: 'Speed' }) }),
+  Object.freeze({ key: 'scale', type: 'float', default: 1, min: 0.5, max: 2, step: 0.05, label: Object.freeze({ zh: '液体大小', en: 'Fluid size' }) }),
+  Object.freeze({ key: 'motion', type: 'float', default: 1, min: 0, max: 3, step: 0.05, label: Object.freeze({ zh: '运动范围', en: 'Motion range' }) }),
+  Object.freeze({ key: 'fusion', type: 'float', default: 1, min: 0.1, max: 2, step: 0.05, label: Object.freeze({ zh: '融合度', en: 'Blending' }) }),
+  Object.freeze({ key: 'edge1', type: 'color', default: Object.freeze([0.2, 0.5, 0.9]), label: Object.freeze({ zh: '边缘光颜色 1', en: 'Edge glow color 1' }) }),
+  Object.freeze({ key: 'edge2', type: 'color', default: Object.freeze([0.871, 0.435, 0.086]), label: Object.freeze({ zh: '边缘光颜色 2', en: 'Edge glow color 2' }) }),
+  Object.freeze({ key: 'edgeglow', type: 'float', default: 1, min: 0, max: 2, step: 0.05, label: Object.freeze({ zh: '边缘光强度', en: 'Edge glow intensity' }) }),
+])
+
+/**
+ * 上游 `editor/effects.ts` 的 `CUILIUTI_SRC`（**逐字节照抄**：制表符缩进照旧，且**不加**尾随换行
+ *   —— 上游模板字面量就在最后那个 `}` 收尾；多一个 `\n` 就不是"逐字节"了）。
+ * 取证（2026-10-12，**两路独立**，两路口径一致）：
+ *   ① 上游源码 `editor/effects.ts` 的 `const CUILIUTI_SRC = \`…\``；
+ *   ② 2.2.0-beta1 发布包 `resources/app.asar` → `site/assets/editor-*.js` 里内联的同一份字面量。
+ *   两路 sha256 都是 `6e42fc87c151b3a67a6f4fa495df9eea7190ec846507a66e068abbb29f1a8d92`（**5073 B**）。
+ *   `tests/cuiliuti-builtin-fx-test.mjs` C1 把这条摘要当**冻结回归锁**（改 shader 必须同步改锁，
+ *   不许"改了源、锁不变"）；该判据另有一组**可选**逐字节对拍：设
+ *   `MPW_WWGL_EDITOR=<editor/effects.ts 或 app.asar 的路径>` 时真去上游产物里抽同一段比对，
+ *   产物不在场 ⇒ 打印一行 SKIP（照本仓"缺语料不红"的惯例），**摘要锁恒在**。
+ */
+export const CUILIUTI_SRC = `#define PI 3.1415927
+#define STEPS 100
+#define AO_STEPS 8
+#define SMOOTHING_VAL 0.06
+#define numBlobs 120
+
+const float GRADIENT_ROTATION = 0.0;
+const float CAMERA_DISTANCE = 4.5;
+const float EDGE_SMOOTHNESS = 0.05;
+const float EDGE_WIDTH = 1.0;
+const float MIN_BLOB_SIZE = 0.02;
+const float CENTER_CONCENTRATION = 1.0;
+const float FL = 2.0;
+const vec3 LOOK_AT = vec3(0.0, 0.0, 0.0);
+const vec3 HIGHLIGHT1_COLOR = vec3(1.0, 1.0, 1.0);
+const float HIGHLIGHT1_INTENSITY = 0.5;
+const float HIGHLIGHT1_CONCENTRATION = 16.0;
+const float HIGHLIGHT1_H = 136.0;
+const float HIGHLIGHT1_V = 180.0;
+const vec3 HIGHLIGHT2_COLOR = vec3(0.8, 0.8, 1.0);
+const float HIGHLIGHT2_INTENSITY = 0.3;
+const float HIGHLIGHT2_CONCENTRATION = 16.0;
+const float HIGHLIGHT2_H = 60.0;
+const float HIGHLIGHT2_V = 20.0;
+
+vec4 hash41(float src) {
+	vec4 p4 = fract(vec4(src, src, src, src) * vec4(0.1031, 0.1136, 0.1375, 0.1543));
+	p4 += dot(p4, p4.wzxy + 33.33);
+	return fract((p4.xxyz + p4.yzzw) * p4.zywx);
+}
+
+float smin(float a, float b, float k) {
+	k *= 6.0;
+	float h = max(k - abs(a - b), 0.0) / k;
+	return min(a, b) - h * h * h * k * (1.0 / 6.0);
+}
+
+vec4 getBlob(int i, float time) {
+	vec4 rand1 = hash41(float(i));
+	vec4 rand2 = hash41(float(i) * 1.3145);
+	vec3 freq = mix(vec3(0.4, 0.4, 0.4), vec3(2.8, 2.8, 2.8), rand1.xyz);
+	vec3 phase = mix(vec3(0.0, 0.0, 0.0), vec3(2.0 * PI, 2.0 * PI, 2.0 * PI), rand2.xyz);
+	float moveRad = mix(0.2, 1.0, rand2.w);
+	float rad = max(mix(0.15, 0.5, rand1.w * rand1.w) * exp(-moveRad * 1.75), MIN_BLOB_SIZE);
+	freq *= g_FxSpeed;
+	rad *= g_FxScale;
+	moveRad *= g_FxMotion;
+	vec3 bp = vec3(sin(time * freq.x + phase.x), cos(time * freq.y + phase.y), sin(time * freq.z + phase.z)) * vec3(moveRad, moveRad, moveRad);
+	return vec4(bp, rad);
+}
+
+float map(vec3 p) {
+	float d = 100000.0;
+	int blobCount = int(g_FxBlobs);
+	for (int i = 0; i < blobCount; i++) {
+		if (i >= numBlobs) break;
+		vec4 blob = getBlob(i, g_Time);
+		d = smin(d, length(p - blob.xyz) - blob.w, SMOOTHING_VAL * g_FxFusion);
+	}
+	return d;
+}
+
+float March(vec3 ro, vec3 rd, out float endD) {
+	float t = 0.0;
+	for (int i = 0; i < STEPS; i++) {
+		vec3 p = ro + t * rd;
+		float d = map(p);
+		endD = d;
+		if (d < 0.001) return t;
+		t += d;
+		if (t > 20.0) return t;
+	}
+	return t;
+}
+
+vec3 Normal(vec3 p) {
+	const float h = 0.001;
+	const vec2 k = vec2(1.0, -1.0);
+	return normalize(k.xyy * map(p + k.xyy * h) +
+	                 k.yyx * map(p + k.yyx * h) +
+	                 k.yxy * map(p + k.yxy * h) +
+	                 k.xxx * map(p + k.xxx * h));
+}
+
+float AO(vec3 pos, vec3 nor) {
+	float occ = 0.0;
+	float sca = 1.0;
+	for (int i = 0; i < AO_STEPS; i++) {
+		float t = 0.01 + 0.08 * float(i);
+		float d = map(pos + t * nor);
+		occ += (t - d) * sca;
+		sca *= 0.85;
+	}
+	return clamp(1.0 - occ / 3.14, 0.0, 1.0);
+}
+
+vec3 Render(vec3 ro, vec3 rd, float d) {
+	vec3 p = ro + d * rd;
+	vec3 nor = Normal(p);
+	vec3 lightDir = normalize(vec3(-1.0, 2.0, 0.0));
+	float ssFake = clamp(dot(nor, lightDir) * 0.5 + 0.5, 0.0, 1.0);
+	float ao = AO(p, nor);
+	float ambientStrength = 0.2 + 0.6 * clamp((CENTER_CONCENTRATION - 0.1) / 2.9, 0.0, 1.0);
+	vec3 lighting = mix(vec3(ambientStrength, ambientStrength, ambientStrength), vec3(1.0, 1.0, 1.0), ssFake);
+	vec3 liquidCol = g_FxLiquid * lighting * (ao * 0.5 + 0.5);
+	vec3 highlight1Dir = normalize(vec3(
+		cos(HIGHLIGHT1_H * PI / 180.0) * sin(HIGHLIGHT1_V * PI / 180.0),
+		cos(HIGHLIGHT1_V * PI / 180.0),
+		sin(HIGHLIGHT1_H * PI / 180.0) * sin(HIGHLIGHT1_V * PI / 180.0)
+	));
+	vec3 highlight2Dir = normalize(vec3(
+		cos(HIGHLIGHT2_H * PI / 180.0) * sin(HIGHLIGHT2_V * PI / 180.0),
+		cos(HIGHLIGHT2_V * PI / 180.0),
+		sin(HIGHLIGHT2_H * PI / 180.0) * sin(HIGHLIGHT2_V * PI / 180.0)
+	));
+	vec3 refDir = reflect(rd, nor);
+	float highlight1 = pow(clamp(dot(refDir, highlight1Dir), 0.0, 1.0), HIGHLIGHT1_CONCENTRATION);
+	float highlight2 = pow(clamp(dot(refDir, highlight2Dir), 0.0, 1.0), HIGHLIGHT2_CONCENTRATION);
+	liquidCol += HIGHLIGHT1_COLOR * highlight1 * HIGHLIGHT1_INTENSITY;
+	liquidCol += HIGHLIGHT2_COLOR * highlight2 * HIGHLIGHT2_INTENSITY;
+	float gradientAngle = GRADIENT_ROTATION * PI / 180.0;
+	float gradientFactor = clamp(dot(p.xy, vec2(cos(gradientAngle), sin(gradientAngle))) * 0.5 + 0.5, 0.0, 1.0);
+	float rimIntensity = pow(1.0 - abs(dot(rd, nor)), 4.0 / max(0.1, EDGE_WIDTH)) * g_FxEdgeglow;
+	liquidCol += mix(g_FxEdge1, g_FxEdge2, gradientFactor) * rimIntensity;
+	return clamp(liquidCol, vec3(0.0, 0.0, 0.0), vec3(1.0, 1.0, 1.0));
+}
+
+void main() {
+	vec2 uv = v_TexCoord * 2.0 - 1.0;
+	uv.x *= g_TexelSize.y / g_TexelSize.x;
+	vec3 ro = vec3(0.0, 0.0, CAMERA_DISTANCE);
+	vec3 cf = normalize(LOOK_AT - ro);
+	vec3 cr = normalize(cross(cf, vec3(0.0, 1.0, 0.0)));
+	vec3 cu = normalize(cross(cr, cf));
+	vec3 rd = normalize(uv.x * cr + uv.y * cu + FL * cf);
+	float endD;
+	float d = March(ro, rd, endD);
+	float edgeAlpha = 1.0 - smoothstep(0.001, 0.001 + EDGE_SMOOTHNESS, endD);
+	vec3 col = vec3(0.0, 0.0, 0.0);
+	if (edgeAlpha > 0.0) col = Render(ro, rd, d);
+	col = pow(col, vec3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+	gl_FragColor = vec4(col, g_FxAlpha * edgeAlpha);
+}`
+
+/** 上游内置效果的通用全层顶点着色器（`editor/effects.ts` 的 `VERT`，逐字照抄）。 */
+export const BUILTIN_FX_VERT = `// WebWallGL 编辑器内置效果：通用全层顶点着色器
+uniform mat4 g_ModelViewProjectionMatrix;
+
+attribute vec3 a_Position;
+attribute vec2 a_TexCoord;
+
+varying vec2 v_TexCoord;
+
+void main() {
+	gl_Position = mul(vec4(a_Position, 1.0), g_ModelViewProjectionMatrix);
+	v_TexCoord = a_TexCoord;
+}
+`
+
+/** 上游内置效果的片元头（`editor/effects.ts` 的 `HEAD`，逐字照抄）。 */
+export const BUILTIN_FX_HEAD = `varying vec2 v_TexCoord;
+uniform sampler2D g_Texture0; // {"hidden":true}
+`
+
+const fxParamFmt = (v) => String(Math.round(v * 1e4) / 1e4)
+const FX_GLSL_TYPE = Object.freeze({ float: 'float', int: 'float', bool: 'float', color: 'vec3', vec2: 'vec2', vec3: 'vec3', vec4: 'vec4' })
+const fxDefaultLiteral = (p) => typeof p.default === 'number' ? fxParamFmt(p.default)
+  : typeof p.default === 'boolean' ? (p.default ? '1' : '0')
+    : '"' + p.default.map(fxParamFmt).join(' ') + '"'
+
+/** 参数 key → uniform 名（上游 `uniformName`：`liquid` ⇒ `g_FxLiquid`）。 */
+export const builtinEffectUniformName = (key) => 'g_Fx' + String(key).charAt(0).toUpperCase() + String(key).slice(1)
+
+/**
+ * 由参数表生成 uniform 声明（上游 `uniforms()` 的**同一算式**：注释里带 material 名 / type / default / range）。
+ * 为什么必须同源：本仓的取值链是 `constantshadervalues[<material 名>]` → 经 shader 注释的
+ *   `"material":"<key>"` 映射到 uniform（`parseMaterialMeta` + `bindConstants`）⇒ 面板写 key、shader 读 uniform，
+ *   两边都从**这一张表**推导，才不会出现"滑杆动了画面不动"。
+ */
+export function builtinEffectUniformDecls(params) {
+  return (params || []).map((p) => {
+    const range = (p.min !== undefined && p.max !== undefined) ? ',"range":[' + fxParamFmt(p.min) + ',' + fxParamFmt(p.max) + ']' : ''
+    const type = p.type === 'color' ? ',"type":"color"' : ''
+    return 'uniform ' + FX_GLSL_TYPE[p.type] + ' ' + builtinEffectUniformName(p.key) + '; // {"material":"' + p.key + '"' + type + ',"default":' + fxDefaultLiteral(p) + range + '}'
+  }).join('\n')
+}
+
+/** 署名（**面板署名行**的取值；上游 `EffectDef.author`）。 */
+const CUILIUTI_AUTHOR = 'Hope麻匪（HopeMafei）'
+/** 收录者（上游 README「0ran 收录」）。 */
+const CUILIUTI_COLLECTED_BY = '0ran'
+/** 上游地址（许可与出处同源）。 */
+const WWGL_UPSTREAM = 'https://github.com/oneincase/webwallgl'
+
+/** 面板 / effect.json / 判据共用的**署名说明**（上游 `note` 的中英文案，逐字照抄）。 */
+export const CUILIUTI_NOTE = Object.freeze({
+  zh: '原作者：Hope麻匪（HopeMafei）。Wallpaper Engine 社区创作者，公开分享的「磁流体」自定义 shader（0ran 收录）。本仓按原 shader 重写为 WebWallGL 效果并补齐滑杆 + 中英文文案：相同参数下观感与原作一致。',
+  en: 'Original author: Hope麻匪 (HopeMafei), a Wallpaper Engine community creator who publicly shared the "Ferrofluid" custom shader (collected by 0ran). Reimplemented here as a WebWallGL effect with sliders and zh / en labels: it looks the same as the original for the same settings.',
+})
+
+/** 效果定义表（面板 list / 判据 / effect.json 生成共用一张表）。 */
+const WE_BUILTIN_EFFECT_DEFS = Object.freeze({
+  cuiliuti: Object.freeze({
+    id: 'cuiliuti',
+    dir: BUILTIN_EFFECT_PREFIX + 'cuiliuti',
+    title: Object.freeze({ zh: '磁流体', en: 'Ferrofluid' }),
+    author: CUILIUTI_AUTHOR,
+    collectedBy: CUILIUTI_COLLECTED_BY,
+    license: 'MIT',
+    upstream: WWGL_UPSTREAM,
+    upstreamRef: 'editor/effects.ts → id: "cuiliuti"',
+    note: CUILIUTI_NOTE,
+    params: CUILIUTI_PARAMS,
+  }),
+})
+
+// `effects/<dir>/effect.json` 的 `description`：**署名说明 + 作者 / 收录 / 许可 / 出处**（署名第二处）。
+// 上游 `effectFiles()` 同款形态（`note` 打头 + `作者 / Author：…` 一行）；本仓按用户口径补全收录者与许可。
+export function builtinEffectDescription(idOrDir, lang) {
+  const d = builtinEffectDef(idOrDir)
+  if (!d) return ''
+  const L = (lang === 'en') ? 'en' : 'zh'
+  const lines = [d.note[L]]
+  lines.push((L === 'en' ? 'Author / 作者：' : '作者 / Author：') + d.author)
+  lines.push((L === 'en' ? 'Collected by / 收录：' : '收录 / Collected by：') + d.collectedBy)
+  lines.push((L === 'en' ? 'License / 许可：' : '许可 / License：') + d.license + '（' + WWGL_UPSTREAM + '）')
+  lines.push((L === 'en' ? 'Source / 出处：' : '出处 / Source：') + d.upstream + '（' + d.upstreamRef + '）')
+  return lines.join('\n')
+}
+
+const cuiliutiFrag = () => '// WebWallGL 内置效果（本仓移植）：cuiliuti（磁流体）\n'
+  + '// 原作作者：Hope麻匪（HopeMafei）—— Wallpaper Engine 社区创作者，公开分享的自定义 shader「磁流体」\n'
+  + '// 收录：0ran\n'
+  + '// 上游：oneincase/webwallgl（MIT）' + WWGL_UPSTREAM + ' —— editor/effects.ts 的 id: "cuiliuti"\n'
+  + '// 本仓：只做接线（内置素材表 / 效果链回退级 / ?cuiliuti=off），shader 与参数面逐字照抄；清单见 THIRD-PARTY.md\n'
+  + BUILTIN_FX_HEAD
+  + 'uniform float g_Time;\nuniform vec2 g_TexelSize;\n'
+  + builtinEffectUniformDecls(CUILIUTI_PARAMS) + '\n\n'
+  + CUILIUTI_SRC + '\n'
+
+/**
+ * 内置效果写进工程的**文件表**（键 = 资产相对路径，与上游 `effectFiles()` 的产出同名同形）：
+ *   `effects/wwgl_cuiliuti/effect.json` / `materials/effects/wwgl_cuiliuti.json` /
+ *   `shaders/effects/wwgl_cuiliuti.frag` / `shaders/effects/wwgl_cuiliuti.vert`
+ * 生成的时机 = 模块求值一次（惰性缓存见 `builtinEffectAsset`），内容对所有引用者只读共享。
+ */
+const WE_BUILTIN_EFFECT_FILES = (() => {
+  const out = Object.create(null)
+  for (const id of Object.keys(WE_BUILTIN_EFFECT_DEFS)) {
+    const d = WE_BUILTIN_EFFECT_DEFS[id]
+    const dir = d.dir
+    const effectJson = {
+      version: 1,
+      name: dir,
+      group: 'webwallgl',
+      // ①②署名（工程自包含地带着版权与出处；上游 effectFiles() 的同一字段）
+      description: builtinEffectDescription(id, 'zh'),
+      passes: [{ material: 'materials/effects/' + dir + '.json' }],
+      dependencies: [
+        'materials/effects/' + dir + '.json',
+        'shaders/effects/' + dir + '.frag',
+        'shaders/effects/' + dir + '.vert',
+      ],
+    }
+    // ①(2026-10-12 集成修正) 资产相对路径**整条**写在一个模板串里，别拆成"目录 + 斜杠 + 文件名"
+    //   三段拼接：那样切出来的片段以斜杠开头、以 `.json` 收尾，在**文本上**与"绝对 URL"无法区分，
+    //   `tests/pack-closure-test.mjs` 的 C2（绝对 URL 必须能映射到包内文件）会把它当绝对 URL 报红。
+    out[`effects/${dir}/effect.json`] = JSON.stringify(effectJson, null, 2) + '\n'
+    out['materials/effects/' + dir + '.json'] = JSON.stringify({
+      passes: [{ shader: 'effects/' + dir, blending: 'normal', cullmode: 'nocull', depthtest: 'disabled', depthwrite: 'disabled' }],
+    }, null, 2) + '\n'
+    out['shaders/effects/' + dir + '.frag'] = cuiliutiFrag()
+    out['shaders/effects/' + dir + '.vert'] = BUILTIN_FX_VERT
+  }
+  return Object.freeze(out)
+})()
+
+/** 资产相对路径归一化（内置表的键口径：去前导 `/`、去反斜杠、小写）。 */
+function normalizeFxAssetRel(rel) {
+  if (rel === null || rel === undefined) return ''
+  const s = String(rel).replace(/\\/g, '/').replace(/^\/+/, '')
+  return s ? s.toLowerCase() : ''
+}
+
+/** 内置效果定义：`id`（`cuiliuti`）或目录名（`wwgl_cuiliuti`）或 effect.json 全路径都可查；未收录 ⇒ null。 */
+export function builtinEffectDef(idOrDir) {
+  const raw = String(idOrDir === null || idOrDir === undefined ? '' : idOrDir).replace(/^\/+/, '')
+  if (!raw) return null
+  const m = /^effects\/([a-z0-9_]+)\/effect\.json$/i.exec(raw)
+  const key = m ? m[1].toLowerCase() : raw.toLowerCase()
+  const id = key.startsWith(BUILTIN_EFFECT_PREFIX) ? key.slice(BUILTIN_EFFECT_PREFIX.length) : key
+  return Object.prototype.hasOwnProperty.call(WE_BUILTIN_EFFECT_DEFS, id) ? WE_BUILTIN_EFFECT_DEFS[id] : null
+}
+
+/** 面板/判据用的**只读清单**（含署名、参数面、四个文件路径；顺序 = id 表序）。 */
+export function builtinEffectCatalog() {
+  return Object.keys(WE_BUILTIN_EFFECT_DEFS).map((id) => {
+    const d = WE_BUILTIN_EFFECT_DEFS[id]
+    return {
+      id: d.id, dir: d.dir, effectPath: `effects/${d.dir}/effect.json`,
+      title: { zh: d.title.zh, en: d.title.en },
+      author: d.author, collectedBy: d.collectedBy, license: d.license,
+      upstream: d.upstream, upstreamRef: d.upstreamRef,
+      note: { zh: d.note.zh, en: d.note.en },
+      description: builtinEffectDescription(id, 'zh'),
+      params: d.params.map((p) => ({
+        key: p.key, type: p.type, default: Array.isArray(p.default) ? p.default.slice() : p.default,
+        min: p.min, max: p.max, step: p.step, uniform: builtinEffectUniformName(p.key),
+        label: { zh: p.label.zh, en: p.label.en },
+      })),
+    }
+  })
+}
+
+/** 内置效果的全部文件正文（判据/导出用；只读快照）。 */
+export function builtinEffectFiles() {
+  const out = {}
+  for (const k of Object.keys(WE_BUILTIN_EFFECT_FILES)) out[k] = WE_BUILTIN_EFFECT_FILES[k]
+  return out
+}
+
+/**
+ * ①(2026-10-12) **内置效果的回退位**：`?cuiliuti=off`（等价写法 `legacy` / `0`）⇒ 内置效果表整条不生效，
+ *   效果链**逐位回到**接线前（pkg → /weassist 双 miss ⇒ 官方 passthrough 回落语义）。
+ * 口径与 `fxCompositeLegacy`/`fboDescLegacy` 同款：显式 `search` 优先 → 否则 `location.search` →
+ *   Node/切片夹具无 location ⇒ 缺省档（内置效果**开**）。
+ * ⚠ 与那几个一样**故意写一遍字面开关名**：`tests/diag-flag-check.mjs` 只认 `.get('字面量')`。
+ */
+export function cuiliutiOff(search) {
+  try {
+    if (search !== undefined && search !== null) {
+      const v = new URLSearchParams(String(search)).get('cuiliuti')
+      return v === 'off' || v === 'legacy' || v === '0'
+    }
+  } catch (e) { /* 落到按 location 判 */ }
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      const v = new URLSearchParams(location.search).get('cuiliuti')
+      return v === 'off' || v === 'legacy' || v === '0'
+    }
+  } catch (e) { /* 无 location（Node 判据 / 切片夹具）⇒ 内置效果开 */ }
+  return false
+}
+
+/**
+ * 内置效果资产查表（**纯函数**，Node 里可直测）：命中 ⇒ `{rel, text, source:'builtin'}`，未收录/被开关关掉 ⇒ null。
+ * 调用点三处（= 效果链的三个读点）：`resolveEffectChain` 的 effect.json 与 material、`resolveEffectShaderSource` 的 frag/vert。
+ */
+export function builtinEffectAsset(rel, search) {
+  if (cuiliutiOff(search)) return null
+  const key = normalizeFxAssetRel(rel)
+  if (!key) return null
+  const text = WE_BUILTIN_EFFECT_FILES[key]
+  return text === undefined ? null : { rel: key, text: text, source: 'builtin' }
+}
+
+const fxVecLen = (t) => (t === 'vec2' ? 2 : t === 'vec4' ? 4 : (t === 'color' || t === 'vec3') ? 3 : 0)
+
+/** 一个参数值 → scene.json 的常量写法（上游 `encodeValue` 的同一算式：标量 = 数字、颜色/向量 = `"a b c"`）。 */
+export function builtinEffectEncodeValue(param, v) {
+  const p = param || {}
+  if (p.type === 'color') {
+    const c = Array.isArray(v) ? v : [Number(v), Number(v), Number(v)]
+    return c.map((x) => fxParamFmt(Math.max(0, Math.min(1, x)))).join(' ')
+  }
+  const n = fxVecLen(p.type)
+  if (n) {
+    const c = Array.isArray(v) ? v : new Array(n).fill(Number(v))
+    return Array.from({ length: n }, (_, i) => fxParamFmt(Number(c[i] === undefined || c[i] === null ? 0 : c[i]))).join(' ')
+  }
+  if (p.type === 'bool') return (v === true || (typeof v === 'number' && v !== 0)) ? 1 : 0
+  const s = typeof v === 'number' ? v : Array.isArray(v) ? v[0] : Number(v)
+  const lo = p.min === undefined ? -Infinity : p.min
+  const hi = p.max === undefined ? Infinity : p.max
+  const r = Math.round(Math.max(lo, Math.min(hi, s)) * 1e4) / 1e4
+  return p.type === 'int' ? Math.round(r) : r
+}
+
+/**
+ * 参数面（`{key: 值}`，缺省项用上游缺省）⇒ `constantshadervalues` 对象。
+ * 这是**滑杆 → 画面**的唯一编码点（面板与判据共用）；值按 `min`/`max` 夹取、量化到 1e-4（与上游一致）。
+ */
+export function builtinEffectConstants(idOrDir, values) {
+  const d = builtinEffectDef(idOrDir)
+  if (!d) return null
+  const out = {}
+  for (const p of d.params) {
+    const has = values && Object.prototype.hasOwnProperty.call(values, p.key)
+    out[p.key] = builtinEffectEncodeValue(p, has ? values[p.key] : p.default)
+  }
+  return out
+}
+
+/**
+ * 内置效果实例（**可被选中/应用**的那一步）：返回一个 scene.json 形状的效果条目
+ * `{ file, visible, passes:[{ combos, constantshadervalues, textures, usertextures }] }`
+ * —— 与 `parseScene` 解析后的形状**同形**，所以宿主既能写进 scene.json，也能直接 push 进
+ * `layer.effects` 后交给 `resolveEffectChain()`。未收录 ⇒ null。
+ */
+export function builtinEffectEntry(idOrDir, values) {
+  const d = builtinEffectDef(idOrDir)
+  if (!d) return null
+  return {
+    file: `effects/${d.dir}/effect.json`,
+    visible: true,
+    passes: [{ combos: {}, constantshadervalues: builtinEffectConstants(d.id, values), textures: [], usertextures: null }],
+  }
 }
 
 // ===== src/render/math.js =====
@@ -7495,12 +7974,14 @@ export function h2gWidthStatsReset() {
  *   · macroComment   = 本次转译里**带行尾注释的 `#define` 条数**（②；宏体已按 C 语义剥离注释）
  *   · constGlobal    = 文件级 `const T x = <依赖 uniform 的初值>;` 被**内联**的条数（④）
  *   · constGlobalKeep= 命中形态但判定为**可确证常量**（或名字另有声明）⇒ 原样保留的条数（④）
+ *   · intPromo       = **整数字面量在左**的 `+ - * /` 被浮点化（补 `.0`）的条数（⑤，右操作数可确证为浮点）
  *   · varyingWiden   = 片元 `in` 按顶点侧**加宽**的条数（①）
  *   · varyingNarrow  = 片元 `in` 按顶点侧**收窄**的条数（③）
  *   · varyingUnresolved(+Reasons) = 宽度冲突命中但**不敢动**（片元读了超出顶点宽度的分量 /
  *     存在裸引用 / 兄弟侧无同名声明）⇒ 原样保留的条数（真编译会把它们暴露出来）。 */
 export const h2gPassFixStats = {
   macroComment: 0, constGlobal: 0, constGlobalKeep: 0, constGlobalKeepReasons: {},
+  intPromo: 0,
   varyingWiden: 0, varyingNarrow: 0, varyingUnresolved: 0, varyingUnresolvedReasons: {},
 }
 export function h2gPassFixStatsReset() {
@@ -7508,6 +7989,7 @@ export function h2gPassFixStatsReset() {
   h2gPassFixStats.constGlobal = 0
   h2gPassFixStats.constGlobalKeep = 0
   h2gPassFixStats.constGlobalKeepReasons = {}
+  h2gPassFixStats.intPromo = 0
   h2gPassFixStats.varyingWiden = 0
   h2gPassFixStats.varyingNarrow = 0
   h2gPassFixStats.varyingUnresolved = 0
@@ -7734,6 +8216,21 @@ export function cmpIntLegacy(search) {
   } catch (e) { /* 无 location（Node 判据 / 切片夹具）⇒ 非 legacy */ }
   return false
 }
+/* ⑤(2026-10-12 转译线) **整数字面量在左**的 HLSL 隐式 int→float 提升的回退口
+ *   （`intpromo`；现场与边界见 2e4 规则头）。口径与 ②④①③ 四个同款：显式 `search` 优先 →
+ *   否则 `location.search` → Node/切片夹具无 location ⇒ 缺省档（规则开）。
+ * ⚠ 与那四个一样**故意写一遍字面开关名**：`tests/diag-flag-check.mjs` 只认 `.get('字面量')`。 */
+export function intPromoLegacy(search) {
+  try {
+    if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('intpromo') === 'legacy'
+  } catch (e) { /* 落到按 location 判 */ }
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      return new URLSearchParams(location.search).get('intpromo') === 'legacy'
+    }
+  } catch (e) { /* 无 location（Node 判据 / 切片夹具）⇒ 非 legacy */ }
+  return false
+}
 export function varyingLinkLegacy(search) {
   try {
     if (search !== undefined && search !== null) return new URLSearchParams(String(search)).get('varyinglink') === 'legacy'
@@ -7845,11 +8342,12 @@ export function materialMetaFor({ vert, frag, includeBodies = [], search } = {})
  *  `withSiblingComboDefaults()`（combo 默认值）与 `reconcileStageVaryings()`（varying 宽度），
  *  转译函数本身只看得见**一个** stage。 */
 export function hlsl2glsl(src, stage, combos, includeResolver, search) {
-  // ②④(P-198) 本次调用的有效开关：显式 `search` 优先，其次 `location.search`，都没有 ⇒ 缺省（规则开）。
+  // ②④⑤(P-198/P-333) 本次调用的有效开关：显式 `search` 优先，其次 `location.search`，都没有 ⇒ 缺省（规则开）。
   const fixes = Object.freeze({
     macroComment: !macroCommentLegacy(search),
     constGlobal: !constGlobalLegacy(search),
     cmpInt: !cmpIntLegacy(search),
+    intPromo: !intPromoLegacy(search),
   })
   // combo 默认值：WE 语义 = 未显式提供时用声明里的 default（无声明 → 0）
   // （依据 linux-wallpaperengine ShaderUnit.cpp:442-477 parseComboConfiguration）
@@ -8063,6 +8561,82 @@ export function hlsl2glsl(src, stage, combos, includeResolver, search) {
       last = cm.index + cm[0].length
     }
     if (last) code = out + code.slice(last)
+  }
+
+  // 2e4(⑤ 2026-10-12 转译线) HLSL 隐式 int→float 提升：**整数字面量在左**的 `+ - * /`
+  //      （`1 - t` / `1 - pow(…)`；右侧可**确证**为浮点）。
+  //   现象（真包可复现，都是"有画但整条效果 pass 被跳过"）：
+  //     · `allwallpaper/0917/3299228616` 的 `workshop/2655151285/effects/perspective`
+  //       （`.vert` 里 `float q0 = 1.0 / (1 - t);`，`t` 是**局部** `float`）
+  //       ⇒ glslang `ERROR: 0:160: '-' : wrong operand types: … ' const int' and … ' temp highp float'`
+  //     · `allwallpaper/0917/3462491575` 的 `workshop/3235948233/effects/auto_sway`
+  //       （`.vert:274` / `.frag:187` 都是 `return 1 - pow(1.0 - clamp(…), 5.0);`）
+  //       ⇒ 同族报文（右操作数是**内建调用**的返回值）。
+  //   根因：HLSL（与桌面 GLSL）允许 int→float 隐式提升，**GLSL ES 3.0 没有**任何 int↔float 隐式转换
+  //     （实测：`#version 300 es` 下 `float t; 1 - t` 报错、`1.0 - t` 通过）。
+  //     既有 2a–2e3 只覆盖"字面量在**右**"（`t - 1` / `x == 1`）与"字面量在左且右操作数是
+  //     **uniform/varying/attribute 声明过的**浮点名字"（见上一条 `1 - g_Rough` 规则）——
+  //     **局部** `float` 变量与内建调用两种右操作数当时收不到 ⇒ 这两条 pass 一直编不过。
+  //   为什么只可能把红变绿（**本规则的判据基石**，与 ④a/④b 同源）：被改写的形态
+  //     `<整数字面量> op <可确证浮点>` 在 GLSL ES 3.0 下**必然编不过**（无隐式转换）⇒ 补 `.0`
+  //     只可能把红变绿，不可能改坏现在能编过的产物。**因此"可确证浮点"的门槛不许放松** ✗：
+  //     · 右操作数是名字 ⇒ 必须（a）本文件里以 `float <名>` 声明过、且（b）**没有**任何 `int/uint <名>`
+  //       声明（`int x, y;` 这种多声明符也逐个数进来）、且（c）不是本文件的函数名；
+  //     · 右操作数是内建调用 ⇒ 必须在**实测无 int 重载**的名单里（`abs/sign/min/max/clamp/mod`
+  //       有 int 重载 ⇒ 返回值类型不可从名字确证 ⇒ **不收**）；
+  //     · 其余形态（`1 - (…)`、`1 - texture(…).x`、`1 - u_int`…）**原样保留**，留给真编译暴露。
+  //   只改**注释之外**的正文（`blankComments()` 保长度 ⇒ 在挖空副本上定位、回原文改写）。
+  //   回退口：`?intpromo=legacy`（= 原样 ⇒ 回到改动前的报文）；读数 `h2gPassFixStats.intPromo`。
+  if (fixes.intPromo && floatScalarNames.size) {
+    // int 名字全集（在既有 intNames2 上补"多声明符"：`int a, b;` 的 `b` 旧收集收不到 ⇒ 本规则自己收，
+    // 只为**抑制改写**用：多收名字只会让规则更保守，不会误改）
+    const intAll = new Set(intNames2)
+    {
+      const ideclRe = /\b(?:const\s+)?(?:highp|mediump|lowp\s+)?(?:int|uint)\s+([^;{}]+);/g
+      let im2
+      while ((im2 = ideclRe.exec(code)) !== null) {
+        for (const part of im2[1].split(',')) {
+          const nm2 = /([A-Za-z_]\w*)/.exec(part)
+          if (nm2) intAll.add(nm2[1])
+        }
+      }
+    }
+    // 本文件里定义过的函数名（同名内建被用户函数遮蔽 ⇒ 返回类型不可确证 ⇒ 整个名字不用）
+    const userFns = new Set()
+    {
+      const fnRe = /\b(?:void|bool|int|uint|float|vec[234]|ivec[234]|mat[234])\s+([A-Za-z_]\w*)\s*\(/g
+      let fm
+      while ((fm = fnRe.exec(code)) !== null) userFns.add(fm[1])
+    }
+    const rhsNameAlt = [...floatScalarNames]
+      .filter((nm) => !intAll.has(nm) && !userFns.has(nm))
+      .sort((a, b) => b.length - a.length).map(escRe).join('|')
+    // 实测筛出的"无 int/uint 重载"内建（probe：`#version 300 es` 下 `int r = fn(1[,1[,1]]);` 必须编不过）。
+    // ⚠ `_RAW` 是**单条字面量**：判据 `tests/hlsl2glsl-intpromo-test.mjs` 的 F 段把它整条抠出来逐名真编译
+    //   （拆成 `+` 拼接会让判据只抠到前半张表 ⇒ 自证失真）。
+    const FLOAT_ONLY_FN_RAW = 'pow|sqrt|inversesqrt|exp|exp2|log|log2|sin|cos|tan|asin|acos|atan|radians|degrees|fract|floor|ceil|trunc|round|step|smoothstep|mix|length|distance|dot|cross|normalize|reflect|refract|faceforward|determinant|transpose'
+    // 同名用户函数会**遮蔽**内建（返回类型随之不可确证）⇒ 从名单里再滤一次
+    // （判据 A6 就是这么抓出来的：只滤"名字"不滤"调用名单"时，`int pow(float,float)` 在场也会被当成浮点调用）
+    const FLOAT_ONLY_FN = FLOAT_ONLY_FN_RAW.split('|').filter((n) => !userFns.has(n)).join('|')
+    const rhsParts = []
+    // ⚠ 名字备选后面**必须**跟 `(?![A-Za-z0-9_])`：否则 `s`（本文件里 `float s`）会匹配上 `sample22` 的**前缀**
+    //   —— 这不是理论风险：宽度表判据 B3/B4/B5 当场抓到 `edgedetection.frag` 的 `* 2 + sample22` 被误改成
+    //   `* 2 + 2.0 + sample22`（默认档那一行再也编不过 ⇒ 该用例从"移植后能编过"变成"不能"）。
+    //   更危险的形态是右操作数**本身是 int 变量而名字以某个 float 名字开头**（`2 + sCount`）⇒ 误改会
+    //   把本来能编过的整数加法改成 `2.0 + sCount`（用户可见回归）⇒ 锚边界不许省 ✗。
+    if (rhsNameAlt) rhsParts.push('(?:' + rhsNameAlt + ')(?:\\.[xyzwrgba])?(?![A-Za-z0-9_])')
+    rhsParts.push('(?:' + FLOAT_ONLY_FN + ')\\s*\\(')
+    const masked2 = blankComments(code)
+    const promoRe = new RegExp('(?<![.\\w])(-?\\d+)(?![.\\deExXuUlL])([ \\t]*[+\\-*/][ \\t]*)(' + rhsParts.join('|') + ')', 'g')
+    let out2 = ''
+    let last2 = 0
+    let pm
+    while ((pm = promoRe.exec(masked2)) !== null) {
+      out2 += code.slice(last2, pm.index) + pm[1] + '.0' + pm[2] + pm[3]
+      last2 = pm.index + pm[0].length
+      h2gPassFixStats.intPromo++
+    }
+    if (last2) code = out2 + code.slice(last2)
   }
 
   // 2f. HLSL 向量→标量隐式转换：float x = <vec表达式>;（无函数调用时安全标量化取 .x）
@@ -12784,6 +13358,11 @@ export function createRenderer(canvas, opts = {}) {
     if (s) return s
     const ext = readWeAssetText(rel, fxDir, opts)
     if (ext && ext.text) return ext.text
+    // ③(2026-10-12) **内置效果表的 shader 源**（frag/vert；与 effect.json / material 同一级、同一个
+    //   `?cuiliuti=off` 开关）。内置效果的文件不会被 WE 安装或包内提供 ⇒ 少了这一级，效果链会停在
+    //   "shader 源为空 ⇒ 编译失败 ⇒ 跳过该 pass"（本仓既有症状见 P-198 的那批日志）。
+    const biSh = builtinEffectAsset(rel, opts && opts.search)
+    if (biSh && biSh.text) return biSh.text
     noteFxMiss('shader', rel, weAssetCandidates(rel, fxDir), opts)
     return ''
   }

@@ -789,7 +789,39 @@ console.log('[T13] P-64 用户第 17/18/22 项：行高由文本决定（末行�
   check('T13i :focus 把灰换成黑（深色主题=亮前景 #eee）+ 无 box-shadow 光晕', !!inFocus && /border-color:#eee/.test(inFocus[1]) && /box-shadow:none/.test(inFocus[1]))
   check('T13j 输入框规则里没有任何黄色/品牌色描边（用户点名的"黄色边框"）',
     !!inRule && !/#fc8|#ffc|#ff0|yellow|gold/i.test(inRule[1]) && !!inFocus && !/#fc8|#ffc|#ff0|yellow|gold/i.test(inFocus[1]))
-  check('T13k 面板里不再有 `input[type=color]`（第 16 项换成浮窗色块）', !/input\[type=color\]/.test(CSS))
+  /* 1(2026-10-12 集成修正)：原判据扫的是**整页**第一个 <style>（CSS）=> 新加的**效果面板**
+     （MPW-FX-PANEL，**另一个面板**）有颜色滑杆 => 用了原生 input[type=color] => 被误伤。
+     本条原意 = 「**属性面板**里不再有原生色控件」=> 扫描范围收敛到**属性面板自己的 CSS 切片**：
+     面板样式段的**整段区域**（起点 = 面板自己的第一条样式，终点 = 第 16 项那个浮窗取色器的
+     末条 `.mpw_picker*` 规则；浮窗是**面板自己**的控件，所以留在切片内）—— 不是"只收带
+     `#mpw-props-panel` 前缀的选择器"：夹在面板样式段中间、**没写前缀**的裸规则也在切片里 ⇒ 照样抓得住。
+     强度不减 + 不空转：切片退化（两个锚点定位失败 / 长度不够）本条也红（下面的长度门槛）；
+     T13k-mut 把违规规则塞进**真 demo.html 的 CSS 文本**里、再走**同一个**切片函数与**同一个**判据 */
+  const propsPanelSliceOf = (css) => {
+    const cands = [css.indexOf('#mpw-props-panel'), css.indexOf('.mpw_picker')].filter((i) => i >= 0)
+    const s = cands.length ? Math.min(...cands) : -1
+    const rules = css.match(/\.mpw_picker[^{]*\{[^}]*\}/g) || []
+    const tail = rules[rules.length - 1] || ''
+    const e = tail ? css.lastIndexOf(tail) + tail.length : -1
+    return (s >= 0 && e > s) ? css.slice(s, e) : ''
+  }
+  const t13kOk = (css) => {
+    const sl = propsPanelSliceOf(css)
+    return sl.length > 2000 && !/input\[type=color\]/.test(sl)
+  }
+  const PROPS_PANEL_CSS = propsPanelSliceOf(CSS)
+  const FX_COLOR_RULES = (CSS.match(/#mpw-fx-panel[^{]*input\[type=color\][^{]*\{[^}]*\}/g) || []).length
+  check('T13k 面板里不再有 `input[type=color]`（第 16 项换成浮窗色块；旁边 MPW-FX-PANEL 的色滑杆不在切片内）',
+    t13kOk(CSS),
+    '面板切片 ' + PROPS_PANEL_CSS.length + ' 字符（#mpw-props-panel* + .mpw_picker* 浮窗）· 效果面板 MPW-FX-PANEL 的原生色控件规则 ' + FX_COLOR_RULES + ' 条在切片外')
+  /* ★分辨力自证（**接线**版，不是"切片 + 违规串"那种同义反复）：违规规则插进**真 demo.html 的 CSS
+     文本**里、面板切片**内部**的锚点（面板自己的 `.lb` 规则之前）⇒ 同一个 t13kOk 必须翻转。
+     切片为空或函数写坏时这条会红（说明"上面那条绿"确实是判据在工作，不是空转）。 */
+  const MUT_COLOR_RULE = 'input[type=color]{color:red}'
+  const CSS_MUT = CSS.replace('#mpw-props-panel .lb{', MUT_COLOR_RULE + '\n#mpw-props-panel .lb{')
+  check('T13k-mut 分辨力自证：把 `input[type=color]` 规则塞进真 demo.html 的面板切片里 ⇒ 上面必红',
+    CSS_MUT !== CSS && t13kOk(CSS) && !t13kOk(CSS_MUT),
+    '变异后切片 ' + propsPanelSliceOf(CSS_MUT).length + ' 字符；t13kOk: 真=' + t13kOk(CSS) + ' 变异=' + t13kOk(CSS_MUT))
   // 第 22 项：Uiverse 勾选框，类名加 mpw_ 前缀
   check('T13l Uiverse 勾选框样式在：.mpw_cb / .mpw_checkmark + 1.3em 方块 + 原作者的紫粉渐变',
     /#mpw-props-panel \.mpw_cb\{/.test(CSS) && /#mpw-props-panel \.mpw_checkmark\{/.test(CSS)

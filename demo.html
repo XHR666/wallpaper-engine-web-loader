@@ -73,6 +73,30 @@ canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;backgrou
 .mpw_pickerWrap .mpw_pickerHex{flex:1;min-width:0;height:28px;border:1px solid #666;border-radius:6px;padding:0 8px;background:#141414;color:#eee;outline:none;font:12px monospace}
 .mpw_pickerWrap .mpw_pickerHex:focus{border-color:#eee;outline:none;box-shadow:none}
 .mpw_pickerWrap .mpw_pickerOk{height:28px;padding:0 12px;border:none;border-radius:6px;background:#3964fe;color:#fff;font:12px monospace;cursor:pointer}
+/* ①(2026-10-12) 内置效果面板（MPW-FX-PANEL）：与属性面板同一套视觉语言（顶栏按钮 + fixed 面板）。
+   只作用于本面板自己的 .fxp* 类 ⇒ 一个字节都不动既有选择器。 */
+#mpw-fx-btn{font:12px monospace;background:#1b1b1b;color:#eee;border:1px solid #666;border-radius:6px;padding:1px 6px;cursor:pointer;margin-left:6px}
+#mpw-fx-btn:focus{border-color:#eee;outline:none}
+#mpw-fx-panel{position:fixed;top:38px;right:8px;z-index:12;width:min(330px,40vw);max-height:72vh;overflow-y:auto;background:rgba(0,0,0,.85);border:1px solid #468;border-radius:8px;padding:6px 8px 10px;box-sizing:border-box;font:12px monospace;display:none}
+#mpw-fx-panel.open{display:block}
+#mpw-fx-panel .fxp-h{padding:2px 0 6px;border-bottom:1px solid #234;color:#8cf}
+#mpw-fx-panel .fxp-list{display:flex;gap:4px;flex-wrap:wrap;padding:6px 0}
+#mpw-fx-panel .fxp-tab{font:12px monospace;cursor:pointer;background:#1b1b1b;color:#eee;border:1px solid #666;border-radius:6px;padding:1px 6px}
+#mpw-fx-panel .fxp-tab[aria-pressed="true"]{border-color:#7fd;color:#7fd}
+#mpw-fx-panel .fxp-sign{border:1px solid #234;border-radius:6px;padding:4px 6px;margin-bottom:6px;background:rgba(20,40,60,.35)}
+#mpw-fx-panel .fxp-author{color:#7fd;font-weight:600;overflow-wrap:anywhere}
+#mpw-fx-panel .fxp-license{color:#8aa;overflow-wrap:anywhere;margin-top:2px}
+#mpw-fx-panel .fxp-note{color:#9ab;line-height:1.35;margin-top:4px;overflow-wrap:anywhere}
+#mpw-fx-panel .fxp-bar{display:flex;align-items:center;gap:4px;padding:2px 0 6px;border-bottom:1px solid #234}
+#mpw-fx-panel .fxp-sel{flex:1 1 auto;min-width:0;font:12px monospace;background:#141414;color:#eee;border:1px solid #666;border-radius:6px;padding:1px 4px}
+#mpw-fx-panel .fxp-stat{flex:none;color:#8cf}
+#mpw-fx-panel button{font:12px monospace;cursor:pointer;background:#1b1b1b;color:#eee;border:1px solid #666;border-radius:6px;padding:1px 6px}
+#mpw-fx-panel .fxp-row{display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #1a2a33}
+#mpw-fx-panel .fxp-name{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+#mpw-fx-panel .fxp-row input[type=range]{flex:none;width:96px;margin:0}
+#mpw-fx-panel .fxp-row input[type=color]{flex:none;width:42px;height:18px;padding:0;border:1px solid #666;background:#141414;border-radius:4px}
+#mpw-fx-panel .fxp-val{flex:none;min-width:52px;text-align:right;opacity:.8}
+#mpw-fx-panel .fxp-reset{margin-top:6px}
 /* ①(P-113 2026-09-17 显示选项) 顶栏显示选项组：水平翻转 / 播放速度 / 颜色选项（亮度·对比度·饱和度·色调偏移）。
    机制与 `?fx=` 同一套（CSS filter/transform 写在**拥有渲染输出的元素**上）——本组只改那两个属性，不重挂载。 */
 #mpw-display-box{display:inline-flex;align-items:center;gap:6px;font:12px monospace;background:rgba(0,0,0,.35);border:1px solid #345;border-radius:6px;padding:2px 6px}
@@ -1043,6 +1067,248 @@ fitCanvas();
 })()
 
 // ═══ MPW-PROPS-PANEL-END ═══
+</script>
+<script id="mpw-fx-panel">
+// ═══ MPW-FX-PANEL-BEGIN ①(2026-10-12) 内置效果面板（当前只有「磁流体 cuiliuti」）═══
+// 职责边界（与 MPW-PROPS-PANEL 同款）：**只画 DOM**。
+//   输入 = core `builtinEffectCatalog()` 的产物（纯数据：署名 / 说明 / 参数面 / 中英文案）；
+//   输出 = 回调（改参数 / 应用 / 移除 / 换效果 / 换目标图层）。
+//   **数值编码不在这里**：值 → `constantshadervalues` 的唯一编码点是 core 的
+//   `builtinEffectConstants()`（与 shader 的 uniform 声明同源 ⇒ 面板与 shader 不会漂移）。
+// 署名口径（用户要求「效果面板（选中效果后显示作者）」）：选中一条效果 ⇒ 署名行 + 许可/出处在
+//   面板顶部整段显示；文案取自 core 表（`author` / `collectedBy` / `license` / `upstream` / `note`）。
+// 署名来源（**署名三处之一 = 源码注释**）：原作 **Hope麻匪（HopeMafei）**（Wallpaper Engine 社区创作者，
+//   公开分享的自定义 shader「磁流体」）、**0ran 收录**；重写为 WebWallGL 内置效果并移植进本仓的来源 =
+//   上游 `oneincase/webwallgl`（**MIT**，Copyright (c) 2026 oneincase，https://github.com/oneincase/webwallgl
+//   的 `editor/effects.ts`，`id: "cuiliuti"`）⇒ 第三方清单见 `THIRD-PARTY.md` §20。
+//   本块**不存**这些文案：值全部来自 core 的 `builtinEffectCatalog()`（`author`/`collectedBy`/`license`/`upstream`）。
+// 测试：`tests/cuiliuti-builtin-fx-test.mjs` 按 MPW-FX-PANEL 标记切片 + 假 DOM（本块不依赖 ESM 导入）。
+(function () {
+  var API = {}
+
+  /** 中英文案取用（core 的 `{zh,en}` 结构与纯字符串两种都吃）。 */
+  API.pick = function (v, lang) {
+    if (v === null || v === undefined) return ''
+    if (typeof v === 'string') return v
+    return ((lang === 'en' ? v.en : v.zh) || v.zh || v.en || '')
+  }
+  API.titleOf = function (fx, lang) { return API.pick(fx && fx.title, lang) || String((fx && fx.id) || '') }
+  /** 署名行：中文「作者：Hope麻匪（HopeMafei）（0ran 收录）」/ 英文「By … (collected by 0ran)」。 */
+  API.authorLine = function (fx, lang) {
+    if (!fx || !fx.author) return ''
+    var en = (lang === 'en')
+    var s = (en ? 'By ' : '作者：') + fx.author
+    if (fx.collectedBy) s += en ? (' (collected by ' + fx.collectedBy + ')') : ('（' + fx.collectedBy + ' 收录）')
+    return s
+  }
+  /** 许可 / 出处行（MIT + 上游地址；与 effect.json 的 description 同源）。 */
+  API.licenseLine = function (fx, lang) {
+    if (!fx) return ''
+    var en = (lang === 'en')
+    var s = (en ? 'License: ' : '许可：') + String(fx.license || '')
+    if (fx.upstream) s += (en ? '  |  source: ' : '  ｜  出处：') + fx.upstream
+    return s
+  }
+  API.paramLabel = function (p, lang) { return API.pick(p && p.label, lang) || String((p && p.key) || '') }
+  /** 读数小数位（按 step 推：step 0.01 ⇒ 2 位；step 1 ⇒ 0 位）。 */
+  API.precisionOf = function (p) {
+    var st = (p && p.step !== undefined) ? String(p.step) : '1'
+    var i = st.indexOf('.')
+    return i < 0 ? 0 : Math.min(4, st.length - i - 1)
+  }
+  API.fmtNum = function (v, digits) {
+    var n = Number(v)
+    if (!isFinite(n)) return '0'
+    return digits > 0 ? n.toFixed(digits) : String(Math.round(n))
+  }
+  /** 0..1 线性色 ↔ `#rrggbb`（本块自带一份，避免与 MPW-PROPS-PANEL 的加载顺序耦合）。 */
+  API.colorToHex = function (v) {
+    var a = (v && v.join) ? v : String(v === undefined || v === null ? '' : v).trim().split(/[\s,]+/)
+    if (a.length < 3) return '#000000'
+    var out = '#'
+    for (var i = 0; i < 3; i++) {
+      var n = Number(a[i]); if (!isFinite(n)) n = 0
+      var b = Math.max(0, Math.min(255, Math.round(n * 255))).toString(16)
+      out += (b.length < 2 ? '0' : '') + b
+    }
+    return out
+  }
+  /** `#rrggbb` → 0..1 线性三元（与 props 面板同一算式：保留 6 位小数）。 */
+  API.hexToColor = function (hex) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''))
+    if (!m) return null
+    var s = m[1], out = []
+    for (var i = 0; i < 3; i++) out.push(Math.round((parseInt(s.substr(i * 2, 2), 16) / 255) * 1e6) / 1e6)
+    return out
+  }
+  /** 一行的**数据模型**（纯函数；DOM 只按它画）。value 缺省 = 表里的 default。 */
+  API.rowsOf = function (fx, values, lang) {
+    var params = (fx && fx.params) || []
+    var out = []
+    for (var i = 0; i < params.length; i++) {
+      var p = params[i]
+      var has = values && Object.prototype.hasOwnProperty.call(values, p.key)
+      var v = has ? values[p.key] : p.default
+      out.push({
+        key: p.key, type: p.type, uniform: p.uniform,
+        label: API.paramLabel(p, lang),
+        min: p.min, max: p.max, step: p.step,
+        digits: API.precisionOf(p),
+        value: v,
+        hex: p.type === 'color' ? API.colorToHex(v) : '',
+        readout: p.type === 'color'
+          ? ((v && v.join) ? v : String(v || '').split(/[\s,]+/)).slice(0, 3).map(function (x) { return Math.round(Number(x) * 1000) / 1000 }).join(' ')
+          : API.fmtNum(v, API.precisionOf(p)),
+        // 材质键 → uniform 的映射放在 title 里：调参时能一眼对回 shader（判据也读这两个字段）
+        title: p.key + ' → ' + (p.uniform || '') + (p.min !== undefined ? '（' + p.min + ' … ' + p.max + '，步长 ' + p.step + '）' : ''),
+      })
+    }
+    return out
+  }
+  function mk(doc, tag, cls) { var e = doc.createElement(tag); if (cls) e.className = cls; return e }
+  function txt(doc, s) { return doc.createTextNode ? doc.createTextNode(s) : null }
+
+  /**
+   * 画面板。
+   * opts = { doc, fx, fxList, values, lang, layers:[{id,name,label}], layerIndex, appliedCount,
+   *          onParam(key,value), onReset(), onApply(), onRemove(), onPickFx(id), onPickLayer(i) }
+   * 返回 { root, refresh(values, appliedCount), api }。
+   */
+  API.build = function (opts) {
+    var doc = opts.doc
+    var root = mk(doc, 'div', 'fxp')
+    root.id = 'mpw-fx-panel'
+    var head = mk(doc, 'div', 'fxp-h')
+    head.textContent = '内置效果（WebWallGL）'
+    root.appendChild(head)
+
+    // 效果清单（选中 = 显示署名行；当前只有磁流体一条）
+    var list = mk(doc, 'div', 'fxp-list')
+    var tabs = {}
+    var fxList = opts.fxList || (opts.fx ? [opts.fx] : [])
+    for (var i = 0; i < fxList.length; i++) {
+      ;(function (fx) {
+        var b = mk(doc, 'button', 'fxp-tab')
+        b.type = 'button'
+        b.setAttribute('data-fx', fx.id)
+        b.textContent = API.titleOf(fx, opts.lang)
+        b.addEventListener('click', function () { if (opts.onPickFx) opts.onPickFx(fx.id) })
+        tabs[fx.id] = b
+        list.appendChild(b)
+      })(fxList[i])
+    }
+    root.appendChild(list)
+
+    var fx = opts.fx
+    // ── 署名区（作者 / 许可 / 出处 / 说明）——选中效果后才出现 ──
+    var sign = mk(doc, 'div', 'fxp-sign')
+    sign.setAttribute('data-author', fx ? String(fx.author || '') : '')
+    var authEl = mk(doc, 'div', 'fxp-author')
+    authEl.textContent = API.authorLine(fx, opts.lang)
+    var licEl = mk(doc, 'div', 'fxp-license')
+    licEl.textContent = API.licenseLine(fx, opts.lang)
+    var noteEl = mk(doc, 'div', 'fxp-note')
+    noteEl.textContent = API.pick(fx && fx.note, opts.lang)
+    sign.appendChild(authEl); sign.appendChild(licEl); sign.appendChild(noteEl)
+    root.appendChild(sign)
+
+    // ── 目标图层 + 应用/移除 ──
+    var bar = mk(doc, 'div', 'fxp-bar')
+    var sel = mk(doc, 'select', 'fxp-sel')
+    var layers = opts.layers || []
+    for (var li = 0; li < layers.length; li++) {
+      var o = mk(doc, 'option')
+      o.value = String(li)
+      o.textContent = layers[li].label
+      if (li === (opts.layerIndex || 0)) o.selected = true
+      sel.appendChild(o)
+    }
+    sel.addEventListener('change', function () { if (opts.onPickLayer) opts.onPickLayer(Number(sel.value)) })
+    var applyBtn = mk(doc, 'button', 'fxp-apply')
+    applyBtn.type = 'button'
+    applyBtn.textContent = '应用'
+    applyBtn.addEventListener('click', function () { if (opts.onApply) opts.onApply() })
+    var removeBtn = mk(doc, 'button', 'fxp-remove')
+    removeBtn.type = 'button'
+    removeBtn.textContent = '移除'
+    removeBtn.addEventListener('click', function () { if (opts.onRemove) opts.onRemove() })
+    var stat = mk(doc, 'span', 'fxp-stat')
+    bar.appendChild(sel); bar.appendChild(applyBtn); bar.appendChild(removeBtn); bar.appendChild(stat)
+    root.appendChild(bar)
+
+    // ── 滑杆区（一行一个参数；数量/名字/范围/步长**全部来自 core 的参数面**）──
+    var rows = mk(doc, 'div', 'fxp-rows')
+    var ctrls = {}
+    var rowsModel = API.rowsOf(fx, opts.values, opts.lang)
+    for (var ri = 0; ri < rowsModel.length; ri++) {
+      ;(function (r) {
+        var row = mk(doc, 'label', 'fxp-row')
+        row.setAttribute('data-param', r.key)
+        row.title = r.title
+        var nm = mk(doc, 'span', 'fxp-name')
+        nm.textContent = r.label
+        row.appendChild(nm)
+        if (r.type === 'color') {
+          var ci = mk(doc, 'input', 'fxp-color')
+          ci.type = 'color'
+          ci.value = r.hex
+          ci.setAttribute('data-param', r.key)
+          var cv = mk(doc, 'span', 'fxp-val')
+          cv.textContent = r.readout
+          ci.addEventListener('input', function () {
+            var c = API.hexToColor(ci.value)
+            cv.textContent = c ? c.map(function (x) { return Math.round(x * 1000) / 1000 }).join(' ') : ''
+            if (opts.onParam && c) opts.onParam(r.key, c)
+          })
+          row.appendChild(ci); row.appendChild(cv)
+        } else {
+          var ri2 = mk(doc, 'input', 'fxp-range')
+          ri2.type = 'range'
+          ri2.min = String(r.min); ri2.max = String(r.max); ri2.step = String(r.step)
+          ri2.value = String(r.value)
+          ri2.setAttribute('data-param', r.key)
+          var rv = mk(doc, 'span', 'fxp-val')
+          rv.textContent = r.readout
+          ri2.addEventListener('input', function () {
+            rv.textContent = API.fmtNum(ri2.value, r.digits)
+            if (opts.onParam) opts.onParam(r.key, Number(ri2.value))
+          })
+          row.appendChild(ri2); row.appendChild(rv)
+        }
+        ctrls[r.key] = row
+        rows.appendChild(row)
+      })(rowsModel[ri])
+    }
+    root.appendChild(rows)
+    var resetBtn = mk(doc, 'button', 'fxp-reset')
+    resetBtn.type = 'button'
+    resetBtn.textContent = '恢复作者默认'
+    resetBtn.title = '本效果的参数全部回到 core 参数表里的 default'
+    resetBtn.addEventListener('click', function () { if (opts.onReset) opts.onReset() })
+    root.appendChild(resetBtn)
+
+    /** 用新值重画读数（不改控件结构 ⇒ 不打断拖动中的滑杆）。 */
+    function refresh(values, appliedCount) {
+      var model = API.rowsOf(fx, values, opts.lang)
+      for (var i = 0; i < model.length; i++) {
+        var r = model[i], row = ctrls[r.key]
+        if (!row) continue
+        var input = row.querySelector ? row.querySelector('input') : null
+        var val = row.querySelector ? row.querySelector('.fxp-val') : null
+        if (input && input.type !== 'color' && r.type !== 'color') input.value = String(r.value)
+        if (input && r.type === 'color') input.value = r.hex
+        if (val) val.textContent = r.readout
+      }
+      stat.textContent = (appliedCount ? ('已应用 ' + appliedCount + ' 处') : '未应用')
+    }
+    refresh(opts.values, opts.appliedCount)
+    return { root: root, refresh: refresh, api: API, controls: ctrls, tabs: tabs, sel: sel, applyBtn: applyBtn, removeBtn: removeBtn, resetBtn: resetBtn, authorEl: authEl, noteEl: noteEl }
+  }
+  if (typeof window !== 'undefined') window.__mpwFxPanel = API
+  return API
+})()
+
+// ═══ MPW-FX-PANEL-END ═══
 </script>
 <script type="module">
 /* ①(P-240 诊断探针：文件↔页面一致性；HTML 里能 grep 到 ≠ 会执行，这个标记一读便知） */
@@ -3822,6 +4088,8 @@ async function prefetchWeEffectAssets(sc, opts) {
   const led = {
     enabled: false, legacy: !!MPW_WEASSIST_LEGACY, registered: false, hasPkgReader: !!(opts && typeof opts.readPkgText === 'function'),
     effects: 0, materials: 0, shaders: 0, candidates: 0, requests: 0, hits: 0, inPkg: { effect: 0, material: 0, shader: 0 }, miss: 0,
+    // ③(2026-10-12) 内置效果表命中数（`builtinEffectAsset`）= "包内优先"的同级快路径，**零请求**
+    builtin: { effect: 0, material: 0, shader: 0 },
     bytes: 0, mapSize: 0, truncated: false, byKind: { effect: 0, material: 0, shader: 0 }, ms: 0,
     limits: { maxReq: FX_PREFETCH_MAX_REQ, maxBytes: FX_PREFETCH_MAX_BYTES, timeoutMs: FX_PREFETCH_TIMEOUT_MS, budgetMs: FX_PREFETCH_BUDGET_MS, conc: FX_PREFETCH_CONC },
   };
@@ -3852,6 +4120,13 @@ async function prefetchWeEffectAssets(sc, opts) {
     const tryCandidates = async (rel, effectDir, kind) => {
       const local = pkgText(rel);          // 包内优先：这一档 core 不会问 reader ⇒ 不预取、不发请求
       if (local) { led.inPkg[kind] = (led.inPkg[kind] || 0) + 1; return { rel: rel, text: local, pkg: true } }
+      /* ③(2026-10-12) **内置效果表**（core 的 `builtinEffectAsset`）:与"包内优先"同级 —— 命中 ⇒
+         **一次网络请求都不发**。理由：本仓内置效果（磁流体 `wwgl_cuiliuti`）只住在 core 的表里，
+         `/weassist/**` 永远不可能有它 ⇒ 照旧发请求只会刷一串 404，还让预取台账把它记成 `miss`
+         （"缺件"的读数，与事实相反）。`?cuiliuti=off` 时 core 的表整条关掉 ⇒ 这里恒 null，
+         照旧走候选链（逐位回到接线前）。 */
+      const bi = (typeof lib.builtinEffectAsset === 'function') ? lib.builtinEffectAsset(rel, location && location.search) : null;
+      if (bi) { led.builtin[kind] = (led.builtin[kind] || 0) + 1; return { rel: bi.rel, text: bi.text, builtin: true } }
       const cands = lib.weAssetCandidates(rel, effectDir);
       led.candidates += cands.length;
       for (const c of cands) {
@@ -3916,7 +4191,8 @@ async function prefetchWeEffectAssets(sc, opts) {
     led.enabled = true;
     if (map.size > 0) led.registered = !!lib.setWeAssetReader(mpwWeAssetReader);
     logf('① P-206 效果资产预取：' + led.effects + ' 个效果定义 / ' + led.materials + ' 个 material / ' + led.shaders + ' 条 shader 源'
-      + ' ⇒ 命中 ' + led.hits + ' ' + JSON.stringify(led.byKind) + '，包内优先 ' + JSON.stringify(led.inPkg) + '，miss ' + led.miss
+      + ' ⇒ 命中 ' + led.hits + ' ' + JSON.stringify(led.byKind) + '，包内优先 ' + JSON.stringify(led.inPkg)
+      + '，内置优先 ' + JSON.stringify(led.builtin) + '，miss ' + led.miss
       + '；入表 ' + map.size + ' 条 ' + Math.round(led.bytes / 1024) + 'KB，候选 ' + led.candidates + ' 次试 / 实发 ' + led.requests + ' 次请求，'
       + Math.round(mpwNowMs() - t0) + 'ms' + (led.truncated ? '（**触顶 ' + led.truncated + '**，未取到的照旧由 core 记账）' : '')
       + (led.registered ? '；已注册同步 weAssetReader（miss 返回 null）' : '；表空 ⇒ 不注册'));
@@ -7464,6 +7740,8 @@ function loadScene() {
   //     → window.__mpwProps 诊断（进 /report 上报链）。
   //   （propsMap/propsSchema/… 由上面的切片单元经 window.__mpwPropsCtx 交接：对象引用同一份）
   let propsPanel = null
+  // ①(2026-10-12) 内置效果面板句柄（`installFxPanel()` 的返回值；未装载/`?nopanel`/`?cuiliuti=off` ⇒ null）
+  let fxPanel = null
   const __pctx = (() => { try { return window.__mpwPropsCtx || {} } catch (e) { return {} } })()
   let propsMap = __pctx.map || null, propsSchema = __pctx.schema || null
   let propsLocked = __pctx.locked || null, propsStore = __pctx.store || {}
@@ -7735,6 +8013,153 @@ function loadScene() {
   // ①(P-61) 诊断常备：即使 ?nopanel 关了面板（或包没有属性表），也把 __mpwProps 挂上供 /report 消费
   try { window.__mpwProps = propsDiagPayload() } catch (e) { /* ignore */ }
   }
+  // ═══ MPW-FX-MOUNT-BEGIN ①(2026-10-12) 内置效果面板**装载**（顶栏按钮 + fixed 面板；页级单例）═══
+  // 这一层是"效果可被选中/应用"的**宿主侧接线**（渲染机制在 core：内置素材表 + 效果链回退级）：
+  //   · 清单/署名/参数面**全部读 core 的 `builtinEffectCatalog()`** ⇒ 面板与 shader 同源（不另抄一份表）；
+  //   · 「应用」= 往目标图层的 `layer.effects` 里 push 一个 `builtinEffectEntry()`（与 scene.json 同形），
+  //     再交给 `lib.resolveEffectChain()` 解析 —— 与 `loadScene()` 里那条链**同一个函数、同一个顺序**；
+  //   · 改滑杆 = 直接改实例的 `passes[0].constantshadervalues`（渲染循环每帧读 `layer.effects`）；
+  //   · `?cuiliuti=off` ⇒ 内置效果表整条关掉 ⇒ 本面板不装（应用了也只会得到官方的缺件 passthrough）。
+  // 台账：`window.__mpwFx`（builtin / applied / target / values）供 /report 与判据只读消费。
+  function installFxPanel() {
+    if (typeof lib.builtinEffectCatalog !== 'function' || typeof lib.builtinEffectEntry !== 'function') {
+      logf('⚠ 内置效果面板：core 没有 builtinEffectCatalog/builtinEffectEntry（版本不匹配）')
+      return null
+    }
+    if (typeof lib.cuiliutiOff === 'function' && lib.cuiliutiOff()) {
+      logf('?cuiliuti=off ⇒ 内置效果表已关：效果面板不装载（链回退到包内 → /weassist 两级）')
+      return null
+    }
+    const q = new URLSearchParams(location.search)
+    if (q.has('nopanel')) { logf('?nopanel：内置效果面板已关闭（效果链本身不受影响）'); return null }
+    const API = (() => { try { return window.__mpwFxPanel || null } catch (e) { return null } })()
+    if (!API || typeof API.build !== 'function') { logf('⚠ 内置效果面板脚本块缺失（__mpwFxPanel）'); return null }
+    const catalog = lib.builtinEffectCatalog()
+    if (!catalog.length) return null
+    const lang = (() => {
+      try {
+        const l = String((document.documentElement && document.documentElement.lang) || (navigator && navigator.language) || '')
+        return /^en/i.test(l) ? 'en' : 'zh'
+      } catch (e) { return 'zh' }
+    })()
+    const fxOf = (id) => catalog.find((c) => c.id === id) || catalog[0]
+    const defaultsOf = (fx) => {
+      const o = {}
+      for (const p of fx.params) o[p.key] = Array.isArray(p.default) ? p.default.slice() : p.default
+      return o
+    }
+    const st = { fxId: catalog[0].id, layerIndex: 0, values: Object.create(null) }
+    for (const fx of catalog) st.values[fx.id] = defaultsOf(fx)
+    /** 目标图层候选：非容器 + 可见，按面积降序（最大的一层通常就是"整屏/背景"层）。 */
+    const areaOf = (l) => (l && l.size && l.size.length >= 2) ? Math.abs(Number(l.size[0]) || 0) * Math.abs(Number(l.size[1]) || 0) : 0
+    const cand = () => scene.layers
+      .map((l, i) => ({ l, i, area: areaOf(l) }))
+      .filter((x) => x.l && !x.l.isContainer && x.l.visible !== false)
+      .sort((a, b) => b.area - a.area)
+    const labelOf = (l, i) => String(i) + ' · ' + String((l && (l.name || l.id)) || '?') + (l && l.size ? (' ' + l.size[0] + '×' + l.size[1]) : '')
+    const fileOf = (fx) => `effects/${fx.dir}/effect.json`
+    /** 场景里所有**该效果的实例**（按 `file` 认，跨图层；判据/台账共用同一口径）。 */
+    const instancesOf = (fx) => {
+      const want = fileOf(fx)
+      const out = []
+      scene.layers.forEach((l, li) => (l.effects || []).forEach((ef, ei) => { if (String((ef && ef.file) || '') === want) out.push({ layer: l, li: li, ei: ei, ef: ef }) }))
+      return out
+    }
+    const publish = () => {
+      try {
+        window.__mpwFx = {
+          panel: true, lang: lang, builtin: catalog.map((c) => c.id), selected: st.fxId,
+          author: fxOf(st.fxId).author, collectedBy: fxOf(st.fxId).collectedBy, license: fxOf(st.fxId).license,
+          target: st.layerIndex, file: fileOf(fxOf(st.fxId)),
+          applied: instancesOf(fxOf(st.fxId)).map((x) => ({ layer: x.li, name: String((x.layer && (x.layer.name || x.layer.id)) || ''), file: String(x.ef.file || '') })),
+          values: st.values[st.fxId],
+        }
+      } catch (e) { /* 诊断面写失败不影响面板 */ }
+    }
+    /** 只改常数：渲染循环每帧从 `effect.passes[0].constantshadervalues` 取值（面板滑杆的落点）。 */
+    const pushValues = () => {
+      const fx = fxOf(st.fxId)
+      const c = lib.builtinEffectConstants(fx.id, st.values[fx.id])
+      for (const it of instancesOf(fx)) {
+        if (!Array.isArray(it.ef.passes) || !it.ef.passes.length) it.ef.passes = [{ combos: {}, constantshadervalues: {}, textures: [], usertextures: null }]
+        it.ef.passes[0].constantshadervalues = Object.assign({}, it.ef.passes[0].constantshadervalues || {}, c)
+      }
+      publish()
+    }
+    const apply = () => {
+      const fx = fxOf(st.fxId)
+      const layer = scene.layers[st.layerIndex]
+      if (!layer) return
+      const mine = instancesOf(fx).filter((x) => x.layer === layer)
+      if (mine.length) { pushValues(); logf('内置效果「' + API.titleOf(fx, lang) + '」参数已更新（' + mine.length + ' 个实例）'); return }
+      layer.effects = layer.effects || []
+      const entry = lib.builtinEffectEntry(fx.id, st.values[fx.id])
+      layer.effects.push(entry)
+      const r = lib.resolveEffectChain(pkg, entry, rd, { onLog: (m) => logf('⚠ ' + m) })
+      const ok = !!(r && r.ok)
+      publish()
+      logf('内置效果「' + API.titleOf(fx, lang) + '」' + (ok ? '已应用' : '**未能挂上**') + '：图层 ' + labelOf(layer, st.layerIndex)
+        + '（定义来源 ' + String((r && r.source) || 'miss') + '，pass ' + ((entry.materialPasses || []).length) + ' 个）')
+      return { ok: ok, entry: entry, resolved: r }
+    }
+    const removeAll = () => {
+      const fx = fxOf(st.fxId)
+      const want = fileOf(fx)
+      let n = 0
+      scene.layers.forEach((l) => { if (l.effects && l.effects.length) { const before = l.effects.length; l.effects = l.effects.filter((ef) => String((ef && ef.file) || '') !== want); n += before - l.effects.length } })
+      publish()
+      if (n) logf('内置效果「' + API.titleOf(fx, lang) + '」已移除 ' + n + ' 个实例')
+      return n
+    }
+    const rows = cand()
+    const handle = API.build({
+      doc: document,
+      fx: fxOf(st.fxId), fxList: catalog, values: st.values[st.fxId], lang: lang,
+      layers: rows.map((x) => ({ label: labelOf(x.l, x.i) })),
+      layerIndex: 0, appliedCount: instancesOf(fxOf(st.fxId)).length,
+      onParam: (k, v) => { st.values[st.fxId][k] = v; pushValues() },
+      onReset: () => { st.values[st.fxId] = defaultsOf(fxOf(st.fxId)); pushValues(); handle.refresh(st.values[st.fxId], instancesOf(fxOf(st.fxId)).length); logf('内置效果参数已恢复作者默认') },
+      onApply: () => apply(),
+      onRemove: () => removeAll(),
+      onPickFx: (id) => { st.fxId = id; refreshPanel() },
+      onPickLayer: (i) => { st.layerIndex = (rows[i] ? rows[i].i : 0); publish() },
+    })
+    if (!rows.length) { st.layerIndex = 0 }
+    const btnEl = document.createElement('button')
+    btnEl.type = 'button'; btnEl.id = 'mpw-fx-btn'
+    btnEl.textContent = '🫧 效果'
+    btnEl.title = '内置效果（WebWallGL）：选中后显示作者署名与滑杆；「应用」把它挂到目标图层'
+    let open = false
+    try { open = localStorage.getItem('mpw-fx-open') === '1' } catch (e) { /* ignore */ }
+    const setOpen = (o, persist) => {
+      open = !!o
+      handle.root.className = open ? 'open' : ''
+      btnEl.setAttribute('aria-expanded', open ? 'true' : 'false')
+      if (persist) { try { localStorage.setItem('mpw-fx-open', open ? '1' : '0') } catch (e) { /* ignore */ } }
+    }
+    btnEl.addEventListener('click', () => setOpen(!open, true))
+    function refreshPanel() {
+      const sel = handle.tabs[st.fxId]
+      for (const id of Object.keys(handle.tabs)) handle.tabs[id].setAttribute('aria-pressed', id === st.fxId ? 'true' : 'false')
+      if (sel) sel.setAttribute('aria-pressed', 'true')
+      handle.authorEl.textContent = API.authorLine(fxOf(st.fxId), lang)
+      handle.noteEl.textContent = API.pick(fxOf(st.fxId).note, lang)
+      handle.refresh(st.values[st.fxId], instancesOf(fxOf(st.fxId)).length)
+      publish()
+    }
+    refreshPanel()
+    setOpen(open, false)
+    const bar = document.getElementById('bar')
+    if (bar && bar.appendChild) bar.appendChild(btnEl)
+    document.body.appendChild(handle.root)
+    logf('① 内置效果面板已装载：' + catalog.length + ' 个内置效果（' + catalog.map((c) => API.titleOf(c, lang)).join('/') + '）'
+      + ' · 署名「' + API.authorLine(catalog[0], lang) + '」· 参数 ' + catalog[0].params.length + ' 项 · 目标图层候选 ' + rows.length + ' 个')
+    return { root: handle.root, button: btnEl, api: API, handle: handle, state: st, instancesOf: instancesOf, apply: apply, remove: removeAll, setOpen: (o) => setOpen(o, true) }
+  }
+  if (typeof PAGE === 'undefined' || PAGE) {
+    try { fxPanel = installFxPanel() } catch (e) { logf('⚠ 内置效果面板装载失败: ' + ((e && e.message) || e)) }
+  }
+  // ═══ MPW-FX-MOUNT-END ═══
   // ①(2026-09-12) ?isolate=名称(逗号分隔)：只保留匹配层可见（容器保留），用于判定"某层是否真的画了"
   {
     const isoRaw = new URLSearchParams(location.search).get('isolate')

@@ -17493,3 +17493,119 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 正文见 **P-317** 条目 ✓（本提交含实现 + 判据 + 登记：`core/we-scene-bundle.js` 的 `__lnShown` hunk · `demo/*` · 4 个判据文件 ·
 `tests/run-all-tests.sh`（门禁 **240 → 241**）· `docs/PATCHES.md` · `web/diag-flags.json` ✓）。
 门禁：`bash check.sh` **EXIT=0 / 4 阶段全绿（241 项）** ✓。
+
+## P-333（2026-10-12 · 转译线）⑤ **整数字面量在左**的 int→float 提升（`1 - t` / `1 - pow(…)`）：又一条"有画但整条效果 pass 被跳过"的转译缺口
+
+**索引条目**：工作区台账目录下的 `docs/STATUS-ALL-ITEMS-INDEX.md`（**不带本机路径** ✗） §1.1 A 组 **第 13 条**（"4 个效果 pass 转译缺口"）。
+本轮**先复核该条现状** ✓：那 4 条（① `color_grading` varying 链接 · ② `Simple_Audio_Bars` `#define` 行尾注释 ·
+③ `glitter_prepare` 同① · ④ `phantomtransitionfx` 文件级 const + `float == int`）**已由 P-198（2026-09-25）全部关闭** ✓，
+本轮独立复核读数见下"复核"一节；**P-198 之后同族仍在跳的 pass** 才是本条要修的 ✓（`docs/PATCHES.md` P-198 自己登记的
+"全语料 … 14 个仍不过；仍不过的都是别的族"）。
+
+### 现场（真包，`allwallpaper/`；都是"单 stage 编不过 ⇒ 渲染器 console.warn 后跳过整条 pass"）
+| 包 · shader | 真编译器报文（改动前） | 源里哪一行 |
+|---|---|---|
+| `0917/3299228616` · `workshop/2655151285/effects/perspective` | `ERROR: 0:160: '-' : wrong operand types: no operation '-' exists that takes a left-hand operand of type ' const int' and a right operand of type ' temp highp float'` | `.vert`：`float q0 = 1.0 / (1 - t);`（`t` 是**局部** `float`；同族还有 `1 - s`） |
+| `0917/3462491575` · `workshop/3235948233/effects/auto_sway` | 同族（`const int` - 浮点） | `.vert:274` / `.frag:187`：`return 1 - pow(1.0 - clamp((x - lower) / (upper - lower), 0.0, 1.0), 5.0);`（右操作数是**内建调用**返回值） |
+
+**根因**：HLSL（与桌面 GLSL）允许 int→float 隐式提升，**GLSL ES 3.0 没有** int↔float 隐式转换（实测：`#version 300 es` 下
+`float t; 1 - t` 报上面那条、`1.0 - t` 通过）。本仓 2a–2e3 的整数字面量规则只覆盖"字面量在**右**"（`t - 1` / `x == 1`）
+与"字面量在左但右操作数是 **uniform/varying/attribute 声明过的**浮点名"（`1 - g_Rough`）⇒ **局部** `float` 变量与
+内建调用这两种右操作数当时收不到。
+
+### 改法（`core/we-scene-bundle.js` 的 2e4 规则；**未改 vendored 上游原文**）
+整数字面量在左、右操作数**可确证为浮点**时把字面量补 `.0`。右操作数只认两种形态：
+① 本文件里 `float <名>` 声明过、**没有**任何 `int/uint <名>` 声明（连 `int a, b;` 的多声明符也逐个收进 `intAll`）、
+且不是本文件里定义过的函数名（同名用户函数会遮蔽内建 ⇒ 返回类型不可确证）；② 在**实测无 int/uint 重载**的
+内建名单里（`FLOAT_ONLY_FN_RAW`，33 个：`pow`/`sqrt`/`sin`/`fract`/`floor`… —— **不含**有 int 重载的
+`abs`/`sign`/`min`/`max`/`clamp`/`mod`），且该名字没有被用户函数遮蔽。其余形态（`1 - u_int`、`1 - (…)`、
+`1 - texture(…).x`）**一律原样保留**，留给真编译暴露。只改**注释之外**的正文（`blankComments()` 定位、回原文改写）。
+**为什么只可能把红变绿**：被改写的形态在 GLSL ES 3.0 下**必然编不过** ⇒ 补 `.0` 不可能改坏现在能编过的产物
+（判据 C2 在全语料上钉住这一点）。**回退口** `?intpromo=legacy`（= 原样 ⇒ 回到改动前报文；主表
+`docs/README-DIAGNOSTICS.md` ② 节已加 1 行，`diag-flag-check` 实测 241 == 241、0 差异）；读数 `h2gPassFixStats.intPromo`。
+
+### 判据 `tests/hlsl2glsl-intpromo-test.mjs`（27 断言，实测 ~7s，真 `glslangValidator`；已进门禁）
+A 合成夹具（legacy 报文复现 / 缺省 0 error + **9 条**反向护栏：int 变量右操作数 · `int a, b;` 多声明符 · 注释正文 ·
+**用户函数遮蔽内建名** · 幂等 · 计数读数 · **右操作数名字的"前缀"不许命中**（A8a/A8b/A8c））·
+B 两个真包（`perspective`：legacy vert 红 → 缺省 **stage + link 全绿**；`auto_sway`：legacy 同族报文 → 缺省**本族报文消失**，
+残余的别的族 `'linearStep' : no matching overloaded function found` **如实打印、不算通过**）·
+C 语料对拍（legacy vs 缺省逐 stage 真编译：**0 回归** + "legacy 能编过的产物剥注释后逐字节不变"）·
+D 变异自证（回退口 + 真源码切片 `if (fixes.intPromo …)` → `if (false)` ⇒ 夹具变红 + 真树 sha256 跑前跑后相同）·
+E mock-GL 端到端（**渲染路径**送进 `gl.shaderSource()` 的 frag 真的含 `1.0 - t`；同一夹具的切片变异 ⇒ 回到 `1 - t`）·
+F 把源码里的内建名单**整条抠出来逐名真编译**自证"无 int 重载"（33 个），并用 `abs/sign/min/max/clamp` 做有 int 重载的对照组。
+
+**过程留痕（两个 bug 都是判据当场抓出来的，不是自查出来的）**：
+1. A6 抓到"只把用户函数名从**名字**备选里滤掉、没从**内建调用**名单里滤"⇒ `int pow(float,float)` 在场时
+   `1 - pow(…)` 仍被当浮点调用 ⇒ 已修（`FLOAT_ONLY_FN_RAW` 再滤一次 `userFns`）。
+2. **宽度表判据（`tests/hlsl2glsl-width-table-test.mjs`）B3/B4/B5 变红** 抓到：名字备选没锚词边界 ⇒
+   `float s` 在场时 `2 + sample22` 被当成 `s`（**前缀**）命中 ⇒ `* 2 + sample22` 变成 `* 2 + 2.0 + sample22`
+   ⇒ 抢掉了 9-W 规则本该做的 `* 2 ⇒ * 2.0` ⇒ `dd/3544152633` 的 `edgedetection.frag` 反而**编不过**（变化集 16 → 15）。
+   已修（备选后加 `(?![A-Za-z0-9_])`），并补 A8a/A8b/A8c 三条判据把"危险形态"（右操作数本身是 int 变量、名字以
+   float 名开头，如 `sCount` ⇒ 误改会**弄坏本来能编过的整数加法**）钉住。修后复跑宽度表判据 **ALL PASS 77 项**。
+
+### 读数（修后，全语料真编译）
+| 判据 | 读数 |
+|---|---|
+| `tests/hlsl2glsl-intpromo-test.mjs` | **ALL PASS 27 项**（有无 glslang 时编译类断言 SKIP 不红）+ `MPW_P333_CORPUS=1`：**42/42 包 · 730 个 stage · 708 → 714（修好 6）· 0 回归** |
+| `tests/hlsl2glsl-width-table-test.mjs`（本位回归） | **ALL PASS 77 项**（B3/B4/B5 修前红 → 修后绿；B2「移植前能编过的输出逐位不变」绿） |
+| `tests/hlsl2glsl-passfix-test.mjs`（P-198 判据） | **ALL PASS 42 项** |
+| `tests/stage-varying-reconcile-test.mjs` | **5 通过 / 0 失败** |
+| `tests/hlsl2glsl-coverage-test.mjs` | **46/46 = 100.0%** |
+| `tests/diag-flag-check.mjs` | **241 == 241，0 差异** |
+| 独立残余扫描（自写工具，`0923/0917/dd` 三根 ≤128MB，317 个 pass） | 修前 **313 过 / 4 不过** → 修后 **314 过 / 3 不过**（`perspective` 转绿；剩 3 条 = 下面"边界"的三族） |
+
+本轮**实际修好**的 pass：`0917/3299228616`·`perspective`（vert+frag+link 全绿）、`0917/3233141951`·`workshop/3082978660/effects/Simple_Audio_Bars`（两个 combos × 两 stage）；
+`0917/3462491575`·`auto_sway` 只关掉**本族**报文（后面还有别的族 ⇒ **不声称整条绿** ✗）。
+
+### 复核（本轮对索引第 13 条那 4 条的独立读数；**不是**索引的旧措辞）
+独立夹具（不复用 P-198 判据）：① `0923/3602673806` `workshop/2795521260/effects/color_grading` legacy ⇒
+`Linking … Types must match: vertex " vec4 v_TexCoord" / fragment " vec2 v_TexCoord"`、缺省 ⇒ stage 0 error + link 0 error
+（`.vert:6 vec4` / `.frag:70 vec2` ⇒ 缺省两侧 `vec4`，`varyingWiden=1`）；② `0917/3600630828` `Simple_Audio_Bars`
+legacy ⇒ `0:488: '' : syntax error, unexpected FLOAT`、缺省 ⇒ 0 error（`macroComment=3`）；③ `0923/3690417937`
+`effects/glitter_prepare` legacy ⇒ `Types must match`（vert vec2 / frag vec4）、缺省 ⇒ link 0 error（`varyingNarrow=1`）；
+④ `0923/3653641024` `phantomtransitionfx` legacy ⇒ `0:35: '=' : global const initializers must be constant`、缺省 ⇒ 0 error
+（`constGlobal=1`）。`node tests/hlsl2glsl-passfix-test.mjs` ⇒ **ALL PASS 42 项**；`MPW_P198_CORPUS=1` ⇒
+**42/42 包 · 730 个 stage · 改前过 694 → 改后过 708 · 修好 14 · 0 回归**。
+⚠ 一处**证据强度**更正（只加结论，不改旧文）：工作区台账 §4.1 的"#13 免浏览器实跑复核"用的是 `tests/render-audit.mjs`
+的 mock-GL，而那份 mock 的 `getShaderParameter/getProgramParameter` **恒 `true`**、`getShaderInfoLog` 恒 `''`
+⇒ 它**原理上观察不到**任何编译/链接失败，"0 处"是**弱证据** ✗；这条的强证据是 glslang 真编译（上表 + P-198 判据）。
+
+### 边界（未验 / 未做，如实）
+- **真机/浏览器未验** ✗：本机 `:8902` 没在跑、无 Playwright ⇒ "`perspective` 这条 pass 在真机日志里不再被跳过"**只有离线 stage/link 证据** +
+  渲染路径 mock-GL 证据（E 段），**没有**真机 `#log` 读数。
+- **同族残余仍在** ✗（P-198 登记的"仍不过"）：`0917/3462491575` 修掉本族后浮出**别的族** —— 用户函数实参的 int→float 强制
+  （`linearStep(2, NODE_COUNT, nodeNum)`，形参是 `in float`、实参是 int 字面量 + int 变量）；另有两族未动：
+  `0923/3479521040` `shadow`（`'assign' : l-value required "a_TexCoord"`，顶点 stage 写 `in` 属性）、
+  `dd/3660962877` `frame_builder_by_gariam`（`u_refResolution` 在 vert 声明 `vec2` / frag 声明 `float` ⇒ **链接期** uniform 类型不一致）。
+  后两族的修法都牵动数据流/语义（前者要"输入即副本"的局部化改写，后者要判定哪一侧类型才是引擎上传的口径）⇒ **本轮不硬改** ✗。
+
+## P-334（2026-10-12 · 内置效果）移植上游 MIT 效果「磁流体（cuiliuti）」+ **离线数值判据**（用户第 4 条）
+
+**来源与署名** ✓：上游 `oneincase/webwallgl`（**MIT**，© 2026 oneincase ✓）README 列出的内置效果「**磁流体（cuiliuti）**」，
+原作者 **Hope麻匪（HopeMafei）**（Wallpaper Engine 社区创作者，公开分享的自定义 shader），**0ran 收录** ✓。
+**署名三处** ✓：① 效果面板选中后显示「作者：Hope麻匪（HopeMafei）（0ran 收录）」+ 许可/出处行（`demo.html` 的 `MPW-FX-PANEL` → `authorLine()`/`licenseLine()` ✓）
+② 生成的 `effects/wwgl_cuiliuti/effect.json` 的 `description`（`builtinEffectDescription()` ✓）
+③ 源码注释（`core` 段头 + 生成的 frag 头 + `demo.html` 面板段头 ✓）· 另 `THIRD-PARTY.md` **§20** ✓。
+
+**落地方式** ✓：`CUILIUTI_SRC`（shader）从上游 `editor/effects.ts` **逐字节**照抄 —— **5,073 B**，sha256
+`6e42fc87c151b3a67a6f4fa495df9eea7190ec846507a66e068abbb29f1a8d92` ✓（**两路独立取证**：上游源码 + 2.2.0-beta1 发布包
+`resources/app.asar` → `site/assets/editor-*.js` 内联字面量 ✓，两路同摘要 ✓）；`CUILIUTI_PARAMS` **10 条**（`key/type/default[/min/max/step]`
++ 中英文案 ✓，逐条照上游 `key/type/default/min/max/step` 对齐 ✓）。
+**三级效果链** ✓：包内 → `/weassist/<rel>` → **内置表**（前两级命中时内置表**不抢** ✓）；回退位 **`?cuiliuti=off`**（缺省 = 内置表生效 ✓）已登记 `docs/README-DIAGNOSTICS.md` 主表 ✓。
+
+**判据** ✓ `tests/cuiliuti-builtin-fx-test.mjs`（纯 Node ✓ 无浏览器/网络/GL ✓ **~22 s** ✓）⇒ **`ALL PASS：53 项通过 / 0 项失败`** ✓：
+- **A 切片/静态** 6 条 ✓（`MPW-FX-PANEL` / `MPW-FX-MOUNT` 真源码切片**自足** ✓；装载块**只读 core 清单**，无第二张手抄表 ✓；`?cuiliuti=off` 两侧一致 ✓）
+- **B 面板（真切片 + 假 DOM）** 10 条 ✓：**滑杆数量/名字/范围/步长/缺省逐条 == core 参数面** ✓；**合成参数面**（5 项，含负范围/单点范围）证明"单一来源" ✓；切片里 **0 个参数 key / uniform 名字面量** ✓（手抄即漂移 ✓）
+- **C 离线数值**（`tests/_glsl-cpu.mjs` 跑**仓库里真实那份** frag 源 ✓）11 条 ✓：sha256 冻结锁 ✓；`lit=7/64 meanA=0.1094 sumRGB=3.512` ✓；
+  `alpha` 只缩 alpha（**ratio 恰 0.5、RGB 逐位不变** ✓）；`liquid` 通道隔离 ✓；`blobs` 单调（7<19<21 ✓）+ `int()` 截断（20.9≡20 且 21≠20 ✓）；`speed=0` ⇒ **时间逐位不变** ✓；**10 个滑杆逐个有落点** ✓
+- **D 接线（真 core + 合成 pkg）** 14 条 ✓：三级链三段各自的 `source=pkg/weassist/builtin` ✓；`off` ⇒ miss + passthrough（不留半个 pass ✓）；`key→material→uniform` 闭合 ✓
+- **E 变异自证 10 组（全语义级 ✓，不用"改一字哈希变"那种同义反复 ✗）**：M1 空实现 `void main(){}` ⇒ `["C2","C3","C4","C5","C6","C7","C8"]` ✓；M2 `blobs` 写死 ⇒ `["C2","C3","C6","C8"]` ✓；
+  M3 `alpha` 写死 ⇒ `["C2","C4","C8"]` ✓；**M4 面板逐字段准确手抄参数表 ⇒ `["B5","B5b","B6"]`** ✓（准确的抄写也要红 —— 它迟早漂移 ✓）；
+  M5 范围写死 ⇒ `["B4","B5"]` ✓；M6 署名丢收录者 ⇒ `["B2"]` ✓；M7 README 行删掉 ⇒ `["A4"]` ✓；
+  **M8 `edgeAlpha` 的 `1.0 - smoothstep(...)` 逻辑取反 ⇒ `["C3","C6","C7","C8"]`** ✓（**用户点名的"逻辑取反"缺口** ✓）；
+  **M9 core 参数面改 `min/max`（`blobs` max 120→90）⇒ `["B0"]`** ✓ · **M10 core 参数面删一条（`edgeglow`）⇒ `["B0"]`** ✓（**这两组堵住"自洽但已漂移"的洞** ✗）。
+  **红集不过滤** ✓（= 实际红的全部 id ✓ —— 早先按 `only` 过滤会漏报，已修 ✗）；新增 **B0**（core 参数面 == **上游冻结表** `UP_FACE` ✓，10 条 key/type/default/min/max/step/label 逐字段 ✓）。
+⇒ 门禁 **245 → 246 项** ✓（台账"当前门禁口径"行同步 246 ✓，历史数字保留 ✓）。
+
+**诚实边界** ✓：面板/装载块的**真浏览器**观感未验（假 DOM + **真切片**，`new Function('window', …)` 与浏览器当普通 script 同路 ✓，但假 DOM 只实现了用到的 API 子集 ✓）；
+离线数值是 **float64** 上的同源转译（`_glsl-cpu.mjs` 头部自述边界 ✓），末位与 float32 的差**未验** ✓；`?cuiliuti=off` 的"逐位回退"按 core 纯函数路径证明 ✓，**真 GL 渲染路径未验** ✓。

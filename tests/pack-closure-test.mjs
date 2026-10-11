@@ -151,6 +151,20 @@ const URL_ALIASES = coreAliasesFromServer()
 check('C0 服务端别名表能从源码提取到（`CORE_DIR` 路由）', URL_ALIASES.size >= 5, [...URL_ALIASES.keys()].join(' '))
 /** 明确**不随包发布**的引用（每条都要写清理由；判据要求那句话真的能在引用文件里找到，防"白名单变遮羞布"）。 */
 const NOT_SHIPPED_OK = [
+  /* ①(2026-10-12 集成修正 **按意图订正**)：本轮 C2 报的那 4 条 `… → /effect.json` **根本不是绝对 URL** ——
+     它们是**相对资产路径被三段拼接切出来的片段**：`'effects/' + <dir> + '/effect.json'`（内置效果
+     「磁流体 cuiliuti」的资产相对路径，`WE_BUILTIN_EFFECT_FILES` 的键口径）。`URL_REF_RE` 只看形状
+     （引号后紧跟 `/` + 已知扩展名收尾）⇒ 片段撞上了它。**所以修法在代码侧**（core/we-scene-bundle.js
+     与 demo.html 把整条路径写进一个模板串：运行期字符串逐字节不变，只是字面量里不再有"长得像绝对
+     URL"的片段）。**不要**在这里登记 `/effect.json`，两个理由：
+       ① 那条 URL 在代码里**根本不存在** —— 登记要写"它为什么不是磁盘文件"，只能编（`why` 会描述成
+          `effects/<dir>/effect.json` 那个**相对**路径，与被登记的 `/effect.json` 不是同一个东西）；
+       ② 登记即豁免（`x.url === u && x.in === rel && raw.includes(u)`）⇒ 这两个文件里**任何**真正的
+          `/effect.json` 引用会被永久放行，判据就在这里放空。真·运行期生成、不对应磁盘文件的确实有：
+          `effects/<dir>/effect.json`（内存表生成、包内与 `/weassist` 双 miss），但它**是相对路径**，
+          C2 只认以 `/` 开头的字符串 ⇒ 本来就管不着它，不需要（也不该）登记。
+     变异自证（本轮实测）：把任一处改回三段拼接 ⇒ C2 立刻变红；塞一条**真**绝对 URL
+     （如 `fetch('/effects/wwgl_cuiliuti/effect.json')`）⇒ C2 也变红（证明这里不登记没有把判据放空）。 */
   { url: './demo/', in: 'index.html', why: '测试台目录（66MB，含本机构建残留）按 docs/RELEASE.md §5 不进 tarball；落地页那条链接在包里会 404，是已登记的口径' },
   /* `index.html:12-14` 三条品牌图 `<link>`（32 / 192 / apple-touch 同 192）与上面 `./demo/` **完全同类**，故同一口径登记：
      ①产物侧成立：`build-pages.mjs` 的 `['web/icons', 'icons']` 把真源 `web/icons/**` 拷成产物根的 `./icons/*`；

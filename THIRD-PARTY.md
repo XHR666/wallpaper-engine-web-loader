@@ -1325,3 +1325,42 @@ ETC1 描述推出，因此移植了该 MIT 参考实现的**算法结构**，并
 平滑度与 FNV-1a 摘要把这条契约钉住。
 
 MIT 许可全文见本文档 §1（同一份 MIT 文本，版权行为上方的 `Copyright (c) 2020 K0lb3`）。
+
+## 20. oneincase/webwallgl  (MIT © 2026 oneincase) — **内置效果「磁流体（cuiliuti）」移植进 `core/we-scene-bundle.js` 的内置素材表 + `demo.html` 的效果面板**（2026-10-12）
+
+**为什么需要**：上游的**编辑器内置效果**是一个独立素材类 —— 它不在 WE 安装目录、也不在任何
+`scene.pkg` 里，本仓按上游同一约定认 `effects/wwgl_cuiliuti/effect.json` 这个路径 ⇒ 引用它时
+"包内 + `/weassist`"**必然双 miss**（官方缺件 passthrough）。所以本仓把这份内置效果**内置**进
+`core` 的素材表（效果链第三级，`?cuiliuti=off` 可整条关掉）。
+
+  Upstream:  https://github.com/oneincase/webwallgl  (`editor/effects.ts`，`id: "cuiliuti"`)
+  Author:    **Hope麻匪（HopeMafei）** —— Wallpaper Engine 社区创作者，公开分享的自定义 shader「磁流体」
+  Collected: **0ran**（上游 README「0ran 收录」）
+  License:   MIT
+  Copyright: Copyright (c) 2026 oneincase <462534624@qq.com>
+
+本仓含移植材料的文件：
+  - `core/we-scene-bundle.js`   （`CUILIUTI_SRC` / `CUILIUTI_PARAMS` / `BUILTIN_FX_VERT` / `BUILTIN_FX_HEAD`
+    逐字节照抄；内置素材表、效果链第三级、`?cuiliuti=off` 回退位、面板数据面 `builtinEffectCatalog()`
+    为本仓自写）
+  - `demo.html`                （`MPW-FX-PANEL` 面板 + `MPW-FX-MOUNT` 装载：本仓自写，**不含**上游代码）
+
+**署名（用户要求的三处）**：① 效果面板选中效果后显示「**作者：Hope麻匪（HopeMafei）**（**0ran 收录**）」
++ 许可/出处行；② 写进工程的 `effects/wwgl_cuiliuti/effect.json` 的 `description`
+（`builtinEffectDescription()`：note + 作者/收录/许可/出处，工程自包含地带着版权）；
+③ 源码注释（`CUILIUTI_SRC` 上方的取证块 + 生成的 frag 头 + 面板段头）。
+
+**验证**（不是"照抄即信"）：`CUILIUTI_SRC` = **5,073 B**，sha256
+`6e42fc87c151b3a67a6f4fa495df9eea7190ec846507a66e068abbb29f1a8d92` —— **两路独立取证**同一摘要：
+① 上游源码 `editor/effects.ts` 的模板字面量；② 2.2.0-beta1 发布包 `resources/app.asar` →
+`site/assets/editor-*.js` 内联的同一份字面量。`tests/cuiliuti-builtin-fx-test.mjs`（纯 Node、
+无浏览器 / 无网络 / 无 GL）把这条摘要当**冻结回归锁**，并另有：面板（真切片 + 假 DOM：署名行 /
+滑杆数量·名字·范围·步长 == `core` 参数面 / 单一来源自证）、**离线数值**（`tests/_glsl-cpu.mjs` 跑
+仓库里真实那份 frag 源：默认档统计量区间、`alpha` 只缩 alpha 通道、`liquid` 通道隔离、
+`blobs` 单调 + `int()` 截断、`speed` 时标、10 个滑杆逐个有落点）、接线（真 `core` + 合成包：
+**包内 → `/weassist` → 内置表** 三级顺序 + `?cuiliuti=off` 逐位回退）、以及 7 组
+`MUTANT-RED-OK`（含"空实现 shader""参数写死""面板滑杆手抄成死表"）。
+本项目**未复制上游任何其它代码**（面板/滑杆/中英文案为本仓自写，参数面按上游
+`key/type/default/min/max/step` 逐条对齐）。
+
+MIT 许可全文见本文档 §1（同一份 MIT 文本，版权行为上方的 `Copyright (c) 2026 oneincase`）。

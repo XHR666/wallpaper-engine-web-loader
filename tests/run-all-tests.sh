@@ -1049,6 +1049,30 @@ add "hlsl2glsl-width-table" "node tests/hlsl2glsl-width-table-test.mjs"  # ①(P
 #   D 变异自证（4 个回退口 + 4 组真源码切片变异 `MUTANT-RED-OK` 4/4）、E mock-GL 证明**渲染路径**真的对过账。
 #   42 断言、实测 ~12s、无浏览器 / 无网络 / 无 GPU；无语料/无 glslangValidator 时对应段 SKIP 不红。
 add "hlsl2glsl-passfix" "node tests/hlsl2glsl-passfix-test.mjs"
+# ⑤(P-333 2026-10-12 转译线) `hlsl2glsl-intpromo`：**P-198 之后仍在跳的 pass**（同一族残余）——
+#   "整数字面量在左的 `+ - * /`"（`1 - t` / `1 - pow(…)`：HLSL 有 int→float 隐式提升，GLSL ES 3.0 没有）。
+#   A 合成夹具（legacy 报文复现 / 缺省 0 error + 9 条反向护栏：int 变量右操作数 / `int a, b;` 多声明符 /
+#   注释正文 / 用户函数遮蔽内建名 / 幂等 / 计数 / **右操作数名字的前缀不许命中**（A8，宽度表判据当场抓出的 bug））、
+#   B 两个真包（`0917/3299228616` perspective 全绿；`0917/3462491575` auto_sway 本族报文消失、**残余别的族如实打印**）、
+#   C 语料对拍（**0 回归** + legacy 能编过的产物剥注释逐字节不变）、D 变异自证（回退口 + 真源码切片 `RED-IF-REVERTED` +
+#   真树 sha256 不变）、E mock-GL 证明**渲染路径**送进 GL 的 frag 真的被浮点化、F 把源码里的内建名单整条抠出来
+#   **逐名真编译**自证"无 int 重载"（对照组 abs/sign/min/max/clamp 有 int 重载）。
+#   27 断言、实测 ~7s、无浏览器 / 无网络 / 无 GPU；无语料 / 无 glslangValidator 时对应段 SKIP 不红。
+add "hlsl2glsl-intpromo" "node tests/hlsl2glsl-intpromo-test.mjs"
+# ①(2026-10-12 内置效果线) `cuiliuti-builtin-fx`：上游 `oneincase/webwallgl`（**MIT**）的**编辑器内置效果**
+#   「磁流体（cuiliuti）」移植（原作者 **Hope麻匪（HopeMafei）**、**0ran 收录**）—— 该效果不在任何包里（官方内置素材），
+#   本仓把它内置进 core 的素材表（效果链**第三级**，`?cuiliuti=off` 可整条关掉）。
+#   A `demo.html` 的 `MPW-FX-PANEL`/`MPW-FX-MOUNT` **真源码切片** + 静态锚点（三个读点同源 / `?cuiliuti=off` 两侧一致）；
+#   B 面板（真切片 + **假 DOM**）：署名行（作者/收录者）/ 许可行 / 滑杆**数量·名字·范围·步长·缺省**逐条 == core 参数面
+#     + **合成参数面**单一来源自证（手抄必红）+ 拖滑杆/取色回调 + `refresh()` 只改读数；
+#   C **离线数值**（`tests/_glsl-cpu.mjs` 跑仓库里真实那份 frag 源）：上游 sha256 冻结回归锁（可选
+#     `MPW_WWGL_EDITOR=<上游产物>` 逐字节对拍，缺产物 SKIP 不红）/ uniform↔参数面同源 / 默认档统计量区间 /
+#     `alpha` 只缩 alpha 通道 / `liquid` 通道隔离 / `blobs` 单调 + `int()` 截断 / `speed` 时标 / 10 个滑杆逐个有落点；
+#   D 接线（真 core + 合成 pkg）：三级链 **包内 → /weassist → 内置表**（前两级命中时不抢）+ `?cuiliuti=off` 逐位回退
+#     + 实例形状 == scene.json + `key→material→uniform` 闭合 + **署名三处**（面板行 / effect.json description / 源码注释）；
+#   E **10 组** `MUTANT-RED-OK`（空实现 shader / 参数写死 ×2 / **逻辑取反** / **core 参数面改 min-max·删一条** / 面板滑杆手抄成死表 / 范围写死 / 署名丢收录者 / README 行删掉）。
+#   53 断言、实测 ~22s、无浏览器 / 无网络 / 无 GPU（`_glsl-cpu.mjs` 的离线数值是主要开销）。
+add "cuiliuti-builtin-fx"  "node tests/cuiliuti-builtin-fx-test.mjs"
 add "gyro-parallax"        "node tests/gyro-parallax-test.mjs"  # ①(用户 2026-09-24「移动端以陀螺仪实现鼠标视差」) demo.html 的 MPW-GYRO 段**真源码切片** + mock `window/deviceorientation` + 真 bundle/mock-GL 的视差读数（姿态 Δu=0.4 ⇒ 正深度层 Δx=−204.288px = 官方公式）+ 4 组变异自证 `MUTANT-RED-OK`；30 断言、实测 ~0.4s、无浏览器 / 无网络 / 无 GPU
 
 # ①(P-179 2026-09-24 主对话补登记) issue #2/#3/#4 的根因判据（官方定义 + 合成场景，不等样本）：

@@ -76,6 +76,8 @@ function makeSandbox(blockSrc, opts = {}) {
     weAssetCandidates: (...a) => lib.weAssetCandidates(...a),
     effectAssetDirOf: (...a) => lib.effectAssetDirOf(...a),
     parseWeJson: (...a) => lib.parseWeJson(...a),
+    // ③(2026-10-12) 内置效果表（S2-14/S2-15 的判据入口；真 core 的那份，不是桩）
+    builtinEffectAsset: (...a) => lib.builtinEffectAsset(...a),
     setWeAssetReader: (fn) => { registrations.push(fn); return lib.setWeAssetReader(fn) },
   }
   const fetchT = async (url) => { requests.push(url); const r = await fetchImpl(url); return r === undefined ? null : r }
@@ -289,6 +291,26 @@ const SCENE_SHAKE = { layers: [{ effects: [{ file: 'effects/shake/effect.json' }
       return sb.requests.length === 0 && sb.logs.length === 0 && led.registered === false && led.effects === 0
     })())
   lib.setWeAssetReader(null)
+  /* ③(2026-10-12) **内置效果（磁流体 wwgl_cuiliuti）的"同级快路径"**：内置效果只住在 core 的表里，
+     `/weassist/**` 永远没有它 ⇒ 预取**一次请求都不该发**，而台账要如实记成 `builtin`（不是 `miss`）。
+     回退位 `?cuiliuti=off` ⇒ core 的表整条关掉 ⇒ 同一场景回到"照发候选链请求"（= 接线前的读数）。
+     这一组是"内置这一级真的接在预取上、且开关双向可辨"的判据（两档读数必须**不同**）。 */
+  {
+    const SCENE_CUIL = { layers: [{ effects: [{ file: 'effects/wwgl_cuiliuti/effect.json' }] }] }
+    lib.setWeAssetReader(null)
+    const sbOn = makeSandbox(BLOCK, { fetchImpl: () => ({ ok: false, status: 404 }) })
+    const ledOn = await sbOn.api.prefetchWeEffectAssets(SCENE_CUIL)
+    check('S2-14 内置效果：**0 次网络请求**（与"包内优先"同级），台账记 `builtin` 而不是 `miss`',
+      sbOn.requests.length === 0 && ledOn.builtin.effect === 1 && ledOn.builtin.material === 1 && ledOn.builtin.shader === 2
+      && ledOn.miss === 0 && ledOn.hits === 0 && ledOn.inPkg.effect === 0,
+      'req=' + sbOn.requests.length + ' builtin=' + JSON.stringify(ledOn.builtin) + ' miss=' + ledOn.miss + ' hits=' + ledOn.hits)
+    const sbOff = makeSandbox(BLOCK, { fetchImpl: () => ({ ok: false, status: 404 }), search: '?cuiliuti=off' })
+    const ledOff = await sbOff.api.prefetchWeEffectAssets(SCENE_CUIL)
+    check('S2-15 `?cuiliuti=off` ⇒ 同一场景回到候选链（请求数 > 0、`builtin` 全 0、miss ≥ 1）——开关双向可辨',
+      sbOff.requests.length > 0 && ledOff.builtin.effect === 0 && ledOff.builtin.material === 0 && ledOff.builtin.shader === 0 && ledOff.miss >= 1,
+      'req=' + sbOff.requests.length + ' builtin=' + JSON.stringify(ledOff.builtin) + ' miss=' + ledOff.miss)
+    lib.setWeAssetReader(null)
+  }
 }
 
 /* ───────────────── S3：真语料（磁盘同语义的 /weassist 桩 + 真 core 解析器） ───────────────── */
