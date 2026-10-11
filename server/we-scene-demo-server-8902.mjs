@@ -512,7 +512,9 @@ function fsRoots() {
       if (statSafe(p)) platformRoots.push({ label: '盘符 ' + drive + ':', path: p, kind: 'drive' })
     }
   } else {
-    for (const m of ['/media', '/mnt', '/run/media']) if (statSafe(m)) platformRoots.push({ label: '挂载点 ' + m, path: m, kind: 'mount' })
+    // ①(2026-10-12 P-330) 挂载点补 **macOS 的 `/Volumes`** ✓（外接卷/磁盘映像挂在这里 ✗ ⇒ 原先 macOS 用户看不到外接盘 ✓）；
+    //   WSL 的 `/mnt/c`、`/mnt/d` … 已被 `/mnt` 覆盖 ✓（用户进入 `/mnt` 后再选盘符 ✓，不逐盘列条目 ✗ —— 会撑爆 MAX_FS_ROOTS=6 ✓）。
+    for (const m of ['/media', '/mnt', '/run/media', '/Volumes']) if (statSafe(m)) platformRoots.push({ label: '挂载点 ' + m, path: m, kind: 'mount' })
   }
   /* ②(2026-09-24 用户第 1 条「你搞这么多快捷根干嘛 你就留几个，所有电脑都可能有的几个就行了」)
      改前读数（真机 :8902 的选择器）：候选 **8–9 条**（当前库目录 / 配置库根 / 库根的上一级 /

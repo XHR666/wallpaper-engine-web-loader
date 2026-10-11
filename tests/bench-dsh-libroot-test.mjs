@@ -171,6 +171,16 @@ console.log(`夹具：libA=${F.libA} libB=${F.libB}（每个库里一个真 scen
     text.split('\n').forEach((line, i) => { for (const p of PAT) if (p.re.test(line)) hits.push(`${label}:${i + 1} [${p.name}]`) })
   }
   ok(hits.length === 0, 'A0 源码里 0 处本机绝对路径（快捷根必须推导，不许把作者机器写进产品）', hits.slice(0, 5).join(' | ') || '0 命中')
+  /* ①(2026-10-12 P-330) **平台挂载点必须覆盖三平台** ✓：
+       macOS 的外接卷/磁盘映像挂在 `/Volumes` ✗（缺了 ⇒ macOS 用户在选择器里看不到外接盘 ✓）；
+       WSL 的 `/mnt/c`、`/mnt/d` … 由 `/mnt` 覆盖 ✓（不逐盘列条目 ✗ —— 会撑爆 `MAX_FS_ROOTS=6` ✓）。
+     判据 = "挂载点字面量列表里确实含这两个条目" ✓（静态检查 ✓，与 A0 同风格 ✓）。 */
+  {
+    const mntList = (SERVER_TEXT.match(/for \(const m of \[[^\]]*\]\)/) || [''])[0]
+    ok(/'\/Volumes'/.test(mntList), 'A0m 平台挂载点含 macOS 的 /Volumes（否则 macOS 看不到外接卷 ✗）', mntList.slice(0, 90))
+    ok(/'\/mnt'/.test(mntList), 'A0w 平台挂载点含 WSL 的 /mnt（/mnt/c、/mnt/d 从这里进 ✓）', mntList.slice(0, 90))
+  }
+
   /* 写死"这台机器的工作区名"同样算写死（旧读数：`{ label: '工作区（DSHAREA）' … }`）：
      标签里的目录名**必须**由 `path.basename(...)` 推出来，不许是字面量。 */
   ok(!/label: '[^']*DSHAREA/.test(SERVER_TEXT) && /path\.basename\(MPW_ROOT\)/.test(SERVER_TEXT),
