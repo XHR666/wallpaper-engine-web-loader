@@ -297,8 +297,14 @@ const MPW_ALLOW_DIRS = MPW_ALLOW_DIRS_INFO.dirs;
    （加载失败会走上面 ⓪ 的降级路径，不再让进程起不来）。 */
 const PKG_EXTRACT_CANDIDATES = [
   { path: process.env.MPW_PKG_EXTRACT, from: 'env MPW_PKG_EXTRACT' },
-  { path: path.join(REPO_ROOT, 'pkg-extract.mjs'), from: '本仓根 pkg-extract.mjs' },
-  { path: MPW_ROOT + '/dsh-mpkg-wallpaper/lib/pkg-extract.js', from: '姊妹插件仓 <MPW_ROOT>/dsh-mpkg-wallpaper（推导）' },
+  // 顺序（2026-10-11 定）：**完整解析器优先，自带兜底** ——
+  //   · 姊妹插件 `lib/pkg-extract.js` 提供**完整**能力（`parsePkgIndex` 等 ⇒ 目录表只读 + `/noise`、`/shader` 的索引快路径）；
+  //   · 本仓自带 `pkg-parse.mjs`（MIT 薄封装 `packages/we-core/pkg.js`）只提供 `parsePkg`/`readPkgEntry`
+  //     ⇒ 保证**只克隆本仓也能跑** ✓，但它没有索引 API ⇒ 服务器按设计退回"整包读"旧路径（慢但正确 ✓）。
+  //   ⚠ 若反过来把自带放前面，会让**装了插件**的机器也丢掉索引优化 ✗（实测过）。
+  { path: MPW_ROOT + '/dsh-mpkg-wallpaper/lib/pkg-extract.js', from: '姊妹插件仓 <MPW_ROOT>/dsh-mpkg-wallpaper（完整能力，优先）' },
+  { path: path.join(REPO_ROOT, 'pkg-parse.mjs'), from: '本仓根 pkg-parse.mjs（自带兜底，MIT 薄封装 we-core）' },
+  { path: path.join(REPO_ROOT, 'pkg-extract.mjs'), from: '本仓根 pkg-extract.mjs（legacy 名，自己放的副本可用）' },
 ].filter((c) => !!c.path);
 const PKG_EXTRACT_INFO = (() => {
   const probed = PKG_EXTRACT_CANDIDATES.map((c) => {

@@ -10,8 +10,8 @@
 #
 # 为什么要有它（而不是让下载者读 README 抄 `node server/we-scene-demo-server.mjs`）：
 #   ① 默认端口被占是最常见的第一次失败 —— 这里**先探测**再回退，且把最终 URL 明确打出来；
-#   ② 渲染器的包解析器在 MIT 插件 `dsh-mpkg-wallpaper` 里（`lib/pkg-extract.js`），
-#      只克隆渲染器的人**必然**会撞上"找不到 pkg-extract"——预检直接给出三条可选修法；
+#   ② 渲染器**自带**包解析器 `pkg-parse.mjs`（MIT 薄封装 `packages/we-core/src/pkg.js`）⇒ 克隆本仓即可跑 ✓；
+#      只有需要**场景/纹理抽取**（插件 `lib/pkg-extract.js` 的 extractScene*/extractTex*）时才用 MPW_PKG_EXTRACT 指向它（可选）；
 #   ③ 没语料时页面会降级到合成样例，但**没人知道为什么**——预检把"能渲染什么"提前说清。
 #
 # 退出码：0 正常（--check 时=预检通过）；2 用法错误；3 预检失败（--check）；4 端口不可用
@@ -47,13 +47,15 @@ if [ "${NODE_MAJOR:-0}" -ge 20 ] 2>/dev/null; then ok "node $(node -v)（要求 
 else bad "node 版本过低或未安装（当前 ${NODE_MAJOR:-无}，要求 >=20）"; PREFLIGHT_FAIL=1; fi
 
 # ── ② 包解析器落点（与 server/we-scene-demo-server.mjs 的解析链**逐条同序**，避免"预检绿、起服务红"） ──
-PE_LOCAL="$PWD/pkg-extract.mjs"
+PE_LOCAL="$PWD/pkg-parse.mjs"          # 本仓自带（MIT）
+PE_LEGACY="$PWD/pkg-extract.mjs"      # legacy 名（自己放的副本）
 PE_PLUGIN="${MPW_ROOT:-$(cd .. && pwd)}/dsh-mpkg-wallpaper/lib/pkg-extract.js"
 PE_RESOLVED=""
 if [ -n "${MPW_PKG_EXTRACT:-}" ]; then
   if [ -f "$MPW_PKG_EXTRACT" ]; then PE_RESOLVED="$MPW_PKG_EXTRACT"; ok "包解析器：MPW_PKG_EXTRACT=$MPW_PKG_EXTRACT"
   else bad "MPW_PKG_EXTRACT 指向的文件不存在：$MPW_PKG_EXTRACT"; PREFLIGHT_FAIL=1; fi
-elif [ -f "$PE_LOCAL" ]; then PE_RESOLVED="$PE_LOCAL"; ok "包解析器：同目录 pkg-extract.mjs"
+elif [ -f "$PE_LOCAL" ]; then PE_RESOLVED="$PE_LOCAL"; ok "包解析器：本仓自带 pkg-parse.mjs ✓（克隆即可跑，无需外部仓库）"
+elif [ -f "$PE_LEGACY" ]; then PE_RESOLVED="$PE_LEGACY"; ok "包解析器：同目录 pkg-extract.mjs（legacy 名）"
 elif [ -f "$PE_PLUGIN" ]; then PE_RESOLVED="$PE_PLUGIN"; ok "包解析器：$PE_PLUGIN（MIT 插件，见 THIRD-PARTY.md §7）"
 else
   bad "找不到包解析器（pkg-extract）。三条修法任选："

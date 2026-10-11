@@ -38,7 +38,19 @@ import { createPkgEntryIndex, PKG_MAGIC_RE } from '../server/pkg-entry-index.mjs
 
 const MPW_ROOT = process.env.MPW_ROOT || WS
 const DD = process.env.MPW_SCENE_ROOT || path.join(MPW_ROOT, 'allwallpaper', 'dd')
-const PKG_EXTRACT = process.env.MPW_PKG_EXTRACT || path.join(MPW_ROOT, 'dsh-mpkg-wallpaper', 'lib', 'pkg-extract.js')
+// 解析器解析顺序**必须与服务器一致**（server/we-scene-demo-server.mjs 的 PKG_EXTRACT_CANDIDATES）：
+//   环境变量 → **本仓根 pkg-parse.mjs**（自带，MIT 薄封装 we-core ✓）→ 本仓根 pkg-extract.mjs（legacy 名）→ 姊妹插件。
+// 为什么改（2026-10-11）：此前只看插件 ⇒ 服务器已按"本仓优先"选中自带解析器时，本判据却在测**插件 API 的索引路径**，
+//   两边解析器不同 ⇒ 出现 500 假红（`entries.find is not a function`）。对齐后：
+//   自带解析器**没有** `parsePkgIndex` ⇒ 按下面的 SKIP 口径**如实跳过**（这正是为"老/极简解析器"设计的行为 ✓），
+//   装了完整解析器（插件 ✓ 或日后补齐 `parsePkgIndex` ✓）⇒ 立刻恢复真跑 ✓（**没有放松任何断言** ✗）。
+const PKG_EXTRACT_CANDIDATES = [
+  process.env.MPW_PKG_EXTRACT,
+  path.join(MPW_ROOT, 'dsh-mpkg-wallpaper', 'lib', 'pkg-extract.js'),
+  path.join(ROOT, 'pkg-parse.mjs'),
+  path.join(ROOT, 'pkg-extract.mjs'),
+].filter(Boolean)
+const PKG_EXTRACT = PKG_EXTRACT_CANDIDATES.find((c) => { try { return fs.existsSync(c) } catch { return false } }) || PKG_EXTRACT_CANDIDATES[0]
 const MAX_REF_BYTES = 64 * 1024 * 1024          // 参考实现（整包读）只对 ≤64MB 的包做
 
 const checks = []
