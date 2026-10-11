@@ -1073,6 +1073,7 @@ add "we-json-tolerance-server" "node tests/we-json-tolerance-server-test.mjs"
 #   A1 WE 自带项折叠分组、A2 音量条不越容器（含改前复现对照）、E 富文本同图跨行只画一遍（真语料 33→1）；
 #   7 个**变异自证**（MUTANT-RED-OK：改回去必红，且红的正是被变异掉的那条）。
 add "bench-dsh-libroot"  "node tests/bench-dsh-libroot-test.mjs"
+add "bench-8901-sync"     "node tests/bench-8901-sync-test.mjs"        # :8901 部署树漂移检测的门禁化判据（索引 §1.2 #39 ✓）
 
 # ①(2026-09-24 `.mpkg` 一等库项) 用户"壁纸都启动失败 / PKG HTTP404"的**根因那一半**：旧口径一个**目录**一条
 #   （真实库布局 `wallpaperE/<角色>/<角色>_NN.mpkg` ⇒ 148 个 `.mpkg` 只看得见 20 条目录、`/pkg/<中文 id>` 连路由都进不去）。
