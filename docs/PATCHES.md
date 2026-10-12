@@ -17609,3 +17609,231 @@ legacy ⇒ `0:488: '' : syntax error, unexpected FLOAT`、缺省 ⇒ 0 error（`
 
 **诚实边界** ✓：面板/装载块的**真浏览器**观感未验（假 DOM + **真切片**，`new Function('window', …)` 与浏览器当普通 script 同路 ✓，但假 DOM 只实现了用到的 API 子集 ✓）；
 离线数值是 **float64** 上的同源转译（`_glsl-cpu.mjs` 头部自述边界 ✓），末位与 float32 的差**未验** ✓；`?cuiliuti=off` 的"逐位回退"按 core 纯函数路径证明 ✓，**真 GL 渲染路径未验** ✓。
+
+## P-338（2026-10-12 · 视差 / xray）指针接线统一：注入通道必须真的驱动视差链与 xray 族
+
+**用户现场**（原话）：`夜莺night——【parallax_视差】blue_archive_妃咲…` 这个壁纸「**视差效果还是没有实现**」，
+「**开了指针注入后移动指针仍无效果**」；「x-ray 效果也没有实现」，「指针注入后同样没有」。
+
+**① 该壁纸的视差机制（先钉清楚，避免修错线）** ✓ —— `scene.json` 直读：
+`general.cameraparallax = {user:{condition:'0',name:'color'}, value:true}`、`cameraparallaxamount = 0.1`、
+`cameraparallaxdelay = 2.0`、`cameraparallaxmouseinfluence = 0.31`；46 个对象里 **36 个带 `parallaxDepth`**；
+另有 **2 个 `effects/depthparallax/effect.json`**（层「地板」「纸堆」）。**没有** xray。
+⇒ 机制 = **场景级/对象级 `parallaxDepth`（相机视差）＋官方 `depthparallax` 效果**两条；
+xray 是**另一张包**（`allwallpaper/1004/逆流茶会-姐妹日常 (x-ray).mpkg`，`effects/xray`，用户属性 `xray` 默认 `false`）。
+
+**② 根因 A（视差链的指针来源** ✗）：`parallaxState` 此前**只**由视差链自带的 `window.mousemove`
+私有监听器 `attachParallaxListener()` 写入 —— 注入通道（`window.__mpwPointer`，正是宿主 / 测试台
+「指针注入」的 `__wp.pushPointer` 写的那一个）与画布 `pointermove` **一个都到不了它**。
+而效果链那边的 `__fxPtr` 走的是 `__pointerDesign`（注入 > 画布 > DOM 的完整裁决）⇒ **两条链两套口径**。
+实测（同一场景、同一指针、同一帧数，只换输入通道；P-338 判据 A 段）：
+DOM 派发 `clientX=0.95×1000` ⇒ 层中心 **Δx=−864.0000px**；注入 `{x:0.95·3840, y:0.05·2160}` ⇒ **Δx=0.0000px**。
+被冻住的下游三处：场景级 `parDispX/Y`、对象级 `parallaxDepth` 位移、以及 `g_ParallaxPosition`
+（官方 `depthparallax.vert` 的输入）—— 第三处正是该壁纸那 2 个效果层。
+
+**修法（A）** ✓：视差链改吃**效果链同一个**每帧快照 `__fxPtr`（`__fxPtrFrame(cam,time)` 在 `renderScene`
+建好 `cam` 之后、任何层渲染之前跑一次 ⇒ 同帧同值，不新增第二个裁决器）。门控两条：
+场景自己声明 `general.cameraparallax` 为真 **且** 真的拿到了指针（`__fxPtr.has`）才覆盖
+⇒ ①没声明 parallax 的场景保持 `(0.5,0.5)`（`tests/ptrfx-uniform-test.mjs` A5 契约逐位不变）；
+②没有指针时不写（不是"没指针就归零"）。**有意不跟 `opts.parallaxOff` 走**：那是本仓页面级产品开关
+（`?parallax=`，demo 缺省关），它停的是渲染器对**层位置**的位移（截图确定性），不是作者写进包里的
+`depthparallax` 效果 —— 把作者效果一并冻住正是"移动鼠标视差毫无反应"的一半现场。
+
+**② 根因 B（xray 族 `g_PointerState.y`** ✗）：该 x-ray 包自带的 `shaders/effects/xray.frag:43` 比官方桌面版
+**多一行** `unprojectedUVs *= CAST2(1.0 / max(0.00001, g_PointerState.y));`（`xray.vert:23` 也声明了该 uniform）。
+改动前本仓把 `.y` 写成**指针的层 UV v** ⇒ 精灵采样偏移被放大 `1/v` 倍 ⇒ 开窗半径随光标高度变化。
+逐行复算（`g_Texture2` 的官方默认精灵 = 本仓内置 `particle/halo_6` 程序化贴图）：
+v=1.00→**6.50%**、v=0.50→**3.24%**、v=0.25→0.82%、v=0.10→0.12%、v=0.02→**0.01%**（贴近顶边等于没有 x-ray）。
+**决策性对照** ✓：本机官方桌面资产 `wallpaper_engine/assets/effects/xray/shaders/effects/xray.frag`
+**没有这一行**（等价于因子 `1.0`）⇒ 改后对 xray 族填 `1.0`，窗口面积稳定 **6.01%~13.00%**；
+另有一条**独立旁证**：官方编辑器 `bin/wallpaperui.exe` 的着色器升级表（`0xab1438`–`0xab14c0`）
+把"有 / 无这一行"的两个版本**成对**登记（`varying float v_PointerScale;` → 加 `uniform vec4 g_PointerState;`；
+`unprojectedUVs += 0.5;` → 加 `…* CAST2(1.0/max(…, g_PointerState.y));`）⇒ 该因子是**版本差异**，
+不是包作者的效果参数。**只改 `.y`、只改声明了 `g_PointerScale` 的 xray 族**（与既有的
+`xrayShouldParkPointer` 用**同一个**判别式）⇒ `cursorripple`/`fluidsimulation` 那类只读 `.z` 的程序逐位不变
+（`tests/ptrfx-uniform-test.mjs` A6/A12 全绿 ✓）。`g_PointerState.y` 的**官方语义未取证** ✗（已如实记账）。
+
+**回退位** ✓：`?ptrwiring=legacy` = 上面两处**一起**逐位回改动前（A：只认 `window.mousemove`；
+B：`.y` = 指针层 UV v），已登记 `docs/README-DIAGNOSTICS.md` 主表（`diag-flag-check` 242 == 242 ✓）。
+判据可用 `opts.parallaxPtrLegacy` / `opts.xrayStateLegacy` 在同进程单独切两态。
+
+**判据** ✓ `tests/parallax-xray-test.mjs`（纯 Node + mock-GL，无浏览器 / 网络 / GPU）⇒
+**`27 通过 / 0 失败 / 0 SKIP`**：A 组三通道×两档真值表（含"注入 == 官方算式手算值 −864.0000px"、
+"legacy 档 == 0"、"无指针不漂"）、`g_ParallaxPosition` 跟随 + 两条不变式、xray 族 `.y`/`.z`/面积数值断言、
+真语料两条（妃咲机制识别 + 真包端到端跟随；x-ray 包 frag 含该因子 + **官方桌面版不含**）；
+**5 组变异自证全部 `MUTANT-RED-OK`（期望红集 == 实际红集）**，含 M4「去掉"只对 xray 族生效"的门」
+专门钉"不许把 `.y` 的改动外溢到 cursorripple 那类程序"；§E 真树 sha256 跑前跑后相同、`/tmp` 无残留。
+
+**诚实边界** ✓：**未见真机帧** ✗ —— 本档全部读数来自 mock-GL + 逐行复算；`:8902` 现场是否就此可见未验。
+另有一处**页面侧**根因**不在本批写入范围**：`:8902` 预览 URL 从来不携带 `?parallax=…`，
+而 `demo.html` 的 `parallaxOff` 缺省为真 ⇒ **相机/对象级**视差在测试台默认档下整体停用
+（`depthparallax` 效果不受该门控，故本轮修好的是它 + 注入通道口径）。已交回 Lead 转页面侧。
+
+---
+
+## P-339/P-340（2026-10-12）①-A 画布盒比例跟随设计画布 + ⑤-1 `engine.canvasSize` 翻正交口径
+
+**来源** ✓：`<工作区>/docs/reports/CROP-TEXT-POSITION-DIAGNOSIS.md`（全语料普查 205 容器 / 108 场景，
+判据 `tests/wallpaper-crop-census-test.mjs`）；本轮只动 `demo.html`（`core/**` 由 task-11 占用，H5 见后续批次）。
+
+### P-339 ①-A「画布盒比例跟随设计画布」（用户第 ① 条"壁纸画面上下左右被切"的根因修法）
+
+**根因（已证明）**：`fitCanvas()` 把画布 CSS 盒恒取成"窗口内最大的 16:9 盒"，而取景窗口比例**只**由
+「设计画布 `general.orthogonalprojection` 比例 vs 盒比例」决定（`buildCamera`，缺省 `fillmode=aspectcrop`＝cover）
+⇒ 非 16:9 设计画布必被切掉**一条轴**。普查读数：**26/108** 个包被切（竖幅 1080×1920 上下各 **34.19%**、
+超宽 7680×2232 左右各 **24.15%**）；另有 30 个包是"作者内容超出设计画布"（四边被切，最高 50.23%，与本项无关）。
+
+**改法（两处，都在 `demo.html`）**：
+① `fitCanvas()` 的盒比例改为读 `window.__mpwCanvasAspect`（主模块在 `parseScene` 之后按当前场景写入；
+未写 = 16:9）⇒ 盒比例 == 设计比例；比例 == 16:9 时两条算式与改动前**逐字同式**（`vw*9/16` / `vh*16/9`）⇒ 零回归。
+② 固定档（`?res=720p|1080p|1440p|2160p|4k|auto`）画布**按同一像素预算重算成设计比例尺寸**
+（`buildCamera` 的取景比例取自绘制缓冲，只改盒不够）；设计比例 == 16:9 时算式**恒等**（1080p → 1920×1080 不变）。
+活档位 `?res=dpr*` 本就"画布 = 盒 × DPR"⇒ 自动跟随。**不碰**：`?res=legacy`、显式 `WxH`、活档位（逐位兼容基线）。
+
+**回退位** ✓：`?canvasbox=16x9` = 盒恒 16:9 且固定档不重算（改动前口径），已登记 `docs/README-DIAGNOSTICS.md` 主表。
+**读数** ✓：`window.__mpwCanvasBox = {w,h,aspect,design,source,at}` + `window.__mpwDesignSize` +
+一行日志 `①-A 画布盒比例跟随设计画布：…`。
+
+**判据** ✓：`tests/canvas-fit-and-csz-test.mjs` A1–A7（切片直测 `fitCanvas` + 真实 `buildCamera` 几何对拍）——
+A1 竖幅设计 ⇒ 盒竖幅（改动前红：1920×1080）；A2 16:9 ⇒ 盒与旧算式逐位相同（零回归）；A3 `?canvasbox=16x9` 回退；
+A4 未挂场景 ⇒ 16:9；A5 **双档**（盒=设计比例 ⇒ 0.00%；盒=16:9 ⇒ 非 16:9 设计全部 >5%，同一次运行两个方向）；
+A6 真实参数变异（3840×2160 @16:10 盒 ⇒ 左右各 5.00%）；A7 接线（活档位取盒尺寸 + 固定档重算块）。
+**普查侧双档** ✓：`tests/wallpaper-crop-census-test.mjs` C6/C7/C8 —— **改动前档 26/108 ⇒ 改动后档 0/108**、
+竖幅 **34.19% ⇒ 0.00%**（同一次运行内两档都断言 ⇒ 写死任一档另一档必红）。
+
+### P-340 ⑤-1「`engine.canvasSize` 缺省翻正交/场景尺寸」
+
+**根因（已证明）**：`mpwEngineCanvasSize()` 缺省传 `cv.width/height`（**渲染缓冲**：真机 `?res=dpr` 读数
+**1832×1030**），而官方定义 = "Size of the canvas/full wallpaper in pixels (2D scenes only)"
+（`lib.sceneScript.d.ts:1527-1535`）= **场景/壁纸尺寸**（本场景 **3840×2160**）⇒ 系数 **0.477**，
+且落点随窗口大小漂。真包读数（`窗畔弦歌`）：**65** 个 origin 脚本对象用 `engine.canvasSize`，
+Clock 的 `p=(0.5,0.5)` ⇒ 应落 **1920,1080** 而旧口径落 **916,515**（**差 1004px**）。
+
+**改法** ✓：缺省 = 正交/场景尺寸（`scene.general.orthogonalprojection`，无该矩形（3D 包）回落 `cv` 尺寸
+—— 与改动前同值）；`?csz=ortho` 显式同义；**`?csz=render` = 逐位回到改动前**（渲染缓冲尺寸）。
+**两处消费者都接同一口径** ✓：`applySceneScripts`（文本/对象脚本）与 `cameraScriptHost`（相机 origin 脚本，
+语料 14 个相机对象的脚本就是 `p × engine.canvasSize`）——后者传**活取值 getter**，bundle 每帧求值
+⇒ `?csz=render` 档下读到的是当前渲染缓冲尺寸，不引入第二套口径（判据 B9 钉接线）。
+
+**判据** ✓ `tests/canvas-fit-and-csz-test.mjs` B1–B9：B1 缺省 ⇒ 3840×2160（改动前红：1832×1030）；
+B2 `?csz=render` 回退逐位；B3 `?csz=ortho` == 缺省；**B4 双档不变性**（`?res=720p` 的 cv 1280×720
+与 `?res=2160p` 的 cv 3840×2160 下 `canvasSize` 必须同值 ⇒ 脚本落点不随渲染尺寸漂；改动前红）；
+**B5 变异自证** = 同源切 `?csz=render` ⇒ B4 必红且差异恰好 = 两档 cv 之差（2560×1440），
+打印 `期望红集 == 实际红集`；B6 3D 包回落；B7 接线（`canvasSize: mpwEngineCanvasSize()`）；B8 真包落点读数。
+
+**诚实边界** ✓：**未见真机帧** —— 本批全部读数来自切片直测 + `buildCamera` 几何 + 真包脚本参数；
+`:8902` 现场观感未验（无 GL：有头 Firefox 起不来、无头无 WebGL2）。
+⚠ **本批不承诺解决"丛雨四周被切"** ✗：普查三条独立路线（真机 `canvas=1832×1030` 读数 / `buildCamera` /
+CPU 光栅真帧）都给出丛雨 **0.00%**（其设计画布 3840×2160 = 16:9、内容盒 = 画布），
+用户真机 1920×1200=16:10 只能解释**左右各 5%**，**解释不了"上下"** ⇒ 更可能是宿主侧 cover 叠加，需用户侧信息。
+
+**判据自证** ✓：`node tests/canvas-fit-and-csz-test.mjs` ⇒ **18 通过 / 0 失败**（改动前同一条命令 = **11 通过 / 6 失败**，
+红的正是 A1/A7b/B1/B3/B4/B5）；`node tests/wallpaper-crop-census-test.mjs` ⇒ **18 通过 / 0 失败**
+（含 C6/C7/C8 双档）；`node tests/wallpaper-crop-census-test.mjs --selftest` ⇒ 8/8。
+
+**契约变更（经 Lead 授权，2026-10-12）** ✓：`tests/canvas-size-test.mjs` 的 **T1b** 原先断言的是**旧缺省**
+（"默认 = 渲染分辨率，逐位不变"）⇒ P-340 之后必红（读数 **10 通过 / 1 失败，exit 1**；该档在门禁里）。
+已按授权**只改这一处断言 + 该文件头注释 + `run-all-tests.sh` 里那一行的注释**：新 T1b **两条都断言**
+（①缺省 = 正交/场景尺寸 ②`?csz=render` 逐位回退渲染分辨率 + 正交取值路径齐备），并加**源级变异自证**
+（缺省改回 `render`／拆掉 `?csz=render` 回退 ⇒ 同一条判据必红，打印「期望红集 == 实际红集」）。
+现读数 **12 通过 / 0 失败，exit 0**；其余 T1a/T1c/T1d/T2a–T2g **一个字未动**、仍全绿。
+
+---
+
+## P-341（2026-10-12）⑤-2 脚本 origin 改**官方语义**：局部 origin + 重新父链合成（+ 级联）
+
+**来源** ✓：`<工作区>/docs/reports/CROP-TEXT-POSITION-DIAGNOSIS.md` §5 **H5**（第二处错位机制，已确认未改）。
+**范围** ✓：只动 `core/we-scene-bundle.js` 的 `syncScriptOrigins` 一带（`demo.html` 属 task-14，本批**未碰** ✗）。
+
+### 根因（已证明）
+旧实现（RE-28 之后）对"脚本改过 origin"的层施加**世界增量**：`l.origin += (脚本值 − authored)`，
+加在 **parseScene 已合成的世界坐标**上。官方语义（同报告 §H5）是：脚本 `update(value)` 返回的是
+**该层的局部 origin**，之后**照常走父链合成** ⇒ 带父级的层误差 = 父链偏移：
+- 判据读数（`tests/script-origin-recompose-test.mjs`，改动前）：父 scale=2 时主断言 **100.000px**；
+  **级联**（只改父的局部 origin）**100.000px**；
+- 真包读数：`窗畔弦歌` 的 `帧率显示` 父链累计 scale = **−0.292×0.292** ⇒ 旧口径每改 Δ局部就少乘该因子。
+
+### 修法（不新增第二套父链实现 ✓）
+1. **复用 P-61 `writeBindField` 的 origin 分支同一套公式**：
+   `origin = __authOriginWorld + R(父链)·((Δ局部) ⊙ 父链 scale)`（y-down 下 y 分量取反）
+   ⇒ **附件锚点天然保留**（锚点烘在 `__authOriginWorld` 里、Δ 相减时约掉）。
+2. **级联**：只改父的局部 origin 时，子/后代按 `p.origin − p.__authOriginWorld`（父的位移）跟着走
+   —— 否则容器一动、子层留在原地（真包 `窗畔弦歌` 有 **65** 个 `engine.canvasSize` 型 origin 脚本对象，
+   其中就有容器）。
+3. **回退位** ✓ `?scrorigin=legacy`（等价 `opts.legacy` / `setScrOriginLegacy()`）= 旧世界增量口径，**逐位**保留；
+   已登记 `docs/README-DIAGNOSTICS.md` 主表（`diag-flag-check` 243 == 243、0 差异 ✓）。
+4. **返回值语义不变** = "脚本改过 origin 的层数"（级联层不计入）⇒ `fullscreen-recenter-test` T2b `n===1` 仍绿 ✓。
+5. **已如实记账的边界**：父链自身的**旋转/缩放同帧被脚本改动**时，本实现按"父位移 + 子局部增量"合成
+   （父纯平移时精确；父同帧改旋转/缩放的帧仍是近似）——与 P-61 `writeBindField` 同一边界。
+
+### 判据（**能失败 + 双向 + 变异自证**）✓ `tests/script-origin-recompose-test.mjs`（新）
+**裁判 = 仓库自己的解析期合成**（同 objects、把该层 authored 换成脚本新值后重新 `parseScene` 取那一层 origin；
+不是"同一个式子算两遍"）。
+- 改动后 **7 PASS / 0 FAIL**；**同一条判据 × 改动前实现**（`MPW_BUNDLE=<改动前备份>`）**3 PASS / 4 FAIL**
+  （T1 100.000px / T2 级联 100.000px / T4 两口径差实测 (0,0) 期望 (100,50) / T4b 期望红集 ["legacy"] ≠ 实际 ["default","legacy"]）。
+- **变异自证①（防"永远红"）**：父链**恒等** ⇒ 两口径必须**同值**（实测 0.000px）。
+- **变异自证②（差异可算）**：父 `scale=2` + Δ局部 `(100,−50)` ⇒ 两口径**恰好差 (100,50)**（实测 =(100,50)）。
+  ⚠ **诚实修正（务必保留）**：**父 origin 单改而 scale=1 时两口径代数上无差**（差来自 `(s−1)·Δ`），
+  所以"恰差 (100,50)"的构造必须带父 `scale=2` —— 这正是"看起来能红其实恒绿"最容易踩的位置。
+- 真包读数（T6）：`帧率显示` 带父级（cos/sin=1.000/0.000、scale=−0.292×0.292）。
+
+### 契约变更（经 Lead 授权，只改点名的断言 ✓）
+| 文件 | 改动前 | 改动后 | 改法 |
+|---|---|---|---|
+| `tests/script-origin-sync-test.mjs` T3/T3b | **35 pass / 4 fail**（T3 期望 `before+(dx,−dy)` = 旧口径；T3b 用同一旧期望） | **39 pass / 0 fail**（exit 0） | 期望改用 **oracle**（重新 `parseScene`）＋**同时**钉住旧口径（`{legacy:true}` 必须仍 == `before+(dx,−dy)`）＋新增"两档必须给不同读数"；两处实测：底发 新 2367.1,373.0 / legacy 2404.0,386.8（差 39.35px）、右侧发 新 2554.6,682.2 / legacy 2545.4,655.2（差 28.55px）；T1/T2/T4–T7 一字未动 |
+| `tests/canvas-size-test.mjs` T2b/T2e | **10 pass / 2 fail**（T2b 真机台账锚点、T2e 两 canvasSize 口径差都用旧语义采得） | **15 pass / 0 fail**（exit 0） | T2b **两条都断言**：(a) **旧口径组合**（`{legacy:true}` + 渲染 canvasSize）**逐位复现**真机台账 `Clock(1828.5,365.2)/D a y(1432.4,600)`（锚点保留 ✓）；(b) **新缺省 == oracle（解析期合成）且 ≠ 旧台账**（差异可算，不是"只断言不等"）；T2e 在 **legacy 档**下保留原读数（551.7,613.6 / 3221.8,347.8 / 247.7,1191.9）＋新增 T2e2"两档必须不同"；新增 **T2m-① 变异自证**（把新缺省换回 legacy ⇒ T2b(b) 必红，打印「期望红集 == 实际红集」）与 **T2m-②**（无父级层两口径必须同值——本包那 12 层里没有根层，**如实 SKIP** 不假装测过）；T1/T2a/T2c/T2d/T2f/T2g 一字未动 |
+
+### 回归面（全部 exit 0）
+`script-api-minimal-set` · `script-frametime-cap` · `script-layer-ref-audit` · `script-member-gaps` ·
+`script-phase-order` · `script-runtime-errors` · `script-sandbox-globals` · `fullscreen-recenter`（T2b `n===1` ✓）·
+`text-layout`（29/29）· `text-font-fallback`（108/108）· `attach-transform`（ALL PASS）· `parity-check` ·
+`camera-script-origin`（14/14）· `canvas-fit-and-csz`（18/18）。
+
+**诚实边界** ✓：**未见真机帧** —— 本批读数 = 解析期合成裁判 + 合成夹具 + 真包结构/脚本参数；
+`:8902` 现场观感未验（无 GL）。"新的脚本落点是否与官方 WE 出图逐像素一致"仍**未验** ✗，
+但在本仓口径内它 == **解析期合成**（每帧渲染其它层用的同一条路）。
+
+## P-342（2026-10-12 · `:8902` 页面）④ 第 1 位壁纸标签「叉号越界 / 串框」+ ⑥ 图层开关「恢复默认」+ ⑦ 预览 URL 的**视差档**（用户第 2/3 条的页面侧根因 C）
+
+**落点**：`demo/index.html` + `demo/bench-patch.js`（用户看的页面 = `:8902` 的 `/`；`demo.html` / `core/**` / `server/**` 一个字未动 ✗）。
+**起点更正（实测）**：在 `:8902` 上请求 `demo.html` ⇒ **404** ✗；`curl :8902/` 的文档是 **`demo/index.html`** ✓，`demo.html` 挂在 **`/webloader/`**（预览 iframe 里的渲染器页）✓ —— 任务起点"`:8902` = `demo.html`"是错的（错因：只 grep 到 `demo.html` 含「图层」，没 curl `/`）。
+
+### ④ 第 1 位标签的 `×` 越界（根因 = 它是 flex 条上的**独立 flex 项**）
+- **根因链** ✓：`#current`（第 1 位 = **当前壁纸**那一格）的 `×` 只能做成**兄弟节点** `.wp-x-cur`（产物写 `#current.textContent` 会冲掉子节点，`demo/assets/bench-*.js` 实证）⇒ 它落在 `#editor-tabs` 这条 flex 上、占 `#current` 边框盒**右侧的 22px 槽位**；第 2/3… 位的 `×` 是 `.wp-tab` 的**子节点**、天然在框内 ⇒ **任何壁纸排到第 1 位都复现** ✓（与用户描述逐条对上）。
+- **修前实测**（无头 Firefox，夹具 CSS 从真源装配）：`#current` 右缘 **95.5** == `.wp-x-cur` 左缘 **95.5**（整块在框外）、`×` 右缘 117.5，第 2 个标签**正好从 117.5 开始**（间距 **0** ⇒"大框串到第 2 个壁纸里"）；第 2 格对照组：tab [117.5,317.5]、`×` [290.5,312.5] ⊆ 框内 ✓。
+- **修法**（纯几何 + 一条 display，不动 DOM 归属）：宿主格 `#current.wp-cur-has-x{padding-right:32px}` **预留**宽度、`×` `margin-left:-26px;margin-right:4px`（外边距盒宽 `-26+22+4=0` ⇒ 不给后续标签新增占位）⇒ 逐像素镜像 `.wp-tab{gap:6px;padding:0 4px 0 10px}`：标题↔`×` **6px**、`×` 右缘距格子右边 **4px**、`×` ⊆ 框内。标记由 `refreshSwitcher()` 与 `×` **同生共死**地加/摘（不依赖 `:has()`）。
+- ⚠ **同一处必须修的第二半（否则"修好越界、换来压字"）**：`.tab{display:flex}` + **裸文本** ⇒ 文本成**匿名 flex item**，`text-overflow:ellipsis` 管不到它 ⇒ 长标题只被按**内边距盒**硬裁、会**画到 `×` 底下**（真页面 `夜莺…窗畔弦歌` 实测：标题布局右缘 796、`×` 盒 [774,796]）。宿主态改 `display:block;line-height:32px` ⇒ 省略号在**内容盒右缘**截断，标题↔`×` 稳定 6px。
+- **修后实测**（真页面 `:8902`，126 层壁纸 + 第 2 个标签）：`#current` [620,800]、`.wp-x-cur` [774,796]（**⊆ 框内**，右缘留 4px）、标题↔`×` 6px、第 2 格从 800 开始（与 `×` 右缘留 4px）、第 2 格自己的 `×` [965.37,987.37] ⊆ [800,992.37] ✓；深浅主题截图各一张人工比对 ✓（几何与主题无关）。
+- **判据**：`tests/layer-panel-restore-test.mjs` C1/C2/C3 —— C3 在**无头 Firefox** 里用真源 CSS 装配夹具跑**短标题 + 长标题（省略号）**两条路，且**三个"修前形态"夹具必须判红**（去掉宿主规则 / 去掉负外边距 / 去掉 `display:block`）✓。
+
+### ⑥ 图层开关「恢复默认」
+- **语义 = 回到壁纸文件默认态**（本仓**唯一**那套：`layerSwitchState()` 的 `checked = 可显示 && !hidden && (fileVisible || shown)`）⇒ 只清用户的两份覆盖：隐藏集 `lswHidden` + 强制显示集 `lswShown`，**不新引第二套默认** ✓。
+- **与刷新一致的关键**：空集时 `lswSyncUrl()` 把 `?hide=` 从 URL **删掉** ⇒ 刷新后 `lswUrlHide` 读到 null ⇒ 状态逐位相同（不删参数就会被 URL 复原）。
+- **与邻居的区别**：全选 = 连文件里 `visible:false` 的层也勾上（强制显示）；全不选 = 可显示层全隐藏；本按钮**不动**文件语义。
+- **真页面实测**（126 层 / 104 可显示 / 87 个文件 `visible:false`）：改坏成 `hidden=[0,5]`、`shown=[2]`、URL `?hide=0%2C5` ⇒ 点「恢复默认」⇒ `hidden=[]`、`shown=[]`、勾选数回落 17（= 文件默认）、`search=""`、日志一行 ✓。
+- **调试隔离纪律**：`dbgActive` 时与「全选/全不选」同一条（只记账、不落层，退出调试时由 `lswApply()` 统一写）—— 判据 B6 钉住，变异 M9 证明它会红。
+- **判据**：`tests/layer-panel-restore-test.mjs` A（结构）/ B（把补丁里的 reset 切片 + 假 DOM 桩放进沙箱，**点切片自己注册的 click**）/ C + **10 组变异**（含"只恢复一半"、"不写 URL"、"不落层"、"接线成空函数"、"无视调试隔离"）✓。
+
+### ⑦ 预览 URL 的视差档（用户第 2/3 条的页面侧根因 C）
+- **事实**：`demo.html:8905` 的 `parallaxOff = !/^(1|official|legacy)$/.test(?parallax)` ⇒ **缺省关**；`demo/bench-patch.js` 此前**从不**把 `?parallax=` 写进预览 URL ⇒ 相机视差 + 对象级 `parallaxDepth` 在默认档**整体停用**。改前读数：`grep -c parallax demo/index.html`=3 / `demo/bench-patch.js`=4（**全是文案与注释，0 个写点**）；改后 = 13 / 13（含真写点）。
+- **落点**：`rendererSourceUrl()` 增一条 `if (opts && opts.parallax) upsertCI('parallax', …)`（**只在 opts 给了值时写** ⇒ 控件缺失/老门禁逐字不变）；`rendererDprOpts()` 交出 `parallax: parallaxMode`；档位状态机优先级 = **本页 URL `?parallax=` > localStorage(`bench-parallax`) > `1`**；控件 = 工具条「视差」**勾选框**（勾=`1` / 取消=`0`，接线块 `MPW-PARALLAX-WIRING-BEGIN/END`）。
+- **默认开的理由** ✓：① 测试台是"作者本意的预览面"，WE 客户端的视差本来就该出；② 用户本轮诉求就是"看不到视差"；③ 一键可关（写 `parallax=0`），分享链接带参即复现。**回退**：取消勾选 ⇒ `?parallax=0`（= 渲染器缺省，逐位回改动前）。`legacy` / `official` 两个 A/B 档由**本页 URL** 进且优先（实测 `:8902/?parallax=legacy` ⇒ 预览 URL `parallax=legacy` ✓、垃圾值忽略 ✓）。
+- **为什么是勾选框而不是下拉**：`bench-ui-headless` 的 **S3a/S3b 把工具条原生 select 个数硬编码成 8**（加第 9 个下拉即红 ✗，而 `tests/*.mjs` 不在本任务写入范围 ✗；Lead 已裁决**不动那两条形状钉** ✓）⇒ 用勾选框（不动 select 个数、与旁边「流式播放」同形），并加判据 **A1b**（`<select>` 个数恒为 9 = 工具条 8 + 设置弹层 1）挡住"以后改回下拉"。
+- **判据**：`tests/bench-parallax-flag-test.mjs` A（结构 7 条）/ B（`rendererSourceUrl()` **真切片沙箱**：四值逐值带参、缺省一个字符都不写、幂等、本仓⇄上游往返；README 写点；`demo.html` 判定逐字未动）/ C（**真页面 E2E**：缺省 `parallax=1`、真点勾选框 `1↔0`、URL 优先、0 页面错）+ **9 组变异** ✓。
+
+### ⭐ 附带修掉的一个真缺陷（不是本轮引入）：自绘下拉**选不中选项**
+- **成因链**：工具条那条 capture 委托（P-228f ⑥「带框控件的行文字不是热区」）对 label 内的点击 `preventDefault + stopPropagation()` ⇒ `.bench-rd-list li`（既不是 button 也不是 input）**一并被杀** ⇒ label 内的 `.bench-rd` 下拉点选项**永远到不了** `bindDropdown` 注册在 `li` 上的处理器。
+- **对照实验**（归因证据）：`#web-mode` 同样坏 —— 真指针点它的 `li`：点击前 `compat`、点击后仍 `compat`、浮层不关（`elementFromPoint` 命中的就是那个 `li`，排除遮挡）；⇒ 与视差控件无关，是 2026-10-05 P-228f ⑥ 的附带伤害。
+- **修法**：`if (el.closest('.bench-rd-list, .mpw_select_list')) { ev.preventDefault(); return }` —— ① 放过浮层里的点击（选项处理器照常写 `sel.value` + 派发 `change`，`bench-dropdown` 的 `close()` 也随之生效）；② `preventDefault()` **也是必需的**：`<label>` 的原生激活会把这次点击转发给它关联的控件（= label 里第一个 labelable 元素 = `.bench-rd-btn`）⇒ 只 `return` 不拦默认动作的话，浮层被 `close()` 之后**又被转发那一下重新打开**（实测：选完值浮层不关）。文字热区那条规则逐字未动（`bench-shell-fixes` M7/M8 照旧 296/296 ✓）。
+
+### 判据与登记
+| 项 | 文件 | 读数 |
+|---|---|---|
+| ④⑥ | `tests/layer-panel-restore-test.mjs`（新） | **15/15 + 10 组变异（期望红集 == 实际红集）**；含无头 Firefox 几何夹具与 3 个"修前形态必红"自证 |
+| ⑦ | `tests/bench-parallax-flag-test.mjs`（新） | **16/16 + 9 组变异**；含真页面 E2E（`:8902` 不可达时该段打印 SKIP、不计通过） |
+| 登记 | `tests/run-all-tests.sh` | 两行 `add "layer-panel-restore"` / `add "bench-parallax-flag"`（插在 `parallax-xray` 之后；`git diff` 确认未覆盖他人行 ✓） |
+| 文档 | `docs/README-DIAGNOSTICS.md` | `parallax` 行补**测试台写点**（勾选框 `#parallax` → `parallaxMode` / `rendererSourceUrl()`；URL 优先）⇒ `diag-flag-check` 244==244 ✓ |
+
+**回归面（全部 exit 0）**：`demo-check` 133/133（D8 两处同文规则 ✓）· `bench-layer-panel-test` 44/44 · `bench-shell-fixes` 296/296 · `diag-flag-check` 244==244 · `bench-parallax-flag` 16/16 · `layer-panel-restore` 15/15。
+**诚实边界** ✗：`bench-ui-headless` 另有 8 条红（R3/R3b/R3c web 帧 shim、S7b/S8a/S8b 列表类型标签、F3a/F3d 应用内浏览、`:823` 一处 `li.dataset` 崩溃）—— 归因见同轮**干净基线**（`git worktree add /tmp/base-head HEAD` + 独立端口起基线服务）实测；那些代码路径本任务**一处未碰** ✓。
+

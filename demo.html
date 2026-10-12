@@ -392,13 +392,40 @@ canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;backgrou
 <div id=fps>--</div>
 <canvas id=sc></canvas>
 <script>
+/* ①-A(P-339 2026-10-12) **画布盒比例跟随设计画布**（用户第 ① 条"壁纸画面被切"的根因修法）。
+   根因（普查 `tests/wallpaper-crop-census-test.mjs`，108 个场景）：画布盒被恒取成"窗口内最大的
+   16:9 盒"，而取景窗口的比例**只**由「设计画布 `general.orthogonalprojection` 的比例 vs 盒比例」
+   决定（`core/we-scene-bundle.js` 的 `buildCamera`，缺省 `fillmode=aspectcrop`＝cover）⇒ 非 16:9
+   设计画布必被切掉一条轴：竖幅 1080×1920 上下各 **34.19%**、超宽 7680×2232 左右各 **24.15%**，
+   全语料 **26/108** 个包中招（内容包围盒超出画布的另有 34 个）。
+   现在：盒比例 = `window.__mpwCanvasAspect`（主模块在 `parseScene` 之后按当前场景写入；未写 = 16:9）
+   ⇒ 盒比例 == 设计画布比例 ⇒ `buildCamera` 的取景窗口 == 设计画布（四边裁切 0.00%）。
+   回退口：`?canvasbox=16x9`（= 改动前的恒 16:9 盒，A/B 与基准用；只读一次并缓存在 window 上）。
+   逐位兼容：比例 == 16:9 时两条算式**与改动前逐字同式**（`vw*9/16` / `vh*16/9`），零回归。 */
 function fitCanvas() {
   const c = document.getElementById('sc');
   const vw = window.innerWidth, vh = window.innerHeight;
-  let w = vw, h = Math.round(vw * 9 / 16);
-  if (h > vh) { h = vh; w = Math.round(vh * 16 / 9); }
+  if (window.__mpwCanvasBoxLegacy === undefined) {
+    let lg = false
+    try { lg = (new URLSearchParams(location.search).get('canvasbox') || '').trim().toLowerCase() === '16x9' } catch (e) { lg = false }
+    window.__mpwCanvasBoxLegacy = lg
+  }
+  const a0 = window.__mpwCanvasAspect;
+  let a = (typeof a0 === 'number' && isFinite(a0) && a0 > 0.02 && a0 < 50) ? a0 : (16 / 9);
+  if (window.__mpwCanvasBoxLegacy === true) a = 16 / 9;
+  const is169 = (a === 16 / 9);
+  let w = vw, h = Math.round(is169 ? vw * 9 / 16 : vw / a);
+  if (h > vh) { h = vh; w = Math.round(is169 ? vh * 16 / 9 : vh * a); }
   c.style.width = w + 'px'; c.style.height = h + 'px';
   c.style.position = 'fixed'; c.style.left = ((vw - w) / 2) + 'px'; c.style.top = ((vh - h) / 2) + 'px';
+  // 读数（诊断/判据吃它，不是观感）：盒尺寸 + 盒比例 + 比例来源
+  try {
+    window.__mpwCanvasBox = {
+      w: w, h: h, aspect: a, design: is169 ? null : (window.__mpwDesignSize || null),
+      source: (window.__mpwCanvasBoxLegacy === true) ? 'canvasbox=16x9' : ((typeof a0 === 'number' && isFinite(a0) && a0 > 0.02 && a0 < 50) ? 'design' : 'default-16:9'),
+      at: Date.now(),
+    }
+  } catch (e) {}
 }
 window.addEventListener('resize', fitCanvas);
 fitCanvas();
@@ -5643,6 +5670,22 @@ function loadScene() {
      由此拿到真句柄（`play()/pause()/stop()/setFrame()/rate` 直接驱动播放头；渲染逐帧求值）。
      闭包读的是**当前** `scene`（重挂载会重建），WeakMap 查不到时门面自动回落到中性桩 ⇒ 零行为变化。 */
   try { setAnimationResolver((raw) => (scene && scene.__animByRaw ? scene.__animByRaw.get(raw) : null)) } catch (e) { /* 无 window/未解析 → 桩 */ }
+  /* ①-A(P-339 2026-10-12) 场景解析完成 ⇒ 把**设计画布比例**写进 `window.__mpwCanvasAspect` 并重排画布盒
+     （`fitCanvas` 的唯一输入；未写 = 16:9，故启动期/无场景时逐位同旧）。为什么要在这里：`general` 只有
+     `parseScene` 之后才有，而画布盒必须在第一帧之前定下来（取景窗口 = 盒比例）。
+     读数：`window.__mpwDesignSize` / `window.__mpwCanvasBox`；`?canvasbox=16x9` 时比例仍写、但盒保持 16:9。 */
+  try {
+    const __op0 = (scene.general && scene.general.orthogonalprojection) || null
+    const __dw = (__op0 && Number(__op0.width) > 0) ? Number(__op0.width) : 1920
+    const __dh = (__op0 && Number(__op0.height) > 0) ? Number(__op0.height) : 1080
+    window.__mpwDesignSize = { width: __dw, height: __dh }
+    window.__mpwCanvasAspect = __dw / __dh
+    if (typeof fitCanvas === 'function') fitCanvas()
+    const __bx = window.__mpwCanvasBox || null
+    logf('①-A 画布盒比例跟随设计画布：设计 ' + __dw + 'x' + __dh + '（比例 ' + (__dw / __dh).toFixed(5)
+      + '）⇒ 盒 ' + (__bx ? (__bx.w + 'x' + __bx.h + '（比例 ' + __bx.aspect.toFixed(5) + '，来源 ' + __bx.source + '）') : '(未取到)')
+      + (window.__mpwCanvasBoxLegacy === true ? ' —— `?canvasbox=16x9` 回退档：盒恒 16:9' : ''))
+  } catch (e) { logf('⚠ ①-A 画布盒比例接线失败（保持 16:9）：' + ((e && e.message) || e)) }
   // ═══ MPW-VIDEOBASE-BEGIN ═══
   // ①(2026-09-12 用户批准)"**视频作最底层 + 场景层按序叠加**"：容器里同时有 scene.json 与
   //   project.json.file 指向的视频（mp4/webm）时，把视频作为**最底层**合成 —— 官方这类作品
@@ -5845,9 +5888,21 @@ function loadScene() {
   let __mpwCszMode = null
   function mpwEngineCanvasSize() {
     if (__mpwCszMode === null) {
-      try { __mpwCszMode = (new URLSearchParams(location.search).get('csz') === 'ortho') ? 'ortho' : 'render' } catch (e) { __mpwCszMode = 'render' }
+      /* ①⑤-1(P-340 2026-10-12) **缺省翻到官方口径**：`engine.canvasSize` 的官方定义是
+         "Size of the canvas/full wallpaper in pixels (2D scenes only)"（`lib.sceneScript.d.ts:1527-1535`）
+         = **场景/壁纸尺寸**，不是渲染画布尺寸；同工作区另一份移植 `elysia/we-renderer/core.js:562-569`
+         也明写"canvasSize = 场景正交尺寸，非渲染分辨率"。
+         改动前缺省传的是 `cv.width/height`：真机 `?res=dpr` 读数 **1832×1030** vs 本场景场景尺寸
+         **3840×2160** ⇒ 系数 **0.477**；凡 `p × engine.canvasSize` 定位的时钟/日期/帧率/容器
+         （真包 `窗畔弦歌` 里 **65** 个 origin 脚本对象、Clock 的 `p=(0.5,0.5)` ⇒ 落点 916,515
+         而不是 1920,1080，**差 1004px**）⇒ 落点随**渲染尺寸**漂（改窗口大小就挪位），
+         这正是用户第 ⑤ 条"显示时间这类控件位置判定错、几乎每个壁纸都错位"。
+         口径（三档，读数一致）：缺省 = 正交/场景尺寸；`?csz=ortho` 显式同义；
+         `?csz=render` = **逐位回到改动前**（渲染缓冲尺寸，A/B 与基准用）。
+         无 `general.orthogonalprojection` 的场景（3D 包）回落 `cv` 尺寸 —— 与改动前同值，不引入回归。 */
+      try { __mpwCszMode = (new URLSearchParams(location.search).get('csz') === 'render') ? 'render' : 'ortho' } catch (e) { __mpwCszMode = 'ortho' }
     }
-    if (__mpwCszMode !== 'ortho') return { x: cv.width, y: cv.height }
+    if (__mpwCszMode === 'render') return { x: cv.width, y: cv.height }
     const op = (scene && scene.general && scene.general.orthogonalprojection) || {}
     const w = Number(op.width), h = Number(op.height)
     return { x: (w > 0 ? w : cv.width), y: (h > 0 ? h : cv.height) }
@@ -8948,10 +9003,19 @@ function loadScene() {
     //   这里把**本页已经在用的**那个脚本宿主（`elysia/scene-scripts.js`，见本文件顶部 import）交给
     //   bundle 的相机分支复用 —— 不自造求值器、不新增 `?` 开关。
     //   输入口径（与 demo 既有脚本趟一致）：`userProps` 默认读 `window.__mpwUserProps`（面板就绪后才有；
-    //   没有它时 bundle **保持不施加**，不会套用编辑器残留快照）、`canvasSize` 默认 = 渲染输出尺寸
-    //   （= 本文件的 `mpwEngineCanvasSize()` 缺省口径）；`opts.cameraScript='off'` 或
+    //   没有它时 bundle **保持不施加**，不会套用编辑器残留快照）、`canvasSize` = **本文件的
+    //   `mpwEngineCanvasSize()`**（①⑤-1 P-340：缺省 = 场景/壁纸尺寸，`?csz=render` 逐位回
+    //   "渲染输出尺寸"）；`opts.cameraScript='off'` 或
     //   `window.__mpwCameraScript='off'` 可实时回退到"不跑脚本"。
-    cameraScriptHost: { applySceneScripts, createScriptCache },
+    /* ①⑤-1(P-340 2026-10-12) 相机 origin 脚本吃的是**同一个** `engine.canvasSize`（语料 14 个相机对象的
+       脚本就是 `value.x = scriptProperties.x * engine.canvasSize.x`）⇒ 这里必须传**同一口径**，否则文字
+       修好了、运镜还按渲染尺寸漂。传**活取值对象**（getter）而不是快照：bundle 每帧调
+       `cameraScriptCanvasSize()`，取值时才求值 ⇒ `?csz=render` 档下读到的是**当前**渲染缓冲尺寸
+       （不引入第二套口径、也不受"本行执行时 cv 尚未定尺寸"影响）。 */
+    cameraScriptHost: {
+      applySceneScripts, createScriptCache,
+      canvasSize: { get x() { return mpwEngineCanvasSize().x }, get y() { return mpwEngineCanvasSize().y } },
+    },
   }));
   // ①(ISSUE0924A2 2026-09-24) 效果链逐层台账的**只读**快照（`renderer.fxStats`，定义见 bundle
   //   `:14219`）：门禁/真机诊断要靠它回答"fx>0 的层到底跑没跑材质 pass"
@@ -9074,6 +9138,31 @@ function loadScene() {
   /* ①(2026-09-22) `?res=dprN` 里的 N = **显式乘数**（见 `resolveLiveCanvasSize` 的说明）：
      在 1× 屏上它也要真的放大到 N 倍（"我要按 N 倍出图"），而**不是**只当上限。 */
   __resTier.liveDprWanted = (() => { const m = /^dpr([1-5])$/.exec(String(__resTier.requested || '')); return m ? Number(m[1]) : null })();
+  /* ①-A(P-339 2026-10-12) **固定档也要按设计画布比例出图**：像素预算（width×height）不变，只把宽高
+     换成同一预算下的设计比例尺寸 ⇒ 取景窗口 == 设计画布（不再切掉一条轴）。
+     为什么必须有这一步：`buildCamera(scene, cv.width, cv.height)` 的取景比例取自**绘制缓冲**，而固定档
+     （`?res=720p|1080p|1440p|2160p|4k|auto`，测试台缺省 1080p）的缓冲是写死的 16:9 ⇒ 只改画布盒不够。
+     逐位兼容：设计比例 == 16:9 时算式**恒等**（1080p：sqrt(1920·1080·16/9)=1920、1080 ⇒ 尺寸不变、
+     连日志都不打）⇒ 既有 16:9 语料/夹具零回归。
+     不碰的三档（逐位兼容基线/显式请求）：`?res=legacy`、显式 `WxH`、活档位 `dpr*`（画布 = 盒×DPR，另走
+     下方 MPW-LIVERES 块）。回退口 `?canvasbox=16x9` 时本块整段不生效。 */
+  try {
+    const __a = window.__mpwCanvasAspect
+    const __req = String(__resTier.requested || '')
+    const __explicitWH = /^\d{2,5}x\d{2,5}$/.test(__req)
+    if (window.__mpwCanvasBoxLegacy !== true && !__resTier.live && !__resTier.legacy && !__explicitWH
+        && typeof __a === 'number' && isFinite(__a) && __a > 0.02 && __a < 50) {
+      const __budget = __resTier.width * __resTier.height
+      const __w0 = Math.max(2, Math.round(Math.sqrt(__budget * __a) / 2) * 2)
+      const __h0 = Math.max(2, Math.round((__budget / __w0) / 2) * 2)
+      if (__w0 !== __resTier.width || __h0 !== __resTier.height) {
+        logf('①-A 固定档画布改按设计画布比例（像素预算 ' + __budget + ' 不变）：'
+          + __resTier.width + 'x' + __resTier.height + ' → ' + __w0 + 'x' + __h0
+          + '（设计比例 ' + __a.toFixed(5) + '）')
+        __resTier.width = __w0; __resTier.height = __h0; __resTier.capW = __w0; __resTier.capH = __h0
+      }
+    }
+  } catch (e) { logf('⚠ ①-A 固定档比例重算失败（保持档位原尺寸）：' + ((e && e.message) || e)) }
   cv.width = __resTier.width; cv.height = __resTier.height;
   try { window.__mpwResTier = __resTier } catch (e) {}
   // ①(P-77 一页多实例预算，设计文档 §3)：maxinst ≥ 3 ⇒ 画布自动降到 720p，并在状态条标"已降档"。

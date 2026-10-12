@@ -119,11 +119,38 @@ console.log(`\n[T3] 修复后：脚本**写** origin → 增量叠加（脚本�
     o.origin = `${p[0] + dx} ${p[1] + dy} 0.00000`                // 模拟脚本改写 authored origin
     const n = lib.syncScriptOrigins(sc, objs, base, new Map())
     const after = sc.layers.find((l) => l.name === name)
-    // 期望：x += dx，y -= dy（y-up → y-down 取反）
-    const ex = [before.origin[0] + dx, before.origin[1] - dy]
+    /* ①⑤-2(P-341 2026-10-12 **契约变更**，经 Lead 授权：只改本 T3 块，T1/T2/T4–T7 一字不动)
+       脚本 origin 的**官方语义** = 脚本返回值是**该层的局部 origin**，之后**重新走父链合成**
+       （`<工作区>/docs/reports/CROP-TEXT-POSITION-DIAGNOSIS.md` §5 H5）——旧期望
+       `before + (dx,−dy)`（= 世界增量）就是被改掉的那个口径。
+       ⇒ 期望值改用 **oracle**：把该层 authored origin 换成脚本新值后**重新 parseScene**，
+         取那一层的 origin（解析期合成 = 官方口径，含父链/弧度/附件锚点/Y 翻转）。
+       ⇒ 并**同时**钉住旧口径：`{legacy:true}`（= `?scrorigin=legacy`）必须仍等于 `before + (dx,−dy)`
+          —— 两个口径都被断言，判据强度不降反升（任一档被写死 ⇒ 另一档必红）。 */
+    const p2 = String(o.origin).trim().split(/\s+/).map(Number)
+    const jOracle = JSON.parse(JSON.stringify(sceneJson))                    // 干净副本（parseScene 会就地合成层坐标）
+    jOracle.objects.find((x) => x.name === name).origin = `${p2[0]} ${p2[1]} ${p2[2] || 0}`
+    const scOracle = lib.parseScene(jOracle, null, { attachCtx: { readEntry, time: 0 } })
+    const lOracle = scOracle.layers.find((l) => l.name === name)
+    const ex = [lOracle.origin[0], lOracle.origin[1]]                        // oracle（官方语义）
+    const exLegacy = [before.origin[0] + dx, before.origin[1] - dy]          // 旧口径（世界增量）
     const err = Math.hypot(after.origin[0] - ex[0], after.origin[1] - ex[1])
-    ok(n === 1 && err < 1e-6, `T3 ${name} 增量叠加正确（x+${dx}, y-(${dy})）`,
-      `期望=(${ex[0].toFixed(1)},${ex[1].toFixed(1)}) 实际=(${after.origin[0].toFixed(1)},${after.origin[1].toFixed(1)}) synced=${n}`)
+    ok(n === 1 && err < 1e-6, `T3 ${name} 脚本值按父链重合成 == oracle（官方语义）`,
+      `oracle=(${ex[0].toFixed(1)},${ex[1].toFixed(1)}) 实际=(${after.origin[0].toFixed(1)},${after.origin[1].toFixed(1)}) synced=${n}`)
+    // 旧口径必须仍可复现（回退位逐位）
+    const rawCopy2 = JSON.parse(JSON.stringify(sceneJson))
+    const scL = lib.parseScene(JSON.parse(JSON.stringify(rawCopy2)), null, { attachCtx: { readEntry, time: 0 } })
+    const baseL = lib.snapshotAuthoredOrigins(rawCopy2.objects)
+    const oL = rawCopy2.objects.find((x) => x.name === name)
+    oL.origin = `${p2[0]} ${p2[1]} ${p2[2] || 0}`
+    const nL = lib.syncScriptOrigins(scL, rawCopy2.objects, baseL, new Map(), { legacy: true })
+    const aL = scL.layers.find((l) => l.name === name)
+    const errL = Math.hypot(aL.origin[0] - exLegacy[0], aL.origin[1] - exLegacy[1])
+    const differs = Math.hypot(after.origin[0] - aL.origin[0], after.origin[1] - aL.origin[1]) > 1e-6
+    ok(nL === 1 && errL < 1e-6, `T3-legacy ${name} \`?scrorigin=legacy\` 必须逐位回旧口径（世界增量）`,
+      `旧口径期望=(${exLegacy[0].toFixed(1)},${exLegacy[1].toFixed(1)}) legacy档=(${aL.origin[0].toFixed(1)},${aL.origin[1].toFixed(1)}) synced=${nL}`)
+    ok(differs, `T3-split ${name} 两档必须**给出不同读数**（否则契约变更没生效 / 判据是同义反复）`,
+      `新=(${after.origin[0].toFixed(1)},${after.origin[1].toFixed(1)}) legacy=(${aL.origin[0].toFixed(1)},${aL.origin[1].toFixed(1)}) 差=${Math.hypot(after.origin[0] - aL.origin[0], after.origin[1] - aL.origin[1]).toFixed(2)}px`)
     // 幂等：同一帧重复调用不应继续漂移
     const again = lib.syncScriptOrigins(sc, objs, base, new Map())
     const err2 = Math.hypot(after.origin[0] - ex[0], after.origin[1] - ex[1])

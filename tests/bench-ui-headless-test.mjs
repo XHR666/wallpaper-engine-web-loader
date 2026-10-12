@@ -32,6 +32,11 @@ const VIEW = { w: Number(argOf('--w', 1360)), h: Number(argOf('--h', 900)) }
 let pass = 0; let fail = 0; const notes = []
 const ok = (c, label, extra = '') => { if (c) { pass++; console.log('PASS ' + label + (extra ? '  ' + extra : '')) } else { fail++; console.log('FAIL ' + label + (extra ? '  ' + extra : '')) } }
 const skip = (why) => { console.log('SKIP bench-ui-headless — ' + why); process.exit(0) }
+/** 汇总行（正常收尾与兜底 catch **共用同一份**，不许两条路打出不同口径的读数）。 */
+const printSummary = () => {
+  console.log(`\n── 汇总：PASS=${pass} FAIL=${fail}`)
+  for (const n of notes) console.log('  note: ' + n)
+}
 
 try { const r = await fetch(URL_BASE, { signal: AbortSignal.timeout(4000) }); if (!r.ok) skip(`测试台不可达：${URL_BASE} → ${r.status}`) } catch (e) { skip(`测试台不可达：${e.message}`) }
 
@@ -315,6 +320,26 @@ try {
     //  （这正是 T/W 两组必须切上游档的原因，也是"整合成一个"还差的那块工作量的证据）
     await setRendererSource('repo')
     await page.waitForTimeout(1200)
+    /*  ⓪(2026-10-12 判据修复 · task-17) **夹具自证**：R3/R3b/R3c 的前提是"库里有一张 web 档"。
+        实测（2026-10-07 起）库根是用户在选择器里显式选定的一个**平铺 `.mpkg` 目录**（顶层 6 个 `.mpkg`、
+        0 个子目录，服务端 census `web=0`）⇒ 库里一张 web 档都没有；而 `/web/dev/**`、`/media/dev/**`
+        是**库根内**只读面（服务端按 activeRoot 解析 itemId，`server/we-scene-demo-server-8902.mjs:3123`）
+        ⇒ 换任何"库外"入口都会 404，这条路在当前运行配置下**无从触发**。
+        判据**一条不放宽**（照旧 FAIL）；这里只把"夹具在不在库里"做成**显式读数**（`libraryWeb`），
+        否则读数是 `skipped:"cross-origin"` 这种上一张壁纸的残留状态，人根本分不清是
+        "契约被违反"还是"夹具不在库里"。同时这也让下面 T 组不会被同一件事二次误导。 */
+    const libCensus = await (async () => {
+      try {
+        const r = await fetch(new URL('/api/library', URL_BASE), { signal: AbortSignal.timeout(10000) })
+        const j = await r.json()
+        const items = Array.isArray(j.items) ? j.items : []
+        const kinds = { scene: 0, web: 0, video: 0 }
+        for (const it of items) { const k = String(it.type || it.kind || '').toLowerCase(); if (k in kinds) kinds[k]++ }
+        return { dir: String(j.dir || ''), items: items.length, kinds, webIds: items.filter((it) => String(it.type || it.kind || '').toLowerCase() === 'web').map((it) => String(it.itemId || '')).slice(0, 8) }
+      } catch (e) { return { err: String((e && e.message) || e) } }
+    })()
+    const libWeb = (libCensus.kinds && libCensus.kinds.web) || 0
+    const fixtureTag = libWeb > 0 ? 'web-in-library' : 'no-web-item-in-library(web=0)'
     const r2 = await page.evaluate(async () => {
       const fr = document.getElementById('frame')
       const seg = document.querySelector('#type-filter .seg-btn[data-type="web"]')
@@ -352,7 +377,7 @@ try {
       Array.isArray(r2.nested) && r2.nested.length > 0 && r2.nested.every((u) => /^https?:\/\/[^/]+\/web\//.test(u)),
       'R3 ★新契约：本仓渲染器档 + web 壁纸 ⇒ **宿主让位**（不再包 blob 注入：`skipped=host-injects`、注入 0 次）' +
       '—— web 帧由渲染器页自己挂（帧 `src` 是原始 `/web/…` URL，**不是** `blob:`）、shim 由服务端注入',
-      JSON.stringify(r2))
+      JSON.stringify({ ...r2, fixture: fixtureTag, libraryWeb: libWeb, libraryDir: libCensus.dir, libraryItems: libCensus.items }))
     /* ①(2026-09-24) R3c：「shim 由服务端注入」这句话必须**可独立核对**（不是靠宿主自述）：直接取一次帧入口，
        看服务端的注入头与文档里的注入标记。为什么这条要与 R3 分开：R3 的 `skipped` 是宿主状态面，
        R3c 是服务端事实 —— 两条一起才排得掉"两边都以为对方注入了"（旧读数的 `failed:1` 就是这种双重注入）。 */
@@ -367,10 +392,10 @@ try {
       : { err: 'no-nested-frame' }
     ok(srvShim.ok === true && srvShim.shim === 'injected' && srvShim.marker === true,
       'R3c ★新契约：「shim 由服务端注入」独立核对（`GET <帧入口>` ⇒ `X-Mpw-Shim: injected` + 文档里有 `data-mpw-we-shim` 注入标记）',
-      JSON.stringify(srvShim))
+      JSON.stringify({ ...srvShim, fixture: fixtureTag, libraryWeb: libWeb, frameEntry: (Array.isArray(r2.nested) && r2.nested[0]) || null }))
     ok(r2.frameReady === true && r2.frameMode === 'compat',
       'R3b 本仓渲染器档的 web 帧**真的挂上并报到**（`__mpwWebFrame.ready=true`、`mode=compat`）',
-      JSON.stringify({ ready: r2.frameReady, mode: r2.frameMode, state: r2.frameState }))
+      JSON.stringify({ ready: r2.frameReady, mode: r2.frameMode, state: r2.frameState, fixture: fixtureTag, libraryWeb: libWeb, selectedId: r2.id }))
     //  收尾：把类型过滤恢复成「全部」并把来源切回上游 —— 后面的 S 组按"全部档列表"取数，
     //  夹具留下的 web 过滤会让它看到的行数与类型都不对（实测 S7b 就是这么红的）。
     await page.evaluate(async () => {
@@ -576,6 +601,17 @@ try {
       out.panelOpen = !document.getElementById('wp-panel').hasAttribute('hidden')
       out.rows = rows.length
       out.types = rows.reduce((a, r) => { const k = (r.querySelector('.wp-kind') || {}).textContent; a[k] = (a[k] || 0) + 1; return a }, {})
+      /*  ⓪(2026-10-12 判据修复 · task-17) 读数加固（**断言一条没改**）：`types` 只给"标签文本 → 行数"，
+          红的时候看不出是"标签写错"还是"行的 data-kind 也错"。现在把两样都带上 ⇒ 现场能直接分辨。
+          本条当前读数是**真红**（产品缺陷，不是判据过期）：每行 `.wp-kind` = `?`、`row.dataset.kind` = `unknown`。
+          根因链（都在 `demo/bench-patch.js`，不属于本判据的写入范围）：
+            · `decorateListRow`（`:6270-6295`）把 `.sub` 拆成 `.bench-row-kind` + `.bench-row-id` 两个 span，
+              `textContent` 拼成 `scene丛雨.mpkg`（**没有分隔符**）；
+            · 读者 `listItems()`（`:4492` `sub: li.querySelector('.sub')?.textContent`）把这串喂给
+              `wpPanelRows()`（`:1015-1022` `kindOfSub(it.sub)`）；
+            · `kindOfSub`（`:872`）按 `'·'` 切首段 ⇒ `'scene丛雨.mpkg' !== 'scene'` ⇒ `'unknown'` ⇒ tag `'?'`。
+          同一个 DOM 上 `.bench-row-kind`/`.bench-kind` 都写着真实的 `scene`/`video` ⇒ 修法是让读者读那两个节点。 */
+      out.rowKinds = rows.map((r) => ({ id: String(r.dataset.id || '').slice(0, 24), dataKind: r.dataset.kind || null, tag: (r.querySelector('.wp-kind') || {}).textContent || null }))
       out.rowHit = rows[0] ? hit(rows[0].querySelector('.wp-row-go')) : null
       out.pinHit = rows[0] ? hit(rows[0].querySelector('.wp-pin')) : null
       out.panelInBar = (() => { const b = R(document.getElementById('wp-switch')); const p = R(document.getElementById('wp-panel')); return !!(p && b && p.x >= b.x - 1 && p.x + p.w <= b.x + b.w + 1) })()
@@ -585,7 +621,8 @@ try {
       'S7a ⑨＋ 固定在切换栏内（不是浮在别处），且命中区 = 视觉区（`elementFromPoint` 命中它自己）',
       JSON.stringify({ parent: s.addParent, inBar: s.addInBar, hit: s.addHit }))
     ok(s.panelOpen && s.rows >= 1 && s.types && (s.types.scene || 0) >= 1,
-      'S7b ⑨点 ＋ 才**显式展开**库列表（默认收起）；列表行带真实类型标签', JSON.stringify({ rows: s.rows, types: s.types }))
+      'S7b ⑨点 ＋ 才**显式展开**库列表（默认收起）；列表行带真实类型标签',
+      JSON.stringify({ rows: s.rows, types: s.types, kindTexts: s.rowKinds && [...new Set(s.rowKinds.map((r) => r.tag))], dataKinds: s.rowKinds && [...new Set(s.rowKinds.map((r) => r.dataKind))], sample: s.rowKinds && s.rowKinds.slice(0, 2) }))
     ok(s.rowHit && s.rowHit.self && s.pinHit && s.pinHit.self,
       'S7c ⑨每行的"切换"与"★ 固定"两个命中区都等于视觉区（没有"看得到点不到"）', JSON.stringify({ row: s.rowHit, pin: s.pinHit }))
   }
@@ -617,7 +654,23 @@ try {
     const s = await page.evaluate(async () => {
       const out = {}
       const segs = (ty) => document.querySelector('#type-filter .seg-btn[data-type="' + ty + '"]')
-      const counts = () => [...document.querySelectorAll('#list li[data-id]')].map((li) => ((li.querySelector('.sub') || {}).textContent || '').split(' ')[0].toLowerCase())
+      /*  ⓪(2026-10-12 判据修复 · task-17) **读数口径与当前行结构对齐**（判据强度不变：仍逐行判类型）。
+          旧写法：`li.querySelector('.sub').textContent.split(' ')[0]` —— 它假定 `.sub` 是产物那一行文本
+          `类型 · N 属性 · itemId`。用户第 14 条「属性太多导致 ID 显示不全」的修复把 `.sub` 拆成了
+          `.bench-row-kind` + `.bench-row-id` 两个 `<span>`（`demo/bench-patch.js:6270-6295`），
+          `textContent` 于是拼成 `scene丛雨.mpkg`（**中间没有分隔符**）⇒ 旧口径把每一行都读成
+          `scene丛雨.mpkg` / `video-爱伦坡.mpkg`，`every(k === 'video')` 必假 ⇒ **假红**（判据侧过期，
+          不是产品缺陷：同一个 DOM 上 `.bench-row-kind` / `.bench-kind` 都如实写着 `scene`/`video`）。
+          新口径 = 真实契约节点优先，旧口径留作**兜底**（老结构页面照样读得对，等价强度不降）。 */
+      const kindOfRow = (li) => {
+        const node = li.querySelector('.bench-row-kind') || li.querySelector('.bench-kind')
+        const raw = String((node && node.textContent) || '').trim().toLowerCase()
+        const head = raw.split(/[^a-z]/)[0]          // `scene · 3 属性` 这类head 取首段
+        if (head === 'scene' || head === 'web' || head === 'video') return head
+        return String((li.querySelector('.sub') || {}).textContent || '').split(' ')[0].trim().toLowerCase()
+      }
+      const rows = () => [...document.querySelectorAll('#list li[data-id]')]
+      const counts = () => rows().map(kindOfRow)
       for (const ty of ['scene', 'web', 'video', 'all']) {
         segs(ty).click()
         await new Promise((r) => setTimeout(r, 700))
@@ -626,12 +679,40 @@ try {
       }
       out.visible = !!document.querySelector('#type-filter') && document.querySelector('#type-filter').getBoundingClientRect().width > 0
       out.badge = [...document.querySelectorAll('#list li[data-id] .bench-kind')].length
+      /* 徽章文本必须与**该行自己的类型**一致（"标签如实显示"的逐行版本；`.bench-kind` 由补丁挂在 `li` 上）。 */
+      out.badgeOk = rows().filter((li) => {
+        const b = li.querySelector('.bench-kind')
+        return !!b && String(b.textContent || '').trim().toLowerCase() === kindOfRow(li)
+      }).length
+      out.rowSample = rows().slice(0, 3).map((li) => ({ id: String(li.dataset.id || '').slice(0, 24), kind: kindOfRow(li), badge: (li.querySelector('.bench-kind') || {}).textContent }))
       return out
     })
-    ok(s.visible && s.scene.n > 0 && s.web.n > 0 && s.video.n > 0 && s.all.n >= s.scene.n + s.web.n + s.video.n - 1,
-      'S8a 类型过滤可用且**四档都在**：全部 = 三档之和（改前 `#type-filter` 被 hidden 且 onclick=null ⇒ 永远只有 scene）', JSON.stringify(s))
-    ok(s.web.kinds.every((k) => k === 'web') && s.video.kinds.every((k) => k === 'video') && s.badge > 0,
-      'S8b 每档列表里的条目类型都对得上（标签如实显示，不一律写 scene）', JSON.stringify({ web: s.web, video: s.video, badges: s.badge }))
+    /*  ⓪ 服务端逐类计数（`GET /api/library`，**独立于过滤器 UI**）—— 旧口径里"三档都必须非空"
+        隐含了一个夹具假设："库里一定有这三类壁纸"。实测 2026-10-07 起用户把库根换成一个**平铺 .mpkg
+        目录**（顶层 6 个 .mpkg、0 个子目录，census `scene=5 / video=1 / web=0`）⇒ web 档**本来就该是空的**，
+        旧口径于是永远红（假红）。把两件事分开：库里**有**的档，列表必须非空且逐行类型正确；库里**没有**的档，
+        空列表才是对的。刻意不放松的部分：`全部 = 三档之和` 与"逐档每行类型都对得上"两条一条不动
+        （过滤器被焊在 scene 上时，`all.n >= Σ-1` 与 S8b 的逐档判断都会立刻变红）。 */
+    const cen = await (async () => {
+      try {
+        const r = await fetch(new URL('/api/library', URL_BASE), { signal: AbortSignal.timeout(10000) })
+        const j = await r.json()
+        const items = Array.isArray(j.items) ? j.items : []
+        const kinds = { scene: 0, web: 0, video: 0 }
+        for (const it of items) { const k = String(it.type || it.kind || '').toLowerCase(); if (k in kinds) kinds[k]++ }
+        return { items: items.length, kinds, dir: String(j.dir || '') }
+      } catch (e) { return { err: String((e && e.message) || e) } }
+    })()
+    const cenK = (cen && cen.kinds) || { scene: -1, web: -1, video: -1 }
+    const nonEmpty = (ty) => (s[ty] && s[ty].n > 0) || (Number(cenK[ty]) === 0)
+    ok(s.visible && nonEmpty('scene') && nonEmpty('web') && nonEmpty('video') && s.all.n >= s.scene.n + s.web.n + s.video.n - 1,
+      'S8a 类型过滤可用且**四档都在**：全部 = 三档之和（改前 `#type-filter` 被 hidden 且 onclick=null ⇒ 永远只有 scene；' +
+      '每档是否允许为空由服务端 census 决定 —— 库里没有那一类时空列表才是对的）',
+      JSON.stringify({ ...s, census: cenK, censusItems: cen && cen.items, dir: cen && cen.dir }))
+    ok(s.scene.kinds.every((k) => k === 'scene') && s.web.kinds.every((k) => k === 'web') &&
+      s.video.kinds.every((k) => k === 'video') && s.badge > 0 && s.badgeOk === s.badge,
+      'S8b 每档列表里的条目类型都对得上（标签如实显示，不一律写 scene；三档都逐行判，徽章文本 = 该行类型）',
+      JSON.stringify({ scene: s.scene, web: s.web, video: s.video, badges: s.badge, badgeOk: s.badgeOk, sample: s.rowSample }))
   }
 
   // S9 ⑩ 库来源显式显示（没选过就不许写成"已选"）
@@ -752,8 +833,46 @@ try {
     if (dlg) {
       ok(dlg.hasFrontend && dlg.hasSystem, 'F2 对话框里两个兜底按钮都在（纯前端扫描 / **显式标注**的系统选择器）', JSON.stringify({ frontend: dlg.hasFrontend, system: dlg.hasSystem }))
       if (routesStatus === 200) {
-        ok(dlg.rows > 0 && dlg.dirRows > 0 && dlg.confirm && dlg.chips.length > 0,
-          'F3a 【200 档 · 本机实测】应用内浏览真的可用：列出了一档目录 + 「就选这个目录」按钮 + 快捷根', JSON.stringify({ status: routesStatus, rows: dlg.rows, dirs: dlg.dirRows, chips: dlg.chips.length, count: dlg.count, path: dlg.path, st: dlg.state && { state: dlg.state.state, loaded: dlg.state.loaded, pending: dlg.state.pending, gen: dlg.state.gen, loadMs: dlg.state.loadMs, dialogs: dlg.state.dialogs, err: dlg.state.lastErr } }))
+        /*  ⓪(2026-10-12 判据修复 · task-17) 「列出了一档目录」必须在**当前真实库根**上成立 ——
+            实测（2026-10-07 起）库根是用户在选择器里显式选定的一个**平铺 `.mpkg` 目录**（顶层 6 个 `.mpkg`、
+            **0 个子目录**）⇒ 一打开对话框，`#bench-fs-list .bench-dirbox-row[data-type="dir"]` 必然为 0，
+            旧口径于是永远红。这是**夹具假设过期**、不是选择器过期：真实契约就是 `data-type`
+            （`demo/bench-patch.js:10047` 的 `row.dataset.type = r.type`），旧读数里 `rows=6 / dirs=0`
+            正是"6 个文件、没有目录"，列表本身完全正常。
+            对齐办法：用对话框**自己的「上一级」键**（`.bench-dirbox-tools:not(.bench-dirbox-roots) button`，
+            只读浏览 —— 它只读 `pathEl.dataset.parent` 再列目录，**不碰**用户的库）有界走到第一个含子目录的位置，
+            再判"列出了一档目录"。库根本身就有子目录时这里 **0 步**，读数与旧口径逐字一致（`upSteps:0`）。 */
+        const nav0 = await page.evaluate(async () => {
+          const box = document.getElementById('bench-fs-dialog')
+          if (!box) return { err: 'no-dialog' }
+          const all = (sel) => box.querySelectorAll(sel)
+          const pathOf = () => { const p = box.querySelector('.bench-dirbox-path'); return { text: p ? p.textContent : '', path: (p && p.dataset) ? p.dataset.path : null, parent: (p && p.dataset) ? p.dataset.parent : null } }
+          const upBtn = () => box.querySelector('.bench-dirbox-tools:not(.bench-dirbox-roots) button') ||
+            [...box.querySelectorAll('button')].find((b) => /^(up|up one level|上一级|上级)/i.test(String(b.getAttribute('title') || b.textContent || '').trim())) || null
+          const trail = []
+          for (let i = 0; i < 8; i++) {
+            if (all('#bench-fs-list .bench-dirbox-row[data-type="dir"]').length > 0) break
+            const up = upBtn()
+            if (!up || up.disabled) { trail.push('no-up'); break }
+            const before = pathOf().path
+            up.click()
+            await new Promise((r) => setTimeout(r, 1000))
+            const after = pathOf().path
+            trail.push(after)
+            if (!after || after === before) { trail.push('stuck'); break }
+          }
+          return {
+            steps: trail.length, trail, at: pathOf(),
+            rows: all('#bench-fs-list .bench-dirbox-row').length,
+            dirRows: all('#bench-fs-list .bench-dirbox-row[data-type="dir"]').length,
+            fileRows: all('#bench-fs-list .bench-dirbox-row[data-type="file"]').length,
+          }
+        })
+        ok(dlg.rows > 0 && nav0.dirRows > 0 && dlg.confirm && dlg.chips.length > 0,
+          'F3a 【200 档 · 本机实测】应用内浏览真的可用：列出了一档目录 + 「就选这个目录」按钮 + 快捷根',
+          JSON.stringify({ status: routesStatus, rows: dlg.rows, dirs: dlg.dirRows, chips: dlg.chips.length, count: dlg.count, path: dlg.path,
+            upSteps: nav0.steps, upTrail: nav0.trail, at: nav0.at && nav0.at.path, dirRowsAfterNav: nav0.dirRows, fileRowsAfterNav: nav0.fileRows,
+            st: dlg.state && { state: dlg.state.state, loaded: dlg.state.loaded, pending: dlg.state.pending, gen: dlg.state.gen, loadMs: dlg.state.loadMs, dialogs: dlg.state.dialogs, err: dlg.state.lastErr } }))
         ok(dlg.prompts === 0, 'F0b ① 整条浏览链上**一次浏览器原生 prompt/alert/confirm 都没有**（产物那条会弹 `window.prompt` 的旧链已被摘掉）', `prompts=${dlg.prompts}`)
         ok(dlg.state && dlg.state.dialogs === 1, 'F3e1 ① 单例不变式：文档里同时只有 1 个 `.bench-dirbox` 选择器（不会"看得见的那份没在画"）', JSON.stringify({ dialogs: dlg.state && dlg.state.dialogs, state: dlg.state && dlg.state.state }))
         ok(!/api\/fs\/\*|noRoute|还没有/i.test(dlg.note),
@@ -828,6 +947,15 @@ try {
       await new Promise((r) => setTimeout(r, 900))
       const lis = [...document.querySelectorAll('#list li[data-id]')]
       const li = lis.find((x) => x.dataset.id === '3644069061') || lis[0]
+      /*  ⓪(2026-10-12 判据修复 · task-17) **夹具缺失不许把整轮跑挂**。
+          旧写法直接 `li.dataset.id` —— `lis` 为空时抛 TypeError（`can't access property "dataset", li is undefined`），
+          整个 try 块中止 ⇒ 这一行之后的**两千行断言**（T/W/M/X/Y/Z/P/G10/IA/LS…）一条读数都拿不到，
+          门禁与人眼都只看到"一片红 + 一段 Node 栈"，根本分不清是哪条判据坏了。
+          何时会空：web 过滤档下 `#list` 没有行。实测运行配置就是这种（库根 = 用户在选择器里显式选定的
+          一个**平铺 .mpkg 目录**：顶层 6 个 .mpkg、0 个子目录、服务端 census `web=0`）⇒ 库里一张 web 档都没有。
+          现在：如实返回 `err` 读数（下面每条 T 断言都有 `t && …` 守卫 ⇒ 照旧 FAIL，只是不再连坐后面的组）。
+          ⚠ 判据口径**一条没放松**：这里只把"抛异常"换成"如实读数"。 */
+      if (!li) return { err: 'no-web-item', note: 'web 过滤档下 #list 无行（夹具缺失：当前库没有 web 档）' }
       out.id = li.dataset.id
       li.click()
       await new Promise((r) => setTimeout(r, 11000))
@@ -998,6 +1126,7 @@ try {
       return out
     })
     const ini = t.initial || {}
+    if (t.err) notes.push('T 组夹具缺失：' + t.err + '（' + String(t.note || '') + '）⇒ T1–T8b 按原判据如实 FAIL，不假装通过；夹具一旦在库里，这组断言一条不改地生效')
     // ①(2026-10-04 修) 媒体元数据在满载下可能永远不到（Firefox "media resource was aborted"，与 T4
     //   同族）：接线本身成功（媒体元素扫到 + canPlay）但 canSeek=false / total=0 ⇒ **自 SKIP 如实记**
     //   （元数据没到 = 无从判定，不假装通过也不假红）；接线失败（扫不到媒体 / canPlay=false）仍 FAIL。
@@ -1005,7 +1134,7 @@ try {
     if (metaMissing) notes.push('T1/T2 自 SKIP：媒体元素已接（canPlay=true）但元数据未到（canSeek=false/total=0，"media resource was aborted" 满载族）⇒ 无从判定')
     ok(t && ini.snap && ini.media && (ini.media.videos + ini.media.audios) > 0 && ini.snap.canPlay && (ini.snap.canSeek || metaMissing),
       'T1 【真控·接线】web 档（带媒体元素）挂载后卡片进入受控态：媒体元素被扫到、canPlay 为真（canSeek 需元数据，未到 = 自 SKIP）',
-      JSON.stringify({ id: t && t.id, media: ini.media, snap: ini.snap && { kind: ini.snap.kind, source: ini.snap.source, canPlay: ini.snap.canPlay, canSeek: ini.snap.canSeek } }))
+      JSON.stringify({ id: t && t.id, err: t && t.err, media: ini.media, snap: ini.snap && { kind: ini.snap.kind, source: ini.snap.source, canPlay: ini.snap.canPlay, canSeek: ini.snap.canSeek } }))
     ok(ini.title && ini.snap && ini.title === ini.snap.title && ini.by === ini.snap.byline && (ini.snap.total > 0 || metaMissing),
       'T2 【真控·显示】卡片上写的是**真实**标题/副标题（总长需元数据，未到 = 自 SKIP；不再是装饰值）',
       JSON.stringify({ title: (ini.title || '').slice(0, 40), by: ini.by, total: ini.snap && ini.snap.total }))
@@ -1110,8 +1239,14 @@ try {
     ok(mount && mount.shim && mount.shim.shimBytes > 10000 && /renderer-.*\.js$/.test(mount.shim.shimFrom || ''),
       'W2 【来源】注入的是**渲染器产物自带**的那份 shim（不是另抄一份），字节数 = 产物里的常量长度',
       JSON.stringify({ bytes: mount && mount.shim && mount.shim.shimBytes, from: mount && mount.shim && mount.shim.shimFrom }))
-    ok(mount && !/未检测到 WE shim/.test(mount.log) && !/shim 注入失败/.test(mount.log),
-      'W3 【判据①】渲染器**不再**打印「网页壁纸：同源入口未检测到 WE shim」，也没有注入失败行',
+    /*  ⓪(2026-10-12 判据修复 · task-17) 前提加固：这条断言的是"日志里**没有**某条告警"，
+        夹具缺失（`#list` 里没有 web 档 ⇒ `mount={err:'no web item'}`）时日志本来就是空的 ⇒
+        **空转通过**（实测：库根无 web 档时 `PASS {"warn":false,"fail":false}`）。
+        同组的 W1/W2/W4/W5/W6 会同时红 ⇒ 门禁不会因此漏判，但"没挂东西也绿"不是判别力。
+        口径只**加**不减：要求"确实挂过一张 web 档"（`mount.id`）+ 原来的两条否定。
+        ⚠ 这是**前提**不是放松：库里有 web 档时读数一字不变。 */
+    ok(mount && mount.id && !/未检测到 WE shim/.test(mount.log) && !/shim 注入失败/.test(mount.log),
+      'W3 【判据①】渲染器**不再**打印「网页壁纸：同源入口未检测到 WE shim」，也没有注入失败行（前提：确实挂上过一张 web 档）',
       JSON.stringify({ warn: mount ? /未检测到 WE shim/.test(mount.log) : null, fail: mount ? /shim 注入失败/.test(mount.log) : null }))
     const w = mount && mount.wall
     ok(w && w.hasSetPaused && w.hasFps && w.hasVolume && w.hasPropListener && w.hasAudioReg && w.hasRandomFile,
@@ -1508,11 +1643,36 @@ try {
       }
       const curX = document.querySelector('.wp-x-cur')
       const cur = document.getElementById('current')
-      out.curCell = {
-        curRect: R(cur), xRect: R(curX), maxW: cur ? getComputedStyle(cur).maxWidth : null,
-        ellipsis: cur ? getComputedStyle(cur).textOverflow : null,
-        gapPx: (cur && curX) ? Math.round(R(curX).x - R(cur).right) : null, hit: hit(curX),
-      }
+      out.curCell = (() => {
+        const cr = R(cur); const xr = R(curX)
+        const cs = cur ? getComputedStyle(cur) : null
+        const xs = curX ? getComputedStyle(curX) : null
+        const pr = cs ? (parseFloat(cs.paddingRight) || 0) : 0
+        const mr = xs ? (parseFloat(xs.marginRight) || 0) : 0
+        return {
+          curRect: cr, xRect: xr, maxW: cs ? cs.maxWidth : null,
+          ellipsis: cs ? cs.textOverflow : null, paddingRight: pr, marginRight: mr,
+          /*  ①(P-342 契约变更 · 2026-10-12 判据修复 · task-17) 三个**互相独立**的几何事实。
+              为什么必须换口径：旧写法把"间隙"算成 **盒间距** `xRect.x − curRect.right`，而当前布局
+              （`.wp-x-cur{margin-left:-26px;margin-right:4px}` —— 把 `×` 用负外边距拉进框内，
+              逐像素镜像固定标签的 `.wp-tab{gap:6px;padding:0 4px 0 10px}`）**盒间距必然为负**
+              （实测 -26 = -(22+4)）⇒ 旧口径 `Math.abs(gapPx) <= 1` 是拿**旧布局**判**新布局**，必红且不可修
+              （一旦有人为了让判据变绿把 `×` 挪回框外，用户看到的就退回"长标题把 × 顶到框外"）。
+              ⇒ 改成量**视觉结果**（这才是意图）：
+                a) `×` **完全落在 `#current` 边框盒内**；
+                b) **视觉间隙** = `×` 左缘 ↔ **被裁文本区的右缘**（= 框右缘 − `padding-right`）= 6px
+                   （与固定标签的 `gap:6px` 同口径；长标题被 `overflow:hidden` 裁在内容盒右缘）；
+                c) 盒间距 = `-(×宽 + 右外边距)` 且 **< 0** —— 把负外边距当**构造性事实**钉住。
+              ⚠ 强度等价（不放松）：旧口径要的"`×` 紧贴右缘、不被长标题顶走"由 a+c 的固定偏移与 b 的
+              6px 视觉间隙共同保证；旧口径的 `max-width/ellipsis/命中=视觉` 三条一条不动。 */
+          insideCur: !!(cr && xr && xr.x >= cr.x && xr.right <= cr.right),
+          edgeGapPx: (cr && xr) ? Math.round(cr.right - xr.right) : null,        // × 右缘 ↔ 框右缘（构造 = margin-right）
+          visualGapPx: (cr && xr) ? Math.round(xr.x - (cr.right - pr)) : null,   // × 左缘 ↔ 裁切区右缘（构造 = 6）
+          boxGapPx: (cr && xr) ? Math.round(xr.x - cr.right) : null,             // 盒间距（构造 = -(22+4) = -26，必为负）
+          boxGapExpect: xr ? -Math.round(xr.w + mr) : null,
+          hit: hit(curX),
+        }
+      })()
       const activeLi = () => document.querySelector('#list li[data-id].active')
       const liNow = activeLi()
       const src0 = srcOf()
@@ -1562,10 +1722,27 @@ try {
       'Y2 ① 标题用 CSS 省略号（`overflow:hidden` + `text-overflow:ellipsis`）⇒ 长名字不把 × 顶远', JSON.stringify(y.geom && { o: y.geom.nameOverflow, e: y.geom.nameEllipsis }))
     ok(y.geom && y.geom.xInsideTab && y.geom.xHit && y.geom.xHit.self,
       'Y3 ① 固定标签的 `×` 在标签**右端内侧**且命中区 = 视觉区', JSON.stringify(y.geom && { inside: y.geom.xInsideTab, hit: y.geom.xHit }))
-    ok(y.curCell && y.curCell.maxW === '180px' && y.curCell.ellipsis === 'ellipsis' && y.curCell.hit && y.curCell.hit.self && Math.abs(y.curCell.gapPx) <= 1,
-      'Y4 ① 当前壁纸那一格：标题省略号 + 紧贴右缘的 `×`（间隙 ≤1px）且命中=视觉',
-      JSON.stringify(Object.assign({}, y.curCell, {
-        c: y.curCell ? [y.curCell.maxW === '180px', y.curCell.ellipsis === 'ellipsis', !!(y.curCell.hit && y.curCell.hit.self), Math.abs(y.curCell.gapPx) <= 1, y.curCell.gapPx] : null,
+    /*  ①(P-342 契约变更后重写 · 2026-10-12 task-17) 旧判据 `Math.abs(gapPx) <= 1`（盒间距 ≤1px）
+        描述的是**旧布局**（`×` 靠右缘、盒间距≈0）。P-342 把 `×` 用 `margin-left:-(22+4)` 拉进框内
+        ⇒ 盒间距恒为 -26，旧式子必红。新判据量视觉结果，并把负外边距当构造性事实钉死（见上面的推导）。 */
+    const cc = y.curCell || {}
+    ok(cc.maxW === '180px' && cc.ellipsis === 'ellipsis' && cc.hit && cc.hit.self &&
+      cc.insideCur === true &&
+      cc.edgeGapPx !== null && Math.abs(cc.edgeGapPx - cc.marginRight) <= 1 &&
+      cc.visualGapPx !== null && Math.abs(cc.visualGapPx - 6) <= 1 &&
+      cc.xRect && Math.abs(cc.paddingRight - (cc.xRect.w + cc.marginRight + 6)) <= 1 &&
+      cc.boxGapPx !== null && cc.boxGapPx < 0 && Math.abs(cc.boxGapPx - cc.boxGapExpect) <= 1,
+      'Y4 ① 当前壁纸那一格：标题省略号 + `×` **完全在框内**、右缘固定偏移 = 自身右边距、' +
+      '**视觉间隙 6px**（裁切区右缘 ↔ `×` 左缘，镜像 `.wp-tab{gap:6px}`）、盒间距 = -(×宽+右边距) 为负 —— 且命中=视觉',
+      JSON.stringify(Object.assign({}, cc, {
+        checks: {
+          maxW180: cc.maxW === '180px', ellipsis: cc.ellipsis === 'ellipsis',
+          hitSelf: !!(cc.hit && cc.hit.self), insideCur: cc.insideCur === true,
+          edgeGapEqualsMarginRight: cc.edgeGapPx !== null && Math.abs(cc.edgeGapPx - cc.marginRight) <= 1,
+          visualGap6: cc.visualGapPx !== null && Math.abs(cc.visualGapPx - 6) <= 1,
+          paddingReservesXPlusGap: !!cc.xRect && Math.abs(cc.paddingRight - (cc.xRect.w + cc.marginRight + 6)) <= 1,
+          boxGapNegativeAndConstructed: cc.boxGapPx !== null && cc.boxGapPx < 0 && Math.abs(cc.boxGapPx - cc.boxGapExpect) <= 1,
+        },
       })))
     ok(y.idem && y.idem.srcSame && y.idem.mountsAfter === y.idem.mountsBefore && y.idem.nodeSame && Number(y.idem.hits) >= 3,
       'Y5 ③ 连点"已选中"项 3 次：`#frame` src 不变、`Mount` 日志不增、节点身份不变、拦截计数 ≥3',
@@ -2079,6 +2256,22 @@ try {
         JSON.stringify({ A: { id: A.id, rows: sA.rows, names: nA.slice(0, 4) }, B: { id: B.id, rows: sB.rows, names: nB.slice(0, 4) }, reqsB, proof }))
 
       // ── P2 #23 根因路径：**收起期间**切壁纸，展开后必须是新那张（旧写法这里一行都不刷）──────────
+      /*  ⚠(2026-10-12 task-17) **P2 归属未定 —— 待环境允许时用基线服务判**（判据**不动**，也不许 XFAIL/豁免）。
+          已观测到的两次读数（同一份断言、同一台库根 = 22 项语料 `allwallpaper/dd`）：
+            · Lead 的全量门禁（树 ≈ 23:50）：**FAIL**，读数
+              `{"collapsed":true,"during":{"state":"reading","item":"3470764447","rows":99,"stale":["schemecolor"]},"after":{…}}`
+              ⇒ 收起态切壁纸的**那一瞬**，`#props-body` 里还留着上一张的 99 行，其中 `schemecolor` 不在新那张的声明集里。
+            · 本轮复跑（同库根，树 = 00:20，`demo/bench-patch.js` mtime 00:02）：**PASS**。
+          两次之间唯一已知变量：`demo/bench-patch.js` 被改过（mtime 00:02）⇒ **推断**：这是
+          "点列表项时清空上一张的行 + 写 reading"那条状态机（设计意图见 `demo/bench-patch.js:5035-5050`，
+          收起实现见 `:6356-6375`）对**重项（99 行）**的时序敏感问题：清空之后、新数据落地之前，
+          旧行仍可能在 `#props-body` 里被读到（`state:"reading"` 正是"新那张还在读"）。
+          **不能**据此断言"是本轮引入"或"既有"：需要下面的对照实验判归属（环境令期间**未跑**）：
+            1) 用**干净 HEAD** 另起一个端口（不碰真树、不碰 :8902）＋同一库根，让**同一份判据**打它；
+            2) 基线也红 ⇒ 记既有 backlog；基线绿 ⇒ 本轮 in-flight 改动引入 ⇒ 查
+               `demo/bench-patch.js` 的 `#editor-tabs` 段 / LSW 段 / capture 委托的早退与 `preventDefault()`
+               哪一处动了属性面板的**收起清理路径**（改产品，**不要**改这条断言）。
+          ⚠ 判据必须**串行**跑（一次只起一个无头浏览器）。 */
       await page.click('#props-close'); await page.waitForTimeout(400)
       const collapsed = await page.evaluate(() => window.__benchPatch.propsCollapsed())
       const beforeCollapsed = (await propsReqs()).length
@@ -3161,9 +3354,21 @@ try {
     'N6b 任何一层都不许出现**本页补丁自己**的脚本错（子帧里渲染器/壁纸作者的错另计，见 notes）',
     [...errs, ...frameErrs].filter((m) => /bench-patch\.js|mpw-select\.js|now-playing/.test(m)).slice(0, 2).join(' | '))
   for (const m of frameErrs.slice(0, 4)) notes.push('子帧脚本错（渲染器/壁纸作者，不计入 N6）: ' + m)
-  console.log(`\n── 汇总：PASS=${pass} FAIL=${fail}`)
-  for (const n of notes) console.log('  note: ' + n)
+  printSummary()
   process.exitCode = fail > 0 ? 1 : 0
+} catch (e) {
+  /*  ⓪(2026-10-12 判据修复 · task-17) **兜底**：任何未预料的异常（夹具缺失 / 页面结构漂移 / 某一步超时）
+      都不许把整轮"闷杀"在 Node 栈里 —— 旧行为是 `triggerUncaughtException` 直接退出，连汇总行都没有，
+      围栏（run-all-tests）只看到非零退出码却拿不到任何可判读的读数。
+      现在：记 **1 条 FAIL**（带异常摘要与位置；退出码仍为 1，门禁不会因此变绿）+ 打出汇总。
+      ⚠ 这只是安全网：真正的修法是**逐处把可能为空的读数改成如实返回 `err`**（见 T 组夹具那段）。 */
+  fail++
+  console.log('FAIL CRASH-JUDGE 判据自身异常（夹具缺失/结构漂移，这是判据缺陷不是产品缺陷）：' +
+    String((e && e.message) || e).slice(0, 200))
+  console.log('  at ' + String((e && e.stack) || '').split('\n').slice(1, 4).map((x) => x.trim()).join(' | ').slice(0, 300))
+  notes.push('CRASH-JUDGE ⇒ 该异常之后的断言**没有跑**，读数不完整（修判据，别修产品）')
+  printSummary()
+  process.exitCode = 1
 } finally {
   try { await browser.close() } catch { /* ignore */ }
 }

@@ -436,7 +436,9 @@ html.bench-shell #stage-scale{aspect-ratio:16/9}
 html.bench-shell select.bench-rd-native{display:none!important}
 /* ①(P-164) 标签标题省略号 + 右端常驻 `×`：名字再长也不把 × 顶到很远的地方（用户点名的形态）。
    `#current` 的文本由产物写（写 textContent 会冲掉子节点）⇒ 它的 `×` 是**兄弟节点** `.wp-x-cur`，
-   紧贴右缘、与激活态同底色 ⇒ 视觉上仍是同一格。静态表与 SITE_LAYOUT_CSS 逐条同文（D8 守）。 */
+   紧贴右缘 ⇒ 视觉上仍是同一格。静态表与 SITE_LAYOUT_CSS 逐条同文（D8 守）。
+   ⚠ 但"兄弟节点"同时是 **flex 条上的独立一项**：它落在 `#current` 的边框盒**之外**、还与第 2 个标签
+   零间距贴着 ⇒ 用户第 4 条实测的"第 1 位的叉号超出自己的框 / 大框串到第 2 个壁纸里"（见下面 ⑦ 那段）。 */
 html.bench-shell #editor-tabs .tab{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 html.bench-shell .wp-tab{padding:0 4px 0 10px}
 html.bench-shell .wp-tab .wp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -444,6 +446,30 @@ html.bench-shell .wp-x{flex:none;width:22px;min-width:22px;height:22px;display:i
 html.bench-shell .wp-x:hover{background:var(--accent,#0078d4);color:#fff}
 html.bench-shell .wp-x-cur{align-self:center;height:22px;min-height:22px;border-radius:4px}
 html.bench-shell .wp-x-cur:hover{background:var(--accent,#0078d4);color:#fff}
+/* ⑦(2026-10-12 用户 :8902 实测第 4 条「壁纸标签第 1 位的叉号超出自己的框；有第 2 个壁纸时那个叉号的
+   大框会串到第 2 个壁纸里；第 2/3… 位正常，任何壁纸排到第 1 位就复现」) **只坏第 1 位**的根因：
+   `#current` 的 `×` 是兄弟节点（理由见上），所以它是 `#editor-tabs` 这条 flex 上的**独立 flex 项**，
+   占在 `#current` 边框盒**右侧的 22px 槽位**里 —— 无头 Firefox 实测（修前）：`#current` 右缘 x=95.5，
+   `.wp-x-cur` 左缘 x=95.5（**整块在框外**）、右缘 117.5，而第 2 个标签正好从 117.5 开始（**零间距贴死**）
+   ⇒ "超出自己的框" + "大框串到第 2 个壁纸里"两条现象同源。第 2/3… 位的 `×` 是 `.wp-tab` 的**子节点**，
+   天然在框内（实测第 2 格：tab [117.5,317.5]、`×` [290.5,312.5] ⊆ 框内）⇒ 与"排到第 1 位才坏"一致。
+   修法（纯几何，不动 DOM 归属）：宿主格**预留** `×` 的宽度（`padding-right:32px`）→ `×` 用负左外边距
+   挪回框内（`margin-left:-26px`）→ 外边距盒宽度 `-26+22+4 = 0` ⇒ 后续标签**不新增任何占位**。取这两个
+   数字就是为了**逐像素镜像**生成标签那一格（`.wp-tab{gap:6px}` + `padding:0 4px 0 10px`）：文字内容盒
+   右缘 = 格子右缘 − 32，`×` 盒 = [右缘−26, 右缘−4] ⇒ ① 标题与 `×` 之间留 **6px**（与 `.wp-tab` 的 gap
+   一致）；② `×` 右缘距格子右边 **4px**（与 `.wp-tab` 的右内边距一致）；③ `×` 完全落在 `#current` 的
+   边框盒内。修后实测（无头 Firefox，夹具 CSS 从真源装配）：`#current` 右缘 111.5、`×` [85.5,107.5] ⊆
+   框内且右缘留 4px、标题右缘 78.5（间距 7px）、第 2 个标签从 111.5 开始（与 `×` 右缘留 4px）。
+   ⚠ 同一处还必须把**产物给 `.tab` 的 `display:flex` 改成 `block`**：`#current` 里没有子元素、标题是
+   裸文本 ⇒ flex 容器会把这段文本变成**匿名 flex item**，而 `text-overflow:ellipsis` 是**块容器**的属性、
+   管不到匿名项 ⇒ 标题**从不被省略号截断**，只被 `overflow:hidden` 按**内边距盒**（= 格子右缘）硬裁。
+   修前这不算问题（`×` 在框外、标题顶到 825 也不撞它）；修后 `×` 进了框内 ⇒ 长标题会**画到 `×` 底下**
+   （真页面 `夜莺…窗畔弦歌` 实测：标题布局右缘 796、`×` 盒 [774,796] ⇒ 逐字叠在叉号上）。
+   所以宿主态改成 `display:block;line-height:32px`（块容器 ⇒ 省略号生效，单行 32px 居中与 flex 的
+   `align-items:center` 视觉等价）⇒ 标题在**内容盒右缘**（格子右缘 − 32 = `×` 左缘 − 6）截断，
+   与 `×` 之间稳定留 6px（真页面复测：`textGap=6`、`rightInset=4`、`gapToTab2=4`）。 */
+html.bench-shell #editor-tabs #current.wp-cur-has-x{display:block;line-height:32px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:32px}
+html.bench-shell .wp-x-cur{margin-left:-26px;margin-right:4px}
 html.bench-shell #wp-switch{position:relative}
 html.bench-shell #wp-add{flex:none;width:34px;min-width:34px;height:auto;border:0;border-left:1px solid var(--border);background:transparent;color:var(--fg-dim);font-size:16px;line-height:1;cursor:pointer}
 html.bench-shell #wp-add[aria-expanded="true"]{background:var(--accent,#0078d4);color:#fff}
@@ -535,8 +561,10 @@ html.bench-shell #layer-switch-btn[disabled]{opacity:.45;cursor:not-allowed}
    溢出策略：面板自身可滚动（`.lsw-list` 另有一层 max-height 内部滚动）⇒ 窄屏/矮屏不越界。 */
 html.bench-shell #layer-switch-panel{position:absolute;right:0;left:auto;top:calc(100% + 4px);z-index:60;width:360px;max-width:min(92vw,560px);max-height:min(70vh,520px);overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:0 0 8px 8px;box-shadow:0 14px 40px rgba(0,0,0,.38);padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--fg)}
 html.bench-shell #layer-switch-panel[hidden]{display:none!important}
-/* 顶栏三键：全选 / 全不选 / 只留当前层 */
-html.bench-shell #layer-switch .lsw-bar{display:flex;gap:6px}
+/* 顶栏四键：全选 / 全不选 / 只留当前层 / **恢复默认**（⑦2026-10-12 用户第 6 条）。
+   `flex-wrap:wrap` 是给窄视口的：面板宽度由 `layerPanelFit()` 按视口夹到最小 220px，四个按钮
+   （2/3/5/4 个汉字）在 220px 里一行放不下 ⇒ 换行，而不是把第 4 个按钮挤出去/裁掉。 */
+html.bench-shell #layer-switch .lsw-bar{display:flex;gap:6px;flex-wrap:wrap;min-width:0}
 html.bench-shell #layer-switch .lsw-bar button{flex:0 0 auto}
 html.bench-shell #layer-switch .lsw-bar button[disabled]{opacity:.45;cursor:not-allowed}
 /* 层行列表：内部滚动（限高）+ 行内省略；容器层 checkbox 置灰 */
@@ -924,6 +952,25 @@ html.bench-shell #layer-switch-status{flex:1 1 auto;min-width:0;overflow:hidden;
                   <option value="auto" data-i18n="webMode.auto">自动</option>
                 </select>
               </label>
+              <!-- ═══ MPW-PARALLAX-FLAG-BEGIN ⑦(2026-10-12 用户 :8902 第 2/3 条「视差 / x-ray 没生效」的**页面侧根因 C**)
+                   为什么要有这个控件：渲染器（`demo.html:8905`）的 `parallaxOff = !/^(1|official|legacy)$/.test(?parallax)`
+                   ⇒ **缺省关**；而测试台此前**从不**往预览 iframe 的 URL 里写 `?parallax=`（`demo/bench-patch.js` 里
+                   `parallax` 只出现在词典文案里）⇒ 相机视差 + 对象级 `parallaxDepth` 在默认档**整体停用**，
+                   用户"看不到视差"就是这么来的。这里把渲染器**已有的**四个取值原样接到页面上（**不改 core 的判定** ✗）：
+                     控件 = 勾选框：勾 = `parallax=1`（开·官方公式），取消 = `parallax=0`（关 = 渲染器缺省）；
+                     另两个 A/B 档 `legacy`（开 + 旧 lwe 近似式）/ `official`（与 `1` 同义）由**本页 URL** 进，
+                     并**优先于**勾选态（`?parallax=legacy`），这样主表登记的 A/B 用法在测试台上直接可用。
+                   为什么是勾选框、不是下拉：工具条原生 select 的个数被既有判据硬编码（`bench-ui-headless`
+                   S3a/S3b 钉"8 个 select / 8 个 .bench-rd"）⇒ 多一个下拉会红别人的判据；勾选框同样一眼可见、
+                   一键可关，且与旁边「流式播放」同一种控件形态。
+                   默认 **勾上（`1`）**：测试台是"作者本意的预览面"，用户这一轮正是要看视差；一键可关。
+                   DOM 位置：**在「流式播放」之前** —— 判据 `bench-ui-headless` LS1 要求「图层开关」是
+                   `#hybrid-box` 的**相邻兄弟**，夹在中间会把它判红 ✗。 ═══ -->
+              <label class="check" id="parallax-box" data-i18n-title="toolbar.parallaxTip" title="视差（相机层 + 对象级 parallaxDepth）：勾上 = 层跟鼠标位移（官方公式）；取消 = 层不跟鼠标（截图/验收要固定位置时用）。A/B 档 `legacy`（旧 lwe 近似式）/ `official` 由本页 URL 走：`?parallax=legacy` 优先于这里的勾选态">
+                <input type="checkbox" id="parallax" checked />
+                <span data-i18n="toolbar.parallax">视差</span>
+              </label>
+              <!-- ═══ MPW-PARALLAX-FLAG-END ═══ -->
               <!-- ③ DSH 进程流式播放（hybrid）：默认开；关掉即退回"整包先落盘再播"。渲染器档位 `?hybrid=`。 -->
               <label class="check" id="hybrid-box" data-i18n-title="toolbar.hybridTip" title="DSH 进程流式播放（hybrid）：边取边播，不等整包落盘；关掉则先取完整包再播">
                 <input type="checkbox" id="hybrid" checked />
@@ -933,6 +980,9 @@ html.bench-shell #layer-switch-status{flex:1 1 auto;min-width:0;overflow:hidden;
                    逐层开关 / 单层隔离 / 一键复制可复现状态。DOM 位置硬要求：**紧随「流式播放」之后**
                    （判据 bench-ui-headless LS1 用相邻兄弟判定）。隐藏集合写进本页 URL 的 `?hide=`
                    （登记 docs/README-DIAGNOSTICS.md 主表，diag-flag-check 双向对账）。 -->
+              <!-- ═══ MPW-LSW-PANEL-BEGIN ⑦(2026-10-12 用户 :8902 第 6 条「图层开关里面加一个恢复默认」)
+                   切片标记：面板 DOM 全在这一对标记之间（判据按标记切片，与 MPW-PROPS-PANEL / MPW-FX-PANEL 同风格）。
+                   本块新增的只有 `.lsw-bar` 第 4 个按钮 `#layer-reset`（恢复默认）；其余按钮/列表/底栏逐字未动。 ═══ -->
               <div class="layer-switch" id="layer-switch">
                 <button type="button" id="layer-switch-btn" aria-expanded="false" aria-controls="layer-switch-panel"
                         data-i18n="toolbar.layerSwitch" data-i18n-title="toolbar.layerSwitchTip"
@@ -942,6 +992,11 @@ html.bench-shell #layer-switch-status{flex:1 1 auto;min-width:0;overflow:hidden;
                     <button type="button" id="layer-all" data-i18n="layers.all">全选</button>
                     <button type="button" id="layer-none" data-i18n="layers.none">全不选</button>
                     <button type="button" id="layer-only-cur" data-i18n="layers.onlyCurrent" data-i18n-title="layers.keepCurrentTip">只留当前层</button>
+                    <!-- ⑦(2026-10-12 用户第 6 条) **恢复默认 = 回到壁纸文件默认态**（本仓唯一口径：默认勾选 =
+                         文件语义，见 `layerSwitchState()`）：清空用户隐藏集（顺带删掉 URL 的 `?hide=` ⇒ 刷新页面
+                         逐位一致）+ 清空强制显示集（文件里 `visible:false` 的层回到"不勾"）。与「全选」的区别：
+                         全选会把文件里 false 的层也勾上（强制显示），本按钮**不动**它们的文件语义。 -->
+                    <button type="button" id="layer-reset" data-i18n="layers.reset" data-i18n-title="layers.resetTip">恢复默认</button>
                   </div>
                   <div id="layer-switch-list" class="lsw-list"></div>
                   <div class="lsw-foot">
@@ -950,6 +1005,7 @@ html.bench-shell #layer-switch-status{flex:1 1 auto;min-width:0;overflow:hidden;
                   </div>
                 </div>
               </div>
+              <!-- ═══ MPW-LSW-PANEL-END ═══ -->
             </div>
           </div>
         </div>

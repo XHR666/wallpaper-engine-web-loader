@@ -127,9 +127,32 @@ add "blob-media-retry"   "node tests/blob-media-retry-test.mjs"
 add "ptrfx-uniform"      "node tests/ptrfx-uniform-test.mjs"
 add "parallax-live"       "node tests/parallax-live-test.mjs --offline"   # 真机档（有头浏览器）由人工单独跑：去掉 --offline
 add "official-parallax-formula" "node tests/official-parallax-formula-test.mjs"  # RE-24 官方鼠标视差静态逆向对齐（A3/A4/C1/C2）：官方算式逐条对照（含 influence min(·,1)、桌面平滑闭式、顶层祖先 depth、cameraparallax=false 冻结）+ 4 组反例钉死 + `?parallax=legacy` 与改前构建**逐位**对拍 + 6 组变异自证（期望红集==实际红集，含"#4 机械删项"反证）；23 断言；~4s
+# ①(P-338 2026-10-12) 视差链 + xray 族的**指针接线**（用户报「开了指针注入移动鼠标，视差 / x-ray 仍毫无反应」）：
+#   改前实测同一场景同一指针：DOM 派发 Δx=−864.0000px、注入通道 Δx=0.0000px（视差链只认 window.mousemove）；
+#   xray 族 `g_PointerState.y` 被包内 shader 当 `1/因子` 除 ⇒ 开窗面积随光标高度 6.50%→0.01%（官方桌面版无该因子）。
+#   本档钉：注入通道必须给出与官方算式**同值**的位移、`g_ParallaxPosition` 必须跟随、非 xray 族 `.y` 逐位不变、
+#   开窗面积数值断言、`?ptrwiring=legacy` 逐位回旧档 + 5 组变异自证（期望红集==实际红集）；27 断言；~6s（含 2 个真包）
+add "parallax-xray"      "node tests/parallax-xray-test.mjs"
+# ⑦(P-342 2026-10-12 用户 :8902 第 4/6 条) 页面侧（demo/index.html + demo/bench-patch.js）：
+#   ④「壁纸标签第 1 位的叉号超出自己的框 / 大框串到第 2 个壁纸里」—— 根因是 `#current` 的 `×` 是**兄弟节点**
+#     （flex 条上的独立一项，落在框外且与第 2 格零间距）；修法 = 宿主格预留宽度 + 负外边距挪回框内 +
+#     把产物 `.tab{display:flex}` 在宿主态改成 `block`（否则裸文本是匿名 flex item、`text-overflow:ellipsis`
+#     不生效，长标题会画到 `×` 底下）。判据含**真浏览器几何夹具**（短/长标题两条路 + 3 个"修前形态"必红）。
+#   ⑥「图层开关加恢复默认」= 回到**壁纸文件默认态**（清隐藏集 + 强制显示集 + 删 URL 的 `?hide=` ⇒ 刷新一致）。
+#   15 断言（A 结构 / B 行为真切片 / C 真浏览器几何）+ 10 组变异自证（期望红集==实际红集）；~25s（含无头 Firefox）
+add "layer-panel-restore" "node tests/layer-panel-restore-test.mjs"
+# ⑦(P-342) 同一页的**视差档接线**（用户第 2/3 条的页面侧根因 C）：渲染器 `?parallax=` 缺省**关**
+#   （demo.html:8905），而测试台此前从**不写**这个参数 ⇒ 相机视差 + 对象级 `parallaxDepth` 在默认档整体停用。
+#   本档钉：结构（工具条「视差」档 4 个既有取值 + 三处接线 + DOM 位置不顶掉 LS1 相邻兄弟）/ 行为
+#   （`rendererSourceUrl()` 真切片逐值带参、缺省一个字符都不写、幂等、本仓⇄上游往返）/ **真页面 E2E**
+#   （预览 URL 实际取值 + 真点自绘控件四档 + 本页 `?parallax=legacy` 优先 + 浮层选完即关）+ 7 组变异自证；
+#   `:8902` 不可达时 E2E 段打印 SKIP（不计通过）；~30s
+add "bench-parallax-flag" "node tests/bench-parallax-flag-test.mjs"
 add "sprite-sheet"       "node tests/sprite-sheet-test.mjs"
 add "particle-sprite"    "node tests/particle-sprite-verify.mjs"
 add "text-layout"        "node tests/text-layout-test.mjs"
+add "canvas-fit-csz"     "node tests/canvas-fit-and-csz-test.mjs"   # ①-A(P-339) 画布盒比例跟随设计画布 + ⑤-1(P-340) engine.canvasSize 翻正交口径：切片直测真函数 + 真实 buildCamera 几何对拍 + 双档反向读数 + 变异自证（期望红集==实际红集）；18 断言；~1s
+add "script-origin-recompose" "node tests/script-origin-recompose-test.mjs"   # ⑤-2(P-341) 脚本 origin 官方语义（局部 origin + 重新父链合成 + 级联）：裁判 = 解析期合成 oracle；改动前 3P/4F（主断言 100px / 级联 100px），改动后 7P/0F；变异自证（父链恒等⇒同值、父 scale=2⇒两口径恰差 (100,50)）；`MPW_BUNDLE=<备份>` 可跨实现跑同一判据；~2s；缺真包时 T6 SKIP
 add "bloom"              "node tests/bloom-verify.mjs"
 add "script-tolerance"   "node tests/script-tolerance-test.mjs"
 # ①(2026-09-22 上游 9e287ea) `script-frametime-cap`：**脚本单帧 dt 封顶 0.05s** —— 一次卡顿（切档重挂/
@@ -222,7 +245,7 @@ add "project-json"       "node tests/project-json-test.mjs"        # P-85：官�
 add "perf-profile-smoke" "node tests/perf-profile.mjs --pkg \"$MPW_PERF_PKG\"" "slow"
 add "projection-y"       "node tests/projection-y-test.mjs"       # P-69：相机投影 y 轴口径（真值表 世界y0→NDC+1 / fix↔legacy 互镜 / 真包 3554161528 花朵落点 1640.55 vs legacy 519.45 + 钢琴对照 54px）+ 粒子 incr 缓存不变量（首帧与 replay 逐位同、第二帧粒子更新次数 ≥20× 下降）；34 断言；~2s
 add "multi-instance"     "node tests/multi-instance-test.mjs"    # P-77 用户第 4 项「一页多实例」：无 ?ids= 时单实例逐位不变（红线）/ ids 解析(非法·去重·顺序) / maxinst 超出不建上下文+占位原因 / 同一时刻仅一个 active 且未选中 0 帧(桩 rAF) / dispose→loseContext+摘除(桩上下文计数回落) / 一帧至多 1 active / 报告 instances 键（单实例无·多实例全）/ 预算降档 / 布局与 instlog + **真接线动态跑**（切 demo.html 的多实例接线块 + 桩 bootInstance）；87 断言；~0.3s（纯 Node：桩 DOM+rAF+boot）
-add "canvas-size"        "node tests/canvas-size-test.mjs" "" "^SKIP canvas-size"  # P-78 追加任务：engine.canvasSize 口径（默认仍=渲染分辨率⇒逐位不变；?csz=ortho 为 A/B）。真包 3327063360+真机 userProps 复现：**两种口径都在画布内** ⇒ 证伪"口径导致 12 层不上屏"；11 断言；~0.9s；缺真包 SKIP
+add "canvas-size"        "node tests/canvas-size-test.mjs" "" "^SKIP canvas-size"  # P-78 追加任务 + ①(P-340 契约变更)：engine.canvasSize 口径（**缺省 = 正交/场景尺寸**＝官方 .d.ts "full wallpaper in pixels"；`?csz=render` 逐位回改动前的渲染分辨率；`?csz=ortho` 显式同缺省）。真包 3327063360+真机 userProps 复现：**两种口径都在画布内** ⇒ 证伪"口径导致 12 层不上屏"；T1b 两条都断言 + 源级变异自证（缺省改回 render／拆掉回退 ⇒ 必红，期望红集==实际红集）；12 断言；~0.9s；缺真包 SKIP
 add "text-font-fallback" "node tests/text-font-fallback-test.mjs" "" "^SKIP text-font-fallback"  # P-81 用户第 1 项最后缺口：文本字体**三级来源链**（①包内 → ②本机 WE 安装目录 /weassist/fonts/<basename> → ③sans-serif）。纯函数节选 + 桩 fetch/Blob/FontFace：包内有⇒fetch 0 次（绝不走第二级）/ 空格·CJK basename 编码 / 404·reject·空体都不抛异常且落第三级 / missing 去重 + **调用点也认 missing**（否则缺字体的层永不渲染）；真包 3554161528 时钟层 id398（包内无 Monofur）复现 + 千图马克层走第一级；45 断言；~0.2s；缺真包 SKIP
 # ①(P-102 2026-09-16 第 10 条·移植项) 帧几何：宿主 iframe 形态下的"窗口坐标 → 帧内 client 像素"与
 #   "内容比例 ≠ 舞台比例时的覆盖式视口"。**规格先行**（docs/WEB-FRAME-GEOMETRY-SPEC.md，只写公开契约）

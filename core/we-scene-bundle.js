@@ -13462,6 +13462,24 @@ export function createRenderer(canvas, opts = {}) {
   //   y 分量符号由本项目的 y-down 约定决定（parseScene 期已做 PROJ_H−y 翻转）。
   //   此前 bug：状态存 (client/size−0.5) 且未乘 ortho（3840 倍量级差）→ 鼠标视差几乎不可见。
   const parallaxState = { x: 0.5, y: 0.5 }
+  /* ①(P-338 视差 / xray **指针接线统一** 2026-10-12) `?ptrwiring=legacy` = 把下面**两处**接线逐位回到改动前：
+       (A) **视差链的指针来源**（消费点见 renderScene 的 ①(P-338 A) 段）：
+           legacy = 只认视差链自带的 `window.mousemove` 私有监听器（改动前就是这样）；
+           official（缺省）= 与**效果链同一个**每帧指针快照 `__fxPtr`（裁决器 `__pointerDesign`：
+           注入通道 `window/globalThis.__mpwPointer` > 画布 `pointermove`），并且**只在真的拿到指针时**才覆盖
+           `parallaxState` ⇒ 没有指针时保持 DOM 通道写下的值（缺省 0.5/0.5）⇒ 改动前的读数逐位不变。
+           为什么必须统一：注入通道下视差链一个事件都收不到 ⇒ 场景级/对象级视差**与** `g_ParallaxPosition`
+           （`effects/depthparallax` 的输入，官方 `depthparallax.vert` 用它求 `v_ParallaxOffset`）**全部冻在中点**。
+           实测（`node tests/parallax-xray-test.mjs`）：同一场景同一指针，DOM 派发 Δ=−864.0000px、注入 Δ=0.0000px。
+       (B) **`g_PointerState.y`**（消费点见 `bindSystemUniforms` 的 ①(P-338 B) 段）：
+           legacy = 指针的层 UV v（改动前的值）；official（缺省）= `1.0`，且**只对声明了 `g_PointerScale`
+           的 xray 族程序**生效 —— 理由与逐条读数见该段注释（官方桌面版 xray.frag 里根本没有这个因子）。
+       同进程切两态（判据用）：`opts.parallaxPtrLegacy` / `opts.xrayStateLegacy`（显式布尔优先于 URL 档）。 */
+  const PTR_WIRING_LEGACY = (() => {
+    try { return new URLSearchParams(location.search).get('ptrwiring') === 'legacy' } catch (e) { return false }
+  })()
+  const __parPtrLegacy = (opts.parallaxPtrLegacy !== undefined) ? !!opts.parallaxPtrLegacy : PTR_WIRING_LEGACY
+  const __xrayStateLegacy = (opts.xrayStateLegacy !== undefined) ? !!opts.xrayStateLegacy : PTR_WIRING_LEGACY
   // ①(P-224 · RE-36) `camerashake*` 的归一化结构（官方噪声语义未定，见 RE-36 与下方 renderScene 注释）：
   //   {enabled, speed, amplitude, roughness, mode, noiseModel, offset:[x,y]}；默认 off/0/0/1 ⇒ offset 恒 [0,0]。
   const cameraShake = { enabled: false, speed: 0, amplitude: 0, roughness: 1, mode: 'off', noiseModel: 'none', offset: [0, 0] }
@@ -13551,6 +13569,10 @@ export function createRenderer(canvas, opts = {}) {
     mode: PTRFX_MODE, frames: 0, pointerFrames: 0, parkFrames: 0,
     uniformWrites: 0, lastPointer: [0.5, 0.5], lastPointerLast: [0.5, 0.5],
     lastPointerState: [0.5, 0.5, 0, 0], lastFrametime: 1 / 60, lastParallax: [0.5, 0.5],
+    // ①(P-338) 两处指针接线档（真机诊断/判据读它，不靠"我们没改"自证）：
+    //   `parallaxPtr` = 'unified'（缺省，视差链吃 `__fxPtr`）| 'legacy'（只认 window.mousemove）；
+    //   `xrayStateY` = 1（缺省，xray 族 `.y` 因子=1）| 0（legacy，`.y` = 指针层 UV v）。
+    wiring: { parallaxPtr: __parPtrLegacy ? 'legacy' : 'unified', xrayStateY: __xrayStateLegacy ? 0 : 1 },
   }
   /**
    * 每帧**一次**的指针/时间快照。`renderScene` 建好 `cam` 之后、任何层渲染之前调用。
@@ -13764,8 +13786,27 @@ export function createRenderer(canvas, opts = {}) {
       setVal(uni, 'g_PointerPositionLast', (l) => gl.uniform2f(l, pl[0], pl[1]))
       // `g_PointerState`：官方只有 `cursorripple_apply_force.frag` 用，且只读 `.z`
       // （`pointerMoveAmt + g_PointerState.z * 5.0` = 点击时额外注入一次冲量）⇒ xy 放位置、z 放按键。
+      /* ①(P-338 B 2026-10-12) **xray 族的 `.y` 因子**（真包实测，可复跑 `node tests/parallax-xray-test.mjs`）：
+         · 现象：`夜莺/逆流茶会-姐妹日常 (x-ray)` 这类包的 `shaders/effects/xray.frag` 比官方桌面版**多一行**
+             `unprojectedUVs *= CAST2(1.0 / max(0.00001, g_PointerState.y));`
+           （包内原文 `shaders/effects/xray.frag:43`；同一包的 `xray.vert:23` 也声明了 `uniform vec4 g_PointerState;`）。
+           改动前本仓把 `.y` 写成**指针的层 UV v**（下面 `stY` 的 legacy 支）⇒ 精灵采样偏移被放大 `1/v` 倍
+           ⇒ 开窗半径随光标高度变化：指针在层底部时最大、越往上越小、贴近顶边**整块消失**
+           （数值：窗口面积占层 6.50%→0.01%，v=0.5 时 3.24%；详见报告与判据读数）。
+         · 官方对照（**决定性**）：本机 `wallpaper_engine/assets/effects/xray/shaders/effects/xray.frag` 里
+           **没有这一行** —— 官方桌面版的精灵缩放就是 `v_PointerScale * vec2(1.0, v_PointerUV.w)`，
+           等价于因子 **1.0**；且官方编辑器 `bin/wallpaperui.exe:0xab1438-0xab14c0` 的着色器升级表把
+           "有/无这一行"的两个版本**成对**登记（旧 `varying float v_PointerScale;` → 新
+           `…;\nuniform vec4 g_PointerState;`；旧 `unprojectedUVs += 0.5;` → `…* CAST2(1.0/max(…,g_PointerState.y));`）
+           ⇒ 该因子是**版本差异**，不是包作者的效果参数。
+         · 本仓口径（**推断，强**；已如实记账）：对**声明了 `g_PointerScale` 的 xray 族程序**把 `.y` 填 `1.0`
+           ⇒ 与官方桌面版 xray **行为等价**。`g_PointerState.y` 的官方语义本机**无从取证**
+           （`wallpaper_engine/` 全部资产里只有 `cursorripple`/`fluidsimulation` 读 `.z`；`g_PointerState`
+           在 uniform 名表里紧邻 `g_PointerPosition`，语义未定）⇒ 只改 `.y`、只改 xray 族、且**不推断**其余分量。
+           `?ptrwiring=legacy`（或 `opts.xrayStateLegacy`）⇒ `.y` 逐位回指针 v（改动前的值）。 */
       const down = (__pointerButtons & 1) ? 1 : 0
-      setVal(uni, 'g_PointerState', (l) => gl.uniform4f(l, pu[0], pu[1], down, 0))
+      const __xrayStY = (!__xrayStateLegacy && !!uni.get('g_PointerScale')) ? 1 : pu[1]
+      setVal(uni, 'g_PointerState', (l) => gl.uniform4f(l, pu[0], __xrayStY, down, 0))
       setVal(uni, 'g_Frametime', (l) => gl.uniform1f(l, __fxPtr.dt))
       setVal(uni, 'g_ParallaxPosition', (l) => gl.uniform2f(l, parallaxState.x, parallaxState.y))
       // 效果纹理投影矩阵：与第三方参考实现 lwe-ref（`CPass.cpp:881-882` 给 ETVP 补单位矩阵）同口径，
@@ -15618,6 +15659,25 @@ export function createRenderer(canvas, opts = {}) {
     // 修复(2026-09-10)：此处此前声明 const parEnabled 遮蔽了闭包外层 let parEnabled（compositeLayer
     // 读外层恒 false）→ 对象级视差（layer.parallaxDepth）永不生效。改为赋值外层变量。
     parEnabled = parRaw === true || (parRaw !== null && typeof parRaw === 'object' && parRaw.value === true)
+    /* ①(P-338 A 2026-10-12) **视差链的指针来源**（改动前：视差链只认自己那个 `window.mousemove` 监听器
+       `attachParallaxListener()` ⇒ 注入通道（`window.__mpwPointer`，宿主 / 测试台「指针注入」的 `__wp.pushPointer`
+       写的就是它）与画布 `pointermove` **一个都到不了** `parallaxState`）。
+       症状：宿主注入指针时移动鼠标，视差**完全不动** —— 场景级 `parDisp`、对象级 `parallaxDepth`、
+       以及 `g_ParallaxPosition`（官方 `effects/depthparallax` 的输入，见 `bindSystemUniforms`）三处一起死。
+       这里改成吃**效果链同一个每帧快照** `__fxPtr`（`__fxPtrFrame(cam,time)` 在本函数建好 `cam` 之后、
+       任何层渲染之前跑一次 ⇒ 同一帧同一份值，不新增第二个裁决器）。
+       **门控**：只在 `parEnabled`（场景自己声明 `general.cameraparallax` 为真）**且** `__fxPtr.has`
+       （真的拿到了指针）时覆盖 ——
+         · 场景没声明 parallax ⇒ 不写 ⇒ `parallaxState` 保持 DOM 通道 / 缺省 (0.5,0.5)
+           （`tests/ptrfx-uniform-test.mjs` A5 的"视差未开 ⇒ g_ParallaxPosition 零偏移"逐位不变）；
+         · 没有指针 ⇒ 不写 ⇒ 与改动前逐位相同（不是"没指针就归零"）。
+       **有意不跟 `opts.parallaxOff` 走**：那条是本仓页面级产品开关（`?parallax=`，demo 缺省关），
+       它停的是**渲染器对层位置的位移**（截图确定性），不是作者写进包里的 `depthparallax` 效果；
+       把作者效果也一并冻住正是"开了指针注入移动鼠标，视差效果仍毫无反应"的一半现场。
+       `?ptrwiring=legacy`（或 `opts.parallaxPtrLegacy`）⇒ 整条不执行，逐位回改动前。
+       读数（`node tests/parallax-xray-test.mjs`，同一场景同一指针）：DOM 派发 Δ=−864.0000px；
+       注入改前 **0.0000px**、改后 **−864.0000px**。 */
+    if (!__parPtrLegacy && parEnabled && __fxPtr.has) { parallaxState.x = __fxPtr.u; parallaxState.y = __fxPtr.v }
     // ①(官方默认值对齐 2026-09-24) **视差启用时，三个参数缺属性用什么值** —— 官方 = amount 0.5 / delay 0.1 /
     //   influence 0.0（本行只管"缺属性兜底"，**不动** `?parallax` 缺省关那条产品决定，也不动官方算式）：
     //   · 官方默认值的确切出处（file:offset）：官方随包发布的 44 个
@@ -19406,45 +19466,137 @@ export function makeTextureMipGuarded(gl, levels, rg88 = false, opts = {}) {
 }
 
 
-/* ===== 脚本 origin 同步（RE-28 回归修复 2026-09-12）=====
- * 背景：demo.html 的 RE-28 脚本运行时让场景脚本能驱动层属性；同步回 scene.layers 时，
+/* ===== 脚本 origin 同步（RE-28 回归修复 2026-09-12；①⑤-2 P-341 2026-10-12 改官方语义）=====
+ * 背景（RE-28）：demo.html 的脚本运行时让场景脚本能驱动层属性；同步回 scene.layers 时，
  *   `origin` 这一项曾按"把 raw 的 authored origin 直接写进 l.origin"实现——但默认路径下
  *   parseScene 算出的 l.origin 已经是**父链合并 + 附件锚点偏移**后的世界坐标（core/attach-transform.mjs），
  *   而 raw.origin 是**未加锚点**的局部 authored 值。于是每个带 attachment 的层都被"打回原形"：
  *   设备实测（3719111841，DIAG 行）右侧发/底发/衣袖 的 origin = (67,2675)/(-277,1719)/(-517,2661)，
  *   与 raw authored 逐位相同、与锚点后的 (2575,743)/(2284,342)/(1948,1965) 相差数百 px → 头发/衣袖/发片
  *   全部飞出画面（用户："渲染还是有问题"、画面只剩主体/耳朵/眼睛几个 mesh 层）。
+ *   ⇒ 第一步（RE-28）：只对"脚本**真的改过** authored origin"的层施加**增量**，锚点偏移因此保住。
  *
- * 修法：以"脚本是否**真的改过** authored origin"为判据，只施加**增量**：
- *   base = 脚本运行前抓的 authored origin 快照（y-up 局部）
- *   脚本写了新值 → dx = x - base.x, dy = y - base.y；l.origin += (dx, -dy)（y-up → y-down 取反），
- *   然后把 base 更新为新值（逐帧增量累加）。
- * 与旧行为的关系：无锚点层 parseScene 的 origin == authored，增量累加后逐位等于旧实现（零行为差异）；
- *   有锚点层则**保住锚点偏移**（这正是修复目标）。
+ * ①⑤-2(P-341 2026-10-12) 第二步：**增量加在"已合成的世界坐标"上**仍不是官方语义
+ *   （根因见 `<工作区>/docs/reports/CROP-TEXT-POSITION-DIAGNOSIS.md` §5 H5，已确认）：
+ *   官方语义 = 脚本 `update(value)` 返回的是**该层的局部 origin**，之后**照常走父链合成** ✗ 世界增量。
+ *   ⇒ 带父级的层误差 = 父链偏移（真包 `窗畔弦歌` 的 `帧率显示`：父链累计 scale = −0.292×0.292、
+ *     真机 `Clock.parent=3991`；判据 `tests/script-origin-recompose-test.mjs` 改动前读数：
+ *     F-B 父 scale=2 时差 **100px**、F-C 级联差 **105px**）。
+ *   **修法（不新增第二套父链实现）**：复用 P-61 `writeBindField` 的 origin 分支同一套公式
+ *     `origin = __authOriginWorld + R(父链)·((Δ局部) ⊙ 父链 scale)`（y-down 下 y 取反）——
+ *     附件锚点天然保留（锚点烘在 `__authOriginWorld` 里、Δ 相减时约掉）；
+ *     并且**级联**：只改父的局部 origin 时，子/后代的世界坐标必须跟着走
+ *     （父的位移 = `p.origin − p.__authOriginWorld`，加到子的 `__authOriginWorld` 上；父纯平移时精确）。
+ *   回退位：`?scrorigin=legacy`（等价 `opts.legacy` / `setScrOriginLegacy()`）= 旧的世界增量口径，逐位保留。
+ *   如实记账的边界：父链的**旋转/缩放本身**在本帧被脚本改动时，本实现按"父位移 + 子局部增量"合成
+ *     （父纯平移时精确；父同帧改旋转/缩放的帧仍是近似）——与 `writeBindField` 同一边界。
+ *   返回值语义不变：= "脚本改过 origin 的层数"（级联层不计入；`fullscreen-recenter-test` T2b 钉 `n===1`）。
  */
-export function syncScriptOrigins(scene, rawObjects, base, skip = null) {
+let __scrOriginLegacy = null
+/** 回退位开关：`?scrorigin=legacy`（另可用 `opts.legacy` / `setScrOriginLegacy()` 在同进程切两态）。 */
+export function setScrOriginLegacy(on) { __scrOriginLegacy = (on === undefined || on === null) ? null : !!on; return scrOriginLegacy() }
+export function scrOriginLegacy(opts) {
+  if (opts && opts.legacy !== undefined) return !!opts.legacy
+  if (__scrOriginLegacy === null) {
+    let lg = false
+    try { lg = (new URLSearchParams(location.search).get('scrorigin') || '').trim().toLowerCase() === 'legacy' } catch (e) { lg = false }
+    try { if (typeof globalThis !== 'undefined' && globalThis.__mpwScrOriginLegacy !== undefined) lg = !!globalThis.__mpwScrOriginLegacy } catch (e) { /* 无全局 → 用 URL 结果 */ }
+    __scrOriginLegacy = lg
+  }
+  return __scrOriginLegacy
+}
+export function syncScriptOrigins(scene, rawObjects, base, skip = null, opts = null) {
   if (!scene || !Array.isArray(scene.layers) || !base) return 0
   const rawById = new Map()
   for (const o of rawObjects || []) if (o && o.id !== undefined) rawById.set(o.id, o)
-  let synced = 0
+  /** 取 raw 当前的 origin 文本（脚本宿主把结果写回 `{script,value}.value`；裸字符串同样吃）。 */
+  const scriptLocal = (raw) => {
+    const ro = raw && raw.origin && typeof raw.origin === 'object' ? raw.origin.value : (raw ? raw.origin : undefined)
+    if (typeof ro !== 'string') return null
+    const v = ro.trim().split(/\s+/).map(Number)
+    return (v.length >= 2 && isFinite(v[0]) && isFinite(v[1])) ? v : null
+  }
+  if (scrOriginLegacy(opts)) {
+    /* ── 回退档（= 改动前逐位）：只对"自己的 origin 被脚本改过"的层加**世界增量** ── */
+    let synced = 0
+    for (const l of scene.layers) {
+      if (l.__skin) continue
+      if (skip && skip.has(l.id)) continue
+      const raw = rawById.get(l.id)
+      if (!raw) continue
+      const v = scriptLocal(raw)
+      if (!v) continue
+      const b = base.get(l.id)
+      if (!b) continue
+      const dx = v[0] - b[0], dy = v[1] - b[1]
+      if (Math.abs(dx) <= 1e-3 && Math.abs(dy) <= 1e-3) continue   // 脚本没碰 origin → 保留锚点后的世界坐标
+      if (l.origin) { l.origin[0] += dx; l.origin[1] -= dy }
+      b[0] = v[0]; b[1] = v[1]
+      synced++
+    }
+    return synced
+  }
+  /* ── 默认档：局部 origin + 重新父链合成（+ 级联到后代） ── */
+  const layerById = new Map()
+  for (const l of scene.layers) if (l && l.id !== undefined) layerById.set(l.id, l)
+  const childrenOf = new Map()
+  for (const l of scene.layers) {
+    if (l.parent === undefined || l.parent === null) continue
+    if (!childrenOf.has(l.parent)) childrenOf.set(l.parent, [])
+    childrenOf.get(l.parent).push(l)
+  }
+  /** 第 1 趟：找出"脚本改过自己 origin"的层，记下**局部增量**（编辑器 y-up 空间），并推进基线。 */
+  const dirty = new Map()
   for (const l of scene.layers) {
     if (l.__skin) continue
     if (skip && skip.has(l.id)) continue
     const raw = rawById.get(l.id)
     if (!raw) continue
-    const ro = raw.origin && typeof raw.origin === 'object' ? raw.origin.value : raw.origin
-    if (typeof ro !== 'string') continue
-    const v = ro.trim().split(/\s+/).map(Number)
-    if (v.length < 2 || !isFinite(v[0]) || !isFinite(v[1])) continue
+    const v = scriptLocal(raw)
+    if (!v) continue
     const b = base.get(l.id)
     if (!b) continue
     const dx = v[0] - b[0], dy = v[1] - b[1]
     if (Math.abs(dx) <= 1e-3 && Math.abs(dy) <= 1e-3) continue   // 脚本没碰 origin → 保留锚点后的世界坐标
-    if (l.origin) { l.origin[0] += dx; l.origin[1] -= dy }
+    dirty.set(l.id, [dx, dy])
     b[0] = v[0]; b[1] = v[1]
-    synced++
   }
-  return synced
+  if (!dirty.size) return 0
+  /** 第 2 趟：脏层 + 其**后代**（父链闭包）—— 父一动，子必须跟着走。 */
+  const need = new Set(dirty.keys())
+  const queue = [...dirty.keys()]
+  while (queue.length) {
+    const id = queue.pop()
+    for (const c of (childrenOf.get(id) || [])) {
+      if (need.has(c.id)) continue
+      need.add(c.id); queue.push(c.id)
+    }
+  }
+  const depthOf = (l) => { let d = 0, cur = l, guard = 0; while (cur && cur.parent !== undefined && cur.parent !== null && guard++ < 64) { cur = layerById.get(cur.parent); d++ } return d }
+  const order = scene.layers.filter((l) => need.has(l.id)).sort((a, b2) => depthOf(a) - depthOf(b2))   // 父先于子
+  for (const l of order) {
+    if (l.__skin) continue
+    if (skip && skip.has(l.id)) continue
+    if (!l.origin) continue
+    const d = dirty.get(l.id) || [0, 0]
+    const p = (l.parent !== undefined && l.parent !== null) ? layerById.get(l.parent) : null
+    const xf = l.__parentXf
+    const cos = xf ? xf.cos : 1, sin = xf ? xf.sin : 0
+    const sx = xf ? xf.sx : 1, sy = xf ? xf.sy : 1
+    const dx = d[0] * sx, dy = d[1] * sy
+    const auth = l.__authOriginWorld
+    if (!auth) {                                   // 没有解析期快照（非 parseScene 造的层）⇒ 退回旧增量，绝不猜
+      l.origin[0] += d[0]; l.origin[1] -= d[1]
+      continue
+    }
+    const shiftX = (p && p.__authOriginWorld) ? (p.origin[0] - p.__authOriginWorld[0]) : 0
+    const shiftY = (p && p.__authOriginWorld) ? (p.origin[1] - p.__authOriginWorld[1]) : 0
+    // y-down：x' = x + (dx·cos − dy·sin)；y' = y − (dx·sin + dy·cos)（与 parseScene 的 Y 翻转同式）
+    l.origin[0] = auth[0] + shiftX + (dx * cos - dy * sin)
+    l.origin[1] = auth[1] + shiftY - (dx * sin + dy * cos)
+    l.origin[2] = auth[2] || 0
+  }
+  return dirty.size
 }
 
 // ①②(P-237 2026-10-06) **脚本节点值的按载体重算同步**：`visible` / `alpha`（可扩到 scale/angles）。
