@@ -338,3 +338,15 @@ SKIP 的那一项是 `scene-layer-baseline` 里**本机没有语料**时的显�
    渲染器侧根因待下批；3. clearalpha 的"屏幕坐标采样 + alpha=0"两细节未实现（P-230 边界）；
 4. cursorMove/Enter/Leave 只留管线、cursorHitTest 只支持 false 拒绝、命中为轴对齐矩形近似（P-233 边界）；
 5. 场景级 {user:…} 绑定本次只落 `general.bloom`（其余 24 处待逐字段取证，P-234 边界）。
+
+## 发布记录：0.5.20
+
+- **日期**：2026-10-12（registry 时间戳 `2026-10-12T17:24:47Z`）
+- **tag**：`v0.5.20`（已推送）· **Release**：`releases/tag/v0.5.20`
+- **npm**：`npm publish --registry=https://registry.npmjs.org/` ⇒ `latest = 0.5.20`
+- **tarball**：165 文件 / 约 2.9 MB · `shasum 85a9cfc18db053c513b7a1c0a15741375a113e79`
+- **发布后验证**（本文件第 3 节）：packument `dist-tags.latest = 0.5.20`、tarball `HTTP 200`、`npm pack …@0.5.20` 取回 165 文件、解包 `package.json.version = 0.5.20` 且 `core/we-scene.mjs` 的 `VERSION = '0.5.20'` 一致
+- **内容**：P-338…P-342（视差指针接线 / 取景画布盒跟随设计画布 / `engine.canvasSize` 口径 / 脚本 `origin` 局部+重合成 / 测试台预览视差档 · 首格删除控件越界 · 图层开关「恢复默认」）；判据新增 6 个（门禁 246 → 251 项）；两处旧契约判据改双口径硬钉；修复 `tests/bench-ui-headless-test.mjs` 的崩溃与 8 条既有 FAIL（零断言被删）
+- **发布前置**：0.5.20 之前的最后一次全量门禁 `PASS=4 FAIL=0 SKIP=0 / 总 4 阶段`（251/251 PASS）；本版本仅版本号三处改动，由 `mount-test` / `docs-check` / `publish-check` / `status-consistency` 四项钉住并已跑绿
+
+> ⚠ 时间线说明（客观）：`npm publish` 后 CLI 立即返回成功，但 registry 元数据在约 6 分钟后才出现 `0.5.20`，tarball 附件再滞后约 7 分钟（先 404 后 200）。发布后验证请以**原始 packument / tarball HTTP 状态**为准，不要只看 CLI 那一行。
