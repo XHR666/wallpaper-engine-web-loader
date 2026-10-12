@@ -5,7 +5,7 @@
 在浏览器里**实时渲染 Wallpaper Engine 的场景壁纸**（`scene.pkg` / 本仓库的 `.mpkg` 容器 / workshop 源目录），
 不需要 Wallpaper Engine、不需要 Windows、不需要 GPU 专用驱动 —— 一个本机 Node 静态服务器 + 支持 WebGL2 的浏览器即可。
 
-- 已发布 npm：[wallpaper-engine-web-loader@0.5.19](https://www.npmjs.com/package/wallpaper-engine-web-loader)
+- 已发布 npm：[wallpaper-engine-web-loader@0.5.20](https://www.npmjs.com/package/wallpaper-engine-web-loader)
 - [在线 demo](https://xhr666.github.io/wallpaper-engine-web-loader/)
 - 导航：[快速开始](#1-快速开始) ｜ [主要特性](#2-主要特性支持什么--不支持什么) ｜ [加载一张壁纸](#3-加载一张壁纸) ｜ [开发与测试](#6-开发与测试) ｜ [已知限制](#7-已知限制) ｜ [常见问题](#8-常见问题) ｜ [许可与免责声明](#10-许可与免责声明)
 
@@ -70,13 +70,13 @@ python3 -m http.server 8899 -d _site   # 或 npx serve _site
   静态托管不会自动获得离线能力。
 - 也可以只用 `npm pack` 的产物（解开即是可静态托管的目录）：
 ```bash
-npm pack wallpaper-engine-web-loader@0.5.19       # 得到 wallpaper-engine-web-loader-0.5.19.tgz
-tar -xzf wallpaper-engine-web-loader-0.5.19.tgz   # 解开得到 package/（含 demo.html / elysia/ / samples/ 等）
+npm pack wallpaper-engine-web-loader@0.5.20       # 得到 wallpaper-engine-web-loader-0.5.20.tgz
+tar -xzf wallpaper-engine-web-loader-0.5.20.tgz   # 解开得到 package/（含 demo.html / elysia/ / samples/ 等）
 ```
 
 ### C. npm 安装（把渲染器作为依赖嵌进你自己的站点/app）
 ```bash
-npm i wallpaper-engine-web-loader@0.5.19     # 锁定已发布版本；或 npm i wallpaper-engine-web-loader 跟随 latest
+npm i wallpaper-engine-web-loader@0.5.20     # 锁定已发布版本；或 npm i wallpaper-engine-web-loader 跟随 latest
 ```
 最小用法（`parsePkg` / `parseScene` / `mount` 三个入口都已实测跑通）：
 ```js
