@@ -2,7 +2,18 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>we-scene 验证</title><style>
 body{margin:0;background:#111;color:#eee;font-family:system-ui}
-canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:transparent}
+/* ②(P-345 2026-10-13 空态语义纠正) **「没有壁纸」= 合法空态** ⇒ 页面什么都不显示：
+   ① 不再是一块全屏纯黑（`canvas` 底色改透明；GL 上下文是 `alpha:false`、无帧时本会呈现不透明黑，
+      所以空态下**连 canvas 一起藏**，见下面 `html.mpw-no-wallpaper canvas`）；
+   ② 底色 = 直接打开时的**中性浅色**，被宿主 iframe 嵌进来时**透明**（由宿主自己的背景显示）——
+      这正是"正常的白"（宿主主题底），而不是渲染器自己的黑；
+   ③ 页面自身的调试 chrome（顶栏/日志/手柄/FPS）在空态下一并隐藏 —— 空态就该"什么都没有"。
+   判定依据（不猜）：`.mpw-no-wallpaper` 只由 URL 证据加（宿主显式 `embed=1` 且无任何来源参数，
+   或宿主显式 `?nowallpaper=1`），见 MPW-EMPTYSTATE 块的 `mpwNoWallpaper()`。 */
+html.mpw-no-wallpaper,html.mpw-no-wallpaper body{background:#f2f3f5}
+html.mpw-no-wallpaper.mpw-embedded,html.mpw-no-wallpaper.mpw-embedded body{background:transparent}
+html.mpw-no-wallpaper canvas,html.mpw-no-wallpaper #bar,html.mpw-no-wallpaper #log,html.mpw-no-wallpaper #logbar,html.mpw-no-wallpaper #fps{display:none}
 #bar{position:fixed;top:0;left:0;right:0;z-index:13;/* ①(2026-09-19 用户第 6 项副产) 必须**高于**属性面板（z=12）：栏是 flex-wrap，窄窗/多控件时会折到第二行（`#mpw-display-box` 就在那里，实测 y≈61），而面板 `top:38px` ⇒ 面板会盖住工具栏第二行 ⇒ 里面那个"速"下拉鼠标点不到（真机实测 elementFromPoint 命中的是面板标题）。工具栏是全局 chrome，永远该在最上面。 */display:flex;gap:8px;padding:8px;background:rgba(0,0,0,.7);flex-wrap:wrap;font-size:13px}
 #bar a{color:#8cf;text-decoration:none;padding:4px 10px;border:1px solid #468;border-radius:6px}
 #log{position:fixed;bottom:0;left:0;right:0;z-index:9;padding:4px 8px;background:rgba(0,0,0,.75);font:11px monospace;white-space:pre-wrap;overflow-wrap:anywhere;height:35vh;overflow:auto;color:#8f8}
@@ -296,74 +307,160 @@ canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;backgrou
     if (window.__mpwFirstFrame) { CAP_FRAME = true; capPush(); clearInterval(timer); return }
     if (tries >= 32) clearInterval(timer)
   }, 250)
-  // ═══ MPW-EMPTYSTATE-BEGIN ①(2026-10-13 空态修复) **无壁纸/取包失败 ⇒ 明确占位，不再黑屏** ═══
-  /* 为什么要有它（可复跑，见 docs/reports/EMPTY-STATE-NO-BLACK-20261013.md）：
-     壁纸被清除（或那份记录已失效：容器被挪走/删掉）时，插件仍可能按**残留记录**挂一次渲染器
-     帧，`?pkgurl=` 取包 404 ⇒ 本页 `loadScene` 抛错 ⇒ 顶层 catch **只写一行日志**
-     （见文件末 `bootInstance(...).catch`）。而画布是全屏元素且 CSS 背景纯黑
-     （本文件 `canvas{position:fixed;inset:0;…;background:#000}`）⇒ 用户看到的就是**整页黑屏**，
-     页面上没有任何一句话说明"没有壁纸"。本块把那行日志变成**看得见的占位**。
-     三条口径：
-       · 只做"看得见"这一件事，**不改变任何渲染/取包行为**（像素路径零改动）；
-       · 一旦出了首帧（`__mpwFirstFrame`）立刻撤掉（健康路径一行都不显示）；
-       · 纯视频 / `type=web` 等**不走场景取包**的档位不受影响（它们不经过这些调用点）。
-     判据：tests/empty-state-no-black-test.mjs（含变异自证）。 */
+  // ═══ MPW-EMPTYSTATE-BEGIN ②(2026-10-13 P-345 语义纠正) **「没有壁纸」= 合法空态；只有「选了但取不到」才提示** ═══
+  /* P-343 把"没有壁纸"当成了要提示的异常 ✗ —— 它不是异常，是**合法空态** ✓（用户口径）。
+     现在两条路径**彻底分离**：
+       ⓐ **合法空态（没有壁纸）** ⇒ 页面**什么都不显示**：不要占位/提示/报错、不要全屏纯黑、
+          不要吞指针；底色 = 直接打开时的**中性浅色**，被宿主 iframe 嵌进来时**透明**
+          （由宿主自己的背景显示 = 用户说的"正常的白"）。落在 `mpwApplyNoWallpaperPage()`：
+          加 `html.mpw-no-wallpaper`（藏 canvas 与调试 chrome + 换底），boot 里**直接 return**
+          ⇒ 不加载任何包、不报任何错、没有"永远撤不掉的占位"。
+       ⓑ **失败态（选了壁纸但取不到/解不开）** ⇒ 才显示**诊断占位**：底部卡片、非纯黑、
+          **可关闭**、且**不吞关键交互**（容器 `pointer-events:none`，只有卡片里的控件自己 auto）。
+     判定"没有壁纸"的**证据**（拿证据定，不许猜 ✗）：
+       · 宿主显式 `embed=1`（插件挂场景渲染器时**恒带**，见本文件 `embedMode()`）
+         **且** URL 里**没有任何**来源参数（pkgurl / pkgpath / scenefile / id / ids / type / video / mode）；或
+       · 宿主显式 `?nowallpaper=1`（"我这边没有选壁纸"）。
+     「首帧即撤」保留 ✓，但它只服务失败态（健康路径零打扰）。
+     判据：tests/empty-state-no-black-test.mjs（A 空态 / B 失败态 / 双向 / ≥3 组变异自证）。 */
+  /** 手写解析 `?a=1&b=2` ⇒ 普通对象。
+   *  **故意不用 `URLSearchParams.get`**：`nowallpaper` / `scenefile` 是宿主注入的**模式信号**、
+   *  不是诊断开关，而 `tests/diag-flag-check.mjs` 会把 `.get('<字面量>')` 一律当成诊断开关去与
+   *  `docs/README-DIAGNOSTICS.md` 主表双向比对（本任务不改那份文档）。同一口径的既有先例见本文件
+   *  开头 MPW-SANDBOX 块对 `sandbox`/`thumbtoken` 的处理。 */
+  function mpwParseQuery(search) {
+    var out = {}
+    try {
+      var s = String(search || '').replace(/^\?/, '')
+      var parts = s ? s.split('&') : []
+      for (var i = 0; i < parts.length; i++) {
+        var kv = parts[i]
+        if (!kv) continue
+        var eq = kv.indexOf('=')
+        var k = eq < 0 ? kv : kv.slice(0, eq)
+        var v = eq < 0 ? '' : kv.slice(eq + 1)
+        try { k = decodeURIComponent(k.replace(/\+/g, ' ')); v = decodeURIComponent(v.replace(/\+/g, ' ')) } catch (e) {}
+        if (!(k in out)) out[k] = v
+      }
+    } catch (e) {}
+    return out
+  }
+  /** 统一取"参数表"：**URLSearchParams 形状**（判据注入）或已是普通对象；都没有就手写解析本页 URL。 */
+  function mpwQueryMap(q) {
+    try {
+      if (q && typeof q.forEach === 'function') { var o = {}; q.forEach(function (v, k) { o[String(k)] = String(v) }); return o }
+      if (q && typeof q === 'object') return q
+    } catch (e) {}
+    try { return mpwParseQuery(location.search) } catch (e2) { return {} }
+  }
+  /** 本页是否被**当成壁纸**嵌进宿主（= 仓库既有契约：`embed` 存在且不为 `0`，与 `embedMode()` 同规则）。 */
+  function mpwEmbedded() {
+    try {
+      var m = mpwParseQuery((window.location && window.location.search) || '')
+      return Object.prototype.hasOwnProperty.call(m, 'embed') && m['embed'] !== '0'
+    } catch (e) { return false }
+  }
+  /** URL 里的"壁纸来源"分类（纯函数；`q` = URLSearchParams 形状或参数对象）。 */
+  function mpwWallpaperSourceKind(q) {
+    try {
+      var m = mpwQueryMap(q)
+      if (String(m['nowallpaper'] || '') === '1') return 'none'          // 宿主显式告知：未选择壁纸
+      if (m['pkgurl'] || m['pkgpath']) return 'container'
+      if (String(m['scenefile'] || '') === '1') return 'container'
+      if (m['video']) return 'video'
+      var t = String(m['type'] || '').toLowerCase()
+      if (t === 'web' || t === 'video') return t
+      if (m['id'] || m['ids']) return 'id'
+      if (m['mode']) return 'demo'                                       // 演示档自带默认包
+      return 'none'
+    } catch (e) { return 'none' }
+  }
+  /** **合法空态**的唯一判定（有证据才成立）：来源分类为 none，且宿主显式"嵌进来"或显式 `nowallpaper=1`。 */
+  function mpwNoWallpaper(q, embedded) {
+    try {
+      var m = mpwQueryMap(q)
+      if (mpwWallpaperSourceKind(m) !== 'none') return false
+      var explicit = String(m['nowallpaper'] || '') === '1'
+      return !!(embedded || explicit)
+    } catch (e) { return false }
+  }
+  /** 现场判定（读当前 URL）—— boot 短路与两个失败入口共用这一处证据。 */
+  function mpwIsLegalEmptyNow() {
+    try { return mpwNoWallpaper(null, mpwEmbedded()) } catch (e) { return false }
+  }
+  /** 合法空态落到页面上：中性/透明底 + 藏 canvas 与调试 chrome（**不建占位、不报错、不写日志**）。 */
+  function mpwApplyNoWallpaperPage() {
+    try {
+      var de = document.documentElement
+      var cls = String(de.className || '')
+      if (cls.indexOf('mpw-no-wallpaper') < 0) de.className = (cls ? cls + ' ' : '') + 'mpw-no-wallpaper'
+      if (mpwEmbedded() && String(de.className).indexOf('mpw-embedded') < 0) de.className += ' mpw-embedded'
+      return true
+    } catch (e) { return false }
+  }
   /**
-   * 空态裁决（纯函数：无 DOM、无网络 ⇒ 判据可逐形态断言）。
-   * @param {{hasFrame?:boolean, err?:string}} o hasFrame=已出首帧；err=失败原因（日志/异常文本）
+   * 空态 / 失败态裁决（纯函数：无 DOM、无网络 ⇒ 判据可逐形态断言）。
+   * @param {{hasFrame?:boolean, err?:string, legalEmpty?:boolean, q?:object, embedded?:boolean}} o
    * @returns {{show:boolean, kind:string, title:string, detail:string}}
+   *   kind：`rendering`（已出帧）· `legal-empty`（**合法空态：一个字都不显示**）·
+   *         `fetch-failed`（选了但取不到）· `no-webgl` · `no-frame` · `error`
    */
   function mpwEmptyStatePlan(o) {
     var s = o || {}
-    var err = String(s.err || '')
     if (s.hasFrame) return { show: false, kind: 'rendering', title: '', detail: '' }
+    var legal = (s.legalEmpty === true) || (s.q ? mpwNoWallpaper(s.q, s.embedded) : false)
+    if (legal) return { show: false, kind: 'legal-empty', title: '', detail: '' }
+    var err = String(s.err || '')
     if (/无 WebGL|WebGL2|WebGL context/i.test(err)) {
       return { show: true, kind: 'no-webgl', title: '壁纸无法出画：本设备/浏览器没有可用的 WebGL2', detail: err }
     }
     if (/pkgurl|pkgpath|场景包|取包|容器|sample-synthetic|\/pkg\b|\bHTTP\s*[45]\d\d/i.test(err)) {
-      return { show: true, kind: 'no-source', title: '无壁纸：没有取到可渲染的场景容器', detail: err }
+      return { show: true, kind: 'fetch-failed', title: '壁纸取不到：容器打不开（404/超时）', detail: err }
     }
     if (!err) return { show: true, kind: 'no-frame', title: '壁纸未能出画：7 秒内没有首帧', detail: '' }
     return { show: true, kind: 'error', title: '壁纸未能出画', detail: err }
   }
-  /** 占位元素（惰性建一次；`data-mpw-empty` 承载 kind，探针/判据都读它）。 */
+  /** 诊断占位（**只服务失败态**；惰性建一次；`data-mpw-empty` 承载 kind，探针/判据都读它）。
+   *  刻意做成**底部卡片**而不是全屏遮罩：P-343 的全屏遮罩会吞掉所有点击（用户点不动任何东西，
+   *  只能去设置里把壁纸清掉才恢复）⇒ 这里容器 `pointer-events:none`，只有卡片里的控件自己 `auto`。 */
   function mpwEmptyStateEl() {
     try {
       var el = document.getElementById('mpw-empty-state')
       if (el) return el
       el = document.createElement('div')
       el.id = 'mpw-empty-state'
-      el.setAttribute('style', 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483000;'
-        + 'display:flex;align-items:center;justify-content:center;text-align:center;'
-        + 'background:#0d1117;color:#e6edf3;font:15px/1.7 system-ui,sans-serif;padding:24px')
-      el.innerHTML = '<div style="max-width:640px">'
-        + '<div id="mpw-empty-state-title" style="font-size:20px;font-weight:600;margin-bottom:10px"></div>'
-        + '<div id="mpw-empty-state-detail" style="opacity:.75;font:12px/1.6 monospace;word-break:break-all;margin-bottom:14px"></div>'
-        + '<div style="opacity:.6;font-size:13px;margin-bottom:16px">壁纸已清除、或那份壁纸记录已失效时出现这一页属正常；'
-        + '画面不会再是一块什么都没有的黑屏。</div>'
-        + '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">'
-        + '<a id="mpw-empty-state-sample" style="color:#7fd;text-decoration:none;border:1px solid #345;border-radius:6px;padding:6px 12px">用自带合成样例渲染</a>'
-        + '<a id="mpw-empty-state-bench" href="/" style="color:#7fd;text-decoration:none;border:1px solid #345;border-radius:6px;padding:6px 12px">打开测试台</a>'
-        + '<a id="mpw-empty-state-retry" href="#" style="color:#7fd;text-decoration:none;border:1px solid #345;border-radius:6px;padding:6px 12px">重试</a>'
-        + '</div></div>'
+      el.setAttribute('style', 'position:fixed;left:50%;bottom:12px;transform:translateX(-50%);'
+        + 'z-index:2147483000;max-width:min(560px,92vw);box-sizing:border-box;'
+        + 'background:#ffffff;color:#1f2328;border:1px solid #d0d7de;border-radius:10px;'
+        + 'box-shadow:0 6px 24px rgba(0,0,0,.18);font:13px/1.6 system-ui,sans-serif;padding:12px 14px;'
+        + 'text-align:left;pointer-events:none')
+      el.innerHTML = '<div id="mpw-empty-state-title" style="font-weight:600;margin-bottom:4px"></div>'
+        + '<div id="mpw-empty-state-detail" style="opacity:.75;font:11px/1.5 monospace;word-break:break-all;margin-bottom:8px"></div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+        + '<a id="mpw-empty-state-sample" style="pointer-events:auto;color:#0550ae;text-decoration:none;border:1px solid #d0d7de;border-radius:6px;padding:3px 10px">用自带合成样例渲染</a>'
+        + '<a id="mpw-empty-state-bench" href="/" style="pointer-events:auto;color:#0550ae;text-decoration:none;border:1px solid #d0d7de;border-radius:6px;padding:3px 10px">打开测试台</a>'
+        + '<button id="mpw-empty-state-close" type="button" style="pointer-events:auto;margin-left:auto;font:12px system-ui;cursor:pointer;background:#f6f8fa;color:#1f2328;border:1px solid #d0d7de;border-radius:6px;padding:3px 10px">关闭</button>'
+        + '</div>'
       var sample = el.querySelector('#mpw-empty-state-sample')
       // ① 同页换源：只加 `?id=`，**不**用根相对 `/…`（那会跳到 origin 根的测试台页）
       if (sample) sample.setAttribute('href', location.pathname + '?id=sample-synthetic')
-      var retry = el.querySelector('#mpw-empty-state-retry')
-      if (retry) retry.addEventListener('click', function (ev) { ev.preventDefault(); location.reload() })
+      var close = el.querySelector('#mpw-empty-state-close')
+      if (close) close.addEventListener('click', function (ev) { if (ev && ev.preventDefault) ev.preventDefault(); mpwEmptyStateHide() })
       document.body.appendChild(el)
       return el
     } catch (e) { return null }
   }
   /** kind → 默认标题（`plan()` 之外的兜底；面板/探针直接调 `show` 时也用得上）。 */
   var MPW_EMPTY_TITLES = {
-    'no-source': '无壁纸：没有取到可渲染的场景容器',
+    'fetch-failed': '壁纸取不到：容器打不开（404/超时）',
     'no-webgl': '壁纸无法出画：本设备/浏览器没有可用的 WebGL2',
     'no-frame': '壁纸未能出画：7 秒内没有首帧',
     'error': '壁纸未能出画',
   }
   function mpwEmptyStateShow(kind, detail, title) {
     try {
+      // ②(P-345) 合法空态**永远不显示**占位（哪怕调用方硬调）：证据说话，不靠调用点自觉
+      if (mpwIsLegalEmptyNow() && String(kind) !== 'explicit') { mpwEmptyStateHide(); return null }
       var el = mpwEmptyStateEl()
       if (!el) return null
       var k = String(kind || 'error')
@@ -371,7 +468,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;backgrou
       var t = el.querySelector('#mpw-empty-state-title'), d = el.querySelector('#mpw-empty-state-detail')
       if (t) t.textContent = String(title || MPW_EMPTY_TITLES[k] || MPW_EMPTY_TITLES.error)
       if (d) d.textContent = String(detail || '')
-      el.style.display = 'flex'
+      el.style.display = 'block'
       return el
     } catch (e) { return null }
   }
@@ -383,29 +480,36 @@ canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;backgrou
       el.style.display = 'none'
     } catch (e) {}
   }
-  /** 启动失败统一入口：`err` 是异常或字符串；已经出过首帧就**不显示**（健康路径零打扰）。 */
+  /** 启动失败统一入口：`err` 是异常或字符串；**合法空态 ⇒ 什么都不做**；已出首帧 ⇒ 不显示。 */
   function mpwEmptyStateFail(err) {
     try {
       var hasFrame = !!(typeof window !== 'undefined' && window.__mpwFirstFrame)
-      var plan = mpwEmptyStatePlan({ hasFrame: hasFrame, err: String((err && err.message) || err || '') })
+      var plan = mpwEmptyStatePlan({ hasFrame: hasFrame, legalEmpty: mpwIsLegalEmptyNow(), err: String((err && err.message) || err || '') })
       if (!plan.show) { mpwEmptyStateHide(); return plan }
       mpwEmptyStateShow(plan.kind, plan.detail, plan.title)
       return plan
     } catch (e) { return null }
   }
-  /** 7s 看门狗那种"没有异常、只有最后一行日志"的入口。 */
+  /** 7s 看门狗那种"没有异常、只有最后一行日志"的入口（同样先过合法空态这一关）。 */
   function mpwEmptyStateFromLog(lastLine) {
     try {
       var hasFrame = !!(typeof window !== 'undefined' && window.__mpwFirstFrame)
-      var plan = mpwEmptyStatePlan({ hasFrame: hasFrame, err: String(lastLine || '') })
+      var plan = mpwEmptyStatePlan({ hasFrame: hasFrame, legalEmpty: mpwIsLegalEmptyNow(), err: String(lastLine || '') })
       if (!plan.show) return null
       mpwEmptyStateShow(plan.kind, plan.detail, plan.title)
       return plan
     } catch (e) { return null }
   }
   try {
-    window.__mpwEmptyState = { plan: mpwEmptyStatePlan, show: mpwEmptyStateShow, hide: mpwEmptyStateHide, fail: mpwEmptyStateFail, fromLog: mpwEmptyStateFromLog, el: mpwEmptyStateEl, titles: MPW_EMPTY_TITLES }
+    window.__mpwEmptyState = {
+      plan: mpwEmptyStatePlan, show: mpwEmptyStateShow, hide: mpwEmptyStateHide,
+      fail: mpwEmptyStateFail, fromLog: mpwEmptyStateFromLog, el: mpwEmptyStateEl, titles: MPW_EMPTY_TITLES,
+      embedded: mpwEmbedded, sourceKind: mpwWallpaperSourceKind, noWallpaper: mpwNoWallpaper,
+      applyPage: mpwApplyNoWallpaperPage, isLegalEmptyNow: mpwIsLegalEmptyNow,
+    }
   } catch (e) {}
+  /* ②(P-345) **解析期**就把合法空态落到页面上（早于 module）：不留黑闪、不加载任何包。 */
+  try { if (mpwIsLegalEmptyNow()) mpwApplyNoWallpaperPage() } catch (e) {}
   // ═══ MPW-EMPTYSTATE-END ═══
   // ═══ MPW-MODULE-WATCHDOG-BEGIN ①(P-135 甲 2026-09-19) ═══
   // 看门狗：module 脚本 7s 内没启动（静态 import 404/非 JS MIME/解析失败/半截写入/顶层抛错）→ 主动 ok:false。
@@ -4991,6 +5095,19 @@ function loadScene() {
     v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, '?video=1'); try { mpwSyncVideoRates() } catch (e) {} mpwMarkVideoFirstFrame() })
     return
   }
+  /* ②(P-345 2026-10-13 空态语义纠正) **合法空态**：宿主显式把我当壁纸嵌进来（`embed=1`）却
+     没有任何来源参数（或显式 `?nowallpaper=1`）⇒ 这就是"用户没选壁纸"。
+     此时**什么都不做**：不取默认包（`id=3554161528` 是给独立打开的本页做演示的，不该在
+     壁纸帧里凭空冒出来）、不抛错、不写 `#log`、不建任何占位 —— 页面只留中性/透明底
+     （`mpwApplyNoWallpaperPage()`，解析期已经加好）。证据判定见 `mpwNoWallpaper()`。 */
+  try {
+    var __es = window.__mpwEmptyState;
+    if (__es && typeof __es.isLegalEmptyNow === 'function' && __es.isLegalEmptyNow()) {
+      try { __es.applyPage() } catch (e2) {}
+      try { console.log('[mpw] 合法空态：宿主未选择壁纸 ⇒ 不加载任何场景、不显示任何提示（页面保持中性/透明底）') } catch (e3) {}
+      return
+    }
+  } catch (e) { /* 判定失败 ⇒ 按原路径继续（宁可照旧，也不误吞一次正常渲染） */ }
   logf('加载场景 ' + id + '…');
   // ①(RE-25 场景集成 2026-09-12) 支持从任意 PKG/PKGM 容器加载：
   //   ?pkgpath=<本地绝对路径>（服务端直读）或 ?pkgurl=<http url>（服务端代理，绕 CORS）。

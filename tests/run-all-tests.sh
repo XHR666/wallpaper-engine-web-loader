@@ -1200,7 +1200,7 @@ add "audio-scene-players" "node tests/audio-scene-players-test.mjs"
 #   `?anim=legacy` 逐位回退。语料读数：213 条轨道（startpaused 90、fps≠30 56；65 条 alpha 里 46 条
 #   挂载瞬间的值会变）。72 断言、~25s、纯 Node（真包/语料缺席时对应组 SKIP）。
 add "anim-semantics" "node tests/anim-semantics-test.mjs"
-add "empty-state-no-black" "node tests/empty-state-no-black-test.mjs"   # ②(P-343 2026-10-13) 空态不许黑屏（渲染器占位）+ 旧 :8899 渲染器落点迁移（插件归一化里、首次挂载前生效；回退位 sceneBaseLegacy=true）：23 断言 + 6 组变异自证，纯 Node ~1s
+add "empty-state-no-black" "node tests/empty-state-no-black-test.mjs"   # ②(P-345 2026-10-13 语义纠正) 「没有壁纸」= 合法空态（不提示/不全屏黑/不吞指针/底中性或透明）+ 只有「选了但取不到」才显示可关闭的诊断卡片 + 旧 :8899 渲染器落点迁移（回退位 sceneBaseLegacy=true）：30 断言 + 12 组变异自证，纯 Node ~1s
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then

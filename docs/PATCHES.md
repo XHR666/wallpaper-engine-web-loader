@@ -17841,6 +17841,8 @@ CPU 光栅真帧）都给出丛雨 **0.00%**（其设计画布 3840×2160 = 16:9
 
 ## P-343（2026-10-13 · 渲染器 + 插件跨仓）**壁纸清除态刷新 ⇒ 先 :8899 后 :8902 ⇒ 两页全黑**：旧渲染器落点迁移 + 空态占位
 
+> ⚠ **本条的产品语义已被 `P-345` 更正** ✗：「**没有壁纸**」是**合法空态**，不该提示 —— 本条那套"全屏空态占位"是**错误的产品判断**。诊断部分（"先 8899"的来源、黑屏成因）与插件侧的 `:8899` 落点迁移**仍然有效并保留** ✓（插件侧那一半在本批由**插件仓的 `P-344`** 承载，提交 `d85f2cb`）；渲染器侧的占位已被 P-345 改成"空态不显示 + 失败态底部可关闭卡片"。下文凡与 P-345 冲突处**以 P-345 为准**。
+
 **现场**（原始记录）：壁纸清除掉的状态下刷新 DSH 页面 ⇒ 先挂 `:8899` 的渲染器页、随后跳到 `:8902/webloader/`，两页都是一整块黑。
 **落点**：`we-scene-demo/demo.html`（**只碰**"无壁纸占位/跳转"相关区域）+ `dsh-mpkg-wallpaper/lib/client.js`（归一化里加迁移）。`core/we-scene-bundle.js` / `server/**` / `demo/index.html` / `demo/bench-patch.js` / `THIRD-PARTY.md` **一处未碰** ✓。
 
@@ -17875,4 +17877,62 @@ CPU 光栅真帧）都给出丛雨 **0.00%**（其设计画布 3840×2160 = 16:9
 **变异自证红集**（6/6 期望 == 实际）：M1 撤掉渲染器侧修复 ⇒ 13 条 A 全红 · M2 迁移退化成恒等 ⇒ {B1,B2} · M3 `hasFrame` 分支改坏 ⇒ {A4,A10} · M4 迁移目标改回 `:8899` ⇒ {B1,B2,B8} · M5 归一化早退漏 `webNeeds` ⇒ {B9} · M6 活代码塞回 8899 字面量 ⇒ {B10}。
 **回归面（全部 exit 0）**：`demo-check` · `load-timeout`（7s 看门狗那块被我动过一行）· `diag-flags` · `empty-state-no-black`；插件侧 `scene-url-token-guard-test` 6/6 · `wallpaper-lifecycle-test` 214/214 · `bgwrap-visible-test` 30/30。
 **诚实边界** ✗：① 本机无 WebGL（`FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS`）⇒ 真机"能出画 ⇒ 占位自动撤掉"这条**只由纯 Node 判据（A4/A10）钉住**，浏览器端只实测到"有源但画不出 ⇒ 显示 `no-webgl` 占位"；② `:8899` 存档值的**具体来源**（哪一次会话写下的）无法从本机取证 —— 宿主设置里已无 8899，浏览器 localStorage 在用户侧，判据只保证"**任何** 8899 存档落点都会被迁移、且活代码不再产生新的"；③ 真实浏览器缓存未清、`dsh` 未重启 ⇒ 插件侧改动靠 patch 热重载生效（实测日志行确已出现 ✓）。
+
+---
+
+## P-345（2026-10-13 · 渲染器侧）**「没有壁纸」= 合法空态，必须什么都不显示**；只有「选了但取不到」才提示（更正 P-343 的产品判断）
+
+> 编号说明：插件侧那一半（`sceneRendererUrl` 旧落点迁移）已在**插件仓**作为 `P-344` 提交（`d85f2cb`）；本条是**渲染器侧**的语义纠正，用渲染器仓自己的下一个号 `P-345`。
+
+**原始记录**：「**我没有壁纸的情况下刷新为什么会弹出未选中壁纸** 我不想用壁纸，那你后面搞黑的未选中壁纸，**我还得到设置里面再去清除一下壁纸，才会恢复成正常的白的状态**」
+**落点**：`we-scene-demo/demo.html`（**只碰**空态/底色/占位相关区域）+ `dsh-mpkg-wallpaper/lib/client.js`（**本条未再改**）。`core/**` · `server/**` · `demo/index.html` · `demo/bench-patch.js` · `tests/real-machine-check.mjs` · `tests/baseline-trend.mjs` · `THIRD-PARTY.md` · 工作区台账 **一处未碰** ✓。
+
+### ① P-343 错在哪（三条，都是真机可观测的）
+| # | P-343 的形态 | 后果 |
+|---|---|---|
+| 1 | 占位是**全屏**元素（`position:fixed;inset:0;z-index:2147483000`）且 `pointer-events:auto` | **吞掉所有点击** ⇒ 用户点不动任何东西 |
+| 2 | 占位**只在"出首帧"时撤** | **没有壁纸 ⇒ 永远没有首帧 ⇒ 占位永远留着** ⇒ 只能去设置里清一次壁纸才恢复 |
+| 3 | 画布是 `position:fixed;inset:0;…;background:#000` | 无壁纸时**整页纯黑**（"那你后面搞黑的未选中壁纸"） |
+
+### ② 新语义（两条路径**彻底分离**）
+* ⓐ **合法空态（没有壁纸）** ⇒ **什么都不显示**：不建占位/不提示/不报错、不全屏纯黑、不吞指针；底色 = 直接打开时**中性浅色**（`#f2f3f5`）、被宿主 iframe 嵌进来时**透明**（由宿主自己的背景显示 = "正常的白"）；boot 里**直接 return**（不取默认包、不写 `#log`、抛错路径也不会到达）。
+* ⓑ **失败态（选了壁纸但取不到/解不开）** ⇒ 才显示诊断占位：**底部卡片**（`left:50%;bottom:12px;max-width:min(560px,92vw)`）、浅底 `#ffffff`、**容器 `pointer-events:none`（只有卡片里的控件自己 auto）**、带**「关闭」**按钮。
+* **判定"没有壁纸"的证据**（拿证据定，不许猜 ✗）：宿主显式 `embed=1`（本仓既有契约，插件挂场景渲染器时恒带，见 `demo.html` 的 `embedMode()`）**且** URL 里**没有任何**来源参数（`pkgurl`/`pkgpath`/`scenefile`/`id`/`ids`/`type`/`video`/`mode`）；**或**宿主显式 `?nowallpaper=1`（"我这边没有选壁纸"，新增的显式通道）。规范名 `no-source` 已**拆开**：`legal-empty`（不显示）与 `fetch-failed`（选了但取不到）。
+
+### ③ 改了哪些行（`demo.html`）
+| # | 位置 | 内容 |
+|---|---|---|
+| 1 | `demo.html:5`（+ 紧随的 6 行 CSS） | `canvas{…background:#000}` → `background:transparent`；新增 `html.mpw-no-wallpaper` 一族规则：中性/透明底 + **藏 canvas 与调试 chrome**（`#bar`/`#log`/`#logbar`/`#fps`） |
+| 2 | `demo.html:310-…`（`MPW-EMPTYSTATE` 块） | 语义重写：`mpwParseQuery()`（**手写解析**，见下）· `mpwQueryMap()` · `mpwEmbedded()` · `mpwWallpaperSourceKind()` · `mpwNoWallpaper()` · `mpwIsLegalEmptyNow()` · `mpwApplyNoWallpaperPage()` · 新的 `mpwEmptyStatePlan()`（先判 `hasFrame` → 再判 **合法空态 ⇒ `show:false`** → 再判失败种类）；占位元素改底部卡片 + 关闭按钮；`show()` 自带"空态闸门"；块尾**解析期**即应用空态；`window.__mpwEmptyState` 增出 `embedded/sourceKind/noWallpaper/applyPage/isLegalEmptyNow` |
+| 3 | `demo.html` boot（`logf('加载场景 …')` 之前） | **合法空态短路**：`isLegalEmptyNow()` ⇒ `applyPage()` + `console.log` 一行（**不写 `#log`**）+ `return`（不取默认包 `3554161528`、不进任何失败路径） |
+
+**为什么手写解析查询串**：`nowallpaper` / `scenefile` 是宿主注入的**模式信号**、不是诊断开关，而 `tests/diag-flag-check.mjs` 会把 `.get('<字面量>')` 一律当成诊断开关与 `docs/README-DIAGNOSTICS.md` 主表双向比对（该文档**不在本任务写入范围**）⇒ 沿用本仓库既有先例（`demo.html` 开头 MPW-SANDBOX 块对 `sandbox`/`thumbtoken` 的同款处理）。实测：改前 `diag-flags` 红（`代码有·文档无（漏写 2 个）: nowallpaper, scenefile`），改后 **PASS** ✓。
+
+**回退位**：占位/空态纯属渲染器侧"看得见"这一层，**像素路径零改动**；要回到"什么都没有"只需删掉 `MPW-EMPTYSTATE` 块与其 4 处接线。插件侧回退位照旧 `sceneBaseLegacy: true`。
+**插件侧为何不动** ✗：插件在"没有壁纸"时本来就**不挂**渲染器帧（`mpwPickMount` 判 `none` ⇒ 卸帧 + 层 `display:none`，实测 `iframe[src=""]` + `bgWrap` 隐藏）⇒ 空态根本到不了渲染器页；`?nowallpaper=1` 只作为**显式证据通道**备好（判据覆盖），当前无调用点。
+
+### ④ 判据与读数（`tests/empty-state-no-black-test.mjs`，改后 **30 断言 + 12 组变异**）
+| 组 | 内容 | 读数 |
+|---|---|---|
+| A 空态 | ①无占位 ②无全屏纯黑（canvas 透明 + 空态藏 canvas）③无全屏拦截（非全屏 + `pointer-events:none`）④底中性/透明 + 证据判定（`embed` 无来源 / `?nowallpaper=1` / 有来源不判空 / 独立打开不判空）+ 解析期应用 + boot 短路 | 12 条全绿 |
+| B 失败态 | 显示 `fetch-failed` 占位；**非纯黑**（`#ffffff`）；**不全屏**（有 `max-width`/`bottom`，无 `inset:0`/`top:0`）；**可关闭**（真点 `#mpw-empty-state-close` ⇒ 撤）；**不吞交互**（容器 `none` + 控件 `auto`） | 6 条全绿 |
+| C 双向 | 正常壁纸（有来源 + 已出帧）⇒ 既**不判空态**也**不出占位**；真失败 ⇒ **必须看得见**（不许"一律不显示"换绿） | 2 条全绿 |
+| D 迁移 | 旧 `:8899` 落点迁移（P-343 保留）：8899→8902/webloader、显式/非回环/带路径不动、回退位、活代码无 8899 地址 | 10 条全绿 |
+| 变异 | 12 组，逐组打印「**期望红集 == 实际红集**」 | **12/12 一致** |
+
+变异红集（前 8 组是本条新增的语义哨兵）：M1 空态也弹占位 ⇒ {A5,A6} · M2 占位改回全屏+深底+吞指针 ⇒ {A9,B2,B3,B5} · M3 删"中性/透明底 + 藏 canvas" ⇒ {A7,A8} · M4 空态证据判定失效 ⇒ {A1,A3,A6,A12} · M5 去掉 boot 短路 ⇒ {A11} · M6 `show()` 闸门失效 ⇒ {A12} · M7 「关闭」变死按钮 ⇒ {B4} · M8 一律不显示（用"不显示"换绿）⇒ {B1,C2} · M9–M12 = 迁移四哨兵 ⇒ {D1,D2} / {D1,D2,D8} / {D9} / {D10}。
+
+**真机读数**（无头 Firefox **单实例**，探针在 `/tmp` 侧、`PUT /settings` 全 abort）：
+```
+① :8902/webloader/?embed=1            → htmlClass="mpw-no-wallpaper mpw-embedded"、html/body 底 rgba(0,0,0,0)（透明）、
+                                        canvas display:none、banner=null、/pkg 请求数 0、屏幕中心命中元素 = <html>（无拦截）
+② :8902/webloader/?pkgurl=<404>&embed=1 → banner kind=fetch-failed、bg=rgb(255,255,255)、pointer-events:none、
+                                        rect 560×137（占视口 8.3%）、标题「壁纸取不到：容器打不开（404/超时）」、有关闭按钮；
+                                        点关闭后 display:none；屏幕中心命中元素 = #sc（画布，未被遮）
+③ :8899/（独立打开，演示档）           → htmlClass=""（未被误判成空态）、canvas 正常显示
+④ 真 GUI + "场景档但容器 404" 的存档   → 宿主帧 src=…/webloader/?pkgurl=…(404)、帧内 banner kind=fetch-failed（可关闭、非全屏）
+```
+**登记**：`tests/run-all-tests.sh:1203`（**同一行改注释**，`git diff --stat` = `1 insertion(+), 1 deletion(-)`）；报告 `docs/reports/EMPTY-STATE-SEMANTICS-FIX.md`。
+**回归面（全部 exit 0）**：`empty-state-no-black` 31/31 · `demo-check` · `load-timeout` · `diag-flags`（改后转绿）；插件侧 `scene-url-token-guard-test` 6/6 · `wallpaper-lifecycle-test` 214/214 · `bgwrap-visible-test` 30/30。
+**诚实边界** ✗：① 本机无 WebGL ⇒ "真机出首帧后占位自动撤"仍只由纯 Node 判据（C1 的 `hasFrame` 支）钉住；② **残留的失败态仍会出现**：若存档是"选了但容器已失效"（用户那次的实际形态），按新语义**属于失败态**，因此**仍会**出现底部卡片 —— 变化是它现在**可关闭、不全屏、不吞点击**，用户**不必**再去设置里清壁纸；③ 未改 `docs/README-DIAGNOSTICS.md`（不在写入范围）⇒ 采用手写解析而非登记 `nowallpaper`/`scenefile`；④ `web/diag-flags.json` 是生成物：跑门禁会按新行号重写，本任务已**还原到 HEAD**（收口时跑一次 `--only diag-flags` 即为与代码一致的状态）。
 
