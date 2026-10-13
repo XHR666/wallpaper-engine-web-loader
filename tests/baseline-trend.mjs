@@ -77,7 +77,20 @@ function ingest(dir, kind) {
     // 这类文件是**坏输入**，该报成"不合 schema"（退出码 1）并指名文件，而不是崩在赋值行上。
     if (o === null || typeof o !== 'object' || Array.isArray(o)) {
       const peek = fs.readFileSync(file, 'utf8').slice(0, 40).replace(/\s+/g, ' ')
-      invalid.push({ file: rel(file), why: '顶层不是 JSON 对象（' + (o === null ? 'null' : Array.isArray(o) ? 'array' : typeof o) + '，多半是采集被中断留下的半截文件）—— 原文前 40 字符：' + JSON.stringify(peek) })
+      /*  ⓪(2026-10-13 task-19) **点名生产者、改掉错误归因**（判据不变：坏输入仍然是红，不许豁免换绿）。
+          原文写"多半是采集被**中断**留下的半截文件"——2026-10-13 实测**不是**中断：
+          `SIGKILL` 不会产生 5 字节的 `null`，那是 `JSON.stringify(null)` 的**完整**产物（连换行都写全了）。
+          真因在**生产者自己的写盘路径**：报告对象在 try 内构建，异常发生在它之前时 `report` 仍是 `null`，
+          而写盘那一段没检查类型 ⇒ 先落一个 `null`，下一行 `report.file = …` 当场 TypeError 崩掉
+          （于是生产者自己的汇总/真因都打不出来）。已修：`tests/real-machine-check.mjs` 写盘前判类型，
+          非对象**绝不落盘**；这份判据留着就是为了**继续抓**同类回归。 */
+      const producer = kind === 'real-machine'
+        ? 'tests/real-machine-check.mjs（`node tests/real-machine-check.mjs` → reports/real-machine/<epochms>.json）'
+        : '真机 `?baseline=1` 的 POST /baseline（server/we-scene-demo-server.mjs → reports/baselines/<epochms>.json）'
+      invalid.push({ file: rel(file), why: '顶层不是 JSON 对象（' + (o === null ? 'null' : Array.isArray(o) ? 'array' : typeof o) + '）'
+        + '—— 生产者：' + producer
+        + '；5 字节的 `null` 是"写盘前没检查报告对象是不是对象"留下的（**不是**"采集中断"：SIGKILL 不会写出完整的 5B null）'
+        + '—— 原文前 40 字符：' + JSON.stringify(peek) })
       continue
     }
     o.file = rel(file)

@@ -227,7 +227,69 @@ try {
     const r = await p.goto(url, { waitUntil: 'load', timeout: PAGE_TIMEOUT })
     await p.waitForFunction(() => !!window.__mpwModuleStarted, null, { timeout: MODULE_WAIT }).catch(() => {})
     const started = await p.evaluate(() => !!window.__mpwModuleStarted).catch(() => false)
+    await dismissEnvOverlay(p)                    // ⓪(task-19) 无 GPU 机器上的全屏空态占位会盖住交互元素
     return { p, status: r ? r.status() : 0, tNav, moduleStartedMs: started ? Date.now() - tNav : null }
+  }
+  /*  ⓪(2026-10-13 task-19) **无 GPU 机器上的环境性遮挡**：demo.html 的空态占位 `#mpw-empty-state`
+      在"没有 WebGL2"这一档上显示成 `position:fixed;inset:0;z-index:2147483000;pointer-events:auto`
+      的**全屏**元素（`data-mpw-empty="no-webgl"`）—— 这是**产品预期行为**（用户看到"壁纸无法出画：
+      本设备/浏览器没有可用的 WebGL2"，而不是一块黑屏），但它会盖住 `#logbar` / 属性面板 / 工具条按钮：
+      Playwright 的 hit-test 如实报 `<div id="mpw-empty-state" data-mpw-empty="no-webgl">…</div>
+      intercepts pointer events`（2026-10-13 实测），于是本判据里"点一下看反应"的那些断言
+      （Q8 开合 / 拖拽、属性面板开合、蒙皮按钮）在无 GPU 机器上**够不着元素** ⇒ 30s 超时抛异常。
+      处置：只对**环境分支**（`kind === 'no-webgl'`）用页面自己公开的探针句柄 `__mpwEmptyState.hide()`
+      撤掉并进 notes；**其它 kind 不撤**（"取包失败 / 无首帧"是**真信号**，那种情况下后面的红是对的）。
+      ⚠ 断言口径一条不动：撤掉的只是"环境遮罩"，被测的仍是 `#logbar` / 面板自己的契约；
+      占位本身（"无 GPU 必须明说，不许黑屏"）由 `tests/empty-state-no-black-test.mjs` 判。 */
+  async function dismissEnvOverlay(p) {
+    /* 先判档：**有** WebGL2 的机器走健康路径（`mpwEmptyStatePlan({hasFrame})` ⇒ show=false，占位永远不显示）
+       ⇒ 只查一次、立刻返回，不给健康机器加等待；**没有** WebGL2 ⇒ 空态占位**必然**出现
+       （plan 的 `no-webgl` 分支），等它（≤6s，含 7s 看门狗那条路的时间余量）。 */
+    const env = await p.evaluate(() => {
+      let gpu = null
+      try { gpu = !!document.getElementById('sc').getContext('webgl2') } catch (e) { gpu = false }
+      const el = document.getElementById('mpw-empty-state')
+      return {
+        gpu,
+        present: !!el,
+        kind: el ? String(el.getAttribute('data-mpw-empty') || '') : '',
+        visible: !!(el && getComputedStyle(el).display !== 'none'),
+        hasHide: !!(window.__mpwEmptyState && typeof window.__mpwEmptyState.hide === 'function'),
+      }
+    }).catch(() => null)
+    if (!env) return { note: 'overlay-state-unreadable' }
+    const tries = env.gpu ? 1 : 30
+    let last = env
+    for (let i = 0; i < tries; i++) {
+      if (last.visible && last.kind === 'no-webgl') {
+        if (!last.hasHide) {
+          notes.push('无 GPU 环境：空态占位（no-webgl）在，但页面没有公开 `__mpwEmptyState.hide()` ⇒ 结构性交互可能够不着元素')
+          return last
+        }
+        await p.evaluate(() => { try { window.__mpwEmptyState.hide() } catch (e) { /* 已撤 */ } })
+        if (!notes.some((n) => /先撤掉 demo\.html 的全屏空态占位/.test(n))) {
+          notes.push('无 GPU 环境：先撤掉 demo.html 的全屏空态占位（data-mpw-empty=no-webgl，z-index 2147483000）再做结构性交互；'
+            + '占位本身由 tests/empty-state-no-black-test.mjs 判')
+        }
+        return Object.assign({}, last, { dismissed: true })
+      }
+      if (!last.gpu) {
+        if (last.visible && last.kind && last.kind !== 'no-webgl') return last      // 真信号：不撤，让后面的红说话
+        if (i === tries - 1) break
+        await sleep(200)
+        last = await p.evaluate(() => {
+          const el = document.getElementById('mpw-empty-state')
+          return {
+            gpu: false,
+            present: !!el,
+            kind: el ? String(el.getAttribute('data-mpw-empty') || '') : '',
+            visible: !!(el && getComputedStyle(el).display !== 'none'),
+            hasHide: !!(window.__mpwEmptyState && typeof window.__mpwEmptyState.hide === 'function'),
+          }
+        }).catch(() => last)
+      } else break
+    }
+    return Object.assign({}, last, { note: 'overlay-not-shown' })
   }
 
   // ── A. 落地页 `/`：加载、无报错、日志区收纳（与包无关）───────────────────
@@ -394,13 +456,27 @@ try {
 } catch (e) {
   // 任何**未预期**的异常（页面结构变了、选择器点不到…）都记成一条失败断言：
   // 报告照写、汇总照打、退出码 1 —— 不许"崩栈"这种没法机读的失败方式。
-  push('runner', 'no-unexpected-exception', false, String((e && e.stack) || e).split('\n').slice(0, 3).join(' | '))
+  const why = String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')
+  push('runner', 'no-unexpected-exception', false, why)
+  /*  ⓪(2026-10-13 task-19) **立刻打印**这条失败 —— 旧写法只 `push()` 进 `checks`，而"报告构建"在 try 内：
+      只要异常发生在报告构建**之前**，`report` 就一直是 `null` ⇒ 后面 :408 `report.file=…` 先崩，
+      `finish()`（唯一打印 checks 的地方）**根本到不了** ⇒ 门禁日志里只剩一个 TypeError，**真因被吃掉**
+      （2026-10-13 实测：日志只有 `Cannot set properties of null (setting 'file')`，没有任何判据读数）。 */
+  console.log('✗ runner/no-unexpected-exception  ' + why)
 } finally {
   if (browser) await browser.close().catch(() => {})
 }
 
 // ── 写盘 + 滚动上限（只动 reports/real-machine，绝不碰 reports/baselines）────
-if (WRITE_REPORT) {
+/*  ⓪(2026-10-13 task-19) **写盘前必须确认 `report` 是对象**。
+    报告构建（`report = {…}`）在 try 内，而异常可能发生在它**之前**：此时 `report` 仍是 `null`，
+    旧写法照样落盘 ⇒ 磁盘上出现 5 字节的 `null`（= `JSON.stringify(null)` 的**完整**产物，不是半截文件），
+    下一行 `report.file = …` 立刻 TypeError ⇒ 进程死在 `finish()` 之前：**没有汇总、异常真因也被吃掉**
+    （catch 只 `push` 不打印），还连带把 `tests/baseline-trend.mjs` 弄红（"顶层不是 JSON 对象"）。
+    现在：不是对象就**不写盘**并打印明确理由；失败本身已由 `runner/no-unexpected-exception` 记账，退出码 1。
+    ⚠ 这里**不是**"缺环境就豁免"：SKIP 只留给 try **之前**的前置条件（服务不可达 / 无 Playwright /
+    浏览器起不来，见文件上半段）；进了 try 之后的异常都是页面/契约层面的事实 ⇒ **明确 FAIL + 理由**。 */
+if (WRITE_REPORT && report && typeof report === 'object' && !Array.isArray(report)) {
   const dir = path.join(ROOT, 'reports', 'real-machine')
   fs.mkdirSync(dir, { recursive: true })
   const file = path.join(dir, Date.now() + '.json')
@@ -409,6 +485,9 @@ if (WRITE_REPORT) {
   const all = fs.readdirSync(dir).filter((f) => /^\d+\.json$/.test(f)).sort()
   for (const f of all.slice(0, Math.max(0, all.length - MAX_REPORTS))) fs.unlinkSync(path.join(dir, f))
   console.log('报告：' + report.file + '（' + fs.statSync(file).size + 'B；目录上限 ' + MAX_REPORTS + ' 份，超限删最旧）')
+} else if (WRITE_REPORT) {
+  console.log('报告未写盘：本次采集在"报告构建"之前就失败了（见上面 ✗ runner/no-unexpected-exception）——'
+    + '不落盘、不产生 5 字节的 `null` 半截文件（那会让 baseline-trend 报"顶层不是 JSON 对象"）')
 }
 
 /** 页面自评函数（在浏览器里跑；**纯 DOM/computed style**，不碰像素）。 */

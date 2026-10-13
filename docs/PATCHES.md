@@ -17837,3 +17837,42 @@ CPU 光栅真帧）都给出丛雨 **0.00%**（其设计画布 3840×2160 = 16:9
 **回归面（全部 exit 0）**：`demo-check` 133/133（D8 两处同文规则 ✓）· `bench-layer-panel-test` 44/44 · `bench-shell-fixes` 296/296 · `diag-flag-check` 244==244 · `bench-parallax-flag` 16/16 · `layer-panel-restore` 15/15。
 **诚实边界** ✗：`bench-ui-headless` 另有 8 条红（R3/R3b/R3c web 帧 shim、S7b/S8a/S8b 列表类型标签、F3a/F3d 应用内浏览、`:823` 一处 `li.dataset` 崩溃）—— 归因见同轮**干净基线**（`git worktree add /tmp/base-head HEAD` + 独立端口起基线服务）实测；那些代码路径本任务**一处未碰** ✓。
 
+---
+
+## P-343（2026-10-13 · 渲染器 + 插件跨仓）**壁纸清除态刷新 ⇒ 先 :8899 后 :8902 ⇒ 两页全黑**：旧渲染器落点迁移 + 空态占位
+
+**现场**（原始记录）：壁纸清除掉的状态下刷新 DSH 页面 ⇒ 先挂 `:8899` 的渲染器页、随后跳到 `:8902/webloader/`，两页都是一整块黑。
+**落点**：`we-scene-demo/demo.html`（**只碰**"无壁纸占位/跳转"相关区域）+ `dsh-mpkg-wallpaper/lib/client.js`（归一化里加迁移）。`core/we-scene-bundle.js` / `server/**` / `demo/index.html` / `demo/bench-patch.js` / `THIRD-PARTY.md` **一处未碰** ✓。
+
+### ① "先 8899" 的来源（已证 ✓）：**浏览器本地缓存里的旧 `webUrl`，在第一次挂载就被原样使用**
+- 两跳的机制（真机复现，探针在 `/tmp` 侧、不进本仓）：插件 boot 的**第一次** `applyFromStorage()` 读的是浏览器本地缓存（`lib/client.js:691-694 loadSection` / `:642-645` 的 `mpwBootPending` 注释已写明"跑在宿主 `GET /settings` **之前**"）⇒ 存档里写死的 `http://127.0.0.1:8899/?pkgurl=…&embed=1` 被**原样**挂成 iframe；宿主设置（默认 `:8902/webloader/`，`:7012 MPW_SCENE_DEFAULT_BASE`）合并后 `:757 applyFromStorage()` 再挂一次 ⇒ 第二跳。
+- **`:8899` 只可能来自存档**：活代码里**没有**任何回环 8899 地址字面量（`lib/client.js` 仅注释提旧默认见 `:7123-7127`；`lib/index.js:266` 是 CORS 白名单），宿主设置文件 102 键里 `8899` 计数 **0**，DSH profile 配置/已装插件里也没有 ⇒ 且**全仓没有迁移逻辑**，所以旧值一直活着。
+- **复现读数**（无头 Firefox 单实例；宿主 `GET /settings` 桩成 `:8902` 场景档、**所有 `PUT /settings` 一律 abort** ⇒ 不动实时设置文件）：`+1317ms GET http://127.0.0.1:8899/?pkgurl=…` → `+1625ms GET http://127.0.0.1:8902/webloader/?pkgurl=…`；iframe `src` 时间线 `[] → [8899…] → [8902/webloader…]`。
+
+### ② 黑屏的确切原因（已证 ✓，代码路径 + 控制台原话）：**取包抛错只写日志，而画布是全屏纯黑元素**
+- `demo.html:4918-4942`：`?pkgurl=` 分支先直连（跨源 404 + CORS）、再退服务端代理 ⇒ `:4938 throw new Error('pkgurl HTTP ' + r.status)`。
+- 该异常被顶层 `bootInstance(...).catch` 接住 —— 改动前**只写一行日志**（`demo.html:11567` / `:11560` 多实例同形）。而画布是全屏元素且 CSS 背景纯黑：`demo.html:5 canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:#000}` ⇒ **页面没有任何一句"没有壁纸"的话**。
+- 真机读数：`❌ 启动失败: pkgurl HTTP 404`（`#log` 末行）、`window.__mpwFirstFrame` 未置位、`document.getElementById('sc')` = **300×150**（从未 resize）、computed `background-color: rgb(0,0,0)`、`position:fixed`；控制台另有 `Cross-Origin Request Blocked … Status code: 404`。两跳**用的是同一个 `pkgurl`**（同一份失效记录）⇒ 两页都黑 ✓。
+
+### ③ 改了什么
+| # | file:line | 内容 |
+|---|---|---|
+| 1 | `lib/client.js:807-844`（新块 `MPW-LEGACYBASE-BEGIN/END`） | `mpwMigrateLegacyRendererBase(u, s0)`（纯函数）：只把**回环 `:8899` 的渲染器根**（路径 `/` 或空）换成 `MPW_SCENE_MIGRATED_BASE` = `http://127.0.0.1:8902/webloader/`，**查询串逐字保留**；非回环/别的端口/带别的路径/非字符串 ⇒ 原样返回 |
+| 2 | `lib/client.js:866-877`（`mpwNormalizeSection` 内） | 迁移接在**归一化**里（`readSection()`／宿主合并／落盘三条路都过它）⇒ 第一次挂载之前已生效；早退条件补 `!webNeeds`（否则"别的字段都已归一"的存量档会被静默跳过） |
+| 3 | `demo.html:299-409`（新块 `MPW-EMPTYSTATE-BEGIN/END`） | 空态占位：纯裁决 `mpwEmptyStatePlan({hasFrame,err})` → `no-source`（取包失败/无源，标题**「无壁纸：没有取到可渲染的场景容器」**）/ `no-webgl` / `no-frame` / `error`；全屏 `#mpw-empty-state`（`position:fixed;inset:0`、**非纯黑底** `#0d1117`、`data-mpw-empty` 承载 kind）+ 「用自带合成样例渲染」（同页 `?id=sample-synthetic`）/「打开测试台」/「重试」 |
+| 4 | `demo.html:487`（7s 看门狗）、`:11567`（启动失败）、`:3161` 与 `:10609`（两处首帧） | 接线：失败/超时立占位，**出首帧即撤**（健康路径一行都不显示） |
+
+**回退位**：插件设置项 `sceneBaseLegacy: true`（或 `globalThis.__mpwSceneBaseLegacy = 1`）⇒ 迁移关闭、旧落点原样保留（登记在此）。渲染器侧占位**不影响**像素路径，撤掉即回到纯黑画布（无渲染行为改动）。
+**明确不做** ✗：不改 8902 的 `/webloader/` 反代与上游（`server/**` 不在写入范围）；不动显式 `sceneRendererUrl`（既有契约：显式回环换端口照旧生效，见 `tools/scene-url-token-guard-test.mjs` A5）。
+
+### ④ 判据与读数
+| 项 | 文件 | 读数 |
+|---|---|---|
+| 判据 | `tests/empty-state-no-black-test.mjs`（新） | **23 断言 + 6 组变异，全绿；每组打印「期望红集 == 实际红集」且逐条相等**（`--only empty-state-no-black` = PASS 429ms） |
+| 登记 | `tests/run-all-tests.sh:1203` | **只加一行** `add "empty-state-no-black" …`（`git diff --stat` = `1 insertion(+)`） |
+| 复跑 | 探针（`/tmp` 侧，不进本仓） | 修复后同种子复现：iframe 时间线 `[] → [8902/webloader…]`、**`:8899` 请求数 0**、`local.webUrl` 由 `:8899/…` 被改写为 `:8902/webloader/…`、控制台出现 `渲染器落点迁移：存档里的旧默认 :8899 → http://127.0.0.1:8902/webloader/（回退位 sceneBaseLegacy=true）` ×2（本地档 + 合并档）；渲染器 404 现场 ⇒ `#mpw-empty-state` `data-mpw-empty="no-source"`、`display:flex`、标题「无壁纸：没有取到可渲染的场景容器」 |
+
+**变异自证红集**（6/6 期望 == 实际）：M1 撤掉渲染器侧修复 ⇒ 13 条 A 全红 · M2 迁移退化成恒等 ⇒ {B1,B2} · M3 `hasFrame` 分支改坏 ⇒ {A4,A10} · M4 迁移目标改回 `:8899` ⇒ {B1,B2,B8} · M5 归一化早退漏 `webNeeds` ⇒ {B9} · M6 活代码塞回 8899 字面量 ⇒ {B10}。
+**回归面（全部 exit 0）**：`demo-check` · `load-timeout`（7s 看门狗那块被我动过一行）· `diag-flags` · `empty-state-no-black`；插件侧 `scene-url-token-guard-test` 6/6 · `wallpaper-lifecycle-test` 214/214 · `bgwrap-visible-test` 30/30。
+**诚实边界** ✗：① 本机无 WebGL（`FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS`）⇒ 真机"能出画 ⇒ 占位自动撤掉"这条**只由纯 Node 判据（A4/A10）钉住**，浏览器端只实测到"有源但画不出 ⇒ 显示 `no-webgl` 占位"；② `:8899` 存档值的**具体来源**（哪一次会话写下的）无法从本机取证 —— 宿主设置里已无 8899，浏览器 localStorage 在用户侧，判据只保证"**任何** 8899 存档落点都会被迁移、且活代码不再产生新的"；③ 真实浏览器缓存未清、`dsh` 未重启 ⇒ 插件侧改动靠 patch 热重载生效（实测日志行确已出现 ✓）。
+

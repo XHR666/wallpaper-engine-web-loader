@@ -296,6 +296,117 @@ canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;backgrou
     if (window.__mpwFirstFrame) { CAP_FRAME = true; capPush(); clearInterval(timer); return }
     if (tries >= 32) clearInterval(timer)
   }, 250)
+  // ═══ MPW-EMPTYSTATE-BEGIN ①(2026-10-13 空态修复) **无壁纸/取包失败 ⇒ 明确占位，不再黑屏** ═══
+  /* 为什么要有它（可复跑，见 docs/reports/EMPTY-STATE-NO-BLACK-20261013.md）：
+     壁纸被清除（或那份记录已失效：容器被挪走/删掉）时，插件仍可能按**残留记录**挂一次渲染器
+     帧，`?pkgurl=` 取包 404 ⇒ 本页 `loadScene` 抛错 ⇒ 顶层 catch **只写一行日志**
+     （见文件末 `bootInstance(...).catch`）。而画布是全屏元素且 CSS 背景纯黑
+     （本文件 `canvas{position:fixed;inset:0;…;background:#000}`）⇒ 用户看到的就是**整页黑屏**，
+     页面上没有任何一句话说明"没有壁纸"。本块把那行日志变成**看得见的占位**。
+     三条口径：
+       · 只做"看得见"这一件事，**不改变任何渲染/取包行为**（像素路径零改动）；
+       · 一旦出了首帧（`__mpwFirstFrame`）立刻撤掉（健康路径一行都不显示）；
+       · 纯视频 / `type=web` 等**不走场景取包**的档位不受影响（它们不经过这些调用点）。
+     判据：tests/empty-state-no-black-test.mjs（含变异自证）。 */
+  /**
+   * 空态裁决（纯函数：无 DOM、无网络 ⇒ 判据可逐形态断言）。
+   * @param {{hasFrame?:boolean, err?:string}} o hasFrame=已出首帧；err=失败原因（日志/异常文本）
+   * @returns {{show:boolean, kind:string, title:string, detail:string}}
+   */
+  function mpwEmptyStatePlan(o) {
+    var s = o || {}
+    var err = String(s.err || '')
+    if (s.hasFrame) return { show: false, kind: 'rendering', title: '', detail: '' }
+    if (/无 WebGL|WebGL2|WebGL context/i.test(err)) {
+      return { show: true, kind: 'no-webgl', title: '壁纸无法出画：本设备/浏览器没有可用的 WebGL2', detail: err }
+    }
+    if (/pkgurl|pkgpath|场景包|取包|容器|sample-synthetic|\/pkg\b|\bHTTP\s*[45]\d\d/i.test(err)) {
+      return { show: true, kind: 'no-source', title: '无壁纸：没有取到可渲染的场景容器', detail: err }
+    }
+    if (!err) return { show: true, kind: 'no-frame', title: '壁纸未能出画：7 秒内没有首帧', detail: '' }
+    return { show: true, kind: 'error', title: '壁纸未能出画', detail: err }
+  }
+  /** 占位元素（惰性建一次；`data-mpw-empty` 承载 kind，探针/判据都读它）。 */
+  function mpwEmptyStateEl() {
+    try {
+      var el = document.getElementById('mpw-empty-state')
+      if (el) return el
+      el = document.createElement('div')
+      el.id = 'mpw-empty-state'
+      el.setAttribute('style', 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483000;'
+        + 'display:flex;align-items:center;justify-content:center;text-align:center;'
+        + 'background:#0d1117;color:#e6edf3;font:15px/1.7 system-ui,sans-serif;padding:24px')
+      el.innerHTML = '<div style="max-width:640px">'
+        + '<div id="mpw-empty-state-title" style="font-size:20px;font-weight:600;margin-bottom:10px"></div>'
+        + '<div id="mpw-empty-state-detail" style="opacity:.75;font:12px/1.6 monospace;word-break:break-all;margin-bottom:14px"></div>'
+        + '<div style="opacity:.6;font-size:13px;margin-bottom:16px">壁纸已清除、或那份壁纸记录已失效时出现这一页属正常；'
+        + '画面不会再是一块什么都没有的黑屏。</div>'
+        + '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">'
+        + '<a id="mpw-empty-state-sample" style="color:#7fd;text-decoration:none;border:1px solid #345;border-radius:6px;padding:6px 12px">用自带合成样例渲染</a>'
+        + '<a id="mpw-empty-state-bench" href="/" style="color:#7fd;text-decoration:none;border:1px solid #345;border-radius:6px;padding:6px 12px">打开测试台</a>'
+        + '<a id="mpw-empty-state-retry" href="#" style="color:#7fd;text-decoration:none;border:1px solid #345;border-radius:6px;padding:6px 12px">重试</a>'
+        + '</div></div>'
+      var sample = el.querySelector('#mpw-empty-state-sample')
+      // ① 同页换源：只加 `?id=`，**不**用根相对 `/…`（那会跳到 origin 根的测试台页）
+      if (sample) sample.setAttribute('href', location.pathname + '?id=sample-synthetic')
+      var retry = el.querySelector('#mpw-empty-state-retry')
+      if (retry) retry.addEventListener('click', function (ev) { ev.preventDefault(); location.reload() })
+      document.body.appendChild(el)
+      return el
+    } catch (e) { return null }
+  }
+  /** kind → 默认标题（`plan()` 之外的兜底；面板/探针直接调 `show` 时也用得上）。 */
+  var MPW_EMPTY_TITLES = {
+    'no-source': '无壁纸：没有取到可渲染的场景容器',
+    'no-webgl': '壁纸无法出画：本设备/浏览器没有可用的 WebGL2',
+    'no-frame': '壁纸未能出画：7 秒内没有首帧',
+    'error': '壁纸未能出画',
+  }
+  function mpwEmptyStateShow(kind, detail, title) {
+    try {
+      var el = mpwEmptyStateEl()
+      if (!el) return null
+      var k = String(kind || 'error')
+      el.setAttribute('data-mpw-empty', k)
+      var t = el.querySelector('#mpw-empty-state-title'), d = el.querySelector('#mpw-empty-state-detail')
+      if (t) t.textContent = String(title || MPW_EMPTY_TITLES[k] || MPW_EMPTY_TITLES.error)
+      if (d) d.textContent = String(detail || '')
+      el.style.display = 'flex'
+      return el
+    } catch (e) { return null }
+  }
+  function mpwEmptyStateHide() {
+    try {
+      var el = document.getElementById('mpw-empty-state')
+      if (!el) return
+      el.removeAttribute('data-mpw-empty')
+      el.style.display = 'none'
+    } catch (e) {}
+  }
+  /** 启动失败统一入口：`err` 是异常或字符串；已经出过首帧就**不显示**（健康路径零打扰）。 */
+  function mpwEmptyStateFail(err) {
+    try {
+      var hasFrame = !!(typeof window !== 'undefined' && window.__mpwFirstFrame)
+      var plan = mpwEmptyStatePlan({ hasFrame: hasFrame, err: String((err && err.message) || err || '') })
+      if (!plan.show) { mpwEmptyStateHide(); return plan }
+      mpwEmptyStateShow(plan.kind, plan.detail, plan.title)
+      return plan
+    } catch (e) { return null }
+  }
+  /** 7s 看门狗那种"没有异常、只有最后一行日志"的入口。 */
+  function mpwEmptyStateFromLog(lastLine) {
+    try {
+      var hasFrame = !!(typeof window !== 'undefined' && window.__mpwFirstFrame)
+      var plan = mpwEmptyStatePlan({ hasFrame: hasFrame, err: String(lastLine || '') })
+      if (!plan.show) return null
+      mpwEmptyStateShow(plan.kind, plan.detail, plan.title)
+      return plan
+    } catch (e) { return null }
+  }
+  try {
+    window.__mpwEmptyState = { plan: mpwEmptyStatePlan, show: mpwEmptyStateShow, hide: mpwEmptyStateHide, fail: mpwEmptyStateFail, fromLog: mpwEmptyStateFromLog, el: mpwEmptyStateEl, titles: MPW_EMPTY_TITLES }
+  } catch (e) {}
+  // ═══ MPW-EMPTYSTATE-END ═══
   // ═══ MPW-MODULE-WATCHDOG-BEGIN ①(P-135 甲 2026-09-19) ═══
   // 看门狗：module 脚本 7s 内没启动（静态 import 404/非 JS MIME/解析失败/半截写入/顶层抛错）→ 主动 ok:false。
   //   初始的 ok:true 已发出，插件 8s 窗口不会再兜底；不主动判失败的话 strict 下就是永久白屏（契约 §1）。
@@ -372,6 +483,8 @@ canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;backgrou
         __mpwWatchdogNote('⚠ 7s 内没有首帧，但 module 已启动（`window.__mpwModuleStarted=1`）'
           + '= "到了但某个 await 没回"这一类：最后一行日志 = ' + __mpwLastLogLine()
           + '（对照 docs/RENDER-BUGS-20260918.md §1.4 判据表；P-135 起每个网络/解码 await 超时都会自写一行 `⚠ 超时 <URL>`）')
+        // ①(2026-10-13 空态修复) 只写日志的话用户看到的仍是一块全屏黑画布 ⇒ 同时立起看得见的占位
+        try { if (window.__mpwEmptyState) window.__mpwEmptyState.fromLog(__mpwLastLogLine()) } catch (e) {}
         return
       }
       __mpwWatchdogNote('❌ 渲染器 module 未启动（7s 内 `window.__mpwModuleStarted` 未置位）= "脚本没到"这一类：'
@@ -3044,6 +3157,8 @@ async function bootInstance(inst) {
   const mpwMarkVideoFirstFrame = () => {
     if (!MPW_WRITE_GLOBALS) return
     try { window.__mpwFirstFrame = 1; window.__mpwCapMarkFrame && window.__mpwCapMarkFrame() } catch (e) { /* 忽略 */ }
+    // ①(2026-10-13 空态修复) 出了首帧 ⇒ 撤掉"无壁纸"占位（健康路径一行都不显示）
+    try { if (window.__mpwEmptyState) window.__mpwEmptyState.hide() } catch (e) { /* 忽略 */ }
   }
   /* ①(2026-09-22) **首个错误捕获**（可观测性）：嵌入路径下"活档位块没跑到"只能靠猜，这条把它变成读数。
      只记第一条（含 message/stack/时间），不改变任何行为；宿主/探针读 `window.__mpwBootError`。 */
@@ -10491,7 +10606,7 @@ function loadScene() {
           } catch (e) { /* ignore */ }
           // ①(P-77) 首帧标记每实例一份；`window.__mpwFirstFrame` / 能力上报只由 primary 实例写
           //   （多实例下窗口全局是单例，N 个实例重复置位/重复上报没有意义）。
-          if (__first) { mpwFirstFrameDone = 1; if (MPW_WRITE_GLOBALS) window.__mpwFirstFrame = 1; logf('✅ 首帧完成 ' + (Date.now() - __t0) + 'ms'); if (MPW_WRITE_GLOBALS) { try { window.__mpwCapMarkFrame && window.__mpwCapMarkFrame() } catch (e) {} } }
+          if (__first) { mpwFirstFrameDone = 1; if (MPW_WRITE_GLOBALS) window.__mpwFirstFrame = 1; logf('✅ 首帧完成 ' + (Date.now() - __t0) + 'ms'); if (MPW_WRITE_GLOBALS) { try { window.__mpwCapMarkFrame && window.__mpwCapMarkFrame() } catch (e) {} }; try { if (window.__mpwEmptyState) window.__mpwEmptyState.hide() } catch (e) {} }
           // ①(MERGED-3 1.1 缩略图 2026-09-14) 场景壁纸"渲染器首帧"落缩略图：
           //   插件把宿主路由 ?thumbpost=<url> 拼进 iframe；首帧成功 + 第 90 帧（纹理齐全后）各上报一次
           //   （第二次覆盖同名缓存，非首帧半加载观感）。失败只记日志——缩略图是尽力而为，绝不影响渲染。
@@ -11449,7 +11564,7 @@ if (MPW_MULTI_IDS) {
 // ═══ ①(P-77 一页多实例·第 1 步) 单实例调用点：inst 字段**就是**原来的模块级常量 ═══
 //   无 ?ids= 时走这里：一个实例、primary=true ⇒ 页面级 UI/上报路径全开（与改动前逐位一致）。
 const MPW_PRIMARY_INST = { canvas: cv, gl, id, logEl: log, fpsEl, logf, primary: true };
-bootInstance(MPW_PRIMARY_INST).catch((e) => { logf('❌ 启动失败: ' + e.message); try { window.__mpwCapErr && window.__mpwCapErr('boot: ' + String((e && e.message) || e)) } catch (e2) {} });
+bootInstance(MPW_PRIMARY_INST).catch((e) => { logf('❌ 启动失败: ' + e.message); try { window.__mpwCapErr && window.__mpwCapErr('boot: ' + String((e && e.message) || e)) } catch (e2) {} ; /* ①(2026-10-13 空态修复) 启动失败 ⇒ 立起"无壁纸/无法出画"占位（全屏黑画布不再是唯一结果） */ try { if (window.__mpwEmptyState) window.__mpwEmptyState.fail(e) } catch (e3) {} });
 }
 } // end !elysia
 </script></body></html>

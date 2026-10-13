@@ -22,6 +22,7 @@
  * 纪律：真树只读；不启服务；`:8902` 只读访问（不改库目录、不 POST）；无网络依赖。
  */
 import fs from 'node:fs'
+import { AUDIO_MUTE_PREFS } from './_audio-mute.mjs'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
@@ -157,7 +158,7 @@ async function e2e() {
   const firefox = (pw.default && pw.default.firefox) || pw.firefox
   if (!firefox) return skip('playwright 没有 firefox 导出')
   let browser
-  try { browser = await firefox.launch({ headless: true }) } catch (e) { return skip('firefox 起不来：' + e.message) }
+  try { browser = await firefox.launch({ firefoxUserPrefs: { ...AUDIO_MUTE_PREFS }, headless: true }) } catch (e) { return skip('firefox 起不来：' + e.message) }
   const out = []
   try {
     const ctx = await browser.newContext({ viewport: { width: 1360, height: 900 } })

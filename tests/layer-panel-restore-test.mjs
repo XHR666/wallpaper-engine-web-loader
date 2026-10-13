@@ -30,6 +30,7 @@
  *       装**离线夹具**，一次都不访问 :8902）。
  */
 import fs from 'node:fs'
+import { AUDIO_MUTE_PREFS } from './_audio-mute.mjs'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
@@ -182,7 +183,7 @@ async function browserOnce() {
   if (_browser !== null) return _browser
   const pw = await playwright()
   if (!pw) { _browser = false; return false }
-  try { _browser = await pw.firefox.launch({ headless: true }) } catch { _browser = false }
+  try { _browser = await pw.firefox.launch({ firefoxUserPrefs: { ...AUDIO_MUTE_PREFS }, headless: true }) } catch { _browser = false }
   return _browser
 }
 /** 产品 CSS 里的三条布局规则（`demo/assets/bench-*.css`，文件名带哈希 ⇒ 运行期查）。 */
