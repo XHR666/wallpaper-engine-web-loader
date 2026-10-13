@@ -4472,7 +4472,7 @@ MANIFEST.md 里**有价值的两块**（①怎么把服务器指向自己的语�
 ### 代码改动（逐文件）
 | 文件 | 改动 |
 |---|---|
-| `server/we-scene-demo-server.mjs` | ①**场景根兜底链重写**：显式 `MPW_SCENE_ROOT` > `$MPW_ROOT/allwallpaper/dd` > `<repo>/samples`；三档都不存在时返回**明确不存在**的占位路径（`<repo>/samples/NO-BUNDLED-CORPUS`），**绝不留"指向空目录却报成功"的假象**。② 启动日志新增 `[scene] 场景根 …`（路径不存在时明确标注 `?id=` 一律 404）+ "本仓库不打包任何真实壁纸，真实语料请用 MPW_SCENE_ROOT / ?pkgpath=" 一行指引。③ `findScene` 改**两档查找**（语料根 → `<repo>/samples`），语义仍是 `<root>/<id>/scene.pkg`，找不到返回 null（**不用别的包顶替**）⇒ `?id=sample-synthetic` 在任何机器上都能打开自带样例。④ `/pkg`、`/project`、`/type`、`/ddlist` 的 id 形态由 `(\d+)` 放宽为统一常量 `ID_PAT`（数字或 slug，**首字符不许是点** ⇒ `?id=..` 进不来），否则 slug 形态的自带样例走不了 `?id=`。⑤ `/project`、`/type`、`/ddlist` 改用 `findScene` 真正命中的那一档根（自带样例的 `project.json` 也能读到）。⑥ 默认 `MPW_ALLOW_DIRS` 加 `<repo>/samples`：`?pkgpath=<repo>/samples/sample-synthetic/scene.pkg` 与 `/pkgdir?d=…/sample-synthetic-src` 开箱可用（这两条一直是文档承诺、此前却没进白名单）。 |
+| `server/we-scene-demo-server.mjs` | ①**场景根兜底链重写**：显式 `MPW_SCENE_ROOT` > `$MPW_ROOT/allwallpaper/dd` > `<repo>/samples`；三档都不存在时返回**明确不存在**的占位路径（`<repo>/samples/NO-BUNDLED-CORPUS`），**绝不留"指向空目录却报成功"的假象**。② 启动日志新增 `[scene] 场景根 …`（路径不存在时明确标注 `?id=` 一律 404）+ "本仓库不打包任何真实壁纸，真实语料请用 MPW_SCENE_ROOT / ?pkgpath=" 一行指引。③ `findScene` 改**两档查找**（语料根 → `<repo>/samples`），语义仍是 `<root>/<id>/scene.pkg`，找不到返回 null（**不用别的包顶替**）⇒ `?id=sample-synthetic` 在任何机器上都能打开自带样例。④ `/pkg`、`/project`、`/type`、`/ddlist` 的 id 形态由 `(\d+)` 放宽为统一常量 `ID_PAT`（数字或 slug，**首字符不许是点** ⇒ `?id=..` 进不来），否则 slug 形态的自带样例走不了 `?id=`。⑤ `/project`、`/type`、`/ddlist` 改用 `findScene` 真正命中的那一档根（自带样例的 `project.json` 也能读到）。⑥ 默认 `MPW_ALLOW_DIRS` 加 `<repo>/samples`：`?pkgpath 为 <repo>/samples/sample-synthetic/scene.pkg` 与 `/pkgdir?d=…/sample-synthetic-src` 开箱可用（这两条一直是文档承诺、此前却没进白名单）。 |
 | `server/we-scene-demo-server.mjs`（**附带修复**：同一处的公开副本致命路径） | `common*.h` 头表那段原来**无条件** `fs.readdirSync(MPW_WE_ASSETS + '/shaders')`：没装 WE 的机器（= 公开副本的正常情况）**每个请求**都在这里 ENOENT → 全站 500（实测 `/pkg/sample-synthetic`、`/project/…`、`/ddlist/…` 全 500，验证服务器形同报废）。改成 try/catch 只跳过"官方同名头兜底"，仓库自研的 6 个头照常从 `__dirname` 加载；装了 WE 的机器 `HEADER_FILES` 与改前**逐位相同**。 |
 | `demo.html` | `bootInstance` 内 `id` 由 const 改 **let**；`/pkg/<id>` 装载处新增降级：**未显式指定包来源时**（无 `?id=` 且非多实例 `?ids=`）默认包 404 → 打一行明确日志并改用自带合成样例 `sample-synthetic`，**同时改写 `id`**（让 `/project`、`/type`、`/ddlist` 与上报 payload 都指向真正渲染的包，不出现"上报 A、渲染 B"）。显式 `?id=` / `?pkgpath=` 拿不到包时**不替换**、如实报错（旧代码是拿 404 的 `no scene` 字节去 `parsePkg`，报一个看不懂的错）。本机有语料 ⇒ 第一发就 200，这条路一行不走。 |
 | `props-panel-test.mjs` | 去掉 `samples/wallpapers/<id>` 第二候选（真包只从本机语料取），保留原有优雅 SKIP 分支。 |
@@ -4962,7 +4962,7 @@ grep -ro "isPostProcess" --include='*' . | grep -v node_modules | cut -d: -f1 | 
 
 | 问题 | 结论 | 证据（file:line / 命令） |
 |---|---|---|
-| 谁加载它 | `demo/renderer/index.html` 以 `<script type="module" crossorigin src="../assets/renderer-BOSoB05I.js">` 加载 | `demo/renderer/index.html:36`（该页共 41 行、`body` 为空 —— 渲染器就是这一条 script） |
+| 谁加载它 | `demo/renderer/index.html` 以 `<script type="module" crossorigin src 为 "../assets/renderer-BOSoB05I.js">` 加载 | `demo/renderer/index.html:36`（该页共 41 行、`body` 为空 —— 渲染器就是这一条 script） |
 | 是不是 `demo.html` 的旧路径 | **不是**。根 `demo.html` 对本产物**零引用** | `grep -c renderer-BOSoB05I demo.html` → `0`；`demo.html` 是仓库自研"静态版（WebGL，当前页）"（438 KB，本日仍在改：`b962483`） |
 | 什么时候加载 | 该页**同时**是本地 `:8901/wallpaper-engine-webgl/renderer/` 与 Pages `/demo/renderer/`（`../assets/` 相对路径就是为这两种布局写的） | `demo/renderer/index.html:34-35` 注释原文 |
 | 会不会上线 | **会**。Pages 白名单整目录收 `demo/`，再把 `demo/` 拷成第二份 `/wallpaper-engine-webgl/`，产物自检**强制**要求该页存在 | `build-pages.mjs:34`（`PAGES_KEEP_DIRS` 含 `demo`）、`build-pages.mjs:145`（第二份拷贝）、`build-pages.mjs:154`（`MUST` 含该页）、`.github/workflows/pages.yml:48` |
@@ -8414,7 +8414,7 @@ $ node tests/pointer-leave-test.mjs                     # 64 断言（原 45 + 2
 
 ```
 $ MUT=/tmp/p121-manual-b; cp core/*.js $MUT/core/     # 逐文件复制（fs.cpSync 本机抛 EINVAL；用 statSync 判类型 + readFileSync/writeFileSync）
-# M5：删掉画布 pointerout 监听  →  MPW_POINTER_BUNDLE=$MUT/core/we-scene-bundle.js node tests/pointer-leave-test.mjs --no-mutation --only G2   （rc=1）
+# M5：删掉画布 pointerout 监听  →  MPW_POINTER_BUNDLE 为 $MUT/core/we-scene-bundle.js node tests/pointer-leave-test.mjs --no-mutation --only G2   （rc=1）
   ✗ G2a pointerout + relatedTarget 在画布**内部** ⇒ **不停发**  — 派发命中 0 个监听器；累计 157→165
   ✗ G2b ★★ pointerout + relatedTarget 在画布**外** ⇒ 停发  — 派发命中 0 个监听器；离开后累计 244→260
   ✗ G2c ★★ pointerout(+relatedTarget=null) 停发  — pointerout 派发命中 0 个监听器（修复前 = 0）；离开后累计 363→379；实测画布监听集合=["pointermove","pointerdown","pointerleave"]
@@ -8431,7 +8431,7 @@ c7d6d5a4b0732bc9ee1d30c43a7a624de997a090228ab2541ad8af0533c9fbc1
 缺口 A 的变异（同款"真副本"手法，锚点各命中 1 次）：
 ```
 # M1：`console: makeSandboxConsole(),` → `console,`（回到共享宿主 console）
-$ MPW_SCENE_SCRIPTS=$MUT/elysia/scene-scripts.js node tests/script-sandbox-globals-test.mjs --no-mutation   （rc=1）
+$ MPW_SCENE_SCRIPTS 为 $MUT/elysia/scene-scripts.js node tests/script-sandbox-globals-test.mjs --no-mutation   （rc=1）
   ✗ S1a ★ 跑过 `console.log = () => {}` 的脚本后，宿主 console 的 5 个写方法逐个 === 同一引用  — log:≠ warn:≠ error:≠ info:≠ debug:≠
   ✗ S1b 宿主 console 的对象身份也没被换  — name=（被换成空箭头函数）
   ✗ S2b ★★ 真包跑两趟后…  — log:≠ warn:=== error:=== info:=== debug:===
@@ -9619,7 +9619,7 @@ $ diff /tmp/p128/manifest-A.txt /tmp/p128/manifest-B.txt        # 变异实验�
 ### P-130.2 逐条"改前/改后"原始输出（探针，`/tmp` 不入仓）
 
 ```
-$ BUNDLE=/tmp/pfixA/head/core/we-scene-bundle.js node /tmp/pfixA/probe.mjs   # 改动前（= git HEAD 的 bundle，sha256 2f46137b…）
+$ BUNDLE 为 /tmp/pfixA/head/core/we-scene-bundle.js node /tmp/pfixA/probe.mjs   # 改动前（= git HEAD 的 bundle，sha256 2f46137b…）
 #1a 纯量纲对照（显式 frequencymax:10）：alpha 极大值/10s 官方=100 legacy=100
 #1  alpha  官方档 alpha 极大值/10s = 52（期望改后 15~16）
 #1  position 官方档 pos.x 极大值/10s = 52 ; #1 size = 52
@@ -9633,7 +9633,7 @@ $ BUNDLE=/tmp/pfixA/head/core/we-scene-bundle.js node /tmp/pfixA/probe.mjs   # �
 #6  d=100px ⇒ |Δv| = 0.0000 ; d=300px ⇒ 0.0000（旧 thr=0 ⇒ 算子恒不生效）
 #7  末段(lifePos=0.9)：不同色数 = 1，R∈[0.5000,0.5000]（全粒子同色）
 
-$ BUNDLE=core/we-scene-bundle.js node /tmp/pfixA/probe.mjs                  # 改动后
+$ BUNDLE 为 core/we-scene-bundle.js node /tmp/pfixA/probe.mjs                  # 改动后
 #1  alpha = 15 / legacy = 100 ; #1a 官方=15 legacy=100 ; #1b 官方=15 legacy=100 ; #1c = 15
 #1d position 缺 frequencymax = 11/legacy 73（官方 fmax 缺省 5 ⇒ f∈[5,10]）
 #2  R[1,1] G[1,1] B[1,1]（恒白）；#2b R=1.000000 G∈[0,1]（红→白）
@@ -11767,7 +11767,7 @@ P-156 诚实清单第 8 条也点名"壁纸选择字段为什么会丢不在本�
 
 | 口径 | 修前 | 修后 |
 |---|---|---|
-| 浏览器 `localStorage['dsh.mpkg-wallpaper.v2']` | 1649 B，`{mpkgKey,converted,source}` —— **无 image/webUrl** | 1749 B，**`image:"host:?custom=1&folder=3582362359&file=Mid-Autumn%20Hoshino.mp4"`** + `mpkgKey` |
+| 浏览器 `localStorage['dsh.mpkg-wallpaper.v2']` | 1649 B，`{mpkgKey,converted,source}` —— **无 image/webUrl** | 1749 B，**`image:"host:?custom 为 1&folder=3582362359&file=Mid-Autumn%20Hoshino.mp4"`** + `mpkgKey` |
 | 宿主 `<DATA_DIR>/settings.json` | `{mpkgKey,converted,…}`，**无 image/webUrl** | 同（`image` 按 `HOST_SKIP_KEYS` 老契约不进宿主） |
 | 真机 CSS/DOM | `getComputedStyle(#mpw-bgWrap).display === "none"`，样式表含 `.mpw-bgWrap{display:none}` | **`display === "block"`，那条规则不存在** |
 | 探针判据 | **4 PASS / 1 FAIL** | **9 PASS / 0 FAIL** |
@@ -12775,7 +12775,7 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
 * **hideUI 的名字正则**：`uiRe` 里含 `Audio|音频|Spectrum|播放|音量|sound`（原意是隐藏"播放器外壳"），
   于是作者做的可视化条按名字被整类隐藏。
 * **hideBars 的"父组纯色遮罩条"**：`l.parent != null && l.solid && l.image` 以 `models/util/solidlayer` 开头就关掉 ——
-  而**可视化条自己就是这种实体遮罩层**（实测 `3326873240` 的 `Audio Bars`：`image=models/util/solidlayer.json`、
+  而**可视化条自己就是这种实体遮罩层**（实测 `3326873240` 的 `Audio Bars`：`image 为 models/util/solidlayer.json`、
   `visible={"user":"newproperty61","value":true}`，作者默认**可见**，却被这条规则吞掉；`3544152633` 的 `Audio bar` 同理）。
 
 ### P-170.2 判据（语料 11 包 / 17 个"音频类名字"层，两类分得很干净）
@@ -13029,7 +13029,7 @@ happy path 零额外请求），服务端的 404 化改动要等 dsh 进程重�
 
 * 判据：`tests/mpkg-noscene-test.mjs`（28 项：源码序 + 切真源码跑 8 个场景，含大小上限与多实例两档 + 3 组变异自证）。
 * 真机（`tests/mpkg-noscene-live-probe.mjs`，样本 = 扫面里报那个 TypeError 的同一个包（wallpaperE/卡提希娅/卡提希娅_09.mpkg，容器文件不在仓库内，故不写成反引号路径））：
-  `__mpwNoScene={"path":"video","entry":"bilibili-吃面面用勺-欢迎转载.mp4"}`、日志两行命中、
+  `__mpwNoScene 为 {"path":"video","entry":"bilibili-吃面面用勺-欢迎转载.mp4"}`、日志两行命中、
   看门狗 `{"calls":1,"retries":1,"gaveUp":0}`、`<video>` **`rs=4 / 3840x2160 / dur=5.53 / paused=false`（真的在放）**、
   画布 `meanL=82.675 / stdL=63.991 / litFrac=0.8856`。
 
@@ -13795,7 +13795,7 @@ MPW_ROOT=/tmp/emptyroot bash tests/run-all-tests.sh.old      --only multi-sprite
 **帧重载即使值没变也重发**），并在每个"隐藏/切走"落点下发 park（`:3165` teardown、`:4366` np-owns、`:9292` pause-frame），
 `npFrameSoundBlocked()` 口径改成"**真的在出声**"（`paused ∧ !muted ∧ volume>0`）。
 **处置现场**：向宿主 API PUT 回用户真档并逐键复核（`converted=mp4`、`mpkgKey`（值为 `custommpkg|` + 用户那个 mpkg 文件名）、
-`source=bgcs_abydos03.mp4`、`webUrl=""`、删 `sceneKey`、`image` 保持、`mute=true`、`npPaused=true`）。
+`source 为 bgcs_abydos03.mp4`、`webUrl=""`、删 `sceneKey`、`image` 保持、`mute=true`、`npPaused=true`）。
 **防复发**：探针改为两处存储**都存档/都复原/逐键复核**，不一致判红（`tools/audio-leak-frame-probe.mjs:222` 存档、`:401-418` 复原复核）。
 
 * **关键语义**：`silent = muted===true ∨ 宿主停渲染 ∨ 音量==0 ∨ (muted===null ∧ ?embed=1 嵌入帧 ∧ 无手势)`；
@@ -17363,7 +17363,7 @@ z=3/0/−3），改后 `57/0` 全绿 —— 6:3:2 的透视律与 `mvp` 的 w �
 | 库根 = `1004`（顶层 6 个 `.mpkg`） | `count: 6`（5 × scene + 1 × video，`itemRole:'file'`） |
 | 点条目 `丛雨.mpkg` | 首帧 ✓、`__sceneLayers.length = 4`、背景层纹理 `texOK`（真的出画） |
 | 混合库根（临时 `mixed-probe`：1 个 workshop 目录 + 1 个顶层容器） | `count: 2`（目录条 + 容器条各一；测完已删） |
-| `__wp.loadSceneFile(File 1 509 854 B)` | 返回 `true`、`__mpwSceneFile={name:'丛雨.mpkg',bytes:1509854}`、URL `?scenefile=1`、`__mpwSceneFileTaken={name:'丛雨.mpkg',bytes:1509854}`、装载后 `layers=4` + 同一张背景纹理 ✓ |
+| `__wp.loadSceneFile(File 1 509 854 B)` | 返回 `true`、`__mpwSceneFile 为 {name:'丛雨.mpkg',bytes:1509854}`、URL `?scenefile=1`、`__mpwSceneFileTaken 为 {name:'丛雨.mpkg',bytes:1509854}`、装载后 `layers=4` + 同一张背景纹理 ✓ |
 
 ### 判据
 * 新增 `tests/bench-local-mpkg-scan-test.mjs` **19/0**：A 纯前端扫描 8 条（混合形态 4 条成项、
@@ -17935,4 +17935,111 @@ CPU 光栅真帧）都给出丛雨 **0.00%**（其设计画布 3840×2160 = 16:9
 **登记**：`tests/run-all-tests.sh:1203`（**同一行改注释**，`git diff --stat` = `1 insertion(+), 1 deletion(-)`）；报告 `docs/reports/EMPTY-STATE-SEMANTICS-FIX.md`。
 **回归面（全部 exit 0）**：`empty-state-no-black` 31/31 · `demo-check` · `load-timeout` · `diag-flags`（改后转绿）；插件侧 `scene-url-token-guard-test` 6/6 · `wallpaper-lifecycle-test` 214/214 · `bgwrap-visible-test` 30/30。
 **诚实边界** ✗：① 本机无 WebGL ⇒ "真机出首帧后占位自动撤"仍只由纯 Node 判据（C1 的 `hasFrame` 支）钉住；② **残留的失败态仍会出现**：若存档是"选了但容器已失效"（用户那次的实际形态），按新语义**属于失败态**，因此**仍会**出现底部卡片 —— 变化是它现在**可关闭、不全屏、不吞点击**，用户**不必**再去设置里清壁纸；③ 未改 `docs/README-DIAGNOSTICS.md`（不在写入范围）⇒ 采用手写解析而非登记 `nowallpaper`/`scenefile`；④ `web/diag-flags.json` 是生成物：跑门禁会按新行号重写，本任务已**还原到 HEAD**（收口时跑一次 `--only diag-flags` 即为与代码一致的状态）。
+
+---
+
+## P-346（2026-10-13 · 插件侧）「清除壁纸」= **清干净 + 纯白 + 零提示**：粘性来源清除 + 两处存储的持久墓碑
+
+**原始记录**：用户确认三条契约 —— ① 没有壁纸 ⇒ **纯白、什么都不加载**（不加载 `:8899`/`:8902` 任何页面）；② **完全不提示**；③ **「清除壁纸」要清干净**（连带清掉粘性记住的渲染器地址与来源记录）。现场序列：「清除壁纸 ⇒ 刷新 ⇒ **先出现 8902 页面，下面有一个报错** ⇒ **随后刷新到 8899 页面，下面就没有报错了**」。
+**落点**：`dsh-mpkg-wallpaper/lib/client.js`（本轮**只**改这一个文件）+ `we-scene-demo/tests/clear-wallpaper-clean-test.mjs`（新判据）+ `tests/run-all-tests.sh`（**一行**）。`we-scene-demo/demo.html` **本轮未改**（P-345 的卡片已实测可读/不遮/不拦，见下）✓；`core/**` · `server/**` · `demo/index.html` · `demo/bench-patch.js` · `real-machine-check.mjs` · `baseline-trend.mjs` · `THIRD-PARTY.md` · 工作区台账 **一处未碰** ✓。
+
+### ① 真因（已证 ✓）：**不是"没清"，而是"清掉之后被另一处存储搬回来"**
+- `clearBg` 早已把 `webUrl/sceneKey` 写成 `null`（删除语义）——**这一步没问题**；
+- 问题在**两处存储合成**：`lib/client.js:2455 mpwOverlayFill(win, lose)`（输家补赢家缺的键）+ `:2456-2457 mpwStickySource()` ⇒ 只要**另一处**（localStorage 或宿主 宿主 `settings` 存储的 JSON）还留着旧的 `webUrl`/`image`，它就会被补回合成档 ✗ ⇒ 刷新后壁纸复活 ⇒ 又去挂渲染器帧 ⇒ 取不到 ⇒ P-345 的卡片（= 用户看到的"报错"）⇒ 再跳另一个面。
+- 触发条件很常见：**清空那一次的宿主 `PUT /settings` 没成功**，或宿主停在更早写下的旧档。
+- 另一个"清不干净"的点：旧清空表**漏了 6 个身份字段**（`entryName`/`title`/`folderName`/`mpkgFile`/`srcRoot`/`srcDirPath`）——其中 `srcRoot` 残留会让 `mpwPickMount()` 的形状裁决继续把残留 `webUrl` 当身份（`:2410-2414`）。
+
+### ② 改了什么（`lib/client.js`）
+| # | file:line | 内容 |
+|---|---|---|
+| 1 | `:1378-1386` | 新增**持久墓碑** `__mpwSrcClearedAt`（记账键：面板/导出看不见，但随档落两处）+ **身份字段唯一权威表** `MPW_WALLPAPER_ID_KEYS`（15 个：`image/webUrl/sceneKey/source/mpkgKey/mpkgName/entryName/converted/fromMpkg/slot/title/folderName/mpkgFile/srcRoot/srcDirPath`） |
+| 2 | `:1390-1396` `mpwClearWallpaperPatch()` | 清空补丁（纯函数）：15 个身份字段逐一显式清掉 + 立墓碑；**外观/行为键一个都不在表里** |
+| 3 | `:21632`（`clearBg`） | 改走该补丁（旧写法漏 6 个字段）；行尾保留 `webUrl/sceneKey` 的旧收尾形状 ⇒ **不破坏** `tools/wallpaper-lifecycle-test.mjs` 的 K 变异注入点 |
+| 4 | `:2484-2489`（`mpwReconcileStores`） | **墓碑优先**：墓碑所在存储就是时间戳最新那个 ⇒ 合成结果里身份字段**一律清空**（治"被搬回来"）；合成结果会被 `initHostSettings` 回写两处 ⇒ 残留那处**就地修好** |
+| 5 | `:966`（`writeSection`） | **墓碑自动作废**：任何一次"带真源的写"（= 新选了壁纸）就删掉墓碑 ⇒ 不会"清过一次就再也选不上" |
+| 6 | `:7089`（`probeSceneRenderer`）+ `:7253`（`applySceneViaRenderer`） | 渲染器可达性探测**加门控**：只有"当前档是场景渲染器档"才探（旧写法每次 apply + 每 30s 无条件 `GET` 一次渲染器页 —— 没有壁纸时纯属空转，且正是"没有壁纸还在加载渲染器页"）；真正要用渲染器时 `force` 一次，恢复/离线回退语义不变 |
+| 7 | `:12133-12138`（测试钩子 `__mpwPersist`） | 暴露 `clearPatch/idKeys/clearedKey/hasRealSource/probeNeeded`（生产不引用） |
+
+### ③ 判据与读数（`we-scene-demo/tests/clear-wallpaper-clean-test.mjs`，**24 断言 + 5 组变异**）
+```
+$ node tests/clear-wallpaper-clean-test.mjs
+A 清除后（清干净/两处都干净/不复活/不再探渲染器/零提示） 9 条 · B 选了但坏（可读/不遮/不拦/可关闭）6 条
+C 无关设置逐字节不变 4 条 · D 双向（清空后还能选上 + 反向不许误清）4 条
+E 变异自证 5/5 组「期望红集 == 实际红集」逐条相等
+✅ PASS：24 通过 / 0 失败
+$ bash tests/run-all-tests.sh --only clear-wallpaper-clean
+PASS clear-wallpaper-clean (10655ms)
+```
+| 变异 | 期望红集（实际 == 期望） |
+|---|---|
+| M1 去掉合成时的"墓碑优先"分支 | {A7} |
+| M2 清除时"顺手清太多"（连 `opacity` 一起清） | {C1, C2a} |
+| M3 清除补丁退回旧 9 键表 | {A2, A3, A4} |
+| M4 去掉"带真源的写 ⇒ 墓碑作废" | {D2} |
+| M5 去掉探测门控 | {A6} |
+
+**真机读数**（无头 Firefox **单实例**；`PUT /settings` 全 abort ⇒ 用户实时存储只读；命令 `T18_TOKEN=… node /tmp/t18/clear-semantics-probe.mjs`）
+```
+0. 实时页面里新代码已生效：__mpwPersist.clearPatch=function · idKeys=15 个 · clearedKey=__mpwSrcClearedAt
+1. 有壁纸（场景渲染器档）刷新 → 渲染器相关请求 **41**，帧 src = :8902/webloader/?pkgurl=…      （正向对照）
+2. 清除壁纸（clearBg 的落盘补丁）后刷新 → 渲染器相关请求 **0**、帧 src = (空)、
+   bgWrap = mpw-bgWrap mpw-img + display:none、页面里 **0** 个卡片、localStorage: webUrl=(无)/image=""/墓碑在
+3. 选了但坏（?pkgurl 必 404&embed=1）→ 卡片 560×137（白底深字，占视口 8.3%），与 #bar / #log / #logbar
+   的重叠面积均为 **0 px²**（#log/#logbar 在 embed 档本就收起 display:none）⇒ 可读、不遮、不拦
+```
+
+### ④ 登记与回归
+- 登记：`tests/run-all-tests.sh:1204` **只加一行** `add "clear-wallpaper-clean" …`（`git diff --stat` = `1 insertion(+)`）。
+- 回归面（全部 exit 0）：渲染器侧 `clear-wallpaper-clean` 24/24 · `empty-state-no-black` 31/31 · `demo-check` · `load-timeout`；插件侧 `settings-persist-test` · `wallpaper-lifecycle-test`（**214 通过 / 0 失败**，含 K 变异恢复有效）· `bgwrap-visible-test` · `scene-url-token-guard-test` · `world-isolation-test` · `persist-test`。
+- ⚠ 本轮踩到并修掉一个**自伤**：我在注释里抄了一遍 K 变异要匹配的锚文本，而 JS `String.replace` 只替换**第一处** ⇒ 变异打到注释上、静默失效（门禁报"期望 F 组变红，实际没有组变红"）。已把锚文本从注释里去掉，K 变异恢复有效 ✓。
+- **回退位**：墓碑是新增记账键，删掉 `mpwClearWallpaperPatch` 的 `MPW_SRC_CLEARED_KEY` 一行即可回到 P-345 行为（会退回"另一处残留旧源"的老毛病）；探测门控可用 `probeSceneRenderer(true)` 强制绕过。
+- **诚实边界** ✗：① 桩 harness **不驱动** `probeSceneRenderer()`（实测 `A.apply()` 也不触发）⇒ 判据 A6 钉的是"门控在位 + 纯裁决 `probeNeeded===false`"，"请求数 0"这条由真机探针（上表第 2 行）证明，两者互补；② 清除后"纯白"是**宿主自己的背景**（插件把壁纸层 `display:none`、iframe `src` 置空 ⇒ 不覆盖宿主），不是插件画了一块白；③ 用户那次的具体存档形态（哪一处残留）本机已无法取证，判据覆盖的是"**任一**处残留都会被墓碑收口"。
+
+---
+
+## P-347（2026-10-13 · 插件侧）**P-346 的回归**：video 档「暂停 + 刷新」后身份被墓碑吃掉 ⇒ 预览/名称/内部文件名全空、类型变 image、白屏 + 破图
+
+**原始记录**：「我刚才用 **video 类的 MPKG 壁纸**，然后我把壁纸**暂停掉**刷新页面。在设置里面会把壁纸**预览图**、包括它的**名称**和**内部具体的文件名称**都**空着**掉，然后把壁纸**类型变成 image**，包括壁纸也没有了，壁纸变成了**白屏**，然后**左上角有一个那个破损照片的图标**」。
+**落点**：`dsh-mpkg-wallpaper/lib/client.js`（**只**改这一个文件）+ `we-scene-demo/tests/pause-refresh-preserve-test.mjs`（新判据）+ `tests/run-all-tests.sh`（**一行**）。`demo.html` / `core/**` / `server/**` / `demo/**` / `THIRD-PARTY.md` / 台账 **一处未碰** ✓。
+
+### ① 归因（**是 P-346 引入的回归** ✗，有两次对照读数 ✓）
+- **实时存储里就躺着只有 P-346 会写的墓碑**：用户 宿主设置存储的 JSON（用户主目录下的插件存档）（只读）实测 `__mpwSrcClearedAt = 1791908416031`，而 `mpkgKey/mpkgName/source/converted` **全空**、`image` 尚存 ⇒ **预览/名称/内部文件名空 + 类型兜底成 image + 破图**，与现象逐条对应 ✓。
+- **同探针 · 同存档 · 三版本对照**（输入 = 实时存储的真实快照；命令 `node /tmp/t18/attr-real-state.mjs <client> <label>`）：
+
+| client | 合成档身份 | 墓碑 | 结论 |
+|---|---|---|---|
+| BEFORE（`git show HEAD:lib/client.js`） | `image` + `fromMpkg/srcRoot/srcDirPath` 都在 | 旧码不认识 | 基线：不吃身份 |
+| AFTER_21（P-346 未修） | **只剩 `image`** ✗ | 仍在 | **回归**：墓碑吃身份（且每次开机再吃一轮） |
+| AFTER_FIX（本条） | 与 BEFORE 一致 ✓ | 两处都清掉 ✓ | 修好 |
+
+- **机制**：`clearBg` 立持久墓碑 → **视频 MPKG 导入是"先写身份、转码完才补 `image`"** ⇒ P-346 的作废判据 `mpwHasRealSource`（只看 `image`/`webUrl`）在导入那一刻**不成立** ⇒ 墓碑活到下一次刷新 ⇒ `mpwReconcileStores` 把 15 个身份字段整批删掉并回写两处 ✗。「暂停」本身**不写档** ⇒ 暂停不是原因，刷新才是触发点。
+
+### ② 改了什么（`lib/client.js`）
+| # | file:line | 内容 |
+|---|---|---|
+| 1 | `:1404-1420` | 新增 `mpwHasAnyWallpaperIdentity(s)`：墓碑作废/生效的**唯一判据**改成"带任何壁纸身份"（15 个身份字段任一非空，或 `fromMpkg===true`） |
+| 2 | `:966-971`（`writeSection`） | 作废条件改成"本次写**或**当前档任一带身份" ⇒ 视频 MPKG 导入当场作废墓碑 |
+| 3 | `:2496-2512`（`mpwReconcileStores`） | 墓碑只对"自己一无所有"的档生效；带身份 ⇒ 过期墓碑直接作废；**收口不变量：合成结果只要带身份就删墓碑**（防 `mpwOverlayFill` 把输家的过期墓碑揣进合成档） |
+| 4 | `:2744`（自愈迟到裁决，**既有缺陷**） | 两边做**同一个反推**（`mpkgKey` 空时用 `image` token 反推）—— 旧写法拿空 `mpkgKey` 与派生 key 比 ⇒ 恒不等 ⇒ 派生结果永远被丢 ⇒ 受损档补不回名称/类型 |
+| 5 | `:8651-8663`（host media 404 重试） | **绝不写空 `img.src`**：缓存击穿 `img.src=""`（= 拿文档 URL 当图片 ⇒ **破损图标**）→ 查询参数 `_mpwbust=`，且只对 http(s) 目标做 |
+
+### ③ 判据与读数
+```
+$ node tests/pause-refresh-preserve-test.mjs
+P1–P6   暂停 ⇒ 刷新：身份逐字节保留 · converted 仍 mp4 · 暂停意图仍持久化 · 无关设置不动
+P7–P10  回归路径（清除→只写身份→补 image→暂停→刷新）：墓碑当场作废 + 身份逐字节保留
+P11/P16 用户现场形态（墓碑与身份并存）：合成不吃身份 · 开机后身份保留且过期墓碑两处清掉
+P12–P14 双向：播放态刷新同样保留 · 不算半残档 · 清除后仍"什么都不加载"
+P15/P17 绝不写空 img.src · 受损档的反推自愈可落地
+✅ PASS：18 通过 / 0 失败   （6 组变异：M1{P8,P11,P16} M2{P11,P16} M3{P15} M4{P8} M5{P14} M6{P17} 全部「期望红集 == 实际红集」）
+```
+**真机读数**（单实例、`PUT /settings` 全 abort）：修复前自愈 `healed:0/ok:false`；修复后 **`healed:1/ok:true/from:derive`**，身份恢复为 `mpkgName 为 小鸟游星野01_04.mpkg`、`source 为 bgcs_abydos03.mp4`、`converted=mp4`（**类型仍 video**）、墓碑 `null`，画面 `media?token=…` **200/206**、层 `mpw-bgWrap mpw-img mpw-sharp`、`img.src` 非空（不白屏、不破图）。
+**回归面（全部 exit 0）**：`pause-refresh-preserve` 18/18 · `clear-wallpaper-clean` 24/24 · `empty-state-no-black` 31/31 · `demo-check` · `load-timeout`；插件 `settings-persist-test` / `wallpaper-lifecycle-test`（214/0，K 变异有效）/ `bgwrap-visible-test` / `world-isolation-test` / `persist-test` / `np-control-test` / `scene-url-token-guard-test`。
+
+### ④ 最小回退面（若决定先回退 P-346 那批）
+- **A 级（最小、只治本回归，推荐）**：删 `lib/client.js:2496-2512` 的 `if (clearedAt > 0) { … }` 整段 + 紧随的"墓碑与身份互斥"收口；再删 `:966-971` 的作废行。⇒ 墓碑变成"只写不读的记账键"，不再有任何路径批量删身份。
+- **B 级（整批回退）**：A 级 + `MPW_SRC_CLEARED_KEY` 移出 `MPW_BOOK_KEYS` + 删 `mpwClearWallpaperPatch`。
+- ⚠ **不建议**连这三处一起退（各自独立、都修了真缺陷）：探测门控（P-346 目标②）、`img.src=""→_mpwbust`、自愈迟到裁决的反推。
+- **前修已可用**：修复后用户当前那份受损存档**一次刷新即自愈**（实测 `healed:1`），无需手动重选壁纸；M1 变异证明退回 P-346 写法必红。
+- **诚实边界** ✗：① 用户浏览器里那份 localStorage 未能直接取证（用宿主真实快照 + 用户描述流程重建，形状已实测吻合）；② 真机"故障发生前"的完整时序（导入→转码→暂停→刷新）未逐帧复跑，判据用"先身份后 image"的最短等价序列覆盖；③ 本机无 WebGL ⇒ "画面恢复正常"的肉眼观感建议用户确认一次（读数层面已证：token 200/206、层可见、`img.src` 非空）。
 

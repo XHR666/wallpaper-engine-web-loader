@@ -1201,6 +1201,8 @@ add "audio-scene-players" "node tests/audio-scene-players-test.mjs"
 #   挂载瞬间的值会变）。72 断言、~25s、纯 Node（真包/语料缺席时对应组 SKIP）。
 add "anim-semantics" "node tests/anim-semantics-test.mjs"
 add "empty-state-no-black" "node tests/empty-state-no-black-test.mjs"   # ②(P-345 2026-10-13 语义纠正) 「没有壁纸」= 合法空态（不提示/不全屏黑/不吞指针/底中性或透明）+ 只有「选了但取不到」才显示可关闭的诊断卡片 + 旧 :8899 渲染器落点迁移（回退位 sceneBaseLegacy=true）：30 断言 + 12 组变异自证，纯 Node ~1s
+add "clear-wallpaper-clean" "node tests/clear-wallpaper-clean-test.mjs"   # ②(P-346 2026-10-13) 「清除壁纸」必须清干净：15 个身份字段两处存储全清 + 持久墓碑防"另一处残留旧源被搬回来" + 清除后不再探/不再加载渲染器页 + 无关设置逐字节不变 + 清空后还能选上（墓碑不压新壁纸）：24 断言 + 5 组变异自证，纯 Node（真 lib/client.js 在桩 DOM 里跑）~3s
+add "pause-refresh-preserve" "node tests/pause-refresh-preserve-test.mjs"   # ②(P-347 2026-10-13) video 档「暂停 + 刷新」必须保住壁纸（task-22 归因：task-21 的墓碑作废判据只看 image/webUrl，而视频 MPKG 是"先写身份、后补 image" ⇒ 身份被吃）：身份逐字节保留 / converted 仍 mp4 / 暂停意图仍持久化 / 过期墓碑不算数 / 绝不写空 img.src：17 断言 + 5 组变异自证，纯 Node ~5s
 
 # —— --list ——
 if [ "$LIST" = 1 ]; then
