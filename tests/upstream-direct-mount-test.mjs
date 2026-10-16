@@ -21,6 +21,7 @@
 // 用法：flock /tmp/.mpw-firefox.lock -c 'node tests/upstream-direct-mount-test.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { ROOT } from './_root.mjs'
 import { launchGLBrowser, glCapability, closeQuiet, findPlaywright } from './_gl-browser.mjs'
 
@@ -32,6 +33,44 @@ const OUT = path.join(ROOT, 'reports', 'upstream-params-2.1.0.json')
 let pass = 0, fail = 0, skipN = 0
 const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ✓ ' + name) } else { fail++; console.log('  ✗ ' + name + (detail ? ' — ' + String(detail).slice(0, 240) : '')) } }
 const sk = (name, why) => { skipN++; console.log('  ~ SKIP ' + name + '（' + why + '）') }
+
+/* ①(P-350 2026-10-16 用户口径「把上游渲染器移除，留一个可扩展的接口」) 上游渲染器产物已移出仓库
+   （`demo/assets/renderer-*.js` **0 份**；判据 `tests/renderer-adapter-test.mjs` D1/D2 钉住）
+   ⇒ 本判据的**主体**（把上游产物直挂起来跑）没有对象了 ⇒ **明确 SKIP**：
+   首行打印 `SKIP <本项名>`（runner 第 10 行的通用口径记 SKIP —— 不记 PASS、不记红、不静默通过）。
+   要复跑：① 把产物放回 `demo/assets/`（`cp -a` 备份在 staging/upstream-2.1.0/assets/demo/assets/）；
+           ② 或把测试台接上**外部**上游档（`MPW_RENDERER_UPSTREAM=<URL>` / `?rendererSrc=`）。 */
+/** 门判据。**函数化**：反向守卫要对两个方向各断言一次（门不许恒开、也不许恒关）。 */
+function upstreamDirectGate(artifactNames, externalUpstream) {
+  return ((artifactNames || []).length > 0 || String(externalUpstream || '').trim() !== '') ? 'run' : 'skip'
+}
+const UPSTREAM_ARTIFACT = (() => {
+  try { return fs.readdirSync(path.join(ROOT, 'demo', 'assets')).filter((n) => /^renderer-.*\.js$/.test(n)) }
+  catch (e) { return [] }
+})()
+const EXTERNAL_UPSTREAM = String(process.env.MPW_RENDERER_UPSTREAM || process.env.MPW_RENDERER_8899 || '').trim()
+if (upstreamDirectGate(UPSTREAM_ARTIFACT, EXTERNAL_UPSTREAM) === 'skip') {
+  /* ⚠ 首行**必须**是 SKIP 行：runner 只读前 3 行（通用口径「行首 SKIP + 本项名」⇒ 记 SKIP，不记 PASS/红）。 */
+  console.log('SKIP upstream-direct-mount —— 仓库内不再内置上游渲染器产物（demo/assets/renderer-*.js 0 份）')
+  console.log('  为什么：P-350 按用户口径把上游渲染器移出仓库，"直挂上游产物"这条判据的对象不存在了。')
+  console.log('  复现：放回产物（备份 staging/upstream-2.1.0/assets/demo/assets/），或改接外部上游档。')
+  /* ②(P-350 Lead 裁定) **反向守卫**（写在 SKIP 行之后，不影响首行口径）：
+     ① 产物被塞回（隔离副本）⇒ 门必须**重新打开**（该判据重新真跑）；
+     ② 配了外部上游档 ⇒ 门也必须打开（不是拿 SKIP 把失败藏起来）；
+     ③ 两者都没有 ⇒ **断言"确实没有上游档可用"**（用适配器契约读，而不是嘴上说说）。 */
+  const A = await import(pathToFileURL(path.join(ROOT, 'core', 'renderer-adapter.mjs')).href)
+  const gateOk = upstreamDirectGate(['renderer-FAKE123.js'], '') === 'run' &&
+    upstreamDirectGate([], 'http://127.0.0.1:8899') === 'run' &&
+    upstreamDirectGate([], '') === 'skip'
+  const reg = A.createRendererRegistry(A.builtinRendererAdapters({}))
+  const sel = A.resolveRendererSelection({ registry: reg, embed: true, url: UP_BASE + '?type=scene&src=1' })
+  const noTier = sel.available === false && sel.skipped === true && !!sel.reason
+  console.log('  ' + (gateOk && noTier ? '✓' : '✗') + ' 反向守卫：产物塞回=' + upstreamDirectGate(['renderer-FAKE123.js'], '')
+    + ' · 配外部上游=' + upstreamDirectGate([], 'http://127.0.0.1:8899')
+    + ' · 都没有=' + upstreamDirectGate([], '')
+    + ' · 上游档确实不可用=' + JSON.stringify({ available: sel.available, skipped: sel.skipped, reason: sel.reason }))
+  process.exit(gateOk && noTier ? 0 : 1)
+}
 
 const indexHtml = await fetch(UP_BASE).then((r) => r.text()).catch(() => null)
 const assetMatch = indexHtml ? /renderer-[A-Za-z0-9_-]+\.js/.exec(indexHtml) : null

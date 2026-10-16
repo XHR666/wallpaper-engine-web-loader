@@ -33,6 +33,22 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const WS = path.resolve(ROOT, '..')
 const URL_BASE = process.env.MPW_BENCH_URL || 'http://127.0.0.1:8902/'
+/* ①(P-350 2026-10-16 用户口径「把上游渲染器移除，留一个可扩展的接口」) **上游对照面还在不在**：
+   产物（`demo/assets/renderer-*.js`）已移出仓库 ⇒ "上游档"只有在**外部来源**配了的时候才有对象。
+   为什么判据要读它：D 段里凡是要"同一条面板列下上游画布 vs 本仓画布"的断言，没有对照对象就**明确 SKIP**
+   （打印读数），而不是拿一具没有画布的 SKIP 页去判红（那是把"对象不存在"说成"产品坏"），
+   也不是静默通过（SKIP 行写在输出里，谁看都看得见）。 */
+/** 上游对照面出口判据。**函数化** ⇒ 反向守卫能对两个方向各断言一次：
+   配了外部上游 ⇒ D3b/D5 这两段**必须真跑**（不是拿 SKIP 把失败藏起来）。 */
+function upstreamSubjectGate(artifactNames, externalUpstream) {
+  return ((artifactNames || []).length > 0) || String(externalUpstream || '').trim() !== ''
+}
+const UPSTREAM_ARTIFACT = (() => {
+  try { return fs.readdirSync(path.join(ROOT, 'demo', 'assets')).filter((n) => /^renderer-.*\.js$/.test(n)) }
+  catch (e) { /* 目录不在 ⇒ 当没有 */ return [] }
+})()
+const EXTERNAL_UPSTREAM = String(process.env.MPW_RENDERER_UPSTREAM || process.env.MPW_RENDERER_8899 || '').trim()
+const UPSTREAM_SUBJECT = upstreamSubjectGate(UPSTREAM_ARTIFACT, EXTERNAL_UPSTREAM)
 /* ①(P-228 2026-10-03) 探针壁纸 id **从在服库里挑**，不再写死一个只存在于 `dd` 库的 id：
    实测 :8902 服务的是 `allwallpaper/0923`（36 项），写死 `3544152633`（在 `dd` 库）时
    `clickItem()` 会回退点列表第一项，而 D2 仍断言 `id === PROBE_ID` ⇒ 凭空一条红（与服务库无关的环境事实）。
@@ -53,6 +69,11 @@ async function resolveProbeId() {
 
 let pass = 0, fail = 0
 const ok = (c, label, extra = '') => { if (c) { pass++; console.log('PASS ' + label + (extra ? '  ' + extra : '')) } else { fail++; console.log('FAIL ' + label + (extra ? '  ' + extra : '')) } }
+ok(upstreamSubjectGate(['renderer-FAKE123.js'], '') === true
+  && upstreamSubjectGate([], 'http://127.0.0.1:8899') === true
+  && upstreamSubjectGate([], '') === false,
+  'A0 反向守卫：上游对照面门（产物塞回 / 配外部上游 ⇒ 对照段真跑；两者都无 ⇒ 对照段 SKIP）—— 门不许恒开、也不许恒关',
+  'UPSTREAM_SUBJECT=' + UPSTREAM_SUBJECT + '（产物 ' + UPSTREAM_ARTIFACT.length + ' 份 / 外部上游=' + (EXTERNAL_UPSTREAM ? '有' : '无') + '）')
 const skip = (why) => { console.log('SKIP bench-renderer-source — ' + why); process.exit(0) }
 
 const PATCH_PATH = path.join(ROOT, 'demo', 'bench-patch.js')
@@ -482,6 +503,8 @@ if (!pwPath) {
       const UP_STABLE_TICKS = 10
       // 无 WebGL2 时渲染器页永远到不了就绪态（见上面的能力前置）⇒ 不等满 60s，读数只作证据不作判据
       const READY_MS = webgl2 ? 60000 : 8000
+      /* 没有上游对照对象时，两次 `waitReady('upstream', …)` 会各自白等满上限 ⇒ 收到 1.5s（只是省时间，不改判定：D1 只读 src）。 */
+      const UP_READY_MS = UPSTREAM_SUBJECT ? READY_MS : 1500
       const clickItem = () => page.evaluate((id) => {
         const li = [...document.querySelectorAll('#list li[data-id]')].find((x) => String(x.dataset.id) === String(id)) || document.querySelector('#list li[data-id]')
         if (li) li.click()
@@ -499,13 +522,13 @@ if (!pwPath) {
       //  新契约：**打开就是本仓**（先读它）⇒ 再切到上游当对照 ⇒ 再切回本仓验证可逆。
       const repo0 = await readLive()
       await selectSource('upstream')
-      await waitReady('upstream', READY_MS, UP_STABLE_TICKS)
+      await waitReady('upstream', UP_READY_MS, UP_STABLE_TICKS)
       const up = await readLive()
       await selectSource('repo')
       await waitReady('repo', READY_MS, REPO_STABLE_TICKS)
       const repo = await readLive()
       await selectSource('upstream')
-      await waitReady('upstream', READY_MS, UP_STABLE_TICKS)
+      await waitReady('upstream', UP_READY_MS, UP_STABLE_TICKS)
       const back = await readLive()
       /* ①(P-228e 2026-10-05) D4 的「重算计数 ≥ 1」以前是**靠布局抖动碰巧成立**的：切档会让本服务控制台
          行数变化 ⇒ 舞台行高在 364↔321 之间跳 ⇒ 活档位块收到一次 resize 且尺寸真变了。
@@ -612,16 +635,27 @@ if (!pwPath) {
         ③乘数语义不变。舞台盒差如实打印在读数里（不再拿它当判据）。
         ⚠ 舞台行高会跳这件事本身已记进 `docs/ISSUE0924A-PLAN.md` 的"已知遗留"（换档时预览框尺寸变化）。 */
     const fillsOwnFrame = (r) => !!r.canvas && r.frameBox === (r.canvas.cssW + 'x' + r.canvas.cssH)
-    ok(up.canvas && repo.canvas && up.panelBox && up.panelBox === repo.panelBox && up.propsBox === repo.propsBox &&
-      fillsOwnFrame(up) && fillsOwnFrame(repo) &&
+    /* ①(P-350 2026-10-16) 上游产物移出仓库 ⇒ D3 **按语义拆开**（不是放宽）：
+       本仓那一半（画布口径 = 我们的活档位契约）**照跑**；"上游 vs 本仓 同一条面板列"那一半
+       在上游对照对象不存在时**明确 SKIP**（打印读数）。 */
+    ok(!!repo.canvas && !!repo.panelBox && fillsOwnFrame(repo) && near(repoScale, repo.dpr, 0.05),
+      'D3a 本仓档画布口径（不依赖上游产物）：画布铺满自己的 iframe 盒 + 画布 = 面板 CSS 像素 × **设备 DPR**',
+      JSON.stringify({ repoFrame: repo.frameBox, panelRepo: repo.canvas && repo.canvas.cssW, repoScale, dpr: repo.dpr }))
+    if (UPSTREAM_SUBJECT) {
+      ok(up.canvas && repo.canvas && up.panelBox && up.panelBox === repo.panelBox && up.propsBox === repo.propsBox &&
+        fillsOwnFrame(up) &&
       /* ①(P-228 2026-10-03) 上游产物升到 2.0.2 后，**它自己**会按 resource scale 把内部画布放大到 ≈1.2×
          （旧 1.3.23 恒为 1× CSS）：同一台机器实测两种读数都出现过（529×297 与 633×356）⇒ 判据改成
          "上游档的内部画布 **≥** CSS 盒（1× 下限），具体倍数由上游自己决定、本仓不干预"；
          本仓档仍然逐位钉死 = 面板 CSS 像素 × 设备 DPR（那是我们的活档位契约）。 */
-      upScale >= 1 - 0.05 && near(repoScale, repo.dpr, 0.05),
-      'D3 ★画质判据（**同一条面板列**、同一张包）：上游画布 **≥** 面板 CSS 像素（≥1×，倍数由上游自己定），' +
-      '本仓画布 = 面板 CSS 像素 × **设备 DPR**；且每块画布都铺满自己的 iframe 盒（换档时本服务控制台行数变化 ⇒ 舞台盒会跳，不是画质语义）',
-      JSON.stringify({ panelUp: up.canvas && up.canvas.cssW, panelRepo: repo.canvas && repo.canvas.cssW, upFrame: up.frameBox, repoFrame: repo.frameBox, panelCol: [up.panelBox, repo.panelBox], propsCol: [up.propsBox, repo.propsBox], upScale, repoScale, dpr: repo.dpr }))
+        upScale >= 1 - 0.05,
+        'D3b ★画质对照（**同一条面板列**、同一张包）：上游画布 **≥** 面板 CSS 像素（≥1×，倍数由上游自己定）' +
+        '；且每块画布都铺满自己的 iframe 盒（换档时本服务控制台行数变化 ⇒ 舞台盒会跳，不是画质语义）',
+        JSON.stringify({ panelUp: up.canvas && up.canvas.cssW, panelRepo: repo.canvas && repo.canvas.cssW, upFrame: up.frameBox, repoFrame: repo.frameBox, panelCol: [up.panelBox, repo.panelBox], propsCol: [up.propsBox, repo.propsBox], upScale, repoScale, dpr: repo.dpr }))
+    } else {
+      console.log('SKIP D3b 画质对照（上游档）—— 仓库内不再内置上游渲染器产物（demo/assets/renderer-*.js 0 份）'
+        + '且未配外部上游来源（MPW_RENDERER_UPSTREAM）；读数 ' + JSON.stringify({ upCanvas: up.canvas || null, upFrame: up.frameBox || null, repoCanvas: repo.canvas || null }))
+    }
     /* ①(P-228e 2026-10-05) 判据取的这条读数来自**本测试自己制造的那次真实尺寸变化**（改「分辨率」档），
        不再依赖"切档时布局抖动顺带触发一次"（P-228e 把工具条定高之后那个抖动没了，那是要的结果）。 */
     const liveTarget = (repo.live && repo.live.updates >= 1) ? repo : liveProvoked
@@ -631,9 +665,13 @@ if (!pwPath) {
       'D4 活档位读数自洽（`window.__mpwLiveRes`）：canvas 尺寸 == live.width/height、dpr == devicePixelRatio、重算计数 ≥1' +
       '（读数取"改分辨率制造的那次真实尺寸变化"；未取到则红，不掩盖）',
       JSON.stringify({ used: liveTarget === repo ? 'repo' : 'provoked', live: liveTarget && liveTarget.live, canvas: liveTarget && liveTarget.canvas }))
-    ok(back.attrSrc === 'upstream' && String(back.src).includes('/wallpaper-engine-webgl/renderer/index.html') &&
-      back.canvas && back.canvas.w >= back.canvas.cssW && back.canvas.h >= back.canvas.cssH,
-      'D5 上游档画布没有被我们的"整合"压回 1× 以下（≥ CSS 盒；上游 2.0.2 起自己的 resource scale 会给到 ≈1.2×）', JSON.stringify(back.canvas))
+    if (UPSTREAM_SUBJECT) {
+      ok(back.attrSrc === 'upstream' && String(back.src).includes('/wallpaper-engine-webgl/renderer/index.html') &&
+        back.canvas && back.canvas.w >= back.canvas.cssW && back.canvas.h >= back.canvas.cssH,
+        'D5 上游档画布没有被我们的"整合"压回 1× 以下（≥ CSS 盒；上游 2.0.2 起自己的 resource scale 会给到 ≈1.2×）', JSON.stringify(back.canvas))
+    } else {
+      console.log('SKIP D5 上游档画布口径 —— 同上（无上游产物 / 无外部上游来源）；读数 ' + JSON.stringify({ attrSrc: back.attrSrc, canvas: back.canvas || null }))
+    }
   } else {
     console.log('SKIP D3 ★画质判据（画布像素）—— 本机浏览器无 WebGL2（画布级读数不可信）；读数 ' +
       JSON.stringify({ panelUp: up.canvas && up.canvas.cssW, panelRepo: repo.canvas && repo.canvas.cssW, upScale, repoScale, dpr: repo.dpr }))

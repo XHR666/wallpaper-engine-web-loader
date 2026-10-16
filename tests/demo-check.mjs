@@ -5,6 +5,7 @@
 //   · 这边测**发布形态**：真源唯一性、零个人路径、Pages 产物可构建、广告/免责声明逐字在位。
 // 用法: node demo-check.mjs [--json]     退出码 0 = 通过
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
@@ -700,6 +701,50 @@ const landing = path.join(ROOT, 'index.html')
   }
 }
 
+/** D12 ③ 的**判据体**（函数化：反向自证要在 /tmp 隔离副本上跑**同一套**判据）。返回 [名称, 通过?, 细节]。
+ *  只读 root 下的四样东西：全树 renderer-*.js 计数、渲染器页的**可执行引用**、
+ *  `demo/renderer/adapter-boot.mjs` 的取模块路径、`core/renderer-adapter.mjs` 的契约面；
+ *  再对**真模块**跑一次"缺产物 ⇒ 明确 SKIP"的选择开关。 */
+function rendererArtifactPlan(root, A) {
+  const rd = (rel) => { try { return fs.readFileSync(path.join(root, rel), 'utf8') } catch (e) { return '' } }
+  const artifacts = []
+  const skipDirs = new Set(['.git', 'node_modules', '_site'])
+  const walk = (d) => {
+    let ents = []
+    try { ents = fs.readdirSync(d, { withFileTypes: true }) } catch (e) { return }
+    for (const e of ents) {
+      if (e.isDirectory()) { if (!skipDirs.has(e.name)) walk(path.join(d, e.name)); continue }
+      if (/^renderer-.*\.js$/.test(e.name)) artifacts.push(path.relative(root, path.join(d, e.name)))
+    }
+  }
+  walk(root)
+  const page = rd(DEMO + '/renderer/index.html')
+  const boot = rd(DEMO + '/renderer/adapter-boot.mjs')
+  const core = rd('core/renderer-adapter.mjs')
+  /* 「页面不再引用产物」判的是**引用面**（script src / link href），不是"文件名在全文 0 命中" ——
+     注释里写清"以前引用的是哪个文件"是留痕，判红就是假红（假红比不判更坏）。 */
+  const refs = []
+  const re = /<(script|link)\b[^>]*?\b(src|href)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi
+  let m
+  while ((m = re.exec(page))) refs.push(m[3].replace(/^["']|["']$/g, ''))
+  const reg = A.createRendererRegistry(A.builtinRendererAdapters({}))
+  const skipPlan = A.resolveRendererSelection({
+    registry: reg, embed: true,
+    url: 'https://example.invalid/wallpaper-engine-webgl/renderer/index.html?type=scene&src=1',
+  })
+  return [
+    ['A 仓内不再内置上游渲染器产物（全树 renderer-*.js 计数 = 0；塞回来必红）', artifacts.length === 0, artifacts.join(', ') || '(0 份)'],
+    ['B 渲染器页改由适配器契约驱动（引用面只有 ./adapter-boot.mjs，不再引用任何 renderer-*.js）',
+      refs.length > 0 && !refs.some((u) => /renderer-.*\.js/.test(u)) && /core\/renderer-adapter\.mjs/.test(boot), refs.join(' | ')],
+    ['C 适配器契约在位（契约版本 + 实例七件套 + 注册表 + 两档内置适配器在同一份 core 模块里）',
+      /mpw-renderer-adapter@1/.test(core) && /RENDERER_ADAPTER_METHODS\s*=/.test(core) && /createRendererRegistry\s*\(/.test(core)
+      && /createRepoRendererAdapter\s*\(/.test(core) && /createExternalRendererAdapter\s*\(/.test(core), 'core/renderer-adapter.mjs ' + core.length + ' B'],
+    ['D 产物缺失时**明确 SKIP**（skipped=true / available=false / 有原因 / 有配置指引；不是静默通过）',
+      skipPlan.skipped === true && skipPlan.available === false && !!skipPlan.reason && /SKIP/.test(skipPlan.notice) && /rendererSrc/.test(skipPlan.notice),
+      JSON.stringify({ skipped: skipPlan.skipped, reason: skipPlan.reason })],
+  ]
+}
+
 // ---- D12（2026-09-19 ⑨ 用户裁定"旧名在 URL 路径上"）站点路径改名 /wallpaper-engine-webgl/ → /WEwebLoader/ ----
 // 为什么要这三组：
 //   ① **构建侧**：路径名的单一真源是 `tools/site-paths.mjs` —— 新名要在、旧名**只**以"极小重定向页"形态出现
@@ -814,13 +859,29 @@ const landing = path.join(ROOT, 'index.html')
   const lostKeys = keySpec.filter(([k, src]) => !src.includes(k)).map(([k, src]) => k + '@' + (src === bundle ? '产物' : '补丁'))
   check('D12 ③ localStorage 键一个都没改（webwallgl-theme ×2 落点 + -lang / -fx / we-bench-pointer-push / bench-props-collapsed）',
     lostKeys.length === 0, lostKeys.join(', '))
-  /* ①(P-228 2026-10-03) 上游产物升到 2.0.2（文件名带构建哈希，会随每次上游构建变）⇒ 这里按**前缀**找那一份
-     minified 产物（断言"有且仅有一份"），契约钉子本身不变：产物里写死的 DOM 属性名不许被改。 */
-  const rendererAssets = fs.readdirSync(path.join(ROOT, DEMO, 'assets')).filter((n) => /^renderer-.*\.js$/.test(n))
-  check('D12 ③ 上游产物有且仅有一份 renderer-*.js（升版时只换这一份，不留旧包）', rendererAssets.length === 1, rendererAssets.join(', '))
-  check('D12 ③ DOM 属性名 data-webwallgl-gl 没被改（产物 minified 里写死的契约）',
-    rendererAssets.length === 1 && read('demo/assets/' + rendererAssets[0]).includes('"data-webwallgl-gl"'),
-    rendererAssets.length === 1 ? rendererAssets[0] : '产物份数异常')
+  /* ①(P-350 2026-10-16 用户口径「把上游渲染器移除，留一个可扩展的接口」) 这两条钉子**换契约**：
+     旧：「上游产物**有且仅有一份** renderer-*.js」+「产物里含 data-webwallgl-gl」
+     新：「**仓库内不再内置上游产物**」（全树 renderer-*.js 计数 = **0**；谁塞回来必红）
+         + 「渲染器页改由**适配器契约**驱动」
+         + 「产物缺失时**明确 SKIP**（available=false + 原因 + 配置指引；绝不静默通过）」
+     为什么不只是删掉：删断言 = 门禁不再回答"上游产物有没有偷偷回来"。新契约比旧的**更强**
+     （旧的只查 demo/assets 那一份；新的查全树 0 份 + 适配器在位 + 缺失时的 SKIP 语义）。
+     反向自证：在 /tmp 隔离副本里放回一份假产物 ⇒ 第一条必红（打印「期望红集 == 实际红集」）。 */
+  {
+    const A = await import(pathToFileURL(path.join(ROOT, 'core', 'renderer-adapter.mjs')).href)
+    for (const [name, cond, detail] of rendererArtifactPlan(ROOT, A)) check('D12 ③ ' + name, cond, detail)
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mpw-demo-check-artifact-'))
+    fs.mkdirSync(path.join(tmp, DEMO, 'assets'), { recursive: true })
+    fs.mkdirSync(path.join(tmp, DEMO, 'renderer'), { recursive: true })
+    fs.mkdirSync(path.join(tmp, 'core'), { recursive: true })
+    for (const rel of [[DEMO + '/renderer/index.html'], [DEMO + '/renderer/adapter-boot.mjs'], ['core/renderer-adapter.mjs']]) {
+      fs.copyFileSync(path.join(ROOT, ...rel), path.join(tmp, ...rel))
+    }
+    fs.writeFileSync(path.join(tmp, DEMO, 'assets', 'renderer-FAKE123.js'), '/* 假产物：只用于反向自证 */\n')
+    const red = rendererArtifactPlan(tmp, A).filter((r) => !r[1]).map((r) => String(r[0]).slice(0, 1))
+    check('D12 ③ 反向自证（隔离副本塞回一份假产物 ⇒ 期望红集 == 实际红集）', red.join(',') === 'A',
+      '期望红集=[A] 实际红集=[' + red.join(' ') + '] 副本=' + tmp)
+  }
 
   // ③-2 反向钉子：上游归属 / 许可文件名 / 静态品牌钉子都没动
   check('D12 ③ 上游归属与许可文件没被"顺手改名"（oneincase/webwallgl 外链 + 两份 LICENSE-webwallgl*）',

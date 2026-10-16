@@ -396,14 +396,23 @@ try {
     ok(r2.frameReady === true && r2.frameMode === 'compat',
       'R3b 本仓渲染器档的 web 帧**真的挂上并报到**（`__mpwWebFrame.ready=true`、`mode=compat`）',
       JSON.stringify({ ready: r2.frameReady, mode: r2.frameMode, state: r2.frameState, fixture: fixtureTag, libraryWeb: libWeb, selectedId: r2.id }))
-    //  收尾：把类型过滤恢复成「全部」并把来源切回上游 —— 后面的 S 组按"全部档列表"取数，
+    //  收尾：把类型过滤恢复成「全部」—— 后面的 S 组按"全部档列表"取数，
     //  夹具留下的 web 过滤会让它看到的行数与类型都不对（实测 S7b 就是这么红的）。
     await page.evaluate(async () => {
       const all = document.querySelector('#type-filter .seg-btn[data-type="all"]')
       if (all) all.click()
       await new Promise((r) => setTimeout(r, 700))
     })
-    await setRendererSource('upstream')
+    /*  ⓪(P-360 · task-26) **档位复位：切回「本仓渲染器」**，不再把「上游产物」当收尾态。
+        旧口径的收尾态是 `upstream`（因为当年上游产物页就是"预览的默认实现"，S 组在它上面跑）。
+        新契约（用户口径「把上游渲染器移出仓库」）下「上游产物」档 = `demo/renderer/index.html`
+        的**适配器装载器**：本仓档 ⇒ 容器内装载 `/webloader/`；外部档 ⇒ 导航到外部来源；
+        挑不出来 ⇒ 明确 SKIP 面板 —— ⚠ 装载器**按契约不许发布 `__wp` / `__mpwHostApiReady`**
+        （`demo/renderer/adapter-boot.mjs` 开头两条"不许做"）。谁把收尾态留在 upstream，
+        后面不依赖上游产物的组就会踩在一具"没有 `__wp` 的装载器页"上**假红**
+        （实测：S7e `wp:false`、S6b `source=renderer` 计 0 ⇒ 两条与本组无关的红）。
+        T 组自己会**显式**切到上游档（它已经这么做了），所以这里复位不影响 T/W 的夹具。 */
+    await setRendererSource('repo')
     await page.waitForTimeout(1500)
   }
 
@@ -920,6 +929,65 @@ try {
     }
   }
 
+  /* ══════════ T/W 共同前提（P-360 · task-26）：上游产物档的**对象**在不在 ══════════
+     背景：用户口径「把上游渲染器移出仓库，只留一个可扩展接口」⇒ 仓内那份唯一的上游产物
+     `demo/assets/renderer-n-Rw_ZVc.js`（1.02 MB）已被删除，`demo/renderer/index.html` 改成
+     **适配器装载器**（契约 `core/renderer-adapter.mjs`：本仓档 = 容器内装载 `/webloader/`；
+     外部档 = 导航到 `?rendererSrc=` / `MPW_RENDERER_UPSTREAM` 指定的外部渲染器；挑不出来 ⇒ 明确 SKIP 面板）。
+     T/W 两组判的是"**上游产物档**上 web 壁纸真的能用"（`__wp` 握手 / WE shim 注入 / 播放卡片真控媒体）
+     ⇒ 没有上游产物它们**没有对象**：按本仓既有口径（`tests/renderer-adapter-test.mjs` D 段、
+     `tests/bench-renderer-source-test.mjs` 的 `upstreamSubjectGate`、`tests/upstream-direct-mount-test.mjs`）
+     **明确 SKIP + 写明原因**（行首 `SKIP bench-ui-headless —— …`），既不拿一具空壳去判红，也不静默通过。
+     ⚠ **其余组照常跑**（不是整条判据 SKIP）；跳过时把 R 组为 T/W 切过去的档位**复位回 repo**，
+     免得后面的组踩在"适配器装载器页"上假红。
+     ⚠ 反向守卫（**不变量**，不是同义反复）：跳过决定必须与"对象是否可用"一致 ——
+     谁把 SKIP 条件写成恒真 / 把可用性读错，这条立刻变红（变异自证见报告 §）。
+     可用性三条来源（**先判存在性再读**；每一步 try/catch，绝不 `path.join(dir, undefined)`）：
+       ① 仓内产物 `demo/assets/renderer-*.js` 的份数（离线事实，与姊妹判据同口径）；
+       ② 外部上游来源 env `MPW_RENDERER_UPSTREAM` / `MPW_RENDERER_8899`（与服务端同一套开关语义）；
+       ③ 运行期真值 `GET <bench>/api/renderers`（P-350 新增的**机读枚举面**）：
+          `adapters[].kind === 'external'` 的 `available`（服务端自己那套 env/config 的答案 ——
+          判据进程的 env 未必等于服务端的）。老服务没有这条路由 ⇒ 404，
+          **只当"这条查询不可用"**（不当作"没有上游"，否则会把服务端配了外部上游的情况误判成 SKIP）。
+          ⚠ `/api/renderers` 的 `upstreamInRepo` 是**常量 false**（`core/renderer-adapter.mjs:759` ——
+          "仓内不再内置上游产物"是契约断言，不是文件系统探测）⇒ "产物回来没回来"只认源①。 */
+  const upstreamSubject = await (async () => {
+    const out = { artifact: [], envExternal: '', api: null, apiErr: '', apiExternal: null, apiInRepo: null, available: false, why: [] }
+    try { out.artifact = fs.readdirSync(path.join(ROOT, 'demo', 'assets')).filter((n) => /^renderer-.*\.js$/.test(n)) } catch (e) { out.artifact = [] }
+    out.envExternal = String(process.env.MPW_RENDERER_UPSTREAM || process.env.MPW_RENDERER_8899 || '').trim()
+    try {
+      const r = await fetch(new URL('/api/renderers', URL_BASE), { signal: AbortSignal.timeout(6000) })
+      if (r.ok) out.api = await r.json()
+      else out.apiErr = 'HTTP ' + r.status
+    } catch (e) { out.apiErr = String((e && e.message) || e) }
+    out.apiExternal = !!(out.api && Array.isArray(out.api.adapters) && out.api.adapters.some((a) => a && a.kind === 'external' && a.available === true))
+    out.apiInRepo = !!(out.api && out.api.upstreamInRepo === true)
+    if (out.artifact.length) out.why.push('仓内产物 ' + out.artifact.length + ' 份（' + out.artifact.slice(0, 2).join('/') + '）')
+    if (out.envExternal) out.why.push('外部上游 env=' + out.envExternal)
+    if (out.apiInRepo) out.why.push('服务端 upstreamInRepo=true')
+    if (out.apiExternal) out.why.push('服务端 external 档 available=true')
+    out.available = out.why.length > 0
+    return out
+  })()
+  const TW_SKIP = !upstreamSubject.available
+  /* 反向守卫（恒在、不可豁免）：`可用 ⇒ 必须真跑`。 */
+  ok(upstreamSubject.available === !TW_SKIP,
+    'TW0 反向守卫：跳过 T/W 的决定必须与"上游产物档可用"一致（可用 ⇒ 必须真跑；不许拿 SKIP 把失败藏起来）',
+    JSON.stringify({ available: upstreamSubject.available, skipped: TW_SKIP, artifact: upstreamSubject.artifact,
+      envExternal: upstreamSubject.envExternal || null, apiUpstreamInRepo: upstreamSubject.apiInRepo,
+      apiExternalAvailable: upstreamSubject.apiExternal, apiErr: upstreamSubject.apiErr || null, why: upstreamSubject.why }))
+  if (TW_SKIP) {
+    console.log('SKIP bench-ui-headless —— T/W 组（上游产物档）：仓库内不再内置上游渲染器产物（demo/assets/renderer-*.js 0 份）'
+      + '且未配外部上游来源（MPW_RENDERER_UPSTREAM / MPW_RENDERER_8899 / ?rendererSrc=）⇒ 这两组没有对象；其余组照常跑')
+    notes.push('T/W 两组 SKIP（对象不存在，非静默通过）：'
+      + JSON.stringify({ artifactFiles: upstreamSubject.artifact.length, envExternal: upstreamSubject.envExternal || null,
+        api: upstreamSubject.api ? { upstreamInRepo: upstreamSubject.api.upstreamInRepo, externalAvailable: upstreamSubject.apiExternal } : upstreamSubject.apiErr,
+        restore: '把产物放回 demo/assets/renderer-*.js（工作区内 staging/upstream-2.1.0/assets/ 有同一份；见 docs/REMOVALS.md 的恢复途径）或配 MPW_RENDERER_UPSTREAM=<URL>' }))
+    //  夹具复位（与 R 组收尾同一件事，冗余保险）：R 组为 T/W 切过「上游产物」档 ⇒ 两组不跑就别把它留给后面的组
+    await setRendererSource('repo')
+    await page.waitForTimeout(1500)
+  }
+
   // ══════════════════ T 组（P-161）播放卡片：真的在控当前媒体 ══════════════════
   //  为什么用 web 档：卡片的数据面来自"当前媒体元素"（`<video>`/`<audio>`）。video/scene 档在本渲染器里
   //  走 **WebCodecs 逐帧**（没有 `<video>` 元素、也没有任何 seek API），所以真控读数只能在"入口 HTML 里
@@ -929,7 +997,7 @@ try {
   //  更正（P1 2026-10-05）：本仓 web 路径已落地（`demo.html` 的 `?type=web`，R3/R3b/R3c 钉住），这里保留上游档只是夹具选择。
   //  ⇒ 这一组显式切到「上游产物」档做夹具（上面的 R2 已经切过一次，这里再断言一次"确实是上游"，
   //  免得后继改动把夹具悄悄换掉）。断言口径与本组读数一字未动。
-  {
+  if (!TW_SKIP) {
     //  夹具自证：本组读数只在产物页上有效 ⇒ 先确认/切到上游档
     await setRendererSource('upstream')
     await page.waitForTimeout(1500)
@@ -1188,7 +1256,7 @@ try {
   //   ①渲染器**不再**打印「同源入口未检测到 WE shim」；②壁纸文档里 WE API 就位（`__weSetPaused` 等）；
   //   ③鼠标/触摸真的能到达壁纸页（在壁纸文档里挂监听，再用真鼠标事件走一遍）；
   //   ④注入的是**渲染器自带**的那份 shim（`shimFrom` 指渲染器产物、字节数与源码一致）。
-  {
+  if (!TW_SKIP) {
     // 先把日志清空：这样 W 组判的是"本次 web 挂载"的日志，而不是历史行
     await page.evaluate(() => { const b = document.getElementById('clear-logs'); if (b) b.click() })
     const mount = await page.evaluate(async () => {

@@ -115,6 +115,11 @@ import { WEB_STORE_LIMITS, normalizeWallId, wallIdFor, storePath, mergeStore, ev
    `/transpiled/*` 早就在动态 import 同一个文件 ⇒ 不是新增一类依赖，只是提前到加载期。 */
 import { parseWeJson, weJsonStats } from '../core/we-scene-bundle.js'
 import { webPrecheckPlan, WEB_PRECHECK_LIMITS } from '../core/web-precheck.mjs'
+/* ①(P-350 2026-10-16) 渲染器适配器契约（`core/renderer-adapter.mjs`，零依赖纯模块）：
+   本服务只做**枚举**（`GET /api/renderers`）——"这一档现在能不能用"的机读答案。
+   模块本体由渲染器根路由 `/core/**` 直供（`demo/renderer/adapter-boot.mjs` 以 `../../core/…` 取），
+   本文件**不复制**任何适配器逻辑。 */
+import { rendererAdapterReport } from '../core/renderer-adapter.mjs'
 /* ⓐ(2026-09-24 · 用户第 5 条「直接把 8899 集成到 8902，我以后拿 8902 测试」)
    **同一份实现复用**，不是复制一份：`:8899` 的服务器把请求处理器导出成 `rendererRequestHandler`，
    本服务把它挂到自己的 origin 上（`/webloader/**` 与渲染器自己的根路由）。
@@ -2034,6 +2039,23 @@ function sendFile(req, res, file, opts) {
 async function handleApi(req, res, url) {
   const p = url.pathname
   const q = url.searchParams
+
+  /* ①(P-350 2026-10-16) GET /api/renderers —— **渲染器适配器的枚举面**（只读、无副作用）。
+     为什么要有它：上游渲染器产物已按用户口径移出仓库（`demo/assets/renderer-*.js` 0 份）
+     ⇒ "这一档现在能不能用"必须有个**机读**答案，页面/判据/工具不必各自去猜文件在不在。
+     契约与注册表在 `core/renderer-adapter.mjs`（零依赖纯模块；本文件只做**枚举与挂载**）。
+     外部来源的"配没配"直接照 `MPW_RENDERER_UPSTREAM` / `MPW_RENDERER_8899` 的既有语义读，
+     不新增第二套开关。 */
+  if (p === '/api/renderers' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const report = rendererAdapterReport({
+      url: q.get('url') || undefined,
+      config: { renderer: q.get('renderer') || undefined, rendererSrc: q.get('rendererSrc') || undefined },
+      env: process.env,
+      embed: q.get('embed') === '1',
+      base: `http://127.0.0.1:${PORT}/`,
+    })
+    return jsonOk(res, Object.assign({ ok: true }, report))
+  }
 
   // ① GET /api/library —— 列表（只读；带**显式**库来源 + 全类型逐类计数）
   if (p === '/api/library' && (req.method === 'GET' || req.method === 'HEAD')) {

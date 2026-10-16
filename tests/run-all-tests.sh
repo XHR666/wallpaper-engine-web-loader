@@ -90,6 +90,12 @@ add "bundle-syntax"      "node --check core/we-scene-bundle.js"
 add "demo-syntax"        "node tests/demo-syntax-check.mjs"
 add "demo-check"         "node tests/demo-check.mjs"   # ①E(2026-09-24) 补登记（132 断言：首屏静态外壳 CSS 与补丁 SITE_LAYOUT_CSS 逐条等价 D8 / 品牌钉子 D10 / 显示选项 D11 / 新窗口改写 D12 …）。此前只在文档与手工命令里被引用（`--only demo-check` 会报"未知测试项"exit 2），本表一直没有它 ⇒ 默认门禁不会跑；纯 Node、~5s、无浏览器/网络。
 add "web-precheck"       "node tests/web-precheck-test.mjs"   # ③(P-228g) Web 壁纸**挂载前预检**（服务端 /api/web-probe + 补丁侧消费）：纯函数逐值对账 + 接线钉 + 真语料扫描 + 两个变异自证。需要测试台在跑（不在则 B4/B5 如实 SKIP）。
+# ①(P-360 2026-10-16 用户口径「把上游渲染器移除，留一个可扩展的接口」) **渲染器适配器契约**：
+#   A 契约/注册表（重复 id 与残缺适配器必须拒绝）· B 选择开关（?renderer=/config/env/外部来源/回落要写在话里）·
+#   C 生命周期顺序（probe 不过 ⇒ 一次都不 create）· D 反向（全树 renderer-*.js **0 份**；缺产物 ⇒ **明确 SKIP**）·
+#   E 端到端（本仓档在真服务上可取 + 首帧握手标记；缺服务 ⇒ 如实 SKIP）· F **5 组变异自证**「期望红集 == 实际红集」·
+#   G 真机首帧（有 WebGL2 才跑，否则 SKIP）。纯 Node、~3s（F 段要 import 5 份变异副本）、G 段缺 GL 时不启浏览器。
+add "renderer-adapter"   "node tests/renderer-adapter-test.mjs" "" "^SKIP renderer-adapter"
 # ①(P-70b 2026-09-15) **把它排到重项之前**：单独跑 4.9s，但排在 `tex-fmt5`(45s)/`package-matrix`(38–52s)
 #   之后时会因内存压力（本机 15G、free 0）换页抖动到 >600s 被超时中止 —— 实测 120× 慢、
 #   单独复跑永远绿、`--out` 换新目录也绿（所以**不是** P-70 的唯一临时目录导致的）。
@@ -153,6 +159,7 @@ add "particle-sprite"    "node tests/particle-sprite-verify.mjs"
 add "text-layout"        "node tests/text-layout-test.mjs"
 add "canvas-fit-csz"     "node tests/canvas-fit-and-csz-test.mjs"   # ①-A(P-339) 画布盒比例跟随设计画布 + ⑤-1(P-340) engine.canvasSize 翻正交口径：切片直测真函数 + 真实 buildCamera 几何对拍 + 双档反向读数 + 变异自证（期望红集==实际红集）；18 断言；~1s
 add "script-origin-recompose" "node tests/script-origin-recompose-test.mjs"   # ⑤-2(P-341) 脚本 origin 官方语义（局部 origin + 重新父链合成 + 级联）：裁判 = 解析期合成 oracle；改动前 3P/4F（主断言 100px / 级联 100px），改动后 7P/0F；变异自证（父链恒等⇒同值、父 scale=2⇒两口径恰差 (100,50)）；`MPW_BUNDLE=<备份>` 可跨实现跑同一判据；~2s；缺真包时 T6 SKIP
+add "clock-coords-all"   "node tests/clock-coords-all-test.mjs"   # ③(P-349) 一个壁纸里**所有**时钟/日期控件的坐标：靶子 = 用户实时包 `窗畔弦歌`（按脚本筛出 63 个时间控件）；P1b 逐个断言 56 个声明型控件 == 作者声明（±0.5px）、V1 可见性级联后同时可见 == 手算 4 个（无级联 13）、V4 `?viscascade=legacy` 行为化回退、5 组变异自证（期望红集==实际红集）；改动前 10P/5F → 15P/0F；~40s（7 趟真包管线）；缺真包 SKIP
 add "bloom"              "node tests/bloom-verify.mjs"
 add "script-tolerance"   "node tests/script-tolerance-test.mjs"
 # ①(2026-09-22 上游 9e287ea) `script-frametime-cap`：**脚本单帧 dt 封顶 0.05s** —— 一次卡顿（切档重挂/
@@ -961,7 +968,12 @@ add "autoreport-toggle"   "node tests/autoreport-toggle-test.mjs"   # 台账 §1
 add "verdict-docs"        "node tests/verdict-docs-test.mjs"   # 判决书/核验文档存在性 + 关键结论（使"判决"受门禁保护）
 add "pkg-name-corpus"     "node tests/pkg-name-corpus-test.mjs"   # ① 语料级：205 个真实包名分段编码往返无损（含空格 3 个、含 + 0 个）
 add "camerashake-binding"  "node tests/scene-camerashake-binding-test.mjs"   # camerashake* 属性绑定形态 {user,value}（205 容器 8 处 enabled）
-add "parallax-root-position" "node tests/parallax-root-position-test.mjs"   # 视差参考点取顶层祖先位置（官方 A4 同一 x22；语料 650 层/31 容器）
+add "parallax-root-position" "node tests/parallax-root-position-test.mjs"   # 视差参考点取顶层祖先位置（官方 A4 同一 x22；语料 650 层/31 容器）；P-352 起**行为级**：内嵌子进程跑 parallax-root-ref 并要求它 17/0 + ≥3 组 MUTANT-RED-OK（原先那条"名字存在"的正则断言已删）
+# ①(P-352 2026-10-12) 参考点**口径 + 两个"死回退位"**：P-309 的 `__parPosLegacy` 三元错位 ⇒ `?parpos=legacy`
+#   从来没生效、反而 `?paroff=legacy` 会悄悄把参考点退回本层；`__parOffLegacy` 又只判"传没传"。
+#   本档是**行为级**（真跑 renderScene + mock-GL 读层心位移）：静态参考项手算到 0.1px（−1232.0/+1168.0/+1408.0）、
+#   幅度与参考点无关且严格正比 depth、门控回退位、真包逐层峰峰值 + 静态位移对照 + 4 组变异自证；17 断言；~2.5s
+add "parallax-root-ref"     "node tests/parallax-root-ref-test.mjs"
 add "mdla-attach-rhythm"     "node tests/mdla-attach-rhythm-test.mjs"   # 附件动画帧长来自 MDLA length（90 仅兜底；语料 104/107 条 length≠90）
 add "bench-layer-panel"     "node tests/bench-layer-panel-test.mjs"   # 8902 图层开关：面板自适应 + 勾选态=文件语义 + __lnShown 强制显示（P-317）
 add "pkg-parse-local"      "node tests/pkg-parse-local-test.mjs"     # 本仓自带包解析器 pkg-parse.mjs（克隆即可跑，不再依赖姊妹插件）

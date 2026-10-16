@@ -10552,6 +10552,49 @@ function loadScene() {
   let lastFrameNow = last0;      // ①(N7) 真实 frametime 取样点（上一帧的 performance.now）
   /* ②(P-228l 修正，2026-10-05) 属性动画的**上一帧场景时钟**：动画 dt = 场景时钟差（见下方注释）。 */
   let lastAnimClock = 0;
+  /* ①(2026-10-12 用户第 ③ 条「一个壁纸里不止一个时钟／把所有时钟组件的坐标位置都要对上」)
+     **可见性级联**：父隐藏 ⇒ 整棵子树不画（WE 编辑器/官方的容器语义）。
+     为什么需要：`visible:{user:{condition,name}}` 在语料里大量写在**容器**上（本包 508「组件镜像」
+     = `condition=="2"`、4995「组件」= `=="1"`、2856「横Date」= `day1==1`、573/4881「横Day」= `week1==1`），
+     而本仓 `parseScene` 只解析**本层**的可见性、`renderScene` 的绘制门也只读 `layer.visible`
+     （`core/we-scene-bundle.js:15946` 的 `if (!__layerVis || …) continue`）⇒ **隐藏容器下的子层照旧渲染** ✗。
+     真机后果（用户实时包 `窗畔弦歌` 默认属性 `hrbigbgeneralcomponentswitch="1"` / `day1="2"` / `week1="2"`）：
+       · `508「组件镜像」` 整枝（含 6 个时间控件，且 `483` 的 `scale=-1 1 1` 是**镜像**）本该不画，却与
+         `4995「组件」` 那枝**同时**画出来 ⇒ **同一个时钟出现两次、位置不同**；
+       · `横Date`/`横Day` 与 `竖Date`/`竖Day` 两套也同时画 ⇒ 时间/日期控件在默认属性下 **13 个同时可见**
+         （正确应为 **4 个**：fps + Clock + Date + D a y 各一）。
+     口径：`__ownVisible` = **这一层自己**的可见性（外部写入——面板/脚本/类别门控——会被自愈地认作新值）；
+     有效可见性 = 自己 ∧ 全部祖先；折进 `l.visible` ⇒ `renderScene` 一行不用改，层列表/DIAG 的读数也一致。
+     回退位：`?viscascade=legacy`（逐位回改动前：不折祖先，隐藏容器下的子层照旧画）。 */
+  const VIS_CASCADE_LEGACY = (() => { try { return new URLSearchParams(location.search).get('viscascade') === 'legacy' } catch (e) { return false } })()
+  function mpwCascadeVisibility(sc) {
+    if (VIS_CASCADE_LEGACY || !sc || !Array.isArray(sc.layers)) return 0
+    const byId = new Map()
+    for (const l of sc.layers) if (l && l.id !== undefined) byId.set(l.id, l)
+    let changed = 0
+    for (const l of sc.layers) {
+      // 外部写入检测（自愈）：`l.visible` 与本函数上次折出的结果不一致 ⇒ 当作"自己那份"的新值
+      if (l.__ownVisible === undefined || (l.__effVisible !== undefined && (l.visible !== false) !== l.__effVisible)) {
+        l.__ownVisible = (l.visible !== false)
+      }
+      let eff = l.__ownVisible
+      if (eff) {
+        let cur = l, guard = 0
+        while (guard++ < 64) {
+          const pid = cur.parent
+          if (pid === undefined || pid === null) break
+          const p = byId.get(pid)
+          if (!p) break
+          if (p.__ownVisible === undefined) p.__ownVisible = (p.visible !== false)
+          if (!p.__ownVisible) { eff = false; break }
+          cur = p
+        }
+      }
+      l.__effVisible = eff
+      if ((l.visible !== false) !== eff) { l.visible = eff; changed++ }
+    }
+    return changed
+  }
   const frame = (now) => {
     if (mpwDisposed) return;   // ①(P-77) dispose 之后即使被误调也不再出帧（引用已清空）
     // ①(2026-09-21 宿主 API) `__wp.pause()` 冻结：本帧不出、也**不自排**下一帧（`resume()` 直接调
@@ -10678,6 +10721,10 @@ function loadScene() {
 		// ③(P-64-MEDIA 用户第 9④ 项) 媒体集成：真实源（🔊 音频面板音轨）→ 官方五回调 + 音频响应频谱；
 		//   排在 runSceneScripts 之后（脚本已编译进 cache，dispatchScriptEvent 才投递得到）
 		{ try { mpwMediaTick() } catch (e) {} }
+		/* ①(2026-10-12 用户第 ③ 条) 可见性级联：必须先于本帧的"文本纹理/绘制"两处 `l.visible` 判定
+		   （本行的下一行文本光栅化、以及 `renderer.render` 内部的绘制门）。放在这里 = 脚本同步
+		   （30Hz 会把 `visible` 写回 raw）与属性动画推进之后 ⇒ 本帧用的是最终可见性。 */
+		{ try { const n = mpwCascadeVisibility(scene); if (n && !window.__mpwVisCascadeLogged) { window.__mpwVisCascadeLogged = 1; logf('① 可见性级联：本帧改判 ' + n + ' 层（隐藏容器的子孙不再绘制；`?viscascade=legacy` 回退）') } } catch (e) { /* 级联失败不阻塞出帧 */ } }
 		// ①(RE-19) 文本层：确保纹理就绪（字体未加载时本帧跳过，下一帧自动补）
 		{ let n = 0; for (const l of scene.layers) if (l.__text && l.visible && ensureTextTexture(l)) n++; if (n && !window.__mpwTextLogged) { window.__mpwTextLogged = 1; logf('① 文本层已光栅化: ' + n + ' 层') } }
 		// ②(P-228l) **属性动画播放头推进**（缺省档；`?anim=legacy` ⇒ 库内首行直接返回 0）。

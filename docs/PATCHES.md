@@ -15575,14 +15575,15 @@ cd /tmp/webwallgl-2.1.0-src && pnpm install --frozen-lockfile && pnpm build
 | 上游 `dist/` | 本仓 | 字节 / sha256 |
 |---|---|---|
 | 渲染器入口页 | `demo/renderer/index.html` | 1,732 B（改写后） |
-| 上游 dist 的渲染器 JS（本次 renderer-n-Rw_ZVc.js） | `demo/assets/renderer-n-Rw_ZVc.js` | **1,067,707 B** / `167d87f8a2239d5d82db2aae7d9ebe9952a947cc2e88f8aa4ac3a4654a1308e1` |
+| 上游 dist 的渲染器 JS（本次构建名 renderer-n-Rw_ZVc.js，写在左列） | `demo/assets/renderer-*.js` —— **P-350 已按用户口径移出仓库**（当时的落点就是那个构建名） | **1,067,707 B** / `167d87f8a2239d5d82db2aae7d9ebe9952a947cc2e88f8aa4ac3a4654a1308e1` |
 | 上游 dist 的 modulepreload-polyfill（同名同尺寸） | ——（不覆盖，保持本仓等价实现） | 711 B |
 | 旧 `demo/assets/renderer-*.js`（旧 2.0.2 产物，已删） | 删除（页面不再引用；D12 断言"有且仅有一份 `renderer-*.js`"） | —— |
 
 ### 判据与读数
 - 渲染器页与 2.0.2 版本**逐行只差** title 与资源路径（`diff` 已核）⇒ 切换面无结构性改动。
 - 契约核对（产物内 grep）：`mediaBase`(8)/`loadSceneFile`(1)/`getQuality`(1) 均在，错误串 `场景壁纸缺少 mediaBase/src` **仍在** ⇒ URL 模式依然要求 `mediaBase` + `src` 同时给（见 P-228c）。
-- 服务端实测：`/wallpaper-engine-webgl/assets/renderer-n-Rw_ZVc.js` = **200 / 1,067,707 B**，旧包 404，页面标题与 `demo/assets/renderer-n-Rw_ZVc.js` 引用均正确。
+- 服务端实测（**当时**）：`/wallpaper-engine-webgl/assets/renderer-n-Rw_ZVc.js` = **200 / 1,067,707 B**，旧包 404，页面标题与 `demo/assets/renderer-*.js` 引用均正确。
+  ⚠ **P-350 起那份产物已移出仓库**：同一路径现在 **404**（判据 `tests/renderer-adapter-test.mjs` E6）。本行读数保留为**当时的证据**，不是对「现存文件」的声明。
 - `tests/demo-check.mjs`（D12 产物唯一性）、`tests/bench-renderer-source-test.mjs`、`tests/bench-shell-fixes-test.mjs` 全绿（见提交说明）。
 
 ### 未验证边界
@@ -16364,7 +16365,7 @@ p50 **252.5** / mean 219.6；同相位上游产物档是 p50 176 / mean 163.1。
 
 ### 未验证边界（①已定案，见报告 2l.5）
 ① **已定案**：只画光轴层的受控对照里 ×1 档那 1.3–1.6× "几何差"**不是缺陷** —— 上游产物档对 WE **内置资产**
-用的是**程序化替身**（`demo/assets/renderer-n-Rw_ZVc.js` 里 `"particle/light/light_shafts_0":()=>ws(0)`，
+用的是**程序化替身**（上游产物 `demo/assets/renderer-*.js`（P-350 已移出）里 `"particle/light/light_shafts_0":()=>ws(0)`，
 `ws()` 由小控制网格双线性插值 + 幂曲线现算一张 `rgb=alpha=灰度` 的软斑贴图），而我们读的是用户本机 WE 安装里的
 **真 `.tex`**（5 处副本 sha256 一致、256×512 RG88、形状在 G 通道）⇒ 两档"软斑 vs 条纹"内容不同。
 **推论**：凡用到内置资产（`particle/*`、`util/*`、`masks/*`）的层，"与上游产物档对拍像素"都不成立；报告 2k.2/2k.5
@@ -18042,4 +18043,192 @@ P15/P17 绝不写空 img.src · 受损档的反推自愈可落地
 - ⚠ **不建议**连这三处一起退（各自独立、都修了真缺陷）：探测门控（P-346 目标②）、`img.src=""→_mpwbust`、自愈迟到裁决的反推。
 - **前修已可用**：修复后用户当前那份受损存档**一次刷新即自愈**（实测 `healed:1`），无需手动重选壁纸；M1 变异证明退回 P-346 写法必红。
 - **诚实边界** ✗：① 用户浏览器里那份 localStorage 未能直接取证（用宿主真实快照 + 用户描述流程重建，形状已实测吻合）；② 真机"故障发生前"的完整时序（导入→转码→暂停→刷新）未逐帧复跑，判据用"先身份后 image"的最短等价序列覆盖；③ 本机无 WebGL ⇒ "画面恢复正常"的肉眼观感建议用户确认一次（读数层面已证：token 200/206、层可见、`img.src` 非空）。
+
+---
+
+## P-349（2026-10-13 · `demo.html`）③ 一个壁纸里**所有**时钟/日期控件的坐标 —— 剩余根因 = **可见性没有级联**
+
+**来源** ✓：用户第 3 条原话「时钟组件的显示坐标现在还是有问题 你当时好像只修了**一个**，但是一个壁纸中可能有不止一个时钟的组件 ⇒ 把所有时钟组件的坐标位置都要对上」；
+诊断与逐控件表见 `<工作区>/docs/reports/CLOCK-COORDS-ALL.md`。
+
+**靶子（自动筛，"含 ≥2 个时间/日期控件"的真包）** ✓：用户实时库 `allwallpaper/1004/夜莺night——blue_archive_小鸟游星野_窗畔弦歌.mpkg`
+—— 按**脚本**搜（`text.script` 含 `new Date`/`getHours`/…）⇒ **63 个**时间/日期控件对象（Clock×6 / Date×11 / D a y×17 / 早中晚×2 / 帧率显示×2）。
+
+**坐标那一半已经是对的** ✓（P-340/P-341 落地后）：**逐个**断言 56 个"作者声明 `p × engine.canvasSize`"形态的控件，
+实际落点 == **作者声明**（`p × 场景尺寸` 经父链合成）**±0.5px**，**56/56 通过**（不是只看第一个）。
+⚠ 一个易错点（第一版判据就踩了，读数差 **1671px**）：`{user:"x1", value:0.5}` 要取**属性表**的值
+（本包 `x1=-0.29` / `y2=-0.376`），`value:0.5` 只是作者占位 ⇒ 判据必须按属性表解析。
+
+**剩余根因（本轮修的就是它）** ✗：**可见性没有级联**。`visible:{user:{condition,name}}` 在语料里写在**容器**上
+（本包 `508「组件镜像」` 要 `=="2"`、`4995「组件」` 要 `=="1"`、`2856「横Date」` 要 `day1==1`、`573/4881「横Day」` 要 `week1==1`），
+而 `parseScene` 只解析**本层**、`renderScene` 的绘制门只读 `layer.visible`（`core/we-scene-bundle.js:15946`）
+⇒ **隐藏容器下的子层照旧渲染**。默认属性（`hrbigbgeneralcomponentswitch="1"`/`day1="2"`/`week1="2"`）下
+**13 个**时间控件同时可见（正确应 **4 个**），其中 `508` 那枝的 `483` 还是 `scale = -1 1 1`（**镜像**）
+⇒ 同一个时钟在**两个位置**各画一份 ⇒ 用户观感"不止一个时钟、坐标还是不对" ✓。
+
+**改法（只在 `demo.html` 的脚本坐标相关区域 ✓；`core/**` 本轮被其它任务独占 ✗）**：
+· 新增 `mpwCascadeVisibility(scene)`：`__ownVisible` = 本层自己的可见性（面板/脚本/类别门控等**外部写入**会被
+  自愈地认作新值）⇒ 有效可见性 = 自己 ∧ 全部祖先 ⇒ 折进 `l.visible`（`renderScene` 一行不用改，层列表/DIAG 读数一致）；
+· 帧循环接线：放在**脚本同步（30Hz 写回 `visible`）/属性动画推进之后**、文本纹理与 `renderer.render` **之前**；
+· 回退位 ✓ `?viscascade=legacy`（逐位回改动前：不做级联，隐藏容器的子层照旧画），已登记 `docs/README-DIAGNOSTICS.md` 主表；
+· 读数：首帧一行日志 `① 可见性级联：本帧改判 N 层…`，每层 `__ownVisible` / `__effVisible` 可查。
+
+**判据** ✓ `tests/clock-coords-all-test.mjs`（新）——**改动前 10 通过 / 5 失败 → 改动后 15 通过 / 0 失败**：
+P1 逐个控件 == 解析期 oracle（63/63）· **P1b 逐个控件 == 作者声明**（56/56）· P2 可见控件都在设计画布内 ·
+**V1 级联后可见的时间控件 == 手算的 4 个**（`[260,272,531,1293]`）· V2 反向（无级联 = 13 个）·
+V3 帧循环接线 · V4 回退位**行为化**（切片执行：返回 0、可见 13）· P3 反向旧档必红 ·
+**5 组变异自证**（M1"只修第一个控件" / M2 `csz=render` / M3 `scrorigin=legacy` / M5 关级联 ⇒ 全红；M4 现役必绿）
+⇒ 打印「期望红集 == 实际红集」✓。
+
+**为什么修在 demo 而不是 core**（如实）：`core/we-scene-bundle.js` 本轮被占用 ✗；渲染效果的落点读 `l.visible`，
+在 demo 侧折进去即等效 ✓。**建议（未验）**：把级联下沉到 `parseScene`（单一真源），让 core 的所有消费者都拿到有效可见性。
+
+**相关判据回归**（本轮只跑这些，未跑 `check.sh` ✗）：`text-layout` 29/29 · `text-font-fallback` 108/0 ·
+`script-origin-recompose` 7/0 · `script-origin-sync` 39/0 · `script-api-minimal-set` 13/0 · `script-frametime-cap` ✓ ·
+`camera-script-origin` 14/0 · `canvas-fit-and-csz` 18/0 · `canvas-size` 15/0 —— **全 exit 0** ✓。
+
+**诚实边界** ✗：**未见真机帧**（读数 = 真包解析 + 脚本引擎 + 几何合成）；`__ownVisible` 的"外部写入自愈"只在切片级验证过，
+真机连续切包/改属性下的行为**未验**；`?viscascade=legacy` 的真机观感（13 个控件）**未验**。
+
+
+## P-350（2026-10-16 · 渲染器仓库）**把上游渲染器移出仓库**，改为通用「渲染器适配器」契约（本仓实现它，上游/第三方走**外部**来源接入）
+
+### 0. 用户口径（原话）
+> 「把渲染器仓库中的上游渲染器**移除**，然后留一个**可扩展的接口**，可以接入其他渲染器（**包括上游的**）」
+
+经核对，被移除的对象 = ⭐ **仓库内那份上游渲染器构建产物**（`demo/assets/renderer-*.js`；本次那份的构建名是 renderer-n-Rw_ZVc.js，1,067,707 B）；
+接口程度 = ⭐ **通用适配器契约 + 本仓渲染器实现它**，上游/第三方通过**外部**来源（本地路径 / URL / 包名）接入，**不要求仓库内置**。
+
+### 1. 删了什么（唯一一个文件）+ 恢复途径
+| 落点 | 大小 / sha256 | 证据 |
+|---|---|---|
+| `demo/assets/renderer-*.js`（本次构建名 renderer-n-Rw_ZVc.js） | **1,067,707 B** / `167d87f8a2239d5d82db2aae7d9ebe9952a947cc2e88f8aa4ac3a4654a1308e1` | P-228b 逐行登记为「上游 dist 的渲染器 JS」；唯一引用者是 `demo/renderer/index.html` |
+
+**恢复途径（三条，任一即可）**：
+1. `cp -a /tmp/mpw-remove-upstream-renderer-backup/demo/assets/renderer-n-Rw_ZVc.js demo/assets/`（本轮删前备份，sha256 已对上）；
+2. 工作区级 `staging/upstream-2.1.0/assets/renderer-n-Rw_ZVc.js`（**不随仓库分发**，逐字节同源）；
+3. 按 P-228b 的配方重建：`git clone --depth 1 --branch 2.1.0 https://github.com/oneincase/webwallgl.git` + `pnpm install && pnpm build` ⇒ 取 `dist/assets/renderer-*.js`。
+⚠ **没有删署名**：`demo/LICENSE-webwallgl`、`demo/LICENSE-webwallgl-MIT.txt` 与 `THIRD-PARTY.md` §6 原文一字未动（判据在 `tests/demo-check.mjs` D12 ③ 与 `tests/renderer-adapter-test.mjs` D7）。
+另外**保留**了测试台自己的那一层：`demo/index.html` + `demo/assets/bench-*.js|css` + `modulepreload-polyfill-*.js`（= `:8902` 的 `/` 本体，另有任务在用）。
+`demo/now-playing/node_modules/`（64 MB，未入 git）**不在本次范围**（用户/Lead 裁定不动）。
+
+### 2. 接口：`core/renderer-adapter.mjs`（新，零依赖纯模块）
+- **契约** `mpw-renderer-adapter@1`：适配器描述子 `id / contract / label / kind / capabilities / probe(ctx) / create(options)`；
+  实例七件套 `init(容器,选项) / loadScene(来源) / frame(t) / pointer(x,y) / resize(w,h) / visibility(visible) / dispose()`。
+- **能力声明** 12 键（`scenePkg/mpkg/webWallpaper/videoWallpaper/liveCanvasSize/layerHide/pointerPush/audioBands/packageAudio/propertyPanel/transparentContext/selfDrivenFrame`），
+  取值 `true|false|'degraded'|'unknown'`；**没声明就补 `unknown`**（绝不补 `false` —— 那会把"没声明"读成"做不到"）。
+- **注册表**：可注册多个；**重复 id / 残缺适配器 ⇒ 抛错**（不静默覆盖）；`defaultRendererRegistry` 加载期就预置两档
+  （踩过的坑：不预置时 `GET /api/renderers` 回 `adapters: []` 的空壳 —— 看着在跑、其实一档都没有）。
+- **选择开关**：`?renderer=` / 宿主 config / 环境变量三级；`auto` 定档规则见 §3。
+- **两档内置**：`repo`（本仓渲染器，仓内自带）+ `upstream-external`（**外部**来源，没配就 `available:false`）。
+- **生命周期驱动器**：顺序留痕（`init>loadScene>frame…>事件…>dispose`）、越序明确报错、`dispose` 一定被调（`finally`）、
+  **probe 不过 ⇒ 一次都不 create**（这就是"明确 SKIP"的机制保证）。
+- **窄桥** `repoTargetUrl()`：只做"产物页形状 → 本仓渲染器页形状"的 `src→id` 补齐（**只增不删**，P-228c 的往返教训）；
+  测试台那条完整改写链（`demo/bench-patch.js: rendererSourceUrl`，含 res/shell/parallax/audio 档位）**仍是测试台自己的真源，本模块不复制**。
+
+### 3. 页面与「上游档」的语义（**不许静默降级**）
+- `demo/renderer/index.html` 从"上游产物入口页"改造成**适配器装载页**（只引用同目录的 demo/renderer/adapter-boot.mjs）；
+  驱动器 demo/renderer/adapter-boot.mjs：`repo` ⇒ 容器内装载（iframe，走完整七件套）；`upstream-external` ⇒ 导航过去（与移除前逐字同义）；
+  挑不出来 ⇒ **SKIP 面板**（写明原因 + `?rendererSrc=` / `MPW_RENDERER_UPSTREAM` 配置指引 + 一键切本仓档）。
+- `auto` 定档：① 显式 `?renderer=` 优先；② 配了外部来源 ⇒ 外部档；③ **被宿主嵌入**（测试台工具条的「上游产物」档点名要的就是上游）⇒ **明确 SKIP，绝不偷偷回落本仓档**；
+  ④ 顶层直接打开 ⇒ 缺省本仓档。
+- 驱动器**不替渲染器发布** `__mpwHostApiReady` / `__wp` / `__mpwResTier`：那是渲染器的握手面，替它发 = 对宿主撒谎。
+- `server/we-scene-demo-server-8902.mjs`：新增 `GET /api/renderers`（**只枚举**：契约版本 + 各档能力/可用性 + 当前选择 + `upstreamInRepo:false`）。
+
+### 4. 判据与读数（本轮实跑）
+| 判据 | 读数 |
+|---|---|
+| **新** `tests/renderer-adapter-test.mjs` | **PASS=96 / FAIL=0 / SKIP=1**（带浏览器；纯 Node `MPW_ADAPTER_SKIP_BROWSER=1` ⇒ 91/0/1。A 契约 + B 选择开关 + C 生命周期（含 `keepAlive` 两面）+ D 反向 + E 端到端 + **G 真机**） |
+| 同上 **G 段（真浏览器，本轮实测）** | `G1` 上游档缺产物 ⇒ `state=skip` + reason=`external-source-not-configured` + **0 个渲染帧** · `G2` SKIP 面板**可见**且含配置指引 · `G3` 本仓档 ⇒ `action=mount` + **1 个适配器帧**，src=`…/webloader/?renderer=repo&type=scene&src=1&id=1&shell=0` · `G4`/`G4b` 本机无 WebGL2 ⇒ **如实 SKIP**（并断言「无 GL 也不崩」）· `G5` **0 个未捕获脚本错** |
+| 同上 **E7** | `/api/renderers` 在常驻 `:8902` 上 SKIP（那个进程早于本批改动、按纪律不许重启）⇒ 改用另起的 `:8931` 验证：`adapters:[repo:true, upstream-external:false]`、缺省 `selection=repo/mount`、配外部 ⇒ `navigate`、`?renderer=upstream&embed=1` ⇒ `skip/external-source-not-configured` |
+| 同上 **F 变异自证（5 组）** | 全部「**期望红集 == 实际红集**」：M1 嵌入档偷偷回落 `[B3a B3b B3c B3d]` · M2 外部未配却说可用 `[B2a B2b B2c B3a B3b B3c B3d C4a C4b]` · M3 去掉 dispose `[C1a C1b C1c C2b C7b]` · M4 窄桥不补 id `[B8a B8b B8c B8e]` · M5 转发本层控制参数 `[B4b]` |
+| `tests/demo-check.mjs` D12 ③ | **换契约（更强）**：旧「有且仅有一份 renderer-*.js」→ 新「**全树 0 份**」；旧「产物含 `data-webwallgl-gl`」→ 新「适配器契约在位 + 缺产物明确 SKIP」；并带**反向自证**（隔离副本塞回假产物 ⇒ 期望红集 `[A]` == 实际红集）。`demo-check` 由 131/2 → **136 通过 / 0 失败** |
+| `tests/bench-shell-fixes-test.mjs` E2a–E2c | 产物不在 ⇒ 该组**明确 SKIP**（保留 E1/E2d/E2e 纯函数面）⇒ **295 PASS / 0 FAIL**；⚠ 同时修掉「缺产物就崩」的判据缺陷：**先判存在性再 `path.join`** + 断言「E2 组只有两种合法出口」+ **反向守卫**（门两个方向都断言） |
+| `tests/upstream-direct-mount-test.mjs` | 整篇主题是「直挂上游产物」⇒ 产物不在时**首行打印 `SKIP upstream-direct-mount`**（runner 通用口径记 SKIP）；SKIP 之后跑**反向守卫**：产物塞回 ⇒ 门开 · 配外部上游 ⇒ 门开 · 两者都无 ⇒ 门关 **且**用契约断言「上游档确实不可用」 |
+| `tests/bench-upstream-handoff-test.mjs` | A/B 纯函数段 + 变异自证照跑（**9/0**）；**C 真机段**在「无产物且无外部上游」时明确 SKIP，并带 `C0` **反向守卫**（配了外部上游 ⇒ 该段必须**真跑**） |
+| `tests/bench-renderer-source-test.mjs` | D3 **按语义拆开**：D3a 本仓档画布口径照跑、D3b 上游对照在无对象时 SKIP；D5 同理；另有 `A0` **反向守卫**（配外部上游 ⇒ 对照段必须真跑） |
+| `tests/docs-check.mjs` | ✓ 文档一致性全部通过（**没有加任何豁免**：把 PATCHES.md 里 3 处**具体文件名**的历史引用改写成 `renderer-*.js` + 标注「P-350 已移出」，历史事实一字未删） |
+| `tests/publish-check.mjs` | ✓ 无阻塞项（新文件无本机绝对路径） |
+| `tests/demo-syntax-check.mjs` | ✓ 12/12（`demo.html` + `demo/index.html` 内联脚本） |
+| 服务端实测（`:8902`，**未重启**） | `/core/renderer-adapter.mjs` 200 `text/javascript` · `/wallpaper-engine-webgl/renderer/index.html` 200（新页 3,014 B）· 旧产物路径 **404** · `/webloader/` 200（本仓渲染器页 675,691 B，含 `__mpwResTier`/`__mpwHostApiReady`）· `/bundle.js` 200（1,277,277 B） |
+
+### 5. 未验证边界（诚实清单）
+1. **浏览器层** `?renderer=repo` 的真首帧（`data-mpw-adapter-state="ready"`）只在**有 WebGL2** 的环境才可判；本机无头 Firefox 建不了 GL ⇒ 该段（判据 G）如实 SKIP，不谎报。**未验**。
+2. `GET /api/renderers` 在**常驻 `:8902`** 上要等那次服务按流程重启才生效（本轮用另起的 `:8931` 验证过同一份代码）。**未验**（在 `:8902` 上）。
+2b. **真·出画**（`G4b`：帧内 `__mpwLiveRes` 或画布非 300×150）本机无 WebGL2 ⇒ 如实 SKIP；⚠ 装载器的就绪信号因此**改名**为 `data-mpw-adapter-handshake`（**握手面 ≠ 出画**：本轮实测无 GL 的机器上 `state=ready` 也会出现）。**未验**。
+3. `core/renderer-adapter.mjs` **没有**加进 `package.json.files`（发布面按纪律不得改动）⇒ npm 消费者拿到的是**不含**适配器契约的包面；要么后续单独发布，要么把契约并入 `core/we-scene.mjs`。**待裁定**。
+4. P-160 的 WE 网页壁纸 shim 现在**只在配了外部上游来源时**才抽得到（`shimFromRendererSource` 要从产物文本里取）⇒ 没有外部上游时 web 壁纸那条路按既有语义如实降级（`no-renderer-script` / `shim-not-in-asset`），**未验**真机观感。
+5. `tests/bench-ui-headless-test.mjs` 的 T1–T5 / W1–W6 显式切「上游产物」档 ⇒ 同一条链会红；该文件当时被另一任务占用，**本轮未动**（交 Lead 排序）。
+
+## P-352（2026-10-12 · 视差）参考点口径复核 + **两个"死回退位"**修好；官方"深度继承"语义重新从 `.so` 取证
+
+**用户现场**（第 2 条）：「视差效果，现在的显示还是有问题 … **部分图层在跟随视差移动时晃动幅度过大**，
+**和旁边的运动速度不匹配** ⇒ 查一下官方语义」；用户已确认口径 = **按官方统一：参考点也取顶层祖先**。
+
+### 1. 官方语义**重新取证**（不是转述，本轮自己从 APK 反汇编）
+`unzip -p <WS>/Androidapk/壁纸引擎_2.8.8.apk lib/arm64-v8a/libscenejni.so > /tmp/libscenejni.so`（41,866,072 B，
+BuildID `eb8ec3abc383f01c126639873ff8e01e9df208d8`）→ `objdump -d --start-address=0x2557be0 --stop-address=0x2557c90`：
+```
+2557bf4  bl  _ZNK10Renderable9GetParentEv@plt   ; x22 = 本层
+2557c04-14  mov x0,x22; bl GetParent; mov x22,x0; bl GetParent; cbnz ⇒ 循环 ⇒ x22 = 最顶层祖先
+2557c28  ldr d2, [x22, #248]                    ; ← 参考点位置（根）
+2557c2c  fsub v1.2s, v2.2s, v1.2s               ; 根位置 − S
+2557c30  ldr d2, [x22, #320]                    ; ← parallaxDepth（**同一个 x22**）
+2557c34  fmul v1.2s, v1.2s, v0.s[0]             ; × cameraparallaxamount
+2557c38  fmul v1.2s, v2.2s, v1.2s               ; ∘ depth
+2557c78  str d1, [x21, #328]                    ; = 本层视差位移
+```
+⇒ **参考点与 depth 同取顶层祖先**（P-309 实现正确 ✓）；**指令流里没有"子层自己写了就用子层"的分支**
+（`2557c24 tbnz w8,#9` 那一支是 `SceneFlags&0x200` 的 JNI 归一化偏移模式，与 depth 无关）。
+⚠ **证据不足项（如实登记）**：根对象的 `parallaxDepth` **槽在 JSON 里缺席**时引擎用什么默认值
+—— 本机产物里取不到（`Scene::InitProps` 只注册槽位描述符 `{1,320}`；官方 44 个 preview 场景 42/44 显式写
+`"1.000 1.000"`，**不可区分**默认值）。本仓的"根无 depth ⇒ 回落本层"是**防御支**，非官方语义（用户那张包 **0 层**命中）。
+
+### 2. 两个**真 bug**（"回退位是死的"；P-309 落地时写坏，躲在一条**放空的判据**后面）
+- `__parPosLegacy` 的三元**错位**（挂在 IIFE 返回值上、else 支误接 `PARALLAX_OFF_LEGACY`）
+  ⇒ `?parpos=legacy` **从来没生效**；反过来 **`?paroff=legacy` 会悄悄把参考点退回本层**（一个开关动两条链）。
+- `__parOffLegacy = (opts.parallaxOffLegacy !== undefined)` 取的是"**传没传**"而不是**值**
+  ⇒ `parallaxOffLegacy:false` 反而**打开**旧门控；而 `?paroff=legacy` 从没进过它本该管的门控。
+**修法** ✓：新增模块级 `PARALLAX_POS_LEGACY`（`?parpos=legacy`，与 `PARALLAX_SPACE_LEGACY`/`PARALLAX_OFF_LEGACY` 同形），
+三行同形 = 显式 `opts.*` 优先、否则各自读自己的 URL 档；新增 `opts.parallaxPosLegacy` 供同进程切两态。
+缺省（都没给）**逐位不变** —— 判据 `REF-ROOT-DEFAULT` 与 `official-parallax-formula` 37/0 ✓ 均为证。
+
+**改前 → 改后（同一夹具，静态参考项手算可核）**：
+
+| 触发方式 | 改前 R / C (px) | 改后 R / C (px) | 期望 |
+|---|---|---|---|
+| 缺省 | −1232.0 / +1168.0 | −1232.0 / +1168.0 | 根参考 ✓ |
+| `?parpos=legacy` | −1232.0 / **+1168.0** ✗ | −1232.0 / **+1408.0** ✓ | 本层参考 |
+| `?paroff=legacy` | −1232.0 / **+1408.0** ✗ | −1232.0 / **+1168.0** ✓ | 不动参考点 |
+| `parallaxOff:true`+`parallaxOffLegacy:**false**` | −1232.0 / +1168.0 ✗ | −1120.0 / +1280.0 ✓ | 等于"没传" |
+
+### 3. **参考点改不动"幅度/速度"**（对用户现象的关键读数）
+官方 `offset = (rootPos − S) ∘ depth × amount` 里只有 `S` 随时间变；`rootPos`（参考点）是**常量**
+⇒ 换参考点只能改**静态位置**。实测（真包 `妃咲`，240 帧/采样点收敛后）：
+根参考 vs 本层参考的**逐层峰峰值最大差 = 0.0003px**（26 层），而 `pp_x = Δcursor·W·min(infl,1)·amount·|depth|`
+= **119.04px × |depth|**（严格正比，根/子层同值）⇒ 参考点与幅度**正交**。P-309 的静态改动则**可观测**：
+12/26 层静态位置变化、最大 **169.4px**（层「前纸堆 开」）。
+
+### 4. 判据 ✓
+- **新** `tests/parallax-root-ref-test.mjs`（行为级，纯 Node + mock-GL）⇒ **17 通过 / 0 失败 / 0 SKIP**；
+  **4 组变异自证全部 `MUTANT-RED-OK`**（M1 撤销 P-309 / M2 把错位三元装回去 / M3 恢复"传没传"判据 /
+  M4 把本层口径当默认）；另有**改前构建 A/B**：同一判据在改前构建上 **10 红**（含 4 条回退位断言）。
+- **升级** `tests/parallax-root-position-test.mjs`（**堵住那条放空的判据** ✗）：删掉
+  `ok('?parpos=legacy 回退支存在', /parPosLegacy|parposLegacy/.test(src))`（"名字存在"算不得证据），
+  换成 **①** 三条 legacy 档同形的反回归结构断言 + **②** 子进程真跑行为判据（要求退出码 0、五条口径断言
+  **真的出现且为真**、变异自证 ≥3 组 `MUTANT-RED-OK`）⇒ **11 通过 / 0 失败**；改前构建上 **7 红**。
+- 门禁登记 ✓：`tests/run-all-tests.sh` 加 `add "parallax-root-ref" …`；`docs/README-DIAGNOSTICS.md` 的
+  `parpos` 行补上 P-352 的说明（**没有新增开关** ⇒ `diag-flag-check` 计数不变）。
+
+### 5. 用户报的"幅度过大/速度不匹配"：**参考点不是原因**（数据已交回 Lead 与用户核对）
+三项待用户口径的候选（**本轮一行代码都没改** ✗，见 `<工作区>/docs/reports/PARALLAX-ROOT-REFERENCE.md`）：
+**(a)** 深度继承口径（作者在 `帧率显示` 写 `0 0`、`Clock`/`Date` 写 `−0.7`，却按 RE-24 被根的 `−1` 覆盖）；
+**(b)** y 轴镜像（重新取证：官方**只翻 x** 且是**条件**翻转 `fcsel … eq`（flag 清零时取**未镜像**值）⇒ 本仓 x/y 与官方**同号**，
+y 不反、幅值逐位吻合）；**(c)** 面板级开关（`:8902` 预览 URL 不带 `?parallax=`）—— 已在前批 P-338 报告点名。
+
+### 6. 诚实边界
+- **未取真机帧** ✗：全部读数来自 mock-GL + 官方 `.so` 反汇编 + 手算；用户在 `:8902` 的实际观感**未验**。
+- `impl[248] & 0x800`（x 镜像条件）的**写入点**在本机产物里仍未定位 ⇒ 该 flag 何时置位**未验**。
+- 引擎"`parallaxDepth` 槽缺席时的默认值"**证据不足**（见 §1）。
+
 

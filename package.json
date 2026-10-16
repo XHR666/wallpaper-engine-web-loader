@@ -46,6 +46,7 @@
     "core/we-particle-pointer.mjs",
     "core/we-animation.mjs",
     "core/web-precheck.mjs",
+    "core/renderer-adapter.mjs",
     "server/we-scene-demo-server.mjs",
     "server/we-scene-demo-server-8902.mjs",
     "server/pack-dir.mjs",

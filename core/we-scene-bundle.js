@@ -9870,6 +9870,18 @@ const PARALLAX_OFF_LEGACY = (() => {
     return /[?&]paroff=legacy/.test(location.search)
   } catch { return false }
 })()
+/* ①(P-348 2026-10-12) **参考点**回退位（`?parpos=legacy`）：对象级视差位移里的**参考点**从"顶层祖先位置"
+   退回"本层位置"（= P-309 之前的旧口径）。与上面 `PARALLAX_SPACE_LEGACY` / `PARALLAX_OFF_LEGACY` **同形**。
+   为什么现在才补这个常量：P-309 落地时 `__parPosLegacy` 的三元写**错位**了（三元挂在了 IIFE 的返回值上、
+   且 else 支误接 `PARALLAX_OFF_LEGACY`）⇒ `?parpos=legacy` 从来没生效，反而让 `?paroff=legacy`
+   悄悄把参考点退回本层。逐条读数见 `tests/parallax-root-ref-test.mjs`（行为级）与
+   `<工作区>/docs/reports/PARALLAX-ROOT-REFERENCE.md`。 */
+const PARALLAX_POS_LEGACY = (() => {
+  try {
+    if (typeof location === 'undefined' || !location.search) return false
+    return /[?&]parpos=legacy/.test(location.search)
+  } catch { return false }
+})()
 
 // ①(RE-37) 粒子透视相机开关（?pp=0 退回正交，便于 A/B 对照）
 const PP_DISABLED = (() => {
@@ -14397,9 +14409,19 @@ export function createRenderer(canvas, opts = {}) {
     //        测试可用 opts.parallaxSpaceLegacy / opts.parallaxOffLegacy 在同进程内切两态。
     const __parSpaceLegacy = (opts.parallaxSpaceLegacy !== undefined)
       ? !!opts.parallaxSpaceLegacy : PARALLAX_SPACE_LEGACY
+    /* ①(P-348 2026-10-12) 这两行此前是**坏的**（"回退位是死的"那一类，逐条读数见
+       `tests/parallax-root-ref-test.mjs`）：
+         · `__parOffLegacy` 取的是 **"传没传"**（`opts.parallaxOffLegacy !== undefined`）而不是**值**
+           ⇒ `parallaxOffLegacy:false` 反而**打开**旧门控；而它本该读的 `PARALLAX_OFF_LEGACY`（`?paroff=legacy`）
+           一次都没被用过。
+         · `__parPosLegacy` 的三元**错位**了：挂在 IIFE 的返回值上、且 else 支误接 `PARALLAX_OFF_LEGACY`
+           ⇒ `?parpos=legacy` **从来不起作用**；反过来 **`?paroff=legacy` 会悄悄把参考点退回本层**
+           （实测：子层 C 由 +1168.0px 变 +1408.0px）—— 一个开关动了两条链，A/B 读数会骗人。
+       现在三行同形：显式 `opts.*` 优先，否则各自读自己的 `?…=legacy`。缺省（都没给）逐位不变。 */
     const __parOffLegacy = (opts.parallaxOffLegacy !== undefined)
-    const __parPosLegacy = (() => { try { return new URLSearchParams(location.search).get('parpos') === 'legacy' } catch (e) { return false } })()
       ? !!opts.parallaxOffLegacy : PARALLAX_OFF_LEGACY
+    const __parPosLegacy = (opts.parallaxPosLegacy !== undefined)
+      ? !!opts.parallaxPosLegacy : PARALLAX_POS_LEGACY
     let parOffX = 0, parOffY = 0
     if (parEnabled && (opts.parallaxOff !== true || __parOffLegacy)) {
       // ①(RE-24 官方 #3 2026-09-24) `parallaxDepth` 取**最顶层祖先**的，不是本层的（子层完全继承顶层）。

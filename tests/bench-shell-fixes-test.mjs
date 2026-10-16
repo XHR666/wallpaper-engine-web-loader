@@ -170,6 +170,9 @@ console.log('== A 纯函数层 ==')
     'A40 ①调用点只在 `act.push` 时才推坐标（源码级钉子）')
 }
 
+/** E2 组的出口判据。**函数化**是为了让"反向守卫"能对两个方向各断言一次（门不许恒开/恒关）。 */
+function e2ArtifactGate(rendererFile) { return rendererFile ? 'ran' : 'skip' }
+
 // ══════════════════════════════ E web 壁纸 shim（P-160 纯函数） ══════════════════════════════
 console.log('== E web 壁纸 shim（P-160 纯函数） ==')
 {
@@ -179,17 +182,46 @@ console.log('== E web 壁纸 shim（P-160 纯函数） ==')
     'E1b 反引号 / `\\${` / 反斜杠都还原（shim 里出现它们时不会被截断）')
   eq(P.decodeTemplateLiteral('\\u4e2d\\u6587'), '中文', 'E1c \\uXXXX 还原（shim 注释里全是中文）')
 
-  // E2 从**真产物**里取 shim
+  /* E2 从**真产物**里取 shim —— ①(P-350 2026-10-16) 上游渲染器产物已按用户口径移出仓库
+     （`demo/assets/renderer-*.js` 0 份，判据 `tests/renderer-adapter-test.mjs` D1/D2 钉住）
+     ⇒ 没有"真产物"可抽时这一组**明确 SKIP**（不是红、也不是静默通过）：P-160 的 shim 现在只在
+     **外部上游档**（`?rendererSrc=` / `MPW_RENDERER_UPSTREAM`）下才抽得到 —— 这正是
+     `ensureWebShim()` 里 `no-renderer-script` / `shim-not-in-asset` 两条如实降级的语义。
+     纯函数面（E1a–c / E2d / E2e 与后面的 E3…）不受影响，照跑。 */
+  /* ①(P-350) 出口只有两种：`ran`（产物在 ⇒ 真跑）与 `skip`（产物不在 ⇒ **明确 SKIP**）。
+     ⚠ 缺产物**绝不许崩** —— 旧版直接 `path.join(assetsDir, undefined)` 抛 TypeError 本身就是判据缺陷
+     （"对象不存在"被写成了"产品坏"）。所以：**先判存在性**，再进 `path.join`。 */
   const assetsDir = path.join(ROOT, 'demo/assets')
-  const rendererFile = fs.readdirSync(assetsDir).find((f) => /^renderer-.*\.js$/.test(f))
-  const assetText = fs.readFileSync(path.join(assetsDir, rendererFile), 'utf8')
-  const shim = P.shimFromRendererSource(assetText)
-  ok(!!shim && shim.length > 10000, 'E2a 从真产物取到 shim 源码（>10KB）', `${rendererFile} → ${shim ? shim.length : 0} B`)
-  ok(!!shim && shim.indexOf('__weSetPaused') >= 0 && shim.indexOf('wallpaperPropertyListener') >= 0 &&
-    shim.indexOf('wallpaperRegisterAudioListener') >= 0 && shim.indexOf('__wePushPointer') >= 0,
-    'E2b shim 里父页控制面与 WE 注册面都在（`__weSetPaused` / `wallpaperPropertyListener` / `RegisterAudioListener` / `__wePushPointer`）')
-  ok(!!shim && !/\\n \* WE 网页壁纸/.test(shim) && shim.startsWith('/**\n * WE 网页壁纸兼容 shim'),
-    'E2c 取出来的是**还原后的源码**（不是带 \\n 转义的原始字面量）', JSON.stringify((shim || '').slice(0, 24)))
+  let e2Mode = ''
+  try {
+    const names = fs.existsSync(assetsDir) ? fs.readdirSync(assetsDir) : []
+    const rendererFile = names.find((f) => /^renderer-.*\.js$/.test(f)) || ''
+    e2Mode = e2ArtifactGate(rendererFile)
+    if (e2Mode === 'skip') {
+      console.log('SKIP E2a–E2c（从真产物抽 WE shim）—— 仓库内已不再内置上游渲染器产物；'
+        + '要复跑这一组：把外部上游档接上（`MPW_RENDERER_UPSTREAM=<URL>` / `?rendererSrc=`）后按同一份产物文本喂 `shimFromRendererSource()`，'
+        + '或临时恢复 demo/assets/renderer-*.js（工作区内的 staging/upstream-2.1.0/assets/ 有同一份；见 docs/REMOVALS.md 的恢复途径）')
+    }
+  } catch (e) {
+    e2Mode = 'threw:' + ((e && e.message) || e)
+    console.log('FAIL E2 组（从真产物抽 WE shim）—— 异常：' + e2Mode)
+  }
+  ok(e2Mode === 'ran' || e2Mode === 'skip',
+    'E2 组只有两种合法出口：真跑（产物在）或**明确 SKIP**（产物不在）—— 缺产物绝不许崩',
+    'mode=' + e2Mode)
+  ok(e2ArtifactGate('renderer-FAKE123.js') === 'ran' && e2ArtifactGate('') === 'skip',
+    'E2 反向守卫：产物名在 ⇒ 门开（真跑）；不在 ⇒ 门关（明确 SKIP）—— 门不许恒开、也不许恒关')
+  if (e2Mode === 'ran') {
+    const rendererFile = fs.readdirSync(assetsDir).find((f) => /^renderer-.*\.js$/.test(f))
+    const assetText = fs.readFileSync(path.join(assetsDir, rendererFile), 'utf8')
+    const shim = P.shimFromRendererSource(assetText)
+    ok(!!shim && shim.length > 10000, 'E2a 从真产物取到 shim 源码（>10KB）', `${rendererFile} → ${shim ? shim.length : 0} B`)
+    ok(!!shim && shim.indexOf('__weSetPaused') >= 0 && shim.indexOf('wallpaperPropertyListener') >= 0 &&
+      shim.indexOf('wallpaperRegisterAudioListener') >= 0 && shim.indexOf('__wePushPointer') >= 0,
+      'E2b shim 里父页控制面与 WE 注册面都在（`__weSetPaused` / `wallpaperPropertyListener` / `RegisterAudioListener` / `__wePushPointer`）')
+    ok(!!shim && !/\\n \* WE 网页壁纸/.test(shim) && shim.startsWith('/**\n * WE 网页壁纸兼容 shim'),
+      'E2c 取出来的是**还原后的源码**（不是带 \\n 转义的原始字面量）', JSON.stringify((shim || '').slice(0, 24)))
+  }
   ok(P.shimFromRendererSource('nothing here') === null &&
     P.shimFromRendererSource('<html>// WE 网页壁纸兼容 shim（注入到 iframe') === null,
     'E2d 取不到 / 取到的东西不满足契约 ⇒ 返回 null（调用方据此"如实报做不到"，不注入半个 shim）')

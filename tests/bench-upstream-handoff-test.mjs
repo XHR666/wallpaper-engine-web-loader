@@ -80,45 +80,69 @@ try {
 } catch (e) { bad('B 变异体没跑起来', String(e && e.message || e)) }
 
 console.log('── C 真机（缺 GL/测试台 ⇒ SKIP）')
-const { launchGLBrowser, glCapability, closeQuiet, findPlaywright } = await import('./_gl-browser.mjs')
-const { createRequire } = await import('node:module')
-const require_ = createRequire(path.join(ROOT, 'package.json'))
-const pw = require_(findPlaywright()); const firefox = (pw.default && pw.default.firefox) || pw.firefox
-const { browser, launchNote } = await launchGLBrowser(firefox)
-const gl = await glCapability(browser)
-if (!gl.webgl2) { console.log('  ⊘ SKIP 真机段（' + launchNote + '）'); await closeQuiet(browser) } else {
-  const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage()
-  let probeId = null
-  try { const lib = await (await page.request.get(ORIGIN + '/api/library')).json(); probeId = (lib.items || []).find((x) => x.hasScene && /^\d/.test(x.itemId))?.itemId || null } catch { /* 取不到就不跑真机段 */ }
-  if (!probeId) { console.log('  ⊘ SKIP 真机段（/api/library 取不到 scene 项）'); await closeQuiet(browser) } else {
-    const pkgHits = []
-    page.on('response', (r) => { const u = r.url(); if (/\/media\/dev\/[^/]+\/(scene\.pkg|project\.json)$/.test(u)) pkgHits.push(r.status() + ' ' + u.replace(ORIGIN, '')) })
-    await page.goto(ORIGIN + '/', { waitUntil: 'domcontentloaded', timeout: 60000 })
-    await page.waitForTimeout(3000)
-    // C1 真实改写链：上游档下把一条本仓 URL 写进 iframe.src，读回必须是带 mediaBase 的产物 URL
-    const rewritten = await page.evaluate(({ search }) => {
-      const sel = document.getElementById('renderer-src')
-      if (sel) { sel.value = 'upstream'; sel.dispatchEvent(new Event('change', { bubbles: true })) }
-      const f = document.createElement('iframe')
-      f.src = '/webloader/?' + search + '&id=2887099508&res=dpr&shell=0'
-      return { src: f.getAttribute('src'), mode: sel ? sel.value : null }
-    }, { search: SEARCH })
-    ok('C1 页面内改写链：本仓 URL → 产物 URL 且带 mediaBase', rewritten.mode === 'upstream' && /[?&]mediaBase=/.test(rewritten.src), String(rewritten.src).slice(0, 120))
-    // C2 端到端：直挂上游档（mediaBase + src）⇒ 出现画布 + 真的 200 取到 scene.pkg / project.json
-    const frameSrc = `${ORIGIN}/wallpaper-engine-webgl/renderer/index.html?type=scene&src=${encodeURIComponent(probeId)}&mediaBase=${encodeURIComponent(ORIGIN + '/media/dev')}&fit=cover&renderDpr=1&sceneFps=60&filter=none&muted=true&loop=true`
-    await page.evaluate((src) => { const f = document.querySelector('iframe'); if (f) f.src = src }, frameSrc)
-    await page.waitForTimeout(9000)
-    const st = await page.evaluate(() => {
-      const f = [...document.querySelectorAll('iframe')].find((x) => /renderer\/index\.html/.test(x.getAttribute('src') || '')) || document.querySelector('iframe')
-      let canvases = []
-      try { canvases = f && f.contentWindow ? [...f.contentWindow.document.querySelectorAll('canvas')].map((c) => c.width + 'x' + c.height) : [] } catch { /* 跨源 */ }
-      return { src: f ? f.getAttribute('src') : null, canvases }
-    })
-    ok('C2a 上游档 iframe 出现画布（非 300×150 空画布）', st.canvases.some((s) => !/^300x150$/.test(s)), JSON.stringify(st.canvases))
-    ok('C2b 真的取到了该包的 scene.pkg 与 project.json（HTTP 200）',
-      pkgHits.some((h) => h.startsWith('200') && h.endsWith('/scene.pkg')) && pkgHits.some((h) => h.startsWith('200') && h.endsWith('/project.json')),
-      pkgHits.slice(-4).join(' | '))
-    await closeQuiet(browser)
+/* ①(P-350 2026-10-16 用户口径「把上游渲染器移除，留一个可扩展的接口」) 上游产物已移出仓库
+   （`demo/assets/renderer-*.js` 0 份；`tests/renderer-adapter-test.mjs` D1/D2 钉住）
+   ⇒ C 段（"直挂上游档后真的出现画布 + 200 取到 scene.pkg"）**没有对象了**：
+   产物不在 **且** 没配外部上游来源 ⇒ 该段**明确 SKIP**（A/B 纯函数段与变异自证照跑，文件不整体跳过）。
+   为什么不是删掉：产物放回来 / 接上外部上游（`MPW_RENDERER_UPSTREAM=<URL>`）时，这一段就该照旧生效。 */
+/** C 段出口判据。**函数化** ⇒ 反向守卫能对两个方向各断言一次：
+   配了外部上游（`MPW_RENDERER_UPSTREAM`）⇒ C 段**必须真跑**（不是拿 SKIP 把失败藏起来）。 */
+function upstreamHandoffGate(artifactCount, externalUpstream) {
+  return (artifactCount > 0 || String(externalUpstream || '').trim() !== '') ? 'run' : 'skip'
+}
+const UPSTREAM_ARTIFACT = (() => {
+  try { return fs.readdirSync(path.join(ROOT, 'demo', 'assets')).filter((n) => /^renderer-.*\.js$/.test(n)) }
+  catch (e) { return [] }
+})()
+const EXTERNAL_UPSTREAM = String(process.env.MPW_RENDERER_UPSTREAM || process.env.MPW_RENDERER_8899 || '').trim()
+const C_GATE = upstreamHandoffGate(UPSTREAM_ARTIFACT.length, EXTERNAL_UPSTREAM)
+ok('C0 反向守卫：产物塞回 / 配外部上游 ⇒ C 段**真跑**；两者都无 ⇒ 明确 SKIP（门不许恒开、也不许恒关）',
+  upstreamHandoffGate(1, '') === 'run' && upstreamHandoffGate(0, 'http://127.0.0.1:8899') === 'run' && upstreamHandoffGate(0, '') === 'skip',
+  'C_GATE=' + C_GATE + '（产物 ' + UPSTREAM_ARTIFACT.length + ' 份 / 外部上游=' + (EXTERNAL_UPSTREAM ? '有' : '无') + '）')
+if (C_GATE === 'skip') {
+  console.log('  ⊘ SKIP C 真机段（仓库内不再内置上游渲染器产物：demo/assets/renderer-*.js 0 份；也没配外部上游来源）')
+  console.log('     复跑：放回产物（备份 staging/upstream-2.1.0/assets/demo/assets/）或设 MPW_RENDERER_UPSTREAM=<URL>')
+} else {
+  const { launchGLBrowser, glCapability, closeQuiet, findPlaywright } = await import('./_gl-browser.mjs')
+  const { createRequire } = await import('node:module')
+  const require_ = createRequire(path.join(ROOT, 'package.json'))
+  const pw = require_(findPlaywright()); const firefox = (pw.default && pw.default.firefox) || pw.firefox
+  const { browser, launchNote } = await launchGLBrowser(firefox)
+  const gl = await glCapability(browser)
+  if (!gl.webgl2) { console.log('  ⊘ SKIP 真机段（' + launchNote + '）'); await closeQuiet(browser) } else {
+    const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage()
+    let probeId = null
+    try { const lib = await (await page.request.get(ORIGIN + '/api/library')).json(); probeId = (lib.items || []).find((x) => x.hasScene && /^\d/.test(x.itemId))?.itemId || null } catch { /* 取不到就不跑真机段 */ }
+    if (!probeId) { console.log('  ⊘ SKIP 真机段（/api/library 取不到 scene 项）'); await closeQuiet(browser) } else {
+      const pkgHits = []
+      page.on('response', (r) => { const u = r.url(); if (/\/media\/dev\/[^/]+\/(scene\.pkg|project\.json)$/.test(u)) pkgHits.push(r.status() + ' ' + u.replace(ORIGIN, '')) })
+      await page.goto(ORIGIN + '/', { waitUntil: 'domcontentloaded', timeout: 60000 })
+      await page.waitForTimeout(3000)
+      // C1 真实改写链：上游档下把一条本仓 URL 写进 iframe.src，读回必须是带 mediaBase 的产物 URL
+      const rewritten = await page.evaluate(({ search }) => {
+        const sel = document.getElementById('renderer-src')
+        if (sel) { sel.value = 'upstream'; sel.dispatchEvent(new Event('change', { bubbles: true })) }
+        const f = document.createElement('iframe')
+        f.src = '/webloader/?' + search + '&id=2887099508&res=dpr&shell=0'
+        return { src: f.getAttribute('src'), mode: sel ? sel.value : null }
+      }, { search: SEARCH })
+      ok('C1 页面内改写链：本仓 URL → 产物 URL 且带 mediaBase', rewritten.mode === 'upstream' && /[?&]mediaBase=/.test(rewritten.src), String(rewritten.src).slice(0, 120))
+      // C2 端到端：直挂上游档（mediaBase + src）⇒ 出现画布 + 真的 200 取到 scene.pkg / project.json
+      const frameSrc = `${ORIGIN}/wallpaper-engine-webgl/renderer/index.html?type=scene&src=${encodeURIComponent(probeId)}&mediaBase=${encodeURIComponent(ORIGIN + '/media/dev')}&fit=cover&renderDpr=1&sceneFps=60&filter=none&muted=true&loop=true`
+      await page.evaluate((src) => { const f = document.querySelector('iframe'); if (f) f.src = src }, frameSrc)
+      await page.waitForTimeout(9000)
+      const st = await page.evaluate(() => {
+        const f = [...document.querySelectorAll('iframe')].find((x) => /renderer\/index\.html/.test(x.getAttribute('src') || '')) || document.querySelector('iframe')
+        let canvases = []
+        try { canvases = f && f.contentWindow ? [...f.contentWindow.document.querySelectorAll('canvas')].map((c) => c.width + 'x' + c.height) : [] } catch { /* 跨源 */ }
+        return { src: f ? f.getAttribute('src') : null, canvases }
+      })
+      ok('C2a 上游档 iframe 出现画布（非 300×150 空画布）', st.canvases.some((s) => !/^300x150$/.test(s)), JSON.stringify(st.canvases))
+      ok('C2b 真的取到了该包的 scene.pkg 与 project.json（HTTP 200）',
+        pkgHits.some((h) => h.startsWith('200') && h.endsWith('/scene.pkg')) && pkgHits.some((h) => h.startsWith('200') && h.endsWith('/project.json')),
+        pkgHits.slice(-4).join(' | '))
+      await closeQuiet(browser)
+    }
   }
 }
 

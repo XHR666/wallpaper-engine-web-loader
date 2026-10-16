@@ -52,6 +52,7 @@ run-all-tests.sh          # 0d29bdd 目录收拢时移入 tests/，属重命名
 | 2026-09-23 | 插件仓 docs/ 共 5 篇（4 篇调研：elysia395-scene-renderer-分析 / scene-渲染方案评估-v3-elysia实证 / scene-渲染方案重新评估-WebGPU浏览器端可行 / virgl-ANGLE-GPU加速操作指南-Adreno830；+ 1 篇孤儿 scene-渲染加速方案分析，其唯一引用源正是被删的 WebGPU 篇） | 文档卫生：五类引用源（README/README.en/THIRD-PARTY/LICENSE、package.json 的 files 白名单、代码与门禁、插件仓 docs 交叉引用、check.sh 与 integrity-check 点名）全部 0 命中；删后 `integrity-check` 72/0 逐字不变 | 待提交（本轮） |
 | 2026-09-23 | 渲染器仓 docs/CLEANUP.md → **移出仓库**至工作区 docs/CLEANUP.md（sha256 逐字节一致，git rm 后历史保留） | 文档卫生：非 README 引用面，但属带证据的历史修复记录 ⇒ 非破坏性移出而非删除 | 待提交（本轮） |
 | 2026-09-16 | `common_vertex.h` | 有效行 100% 重合（187/187）⇒ **原件移出分发面**，归档在**仓库外** | **无（从未入库）**：`git log --all -- '*common_vertex*'` → **0 命中** |
+| 2026-10-16 | 渲染器仓 `demo/assets/renderer-*.js`（上游 oneincase/webwallgl **2.1.0** 的渲染器构建产物；本次那份 = renderer-n-Rw_ZVc.js（构建名），**1,067,707 B** / sha256 `167d87f8a2239d5d82db2aae7d9ebe9952a947cc2e88f8aa4ac3a4654a1308e1`） | **用户口径**：「把渲染器仓库中的上游渲染器移除，然后留一个可扩展的接口，可以接入其他渲染器（包括上游的）」⇒ 上游产物移出仓库，改由通用**渲染器适配器**契约（`core/renderer-adapter.mjs`）按**外部来源**接入。⚠ **不是合规口径**（权利人未主张）；⚠ **不撤署名**：`demo/LICENSE-webwallgl` / `demo/LICENSE-webwallgl-MIT.txt` 与 `THIRD-PARTY.md` §6 原文一字未动 | 待提交（本轮 P-350） |
 
 **复核命令与输出**（本轮实跑）：
 
@@ -69,6 +70,23 @@ $ git -C dsh-mpkg-wallpaper show --name-status --format= 47d2bad | grep -E "^D" 
 $ git -C we-scene-demo log --all --oneline -- '*common_vertex*' | wc -l
 0
 ```
+
+**P-350 移除项的复核命令与输出**（本轮实跑；备份与恢复途径见 `docs/PATCHES.md` P-350 与工作区报告 `docs/reports/REMOVE-UPSTREAM-RENDERER.md`）：
+
+```bash
+# ① 移除后：全树 renderer-*.js 计数 = 0（除 .git/node_modules）
+$ find . -type f -name 'renderer-*.js' -not -path './.git/*' -not -path '*/node_modules/*' | wc -l
+0
+# ② 删除前的字节数与 sha256（备份件逐字节一致）—— 备份落在仓库**外**（/tmp，机器重启即失，故另有一份工作区级 staging 副本）
+$ sha256sum /tmp/mpw-remove-upstream-renderer-backup/demo/assets/renderer-n-Rw_ZVc.js
+167d87f8a2239d5d82db2aae7d9ebe9952a947cc2e88f8aa4ac3a4654a1308e1  （1,067,707 B）
+# ③ 服务端：旧路径真的 404（不是"页面上没引用而已"）
+$ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8902/wallpaper-engine-webgl/assets/renderer-n-Rw_ZVc.js
+404
+```
+
+> **判据**：`tests/renderer-adapter-test.mjs`（D1/D2 = 全树 0 份；D3/D4 = 缺产物时**明确 SKIP** 而不是静默通过；E6 = 旧路径 404）、
+> `tests/demo-check.mjs` D12 ③（A 全树 0 份 + B 渲染器页由适配器驱动 + C 契约在位 + D 缺产物明确 SKIP + **反向自证**：隔离副本塞回假产物 ⇒ 必红）。
 
 ---
 
