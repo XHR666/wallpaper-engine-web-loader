@@ -3258,6 +3258,15 @@ async function bootInstance(inst) {
          `data-mpw-frame` 首帧握手**都只认这一位** —— 不置位就会打一句与事实相反的
          "7s 内没有首帧"，预览的黑幕也只能等父页 12s 兜底才揭开；
        · 口径与场景路径一致（见帧循环里 `if (__first)` 那处）：**只由 primary 实例写全局**。 */
+  /** 视频 / 网页档不用场景画布。画布是 position:fixed 铺满视口，留着会盖住视频和网页帧，并把鼠标吃掉。 */
+  const mpwYieldSceneCanvas = () => {
+    try {
+      const c = document.getElementById('sc')
+      if (!c || !c.style) return
+      c.style.visibility = 'hidden'
+      c.style.pointerEvents = 'none'
+    } catch (e) { /* 桩 DOM */ }
+  }
   const mpwMarkVideoFirstFrame = () => {
     if (!MPW_WRITE_GLOBALS) return
     try { window.__mpwFirstFrame = 1; window.__mpwCapMarkFrame && window.__mpwCapMarkFrame() } catch (e) { /* 忽略 */ }
@@ -4862,6 +4871,7 @@ function loadScene() {
         return fp
       } catch (e) { pub({ state: 'ok', framefit: { why: 'error:' + ((e && e.message) || ''), trigger: why } }); return null }
     }
+    mpwYieldSceneCanvas()
     if (!entry.url) { pub({ state: 'entry-missing' }); frameStatus({ state: 'entry-missing' }); return }
     // 帧盒：默认 100%×100%（web 没有内在尺寸）；`?webres=WxH` 给逻辑视口（测试台"分辨率"语义）
     const box = document.createElement('div')
@@ -5008,7 +5018,10 @@ function loadScene() {
     /* 帧 load 之后再量一次：作者脚本常在 load 后才把布局撑开（只测 ready 那一刻会漏）。
        另加两次补跑（1.2s / 3.5s，与本页"画布晚到"同款做法）：跨源/无 shim 的入口既没有 ready，
        `load` 也可能早于监听挂上（真机实测：data: 入口就没触发）⇒ 不许因为"没事件"就永不检测。 */
-    try { fr.addEventListener('load', () => setTimeout(() => { applyFrameFit('load'); flushPendingOps() }, 600), { once: true }) } catch (e) { /* 桩 DOM */ }
+    try { fr.addEventListener('load', () => {
+      try { window.__mpwFirstFrame = window.__mpwFirstFrame || 1 } catch (e2) { /* 桩 */ }
+      setTimeout(() => { applyFrameFit('load'); flushPendingOps() }, 600)
+    }, { once: true }) } catch (e) { /* 桩 DOM */ }
     try { setTimeout(() => applyFrameFit('late-1'), 1200); setTimeout(() => applyFrameFit('late-2'), 3500) } catch (e) { /* 桩 DOM */ }
     // 2.5s 兜底：按契约决定降档（仅 auto + 非嵌入 + 未显式）
     window.setTimeout(() => {
@@ -5058,19 +5071,45 @@ function loadScene() {
     // ①(P-135 乙) 这两发在 `✅ WebGL2` 之后、`加载场景` 之前 ⇒ 挂住时日志恰好停在"已出 WebGL2 就没下文"
     //   （原报告 §1.4 判据表第 2 行的唯一候选卡点）。超时 → null → 照旧按"非视频"继续。
     const tr = await jsonT(await fetchT('/type/' + id, null, NET_TIMEOUT_MS, '路由判据'), '/type/' + id, NET_TIMEOUT_MS, '路由判据正文')
-    if (tr && tr.ok && tr.type && String(tr.type).toLowerCase() === 'video') {
-      const files = await jsonT(await fetchT('/ddlist/' + id, null, NET_TIMEOUT_MS, '视频文件表'), '/ddlist/' + id, NET_TIMEOUT_MS, '视频文件表正文')
-      const mp4 = files && files.find((f) => /\.mp4$/i.test(f))
+    const qVideo = new URLSearchParams(location.search)
+    const pageType = String(qVideo.get('type') || '').toLowerCase()
+    const srcEarly = qVideo.get('src') || qVideo.get('video') || ''
+    const sameOriginVideo = (() => {
+      if (pageType !== 'video' || !srcEarly) return ''
+      try {
+        const u = new URL(srcEarly, location.href)
+        if (u.origin !== location.origin) return ''
+        if (!/^\/(media|ddvideo|web)\//.test(u.pathname)) return ''
+        return u.pathname + u.search
+      } catch (e) { return '' }
+    })()
+    const declaredVideo = !!(tr && tr.ok && String(tr.type || '').toLowerCase() === 'video')
+    if (declaredVideo || sameOriginVideo) {
+      const listed = sameOriginVideo ? null : await jsonT(await fetchT('/ddlist/' + id, null, NET_TIMEOUT_MS, '视频文件表'), '/ddlist/' + id, NET_TIMEOUT_MS, '视频文件表正文')
+      const fileList = Array.isArray(listed) ? listed : (listed && Array.isArray(listed.files) ? listed.files : [])
+      const mp4 = sameOriginVideo || fileList.find((f) => /\.mp4$/i.test(f))
       if (mp4) {
-        logf('自动识别为视频壁纸（type=video）→ 纯视频模式: ' + mp4)
+        const src = sameOriginVideo || ('/ddvideo/' + String(id).split('/').map(encodeURIComponent).join('/') + '/' + encodeURIComponent(mp4))
+        logf('自动识别为视频壁纸（type=video）→ 纯视频模式: ' + src)
+        mpwYieldSceneCanvas()
         const v = document.createElement('video')
-        v.src = '/ddvideo/' + id + '/' + encodeURIComponent(mp4)
+        v.src = src
         try { window.__mpwFixMedia && window.__mpwFixMedia(v) } catch (e) {}
-        v.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;background:#000'
-        v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true
+        v.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:2;background:#000'
+        v.autoplay = true; v.loop = true; v.playsInline = true
+        const wantSound = !(qVideo.get('muted') === '1' || qVideo.get('muted') === 'true')
+        v.muted = true
         document.body.appendChild(v)
-        v.addEventListener('error', () => logf('视频加载失败: ' + mp4))
+        v.addEventListener('error', () => logf('视频加载失败: ' + src))
         v.addEventListener('loadeddata', () => { logf('视频已加载 ' + (v.videoWidth || '?') + 'x' + (v.videoHeight || '?')); applyVideoFrameBox(v, 'type=video'); try { mpwSyncVideoRates() } catch (e) {} mpwMarkVideoFirstFrame() })
+        const started = v.play && v.play()
+        if (started && typeof started.then === 'function') {
+          started.then(() => { if (wantSound) v.muted = false }).catch(() => logf('视频自动播放被浏览器拦住: ' + src))
+        }
+        return
+      }
+      if (pageType === 'video') {
+        logf('视频壁纸没有可播放的文件: ' + (srcEarly || id))
         return
       }
     }

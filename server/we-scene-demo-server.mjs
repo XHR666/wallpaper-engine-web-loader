@@ -653,7 +653,7 @@ export function shellShimScript() {
   return '<style id="mpw-noshell">'
     + 'html,body{background:#000!important;overflow:hidden!important}'
     // 外壳 = body 的直接子节点里除画布/脚本/样式之外的一切（顶栏、日志、手柄、FPS、属性面板…）
-    + 'body>*:not(canvas):not(script):not(style):not(#mpw-noshell){display:none!important;visibility:hidden!important}'
+    + 'body>*:not(canvas):not(video):not(script):not(style):not(#mpw-noshell):not(#mpw-web-frame-box){display:none!important;visibility:hidden!important}'
     + '#mpw-noshell{display:none!important}'
     + '</style>'
     + '<script id="mpw-noshell-frame">(function(){'
@@ -1366,11 +1366,15 @@ const serverHandler = async (req, res) => {
       } catch { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, type: 'unknown' })) }
       return
     }
-    m = p.match(/^\/ddvideo\/(\d+)\/(.+)$/);
+    m = p.match(/^\/ddvideo\/(.+)\/([^/]+)$/);
     if (m) {
+      let vid = m[1]
+      try { vid = decodeURIComponent(vid) } catch { res.writeHead(400); res.end('bad id'); return }
+      if (!libItemRel(vid)) { res.writeHead(400); res.end('bad id'); return }
       const rel = decodeURIComponent(m[2])
-      const scV = findScene(m[1])                     // 与 /pkg 同一档根（原先只读 MPW_SCENE_ROOT）
-      const base = scV ? scV.dir : path.join(currentLibraryRoot(), m[1])
+      if (!rel || rel.includes('..') || rel.includes('/') || rel.includes('\\')) { res.writeHead(400); res.end('bad file'); return }
+      const scV = findScene(vid)                     // 与 /pkg 同一档根（原先只读 MPW_SCENE_ROOT）
+      const base = scV ? scV.dir : path.join(currentLibraryRoot(), vid)
       const full = path.join(base, rel)
       const st = statSyncSafe(full)
       if (full.startsWith(base) && st && st.isFile()) {

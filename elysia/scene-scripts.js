@@ -2728,18 +2728,7 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
     let sp = scriptVal.scriptproperties;
     if (typeof sp === 'string') { try { const j = JSON.parse(sp); if (j && typeof j === 'object') sp = j } catch { /* 非 JSON → 原样 */ } }
     for (const [k, v] of Object.entries(sp)) {
-      if (v && typeof v === 'object' && !Array.isArray(v)) {
-        if (typeof v.user === 'string' && v.user) {
-          const uv = (opts.userProps || {})[v.user];
-          props[k] = uv !== undefined && uv !== null ? uv : v.value;
-        } else if ('value' in v) {
-          props[k] = v.value;
-        } else {
-          props[k] = v;
-        }
-      } else {
-        props[k] = v;
-      }
+      props[k] = unwrapScriptProp(v, opts.userProps || {})
     }
     // ①(P-127 A①) 覆盖结果要落进**同一个活槽**（`scriptPropsSlot`），否则脚本顶层
     //   `const props = scriptProperties` 捕获到的那份引用永远只有脚本默认值、看不到对象级覆盖。
@@ -2863,6 +2852,20 @@ function runScriptValueCached(scriptVal, time, opts = {}) {
 
 // 扫描并执行场景所有 {script, value} 对象 (更新到原对象树)
 // opts: { canvasSize, userProps, scriptCache, renderObjects, runtime }
+/** 脚本属性存盘值经常是 `{user, value}`，而且 value 里还能再套一层绑定。
+ *  只剥一层时，内层对象会参加 `weizhix + 1920` 这种加法，变成 `"[object Object]1920"`，坐标的 x 变成 NaN。 */
+export function unwrapScriptProp(v, userProps, depth = 0) {
+  if (depth > 8 || v == null || typeof v !== 'object' || Array.isArray(v)) return v
+  if (typeof v.user === 'string' && v.user) {
+    const uv = (userProps || {})[v.user]
+    if (uv !== undefined && uv !== null) return unwrapScriptProp(uv, userProps, depth + 1)
+    if ('value' in v) return unwrapScriptProp(v.value, userProps, depth + 1)
+    return v
+  }
+  if ('value' in v) return unwrapScriptProp(v.value, userProps, depth + 1)
+  return v
+}
+
 export function applySceneScripts(scene, time, opts = {}) {
   const cache = opts.scriptCache && opts.scriptCache.map ? opts.scriptCache : null;
   const shared = (cache ? cache.shared : null) || opts.shared || {};

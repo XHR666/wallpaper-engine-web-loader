@@ -147,6 +147,7 @@ add "parallax-xray"      "node tests/parallax-xray-test.mjs"
 #   ⑥「图层开关加恢复默认」= 回到**壁纸文件默认态**（清隐藏集 + 强制显示集 + 删 URL 的 `?hide=` ⇒ 刷新一致）。
 #   15 断言（A 结构 / B 行为真切片 / C 真浏览器几何）+ 10 组变异自证（期望红集==实际红集）；~25s（含无头 Firefox）
 add "layer-panel-restore" "node tests/layer-panel-restore-test.mjs"
+add "list-scroll-video" "node tests/list-scroll-and-video-test.mjs"
 # ⑦(P-342) 同一页的**视差档接线**（用户第 2/3 条的页面侧根因 C）：渲染器 `?parallax=` 缺省**关**
 #   （demo.html:8905），而测试台此前从**不写**这个参数 ⇒ 相机视差 + 对象级 `parallaxDepth` 在默认档整体停用。
 #   本档钉：结构（工具条「视差」档 4 个既有取值 + 三处接线 + DOM 位置不顶掉 LS1 相邻兄弟）/ 行为

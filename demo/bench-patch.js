@@ -2868,6 +2868,19 @@ export function pickerAnchor(rects, containerRect) {
  *   'clamp'   锚点行被过滤掉/删了 → 保留原有位置（夹到 [0, max]）——这是"跳顶/锁顶"的正面防线
  *   'noop'    非有限输入 ⇒ 不动
  */
+/**
+ * 侧栏 `#list` 被整表重建之后应保留的 scrollTop。
+ * 产物 `T()` 每次选中壁纸都 `textContent=""` 再逐条 append，浏览器把滚动夹到 0。
+ * prev≤0 或非有限 ⇒ 0；否则夹到新的最大滚动（列表变短时不越过底部）。
+ */
+export function listScrollKeep(prevScrollTop, scrollHeight, clientHeight) {
+  const prev = Number(prevScrollTop)
+  const max = Math.max(0, Number(scrollHeight) - Number(clientHeight))
+  if (!isFinite(prev) || prev <= 0) return 0
+  if (!isFinite(max)) return 0
+  return Math.min(prev, max)
+}
+
 export function pickerRestoreScroll(plan) {
   const p = plan || {}
   const max = Math.max(0, Number(p.scrollHeight || 0) - Number(p.clientHeight || 0))
@@ -6315,6 +6328,61 @@ export function initSiteShell(ctx = {}) {
      不依赖"有没有选壁纸/有没有属性行" —— 用户在任何时候都看得见、点得动。 */
   try { paintImgModeControl() } catch { /* 控件失败不影响面板 */ }
   /* 点列表项（捕获阶段，先于产物 `li.onclick` 的整条挂载链）⇒ 面板按"新那张"重挂载。 */
+  /* 选中一条壁纸时产物 `T()` 会 ` #list.textContent = "" ` 再重建全部行，滚动因此回到顶。
+     在清空前记下 scrollTop，等这一轮 append 结束（微任务）再夹回去。 */
+  function installListScrollKeep(list) {
+    if (!list || list.__benchListScrollKeep) return false
+    let host = list
+    let desc = null
+    while (host) {
+      desc = Object.getOwnPropertyDescriptor(host, 'textContent')
+      if (desc && typeof desc.set === 'function' && typeof desc.get === 'function') break
+      host = Object.getPrototypeOf(host)
+      desc = null
+    }
+    if (!desc) return false
+    list.__benchListScrollKeep = true
+    let saved = 0
+    let want = false
+    let raf = 0
+    let tries = 0
+    const tick = () => {
+      raf = 0
+      if (!want) return
+      const kids = list.children ? list.children.length : 0
+      const max = Math.max(0, Number(list.scrollHeight) - Number(list.clientHeight))
+      // 清空和重新加行之间隔着 await，第一帧列表还是空的。空着就继续等，别把「要恢复」丢掉。
+      if ((kids === 0 || (saved > 0 && max + 1 < Math.min(saved, max + saved))) && tries++ < 45) {
+        if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(tick)
+        return
+      }
+      if (!kids) return
+      want = false
+      try { list.scrollTop = listScrollKeep(saved, list.scrollHeight, list.clientHeight) } catch { /* 桩 DOM */ }
+    }
+    const schedule = () => {
+      if (raf) return
+      tries = 0
+      if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(tick)
+    }
+    Object.defineProperty(list, 'textContent', {
+      configurable: true,
+      enumerable: !!desc.enumerable,
+      get() { return desc.get.call(list) },
+      set(v) {
+        const prev = Number(list.scrollTop) || 0
+        desc.set.call(list, v)
+        // 一次点击里会清空好几次。第一次清空就把滚动打成 0，后面几次读到的已经是 0。
+        // 只认「清空前真的滚过」的那一次，等这一帧里的行都加回来再夹回去。
+        if (!(prev > 0) || String(v) !== '') return
+        saved = prev
+        want = true
+        schedule()
+      },
+    })
+    return true
+  }
+  try { installListScrollKeep(listEl) } catch { /* 桩 DOM */ }
   try {
     if (listEl && !listEl.__benchPropsClickBound) {
       listEl.__benchPropsClickBound = true
@@ -10783,7 +10851,13 @@ export function init() {
     try { const r = stageEl.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom } catch { return false }
   }
   // 父页：鼠标离开窗口（relatedTarget=null）／在舞台矩形之外移动（从 iframe 移到父页时最先命中这条）
-  doc.addEventListener('mouseout', (e) => { if (!e.relatedTarget) parkPointerNow() }, { passive: true })
+  // 进入预览 iframe 时，父页 mouseout 的 relatedTarget 经常是 null（跨文档）。
+  // 光标其实还在舞台矩形里 ⇒ 不能当成「离开壁纸」去 pointerLeave，否则一移进画面交互就被清掉。
+  doc.addEventListener('mouseout', (e) => {
+    if (!e || e.relatedTarget) return
+    if (stageHasPoint(e.clientX, e.clientY)) return
+    parkPointerNow()
+  }, { passive: true })
   if (typeof doc.addEventListener === 'function') doc.addEventListener('pointermove', (e) => {
     if (stageHasPoint(e.clientX, e.clientY)) { unparkPointer(); try { forwardPointerMove(e) } catch { /* 转发失败不影响其它链 */ } ; return }
     parkPointerNow()

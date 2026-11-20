@@ -19578,9 +19578,12 @@ export function syncScriptOrigins(scene, rawObjects, base, skip = null, opts = n
     if (!v) continue
     const b = base.get(l.id)
     if (!b) continue
-    const dx = v[0] - b[0], dy = v[1] - b[1]
-    if (Math.abs(dx) <= 1e-3 && Math.abs(dy) <= 1e-3) continue   // 脚本没碰 origin → 保留锚点后的世界坐标
-    dirty.set(l.id, [dx, dy])
+    if (!b.__frozen) b.__frozen = [b[0], b[1], b[2]]
+    const incX = v[0] - b[0], incY = v[1] - b[1]
+    if (Math.abs(incX) <= 1e-3 && Math.abs(incY) <= 1e-3) continue   // 这一帧脚本没再改 origin → 保留上一帧已经合成好的世界坐标
+    // 位置必须用「相对解析期那份局部 origin」的总偏移。若只用本帧增量再加回 auth，
+    // 第二帧脚本只要再写一次新坐标，就会把第一帧的位移丢掉，层弹回作者初始位置。
+    dirty.set(l.id, [v[0] - b.__frozen[0], v[1] - b.__frozen[1]])
     b[0] = v[0]; b[1] = v[1]
   }
   if (!dirty.size) return 0

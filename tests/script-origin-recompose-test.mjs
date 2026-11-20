@@ -177,5 +177,18 @@ console.log('\n══ T3/T4 变异自证（防"永远红"） ══')
   }
 }
 
+/* ── T7 第二帧仍是总偏移，不是「只留本帧增量」 ── */
+{
+  const got = runtimeOf(FIX.B, FIX.B.id, null)
+  const raw = got.objs.find((o) => o.id === FIX.B.id)
+  raw.origin.value = '210 -30 0'   // 再往右 100，相对最初 authored 的总 Δx = 200
+  lib.syncScriptOrigins(got.scene, got.objs, got.base, null, null)
+  const want = oracleOf(Object.assign({}, FIX.B, { to: '210 -30 0' }), FIX.B.id)
+  const now = got.scene.layers.find((x) => x.id === FIX.B.id).origin
+  const d = dist(now, want)
+  ok(d <= 1, 'T7 第二帧改坐标：必须按「相对最初局部 origin 的总偏移」合成，不能弹回作者位置',
+    'oracle=' + fmtV(want) + ' 运行期=' + fmtV(now) + ' 最大差=' + (isFinite(d) ? d.toFixed(3) : '∞') + 'px')
+}
+
 console.log('\n结果: PASS ' + pass + ' / FAIL ' + fail)
 process.exit(fail ? 1 : 0)
