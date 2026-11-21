@@ -49,13 +49,13 @@
 //   ⚠ 将来产物能重建时，①②③④ 都应回写源码 bench/ 再删掉本文件对应段。
 //
 // 第八批（**2026-09-18 用户改名**：产品名 WebWallGL → **WEwebLoader**，大小写严格）：
-//   用户看得见的品牌位改在**运行期呈现层**：测试台头部品牌名（`#site-brand` 里那个 `data-i18n="app.title"`）
-//   与 `document.title` 显示 `WEwebLoader`；版本号 `#app-version`（产物写的 `v1.3.16`）照旧跟在后面。
+//   用户看得见的品牌位：测试台头部 `.brand-name` 与 `<title>` 的静态文本就是 `WEwebLoader`
+//   （品牌节点不再带 `data-i18n="app.title"`，否则产物一启动会把首屏写回上游名）。
+//   版本号 `#app-version`（产物写的 `v1.3.16`）照旧跟在后面。
 //   回退口：`?appname=upstream`（或 `?brand=upstream`）⇒ 还原上游名 `wallpaper-engine-webgl`。
-//   **刻意不碰**三处被钉住的静态值：`index.html` 的 `<title>` 与 `data-i18n="app.title"` 兜底文本
-//   （门禁 T8）、DICT 的 `app.title`（T1：词典必须逐条等于上游 bench/i18n.ts）、`assets/*.js`
-//   （许可口径：minified 产物一个字节都不改）。上游归属位（设置弹层 credit、两份 LICENSE-webwallgl、
-//   许可区说明）一律原样保留。
+//   **刻意不碰**仍被钉住的两处：DICT 的 `app.title`（T1：词典必须逐条等于上游 bench/i18n.ts）、
+//   `assets/*.js`（许可口径：minified 产物一个字节都不改）。上游归属位（设置弹层 credit、
+//   两份 LICENSE-webwallgl、许可区说明）一律原样保留。
 //
 // 第九批（**P-129 2026-09-19**：线上点工具栏「新窗口」⇒ 404）：
 //   产物里唯一**没被** ①-a 那条路覆盖的硬编码绝对旧路径 —— `#open` 的处理器
@@ -248,9 +248,8 @@ export function sweepRendered(root, fromLang, toLang, doc) {
   return { changed, scanned: slots.length, missed }
 }
 
-/** <title> 与标题栏都要用同一个名字（用户拍板 wallpaper-engine-webgl）。
- *  ⚠ ⑧(2026-09-18 品牌改名)：这里的**静态值不动** —— 它是门禁 T5/T8 的钉子（产物 JS 的两处 app.title 同理，
- *  且 DICT 还必须逐条等于上游 bench/i18n.ts 的 T1）；页面上要让用户看到的产品名走 applySiteBrand。 */
+/** DICT 的 `app.title`（上游名）。页面标题不走这里：applyLang 只调用 applySiteBrand，
+ *  避免先把 document.title 写成上游名。DICT 本身仍等于上游 bench/i18n.ts（T1）。 */
 export function applyTitle(doc, lang) {
   const name = t(lang, 'app.title')
   try { doc.title = name } catch { /* 无 document（测试） */ }
@@ -260,8 +259,8 @@ export function applyTitle(doc, lang) {
 /** ⑧(2026-09-18 品牌改名) 站点品牌决策（纯函数，便于 Node 断言）。
  *  产品现名 **WEwebLoader**（用户 2026-09-18 亲自给的名字，大小写严格照抄）；
  *  回退时（`?appname=upstream` / `?brand=upstream`）用**上游名**（= DICT 的 `app.title`）。
- *  为什么不直接改静态 HTML 的 `<title>`/DICT/minified 产物：那三处分别被门禁 T5/T8、T1（词典零漂移）与
- *  许可口径（`demo/LICENSE-webwallgl`：minified 产物一个字节不改）钉住 ⇒ 产品名只做**运行期呈现层**覆盖。 */
+ *  静态 `<title>` 与 `.brand-name` 已经是产品名。DICT / minified 产物仍是上游名
+ *  （T1 词典零漂移，许可口径要求产物一个字节不改）。`override:false` 时回退成上游名。 */
 export function appBrandPlan(env) {
   const e = env || {}
   const upstream = String(e.upstreamTitle == null ? '' : e.upstreamTitle)
@@ -417,6 +416,16 @@ export function pickerFromPointer(hueX, svX, svY) {
  * 优先级：navigator.clipboard.writeText（需安全上下文）→ document.execCommand('copy')
  *        → 手动兜底（弹出可选中输入框）。
  */
+/** 资源管理器条目的创意工坊 ID。
+ *  `dataset.id` / 副标题末段是库内 itemId（可能带目录，如 `0923/2887099508`）。
+ *  工坊 ID 是最后一段；没有斜杠时整段就是 ID。 */
+export function workshopIdFromItemId(itemId) {
+  const s = String(itemId == null ? '' : itemId).trim()
+  if (!s) return ''
+  const parts = s.split(/[/\\]/).filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : ''
+}
+
 export function clipboardPlan(env) {
   const e = env || {}
   const hasApi = !!e.hasClipboardApi
@@ -10476,6 +10485,43 @@ export function init() {
       manual(); return 'manual'
     } catch (e) { logLine(t(curLang, 'copy.fail', { msg: String(e && e.message) }), true); manual(); return 'manual' }
   }
+  // 资源管理器右键：在「删除」前插入「复制创意工坊 ID」。
+  // 菜单由上游产物每次 contextmenu 重建（textContent="" 再放两个按钮），不能改那份 minify。
+  // MutationObserver 在这次重建的调用栈结束之后才跑，此时两个原按钮已经就位。
+  function installWorkshopIdCopy() {
+    const list = doc.getElementById && doc.getElementById('list')
+    const menu = doc.getElementById && doc.getElementById('ctx-menu')
+    if (!list || !menu || menu.__mpwCopyId) return
+    menu.__mpwCopyId = true
+    let pending = ''
+    list.addEventListener('contextmenu', (ev) => {
+      const li = ev.target && ev.target.closest ? ev.target.closest('li') : null
+      pending = workshopIdFromItemId(li && li.dataset ? li.dataset.id : '')
+    }, true)
+    const inject = () => {
+      if (menu.hidden || menu.querySelector('[data-mpw-copy-id]')) return
+      const id = pending
+      if (!id) return
+      const btn = doc.createElement('button')
+      btn.type = 'button'
+      btn.className = 'ctx-item'
+      btn.setAttribute('role', 'menuitem')
+      btn.dataset.mpwCopyId = '1'
+      btn.textContent = curLang === 'en' ? 'Copy Workshop ID' : '复制创意工坊 ID'
+      btn.title = id
+      btn.onclick = () => {
+        menu.hidden = true
+        copyText(id)
+      }
+      const danger = menu.querySelector('.ctx-item.danger')
+      if (danger) menu.insertBefore(btn, danger)
+      else menu.appendChild(btn)
+    }
+    try {
+      new MutationObserver(inject).observe(menu, { childList: true, attributes: true, attributeFilter: ['hidden'] })
+    } catch { /* 桩 DOM 没有 MutationObserver */ }
+  }
+  try { installWorkshopIdCopy() } catch { /* 桩 DOM */ }
   const copyLogsBtn = $('#copy-logs')
   // ⑥(P-158) 复制/清空按**当前页签**取文本：输出页签 = `#logbody`，诊断页签 = `#diag-body`。
   //   复制失败仍然走 `copyText()` 的三级兜底（clipboard API → execCommand → 「手动复制」提示，
@@ -12026,12 +12072,12 @@ export function init() {
   // ── ⑧(2026-09-18 品牌改名) 站点品牌运行期覆盖 ──
   //   目标：用户**看得见的地方**（头部品牌名 + document.title）显示产品现名 `WEwebLoader`，版本号 `v1.3.16`
   //   照旧跟在后面（`#app-version` 由产物启动时写一次，本函数不碰）。
-  //   为什么是运行期覆盖：静态 HTML 的 `<title>` 与 DICT 的 `app.title` 分别是门禁 T8（产物接线）与
-  //   T1（词典必须逐条等于上游 bench/i18n.ts）的钉子，`demo/assets/*.js` 又是"不改一个字节"的许可口径
-  //   ⇒ 产品名只能在呈现层覆盖。回退口：`?appname=upstream`（或 `?brand=upstream`）还原上游名。
-  //   必须在 `applyStaticI18n` **之后**跑：它会把带 `data-i18n="app.title"` 的品牌名写回上游名。
+  //   静态 `<title>` 与 `.brand-name` 已经是产品名（品牌节点不挂 data-i18n，产物启动写不回上游名）。
+  //   DICT 的 `app.title` 与 `demo/assets/*.js` 仍是上游名（T1 / 许可，不改）。
+  //   回退口：`?appname=upstream`（或 `?brand=upstream`）还原上游名。
+  //   必须在 `applyStaticI18n` **之后**跑：语言切换会重写带 data-i18n 的节点，标题在那之后定稿。
   function applySiteBrandNow() {
-    const brandEl = (doc.querySelector && (doc.querySelector('[data-i18n="app.title"]') || doc.querySelector('#site-brand .brand-name'))) || null
+    const brandEl = (doc.querySelector && (doc.querySelector('#site-brand-name') || doc.querySelector('[data-i18n="app.title"]') || doc.querySelector('.brand-name'))) || null
     const plan = applySiteBrand({ override: FLAGS.appname, upstreamTitle: t(curLang, 'app.title'), brandEl, doc })
     try { if (typeof window !== 'undefined') window.__benchBrandPlan = plan } catch { /* 桩 DOM */ }
     return plan
@@ -12049,8 +12095,9 @@ export function init() {
       if (r && r.missed && r.missed.length) console.info('[bench-patch] 未命中的待翻译文本(' + r.missed.length + '):', r.missed.slice(0, 8))
     }
     applyStaticI18n(doc, curLang)                              // 幂等：补上 bundle 尚未重渲染的 data-i18n 节点
-    applyTitle(doc, curLang)                                   // 窗口/标签页标题
-    applySiteBrandNow()                                        // ⑧品牌名覆盖（必须在 applyStaticI18n 之后）
+    // 标签页标题只由 applySiteBrandNow 写一次。先走 applyTitle 会把 document.title 设成
+    // DICT 里的上游名，安卓刷新时标签先闪 wallpaper-engine-webgl 再被品牌覆盖换回来。
+    applySiteBrandNow()                                        // ⑧品牌名 + 标签标题（必须在 applyStaticI18n 之后）
     paintDpr(); paintLogsIcon(); paintDiag(); paintFs(); trailGate()   // 2) 再 repaint（参数化/双态/离线态/门控）
     paintDbgTab()                                    // ⑧ 语言切了也要把 `调试模式·ON/OFF` 重写一遍
     try { lswPaintChrome(); if (lswOpen) lswPaintRows() } catch { /* P-240 图层开关：桩 DOM 时静默 */ }   // P-240：弹层文案/状态行/禁用原因随语言重画

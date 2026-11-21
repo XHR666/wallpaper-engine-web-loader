@@ -11479,6 +11479,21 @@ export function describeQualityTiers(t) {
 //
 // 宿主（`demo.html` 粒子材质段）与渲染端（`createRenderer` 的实例色装配）都调这一个函数，
 // 口径只有一份；纯函数、无副作用，Node 侧可直测（门禁 `particle-overbright` [1]）。
+/** size 有 0 且这一层不是“有纹理可回退像素尺寸”的图：纯色层与 `shape:"quad"` 都铺成投影尺寸。
+ *  shape quad（光束）在 scene.json 里不写 size。渲染器若保持 0×0，效果链前面的空层判断会直接 return，
+ *  光束效果永远跑不到。与纯色层同一条回退：缺的那一维用投影宽/高补上（这里两维都缺，整块换成投影尺寸）。
+ *  返回 true 表示写过 `layer.size`。纹理回退不走这里。 */
+export function fillZeroLayerSize(layer, projW, projH) {
+  if (!layer || !layer.size) return false
+  if (!(layer.size[0] === 0 || layer.size[1] === 0)) return false
+  if (!(layer.solid || layer.shape === 'quad')) return false
+  const w = Number(projW)
+  const h = Number(projH)
+  if (!(w > 0) || !(h > 0)) return false
+  layer.size = [w, h]
+  return true
+}
+
 export function particleOverbrightFactor(pass) {
   const cv = pass && pass.constantshadervalues
   const raw = cv ? cv.ui_editor_properties_overbright : undefined
@@ -16331,12 +16346,13 @@ export function createRenderer(canvas, opts = {}) {
         layer.__spriteUV = rct ? [rct.u0, rct.v0, rct.u1, rct.v1] : null
       } else if (layer.__spriteUV) layer.__spriteUV = null
     } catch (e) { layer.__spriteUV = null }
-    // WE 语义：对象 size 为 0 时回退（有纹理→纹理实际像素尺寸；solid/无纹理→整屏投影尺寸）
+    // WE 语义：对象 size 为 0 时回退（有纹理→纹理实际像素尺寸；solid/无纹理→整屏投影尺寸）。
+    // shape:"quad"（光束）同样没有 size，必须走同一条，否则下面 lw0<=0 的空层 return 会把效果链整段跳过。
     if ((layer.size[0] === 0 || layer.size[1] === 0)) {
       if (texObj && texObj.width && texObj.height) {
         layer.size = [layer.size[0] === 0 ? texObj.width : layer.size[0], layer.size[1] === 0 ? texObj.height : layer.size[1]]
-      } else if (layer.solid) {
-        layer.size = [cam.projW, cam.projH]
+      } else {
+        fillZeroLayerSize(layer, cam.projW, cam.projH)
       }
     }
     // 视频纹理层：把当前视频帧上传到 WebGL（①P-68：档位化上限 / 可配节流 / 直传 / 台账）

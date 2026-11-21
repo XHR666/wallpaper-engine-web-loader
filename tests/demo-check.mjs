@@ -452,9 +452,9 @@ const landing = path.join(ROOT, 'index.html')
   check('D10 渲染器页 <title> 已是新名', title(texts['demo/renderer/index.html']) === NEW + ' Renderer', title(texts['demo/renderer/index.html']))
   check('D10 测试台 SW 的自述已改名（demo/sw.js 首行注释）', /WEwebLoader/.test(read('demo/sw.js').split('\n')[0]))
 
-  // ⑤ ⑧(2026-09-18 裁定 1) 测试台**运行期呈现**的品牌名 = WEwebLoader —— 头部品牌位与 document.title 由补丁在
-  //   呈现层覆盖（静态 <title> / DICT app.title / minified 产物被门禁 T1/T5/T8 与许可口径钉住，一律不动）。
-  //   这一节只做纯函数 + 源码级断言（不跑浏览器）；同一条链路的冷启动真跑断言在仓外 bench-patch.test.mjs 的 T5b。
+  // ⑤ 测试台品牌名 = WEwebLoader。静态 <title> 与 .brand-name 就是这个名字（首屏不再闪上游名）。
+  //   DICT app.title 与 minified 产物仍是上游名（T1 / 许可，不改）。
+  //   这一节只做纯函数 + 源码级断言（不跑浏览器）。
   {
     const patchSrc = read('demo/bench-patch.js')
     const artifact = read('demo/assets/bench-DSKWIqmS.js')
@@ -478,9 +478,12 @@ const landing = path.join(ROOT, 'index.html')
       P.readPatchFlags('?brand=upstream').appname === false && P.readPatchFlags('?brand=upstream').brand === true &&
       P.readPatchFlags('?appname=upstream').appname === false && P.readPatchFlags('?appname=0').appname === false &&
       P.readPatchFlags('?brand=0').appname === true && P.readPatchFlags('?brand=0').brand === false)
-    // (d) 静态钉子**仍在**（改了它们会撞 T5/T8/T1 与许可口径）：静态 <title>、DICT app.title、minified 产物 2 处
-    check('D10 静态钉子未被动（<title> 与 DICT app.title 仍是上游名，产物 app.title 仍是 2 处）',
-      title(texts['demo/index.html']) === 'wallpaper-engine-webgl' && P.DICT.zh['app.title'] === 'wallpaper-engine-webgl' &&
+    // (d) 首屏标题/品牌是产品名；DICT 与 minified 产物的 app.title 仍是上游名（T1 / 许可）
+    check('D10 静态标题与品牌是 WEwebLoader（首屏不再闪上游名），DICT app.title 与产物仍是上游名',
+      title(texts['demo/index.html']) === 'WEwebLoader' &&
+      /<span id="site-brand-name" class="brand-name">WEwebLoader<\/span>/.test(texts['demo/index.html']) &&
+      !/data-i18n="app\.title"/.test(texts['demo/index.html']) &&
+      P.DICT.zh['app.title'] === 'wallpaper-engine-webgl' &&
       P.DICT.en['app.title'] === 'wallpaper-engine-webgl' &&
       (artifact.match(/"app\.title":"wallpaper-engine-webgl"/g) || []).length === 2)
     // (e) 源码级：覆盖必须在 applyStaticI18n **之后**重放（否则语言一切换就变回上游名）+ 选择器指向真实节点
@@ -488,9 +491,10 @@ const landing = path.join(ROOT, 'index.html')
     check('D10 运行期品牌覆盖挂在语言切换链上、且在 applyStaticI18n 之后',
       langBlock.indexOf('applyStaticI18n(doc, curLang)') >= 0 && langBlock.indexOf('applySiteBrandNow()') > langBlock.indexOf('applyStaticI18n(doc, curLang)'),
       'applyStaticI18n@' + langBlock.indexOf('applyStaticI18n(doc, curLang)') + ' applySiteBrandNow@' + langBlock.indexOf('applySiteBrandNow()'))
-    check('D10 运行期品牌覆盖的选择器指向真实存在的品牌位（#site-brand 的 data-i18n="app.title"）',
+    check('D10 运行期品牌覆盖的选择器指向真实存在的品牌位（.brand-name）',
       /doc\.querySelector\('\[data-i18n="app\.title"\]'\)/.test(patchSrc) &&
-      /<span class="brand-name" data-i18n="app\.title">/.test(texts['demo/index.html']))
+      /doc\.querySelector\('\.brand-name'\)/.test(patchSrc) &&
+      /<span id="site-brand-name" class="brand-name">WEwebLoader<\/span>/.test(texts['demo/index.html']))
   }
 }
 
@@ -887,8 +891,8 @@ function rendererArtifactPlan(root, A) {
   check('D12 ③ 上游归属与许可文件没被"顺手改名"（oneincase/webwallgl 外链 + 两份 LICENSE-webwallgl*）',
     /github\.com\/oneincase\/webwallgl/.test(read('demo/index.html')) && /github\.com\/oneincase\/webwallgl/.test(read('index.html')) &&
     fs.existsSync(path.join(ROOT, DEMO, 'LICENSE-webwallgl-MIT.txt')) && fs.existsSync(path.join(ROOT, DEMO, 'LICENSE-webwallgl')))
-  check('D12 ③ 静态品牌钉子仍是上游名（<title> / DICT app.title / ?appname=upstream 回退）',
-    /<title>wallpaper-engine-webgl<\/title>/.test(read('demo/index.html')) &&
+  check('D12 ③ 首屏标题是 WEwebLoader，DICT 与上游回退开关仍是上游名',
+    /<title>WEwebLoader<\/title>/.test(read('demo/index.html')) &&
     P.DICT.zh['app.title'] === 'wallpaper-engine-webgl' && P.DICT.en['app.title'] === 'wallpaper-engine-webgl' &&
     P.appBrandPlan({ override: false, upstreamTitle: 'wallpaper-engine-webgl' }).name === 'wallpaper-engine-webgl' &&
     P.appBrandPlan({}).name === 'WEwebLoader')

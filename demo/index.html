@@ -14,7 +14,7 @@
          而且 `@media (max-width:860px)` 这类窄屏规则在手机上**永远不匹配**（实测 clientWidth=980、matchMedia=false）。
          与渲染器页 demo.html 保持一致。 -->
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>wallpaper-engine-webgl</title>
+    <title>WEwebLoader</title>
     <meta name="theme-color" content="#0d111a" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <!-- ①(P-164) 页面图标换成**仓库所有者提供的**品牌图（`demo/assets/brand/**`，随仓分发；
@@ -650,7 +650,7 @@ html.bench-shell #layer-switch-status{flex:1 1 auto;min-width:0;overflow:hidden;
     <header id="site-header">
       <div id="site-brand">
         <span class="brand-dot" aria-hidden="true"></span>
-        <span class="brand-name" data-i18n="app.title">wallpaper-engine-webgl</span>
+        <span id="site-brand-name" class="brand-name">WEwebLoader</span>
         <span id="app-version"></span>
         <span id="offline-tag" class="offline-tag" hidden data-i18n="offline.tag" data-i18n-title="offline.diagTitle">离线</span>
       </div>
